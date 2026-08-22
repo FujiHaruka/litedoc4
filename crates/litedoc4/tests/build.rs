@@ -1400,7 +1400,7 @@ fn the_command_line_is_checked() {
     let out = live.out.display().to_string();
     let lidx = live.lidx.display().to_string();
 
-    let cases: [(&[&str], i32, &str); 12] = [
+    let cases: [(&[&str], i32, &str); 16] = [
         (&["build"], 2, "--root <repo> is required"),
         (&["build", "--root", &repo], 2, "--out <dir> is required"),
         // M5-b: `--link-index` is optional now — left out, the map is
@@ -1554,6 +1554,42 @@ fn the_command_line_is_checked() {
             ],
             3,
             "is not a module root of any dependency",
+        ),
+        // `ledger` parses one flat set of flags and then dispatches, so every
+        // flag of every subcommand used to be accepted by all three and read by
+        // one. A flag that does nothing is the shape `extract` already refuses
+        // by name (`--link-index-omit` without `--link-index`): the run looks
+        // right and the artefact is not the one that was asked for.
+        (
+            &[
+                "ledger",
+                "touch",
+                "--ledger",
+                "x.json",
+                "--module",
+                "M",
+                "--concurrency",
+                "9",
+            ],
+            2,
+            "--concurrency is not a flag of `ledger touch`",
+        ),
+        (
+            &["ledger", "build", "--changed-out", "x.txt"],
+            2,
+            "--changed-out is not a flag of `ledger build`",
+        ),
+        (
+            &["ledger", "check", "--target", "x"],
+            2,
+            "--target is not a flag of `ledger check`",
+        ),
+        // The flag is this subcommand's: the refusal that follows is about what
+        // is missing, not about the flag.
+        (
+            &["ledger", "touch", "--module", "M"],
+            2,
+            "ledger touch needs --ledger",
         ),
     ];
     for (args, expected, message) in cases {

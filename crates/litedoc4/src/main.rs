@@ -1049,6 +1049,37 @@ fn global(args: &[String]) -> Result<(), Failure> {
 /// ledger file and nothing else in the CLI does. `touch` is here for the same
 /// reason it is in the library: the measurement target must not be modified, so
 /// "module M changed" is injected into the ledger instead.
+/// Which `ledger` subcommand accepts which flag.
+///
+/// `ledger` parses one flat set of flags and then dispatches on the subcommand,
+/// so without this table every flag is accepted by all three and read by one:
+/// `ledger touch --concurrency 9` used to run, ignore the number, and say
+/// nothing. **A flag that does nothing is the shape this project keeps
+/// finding** — `extract` refuses it by name for the same reason
+/// (`--link-index-omit` without `--link-index`): the run looks right and the
+/// artefact is not the one that was asked for.
+///
+/// `--help` is not here because it is not a subcommand's: every one answers it.
+const LEDGER_FLAGS: [(&str, &[&str]); 17] = [
+    ("--modules", &["build", "check"]),
+    ("--target", &["build"]),
+    ("--out", &["build", "touch"]),
+    ("--ledger", &["check", "touch"]),
+    ("--ir", &["build", "check"]),
+    ("--source-url", &["build", "check"]),
+    ("--link-index", &["build", "check"]),
+    ("--root", &["build", "check"]),
+    ("--lake", &["build", "check"]),
+    ("--deps-docs-map", &["build", "check"]),
+    ("--algorithm", &["build", "check"]),
+    ("--concurrency", &["build", "check"]),
+    ("--module", &["touch"]),
+    ("--changed-out", &["check"]),
+    ("--removed-out", &["check"]),
+    ("--render-all-out", &["check"]),
+    ("--timings", &["build", "check"]),
+];
+
 fn ledger(args: &[String]) -> Result<(), Failure> {
     let mut modules: Option<PathBuf> = None;
     let mut target: Option<String> = None;
@@ -1079,6 +1110,15 @@ fn ledger(args: &[String]) -> Result<(), Failure> {
                 None => usage(format!("{flag} needs a value")),
             }
         };
+        if let Some((_, accepted)) = LEDGER_FLAGS.iter().find(|(flag, _)| *flag == arg.as_str())
+            && !accepted.contains(&command)
+        {
+            let belongs: Vec<String> = accepted.iter().map(|s| format!("`ledger {s}`")).collect();
+            return usage(format!(
+                "{arg} is not a flag of `ledger {command}`: it belongs to {}",
+                belongs.join(" / "),
+            ));
+        }
         match arg.as_str() {
             "--modules" => modules = Some(value("--modules")?.into()),
             "--target" => target = Some(value("--target")?),
