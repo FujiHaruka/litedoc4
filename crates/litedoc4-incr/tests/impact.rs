@@ -1934,6 +1934,23 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
         !page_of("../../etc/passwd").contains(".."),
         "page_of let a `..` through"
     );
+    // …but a Lean module name **can** carry one, which is why `PageRoot`
+    // checks rather than trusts. `«…»` is Lean's own escape and its contents
+    // are not split on `.`, so `..` survives as one component (M5-b:
+    // `page_of` goes through `module_path`, not `replace('.', "/")`).
+    assert_eq!(
+        page_of("«..».Foo"),
+        "../Foo.html",
+        "the escape stopped carrying a `..` — the guard below is now the only \
+         thing this claim rests on, so say so here rather than deleting it"
+    );
+    assert!(
+        matches!(
+            root.resolve(&page_of("«..».Foo")),
+            Err(Error::OutsidePageRoot { .. })
+        ),
+        "a module name spelled its way out of the page root"
+    );
     // Counted by hand rather than by [`observe`]: **no run reaches it**, which
     // is the claim. The guard is called directly because there is no input that
     // calls it — that is what makes it worth having.

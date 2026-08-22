@@ -653,10 +653,11 @@ pub enum Error {
     },
     /// `prune`: a path that would be deleted outside the page root.
     ///
-    /// Not reachable from a module name — [`crate::prune::page_of`] turns every
-    /// dot into a separator, so the `..` cannot survive — which is exactly why
-    /// it is a check and not a comment. Exit 3: the world and the files
-    /// disagree, and retrying will not help.
+    /// **Reachable from a module name**, which is exactly why it is a check and
+    /// not a comment: [`crate::prune::page_of`] goes through
+    /// `litedoc4_ir::module_path` (M5-b), and a name Lean spells `«..».Foo`
+    /// keeps its `..` as one component【実測 2026-08-23】. Exit 3: the world
+    /// and the files disagree, and retrying will not help.
     OutsidePageRoot {
         root: PathBuf,
         path: PathBuf,

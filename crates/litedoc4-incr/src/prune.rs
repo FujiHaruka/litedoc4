@@ -130,9 +130,12 @@ pub const ORPHANS_IN_LOG: usize = 10;
 
 /// The renderer's path rule: dots become directory separators.
 ///
-/// `"A.B".split(".").join("/") + ".html"`. A name cannot smuggle a `..` through
-/// it — the dots that would spell one are exactly the characters this replaces —
-/// but [`PageRoot`] checks rather than trusts that.
+/// `"A.B".split(".").join("/") + ".html"` for a plain name. **A name can carry
+/// a `..` through this**, which is why [`PageRoot`] checks rather than trusts:
+/// `«…»` is Lean's own escape and its contents are not split on `.`, so
+/// `«..».Foo` comes out as `../Foo.html`【実測 2026-08-23,
+/// `tests/impact.rs`】. The claim that it could not was written when this
+/// function was `replace('.', "/")`, and M5-b replaced that.
 #[must_use]
 pub fn page_of(module: &str) -> String {
     // `litedoc4_ir::module_path`, not `replace('.', "/")` (M5-b): a module whose
@@ -158,9 +161,11 @@ pub struct PageRoot {
 }
 
 /// The three guards are **public**, and that is the point: they are the
-/// contract, not an implementation detail. No module name can reach either
-/// refusal — [`page_of`] destroys the dots a `..` is made of — so the only way to
-/// hold them to it is to call them, which `tests/impact.rs` does.
+/// contract, not an implementation detail. A module name **can** reach the
+/// escape refusal — `«..».Foo` is a legal Lean name and [`page_of`] gives it
+/// `../Foo.html`【実測 2026-08-23】 — and no run over the measurement target
+/// ever has, so the only way to hold them to the contract is to call them,
+/// which `tests/impact.rs` does.
 impl PageRoot {
     #[must_use]
     pub fn new(pages: &Path) -> Self {
