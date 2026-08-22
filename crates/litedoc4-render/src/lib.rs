@@ -11,10 +11,11 @@
 //!   alphanumerics live.
 //! - String literals inside `<script>` follow Lean's `String.quote`.
 //!
-//! One interface rule: the set of modules to render is `Option<Vec<..>>`, and
-//! `Some(vec![])` means *render nothing*. The prototype expressed this as the
-//! presence or absence of a flag, which collapsed "empty set" into "every
-//! module" and silently re-rendered all 432 pages. See plan §5.
+//! One interface rule: the set of modules to render is a [`ModuleSet`], whose
+//! empty case is a value rather than the absence of one. The prototype
+//! expressed it as the presence or absence of a flag, which collapsed "empty
+//! set" into "every module" and silently re-rendered all 432 pages. See plan §5
+//! and [`site`]'s heading, which is where the rule lives.
 //!
 //! # What is here so far (M1-b, M1-c)
 //!
