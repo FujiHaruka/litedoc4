@@ -399,13 +399,6 @@ pub(crate) fn or_env(flag: Option<PathBuf>, name: &str) -> Option<PathBuf> {
     })
 }
 
-/// `path`, made absolute and with every existing component's symlinks resolved.
-///
-/// Not [`fs::canonicalize`], which needs the whole path to exist: the guard runs
-/// **before** the IR directory is created, because creating it is already a write
-/// and the one thing the guard exists to prevent is a write inside the target.
-/// So the deepest existing ancestor is canonicalised and the rest is appended —
-/// which is what makes `/tmp/x` and `/private/tmp/x` the same path here.
 /// `path`, made absolute **without touching what it spells**.
 ///
 /// The one for a command line, where [`resolve`] is the one for a comparison:
@@ -422,13 +415,16 @@ pub(crate) fn absolute(path: &Path) -> PathBuf {
     std::env::current_dir().map_or_else(|_| path.to_path_buf(), |cwd| cwd.join(path))
 }
 
+/// `path`, made absolute and with every existing component's symlinks resolved.
+///
+/// Not [`fs::canonicalize`], which needs the whole path to exist: the guard runs
+/// **before** the IR directory is created, because creating it is already a write
+/// and the one thing the guard exists to prevent is a write inside the target.
+/// So the deepest existing ancestor is canonicalised and the rest is appended —
+/// which is what makes `/tmp/x` and `/private/tmp/x` the same path here.
 pub(crate) fn resolve(path: &Path) -> PathBuf {
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir().map_or_else(|_| path.to_path_buf(), |cwd| cwd.join(path))
-    };
-    let mut prefix = absolute.as_path();
+    let full = absolute(path);
+    let mut prefix = full.as_path();
     let mut tail: Vec<&std::ffi::OsStr> = Vec::new();
     loop {
         if let Ok(real) = fs::canonicalize(prefix) {
@@ -443,7 +439,7 @@ pub(crate) fn resolve(path: &Path) -> PathBuf {
                 tail.push(name);
                 prefix = parent;
             }
-            _ => return absolute,
+            _ => return full,
         }
     }
 }
