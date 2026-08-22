@@ -276,6 +276,30 @@ impl<'de> Deserialize<'de> for JsonObject {
     }
 }
 
+/// Whether `base` and `out` name one tree, however each is spelled.
+///
+/// **Not `base == out`.** `Path`'s `PartialEq` compares components, and
+/// `components()` normalises `.` away but not `..`, so `x/../x` and `x` are two
+/// paths naming one directory. Reading that as "out is a separate tree" is not
+/// a wasted write but a destructive one: [`fs::copy`] opens the destination
+/// with `O_TRUNC` before it reads the source, so copying a file onto itself
+/// returns `Ok(0)` and leaves it empty【実測 2026-08-23】. The files emptied
+/// would be the modules the partial extraction did not touch — and when `--out`
+/// names the base, that tree is the only copy there was.
+///
+/// Resolved rather than compared, which also answers the symlink spelling. A
+/// side that does not resolve is not the other one: `out` exists by the time
+/// this is asked (its `modules/` was just created), so the only unresolvable
+/// side is a `base` that is not there, and the read that follows says so with a
+/// better message than a bool could.
+#[must_use]
+pub fn same_tree(base: &Path, out: &Path) -> bool {
+    match (fs::canonicalize(base), fs::canonicalize(out)) {
+        (Ok(base), Ok(out)) => base == out,
+        _ => false,
+    }
+}
+
 /// Folds `inc` into `base` and writes the result to `out`.
 pub fn merge(options: &MergeOptions<'_>) -> Result<MergeSummary, Error> {
     let started = Instant::now();
@@ -345,7 +369,7 @@ pub fn merge(options: &MergeOptions<'_>) -> Result<MergeSummary, Error> {
         .iter()
         .map(|entry| entry.module.as_str())
         .collect();
-    if options.out != options.base {
+    if !same_tree(options.base, options.out) {
         // Copy the untouched part. This is the cost of not updating in place; a
         // real driver keeps one directory and rewrites only the changed files.
         for entry in &base_modules {

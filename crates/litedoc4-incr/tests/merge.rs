@@ -646,7 +646,11 @@ fn observe_merge(
     } else {
         "mergeModulesAbsent"
     });
-    fire(if options.out == options.base {
+    // `litedoc4_incr::same_tree`, not `options.out == options.base`: the
+    // observer asking the question a second way is how a spelling that fools
+    // the implementation fools the inventory too, and the two agree on being
+    // wrong.
+    fire(if litedoc4_incr::same_tree(options.base, options.out) {
         "mergeOutIsBase"
     } else {
         "mergeOutIsCopy"
@@ -1611,6 +1615,54 @@ fn nested_json_keeps_its_key_order() {
     let text = r#"{"module":"A","file":"modules/A.json","bytes":1,"contentHash":"z"}"#;
     let value: Value = serde_json::from_str(text).expect("parses");
     assert_eq!(serde_json::to_string(&value).expect("serialises"), text);
+}
+
+/// An `--out` that spells the base tree another way is still the base tree.
+///
+/// `merge` decides whether to copy the untouched modules by comparing `out`
+/// with `base`, and `Path`'s `PartialEq` compares components: `x/../x` and `x`
+/// are different paths naming one directory. Taking the copy branch there is
+/// not a wasted write, it is a destructive one — `fs::copy` opens the
+/// destination with `O_TRUNC` before it reads the source, so copying a file
+/// onto itself returns `Ok(0)` and leaves it empty【実測 2026-08-23】. The
+/// modules emptied are exactly the ones the partial extraction did not touch,
+/// and after `--out` the base tree is the only copy there was.
+#[test]
+fn an_out_that_spells_the_base_differently_is_still_in_place() {
+    let repo = FakeIr::target_shaped("merge-same-tree");
+    // `Pkg.A` is in the base and not in the inc: the module the copy branch
+    // would write onto itself.
+    let untouched = repo.base.join("modules").join("Pkg.A.json");
+    let before = fs::read_to_string(&untouched).expect("reads");
+    assert!(
+        !before.is_empty(),
+        "the fixture needs a module the merge does not re-extract"
+    );
+
+    // One directory, two spellings. `.` is normalised away by `components()`
+    // and `..` is not, so this is the spelling that survives the comparison.
+    let spelled = repo.base.join("..").join("base");
+    assert_ne!(
+        spelled, repo.base,
+        "the two spellings have to differ as `Path`s for this to test anything"
+    );
+
+    merge(&MergeOptions {
+        base: &repo.base,
+        inc: Some(&repo.inc),
+        out: &spelled,
+        removed: &[],
+        modules: None,
+        changed_out: None,
+        timings: None,
+    })
+    .expect("the merge runs");
+
+    assert_eq!(
+        fs::read_to_string(&untouched).expect("reads"),
+        before,
+        "an in-place merge spelled another way emptied the module it did not touch"
+    );
 }
 
 // ------------------------------------------------------- the curated cases

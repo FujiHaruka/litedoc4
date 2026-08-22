@@ -70,7 +70,7 @@ pub use ledger::{
     sha256_text,
 };
 pub use merge::{
-    DepMapRecord, JsonObject, MergeOptions, MergeSummary, VerifyReport, merge, verify,
+    DepMapRecord, JsonObject, MergeOptions, MergeSummary, VerifyReport, merge, same_tree, verify,
 };
 pub use prune::{
     ORPHANS_IN_LOG, ORPHANS_IN_SUMMARY, PageRoot, PruneOptions, PruneSummary, page_of, prune,

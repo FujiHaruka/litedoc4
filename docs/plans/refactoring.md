@@ -1014,8 +1014,16 @@ CLAUDE.md と Cargo.toml のコメントは「機械的に強制している」�
 
 1. `cargo test --workspace --no-fail-fast` が **437 passed / 0 failed** (増える分にはよい)
 2. `cargo fmt --check` / `cargo clippy --workspace --all-targets -- -D warnings` が exit 0
-3. `cargo doc` (`RUSTDOCFLAGS=-D warnings`) が exit 0 ← **push 前に回す**
-   (2026-08-22 にこれを忘れて CI を 1 回赤くしている)
+3. **`cargo doc` は CI と同じ形で回す** ← **push 前に。**
+   2026-08-22 にこれを忘れて CI を 1 回赤くしている。**素で回すと赤くなる**
+   【実測 2026-08-23、この計画の D0 で踏んだ】 — 公開項目が非公開項目を指す intra-doc link が
+   5 件あり、`ci.yml:139-144` はそれを「a public item pointing at a private one is normal here」
+   として許している:
+
+   ```sh
+   RUSTDOCFLAGS='-D warnings -A rustdoc::private_intra_doc_links' \
+     cargo doc --workspace --no-deps --document-private-items
+   ```
 4. 触った層に対応するゲートが緑 (下の「検証」)
 5. **その段で何が変わったかを 1 行で言える**
 
