@@ -9,8 +9,10 @@
 # measurement target, its doc-gen4 tree, a generated IR tree, or one of the
 # `--full` recordings. See docs/plans/quality-gates.md 決定 1.
 #
-# The name is `<cargo test target>::<test>`, because three different tests are
-# called `the_corpus_matches_the_prototype` and two are called `the_whole_corpus`.
+# The name is `<cargo test target>::<test>`, because two names are each carried
+# by more than one test: `the_corpus_matches_the_prototype` (ledger, impact,
+# merge) and `the_whole_corpus_matches_the_prototype` (autolink, fragment).
+# Bare names collapse the inventory from 21 entries to 19【実測 2026-08-23】.
 # A trailing `# …` says what the test needs.
 
 ## corpus — runs when the target and its derivatives are on this machine
@@ -48,11 +50,6 @@ litedoc4::packages::tests::every_lidx_entry_matches_doc_gen4s_declaration_urls  
 #      as "no input" rather than as a disagreement about bytes; the committed
 #      fixtures they compare against are fine. Regenerating the input needs the
 #      renderer at the tag, which is what puts them here.
-#
-# Not here on purpose: `docgen4::the_whole_corpus` and `md4lean::the_whole_corpus`
-# also want a `--full` recording, but **their oracle is doc-gen4 / MD4Lean itself
-# and both generators are in HEAD**, so the input is a `deno run` away and they
-# belong above.
 
 autolink::the_whole_corpus_matches_the_prototype      # LITEDOC4_AUTOLINK_FULL (5.6 MB)
 fragment::the_whole_corpus_matches_the_prototype      # LITEDOC4_FRAGMENT_FULL (29 MB)

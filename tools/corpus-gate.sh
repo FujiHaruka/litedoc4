@@ -38,11 +38,11 @@ PYTHON="${PYTHON:-python3}"
 
 # Every `#[ignore]`d test cargo knows about, as `<target>::<name>`.
 #
-# The target prefix is not decoration: three different tests are called
-# `the_corpus_matches_the_prototype` (ledger, impact, merge) and two are called
-# `the_whole_corpus`, so a bare name collapses the inventory from 24 entries to
-# 20 and hides four tests inside their namesakes. The prefix comes from cargo's
-# own `Running … (target/debug/deps/NAME-HASH)` line.
+# The target prefix is not decoration: `the_corpus_matches_the_prototype` names
+# three tests (ledger, impact, merge) and `the_whole_corpus_matches_the_prototype`
+# names two (autolink, fragment), so a bare name collapses the inventory from 21
+# entries to 19 and hides three tests inside their namesakes【実測 2026-08-23】.
+# The prefix comes from cargo's own `Running … (target/debug/deps/NAME-HASH)` line.
 # Asking each test binary directly, rather than reading `cargo test`'s combined
 # output: cargo prints `Running …` on stderr and the binary prints the names on
 # stdout, so the interleaving depends on whether stdout is a terminal. On a
