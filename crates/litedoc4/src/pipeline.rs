@@ -1413,6 +1413,24 @@ fn link_index_key(target: &Path, omit: &Path) -> Result<String, Failure> {
 /// pass placeholder URLs on purpose. The pipeline is the path that runs *every
 /// commit*, and it is the only place a real revision enters, so the check
 /// belongs on it.
+/// [`REV_HEX_DIGITS`] lower-case hex digits.
+///
+/// **The only copy of this decision.** `packages::is_revision` — the one that
+/// reads `lake-manifest.json`'s `rev` and `core_githash` — asks the same
+/// question, and asking it a second way is how the same forty-digit string
+/// became a usage error here and a blob base there: `is_ascii_hexdigit` is true
+/// of `A`-`F`.
+///
+/// Lower case and not merely hex, because that is what plan 決定 1 requires:
+/// the acceptance oracle normalises `/blob/[0-9a-f]{40}/` and nothing else.
+#[must_use]
+pub(crate) fn is_forty_hex(rev: &str) -> bool {
+    rev.len() == REV_HEX_DIGITS
+        && rev
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 pub(crate) fn check_source_url(url: &str) -> Result<(), Failure> {
     let broken = "the acceptance oracle normalises `/blob/[0-9a-f]{40}/` and nothing else \
                   (coverage.ts:512), so with a tag or a branch name here every page keeps its \
@@ -1424,11 +1442,7 @@ pub(crate) fn check_source_url(url: &str) -> Result<(), Failure> {
         ));
     };
     let rev = rest.split('/').next().unwrap_or(rest);
-    let hex = rev.len() == REV_HEX_DIGITS
-        && rev
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-    if hex {
+    if is_forty_hex(rev) {
         return Ok(());
     }
     usage(format!(

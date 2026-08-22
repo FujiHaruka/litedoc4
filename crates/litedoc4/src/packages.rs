@@ -395,8 +395,14 @@ fn unquote(name: &str) -> String {
 
 /// 40 lower-case hex digits, which is what plan 決定 1 requires of every
 /// revision that reaches a URL.
+///
+/// Defers to [`crate::pipeline::is_forty_hex`] rather than spelling the test
+/// again: this used to be `is_ascii_hexdigit`, which is true of `A`-`F`, so a
+/// forty-digit string with an upper-case letter was refused by `--source-url`
+/// and accepted here — and `core_githash` carried it into
+/// `renderKey.externalLinks`.
 fn is_revision(rev: &str) -> bool {
-    rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit())
+    crate::pipeline::is_forty_hex(rev)
 }
 
 // ------------------------------------------------------------------ the scan
@@ -556,6 +562,20 @@ mod tests {
         assert!(!is_revision("v4.31.0"));
         assert!(!is_revision("main"));
         assert!(!is_revision("fabf563"));
+    }
+
+    /// Upper case is not a revision here, because it is not one on the other
+    /// path either.
+    ///
+    /// `pipeline::check_source_url` refuses `A`-`F` (plan 決定 1: the acceptance
+    /// oracle normalises `/blob/[0-9a-f]{40}/` and nothing else), and this
+    /// function used to accept them — so one forty-digit string was a usage
+    /// error on `--source-url` and a blob base in `lake-manifest.json`, and
+    /// `core_githash` let it reach `renderKey.externalLinks`.
+    #[test]
+    fn upper_case_hex_is_not_a_revision() {
+        assert!(!is_revision("FABF563A7C95A166B8D7B6EFCA11C8B4DC9D911F"));
+        assert!(!is_revision("fabf563a7c95a166b8d7b6efca11c8b4dc9d911F"));
     }
 
     #[test]
