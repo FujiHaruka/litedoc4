@@ -24,6 +24,9 @@
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   } catch (e) {}
 </script>
+<!-- `app.js` is built into OUT_DIR, not committed: open this through
+     `python3 bundle.py`, which inlines it. Straight from the file system
+     the styles apply and the script does not. -->
 <script type="module" src="../../crates/litedoc4-render/assets/app.js"></script>
 </head>
 

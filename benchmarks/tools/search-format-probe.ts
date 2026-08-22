@@ -161,8 +161,11 @@ function nameAt(idx: ReturnType<typeof encodeV2>, want: number) {
 }
 
 // ------------------------------------------------------- the shipped scorer
-// Copied verbatim from `crates/litedoc4-render/assets/app.js` — it is the
-// oracle, so it must not be rewritten here.
+// Copied verbatim from the shipped scorer — it is the oracle, so it must not be
+// rewritten here. It lived in `crates/litedoc4-render/assets/app.js` when this
+// was written; since the site's JavaScript became TypeScript the source is
+// `crates/litedoc4-render/web/src/score.ts` and `app.js` is built into
+// `OUT_DIR` rather than committed.
 function shippedScore(name: string, query: string) {
   const lower = name.toLowerCase();
   const last = lower.slice(lower.lastIndexOf(".") + 1);
