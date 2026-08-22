@@ -116,6 +116,39 @@ CI の `ci.yml` が呼ぶ 6 本 — `corpus-gate.sh --verify-list` / `provenance
 **調査で見つかった「今すでに壊れているもの」15 件。整形より先に、テストを足してから直す。**
 順序は独立なので任意 — **ただし D0 が最優先** (これだけがデータを壊す)。
 
+### 結果 — **15 件すべて完了** 【2026-08-23】
+
+| | 内容 | commit |
+|---|---|---|
+| D0 | `merge` の same-tree 判定を綴りから実体へ | `bdad7d2` |
+| D1 | `ledger` のフラグ黙殺 | `eee3c9f` |
+| D2 | 40 桁 hex の判定を 1 本に | `ad394dc` |
+| D3 | "IR schema 4" → 5 | `50b8c89` |
+| D4 | ゲート台帳の散文 | `d74d84f` |
+| D5 | render のクレートドキュメント | `3cfa6e6` |
+| D7 | docstring の入れ替え | `4933366` |
+| D8 | `_` の受け皿 | `6a0a9ff` |
+| D9 | `extractor/README.md` の行数 | `1ae1c40` |
+| D11+D12 | `base_ir` の schema assert とフィクスチャ判定 | `06a0d02` |
+| D13 | `..` の論証 3 箇所 | `d07ad7c` |
+| D6 | `design/preview` の `app.js` | `5274516` |
+| D14 / D10 | global の doc 8 箇所 / md の到達不能分岐 | 下記 |
+
+**この段で分かったこと (次の段が同じ失敗をしないために)**:
+
+- **D0 と D13 は「実測してから直した」** — `fs::copy` が同一実体を空にすることも、
+  `«..».Foo` が `../Foo.html` になることも、**先に落ちるテストを書いて確かめた**。
+  どちらも直す前は「そうなるはず」でしかなかった
+- **推測で書いた値が 1 つ紛れた** — D12 の `MEASURED_FIXTURE` に `generator` を
+  `"litedoc4/extractor"` と書いたが、実際は `"lean-doc/experiments/stage4b"`
+  (`extractor/Extract.lean:2838`、`docs/plans/rename.md` 項目 4 の意図的な旧名)。
+  **corpus が無い機材では落ちないので、grep で裏を取るまで気づけなかった**
+- **「当時の記録」と「現在の記述」を分けた** — D14 で `facts.rs:30` の見出し
+  「M8-d added a seventh field」は**残し** (M8-d 当時は 7 番目だった)、
+  本文の「`search-index.json` が要る」だけを直した。
+  `merge.rs:46` / `facts.rs:348` の【実測 2026-08-12】も触っていない
+- **`cargo doc` は CI と同じ形で回さないと赤くなる** (→ §12 の完了条件を書き直した)
+
 ### D0 — `merge` が「out と base は同じツリーか」をパスの綴りで判定し、IR を破壊する【最優先】
 
 - 場所: `crates/litedoc4-incr/src/merge.rs:348` (`if options.out != options.base`)、

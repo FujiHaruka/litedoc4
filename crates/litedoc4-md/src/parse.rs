@@ -218,14 +218,15 @@ impl Builder {
     }
 
     /// Pops the open frame, returning its children and its saved detail.
+    ///
+    /// One path out, not two: the length check and the `pop` used to carry the
+    /// same message, and a `pop` that ran after `len() >= 2` could not fail, so
+    /// half the diagnostic named a branch nothing reaches.
     fn pop_frame(&mut self) -> Result<(Vec<Node>, Detail)> {
         if self.stack.len() < 2 {
             return Err(Error::Malformed("left more nodes than were entered"));
         }
-        let frame = self
-            .stack
-            .pop()
-            .ok_or(Error::Malformed("left more nodes than were entered"))?;
+        let frame = self.stack.pop().expect("checked above");
         Ok((frame.items, frame.detail))
     }
 
@@ -241,14 +242,19 @@ impl Builder {
     /// Closes the paragraph this builder opened under a list item.
     /// `wrapper.c:218-224` and `wrapper.c:302-309`.
     fn close_implicit_p(&mut self) -> Result<()> {
-        let (items, _) = self.pop_frame()?;
-        self.save(Node::Block(Block::P(into_texts(items)?)))?;
-        if self.top_tag() != Tag::Li {
+        // Checked before the pop, not after: the parent is what the check is
+        // about, and asking afterwards means the builder has already been
+        // changed by the time the answer is no. Nothing reads that state today
+        // — `with_builder` latches the error and stops feeding callbacks — but
+        // the order in `wrapper.c` is this one, and this file is a
+        // transcription.
+        if self.stack.len() < 2 || self.stack[self.stack.len() - 2].tag != Tag::Li {
             return Err(Error::Malformed(
                 "an implicit paragraph was not directly inside a list item",
             ));
         }
-        Ok(())
+        let (items, _) = self.pop_frame()?;
+        self.save(Node::Block(Block::P(into_texts(items)?)))
     }
 
     /// Opens one under a list item when text or a span arrives there.
