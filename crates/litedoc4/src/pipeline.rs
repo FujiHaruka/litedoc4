@@ -1080,12 +1080,16 @@ pub(crate) fn incremental(args: &[String]) -> Result<(), Failure> {
         );
     }
     if !serve {
-        for flag in ["--extractor-bin", "--target", "--lake"] {
-            let given = match flag {
-                "--extractor-bin" => extractor_bin.is_some(),
-                "--target" => target.is_some(),
-                _ => lake.is_some(),
-            };
+        // `[(name, bool); N]`, the shape `build.rs` uses, and not a `match` on
+        // the name with a `_` arm: adding a fourth flag and forgetting the arm
+        // makes the `_` answer for it, so the refusal names the new flag while
+        // the test behind it reads `--lake`. The existing flags go on working,
+        // so nothing fails.
+        for (flag, given) in [
+            ("--extractor-bin", extractor_bin.is_some()),
+            ("--target", target.is_some()),
+            ("--lake", lake.is_some()),
+        ] {
             if given {
                 return usage(format!(
                     "{flag} is a flag of --serve: without it the extraction is whatever \
