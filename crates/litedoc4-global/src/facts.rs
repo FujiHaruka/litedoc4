@@ -30,8 +30,11 @@
 //! # M8-d added a seventh field, and that is a cache-version bump
 //!
 //! [`ModuleFacts::instances_for`] is the "which instances mention this type"
-//! direction of the instance index, which `search-index.json` needs and no
-//! artifact used to carry. Per the contract above, adding it bumps
+//! direction of the instance index, which no artifact used to carry. The file
+//! that needs it is `instances.json` — it was `search-index.json` when this was
+//! written, and search-v2 P0 moved the two instance maps out of the search
+//! index. **The heading's "seventh" is M8-d's count and stays that way**: C-2
+//! added [`ModuleFacts::refs`] afterwards, so today it is the eighth field. Per the contract above, adding it bumps
 //! [`crate::STATE_DERIVATION`] — a state file written by the v1 rule has no such
 //! key, and using it would produce a site whose Instances For blocks are empty
 //! on every module the cache hit.

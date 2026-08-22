@@ -7,7 +7,7 @@
 //! write them.
 //!
 //! ```text
-//! IrTree ──facts_for──> [ModuleFacts] ──Artifacts::derive──> seven files
+//! IrTree ──facts_for──> [ModuleFacts] ──Artifacts::derive──> nine files
 //!            ▲              │               ▲
 //!            │              │               └─ every sort is UTF-16 (plan §7 U1)
 //!            │              └─ .tokens ──Delta::compute──> --print-set
@@ -22,7 +22,7 @@
 //! # This is the widest net in the pipeline
 //!
 //! Instance lists and importer lists are in no page's bytes: the browser fills
-//! them in from `search-index.json` and `modules.json`. A moved instance is only
+//! them in from `instances.json` and `modules.json`. A moved instance is only
 //! ever right because these artifacts were rebuilt, so "the pages are unchanged"
 //! is not a reason to skip the run.
 //!

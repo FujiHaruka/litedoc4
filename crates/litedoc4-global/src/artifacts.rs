@@ -9,7 +9,12 @@
 //! modules.json                every module, its page, and what imports it
 //! search-index.bin            every declaration, and the kind vocabulary
 //! instances.json              the two instance maps
+//! declarations/used-by.json   every declaration, and what refers to it (C-2)
 //! ```
+//!
+//! **The count is [`ARTIFACT_PATHS`]'s, and it is nine.** A tenth needs a line
+//! in three places — that array, [`Artifacts::files`] and [`derive`] — so this
+//! list has to be read against it rather than instead of it.
 //!
 //! # M8-d removed five files and their reader in the same step
 //!
@@ -223,10 +228,10 @@ impl Artifacts {
             }
         }
 
-        // The module array both JSON files index into. One order, computed once:
-        // `modules.json`'s `i` and `search-index.json`'s third column are
-        // subscripts, and two orders would be two different files agreeing by
-        // accident.
+        // The module array both files index into. One order, computed once:
+        // `modules.json`'s `i` and `search-index.bin`'s module column
+        // (`module_off`, one u16 per declaration) are subscripts into it, and
+        // two orders would be two different files agreeing by accident.
         let own_sorted = sorted(own.iter().copied());
         let pages: Vec<(&str, String)> = own_sorted
             .iter()

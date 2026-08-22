@@ -23,11 +23,17 @@
 //! passes a run made, which is the number §5.6 quotes.
 //!
 //! It lives beside [`crate::IrTree`] for the reason plan §3 gives for the loader
-//! itself: **every read of the IR is in this crate**, so there is one place for
-//! the `contentHash` cache that V2 will put in front of the remaining passes —
-//! and one place to count what that cache is supposed to remove. A counter
-//! sprinkled over the five call sites would be the thing it is measuring: five
-//! copies of one decision.
+//! itself: **every read of a module file is in this crate**, so there is one
+//! place for the `contentHash` cache that V2 will put in front of the remaining
+//! passes — and one place to count what that cache is supposed to remove. A
+//! counter sprinkled over the five call sites would be the thing it is
+//! measuring: five copies of one decision.
+//!
+//! **Module files, not the whole IR.** The claim as first written — "every read
+//! of the IR is in this crate" — was false, and the counters are what showed it
+//!【実測 2026-08-16 → [`crate::read_module_file`]】: three callers read
+//! `index.json` from outside. The V2 cache belongs on the module files, so the
+//! design stands; the sentence did not.
 //!
 //! # What is counted, and what is not
 //!

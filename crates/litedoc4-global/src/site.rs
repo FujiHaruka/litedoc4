@@ -100,7 +100,8 @@ pub struct GlobalSummary {
     pub declarations: usize,
     pub dependency_names: usize,
     pub instance_classes: usize,
-    /// Keys of `search-index.json`'s `instancesFor` (M8-d).
+    /// Keys of `instances.json`'s `instancesFor` (M8-d; search-v2 P0 moved the
+    /// two instance maps out of the search index).
     pub instance_types: usize,
     /// Tactic docstrings declared by the package. `tactics.html` is gone
     /// (M8-d) and nothing renders this any more, but it is still a fact about
