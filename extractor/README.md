@@ -13,8 +13,8 @@ M4-a で**移設ではなく移動**した (Lean のまま)。移動中 `experim
 
 | ファイル | 行 | |
 |---|---:|---|
-| `Extract.lean` | 2,954 | 抽出器本体。IR schema 5 + `--link-index` (M5-a) |
-| `build.sh` | 39 | `lake env lean` → `lake env leanc -rdynamic` の 2 段 |
+| `Extract.lean` | 3,687 | 抽出器本体。IR schema 5 + `--link-index` (M5-a) |
+| `build.sh` | 46 | `lake env lean` → `lake env leanc -rdynamic` の 2 段 |
 | `build/` | — | 生成物 (171 MB のバイナリ + 2.7 MB の C)。**gitignored** |
 
 ## ビルドと実行
