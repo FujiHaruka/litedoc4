@@ -152,7 +152,7 @@ pub(crate) fn extract(args: &[String]) -> Result<(), Failure> {
             flag if FIXED_FLAGS.contains(&flag) => {
                 return usage(format!(
                     "{arg} is not a flag here: it is always on. Those four are what \"IR schema \
-                     4\" means, and an IR written without one of them parses and renders wrongly \
+                     5\" means, and an IR written without one of them parses and renders wrongly \
                      rather than failing. See this file's heading",
                 ));
             }

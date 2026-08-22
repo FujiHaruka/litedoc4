@@ -69,7 +69,7 @@ fn the_events_become_one_timings_object() {
 }
 
 #[test]
-fn the_extractor_is_run_inside_the_target_with_the_schema_4_flags() {
+fn the_extractor_is_run_inside_the_target_with_the_schema_5_flags() {
     let world = World::new("command-line");
     let output = world.run(&["--jobs", "4"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
