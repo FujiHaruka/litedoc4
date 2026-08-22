@@ -42,9 +42,33 @@ fn fixture() -> PathBuf {
     path
 }
 
+/// What the tree the exact counts were measured on says about itself.
+///
+/// `(generator, leanVersion, moduleCount, declarationCount)` from its
+/// `index.json`.
+/// `generator` is the extractor's own name for itself, and it is a **deliberate
+/// old spelling** — `extractor/Extract.lean:2838` still writes
+/// `lean-doc/experiments/stage4b`, because the port does not claim to be what
+/// wrote the tree on disk (`docs/plans/rename.md` 項目 4).
+const MEASURED_FIXTURE: (&str, &str, u32, u32) =
+    ("lean-doc/experiments/stage4b", "4.31.0", 432, 4_750);
+
 /// True when the fixture is the one the exact counts were measured on.
-fn is_default_fixture(path: &std::path::Path) -> bool {
-    path == std::path::Path::new(DEFAULT_IR)
+///
+/// **Judged by what the tree holds, not by where it sits.** The path this used
+/// to compare against is under `/private/tmp/lean-doc-relay/`, a work area that
+/// is swept and rebuilt: a different generation of the IR standing at the same
+/// path would have been read as the measured one and checked against counts it
+/// never had, while the measured tree reached through a symlink or with a
+/// trailing slash would have dropped the exact checks and gone green on
+/// structure alone. CLAUDE.md records the same failure at
+/// `link_index_fixture`【実測 2026-08-16】: "入力の同一性を「パス」で判定しない".
+fn is_default_fixture(index: &litedoc4_ir::Index) -> bool {
+    let (generator, lean_version, modules, declarations) = MEASURED_FIXTURE;
+    index.generator == generator
+        && index.lean_version == lean_version
+        && index.module_count == modules
+        && index.declaration_count == declarations
 }
 
 /// Every (text, spans) pair in a declaration. The five carriers of plan §7's
@@ -259,7 +283,12 @@ fn reads_every_module_of_the_target_package() {
     let tree = IrTree::open(&root).expect("the fixture is a schema-5 IR");
     let index = tree.index();
 
-    assert_eq!(index.schema_version, 4);
+    // `>= MIN_SCHEMA_VERSION`, not a literal: this asserted `== 4` from M1-a
+    // until C-4 raised the minimum to 5, at which point no value could satisfy
+    // both it and the `open` above — schema 4 fails there, schema 5 fails here.
+    // The test is `#[ignore]`d on the corpus, so it ran nowhere and said
+    // nothing for as long as it was impossible【実測 2026-08-23】.
+    assert!(index.schema_version >= litedoc4_ir::MIN_SCHEMA_VERSION);
     assert!(index.ablations.is_empty());
     assert_eq!(index.modules.len(), index.module_count as usize);
 
@@ -301,7 +330,7 @@ fn reads_every_module_of_the_target_package() {
         assert_eq!(dep.schema_version, index.schema_version);
     }
 
-    if !is_default_fixture(&root) {
+    if !is_default_fixture(index) {
         eprintln!(
             "structural checks only: {} is not the fixture the exact counts were measured on",
             root.display()
@@ -372,7 +401,7 @@ fn astral_binders_slice_correctly() {
             }
         }
     }
-    if is_default_fixture(&root) {
+    if is_default_fixture(tree.index()) {
         assert!(
             checked > 0,
             "no span in an astral fragment distinguished UTF-16 from byte offsets"
