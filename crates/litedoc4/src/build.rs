@@ -254,7 +254,7 @@ enum Plan {
 // ------------------------------------------------------------------- the CLI
 
 /// `litedoc4 build`: parse the command line, then do it once.
-pub(crate) fn build(args: &[String]) -> Result<(), Failure> {
+pub fn build(args: &[String]) -> Result<(), Failure> {
     run(&parse(args, None)?)?;
     Ok(())
 }
@@ -973,7 +973,7 @@ impl WorkCounts {
 ///
 /// The extraction is one request for the whole package — the same shape M4-b and
 /// M4-c measured (436/436 byte-identical IR on both extraction paths) — and the
-/// site is [`crate::generate_site`], which is `litedoc4 site`'s own body, so the
+/// site is [`crate::stages::generate_site`], which is `litedoc4 site`'s own body, so the
 /// tree this writes is the tree that command writes.
 fn full_generation(
     request: &Request,
@@ -1051,7 +1051,7 @@ fn full_generation(
     let external_links = resolve_docs(request, &layout.ir)?;
 
     let config = crate::site_config(Some(&request.root))?;
-    let site = crate::generate_site(
+    let site = crate::stages::generate_site(
         &layout.ir,
         &layout.site,
         source_url,

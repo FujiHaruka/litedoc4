@@ -863,7 +863,7 @@ fn prune_removed(
 // ------------------------------------------------------------------- the CLI
 
 /// `litedoc4 incremental`.
-pub(crate) fn incremental(args: &[String]) -> Result<(), Failure> {
+pub fn incremental(args: &[String]) -> Result<(), Failure> {
     let mut ir: Option<PathBuf> = None;
     let mut pages: Option<PathBuf> = None;
     let mut ledger: Option<PathBuf> = None;
@@ -1599,7 +1599,7 @@ fn write_timings(
 /// it**: `check` sorts its re-extract set (`detect.rs:307`) and `impact` sorts
 /// its selection, so the order reaches the ledger's array and the diagnostic
 /// files and stops there.
-pub(crate) fn modules(args: &[String]) -> Result<(), Failure> {
+pub fn modules(args: &[String]) -> Result<(), Failure> {
     let mut root: Option<PathBuf> = None;
     let mut libs: Vec<String> = Vec::new();
     let mut out: Option<PathBuf> = None;

@@ -66,7 +66,7 @@ pub(crate) const EXIT_EXTRACTOR: u8 = 4;
 pub(crate) const FIXED_FLAGS: [&str; 4] = ["--equations", "--refs", "--write-ir", "--tagged-code"];
 
 /// `litedoc4 extract`.
-pub(crate) fn extract(args: &[String]) -> Result<(), Failure> {
+pub fn extract(args: &[String]) -> Result<(), Failure> {
     let mut modules: Option<PathBuf> = None;
     let mut ir_dir: Option<PathBuf> = None;
     let mut timings: Option<PathBuf> = None;

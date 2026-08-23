@@ -200,7 +200,7 @@ impl Flags {
 // ------------------------------------------------------------------- the loop
 
 /// `litedoc4 watch`.
-pub(crate) fn watch(args: &[String]) -> Result<(), Failure> {
+pub fn watch(args: &[String]) -> Result<(), Failure> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!("{USAGE}");
         return Ok(());

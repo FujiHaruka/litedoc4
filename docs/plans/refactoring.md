@@ -395,6 +395,20 @@ after:  Ok("")
   **`tools/corpus-tests.txt` の 3 行を同じコミットで更新する** (CI が `--verify-list` で両方向に見ている)
 - 規模: **移動が中心で約 600 行。新規はほぼゼロ。** テストの書き換えは**やらなくてよい**
 
+#### 結果【2026-08-23】
+
+**`main.rs` は 1,773 行 → 57 行。** 分けた先は計画どおり `lib.rs` (569) /
+`stages.rs` (387) / `queries.rs` (625) / `ledger.rs` (255)。
+
+- **予告した罠は発火しなかった** — `tools/corpus-tests.txt` の
+  `litedoc4::packages::tests::*` 3 行は**そのままで緑**だった。
+  lib の test target 名は crate 名 `litedoc4` で、bin だったときと同じだったため。
+  **`--verify-list` を実際に回して確かめた**のであって、読んで大丈夫だと判断したのではない
+- **`pub` にした範囲は 14 項目**: `Failure` / `USAGE` / `usage` と、
+  `run()` が呼ぶ 13 のサブコマンド。`pub(crate)` のままで済んだものは動かしていない
+- **`build.rs:1054` の `crate::generate_site` が `crate::stages::generate_site` になった** —
+  逆向きの依存 (モジュールが `main.rs` を呼び返す) は、これで 3 本とも消えた
+
 ### R2 — CLI 引数パーサを 1 本に (13 本 / 約 670 行 = src 実体の 8%)
 
 - **今**: 13 箇所が同じ骨格を持ち、`value` クロージャは**バイト単位で同一**。
