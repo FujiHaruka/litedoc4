@@ -1,6 +1,7 @@
 # テストの穴を埋める — カバレッジを測ってから決める
 
-**状態**: 計画着手 (2026-08-24)。全 24 項目、決着 0。
+**状態**: 進行中 (2026-08-24)。全 30 項目中 **決着 6** — 段 0 (G1〜G3、**測ったら既に
+CI で走っていた**) / 段 1 の C1・C2 / 段 3 の E1。
 
 **測ってから書いた計画**である。「足りない気がする」ではなく、**本体カバレッジ 81.6%**
 【実測 2026-08-24】という数字と、**どの経路を検査するものが 1 つも存在しないか**の
@@ -20,37 +21,39 @@ mise exec -- cargo llvm-cov report --json --output-path cov-full.json   # 再実
 503 テスト** (41 バイナリ、0 failed)。**`#[ignore]` の 22 本は走っていない** — 対象リポジトリと
 凍結入力を要るもので、CI でも走らない。**ゲート (`tools/*.sh`) と e2e は一切入っていない。**
 
-生の per-file カバレッジは**そのままでは読めない**。同じファイルの `#[cfg(test)]` 内の
-コードが分母に入るので、**ignored テストを多く抱えるファイルほど不当に低く出る**:
-
-| ファイル | 生 | 本体だけ | 差の正体 |
-|---|---|---|---|
-| `litedoc4/src/packages.rs` | 53% | **85%** | 未カバーの 8 割が ignored テスト自身のコード |
-
-**この補正をしないと、穴でない場所を直しに行く。** 以下はすべて `#[cfg(test)]` の
-手前までで数え直した数字:
-
 ```
-BODY TOTAL: 81.6% covered (6696/8210 executable lines, 1514 uncovered)
+TOTAL: lines 88% (12758/14419), regions 87% (22997/26364), functions 86%
 ```
 
-| ファイル | 本体 | 未カバー行 | 未カバーの中身 |
+**数字は llvm-cov の per-file 値をそのまま使う。** 同じファイルの `#[cfg(test)]` 内の
+コードも分母に入るので、**`#[ignore]` テストを多く抱えるファイルは実態より低く出る** —
+下の表の `packages.rs` がそれで、**未カバーの 8 割は ignored テスト自身のコード**。
+**穴の大小を見るときは、まずそれを疑う。**
+
+**その補正を機械的にやろうとして、できなかった**【2026-08-24】。1 行に複数のリージョンが
+乗る (`?` のエラー経路が同じ行の別リージョンになる) ので、`#[cfg(test)]` の手前までで
+数え直しても、**行ごとに最小を取れば 81.6%、最大を取れば 87.3%** と 6 ポイント動く。
+**どちらも llvm-cov の定義ではない。** 最小側を信じて書いた最初の版は
+`parse.rs` を 71% と報告したが、llvm-cov 自身は 87.7% と言う。
+**判断には生の per-file 値と未カバー行の絶対数を使い、自作の補正値は使わない。**
+
+| ファイル | lines | 未カバー行 | 未カバーの中身 |
 |---|---|---|---|
-| `litedoc4/src/queries.rs` | **24%** | 207 | `links`/`ownership`/`merge`/`impact`/`prune` の**本体が丸ごと** |
-| `litedoc4/src/watch.rs` | **25%** | 165 | `watch` 本体 / `run_loop` / `Trigger::ask` / `announce` / `describe` |
-| `litedoc4/src/pipeline.rs` | 83% | 114 | |
-| `litedoc4-md/src/parse.rs` | 71% | 105 | md4c コールバックのブロック種別分岐 (`leave_block` ほか) |
-| `litedoc4/src/build.rs` | 81% | 100 | |
-| `litedoc4-incr/src/merge.rs` | 79% | 76 | |
-| `litedoc4/src/resident.rs` | 86% | 66 | |
-| `litedoc4/src/deps_docs.rs` | 80% | 60 | |
-| `litedoc4-incr/src/prune.rs` | 73% | 50 | |
-| `litedoc4/src/extract.rs` | 75% | 50 | |
-| `litedoc4-global/src/site.rs` | 70% | 48 | |
-| `litedoc4/src/stages.rs` | 77% | 44 | |
-| `litedoc4/src/ledger.rs` | 66% | 42 | |
+| `litedoc4/src/packages.rs` | 53% | 277 | **穴ではない** — 大半が `#[ignore]` テスト自身のコード |
+| `litedoc4/src/queries.rs` | **35%** | 230 | `links`/`ownership`/`merge`/`impact`/`prune` の**本体が丸ごと** |
+| `litedoc4/src/watch.rs` | **47%** | 211 | `watch` 本体 / `run_loop` / `Trigger::ask` / `announce` / `describe` |
+| `litedoc4/src/build.rs` | 86% | 89 | |
+| `litedoc4/src/deps_docs.rs` | 86% | 76 | |
+| `litedoc4/src/pipeline.rs` | 90% | 74 | |
+| `litedoc4/src/resident.rs` | 87% | 72 | |
+| `litedoc4-incr/src/merge.rs` | 83% | 70 | |
+| `litedoc4-md/src/parse.rs` | 87% | 53 | **大半は `Error::Malformed` の防御分岐** — docstring 自身が「md4c が変わったときかここのバグのときだけ」と書いている |
+| `litedoc4-incr/src/prune.rs` | 82% | 50 | |
+| `litedoc4-global/src/site.rs` | 75% | 43 | |
+| `litedoc4/src/extract.rs` | 84% | 37 | |
+| `litedoc4/src/ledger.rs` | 77% | 33 | |
 | `litedoc4-ir/src/error.rs` | **16%** | 21 | `Display` / `source` — **エラーが起きる経路を通ったことがない** |
-| `litedoc4-incr/src/error.rs` | 67% | 17 | 同上 |
+| `litedoc4-incr/src/error.rs` | 68% | 17 | 同上 |
 | `litedoc4-md/src/error.rs` | **0%** | 9 | 同上 |
 
 **関数単位のカバレッジは使わない。** `litedoc4` は lib と bin で同じ関数が 2 度
@@ -194,15 +197,18 @@ exit code を通すものが無い** (対象リポジトリを要る `tools/*-co
 **W2 は作業領域を共有する長命プロセスなので、失敗を作業領域のせいに見せかける。**
 テストは自分専用の一時ディレクトリを持ち、終了時に必ず kill する形にする。
 
-### 段 5 — md パーサの未到達分岐 (本体 71%)
+### 段 5 — md パーサの未到達分岐 (87%、未カバー 53 行)
 
-未カバー 105 行のほぼ全部が `leave_block` / `enter_span` / `leave_span` / `on_text` の
-**ブロック・スパン種別ごとの分岐**。docstring の markdown がページになる経路そのもの。
+**中身を読んだら、大半は「バグのときだけ通る」防御分岐だった**【実測 2026-08-24】 —
+`Error::Malformed(...)` が 20 箇所以上あり、その docstring 自身が
+"Every case is a bug here or a change in md4c, never bad input" と言っている。
+**入力から到達させられないものにテストは書けない。**
 
 | ID | やること |
 |---|---|
-| **M1** | 未到達の種別を数え上げ、**それぞれを含む markdown を 1 つずつ**通す (表 / 引用 / 番号付きリスト / コードブロック / 各種スパン)。既存の `md4lean.rs` の差分オラクルに載せられるものは載せる |
-| **M2** | 到達不能なもの (doc-gen4 が使わないフラグでしか出ない `Unrepresentable` 等) は**到達不能と書いて閉じる** |
+| **M1** | 入力から到達する分岐だけを選んで通す。**先に `parse` / `parse_with_flags` を実際に叩いて、どれが入力で動くかを測ってから決める** — 行番号から推測しない |
+| **M2** | `Error::Malformed` / `Md4c` / `NotUtf8` / `InputTooLarge` は**到達不能と書いて閉じる** (`InputTooLarge` は 4 GB の入力が要る) |
+| **M3** | `Error::Unrepresentable` は**到達可能** — doc-gen4 が使わないフラグ (inline raw HTML を許す) で `parse_with_flags` を叩くと出る、と docstring が名指ししている。**その 1 本は書く** |
 
 ### 段 6 — 中位の穴を選択的に
 
