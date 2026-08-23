@@ -1112,6 +1112,49 @@ assertion `left == right` failed: incr: Alpha.«Odd-Name»
 - やること: `visit_seq` の末尾に 2 検査 + `back_range` を `checked_add` に。
   `:196-209` の `malformed_forms_are_rejected` に `"[5,2,0]"` と `r#"[0,1,1,"n",3,0]"#` を足す (15 行)
 
+#### 結果【2026-08-23】— **先に書いたテストが 3 本落ちた。うち 2 本は計画に無い検査**
+
+**テストを先に書いて落とした**。`malformed_forms_are_rejected` に 2 形を足し、
+メッセージの質を見る `the_refusals_say_which_numbers` と、`stop + back` が u32 を溢れる
+`a_trailing_width_that_runs_off_the_end_is_not_a_range` を書いた時点で:
+
+```
+malformed_forms_are_rejected            expected [5,2,0] to be rejected
+the_refusals_say_which_numbers          an inverted span is refused:
+                                        Span { start: 5, stop: 2, kind: Fn, ... }
+a_trailing_width_that_runs_off_the_end  attempt to add with overflow (span.rs:94)
+```
+
+**計画が予告した `front_range` の panic も、直す前に実際に出させた**【実測】 —
+`[0,1,1,"n",3,0]` を読んで `front_range()` を呼ぶ使い捨てのテストで
+`attempt to subtract with overflow (span.rs:89)`。**「そうなるはず」で直していない。**
+
+直したのは 3 箇所: `visit_seq` 末尾の 2 検査、`back_range` の `checked_add`、
+そして `front_range` / `back_range` / モジュール見出しの doc。
+
+- **メッセージは `utf16.rs:218-221` の綴りに寄せた** — 「`span [5, 2)` is not a range:
+  it ends before it starts」「a span at 0 cannot carry 3 units of leading whitespace:
+  there are only 0 units in front of it」。**数を本文に出す**のがあの行の要点で、
+  `the_refusals_say_which_numbers` がそれを固定する (`"[5, 2)"` を含むこと)
+- **`front_range` は減算のまま残した**【判断】。`checked_sub` で `None` を返すのは
+  「先行空白は無い」と**推測する**ことになる。デシリアライザが `front <= start` を立てた以上、
+  ここに来る壊れた `Span` は**フィールドを手で組んだもの**しかないので、
+  X7 と同じ形で **`# Panics` 節を書いて panic を残した**
+- **`back_range` だけ `checked_add` なのは非対称ではない**。`stop` と `back` は
+  **各々は正当で和だけが不正**なので visitor が 2 数の関係として拒否できない。
+  そして `u32::MAX` を超える範囲を持てるフラグメントは存在しないので、
+  ここで返る `None` は「末尾空白が無い」と同じ答えでよく、推測ではない
+
+**この 2 検査が corpus を弾かないことは、機材ではなく抽出器を読んで確かめた**
+【実測: `extractor/Extract.lean:1125`】 — 抽出器は `start = off + front`,
+`stop = off + total - back` を**同じアキュムレータから**書く (`wsTrim`, `:1064-1071`)。
+したがって `start - front = off ≥ 0` と `stop + back = off + total ≤ 断片長` が
+**構成上成り立つ**。この検査が拒否するのは**抽出器以外が書いた IR** だけ。
+(corpus は当機材に無いので実走では確かめていない。確かめたのは書き手の側。)
+
+`cargo test --workspace` は **448 → 450 passed** (足した `#[test]` は 2 本。
+`malformed_forms_are_rejected` はケースが 4 → 6 に増えただけなので本数には出ない)。
+
 ## 7. 段 4 — テストの共通化 (ワークスペース横断)
 
 **調査 3 件が独立に同じことを指摘した。** 製品コードの規律 (`unwrap()` ゼロ / `#[allow]` ゼロ /

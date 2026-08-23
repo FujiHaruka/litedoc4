@@ -14,6 +14,12 @@
 //! see [`crate::Utf16Text`]. They are left as plain `u32` here on purpose: the
 //! text type refuses to be indexed by bytes, so there is no byte offset around
 //! for them to be confused with.
+//!
+//! They are also not independent of each other. `start <= stop` because
+//! `[start, stop)` is a range, and `front <= start` because `front` counts
+//! units *in front of* `start`. Both are checked while reading, for the reason
+//! the rest of this crate refuses rather than guesses: the arithmetic that
+//! assumes them is one method call away from any [`Span`] that exists.
 
 use std::ops::Range;
 
@@ -85,13 +91,30 @@ impl Span {
     }
 
     /// The leading whitespace run doc-gen4 turns into spaces, if any.
+    ///
+    /// # Panics
+    ///
+    /// If `front > start`, which is a run of whitespace longer than the text in
+    /// front of it. A deserialised [`Span`] cannot be in that state — the
+    /// visitor refuses the pair — so this is reachable only by building one
+    /// field by field, and it panics rather than guessing which of the two
+    /// numbers was meant.
     pub fn front_range(&self) -> Option<Range<u32>> {
         (self.front > 0).then(|| self.start - self.front..self.start)
     }
 
     /// The trailing whitespace run doc-gen4 turns into spaces, if any.
+    ///
+    /// `None` when the run would end past `u32::MAX`. Unlike `front`, that is
+    /// **not** a relation the visitor can refuse on its own: `stop` and `back`
+    /// are each legal and only their sum is not, and a fragment that long does
+    /// not exist to hold the range anyway — so the same `None` that means "no
+    /// trailing whitespace" is the right answer rather than a guess.
     pub fn back_range(&self) -> Option<Range<u32>> {
-        (self.back > 0).then(|| self.stop..self.stop + self.back)
+        (self.back > 0)
+            .then(|| self.stop.checked_add(self.back))
+            .flatten()
+            .map(|end| self.stop..end)
     }
 }
 
@@ -135,6 +158,27 @@ impl<'de> Visitor<'de> for SpanVisitor {
             (Some(front), Some(back)) => (front, back),
             _ => return Err(de::Error::invalid_length(5, &self)),
         };
+
+        // The element count and the kind were the only things checked here, and
+        // the four numbers also have to stand in a relation to one another. The
+        // extractor writes them from one accumulator — `start = off + front`
+        // and `stop = off + total - back` (`Extract.lean:1125`) — so both
+        // relations hold by construction on anything it wrote; what these
+        // refuse is an IR from somewhere else. Refused at the seam rather than
+        // survived downstream: `front_range` is `start - front`, one call away
+        // from a `Span` that exists, and an integer overflow there says nothing
+        // about which fragment or which span was wrong.
+        if start > stop {
+            return Err(de::Error::custom(format!(
+                "span [{start}, {stop}) is not a range: it ends before it starts"
+            )));
+        }
+        if front > start {
+            return Err(de::Error::custom(format!(
+                "a span at {start} cannot carry {front} units of leading whitespace: \
+                 there are only {start} units in front of it"
+            )));
+        }
 
         Ok(Span {
             start,
@@ -200,11 +244,41 @@ mod tests {
             r#"[0,1,1,"n",2]"#,
             r#"[0,1,1,"n",2,3,4]"#,
             "[0,1,300]",
+            // The two the element count and the kind cannot catch: `[5,2)` is
+            // not a range, and 3 units of leading whitespace cannot precede
+            // offset 0.
+            "[5,2,0]",
+            r#"[0,1,1,"n",3,0]"#,
         ] {
             assert!(
                 serde_json::from_str::<Span>(bad).is_err(),
                 "expected {bad} to be rejected"
             );
         }
+    }
+
+    /// The refusals name the numbers, as [`crate::Utf16Text::slice`]'s panic
+    /// does: a reader who sees `span [5, 2)` in a log knows which span in which
+    /// fragment to go and look at, and "invalid value" does not.
+    #[test]
+    fn the_refusals_say_which_numbers() {
+        let inverted = serde_json::from_str::<Span>("[5,2,0]")
+            .expect_err("an inverted span is refused")
+            .to_string();
+        assert!(inverted.contains("[5, 2)"), "{inverted}");
+
+        let front = serde_json::from_str::<Span>(r#"[0,1,1,"n",3,0]"#)
+            .expect_err("a front wider than the offset is refused")
+            .to_string();
+        assert!(front.contains('3'), "{front}");
+    }
+
+    /// A span at the very end of the address space: `stop + back` is what
+    /// [`Span::back_range`] adds, and the pair is legal on the wire, so the
+    /// addition is the one that has to be checked rather than refused.
+    #[test]
+    fn a_trailing_width_that_runs_off_the_end_is_not_a_range() {
+        let s = parse(&format!(r#"[0,{max},1,"n",0,1]"#, max = u32::MAX));
+        assert_eq!(s.back_range(), None);
     }
 }
