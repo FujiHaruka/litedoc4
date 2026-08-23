@@ -36,6 +36,10 @@
 #                 extractor was built against (checked when --built-for is given)
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+. "$HERE/lib/common.sh" || exit 1
+
 LAKE="${LAKE:-lake}"
 EXTRACTOR=""
 PACKAGE=""
@@ -79,7 +83,7 @@ echo "extractor   $EXTRACTOR"
 echo "package     $PACKAGE  (pins $HAVE)"
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+on_exit 'rm -rf "$WORK"'
 echo "Init" > "$WORK/modules.txt"
 
 # ---------------------------------------------------------------- precondition

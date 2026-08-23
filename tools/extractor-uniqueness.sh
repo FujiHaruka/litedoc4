@@ -40,6 +40,8 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/common.sh
+. "$REPO/tools/lib/common.sh" || exit 1
 LAKE="${LAKE:-lake}"
 
 PKGS=()
@@ -60,7 +62,7 @@ done
 BUILT="$REPO/extractor/build/extract"
 GENC="$REPO/extractor/build/Extract.c"
 WORKLIST="$(mktemp)"
-trap 'rm -f "$WORKLIST"' EXIT
+on_exit 'rm -f "$WORKLIST"'
 
 # ---------------------------------------------------------------- toolchains
 #

@@ -33,6 +33,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$HERE/lib/common.sh" || exit 1
 INVENTORY="$HERE/corpus-tests.txt"
 PYTHON="${PYTHON:-python3}"
 
@@ -130,7 +132,7 @@ frozen() {
 
 TMP_RUNNABLE="$(mktemp)"
 TMP_FROZEN="$(mktemp)"
-trap 'rm -f "$TMP_RUNNABLE" "$TMP_FROZEN"' EXIT
+on_exit 'rm -f "$TMP_RUNNABLE" "$TMP_FROZEN"'
 
 case "${1:-run}" in
   --list)
@@ -233,7 +235,7 @@ case "${1:-run}" in
     ran_total=0
     want_total="$(runnable | wc -l | tr -d ' ')"
     EXES="$(mktemp)"
-    trap 'rm -f "$TMP_RUNNABLE" "$TMP_FROZEN" "$EXES"' EXIT
+    on_exit 'rm -f "$TMP_RUNNABLE" "$TMP_FROZEN" "$EXES"'
     executables > "$EXES"
     while read -r entry; do
       target_name="${entry%%::*}"

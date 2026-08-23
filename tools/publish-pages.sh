@@ -22,6 +22,10 @@
 #   --keep             leave the scratch clone in place for inspection
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+. "$HERE/lib/common.sh" || exit 1
+
 SITE=""
 REPO=""
 BRANCH="gh-pages"
@@ -39,7 +43,10 @@ while [ $# -gt 0 ]; do
     --message) MESSAGE="${2:?--message needs text}"; shift 2 ;;
     --push)    PUSH=1; shift ;;
     --keep)    KEEP=1; shift ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    # Bounded by the `set -` line, not by a line number: this header grew by
+    # four lines the moment lib/common.sh was sourced, and a hardcoded `2,25p`
+    # answers with shell code and exit 0. See tools/lib/common.sh.
+    -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d'; exit 0 ;;
     *)         die "unknown argument \`$1\`" ;;
   esac
 done
@@ -61,7 +68,7 @@ echo "site    $FILES file(s), $PAGES page(s), ${BYTES} KiB"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/litedoc4-pages.XXXXXX")
 cleanup() { [ "$KEEP" -eq 1 ] || rm -rf "$WORK"; }
-trap cleanup EXIT
+on_exit cleanup
 
 # `--single-branch` keeps the clone to the branch being replaced; the history of
 # a documentation branch is not interesting and can be very large.

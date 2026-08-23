@@ -84,6 +84,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$HERE/lib/common.sh" || exit 1
 FIXTURE="$ROOT/e2e/micro"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 LITEDOC4="${LITEDOC4:-$ROOT/target/debug/litedoc4}"
@@ -96,7 +98,7 @@ while [ $# -gt 0 ]; do
     --out) OUT="$2"; shift 2 ;;
     --extractor) EXTRACTOR="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
-    -h|--help) sed -n '1,82p' "$0"; exit 0 ;;
+    -h|--help) sed -n '1,/^set -/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done
@@ -863,7 +865,7 @@ cp "$PROBE" "$OUT/probe.orig"
 restore_probe () {
   if [ -f "$OUT/probe.orig" ]; then cp "$OUT/probe.orig" "$PROBE"; fi
 }
-trap restore_probe EXIT
+on_exit restore_probe
 
 cp "$OUT/first/link-index.lidx" "$OUT/lidx-before"
 printf '\n/-- A probe appended by GATE 6; removed before this script exits. -/\ndef e2eGate6Probe_ : Nat := 13\n' >> "$PROBE"

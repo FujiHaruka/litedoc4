@@ -115,7 +115,7 @@ while [ $# -gt 0 ]; do
     --inject) INJECT="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
     --reuse) REUSE=1; shift ;;
-    -h|--help) sed -n '1,79p' "$0"; exit 0 ;;
+    -h|--help) sed -n '1,/^set -/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done

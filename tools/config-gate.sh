@@ -48,7 +48,7 @@ while [ $# -gt 0 ]; do
     --out) OUT="$2"; shift 2 ;;
     --blind) BLIND="$2"; shift 2 ;;
     --link-index) LIDX="$2"; shift 2 ;;
-    -h|--help) sed -n '1,32p' "$0"; exit 0 ;;
+    -h|--help) sed -n '1,/^set -/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done
