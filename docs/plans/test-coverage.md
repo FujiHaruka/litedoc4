@@ -1,7 +1,9 @@
 # テストの穴を埋める — カバレッジを測ってから決める
 
-**状態**: 進行中 (2026-08-24)。全 30 項目中 **決着 6** — 段 0 (G1〜G3、**測ったら既に
-CI で走っていた**) / 段 1 の C1・C2 / 段 3 の E1。
+**状態**: 進行中 (2026-08-24)。全 30 項目中 **決着 10**。
+**そのうち 6 件は「やることが無かった」** — 段 0 の 3 件は**測ったら既に CI で走っていて**、
+段 5 の 3 件は**未カバー行が入力から到達できない防御分岐だった**。
+実際にテストを書いたのは段 1 の C1・C2 と段 3 の E1 (E2 は到達不能で決着)。
 
 **測ってから書いた計画**である。「足りない気がする」ではなく、**本体カバレッジ 81.6%**
 【実測 2026-08-24】という数字と、**どの経路を検査するものが 1 つも存在しないか**の
@@ -22,39 +24,43 @@ mise exec -- cargo llvm-cov report --json --output-path cov-full.json   # 再実
 凍結入力を要るもので、CI でも走らない。**ゲート (`tools/*.sh`) と e2e は一切入っていない。**
 
 ```
-TOTAL: lines 88% (12758/14419), regions 87% (22997/26364), functions 86%
+全体 (テストコード込み):  lines 88% (12758/14419), regions 87%, functions 86%
+本体のみ (#[cfg(test)] より手前): 86.9% (8242/9484)、未カバー 1242 行
 ```
 
-**数字は llvm-cov の per-file 値をそのまま使う。** 同じファイルの `#[cfg(test)]` 内の
-コードも分母に入るので、**`#[ignore]` テストを多く抱えるファイルは実態より低く出る** —
-下の表の `packages.rs` がそれで、**未カバーの 8 割は ignored テスト自身のコード**。
-**穴の大小を見るときは、まずそれを疑う。**
+**本体だけの値は `--lcov` から数える。**
 
-**その補正を機械的にやろうとして、できなかった**【2026-08-24】。1 行に複数のリージョンが
-乗る (`?` のエラー経路が同じ行の別リージョンになる) ので、`#[cfg(test)]` の手前までで
-数え直しても、**行ごとに最小を取れば 81.6%、最大を取れば 87.3%** と 6 ポイント動く。
-**どちらも llvm-cov の定義ではない。** 最小側を信じて書いた最初の版は
-`parse.rs` を 71% と報告したが、llvm-cov 自身は 87.7% と言う。
-**判断には生の per-file 値と未カバー行の絶対数を使い、自作の補正値は使わない。**
+```
+mise exec -- cargo llvm-cov report --lcov --output-path cov.lcov   # profdata を使う、再実行不要
+```
 
-| ファイル | lines | 未カバー行 | 未カバーの中身 |
+lcov は 1 行に 1 つの `DA:<行>,<count>` を出すので、**`?` のエラー経路が同じ行の
+別リージョンになる問題が起きない**。最初 `--json` の segments から数えて **81.6% と
+書いたのは誤り**だった — 行ごとにリージョンの最小を取っていた。最大を取れば 87.3%、
+llvm-cov 自身の per-file 値はその間にある。**3 つとも違う数字が出る。**
+【教訓】**行の数え方を自作したら、llvm-cov 自身の per-file 値と突き合わせて検算する。**
+`--lcov` を使えば自作しなくて済む。
+
+| ファイル | 本体 | 未カバー行 | 未カバーの中身 |
 |---|---|---|---|
-| `litedoc4/src/packages.rs` | 53% | 277 | **穴ではない** — 大半が `#[ignore]` テスト自身のコード |
-| `litedoc4/src/queries.rs` | **35%** | 230 | `links`/`ownership`/`merge`/`impact`/`prune` の**本体が丸ごと** |
-| `litedoc4/src/watch.rs` | **47%** | 211 | `watch` 本体 / `run_loop` / `Trigger::ask` / `announce` / `describe` |
-| `litedoc4/src/build.rs` | 86% | 89 | |
-| `litedoc4/src/deps_docs.rs` | 86% | 76 | |
-| `litedoc4/src/pipeline.rs` | 90% | 74 | |
-| `litedoc4/src/resident.rs` | 87% | 72 | |
-| `litedoc4-incr/src/merge.rs` | 83% | 70 | |
-| `litedoc4-md/src/parse.rs` | 87% | 53 | **大半は `Error::Malformed` の防御分岐** — docstring 自身が「md4c が変わったときかここのバグのときだけ」と書いている |
-| `litedoc4-incr/src/prune.rs` | 82% | 50 | |
-| `litedoc4-global/src/site.rs` | 75% | 43 | |
-| `litedoc4/src/extract.rs` | 84% | 37 | |
-| `litedoc4/src/ledger.rs` | 77% | 33 | |
-| `litedoc4-ir/src/error.rs` | **16%** | 21 | `Display` / `source` — **エラーが起きる経路を通ったことがない** |
-| `litedoc4-incr/src/error.rs` | 68% | 17 | 同上 |
-| `litedoc4-md/src/error.rs` | **0%** | 9 | 同上 |
+| `litedoc4/src/queries.rs` | **26%** | 218 | `links`/`ownership`/`merge`/`impact`/`prune` の**本体が丸ごと** |
+| `litedoc4/src/watch.rs` | **23%** | 200 | `watch` 本体 / `run_loop` / `Trigger::ask` / `announce` / `describe` |
+| `litedoc4/src/build.rs` | 89% | 73 | |
+| `litedoc4-incr/src/merge.rs` | 85% | 64 | |
+| `litedoc4/src/deps_docs.rs` | 82% | 63 | |
+| `litedoc4/src/pipeline.rs` | 92% | 63 | |
+| `litedoc4/src/resident.rs` | 90% | 60 | |
+| `litedoc4-md/src/parse.rs` | 88% | 52 | **52 行中 50 行が `Error::Malformed` 系の防御分岐** (→ 段 5) |
+| `litedoc4-global/src/site.rs` | 78% | 38 | |
+| `litedoc4-incr/src/prune.rs` | 82% | 37 | |
+| `litedoc4/src/ledger.rs` | 77% | 32 | |
+| `litedoc4/src/packages.rs` | 85% | 31 | **生の per-file では 53% に見える** — 差は `#[ignore]` テスト自身のコード。**穴ではない** |
+| `litedoc4/src/extract.rs` | 89% | 26 | |
+| `litedoc4-incr/src/impact.rs` | 86% | 25 | |
+| `litedoc4-ir/src/error.rs` | **16%** | 21 | **エラーが起きる経路を通ったことがない** (→ 段 3 E1 で決着) |
+| `litedoc4-incr/src/error.rs` | 69% | 17 | 同上 |
+| `litedoc4-ir/src/reader.rs` | 77% | 16 | 同上 (→ 段 3 E1 で決着) |
+| `litedoc4-md/src/error.rs` | **0%** | 9 | 同上 (→ 段 5 M2 で「到達不能」と決着) |
 
 **関数単位のカバレッジは使わない。** `litedoc4` は lib と bin で同じ関数が 2 度
 コンパイルされるので、**統合テストが子プロセスで通した関数が lib 側では count 0 に見える**
@@ -175,7 +181,7 @@ exit code を通すものが無い** (対象リポジトリを要る `tools/*-co
 | ID | やること |
 |---|---|
 | **E1** | `litedoc4-ir::Error` — `Schema` (古い schema の IR) / `Ablated` / `ModuleMismatch` (index と中身の食い違い) / `Json` (途中で切れた JSON) / `Io` を、**入力から**到達させる |
-| **E2** | `litedoc4-md::Error` — 到達可能な変種を入力から。`InputTooLarge` のように現実的に作れないものは**作らないと決めて理由を書く** |
+| **E2** | **決着 2026-08-24、やることなし** — 段 5 と同じ結論。到達可能な `Unrepresentable` は既存のテストが既に通しており、残る変種は入力から作れない |
 | **E3** | `litedoc4-incr::Error` の未到達変種 (本体 67%) |
 | **E4** | `litedoc4/src/ledger.rs` (66%) の拒否経路 — サブコマンド無し / 未知のサブコマンド / 壊れた台帳 |
 
@@ -197,18 +203,22 @@ exit code を通すものが無い** (対象リポジトリを要る `tools/*-co
 **W2 は作業領域を共有する長命プロセスなので、失敗を作業領域のせいに見せかける。**
 テストは自分専用の一時ディレクトリを持ち、終了時に必ず kill する形にする。
 
-### 段 5 — md パーサの未到達分岐 (87%、未カバー 53 行)
+### 段 5 — md パーサの未到達分岐 → **やることが無い**【決着 2026-08-24】
 
-**中身を読んだら、大半は「バグのときだけ通る」防御分岐だった**【実測 2026-08-24】 —
-`Error::Malformed(...)` が 20 箇所以上あり、その docstring 自身が
+**未カバー 52 行を 1 行ずつ読んだ結果、50 行が「バグのときだけ通る」防御分岐だった。**
+`Error::Malformed(...)` とそのメッセージ行・閉じ括弧が 42 行、`?` のエラー経路
+(`}))?;`) が 10 行。`Error` の docstring 自身が
 "Every case is a bug here or a change in md4c, never bad input" と言っている。
 **入力から到達させられないものにテストは書けない。**
 
-| ID | やること |
+| ID | 結論 |
 |---|---|
-| **M1** | 入力から到達する分岐だけを選んで通す。**先に `parse` / `parse_with_flags` を実際に叩いて、どれが入力で動くかを測ってから決める** — 行番号から推測しない |
-| **M2** | `Error::Malformed` / `Md4c` / `NotUtf8` / `InputTooLarge` は**到達不能と書いて閉じる** (`InputTooLarge` は 4 GB の入力が要る) |
-| **M3** | `Error::Unrepresentable` は**到達可能** — doc-gen4 が使わないフラグ (inline raw HTML を許す) で `parse_with_flags` を叩くと出る、と docstring が名指ししている。**その 1 本は書く** |
+| **M1** | **書かない** — 残る 2 行は `read_str` の空フラグメント (`size == 0`) と、`Malformed` が起きたときだけ通る `return 1`。前者を狙って出すには md4c の内部挙動に賭けることになり、**落ちたときに何が壊れたか 1 行で言えない** |
+| **M2** | **到達不能と記録して閉じる** — `Malformed` / `Md4c` / `NotUtf8` / `InputTooLarge`。最後のものは 4 GB の入力が要る。`litedoc4-md/src/error.rs` が 0% なのはこのため |
+| **M3** | **既に到達していた** — `Error::Unrepresentable` は未カバー行に入っていない。docstring が「doc-gen4 が使わないフラグでしか出ない」と書いている経路を、既存のテストが通している |
+
+**この段は「カバレッジの数字を目標にしない」がそのまま効いた例である。** 52 行を
+埋めれば `parse.rs` は 88% → 100% になるが、**増えるのは数字だけで、検査は増えない。**
 
 ### 段 6 — 中位の穴を選択的に
 
