@@ -43,7 +43,9 @@ use std::fmt;
 use litedoc4_ir::{Attr, Decl, Member, ModuleFile, Span, Utf16Text};
 use litedoc4_md::Renderer as DocRenderer;
 
-use crate::autolink::{NameIndex, module_link, page_root};
+#[cfg(test)]
+use crate::autolink::page_root;
+use crate::autolink::{NameIndex, module_link};
 use crate::code::{CodeRenderer, Refs, decl_refs};
 use crate::escape::escape_html_into;
 use crate::{break_within, css_kind, kind_description};
@@ -293,15 +295,21 @@ fn push_args(
 /// Takes the module **name** rather than the module file: it is called for
 /// declarations that get no page entry too, before anything about the page is
 /// known.
+///
+/// `root` is [`crate::page_root`] of `module`, and it is a parameter rather than
+/// something this derives: [`DeclRenderer`] holds one, and a second one derived
+/// here would put two paths to the same value inside one `<section>` — the head
+/// and the signature from this one, the equations and the fields from the
+/// renderer's. [`crate::PageLinks::renderer`] closed exactly that for a
+/// different pair, with the same reason: links that are half right.
 #[must_use]
-pub fn decl_head_html(decl: &Decl, module: &str, source_url: &str) -> String {
-    let root = page_root(module);
+pub fn decl_head_html(decl: &Decl, root: &str, module: &str, source_url: &str) -> String {
     let mut out = String::with_capacity(384);
 
     out.push_str("<header class=\"decl-head\"><span class=\"kind\">");
     escape_html_into(&mut out, &kind_description(&decl.kind, &decl.modifiers));
     out.push_str("</span><h2 class=\"decl-name\"><a class=\"break_within\" href=\"");
-    let mut self_link = module_link(&root, module);
+    let mut self_link = module_link(root, module);
     self_link.push('#');
     self_link.push_str(&decl.name);
     escape_html_into(&mut out, &self_link);
@@ -321,10 +329,21 @@ pub fn decl_head_html(decl: &Decl, module: &str, source_url: &str) -> String {
 /// Split from [`decl_head_html`] because they wrap differently: the head is a
 /// flex row that reflows, the signature is code whose whitespace the IR already
 /// decided (see [`push_arg`]).
+/// `root` is [`crate::page_root`] of `module` — a parameter for the reason
+/// [`decl_head_html`] gives.
 #[must_use]
-pub fn decl_signature(decl: &Decl, module: &str, code: &CodeRenderer<'_>) -> String {
-    let root = page_root(module);
-    let refs = decl_refs(decl);
+pub fn decl_signature(decl: &Decl, root: &str, code: &CodeRenderer<'_>) -> String {
+    signature_with(decl, root, code, &decl_refs(decl))
+}
+
+/// [`decl_signature`] with the reference table already built.
+///
+/// The split is not for reuse but for arithmetic: [`DeclRenderer::decl_html`]
+/// has a `Refs` in hand when it asks for the signature, and building a second
+/// one from the same declaration is work whose answer is already known —
+/// **422 pages × 4,584 declarations of it** on the measurement target.
+#[must_use]
+fn signature_with(decl: &Decl, root: &str, code: &CodeRenderer<'_>, refs: &Refs<'_>) -> String {
     let mut out = String::with_capacity(512);
 
     out.push_str("<div class=\"sig\">");
@@ -333,8 +352,8 @@ pub fn decl_signature(decl: &Decl, module: &str, code: &CodeRenderer<'_>) -> Str
         &decl.binders,
         &decl.binder_code,
         &decl.implicits,
-        &root,
-        &refs,
+        root,
+        refs,
         code,
     );
 
@@ -355,7 +374,7 @@ pub fn decl_signature(decl: &Decl, module: &str, code: &CodeRenderer<'_>) -> Str
                 out.push_str("<span id=\"");
                 escape_html_into(&mut out, &parent.name);
                 out.push_str("\">");
-                let body = code.fragment(&parent.text, &parent.code, &root, &refs);
+                let body = code.fragment(&parent.text, &parent.code, root, refs);
                 out.push_str(&body.html);
                 out.push_str("</span>");
             }
@@ -363,7 +382,7 @@ pub fn decl_signature(decl: &Decl, module: &str, code: &CodeRenderer<'_>) -> Str
     }
 
     out.push_str("<span class=\"colon\"> :</span><div class=\"sig-type\">");
-    let ty = code.fragment(&decl.ty, &decl.type_code, &root, &refs);
+    let ty = code.fragment(&decl.ty, &decl.type_code, root, refs);
     out.push_str(&ty.html);
     out.push_str("</div></div>");
     out
@@ -383,7 +402,7 @@ pub struct DeclRenderer<'a> {
 }
 
 impl<'a> DeclRenderer<'a> {
-    /// `root` is [`page_root`] of `module`, `source_url` is
+    /// `root` is [`crate::page_root`] of `module`, `source_url` is
     /// [`crate::module_source_url`] of it, and `docs` is the docstring renderer
     /// built from this page's [`crate::PageLinks`].
     ///
@@ -414,12 +433,17 @@ impl<'a> DeclRenderer<'a> {
     /// component is `mk` is the anonymous one and the fields are a plain list;
     /// anything else is printed as `Name :: ( … )`. A structure with no `ctor`
     /// member at all is treated as having `<name>.mk`, i.e. the first shape.
-    pub fn structure_html(&self, decl: &Decl) -> Result<String, UnplaceableName> {
-        let refs = decl_refs(decl);
+    /// `refs` is [`decl_refs`] of `decl`, built once by the caller: this is one
+    /// of three places that used to build the same table from the same input in
+    /// one render of one declaration (the others are [`Self::decl_html`] and
+    /// [`decl_signature`]). Three tables from one input is three places for one
+    /// to fall behind, and on a Mathlib package `refs` runs to hundreds of
+    /// entries per declaration.
+    pub fn structure_html(&self, decl: &Decl, refs: &Refs<'_>) -> Result<String, UnplaceableName> {
         let mut contained: Option<HashSet<&str>> = None;
         let mut lis = String::with_capacity(512);
         for field in decl.members.iter().filter(|m| m.label == "field") {
-            self.field_html(&mut lis, decl, field, &refs, &mut contained)?;
+            self.field_html(&mut lis, decl, field, refs, &mut contained)?;
         }
 
         let ctor_name = match decl.members.iter().find(|m| m.label == "ctor") {
@@ -459,11 +483,12 @@ impl<'a> DeclRenderer<'a> {
     ///
     /// Byte reproduction could not have caught it either: the oracle only ever
     /// saw pages of a package with no inductives on it.
-    pub fn constructors_html(&self, decl: &Decl) -> String {
-        let refs = decl_refs(decl);
+    /// `refs` is [`decl_refs`] of `decl` — a parameter for the reason
+    /// [`Self::structure_html`] gives.
+    pub fn constructors_html(&self, decl: &Decl, refs: &Refs<'_>) -> String {
         let mut lis = String::with_capacity(256);
         for ctor in decl.members.iter().filter(|m| m.label == "ctor") {
-            self.ctor_html(&mut lis, ctor, &refs);
+            self.ctor_html(&mut lis, ctor, refs);
         }
         if lis.is_empty() {
             return String::new();
@@ -600,8 +625,8 @@ impl<'a> DeclRenderer<'a> {
     /// docstring, fields, and whatever the kind adds after them.
     pub fn decl_html(&self, decl: &Decl) -> Result<String, UnplaceableName> {
         let refs = decl_refs(decl);
-        let head = decl_head_html(decl, &self.module.module, self.source_url);
-        let signature = decl_signature(decl, &self.module.module, &self.code);
+        let head = decl_head_html(decl, self.root, &self.module.module, self.source_url);
+        let signature = signature_with(decl, self.root, &self.code, &refs);
 
         // `Attr::text` rejoins the schema-5 `(name, value)` pair into the one
         // string schema 4 carried, which is what keeps this byte-identical
@@ -635,7 +660,7 @@ impl<'a> DeclRenderer<'a> {
         let mut extra = String::new();
         match decl.kind.as_str() {
             kind @ ("structure" | "class") => {
-                body = self.structure_html(decl)?;
+                body = self.structure_html(decl, &refs)?;
                 extra = if kind == "class" {
                     class_instances_html(&decl.name)
                 } else {
@@ -648,11 +673,11 @@ impl<'a> DeclRenderer<'a> {
             }
             "instance" => extra = equations_html(decl, self.root, &refs, &self.code),
             "inductive" => {
-                body = self.constructors_html(decl);
+                body = self.constructors_html(decl, &refs);
                 extra = instances_for_html(&decl.name);
             }
             "class_inductive" => {
-                body = self.constructors_html(decl);
+                body = self.constructors_html(decl, &refs);
                 extra = class_instances_html(&decl.name);
             }
             // theorem / axiom / opaque / constructor
@@ -799,7 +824,7 @@ mod tests {
             back: 0,
         }];
         assert_eq!(
-            decl_head_html(&d, "Pkg.M", "https://x/Pkg/M.lean"),
+            decl_head_html(&d, &page_root("Pkg.M"), "Pkg.M", "https://x/Pkg/M.lean"),
             "<header class=\"decl-head\"><span class=\"kind\">abbrev</span>\
              <h2 class=\"decl-name\"><a class=\"break_within\" href=\".././Pkg/M.html#Pkg.M.f\">\
              <span class=\"name\">Pkg</span>.<span class=\"name\">M</span>.\
@@ -807,7 +832,7 @@ mod tests {
              <a class=\"src\" href=\"https://x/Pkg/M.lean#L1-L1\">source</a></header>"
         );
         assert_eq!(
-            decl_signature(&d, "Pkg.M", &CodeRenderer::new(&names)),
+            decl_signature(&d, &page_root("Pkg.M"), &CodeRenderer::new(&names)),
             "<div class=\"sig\">\
              <span class=\"binder\"><span class=\"fn\">\
              (n : <a href=\".././Init/Prelude.html#Nat\">Nat</a>)</span></span>\n\
@@ -830,7 +855,7 @@ mod tests {
         for kind in ["structure", "class"] {
             let mut d = decl("P", kind);
             d.members.clone_from(&parents);
-            let html = decl_signature(&d, "Pkg", &code);
+            let html = decl_signature(&d, &page_root("Pkg"), &code);
             assert!(
                 html.contains(
                     "<span class=\"extends\">extends</span> \
@@ -843,7 +868,7 @@ mod tests {
         // Same members under a kind that has no parents section.
         let mut d = decl("P", "class_inductive");
         d.members = parents;
-        assert!(!decl_signature(&d, "Pkg", &code).contains("class=\"extends\""));
+        assert!(!decl_signature(&d, &page_root("Pkg"), &code).contains("class=\"extends\""));
     }
 
     #[test]

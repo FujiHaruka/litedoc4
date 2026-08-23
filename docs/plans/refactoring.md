@@ -686,6 +686,15 @@ CLAUDE.md「落ちたときに何が壊れたか 1 行で言えないゲート�
   今これらが自由関数なのは `tests/page_parts.rs:178` の `head_and_signature()` が単体で呼ぶためなので、
   テスト側を `DeclRenderer` を組む形に寄せる。**最小手は `DeclRenderer::new` に `debug_assert_eq!`**
 
+#### 結果【2026-08-23】— **メソッド化ではなく引数化で解けた**
+
+`decl_head_html` / `decl_signature` に **`root` を引数として足した**。`DeclRenderer` は
+`self.root` を渡し、2 つの関数は導出しない。**経路が 1 本になれば取り違えは起きない**ので、
+メソッド化も `debug_assert_eq!` も要らなかった。
+
+**副産物**: `decl_signature` から `module` 引数が落ちた — `page_root(module)` のためだけに
+取っていたので、`root` を受け取ると使い道が無くなる。**clippy の `unused_variable` が教えた。**
+
 ### S2 — `PageRoot` の newtype を入れる (S1 の再発防止を兼ねる)
 
 同型の `&str` が並ぶシグネチャが 7 箇所。**逆にしても型検査が何も守らない。**
@@ -704,6 +713,23 @@ CLAUDE.md「落ちたときに何が壊れたか 1 行で言えないゲート�
 - **やること**: `#[derive(Clone, Copy)] pub struct PageRoot<'a>(&'a str)` を `autolink.rs` に置き、
   `page_root` がそれを返す。**`decl_head_html` が `PageRoot` を要求すれば S1 の「導出し直す」が
   そもそも書けなくなる**
+
+#### 結果【2026-08-23】— **やめた。見積もりを外した**
+
+`RootHref<'a>(&'a str)` を入れ、`link_to` / `module_link` / `head_html` / `topbar_html` /
+`sidebar_html` / `module_meta_html` / `const_link` / `fragment` / `PageLinks::root` /
+`DeclRenderer::root` まで通した。**lib はコンパイルが通った** — 型で分ける価値も確認できた:
+`external.rs` の `base_for(root: &str)` の `root` は**モジュールルート**で、
+ページルートとは別物だった。
+
+**壊れたのは呼び出し元のリテラルを包む段。** `"../"` を `RootHref::new("../")` に替える対象は
+**文脈でしか判別できず、正規表現には文脈が無い**。`lean_quote("./")` のテストや
+`trim_start_matches("./")` まで包み、エラーが 47 → 134 に増えたところで `git stash` に退避した。
+
+**見積もりの誤り**: 計画は「80〜120 行」と書いたが、実際は**呼び出し元 60 箇所超を
+1 つずつコンパイラに挙げさせて手で直す**規模。S1 が引数化で解けた以上、
+**この型が今すぐ要る理由は無い** — 再開するなら段 2 の外で、独立した作業として。
+退避した差分は `git stash list` の "S2 の RootHref" に残っている。
 - `fill_block` は `enum Fill { InstancesFor, Instances, UsedBy }` にすれば
   `data-fill` と `<summary>` が 1 箇所で対になる
 - `DepDocs::new` は K/V を 2 組に分けるか、builder メソッドを 2 本に分ける
@@ -743,6 +769,25 @@ CLAUDE.md「落ちたときに何が壊れたか 1 行で言えないゲート�
   `assets.rs:193-195` は md を除外する理由を書いているが **web/ については何も言っていない = 漏れ**
 - やること: TS 用に `className = "…"` / `classList.add("…")` を拾う 2 本目のスキャナ。
   **作った当日に一度落とす** (`.count` を CSS から消して赤くなるのを見てから戻す)
+
+#### 結果【2026-08-23】
+
+`assets.rs` に `scripted_classes` を足し、`web/src` の 5 ファイルを `include_str!` で読む。
+**`x.className = "name"` の 1 形だけを見る** — `rg` で確認した結果その綴りしか無く、
+**推測で広げると「見ている」と言えない範囲まで主張することになる**。
+空振りしないことは `from_scripts >= 8` で固定した。
+
+**予告どおり一度落とした。そこで計画の数字が 1 つ違っていたと分かった**:
+`style.css` から `.count` を消すと、ゲートは
+
+```
+"frame.rs: .count",
+"web/src/imported-by.ts: .count",
+```
+
+の**両方**を挙げた。`.count` は Rust 側 (`frame.rs`) も出していたので、
+**未検査だったのは 8 クラスではなく 7 クラス** (`search-empty` / `kind` / `where` /
+`row` / `twisty` / `twisty-spacer` / `node-name`)。**落としてみなければ分からなかった。**
 
 ### S6 — `PageLinks::name_to_link` が公開 API 上で panic する
 

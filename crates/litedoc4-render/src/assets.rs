@@ -157,6 +157,30 @@ mod tests {
         out
     }
 
+    /// Every class the site's TypeScript assigns at run time.
+    ///
+    /// `x.className = "name";` and nothing else — the site's scripts have no
+    /// other spelling【実測 2026-08-23: `rg 'className|classList|class='`
+    /// over `web/src`】, and a scanner that guessed at more shapes would be
+    /// claiming a coverage it cannot check.
+    ///
+    /// These classes never appear in the renderer's HTML, so the Rust scan
+    /// above cannot see them — and the failure they have is the same one it
+    /// exists for: rename a class and the page still renders, the checks still
+    /// pass, and only the styling is gone.
+    fn scripted_classes(source: &str) -> Vec<&str> {
+        const OPEN: &str = ".className = \"";
+        let mut out = Vec::new();
+        let mut rest = source;
+        while let Some(at) = rest.find(OPEN) {
+            rest = &rest[at + OPEN.len()..];
+            let Some(end) = rest.find('"') else { break };
+            out.extend(rest[..end].split_whitespace());
+            rest = &rest[end..];
+        }
+        out
+    }
+
     /// Every `.name` in the stylesheet, from anywhere in it.
     ///
     /// Deliberately crude — it takes selectors out of comments too, and it does
@@ -208,6 +232,29 @@ mod tests {
             ("decl.rs", include_str!("decl.rs")),
             ("code.rs", include_str!("code.rs")),
         ];
+        // The site's scripts put classes on the page too, and `build.rs`
+        // already reruns on `web/src`. Leaving them out was not a decision —
+        // the heading below says why `litedoc4-md` is excluded and says nothing
+        // about these【実測 2026-08-23: 8 classes, all styled】.
+        let scripted = [
+            ("web/src/tree.ts", include_str!("../web/src/tree.ts")),
+            (
+                "web/src/result-item.ts",
+                include_str!("../web/src/result-item.ts"),
+            ),
+            (
+                "web/src/instances.ts",
+                include_str!("../web/src/instances.ts"),
+            ),
+            (
+                "web/src/search-box.ts",
+                include_str!("../web/src/search-box.ts"),
+            ),
+            (
+                "web/src/imported-by.ts",
+                include_str!("../web/src/imported-by.ts"),
+            ),
+        ];
         let mut seen = 0;
         let mut missing: Vec<String> = Vec::new();
         for (file, source) in sources {
@@ -218,6 +265,20 @@ mod tests {
                 }
             }
         }
+        let mut from_scripts = 0;
+        for (file, source) in scripted {
+            for class in scripted_classes(source) {
+                seen += 1;
+                from_scripts += 1;
+                if !styled.contains(class) {
+                    missing.push(format!("{file}: .{class}"));
+                }
+            }
+        }
+        assert!(
+            from_scripts >= 8,
+            "only {from_scripts} scripted class names found — did the scan break?"
+        );
         missing.sort_unstable();
         missing.dedup();
         assert!(

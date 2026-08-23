@@ -179,8 +179,17 @@ impl Case {
         let index = self.index();
         let decl = &self.module.declarations[self.at];
         let code = CodeRenderer::new(&index);
-        let mut out = decl_head_html(decl, &self.module.module, &self.source_url);
-        out.push_str(&decl_signature(decl, &self.module.module, &code));
+        let mut out = decl_head_html(
+            decl,
+            &page_root(&self.module.module),
+            &self.module.module,
+            &self.source_url,
+        );
+        out.push_str(&decl_signature(
+            decl,
+            &page_root(&self.module.module),
+            &code,
+        ));
         out
     }
 
@@ -1038,8 +1047,13 @@ fn the_whole_corpus_carries_the_prototypes_content() {
                 .unwrap_or_else(|| panic!("the IR has more declarations than the oracle"));
             let what = format!("{} {} header", module.module, decl.name);
             assert_eq!(want.what, what, "the two sides walk the IR differently");
-            let mut got = decl_head_html(decl, &module.module, &source_url);
-            got.push_str(&decl_signature(decl, &module.module, &code));
+            let mut got = decl_head_html(
+                decl,
+                &page_root(&module.module),
+                &module.module,
+                &source_url,
+            );
+            got.push_str(&decl_signature(decl, &page_root(&module.module), &code));
             if let Err(why) = Content::of(&want.html).matches_head(&Content::of(&got)) {
                 note(&mut failures, &what, &why);
             }
@@ -1060,8 +1074,13 @@ fn the_whole_corpus_carries_the_prototypes_content() {
                 .unwrap_or_else(|| panic!("the IR has more page entries than the oracle"));
             let what = format!("{} {}", module.module, decl.name);
             assert_eq!(want.what, what, "the two sides order the page differently");
-            let mut header = decl_head_html(decl, &module.module, &source_url);
-            header.push_str(&decl_signature(decl, &module.module, &code));
+            let mut header = decl_head_html(
+                decl,
+                &page_root(&module.module),
+                &module.module,
+                &source_url,
+            );
+            header.push_str(&decl_signature(decl, &page_root(&module.module), &code));
             if let Err(why) = Content::of(&want.header).matches_head(&Content::of(&header)) {
                 note(&mut failures, &format!("{what} (header)"), &why);
             }
