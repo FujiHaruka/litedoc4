@@ -1129,6 +1129,39 @@ fn impact_refuses_a_missing_ir_and_an_unrecognised_mode() {
     );
 }
 
+/// A `--changed` name the index does not have is **exit 3, by name**.
+///
+/// This is the typo a person actually makes, and the reason it cannot be
+/// ignored is in `litedoc4_incr`'s own docstring: under-rendering has to be
+/// loud. A run that shrugged at an unknown name would select nothing for it,
+/// report a smaller set, and leave the pages that really did change unwritten —
+/// with every count in the summary looking reasonable.
+#[test]
+fn impact_refuses_a_changed_module_the_index_does_not_have() {
+    let work = TEMP.make("impact-not-a-module");
+    let ir = work.path().join("ir");
+    write_ir(&ir, &package());
+
+    let typo = LITEDOC4.run(&[
+        "impact".as_ref(),
+        "--ir".as_ref(),
+        ir.as_os_str(),
+        "--changed".as_ref(),
+        "Pkg.Aa".as_ref(),
+    ]);
+    assert_eq!(code(&typo), 3, "{}", stderr(&typo));
+    assert!(
+        message(&typo).contains("Pkg.Aa"),
+        "the refusal names the module that is not one: {}",
+        message(&typo),
+    );
+    assert!(
+        message(&typo).contains("not a module of this package"),
+        "{}",
+        message(&typo),
+    );
+}
+
 // ------------------------------------------------------------------- `prune`
 
 /// The page tree a deletion is asked of, plus one page no module claims.
