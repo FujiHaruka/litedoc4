@@ -243,13 +243,20 @@ C2/C3 は**プロセスを起こす統合テスト**にする — `ExitCode` は
 **ここは「全部やる」段ではない。** 各ファイルの未カバー行を読んで、
 **利用者に当たる経路だけ**を選ぶ。選ばなかったものは理由を書いて閉じる。
 
+**対象は段 2 の後に測り直して確定した**【実測 2026-08-24、本体 86.9% → **90.3%**、
+未カバー 1242 → 923 行】。以下の % と行数はその再計測の値:
+
 | ID | 対象 | 見るもの |
 |---|---|---|
-| **P1** | `litedoc4/src/build.rs` (81%) | 未カバー 100 行のうち、拒否・フォールバック経路 |
-| **P2** | `litedoc4/src/pipeline.rs` (83%) | 同上 114 行 |
-| **P3** | `litedoc4/src/extract.rs` (75%) / `stages.rs` (77%) | 引数の組み合わせと拒否 |
-| **P4** | `litedoc4-global/src/site.rs` (70%) / `litedoc4-incr/src/prune.rs` (73%) | |
-| **P5** | `litedoc4/src/deps_docs.rs` (80%) / `resident.rs` (86%) | |
+| **P1** | `litedoc4/src/build.rs` (89%、73 行) | 拒否・フォールバック経路 |
+| **P2** | `litedoc4/src/deps_docs.rs` (82%、63) / `pipeline.rs` (92%、63) | |
+| **P3** | `litedoc4/src/resident.rs` (90%、60) / `extract.rs` (89%、26) / `stages.rs` (93%、15) | 引数の組み合わせと拒否 |
+| **P4** | `litedoc4-global/src/site.rs` (78%、38) / `litedoc4-incr/src/prune.rs` (83%、35) / `merge.rs` (87%、53) | |
+| **P5** | `litedoc4/src/packages.rs` (87%、27) / `httpd.rs` (91%、19) / `litedoc4-md/src/html.rs` (94%、20) | |
+
+**この段の既定は「やらない」。** 90% を超えた木で残っている行は、**大半が拒否経路の
+`?` 伝播とフォールバック**である。段 4 を終えた時点でもう一度測り、
+**利用者に当たると 1 行で言えるものだけ**拾う。
 
 ### 段 7 — 仕上げ
 
