@@ -116,6 +116,29 @@ fn ascii_fold(name: &str) -> String {
 ///
 /// `entries` must already be in the order the site wants them ranked in;
 /// nothing here sorts. `kinds` are the badge labels the subscripts point at.
+///
+/// # Panics
+///
+/// On a package this format cannot hold. Every limit below is a field width of
+/// `search-index.bin` — they are the module heading's layout read as
+/// constraints — so breaking one says "this package is larger than the file can
+/// describe", not "the input is malformed". That is why they are assertions:
+/// there is no partial index to hand back, and truncating one name silently
+/// would be a search that disagrees with the pages it links to.
+///
+/// | limit | the field whose width it is |
+/// |---|---|
+/// | at most 255 kind labels, and every [`Entry::kind`] under 256 | `kind_of`, one byte per declaration |
+/// | every kind label under 256 bytes | the label's own length byte |
+/// | fewer than 65,536 modules | the module column, one u16 per declaration |
+/// | every name, and its `to_lowercase()`, under 64 KiB | the long-suffix escape and the fold section's length |
+/// | fewer than 2^32 declarations | `count`, and the subscripts in the fold section |
+/// | the file itself under 4 GiB | every offset and length in the 52-byte header |
+///
+/// **The nearest of them is the module column**, and it is an eighth of the way
+/// off: Mathlib entire is 8,169 modules 【実測 → `docs/verification-log.md`】.
+/// [`decode`] does not panic for any of this — it answers a different question,
+/// "are these bytes such a file", and says `None` when they are not.
 #[must_use]
 pub fn encode(entries: &[Entry<'_>], kinds: &[&str]) -> Vec<u8> {
     assert!(
