@@ -73,11 +73,20 @@ impl<'a> Args<'a> {
 
 /// What every subcommand's `--help` arm does.
 ///
-/// Eleven of the fourteen subcommands answer it this way. The other three do
+/// Twelve of the fourteen subcommands answer it this way. The other two do
 /// not, and both differences are on purpose: [`crate::build`] returns
 /// `Err(Failure::Answered(0))` because its `Ok` means "run", and
 /// [`crate::watch`] scans for it before the parse. Their reasons are written
 /// where they are.
+///
+/// **This said eleven and three until 2026-08-24, and the third was never
+/// named** — because nothing had decided it. [`crate::ledger`] takes a
+/// subcommand in front of its flag loop, so `litedoc4 ledger --help` never
+/// reached the arm above: it was refused as an unknown subcommand *called*
+/// `--help`, alone among the fourteen. **The count that did not add up was the
+/// only sign there was.** `crates/litedoc4/tests/cli_surface.rs` now asks all
+/// fourteen, so the next one to drift is a red test rather than a sentence
+/// nobody re-derives.
 pub(crate) fn help() -> Result<(), Failure> {
     println!("{USAGE}");
     Ok(())

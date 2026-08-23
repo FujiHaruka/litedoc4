@@ -73,6 +73,15 @@ pub fn ledger(args: &[String]) -> Result<(), Failure> {
     let Some(command) = args.first().map(String::as_str) else {
         return usage("ledger needs a subcommand: build, check or touch");
     };
+    // **Before the subcommand, because that is where a person types it.** Every
+    // other subcommand answers `--help` inside its own flag loop, and so does
+    // this one (`ledger check --help`) — but this is the only command with a
+    // subcommand in front of that loop, so without this arm `litedoc4 ledger
+    // --help` reaches the loop's `other` arm and is refused as an unknown
+    // subcommand *named* `--help`.
+    if matches!(command, "--help" | "-h") {
+        return crate::cli::help();
+    }
     let mut args = crate::cli::Args::new(&args[1..]);
     while let Some(arg) = args.next() {
         if let Some((_, accepted)) = LEDGER_FLAGS.iter().find(|(flag, _)| *flag == arg.as_str())

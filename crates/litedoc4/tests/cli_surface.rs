@@ -14,6 +14,28 @@ const TEMP: TempDirs = TempDirs::prefixed("litedoc4-cli-surface");
 
 const LITEDOC4: Cli = Cli::at(env!("CARGO_BIN_EXE_litedoc4"));
 
+/// Every subcommand `main.rs` dispatches, spelled out.
+///
+/// Derived from nothing: the dispatch `match` is the only other place these
+/// names live, and a list built from it would agree with it by construction.
+/// A subcommand added there and not here is one nobody checked.
+const COMMANDS: [&str; 14] = [
+    "build",
+    "watch",
+    "incremental",
+    "modules",
+    "links",
+    "extract",
+    "site",
+    "render",
+    "global",
+    "ledger",
+    "ownership",
+    "merge",
+    "impact",
+    "prune",
+];
+
 /// `--version` is read by a release check, so it says the crate's own version
 /// rather than a string beside it that could drift.
 #[test]
@@ -94,4 +116,37 @@ fn a_run_that_could_not_finish_costs_exit_1_and_prints_no_usage() {
         "a run that failed is not a command line to re-read: {}",
         stderr(&output)
     );
+}
+
+/// **Every subcommand answers `--help`, and with the same bytes.**
+///
+/// `cli::help` exists because this arm had already drifted into three
+/// spellings once, and the drift is silent: a subcommand that stops answering
+/// still builds, still runs, and only fails the person who typed `--help`.
+///
+/// Both spellings, because they are separate patterns in every arm that has
+/// them — a `match` that lost `-h` passes a check that only asks `--help`.
+#[test]
+fn every_subcommand_answers_help_with_the_same_usage() {
+    let usage = stdout(&LITEDOC4.run(&["--help"]));
+    assert!(
+        usage.starts_with("usage: litedoc4 build"),
+        "the top-level usage is the thing being compared against: {usage}"
+    );
+    for command in COMMANDS {
+        for spelling in ["--help", "-h"] {
+            let output = LITEDOC4.run(&[command, spelling]);
+            assert_eq!(
+                code(&output),
+                0,
+                "`litedoc4 {command} {spelling}` was refused: {}",
+                message(&output)
+            );
+            assert_eq!(
+                stdout(&output),
+                usage,
+                "`litedoc4 {command} {spelling}` answered with different bytes"
+            );
+        }
+    }
 }
