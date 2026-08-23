@@ -1823,6 +1823,67 @@ rustdoc は `corpus.rs` の `//!` ヘッダと連結した**全体を `lib.rs` �
 
 **`test`: 457 → 466 passed / 0 failed / 22 ignored** (増えた 9 本が上記)。5 種すべて緑。
 
+#### 結果【2026-08-23】— **後半 (HTML / テキストヘルパ)。置き場所が 2 つに割れた**
+
+**行き先は 1 つではない**【判断】。`litedoc4_render` の型か HTML を知っているものは
+**`crates/litedoc4-render/tests/common/mod.rs`** (既存)、文字列処理だけで 2 crate が要るものは
+**`crates/litedoc4-testutil/src/text.rs`** (新規)。**testutil に `litedoc4-render` を依存させない**ため。
+`common/mod.rs` を `mod common;` する test binary は **3 → 5** に増えた。
+
+**`show` は 5 コピーだが方針は 2 つで、片方は欠陥**:
+
+| 版 | 場所 | 挙動 |
+|---|---|---|
+| A | `fragment.rs` | `\n` / `\t` を名前化、印字可能なものは非 ASCII も残す |
+| B | `autolink.rs` | **A から `'\t'` の枝が落ちている** ← U3 が言う「失敗メッセージが比較できない」の実体 |
+| C | `differential.rs` | ASCII graphic と空白以外は全部 `<U+XXXX>` |
+| D | md の 2 本 (バイト同一) | C を 200 字で打ち切り |
+
+**A と C は好みではなく対象の違い**なので 1 本に畳まず、`show` (=A) / `show_ascii` (=C) /
+`show_ascii_head` (=D) の 3 本にして**どちらを選ぶかを doc に書いた**。根拠は数えた
+【実測 2026-08-23】: render 側のフィクスチャは非 ASCII を **3,409 / 2,126 字**持つので
+`<U+2082>` にすると読めなくなる。md 側は結合文字 (U+0301 等) を **12 / 28 個**持つので、
+文字を出すと `expected é, got é` になる。
+
+**`first_difference` は 3 コピーだが、同じ関数は 2 つだけ。** `page_parts.rs` (窓 40/90、
+ラベル frozen/here) と `md/docgen4.rs` (窓 40/40、`show` 経由、ラベル doc-gen4/here) を
+`Diff { want, want_label, got, got_label }` + `report()` / `report_escaped()` に畳んだ
+(**ラベル 2 本を引数の並びで渡さない** — §4 R8 が 3 つの署名から外した弱さ)。
+窓は 1 つの定数にした (40/90) — **同じ corpus の 2 つの失敗が比較できることが要求そのもの**。
+**`ref_pages.rs` の同名関数は畳まない** — 片側の窓を返すだけでラベルも 2 者比較も無い。
+§14 の「名前が偶然一致しているだけ」なので **`context_where_they_part` に改名**した。
+
+**`Case::index()` は 4 コピー、一致は 2 だけ** (`page_parts` と `autolink` が 8 行のコメント込みで
+バイト同一)。`common::name_index(ir_modules, known, lidx)` に畳み、**`fragment.rs` と
+`docgen4_linked.rs` には「なぜ共有版ではないか」を 1 行ずつ書いた** (前者は `.lidx` を持たない、
+後者は `build` であって `build_with_a_page_for_every_module` ではない)。**似ているが違う世界が
+3 つあることは、1 文ずつ書く価値がある。**
+
+**`#[expect]` が仕事をした**【実測】: `fragment.rs` と `autolink.rs` のファイル頭にあった
+`#![expect(clippy::format_push_string, …)]` は **`show` のためだけ**にあり、`show` を出したら
+両方 unfulfilled になって `-D warnings` で落ちた。`text.rs` 側は `write!` で書いたので抑制自体が要らない。
+
+**畳めなかったもの・畳まなかったもの**:
+
+- `attr_values` は**本体はバイト同一だが doc が違った** — `page_parts.rs` の方に
+  「先頭の空白が `id` を `data-name` の中にマッチさせない」という 1 文が余分にある。**長い方を残した**
+- `ref_pages.rs` の `wrapped(page, open, from)` は `between` と別物 (`(usize, &str)` を返し
+  `</div>` を直書きしている)。**畳まない**
+
+**挙動が変わったのは失敗メッセージだけで、アサートは 1 つも動いていない**【確認済】:
+(1) `autolink.rs` が `\t` を名前化するようになった (これが直したかった欠陥)、
+(2) `md/docgen4.rs` の窓が 40/40 → 40/90 (比較可能にすることが目的)、
+(3) 同じく `String::from_utf8_lossy` をやめ `floor_char_boundary` に変えた
+(**境界で切れると `<U+FFFD>` が出ていた**)。`differential.rs` / `md4lean.rs` / `page_parts.rs` の
+メッセージはバイト同一で、`Diff` の書式は単体テストが綴りごと固定している。
+
+**新しい検査 10 本 + doctest 1 本、すべて一度落としてから通した**【実測】。
+**そのうち 1 本は最初トートロジーだった** — 窓幅の検査を `window.len() == BEFORE + AFTER` と
+書いていて、`AFTER` を 40 に戻す変異が通ってしまった。定数を読まずに **130 を直に書く**形に
+直したら落ちるようになった。**ゲートは自分では自分を検査しない** (CLAUDE.md) の小さな実例。
+
+**`test`: 466 → 477 passed / 0 failed / 22 ignored**。5 種 + `cargo machete` すべて緑。
+
 ### U4 — `crates/litedoc4/tests/` の fake extractor が 2 本に分岐済み【U3 より重い】
 
 - `tests/build.rs:197-263` と `tests/incremental.rs:1015-1067`。

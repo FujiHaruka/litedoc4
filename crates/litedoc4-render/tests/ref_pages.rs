@@ -357,14 +357,20 @@ fn record(failures: &mut Vec<String>, counts: &mut Counts, what: &str, want: &st
     }
     failures.push(format!(
         "{what}\n  page: {}\n  here: {}",
-        first_difference(want, got),
-        first_difference(got, want)
+        context_where_they_part(want, got),
+        context_where_they_part(got, want)
     ));
 }
 
-/// The first place two strings part company, with context, so a failure is
-/// readable when both sides are 2 kB of HTML.
-fn first_difference(a: &str, b: &str) -> String {
+/// The context around the first place `a` and `b` part company, **out of `a`
+/// alone**.
+///
+/// Deliberately not `litedoc4_testutil::text::Diff::report`: this returns one
+/// side, unlabelled, and the caller above calls it twice with the arguments
+/// swapped to get the other. A two-sided report would put each window under a
+/// fixed label, and the two lines here are `page:` and `here:` of the *same*
+/// comparison rather than two comparisons.
+fn context_where_they_part(a: &str, b: &str) -> String {
     let at = a
         .char_indices()
         .zip(b.char_indices())

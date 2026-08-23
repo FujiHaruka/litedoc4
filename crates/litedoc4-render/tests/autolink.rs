@@ -56,10 +56,6 @@
     clippy::case_sensitive_file_extension_comparisons,
     reason = "reproduces the prototype's `endsWith`, which is the thing being checked"
 )]
-#![expect(
-    clippy::format_push_string,
-    reason = "in the escape helper, which runs only once an assertion has already failed"
-)]
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -68,10 +64,11 @@ use litedoc4_md::LinkResolver;
 use litedoc4_render::autolink::{NameIndex, PageLinks, module_decl_names, page_root};
 use litedoc4_render::{ExternalLinks, LinkIndex};
 use litedoc4_testutil::corpus;
+use litedoc4_testutil::text::show;
 use serde::Deserialize;
 
 mod common;
-use common::{Tally, rewrite_source_path_anchors, unescape};
+use common::{Tally, name_index, plain_anchors_of, rewrite_source_path_anchors};
 
 const FIXTURE: &str = include_str!("data/autolink-expected.json");
 
@@ -122,25 +119,7 @@ impl Case {
     /// The case's [`NameIndex`], built from its three sources the way a run
     /// builds it from the IR and the `.lidx`.
     fn index(&self) -> NameIndex {
-        let mut builder = NameIndex::builder();
-        for module in &self.ir_modules {
-            builder.module_name(module);
-        }
-        for (name, module) in &self.known {
-            builder.declaration(name, module);
-        }
-        // M7-c: the prototype had no dependency map, so its bytes are the
-        // **fallback** branch — which an empty [`ExternalLinks`] reproduces
-        // exactly. With a map every link into a dependency moves, on purpose
-        // (`docs/implementation-plan.md` §1).
-        //
-        // 2026-08-17: and the prototype rendered the whole environment, so its
-        // links point at pages it wrote. A run's world has pages for the target
-        // package alone; the oracle is resolved in the world it was recorded in.
-        builder.build_with_a_page_for_every_module(
-            LinkIndex::parse(&self.lidx),
-            ExternalLinks::default(),
-        )
+        name_index(&self.ir_modules, &self.known, &self.lidx)
     }
 
     fn render(&self) -> String {
@@ -372,7 +351,11 @@ fn depth_of_anchors(html: &str) -> usize {
 #[test]
 fn the_sample_reaches_every_branch() {
     let e = expected();
-    let anchors: Vec<(String, String)> = e.cases.iter().flat_map(|c| anchors_of(&c.html)).collect();
+    let anchors: Vec<(String, String)> = e
+        .cases
+        .iter()
+        .flat_map(|c| plain_anchors_of(&c.html))
+        .collect();
     assert!(
         anchors.len() >= 200,
         "only {} anchors in the sample",
@@ -560,44 +543,4 @@ fn the_whole_corpus_matches_the_prototype() {
         tally.relinked > 0 && tally.unchanged > 0,
         "{tally:?}: a rule that moved every link, or none, is not this one"
     );
-}
-
-// ------------------------------------------------------------------- helpers
-
-/// `(href, text)` of every anchor whose text is plain, which is every anchor
-/// `autoLinkInline` makes.
-fn anchors_of(html: &str) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let mut rest = html;
-    while let Some(at) = rest.find("<a href=\"") {
-        rest = &rest[at + 9..];
-        let Some(end) = rest.find('"') else { break };
-        let href = unescape(&rest[..end]);
-        rest = &rest[end + 2..];
-        let Some(close) = rest.find("</a>") else {
-            break;
-        };
-        let text = &rest[..close];
-        if !text.contains('<') {
-            out.push((href, unescape(text)));
-        }
-        rest = &rest[close + 4..];
-    }
-    out
-}
-
-/// Renders a string so a failure names the code points rather than printing
-/// control characters into the terminal.
-fn show(s: &str) -> String {
-    let mut out = String::new();
-    for c in s.chars() {
-        if c == '\n' {
-            out.push_str("\\n");
-        } else if (c.is_ascii_graphic() || c == ' ') || !c.is_control() {
-            out.push(c);
-        } else {
-            out.push_str(&format!("<U+{:04X}>", c as u32));
-        }
-    }
-    out
 }

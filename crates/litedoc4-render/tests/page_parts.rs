@@ -72,7 +72,11 @@ use litedoc4_render::decl::{DeclRenderer, UnplaceableName, decl_head_html, decl_
 use litedoc4_render::frame::{module_head_html, module_meta_html, module_source_url, sidebar_html};
 use litedoc4_render::{ExternalLinks, LinkIndex, SiteMeta, head_html, topbar_html};
 use litedoc4_testutil::corpus;
+use litedoc4_testutil::text::Diff;
 use serde::Deserialize;
+
+mod common;
+use common::{attr_values, between, name_index};
 
 const FIXTURE: &str = include_str!("data/page-parts-expected.json");
 
@@ -148,25 +152,7 @@ impl Case {
     /// The case's [`NameIndex`], built from its three sources the way a run
     /// builds it from the IR and the `.lidx`.
     fn index(&self) -> NameIndex {
-        let mut builder = NameIndex::builder();
-        for module in &self.ir_modules {
-            builder.module_name(module);
-        }
-        for (name, module) in &self.known {
-            builder.declaration(name, module);
-        }
-        // M7-c: the prototype had no dependency map, so its bytes are the
-        // **fallback** branch — which an empty [`ExternalLinks`] reproduces
-        // exactly. With a map every link into a dependency moves, on purpose
-        // (`docs/implementation-plan.md` §1).
-        //
-        // 2026-08-17: and the prototype rendered the whole environment, so its
-        // links point at pages it wrote. A run's world has pages for the target
-        // package alone; the oracle is resolved in the world it was recorded in.
-        builder.build_with_a_page_for_every_module(
-            LinkIndex::parse(&self.lidx),
-            ExternalLinks::default(),
-        )
+        name_index(&self.ir_modules, &self.known, &self.lidx)
     }
 
     /// The head and the signature, which together are what `declHeader` was:
@@ -392,25 +378,17 @@ fn the_corpus_numbers_are_what_was_measured() {
 /// Where two strings first differ, with a window either side.
 ///
 /// The blocks are kilobytes long and a failure that printed both of them whole
-/// would be unreadable, which is the same thing as unreported.
+/// would be unreadable, which is the same thing as unreported. [`Diff::report`]
+/// and not [`Diff::report_escaped`]: the subject here is HTML somebody reads,
+/// and this corpus is full of `₂` and `β`.
 fn first_difference(want: &str, got: &str) -> String {
-    let at = want
-        .bytes()
-        .zip(got.bytes())
-        .position(|(a, b)| a != b)
-        .unwrap_or_else(|| want.len().min(got.len()));
-    let window = |text: &str| -> String {
-        let start = text.floor_char_boundary(at.saturating_sub(40));
-        let end = text.floor_char_boundary((at + 90).min(text.len()));
-        text[start..end].to_owned()
-    };
-    format!(
-        "byte {at} of {} (frozen) / {} (here)\n  frozen: …{}…\n  here:   …{}…",
-        want.len(),
-        got.len(),
-        window(want),
-        window(got)
-    )
+    Diff {
+        want,
+        want_label: "frozen",
+        got,
+        got_label: "here",
+    }
+    .report()
 }
 
 /// Rewrites `tests/data/page-parts-expected.json` from this renderer's output,
@@ -1292,21 +1270,6 @@ fn differ(what: &str, want: &[String], got: &[String]) -> String {
     }
 }
 
-/// Every ` name="…"` value, in document order. The leading space is what keeps
-/// `id` from matching inside `data-name` and the like.
-fn attr_values<'a>(html: &'a str, name: &str) -> Vec<&'a str> {
-    let needle = format!(" {name}=\"");
-    let mut out = Vec::new();
-    let mut rest = html;
-    while let Some(at) = rest.find(&needle) {
-        let value = &rest[at + needle.len()..];
-        let end = value.find('"').unwrap_or(value.len());
-        out.push(&value[..end]);
-        rest = &value[end..];
-    }
-    out
-}
-
 /// Every whitespace-separated run of text outside a tag.
 fn words(html: &str) -> Vec<&str> {
     let mut out = Vec::new();
@@ -1337,12 +1300,6 @@ fn drop_element(html: &str, marker: &str, close: &str) -> String {
     }
     out.push_str(rest);
     out
-}
-
-fn between<'a>(html: &'a str, open: &str, close: &str) -> Option<&'a str> {
-    let at = html.find(open)? + open.len();
-    let end = html[at..].find(close)? + at;
-    Some(&html[at..end])
 }
 
 /// The `(href, text)` of every `<li>` of the list that follows `open`.

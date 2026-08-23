@@ -29,6 +29,7 @@ use litedoc4_ir::{Span, Utf16Text, cmp_utf16, sort_utf16};
 use litedoc4_render::escape::{escape_html, escape_html_into, lean_quote};
 use litedoc4_render::order::{cmp_name, string_lt};
 use litedoc4_render::whitespace::apply_ws_widths;
+use litedoc4_testutil::text::show_ascii;
 use serde::Deserialize;
 
 const FIXTURE: &str = include_str!("data/ts-expected.json");
@@ -65,20 +66,6 @@ fn expected() -> Expected {
     serde_json::from_str(FIXTURE).expect("tests/data/ts-expected.json is valid")
 }
 
-/// Renders a string so a failure names the code points rather than printing
-/// control characters into the terminal.
-fn show(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_ascii_graphic() || c == ' ' {
-                c.to_string()
-            } else {
-                format!("<U+{:04X}>", c as u32)
-            }
-        })
-        .collect()
-}
-
 #[test]
 fn fixture_is_the_prototypes_own_output() {
     let e = expected();
@@ -92,14 +79,19 @@ fn fixture_is_the_prototypes_own_output() {
 #[test]
 fn escape_html_matches_the_prototype() {
     for (input, want) in expected().escape_html {
-        assert_eq!(escape_html(&input), want, "escapeHtml({})", show(&input));
+        assert_eq!(
+            escape_html(&input),
+            want,
+            "escapeHtml({})",
+            show_ascii(&input)
+        );
         let mut buf = String::from("<p>");
         escape_html_into(&mut buf, &input);
         assert_eq!(
             buf,
             format!("<p>{want}"),
             "escapeHtmlInto({})",
-            show(&input)
+            show_ascii(&input)
         );
     }
 }
@@ -120,10 +112,10 @@ fn escape_html_leaves_the_apostrophe_alone() {
         assert!(
             !want.contains("&#"),
             "the prototype escaped {}",
-            show(input)
+            show_ascii(input)
         );
         let got = escape_html(input);
-        assert_eq!(got, *want, "escapeHtml({})", show(input));
+        assert_eq!(got, *want, "escapeHtml({})", show_ascii(input));
         assert_eq!(got.matches('\'').count(), input.matches('\'').count());
     }
 }
@@ -131,7 +123,12 @@ fn escape_html_leaves_the_apostrophe_alone() {
 #[test]
 fn lean_quote_matches_the_prototype() {
     for (input, want) in expected().lean_quote {
-        assert_eq!(lean_quote(&input), want, "leanQuote({})", show(&input));
+        assert_eq!(
+            lean_quote(&input),
+            want,
+            "leanQuote({})",
+            show_ascii(&input)
+        );
     }
 }
 
@@ -158,8 +155,8 @@ fn string_lt_matches_the_prototype() {
             string_lt(&a, &b),
             want,
             "stringLt({}, {})",
-            show(&a),
-            show(&b)
+            show_ascii(&a),
+            show_ascii(&b)
         );
     }
 }
@@ -174,7 +171,13 @@ fn name_lt_matches_the_prototype() {
         } else {
             Ordering::Equal
         };
-        assert_eq!(cmp_name(&a, &b), want, "nameLt({}, {})", show(&a), show(&b));
+        assert_eq!(
+            cmp_name(&a, &b),
+            want,
+            "nameLt({}, {})",
+            show_ascii(&a),
+            show_ascii(&b)
+        );
     }
 }
 
@@ -225,8 +228,8 @@ fn utf16_order_is_not_byte_order() {
         assert!(
             astral(a) || astral(b),
             "{} / {} disagree without a supplementary scalar",
-            show(a),
-            show(b)
+            show_ascii(a),
+            show_ascii(b)
         );
     }
 
@@ -244,7 +247,7 @@ fn utf16_order_is_not_byte_order() {
 fn string_lt_is_code_point_order_not_utf16_order() {
     let pairs = expected().string_lt;
     for (a, b, want) in &pairs {
-        assert_eq!(*want, a < b, "stringLt vs str::cmp on {}", show(a));
+        assert_eq!(*want, a < b, "stringLt vs str::cmp on {}", show_ascii(a));
     }
     let disagreeing = pairs
         .iter()
@@ -266,7 +269,7 @@ fn apply_ws_widths_matches_the_prototype() {
             case.output,
             "applyWsWidths({}): {}",
             case.what,
-            show(&case.text)
+            show_ascii(&case.text)
         );
         assert_eq!(
             got.changed_units, case.changed,

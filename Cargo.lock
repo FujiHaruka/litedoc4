@@ -189,6 +189,7 @@ name = "litedoc4-md"
 version = "0.2.0"
 dependencies = [
  "cc",
+ "litedoc4-testutil",
  "math-core",
  "serde",
  "serde_json",

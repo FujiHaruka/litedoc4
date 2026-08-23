@@ -45,10 +45,6 @@
     clippy::cast_possible_wrap,
     reason = "counts from the frozen fixture, differenced as isize"
 )]
-#![expect(
-    clippy::format_push_string,
-    reason = "in the escape helper, which runs only once an assertion has already failed"
-)]
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -60,7 +56,11 @@ use litedoc4_render::code::{
 };
 use litedoc4_render::{ExternalLinks, LinkIndex, break_within, css_kind};
 use litedoc4_testutil::corpus;
+use litedoc4_testutil::text::show;
 use serde::Deserialize;
+
+mod common;
+use common::anchors_of;
 
 const FIXTURE: &str = include_str!("data/fragment-expected.json");
 
@@ -130,6 +130,9 @@ struct PrivateCase {
 }
 
 impl Case {
+    /// **Not `common::name_index`.** This corpus has no `.lidx` and no IR
+    /// module list, so the index is built from `known` alone against an empty
+    /// [`LinkIndex`] — a different world, not the same one written twice.
     fn index(&self) -> NameIndex {
         let mut builder = NameIndex::builder();
         for (name, module) in &self.known {
@@ -695,49 +698,4 @@ fn the_whole_corpus_matches_the_prototype() {
         full.breaks.len(),
         full.privates.len()
     );
-}
-
-// ------------------------------------------------------------------- helpers
-
-/// `(href, text)` of every anchor in a fragment, with the text unescaped.
-fn anchors_of(html: &str) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let mut rest = html;
-    while let Some(at) = rest.find("<a href=\"") {
-        rest = &rest[at + 9..];
-        let Some(end) = rest.find('"') else { break };
-        let href = unescape(&rest[..end]);
-        rest = &rest[end + 2..];
-        let Some(close) = rest.find("</a>") else {
-            break;
-        };
-        out.push((href, unescape(&rest[..close])));
-        rest = &rest[close + 4..];
-    }
-    out
-}
-
-fn unescape(s: &str) -> String {
-    s.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&amp;", "&")
-}
-
-/// Renders a string so a failure names the code points rather than printing
-/// control characters into the terminal.
-fn show(s: &str) -> String {
-    let mut out = String::new();
-    for c in s.chars() {
-        if c == '\n' {
-            out.push_str("\\n");
-        } else if c == '\t' {
-            out.push_str("\\t");
-        } else if c.is_ascii_graphic() || c == ' ' || !c.is_control() {
-            out.push(c);
-        } else {
-            out.push_str(&format!("<U+{:04X}>", c as u32));
-        }
-    }
-    out
 }

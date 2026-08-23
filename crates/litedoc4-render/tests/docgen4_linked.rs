@@ -94,6 +94,10 @@ impl Case {
         )
     }
 
+    /// **Not `common::name_index`.** That one ends in
+    /// `build_with_a_page_for_every_module` against a parsed `.lidx`, which is
+    /// the prototype's whole-environment world; this corpus has no `.lidx` and
+    /// its oracle is doc-gen4, so it ends in `build`.
     fn index(&self) -> NameIndex {
         let mut builder = NameIndex::builder();
         for module in &self.modules {

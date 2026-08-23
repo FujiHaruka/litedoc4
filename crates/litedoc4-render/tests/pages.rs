@@ -69,7 +69,7 @@ use litedoc4_testutil::{TempDir, TempDirs};
 use serde::Deserialize;
 
 mod common;
-use common::{Tally, rewrite_source_path_anchors};
+use common::{Tally, attr_values, between, rewrite_source_path_anchors};
 
 /// The temporary directories this file makes. The prefix names the file,
 /// so a directory a failed run leaves behind names what made it.
@@ -1040,30 +1040,10 @@ fn items(main: &str, doc_open: &str, decl_open: &str) -> Vec<Item> {
     out
 }
 
-/// Every ` name="…"` value, in document order.
-fn attr_values<'a>(html: &'a str, name: &str) -> Vec<&'a str> {
-    let needle = format!(" {name}=\"");
-    let mut out = Vec::new();
-    let mut rest = html;
-    while let Some(at) = rest.find(&needle) {
-        let value = &rest[at + needle.len()..];
-        let end = value.find('"').unwrap_or(value.len());
-        out.push(&value[..end]);
-        rest = &value[end..];
-    }
-    out
-}
-
 fn sorted(values: Vec<&str>) -> Vec<String> {
     let mut out: Vec<String> = values.into_iter().map(str::to_owned).collect();
     out.sort();
     out
-}
-
-fn between<'a>(html: &'a str, open: &str, close: &str) -> Option<&'a str> {
-    let at = html.find(open)? + open.len();
-    let end = html[at..].find(close)? + at;
-    Some(&html[at..end])
 }
 
 /// The `(href, text)` of every `<li>` of the first `<ul>` after `from`.

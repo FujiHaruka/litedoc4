@@ -42,6 +42,7 @@
 use std::collections::BTreeSet;
 
 use litedoc4_md::ast::{AttrText, Block, Document, Li, Text};
+use litedoc4_testutil::text::show_ascii_head;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -219,27 +220,6 @@ fn enc_document(doc: &Document) -> Value {
 
 // ---------------------------------------------------------------- the checks
 
-/// Renders an input so a failure names the code points rather than printing
-/// control characters into the terminal.
-fn show(s: &str) -> String {
-    let head: String = s
-        .chars()
-        .take(200)
-        .map(|c| {
-            if c.is_ascii_graphic() || c == ' ' {
-                c.to_string()
-            } else {
-                format!("<U+{:04X}>", c as u32)
-            }
-        })
-        .collect();
-    if s.chars().count() > 200 {
-        format!("{head}...")
-    } else {
-        head
-    }
-}
-
 /// Compares one case, returning a description of the disagreement.
 ///
 /// The docstring cases go through [`litedoc4_md::parse`] rather than through
@@ -262,7 +242,7 @@ fn check(case: &Case, docstring_flags: u32) -> Option<String> {
         (_, Err(error)) => Some(format!(
             "{}: {error}\n  input: {}",
             case.what,
-            show(&case.md)
+            show_ascii_head(&case.md, 200)
         )),
         (want, Ok(doc)) => {
             let mine = enc_document(&doc);
@@ -272,7 +252,7 @@ fn check(case: &Case, docstring_flags: u32) -> Option<String> {
                 Some(format!(
                     "{}\n  input: {}\n  MD4Lean: {want}\n  here:    {mine}",
                     case.what,
-                    show(&case.md)
+                    show_ascii_head(&case.md, 200)
                 ))
             }
         }

@@ -52,6 +52,7 @@
 //! milestone step's, and it will need an oracle run with a real environment.
 
 use litedoc4_md::{NoLinks, Renderer};
+use litedoc4_testutil::text::{Diff, show_ascii_head};
 use serde::Deserialize;
 
 const FIXTURE: &str = include_str!("data/docgen4-expected.json");
@@ -93,49 +94,20 @@ fn expected() -> Expected {
     serde_json::from_str(FIXTURE).expect("tests/data/docgen4-expected.json is valid")
 }
 
-/// Renders an input so a failure names the code points rather than printing
-/// control characters into the terminal.
-fn show(s: &str) -> String {
-    let head: String = s
-        .chars()
-        .take(200)
-        .map(|c| {
-            if c.is_ascii_graphic() || c == ' ' {
-                c.to_string()
-            } else {
-                format!("<U+{:04X}>", c as u32)
-            }
-        })
-        .collect();
-    if s.chars().count() > 200 {
-        format!("{head}...")
-    } else {
-        head
-    }
-}
-
 /// The first byte at which two strings differ, with a window around it — a
 /// whole-page diff of a 4 KB docstring is unreadable.
+///
+/// [`Diff::report_escaped`] and not [`Diff::report`]: the subject is doc-gen4's
+/// bytes, and this corpus carries combining marks — a message that printed the
+/// characters could read `expected é, got é`.
 fn first_difference(want: &str, got: &str) -> String {
-    let at = want
-        .as_bytes()
-        .iter()
-        .zip(got.as_bytes())
-        .position(|(a, b)| a != b)
-        .unwrap_or_else(|| want.len().min(got.len()));
-    let from = at.saturating_sub(40);
-    let window = |s: &str| {
-        let to = (at + 40).min(s.len());
-        let from = from.min(s.len());
-        show(&String::from_utf8_lossy(&s.as_bytes()[from..to]))
-    };
-    format!(
-        "byte {at} of {} (doc-gen4) / {} (here)\n  doc-gen4: …{}…\n  here:     …{}…",
-        want.len(),
-        got.len(),
-        window(want),
-        window(got)
-    )
+    Diff {
+        want,
+        want_label: "doc-gen4",
+        got,
+        got_label: "here",
+    }
+    .report_escaped()
 }
 
 /// Compares one case, returning a description of the disagreement.
@@ -148,7 +120,7 @@ fn check(case: &Case) -> Option<String> {
         "{} (root {:?})\n  input: {}\n  {}",
         case.what,
         case.root,
-        show(&case.md),
+        show_ascii_head(&case.md, 200),
         first_difference(&case.html, &got)
     ))
 }
@@ -259,8 +231,8 @@ fn bless(e: &Expected) {
         println!(
             "bless {}\n  was: {}\n  now: {}",
             case.what,
-            show(&case.html),
-            show(&got)
+            show_ascii_head(&case.html, 200),
+            show_ascii_head(&got, 200)
         );
         value["html"] = serde_json::Value::String(got);
     }
