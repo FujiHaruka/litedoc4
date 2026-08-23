@@ -21,9 +21,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 use litedoc4_testutil::TempDirs;
+use litedoc4_testutil::cli::{Cli, code, stderr, stdout};
 use serde_json::{Value, json};
 
 /// The temporary directories this file makes. The prefix names the file,
@@ -32,31 +32,14 @@ const TEMP: TempDirs = TempDirs::prefixed("litedoc4-site");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 
+/// The binary under test, with this process's environment.
+const LITEDOC4: Cli = Cli::at(BIN);
+
 /// Plan 決定 1: 40 hex digits, or the acceptance oracle's revless normalisation
 /// misses and the score drops by 3.1103 points 【実測】. Nothing here reads the
 /// host, but a fixture that models the URL wrongly teaches the wrong shape.
 const URL: &str =
     "https://example.invalid/owner/repo/blob/0123456789abcdef0123456789abcdef01234567";
-
-fn litedoc4(args: &[&str]) -> Output {
-    Command::new(BIN)
-        .args(args)
-        .output()
-        .expect("the binary under test runs")
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
-}
-
-/// The exit code, with the process's own diagnostics attached: a test that only
-/// says "expected 2, got 1" makes the reader run the command by hand.
-fn code(output: &Output) -> i32 {
-    output
-        .status
-        .code()
-        .unwrap_or_else(|| panic!("the process was killed by a signal: {}", stderr(output)))
-}
 
 // --------------------------------------------------------------- the refusals
 
@@ -69,7 +52,7 @@ fn neither_link_index_flag_is_refused() {
     let ir = trees.path().join("ir");
     synthetic_ir(&ir);
     let out = trees.path().join("site");
-    let output = litedoc4(&[
+    let output = LITEDOC4.run(&[
         "site",
         "--ir",
         &ir.display().to_string(),
@@ -103,7 +86,7 @@ fn both_link_index_flags_are_refused() {
     let lidx = trees.path().join("link-index.lidx");
     write_lidx(&lidx);
     let out = trees.path().join("site");
-    let output = litedoc4(&[
+    let output = LITEDOC4.run(&[
         "site",
         "--ir",
         &ir.display().to_string(),
@@ -145,8 +128,7 @@ fn a_subset_flag_is_refused() {
             flag.to_owned(),
         ];
         args.extend(value.map(str::to_owned));
-        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = litedoc4(&borrowed);
+        let output = LITEDOC4.run(&args);
 
         assert_eq!(code(&output), 2, "{flag}: {}", stderr(&output));
         let message = stderr(&output);
@@ -166,7 +148,7 @@ fn a_delta_flag_is_refused() {
         let ir = trees.path().join("ir");
         synthetic_ir(&ir);
         let out = trees.path().join("site");
-        let output = litedoc4(&[
+        let output = LITEDOC4.run(&[
             "site",
             "--ir",
             &ir.display().to_string(),
@@ -196,7 +178,7 @@ fn the_renderers_spelling_of_the_output_tree_is_refused() {
     let ir = trees.path().join("ir");
     synthetic_ir(&ir);
     let out = trees.path().join("site");
-    let output = litedoc4(&[
+    let output = LITEDOC4.run(&[
         "site",
         "--ir",
         &ir.display().to_string(),
@@ -251,7 +233,7 @@ fn the_rest_of_the_command_line_is_checked() {
         ),
     ];
     for (args, expected) in cases {
-        let output = litedoc4(&args);
+        let output = LITEDOC4.run(&args);
         assert_eq!(code(&output), 2, "{expected}: {}", stderr(&output));
         assert!(
             stderr(&output).contains(expected),
@@ -266,9 +248,9 @@ fn the_rest_of_the_command_line_is_checked() {
 #[test]
 fn help_is_answered_and_the_usage_names_the_subcommand() {
     for args in [vec!["site", "--help"], vec!["--help"]] {
-        let output = litedoc4(&args);
+        let output = LITEDOC4.run(&args);
         assert_eq!(code(&output), 0, "{args:?}: {}", stderr(&output));
-        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        let text = stdout(&output);
         assert!(text.contains("litedoc4 site"), "{args:?}: {text}");
         assert!(text.contains("--no-link-index"), "{args:?}: {text}");
     }
@@ -293,7 +275,7 @@ fn the_site_is_render_then_global_over_the_same_tree() {
     write_lidx(&lidx);
 
     let one = trees.path().join("site");
-    let ok = litedoc4(&[
+    let ok = LITEDOC4.run(&[
         "site",
         "--ir",
         &ir.display().to_string(),
@@ -307,7 +289,7 @@ fn the_site_is_render_then_global_over_the_same_tree() {
     assert_eq!(code(&ok), 0, "{}", stderr(&ok));
 
     let two = trees.path().join("parts");
-    let rendered = litedoc4(&[
+    let rendered = LITEDOC4.run(&[
         "render",
         "--ir",
         &ir.display().to_string(),
@@ -319,7 +301,7 @@ fn the_site_is_render_then_global_over_the_same_tree() {
         &lidx.display().to_string(),
     ]);
     assert_eq!(code(&rendered), 0, "{}", stderr(&rendered));
-    let derived = litedoc4(&[
+    let derived = LITEDOC4.run(&[
         "global",
         "--ir",
         &ir.display().to_string(),
@@ -388,7 +370,7 @@ fn the_dependency_map_changes_the_bytes() {
     write_lidx(&lidx);
 
     let with = trees.path().join("with");
-    let ok = litedoc4(&[
+    let ok = LITEDOC4.run(&[
         "site",
         "--ir",
         &ir.display().to_string(),
@@ -402,7 +384,7 @@ fn the_dependency_map_changes_the_bytes() {
     assert_eq!(code(&ok), 0, "{}", stderr(&ok));
 
     let without = trees.path().join("without");
-    let ok = litedoc4(&[
+    let ok = LITEDOC4.run(&[
         "site",
         "--ir",
         &ir.display().to_string(),
@@ -443,7 +425,7 @@ fn the_timings_record_names_both_stages() {
     synthetic_ir(&ir);
     let out = trees.path().join("site");
     let timings = trees.path().join("nested/site-timings.json");
-    let ok = litedoc4(&[
+    let ok = LITEDOC4.run(&[
         "site",
         "--ir",
         &ir.display().to_string(),
@@ -486,7 +468,7 @@ fn the_cache_directory_reaches_the_derivation() {
         (1, "cache 5 hit / 0 miss"),
     ] {
         let out = trees.path().join(format!("site{run}"));
-        let ok = litedoc4(&[
+        let ok = LITEDOC4.run(&[
             "site",
             "--ir",
             &ir.display().to_string(),

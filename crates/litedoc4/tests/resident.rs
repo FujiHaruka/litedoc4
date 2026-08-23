@@ -22,9 +22,22 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::Output;
+
+use litedoc4_testutil::cli::{Cli, code, message, stderr};
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
+
+/// The binary under test, with `EXTRACT_BIN`, `TARGET_REPO` and `LAKE` taken
+/// out of the environment it starts in.
+///
+/// This file is the only one of the five that clears anything, and the clearing
+/// belongs to it: every case here ends **before a process exists**, so an
+/// inherited `EXTRACT_BIN` is the one thing that could carry a command line
+/// past a refusal and make "this flag is required" pass for the wrong reason.
+/// The other four `crates/litedoc4/tests/*.rs` deliberately keep the ambient
+/// environment (§7 U5 of `docs/plans/refactoring.md`).
+const LITEDOC4: Cli = Cli::at(BIN).clearing(&["EXTRACT_BIN", "TARGET_REPO", "LAKE"]);
 
 /// 40 lower-case hex digits after `/blob/`, or `incremental` refuses the URL
 /// before it ever looks at these flags (plan 決定 1).
@@ -191,7 +204,7 @@ fn extract_still_refuses_every_serve_spelling_and_now_says_why() {
     // somewhere else, so the refusal has to say where and why rather than name a
     // milestone that has passed.
     for flag in ["--serve", "--serve-dir", "--serve-from"] {
-        let refusal = litedoc4(&["extract".to_owned(), flag.to_owned()], &[]);
+        let refusal = LITEDOC4.run(&["extract", flag]);
         assert_eq!(code(&refusal), 2, "{flag}: {}", stderr(&refusal));
         let said = message(&refusal);
         assert!(said.contains("incremental --serve"), "{flag}: {said}");
@@ -254,7 +267,7 @@ impl World {
     }
 
     /// Every run clears `EXTRACT_BIN`, `TARGET_REPO` and `LAKE` (see
-    /// [`litedoc4`]), so a developer who exports one cannot make a "this is
+    /// [`LITEDOC4`]), so a developer who exports one cannot make a "this is
     /// required" case pass for the wrong reason.
     fn run(&self, extra: &[&str]) -> Output {
         self.run_with_env(extra, &[])
@@ -263,7 +276,7 @@ impl World {
     fn run_with_env(&self, extra: &[&str], env: &[(&str, &str)]) -> Output {
         let mut args = self.base();
         args.extend(extra.iter().map(|arg| (*arg).to_owned()));
-        litedoc4(&args, env)
+        LITEDOC4.run_with_env(&args, env)
     }
 }
 
@@ -271,40 +284,4 @@ impl Drop for World {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
-}
-
-/// Runs the binary with `EXTRACT_BIN`, `TARGET_REPO` and `LAKE` removed unless
-/// the case sets them.
-fn litedoc4(args: &[String], env: &[(&str, &str)]) -> Output {
-    let mut command = Command::new(BIN);
-    command.args(args);
-    for name in ["EXTRACT_BIN", "TARGET_REPO", "LAKE"] {
-        command.env_remove(name);
-    }
-    for (name, value) in env {
-        command.env(name, value);
-    }
-    command.output().expect("the binary under test runs")
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
-}
-
-/// The refusal itself. `main` prints `litedoc4: <message>\n\n<USAGE>` for a usage
-/// error, and the usage text names every flag — so an assertion over the whole of
-/// stderr would be an assertion about `USAGE` wearing a refusal's name.
-fn message(output: &Output) -> String {
-    stderr(output)
-        .split("\n\n")
-        .next()
-        .unwrap_or_default()
-        .to_owned()
-}
-
-fn code(output: &Output) -> i32 {
-    output
-        .status
-        .code()
-        .unwrap_or_else(|| panic!("the process was killed by a signal: {}", stderr(output)))
 }

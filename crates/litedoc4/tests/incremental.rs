@@ -43,8 +43,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
+use litedoc4_testutil::cli::{Cli, code, stderr, stdout};
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
 
@@ -53,6 +53,9 @@ use serde_json::{Value, json};
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-incr");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
+
+/// The binary under test, with this process's environment.
+const LITEDOC4: Cli = Cli::at(BIN);
 
 /// Plan 決定 1: 40 lower-case hex digits after `/blob/`, or `coverage.ts:512`'s
 /// revless normalisation misses and the acceptance score drops 3.1103 points
@@ -1113,7 +1116,7 @@ impl Live {
         write_world(&live.world_root, world);
         copy_tree(&live.world_root.join("ir"), &live.ir);
 
-        let ok = litedoc4(&[
+        let ok = LITEDOC4.run(&[
             "site",
             "--ir",
             &live.ir.display().to_string(),
@@ -1133,7 +1136,7 @@ impl Live {
     }
 
     fn write_module_list(&self) {
-        let ok = litedoc4(&[
+        let ok = LITEDOC4.run(&[
             "modules",
             "--root",
             &self.repo.display().to_string(),
@@ -1153,7 +1156,7 @@ impl Live {
     /// between two real runs is M4's question; here it is done explicitly, so
     /// that the seven states are seven states and not one repeated.
     fn refresh_ledger(&self) {
-        let ok = litedoc4(&[
+        let ok = LITEDOC4.run(&[
             "ledger",
             "build",
             "--modules",
@@ -1230,8 +1233,7 @@ impl Live {
     /// the same code path as a success.
     fn invoke(&self, args: &[String], work: &Path) -> Report {
         let pages_before = tree(&self.pages);
-        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = litedoc4(&borrowed);
+        let output = LITEDOC4.run(args);
         Report {
             args: args.to_vec(),
             code: code(&output),
@@ -1250,7 +1252,7 @@ impl Live {
         write_world(&root.join("baked"), world);
         let ir = root.join("ir");
         copy_tree(&root.join("baked").join("ir"), &ir);
-        let ok = litedoc4(&[
+        let ok = LITEDOC4.run(&[
             "site",
             "--ir",
             &ir.display().to_string(),
@@ -1667,7 +1669,7 @@ fn the_name_map_is_snapshotted_before_the_round_overwrites_it() {
 
     // What the same delta says against the map the round just wrote.
     let late = live.trees.path().join("late-print-set.txt");
-    let ok = litedoc4(&[
+    let ok = LITEDOC4.run(&[
         "global",
         "--ir",
         &live.ir.display().to_string(),
@@ -1861,7 +1863,7 @@ fn an_empty_regeneration_set_renders_nothing_twice_over() {
     let empty = live.trees.path().join("empty-set.txt");
     write(&empty, b"");
     let pages = tree(&live.pages);
-    let ok = litedoc4(&[
+    let ok = LITEDOC4.run(&[
         "render",
         "--ir",
         &live.ir.display().to_string(),
@@ -2277,7 +2279,7 @@ fn the_merge_command_takes_a_module_list() {
     names.push("Pkg.Ghost".to_owned());
     write(&ghosts, (names.join("\n") + "\n").as_bytes());
     let out = live.trees.path().join("merged-ir");
-    let refused = litedoc4(&[
+    let refused = LITEDOC4.run(&[
         "merge",
         "--base",
         &live.ir.display().to_string(),
@@ -2298,7 +2300,7 @@ fn the_merge_command_takes_a_module_list() {
 
     // The package's own list — `litedoc4 modules` wrote it — is accepted, and
     // the index comes out in it.
-    let ok = litedoc4(&[
+    let ok = LITEDOC4.run(&[
         "merge",
         "--base",
         &live.ir.display().to_string(),
@@ -2401,8 +2403,7 @@ fn case_module_glob() -> BTreeSet<&'static str> {
 
     // The one flag that is still required.
     let args = vec!["modules".to_owned(), "--lib".to_owned(), "Lib".to_owned()];
-    let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-    let output = litedoc4(&borrowed);
+    let output = LITEDOC4.run(&args);
     assert_eq!(code(&output), 2, "{args:?}: {}", stderr(&output));
     covered.extend(observe_modules(&ModulesReport {
         args,
@@ -2435,8 +2436,7 @@ fn run_modules(repo: &Path, libs: &[&str], out: Option<&Path>) -> ModulesReport 
         args.push("--out".to_owned());
         args.push(path.display().to_string());
     }
-    let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-    let output = litedoc4(&borrowed);
+    let output = LITEDOC4.run(&args);
     let shapes: Vec<(bool, bool)> = libs
         .iter()
         .map(|lib| {
@@ -2463,7 +2463,7 @@ fn run_modules(repo: &Path, libs: &[&str], out: Option<&Path>) -> ModulesReport 
     ModulesReport {
         args,
         code: code(&output),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stdout: stdout(&output),
         shapes,
         nested,
         other_files,
@@ -2540,24 +2540,6 @@ fn the_curated_cases_cover_what_the_seven_states_do_not() {
 
 // ------------------------------------------------------------------- plumbing
 
-fn litedoc4(args: &[&str]) -> Output {
-    Command::new(BIN)
-        .args(args)
-        .output()
-        .expect("the binary under test runs")
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
-}
-
-fn code(output: &Output) -> i32 {
-    output
-        .status
-        .code()
-        .unwrap_or_else(|| panic!("the process was killed by a signal: {}", stderr(output)))
-}
-
 /// Every file under `root`, keyed by its path relative to it. A missing root is
 /// an empty tree, which is what a run that has not written yet leaves.
 fn tree(root: &Path) -> Files {
@@ -2581,6 +2563,17 @@ fn tree(root: &Path) -> Files {
     files
 }
 
+/// A **replacement** of `to` by the files under `from`, with an empty `deps`
+/// directory at the end because that is what an IR root the pipeline will read
+/// has to have.
+///
+/// **Deliberately not `litedoc4_testutil::tree::copy_tree`, which shares its
+/// name and nothing else** (§7 U6 of `docs/plans/refactoring.md`; §14 collects
+/// the other names that collide by accident). The shared one merges into
+/// whatever the destination already holds and copies entry by entry; this one
+/// starts with `remove_dir_all`, goes through this file's own `tree`/`write`
+/// pair so that a run is comparable with the ones those two record, and creates
+/// `deps`. Folding the two would change both.
 fn copy_tree(from: &Path, to: &Path) {
     let _ = fs::remove_dir_all(to);
     for (path, bytes) in tree(from) {

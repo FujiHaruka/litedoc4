@@ -19,12 +19,12 @@
 //!   decision here even as a `dev-dependency` — `deny.toml`'s `[graph]` sets no
 //!   `exclude-dev`. A workspace member that is `publish = false` costs neither.
 
-// `corpus` and `text` are `pub mod` with no root `pub use`: §6 X5 of
-// `docs/plans/refactoring.md` settled that the root's re-exports carry only
-// what another crate imports by name and what has no other route. Call sites
-// read `litedoc4_testutil::corpus::LITEDOC4_IR.path()` and
-// `litedoc4_testutil::text::show_ascii(..)`, which say where the variable name
-// and the escaping policy come from.
+// `cli`, `corpus`, `hash`, `text` and `tree` are `pub mod` with no root
+// `pub use`: §6 X5 of `docs/plans/refactoring.md` settled that the root's
+// re-exports carry only what another crate imports by name and what has no
+// other route. Call sites read `litedoc4_testutil::corpus::LITEDOC4_IR.path()`
+// and `litedoc4_testutil::text::show_ascii(..)`, which say where the variable
+// name and the escaping policy come from.
 //
 // **Plain comments and not doc comments**: an outer `///` on a `mod` line is
 // the first fragment of that module's documentation, and rustdoc then resolves
@@ -32,8 +32,11 @@
 // module. All eight intra-doc links in `corpus.rs`'s header broke that way, and
 // `RUSTDOCFLAGS=-D warnings cargo doc` is what said so 【実測 2026-08-23】.
 // Each module's documentation lives in its own file.
+pub mod cli;
 pub mod corpus;
+pub mod hash;
 mod temp;
 pub mod text;
+pub mod tree;
 
 pub use temp::{TempDir, TempDirs};

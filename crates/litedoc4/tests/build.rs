@@ -36,6 +36,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use litedoc4_render::ASSETS;
+use litedoc4_testutil::cli::{Cli, code, stderr, stdout};
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
 
@@ -44,6 +45,9 @@ use serde_json::{Value, json};
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-build");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
+
+/// The binary under test, with this process's environment.
+const LITEDOC4: Cli = Cli::at(BIN);
 
 /// Plan 決定 1: 40 hex digits, or the acceptance oracle's revless normalisation
 /// misses and the score drops 3.1103 points 【実測】.
@@ -323,8 +327,7 @@ impl Live {
             self.world.display().to_string(),
         ];
         args.extend(extra.iter().map(|arg| (*arg).to_owned()));
-        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-        litedoc4(&borrowed)
+        LITEDOC4.run(&args)
     }
 
     fn site(&self) -> PathBuf {
@@ -411,7 +414,7 @@ fn the_first_run_builds_and_the_second_one_does_nothing() {
     // names a `style.css` nobody wrote is not that. So the gate is stated with
     // the three named rather than dropped.
     let reference = live.trees.path().join("reference-site");
-    let ok = litedoc4(&[
+    let ok = LITEDOC4.run(&[
         "site",
         "--ir",
         &live.out.join("ir").display().to_string(),
@@ -622,7 +625,7 @@ fn the_ledger_names_the_tree_that_now_exists() {
 
     // `ledger check` over the same tree is the independent statement of the
     // same thing: nothing changed, nothing added, nothing removed.
-    let check = litedoc4(&[
+    let check = LITEDOC4.run(&[
         "ledger",
         "check",
         "--ledger",
@@ -865,7 +868,7 @@ fn the_resolved_map_is_written_and_render_reproduces_the_same_page() {
     assert!(map.is_file(), "the resolved map was not written");
 
     let pages = live.trees.path().join("re-rendered");
-    let rendered = litedoc4(&[
+    let rendered = LITEDOC4.run(&[
         "render",
         "--ir",
         &live.out.join("ir").display().to_string(),
@@ -1067,8 +1070,7 @@ fn the_ledger_command_reproduces_the_builds_render_key_only_with_the_map() {
         .map(|arg| (*arg).to_owned())
         .collect();
         args.extend(common(extra));
-        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-        let done = litedoc4(&borrowed);
+        let done = LITEDOC4.run(&args);
         assert_eq!(code(&done), 0, "{}", stderr(&done));
         serde_json::from_str(&fs::read_to_string(&out).expect("the ledger was written"))
             .expect("the ledger is JSON")
@@ -1101,8 +1103,7 @@ fn the_ledger_command_reproduces_the_builds_render_key_only_with_the_map() {
         .map(|arg| (*arg).to_owned())
         .collect();
         args.extend(common(extra));
-        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-        let done = litedoc4(&borrowed);
+        let done = LITEDOC4.run(&args);
         assert_eq!(code(&done), 0, "{}", stderr(&done));
         stdout(&done)
     };
@@ -1150,7 +1151,7 @@ fn the_lakefile_is_read_or_refused_by_name() {
         // The second library needs a root of its own, or the glob refuses it —
         // which is a different refusal than the one under test here.
         write(&repo.join("Other.lean"), b"-- another library\n");
-        let ok = litedoc4(&["modules", "--root", &repo.display().to_string()]);
+        let ok = LITEDOC4.run(&["modules", "--root", &repo.display().to_string()]);
         assert_eq!(code(&ok), 0, "{what}: {}", stderr(&ok));
         // The diagnostic is on stderr: stdout is the module list, and a caller
         // redirecting it into a file must not get a library name as its first
@@ -1206,7 +1207,7 @@ fn the_lakefile_is_read_or_refused_by_name() {
             Some(text) => write(&repo.join("lakefile.toml"), text.as_bytes()),
             None => write(&repo.join("lakefile.lean"), b"import Lake\nlean_lib Pkg\n"),
         }
-        let output = litedoc4(&["modules", "--root", &repo.display().to_string()]);
+        let output = LITEDOC4.run(&["modules", "--root", &repo.display().to_string()]);
         assert_eq!(code(&output), 3, "{what}: {}", stdout(&output));
         let message = stderr(&output);
         assert!(message.contains(expected), "{what}: {message}");
@@ -1217,7 +1218,7 @@ fn the_lakefile_is_read_or_refused_by_name() {
     let bare = trees.path().join("bare");
     write_repo(&bare, &world);
     fs::remove_file(bare.join("lakefile.toml")).expect("the toml goes");
-    let output = litedoc4(&["modules", "--root", &bare.display().to_string()]);
+    let output = LITEDOC4.run(&["modules", "--root", &bare.display().to_string()]);
     assert_eq!(code(&output), 3, "{}", stdout(&output));
     assert!(
         stderr(&output).contains("no lakefile.toml and no lakefile.lean"),
@@ -1226,7 +1227,7 @@ fn the_lakefile_is_read_or_refused_by_name() {
     );
 
     // …and naming it by hand still works, which is what every refusal offers.
-    let ok = litedoc4(&[
+    let ok = LITEDOC4.run(&[
         "modules",
         "--root",
         &bare.display().to_string(),
@@ -1253,7 +1254,7 @@ fn the_source_url_comes_from_git() {
     git_init(&live.repo, "https://github.com/owner/repo.git");
     let rev = git_head(&live.repo);
 
-    let ok = litedoc4(&[
+    let ok = LITEDOC4.run(&[
         "build",
         "--root",
         &live.repo.display().to_string(),
@@ -1291,7 +1292,7 @@ fn the_source_url_comes_from_git() {
     let repo = other.path().join("repo");
     write_repo(&repo, &base_world());
     git_init(&repo, "https://gitlab.com/owner/repo.git");
-    let refused = litedoc4(&[
+    let refused = LITEDOC4.run(&[
         "build",
         "--root",
         &repo.display().to_string(),
@@ -1349,7 +1350,7 @@ fn a_directory_this_command_did_not_write_is_refused() {
     assert_eq!(code(&live.build(&[])), 0);
     let elsewhere = live.trees.path().join("elsewhere");
     write_repo(&elsewhere, &base_world());
-    let output = litedoc4(&[
+    let output = LITEDOC4.run(&[
         "build",
         "--root",
         &elsewhere.display().to_string(),
@@ -1376,7 +1377,7 @@ fn a_directory_this_command_did_not_write_is_refused() {
 fn an_out_inside_the_root_is_refused() {
     let live = Live::new("build-out-inside");
     let inside = live.repo.join(".lake/build/doc");
-    let output = litedoc4(&[
+    let output = LITEDOC4.run(&[
         "build",
         "--root",
         &live.repo.display().to_string(),
@@ -1598,7 +1599,7 @@ fn the_command_line_is_checked() {
         ),
     ];
     for (args, expected, message) in cases {
-        let output = litedoc4(args);
+        let output = LITEDOC4.run(args);
         assert_eq!(code(&output), expected, "{args:?}: {}", stdout(&output));
         assert!(
             stderr(&output).contains(message),
@@ -1734,28 +1735,6 @@ fn work(live: &Live) -> Value {
     let marker = marker(live);
     assert_eq!(marker["complete"], json!(true), "{marker}");
     marker["work"].clone()
-}
-
-fn litedoc4(args: &[&str]) -> Output {
-    Command::new(BIN)
-        .args(args)
-        .output()
-        .expect("the binary under test runs")
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn code(output: &Output) -> i32 {
-    output
-        .status
-        .code()
-        .unwrap_or_else(|| panic!("the process was killed by a signal: {}", stderr(output)))
 }
 
 /// A checkout with one commit and one remote, for the `--source-url` derivation.

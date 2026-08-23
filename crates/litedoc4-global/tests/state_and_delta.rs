@@ -48,6 +48,7 @@ use litedoc4_global::{
 };
 use litedoc4_ir::{Index, IrTree};
 use litedoc4_testutil::corpus;
+use litedoc4_testutil::hash::fnv1a64;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -2052,13 +2053,4 @@ fn corpus_ir() -> PathBuf {
 /// The reference tree the frozen prototype wrote, or a panic naming what to set.
 fn corpus_reference() -> PathBuf {
     corpus::LITEDOC4_REFERENCE_GLOBAL.path()
-}
-
-/// FNV-1a 64, the same ten lines the generator has.
-fn fnv1a64(bytes: &[u8]) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in bytes {
-        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    format!("{hash:016x}")
 }

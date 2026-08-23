@@ -1902,6 +1902,35 @@ rustdoc は `corpus.rs` の `//!` ヘッダと連結した**全体を `lib.rs` �
 `testutil` に置けば 5 本が 1 本になる。
 
 
+#### 結果【2026-08-23】— **表の件数は合っていた。合っていないのは「数え方」の方だった**
+
+**`crates/litedoc4-testutil/src/cli.rs` を作り、5 ファイル 44 箇所を畳んだ。**
+`Cli { bin, cleared }` + `run` / `run_with_env` と、自由関数 `stderr` / `stdout` / `code` / `message`。
+`S: AsRef<OsStr>` の総称で `&[&str]` と `&[String]` の 2 署名が 1 本になり、
+**それだけのために存在していた `let borrowed: Vec<&str> = …` が 7 行消えた**。
+
+**`stdout` は「フォークしていない唯一のヘルパ」に見えていたが、違った**【実測】 —
+`fn` として 1 本 (`build.rs`) なだけで、**同じ式が `site.rs:253` と `incremental.rs:2466` に
+直書きされていた**。**一般形: 名前を与えられなかったフォークは、名前を数えても出てこない。**
+段 5〜8 の棚卸しにも同じ死角がある (計画の件数はすべて `fn`/定数の定義数)。
+
+**`resident.rs` の `env_remove` 3 つは resident 専用のまま置いた**【判断】。
+`Cli::at(BIN).clearing(&["EXTRACT_BIN", "TARGET_REPO", "LAKE"])` と書けるようにして、
+**全体の既定にはしない** — ほかの 4 ファイルは環境変数を継承したままでよく、一律に消すのは
+「どう走るか」ではなく「何を検査しているか」を変える。
+
+**畳まなかったもの**: `extract.rs:174` は `Command::new(BIN)` を直に起こす
+(`.current_dir(&world.root)` を渡す。**そのテストの主題が子プロセスの作業ディレクトリ**で、
+共有ランナーはそれを運ばない)。`const` の doc にその理由を書いた。
+
+`cli.rs` のテストは `#[cfg(all(test, unix))]` で `/bin/sh` を起こす。**skip ではなく
+コンパイル対象からの除外**で、`cargo test --workspace` は `ubuntu-latest` でしか走らない
+(`ci.yml` を確認済) ので、検査される場所では常に走る。
+
+**環境の 2 本は構造体を覗かずに実子プロセスで検査した** — `env_remove` の枝を消す変異と
+2 つのループを入れ替える変異は、**構造体を覗くテストなら両方通ってしまう**。
+親側は `CARGO_PKG_NAME` (cargo が既に設定する) を使い、`std::env::set_var` を避けた。
+
 ### U6 — incr / global 側のフォーク
 
 - **`fnv1a64` ×4 は「オラクルの独立性」ではない**【調査担当の判定】。
@@ -1919,6 +1948,42 @@ rustdoc は `corpus.rs` の `//!` ヘッダと連結した**全体を `lib.rs` �
   `target_shaped` ×2 (`impact.rs:2072` は `FakeIr`、`merge.rs:2404` は merge の base/inc ペア。
   **別の型の別のフィクスチャで名前が偶然一致しているだけ**)。**どちらも触らない**
 - 段 3 の X3 (`corpus_dir`) も同じ場所に入る
+
+#### 結果【2026-08-23】— **`fnv1a64` はオラクルではない。根拠を 3 つ取って doc に焼いた**
+
+**`hash.rs` (`fnv1a64` ×4 → 1) と `tree.rs` (`copy_tree` ×2 → 1) を作った。**
+
+**§16 が「潰す前にオラクルかを毎回問う」と書いているので、問うた**【実測 2026-08-23】。
+答えは「オラクルではない」で、根拠は 3 つ:
+
+1. **製品コードに FNV の実装が 1 つも無い** (`crates/*/src/` に 0 件)。この木が出荷するものの
+   第 2 の綴りではない — 何とも食い違いようがない
+2. **独立な実装は TypeScript で、このリポジトリに無い。** 比較相手の digest は
+   `impact-expected.json` / `merge-expected.json` / `global-expected.json` のリテラルで、
+   各ファイルの header が書いた者を名乗っている (`gen-impact-expected.ts` /
+   `generatedBy: gen-global-expected.ts`)。生成器は `experiments/` と一緒に HEAD を離れた
+3. ゆえに独立しているのは**プロトタイプのバイト列 対 この木のバイト列**であって、
+   **ハッシュは比較の道具であって辺ではない**。比較が意味を持つには両辺が**同じ関数**を
+   走らせる必要がある。**4 コピーは何とも独立していなかった**
+
+**この 3 点を `hash.rs` の header に書いた** — 後の読み手が「独立性を回復する」つもりで
+再びフォークしないため。
+
+**`copy_tree` は同名が 3 本あるが、同一なのは 2 本だけ**【実測】。
+`litedoc4/tests/incremental.rs:2584` は**別の関数** — 先に `remove_dir_all` し、その
+ファイル自身の `tree`/`write` を通り、最後に `deps` を作る。**畳まず、定義に 1 行書いた**
+(§14 の「名前が偶然一致しているだけ」の 4 例目)。
+
+**既に閉じていたもの** (再作業せず確認だけした): `TempDir` ×6 と `prune.rs` の slug 欠落は U1、
+`corpus_dir` は U3a。`litedoc4-md/tests/fuzz_corpus.rs:50` に似た形が 1 つ残るが、
+`CARGO_MANIFEST_DIR` 配下のリポジトリ内フィクスチャで corpus 入力ではない。**畳まない**。
+
+**変異 12 通りで新規 12 テスト + doctest 2 本を一度ずつ落とした**【実測】。
+うち 1 通りは `copy_tree` に `remove_dir_all` を足す (= `incremental.rs` 版にする) もので、
+**「畳んではいけない」ことをテストが言うようにした**。
+
+**`test`: 477 → 491 passed / 0 failed / 22 ignored** (+12 unit + 2 doctest)。
+6 種 (5 種 + `cargo machete`) すべて緑。**これで段 4 は完了。**
 
 ## 8. 段 5 — `tools/*.sh` (35 本 / 9,740 行)
 
@@ -2110,7 +2175,9 @@ CLAUDE.md と Cargo.toml のコメントは「機械的に強制している」�
 
 各段の完了条件は共通:
 
-1. `cargo test --workspace --no-fail-fast` が **437 passed / 0 failed** (増える分にはよい)
+1. `cargo test --workspace --no-fail-fast` が **491 passed / 0 failed** (増える分にはよい)。
+   **これは下限で、段が進むごとに上げる** — 段 0 開始時 437、段 4 完了時 491。下限を据え置くと、
+   50 本消えても緑になる
 2. `cargo fmt --check` / `cargo clippy --workspace --all-targets -- -D warnings` が exit 0
 3. **`cargo doc` は CI と同じ形で回す** ← **push 前に。**
    2026-08-22 にこれを忘れて CI を 1 回赤くしている。**素で回すと赤くなる**

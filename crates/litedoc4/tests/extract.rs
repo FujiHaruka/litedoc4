@@ -21,6 +21,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use litedoc4_testutil::cli::{Cli, code, message, stderr};
 use litedoc4_testutil::{TempDir, TempDirs};
 
 /// The temporary directories this file makes. The prefix names the file,
@@ -28,6 +29,13 @@ use litedoc4_testutil::{TempDir, TempDirs};
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-extract");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
+
+/// The binary under test, with this process's environment.
+///
+/// One test below starts `BIN` through `Command` itself rather than through
+/// this: its whole subject is the child's **working directory**, which is the
+/// one thing a shared runner does not carry.
+const LITEDOC4: Cli = Cli::at(BIN);
 
 /// The events three phases of a real run emit, shortened. Two properties are
 /// load-bearing and both come from a real `*-events.jsonl`: the `stage4b.`
@@ -370,7 +378,7 @@ impl World {
     fn run(&self, extra: &[&str]) -> Output {
         let mut args = self.base_args();
         args.extend(extra.iter().map(|arg| (*arg).to_owned()));
-        litedoc4(&args)
+        LITEDOC4.run(&args)
     }
 
     /// The same command line with one flag and its value dropped.
@@ -389,7 +397,7 @@ impl World {
             }
             args.push(arg);
         }
-        litedoc4(&args)
+        LITEDOC4.run(&args)
     }
 
     fn base_args(&self) -> Vec<String> {
@@ -429,32 +437,6 @@ impl World {
             .map(str::to_owned)
             .collect()
     }
-}
-
-fn litedoc4(args: &[String]) -> Output {
-    Command::new(BIN)
-        .args(args)
-        .output()
-        .expect("the binary under test runs")
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
-}
-
-/// The refusal itself. `main` prints `litedoc4: <message>\n\n<USAGE>`, and the
-/// usage text names every flag — so an assertion over the whole of stderr is an
-/// assertion about `USAGE` wearing a refusal's name.
-fn message(output: &Output) -> String {
-    let said = stderr(output);
-    said.split("\n\n").next().unwrap_or_default().to_owned()
-}
-
-fn code(output: &Output) -> i32 {
-    output
-        .status
-        .code()
-        .unwrap_or_else(|| panic!("the process was killed by a signal: {}", stderr(output)))
 }
 
 fn make_executable(path: &Path) {

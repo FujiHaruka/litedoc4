@@ -59,6 +59,8 @@ use litedoc4_incr::{
     Error, ImpactOptions, Mode, PruneOptions, PruneSummary, impact, page_of, prune,
 };
 use litedoc4_testutil::corpus;
+use litedoc4_testutil::hash::fnv1a64;
+use litedoc4_testutil::tree::copy_tree;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
 
@@ -968,14 +970,6 @@ impl Expected {
             .get(name)
             .unwrap_or_else(|| panic!("{stage}/{name} is not in the fixture; regenerate it"))
     }
-}
-
-fn fnv1a64(bytes: &[u8]) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in bytes {
-        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    format!("{hash:016x}")
 }
 
 /// The base IR, the reference pages and the reference site, or a panic naming
@@ -2187,17 +2181,4 @@ fn decl(name: &str, refs: &[(&str, &str)]) -> Value {
 
 fn symlink(target: &Path, link: &Path) {
     std::os::unix::fs::symlink(target, link).expect("the symlink is creatable");
-}
-
-fn copy_tree(from: &Path, to: &Path) {
-    fs::create_dir_all(to).expect("creatable");
-    for entry in fs::read_dir(from).expect("the source tree reads") {
-        let entry = entry.expect("a directory entry");
-        let target = to.join(entry.file_name());
-        if entry.file_type().expect("a file type").is_dir() {
-            copy_tree(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), &target).expect("copyable");
-        }
-    }
 }

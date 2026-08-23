@@ -60,6 +60,7 @@ use litedoc4_global::state::State;
 use litedoc4_global::{GlobalOptions, build_global, facts_for};
 use litedoc4_ir::IrTree;
 use litedoc4_testutil::corpus;
+use litedoc4_testutil::hash::fnv1a64;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde::{Deserialize, Serialize};
 
@@ -1064,16 +1065,6 @@ fn read_tree(dir: &PathBuf, prefix: &str, out: &mut BTreeMap<String, Vec<u8>>) {
             );
         }
     }
-}
-
-/// FNV-1a 64, the same ten lines the generator has. A staleness check, not a
-/// security property.
-fn fnv1a64(bytes: &[u8]) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in bytes {
-        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    format!("{hash:016x}")
 }
 
 fn describe(what: &str, want: &BTreeMap<String, String>, got: &BTreeMap<String, String>) -> String {

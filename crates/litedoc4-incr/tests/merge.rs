@@ -56,6 +56,8 @@ use litedoc4_incr::ownership::{OwnershipSummary, WITNESSES_IN_SUMMARY};
 use litedoc4_incr::{Error, MergeOptions, OwnershipOptions, merge, ownership, verify};
 use litedoc4_ir::cmp_utf16;
 use litedoc4_testutil::corpus;
+use litedoc4_testutil::hash::fnv1a64;
+use litedoc4_testutil::tree::copy_tree;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
 
@@ -1117,14 +1119,6 @@ impl Expected {
              decided on is gone and this test is now lying about it"
         );
     }
-}
-
-fn fnv1a64(bytes: &[u8]) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in bytes {
-        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    format!("{hash:016x}")
 }
 
 /// The dependency slice as **Lean** writes it, written out here a second time:
@@ -2613,17 +2607,4 @@ fn tree_bytes(root: &Path) -> BTreeMap<String, Vec<u8>> {
         }
     }
     files
-}
-
-fn copy_tree(from: &Path, to: &Path) {
-    fs::create_dir_all(to).expect("creatable");
-    for entry in fs::read_dir(from).expect("the source tree reads") {
-        let entry = entry.expect("a directory entry");
-        let target = to.join(entry.file_name());
-        if entry.file_type().expect("a file type").is_dir() {
-            copy_tree(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), &target).expect("copyable");
-        }
-    }
 }
