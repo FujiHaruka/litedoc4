@@ -74,8 +74,11 @@ crates/litedoc4-render/
    TS のデコーダを試すのは、CLAUDE.md が禁じている
    「オラクルを同じ言語・同じ設計で書き直す」そのもの (両方が同じ間違いをする)。
 5. **挙動同値が条件。** この作業は**リファクタであって仕様変更ではない**。
-   既存の `tools/browser-gate.sh` / `tools/search-gate.sh` / `tools/e2e-micro.sh` が
-   緑のままであることが受け入れ条件で、赤くなったら TS 側を直す (ゲートを緩めない)。
+   既存の `tools/browser-gate.sh` と `tools/e2e-micro.sh` が緑のままであることが受け入れ条件で、
+   赤くなったら TS 側を直す (ゲートを緩めない)。**検索を見ているのは前者** —
+   `tools/browser-gate.sh` が駆動する `benchmarks/tools/check-site-browser.ts` が
+   `search-index.bin` と検索結果を検査する。`tools/search-gate.sh` という名前は
+   **存在したことがない**【実測 2026-08-23、全ブランチの履歴】。
 
 ---
 

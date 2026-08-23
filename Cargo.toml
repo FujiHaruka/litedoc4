@@ -184,5 +184,17 @@ todo = "deny"
 unimplemented = "deny"
 # `#[expect]` fails when the lint stops firing; `#[allow]` goes stale in silence
 # — which is exactly how a suppression outlives the code it was written for.
+#
+# THE TWO DO NOT SEE THE SAME ATTRIBUTES 【実測 2026-08-23】
+#   `allow_attributes_without_reason` fires on the inner form too: a reasonless
+#   `#![allow(dead_code)]` added to `litedoc4-ir/src/lib.rs` took clippy to
+#   **exit 101**. `allow_attributes` does not: the reasoned
+#   `#![allow(dead_code, reason = …)]` in `litedoc4-render/tests/common/mod.rs`
+#   is green under CI's own `--all-targets` run.
+#   So what is mechanically enforced is "every suppression carries a reason",
+#   **not** "every suppression is an `#[expect]`" — a `#![allow(…, reason = …)]`
+#   can be added and nothing here objects. `litedoc4_testutil`'s
+#   `the_tree_has_one_inner_allow_and_this_is_it` pins the count at one so that
+#   a second has to be argued for rather than merely written.
 allow_attributes = "warn"
 allow_attributes_without_reason = "warn"

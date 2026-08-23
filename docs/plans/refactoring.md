@@ -2537,6 +2537,30 @@ CLAUDE.md と Cargo.toml のコメントは「機械的に強制している」�
 強制したいなら**件数を固定する** (`#![allow` の出現が 1 件であること) — 許可リストにするのは
 「例外リストを持つ比較器」と同じ失敗。
 
+#### 結果【2026-08-23】— E3 / E4 は済み。**E3 の 1 件は「パス違い」ではなく「存在しない名前」だった**
+
+**E3**: 2 件とも直した。
+`docs/plans/feature-sweep.md:480` は**パス違い** (`tools/` → `benchmarks/tools/`) なので綴りを直し、
+駆動する `tools/browser-gate.sh` も併記した。
+**`docs/plans/assets-typescript.md:77` の `tools/search-gate.sh` は違う** —
+**どのブランチのどの commit にも存在したことがない**【実測: `git log --all -- tools/search-gate.sh` が空】。
+移動したのでも消したのでもなく、**doc の中で発明された名前**。検索を実際に検査しているのは
+`tools/browser-gate.sh` が駆動する `benchmarks/tools/check-site-browser.ts` なので、そう書き直した。
+**「実在しないパス」の 2 件が別種だったのは、機械検査が「今どこにあるか」しか見ないため。**
+
+**E4**: `Cargo.toml` の `allow_attributes*` に、2 つの lint が**同じ属性を見ていない**ことを書いた。
+加えて**件数を固定した** — `litedoc4_testutil` の
+`tests::the_tree_has_one_inner_allow_and_this_is_it` が `crates/**/*.rs` を歩いて
+`#![allow` が **1 件**であることを見る (実測: `litedoc4-render/tests/common/mod.rs:29` の 1 件のみ。
+計画は `:20` と書いていたが移動していた)。**一度落として確認した** — `litedoc4-ir/src/lib.rs` に
+理由付きの 2 件目を足すと、両方のパスを名指しして落ちる。
+**歩いた本数も検査している** (20 本未満なら「ワークスペースを歩けていない」で落ちる) —
+空振りで緑になるのが「skip で緑を返さない」の失敗そのものなので。
+
+**E2 はディスクだけ見た**【実測 2026-08-23】: 空き **17 GiB** / `/private/tmp/lean-doc-relay` は
+**34 MB** / `mutants.out` と `mutants.out.old` は在る (gitignored)。段 7 が対象リポジトリを使うので、
+着手前にもう一度見る。
+
 
 ## 12. 順序と完了条件
 

@@ -477,7 +477,8 @@ Mathlib 依存パッケージの docstring は数式を含む。
   (2) 変換成功率、(3) 生成時間の増分。ログ: `benchmarks/results/mathml-<date>.txt`。
 - **テスト**: `crates/litedoc4-md` に変換のユニットテスト。`e2e/micro` に
   インライン `$…$`・ブロック `$$…$$`・壊れた LaTeX の 3 形。
-- **ゲート**: 既存のブラウザゲート (`tools/check-site-browser.ts`) に、
+- **ゲート**: 既存のブラウザゲート (`tools/browser-gate.sh` →
+  `benchmarks/tools/check-site-browser.ts`) に、
   MathML が実際に描画されている (幅を持つ) ことを足す。
   **一度落とす方法**: MathML を素のテキストに差し替えて落ちることを見る。
 - **撤退ライン**: 変換クレートが対象の docstring で**落ちる/崩れる**、または主要ブラウザで
