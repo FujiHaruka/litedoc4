@@ -43,11 +43,11 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use litedoc4_ir::cmp_utf16;
-use serde::de::{MapAccess, Visitor};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::detect::Error;
+use crate::error::Error;
+use crate::ordered::Ordered;
 
 /// The ledger file format. `1` had a single `envKey`; `2` splits it into
 /// `extractKey` and `renderKey`, which do not invalidate the same thing.
@@ -197,51 +197,19 @@ pub struct ModuleEntry {
 /// Ordered because the ledger's bytes are `JSON.stringify` of an object built
 /// key by key, and a `BTreeMap` would re-sort it. Values are **in the clear,
 /// not hashed**, so that a mismatch names itself in a log (plan §6).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct KeySet(Vec<(String, String)>);
+///
+/// The order and the duplicate-key rule are [`Ordered`]'s, shared with the
+/// merged index ([`crate::merge::JsonObject`]); what belongs to the ledger is
+/// [`Ordered::diff`] below and the refusal message next to it.
+pub type KeySet = Ordered<String>;
 
-impl KeySet {
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+impl<'de> Deserialize<'de> for KeySet {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::deserialize_in_order(deserializer, "a map of strings to strings")
     }
+}
 
-    /// Adds a key, or replaces the value of one already present **in place** —
-    /// which is what assigning to a JavaScript object property does, and what a
-    /// duplicated key in a hand-edited file has to do to round-trip.
-    pub fn insert(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        let key = key.into();
-        let value = value.into();
-        match self.0.iter_mut().find(|(name, _)| *name == key) {
-            Some(slot) => slot.1 = value,
-            None => self.0.push((key, value)),
-        }
-    }
-
-    #[must_use]
-    pub fn get(&self, key: &str) -> Option<&str> {
-        self.0
-            .iter()
-            .find(|(name, _)| name == key)
-            .map(|(_, value)| value.as_str())
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.0
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str()))
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
+impl Ordered<String> {
     /// The names, in UTF-16 order, of the keys **present in either set** whose
     /// values differ.
     ///
@@ -271,34 +239,6 @@ impl KeySet {
             .collect();
         changed.sort_by(|a, b| cmp_utf16(a, b));
         changed
-    }
-}
-
-impl Serialize for KeySet {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_map(self.iter())
-    }
-}
-
-impl<'de> Deserialize<'de> for KeySet {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct KeySetVisitor;
-        impl<'de> Visitor<'de> for KeySetVisitor {
-            type Value = KeySet;
-
-            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("a map of strings to strings")
-            }
-
-            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<KeySet, M::Error> {
-                let mut keys = KeySet::new();
-                while let Some((key, value)) = map.next_entry::<String, String>()? {
-                    keys.insert(key, value);
-                }
-                Ok(keys)
-            }
-        }
-        deserializer.deserialize_map(KeySetVisitor)
     }
 }
 

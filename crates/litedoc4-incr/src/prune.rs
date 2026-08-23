@@ -80,7 +80,9 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use crate::detect::{Error, read_module_list, write};
+use crate::detect::read_module_list;
+use crate::error::Error;
+use crate::io::write;
 
 /// What `prune` needs to know.
 #[derive(Clone, Copy, Debug)]

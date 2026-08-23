@@ -47,7 +47,9 @@ use std::time::Instant;
 use litedoc4_ir::{IrTree, sort_utf16};
 use serde::Serialize;
 
-use crate::detect::{Error, read_module_list, write, write_text};
+use crate::detect::read_module_list;
+use crate::error::Error;
+use crate::io::{write, write_text};
 
 /// What `ownership` needs to know.
 #[derive(Clone, Copy, Debug)]

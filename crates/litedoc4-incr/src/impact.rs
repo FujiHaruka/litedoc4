@@ -91,7 +91,8 @@ use std::path::Path;
 use litedoc4_ir::{IrTree, sort_utf16};
 use serde::Serialize;
 
-use crate::detect::{Error, write};
+use crate::error::Error;
+use crate::io::write;
 
 /// Which set of modules `--mode` asks for.
 ///
@@ -376,7 +377,7 @@ pub fn impact(options: &ImpactOptions<'_>) -> Result<ImpactRun, Error> {
         write(path, &(body + "\n"))?;
     }
     if let Some(path) = options.print_set {
-        // **Not** [`crate::detect::write_text`]: the prototype writes
+        // **Not** [`crate::io::write_text`]: the prototype writes
         // `list.join("\n") + "\n"`, so an empty selection would be one blank
         // line rather than an empty file. That case needs an IR with no modules
         // at all (every mode selects a superset of a non-empty changed set, and

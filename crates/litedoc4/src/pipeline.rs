@@ -1767,7 +1767,7 @@ fn digest_or_none(digest: Option<&str>) -> String {
 
 /// One name per line, and **no line at all** when there are no names.
 ///
-/// The same spelling every stage uses (`detect::write_text`), for the same
+/// The same spelling every stage uses (`litedoc4_incr`'s `io::write_text`), for the same
 /// reason: an empty set has to be an empty file rather than one blank line, or
 /// `--only-from` and the round loop disagree about what "nothing" is.
 pub(crate) fn write_lines(path: &Path, items: &[String]) -> Result<(), Failure> {

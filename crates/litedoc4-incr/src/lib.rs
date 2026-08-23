@@ -53,16 +53,20 @@
 //! ```
 
 pub mod detect;
+pub mod error;
 pub mod impact;
+pub(crate) mod io;
 pub mod ledger;
 pub mod merge;
+pub mod ordered;
 pub mod ownership;
 pub mod prune;
 
 pub use detect::{
-    BuildOptions, BuildSummary, CheckOptions, CheckSummary, Error, TouchOptions, build_ledger,
+    BuildOptions, BuildSummary, CheckOptions, CheckSummary, TouchOptions, build_ledger,
     check_ledger, read_module_list, touch_ledger,
 };
+pub use error::Error;
 pub use impact::{ImpactOptions, ImpactRun, ImpactSummary, Mode, impact};
 pub use ledger::{
     Algorithm, EXTRACTOR_ID, FileEntry, KeySet, LEDGER_SCHEMA, Ledger, ModuleEntry, OLEAN_SUFFIXES,

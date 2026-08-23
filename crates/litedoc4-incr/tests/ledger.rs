@@ -514,8 +514,8 @@ fn observe_keys(ir: Option<&Path>, source_url: &str, fire: &mut impl FnMut(&'sta
 /// The union comparison, written out with a `BTreeMap` so that it is a second
 /// definition of the rule rather than a call to the one under test.
 fn observe_key_diff(was: &KeySet, now: &KeySet, fire: &mut impl FnMut(&'static str)) {
-    let left: BTreeMap<&str, &str> = was.iter().collect();
-    let right: BTreeMap<&str, &str> = now.iter().collect();
+    let left: BTreeMap<&str, &str> = was.iter().map(|(k, v)| (k, v.as_str())).collect();
+    let right: BTreeMap<&str, &str> = now.iter().map(|(k, v)| (k, v.as_str())).collect();
     let mut equal = true;
     for name in left.keys().chain(right.keys()) {
         match (left.get(name), right.get(name)) {
@@ -851,17 +851,20 @@ fn the_identity_strings_are_not_the_prototypes() {
     let repo = FakeRepo::new("identity", &[FakeModule::one("Pkg.A")]);
     let ledger = repo.build(&[], &Algorithm::sha256(), URL);
     assert_eq!(
-        ledger.extract_key.get("extractor"),
+        ledger.extract_key.get("extractor").map(String::as_str),
         Some(litedoc4_incr::EXTRACTOR_ID)
     );
     assert_eq!(
-        ledger.render_key_or_empty().get("renderer"),
+        ledger
+            .render_key_or_empty()
+            .get("renderer")
+            .map(String::as_str),
         Some(litedoc4_incr::RENDERER_ID)
     );
     // …and the IR's own generator is *not* renamed with them: it names what
     // wrote the tree on disk, which the port does not claim to be.
     assert_eq!(
-        ledger.extract_key.get("irGenerator"),
+        ledger.extract_key.get("irGenerator").map(String::as_str),
         Some("lean-doc/experiments/stage4b")
     );
 }
@@ -880,7 +883,7 @@ fn the_dependency_link_maps_digest_is_a_render_key_of_its_own() {
     let moved = render_key(URL, None, Some("d2"));
 
     assert_eq!(without.get("externalLinks"), None);
-    assert_eq!(with.get("externalLinks"), Some("d1"));
+    assert_eq!(with.get("externalLinks").map(String::as_str), Some("d1"));
     assert_eq!(
         with.iter().map(|(name, _)| name).collect::<Vec<_>>(),
         ["renderer", "sourceUrl", "externalLinks"],
@@ -895,7 +898,9 @@ fn the_dependency_link_maps_digest_is_a_render_key_of_its_own() {
     // two maps are different things and either can move without the other.
     let both = render_key(URL, Some("lidx"), Some("d1"));
     assert_eq!(
-        both.iter().collect::<Vec<_>>(),
+        both.iter()
+            .map(|(name, value)| (name, value.as_str()))
+            .collect::<Vec<_>>(),
         [
             ("renderer", litedoc4_incr::RENDERER_ID),
             ("sourceUrl", URL),
@@ -906,6 +911,46 @@ fn the_dependency_link_maps_digest_is_a_render_key_of_its_own() {
     assert_eq!(
         both.diff(&render_key(URL, Some("lidx"), None)),
         ["externalLinks"]
+    );
+}
+
+/// A key written twice keeps its **first position** and its **last value**.
+///
+/// That is the rule a JavaScript object applies to a property assignment, and it
+/// is why a hand-edited ledger round-trips instead of being rewritten. It is
+/// also the ledger's half of a rule the merged `index.json` shares
+/// (`Ordered::insert`), and **the merged index is the only half anything
+/// measured**: breaking the rule two ways — taking the first value, and moving
+/// the key to the last position — turns 8 and 4 tests red respectively
+/// 【実測 2026-08-23】 and **none of them is in this file**. The comparison that
+/// would have seen it here was the prototype byte comparison, deleted
+/// 2026-08-16 (the heading above). So the ledger side is pinned here.
+#[test]
+fn a_repeated_key_keeps_its_first_position_and_its_last_value() {
+    let keys: KeySet = serde_json::from_str(r#"{"a":"1","b":"2","a":"3"}"#).expect("parses");
+    assert_eq!(
+        keys.iter()
+            .map(|(name, value)| (name, value.as_str()))
+            .collect::<Vec<_>>(),
+        [("a", "3"), ("b", "2")],
+    );
+    assert_eq!(
+        serde_json::to_string(&keys).expect("serialises"),
+        r#"{"a":"3","b":"2"}"#
+    );
+}
+
+/// A key set that is not a map says which file's shape it wanted.
+///
+/// The ledger's key sets and the merged index are one type, and the one thing
+/// that is not shared is this sentence: the index's refusal says "a JSON
+/// object". A single message for both would read as the wrong file's.
+#[test]
+fn a_key_set_that_is_not_a_map_says_what_it_wanted() {
+    let error = serde_json::from_str::<KeySet>("5").expect_err("a number is not a key set");
+    assert!(
+        error.to_string().contains("a map of strings to strings"),
+        "{error}"
     );
 }
 
@@ -1111,8 +1156,17 @@ fn curated_key_branches() -> BTreeSet<&'static str> {
     let repo = FakeRepo::new("empty-index", &[FakeModule::one("Pkg.A")]);
     fs::write(repo.ir().join("index.json"), "{}").expect("the index is writable");
     let ledger = repo.build(&[], &Algorithm::sha256(), URL);
-    assert_eq!(ledger.extract_key.get("irSchemaVersion"), Some("undefined"));
-    assert_eq!(ledger.extract_key.get("irGenerator"), Some("undefined"));
+    assert_eq!(
+        ledger
+            .extract_key
+            .get("irSchemaVersion")
+            .map(String::as_str),
+        Some("undefined")
+    );
+    assert_eq!(
+        ledger.extract_key.get("irGenerator").map(String::as_str),
+        Some("undefined")
+    );
     covered.extend(repo.observed_build(&Algorithm::sha256()));
 
     // A target without `lean-toolchain`: the key cannot be built at all.

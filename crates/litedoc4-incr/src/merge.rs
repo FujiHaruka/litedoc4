@@ -103,11 +103,12 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use litedoc4_ir::{IrFile, read_module_file};
-use serde::de::{MapAccess, Visitor};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-use crate::detect::{Error, write, write_json_line, write_text};
+use crate::error::Error;
+use crate::io::{write, write_json_line, write_text};
+use crate::ordered::Ordered;
 
 /// What `merge` needs to know.
 #[derive(Clone, Copy, Debug)]
@@ -205,74 +206,18 @@ struct DepSlice<'a> {
 /// the `preserve_order` feature on*, and that is exactly why this type exists:
 /// plan §7 says to reproduce the order explicitly rather than to inherit it from
 /// a dependency's build configuration. Same shape as
-/// [`crate::ledger::KeySet`], for the same reason.
+/// [`crate::ledger::KeySet`], for the same reason — and now the same type,
+/// [`Ordered`].
 ///
 /// The **values** are `serde_json::Value`s copied verbatim out of the base and
 /// incremental indexes, and their nested key order does rely on
 /// `preserve_order`; `tests/merge.rs` asserts a round trip rather than trusting
 /// it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct JsonObject(Vec<(String, Value)>);
-
-impl JsonObject {
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Adds a key, or replaces the value of one already present **in place** —
-    /// which is what a JavaScript spread followed by a property assignment does,
-    /// and what makes the merged index keep the base index's key order.
-    pub fn insert(&mut self, key: impl Into<String>, value: Value) {
-        let key = key.into();
-        match self.0.iter_mut().find(|(name, _)| *name == key) {
-            Some(slot) => slot.1 = value,
-            None => self.0.push((key, value)),
-        }
-    }
-
-    #[must_use]
-    pub fn get(&self, key: &str) -> Option<&Value> {
-        self.0
-            .iter()
-            .find(|(name, _)| name == key)
-            .map(|(_, value)| value)
-    }
-
-    pub fn keys(&self) -> impl Iterator<Item = &str> {
-        self.0.iter().map(|(name, _)| name.as_str())
-    }
-
-    fn iter(&self) -> impl Iterator<Item = (&str, &Value)> {
-        self.0.iter().map(|(name, value)| (name.as_str(), value))
-    }
-}
-
-impl Serialize for JsonObject {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_map(self.iter())
-    }
-}
+pub type JsonObject = Ordered<Value>;
 
 impl<'de> Deserialize<'de> for JsonObject {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct JsonObjectVisitor;
-        impl<'de> Visitor<'de> for JsonObjectVisitor {
-            type Value = JsonObject;
-
-            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("a JSON object")
-            }
-
-            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<JsonObject, M::Error> {
-                let mut object = JsonObject::new();
-                while let Some((key, value)) = map.next_entry::<String, Value>()? {
-                    object.insert(key, value);
-                }
-                Ok(object)
-            }
-        }
-        deserializer.deserialize_map(JsonObjectVisitor)
+        Self::deserialize_in_order(deserializer, "a JSON object")
     }
 }
 
@@ -702,12 +647,8 @@ pub fn verify(a: &Path, b: &Path) -> Result<VerifyReport, Error> {
         problems += 1;
     }
     let mut same = 0usize;
-    for (name, entry_a) in &map_a {
-        let Some(entry_b) = map_b
-            .iter()
-            .find(|(other, _)| other == name)
-            .map(|(_, e)| e)
-        else {
+    for (name, entry_a) in map_a.iter() {
+        let Some(entry_b) = map_b.get(name) else {
             lines.push(format!("FAIL missing in B: {name}"));
             problems += 1;
             continue;
@@ -741,25 +682,23 @@ pub fn verify(a: &Path, b: &Path) -> Result<VerifyReport, Error> {
     let dep_b = dep_mapping(b, &index_b, &b_index_path)?;
     let lookup_b: HashMap<&str, &str> = dep_b
         .iter()
-        .map(|(name, module)| (name.as_str(), module.as_str()))
+        .map(|(name, module)| (name, module.as_str()))
         .collect();
-    let lookup_a: HashSet<&str> = dep_a.iter().map(|(name, _)| name.as_str()).collect();
+    let lookup_a: HashSet<&str> = dep_a.keys().collect();
     let mut dep_bad = 0usize;
-    for (name, module) in &dep_a {
-        if lookup_b.get(name.as_str()).copied() != Some(module.as_str()) {
+    for (name, module) in dep_a.iter() {
+        if lookup_b.get(name).copied() != Some(module.as_str()) {
             if dep_bad < VERIFY_DEP_FAILURES {
                 lines.push(format!(
                     "FAIL dep {name}: {module} vs {}",
-                    lookup_b
-                        .get(name.as_str())
-                        .map_or("undefined", |found| *found)
+                    lookup_b.get(name).map_or("undefined", |found| *found)
                 ));
             }
             dep_bad += 1;
         }
     }
-    for (name, _) in &dep_b {
-        if !lookup_a.contains(name.as_str()) {
+    for name in dep_b.keys() {
+        if !lookup_a.contains(name) {
             if dep_bad < VERIFY_DEP_FAILURES {
                 lines.push(format!("FAIL dep only in B: {name}"));
             }
@@ -793,14 +732,12 @@ pub fn verify(a: &Path, b: &Path) -> Result<VerifyReport, Error> {
 const VERIFY_DEP_FAILURES: usize = 10;
 
 /// `new Map(index.modules.map(e => [e.module, e]))`: a repeated module keeps its
-/// first position and takes its last value.
-fn module_map(index: &JsonObject, path: &Path) -> Result<Vec<(String, IndexEntry)>, Error> {
-    let mut out: Vec<(String, IndexEntry)> = Vec::new();
+/// first position and takes its last value — [`Ordered::insert`]'s rule, which
+/// is why it is that type and not a `Vec` of pairs with the rule written again.
+fn module_map(index: &JsonObject, path: &Path) -> Result<Ordered<IndexEntry>, Error> {
+    let mut out = Ordered::new();
     for entry in index_entries(index, path)? {
-        match out.iter_mut().find(|(name, _)| *name == entry.module) {
-            Some(slot) => slot.1 = entry,
-            None => out.push((entry.module.clone(), entry)),
-        }
+        out.insert(entry.module.clone(), entry);
     }
     Ok(out)
 }
@@ -808,12 +745,12 @@ fn module_map(index: &JsonObject, path: &Path) -> Result<Vec<(String, IndexEntry
 /// Every dependency slice of a tree, flattened to `name -> module` in file
 /// order — `idx.dependencyMaps ?? []`, so a tree with no such key is empty
 /// rather than a failure.
-fn dep_mapping(
-    root: &Path,
-    index: &JsonObject,
-    path: &Path,
-) -> Result<Vec<(String, String)>, Error> {
-    let mut out: Vec<(String, String)> = Vec::new();
+///
+/// A name two slices both carry keeps its first position and takes its last
+/// value, which is [`Ordered::insert`]'s rule and the same one [`module_map`]
+/// states.
+fn dep_mapping(root: &Path, index: &JsonObject, path: &Path) -> Result<Ordered<String>, Error> {
+    let mut out = Ordered::new();
     let entries = match index.get("dependencyMaps") {
         None | Some(Value::Null) => Vec::new(),
         Some(Value::Array(entries)) => entries.clone(),
@@ -844,10 +781,7 @@ fn dep_mapping(
                 Value::String(module) => module.clone(),
                 other => other.to_string(),
             };
-            match out.iter_mut().find(|(other, _)| other == name) {
-                Some(slot) => slot.1 = module,
-                None => out.push((name.clone(), module)),
-            }
+            out.insert(name.clone(), module);
         }
     }
     Ok(out)

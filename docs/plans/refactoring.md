@@ -1013,6 +1013,66 @@ assertion `left == right` failed: incr: Alpha.«Odd-Name»
   **既存の byte 比較テスト (`tests/ledger.rs` のプロトタイプ byte 比較、`tests/merge.rs` の round trip) が
   緑のままであることを確認する**
 
+#### 結果【2026-08-23】— **壊してみたら、見たのは index 側だけだった**
+
+`crates/litedoc4-incr/src/ordered.rs` に `Ordered<V>` を 1 本置き、
+`pub type KeySet = Ordered<String>` を `ledger.rs` に、`pub type JsonObject = Ordered<Value>` を
+`merge.rs` に置いた。**別名を元のファイルに残したので `lib.rs` の `pub use` 行は 1 文字も動いていない** —
+`litedoc4_incr::KeySet` も `litedoc4_incr::ledger::KeySet` も従来どおりで、呼び出し元は 1 箇所も動いていない。
+`KeySet::diff` は **`ledger.rs` の `impl Ordered<String>` に残した**【判断】 — doc が
+`--render-all-out` / plan §5 M3 / `ledger.ts:213` / `cmp_utf16` と**台帳の語彙しか持っていない**ので、
+台帳を知らない型の隣に置くとその語彙が `ordered.rs` に流れ込む。
+
+**壊して確かめた。壊し方は 2 通りで、規則の 2 つの半分に対応する** 【実測】:
+
+| 壊し方 | 赤くなったテスト |
+|---|---:|
+| A: **最初の値**を取る (後から来た値を捨てる) | **8 本** — `litedoc4/tests/build.rs` 2、`incremental.rs` 4、`incr/tests/merge.rs` 2 |
+| B: 最後の値を取るが、**キーを末尾へ動かす** | **4 本** — `incremental.rs` 3、`incr/tests/merge.rs` 1 |
+
+A は `index.json` の `modules` が差し替わらないので、消えたはずのモジュールが索引に残り
+`reading …/ir/modules/Pkg.C.json: No such file or directory` で落ちる。B は
+**「マージした IR は from-scratch と 1 バイト違わない」**が `index.json` **だけ**で落ちる
+(`the merged IR is not a from-scratch one: ["index.json"]`)。
+**どちらも出力を読めば何が壊れたか 1 行で言える。**
+
+**計画が名指しした 2 つの安全網は、どちらも今は効いていない**(結果が SoT):
+
+1. **「`tests/ledger.rs` のプロトタイプ byte 比較」は 2026-08-16 に削除済み** —
+   ファイル自身の見出しが理由を書いている (オラクルの引退)。**指せるものが無い。**
+2. **`tests/merge.rs` の round trip (`nested_json_keeps_its_key_order`) は `JsonObject` を通らない** —
+   `serde_json::Value` の**入れ子**の順序を見るテストで、A でも B でも緑のまま。
+
+つまり **台帳側 (`KeySet`) の insert 規則を見ているものは 1 本も無かった** — 12 本の赤は
+全部 index 側と pipeline 側から出ている。だから 2 本足し、**足した順に一度落としてから通した**:
+
+- `a_repeated_key_keeps_its_first_position_and_its_last_value` — A でも B でも赤くなる
+- `a_key_set_that_is_not_a_map_says_what_it_wanted` — 下の判断を固定する
+
+**`Deserialize` は `Ordered<V>` には付けない**【判断】。2 つの間で本当に違うのは
+**拒否文だけ**で、台帳は "a map of strings to strings"、index は "a JSON object" と言う。
+型は自分がどちらのファイルかを知らないので、`Ordered::deserialize_in_order(d, expecting)` を
+共有して `impl Deserialize` は別名の側に置いた。1 文に統一すると
+**片方のファイルについて間違ったことを言う拒否**が残る。
+
+**5 綴りのうち 2 つは畳み、1 つは畳まなかった**:
+
+- `merge.rs:773-782` の `module_map` → `Ordered<IndexEntry>`、`merge.rs:823-826` の
+  `dep_mapping` → `Ordered<String>`。どちらも `Vec<(String, V)>` への同じ線形走査で、**計算量も同じ**
+- **`detect.rs:305-311` の `previous` は同じ規則だが同じ判断ではない**【判断】 —
+  これは**順序も覚えている lookup 表**で、`HashMap<&str, &ModuleEntry>` + 順序 `Vec` として書かれている。
+  `Ordered` は連想リストなので、畳むと (a) 構築が O(n) → O(n²)、(b) `current` を回すループの中の
+  `previous.get` が O(1) → O(n)、(c) 借用している `&str` キーの `String` clone、を同時に買う。
+  対象は 432 モジュール、Mathlib 規模なら 8,169。**Lean を起動する前に走る段でこれを払う理由が無い。**
+  §16 が言う「2 本必要だった」の形で、**規則は同じでもデータ構造の選択が別**。
+  すぐ上の 2 行のコメントが既に規則を書いているので、**この項目では `detect.rs` を 1 行も触っていない**
+
+`cargo test --workspace` は **450 → 452 passed / バイナリ 39 のまま** (足した `#[test]` が 2 本)。
+テスト側の呼び出しを 8 箇所直した — `Ordered<V>::get` は `Option<&V>`、`iter` は `(&str, &V)` を返すので
+`KeySet` では `&String` になる。`assert_eq!(…, Some("undefined"))` に `.map(String::as_str)` が
+挟まっただけで、**主張は 1 つも変えていない**。
+
+
 ### X3 — 「corpus はこの機材にあるか」の述語が 5 綴り、うち 4 つは既に「間違い」と記録された `is_dir()`
 
 - `incr/tests/impact.rs:1000-1012` に、この判定を直したときの記録が残っている:
@@ -1079,6 +1139,56 @@ assertion `left == right` failed: incr: Alpha.«Odd-Name»
   **別の場所に 2 つ目の Error が生えやすい**
 - やること: `incr/error.rs` と `incr/io.rs` (あるいは 1 本 `common.rs`) に移す。
   `lib.rs` の re-export 名は変えない。250 行の移動
+
+#### 結果【2026-08-23】— **`common.rs` にしなかった。名前が何でも引き寄せるのが、直そうとしている失敗そのもの**
+
+`error.rs` (200 行) と `io.rs` (56 行) の **2 本**に分けた【判断】。1 本の `common.rs` に
+しなかったのは、**「共通」という名前は次に来たものを何でも受け入れる**からで、それは X6 が
+直している失敗——**「そこを開く必然性が無い住所」**——の別の形。`error.rs` / `io.rs` は
+名前が中身を言うので、stage を足す人がそこに着地する。その一文を `error.rs` の
+モジュール doc に書いた。
+
+移したのは **verbatim で 220 行**:
+
+- `error.rs` ← `detect.rs:582-762` (`enum Error` / `exit_code` / `Display` / `NAMES_IN_REFUSAL` /
+  `some_of` / `impl std::error::Error`)。**`Error::exit_code` の 1 つの `match` はそのまま** —
+  5 stage 分の終了コードが 1 箇所に集まっている状態は動かしていない
+- `io.rs` ← `detect.rs:481-502` + `:513-529` (`lines_file` / `write_text` / `write` / `write_json_line`)
+
+`detect.rs` は **763 → 539 行**。間に挟まっていた `hashed_bytes` は `ModuleEntry` の話なので残した。
+
+**`lib.rs` の再輸出名は変わっていない** — `Error` を `detect::{…}` の並びから
+`pub use error::Error;` に移しただけで、`litedoc4_incr::Error` は同じ。消えたのは
+`litedoc4_incr::detect::Error` という経路で、**crate の外から使っているものは無い**
+【実測: `litedoc4_incr::detect` のヒットは `litedoc4/src/watch.rs:542` のコメント 1 件だけ、
+しかも mod を指していて型ではない】。
+
+**`pub mod error` / `pub(crate) mod io`**【判断】。`error` を pub にしたのは他の 5 stage の
+mod がすべて pub だからで、X5 が方針を 1 つ選ぶときに一緒に扱われるべきものを先に例外にしない。
+`io` は中身が全部 `pub(crate)` なので、`pub mod` にすると**中身の無い公開ページ**になる。
+
+**`lines_file` は private → `pub(crate)` に広がった。** `detect.rs` は 3 つの集合を
+`write_text(path, x)` ではなく `write(path, &lines_file(x))` と書いていて、**これは触っていない** —
+同値だが、揃えるのは移設ではない。
+
+**§14 の 3 箇所は触っていない** (`prune.rs:423-446` の `read_dir` 非ソート /
+`impact.rs:378-386` の `write_text` 不使用 / `merge.rs:25-98` の Lean 順序)。
+**§14 の領域内で変えたのは 1 行だけ**で、`impact.rs:379` のコメントが指す綴り
+`crate::detect::write_text` → `crate::io::write_text`。**移設が住所を変えた以上、
+この行は直さないと嘘になる** — 理由も実装も 1 文字も動いていない。同じ理由で
+`litedoc4/src/pipeline.rs:1770` の doc が名指ししていた `detect::write_text` も直した。
+
+**住所が動いたものが docs にもう 1 件ある**: 段 0 の D13 が引いている `detect.rs:656-659`
+(`OutsidePageRoot` の「`«..»` は届く」論証) は **`error.rs` に移った**。D13 は決着済みで
+当時の住所を書いている記録なので、**書き換えていない**。
+
+**`Error` の doc の「The three refusals below」は今 exit 3 が 7 件あるが、そのままにした**
+【判断】 — 移設で本文を書き換えると、何が動いたのかが後から読めなくなる。直すなら別の変更として。
+
+`cargo test --workspace` は **452 passed / 0 failed / 22 ignored / バイナリ 39** で X2 の後と同じ。
+出力バイトは 1 つも動いていない — `RENDERER_ID` / `EXTRACTOR_ID` は無傷で、
+両項目を通して赤くしたのは**わざと壊したときだけ**。
+
 
 ### X7 — `search_index::encode` は panic するが、対の `decode` は `Option` を返す
 
