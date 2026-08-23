@@ -501,6 +501,17 @@ after:  Ok("")
 - やること: `crate::fsx` に `write_file` / `create_dir` を集約。定数は `lib.rs` に 1 本ずつ。
   `events_beside` は `extract.rs` に置いて両方から呼ぶ
 
+#### 結果【2026-08-23】
+
+**`fsx` は作らなかった**【判断】 — `pipeline::write_file` / `create_dir` / `write_lines` が既にあり、
+新しい住所を作るより**そこへ寄せる方が移動が少ない**。定数も同じで、`EXIT_EXTRACTOR` は
+`extract.rs` に、`DEFAULT_MAX_ROUNDS` は `build.rs` に 1 本ずつ残して `pipeline` が `use` する。
+
+4 種類とも 1 本になった【実測: `rg -c` が各 1 件】:
+`write_file` (pipeline) / `EXIT_EXTRACTOR` (extract) / `DEFAULT_MAX_ROUNDS` (build) /
+`events_beside` (extract)。`stages.rs` のインライン書き込みと `extract.rs` の
+`create_dir_all` 3 箇所も同じ関数に寄せた。
+
 ### R6 — exit 3 に名前を与える
 
 - `Failure::Refused { code: 3 }` が **27 箇所ハードコード**。定数を持っているのは 4 と 5 だけ

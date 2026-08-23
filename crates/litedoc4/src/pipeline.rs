@@ -162,10 +162,10 @@ pub(crate) const EXIT_ROUNDS: u8 = 5;
 /// already means "the round loop did not converge" here. A caller that has to
 /// tell those apart cannot, so the child's code is put in the message instead of
 /// on the process.
-pub(crate) const EXIT_EXTRACTOR: u8 = 4;
+pub(crate) use crate::extract::EXIT_EXTRACTOR;
 
 /// `opt("--max-rounds", 5)`.
-const DEFAULT_MAX_ROUNDS: usize = 5;
+use crate::build::DEFAULT_MAX_ROUNDS;
 
 /// How many decimal digits a git revision has in `--source-url`.
 ///
@@ -1722,7 +1722,13 @@ pub(crate) fn write_lines(path: &Path, items: &[String]) -> Result<(), Failure> 
     write_file(path, &body)
 }
 
-fn write_file(path: &Path, body: &str) -> Result<(), Failure> {
+/// Writes `body` to `path`, making its directory first.
+///
+/// **The one spelling.** It was five: this, a byte-identical copy in
+/// [`crate::build`], two inline `create_dir_all` + `write` pairs in what is now
+/// [`crate::stages`], and one more in [`crate::deps_docs`]. They agreed, which
+/// is what made the fifth easy to write.
+pub(crate) fn write_file(path: &Path, body: &str) -> Result<(), Failure> {
     if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         create_dir(dir)?;
     }

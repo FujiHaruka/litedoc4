@@ -123,7 +123,7 @@ use std::time::{Duration, Instant};
 use litedoc4_incr::{Algorithm, hash_module, sha256_text};
 
 use crate::Failure;
-use crate::extract::{EXIT_EXTRACTOR, FIXED_FLAGS, fold_timings};
+use crate::extract::{EXIT_EXTRACTOR, FIXED_FLAGS, events_beside, fold_timings};
 
 /// How long a stopped server is given to leave through its own exit path before
 /// it is signalled.
@@ -675,15 +675,6 @@ impl Drop for Server {
 }
 
 // ---------------------------------------------------------------- the plumbing
-
-/// `<timings without .json>-events.jsonl` (`extract-once.sh:52`).
-fn events_beside(timings: &Path) -> PathBuf {
-    let text = timings.to_string_lossy();
-    PathBuf::from(format!(
-        "{}-events.jsonl",
-        text.strip_suffix(".json").unwrap_or(&text)
-    ))
-}
 
 /// One request line, or a refusal naming the path that cannot be sent.
 ///

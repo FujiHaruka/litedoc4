@@ -156,7 +156,9 @@ use litedoc4_incr::{
 };
 
 use crate::extract::absolute;
-use crate::pipeline::{Extractor, Incremental, check_source_url, module_names, write_lines};
+use crate::pipeline::{
+    Extractor, Incremental, check_source_url, module_names, write_file, write_lines,
+};
 use crate::resident::Resident;
 use crate::{Failure, LINK_INDEX_COST, USAGE, refused, usage};
 
@@ -170,7 +172,7 @@ const LAYOUT: u64 = 1;
 const MARKER: &str = "litedoc4-build.json";
 
 /// `opt("--max-rounds", 5)`, the pipeline's own default.
-const DEFAULT_MAX_ROUNDS: usize = 5;
+pub(crate) const DEFAULT_MAX_ROUNDS: usize = 5;
 
 /// Where every piece of one package's documentation state lives.
 pub(crate) struct Layout {
@@ -1445,11 +1447,4 @@ fn count_files(root: &Path) -> usize {
         }
     }
     total
-}
-
-fn write_file(path: &Path, body: &str) -> Result<(), Failure> {
-    if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-        crate::pipeline::create_dir(dir)?;
-    }
-    fs::write(path, body).map_err(|source| Failure::io(path, &source))
 }

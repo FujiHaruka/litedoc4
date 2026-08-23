@@ -134,10 +134,7 @@ pub fn site(args: &[String]) -> Result<(), Failure> {
             "totalSeconds": site.render_seconds + site.global_seconds,
         });
         let line = serde_json::to_string(&record).expect("counts and durations serialise") + "\n";
-        if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir).map_err(|source| Failure::io(dir, &source))?;
-        }
-        std::fs::write(&path, line).map_err(|source| Failure::io(&path, &source))?;
+        crate::pipeline::write_file(&path, &line)?;
     }
     Ok(())
 }

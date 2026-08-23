@@ -259,13 +259,7 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
     // The prototype's default (`extract-once.sh:52`), kept: `--timings` and its
     // events file travel together, and `incremental` deliberately passes only
     // the first (`pipeline.rs`'s `Extractor::run`).
-    let events = events.unwrap_or_else(|| {
-        let text = timings.to_string_lossy();
-        PathBuf::from(format!(
-            "{}-events.jsonl",
-            text.strip_suffix(".json").unwrap_or(&text)
-        ))
-    });
+    let events = events.unwrap_or_else(|| events_beside(&timings));
     // **Every path handed to the child is made absolute first, and the guard
     // above is why** 【実測 2026-08-15, M4-c】. `lake env` runs inside `--target`,
     // so a relative path on that command line resolves against the package being
@@ -281,7 +275,7 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
     // Removed rather than truncated on open: the extractor appends, so a stale
     // file from an earlier round would be folded into this round's timings.
     let _ = fs::remove_file(&events);
-    fs::create_dir_all(&ir_dir).map_err(|source| Failure::io(&ir_dir, &source))?;
+    crate::pipeline::create_dir(&ir_dir)?;
 
     let link_index = link_index.as_deref().map(absolute);
     // 段 C. Made absolute for the reason in the block above — the child's working
@@ -305,7 +299,7 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
         .arg(&ir_dir);
     if let Some(path) = &link_index {
         if let Some(parent) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-            fs::create_dir_all(parent).map_err(|source| Failure::io(parent, &source))?;
+            crate::pipeline::create_dir(parent)?;
         }
         command.arg("--link-index").arg(path);
         if let Some(omit) = &link_index_omit {
@@ -397,6 +391,20 @@ pub(crate) fn refuse_inside(
             container.display(),
         ),
     })
+}
+
+/// `<timings without .json>-events.jsonl` (`extract-once.sh:52`).
+///
+/// **One spelling, and that is the point**: `resident.rs:253-256` says "both
+/// extraction paths have to leave the events file in the same place under the
+/// same name or two records of the same run stop being comparable" — and the
+/// expression that decides the place used to be written twice.
+pub(crate) fn events_beside(timings: &Path) -> PathBuf {
+    let text = timings.to_string_lossy();
+    PathBuf::from(format!(
+        "{}-events.jsonl",
+        text.strip_suffix(".json").unwrap_or(&text)
+    ))
 }
 
 /// `path`, made absolute **without touching what it spells**.
@@ -528,7 +536,7 @@ pub(crate) fn fold_timings(
     // by the M4-b gate.
     let encoded = serde_json::to_string(&record).map_err(|source| Failure::io(out, &source))?;
     if let Some(parent) = out.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-        fs::create_dir_all(parent).map_err(|source| Failure::io(parent, &source))?;
+        crate::pipeline::create_dir(parent)?;
     }
     fs::write(out, encoded).map_err(|source| Failure::io(out, &source))?;
     Ok(counted)
