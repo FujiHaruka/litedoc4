@@ -1,0 +1,37 @@
+name: Set up elan
+description: >
+  Install elan at the toolchain `e2e/micro/lean-toolchain` pins, from a cache
+  when there is one, and put it on PATH.
+
+# WHY THE TOOLCHAIN FILE IS NOT AN INPUT
+#   All twelve call sites pin the same file. `docs/plans/refactoring.md` §9 C1
+#   expected two (`e2e/micro/lean-toolchain` and `target/lean-toolchain`); the
+#   tree has one 【実測 2026-08-23】. An input with one caller is a parameter
+#   nobody has chosen yet — add it when a second toolchain arrives, and let the
+#   cache key change with it then.
+#
+# WHY THE TARBALL NAMES A LINUX ARCHITECTURE
+#   Every one of the twelve jobs is `runs-on: ubuntu-latest` 【実測】, including
+#   the one in ci-browser-windows.yml, whose Windows half is a different job and
+#   installs no Lean. A `runner.os` switch here would be a branch nothing takes.
+runs:
+  using: composite
+  steps:
+    - name: Cache elan
+      id: elan-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.elan
+        key: elan-${{ runner.os }}-${{ hashFiles('e2e/micro/lean-toolchain') }}
+
+    - name: Install elan at the fixture's toolchain
+      if: steps.elan-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz \
+          | tar xz
+        ./elan-init -y --default-toolchain "$(cat e2e/micro/lean-toolchain)"
+
+    - name: Put elan on PATH
+      shell: bash
+      run: echo "$HOME/.elan/bin" >> "$GITHUB_PATH"

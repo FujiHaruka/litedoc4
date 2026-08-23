@@ -53,22 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Cache elan
-        id: elan-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.elan
-          key: elan-${{ runner.os }}-${{ hashFiles('e2e/micro/lean-toolchain') }}
-
-      - name: Install elan at the fixture's toolchain
-        if: steps.elan-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz \
-            | tar xz
-          ./elan-init -y --default-toolchain "$(cat e2e/micro/lean-toolchain)"
-
-      - name: Put elan on PATH
-        run: echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/setup-elan
 
       # Two packages that are not copies of each other: one with no dependency
       # packages at all, one with a path dependency. Mathlib is not available
@@ -132,22 +117,7 @@ jobs:
             target
           key: cargo-v2-${{ runner.os }}-portability-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
 
-      - name: Cache elan
-        id: elan-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.elan
-          key: elan-${{ runner.os }}-${{ hashFiles('e2e/micro/lean-toolchain') }}
-
-      - name: Install elan at the fixture's toolchain
-        if: steps.elan-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz \
-            | tar xz
-          ./elan-init -y --default-toolchain "$(cat e2e/micro/lean-toolchain)"
-
-      - name: Put elan on PATH
-        run: echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/setup-elan
 
       - uses: actions/download-artifact@v4
         with:

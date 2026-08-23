@@ -215,22 +215,7 @@ jobs:
 
       # Lean core only. The fixture depends on nothing else, which is what keeps
       # this job to minutes instead of the gigabytes Mathlib would cost.
-      - name: Cache elan
-        id: elan-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.elan
-          key: elan-${{ runner.os }}-${{ hashFiles('e2e/micro/lean-toolchain') }}
-
-      - name: Install elan at the fixture's toolchain
-        if: steps.elan-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz \
-            | tar xz
-          ./elan-init -y --default-toolchain "$(cat e2e/micro/lean-toolchain)"
-
-      - name: Put elan on PATH
-        run: echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/setup-elan
 
       - name: Build the CLI
         run: cargo build --bin litedoc4

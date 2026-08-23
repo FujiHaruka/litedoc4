@@ -209,22 +209,7 @@ jobs:
           test -f */NOTICE  || { echo "no NOTICE in the archive"  >&2; exit 1; }
           grep -q "Martin Mit" */NOTICE || { echo "NOTICE lost md4c's MIT text" >&2; exit 1; }
 
-      - name: Cache elan
-        id: elan-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.elan
-          key: elan-${{ runner.os }}-${{ hashFiles('e2e/micro/lean-toolchain') }}
-
-      - name: Install elan at the fixture's toolchain
-        if: steps.elan-cache.outputs.cache-hit != 'true'
-        run: |
-          curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz \
-            | tar xz
-          ./elan-init -y --default-toolchain "$(cat e2e/micro/lean-toolchain)"
-
-      - name: Put elan on PATH
-        run: echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/setup-elan
 
       # LITEDOC4 points e2e-micro.sh at the unpacked binary instead of a cargo
       # build, so what is measured is the artifact, not this checkout.
