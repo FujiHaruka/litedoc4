@@ -2136,6 +2136,38 @@ impact-compare 203 / impact-reference 349。
 **消す前に 1 件ずつ「`cargo test` 側が同じ検査をしている」ことを確認する。**
 確認できなければ残す — **道具を消すことと、その道具が守っていた主張を消すことは別**。
 
+#### 着手前の実測【2026-08-23】— **この項目の前提は成り立たない。着手する者は先にここを読む**
+
+**「6 本が現役でない」も「CI からも docs からも参照されない」も誤り**【実測】。
+
+**`*-reference.sh` 3 本は生きていて、消す候補にならない**:
+
+- 3 本とも「**シナリオの唯一の定義**」で、`cargo test` 側の doc がそれを名指しして
+  「in-process で再演する」と書いている — `impact.rs:204` / `:991`、`merge.rs:199`、
+  `ledger.rs:158`。**道具を消すことと、その道具が守っていた主張を消すことは別**の、
+  まさにその形
+- **`merge-reference.sh` は corpus 入力を作る** — `$OUT/fixtures` を base IR から
+  **決定的に**生成し (script header が明記)、それが `LITEDOC4_MERGE_FIXTURES` の実体
+- 消す候補として残るのは `*-compare.sh` 側だけ (ループの相手だった `--impl ts` が消えたため)
+
+**`tools/` の compare/reference は 6 本ではなく 11 本**【実測】 — 上の 6 本 +
+`global-compare` / `incremental-compare` / `incremental-reference` / `render-compare` /
+`site-compare`。**crate の doc から名指しされているものがある**:
+`pages.rs` → `render-compare.sh`、`prune.rs:431` → `impact-compare.sh`、
+`merge.rs:178` → `merge-compare.sh`、`litedoc4/src/lib.rs:8` → `ledger-compare.sh`。
+**「参照されない」は `rg` の当て方が `tools/` と `.github/` に閉じていたため。**
+
+##### この項目が拾うべき欠陥 — **実行できない指示が 1 つある**
+
+`crates/litedoc4-incr/tests/merge.rs` の corpus テストが、入力が無いとき
+`tools/merge-reference.sh --impl ts` を実行しろと言う。**`--impl` は 3 本のどれにももう無い**
+— header に「2026-08-16 まで在った」と書いてあるだけ【実測】。今の正しい綴りは
+`tools/merge-reference.sh --out <dir>` で、fixtures は `<dir>/fixtures`。
+`--impl` は「どの実装が fixtures を**消費する**か」の選択で、**作る側は今も決定的に同じバイト列**。
+直すのは `merge.rs` の `path_built_by(...)` と、その綴りを固定している
+`litedoc4-testutil/src/corpus.rs` のテスト 2 箇所 (`should_panic` の expected と呼び出し)。
+**U3a が逐語で運んだだけで、U3a が作った欠陥ではない。**
+
 ### T4 — 5 種類のブロックが 4〜23 ファイルに散在【実測: 同一行の出現数】
 
 | 種類 | 代表行 | 出現 |
