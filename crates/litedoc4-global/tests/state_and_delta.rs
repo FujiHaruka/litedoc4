@@ -47,6 +47,7 @@ use litedoc4_global::{
     GlobalOptions, GlobalSummary, STATE_DERIVATION, STATE_FILE, build_global, facts_for, v8_gc,
 };
 use litedoc4_ir::{Index, IrTree};
+use litedoc4_testutil::corpus;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -63,12 +64,6 @@ const TEMP: TempDirs = TempDirs::prefixed("litedoc4-state");
 /// subscript into a list whose contents are a milestone's decision is a silent
 /// mis-read the moment the list changes.
 const NAME_MAP: &str = "declarations/name-map.json";
-
-const DEFAULT_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
-const DEFAULT_REFERENCE: &str = "/private/tmp/lean-doc-relay/m2/ref-global";
-/// A state file the frozen prototype wrote, over [`DEFAULT_IR`].
-const DEFAULT_PROTOTYPE_STATE: &str =
-    "/private/tmp/lean-doc-relay/w7h/base-state/global-state.json";
 
 // --------------------------------------------------------------- the branches
 
@@ -1134,10 +1129,10 @@ fn the_seven_states_agree_over_the_real_corpus() {
 #[ignore = "corpus: needs LITEDOC4_IR + LITEDOC4_PROTOTYPE_STATE (tools/corpus-gate.sh)"]
 fn the_state_file_is_the_prototypes_bytes() {
     let ir = corpus_ir();
-    let prototype = PathBuf::from(
-        std::env::var("LITEDOC4_PROTOTYPE_STATE")
-            .unwrap_or_else(|_| DEFAULT_PROTOTYPE_STATE.into()),
-    );
+    // `raw` and not `path`: the `fs::read` below is the stronger check — it
+    // reports the `io::Error`, which says *why* the file could not be read
+    // rather than only that a file count came out zero.
+    let prototype = corpus::LITEDOC4_PROTOTYPE_STATE.raw();
     let want = fs::read(&prototype).unwrap_or_else(|e| {
         panic!(
             "no prototype state at {} ({e}): set LITEDOC4_PROTOTYPE_STATE, or run this test \
@@ -2051,49 +2046,12 @@ fn the_delta_fixture_is_a_real_delta() {
 /// corpus gate asked for the test by name. Returning "not here, never mind"
 /// there would be a green result for a comparison that never ran.
 fn corpus_ir() -> PathBuf {
-    let ir = PathBuf::from(std::env::var("LITEDOC4_IR").unwrap_or_else(|_| DEFAULT_IR.into()));
-    assert!(
-        file_count(&ir) != 0,
-        "no IR tree at {} (empty or missing): set LITEDOC4_IR, or run this test through \
-         tools/corpus-gate.sh, which is the only thing that should be asking for it",
-        ir.display()
-    );
-    ir
+    corpus::LITEDOC4_IR.path()
 }
 
 /// The reference tree the frozen prototype wrote, or a panic naming what to set.
 fn corpus_reference() -> PathBuf {
-    let reference = PathBuf::from(
-        std::env::var("LITEDOC4_REFERENCE_GLOBAL").unwrap_or_else(|_| DEFAULT_REFERENCE.into()),
-    );
-    assert!(
-        file_count(&reference) != 0,
-        "no reference tree at {} (empty or missing): set LITEDOC4_REFERENCE_GLOBAL, or run this \
-         test through tools/corpus-gate.sh, which is the only thing that should be asking for it",
-        reference.display()
-    );
-    reference
-}
-
-/// Regular files under `dir`, recursively. Zero for a missing directory.
-///
-/// Presence is counted in files, not directories. These trees live under
-/// `/private/tmp`, which is swept: an emptied tree leaves its directory behind,
-/// `is_dir()` says yes, and the comparison then fails somewhere further in for
-/// an environmental reason — an environment problem wearing a code problem's
-/// clothes. `litedoc4-incr/tests/impact.rs` records the run that cost.
-fn file_count(dir: &Path) -> usize {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|entry| match entry.file_type() {
-            Ok(kind) if kind.is_dir() => file_count(&entry.path()),
-            Ok(kind) if kind.is_file() => 1,
-            _ => 0,
-        })
-        .sum()
+    corpus::LITEDOC4_REFERENCE_GLOBAL.path()
 }
 
 /// FNV-1a 64, the same ten lines the generator has.

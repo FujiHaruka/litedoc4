@@ -22,17 +22,19 @@ use litedoc4_ir::{
     Attr, Decl, DeclNaming, Generated, GeneratedFact, IrTree, Member, ModuleFile, SelectionRange,
     SorryFact, SorryKind, Span, SpanKind, Utf16Text,
 };
-
-const DEFAULT_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
+use litedoc4_testutil::corpus;
 
 /// The fixture, or a panic naming what to set.
 ///
 /// Every caller is `#[ignore]`d, so reaching this function at all means the
 /// corpus gate asked for the test by name. Returning "not here, never mind"
 /// there would be a green result for a comparison that never ran.
+///
+/// `raw` and not `path`: naming `index.json` is a **stronger** check than the
+/// file count behind [`corpus::Input::path`] — it says what an IR tree must
+/// hold rather than how much of anything it holds.
 fn fixture() -> PathBuf {
-    let path =
-        PathBuf::from(std::env::var("LITEDOC4_BASE_IR").unwrap_or_else(|_| DEFAULT_IR.to_owned()));
+    let path = corpus::LITEDOC4_BASE_IR.raw();
     assert!(
         path.join("index.json").is_file(),
         "no IR tree at {}: set LITEDOC4_BASE_IR, or run this test through \

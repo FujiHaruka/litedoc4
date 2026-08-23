@@ -64,7 +64,6 @@
 //! that quietly stop being true.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::path::PathBuf;
 
 use litedoc4_ir::{Decl, IrTree, ModuleFile};
 use litedoc4_render::autolink::{NameIndex, PageLinks, module_decl_names, page_root};
@@ -72,12 +71,10 @@ use litedoc4_render::code::CodeRenderer;
 use litedoc4_render::decl::{DeclRenderer, UnplaceableName, decl_head_html, decl_signature};
 use litedoc4_render::frame::{module_head_html, module_meta_html, module_source_url, sidebar_html};
 use litedoc4_render::{ExternalLinks, LinkIndex, SiteMeta, head_html, topbar_html};
+use litedoc4_testutil::corpus;
 use serde::Deserialize;
 
 const FIXTURE: &str = include_str!("data/page-parts-expected.json");
-
-const DEFAULT_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
-const DEFAULT_LINK_INDEX: &str = "/private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -944,17 +941,9 @@ fn the_sample_reaches_every_shape() {
 #[test]
 #[ignore = "corpus: needs LITEDOC4_PAGE_PARTS_FULL + LITEDOC4_IR + LITEDOC4_LINK_INDEX (tools/corpus-gate.sh)"]
 fn the_whole_corpus_carries_the_prototypes_content() {
-    let path = std::env::var("LITEDOC4_PAGE_PARTS_FULL").unwrap_or_else(|_| {
-        panic!(
-            "set LITEDOC4_PAGE_PARTS_FULL to a `--full` recording made by the generator at tag \
-             experiments-frozen (HEAD cannot make one), or run this test through \
-             tools/corpus-gate.sh, which is the only thing that should be asking for it"
-        )
-    });
-    let ir_dir = PathBuf::from(std::env::var("LITEDOC4_IR").unwrap_or_else(|_| DEFAULT_IR.into()));
-    let lidx_path = PathBuf::from(
-        std::env::var("LITEDOC4_LINK_INDEX").unwrap_or_else(|_| DEFAULT_LINK_INDEX.into()),
-    );
+    let path = corpus::recording("LITEDOC4_PAGE_PARTS_FULL");
+    let ir_dir = corpus::LITEDOC4_IR.path();
+    let lidx_path = corpus::LITEDOC4_LINK_INDEX.path();
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]

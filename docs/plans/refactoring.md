@@ -1768,6 +1768,61 @@ crates/litedoc4-testutil/
 `show` の `'\t'` 分岐が片方にしか無いので、**同じ乖離が 2 つのテストで違って表示され、
 失敗メッセージが比較できない**。
 
+#### 結果【2026-08-23】— **前半 (corpus 入力) だけ。表の件数は 3 行が過少だった**
+
+**`crates/litedoc4-testutil/src/corpus.rs` (411 行) を作り、corpus 入力の在庫を 1 ファイルに集めた。**
+X3 が段 4 に引き継いだ `file_count` 6 コピーと、この表の `env_path` / `DEFAULT_IR` 行がここで閉じる。
+**HTML ヘルパ (`unescape` / `anchors_of` / `show` / `attr_values` / `between` /
+`first_difference` / `Case::index`) は未着手** — 置き場所が違う (下記)。
+
+**数え直したら表が 3 行外れていた**【実測】:
+
+| ヘルパ | 表 | 実測 |
+|---|---|---|
+| `DEFAULT_IR` (`…/w7h/base-ir`) | 4 箇所 | **10 箇所** (render 5 / ir 1 / global 2 / incr 2)。<br>`DEFAULT_BASE_IR` という別名の 3 本を数えていない |
+| `show` | 4 版 | **5 版** (`differential.rs` が表に無い) |
+| `Case::index()` | 2 (page_parts / autolink) | **4** (fragment / docgen4_linked も同名)。<br>ただし**一致するのは 2 だけ** — 残り 2 は別の世界を建てている (`build` vs `build_with_a_page_for_every_module`) |
+
+**畳んだことで初めて見えた事実が 2 つある。どちらも「重複」ではなく仕様**:
+
+1. **1 本の木に 3 つの変数名** — `…/m1/ref-pages` は `LITEDOC4_REF_PAGES` /
+   `LITEDOC4_REFERENCE_PAGES` / `LITEDOC4_PAGES` で呼ばれる。ゲートが 1 つずつ設定するので、
+   「片方の比較のためだけにページを持っている機材」が成立する。`tools/corpus-tests.txt:64-66` が列挙している
+2. **1 つの変数名に 2 つの既定** — `LITEDOC4_LINK_INDEX` は render の corpus テストでは
+   `…/w7c/linkindex/link-index.lidx`、`link_index_fixture.rs` と `packages.rs` では
+   `/private/tmp/litedoc4-m7a/link-index.lidx`。後者は
+   `benchmarks/tools/check-lidx-urls.sh` の `WORK_DIR` で、この 2 本はそちらに結合している。
+   `LITEDOC4_DOCGEN4_TREE` も同じ形 (片方は `LITEDOC4_TARGET` からの導出)
+
+**設計**: `Input { what, var, default }` の**フィールドは私有**で、`pub const` 13 本だけが構築する。
+呼び出し側は変数名と既定パスを自分で綴れない — 6 コピーが生まれた経路がこれで閉じる。
+`path()` (在否検査つき) / `path_built_by(how)` (作り方を 1 行足す) / `raw()` (無検査)。
+**`raw()` は 2 箇所のためだけにある** — `base_ir.rs` の `index.json` 名指しと
+`state_and_delta.rs` の `fs::read`。どちらも**ファイル数より強い**主張で、X3 が「畳むな」と書いたもの。
+「自分で検査する」は「強い検査をする」と同じではない、と doc に書いた。
+
+**挙動が変わった箇所** (すべて意図的、いずれも X3 の一般形):
+
+- `autolink.rs` / `page_parts.rs` / `fragment.rs` の `LITEDOC4_IR` / `LITEDOC4_LINK_INDEX` は
+  **在否検査を持っていなかった** — 空の IR を渡すと `IrTree::open` の serde エラーで落ちていた。
+  今は変数名を言って落ちる
+- `link_index_fixture.rs` / `packages.rs` が `is_file()` から述語 1 本に移った。
+  ファイルに対しては同値。**ディレクトリを渡したときだけ弱くなる**が、X3 の
+  「述語を 2 つに割らない」を優先した
+- `pages.rs` の `… && lidx.is_file()` 第 3 項が消えた (X3 の指示)
+
+**新しい検査は 9 本、すべて一度落としてから通した**【実測】。実装を 9 通りに壊して赤を確認
+(`is_dir()` に戻す / `file_count` の fallback を `0` や `1` に固定 / 述語を反転 / `raw()` に検査を足す /
+`path_built_by` が `how` を捨てる など)。**そのうち 1 通りが自分の欠陥を出した** — 共有した
+フォーマット文字列が `None` の枝で `or ` を落としていて、`set {var}, run this test through …` と
+出ていた。検査を「panic したか」から**文全体の一致**に強めて直した。
+
+**`cargo doc` が設計を 1 つ却下した**【実測】: `lib.rs` の `pub mod corpus;` に `///` を付けると、
+rustdoc は `corpus.rs` の `//!` ヘッダと連結した**全体を `lib.rs` の側で解決する**。
+ヘッダの intra-doc リンク 8 本が全部壊れた。`//` の普通のコメントにして解決。
+
+**`test`: 457 → 466 passed / 0 failed / 22 ignored** (増えた 9 本が上記)。5 種すべて緑。
+
 ### U4 — `crates/litedoc4/tests/` の fake extractor が 2 本に分岐済み【U3 より重い】
 
 - `tests/build.rs:197-263` と `tests/incremental.rs:1015-1067`。

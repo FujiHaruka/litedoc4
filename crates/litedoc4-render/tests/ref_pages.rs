@@ -52,10 +52,7 @@ use litedoc4_ir::{IrTree, ModuleFile};
 use litedoc4_render::autolink::{NameIndex, PageLinks, module_decl_names, page_root};
 use litedoc4_render::escape::escape_html;
 use litedoc4_render::{ExternalLinks, LinkIndex};
-
-const DEFAULT_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
-const DEFAULT_LINK_INDEX: &str = "/private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx";
-const DEFAULT_REF_PAGES: &str = "/private/tmp/lean-doc-relay/m1/ref-pages";
+use litedoc4_testutil::corpus;
 
 /// What may follow a declaration's docstring on a page: the rest of the
 /// declaration, or the end of it. None of these can begin a docstring.
@@ -73,51 +70,17 @@ const TERMINATORS: [&str; 4] = ["</div>", "<div", "<details", "<ul class=\"struc
 const KNOWN_SUBSET_DIVERGENCE: &str =
     "InformationTheory.Shannon.TimeBandLimiting.Count module doc 1";
 
-fn env_path(var: &str, default: &str) -> PathBuf {
-    PathBuf::from(std::env::var(var).unwrap_or_else(|_| default.to_owned()))
-}
-
 /// The IR, the `.lidx` and the reference pages, or a panic naming what to set.
 ///
 /// The only caller is `#[ignore]`d, so reaching this function at all means the
 /// corpus gate asked for the test by name. Returning "not here, never mind"
 /// there would be a green result for a comparison that never ran.
 fn inputs() -> (PathBuf, PathBuf, PathBuf) {
-    let ir = env_path("LITEDOC4_IR", DEFAULT_IR);
-    let lidx = env_path("LITEDOC4_LINK_INDEX", DEFAULT_LINK_INDEX);
-    let pages = env_path("LITEDOC4_REF_PAGES", DEFAULT_REF_PAGES);
-    // Counted in **files**: `/private/tmp` is swept, and an emptied `ref-pages`
-    // leaves its directory behind — `exists()` said yes to that and every page
-    // then failed to read, which is an environmental failure wearing a
-    // regression's clothes (`litedoc4-incr/tests/impact.rs` documents it).
-    for (what, var, path) in [
-        ("IR", "LITEDOC4_IR", &ir),
-        (".lidx", "LITEDOC4_LINK_INDEX", &lidx),
-        ("reference pages", "LITEDOC4_REF_PAGES", &pages),
-    ] {
-        assert!(
-            file_count(path) != 0,
-            "no {what} at {} (empty or missing): set {var}, or run this test through \
-             tools/corpus-gate.sh, which is the only thing that should be asking for it",
-            path.display()
-        );
-    }
-    (ir, lidx, pages)
-}
-
-/// Regular files at or under `path`; 1 for a file, 0 for a missing path.
-fn file_count(path: &Path) -> usize {
-    let Ok(entries) = std::fs::read_dir(path) else {
-        return usize::from(path.is_file());
-    };
-    entries
-        .flatten()
-        .map(|entry| match entry.file_type() {
-            Ok(kind) if kind.is_dir() => file_count(&entry.path()),
-            Ok(kind) if kind.is_file() => 1,
-            _ => 0,
-        })
-        .sum()
+    (
+        corpus::LITEDOC4_IR.path(),
+        corpus::LITEDOC4_LINK_INDEX.path(),
+        corpus::LITEDOC4_REF_PAGES.path(),
+    )
 }
 
 /// The text between `open` and the next `</div>`, and where it started.

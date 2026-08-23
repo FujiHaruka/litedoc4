@@ -51,7 +51,6 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
 
 use litedoc4_ir::{IrTree, Span, SpanKind, Utf16Text};
 use litedoc4_render::autolink::{NameIndex, page_root};
@@ -60,11 +59,10 @@ use litedoc4_render::code::{
     private_to_user_name,
 };
 use litedoc4_render::{ExternalLinks, LinkIndex, break_within, css_kind};
+use litedoc4_testutil::corpus;
 use serde::Deserialize;
 
 const FIXTURE: &str = include_str!("data/fragment-expected.json");
-
-const DEFAULT_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -553,14 +551,8 @@ fn private_names_match_the_prototype() {
 #[test]
 #[ignore = "corpus: needs LITEDOC4_FRAGMENT_FULL + LITEDOC4_IR (tools/corpus-gate.sh)"]
 fn the_whole_corpus_matches_the_prototype() {
-    let path = std::env::var("LITEDOC4_FRAGMENT_FULL").unwrap_or_else(|_| {
-        panic!(
-            "set LITEDOC4_FRAGMENT_FULL to a `--full` recording made by the generator at tag \
-             experiments-frozen (HEAD cannot make one), or run this test through \
-             tools/corpus-gate.sh, which is the only thing that should be asking for it"
-        )
-    });
-    let ir_dir = PathBuf::from(std::env::var("LITEDOC4_IR").unwrap_or_else(|_| DEFAULT_IR.into()));
+    let path = corpus::recording("LITEDOC4_FRAGMENT_FULL");
+    let ir_dir = corpus::LITEDOC4_IR.path();
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]

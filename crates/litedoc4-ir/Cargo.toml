@@ -11,5 +11,12 @@ publish.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+# The corpus inventory: which environment variable names each tree that lives
+# outside the repository, and where it sits when nobody said. Workspace-local
+# and `publish = false`, so it is in neither NOTICE nor any released binary
+# (docs/plans/refactoring.md §7 U2).
+litedoc4-testutil = { path = "../litedoc4-testutil" }
+
 [lints]
 workspace = true

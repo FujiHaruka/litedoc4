@@ -60,10 +60,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use litedoc4_render::escape::escape_html;
 use litedoc4_render::{ExternalLinks, ModuleSet, RenderOptions, page_path, render_site};
+use litedoc4_testutil::corpus;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde::Deserialize;
 
@@ -75,13 +76,6 @@ use common::{Tally, rewrite_source_path_anchors};
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-pages");
 
 const FIXTURE: &str = include_str!("data/pages-expected.json");
-
-const DEFAULT_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
-const DEFAULT_LINK_INDEX: &str = "/private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx";
-const DEFAULT_REFERENCE: &str = "/private/tmp/lean-doc-relay/m1/ref-pages";
-/// doc-gen4's own output on the measurement target. Inside the target's
-/// `.lake`, which is gitignored there and never written to from here.
-const DEFAULT_DOCGEN4_TREE: &str = "/Users/haruka/dev/lean-projects/.lake/build/doc";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -538,26 +532,9 @@ fn a_dependency_map_moves_exactly_the_links_into_the_dependency() {
 #[test]
 #[ignore = "corpus: needs LITEDOC4_REFERENCE_PAGES + LITEDOC4_IR + LITEDOC4_LINK_INDEX (tools/corpus-gate.sh)"]
 fn pages_carry_the_reference_trees_content() {
-    let reference = PathBuf::from(
-        std::env::var("LITEDOC4_REFERENCE_PAGES").unwrap_or_else(|_| DEFAULT_REFERENCE.into()),
-    );
-    let ir = PathBuf::from(std::env::var("LITEDOC4_IR").unwrap_or_else(|_| DEFAULT_IR.into()));
-    let lidx = PathBuf::from(
-        std::env::var("LITEDOC4_LINK_INDEX").unwrap_or_else(|_| DEFAULT_LINK_INDEX.into()),
-    );
-    // Presence is counted in **files**, not directories: `/private/tmp` is
-    // swept, and an emptied `ref-pages` leaves its directory behind. `is_dir()`
-    // said yes to that and the comparison then failed for an environmental
-    // reason — the same trap `litedoc4-incr/tests/impact.rs` documents.
-    assert!(
-        file_count(&reference) != 0 && file_count(&ir) != 0 && lidx.is_file(),
-        "no corpus (empty or missing: {} / {} / {}): set LITEDOC4_REFERENCE_PAGES, LITEDOC4_IR \
-         and LITEDOC4_LINK_INDEX, or run this test through tools/corpus-gate.sh, which is the \
-         only thing that should be asking for it",
-        reference.display(),
-        ir.display(),
-        lidx.display(),
-    );
+    let reference = corpus::LITEDOC4_REFERENCE_PAGES.path();
+    let ir = corpus::LITEDOC4_IR.path();
+    let lidx = corpus::LITEDOC4_LINK_INDEX.path();
     let e = expected();
     let work = TEMP.make("reference");
     let summary = render_site(&RenderOptions {
@@ -681,18 +658,8 @@ fn pages_carry_the_reference_trees_content() {
 #[test]
 #[ignore = "corpus: needs LITEDOC4_DOCGEN4_TREE + LITEDOC4_IR (tools/corpus-gate.sh)"]
 fn pages_carry_the_doc_gen4_trees_declarations() {
-    let tree = PathBuf::from(
-        std::env::var("LITEDOC4_DOCGEN4_TREE").unwrap_or_else(|_| DEFAULT_DOCGEN4_TREE.into()),
-    );
-    let ir = PathBuf::from(std::env::var("LITEDOC4_IR").unwrap_or_else(|_| DEFAULT_IR.into()));
-    assert!(
-        file_count(&tree) != 0 && file_count(&ir) != 0,
-        "no doc-gen4 tree or IR (empty or missing: {} / {}): set LITEDOC4_DOCGEN4_TREE and \
-         LITEDOC4_IR, or run this test through tools/corpus-gate.sh, which is the only thing \
-         that should be asking for it",
-        tree.display(),
-        ir.display(),
-    );
+    let tree = corpus::LITEDOC4_DOCGEN4_TREE.path();
+    let ir = corpus::LITEDOC4_IR.path();
 
     // Where each declaration sits, so a disagreement about order can be told
     // apart from a disagreement about content.
@@ -1231,21 +1198,6 @@ fn split_hrefs(html: &str) -> (Vec<&str>, Vec<&str>) {
     }
     between.push(rest);
     (between, hrefs)
-}
-
-/// Regular files under `dir`, recursively. Zero for a missing directory.
-fn file_count(dir: &Path) -> usize {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|entry| match entry.file_type() {
-            Ok(kind) if kind.is_dir() => file_count(&entry.path()),
-            Ok(kind) if kind.is_file() => 1,
-            _ => 0,
-        })
-        .sum()
 }
 
 /// Every `.html` under `dir`, keyed by its path relative to it. A missing

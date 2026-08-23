@@ -40,7 +40,7 @@ Lean 4 向けだと名前が言う。**弱点**: Lean 5 が出たら古びる (m
 |---|---|---|---|
 | 1 | `benchmarks/results/**` | 361 ファイル | **生ログ**。過去の実測を書き換えない (CLAUDE.md「計測の誠実性」) |
 | 2 | `crates/*/tests/data/**` | 14 ファイル | **凍結フィクスチャ**。生成時のパスが焼かれていて、**再生成手段は HEAD に無い** (tag `experiments-frozen` から復元が要る)。`PROVENANCE.md` の `git show experiments-frozen:crates/lean-doc-*/…` は**タグ内の実在パス**で、改名すると解決しなくなる |
-| 3 | 文字列 `lean-doc-relay` | 32 ファイル | ゲートの作業領域 `/private/tmp/lean-doc-relay/<段>`。**凍結フィクスチャに生成時のパスとして入っていて、テストの `DEFAULT_IR` がそれと一致している必要がある** |
+| 3 | 文字列 `lean-doc-relay` | 32 ファイル | ゲートの作業領域 `/private/tmp/lean-doc-relay/<段>`。**凍結フィクスチャに生成時のパスとして入っていて、`litedoc4_testutil::corpus` の既定パスがそれと一致している必要がある** (2026-08-23 まではテスト 10 本の `DEFAULT_IR` に散っていた) |
 | 4 | `lean-doc/experiments/stage4b` / `stage4c` | 6 ファイル | **プロトタイプが IR の `generator` に書いていた実在の識別子**。`ledger.rs` の `assert_ne!` は「今の ID がこれと違う」ことを検査するもので、書き換えると**実在しない文字列と比べる無意味な検査**になる。`extractor/Extract.lean` は今もこの値を書く (移植版は「ディスク上の木を書いたもの」だと主張しない) |
 | 5 | v0.1.3 の資産名 `lean-doc-aarch64-apple-darwin.tar.gz` 等 | `docs/plans/lake-package.md` | **既存タグ v0.1.0〜v0.1.3 に実在する名前**。L2 の実走記録 (960,891 B、sha256 `589d2b7e…`) は改名前のもの |
 

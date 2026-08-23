@@ -34,29 +34,21 @@ use std::time::Instant;
 
 use litedoc4_render::LinkIndex;
 use litedoc4_render::link_index::FORMAT_MARKER;
-
-/// Where `benchmarks/tools/check-lidx-urls.sh` leaves the `.lidx` it drives
-/// (its `WORK_DIR`), which is also where `crates/litedoc4/src/packages.rs`'s
-/// corpus test looks. Any `litedoc4 build --out <dir>` writes one at
-/// `<dir>/link-index.lidx`; copy it here.
-const DEFAULT_LINK_INDEX: &str = "/private/tmp/litedoc4-m7a/link-index.lidx";
+use litedoc4_testutil::corpus;
 
 /// The fixture, or a panic naming what to set.
+///
+/// **`LITEDOC4_M7A_LINK_INDEX` and not `LITEDOC4_LINK_INDEX`**: the variable is
+/// the same one, but the default is the file
+/// `benchmarks/tools/check-lidx-urls.sh` writes rather than the one the relay
+/// directory holds, and this test is coupled to that driver — as is
+/// `crates/litedoc4/src/packages.rs`'s corpus test, which reads the same file.
 ///
 /// The only caller is `#[ignore]`d, so reaching this function at all means the
 /// corpus gate asked for the test by name. Returning "not here, never mind"
 /// there would be a green result for a comparison that never ran.
 fn fixture() -> PathBuf {
-    let path = PathBuf::from(
-        std::env::var("LITEDOC4_LINK_INDEX").unwrap_or_else(|_| DEFAULT_LINK_INDEX.to_owned()),
-    );
-    assert!(
-        path.is_file(),
-        "no link index at {}: set LITEDOC4_LINK_INDEX, or run this test through \
-         tools/corpus-gate.sh, which is the only thing that should be asking for it",
-        path.display()
-    );
-    path
+    corpus::LITEDOC4_M7A_LINK_INDEX.path()
 }
 
 #[test]

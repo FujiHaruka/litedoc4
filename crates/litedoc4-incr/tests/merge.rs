@@ -55,19 +55,13 @@ use litedoc4_incr::merge::{MergeSummary, VerifyReport, same_tree};
 use litedoc4_incr::ownership::{OwnershipSummary, WITNESSES_IN_SUMMARY};
 use litedoc4_incr::{Error, MergeOptions, OwnershipOptions, merge, ownership, verify};
 use litedoc4_ir::cmp_utf16;
+use litedoc4_testutil::corpus;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
 
 /// The temporary directories this file makes. The prefix names the file,
 /// so a directory a failed run leaves behind names what made it.
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-merge");
-
-/// The from-scratch IR the whole milestone is measured against. Read only.
-const DEFAULT_BASE_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
-/// The tree `tools/merge-reference.sh --impl ts` writes. Its `fixtures/`
-/// subdirectory holds the partial extractions **both** implementations are fed —
-/// the scenarios are defined once, in the harness, and consumed here.
-const DEFAULT_REFERENCE: &str = "/private/tmp/lean-doc-relay/m3b/ref";
 
 /// U+1D49C MATHEMATICAL SCRIPT CAPITAL A and U+FB00 LATIN SMALL LIGATURE FF:
 /// the pair that separates UTF-16 order from code point order. `𝒜` sorts
@@ -1186,46 +1180,10 @@ fn dep_mapping_of(tree: &Tree) -> BTreeMap<String, BTreeMap<String, String>> {
 /// corpus gate asked for the test by name. Returning "not here, never mind"
 /// there would be a green result for a comparison that never ran.
 fn corpus() -> (PathBuf, PathBuf) {
-    let base =
-        PathBuf::from(std::env::var("LITEDOC4_BASE_IR").unwrap_or_else(|_| DEFAULT_BASE_IR.into()));
-    let fixtures = PathBuf::from(
-        std::env::var("LITEDOC4_MERGE_FIXTURES")
-            .unwrap_or_else(|_| format!("{DEFAULT_REFERENCE}/fixtures")),
-    );
-    assert!(
-        file_count(&base) != 0,
-        "no base IR at {} (empty or missing): set LITEDOC4_BASE_IR, or run this test through \
-         tools/corpus-gate.sh, which is the only thing that should be asking for it",
-        base.display()
-    );
-    assert!(
-        file_count(&fixtures) != 0,
-        "no fixtures at {} (empty or missing): set LITEDOC4_MERGE_FIXTURES, or run this test \
-         through tools/corpus-gate.sh, which builds them with tools/merge-reference.sh --impl ts",
-        fixtures.display()
-    );
-    (base, fixtures)
-}
-
-/// Regular files under `dir`, recursively. Zero for a missing directory.
-///
-/// Presence is counted in files, not directories. These trees live under
-/// `/private/tmp`, which is swept: an emptied tree leaves its directory behind,
-/// `is_dir()` says yes, and the comparison then fails somewhere further in for
-/// an environmental reason — an environment problem wearing a code problem's
-/// clothes. `tests/impact.rs` records the run that cost.
-fn file_count(dir: &Path) -> usize {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|entry| match entry.file_type() {
-            Ok(kind) if kind.is_dir() => file_count(&entry.path()),
-            Ok(kind) if kind.is_file() => 1,
-            _ => 0,
-        })
-        .sum()
+    (
+        corpus::LITEDOC4_BASE_IR.path(),
+        corpus::LITEDOC4_MERGE_FIXTURES.path_built_by("tools/merge-reference.sh --impl ts"),
+    )
 }
 
 /// One round of the pipeline: `ownership`, then `merge`, over one edit.

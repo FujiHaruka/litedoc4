@@ -52,13 +52,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use litedoc4_global::artifacts::ARTIFACT_PATHS;
 use litedoc4_global::facts::{ModuleFacts, PROTOTYPE_FACT_KEYS};
 use litedoc4_global::state::State;
 use litedoc4_global::{GlobalOptions, build_global, facts_for};
 use litedoc4_ir::IrTree;
+use litedoc4_testutil::corpus;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde::{Deserialize, Serialize};
 
@@ -67,9 +68,6 @@ use serde::{Deserialize, Serialize};
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-global");
 
 const FIXTURE: &str = include_str!("data/global-expected.json");
-
-const DEFAULT_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
-const DEFAULT_REFERENCE: &str = "/private/tmp/lean-doc-relay/m2/ref-global";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -990,49 +988,12 @@ fn corpus_facts_match_the_prototype() {
 /// corpus gate asked for the test by name. Returning "not here, never mind"
 /// there would be a green result for a comparison that never ran.
 fn corpus_ir() -> PathBuf {
-    let ir = PathBuf::from(std::env::var("LITEDOC4_IR").unwrap_or_else(|_| DEFAULT_IR.into()));
-    assert!(
-        file_count(&ir) != 0,
-        "no IR tree at {} (empty or missing): set LITEDOC4_IR, or run this test through \
-         tools/corpus-gate.sh, which is the only thing that should be asking for it",
-        ir.display()
-    );
-    ir
+    corpus::LITEDOC4_IR.path()
 }
 
 /// The reference tree the frozen prototype wrote, or a panic naming what to set.
 fn corpus_reference() -> PathBuf {
-    let reference = PathBuf::from(
-        std::env::var("LITEDOC4_REFERENCE_GLOBAL").unwrap_or_else(|_| DEFAULT_REFERENCE.into()),
-    );
-    assert!(
-        file_count(&reference) != 0,
-        "no reference tree at {} (empty or missing): set LITEDOC4_REFERENCE_GLOBAL, or run this \
-         test through tools/corpus-gate.sh, which is the only thing that should be asking for it",
-        reference.display()
-    );
-    reference
-}
-
-/// Regular files under `dir`, recursively. Zero for a missing directory.
-///
-/// Presence is counted in files, not directories. These trees live under
-/// `/private/tmp`, which is swept: an emptied tree leaves its directory behind,
-/// `is_dir()` says yes, and the comparison then fails somewhere further in for
-/// an environmental reason — an environment problem wearing a code problem's
-/// clothes. `litedoc4-incr/tests/impact.rs` records the run that cost.
-fn file_count(dir: &Path) -> usize {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|entry| match entry.file_type() {
-            Ok(kind) if kind.is_dir() => file_count(&entry.path()),
-            Ok(kind) if kind.is_file() => 1,
-            _ => 0,
-        })
-        .sum()
+    corpus::LITEDOC4_REFERENCE_GLOBAL.path()
 }
 
 /// At least one case's copy of `path` satisfies `predicate`.

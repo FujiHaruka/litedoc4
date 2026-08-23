@@ -533,20 +533,19 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use litedoc4_testutil::TempDirs;
+    use litedoc4_testutil::{TempDirs, corpus};
 
     /// The temporary directories this file makes. The prefix names the file,
     /// so a directory a failed run leaves behind names what made it.
     const TEMP: TempDirs = TempDirs::prefixed("litedoc4-packages");
 
     /// The measurement target, as `litedoc4-incr`'s corpus tests spell it.
+    ///
+    /// **Not in `litedoc4_testutil::corpus`, deliberately**: every input there
+    /// is checked by counting the files at or under it, and this one is the
+    /// whole Mathlib checkout — hundreds of thousands of files to walk in order
+    /// to learn what `is_dir()` says at once.
     const DEFAULT_TARGET: &str = "/Users/haruka/dev/lean-projects";
-
-    /// Where `benchmarks/tools/check-lidx-urls.sh` — the driver that makes both
-    /// — leaves them (its `WORK_DIR`). Tens of megabytes each, so they live
-    /// outside the repository like every other corpus input.
-    const DEFAULT_LINK_INDEX: &str = "/private/tmp/litedoc4-m7a/link-index.lidx";
-    const DEFAULT_DECL_URLS: &str = "/private/tmp/litedoc4-m7a/decl-source-urls.tsv";
 
     // ------------------------------------------------------ without the target
 
@@ -984,7 +983,8 @@ mod tests {
     ///
     /// Both inputs live outside the repository and are ~10 MB and ~41 MB, so
     /// the test is `#[ignore]`d and reads them from
-    /// [`DEFAULT_LINK_INDEX`]/[`DEFAULT_DECL_URLS`], or from:
+    /// [`corpus::LITEDOC4_M7A_LINK_INDEX`]/[`corpus::LITEDOC4_DECL_URLS`], or
+    /// from:
     ///
     /// ```text
     /// LITEDOC4_LINK_INDEX=<litedoc4 build … writes <out>/link-index.lidx>
@@ -1008,36 +1008,18 @@ mod tests {
     #[test]
     #[ignore = "corpus: needs LITEDOC4_LINK_INDEX + LITEDOC4_DECL_URLS (tools/corpus-gate.sh)"]
     fn every_lidx_entry_matches_doc_gen4s_declaration_urls() {
-        let lidx =
-            std::env::var("LITEDOC4_LINK_INDEX").unwrap_or_else(|_| DEFAULT_LINK_INDEX.to_owned());
-        let oracle =
-            std::env::var("LITEDOC4_DECL_URLS").unwrap_or_else(|_| DEFAULT_DECL_URLS.to_owned());
-        for (what, path, how) in [
-            (
-                "LITEDOC4_LINK_INDEX",
-                &lidx,
-                "litedoc4 build --root <target> --out <dir>  (writes <dir>/link-index.lidx)",
-            ),
-            (
-                "LITEDOC4_DECL_URLS",
-                &oracle,
-                "benchmarks/tools/extract-decl-source-urls.sh <out.tsv>",
-            ),
-        ] {
-            assert!(
-                Path::new(path).is_file(),
-                "no input at {path}: set {what}, or make it with\n    {how}\n\
-                 or run this test through tools/corpus-gate.sh, which is the only thing \
-                 that should be asking for it",
-            );
-        }
+        let lidx = corpus::LITEDOC4_M7A_LINK_INDEX.path_built_by(
+            "litedoc4 build --root <target> --out <dir>  (writes <dir>/link-index.lidx)",
+        );
+        let oracle = corpus::LITEDOC4_DECL_URLS
+            .path_built_by("benchmarks/tools/extract-decl-source-urls.sh <out.tsv>");
         let target = PathBuf::from(
             std::env::var("LITEDOC4_TARGET").unwrap_or_else(|_| DEFAULT_TARGET.to_owned()),
         );
         let index = litedoc4_render::LinkIndex::read(&lidx)
-            .unwrap_or_else(|source| panic!("{lidx}: {source}"));
-        let oracle_text =
-            fs::read_to_string(&oracle).unwrap_or_else(|source| panic!("{oracle}: {source}"));
+            .unwrap_or_else(|source| panic!("{}: {source}", lidx.display()));
+        let oracle_text = fs::read_to_string(&oracle)
+            .unwrap_or_else(|source| panic!("{}: {source}", oracle.display()));
         let mut wanted: BTreeMap<String, &str> = BTreeMap::new();
         let mut oracle_lines = 0usize;
         let mut oracle_collisions = 0usize;
@@ -1130,7 +1112,7 @@ mod tests {
         absent_roots.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
         absent_roots.truncate(5);
         eprintln!(
-            "\n.lidx {lidx}\noracle {oracle}\n\
+            "\n.lidx {}\noracle {}\n\
              .lidx entries                          : {}\n\
              \x20 under a root the map resolves        : {linkable}\n\
              \x20   matched                            : {matched}\n\
@@ -1147,6 +1129,8 @@ mod tests {
              the {} the .lidx does not have, by first component: {:?}\n\
              .lidx-only sample : {}\n\
              oracle-only sample: {}",
+            lidx.display(),
+            oracle.display(),
             index.len(),
             mismatched.len(),
             lidx_only.len(),

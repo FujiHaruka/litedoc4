@@ -19,6 +19,19 @@
 //!   decision here even as a `dev-dependency` — `deny.toml`'s `[graph]` sets no
 //!   `exclude-dev`. A workspace member that is `publish = false` costs neither.
 
+// A `pub mod` and no root `pub use`: §6 X5 of `docs/plans/refactoring.md`
+// settled that the root's re-exports carry only what another crate imports by
+// name and what has no other route. Call sites read
+// `litedoc4_testutil::corpus::LITEDOC4_IR.path()`, which says where the
+// variable name comes from.
+//
+// A **plain comment and not a doc comment**: an outer `///` here would be the
+// first fragment of the module's documentation, and rustdoc then resolves the
+// whole of it — including `corpus.rs`'s own `//!` header — against *this*
+// module. All eight intra-doc links in that header broke, and
+// `RUSTDOCFLAGS=-D warnings cargo doc` is what said so 【実測 2026-08-23】.
+// The module's documentation lives in `corpus.rs`.
+pub mod corpus;
 mod temp;
 
 pub use temp::{TempDir, TempDirs};

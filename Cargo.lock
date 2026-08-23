@@ -179,6 +179,7 @@ dependencies = [
 name = "litedoc4-ir"
 version = "0.2.0"
 dependencies = [
+ "litedoc4-testutil",
  "serde",
  "serde_json",
 ]

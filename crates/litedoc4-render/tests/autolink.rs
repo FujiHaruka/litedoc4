@@ -62,21 +62,18 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::PathBuf;
 
 use litedoc4_ir::IrTree;
 use litedoc4_md::LinkResolver;
 use litedoc4_render::autolink::{NameIndex, PageLinks, module_decl_names, page_root};
 use litedoc4_render::{ExternalLinks, LinkIndex};
+use litedoc4_testutil::corpus;
 use serde::Deserialize;
 
 mod common;
 use common::{Tally, rewrite_source_path_anchors, unescape};
 
 const FIXTURE: &str = include_str!("data/autolink-expected.json");
-
-const DEFAULT_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
-const DEFAULT_LINK_INDEX: &str = "/private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -446,15 +443,9 @@ fn the_sample_reaches_every_branch() {
 #[test]
 #[ignore = "corpus: needs LITEDOC4_AUTOLINK_FULL + LITEDOC4_IR + LITEDOC4_LINK_INDEX (tools/corpus-gate.sh)"]
 fn the_whole_corpus_matches_the_prototype() {
-    let path = std::env::var("LITEDOC4_AUTOLINK_FULL").unwrap_or_else(|_| {
-        panic!(
-            "set LITEDOC4_AUTOLINK_FULL to a `--full` recording made by the generator at tag \
-             experiments-frozen (HEAD cannot make one), or run this test through \
-             tools/corpus-gate.sh, which is the only thing that should be asking for it"
-        )
-    });
-    let ir_dir = env_path("LITEDOC4_IR", DEFAULT_IR);
-    let lidx_path = env_path("LITEDOC4_LINK_INDEX", DEFAULT_LINK_INDEX);
+    let path = corpus::recording("LITEDOC4_AUTOLINK_FULL");
+    let ir_dir = corpus::LITEDOC4_IR.path();
+    let lidx_path = corpus::LITEDOC4_LINK_INDEX.path();
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -572,10 +563,6 @@ fn the_whole_corpus_matches_the_prototype() {
 }
 
 // ------------------------------------------------------------------- helpers
-
-fn env_path(var: &str, default: &str) -> PathBuf {
-    PathBuf::from(std::env::var(var).unwrap_or_else(|_| default.to_owned()))
-}
 
 /// `(href, text)` of every anchor whose text is plain, which is every anchor
 /// `autoLinkInline` makes.

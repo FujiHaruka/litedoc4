@@ -58,22 +58,13 @@ use litedoc4_incr::prune::PageRoot;
 use litedoc4_incr::{
     Error, ImpactOptions, Mode, PruneOptions, PruneSummary, impact, page_of, prune,
 };
+use litedoc4_testutil::corpus;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
 
 /// The temporary directories this file makes. The prefix names the file,
 /// so a directory a failed run leaves behind names what made it.
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-impact");
-
-/// The from-scratch IR the milestone is measured against. Read only.
-const DEFAULT_BASE_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
-/// The 432 module pages, without the whole-package artifacts. Read only —
-/// every scenario copies it first.
-const DEFAULT_PAGES: &str = "/private/tmp/lean-doc-relay/m1/ref-pages";
-/// The whole site: 432 pages **+ 6 whole-package artifacts** (plan §6). Read
-/// only. Three of the six are `.html`, which is what makes the orphan rule
-/// interesting.
-const DEFAULT_SITE: &str = "/private/tmp/lean-doc-relay/m2/gate/ref-site";
 
 /// U+1D49C MATHEMATICAL SCRIPT CAPITAL A and U+FB00 LATIN SMALL LIGATURE FF:
 /// the pair that separates UTF-16 order from code point order. `𝒜` sorts
@@ -994,45 +985,11 @@ fn fnv1a64(bytes: &[u8]) -> String {
 /// corpus gate asked for the test by name. Returning "not here, never mind"
 /// there would be a green result for a comparison that never ran.
 fn corpus() -> (PathBuf, PathBuf, PathBuf) {
-    let base =
-        PathBuf::from(std::env::var("LITEDOC4_BASE_IR").unwrap_or_else(|_| DEFAULT_BASE_IR.into()));
-    let pages =
-        PathBuf::from(std::env::var("LITEDOC4_PAGES").unwrap_or_else(|_| DEFAULT_PAGES.into()));
-    let site =
-        PathBuf::from(std::env::var("LITEDOC4_SITE").unwrap_or_else(|_| DEFAULT_SITE.into()));
-    // Presence is counted in files, not directories. These trees live under
-    // `/private/tmp`, which is swept: an emptied `ref-pages` left its directory
-    // behind, `is_dir()` said yes, and the run reported the corpus's own pages
-    // as "already absent" — a green-looking scenario failing for an
-    // environmental reason.
-    for (var, dir) in [
-        ("LITEDOC4_BASE_IR", &base),
-        ("LITEDOC4_PAGES", &pages),
-        ("LITEDOC4_SITE", &site),
-    ] {
-        assert!(
-            file_count(dir) != 0,
-            "{} is empty or missing: set {var}, or run this test through tools/corpus-gate.sh, \
-             which is the only thing that should be asking for it",
-            dir.display()
-        );
-    }
-    (base, pages, site)
-}
-
-/// Regular files under `dir`, recursively. Zero for a missing directory.
-fn file_count(dir: &Path) -> usize {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|entry| match entry.file_type() {
-            Ok(kind) if kind.is_dir() => file_count(&entry.path()),
-            Ok(kind) if kind.is_file() => 1,
-            _ => 0,
-        })
-        .sum()
+    (
+        corpus::LITEDOC4_BASE_IR.path(),
+        corpus::LITEDOC4_PAGES.path(),
+        corpus::LITEDOC4_SITE.path(),
+    )
 }
 
 // ------------------------------------------------------- the corpus test

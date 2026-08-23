@@ -1,0 +1,421 @@
+//! The corpus inputs: what a test asks the environment for, and where it looks
+//! when nobody said.
+//!
+//! None of these is a fixture. Every one names a tree or a file that lives
+//! outside the repository — the 432-module IR of the measurement target, the
+//! 432 pages the frozen prototype rendered, a 10 MB `.lidx` — which is why
+//! every test that reaches this module is `#[ignore]`d and
+//! `tools/corpus-gate.sh` is the only thing that should be asking for it.
+//!
+//! WHY THE INVENTORY IS HERE AND NOWHERE ELSE
+//!   [`Input`]'s three fields are private. A call site can ask for an input
+//!   this module already knows about; it cannot invent one by spelling a
+//!   variable name and a default path into its own `std::env::var`, which is
+//!   how the tree came to hold six near-copies of [`file_count`], two of
+//!   `env_path`, and two byte-identical forks of `corpus_ir` + `corpus_reference`
+//!   (§6 X3 of `docs/plans/refactoring.md`, 結果 2026-08-23). The variable
+//!   names are also not this module's to choose: `tools/corpus-gate.sh` prints
+//!   them and `tools/corpus-tests.txt` is checked against the `#[ignore]`
+//!   reasons that name them.
+//!
+//! WHY PRESENCE IS COUNTED IN FILES
+//!   See [`file_count`]. `is_dir()` was the predicate in six places until X3,
+//!   and it is wrong here in a way that costs a session rather than a test.
+//!
+//! TWO THINGS THAT ONLY BECAME VISIBLE ONCE THE INVENTORY WAS IN ONE PLACE
+//!
+//!   1. **One tree, three variable names.** `…/m1/ref-pages` is asked for as
+//!      [`LITEDOC4_REF_PAGES`], [`LITEDOC4_REFERENCE_PAGES`] and
+//!      [`LITEDOC4_PAGES`], one per test that wants it —
+//!      `tools/corpus-tests.txt:64-66` lists the three side by side. The names
+//!      are kept apart on purpose: the gate sets them one at a time, so a
+//!      machine can hold the pages for one comparison and not for another.
+//!
+//!   2. **One variable name, two defaults.** `LITEDOC4_LINK_INDEX` is
+//!      [`LITEDOC4_LINK_INDEX`] — the `w7c` file the render corpus tests read —
+//!      and [`LITEDOC4_M7A_LINK_INDEX`], the `m7a` file
+//!      `litedoc4-render/tests/link_index_fixture.rs` and
+//!      `litedoc4/src/packages.rs` read. The second is where
+//!      `benchmarks/tools/check-lidx-urls.sh` leaves the `.lidx` it drives, and
+//!      the two tests that use it are coupled to that driver rather than to the
+//!      relay directory. One name, so the gate sets one variable; two defaults,
+//!      so an unset run still finds the file its own driver wrote.
+//!
+//!      `LITEDOC4_DOCGEN4_TREE` is the same shape and is **not** wholly here:
+//!      [`LITEDOC4_DOCGEN4_TREE`] carries the literal path, while
+//!      `litedoc4/src/packages.rs` derives its own default from
+//!      `LITEDOC4_TARGET` instead. That one stays out because checking it the
+//!      way this module checks things would walk the whole Mathlib checkout;
+//!      the reason is written where it stays.
+
+use std::path::{Path, PathBuf};
+
+/// One input the corpus gate provides.
+///
+/// Constructed only by the `pub const`s below: the fields are private so that
+/// the set of inputs is a list one file long.
+pub struct Input {
+    /// What the thing is, in the words the panic uses ("IR tree", "link
+    /// index"). Not the variable name — a reader of a failing test wants to
+    /// know what is missing before knowing what to export.
+    what: &'static str,
+    /// The environment variable `tools/corpus-gate.sh:190-194` sets.
+    var: &'static str,
+    /// Where to look when it is unset. **Frozen paths.** The
+    /// `/private/tmp/lean-doc-relay/**` ones keep the pre-rename spelling on
+    /// purpose — the committed fixtures carry it as the path they were
+    /// generated at (`docs/plans/refactoring.md` §14, `docs/plans/rename.md`).
+    default: &'static str,
+}
+
+// ------------------------------------------------------------------ the trees
+
+/// The generated IR of the target package: 432 modules, 16 MB of JSON.
+pub const LITEDOC4_IR: Input = Input {
+    what: "IR tree",
+    var: "LITEDOC4_IR",
+    default: "/private/tmp/lean-doc-relay/w7h/base-ir",
+};
+
+/// The same tree, under the name the incremental crates ask for it by: there it
+/// is the from-scratch IR a milestone is measured **against**, so the tests
+/// that edit an IR can be pointed at a base without moving the one the render
+/// tests read.
+pub const LITEDOC4_BASE_IR: Input = Input {
+    what: "IR tree",
+    var: "LITEDOC4_BASE_IR",
+    default: "/private/tmp/lean-doc-relay/w7h/base-ir",
+};
+
+/// doc-gen4's own output on the measurement target. Inside the target's
+/// `.lake`, which is gitignored there and never written to from here.
+pub const LITEDOC4_DOCGEN4_TREE: Input = Input {
+    what: "doc-gen4 tree",
+    var: "LITEDOC4_DOCGEN4_TREE",
+    default: "/Users/haruka/dev/lean-projects/.lake/build/doc",
+};
+
+// ------------------------------------------------------------ the link indexes
+
+/// The `.lidx` of the target's dependency closure as the relay directory holds
+/// it — what the render corpus tests resolve dependency links against.
+pub const LITEDOC4_LINK_INDEX: Input = Input {
+    what: "link index",
+    var: "LITEDOC4_LINK_INDEX",
+    default: "/private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx",
+};
+
+/// The same variable, defaulted to where `benchmarks/tools/check-lidx-urls.sh`
+/// — the driver that makes both this and [`LITEDOC4_DECL_URLS`] — leaves it
+/// (its `WORK_DIR`). ~10 MB, so it lives outside the repository like every
+/// other corpus input. Any `litedoc4 build --out <dir>` writes one at
+/// `<dir>/link-index.lidx`; copy it here.
+pub const LITEDOC4_M7A_LINK_INDEX: Input = Input {
+    what: "link index",
+    var: "LITEDOC4_LINK_INDEX",
+    default: "/private/tmp/litedoc4-m7a/link-index.lidx",
+};
+
+/// The per-declaration source URLs mined out of doc-gen4's own pages, ~41 MB.
+/// Same `WORK_DIR` and same driver as [`LITEDOC4_M7A_LINK_INDEX`].
+pub const LITEDOC4_DECL_URLS: Input = Input {
+    what: "declaration URLs",
+    var: "LITEDOC4_DECL_URLS",
+    default: "/private/tmp/litedoc4-m7a/decl-source-urls.tsv",
+};
+
+// -------------------------------------------------------- what the prototype wrote
+
+/// The 432 pages the frozen prototype rendered, read as the docstring oracle.
+pub const LITEDOC4_REF_PAGES: Input = Input {
+    what: "reference pages",
+    var: "LITEDOC4_REF_PAGES",
+    default: "/private/tmp/lean-doc-relay/m1/ref-pages",
+};
+
+/// The same tree, read as the whole-page byte oracle.
+pub const LITEDOC4_REFERENCE_PAGES: Input = Input {
+    what: "reference pages",
+    var: "LITEDOC4_REFERENCE_PAGES",
+    default: "/private/tmp/lean-doc-relay/m1/ref-pages",
+};
+
+/// The same tree again, read by the incremental scenarios — the 432 module
+/// pages **without** the whole-package artifacts. Read only: every scenario
+/// copies it first.
+pub const LITEDOC4_PAGES: Input = Input {
+    what: "reference pages",
+    var: "LITEDOC4_PAGES",
+    default: "/private/tmp/lean-doc-relay/m1/ref-pages",
+};
+
+/// The whole-package artifacts the frozen prototype wrote.
+pub const LITEDOC4_REFERENCE_GLOBAL: Input = Input {
+    what: "reference tree",
+    var: "LITEDOC4_REFERENCE_GLOBAL",
+    default: "/private/tmp/lean-doc-relay/m2/ref-global",
+};
+
+/// The whole site: 432 pages **+ 6 whole-package artifacts** (plan §6). Read
+/// only. Three of the six are `.html`, which is what makes the orphan rule
+/// interesting.
+pub const LITEDOC4_SITE: Input = Input {
+    what: "reference site",
+    var: "LITEDOC4_SITE",
+    default: "/private/tmp/lean-doc-relay/m2/gate/ref-site",
+};
+
+/// The `fixtures/` subdirectory of the tree `tools/merge-reference.sh --impl ts`
+/// writes: the partial extractions **both** implementations are fed. The
+/// scenarios are defined once, in the harness, and consumed from here.
+pub const LITEDOC4_MERGE_FIXTURES: Input = Input {
+    what: "fixtures",
+    var: "LITEDOC4_MERGE_FIXTURES",
+    default: "/private/tmp/lean-doc-relay/m3b/ref/fixtures",
+};
+
+/// A state file the frozen prototype wrote, over [`LITEDOC4_IR`].
+pub const LITEDOC4_PROTOTYPE_STATE: Input = Input {
+    what: "prototype state",
+    var: "LITEDOC4_PROTOTYPE_STATE",
+    default: "/private/tmp/lean-doc-relay/w7h/base-state/global-state.json",
+};
+
+impl Input {
+    /// The path, checked to be **there and not empty**, or a panic naming the
+    /// variable to set.
+    ///
+    /// Every caller is `#[ignore]`d, so reaching this at all means the corpus
+    /// gate asked for the test by name. Returning "not here, never mind" there
+    /// would be a green result for a comparison that never ran.
+    pub fn path(&self) -> PathBuf {
+        self.checked(None)
+    }
+
+    /// [`Input::path`], plus the command that makes the thing.
+    ///
+    /// For the inputs a tool in this repository produces — the `.lidx` a
+    /// `litedoc4 build` writes, the fixtures `tools/merge-reference.sh` writes
+    /// — where a reader who has the target but not the file needs one line, not
+    /// a search.
+    pub fn path_built_by(&self, how: &str) -> PathBuf {
+        self.checked(Some(how))
+    }
+
+    /// The path, **unchecked**.
+    ///
+    /// This exists for the two callers that make a *stronger* claim than a file
+    /// count, and it exists for those two only:
+    ///
+    /// - `litedoc4-ir/tests/base_ir.rs` asserts `index.json` **by name**, which
+    ///   is what an IR tree must hold rather than merely how much of something
+    ///   it holds.
+    /// - `litedoc4-global/tests/state_and_delta.rs` reads the state file itself
+    ///   and reports the `io::Error`, which says *why* it could not be read.
+    ///
+    /// Anything weaker than those belongs in [`Input::path`]. This is the rule
+    /// §6 X3 of `docs/plans/refactoring.md` settled: the door back to
+    /// `is_dir()` stays shut, and "I do my own check" is not the same claim as
+    /// "I do a stronger one".
+    pub fn raw(&self) -> PathBuf {
+        PathBuf::from(std::env::var(self.var).unwrap_or_else(|_| self.default.to_owned()))
+    }
+
+    fn checked(&self, how: Option<&str>) -> PathBuf {
+        let path = self.raw();
+        assert!(
+            file_count(&path) != 0,
+            "no {} at {} (empty or missing): set {}, {}run this test through \
+             tools/corpus-gate.sh, which is the only thing that should be asking for it",
+            self.what,
+            path.display(),
+            self.var,
+            how.map_or_else(
+                || "or ".to_owned(),
+                |how| format!("or make it with\n    {how}\nor ")
+            ),
+        );
+        path
+    }
+}
+
+/// A `--full` recording's path, or a panic naming what to set.
+///
+/// Separate from [`Input`] because these three — `LITEDOC4_AUTOLINK_FULL`
+/// (5.6 MB), `LITEDOC4_FRAGMENT_FULL` (29 MB), `LITEDOC4_PAGE_PARTS_FULL`
+/// (77 MB) — have **no default and can have none**. The generator that wrote
+/// them left with `experiments/` on 2026-08-16 and exists only at tag
+/// `experiments-frozen`; a default path would name a file HEAD cannot produce,
+/// which is a worse answer than no path at all.
+pub fn recording(var: &str) -> String {
+    std::env::var(var).unwrap_or_else(|_| {
+        panic!(
+            "set {var} to a `--full` recording made by the generator at tag \
+             experiments-frozen (HEAD cannot make one), or run this test through \
+             tools/corpus-gate.sh, which is the only thing that should be asking for it"
+        )
+    })
+}
+
+/// Regular files at or under `path`; 1 for a plain file, 0 for a missing path.
+///
+/// **Presence is counted in files, not directories.** These trees live under
+/// `/private/tmp`, which is swept: an emptied `ref-pages` leaves its directory
+/// behind, `is_dir()` says yes, and the comparison then fails somewhere further
+/// in for an environmental reason — an environment problem wearing a code
+/// problem's clothes. `litedoc4-incr/tests/impact.rs` records the run that
+/// cost, and `tools/corpus-tests.txt:53-58` records that `m1/ref-pages` and
+/// `w7h/base-state` are in exactly that state right now.
+///
+/// A plain file counts as one because three of the inputs **are** files: both
+/// spellings of the `.lidx` and the `.tsv` of declaration URLs. (The
+/// prototype's state is a fourth, but it reaches its bytes through
+/// [`Input::raw`] and never asks this.) One predicate for directories and
+/// files together is deliberate — splitting it into "is this a non-empty
+/// directory" and "is this a file" is what re-opens the door to `is_dir()`
+/// (§6 X3, 結果 2026-08-23).
+fn file_count(path: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return usize::from(path.is_file());
+    };
+    entries
+        .flatten()
+        .map(|entry| match entry.file_type() {
+            Ok(kind) if kind.is_dir() => file_count(&entry.path()),
+            Ok(kind) if kind.is_file() => 1,
+            _ => 0,
+        })
+        .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::TempDirs;
+
+    const TEMP: TempDirs = TempDirs::prefixed("litedoc4-corpus");
+
+    /// An input whose default is `dir` and whose variable is one nothing sets.
+    ///
+    /// The leak is what buys the `&'static str` a `default` is; a test process
+    /// that ends is the collector. **No test in this module writes an
+    /// environment variable**: `std::env::set_var` is `unsafe` in edition 2024
+    /// because it races every other thread's `getenv`, and the test harness
+    /// runs this file's tests on several. The half that would need one — "a
+    /// variable that is set wins" — is covered by
+    /// [`tests::the_variable_wins_over_the_default`] through a variable **cargo
+    /// itself sets**, so no test has to write one.
+    fn input_at(dir: &Path) -> Input {
+        Input {
+            what: "test tree",
+            var: "LITEDOC4_TESTUTIL_NOTHING_SETS_THIS",
+            default: Box::leak(dir.to_str().expect("utf-8").to_owned().into_boxed_str()),
+        }
+    }
+
+    /// The failure X3 was about: `/private/tmp` is swept, the directory stays,
+    /// and `is_dir()` says yes to nothing at all.
+    ///
+    /// The whole sentence is pinned, not just the verdict. The two branches of
+    /// the message are assembled from a shared format string, and the first
+    /// draft of it dropped the `or ` in front of `run this test` — which no
+    /// assertion on the verdict alone could see.
+    #[test]
+    #[should_panic(
+        expected = "(empty or missing): set LITEDOC4_TESTUTIL_NOTHING_SETS_THIS, or run this \
+                    test through tools/corpus-gate.sh, which is the only thing that should be \
+                    asking for it"
+    )]
+    fn an_existing_but_empty_directory_is_not_an_input() {
+        let dir = TEMP.make("empty");
+        let _ = input_at(dir.path()).path();
+    }
+
+    /// The same directory with one file in it is.
+    #[test]
+    fn a_directory_holding_a_file_is_an_input() {
+        let dir = TEMP.make("holding-a-file");
+        std::fs::write(dir.path().join("index.json"), b"{}").expect("writable");
+        assert_eq!(input_at(dir.path()).path(), dir.path());
+    }
+
+    /// A missing path is not an input either — and the two failures say the
+    /// same sentence, since the caller cannot act differently on them.
+    #[test]
+    #[should_panic(expected = "no test tree at")]
+    fn a_missing_path_is_not_an_input() {
+        let dir = TEMP.reserve("never-made");
+        let _ = input_at(dir.path()).path();
+    }
+
+    /// Two of the inputs are files, not directories, so the predicate has to
+    /// count a plain file as one thing rather than as no things.
+    #[test]
+    fn a_plain_file_counts_as_one_and_a_missing_path_as_none() {
+        let dir = TEMP.make("counting");
+        let file = dir.path().join("link-index.lidx");
+        std::fs::write(&file, b"#lidx2\n").expect("writable");
+        assert_eq!(file_count(&file), 1);
+        assert_eq!(file_count(&dir.path().join("not-here")), 0);
+        assert_eq!(file_count(dir.path()), 1);
+    }
+
+    /// `path` reads the variable first. Driven through `CARGO_MANIFEST_DIR`,
+    /// which cargo sets for every test binary and which names this crate's
+    /// directory — a real, non-empty tree — so the assertion needs no write to
+    /// the environment. The default is a path that does not exist, so a `path`
+    /// that ignored the variable would panic rather than return the wrong
+    /// answer quietly.
+    #[test]
+    fn the_variable_wins_over_the_default() {
+        let set = std::env::var("CARGO_MANIFEST_DIR").expect(
+            "cargo sets CARGO_MANIFEST_DIR in a test binary it runs, and this test needs a \
+             variable that something else has already set",
+        );
+        let input = Input {
+            what: "crate directory",
+            var: "CARGO_MANIFEST_DIR",
+            default: "/nonexistent/litedoc4-testutil/the-default",
+        };
+        assert_eq!(input.path(), PathBuf::from(set));
+    }
+
+    /// And falls back to the default when it is unset.
+    #[test]
+    fn the_default_is_used_when_the_variable_is_not_set() {
+        let input = Input {
+            what: "source directory",
+            var: "LITEDOC4_TESTUTIL_NOTHING_SETS_THIS",
+            default: concat!(env!("CARGO_MANIFEST_DIR"), "/src"),
+        };
+        assert_eq!(
+            input.path(),
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src"))
+        );
+    }
+
+    /// `raw` is the door the two stronger checks come through, so it must not
+    /// have the weaker one behind it.
+    #[test]
+    fn raw_does_not_check_that_anything_is_there() {
+        let dir = TEMP.reserve("never-made");
+        assert_eq!(input_at(dir.path()).raw(), dir.path());
+    }
+
+    /// The message tells a reader who has the target but not the file what to
+    /// run, and still tells them the variable.
+    #[test]
+    #[should_panic(expected = "or make it with\n    tools/merge-reference.sh --impl ts\nor run")]
+    fn path_built_by_names_the_command() {
+        let dir = TEMP.make("empty");
+        let _ = input_at(dir.path()).path_built_by("tools/merge-reference.sh --impl ts");
+    }
+
+    /// A `--full` recording has no default, so the only thing the panic can say
+    /// is where one comes from.
+    #[test]
+    #[should_panic(expected = "made by the generator at tag experiments-frozen")]
+    fn a_recording_with_no_variable_says_where_one_comes_from() {
+        let _ = recording("LITEDOC4_TESTUTIL_NOTHING_SETS_THIS");
+    }
+}
