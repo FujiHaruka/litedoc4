@@ -249,33 +249,11 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
     // rule is stated against it instead of against one repository — the reason
     // it exists (CLAUDE.md: never write into the target) does not depend on
     // which target it is.
-    let resolved = resolve(&ir_dir);
-    if resolved.starts_with(&target) {
-        return Err(Failure::Refused {
-            code: 3,
-            message: format!(
-                "--ir-dir {} is inside --target {}: the package being documented is opened \
-                 read-only and nothing is ever written into it",
-                resolved.display(),
-                target.display(),
-            ),
-        });
-    }
+    refuse_inside(&target, "--target", &ir_dir, "--ir-dir", "")?;
     // The same rule for the map, which is 8.5 MB on the measurement target and
     // is written by the same child with the same working directory.
     if let Some(path) = &link_index {
-        let resolved = resolve(path);
-        if resolved.starts_with(&target) {
-            return Err(Failure::Refused {
-                code: 3,
-                message: format!(
-                    "--link-index {} is inside --target {}: the package being documented is \
-                     opened read-only and nothing is ever written into it",
-                    resolved.display(),
-                    target.display(),
-                ),
-            });
-        }
+        refuse_inside(&target, "--target", path, "--link-index", "")?;
     }
 
     // The prototype's default (`extract-once.sh:52`), kept: `--timings` and its
@@ -382,6 +360,44 @@ pub(crate) fn or_env(flag: Option<PathBuf>, name: &str) -> Option<PathBuf> {
         std::env::var_os(name)
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
+    })
+}
+
+/// Refuses `candidate` if it resolves inside `container`.
+///
+/// **The only copy of this decision.** It was written out five times — twice
+/// here, once in [`crate::pipeline`], once in [`crate::resident`], once in
+/// [`crate::build`] — and the rule is not a preference: M4-c let a relative
+/// `--ir-dir` write an IR tree inside the package being documented, and
+/// CLAUDE.md's "修正を一般形に引き上げたか、毎回問う" is there because of it.
+///
+/// `what` and `container_flag` name the two paths the way the caller's command
+/// line does, so the refusal says which flag to move. `extra` is appended when
+/// the caller has something to add — `build` tells the reader where to put the
+/// pages instead.
+///
+/// Resolved with [`resolve`], not compared as given: `/tmp/x` and
+/// `/private/tmp/x` are one directory on this platform, and a guard that says
+/// otherwise is a guard that can be walked around by spelling.
+pub(crate) fn refuse_inside(
+    container: &Path,
+    container_flag: &str,
+    candidate: &Path,
+    what: &str,
+    extra: &str,
+) -> Result<(), Failure> {
+    let resolved = resolve(candidate);
+    if !resolved.starts_with(container) {
+        return Ok(());
+    }
+    Err(Failure::Refused {
+        code: crate::EXIT_REFUSED,
+        message: format!(
+            "{what} {} is inside {container_flag} {}: the package being documented is opened \
+             read-only and nothing is ever written into it{extra}",
+            resolved.display(),
+            container.display(),
+        ),
     })
 }
 

@@ -454,6 +454,18 @@ after:  Ok("")
   黙って通る**。`refuse_inside` に寄せれば引数名が役割で固定される
 - 規模: 新関数 20 行、5 箇所で正味 -60 行
 
+#### 結果【2026-08-23】
+
+`crates/litedoc4/src/extract.rs` に `refuse_inside(container, container_flag, candidate, what, extra)`。
+**5 ファイルで +59 / -62**。`build` の長い追記 (「Copy <out>/site into the repository afterwards」)
+は `extra` で渡すので、文言は 1 バイトも変わっていない。
+
+- **`resident::guard_target` の引数入れ替え問題も消えた** — 中身が
+  `refuse_inside(target, "the target", ir_dir, …)` の 1 行になり、
+  役割が引数名で固定された
+- **`EXIT_REFUSED` を先に置いた** (R6 の項目) — `refuse_inside` が `code: 3` を書くので、
+  そこだけ literal を残す理由がなかった。**残り 22 箇所は R6 で**
+
 ### R4 — `site` と `render` の入り口 60 行を共有する
 
 - `main.rs:717-833` (`site`, 117 行) と `main.rs:1602-1693` (`render`, 92 行) が

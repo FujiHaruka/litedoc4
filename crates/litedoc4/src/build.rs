@@ -502,19 +502,14 @@ pub(crate) fn parse(
         message: format!("--root {}: {source}", root.display()),
     })?;
     let out = absolute(&out);
-    if crate::extract::resolve(&out).starts_with(&root) {
-        return Err(Failure::Refused {
-            code: 3,
-            message: format!(
-                "--out {} is inside --root {}: the package being documented is opened read-only \
-                 and nothing is ever written into it — `litedoc4 extract` refuses an --ir-dir \
-                 there for the same reason. Copy <out>/site into the repository afterwards if \
-                 that is where the pages belong",
-                out.display(),
-                root.display(),
-            ),
-        });
-    }
+    crate::extract::refuse_inside(
+        &root,
+        "--root",
+        &out,
+        "--out",
+        " — `litedoc4 extract` refuses an --ir-dir there for the same reason. Copy <out>/site \
+         into the repository afterwards if that is where the pages belong",
+    )?;
 
     // A-2: `watch`'s own two flags, checked **here** — after the required ones
     // and before the `lake` below. A misspelled port is a usage error, and a

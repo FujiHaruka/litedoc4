@@ -1255,18 +1255,7 @@ pub(crate) fn serve_options(request: ServeRequest<'_>) -> Result<Serve, Failure>
     let link_index = match link_index {
         None => None,
         Some(path) => {
-            let resolved = crate::extract::resolve(path);
-            if resolved.starts_with(&target) {
-                return Err(Failure::Refused {
-                    code: 3,
-                    message: format!(
-                        "--link-index {} is inside --target {}: the package being documented is \
-                         opened read-only and nothing is ever written into it",
-                        resolved.display(),
-                        target.display(),
-                    ),
-                });
-            }
+            crate::extract::refuse_inside(&target, "--target", path, "--link-index", "")?;
             Some(crate::extract::absolute(path))
         }
     };

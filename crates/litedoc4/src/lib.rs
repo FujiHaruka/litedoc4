@@ -530,6 +530,15 @@ fn print_global_summary(lead: &str, summary: &GlobalSummary) {
     }
 }
 
+/// "The world and the files disagree" — the widest of the four exit codes, and
+/// the one every refusal that is not a usage error uses.
+///
+/// It had no name while 4 (`EXIT_EXTRACTOR`) and 5 (`EXIT_ROUNDS`) did, so the
+/// contract [`Failure`] states — "a pipeline that treats \"the ledger is
+/// stale\" the same as \"the disk is full\" retries the wrong thing" — could
+/// only be followed by grep.
+pub(crate) const EXIT_REFUSED: u8 = 3;
+
 /// Carries the library's exit code out to the process, so that "the ledger is
 /// too old" (3) stays distinguishable from "the file would not read" (1).
 #[expect(

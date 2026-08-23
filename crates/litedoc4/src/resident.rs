@@ -725,19 +725,7 @@ fn request_line(paths: &[&Path]) -> Result<String, Failure> {
 /// The same rule `litedoc4 extract` states, for the same reason: the package
 /// being documented is opened read-only and nothing is ever written into it.
 fn guard_target(target: &Path, ir_dir: &Path) -> Result<(), Failure> {
-    let resolved = crate::extract::resolve(ir_dir);
-    if resolved.starts_with(target) {
-        return Err(Failure::Refused {
-            code: 3,
-            message: format!(
-                "the round's --ir-dir {} is inside the target {}: the package being documented is \
-                 opened read-only and nothing is ever written into it",
-                resolved.display(),
-                target.display(),
-            ),
-        });
-    }
-    Ok(())
+    crate::extract::refuse_inside(target, "the target", ir_dir, "the round's --ir-dir", "")
 }
 
 // --------------------------------------------------------------------- tests
