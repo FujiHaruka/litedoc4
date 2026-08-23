@@ -238,7 +238,7 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
     let lake = or_env(lake, "LAKE").unwrap_or_else(|| PathBuf::from("lake"));
 
     let target = fs::canonicalize(&target).map_err(|source| Failure::Refused {
-        code: 3,
+        code: crate::EXIT_REFUSED,
         message: format!("--target {}: {source}", target.display()),
     })?;
     // The child's own path, for the same reason as the three below: `lake env
@@ -281,8 +281,7 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
     // Removed rather than truncated on open: the extractor appends, so a stale
     // file from an earlier round would be folded into this round's timings.
     let _ = fs::remove_file(&events);
-    fs::create_dir_all(&ir_dir)
-        .map_err(|source| Failure::Failed(format!("{}: {source}", ir_dir.display())))?;
+    fs::create_dir_all(&ir_dir).map_err(|source| Failure::io(&ir_dir, &source))?;
 
     let link_index = link_index.as_deref().map(absolute);
     // 段 C. Made absolute for the reason in the block above — the child's working
@@ -306,8 +305,7 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
         .arg(&ir_dir);
     if let Some(path) = &link_index {
         if let Some(parent) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-            fs::create_dir_all(parent)
-                .map_err(|source| Failure::Failed(format!("{}: {source}", parent.display())))?;
+            fs::create_dir_all(parent).map_err(|source| Failure::io(parent, &source))?;
         }
         command.arg("--link-index").arg(path);
         if let Some(omit) = &link_index_omit {
@@ -478,8 +476,7 @@ pub(crate) fn fold_timings(
     jobs: usize,
     out: &Path,
 ) -> Result<usize, Failure> {
-    let text = fs::read_to_string(events)
-        .map_err(|source| Failure::Failed(format!("{}: {source}", events.display())))?;
+    let text = fs::read_to_string(events).map_err(|source| Failure::io(events, &source))?;
     // `preserve_order` is on for the workspace, so this comes out in the order
     // the extractor emitted the phases — which is the order the prototype's
     // `dict` kept too.
@@ -489,8 +486,8 @@ pub(crate) fn fold_timings(
         if line.is_empty() {
             continue;
         }
-        let event: serde_json::Value = serde_json::from_str(line)
-            .map_err(|source| Failure::Failed(format!("{}: {source}", events.display())))?;
+        let event: serde_json::Value =
+            serde_json::from_str(line).map_err(|source| Failure::io(events, &source))?;
         let Some(object) = event.as_object() else {
             return Err(Failure::Failed(format!(
                 "{}: an event that is not a JSON object",
@@ -514,8 +511,7 @@ pub(crate) fn fold_timings(
         }
     }
 
-    let listed = fs::read_to_string(modules)
-        .map_err(|source| Failure::Failed(format!("{}: {source}", modules.display())))?;
+    let listed = fs::read_to_string(modules).map_err(|source| Failure::io(modules, &source))?;
     // The prototype's own predicate (`extract-once.sh:81-84`): a line that is
     // blank once trimmed, or that *starts* with `#` untrimmed. Kept exactly,
     // including the asymmetry — this number is compared across the two.
@@ -530,13 +526,10 @@ pub(crate) fn fold_timings(
     // (`{"a":1}` here, `{"a": 1}` there) and nothing reads these files as bytes:
     // both sides are parsed — by `analyze.ts`, by `pipeline::write_timings` and
     // by the M4-b gate.
-    let encoded = serde_json::to_string(&record)
-        .map_err(|source| Failure::Failed(format!("{}: {source}", out.display())))?;
+    let encoded = serde_json::to_string(&record).map_err(|source| Failure::io(out, &source))?;
     if let Some(parent) = out.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-        fs::create_dir_all(parent)
-            .map_err(|source| Failure::Failed(format!("{}: {source}", parent.display())))?;
+        fs::create_dir_all(parent).map_err(|source| Failure::io(parent, &source))?;
     }
-    fs::write(out, encoded)
-        .map_err(|source| Failure::Failed(format!("{}: {source}", out.display())))?;
+    fs::write(out, encoded).map_err(|source| Failure::io(out, &source))?;
     Ok(counted)
 }

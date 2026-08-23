@@ -214,7 +214,7 @@ pub(crate) fn check_roots(sites: &[Site], links: &ExternalLinks) -> Result<(), F
         }
         let known: Vec<&str> = links.iter().map(|(root, _)| root).collect();
         return Err(Failure::Refused {
-            code: 3,
+            code: crate::EXIT_REFUSED,
             message: format!(
                 "--deps-docs-url {}=…: `{}` is not a module root of any dependency this package \
                  resolves. The roots it does resolve are: {}. (`litedoc4 links --root <repo>` \
@@ -314,7 +314,10 @@ pub(crate) fn resolve(
         let found = match read(&group[0].index, &want, &asked) {
             Ok(found) => found,
             Err(Problem::Missing(message)) => {
-                return Err(Failure::Refused { code: 3, message });
+                return Err(Failure::Refused {
+                    code: crate::EXIT_REFUSED,
+                    message,
+                });
             }
             Err(Problem::Unreadable(why)) => {
                 for site in &group {
@@ -366,8 +369,7 @@ impl Want {
     /// defined in another root's module has to be filed here the same way or it
     /// would be looked for in a site that was never asked about it.
     fn of(ir: &Path, roots: &BTreeSet<String>) -> Result<Self, Failure> {
-        let tree = litedoc4_ir::IrTree::open(ir)
-            .map_err(|source| Failure::Failed(format!("{}: {source}", ir.display())))?;
+        let tree = litedoc4_ir::IrTree::open(ir).map_err(|source| Failure::io(ir, &source))?;
         let mut names = BTreeMap::new();
         for entry in &tree.index().dependency_maps {
             let map = tree
@@ -709,8 +711,7 @@ fn write_map(path: &Path, resolved: &[Resolved]) -> Result<(), Failure> {
     if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         crate::pipeline::create_dir(dir)?;
     }
-    std::fs::write(path, body)
-        .map_err(|source| Failure::Failed(format!("{}: {source}", path.display())))
+    std::fs::write(path, body).map_err(|source| Failure::io(path, &source))
 }
 
 /// The artifact, read back.
@@ -721,7 +722,7 @@ fn write_map(path: &Path, resolved: &[Resolved]) -> Result<(), Failure> {
 /// the output to say which.
 pub(crate) fn read_map(path: &Path) -> Result<Vec<Resolved>, Failure> {
     let refuse = |why: String| Failure::Refused {
-        code: 3,
+        code: crate::EXIT_REFUSED,
         message: format!("{}: {why}", path.display()),
     };
     let text = std::fs::read_to_string(path).map_err(|source| {

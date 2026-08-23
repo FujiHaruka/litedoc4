@@ -498,7 +498,7 @@ pub(crate) fn parse(
     // symlinked `--root` is still under `--root`, and the guard that says so is
     // the one M4-c found a real leak through.
     let root = fs::canonicalize(&root).map_err(|source| Failure::Refused {
-        code: 3,
+        code: crate::EXIT_REFUSED,
         message: format!("--root {}: {source}", root.display()),
     })?;
     let out = absolute(&out);
@@ -646,7 +646,7 @@ pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
     let modules = module_names(&request.root, &libs)?;
     if modules.is_empty() {
         return Err(Failure::Refused {
-            code: 3,
+            code: crate::EXIT_REFUSED,
             message: format!(
                 "no modules under {} for {}: an empty list would build an empty site and report \
                  success",
@@ -997,14 +997,12 @@ fn full_generation(
     // page and the site would hold a file no from-scratch run produces. The
     // marker is what says this command made it (see the heading).
     if layout.site.exists() {
-        fs::remove_dir_all(&layout.site)
-            .map_err(|source| Failure::Failed(format!("{}: {source}", layout.site.display())))?;
+        fs::remove_dir_all(&layout.site).map_err(|source| Failure::io(&layout.site, &source))?;
     }
     // Same for the IR: a partial tree from an interrupted run would be merged
     // with, not replaced by, this extraction.
     if layout.ir.exists() {
-        fs::remove_dir_all(&layout.ir)
-            .map_err(|source| Failure::Failed(format!("{}: {source}", layout.ir.display())))?;
+        fs::remove_dir_all(&layout.ir).map_err(|source| Failure::io(&layout.ir, &source))?;
     }
 
     let at = Instant::now();
@@ -1138,7 +1136,7 @@ fn plan_of(request: &Request, libs: &[String]) -> Result<Plan, Failure> {
     // exact sentence the module heading promises it cannot do.
     let Some(marker) = read_marker(&layout.marker)? else {
         return Err(Failure::Refused {
-            code: 3,
+            code: crate::EXIT_REFUSED,
             message: format!(
                 "{} is not empty and has no {MARKER}: this command deletes and overwrites inside \
                  --out, so it will only do that to a directory it can see it wrote. Name an empty \
@@ -1153,7 +1151,7 @@ fn plan_of(request: &Request, libs: &[String]) -> Result<Plan, Failure> {
         .unwrap_or_default();
     if was != request.root.to_string_lossy() {
         return Err(Failure::Refused {
-            code: 3,
+            code: crate::EXIT_REFUSED,
             message: format!(
                 "{} was built from {was}, not from {}: the ledger under it stores the target whose \
                  oleans it hashed, and continuing here would compare one package's build tree with \
@@ -1254,7 +1252,7 @@ pub(crate) fn derive_source_url(root: &Path) -> Result<String, Failure> {
     let remote = git(root, &["config", "--get", "remote.origin.url"])?;
     let Some(path) = github_path(&remote) else {
         return Err(Failure::Refused {
-            code: 3,
+            code: crate::EXIT_REFUSED,
             message: format!(
                 "cannot derive --source-url from `{remote}`: only github.com remotes have a \
                  /blob/<rev>/<path> shape this can be sure of, and a guessed one 404s on every \
@@ -1304,12 +1302,12 @@ fn git(root: &Path, args: &[&str]) -> Result<String, Failure> {
         .args(args)
         .output()
         .map_err(|source| Failure::Refused {
-            code: 3,
+            code: crate::EXIT_REFUSED,
             message: format!("git {}: {source}", args.join(" ")),
         })?;
     if !output.status.success() {
         return Err(Failure::Refused {
-            code: 3,
+            code: crate::EXIT_REFUSED,
             message: format!(
                 "git {} in {} failed: {}. --source-url is a git question — pass it explicitly if \
                  the package is not a checkout",
@@ -1412,7 +1410,7 @@ fn read_marker(path: &Path) -> Result<Option<serde_json::Value>, Failure> {
     };
     let record: serde_json::Value =
         serde_json::from_str(&text).map_err(|source| Failure::Refused {
-            code: 3,
+            code: crate::EXIT_REFUSED,
             message: format!(
                 "{}: {source}. This file says which directory `litedoc4 build` owns; one that will \
                  not parse is not one to overwrite a site on the strength of",
@@ -1453,5 +1451,5 @@ fn write_file(path: &Path, body: &str) -> Result<(), Failure> {
     if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         crate::pipeline::create_dir(dir)?;
     }
-    fs::write(path, body).map_err(|source| Failure::Failed(format!("{}: {source}", path.display())))
+    fs::write(path, body).map_err(|source| Failure::io(path, &source))
 }

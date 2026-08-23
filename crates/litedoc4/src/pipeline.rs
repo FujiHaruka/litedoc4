@@ -451,8 +451,7 @@ pub(crate) fn run_incremental(
     let have_before = fs::metadata(&live_map).is_ok_and(|meta| meta.is_file());
     if have_before {
         create_dir(options.work)?;
-        fs::copy(&live_map, &work.map_before)
-            .map_err(|source| Failure::Failed(format!("{}: {source}", live_map.display())))?;
+        fs::copy(&live_map, &work.map_before).map_err(|source| Failure::io(&live_map, &source))?;
     }
 
     // 1 -- detect --------------------------------------------------------------
@@ -1239,7 +1238,7 @@ pub(crate) fn serve_options(request: ServeRequest<'_>) -> Result<Serve, Failure>
         );
     };
     let target = fs::canonicalize(&target).map_err(|source| Failure::Refused {
-        code: 3,
+        code: crate::EXIT_REFUSED,
         message: format!("--target {}: {source}", target.display()),
     })?;
     // **Absolute, all three** 【実測 2026-08-15】. The server's working directory
@@ -1356,7 +1355,7 @@ fn link_index_key(target: &Path, omit: &Path) -> Result<String, Failure> {
     for name in ["leanToolchain", "manifestSha256", "extractor"] {
         let Some(value) = key.get(name) else {
             return Err(Failure::Refused {
-                code: 3,
+                code: crate::EXIT_REFUSED,
                 message: format!("extractKey has no `{name}`: the reuse token cannot be built"),
             });
         };
@@ -1372,7 +1371,7 @@ fn link_index_key(target: &Path, omit: &Path) -> Result<String, Failure> {
     // can produce the same digest as a different omit list.
     bytes.push(b'\n');
     bytes.extend_from_slice(&fs::read(omit).map_err(|source| Failure::Refused {
-        code: 3,
+        code: crate::EXIT_REFUSED,
         message: format!("{}: {source}", omit.display()),
     })?);
     Ok(litedoc4_incr::sha256_hex(&bytes))
@@ -1634,7 +1633,7 @@ pub(crate) fn module_names(root: &Path, libs: &[String]) -> Result<Vec<String>, 
         let has_dir = dir.is_dir();
         if !has_file && !has_dir {
             return Err(Failure::Refused {
-                code: 3,
+                code: crate::EXIT_REFUSED,
                 message: format!(
                     "no {lib}.lean and no {lib}/ under {}: --lib names a library root, and an \
                      empty module list would look like a package whose every module was deleted",
@@ -1683,15 +1682,13 @@ pub(crate) fn module_names(root: &Path, libs: &[String]) -> Result<Vec<String>, 
     reason = "reproduces `find -name '*.lean'`, which decides what a module is"
 )]
 fn collect_lean(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<(), Failure> {
-    let listing = fs::read_dir(dir)
-        .map_err(|source| Failure::Failed(format!("{}: {source}", dir.display())))?;
+    let listing = fs::read_dir(dir).map_err(|source| Failure::io(dir, &source))?;
     for entry in listing {
-        let entry =
-            entry.map_err(|source| Failure::Failed(format!("{}: {source}", dir.display())))?;
+        let entry = entry.map_err(|source| Failure::io(dir, &source))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let kind = entry
             .file_type()
-            .map_err(|source| Failure::Failed(format!("{}: {source}", entry.path().display())))?;
+            .map_err(|source| Failure::io(&entry.path(), &source))?;
         let relative = format!("{prefix}/{name}");
         if kind.is_dir() {
             collect_lean(&entry.path(), &relative, out)?;
@@ -1731,10 +1728,9 @@ fn write_file(path: &Path, body: &str) -> Result<(), Failure> {
     if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         create_dir(dir)?;
     }
-    fs::write(path, body).map_err(|source| Failure::Failed(format!("{}: {source}", path.display())))
+    fs::write(path, body).map_err(|source| Failure::io(path, &source))
 }
 
 pub(crate) fn create_dir(path: &Path) -> Result<(), Failure> {
-    fs::create_dir_all(path)
-        .map_err(|source| Failure::Failed(format!("{}: {source}", path.display())))
+    fs::create_dir_all(path).map_err(|source| Failure::io(path, &source))
 }

@@ -225,7 +225,7 @@ impl Resident {
     pub(crate) fn new(serve: Serve) -> Result<Self, Failure> {
         if !serve.bin.is_file() {
             return Err(Failure::Refused {
-                code: 3,
+                code: crate::EXIT_REFUSED,
                 message: format!(
                     "--extractor-bin {}: not a file. It is `extractor/build.sh`'s output, 171 MB, \
                      built against the target's toolchain and therefore not committed",
@@ -258,8 +258,7 @@ impl Resident {
         // The extractor appends, so a file an earlier round left behind would be
         // folded into this round's timings (`extract.rs`).
         let _ = fs::remove_file(&events);
-        fs::create_dir_all(ir_dir)
-            .map_err(|source| Failure::Failed(format!("{}: {source}", ir_dir.display())))?;
+        fs::create_dir_all(ir_dir).map_err(|source| Failure::io(ir_dir, &source))?;
         guard_target(&self.serve.target, ir_dir)?;
 
         let line = request_line(&[modules, &events, ir_dir])?;
@@ -382,7 +381,7 @@ fn stale(moved: &[String], when: &str) -> Failure {
         .collect();
     let rest = moved.len().saturating_sub(named.len());
     Failure::Refused {
-        code: 3,
+        code: crate::EXIT_REFUSED,
         message: format!(
             "the oleans moved {when}: {} module(s) — {}{}. The resident extractor imported the \
              world as it was at the head of this run and Lean cannot swap one module out of an \
@@ -426,7 +425,7 @@ impl Generation {
             let entry =
                 hash_module(target, &lib_dir, module, &Algorithm::lake()).map_err(|source| {
                     Failure::Refused {
-                        code: 3,
+                        code: crate::EXIT_REFUSED,
                         message: format!(
                             "the resident extractor's generation over {lib_dir}: {source}"
                         ),
@@ -493,8 +492,7 @@ struct Server {
 
 impl Server {
     fn start(serve: &Serve) -> Result<Self, Failure> {
-        fs::create_dir_all(&serve.work)
-            .map_err(|source| Failure::Failed(format!("{}: {source}", serve.work.display())))?;
+        fs::create_dir_all(&serve.work).map_err(|source| Failure::io(&serve.work, &source))?;
         let events = serve.work.join("serve-events.jsonl");
         let _ = fs::remove_file(&events);
         // Trap 1 in the heading: `--write-ir` without `--ir-dir` is refused by
@@ -503,8 +501,7 @@ impl Server {
         // never written to.
         let unused_ir = serve.work.join("serve-ir-unused");
         let log_path = serve.work.join("serve.out");
-        let log = File::create(&log_path)
-            .map_err(|source| Failure::Failed(format!("{}: {source}", log_path.display())))?;
+        let log = File::create(&log_path).map_err(|source| Failure::io(&log_path, &source))?;
 
         let mut command = Command::new(&serve.lake);
         command
@@ -706,7 +703,7 @@ fn request_line(paths: &[&Path]) -> Result<String, Failure> {
             .into_owned();
         if text.chars().any(char::is_whitespace) {
             return Err(Failure::Refused {
-                code: 3,
+                code: crate::EXIT_REFUSED,
                 message: format!(
                     "the resident extractor's protocol is one space-separated line per request \
                      (`Extract.lean:2748`), so a path with whitespace in it cannot be sent: {text}"

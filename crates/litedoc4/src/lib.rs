@@ -349,6 +349,23 @@ pub enum Failure {
     },
 }
 
+impl Failure {
+    /// An I/O failure, named by the path it happened to.
+    ///
+    /// `format!("{}: {source}", path.display())` was written out thirty-two
+    /// times, and the closure's binding was `|e|` in thirteen of them and
+    /// `|source|` in the rest — two spellings of one thing, which is how a
+    /// third arrives.
+    ///
+    /// [`Failure::Failed`] and not [`Failure::Refused`]: a file that will not
+    /// open is exit 1, "this run did not finish". Exit 3 is for a world that
+    /// disagrees with the files, which is a thing a caller can act on
+    /// (→ [`EXIT_REFUSED`]).
+    pub(crate) fn io(path: &std::path::Path, source: &impl std::fmt::Display) -> Self {
+        Self::Failed(format!("{}: {source}", path.display()))
+    }
+}
+
 pub fn usage<T>(message: impl Into<String>) -> Result<T, Failure> {
     Err(Failure::Usage(message.into()))
 }

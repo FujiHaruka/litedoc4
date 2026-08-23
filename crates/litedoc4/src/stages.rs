@@ -143,11 +143,9 @@ pub fn site(args: &[String]) -> Result<(), Failure> {
         });
         let line = serde_json::to_string(&record).expect("counts and durations serialise") + "\n";
         if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir)
-                .map_err(|e| Failure::Failed(format!("{}: {e}", dir.display())))?;
+            std::fs::create_dir_all(dir).map_err(|source| Failure::io(dir, &source))?;
         }
-        std::fs::write(&path, line)
-            .map_err(|e| Failure::Failed(format!("{}: {e}", path.display())))?;
+        std::fs::write(&path, line).map_err(|source| Failure::io(&path, &source))?;
     }
     Ok(())
 }
@@ -307,8 +305,8 @@ pub fn render(args: &[String]) -> Result<(), Failure> {
             }
             "--only-from" => {
                 let path = PathBuf::from(args.value("--only-from")?);
-                let text = std::fs::read_to_string(&path)
-                    .map_err(|e| Failure::Failed(format!("{}: {e}", path.display())))?;
+                let text =
+                    std::fs::read_to_string(&path).map_err(|source| Failure::io(&path, &source))?;
                 let ModuleSet::These(names) = ModuleSet::from_lines(&text) else {
                     unreachable!("from_lines always names a set")
                 };

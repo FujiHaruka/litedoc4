@@ -63,7 +63,7 @@ const MAX_HEAD_BYTES: u64 = 8 * 1024;
 /// The listener, or a refusal that names the port.
 pub(crate) fn bind(port: u16) -> Result<TcpListener, Failure> {
     TcpListener::bind(("127.0.0.1", port)).map_err(|source| Failure::Refused {
-        code: 3,
+        code: crate::EXIT_REFUSED,
         message: format!(
             "127.0.0.1:{port}: {source}. The port is refused rather than moved to the next free \
              one — an address that changes between runs leaves the browser tab you already have \

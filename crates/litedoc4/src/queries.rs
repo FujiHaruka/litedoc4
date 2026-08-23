@@ -123,7 +123,7 @@ pub fn links(args: &[String]) -> Result<(), Failure> {
     let index = match link_index {
         Some(path) => Some(
             litedoc4_render::LinkIndex::read(&path)
-                .map_err(|e| Failure::Failed(format!("{}: {e}", path.display())))?,
+                .map_err(|source| Failure::io(&path, &source))?,
         ),
         None => None,
     };
@@ -190,11 +190,9 @@ pub fn links(args: &[String]) -> Result<(), Failure> {
         });
         let text = serde_json::to_string_pretty(&record).expect("strings serialise") + "\n";
         if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-            std::fs::create_dir_all(dir)
-                .map_err(|e| Failure::Failed(format!("{}: {e}", dir.display())))?;
+            std::fs::create_dir_all(dir).map_err(|source| Failure::io(dir, &source))?;
         }
-        std::fs::write(&path, text)
-            .map_err(|e| Failure::Failed(format!("{}: {e}", path.display())))?;
+        std::fs::write(&path, text).map_err(|source| Failure::io(&path, &source))?;
     }
     Ok(())
 }

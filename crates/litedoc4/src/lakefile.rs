@@ -78,8 +78,7 @@ pub(crate) fn read_libraries(root: &Path) -> Result<Libraries, Failure> {
             root.display(),
         ));
     }
-    let text = fs::read_to_string(&toml)
-        .map_err(|source| Failure::Failed(format!("{}: {source}", toml.display())))?;
+    let text = fs::read_to_string(&toml).map_err(|source| Failure::io(&toml, &source))?;
     let names = lean_libs(&text, &toml)?;
     Ok(Libraries { names, file: toml })
 }
@@ -232,5 +231,8 @@ fn plain_string(text: &str) -> Option<String> {
 
 /// Exit 3, as [`read_libraries`]'s heading says.
 fn refuse<T>(message: String) -> Result<T, Failure> {
-    Err(Failure::Refused { code: 3, message })
+    Err(Failure::Refused {
+        code: crate::EXIT_REFUSED,
+        message,
+    })
 }
