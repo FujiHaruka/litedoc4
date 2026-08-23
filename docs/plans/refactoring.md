@@ -916,6 +916,27 @@ warn → CI では `-D warnings` で error)。**`pub use` の理由は「他 cra
 - 抜くのは `fs::write` + `create_dir_all` + `Error::Io` 包みの部分だけ。
   `assets.rs:99-105` に同型のコードがある (段 1 の R5 のこの crate 版)
 
+#### 結果【2026-08-23】— **抜いた先にテストが無かったので 2 本書いた**
+
+`site.rs` に `fn write_page(path, html) -> Result<(), Error>` を置き、`render_site` の
+ループから 12 行を 1 行にした。**`assets.rs` とは共有しない**【判断】 — `write_assets` は
+サイト直下を **1 回**作ってから N 個書くので、ファイルごとの `create_dir_all` は
+既に在るディレクトリに対する syscall を資産の数だけ増やす。理由は `write_page` の doc に書いた。
+
+**抜いてみて分かったのは、この 12 行を通るテストが `cargo test` に 1 本も無かったこと。**
+`render_site` を呼ぶ非 ignore のテストは `pages.rs:208`
+`an_empty_render_set_renders_nothing` だけで、これは**何も書かない**ことを見るもの。
+残りは全部 corpus ゲート付き。だから 2 本足した:
+
+- `a_page_is_written_under_directories_that_did_not_exist` — 成功経路。
+  ページは**ドット付きモジュール名 1 つにつき 1 ファイル**なので、毎回まだ無いディレクトリに書く
+- `a_directory_that_cannot_be_made_is_the_path_the_error_names` — **2 つの `map_err` が
+  違うパスを持つ理由**そのもの。予告どおり一度落とした (`path: dir` を `path: path` に
+  差し替えると赤くなる)。詰まらせる親には**このクレート自身の `Cargo.toml`** を使うので、
+  この検査はどこにも書かない (`create_dir_all` がファイルを開く前に拒否する)
+
+**副作用: 手書き `TempDir` が 14 → 15 になった** (`site.rs:323`)。下の U1 の数はそれで読む。
+
 ## 6. 段 3 — `litedoc4-incr` / `litedoc4-global` / `litedoc4-ir`
 
 **この 3 crate は文書の密度が最も高く、規則違反 (`#[allow]` / 例外リスト付き比較器 / skip での緑) はゼロ。**
@@ -1061,7 +1082,7 @@ warn → CI では `-D warnings` で error)。**`pub use` の理由は「他 cra
 **調査 3 件が独立に同じことを指摘した。** 製品コードの規律 (`unwrap()` ゼロ / `#[allow]` ゼロ /
 `#[expect]` に全部理由) が、**テストのヘルパ層には届いていない**。
 
-### U1 — `TempDir` が 14 箇所にある【実測】
+### U1 — `TempDir` が 15 箇所にある【実測。当初 14、段 2 の S8 で 1 増えた】
 
 ```
 crates/litedoc4-global/tests/state_and_delta.rs:2081   crates/litedoc4/tests/site.rs:661
@@ -1071,6 +1092,7 @@ crates/litedoc4-incr/tests/impact.rs:2225              crates/litedoc4/tests/bui
 crates/litedoc4-incr/tests/merge.rs:2594               crates/litedoc4-render/tests/pages.rs:1272
 crates/litedoc4-incr/tests/ledger.rs:1583              crates/litedoc4-render/src/assets.rs:116
 crates/litedoc4/src/packages.rs:1217                   crates/litedoc4-render/src/config.rs:168 (`Dir`)
+crates/litedoc4-render/src/site.rs:323
 ```
 
 `crates/litedoc4/tests/` の 4 本は**プレフィックス文字列以外は完全に同一の 29 行**。

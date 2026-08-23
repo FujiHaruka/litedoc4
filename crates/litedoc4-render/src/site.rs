@@ -217,16 +217,7 @@ pub fn render_site(options: &RenderOptions<'_>) -> Result<RenderSummary, Error> 
         let html = page.html;
         summary.math_failures += page.math_failures;
         let path = options.pages.join(page_path(&module.module));
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir).map_err(|source| Error::Io {
-                path: dir.to_owned(),
-                source,
-            })?;
-        }
-        fs::write(&path, &html).map_err(|source| Error::Io {
-            path: path.clone(),
-            source,
-        })?;
+        write_page(&path, &html)?;
         summary.pages_written += 1;
         summary.bytes_written += html.len() as u64;
         summary.module_docs_rendered += module.module_docs.len();
@@ -237,6 +228,29 @@ pub fn render_site(options: &RenderOptions<'_>) -> Result<RenderSummary, Error> 
             .count();
     }
     Ok(summary)
+}
+
+/// Writes one page, making the directories above it first.
+///
+/// The two calls fail with different paths — the directory that could not be
+/// made, and the file that could not be written — and [`Error::Io`] carries
+/// whichever it was, which is the whole reason this is not `fs::write` alone.
+///
+/// [`crate::assets::write_assets`] has the same two steps and does **not** share this:
+/// it makes the site root once and then writes into it, so a per-file
+/// `create_dir_all` there would be one syscall per asset for a directory that
+/// already exists.
+fn write_page(path: &Path, html: &str) -> Result<(), Error> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|source| Error::Io {
+            path: dir.to_owned(),
+            source,
+        })?;
+    }
+    fs::write(path, html).map_err(|source| Error::Io {
+        path: path.to_owned(),
+        source,
+    })
 }
 
 /// Why a run stopped.
@@ -299,5 +313,75 @@ mod tests {
         );
         assert!(ModuleSet::from_lines("Pkg.One\n").contains("Pkg.One"));
         assert!(!ModuleSet::from_lines("Pkg.One\n").contains("Pkg.Two"));
+    }
+
+    /// A unique directory under the system temporary one, removed with its
+    /// contents when the test ends.
+    ///
+    /// The fifteenth hand-rolled one in the workspace; §7 U1 of
+    /// `docs/plans/refactoring.md` folds them all into `litedoc4-testutil`.
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(what: &str) -> Self {
+            use std::sync::atomic::{AtomicU32, Ordering};
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "litedoc4-site-{}-{}-{what}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed),
+            ));
+            let _ = fs::remove_dir_all(&path);
+            Self { path }
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    /// `Pkg/Sub/M.html` lands under a `pages` directory that has neither of the
+    /// two directories above it yet.
+    ///
+    /// The pages of a package are one file per **dotted** module name, so every
+    /// run writes into directories nothing has made — which is why the write is
+    /// two calls and not one.
+    #[test]
+    fn a_page_is_written_under_directories_that_did_not_exist() {
+        let dir = TempDir::new("nested");
+        let path = dir.path.join("Pkg").join("Sub").join("M.html");
+
+        write_page(&path, "<html></html>").expect("the directories are made first");
+
+        assert_eq!(
+            fs::read_to_string(&path).expect("the page is there"),
+            "<html></html>"
+        );
+    }
+
+    /// When the directories cannot be made, the error names **the directory** —
+    /// not the page that was going to go in it.
+    ///
+    /// Nothing else checks this, and it is the whole reason the two `map_err`
+    /// arms carry different paths: told the page's name, a reader would go
+    /// looking for a file that was never the problem.
+    ///
+    /// The blocked parent is this crate's own `Cargo.toml`, so the test writes
+    /// nothing anywhere: `create_dir_all` refuses before any file is opened.
+    #[test]
+    fn a_directory_that_cannot_be_made_is_the_path_the_error_names() {
+        let blocked = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("Cargo.toml")
+            .join("Pkg");
+        let path = blocked.join("M.html");
+
+        match write_page(&path, "<html></html>") {
+            Err(Error::Io { path: named, .. }) => assert_eq!(named, blocked),
+            other => panic!("a file in the way of a directory is an Io error: {other:?}"),
+        }
     }
 }
