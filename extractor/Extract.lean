@@ -178,7 +178,7 @@ open Lean System Meta PrettyPrinter
 open Lean.Elab.Tactic.Doc (TacticDoc allTacticDocs firstTacticTokens)
 open Lean.Parser.Tactic.Doc (tacticTagExt alternativeOfTactic getTacticExtensions)
 
-namespace Stage4b
+namespace Litedoc4
 
 /-! ## Timing sink (same JSONL shape as the doc-gen4 instrumentation) -/
 
@@ -3616,9 +3616,9 @@ partial def serve (cfg : Cfg) : IO UInt32 := do
       loop
   loop
 
-end Stage4b
+end Litedoc4
 
-open Stage4b in
+open Litedoc4 in
 def parseArgs (args : List String) : Except String Cfg :=
   match args with
   | modules :: out :: rest => go { modulesPath := ⟨modules⟩, outPath := ⟨out⟩ } rest >>= check
@@ -3683,5 +3683,5 @@ where
 
 def main (args : List String) : IO UInt32 := do
   match parseArgs args with
-  | .ok cfg => if cfg.serve then Stage4b.serve cfg else Stage4b.run cfg
+  | .ok cfg => if cfg.serve then Litedoc4.serve cfg else Litedoc4.run cfg
   | .error msg => IO.eprintln msg; return 1
