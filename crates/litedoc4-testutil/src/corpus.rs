@@ -165,9 +165,9 @@ pub const LITEDOC4_SITE: Input = Input {
     default: "/private/tmp/lean-doc-relay/m2/gate/ref-site",
 };
 
-/// The `fixtures/` subdirectory of the tree `tools/merge-reference.sh --impl ts`
-/// writes: the partial extractions **both** implementations are fed. The
-/// scenarios are defined once, in the harness, and consumed from here.
+/// The `fixtures/` subdirectory of the tree `tools/merge-reference.sh` writes:
+/// the partial extractions **both** implementations were fed. The scenarios are
+/// defined once, in the harness, and consumed from here.
 pub const LITEDOC4_MERGE_FIXTURES: Input = Input {
     what: "fixtures",
     var: "LITEDOC4_MERGE_FIXTURES",
@@ -405,10 +405,10 @@ mod tests {
     /// The message tells a reader who has the target but not the file what to
     /// run, and still tells them the variable.
     #[test]
-    #[should_panic(expected = "or make it with\n    tools/merge-reference.sh --impl ts\nor run")]
+    #[should_panic(expected = "or make it with\n    tools/merge-reference.sh --out <dir>\nor run")]
     fn path_built_by_names_the_command() {
         let dir = TEMP.make("empty");
-        let _ = input_at(dir.path()).path_built_by("tools/merge-reference.sh --impl ts");
+        let _ = input_at(dir.path()).path_built_by("tools/merge-reference.sh --out <dir>");
     }
 
     /// A `--full` recording has no default, so the only thing the panic can say
@@ -417,5 +417,153 @@ mod tests {
     #[should_panic(expected = "made by the generator at tag experiments-frozen")]
     fn a_recording_with_no_variable_says_where_one_comes_from() {
         let _ = recording("LITEDOC4_TESTUTIL_NOTHING_SETS_THIS");
+    }
+
+    /// **Every command a `path_built_by` message names has to be runnable as
+    /// written.** The argument is a `&str`, so nothing else ever looks at it: a
+    /// renamed flag leaves an instruction that still reads correctly, is still
+    /// printed to the one reader who has the target but not the file, and
+    /// cannot be run.
+    ///
+    /// That is not hypothetical. `tools/merge-reference.sh --impl ts` stayed
+    /// the message for a week after `--impl` was removed on 2026-08-16, and
+    /// what found it was a person reading a plan 【実測 2026-08-23, §8 T3 of
+    /// `docs/plans/refactoring.md`】.
+    ///
+    /// The check is on the flags and not on the whole line: the paths in these
+    /// messages are `<dir>`-shaped placeholders on purpose, so "runnable" here
+    /// means every `--flag` is one the named command has an arm for.
+    #[test]
+    fn every_path_built_by_instruction_names_flags_the_command_accepts() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut sources = Vec::new();
+        rust_sources_under(&repo.join("crates"), &mut sources);
+
+        let mut checked = 0;
+        for source in &sources {
+            let text = std::fs::read_to_string(source).expect("a file this walk just listed");
+            for instruction in path_built_by_arguments(&text) {
+                let mut words = instruction.split_whitespace();
+                let command = words.next().unwrap_or_default();
+                let (accepts, declared) = accepted_flags_of(&repo, command).unwrap_or_else(|| {
+                    panic!(
+                        "{}: `path_built_by` tells a reader to run\n    {instruction}\nand this \
+                         repository has no {command}",
+                        source.display()
+                    )
+                });
+                for flag in words.filter(|word| word.starts_with("--")) {
+                    assert!(
+                        accepts.iter().any(|known| known == flag),
+                        "{}: `path_built_by` tells a reader to run\n    {instruction}\nbut no \
+                         {declared} of {command} spells {flag}",
+                        source.display(),
+                    );
+                }
+                checked += 1;
+            }
+        }
+        assert!(
+            checked >= 3,
+            "{checked} `path_built_by` instructions found under crates/, and there are three. The \
+             scanner stopped matching the call, so this test is checking nothing"
+        );
+    }
+
+    /// Every `*.rs` at or under `dir`.
+    fn rust_sources_under(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => rust_sources_under(&path, out),
+                Ok(kind) if kind.is_file() && path.extension().is_some_and(|ext| ext == "rs") => {
+                    out.push(path);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The string literal each `path_built_by(..)` call in `text` is handed.
+    ///
+    /// The definition — `fn path_built_by(&self, how: &str)` — and any call
+    /// whose argument is not a literal have no `"` where this looks, so they
+    /// are skipped rather than mistaken for an instruction.
+    fn path_built_by_arguments(text: &str) -> Vec<String> {
+        // Spelled in two pieces so that this scanner does not find itself: the
+        // needle is the one thing in the tree that must not match.
+        const CALL: &str = concat!("path_built_by", "(");
+        let mut found = Vec::new();
+        let mut rest = text;
+        while let Some(at) = rest.find(CALL) {
+            rest = &rest[at + CALL.len()..];
+            let Some(literal) = rest.trim_start().strip_prefix('"') else {
+                continue;
+            };
+            let mut chars = literal.char_indices();
+            while let Some((at, character)) = chars.next() {
+                match character {
+                    '\\' => drop(chars.next()),
+                    '"' => {
+                        found.push(literal[..at].to_owned());
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        found
+    }
+
+    /// The flags `command` accepts, or `None` if this repository has no such
+    /// command.
+    ///
+    /// Two shapes, because the two kinds of command declare their flags in two
+    /// places. A `tools/*.sh` declares them as `case` arms, which is the only
+    /// spelling that decides what the script does — a script's own `usage:`
+    /// header is prose, and prose is what went stale. `litedoc4` declares them
+    /// in `USAGE`, which `litedoc4/src/lib.rs`'s own tests already hold against
+    /// its parsers; this reads that string as text because `litedoc4`
+    /// dev-depends on this crate and so cannot be depended on back.
+    ///
+    /// **What the shell half does and does not say.** It collects every arm in
+    /// the file, including those of a `case` inside a shell function — so
+    /// `tools/merge-reference.sh` reports `--inc --removed --exclude`, which
+    /// its *command line* does not take. The rule is therefore "spelled as an
+    /// arm somewhere", which catches the failure this test exists for (a flag
+    /// that was removed loses its arm everywhere) and would let through an
+    /// instruction that named an inner helper's flag. Deciding which `case` is
+    /// the command line means guessing at indentation across 35 scripts, and a
+    /// guess there would make the test wrong rather than weak.
+    fn accepted_flags_of(repo: &Path, command: &str) -> Option<(Vec<String>, &'static str)> {
+        if command == "litedoc4" {
+            let lib = std::fs::read_to_string(repo.join("crates/litedoc4/src/lib.rs")).ok()?;
+            let usage = lib.split_once("pub const USAGE: &str = \"")?.1;
+            return Some((
+                usage
+                    .split_once("\n\";")?
+                    .0
+                    .split_whitespace()
+                    .map(|word| word.trim_matches(|c| "[](),.|".contains(c)))
+                    .filter(|word| word.starts_with("--"))
+                    .map(str::to_owned)
+                    .collect(),
+                "`USAGE` line",
+            ));
+        }
+        let script = std::fs::read_to_string(repo.join(command)).ok()?;
+        Some((
+            script
+                .split_whitespace()
+                .filter_map(|word| word.strip_suffix(')'))
+                .flat_map(|arm| arm.split('|'))
+                .filter(|word| word.starts_with("--"))
+                .map(str::to_owned)
+                .collect(),
+            "`case` arm",
+        ))
     }
 }

@@ -1176,7 +1176,8 @@ fn dep_mapping_of(tree: &Tree) -> BTreeMap<String, BTreeMap<String, String>> {
 fn corpus() -> (PathBuf, PathBuf) {
     (
         corpus::LITEDOC4_BASE_IR.path(),
-        corpus::LITEDOC4_MERGE_FIXTURES.path_built_by("tools/merge-reference.sh --impl ts"),
+        corpus::LITEDOC4_MERGE_FIXTURES
+            .path_built_by("tools/merge-reference.sh --out <dir>  (writes <dir>/fixtures)"),
     )
 }
 
