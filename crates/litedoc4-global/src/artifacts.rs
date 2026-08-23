@@ -78,14 +78,19 @@ use crate::search_index;
 
 /// The renderer's path rule: dots become directory separators.
 ///
-/// A URL path, so the separator is `/` on every platform. It has to agree with
-/// `litedoc4_render::page_path`, which returns a `PathBuf` for the filesystem
-/// side of the same rule; `tests/global.rs` checks that it does.
+/// This crate's name for [`litedoc4_ir::page_path`], and a wrapper rather than
+/// a second spelling because a disagreement here is not a wrong file but
+/// `declaration-data.bmp` pointing at pages that were never written — 4,750
+/// dead links that no byte comparison of either side notices.
+///
+/// A URL path, so the separator is `/` on every platform.
+/// `litedoc4_render::page_path` returns a `PathBuf` for the filesystem side of
+/// the same rule and `litedoc4_incr::page_of` is what deletes what it wrote;
+/// `crates/litedoc4/tests/page_paths.rs` is the one place all three are
+/// compared.
 #[must_use]
 pub fn page_path(module: &str) -> String {
-    let mut path = litedoc4_ir::module_path(module);
-    path.push_str(".html");
-    path
+    litedoc4_ir::page_path(module)
 }
 
 /// The nine files, as bytes, before anything is written.

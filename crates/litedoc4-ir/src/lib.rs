@@ -75,7 +75,7 @@ pub use model::{
 };
 pub use name::{
     escape_component, escape_module, is_id_first, is_id_rest, module_components, module_path,
-    unescape_component,
+    page_path, unescape_component,
 };
 pub use reader::{
     IrTree, MIN_SCHEMA_VERSION, SELECTION_RANGE_SCHEMA_VERSION, SORRY_SCHEMA_VERSION,

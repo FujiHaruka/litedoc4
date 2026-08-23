@@ -130,6 +130,13 @@ pub const ORPHANS_IN_LOG: usize = 10;
 
 /// The renderer's path rule: dots become directory separators.
 ///
+/// This crate's name for [`litedoc4_ir::page_path`], and a wrapper rather than
+/// a second spelling for the reason M5-b found: **the renderer writes the page
+/// and this deletes it**, so a rule that differs by one character makes `prune`
+/// report "already absent" and leave the dead page behind. The rule lives in
+/// `litedoc4-ir` because `litedoc4_global::page_path` is the third crate that
+/// needs it.
+///
 /// `"A.B".split(".").join("/") + ".html"` for a plain name. **A name can carry
 /// a `..` through this**, which is why [`PageRoot`] checks rather than trusts:
 /// `«…»` is Lean's own escape and its contents are not split on `.`, so
@@ -138,12 +145,7 @@ pub const ORPHANS_IN_LOG: usize = 10;
 /// function was `replace('.', "/")`, and M5-b replaced that.
 #[must_use]
 pub fn page_of(module: &str) -> String {
-    // `litedoc4_ir::module_path`, not `replace('.', "/")` (M5-b): a module whose
-    // name needs `«…»` has its page under the unescaped path, and pruning the
-    // wrong path leaves a dead page behind while reporting a deletion.
-    let mut path = litedoc4_ir::module_path(module);
-    path.push_str(".html");
-    path
+    litedoc4_ir::page_path(module)
 }
 
 /// The tree `prune` is allowed to delete inside.

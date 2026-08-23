@@ -823,27 +823,16 @@ fn the_new_artifacts_reach_every_shape() {
     }
 }
 
-/// This crate's URL-path rule and the renderer's filesystem one have to be the
-/// same rule: `declaration-data.bmp` links to pages the renderer wrote, and a
-/// disagreement is 4,750 dead links that no byte comparison of either side
-/// notices.
-#[test]
-fn page_paths_agree_with_the_renderers() {
-    for module in [
-        "Pkg",
-        "Pkg.One",
-        "Pkg.A.B.C.D",
-        "InformationTheory.Shannon.TimeBandLimiting.Count",
-        "Pkg.\u{1D49C}",
-        "Pkg.A<B&C\"D",
-    ] {
-        assert_eq!(
-            litedoc4_global::page_path(module),
-            litedoc4_render::page_path(module).to_string_lossy(),
-            "{module}"
-        );
-    }
-}
+// This crate's URL-path rule and the renderer's filesystem one have to be the
+// same rule — `declaration-data.bmp` links to pages the renderer wrote, and a
+// disagreement is 4,750 dead links that no byte comparison of either side
+// notices. That comparison used to live here as
+// `page_paths_agree_with_the_renderers` and now lives in
+// `crates/litedoc4/tests/page_paths.rs`, where the third spelling
+// (`litedoc4_incr::page_of`, the one that *deletes* the pages) is also
+// reachable. This crate's manifest names `-ir`, `-md` and `-render`, so the
+// wider comparison cannot be made from here without buying a dev-dependency
+// for a test.
 
 /// The sizes the committed fixture records for the reference tree's six files,
 /// pinned **whether or not the corpus is on this machine**, so the numbers in

@@ -961,6 +961,41 @@ warn → CI では `-D warnings` で error)。**`pub use` の理由は「他 cra
   (今は `\`)。`cargo test --workspace` は `ci.yml:50` の ubuntu-latest のみなので **CI では見えない**。
   代わりに `global.rs:831` の対比較テストを **3 本全部に広げる**
 
+#### 結果【2026-08-23】— **広げられなかったので移した**
+
+`litedoc4_ir::page_path` を 1 本置き、`incr::page_of` と `global::page_path` を
+**その 1 行のラッパ**にした。**公開名は 3 つとも変えていないので呼び出し元は 1 箇所も動いていない。**
+`render/page.rs:231` は予告どおり 1 バイトも触っていない。
+
+**計画が外したのは住所**: 「`global.rs:831` の対比較テストを 3 本全部に広げる」は**その場ではできない** —
+`litedoc4-global` の依存は `-ir` / `-md` / `-render` で **`-incr` が無い**。
+**`litedoc4-incr` に依存しているのはワークスペース中 `litedoc4` (bin) だけ**なので、
+3 本が同時に見える test crate はそこしかない。dev-dependency を足すのは
+**テストのために依存を買う**ことなので取らず、**`crates/litedoc4/tests/page_paths.rs` を新設して移した**
+【判断】。旧テストは消し、移設先を指すコメントを `global/tests/global.rs` に残した。
+
+**一度落としてから通した** — `page_of` を M5-b 以前の `module.replace('.', "/")` に戻すと、
+**まさに M5-b が踏んだ形**で落ちる:
+
+```
+assertion `left == right` failed: incr: Alpha.«Odd-Name»
+  left: "Alpha/«Odd-Name».html"
+ right: "Alpha/Odd-Name.html"
+```
+
+**`..` のガードは入れなかった**【判断、D13 が「X1 で判断する」と預けたもの】 —
+`page_path` は `String` を返すだけで**何から逃げる path なのかを知らない**。
+拒否できるのは木を持っている側 (`prune::PageRoot`) で、そこには既にある。
+代わりに **`page_path("«..».Foo") == "../Foo.html"` をテストに固定した** (`ir/src/name.rs`) —
+ガードの理由が黙って古くなることを防ぐのはこちら側の仕事。
+
+**4 本目の綴りが見つかったが、これはオラクルなので触らない**:
+`render/tests/ref_pages.rs:269` の test 内 `page_path(pages, module)` は `module.split('.')` の素朴形で、
+**参照ツリーとの突き合わせのために独立に書かれている**。§16「潰す前に『これはオラクルか』を毎回問う」。
+
+`cargo test --workspace` は **445 → 448 passed / バイナリ 38 → 39**
+(新テスト 2 本 + `ir` の `page_path` 単体テスト 2 本、旧 global テスト 1 本を削除)。
+
 ### X2 — `KeySet` と `JsonObject` は同じ「順序を覚える map」を 2 回書いたもの (doc が自認している)
 
 - `incr/ledger.rs:200-303` と `incr/merge.rs:214-277`。値の型 (`String` vs `serde_json::Value`) 以外は

@@ -186,6 +186,34 @@ pub fn module_path(module: &str) -> String {
     module_components(module).join("/")
 }
 
+/// Where a module's page goes, relative to the site root:
+/// `Alpha.«Odd-Name»` → `Alpha/Odd-Name.html`.
+///
+/// **Three crates need this rule and it has to be one rule.** The renderer
+/// writes the page (`litedoc4_render::site`), `prune` deletes it
+/// (`litedoc4_incr::page_of`), and the whole-package artifacts link to it
+/// (`litedoc4_global::page_path`). The writer and the remover disagreeing means
+/// `prune` reports "already absent" and **leaves the dead page behind**; the
+/// writer and the index disagreeing means the index emits `href`s to pages that
+/// are not there. **Neither shows up in a byte comparison of either side**,
+/// which is why the rule lives in the one crate all three depend on and
+/// `crates/litedoc4/tests/page_paths.rs` compares the spellings.
+///
+/// The separator is `/`: this is a URL path as much as a file path.
+/// `litedoc4_render::page_path` is the `PathBuf` half of the same rule.
+///
+/// **A name can carry a `..` through this.** `«…»` is Lean's own escape and its
+/// contents are not split on `.`, so `«..».Foo` comes out as `../Foo.html`
+/// 【実測 2026-08-23】. Pinned by a test rather than refused here: a function
+/// with no tree in front of it cannot say what the path would escape from.
+/// `litedoc4_incr::PageRoot` is where the refusal belongs and lives.
+#[must_use]
+pub fn page_path(module: &str) -> String {
+    let mut path = module_path(module);
+    path.push_str(".html");
+    path
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,6 +276,28 @@ mod tests {
     fn a_multi_byte_character_does_not_split_a_component() {
         assert_eq!(module_components("Pkg.𝒜.ﬀ"), ["Pkg", "𝒜", "ﬀ"]);
         assert_eq!(module_path("Pkg.«𝒜-z»"), "Pkg/𝒜-z");
+    }
+
+    /// The page path is the module path plus one suffix — including for the
+    /// empty name, which the artifacts' own test pins as `.html`.
+    #[test]
+    fn a_page_path_is_the_module_path_plus_the_suffix() {
+        for module in ["Pkg", "Pkg.A.B", "Alpha.«Odd-Name»", "Alpha.«a.b».C", ""] {
+            assert_eq!(page_path(module), format!("{}.html", module_path(module)));
+        }
+        assert_eq!(page_path("Pkg.A.B"), "Pkg/A/B.html");
+        assert_eq!(page_path(""), ".html");
+    }
+
+    /// **The `..` is real, and this records it rather than preventing it.** A
+    /// component is unescaped before it becomes a directory, so the two dots
+    /// survive; the guard is `litedoc4_incr::PageRoot`, which has a tree to
+    /// refuse against. Written as an assertion so that a future escape-time
+    /// change to [`fn@module_path`] cannot silently make the guard's reason
+    /// stale【実測 2026-08-23】.
+    #[test]
+    fn an_escaped_component_can_spell_a_parent_directory() {
+        assert_eq!(page_path("«..».Foo"), "../Foo.html");
     }
 
     #[test]
