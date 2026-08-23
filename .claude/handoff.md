@@ -3,18 +3,21 @@
 ## Relay control
 - Mode: ON
 - Goal: `docs/plans/refactoring.md` を段 0 から段 8 まで完遂する。各項目は**テストを先に書いてから直す**。
-  1 commit = 1 項目。各段の終わりで下の 4 つを緑に戻す。
-- Leg: 1 / cap 8
-- Predecessor: none
+  1 commit = 1 項目。各段の終わりで下の 5 つを緑に戻す。
+- Leg: 2 / cap 8
+- Predecessor: none (leg 1 はユーザーの元セッション。kill しない)
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger:
-  - r1: **段 0 (D0〜D14) 15 件すべて完了** + **段 1 の R1〜R6・R8 完了**。`e2b0d2c` まで push 済み
+  - r1: **段 0 (15 件) 完了** / **段 1 (R1〜R9) 完了** / **段 2 は S1・S3・S4・S5 完了、S2 は退避**。
+    `78db946` + S4 まで push 済み
 
 ## State
 
-- Branch: **`main`** / clean / **`e2b0d2c`** まで push 済み
-- `cargo test --workspace` = **38 バイナリ / 439 passed / 0 failed / 21 ignored**
+- Branch: **`main`** / clean
+- `cargo test --workspace` = **38 バイナリ / 442 passed / 0 failed / 21 ignored**
 - fmt / clippy / doc / corpus-gate / provenance-gate すべて緑
+- **`git stash` に 1 件ある**: "S2 の RootHref (機械置換で制御を失った)"。
+  **段 2 の S2 は「やらない」と決着済**なので、拾う必要は無い (捨ててよい)
 
 ### 検証コマンド (これを使う。素で回すと doc が赤くなる)
 
@@ -27,50 +30,32 @@ RUSTDOCFLAGS='-D warnings -A rustdoc::private_intra_doc_links' \
 tools/corpus-gate.sh --verify-list
 ```
 
-## 済んだもの
-
-**段 0 — 15 件すべて** (`bdad7d2`〜`f3507e4`)。詳細は計画 §3 の「結果」表。
-最重要は D0 (`merge` が `--base ./ir --out ir` で IR を空にしていた) で、
-**落ちるテストを先に書いて再現してから直した**。
-
-**段 1 — 9 項目中 7 つ**:
-| | 内容 | commit |
-|---|---|---|
-| R1 | `main.rs` 1,773 → 57 行。`lib.rs`/`stages`/`queries`/`ledger` に分割 | `5ec473c` |
-| R2 | CLI パーサ 13 本を `cli.rs` に (+181/-324) | `18d5a18` |
-| R3 | containment ガード 5 箇所を `refuse_inside` に | `5f22ed1` |
-| R6 | `EXIT_REFUSED` (22 箇所) と `Failure::io` (29 箇所) | `26bc455` |
-| R4 | `site`/`render` の入り口を `render_inputs` に | `864ce35` |
-| R5 | `write_file` 5 綴り・定数 2 重定義・`events_beside` 2 実装 | `dec8e17` |
-| R8 | `fold_timings` を構造体引数に、`write_timings` を enum に | `e2b0d2c` |
-
 ## Next step
 
-**段 1 の残り 2 つ。**
+**段 2 の残り 4 つ: S6 → S7 → S8。** (S2 は「やらない」で決着)
 
-- **R7** — `pipeline.rs:431` `run_incremental` (387 行) から**非本質の 3 つだけ**抜く
-  (各段の `Instant` 積算 / 診断ファイルの書き出し / ログ行の組み立て)。
-  **順序そのものが関数の内容なので、段の本体は割らない**。計画 §4 の R7 を読むこと
-- **R9** — `USAGE` (254 行) と各サブコマンドのフラグの一致を検査する `#[test]`。
-  **D1 で作った `main.rs` … 今は `ledger.rs` の `LEDGER_FLAGS` が土台**。
-  **作る前に必ず一度落とす**
+- **S6** — `autolink.rs:795` `PageLinks::name_to_link` が `expect` で panic する。
+  `# Panics` を書いて `debug_assert!` を `new` に置く (構築時に落とす) か、
+  `NameIndex::page_links` にして `decl_names` を内部で作る
+- **S7** — 公開 API 22 件の棚卸し。**3 分類する** (計画 §5 の S7)。
+  `decl::used_by_html` だけ re-export から漏れているので**兄弟 3 つを揃える**
+- **S8** — `render_site` から `write_page` を抜く (`assets.rs:99-105` と同型)
 
-その後 段 2 (S1〜S8) → 段 3 (X1〜X8) → 段 4 (U1〜U6) → 段 5〜8。
+その後 段 3 (X1〜X8) → 段 4 (U1〜U6) → 段 5〜8。
+
+## この計画で繰り返し起きていること (次 leg が同じ手順を踏むために)
+
+1. **計画どおりに書くと落ちる項目がある。落ちてから範囲が決まる。**
+   - S4: `member_li` にクラス名を渡したら**スタイルシートゲートが落ちた** —
+     クラス名がテキストから消えると検査できない。開始タグは呼び出し元に残す形に変えた
+   - S5: ゲートを一度落としたら、計画の「TS の 8 クラスが未検査」が**7 クラス**だと分かった
+   - R7 / R9: 測ってから範囲を絞った
+2. **機械置換で範囲を制御できないものは手でやる** — S2 で 60 箇所超のリテラルを
+   正規表現で包もうとして失敗した (`lean_quote("./")` まで包んだ)
+3. **`#[expect]` は発火しなくなると落ちる** — `cli.rs` で 1 度踏んだ。理由はコメントに移す
+4. **`--fix` の結果は `git diff` で読む**
 
 ## Files to read first
 
 - `docs/plans/refactoring.md` — 冒頭に読み方がある。**§14「触らないもの」は着手前に必ず読む**
-- 各段の「結果」節に、その段で分かったこと (踏んだ罠) が書いてある
-
-## Load-bearing context
-
-- **`cargo doc` は上のコマンドで回す。** 素で回すと intra-doc link 5 件で赤くなる
-  (CI は `--document-private-items -A rustdoc::private_intra_doc_links`)
-- **`#[expect]` は「発火しなくなったら落ちる」** — `cli.rs` で
-  `clippy::should_implement_trait` が private 項目に発火せず落とされた。理由はコメントに移した
-- **`--fix` の結果は読む** — R6 で使ったが、`needless_borrow` 6 箇所だけであることを
-  `git diff` で確かめてからコミットした
-- **推測で値を書かない** — D12 で `generator` を推測して間違えた
-  (正しくは `"lean-doc/experiments/stage4b"`、`Extract.lean:2838`)。corpus が無いと落ちない
-- **「当時の記録」と「現在の記述」を分ける** — D14 で `facts.rs:30` の見出しは残し、
-  本文だけ直した。`merge.rs:46` / `facts.rs:348` の【実測 2026-08-12】は触らない
+- 各項目の「結果」節に、その項目で分かったことが書いてある

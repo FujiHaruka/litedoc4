@@ -505,6 +505,41 @@ impl<'a> DeclRenderer<'a> {
     /// its type and an optional docstring, and a reader gains nothing from
     /// their being laid out differently. There is no inherited case — a
     /// constructor belongs to exactly one inductive.
+    /// Everything inside the `<li>` a constructor and a directly declared field
+    /// both are: the signature row, and the docstring when there is one.
+    ///
+    /// **The opening tag stays at the call sites, and that is on purpose.**
+    /// `ctor_html`'s doc says its shape is "deliberately the same as
+    /// [`Self::field_html`]'s second branch" — this makes that a fact rather
+    /// than a comment. But the `class="ctor"` / `class="field"` literals do not
+    /// move: `assets::tests::every_class_the_renderer_emits_is_styled` reads
+    /// this file's text, so a class name behind a parameter is a class name
+    /// that gate can no longer see. Sharing fifteen lines is not worth
+    /// blinding it【実測 2026-08-23: parameterising the class made the gate
+    /// report `.");` as an emitted class】.
+    fn member_body(
+        &self,
+        out: &mut String,
+        short: &str,
+        args: &str,
+        body: &str,
+        doc: Option<&str>,
+    ) {
+        out.push_str("<div class=\"field-sig\"><span class=\"field-name\">");
+        escape_html_into(out, short);
+        out.push_str("</span>");
+        out.push_str(args);
+        out.push_str("<span class=\"colon\"> : </span>");
+        out.push_str(body);
+        out.push_str("</div>");
+        if let Some(doc) = doc {
+            out.push_str("<div class=\"field-doc\">");
+            out.push_str(&self.docs.docstring(doc));
+            out.push_str("</div>");
+        }
+        out.push_str("</li>");
+    }
+
     fn ctor_html(&self, out: &mut String, ctor: &Member, refs: &Refs<'_>) {
         let short = last_component(&ctor.name);
         let mut args = String::new();
@@ -520,19 +555,8 @@ impl<'a> DeclRenderer<'a> {
         let body = self.code.fragment(&ctor.text, &ctor.code, self.root, refs);
         out.push_str("<li id=\"");
         escape_html_into(out, &ctor.name);
-        out.push_str("\" class=\"ctor\"><div class=\"field-sig\"><span class=\"field-name\">");
-        escape_html_into(out, short);
-        out.push_str("</span>");
-        out.push_str(&args);
-        out.push_str("<span class=\"colon\"> : </span>");
-        out.push_str(&body.html);
-        out.push_str("</div>");
-        if let Some(doc) = nonempty(ctor.doc.as_deref()) {
-            out.push_str("<div class=\"field-doc\">");
-            out.push_str(&self.docs.docstring(doc));
-            out.push_str("</div>");
-        }
-        out.push_str("</li>");
+        out.push_str("\" class=\"ctor\">");
+        self.member_body(out, short, &args, &body.html, nonempty(ctor.doc.as_deref()));
     }
 
     /// `fieldToHtml`, whose two branches differ in more than a CSS class.
@@ -605,19 +629,14 @@ impl<'a> DeclRenderer<'a> {
 
         out.push_str("<li id=\"");
         escape_html_into(out, &field.name);
-        out.push_str("\" class=\"field\"><div class=\"field-sig\"><span class=\"field-name\">");
-        escape_html_into(out, short);
-        out.push_str("</span>");
-        out.push_str(&args);
-        out.push_str("<span class=\"colon\"> : </span>");
-        out.push_str(&body.html);
-        out.push_str("</div>");
-        if let Some(doc) = nonempty(field.doc.as_deref()) {
-            out.push_str("<div class=\"field-doc\">");
-            out.push_str(&self.docs.docstring(doc));
-            out.push_str("</div>");
-        }
-        out.push_str("</li>");
+        out.push_str("\" class=\"field\">");
+        self.member_body(
+            out,
+            short,
+            &args,
+            &body.html,
+            nonempty(field.doc.as_deref()),
+        );
         Ok(())
     }
 

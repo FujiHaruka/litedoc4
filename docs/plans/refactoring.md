@@ -757,6 +757,28 @@ CLAUDE.md「落ちたときに何が壊れたか 1 行で言えないゲート�
   `id: Option<&str>` を取る形なら維持できる
 - **統合後は `tests/page_parts.rs` の凍結フィクスチャと `decl.rs:1144-1310` の単体テストを必ず走らせる**
 
+#### 結果【2026-08-23】— **開始タグは共有しない。ゲートが教えた**
+
+計画どおり `member_li(…, li_class, id, …)` を書いたら、**スタイルシートゲートが落ちた**:
+
+```
+the renderer writes classes the stylesheet says nothing about: [
+    "decl.rs: .\");",
+    "decl.rs: .out.push_str(\"",
+    "decl.rs: .out.push_str(li_class);",
+]
+```
+
+`class=\"` の直後がソース上で `");` になったため。**ゴミを拾ったことより重いのは、
+`ctor` と `field` というクラス名がゲートから見えなくなったこと** —
+`every_class_the_renderer_emits_is_styled` はこのファイルの**テキスト**を読むので、
+パラメータの向こうにあるクラス名は検査できない。
+
+**採った形**: 共有するのは `<li>` の**中身**だけ (`member_body`)。開始タグ
+(`<li id="…" class="ctor">`) は呼び出し元に残す。
+`ctor_html` の doc が言う「同じ形」は事実になり、クラス名のリテラルはゲートから見えたまま。
+**15 行の重複を消すために、動いているゲートの目を潰さない。**
+
 ### S5 — スタイルシートゲートが TypeScript の付けるクラスを見ていない
 
 - `assets.rs:196-233` は `frame.rs` / `page.rs` / `decl.rs` / `code.rs` の 4 ファイルの
