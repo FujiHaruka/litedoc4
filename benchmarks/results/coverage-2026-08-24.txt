@@ -158,4 +158,4 @@ watch.rs の 71 行は「未検査」ではない — 測定の側が嘘をつ�
   `target/llvm-cov-target` は計測後 869 MB。**`cargo llvm-cov clean --workspace` で
   112 MB になった** — 全部は消えない (プロファイル済みの依存はキャッシュとして残る)。
   素の `target/` はこれとは別に 14 GB ある。
-  作業領域は `/private/tmp/lean-doc-relay/testcov/`。
+  作業領域は `/private/tmp/lean-doc-relay/testcov/` で、**この回の終わりに消した**。
