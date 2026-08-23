@@ -116,7 +116,10 @@ fn an_ablated_index_is_refused_and_names_every_ablation() {
     assert_eq!(ablations, &["no-docstrings", "no-refs"]);
     let message = shown(&error);
     for ablation in ["no-docstrings", "no-refs"] {
-        assert!(message.contains(ablation), "{ablation} is missing: {message}");
+        assert!(
+            message.contains(ablation),
+            "{ablation} is missing: {message}"
+        );
     }
     assert!(
         message.contains("stopwatch"),
