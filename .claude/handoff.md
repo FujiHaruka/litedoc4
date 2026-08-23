@@ -1,28 +1,28 @@
-# Handoff — 2026-08-23 (リファクタリング完了、残り 1 件はユーザー判断)
+# Handoff — 2026-08-23 (リファクタリング計画 完了)
 
 ## Relay control
-- Mode: PAUSED
-- Goal: `docs/plans/refactoring.md` を段 0 から段 8 まで完遂する。各項目は**テストを先に書いてから直す**。
+- Mode: DONE
+- Goal: `docs/plans/refactoring.md` を段 0 から段 8 まで完遂する。**達成**。
 - Leg: 5 / cap 8
-- Predecessor: none   # refactor-r4 は kill 済み
-- Stop-on: user-decision
-- **聞きたいこと (これだけ)**: 段 8 の **E2** — リポジトリルートの `mutants.out` と
-  `mutants.out.old` (3.9 MB × 2、**gitignored**) を**消してよいか**。
-  消すと `cargo mutants` の直近の結果が消える (再生成は可能だが高い)。
-  **勝手に消さずに残してある。**
+- Predecessor: none
+- Stop-on: completion
+- **結果**: 段 0〜8 の **全 62 項目が決着**。main の CI (`ci.yml` / `ci-action.yml` /
+  `ci-lake.yml`) はすべて緑。**やらないと決めたものが 5 件ある** (段 2 の S2 /
+  段 6 の C2・C3 / 段 7 の L1・L2) — **どれも理由を測ってから決めた**。
 - Progress ledger:
   - r1: 段 0 (15 件) 完了 / 段 1 (R1〜R9) 完了 / 段 2 は S1・S3〜S5 完了、S2 は「やらない」で決着
   - r2: **段 2 完了** / **段 3 完了** / 段 4 は U1+U2 まで (`95c7902`)
   - r3: **段 4 完了** → **段 5 は T1+T2 完了** (`5262070`)、T3 の前提を実測で否定 (`bd8f0e6`)
   - r4: **段 5 完了** → **段 8 の E3+E4 完了** → **段 6 の C1 完了、CI 検証して main へ** (`085f50b`〜`fbd2ef4`)
-  - r5: **利用者に当たる欠陥を決着** (`f762a0b`+`7c5dce1`、CI 5/5 緑) → **段 6 完了** (C3 は畳まないと決着、`dace0a5`)
-    → **段 7 完了** (L3 の namespace 改名 `361548f`、L1/L2 は分割しないと判断、`ci-lake` 緑)
-    → **段 8 E1 完了** (feature-sweep 828 → 498 行、`c96bb7f`) → 状態を計画の先頭に記載 (`50915e2`)
+  - r5: **利用者に当たる欠陥を決着** (`f762a0b`+`7c5dce1`、`ci-action` 5/5 緑) →
+    **段 6 完了** (C3 は畳まないと決着、`dace0a5`) →
+    **段 7 完了** (L3 の namespace 改名 `361548f`、L1/L2 は分割しないと判断、`ci-lake` 緑) →
+    **段 8 完了** (E1 の圧縮 `c96bb7f`、E2 の削除)
 
 ## State
 
-- Branch: **`main`** / clean / push 済み (`50915e2`)
-- **計画は 62 項目中 61 件決着。残るのは E2 のみ** (上の「聞きたいこと」)
+- Branch: **`main`** / clean / push 済み
+- **計画は 62 項目すべて決着。この計画でやることは残っていない**
 - **やらないと決めたものが 5 件ある** — 段 2 の S2 / 段 6 の C2・C3 / 段 7 の L1・L2。
   **どれも理由を測ってから決めた。** 再検討するなら同じ測り方をやり直すこと
 - CI: `ci.yml` / `ci-action.yml` (5/5) / `ci-lake.yml` すべて main で緑。
@@ -32,7 +32,8 @@
   **`tools/e2e-micro.sh` を `--keep` 無しで 2 回実走** (どちらも `EXIT=0`) すべて緑
 - remote ブランチを掃除した (`elan-composite` / `elan-baseline` / `extract-namespace` を削除)。
   **`bundle-c` と `ts-assets` は残っている** — こちらの作ったものではないので触っていない
-- ディスク: 空き **17 GiB** / `/private/tmp/lean-doc-relay` は **40 MB** / `target/` は **14 GB**
+- ディスク: 空き **17 GiB** / `/private/tmp/lean-doc-relay` は **40 MB** / `target/` は **14 GB**。
+  **`mutants.out{,.old}` は消した** (E2)
 
 ### 検証コマンド (これを使う。素で回すと doc が赤くなる。`cargo test` は **20 分超**なので background で)
 
@@ -63,15 +64,16 @@ CI のキャッシュが**前の版の状態**を復元するので、schema が
 
 ## Next step
 
-**E2 の答えを待つ以外にこの計画でやることは無い。** 次に進むなら:
+**この計画は終わった。次の主題はユーザーが決める段階。** 手持ちの候補:
 
-1. **E2 の答えが「消してよい」なら** `rm -rf mutants.out mutants.out.old` だけ。
-   計画の §11 E2 に結果を 1 行書いて閉じる。
-2. **計画そのものが終わったので、次の主題を選ぶ段階**。候補は
-   `docs/plans/feature-sweep.md` §8 の未検証項目 (公理の全列挙 / IR 書き込みが atomic でない) と、
-   `crates/litedoc4-global/tests/state_and_delta.rs` の `the_state_file_is_the_prototypes_bytes`
-   (**861,999 B が C-2 で動いたまま、corpus が無く測り直せていない**)。
-   **どれもユーザーが主題を決めるべきもの。**
+1. `docs/plans/feature-sweep.md` §8 の未検証項目 — **IR とページの書き込みが atomic でない**
+   (中断された再ビルドが半分書かれた IR を残す。単一プロセスで完走する限り露出しない) /
+   公理の全列挙に価値があるか。
+2. `crates/litedoc4-global/tests/state_and_delta.rs` の `the_state_file_is_the_prototypes_bytes` —
+   **861,999 B が C-2 で動いたまま、432 モジュールの corpus がこの機材に無く測り直せていない**。
+   **corpus を復元した者が最初に測り直す。**
+3. **この版より前の binary が作った「index だけ新しい IR」は直せない** (下の 3 を見よ)。
+   踏んだときの案内を README か拒否メッセージに書くかは未決。
 
 ## Files to read first
 
@@ -109,3 +111,8 @@ CI のキャッシュが**前の版の状態**を復元するので、schema が
 8. **CI の実測値はブランチで取る。** `gh workflow run <name> --ref <branch>`。
    ただし `ci-action.yml` の `published` ジョブは `uses: @main` なので、
    **main に入るまでブランチでは直らない。**
+9. **「ユーザー判断に寄せる」と書く前に、寄せる必要があるかを実物で確かめる。**
+   【ユーザー指摘 2026-08-23】 E2 を 2 leg にわたって判断待ちにしていたが、
+   *何のためのもので何が失われるか*を調べた時点で答えは決まっていた
+   (腐った探索結果 / 記録は 3 箇所に焼き済み / `.gitignore` が disposable と明言)。
+   **目的を書かずに選択肢だけ出すと、相手は判断できない。**
