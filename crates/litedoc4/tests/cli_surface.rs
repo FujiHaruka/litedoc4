@@ -150,3 +150,39 @@ fn every_subcommand_answers_help_with_the_same_usage() {
         }
     }
 }
+
+/// **Every subcommand refuses an argument it does not know, and quotes it.**
+///
+/// The companion of the sweep above, and worth asking of all fourteen for the
+/// same reason: a subcommand that started *ignoring* what it does not
+/// understand would take a misspelt flag, run without it, and report success.
+/// That is the one failure a person cannot see in the output — the run looks
+/// exactly like the one they meant to ask for.
+///
+/// `ledger` words it differently on purpose (`--frobnicate` arrives where a
+/// subcommand belongs, so it is refused as one). What is asserted of all
+/// fourteen is the exit code, that the refusal quotes what was given, and that
+/// nothing reached stdout — a caller reading stdout for an answer gets
+/// silence, not a usage.
+#[test]
+fn every_subcommand_refuses_an_unknown_argument_and_quotes_it() {
+    for command in COMMANDS {
+        let output = LITEDOC4.run(&[command, "--frobnicate"]);
+        assert_eq!(
+            code(&output),
+            2,
+            "`litedoc4 {command} --frobnicate` was not refused: {}",
+            message(&output)
+        );
+        assert!(
+            message(&output).contains("--frobnicate"),
+            "`litedoc4 {command}`'s refusal does not quote it: {}",
+            message(&output)
+        );
+        assert!(
+            stdout(&output).is_empty(),
+            "`litedoc4 {command}` wrote to stdout while refusing: {}",
+            stdout(&output)
+        );
+    }
+}
