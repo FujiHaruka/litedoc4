@@ -2495,6 +2495,43 @@ toolchain ファイルのパスを入力にする (`e2e/micro/lean-toolchain` �
 4 本はインライン** — これは §8 T4 の「環境記録が 3 系統に分裂している」の CI 側そのもの。
 **C2 を畳むなら T4 の環境記録と同じ判断になる**ので、独立した項目として扱わない。
 
+#### CI に当てた結果【2026-08-23】— **5/6 緑。6 本目の赤は C1 のせいではなく、main が既に赤い**
+
+ブランチ `elan-composite` に push して 6 本を `gh workflow run --ref` で回した (§13 の手順)。
+
+| workflow | 結果 |
+|---|---|
+| CI (`ci.yml`) / lake package / browser gate on Windows / extractor portability / release (dry-run) | **success** |
+| action (self-test) | **failure** — 5 ジョブ中 2 本 |
+
+**赤は C1 と無関係**。**main の内容を別ブランチ (`elan-baseline`) に置いて同じ workflow を回したら、
+まったく同じ 2 ジョブが同じように落ちた**【実測】。つまり **`ci-action.yml` は既に main で赤い**。
+気づかれていなかったのは、この workflow が `action.yml` / `tools/ci-build.sh` / 自分自身への
+push でしか走らず、**最後の成功が 2026-08-19、schema 5 が入ったのが 2026-08-21** (`8318e6c`)
+だから。**その間に誰もそれらを触っていない。**
+
+落ちる場所は `litedoc4 build`:
+
+```
+plan    incremental (continuing /home/runner/work/_temp/litedoc4-out)
+detect  10 module(s): 10 to re-extract, 0 removed — render key moved
+litedoc4: …/ir/modules/Micro.json is schema 4; this reader needs schema 5 or newer
+```
+
+**これは利用者に当たる欠陥**である — `action.yml` の増分状態キャッシュは
+`key: litedoc4-state-<toolchain>-<sha>` / `restore-keys: litedoc4-state-<toolchain>-` で、
+**IR schema が変わっても restore-key は当たり続ける**。**未解決。次の段の前に決める** —
+(a) キャッシュキーに schema を入れる (b) **読めない schema の IR を「全部再抽出」として扱う**。
+**(b) の方が一般形**だが製品の挙動変更になる。**「10 を再抽出」と言った後で古い IR を読んで
+落ちている**ので、再抽出の結果がどこへ行ったのかを先に確かめること。
+
+**C1 について検証できたこと / できていないこと**【実測】:
+`hashFiles` は composite の中でも同じ値を出す — **キャッシュキーが変更前と 1 文字も違わず、
+走った 11 箇所すべてが primary key で hit した** (12 箇所目はそのジョブが elan の段まで来ていない。
+miss は 0)。逆に言うと **`curl | tar xz` + `elan-init` の
+インストール枝は 1 度も走っていない**。枝の中身は逐語コピー (`shell: bash` を足しただけ) だが、
+**「走らせた」と「見ている」は別**なので、キャッシュを消して 1 ジョブだけ回し直して確かめた。
+
 ---
 
 ## 10. 段 7 — `extractor/Extract.lean` (3,687 行の単一ファイル)
