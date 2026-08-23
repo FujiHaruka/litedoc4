@@ -2254,6 +2254,45 @@ crates 配下の `path_built_by("…")` を全部拾い、名指しされた**�
 `tools/lib/common.sh` に `cleanup_trap()` (必ず `if` で書く) と `run_logged()` (パイプを使わず
 ファイルにリダイレクトして終了コードを保つ) を置く。
 
+#### 着手前の実測【2026-08-23】— **2 つの罠のうち 1 つは `tools/` に存在しない。もう 1 つは条件が違う**
+
+bash 3.2.57 (この機材) と 5.3.9 の**両方で同じ結果**【実測】。
+
+**罠 2「パイプで終了コードを失う」は `tools/*.sh` には無い。** **35 本すべてが `pipefail` を
+立てている**【実測: 24 本が `set -euo pipefail`、11 本が `set -uo pipefail`、合計 35】。
+`pipefail` の下では `( exit 3 ) | tail -1` は **3** を返す (切ると 0)。
+CLAUDE.md がこの罠を記録したのは**対話セッション側の話**で、そこは zsh、`pipefail` も
+`PIPESTATUS` も無い。**`run_logged()` は、この木には無い欠陥に対する対策になる。**
+
+**罠 1「trap が終了コードを上書きする」は `set -e` の下だけで起きる**【実測】:
+
+| | 落ちて終わる | `exit 0` | `exit 7` |
+|---|---|---|---|
+| `set -uo pipefail` (11 本) | 0 | 0 | **7** |
+| `set -euo pipefail` (24 本) | **1** | **1** | **1** |
+
+上段では cleanup が失敗しても**スクリプトの終了コードは変わらない**。下段で 1 になるのは
+「trap の中で失敗したコマンドが `set -e` を発火させ、trap を中断する」ためで、
+**`exit 7` を書いていても 1 になる**。つまり **`set -uo pipefail` の 11 本はこの罠に免疫がある。**
+
+**さらに、計画が書いた対策 (「必ず `if` で書く」) だけでは足りない**【実測】。
+`cleanup() { local rc=$?; false; return "$rc"; }` は `set -e` の下で **exit 7 → 1**。
+`false` で関数が中断され、**`return "$rc"` に到達しない**。正しい条件は 3 つ揃うこと:
+**(1) 先頭で `$?` を捕まえる (2) 中の全コマンドが失敗しない (`|| true` か `if` ガード)
+(3) 最後に `return "$rc"`**。(2) が欠けると (3) は走らない。
+
+**EXIT trap を張っていて `set -e` の 6 本**が対象: `deps-docs-gate` / `extractor-uniqueness` /
+`extractor-mismatch` / `corpus-gate` / `e2e-micro` / `publish-pages`。
+`site-compare` / `render-compare` / `watch-gate` も trap を張るが `set -uo` なので免疫。
+**現に嘘をついている本は無い** — 一番近いのは `rm -rf "$WORK"` を直に張っている 2 本で、
+**作業領域を長命プロセスが掴んでいると `rm` が失敗する** (CLAUDE.md の `litedoc4 watch` の事例と
+同じ形)。つまり T5 は**今出ている欠陥の修正ではなく、出方が分かっている欠陥の予防**。
+
+**T6 の基準も、この計測から書ける** — 「`set -uo pipefail` を選ぶ」は
+**個別の失敗が集計対象 (データ) である**とき。`set -euo pipefail` の下で 1 つのコマンドの
+終了コードだけが欲しいときは、`extractor-mismatch.sh:102-106` のように
+`set +e` … `CODE=$?` … `set -e` で囲む (35 本で唯一の実例)。
+
 ### T6 — `set -e` の有無が割れている
 
 `set -euo pipefail` 24 本 / `set -uo pipefail` 11 本。後者は compare 系に多く**意図的かもしれない**
