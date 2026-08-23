@@ -2694,7 +2694,20 @@ L2 で切る単位が無いと判定した以上、分割は「行数で割る�
 
 ## 11. 段 8 — docs と掃除
 
-### E1 — `docs/plans/feature-sweep.md` (829 行) の圧縮
+### E1 — `docs/plans/feature-sweep.md` (829 行) の圧縮 — **済【2026-08-23】**
+
+**828 → 498 行 (-40%)。** 畳んだのは**着手前の見積もり・触るファイル一覧・テスト計画**で、
+8 件すべて完了済みなのでコードと git が持っている。**残したものを機械的に確かめた** —
+`benchmarks/results/*.txt` **10 本**・doc-gen4 の issue 番号 **20 個**・節番号 (§1〜§9)・
+項目ラベル (A-1〜C-4)・決定 1〜5 は**圧縮の前後で差分ゼロ**。これらは
+`crates/litedoc4-ir/src/model.rs` / `reader.rs` / `tools/config-gate.sh` /
+`e2e/README.md` / `docs/plans/b0-generated-decls.md` から参照されている。
+
+**`tools/*.sh` は 4 本減った** — `assets-gate.sh` / `browser-gate.sh` / `corpus-gate.sh` /
+`provenance-gate.sh`。うち 3 本は §5 の「CI が回すものの一覧」にしか無く、
+**その一覧は文書自身が「`ci.yml` が SoT、記憶で並べない」と書いている**ので、
+一覧ごと SoT への参照に畳んだ。`browser-gate.sh` は C-1 のゲート行に**戻した**
+(あれは入口の実体で、一覧ではない)。
 
 CLAUDE.md「計画文書は 600 行を超えたら `/compact-plan`」に該当。
 8 項目すべて完了済み (束 A・B・C)。**要約であって分割ではない**
