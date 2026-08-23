@@ -15,7 +15,7 @@
 
   **llvm-cov 下と素の `cargo test` で母数が違う**:
 
-      素の cargo test   46 バイナリ / 563 passed / 0 failed / 22 ignored
+      素の cargo test   46 バイナリ / 564 passed / 0 failed / 22 ignored
       llvm-cov 下       39 バイナリ / 553 passed / 0 failed / 21 ignored
 
   差は **doctest** — `cargo llvm-cov` は既定で回さない。
@@ -55,13 +55,18 @@
       作業前              86.9% (8242/9484)        1242         503
       段 2 の後           90.3% (8561/9484)         923         542
       段 4 の後           92.2% (8741/9484)         743         562
-      最終                92.4% (8763/9487)         724         563
+      最終                92.4% (8763/9487)         724         564
 
   分母が 9484 → 9487 に増えているのは、欠陥を直して 3 行足したため。
 
-  **新しく書いたテストは 57 本。`cargo test` の報告は +60。差の 3 は書いたものではない** —
+  **新しく書いたテストは 57 本。`cargo test` の増分は +61。差の 4 は書いたものではない** —
   `tests/watch.rs` という新しいバイナリが `mod common;` を宣言したので、
-  `tests/common/mod.rs` の 4 本がそこでも走る (1 本は同時に別の要因で減った)。
+  `tests/common/mod.rs` の 4 本が**そこでも走る**。バイナリ別の増分で確かめた【実測】:
+
+      queries +23 / litedoc4 (lib) +8 / reading_a_broken_tree +7 / watch +7 /
+      cli_surface +6 / litedoc4_incr (lib) +6 / ledger +4        合計 +61
+
+  `watch` の +7 だけが書いた本数 (3) と合わず、その差がちょうど common の 4 本。
   **`cargo` が報告するのは走った回数で、書いた本数ではない。**
 
 ファイル別 — 未カバー行が減ったもの
@@ -150,5 +155,7 @@ watch.rs の 71 行は「未検査」ではない — 測定の側が嘘をつ�
 
 掃除
 ----
-  `target/llvm-cov-target` は 869 MB。**この計測の後に `cargo llvm-cov clean` した。**
+  `target/llvm-cov-target` は計測後 869 MB。**`cargo llvm-cov clean --workspace` で
+  112 MB になった** — 全部は消えない (プロファイル済みの依存はキャッシュとして残る)。
+  素の `target/` はこれとは別に 14 GB ある。
   作業領域は `/private/tmp/lean-doc-relay/testcov/`。

@@ -323,7 +323,7 @@ assert しているのに 0)。理由は **`watch` を終わらせる手段が s
 
 | ID | 決着 |
 |---|---|
-| **F1** | **済** — 前後を [`../../benchmarks/results/coverage-2026-08-24.txt`](../../benchmarks/results/coverage-2026-08-24.txt) に書いた。**本体 86.9% → 92.4%** (未カバー 1242 → 724)。母数も両方記録した (**素の `cargo test` は 46 バイナリ / 563 passed、llvm-cov 下は 39 / 553** — 差は doctest)。計測後に `cargo llvm-cov clean` した |
+| **F1** | **済** — 前後を [`../../benchmarks/results/coverage-2026-08-24.txt`](../../benchmarks/results/coverage-2026-08-24.txt) に書いた。**本体 86.9% → 92.4%** (未カバー 1242 → 724)。母数も両方記録した (**素の `cargo test` は 46 バイナリ / 564 passed、llvm-cov 下は 39 / 553** — 差は doctest)。**`cargo` の増分 (+61) と書いた本数 (57) の差 4 も、バイナリ別に測って内訳を書いた** — `tests/watch.rs` が `mod common;` を宣言したので `tests/common/mod.rs` の 4 本がそこでも走る。**`cargo` が報告するのは走った回数で、書いた本数ではない。** 計測後に `cargo llvm-cov clean` した (869 → 112 MB) |
 | **F2** | **済** — `tools/corpus-gate.sh --verify-list` は緑。**`#[ignore]` は 22 のまま**なので `tools/corpus-tests.txt` は触っていない |
 | **F3** | **済** — `ci.yml` を変えたのでブランチに push して `workflow_dispatch` で実走し、**3 ジョブすべて緑**を確認してから main へ ([run 32655090556](https://github.com/FujiHaruka/litedoc4/actions/runs/32655090556))。**Watch gate も CI 上で通った** |
 | **F4** | **済** — `docs/milestone-log.md` に記録した |

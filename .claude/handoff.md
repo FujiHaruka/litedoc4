@@ -1,47 +1,45 @@
 # Handoff — 2026-08-24 (テストの穴を埋める)
 
 ## Relay control
-- Mode: ON
-- Goal: `docs/plans/test-coverage.md` を全 30 項目決着まで完遂する。
-  **推奨レベルまで** — 数を目標にしない、やりすぎない。過程で見つけた欠陥は直す。
+- Mode: DONE
+- Goal: `docs/plans/test-coverage.md` を全 30 項目決着まで完遂する。**達成**。
 - Leg: 1 / cap 8
 - Predecessor: none
 - Stop-on: completion
+- **結果**: **全 30 項目決着**。**新しく書いたテストは 57 本**、本体カバレッジは
+  **86.9% → 92.4%**、**製品の欠陥を 1 件出して直した** (`litedoc4 ledger --help` だけが
+  使い方を出さず exit 2 で拒否していた)。**`ci.yml` に watch gate を載せた** —
+  ブランチで実走して緑を確認してから main へ入れ、**main でも 3 ジョブ緑**
+  ([run 32656489911](https://github.com/FujiHaruka/litedoc4/actions/runs/32656489911))。
 - Progress ledger:
-  - r1: **決着 26 / 30**。段 0〜6 が全部決着し、**残るのは段 7 (F1〜F4) だけ**。
-    **新しく書いたテストは 62 本** (503 → 563 passed)。**製品の欠陥を 1 件出して直した** —
-    `litedoc4 ledger --help` だけが使い方を出さず exit 2 で拒否していた。
-    **`ci.yml` に watch gate を載せ、ブランチで実走して 3 ジョブ緑を確認済み**
-    ([run 32655090556](https://github.com/FujiHaruka/litedoc4/actions/runs/32655090556))。
-    commit `c7df7a5`〜(段 6 P1)
+  - r1: 段 0〜7 のすべて。commit `c7df7a5`〜`5c34fbf`
 
 ## State
 
 - Branch: **`main`** / clean / push 済み
-- **計画の SoT は `docs/plans/test-coverage.md`** (299 行)。数字はすべてそこ
+- **計画は全 30 項目決着。この計画でやることは残っていない**
+- 数字の SoT は
+  [`benchmarks/results/coverage-2026-08-24.txt`](../benchmarks/results/coverage-2026-08-24.txt)、
+  結果は `docs/milestone-log.md`、計画は `docs/plans/test-coverage.md` (367 行)
 - **検証は全部緑**【実測 2026-08-24】 — `cargo test --workspace --no-fail-fast` が
-  **44 バイナリ / 542 passed / 0 failed / 22 ignored**、fmt / clippy / doc / machete も 0。
-  検証スクリプトは `/private/tmp/lean-doc-relay/testcov/verify.sh` (各段のログと
-  終了コードを別々に残す。**パイプを使わない**)
-- `#[ignore]` は増えていないので `tools/corpus-tests.txt` は触っていない
+  **46 バイナリ / 564 passed / 0 failed / 22 ignored**、fmt / clippy / doc / machete /
+  `corpus-gate.sh --verify-list` も 0。検証スクリプトは
+  `/private/tmp/lean-doc-relay/testcov/verify.sh` (各段のログと終了コードを別々に残す。
+  **パイプを使わない**)
+- **`#[ignore]` は 22 のまま**なので `tools/corpus-tests.txt` は触っていない
+- ディスク: 空き **17 GiB**。`cargo llvm-cov clean --workspace` 済み (869 → 112 MB)
 
-## 残り 4 項目 — 次の一手
+## やらないと決めたもの (再検討するなら同じ測り方をやり直すこと)
 
-**段 7 だけが残っている。**
-
-| ID | 中身 |
-|---|---|
-| **F1** | 最終カバレッジを再計測し、前後を `benchmarks/results/coverage-2026-08-24.txt` に書く。**母数 (走ったテスト数) を必ず記録する**。**測り終えたら `cargo llvm-cov clean`** |
-| **F2** | **済** — `tools/corpus-gate.sh --verify-list` は緑、`#[ignore]` は 22 のまま増やしていない |
-| **F3** | **一度済** (上の run)。**段 6 P1 の commit を入れた後にもう一度 main で緑を確認する** |
-| **F4** | 見つけたものを `docs/milestone-log.md` に記録する (下の「この leg で出たもの」) |
-
-### F1 に必ず書く申し送り
-
-**`watch.rs` の未カバー 73 行は「未検査」ではない。** `run_loop` の中で実際に走っていて
-`tests/watch.rs` が log で assert しているが、テストが `Child::kill()` (SIGKILL) するので
-**子プロセスの profraw が flush されない**。同じ lcov で `main.rs` が 39/39、
-`queries.rs` が 333/335 なのは、そちらの子が正常終了するから。
+- **`litedoc4-md/src/parse.rs` の未カバー 52 行** — 50 行が `Error::Malformed` 系の
+  防御分岐で、入力から到達できない
+- **段 6 の P2〜P5** — 残り 724 行は `?` の伝播 / getter / `--serve` の常駐経路
+  (機材が要る = ゲートの領分) / 診断用フラグ (ゲートが既に読んでいる)
+- **`extractor/Extract.lean` の単体テスト** — e2e のゲート 7/8/9 が実 IR を名前レベルで
+  検査している。**「テストが 1 本も無い」は「検査が無い」ではない**
+- **カバレッジのしきい値を CI のゲートにすること** — 壁時計をゲートにしないのと同じ理由
+- **`cargo-mutants` を網羅的に回すこと** — 代わりに**テスト 1 本ごとに 3〜4 通りの変異を
+  手で当てた** (計 26 通り)。**それで「何をしても通るテスト」を 1 件捕まえた**
 
 ## この leg で踏んだもの (繰り返さない)
 
