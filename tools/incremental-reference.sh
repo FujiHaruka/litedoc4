@@ -29,9 +29,12 @@
 # `experiments/`.
 #
 # usage: tools/incremental-reference.sh [--extractor product|resident]
-#                                       [--out DIR] [--target REPO]
+#                                       [--out DIR] [--target REPO] [--lib NAME]
 #                                       [--lidx FILE] [--base-ir DIR] [--ref-site DIR]
 #                                       [--only SCENARIO]...
+#   --lib  the library whose modules are the module list; defaults to
+#          `InformationTheory`, which is the measurement target's. A different
+#          `--target` needs this too.
 #
 # ============================================================================
 # WHAT IS RECORDED, AND WHY THE SHAPE IS THE SHAPE

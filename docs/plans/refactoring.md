@@ -2168,6 +2168,65 @@ impact-compare 203 / impact-reference 349。
 `litedoc4-testutil/src/corpus.rs` のテスト 2 箇所 (`should_panic` の expected と呼び出し)。
 **U3a が逐語で運んだだけで、U3a が作った欠陥ではない。**
 
+#### 結果【2026-08-23】— **1 本も消していない。消す項目ではなく、主張の鮮度を測る項目だった**
+
+**11 本すべて残した**【実測】。計 2,456 行。**元の前提のうち正しかったのは 1 つだけ** —
+「CI から参照されない」は **11 本とも 0 件**で正しい。「docs からも参照されない」「現役でない」は誤り
+(→ 上の着手前の実測)。**7 本の compare は自分のヘッダに今走る recipe を持っている**ので、
+「ループの相手が消えた」ことと「使い道が無い」ことは別だった。
+
+**計画の行数が 1 件ずれていた**【実測】 — `ledger-reference` は 157 ではなく **159**。
+6 本の合計は 1,331 ではなく **1,333**。他 5 本は一致。
+
+**1. 実行できない指示を直した** (`96c3635`)。`merge.rs` の `path_built_by` と
+`corpus.rs` の 3 箇所 (doc 1・`should_panic` の expected 1・呼び出し 1)。
+**同時に、それを機械的に捕まえるテストを足した** —
+`corpus::tests::every_path_built_by_instruction_names_flags_the_command_accepts`。
+`path_built_by` の引数は `&str` なので**誰も見ていなかった**のが原因なので、
+crates 配下の `path_built_by("…")` を全部拾い、名指しされた**フラグがコマンド側に在るか**を見る
+(`tools/*.sh` は `case` アーム、`litedoc4` は `USAGE`)。**両方の枝を変異させて落ちることを確認した** —
+`--impl` (shell 側) と `--outdir` (USAGE 側)。**言えることの限界も書いてある**:
+シェル側はアームを**ファイル全体**から拾うので内部関数のアームも混ざる
+(`merge-reference.sh` は `--inc/--removed/--exclude` を報告する)。
+どの `case` が CLI かを当てるには 35 本のインデントを推測することになり、
+**弱い検査より間違った検査の方が悪い**ので取らなかった。
+
+**2. 一般形を測って、ゲートにしないことを決めた**【実測】。「スクリプトの `usage:` が自分のパーサと
+一致するか」を 35 本に当てた結果:
+
+| 向き | 該当 | 中身 |
+|---|---:|---|
+| usage が名指さないアームが在る | **26 本中 15 本** | 過半は `--help` (9 本)。残りも内部パーサの取り違え |
+| **usage が名指すのにアームが無い** | **35 本中 0 本** | 見えた 3 本は全部こちらの probe の偽陽性 |
+
+**前者をゲートにすると 15 件を例外リストで飲むことになる**ので足さない (§14「例外リストを持つ
+比較器を作らない」)。**後者 (= `--impl` の一般形) は shell 側に 1 件も無い。**
+偽陽性 3 本の中身は、`browser-gate` が `"$@"` を deno 側へ転送している / `provenance-gate` が
+`case` ではなく `if` で見ている / `config-gate` の `--no-link-index` が
+**`litedoc4 render` 側のフラグの説明**だった、の 3 通り。
+**「フラグを綴る場所は `case` アームだけではない」が probe の側の欠陥。**
+
+**3. 今は成り立たない主張を 2 つ直した。** どちらも「代替が in-process に在る」と書いていた:
+
+- `ledger-compare.sh:17-18` は**両方の意味で誤り**【実測】 — 「同じ比較」でも
+  「対象リポジトリが要る」でもない。prototype とのバイト比較は**再凍結せず削除された**
+  (`ledger.rs:1-16`)。残っているのは `the_harness_scenarios_are_measured_on_a_synthetic_package`
+  で、`FakeRepo` 上で走り `#[ignore]` を持たず **CI で走る** (`ledger.rs` に `#[ignore]` は 0 件、
+  `corpus-tests.txt` にも `ledger::` の行が無い)
+- `impact-compare.sh:17-18` は test 自体は実在するが、**HEAD からは到達できない** —
+  `impact::the_corpus_matches_the_prototype` は `corpus-tests.txt` の **frozen** 区画
+  (`LITEDOC4_PAGES = m1/ref-pages, emptied`) で、ゲートは attempt しない
+
+**`render-compare` / `merge-compare` / `global-compare` の同じ形の主張は検査して正確だった** —
+消さない。特に `render-compare` の「committed fixture に対して」は非 corpus のテスト 2 本
+(`pages.rs:123`/`:143`) を指していて、`#[ignore]` の corpus テストの方ではない。
+**代替を名乗る主張は 5 本中 2 本が腐っていて、3 本は生きていた。**
+
+**4. `incremental-reference.sh` の usage に `--lib` を足した** — パーサに在り (`:183`)、
+既定が `InformationTheory` で **`:389`/`:391` で実際に使う**のに usage が黙っていた。
+`--target` を変える者はこれも要る。**T2 (対象パスの集約) が拾い残した 1 件**で、
+上の表の「15 本」のうち、`--help` ではない側の実例。
+
 ### T4 — 5 種類のブロックが 4〜23 ファイルに散在【実測: 同一行の出現数】
 
 | 種類 | 代表行 | 出現 |

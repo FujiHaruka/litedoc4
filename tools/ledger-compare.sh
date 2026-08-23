@@ -14,8 +14,12 @@
 #   tools/ledger-reference.sh --out /private/tmp/lean-doc-relay/m3/after
 #   tools/ledger-compare.sh /private/tmp/lean-doc-relay/m3/before \
 #                           /private/tmp/lean-doc-relay/m3/after
-# `cargo test -p litedoc4-incr --test ledger` makes the same comparison in
-# process when the target repository is on the machine.
+# `cargo test -p litedoc4-incr --test ledger` does **not** make this comparison.
+# The byte comparison against the prototype was deleted rather than re-frozen
+# (the head of `crates/litedoc4-incr/tests/ledger.rs` says why). What survives in
+# process is `the_harness_scenarios_are_measured_on_a_synthetic_package`, which
+# replays the twelve scenarios below on a `FakeRepo` -- so it needs no target
+# repository, has no `#[ignore]`, and runs on CI.
 #
 # Three classes of file, compared three ways:
 #

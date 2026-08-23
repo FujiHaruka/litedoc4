@@ -15,7 +15,9 @@
 #   tools/impact-compare.sh /private/tmp/lean-doc-relay/m3c/before \
 #                           /private/tmp/lean-doc-relay/m3c/after
 # `cargo test -p litedoc4-incr --test impact` makes the same comparison in
-# process when the base IR and the page trees are on the machine.
+# process -- but not from HEAD. Its one corpus test reads the reference pages,
+# and `tools/corpus-tests.txt` lists that tree under `frozen`: emptied, with no
+# regenerator outside tag `experiments-frozen`. The gate does not attempt it.
 #
 # Four classes of file, compared four ways — **by suffix, never by name**:
 #
