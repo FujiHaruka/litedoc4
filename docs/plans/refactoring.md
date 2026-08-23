@@ -2465,6 +2465,38 @@ toolchain ファイルのパスを入力にする (`e2e/micro/lean-toolchain` �
 
 ---
 
+### 結果【2026-08-23】— C1 は済んだ。**C2 の「揃える」はやってはいけない**
+
+**C1: 12 箇所 / 6 ファイル / 192 行 → `.github/actions/setup-elan` 1 本 + 12 行**【実測】。
+
+計画が外した点が 2 つ:
+
+- **「toolchain のパスが 2 系統ある」は誤り**。12 箇所すべてが `e2e/micro/lean-toolchain` で、
+  **綴りは 1 種、md5 まで一致**した。だから composite に**入力を持たせなかった** —
+  呼び手が 1 通りしかない入力は、まだ誰も選んでいないパラメータでしかない
+- **12 箇所すべて `runs-on: ubuntu-latest`**【実測】。`ci-browser-windows.yml` に在るものも
+  ubuntu 側のジョブで、Windows 側は Lean を入れない。だから
+  `elan-x86_64-unknown-linux-gnu` の直書きは正しく、**`runner.os` の分岐は誰も通らない枝**になる
+
+**`ci-template.yml` と `.github/workflow-templates/litedoc4-docs.yml` は触っていない** —
+この 2 本の elan は**別方式** (`elan-init.sh` を raw.githubusercontent から、キャッシュ無し)。
+`elan-cache` を持たないので置換にも掛からなかった。
+
+**C2 の `actions/checkout@v4` 2 箇所は直してはいけない**【実測、判断を覆す】。
+2 箇所とも `ci-template.yml` に在り、**出荷テンプレートの逐語写し**である。
+この workflow の存在理由は「テンプレートそのものの証拠であって、言い換えの証拠ではない」ことで、
+ヘッダが `actions/checkout@v4` を**名指しで「テンプレートのもの、verbatim」**と書いている。
+片方だけ v5 にすると、**この workflow が主張できることが消える**。両方上げるのは
+**利用者向けテンプレートを変える判断**で、整形ではない。
+
+**C2 の他の数も測り直した**: `FujiHaruka/information-theory` の checkout は **6 ファイル** (計画 6、一致) /
+`lake exe cache get` は **6 ファイル 18 箇所** (計画 5、不一致) /
+`env-before.txt` は **6 ファイル** (計画 4、不一致) で、**うち 2 本は `record-runner.sh` 経由、
+4 本はインライン** — これは §8 T4 の「環境記録が 3 系統に分裂している」の CI 側そのもの。
+**C2 を畳むなら T4 の環境記録と同じ判断になる**ので、独立した項目として扱わない。
+
+---
+
 ## 10. 段 7 — `extractor/Extract.lean` (3,687 行の単一ファイル)
 
 **最も安全網が薄い。対象リポジトリの Lean 環境が要る。最後にやる。**
