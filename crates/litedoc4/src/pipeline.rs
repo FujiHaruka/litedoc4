@@ -1018,9 +1018,7 @@ pub fn incremental(args: &[String]) -> Result<(), Failure> {
         );
     };
     let Some(source_url) = source_url.filter(|url| !url.is_empty()) else {
-        return usage(
-            "--source-url is required: doc-gen4 reads it from lake plus git, and it is not in the IR",
-        );
+        return usage(crate::SOURCE_URL_REQUIRED);
     };
     check_source_url(&source_url)?;
     let Some(link_index) = link_index else {

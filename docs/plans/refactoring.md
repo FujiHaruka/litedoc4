@@ -477,6 +477,15 @@ after:  Ok("")
   a thing to state」という理由で既に共有されている — **入り口の 60 行だけが取り残されている**
 - やること: `RenderRequest` + `parse_render_request`。拒否文は `const SOURCE_URL_REQUIRED`
 
+#### 結果【2026-08-23】
+
+`lib.rs` に `SOURCE_URL_REQUIRED` と `RenderInputs` / `render_inputs(…)`。
+**3 ファイルで +67 / -34** (新しい関数と doc を含む。`stages.rs` 単体では -14)。
+
+- 寄せたのは**入力の検証と解決だけ** — `--source-url` の非空、`--link-index` の排他、
+  `external` と `config` の解決。フラグの `match` アームは 2 つとも元のまま
+- 拒否文の 3 つ目 (`pipeline.rs:1022`) も同じ定数に寄せた
+
 ### R5 — ファイル書き込み・定数・`events_beside` を 1 箇所に
 
 - `write_file` が **5 綴り**: `build.rs:1473-1478` と `pipeline.rs:1751-1756` は**バイト単位で同一**、

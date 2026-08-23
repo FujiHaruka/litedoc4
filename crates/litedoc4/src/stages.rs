@@ -11,10 +11,7 @@ use std::time::Instant;
 use litedoc4_global::{GlobalOptions, GlobalSummary, build_global};
 use litedoc4_render::{ModuleSet, RenderOptions, RenderSummary, render_site};
 
-use crate::{
-    Failure, link_index_required, print_global_summary, print_render_summary,
-    resolve_external_links, site_config, usage, with_dependency_docs,
-};
+use crate::{Failure, print_global_summary, print_render_summary, site_config, usage};
 
 /// Full generation: the module pages **and** the six whole-package artifacts,
 /// into one tree, from one IR tree, in one command.
@@ -101,20 +98,15 @@ pub fn site(args: &[String]) -> Result<(), Failure> {
     let Some(out) = out else {
         return usage("--out is required");
     };
-    let Some(source_url) = source_url.filter(|url| !url.is_empty()) else {
-        return usage(
-            "--source-url is required: doc-gen4 reads it from lake plus git, and it is not in the IR",
-        );
-    };
-    if link_index.is_some() == no_link_index {
-        return usage(link_index_required());
-    }
-
-    let external = with_dependency_docs(
-        resolve_external_links(root.as_deref(), lake.as_deref()),
+    let inputs = crate::render_inputs(
+        source_url,
+        link_index.as_deref(),
+        no_link_index,
+        root.as_deref(),
+        lake.as_deref(),
         deps_docs_map.as_deref(),
     )?;
-    let config = site_config(root.as_deref())?;
+    let (source_url, external, config) = (inputs.source_url, inputs.external, inputs.config);
     let site = generate_site(
         &ir,
         &out,
@@ -323,26 +315,20 @@ pub fn render(args: &[String]) -> Result<(), Failure> {
     let Some(pages) = pages else {
         return usage("--pages is required");
     };
-    // The prototype refuses too: the source URL is configuration that no IR
-    // carries, and a page written without it links every declaration to `/`.
-    let Some(source_url) = source_url.filter(|url| !url.is_empty()) else {
-        return usage(
-            "--source-url is required: doc-gen4 reads it from lake plus git, and it is not in the IR",
-        );
-    };
-    if link_index.is_some() == no_link_index {
-        return usage(link_index_required());
-    }
+    let inputs = crate::render_inputs(
+        source_url,
+        link_index.as_deref(),
+        no_link_index,
+        root.as_deref(),
+        lake.as_deref(),
+        deps_docs_map.as_deref(),
+    )?;
+    let (source_url, external, config) = (inputs.source_url, inputs.external, inputs.config);
 
     let only = match only {
         Some(names) => ModuleSet::These(names),
         None => ModuleSet::All,
     };
-    let external = with_dependency_docs(
-        resolve_external_links(root.as_deref(), lake.as_deref()),
-        deps_docs_map.as_deref(),
-    )?;
-    let config = site_config(root.as_deref())?;
     let summary = render_site(&RenderOptions {
         ir: &ir,
         pages: &pages,

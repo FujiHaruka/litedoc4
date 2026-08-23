@@ -469,6 +469,55 @@ fn link_index_required() -> String {
     format!("pass --link-index <file>, or --no-link-index to say so on purpose: {LINK_INDEX_COST}")
 }
 
+/// The refusal `site`, `render` and `incremental` all give for a missing
+/// `--source-url`.
+///
+/// One string, because it is one rule: the URL is configuration no IR carries,
+/// and a page written without it links every declaration to `/`.
+pub(crate) const SOURCE_URL_REQUIRED: &str =
+    "--source-url is required: doc-gen4 reads it from lake plus git, and it is not in the IR";
+
+/// What `site` and `render` both need before they can render anything.
+///
+/// The two commands read the same seven flags and check them the same way, and
+/// **the M4-d gate cannot see a disagreement between them**: it compares the
+/// trees they write, so handing both halves the same wrong interpretation
+/// produces two identical wrong trees. [`stages::generate_site`] already exists
+/// for that reason on the *output* side; this is the input side.
+pub(crate) struct RenderInputs {
+    pub(crate) source_url: String,
+    pub(crate) external: litedoc4_render::ExternalLinks,
+    pub(crate) config: litedoc4_render::SiteConfig,
+}
+
+/// Checks the shared flags and resolves what they name.
+///
+/// `link_index.is_some() == no_link_index` is an exclusive-or written as an
+/// equality: both given and neither given are the same mistake, and
+/// [`link_index_required`] says what it costs rather than which one happened.
+pub(crate) fn render_inputs(
+    source_url: Option<String>,
+    link_index: Option<&std::path::Path>,
+    no_link_index: bool,
+    root: Option<&std::path::Path>,
+    lake: Option<&std::path::Path>,
+    deps_docs_map: Option<&std::path::Path>,
+) -> Result<RenderInputs, Failure> {
+    let Some(source_url) = source_url.filter(|url| !url.is_empty()) else {
+        return usage(SOURCE_URL_REQUIRED);
+    };
+    if link_index.is_some() == no_link_index {
+        return usage(link_index_required());
+    }
+    let external = with_dependency_docs(resolve_external_links(root, lake), deps_docs_map)?;
+    let config = site_config(root)?;
+    Ok(RenderInputs {
+        source_url,
+        external,
+        config,
+    })
+}
+
 /// The renderer's counts. Every number is a denominator something else is quoted
 /// against, so a run that says "done" and nothing else is not comparable to the
 /// prototype's numbers at all.
