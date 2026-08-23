@@ -629,12 +629,202 @@ fn describe(failure: &Failure) -> String {
 
 // --------------------------------------------------------------------- tests
 
-/// The command line and the decision, which are the two halves of this file that
-/// own their input. The loop itself needs a package, a toolchain and an
-/// extractor, so it is `tools/watch-gate.sh`.
+/// The command line, the decision, and **the question the loop asks** — the
+/// three halves of this file that own their input.
+///
+/// [`Trigger::ask`] is here rather than in a gate because everything it needs is
+/// a directory this test writes: a ledger is a hash of files, and
+/// [`litedoc4_incr::build_ledger`] makes one out of any tree at all. What still
+/// needs a package, a toolchain and an extractor is [`run_loop`] — it starts a
+/// `build` — and that is `crates/litedoc4/tests/watch.rs` (the fake extractor)
+/// and `tools/watch-gate.sh` (the real one).
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use litedoc4_incr::{Algorithm, BuildOptions, build_ledger};
+    use litedoc4_testutil::TempDirs;
+
     use super::*;
+
+    const TEMP: TempDirs = TempDirs::prefixed("litedoc4-watch");
+
+    /// The two values [`Trigger`] pins for the session. Any strings will do —
+    /// what matters is that the ledger is seeded with the same ones the trigger
+    /// asks with, because a mismatch is a moved render key and every pass would
+    /// then report work.
+    const URL: &str = "https://github.com/owner/repo/blob/0123456789abcdef";
+    const EXTERNAL: &str = "external-links-digest";
+
+    fn put(path: &Path, body: &[u8]) {
+        fs::create_dir_all(path.parent().expect("a parent")).expect("writable");
+        fs::write(path, body).expect("writable");
+    }
+
+    /// The package the ledger hashes: the sources the glob finds, the oleans it
+    /// reads, and the two files `extractKey` is computed over.
+    fn write_package(root: &Path, oleans: &[(&str, &str)]) {
+        put(&root.join("lean-toolchain"), b"leanprover/lean4:v4.31.0\n");
+        put(
+            &root.join("lake-manifest.json"),
+            br#"{"version":"1.1.0","packages":[]}"#,
+        );
+        for (module, olean) in oleans {
+            let path = module.replace('.', "/");
+            put(&root.join(format!("{path}.lean")), b"-- a source file\n");
+            put(
+                &root.join(format!(".lake/build/lib/lean/{path}.olean")),
+                olean.as_bytes(),
+            );
+        }
+    }
+
+    /// A ledger over the package as it is now, seeded with exactly the values
+    /// [`Trigger`] asks with.
+    fn seed_ledger(trigger: &Trigger<'_>, modules: &[String]) {
+        build_ledger(&BuildOptions {
+            modules,
+            target: &trigger.root.display().to_string(),
+            out: trigger.ledger,
+            ir: Some(trigger.ir),
+            source_url: &trigger.source_url,
+            link_index: Some(trigger.link_index),
+            external_links: Some(&trigger.external_links),
+            algorithm: &Algorithm::sha256(),
+            concurrency: 1,
+            timings: None,
+        })
+        .expect("the ledger is written");
+    }
+
+    /// **What a pass asks, over a package this function writes.**
+    ///
+    /// Four claims, and the loop is wrong in a different way without each:
+    ///
+    /// - no ledger is `None`, not an error — a first `watch` over a directory
+    ///   nothing has built has to reach [`Step::Rebuild`];
+    /// - a ledger that will not parse is an **error**, not `None` — read as
+    ///   `None` it would be "nothing has ever been built here", and the loop
+    ///   would answer a half-written file by regenerating the whole site;
+    /// - two passes over a world that did not move produce **the same digest**,
+    ///   which is the entire basis of "one quiet interval" — a digest that
+    ///   moved on its own would make every pass [`Step::Settling`] and the loop
+    ///   would never build anything;
+    /// - a moved olean moves the digest and is counted.
+    #[test]
+    fn the_trigger_answers_none_an_error_a_stable_digest_and_a_moved_olean() {
+        let work = TEMP.make("trigger-ask");
+        let repo = work.path().join("repo");
+        let ledger = work.path().join("ledger.json");
+        let ir = work.path().join("ir");
+        let lidx = work.path().join("link-index.lidx");
+        write_package(&repo, &[("Pkg", "olean:Pkg:0"), ("Pkg.A", "olean:Pkg.A:0")]);
+        // Only `schemaVersion` and `generator` of the index reach `extractKey`.
+        put(
+            &ir.join("index.json"),
+            br#"{"schemaVersion":5,"generator":"litedoc4/crates/litedoc4/src/watch.rs"}"#,
+        );
+        put(&lidx, b"#lidx1\n@Dep.Home\nDep.Home\n\tDep.elsewhere\n");
+        let libs = vec!["Pkg".to_owned()];
+        let trigger = Trigger {
+            ledger: &ledger,
+            ir: &ir,
+            link_index: &lidx,
+            source_url: URL.to_owned(),
+            external_links: EXTERNAL.to_owned(),
+            root: &repo,
+            libs: &libs,
+        };
+
+        assert!(
+            trigger.ask().expect("no ledger is an answer").is_none(),
+            "a directory nothing has built must read as `nothing yet`, not as a failure",
+        );
+
+        seed_ledger(&trigger, &["Pkg".to_owned(), "Pkg.A".to_owned()]);
+        let quiet = trigger
+            .ask()
+            .expect("the ledger is readable")
+            .expect("a reading");
+        assert_eq!(quiet.modules, 2);
+        assert!(
+            !quiet.work(),
+            "the ledger was built from this very tree and the trigger still found work: {}",
+            quiet.what(),
+        );
+        assert_eq!(quiet.what(), "nothing stale");
+
+        let again = trigger
+            .ask()
+            .expect("the ledger is readable")
+            .expect("a reading");
+        assert_eq!(
+            again.digest, quiet.digest,
+            "two passes over a world that did not move disagree, so no pass would ever be \
+             quiet enough to build",
+        );
+
+        put(
+            &repo.join(".lake/build/lib/lean/Pkg/A.olean"),
+            b"olean:Pkg.A:1",
+        );
+        let moved = trigger
+            .ask()
+            .expect("the ledger is readable")
+            .expect("a reading");
+        assert_ne!(
+            moved.digest, quiet.digest,
+            "an olean moved and the digest did not, so the loop would sit on a stale site",
+        );
+        assert!(moved.work());
+        assert_eq!(moved.re_extract, 1);
+        assert_eq!(moved.what(), "1 module(s) to re-extract");
+
+        put(&ledger, b"{ half-written");
+        // Matched rather than `expect_err`, which would want a `Debug` on
+        // `Reading` that nothing else in the product asks for.
+        let failure = match trigger.ask() {
+            Ok(_) => panic!("a ledger that will not parse read as `nothing has been built here`"),
+            Err(failure) => failure,
+        };
+        assert!(
+            describe(&failure).contains("ledger.json"),
+            "the line the loop prints has to name the file: {}",
+            describe(&failure),
+        );
+    }
+
+    /// Every kind of failure, as the one line a loop prints and carries on from.
+    ///
+    /// The two that are not a message are the ones worth pinning: an
+    /// [`Failure::Answered`] carries **only** an exit code, and a
+    /// [`Failure::Refused`] carries a code *and* a message. A `describe` that
+    /// dropped either would leave the loop printing `watch   #2 the rebuild
+    /// stopped: ` with nothing after the colon — which is what a reader sees
+    /// when the extractor exits 4.
+    #[test]
+    fn every_failure_becomes_one_line_that_still_says_what_happened() {
+        assert_eq!(
+            describe(&Failure::Usage("--port wants a number".to_owned())),
+            "--port wants a number",
+        );
+        assert_eq!(
+            describe(&Failure::Failed("/tmp/x: No such file".to_owned())),
+            "/tmp/x: No such file",
+        );
+        assert_eq!(
+            describe(&Failure::Answered(4)),
+            "exit 4",
+            "the extractor's own exit code is the whole content of this failure",
+        );
+        assert_eq!(
+            describe(&Failure::Refused {
+                code: crate::EXIT_REFUSED,
+                message: "the ledger is older than this layout".to_owned(),
+            }),
+            "the ledger is older than this layout (exit 3)",
+        );
+    }
 
     fn reading(re_extract: usize, removed: usize, render_all: &[&str], digest: &str) -> Reading {
         Reading {
