@@ -333,7 +333,12 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
         });
     }
 
-    let counted = fold_timings(&events, &modules, jobs, &timings)?;
+    let counted = fold_timings(&Folded {
+        events: &events,
+        modules: &modules,
+        jobs,
+        out: &timings,
+    })?;
     println!(
         "extract {counted} module(s) -> {} (timings {})",
         ir_dir.display(),
@@ -478,12 +483,28 @@ pub(crate) fn resolve(path: &Path) -> PathBuf {
 /// the prototype's with every duration dropped, and those are durations.
 ///
 /// Returns the module count, which is also written as `targetModules`.
-pub(crate) fn fold_timings(
-    events: &Path,
-    modules: &Path,
-    jobs: usize,
-    out: &Path,
-) -> Result<usize, Failure> {
+pub(crate) struct Folded<'a> {
+    /// The extractor's JSONL.
+    pub events: &'a Path,
+    /// The module list it was given, for the count the record carries.
+    pub modules: &'a Path,
+    pub jobs: usize,
+    /// Where the folded record goes.
+    pub out: &'a Path,
+}
+
+/// Folds the extractor's events into one timings record.
+///
+/// Takes a struct and not four positionals: three of them were `&Path` and
+/// nothing but the order said which was which — the same shape
+/// [`crate::pipeline`]'s `CheckOptions` and `RenderOptions` already avoid.
+pub(crate) fn fold_timings(folded: &Folded<'_>) -> Result<usize, Failure> {
+    let Folded {
+        events,
+        modules,
+        jobs,
+        out,
+    } = *folded;
     let text = fs::read_to_string(events).map_err(|source| Failure::io(events, &source))?;
     // `preserve_order` is on for the workspace, so this comes out in the order
     // the extractor emitted the phases — which is the order the prototype's

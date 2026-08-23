@@ -1174,11 +1174,14 @@ pub fn incremental(args: &[String]) -> Result<(), Failure> {
     let run = outcome?;
 
     if let Some(path) = timings {
-        let serve = match &extractor {
-            Extractor::Resident(resident) => Some((jobs, resident.generation().to_owned())),
-            Extractor::OneShot { .. } => None,
+        let ran = match &extractor {
+            Extractor::Resident(resident) => Ran::Resident {
+                jobs,
+                generation: resident.generation(),
+            },
+            Extractor::OneShot { .. } => Ran::OneShot,
         };
-        write_timings(&path, &work, &run.summary, &run.timings, serve.as_ref())?;
+        write_timings(&path, &work, &run.summary, &run.timings, &ran)?;
     }
     Ok(())
 }
@@ -1345,10 +1348,17 @@ pub(crate) fn hash_concurrency() -> usize {
 /// What is *not* here: the format of the map itself. The extractor checks that
 /// against its own `#lidx2` marker, where a format change and the check that
 /// catches it sit in the same file.
-fn link_index_key(target: &Path, omit: &Path) -> Result<String, Failure> {
+/// The token that says whether a `.lidx` can be reused.
+///
+/// The two paths are the *package* whose toolchain and manifest pin the
+/// dependencies and the *omit list* the map was built against — different
+/// things that are both `&Path`, so the names carry the whole distinction.
+/// Swapped, the token is a different string and the map is rebuilt for nothing
+/// (段 D measured exactly that once).
+fn link_index_key(package: &Path, omit_list: &Path) -> Result<String, Failure> {
     // `None`: the IR half of the key is not wanted here (see above), so there is
     // nothing to read `<ir>/index.json` for.
-    let key = litedoc4_incr::extract_key(&target.to_string_lossy(), None).map_err(refused)?;
+    let key = litedoc4_incr::extract_key(&package.to_string_lossy(), None).map_err(refused)?;
     let mut bytes = Vec::new();
     for name in ["leanToolchain", "manifestSha256", "extractor"] {
         let Some(value) = key.get(name) else {
@@ -1366,11 +1376,11 @@ fn link_index_key(target: &Path, omit: &Path) -> Result<String, Failure> {
         bytes.push(b'\n');
     }
     // A blank line ends the key half, so that no rearrangement of its characters
-    // can produce the same digest as a different omit list.
+    // can produce the same digest as a different omit_list list.
     bytes.push(b'\n');
-    bytes.extend_from_slice(&fs::read(omit).map_err(|source| Failure::Refused {
+    bytes.extend_from_slice(&fs::read(omit_list).map_err(|source| Failure::Refused {
         code: crate::EXIT_REFUSED,
-        message: format!("{}: {source}", omit.display()),
+        message: format!("{}: {source}", omit_list.display()),
     })?);
     Ok(litedoc4_incr::sha256_hex(&bytes))
 }
@@ -1446,22 +1456,33 @@ pub(crate) fn check_source_url(url: &str) -> Result<(), Failure> {
 /// when there is one round, an array when there are more. They are read from
 /// fixed paths rather than from a glob, so a directory listing's order cannot
 /// reach the record.
+/// Which extractor ran, for the record that says so.
+///
+/// **Not `Option<&(usize, String)>`.** That carried three facts — whether the
+/// run was resident, its job count and its olean generation — in one `Option`,
+/// and the reader had to know which half of the tuple was which. It mirrors
+/// [`Extractor`], which is where the answer comes from.
+enum Ran<'a> {
+    OneShot,
+    Resident { jobs: usize, generation: &'a str },
+}
+
 fn write_timings(
     path: &Path,
     work: &Path,
     summary: &Summary,
     clocks: &Timings,
-    serve: Option<&(usize, String)>,
+    ran: &Ran<'_>,
 ) -> Result<(), Failure> {
     let mut record = serde_json::Map::new();
     record.insert("mode".to_owned(), summary.mode.clone().into());
-    record.insert("serve".to_owned(), serve.is_some().into());
-    if let Some((jobs, generation)) = serve {
+    record.insert(
+        "serve".to_owned(),
+        matches!(ran, Ran::Resident { .. }).into(),
+    );
+    if let Ran::Resident { jobs, generation } = ran {
         record.insert("jobs".to_owned(), serde_json::json!(jobs));
-        record.insert(
-            "serveGeneration".to_owned(),
-            serde_json::json!(generation.clone()),
-        );
+        record.insert("serveGeneration".to_owned(), serde_json::json!(generation));
     }
     for (name, value) in [
         ("detectSeconds", clocks.detect),

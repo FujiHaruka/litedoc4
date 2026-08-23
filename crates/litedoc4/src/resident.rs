@@ -283,7 +283,12 @@ impl Resident {
                 ),
             });
         }
-        let counted = fold_timings(&events, modules, self.serve.jobs, timings)?;
+        let counted = fold_timings(&crate::extract::Folded {
+            events: &events,
+            modules,
+            jobs: self.serve.jobs,
+            out: timings,
+        })?;
         println!(
             "        served {counted} module(s) from the resident environment in {:.3}s",
             started.elapsed().as_secs_f64(),

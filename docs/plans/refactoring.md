@@ -564,6 +564,18 @@ after:  Ok("")
 - **`Layout` (`build.rs:176`、9 個の `PathBuf`) は据え置き** — 生成が `Layout::new` 1 箇所に閉じていて
   費用対効果が低い
 
+#### 結果【2026-08-23】
+
+3 つ直した。**`Layout` は予告どおり触っていない。**
+
+- `fold_timings(events, modules, jobs, out)` → `fold_timings(&Folded { … })`。
+  同型 3 つが名前で区別されるようになった (`RenderOptions` / `CheckOptions` と同じ流儀)
+- `write_timings(…, serve: Option<&(usize, String)>)` → `enum Ran { OneShot, Resident { jobs, generation } }`。
+  **3 つの事実を 1 つの `Option` に畳んでいたのをやめた** — `Extractor` enum の形をそのまま写す
+- `link_index_key(target, omit)` → `(package, omit_list)`。
+  **最初は引数名だけ変えて本体で旧名に再束縛したが、それは名前を通したことにならない**ので、
+  本体まで書き換えた。Rust の位置引数は名前で守られないので、これは読み手のための変更
+
 ### R9 — `USAGE` (254 行) とパーサ 13 本の一致を検査する
 
 - **今日時点で乖離ゼロ**【調査担当が機械照合で実測】。ただし `USAGE:120` は `ledger touch` を
