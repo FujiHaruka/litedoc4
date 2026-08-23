@@ -8,11 +8,26 @@
 #   both; or the server did not answer the page the rebuild had just written.
 #
 # WHY IT IS A GATE AND NOT A TEST
-#   It needs the measurement target, its toolchain and the 171 MB Lean extractor,
-#   and it starts a long-lived process and talks to it over TCP. `cargo test
-#   --workspace` reaches none of those. What the tests own instead is the half
-#   that has its own input: the loop's decision function and the server's routing
-#   and refusals (`crates/litedoc4/src/watch.rs`, `crates/litedoc4/src/httpd.rs`).
+#   It needs a real Lean environment and a real extractor: what it proves is that
+#   the loop does one module's worth of work against oleans Lean actually wrote.
+#   `cargo test --workspace` reaches neither.
+#
+#   **It does not need the measurement target, and never did** 【実測 2026-08-24
+#   → benchmarks/results/watch-gate-e2e-2026-08-24.txt】. `--target`, `--lib`,
+#   `--module`, `--other` and `EXTRACT_BIN` are all arguments, so the same gate
+#   runs against `e2e/micro` — Lean core, ten modules, no Mathlib — in seconds
+#   (4.0 s and 6.1 s over two runs; wall clock, asserted on by nothing), and
+#   `.github/workflows/ci.yml`'s `e2e-micro` job runs it there on every push.
+#   The defaults below still name the measurement target because that is the
+#   workload the numbers in `benchmarks/` come from.
+#
+#   What the tests own is everything the loop does that a `/bin/sh` extractor can
+#   stand in for: the four arms of one pass, the banner, the server, and a failed
+#   rebuild that is said once and waited out
+#   (`crates/litedoc4/tests/watch.rs`) — plus the two halves that own their input
+#   outright, the decision function and the question it asks
+#   (`crates/litedoc4/src/watch.rs`) and the server's routing and refusals
+#   (`crates/litedoc4/src/httpd.rs`).
 #
 # THE ASSERTIONS ARE INTEGERS. NOT ONE OF THEM IS A DURATION.
 #   This workload's environment load moves 5x with the page cache (2.5 s <-> 13 s

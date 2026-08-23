@@ -1,0 +1,223 @@
+watch-gate.sh on e2e/micro — the gate that said it needed the measurement target
+
+WHAT THIS IS
+  tools/watch-gate.sh's header said it was a gate because it needs the
+  measurement target, that target's toolchain and the 171 MB Mathlib
+  extractor. Every one of those is an argument. This is the same gate,
+  unchanged, pointed at e2e/micro: Lean core only, ten modules, no Mathlib.
+  It is now .github/workflows/ci.yml's e2e-micro job, on every push.
+
+COMMAND
+  LITEDOC4=target/debug/litedoc4 \
+  EXTRACT_BIN=e2e/micro/.lake/e2e-extract/extract \
+  tools/watch-gate.sh --out <tmp> --target $REPO/e2e/micro --lib Micro \
+    --module Micro.Unicode --other Micro.Notation
+
+  The extractor is the one tools/e2e-micro.sh builds inside the fixture's own
+  Lean environment (its step 2). litedoc4 is the debug binary, which is what
+  the e2e-micro job already builds.
+
+NOTHING UNDER --target IS WRITTEN. 'module M changed' is injected into this
+  run's own copy of the ledger with `litedoc4 ledger touch`. git status was
+  clean after all three runs below.
+
+CONDITIONS
+  Darwin 25.6.0 arm64 / Apple M1 / 16 GB, Lean v4.31.0, extractor built by
+  tools/e2e-micro.sh, litedoc4 built debug, --jobs 4. Another cargo build was
+  running on the machine at the same time.
+
+WHAT IT COSTS, AND WHAT THAT NUMBER IS WORTH
+  Two green runs the same way: real 4.02 s and real 6.11 s. **That spread is
+  the point** — this is wall clock on a shared machine, and the gate asserts on
+  none of it (its own header: "THE ASSERTIONS ARE INTEGERS. NOT ONE OF THEM IS A
+  DURATION"). What it is for is deciding whether the gate belongs in a job that
+  already takes minutes: seconds, so yes.
+
+=================================================================== GREEN RUN
+
+=== 1/5 a site to watch
+  modules 10
+  work    extract 10 / render 10 / math-fallback 1 / requests 1 / cache 0 hit 10 miss / ir 27 file(s) (20 module read(s) = 2.00 full pass(es))
+  build   full in 2.2954 s -> /private/tmp/lean-doc-relay/watch-gate-e2e/build/site
+
+=== 2/5 start watch on port 8485
+  external  5 root(s) from 0/1 package(s) + core
+  external  note: 1 of those root(s) have no version-pinned URL, so names in them render without a link rather than linking at a page this site does not write
+  external  note: /Users/haruka/dev/lean-doc/e2e/micro/lake-manifest.json: package `micro-dep` is type `path`, not `git` — only a git package has a /blob/<rev> to link into
+  source  note: 6 uncommitted change(s) in /Users/haruka/dev/lean-doc/e2e/micro — the pages will link to HEAD
+  watch   source https://github.com/FujiHaruka/litedoc4/blob/191e06f39d4ea294c4b4be3d541ecaa5f365bf2f (derived once, now — a commit during this session does not move it)
+  watch   site   http://127.0.0.1:8485/  (/private/tmp/lean-doc-relay/watch-gate-e2e/build/site)
+  watch   root   /Users/haruka/dev/lean-doc/e2e/micro — this command does **not** run `lake build`. Run it in another window; watch notices the oleans it writes.
+  watch   asks the ledger every 1000 ms. Ctrl-C stops it.
+  ok    the server answers / with 200 before anything changed
+
+=== 3/5 make one module stale
+  touched Micro.Unicode in /private/tmp/lean-doc-relay/watch-gate-e2e/build/ledger.json (3198 B; injected change, the olean is untouched)
+  watch   #1 the ledger reports 1 module(s) to re-extract
+  lib     Micro (--lib)
+  modules 10
+  source  https://github.com/FujiHaruka/litedoc4/blob/191e06f39d4ea294c4b4be3d541ecaa5f365bf2f
+  plan    incremental (continuing /private/tmp/lean-doc-relay/watch-gate-e2e/build)
+  detect  10 module(s): 1 to re-extract, 0 removed
+  serve   ready 131422417 610 10 (4 jobs, generation dfa0daf2e31f8c32)
+          served 1 module(s) from the resident environment in 0.231s
+  round 1  extracted 1, removed 0, IR moved for 0, stale 0
+  serve   stopped after 1 request(s)
+  global  modules 10  declarations 92 + 21 dependency names  instance classes 4  instance types 3  tactic docs 0
+  global  name map 3741 B  module index 522 B  search index 1133 B
+  global  cache 10 hit / 0 miss  state 9641 B
+  global  delta: 0 name(s) moved in or out of the map (113 -> 113) -> 0 page(s) to re-render
+  impact  mode self -> 1 page(s) (1 from the changed set, 0 from the global map)
+  render  modules 1/10  declarations 2/92 (40 suppressed)  module docs 1  bytes 7172
+  render  known 113  link index 34066  known modules 611
+  render  math spans kept as LaTeX 0
+  assets  3 file(s) -> /private/tmp/lean-doc-relay/watch-gate-e2e/build/site
+  ledger  10 module(s) -> /private/tmp/lean-doc-relay/watch-gate-e2e/build/ledger.json (3182 B)
+  work    extract 1 / render 1 / math-fallback 0 / requests 1 / cache 10 hit 0 miss / ir 46 file(s) (32 module read(s) = 3.20 full pass(es))
+  build   incremental in 0.3636 s -> /private/tmp/lean-doc-relay/watch-gate-e2e/build/site
+  watch   #1 incremental — re-extracted 1 module(s), re-rendered 1 page(s), started Lean 1 time(s) in 0.364 s
+  watch   #1 reload http://127.0.0.1:8485/
+
+=== 4/5 what the pass cost, as integers
+  ok    the marker says the run finished
+  ok    work.modulesExtracted is 1, expected 1 (one module went stale)
+  ok    work.pagesRendered is 1, expected 1 (mode self, empty map delta)
+  ok    work.extractorRequests is 1, expected 1 (one Lean import for the pass)
+  ok    the render set is Micro.Unicode, expected Micro.Unicode
+  ok    impact (mode self) selected 1 page(s) and the renderer wrote 1 — two derivations of the same set
+  ok    work.pagesRendered is 1 of 10 module(s): one edit did not re-render the package
+  checks  7, failed 0
+
+=== 5/5 the server serves what the rebuild wrote
+  ok    GET /Micro/Unicode.html -> 200 (7172 B)
+  ok    GET /no/such/page.html -> 404
+  ok    GET /../../../etc/passwd -> 403
+  ok    no resident extractor is left behind
+
+date              2026-08-23T17:08:11Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+target            /Users/haruka/dev/lean-doc/e2e/micro (10 modules, lib Micro)
+toolchain         leanprover/lean4:v4.31.0
+extractor         /Users/haruka/dev/lean-doc/e2e/micro/.lake/e2e-extract/extract
+port / jobs       8485 / 4
+module touched    Micro.Unicode
+inject            none
+rebuild wall      in 0.364 s (printed, asserted on by nothing)
+
+WATCH GATE: ok — 12 check(s), 0 failed
+real 6.11
+user 0.86
+sys 0.63
+
+=========================================== FALSIFIED 1/2: --inject wrong-module
+  Touches a different module. The three integers stay 1/1/1 — the loop did
+  exactly one module's worth of work — so the render-set name check is the
+  only thing that can catch it, which is why it is there.
+
+
+=== 1/5 a site to watch
+  modules 10
+  work    extract 10 / render 10 / math-fallback 1 / requests 1 / cache 0 hit 10 miss / ir 27 file(s) (20 module read(s) = 2.00 full pass(es))
+  build   full in 0.5627 s -> /private/tmp/lean-doc-relay/watch-gate-e2e-wrong/build/site
+
+=== 2/5 start watch on port 8486
+  external  5 root(s) from 0/1 package(s) + core
+  external  note: 1 of those root(s) have no version-pinned URL, so names in them render without a link rather than linking at a page this site does not write
+  external  note: /Users/haruka/dev/lean-doc/e2e/micro/lake-manifest.json: package `micro-dep` is type `path`, not `git` — only a git package has a /blob/<rev> to link into
+  source  note: 6 uncommitted change(s) in /Users/haruka/dev/lean-doc/e2e/micro — the pages will link to HEAD
+  watch   source https://github.com/FujiHaruka/litedoc4/blob/191e06f39d4ea294c4b4be3d541ecaa5f365bf2f (derived once, now — a commit during this session does not move it)
+  watch   site   http://127.0.0.1:8486/  (/private/tmp/lean-doc-relay/watch-gate-e2e-wrong/build/site)
+  watch   root   /Users/haruka/dev/lean-doc/e2e/micro — this command does **not** run `lake build`. Run it in another window; watch notices the oleans it writes.
+  watch   asks the ledger every 1000 ms. Ctrl-C stops it.
+  ok    the server answers / with 200 before anything changed
+
+=== 3/5 make one module stale
+  injected: touching Micro.Notation while the assertions still expect Micro.Unicode
+  touched Micro.Notation in /private/tmp/lean-doc-relay/watch-gate-e2e-wrong/build/ledger.json (3198 B; injected change, the olean is untouched)
+  watch   #1 the ledger reports 1 module(s) to re-extract
+  lib     Micro (--lib)
+  modules 10
+  source  https://github.com/FujiHaruka/litedoc4/blob/191e06f39d4ea294c4b4be3d541ecaa5f365bf2f
+  plan    incremental (continuing /private/tmp/lean-doc-relay/watch-gate-e2e-wrong/build)
+  detect  10 module(s): 1 to re-extract, 0 removed
+  serve   ready 146392833 610 10 (4 jobs, generation dfa0daf2e31f8c32)
+          served 1 module(s) from the resident environment in 0.245s
+  round 1  extracted 1, removed 0, IR moved for 0, stale 0
+  serve   stopped after 1 request(s)
+  global  modules 10  declarations 92 + 21 dependency names  instance classes 4  instance types 3  tactic docs 0
+  global  name map 3741 B  module index 522 B  search index 1133 B
+  global  cache 10 hit / 0 miss  state 9641 B
+  global  delta: 0 name(s) moved in or out of the map (113 -> 113) -> 0 page(s) to re-render
+  impact  mode self -> 1 page(s) (1 from the changed set, 0 from the global map)
+  render  modules 1/10  declarations 2/92 (40 suppressed)  module docs 1  bytes 6080
+  render  known 113  link index 34066  known modules 611
+  render  math spans kept as LaTeX 0
+  assets  3 file(s) -> /private/tmp/lean-doc-relay/watch-gate-e2e-wrong/build/site
+  ledger  10 module(s) -> /private/tmp/lean-doc-relay/watch-gate-e2e-wrong/build/ledger.json (3182 B)
+  work    extract 1 / render 1 / math-fallback 0 / requests 1 / cache 10 hit 0 miss / ir 46 file(s) (32 module read(s) = 3.20 full pass(es))
+  build   incremental in 0.3755 s -> /private/tmp/lean-doc-relay/watch-gate-e2e-wrong/build/site
+  watch   #1 incremental — re-extracted 1 module(s), re-rendered 1 page(s), started Lean 1 time(s) in 0.376 s
+  watch   #1 reload http://127.0.0.1:8486/
+
+=== 4/5 what the pass cost, as integers
+  ok    the marker says the run finished
+  ok    work.modulesExtracted is 1, expected 1 (one module went stale)
+  ok    work.pagesRendered is 1, expected 1 (mode self, empty map delta)
+  ok    work.extractorRequests is 1, expected 1 (one Lean import for the pass)
+  FAIL  the render set is Micro.Notation, expected Micro.Unicode
+  ok    impact (mode self) selected 1 page(s) and the renderer wrote 1 — two derivations of the same set
+  ok    work.pagesRendered is 1 of 10 module(s): one edit did not re-render the package
+  checks  7, failed 1
+
+=== 5/5 the server serves what the rebuild wrote
+  ok    GET /Micro/Unicode.html -> 200 (7172 B)
+  ok    GET /no/such/page.html -> 404
+  ok    GET /../../../etc/passwd -> 403
+  ok    no resident extractor is left behind
+
+date              2026-08-23T17:08:24Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+target            /Users/haruka/dev/lean-doc/e2e/micro (10 modules, lib Micro)
+toolchain         leanprover/lean4:v4.31.0
+extractor         /Users/haruka/dev/lean-doc/e2e/micro/.lake/e2e-extract/extract
+port / jobs       8486 / 4
+module touched    Micro.Notation
+inject            wrong-module
+rebuild wall      in 0.376 s (printed, asserted on by nothing)
+
+WATCH GATE: FAIL — 12 check(s), 1 failed
+  exit 1
+
+============================================== FALSIFIED 2/2: --inject no-touch
+  Touches nothing and still waits for a rebuild. The gate must time out and
+  say so rather than report a green run it never saw. (30 s by design.)
+
+
+=== 1/5 a site to watch
+  modules 10
+  work    extract 10 / render 10 / math-fallback 1 / requests 1 / cache 0 hit 10 miss / ir 27 file(s) (20 module read(s) = 2.00 full pass(es))
+  build   full in 0.5648 s -> /private/tmp/lean-doc-relay/watch-gate-e2e-notouch/build/site
+
+=== 2/5 start watch on port 8487
+  external  5 root(s) from 0/1 package(s) + core
+  external  note: 1 of those root(s) have no version-pinned URL, so names in them render without a link rather than linking at a page this site does not write
+  external  note: /Users/haruka/dev/lean-doc/e2e/micro/lake-manifest.json: package `micro-dep` is type `path`, not `git` — only a git package has a /blob/<rev> to link into
+  source  note: 6 uncommitted change(s) in /Users/haruka/dev/lean-doc/e2e/micro — the pages will link to HEAD
+  watch   source https://github.com/FujiHaruka/litedoc4/blob/191e06f39d4ea294c4b4be3d541ecaa5f365bf2f (derived once, now — a commit during this session does not move it)
+  watch   site   http://127.0.0.1:8487/  (/private/tmp/lean-doc-relay/watch-gate-e2e-notouch/build/site)
+  watch   root   /Users/haruka/dev/lean-doc/e2e/micro — this command does **not** run `lake build`. Run it in another window; watch notices the oleans it writes.
+  watch   asks the ledger every 1000 ms. Ctrl-C stops it.
+  ok    the server answers / with 200 before anything changed
+
+=== 3/5 make one module stale
+  injected: touching nothing, and still waiting for a rebuild
+watch-gate FAIL  30s passed and the first rebuild never happened
+external  5 root(s) from 0/1 package(s) + core
+external  note: 1 of those root(s) have no version-pinned URL, so names in them render without a link rather than linking at a page this site does not write
+external  note: /Users/haruka/dev/lean-doc/e2e/micro/lake-manifest.json: package `micro-dep` is type `path`, not `git` — only a git package has a /blob/<rev> to link into
+source  note: 6 uncommitted change(s) in /Users/haruka/dev/lean-doc/e2e/micro — the pages will link to HEAD
+watch   source https://github.com/FujiHaruka/litedoc4/blob/191e06f39d4ea294c4b4be3d541ecaa5f365bf2f (derived once, now — a commit during this session does not move it)
+watch   site   http://127.0.0.1:8487/  (/private/tmp/lean-doc-relay/watch-gate-e2e-notouch/build/site)
+watch   root   /Users/haruka/dev/lean-doc/e2e/micro — this command does **not** run `lake build`. Run it in another window; watch notices the oleans it writes.
+watch   asks the ledger every 1000 ms. Ctrl-C stops it.
+  exit 1
