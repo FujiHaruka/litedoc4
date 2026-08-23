@@ -54,3 +54,56 @@ pub(crate) fn write_json_line(path: &Path, record: &impl Serialize) -> Result<()
     let body = serde_json::to_string(record).expect("counts and durations serialise") + "\n";
     write(path, &body)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use litedoc4_testutil::TempDirs;
+
+    const TEMP: TempDirs = TempDirs::prefixed("litedoc4-incr-io");
+
+    /// The empty file is load-bearing — `--only-from` reads it as "render
+    /// nothing" — so the round trip through the disk is checked, not just the
+    /// string.
+    #[test]
+    fn an_empty_set_reaches_the_disk_as_a_file_with_no_line_in_it() {
+        let dir = TEMP.make("empty-set");
+        let path = dir.path().join("set.txt");
+        write_text(&path, &[]).expect("an empty set is writable");
+        assert_eq!(fs::read_to_string(&path).expect("it is there"), "");
+    }
+
+    /// **Which path the failure names is the whole of its value.** A write that
+    /// fails while making the parent directory has to say the *directory*, and
+    /// one that fails on the file has to say the *file* — a run that reported
+    /// the wrong one sends the reader to look at something that is fine.
+    #[test]
+    fn a_directory_that_cannot_be_made_is_named_as_the_directory() {
+        let dir = TEMP.make("parent-is-a-file");
+        let occupied = dir.path().join("in-the-way");
+        fs::write(&occupied, "not a directory").expect("the file is written");
+
+        let error = write(&occupied.join("under-it.txt"), "body")
+            .expect_err("a file cannot be a parent directory");
+        let Error::Io { path, .. } = &error else {
+            panic!("expected an io failure, got {error:?}");
+        };
+        assert_eq!(
+            path, &occupied,
+            "the directory is named, not the file under it"
+        );
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_written_is_named_as_the_file() {
+        let dir = TEMP.make("target-is-a-directory");
+        let occupied = dir.path().join("in-the-way");
+        fs::create_dir(&occupied).expect("the directory is made");
+
+        let error = write(&occupied, "body").expect_err("a directory cannot be written over");
+        let Error::Io { path, .. } = &error else {
+            panic!("expected an io failure, got {error:?}");
+        };
+        assert_eq!(path, &occupied);
+    }
+}

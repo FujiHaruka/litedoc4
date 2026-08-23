@@ -198,3 +198,56 @@ impl std::error::Error for Error {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **The values are built here rather than reached through a stage.**
+    /// What is under examination is the arithmetic of the elision, and driving
+    /// eleven names out of `merge` would mean an eleven-module IR tree to check
+    /// a subtraction with. The refusals that *carry* these lists are reached
+    /// from an input in `crates/litedoc4/tests/queries.rs`.
+    fn names(count: usize) -> Vec<String> {
+        (0..count).map(|n| format!("Micro.M{n}")).collect()
+    }
+
+    #[test]
+    fn no_names_is_the_word_none_and_not_an_empty_line() {
+        assert_eq!(some_of(&[]), "none");
+    }
+
+    /// **The boundary, from both sides.** Checking only "ten is whole" and
+    /// "seventeen is elided" leaves `>` free to be `>=`: the first list that
+    /// gets elided is the eleventh name's, and nothing else moves when that
+    /// comparison slips by one.
+    #[test]
+    fn the_elision_starts_one_past_the_limit_and_not_at_it() {
+        let at = some_of(&names(NAMES_IN_REFUSAL));
+        assert_eq!(at.split(", ").count(), NAMES_IN_REFUSAL);
+        assert!(!at.contains("more"), "at the limit nothing is elided: {at}");
+
+        let past = some_of(&names(NAMES_IN_REFUSAL + 1));
+        assert!(
+            past.ends_with("… and 1 more"),
+            "one past the limit elides exactly one: {past}"
+        );
+        assert_eq!(past.split(", ").count(), NAMES_IN_REFUSAL + 1);
+    }
+
+    /// Past the limit the reader gets a name to start from and a count — not a
+    /// list that scrolls a screenful of terminal away.
+    #[test]
+    fn past_the_limit_ten_names_are_shown_and_the_rest_are_counted() {
+        let shown = some_of(&names(NAMES_IN_REFUSAL + 7));
+        assert!(shown.starts_with("Micro.M0, Micro.M1, "), "{shown}");
+        assert!(
+            shown.ends_with(&format!("Micro.M{}, … and 7 more", NAMES_IN_REFUSAL - 1)),
+            "{shown}"
+        );
+        assert!(
+            !shown.contains(&format!("Micro.M{NAMES_IN_REFUSAL}")),
+            "the eleventh name is counted, not shown: {shown}"
+        );
+    }
+}
