@@ -2530,7 +2530,10 @@ litedoc4: …/ir/modules/Micro.json is schema 4; this reader needs schema 5 or n
 走った 11 箇所すべてが primary key で hit した** (12 箇所目はそのジョブが elan の段まで来ていない。
 miss は 0)。逆に言うと **`curl | tar xz` + `elan-init` の
 インストール枝は 1 度も走っていない**。枝の中身は逐語コピー (`shell: bash` を足しただけ) だが、
-**「走らせた」と「見ている」は別**なので、キャッシュを消して 1 ジョブだけ回し直して確かめた。
+**「走らせた」と「見ている」は別**なので、**`gh cache delete` で elan のキャッシュを消してから
+`ci.yml` の `e2e` ジョブだけ回し直した**【実測】 — `Cache not found` → `./elan-init -y
+--default-toolchain` → `info: default toolchain set to 'leanprover/lean4:v4.31.0'` →
+**同じキーで保存**、ジョブは success。**両方の枝を走らせて緑**なので main に入れた。
 
 ---
 

@@ -13,13 +13,14 @@
   - r2: **段 2 完了** / **段 3 完了** / 段 4 は U1+U2 まで (`95c7902`)
   - r3: **段 4 完了** → **段 5 は T1+T2 完了** (`5262070`)、T3 の前提を実測で否定 (`bd8f0e6`)
   - r4: **段 5 完了** (T3 `96c3635`+`26ad5b7` / T4+T5+T6 `8f0c042` / T4 環境記録 `6a6e526` / T4 結論 `24871d0`)
-    → **段 8 の E3+E4 完了** (`9f7db10`) → **段 6 の C1 はブランチ `elan-composite` で CI 検証済み、main 未マージ**
+    → **段 8 の E3+E4 完了** (`9f7db10`) → **段 6 の C1 完了、CI で両枝を検証して main にマージ済み** (`085f50b`〜`fbd2ef4`)
 
 ## State
 
-- Branch: **`main`** / clean / push 済み (HEAD `9f7db10`)
-- **未マージのブランチが 1 本: `elan-composite`** (push 済み、main に rebase 済み、3 commit)。
-  `7025f41` C1 本体 / `c004883` 段 6 の実測 / `6b6089b` CI 結果。**マージすれば段 6 の C1 が閉じる**
+- Branch: **`main`** / clean / push 済み
+- **段 6 の C1 はマージ済み。** CI で**両枝**を検証した — 初回 6 本は 11 箇所すべて cache hit、
+  そのあと `gh cache delete` してから `ci.yml` の `e2e` を回し直して**インストール枝も実走**、
+  どちらも緑。**ブランチ `elan-composite` / `elan-baseline` は remote に残っている**(消してよい)
 - `cargo test --workspace --no-fail-fast` = **41 バイナリ / 500 passed / 0 failed / 22 ignored** (leg 4 実測)
 - fmt / clippy / doc / machete / `corpus-gate.sh --verify-list` (21 tests) すべて緑
 - **`tools/e2e-micro.sh` を `--keep` 無しで実走して緑** (15/15、`EXIT=0`、`cleanup failed` 無し、
@@ -40,14 +41,7 @@ tools/corpus-gate.sh --verify-list        # 2 分超
 
 ## Next step
 
-**1. `elan-composite` を main にマージする。** 先に CI の再実行 1 件を確認すること —
-run **32641592567** の job `e2e (real extractor, no Mathlib)` を、**elan キャッシュを消してから**
-回し直してある。狙いは `curl | tar xz` + `elan-init` の**インストール枝を実際に走らせる**こと
-(初回の 6 本では 11 箇所すべてが cache hit で、この枝は 1 度も走っていない)。
-緑なら `git merge elan-composite` → push。赤ならインストール枝の差分を疑う
-(足したのは `shell: bash` だけ、他は逐語コピー)。
-
-**2. 見つけた欠陥を決着させる — これが次の主題。**
+**1. 見つけた欠陥を決着させる — これが次の主題。**
 **`ci-action.yml` は既に main で赤い**【実測】。`elan-baseline` ブランチ (main の内容) で
 同じ 2 ジョブが同じように落ちることを確かめてあるので、**C1 のせいではない**。
 落ちる場所と原因は `docs/plans/refactoring.md` §9 の「CI に当てた結果」に書いた。要点は
@@ -56,10 +50,10 @@ run **32641592567** の job `e2e (real extractor, no Mathlib)` を、**elan キ�
 再抽出の出力先とキャッシュ復元先が食い違っている可能性がある。
 **利用者に当たる欠陥**なので、段 7 より先。
 
-**3. 段 7 (L1〜L3)。** 最も安全網が薄い。対象リポジトリの Lean 環境が要る。
+**2. 段 7 (L1〜L3)。** 最も安全網が薄い。対象リポジトリの Lean 環境が要る。
 **着手前に `df -h /` と `du -sh /private/tmp/lean-doc-relay` を見る** (段 7 は対象を使う)。
 
-**4. 段 8 の E1 と E2。** E1 は `docs/plans/feature-sweep.md` (829 行) の `/compact-plan`
+**3. 段 8 の E1 と E2。** E1 は `docs/plans/feature-sweep.md` (829 行) の `/compact-plan`
 (**要約であって分割ではない**)。E2 は `mutants.out{,.old}` の始末 —
 **gitignored なので消すのはユーザー判断に寄せる**。
 
