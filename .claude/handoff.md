@@ -6,7 +6,7 @@
   1 commit = 1 項目 (絡んでいるものは `X2+X6` のように 2 項目 1 コミットにしてよい。
   **ただしビルドが通らない中間コミットを作るくらいなら束ねる**)。各段の終わりで下の 5 つを緑に戻す。
 - Leg: 3 / cap 8
-- Predecessor: none (leg 2 はユーザーの元セッション。kill しない)
+- Predecessor: refactoring-r2   # 走り出しを確認したら `tmux kill-session -t refactoring-r2`
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger:
   - r1: 段 0 (15 件) 完了 / 段 1 (R1〜R9) 完了 / 段 2 は S1・S3・S4・S5 完了、S2 は「やらない」で決着 (`bec6bef`)
