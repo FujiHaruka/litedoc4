@@ -1108,6 +1108,64 @@ A は `index.json` の `modules` が差し替わらないので、消えたは�
   2 行足す** ← 推奨 (`feature-sweep.md` C-2 がこの数を引く可能性がある) /
   (2) 使わないなら `Counts` から消し、実測値を `name_lists` 側のコメントに移す
 
+#### 結果【2026-08-23】— **両方やった。本体は「空の成果物に対してテストが緑だった」こと**
+
+**必須の半分から。** `the_counts_are_what_the_files_hold` を `Counts` の**分解束縛**で
+書き直し、`used_by_json` を parse して **key 数**と **value 長の総和**に突き合わせる 2 本を
+足した (`artifacts.rs:699-758`)。**新しい `#[test]` は 1 本も足していない** — 本数は 452 の
+ままで、増えたのは 1 本のテストが見ている範囲。
+
+**計画が書いていない段がもう 1 つあった**【実測】: `chain()` フィクスチャは `refs` を
+1 つも持たず、`declarations/used-by.json` は **`{}` だった**。2 フィールドが検査されて
+いなかっただけでなく、**検査する対象が空**で、`the_file_list_and_the_paths_agree` の
+「どの成果物も空でない」も **2 バイトの `{}` で通っていた**。フィクスチャに参照を入れた
+(`artifacts.rs:574-615`): 2 宣言が指す target、1 宣言が指す target、**このパッケージが
+宣言していない名前** (逆引きが落とす)、そして `Pkg.dup` を **2 モジュールが宣言する** —
+1 つの利用者リストに同じ名前が 2 回入る唯一の形で、**per-key の dedup が数に出る唯一の形**。
+targets 2 / edges 3 (dedup しなければ 4)。
+
+**壊して確かめた。3 通り、全部赤**【実測】:
+
+| 壊し方 | 出た赤 |
+|---|---|
+| `used_by_edges` の dedup を外す (`values().map(Vec::len).sum()`) | `used_by_edges is not the number of names declarations/used-by.json lists` / `left: 4  right: 3` |
+| `used_by_targets: used_by.len() - 1` | `used_by_targets is not the number of keys declarations/used-by.json has` / `left: 1  right: 2` |
+| `Counts` に 7 つ目のフィールドを足す | **コンパイルが通らない** — `error[E0027]: pattern does not mention field ...` |
+
+**3 つ目が X4 の一般形**。`facts.rs` の `PROTOTYPE_FACT_KEYS` は実行時にキー配列を
+突き合わせるが、`Counts` は**同じ crate の struct** なので**分解束縛でコンパイル時に
+強制できる**【判断】 — 手で並べる配列が要らず、腐る余地が無い。C-2 が 2 フィールドを
+足したときにこのテストが黙って通った経路は、これで閉じた。
+
+**任意の半分もやった。バイトを比較しているものは無かった**【実測】:
+`GlobalSummary` (`site.rs:97-121`) は `Serialize` を持たず、構築箇所は `site.rs` の 1 つだけ。
+`TimingsRecord` は `Serialize` だが、**HEAD でこのレコードを読むものは
+`tests/state_and_delta.rs:625-630` の 3 キー (`cacheHits` / `cacheMisses` / `state`) だけ**。
+`--timings` を渡す `tools/*.sh` は `build` / `extract` / `ledger` / `merge` の**別のレコード**を
+書いていて、`global` に `--timings` を渡すものは 1 本も無い (`config-gate.sh:83` が
+`global` を呼ぶ唯一の箇所で、渡していない)。docstring が名指しする `oracle.sh` は
+`experiments/` と一緒に HEAD から消えている。
+
+**2 キーは `delta` の後ろに足した**【判断】。`TimingsRecord` の docstring が
+「キー順はプロトタイプのオブジェクトリテラル」と主張しているので、中に挿すとその主張が
+偽になる。**`ModuleFacts::instances_for` が state ファイルで採ったのと同じ規則** —
+プロトタイプのキー、その後ろに新しいもの。**推測でキー名を書かず、1 度出させた**【実測】:
+
+```
+{"command":"build",…,"totalSeconds":0.005733083,"delta":null,"usedByTargets":0,"usedByEdges":0}
+```
+
+(合成 IR は `refs` を持たないので 0。キーが在ることの確認であって、値の確認ではない。)
+
+**2 フィールドの費用**: `used_by_edges` は `used_by.values()` を clone して `sort_unstable`
++ `dedup` する — **`name_lists` (`artifacts.rs:461`) が `used_by_json` を作るときにやる
+dedup の 2 周目**で、対象パッケージでは 54,424 refs / 10,163 pairs 分【実測 2026-08-22】。
+**これは畳まなかった**【判断】 — `Counts` の docstring が「derive が自分で数え、テストが
+両者を正直に保つ」という設計を明記していて、`used_by_json` から数えると**テストが自分自身を
+比較する**ことになる。払っているのは 2 周目の dedup 1 回、買っているのは
+「数と成果物が食い違ったら赤くなる」こと。**今この 2 つを正直に保っているのは上の 3 つの赤**で、
+それ以前は何も保っていなかった。
+
 ### X5 — 未使用 re-export 14 件の判定 — **死んでいるものは 1 つも無い**
 
 | | 判定 |

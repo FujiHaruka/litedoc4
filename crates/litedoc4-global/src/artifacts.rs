@@ -155,6 +155,12 @@ pub struct Artifacts {
 /// about. That file is gone, so the derivation reports its own sizes instead and
 /// this module's `the_counts_are_what_the_files_hold` test is what keeps the two
 /// honest.
+///
+/// **That test destructures this struct**, so a field added here with no file to
+/// hold it against does not compile. It is spelled that way because the version
+/// that read `counts.declarations` and three siblings by name stayed green
+/// through C-2, which added the two `used_by` fields: a test that lists what it
+/// checks says nothing about what it does not.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Counts {
     /// Distinct declaration names in the package.
@@ -555,18 +561,47 @@ mod tests {
 
     /// A package whose three modules form a chain, so "imports" and "imported
     /// by" cannot be confused for each other by symmetry.
+    ///
+    /// **It carries references too**, and they are what makes
+    /// `declarations/used-by.json` something other than `{}` here: with none of
+    /// them the two `used_by` counts are 0 and every assertion about them holds
+    /// whatever the derivation does. Three cases are in it on purpose — a target
+    /// two declarations mention, a target one does, and a reference to a name
+    /// this package does not declare (dropped by the inversion) — and `Pkg.dup`
+    /// is declared by **two** modules, which is the only way one target's user
+    /// list holds the same name twice and so the only way the per-key
+    /// deduplication is visible in a count.
     fn chain() -> Vec<ModuleFacts> {
         let mut root = facts("Pkg", &[]);
         root.decls = vec![("Pkg.a".to_owned(), "definition".to_owned())];
         let mut middle = facts("Pkg.B", &["Pkg"]);
-        middle.decls = vec![("Pkg.B.inst".to_owned(), "instance".to_owned())];
+        middle.decls = vec![
+            ("Pkg.B.inst".to_owned(), "instance".to_owned()),
+            ("Pkg.dup".to_owned(), "theorem".to_owned()),
+        ];
         middle.instances = vec![("Cls".to_owned(), "Pkg.B.inst".to_owned())];
         middle.instances_for = vec![
             ("Pkg.a".to_owned(), "Pkg.B.inst".to_owned()),
             ("Pkg.a".to_owned(), "Pkg.B.inst".to_owned()),
         ];
+        // Both of this module's declarations mention `Pkg.a`.
+        middle.refs = [("Pkg.a".to_owned(), vec![0, 1])].into_iter().collect();
         let mut leaf = facts("Pkg.C", &["Pkg", "Pkg.B"]);
-        leaf.decls = vec![("Pkg.C.t".to_owned(), "theorem".to_owned())];
+        leaf.decls = vec![
+            ("Pkg.C.t".to_owned(), "theorem".to_owned()),
+            ("Pkg.dup".to_owned(), "theorem".to_owned()),
+        ];
+        leaf.refs = [
+            // Subscript 1 is this module's `Pkg.dup` — the same *name* as
+            // `Pkg.B`'s, so `Pkg.a` is mentioned by it twice.
+            ("Pkg.a".to_owned(), vec![1]),
+            ("Pkg.B.inst".to_owned(), vec![0]),
+            // Declared by a dependency, not here, so it is not a key of the
+            // artifact and contributes no edge.
+            ("Dep.outside".to_owned(), vec![0]),
+        ]
+        .into_iter()
+        .collect();
         vec![root, middle, leaf]
     }
 
@@ -653,32 +688,72 @@ mod tests {
 
     /// The summary's numbers against the files they are about — the invariant
     /// the old "read it back off the artifact" trick used to give for free.
+    ///
+    /// **Destructured rather than read field by field.** C-2 added
+    /// `used_by_targets` and `used_by_edges` to [`Counts`] and this test went on
+    /// passing without them, so what its docstring promised held for four of the
+    /// six. A seventh count now stops this test *compiling* until it is checked
+    /// here too, which is what [`crate::PROTOTYPE_FACT_KEYS`] does for the state
+    /// file's keys.
     #[test]
     fn the_counts_are_what_the_files_hold() {
         let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
+        let Counts {
+            declarations,
+            dependency_names,
+            instance_classes,
+            instance_types,
+            used_by_targets,
+            used_by_edges,
+        } = artifacts.counts;
         let instances = parsed(&artifacts.instances_json);
         assert_eq!(
-            artifacts.counts.declarations,
+            declarations,
             search_index::decode(&artifacts.search_index_bin)
                 .expect("a file this crate just wrote")
                 .names
                 .len()
         );
         assert_eq!(
-            artifacts.counts.instance_classes,
+            instance_classes,
             instances["instances"].as_object().expect("instances").len()
         );
         assert_eq!(
-            artifacts.counts.instance_types,
+            instance_types,
             instances["instancesFor"]
                 .as_object()
                 .expect("instancesFor")
                 .len()
         );
-        assert_eq!(artifacts.counts.dependency_names, 0);
+        assert_eq!(dependency_names, 0);
+        assert_eq!(declarations + dependency_names, artifacts.name_map.len());
+
+        // `declarations/used-by.json`: its keys are the targets, its lists are
+        // the edges. Read off the parsed artifact rather than off `used_by`,
+        // because the artifact is what the numbers are about.
+        let used_by = parsed(&artifacts.used_by_json);
+        let used_by = used_by.as_object().expect("used-by is an object");
+        // An empty artifact would let the two below hold with the derivation
+        // counting anything at all, and empty is what this fixture wrote before
+        // it carried references. `>` rather than `>=` because a target with two
+        // users is what makes the deduplication show up in a count.
+        assert!(
+            used_by_edges > used_by_targets && used_by_targets > 0,
+            "the fixture's used-by artifact holds these counts to nothing: \
+             {used_by_targets} target(s), {used_by_edges} edge(s)"
+        );
         assert_eq!(
-            artifacts.counts.declarations + artifacts.counts.dependency_names,
-            artifacts.name_map.len()
+            used_by_targets,
+            used_by.len(),
+            "used_by_targets is not the number of keys declarations/used-by.json has"
+        );
+        assert_eq!(
+            used_by_edges,
+            used_by
+                .values()
+                .map(|users| users.as_array().expect("a list of names").len())
+                .sum::<usize>(),
+            "used_by_edges is not the number of names declarations/used-by.json lists"
         );
     }
 

@@ -103,6 +103,13 @@ pub struct GlobalSummary {
     /// Keys of `instances.json`'s `instancesFor` (M8-d; search-v2 P0 moved the
     /// two instance maps out of the search index).
     pub instance_types: usize,
+    /// Keys of `declarations/used-by.json` (C-2) — the third derived map, and
+    /// the only one this summary did not report the size of.
+    pub used_by_targets: usize,
+    /// Names listed across that file, after the per-key deduplication it is
+    /// written with. **Not** the number of references the IR holds — see
+    /// [`crate::Counts::used_by_edges`].
+    pub used_by_edges: usize,
     /// Tactic docstrings declared by the package. `tactics.html` is gone
     /// (M8-d) and nothing renders this any more, but it is still a fact about
     /// the package, it is still in [`crate::ModuleFacts`], and it is still 0 on
@@ -253,6 +260,8 @@ pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error>
         dependency_names: counts.dependency_names,
         instance_classes: counts.instance_classes,
         instance_types: counts.instance_types,
+        used_by_targets: counts.used_by_targets,
+        used_by_edges: counts.used_by_edges,
         tactic_docs: run.facts.iter().map(|facts| facts.tactics).sum(),
         name_map_bytes: artifacts.name_map_json.len(),
         modules_json_bytes: artifacts.modules_json.len(),
@@ -295,6 +304,8 @@ pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error>
                 diff_seconds: split.diff_seconds,
                 scan_seconds: split.scan_seconds,
             }),
+            used_by_targets: summary.used_by_targets,
+            used_by_edges: summary.used_by_edges,
         };
         write(
             path,
@@ -339,6 +350,13 @@ fn write(path: &Path, body: &str) -> Result<(), Error> {
 /// (M8-d) — and the durations in it are **diagnostics**: they are wall clock,
 /// they differ between runs, and no test may assert on them. What the oracle
 /// reads out of this file is `cacheHits` and `cacheMisses`.
+///
+/// C-2's two used-by counts are **appended after `delta`**, not filed with the
+/// counts they belong with, so that everything before them is still the
+/// prototype's literal in the prototype's order. That is the rule
+/// [`crate::ModuleFacts`]'s `instances_for` follows in the state file: the
+/// prototype's keys, then the new ones, so the two files can still be read
+/// against each other key by key.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TimingsRecord<'a> {
@@ -365,6 +383,8 @@ struct TimingsRecord<'a> {
     state_save_seconds: f64,
     total_seconds: f64,
     delta: Option<TimingsDelta>,
+    used_by_targets: usize,
+    used_by_edges: usize,
 }
 
 #[derive(Serialize)]
