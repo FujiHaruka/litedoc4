@@ -799,20 +799,56 @@ pub(crate) fn run_incremental(
             cache_misses: derived.cache_misses,
             mode: mode.name().to_owned(),
         },
-        timings: Timings {
-            detect: detect_done.as_secs_f64(),
-            extract: extract_seconds,
-            ownership: ownership_seconds,
-            merge: merge_seconds,
-            rounds: rounds_done.saturating_sub(detect_done).as_secs_f64(),
-            prune: prune_done.saturating_sub(rounds_done).as_secs_f64(),
-            global: global_done.saturating_sub(prune_done).as_secs_f64(),
-            impact: impact_done.saturating_sub(global_done).as_secs_f64(),
-            render: render_done.saturating_sub(impact_done).as_secs_f64(),
-            total: render_done.as_secs_f64(),
+        timings: {
+            // The marks are cumulative and in phase order, so each phase's
+            // duration is the gap to the one before it. Taken by `gaps` rather
+            // than written out: nine `saturating_sub`s each naming their own
+            // predecessor is nine places to name the wrong one, and the order
+            // above is already the answer.
+            let [
+                detect,
+                rounds_gap,
+                prune_gap,
+                global_gap,
+                impact_gap,
+                render_gap,
+            ] = gaps([
+                detect_done,
+                rounds_done,
+                prune_done,
+                global_done,
+                impact_done,
+                render_done,
+            ]);
+            Timings {
+                detect,
+                extract: extract_seconds,
+                ownership: ownership_seconds,
+                merge: merge_seconds,
+                rounds: rounds_gap,
+                prune: prune_gap,
+                global: global_gap,
+                impact: impact_gap,
+                render: render_gap,
+                total: render_done.as_secs_f64(),
+            }
         },
         detected: check.fresh,
     })
+}
+
+/// Each cumulative mark minus the one before it, in seconds.
+///
+/// The first is the gap from zero, which is what makes the list the phase
+/// order rather than a set of independent readings.
+fn gaps<const N: usize>(marks: [std::time::Duration; N]) -> [f64; N] {
+    let mut out = [0.0; N];
+    let mut previous = std::time::Duration::ZERO;
+    for (slot, mark) in out.iter_mut().zip(marks) {
+        *slot = mark.saturating_sub(previous).as_secs_f64();
+        previous = mark;
+    }
+    out
 }
 
 /// The wall-clock split of one run, in the prototype's phases.
@@ -1758,4 +1794,38 @@ pub(crate) fn write_file(path: &Path, body: &str) -> Result<(), Failure> {
 
 pub(crate) fn create_dir(path: &Path) -> Result<(), Failure> {
     fs::create_dir_all(path).map_err(|source| Failure::io(path, &source))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gaps;
+    use std::time::Duration;
+
+    /// The phase durations are the gaps between cumulative marks, and the first
+    /// one is measured from zero.
+    #[test]
+    fn gaps_are_measured_from_the_mark_before() {
+        let marks = [
+            Duration::from_millis(100),
+            Duration::from_millis(250),
+            Duration::from_millis(250),
+            Duration::from_millis(900),
+        ];
+        let out = gaps(marks);
+        assert!((out[0] - 0.100).abs() < 1e-9, "{out:?}");
+        assert!((out[1] - 0.150).abs() < 1e-9, "{out:?}");
+        // A phase that did nothing is zero, not the mark's own value: `prune`
+        // is skipped when nothing was removed.
+        assert!((out[2] - 0.0).abs() < 1e-9, "{out:?}");
+        assert!((out[3] - 0.650).abs() < 1e-9, "{out:?}");
+    }
+
+    /// A mark that went backwards is zero rather than a panic. The clock is
+    /// monotonic, so this is a shape the type allows and the run does not
+    /// produce — `saturating_sub` is what keeps the two apart.
+    #[test]
+    fn a_mark_that_precedes_its_predecessor_is_zero() {
+        let out = gaps([Duration::from_millis(500), Duration::from_millis(100)]);
+        assert!((out[1] - 0.0).abs() < 1e-9, "{out:?}");
+    }
 }
