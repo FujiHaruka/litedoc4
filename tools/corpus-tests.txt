@@ -14,6 +14,13 @@
 # merge) and `the_whole_corpus_matches_the_prototype` (autolink, fragment).
 # Bare names collapse the inventory from 21 entries to 19【実測 2026-08-23】.
 # A trailing `# …` says what the test needs.
+#
+# Doctests are **not** in here, so `cargo test --workspace` reports one more
+# ignored test than this file has entries: `crates/litedoc4/src/cli.rs`'s
+# ```ignore``` sketch is an illustration, not a test with an input it cannot
+# reach【実測 2026-08-23】. The gate does refuse in both directions — deleting a
+# line here fails with `ignored but not in the inventory`, checked by deleting
+# one.
 
 ## corpus — runs when the target and its derivatives are on this machine
 
