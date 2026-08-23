@@ -1,16 +1,16 @@
 //! `$…$` and `$$…$$` to MathML, at build time.
 //!
-//! `docs/plans/feature-sweep.md` C-1【決定 4】. doc-gen4 leaves the dollars in
-//! the page and lets MathJax find them in the browser; this converts them while
-//! the page is written, so a reader downloads no script and runs no layout pass
-//! for the mathematics. MathML Core is what every current browser draws
-//! natively, which is why the target format is MathML and not an image or a
-//! span tree.
+//! doc-gen4 leaves the dollars in the page and lets MathJax find them in the
+//! browser; this converts them while the page is written, so a reader
+//! downloads no script and runs no layout pass for the mathematics. MathML
+//! Core is what every current browser draws natively, which is why the target
+//! format is MathML and not an image or a span tree.
 //!
 //! # Which converter, and how that was decided
 //!
-//! 決定 4 named `pulldown-latex`, because its whole dependency closure is one
-//! crate. Measuring it against Mathlib's docstrings overturned that: it escapes
+//! The original choice was `pulldown-latex`, because its whole dependency
+//! closure is one crate. Measuring it against Mathlib's docstrings overturned
+//! that: it escapes
 //! `<` and `&` inside `\text{…}` and nowhere else, so `$a < b$` renders as
 //! `<mo><</mo>` — markup an HTML parser has to guess at. **61 of Mathlib's
 //! 2,123 math spans (2.9%) come out that way**, and `$a < b$` is not an exotic

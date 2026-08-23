@@ -13,7 +13,7 @@
 //!   variable name and a default path into its own `std::env::var`, which is
 //!   how the tree came to hold six near-copies of [`file_count`], two of
 //!   `env_path`, and two byte-identical forks of `corpus_ir` + `corpus_reference`
-//!   (§6 X3 of `docs/plans/refactoring.md`, 結果 2026-08-23). The variable
+//!   before they were consolidated here 【結果 2026-08-23】. The variable
 //!   names are also not this module's to choose: `tools/corpus-gate.sh` prints
 //!   them and `tools/corpus-tests.txt` is checked against the `#[ignore]`
 //!   reasons that name them.
@@ -64,7 +64,8 @@ pub struct Input {
     /// Where to look when it is unset. **Frozen paths.** The
     /// `/private/tmp/lean-doc-relay/**` ones keep the pre-rename spelling on
     /// purpose — the committed fixtures carry it as the path they were
-    /// generated at (`docs/plans/refactoring.md` §14, `docs/plans/rename.md`).
+    /// generated at, and these defaults have to match that frozen path
+    /// exactly.
     default: &'static str,
 }
 
@@ -213,10 +214,10 @@ impl Input {
     /// - `litedoc4-global/tests/state_and_delta.rs` reads the state file itself
     ///   and reports the `io::Error`, which says *why* it could not be read.
     ///
-    /// Anything weaker than those belongs in [`Input::path`]. This is the rule
-    /// §6 X3 of `docs/plans/refactoring.md` settled: the door back to
-    /// `is_dir()` stays shut, and "I do my own check" is not the same claim as
-    /// "I do a stronger one".
+    /// Anything weaker than those belongs in [`Input::path`]. The settled
+    /// rule: the door back to `is_dir()` stays shut (an emptied directory
+    /// that still exists must count as absent, not present), and "I do my
+    /// own check" is not the same claim as "I do a stronger one".
     pub fn raw(&self) -> PathBuf {
         PathBuf::from(std::env::var(self.var).unwrap_or_else(|_| self.default.to_owned()))
     }
@@ -427,8 +428,7 @@ mod tests {
     ///
     /// That is not hypothetical. `tools/merge-reference.sh --impl ts` stayed
     /// the message for a week after `--impl` was removed on 2026-08-16, and
-    /// what found it was a person reading a plan 【実測 2026-08-23, §8 T3 of
-    /// `docs/plans/refactoring.md`】.
+    /// what found it was a person reading a plan 【実測 2026-08-23】.
     ///
     /// The check is on the flags and not on the whole line: the paths in these
     /// messages are `<dir>`-shaped placeholders on purpose, so "runnable" here

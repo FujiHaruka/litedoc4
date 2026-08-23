@@ -18,21 +18,21 @@ This binary does **not** link doc-gen4 — it imports only `Lean`.
 
 ---
 
-**litedoc4's extractor.** Milestone M4-a **moved** this file — it did not port
-it: the extractor is the one stage that has to run inside the target package's
-Lean environment (`importModules` over its oleans), so it stays Lean while
-everything outside it is Rust (`docs/implementation-plan.md` §5.6).
+**litedoc4's extractor.** This file was **moved**, not ported: the extractor is
+the one stage that has to run inside the target package's Lean environment
+(`importModules` over its oleans), so it stays Lean while everything outside it
+is Rust.
 
 The source it moved from is `experiments/stage7d/Extract.lean`, which is
-**frozen** together with the rest of `experiments/`: every number in
-`docs/verification-log.md` was taken with a binary built there, and an extractor
-that has been edited cannot reproduce them. That copy is therefore left exactly
-as it is, and this one is the product's.
+**frozen** together with the rest of `experiments/`: every benchmark number was
+taken with a binary built there, and an extractor that has been edited cannot
+reproduce them. That copy is therefore left exactly as it is, and this one is
+the product's.
 
 **Two changes were made on the way in, both to the command line and neither to
-what comes out** (`extractor/README.md` lists them, and the M4-a gate is a byte
-comparison of the IR tree this binary writes against the frozen binary's over the
-same module list — 436/436 files):
+what comes out** (`extractor/README.md` lists them, and the gate that checked
+this on the way in was a byte comparison of the IR tree this binary writes
+against the frozen binary's over the same module list — 436/436 files):
 
 1. `defaultIrDir` is **gone**. It held one session's scratchpad path, so a
    `--write-ir` run that forgot `--ir-dir` wrote several MB into a directory the
@@ -42,8 +42,8 @@ same module list — 436/436 files):
 Stage 7d, which this file is a copy of, added two things to stage 7c and changed
 **nothing** about what comes out:
 
-1. `--pp-breakdown` splits `ppUs` — the counter `approach.md` §6.1 puts 75% of
-   the extraction into — along the steps the Lean pretty printer takes:
+1. `--pp-breakdown` splits `ppUs` — measured at 75% of (warm) extraction time —
+   along the steps the Lean pretty printer takes:
    delaborate, sanitize, parenthesize, format, lay out. Plus `--decl-profile`,
    which keeps the per-declaration numbers so the distribution can be read.
 2. `--jobs N` analyzes declarations on N threads. The candidate list is taken in
@@ -58,8 +58,7 @@ Everything below this paragraph is stage 4b's original header, still accurate
 except where the stage-7a / 7b / 7d notes above and in `irSchemaVersion` say
 otherwise.
 
-Stage 4b experiment for litedoc4 (see `docs/approach.md` §5.4 / §5.5 / §6.1 and
-`docs/plans/three-axes.md` leg 4).
+Stage 4b experiment for litedoc4.
 
 Started as a copy of `experiments/stage4/Extract.lean`, which was itself a copy of
 `experiments/stage3/Extract.lean` (stages 1-4 are frozen for reproducibility of
@@ -106,8 +105,9 @@ Only `import Lean`: litedoc4 does not depend on doc-gen4.
 It also collects what doc-gen4's `getAllModuleDocs` collects (module docstrings,
 direct imports, tactic documentation) — but enumerating the tactic table *once*
 for the whole environment and bucketing by defining module, instead of once per
-module. That is `approach.md` §5.2's "1 モジュールを処理するために全体を舐める"
-pattern; on the fixed target doc-gen4 pays 16.7 s for it.
+module. Doing it once per module instead means scanning the whole environment
+just to process one module of it; on the fixed target doc-gen4 pays 16.7 s for
+it.
 
 From stage 3: `--refs` collects, per declaration, every constant doc-gen4's
 `renderTagged` would tag as `.const` — see `collectConsts` for the exact
@@ -728,9 +728,10 @@ turned into a plain `def`:
 
 `DocGen4/Process/Attributes.lean`. doc-gen4 calls it from `Info.ofTypedName`
 (`Process/NameInfo.lean:125`) for **every** declaration and prints the result as
-one `div.attributes` line (`Output/Module.lean:88-94`). Stage 7a did not collect
-it, which is one of the three reasons `approach.md` §6.1 refused to quote 13.71 s
-as a finished number.
+one `div.attributes` line (`Output/Module.lean:88-94`). Stage 7a did not collect it: attribute
+collection, the instance index, and struct member binders were the three
+things still missing when 13.71 s was measured, which is why that number was
+not quoted as a finished one.
 
 Transcribed, not imported: `import Lean` is this extractor's only dependency.
 The four lists and the composition order (`customs ++ tags ++ enums ++
@@ -899,9 +900,9 @@ def getAllAttributes (decl : Name) : MetaM (Array (String × String)) := do
   *after* `getAllAttributes`, so the order matters for the printed string;
 * the **type index**: the class name and the head symbols of the instance's
   arguments. Those never reach a module page — the browser fills the
-  "Instances" / "Instances For" lists from `declarations/declaration-data.bmp`
-  (`approach.md` §5.5 L3-3), so this cannot move the byte reproduction rate by a
-  single byte. It is here because doc-gen4 computes it and litedoc4 did not, and
+  "Instances" / "Instances For" lists from `declarations/declaration-data.bmp`,
+  so this cannot move the byte reproduction rate by a single byte. It is here
+  because doc-gen4 computes it and litedoc4 did not, and
   a comparison of two tools that are not doing the same work is not a
   comparison.
 -/
@@ -1503,8 +1504,9 @@ structure DeclOut where
   the elaborator that built it calls `addDeclarationRangesFromSyntax` with one
   syntax tree and `selectionRange` is **defaulted to `range`**
   (`Lean/Elab/DeclarationRange.lean:50-55`). The two being equal is therefore a
-  fact about *how the declaration got its position*, which is what B-3 needs and
-  what `(line, col)` alone could not say (`docs/plans/b0-generated-decls.md`). -/
+  fact about *how the declaration got its position*, which is what telling a
+  generated declaration apart from a hand-written one needs, and what
+  `(line, col)` alone could not say. -/
   selLine : Nat := 0
   selCol : Nat := 0
   selEndLine : Nat := 0
@@ -1637,14 +1639,14 @@ def timedPp (act : MetaM α) : AnalyzeM α := do
   modify fun c => { c with ppNanos := c.ppNanos + (t1 - t0) }
   return r
 
-/-- Schema 5, B-3: the declaration `@[ext]` realized this one *from*, or nothing.
+/-- Schema 5: the declaration `@[ext]` realized this one *from*, or nothing.
 
 **This is the only origin litedoc4 emits**, and not because the others are
 uninteresting: `simps` / `to_additive` / `mk_iff` / `to_dual` / `alias` keep
 their maps in **Mathlib's** environment extensions, and an extractor that
 imports Mathlib stops building against a Mathlib-free package — which is the
-one thing `e2e/micro` and its CI gate exist to keep working
-(`docs/plans/b0-generated-decls.md` §11). `extExtension` is in Lean core.
+one thing `e2e/micro` and its CI gate exist to keep working.
+`extExtension` is in Lean core.
 
 Two conditions, and **both are load-bearing**:
 
@@ -2000,7 +2002,7 @@ proof is a hole" are read differently, so the IR carries `"direct"` or
 `"transitive"` and omits the key when neither holds. It does **not** carry the
 axiom set: every Mathlib-dependent declaration transitively uses
 `Classical.choice` / `propext` / `Quot.sound`, so the full list is a large field
-with almost no information in it (`docs/plans/feature-sweep.md` §4 B-1, 決定 2).
+with almost no information in it.
 
 **`Lean.collectAxioms` is not the closure walk it reads like.** Lean keeps a
 `PersistentEnvExtension` (`Lean/Util/CollectAxioms.lean`, `exportedAxiomsExt`)
@@ -2413,7 +2415,7 @@ def probeAllTacticDocs : MetaM TacticProbe := do
 
 /-! ## IR persistence (stage 4)
 
-`approach.md` §5.4: the granularity is the module, so the layout is
+The granularity is the module, so the layout is
 
 ```
 <irDir>/index.json                     package index: module list, hash, path
@@ -2425,18 +2427,18 @@ Three properties are deliberate, all of them conclusions of stage 3:
 
 * **Absolute identifiers only.** A reference is a `(defining module, name)` pair.
   No URL — relative or absolute — is stored; relativisation happens at output
-  time (`approach.md` §5.6, verification log stage 3 increment 3).
+  time.
 * **The dependency slice is two columns** (name -> module) and covers only the
   constants this package actually refers to. Stage 3 increment 2 measured that
   slice at 53 KB against 34.3 MB for the whole of doc-gen4's `declaration-data.bmp`.
-* **Every module carries a content hash**, which `approach.md` §5.5 wants as the
-  single source of truth for "what has to be re-extracted / re-rendered".
+* **Every module carries a content hash**, the single source of truth for
+  "what has to be re-extracted / re-rendered".
 
-The format is JSON because §5.4's point is that the *granularity* decides, not the
+The format is JSON because the *granularity* decides, not the
 format; this is a throwaway experiment, not a format decision.
 -/
 
-/-- Schema version of the on-disk IR (`approach.md` §5.4). Part of every module
+/-- Schema version of the on-disk IR. Part of every module
 file, therefore part of every module hash: a schema change invalidates the cache.
 
 Version 1 is stage 4's; version 2 is what stage 4b's `--tagged-code` wrote;
@@ -2446,8 +2448,8 @@ attributes, the instance type index, and the structure members' binders /
 docstring / origin. The flag picks the version rather than always bumping it, so
 that with the flag off this binary still reproduces stage 4's IR byte for byte.
 
-**Version 5 is the product tree's first bump** (`docs/plans/feature-sweep.md` §3:
-束 B raises the schema once and later items add keys under the same version).
+**Version 5 is the product tree's first bump** — the schema is raised once and
+later work adds keys under the same version rather than bumping it again.
 It adds `sorry`, whose *absent* key means "no sorry" — a meaning a schema-4 file
 cannot carry, since there the key could not exist. The reading side keeps the
 two apart with `ModuleFile::sorry_of`, which answers `Unknown` below schema 5;
@@ -2456,16 +2458,16 @@ re-freeze (see its doc comment for why). Nothing has to migrate either way: the
 extract key carries `irSchemaVersion`, so this bump re-extracts.
 
 Version 5 also **changes** a field rather than adding one: `attrs` elements are
-`[name, value]` arrays where schema 4 had one concatenated string (`B-2`). That
+`[name, value]` arrays where schema 4 had one concatenated string. That
 is a change the version number cannot announce on its own — the number was
 already 5 when the elements were still strings — so `litedoc4-incr`'s
 `EXTRACTOR_ID` carries it instead, and the reader accepts both shapes because a
 schema-4 file is still readable and still says `4`.
 
-`B-3` adds two more keys under the same 5, and bumps `EXTRACTOR_ID` again for
-the same reason: `selectionRange`, written for **every** declaration of a tagged
-file, and `generated`, written only for the declarations `@[ext]` realized (see
-`extOriginOf`). The first costs **+0.96%** of the IR on the target
+A later change adds two more keys under the same 5, and bumps `EXTRACTOR_ID`
+again for the same reason: `selectionRange`, written for **every** declaration
+of a tagged file, and `generated`, written only for the declarations `@[ext]`
+realized (see `extOriginOf`). The first costs **+0.96%** of the IR on the target
 【実測 -> `benchmarks/results/generated-decls-2026-08-21.txt`】 and is paid on
 every declaration on purpose — an omission rule would give its absence two
 meanings. -/
@@ -3331,7 +3333,8 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
       h.putStr r.line
     IO.println s!"decl profile         {profile.size} records -> {p}"
 
-  -- IR persistence. This is the phase `approach.md` §6.1 carried as a 仮定.
+  -- IR persistence. This phase's cost was an unverified assumption (仮定)
+  -- before it was measured here.
   let mut irStats : IrStats := {}
   let mut irDirUsed : Option FilePath := none
   if cfg.writeIR then
@@ -3381,9 +3384,9 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     let tD1 ← IO.monoNanosNow
     sink.emit "stage4b.dumpModules" (tD1 - tD0) [("records", toString mods.size)]
 
-  -- The unique set of referenced constants: the demand side of the link map
-  -- (`docs/plans/stage4.md` §3, increment 1). One line per constant, in order of
-  -- first appearance so that two runs diff cleanly.
+  -- The unique set of referenced constants: the demand side of the link map.
+  -- One line per constant, in order of first appearance so that two runs diff
+  -- cleanly.
   let mut refUnique := 0
   let mut refOwn := 0
   let mut refUnresolved := 0

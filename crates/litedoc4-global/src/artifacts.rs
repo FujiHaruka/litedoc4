@@ -22,8 +22,7 @@
 //! `experiments/stage7h/global.ts:277-361` (frozen) because the acceptance
 //! oracle was byte equality with doc-gen4's own build. Five of the six existed
 //! **only** for doc-gen4's six JavaScript files, and M8-c replaced those with
-//! `litedoc4-render`'s `web/src`, so the files went with their reader
-//! (`docs/plans/ui-redesign.md` §8):
+//! `litedoc4-render`'s `web/src`, so the files went with their reader:
 //!
 //! | | why it is gone |
 //! |---|---|
@@ -40,11 +39,11 @@
 //!
 //! So the byte-reproduction denominator moves with the file list: **432 pages +
 //! 6 artifacts = 438** was M6's, M8-d's is **432 pages + 7 artifacts = 439**,
-//! and `docs/plans/search-v2.md` P0 makes it **432 + 8 = 440** by splitting
-//! `instances.json` out of the search index (plus the 3 static assets, which
+//! and splitting `instances.json` out of the search index makes it
+//! **432 + 8 = 440** (plus the 3 static assets, which
 //! have never been in it — `tools/build-gate.sh` counts a tree that does have
 //! them, which is why its number is 443 and not 440). The old numbers are not
-//! rewritten — see `docs/milestone-log.md`.
+//! retroactively corrected — each is what that milestone actually shipped.
 //!
 //! # Every sort here is UTF-16 (plan §7, U1)
 //!
@@ -114,15 +113,14 @@ pub struct Artifacts {
     /// else — module names come from [`Artifacts::modules_json`], which is
     /// already on the page.
     ///
-    /// Bytes rather than JSON since `docs/plans/search-v2.md` P1: see
+    /// Bytes rather than JSON: see
     /// [`crate::search_index`] for the layout and for why.
     pub search_index_bin: Vec<u8>,
     /// The two instance maps, fetched only when a reader opens one of the two
-    /// `<details>` blocks. Split from the search index in P0 of
-    /// `docs/plans/search-v2.md`.
+    /// `<details>` blocks. Split off from the search index.
     pub instances_json: String,
     /// **Which declarations of this package mention each of its declarations**
-    /// — doc-gen4 #77 / #63, `docs/plans/feature-sweep.md` C-2.
+    /// — doc-gen4 #77 / #63.
     ///
     /// Fetched only when a reader opens a `Used by` block, for the same reason
     /// the instance maps are a file of their own: it is the largest artifact

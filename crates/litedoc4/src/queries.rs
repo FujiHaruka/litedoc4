@@ -89,11 +89,12 @@ fn link_rows(
 /// **Why a subcommand for this.** M7-b resolved the map offline and checked it
 /// against doc-gen4's reference tree, which documents only the target's import
 /// closure: **12 of that day's 39 roots had an oracle and 27 did not**
-/// (`docs/milestone-log.md` M7-b). The 27 were not unverifiable — they are URLs,
+/// 【実測 2026-08-16】. The 27 were not unverifiable — they are URLs,
 /// and the server serving them will say whether they resolve — but the map
 /// itself was observable only as a one-line count in `build`'s log, so nothing
-/// could be pointed at them. This prints the rows so that something can
-/// (`docs/plans/unverified-sweep.md` U1).
+/// could be pointed at them. This prints the rows so that something can —
+/// see `benchmarks/results/external-links-2026-08-18.txt` for that check run
+/// over HTTP.
 ///
 /// It reads; it writes nothing but `--out`. `lake` runs (core's revision comes
 /// from `lake env lean --githash`), so this needs the target's toolchain the way

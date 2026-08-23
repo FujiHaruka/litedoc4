@@ -194,8 +194,8 @@ if ! diff -r "$OUT/first/ir" "$OUT/again/ir"; then
 fi
 
 say "6/15 GATE 4 — --jobs does not change the output"
-# The extractor splits declarations across threads inside one environment
-# (approach.md §5.1). That the IR comes out identical was measured once at stage
+# The extractor splits declarations across threads inside one environment.
+# That the IR comes out identical was measured once at stage
 # 7d; that the *site* does has never been checked, and a parallel step that
 # reorders its output is exactly the kind of thing that shows up as a diff on one
 # machine and not another.
@@ -281,10 +281,10 @@ want("incremental", incr, "extractorRequests", 0)
 want("incremental", incr, "globalCacheHits", modules)
 want("incremental", incr, "globalCacheMisses", 0)
 
-# 3 -- and it reads less of the IR than a full build does. The count is not
-#      pinned to a number here (approach.md §5.6 owns that claim, and pinning it
-#      would make this script the place a deliberate change has to be argued);
-#      what is pinned is the direction, which no correct change reverses.
+# 3 -- and it reads less of the IR than a full build does. The exact count is
+#      deliberately not pinned to a number here (that would make this script
+#      the place a deliberate change has to be argued); what is pinned is the
+#      direction, which no correct change reverses.
 full_reads = full["irReads"]["module"]
 incr_reads = incr["irReads"]["module"]
 if full_reads < modules:
@@ -393,8 +393,8 @@ PY
 
 say "9/15 GATE 8 — attributes arrive split into name and value"
 # Schema 5 carries each attribute as a two-element `[name, value]` array where
-# schema 4 carried one concatenated string (`docs/plans/feature-sweep.md` B-2).
-# The split is made in the extractor because that is the only side that knows
+# schema 4 carried one concatenated string. The split is made in the extractor
+# because that is the only side that knows
 # where the boundary is: `deprecated`'s value contains spaces, parentheses and
 # quotes, `specialize`'s contains brackets, and a reader given the concatenation
 # would have to guess.
@@ -538,11 +538,11 @@ print(f"attrs        {checked} declarations compared, {sum(counts.values())} pai
 PY
 
 say "10/15 GATE 9 — the origin of a realized declaration, and the three ways of not having one"
-# `docs/plans/b0-generated-decls.md` measured that Lean gives a declaration it
+# It was measured that Lean gives a declaration it
 # realizes from an attribute the position of **the attribute token**, and that no
 # rule over `(line, col)` gets from there to the parent: in a 144-group Mathlib
 # sample the parent was in the group 0 times and 47 groups spanned two or more
-# namespaces. B-3's answer is that the extractor names the origin itself, from
+# namespaces. The extractor's answer is to name the origin itself, from
 # core's `extExtension` plus `selectionRange`.
 #
 # `Micro/Gen.lean` holds the four positions and the counter-example. Reads the
@@ -730,8 +730,8 @@ print(f"generated    {checked} declarations compared, {len(claimed)} realized by
 PY
 
 say "11/15 GATE 10 — docstring math becomes MathML, and unreadable math does not"
-# `docs/plans/feature-sweep.md` C-1. Five assertions over `Micro/Math.html` plus
-# one over the run's marker, and that last one is what the others cannot make:
+# Five assertions over `Micro/Math.html` plus one over the run's marker, and
+# that last one is what the others cannot make:
 #
 #   the count            `work.mathFallbacks` is **1**, and one is the number
 #                        `Micro/Math.lean` was written to produce. A fallback
@@ -815,16 +815,16 @@ print(f"math         {len(re.findall(r'<math', page))} formula(s) rendered, "
 MATHPY
 
 say "12/15 GATE 11 — every reverse reference agrees with the IR, both ways"
-# `docs/plans/feature-sweep.md` C-2 / doc-gen4 #77. The script is its own file
-# because it is worth running against the measurement target too, where the
+# See doc-gen4 #77. The script is its own file because it is worth running
+# against the measurement target too, where the
 # numbers are 849 targets over 10,163 edges 【実測 2026-08-22】 rather than the
 # fixture's handful. Its heading says what it asserts and why both directions
 # are needed.
 "$HERE/usedby-gate.sh" --ir "$OUT/first/ir" --site "$OUT/first/site"
 
 say "13/15 GATE 12 — litedoc4.toml reaches every command that writes HTML"
-# `docs/plans/feature-sweep.md` C-3【決定 3】. The fixture carries a
-# `litedoc4.toml` on purpose: with no file the four commands agree trivially and
+# The fixture carries a `litedoc4.toml` on purpose: with no file the four
+# commands agree trivially and
 # a gate that can only pass is not a gate. The script says what it compares and
 # why the counts are asserted.
 "$HERE/config-gate.sh" --root "$FIXTURE" --ir "$OUT/first/ir" --built "$OUT/first/site" \
@@ -834,7 +834,7 @@ say "14/15 GATE 6 — one edited module does not re-render the package"
 # The question the other five cannot ask. GATE 2 asks what an *unchanged* world
 # costs; this asks what a one-declaration edit costs, which is the shape a user
 # actually produces and the one where the dependency map used to force every page
-# to be written again (`docs/plans/reextract-count.md` §6, 段 C).
+# to be written again (段 C).
 #
 # Three assertions, and the first is the sharp one:
 #

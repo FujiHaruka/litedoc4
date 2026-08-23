@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Measures play 2 of docs/plans/three-axes.md §5: can reading the olean ahead of the
-# extractor buy back the cold start?
+# Measures whether reading the olean ahead of the extractor (prefetch via
+# madvise(MADV_WILLNEED)) can buy back the cold start.
 #
 # The cold `importModules` costs 13.9-15.7 s, of which ~12.7 s is 132,343 synchronous
 # major faults (benchmarks/results/ci-residency-summary.txt). The same bytes read with

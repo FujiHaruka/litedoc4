@@ -1,7 +1,7 @@
 //! The static assets a page needs to look like a page, carried in the binary.
 //!
-//! Milestone **M8-a**, and the whole of `docs/plans/ui-redesign.md` 決定 6. Up
-//! to here the renderer *referenced* assets it never produced: [`crate::frame`]
+//! Milestone **M8-a**. Up to here the renderer *referenced* assets it never
+//! produced: [`crate::frame`]
 //! writes `<link rel="stylesheet" href="…style.css">` into all 432 pages and
 //! nothing under the site root has ever answered it. A tree that has to be
 //! completed by hand before it can be opened is not a tree `litedoc4 build`
@@ -21,16 +21,15 @@
 //!
 //! `style.css` and `favicon.svg` are the bytes in `assets/`. **`app.js` is
 //! not** — it is the bundle `build.rs` compiles from the TypeScript in `web/`,
-//! read out of cargo's `OUT_DIR` (`docs/plans/assets-typescript.md` 決定 1).
-//! The same argument as above, one level down: a committed bundle can be a
+//! read out of cargo's `OUT_DIR`. The same argument as above, one level down: a committed bundle can be a
 //! version behind `web/src`, and one that is built on the way past cannot.
 //! What it costs is node, at build time, for whoever builds from source.
 //!
 //! # These are **not** in `renderKey`, and that is a decision
 //!
 //! The incremental ledger's render key exists to answer "would this page's
-//! bytes come out differently now" (`docs/implementation-plan.md`,
-//! `litedoc4_incr::render_key`). **A page's bytes do not depend on these
+//! bytes come out differently now" (`litedoc4_incr::render_key`). **A page's
+//! bytes do not depend on these
 //! files** — it names them in an `href` and the href does not carry their
 //! content — so putting them in the key would re-render 432 pages every time a
 //! CSS rule moved and buy nothing at all. The other half of the decision is

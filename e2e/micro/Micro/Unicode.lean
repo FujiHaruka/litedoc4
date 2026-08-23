@@ -3,7 +3,7 @@ import Micro.Basic
 /-!
 # Unicode
 
-The two traps of `docs/implementation-plan.md` §7, on purpose:
+Two UTF-16/UTF-8 traps, on purpose:
 
 * **U1** — sorting. `Vec<String>::sort()` is UTF-8 byte order, JavaScript's
   `Array.prototype.sort()` is UTF-16 code-unit order, and they **disagree above

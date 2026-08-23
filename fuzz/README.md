@@ -1,9 +1,9 @@
 # fuzz — the exploration behind the corpus gate
 
 `crates/litedoc4-md/tests/data/fuzz/` is the gate: every file in it goes through
-`parse` and the HTML assembly on every push, on stable, with no extra toolchain
-(`docs/plans/quality-gates.md` 決定 5). **This directory is how entries get into
-that gate** — libFuzzer plus AddressSanitizer, run by hand, out of band.
+`parse` and the HTML assembly on every push, on stable, with no extra toolchain.
+**This directory is how entries get into that gate** — libFuzzer plus
+AddressSanitizer, run by hand, out of band.
 
 The subject is the C. `crates/litedoc4-md/vendor/md4c` is compiled by `build.rs`
 and called across FFI, so the failure being hunted is a memory-safety failure
@@ -61,18 +61,18 @@ nightly + `cargo-fuzz` 0.13.2):
 |---|---|---|---|---|
 | 2026-08-17 | `-max_len=16384`, 600 s, seeded with the committed corpus | **1,146,450** | 19,434 | **0** |
 | 2026-08-17 | `-max_len=200001`, 300 s, same corpus | **388,027** | 4,145 | **0** |
-| 2026-08-17 | `-max_len=4096`, 600 s, **empty corpus** (QV6, below) | **7,404,720** | 7,988 | **0** |
+| 2026-08-17 | `-max_len=4096`, 600 s, **empty corpus** (below) | **7,404,720** | 7,988 | **0** |
 
 **8,939,197 executions, no crash and no ASan report**【実測】. That is a
 statement about this machine, this build and this input distribution — not a
 proof, and not a reason to stop adding corpus entries when a real docstring
 surprises the parser.
 
-### QV6 — the fuzzer finds the two shapes on its own
+### The fuzzer finds the two shapes on its own
 
-`docs/plans/quality-gates.md` §7 asks whether a fuzzer reaches the two inputs
-that kill MD4Lean (a NUL inside a fenced code block, a GFM table with no body
-row) without being told about them. **It does** — the third run above started
+The question this answers: does a fuzzer reach the two inputs that kill
+MD4Lean (a NUL inside a fenced code block, a GFM table with no body row)
+without being told about them? **It does** — the third run above started
 from an **empty** corpus, on purpose, because an input descended from a seed
 proves nothing about discovery. Of the 7,988 units it kept:
 

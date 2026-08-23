@@ -1613,7 +1613,7 @@ fn nested_json_keeps_its_key_order() {
 /// two extractor runs' output at once — which is why [`litedoc4_ir::IrTree`]
 /// re-checks every module file rather than trusting the index. But the index is
 /// what every *cheap* "can this be read" question asks, `litedoc4 build`'s plan
-/// among them (`docs/plans/refactoring.md` §9), and a number higher than some
+/// among them, and a number higher than some
 /// module's is a claim that is only found false when a reader dies on that
 /// module — after the plan chose to continue.
 ///

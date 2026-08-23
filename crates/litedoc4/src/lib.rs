@@ -382,7 +382,7 @@ pub fn usage<T>(message: impl Into<String>) -> Result<T, Failure> {
 /// before M7. The run says which of the two happened, because the difference is
 /// invisible in the exit code and visible on every page.
 ///
-/// **Problems do not stop the run** (`docs/implementation-plan.md` §M7): a
+/// **Problems do not stop the run**: a
 /// package missing from disk, a manifest that will not parse, a `lake` that will
 /// not run — each costs the roots it would have contributed and is printed. A
 /// partial map renders a partial improvement; refusing would trade a site with

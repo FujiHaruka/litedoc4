@@ -3,9 +3,9 @@ import Micro.Basic
 /-!
 # Math
 
-Docstring mathematics, which `litedoc4-md` converts to MathML while the page is
-written (`docs/plans/feature-sweep.md` C-1). doc-gen4 leaves the dollars in the
-page for MathJax to find in the browser; nothing here loads a script.
+Docstring mathematics, which `litedoc4-md` converts to MathML at build time.
+doc-gen4 leaves the dollars in the page for MathJax to find in the browser;
+nothing here loads a script.
 
 The four declarations below are the four answers, and the last one is the one
 that matters: **a span the LaTeX parser refuses is written back as its source**,

@@ -1,14 +1,13 @@
 # extractor — litedoc4 の抽出器 (Lean のまま)
 
 対象パッケージの olean を `importModules` で読み、モジュール単位の IR (schema 5) を書く。
-**これだけが Lean で、外側 (IR 消費・レンダリング・増分・検索索引) は Rust**
-(`docs/implementation-plan.md` §5.6)。抽出器が Lean なのは速度の話ではなく、
+**これだけが Lean で、外側 (IR 消費・レンダリング・増分・検索索引) は Rust**。
+抽出器が Lean なのは速度の話ではなく、
 **対象の Lean 環境の中でしか動けない**から — delaborator も `getEqnsFor?` も
 `findDocString?` も Lean のプロセスの中にしか無い。
 
 移動元は `experiments/stage7d/Extract.lean` (2,784 行) と `experiments/stage7d/build.sh` (31 行)。
-M4-a で**移設ではなく移動**した (Lean のまま)。移動中 `experiments/` は凍結していたので
-向こうは 1 バイトも触っていない — `docs/verification-log.md` の数字はあちらのバイナリで取られている。
+**移設ではなく移動**した (Lean のまま)。
 **`experiments/` は 2026-08-16 に HEAD から撤去した** (tag `experiments-frozen`)。
 
 | ファイル | 行 | |
@@ -56,8 +55,8 @@ Mathlib** であることを前提にしていて、この対象では成り立�
 ## 段 C / 段 D で足したもの — `--link-index-omit` と `--link-index-key`
 
 どちらも `--link-index` と組でのみ意味を持つ (単独で渡すと usage エラー)。
-設計と数字は `docs/plans/reextract-count.md` §6、実測は
-`benchmarks/results/lidx-own-half-2026-08-17.txt` と `g3-stage-*-2026-08-17.txt`。
+実測は `benchmarks/results/lidx-own-half-2026-08-17.txt` と
+`g3-stage-*-2026-08-17.txt`。
 
 | フラグ | 何をするか |
 |---|---|
@@ -133,7 +132,7 @@ UTF-16 code unit 順) を**両側に同じファイルで**渡し、同じフラ
 IR 木を全ファイル `cmp` する。
 
 一覧を共有するのは、**抽出器が渡されたリスト順をそのまま `index.json` に書く**から
-【実測、`docs/milestone-log.md` の M3-d2】 — 別々に作った一覧だと中身と無関係に落ちる。
+(`Extract.lean` の `--modules` の扱い) — 別々に作った一覧だと中身と無関係に落ちる。
 
 | | |
 |---|---|

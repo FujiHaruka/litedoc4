@@ -7,7 +7,7 @@
 #
 # A test belongs here when it reads something outside the repository: the
 # measurement target, its doc-gen4 tree, a generated IR tree, or one of the
-# `--full` recordings. See docs/plans/quality-gates.md 決定 1.
+# `--full` recordings.
 #
 # The name is `<cargo test target>::<test>`, because two names are each carried
 # by more than one test: `the_corpus_matches_the_prototype` (ledger, impact,

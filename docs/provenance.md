@@ -194,8 +194,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 > → **`NOTICE` に md4c の MIT 全文を入れた** (MD4Lean は最初からこの形だった)。
 > **書庫に入れるのは `LICENSE` と `NOTICE` の 2 つで足りる**、が結論。
 
-**非対称が要点**: UI-4 ゲート (`docs/plans/ui-redesign.md:21`) が「doc-gen4 の資産が 1 本も残って
-いない」を達成した結果、**配布物からは doc-gen4 由来物がほぼ抜けた**。残っているのは
+**非対称が要点**: UI 刷新 (M8) が「配布物に doc-gen4 の資産が 1 本も残っていない」を達成した結果、**配布物からは doc-gen4 由来物がほぼ抜けた**。残っているのは
 ソースツリー側 — つまり**まだ配布していない方**に集中している。
 
 ---

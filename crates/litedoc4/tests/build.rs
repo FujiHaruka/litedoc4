@@ -278,7 +278,7 @@ impl Live {
     /// position. Reading the token at index 1 worked only while this file's
     /// extractor recorded a line beginning `--modules`, and that is what kept
     /// the script forked: `incremental.rs` records `--world` first and asserts
-    /// that it does (§7 U4 of `docs/plans/refactoring.md`).
+    /// that it does.
     fn extractions(&self) -> Vec<usize> {
         let calls = self.out.join("work/extractor-calls.txt");
         let Ok(text) = fs::read_to_string(&calls) else {
@@ -326,8 +326,8 @@ fn the_first_run_builds_and_the_second_one_does_nothing() {
     let after_first = tree(&live.site());
     // 3 module pages + the 9 whole-package artifacts + the 3 static assets:
     // the target's 440 + 3 (M8-d made it 439 + 3 by dropping the five
-    // doc-gen4-only artifacts; `docs/plans/search-v2.md` P0 adds
-    // `instances.json` and feature-sweep C-2 adds
+    // doc-gen4-only artifacts; splitting `instances.json` out of the search
+    // index adds it back, and feature-sweep C-2 adds
     // `declarations/used-by.json`) with its 432 pages replaced by 3.
     assert_eq!(after_first.len(), 15, "{:?}", after_first.keys());
     assert_eq!(live.extractions(), vec![3], "the first run extracts all");
@@ -352,8 +352,7 @@ fn the_first_run_builds_and_the_second_one_does_nothing() {
     // …and the site is `litedoc4 site`'s **plus the static assets**, from the IR
     // the run left behind.
     //
-    // The difference is M8-a and it is deliberate (`docs/plans/ui-redesign.md`
-    // 決定 6): `litedoc4 site` is the composition of `render` and `global` — the
+    // The difference is M8-a and it is deliberate: `litedoc4 site` is the composition of `render` and `global` — the
     // claim `tests/site.rs` makes and checks file by file — while `build` is the
     // command that produces something publishable, and a tree whose `<head>`
     // names a `style.css` nobody wrote is not that. So the gate is stated with
@@ -620,7 +619,7 @@ fn a_deleted_module_leaves_the_site_and_the_ledger() {
     assert_eq!(tree(&live.site()).len(), 14);
 }
 
-/// **The gate of M8-a** (`docs/plans/ui-redesign.md` §5): a build into an empty
+/// **The gate of M8-a**: a build into an empty
 /// directory leaves the assets the pages reference, and no later run loses them
 /// — not the quiet one that renders nothing, and not the one whose incremental
 /// pipeline runs `prune` over the tree.
@@ -1623,7 +1622,7 @@ fn the_marker_records_the_work() {
     assert_eq!(full["globalCacheHits"], json!(0));
     assert_eq!(full["globalCacheMisses"], json!(3));
     // Two whole passes over the module files: the renderer's and the
-    // whole-package derivation's (approach.md §5.6's unit). Pinned rather than
+    // whole-package derivation's. Pinned rather than
     // bounded — a change to it is a change to what the pipeline does, and this
     // is where that has to be noticed.
     assert_eq!(full["irReads"]["module"], json!(2 * 3));

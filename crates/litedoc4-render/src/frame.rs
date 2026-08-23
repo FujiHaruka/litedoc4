@@ -124,8 +124,8 @@ impl<'a> SiteMeta<'a> {
 /// the job.
 ///
 /// It is nevertheless *written* in TypeScript, in
-/// `web/src/theme-boot.ts`, and bundled by `build.rs` alongside `app.js`
-/// (`docs/plans/assets-typescript.md` 決定 6). The reason is the storage key:
+/// `web/src/theme-boot.ts`, and bundled by `build.rs` alongside `app.js`.
+/// The reason is the storage key:
 /// until 2026-08-19 this was a Rust string literal, and `"litedoc4-theme"`
 /// existed once here and once in the script that reads it back — two languages,
 /// either renameable alone. Now both come from `web/src/theme-key.ts`.

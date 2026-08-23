@@ -110,8 +110,8 @@ impl Case {
         // saying.** doc-gen4 wrote these answers with every link a relative page
         // link, which is what an empty [`ExternalLinks`] produces byte for byte.
         // Give this corpus a dependency map instead and the two would part
-        // company on every resolved name — by design, and no longer a failure
-        // (`docs/implementation-plan.md` §1: gate A is suspended). The map is
+        // company on every resolved name — by design, since doc-gen4 byte
+        // compatibility is retired. The map is
         // empty rather than absent because there is nothing to fill it with:
         // these cases are synthetic worlds with no package behind them.
         builder.build(LinkIndex::default(), ExternalLinks::default())

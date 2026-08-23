@@ -1,7 +1,7 @@
 //! Linking a dependency's declarations at **its own documentation site**,
 //! for the names that site was verified to document.
 //!
-//! Feature **A-1** (`docs/plans/feature-sweep.md` §4). Everything that touches
+//! Feature **A-1**. Everything that touches
 //! the network is here, and nothing downstream of this file knows there is a
 //! network: [`litedoc4_render::DepDocs`] is a value — a base URL and two
 //! name -> page maps — and [`litedoc4_render::ExternalLinks`] is where the

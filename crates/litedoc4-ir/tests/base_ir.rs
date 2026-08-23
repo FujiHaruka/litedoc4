@@ -51,7 +51,7 @@ fn fixture() -> PathBuf {
 /// `generator` is the extractor's own name for itself, and it is a **deliberate
 /// old spelling** — `extractor/Extract.lean:2838` still writes
 /// `lean-doc/experiments/stage4b`, because the port does not claim to be what
-/// wrote the tree on disk (`docs/plans/rename.md` 項目 4).
+/// wrote the tree on disk.
 const MEASURED_FIXTURE: (&str, &str, u32, u32) =
     ("lean-doc/experiments/stage4b", "4.31.0", 432, 4_750);
 

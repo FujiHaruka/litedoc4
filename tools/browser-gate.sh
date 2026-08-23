@@ -7,8 +7,8 @@
 # viewport — and since M8-c all of those are decided at runtime, from
 # `modules.json`, `search-index.bin` and `instances.json`, by `app.js`.
 #
-# This also closes gate UI-3, which `docs/plans/ui-redesign.md` recorded as
-# **未判定**: the CSS was written for 375 px and nobody had looked at a browser.
+# This also closes gate UI-3: the CSS was written for a 375 px mobile width,
+# but nobody had looked at a real browser to confirm it renders that way.
 #
 # Needs deno and a Chrome (or Chromium) on the machine. `benchmarks/tools/
 # check-site-browser.ts` explains why puppeteer-core and a local HTTP server

@@ -1,6 +1,6 @@
 //! `search-index.bin` — every declaration the package documents, as bytes.
 //!
-//! The plan is `docs/plans/search-v2.md`; the measurements it rests on are
+//! The measurements this design rests on are
 //! `benchmarks/results/search-design-2026-08-19.txt`. The short version: the
 //! JSON this replaces cost **860 KiB of JS heap for a 405,402 B file, and 1,651
 //! KiB at the peak** because `response.json()` has to materialise the body as a
@@ -136,7 +136,8 @@ fn ascii_fold(name: &str) -> String {
 /// | the file itself under 4 GiB | every offset and length in the 52-byte header |
 ///
 /// **The nearest of them is the module column**, and it is an eighth of the way
-/// off: Mathlib entire is 8,169 modules 【実測 → `docs/verification-log.md`】.
+/// off: Mathlib entire is 8,169 modules 【実測 →
+/// `benchmarks/results/mathlib-scale-summary.txt`】.
 /// [`decode`] does not panic for any of this — it answers a different question,
 /// "are these bytes such a file", and says `None` when they are not.
 #[must_use]

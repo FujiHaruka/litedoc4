@@ -1,6 +1,6 @@
 //! Reading the intermediate representation (IR schema 5) and the ledger.
 //!
-//! Filled in by milestone **M1** — see `docs/implementation-plan.md`.
+//! Filled in by milestone **M1**.
 //!
 //! Every read of the IR goes through this crate. That is a deliberate
 //! structural constraint, not an accident of layering: the incremental

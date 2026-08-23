@@ -146,7 +146,7 @@ fn the_fixture_is_doc_gen4s_own_output() {
 /// Every case comes out the way the fixture says it does.
 ///
 /// **The fixture was doc-gen4's output until 2026-08-22 and is this renderer's
-/// now** (`docs/plans/feature-sweep.md` §3【決定 1】/ C-4). Feature-sweep C-1
+/// now.** Feature-sweep C-1
 /// converts `$…$` to MathML at build time, which doc-gen4 does not do, so five
 /// of these 327 cases could never agree with it again — and a comparison that
 /// is right about 322 cases and wrong about 5 by design is a comparison nobody
@@ -191,8 +191,8 @@ fn bless_requested() -> bool {
 /// **prints every case it changed**.
 ///
 /// The printing is the point. A regenerator that silently rewrites a file turns
-/// "review the diff" into a diff of one 220 KB line, which is not a review. The
-/// procedure `docs/plans/feature-sweep.md` §3 asks for — *what changed and
+/// "review the diff" into a diff of one 220 KB line, which is not a review.
+/// What matters — *what changed and
 /// because of which item* — is read out of this output.
 ///
 /// It is **idempotent, and asserts that it is**: a second run must change

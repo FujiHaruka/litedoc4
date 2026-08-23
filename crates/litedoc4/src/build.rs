@@ -482,7 +482,7 @@ pub(crate) fn parse(
     let mode = match mode {
         // See [`plan_of`]'s neighbours: `self` is the mode every measured run of
         // this pipeline used, and what makes it enough is that the render set is
-        // a **union** with the whole-package map delta (approach.md §5.5). A
+        // a **union** with the whole-package map delta. A
         // change that reaches another module's page without moving a name is a
         // change L3-1 already re-extracted the other module for.
         None => Mode::SelfOnly,
@@ -703,7 +703,7 @@ pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
 
     // 5 -- the static assets, unconditionally ---------------------------------
     // Both paths, every run, whether or not a page was re-rendered — see
-    // [`litedoc4_render::assets`] and `docs/plans/ui-redesign.md` 決定 6. They
+    // [`litedoc4_render::assets`]. They
     // are **not** in `renderKey` (a page's bytes do not depend on them, so
     // keying on them would re-render 432 pages for a moved CSS rule and change
     // nothing), and the price of leaving them out of the key is exactly this
@@ -874,12 +874,13 @@ struct Done {
 ///
 /// # Why `irReads` is here at all
 ///
-/// `approach.md` §5.6's open claim is that the outer half's limit is **reading the
-/// whole IR**, with five such passes left, and that the next win is the V2
-/// `contentHash` cache over them. That claim is currently a measurement somebody
-/// took once; `irReads.module / modules` makes it a number every run reports, so
-/// V2's payoff can be argued in the units the claim is stated in instead of in
-/// seconds nobody can reproduce.
+/// The outer half's limit is not rendering but **reading the
+/// whole IR**, with five such passes left, and the next win is the V2
+/// `contentHash` cache over them
+/// 【実測 → `benchmarks/results/mathlib-scale-summary.txt`】. That claim is
+/// currently a measurement somebody took once; `irReads.module / modules`
+/// makes it a number every run reports, so V2's payoff can be argued in the
+/// units the claim is stated in instead of in seconds nobody can reproduce.
 struct WorkCounts {
     /// Modules handed to the extractor, summed over the rounds.
     modules_extracted: usize,
@@ -889,8 +890,7 @@ struct WorkCounts {
     ///
     /// In the record because the fallback leaves a **valid page**: no other
     /// number here moves when a formula fails, so a gate asserting that a
-    /// package's mathematics came out as mathematics has nothing else to read
-    /// (`docs/plans/feature-sweep.md` C-1).
+    /// package's mathematics came out as mathematics has nothing else to read.
     math_fallbacks: usize,
     /// Extractions asked for: processes on `--extractor`, requests on the
     /// resident path.

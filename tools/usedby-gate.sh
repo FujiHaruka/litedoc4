@@ -10,10 +10,9 @@
 #   forward half and a used-by that dropped every second entry still passes on
 #   whatever it kept; only the backward half and a used-by that invented users
 #   passes on whatever it invented. The pair has no external oracle: the IR is
-#   the site's own input, so this is an *invariant* gate
-#   (`docs/plans/quality-gates.md`).
+#   the site's own input, so this is an *invariant* gate.
 #
-#   Feature-sweep C-2 / doc-gen4 #77, #63.
+#   See doc-gen4 #77, #63.
 #
 # WHAT IT DOES NOT ASSERT
 #   That a name in the file is a declaration the site has a page for — that is
@@ -48,7 +47,7 @@ done
 [ -n "$IR" ] && [ -n "$SITE" ] || { echo "usage: usedby-gate.sh --ir <dir> --site <dir>" >&2; exit 2; }
 [ -d "$IR/modules" ] || { echo "no IR modules at $IR/modules" >&2; exit 2; }
 [ -f "$SITE/declarations/used-by.json" ] || {
-  echo "no $SITE/declarations/used-by.json — the site predates feature-sweep C-2" >&2; exit 2; }
+  echo "no $SITE/declarations/used-by.json — the site predates this artifact" >&2; exit 2; }
 
 python3 - "$IR" "$SITE" "$DROP" <<'PY'
 import json

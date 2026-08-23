@@ -2515,8 +2515,9 @@ fn tree(root: &Path) -> Files {
 /// has to have.
 ///
 /// **Deliberately not `litedoc4_testutil::tree::copy_tree`, which shares its
-/// name and nothing else** (§7 U6 of `docs/plans/refactoring.md`; §14 collects
-/// the other names that collide by accident). The shared one merges into
+/// name and nothing else** — one of several pairs of names elsewhere in this
+/// workspace that collide by accident rather than share an implementation.
+/// The shared one merges into
 /// whatever the destination already holds and copies entry by entry; this one
 /// starts with `remove_dir_all`, goes through this file's own `tree`/`write`
 /// pair so that a run is comparable with the ones those two record, and creates

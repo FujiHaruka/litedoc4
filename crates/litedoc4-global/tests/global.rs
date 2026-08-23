@@ -15,9 +15,9 @@
 //! the six files it wrote. That was the gate: byte equality with the prototype.
 //!
 //! **M8-d left one file of the six in place.** Five existed only for doc-gen4's
-//! JavaScript, which M8-c replaced, so they are not written any more
-//! (`docs/plans/ui-redesign.md` §8 and `litedoc4_global::artifacts`) and the
-//! byte comparison below is over the intersection —
+//! JavaScript, which M8-c replaced, so they are not written any more (see
+//! `litedoc4_global::artifacts`) and the byte comparison below is over the
+//! intersection —
 //! `declarations/name-map.json`, the one the incremental pipeline reads back as
 //! `--before`. The fixture still records all six, and
 //! [`the_sample_reaches_every_shape`] still reads the other five out of it: they
@@ -308,9 +308,9 @@ fn the_indexes_are_well_formed_in_every_case() {
             }
         }
 
-        // P0 of `docs/plans/search-v2.md` took the module array out of the
-        // search index and P1 made the index bytes, so the check that the two
-        // module arrays agreed is now the check that the index's module
+        // Once the module array was taken out of the search index and the
+        // index was made bytes, the check that the two module arrays agreed
+        // is now the check that the index's module
         // subscript indexes **this** array — the same invariant, one file
         // later. It is the load-bearing one: a subscript into an array that is
         // no longer beside it is a link to the wrong page, and nothing else
@@ -844,10 +844,9 @@ fn the_new_artifacts_reach_every_shape() {
 /// the report have a home.
 ///
 /// Split out of [`artifacts_match_the_reference`], which needs the reference
-/// tree and is therefore `#[ignore]`d: these numbers are what
-/// `docs/plans/ui-redesign.md` §8 quotes when it says what M8-d deleted, and
-/// they have to keep being checked on a machine that has never seen the target
-/// package.
+/// tree and is therefore `#[ignore]`d: these are the sizes of the five files
+/// M8-d deleted (see `litedoc4_global::artifacts`), and they have to keep
+/// being checked on a machine that has never seen the target package.
 ///
 /// [`artifacts_match_the_reference`]: artifacts_match_the_reference
 #[test]
@@ -1058,7 +1057,7 @@ fn read_tree(dir: &PathBuf, prefix: &str, out: &mut BTreeMap<String, Vec<u8>>) {
         } else {
             // Bytes, not text: `search-index.bin` is not UTF-8 and reading it
             // as a string would panic before any test could say anything about
-            // it (`docs/plans/search-v2.md` P1).
+            // it.
             out.insert(
                 relative,
                 fs::read(entry.path()).expect("the artifact is readable"),

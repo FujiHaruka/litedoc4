@@ -1,6 +1,6 @@
 //! Incremental rebuild: what to re-extract and what to re-render.
 //!
-//! Milestone **M3** — see `docs/implementation-plan.md`. **All five stages are
+//! Milestone **M3**. **All five stages are
 //! here**: `detect` (from `experiments/stage5/ledger.ts`), `ownership` (from
 //! `ownership.ts`), `merge` (from `merge-ir.ts`), `impact` (from `impact.ts`)
 //! and `prune` (from `prune-pages.ts`), all frozen prototypes. The pipeline that

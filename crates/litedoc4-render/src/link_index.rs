@@ -42,8 +42,7 @@
 //! range** — never an error. Both are real: the extractor writes one field when
 //! `findDeclarationRanges?` has nothing, and every `.lidx` written before M7-a
 //! has one field on every line. A missing range costs the link its `#L…-L…`
-//! anchor and nothing else (`docs/implementation-plan.md`
-//! §M7「行範囲が取れない宣言でリンクを消さない」), so failing here would trade a
+//! anchor and nothing else, so failing here would trade a
 //! degraded link for no site.
 
 use std::collections::{HashMap, HashSet};

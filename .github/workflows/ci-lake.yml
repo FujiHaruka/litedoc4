@@ -1,4 +1,4 @@
-# Does `require «litedoc4»` actually work?  (docs/plans/lake-package.md, L1-e)
+# Does `require «litedoc4»` actually work?
 #
 # ============================================================================
 # WHY THIS IS NOT PART OF ci.yml
@@ -107,7 +107,7 @@ jobs:
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
-      # (`docs/plans/assets-typescript.md` 決定 1). Pinned rather than left to
+      # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6
@@ -143,7 +143,7 @@ jobs:
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
-      # (`docs/plans/assets-typescript.md` 決定 1). Pinned rather than left to
+      # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6
@@ -247,7 +247,7 @@ jobs:
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
-      # (`docs/plans/assets-typescript.md` 決定 1). Pinned rather than left to
+      # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6
@@ -305,7 +305,7 @@ jobs:
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
-      # (`docs/plans/assets-typescript.md` 決定 1). Pinned rather than left to
+      # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6

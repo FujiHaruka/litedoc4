@@ -43,7 +43,7 @@ dependency naming a *lower* version is ignored with **no warning at all**, which
 means a stale toolchain here would be invisible to everyone. With no file at
 all, `Workspace.updateToolchain` skips litedoc4 entirely (`ToolchainVer.ofDir?`
 returns `none`) and the root's toolchain builds the extractor — which is exactly
-what is wanted, and what `docs/approach.md` already required for other reasons.
+what is wanted, for other reasons already required elsewhere.
 
 The price is that `lake` cannot run in *this* directory (elan has no toolchain
 to pick here), so the `lake-manifest.json` beside this file is written by hand
@@ -161,9 +161,9 @@ The target triples a release actually carries 【実測 2026-08-18】.
 Only these two, and not by accident: `.github/workflows/release.yml` builds no
 `x86_64-apple-darwin` (there is no Intel runner to *test* one on) and no
 `aarch64-unknown-linux-*` (no arm Linux runner), because shipping a binary
-nobody has executed is exactly what that workflow's smoke job exists to refuse
-(`docs/plans/distribution.md` D2). So **"this machine has no asset" is a normal
-path, not a fault** — source 3 says which target it wanted and falls through.
+nobody has executed is exactly what that workflow's smoke job exists to refuse.
+So **"this machine has no asset" is a normal path, not a fault** — source 3
+says which target it wanted and falls through.
 -/
 def releaseTargets : List String :=
   ["x86_64-unknown-linux-musl", "aarch64-apple-darwin"]

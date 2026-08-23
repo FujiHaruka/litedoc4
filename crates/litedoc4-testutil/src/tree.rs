@@ -27,9 +27,9 @@ use std::path::Path;
 /// `crates/litedoc4/tests/incremental.rs` has its own `copy_tree` and it is a
 /// **different function**: it removes the destination first, goes through that
 /// file's `tree()`/`write()` pair, and creates a `deps` directory at the end.
-/// It is not a fork of this one and folding the two would silently change both
-/// (§7 U6 and §14 of `docs/plans/refactoring.md`, which collects three other
-/// pairs of names that collide by accident).
+/// It is not a fork of this one and folding the two would silently change
+/// both — one of several pairs of names elsewhere in this workspace that
+/// collide by accident rather than share an implementation.
 pub fn copy_tree(from: &Path, to: &Path) {
     fs::create_dir_all(to).expect("creatable");
     for entry in fs::read_dir(from).expect("the source tree reads") {

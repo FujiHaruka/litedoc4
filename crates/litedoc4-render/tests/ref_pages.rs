@@ -137,8 +137,8 @@ fn every_docstring_in_the_reference_pages_is_reproduced() {
     }
     // M7-c: the prototype had no dependency map, so its bytes are the
     // **fallback** branch — which an empty [`ExternalLinks`] reproduces
-    // exactly. With a map every link into a dependency moves, on purpose
-    // (`docs/implementation-plan.md` §1).
+    // exactly. With a map every link into a dependency moves, on purpose —
+    // doc-gen4 byte compatibility is no longer required.
     // 2026-08-17: and the prototype rendered the whole environment, so its
     // links point at pages it wrote. A run's world has pages for the target
     // package alone; the oracle is resolved in the world it was recorded in.

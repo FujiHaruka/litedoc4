@@ -137,8 +137,7 @@ impl<'a> Renderer<'a> {
     /// The fallback is silent in the page — it emits the dollars and the source,
     /// which is what doc-gen4 emits always — so this is the only place a build
     /// can learn that a docstring's mathematics did not come out as
-    /// mathematics. `litedoc4 build` prints it
-    /// (`docs/plans/feature-sweep.md` C-1).
+    /// mathematics. `litedoc4 build` prints it.
     #[must_use]
     pub fn math_failures(&self) -> usize {
         self.math_failures.get()

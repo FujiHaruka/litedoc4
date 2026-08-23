@@ -2,7 +2,7 @@
 
 ## Relay control
 - Mode: DONE
-- Goal: `docs/plans/test-coverage.md` を全 30 項目決着まで完遂する。**達成**。
+- Goal: テストの穴を埋める計画を全 30 項目決着まで完遂する。**達成**。
 - Leg: 1 / cap 8
 - Predecessor: none
 - Stop-on: completion
@@ -20,7 +20,7 @@
 - **計画は全 30 項目決着。この計画でやることは残っていない**
 - 数字の SoT は
   [`benchmarks/results/coverage-2026-08-24.txt`](../benchmarks/results/coverage-2026-08-24.txt)、
-  結果は `docs/milestone-log.md`、計画は `docs/plans/test-coverage.md` (367 行)
+  (計画文書と実装ログは 2026-08-24 に削除した — 経緯は git 履歴)
 - **検証は全部緑**【実測 2026-08-24】 — `cargo test --workspace --no-fail-fast` が
   **46 バイナリ / 564 passed / 0 failed / 22 ignored**、fmt / clippy / doc / machete /
   `corpus-gate.sh --verify-list` も 0。検証スクリプトは

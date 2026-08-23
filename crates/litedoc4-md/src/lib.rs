@@ -1,6 +1,6 @@
 //! CommonMark for docstrings: md4c through FFI, plus doc-gen4's own rendering.
 //!
-//! Filled in by milestone **M1** — see `docs/implementation-plan.md`.
+//! Filled in by milestone **M1**.
 //!
 //! doc-gen4 does not use md4c's HTML renderer. It parses to an AST and builds
 //! the HTML itself (`DocGen4/Output/DocString.lean`), with flags

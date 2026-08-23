@@ -26,8 +26,7 @@
 //! because of it 【実測 2026-08-16,
 //! `benchmarks/results/m8-ui2-dead-links.txt`】.
 //! [`NameIndex::module_for_source_path`] is the answer that consults
-//! `knownModules`, and gate UI-2 is what it is for
-//! (`docs/plans/ui-redesign.md` §1).
+//! `knownModules`, and gate UI-2 is what it is for.
 //!
 //! # Which name is documented where — three sources, not one
 //!

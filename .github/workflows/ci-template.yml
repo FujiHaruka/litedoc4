@@ -157,7 +157,7 @@ jobs:
       # cheap half of the incremental claim and it was the only half a Linux
       # runner had ever exercised. What 段 C and 段 D buy is the cost of a
       # **one-module edit**, and until this step existed that number came only
-      # from one laptop (`docs/plans/reextract-count.md` §6).
+      # from one laptop.
       #
       # Into a *copy* of the state, not into `docs-out` itself: `docs-out` is
       # what the cache saves at the end of the job, and it has to keep describing

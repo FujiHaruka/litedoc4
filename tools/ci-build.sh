@@ -16,7 +16,7 @@
 #   in README.md and in the workflow's own header — it is not implied to work.
 #
 # ============================================================================
-# WHY `lake build` AND THE DOCS ARE IN THE SAME JOB  【実測 → approach.md §3, §8】
+# WHY `lake build` AND THE DOCS ARE IN THE SAME JOB  【実測】
 # ============================================================================
 #   The extractor's floor is loading the Lean environment, and that cost is I/O,
 #   not Lean: what decides it is whether the oleans are in the page cache. How

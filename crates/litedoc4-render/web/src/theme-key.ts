@@ -5,7 +5,7 @@
  * inlined into every page's `<head>` and runs **before the first paint**, while
  * `theme.ts` arrives with the deferred module. Until 2026-08-19 the boot half
  * was a string literal in `frame.rs`, so this key existed in two languages and
- * either could be renamed alone (`docs/plans/assets-typescript.md` 決定 6).
+ * either could be renamed alone.
  */
 
 export const THEME_KEY = "litedoc4-theme";

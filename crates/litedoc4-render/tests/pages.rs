@@ -20,8 +20,8 @@
 //! # M8-b: what a page *says*, not the bytes it says it in
 //!
 //! Up to M7 the comparison was `got == want` over whole pages. M8-b rewrote the
-//! markup on purpose (`docs/plans/ui-redesign.md`), so gate A is finished (plan
-//! §1) and that comparison cannot hold. What is compared instead is
+//! markup on purpose, so doc-gen4 byte compatibility is retired and that
+//! comparison cannot hold. What is compared instead is
 //! [`PageContent`] — and it is chosen to be exactly this file's own subject:
 //!
 //! | | how |

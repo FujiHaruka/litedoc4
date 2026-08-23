@@ -1,5 +1,5 @@
 # Build the `litedoc4` binary for each platform, prove it works, and attach it
-# to a GitHub release.  (docs/plans/distribution.md, D2)
+# to a GitHub release.
 #
 # ============================================================================
 # WHY ONLY THE RUST BINARY IS HERE
@@ -83,7 +83,7 @@ jobs:
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
-      # (`docs/plans/assets-typescript.md` 決定 1). Pinned rather than left to
+      # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6
@@ -147,8 +147,7 @@ jobs:
           # "no asset for this version" and falls through to `cargo build`.
           # Nothing breaks loudly, which is why this has to be checked here —
           # it is the same defect as shipping a v0.1.4 binary to a tree whose
-          # extractor writes a newer IR schema, one step upstream
-          # (docs/plans/feature-sweep.md §9).
+          # extractor writes a newer IR schema, one step upstream.
           if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "$V" != "$W" ]; then
             echo "::error::tag v$V does not match [workspace.package] version $W in Cargo.toml." \
                  "The assets would publish under $V while every consumer asks for v$W," \

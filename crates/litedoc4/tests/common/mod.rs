@@ -15,9 +15,8 @@
 //! twice, one copy's IR-generation rule could move while the other stood
 //! still — and both comparisons would still pass, because each compares a tree
 //! its own script wrote against a tree built from its own baked world. The
-//! oracle would stop being one, silently and in both files at once. §7 U4 of
-//! `docs/plans/refactoring.md` records the fork: roughly forty lines managed
-//! twice, with `build.rs`'s copy a superset.
+//! oracle would stop being one, silently and in both files at once —
+//! roughly forty lines managed twice, with `build.rs`'s copy a superset.
 //!
 //! **So a flag is added here.** [`Features`] names what the two flavours
 //! differ by, and a caller that wants a new one gets it by naming it in this
@@ -72,9 +71,9 @@ use std::path::Path;
 
 /// What the two flavours of the script differ by.
 ///
-/// Named fields rather than two positional `bool`s: §4 R8 of
-/// `docs/plans/refactoring.md` took exactly that weakness out of three
-/// signatures, because the compiler says nothing when two arguments of the same
+/// Named fields rather than two positional `bool`s: the same weakness
+/// removed from three other signatures elsewhere in this workspace,
+/// because the compiler says nothing when two arguments of the same
 /// type are swapped.
 #[derive(Clone, Copy)]
 pub(crate) struct Features {

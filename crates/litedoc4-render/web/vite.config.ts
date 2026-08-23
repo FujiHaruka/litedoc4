@@ -4,7 +4,7 @@
  * `crates/litedoc4-render/build.rs` runs this and hands cargo's `OUT_DIR` in
  * `LITEDOC4_ASSET_OUT_DIR`, so the file `include_str!` picks up is always the
  * one built from the sources next to it — there is no committed copy to go
- * stale (`docs/plans/assets-typescript.md` 決定 1). A bare `npm run build`
+ * stale. A bare `npm run build`
  * writes to `dist/` instead, which is gitignored and exists only so the build
  * can be run by hand without a cargo invocation around it.
  */

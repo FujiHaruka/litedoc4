@@ -3,8 +3,8 @@
 // real package.
 //
 // WHY THIS EXISTS
-//   The measurements in `docs/plans/search-v2.md` were taken on a prototype
-//   encoder over the corpus of the deployed site. To measure what the *shipped*
+//   The search-index design was measured on a prototype encoder over the
+//   corpus of the deployed site. To measure what the *shipped*
 //   encoder produces at that scale, something has to feed it 4,584 declarations
 //   — and the only inputs it takes are IR trees. The measurement target needs
 //   Mathlib and an hour; this needs two JSON files that anyone can curl.

@@ -15,12 +15,12 @@
 //!
 //! # Why here
 //!
-//! `approach.md` §5.6's claim about this pipeline is in exactly these units —
-//! "the outer half's limit is not rendering but **reading the whole IR**, and
-//! **five of those reads are left**" — so the counter that checks it has to count
-//! the same thing: **IR files opened and parsed**. One full pass over a package
-//! is `modules` module-file reads, so `module / modules` is the number of full
-//! passes a run made, which is the number §5.6 quotes.
+//! This pipeline's outer half is bottlenecked not by rendering but by reading
+//! the whole IR, and the incremental pipeline still leaves five such full
+//! reads in place 【実測 → `benchmarks/results/mathlib-scale-summary.txt`】 —
+//! so the counter that checks it has to count the same thing: **IR files
+//! opened and parsed**. One full pass over a package is `modules` module-file
+//! reads, so `module / modules` is the number of full passes a run made.
 //!
 //! It lives beside [`crate::IrTree`] for the reason plan §3 gives for the loader
 //! itself: **every read of a module file is in this crate**, so there is one

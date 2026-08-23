@@ -9,9 +9,9 @@
  * browser, and the theme toggle rewrites a root attribute. Every one of those
  * can be perfectly well-formed HTML and still be broken.
  *
- * It also closes the one gate M8 left open. `docs/plans/ui-redesign.md` records
- * UI-3 as **未判定 — CSS is written for 375 px but nobody looked at a browser**,
- * and "そう書いた" and "そう見える" are different claims.
+ * It also closes gate UI-3: the CSS is written for a 375 px mobile width, but
+ * writing CSS for a width and confirming a real browser renders it that way
+ * (no horizontal scroll on the page body) are different claims.
  *
  * WHY A SERVER AND NOT file://
  *   The pages fetch their indexes. Under `file://` those fetches fail on CORS
@@ -183,11 +183,11 @@ async function main() {
     // is usually nothing but imports, and judging "is the prose there" against
     // a page with no prose on it is a test that fails for the wrong reason.
     //
-    // The page is picked by looking at the pages rather than at the index
-    // (`docs/plans/search-v2.md` P1 made the index bytes, and a gate that
-    // decoded them would be a fourth reader of a format it is here to
-    // distrust). A `class="decl"` section is the renderer's own statement that
-    // the page carries a declaration.
+    // The page is picked by looking at the pages rather than at the search
+    // index: that index is a byte-packed binary format meant for one JS
+    // reader, and decoding it here would make this gate another reader of a
+    // format it exists to distrust. A `class="decl"` section is the
+    // renderer's own statement that the page carries a declaration.
     let first = modulePages[0];
     let declName = "";
     for (const page of modulePages) {
@@ -267,10 +267,10 @@ async function main() {
 
     // 3b — the byte searcher ranks what the string one ranked.
     //
-    // `docs/plans/search-v2.md` P1 replaced a scorer over JS strings with one
-    // over the bytes of `search-index.bin`, and the entire argument for the
-    // change was that it does not change the answer. So the oracle is the
-    // scorer it replaced, **frozen** below.
+    // The scorer was switched from one over JS strings to one over the bytes
+    // of `search-index.bin`, justified entirely by the claim that it does not
+    // change the answer. So the oracle is the scorer it replaced, **frozen**
+    // below.
     //
     // Neither side of this comparison reads the index format: the expected list
     // is computed from `declarations/name-map.json`, the actual one is read out
@@ -329,8 +329,8 @@ async function main() {
         // Two ways in, and they are different code paths. Loading `?q=` scores
         // the whole index once; typing the query one character at a time makes
         // every keystroke after the second narrow the previous keystroke's
-        // hits (`docs/plans/search-v2.md` P2). A narrowing that drops a hit it
-        // should have kept is only visible the second way.
+        // hits (a per-keystroke narrowing cache). A narrowing that drops a hit
+        // it should have kept is only visible the second way.
         const byTyping = i < 3;
         if (byTyping) {
           await page.goto(`${base}/search.html`, { waitUntil: "networkidle0" });
@@ -495,7 +495,7 @@ async function main() {
     // the mechanism; what a reader gets is the contrast, and a theme can rewrite
     // every colour and still be unreadable. **Both** themes are measured,
     // because a palette that is only ever looked at in one of them is exactly
-    // how the other one rots (`docs/plans/unverified-sweep.md` U3).
+    // how the other one rots.
     //
     // Threshold: WCAG 2.1 SC 1.4.3, 4.5:1 for body-sized text. The elements are
     // named rather than crawled, and **a name that matches nothing fails** — a
@@ -563,7 +563,7 @@ async function main() {
       await page.close();
     }
 
-    // 6 — UI-3, the gate ui-redesign.md left 未判定.
+    // 6 — UI-3, the gate that a 375 px mobile viewport does not scroll horizontally.
     for (const width of [375, 1440]) {
       const page = await browser.newPage();
       await page.setViewport({ width, height: 800 });
@@ -593,9 +593,9 @@ async function main() {
 
     // 8b — MathML is drawn by the browser rather than merely present.
     //
-    // `docs/plans/feature-sweep.md` C-1. `litedoc4-md` converts `$…$` at build
-    // time and ships no MathJax, no KaTeX and no math web font, so the whole
-    // feature rests on an assumption nothing else here checks: **that this
+    // `litedoc4-md` converts `$…$` at build time and ships no MathJax, no
+    // KaTeX and no math web font, so the whole feature rests on an
+    // assumption nothing else here checks: **that this
     // browser lays out MathML Core natively.** A `<math>` element in a browser
     // that does not is `display: inline` with no glyphs and **zero width** —
     // the page still validates, the markup is still right, and the formula is
@@ -655,8 +655,8 @@ async function main() {
 
     // 8 — the monospace stack can draw what a Lean package puts in a signature.
     //
-    // `ui-redesign.md` 決定 2 dropped the JuliaMono web font on the **assumption**
-    // that the system stack renders the 178 non-ASCII characters the measurement
+    // The site ships no JuliaMono web font, on the **assumption** that the
+    // system stack renders the 178 non-ASCII characters the measurement
     // target's pages contain (`mono-charset.json`, regenerable with
     // `mono-charset.py`). That assumption had only ever been looked at on macOS,
     // and this runner is ubuntu-latest — the Linux machine was free the whole

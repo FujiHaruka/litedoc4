@@ -1,4 +1,4 @@
-# What this package says about its own site (`docs/plans/feature-sweep.md` C-3).
+# What this package says about its own site (title and index page).
 #
 # It is here so that `tools/config-gate.sh` has a package that configures
 # something: with no file at all the four commands that write HTML agree

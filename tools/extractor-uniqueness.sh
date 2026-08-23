@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Is `extract` decided by the toolchain alone, or also by the target package's
-# dependency set?  (docs/plans/distribution.md, checks X1 / X3)
+# dependency set?
 #
 # ============================================================================
 # WHY THIS QUESTION IS WORTH A SCRIPT

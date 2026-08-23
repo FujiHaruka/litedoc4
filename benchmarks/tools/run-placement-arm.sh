@@ -12,7 +12,7 @@
 # the page cache does not already hold. Runs 2..N are that runner's warm floor,
 # and their real job is to normalise the arm against its own machine: the same
 # `ubuntu-latest` label covers instances whose pure-CPU speed differs by 2.19x
-# 【実測 → docs/verification-log.md「CI 軸」】, so a raw same-vs-split ratio is
+# 【実測 2026-08-10】, so a raw same-vs-split ratio is
 # confounded by which machines the two arms landed on. run1/runN inside one arm
 # is not.
 #

@@ -2,9 +2,9 @@
 //!
 //! WHY THIS IS NOT AN ORACLE, AND WHY FORKING IT AGAIN WOULD BUY NOTHING
 //!
-//! §16 of `docs/plans/refactoring.md` names [`fnv1a64`] as one of three places
-//! where "the same judgement written twice" might be deliberate, and asks that
-//! the question be put before anything is folded. It was, and the answer is no
+//! [`fnv1a64`] was one of several places where duplicated code might be a
+//! deliberate second, independent judgement rather than a copy safe to fold
+//! away. The question was asked before folding it, and the answer is no
 //! 【実測 2026-08-23】:
 //!
 //!   - **No product code computes an FNV hash.** `crates/*/src/` contains no

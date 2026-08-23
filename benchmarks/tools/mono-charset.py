@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Regenerate the non-ASCII character set the browser gate checks the mono stack against.
 
-`docs/plans/ui-redesign.md` 決定 2 dropped the JuliaMono web font and bet that the
-system monospace stack renders what a Lean package's pages contain. The bet is
+The site ships no monospace web font (e.g. JuliaMono); it bets that the system
+monospace stack renders what a Lean package's pages contain. The bet is
 about a *character set*, and that set comes from the measurement target — not
 from the e2e fixture, which is deliberately tiny. So the set is measured once
 here, committed as `mono-charset.json`, and read by the gate on a runner that
 has never seen the target.
 
 Input is an HTML tree; the default is doc-gen4's own reference tree for the
-target's modules, which is where the 178 in `ui-redesign.md` came from.
+target's modules, which is where the measured 178-character set came from
+(counted 2026-08-16 by stripping tags from 348 pages).
 
 usage: mono-charset.py [TREE] [-o OUT]
   TREE  a directory of .html files (default: the target's InformationTheory tree)

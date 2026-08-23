@@ -149,8 +149,8 @@ pub fn class_instances_html(name: &str) -> String {
     fill_block(name, "instances", "Instances")
 }
 
-/// Which declarations of this package mention this one — doc-gen4 #77 / #63,
-/// `docs/plans/feature-sweep.md` C-2. Same shape again, third map.
+/// Which declarations of this package mention this one — doc-gen4 #77 / #63.
+/// Same shape again, third map.
 ///
 /// **Emitted for every declaration, whether or not it has users.** Knowing
 /// which have users is a fact about the whole package, and a renderer that
@@ -648,7 +648,7 @@ impl<'a> DeclRenderer<'a> {
 
         // `Attr::text` rejoins the schema-5 `(name, value)` pair into the one
         // string schema 4 carried, which is what keeps this byte-identical
-        // across the shape change (`docs/plans/feature-sweep.md` B-2). Acting on
+        // across the shape change. Acting on
         // the parts — linking `@[deprecated Foo]` to `Foo`, styling by name — is
         // bundle C's, and it happens here.
         let mut attrs = String::new();

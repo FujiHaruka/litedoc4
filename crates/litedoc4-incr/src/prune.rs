@@ -64,7 +64,7 @@
 //! # The static assets survive both halves, and that is now asserted (M8-a)
 //!
 //! From M8-a every build writes `style.css`, `app.js` and `favicon.svg` into the
-//! site root (`docs/plans/ui-redesign.md` 決定 6). They are **not** module
+//! site root. They are **not** module
 //! pages, no ledger names them, and nothing regenerates them mid-pipeline — so
 //! an incremental run that deleted them would leave a site that renders unstyled
 //! until the next full generation, which is a silent failure of exactly the kind

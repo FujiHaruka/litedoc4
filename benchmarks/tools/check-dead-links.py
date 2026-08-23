@@ -17,7 +17,7 @@ href ending in `/` is read as that directory's `index.html`.
 gate UI-2's dead links came from: doc-gen4 turns a docstring word like
 `EPI/Stam/ToBridge.lean` into a page by reading it as relative to the repository
 root, and a package whose docstrings write module-relative paths gets a link to a
-page nobody wrote (`docs/plans/ui-redesign.md` §1).
+page nobody wrote.
 
 Usage:
   check-dead-links.py <site dir> [<site dir> ...] [--show N] [--paths]

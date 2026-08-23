@@ -1,12 +1,11 @@
-# U4 — the leak check, on the machine that can run it.
+# The leak check, on the machine that can run it.
 #
 # `fuzz/README.md` records: "Leak detection is not part of this. LeakSanitizer
 # does not run on macOS, so a buffer md4c allocates and never frees would not
 # show here." That is a fact about **this desk**, not about the project:
-# `ubuntu-latest` runs LSan and has been free all along
-# (`docs/plans/unverified-sweep.md` U4).
+# `ubuntu-latest` runs LSan and has been free all along.
 #
-# This is not the fuzzer coming to CI. 決定 5 keeps time-boxed exploration out of
+# This is not the fuzzer coming to CI. Time-boxed exploration stays out of
 # every push and that stands — what runs here is the **committed corpus, once
 # each** (`-runs=0`), which is a bounded job with a fixed input set. It stays on
 # `workflow_dispatch` all the same: it needs nightly and a `cargo-fuzz` install.

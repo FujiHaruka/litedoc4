@@ -16,8 +16,7 @@
    Three rules carry the look, and each of them draws structure the markup
    already had rather than adding any: the signature is laid out as a proof
    state (§9), a name's last component is set apart from its namespace (§14),
-   and the declaration kind is a column rather than a badge (§8). What they
-   are for is `docs/plans/ui-redesign.md` §10.
+   and the declaration kind is a column rather than a badge (§8).
 
    Two rules are taken from doc-gen4 rather than written here — `.fn` and
    `.break_within` (marked in place). Both solve a problem specific to Lean

@@ -3,9 +3,8 @@
 #
 # WHAT "GREEN" MEANS NOW
 #   Gate A (byte reproduction against doc-gen4) ended at M8, so the definition
-#   of green fell back to `cargo test --workspace` (docs/implementation-plan.md
-#   §1). This workflow is what makes that definition mechanical rather than a
-#   sentence in a plan.
+#   of green fell back to `cargo test --workspace`. This workflow is what
+#   makes that definition mechanical rather than a sentence in a plan.
 #
 # WHAT IS DELIBERATELY NOT HERE
 #   Anything needing Mathlib. The target package's import closure is several GB
@@ -54,7 +53,7 @@ jobs:
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
-      # (`docs/plans/assets-typescript.md` 決定 1). Pinned rather than left to
+      # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6
@@ -191,7 +190,7 @@ jobs:
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
-      # (`docs/plans/assets-typescript.md` 決定 1). Pinned rather than left to
+      # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6

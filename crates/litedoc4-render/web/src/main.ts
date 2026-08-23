@@ -9,8 +9,7 @@
  * about the module being rendered (instances, instances-for, imported-by).
  *
  * The bundle this becomes is built by `crates/litedoc4-render/build.rs` and
- * carried in the binary; there is no copy of it in the repository
- * (`docs/plans/assets-typescript.md` 決定 1).
+ * carried in the binary; there is no copy of it in the repository.
  */
 import { initDrawer } from "./drawer.js";
 import { initImportedBy } from "./imported-by.js";

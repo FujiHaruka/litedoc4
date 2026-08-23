@@ -1,7 +1,7 @@
 //! Whole-site artifacts: the name map, the site's entry pages and the two
 //! indexes the browser reads.
 //!
-//! Milestone **M2-a** — see `docs/implementation-plan.md`. Ported from
+//! Milestone **M2-a**. Ported from
 //! `experiments/stage7h/global.ts` (frozen, 492 lines), of which this crate is
 //! the from-scratch half: read every module, derive the whole-package files,
 //! write them.

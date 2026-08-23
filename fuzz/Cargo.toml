@@ -5,7 +5,7 @@
 # critical path of every push, this lives outside the workspace: the gate that
 # has to stay green is `crates/litedoc4-md/tests/fuzz_corpus.rs`, which runs the
 # committed corpus on stable. This directory is how new corpus entries are
-# *found* (docs/plans/quality-gates.md 決定 5).
+# *found*.
 #
 # The empty `[workspace]` table below is what keeps `cargo build` at the repo
 # root from trying to adopt this package.

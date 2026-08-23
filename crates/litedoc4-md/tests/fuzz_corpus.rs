@@ -2,7 +2,7 @@
 //!
 //! # Why this exists
 //!
-//! `docs/implementation-plan.md` §7 records that **MD4Lean dies on two inputs**:
+//! **MD4Lean dies on two inputs**:
 //! a NUL inside a fenced code block is a SIGSEGV (`wrapper.c:558`) and a GFM
 //! table with no body row is a SIGABRT (`wrapper.c:389`). Lean's behaviour there
 //! is undefined, so byte equality was never possible, and **this crate was
@@ -35,8 +35,7 @@
 //! `rust-toolchain.toml` pins stable for everyone including CI. A gate that
 //! needs a second toolchain is a gate that runs on one machine. Exhaustive
 //! exploration is still worth doing out-of-band; what belongs *here* is the
-//! part that has to keep passing on every push, which is the corpus
-//! (`docs/plans/quality-gates.md` 決定 5).
+//! part that has to keep passing on every push, which is the corpus.
 
 #![expect(
     clippy::cast_possible_truncation,

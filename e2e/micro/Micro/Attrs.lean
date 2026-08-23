@@ -2,9 +2,10 @@
 # Attrs
 
 One declaration per **kind** of attribute the extractor's four collectors
-produce, so that the split into `(name, value)` (schema 5,
-`docs/plans/feature-sweep.md` B-2) meets a real Lean environment rather than a
-hand-written IR fixture. The collectors read environment extensions — which
+produce, so that the split into `(name, value)` (schema 5's 2-element
+`[name, value]` array, replacing schema 4's bare string) meets a real Lean
+environment rather than a hand-written IR fixture. The collectors read
+environment extensions — which
 attribute is applied and what its argument elaborated to are facts about the
 *environment*, so nothing written by hand can check that the extractor put the
 right name and the right value in the right halves.

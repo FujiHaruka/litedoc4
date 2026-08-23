@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # L2 — does `resolveLitedoc4` really fetch the Rust half from a GitHub Release?
 #
-# `docs/plans/lake-package.md` §5 adds two sources to the lakefile's
-# `resolveLitedoc4`: a version-pinned cache and a checksum-verified download from
-# the release that matches this tree's `Cargo.toml`. This gate is the only place
+# The lakefile's `resolveLitedoc4` has two sources beyond the local build: a
+# version-pinned cache and a checksum-verified download from the release that
+# matches this tree's `Cargo.toml`. This gate is the only place
 # either of them is executed.
 #
 # WHY THIS GATE EXISTS SEPARATELY FROM tools/lake-package-gate.sh

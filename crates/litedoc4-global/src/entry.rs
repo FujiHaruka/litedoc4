@@ -1,12 +1,11 @@
 //! The four pages a reader arrives at rather than navigates to.
 //!
-//! Milestone **M8-d**, `docs/plans/ui-redesign.md` §8. Up to here the site had
+//! Milestone **M8-d**. Up to here the site had
 //! **no entry at all**: `litedoc4 build` wrote 432 module pages and no
 //! `index.html`, while every page's top bar linked to `index.html` and
 //! `search.html` and every `Sort` in every signature linked to
 //! `foundational_types.html` (`litedoc4_render::code`). Three dead links on all
-//! 432 pages, and the deployed site's Search button was a 404 【実測 2026-08-16,
-//! 計画 §2.2 / §2.3】.
+//! 432 pages, and the deployed site's Search button was a 404 【実測 2026-08-16】.
 //!
 //! | | why it exists |
 //! |---|---|

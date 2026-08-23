@@ -1,9 +1,8 @@
 //! The ledger file: what a module's inputs hash to, and the two global keys.
 //!
-//! Ported from `experiments/stage5/ledger.ts` (frozen). Milestone **M3-a** —
-//! see `docs/implementation-plan.md` §6, whose data-format table pins the shape:
-//! one `ledger.json`, `ledgerSchema: 2`, `extractKey` / `renderKey` inside it,
-//! values in the clear.
+//! Ported from `experiments/stage5/ledger.ts` (frozen). Milestone **M3-a**.
+//! The shape: one `ledger.json`, `ledgerSchema: 2`, `extractKey` / `renderKey`
+//! inside it, values in the clear.
 //!
 //! ```text
 //! module name ──> <libDir>/<Module/Path>{.olean,.olean.server,.olean.private}
@@ -69,7 +68,7 @@ pub const LEDGER_SCHEMA: u64 = 2;
 ///
 /// Bump the version when a re-extraction can produce different IR bytes.
 ///
-/// **v2** is B-2 (`docs/plans/feature-sweep.md`): `attrs` elements became
+/// **v2** is B-2: `attrs` elements became
 /// `[name, value]` arrays where they had been one concatenated string. That is
 /// the case this constant exists for and `irSchemaVersion` cannot cover —
 /// the schema was already 5 when the elements were still strings, so the only

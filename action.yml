@@ -1,4 +1,4 @@
-# litedoc4 as a GitHub Action.  (docs/plans/distribution.md, D3)
+# litedoc4 as a GitHub Action.
 #
 # ============================================================================
 # WHAT THIS REPLACES
@@ -267,8 +267,8 @@ runs:
 
     # The same condition as the toolchain above: only the cargo fallback needs
     # node, because `crates/litedoc4-render/build.rs` bundles the site's
-    # TypeScript into `app.js` (`docs/plans/assets-typescript.md` 決定 1). A
-    # caller on a released ref downloads a binary and never gets here.
+    # TypeScript into `app.js`. A caller on a released ref downloads a binary
+    # and never gets here.
     - name: Node toolchain
       if: steps.binary.outputs.bin == ''
       uses: actions/setup-node@v6

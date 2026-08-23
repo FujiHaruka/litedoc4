@@ -9,8 +9,7 @@
 # after that nobody reads its output at all. The property it stood for (one
 # command produces the site the staged pipeline does) is now checked by
 # `tools/e2e-micro.sh`, against a Mathlib-free fixture and a reference that is
-# not stale. Gate A itself ended at M8 — see `docs/implementation-plan.md` §1 and
-# `docs/plans/quality-gates.md`.
+# not stale. Gate A itself (byte reproduction against doc-gen4) ended at M8.
 #
 # The rest of this script still judges: the IR comparison, the module list, the
 # second run, the real move and the real deletion.
@@ -153,7 +152,8 @@ DEL_REL="$(printf '%s' "$DEL_MOD" | tr '.' '/').lean"
 # **These were 438/439 until 2026-08-19 and had been wrong since M8-a.** They
 # were set at M4, when the site was pages + 6 artifacts and carried no static
 # assets; M8-a added `style.css` / `app.js` / `favicon.svg` to the tree, M8-d
-# took the artifacts to 7, and `docs/plans/search-v2.md` P0 takes them to 8.
+# took the artifacts to 7, and splitting `instances.json` out of the search
+# index takes them to 8.
 # Nobody noticed because a wrong denominator only printed — see the exit status
 # below, which is the other half of this fix. **The new numbers are derived
 # from that arithmetic and not yet measured**: the next real run either agrees
@@ -287,7 +287,6 @@ phase_gate1 () {
   # The property it used to check — one command produces the same site as the
   # pipeline run stage by stage — is checked by `tools/e2e-micro.sh` GATE 1-3,
   # against a fixture, with no Mathlib and no stale reference.
-  # (docs/plans/quality-gates.md)
   echo "  gate1-site: NOT RUN — the reference predates M7-c and differs by design."
   echo "              The same property is checked by tools/e2e-micro.sh."
   compare gate1-ir "$OUT/base/ir" "$REF_IR" "$(files_in "$REF_IR")"

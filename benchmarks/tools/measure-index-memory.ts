@@ -1,7 +1,7 @@
 // What the search index costs a browser, measured in a browser.
 //
-// `docs/plans/search-v2.md` §12 set a retreat line — the binary index goes in
-// only if the peak drops by 5x — and the numbers behind it were Deno's V8
+// The retreat line for the binary index was that it goes in only if the peak
+// drops by 5x, and the numbers behind that line were Deno's V8
 // (`heapUsed` / `external`), which is not a browser's accounting. This is the
 // same question asked of Chrome, through the real page: load `search.html`,
 // let `app.js` fetch and read the index, and read `JSHeapUsedSize` off the

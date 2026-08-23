@@ -1362,14 +1362,13 @@ pub(crate) fn hash_concurrency() -> usize {
 /// first two are this pipeline's existing answer to "could the bytes Lean
 /// produces have moved" — the one that invalidates every module's IR when it
 /// changes — and the third is the constant that names the code doing the
-/// writing, the one `docs/implementation-plan.md` §6 says to bump when the
-/// extractor is reimplemented.
+/// writing, bumped when the extractor is reimplemented.
 ///
 /// **The other two are deliberately left out**, and this is a correction of the
 /// first version of this function rather than a shortcut. `irSchemaVersion` and
 /// `irGenerator` are read out of `<ir>/index.json` and describe **the IR**: the
-/// second is explicitly "who wrote the IR on disk", a fact §6 says *not* to
-/// update when the implementation changes. The map is not the IR and does not
+/// second is explicitly "who wrote the IR on disk", a fact that must *not* be
+/// updated when the implementation changes. The map is not the IR and does not
 /// move with either. Including them cost real behaviour: `extract_key` reads
 /// that file, a first-ever build has not written it yet, so the token of a
 /// first-ever build differed from the token of every run after it and **the

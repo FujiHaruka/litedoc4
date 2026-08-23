@@ -3,8 +3,8 @@
 # page cache?
 #
 # WHY THIS CANNOT BE ANSWERED LOCALLY
-#   The macOS answer is "no" (measured, verification log, CI-residency section) and
-#   it is the *unfavourable* side, so it does not transfer: a refutation on one
+#   The macOS answer is "no" (measured) and it is the *unfavourable* side, so it
+#   does not transfer: a refutation on one
 #   platform says nothing about another. What decides the answer is (a) whether
 #   extraction leaves written pages in cache and (b) whether the runner has enough
 #   RAM to keep ~5-6 GB of oleans there. (b) is a property of the runner, so a local
@@ -12,8 +12,8 @@
 #
 # WHY IT IS `workflow_dispatch` ONLY
 #   It is a measurement, not a check. It must never run on a push, and it must never
-#   run without someone deciding to spend the minutes. `approach.md` §8 keeps the
-#   open question; this workflow is what closes it when triggered.
+#   run without someone deciding to spend the minutes. This workflow is what
+#   closes the open question when triggered.
 #
 # WHAT IT DELIBERATELY DOES NOT DO
 #   It does not build the extractor and does not measure the prefetch effect. The

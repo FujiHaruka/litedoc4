@@ -21,7 +21,7 @@ use crate::model::{DepMap, DepMapEntry, Index, IndexEntry, ModuleFile};
 /// index and no member binders / docstrings / origin, so a schema-3 IR cannot
 /// produce a byte-identical page.
 ///
-/// **It moved to 5 in feature-sweep C-4** (`docs/plans/feature-sweep.md`), and
+/// **It moved to 5 in feature-sweep C-4**, and
 /// what that buys is one meaning per absence. Schema 5 adds `sorry`,
 /// `selectionRange` and `generated`, and for each of them an *absent* key says
 /// something — "no `sorry`", "not realized by an attribute" — that a schema-4
@@ -48,7 +48,7 @@ pub const MIN_SCHEMA_VERSION: u32 = 5;
 pub(crate) const SORRY_SCHEMA_VERSION: u32 = 5;
 
 /// The first schema whose module files carry [`crate::Decl::selection_range`]
-/// and [`crate::Decl::generated`] (`docs/plans/feature-sweep.md` B-3).
+/// and [`crate::Decl::generated`].
 ///
 /// The same number as [`SORRY_SCHEMA_VERSION`] and a constant of its own on
 /// purpose: the two keys arrived under one version bump, but what each absence

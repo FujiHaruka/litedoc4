@@ -3,13 +3,13 @@
 //! assertions read with.
 //!
 //! **Anything that knows about `litedoc4_render`'s types or about HTML lives
-//! here; anything that is only string handling lives in `litedoc4-testutil`**
-//! (§7 U3 of `docs/plans/refactoring.md`). That is the line, and it is what
+//! here; anything that is only string handling lives in `litedoc4-testutil`**.
+//! That is the line, and it is what
 //! keeps `litedoc4_testutil` free of a dependency on the crate under test.
 //!
 //! # The rewrite
 //!
-//! **M8, gate UI-2** (`docs/plans/ui-redesign.md` §1). doc-gen4 and the frozen
+//! **M8, gate UI-2**. doc-gen4 and the frozen
 //! prototype both turn a source path in a code span — `` `EPI/Stam/ToBridge.lean` ``
 //! — into a link without consulting anything: the path is read as relative to
 //! the repository root and the extension is swapped. The measurement target
@@ -42,12 +42,12 @@ use litedoc4_render::{ExternalLinks, LinkIndex};
 /// **Two of the four `Case::index()` in this directory are this, and two are
 /// not.** `fragment.rs` and `docgen4_linked.rs` build a different world and say
 /// so at their own definitions; only `page_parts.rs` and `autolink.rs` call
-/// here (§7 U3 of `docs/plans/refactoring.md`).
+/// here.
 ///
 /// M7-c: the prototype had no dependency map, so its bytes are the **fallback**
 /// branch — which an empty [`ExternalLinks`] reproduces exactly. With a map
-/// every link into a dependency moves, on purpose
-/// (`docs/implementation-plan.md` §1).
+/// every link into a dependency moves, on purpose — doc-gen4 byte
+/// compatibility is no longer required.
 ///
 /// 2026-08-17: and the prototype rendered the whole environment, so its links
 /// point at pages it wrote. A run's world has pages for the target package

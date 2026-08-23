@@ -208,7 +208,7 @@ pub fn page_html(
 /// is **invisible in the output**: a math span that could not be converted is
 /// emitted as `$…$`, which is a legal page. Without a number reaching
 /// [`crate::RenderSummary`], a build where every formula failed and a build
-/// where none did print the same thing (`docs/plans/feature-sweep.md` C-1).
+/// where none did print the same thing.
 #[derive(Debug)]
 pub struct RenderedPage {
     /// The page.

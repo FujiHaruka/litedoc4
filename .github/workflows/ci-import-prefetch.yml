@@ -1,5 +1,5 @@
 # Closes the last open item on the CI axis: does prefetching buy back the cold start
-# on Linux? (approach.md §8, item (a).)
+# on Linux?
 #
 # WHY IT IS STILL OPEN AFTER ci-import-modules.yml
 #   That run established the cold ceiling on `ubuntu-latest`: 63.4-70.6 s of

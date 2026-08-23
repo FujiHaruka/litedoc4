@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # What happens when a prebuilt `extract` meets the WRONG toolchain?
-# (docs/plans/distribution.md, check X5)
 #
 # ============================================================================
 # WHY THIS DECIDES WHETHER A PREBUILT EXTRACTOR CAN BE SHIPPED

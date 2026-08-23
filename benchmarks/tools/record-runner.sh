@@ -9,9 +9,11 @@
 #   6.17.0-1020-azure, nproc 2, page size 4096, image ubuntu24 20260720.247.2).
 #   Yet the runs behind them split into two clearly different machines: the same
 #   cold import took 20.4 s on one and 63-89 s on the other, at 5.3 ms per major
-#   fault against 0.67 ms 【実測 → docs/verification-log.md「CI 軸」】. Nothing
-#   recorded identified which machine a run had landed on; the split could only
-#   be inferred from the numbers it was supposed to explain.
+#   fault against 0.67 ms 【実測 →
+#   benchmarks/results/ci-importmodules-linux-summary.txt,
+#   benchmarks/results/ci-prefetch-linux-summary.txt】. Nothing recorded
+#   identified which machine a run had landed on; the split could only be
+#   inferred from the numbers it was supposed to explain.
 #
 #   Worse for an A/B: a pure-CPU phase of the same work varied **2.19x** across
 #   runner instances and did **not** line up with the I/O split — the runner with

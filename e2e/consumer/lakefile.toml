@@ -6,8 +6,8 @@
 # extractor against the consumer's toolchain, and works out `--lib` on its own.
 #
 # The require is by **path** because a git require would need the network and a
-# pushed revision; the real distribution shape is checked in CI instead
-# (docs/plans/lake-package.md L1-e).
+# pushed revision; the real distribution shape (a git require pinned to a
+# pushed commit) is checked in CI instead.
 name = "consumer"
 version = "0.1.0"
 

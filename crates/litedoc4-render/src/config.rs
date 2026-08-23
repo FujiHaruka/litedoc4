@@ -1,6 +1,6 @@
 //! `litedoc4.toml` — what a package says about its own site.
 //!
-//! `docs/plans/feature-sweep.md` C-3【決定 3】, doc-gen4 #43 and #102.
+//! doc-gen4 #43 and #102.
 //!
 //! # Why a file and not a flag
 //!

@@ -200,7 +200,7 @@ hrefs = set(linked("Dep-Aux.Basic"))
 if not hrefs:
     problems.append(
         "Dep-Aux.Basic: no link. This is the .lidx's spelling of a module a pinnable "
-        "dependency owns, and it resolves since residual-sweep R3 — see "
+        "dependency owns, and it resolves via "
         "NameIndex::module_for_unescaped"
     )
 elif hrefs != {want}:

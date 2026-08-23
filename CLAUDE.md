@@ -5,8 +5,7 @@ Mathlib に依存する Lean パッケージのための、高速ドキュメン
 (TS + シェル) から Rust の製品ツリー `crates/` への移設は M1〜M8 で終わり、
 プロトタイプは **2026-08-16 に HEAD から撤去した** (→ 下の「撤去したプロトタイプ」)。
 **v0.1 は 2026-08-17 に締めた** — tag **`v0.1.0`**。締めた根拠はゲート A / B の決着だけで、
-**未検証項目は 18 → 13 → 3 件**まで来た (判定の SoT は `docs/implementation-plan.md` §1 末尾、
-経緯は `docs/plans/unverified-sweep.md`)。**減り方の中身が本体で、件数ではない**:
+**未検証項目は 18 → 13 → 3 件**まで来た。**減り方の中身が本体で、件数ではない**:
 18 → 15 は**分類と鮮度**、15 → 13 は**実際に潰した 2 件**で**どちらも未検証ではなく壊れていた**
 (版固定できない依存へのリンクが死んでいた件と、`batteries` での実走 →
 `benchmarks/results/batteries-2026-08-17.txt`)。**13 → 3 は 2026-08-18 の全件棚卸し** —
@@ -19,16 +18,32 @@ Mathlib に依存する Lean パッケージのための、高速ドキュメン
 **直し方は版で分岐させることではない** — 列挙を Lean 自身の `toAttrString` に委ねた。
 **残り 3 件も「たぶん大丈夫」と読まない。**)
 **「v0.1」を「完成」の意味で書かない。**
-アプローチの SoT は `docs/approach*.md` の 3 ファイル、**実装の SoT は `docs/implementation-plan.md`**、
-数字の SoT は `docs/verification-log.md`。実装の**結果**は `docs/milestone-log.md`。
+アプローチの SoT は `docs/approach*.md` の 3 ファイル、数字の SoT は `docs/verification-log.md`。
+**実装の SoT はコード**【決定 2026-08-24、ユーザー判断】 — 実装計画・実装ログ・完遂した計画文書
+19 本は同日に削除した。ゲートの定義は `tools/*-gate.sh` と `.github/workflows/`、挙動と
+その理由はコードのコメントが持つ。経緯を読むなら git 履歴。**docs を復元しない。**
 
 **2026-08-18 に `lean-doc` から `litedoc4` へ改名した**【決定、ユーザー判断】 — GitHub リポジトリ・
 crate・CLI・Lake パッケージ名のすべて。`litedoc` を選ばなかったのは**実測の衝突**による
 (同カテゴリの Python ドキュメント生成器が PyPI と CLI 名 `litedoc` を占有、Rust の
 `litedoc-core` / `litedoc-cli` が crates.io に実在、153★ の PDF→Markdown コンバータが
 検索一位)。`litedoc4` は crates.io / npm / PyPI / GitHub 検索すべて空きだった。
-**旧名 `lean-doc` を意図的に残した箇所が 5 種ある** — 理由と一覧、および改名が生んだ
-過渡状態は `docs/plans/rename.md`。**「消し忘れ」と読んで直さない。**
+**旧名 `lean-doc` を意図的に残した箇所が 5 種ある。「消し忘れ」と読んで直さない**:
+
+1. **`benchmarks/results/**` (361 ファイル)** — 生ログ。過去の実測を書き換えない
+2. **`crates/*/tests/data/**` (14 ファイル)** — 凍結フィクスチャ。生成時のパスが焼かれていて、
+   **再生成手段は HEAD に無い**。`PROVENANCE.md` の
+   `git show experiments-frozen:crates/lean-doc-*/…` は**タグ内の実在パス**で、改名すると解決しない
+3. **文字列 `lean-doc-relay` (32 ファイル)** — ゲートの作業領域 `/private/tmp/lean-doc-relay/<段>`。
+   凍結フィクスチャに生成時のパスとして入っていて、**`litedoc4_testutil::corpus` の既定パスが
+   それと一致している必要がある**
+4. **`lean-doc/experiments/stage4b` / `stage4c` (6 ファイル)** — プロトタイプが IR の `generator`
+   に書いていた**実在の識別子**。`ledger.rs` の `assert_ne!` は「今の ID がこれと違う」ことを
+   検査するもので、書き換えると**実在しない文字列と比べる無意味な検査**になる。
+   `extractor/Extract.lean` は今もこの値を書く。**一度誤って置換して復元した**
+5. **tag `v0.1.0`〜`v0.1.3` の資産名 `lean-doc-*.tar.gz`** — 既存 Release に実在する名前
+
+一括置換は「これからの識別子」と「外部に実在する物を指す固有名詞」を区別しない。
 
 **このリポジトリは public** (2026-08-16 に private から変更【決定、ユーザー判断】 — 理由は
 GitHub Actions を無料枠で回すこと)。計測対象の `lean-projects` も public。
@@ -42,12 +57,10 @@ GitHub Actions を無料枠で回すこと)。計測対象の `lean-projects` �
 | `docs/approach.md` | アプローチ計画 §1〜4 / §7〜10。**アプローチの SoT はこれと下の 2 つの合併**。実装レベルの詳細は書かない |
 | `docs/approach-pillars.md` | 同 **§5 設計の柱** (5.1〜5.6)。2026-08-18 に分割。**節番号は分割前のまま** |
 | `docs/approach-performance.md` | 同 **§6 性能** (6.1〜6.6)。同上。`approach.md` 末尾に対応表がある |
-| `docs/implementation-plan.md` | v0.1 のゲート / 移設の順序 / ファイル別内訳 / Rust 側の構成と制約。**実装の SoT** |
-| `docs/milestone-log.md` | **実装段階 (M1〜M6) の結果**。移設元と移設先・オラクル・母数・出た数字 |
 | `docs/verification-log.md` | **検証段階 (approach.md §7 の 1〜8) の結果**。**予測と食い違ったらこちらが SoT** |
 | `docs/provenance.md` | doc-gen4 / 第三者コードの由来判定とライセンス上の義務。**由来判定の SoT** |
 | `benchmarks/` | 実測レポート・計装パッチ・ツール・生ログ。**数字の出所** |
-| `crates/` | **製品コード (Rust)**。マイルストーン M1〜M6 で埋まる |
+| `crates/` | **製品コード (Rust)。実装の SoT。** 挙動の理由はここのコメントが持つ |
 | `e2e/micro/` | **e2e フィクスチャ** — Mathlib に依存しない Lean パッケージ。**対象が持たない宣言の形**を構成として持つ (→ `e2e/README.md`) |
 | `tools/*-gate.sh` | **ゲート** = 機材・対象・toolchain を要する判定。`cargo test` は機材ゼロ依存のものだけ |
 | `.claude/handoff.md` | セッション間の引き継ぎ (tracked、コミットする) |
@@ -57,7 +70,7 @@ Mathlib も置かない**。
 
 **Rust 側は `cargo build` + node で建つ** (Rust 1.97.1 / rustup、node は `mise.toml` が
 固定する 24.19.0)。**2026-08-19 まで「`cargo build` で完結する」だった**
-【決定、ユーザー判断 → `docs/plans/assets-typescript.md` 決定 1】 — サイトの JS が
+【決定 2026-08-19、ユーザー判断】 — サイトの JS が
 TypeScript になり、`crates/litedoc4-render/build.rs` が vite を回して `app.js` を
 `OUT_DIR` に焼くようになったため。**生成物はリポジトリに無い**。
 **利用者は node を払わない** — ワークスペースは `publish = false` で、配布は
@@ -66,7 +79,7 @@ TypeScript になり、`crates/litedoc4-render/build.rs` が vite を回して `
 **フォールバックは無い。** node が無ければ `build.rs` が落ちる — 「あれば作る、無ければ
 コミット済のを使う」は経路を 2 本にするので取らない。
 
-**`lakefile.lean` は置く** (2026-08-18、`docs/plans/lake-package.md`) — 利用者が
+**`lakefile.lean` は置く** (2026-08-18) — 利用者が
 `require «litedoc4»` で使えるようにするため。**`lean-toolchain` は置かない、が強化された**:
 依存側が root より高い版の `lean-toolchain` を持つと **`lake update` が利用者の
 `lean-toolchain` を書き換える**、低いと**警告すら出ずに黙殺される**【実測 →
@@ -130,7 +143,7 @@ git log experiments-frozen -- experiments/
 - **計測が終わったら作業ディレクトリを消す。掃除する主体を決めておく。**
   ゲートは `/private/tmp/lean-doc-relay/<段>` を作業領域にする (**改名後もこのパスは旧名のまま** —
   凍結フィクスチャに生成時のパスとして焼かれていて、`litedoc4_testutil::corpus` の既定パスが
-  それと一致している必要がある → `docs/plans/rename.md`)。どれも「再生成できる」前提で
+  それと一致している必要がある → 上の「旧名を残した 5 種」)。どれも「再生成できる」前提で
   書かれているが、**誰も消さないので溜まる**。2026-08-17 に 5 世代ぶん **24 GB** 溜まって
   ディスクが満杯になり、**中断された `lake build` が対象の olean を 1 つ欠落させた**
   【実測】。**ディスクが尽きると被害は計測の失敗では済まない** — 対象リポジトリの
@@ -172,8 +185,8 @@ docs に書くすべての数字は、次の 4 ラベルのいずれかを持つ
 
 **doc-gen4 互換 (byte 再現) は追わない** — M8 で終了、再定義しない。代わりに置いたのは
 **外部オラクルを要らない 3 種**: **自己整合性** (出力が自分の中で閉じているか) /
-**不変量** (別経路が同じ答えを出すか) / **Lean 自身**。計画と結果は
-`docs/plans/quality-gates.md`、数字は `docs/milestone-log.md`。
+**不変量** (別経路が同じ答えを出すか) / **Lean 自身**。**この 3 種が「緑」の定義**で、
+実体は `cargo test --workspace` と `tools/*-gate.sh` と `.github/workflows/`。
 
 - **「テスト」と「ゲート」を分ける。境界は CI の境界と一致させる。**
   テストは**自分の入力を持ち機材ゼロ依存**で `cargo test --workspace` が緑の定義。
@@ -276,8 +289,18 @@ lint と別に CI が持っているもの: **rustdoc のリンク**
     (→ 上の「計測の誠実性」)。
   - **設計判断の理由も過程ではない** — 「`lean-toolchain` を置かない」のように
     **利用者が今その挙動に出会う**ものは、理由ごと残す。
-  - **経緯は内部 docs が持つ** (`docs/plans/*.md`、`docs/*-log.md`、git 履歴)。
-    利用者向けから消すことは、記録を捨てることではない。
+  - **経緯は git 履歴が持つ。** 利用者向けから消すことは、記録を捨てることではない。
+- **コード表面から docs を参照しない**【決定 2026-08-24、ユーザー判断】 — コメント・
+  docstring・スクリプトの usage に `docs/...` のパスや節番号を書かない。**ポインタは腐る**:
+  docs は消え、節番号は動き、計画は完遂すると畳まれる (実際 `extractor/Extract.lean` が
+  存在しない `docs/plans/stage4.md` §3 を指していた【実測 2026-08-24】)。
+  **書きたくなったら、その doc が言っていることを 1〜2 文コメント側に畳む** — 判断の理由と、
+  それを否定する条件。コメントが実質を持っていれば doc が消えても腐らない。
+  - **数字の裏取りは `benchmarks/results/**` の生ログを指す。** 凍結されていて消えないので
+    これは例外。【実測】ラベルとログのパスは落とさない (→ 上の「計測の誠実性」)。
+  - **もう 1 つの例外は `docs/provenance.md`** — 由来判定の SoT で、
+    `tools/provenance-gate.sh` と `NOTICE` と `deny.toml` が根拠として指す。
+  - 同じ理由で **docs 同士も、完遂して消える見込みのある文書を SoT として指さない。**
 - 計画文書は 600 行を超えたら `/compact-plan`。**要約と分割は別の手段で、既定は分割ではない** —
   ただし **`approach.md` は分割を選んだ**【決定 2026-08-18、ユーザー判断】。理由は
   §5 と §6 が**節ごと丸ごと生きている**ことで、要約すると【実測 / 外挿 / 仮定】の

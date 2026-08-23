@@ -2,12 +2,13 @@
 # in the SAME job as `lake build`, and in a SEPARATE job, on a real runner.
 #
 # WHAT IS ALREADY MEASURED, AND WHAT IS NOT
-#   `docs/approach.md` §3 and §8 used to say a split job costs **8-34x**, citing
+#   This repository used to claim a split job costs **8-34x**, citing
 #   `importModules` **alone** on a 2-core / 7.75 GiB runner (`ci-import-modules.yml`).
 #   This workflow measured the thing a user actually pays — the whole
 #   `litedoc4 build` — under both placements, and **that ratio did not reproduce**:
 #   **1.08-1.58x** on the 4-core / 15.6 GiB runner, n=5
-#   【run 31956756819, 2026-08-16 → docs/verification-log.md】. The mechanism
+#   【run 31956756819, 2026-08-16 →
+#   benchmarks/results/ci-placement-5-summary.txt】. The mechanism
 #   survived; the premise that a split job starts cold did not.
 #
 # THE THREE ARMS
@@ -101,7 +102,7 @@ jobs:
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
-      # (`docs/plans/assets-typescript.md` 決定 1). Pinned rather than left to
+      # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6
@@ -223,7 +224,7 @@ jobs:
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
-      # (`docs/plans/assets-typescript.md` 決定 1). Pinned rather than left to
+      # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6

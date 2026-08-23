@@ -15,8 +15,8 @@
 # stages all fail the same way is one stage wearing four hats. The stage that
 # failed is named on the way out, and the counts are printed rather than
 # assumed: "vitest ran" and "vitest ran something" are different claims, and
-# this project has been bitten by the difference (`docs/plans/quality-gates.md`
-# Q6, where `cargo test --exact` matched nothing and exited 0).
+# this project has been bitten by the difference (`cargo test --exact` matched
+# nothing and exited 0).
 #
 # usage: assets-gate.sh [--json FILE]
 set -euo pipefail
@@ -109,8 +109,8 @@ BOOT="$(wc -c < dist/theme-boot.js | tr -d ' ')"
 # every `<head>`, so it is the one that multiplies.
 echo "   dist/app.js $BYTES B, gzip $GZIP B; dist/theme-boot.js $BOOT B (inlined per page)"
 
-# The bundle is not committed (docs/plans/assets-typescript.md 決定 1), so this
-# is a build, not a comparison. `dist/` is the by-hand output path; the one that
+# The bundle is not committed to the repository, so this is a build, not a
+# comparison. `dist/` is the by-hand output path; the one that
 # reaches the binary is cargo's OUT_DIR, written by build.rs from these sources.
 rm -rf dist
 

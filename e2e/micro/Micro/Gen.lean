@@ -3,10 +3,10 @@
 
 **The shapes `@[ext]` builds, and the one it does not.**
 
-`docs/plans/b0-generated-decls.md` measured that a declaration Lean realizes
-from an attribute is given the position of *the attribute token*, not of its
-parent, and that no rule over `(line, col)` recovers the parent from that. B-3's
-answer is that the extractor names the origin itself, and `@[ext]` is the only
+It was measured that a declaration Lean realizes from an attribute is given
+the position of *the attribute token*, not of its parent, and that no rule
+over `(line, col)` recovers the parent from that. The extractor's answer is
+to name the origin itself, and `@[ext]` is the only
 attribute it can name without importing Mathlib — `extExtension` lives in Lean
 core while `simps` / `to_additive` / `mk_iff` / `to_dual` are Mathlib's, and an
 extractor that imported Mathlib would stop building against this very fixture.

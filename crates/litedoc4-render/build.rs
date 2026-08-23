@@ -1,6 +1,6 @@
 //! Build the site's `app.js` from the TypeScript in `web/`.
 //!
-//! `docs/plans/assets-typescript.md` 決定 1: **there is no committed bundle**.
+//! **There is no committed bundle.**
 //! `web/src` is the only copy of this code in the repository, and
 //! [`crate::assets`] picks the bundle out of cargo's `OUT_DIR`, so it cannot be
 //! a version behind its sources — which also means there is no freshness gate
@@ -81,8 +81,8 @@ fn npm(args: &[&str], out_dir: &str) {
             "could not run `npm {shown}` in crates/litedoc4-render/web: {e}\n\
              \n\
              This crate builds the site's app.js from TypeScript, so node is \
-             required to build it from source (docs/plans/assets-typescript.md \
-             決定 1). The version this tree is pinned to is in mise.toml; \
+             required to build it from source. The version this tree is \
+             pinned to is in mise.toml; \
              `mise install` puts it on PATH.",
         ),
     };

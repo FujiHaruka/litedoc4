@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # L1 — is litedoc4 usable as a Lake dependency?
 #
-# `docs/plans/lake-package.md` L1: a consumer writes `require «litedoc4»` and
-# runs `lake run docs -- --out <dir>`. What that buys is two flags nobody can
+# A consumer writes `require «litedoc4»` and runs
+# `lake run docs -- --out <dir>`. What that buys is two flags nobody can
 # supply by hand — `--extractor-bin` (Lake builds the extractor against the
 # consumer's toolchain) and `--lib` (read out of the elaborated workspace, which
 # is the only honest way to read a `lakefile.lean`). This gate is where those two

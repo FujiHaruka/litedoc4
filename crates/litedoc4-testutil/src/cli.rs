@@ -2,10 +2,10 @@
 //!
 //! Five files in `crates/litedoc4/tests/` — `build.rs`, `site.rs`,
 //! `incremental.rs`, `extract.rs`, `resident.rs` — drive the binary as a child
-//! process. Before §7 U5 of `docs/plans/refactoring.md` each carried its own
-//! `litedoc4()`, `stderr()` and `code()`: five copies of the first, in three
-//! signatures, and five byte-identical copies of each of the other two
-//! 【実測 2026-08-23】.
+//! process. Each of the five files used to carry its own `litedoc4()`,
+//! `stderr()` and `code()`: five copies of the first, in three signatures, and
+//! five byte-identical copies of each of the other two 【実測 2026-08-23】,
+//! before they were consolidated into this crate.
 //!
 //! WHY THE PATH IS AN ARGUMENT AND NOT AN `env!` HERE
 //!   Cargo defines `CARGO_BIN_EXE_<name>` only when compiling a test target of
@@ -69,8 +69,7 @@ impl Cli {
     /// files would stop seeing an ambient `EXTRACT_BIN` **and stop being able
     /// to**, which is a change to what they test rather than to how they run.
     /// Naming the variables at the one `const` that wants them is what keeps
-    /// the difference visible where it applies (§7 U5 of
-    /// `docs/plans/refactoring.md`).
+    /// the difference visible where it applies.
     ///
     /// A variable passed to [`Self::run_with_env`] still wins: the removals
     /// happen first, so a case may put back exactly what it means to test.

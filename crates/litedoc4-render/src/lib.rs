@@ -1,6 +1,6 @@
 //! Rendering module pages from the IR.
 //!
-//! Filled in by milestone **M1** — see `docs/implementation-plan.md`.
+//! Filled in by milestone **M1**.
 //!
 //! The acceptance oracle compares bytes, so a few defaults have to be
 //! overridden rather than inherited (plan §7):
@@ -87,9 +87,10 @@
 //! move — and **an empty map, over a run that renders every module it can name,
 //! reproduces the pre-M7 bytes exactly**, which is what keeps the frozen
 //! prototype's fixtures meaningful as the fallback branch's oracle
-//! ([`autolink::NameIndexBuilder::build_with_a_page_for_every_module`] is that world;
-//! `docs/implementation-plan.md` §1: gate A is suspended, and byte
-//! compatibility with doc-gen4 is no longer claimed for dependency links).
+//! ([`autolink::NameIndexBuilder::build_with_a_page_for_every_module`] is that
+//! world; doc-gen4 byte compatibility was retired once M7 pinned dependency
+//! links to versioned GitHub URLs, and is no longer claimed for dependency
+//! links).
 //!
 //! The last row is 2026-08-17's: a package whose `lakefile.toml` declares more
 //! than one `[[lean_lib]]` has modules that this run does not render, and
@@ -101,7 +102,7 @@
 //! carried in the binary by `include_str!` and written into the site tree by
 //! [`write_assets`]. Until M8-a the `<head>` named files nothing produced, so
 //! the tree `litedoc4 build` wrote could not be opened without hand-copying
-//! doc-gen4's own assets over it (`docs/plans/ui-redesign.md` §2.2 / 決定 6).
+//! doc-gen4's own assets over it.
 //! **They are deliberately outside the incremental render key** — see the
 //! module's own heading.
 

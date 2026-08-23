@@ -19,8 +19,8 @@ it looked at rather than only that it was happy:
   7. resources         no <script src> / <link href> points at another host
 
 (2) used to be "the search index's module array names pages that exist", back
-when it had one. `docs/plans/search-v2.md` P0 took it out — there is one module
-array, in `modules.json`, and a declaration names its module by subscript into
+when it had one. That array was pulled out into `modules.json` — there is one
+module array now, and a declaration names its module by subscript into
 it. So the question became whether those subscripts land, which is the same
 failure (a result row linking to a page nobody wrote) caught one file earlier.
 

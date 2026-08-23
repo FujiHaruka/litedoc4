@@ -2,9 +2,10 @@
  * `search-index.bin`, read in place: the page holds the file, not a parsed copy
  * of it.
  *
- * The layout is `crates/litedoc4-global/src/search_index.rs`, the plan and the
- * measurements are `docs/plans/search-v2.md`. In short, the JSON this replaces
- * cost 860 KiB of JS heap for a 405,402 B file【実測】; this costs the file.
+ * The layout is `crates/litedoc4-global/src/search_index.rs`. In short, the
+ * JSON this replaces cost 860 KiB of JS heap for a 405,402 B file
+ * 【実測 → `benchmarks/results/search-design-2026-08-19.txt`】; this costs the
+ * file.
  *
  * **The ranking is unchanged** — three tiers, same order, same numbers as the
  * version that scored JS strings. That is deliberate: an index that also ranked

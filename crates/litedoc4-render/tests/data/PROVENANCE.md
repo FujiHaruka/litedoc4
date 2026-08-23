@@ -30,9 +30,9 @@ markups were never the same bytes: the prototype wrote `div.decl` with a
 `div.gh_link` above the block, and this crate writes `section.decl[data-kind]`
 with the source link in the header (M8-b).
 
-Feature-sweep C-2 (`docs/plans/feature-sweep.md`) gives every declaration a
+Feature-sweep C-2 gives every declaration a
 `Used by` block, so **all 187 cases gained a stub the prototype could not have
-had**. The role was switched once, deliberately (§3【決定 1】/ C-4), which is
+had**. The role was switched once, deliberately, which is
 what the last paragraph of this file already prescribed: *"replace the fixture
 with a regression test against our own output and say in the test name that the
 oracle was lost."* The test is now

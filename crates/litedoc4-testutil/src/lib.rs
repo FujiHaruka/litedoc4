@@ -12,17 +12,15 @@
 //!   `litedoc4-incr/src/prune.rs`, `litedoc4/src/packages.rs` and
 //!   `litedoc4-render/src/{assets,config,site}.rs` — and a `tests/` file cannot
 //!   reach those at all. That, and not the line count, is what decided a crate.
-//!   §7 U2 of `docs/plans/refactoring.md` records the decision.
 //!
 //! WHY IT DEPENDS ON NOTHING
-//!   §2.3 of the same plan: an external crate is a licence and an advisory
-//!   decision here even as a `dev-dependency` — `deny.toml`'s `[graph]` sets no
-//!   `exclude-dev`. A workspace member that is `publish = false` costs neither.
+//!   An external crate is a licence and an advisory decision here even as a
+//!   `dev-dependency` — `deny.toml`'s `[graph]` sets no `exclude-dev`. A
+//!   workspace member that is `publish = false` costs neither.
 
 // `cli`, `corpus`, `hash`, `text` and `tree` are `pub mod` with no root
-// `pub use`: §6 X5 of `docs/plans/refactoring.md` settled that the root's
-// re-exports carry only what another crate imports by name and what has no
-// other route. Call sites read `litedoc4_testutil::corpus::LITEDOC4_IR.path()`
+// `pub use`: the root's re-exports carry only what another crate imports by
+// name and what has no other route. Call sites read `litedoc4_testutil::corpus::LITEDOC4_IR.path()`
 // and `litedoc4_testutil::text::show_ascii(..)`, which say where the variable
 // name and the escaping policy come from.
 //
@@ -50,7 +48,7 @@ mod tests {
     /// `clippy::allow_attributes` — the lint that pushes every suppression
     /// towards `#[expect]`, which fails once the lint stops firing — **does not
     /// look at the inner form**, while `allow_attributes_without_reason` does
-    /// 【実測 2026-08-23, `docs/plans/refactoring.md` §11 E4】. So a
+    /// 【実測 2026-08-23】. So a
     /// `#![allow(…, reason = "…")]` can be written anywhere in the workspace
     /// and `cargo clippy -- -D warnings` stays green: what `Cargo.toml`
     /// enforces is that a suppression carries a reason, not that it expires.

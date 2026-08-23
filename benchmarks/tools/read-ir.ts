@@ -4,8 +4,8 @@
 // and measures how long that takes. Schema 2 (`experiments/stage4b`, the
 // positional span lists) is read by the same code path — see "Schema 2" below.
 //
-// This is the stand-in for the stage-4 consumer (`approach.md` §5.6: HTML,
-// search index, cross references are all built outside Lean from the IR). The
+// This is the stand-in for the stage-4 consumer: HTML, search index and cross
+// references are all meant to be built outside Lean from the IR. The
 // point of the tool is not what it computes — declaration, reference and byte
 // totals are just enough work to force every file to be parsed — but that it
 // **never starts Lean**. If the numbers below are small, the "Lean is an

@@ -20,8 +20,8 @@
 //! # M8-b: the comparison is over content, not bytes
 //!
 //! Up to M7 every assertion here was `got == want`. **M8-b rewrote the markup
-//! on purpose** (`docs/plans/ui-redesign.md`), so that comparison can no longer
-//! hold and gate A is finished (plan §1). What survives it is everything the
+//! on purpose**, so that comparison can no longer
+//! hold and doc-gen4 byte compatibility is retired. What survives it is everything the
 //! prototype's bytes *said* rather than how they said it, and that is what is
 //! compared now:
 //!
@@ -358,7 +358,7 @@ fn the_corpus_numbers_are_what_was_measured() {
 /// declaration block says what the fixture's says.
 ///
 /// **The fixture was the prototype's output until 2026-08-22 and is this
-/// renderer's now** (`docs/plans/feature-sweep.md` §3【決定 1】/ C-4).
+/// renderer's now.**
 /// Feature-sweep C-2 gives every declaration a `Used by` block, so all 187 of
 /// these cases gained a stub the prototype could not have had — the role of
 /// this file changed **once**, deliberately, and `bless` below is what makes the
@@ -397,7 +397,7 @@ fn first_difference(want: &str, got: &str) -> String {
 /// `LITEDOC4_BLESS=1 cargo test -p litedoc4-render --test page_parts`
 ///
 /// The printing is the point: the fixture is one 840 KB line, so `git diff` of
-/// it is not a review. What `docs/plans/feature-sweep.md` §3 asks for — *what
+/// it is not a review. What matters — *what
 /// changed and because of which item* — is read out of this output.
 ///
 /// **Only `html` is rewritten.** `header` is the same fixture's record of the
@@ -968,8 +968,8 @@ fn the_whole_corpus_carries_the_prototypes_content() {
     }
     // M7-c: the prototype had no dependency map, so its bytes are the
     // **fallback** branch — which an empty [`ExternalLinks`] reproduces
-    // exactly. With a map every link into a dependency moves, on purpose
-    // (`docs/implementation-plan.md` §1).
+    // exactly. With a map every link into a dependency moves, on purpose —
+    // doc-gen4 byte compatibility is no longer required.
     //
     // 2026-08-17: the prototype also rendered the whole environment, so its
     // relative links into `Mathlib.*` point at pages it wrote. A run's world has

@@ -8,7 +8,7 @@
 #   It is not computable ahead of time in production, so it is not a proposal — it is the
 #   UPPER BOUND on what any narrowing could achieve. If the oracle set does not move the
 #   wall clock either, narrowing is dead and the answer is "place doc generation in the
-#   build job" (approach.md §3). Deriving it: drop the cache, run the extractor, then ask
+#   build job". Deriving it: drop the cache, run the extractor, then ask
 #   mincore which olean pages are resident. Nothing else runs in between.
 #
 # WHY ALL VARIANTS RUN IN ONE JOB

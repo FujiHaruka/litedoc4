@@ -5,15 +5,15 @@
 # reference.** Every link into a dependency is now that package's version-pinned
 # GitHub blob URL whenever the run resolves a package root (`build` always does;
 # `site` and `render` do when given `--root`), so a diff here is **expected** and
-# is no longer a failure of the port. Gate A is suspended, not redefined — see
-# `docs/implementation-plan.md` §1.
+# is no longer a failure of the port. Gate A is suspended, not redefined.
 #
 # A "site" here is what full generation produces: the module pages **and** the
 # whole-package artifacts in one tree. That was 6 artifacts and 438 files for
 # the target package when this comparator was written; M8-d took it to 7 and
-# `docs/plans/search-v2.md` P0 to 8, so it is 440 now, 441 once a module has
-# been added. **The reference side is doc-gen4's tree and does not move with
-# it** — which is one more reason gate A is suspended rather than redefined. `render-compare.sh` looks at `*.html` only,
+# splitting `instances.json` out of the search index took it to 8, so it is
+# 440 now, 441 once a module has been added. **The reference side is doc-gen4's
+# tree and does not move with it** — which is one more reason gate A is
+# suspended rather than redefined. `render-compare.sh` looks at `*.html` only,
 # so it cannot see `declaration-data.bmp`, `name-map.json` or `references.bib`;
 # `global-compare.sh` looks at those six and nothing else. This compares every
 # file of both kinds, which is the milestone gate's denominator.

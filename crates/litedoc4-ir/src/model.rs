@@ -253,8 +253,11 @@ pub struct Decl {
     pub col: u32,
     pub end_line: u32,
     pub end_col: u32,
-    /// Schema 5 (`docs/plans/feature-sweep.md` B-3): the *other* range
-    /// `findDeclarationRanges?` returns.
+    /// The *other* range `findDeclarationRanges?` returns, added in schema 5.
+    /// On its own, `selection_range == range` does not reliably mean
+    /// "auto-generated" — it takes a check for whether the declaration sits
+    /// in a known Lean-core extension alongside it (see
+    /// [`ModuleFile::generated_by`]) to tell the two apart.
     ///
     /// **Read it through [`ModuleFile::naming_of`], not directly.** A schema-4
     /// file has no such key, so `None` here means "nobody was asked" rather
@@ -264,8 +267,8 @@ pub struct Decl {
     pub selection_range: Option<SelectionRange>,
     /// Position in the order the extractor enumerated the module. Two pairs of
     /// declarations in this package share a `(line, col)` — four declarations
-    /// 【実測 2026-08-21, `docs/plans/b0-generated-decls.md` §3】 — so the range
-    /// alone does not order the page.
+    /// 【実測 2026-08-21 → `benchmarks/results/generated-decls-2026-08-21.txt`】
+    /// — so the range alone does not order the page.
     pub index: u32,
     pub members: Vec<Member>,
     pub doc: Option<String>,
@@ -277,9 +280,8 @@ pub struct Decl {
     /// Schema 4. Omitted by the writer when empty, so an empty vector here
     /// means "no attributes", never "unknown".
     ///
-    /// The **element** shape moved in schema 5 (`docs/plans/feature-sweep.md`
-    /// B-2): `[name, value]` where schema 4 had `"name value"`. Both parse —
-    /// see [`Attr`].
+    /// The **element** shape moved in schema 5: `[name, value]` where schema 4
+    /// had `"name value"`. Both parse — see [`Attr`].
     #[serde(default)]
     pub attrs: Vec<Attr>,
     /// Schema 4, instances only: the class this instance is for. `None` for
@@ -425,7 +427,7 @@ pub enum GeneratedFact<'a> {
 /// What the IR deliberately does *not* carry is the axiom set. Every
 /// Mathlib-dependent declaration transitively uses `Classical.choice` /
 /// `propext` / `Quot.sound`, so the full list is a large field with almost no
-/// information in it (`docs/plans/feature-sweep.md` §6 決定 2).
+/// information in it.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SorryKind {
@@ -613,7 +615,7 @@ impl<'de> Deserialize<'de> for Ref {
 /// `deps/<PackageRoot>.json` — the name -> defining module map for the
 /// constants this package refers to from one dependency package.
 ///
-/// Two columns is all a link needs (approach.md §5.3); `kind` is only wanted by
+/// Two columns is all a link needs; `kind` is only wanted by
 /// a search UI, and `docLink` is recoverable from `(module, name)`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

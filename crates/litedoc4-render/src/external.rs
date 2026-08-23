@@ -2,8 +2,7 @@
 //!
 //! Milestone **M7-b** — the value type; the resolver that fills it is
 //! `litedoc4`'s `packages` module. **M7-c** wired the map into every call site
-//! that builds a link to another module
-//! (`docs/implementation-plan.md` §M7). This module answers *where a
+//! that builds a link to another module. This module answers *where a
 //! dependency's source is* and nothing else: which of the three shapes of link a
 //! page draws is [`crate::autolink::NameIndex::link_to`]'s single decision,
 //! because two of them need a fact this map does not hold — whether the run
@@ -11,8 +10,9 @@
 //!
 //! # The rule is doc-gen4's, not a new one
 //!
-//! Every page of the reference tree already carries the URL this builds
-//! (`docs/implementation-plan.md` §M7)【実測】:
+//! Every page of the reference tree already carries the URL this builds —
+//! 6,080 pages yielded 241,553 entries and every one had an `#L<a>-L<b>`
+//! anchor 【実測 2026-08-16 → `benchmarks/results/m7a-summary.txt`】:
 //!
 //! ```text
 //! Mathlib/Order/Basic.html : …/mathlib4/blob/fabf563a7c95…/Mathlib/Order/Basic.lean#L67-L67
@@ -39,8 +39,8 @@
 //!
 //! # What is deliberately *not* here
 //!
-//! The target package's own root. M7 changes dependency links only
-//! (`docs/implementation-plan.md` §M7「自パッケージのリンクを巻き込まない」), and a
+//! The target package's own root. M7 changes dependency links only,
+//! deliberately leaving the target package's own links untouched, and a
 //! map that does not hold the root cannot resolve it — the omission is
 //! structural rather than a rule at the call site.
 //!
@@ -374,8 +374,7 @@ impl ExternalLinks {
     /// [`crate::autolink::NameIndex::link_to`] (one may get a page link, the
     /// other never does).
     ///
-    /// **The line anchor is optional and its absence is not a failure**
-    /// (`docs/implementation-plan.md` §M7「行範囲が取れない宣言でリンクを消さない」):
+    /// **The line anchor is optional and its absence is not a failure**:
     /// a declaration with no source range gets the file's URL, which is the
     /// shape doc-gen4's own `gh_nav_link` already has.
     #[must_use]
@@ -529,7 +528,7 @@ mod tests {
         ExternalLinks::new([("Mathlib", MATHLIB), ("Init", CORE)])
     }
 
-    /// The two URLs `docs/implementation-plan.md` §M7 quotes off the reference
+    /// The two URLs this module's own doc comment quotes off the reference
     /// tree, built from the map rather than read out of a page.
     #[test]
     fn the_two_urls_the_plan_quotes_come_out_of_the_map() {

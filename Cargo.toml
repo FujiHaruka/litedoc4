@@ -24,8 +24,7 @@ members = ["crates/*"]
 #
 # Not hypothetical: schema 4 → 5 was written with this left at 0.1.4, and
 # `tools/lake-download-gate.sh` caught the released v0.1.4 binary refusing a
-# schema-5 `attrs` — `invalid type: sequence, expected a string`
-# (docs/plans/feature-sweep.md §9).
+# schema-5 `attrs` — `invalid type: sequence, expected a string`.
 #
 # A version no release carries is the **correct** state for an unreleased
 # checkout, not a gap: source 3 finds no asset, says so, and falls through to
@@ -54,13 +53,12 @@ opt-level = 3
 serde = { version = "1", features = ["derive"] }
 # `preserve_order` is not optional: the global artifacts are written from
 # explicitly pre-sorted arrays and their bytes depend on insertion order.
-# See docs/implementation-plan.md §7.
 serde_json = { version = "1", features = ["preserve_order"] }
 # LaTeX to MathML, used by `litedoc4-md` only (`src/math.rs`).
 #
 # WHY THIS ONE AND NOT `pulldown-latex`
-#   `docs/plans/feature-sweep.md` 決定 4 named `pulldown-latex`, whose closure is
-#   one crate. Measuring it decided otherwise: it escapes `<` and `&` inside
+#   `pulldown-latex` was the first candidate, since its closure is one crate.
+#   Measuring it decided otherwise: it escapes `<` and `&` inside
 #   `\text{…}` and **nowhere else**, so `$a < b$` — the most ordinary formula
 #   there is — comes out as `<mo><</mo>`. 61 of Mathlib's 2,123 math spans
 #   (2.9%) carry markup a browser has to guess at 【実測 2026-08-22 →
@@ -75,7 +73,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # `default-features = false` turns off nothing today — the crate's features are
 # `serde` and `ariadne`, both off by default — and says so if that changes.
 math-core = { version = "0.7.0", default-features = false }
-# `litedoc4.toml`, the per-package site configuration (feature-sweep C-3).
+# `litedoc4.toml`, the per-package site configuration.
 #
 # `basic-toml` and not `toml`: the latter brings `toml_parser`, `serde_spanned`,
 # `toml_datetime` and **two** versions of `winnow`; this one's whole dependency

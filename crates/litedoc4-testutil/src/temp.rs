@@ -29,8 +29,9 @@ static NEXT: AtomicU32 = AtomicU32::new(0);
 ///
 /// Binding it once per file is also what keeps the prefix out of the call
 /// signature. `TempDir::new(prefix, what)` would be two `&str` in a row, and
-/// swapping them is not something the compiler can see — the same weakness §4
-/// R8 of `docs/plans/refactoring.md` went and removed from three signatures.
+/// swapping them is not something the compiler can see — the same weakness
+/// that got removed from three other signatures elsewhere in this workspace
+/// by replacing positional string/tuple pairs with named types.
 pub struct TempDirs {
     prefix: &'static str,
 }
@@ -90,8 +91,9 @@ impl TempDirs {
 ///   because `tempfile` would be an external crate, and an external crate is a
 ///   licence and an advisory decision here even as a `dev-dependency` —
 ///   `deny.toml`'s `[graph]` sets no `exclude-dev`. Against that cost, this is
-///   the whole implementation and nothing else in the tree has to stay equal to
-///   it. §2.3 of `docs/plans/refactoring.md` is where that is decided.
+///   the whole implementation and nothing else in the tree has to stay equal
+///   to it — keeping the dependency count at zero is a deliberate choice, not
+///   an oversight.
 pub struct TempDir {
     path: PathBuf,
 }

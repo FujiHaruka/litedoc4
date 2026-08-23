@@ -13,7 +13,7 @@ this directory lives here.
 `fuzz/` is not a fixture in the sense of the rows above: nothing in it is
 compared against an expected output. Each file is an *input* chosen because it
 is known or suspected to be dangerous — the NUL-in-a-fenced-block and the
-body-less GFM table that kill MD4Lean (`docs/implementation-plan.md` §7), plus
+body-less GFM table that kill MD4Lean, plus
 deep nesting, unterminated constructs, astral characters, a 200 KB line, entity
 edge cases, CR without LF, and the empty string. Adding a file adds a case.
 
@@ -22,10 +22,9 @@ edge cases, CR without LF, and the empty string. Adding a file adds a case.
 It held **doc-gen4's** `docStringToHtml` output, produced by
 `tests/oracle/gen-docgen4-expected.ts` → `tests/oracle/dump-html.lean`, and 327
 of its cases were compared against it byte for byte. Feature-sweep C-1
-(`docs/plans/feature-sweep.md`) converts `$…$` to MathML while the page is
+converts `$…$` to MathML while the page is
 written, which doc-gen4 does not do, so **five of the 327 could never agree with
-it again**. The role of the file was switched once, deliberately
-(`docs/plans/feature-sweep.md` §3【決定 1】/ C-4): it is now **this crate's own
+it again**. The role of the file was switched once, deliberately: it is now **this crate's own
 output**, and the test that reads it is named `every_case_matches_the_frozen_output`
 rather than `…_doc_gen4`.
 

@@ -7,7 +7,7 @@
 //! minutes*) and #404 ("hangs indefinitely", which turned out to be Lean core's
 //! documentation still being generated in the background). **The algorithm
 //! existed already**: `litedoc4 build` rebuilds a no-op package in 0.31 s and a
-//! one-declaration edit in 4.35 s 【実測, `docs/plans/feature-sweep.md` §4】.
+//! one-declaration edit in 4.35 s 【実測 2026-08-17】.
 //! What was missing is the loop, the server, and saying out loud what is
 //! happening.
 //!
@@ -54,7 +54,7 @@
 //!    still comes from the ledger — so an event-driven build would be *this*
 //!    loop with a different alarm clock, and the alarm clock is the part that
 //!    behaves differently on each operating system.
-//! 2. **One path, not two.** `docs/plans/feature-sweep.md` A-2 says a watcher
+//! 2. **One path, not two.** A watcher
 //!    that splits into "events where available, polling otherwise" is two code
 //!    paths that behave differently on different machines, which is exactly what
 //!    this project refuses elsewhere. Polling is not the fallback here; it is the

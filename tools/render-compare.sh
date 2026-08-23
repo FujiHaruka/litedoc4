@@ -5,8 +5,7 @@
 # reference.** Every link into a dependency is now that package's version-pinned
 # GitHub blob URL whenever the run resolves a package root (`build` always does;
 # `site` and `render` do when given `--root`), so a diff here is **expected** and
-# is no longer a failure of the port. Gate A is suspended, not redefined — see
-# `docs/implementation-plan.md` §1.
+# is no longer a failure of the port. Gate A is suspended, not redefined.
 #
 # The point is to fail loudly and specifically: which files are missing, which
 # are extra, and for the ones that differ, where the first differing byte is.

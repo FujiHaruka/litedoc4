@@ -42,7 +42,7 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 | モジュール | 担当する形 |
 |---|---|
 | `Micro/Basic.lean` | **import の無いモジュール**。docstring 付きの def / theorem / structure / instance / `abbrev` (L3-1 が名指しした形) / inductive |
-| `Micro/Notation.lean` | **`scoped notation`** — doc-gen4 が出せない唯一のもの (approach.md §10)。署名が `⟦n⟧` と印字されなくなったらここで出る |
+| `Micro/Notation.lean` | **`scoped notation`** — doc-gen4 が出せない唯一のもの。署名が `⟦n⟧` と印字されなくなったらここで出る |
 | `Micro/Unicode.lean` | **U1 / U2 の罠** — `𝒜` (U+1D49C) は BMP 外なので、UTF-16 順ソートと UTF-8 順ソートが食い違う唯一の領域。docstring 内の markdown (heading / code span / リスト) も |
 | `Micro/Shapes.lean` | **`class` / `class inductive` / 非 `mk` constructor / `extends` の継承 field / field の implicit binder** |
 | `Micro/Dep.lean` + `../micro-dep/` | **版固定できない依存** — path require なので manifest entry に `url` も `rev` も無い。モジュール名は **`«Dep-Aux»`** (ギュメが要る形)。**版固定できない依存へのリンク**と**`.lidx` の綴り差**がここを通る (下記) |
@@ -61,7 +61,7 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 
 **既存の 355 本のテストは 1 本も反応しなかった**し、**byte 再現ゲートでも原理的に出なかった** —
 オラクル (doc-gen4 の参照木) 自体が inductive を 1 つも含まないページ群だったから。
-「全件バイト一致は分岐被覆の証明ではない」(→ `docs/milestone-log.md` M1) の一段強い形:
+「全件バイト一致は分岐被覆の証明ではない」の一段強い形:
 **オラクルの入力に無い形は、何バイト一致しても見えない。**
 
 回帰は `crates/litedoc4-render/src/decl.rs` の
@@ -154,7 +154,7 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 | `consumer/` | **Lake の配線** — litedoc4 を `require` した利用者の経路 | `tools/lake-package-gate.sh` / `tools/lake-download-gate.sh` |
 
 `consumer/` は litedoc4 を **path で `require`** する最小パッケージで、
-`lake run docs -- --out <dir>` が動くかだけを見る (計画は `docs/plans/lake-package.md` L1)。
+`lake run docs -- --out <dir>` が動くかだけを見る。
 検査しているのは、利用者が手で書けない 2 つの引数を Lake から取れているか:
 
 - **`--extractor-bin`** — 抽出器を Lake が建てる (root の toolchain に対して建つので、

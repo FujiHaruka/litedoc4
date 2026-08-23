@@ -94,9 +94,8 @@ pub fn show_ascii_head(s: &str, max: usize) -> String {
 /// **One constant, deliberately.** Two oracles over the same corpus used to cut
 /// their windows differently (40/90 in `litedoc4-render/tests/page_parts.rs`,
 /// 40/40 in `litedoc4-md/tests/docgen4.rs`), so the same disagreement printed
-/// two ways and the two messages could not be laid side by side — §7 U3 of
-/// `docs/plans/refactoring.md`. Moving these moves **every** report; that is
-/// what makes them comparable.
+/// two ways and the two messages could not be laid side by side. Moving these
+/// moves **every** report; that is what makes them comparable.
 const BEFORE: usize = 40;
 /// See [`BEFORE`].
 const AFTER: usize = 90;
@@ -104,8 +103,8 @@ const AFTER: usize = 90;
 /// Two strings that were meant to be equal, and what to call each of them.
 ///
 /// The labels are fields rather than positional arguments so that a call site
-/// cannot swap them without the swap being written down — the weakness §4 R8 of
-/// `docs/plans/refactoring.md` removed from three other signatures. `want` is
+/// cannot swap them without the swap being written down — the same weakness
+/// removed from three other signatures elsewhere in this workspace. `want` is
 /// the recorded side (the oracle, the frozen fixture); `got` is what this tree
 /// produced.
 ///
@@ -333,9 +332,9 @@ mod tests {
     /// written down here rather than read from [`BEFORE`] and [`AFTER`].
     ///
     /// Reading the constants would make this test agree with whatever they
-    /// said, which is not a check. The number is the decision §7 U3 of
-    /// `docs/plans/refactoring.md` asked for — two oracles over one corpus used
-    /// 40/90 and 40/40 — so moving it has to be written twice, on purpose.
+    /// said, which is not a check. The number is a deliberate, independent
+    /// decision — two oracles over one corpus used 40/90 and 40/40 — so moving
+    /// it has to be written twice, on purpose.
     #[test]
     fn every_window_is_one_hundred_and_thirty_bytes() {
         let want = format!("{}X{}", "a".repeat(200), "b".repeat(200));

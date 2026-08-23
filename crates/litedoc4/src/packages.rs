@@ -1,9 +1,8 @@
 //! Which GitHub blob prefix each **dependency's** module root belongs to.
 //!
-//! Milestone **M7-b**, and the whole of it is offline. The plan's table
-//! (`docs/implementation-plan.md` §M7) names three inputs and this file reads all
-//! three without a socket, because "no network in the product" is the reason案
-//! (c) was rejected and is not a thing to give back:
+//! Milestone **M7-b**, and the whole of it is offline. This file reads the
+//! three inputs below without a socket, because "no network in the product" is
+//! the reason option (c) was rejected and is not a thing to give back:
 //!
 //! | value | where it comes from |
 //! |---|---|

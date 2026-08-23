@@ -3,8 +3,8 @@
 #
 # WHAT IT ASSERTS
 #   Four commands put HTML on disk — `build`, `site`, `render`, `global` — and
-#   `docs/plans/feature-sweep.md` C-3【決定 3】 makes the site's title and its
-#   index prose come from a file in the package rather than from a flag. The
+#   the site's title and its index prose come from a file in the package
+#   (`litedoc4.toml`) rather than from a flag. The
 #   whole argument for the file is that a flag can be forgotten on one command
 #   and then two of them disagree. This gate is what turns that argument into a
 #   checked property:

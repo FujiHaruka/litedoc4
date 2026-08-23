@@ -1,13 +1,13 @@
-# U3 — the browser gate on Windows.
+# The browser gate on Windows.
 #
-# `ui-redesign.md` 決定 2 dropped the JuliaMono web font and bet on the system
-# monospace stack. Q8's check 8 measured that bet on macOS and on
-# `ubuntu-latest` and found no missing glyph on either, and recorded that
-# **Windows was untested because no machine here has Consolas**. That is true of
-# this desk and false of GitHub: `windows-latest` ships Consolas *and* Chrome,
-# and has been free all along — the same shape as the failure Q8 itself recorded
-# ("the Linux machine had been free all along"), one operating system further on
-# (`docs/plans/unverified-sweep.md` U3).
+# The site ships no monospace web font (e.g. JuliaMono); it bets that the
+# system monospace stack renders what a Lean package's pages contain. Q8's
+# check 8 measured that bet on macOS and on `ubuntu-latest` and found no
+# missing glyph on either, and recorded that **Windows was untested because no
+# machine here has Consolas**. That is true of this desk and false of GitHub:
+# `windows-latest` ships Consolas *and* Chrome, and has been free all along —
+# the same shape as the failure Q8 itself recorded
+# ("the Linux machine had been free all along"), one operating system further on.
 #
 # Two jobs, because the site has to be built where Lean runs: ubuntu builds the
 # e2e fixture's site and uploads it, Windows downloads it and drives Chrome. The
@@ -44,7 +44,7 @@ jobs:
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
-      # (`docs/plans/assets-typescript.md` 決定 1). Pinned rather than left to
+      # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6

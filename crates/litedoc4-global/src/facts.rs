@@ -56,8 +56,9 @@ use serde::{Deserialize, Serialize};
 ///
 /// The second one was a hand-written difference inside a test that needs a
 /// 432-module corpus this machine no longer has, so when
-/// [`ModuleFacts::refs`] arrived (`docs/plans/feature-sweep.md` C-2) it became
-/// wrong and nothing could notice. The difference is not written down anywhere
+/// [`ModuleFacts::refs`] arrived — added 2026-08-22 for declaration-level
+/// reverse references ("used by") — it became wrong and nothing could
+/// notice. The difference is not written down anywhere
 /// any more: what is asserted is that the serialised key list *starts* with
 /// this, which `tests::the_prototypes_keys_come_first` checks with no corpus,
 /// no state file and no fixture — so every field added from here on is covered
@@ -129,7 +130,7 @@ pub struct ModuleFacts {
     pub instances_for: Vec<(String, String)>,
     /// **Which of this module's declarations mention each constant** — the
     /// forward half of doc-gen4 #77's "Used by", inverted by
-    /// [`crate::artifacts::Artifacts`] (`docs/plans/feature-sweep.md` C-2).
+    /// [`crate::artifacts::Artifacts`].
     ///
     /// Key: the constant's name, exactly as `litedoc4_ir::Ref` carries it.
     /// Value: **indices into [`ModuleFacts::decls`]**, ascending and

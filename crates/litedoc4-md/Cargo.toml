@@ -16,7 +16,7 @@ math-core = { workspace = true }
 # The escapes a failure message uses (`litedoc4_testutil::text`), shared so that
 # a disagreement over one corpus prints the same way whichever oracle found it.
 # Workspace-local and `publish = false`, so it is in neither NOTICE nor any
-# released binary (docs/plans/refactoring.md §7 U3).
+# released binary.
 litedoc4-testutil = { path = "../litedoc4-testutil" }
 serde = { workspace = true }
 serde_json = { workspace = true }

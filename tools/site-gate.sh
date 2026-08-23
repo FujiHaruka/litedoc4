@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Does a generated site close over itself? — the gate that outlived gate A.
 #
-# Byte reproduction against doc-gen4 ended at M8 (docs/implementation-plan.md
-# §1): the UI is ours, so no third party knows what these bytes should be. What
+# Byte reproduction against doc-gen4 ended at M8: the UI is ours, so no third
+# party knows what these bytes should be. What
 # survives the loss of an external oracle is what the tree can be asked about
 # itself, and that is the two checks run here. Neither needs the network, the
 # corpus, or doc-gen4.

@@ -28,14 +28,16 @@
 #   M1 laptop with a warm page cache, not on a runner.
 #
 # ============================================================================
-# THE ONE THING NOT TO CHANGE: ONE JOB  【実測 → docs/approach.md §3, §8】
+# THE ONE THING NOT TO CHANGE: ONE JOB  【実測】
 # ============================================================================
 #   `lake build` and the documentation build must stay in the SAME job. The
 #   extractor's floor is importing the environment, and that is I/O: what decides
 #   it is whether the oleans are in the page cache.
 #
 #   **How much a split costs depends on the runner's memory**, and that has
-#   already changed once 【実測】:
+#   already changed once 【実測 -> the litedoc4 repo's
+#   benchmarks/results/ci-placement-*-summary.txt, which carry the runner model,
+#   core count, major-fault counts and per-run timings behind every row below】:
 #
 #     2 cores / 7.75 GiB (2026-08-10)  same job 2.61 s / split 20-89 s = 8-34x
 #     4 cores / 15.6 GiB (2026-08-16)  same job 2.4-2.6 s / split 2.5-2.9 s

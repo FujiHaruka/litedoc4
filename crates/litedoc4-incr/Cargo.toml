@@ -33,8 +33,7 @@ sha2 = { version = "0.10", features = ["asm"] }
 [dev-dependencies]
 # Temporary directories, shared so that the workspace has one implementation
 # of "remove this tree when the test ends" instead of fifteen. Workspace-local
-# and `publish = false`, so it is in neither NOTICE nor any released binary
-# (docs/plans/refactoring.md §7 U2).
+# and `publish = false`, so it is in neither NOTICE nor any released binary.
 litedoc4-testutil = { path = "../litedoc4-testutil" }
 
 [lints]

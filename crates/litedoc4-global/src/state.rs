@@ -1,8 +1,8 @@
 //! The `contentHash` cache: `--state <dir>` keeps `<dir>/global-state.json`.
 //!
 //! Ported from `experiments/stage7h/global.ts:127-229` (frozen). Milestone
-//! **M2-b** — see `docs/implementation-plan.md` §3, which asks for "the cache
-//! version key plus the test that breaks it" rather than for a cache.
+//! **M2-b**: the goal was the cache version key plus the test that breaks it,
+//! rather than the cache implementation itself.
 //!
 //! ```text
 //! index.json ──┬─> State::load ──> facts_for ──> [ModuleFacts] ──> State::save

@@ -3,8 +3,8 @@
 # CI job that unpacks its olean cache immediately before running the doc extractor starts
 # warm rather than cold.
 #
-# docs/approach.md §3 claims "CI (always cold)". That claim carries no label and no log.
-# This driver produces the log.
+# The assumption that CI always starts with a cold page cache carries no label
+# and no log. This driver produces the log.
 #
 #   sizes  sweep a copy payload across sizes that straddle this host's page-cache headroom
 #          and record the residency of the *destination* right after the copy finishes.

@@ -1,6 +1,5 @@
 /**
- * The four data files, split by when they are needed (plan 決定 5,
- * `docs/plans/search-v2.md` P0):
+ * The four data files, split by when they are needed:
  *
  *   modules.json       every module, its page and what imports it.
  *                      Small, wanted immediately — it draws the tree.

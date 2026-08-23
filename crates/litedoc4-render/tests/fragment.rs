@@ -141,8 +141,8 @@ impl Case {
         // M7-c: the oracle is the frozen prototype, which had no dependency
         // map, so the comparison is against the **fallback** branch — which an
         // empty [`ExternalLinks`] reproduces byte for byte. A populated map
-        // would move every link into a dependency, on purpose
-        // (`docs/implementation-plan.md` §1).
+        // would move every link into a dependency, on purpose — doc-gen4
+        // byte compatibility is no longer required.
         //
         // 2026-08-17: and the prototype rendered the whole environment, so its
         // links point at pages it wrote. A run's world has pages for the target
@@ -589,8 +589,8 @@ fn the_whole_corpus_matches_the_prototype() {
     // M7-c: the oracle is the frozen prototype, which had no dependency
     // map, so the comparison is against the **fallback** branch — which an
     // empty [`ExternalLinks`] reproduces byte for byte. A populated map
-    // would move every link into a dependency, on purpose
-    // (`docs/implementation-plan.md` §1).
+    // would move every link into a dependency, on purpose — doc-gen4 byte
+    // compatibility is no longer required.
     // 2026-08-17: and the prototype rendered the whole environment, so its
     // links point at pages it wrote. A run's world has pages for the target
     // package alone; the oracle is resolved in the world it was recorded in.

@@ -36,7 +36,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 /// inherited `EXTRACT_BIN` is the one thing that could carry a command line
 /// past a refusal and make "this flag is required" pass for the wrong reason.
 /// The other four `crates/litedoc4/tests/*.rs` deliberately keep the ambient
-/// environment (§7 U5 of `docs/plans/refactoring.md`).
+/// environment.
 const LITEDOC4: Cli = Cli::at(BIN).clearing(&["EXTRACT_BIN", "TARGET_REPO", "LAKE"]);
 
 /// 40 lower-case hex digits after `/blob/`, or `incremental` refuses the URL
