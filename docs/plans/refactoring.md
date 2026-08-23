@@ -2284,9 +2284,14 @@ CLAUDE.md がこの罠を記録したのは**対話セッション側の話**で
 **EXIT trap を張っていて `set -e` の 6 本**が対象: `deps-docs-gate` / `extractor-uniqueness` /
 `extractor-mismatch` / `corpus-gate` / `e2e-micro` / `publish-pages`。
 `site-compare` / `render-compare` / `watch-gate` も trap を張るが `set -uo` なので免疫。
-**現に嘘をついている本は無い** — 一番近いのは `rm -rf "$WORK"` を直に張っている 2 本で、
-**作業領域を長命プロセスが掴んでいると `rm` が失敗する** (CLAUDE.md の `litedoc4 watch` の事例と
-同じ形)。つまり T5 は**今出ている欠陥の修正ではなく、出方が分かっている欠陥の予防**。
+**無条件に嘘をつく本はもう無い** (e2e-micro は 2026-08-18 に直っている) **が、穴は 3 本に残る** —
+`rm -rf "$WORK"` を張る `extractor-mismatch` と `publish-pages`、そして `cp` が失敗しうる
+`e2e-micro` (**自分のコメントで「A failing `cp` still fails here」と認めている**)。
+`rm` が失敗するのは**作業領域を長命プロセスが掴んでいるとき**で、CLAUDE.md の `litedoc4 watch`
+の事例と同じ形。つまり T5 は**今出ている欠陥の修正ではなく、出方が分かっている欠陥の予防**。
+なお **6 本のうち 4 本 (`corpus-gate` / `e2e-micro` / `extractor-uniqueness` /
+`extractor-mismatch`) は CI が呼ぶ**ので、T5 の変更には CI の信号が付く【実測】 —
+段 5 の T1+T2 が触った 7 本とは違う。
 
 **T6 の基準も、この計測から書ける** — 「`set -uo pipefail` を選ぶ」は
 **個別の失敗が集計対象 (データ) である**とき。`set -euo pipefail` の下で 1 つのコマンドの
