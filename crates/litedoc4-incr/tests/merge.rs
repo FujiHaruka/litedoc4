@@ -51,10 +51,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use litedoc4_incr::{
-    Error, MergeOptions, MergeSummary, OwnershipOptions, OwnershipSummary, VerifyReport, merge,
-    ownership, verify,
-};
+use litedoc4_incr::merge::{MergeSummary, VerifyReport, same_tree};
+use litedoc4_incr::ownership::{OwnershipSummary, WITNESSES_IN_SUMMARY};
+use litedoc4_incr::{Error, MergeOptions, OwnershipOptions, merge, ownership, verify};
 use litedoc4_ir::cmp_utf16;
 use serde_json::{Value, json};
 
@@ -611,7 +610,7 @@ fn observe_ownership(
         if firing.values().any(|count| *count > 1) {
             fire("witnessRepeatSuppressed");
         }
-        if firing.len() > litedoc4_incr::WITNESSES_IN_SUMMARY {
+        if firing.len() > WITNESSES_IN_SUMMARY {
             fire("witnessesTruncatedInSummary");
         }
         let mut by_utf16: Vec<&String> = stale.iter().collect();
@@ -646,11 +645,11 @@ fn observe_merge(
     } else {
         "mergeModulesAbsent"
     });
-    // `litedoc4_incr::same_tree`, not `options.out == options.base`: the
+    // `litedoc4_incr::merge::same_tree`, not `options.out == options.base`: the
     // observer asking the question a second way is how a spelling that fools
     // the implementation fools the inventory too, and the two agree on being
     // wrong.
-    fire(if litedoc4_incr::same_tree(options.base, options.out) {
+    fire(if same_tree(options.base, options.out) {
         "mergeOutIsBase"
     } else {
         "mergeOutIsCopy"
@@ -1189,18 +1188,39 @@ fn corpus() -> (PathBuf, PathBuf) {
             .unwrap_or_else(|_| format!("{DEFAULT_REFERENCE}/fixtures")),
     );
     assert!(
-        base.is_dir(),
-        "no base IR at {}: set LITEDOC4_BASE_IR, or run this test through tools/corpus-gate.sh, \
-         which is the only thing that should be asking for it",
+        file_count(&base) != 0,
+        "no base IR at {} (empty or missing): set LITEDOC4_BASE_IR, or run this test through \
+         tools/corpus-gate.sh, which is the only thing that should be asking for it",
         base.display()
     );
     assert!(
-        fixtures.is_dir(),
-        "no fixtures at {}: set LITEDOC4_MERGE_FIXTURES, or run this test through \
-         tools/corpus-gate.sh, which builds them with tools/merge-reference.sh --impl ts",
+        file_count(&fixtures) != 0,
+        "no fixtures at {} (empty or missing): set LITEDOC4_MERGE_FIXTURES, or run this test \
+         through tools/corpus-gate.sh, which builds them with tools/merge-reference.sh --impl ts",
         fixtures.display()
     );
     (base, fixtures)
+}
+
+/// Regular files under `dir`, recursively. Zero for a missing directory.
+///
+/// Presence is counted in files, not directories. These trees live under
+/// `/private/tmp`, which is swept: an emptied tree leaves its directory behind,
+/// `is_dir()` says yes, and the comparison then fails somewhere further in for
+/// an environmental reason — an environment problem wearing a code problem's
+/// clothes. `tests/impact.rs` records the run that cost.
+fn file_count(dir: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| match entry.file_type() {
+            Ok(kind) if kind.is_dir() => file_count(&entry.path()),
+            Ok(kind) if kind.is_file() => 1,
+            _ => 0,
+        })
+        .sum()
 }
 
 /// One round of the pipeline: `ownership`, then `merge`, over one edit.
@@ -1606,7 +1626,7 @@ fn the_dependency_slices_are_the_from_scratch_bytes() {
 
 /// The nested key order of a `serde_json::Value` survives a round trip.
 ///
-/// [`litedoc4_incr::JsonObject`] controls the merged index's **top-level** key
+/// [`litedoc4_incr::merge::JsonObject`] controls the merged index's **top-level** key
 /// order itself, but the entries inside `modules` are `Value`s carried through
 /// verbatim, and that depends on the workspace's `preserve_order` feature. A
 /// build that lost the feature would sort them and rewrite every index entry.
@@ -1916,7 +1936,7 @@ fn curated_ownership_branches() -> BTreeSet<&'static str> {
         serde_json::from_str(&fs::read_to_string(&json).expect("written")).expect("JSON");
     assert_eq!(
         written["witnesses"].as_array().expect("an array").len(),
-        litedoc4_incr::WITNESSES_IN_SUMMARY
+        WITNESSES_IN_SUMMARY
     );
     assert_eq!(written["stale"], 25);
     covered.extend(fired);

@@ -108,12 +108,12 @@ pub struct GlobalSummary {
     pub used_by_targets: usize,
     /// Names listed across that file, after the per-key deduplication it is
     /// written with. **Not** the number of references the IR holds — see
-    /// [`crate::Counts::used_by_edges`].
+    /// [`crate::artifacts::Counts::used_by_edges`].
     pub used_by_edges: usize,
     /// Tactic docstrings declared by the package. `tactics.html` is gone
     /// (M8-d) and nothing renders this any more, but it is still a fact about
-    /// the package, it is still in [`crate::ModuleFacts`], and it is still 0 on
-    /// the target 【実測】.
+    /// the package, it is still in [`crate::facts::ModuleFacts`], and it is
+    /// still 0 on the target 【実測】.
     pub tactic_docs: usize,
     pub name_map_bytes: usize,
     pub modules_json_bytes: usize,
@@ -354,8 +354,8 @@ fn write(path: &Path, body: &str) -> Result<(), Error> {
 /// C-2's two used-by counts are **appended after `delta`**, not filed with the
 /// counts they belong with, so that everything before them is still the
 /// prototype's literal in the prototype's order. That is the rule
-/// [`crate::ModuleFacts`]'s `instances_for` follows in the state file: the
-/// prototype's keys, then the new ones, so the two files can still be read
+/// [`crate::facts::ModuleFacts`]'s `instances_for` follows in the state file:
+/// the prototype's keys, then the new ones, so the two files can still be read
 /// against each other key by key.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

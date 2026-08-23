@@ -131,7 +131,7 @@ impl ModuleFile {
     ///
     /// This is the only thing that should read [`Decl::sorry`].
     pub fn sorry_of(&self, decl: &Decl) -> SorryFact {
-        if self.schema_version < crate::SORRY_SCHEMA_VERSION {
+        if self.schema_version < crate::reader::SORRY_SCHEMA_VERSION {
             return SorryFact::Unknown;
         }
         match decl.sorry {
@@ -148,7 +148,7 @@ impl ModuleFile {
     /// [`DeclNaming::Unknown`] without looking. This is the only thing that
     /// should read [`Decl::selection_range`].
     pub fn naming_of(&self, decl: &Decl) -> DeclNaming {
-        if self.schema_version < crate::SELECTION_RANGE_SCHEMA_VERSION {
+        if self.schema_version < crate::reader::SELECTION_RANGE_SCHEMA_VERSION {
             return DeclNaming::Unknown;
         }
         match decl.selection_range {
@@ -172,7 +172,7 @@ impl ModuleFile {
     ///
     /// This is the only thing that should read [`Decl::generated`].
     pub fn generated_by<'a>(&self, decl: &'a Decl) -> GeneratedFact<'a> {
-        if self.schema_version < crate::SELECTION_RANGE_SCHEMA_VERSION {
+        if self.schema_version < crate::reader::SELECTION_RANGE_SCHEMA_VERSION {
             return GeneratedFact::Unknown;
         }
         match decl.generated.as_ref() {

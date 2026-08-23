@@ -45,7 +45,7 @@ pub const MIN_SCHEMA_VERSION: u32 = 5;
 ///
 /// Below it the key's absence says nothing; at or above it, it says "no
 /// `sorry`". [`crate::ModuleFile::sorry_of`] is the only place this is applied.
-pub const SORRY_SCHEMA_VERSION: u32 = 5;
+pub(crate) const SORRY_SCHEMA_VERSION: u32 = 5;
 
 /// The first schema whose module files carry [`crate::Decl::selection_range`]
 /// and [`crate::Decl::generated`] (`docs/plans/feature-sweep.md` B-3).
@@ -56,7 +56,7 @@ pub const SORRY_SCHEMA_VERSION: u32 = 5;
 /// have to be edited in two places the day they stop being the same schema.
 /// [`crate::ModuleFile::naming_of`] and [`crate::ModuleFile::generated_by`] are
 /// the only places this is applied.
-pub const SELECTION_RANGE_SCHEMA_VERSION: u32 = 5;
+pub(crate) const SELECTION_RANGE_SCHEMA_VERSION: u32 = 5;
 
 /// An IR tree on disk: `index.json`, `modules/`, `deps/`.
 #[derive(Debug)]

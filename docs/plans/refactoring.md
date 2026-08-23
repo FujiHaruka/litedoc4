@@ -1089,6 +1089,74 @@ A は `index.json` の `modules` が差し替わらないので、消えたは�
   5 つのヘルパを `corpus_dir(var, default) -> PathBuf` 1 本に。
   **`base_ir.rs` の `index.json` 検査はそれより強いので残す**
 
+#### 結果【2026-08-23】— **共有モジュールは作らなかった。述語だけ直した**
+
+**段 4 の共有テストクレート (`crates/litedoc4-testutil`) はまだ無い**ので、計画が書いた
+「共有モジュールに移す」はここではできない。**述語をその場で直し、`file_count` を
+テストバイナリごとに複製した**【判断】 — 段 4 の U1/U3/U6 が畳む前提で、
+畳む対象の一覧は下に置く。
+
+直したのは **`is_dir()` の 6 箇所**で、計画が名指しした 4 つより 2 つ多い。
+計画は `global.rs:997/1009` / `state_and_delta.rs:2046` / `merge.rs:1180` と書いたが、
+**`state_and_delta.rs` と `merge.rs` はそれぞれ同じ関数の中に 2 つ目の `is_dir()` を持っていた**
+(`corpus_reference` と `fixtures`)。同じヘルパの中で片方だけ直すのは、直していないのと同じ。
+
+| ファイル | 関数 | 直した述語 |
+|---|---|---|
+| `global/tests/global.rs:990` / `:1004` | `corpus_ir` / `corpus_reference` | `LITEDOC4_IR` / `LITEDOC4_REFERENCE_GLOBAL` |
+| `global/tests/state_and_delta.rs:2051` / `:2065` | 同上 (**バイト同一のフォーク**) | 同上 |
+| `incr/tests/merge.rs:1191` / `:1197` | `corpus` | `LITEDOC4_BASE_IR` / `LITEDOC4_MERGE_FIXTURES` |
+
+**一度落としてから通した**【実測 2026-08-23】。存在するが空のディレクトリを
+`LITEDOC4_IR` に渡して `global::corpus_facts_match_the_prototype` を回すと、
+直す前後で出るものが変わる:
+
+```
+# is_dir() のとき — 環境の問題が、コードの問題の顔で出る
+panicked at tests/global.rs:952 (IrTree::open の expect):
+  the corpus opens: Io { path: ".../emptydir/index.json",
+  source: Os { code: 2, kind: NotFound, message: "No such file or directory" } }
+
+# file_count のとき — 何を設定すればよいかを言う
+panicked at tests/global.rs:989 (corpus_ir の assert):
+  no IR tree at .../emptydir (empty or missing): set LITEDOC4_IR,
+  or run this test through tools/corpus-gate.sh, ...
+```
+
+`tools/corpus-tests.txt:59-63` が「`m1/ref-pages` と `w7h/base-state` は空でディレクトリだけ残っている」と
+書いている状態は今も続いているので、**これは仮定ではなく現況**。
+
+**`base_ir.rs:37` の `index.json` 検査は触っていない** — ファイル数より強い
+(**木が持っていなければならないファイルを名指ししている**)。同じ理由で
+`state_and_delta.rs:1136` の `fs::read(&prototype)` も触っていない (ファイル自身を読む)。
+
+##### 段 4 が引き継ぐもの — この項目が増やした重複
+
+**`file_count` は 3 コピー → 6 コピー**になった【実測】。U3 の表は
+`ref_pages.rs` / `pages.rs` の 2 版しか挙げていないので、**表に無い次の 4 本を足して読む**
+(うち 3 本はこの項目が作った):
+
+```
+crates/litedoc4-incr/tests/impact.rs:1019
+crates/litedoc4-incr/tests/merge.rs:1212              ← この項目
+crates/litedoc4-global/tests/global.rs:1019           ← この項目
+crates/litedoc4-global/tests/state_and_delta.rs:2080  ← この項目
+```
+
+- **綴りは 2 種で、違いは意図的**。5 本は「ディレクトリでなければ 0」、
+  `ref_pages.rs:109` だけ「ファイルなら 1」を返す — 入力 3 つのうち `.lidx` が**ファイル**だから。
+  `pages.rs:548` は同じ事情を `file_count(..) != 0 && file_count(..) != 0 && lidx.is_file()` と
+  **呼び出し側で**書いている。**畳むなら `ref_pages.rs` 版が正**で、`pages.rs` の 3 項式は消える
+- **入口のヘルパ自体もフォーク**: `global/tests/global.rs:987` / `:999` と
+  `state_and_delta.rs:2048` / `:2060` の `corpus_ir` + `corpus_reference` は
+  **バイト同一**【実測: 2 ブロックを比較】。U6 が挙げる `fnv1a64` ×4 / `copy_tree` ×2 と同じ形で、
+  **同じ 2 ファイルに載っている**
+- 畳んだ先の形は計画の `corpus_dir(var, default) -> PathBuf` でよいが、
+  **`file_count` と 2 つに分けない** — 「空でないディレクトリか」を答えるのが述語の全体で、
+  分けると `is_dir()` に戻す余地がまた開く
+- **畳んではいけないもの 2 つ**: `base_ir.rs:37` (`index.json` の名指し) と
+  `state_and_delta.rs:1136` (`fs::read`)。どちらもファイル数より強い主張をしている
+
 ### X4 — `Counts::used_by_targets` / `used_by_edges` は誰も読まない
 
 - `global/artifacts.rs:155-164` (宣言) / `:372-384` (計算)。
@@ -1184,6 +1252,137 @@ dedup の 2 周目**で、対象パッケージでは 54,424 refs / 10,163 pairs
   **「非公開 mod + root への re-export」** (`global` が `site` で、`ir` が `model`/`reader` で既に採っている形)。
   **最小の一手は `SELECTION_RANGE_SCHEMA_VERSION` / `SORRY_SCHEMA_VERSION` を `pub(crate)` に (5 行)** —
   この 2 つだけは「重複経路」ではなく「消せば閉じる」
+
+#### 結果【2026-08-23】— **採ったのは X5 の方針ではなく S7 の方針。表は S7 の前に書かれている**
+
+**上の表は良い調査で、判定は今も大半が正しい。だが「やること」の勧め (非公開 mod +
+root への re-export) は採らなかった**【決定、オーケストレータ判断】。理由は 1 つだけ:
+**S7 が同じ日にその逆の形を `litedoc4-render` と `litedoc4-md` に適用済み** (`bb7e158`) で、
+規則が両方の `lib.rs` に書かれている。**方針が 2 つある木は、どちらか一方の木より悪い。**
+X5 の表は S7 が入る前に書かれたもので、**「両 crate が既にこうなっている」という前提が
+書かれた時点では存在しなかった**。
+
+採った方針 (3 つの `lib.rs` に同文で書いた):
+
+> **mod は `pub` のまま。root の `pub use` に載るのは 2 種だけ** — (1) **ワークスペースの他の
+> crate が import するもの**、grep ではなくコンパイラが証明したもの。(2) **他に経路が無いもの**
+> — 所属 mod が非公開で、re-export を落とすと `unreachable_pub` (CI は `-D warnings`) が出るもの。
+> **値の *意味* の SoT がこの crate にあるものは残してよい**、理由を 1 行書いて。
+
+手順も S7 と同じ: 候補を落として
+`cargo check --workspace --all-targets --exclude <当該 crate>` を回し、
+**他 package がエラーとして名乗り出たものだけ戻す**。
+
+##### 数 — 3 crate 合計 **115 → 75**、40 件が root から降りた
+
+| | ir 39 | global 22 | incr 54 |
+|---|---:|---:|---:|
+| (1) 他 crate が実際に import している | **22** | **4** | **31** |
+| (2) 私有 mod なので re-export が唯一の経路 | **11** | **3** | **0** |
+| (3) 意味の SoT として残す (理由 1 行付き) | 0 | **2** | **2** |
+| `pub use` から外した | **4** | **13** | **21** |
+| 項目そのものを `pub(crate)` に落とした | **2** | 0 | 0 |
+| **残った re-export** | **33** | **9** | **33** |
+
+**(2) が incr でゼロなのは、X6 が `error` を `pub mod` にしたから** —
+`-incr` の 9 mod のうち非公開は `io` だけで、そこは re-export を 1 つも持たない。
+**つまり `-incr` には「他に経路が無い」項目が存在しない。**
+
+##### 計画の表に、コンパイラが「違う」と言ったもの
+
+- **`incr::DepMapRecord` / `FileEntry` / `ImpactSummary` の 3 件は「必要」ではない**。
+  表は「所属 mod が非公開なので re-export が唯一の経路」と書くが、
+  **`merge` / `ledger` / `impact` はすべて `pub mod`**。3 件とも他 crate は import しておらず、
+  **重複経路なので外した**。これは表の 1 行目 (「必要」) と 3 行目 (「重複経路」) の
+  **分類の取り違え**で、判定基準ではなく事実の側が違っていた
+- **`ir::DepMapEntry` は必要。ただし表が挙げる根拠は成り立たない**【実測】。
+  `Index::dependency_maps: Vec<DepMapEntry>` (`model.rs:49`) と
+  `IrTree::dep_map(&self, entry: &DepMapEntry)` (`reader.rs:134`) の 2 つで、
+  役割の主張は正しい。**しかし re-export を落としても `unreachable_pub` は出ない** —
+  rustc の到達可能性は公開フィールドと公開シグネチャを通って伝播するので、
+  **既に「到達可能」と数えられている。名前を書けないだけ**。
+  **同じ形が同じ crate にあと 2 つある**: `Ref` (`Decl::refs`) と `Tactic` (`ModuleFile::tactics`)。
+  表はこの 2 つを挙げていない
+- **方針の機械的な検査には穴がある、という一般形**【実測】。方針は
+  「落とすと `unreachable_pub` が出るもの」を (2) の判定条件として書いているが、
+  **`ir` の (2) 11 件のうち `unreachable_pub` が出るのは 2 件だけ**
+  (`Result` / `MIN_SCHEMA_VERSION`)。内訳:
+
+  | 何が証明したか | 件数 | 項目 |
+  |---|---:|---|
+  | `unreachable_pub` | **2** | `Result` / `MIN_SCHEMA_VERSION` |
+  | `litedoc4-ir` 自身の統合テスト `tests/base_ir.rs` の E0603 のみ | **6** | `DeclNaming` / `Generated` / `GeneratedFact` / `SelectionRange` / `SorryFact` / `SorryKind` |
+  | **何も証明しない** | **3** | `DepMapEntry` / `Ref` / `Tactic` |
+
+  (`unreachable_pub` は全部で 4 件出たが、残り 2 件は `pub(crate)` に降ろした schema 定数。)
+  **最後の 3 件は `lib.rs` のコメントが唯一の根拠**なので、そう書いた。
+  `global` の `Error` も同じ形 (`build_global` の戻り型としてのみ到達可能で、lint は黙る)
+- **`ir::name` が re-export しているのは 6 名ではなく 8 名**だった —
+  今日 `page_path` が入っている (`e32b1dd`)。うち他 crate が import するのは
+  `escape_module` / `module_components` / `module_path` / `page_path` の **4 名**で、そこまで減った。
+  `is_letter_like` / `needs_no_escape` / `is_subscript_alnum` は元から re-export されておらず、
+  そのまま。**「選び方の規則が無い」という指摘は正しく、今は規則がある**
+- **`incr/lib.rs` は 6 mod ではなく 9 mod** (今日 `ordered` / `error` / `io` が入った、`2083cc1`)。
+  **`litedoc4_incr::merge::merge` と `litedoc4_incr::merge` が両方有効なのは変わっていない** —
+  S7 の方針は mod を `pub` に保つので、この曖昧さは消えない。
+  **消えたのは「どちらが正か言うものが無い」の方**: root の名前は
+  **`litedoc4` (bin) が import するから在る**、mod の一覧が surface、と `lib.rs` が言う
+
+##### 名指しされた項目、1 つずつ
+
+| 項目 | 判定 | 根拠 |
+|---|---|---|
+| `ir::SELECTION_RANGE_SCHEMA_VERSION` / `SORRY_SCHEMA_VERSION` | **`pub(crate)` に降ろした** | どの package も import していない (コンパイラ)。`model.rs` の 3 箇所を `crate::reader::…` に。doc との矛盾は消えた |
+| `ir::DepMapEntry` | **残す** (2) | 上記。`unreachable_pub` は出ない |
+| `global::FactsRun` | **残す** (2) | `mod site` が非公開。落とすと `site.rs:134` に `unreachable_pub`【実測】 |
+| `incr::DepMapRecord` / `FileEntry` / `ImpactSummary` | **外した** | 所属 mod が `pub`。誰も import しない |
+| `incr::RULE_LOST_OWNER` / `RULE_MOVED_ELSEWHERE` | **外した** | 誰も import しない。**`Witness` 自身が root に無い**以上、その `rule` が取る 2 値だけ root に置くのは兄弟を割る (S7 の `used_by_html` と同じ形)。今は 3 つとも `ownership` に在る |
+| `ir::escape_component` / `unescape_component` | **外した** | 表のとおり重複経路。**`is_id_first` / `is_id_rest` も同じ**で、表は挙げていない |
+| `global::DeltaTimings` | **外した** | 表のとおり |
+| `incr::OLEAN_SUFFIXES` / `ORPHANS_IN_SUMMARY` | **外した** | 表のとおり |
+
+##### (3) 「意味の SoT」に残した 4 件 — 基準は「外の誰かが合わせなければならない値か」
+
+- `incr::EXTRACTOR_ID` / `RENDERER_ID` — 台帳のキーが取られる 2 つの互換トークン。
+  §2.1 がこの計画全体を吊っている値で、render の `DIGEST_MARKER` / `DOCS_DIGEST_MARKER` と同型
+- `global::STATE_FILE` / `STATE_DERIVATION` — キャッシュが載るファイルの名前と、その導出トークン。
+  **`STATE_FILE` は既に 2 度綴られている**【実測】: `litedoc4/src/build.rs:238` が
+  `"global-state.json"` を直に書いている。**root に在っても防げていない**ので、
+  この 2 件は「残したから安全」ではなく「意味の出所はここだと言い続ける」ためのもの
+- **`STATE_VERSION` は残さなかった** — 状態ファイル自身の schema 番号で、外に合わせる相手がいない
+
+##### `cargo doc` が見つけたもの、と `cargo doc` には構造的に見えないもの
+
+**intra-doc link が 12 本壊れ、`cargo doc` が全部見つけた**。うち
+**`crate::[a-z_]` の grep に映るのは 1 本だけ** (`is_token_separator`) — 残り 11 本は
+`crate::Delta` / `crate::Counts::used_by_edges` のような CamelCase。**S7 が書いたとおり。**
+
+**そのうえで、`cargo doc` が構造的に見られない綴りが 9 件あった**【実測】。
+`cargo doc` は**テストターゲットを document しない**し、`#[cfg(test)]` も off:
+
+- **リンク 4 本**: `global/tests/state_and_delta.rs:1121` / `global/tests/global.rs:32` /
+  `incr/tests/merge.rs:1629` / `global/src/artifacts.rs:696` (`#[cfg(test)]` の中)
+- **コードスパン 5 本** (リンクではないので元から誰も検査しない):
+  `render/src/assets.rs:71`,`:74` / `ir/src/name.rs:209`,`:294` /
+  `global/tests/state_and_delta.rs:352`
+
+**5 本のコードスパンを直したのは X6 と同じ理由** — 住所を動かした以上、直さないと嘘になる。
+S7 が「触らない」と判断した 3 種とは別で、あちらは**元から古かった**もの、
+こちらは**この変更が古くした**もの。
+
+##### 動かしていないもの
+
+- **出力バイトは 1 つも動いていない。** `RENDERER_ID` は `v4` のまま、`EXTRACTOR_ID` も無傷
+  (**むしろ 2 つとも root に残す側の判断をした**)。依存は増やしていない
+- **`pub mod` を `mod` にした箇所はゼロ。** 方針が「mod は `pub` のまま」なので、
+  X5 が勧めた「非公開 mod 化」は 1 件も入っていない
+- **他 crate の呼び出し元は 1 箇所も動いていない** — 外した 40 件はどれも他 package が
+  使っていないことをコンパイラが言ったものなので、`crates/litedoc4` / `-render` / `-md` の
+  `use` は 1 行も変わっていない。動いたのは**当該 3 crate 自身のテスト 5 ファイルの `use`**
+  (root パス → mod パス) と、上の doc 21 箇所だけ
+- `cargo test --workspace --no-fail-fast` は **39 バイナリ / 452 passed / 0 failed / 22 ignored** で
+  変更前と同じ。**doctest は `--all-targets` に入らない**ので最後に必ず回した (S7 の教訓) が、
+  今回は doctest 側の破れはゼロだった
 
 ### X6 — `detect.rs` が crate 全体のエラー型と書き込みヘルパを抱えている
 

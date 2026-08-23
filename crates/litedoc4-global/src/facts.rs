@@ -129,7 +129,7 @@ pub struct ModuleFacts {
     pub instances_for: Vec<(String, String)>,
     /// **Which of this module's declarations mention each constant** — the
     /// forward half of doc-gen4 #77's "Used by", inverted by
-    /// [`crate::Artifacts`] (`docs/plans/feature-sweep.md` C-2).
+    /// [`crate::artifacts::Artifacts`] (`docs/plans/feature-sweep.md` C-2).
     ///
     /// Key: the constant's name, exactly as `litedoc4_ir::Ref` carries it.
     /// Value: **indices into [`ModuleFacts::decls`]**, ascending and
@@ -329,8 +329,9 @@ pub fn autolink_tokens(doc: &str) -> Vec<String> {
 /// UnicodeBasic's database and unassigned (`Cn`, inside `C`) in V8's.
 ///
 /// The two ways to be wrong are not each other's mirror image. These tokens are
-/// **the filter in front of the whole-package map delta** ([`crate::Delta`]): a
-/// module is re-rendered iff one of its tokens is a name that moved.
+/// **the filter in front of the whole-package map delta**
+/// ([`crate::delta::Delta`]): a module is re-rendered iff one of its tokens is a
+/// name that moved.
 ///
 /// | too many tokens | too few tokens |
 /// |---|---|

@@ -68,9 +68,10 @@ use crate::site::Error;
 /// page plus this name, so `Pkg/A/B.html` reaches the same `style.css` as
 /// `Pkg.html` does. There is no separator in any of the three; one added later
 /// stays a `/` — a URL path on every platform — exactly as
-/// `litedoc4_global::ARTIFACT_PATHS` spells `declarations/name-map.json`.
+/// `litedoc4_global::artifacts::ARTIFACT_PATHS` spells
+/// `declarations/name-map.json`.
 ///
-/// Shaped after `litedoc4_global::Artifacts::files`: one array of
+/// Shaped after `litedoc4_global::artifacts::Artifacts::files`: one array of
 /// (path, content) pairs is the whole interface, so a caller that wants to
 /// write them, hash them or compare them against a tree does not need three
 /// different accessors.

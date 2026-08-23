@@ -53,9 +53,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use litedoc4_incr::impact::ImpactRun;
+use litedoc4_incr::prune::PageRoot;
 use litedoc4_incr::{
-    Error, ImpactOptions, ImpactRun, Mode, PageRoot, PruneOptions, PruneSummary, impact, page_of,
-    prune,
+    Error, ImpactOptions, Mode, PruneOptions, PruneSummary, impact, page_of, prune,
 };
 use serde_json::{Value, json};
 

@@ -28,19 +28,20 @@
 //!
 //! # What M2-b added
 //!
-//! The `contentHash` cache ([`State`], `--state`), the whole-package map delta
-//! ([`Delta`], `--before` / `--print-set` / `--delta-json`) and the timings
-//! record. [`facts_for`] is the seam all three attach to: the cache decides
-//! whether a module is read, the delta consumes the [`ModuleFacts::tokens`] it
-//! produces either way, and the artifacts below it did not move by a byte.
+//! The `contentHash` cache ([`state::State`], `--state`), the whole-package map
+//! delta ([`delta::Delta`], `--before` / `--print-set` / `--delta-json`) and the
+//! timings record. [`facts_for`] is the seam all three attach to: the cache
+//! decides whether a module is read, the delta consumes the
+//! [`facts::ModuleFacts::tokens`] it produces either way, and the artifacts
+//! below it did not move by a byte.
 //!
-//! [`ModuleFacts::tokens`] reaches no artifact, so the six-file byte comparison
-//! cannot see it at all. Two things do: the state file, which is compared with
-//! one the prototype wrote, and the delta, which is compared with the
-//! prototype's own answer over the same mutated map.
+//! [`facts::ModuleFacts::tokens`] reaches no artifact, so the six-file byte
+//! comparison cannot see it at all. Two things do: the state file, which is
+//! compared with one the prototype wrote, and the delta, which is compared with
+//! the prototype's own answer over the same mutated map.
 //!
 //! The one rule here that is nobody's transcription is
-//! [`is_token_separator`]: the tokeniser splits on the **union** of the
+//! [`facts::is_token_separator`]: the tokeniser splits on the **union** of the
 //! prototype's separator set and the renderer's, because a token too few is a
 //! stale page and a token too many is a re-render (plan §8, V6).
 //!
@@ -66,10 +67,18 @@ mod site;
 pub mod state;
 pub mod v8_gc;
 
-pub use artifacts::{ARTIFACT_PATHS, Artifacts, Counts, page_path};
-pub use delta::{Delta, DeltaTimings, Witness};
-pub use facts::{
-    ModuleFacts, PROTOTYPE_FACT_KEYS, autolink_tokens, head_const, is_token_separator,
-};
+// **A `pub use` here means another crate in this workspace imports the item.**
+// Everything else stays `pub` in its own module and is reached as
+// `litedoc4_global::<module>::<item>` — the module list above is the surface.
+// `site` is a private module, so for its items the re-export is the only path
+// there is; `unreachable_pub` says so the moment one is dropped, except for
+// `Error`, which is only reachable as `build_global`'s error type and which
+// nothing but this comment keeps nameable. The exception is a value whose
+// *meaning* has its single source of truth here; those carry a line saying so.
+pub use artifacts::page_path;
 pub use site::{Error, FactsRun, GlobalOptions, GlobalSummary, build_global, facts_for};
-pub use state::{STATE_DERIVATION, STATE_FILE, STATE_VERSION, State};
+// Meaning, not caller: the name of the file the cache lives in, and the token
+// its entries are derived under. Anything that has to find one, or decide
+// whether a cached entry answers for this version, has to agree with these —
+// `litedoc4/src/build.rs` spells the file name a second time today.
+pub use state::{STATE_DERIVATION, STATE_FILE};

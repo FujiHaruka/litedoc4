@@ -39,10 +39,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+use litedoc4_global::artifacts::ARTIFACT_PATHS;
+use litedoc4_global::delta::Delta;
+use litedoc4_global::facts::{ModuleFacts, PROTOTYPE_FACT_KEYS, autolink_tokens};
+use litedoc4_global::state::{STATE_VERSION, State};
 use litedoc4_global::{
-    ARTIFACT_PATHS, Delta, GlobalOptions, GlobalSummary, ModuleFacts, PROTOTYPE_FACT_KEYS,
-    STATE_DERIVATION, STATE_FILE, STATE_VERSION, State, autolink_tokens, build_global, facts_for,
-    v8_gc,
+    GlobalOptions, GlobalSummary, STATE_DERIVATION, STATE_FILE, build_global, facts_for, v8_gc,
 };
 use litedoc4_ir::{Index, IrTree};
 use serde::Deserialize;
@@ -347,7 +349,7 @@ fn observe(run: &Run<'_>) -> BTreeSet<&'static str> {
 /// Whether any code span in this IR's declaration docstrings holds a code point
 /// **V8 splits on and UnicodeBasic does not** — the direction of the
 /// disagreement that costs correctness (plan §8, V6, and
-/// `litedoc4_global::is_token_separator`).
+/// `litedoc4_global::facts::is_token_separator`).
 ///
 /// The other direction is not looked for because it is empty: no code point is a
 /// separator for UnicodeBasic and not for V8 【実測 2026-08-12, asserted by
@@ -1116,7 +1118,7 @@ fn the_seven_states_agree_over_the_real_corpus() {
 /// file that was actually written has to *start* with these bytes' keys, in this
 /// order, and agree on every one of them, for every module. **It does not name
 /// the keys that follow** — that is HEAD's shape, it is asserted where HEAD is
-/// ([`litedoc4_global::PROTOTYPE_FACT_KEYS`]), and naming it here is what went
+/// ([`litedoc4_global::facts::PROTOTYPE_FACT_KEYS`]), and naming it here is what went
 /// stale: this test cannot run on this machine, so C-2's `refs` falsified a
 /// hand-written "plus one appended key" without a single failure anywhere.
 ///
@@ -2046,9 +2048,9 @@ fn the_delta_fixture_is_a_real_delta() {
 fn corpus_ir() -> PathBuf {
     let ir = PathBuf::from(std::env::var("LITEDOC4_IR").unwrap_or_else(|_| DEFAULT_IR.into()));
     assert!(
-        ir.is_dir(),
-        "no IR tree at {}: set LITEDOC4_IR, or run this test through tools/corpus-gate.sh, \
-         which is the only thing that should be asking for it",
+        file_count(&ir) != 0,
+        "no IR tree at {} (empty or missing): set LITEDOC4_IR, or run this test through \
+         tools/corpus-gate.sh, which is the only thing that should be asking for it",
         ir.display()
     );
     ir
@@ -2060,12 +2062,33 @@ fn corpus_reference() -> PathBuf {
         std::env::var("LITEDOC4_REFERENCE_GLOBAL").unwrap_or_else(|_| DEFAULT_REFERENCE.into()),
     );
     assert!(
-        reference.is_dir(),
-        "no reference tree at {}: set LITEDOC4_REFERENCE_GLOBAL, or run this test through \
-         tools/corpus-gate.sh, which is the only thing that should be asking for it",
+        file_count(&reference) != 0,
+        "no reference tree at {} (empty or missing): set LITEDOC4_REFERENCE_GLOBAL, or run this \
+         test through tools/corpus-gate.sh, which is the only thing that should be asking for it",
         reference.display()
     );
     reference
+}
+
+/// Regular files under `dir`, recursively. Zero for a missing directory.
+///
+/// Presence is counted in files, not directories. These trees live under
+/// `/private/tmp`, which is swept: an emptied tree leaves its directory behind,
+/// `is_dir()` says yes, and the comparison then fails somewhere further in for
+/// an environmental reason — an environment problem wearing a code problem's
+/// clothes. `litedoc4-incr/tests/impact.rs` records the run that cost.
+fn file_count(dir: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| match entry.file_type() {
+            Ok(kind) if kind.is_dir() => file_count(&entry.path()),
+            Ok(kind) if kind.is_file() => 1,
+            _ => 0,
+        })
+        .sum()
 }
 
 /// FNV-1a 64, the same ten lines the generator has.

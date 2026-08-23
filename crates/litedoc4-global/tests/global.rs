@@ -29,7 +29,7 @@
 //! [`every_case_writes_the_new_artifacts`]: every_case_writes_the_new_artifacts
 //!
 //! `factCases` call `factsOf` / `autolinkTokens` / `headConst` **sliced out of
-//! the same file**. [`litedoc4_global::ModuleFacts::tokens`] reaches no
+//! the same file**. [`litedoc4_global::facts::ModuleFacts::tokens`] reaches no
 //! artifact — it is the whole-package map delta's input, which is M2-b — so a
 //! port that dropped tokens entirely would pass every byte comparison in the
 //! first oracle. This one sees it.
@@ -52,11 +52,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use litedoc4_global::{
-    ARTIFACT_PATHS, GlobalOptions, ModuleFacts, PROTOTYPE_FACT_KEYS, State, build_global, facts_for,
-};
+use litedoc4_global::artifacts::ARTIFACT_PATHS;
+use litedoc4_global::facts::{ModuleFacts, PROTOTYPE_FACT_KEYS};
+use litedoc4_global::state::State;
+use litedoc4_global::{GlobalOptions, build_global, facts_for};
 use litedoc4_ir::IrTree;
 use serde::{Deserialize, Serialize};
 
@@ -986,9 +987,9 @@ fn corpus_facts_match_the_prototype() {
 fn corpus_ir() -> PathBuf {
     let ir = PathBuf::from(std::env::var("LITEDOC4_IR").unwrap_or_else(|_| DEFAULT_IR.into()));
     assert!(
-        ir.is_dir(),
-        "no IR tree at {}: set LITEDOC4_IR, or run this test through tools/corpus-gate.sh, \
-         which is the only thing that should be asking for it",
+        file_count(&ir) != 0,
+        "no IR tree at {} (empty or missing): set LITEDOC4_IR, or run this test through \
+         tools/corpus-gate.sh, which is the only thing that should be asking for it",
         ir.display()
     );
     ir
@@ -1000,12 +1001,33 @@ fn corpus_reference() -> PathBuf {
         std::env::var("LITEDOC4_REFERENCE_GLOBAL").unwrap_or_else(|_| DEFAULT_REFERENCE.into()),
     );
     assert!(
-        reference.is_dir(),
-        "no reference tree at {}: set LITEDOC4_REFERENCE_GLOBAL, or run this test through \
-         tools/corpus-gate.sh, which is the only thing that should be asking for it",
+        file_count(&reference) != 0,
+        "no reference tree at {} (empty or missing): set LITEDOC4_REFERENCE_GLOBAL, or run this \
+         test through tools/corpus-gate.sh, which is the only thing that should be asking for it",
         reference.display()
     );
     reference
+}
+
+/// Regular files under `dir`, recursively. Zero for a missing directory.
+///
+/// Presence is counted in files, not directories. These trees live under
+/// `/private/tmp`, which is swept: an emptied tree leaves its directory behind,
+/// `is_dir()` says yes, and the comparison then fails somewhere further in for
+/// an environmental reason — an environment problem wearing a code problem's
+/// clothes. `litedoc4-incr/tests/impact.rs` records the run that cost.
+fn file_count(dir: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| match entry.file_type() {
+            Ok(kind) if kind.is_dir() => file_count(&entry.path()),
+            Ok(kind) if kind.is_file() => 1,
+            _ => 0,
+        })
+        .sum()
 }
 
 /// At least one case's copy of `path` satisfies `predicate`.

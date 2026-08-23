@@ -62,25 +62,26 @@ pub mod ordered;
 pub mod ownership;
 pub mod prune;
 
+// **A `pub use` here means another crate in this workspace imports the item.**
+// Everything else stays `pub` in its own module and is reached as
+// `litedoc4_incr::<module>::<item>` — the module list above is the surface.
+// Every module here is `pub`, so nothing reaches the root for want of another
+// path; the exception is a value whose *meaning* has its single source of truth
+// here, and those carry a line saying so.
 pub use detect::{
-    BuildOptions, BuildSummary, CheckOptions, CheckSummary, TouchOptions, build_ledger,
-    check_ledger, read_module_list, touch_ledger,
+    BuildOptions, CheckOptions, CheckSummary, TouchOptions, build_ledger, check_ledger,
+    read_module_list, touch_ledger,
 };
 pub use error::Error;
-pub use impact::{ImpactOptions, ImpactRun, ImpactSummary, Mode, impact};
+pub use impact::{ImpactOptions, Mode, impact};
 pub use ledger::{
-    Algorithm, EXTRACTOR_ID, FileEntry, KeySet, LEDGER_SCHEMA, Ledger, ModuleEntry, OLEAN_SUFFIXES,
-    RENDERER_ID, extract_key, hash_module, link_index_digest, module_paths, render_key, sha256_hex,
+    Algorithm, Ledger, extract_key, hash_module, link_index_digest, render_key, sha256_hex,
     sha256_text,
 };
-pub use merge::{
-    DepMapRecord, JsonObject, MergeOptions, MergeSummary, VerifyReport, merge, same_tree, verify,
-};
-pub use prune::{
-    ORPHANS_IN_LOG, ORPHANS_IN_SUMMARY, PageRoot, PruneOptions, PruneSummary, page_of, prune,
-};
-
-pub use ownership::{
-    OwnershipOptions, OwnershipSummary, RULE_LOST_OWNER, RULE_MOVED_ELSEWHERE, WITNESSES_IN_LOG,
-    WITNESSES_IN_SUMMARY, Witness, ownership,
-};
+// Meaning, not caller: the two compatibility tokens a ledger's keys are taken
+// over. What a stored key covers is decided by these lines and nothing else,
+// and a run that disagrees with either re-extracts or re-renders everything.
+pub use ledger::{EXTRACTOR_ID, RENDERER_ID};
+pub use merge::{MergeOptions, merge, verify};
+pub use ownership::{OwnershipOptions, WITNESSES_IN_LOG, ownership};
+pub use prune::{ORPHANS_IN_LOG, PruneOptions, PruneSummary, page_of, prune};

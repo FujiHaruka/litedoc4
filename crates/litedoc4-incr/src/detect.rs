@@ -58,7 +58,7 @@ pub struct BuildOptions<'a> {
     pub out: &'a Path,
     /// An IR tree. Its `schemaVersion` and `generator` join the extract key;
     /// without it those two keys are absent, and an absent key is a change
-    /// (see [`crate::KeySet::diff`]).
+    /// (see [`crate::ledger::KeySet::diff`]).
     pub ir: Option<&'a Path>,
     /// `--source-url`. Empty means the key is absent, which is loud rather than
     /// silent: the next `check` that passes one will re-render everything.

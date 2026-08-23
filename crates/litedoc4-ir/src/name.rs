@@ -206,7 +206,7 @@ pub fn module_path(module: &str) -> String {
 /// contents are not split on `.`, so `«..».Foo` comes out as `../Foo.html`
 /// 【実測 2026-08-23】. Pinned by a test rather than refused here: a function
 /// with no tree in front of it cannot say what the path would escape from.
-/// `litedoc4_incr::PageRoot` is where the refusal belongs and lives.
+/// `litedoc4_incr::prune::PageRoot` is where the refusal belongs and lives.
 #[must_use]
 pub fn page_path(module: &str) -> String {
     let mut path = module_path(module);
@@ -291,8 +291,8 @@ mod tests {
 
     /// **The `..` is real, and this records it rather than preventing it.** A
     /// component is unescaped before it becomes a directory, so the two dots
-    /// survive; the guard is `litedoc4_incr::PageRoot`, which has a tree to
-    /// refuse against. Written as an assertion so that a future escape-time
+    /// survive; the guard is `litedoc4_incr::prune::PageRoot`, which has a tree
+    /// to refuse against. Written as an assertion so that a future escape-time
     /// change to [`fn@module_path`] cannot silently make the guard's reason
     /// stale【実測 2026-08-23】.
     #[test]

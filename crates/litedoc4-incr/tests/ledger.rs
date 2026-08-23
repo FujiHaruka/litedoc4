@@ -39,10 +39,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use litedoc4_incr::detect::BuildSummary;
+use litedoc4_incr::ledger::{KeySet, LEDGER_SCHEMA, module_paths};
 use litedoc4_incr::{
-    Algorithm, BuildOptions, BuildSummary, CheckOptions, CheckSummary, Error, KeySet,
-    LEDGER_SCHEMA, Ledger, TouchOptions, build_ledger, check_ledger, extract_key, hash_module,
-    module_paths, render_key, touch_ledger,
+    Algorithm, BuildOptions, CheckOptions, CheckSummary, Error, Ledger, TouchOptions, build_ledger,
+    check_ledger, extract_key, hash_module, render_key, touch_ledger,
 };
 use serde_json::{Value, json};
 

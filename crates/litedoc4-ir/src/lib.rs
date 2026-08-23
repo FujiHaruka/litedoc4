@@ -67,19 +67,21 @@ mod reader;
 mod span;
 pub mod utf16;
 
+// **A `pub use` here means another crate in this workspace imports the item.**
+// Everything else stays `pub` in its own module and is reached as
+// `litedoc4_ir::<module>::<item>` — the module list above is the surface.
+// `error`, `model`, `reader` and `span` are private modules, so for the items
+// below that live in one the re-export is the only path there is; where
+// `unreachable_pub` says so on its own, dropping the line is what proves it,
+// and where the item is only a field or argument type of a public one
+// (`DepMapEntry`, `Ref`, `Tactic`) nothing says so and this comment has to.
 pub use error::{Error, Result};
 pub use metrics::{IrFile, IrReads};
 pub use model::{
     Attr, Decl, DeclNaming, DepMap, DepMapEntry, Generated, GeneratedFact, Index, IndexEntry,
     Member, ModuleDoc, ModuleFile, Ref, SelectionRange, SorryFact, SorryKind, Tactic,
 };
-pub use name::{
-    escape_component, escape_module, is_id_first, is_id_rest, module_components, module_path,
-    page_path, unescape_component,
-};
-pub use reader::{
-    IrTree, MIN_SCHEMA_VERSION, SELECTION_RANGE_SCHEMA_VERSION, SORRY_SCHEMA_VERSION,
-    read_module_file,
-};
+pub use name::{escape_module, module_components, module_path, page_path};
+pub use reader::{IrTree, MIN_SCHEMA_VERSION, read_module_file};
 pub use span::{Span, SpanKind};
 pub use utf16::{Utf16Text, cmp_utf16, sort_utf16};

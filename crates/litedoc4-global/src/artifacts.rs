@@ -141,8 +141,8 @@ pub struct Artifacts {
     /// `name-map.json` back off disk because the delta was a second process, and
     /// says so: doing that here "would be the only way to get a *different*
     /// answer" than the map just written. A `BTreeMap` rather than an ordered
-    /// one because nothing reads it in order — [`crate::Delta`] wants membership
-    /// and lookup, and does its own UTF-16 sorting on the way out.
+    /// one because nothing reads it in order — [`crate::delta::Delta`] wants
+    /// membership and lookup, and does its own UTF-16 sorting on the way out.
     pub name_map: BTreeMap<String, String>,
     pub counts: Counts,
 }
@@ -693,8 +693,8 @@ mod tests {
     /// `used_by_targets` and `used_by_edges` to [`Counts`] and this test went on
     /// passing without them, so what its docstring promised held for four of the
     /// six. A seventh count now stops this test *compiling* until it is checked
-    /// here too, which is what [`crate::PROTOTYPE_FACT_KEYS`] does for the state
-    /// file's keys.
+    /// here too, which is what [`crate::facts::PROTOTYPE_FACT_KEYS`] does for
+    /// the state file's keys.
     #[test]
     fn the_counts_are_what_the_files_hold() {
         let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
