@@ -53,7 +53,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::{Failure, USAGE, usage};
+use crate::{Failure, usage};
 
 /// The extractor exited non-zero.
 ///
@@ -79,32 +79,21 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
     let mut target: Option<PathBuf> = None;
     let mut lake: Option<PathBuf> = None;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--modules" => modules = Some(value("--modules")?.into()),
-            "--ir-dir" => ir_dir = Some(value("--ir-dir")?.into()),
-            "--timings" => timings = Some(value("--timings")?.into()),
-            "--events" => events = Some(value("--events")?.into()),
-            "--jobs" => {
-                let raw = value("--jobs")?;
-                jobs = raw
-                    .parse()
-                    .map_err(|_| Failure::Usage(format!("--jobs wants a number, not {raw}")))?;
-            }
+            "--modules" => modules = Some(args.value("--modules")?.into()),
+            "--ir-dir" => ir_dir = Some(args.value("--ir-dir")?.into()),
+            "--timings" => timings = Some(args.value("--timings")?.into()),
+            "--events" => events = Some(args.value("--events")?.into()),
+            "--jobs" => jobs = args.number("--jobs")?,
             // M5-b. `Extract.lean`'s own flag (M5-a): the dependency closure's
             // `name -> module` map, written out of the environment this process
             // has imported for the extraction anyway. Optional here — the map is
             // a whole-package artefact and an extraction is often a subset — but
             // when it is asked for it costs 0.9 s warm on top of the run, not a
             // second 15-second environment load.
-            "--link-index" => link_index = Some(value("--link-index")?.into()),
+            "--link-index" => link_index = Some(args.value("--link-index")?.into()),
             // 段 C. Handed straight to the extractor: the modules whose own
             // declaration groups the map leaves out. The renderer answers those
             // names out of the IR-derived index before it reads the `.lidx` at
@@ -117,7 +106,7 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
             // *subset* as often as not, and the omit set has to be the package,
             // not this round's slice of it. The caller that knows the difference
             // is the one that writes both files.
-            "--link-index-omit" => link_index_omit = Some(value("--link-index-omit")?.into()),
+            "--link-index-omit" => link_index_omit = Some(args.value("--link-index-omit")?.into()),
             // 段 D. An opaque token, passed through verbatim — this command does
             // not compute one and does not interpret one. The extractor uses it
             // as the caller's promise about the two inputs it cannot see (the
@@ -131,10 +120,10 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
             // that knows what its own runs have in common. `litedoc4 build`
             // computes the token in `pipeline::serve_options` and that is the
             // only place in the product that does.
-            "--link-index-key" => link_index_key = Some(value("--link-index-key")?),
-            "--extractor-bin" => bin = Some(value("--extractor-bin")?.into()),
-            "--target" => target = Some(value("--target")?.into()),
-            "--lake" => lake = Some(value("--lake")?.into()),
+            "--link-index-key" => link_index_key = Some(args.value("--link-index-key")?),
+            "--extractor-bin" => bin = Some(args.value("--extractor-bin")?.into()),
+            "--target" => target = Some(args.value("--target")?.into()),
+            "--lake" => lake = Some(args.value("--lake")?.into()),
             // Refused by name rather than as "unknown argument": each is a real
             // flag of the program behind this one, so what a caller needs to
             // hear is why it is not offered. Same rule as `incremental`'s.
@@ -172,11 +161,8 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
                      `Extract.lean`'s header",
                 ));
             }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
 

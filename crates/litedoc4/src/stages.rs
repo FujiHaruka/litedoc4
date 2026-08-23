@@ -12,7 +12,7 @@ use litedoc4_global::{GlobalOptions, GlobalSummary, build_global};
 use litedoc4_render::{ModuleSet, RenderOptions, RenderSummary, render_site};
 
 use crate::{
-    Failure, USAGE, link_index_required, print_global_summary, print_render_summary,
+    Failure, link_index_required, print_global_summary, print_render_summary,
     resolve_external_links, site_config, usage, with_dependency_docs,
 };
 
@@ -55,25 +55,19 @@ pub fn site(args: &[String]) -> Result<(), Failure> {
     let mut state: Option<PathBuf> = None;
     let mut timings: Option<PathBuf> = None;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--ir" => ir = Some(value("--ir")?.into()),
-            "--out" => out = Some(value("--out")?.into()),
-            "--source-url" => source_url = Some(value("--source-url")?),
-            "--link-index" => link_index = Some(value("--link-index")?.into()),
+            "--ir" => ir = Some(args.value("--ir")?.into()),
+            "--out" => out = Some(args.value("--out")?.into()),
+            "--source-url" => source_url = Some(args.value("--source-url")?),
+            "--link-index" => link_index = Some(args.value("--link-index")?.into()),
             "--no-link-index" => no_link_index = true,
-            "--root" => root = Some(value("--root")?.into()),
-            "--lake" => lake = Some(value("--lake")?.into()),
-            "--deps-docs-map" => deps_docs_map = Some(value("--deps-docs-map")?.into()),
-            "--state" => state = Some(value("--state")?.into()),
-            "--timings" => timings = Some(value("--timings")?.into()),
+            "--root" => root = Some(args.value("--root")?.into()),
+            "--lake" => lake = Some(args.value("--lake")?.into()),
+            "--deps-docs-map" => deps_docs_map = Some(args.value("--deps-docs-map")?.into()),
+            "--state" => state = Some(args.value("--state")?.into()),
+            "--timings" => timings = Some(args.value("--timings")?.into()),
             // Refused by name rather than as "unknown argument": each of these
             // is a real flag of the subcommand `site` calls, so the answer a
             // caller needs is *why it is not here*, not that it was misspelled.
@@ -96,11 +90,8 @@ pub fn site(args: &[String]) -> Result<(), Failure> {
                      name it with --out",
                 );
             }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
 
@@ -249,28 +240,19 @@ pub fn global(args: &[String]) -> Result<(), Failure> {
     // same package — which is exactly the disagreement 決定 3 refuses.
     let mut root: Option<PathBuf> = None;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--ir" => ir = Some(value("--ir")?.into()),
-            "--out" => out = Some(value("--out")?.into()),
-            "--root" => root = Some(value("--root")?.into()),
-            "--state" => state = Some(value("--state")?.into()),
-            "--before" => before = Some(value("--before")?.into()),
-            "--print-set" => print_set = Some(value("--print-set")?.into()),
-            "--delta-json" => delta_json = Some(value("--delta-json")?.into()),
-            "--timings" => timings = Some(value("--timings")?.into()),
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--ir" => ir = Some(args.value("--ir")?.into()),
+            "--out" => out = Some(args.value("--out")?.into()),
+            "--root" => root = Some(args.value("--root")?.into()),
+            "--state" => state = Some(args.value("--state")?.into()),
+            "--before" => before = Some(args.value("--before")?.into()),
+            "--print-set" => print_set = Some(args.value("--print-set")?.into()),
+            "--delta-json" => delta_json = Some(args.value("--delta-json")?.into()),
+            "--timings" => timings = Some(args.value("--timings")?.into()),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
 
@@ -308,29 +290,23 @@ pub fn render(args: &[String]) -> Result<(), Failure> {
     // whole point (plan §5).
     let mut only: Option<BTreeSet<String>> = None;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--ir" => ir = Some(value("--ir")?.into()),
-            "--pages" => pages = Some(value("--pages")?.into()),
-            "--source-url" => source_url = Some(value("--source-url")?),
-            "--link-index" => link_index = Some(value("--link-index")?.into()),
+            "--ir" => ir = Some(args.value("--ir")?.into()),
+            "--pages" => pages = Some(args.value("--pages")?.into()),
+            "--source-url" => source_url = Some(args.value("--source-url")?),
+            "--link-index" => link_index = Some(args.value("--link-index")?.into()),
             "--no-link-index" => no_link_index = true,
-            "--root" => root = Some(value("--root")?.into()),
-            "--lake" => lake = Some(value("--lake")?.into()),
-            "--deps-docs-map" => deps_docs_map = Some(value("--deps-docs-map")?.into()),
+            "--root" => root = Some(args.value("--root")?.into()),
+            "--lake" => lake = Some(args.value("--lake")?.into()),
+            "--deps-docs-map" => deps_docs_map = Some(args.value("--deps-docs-map")?.into()),
             "--only" => {
                 only.get_or_insert_with(BTreeSet::new)
-                    .insert(value("--only")?);
+                    .insert(args.value("--only")?);
             }
             "--only-from" => {
-                let path = PathBuf::from(value("--only-from")?);
+                let path = PathBuf::from(args.value("--only-from")?);
                 let text = std::fs::read_to_string(&path)
                     .map_err(|e| Failure::Failed(format!("{}: {e}", path.display())))?;
                 let ModuleSet::These(names) = ModuleSet::from_lines(&text) else {
@@ -338,11 +314,8 @@ pub fn render(args: &[String]) -> Result<(), Failure> {
                 };
                 only.get_or_insert_with(BTreeSet::new).extend(names);
             }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
 

@@ -13,7 +13,7 @@ use litedoc4_incr::{
     prune as run_prune, read_module_list, verify as run_verify,
 };
 
-use crate::{Failure, USAGE, refused, resolve_external_links, usage, with_dependency_docs};
+use crate::{Failure, refused, resolve_external_links, usage, with_dependency_docs};
 
 /// One row of [`links`]: a module root, the blob prefix it resolved to, the URL
 /// of the root module's own source file, and — with a link index — one deeper
@@ -105,25 +105,16 @@ pub fn links(args: &[String]) -> Result<(), Failure> {
     let mut link_index: Option<PathBuf> = None;
     let mut deps_docs_map: Option<PathBuf> = None;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--root" => root = Some(value("--root")?.into()),
-            "--lake" => lake = Some(value("--lake")?.into()),
-            "--out" => out = Some(value("--out")?.into()),
-            "--link-index" => link_index = Some(value("--link-index")?.into()),
-            "--deps-docs-map" => deps_docs_map = Some(value("--deps-docs-map")?.into()),
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--root" => root = Some(args.value("--root")?.into()),
+            "--lake" => lake = Some(args.value("--lake")?.into()),
+            "--out" => out = Some(args.value("--out")?.into()),
+            "--link-index" => link_index = Some(args.value("--link-index")?.into()),
+            "--deps-docs-map" => deps_docs_map = Some(args.value("--deps-docs-map")?.into()),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
     let Some(root) = root else {
@@ -223,26 +214,17 @@ pub fn ownership(args: &[String]) -> Result<(), Failure> {
     let mut print_set: Option<PathBuf> = None;
     let mut json: Option<PathBuf> = None;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--base" => base = Some(value("--base")?.into()),
-            "--inc" => inc = Some(value("--inc")?.into()),
-            "--removed" => removed = Some(value("--removed")?.into()),
-            "--exclude" => exclude = Some(value("--exclude")?.into()),
-            "--print-set" => print_set = Some(value("--print-set")?.into()),
-            "--json" => json = Some(value("--json")?.into()),
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--base" => base = Some(args.value("--base")?.into()),
+            "--inc" => inc = Some(args.value("--inc")?.into()),
+            "--removed" => removed = Some(args.value("--removed")?.into()),
+            "--exclude" => exclude = Some(args.value("--exclude")?.into()),
+            "--print-set" => print_set = Some(args.value("--print-set")?.into()),
+            "--json" => json = Some(args.value("--json")?.into()),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
 
@@ -302,29 +284,20 @@ pub fn merge(args: &[String]) -> Result<(), Failure> {
     let mut verify_tree: Option<PathBuf> = None;
     let mut against: Option<PathBuf> = None;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--base" => base = Some(value("--base")?.into()),
-            "--inc" => inc = Some(value("--inc")?.into()),
-            "--out" => out = Some(value("--out")?.into()),
-            "--modules" => modules = Some(value("--modules")?.into()),
-            "--remove" => remove = Some(value("--remove")?.into()),
-            "--changed-out" => changed_out = Some(value("--changed-out")?.into()),
-            "--timings" => timings = Some(value("--timings")?.into()),
-            "--verify" => verify_tree = Some(value("--verify")?.into()),
-            "--against" => against = Some(value("--against")?.into()),
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--base" => base = Some(args.value("--base")?.into()),
+            "--inc" => inc = Some(args.value("--inc")?.into()),
+            "--out" => out = Some(args.value("--out")?.into()),
+            "--modules" => modules = Some(args.value("--modules")?.into()),
+            "--remove" => remove = Some(args.value("--remove")?.into()),
+            "--changed-out" => changed_out = Some(args.value("--changed-out")?.into()),
+            "--timings" => timings = Some(args.value("--timings")?.into()),
+            "--verify" => verify_tree = Some(args.value("--verify")?.into()),
+            "--against" => against = Some(args.value("--against")?.into()),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
 
@@ -416,27 +389,18 @@ pub fn impact(args: &[String]) -> Result<(), Failure> {
     let mut print_set: Option<PathBuf> = None;
     let mut json: Option<PathBuf> = None;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--ir" => ir = Some(value("--ir")?.into()),
-            "--changed" => changed.push(value("--changed")?),
-            "--changed-file" => changed_file = Some(value("--changed-file")?.into()),
-            "--mode" => mode = Some(value("--mode")?),
-            "--census" => census = Some(value("--census")?.into()),
-            "--print-set" => print_set = Some(value("--print-set")?.into()),
-            "--json" => json = Some(value("--json")?.into()),
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--ir" => ir = Some(args.value("--ir")?.into()),
+            "--changed" => changed.push(args.value("--changed")?),
+            "--changed-file" => changed_file = Some(args.value("--changed-file")?.into()),
+            "--mode" => mode = Some(args.value("--mode")?),
+            "--census" => census = Some(args.value("--census")?.into()),
+            "--print-set" => print_set = Some(args.value("--print-set")?.into()),
+            "--json" => json = Some(args.value("--json")?.into()),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
 
@@ -485,25 +449,16 @@ pub fn prune(args: &[String]) -> Result<(), Failure> {
     let mut json: Option<PathBuf> = None;
     let mut dry_run = false;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--pages" => pages = Some(value("--pages")?.into()),
-            "--remove" => remove = Some(value("--remove")?.into()),
-            "--ir" => ir = Some(value("--ir")?.into()),
-            "--json" => json = Some(value("--json")?.into()),
+            "--pages" => pages = Some(args.value("--pages")?.into()),
+            "--remove" => remove = Some(args.value("--remove")?.into()),
+            "--ir" => ir = Some(args.value("--ir")?.into()),
+            "--json" => json = Some(args.value("--json")?.into()),
             "--dry-run" => dry_run = true,
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
 

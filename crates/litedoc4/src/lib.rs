@@ -58,6 +58,7 @@ use litedoc4_global::GlobalSummary;
 use litedoc4_render::RenderSummary;
 
 pub mod build;
+pub(crate) mod cli;
 pub mod deps_docs;
 pub mod extract;
 pub mod httpd;

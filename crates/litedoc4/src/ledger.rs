@@ -12,9 +12,7 @@ use litedoc4_incr::{
     read_module_list, touch_ledger,
 };
 
-use crate::{
-    Failure, USAGE, grouped, refused, resolve_external_links, usage, with_dependency_docs,
-};
+use crate::{Failure, grouped, refused, resolve_external_links, usage, with_dependency_docs};
 
 /// The `detect` stage: the olean hash ledger (plan §6, milestone M3-a).
 ///
@@ -75,14 +73,8 @@ pub fn ledger(args: &[String]) -> Result<(), Failure> {
     let Some(command) = args.first().map(String::as_str) else {
         return usage("ledger needs a subcommand: build, check or touch");
     };
-    let mut rest = args[1..].iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(&args[1..]);
+    while let Some(arg) = args.next() {
         if let Some((_, accepted)) = LEDGER_FLAGS.iter().find(|(flag, _)| *flag == arg.as_str())
             && !accepted.contains(&command)
         {
@@ -93,47 +85,39 @@ pub fn ledger(args: &[String]) -> Result<(), Failure> {
             ));
         }
         match arg.as_str() {
-            "--modules" => modules = Some(value("--modules")?.into()),
-            "--target" => target = Some(value("--target")?),
-            "--out" => out = Some(value("--out")?.into()),
-            "--ledger" => ledger = Some(value("--ledger")?.into()),
-            "--ir" => ir = Some(value("--ir")?.into()),
-            "--source-url" => source_url = value("--source-url")?,
+            "--modules" => modules = Some(args.value("--modules")?.into()),
+            "--target" => target = Some(args.value("--target")?),
+            "--out" => out = Some(args.value("--out")?.into()),
+            "--ledger" => ledger = Some(args.value("--ledger")?.into()),
+            "--ir" => ir = Some(args.value("--ir")?.into()),
+            "--source-url" => source_url = args.value("--source-url")?,
             // M5-b: the dependency map joins the render key, so `ledger build`
             // and `ledger check` have to be able to name it. Absent, and a path
             // that does not exist, both leave the key out.
-            "--link-index" => link_index = Some(value("--link-index")?.into()),
+            "--link-index" => link_index = Some(args.value("--link-index")?.into()),
             // M7-c. **Not `--target`**, even though on a real package the two
             // are the same directory: `--target` is the tree whose oleans are
             // hashed, and this is the package whose manifest and toolchain pin
             // the dependencies. Keeping them apart is what lets `ledger build`
             // over a hashed tree with no package behind it — every test in this
             // repository — go on producing the key it produced before M7.
-            "--root" => package = Some(value("--root")?.into()),
-            "--lake" => lake = Some(value("--lake")?.into()),
+            "--root" => package = Some(args.value("--root")?.into()),
+            "--lake" => lake = Some(args.value("--lake")?.into()),
             // A-1, and it is here for exactly the reason `--link-index` and
             // `--root` are: the resolved documentation map is part of the render
             // key, so a `ledger` run that cannot see it computes a different key
             // from the one `build` recorded and then reports "changed" or
             // "unchanged" for a reason that is not true.
-            "--deps-docs-map" => deps_docs_map = Some(value("--deps-docs-map")?.into()),
-            "--algorithm" => algorithm = Some(Algorithm::new(value("--algorithm")?)),
-            "--concurrency" => {
-                let raw = value("--concurrency")?;
-                concurrency = raw.parse().map_err(|_| {
-                    Failure::Usage(format!("--concurrency wants a number, not {raw}"))
-                })?;
-            }
-            "--module" => module = Some(value("--module")?),
-            "--changed-out" => changed_out = Some(value("--changed-out")?.into()),
-            "--removed-out" => removed_out = Some(value("--removed-out")?.into()),
-            "--render-all-out" => render_all_out = Some(value("--render-all-out")?.into()),
-            "--timings" => timings = Some(value("--timings")?.into()),
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--deps-docs-map" => deps_docs_map = Some(args.value("--deps-docs-map")?.into()),
+            "--algorithm" => algorithm = Some(Algorithm::new(args.value("--algorithm")?)),
+            "--concurrency" => concurrency = args.number("--concurrency")?,
+            "--module" => module = Some(args.value("--module")?),
+            "--changed-out" => changed_out = Some(args.value("--changed-out")?.into()),
+            "--removed-out" => removed_out = Some(args.value("--removed-out")?.into()),
+            "--render-all-out" => render_all_out = Some(args.value("--render-all-out")?.into()),
+            "--timings" => timings = Some(args.value("--timings")?.into()),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
 

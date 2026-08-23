@@ -148,7 +148,7 @@ use litedoc4_ir::sort_utf16;
 use litedoc4_render::{ModuleSet, RenderOptions, render_site};
 
 use crate::resident::{Resident, Serve};
-use crate::{Failure, LINK_INDEX_COST, USAGE, print_global_summary, refused, usage};
+use crate::{Failure, LINK_INDEX_COST, print_global_summary, refused, usage};
 
 /// `--max-rounds` reached with modules still stale. The prototype's exit code
 /// (`incremental.sh:293`), and the one number a caller may branch on: it means
@@ -886,44 +886,33 @@ pub fn incremental(args: &[String]) -> Result<(), Failure> {
     let mut package: Option<PathBuf> = None;
     let mut deps_docs_map: Option<PathBuf> = None;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--ir" => ir = Some(value("--ir")?.into()),
-            "--pages" => pages = Some(value("--pages")?.into()),
-            "--ledger" => ledger = Some(value("--ledger")?.into()),
-            "--work" => work = Some(value("--work")?.into()),
-            "--modules" => modules = Some(value("--modules")?.into()),
-            "--source-url" => source_url = Some(value("--source-url")?),
-            "--link-index" => link_index = Some(value("--link-index")?.into()),
+            "--ir" => ir = Some(args.value("--ir")?.into()),
+            "--pages" => pages = Some(args.value("--pages")?.into()),
+            "--ledger" => ledger = Some(args.value("--ledger")?.into()),
+            "--work" => work = Some(args.value("--work")?.into()),
+            "--modules" => modules = Some(args.value("--modules")?.into()),
+            "--source-url" => source_url = Some(args.value("--source-url")?),
+            "--link-index" => link_index = Some(args.value("--link-index")?.into()),
             // M5-b. Without it `--link-index` names an input; with it the
             // resident extractor **writes** that file out of the environment it
             // has imported anyway (M5-a), and the file is an output this run
             // produces before it renders against it.
             "--make-link-index" => make_link_index = true,
-            "--state" => state = Some(value("--state")?.into()),
-            "--extractor" => extractor = Some(value("--extractor")?),
-            "--extractor-arg" => extractor_args.push(value("--extractor-arg")?),
-            "--mode" => mode = Some(value("--mode")?),
-            "--max-rounds" => {
-                let raw = value("--max-rounds")?;
-                max_rounds = raw.parse().map_err(|_| {
-                    Failure::Usage(format!("--max-rounds wants a number, not {raw}"))
-                })?;
-            }
-            "--timings" => timings = Some(value("--timings")?.into()),
+            "--state" => state = Some(args.value("--state")?.into()),
+            "--extractor" => extractor = Some(args.value("--extractor")?),
+            "--extractor-arg" => extractor_args.push(args.value("--extractor-arg")?),
+            "--mode" => mode = Some(args.value("--mode")?),
+            "--max-rounds" => max_rounds = args.number("--max-rounds")?,
+            "--timings" => timings = Some(args.value("--timings")?.into()),
             // M4-c. `--serve` takes no value: the prototype's `auto` existed only
             // to tell it from `--serve-dir`, which is refused below.
             "--serve" => serve = true,
-            "--extractor-bin" => extractor_bin = Some(value("--extractor-bin")?.into()),
-            "--target" => target = Some(value("--target")?.into()),
-            "--lake" => lake = Some(value("--lake")?.into()),
+            "--extractor-bin" => extractor_bin = Some(args.value("--extractor-bin")?.into()),
+            "--target" => target = Some(args.value("--target")?.into()),
+            "--lake" => lake = Some(args.value("--lake")?.into()),
             // M7-c. **A flag of neither extraction path**, and not `--target`:
             // `--target` is the package the resident extractor runs `lake env`
             // inside, and exists only on the `--serve` path; this is the package
@@ -933,7 +922,7 @@ pub fn incremental(args: &[String]) -> Result<(), Failure> {
             // out, dependency links stay relative and the run says so — and the
             // ledger that licenses those pages has to have been built the same
             // way, which is why `ledger` takes the same flag under the same name.
-            "--root" => package = Some(value("--root")?.into()),
+            "--root" => package = Some(args.value("--root")?.into()),
             // A-1. This command **renders**, and it is also the command that
             // compares the render key with the ledger's, so it needs the same
             // resolved documentation map `build` wrote for both: without it the
@@ -943,18 +932,13 @@ pub fn incremental(args: &[String]) -> Result<(), Failure> {
             // resolved: nothing here touches the network, and re-deriving it
             // would be the second way to attach it (`deps_docs.rs`, "why an
             // artifact and not the same flags on three commands").
-            "--deps-docs-map" => deps_docs_map = Some(value("--deps-docs-map")?.into()),
+            "--deps-docs-map" => deps_docs_map = Some(args.value("--deps-docs-map")?.into()),
             // **A flag of `--serve` only, and that is constraint 6 spelled out**
             // (plan §6): the resident server's job count is its start-up `cfg`
             // (`Extract.lean:2751`), so it is the pipeline's to choose exactly
             // when the pipeline is the thing that starts it. Behind `--extractor`
             // the parallelism belongs to the extraction program.
-            "--jobs" => {
-                let raw = value("--jobs")?;
-                jobs = raw
-                    .parse()
-                    .map_err(|_| Failure::Usage(format!("--jobs wants a number, not {raw}")))?;
-            }
+            "--jobs" => jobs = args.number("--jobs")?,
             // Refused by name rather than as "unknown argument": each is a real
             // flag of `incremental.sh`, so what the caller needs to hear is why
             // it is gone, not that it was misspelled. See the module heading.
@@ -1011,11 +995,8 @@ pub fn incremental(args: &[String]) -> Result<(), Failure> {
                      re-rendered at all — {LINK_INDEX_COST}",
                 ));
             }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
 
@@ -1604,23 +1585,14 @@ pub fn modules(args: &[String]) -> Result<(), Failure> {
     let mut libs: Vec<String> = Vec::new();
     let mut out: Option<PathBuf> = None;
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--root" => root = Some(value("--root")?.into()),
-            "--lib" => libs.push(value("--lib")?),
-            "--out" => out = Some(value("--out")?.into()),
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return Ok(());
-            }
-            other => return usage(format!("unknown argument `{other}`")),
+            "--root" => root = Some(args.value("--root")?.into()),
+            "--lib" => libs.push(args.value("--lib")?),
+            "--out" => out = Some(args.value("--out")?.into()),
+            "--help" | "-h" => return crate::cli::help(),
+            other => return crate::cli::unknown(other),
         }
     }
     let Some(root) = root else {

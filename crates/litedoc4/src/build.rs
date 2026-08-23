@@ -291,44 +291,28 @@ pub(crate) fn parse(
     let mut deps_docs_urls: Vec<String> = Vec::new();
     let mut deps_docs_indexes: Vec<String> = Vec::new();
 
-    let mut rest = args.iter();
-    while let Some(arg) = rest.next() {
-        let mut value = |flag: &str| -> Result<String, Failure> {
-            match rest.next() {
-                Some(value) => Ok(value.clone()),
-                None => usage(format!("{flag} needs a value")),
-            }
-        };
+    let mut args = crate::cli::Args::new(args);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--root" => root = Some(value("--root")?.into()),
-            "--out" => out = Some(value("--out")?.into()),
-            "--lib" => libs.push(value("--lib")?),
-            "--link-index" => link_index = Some(value("--link-index")?.into()),
-            "--source-url" => source_url = Some(value("--source-url")?),
-            "--extractor" => extractor = Some(value("--extractor")?),
-            "--extractor-arg" => extractor_args.push(value("--extractor-arg")?),
-            "--extractor-bin" => extractor_bin = Some(value("--extractor-bin")?.into()),
-            "--lake" => lake = Some(value("--lake")?.into()),
-            "--jobs" => {
-                let raw = value("--jobs")?;
-                jobs = raw
-                    .parse()
-                    .map_err(|_| Failure::Usage(format!("--jobs wants a number, not {raw}")))?;
-            }
-            "--mode" => mode = Some(value("--mode")?),
-            "--max-rounds" => {
-                let raw = value("--max-rounds")?;
-                max_rounds = raw.parse().map_err(|_| {
-                    Failure::Usage(format!("--max-rounds wants a number, not {raw}"))
-                })?;
-            }
-            "--timings" => timings = Some(value("--timings")?.into()),
+            "--root" => root = Some(args.value("--root")?.into()),
+            "--out" => out = Some(args.value("--out")?.into()),
+            "--lib" => libs.push(args.value("--lib")?),
+            "--link-index" => link_index = Some(args.value("--link-index")?.into()),
+            "--source-url" => source_url = Some(args.value("--source-url")?),
+            "--extractor" => extractor = Some(args.value("--extractor")?),
+            "--extractor-arg" => extractor_args.push(args.value("--extractor-arg")?),
+            "--extractor-bin" => extractor_bin = Some(args.value("--extractor-bin")?.into()),
+            "--lake" => lake = Some(args.value("--lake")?.into()),
+            "--jobs" => jobs = args.number("--jobs")?,
+            "--mode" => mode = Some(args.value("--mode")?),
+            "--max-rounds" => max_rounds = args.number("--max-rounds")?,
+            "--timings" => timings = Some(args.value("--timings")?.into()),
             // A-2. `watch`'s own two, and they are refused by name on `build`
             // for the same reason `build`'s are refused on `site`: each is a
             // real flag of a command next door, so what the caller needs to hear
             // is which command owns it.
             "--port" => {
-                let raw = value("--port")?;
+                let raw = args.value("--port")?;
                 match watch.as_deref_mut() {
                     Some(flags) => flags.port = Some(raw),
                     None => {
@@ -341,7 +325,7 @@ pub(crate) fn parse(
                 }
             }
             "--interval" => {
-                let raw = value("--interval")?;
+                let raw = args.value("--interval")?;
                 match watch.as_deref_mut() {
                     Some(flags) => flags.interval = Some(raw),
                     None => {
@@ -364,11 +348,11 @@ pub(crate) fn parse(
             }
             "--deps-docs-url" => {
                 only_in_build(watching, "--deps-docs-url", DEPS_DOCS_IN_WATCH)?;
-                deps_docs_urls.push(value("--deps-docs-url")?);
+                deps_docs_urls.push(args.value("--deps-docs-url")?);
             }
             "--deps-docs-index" => {
                 only_in_build(watching, "--deps-docs-index", DEPS_DOCS_IN_WATCH)?;
-                deps_docs_indexes.push(value("--deps-docs-index")?);
+                deps_docs_indexes.push(args.value("--deps-docs-index")?);
             }
             // Refused by name: it is `site` and `render`'s flag, and it names
             // the file *this* command writes. Accepting it here would let a run
@@ -433,7 +417,7 @@ pub(crate) fn parse(
                 println!("{USAGE}");
                 return Err(Failure::Answered(0));
             }
-            other => return usage(format!("unknown argument `{other}`")),
+            other => return crate::cli::unknown(other),
         }
     }
 

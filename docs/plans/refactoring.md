@@ -423,6 +423,23 @@ after:  Ok("")
   **これは製品の出力そのもので、短縮は仕様変更**
 - 規模: `cli` 約 80 行、13 箇所から約 200 行削減
 
+#### 結果【2026-08-23】
+
+`crates/litedoc4/src/cli.rs` (89 行) を置き、**7 ファイルで +181 / -324 = 正味 -143 行**
+(`cli.rs` 自身を除けば -232)。
+
+- `Args::new` / `value` / `number` / `help` / `unknown` の 5 つ。**`match` のアームは動かしていない**
+- **`--help` は 11 箇所を揃え、3 箇所は揃えなかった**【判断】 —
+  `build.rs:412-418` は `Err(Failure::Answered(0))` を返し、**その理由がすぐ上に書いてある**
+  (「this function's `Ok` is a request to run, and `--help` is not one」)。
+  `watch.rs:204` はパース前の事前スキャン。**「3 通りに割れている」は正しかったが、
+  割れていること自体は意図的だった** — `cli.rs` の docstring にそう書いた
+- `Args::next` を `Iterator` にはできない — `for arg in args` が全体を借りてしまい、
+  ループの中で `value()` が呼べない。**最初 `#[expect(clippy::should_implement_trait)]` を
+  付けたが、clippy が「この expectation は満たされない」で落とした** — この lint は
+  公開項目にしか発火せず、`pub(crate)` には来ない。**`#[expect]` が仕事をした形**なので、
+  理由はコメントに移した
+
 ### R3 — 「対象の中に書こうとしていないか」のガードを 1 本に (5 箇所)
 
 - **今**: `extract.rs:266-277` / `extract.rs:280-293` / `pipeline.rs:1270-1287` /
