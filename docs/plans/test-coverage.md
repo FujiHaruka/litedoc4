@@ -61,11 +61,12 @@ BODY TOTAL: 81.6% covered (6696/8210 executable lines, 1514 uncovered)
 
 カバレッジは「走ったか」しか言わない。**そもそも検査するものが存在しない**経路を別途棚卸しした:
 
-- **CI で 1 度も走らないゲートが 4 本**。うち **2 本は入力がすでに CI にある** —
-  `e2e/micro/litedoc4.toml` は `config-gate.sh` のために置いてあるのに、そのゲートが
-  CI に載っていない。`usedby-gate.sh` は `--ir` と `--site` だけで走る。
-  **残る 2 本 (`watch` / `deps-docs`) は計測対象・ネットワークを要ると書いてあるが、
-  前者はその主張自体を疑う** (→ 段 4)。
+- **push で走らないゲートは 2 本だけ**【実測 2026-08-24、→ 段 0】 — `watch-gate.sh` と
+  `clone-gate.sh`。後者は計測対象のクローンを要り、比較相手のゲート A が suspended なので
+  設計どおり。**`watch-gate.sh` だけが「主張を疑う」対象として残る** (→ 段 4 W3)。
+  ゲートは `ci.yml` から直接呼ばれるものだけではない — **`e2e-micro.sh` が 4 本
+  (`site` / `usedby` / `config` / `onemod`) を内部で呼ぶ**ので、
+  workflow の grep だけで数えると走っているものを走っていないと数える。
 - **テストが 1 本も無いファイル**: `litedoc4/src/cli.rs` (全 13 サブコマンドが通る共通パーサ) /
   `litedoc4/src/main.rs` (dispatch) / `extractor/Extract.lean` (3,687 行) /
   両クレートの `build.rs`。
@@ -109,20 +110,28 @@ e2e は `tools/e2e-micro.sh` が実 Lean で 9 ゲートを回している。**�
 
 ## 3. 段ごとの内訳
 
-### 段 0 — 既にある入力で走るゲートを CI に載せる
+### 段 0 — 既にある入力で走るゲートを CI に載せる → **既に載っていた**【決着 2026-08-24】
 
-`e2e-micro` ジョブは `--keep` でサイトと IR を残す。**その 2 本のゲートが要る入力は
-すでにそこにある。**
+**この段はやることが無い。** 棚卸しは「`config-gate.sh` と `usedby-gate.sh` が CI で
+1 度も走らない」と報告したが、**実測したら両方とも走っていた** — `tools/e2e-micro.sh` が
+823 行目と 830 行目でこの 2 本を呼んでおり、そのスクリプトは `ci.yml` の `e2e-micro`
+ジョブが回す。完走ログに両ゲートの出力行がある:
 
-| ID | やること | 落ちたとき何が壊れたか |
-|---|---|---|
-| **G1** | `tools/config-gate.sh` を `ci.yml` の `e2e-micro` ジョブに追加 | `litedoc4.toml` の title / index が、HTML を書く 4 経路のどれかで落ちている |
-| **G2** | `tools/usedby-gate.sh` を同ジョブに追加 | `used-by.json` と IR の `refs` が**どちらかの向きで**食い違っている |
-| **G3** | 追加した 2 本を**わざと落として**、CI 上で赤くなることを確認してから緑にする | (G1/G2 が「何をしても通るゲート」でないことの確認) |
+```
+usedby       10 module(s), 92 declaration(s); 64 target(s) / 151 edge(s) agree in both directions
+config       title 'Micro Fixture' on 10 module page(s) x 3 commands; index.html identical across 3 commands
+```
 
-**先に手元で走らせて、所要時間と追加入力の有無を測る。** ヘッダの usage が要求する
-引数が e2e-micro の出力で満たせるかは、**実際に走らせて確かめる** (「推測した名前で探して
-何も検査せず緑」を踏んだ実績がある)。
+| ID | 結論 |
+|---|---|
+| **G1** | **やることなし** — `config-gate.sh` は `e2e-micro.sh` 経由で CI で走っている |
+| **G2** | **やることなし** — `usedby-gate.sh` も同じ |
+| **G3** | **やることなし** — 両ゲートは falsify 手段を自前で持つ (`usedby --drop` / `config --blind`)、ヘッダに落として確かめた旨が書いてある |
+
+**教訓は 2 つあり、どちらも既存の規律の再確認である。**
+(1) **項目を潰す前にまず現況を確認する** — 「未」は腐る。
+(2) **ゲートが CI で走るかを workflow の grep だけで判定しない** — `e2e-micro.sh` は
+4 本 (`site` / `usedby` / `config` / `onemod`) を内部で呼ぶ。**呼び出しは 2 段ある。**
 
 ### 段 1 — 全サブコマンドが通る共通経路
 
