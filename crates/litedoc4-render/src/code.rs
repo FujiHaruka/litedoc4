@@ -111,7 +111,7 @@ impl<'a> CodeRenderer<'a> {
 
     /// `renderedCodeToHtmlAux` over one fragment (`render.ts:606-610`).
     ///
-    /// `root` is [`crate::page_root`] of the page being written — it prefixes
+    /// `root` is [`crate::autolink::page_root`] of the page being written — it prefixes
     /// every link, so it is part of the bytes — and `refs` is [`decl_refs`] of
     /// the declaration the fragment belongs to. Members and equations use the
     /// *declaration's* references, not their own; they have none.

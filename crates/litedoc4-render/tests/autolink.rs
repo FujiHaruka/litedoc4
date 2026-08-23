@@ -66,9 +66,8 @@ use std::path::PathBuf;
 
 use litedoc4_ir::IrTree;
 use litedoc4_md::LinkResolver;
-use litedoc4_render::{
-    ExternalLinks, LinkIndex, NameIndex, PageLinks, module_decl_names, page_root,
-};
+use litedoc4_render::autolink::{NameIndex, PageLinks, module_decl_names, page_root};
+use litedoc4_render::{ExternalLinks, LinkIndex};
 use serde::Deserialize;
 
 mod common;

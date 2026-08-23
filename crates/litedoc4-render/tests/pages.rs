@@ -62,9 +62,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use litedoc4_render::{
-    ExternalLinks, ModuleSet, RenderOptions, escape_html, page_path, render_site,
-};
+use litedoc4_render::escape::escape_html;
+use litedoc4_render::{ExternalLinks, ModuleSet, RenderOptions, page_path, render_site};
 use serde::Deserialize;
 
 mod common;

@@ -70,9 +70,9 @@ fn converter() -> &'static LatexToMathML {
 /// `<math display="inline">` (`$…$`).
 ///
 /// ```
-/// let html = litedoc4_md::to_mathml("x^2", false).expect("x^2 parses");
+/// let html = litedoc4_md::math::to_mathml("x^2", false).expect("x^2 parses");
 /// assert_eq!(html, "<math><msup><mi>x</mi><mn>2</mn></msup></math>");
-/// assert!(litedoc4_md::to_mathml("\\colim_k F", false).is_none());
+/// assert!(litedoc4_md::math::to_mathml("\\colim_k F", false).is_none());
 /// ```
 #[must_use]
 pub fn to_mathml(latex: &str, display: bool) -> Option<String> {

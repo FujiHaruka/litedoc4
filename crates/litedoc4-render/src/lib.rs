@@ -56,7 +56,7 @@
 //! # What is here so far (M1-d3)
 //!
 //! [`page`] assembles one module's page — which declarations get an entry
-//! ([`Suppressed`], site-wide) and in what order they and the module
+//! ([`page::Suppressed`], site-wide) and in what order they and the module
 //! docstrings appear — and [`site`] is the run: read the IR, build the maps in
 //! the order that decides what links where, write one file per wanted module.
 //!
@@ -73,7 +73,7 @@
 //!
 //! **M7-c is where the pages use it.** Every link *into another module* — a
 //! docstring autolink, a constant in a signature, an inherited structure field,
-//! an entry in the import list — is built by [`NameIndex::link_to`], which is
+//! an entry in the import list — is built by [`autolink::NameIndex::link_to`], which is
 //! the only place the choice is made:
 //!
 //! | the module is | the href |
@@ -87,7 +87,7 @@
 //! move — and **an empty map, over a run that renders every module it can name,
 //! reproduces the pre-M7 bytes exactly**, which is what keeps the frozen
 //! prototype's fixtures meaningful as the fallback branch's oracle
-//! ([`NameIndexBuilder::build_with_a_page_for_every_module`] is that world;
+//! ([`autolink::NameIndexBuilder::build_with_a_page_for_every_module`] is that world;
 //! `docs/implementation-plan.md` §1: gate A is suspended, and byte
 //! compatibility with doc-gen4 is no longer claimed for dependency links).
 //!
@@ -119,28 +119,28 @@ pub mod page;
 pub mod site;
 pub mod whitespace;
 
+// **A `pub use` here means another crate in this workspace imports the item.**
+// Everything else stays `pub` in its own module and is reached as
+// `litedoc4_render::<module>::<item>` — the module list above is the surface.
+// The exception is a value whose *meaning* has its single source of truth here;
+// those carry a line saying so.
 pub use assets::{ASSETS, write_assets};
-pub use autolink::{
-    NameIndex, NameIndexBuilder, PRIVATE_PREFIX, PageLinks, is_letter_like, is_name_lit,
-    module_decl_names, module_link, page_root,
-};
-pub use code::{
-    CodeRenderer, Refs, Rendered, break_within, css_kind, decl_refs, find_linkable_parent,
-    kind_description, module_from_private_prefix, private_to_user_name,
-};
-pub use config::{CONFIG_FILE, SiteConfig};
-pub use decl::{
-    DeclRenderer, EQUATION_LIMIT, UnplaceableName, class_instances_html, contained_names,
-    decl_head_html, decl_name_to_link, decl_signature, equations_html, instances_for_html,
-};
-pub use escape::{escape_html, escape_html_into, lean_quote, lean_quote_into};
-pub use external::{DIGEST_MARKER, DOCS_DIGEST_MARKER, DepDocs, ExternalLinks};
-pub use frame::{
-    SiteMeta, head_html, module_head_html, module_meta_html, module_source_url, sidebar_html,
-    sorted_imports, topbar_html,
-};
+// Meaning, not caller: the spelling Lean prints in front of a private name, which
+// anything that has to recognise one would otherwise spell a second time.
+pub use autolink::PRIVATE_PREFIX;
+pub use code::{break_within, css_kind};
+pub use config::SiteConfig;
+// Meaning, not caller: the name of the file a package's site settings live in —
+// what a caller looking for one has to agree with.
+pub use config::CONFIG_FILE;
+// Meaning, not caller: doc-gen4's cut-off, the length at which an equation is
+// stored as NULL and replaced by a notice.
+pub use decl::EQUATION_LIMIT;
+pub use external::{DepDocs, ExternalLinks};
+// Meaning, not caller: the two version tokens an `ExternalLinks` digest is taken
+// over. What a digest covers is decided by these lines and nothing else.
+pub use external::{DIGEST_MARKER, DOCS_DIGEST_MARKER};
+pub use frame::{SiteMeta, head_html, topbar_html};
 pub use link_index::LinkIndex;
-pub use order::{cmp_name, cmp_name_components, cmp_string, name_lt, sort_names, string_lt};
-pub use page::{PageItem, RenderedPage, Suppressed, page_html, page_items, page_path};
+pub use page::page_path;
 pub use site::{ModuleSet, RenderOptions, RenderSummary, render_site};
-pub use whitespace::{WsRewrite, apply_ws_widths};

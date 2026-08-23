@@ -149,7 +149,7 @@ pub struct RenderSummary {
     pub known_modules: usize,
     pub bytes_written: u64,
     /// Math spans that could not be converted to MathML and were written back
-    /// as their LaTeX source ([`crate::RenderedPage::math_failures`]).
+    /// as their LaTeX source ([`crate::page::RenderedPage::math_failures`]).
     ///
     /// Zero is the number to expect: the target package's three spans and
     /// 99.58% of Mathlib's 2,123 convert 【実測 2026-08-22 →

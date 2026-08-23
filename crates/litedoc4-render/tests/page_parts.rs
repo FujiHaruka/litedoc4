@@ -67,11 +67,11 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use litedoc4_ir::{Decl, IrTree, ModuleFile};
-use litedoc4_render::{
-    CodeRenderer, DeclRenderer, ExternalLinks, LinkIndex, NameIndex, PageLinks, SiteMeta,
-    UnplaceableName, decl_head_html, decl_signature, head_html, module_decl_names,
-    module_head_html, module_meta_html, module_source_url, page_root, sidebar_html, topbar_html,
-};
+use litedoc4_render::autolink::{NameIndex, PageLinks, module_decl_names, page_root};
+use litedoc4_render::code::CodeRenderer;
+use litedoc4_render::decl::{DeclRenderer, UnplaceableName, decl_head_html, decl_signature};
+use litedoc4_render::frame::{module_head_html, module_meta_html, module_source_url, sidebar_html};
+use litedoc4_render::{ExternalLinks, LinkIndex, SiteMeta, head_html, topbar_html};
 use serde::Deserialize;
 
 const FIXTURE: &str = include_str!("data/page-parts-expected.json");

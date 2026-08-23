@@ -54,10 +54,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use litedoc4_ir::{IrTree, Span, SpanKind, Utf16Text};
-use litedoc4_render::{
-    CodeRenderer, ExternalLinks, LinkIndex, NameIndex, Refs, Rendered, break_within, css_kind,
-    decl_refs, kind_description, module_from_private_prefix, page_root, private_to_user_name,
+use litedoc4_render::autolink::{NameIndex, page_root};
+use litedoc4_render::code::{
+    CodeRenderer, Refs, Rendered, decl_refs, kind_description, module_from_private_prefix,
+    private_to_user_name,
 };
+use litedoc4_render::{ExternalLinks, LinkIndex, break_within, css_kind};
 use serde::Deserialize;
 
 const FIXTURE: &str = include_str!("data/fragment-expected.json");

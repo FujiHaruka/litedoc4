@@ -64,7 +64,7 @@ use crate::site::Error;
 /// order [`write_assets`] writes them.
 ///
 /// The paths are flat and relative because that is what the pages ask for:
-/// [`crate::head_html`] builds every asset href as [`crate::page_root`] of the
+/// [`crate::head_html`] builds every asset href as [`crate::autolink::page_root`] of the
 /// page plus this name, so `Pkg/A/B.html` reaches the same `style.css` as
 /// `Pkg.html` does. There is no separator in any of the three; one added later
 /// stays a `/` — a URL path on every platform — exactly as

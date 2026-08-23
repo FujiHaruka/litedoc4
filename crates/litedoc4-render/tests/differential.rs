@@ -26,9 +26,9 @@
 use std::cmp::Ordering;
 
 use litedoc4_ir::{Span, Utf16Text, cmp_utf16, sort_utf16};
-use litedoc4_render::{
-    apply_ws_widths, cmp_name, escape_html, escape_html_into, lean_quote, string_lt,
-};
+use litedoc4_render::escape::{escape_html, escape_html_into, lean_quote};
+use litedoc4_render::order::{cmp_name, string_lt};
+use litedoc4_render::whitespace::apply_ws_widths;
 use serde::Deserialize;
 
 const FIXTURE: &str = include_str!("data/ts-expected.json");

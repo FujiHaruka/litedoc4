@@ -46,9 +46,8 @@ use litedoc4_md::Renderer as DocRenderer;
 #[cfg(test)]
 use crate::autolink::page_root;
 use crate::autolink::{NameIndex, module_link};
-use crate::code::{CodeRenderer, Refs, decl_refs};
+use crate::code::{CodeRenderer, Refs, break_within, css_kind, decl_refs, kind_description};
 use crate::escape::escape_html_into;
-use crate::{break_within, css_kind, kind_description};
 
 /// `Process/Base.lean:119` — an equation whose printed text reaches this many
 /// **code points** is stored as NULL by the DB and replaced by a notice.
@@ -296,11 +295,11 @@ fn push_args(
 /// declarations that get no page entry too, before anything about the page is
 /// known.
 ///
-/// `root` is [`crate::page_root`] of `module`, and it is a parameter rather than
+/// `root` is [`crate::autolink::page_root`] of `module`, and it is a parameter rather than
 /// something this derives: [`DeclRenderer`] holds one, and a second one derived
 /// here would put two paths to the same value inside one `<section>` — the head
 /// and the signature from this one, the equations and the fields from the
-/// renderer's. [`crate::PageLinks::renderer`] closed exactly that for a
+/// renderer's. [`crate::autolink::PageLinks::renderer`] closed exactly that for a
 /// different pair, with the same reason: links that are half right.
 #[must_use]
 pub fn decl_head_html(decl: &Decl, root: &str, module: &str, source_url: &str) -> String {
@@ -329,7 +328,7 @@ pub fn decl_head_html(decl: &Decl, root: &str, module: &str, source_url: &str) -
 /// Split from [`decl_head_html`] because they wrap differently: the head is a
 /// flex row that reflows, the signature is code whose whitespace the IR already
 /// decided (see [`push_arg`]).
-/// `root` is [`crate::page_root`] of `module` — a parameter for the reason
+/// `root` is [`crate::autolink::page_root`] of `module` — a parameter for the reason
 /// [`decl_head_html`] gives.
 #[must_use]
 pub fn decl_signature(decl: &Decl, root: &str, code: &CodeRenderer<'_>) -> String {
@@ -402,9 +401,9 @@ pub struct DeclRenderer<'a> {
 }
 
 impl<'a> DeclRenderer<'a> {
-    /// `root` is [`crate::page_root`] of `module`, `source_url` is
-    /// [`crate::module_source_url`] of it, and `docs` is the docstring renderer
-    /// built from this page's [`crate::PageLinks`].
+    /// `root` is [`crate::autolink::page_root`] of `module`, `source_url` is
+    /// [`crate::frame::module_source_url`] of it, and `docs` is the docstring renderer
+    /// built from this page's [`crate::autolink::PageLinks`].
     ///
     /// The two renderers are separate arguments because they resolve names
     /// against different maps on purpose: the code renderer reads the IR's own

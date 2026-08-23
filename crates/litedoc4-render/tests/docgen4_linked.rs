@@ -42,7 +42,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use litedoc4_md::LinkResolver;
-use litedoc4_render::{ExternalLinks, LinkIndex, NameIndex, PageLinks};
+use litedoc4_render::autolink::{NameIndex, PageLinks};
+use litedoc4_render::{ExternalLinks, LinkIndex};
 use serde::Deserialize;
 
 mod common;

@@ -862,6 +862,53 @@ builder に入れてから 1 ページも描かない。
   (c) `sorted_imports` → `frame.rs:362` を `sort_names` 呼び出しに替えてから `pub` を落とす。
       `used_by_html` は (a)(b) どちらに寄せるか決めて**兄弟 3 つを揃える**
 
+#### 結果【2026-08-23】— **「他 crate が使うか」は grep では決まらない**
+
+**見出しの「render 22 件 / md 3 件」が何を数えたのかは読み取れない。数えたのは re-export で、
+render 68 件 / md 18 件**(結果が SoT)。判定は全部コンパイラに出させた — 候補を落として
+`cargo check --workspace --all-targets --exclude <当該 crate>` を通し、
+**他 package が要るものだけがエラーとして名乗り出る**形にした。
+
+| | render 68 | md 18 |
+|---|---|---|
+| (a) 意味の SoT として残す (理由 1 行付き) | **5** | 0 |
+| 他 crate が実際に import している | **16** | **5** |
+| 私有モジュールなので re-export が唯一の経路 | 0 | **4** |
+| (b) `pub use` から外した | **47** | **9** |
+
+**grep 仮説が外したのは 5 件。4 件は同じ向きの外し方**: `NameIndex` / `is_letter_like` /
+`escape_html` / `Suppressed` を「他 crate が使う」側に置いていたが、
+**どの package も import していなかった**。`escape_html` がその典型で、
+**`litedoc4-global` が使っているのは `litedoc4_md::escape_html` の方**。同じ名前が 2 crate に在る。
+
+**5 件目は逆向きで、こちらが本命**: md の `parse_with_flags` は**落とせない**。
+`mod parse` と `mod error` は**私有モジュール**なので、`pub use` が外部への唯一の経路であり、
+外すと `unreachable_pub` が 4 件出る (`Error` / `Result` / `parse` / `parse_with_flags`。
+warn → CI では `-D warnings` で error)。**`pub use` の理由は「他 crate が使う」だけではない** —
+「他に経路が無い」がもう 1 つある。md の `lib.rs` にその 1 行を書いた。
+
+**兄弟 3 つは揃った**: どの crate も使っていないので `instances_for_html` /
+`class_instances_html` / `used_by_html` は**全部 (b)**。3 つ書いて 3 つとも `decl` に置いたままになり、
+**re-export の有無で兄弟が割れている状態は消えた**。
+
+**`sort_names` は書いた相手に届いた**: `frame.rs` の `out.sort_by(|a, b| cmp_name(a, b))` を
+`sort_names(&mut out)` に替えた。どちらも `cmp_name` による安定 `sort_by` なのでバイト同値で、
+**凍結プロトタイプとのバイト比較 `page_parts::frames_carry_the_same_content_as_the_prototype` が緑**。
+`sorted_imports` は呼び出しが `module_meta_html` と自分のテストだけなので `pub` も落とした
+(`unreachable_pub` を含め clippy は無言)。
+
+**副産物 — intra-doc link 17 本が module パスに移った。うち 5 本は `cargo doc` だけが見つけた**
+(4 本は `crate::CodeRenderer::…` のような CamelCase で、`crate::[a-z_]` の grep に映らない)。
+**さらに 1 本は `cargo test` だけが捕まえた**: `md/src/math.rs` の doctest が
+`litedoc4_md::to_mathml` を呼んでいた。**doctest は `--all-targets` に入らない**ので、
+`cargo check --workspace --all-targets` は最後まで緑のままだった。
+
+**直さなかったものが 3 種ある**【判断】: `render/assets/style.css:670` の
+`litedoc4_md::to_mathml` は**出力バイト**なので触らない (パスは古くなる)。
+`litedoc4/src/packages.rs` の `litedoc4_render::NameIndex::link_to` と
+`litedoc4-md/src/html.rs` の `litedoc4_render::PageLinks` は**コードスパンでリンクではない**
+(md は render に依存すらしていない) ので、この項目の範囲では触らない。
+
 ### S8 — `render_site` から I/O だけ抜く
 
 - `site.rs:162-240` (79 行) が 5 責務を持つ。**ただし `NameIndex` の構築は

@@ -22,7 +22,7 @@
 //! 1. **The theme is set by an inline script in `<head>`.** An external module
 //!    runs after first paint, so a reader on the dark theme would see a white
 //!    flash on every navigation. The cost is ~120 bytes on every page.
-//! 2. **The import list is sorted by [`crate::cmp_name`], not by string order.**
+//! 2. **The import list is sorted by [`crate::order::cmp_name`], not by string order.**
 //!    `Name.lt` compares parents first: `Init` and `Mathlib` both precede
 //!    `Init.Core`. This is doc-gen4's order and there is no reason to change it
 //!    — it groups a package's modules together, which alphabetical order does
@@ -33,10 +33,10 @@
 //! them behind an `INSERT OR IGNORE` (`DB.lean:162`).
 
 use crate::autolink::NameIndex;
-use crate::break_within;
+use crate::code::break_within;
 use crate::config::SiteConfig;
 use crate::escape::escape_html_into;
-use crate::order::cmp_name;
+use crate::order::sort_names;
 
 /// What every page says about the site it belongs to. Configuration, not IR:
 /// `litedoc4 build` fills it from the package it was pointed at.
@@ -351,7 +351,7 @@ pub fn module_meta_html(root: &str, imports: &[String], index: &NameIndex) -> St
 /// The de-duplication happens before the sort, which is why it keeps the first
 /// occurrence rather than any other.
 #[must_use]
-pub fn sorted_imports(imports: &[String]) -> Vec<&str> {
+fn sorted_imports(imports: &[String]) -> Vec<&str> {
     let mut seen = std::collections::HashSet::with_capacity(imports.len());
     let mut out: Vec<&str> = Vec::with_capacity(imports.len());
     for import in imports {
@@ -359,7 +359,7 @@ pub fn sorted_imports(imports: &[String]) -> Vec<&str> {
             out.push(import.as_str());
         }
     }
-    out.sort_by(|a, b| cmp_name(a, b));
+    sort_names(&mut out);
     out
 }
 

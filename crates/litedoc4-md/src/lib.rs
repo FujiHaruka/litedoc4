@@ -64,10 +64,12 @@ pub mod html;
 pub mod math;
 mod parse;
 
-pub use ast::{AttrText, Block, Document, Li, Text};
+// **A `pub use` here means another crate imports the item.** Everything else
+// stays `pub` in its own module and is reached as `litedoc4_md::<module>::<item>`
+// — the module list above is the surface. `error` and `parse` are private
+// modules, so for those the re-export is the only path there is; `unreachable_pub`
+// says so the moment one is dropped.
 pub use error::{Error, Result};
 pub use escape::{escape_html, escape_html_into};
-pub use flags::DOCSTRING_FLAGS;
-pub use html::{LinkResolver, NoLinks, Renderer, attr_text_to_string, heading_id};
-pub use math::to_mathml;
+pub use html::{LinkResolver, NoLinks, Renderer};
 pub use parse::{parse, parse_with_flags};

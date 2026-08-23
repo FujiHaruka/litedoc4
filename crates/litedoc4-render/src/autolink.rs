@@ -236,8 +236,8 @@ pub fn is_name_lit(s: &str) -> bool {
 ///
 /// Because every caller that has to answer "what is the href for this name"
 /// already holds this index — the docstring resolver below, the signature path
-/// ([`crate::CodeRenderer::const_link`]) and the structure-field path
-/// ([`crate::decl_name_to_link`]) — and the answer needs *both* the `.lidx`'s
+/// ([`crate::code::CodeRenderer::const_link`]) and the structure-field path
+/// ([`crate::decl::decl_name_to_link`]) — and the answer needs *both* the `.lidx`'s
 /// source range and the dependency map's prefix. Threading a second value
 /// through the same three constructors would let the two get out of step on the
 /// one thing [`NameIndex::link_to`] exists to keep together.

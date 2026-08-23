@@ -41,7 +41,7 @@
 
 use std::collections::BTreeSet;
 
-use litedoc4_md::{AttrText, Block, Document, Li, Text};
+use litedoc4_md::ast::{AttrText, Block, Document, Li, Text};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -292,7 +292,7 @@ fn the_fixture_is_md4leans_own_output() {
     // MD4Lean's own constants have to add up to this crate's default, or the
     // oracle is answering a different question. Both sides wrote the bitmask
     // down independently: `MD4Lean.lean` and `src/flags.rs`.
-    assert_eq!(e.flags, litedoc4_md::DOCSTRING_FLAGS);
+    assert_eq!(e.flags, litedoc4_md::flags::DOCSTRING_FLAGS);
     // 実測: the target package's IR holds this many distinct docstrings.
     assert_eq!(e.ir_docstrings, 4_858);
     // A fixture that shrank is a fixture that stopped covering something.

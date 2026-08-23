@@ -49,9 +49,9 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use litedoc4_ir::{IrTree, ModuleFile};
-use litedoc4_render::{
-    ExternalLinks, LinkIndex, NameIndex, PageLinks, escape_html, module_decl_names, page_root,
-};
+use litedoc4_render::autolink::{NameIndex, PageLinks, module_decl_names, page_root};
+use litedoc4_render::escape::escape_html;
+use litedoc4_render::{ExternalLinks, LinkIndex};
 
 const DEFAULT_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
 const DEFAULT_LINK_INDEX: &str = "/private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx";

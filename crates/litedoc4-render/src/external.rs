@@ -25,7 +25,7 @@
 //! `rev`; `Init.Prelude` is core's, and core's prefix carries a `/src` on the end
 //! because that is where the lean4 checkout keeps its libraries. Nothing here
 //! decides any of that — it is a map somebody else resolved, and the
-//! **path within it is [`crate::module_source_url`]**, the same function the
+//! **path within it is [`crate::frame::module_source_url`]**, the same function the
 //! page's own `gh_nav_link` is built with.
 //!
 //! # Why the map has an identity
@@ -122,7 +122,7 @@ pub const DOCS_DIGEST_MARKER: &str = "litedoc4 external-links docs v1\n";
 /// can ask about. Their values are `docLink`s **as the table wrote them**, with
 /// the leading `./` removed and nothing else changed: reconstructing the path
 /// from a module name would be this side guessing at the other side's layout,
-/// which is the mistake [`crate::module_source_url`] is allowed to make only
+/// which is the mistake [`crate::frame::module_source_url`] is allowed to make only
 /// because a checkout's layout is the module name.
 ///
 /// `BTreeMap` rather than a hash map for one reason that is not performance:
