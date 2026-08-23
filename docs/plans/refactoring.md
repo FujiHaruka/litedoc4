@@ -1895,6 +1895,55 @@ rustdoc は `corpus.rs` の `//!` ヘッダと連結した**全体を `lib.rs` �
 - **統合しないもの**: `ModuleSpec` / `Live` (`tests/build.rs:60-300` と `tests/incremental.rs:684-1290`)。
   **フィクスチャの意味が違う 2 つを 1 つにすると、どちらの前提でテストが書かれているか読めなくなる**
 
+#### 結果【2026-08-23】— **フォークが生き延びた理由は「位置で読んでいたこと」だった**
+
+**生成器は `crates/litedoc4/tests/common/mod.rs` に置いた。`litedoc4-testutil` ではない**【判断】。
+スクリプトが書くのは **extractor が所有する形式** (`schemaVersion` / `generator` /
+`hashAlgorithm` / `leanVersion` / `dependencyMaps` は `extractor/Extract.lean` の綴り) で、
+読み戻すのはこのディレクトリが試験している `litedoc4` バイナリだけ。呼び手は 2 つとも
+`crates/litedoc4/tests/` にあり、`tests/common/mod.rs` はちょうどその 2 つに届く
+(`litedoc4-render/tests/common/mod.rs` が同じ形の先例)。**`litedoc4-testutil` は
+`tests/common/mod.rs` が届かないもの (= `src/` の中の `#[cfg(test)] mod tests`) のためにある**、と
+その `lib.rs` 自身が書いている。ここには 1 つも無い。
+
+**畳めなかったのは書く側ではなく、読む側だった。** `extractor-calls.txt` の読み手は 2 本で、
+**読み方が食い違っていた**:
+
+- `build.rs` の `Live::extractions` は `line.split_whitespace().nth(1)` — **位置**で読む
+- `incremental.rs` の `case_extractor_contract` は `call.starts_with("--world ")` を**要求**する
+
+**`--world` を持つ側が唯一「行の形を主張している」側**なので、1 本化するとその綴りが残る。
+そのとき `build.rs` は `$WORLD` をモジュール一覧だと思って読み、ディレクトリを
+`read_to_string` して落ちる。**実際に落として確かめた**【実測 2026-08-23】 — `extractions()` を
+直さずに `--world` を先頭にすると `build` バイナリの **8 本**が
+`the module list the extractor was handed: Os { code: 21, kind: IsADirectory }` で落ちる。
+**位置で読むのをやめることがこの項目の本体**で、副作用ではない。
+
+**`tr -d '\n' < "$MODULES" | tr ' ' '\n' > /dev/null` の 1 行は無意味だったので消した**【実測】。
+`f73ded5` (M4) から在り、tag `experiments-frozen` の実物 (`stage7g/extract-once.sh`) に対応物が無い。
+「モジュール一覧が読めることの確認」だとしても**その役は果たしていない** —
+**パイプの終了ステータスは最後のコマンドのもの**なので、`$MODULES` が無くても
+stderr に `No such file or directory` を出して **status 0 で先へ進む**。
+CLAUDE.md 「パイプを噛ませた瞬間、見ている終了コードは最後のコマンドのもの」が、
+**テストのフィクスチャの中に 4 か月埋まっていた**形。
+
+**この項目が出した一番重い事実は、畳んだこと自体ではない**【実測】:
+**incremental 側の `"dependencyMaps":[]` を読んでいるものが、外に 1 つも無かった。**
+`litedoc4-incr::merge` は結合後のモジュールファイルから**その配列を計算し直す**
+(`merge.rs:362-395`) ので、incremental 側の `index.json` に出鱈目な依存マップを差し込んでも
+**`incremental.rs` の 19 本は全部緑のまま**だった。生成器に検査 4 本を足して初めて赤くなる。
+**「テストが緑」は「その枝を見ている」ではない**の、この段で 5 回目。
+
+**新規 4 テストは `build` と `incremental` の両方にコンパイルされる**ので `cargo test` は
+**491 → 499**。変異 4 通り (`--corrupt` の腕を殺す / deps の複製を殺す / deps:false 側に
+依存マップを漏らす / `extractions()` を位置読みに戻す) をすべて一度赤にしてから通した。
+
+**畳まなかったもの**: `ModuleSpec` / `Live` (計画と §14)。
+**incremental 側に deps 機能を「ただだから」付けることもしなかった** —
+付けると 2 つの flavour が区別できなくなり、テストが今している主張が消える。
+
+**6 種すべて緑。`$TMPDIR` に `litedoc4-*` の残骸 0 件。これで段 4 は完了。**
+
 ### U5 — `litedoc4()` / `stderr()` / `stdout()` / `code()` / `message()`
 
 `crates/litedoc4/tests/` の 5 ファイル (`build.rs:1698` / `site.rs:36` / `incremental.rs:2538` /
@@ -1983,7 +2032,7 @@ rustdoc は `corpus.rs` の `//!` ヘッダと連結した**全体を `lib.rs` �
 **「畳んではいけない」ことをテストが言うようにした**。
 
 **`test`: 477 → 491 passed / 0 failed / 22 ignored** (+12 unit + 2 doctest)。
-6 種 (5 種 + `cargo machete`) すべて緑。**これで段 4 は完了。**
+6 種 (5 種 + `cargo machete`) すべて緑。**段 4 で残るのは U4 だけ。**
 
 ## 8. 段 5 — `tools/*.sh` (35 本 / 9,740 行)
 
@@ -2175,9 +2224,9 @@ CLAUDE.md と Cargo.toml のコメントは「機械的に強制している」�
 
 各段の完了条件は共通:
 
-1. `cargo test --workspace --no-fail-fast` が **491 passed / 0 failed** (増える分にはよい)。
-   **これは下限で、段が進むごとに上げる** — 段 0 開始時 437、段 4 完了時 491。下限を据え置くと、
-   50 本消えても緑になる
+1. `cargo test --workspace --no-fail-fast` が **499 passed / 0 failed** (増える分にはよい)。
+   **これは下限で、段が進むごとに上げる** — 段 0 開始時 437、段 4 完了時 499。下限を据え置くと、
+   60 本消えても緑になる
 2. `cargo fmt --check` / `cargo clippy --workspace --all-targets -- -D warnings` が exit 0
 3. **`cargo doc` は CI と同じ形で回す** ← **push 前に。**
    2026-08-22 にこれを忘れて CI を 1 回赤くしている。**素で回すと赤くなる**

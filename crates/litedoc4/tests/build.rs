@@ -31,7 +31,6 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -39,6 +38,10 @@ use litedoc4_render::ASSETS;
 use litedoc4_testutil::cli::{Cli, code, stderr, stdout};
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
+
+mod common;
+
+use common::{Features, write_fake_extractor};
 
 /// The temporary directories this file makes. The prefix names the file,
 /// so a directory a failed run leaves behind names what made it.
@@ -196,77 +199,6 @@ fn write_lidx(path: &Path) {
     );
 }
 
-/// The fake extractor: a module list in, a partial IR tree out, copied byte for
-/// byte from the baked world so that an incrementally merged tree and a
-/// from-scratch one are comparable.
-///
-/// It appends its whole command line to `<work>/extractor-calls.txt`, which is
-/// how the tests below count extractions without owning the code that asks for
-/// them.
-fn write_fake_extractor(path: &Path) {
-    write(
-        path,
-        br#"#!/bin/sh
-# The fake extractor of crates/litedoc4/tests/build.rs.
-set -eu
-WORLD=""; MODULES=""; IRDIR=""; TIMINGS=""; FAIL=0; CORRUPT=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --world) WORLD="$2"; shift 2 ;;
-    --modules) MODULES="$2"; shift 2 ;;
-    --ir-dir) IRDIR="$2"; shift 2 ;;
-    --timings) TIMINGS="$2"; shift 2 ;;
-    --fail) FAIL=1; shift ;;
-    --corrupt) CORRUPT="$2"; shift 2 ;;
-    *) echo "fake extractor: unknown option: $1" >&2; exit 2 ;;
-  esac
-done
-[ -n "$MODULES" ] && [ -n "$IRDIR" ] && [ -n "$TIMINGS" ] || {
-  echo "fake extractor: --modules, --ir-dir and --timings are all required" >&2; exit 2; }
-WORK=$(dirname "$TIMINGS")
-echo "--modules $MODULES --ir-dir $IRDIR --timings $TIMINGS" >> "$WORK/extractor-calls.txt"
-tr -d '\n' < "$MODULES" | tr ' ' '\n' > /dev/null
-[ "$FAIL" = 0 ] || { echo "fake extractor: asked to fail" >&2; exit 3; }
-mkdir -p "$IRDIR/modules"
-# The dependency slices, when the world has any. Its `deps-index.json` is the
-# `dependencyMaps` array verbatim, because a shell that computed the byte counts
-# itself would be a second writer of a format the extractor owns.
-DEPS=""
-if [ -f "$WORLD/ir/deps-index.json" ]; then
-  DEPS=$(cat "$WORLD/ir/deps-index.json")
-  mkdir -p "$IRDIR/deps"
-  cp "$WORLD"/ir/deps/*.json "$IRDIR/deps/"
-fi
-ENTRIES="$WORK/.entries"
-: > "$ENTRIES"
-n=0
-while IFS= read -r m; do
-  [ -n "$m" ] || continue
-  cp "$WORLD/ir/modules/$m.json" "$IRDIR/modules/$m.json"
-  [ "$n" -eq 0 ] || printf ',' >> "$ENTRIES"
-  cat "$WORLD/entries/$m.json" >> "$ENTRIES"
-  n=$((n + 1))
-done < "$MODULES"
-{
-  printf '{"declarationCount":0,"dependencyMaps":[%s],' "$DEPS"
-  printf '"generator":"fake-extractor","hashAlgorithm":"lean-string-hash-64/hex16",'
-  printf '"leanVersion":"4.31.0","moduleCount":%s,"modules":[' "$n"
-  cat "$ENTRIES"
-  printf '],"schemaVersion":5}'
-} > "$IRDIR/index.json"
-rm -f "$ENTRIES"
-# `--corrupt <Module>`: an IR file the renderer cannot read. The extraction
-# still succeeds, so the run fails in the renderer, which is the half of the
-# ledger's ordering no failing extractor can reach.
-[ -z "$CORRUPT" ] || printf 'not json' > "$IRDIR/modules/$CORRUPT.json"
-printf '{"targetModules":%s,"extractor":"fake"}\n' "$n" > "$TIMINGS"
-"#,
-    );
-    let mut perms = fs::metadata(path).expect("the script exists").permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(path, perms).expect("the script is chmod-able");
-}
-
 // ----------------------------------------------------------------- the harness
 
 /// One package and one `--out` directory, run over and over.
@@ -294,7 +226,13 @@ impl Live {
         write_repo(&live.repo, &world);
         write_world(&live.world, &world);
         write_lidx(&live.lidx);
-        write_fake_extractor(&live.script);
+        write_fake_extractor(
+            &live.script,
+            Features {
+                corrupt: true,
+                deps: true,
+            },
+        );
         live
     }
 
@@ -335,6 +273,12 @@ impl Live {
     }
 
     /// How many times the extractor has been called, and with how many modules.
+    ///
+    /// The module list is found **by the flag that names it** and not by
+    /// position. Reading the token at index 1 worked only while this file's
+    /// extractor recorded a line beginning `--modules`, and that is what kept
+    /// the script forked: `incremental.rs` records `--world` first and asserts
+    /// that it does (§7 U4 of `docs/plans/refactoring.md`).
     fn extractions(&self) -> Vec<usize> {
         let calls = self.out.join("work/extractor-calls.txt");
         let Ok(text) = fs::read_to_string(&calls) else {
@@ -343,9 +287,10 @@ impl Live {
         text.lines()
             .filter(|line| !line.trim().is_empty())
             .map(|line| {
-                let path = line
-                    .split_whitespace()
-                    .nth(1)
+                let mut tokens = line.split_whitespace();
+                let path = tokens
+                    .find(|token| *token == "--modules")
+                    .and_then(|_| tokens.next())
                     .expect("--modules has a value");
                 fs::read_to_string(path)
                     .expect("the module list the extractor was handed")

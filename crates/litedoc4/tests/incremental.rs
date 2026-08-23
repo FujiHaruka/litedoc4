@@ -41,12 +41,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use litedoc4_testutil::cli::{Cli, code, stderr, stdout};
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
+
+mod common;
+
+use common::{Features, write_fake_extractor};
 
 /// The temporary directories this file makes. The prefix names the file,
 /// so a directory a failed run leaves behind names what made it.
@@ -1008,68 +1011,6 @@ fn write_lidx(path: &Path) {
     );
 }
 
-/// The fake extractor: `--modules` in, a partial IR tree out.
-///
-/// A `/bin/sh` script rather than a second Rust binary, because a bin target
-/// would ship with the product. It is passed as `--extractor /bin/sh
-/// --extractor-arg <script>`, which also exercises the argument pass-through,
-/// and it is deterministic: every byte it writes is copied from the baked tree,
-/// including the `index.json` entries, so an incrementally merged IR can be
-/// compared with a from-scratch one byte for byte.
-///
-/// It appends its whole command line to `<work>/extractor-calls.txt`, which is
-/// how [`case_extractor_contract`] checks the three flags without owning the
-/// code that passes them.
-fn write_fake_extractor(path: &Path) {
-    write(
-        path,
-        br#"#!/bin/sh
-# The fake extractor of crates/litedoc4/tests/incremental.rs.
-set -eu
-WORLD=""; MODULES=""; IRDIR=""; TIMINGS=""; FAIL=0
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --world) WORLD="$2"; shift 2 ;;
-    --modules) MODULES="$2"; shift 2 ;;
-    --ir-dir) IRDIR="$2"; shift 2 ;;
-    --timings) TIMINGS="$2"; shift 2 ;;
-    --fail) FAIL=1; shift ;;
-    *) echo "fake extractor: unknown option: $1" >&2; exit 2 ;;
-  esac
-done
-[ -n "$MODULES" ] && [ -n "$IRDIR" ] && [ -n "$TIMINGS" ] || {
-  echo "fake extractor: --modules, --ir-dir and --timings are all required" >&2; exit 2; }
-WORK=$(dirname "$TIMINGS")
-echo "--world $WORLD --modules $MODULES --ir-dir $IRDIR --timings $TIMINGS" \
-  >> "$WORK/extractor-calls.txt"
-[ "$FAIL" = 0 ] || { echo "fake extractor: asked to fail" >&2; exit 3; }
-mkdir -p "$IRDIR/modules"
-ENTRIES="$WORK/.entries"
-: > "$ENTRIES"
-n=0
-while IFS= read -r m; do
-  [ -n "$m" ] || continue
-  cp "$WORLD/ir/modules/$m.json" "$IRDIR/modules/$m.json"
-  [ "$n" -eq 0 ] || printf ',' >> "$ENTRIES"
-  cat "$WORLD/entries/$m.json" >> "$ENTRIES"
-  n=$((n + 1))
-done < "$MODULES"
-{
-  printf '{"declarationCount":0,"dependencyMaps":[],'
-  printf '"generator":"fake-extractor","hashAlgorithm":"lean-string-hash-64/hex16",'
-  printf '"leanVersion":"4.31.0","moduleCount":%s,"modules":[' "$n"
-  cat "$ENTRIES"
-  printf '],"schemaVersion":5}'
-} > "$IRDIR/index.json"
-rm -f "$ENTRIES"
-printf '{"targetModules":%s,"extractor":"fake"}\n' "$n" > "$TIMINGS"
-"#,
-    );
-    let mut perms = fs::metadata(path).expect("the script exists").permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(path, perms).expect("the script is chmod-able");
-}
-
 // -------------------------------------------------------------- the harness
 
 /// One live tree: the IR, the pages, the ledger and the cache an incremental
@@ -1111,7 +1052,13 @@ impl Live {
             runs: 0,
         };
         write_lidx(&live.lidx);
-        write_fake_extractor(&live.script);
+        write_fake_extractor(
+            &live.script,
+            Features {
+                corrupt: false,
+                deps: false,
+            },
+        );
         write_target(&live.repo, world);
         write_world(&live.world_root, world);
         copy_tree(&live.world_root.join("ir"), &live.ir);
