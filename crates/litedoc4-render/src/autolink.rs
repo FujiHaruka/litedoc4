@@ -725,8 +725,52 @@ pub struct PageLinks<'a> {
 impl<'a> PageLinks<'a> {
     /// `root` is [`page_root`] of the module being rendered, `decl_names` is
     /// [`module_decl_names`] of it.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, if a name in `decl_names` is not in `index`. That is
+    /// the invariant the last branch of [`LinkResolver::name_to_link`] stands
+    /// on, and it holds by calling convention alone: `decl_names` is a plain
+    /// slice, and only a caller that took it from a module the builder was fed
+    /// can keep it. Checking it here is what makes a broken wiring name
+    /// *itself* — the resolver reached with a name it cannot place is doing
+    /// nothing wrong, so failing there points at the wrong thing.
+    ///
+    /// The check is debug-only because it walks `decl_names` on every page.
     #[must_use]
-    pub const fn new(index: &'a NameIndex, root: &'a str, decl_names: &'a [&'a str]) -> Self {
+    pub fn new(index: &'a NameIndex, root: &'a str, decl_names: &'a [&'a str]) -> Self {
+        #[cfg(debug_assertions)]
+        for name in decl_names {
+            assert!(
+                index.known(name).is_some(),
+                "`{name}` is in decl_names but not in the name index: the module it was \
+                 taken from was never fed to the builder"
+            );
+        }
+        Self::new_unchecked(index, root, decl_names)
+    }
+
+    /// [`PageLinks::new`] without the check, for a world that is a **slice** of
+    /// a run's rather than a whole one.
+    ///
+    /// Not `unsafe` and not a speed knob: the only thing it can cost is the
+    /// panic moving back to where it was, inside the last branch of
+    /// `name_to_link`, when a name that branch matches turns out not to be in
+    /// `known`.
+    ///
+    /// The caller this exists for is `tests/autolink.rs`: the prototype's
+    /// recorded cases carry a `known` holding the names each docstring needs
+    /// and no more — **2,263 of the fixture's 2,492 `declNames` are outside it**
+    /// 【実測 2026-08-23】 — so the slice is the fixture's shape, not a wiring
+    /// mistake. A run has no such slice: `render_site` feeds every module of the
+    /// IR to the builder before it renders any page from it
+    /// (`site.rs:172-174`).
+    #[must_use]
+    pub const fn new_unchecked(
+        index: &'a NameIndex,
+        root: &'a str,
+        decl_names: &'a [&'a str],
+    ) -> Self {
         Self {
             index,
             root,
@@ -792,7 +836,9 @@ impl LinkResolver for PageLinks<'_> {
             let k = want.len().min(have.len());
             if want[..k] == have[..k] {
                 // Every name in `decl_names` came from a module that was fed to
-                // the builder, so `known` has it.
+                // the builder, so `known` has it — which is what
+                // `PageLinks::new` checks, so that a caller who broke the
+                // invariant hears about it there rather than here.
                 let module = self
                     .index
                     .known(name)
@@ -967,6 +1013,25 @@ mod tests {
 
     fn resolve(index: &NameIndex, decl_names: &[&str], s: &str) -> Option<String> {
         PageLinks::new(index, "../", decl_names).name_to_link(s)
+    }
+
+    /// A `decl_names` the index does not know is refused where it is handed
+    /// over, not where it is read.
+    ///
+    /// `decl_names` is a plain `&[&str]`, so nothing in the type keeps a caller
+    /// from passing a name whose module was never fed to the builder. The last
+    /// branch of `name_to_link` then looks that name up in `known`, finds
+    /// nothing, and panics — and the panic reads as if the resolver were
+    /// broken. It is the input that is.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "Nowhere.gone")]
+    fn a_decl_name_outside_the_index_is_refused_at_construction() {
+        let mut builder = NameIndex::builder();
+        builder.module(&module());
+        let index = builder.build(LinkIndex::default(), ExternalLinks::default());
+
+        let _ = PageLinks::new(&index, "../", &["Nowhere.gone"]);
     }
 
     /// The `.lidx`'s spelling of a quoted module resolves — and stops resolving

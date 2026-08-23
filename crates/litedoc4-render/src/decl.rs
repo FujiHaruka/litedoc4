@@ -1058,7 +1058,20 @@ mod tests {
     }
 
     impl Page {
-        fn new(names: NameIndex, module: ModuleFile) -> Self {
+        /// The index a run has when it renders this page: the module's *own*
+        /// declarations are in it, because `render_site` feeds every module to
+        /// the builder before it renders any of them. `entries` are the other
+        /// modules' names.
+        ///
+        /// Building it any other way is a world that cannot occur, and
+        /// [`PageLinks::new`] says so.
+        fn new(entries: &[(&str, &str)], module: ModuleFile) -> Self {
+            let mut builder = NameIndex::builder();
+            for (name, m) in entries {
+                builder.declaration(name, m).module_name(m);
+            }
+            builder.module(&module);
+            let names = builder.build(LinkIndex::default(), ExternalLinks::default());
             Self { names, module }
         }
 
@@ -1100,7 +1113,7 @@ mod tests {
             },
         ];
         d.doc = Some("hello".to_owned());
-        let page = Page::new(index(&[]), module_with(vec![d]));
+        let page = Page::new(&[], module_with(vec![d]));
         let html = page.render(0).expect("nothing to place");
         assert!(
             html.starts_with(
@@ -1132,7 +1145,7 @@ mod tests {
     fn an_empty_docstring_renders_nothing() {
         let mut d = decl("f", "theorem");
         d.doc = Some(String::new());
-        let page = Page::new(index(&[]), module_with(vec![d]));
+        let page = Page::new(&[], module_with(vec![d]));
         let html = page.render(0).expect("nothing to place");
         // The signature's two closing `</div>`s, and then straight to the
         // `Used by` block every declaration ends in (C-2): nothing between them.
@@ -1153,7 +1166,7 @@ mod tests {
             ("theorem", "theorem", ""),
             ("constructor", "ctor", ""),
         ] {
-            let page = Page::new(index(&[]), module_with(vec![decl("X", kind)]));
+            let page = Page::new(&[], module_with(vec![decl("X", kind)]));
             let html = page.render(0).expect("nothing to place");
             assert!(
                 html.starts_with(&format!(
@@ -1192,7 +1205,7 @@ mod tests {
                         "doc": null, "isDirect": true}"#;
         let mut d = decl("S", "structure");
         d.members = vec![member(field)];
-        let page = Page::new(index(&[]), module_with(vec![d.clone()]));
+        let page = Page::new(&[], module_with(vec![d.clone()]));
         let html = page.render(0).expect("nothing to place");
         assert!(
             html.contains(
@@ -1212,7 +1225,7 @@ mod tests {
         d.members.push(member(
             r#"{"label": "ctor", "name": "S.mk", "text": "", "code": []}"#,
         ));
-        let page = Page::new(index(&[]), module_with(vec![d.clone()]));
+        let page = Page::new(&[], module_with(vec![d.clone()]));
         let html = page.render(0).expect("nothing to place");
         assert!(html.contains("<ul class=\"fields\" id=\"S.mk\">"), "{html}");
         assert!(!html.contains("ctor-note"), "{html}");
@@ -1222,7 +1235,7 @@ mod tests {
         d.members.push(member(
             r#"{"label": "ctor", "name": "S.make", "text": "", "code": []}"#,
         ));
-        let page = Page::new(index(&[]), module_with(vec![d]));
+        let page = Page::new(&[], module_with(vec![d]));
         let html = page.render(0).expect("nothing to place");
         assert!(
             html.contains(
@@ -1255,7 +1268,7 @@ mod tests {
         let green = r#"{"label": "ctor", "name": "C.green", "text": "C", "code": []}"#;
         let mut d = decl("C", "inductive");
         d.members = vec![member(red), member(green)];
-        let page = Page::new(index(&[]), module_with(vec![d.clone()]));
+        let page = Page::new(&[], module_with(vec![d.clone()]));
         let html = page.render(0).expect("nothing to place");
 
         assert!(html.contains("<ul class=\"ctors\">"), "{html}");
@@ -1277,7 +1290,7 @@ mod tests {
 
         // A class inductive renders the same constructors ...
         d.kind = "class_inductive".to_owned();
-        let page = Page::new(index(&[]), module_with(vec![d]));
+        let page = Page::new(&[], module_with(vec![d]));
         let html = page.render(0).expect("nothing to place");
         assert!(html.contains("<li id=\"C.red\" class=\"ctor\">"), "{html}");
         // ... and keeps the block that belongs to a class: its instances, not
@@ -1301,8 +1314,7 @@ mod tests {
         s.end_line = 5;
         s.end_col = 0;
         s.members = vec![member(direct), member(inherited), member(absent)];
-        let names = index(&[("P.y", "Pkg.Parent")]);
-        let page = Page::new(names, module_with(vec![s]));
+        let page = Page::new(&[("P.y", "Pkg.Parent")], module_with(vec![s]));
         let html = page.render(0).expect("P.y is in the index");
 
         assert!(
@@ -1344,8 +1356,7 @@ mod tests {
         let mut proj = decl("S.y", "definition");
         proj.line = 2;
         proj.end_line = 2;
-        let names = index(&[("P.y", "Pkg.Parent")]);
-        let page = Page::new(names, module_with(vec![s, proj]));
+        let page = Page::new(&[("P.y", "Pkg.Parent")], module_with(vec![s, proj]));
         let html = page.render(0).expect("P.y is in the index");
         assert!(
             html.contains("<li id=\"S.y\" class=\"field inherited\"><div class=\"field-sig\">"),
@@ -1361,7 +1372,7 @@ mod tests {
                             "isDirect": false}"#;
         let mut s = decl("S", "structure");
         s.members = vec![member(inherited)];
-        let page = Page::new(index(&[]), module_with(vec![s]));
+        let page = Page::new(&[], module_with(vec![s]));
         assert_eq!(
             page.render(0),
             Err(UnplaceableName {

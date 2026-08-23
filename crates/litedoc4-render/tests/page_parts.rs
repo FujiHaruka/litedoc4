@@ -198,7 +198,7 @@ impl Case {
         let decl = &self.module.declarations[self.at];
         let code = CodeRenderer::new(&index);
         let names = module_decl_names(&self.module);
-        let links = PageLinks::new(&index, &self.root, &names);
+        let links = PageLinks::new_unchecked(&index, &self.root, &names);
         let docs = links.renderer();
         let renderer = DeclRenderer::new(&self.module, &self.root, &self.source_url, code, &docs);
         renderer.decl_html(decl)

@@ -824,6 +824,29 @@ the renderer writes classes the stylesheet says nothing about: [
   (b) `NameIndex::page_links(root, module: &ModuleFile)` にして `decl_names` を内部で作る。
   合成ケース用に `new_unchecked` 相当は残す
 
+#### 結果【2026-08-23】— **(a)。不変条件は本番でしか成立していなかった**
+
+(a) を採った。(b) は `decl_names` を内部で作っても**そのモジュールが builder に入った
+保証にはならない**ので、不変条件を立てられない。
+
+**計画は「呼び出し規約でしか守られていない」と書いたが、実際にはそれより弱かった。**
+`new` に検査を置いたら **9 本落ちた**:
+
+- `decl.rs` のテスト 8 本は、`index(&[])` (空の索引) と `module_with(…)` を組んで
+  **自分のモジュールが索引に無いページ**を描いていた。**run が作れない世界**なので
+  ハーネス側 (`Page::new`) を直し、`render_site` と同じく自モジュールを builder に入れた。
+  **出力バイトは動かない** (フィクスチャの型は `Nat` の平文、docstring に名前リテラルが無い)
+- 残り 1 本は凍結オラクル (`tests/autolink.rs` / `tests/page_parts.rs` の `Case`)。
+  こちらは**直せない、直すべきでもない**: フィクスチャの `known` は各 case の docstring が
+  要る名前しか持たず、**`declNames` 2,492 件中 2,263 件が `known` の外**【実測 2026-08-23】。
+  スライスはフィクスチャの形であって配線ミスではない
+
+**だから計画が予告した `new_unchecked` が要る**、が理由は「合成ケース」ではなく
+**「世界がスライスである」**こと。本番に該当は無い — `site.rs:172-174` が IR の全モジュールを
+builder に入れてから 1 ページも描かない。
+
+`# Panics` は `new` に書いた。`expect` は release 側の後退線として残る。
+
 ### S7 — 公開 API の棚卸し (render 22 件 / md 3 件)
 
 - **`publish = false` なので「外部利用者のため」は成立しない** — ワークスペース内が全消費者

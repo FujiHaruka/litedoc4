@@ -150,7 +150,7 @@ impl Case {
     fn render(&self) -> String {
         let index = self.index();
         let names: Vec<&str> = self.decl_names.iter().map(String::as_str).collect();
-        let links = PageLinks::new(&index, &self.root, &names);
+        let links = PageLinks::new_unchecked(&index, &self.root, &names);
         links.renderer().docstring(&self.md)
     }
 
@@ -159,7 +159,7 @@ impl Case {
     fn with_source_paths_resolved(&self, tally: &mut Tally) -> String {
         let index = self.index();
         let names: Vec<&str> = self.decl_names.iter().map(String::as_str).collect();
-        let links = PageLinks::new(&index, &self.root, &names);
+        let links = PageLinks::new_unchecked(&index, &self.root, &names);
         rewrite_source_path_anchors(
             &self.html,
             &|stem| links.source_path_to_link(&self.root, stem),
@@ -519,7 +519,7 @@ fn the_whole_corpus_matches_the_prototype() {
         // `getRoot` is an input to both sides, so check it rather than trust it.
         assert_eq!(page_root(&case.module), case.root, "{}", case.what);
         let names = &decl_names[case.module.as_str()];
-        let links = PageLinks::new(&index, &case.root, names);
+        let links = PageLinks::new_unchecked(&index, &case.root, names);
         let got = links.renderer().docstring(&case.md);
         // M8, gate UI-2: the source-path branch, and only it, is this port's
         // own answer. Here the world is the real one, so the paths the package
