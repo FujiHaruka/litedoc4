@@ -1,9 +1,10 @@
 # テストの穴を埋める — カバレッジを測ってから決める
 
-**状態**: 進行中 (2026-08-24)。全 30 項目中 **決着 10**。
-**そのうち 6 件は「やることが無かった」** — 段 0 の 3 件は**測ったら既に CI で走っていて**、
+**状態**: 進行中 (2026-08-24)。全 30 項目中 **決着 16**。**テストは 39 本増えた**
+(段 1 が 10、段 2 が 22、段 3 E1 が 7)。**残り 14** — 段 3 の E3・E4 / 段 4 (watch) /
+段 6 / 段 7。
+**決着のうち 6 件は「やることが無かった」** — 段 0 の 3 件は**測ったら既に CI で走っていて**、
 段 5 の 3 件は**未カバー行が入力から到達できない防御分岐だった**。
-実際にテストを書いたのは段 1 の C1・C2 と段 3 の E1 (E2 は到達不能で決着)。
 
 **測ってから書いた計画**である。「足りない気がする」ではなく、**本体カバレッジ 86.9%**
 【実測 2026-08-24】という数字と、**どの経路を検査するものが 1 つも存在しないか**の
@@ -150,27 +151,44 @@ config       title 'Micro Fixture' on 10 module page(s) x 3 commands; index.html
 |---|---|
 | **C1** | 共通パーサの 2 つの拒否 — `--x needs a value` (値なしで終わる) / `--x wants a number, not y` |
 | **C2** | `main.rs` の dispatch 4 経路 — `--version` / 引数なし / `--help` / 未知サブコマンド。**exit code も見る** (2 と 0 の区別) |
-| **C3** | `Failure` の 4 変種が `main` で正しい ExitCode になること (`Usage`=2 / `Failed`=1 / `Answered`/`Refused`= その code) |
+| **C3** | **決着** — 4 変種すべてが実プロセスで通った。`Usage`=2 と `Failed`=1 は `tests/cli_surface.rs`、`Answered`=1 (`merge --verify` の差分) と `Refused`=3 (`merge --modules` の食い違い / `prune` が page tree の外を指す) は段 2 の `tests/queries.rs` |
 
 C2/C3 は**プロセスを起こす統合テスト**にする — `ExitCode` は `main` を通らないと出ない。
 
-### 段 2 — `queries.rs` の 5 サブコマンド (本体 26%)
+### 段 2 — `queries.rs` の 5 サブコマンド → **決着 2026-08-24**
 
-**このファイルの本体 296 行のうち 218 行が、`cargo test` から一度も実行されていない。**
-ライブラリ層 (`litedoc4-incr`) のテストは厚いが、**CLI としての引数解析・入出力・
-exit code を通すものが無い** (対象リポジトリを要る `tools/*-compare.sh` だけ)。
+**本体 296 行のうち 218 行が未実行だった。`tests/queries.rs` (新設、22 テスト、0.5 秒) で
+294/296 = 99% になった**【実測】。残る 2 行はどちらも `deps_docs.rs` 側のテストが
+既に通しているエラー分岐。
 
-| ID | サブコマンド | 検査すること |
+| ID | 決着 | 落ちたら何が壊れたか (代表) |
 |---|---|---|
-| **Q1** | `links` | 依存マップから表を組む経路。`--link-index` の有無で深いサンプル列が出る/出ない |
-| **Q2** | `ownership` | `--base` + `--inc` / `--removed`。所有者の表と、孤児の報告 |
-| **Q3** | `merge` | `--base`+`--inc`+`--out` の合流と、`--verify <ir> --against <ir>` の判定 |
-| **Q4** | `impact` | `--changed` / `--changed-file` から再描画集合。witness の出方 |
-| **Q5** | `prune` | `--dry-run` が**消さない**こと、本番が消すこと |
+| **Q1** | `links` 4 本 | 根ごとの行が消えた / 深いサンプルが `Dep.Inner.Deep` → `Dep/Inner/Deep.lean` を作らなくなった / 版固定できない根に URL が付いた |
+| **Q2** | `ownership` 3 本 | 参照が所有者を失ったモジュールを見つけられなくなった / 削除だけの問い (`--removed` 単独) が通らなくなった |
+| **Q3** | `merge` 6 本 | 既定の `--out` が `<base>.merged` でなくなった (**base を上書きすると読んでいる木を壊す**) / `--verify` の差分が exit 1 でなくなった / stderr に書き始めた |
+| **Q4** | `impact` 4 本 | `--mode` が答えを変えなくなった / 空の changed set が `--print-set` を書き始めた (**無いファイルが空集合**) |
+| **Q5** | `prune` 5 本 | `--dry-run` が消した / `«..».Foo` (合法な Lean 名 → `../Foo.html`) が exit 3 でなくなり **page tree の外が消えた** |
 
-**入力は偽の IR ツリー**を組む。`crates/litedoc4-incr/tests/` が既にそれをやっているので、
-**同じ作り方を `litedoc4/tests/` から使えるようにするのが先** (共通化できなければ複製しない
-判断もあり得る → 実装時に決める)。
+**8 通りの変異でこの 22 本が実際に落ちることを確認した**(docs 列の入れ替え / 増減の入れ替え /
+`Answered(1)`→`Ok(())` / `--mode` 無視 / `--dry-run`→false / `.merged`→`.folded` /
+`removed>0`→false / `prune --help`→`Ok(())`)。`src/queries.rs` は sha256 で HEAD と一致を確認して復元。
+
+**欠陥は 1 件も出なかった。** 赤くなった 2 本はどちらもテスト側の期待の誤りだった。
+
+#### 入力: `World` を再利用せず、`common/` にも移さなかった【決定 2026-08-24】
+
+理由は 2 つあり、**2 つ目はこの木に固有**:
+
+1. `incremental.rs` の `write_world` は**偽 extractor と `ledger` のために形が決まっている** —
+   スクリプトが継ぎ足すための index entry の複製を `entries/` に書き、`ModuleSpec::olean` は
+   `write_target` がリポジトリを組むためだけに在る。`queries` はどれも要らない。
+2. `tests/common/mod.rs` に移すと **`mod common;` を書いた全バイナリにモジュール全体が
+   コンパイルされるので、使わないバイナリでは dead code になる**。この木はそれを黙らせられない —
+   `litedoc4-testutil` が「ワークスペース内の内側 `#![allow]` はちょうど 1 個」を固定しており、
+   **`#[expect]` も使えない** (dead かどうかが「どのバイナリでコンパイルされたか」で変わる)。
+
+共有しているのは**形だけ** — 宣言オブジェクトのキー集合は `incremental.rs` の `decl_json` と
+同じである。`litedoc4_ir` のモデルが `deny_unknown_fields` なので、**parse できるキー集合は 1 つしかない**。
 
 ### 段 3 — 壊れた入力を読む経路
 
@@ -237,7 +255,7 @@ exit code を通すものが無い** (対象リポジトリを要る `tools/*-co
 
 | ID | やること |
 |---|---|
-| **F1** | カバレッジを**同じ手順で再計測**し、前後を `benchmarks/results/coverage-2026-08-24.txt` に書く。**cold/warm は無関係だが、母数 (走ったテスト数) は必ず記録する** |
+| **F1** | カバレッジを**同じ手順で再計測**し、前後を `benchmarks/results/coverage-2026-08-24.txt` に書く。**cold/warm は無関係だが、母数 (走ったテスト数) は必ず記録する**。**測り終えたら `cargo llvm-cov clean` する — 掃除の主体はこの段** (`target/llvm-cov-target` は 880 MB あり、`--workspace` の再計測でほぼ倍になる。**このリポジトリは満杯のディスクで対象リポジトリを一度壊している**) |
 | **F2** | `tools/corpus-gate.sh --verify-list` が緑であること (`#[ignore]` を足したなら台帳も直す) |
 | **F3** | CI (`ci.yml`) を実際に走らせて緑を確認する。ブランチ push + `gh workflow run` |
 | **F4** | 途中で見つけた欠陥を `docs/milestone-log.md` に記録する |
