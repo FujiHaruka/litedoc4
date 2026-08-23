@@ -8,9 +8,12 @@
 - Predecessor: none
 - Stop-on: completion
 - Progress ledger:
-  - r1: **決着 16 / 30**。段 0 (既に CI で走っていた) / 段 1 (C1〜C3) / 段 2 (Q1〜Q5) /
-    段 3 E1・E2 / 段 5 (M1〜M3、到達不能で決着)。**テストは 39 本増えた**
-    (503 → 542 passed)。commit `c7df7a5`〜`97a3e4a`
+  - r1: **決着 26 / 30**。段 0〜6 が全部決着し、**残るのは段 7 (F1〜F4) だけ**。
+    **新しく書いたテストは 62 本** (503 → 563 passed)。**製品の欠陥を 1 件出して直した** —
+    `litedoc4 ledger --help` だけが使い方を出さず exit 2 で拒否していた。
+    **`ci.yml` に watch gate を載せ、ブランチで実走して 3 ジョブ緑を確認済み**
+    ([run 32655090556](https://github.com/FujiHaruka/litedoc4/actions/runs/32655090556))。
+    commit `c7df7a5`〜(段 6 P1)
 
 ## State
 
@@ -22,19 +25,23 @@
   終了コードを別々に残す。**パイプを使わない**)
 - `#[ignore]` は増えていないので `tools/corpus-tests.txt` は触っていない
 
-## 残り 14 項目 — 次の一手
+## 残り 4 項目 — 次の一手
 
-**段 4 (watch) が最大の穴** — 本体 **23% / 未カバー 200 行**。ここから。
+**段 7 だけが残っている。**
 
-| 段 | ID | 中身 |
-|---|---|---|
-| 4 | W1 | `run_loop` / `Trigger::ask` / `announce` / `describe` / `Reading::{of,work,what}` を機材ゼロ依存で |
-| 4 | W2 | `litedoc4 watch` の統合テスト。**長命プロセスなので Drop guard で必ず kill する** |
-| 4 | W3 | `watch-gate.sh` が `e2e/micro` で走るか実測。**`--target`/`--lib`/`--module`/`--other`/`EXTRACT_BIN` を全部引数で受けるので見込みはある**。ゲートは対象のソースを編集するので複製が要る |
-| 3 | E3 | `litedoc4-incr::Error` の未到達変種。**段 2 で大半が通った可能性がある — 先に再計測を見る** |
-| 3 | E4 | `litedoc4/src/ledger.rs` — **`ledger touch` が一度も走っていない**。サブコマンド無し / 未知のサブコマンド / check の出力 3 行 |
-| 6 | P1〜P5 | 中位の穴。**段 4 の後に再計測してから選ぶ。先に決め打ちしない** |
-| 7 | F1〜F4 | 再計測 + `benchmarks/results/coverage-2026-08-24.txt` + CI 実走 + 欠陥の記録 |
+| ID | 中身 |
+|---|---|
+| **F1** | 最終カバレッジを再計測し、前後を `benchmarks/results/coverage-2026-08-24.txt` に書く。**母数 (走ったテスト数) を必ず記録する**。**測り終えたら `cargo llvm-cov clean`** |
+| **F2** | **済** — `tools/corpus-gate.sh --verify-list` は緑、`#[ignore]` は 22 のまま増やしていない |
+| **F3** | **一度済** (上の run)。**段 6 P1 の commit を入れた後にもう一度 main で緑を確認する** |
+| **F4** | 見つけたものを `docs/milestone-log.md` に記録する (下の「この leg で出たもの」) |
+
+### F1 に必ず書く申し送り
+
+**`watch.rs` の未カバー 73 行は「未検査」ではない。** `run_loop` の中で実際に走っていて
+`tests/watch.rs` が log で assert しているが、テストが `Child::kill()` (SIGKILL) するので
+**子プロセスの profraw が flush されない**。同じ lcov で `main.rs` が 39/39、
+`queries.rs` が 333/335 なのは、そちらの子が正常終了するから。
 
 ## この leg で踏んだもの (繰り返さない)
 
