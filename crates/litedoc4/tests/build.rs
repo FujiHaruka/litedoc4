@@ -1814,6 +1814,105 @@ fn a_missing_dependency_map_forces_a_full_generation() {
     );
 }
 
+/// An IR under `--out` that **this version cannot read** is answered with a full
+/// generation, not with an incremental round that dies part-way.
+///
+/// This is the shape a CI cache produces: the restored state is the *previous*
+/// binary's, and a schema bump makes every file under it unreadable. `detect` is
+/// not the guard — it correctly answers "re-extract every module", and the round
+/// then reads the **base** IR, the tree that re-extraction is about to replace,
+/// to answer ownership. Measured on `ci-action.yml` 2026-08-23: `10 to
+/// re-extract` followed by `ir/modules/Micro.json is schema 4`, exit 1, with the
+/// site left as it was.
+///
+/// A full generation is the answer rather than a refusal because it is the one
+/// that always works: it deletes the tree it cannot read and writes one it can.
+#[test]
+fn an_unreadable_ir_forces_a_full_generation() {
+    let live = Live::new("build-ir-schema-moved");
+    assert_eq!(code(&live.build(&[])), 0);
+    assert_eq!(live.extractions(), vec![3]);
+
+    // Age the whole tree by one schema, exactly as an older binary would have
+    // left it. The ledger keeps saying 5, so `detect` — were it reached — would
+    // find the extract key moved and license the re-extraction that then reads
+    // these files.
+    let ir = live.out.join("ir");
+    age_the_ir(&ir);
+    assert_eq!(index_schema(&ir), litedoc4_ir::MIN_SCHEMA_VERSION - 1);
+
+    let again = live.build(&[]);
+    assert_eq!(code(&again), 0, "{}", stderr(&again));
+    let log = stdout(&again);
+    assert!(
+        log.contains("plan    full generation (the IR under --out is not one this version reads)"),
+        "{log}",
+    );
+    // Not just "it did not die": the tree it leaves is this version's again, and
+    // every module was extracted rather than a subset.
+    assert_eq!(index_schema(&ir), litedoc4_ir::MIN_SCHEMA_VERSION);
+    assert_eq!(live.extractions(), vec![3, 3]);
+
+    // And the run after it continues incrementally, so the fall-back is one run
+    // and not a state the build stays in.
+    let third = live.build(&[]);
+    assert_eq!(code(&third), 0, "{}", stderr(&third));
+    assert!(
+        stdout(&third).contains("plan    incremental"),
+        "{}",
+        stdout(&third),
+    );
+}
+
+/// Rewrites every `schemaVersion` under an IR tree to one below what the reader
+/// accepts. Textual on purpose: re-serialising through `serde_json` would also
+/// rewrite the key order, and the file the previous binary wrote is the input
+/// under test.
+fn age_the_ir(ir: &Path) {
+    let old = format!(r#""schemaVersion":{}"#, litedoc4_ir::MIN_SCHEMA_VERSION);
+    let new = format!(r#""schemaVersion":{}"#, litedoc4_ir::MIN_SCHEMA_VERSION - 1);
+    let mut aged = 0usize;
+    for path in ir_files(ir) {
+        let text = fs::read_to_string(&path).expect("an IR file is readable");
+        if text.contains(&old) {
+            fs::write(&path, text.replace(&old, &new)).expect("an IR file is writable");
+            aged += 1;
+        }
+    }
+    assert!(
+        aged >= 4,
+        "index + 3 modules carry a schemaVersion, aged {aged}"
+    );
+}
+
+/// Every `*.json` under an IR tree, index and modules and dependency slices.
+fn ir_files(ir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut stack = vec![ir.to_owned()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).expect("the IR tree is readable") {
+            let path = entry.expect("a directory entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "json") {
+                found.push(path);
+            }
+        }
+    }
+    found
+}
+
+fn index_schema(ir: &Path) -> u32 {
+    let text = fs::read_to_string(ir.join("index.json")).expect("the index was written");
+    let index: Value = serde_json::from_str(&text).expect("the index is JSON");
+    u32::try_from(
+        index["schemaVersion"]
+            .as_u64()
+            .expect("the index carries a schema version"),
+    )
+    .expect("a schema version fits in u32")
+}
+
 /// SHA-256 of a file, lower-case hex — the same value `renderKey.linkIndex`
 /// carries.
 fn sha256_of(path: &Path) -> String {

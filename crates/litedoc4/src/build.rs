@@ -1190,7 +1190,40 @@ fn plan_of(request: &Request, libs: &[String]) -> Result<Plan, Failure> {
     if !layout.carries_a_previous_run(&request.link_index) {
         return Ok(Plan::Full("the previous run's files are not all there"));
     }
+    // **The IR under `--out` has to be one this binary can read.** A CI cache
+    // restores the *previous* binary's state, so a schema bump arrives here as a
+    // tree every reader below refuses 【実測 2026-08-23, `ci-action.yml`】.
+    //
+    // `detect` is not this guard and cannot be: it answers "re-extract every
+    // module" correctly, and the round then reads the **base** IR — the tree the
+    // re-extraction is about to replace — to answer ownership, and dies there
+    // with the site left as it was. The decision belongs where every other "can
+    // this run continue" answer already is, which is here.
+    //
+    // Only the index is read: one file, not a pass over the tree. That is a
+    // **lower bound and not a proof**. `merge` writes the weakest schema under
+    // the tree into the index, so a tree *this* version merged cannot overstate;
+    // a tree an older binary merged can, because it copied its own older modules
+    // in and kept the newer index number it found. That tree still fails — on
+    // the first module the round reads, which is where it failed before this
+    // guard existed. What the guard buys is the case that actually reaches CI: a
+    // whole tree from one older binary, which a cache restores as a unit.
+    if !ir_is_readable(&layout.ir) {
+        return Ok(Plan::Full(
+            "the IR under --out is not one this version reads",
+        ));
+    }
     Ok(Plan::Incremental)
+}
+
+/// Whether the IR tree under `--out` is one this binary reads.
+///
+/// A tree it cannot open at all counts as unreadable too: the question is "can
+/// this run continue from what is there", and an index that will not parse
+/// answers it the same way an old one does.
+fn ir_is_readable(ir: &Path) -> bool {
+    litedoc4_ir::IrTree::open_unvalidated(ir)
+        .is_ok_and(|tree| tree.index().schema_version >= litedoc4_ir::MIN_SCHEMA_VERSION)
 }
 
 /// The extractor, in the same two shapes [`crate::pipeline`] offers.

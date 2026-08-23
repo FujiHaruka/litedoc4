@@ -199,6 +199,22 @@ struct DepSlice<'a> {
     schema_version: Option<&'a Value>,
 }
 
+/// The lower of two `schemaVersion` values.
+///
+/// Keeps the base's whenever the two cannot be compared as numbers, including
+/// the case where the base has none: a tree without the key is a schema-1 file,
+/// and answering with the incremental tree's number would invent a claim the
+/// base never made.
+fn weakest_schema<'a>(base: Option<&'a Value>, inc: Option<&'a Value>) -> Option<&'a Value> {
+    match (base, inc) {
+        (Some(base), Some(inc)) => match (base.as_u64(), inc.as_u64()) {
+            (Some(from_base), Some(from_inc)) if from_inc < from_base => Some(inc),
+            _ => Some(base),
+        },
+        (base, _) => base,
+    }
+}
+
 /// A JSON object that remembers the order its keys arrived in.
 ///
 /// The merged `index.json` is the base index with four values replaced, so its
@@ -252,10 +268,12 @@ pub fn merge(options: &MergeOptions<'_>) -> Result<MergeSummary, Error> {
     let base_index: JsonObject = read_json(&base_index_path, IrFile::Index)?;
     // A pure deletion re-extracts nothing, so there may be no incremental tree
     // at all. That is a real case, not a misuse.
+    let mut inc_schema: Option<Value> = None;
     let inc_modules: Vec<IndexEntry> = match options.inc {
         Some(dir) => {
             let path = dir.join("index.json");
             let index: JsonObject = read_json(&path, IrFile::Index)?;
+            inc_schema = index.get("schemaVersion").cloned();
             index_entries(&index, &path)?
         }
         None => Vec::new(),
@@ -395,7 +413,15 @@ pub fn merge(options: &MergeOptions<'_>) -> Result<MergeSummary, Error> {
     let mut roots: Vec<&String> = by_root.keys().collect();
     roots.sort();
 
-    let schema_version = base_index.get("schemaVersion");
+    // **The weakest claim any file under the merged tree makes**, which is not
+    // always the base's: the incremental module files are copied in verbatim, so
+    // a tree can hold two extractor runs' output at once, and an older binary
+    // merging into a newer tree leaves modules below the index's number.
+    //
+    // The index is what every *cheap* readability question asks — `litedoc4
+    // build`'s plan among them — and one that overstates is only found false
+    // when a reader dies on a module, after the plan chose to continue.
+    let schema_version = weakest_schema(base_index.get("schemaVersion"), inc_schema.as_ref());
     let mut dep_maps: Vec<DepMapRecord> = Vec::with_capacity(roots.len());
     for root in roots {
         let declarations = &by_root[root];
@@ -443,6 +469,11 @@ pub fn merge(options: &MergeOptions<'_>) -> Result<MergeSummary, Error> {
     }
 
     let mut index = base_index.clone();
+    if let Some(weakest) = schema_version {
+        // Never *adds* the key: an index without one is a schema-1 file and
+        // `JSON.stringify` leaves an undefined property out.
+        index.insert("schemaVersion", weakest.clone());
+    }
     index.insert("moduleCount", Value::from(order.len()));
     index.insert("declarationCount", Value::from(declarations));
     index.insert(

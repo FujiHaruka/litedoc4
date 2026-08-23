@@ -2535,6 +2535,64 @@ miss は 0)。逆に言うと **`curl | tar xz` + `elan-init` の
 --default-toolchain` → `info: default toolchain set to 'leanprover/lean4:v4.31.0'` →
 **同じキーで保存**、ジョブは success。**両方の枝を走らせて緑**なので main に入れた。
 
+#### 決着【2026-08-23】— **(b) を採った。ただし「全部再抽出」ではなく「full generation に落とす」**
+
+**計画が「先に確かめよ」と書いた点は、確かめたら前提が違った**【実測】。
+「再抽出の出力先とキャッシュ復元先が食い違っている」のではない —
+**再抽出は正しく `work/inc-ir-1/` に出ていて、10 モジュールすべて schema 5** だった。
+落ちるのは**その後で base IR (`<out>/ir/`) を読む段**で、そこはまだ schema 4 のままである
+(`ownership.rs:137` の `IrTree::open_unvalidated(base)` と `merge.rs:369` の
+`read_module_file`)。**`detect` は間違っていない** — 「10 を再抽出」は正しい答えで、
+**その答えを実行する経路が、置き換える前の木を読む**。
+
+**再現は Lean 込みで取った**【実測】。`e2e/micro` を schema 5 で 1 度建て、IR の全 JSON と
+ledger の `extractKey` を schema 4 相当に落として再実行すると、CI と 1 行ずつ同じになる:
+
+```
+detect  10 module(s): 10 to re-extract, 0 removed — render key moved (sourceUrl)
+litedoc4: <out>/ir/modules/Micro.json is schema 4; this reader needs schema 5 or newer
+```
+
+**修正は `plan_of` に判定 1 本** (`build.rs` の `ir_is_readable`)。
+`--out` の IR がこの版で読めなければ `Plan::Full("the IR under --out is not one this version reads")`。
+**「読めない IR を全部再抽出として扱う」より 1 段強い** — 全部再抽出しても base IR を読む段は
+残るので、**incremental の枝に入らないことが答え**になる。置き場所は
+「前回の run から続けられるか」を答える他の 4 つと同じ場所で、**判断を 1 箇所に集める**形。
+
+**index だけ読む** (1 ファイル。IR の pass ではない)。index がモジュール群を保証できる根拠は
+**この関数より前に既にある 2 つの門**: 中断された merge は `complete` が false で捕まり、
+schema が上がるときは extractor の identity 文字列が動くので**1 ラウンドで全モジュールが
+再抽出される** (混在した木にならない)。`IrTree::module` の doc が「index はモジュールを
+保証しない」と書いているのは正しく、**ここではその 2 つが埋めている**。
+
+**(a) キャッシュキーに schema を入れる、は採らなかった**。action が schema を知るには
+binary に尋ねるしかなく、**「この IR は読めるか」の判定が製品と action の 2 箇所に増える**。
+製品が自力で回復するなら `restore-keys` はそのままでよい。
+
+**一般形に引き上げたら、同じ前提が別の入力で崩れることが分かった**【実測、コードの読みと
+テストで確認】。最初に書いた根拠は「index がモジュール群を保証する」だったが、**保証しない**:
+`merge` は merged index の `schemaVersion` を **base のものそのまま**にする
+(`merge.rs:445` の `base_index.clone()` は `moduleCount` / `declarationCount` しか
+差し替えない) 一方、incremental の module ファイルは**そのまま複写**される。だから
+**古い版の binary が新しい木に merge すると、index だけ新しい番号のまま、モジュールが古い木**が
+できる。次に新しい binary が走ると `plan_of` の検査は通り、**同じ場所で同じように落ちる**。
+
+そこで **`merge` が index に書く schema を「その木の下で最も弱い主張」にした**
+(`weakest_schema`)。これで**この版が merge した木は過大申告できない**。
+**この版より前の binary が作った木は直せない** — その木は今も最初のモジュールで落ちる。
+**`plan_of` の検査が買っているのは「木ごと 1 つの古い版のもの」という、キャッシュが
+実際に復元する形**であって、混在した木ではない。**コードのコメントもこの通りに直した**
+(最初に書いた「index が保証する」は誤りだったので残さない)。
+
+**テストは 2 本とも先に書いた** — `crates/litedoc4/tests/build.rs` の
+`an_unreadable_ir_forces_a_full_generation` と `crates/litedoc4-incr/tests/merge.rs` の
+`the_merged_index_claims_the_weakest_schema_under_the_tree`。**書いた時点で落ちることを確認**しており
+(`ir/modules/Pkg.json is schema 4`, exit 1)、落ち方が CI と同じ形である。
+検査するのは 3 つ: full generation を選ぶこと / IR がこの版のものに戻ること /
+**次の run は incremental に戻る** (フォールバックが 1 回であって、居座る状態ではない)。
+
+---
+
 ---
 
 ## 10. 段 7 — `extractor/Extract.lean` (3,687 行の単一ファイル)

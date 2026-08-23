@@ -1607,6 +1607,92 @@ fn nested_json_keeps_its_key_order() {
 /// onto itself returns `Ok(0)` and leaves it empty【実測 2026-08-23】. The
 /// modules emptied are exactly the ones the partial extraction did not touch,
 /// and after `--out` the base tree is the only copy there was.
+/// The merged index claims the **weakest** schema under the tree, not the base's.
+///
+/// `merge` copies the incremental module files in verbatim, so one tree can hold
+/// two extractor runs' output at once — which is why [`litedoc4_ir::IrTree`]
+/// re-checks every module file rather than trusting the index. But the index is
+/// what every *cheap* "can this be read" question asks, `litedoc4 build`'s plan
+/// among them (`docs/plans/refactoring.md` §9), and a number higher than some
+/// module's is a claim that is only found false when a reader dies on that
+/// module — after the plan chose to continue.
+///
+/// The tree here is the one an older binary hands this function: it re-extracts
+/// into its own schema and merges into a tree a newer one wrote.
+#[test]
+fn the_merged_index_claims_the_weakest_schema_under_the_tree() {
+    let fake = FakeIr::new("merge-inc-from-an-older-extractor");
+    for module in ["Pkg.A", "Pkg.B"] {
+        fake.write_module(&fake.base, module, &[decl("Pkg.a", &[("Dep.M", "Dep.x")])]);
+    }
+    fake.write_index(&fake.base, &["Pkg.A", "Pkg.B"], false);
+    set_schema(&fake.base, 5, 6);
+    fake.write_module(&fake.inc, "Pkg.A", &[decl("Pkg.a", &[("Dep.M", "Dep.x")])]);
+    fake.write_index(&fake.inc, &["Pkg.A"], false);
+
+    let (result, _) = run_merge(&MergeOptions {
+        base: &fake.base,
+        inc: Some(&fake.inc),
+        out: &fake.base,
+        removed: &[],
+        modules: None,
+        changed_out: None,
+        timings: None,
+    });
+    result.expect("the merge runs");
+
+    // The tree really is mixed: one module from each run.
+    assert_eq!(module_schema(&fake.base, "Pkg.A"), 5);
+    assert_eq!(module_schema(&fake.base, "Pkg.B"), 6);
+    assert_eq!(
+        Tree::open(&fake.base).expect("opens").index["schemaVersion"],
+        json!(5),
+        "the index has to be readable by every reader that can read the files \
+         under it, and the oldest file here is 5",
+    );
+    // The dependency slice is written from the same value, for the same reason.
+    assert!(
+        fs::read_to_string(fake.base.join("deps/Dep.json"))
+            .expect("written")
+            .contains(r#""schemaVersion":5"#),
+    );
+}
+
+/// Rewrites `"schemaVersion":<from>` to `<to>` in every JSON file under an IR
+/// tree. Textual, because the input under test is a file some other binary
+/// wrote and re-serialising would rewrite its key order too.
+fn set_schema(root: &Path, from: u32, to: u32) {
+    let old = format!(r#""schemaVersion":{from}"#);
+    let new = format!(r#""schemaVersion":{to}"#);
+    let mut changed = 0usize;
+    let mut stack = vec![root.to_owned()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).expect("the tree is readable") {
+            let path = entry.expect("a directory entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "json") {
+                let text = fs::read_to_string(&path).expect("readable");
+                if text.contains(&old) {
+                    fs::write(&path, text.replace(&old, &new)).expect("writable");
+                    changed += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        changed > 0,
+        "nothing under {} was at schema {from}",
+        root.display()
+    );
+}
+
+fn module_schema(root: &Path, module: &str) -> u64 {
+    let text = fs::read_to_string(root.join(format!("modules/{module}.json"))).expect("written");
+    let body: Value = serde_json::from_str(&text).expect("JSON");
+    body["schemaVersion"].as_u64().expect("a number")
+}
+
 #[test]
 fn an_out_that_spells_the_base_differently_is_still_in_place() {
     let repo = FakeIr::target_shaped("merge-same-tree");
