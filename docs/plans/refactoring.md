@@ -2065,6 +2065,63 @@ CLAUDE.md 「パイプを噛ませた瞬間、見ている終了コードは最�
 `tools/*.sh` も `tools/lib/target.sh` を source する。
 **`env.sh` を移動しない** — 参照が 8 箇所あり、`extractor/build.sh` のコメントが相対パスの履歴を持っている。
 
+#### 結果【2026-08-23】— **T2 の表は二重に外れていた。7 本のうち 4 本は既に上書きでき、3 本は設定ですらない**
+
+**`tools/lib/target.sh` を作り、`benchmarks/tools/env.sh` と `tools/*.sh` 7 本が source する。**
+`tools/*.sh` が 1 本も source していない状態 (T1) はこれで終わり。
+
+**表の「上書き不可」は 4 本について誤り**【実測 2026-08-23】。
+`deps-docs-gate:131` / `watch-gate:86` / `incremental-reference:151` / `ledger-reference:29` は
+**引数ループの前に置かれた既定値**で、どのループにも `--target) TARGET="$2"; shift 2 ;;` がある。
+**環境変数で動かせないだけで、フラグでは動く。**
+
+**残り 3 本は設定ではなくガードだった**【実測】。`build-gate:117` / `clone-gate:209` /
+`target2-gate:93` のパスは「ここに書いてはいけない」という**拒否の主語**で、
+`case "$CLONE" in "$TARGET"/*) … exit 2`、および olean の `strings` 出力にそのパスが
+漏れていないかの検査に使われている。**上書き可能にしてはいけない** —
+`TARGET_REPO` を無害なパスに export した瞬間、計測対象への書き込みが再び開く。
+実際に測った:
+
+```
+TARGET_REPO=/tmp/harmless で $TARGET_REPO を読むガード  → ALLOWED (exit 0)
+同じ arm が $TARGET_REPO_BASELINE を読む               → REFUSED (exit 2)
+```
+
+だから `target.sh` は**1 つのリテラルに 2 つの名前**を与える:
+`TARGET_REPO_BASELINE` (上書き不能、ガードが読む) と
+`TARGET_REPO`(上書き可、設定が読む)。**優先順位は フラグ > 環境変数 > baseline**。
+`clone-gate:224` が子プロセス向けに `TARGET_REPO="$CLONE"` を export しているのも、
+名前を分けるべき理由の 2 つ目だった【実測】。
+
+#### §16 が警告した形が、実際に出た
+
+**「`tools/lib/` は作った当日に一度落としてから通す」を実行したら、落ちなかった**【実測 2026-08-23】。
+`target.sh` に構文エラーを足すと 6 本は exit 2 で止まるが、**`watch-gate.sh` は
+ゲートを最後まで走らせて `WATCH GATE: ok — 12 check(s), 0 failed` と印字し exit 0 を返した**。
+理由は `set -uo pipefail` (**`-e` が無い**) で、`source` の失敗は stderr に出るだけで先へ進み、
+**構文エラーの手前までの代入は既に効いている**ので何も欠けて見えない。
+**`tools/*.sh` 35 本のうち 11 本が `set -uo pipefail`** なので、これは 1 本の問題ではない。
+
+**修正は一般形にした**: すべての source 行を `… || exit 1` にする。
+`.` と `source` で挙動は同じで、`set -e` の側はもともと自力で止まるので損はない。
+修正後は `watch-gate` も 0 → 1 になり、ゲートを走らせない。
+
+**検証**: `bash -n` は `target.sh` + 7 本 + `env.sh` + `env.sh` の他の利用者 7 本すべて exit 0。
+4 本の設定は `TARGET_REPO=/nonexistent-target-xyz` がそのパスに届き、`--target` がそれに勝つ。
+3 本のガードは `TARGET_REPO` を別の値に export しても拒否する。
+`apply-instrumentation.sh --check` の出力は変更前とバイト同一。
+`cargo test` は 41 / 499 / 0 / 22 で不変、`--verify-list` も 21 で不変。
+
+**完走したのは 1 本。回せなかったものを緑と書かない**: 7 本のうちこの機材で完走できるのは
+`watch-gate.sh` だけで、**最終形に対して回して `WATCH GATE: ok — 12 check(s), 0 failed`**
+(exit 0、`litedoc4 watch` の残骸なし、作業ディレクトリも自分で消えた)【実測 2026-08-23】。
+ただし `target/release/litedoc4` は **8/22 のビルド**なので、これが検査したのは
+「スクリプトが対象を解決して最後まで走るか」であって製品の今の挙動ではない。
+残り 6 本は対象の `.lake` / 特定状態の release バイナリ / `/private/tmp/lean-doc-relay/**` の
+フィクスチャを要するため**前置き部分 (対象の解決と拒否) までしか動かしていない** —
+ただしそこが今回変えた範囲そのもの。**`shellcheck` はこの機材に無く、CI も回していない**ので、
+足した `# shellcheck source=` 指示は誰も検査していない。**CI はこの 7 本を 1 本も呼ばない。**
+
 ### T3 — 現役でない compare / reference 6 本 (1,331 行) を棚卸しする
 
 `{ledger,merge,impact}-{compare,reference}.sh` は **CI からも docs からも参照されず、

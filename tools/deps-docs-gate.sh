@@ -124,11 +124,13 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
+# shellcheck source=lib/target.sh
+source "$HERE/lib/target.sh" || exit 1
 
 # Everything below is overridable, and every default is this repository's own
 # measurement setup (CLAUDE.md 「ベンチマーク」).
 OUT=/private/tmp/lean-doc-relay/depsdocs
-TARGET=/Users/haruka/dev/lean-projects
+TARGET="$TARGET_REPO"
 LIB=InformationTheory
 JOBS=4
 PARALLEL=6

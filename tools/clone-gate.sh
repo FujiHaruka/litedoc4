@@ -154,6 +154,8 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/target.sh
+. "$REPO/tools/lib/target.sh" || exit 1
 SETUP_CLONE="$REPO/tools/setup-clone.sh"
 RUST_BIN="$REPO/target/release/litedoc4"
 # The Lean extractor (IR schema 5), built by extractor/build.sh. Its own CLI is
@@ -205,10 +207,11 @@ WORKROOT="$OUT.work"
 FIX="$WORKROOT/fixtures"
 
 # The measurement target. Named only so that every path this script writes can be
-# checked against it.
-TARGET=/Users/haruka/dev/lean-projects
+# checked against it. This is a guard, so it reads TARGET_REPO_BASELINE, the name
+# nothing can override — see tools/lib/target.sh.
 case "$CLONE" in
-  "$TARGET"|"$TARGET"/*) echo "the clone may not be inside the measurement target" >&2; exit 2 ;;
+  "$TARGET_REPO_BASELINE"|"$TARGET_REPO_BASELINE"/*)
+    echo "the clone may not be inside the measurement target" >&2; exit 2 ;;
 esac
 [ -d "$CLONE" ] || { echo "missing clone: $CLONE" >&2; exit 1; }
 [ -f "$LIDX" ] || { echo "missing link index: $LIDX" >&2; exit 1; }
@@ -379,7 +382,7 @@ require_own_oleans () {
   grep -q "$CLONE" "$dump" || {
     echo "the clone's oleans were not built at the clone's path — run" >&2
     echo "tools/rebuild-own.sh first (stage 5e (e))" >&2; exit 2; }
-  if grep -q "$TARGET/" "$dump"; then
+  if grep -q "$TARGET_REPO_BASELINE/" "$dump"; then
     echo "the clone's oleans still name the measurement target's path" >&2; exit 2
   fi
 }

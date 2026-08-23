@@ -145,10 +145,12 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRODUCT_EXTRACT_BIN="$REPO/extractor/build/extract"
 RUST_BIN="$REPO/target/release/litedoc4"
+# shellcheck source=lib/target.sh
+. "$REPO/tools/lib/target.sh" || exit 1
 
 EXTRACTOR_IMPL=product
 OUT=
-TARGET=/Users/haruka/dev/lean-projects
+TARGET="$TARGET_REPO"
 LIB=InformationTheory
 LIDX=/private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx
 BASE_IR_SRC=/private/tmp/lean-doc-relay/w7h/base-ir

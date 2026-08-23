@@ -5,12 +5,12 @@
 # they come from the same workload. See CLAUDE.md "ベンチマーク".
 set -u
 
-# The Lean project being documented. Override only to add a target, never to
-# replace the baseline one.
-TARGET_REPO="${TARGET_REPO:-/Users/haruka/dev/lean-projects}"
-
-# This repository (litedoc4), resolved from the script location.
-LITEDOC4_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# The Lean project being documented (TARGET_REPO, overridable only to add a
+# target), the baseline it defaults to (TARGET_REPO_BASELINE, which nothing can
+# override) and this repository's root (LITEDOC4_ROOT). One file decides where
+# the measurement target is; everything below is this file's own side effects.
+# shellcheck source=../../tools/lib/target.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../../tools/lib/target.sh" || exit 1
 
 # Where raw timing logs land. Committed, so keep them small.
 RESULTS_DIR="${RESULTS_DIR:-$LITEDOC4_ROOT/benchmarks/results}"

@@ -81,9 +81,11 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
+# shellcheck source=lib/target.sh
+source "$HERE/lib/target.sh" || exit 1
 
 OUT=/private/tmp/lean-doc-relay/watch-gate
-TARGET=/Users/haruka/dev/lean-projects
+TARGET="$TARGET_REPO"
 LIB=InformationTheory
 JOBS=4
 PORT=8485

@@ -83,6 +83,11 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# TARGET_REPO_BASELINE: the measurement target, named here only so that every
+# path this script writes can be checked against it. This is a guard, so it
+# reads the name nothing can override — see tools/lib/target.sh.
+# shellcheck source=lib/target.sh
+. "$REPO/tools/lib/target.sh" || exit 1
 RUST_BIN="$REPO/target/release/litedoc4"
 EXTRACT_BIN="${EXTRACT_BIN:-$REPO/extractor/build/extract}"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
@@ -90,7 +95,6 @@ LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 # reads as "differences found" and has already cost this project one wrong
 # conclusion.
 DIFF=/usr/bin/diff
-MEASUREMENT_TARGET=/Users/haruka/dev/lean-projects
 
 PHASE="${1-}"
 case "$PHASE" in
@@ -112,11 +116,11 @@ while [ $# -gt 0 ]; do
 done
 
 case "$TARGET2" in
-  "$MEASUREMENT_TARGET"|"$MEASUREMENT_TARGET"/*)
+  "$TARGET_REPO_BASELINE"|"$TARGET_REPO_BASELINE"/*)
     echo "target 2 may not be inside the measurement target" >&2; exit 2 ;;
 esac
 case "$OUT" in
-  "$MEASUREMENT_TARGET"|"$MEASUREMENT_TARGET"/*|"$TARGET2"|"$TARGET2"/*)
+  "$TARGET_REPO_BASELINE"|"$TARGET_REPO_BASELINE"/*|"$TARGET2"|"$TARGET2"/*)
     echo "the output may not be inside either package" >&2; exit 2 ;;
 esac
 [ -d "$TARGET2" ] || { echo "missing target 2: $TARGET2 — run tools/make-target2.sh" >&2; exit 1; }
