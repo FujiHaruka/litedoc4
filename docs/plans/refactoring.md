@@ -2593,6 +2593,27 @@ binary に尋ねるしかなく、**「この IR は読めるか」の判定が�
 
 ---
 
+#### CI で決着した【実測 2026-08-23】— **`ci-action.yml` は 5/5 緑。2026-08-19 以来はじめて**
+
+main に入れて `gh workflow run ci-action.yml --ref main`。**緑の理由が修正であることまで確かめた** —
+落ちていた `standalone` ジョブのログに、**古い状態を復元した上で full generation に落ちた**ことが
+そのまま出ている:
+
+```
+Cache restored from key: litedoc4-state-leanprover/lean4:v4.31.0-201df2e33fa31eae64e051a4f18fec8a87fdb229
+plan    full generation (the IR under --out is not one this version reads)
+detect  10 module(s) hashed
+```
+
+**キャッシュが偶然新しくなったのではない** — 復元したのは前と同じ古い状態で、
+そこから経路が変わっている。**`restore-keys` は 1 文字も変えていない**。
+
+**同じ run の `released` ジョブ (`uses: @v0.1.4`) も緑**で、これは**古い binary が
+共有の状態キャッシュを読み書きしている**ことの実物である。上で書いた「古い版が新しい木に
+merge すると index だけ新しい木ができる」は、**この workflow の中に経路がある**。
+
+---
+
 ---
 
 ## 10. 段 7 — `extractor/Extract.lean` (3,687 行の単一ファイル)
