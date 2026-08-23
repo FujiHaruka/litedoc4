@@ -23,7 +23,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use litedoc4_testutil::TempDirs;
 use serde_json::{Value, json};
+
+/// The temporary directories this file makes. The prefix names the file,
+/// so a directory a failed run leaves behind names what made it.
+const TEMP: TempDirs = TempDirs::prefixed("litedoc4-site");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 
@@ -60,10 +65,10 @@ fn code(output: &Output) -> i32 {
 /// the choice cannot be made by saying nothing.
 #[test]
 fn neither_link_index_flag_is_refused() {
-    let trees = TempDir::new("no-link-index-flag");
-    let ir = trees.path.join("ir");
+    let trees = TEMP.make("no-link-index-flag");
+    let ir = trees.path().join("ir");
     synthetic_ir(&ir);
-    let out = trees.path.join("site");
+    let out = trees.path().join("site");
     let output = litedoc4(&[
         "site",
         "--ir",
@@ -92,12 +97,12 @@ fn neither_link_index_flag_is_refused() {
 /// the run that the other contradicts.
 #[test]
 fn both_link_index_flags_are_refused() {
-    let trees = TempDir::new("both-link-index-flags");
-    let ir = trees.path.join("ir");
+    let trees = TEMP.make("both-link-index-flags");
+    let ir = trees.path().join("ir");
     synthetic_ir(&ir);
-    let lidx = trees.path.join("link-index.lidx");
+    let lidx = trees.path().join("link-index.lidx");
     write_lidx(&lidx);
-    let out = trees.path.join("site");
+    let out = trees.path().join("site");
     let output = litedoc4(&[
         "site",
         "--ir",
@@ -124,10 +129,10 @@ fn a_subset_flag_is_refused() {
         ("--only", Some("Pkg.B")),
         ("--only-from", Some("/dev/null")),
     ] {
-        let trees = TempDir::new("subset-flag");
-        let ir = trees.path.join("ir");
+        let trees = TEMP.make("subset-flag");
+        let ir = trees.path().join("ir");
         synthetic_ir(&ir);
-        let out = trees.path.join("site");
+        let out = trees.path().join("site");
         let mut args = vec![
             "site".to_owned(),
             "--ir".to_owned(),
@@ -157,10 +162,10 @@ fn a_subset_flag_is_refused() {
 #[test]
 fn a_delta_flag_is_refused() {
     for flag in ["--before", "--print-set", "--delta-json"] {
-        let trees = TempDir::new("delta-flag");
-        let ir = trees.path.join("ir");
+        let trees = TEMP.make("delta-flag");
+        let ir = trees.path().join("ir");
         synthetic_ir(&ir);
-        let out = trees.path.join("site");
+        let out = trees.path().join("site");
         let output = litedoc4(&[
             "site",
             "--ir",
@@ -187,10 +192,10 @@ fn a_delta_flag_is_refused() {
 /// argument".
 #[test]
 fn the_renderers_spelling_of_the_output_tree_is_refused() {
-    let trees = TempDir::new("pages-flag");
-    let ir = trees.path.join("ir");
+    let trees = TEMP.make("pages-flag");
+    let ir = trees.path().join("ir");
     synthetic_ir(&ir);
-    let out = trees.path.join("site");
+    let out = trees.path().join("site");
     let output = litedoc4(&[
         "site",
         "--ir",
@@ -210,11 +215,11 @@ fn the_renderers_spelling_of_the_output_tree_is_refused() {
 /// value left on the line. All exit 2 and all name what is wrong.
 #[test]
 fn the_rest_of_the_command_line_is_checked() {
-    let trees = TempDir::new("required-flags");
-    let ir = trees.path.join("ir");
+    let trees = TEMP.make("required-flags");
+    let ir = trees.path().join("ir");
     synthetic_ir(&ir);
     let ir = ir.display().to_string();
-    let out = trees.path.join("site").display().to_string();
+    let out = trees.path().join("site").display().to_string();
 
     let cases: [(Vec<&str>, &str); 5] = [
         (
@@ -281,13 +286,13 @@ fn help_is_answered_and_the_usage_names_the_subcommand() {
 /// internally consistent and short.
 #[test]
 fn the_site_is_render_then_global_over_the_same_tree() {
-    let trees = TempDir::new("site-vs-parts");
-    let ir = trees.path.join("ir");
+    let trees = TEMP.make("site-vs-parts");
+    let ir = trees.path().join("ir");
     synthetic_ir(&ir);
-    let lidx = trees.path.join("link-index.lidx");
+    let lidx = trees.path().join("link-index.lidx");
     write_lidx(&lidx);
 
-    let one = trees.path.join("site");
+    let one = trees.path().join("site");
     let ok = litedoc4(&[
         "site",
         "--ir",
@@ -301,7 +306,7 @@ fn the_site_is_render_then_global_over_the_same_tree() {
     ]);
     assert_eq!(code(&ok), 0, "{}", stderr(&ok));
 
-    let two = trees.path.join("parts");
+    let two = trees.path().join("parts");
     let rendered = litedoc4(&[
         "render",
         "--ir",
@@ -376,13 +381,13 @@ fn the_site_is_render_then_global_over_the_same_tree() {
 /// guarding nothing.
 #[test]
 fn the_dependency_map_changes_the_bytes() {
-    let trees = TempDir::new("with-and-without-map");
-    let ir = trees.path.join("ir");
+    let trees = TEMP.make("with-and-without-map");
+    let ir = trees.path().join("ir");
     synthetic_ir(&ir);
-    let lidx = trees.path.join("link-index.lidx");
+    let lidx = trees.path().join("link-index.lidx");
     write_lidx(&lidx);
 
-    let with = trees.path.join("with");
+    let with = trees.path().join("with");
     let ok = litedoc4(&[
         "site",
         "--ir",
@@ -396,7 +401,7 @@ fn the_dependency_map_changes_the_bytes() {
     ]);
     assert_eq!(code(&ok), 0, "{}", stderr(&ok));
 
-    let without = trees.path.join("without");
+    let without = trees.path().join("without");
     let ok = litedoc4(&[
         "site",
         "--ir",
@@ -433,11 +438,11 @@ fn the_dependency_map_changes_the_bytes() {
 /// what a report quotes.
 #[test]
 fn the_timings_record_names_both_stages() {
-    let trees = TempDir::new("site-timings");
-    let ir = trees.path.join("ir");
+    let trees = TEMP.make("site-timings");
+    let ir = trees.path().join("ir");
     synthetic_ir(&ir);
-    let out = trees.path.join("site");
-    let timings = trees.path.join("nested/site-timings.json");
+    let out = trees.path().join("site");
+    let timings = trees.path().join("nested/site-timings.json");
     let ok = litedoc4(&[
         "site",
         "--ir",
@@ -470,17 +475,17 @@ fn the_timings_record_names_both_stages() {
 /// IR hits the cache for every module and writes the same site anyway.
 #[test]
 fn the_cache_directory_reaches_the_derivation() {
-    let trees = TempDir::new("site-state");
-    let ir = trees.path.join("ir");
+    let trees = TEMP.make("site-state");
+    let ir = trees.path().join("ir");
     synthetic_ir(&ir);
-    let state = trees.path.join("state");
+    let state = trees.path().join("state");
 
     let mut sites = Vec::new();
     for (run, expected) in [
         (0usize, "cache 0 hit / 5 miss"),
         (1, "cache 5 hit / 0 miss"),
     ] {
-        let out = trees.path.join(format!("site{run}"));
+        let out = trees.path().join(format!("site{run}"));
         let ok = litedoc4(&[
             "site",
             "--ir",
@@ -655,35 +660,4 @@ fn write_lidx(path: &Path) {
 fn write(path: &Path, body: &[u8]) {
     fs::create_dir_all(path.parent().expect("a parent")).expect("writable");
     fs::write(path, body).expect("writable");
-}
-
-/// A directory that removes itself, as in `litedoc4-global/tests/global.rs`.
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(what: &str) -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let slug: String = what
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .take(40)
-            .collect();
-        let path = std::env::temp_dir().join(format!(
-            "litedoc4-site-{}-{}-{slug}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("the temporary directory is creatable");
-        Self { path }
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }

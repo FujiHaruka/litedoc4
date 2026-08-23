@@ -162,21 +162,24 @@ impl std::error::Error for Error {
 #[cfg(test)]
 mod tests {
     use super::{CONFIG_FILE, Error, SiteConfig};
+    use litedoc4_testutil::{TempDir, TempDirs};
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
-    struct Dir(PathBuf);
+    /// The temporary directories this file makes. The prefix names the file,
+    /// so a directory a failed run leaves behind names what made it.
+    const TEMP: TempDirs = TempDirs::prefixed("litedoc4-config");
+
+    /// A scratch directory with the two moves every test here makes: put a file
+    /// in it, then read the configuration out of it.
+    struct Dir(TempDir);
 
     impl Dir {
         fn new(name: &str) -> Self {
-            let path =
-                std::env::temp_dir().join(format!("litedoc4-config-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&path);
-            fs::create_dir_all(&path).expect("a scratch directory");
-            Self(path)
+            Self(TEMP.make(name))
         }
         fn write(&self, name: &str, text: &str) -> &Self {
-            let path = self.0.join(name);
+            let path = self.0.path().join(name);
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent).expect("a parent");
             }
@@ -184,13 +187,7 @@ mod tests {
             self
         }
         fn read(&self) -> Result<SiteConfig, Error> {
-            SiteConfig::read(Some(&self.0))
-        }
-    }
-
-    impl Drop for Dir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
+            SiteConfig::read(Some(self.0.path()))
         }
     }
 
@@ -217,7 +214,7 @@ mod tests {
         assert_eq!(config.index_markdown.as_deref(), Some("# Hello\n"));
         assert_eq!(
             config.index_path.as_deref(),
-            Some(dir.0.join("docs/index.md").as_path())
+            Some(dir.0.path().join("docs/index.md").as_path())
         );
     }
 

@@ -36,7 +36,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use litedoc4_render::ASSETS;
+use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
+
+/// The temporary directories this file makes. The prefix names the file,
+/// so a directory a failed run leaves behind names what made it.
+const TEMP: TempDirs = TempDirs::prefixed("litedoc4-build");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 
@@ -272,13 +277,13 @@ struct Live {
 
 impl Live {
     fn new(what: &str) -> Self {
-        let trees = TempDir::new(what);
+        let trees = TEMP.make(what);
         let live = Self {
-            repo: trees.path.join("repo"),
-            out: trees.path.join("out"),
-            world: trees.path.join("world"),
-            lidx: trees.path.join("link-index.lidx"),
-            script: trees.path.join("extract.sh"),
+            repo: trees.path().join("repo"),
+            out: trees.path().join("out"),
+            world: trees.path().join("world"),
+            lidx: trees.path().join("link-index.lidx"),
+            script: trees.path().join("extract.sh"),
             trees,
         };
         let world = base_world();
@@ -405,7 +410,7 @@ fn the_first_run_builds_and_the_second_one_does_nothing() {
     // command that produces something publishable, and a tree whose `<head>`
     // names a `style.css` nobody wrote is not that. So the gate is stated with
     // the three named rather than dropped.
-    let reference = live.trees.path.join("reference-site");
+    let reference = live.trees.path().join("reference-site");
     let ok = litedoc4(&[
         "site",
         "--ir",
@@ -775,7 +780,7 @@ fn write_dependency(live: &Live) -> PathBuf {
         .as_bytes(),
     );
 
-    let table = live.trees.path.join("declaration-data.json");
+    let table = live.trees.path().join("declaration-data.json");
     write(
         &table,
         include_bytes!("data/declaration-data.json").as_slice(),
@@ -859,7 +864,7 @@ fn the_resolved_map_is_written_and_render_reproduces_the_same_page() {
     let map = live.out.join("work/deps-docs-map.json");
     assert!(map.is_file(), "the resolved map was not written");
 
-    let pages = live.trees.path.join("re-rendered");
+    let pages = live.trees.path().join("re-rendered");
     let rendered = litedoc4(&[
         "render",
         "--ir",
@@ -907,7 +912,7 @@ fn a_table_that_will_not_read_costs_the_root_its_documentation_links() {
     let live = Live::new("build-deps-docs-unreadable");
     live.set_world(&docs_world());
     write_dependency(&live);
-    let missing = live.trees.path.join("no-such-table.json");
+    let missing = live.trees.path().join("no-such-table.json");
 
     let ok = live.build(&[
         "--deps-docs-url",
@@ -1047,7 +1052,7 @@ fn the_ledger_command_reproduces_the_builds_render_key_only_with_the_map() {
 
     // `ledger build`, with the map and without it.
     let rebuilt = |name: &str, extra: &[&str]| -> Value {
-        let out = live.trees.path.join(name);
+        let out = live.trees.path().join(name);
         let mut args: Vec<String> = [
             "ledger",
             "build",
@@ -1119,7 +1124,7 @@ fn the_ledger_command_reproduces_the_builds_render_key_only_with_the_map() {
 /// The one shape that is read, and every refusal, each naming `--lib`.
 #[test]
 fn the_lakefile_is_read_or_refused_by_name() {
-    let trees = TempDir::new("build-lakefile");
+    let trees = TEMP.make("build-lakefile");
     let world = base_world();
 
     // What the measurement target's lakefile.toml looks like, plus the shapes a
@@ -1139,7 +1144,7 @@ fn the_lakefile_is_read_or_refused_by_name() {
         ),
     ];
     for (what, body, expected) in read {
-        let repo = trees.path.join(format!("read-{what}"));
+        let repo = trees.path().join(format!("read-{what}"));
         write_repo(&repo, &world);
         write(&repo.join("lakefile.toml"), body.as_bytes());
         // The second library needs a root of its own, or the glob refuses it —
@@ -1194,7 +1199,7 @@ fn the_lakefile_is_read_or_refused_by_name() {
         ),
     ];
     for (what, body, expected) in refused {
-        let repo = trees.path.join(format!("refuse-{what}"));
+        let repo = trees.path().join(format!("refuse-{what}"));
         write_repo(&repo, &world);
         fs::remove_file(repo.join("lakefile.toml")).expect("the toml goes");
         match body {
@@ -1209,7 +1214,7 @@ fn the_lakefile_is_read_or_refused_by_name() {
     }
 
     // A package with no lakefile at all says so, and still names `--lib`.
-    let bare = trees.path.join("bare");
+    let bare = trees.path().join("bare");
     write_repo(&bare, &world);
     fs::remove_file(bare.join("lakefile.toml")).expect("the toml goes");
     let output = litedoc4(&["modules", "--root", &bare.display().to_string()]);
@@ -1282,8 +1287,8 @@ fn the_source_url_comes_from_git() {
     );
 
     // A remote whose /blob/ shape is not knowable stops, naming --source-url.
-    let other = TempDir::new("build-git-other");
-    let repo = other.path.join("repo");
+    let other = TEMP.make("build-git-other");
+    let repo = other.path().join("repo");
     write_repo(&repo, &base_world());
     git_init(&repo, "https://gitlab.com/owner/repo.git");
     let refused = litedoc4(&[
@@ -1291,7 +1296,7 @@ fn the_source_url_comes_from_git() {
         "--root",
         &repo.display().to_string(),
         "--out",
-        &other.path.join("out").display().to_string(),
+        &other.path().join("out").display().to_string(),
         "--link-index",
         &live.lidx.display().to_string(),
         "--extractor",
@@ -1342,7 +1347,7 @@ fn a_directory_this_command_did_not_write_is_refused() {
     // the target whose oleans it hashed.
     let live = Live::new("build-other-root");
     assert_eq!(code(&live.build(&[])), 0);
-    let elsewhere = live.trees.path.join("elsewhere");
+    let elsewhere = live.trees.path().join("elsewhere");
     write_repo(&elsewhere, &base_world());
     let output = litedoc4(&[
         "build",
@@ -1611,7 +1616,7 @@ fn the_command_line_is_checked() {
 #[test]
 fn the_timings_record_names_the_path() {
     let live = Live::new("build-timings");
-    let timings = live.trees.path.join("nested/build-timings.json");
+    let timings = live.trees.path().join("nested/build-timings.json");
     let path = timings.display().to_string();
 
     assert_eq!(code(&live.build(&["--timings", &path])), 0);
@@ -1926,35 +1931,4 @@ fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 fn write(path: &Path, body: &[u8]) {
     fs::create_dir_all(path.parent().expect("a parent")).expect("writable");
     fs::write(path, body).expect("writable");
-}
-
-/// A directory that removes itself.
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(what: &str) -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let slug: String = what
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .take(40)
-            .collect();
-        let path = std::env::temp_dir().join(format!(
-            "litedoc4-build-{}-{}-{slug}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("the temporary directory is creatable");
-        Self { path }
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }

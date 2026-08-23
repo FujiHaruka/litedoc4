@@ -47,8 +47,13 @@ use litedoc4_global::{
     GlobalOptions, GlobalSummary, STATE_DERIVATION, STATE_FILE, build_global, facts_for, v8_gc,
 };
 use litedoc4_ir::{Index, IrTree};
+use litedoc4_testutil::{TempDir, TempDirs};
 use serde::Deserialize;
 use serde_json::{Value, json};
+
+/// The temporary directories this file makes. The prefix names the file,
+/// so a directory a failed run leaves behind names what made it.
+const TEMP: TempDirs = TempDirs::prefixed("litedoc4-state");
 
 /// The one artifact this crate and the frozen prototype both write since M8-d,
 /// and the one the delta reads back as `--before`.
@@ -508,8 +513,8 @@ struct Step {
 
 impl Sequence {
     fn new(what: &str) -> Self {
-        let work = TempDir::new(what);
-        let state = work.path.join("state");
+        let work = TEMP.make(what);
+        let state = work.path().join("state");
         Self {
             work,
             state,
@@ -522,9 +527,9 @@ impl Sequence {
     /// the cache carried in from the last state — and compare all six.
     fn step(&mut self, name: &str, ir: &Path) -> Step {
         self.steps += 1;
-        let scratch = self.work.path.join(format!("{name}-scratch"));
-        let cached = self.work.path.join(format!("{name}-cached"));
-        let timings = self.work.path.join(format!("{name}-timings.json"));
+        let scratch = self.work.path().join(format!("{name}-scratch"));
+        let cached = self.work.path().join(format!("{name}-cached"));
+        let timings = self.work.path().join(format!("{name}-timings.json"));
         let _ = fs::remove_dir_all(&scratch);
         let _ = fs::remove_dir_all(&cached);
 
@@ -690,7 +695,7 @@ fn seven_states(what: &str, base: &Path, trees: &TempDir) -> Sequence {
     assert_eq!((rerun.hits, rerun.misses), (modules, 0));
 
     // 3. one module's bytes change, and the hash moves with them.
-    let modified_ir = trees.path.join("ir-mod");
+    let modified_ir = trees.path().join("ir-mod");
     copy_ir(base, &modified_ir);
     mutate_modified(&modified_ir);
     let modified = sequence.step("modified", &modified_ir);
@@ -698,7 +703,7 @@ fn seven_states(what: &str, base: &Path, trees: &TempDir) -> Sequence {
 
     // 4. two modules disappear. The index is the authority on what exists, so
     //    the cache entries have to go with them.
-    let removed_ir = trees.path.join("ir-del");
+    let removed_ir = trees.path().join("ir-del");
     copy_ir(&modified_ir, &removed_ir);
     let gone = mutate_removed(&removed_ir, 2);
     assert_eq!(gone.len(), 2);
@@ -706,7 +711,7 @@ fn seven_states(what: &str, base: &Path, trees: &TempDir) -> Sequence {
     assert_eq!((removed.hits, removed.misses), (modules - 2, 0));
 
     // 5. a module appears, with declarations nothing has seen.
-    let added_ir = trees.path.join("ir-add");
+    let added_ir = trees.path().join("ir-add");
     copy_ir(&removed_ir, &added_ir);
     mutate_added(&added_ir);
     let added = sequence.step("added", &added_ir);
@@ -1077,8 +1082,8 @@ fn synthetic_base(root: &Path) {
 /// machine that has never seen the target package.
 #[test]
 fn the_seven_states_agree_with_a_from_scratch_build() {
-    let trees = TempDir::new("synthetic-states");
-    let base = trees.path.join("ir");
+    let trees = TEMP.make("synthetic-states");
+    let base = trees.path().join("ir");
     synthetic_base(&base);
     let sequence = seven_states("synthetic", &base, &trees);
     assert_eq!(sequence.steps, 7);
@@ -1091,8 +1096,8 @@ fn the_seven_states_agree_with_a_from_scratch_build() {
 #[ignore = "corpus: needs LITEDOC4_IR (tools/corpus-gate.sh)"]
 fn the_seven_states_agree_over_the_real_corpus() {
     let ir = corpus_ir();
-    let trees = TempDir::new("corpus-states");
-    let base = trees.path.join("ir");
+    let trees = TEMP.make("corpus-states");
+    let base = trees.path().join("ir");
     copy_ir(&ir, &base);
     let sequence = seven_states("corpus", &base, &trees);
     assert_eq!(sequence.steps, 7);
@@ -1148,9 +1153,9 @@ fn the_state_file_is_the_prototypes_bytes() {
         "stage7h/global.ts facts v1".len()
     );
 
-    let work = TempDir::new("state-bytes");
-    let site = work.path.join("site");
-    let state = work.path.join("state");
+    let work = TEMP.make("state-bytes");
+    let site = work.path().join("site");
+    let state = work.path().join("state");
     let mut options = GlobalOptions::new(&ir, &site);
     options.state = Some(&state);
     let summary = build_global(&options).expect("the corpus builds");
@@ -1339,16 +1344,16 @@ fn the_delta_is_the_prototypes_delta() {
     assert_eq!(before.len(), expected.before_names);
     assert_eq!(after.len(), expected.after_names);
 
-    let work = TempDir::new("delta-differential");
-    let before_path = work.path.join("before.json");
+    let work = TEMP.make("delta-differential");
+    let before_path = work.path().join("before.json");
     fs::write(
         &before_path,
         serde_json::to_string(&before).expect("serialises"),
     )
     .expect("writable");
-    let print_set = work.path.join("set.txt");
-    let delta_json = work.path.join("delta.json");
-    let site = work.path.join("site");
+    let print_set = work.path().join("set.txt");
+    let delta_json = work.path().join("delta.json");
+    let site = work.path().join("site");
     let mut options = GlobalOptions::new(&ir, &site);
     options.before = Some(&before_path);
     options.print_set = Some(&print_set);
@@ -1395,7 +1400,7 @@ fn the_delta_is_the_prototypes_delta() {
 
     // The other half of the file format, and the case the pipeline takes on
     // most runs: an unchanged map writes a file with no bytes in it at all.
-    let unchanged = work.path.join("unchanged.txt");
+    let unchanged = work.path().join("unchanged.txt");
     let name_map = reference.join(NAME_MAP);
     let mut options = GlobalOptions::new(&ir, &site);
     options.before = Some(&name_map);
@@ -1505,13 +1510,13 @@ fn the_curated_tokens_reach_what_the_corpus_does_not() {
 /// 4. Everything together is all 35.
 #[test]
 fn the_curated_cases_cover_what_the_package_does_not() {
-    let trees = TempDir::new("coverage");
-    let base = trees.path.join("ir");
+    let trees = TEMP.make("coverage");
+    let base = trees.path().join("ir");
     synthetic_base(&base);
 
     // (1) A run with neither flag: one path through every branch here.
-    let work = TempDir::new("six-file");
-    let options = GlobalOptions::new(&base, &work.path);
+    let work = TEMP.make("six-file");
+    let options = GlobalOptions::new(&base, work.path());
     let tree = IrTree::open(&base).expect("the IR opens");
     let facts = facts_for(&tree, &State::empty()).expect("reads").facts;
     let summary = build_global(&options).expect("builds");
@@ -1626,8 +1631,8 @@ fn the_curated_cases_cover_what_the_package_does_not() {
 /// Every one of them must load as an empty cache — silently, and with every
 /// module read again.
 fn curated_state_branches() -> BTreeSet<&'static str> {
-    let trees = TempDir::new("foreign-states");
-    let base = trees.path.join("ir");
+    let trees = TEMP.make("foreign-states");
+    let base = trees.path().join("ir");
     synthetic_base(&base);
     let modules = IrTree::open(&base).expect("opens").index().modules.len();
 
@@ -1685,8 +1690,8 @@ const V8_ONLY_SEPARATOR: char = '\u{088F}';
 /// `Pkg.moved` moves. Nothing downstream notices: the site builds and the page
 /// keeps a link to the module the name used to live in.
 fn curated_token_branches() -> BTreeSet<&'static str> {
-    let trees = TempDir::new("curated-tokens");
-    let ir = trees.path.join("ir");
+    let trees = TEMP.make("curated-tokens");
+    let ir = trees.path().join("ir");
     let split_doc = format!("`Pkg.moved{V8_ONLY_SEPARATOR}Tail`");
     write_synthetic(
         &ir,
@@ -1716,7 +1721,7 @@ fn curated_token_branches() -> BTreeSet<&'static str> {
         &[],
     );
 
-    let site = trees.path.join("site");
+    let site = trees.path().join("site");
     build_global(&GlobalOptions::new(&ir, &site)).expect("builds");
     let mut before = name_map(&site);
     before.insert("Pkg.moved".to_owned(), "Somewhere.Else".to_owned());
@@ -1747,7 +1752,7 @@ fn curated_token_branches() -> BTreeSet<&'static str> {
 
 /// The delta's corners, over IRs small enough to say what the answer should be.
 fn curated_delta_branches() -> BTreeSet<&'static str> {
-    let trees = TempDir::new("curated-deltas");
+    let trees = TEMP.make("curated-deltas");
     let mut covered = BTreeSet::new();
 
     // A package whose modules mention each other, in an index order that is not
@@ -1759,7 +1764,7 @@ fn curated_delta_branches() -> BTreeSet<&'static str> {
     let astral_decl: &'static str = Box::leak(format!("Pkg.{ASTRAL}.g").into_boxed_str());
     let ligature_module: &'static str = Box::leak(format!("Pkg.{LIGATURE}").into_boxed_str());
     let ligature_decl: &'static str = Box::leak(format!("Pkg.{LIGATURE}.h").into_boxed_str());
-    let ir = trees.path.join("ir");
+    let ir = trees.path().join("ir");
     write_synthetic(
         &ir,
         &[
@@ -1808,7 +1813,7 @@ fn curated_delta_branches() -> BTreeSet<&'static str> {
         &[("Dep", json!({ "Dep.one": "Dep.Home" }))],
     );
 
-    let site = trees.path.join("site");
+    let site = trees.path().join("site");
     let after: BTreeMap<String, String> = {
         let work = GlobalOptions::new(&ir, &site);
         build_global(&work).expect("builds");
@@ -1877,7 +1882,7 @@ fn curated_delta_branches() -> BTreeSet<&'static str> {
     // 5. More than twenty changed names and more than twenty affected modules:
     //    the sample and the witness list are both capped, and the corpus's
     //    delta (3 changed names) reaches neither cap.
-    let big = trees.path.join("ir-big");
+    let big = trees.path().join("ir-big");
     let mut modules = Vec::new();
     for i in 0..22 {
         let module: &'static str = Box::leak(format!("Pkg.M{i:02}").into_boxed_str());
@@ -1890,7 +1895,7 @@ fn curated_delta_branches() -> BTreeSet<&'static str> {
         });
     }
     write_synthetic(&big, &modules, &[]);
-    let big_site = trees.path.join("site-big");
+    let big_site = trees.path().join("site-big");
     build_global(&GlobalOptions::new(&big, &big_site)).expect("builds");
     let mut before = name_map(&big_site);
     before.insert("Everywhere.name".to_owned(), "Gone.Away".to_owned());
@@ -1922,15 +1927,15 @@ fn run_delta(
     print_set: bool,
     delta_json: bool,
 ) -> (BTreeSet<&'static str>, Delta) {
-    let before_path = trees.path.join(format!("{what}-before.json"));
+    let before_path = trees.path().join(format!("{what}-before.json"));
     fs::write(
         &before_path,
         serde_json::to_string(&before).expect("serialises"),
     )
     .expect("writable");
-    let site = trees.path.join(format!("{what}-site"));
-    let set = trees.path.join(format!("{what}-set.txt"));
-    let json = trees.path.join(format!("{what}-delta.json"));
+    let site = trees.path().join(format!("{what}-site"));
+    let set = trees.path().join(format!("{what}-set.txt"));
+    let json = trees.path().join(format!("{what}-delta.json"));
 
     let mut options = GlobalOptions::new(ir, &site);
     options.before = Some(&before_path);
@@ -2098,35 +2103,4 @@ fn fnv1a64(bytes: &[u8]) -> String {
         hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("{hash:016x}")
-}
-
-/// A directory that removes itself, as in `tests/global.rs`.
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(what: &str) -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let slug: String = what
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .take(40)
-            .collect();
-        let path = std::env::temp_dir().join(format!(
-            "litedoc4-state-{}-{}-{slug}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("the temporary directory is creatable");
-        Self { path }
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }

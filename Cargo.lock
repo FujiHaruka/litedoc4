@@ -147,6 +147,7 @@ dependencies = [
  "litedoc4-incr",
  "litedoc4-ir",
  "litedoc4-render",
+ "litedoc4-testutil",
  "serde",
  "serde_json",
 ]
@@ -158,6 +159,7 @@ dependencies = [
  "litedoc4-ir",
  "litedoc4-md",
  "litedoc4-render",
+ "litedoc4-testutil",
  "serde",
  "serde_json",
 ]
@@ -167,6 +169,7 @@ name = "litedoc4-incr"
 version = "0.2.0"
 dependencies = [
  "litedoc4-ir",
+ "litedoc4-testutil",
  "serde",
  "serde_json",
  "sha2",
@@ -197,10 +200,15 @@ dependencies = [
  "basic-toml",
  "litedoc4-ir",
  "litedoc4-md",
+ "litedoc4-testutil",
  "serde",
  "serde_json",
  "sha2",
 ]
+
+[[package]]
+name = "litedoc4-testutil"
+version = "0.2.0"
 
 [[package]]
 name = "math-core"

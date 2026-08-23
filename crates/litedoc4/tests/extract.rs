@@ -21,6 +21,12 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use litedoc4_testutil::{TempDir, TempDirs};
+
+/// The temporary directories this file makes. The prefix names the file,
+/// so a directory a failed run leaves behind names what made it.
+const TEMP: TempDirs = TempDirs::prefixed("litedoc4-extract");
+
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 
 /// The events three phases of a real run emit, shortened. Two properties are
@@ -304,8 +310,8 @@ struct World {
 
 impl World {
     fn new(what: &str) -> Self {
-        let guard = TempDir::new(what);
-        let root = guard.path.clone();
+        let guard = TEMP.make(what);
+        let root = guard.path().to_path_buf();
         let target = root.join("target-repo");
         fs::create_dir_all(&target).expect("writable");
 
@@ -460,35 +466,4 @@ fn make_executable(path: &Path) {
 /// the thing that breaks.
 fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
-}
-
-/// A directory that removes itself, as in `tests/incremental.rs`.
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(what: &str) -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let slug: String = what
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .take(40)
-            .collect();
-        let path = std::env::temp_dir().join(format!(
-            "litedoc4-extract-{}-{}-{slug}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("the temporary directory is creatable");
-        Self { path }
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }

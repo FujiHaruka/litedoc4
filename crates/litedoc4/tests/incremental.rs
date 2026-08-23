@@ -45,7 +45,12 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
+
+/// The temporary directories this file makes. The prefix names the file,
+/// so a directory a failed run leaves behind names what made it.
+const TEMP: TempDirs = TempDirs::prefixed("litedoc4-incr");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 
@@ -1088,17 +1093,17 @@ impl Live {
     /// round's premise is that the previous run left a `--state` behind, and
     /// `litedoc4 site --state` is the run that does it.
     fn setup(what: &str, world: &World) -> Self {
-        let trees = TempDir::new(what);
+        let trees = TEMP.make(what);
         let live = Self {
-            repo: trees.path.join("repo"),
-            ir: trees.path.join("live/ir"),
-            pages: trees.path.join("live/pages"),
-            ledger: trees.path.join("live/ledger.json"),
-            state: trees.path.join("live/state"),
-            lidx: trees.path.join("link-index.lidx"),
-            script: trees.path.join("fake-extractor.sh"),
-            modules: trees.path.join("live/modules.txt"),
-            world_root: trees.path.join("world"),
+            repo: trees.path().join("repo"),
+            ir: trees.path().join("live/ir"),
+            pages: trees.path().join("live/pages"),
+            ledger: trees.path().join("live/ledger.json"),
+            state: trees.path().join("live/state"),
+            lidx: trees.path().join("link-index.lidx"),
+            script: trees.path().join("fake-extractor.sh"),
+            modules: trees.path().join("live/modules.txt"),
+            world_root: trees.path().join("world"),
             trees,
             runs: 0,
         };
@@ -1183,7 +1188,7 @@ impl Live {
     /// One incremental round, with `extra` appended to the command line.
     fn round(&mut self, what: &str, extra: &[&str]) -> Report {
         self.runs += 1;
-        let work = self.trees.path.join(format!("work-{}-{what}", self.runs));
+        let work = self.trees.path().join(format!("work-{}-{what}", self.runs));
         let timings = work.join("timings.json");
         let mut args: Vec<String> = [
             "incremental",
@@ -1240,7 +1245,7 @@ impl Live {
     /// Full generation over `world` into a fresh tree — the oracle every state
     /// is compared against. Returns the root, holding `ir/` and `site/`.
     fn full_generation(&self, what: &str, world: &World, url: &str) -> PathBuf {
-        let root = self.trees.path.join(format!("full-{what}"));
+        let root = self.trees.path().join(format!("full-{what}"));
         let _ = fs::remove_dir_all(&root);
         write_world(&root.join("baked"), world);
         let ir = root.join("ir");
@@ -1661,13 +1666,13 @@ fn the_name_map_is_snapshotted_before_the_round_overwrites_it() {
     assert_eq!(delta["affectedModules"], json!(["Pkg.C"]), "{delta}");
 
     // What the same delta says against the map the round just wrote.
-    let late = live.trees.path.join("late-print-set.txt");
+    let late = live.trees.path().join("late-print-set.txt");
     let ok = litedoc4(&[
         "global",
         "--ir",
         &live.ir.display().to_string(),
         "--out",
-        &live.trees.path.join("late-site").display().to_string(),
+        &live.trees.path().join("late-site").display().to_string(),
         "--before",
         &map_path.display().to_string(),
         "--print-set",
@@ -1853,7 +1858,7 @@ fn an_empty_regeneration_set_renders_nothing_twice_over() {
     );
 
     // The same set, handed to the renderer on purpose.
-    let empty = live.trees.path.join("empty-set.txt");
+    let empty = live.trees.path().join("empty-set.txt");
     write(&empty, b"");
     let pages = tree(&live.pages);
     let ok = litedoc4(&[
@@ -2151,7 +2156,7 @@ fn case_command_line() -> BTreeSet<&'static str> {
         let mut args = full.clone();
         let at = args.iter().position(|arg| arg == flag).expect(flag);
         args.drain(at..=at + 1);
-        let report = live.invoke(&args, &live.trees.path.join("nowhere"));
+        let report = live.invoke(&args, &live.trees.path().join("nowhere"));
         assert_eq!(report.code, 2, "{flag}: {}", report.stderr);
         assert!(report.stderr.contains(flag), "{flag}: {}", report.stderr);
         let fired = observe(&report);
@@ -2169,7 +2174,7 @@ fn case_command_line() -> BTreeSet<&'static str> {
     while let Some(at) = args.iter().position(|arg| arg == "--extractor-arg") {
         args.drain(at..=at + 1);
     }
-    let report = live.invoke(&args, &live.trees.path.join("no-extractor-args"));
+    let report = live.invoke(&args, &live.trees.path().join("no-extractor-args"));
     let fired = observe(&report);
     assert!(fired.contains("extractorArgsEmpty"), "{fired:?}");
     covered.extend(fired);
@@ -2262,16 +2267,16 @@ fn a_re_extraction_that_changes_nothing_rewrites_nothing() {
 fn the_merge_command_takes_a_module_list() {
     let world = base_world();
     let live = Live::setup("merge-cli", &world);
-    let nothing = live.trees.path.join("nothing-removed.txt");
+    let nothing = live.trees.path().join("nothing-removed.txt");
     write(&nothing, b"");
 
     // A list naming a module the IR has nothing behind: exit 3, and the name is
     // in the message rather than only in a count.
-    let ghosts = live.trees.path.join("ghost-modules.txt");
+    let ghosts = live.trees.path().join("ghost-modules.txt");
     let mut names = world.names();
     names.push("Pkg.Ghost".to_owned());
     write(&ghosts, (names.join("\n") + "\n").as_bytes());
-    let out = live.trees.path.join("merged-ir");
+    let out = live.trees.path().join("merged-ir");
     let refused = litedoc4(&[
         "merge",
         "--base",
@@ -2324,8 +2329,8 @@ fn the_merge_command_takes_a_module_list() {
 
 /// `litedoc4 modules`: the source glob, in every shape a library root comes in.
 fn case_module_glob() -> BTreeSet<&'static str> {
-    let trees = TempDir::new("module-glob");
-    let repo = trees.path.join("repo");
+    let trees = TEMP.make("module-glob");
+    let repo = trees.path().join("repo");
     // `Lib.lean` and `Lib/`, with a nested directory and a file that is not
     // Lean's.
     write(&repo.join("Lib.lean"), b"-- root\n");
@@ -2356,7 +2361,7 @@ fn case_module_glob() -> BTreeSet<&'static str> {
 
     // Two libraries, one of them named twice: the union, deduplicated, in the
     // project's UTF-16 order rather than the caller's locale collation.
-    let out = trees.path.join("modules.txt");
+    let out = trees.path().join("modules.txt");
     let repeated = run_modules(&repo, &["Solo", "Solo", "Dir"], Some(&out));
     assert_eq!(repeated.code, 0);
     assert_eq!(
@@ -2587,35 +2592,4 @@ fn copy_tree(from: &Path, to: &Path) {
 fn write(path: &Path, body: &[u8]) {
     fs::create_dir_all(path.parent().expect("a parent")).expect("writable");
     fs::write(path, body).expect("writable");
-}
-
-/// A directory that removes itself, as in `tests/site.rs`.
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(what: &str) -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let slug: String = what
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .take(40)
-            .collect();
-        let path = std::env::temp_dir().join(format!(
-            "litedoc4-incr-{}-{}-{slug}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("the temporary directory is creatable");
-        Self { path }
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }

@@ -64,10 +64,15 @@ use std::path::{Path, PathBuf};
 
 use litedoc4_render::escape::escape_html;
 use litedoc4_render::{ExternalLinks, ModuleSet, RenderOptions, page_path, render_site};
+use litedoc4_testutil::{TempDir, TempDirs};
 use serde::Deserialize;
 
 mod common;
 use common::{Tally, rewrite_source_path_anchors};
+
+/// The temporary directories this file makes. The prefix names the file,
+/// so a directory a failed run leaves behind names what made it.
+const TEMP: TempDirs = TempDirs::prefixed("litedoc4-pages");
 
 const FIXTURE: &str = include_str!("data/pages-expected.json");
 
@@ -151,7 +156,7 @@ fn every_case_carries_the_prototypes_page_content() {
         if case.only.as_ref().is_some_and(Vec::is_empty) {
             continue;
         }
-        let work = TempDir::new(&case.what);
+        let work = TEMP.make(&case.what);
         let got = case.render(&work);
         if got.keys().collect::<Vec<_>>() != case.pages.keys().collect::<Vec<_>>() {
             failures.push(format!(
@@ -223,7 +228,7 @@ fn an_empty_render_set_renders_nothing() {
             .is_some_and(|n| n.contains("every module"))
     );
 
-    let work = TempDir::new(&case.what);
+    let work = TEMP.make(&case.what);
     let got = case.render(&work);
     assert!(
         got.is_empty(),
@@ -457,9 +462,9 @@ fn a_dependency_map_moves_exactly_the_links_into_the_dependency() {
         if case.only.as_ref().is_some_and(Vec::is_empty) {
             continue;
         }
-        let work = TempDir::new(&case.what);
+        let work = TEMP.make(&case.what);
         let before = case.render(&work);
-        let work = TempDir::new(&case.what);
+        let work = TEMP.make(&case.what);
         let after = case.render_with(&work, &external);
         assert_eq!(
             before.keys().collect::<Vec<_>>(),
@@ -554,11 +559,11 @@ fn pages_carry_the_reference_trees_content() {
         lidx.display(),
     );
     let e = expected();
-    let work = TempDir::new("reference");
+    let work = TEMP.make("reference");
     let summary = render_site(&RenderOptions {
         config: &litedoc4_render::SiteConfig::EMPTY,
         ir: &ir,
-        pages: &work.path,
+        pages: work.path(),
         source_url: &e.source_url,
         // M7-c: the reference tree is the **prototype's**, whose links into a
         // dependency are all relative. The empty map is what reproduces them;
@@ -574,7 +579,7 @@ fn pages_carry_the_reference_trees_content() {
     assert_eq!(summary.declarations_suppressed, 190);
 
     let want = read_tree(&reference);
-    let got = read_tree(&work.path);
+    let got = read_tree(work.path());
     assert_eq!(
         want.keys().collect::<Vec<_>>(),
         got.keys().collect::<Vec<_>>(),
@@ -708,7 +713,7 @@ fn pages_carry_the_doc_gen4_trees_declarations() {
         .collect();
 
     let e = expected();
-    let work = TempDir::new("docgen4");
+    let work = TEMP.make("docgen4");
     // No `.lidx`: it decides where a link into a **dependency** points, and
     // nothing compared here is such a link. Requiring one would make this
     // oracle skip on a machine that has the target checked out but no relay
@@ -716,7 +721,7 @@ fn pages_carry_the_doc_gen4_trees_declarations() {
     render_site(&RenderOptions {
         config: &litedoc4_render::SiteConfig::EMPTY,
         ir: &ir,
-        pages: &work.path,
+        pages: work.path(),
         source_url: &e.source_url,
         external_links: &ExternalLinks::default(),
         link_index: None,
@@ -727,7 +732,7 @@ fn pages_carry_the_doc_gen4_trees_declarations() {
     let (mut pages, mut anchors, mut docs) = (0usize, 0usize, 0usize);
     let mut reordered: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
-    for (path, got) in read_tree(&work.path) {
+    for (path, got) in read_tree(work.path()) {
         // A module doc-gen4 has no page for is one added since the tree was
         // built, not a disagreement.
         let Ok(want) = fs::read_to_string(tree.join(&path)) else {
@@ -854,16 +859,16 @@ impl Case {
     }
 
     fn render_with(&self, work: &TempDir, external: &ExternalLinks) -> BTreeMap<String, String> {
-        let ir = work.path.join("ir");
+        let ir = work.path().join("ir");
         for (name, text) in &self.ir {
             let path = ir.join(name);
             fs::create_dir_all(path.parent().expect("every IR file is under the root"))
                 .expect("the temporary tree is writable");
             fs::write(&path, text).expect("the temporary tree is writable");
         }
-        let lidx = work.path.join("link-index.lidx");
+        let lidx = work.path().join("link-index.lidx");
         fs::write(&lidx, &self.lidx).expect("the temporary tree is writable");
-        let pages = work.path.join("pages");
+        let pages = work.path().join("pages");
 
         let only = match &self.only {
             None => ModuleSet::All,
@@ -1263,37 +1268,4 @@ fn read_tree(dir: &Path) -> BTreeMap<String, String> {
     }
     walk(dir, "", &mut out);
     out
-}
-
-/// A directory that removes itself, so a failed run does not leave a tree of
-/// pages behind. Hand-rolled rather than a dependency: it is ten lines and the
-/// workspace has no other use for one.
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(what: &str) -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let slug: String = what
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .take(40)
-            .collect();
-        let path = std::env::temp_dir().join(format!(
-            "litedoc4-pages-{}-{}-{slug}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("the temporary directory is creatable");
-        Self { path }
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }

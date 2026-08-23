@@ -111,32 +111,11 @@ pub fn write_assets(site: &Path) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use litedoc4_testutil::TempDirs;
 
-    /// A unique directory under the system temporary one, removed with its
-    /// contents when the test ends.
-    struct TempDir {
-        path: std::path::PathBuf,
-    }
-
-    impl TempDir {
-        fn new(what: &str) -> Self {
-            use std::sync::atomic::{AtomicU32, Ordering};
-            static NEXT: AtomicU32 = AtomicU32::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "litedoc4-assets-{}-{}-{what}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed),
-            ));
-            let _ = fs::remove_dir_all(&path);
-            Self { path }
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
+    /// The temporary directories this file makes. The prefix names the file,
+    /// so a directory a failed run leaves behind names what made it.
+    const TEMP: TempDirs = TempDirs::prefixed("litedoc4-assets");
 
     /// The class names in one Rust string literal — `class=\"a b\"` gives `a`
     /// and `b`.
@@ -380,18 +359,18 @@ mod tests {
     /// over an unchanged package has to leave the tree alone.
     #[test]
     fn writing_twice_leaves_the_same_bytes() {
-        let dir = TempDir::new("idempotent");
-        write_assets(&dir.path).expect("the first write creates the directory");
+        let dir = TEMP.reserve("idempotent");
+        write_assets(dir.path()).expect("the first write creates the directory");
         // An edit between the two runs, as a hand-patched deployment would
         // leave: the second write is what puts the shipped bytes back.
-        fs::write(dir.path.join("style.css"), "/* hand-edited */").expect("the file is writable");
-        write_assets(&dir.path).expect("the second write overwrites");
+        fs::write(dir.path().join("style.css"), "/* hand-edited */").expect("the file is writable");
+        write_assets(dir.path()).expect("the second write overwrites");
 
         for (name, body) in ASSETS {
-            let on_disk = fs::read_to_string(dir.path.join(name)).expect("the asset is there");
+            let on_disk = fs::read_to_string(dir.path().join(name)).expect("the asset is there");
             assert_eq!(on_disk, body, "{name} is not what the binary carries");
         }
-        let written = fs::read_dir(&dir.path)
+        let written = fs::read_dir(dir.path())
             .expect("the directory is readable")
             .count();
         assert_eq!(

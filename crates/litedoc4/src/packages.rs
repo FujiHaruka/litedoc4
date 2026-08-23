@@ -533,6 +533,11 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use litedoc4_testutil::TempDirs;
+
+    /// The temporary directories this file makes. The prefix names the file,
+    /// so a directory a failed run leaves behind names what made it.
+    const TEMP: TempDirs = TempDirs::prefixed("litedoc4-packages");
 
     /// The measurement target, as `litedoc4-incr`'s corpus tests spell it.
     const DEFAULT_TARGET: &str = "/Users/haruka/dev/lean-projects";
@@ -580,8 +585,8 @@ mod tests {
 
     #[test]
     fn a_git_package_becomes_a_blob_base() {
-        let dir = TempDir::new("manifest");
-        let path = dir.path.join("lake-manifest.json");
+        let dir = TEMP.make("manifest");
+        let path = dir.path().join("lake-manifest.json");
         fs::write(
             &path,
             r#"{"version": "1.2.0", "packagesDir": ".lake/packages", "packages":
@@ -625,8 +630,8 @@ mod tests {
     /// learn.
     #[test]
     fn a_revision_that_is_not_forty_hex_costs_only_its_own_packages_url() {
-        let dir = TempDir::new("tag");
-        let path = dir.path.join("lake-manifest.json");
+        let dir = TEMP.make("tag");
+        let path = dir.path().join("lake-manifest.json");
         fs::write(
             &path,
             r#"{"packages":
@@ -658,8 +663,8 @@ mod tests {
 
     #[test]
     fn a_manifest_that_is_not_a_manifest_stops_before_any_package() {
-        let dir = TempDir::new("broken");
-        let path = dir.path.join("lake-manifest.json");
+        let dir = TEMP.make("broken");
+        let path = dir.path().join("lake-manifest.json");
         fs::write(&path, "{\"version\": \"1.2.0\"}").expect("the temporary tree is writable");
         let problem = read_manifest(&path).expect_err("no `packages` array");
         assert!(problem.contains("no `packages` array"), "{problem}");
@@ -669,8 +674,8 @@ mod tests {
     /// directory next to it and a root without one.
     #[test]
     fn a_root_is_a_top_level_lean_file_with_or_without_a_directory() {
-        let dir = TempDir::new("scan");
-        let pkg = dir.path.join("pkg");
+        let dir = TEMP.make("scan");
+        let pkg = dir.path().join("pkg");
         fs::create_dir_all(pkg.join("Mathlib/Order")).expect("writable");
         fs::create_dir_all(pkg.join("MathlibTest")).expect("writable");
         for name in [
@@ -694,8 +699,8 @@ mod tests {
 
     #[test]
     fn a_package_that_is_not_on_disk_is_a_problem_and_not_a_panic() {
-        let dir = TempDir::new("absent");
-        let problem = module_roots(&dir.path.join("nowhere")).expect_err("it is not there");
+        let dir = TEMP.make("absent");
+        let problem = module_roots(&dir.path().join("nowhere")).expect_err("it is not there");
         assert!(problem.contains("not on disk"), "{problem}");
     }
 
@@ -710,9 +715,9 @@ mod tests {
     /// what says the map still links what it can.
     #[test]
     fn a_dependency_that_cannot_be_pinned_contributes_roots_with_no_base() {
-        let tmp = TempDir::new("unpinned");
-        let root = tmp.path.join("pkg");
-        let dep = tmp.path.join("dep");
+        let tmp = TEMP.make("unpinned");
+        let root = tmp.path().join("pkg");
+        let dep = tmp.path().join("dep");
         for (dir, file) in [
             (dep, "DepAux.lean"),
             (root.join(".lake/packages/tagged"), "Tagged.lean"),
@@ -783,8 +788,8 @@ mod tests {
     /// entry, and no panic.
     #[test]
     fn an_unpinnable_entry_with_no_directory_to_scan_is_the_one_line_it_already_had() {
-        let tmp = TempDir::new("unpinned-absent");
-        let root = tmp.path.join("pkg");
+        let tmp = TEMP.make("unpinned-absent");
+        let root = tmp.path().join("pkg");
         fs::create_dir_all(&root).expect("the temporary tree is writable");
         fs::write(
             root.join("lake-manifest.json"),
@@ -814,8 +819,8 @@ mod tests {
     /// `lake`: an empty map, and a line for each.
     #[test]
     fn a_root_with_nothing_in_it_degrades_to_an_empty_map() {
-        let dir = TempDir::new("empty");
-        let resolved = external_links(&dir.path, Path::new("lake-that-does-not-exist"));
+        let dir = TEMP.make("empty");
+        let resolved = external_links(dir.path(), Path::new("lake-that-does-not-exist"));
         assert!(resolved.links.is_empty());
         assert_eq!(resolved.declared, 0);
         assert_eq!(resolved.resolved, 0);
@@ -1229,33 +1234,5 @@ mod tests {
         let (_, anchor) = url.rsplit_once("#L")?;
         let (from, to) = anchor.split_once("-L")?;
         Some((from.parse().ok()?, to.parse().ok()?))
-    }
-
-    /// A directory that removes itself. Hand-rolled for the same reason
-    /// `litedoc4-render/tests/pages.rs` hand-rolls one: ten lines against a
-    /// dependency the workspace has no other use for.
-    struct TempDir {
-        path: PathBuf,
-    }
-
-    impl TempDir {
-        fn new(what: &str) -> Self {
-            use std::sync::atomic::{AtomicU32, Ordering};
-            static NEXT: AtomicU32 = AtomicU32::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "litedoc4-packages-{}-{}-{what}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed),
-            ));
-            let _ = fs::remove_dir_all(&path);
-            fs::create_dir_all(&path).expect("the temporary directory is creatable");
-            Self { path }
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
     }
 }

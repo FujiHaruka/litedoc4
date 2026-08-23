@@ -492,6 +492,11 @@ mod tests {
     //! are: the shape does not exist in the recorded corpus.
 
     use super::*;
+    use litedoc4_testutil::TempDirs;
+
+    /// The temporary directories this file makes. The prefix names the file,
+    /// so a directory a failed run leaves behind names what made it.
+    const TEMP: TempDirs = TempDirs::prefixed("litedoc4-prune");
 
     /// The three files `litedoc4 build` writes into the site root (M8-a).
     ///
@@ -547,9 +552,9 @@ mod tests {
     /// take the site root's contents with it.
     #[test]
     fn the_deletion_path_leaves_the_assets() {
-        let dir = TempDir::new("prune-assets-remove");
-        let (pages, _) = site_with_assets(&dir.path);
-        let remove = dir.path.join("removed.txt");
+        let dir = TEMP.make("prune-assets-remove");
+        let (pages, _) = site_with_assets(dir.path());
+        let remove = dir.path().join("removed.txt");
         write_file(&remove, "Pkg.B\n");
 
         let summary = prune(&PruneOptions {
@@ -572,8 +577,8 @@ mod tests {
     /// and must not widen to the assets, which no module owns either.
     #[test]
     fn the_static_assets_are_not_orphans() {
-        let dir = TempDir::new("prune-assets-orphans");
-        let (pages, ir) = site_with_assets(&dir.path);
+        let dir = TEMP.make("prune-assets-orphans");
+        let (pages, ir) = site_with_assets(dir.path());
 
         let summary = prune(&PruneOptions {
             pages: &pages,
@@ -592,32 +597,5 @@ mod tests {
         assets_are_intact(&pages);
         assert!(pages.join("Pkg.html").is_file(), "a live page went");
         assert!(pages.join("Pkg/B.html").is_file(), "a live page went");
-    }
-
-    /// A unique directory under the system temporary one, removed with its
-    /// contents when the test ends.
-    struct TempDir {
-        path: PathBuf,
-    }
-
-    impl TempDir {
-        fn new(what: &str) -> Self {
-            use std::sync::atomic::{AtomicU32, Ordering};
-            static NEXT: AtomicU32 = AtomicU32::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "litedoc4-prune-{}-{}-{what}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed),
-            ));
-            let _ = fs::remove_dir_all(&path);
-            fs::create_dir_all(&path).expect("the temporary directory is creatable");
-            Self { path }
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
     }
 }

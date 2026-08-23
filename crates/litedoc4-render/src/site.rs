@@ -299,6 +299,11 @@ impl From<litedoc4_ir::Error> for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use litedoc4_testutil::TempDirs;
+
+    /// The temporary directories this file makes. The prefix names the file,
+    /// so a directory a failed run leaves behind names what made it.
+    const TEMP: TempDirs = TempDirs::prefixed("litedoc4-site");
 
     #[test]
     fn an_empty_module_set_is_not_the_absence_of_one() {
@@ -315,35 +320,6 @@ mod tests {
         assert!(!ModuleSet::from_lines("Pkg.One\n").contains("Pkg.Two"));
     }
 
-    /// A unique directory under the system temporary one, removed with its
-    /// contents when the test ends.
-    ///
-    /// The fifteenth hand-rolled one in the workspace; §7 U1 of
-    /// `docs/plans/refactoring.md` folds them all into `litedoc4-testutil`.
-    struct TempDir {
-        path: PathBuf,
-    }
-
-    impl TempDir {
-        fn new(what: &str) -> Self {
-            use std::sync::atomic::{AtomicU32, Ordering};
-            static NEXT: AtomicU32 = AtomicU32::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "litedoc4-site-{}-{}-{what}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed),
-            ));
-            let _ = fs::remove_dir_all(&path);
-            Self { path }
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
-
     /// `Pkg/Sub/M.html` lands under a `pages` directory that has neither of the
     /// two directories above it yet.
     ///
@@ -352,8 +328,8 @@ mod tests {
     /// two calls and not one.
     #[test]
     fn a_page_is_written_under_directories_that_did_not_exist() {
-        let dir = TempDir::new("nested");
-        let path = dir.path.join("Pkg").join("Sub").join("M.html");
+        let dir = TEMP.reserve("nested");
+        let path = dir.path().join("Pkg").join("Sub").join("M.html");
 
         write_page(&path, "<html></html>").expect("the directories are made first");
 

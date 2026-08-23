@@ -58,7 +58,12 @@ use litedoc4_incr::prune::PageRoot;
 use litedoc4_incr::{
     Error, ImpactOptions, Mode, PruneOptions, PruneSummary, impact, page_of, prune,
 };
+use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
+
+/// The temporary directories this file makes. The prefix names the file,
+/// so a directory a failed run leaves behind names what made it.
+const TEMP: TempDirs = TempDirs::prefixed("litedoc4-impact");
 
 /// The from-scratch IR the milestone is measured against. Read only.
 const DEFAULT_BASE_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
@@ -1046,7 +1051,7 @@ fn the_corpus_matches_the_prototype() {
     );
     let tree = SecondTree::open(&base_ir);
     assert_eq!(tree.own.len(), 432);
-    let work = TempDir::new("impact-corpus");
+    let work = TEMP.make("impact-corpus");
     let mut covered: BTreeSet<&'static str> = BTreeSet::new();
 
     let hub = "InformationTheory.Shannon.Bridge".to_owned();
@@ -1230,7 +1235,7 @@ fn the_corpus_matches_the_prototype() {
         json,
     } in scenarios
     {
-        let dir = work.path.join(name);
+        let dir = work.path().join(name);
         fs::create_dir_all(&dir).expect("creatable");
         let census_path = dir.join("census.tsv");
         let set_path = dir.join("set.txt");
@@ -1298,9 +1303,9 @@ fn the_corpus_matches_the_prototype() {
     }
 
     // The 9 `prune` scenarios that touch a page tree.
-    let fixtures = TempDir::new("impact-lists");
+    let fixtures = TEMP.make("impact-lists");
     let write_list = |name: &str, modules: &[&str]| -> PathBuf {
-        let path = fixtures.path.join(name);
+        let path = fixtures.path().join(name);
         fs::write(
             &path,
             modules.iter().flat_map(|m| [*m, "\n"]).collect::<String>(),
@@ -1345,7 +1350,7 @@ fn the_corpus_matches_the_prototype() {
     ];
     let mut survivors_checked = 0usize;
     for (name, source, remove, with_ir, dry_run) in prune_scenarios {
-        let dir = work.path.join(name);
+        let dir = work.path().join(name);
         fs::create_dir_all(&dir).expect("creatable");
         let tree_path = dir.join("pages");
         copy_tree(source, &tree_path);
@@ -1365,7 +1370,7 @@ fn the_corpus_matches_the_prototype() {
     }
 
     // The two-run scenario: the same deletion twice on one tree.
-    let rerun = work.path.join("rerun");
+    let rerun = work.path().join("rerun");
     fs::create_dir_all(&rerun).expect("creatable");
     let rerun_pages = rerun.join("pages");
     copy_tree(&pages_src, &rerun_pages);
@@ -1613,12 +1618,12 @@ fn curated_impact_branches() -> BTreeSet<&'static str> {
     repo.module(&astral, &["Pkg.Root"], &[]);
     repo.module(&ligature, &["Pkg.Root"], &[]);
     repo.finish();
-    let tree = SecondTree::open(&repo.dir.path);
+    let tree = SecondTree::open(repo.dir.path());
     let changed = vec!["Pkg.Root".to_owned()];
-    let set = repo.dir.path.join("set.txt");
+    let set = repo.dir.path().join("set.txt");
     let (result, fired) = run_impact(
         &ImpactOptions {
-            ir: &repo.dir.path,
+            ir: repo.dir.path(),
             changed: &changed,
             mode: &Mode::Importers,
             census: None,
@@ -1648,11 +1653,11 @@ fn curated_impact_branches() -> BTreeSet<&'static str> {
     repo.module("Pkg.A", &["Pkg.B"], &[]);
     repo.module("Pkg.B", &["Pkg.A"], &[]);
     repo.finish();
-    let tree = SecondTree::open(&repo.dir.path);
+    let tree = SecondTree::open(repo.dir.path());
     let changed = vec!["Pkg.A".to_owned()];
     let (result, fired) = run_impact(
         &ImpactOptions {
-            ir: &repo.dir.path,
+            ir: repo.dir.path(),
             changed: &changed,
             mode: &Mode::Importers,
             census: None,
@@ -1674,11 +1679,11 @@ fn curated_impact_branches() -> BTreeSet<&'static str> {
     // IR, and harmless because `--only-from` drops blank lines.
     let repo = FakeIr::new("empty");
     repo.finish();
-    let tree = SecondTree::open(&repo.dir.path);
-    let set = repo.dir.path.join("set.txt");
+    let tree = SecondTree::open(repo.dir.path());
+    let set = repo.dir.path().join("set.txt");
     let (result, fired) = run_impact(
         &ImpactOptions {
-            ir: &repo.dir.path,
+            ir: repo.dir.path(),
             changed: &[],
             mode: &Mode::All,
             census: None,
@@ -1701,11 +1706,11 @@ fn curated_impact_branches() -> BTreeSet<&'static str> {
     repo.module("Pkg.A", &[], &[]);
     repo.repeat_index_entry("Pkg.A");
     repo.finish();
-    let tree = SecondTree::open(&repo.dir.path);
+    let tree = SecondTree::open(repo.dir.path());
     let changed = vec!["Pkg.A".to_owned()];
     let (result, fired) = run_impact(
         &ImpactOptions {
-            ir: &repo.dir.path,
+            ir: repo.dir.path(),
             changed: &changed,
             mode: &Mode::SelfOnly,
             census: None,
@@ -1732,11 +1737,11 @@ fn curated_impact_branches() -> BTreeSet<&'static str> {
     repo.module("Pkg.A", &[], &[]);
     repo.module("Pkg.B", &["Pkg.A"], &[("Pkg.A", "Pkg.A.thing")]);
     repo.finish();
-    let tree = SecondTree::open(&repo.dir.path);
+    let tree = SecondTree::open(repo.dir.path());
     let changed = vec!["Pkg.A".to_owned()];
     let (result, fired) = run_impact(
         &ImpactOptions {
-            ir: &repo.dir.path,
+            ir: repo.dir.path(),
             changed: &changed,
             mode: &Mode::Referrers,
             census: None,
@@ -1755,11 +1760,11 @@ fn curated_impact_branches() -> BTreeSet<&'static str> {
     // `--print-set` not asked for while there **is** a selection: the pipeline
     // always asks, so no scenario over the corpus reaches it.
     let repo = FakeIr::target_shaped("no-print-set");
-    let tree = SecondTree::open(&repo.dir.path);
+    let tree = SecondTree::open(repo.dir.path());
     let changed = vec!["Pkg.Leaf".to_owned()];
     let (result, fired) = run_impact(
         &ImpactOptions {
-            ir: &repo.dir.path,
+            ir: repo.dir.path(),
             changed: &changed,
             mode: &Mode::Importers,
             census: None,
@@ -1784,12 +1789,12 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
 
     // A `--remove` list with a repeat, an empty one, and no `--json`: three
     // shapes the pipeline never produces.
-    let work = TempDir::new("prune-lists");
-    let pages = work.path.join("pages");
+    let work = TEMP.make("prune-lists");
+    let pages = work.path().join("pages");
     fs::create_dir_all(pages.join("Pkg")).expect("creatable");
     fs::write(pages.join("Pkg/A.html"), b"a").expect("writable");
     fs::write(pages.join("Pkg/B.html"), b"b").expect("writable");
-    let repeated = work.path.join("repeated.txt");
+    let repeated = work.path().join("repeated.txt");
     fs::write(&repeated, "Pkg.A\nPkg.A\n").expect("writable");
     let (result, fired) = run_prune(&PruneOptions {
         pages: &pages,
@@ -1804,7 +1809,7 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     assert_eq!(summary.already_absent.len(), 1, "the second finds it gone");
     covered.extend(fired);
 
-    let empty = work.path.join("empty.txt");
+    let empty = work.path().join("empty.txt");
     fs::write(&empty, "# nothing\n").expect("writable");
     let (result, fired) = run_prune(&PruneOptions {
         pages: &pages,
@@ -1819,8 +1824,8 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     // An orphan in a subdirectory, and more than twenty of them: the summary
     // keeps the first twenty. The target's orphans are the three whole-package
     // artifacts, all at the root and all fewer than twenty.
-    let work = TempDir::new("prune-orphans");
-    let pages = work.path.join("pages");
+    let work = TEMP.make("prune-orphans");
+    let pages = work.path().join("pages");
     fs::create_dir_all(pages.join("Pkg/Deep")).expect("creatable");
     for i in 0..25 {
         fs::write(pages.join(format!("Pkg/Deep/M{i}.html")), b"x").expect("writable");
@@ -1829,11 +1834,11 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     let ir = FakeIr::new("orphan-ir");
     ir.module("Pkg.Deep.M0", &[], &[]);
     ir.finish();
-    let json = work.path.join("prune.json");
+    let json = work.path().join("prune.json");
     let (result, fired) = run_prune(&PruneOptions {
         pages: &pages,
         remove: None,
-        ir: Some(&ir.dir.path),
+        ir: Some(ir.dir.path()),
         dry_run: false,
         json: Some(&json),
     });
@@ -1858,8 +1863,8 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
 
     // A directory emptied by the **orphan** pass rather than by `--remove`. The
     // pipeline never passes `--ir`, so nothing on the target can reach it.
-    let work = TempDir::new("prune-orphan-empties");
-    let pages = work.path.join("pages");
+    let work = TEMP.make("prune-orphan-empties");
+    let pages = work.path().join("pages");
     fs::create_dir_all(pages.join("Pkg/Gone")).expect("creatable");
     fs::write(pages.join("Pkg/Gone/only.html"), b"x").expect("writable");
     let ir = FakeIr::new("empty-ir");
@@ -1867,7 +1872,7 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     let (result, fired) = run_prune(&PruneOptions {
         pages: &pages,
         remove: None,
-        ir: Some(&ir.dir.path),
+        ir: Some(ir.dir.path()),
         dry_run: false,
         json: None,
     });
@@ -1883,9 +1888,9 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
 
     // A symlinked directory: neither walked into nor counted as a file, so the
     // directory holding it survives the empty-directory pass.
-    let work = TempDir::new("prune-symlink");
-    let pages = work.path.join("pages");
-    let outside = work.path.join("outside");
+    let work = TEMP.make("prune-symlink");
+    let pages = work.path().join("pages");
+    let outside = work.path().join("outside");
     fs::create_dir_all(&pages).expect("creatable");
     fs::create_dir_all(&outside).expect("creatable");
     fs::write(outside.join("Escaped.html"), b"outside").expect("writable");
@@ -1899,7 +1904,7 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     let (result, fired) = run_prune(&PruneOptions {
         pages: &pages,
         remove: None,
-        ir: Some(&ir.dir.path),
+        ir: Some(ir.dir.path()),
         dry_run: false,
         json: None,
     });
@@ -1959,7 +1964,7 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     // …and the physical half: a symlinked directory whose *parent* resolves
     // outside the root. `--remove Link.Escaped` names `pages/Link/Escaped.html`,
     // which exists, and whose parent is the outside directory.
-    let remove = work.path.join("remove-through-link.txt");
+    let remove = work.path().join("remove-through-link.txt");
     fs::write(&remove, "Link.Escaped\n").expect("writable");
     let (result, fired) = run_prune(&PruneOptions {
         pages: &pages,
@@ -1981,13 +1986,13 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     // An absolute-looking module name stays **inside** the root: the path is
     // concatenated, never joined. `Path::join` would have made this
     // `/…/evil.html`.
-    let work = TempDir::new("prune-absolute");
-    let pages = work.path.join("pages");
+    let work = TEMP.make("prune-absolute");
+    let pages = work.path().join("pages");
     fs::create_dir_all(pages.join("tmp")).expect("creatable");
     fs::write(pages.join("tmp/evil.html"), b"inside").expect("writable");
-    let outside_file = work.path.join("evil.html");
+    let outside_file = work.path().join("evil.html");
     fs::write(&outside_file, b"outside").expect("writable");
-    let remove = work.path.join("remove-absolute.txt");
+    let remove = work.path().join("remove-absolute.txt");
     fs::write(&remove, "/tmp/evil\n").expect("writable");
     let (result, fired) = run_prune(&PruneOptions {
         pages: &pages,
@@ -2020,11 +2025,11 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     // the prototype calls it absent and leaves the link alone; `symlink_metadata`
     // would call it present and unlink it. Nothing in the corpus has the shape,
     // and mutation testing found that nothing else here did either.
-    let work = TempDir::new("prune-dangling");
-    let pages = work.path.join("pages");
+    let work = TEMP.make("prune-dangling");
+    let pages = work.path().join("pages");
     fs::create_dir_all(pages.join("Pkg")).expect("creatable");
     symlink(Path::new("../nowhere.html"), &pages.join("Pkg/A.html"));
-    let remove = work.path.join("remove.txt");
+    let remove = work.path().join("remove.txt");
     fs::write(&remove, "Pkg.A\n").expect("writable");
     let (result, fired) = run_prune(&PruneOptions {
         pages: &pages,
@@ -2047,10 +2052,10 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     covered.extend(fired);
 
     // An index that parses and is not an index.
-    let work = TempDir::new("prune-index");
-    let pages = work.path.join("pages");
+    let work = TEMP.make("prune-index");
+    let pages = work.path().join("pages");
     fs::create_dir_all(&pages).expect("creatable");
-    let ir = work.path.join("ir");
+    let ir = work.path().join("ir");
     fs::create_dir_all(&ir).expect("creatable");
     fs::write(ir.join("index.json"), br#"{"modules":"not an array"}"#).expect("writable");
     let (result, fired) = run_prune(&PruneOptions {
@@ -2076,9 +2081,9 @@ struct FakeIr {
 
 impl FakeIr {
     fn new(what: &str) -> Self {
-        let dir = TempDir::new(what);
-        fs::create_dir_all(dir.path.join("modules")).expect("creatable");
-        fs::create_dir_all(dir.path.join("deps")).expect("creatable");
+        let dir = TEMP.make(what);
+        fs::create_dir_all(dir.path().join("modules")).expect("creatable");
+        fs::create_dir_all(dir.path().join("deps")).expect("creatable");
         Self {
             dir,
             entries: std::cell::RefCell::new(Vec::new()),
@@ -2116,7 +2121,7 @@ impl FakeIr {
         });
         let text = serde_json::to_string(&body).expect("serialises");
         let file = format!("modules/{name}.json");
-        fs::write(self.dir.path.join(&file), &text).expect("writable");
+        fs::write(self.dir.path().join(&file), &text).expect("writable");
         self.entries.borrow_mut().push(json!({
             "module": name,
             "file": file,
@@ -2151,7 +2156,7 @@ impl FakeIr {
             "dependencyMaps": [],
         });
         fs::write(
-            self.dir.path.join("index.json"),
+            self.dir.path().join("index.json"),
             serde_json::to_string(&index).expect("serialises"),
         )
         .expect("writable");
@@ -2161,13 +2166,13 @@ impl FakeIr {
     /// output files, and one page deleted from a tree the IR still matches.
     fn one_run(&self) -> BTreeSet<&'static str> {
         let mut covered = BTreeSet::new();
-        let tree = SecondTree::open(&self.dir.path);
+        let tree = SecondTree::open(self.dir.path());
         let changed = vec!["Pkg.Root".to_owned()];
-        let set = self.dir.path.join("set.txt");
-        let summary_json = self.dir.path.join("impact.json");
+        let set = self.dir.path().join("set.txt");
+        let summary_json = self.dir.path().join("impact.json");
         let (result, fired) = run_impact(
             &ImpactOptions {
-                ir: &self.dir.path,
+                ir: self.dir.path(),
                 changed: &changed,
                 mode: &Mode::Importers,
                 census: None,
@@ -2179,19 +2184,19 @@ impl FakeIr {
         result.expect("the impact runs");
         covered.extend(fired);
 
-        let pages = self.dir.path.join("pages");
+        let pages = self.dir.path().join("pages");
         fs::create_dir_all(pages.join("Pkg")).expect("creatable");
         for name in ["Root", "Mid", "Top", "Leaf"] {
             fs::write(pages.join(format!("Pkg/{name}.html")), name).expect("writable");
         }
-        let remove = self.dir.path.join("remove.txt");
+        let remove = self.dir.path().join("remove.txt");
         fs::write(&remove, "Pkg.Leaf\n").expect("writable");
         let (result, fired) = run_prune(&PruneOptions {
             pages: &pages,
             remove: Some(&remove),
             ir: None,
             dry_run: false,
-            json: Some(&self.dir.path.join("prune.json")),
+            json: Some(&self.dir.path().join("prune.json")),
         });
         result.expect("the prune runs");
         covered.extend(fired);
@@ -2237,29 +2242,5 @@ fn copy_tree(from: &Path, to: &Path) {
         } else {
             fs::copy(entry.path(), &target).expect("copyable");
         }
-    }
-}
-
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(what: &str) -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let slug: String = what
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .take(40)
-            .collect();
-        let path = std::env::temp_dir().join(format!(
-            "litedoc4-impact-{}-{}-{slug}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("the temporary directory is creatable");
-        Self { path }
     }
 }

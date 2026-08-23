@@ -55,7 +55,12 @@ use litedoc4_incr::merge::{MergeSummary, VerifyReport, same_tree};
 use litedoc4_incr::ownership::{OwnershipSummary, WITNESSES_IN_SUMMARY};
 use litedoc4_incr::{Error, MergeOptions, OwnershipOptions, merge, ownership, verify};
 use litedoc4_ir::cmp_utf16;
+use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
+
+/// The temporary directories this file makes. The prefix names the file,
+/// so a directory a failed run leaves behind names what made it.
+const TEMP: TempDirs = TempDirs::prefixed("litedoc4-merge");
 
 /// The from-scratch IR the whole milestone is measured against. Read only.
 const DEFAULT_BASE_IR: &str = "/private/tmp/lean-doc-relay/w7h/base-ir";
@@ -1269,7 +1274,7 @@ fn the_recorded_corpus_counts_are_pinned_without_the_corpus() {
 fn the_corpus_matches_the_prototype() {
     let e = expected();
     let (base_ir, fixtures) = corpus();
-    let work = TempDir::new("corpus");
+    let work = TEMP.make("corpus");
     let mut covered: BTreeSet<&'static str> = BTreeSet::new();
 
     // The fixtures both implementations were fed, checked before they are used:
@@ -1284,7 +1289,7 @@ fn the_corpus_matches_the_prototype() {
     }
 
     let copy_of = |what: &str| -> PathBuf {
-        let dir = work.path.join(what);
+        let dir = work.path().join(what);
         copy_tree(&base_ir, &dir);
         dir
     };
@@ -1292,7 +1297,7 @@ fn the_corpus_matches_the_prototype() {
     let exclude_three = fixtures.join("exclude-three.txt");
     let restored = copy_of("restored");
     let copyout_base = copy_of("copyout-base");
-    let copyout_merged = work.path.join("copyout-merged");
+    let copyout_merged = work.path().join("copyout-merged");
     let rounds = vec![
         Round {
             name: "rerun",
@@ -1371,10 +1376,12 @@ fn the_corpus_matches_the_prototype() {
     let mut module_files_checked = 0usize;
     let mut computed_files_checked = 0usize;
     for round in &rounds {
-        let stale = work.path.join(format!("{}-stale.txt", round.name));
-        let json = work.path.join(format!("{}-ownership.json", round.name));
-        let changed = work.path.join(format!("{}-changed.txt", round.name));
-        let timings = work.path.join(format!("{}-merge-timings.json", round.name));
+        let stale = work.path().join(format!("{}-stale.txt", round.name));
+        let json = work.path().join(format!("{}-ownership.json", round.name));
+        let changed = work.path().join(format!("{}-changed.txt", round.name));
+        let timings = work
+            .path()
+            .join(format!("{}-merge-timings.json", round.name));
 
         // ownership *before* merge: merge is about to overwrite the base IR's
         // idea of who owns each name.
@@ -1483,9 +1490,9 @@ fn the_corpus_matches_the_prototype() {
 
     // The three verifications.
     for (name, a) in [
-        ("same", work.path.join("rerun")),
-        ("moved", work.path.join("moved")),
-        ("deleted", work.path.join("removed")),
+        ("same", work.path().join("rerun")),
+        ("moved", work.path().join("moved")),
+        ("deleted", work.path().join("removed")),
     ] {
         let (result, fired) = run_verify(&a, &base_ir);
         let report = result.expect("verify reads both trees");
@@ -1592,7 +1599,7 @@ fn check_normalised(e: &Expected, section: &str, round: &str, path: &Path, drop:
 #[ignore = "corpus: needs LITEDOC4_BASE_IR + LITEDOC4_MERGE_FIXTURES (tools/corpus-gate.sh)"]
 fn the_dependency_slices_are_the_from_scratch_bytes() {
     let (base_ir, fixtures) = corpus();
-    let work = TempDir::new("from-scratch");
+    let work = TEMP.make("from-scratch");
     let mut checked = 0usize;
     for (what, inc) in [
         ("rerun", "inc-rerun"),
@@ -1600,7 +1607,7 @@ fn the_dependency_slices_are_the_from_scratch_bytes() {
         ("moved", "inc-moved"),
         ("gained", "inc-gained"),
     ] {
-        let ir = work.path.join(what);
+        let ir = work.path().join(what);
         copy_tree(&base_ir, &ir);
         merge(&MergeOptions {
             base: &ir,
@@ -1775,7 +1782,7 @@ fn curated_ownership_branches() -> BTreeSet<&'static str> {
     });
     result.expect("the ownership runs");
     assert!(
-        list_dir(&repo.dir.path)
+        list_dir(repo.dir.path())
             .iter()
             .all(|name| name != "stale.txt"),
         "nothing was asked for and nothing was written"
@@ -1784,7 +1791,7 @@ fn curated_ownership_branches() -> BTreeSet<&'static str> {
 
     // A `--removed` naming a module the base IR never had: dropped, because a
     // module with no history cannot have lost anything.
-    let removed = repo.dir.path.join("ghosts.txt");
+    let removed = repo.dir.path().join("ghosts.txt");
     fs::write(&removed, "Pkg.Ghost\n# a comment\n\n").expect("writable");
     let (result, fired) = run_ownership(&OwnershipOptions {
         base: &repo.base,
@@ -1812,9 +1819,9 @@ fn curated_ownership_branches() -> BTreeSet<&'static str> {
         &[decl("Pkg.twin", &[]), decl("Pkg.twin", &[])],
     );
     twice.write_index(&twice.base, &["Pkg.Twice"], false);
-    let removed = twice.dir.path.join("removed.txt");
+    let removed = twice.dir.path().join("removed.txt");
     fs::write(&removed, "Pkg.Twice\n").expect("writable");
-    let json = twice.dir.path.join("ownership.json");
+    let json = twice.dir.path().join("ownership.json");
     let (result, fired) = run_ownership(&OwnershipOptions {
         base: &twice.base,
         inc: None,
@@ -1830,7 +1837,7 @@ fn curated_ownership_branches() -> BTreeSet<&'static str> {
 
     // An exclude list longer than the base IR: `scannedBaseModules` goes
     // negative, as the prototype's subtraction of two unnested counts does.
-    let exclude = twice.dir.path.join("exclude.txt");
+    let exclude = twice.dir.path().join("exclude.txt");
     fs::write(&exclude, "A\nB\nC\nD\nE\n").expect("writable");
     let (result, fired) = run_ownership(&OwnershipOptions {
         base: &twice.base,
@@ -1868,7 +1875,7 @@ fn curated_ownership_branches() -> BTreeSet<&'static str> {
     moved.write_index(&moved.base, &["Pkg.Owner", &astral, &ligature], false);
     moved.write_module(&moved.inc, "Pkg.Owner", &[]);
     moved.write_index(&moved.inc, &["Pkg.Owner"], false);
-    let stale = moved.dir.path.join("stale.txt");
+    let stale = moved.dir.path().join("stale.txt");
     let (result, fired) = run_ownership(&OwnershipOptions {
         base: &moved.base,
         inc: Some(&moved.inc),
@@ -1916,7 +1923,7 @@ fn curated_ownership_branches() -> BTreeSet<&'static str> {
     );
     many.write_module(&many.inc, "Pkg.Owner", &[]);
     many.write_index(&many.inc, &["Pkg.Owner"], false);
-    let json = many.dir.path.join("ownership.json");
+    let json = many.dir.path().join("ownership.json");
     let (result, fired) = run_ownership(&OwnershipOptions {
         base: &many.base,
         inc: Some(&many.inc),
@@ -2460,9 +2467,9 @@ struct FakeIr {
 
 impl FakeIr {
     fn new(what: &str) -> Self {
-        let dir = TempDir::new(what);
-        let base = dir.path.join("base");
-        let inc = dir.path.join("inc");
+        let dir = TEMP.make(what);
+        let base = dir.path().join("base");
+        let inc = dir.path().join("inc");
         for root in [&base, &inc] {
             fs::create_dir_all(root.join("modules")).expect("creatable");
             fs::create_dir_all(root.join("deps")).expect("creatable");
@@ -2498,8 +2505,8 @@ impl FakeIr {
     /// output file the pipeline asks for.
     fn one_round(&self) -> BTreeSet<&'static str> {
         let mut fired = BTreeSet::new();
-        let stale = self.dir.path.join("stale.txt");
-        let json = self.dir.path.join("ownership.json");
+        let stale = self.dir.path().join("stale.txt");
+        let json = self.dir.path().join("ownership.json");
         let (result, own) = run_ownership(&OwnershipOptions {
             base: &self.base,
             inc: Some(&self.inc),
@@ -2510,8 +2517,8 @@ impl FakeIr {
         });
         result.expect("the round runs");
         fired.extend(own);
-        let changed = self.dir.path.join("changed.txt");
-        let timings = self.dir.path.join("timings.json");
+        let changed = self.dir.path().join("changed.txt");
+        let timings = self.dir.path().join("timings.json");
         let (result, merged) = run_merge(&MergeOptions {
             base: &self.base,
             inc: Some(&self.inc),
@@ -2660,35 +2667,5 @@ fn copy_tree(from: &Path, to: &Path) {
         } else {
             fs::copy(entry.path(), &target).expect("copyable");
         }
-    }
-}
-
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(what: &str) -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let slug: String = what
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .take(40)
-            .collect();
-        let path = std::env::temp_dir().join(format!(
-            "litedoc4-merge-{}-{}-{slug}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("the temporary directory is creatable");
-        Self { path }
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
     }
 }

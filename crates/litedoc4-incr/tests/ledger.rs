@@ -45,7 +45,12 @@ use litedoc4_incr::{
     Algorithm, BuildOptions, CheckOptions, CheckSummary, Error, Ledger, TouchOptions, build_ledger,
     check_ledger, extract_key, hash_module, render_key, touch_ledger,
 };
+use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
+
+/// The temporary directories this file makes. The prefix names the file,
+/// so a directory a failed run leaves behind names what made it.
+const TEMP: TempDirs = TempDirs::prefixed("litedoc4-incr");
 
 /// The same URLs `tools/ledger-reference.sh` passes. A rev is configuration:
 /// the first only has to be 40 hex, the second only has to differ.
@@ -641,7 +646,7 @@ fn the_harness_scenarios_are_measured_on_a_synthetic_package() {
         "harness-dependency",
         &[FakeModule::three("Dep.One"), FakeModule::three("Dep.Two")],
     );
-    let work = TempDir::new("harness");
+    let work = TEMP.make("harness");
     let mut covered: BTreeSet<&'static str> = BTreeSet::new();
 
     let modules = package.module_names();
@@ -668,8 +673,8 @@ fn the_harness_scenarios_are_measured_on_a_synthetic_package() {
                      ir: Option<&Path>,
                      algorithm: &Algorithm,
                      concurrency: usize| {
-        let out = work.path.join(format!("ledger-{name}.json"));
-        let timings = work.path.join(format!("ledger-{name}.timings.json"));
+        let out = work.path().join(format!("ledger-{name}.json"));
+        let timings = work.path().join(format!("ledger-{name}.timings.json"));
         let (result, fired) = run_build(&BuildOptions {
             link_index: None,
             external_links: None,
@@ -732,7 +737,7 @@ fn the_harness_scenarios_are_measured_on_a_synthetic_package() {
     );
 
     // --- touch, twice, onto one file
-    let touched = work.path.join("ledger-touched.json");
+    let touched = work.path().join("ledger-touched.json");
     for module in &modules[..2] {
         let source = if touched.exists() {
             &touched
@@ -754,10 +759,10 @@ fn the_harness_scenarios_are_measured_on_a_synthetic_package() {
                         modules: Option<&[String]>,
                         ir: Option<&Path>,
                         source_url: &str| {
-        let changed = work.path.join(format!("{name}-changed.txt"));
-        let removed = work.path.join(format!("{name}-removed.txt"));
-        let render_all = work.path.join(format!("{name}-render-all.txt"));
-        let timings = work.path.join(format!("{name}-timings.json"));
+        let changed = work.path().join(format!("{name}-changed.txt"));
+        let removed = work.path().join(format!("{name}-removed.txt"));
+        let render_all = work.path().join(format!("{name}-render-all.txt"));
+        let timings = work.path().join(format!("{name}-timings.json"));
         let (result, fired) = run_check(&CheckOptions {
             link_index: None,
             external_links: None,
@@ -977,8 +982,8 @@ fn the_curated_cases_cover_what_the_package_does_not() {
         "byte-comparison",
         &[FakeModule::one("Pkg.A"), FakeModule::one("Pkg.B")],
     );
-    let out = repo.dir.path.join("ledger.json");
-    let timings = repo.dir.path.join("timings.json");
+    let out = repo.dir.path().join("ledger.json");
+    let timings = repo.dir.path().join("timings.json");
     let modules = repo.module_names();
     let ir = repo.ir();
     let (result, fired) = run_build(&BuildOptions {
@@ -1117,6 +1122,7 @@ fn curated_hash_branches() -> BTreeSet<&'static str> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+
         let locked = FakeRepo::new("unreadable", &[FakeModule::one("Pkg.A")]);
         let path = format!("{}/Pkg/A.olean", locked.lib_dir());
         fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).expect("chmod");
@@ -1172,7 +1178,7 @@ fn curated_key_branches() -> BTreeSet<&'static str> {
 
     // A target without `lean-toolchain`: the key cannot be built at all.
     let bare = FakeRepo::new("bare-target", &[FakeModule::one("Pkg.A")]);
-    fs::remove_file(bare.dir.path.join("repo/lean-toolchain")).expect("the file is removable");
+    fs::remove_file(bare.dir.path().join("repo/lean-toolchain")).expect("the file is removable");
     let (result, fired) = bare.run_build(&Algorithm::sha256(), URL);
     let error = result.expect_err("no toolchain, no extract key");
     assert!(error.to_string().contains("lean-toolchain"), "{error}");
@@ -1187,9 +1193,9 @@ fn curated_key_branches() -> BTreeSet<&'static str> {
     keys.insert(LIGATURE, "was");
     keys.insert(ASTRAL, "was");
     ledger.render_key = Some(keys);
-    let path = repo.dir.path.join("astral.json");
+    let path = repo.dir.path().join("astral.json");
     fs::write(&path, ledger.to_json()).expect("the ledger is writable");
-    let render_all = repo.dir.path.join("astral-render-all.txt");
+    let render_all = repo.dir.path().join("astral-render-all.txt");
     let (result, fired) = run_check(&repo.check_options(&path, &render_all));
     let summary = result.expect("the check runs");
     assert_eq!(
@@ -1209,13 +1215,13 @@ fn curated_key_branches() -> BTreeSet<&'static str> {
     // a change, because the comparison is over the union.
     let mut without = repo.build(&[], &Algorithm::sha256(), URL);
     without.render_key = None;
-    let path = repo.dir.path.join("no-render-key.json");
+    let path = repo.dir.path().join("no-render-key.json");
     fs::write(&path, without.to_json()).expect("writable");
     assert!(
         !fs::read_to_string(&path).unwrap().contains("renderKey"),
         "a ledger that had no render key does not grow one"
     );
-    let render_all = repo.dir.path.join("no-render-key-out.txt");
+    let render_all = repo.dir.path().join("no-render-key-out.txt");
     let (result, fired) = run_check(&repo.check_options(&path, &render_all));
     assert_eq!(
         result.expect("the check runs").render_key_changed,
@@ -1240,9 +1246,9 @@ fn curated_key_branches() -> BTreeSet<&'static str> {
             }
             other => value["ledgerSchema"] = other,
         }
-        let path = repo.dir.path.join("old.json");
+        let path = repo.dir.path().join("old.json");
         fs::write(&path, value.to_string()).expect("writable");
-        let out = repo.dir.path.join("old-out.txt");
+        let out = repo.dir.path().join("old-out.txt");
         let (result, fired) = run_check(&repo.check_options(&path, &out));
         let error = result.expect_err("a ledger older than the split is refused");
         assert_eq!(error.exit_code(), 3, "{what}: a refusal, not an IO failure");
@@ -1266,7 +1272,7 @@ fn curated_module_branches() -> BTreeSet<&'static str> {
         "modules",
         &[FakeModule::one("Pkg.A"), FakeModule::one("Pkg.B")],
     );
-    let ledger_path = repo.dir.path.join("ledger.json");
+    let ledger_path = repo.dir.path().join("ledger.json");
     fs::write(
         &ledger_path,
         repo.build(&[], &Algorithm::sha256(), URL).to_json(),
@@ -1275,7 +1281,7 @@ fn curated_module_branches() -> BTreeSet<&'static str> {
 
     // An empty `--modules` list is a list, not a missing one: every module the
     // ledger knows is gone. Nothing else in the CLI can say that.
-    let removed = repo.dir.path.join("empty-removed.txt");
+    let removed = repo.dir.path().join("empty-removed.txt");
     let (result, fired) = run_check(&CheckOptions {
         link_index: None,
         external_links: None,
@@ -1305,7 +1311,7 @@ fn curated_module_branches() -> BTreeSet<&'static str> {
     let mut first = twice.modules[0].clone();
     first.hash = "different".to_owned();
     twice.modules.insert(0, first);
-    let path = repo.dir.path.join("twice.json");
+    let path = repo.dir.path().join("twice.json");
     fs::write(&path, twice.to_json()).expect("writable");
     let (result, fired) = run_touch(&TouchOptions {
         ledger: &path,
@@ -1326,7 +1332,7 @@ fn curated_module_branches() -> BTreeSet<&'static str> {
     let (result, fired) = run_touch(&TouchOptions {
         ledger: &ledger_path,
         module: "Pkg.Nowhere",
-        out: &repo.dir.path.join("untouched.json"),
+        out: &repo.dir.path().join("untouched.json"),
     });
     let error = result.expect_err("there is no such module");
     assert_eq!(error.exit_code(), 3);
@@ -1351,7 +1357,7 @@ fn curated_module_branches() -> BTreeSet<&'static str> {
     });
     assert_eq!(result.expect("the check runs").modules, 2);
     assert_eq!(
-        fs::read_dir(&repo.dir.path)
+        fs::read_dir(repo.dir.path())
             .expect("reads")
             .filter(|e| e.as_ref().is_ok_and(|e| e.file_name() == "timings.json"))
             .count(),
@@ -1364,7 +1370,7 @@ fn curated_module_branches() -> BTreeSet<&'static str> {
     // build time the list and the build tree are supposed to agree.
     let mut names = repo.module_names();
     names.push("Pkg.Ghost".to_owned());
-    let out = repo.dir.path.join("refused.json");
+    let out = repo.dir.path().join("refused.json");
     let (result, fired) = run_build(&BuildOptions {
         link_index: None,
         external_links: None,
@@ -1399,9 +1405,9 @@ fn curated_module_branches() -> BTreeSet<&'static str> {
     for entry in &mut ledger.modules {
         entry.hash = format!("injected-change:{}", entry.hash);
     }
-    let path = repo.dir.path.join("astral.json");
+    let path = repo.dir.path().join("astral.json");
     fs::write(&path, ledger.to_json()).expect("writable");
-    let changed = repo.dir.path.join("astral-changed.txt");
+    let changed = repo.dir.path().join("astral-changed.txt");
     let modules = repo.module_names();
     let (result, fired) = run_check(&CheckOptions {
         link_index: None,
@@ -1479,12 +1485,12 @@ struct FakeRepo {
 
 impl FakeRepo {
     fn new(what: &str, modules: &[FakeModule]) -> Self {
-        let dir = TempDir::new(what);
-        let repo = dir.path.join("repo");
+        let dir = TEMP.make(what);
+        let repo = dir.path().join("repo");
         fs::create_dir_all(&repo).expect("the repository is creatable");
         fs::write(repo.join("lean-toolchain"), "leanprover/lean4:v4.31.0\n").expect("writable");
         fs::write(repo.join("lake-manifest.json"), "{\"version\":\"1.1.0\"}").expect("writable");
-        let ir = dir.path.join("ir");
+        let ir = dir.path().join("ir");
         fs::create_dir_all(&ir).expect("creatable");
         fs::write(
             ir.join("index.json"),
@@ -1518,7 +1524,7 @@ impl FakeRepo {
     }
 
     fn target(&self) -> String {
-        self.dir.path.join("repo").display().to_string()
+        self.dir.path().join("repo").display().to_string()
     }
 
     fn lib_dir(&self) -> String {
@@ -1526,7 +1532,7 @@ impl FakeRepo {
     }
 
     fn ir(&self) -> PathBuf {
-        self.dir.path.join("ir")
+        self.dir.path().join("ir")
     }
 
     fn module_names(&self) -> Vec<String> {
@@ -1538,7 +1544,7 @@ impl FakeRepo {
     fn build(&self, extra: &[String], algorithm: &Algorithm, source_url: &str) -> Ledger {
         let mut modules = self.module_names();
         modules.extend_from_slice(extra);
-        let out = self.dir.path.join("built.json");
+        let out = self.dir.path().join("built.json");
         build_ledger(&BuildOptions {
             link_index: None,
             external_links: None,
@@ -1561,7 +1567,7 @@ impl FakeRepo {
         source_url: &str,
     ) -> (Result<BuildSummary, Error>, BTreeSet<&'static str>) {
         let modules = self.module_names();
-        let out = self.dir.path.join("run.json");
+        let out = self.dir.path().join("run.json");
         run_build(&BuildOptions {
             link_index: None,
             external_links: None,
@@ -1588,9 +1594,9 @@ impl FakeRepo {
         let mut ledger = self.build(&[], &Algorithm::sha256(), URL);
         ledger.lib_dir = lib_dir.to_owned();
         ledger.modules.clear();
-        let path = self.dir.path.join("moved.json");
+        let path = self.dir.path().join("moved.json");
         fs::write(&path, ledger.to_json()).expect("writable");
-        let out = self.dir.path.join("moved-out.txt");
+        let out = self.dir.path().join("moved-out.txt");
         let (result, fired) = run_check(&CheckOptions {
             link_index: None,
             external_links: None,
@@ -1633,34 +1639,4 @@ fn fnv_of(path: &Path) -> u64 {
         hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
     }
     hash
-}
-
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(what: &str) -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let slug: String = what
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .take(40)
-            .collect();
-        let path = std::env::temp_dir().join(format!(
-            "litedoc4-incr-{}-{}-{slug}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("the temporary directory is creatable");
-        Self { path }
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }

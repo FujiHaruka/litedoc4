@@ -59,7 +59,12 @@ use litedoc4_global::facts::{ModuleFacts, PROTOTYPE_FACT_KEYS};
 use litedoc4_global::state::State;
 use litedoc4_global::{GlobalOptions, build_global, facts_for};
 use litedoc4_ir::IrTree;
+use litedoc4_testutil::{TempDir, TempDirs};
 use serde::{Deserialize, Serialize};
+
+/// The temporary directories this file makes. The prefix names the file,
+/// so a directory a failed run leaves behind names what made it.
+const TEMP: TempDirs = TempDirs::prefixed("litedoc4-global");
 
 const FIXTURE: &str = include_str!("data/global-expected.json");
 
@@ -207,7 +212,7 @@ fn every_case_reproduces_the_prototypes_artifacts() {
     let mut failures = Vec::new();
     let mut compared = 0usize;
     for case in &e.cases {
-        let work = TempDir::new(&case.what);
+        let work = TEMP.make(&case.what);
         let got = case.build(&work);
         let want: BTreeMap<String, String> = shared
             .iter()
@@ -242,7 +247,7 @@ fn every_case_reproduces_the_prototypes_artifacts() {
 fn every_case_writes_the_new_artifacts() {
     let e = expected();
     for case in &e.cases {
-        let work = TempDir::new(&case.what);
+        let work = TEMP.make(&case.what);
         let got = case.build(&work);
         let written: Vec<&String> = got.keys().collect();
         let mut want: Vec<&str> = ARTIFACT_PATHS.to_vec();
@@ -279,7 +284,7 @@ fn every_case_writes_the_new_artifacts() {
 fn the_indexes_are_well_formed_in_every_case() {
     let e = expected();
     for case in &e.cases {
-        let work = TempDir::new(&case.what);
+        let work = TEMP.make(&case.what);
         let got = case.build(&work);
         let read = |path: &str| -> serde_json::Value {
             serde_json::from_str(text(&got, path))
@@ -745,7 +750,7 @@ fn the_new_artifacts_reach_every_shape() {
     let mut imported_by = 0usize;
 
     for case in &e.cases {
-        let work = TempDir::new(&case.what);
+        let work = TEMP.make(&case.what);
         let got = case.build(&work);
         let modules: serde_json::Value =
             serde_json::from_str(text(&got, "modules.json")).expect("modules.json is JSON");
@@ -886,8 +891,8 @@ fn artifacts_match_the_reference() {
     let reference = corpus_reference();
     let ir = corpus_ir();
 
-    let work = TempDir::new("reference");
-    let summary = build_global(&GlobalOptions::new(&ir, &work.path)).expect("the corpus builds");
+    let work = TEMP.make("reference");
+    let summary = build_global(&GlobalOptions::new(&ir, work.path())).expect("the corpus builds");
     assert_eq!(summary.modules, e.ir_modules);
     assert_eq!(summary.declarations, e.ir_declarations);
     assert_eq!(
@@ -912,7 +917,7 @@ fn artifacts_match_the_reference() {
     );
     for path in shared {
         let want = fs::read(reference.join(path)).expect("the reference artifact reads");
-        let got = fs::read(work.path.join(path)).expect("the artifact was written");
+        let got = fs::read(work.path().join(path)).expect("the artifact was written");
         assert_eq!(
             recorded[path].bytes,
             want.len(),
@@ -1049,14 +1054,14 @@ impl Case {
     /// writing has to be absent, and a list of the files it does write cannot
     /// tell the difference between "gone" and "never looked for".
     fn build(&self, work: &TempDir) -> BTreeMap<String, Vec<u8>> {
-        let ir = work.path.join("ir");
+        let ir = work.path().join("ir");
         for (name, text) in &self.ir {
             let path = ir.join(name);
             fs::create_dir_all(path.parent().expect("every IR file is under the root"))
                 .expect("the temporary tree is writable");
             fs::write(&path, text).expect("the temporary tree is writable");
         }
-        let site = work.path.join("site");
+        let site = work.path().join("site");
         build_global(&GlobalOptions::new(&ir, &site))
             .unwrap_or_else(|e| panic!("{}: {e}", self.what));
 
@@ -1147,36 +1152,4 @@ fn floor_char(s: &str, mut at: usize) -> usize {
         at -= 1;
     }
     at
-}
-
-/// A directory that removes itself. Hand-rolled rather than a dependency: it is
-/// ten lines and the workspace has no other use for one.
-struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    fn new(what: &str) -> Self {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static NEXT: AtomicU32 = AtomicU32::new(0);
-        let slug: String = what
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .take(40)
-            .collect();
-        let path = std::env::temp_dir().join(format!(
-            "litedoc4-global-{}-{}-{slug}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("the temporary directory is creatable");
-        Self { path }
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }

@@ -1591,6 +1591,93 @@ crates/litedoc4-render/src/site.rs:323
 「Hand-rolled rather than a dependency: … the workspace has no other use for one」と書いているが、
 **同じクレートに他に 2 つある** = 事実として偽。
 
+#### 結果【2026-08-23】— **15 → 1。ただし「同じ型で 2 通りの作り方」が要った**
+
+`crates/litedoc4-testutil` の `TempDir` に**15 箇所すべて**が寄った。手書きの残りはゼロ。
+折り込めなかったものは無いが、**型を弱めずに折り込むために、作り方を 2 つ名前で分けた**:
+
+| | 意味 | 箇所 |
+|---|---|---:|
+| `TEMP.make(what)` | ディレクトリを**作って**返す | 13 |
+| `TEMP.reserve(what)` | **作らずに**パスだけ返す | 2 |
+
+`reserve` が要るのは `litedoc4-render/src/assets.rs` と同 `src/site.rs` で、
+**その 2 本が検査しているのは「呼ばれた側がディレクトリを作ること」そのもの**
+(`write_assets(&dir)` に付いた `.expect("the first write creates the directory")` と、
+`write_page` の「2 階層上がまだ無い」)。コンストラクタが先に作ってしまうと、
+**その主張が黙って消える**。`make` に寄せれば 15/15 と書けるが、それは型を弱めた側。
+
+**プレフィックス 15 通りはそのまま**。各ファイルが
+`const TEMP: TempDirs = TempDirs::prefixed("litedoc4-pages");` を 1 つ持つ形にした。
+`TempDir::new(prefix, what)` にしなかったのは **`&str` が 2 つ並ぶ**ため — R8 が 3 つの
+シグネチャから外したのと同じ弱さで、入れ替えてもコンパイラは何も言わない。
+プレフィックスをファイルに 1 回束縛すれば、呼び出しには引数が 1 つしか残らない。
+
+**`prune.rs` に無かった分岐 (U6) は、実際には 5 ファイルに無かった** —
+`incr/src/prune.rs` / `litedoc4/src/packages.rs` / `render/src/assets.rs` /
+`render/src/site.rs` / `render/src/config.rs`。U6 が prune.rs だけを挙げたのは、
+**U6 の視野が incr / global だった**ため。
+
+- **代わりに入っていたのは `{what}` の生値。今日の引数では 1 バイトも違わない**【実測】 —
+  この 5 ファイルの引数は**すべてリテラル**で、最長 20 文字 (`prune-assets-orphans`)、
+  全部 `[a-z-]`。**`slug` は恒等写像で、生値に依存していた呼び出し口は 1 つも無い**。
+  逆に、`slug` を持っていた 10 ファイルの方は**リテラルでない引数を渡す**
+  (`tests/pages.rs` の `&case.what` はフィクスチャの値) — 分岐の有無は偶然ではなかった
+- **分岐が買っているもの**: `/` を含む名前は、ディレクトリを **`Drop` が消すパスより
+  1 階層深く**作るので、上の階層が残る。`litedoc4/tests/extract.rs` の `shell_quote` の
+  docstring (「The temporary paths hold a process id and a counter, never a quote」) は
+  **この分岐が根拠**で、それを持たない 5 ファイルではその文が保証されていなかった
+
+**`incr/tests/impact.rs` には `Drop` そのものが無かった**【実測、計画に記載なし】。
+`struct TempDir` と `impl TempDir` はあり、**`impl Drop` だけが無い**。症状は静かで、
+テストは全部緑のまま、溜まるのは OS の一時ディレクトリの側:
+
+```
+$TMPDIR に残っていた litedoc4-impact-* : 2,276 ディレクトリ / 23 MB
+残っていた他のプレフィックス           : 1 (litedoc4-deps-docs-bad-77040)
+```
+
+CLAUDE.md「誰も消さないので溜まる」の小型版。**共有の `Drop` が付いたので今後は残らない** —
+これが呼び出し口の振る舞いを変える唯一の変更で、変わったのは「消す側が増えた」こと。
+
+**`tests/pages.rs` のコメントは、移した先で真になるように書き直した。**
+元は「Hand-rolled rather than a dependency: it is ten lines and **the workspace has no other use
+for one**」で、**同じクレートに他に 2 つ (S8 の後は 3 つ) あったので事実として偽**。新しい文:
+
+> Not because the workspace has no other use for one. It had fifteen, spread over four crates,
+> and this is the one they folded into. It is hand-rolled because `tempfile` would be an external
+> crate, and an external crate is a licence and an advisory decision here even as a
+> `dev-dependency` — `deny.toml`'s `[graph]` sets no `exclude-dev`.
+
+**理由を消さずに、理由を正した** — 依存を入れない根拠は「使い道が無い」ではなく
+`deny.toml` の側にある (§2.3)。
+
+**`Drop` を壊す実験**【実測】 — `remove_dir_all` の行を消して
+`cargo test --workspace --no-fail-fast` を回した。
+
+- **落ちたのは `litedoc4-testutil` 自身の `the_directory_is_gone_when_the_value_is` 1 本だけ。**
+  452 passed / **1 failed**。**折り込んだ 15 箇所はどれも気づかない** —
+  どのテストも自分の `TempDir` が落ちた後を見ないので、見る手段が無い
+- **つまりこの変更の前は、workspace 全体でこれに気づくものが 1 つも無かった。**
+  impact.rs の 2,276 個は「全部緑」のまま溜まっていた。だから testutil 側に 1 本置いた
+- 実験の副産物としてその run 自身が **243 ディレクトリを残した**。
+  **戻した後の全 run の直後は `$TMPDIR` の `litedoc4-*` が 0 件**【実測】
+
+**この項目の外に出た発見 — `env::temp_dir()` 直呼びが「さらに 6 箇所」ある**【実測】。
+`struct TempDir` ではないので、U1 の 15 件を出した grep に映っていない:
+
+```
+litedoc4-global/src/state.rs:296     litedoc4/src/httpd.rs:424
+litedoc4/src/deps_docs.rs:983        litedoc4/src/httpd.rs:607
+litedoc4/src/deps_docs.rs:1018       litedoc4/tests/resident.rs:218
+```
+
+どれも末尾の `let _ = remove_dir_all(&dir);` で片付けるので、**panic した回は片付かない**
+(上に残っていた `litedoc4-deps-docs-bad-77040` がその 1 つ)。**この項目では触っていない** —
+6 箇所それぞれが別の事情 (httpd はサーバを、resident はプロセスを起こす) を持つので、
+まとめて畳む前に 1 本ずつ読む必要がある。**5 箇所が `src/` 内**なので U2 の判断をさらに支える。
+`litedoc4/src/resident.rs:1156` は**製品コード** (`write_executable` の ETXTBSY 対策) で §14。
+
 ### U2 — 共有の置き場所【設計判断】
 
 `tests/common/mod.rs` があるのは **`litedoc4-render` だけ**で、**8 バイナリ中 3 本しか使っていない**。
@@ -1613,6 +1700,53 @@ crates/litedoc4-render/src/site.rs:323
 crate ごとの `tests/common/` だと `TempDir` は 14 → 6 にしかならず、testutil なら 14 → 1 になる。
 **ただし段 1 の R1 で `packages.rs` のテストは `tests/` に出す**ので、その分は差が縮む —
 R1 の後に再評価してよい。
+
+#### 結果【2026-08-23】— **再評価: 差は縮まなかった。4 → 5 に増えている**
+
+**計画が保留にした再評価を先にやった。** 計画はこう書いていた —
+「段 1 の R1 で `packages.rs` のテストは `tests/` に出すので、その分は差が縮む」。
+
+**縮んでいない。R1 はそれをやっていない**【実測 2026-08-23】:
+
+| `src/` 内の `#[cfg(test)]` にある `TempDir` | 計画時 | 今 |
+|---|---|---|
+| `litedoc4-incr/src/prune.rs` | ある | ある |
+| `litedoc4/src/packages.rs` | R1 で消える見込み | **ある** (`:530` から末尾まで 710 行) |
+| `litedoc4-render/src/assets.rs` | ある | ある |
+| `litedoc4-render/src/config.rs` | ある | ある |
+| `litedoc4-render/src/site.rs` | — | **ある** (段 2 の S8 が足した) |
+| 計 | 4 (→ 3 の見込み) | **5** |
+
+R1 が実際にやったのは `main.rs` 1,773 → 57 行の分割で、**`packages.rs` は範囲に入らなかった**。
+`read_manifest` / `module_roots` / `unquote` が今も `pub` でないので、テストは src 内にある。
+
+**したがって U2 の決定は変わらない。根拠は当時より強い** — `tests/common/mod.rs` が
+届かない場所が 4 でも 3 でもなく **5** ある。さらに U1 が見つけた `env::temp_dir()` 直呼び
+6 箇所のうち **5 箇所も `src/` 内**なので、同じ差は次の項目でも効く。
+
+**crate の形**:
+
+```
+crates/litedoc4-testutil/
+  Cargo.toml   [dependencies] は空。publish = false は workspace.package から継承
+  src/lib.rs   crate doc と `pub use temp::{TempDir, TempDirs}` だけ
+  src/temp.rs  TempDirs (prefixed / make / reserve)、TempDir (path / Drop)、テスト 4 本
+```
+
+- **`members = ["crates/*"]` なので登録は不要**だった (予告どおり)
+- **`dev-dependencies` に入れたのは 4 crate だけ** — `litedoc4` / `litedoc4-render` /
+  `litedoc4-incr` / `litedoc4-global`。`litedoc4-ir` と `litedoc4-md` は使わないので入れておらず、
+  **`cargo machete` は無言**【実測: "didn't find any unused dependencies"】
+- **依存ゼロ**。`tempfile` を入れない根拠は「使い道が無い」ではなく `deny.toml` の側にある
+  ことを `temp.rs` の docstring に書いた (→ U1)
+- **NOTICE は動かない** — `provenance-gate.sh` は `cargo tree -p litedoc4 -e normal` なので
+  dev の辺を歩かない
+
+**テストバイナリは 1 本増え、inventory は動かなかった**【実測、`--verify-list` を回して確かめた】 —
+新 crate は `#[ignore]` を 1 つも持たないので `corpus-gate.sh` の `listed()` はそのバイナリから
+0 件しか読まない。`tools/corpus-tests.txt` は **1 行も触っていない** (`ok (21 tests)`)。
+`cargo test --workspace` は **39 → 41 バイナリ / 452 → 457 passed / 22 ignored のまま**
+(足したのは testutil の単体 4 本と doctest 1 本)。
 
 ### U3 — render のテストヘルパ fork 11 種
 
