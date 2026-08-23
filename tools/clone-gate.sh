@@ -156,6 +156,8 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/target.sh
 . "$REPO/tools/lib/target.sh" || exit 1
+# shellcheck source=lib/common.sh
+. "$REPO/tools/lib/common.sh" || exit 1
 SETUP_CLONE="$REPO/tools/setup-clone.sh"
 RUST_BIN="$REPO/target/release/litedoc4"
 # The Lean extractor (IR schema 5), built by extractor/build.sh. Its own CLI is
@@ -694,12 +696,8 @@ phase_reset () {
 
 conditions () {
   {
-    printf 'date              %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    record_host
     printf 'phase             %s\n' "$PHASE"
-    printf 'host              %s / %s / %s GB\n' \
-      "$(uname -srm)" \
-      "$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo '?')" \
-      "$(($(sysctl -n hw.memsize) / 1024 / 1024 / 1024))"
     printf 'clone             %s (HEAD %s, state %s)\n' "$CLONE" "$REV" "$(clone_state)"
     printf 'move module       %s -> %s\n' "$A_MOD" "$X_MOD"
     printf 'delete module     %s\n' "$DEL_MOD"

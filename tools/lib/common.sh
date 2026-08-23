@@ -70,3 +70,38 @@ __on_exit_run () {
   fi
   return "$rc"
 }
+
+# The date and the machine, in the spelling five scripts had already converged
+# on. CLAUDE.md 「計測条件を毎回記録する」 asks for the host and the RAM by name,
+# because this workload is memory-bound and a number without them cannot be read.
+#
+# WHY IT ANSWERS `?` RATHER THAN A NUMBER
+# ----------------------------------------------------------------------------
+# Four of those five asked `sysctl -n hw.memsize` with no fallback. Off macOS
+# that prints nothing, `$(( / 1024 / 1024 / 1024 ))` is a shell syntax error on
+# stderr, the RAM field comes out empty — and the script exits 0 【実測
+# 2026-08-23】. The fifth (watch-gate) had a fallback and wrote `0 GB`, which is
+# worse: an empty field is visibly missing, and `0` is a measurement. So this
+# reads /proc where sysctl is absent, and says `?` when neither answers.
+record_host () {
+  printf 'date              %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'host              %s / %s / %s GB\n' \
+    "$(uname -srm)" "$(__cpu_brand)" "$(__memory_gb)"
+}
+
+__cpu_brand () {
+  local brand
+  brand="$(sysctl -n machdep.cpu.brand_string 2>/dev/null)" ||
+    brand="$(awk -F': *' '/^model name/ { print $2; exit }' /proc/cpuinfo 2>/dev/null)"
+  echo "${brand:-?}"
+}
+
+__memory_gb () {
+  local bytes kb
+  if bytes="$(sysctl -n hw.memsize 2>/dev/null)" && [ -n "$bytes" ]; then
+    echo "$((bytes / 1024 / 1024 / 1024))"
+    return 0
+  fi
+  kb="$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null)" || kb=""
+  if [ -n "$kb" ]; then echo "$((kb / 1024 / 1024))"; else echo '?'; fi
+}

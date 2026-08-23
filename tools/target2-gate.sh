@@ -88,6 +88,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # reads the name nothing can override — see tools/lib/target.sh.
 # shellcheck source=lib/target.sh
 . "$REPO/tools/lib/target.sh" || exit 1
+# shellcheck source=lib/common.sh
+. "$REPO/tools/lib/common.sh" || exit 1
 RUST_BIN="$REPO/target/release/litedoc4"
 EXTRACT_BIN="${EXTRACT_BIN:-$REPO/extractor/build/extract}"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
@@ -398,12 +400,8 @@ phase_reset () {
 
 conditions () {
   {
-    printf 'date              %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    record_host
     printf 'phase             %s\n' "$PHASE"
-    printf 'host              %s / %s / %s GB\n' \
-      "$(uname -srm)" \
-      "$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo '?')" \
-      "$(($(sysctl -n hw.memsize) / 1024 / 1024 / 1024))"
     printf 'target2           %s (HEAD %s, state %s)\n' \
       "$TARGET2" "$(git -C "$TARGET2" rev-parse HEAD)" "$(target2_state)"
     printf 'lean-toolchain    %s\n' "$(tr -d '\n' < "$TARGET2/lean-toolchain" 2>/dev/null || echo '?')"

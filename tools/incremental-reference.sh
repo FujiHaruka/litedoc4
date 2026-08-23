@@ -150,6 +150,8 @@ PRODUCT_EXTRACT_BIN="$REPO/extractor/build/extract"
 RUST_BIN="$REPO/target/release/litedoc4"
 # shellcheck source=lib/target.sh
 . "$REPO/tools/lib/target.sh" || exit 1
+# shellcheck source=lib/common.sh
+. "$REPO/tools/lib/common.sh" || exit 1
 
 EXTRACTOR_IMPL=product
 OUT=
@@ -544,11 +546,7 @@ fi
 # file is recorded and **not compared** — it is different between two recordings
 # by construction (it names the clock and the extractor).
 {
-  printf 'date              %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  printf 'host              %s / %s / %s GB\n' \
-    "$(uname -srm)" \
-    "$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo '?')" \
-    "$(($(sysctl -n hw.memsize) / 1024 / 1024 / 1024))"
+  record_host
   printf 'target            %s (%s modules)\n' "$TARGET" "$NMODULES"
   printf 'lean-toolchain    %s\n' "$(tr -d '\n' < "$TARGET/lean-toolchain" 2>/dev/null || echo '?')"
   printf 'extractor         %s (%s)\n' "$EXTRACTOR_IMPL" "$EXTRACTOR"

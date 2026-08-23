@@ -2293,6 +2293,45 @@ source した瞬間、ヘッダが 4 行伸びて `--help` がシェルコード
 - **引数パースの骨組み** — `while`〜`done` ブロックが**バイト同一なのは 1 組だけ**
   (`render-compare` ≡ `site-compare`)。畳めるのは骨組みと共通アームだけで、ブロック全体ではない
 
+##### 環境記録 — **7 本。畳めたのは `date` + `host` の 2 行だけで、残りは 4 つの欠陥**
+
+**実測 7 本** (計画は 5): `build-gate:386` / `clone-gate:697` / `target2-gate:401` /
+`watch-gate:447` / `incremental-reference:546` / **`ci-build:193`** / **`extractor-uniqueness:85`**。
+後ろ 2 本が落ちていたのは綴りがまったく違うため (`printf` ではなく `echo` と裸の `uname -srm`)。
+
+**畳んだのは `date` + `host` の 2 行**。5 本で **3 種に割れていた**ものを
+`tools/lib/common.sh` の `record_host` にした。**macOS では出力がバイト単位で不変**【実測】。
+
+**畳んだことで直った欠陥**: 5 本のうち **4 本は `sysctl -n hw.memsize` にフォールバックが無く**、
+macOS 以外では `$(( / 1024 / 1024 / 1024 ))` が**シェルの syntax error を stderr に吐き、
+RAM 欄が空のまま exit 0** になる【実測】。5 本目 (`watch-gate`) はフォールバックを持つが
+**`0 GB` と書く** — これは**空欄より悪い**。空欄は欠けていると見えるが、`0` は計測値に見える
+(「計測の誠実性」)。`record_host` は `/proc/meminfo` と `/proc/cpuinfo` を読み、
+**どちらも答えないときは `?`** と書く。**3 経路すべて実測で確認した** (macOS / Linux 形式の
+`/proc` / どちらも無い場合)。
+
+**畳まなかった 4 つ。どれも整形ではなく判断が要る**:
+
+1. **7 本のうち 5 本は計測の「後」に記録する**【実測: `conditions` の呼び出しは
+   `build-gate:411` / `clone-gate:722` / `target2-gate:426` で、いずれも末尾 5〜7 行】。
+   **どれも `set -euo pipefail` なので、フェーズが途中で落ちると conditions ファイルは
+   1 バイトも残らない** — 条件が最も要るときに残らない。直すには
+   「環境 (前)」と「結果 (後)」に割る必要があり、各本ごとの作業になる
+2. **page cache の状態と peak RSS は 7 本すべてが落としている**【実測】。
+   CLAUDE.md が「メモリ律速」「cold と warm を両方記録する」「`/usr/bin/time -l` を噛ませる」と
+   名指ししている項目。`tools/*.sh` 35 本で `/usr/bin/time -l` は
+   **`rebuild-own.sh:47` の 1 箇所だけ**で、しかも `| tail -25` に食われて残らない
+3. **`mathlib rev` は `target2-gate` 1 本しか記録していない**【実測】。
+   計測対象が Mathlib 全体に依存する以上、他の 4 本にも同じだけ要る。
+   **`watch-gate` は `rustc --version` を落としている** — Rust 側の増分挙動を測るゲートなのに
+4. **共有の環境記録は既に在るのに、35 本のシェルは 1 本も使っていない**【実測】 —
+   `benchmarks/tools/record-runner.sh` (116 行) は nproc / pagesize / readahead /
+   `/proc/meminfo` / `df` / **CPU キャリブレータ**まで残し、上の 7 本のどれより厚い。
+   呼んでいるのは `.github/workflows/` の 3 箇所だけ。
+   **`ci-build.sh` を呼ぶ 2 本のワークフローのうち、`record-runner` が在るのは `ci-template.yml`
+   だけで `ci-action.yml` には無い**。統合するかは「CI のログ形式を変える」判断で、
+   **この木には CI 出力を検査するゲートが無い**ので、走らせずには確かめられない
+
 ### T5 — CLAUDE.md が記録している 2 つの罠は、共通化で構造的に防げる
 
 - 「`trap … EXIT` の最後のコマンドの終了コードがスクリプトの終了コードになる」

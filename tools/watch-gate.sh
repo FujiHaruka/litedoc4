@@ -83,6 +83,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 # shellcheck source=lib/target.sh
 source "$HERE/lib/target.sh" || exit 1
+# shellcheck source=lib/common.sh
+source "$HERE/lib/common.sh" || exit 1
 
 OUT=/private/tmp/lean-doc-relay/watch-gate
 TARGET="$TARGET_REPO"
@@ -445,11 +447,7 @@ fi
 
 {
   printf '\n'
-  printf 'date              %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  printf 'host              %s / %s / %s GB\n' \
-    "$(uname -srm)" \
-    "$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo '?')" \
-    "$(($(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1024 / 1024 / 1024))"
+  record_host
   printf 'target            %s (%s modules, lib %s)\n' "$TARGET" "$MODULES" "$LIB"
   printf 'toolchain         %s\n' "$(tr -d '\n' < "$TARGET/lean-toolchain" 2>/dev/null || echo '?')"
   printf 'extractor         %s\n' "$EXTRACT_BIN"
