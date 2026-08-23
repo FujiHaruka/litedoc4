@@ -631,3 +631,135 @@ fn grouped(value: u64) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod usage_tests {
+    //! Does [`USAGE`] describe the command line the parsers actually accept?
+    //!
+    //! Nothing kept the two together: `USAGE` is a 254-line string literal and
+    //! the flags are `match` arms in eight files, so a flag could be added to
+    //! one and not the other and every test would still pass. That had already
+    //! happened once in the other direction — `ledger` accepted eighteen flags
+    //! where `USAGE` declared three (D1).
+
+    use super::USAGE;
+    use std::collections::BTreeSet;
+    use std::sync::LazyLock;
+
+    /// Every flag named in a `match` arm, across the crate.
+    ///
+    /// The sources are read rather than the constants listed, because a list of
+    /// constants is a third place to keep in step.
+    static PARSED: LazyLock<BTreeSet<String>> = LazyLock::new(|| {
+        const SOURCES: [&str; 14] = [
+            include_str!("build.rs"),
+            include_str!("cli.rs"),
+            include_str!("deps_docs.rs"),
+            include_str!("extract.rs"),
+            include_str!("httpd.rs"),
+            include_str!("lakefile.rs"),
+            include_str!("ledger.rs"),
+            include_str!("lib.rs"),
+            include_str!("packages.rs"),
+            include_str!("pipeline.rs"),
+            include_str!("queries.rs"),
+            include_str!("resident.rs"),
+            include_str!("stages.rs"),
+            include_str!("watch.rs"),
+        ];
+        let mut out = BTreeSet::new();
+        for source in SOURCES {
+            // Each `=>` is read backwards through the literals in front of it.
+            // An arm may span lines (`"--a" | "--b"` then `| "--c" => …`), so
+            // taking one line at a time misses part of it — that was worth
+            // eight of the flags this test found【実測 2026-08-23】.
+            for (before, _) in source.split_once("=>").into_iter().chain(
+                source
+                    .match_indices("=>")
+                    .map(|(at, _)| (&source[..at], "")),
+            ) {
+                arm_flags(before, &mut out);
+            }
+        }
+        out
+    });
+
+    /// The flag literals immediately in front of a `=>`, read backwards.
+    ///
+    /// Stops at the first thing that is not `"-…"` or `|`, so an arm with a
+    /// binding (`flag if FIXED_FLAGS.contains(&flag)`) or an expression
+    /// contributes nothing rather than half of something.
+    fn arm_flags(before: &str, out: &mut BTreeSet<String>) {
+        let mut rest = before.trim_end();
+        loop {
+            let Some(close) = rest.rfind('"') else { return };
+            let Some(open) = rest[..close].rfind('"') else {
+                return;
+            };
+            let name = &rest[open + 1..close];
+            if !name.starts_with('-') {
+                return;
+            }
+            if let Some(name) = name.strip_prefix("--") {
+                out.insert(format!("--{name}"));
+            }
+            rest = rest[..open].trim_end();
+            let Some(stripped) = rest.strip_suffix('|') else {
+                return;
+            };
+            rest = stripped.trim_end();
+        }
+    }
+
+    /// Every flag [`USAGE`] spells as a flag: in a synopsis line or as the
+    /// subject of a description. **Not prose** — `USAGE` mentions
+    /// `lean --githash` and "the reason there is no --title", and neither is a
+    /// flag of this tool.
+    fn documented() -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        for line in USAGE.lines() {
+            let trimmed = line.trim_start();
+            if let Some(rest) = trimmed.strip_prefix("--") {
+                let name = rest.split([' ', ',', ')', '.', ':']).next().unwrap_or(rest);
+                out.insert(format!("--{name}"));
+            }
+            // Synopsis lines: `usage: litedoc4 site --ir <dir> …` and their
+            // continuations, which are indented under one.
+            if trimmed.starts_with("usage:") || trimmed.starts_with('[') || trimmed.starts_with('(')
+            {
+                for word in trimmed.split_whitespace() {
+                    let word = word.trim_matches(['[', ']', '(', ')', '|']);
+                    if word.starts_with("--") {
+                        out.insert(word.to_owned());
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// **A flag `USAGE` promises has to exist.**
+    ///
+    /// One direction only. The other — "every flag the parsers accept is in
+    /// `USAGE`" — is not checked here, and the reason is that [`PARSED`] reads
+    /// source text: it cannot tell a `match` arm from the same characters in a
+    /// comment, so the set it produces is a superset. That is harmless for this
+    /// direction (a superset can only make the test pass more easily on the
+    /// parser side, and what it asserts is about `USAGE`) and useless for the
+    /// other, where the extra entries would have to be listed or counted and
+    /// neither number would mean anything.
+    ///
+    /// What it does catch is a flag written into the help text and never
+    /// implemented — and the reverse of D1, where `ledger` accepted eighteen
+    /// flags and `USAGE` declared three, is caught by
+    /// [`crate::ledger::LEDGER_FLAGS`] instead.
+    #[test]
+    fn every_documented_flag_is_parsed() {
+        let documented = documented();
+        let missing: Vec<&String> = documented.difference(&PARSED).collect();
+        assert!(
+            missing.is_empty(),
+            "USAGE names flags no parser accepts: {missing:?}"
+        );
+    }
+}
