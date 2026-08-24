@@ -103,14 +103,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
       # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -139,14 +139,14 @@ jobs:
       # under refs/pull/N/merge, and Lake's clone would not have it).
       REQUIRE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
       # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -243,14 +243,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
       # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -301,14 +301,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
       # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 

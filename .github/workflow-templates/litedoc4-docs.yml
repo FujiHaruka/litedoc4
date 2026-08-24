@@ -123,7 +123,7 @@ jobs:
     steps:
       # The package being documented.
       - name: check out the package
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: package
 
@@ -132,7 +132,7 @@ jobs:
       # tag or a commit if you want the documentation build to stop moving under
       # you.
       - name: check out litedoc4
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: FujiHaruka/litedoc4
           path: litedoc4
@@ -146,13 +146,13 @@ jobs:
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: cache Mathlib's oleans
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/mathlib
           key: mathlib-${{ hashFiles('package/lake-manifest.json') }}
 
       - name: cache the Lean extractor
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: litedoc4/extractor/build
           key: >-
@@ -160,7 +160,7 @@ jobs:
             'litedoc4/extractor/Extract.lean') }}
 
       - name: cache the Rust build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -182,7 +182,7 @@ jobs:
       # GitHub-hosted runner the workspace path is a function of the repository,
       # so this holds; the refusal is the loud direction if it ever does not.
       - name: cache the documentation state (IR + ledger + site)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: docs-out
           key: litedoc4-docs-${{ github.sha }}
@@ -213,7 +213,7 @@ jobs:
             --jobs 4
 
       - name: upload the site
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docs
           path: docs-out/site

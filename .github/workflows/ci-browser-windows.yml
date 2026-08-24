@@ -40,14 +40,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
       # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -56,7 +56,7 @@ jobs:
 
       # Keyed per job and without `restore-keys` — see the long note in ci.yml.
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -85,7 +85,7 @@ jobs:
           CHROME_PATH: /usr/bin/google-chrome
 
       - name: Upload the site for the Windows job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: micro-site
           path: ${{ runner.temp }}/e2e/first/site
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload the ubuntu report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: browser-ubuntu
           path: ${{ runner.temp }}/browser-ubuntu.json
@@ -105,9 +105,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: micro-site
           path: site
@@ -143,7 +143,7 @@ jobs:
 
       - name: Upload the Windows report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: browser-windows
           path: browser-windows.json

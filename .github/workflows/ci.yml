@@ -49,14 +49,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
       # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -107,7 +107,7 @@ jobs:
       # was the part that was real. `benchmarks/results/ci-cache-2026-08-19.txt`
       # has the raw runs and the conditions that would flip this.
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -172,7 +172,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
@@ -186,14 +186,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so **cargo cannot build this workspace without node**
       # Pinned rather than left to
       # whatever the runner image happens to ship: the version is the one in
       # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -203,7 +203,7 @@ jobs:
       # Keyed per job and without `restore-keys` — see the note in `test`. This
       # job builds one binary; `test` builds --all-targets. Same key was wrong.
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -274,7 +274,7 @@ jobs:
 
       - name: Upload the generated site
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-micro-site
           path: ${{ runner.temp }}/e2e/first/site

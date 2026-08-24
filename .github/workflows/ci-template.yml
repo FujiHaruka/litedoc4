@@ -25,7 +25,7 @@
 #   4. The site is not uploaded. The template's last step is an
 #      `upload-artifact` of a directory, which is not in doubt.
 #
-#   Everything else — `actions/checkout@v4`, the four `actions/cache@v4` blocks
+#   Everything else — `actions/checkout@v7`, the four `actions/cache@v6` blocks
 #   and their keys, the elan install line, and the single `ci-build.sh` call with
 #   its four flags — is the template's, verbatim.
 #
@@ -62,7 +62,7 @@ jobs:
       # litedoc4 itself — the template's second checkout, with no token, which
       # is the line the public repository made possible.
       - name: check out litedoc4
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: FujiHaruka/litedoc4
           path: litedoc4
@@ -70,7 +70,7 @@ jobs:
       # Difference 2/3: the package does not exist yet, so what is checked out
       # here is only the source of its `lean-toolchain` and `lake-manifest.json`.
       - name: check out the measurement target (for its pinned toolchain and manifest)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: FujiHaruka/information-theory
           ref: ${{ github.event.inputs.target_ref }}
@@ -99,13 +99,13 @@ jobs:
           cat package/lakefile.toml
 
       - name: cache Mathlib's oleans
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/mathlib
           key: mathlib-${{ hashFiles('package/lake-manifest.json') }}
 
       - name: cache the Lean extractor
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: litedoc4/extractor/build
           key: >-
@@ -115,7 +115,7 @@ jobs:
       # Key prefixed per workflow: it used to be the bare `cargo-<os>-` that
       # ci.yml's `restore-keys` reached into.
       - name: cache the Rust build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -129,7 +129,7 @@ jobs:
       # tell them apart.
       - name: cache the documentation state (IR + ledger + site)
         id: docs-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: docs-out
           key: litedoc4-docs-${{ github.sha }}
@@ -235,7 +235,7 @@ jobs:
 
       - name: upload the site and the log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: template-validation
           path: |
