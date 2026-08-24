@@ -1,49 +1,26 @@
-//! The second oracle: the docstrings **inside the reference pages**.
+//! The second oracle: the docstrings **inside the reference pages**, which the
+//! frozen prototype wrote by running over the target package's IR with the real
+//! `--link-index`. Neither that script nor the prototype is in this tree any
+//! more; both exist only at tag `experiments-frozen`, and the pages themselves
+//! only ever lived under /private/tmp — so this test is env-gated and
+//! `#[ignore]`d rather than silently returning, which is what makes a run say
+//! out loud that it did not compare anything.
 //!
-//! `tools/render-reference.sh` ran the whole of `experiments/stage7d/render.ts`
-//! over the target package's IR with the real `--link-index` and wrote 432
-//! pages. Those pages are the byte target for M1-d, and each of them already
-//! contains this milestone step's output — every docstring, rendered with the
-//! page's *own* root and its *own* declaration list.
+//! **Why this exists next to `tests/autolink.rs`**: that file compares against
+//! the prototype's `renderDocString` given a context this repository builds,
+//! and one input to it is not a slice — `moduleDeclNames`, the list
+//! `nameToLink`'s last branch scans, which the generator lifts out of
+//! `pageHtml` as an expression. If that lift were wrong, both sides would be
+//! handed the same wrong list and would agree. The reference pages were
+//! produced by the whole program, so the list in them is the real one. Unlike a
+//! page-level byte diff, this says *which* docstring moved rather than which
+//! file.
 //!
-//! **Neither the script nor the prototype is in this tree any more.** Both went
-//! with `experiments/` on 2026-08-16 and exist only at tag `experiments-frozen`;
-//! the pages themselves only ever lived under /private/tmp, so this test is
-//! env-gated and `#[ignore]`d.
-//!
-//! # Why this exists next to `tests/autolink.rs`
-//!
-//! That file compares against the prototype's `renderDocString` sliced out of
-//! render.ts and given a context this repository builds. One input to it is not
-//! a slice: `moduleDeclNames`, the list `nameToLink`'s last branch scans, which
-//! the generator lifts out of `pageHtml` as an expression. If that lift were
-//! wrong, both sides would be handed the same wrong list and would agree.
-//!
-//! The reference pages were produced by the whole program, so the list in them
-//! is the real one. This file is therefore what stands behind the claim that
-//! the last branch scans what doc-gen4 scans — and, unlike a page-level byte
-//! diff, it says *which* docstring moved rather than which file.
-//!
-//! # What is compared
-//!
-//! Docstrings appear on a page in three places, and none of them can be
+//! Docstrings appear on a page in three places — `div.mod_doc`, the region
+//! after a `decl_header`, and `div.structure_field_doc` — and none can be
 //! confused with the surrounding template, because a rendered docstring
-//! contains no `<div>` and no `<details>` — `MD_FLAG_NOHTML` sees to that and
-//! `renderBlock` emits neither:
-//!
-//! | | delimiter | checked |
-//! |---|---|---|
-//! | module docs | `<div class="mod_doc">` … `</div>` | in order, byte for byte |
-//! | declaration docs | after the `decl_header`'s `</div>` | byte for byte, plus the byte that follows |
-//! | structure field docs | `<div class="structure_field_doc">` … `</div>` | each must be some member's docstring |
-//!
-//! # Why it is `#[ignore]`d
-//!
-//! The IR, the `.lidx` and the reference tree all live outside the repository,
-//! so this test does not run under a plain `cargo test` — and, being ignored
-//! rather than silently returning, it says so in the result line. Point
-//! `LITEDOC4_IR`, `LITEDOC4_LINK_INDEX` and `LITEDOC4_REF_PAGES` elsewhere to
-//! run it against another corpus.
+//! contains no `<div>` and no `<details>`: `MD_FLAG_NOHTML` sees to that and
+//! `renderBlock` emits neither.
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
@@ -64,17 +41,11 @@ const TERMINATORS: [&str; 4] = ["</div>", "<div", "<details", "<ul class=\"struc
 ///
 /// It is *not* an autolink difference: the same input differs under `NoLinks`,
 /// and doc-gen4 produces this crate's bytes 【実測 → `litedoc4-md`'s
-/// `tests/ts_docstring.rs`, where it is the only real docstring in a list of
-/// 41】. Plan §5 decides such cases in md4c's favour, so the reference page is
-/// wrong here and this test says which one rather than how many.
+/// `tests/ts_docstring.rs`】. The reference page is the wrong one here, so this
+/// test names it rather than counting how many differ.
 const KNOWN_SUBSET_DIVERGENCE: &str =
     "InformationTheory.Shannon.TimeBandLimiting.Count module doc 1";
 
-/// The IR, the `.lidx` and the reference pages, or a panic naming what to set.
-///
-/// The only caller is `#[ignore]`d, so reaching this function at all means the
-/// corpus gate asked for the test by name. Returning "not here, never mind"
-/// there would be a green result for a comparison that never ran.
 fn inputs() -> (PathBuf, PathBuf, PathBuf) {
     (
         corpus::LITEDOC4_IR.path(),
@@ -119,8 +90,6 @@ fn after_matching_div(page: &str, start: usize) -> Option<usize> {
     }
 }
 
-/// Every docstring of every reference page, compared with what this crate
-/// renders for it.
 #[test]
 #[ignore = "corpus: needs LITEDOC4_IR + LITEDOC4_LINK_INDEX + LITEDOC4_REF_PAGES (tools/corpus-gate.sh)"]
 fn every_docstring_in_the_reference_pages_is_reproduced() {
@@ -135,21 +104,18 @@ fn every_docstring_in_the_reference_pages_is_reproduced() {
     for module in &modules {
         builder.module(module);
     }
-    // M7-c: the prototype had no dependency map, so its bytes are the
-    // **fallback** branch — which an empty [`ExternalLinks`] reproduces
-    // exactly. With a map every link into a dependency moves, on purpose —
-    // doc-gen4 byte compatibility is no longer required.
-    // 2026-08-17: and the prototype rendered the whole environment, so its
-    // links point at pages it wrote. A run's world has pages for the target
-    // package alone; the oracle is resolved in the world it was recorded in.
+    // The world is the one the oracle was recorded in: the prototype had no
+    // dependency map, so its bytes are the fallback branch an empty
+    // `ExternalLinks` reproduces exactly, and it rendered the whole
+    // environment, so its links point at a page for every module.
     let index = builder.build_with_a_page_for_every_module(
         LinkIndex::read(&lidx).expect("the .lidx reads"),
         ExternalLinks::default(),
     );
 
     // `DocInfo.ofConstant` sets `render := false` for projection functions and
-    // constructors, i.e. exactly the names that appear as another declaration's
-    // members (`render.ts:2039-2048`). Those get no `div.decl` on any page.
+    // constructors, i.e. exactly the names that appear as another
+    // declaration's members. Those get no `div.decl` on any page.
     let suppressed: HashSet<&str> = modules
         .iter()
         .flat_map(|m| m.declarations.iter())
@@ -205,8 +171,8 @@ fn every_docstring_in_the_reference_pages_is_reproduced() {
         counts.decl_docs
     );
     assert!(counts.anchors > 1_000, "{} anchors", counts.anchors);
-    // Named, not tolerated: if a second reference docstring starts differing,
-    // it is a new fault and not this one.
+    // Named, not tolerated: a second differing reference docstring is a new
+    // fault and not this one.
     assert_eq!(
         counts.known_divergences, 1,
         "{KNOWN_SUBSET_DIVERGENCE} is meant to be the only reference docstring \
@@ -251,7 +217,6 @@ fn check_page(
     let links = PageLinks::new(index, &root, &names);
     let renderer = links.renderer();
 
-    // Module docs, in page order, which is file order among themselves.
     let mut from = 0;
     for (i, doc) in module.module_docs.iter().enumerate() {
         let what = format!("{} module doc {i}", module.module);
@@ -318,9 +283,9 @@ fn check_page(
         );
     }
 
-    // Structure field docs: which members get one is `structureHtml`'s
-    // business, i.e. M1-d's. What is checked here is that each one on the page
-    // is a docstring of this module rendered by this crate.
+    // Which members get a structure field doc is `structureHtml`'s business.
+    // What is checked here is that each one on the page is a docstring of this
+    // module rendered by this crate.
     let expected: BTreeSet<String> = module
         .declarations
         .iter()
@@ -344,7 +309,6 @@ fn check_page(
 }
 
 /// Records a mismatch, pointing at the first byte where the two part company.
-///
 /// The one docstring the prototype's CommonMark subset gets wrong is counted
 /// rather than reported; everything else is a fault of this crate.
 fn record(failures: &mut Vec<String>, counts: &mut Counts, what: &str, want: &str, got: &str) {
@@ -363,13 +327,10 @@ fn record(failures: &mut Vec<String>, counts: &mut Counts, what: &str, want: &st
 }
 
 /// The context around the first place `a` and `b` part company, **out of `a`
-/// alone**.
-///
-/// Deliberately not `litedoc4_testutil::text::Diff::report`: this returns one
-/// side, unlabelled, and the caller above calls it twice with the arguments
-/// swapped to get the other. A two-sided report would put each window under a
-/// fixed label, and the two lines here are `page:` and `here:` of the *same*
-/// comparison rather than two comparisons.
+/// alone** — deliberately not `litedoc4_testutil::text::Diff::report`, which
+/// puts each window under a fixed label. The two lines here are `page:` and
+/// `here:` of the *same* comparison, so the caller calls this twice with the
+/// arguments swapped.
 fn context_where_they_part(a: &str, b: &str) -> String {
     let at = a
         .char_indices()

@@ -1,33 +1,21 @@
-//! Reads the real `.lidx` of the target package's dependency closure.
+//! Reads the real `.lidx` of the target package's dependency closure — ~10 MB,
+//! written by `litedoc4 build` itself.
 //!
-//! ~10 MB, written by `litedoc4 build` itself. It lives outside the repository,
-//! so this test is `#[ignore]`d rather than silently skipped: `cargo test` has
-//! to pass on a machine that has never run the pipeline, and a run that reports
-//! it as ignored says out loud that it did not run.
+//! It lives outside the repository, so this test is `#[ignore]`d rather than
+//! silently skipped: `cargo test` has to pass on a machine that has never run
+//! the pipeline, and a run that reports it as ignored says out loud that it did
+//! not run.
 //!
-//! # What it checks — the reader against the writer, on real data
-//!
-//! The format marker; that every entry resolves and no module name leaked into
-//! the entry table; and — read out of the **text**, not out of this reader — the
-//! last entry with the group header above it, and a module that is a link target
-//! in its own right.
-//!
-//! # What it stopped checking【判断 2026-08-16】
-//!
-//! Four counts the **prototype's** reader measured over the **prototype's**
-//! `.lidx`: 258,760 entries / 8,494,819 UTF-16 code units / 5,775 modules /
-//! 6,115 `@` names (`benchmarks/results/stage7c-render-timings.jsonl`).
-//!
-//! **The question stopped being askable, and not because the numbers were lost.**
-//! That file was derived from Mathlib's `declaration-data.bmp` by
-//! `experiments/stage7d/build-link-index.ts`, which left with `experiments/`
-//! (tag `experiments-frozen`). The product derives the same map **by walking the
-//! environment** instead (V1, M5-a) — a different construction, so a different
-//! tally: **255,809 entries over the same target**【実測 2026-08-16】. Holding a
-//! walk-derived map to a bmp-derived count was never the same question; keeping
-//! it only meant the test ran on a file nobody can rebuild, which is where the
-//! four counts had already left it (the default path was empty, so the gate read
-//! this as "no input").
+//! **It asserts no entry counts, and must not.** The counts on record —
+//! 258,760 entries / 5,775 modules 【実測,
+//! `benchmarks/results/stage7c-render-timings.jsonl`】 — were measured over the
+//! prototype's `.lidx`, derived from Mathlib's `declaration-data.bmp` by a
+//! generator that exists only at tag `experiments-frozen`. The product derives
+//! the same map by **walking the environment** instead: a different
+//! construction and so a different tally, 255,809 entries over the same target
+//! 【実測 2026-08-16】. A count here would be a claim about whichever file
+//! happens to sit at the path rather than about the reader, so what is checked
+//! instead is the reader against the **text** of the file it was handed.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -36,17 +24,10 @@ use litedoc4_render::LinkIndex;
 use litedoc4_render::link_index::FORMAT_MARKER;
 use litedoc4_testutil::corpus;
 
-/// The fixture, or a panic naming what to set.
-///
 /// **`LITEDOC4_M7A_LINK_INDEX` and not `LITEDOC4_LINK_INDEX`**: the variable is
 /// the same one, but the default is the file
 /// `benchmarks/tools/check-lidx-urls.sh` writes rather than the one the relay
-/// directory holds, and this test is coupled to that driver — as is
-/// `crates/litedoc4/src/packages.rs`'s corpus test, which reads the same file.
-///
-/// The only caller is `#[ignore]`d, so reaching this function at all means the
-/// corpus gate asked for the test by name. Returning "not here, never mind"
-/// there would be a green result for a comparison that never ran.
+/// directory holds, and this test is coupled to that driver.
 fn fixture() -> PathBuf {
     corpus::LITEDOC4_M7A_LINK_INDEX.path()
 }
@@ -56,8 +37,7 @@ fn fixture() -> PathBuf {
 fn reads_the_dependency_closure_of_the_target_package() {
     let path = fixture();
     // The two halves are timed apart because they scale differently: the read
-    // is the file's bytes and the parse is its entries, and M7-a moved the
-    // first by 23.6% while adding a field to every one of the second.
+    // with the file's bytes, the parse with its entries.
     let start = Instant::now();
     let text = std::fs::read_to_string(&path).expect("readable");
     let read = start.elapsed();
@@ -78,22 +58,19 @@ fn reads_the_dependency_closure_of_the_target_package() {
         elapsed.as_secs_f64(),
     );
 
-    // **Either marker**: `#lidx1` is what the prototype and M5-a wrote, and
-    // `#lidx2` is what M7-a writes. The reader branches on neither (see
-    // [`FORMAT_MARKER`]), so what this checks is that the file has one at all.
+    // Either marker is accepted: the reader branches on neither, so what this
+    // checks is that the file has one at all.
     let marker = text.split('\n').next().unwrap_or_default();
     assert!(
         marker == FORMAT_MARKER || marker == "#lidx1",
         "format marker: {marker:?}"
     );
-    // Every entry resolves, and no module name leaked into the entry table.
     for name in ["Nat.succ", "Nat.add_comm"] {
         let module = index.module_of(name).unwrap_or_else(|| panic!("{name}"));
         assert!(!module.is_empty(), "{name} landed in the empty module");
     }
 
-    // Spot check against the file itself rather than against this reader: the
-    // last entry in the text, and the header it sits under.
+    // Spot check against the file itself rather than against this reader.
     let (module, name) = last_entry(&text);
     assert_eq!(index.module_of(&name), Some(module.as_str()));
     assert!(
@@ -103,7 +80,7 @@ fn reads_the_dependency_closure_of_the_target_package() {
 }
 
 /// The final `\t` line of the file, and the group header above it. The name is
-/// the first field, since M7-a a line can carry two more.
+/// the first field: a line can carry two more.
 fn last_entry(text: &str) -> (String, String) {
     let mut current = String::new();
     let mut last = (String::new(), String::new());

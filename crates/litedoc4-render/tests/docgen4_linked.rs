@@ -4,40 +4,26 @@
 //! `tests/oracle/gen-docgen4-linked-expected.ts`, which ran
 //! `DocGen4.Output.docStringToHtml` under `lake env lean` in the measurement
 //! target with `AnalyzerResult.name2ModIdx` and `.moduleNames` filled in.
+//! **It is a frozen value: HEAD has no way to regenerate it** — the generator
+//! also imported the prototype, to pick the cases and to record
+//! `prototypeDiffers`, and exists only at tag `experiments-frozen`.
+//! `tests/oracle/dump-html-linked.lean`, the doc-gen4 half, is still here.
 //!
-//! **The fixture is a frozen value: HEAD has no way to regenerate it.** The
-//! expected HTML came from doc-gen4, but the generator also imported the frozen
-//! prototype — to pick the cases and to record `prototypeDiffers` — so it went
-//! with `experiments/` on 2026-08-16 and exists only at tag
-//! `experiments-frozen`. `tests/oracle/dump-html-linked.lean`, the doc-gen4 half,
-//! is still here.
+//! **Why a second oracle, when the rest of this directory compares against the
+//! prototype**: the two `nameToLink`s are different functions, and the
+//! prototype is not right about everything. It auto-links a code span **inside
+//! an `<a>`** and doc-gen4 does not (`inLink` in doc-gen4's `DocString.lean`);
+//! under `NoLinks` the two are byte-identical, which is why thousands of
+//! comparisons against the prototype had not seen it. This crate follows
+//! doc-gen4, and this file is where that expectation comes from. **No docstring
+//! of the target package reaches the difference** 【実測: 0 of 4,858,
+//! `tests/autolink.rs`】.
 //!
-//! # Why a second oracle, when the target is the prototype
-//!
-//! Plan §5 is explicit that this port's target is `experiments/stage7d/render.ts`
-//! and not doc-gen4: the two `nameToLink`s are different functions and it is the
-//! prototype that scores 439/439. But M1-c's earlier doc-gen4 comparison ran
-//! with an *empty* `AnalyzerResult`, so nothing had ever asked doc-gen4 what a
-//! resolved docstring looks like — and "the prototype is the target" does not
-//! mean "the prototype is right about everything".
-//!
-//! It was not. The first run of this file found that the prototype auto-links a
-//! code span **inside an `<a>`** and doc-gen4 does not (`inLink`,
-//! `DocString.lean:264` against `render.ts:1622`). Under `NoLinks` the two are
-//! byte-identical, which is why 4,987 comparisons had not seen it. This crate
-//! follows doc-gen4, and this file is where that expectation comes from.
-//!
-//! **No docstring of the target package reaches the difference** 【実測: 0 of
-//! 4,858, `tests/autolink.rs`】, so gate A's bytes are unaffected.
-//!
-//! # The agreement zone
-//!
-//! The two specifications genuinely differ in three more places, and the corpus
-//! avoids all three rather than papering over them — see the generator. The one
-//! that is enforced *here* is the last: doc-gen4 runs with `currentName := none`,
-//! so its module-local branch never fires, and these cases are therefore
-//! rendered with an empty declaration list. `tests/autolink.rs` is what covers
-//! that branch, against the prototype.
+//! The two specifications differ in three more places and the corpus avoids all
+//! three rather than papering over them — see the generator. The one enforced
+//! *here* is that doc-gen4 runs with `currentName := none`, so its module-local
+//! branch never fires and these cases render with an empty declaration list.
+//! `tests/autolink.rs` covers that branch, against the prototype.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -82,8 +68,8 @@ impl Case {
         links.renderer().docstring(&self.md)
     }
 
-    /// doc-gen4's own bytes with the **source-path** branch re-answered by this
-    /// crate's resolver (`common`, M8 gate UI-2).
+    /// doc-gen4's own bytes with the **source-path** branch re-answered by
+    /// `common`'s rewrite.
     fn with_source_paths_resolved(&self, tally: &mut Tally) -> String {
         let index = self.index();
         let links = PageLinks::new(&index, &self.root, &[]);
@@ -106,14 +92,12 @@ impl Case {
         for (name, module) in &self.names {
             builder.declaration(name, module);
         }
-        // **The doc-gen4 oracle still applies here, and M7-c is why that needs
-        // saying.** doc-gen4 wrote these answers with every link a relative page
-        // link, which is what an empty [`ExternalLinks`] produces byte for byte.
-        // Give this corpus a dependency map instead and the two would part
-        // company on every resolved name — by design, since doc-gen4 byte
-        // compatibility is retired. The map is
-        // empty rather than absent because there is nothing to fill it with:
-        // these cases are synthetic worlds with no package behind them.
+        // doc-gen4 wrote these answers with every link a relative page link,
+        // which is what an empty `ExternalLinks` produces byte for byte. Give
+        // this corpus a dependency map instead and the two part company on
+        // every resolved name. The map is empty rather than absent because
+        // there is nothing to fill it with: these are synthetic worlds with no
+        // package behind them.
         builder.build(LinkIndex::default(), ExternalLinks::default())
     }
 }
@@ -146,7 +130,6 @@ fn fixture_is_doc_gen4s_own_output() {
     );
 }
 
-/// The comparison this file exists for.
 #[test]
 fn matches_doc_gen4_on_every_case() {
     let e = expected();
@@ -166,12 +149,12 @@ fn matches_doc_gen4_on_every_case() {
         e.cases.len(),
         failures.join("\n")
     );
-    // M8, gate UI-2. These worlds are `AnalyzerResult` reduced to the names each
-    // case looks up, and doc-gen4 looks nothing up to link a source path — so
-    // none of the modules the paths name is in them, and every one of these
-    // anchors is a link this crate now declines to build. What the rule does
-    // with a real world is `tests/autolink.rs`'s and `tests/pages.rs`'s number.
-    // 【実測 2026-08-16】
+    // These worlds are `AnalyzerResult` reduced to the names each case looks
+    // up, and doc-gen4 looks nothing up to link a source path — so none of the
+    // modules the paths name is in them, and every one of these anchors is a
+    // link this crate declines to build. What the rule does with a real world
+    // is `tests/autolink.rs`'s and `tests/pages.rs`'s number 【実測
+    // 2026-08-16】.
     assert_eq!(
         tally,
         Tally {
@@ -184,9 +167,7 @@ fn matches_doc_gen4_on_every_case() {
 }
 
 /// The inputs on which the prototype is *not* the authority, named rather than
-/// counted.
-///
-/// If this list ever grows past the `inLink` pair, the new entry is a place
+/// counted: if this list grows past the `inLink` pair, the new entry is a place
 /// where `tests/autolink.rs` is asserting the wrong expectation, and it has to
 /// be looked at before either fixture is regenerated.
 #[test]
@@ -213,9 +194,6 @@ fn the_prototype_differs_only_where_it_nests_anchors() {
     }
 }
 
-/// Every case a real docstring contributed agreed with doc-gen4 when the
-/// fixture was generated. Recorded so that a corpus which quietly became
-/// hand-written only would fail.
 #[test]
 fn most_of_the_corpus_is_real_docstrings() {
     let e = expected();

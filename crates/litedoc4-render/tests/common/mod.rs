@@ -1,22 +1,19 @@
-//! What more than one oracle in this directory needs: the one rewrite they all
-//! apply, the world they build to apply it in, and the HTML scanners their
-//! assertions read with.
+//! What more than one oracle in this directory needs.
 //!
 //! **Anything that knows about `litedoc4_render`'s types or about HTML lives
-//! here; anything that is only string handling lives in `litedoc4-testutil`**.
-//! That is the line, and it is what
-//! keeps `litedoc4_testutil` free of a dependency on the crate under test.
+//! here; anything that is only string handling lives in `litedoc4-testutil`** —
+//! which is what keeps `litedoc4_testutil` free of a dependency on the crate
+//! under test.
 //!
-//! # The rewrite
-//!
-//! **M8, gate UI-2**. doc-gen4 and the frozen
-//! prototype both turn a source path in a code span — `` `EPI/Stam/ToBridge.lean` ``
-//! — into a link without consulting anything: the path is read as relative to
-//! the repository root and the extension is swapped. The measurement target
-//! writes those paths relative to the *module* they sit in, so the page named
-//! does not exist; 160 of the site's 32,868 internal links were dangling
-//! 【実測 2026-08-16, `benchmarks/results/m8-ui2-dead-links.txt`】. This crate
-//! asks `NameIndex::module_for_source_path` instead, which is the only branch of
+//! **The one rewrite the oracles apply.** doc-gen4 and the frozen prototype
+//! both turn a source path in a code span —
+//! `` `EPI/Stam/ToBridge.lean` `` — into a link without consulting anything:
+//! the path is read as relative to the repository root and the extension is
+//! swapped. The measurement target writes those paths relative to the *module*
+//! they sit in, so the page named does not exist; 160 of the site's 32,868
+//! internal links were dangling 【実測 2026-08-16,
+//! `benchmarks/results/m8-ui2-dead-links.txt`】. This crate asks
+//! `NameIndex::module_for_source_path` instead, which is the only branch of
 //! `nameToLink?` where its answer is deliberately not its oracle's.
 //!
 //! So the oracles compare against their recorded bytes *with that one branch
@@ -24,8 +21,6 @@
 //! moved ([`Tally`]). Everything else stays byte for byte, and a second
 //! divergence still fails.
 
-// Each test binary uses a part of this module; `mod common;` compiles all of it
-// into each of them.
 #![allow(
     dead_code,
     reason = "not `expect`: which part is dead depends on which test binary is compiling this"
@@ -39,19 +34,12 @@ use litedoc4_render::{ExternalLinks, LinkIndex};
 /// The [`NameIndex`] a case builds from its three sources, the way a run builds
 /// it from the IR and the `.lidx`.
 ///
-/// **Two of the four `Case::index()` in this directory are this, and two are
-/// not.** `fragment.rs` and `docgen4_linked.rs` build a different world and say
-/// so at their own definitions; only `page_parts.rs` and `autolink.rs` call
-/// here.
-///
-/// M7-c: the prototype had no dependency map, so its bytes are the **fallback**
-/// branch — which an empty [`ExternalLinks`] reproduces exactly. With a map
-/// every link into a dependency moves, on purpose — doc-gen4 byte
-/// compatibility is no longer required.
-///
-/// 2026-08-17: and the prototype rendered the whole environment, so its links
-/// point at pages it wrote. A run's world has pages for the target package
-/// alone; the oracle is resolved in the world it was recorded in.
+/// The world is the one the oracle was **recorded** in, which is why the two
+/// arguments look wrong for a run: the prototype had no dependency map, so its
+/// bytes are the fallback branch an empty [`ExternalLinks`] reproduces exactly,
+/// and it rendered the whole environment, so its links point at a page for
+/// every module. `fragment.rs` and `docgen4_linked.rs` build a different world
+/// and say so at their own definitions.
 pub(crate) fn name_index(
     ir_modules: &[String],
     known: &BTreeMap<String, String>,
@@ -82,7 +70,6 @@ pub(crate) fn attr_values<'a>(html: &'a str, name: &str) -> Vec<&'a str> {
     out
 }
 
-/// The text between the first `open` and the `close` that follows it.
 pub(crate) fn between<'a>(html: &'a str, open: &str, close: &str) -> Option<&'a str> {
     let at = html.find(open)? + open.len();
     let end = html[at..].find(close)? + at;
@@ -90,11 +77,8 @@ pub(crate) fn between<'a>(html: &'a str, open: &str, close: &str) -> Option<&'a 
 }
 
 /// `(href, text)` of every anchor, with the href unescaped and the text **as
-/// written**.
-///
-/// The raw text is what the two views below decide on: a caller that wants only
-/// the anchors whose text is plain has to ask before anything unescapes `&lt;`
-/// into a `<` that was never markup.
+/// written** — a caller that wants only the anchors whose text is plain has to
+/// ask before anything unescapes `&lt;` into a `<` that was never markup.
 fn raw_anchors(html: &str) -> Vec<(String, &str)> {
     let mut out = Vec::new();
     let mut rest = html;
@@ -112,7 +96,6 @@ fn raw_anchors(html: &str) -> Vec<(String, &str)> {
     out
 }
 
-/// `(href, text)` of every anchor in a fragment, with the text unescaped.
 pub(crate) fn anchors_of(html: &str) -> Vec<(String, String)> {
     raw_anchors(html)
         .into_iter()
@@ -121,11 +104,9 @@ pub(crate) fn anchors_of(html: &str) -> Vec<(String, String)> {
 }
 
 /// [`anchors_of`] restricted to the anchors whose text is plain, which is every
-/// anchor `autoLinkInline` makes.
-///
-/// The test is on the text **as written**, before unescaping: `&lt;` is a `<`
-/// that the renderer escaped, not a tag, and filtering after [`unescape`] would
-/// drop anchors this is meant to keep.
+/// anchor `autoLinkInline` makes. The filter runs on the text **as written**:
+/// `&lt;` is a `<` the renderer escaped, not a tag, and filtering after
+/// [`unescape`] would drop anchors this is meant to keep.
 pub(crate) fn plain_anchors_of(html: &str) -> Vec<(String, String)> {
     raw_anchors(html)
         .into_iter()
@@ -138,16 +119,13 @@ pub(crate) fn plain_anchors_of(html: &str) -> Vec<(String, String)> {
 /// by rewriting everything or by rewriting nothing.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Tally {
-    /// The new answer names the page the oracle named.
     pub unchanged: usize,
-    /// The new answer names a different page.
     pub relinked: usize,
     /// There is no new answer: no module matches the path, or several do.
     pub dropped: usize,
 }
 
 impl Tally {
-    /// Every source-path anchor seen, however it was answered.
     pub(crate) fn total(&self) -> usize {
         self.unchanged + self.relinked + self.dropped
     }
@@ -157,7 +135,7 @@ impl Tally {
 /// `answer`, which is given the path without its `.lean`.
 ///
 /// `Some(href)` replaces the anchor's href and `None` replaces the whole anchor
-/// with its text — which is exactly what `autoLinkInline` writes for a word that
+/// with its text — which is what `autoLinkInline` writes for a word that
 /// resolves to nothing. Every other anchor, and every byte between anchors, is
 /// copied.
 pub(crate) fn rewrite_source_path_anchors(
@@ -175,9 +153,9 @@ pub(crate) fn rewrite_source_path_anchors(
         };
         let (href, text) = (&after[..shut], &after[shut + 2..end]);
         let path = unescape(text);
-        // A source path is what `nameToLink?`'s first branch takes: `.lean` and
-        // a `/`. The anchor text is the word `splitAround` cut out, so it is the
-        // path itself.
+        // A source path is what `nameToLink?`'s first branch takes: `.lean`
+        // and a `/`. The anchor text is the word `splitAround` cut out, so it
+        // is the path itself.
         let Some(stem) = path.strip_suffix(".lean").filter(|p| p.contains('/')) else {
             out.push_str(&rest[..at + OPEN.len() + end + 4]);
             rest = &after[end + 4..];
@@ -186,8 +164,6 @@ pub(crate) fn rewrite_source_path_anchors(
         out.push_str(&rest[..at]);
         match answer(stem) {
             Some(link) => {
-                // Nothing in these corpora needs escaping in an href, and a
-                // corpus that did would need this helper to escape it.
                 assert!(
                     !link.contains(['&', '<', '>', '"']),
                     "{link} needs escaping"

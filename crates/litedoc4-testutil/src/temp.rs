@@ -4,19 +4,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-/// What separates the directories **one process** makes from one another; the
-/// process id separates concurrent test binaries. One counter for the whole
-/// crate rather than one per call site: two files that pick the same prefix
-/// still cannot collide.
+/// One counter for the whole crate rather than one per call site, so that two
+/// files picking the same prefix still cannot collide; the process id separates
+/// concurrent test binaries.
 static NEXT: AtomicU32 = AtomicU32::new(0);
 
 /// The temporary directories one test file makes, named after that file.
 ///
-/// The prefix is not decoration. A directory left behind by a run that died is
+/// The prefix is not decoration: a directory left behind by a run that died is
 /// traced back to whatever made it **by its name and nothing else**, and this
-/// workspace has filled a disk with untraced ones before (CLAUDE.md
-/// 「計測が終わったら作業ディレクトリを消す。掃除する主体を決めておく」). So each
-/// file binds its own:
+/// workspace has filled a disk with untraced ones before. So each file binds
+/// its own:
 ///
 /// ```
 /// use litedoc4_testutil::TempDirs;
@@ -28,23 +26,18 @@ static NEXT: AtomicU32 = AtomicU32::new(0);
 /// ```
 ///
 /// Binding it once per file is also what keeps the prefix out of the call
-/// signature. `TempDir::new(prefix, what)` would be two `&str` in a row, and
-/// swapping them is not something the compiler can see — the same weakness
-/// that got removed from three other signatures elsewhere in this workspace
-/// by replacing positional string/tuple pairs with named types.
+/// signature: `TempDir::new(prefix, what)` would be two `&str` in a row, and
+/// swapping them is not something the compiler can see.
 pub struct TempDirs {
     prefix: &'static str,
 }
 
 impl TempDirs {
-    /// The prefix every directory this makes carries.
     pub const fn prefixed(prefix: &'static str) -> Self {
         Self { prefix }
     }
 
     /// A unique, empty directory that **exists** on return.
-    ///
-    /// This is what thirteen of the fifteen call sites want.
     pub fn make(&self, what: &str) -> TempDir {
         let dir = self.reserve(what);
         fs::create_dir_all(&dir.path).expect("the temporary directory is creatable");
@@ -52,19 +45,15 @@ impl TempDirs {
     }
 
     /// A unique path that **nothing has made yet**, for the tests whose whole
-    /// subject is that the code under test creates the directory itself:
-    /// `litedoc4-render`'s `write_assets` ("the first write creates the
-    /// directory") and its `write_page` (a page under two directories that do
-    /// not exist).
+    /// subject is that the code under test creates the directory itself.
     ///
     /// Dropping it still removes the directory, if one came to exist.
     pub fn reserve(&self, what: &str) -> TempDir {
         // Non-alphanumerics become `-` so that the name cannot carry a
-        // separator, a quote or a space. A `/` would put the directory one
-        // level deeper than the path this value deletes, which leaks the level
-        // above it; `litedoc4/tests/extract.rs` writes the path into a shell
-        // script and says the fixture is not the thing that can break it. The
-        // truncation keeps a long test name from being the whole file name.
+        // separator, a quote or a space: a `/` would put the directory one
+        // level deeper than the path this value deletes, leaking the level
+        // above it, and `litedoc4/tests/extract.rs` writes the path into a
+        // shell script.
         let slug: String = what
             .chars()
             .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
@@ -85,25 +74,14 @@ impl TempDirs {
 /// when it goes out of scope — so a run that fails part way does not leave a
 /// tree of pages behind.
 ///
-/// WHY THIS IS HAND-ROLLED
-///   Not because the workspace has no other use for one. It had fifteen, spread
-///   over four crates, and this is the one they folded into. It is hand-rolled
-///   because `tempfile` would be an external crate, and an external crate is a
-///   licence and an advisory decision here even as a `dev-dependency` —
-///   `deny.toml`'s `[graph]` sets no `exclude-dev`. Against that cost, this is
-///   the whole implementation and nothing else in the tree has to stay equal
-///   to it — keeping the dependency count at zero is a deliberate choice, not
-///   an oversight.
+/// Hand-rolled rather than `tempfile` because an external crate is a licence
+/// and an advisory decision here even as a `dev-dependency`: `deny.toml`'s
+/// `[graph]` sets no `exclude-dev`.
 pub struct TempDir {
     path: PathBuf,
 }
 
 impl TempDir {
-    /// The directory.
-    ///
-    /// Borrowed rather than owned: the value holding this path is the one that
-    /// deletes it, so a caller able to replace the path would be able to move
-    /// the deletion somewhere else.
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -121,10 +99,8 @@ mod tests {
 
     const TEMP: TempDirs = TempDirs::prefixed("litedoc4-testutil");
 
-    /// The one thing this type promises. Without a test here the promise is
-    /// kept by fifteen — now zero — call sites noticing that their fixtures
-    /// piled up, which is not noticing at all: `Drop` returning without
-    /// removing anything leaves every other test in the workspace green.
+    /// `Drop` returning without removing anything leaves every other test in
+    /// the workspace green, so nothing but this would notice.
     #[test]
     fn the_directory_is_gone_when_the_value_is() {
         let path = {
@@ -143,8 +119,6 @@ mod tests {
         );
     }
 
-    /// `make` hands back a directory; `reserve` hands back a path. The two
-    /// differ in exactly one observable way and this is it.
     #[test]
     fn reserve_makes_nothing_and_make_makes_it() {
         let reserved = TEMP.reserve("reserved");
@@ -153,7 +127,6 @@ mod tests {
         assert!(made.path().is_dir(), "make did not create the directory");
     }
 
-    /// Two directories asked for under the same name are two directories.
     #[test]
     fn names_are_unique_within_a_process() {
         let first = TEMP.make("same");
@@ -161,8 +134,6 @@ mod tests {
         assert_ne!(first.path(), second.path());
     }
 
-    /// A name is a name, not a path: a `/` in it would put the directory a
-    /// level below the one `Drop` removes.
     #[test]
     fn a_separator_in_the_name_does_not_become_one_in_the_path() {
         let dir = TEMP.make("a/b c\"d");

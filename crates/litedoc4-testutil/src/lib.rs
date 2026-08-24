@@ -1,29 +1,19 @@
 //! Test helpers shared across the workspace.
 //!
-//! Nothing here is part of the program. Every crate that uses it names it as a
-//! `dev-dependency`, so it is absent from `cargo tree -p litedoc4 -e normal` —
-//! the tree `tools/provenance-gate.sh` derives NOTICE from — and absent from
-//! every released binary.
+//! Every crate that uses this names it as a `dev-dependency`, so it is absent
+//! from `cargo tree -p litedoc4 -e normal` — the tree `tools/provenance-gate.sh`
+//! derives NOTICE from — and absent from every released binary.
 //!
-//! WHY A CRATE AND NOT A `tests/common/mod.rs` PER CRATE
-//!   A `tests/common/mod.rs` is compiled into the integration test binaries of
-//!   its own crate and reaches nothing else. Five of the fifteen `TempDir`
-//!   copies this replaced sit in a `#[cfg(test)] mod tests` **inside `src/`** —
-//!   `litedoc4-incr/src/prune.rs`, `litedoc4/src/packages.rs` and
-//!   `litedoc4-render/src/{assets,config,site}.rs` — and a `tests/` file cannot
-//!   reach those at all. That, and not the line count, is what decided a crate.
+//! A `tests/common/mod.rs` per crate would not do: it is compiled into its own
+//! crate's integration test binaries and reaches nothing else, while several
+//! users of these helpers are `#[cfg(test)] mod tests` **inside `src/`**, which
+//! a `tests/` file cannot reach at all.
 //!
-//! WHY IT DEPENDS ON NOTHING
-//!   An external crate is a licence and an advisory decision here even as a
-//!   `dev-dependency` — `deny.toml`'s `[graph]` sets no `exclude-dev`. A
-//!   workspace member that is `publish = false` costs neither.
+//! It depends on nothing outside the workspace on purpose: `deny.toml`'s
+//! `[graph]` sets no `exclude-dev`, so an external crate is a licence and an
+//! advisory decision even as a `dev-dependency`. A `publish = false` workspace
+//! member costs neither.
 
-// `cli`, `corpus`, `hash`, `text` and `tree` are `pub mod` with no root
-// `pub use`: the root's re-exports carry only what another crate imports by
-// name and what has no other route. Call sites read `litedoc4_testutil::corpus::LITEDOC4_IR.path()`
-// and `litedoc4_testutil::text::show_ascii(..)`, which say where the variable
-// name and the escaping policy come from.
-//
 // **Plain comments and not doc comments**: an outer `///` on a `mod` line is
 // the first fragment of that module's documentation, and rustdoc then resolves
 // the whole of it — including the module's own `//!` header — against *this*
@@ -43,19 +33,15 @@ pub use temp::{TempDir, TempDirs};
 mod tests {
     use std::path::{Path, PathBuf};
 
-    /// **One inner `#![allow]` in the tree, and this is the one.**
-    ///
     /// `clippy::allow_attributes` — the lint that pushes every suppression
     /// towards `#[expect]`, which fails once the lint stops firing — **does not
-    /// look at the inner form**, while `allow_attributes_without_reason` does
-    /// 【実測 2026-08-23】. So a
-    /// `#![allow(…, reason = "…")]` can be written anywhere in the workspace
-    /// and `cargo clippy -- -D warnings` stays green: what `Cargo.toml`
-    /// enforces is that a suppression carries a reason, not that it expires.
+    /// look at the inner `#![allow]` form**, while `allow_attributes_without_reason`
+    /// does 【実測 2026-08-23】. A reasoned inner `#![allow]` can therefore be
+    /// written anywhere and `cargo clippy -- -D warnings` stays green.
     ///
-    /// Pinning the count is the whole guard. An allowlist of files would be the
-    /// "例外リストを持つ比較器" this repository refuses (CLAUDE.md), and a lint
-    /// cannot be made to fire. A number can only be raised on purpose.
+    /// Pinning the count is the whole guard: an allowlist of files would be the
+    /// "例外リストを持つ比較器" this repository refuses, and a lint cannot be
+    /// made to fire. A number can only be raised on purpose.
     #[test]
     fn the_tree_has_one_inner_allow_and_this_is_it() {
         let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -88,7 +74,6 @@ mod tests {
         );
     }
 
-    /// Every `*.rs` at or under `dir`.
     fn rust_sources_under(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
