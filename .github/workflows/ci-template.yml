@@ -196,10 +196,10 @@ jobs:
             echo "## litedoc4 build timings"
             cat docs-out/litedoc4-timings.json 2> /dev/null || echo "(none)"
             echo
-            echo "## the format transition, if the restored state predates 段 C"
+            echo "## the format transition, if the restored state predates the current format"
             cat onemod-log-1.txt 2> /dev/null || echo "(none)"
             echo
-            echo "## what a one-module edit cost in the steady state (段 C / 段 D)"
+            echo "## what a one-module edit cost in the steady state"
             cat onemod-log-2.txt 2> /dev/null || echo "(none)"
             echo
             echo "## litedoc4 build timings — the one-module run"

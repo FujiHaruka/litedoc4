@@ -193,7 +193,7 @@ grep -E '^(deps|external|source) ' "$OUT/build.log" || true
 # everything below would check zero links and pass: "0 dead links" is only worth
 # something next to "of how many".
 [ -f "$MAP" ] || {
-  echo "no resolved documentation map at $MAP — the build did not turn A-1 on" >&2
+  echo "no resolved documentation map at $MAP — the build did not pass --deps-docs-url" >&2
   KEEP=1
   exit 1; }
 

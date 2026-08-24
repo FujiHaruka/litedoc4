@@ -108,7 +108,7 @@ section("1b", "a GFM table with no body row — MD4Lean SIGABRTs (wrapper.c:389)
   }
 }
 
-section("2", "declaration names above the BMP (U1: UTF-16 order vs code point order)");
+section("2", "declaration names above the BMP (UTF-16 order vs code point order)");
 {
   const mapPath = `${SITE}/declarations/name-map.json`;
   const map = JSON.parse(readOr(mapPath, "{}"));
@@ -125,7 +125,7 @@ section("2", "declaration names above the BMP (U1: UTF-16 order vs code point or
     // U+FB00; by code point it is above. The two orders therefore disagree.
     const utf16First = a < b;
     console.log(
-      `  order               ${utf16First ? "«𝒜-z» first = UTF-16 code unit order (U1 honoured)" : "«ﬀ-z» first = code point / UTF-8 order (U1 NOT honoured)"}`,
+      `  order               ${utf16First ? "«𝒜-z» first = UTF-16 code unit order (the required order)" : "«ﬀ-z» first = code point / UTF-8 order (NOT the required order)"}`,
     );
     console.log(
       `  cross-check         JS .sort() puts ${["\u{1D49C}-z", "ﬀ-z"].sort()[0] === "\u{1D49C}-z" ? "«𝒜-z»" : "«ﬀ-z»"} first`,
@@ -170,7 +170,7 @@ section("3", "a heading containing U+2B96 (UnicodeBasic vs V8 heading-id table)"
   }
 }
 
-section("4", "a module name that needs «…» (M5-a trap 4)");
+section("4", "a module name that needs «…»");
 {
   const escaped = "Alpha.«Odd-Name»";
   const plain = "Alpha.Odd-Name";
@@ -194,7 +194,7 @@ section("4", "a module name that needs «…» (M5-a trap 4)");
   console.log(`  name-map owner      ${JSON.stringify(owner)}`);
 }
 
-section("5a", "_private. names (plan 決定 5)");
+section("5a", "_private. names");
 {
   const ir = readOr(`${IR}/modules/Alpha.Private.json`);
   const irPrivate = (ir.match(/_private\.[A-Za-z0-9_.«»]+/g) ?? []);
@@ -233,7 +233,7 @@ section("5b", "one declaration name in more than one module's IR");
   console.log(`  step* declarations  ${JSON.stringify(step)}`);
 }
 
-section("6", "U+088F inside a code span (V6: a separator for V8, not for UnicodeBasic)");
+section("6", "U+088F inside a code span (a separator for V8, not for UnicodeBasic)");
 {
   const state = JSON.parse(readOr(STATE, "{}"));
   const modules = state.modules ?? state.facts ?? {};

@@ -751,7 +751,7 @@ async function main() {
       console.log(`  mono platform fonts: ${families || "none reported"}`);
       if (measured.offWidth.length) {
         console.log(
-          `  mono off-width (accepted by 決定 2): ${
+          `  mono off-width (accepted): ${
             measured.offWidth.slice(0, 40).join("")
           }`,
         );
