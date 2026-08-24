@@ -1,19 +1,13 @@
 /**
- * The three data files as they are on the wire, and the shape the index reader
- * builds out of `search-index.bin`.
- *
- * The one-letter field names are `litedoc4_global::artifacts`'s: every module
- * carries them and the file is fetched by every page, so they were shortened
- * where it is read most and spelled out nowhere else.
+ * The one-letter field names are `litedoc4_global::artifacts`'s — every module
+ * carries them and the file is fetched by every page. `n` is the module name,
+ * `p` its page relative to the site root, `i` the subscripts of the modules
+ * that import it.
  */
 
-/** One module in `modules.json`. */
 export interface ModuleEntry {
-  /** Its name — `Foo.Bar`. */
   readonly n: string;
-  /** Its page, relative to the site root. */
   readonly p: string;
-  /** Subscripts, into the same array, of the modules that import it. */
   readonly i?: readonly number[];
 }
 
@@ -21,16 +15,13 @@ export interface ModulesFile {
   readonly modules: readonly ModuleEntry[];
 }
 
-/** The two maps of `instances.json`, keyed by declaration name. */
+/** Keyed by declaration name. */
 export interface InstancesFile {
   readonly instances?: Readonly<Record<string, readonly string[]>>;
   readonly instancesFor?: Readonly<Record<string, readonly string[]>>;
 }
 
 /**
- * `declarations/used-by.json`: for each declaration this package documents,
- * the declarations of this package that mention it.
- *
  * A name with no users is **absent**, not an empty array — the file is the
  * largest of the four and 81% of the target package's declarations have no
  * users 【実測 2026-08-22】.
@@ -38,12 +29,10 @@ export interface InstancesFile {
 export type UsedByFile = Readonly<Record<string, readonly string[]>>;
 
 /**
- * What the previous query matched, in file order.
- *
- * Kept so that a query extending it can be answered from these rather than from
- * another walk of the whole name section — see `search`. The names are folded
- * copies, because the buffer they were folded into is written over by the next
- * declaration.
+ * What the previous query matched, in file order, so that a query extending it
+ * is answered from these rather than from another walk of the name section.
+ * The names are folded copies: the buffer they were folded into is written
+ * over by the next declaration.
  */
 export interface Narrow {
   readonly query: string;
@@ -53,11 +42,9 @@ export interface Narrow {
 }
 
 /**
- * `search-index.bin`, read in place.
- *
- * The header and the two small tables are decoded once; **the names stay in the
- * buffer** and are decoded per query. The layout is
- * `crates/litedoc4-global/src/search_index.rs`.
+ * `search-index.bin`, read in place: the header and the two small tables are
+ * decoded once, **the names stay in the buffer** and are decoded per query.
+ * The layout is `crates/litedoc4-global/src/search_index.rs`.
  */
 export interface SearchIndex {
   readonly bytes: Uint8Array;
@@ -77,21 +64,19 @@ export interface SearchIndex {
   /** The names ASCII folding is wrong for, by subscript. Usually empty. */
   readonly folds: Map<number, Uint8Array>;
 
-  /** The previous query and what it matched. Mutated by every search. */
   narrow: Narrow | null;
 
   /**
-   * Scored in place: allocated once per page rather than once per keystroke,
-   * and sized to what they hold rather than to a machine word. Three
-   * `Int32Array`s cost **55 KiB of the 156 KiB** the index took in Chrome
-   * 【実測 2026-08-19】, against a file of 106 KiB.
+   * Scored in place: allocated once per page, and sized to what they hold
+   * rather than to a machine word. Three `Int32Array`s cost **55 KiB of the
+   * 156 KiB** the index took in Chrome 【実測 2026-08-19】, against a file of
+   * 106 KiB.
    */
   readonly score: Uint16Array;
   readonly length: Uint16Array;
   readonly id: Uint16Array | Uint32Array;
 }
 
-/** What every result row needs: the index, and the modules it points into. */
 export interface SearchData {
   readonly modules: readonly ModuleEntry[];
   readonly index: SearchIndex;

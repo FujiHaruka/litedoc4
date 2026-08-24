@@ -84,8 +84,8 @@ doc-gen4・計測対象リポジトリがすべて Apache-2.0 なので、揃え
 
 | パス | 規模 | doc-gen4 側 |
 |---|---|---|
-| `extractor/Extract.lean` の 15 箇所 (`isProjFn` `isBlackListed` `tagAttributes` `inlineAttrString` `externEntryString` `externAttrString` `deprecationString` `getTags` `getAllAttributes` `getInstanceTypes` `getInstPriority` `getDefaultInstanceAttr` `getFieldOrigin` `mkTacticOut` / `Core.Context` の 4 options) | **計 約 112 行** (ファイル 2,995 行の 3.7%) | `Process/{DocInfo,Attributes,InstanceInfo,StructureInfo,Analyze}.lean`, `Load.lean:30-42` |
-| `crates/litedoc4-render/assets/style.css:320-325` (`.fn`) / `:346-347` (`.break_within`) | **8 行** | `static/style.css:608-615` / `:664-670` |
+| `extractor/Extract.lean` の 15 箇所 (`isProjFn` `isBlackListed` `tagAttributes` `inlineAttrString` `externEntryString` `externAttrString` `deprecationString` `getTags` `getAllAttributes` `getInstanceTypes` `getInstPriority` `getDefaultInstanceAttr` `getFieldOrigin` `mkTacticOut` / `Core.Context` の 4 options) | **計 約 112 行** (ファイル 3,174 行の 3.5%) | `Process/{DocInfo,Attributes,InstanceInfo,StructureInfo,Analyze}.lean`, `Load.lean:30-42` |
+| `crates/litedoc4-render/assets/style.css` の `.fn` と `.break_within` | **8 行** | `static/style.css:608-615` / `:664-670` |
 | `crates/litedoc4-md/tests/data/docgen4-expected.json`, `crates/litedoc4-render/tests/data/docgen4-linked-expected.json` | **371,488 B** | doc-gen4 の**出力**。ソースではない |
 | `benchmarks/doc-gen4-instrumentation.patch` | 全 441 行のうち **context 187 行が doc-gen4 のソース逐語** (Apache ヘッダ行を含む) | `Load.lean` `Output.lean` `Process/Analyze.lean` `Main.lean` を改変 + `Timing.lean` 新設 |
 

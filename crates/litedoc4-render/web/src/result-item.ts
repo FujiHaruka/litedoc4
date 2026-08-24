@@ -1,4 +1,3 @@
-/** One result row — the same markup in the dropdown, on `search.html` and on `404.html`. */
 import { kindAt, moduleAt, nameAt } from "./index-format.js";
 import { url } from "./site.js";
 import type { SearchData } from "./types.js";

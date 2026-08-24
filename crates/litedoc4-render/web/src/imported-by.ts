@@ -1,9 +1,7 @@
-/** The "Imported by" block: a fact about the whole package, not this page. */
 import { modules } from "./data.js";
 import { MODULE, url } from "./site.js";
 import type { ModuleEntry } from "./types.js";
 
-/** The ` 12` after a summary. Shared with nothing — the instance blocks count differently. */
 export function countBadge(n: number): HTMLSpanElement {
   const span = document.createElement("span");
   span.className = "count";
@@ -20,9 +18,8 @@ export async function initImportedBy(): Promise<void> {
     .map((i) => data?.modules[i])
     .filter((m): m is ModuleEntry => m !== undefined);
   if (names.length === 0) {
-    // Nothing in this package imports it. Dropping the whole block is safe
-    // here — this runs before the reader has had a chance to reach for it,
-    // unlike the instance blocks.
+    // Dropping the whole block is safe here — this runs before the reader can
+    // reach for it, unlike the instance blocks.
     host.remove();
     return;
   }

@@ -1,10 +1,7 @@
 /**
- * The module tree, which is the one piece of the sidebar that is a fact about
- * the whole package rather than about the page it is on.
- *
  * These run against happy-dom, which is not a browser: it answers "did this
  * build the elements it says it does". Whether the result is *readable* at
- * 375 px is `tools/browser-gate.sh`'s question and cannot be asked here.
+ * 375 px is `tools/browser-gate.sh`'s question.
  */
 import { describe, expect, it } from "vitest";
 import { nest, treeHtml } from "../src/tree.js";
@@ -22,8 +19,7 @@ describe("nest", () => {
   });
 
   it("lets a name be a page and a parent at once", () => {
-    // The case `<details>`/`<summary>` cannot express: `A` is a page, and it
-    // also has children.
+    // The case `<details>`/`<summary>` cannot express.
     const root = nest(mods("A", "A.B"));
     const a = root.children.get("A");
     expect(a?.page?.n).toBe("A");
@@ -31,7 +27,6 @@ describe("nest", () => {
   });
 
   it("makes a node for a name no module has", () => {
-    // `A.B` was never compiled; it is still a level of the tree.
     const root = nest(mods("A.B.C"));
     expect(root.children.get("A")?.page).toBeUndefined();
   });

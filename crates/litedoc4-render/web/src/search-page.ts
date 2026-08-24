@@ -1,16 +1,13 @@
 /**
  * `search.html`: the same index, rendered into the page instead of a dropdown.
- *
- * There is no second input — the one in the top bar is the input, seeded from
- * `?q=` so a submitted form and a typed query land in the same place. Two boxes
- * on a search page is a question about which one is real.
+ * There is no second input — the one in the top bar is it, seeded from `?q=`
+ * so a submitted form and a typed query land in the same place.
  */
 import { searchData } from "./data.js";
 import { resultItem } from "./result-item.js";
 import { search } from "./search.js";
 
 const DEBOUNCE_MS = 90;
-/** Past this the list stops being a list and starts being the index again. */
 const MAX_ROWS = 200;
 
 export function initSearchPage(): void {

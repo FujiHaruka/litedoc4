@@ -1,24 +1,17 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write
 // gen-v8-gc-table.ts -- write `src/v8_gc.rs` from V8's own `\p{Z}\p{C}`.
 //
-// WHY THIS FILE EXISTS
-// --------------------
 // The frozen prototype's `autolinkTokens` splits code spans on V8's
-// `/[\p{Z}\p{C}]/u` (`experiments/stage7h/global.ts:120`); the renderer — and
-// therefore `litedoc4_md::gc` — splits on UnicodeBasic's `Z | C`. The two are
-// **not** the same set: they disagree on 4,803 code points, all of them in one
-// direction (V8 separates, UnicodeBasic does not) 【実測 2026-08-12 →
-// benchmarks/results/m2b-v6-token-separators.json】.
-//
-// The map delta's tokeniser splits on the **union** of the two, which is what
-// this table is for (plan §8, V6). It is generated rather than written because
-// the alternative is a hand-copied UCD, which is the mistake
-// `gen-gc-table.ts` exists to avoid on the other side.
+// `/[\p{Z}\p{C}]/u`; the renderer — and therefore `litedoc4_md::gc` — splits on
+// UnicodeBasic's `Z | C`, and the two disagree on 4,803 code points, all in one
+// direction 【実測 2026-08-12 → benchmarks/results/m2b-v6-token-separators.json】.
+// The map delta's tokeniser splits on the **union**, which is what this table
+// is for; it is generated because the alternative is a hand-copied UCD.
 //
 // This is *a* V8's answer, not *the* V8's: the set is pinned to the runtime
 // recorded in the generated header. Every code point the two tables disagree on
-// is unassigned in the older of the two UCDs, so a different V8 moves this table
-// only over code points that no text can contain a meaning for.
+// is unassigned in the older of the two UCDs, so a different V8 moves this
+// table only over code points no text can contain a meaning for.
 //
 // npm/node are broken in this environment; this must run under deno.
 //

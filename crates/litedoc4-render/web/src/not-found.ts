@@ -1,10 +1,7 @@
 /**
- * `404.html`: says what was asked for and offers the nearest declarations.
- *
- * The guess is the fragment when there is one (`…/Foo.html#Bar.baz` — the page
- * moved but the reader knows the name) and otherwise the file name with its
- * path separators read back as dots, which is exactly how a module page's URL
- * is built.
+ * `404.html`: says what was asked for and offers the nearest declarations. The
+ * guess is the fragment when there is one — the page moved but the reader knows
+ * the name — and otherwise the file name with its separators read back as dots.
  */
 import { searchData } from "./data.js";
 import { resultItem } from "./result-item.js";

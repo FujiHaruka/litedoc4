@@ -42,8 +42,6 @@ describe("nameAt", () => {
   });
 
   it("decodes one name without reading the ones before its block", () => {
-    // The point of the restart table: the 20th name is reachable without
-    // walking the 19 in front of it.
     const index = freshIndex();
     const id = 20;
     expect(nameAt(index, id)).toBe(EXPECTED.names[id]);
@@ -61,11 +59,9 @@ describe("kindAt / moduleAt", () => {
 });
 
 describe("utf16Length", () => {
-  /**
-   * The regression the browser gate caught on 2026-08-19: a character above the
-   * BMP is **two** UTF-16 units, and the score is `2000 - length`, so counting
-   * it once moves the name up one place.
-   */
+  /** A character above the BMP is **two** UTF-16 units and the score is
+   * `2000 - length`, so counting it once moves the name up one place
+   * 【実測 2026-08-19, browser gate】. */
   it("counts what String.prototype.length counts", () => {
     for (const name of EXPECTED.names) {
       const bytes = ENCODER.encode(name);

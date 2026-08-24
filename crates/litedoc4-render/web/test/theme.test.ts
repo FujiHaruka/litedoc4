@@ -1,7 +1,3 @@
-/**
- * The theme toggle. The *boot* half — the synchronous script that sets
- * `data-theme` before the first paint — is in `frame.rs` and is not this.
- */
 import { beforeEach, describe, expect, it } from "vitest";
 import { initTheme } from "../src/theme.js";
 
@@ -30,8 +26,7 @@ describe("initTheme", () => {
   });
 
   it("ignores a stored value that is not a theme", () => {
-    // Anything can be in localStorage; a site on the same origin, an older
-    // version of this file, a reader with the console open.
+    // Anything can be in localStorage; the origin is shared.
     localStorage.setItem(KEY, "chartreuse");
     initTheme();
     expect(document.documentElement.dataset.theme).toBeUndefined();
@@ -50,8 +45,7 @@ describe("initTheme", () => {
   });
 
   it("still applies the theme when storage throws", () => {
-    // Private mode: the choice does not survive the page, and that is the only
-    // thing that should go wrong.
+    // Private mode: only the storing should go wrong.
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = () => {
       throw new Error("QuotaExceededError");

@@ -1,5 +1,3 @@
-/** Two behaviours that belong to no block in particular. */
-
 /** `?jump=src#Name` lands on the declaration's source instead of its entry. */
 export function jumpToSource(): void {
   if (new URLSearchParams(location.search).get("jump") !== "src") return;

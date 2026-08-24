@@ -1,4 +1,3 @@
-/** The narrow-viewport navigation drawer. */
 import { body } from "./site.js";
 
 export function initDrawer(): void {
@@ -18,8 +17,7 @@ export function initDrawer(): void {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && body.dataset.nav === "open") set(false);
   });
-  // A tap on a link inside the drawer navigates; leaving it open would cover
-  // the page it just went to.
+  // A tap on a link navigates; leaving the drawer open would cover the page.
   document.getElementById("sidebar")?.addEventListener("click", (e) => {
     if ((e.target as Element | null)?.closest("a")) set(false);
   });

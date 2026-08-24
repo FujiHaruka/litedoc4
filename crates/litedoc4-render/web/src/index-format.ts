@@ -1,32 +1,19 @@
 /**
  * `search-index.bin`, read in place: the page holds the file, not a parsed copy
- * of it.
- *
- * The layout is `crates/litedoc4-global/src/search_index.rs`. In short, the
+ * of it. The layout is `crates/litedoc4-global/src/search_index.rs`, and the
  * JSON this replaces cost 860 KiB of JS heap for a 405,402 B file
- * 【実測 → `benchmarks/results/search-design-2026-08-19.txt`】; this costs the
- * file.
+ * 【実測 → `benchmarks/results/search-design-2026-08-19.txt`】.
  *
- * **The ranking is unchanged** — three tiers, same order, same numbers as the
- * version that scored JS strings. That is deliberate: an index that also ranked
- * differently could not be held against the old one, and `tools/search-gate.sh`
- * is exactly that comparison.
- *
- * # A note on `!`
- *
- * `tsconfig.json` sets `noUncheckedIndexedAccess`, which is right for the map
- * and array lookups everywhere else in this tree and wrong here: every read
- * below is at an offset the format guarantees, and `bytes[at] | undefined` has
- * no failure to describe — a truncated file fails the header check in
- * [`readIndex`] and never reaches these walks. So the byte reads assert, and
- * `biome.json` allows the assertion in this file and in `search.ts` only.
+ * `tsconfig.json`'s `noUncheckedIndexedAccess` is wrong here: every byte read
+ * below is at an offset the format guarantees, and a truncated file fails the
+ * header check in `readIndex` and never reaches these walks. So the reads
+ * assert, and `biome.json` allows that in this file and in `search.ts` only.
  */
 import { room, scratch } from "./scratch.js";
 import type { SearchIndex } from "./types.js";
 
 const MAGIC = 0x53_34_44_4c; // "LD4S" read little-endian
 const VERSION = 2;
-/** The smallest file a valid header can occupy. */
 const HEADER = 52;
 
 export const TEXT = new TextDecoder();
@@ -37,7 +24,6 @@ export const DOT = 46;
 export const FOLD = new Uint8Array(256);
 for (let i = 0; i < 256; i++) FOLD[i] = i >= 65 && i <= 90 ? i + 32 : i;
 
-/** Reads the header and the two small tables; the names stay in the buffer. */
 export function readIndex(bytes: Uint8Array): SearchIndex | null {
   const u32 = (at: number): number =>
     // biome-ignore lint/style/noNonNullAssertion: offsets the format guarantees
@@ -73,8 +59,7 @@ export function readIndex(bytes: Uint8Array): SearchIndex | null {
   }
 
   // The names `toLowerCase()` does something to that adding 32 to `A`-`Z` does
-  // not — `Γ` and its like. Empty for every package measured so far, which is
-  // why the scan below asks whether the map is empty before consulting it.
+  // not — `Γ` and its like. Empty for every package measured so far.
   const foldsAt = u32(44);
   at = foldsAt + 4;
   for (let i = 0, n = u32(foldsAt); i < n; i++) {
@@ -86,13 +71,10 @@ export function readIndex(bytes: Uint8Array): SearchIndex | null {
 }
 
 /**
- * UTF-16 length, which is what the scoring counts (`String.prototype.length`).
- *
- * **Not the code point count.** A character above the BMP is one code point and
- * **two** UTF-16 units, so a 4-byte UTF-8 sequence counts twice — U1 again. The
- * browser gate caught this ranking `Micro.script𝒜` above `Micro.usesDep`
- * 【実測 2026-08-19】: both are prefix matches, and the score is
- * `2000 - length`, so one unit of length is one place in the list.
+ * UTF-16 length, which is what the scoring counts (`String.prototype.length`)
+ * and **not** the code point count: a character above the BMP is two units, so
+ * a 4-byte UTF-8 sequence counts twice. The score is `2000 - length`, so one
+ * unit is one place in the list 【実測 2026-08-19, browser gate】.
  */
 export function utf16Length(bytes: Uint8Array, from: number, to: number): number {
   let n = 0;
@@ -104,7 +86,6 @@ export function utf16Length(bytes: Uint8Array, from: number, to: number): number
   return n;
 }
 
-/** The declaration at `id`, decoded from the start of its restart block. */
 export function nameAt(index: SearchIndex, id: number): string {
   const bytes = index.bytes;
   const block = Math.floor(id / index.restart);
@@ -139,23 +120,18 @@ export function nameAt(index: SearchIndex, id: number): string {
   return TEXT.decode(out.subarray(0, end));
 }
 
-/** The badge label for `id`, or `""` if the file names a kind it has no label for. */
 export const kindAt = (index: SearchIndex, id: number): string =>
   // biome-ignore lint/style/noNonNullAssertion: one kind byte per declaration
   index.labels[index.bytes[index.kindOf + id]!] ?? "";
 
-/** The subscript, into `modules.json`'s array, of the module `id` is declared in. */
+/** The subscript, into `modules.json`'s array, of `id`'s module. */
 export const moduleAt = (index: SearchIndex, id: number): number =>
   // biome-ignore lint/style/noNonNullAssertion: one u16 per declaration
   index.bytes[index.moduleOf + id * 2]! | (index.bytes[index.moduleOf + id * 2 + 1]! << 8);
 
 /**
- * Where each of `names` is, as one walk of the index.
- *
- * The names come from `instances.json` and are exact, so this is equality
- * rather than scoring — but it is the same walk, for the same reason: front
- * coding is read forwards, and a lookup per name would read the section once
- * per name.
+ * Where each of `names` is, as one walk of the index: front coding is read
+ * forwards, so a lookup per name would read the section once per name.
  */
 export function findNames(index: SearchIndex, names: readonly string[]): Map<string, number> {
   const wanted = new Set(names);

@@ -1,10 +1,7 @@
 /**
- * The theme toggle.
- *
- * The *boot* half is `theme-boot.ts`, a second bundle that `frame.rs` inlines
- * into `<head>`: it sets `data-theme` before the first paint, because this
- * module is deferred and a theme applied after paint is a flash of the wrong
- * one. The names the two share are in `theme-key.ts`.
+ * The theme toggle. The *boot* half is `theme-boot.ts`, which `frame.rs`
+ * inlines into `<head>` so that `data-theme` is set before the first paint;
+ * this module is deferred.
  */
 
 import { THEME_KEY, THEMES, type Theme } from "./theme-key.js";
