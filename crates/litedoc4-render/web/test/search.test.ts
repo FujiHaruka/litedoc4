@@ -8,7 +8,6 @@ import { freshIndex } from "./fixture.js";
 const hits = (index: SearchIndex, query: string): string[] =>
   search(index, query).map((id) => nameAt(index, id));
 
-/** A name as the walk would have folded it, for calling `scoreBytes` directly. */
 const fold = (s: string): Uint8Array => {
   const bytes = ENCODER.encode(s);
   // biome-ignore lint/style/noNonNullAssertion: FOLD has all 256 entries
@@ -40,7 +39,6 @@ describe("scoreBytes", () => {
   it("does not match a subsequence", () => {
     const name = fold("pkg.a.l");
     const score = scoreBytes(name, name.length, name.length, ENCODER.encode("al"), 2);
-    // `a` and `l` both occur, in order, and are still not a match.
     expect(score).toBe(-1);
   });
 
@@ -55,7 +53,6 @@ describe("scoreBytes", () => {
 
 describe("search", () => {
   it("puts the shortest last-component prefix first", () => {
-    // Both are last-component prefixes; `3000 - length` puts the shorter first.
     expect(hits(freshIndex(), "al")).toEqual(["Pkg.alpha", "Pkg.alphabet"]);
   });
 
@@ -74,10 +71,9 @@ describe("search", () => {
   });
 
   /**
-   * The astral regression, in the arithmetic that caused it: the score is
-   * `3000 - utf16Length(last component)`, and `𝒜` is one code point, two
-   * UTF-16 units and four UTF-8 bytes. Counting bytes or code points instead
-   * moves the name — the browser gate saw it move【実測 2026-08-19】.
+   * `𝒜` is one code point, two UTF-16 units and four UTF-8 bytes, and the score
+   * is `3000 - utf16Length(last component)`: counting bytes or code points
+   * instead moves the name 【実測 2026-08-19, browser gate】.
    */
   it("scores an astral character as two units, not one and not four", () => {
     const q = ENCODER.encode("scr");
@@ -92,12 +88,8 @@ describe("search", () => {
 
 describe("the narrowed walk", () => {
   /**
-   * **The whole reason narrowing is safe**: all three tiers require the query
-   * to occur in the folded name, so a longer query can only shrink the set.
-   * Typed one character at a time has to land on the same list as a cold walk.
-   *
-   * The browser gate checks this against a real site; this checks it against
-   * every prefix of every query, which the gate cannot afford to.
+   * The browser gate checks narrowing against a real site; this checks it
+   * against every prefix of every query, which the gate cannot afford to.
    */
   for (const query of ["alphabet", "pkg.block.n1", "γamma", "nodot", "xxx"]) {
     it(`agrees with a cold walk while typing "${query}"`, () => {
@@ -112,8 +104,7 @@ describe("the narrowed walk", () => {
   it("does not reuse a cache the query does not extend", () => {
     const index = freshIndex();
     hits(index, "alpha");
-    // `b` is not an extension of `alpha`; answering it from that cache would
-    // return nothing at all.
+    // `b` does not extend `alpha`; from that cache it would return nothing.
     expect(hits(index, "b")).toEqual(hits(freshIndex(), "b"));
   });
 

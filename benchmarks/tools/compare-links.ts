@@ -3,20 +3,18 @@
 // `--allow-write` is only used by `--mismatches`, `--allow-env` only to read
 // TARGET_REPO. Nothing is ever written to the measurement target.
 //
-// Diffs the constants litedoc4 collects from a signature (stage 3, `--refs`)
-// against the links doc-gen4 actually put in its HTML, the same way
-// `compare-modules.py` diffs the per-module collection against doc-gen4's
-// database.
+// Diffs the constants litedoc4 collects from a signature (`--refs`) against the
+// links doc-gen4 actually put in its HTML, the same way `compare-modules.py`
+// diffs the per-module collection against doc-gen4's database.
 //
-// The point of the comparison is stage 3's criterion (a): "links into Mathlib
-// are correct", i.e. litedoc4 must reach the same targets doc-gen4 does. Note
-// the direction: doc-gen4's HTML holds the *resolved* subset -- a constant whose
-// name is not in `name2ModIdx` renders as `<span class="fn">` with no `href` --
-// so the expected result is `html ⊆ refs`, not equality. A name in `html` that
-// is missing from `refs` is a real defect; the other direction is the material
-// increment 3 has to classify.
+// The criterion is "links into Mathlib are correct", i.e. litedoc4 must reach the
+// same targets doc-gen4 does. Note the direction: doc-gen4's HTML holds the
+// *resolved* subset -- a constant whose name is not in `name2ModIdx` renders as
+// `<span class="fn">` with no `href` -- so the expected result is `html ⊆ refs`,
+// not equality. A name in `html` that is missing from `refs` is a real defect;
+// the other direction is the material section 5 classifies.
 //
-// Increment 1 compared *sets of names*. Increment 3 (`--decls`) drops to
+// With `--decls` the comparison drops from *sets of names* to
 // **(declaration, reference) pairs** and compares the generated `href` **string**
 // with doc-gen4's, because "we reach the same names" is weaker than "we emit the
 // same URL". Two URL strategies are generated and scored separately:
@@ -24,7 +22,7 @@
 //   A. env      the defining module from `refs.jsonl` (Lean's `getModuleIdxFor?`,
 //               which is what doc-gen4's `name2ModIdx` is) + the path rule
 //   B. map      the `docLink` of `declaration-data.bmp`, i.e. no environment at
-//               all on the dependency side -- the thing stage 3 is testing
+//               all on the dependency side -- the thing under test
 //
 // The path rule, read off `DocGen4/Output/Base.lean` (`getRoot`,
 // `moduleNameToLink`, `declNameToLink`) and confirmed against the HTML:
@@ -39,11 +37,13 @@
 //                    [--mismatches <out.jsonl>] [--cap N] [--legacy-blocks]
 //
 //   <refs.jsonl>   output of `experiments/stage3/run.sh ... -- --refs --dump-refs`
+//                  (tag `experiments-frozen`)
 //   --doc <dir>    doc-gen4's HTML for the package, default
 //                  $TARGET_REPO/.lake/build/doc/InformationTheory
 //   --modules      the target module list, default benchmarks/results/it-modules.txt
-//   --decls        per-declaration dump (`--dump`), enables the increment-3
-//                  per-pair URL comparison. 7 MB, so it is not committed:
+//   --decls        per-declaration dump (`--dump`), enables the per-pair URL
+//                  comparison. 7 MB, so it is not committed; the writer below
+//                  only exists at tag `experiments-frozen`:
 //                  MODULES=$PWD/benchmarks/results/it-modules.txt RESULTS_DIR=<dir> \
 //                    ./experiments/stage3/run.sh stage3-decls -- \
 //                    --equations --refs --dump <dir>/stage3-decls-dump.jsonl
@@ -53,7 +53,7 @@
 //                  $TARGET_REPO/.lake/build/doc (read only, to check anchors)
 //   --mismatches   write the classified mismatches here as JSONL
 //   --cap          per-class cap for that file (default 20)
-//   --legacy-blocks  restore increment 1's block regexes (see below)
+//   --legacy-blocks  match structure fields as `li.structure_field` (see below)
 //
 // Which HTML blocks count as "the signature" is the load-bearing choice here:
 // a page's links also come from the docstring, the import list and the
@@ -64,8 +64,7 @@
 //   ul.equations                the equation lemmas of a definition
 //   div.structure_field_info    field types rendered inside their parent
 //                               structure (`li.structure_field` under
-//                               `--legacy-blocks`, which is what increment 1
-//                               used -- see the note next to SOURCES)
+//                               `--legacy-blocks` -- see the note by SOURCES)
 //
 // Blocks are delimited by walking tags with a depth counter, because they nest.
 // Every such block is then attributed to the `div.decl` block that contains it;
@@ -120,15 +119,14 @@ function blocks(html: string, open: RegExp, tag: string): [number, number, strin
 }
 
 const HREF = /<a\b[^>]*href="([^"]+)"/g;
-// Increment 1 matched structure fields as `<li class="structure_field...">`.
 // `DocGen4/Output/Structure.lean:fieldToHtml` emits `<li id={name}
 // class="structure_field">` for a *direct* field and drops the `id` only in one
-// branch of the inherited case, so that regex saw 4 of the 157 field blocks in
-// this corpus. Matching `div.structure_field_info` instead is both
-// order-independent and tighter: it is exactly the field's signature, without
-// the sibling `div.structure_field_doc`, which is a docstring and out of scope.
-// `--legacy-blocks` restores increment 1's regexes so its numbers stay
-// reproducible from this tool.
+// branch of the inherited case, so matching fields as `<li class="structure_
+// field...">` saw 4 of the 157 field blocks in this corpus. Matching
+// `div.structure_field_info` instead is both order-independent and tighter: it is
+// exactly the field's signature, without the sibling `div.structure_field_doc`,
+// which is a docstring and out of scope. `--legacy-blocks` restores the `li` form
+// so the numbers taken with it stay reproducible from this tool.
 const legacyBlocks = args.includes("--legacy-blocks");
 const SOURCES: [RegExp, string, string][] = [
   [/<div class="decl_header"[^>]*>/, "div", "decl_header"],
@@ -161,7 +159,6 @@ function parseHref(href: string): { module: string; name: string } | null {
   return { module: path.replaceAll("/", "."), name: href.slice(hash + 1) };
 }
 
-/** The three parts of a doc-gen4 declaration link, or null if it is not one. */
 function splitHref(href: string): { prefix: string; path: string; anchor: string } | null {
   const m = /^((?:\.\.\/)*\.\/)(.*)\.html#(.*)$/.exec(href);
   return m ? { prefix: m[1], path: m[2], anchor: m[3] } : null;
@@ -175,7 +172,6 @@ const perSource = new Map<string, Set<string>>();
 const htmlModules = new Set<string>();
 let occurrences = 0;
 
-// Increment 3: the same links, attributed to the `div.decl` they sit in.
 type Target = { href: string; count: number; variants: Set<string> };
 const htmlPairs = new Map<string, Map<string, Target>>(); // decl id -> anchor -> target
 const declPage = new Map<string, string>(); // decl id -> module of the page it is on
@@ -310,10 +306,6 @@ if (listMissing) {
   for (const n of extra) console.log(`extra   ${n}`);
 }
 
-// ---------------------------------------------------------------------------
-// Increment 3: (declaration, reference) pairs and the generated URL string
-// ---------------------------------------------------------------------------
-
 if (!DECLS) Deno.exit(0);
 
 type Decl = { name: string; module: string; refs: string[]; members: { label: string; name: string }[] };
@@ -355,7 +347,6 @@ for (const e of outsideExamples) console.log(`      e.g. ${e}`);
 console.log(`  in HTML, missing from litedoc4       ${perDeclMissing.length}`);
 if (lostNames.length) console.log(`  lost names: ${lostNames.slice(0, 10).join(" ")}`);
 
-// --- population ------------------------------------------------------------
 // The comparison can only speak about declarations that exist on both sides.
 const population = decls.filter((d) => htmlPairs.has(d.name));
 const dumpOnly = decls.filter((d) => !htmlPairs.has(d.name));
@@ -405,7 +396,6 @@ console.log(`    (the rest are refs of the member's own *signature*, which the p
 console.log(`     block does not render -- what matters is that section 4 stays at 0.)`);
 if (htmlOnlyDecls.length) console.log(`  e.g. div.decl with no record: ${htmlOnlyDecls.slice(0, 5).join(" ")}`);
 
-// page module of the dump vs page the HTML actually put the declaration on
 let pageDisagree = 0;
 const pageDisagreeEx: string[] = [];
 for (const d of population) {
@@ -417,7 +407,6 @@ for (const d of population) {
 console.log(`  page module disagreements            ${pageDisagree}`);
 for (const e of pageDisagreeEx) console.log(`      ${e}`);
 
-// --- pairs -----------------------------------------------------------------
 // NUL separator: Lean names can contain spaces (notation such as `«term_ + _»`).
 const SEP = "\u0000";
 const key = (d: string, n: string) => d + SEP + n;
@@ -463,7 +452,6 @@ console.log(
   }`,
 );
 
-// --- URL generation and exact-string comparison ----------------------------
 type Row = {
   cls: string;
   strategy: string;
@@ -568,7 +556,6 @@ for (const s of ["A", "B"] as const) {
   }
 }
 
-// --- 4. pairs the HTML has and litedoc4 does not ---------------------------
 // doc-gen4 does not always link the constant it was given: `findLinkableParent`
 // (DocGen4/Output/Base.lean) strips trailing components until the remainder is
 // in `name2ModIdx`, so the anchor can be an ancestor of the collected name.
@@ -595,15 +582,15 @@ for (const [c, n] of [...htmlOnlyClass].sort((a, b) => b[1] - a[1])) {
   for (const e of htmlOnlyEx.get(c) ?? []) console.log(`        ${e}`);
 }
 
-// --- 5. pairs litedoc4 has and the HTML does not ---------------------------
-// Two independent questions are asked about these, and mixing them is how this
-// section would start lying:
+// Two independent questions are asked about the pairs of section 5, and mixing
+// them is how that section would start lying:
 //
 //   (i)  *why* is there no <a> -- a mechanism, only claimed when it is provable
 //        from the name or from what this tool itself dropped;
 //   (ii) *would it be a dead link* -- does the page the URL points at exist and
-//        does it carry that anchor. This is the retreat-line material, and it is
-//        reported over every pair litedoc4 has, not just these.
+//        does it carry that anchor. This is what a decision to back out of the
+//        map would rest on, so it is reported over every pair litedoc4 has, not
+//        just these.
 //
 // The tempting third class, "doc-gen4 linked an ancestor of it instead", is
 // deliberately not a class: an ancestor anchor being present in the same block
@@ -626,7 +613,6 @@ async function anchors(module: string): Promise<Set<string> | null> {
   return ids;
 }
 
-/** live | dead | unbuilt | no-module, for the URL litedoc4 would emit. */
 type Fate = "live" | "dead" | "unbuilt" | "no-module";
 const fateCache = new Map<string, Fate>();
 async function fate(ref: string): Promise<Fate> {
@@ -688,7 +674,6 @@ for (const [c, n] of [...leanOnlyClass].sort((a, b) => b[1] - a[1])) {
 console.log(`   note: of the "no <a> at all" pairs, ${num(ancestorPresent)} have an ancestor of the name`);
 console.log(`   anchored in the same block. Suggestive of findLinkableParent, not proof.`);
 
-// (ii) dead-link exposure: what happens if litedoc4 emits every link it can.
 console.log();
 console.log("5b. dead-link exposure -- would the URL litedoc4 emits resolve?");
 console.log("    (anchor = any id= on the target page. Pages absent from this 42%-cut");

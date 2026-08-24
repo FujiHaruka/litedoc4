@@ -2,7 +2,7 @@
 # Tabulate a placement A/B run. Reads only what the runs left behind; it makes
 # no claim `check-placement.sh` has not already checked.
 #
-# WHAT THE COLUMNS ARE
+# The columns:
 #   import   the environment load — the extractor server's `ready <ns>` line.
 #            **This is the number the placement claim is about**; everything
 #            else in a documentation build is CPU work that placement cannot
@@ -13,17 +13,16 @@
 #   major    major page faults, from `/usr/bin/time -v` — how much of the import
 #            actually came off the disk.
 #
-# HOW TO READ IT, AND THE ONE TRAP
-#   Only **r1** of each arm is a placement measurement: r2.. ran with the cache
-#   the run before them warmed. The honest comparison is therefore
+# Only **r1** of each arm is a placement measurement: r2.. ran with the cache the
+# run before them warmed. The honest comparison is therefore
 #
-#     across arms   same-r1 vs split-r1        <- the placement, one pair
-#     within an arm r1 vs rN                   <- that runner's own cold penalty
+#   across arms   same-r1 vs split-r1        <- the placement, one pair
+#   within an arm r1 vs rN                   <- that runner's own cold penalty
 #
-#   and the second one exists because the first is confounded: the two arms are
-#   on two runner instances by construction, and `ubuntu-latest` instances differ
-#   by up to 2.19x on pure CPU work with no relation to their I/O speed 【実測】.
-#   The per-runner calibrator in `env-before.txt` says whether that happened.
+# and the second one exists because the first is confounded: the two arms are on
+# two runner instances by construction, and `ubuntu-latest` instances differ by up
+# to 2.19x on pure CPU work with no relation to their I/O speed 【実測】. The
+# per-runner calibrator in `env-before.txt` says whether that happened.
 #
 # usage:
 #   summarize-placement.sh <results-dir> [<arms-dir>]
@@ -32,7 +31,7 @@ set -euo pipefail
 DIR="${1:-results}"
 ARMS="${2:-}"
 
-field () { # field <file> <jq-path>
+field () {
   [ -s "$1" ] && jq -r "$2 // empty" "$1" 2> /dev/null || true
 }
 
@@ -42,7 +41,7 @@ field () { # field <file> <jq-path>
 # — printing a header and no table, which is what this helper exists to stop.
 # (`/usr/bin/time -l` on BSD reports none of these labels, so a local dry run
 # takes that path every time.)
-last_number () { # last_number <file> <grep-pattern>
+last_number () {
   [ -s "$1" ] || return 0
   { grep -o "$2" "$1" 2> /dev/null || true; } | head -1 | { grep -o '[0-9]\{1,\}$' || true; }
 }
@@ -75,8 +74,6 @@ for t in "$DIR"/timings-*.json; do
     "$( [ -s "$dg" ] && cut -c1-16 < "$dg" || echo '?')"
 done
 
-# ------------------------------------------------------------------ the ratios
-#
 # Printed only for pairs where both arms' r1 exist. A missing half prints the
 # pair and no number rather than a ratio against nothing.
 echo
@@ -89,7 +86,7 @@ pairs="$(for t in "$DIR"/timings-*-p*r1.json; do
   b="$(basename "$t" .json)"; echo "${b##*-p}" | sed 's/r1$//'
 done | sort -un || true)"
 
-import_of () { # import_of <arm> <pair>
+import_of () {
   local log="$DIR/time-$1-p$2r1.txt" ns
   ns="$( (grep -o 'ready [0-9]\{1,\}' "$log" 2> /dev/null || true) | head -1 | cut -d' ' -f2)"
   awk -v n="${ns:-}" 'BEGIN{ if (n == "") print ""; else printf "%.3f", n/1e9 }'
@@ -123,7 +120,6 @@ for t in "$DIR"/timings-*r1.json; do
     "$(awk -v a="${a:-0}" -v b="${z:-0}" 'BEGIN{ if (b+0 == 0) print "-"; else printf "%.2fx", a/b }')"
 done
 
-# ------------------------------------------------------------------ conditions
 if [ -n "$ARMS" ] && [ -d "$ARMS" ]; then
   echo
   echo "## conditions, per runner (the calibrator is what says the two arms are comparable)"

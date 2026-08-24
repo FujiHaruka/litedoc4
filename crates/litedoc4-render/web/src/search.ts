@@ -1,20 +1,10 @@
 /**
  * The two ways into the index, both producing the same ranked list.
  *
- * [`search`] decodes, folds and scores in one pass, into buffers that outlive
- * the call — nothing is allocated per declaration, where the version this
- * replaces allocated two strings each, 9,168 per keystroke on the measured
- * package【実測】.
- *
- * [`searchNarrowed`] is the other way. **All three tiers require the query to
- * occur in the folded name**, so typing one more character can only shrink the
- * hit set, and a query that extends the previous one is answered from what the
- * previous one matched. Typing five representative words costs 48.2% of the
- * candidates it would rescanning【実測 2026-08-19】. The browser gate types a
- * query one character at a time rather than pasting it, because a narrowing
- * that is wrong is only wrong on the second keystroke.
- *
- * The `!` convention is `index-format.ts`'s — same reason, same two files.
+ * **All three tiers require the query to occur in the folded name**, so typing
+ * one more character can only shrink the hit set: a query that extends the
+ * previous one is answered from what the previous one matched, which touches
+ * 48.2% of the candidates a rescan would 【実測 2026-08-19】.
  */
 import { DOT, ENCODER, FOLD, utf16Length } from "./index-format.js";
 import { NARROW_MAX, rank, scoreBytes } from "./score.js";
@@ -56,9 +46,8 @@ export function search(index: SearchIndex, query: string): number[] {
     const end = shared + len;
 
     // The last `.`, maintained rather than searched for: it is in the suffix,
-    // or it is the previous name's and still inside the shared prefix, or the
-    // prefix has to be walked back — which only happens when a name loses a
-    // component its predecessor had.
+    // or in the shared prefix from the previous name, or the prefix has to be
+    // walked back — which only happens when a name loses a component.
     let dot = -1;
     for (let k = end - 1; k >= shared; k--)
       if (folded[k] === DOT) {
@@ -77,9 +66,8 @@ export function search(index: SearchIndex, query: string): number[] {
     lastDot = dot;
 
     // A name ASCII folding is wrong for is matched against its own bytes, and
-    // `folded` is left alone: the next name's shared prefix is in it.
-    // Widened from `folded`: a fold exception is a subarray of the file, whose
-    // buffer type is not the one `new Uint8Array` gives.
+    // `folded` is left alone: the next name's shared prefix is in it. Widened
+    // because a fold exception is a subarray of the file, not a `new Uint8Array`.
     let name: Uint8Array = folded;
     let nameEnd = end;
     let lastStart = dot + 1;
@@ -112,13 +100,11 @@ export function search(index: SearchIndex, query: string): number[] {
       hits++;
     }
   }
-  // In file order, so that the tie-break by position survives into the next
-  // keystroke. Dropped when the set is too big to be worth carrying.
+  // In file order, so the tie-break by position survives the next keystroke.
   index.narrow = hits <= NARROW_MAX ? { query, ...kept } : null;
   return rank(index, hits);
 }
 
-/** The same scoring, over what the shorter query matched. */
 function searchNarrowed(
   index: SearchIndex,
   narrow: Narrow,

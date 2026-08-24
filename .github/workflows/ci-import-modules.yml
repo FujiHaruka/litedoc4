@@ -1,48 +1,40 @@
-# Measures the number the CI axis is actually missing: how long `importModules`
-# takes on `ubuntu-latest`, at the moment documentation generation would really run.
+# How long `importModules` takes on `ubuntu-latest`, at the moment documentation
+# generation would really run.
 #
-# WHAT THE PREVIOUS WORKFLOW LEFT OPEN (ci-olean-residency.yml)
-#   It measured *residency* right after `lake exe cache get` (62.4%, n=1) and said so:
-#   residency is a proxy, not a time, and "which 62.4%" was unknown. This workflow
-#   measures the time directly, and answers "which" via major page faults — if the
-#   resident set covers what the import actually reads, major faults stay near zero.
+# ci-olean-residency.yml measures *residency* right after `lake exe cache get`
+# (62.4%, n=1); residency is a proxy, not a time, and it does not say which
+# 62.4%. This measures the time directly and answers "which" via major page
+# faults: if the resident set covers what the import reads, major faults stay
+# near zero.
 #
-# WHY THE MEASUREMENT POINT MOVED
-#   Real CI runs `cache get` -> `lake build` -> doc generation. The page cache at
-#   doc-generation time is therefore the state *after a full build*, not after
-#   `cache get`. Measuring right after `cache get` answers a question no pipeline
-#   ever asks. Both points are snapshotted here so the two are comparable.
+# The measurement point is after `lake build`, not after `cache get`, because
+# real CI runs `cache get` -> `lake build` -> doc generation, so the page cache
+# at doc-generation time is the state after a full build. Both points are
+# snapshotted so the two stay comparable.
 #
-# THE BRACKET
-#   Runner page cache can be dropped (`sudo drop_caches`), so cold and warm are
-#   measured on the SAME hardware in the SAME session — CLAUDE.md forbids comparing
-#   a cold number from one machine with a warm number from another.
+# The bracket, on the SAME hardware in the SAME session (runner page cache can be
+# dropped with `sudo drop_caches`), because a cold number from one machine and a
+# warm number from another are not comparable:
 #
 #   after-build  : what CI would actually pay
 #   warm x N     : the floor on this hardware
 #   cold x N     : the ceiling on this hardware (cache dropped)
 #
-# COMPARABILITY
-#   The target is pinned by commit so the module list committed in this repo
-#   (benchmarks/results/it-modules.txt, 432 modules) matches the checkout. Local
-#   macOS numbers for the same list: importModules warm 2.49-2.59s, cold 14.96/15.66s.
+# The target is pinned by commit so the module list committed here
+# (benchmarks/results/it-modules.txt, 432 modules) matches the checkout. Local
+# macOS numbers for the same list: importModules warm 2.49-2.59s, cold
+# 14.96/15.66s.
 #
-# WHY IT IS `workflow_dispatch` ONLY
-#   It is a measurement, not a check. It must never run on a push.
+# `workflow_dispatch` only: it is a measurement, not a check, and must never run
+# on a push.
 #
-# THE EXTRACTOR WAS SWAPPED, AND THIS WORKFLOW HAS NOT RUN SINCE
-#   Until 2026-08-16 the steps below built and ran `experiments/stage4b`, the
-#   frozen prototype extractor (IR schema 3). `experiments/` was removed, so they
-#   now build and run `extractor/` (IR schema 4) instead. The CLI shape is
-#   identical — `extract <modules.txt> <out.jsonl> [flags]` — but **schema 4 does
-#   more analysis after the import**, so this workflow no longer measures the same
-#   thing it did before.
-#
-#   **The swap is UNVERIFIED: the workflow has not been run once since.**
-#
-#   **Do not put a number produced after the swap next to a recorded stage4b
-#   number.** Anything already in `benchmarks/results/` was measured with schema 3
-#   and is not comparable; a new baseline has to be taken on this side of the swap.
+# The extractor was swapped and this workflow has not run since — the swap is
+# UNVERIFIED. The steps below now build and run `extractor/` (IR schema 4); the
+# numbers already in `benchmarks/results/` came from the frozen prototype
+# extractor (IR schema 3, tag `experiments-frozen`). The CLI shape is identical
+# — `extract <modules.txt> <out.jsonl> [flags]` — but schema 4 does more analysis
+# after the import, so a number from this side of the swap must not be put next
+# to one from the other. A new baseline has to be taken.
 name: CI importModules (measurement)
 
 on:
@@ -63,18 +55,16 @@ on:
 
 concurrency:
   # `cancel-in-progress: false`: a double dispatch queues instead of killing the
-  # run already measuring. Losing a 40-minute measurement to a stray click is
-  # worse than waiting for it.
+  # run already measuring.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   import-modules:
     runs-on: ubuntu-latest
-    # GitHub terminates any job at 6 h, so 330 left half an hour to tell
-    # "this hung" apart from "GitHub gave up" — not enough to read a red
-    # run by. Measured at the default inputs: 39 min. Raising `warm_runs` /
-    # `cold_runs` scales this, hence the 4.6x margin rather than 2x.
+    # GitHub terminates any job at 6 h, so a timeout close to that cannot tell
+    # "this hung" from "GitHub gave up". 39 min at the default inputs, and
+    # `warm_runs` / `cold_runs` scale it — hence a 4.6x margin, not 2x.
     timeout-minutes: 180
     steps:
       - name: Check out litedoc4 (the measurement tools)
@@ -131,9 +121,8 @@ jobs:
           ./olean-residency < olean-paths.txt > residency-after-cache-get.jsonl
           grep -E '^(MemTotal|MemFree|MemAvailable|Cached)' /proc/meminfo > meminfo-after-cache-get.txt
 
-      # The extractor lives outside the target and borrows its environment through
-      # `lake env` (see extractor/build.sh). It is built before `lake build`
-      # so that the build below is the last thing to touch the cache before run 1.
+      # Built before `lake build` so that the build is the last thing to touch
+      # the page cache before run 1.
       - name: Build the extractor
         env:
           TARGET_REPO: ${{ github.workspace }}/target
@@ -152,11 +141,9 @@ jobs:
           grep -E '^(MemTotal|MemFree|MemAvailable|Cached)' /proc/meminfo > meminfo-after-lake-build.txt
           df -h / | tail -1
 
-      # ---------------------------------------------------------------------------
-      # The measurement. Each run records the extractor's own phase timings (JSONL,
-      # `*.importModules` in microseconds) and the kernel's view (`/usr/bin/time -v`
-      # gives major faults — the direct answer to "which 62.4%").
-      # ---------------------------------------------------------------------------
+      # Each run records the extractor's own phase timings (JSONL,
+      # `*.importModules` in microseconds) and the kernel's view: `/usr/bin/time
+      # -v` gives major faults, the direct answer to "which 62.4%".
       - name: Run 1 — immediately after the build (what CI would actually pay)
         working-directory: target
         env:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gate UI-2: resolve every relative href a generated site emits and count the dead ones.
+"""Resolve every relative href a generated site emits and count the dead ones.
 
 A link into the site is dead when the file it names is not in the tree. That is a
 question the tree answers by itself — no network, no oracle — which is why this
@@ -13,11 +13,10 @@ protocol-relative ones are not this check's subject and are counted separately.
 A query string and a fragment are stripped before the file is looked up, and a
 href ending in `/` is read as that directory's `index.html`.
 
-**Source paths are reported on their own** (`--paths`), because they are where
-gate UI-2's dead links came from: doc-gen4 turns a docstring word like
-`EPI/Stam/ToBridge.lean` into a page by reading it as relative to the repository
-root, and a package whose docstrings write module-relative paths gets a link to a
-page nobody wrote.
+Source paths are reported on their own (`--paths`), because they are where dead
+links come from: doc-gen4 turns a docstring word like `EPI/Stam/ToBridge.lean`
+into a page by reading it as relative to the repository root, so a package whose
+docstrings write module-relative paths gets a link to a page nobody wrote.
 
 Usage:
   check-dead-links.py <site dir> [<site dir> ...] [--show N] [--paths]
@@ -37,7 +36,6 @@ EXTERNAL = ("http://", "https://", "mailto:", "//")
 
 
 def read_tree(root):
-    """Every file under `root`, as site-relative paths."""
     files = set()
     for dirpath, _, names in os.walk(root):
         for name in names:

@@ -118,7 +118,7 @@ require_own_oleans () {
   strings "$probe" 2>/dev/null > "$dump" || true
   grep -q "$CLONE" "$dump" || {
     echo "the clone's oleans were not built at the clone's path — run" >&2
-    echo "tools/rebuild-own.sh first (stage 5e (e))" >&2; exit 2; }
+    echo "tools/rebuild-own.sh first" >&2; exit 2; }
   grep -q "$TARGET_REPO_BASELINE/" "$dump" && {
     echo "the clone's oleans still name the measurement target's path" >&2; exit 2; }
   true
@@ -204,14 +204,14 @@ phase_gate1 () {
   # The reference is `litedoc4 site` without `--root`, so it writes relative
   # links into dependencies; `build` resolves a package root and writes
   # version-pinned blob URLs. The two differ by design.
-  echo "  gate1-site: NOT RUN — the reference predates M7-c and differs by design."
+  echo "  gate1-site: NOT RUN — the reference predates the dependency link map and differs by design."
   echo "              The same property is checked by tools/e2e-micro.sh."
   compare gate1-ir "$OUT/base/ir" "$REF_IR" "$(files_in "$REF_IR")"
   # The other half of "it derived the same question": the order makes the
   # ledger's and the merged index.json's bytes.
   "$DIFF" "$OUT/base/work/modules.txt" "$REF_MODULES" > "$OUT/gate1-modules.diff" \
-    && echo "  module list: identical to M3-d4's ($(nlines "$REF_MODULES") modules)" \
-    || { echo "  module list DIFFERS from M3-d4's" >&2; exit 3; }
+    && echo "  module list: identical to the recorded reference's ($(nlines "$REF_MODULES") modules)" \
+    || { echo "  module list DIFFERS from the recorded reference's" >&2; exit 3; }
 }
 
 phase_gate2 () {

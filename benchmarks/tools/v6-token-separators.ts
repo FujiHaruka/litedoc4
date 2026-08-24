@@ -1,22 +1,18 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write
-// v6-token-separators.ts -- measure verification item V6 (plan §8).
+// V6: the two `autolinkTokens` separator sets.
 //
-// WHY THIS FILE EXISTS
-// --------------------
 // `autolinkTokens` splits the inside of a code span on a separator set. The
-// frozen prototype (`experiments/stage7h/global.ts:120`) uses **V8's**
-// `/[\p{Z}\p{C}]/u`; the Rust port uses **UnicodeBasic's** `Z | C`, because that
-// is the table the renderer's `autoLinkInline` splits on. The tokens are the
-// filter in front of the whole-package map delta, so a code point that is a
-// separator for one table and not the other is a place where the two
-// implementations disagree about which modules are stale.
+// prototype used **V8's** `/[\p{Z}\p{C}]/u`; the Rust port uses
+// **UnicodeBasic's** `Z | C`, because that is the table the renderer's
+// `autoLinkInline` splits on. The tokens are the filter in front of the
+// whole-package map delta, so a code point that is a separator for one table and
+// not the other is a place where the two implementations disagree about which
+// modules are stale.
 //
-// This script measures the disagreement rather than believing it:
-//
-//   1. the symmetric difference of the two sets, per direction, over the whole
-//      code point space (0..=0x10FFFF);
-//   2. how many of those code points actually occur **inside a code span** in
-//      the target package's declaration docstrings.
+// This script measures the disagreement rather than believing it: the symmetric
+// difference of the two sets, per direction, over the whole code point space
+// (0..=0x10FFFF), and how many of those code points actually occur **inside a
+// code span** in the target package's declaration docstrings.
 //
 // V8's answer is taken from this runtime. UnicodeBasic's is read out of
 // `crates/litedoc4-md/src/gc.rs`, which is generated from the build doc-gen4
@@ -43,9 +39,6 @@ const flag = (name: string, fallback: string) => {
 const irRoot = flag("--ir", DEFAULT_IR);
 const outPath = flag("--out", DEFAULT_OUT);
 
-// ------------------------------------------------- UnicodeBasic's Z | C table
-
-/** The `Z_C` ranges of the generated `gc.rs`, as a membership predicate. */
 function readUnicodeBasicZC(source: string): (cp: number) => boolean {
   const at = source.indexOf("static Z_C:");
   if (at < 0) throw new Error("gc.rs has no Z_C table");
@@ -66,14 +59,9 @@ function readUnicodeBasicZC(source: string): (cp: number) => boolean {
 const gcSource = await Deno.readTextFile(GC_RS);
 const isUnicodeBasicZC = readUnicodeBasicZC(gcSource);
 
-// ------------------------------------------------------------ V8's \p{Z}\p{C}
-
 const V8_ZC = /[\p{Z}\p{C}]/u;
 const isV8ZC = (cp: number) => V8_ZC.test(String.fromCodePoint(cp));
 
-// --------------------------------------------------- the symmetric difference
-
-/** Code points one table calls a separator and the other does not. */
 const v8Only: number[] = [];
 const unicodeBasicOnly: number[] = [];
 let v8Total = 0;
@@ -89,7 +77,6 @@ for (let cp = 0; cp <= 0x10ffff; cp++) {
   (a ? v8Only : unicodeBasicOnly).push(cp);
 }
 
-/** `[lo, hi]` runs of a sorted code point list, for a log a human can read. */
 function toRanges(points: number[]): [number, number][] {
   const out: [number, number][] = [];
   for (const cp of points) {
@@ -102,9 +89,6 @@ function toRanges(points: number[]): [number, number][] {
 
 const disagreeing = new Set([...v8Only, ...unicodeBasicOnly]);
 
-// ------------------------------------------- occurrences in the target package
-
-/** The prototype's own two regexes (`global.ts:119-123`). */
 const CODE_SPAN = /`([^`\n]+)`/g;
 
 interface Occurrence {
@@ -144,8 +128,6 @@ for (const entry of index.modules) {
     }
   }
 }
-
-// ------------------------------------------------------------------- the log
 
 const hex = (cp: number) => `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
 const record = {

@@ -1,9 +1,7 @@
-/** The search box in the top bar, and its dropdown. */
 import { searchData } from "./data.js";
 import { resultItem } from "./result-item.js";
 import { search } from "./search.js";
 
-/** How long after the last keystroke the walk runs. */
 const DEBOUNCE_MS = 90;
 /** The dropdown is a peek, not the result list; `search.html` is that. */
 const MAX_ROWS = 30;
@@ -83,8 +81,7 @@ export function initSearch(): void {
     if (!(e.target as Element | null)?.closest(".search")) close();
   });
 
-  // `/` focuses search, the way every documentation site with a search box
-  // does — but not while the reader is typing somewhere else.
+  // `/` focuses search — but not while the reader is typing somewhere else.
   document.addEventListener("keydown", (e) => {
     const tag = document.activeElement?.tagName;
     if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA") {

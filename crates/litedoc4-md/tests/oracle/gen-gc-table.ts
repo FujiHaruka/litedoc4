@@ -1,16 +1,11 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write --allow-run --allow-env
 // gen-gc-table.ts -- write `src/gc.rs` from UnicodeBasic's own answers.
 //
-// WHY THIS FILE EXISTS
-// --------------------
-// `mdGetHeadingId` splits heading text on Unicode `P | Z | C` and
-// `autoLinkInline` splits code on `Z | C`; doc-gen4 gets both classifications
-// from `UnicodeBasic`, whose character database is pinned by the target
-// package's `lake-manifest.json`. Any other copy of the UCD is a different
-// answer: V8's `\p{P}\p{Z}\p{C}` and this one disagree on 4,802 code points
-// 【実測 2026-08-11】, all of them assignments one table has and the other does
-// not. So the ranges are dumped from the build doc-gen4 links, by
-// `dump-gc.lean`, and written here as Rust.
+// doc-gen4 classifies on `UnicodeBasic`, whose character database is pinned by
+// the target package's `lake-manifest.json`. Any other copy of the UCD is a
+// different answer: V8's `\p{P}\p{Z}\p{C}` and this one disagree on 4,802 code
+// points 【実測 2026-08-11】. So the ranges are dumped by `dump-gc.lean` from
+// the build doc-gen4 links, and written here as Rust.
 //
 // npm/node are broken in this environment; this must run under deno.
 //

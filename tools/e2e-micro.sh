@@ -627,7 +627,7 @@ for name in claimed:
         before.append(f"{name} at {positions[name][1:]} sorts before {origin} at {positions[origin][1:]}")
 if before:
     problems.append(
-        "a realized declaration sorts before its origin, which B-0 §6 measured "
+        "a realized declaration sorts before its origin, which was measured "
         "as 0 on both samples: " + "; ".join(before[:3])
     )
 

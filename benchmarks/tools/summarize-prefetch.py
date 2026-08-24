@@ -4,8 +4,8 @@ benchmarks/results/ci-prefetch-summary.txt quotes.
 
 Reports median [min-max] per configuration rather than a mean: with 5 repetitions a
 single scheduling hiccup moves a mean more than it moves the claim being tested, and
-the acceptance criterion for play 2 is stated on distributions ("the five runs must not
-overlap the baseline"), which needs min and max anyway.
+the acceptance criterion is stated on distributions ("the five runs must not overlap
+the baseline"), which needs min and max anyway.
 
 usage:
   summarize-prefetch.py <events.jsonl> [--variants|--prefetch|--vm]

@@ -34,7 +34,6 @@ trap 'rm -rf "$TMP"' EXIT
 [ -d "$SRC" ] || { echo "no mathlib checkout at $SRC" >&2; exit 1; }
 [ -d "$DD" ]  || { echo "no doc-data at $DD" >&2; exit 1; }
 
-# ---- conditions -------------------------------------------------------------
 {
   echo "date (UTC)          : $(date -u +'%Y-%m-%d %H:%M:%S')"
   echo "base                : $BASE"
@@ -52,7 +51,6 @@ trap 'rm -rf "$TMP"' EXIT
 } > "$ENV_LOG"
 cat "$ENV_LOG"
 
-# ---- (0) hosting: is any version other than the live one reachable? ---------
 {
   echo "# candidate version-pinned paths under the doc site"
   for p in v4.31.0 4.31.0 versions archive v4.33.0 4.33.0; do
@@ -70,7 +68,6 @@ cat "$ENV_LOG"
 } > "$HOST_LOG" 2>&1
 cat "$HOST_LOG"
 
-# ---- (1) module level -------------------------------------------------------
 find "$SRC" -name '*.lean' | sed "s|^$SRC/||; s|\.lean$||" | sort \
   | awk -v s="$STRIDE" 'NR % s == 1' > "$TMP/modules.txt"
 echo "== module level: $(wc -l < "$TMP/modules.txt" | tr -d ' ') sampled"
@@ -84,8 +81,6 @@ export BASE
 xargs -P "$JOBS" -I{} bash -c 'check_module "$@"' _ {} < "$TMP/modules.txt" | sort > "$MOD_LOG"
 awk '{print $1}' "$MOD_LOG" | sort | uniq -c
 
-# ---- (2) anchor level -------------------------------------------------------
-# live modules for which the pinned build left a declaration-data file
 grep '^200' "$MOD_LOG" | sed 's|^200 Mathlib/||; s|\.html$||' | tr '/' '.' > "$TMP/live.txt"
 : > "$TMP/probe.txt"
 while IFS= read -r m; do

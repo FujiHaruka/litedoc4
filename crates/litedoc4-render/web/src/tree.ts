@@ -1,4 +1,3 @@
-/** The module tree in the sidebar, drawn from `modules.json`. */
 import { modules } from "./data.js";
 import { MODULE, url } from "./site.js";
 import type { ModuleEntry } from "./types.js";
@@ -9,7 +8,6 @@ export interface TreeNode {
   page?: ModuleEntry;
 }
 
-/** Nests the flat module list on its dot-separated components. */
 export function nest(list: readonly ModuleEntry[]): TreeNode {
   const rootNode: TreeNode = { children: new Map() };
   for (const m of list) {
@@ -28,15 +26,10 @@ export function nest(list: readonly ModuleEntry[]): TreeNode {
 }
 
 /**
- * One `<ul>` per level.
- *
- * **Not `<details>`/`<summary>`**, which is the obvious spelling and the wrong
- * one here: a module can be both a page and a parent (`Foo` and `Foo.Bar` both
- * exist), so its row has to carry a link *and* a disclosure. Put the link inside
- * a `<summary>` and clicking it both navigates and toggles — the toggle is the
- * summary's activation behaviour, not something a handler on the link can call
- * off. A button next to the link keeps the two targets apart, which is also what
- * a reader expects from a file tree.
+ * **Not `<details>`/`<summary>`**, the obvious spelling: a module can be both a
+ * page and a parent, so its row has to carry a link *and* a disclosure, and a
+ * link inside a `<summary>` both navigates and toggles — the toggle is the
+ * summary's activation behaviour, not something a handler can call off.
  */
 export function treeHtml(node: TreeNode, prefix: string, here: string): HTMLUListElement {
   const ul = document.createElement("ul");

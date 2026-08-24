@@ -2,30 +2,16 @@
 // gen-md4lean-expected.ts -- produce the expected trees for `tests/md4lean.rs`
 // by running *MD4Lean itself*.
 //
-// WHY THIS FILE EXISTS
-// --------------------
-// doc-gen4 renders whatever `MD4Lean.parse` returns. `crates/litedoc4-md`
-// claims to build the same tree by driving the same md4c with the same flags
-// and the same callback logic. An expected value written by reading
-// `MD4Lean/wrapper/wrapper.c` would prove nothing -- the reading and the port
-// would share whatever mistake was made. So the expected trees come from Lean:
-// `dump-ast.lean` runs `MD4Lean.parse` in the measurement target's own
-// environment and prints the tree in the encoding `tests/md4lean.rs` rebuilds.
+// An expected value written by reading `MD4Lean/wrapper/wrapper.c` would prove
+// nothing -- the reading and the port would share whatever mistake was made. So
+// the trees come from Lean: `dump-ast.lean` runs `MD4Lean.parse` in the
+// measurement target's own environment and prints the tree in the encoding
+// `tests/md4lean.rs` rebuilds.
 //
-// THE CORPUS IS REAL DATA
-// -----------------------
-// Every docstring in the target package's IR (declarations, module docs,
-// structure fields, tactics), deduplicated. Hand-written cases are prepended,
-// not substituted: they exist to reach the corners the package happens not to
-// contain (wiki links, underline, images with titles, ...), and they are
-// answered by MD4Lean too.
-//
-// SOME INPUTS CRASH MD4LEAN
-// -------------------------
-// A NUL inside a fenced code block segfaults it, and a GFM table with a header
-// and no body rows aborts it (see `CRASHERS`). The runner below finds them by
-// resuming after each crash, records them separately, and keeps them out of
-// the expected set -- a crash is not an oracle.
+// The corpus is every docstring in that package's IR, deduplicated, with the
+// hand-written cases prepended rather than substituted -- those are answered by
+// MD4Lean too. Some inputs kill it (see `CRASHERS`); the runner resumes after
+// each crash and records them separately, because a crash is not an oracle.
 //
 // npm/node are broken in this environment; this must run under deno.
 //
@@ -42,15 +28,9 @@ const DUMPER = new URL("dump-ast.lean", import.meta.url);
 const DEFAULT_TARGET = "/Users/haruka/dev/lean-projects";
 const DEFAULT_IR = "/private/tmp/lean-doc-relay/w7h/base-ir";
 
-/** How many cases the committed fixture aims for. See `selectCases`. */
 const FIXTURE_TARGET = 500;
 
-// ------------------------------------------------------------ hand-written
-
-/**
- * Corners the package's own docstrings do not reach. Each is answered by
- * MD4Lean like every other case; none of them is an expectation written here.
- */
+/** Corners the package's docstrings do not reach. Answered by MD4Lean too. */
 const CURATED: [string, string][] = [
   ["empty", ""],
   ["blank lines only", "\n\n \n\t\n"],
@@ -161,13 +141,10 @@ const DIALECT_GITHUB = F.PERMISSIVEURLAUTOLINKS | F.PERMISSIVEEMAILAUTOLINKS |
 const DOCSTRING_FLAGS = DIALECT_GITHUB | F.LATEXMATHSPANS | F.NOHTMLBLOCKS | F.NOHTMLSPANS;
 
 /**
- * Cases parsed with something other than the docstring dialect.
- *
- * Three constructors of the AST -- `html`, `u`, `wikiLink` -- cannot occur
- * under `DOCSTRING_FLAGS`, so without these the code that builds them would
- * never run and would never be checked against MD4Lean. Turning the flag on
- * for a handful of inputs keeps the oracle rather than moving those branches
- * to hand-written expectations.
+ * `html`, `u` and `wikiLink` cannot occur under `DOCSTRING_FLAGS`, so without
+ * these the code that builds them would never be checked against MD4Lean.
+ * Turning the flag on for a handful of inputs keeps the oracle rather than
+ * moving those branches to hand-written expectations.
  */
 const DIALECTS: [string, number, string][] = [
   ["underline on", DOCSTRING_FLAGS | F.UNDERLINE, "_underlined_ and *em*\n"],
@@ -181,13 +158,10 @@ const DIALECTS: [string, number, string][] = [
 ];
 
 /**
- * The inputs that make MD4Lean die. They are recorded, never expected;
- * `tests/md4lean.rs` asserts only that this crate survives them.
- *
- * The first two are reachable from the docstring dialect. The third is not --
- * inline raw HTML puts a bare `String` where `Block.p` expects an
- * `Array Text` -- and is listed because it is the same class of bug and
- * because this crate does have to produce something for that shape.
+ * Recorded, never expected: `tests/md4lean.rs` asserts only that this crate
+ * survives them. The third is not reachable from the docstring dialect --
+ * inline raw HTML puts a bare `String` where `Block.p` expects an `Array Text`
+ * -- and is listed because this crate must still produce something for it.
  */
 const CRASHERS: [string, number, string, string][] = [
   ["nul in a fenced code block", DOCSTRING_FLAGS, "```\na\u0000b\n```\n", "SIGSEGV"],
@@ -199,8 +173,6 @@ const CRASHERS: [string, number, string, string][] = [
     "exit 1",
   ],
 ];
-
-// ------------------------------------------------------------------- corpus
 
 type Case = { what: string; md: string; flags: number };
 
@@ -237,8 +209,6 @@ async function corpusFromIr(ir: string): Promise<Case[]> {
   return cases;
 }
 
-// ---------------------------------------------------------------- the oracle
-
 const DYLIB = Deno.build.os === "darwin" ? "dylib" : "so";
 const MD4LEAN_LIBS = [
   `.lake/packages/MD4Lean/.lake/build/lib/libleanmd4c.${DYLIB}`,
@@ -247,10 +217,8 @@ const MD4LEAN_LIBS = [
 
 /**
  * Runs `dump-ast.lean` over `cases`, resuming past any input that kills it.
- *
- * `lake env` has to run inside the target package (that is what supplies
- * Lean, Mathlib and the built MD4Lean); nothing is written there -- both file
- * arguments are in `work`.
+ * `lake env` has to run inside the target package -- that is what supplies
+ * Lean, Mathlib and the built MD4Lean -- and nothing is written there.
  */
 async function runOracle(
   target: string,
@@ -317,13 +285,10 @@ async function runOracle(
   return answers;
 }
 
-// ---------------------------------------------------------------- selection
-
 /**
- * What shape a tree has, as a string: which constructors appear anywhere in
- * it, plus how deep it goes. Two docstrings with the same signature exercise
- * the same branches of the builder, so keeping one of each is what makes a
- * sample worth as much as the corpus for structural coverage.
+ * Which constructors appear anywhere in a tree, plus how deep it goes. Two
+ * docstrings with the same signature exercise the same branches, so keeping one
+ * of each is what makes a sample worth as much as the corpus.
  *
  * The walk is type-directed rather than "recurse into every array": verbatim
  * content is an array of strings, and a code block whose first line happens to
@@ -435,26 +400,13 @@ function textFeatures(md: string): string[] {
 }
 
 /**
- * Which cases the committed fixture keeps.
+ * Which cases the committed fixture keeps: every hand-written one, then a
+ * greedy cover of the constructors (so every branch of the builder is exercised
+ * by the committed file alone), then the first docstring showing each
+ * byte-level feature, then an even stride over the rest up to `FIXTURE_TARGET`.
  *
- * The corpus has 1,300-odd distinct signatures; committing one docstring per
- * signature would be a multi-megabyte file whose extra megabytes are near
- * duplicates. So the fixture keeps, in this order:
- *
- * 1. every hand-written case;
- * 2. a greedy cover of the *constructors* -- at each step the docstring that
- *    brings the most tags nothing already chosen has, so every branch of the
- *    builder is exercised by the committed file alone;
- * 3. the first docstring showing each byte-level feature (astral scalars,
- *    controls, CR, tabs, ...);
- * 4. an even stride over the rest, up to `FIXTURE_TARGET`, so the fixture is
- *    not made only of oddities.
- *
- * **This selection is now the whole of what any test checks.** The
- * `the_whole_corpus` test that read `--full` was deleted on 2026-08-16: its
- * recording lived in `/private/tmp`, which is emptied, so it was either red or
- * paid for by another MD4Lean run over every docstring. `--full` still writes
- * every case, for a check by hand.
+ * **This selection is the whole of what any test checks.** `--full` writes
+ * every case, for a check by hand; nothing reads it.
  */
 function selectCases(
   cases: Case[],
@@ -513,8 +465,6 @@ function selectCases(
   }
   return [...chosen].sort((a, b) => a - b);
 }
-
-// -------------------------------------------------------------------- main
 
 const args = Deno.args;
 const flag = (name: string, fallback: string | null = null) => {

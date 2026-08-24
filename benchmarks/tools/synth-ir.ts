@@ -2,18 +2,16 @@
 // so that `litedoc4 global` can be run at the real package's scale without the
 // real package.
 //
-// WHY THIS EXISTS
-//   The search-index design was measured on a prototype encoder over the
-//   corpus of the deployed site. To measure what the *shipped*
-//   encoder produces at that scale, something has to feed it 4,584 declarations
-//   — and the only inputs it takes are IR trees. The measurement target needs
-//   Mathlib and an hour; this needs two JSON files that anyone can curl.
+// To measure what the shipped search-index encoder produces at the deployed
+// site's scale, something has to feed it 4,584 declarations — and the only
+// inputs it takes are IR trees. The measurement target needs Mathlib and an
+// hour; this needs two JSON files that anyone can curl.
 //
-//   **It is a measuring instrument, not a fixture.** The declarations it writes
-//   carry a name, a kind and a module and nothing else: no signature, no
-//   docstring, no source position. Pages rendered from it would be empty, and
-//   the only artifact it says anything true about is the search index, whose
-//   contents are exactly those three fields.
+// **It is a measuring instrument, not a fixture.** The declarations it writes
+// carry a name, a kind and a module and nothing else: no signature, no
+// docstring, no source position. Pages rendered from it would be empty, and the
+// only artifact it says anything true about is the search index, whose contents
+// are exactly those three fields.
 //
 // usage:
 //   deno run --allow-read --allow-write benchmarks/tools/synth-ir.ts \

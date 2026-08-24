@@ -35,14 +35,14 @@ const NESTED = new Set([
   "index.buildIndex",
   "index.writeIndex",
   "navbar.scanHtmlFiles",
-  // litedoc4's own extractor (experiments/stage1): everything below is inside `stage1.total`.
+  // everything below is inside `stage1.total`
   "stage1.initSearchPath",
   "stage1.importModules",
   "stage1.envStats",
   "stage1.indexLookup",
   "stage1.scanLookup",
   "stage1.compare",
-  // experiments/stage2: everything below is inside `stage2.total`.
+  // inside `stage2.total`
   "stage2.initSearchPath",
   "stage2.importModules",
   "stage2.envStats",
@@ -56,7 +56,7 @@ const NESTED = new Set([
   // the breakdown of one `allTacticDocs` call. Inside `stage2.total` as well.
   "stage2.tacticsPerModule",
   "stage2.tacticsProbe",
-  // experiments/stage3: everything below is inside `stage3.total`.
+  // inside `stage3.total`
   "stage3.initSearchPath",
   "stage3.importModules",
   "stage3.envStats",
@@ -96,7 +96,6 @@ const rows = [...byPhase.entries()]
   }));
 console.table(rows);
 
-// Sum of counters carried on the records (scanned constants, modules rendered, ...).
 const counters: Record<string, number> = {};
 for (const r of recs) {
   for (const [k, v] of Object.entries(r)) {

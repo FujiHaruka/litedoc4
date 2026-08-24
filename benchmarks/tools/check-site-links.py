@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The M7-c gate: every GitHub href a generated site emits, against doc-gen4's own tree.
+"""Every GitHub href a generated site emits, against doc-gen4's own tree.
 
-M7-c makes every link *into a dependency* a version-pinned blob URL. The check
-that it is the **right** URL is offline and exact, because doc-gen4's reference
-tree already carries the URL on every page it wrote:
+Every link *into a dependency* is a version-pinned blob URL. The check that it
+is the **right** URL is offline and exact, because doc-gen4's reference tree
+already carries the URL on every page it wrote:
 
   per declaration : <div class="decl" id="X"><div class="K"><div class="gh_link"><a href="…#L7-L9">
   per module      : <p class="gh_nav_link"><a href="…/Mathlib/Order/Basic.lean">
@@ -21,12 +21,12 @@ proves the two differ only inside href attributes and that nothing belonging to
 the package being documented moved. `--lidx` lets the residue be named rather
 than counted.
 
-**What the buckets do and do not say.** The per-declaration oracle is silent
-about declarations doc-gen4 rendered inside a *parent's* decl div — structure
-fields and constructors — so an emitted URL that is not in it is not yet a
-disagreement 【実測 M7-a】. Those are separated out and explained by name, and
-only a URL naming a file the tree has no page for, or a name the oracle holds at
-a *different* range, is counted as a mismatch.
+What the buckets do and do not say: the per-declaration oracle is silent about
+declarations doc-gen4 rendered inside a *parent's* decl div — structure fields
+and constructors — so an emitted URL that is not in it is not yet a disagreement
+【実測】. Those are separated out and explained by name, and only a URL naming a
+file the tree has no page for, or a name the oracle holds at a *different*
+range, is counted as a mismatch.
 """
 
 import argparse
@@ -40,7 +40,6 @@ HREF = 'href="'
 
 
 def read_pages(root):
-    """Every `.html` under `root`, keyed by its path relative to it."""
     pages = {}
     for directory, _, files in os.walk(root):
         for name in files:
@@ -54,10 +53,8 @@ def read_pages(root):
 
 
 def split_hrefs(html):
-    """`(the bytes between href attributes, the href values)`.
-
-    Two documents whose first halves agree differ *only* inside hrefs, which is
-    the claim M7-c has to be held to.
+    """Two documents whose first halves agree differ *only* inside hrefs, which
+    is what `--baseline` is held to.
     """
     between, hrefs, rest = [], [], html
     while True:

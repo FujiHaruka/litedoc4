@@ -301,7 +301,7 @@ require_own_oleans () {
   strings "$probe" 2>/dev/null > "$dump" || true
   grep -q "$CLONE" "$dump" || {
     echo "the clone's oleans were not built at the clone's path — run" >&2
-    echo "tools/rebuild-own.sh first (stage 5e (e))" >&2; exit 2; }
+    echo "tools/rebuild-own.sh first" >&2; exit 2; }
   if grep -q "$TARGET_REPO_BASELINE/" "$dump"; then
     echo "the clone's oleans still name the measurement target's path" >&2; exit 2
   fi

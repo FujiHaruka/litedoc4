@@ -1,23 +1,7 @@
-# The green light. Everything here runs on a machine that has never seen the
-# measurement target, and that is the point.
-#
-# WHAT "GREEN" MEANS NOW
-#   Gate A (byte reproduction against doc-gen4) ended at M8, so the definition
-#   of green fell back to `cargo test --workspace`. This workflow is what
-#   makes that definition mechanical rather than a sentence in a plan.
-#
-# WHAT IS DELIBERATELY NOT HERE
-#   Anything needing Mathlib. The target package's import closure is several GB
-#   and the second target is synthetic but still Mathlib-pinned, so both stay
-#   manual gates (tools/target2-gate.sh, tools/corpus-gate.sh). A check that
-#   cannot run on a fresh runner is a gate, not a test — the same line
-#   `crates/litedoc4/tests/resident.rs` already draws.
-#
-# WHY THE CORPUS TESTS DO NOT SILENTLY VANISH HERE
-#   They are `#[ignore]`d, not skipped, so `cargo test` reports them by count,
-#   and `tools/corpus-gate.sh --verify-list` fails if that set drifts from the
-#   list the gate knows about. A test that quietly stops running is the failure
-#   this workflow exists to prevent.
+# Everything here runs on a machine that has never seen the measurement target.
+# Anything needing Mathlib stays a manual gate (tools/target2-gate.sh,
+# tools/corpus-gate.sh): a check that cannot run on a fresh runner is a gate,
+# not a test.
 name: CI
 
 on:
@@ -26,21 +10,19 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A superseded run tells us nothing we want to wait for, and it still holds
-# slots against the 20-job concurrency limit while telling us nothing.
+# A superseded run holds slots against the 20-job concurrency limit while
+# telling us nothing.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
-  # Incremental compilation is for a working tree that gets built over and
-  # over. CI builds once from a restored cache and throws the machine away, so
-  # the incremental state is never read back — it is only written, cached, and
-  # restored. Locally it was 3.5 GB of a 7.2 GB `target/`, and the cargo cache
-  # is what was pushing this repository to 98.8% of the 10 GiB limit.
+  # CI builds once from a restored cache and throws the machine away, so the
+  # incremental state is only ever written, cached and restored, never read
+  # back. Locally it was 3.5 GB of a 7.2 GB `target/`, and the cargo cache is
+  # what pushed this repository to 98.8% of the 10 GiB limit.
   CARGO_INCREMENTAL: 0
-  # A backtrace costs nothing here and turns "assertion failed" into a location.
   RUST_BACKTRACE: 1
 
 jobs:
@@ -52,60 +34,41 @@ jobs:
       - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
-      # `app.js`, so **cargo cannot build this workspace without node**
-      # Pinned rather than left to
-      # whatever the runner image happens to ship: the version is the one in
-      # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
+      # `app.js`, so cargo cannot build this workspace without node. Pinned
+      # rather than left to whatever the runner image ships: the version is the
+      # one in `mise.toml`, and `tools/assets-gate.sh` checks that they agree.
       - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
-      # Before the Rust half, and deliberately: this is thirty seconds against
-      # cargo's ten minutes, and `cargo build` cannot even start if the
-      # TypeScript does not bundle. The four stages inside fail separately, so a
-      # red run says which of lint / types / tests / bundle broke.
+      # Before the Rust half: thirty seconds against cargo's ten minutes, and
+      # `cargo build` cannot even start if the TypeScript does not bundle.
       - name: Assets gate (the site's TypeScript)
         run: tools/assets-gate.sh --json "$RUNNER_TEMP/assets.json"
 
-      # rust-toolchain.toml pins the channel and asks for rustfmt and clippy;
-      # `rustup show` is what makes rustup act on it.
+      # `rustup show` is what makes rustup act on rust-toolchain.toml.
       - name: Install the toolchain rust-toolchain.toml asks for
         run: |
           rustup show
           rustc --version
           cargo --version
 
-      # **No `restore-keys`, and the key names the job.** Both were wrong before,
-      # in ways that only showed up in the numbers:
+      # No `restore-keys`, and the key names the job. A `cargo-<os>-` fallback
+      # makes the entry a ratchet: a new Cargo.lock restores the previous
+      # generation's `target/`, builds on top of it and saves the union, so the
+      # entry grows every time the lockfile moves — 72 MB → 2177 MB over three
+      # days, 8.47 GiB of the repository's 10 GiB cache limit, 63 s to restore
+      # in a job whose build was 14 s. Cutting the fallback means a lockfile
+      # change builds cold, which is cheap at 34 packages. A key not naming the
+      # job is shared with `e2e-micro` (one binary) and ci-template.yml (whose
+      # `target/` is at another path), so whichever job saved last decided what
+      # the others got back. `rust-toolchain.toml` joins the hash because a
+      # channel bump invalidates every artifact in `target/` anyway.
       #
-      #   `restore-keys: cargo-<os>-` made this a ratchet. A new Cargo.lock
-      #   restored the previous generation's `target/`, built on top of it, and
-      #   saved the union — so the entry grew every time the lockfile moved:
-      #   72 MB → 357 → 560 → 884 → 1208 → 1530 → 1854 → 2177 MB over three
-      #   days, nine live generations, 8.47 GiB of the repository's 10 GiB cache
-      #   limit. Restoring it cost 63 s in a job whose actual build was 14 s.
-      #   Cutting the fallback means a lockfile change builds cold — cheap here,
-      #   because Cargo.lock has 34 packages in it — and the entry then stays
-      #   the size of one honest build.
-      #
-      #   The bare key was shared with `e2e-micro` (one binary) and with
-      #   ci-template.yml (whose `target/` is at another path entirely). Only one
-      #   of them could save it, and which one won decided what the others got
-      #   back. Naming the job in the key is what stops that.
-      #
-      # `rust-toolchain.toml` joins the hash because a channel bump invalidates
-      # every artifact in `target/` anyway; without it the stale entry is still
-      # restored, still 2 GB, and still useless.
-      #
-      # After all four fixes the entry is 160 MB and restores in 3-9 s. What the
-      # cache then *buys* is not measurable: warm and cold, n=4 each on identical
-      # sources, put this job at the same 61.0 s mean — the 5.25 s spent
-      # restoring and the 3.00 s saved building cancel. The noise floor comes
-      # from `supply-chain`, which touches no cargo cache at all and still
-      # differed by 3.4 s between the two conditions. So it stays because it is
-      # cheap and correct, not because it was shown to pay; the ratchet's 63 s
-      # was the part that was real. `benchmarks/results/ci-cache-2026-08-19.txt`
-      # has the raw runs and the conditions that would flip this.
+      # What the cache buys is not measurable: warm and cold, n=4 each on
+      # identical sources, put this job at the same 61.0 s mean. It stays
+      # because it is cheap and correct, not because it was shown to pay
+      # 【実測 → benchmarks/results/ci-cache-2026-08-19.txt】.
       - name: Cache cargo registry and build
         uses: actions/cache@v6
         with:
@@ -119,32 +82,31 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
 
-      # Which lints are on is `[workspace.lints]` in the root Cargo.toml, not this
-      # line — so a local `cargo check` says the same thing this job says. All
-      # that happens here is the promotion to an error.
+      # Which lints are on is `[workspace.lints]` in the root Cargo.toml, not
+      # this line, so a local `cargo check` says the same thing this job says;
+      # all that happens here is the promotion to an error. Do not add `-W` here
+      # — it would be a gate invisible from the working tree.
       #
       # `--all-targets` so that tests and benches are linted too: most of this
       # workspace's code by line count is tests.
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # A `[`Foo`]` that no longer resolves is a doc comment that has drifted from
-      # the code, and this repository's doc comments are where the reasoning
-      # lives. Found 15 of them the first time it ran, two of which named types
-      # that had been renamed.
+      # An unresolved `[`Foo`]` is a doc comment still naming code that moved.
+      # Comments are rare here and carry why-not, so a broken link is a stale
+      # pointer, not a formatting slip — this is the one kind of comment rot a
+      # machine can catch.
       #
       # `--document-private-items` because nothing outside this repository
-      # consumes these crates: the internal documentation is the documentation.
-      # `private_intra_doc_links` is allowed for the same reason — a public item
-      # pointing at a private one is normal here, not a mistake.
+      # consumes these crates, so most of what a link can name is private;
+      # `private_intra_doc_links` is allowed for the same reason.
       - name: Rustdoc links
         run: cargo doc --workspace --no-deps --document-private-items
         env:
           RUSTDOCFLAGS: -D warnings -A rustdoc::private_intra_doc_links
 
-      # A dependency nobody imports is still a crate to compile and still an entry
-      # in what `cargo deny` has to vouch for. `litedoc4` was declaring
-      # `litedoc4-md` without using it.
+      # A dependency nobody imports is still a crate to compile and still an
+      # entry in what `cargo deny` has to vouch for.
       - uses: taiki-e/install-action@cargo-machete
       - name: Unused dependencies
         run: cargo machete
@@ -153,20 +115,19 @@ jobs:
       - name: Test
         run: cargo test --workspace --no-fail-fast
 
-      # The corpus tests are not run here — this asserts that the set of them is
-      # exactly the set the gate script knows about, so neither side can drift.
+      # The corpus tests are `#[ignore]`d rather than run here; this asserts the
+      # set of them is exactly the set the gate knows about, so neither side can
+      # drift and a test cannot quietly stop running.
       - name: Verify the corpus gate's inventory
         run: tools/corpus-gate.sh --verify-list
 
-      # Apache-2.0 §4 went live when this repository went public (2026-08-16).
-      # The obligations were paid before that; this is what keeps a refactor from
-      # quietly deleting an attribution that is now legally load-bearing.
+      # This repository is public, so Apache-2.0 §4 is live: what this stops is
+      # a refactor deleting an attribution that is legally load-bearing.
       - name: Provenance
         run: tools/provenance-gate.sh
 
   # The tree we pull in, as opposed to the attributions we wrote (which the test
-  # job checks). Both became obligations rather than tidiness when the repository
-  # went public on 2026-08-16 — see deny.toml.
+  # job checks). Policy is deny.toml.
   supply-chain:
     name: supply chain (licences, advisories)
     runs-on: ubuntu-latest
@@ -177,10 +138,10 @@ jobs:
         with:
           command: check
 
-  # The only job that runs a real Lean environment. It exists because every test
-  # in the job above fakes the extractor, so nothing there checks the contract
-  # between `extractor/Extract.lean` and the Rust side: change what the extractor
-  # writes and the whole test job stays green. See e2e/README.md.
+  # The only job that runs a real Lean environment. Every test in the job above
+  # fakes the extractor, so nothing there checks the contract between
+  # `extractor/Extract.lean` and the Rust side: change what the extractor writes
+  # and the whole test job stays green.
   e2e-micro:
     name: e2e (real extractor, no Mathlib)
     runs-on: ubuntu-latest
@@ -188,11 +149,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
-      # `app.js`, so **cargo cannot build this workspace without node**
-      # Pinned rather than left to
-      # whatever the runner image happens to ship: the version is the one in
-      # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
@@ -201,7 +157,8 @@ jobs:
         run: rustup show
 
       # Keyed per job and without `restore-keys` — see the note in `test`. This
-      # job builds one binary; `test` builds --all-targets. Same key was wrong.
+      # job builds one binary; `test` builds --all-targets, so a shared key
+      # would have them overwriting each other's entry.
       - name: Cache cargo registry and build
         uses: actions/cache@v6
         with:
@@ -219,28 +176,21 @@ jobs:
       - name: Build the CLI
         run: cargo build --bin litedoc4
 
-      # Builds the fixture, builds the extractor inside the fixture's own Lean
-      # environment, generates a site, and checks the three gates: one command,
-      # idempotence, determinism.
       - name: End to end
         run: tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
 
-      # A-2's loop, on the same fixture. Its header says it needs the
-      # measurement target, that target's toolchain and the 171 MB Mathlib
-      # extractor — and **every one of those is an argument**: `--target`,
-      # `--lib`, `--module` and `EXTRACT_BIN` all name what the step above just
-      # built, so the whole gate runs in seconds with no Mathlib anywhere
+      # The gate's own header asks for the measurement target, that target's
+      # toolchain and the 171 MB Mathlib extractor — but every one of those is
+      # an argument: `--target`, `--lib`, `--module` and `EXTRACT_BIN` all name
+      # what the step above just built, so it runs in seconds with no Mathlib
       # 【実測 2026-08-24 → benchmarks/results/watch-gate-e2e-2026-08-24.txt】.
-      #
       # It writes nothing under `--target`: "module M changed" is injected into
-      # this run's own copy of the ledger with `litedoc4 ledger touch`, which is
-      # what that subcommand exists for.
+      # this run's own copy of the ledger with `litedoc4 ledger touch`.
       #
-      # Falsified both ways before being turned on 【実測 2026-08-24】.
-      # `--inject wrong-module` touches a different module and comes out red on
-      # the render set alone — the three counts stay 1/1/1, which is exactly why
-      # the name check is there — and `--inject no-touch` times out and says so
-      # rather than reporting a green run it never saw.
+      # Falsified both ways before being turned on 【実測 2026-08-24】:
+      # `--inject wrong-module` comes out red on the render set alone (the three
+      # counts stay 1/1/1, which is why the name check is there), and
+      # `--inject no-touch` times out rather than reporting a run it never saw.
       - name: Watch gate (the loop, on the e2e fixture)
         run: |
           tools/watch-gate.sh --out "$RUNNER_TEMP/watch" \
@@ -253,9 +203,9 @@ jobs:
       # The other half of the same fixture: `e2e/micro-dep` required by *git*
       # with a real 40-hex rev instead of by path. Only the wiring differs, so
       # pinnability is the only variable — and it is the variable that decides
-      # whether a dependency's modules get blob URLs at all. Offline: the gate
-      # builds the git repository itself and rewrites the remote with git's
-      # `insteadOf`, so the manifest still carries an https URL.
+      # whether a dependency's modules get blob URLs at all. The gate builds the
+      # git repository itself and rewrites the remote with git's `insteadOf`, so
+      # it stays offline while the manifest still carries an https URL.
       - name: Pinnable dependency with guillemet modules
         run: tools/pinned-dep-gate.sh --out "$RUNNER_TEMP/pinned"
 
@@ -263,10 +213,9 @@ jobs:
         with:
           deno-version: v2.x
 
-      # The runtime half. Static checks cannot see whether the module tree draws,
-      # whether search returns anything, or whether 375 px still fits — and
-      # ui-redesign.md left that last one recorded as 未判定 for exactly that
-      # reason. ubuntu-latest ships Chrome, so nothing is downloaded to drive it.
+      # Static checks cannot see whether the module tree draws, whether search
+      # returns anything, or whether 375 px still fits. ubuntu-latest ships
+      # Chrome, so nothing is downloaded to drive it.
       - name: Browser gate
         run: tools/browser-gate.sh "$RUNNER_TEMP/e2e/first/site" --json "$RUNNER_TEMP/browser.json"
         env:

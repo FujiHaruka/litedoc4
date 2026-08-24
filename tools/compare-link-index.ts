@@ -1,20 +1,11 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write
 // compare-link-index.ts -- set-compare two `.lidx` name -> module maps.
 //
-// WHY THIS EXISTS
-// ---------------
-// M5 replaces the producer of the renderer's `name -> module` map: it used to
-// be derived from a doc-gen4 site's `declarations/declaration-data.bmp`
-// (`experiments/stage7d/build-link-index.ts`), and it is now a scan of the
-// environment the extractor already holds (`extractor/Extract.lean`,
-// `writeLinkIndex`). Verification item V1 asks whether the two agree, and the
-// question that matters most is not "how many names moved" but "does any name
-// they share point at a *different* module" — that failure mode is a link that
-// silently goes somewhere else rather than a link that disappears.
-//
-// The classification of the differences is coarse on purpose: it names the
-// buckets a reader can act on (a whole module missing on one side is a
-// different problem from a name missing inside a module both sides have).
+// The question that matters is not "how many names moved" but "does any name
+// both sides have point at a *different* module": that failure mode is a link
+// that silently goes somewhere else rather than one that disappears. The rest
+// is bucketed coarsely on purpose — a whole module missing on one side is a
+// different problem from a name missing inside a module both sides have.
 //
 // usage: compare-link-index.ts --a <a.lidx> --b <b.lidx> [--out <report.md>]
 //                              [--samples <n>] [--dump-dir <dir>]
@@ -76,8 +67,6 @@ for (const [n, m] of a.names) {
 }
 for (const [n] of b.names) if (!a.names.has(n)) onlyB.push(n);
 
-/** Which module a name is missing "because of": the module it lives in on the
- * side that has it, split by whether the other side knows that module at all. */
 function classify(names: string[], from: Index, to: Index) {
   const byModule = new Map<string, number>();
   let moduleAbsent = 0;
@@ -95,7 +84,6 @@ function classify(names: string[], from: Index, to: Index) {
   return { byModule, moduleAbsent, moduleShared, absentModules };
 }
 
-/** Shape buckets, so that "8,000 names" does not have to be read one by one. */
 function shapes(names: string[]) {
   const bucket = new Map<string, number>();
   const put = (k: string) => bucket.set(k, (bucket.get(k) ?? 0) + 1);

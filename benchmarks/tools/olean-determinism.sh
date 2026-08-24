@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Is a rebuilt `.olean` byte-identical to the one it replaced?
 #
-# The incremental ledger's L2 key is the SHA-256 of a module's `.olean`
+# The incremental ledger keys a module on the SHA-256 of its `.olean`
 # (`crates/litedoc4-incr/src/ledger.rs`). Every cache that crosses a machine, a
 # CI run or a clean checkout therefore hits only if `lake build` reproduces the
 # same bytes from the same source. That is an empirical property of Lean's
@@ -74,8 +74,7 @@ cleanup() {
 trap cleanup EXIT
 
 hash_of() {
-  # Prints the empty string when the file is absent; callers treat "" as
-  # "not there", which is a state and not an error.
+  # "" when the file is absent; callers treat that as a state, not an error.
   if [ -f "$1" ]; then
     shasum -a 256 "$1" | cut -d' ' -f1
   else
@@ -101,8 +100,8 @@ source_path() {
 }
 
 build_one() {
-  # `lake build` writes progress to stdout and diagnostics to stderr; both are
-  # kept so a failed rebuild is readable in the log rather than inferred.
+  # Diagnostics go to stderr; keep both streams so a failed rebuild is readable
+  # in the log rather than inferred.
   ( cd "$target" && lake build "$1" ) > "$work/build.log" 2>&1
 }
 
@@ -143,7 +142,6 @@ for m in "${mods[@]}"; do
   l0="$(lake_hash_of "$olean")"
   size0="$(wc -c < "$olean" | tr -d ' ')"
 
-  # (1) delete and rebuild
   rm -f "$olean" "$olean.hash" "${olean%.olean}.ilean" "${olean%.olean}.ilean.hash" \
         "${olean%.olean}.trace"
   t0=$(date +%s)
@@ -152,13 +150,12 @@ for m in "${mods[@]}"; do
   h1="$(hash_of "$olean")"
   l1="$(lake_hash_of "$olean")"
 
-  # (2) positive control: a declaration the module did not have
+  # positive control: a declaration the module did not have
   printf '\ntheorem oleanDeterminismProbe_ : True := trivial\n' >> "$src"
   build_one "$m" || true
   h2="$(hash_of "$olean")"
   l2="$(lake_hash_of "$olean")"
 
-  # (3) restore and rebuild
   cp "$saved_src" "$src"
   build_one "$m" || true
   h3="$(hash_of "$olean")"

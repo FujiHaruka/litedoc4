@@ -20,14 +20,12 @@ def report(label, ours, theirs):
         print(f"  only litedoc4 ({len(only_o)}): {sorted(only_o)[:5]}")
         print(f"  only doc-gen4 ({len(only_t)}): {sorted(only_t)[:5]}")
 
-# modules
 report("modules", mods.keys(), [r[0] for r in cur.execute("select name from modules")])
 
-# imports
 ours = [(m, i) for m, r in mods.items() for i in r["imports"]]
 report("module_imports", ours, cur.execute("select importer, imported from module_imports"))
 
-# module docstrings: join with declaration_ranges to get the start line
+# doc-gen4 keeps the start line in declaration_ranges, not with the docstring.
 ours = [(m, d["line"], d["text"]) for m, r in mods.items() for d in r["docs"]]
 theirs = cur.execute("""
   select d.module_name, r.start_line, d.text
@@ -36,7 +34,6 @@ theirs = cur.execute("""
     on r.module_name = d.module_name and r.position = d.position""")
 report("module_docs (mod,line,text)", ours, theirs)
 
-# tactics
 ours = [(m, t["internalName"], t["userName"], t["docString"])
         for m, r in mods.items() for t in r["tactics"]]
 report("tactics", ours,

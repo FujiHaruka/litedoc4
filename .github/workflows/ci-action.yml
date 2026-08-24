@@ -1,35 +1,10 @@
-# Does `uses: FujiHaruka/litedoc4@…` actually work?
+# ci.yml answers "is the code green"; this answers "is the distribution channel
+# green". The action can be broken while every test passes — a bad cache key, a
+# `hashFiles()` that cannot see outside the workspace, an input that never
+# reaches the script — and none of that is visible to `cargo test`.
 #
-# ============================================================================
-# WHY THIS IS NOT PART OF ci.yml
-# ============================================================================
-#   ci.yml answers "is the code green". This answers "is the distribution
-#   channel green", which is a different thing and fails differently: the action
-#   can be broken while every test passes — a bad cache key, a `hashFiles()`
-#   that cannot see outside the workspace, an input that never reaches the
-#   script. None of that is visible to `cargo test`.
-#
-# ============================================================================
-# THE FIVE THINGS CHECKED, AND WHY EACH IS SEPARATE
-# ============================================================================
-#   local        the action runs, produces a site, and reports its path
-#   incremental  running it twice re-renders nothing (the reason to cache state)
-#   standalone   it installs elan itself when `lake` is not already there
-#   refused      a package that does not exist FAILS. A gate that cannot fail is
-#                not a gate — CLAUDE.md, and this repository has shipped two of
-#                those before
-#   published    `uses: FujiHaruka/litedoc4@main` goes through the real path
-#                (GitHub checks the action out into _actions/), which `uses: ./`
-#                never exercises. It is @main and not this commit because
-#                `uses:` cannot take an expression — so it tests the channel,
-#                not this diff.
-#   released     the release-download path, which none of the above ever takes
-#                (@main has no release, so they all fall back to cargo).
-#                workflow_dispatch only; it pins a tag, so it goes stale by
-#                design.
-#
-#   The fixture stands in for a user's package: e2e/micro depends on Lean core
-#   only, so this costs an elan download and seconds of Lean, not Mathlib.
+# The fixture stands in for a user's package: e2e/micro depends on Lean core
+# only, so this costs an elan download and seconds of Lean, not Mathlib.
 name: action (self-test)
 
 on:
@@ -47,9 +22,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # One run per workflow per ref. Without this a burst of pushes leaves the
-  # earlier runs going: they cannot say anything about HEAD any more, but they
-  # still hold slots against the 20-job concurrency limit.
+  # A superseded run holds slots against the 20-job concurrency limit while
+  # telling us nothing about HEAD.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -66,17 +40,16 @@ jobs:
       - uses: actions/checkout@v7
 
       # elan up front so the toolchain download is cached across runs. The
-      # action would install it itself (install-elan); the `standalone` job
-      # below is where that path is exercised.
+      # action would install it itself; `standalone` below is where that path
+      # is exercised.
       - uses: ./.github/actions/setup-elan
 
       # `full: true` so this job does not depend on what the state cache happens
-      # to hold. Without it the first call can legitimately render 0 pages —
-      # a previous run's state gets restored and there is nothing left to do —
-      # and then "the first run rendered nothing" is a property of the cache,
-      # not of the action. Measured: that is exactly how this check first failed.
-      # It also skips the state restore, so the pair below is first=everything,
-      # second=nothing, every time.
+      # to hold. Without it the first call can legitimately render 0 pages — a
+      # previous run's state is restored and there is nothing left to do — and
+      # then "the first run rendered nothing" is a property of the cache, not of
+      # the action 【実測】. It also skips the state restore, so the pair below
+      # is first=everything, second=nothing, every time.
       - id: docs
         uses: ./
         with:
@@ -104,17 +77,17 @@ jobs:
           print(f"first run rendered {w['pagesRendered']} pages")
           PY
 
-      # The second run is the claim the whole tool is built on. Same inputs,
-      # same --out: nothing should be re-rendered.
+      # The second run is the claim the whole tool is built on: same inputs,
+      # same --out, nothing re-rendered.
       - id: again
         uses: ./
         with:
           root: e2e/micro
           jobs: "2"
 
-      # `work` in litedoc4-build.json is the product's own count of what it did,
-      # and it is integers rather than seconds — the thing CLAUDE.md says to
-      # gate on, because wall clock moves 5x with the page cache.
+      # `work` in litedoc4-build.json counts what the product did in integers
+      # rather than seconds. Gate on those: wall clock moves 5x with the page
+      # cache.
       - name: The second run did no work
         run: |
           set -euo pipefail
@@ -165,6 +138,10 @@ jobs:
           fi
           echo "refused, as it should"
 
+  # `uses: FujiHaruka/litedoc4@main` goes through the path GitHub really takes
+  # (checking the action out into _actions/), which `uses: ./` never exercises.
+  # `@main` and not this commit, because `uses:` cannot take an expression — so
+  # it grades the channel, not this diff.
   published:
     name: uses:FujiHaruka/litedoc4@main (the real checkout path)
     runs-on: ubuntu-latest
@@ -188,10 +165,8 @@ jobs:
   # The one path the jobs above never take: `@main` has no release, so they all
   # fall back to cargo. This pins a tag so the download actually happens, and
   # asserts on `binary-source` rather than on the log — "it worked" is not
-  # evidence that it worked *that way*.
-  #
-  # On demand only, and the pin goes stale by design: re-run it (and move the
-  # pin, and README's) when a release is cut.
+  # evidence that it worked *that way*. On demand only, and the pin goes stale
+  # by design: move it (and README's) when a release is cut.
   released:
     name: uses:@v0.1.4 — the released binary, not a cargo build
     runs-on: ubuntu-latest
@@ -201,10 +176,9 @@ jobs:
       - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
-      # `app.js`, so **cargo cannot build this workspace without node**
-      # Pinned rather than left to
-      # whatever the runner image happens to ship: the version is the one in
-      # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
+      # `app.js`, so cargo cannot build this workspace without node. Pinned
+      # rather than left to whatever the runner image ships: the version is the
+      # one in `mise.toml`, and `tools/assets-gate.sh` checks that they agree.
       - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"

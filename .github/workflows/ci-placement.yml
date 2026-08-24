@@ -1,54 +1,44 @@
-# The A/B this repository's central CI claim has never had: documentation built
-# in the SAME job as `lake build`, and in a SEPARATE job, on a real runner.
+# The A/B for placement: documentation built in the SAME job as `lake build`,
+# and in a SEPARATE job, on a real runner.
 #
-# WHAT IS ALREADY MEASURED, AND WHAT IS NOT
-#   This repository used to claim a split job costs **8-34x**, citing
-#   `importModules` **alone** on a 2-core / 7.75 GiB runner (`ci-import-modules.yml`).
-#   This workflow measured the thing a user actually pays — the whole
-#   `litedoc4 build` — under both placements, and **that ratio did not reproduce**:
-#   **1.08-1.58x** on the 4-core / 15.6 GiB runner, n=5
-#   【run 31956756819, 2026-08-16 →
-#   benchmarks/results/ci-placement-5-summary.txt】. The mechanism
-#   survived; the premise that a split job starts cold did not.
+# The whole `litedoc4 build` comes out at 1.08-1.58x between the two, n=5, on
+# the 4-core / 15.6 GiB runner 【実測 run 31956756819, 2026-08-16 →
+# benchmarks/results/ci-placement-5-summary.txt】. The 8-34x figure elsewhere in
+# this repository is `importModules` alone on the 2-core / 7.75 GiB runner
+# (`ci-import-modules.yml`): the mechanism survives, the premise that a split job
+# starts cold does not. The two numbers do not belong next to each other.
 #
-# THE THREE ARMS
+# The arms:
 #   same   cache get -> lake build -> litedoc4 build, one runner, one page cache.
 #   split  a fresh runner: cache get (Mathlib's oleans, downloaded and unpacked),
-#          the package's own oleans and the extractor **restored as bytes** from
-#          the `same` job of the same pair, then litedoc4 build with
-#          `--no-lake-build`.
-#   cold   the `same` runner again, with `drop_caches` before each build. Not a
-#          placement — the **control**. The first run of this A/B came back at
-#          **1.06x** 【実測 2026-08-16, run 31955398801, n=1】, and a null result
-#          is unreadable without a condition where the instrument is known to
-#          show a difference. `cold` is that condition.
+#          the package's own oleans and the extractor restored as bytes from the
+#          `same` job of the same pair, then litedoc4 build with
+#          `--no-lake-build`. Not a strawman — restoring build outputs is what a
+#          split workflow really does, and what `actions/cache` is supposed to
+#          cover; the question is whether bytes on disk are worth the same as
+#          bytes in the page cache. The artifact is produced once, by `same`, and
+#          pairing is per matrix entry, so a pair is one set of bytes measured
+#          twice.
+#   cold   the `same` runner again, with `drop_caches` before each build. The
+#          control, not a placement: the first run of this A/B came back at 1.06x
+#          【実測 2026-08-16, run 31955398801, n=1】, and a null result is
+#          unreadable without a condition where the instrument is known to show a
+#          difference.
 #
-#   `split` is not a strawman: restoring the build outputs into the docs job is
-#   what a split workflow really does, and it is the case `actions/cache` is
-#   supposed to cover. The question is whether bytes on disk are worth the same
-#   as bytes in the page cache. Both arms run the identical command on the
-#   identical oleans — the artifact is produced once, by `same`, and the pairing
-#   is per matrix entry, so a pair is one set of bytes measured twice.
+# A matrix and not a loop, because only the FIRST documentation build in a job is
+# a placement measurement — the ones after it are that runner's warm floor. n for
+# the placement comes from `pairs` (independent runner pairs); `reps` only
+# brackets each arm against its own warm floor. Run 3 of arm `same` is not a
+# third sample of placement.
 #
-# WHY A MATRIX AND NOT A LOOP
-#   Only the FIRST documentation build in a job is a placement measurement; the
-#   ones after it are the warm floor of that runner, because the first one warmed
-#   the cache. So n for the placement comes from `pairs` (independent runner
-#   pairs), and `reps` only brackets each arm against its own warm floor. Reading
-#   run 3 of arm `same` as a third sample of placement is the mistake this
-#   comment exists to prevent.
+# `workflow_dispatch` only: it is a measurement, not a check, and on a push it
+# would download several GB per commit.
 #
-# WHY IT IS `workflow_dispatch` ONLY
-#   It is a measurement, not a check. On a push it would download several GB per
-#   commit.
-#
-# WHAT MAKES THE RESULT READABLE
-#   `benchmarks/tools/check-placement.sh`, run per arm and again over the union:
-#   every declared run reported, nothing reported that was not declared, and all
-#   arms produced a **byte-identical site**. Placement is supposed to move the
-#   clock and not the bytes; two clean builds of this target agree byte for byte
-#   【実測 2026-08-17, local】, so a disagreement means the arms did different
-#   work and the ratio between them is not a ratio of anything.
+# `benchmarks/tools/check-placement.sh` runs per arm and again over the union:
+# every declared run reported, nothing reported that was not declared, and every
+# arm a byte-identical site. Two clean builds of this target agree byte for byte
+# 【実測 2026-08-17, local】, so a disagreement means the arms did different work
+# and the ratio between them is not a ratio of anything.
 name: CI placement A/B (measurement)
 
 on:
@@ -73,8 +63,7 @@ on:
 
 concurrency:
   # `cancel-in-progress: false`: a double dispatch queues instead of killing the
-  # run already measuring. Losing a 40-minute measurement to a stray click is
-  # worse than waiting for it.
+  # run already measuring.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
@@ -82,13 +71,12 @@ permissions:
   contents: read
 
 jobs:
-  # ---------------------------------------------------------------- arm `same`
   same:
     name: same job (pair ${{ matrix.pair }})
     runs-on: ubuntu-latest
-    # GitHub terminates any job at 6 h, so 330 left half an hour to tell
-    # "this hung" apart from "GitHub gave up" — not enough to read a red
-    # run by. Measured at the default inputs: 27 min. `reps` and `pairs` scale this.
+    # GitHub terminates any job at 6 h, so a timeout close to that cannot tell
+    # "this hung" from "GitHub gave up". 27 min at the default inputs; `reps`
+    # and `pairs` scale it.
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -101,10 +89,9 @@ jobs:
           path: litedoc4
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
-      # `app.js`, so **cargo cannot build this workspace without node**
-      # Pinned rather than left to
-      # whatever the runner image happens to ship: the version is the one in
-      # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
+      # `app.js`, so cargo cannot build this workspace without node. Pinned
+      # rather than left to whatever the runner image ships: the version is the
+      # one in `mise.toml`, and `tools/assets-gate.sh` checks that they agree.
       - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
@@ -160,11 +147,11 @@ jobs:
           LIB: ${{ github.event.inputs.lib }}
         run: litedoc4/benchmarks/tools/run-placement-arm.sh
 
-      # The positive control, on the same runner instance, so it carries no
-      # cross-machine confound. If `same` and `split` come out equal, this is
-      # what decides between "placement does not matter here" and "this
-      # measurement cannot see placement": the import has to be slow with the
-      # cache dropped, or nothing else in this run means anything.
+      # On the same runner instance, so it carries no cross-machine confound.
+      # If `same` and `split` come out equal, this is what decides between
+      # "placement does not matter here" and "this measurement cannot see
+      # placement": the import has to be slow with the cache dropped, or nothing
+      # else in this run means anything.
       - name: Measure the ceiling (page cache dropped) — the control
         env:
           ARM: cold
@@ -205,12 +192,10 @@ jobs:
             env-before.txt
             results/
 
-  # --------------------------------------------------------------- arm `split`
   split:
     name: split job (pair ${{ matrix.pair }})
     needs: same
     runs-on: ubuntu-latest
-    # The `split` arm of the same measurement — see `same`.
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -222,11 +207,6 @@ jobs:
         with:
           path: litedoc4
 
-      # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
-      # `app.js`, so **cargo cannot build this workspace without node**
-      # Pinned rather than left to
-      # whatever the runner image happens to ship: the version is the one in
-      # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
@@ -259,8 +239,7 @@ jobs:
         working-directory: target
         run: /usr/bin/time -v lake exe cache get 2>&1 | tail -20
 
-      # And the package's own build outputs — restored, not rebuilt. This is the
-      # step that stands in for `actions/cache` in a split workflow.
+      # Restored, not rebuilt: this stands in for `actions/cache`.
       - name: Restore the package's oleans and the extractor
         uses: actions/download-artifact@v8
         with:
@@ -293,7 +272,6 @@ jobs:
             env-before.txt
             results/
 
-  # -------------------------------------------------------------------- report
   report:
     name: report
     needs: [same, split]

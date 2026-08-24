@@ -64,7 +64,7 @@ if extracted < 1:
 if not 1 <= rendered < modules:
     problems.append(
         f"work.pagesRendered is {rendered} for {modules} module(s) — expected at least one "
-        "and fewer than all (段 C)"
+        "and fewer than all"
     )
 
 print(f"onemod-gate   modules {modules}  extracted {extracted}  rendered {rendered}  "
@@ -77,9 +77,9 @@ PY
 # `grep -E` rather than a JSON field: this log is what a person reads when the
 # gate goes red, and the line it matches is the line they will be looking at.
 if grep -qE '^linkIndex .* reused ' "$SERVE_OUT"; then
-  echo "onemod-gate   the dependency map was reused, not rewritten (段 D)"
+  echo "onemod-gate   the dependency map was reused, not rewritten"
 else
-  echo "onemod-gate FAIL  the extractor rewrote the dependency map instead of reusing it (段 D)" >&2
+  echo "onemod-gate FAIL  the extractor rewrote the dependency map instead of reusing it" >&2
   grep -E '^linkIndex ' "$SERVE_OUT" >&2 || echo "  (no linkIndex line in $SERVE_OUT)" >&2
   status=1
 fi

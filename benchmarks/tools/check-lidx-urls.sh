@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# M7-a's acceptance check: every `.lidx` entry's version-pinned blob URL against
-# the one doc-gen4 itself wrote for that declaration.
+# Checks every `.lidx` entry's version-pinned blob URL against the one doc-gen4
+# itself wrote for that declaration.
 #
 # Both halves are offline. The oracle is doc-gen4's own reference tree
-# (`extract-decl-source-urls.sh`), and the candidate is the product's own code —
+# (`extract-decl-source-urls.sh`); the URL rule is not re-derived in shell —
 # this script only feeds the two files to the gate test, which calls
-# `packages::external_links` and `ExternalLinks::url_for` directly rather than
-# re-deriving the URL rule in shell.
+# `packages::external_links` and `ExternalLinks::url_for` directly.
 #
 # usage: check-lidx-urls.sh [<link-index.lidx>] [<oracle.tsv>]
 #   both default to $WORK_DIR; the oracle is built if it is not there yet.
@@ -34,8 +33,6 @@ LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 mkdir -p "$(dirname "$ORACLE")"
 [ -f "$ORACLE" ] || "$HERE/extract-decl-source-urls.sh" "$ORACLE" || exit 1
 
-# The conditions, recorded the way every other measurement in this directory
-# records them (CLAUDE.md「計測条件を毎回記録する」).
 {
   echo "date (UTC)          : $(date -u '+%Y-%m-%d %H:%M:%S')"
   echo "host                : $(uname -sr) $(uname -m), $(sysctl -n hw.ncpu) CPU, \

@@ -1,34 +1,27 @@
-# Decides the one thing ci-import-prefetch.yml left open: prefetch cut `importModules`
-# by 76% on Linux but the wall clock by only 4%, because the import closure is 4.14 GB
-# while the import only needs ~2.5 GB and the runner disk does ~210 MB/s. Would reading
-# LESS help?
+# ci-import-prefetch.yml left one thing open: prefetch cut `importModules` by 76%
+# on Linux but the wall clock by only 4%, because the import closure is 4.14 GB
+# while the import needs ~2.5 GB and the runner disk does ~210 MB/s. Would
+# reading LESS help?
 #
-# THE ORACLE SET
-#   The narrowest possible set is exactly what a cold import was *observed* to touch.
-#   It is not computable ahead of time in production, so it is not a proposal — it is the
-#   UPPER BOUND on what any narrowing could achieve. If the oracle set does not move the
-#   wall clock either, narrowing is dead and the answer is "place doc generation in the
-#   build job". Deriving it: drop the cache, run the extractor, then ask
-#   mincore which olean pages are resident. Nothing else runs in between.
+# The oracle set is exactly what a cold import was *observed* to touch. It is not
+# computable ahead of time in production, so it is not a proposal — it is the
+# upper bound on what any narrowing could achieve. If it does not move the wall
+# clock either, narrowing is dead and the answer is to place doc generation in
+# the build job. Deriving it: drop the cache, run the extractor, then ask mincore
+# which olean pages are resident, with nothing else in between.
 #
-# WHY ALL VARIANTS RUN IN ONE JOB
-#   The two earlier runs disagreed by 3.3x on the SAME cold measurement (20.4 s vs 63-71 s,
-#   different runner instances, different readahead). Cross-run comparison is therefore
-#   invalid; every variant here shares one runner.
+# Every variant runs in one job because two earlier runs disagreed by 3.3x on the
+# SAME cold measurement (20.4 s vs 63-71 s, different runner instances, different
+# readahead), which makes cross-run comparison invalid.
 #
-# THE EXTRACTOR WAS SWAPPED, AND THIS WORKFLOW HAS NOT RUN SINCE
-#   Until 2026-08-16 the steps below built and ran `experiments/stage4b`, the frozen
-#   prototype extractor (IR schema 3). `experiments/` was removed, so they now build and
-#   run `extractor/` (IR schema 4) instead. The CLI shape is identical —
-#   `extract <modules.txt> <out.jsonl> [flags]` — but **schema 4 does more analysis after
-#   the import**, so the thing being measured is not the thing that was measured before.
-#   The oracle set derived here is the set schema 4 touches, which need not equal the one
-#   schema 3 touched.
-#
-#   **The swap is UNVERIFIED: the workflow has not been run once since.**
-#
-#   **Do not put a number produced after the swap next to a recorded stage4b number** —
-#   including the 76% / 4% / 4.14 GB / ~2.5 GB above. Those came from schema 3.
+# The extractor was swapped and this workflow has not run since — the swap is
+# UNVERIFIED. The steps below now build and run `extractor/` (IR schema 4); the
+# 76% / 4% / 4.14 GB / ~2.5 GB above came from the frozen prototype extractor
+# (IR schema 3, tag `experiments-frozen`). The CLI shape is identical —
+# `extract <modules.txt> <out.jsonl> [flags]` — but schema 4 does more analysis
+# after the import, and the oracle set derived here is the set schema 4 touches,
+# which need not equal the one schema 3 touched. Do not put a number from one
+# side of the swap next to one from the other.
 name: CI importModules prefetch — narrow set (measurement)
 
 on:
@@ -45,17 +38,16 @@ on:
 
 concurrency:
   # `cancel-in-progress: false`: a double dispatch queues instead of killing the
-  # run already measuring. Losing a 40-minute measurement to a stray click is
-  # worse than waiting for it.
+  # run already measuring.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   narrow:
     runs-on: ubuntu-latest
-    # GitHub terminates any job at 6 h, so 330 left half an hour to tell
-    # "this hung" apart from "GitHub gave up" — not enough to read a red
-    # run by. Measured at the default inputs: 38 min. `reps` scales this.
+    # GitHub terminates any job at 6 h, so a timeout close to that cannot tell
+    # "this hung" from "GitHub gave up". 38 min at the default inputs; `reps`
+    # scales it.
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7

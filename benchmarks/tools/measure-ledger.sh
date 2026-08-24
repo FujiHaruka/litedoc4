@@ -6,29 +6,26 @@
 #   rust-warm   ./target/release/litedoc4 ledger build, sha256, concurrency 1
 #   rust-cold   rust-warm with the 432 oleans evicted from the page cache first
 #
-# THE PROTOTYPE SIDE IS GONE.
-#   The recorded m3a-ledger-* numbers have four series: rust-warm, ts-warm,
-#   rust-cold, ts-cold. The `ts-*` two ran experiments/stage5/ledger.ts, which
-#   only exists at tag `experiments-frozen`; HEAD has no equivalent and this
-#   script no longer produces them. So a run of this script today CANNOT
-#   reproduce the Rust/TS ratio the recorded summaries state — it can only
-#   reproduce the two Rust series. Do not present a new rust-* number next to a
-#   recorded ts-* number as if the pair came from one session.
+# The recorded m3a-ledger-* numbers have four series: rust-warm, ts-warm,
+# rust-cold, ts-cold. The `ts-*` two ran experiments/stage5/ledger.ts, which
+# only exists at tag `experiments-frozen`; HEAD has no equivalent and this
+# script no longer produces them. So a run today CANNOT reproduce the Rust/TS
+# ratio the recorded summaries state — only the two Rust series. Do not present
+# a new rust-* number next to a recorded ts-* number as if the pair came from
+# one session.
 #
-# The warm series used to be interleaved with the TS one so that neither got the
-# machine in a state the other did not; with one warm series left there is
-# nothing to interleave with. The cold series still runs afterwards on its own —
-# it cannot be interleaved with the warm one, because the eviction that makes one
-# run cold would make the next warm run cold too.
+# The cold series runs after the warm one rather than interleaved with it,
+# because the eviction that makes one run cold would make the next warm run
+# cold too.
 #
 # Eviction is benchmarks/tools/olean-evict (msync(MS_INVALIDATE), no sudo) over
 # exactly the 432 target oleans, so it is surgical: the binary and the module
 # list stay warm, and the only thing that has to be paged back in is what is
 # being hashed. **The target is only read.**
 #
-# The work is fixed regardless of series: the same 432 modules, the same
-# 237,909,832 B of olean, SHA-256, one read at a time, one ledger written
-# (CLAUDE.md「倍率は分母を明示する」).
+# The work is fixed regardless of series — the denominator of any ratio: the
+# same 432 modules, the same 237,909,832 B of olean, SHA-256, one read at a
+# time, one ledger written.
 #
 # usage: benchmarks/tools/measure-ledger.sh [rounds]   (default 8)
 
@@ -53,7 +50,6 @@ done
 mkdir -p "$WORK"
 RAW="$WORK/raw"; mkdir -p "$RAW"
 
-# The exact file set the cold series evicts: the 432 target modules' oleans.
 OLEANS="$WORK/target-oleans.txt"
 : > "$OLEANS"
 while read -r m; do
@@ -67,7 +63,7 @@ OLEAN_FILES=$(grep -c . "$OLEANS")
 OLEAN_BYTES=$(xargs stat -f '%z' < "$OLEANS" | awk '{s+=$1} END {printf "%d", s}')
 echo "eviction set: $OLEAN_FILES files, $OLEAN_BYTES B"
 
-one_run () { # one_run <series> <index>
+one_run () {
   local s="$1" i="$2"
   local tl="$RAW/time-$s-$i.txt" tj="$RAW/timings-$s-$i.json"
   printf '{}\n' > "$tj"

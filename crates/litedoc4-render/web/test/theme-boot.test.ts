@@ -1,9 +1,6 @@
 /**
- * The script that runs before the first paint.
- *
- * Importing it *is* running it, so each case resets the module registry and
- * imports again — which is also the only honest way to test a module whose
- * whole body is a side effect.
+ * The script that runs before the first paint. Importing it *is* running it, so
+ * each case resets the module registry and imports again.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { THEME_KEY } from "../src/theme-key.js";
@@ -57,8 +54,6 @@ describe("theme-boot", () => {
   });
 
   it("uses the same key the toggle writes", async () => {
-    // The duplication 決定 6 removed: this used to be a string literal in
-    // `frame.rs` and another in `app.js`.
     const { initTheme } = await import("../src/theme.js");
     document.body.innerHTML = '<button id="theme-toggle"></button>';
     initTheme();

@@ -1,18 +1,15 @@
 #!/usr/bin/env -S deno run --allow-read
-// M5-b — what the six boundary values did to the bytes.
+// What the boundary values did to the bytes.
 //
-// Plan §5, §7 and §8 each name an input that "does not occur in the target
-// package but can occur in a second one". `tools/make-target2.sh` puts one in
-// each of seven modules; this reads the produced site, IR, dependency map and
-// whole-package state and says, for each of them, **what came out** — not
-// whether it matches a prediction. Several of these have no right answer
-// recorded anywhere yet, and inventing one here would be worse than reporting
-// the byte.
+// `tools/make-target2.sh` puts an input that cannot occur in the measurement
+// target into each of seven modules; this reads the produced site, IR,
+// dependency map and whole-package state and says, for each of them, **what
+// came out** — not whether it matches a prediction. Several have no right
+// answer recorded anywhere, and inventing one here would be worse than
+// reporting the byte.
 //
-// Deno rather than Rust 【判断, CLAUDE.md】: this is a reading of the product's
-// output, so it belongs on the oracle's side of the line, where `coverage.ts`
-// already lives. A checker written in the language it checks makes the same
-// mistake twice.
+// Deno rather than Rust: a checker written in the language it checks makes the
+// same mistake twice.
 //
 // usage: deno run --allow-read tools/target2-boundary.ts \
 //          --site <dir> --ir <dir> --lidx <file> --state <file>
@@ -43,7 +40,6 @@ const exists = (p: string) => {
   }
 };
 
-/** Every file under a directory, as a path relative to it. */
 function walk(root: string, prefix = ""): string[] {
   const out: string[] = [];
   for (const entry of Deno.readDirSync(root + (prefix ? "/" + prefix : ""))) {
@@ -54,7 +50,6 @@ function walk(root: string, prefix = ""): string[] {
   return out.sort();
 }
 
-/** A code point spelled the way this report spells it. */
 const cp = (c: string) => "U+" + c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0");
 
 function section(n: string, title: string) {
@@ -68,7 +63,6 @@ console.log(`site                ${SITE} (${siteFiles.length} files)`);
 console.log(`ir                  ${IR} (${irFiles.length} files)`);
 console.log(`link index          ${LIDX} (${Deno.statSync(LIDX).size} B)`);
 
-// ---------------------------------------------------------------------------
 section("1a", "NUL inside a fenced code block — MD4Lean SIGSEGVs (wrapper.c:558)");
 {
   const page = `${SITE}/Alpha/NulCode.html`;
@@ -76,8 +70,8 @@ section("1a", "NUL inside a fenced code block — MD4Lean SIGSEGVs (wrapper.c:55
     console.log("  page                MISSING — the renderer did not produce it");
   } else {
     // **Counted over the bytes, never searched for as a source literal** — a
-    // NUL written into this file would be invisible, and a space typed by
-    // mistake in its place makes the test pass on every page.
+    // NUL here would be invisible, and a space typed in its place would make
+    // this pass on every page.
     const bytes = Deno.readFileSync(page);
     const html = new TextDecoder().decode(bytes);
     const nul = bytes.filter((b) => b === 0).length;
@@ -100,7 +94,6 @@ section("1a", "NUL inside a fenced code block — MD4Lean SIGSEGVs (wrapper.c:55
   );
 }
 
-// ---------------------------------------------------------------------------
 section("1b", "a GFM table with no body row — MD4Lean SIGABRTs (wrapper.c:389)");
 {
   const page = `${SITE}/Alpha/EmptyTable.html`;
@@ -115,8 +108,7 @@ section("1b", "a GFM table with no body row — MD4Lean SIGABRTs (wrapper.c:389)
   }
 }
 
-// ---------------------------------------------------------------------------
-section("2", "declaration names above the BMP (U1: UTF-16 order vs code point order)");
+section("2", "declaration names above the BMP (UTF-16 order vs code point order)");
 {
   const mapPath = `${SITE}/declarations/name-map.json`;
   const map = JSON.parse(readOr(mapPath, "{}"));
@@ -130,18 +122,17 @@ section("2", "declaration names above the BMP (U1: UTF-16 order vs code point or
   console.log(`  «ﬀ-z» at index      ${b}`);
   if (a >= 0 && b >= 0) {
     // U+1D49C is D835 DC9C in UTF-16, so its first code unit (D835) is *below*
-    // U+FB00; by code point it is above. The two orders therefore disagree, and
-    // which one the file is in is decided by plan §7's U1.
+    // U+FB00; by code point it is above. The two orders therefore disagree.
     const utf16First = a < b;
     console.log(
-      `  order               ${utf16First ? "«𝒜-z» first = UTF-16 code unit order (U1 honoured)" : "«ﬀ-z» first = code point / UTF-8 order (U1 NOT honoured)"}`,
+      `  order               ${utf16First ? "«𝒜-z» first = UTF-16 code unit order (the required order)" : "«ﬀ-z» first = code point / UTF-8 order (NOT the required order)"}`,
     );
     console.log(
       `  cross-check         JS .sort() puts ${["\u{1D49C}-z", "ﬀ-z"].sort()[0] === "\u{1D49C}-z" ? "«𝒜-z»" : "«ﬀ-z»"} first`,
     );
   }
-  // `declaration-data.bmp` is the search index, and its bytes come out of the
-  // same sorted array (plan §7, U1).
+  // `declaration-data.bmp` is the search index; its bytes come out of the same
+  // sorted array.
   const bmp = readOr(`${SITE}/declarations/declaration-data.bmp`);
   const bmpA = bmp.indexOf("\u{1D49C}-z");
   const bmpB = bmp.indexOf("\uFB00-z");
@@ -161,7 +152,6 @@ section("2", "declaration names above the BMP (U1: UTF-16 order vs code point or
   }
 }
 
-// ---------------------------------------------------------------------------
 section("3", "a heading containing U+2B96 (UnicodeBasic vs V8 heading-id table)");
 {
   const page = `${SITE}/Alpha/HeadingSplit.html`;
@@ -180,8 +170,7 @@ section("3", "a heading containing U+2B96 (UnicodeBasic vs V8 heading-id table)"
   }
 }
 
-// ---------------------------------------------------------------------------
-section("4", "a module name that needs «…» (M5-a trap 4)");
+section("4", "a module name that needs «…»");
 {
   const escaped = "Alpha.«Odd-Name»";
   const plain = "Alpha.Odd-Name";
@@ -205,8 +194,7 @@ section("4", "a module name that needs «…» (M5-a trap 4)");
   console.log(`  name-map owner      ${JSON.stringify(owner)}`);
 }
 
-// ---------------------------------------------------------------------------
-section("5a", "_private. names (plan 決定 5)");
+section("5a", "_private. names");
 {
   const ir = readOr(`${IR}/modules/Alpha.Private.json`);
   const irPrivate = (ir.match(/_private\.[A-Za-z0-9_.«»]+/g) ?? []);
@@ -225,7 +213,6 @@ section("5a", "_private. names (plan 決定 5)");
   console.log(`  name-map has hidden ${names.includes("Alpha.Private.hidden") ? "yes" : "no"}`);
 }
 
-// ---------------------------------------------------------------------------
 section("5b", "one declaration name in more than one module's IR");
 {
   const owners = new Map<string, string[]>();
@@ -246,8 +233,7 @@ section("5b", "one declaration name in more than one module's IR");
   console.log(`  step* declarations  ${JSON.stringify(step)}`);
 }
 
-// ---------------------------------------------------------------------------
-section("6", "U+088F inside a code span (V6: a separator for V8, not for UnicodeBasic)");
+section("6", "U+088F inside a code span (a separator for V8, not for UnicodeBasic)");
 {
   const state = JSON.parse(readOr(STATE, "{}"));
   const modules = state.modules ?? state.facts ?? {};
@@ -264,8 +250,7 @@ section("6", "U+088F inside a code span (V6: a separator for V8, not for Unicode
   console.log(`  page                ${exists(page) ? page : "MISSING"}`);
   // **The span that holds U+088F, not the page.** The same docstring names
   // `Alpha.Basic.alphaConst` a second time in ordinary prose, and that one *is*
-  // linked; looking at the page as a whole would report the control's link as
-  // this boundary value's.
+  // linked; the page as a whole would report the control's link as this one's.
   const spans = [...html.matchAll(/<code[^>]*>[\s\S]*?<\/code>/g)].map((m) => m[0]);
   const withSep = spans.filter((s) => s.includes("\u088F"));
   console.log(`  spans holding U+088F ${withSep.length}`);

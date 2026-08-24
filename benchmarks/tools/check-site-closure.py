@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Does the site close over itself? — the gate that replaced byte reproduction.
+"""Does the site close over itself?
 
-Gate A compared every page with doc-gen4's own tree, and it ended at M8: the UI
-is ours now, so no third party knows what these bytes should be. What survives
-the loss of an external oracle is what the tree can be asked about *itself*, and
-that is this check. Nothing here needs the network, doc-gen4, or the corpus.
+The UI is ours, so no third party knows what these bytes should be. What
+survives the loss of an external oracle is what the tree can be asked about
+*itself*. Nothing here needs the network, doc-gen4, or the corpus.
 
 Seven questions, each printed with its 母数 so that a passing run says how much
 it looked at rather than only that it was happy:
@@ -18,21 +17,14 @@ it looked at rather than only that it was happy:
   6. instancesFor      every key and every value is a declaration
   7. resources         no <script src> / <link href> points at another host
 
-(2) used to be "the search index's module array names pages that exist", back
-when it had one. That array was pulled out into `modules.json` — there is one
-module array now, and a declaration names its module by subscript into
-it. So the question became whether those subscripts land, which is the same
-failure (a result row linking to a page nobody wrote) caught one file earlier.
-
 (3) and (4) are deliberately the two directions of the same statement. One of
 them alone is satisfied by an index that is a subset of the pages, or by pages
 that are a subset of the index — and both of those are exactly how a renderer
 and an index generator drift apart: the search box stops finding a declaration
 that is on the page, or finds one that is not.
 
-(7) is the M8-a gate (UI-1, "self-contained: 0 external hosts") made repeatable.
-`<a href>` is *not* its subject: a link into a dependency's source is a
-version-pinned GitHub blob URL by design (M7), and clicking it is not the page
+(7)'s subject is not `<a href>`: a link into a dependency's source is a
+version-pinned GitHub blob URL by design, and clicking it is not the page
 loading a resource.
 
 usage:
@@ -142,7 +134,6 @@ def load_json(site, name, problems):
 
 
 def html_files(site):
-    """Every page, as a site-relative posix path."""
     found = []
     for base, _, names in os.walk(site):
         for name in names:
@@ -172,7 +163,6 @@ def main():
     pages = html_files(site)
     counts["pages"] = len(pages)
 
-    # Anchors, per page and in total.
     decl_anchors = {}
     all_anchors = {}
     resources = []
@@ -281,9 +271,9 @@ def main():
         extra = {f"{name} (not in the map)" for name in indexed if name not in expected}
         fail("search-index == name-map", disagree | extra, len(expected))
 
-    # 5 / 6 — the instance tables are name references too. They moved to their
-    # own file in P0, but they still refer to declarations the search index has
-    # to know, so this needs both files and says so if either is missing.
+    # 5 / 6 — the instance tables are name references too: they live in their
+    # own file but refer to declarations the search index has to know, so this
+    # needs both files and says so if either is missing.
     if search_index and instance_maps:
         names = set(search_index["names"])
         instances = instance_maps.get("instances") or {}
@@ -302,7 +292,7 @@ def main():
         bad = {f"{key} -> {name}" for key, name in pairs if name not in names}
         fail("instancesFor -> declarations", bad, len(pairs))
 
-    # 7 — UI-1, repeatable.
+    # 7 — no external hosts.
     counts["external resources"] = {"checked": len(pages), "failed": len(resources)}
     if resources:
         head = ", ".join(f"{page}: {url}" for page, url in resources[: args.show])

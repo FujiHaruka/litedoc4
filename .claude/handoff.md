@@ -1,167 +1,92 @@
 # Handoff — 2026-08-24 (コメント削減)
 
 ## Relay control
-- Mode: ON
+- Mode: DONE
 - Goal: `CLAUDE.md` の新しい `## コードのコメント` 規則 (既定はコメントしない /
-  非自明な why not だけ) に合わせて、**コード表面のコメントを全面的に削減する**。
-- Leg: 2 / cap 8
-- Predecessor: none  (leg 1 はユーザーの元セッションで tmux 名を持たない。kill しない)
-- Stop-on: completion | user-decision | no-progress×2 | leg-cap
+  非自明な why not だけ) に合わせて、**コード表面のコメントを全面的に削減する**。**達成**。
+- Leg: 1 / cap 8
+- Predecessor: none
+- Stop-on: completion
+- **結果**: **コード表面のコメント 25,366 → 16,443 行 (−8,923 行、−35%)**【実測】。
+  **挙動は動いていない** — `cargo test --workspace --no-fail-fast` は着手前と同じ
+  **564 passed / 0 failed / 22 ignored** (doctest 12 本)、`tools/e2e-micro.sh` は 15/15 緑、
+  CI の 8 段も緑。
 - Progress ledger:
-  - r1: `CLAUDE.md` の規則整備 + **Rust 全部** + **`tools/*.sh` の 8 本**。
-    木全体 22,388 → 約 15,000 行。commit `c57f2df` `3ad2073` `03e1ded` `fcc4b6a`
-    `1934448` `ee173e1` `a9a63b7` `a5be49e` `159ac85` `daa46a0` `1471b9f` `b0c40c2`。
-    **`159ac85` / `daa46a0` で main を 2 回赤くし、`1471b9f` で直した** (下の罠)
+  - r1: 全範囲。commit `c57f2df`〜`108cefa` (14 本)
 
-## 次の一手
+## State
 
-**`tools/` の残り 29 本のシェルを subagent が処理中** (leg 1 の最後の dispatch)。
-それが戻ったら:
+- Branch: **`main`** / clean / push 済み
+- **この計画でやることは残っていない**
+- **`action.yml` は別セッションが編集中**【ユーザーから 2026-08-24】。触っていない
 
-1. **`tools/e2e-micro.sh` をローカル実走**して緑を確認する — `verify.sh` はシェルの
-   ゲートを**一切見ていない**。`tools/lib/common.sh` を触っているので、シェル 2 バッチ
-   (`b0c40c2` = commit 済み・**未 push**、と 29 本ぶん) をまとめて 1 回で検査する。
-   終わったら**作業ディレクトリを消す** (CLAUDE.md の 24 GB 事故)
-2. 緑なら 2 バッチまとめて push
-3. 続きは下の「残っている範囲」の 5〜8
+## 何をしたか
 
-## この作業の規範
+| 範囲 | before → after | |
+|---|---|---|
+| Rust 7 crate (108 ファイル) | 16,313 → 9,761 | −40% |
+| `tools/*.sh` (37 本) | 3,396 → 2,066 | −39% |
+| `.github/workflows/*.yml` (13 本) | 921 → 661 | −28% |
+| TS + CSS (35 本) | 997 → 621 | −38% |
+| `benchmarks/tools` の `*.ts` `*.sh` (30 本) | 1,316 → 1,152 | −12% |
+| `extractor/Extract.lean` + `lakefile.lean` | 511 → 324 | −37% |
+| `benchmarks/tools/*.py` (12 本) | 251 → 181 | −28% |
 
-- **`CLAUDE.md` の `## コードのコメント`** が規範。
-- **作業手順版は `/private/tmp/lean-doc-relay/comment-diet/policy.md`**
-  — 消す 8 分類 / 残す a〜e / 絶対に消さない (provenance) / 触らない /
-  言語ごとの追記 / 線引きの追記 / 検証は `cargo check` では足りない。
-  **subagent には必ずこれを読ませる。** 消えていたら CLAUDE.md から再生成する。
-- プロンプト雛形: `/private/tmp/lean-doc-relay/comment-diet/prompt-template.md`
+規則そのものも整備した — `## コードのコメント` を新設し、**コンフリクトする
+「コード表面から docs を参照しない」規則を削除**、先頭の SoT 記述と `crates/` の表を揃えた。
 
-## 進め方 (6 範囲で確立済み。この形で回す)
+## ついでに直した、腐っていたもの
 
-1. 範囲を切って subagent に dispatch (**同時 1 体**、**commit させない**、model は Opus)
-2. 戻ってきたら **コメント以外の変更**を洗い出して読む:
-   ```
-   git diff -U0 <範囲> | grep -E '^[-+]' | grep -vE '^[-+]{3}' \
-     | grep -vE '^[-+]\s*(//|/\*|\*)' | grep -vE '^[-+]\s*$'
-   ```
-   毎回 0〜7 行出る (`#[expect]` の reason、assert メッセージ、区切りと一緒に消えた空行)。
-   妥当なら通す
-3. **`/private/tmp/lean-doc-relay/comment-diet/verify.sh --fast`**
-   (fmt / clippy / doc / provenance / doctest。**パイプ無し**、ログは `logs/<段>.log`)。
-   引数なしで CI の 8 段全部 (`cargo test` を含むので 15 分近くかかる)
-4. 緑なら `git add <範囲> && git commit && push`
-   (push は `GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0=''
-   GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='!gh auth git-credential'
-   git push https://github.com/FujiHaruka/litedoc4.git main:main`)
+コメント削減の副産物。**どれも製品の欠陥ではないが、読む人を誤らせるもの**:
 
-**subagent プロンプトに必ず入れる 5 点** (どれか欠けると緩くなる / 壊れる):
+- **死んだ計画への参照** — doc コメント / `litedoc4 --help` の usage / ゲートの拒否
+  メッセージ / assert メッセージ。実装計画 19 本は 2026-08-24 に削除済みで、
+  `plan §6` `M3-d2 の債務` `段 D` `stage 5e (e)` `決定 2` はもう解決しない
+- **doc の付き先が隣の宣言にずれていた 4 件** (`page_parts.rs` / `lib.rs` / `ledger.rs` /
+  `merge.rs`) — 関数が消えると doc が次の宣言へ黙って移る。`cargo doc` も clippy も見ない
+- **doc の数字とアサーションの食い違い 5 件** — 「64 のうち 21」と書いてあって実体は
+  `[&str; 69]` だった。数字を直すのではなく**定数名を指す**ようにした
+- **`docs/provenance.md` の腐った行番号** — `style.css:320-325` は既に外れていた。
+  セレクタ名 (`.fn` / `.break_within`) で指すようにし、`Extract.lean` の行数も実測に更新
+- **`tools/*-reference.sh` / `*-compare.sh` の 7 本が説明していた `--impl ts`** —
+  引数ループを読んで**実在しない経路**であることを確認して落とした
+- **`ci.yml` の「this repository's doc comments are where the reasoning lives」** —
+  新規則と食い違うので書き直した
 
-1. **判定基準** — 各コメントに「名前 (型名・関数名・テスト名) がすでに言っているか」
-   「本体を 3 秒読めば分かるか」を問い、**どちらか yes なら消す**。
-   **「あると親切」は残す理由にならない**
-2. **`cargo check` では足りない。`cargo clippy --workspace --all-targets -- -D warnings` を回せ**
-   (折り返した doc 行の行頭が `+` / `-` になると `clippy::doc_lazy_continuation` で落ちる【実測】)
-3. **そのバッチに含まれる provenance 対象ファイルと必要文字列の表**
-4. **走る doctest の本数**を明示 (```` ``` ```` 言語指定なしはテスト。```text は走らない)
-5. **死んだ計画への参照は消す / 生きている docs は区別する** (下記)
+## 見つけたが直していないもの (次に拾うならここ)
 
-**死んだ**: `plan §6` `Plan 決定 1` `実装計画 §4` `docs/plans/...` `M3-d2 の債務 1`
-`段 D` `M8-d` `C-2` `search-v2 P0` — 実装計画・実装ログ・完遂した計画文書 19 本は
-2026-08-24 に削除済み。**生きている**: `docs/approach.md` (§1〜4, §7〜10) /
-`docs/approach-pillars.md` (§5) / `docs/approach-performance.md` (§6) /
-`docs/verification-log.md` / `docs/provenance.md` — ただし**実質が同じ文にあるなら
-節番号だけ落とす**。`docs/provenance.md` への参照は根拠なので消すな。
+- **`tools/build-gate.sh` の `EXPECT_BASE=443` はどこからも読まれていない。**
+  コメントは「ページ数の取り違えを捕まえる分母」だと言っているが、gate 1 は
+  `$(files_in "$REF_IR")` を渡していて、書き下した分母が効いているのは移動後のツリーだけ
+- **`tools/search-gate.sh` は存在しない**のに、`index-format.ts` と `score.ts` が
+  生きているゲートとして引用していた (引用は落としたが、そのゲート自体が無い)
+- **`assets.rs` の `from_scripts >= 8` は余裕が 1**。実数は 9 で、`search-empty` が
+  2 ファイルで代入されている。片方を消すと 8 になり、次で落ちる。
+  失敗メッセージは「走査が壊れたか」と言うが、走査は壊れていない
+- **`build.rs` が node を要るという説明が 6 ワークフロー 11 箇所にコピペ**されていて、
+  全コピーが編集途中で壊れた文だった。1 ファイル 1 コピーに減らしたが、
+  `setup-elan` と同じ composite action にすれば重複自体が消える
+- **`--jobs` の拒否メッセージが `build.rs` と `pipeline.rs` にバイト単位で重複**。
+  `LINK_INDEX_COST` のように共有されていない (「判断は 1 箇所に集める」がユーザー向け
+  文字列のレベルで破れている)
+- **`benchmarks/tools/*.ts` は一度も単体で型検査されていない** — `deno.json` が無く、
+  `check-site-browser.ts` は `deno check` で既存の `TS18046` を出す (今回の変更前から)
+- **`extractor/README.md`** だけが stage4b / 7d の実験期の枠組みで書かれたまま残っている
 
-## 済んだもの
+## 意図的に残したもの (「消し忘れ」と読んで直さない)
 
-| 範囲 | before → after | | commit |
-|---|---|---|---|
-| `CLAUDE.md` の規則整備 | — | | `c57f2df` `3ad2073` |
-| `crates/litedoc4-ir` | 1098 → 525 | −52% | `03e1ded` |
-| `crates/litedoc4-md` | 1271 → 766 | −40% | `fcc4b6a` |
-| `crates/litedoc4-global` | 1920 → 1154 | −40% | `1934448` |
-| `crates/litedoc4-incr` | 2303 → 1421 | −38% | `ee173e1` |
-| `crates/litedoc4-render/src` + `build.rs` | 2597 → 1624 | −37% | `a9a63b7` |
-| `crates/litedoc4-render/tests` + `testutil` | 1923 → 1197 | −38% | `a5be49e` |
-| `crates/litedoc4/src` の大 4 本 | 1992 → 1266 | −36% | `159ac85` |
-| `crates/litedoc4/src` の残り 11 本 | 1527 → 891 | −42% | `daa46a0` |
-| `crates/litedoc4/tests` (+ 赤の修正) | 1691 → 920 | −46% | `1471b9f` |
-| `tools/*.sh` の大 8 本 | 1684 → 1013 | −40% | **`b0c40c2` (未 push)** |
-| **Rust 合計** | **16,313 → 9,761** | **−40%** | |
+- `tools/make-target2.sh` が生成する `.lean` の docstring 3 件 (`L3-1` `L3-2` `plan 決定 5`) —
+  **target 2 の IR とページのバイトに出る**。直すなら `target2-gate.sh` を回せる状態で
+- `extractor/Extract.lean` の `stage4b.*` キー 16 件 — **生きているワイヤ形式**
+  (→ CLAUDE.md の保護一覧 6 種目に追加した)
+- `benchmarks/tools` の計測レポート見出しにある `stage 1` / `stage 3` —
+  **実測値に付いた唯一の由来標識**
+- `benchmarks/results/**` / `crates/*/tests/data/**` — 凍結。触っていない
 
-**Rust は全部終わっている。** フル 8 段は緑で、**テスト数は着手前と同一**
-(`564 passed / 0 failed / 22 ignored`、doctest 12 本)。
+## この作業で恒久化した罠 (CLAUDE.md に入れた)
 
-## 残っている範囲 (この順で)
-
-| # | 範囲 | コメント行 | 備考 |
-|---|---|---|---|
-| 1 | `tools/` の残り 29 本 | ~1712 | **leg 1 で実行中**。終わったら e2e-micro 実走 → 2 バッチまとめて push |
-| 2 | `extractor/Extract.lean` + `lakefile.lean` | 511 | **`Extract.lean` のヘッダは `--help` の usage を兼ねている。usage は残す。`Böving` / `Apache` は provenance ゲートが grep する。検査は `tools/e2e-micro.sh` (実 extractor を建てる)** |
-| 3 | TS (`crates/litedoc4-render/web/src`, `**/tests/oracle/*.ts`, `tools/*.ts`) | 806 | 触ったら **`mise exec -- tools/assets-gate.sh`** (素で呼ぶと node が SIGKILL) |
-| 4 | `benchmarks/tools/*` | 1353 | **計測条件・単位・集計方法は残す**。`benchmarks/results/**` には触るな |
-| 5 | `.github/workflows/*.yml` | ? | `ci.yml` の Rustdoc links ステップが「this repository's doc comments are where the reasoning lives」と書いている — **新規則と食い違うので直す** |
-| 6 | **印字文字列の死んだ参照の一括掃除** | — | 下の一覧。**最後に 1 回だけ、フル 8 段 + e2e-micro と一緒に** |
-
-## 最後にやる: 印字文字列に埋まった死んだ参照
-
-**subagent には触らせない** (別クレートの assert が部分文字列を見ていることがある)。
-統合側が最後に一度だけ直し、**フルのテストで確かめる**。既知の一覧:
-
-| file:line | 文言 |
-|---|---|
-| `tools/build-gate.sh:185` | `"tools/rebuild-own.sh first (stage 5e (e))"` |
-| `tools/clone-gate.sh:304` | 同上 |
-| `tools/deps-docs-gate.sh:196` | `"the build did not turn A-1 on"` |
-| `tools/e2e-micro.sh:630` | `"…which B-0 §6 measured as 0 on both samples: "` |
-| `crates/litedoc4/src/extract.rs` | `"…session's scratchpad path and is gone"` (経緯。ラベルは除去済み) |
-
-**`tools/make-target2.sh` の 3 件 (`L3-2` / `L3-1` / `plan 決定 5`) は別扱い** —
-生成される `.lean` の docstring で、**target 2 の IR とページのバイトに出る**。
-凍結フィクスチャに影響しうるので、直すなら `target2-gate.sh` を回せる状態で。
-
-## ベースライン (着手前、8 段すべて緑)
-
-`fmt` / `clippy` / `doc` / `machete` / `test` (46 バイナリ・**564 passed / 0 failed /
-22 ignored**、**doctest 12 本** = 11 passed + 1 ignored) / `corpus --verify-list` /
-`provenance` (31 claims) / `assets` (biome 48/48、`app.js` 15370 B)。
-記録は `/private/tmp/lean-doc-relay/comment-diet/baseline.txt`。
-**6 範囲を終えた時点のフル 8 段は `full-r1.txt`。**
-
-## 罠 (この作業固有。全部踏んだ or 確認済み)
-
-- **`verify.sh` に fast モードは無い。作ってはいけない**【実測 2026-08-24、main を 2 回赤くした】。
-  `cargo test` 抜きの 5 段を commit の判定に使った結果、コメント削減が**製品が印字する
-  文字列リテラル**に踏み込んだのを誰も見ていなかった。`check_source_url` の拒否から
-  `(coverage.ts:512)` を、`--jobs` の拒否から `(plan §6, constraint 6)` を落として、
-  **別のクレートの `tests/` にある assert 2 本**が落ちた。
-  **subagent への検証指示も `cargo test -p <crate>` にする** — `--lib` は `tests/` を見ない
-- **`verify.sh` はシェルのゲートを一切見ていない。** `tools/*.sh` を触ったら
-  **`bash -n` 全ファイル + 埋め込み python ヒアドキュメントの `compile()` +
-  `--help` の実出力 + `tools/e2e-micro.sh` のローカル実走**が要る
-  (`bash -n` はヒアドキュメントの中を見ない)
-- **`tools/provenance-files.txt` が指す attribution を消すと `provenance-gate.sh` が落ちる。**
-  残りの範囲で該当するのは **`extractor/Extract.lean` (`Böving` / `Apache`)** と
-  **`crates/litedoc4-render/assets/style.css` (`Böving` / `Apache 2.0` / `math-core` /
-  `Charles Edward Gagnon`)**。全一覧は policy.md
-- **`cargo check` では `clippy::doc_lazy_continuation` を捕まえられない**【実測】 —
-  折り返した doc 行の行頭が `+` / `-` になるとリスト項目と読まれる
-- **走っているシェルスクリプトを書き換えると実行が壊れる**【実測】 — bash はバイト位置で
-  読み進める。`verify.sh` を回している最中に編集して `line 24: eps: command not found` になった
-- **subagent は 529 で途中終了することがある**【実測】 — 編集は残るが検証は回っていない。
-  `git status` で範囲を見て、**同じ agent に SendMessage で再開させる** (context を持っている)
-- **doc ブロックが隣の宣言に貼り違っていることがある**【実測、4 件】 —
-  関数が消えると doc が次の宣言へ黙って移る。**`cargo doc` も clippy も検出しない**
-- **doc の数字とアサーションが食い違っていることがある**【実測、5 件】 —
-  「64 のうち 21」と書いてあって実体は `[&str; 69]` だった。**数字を直すのではなく
-  定数名を指す**ようにする (アサーションが本当の検査)
-- **subagent が同じ範囲を 2 体で触らないよう、staging はパス指定で**。
-  `git add crates/litedoc4/src` は次の担当の途中結果まで巻き込む
-- `crates/litedoc4-render/src/assets.rs` の `every_class_the_renderer_emits_is_styled` は
-  `frame.rs` / `page.rs` / `decl.rs` / `code.rs` と `web/src/*.ts` を **`include_str!` で
-  読んで** `class="` を数える。**そのファイルのコメントを触る作業はゲートの母数に触りうる**
-
-## この leg で片付いた宿題
-
-- `tools/*-reference.sh` / `*-compare.sh` の **`--impl ts` は実在しない経路だった**【確認済み】 —
-  `incremental-reference.sh` に `--impl` フラグ自体が無く、引数ループが exit 2 で弾く。
-  消えたプロトタイプ (`experiments/stage7h/incremental.sh`) を説明する散文だけが
-  7 本すべてに複製されていた
+- **ゲートの部分集合を commit の判定に使わない** (`## 品質ゲート`)
+- **doc の折り返しは `clippy::doc_lazy_continuation` で落ちる。`cargo check` では出ない**
+  (`## Rust の lint`)
+- **走っているシェルスクリプトを書き換えると実行が壊れる** (`## この機材の罠`)
+- **計時 JSONL の `phase` キーは生きている識別子** (`## リポジトリの構成` の保護一覧 6 種目)

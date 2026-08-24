@@ -2,32 +2,19 @@
 // gen-docgen4-expected.ts -- produce the expected HTML for `tests/docgen4.rs`
 // by running *doc-gen4 itself*.
 //
-// WHY THIS FILE EXISTS
-// --------------------
 // `src/html.rs` is a transcription of `DocGen4/Output/DocString.lean`. Expected
 // values derived from reading that file would prove nothing -- the reading and
 // the port would share whatever mistake was made. So they come from doc-gen4:
 // `dump-html.lean` calls `docStringToHtml` in the measurement target's own
 // environment and prints the bytes.
 //
-// THE CORPUS IS REAL DATA
-// -----------------------
-// Every docstring in the target package's IR, deduplicated, plus the
-// hand-written cases from `gen-md4lean-expected.ts` (which exist to reach the
-// corners the package does not contain). Every case is answered by doc-gen4.
-//
-// THE ROOT IS VARIED
-// ------------------
-// `getRoot` is prepended to every relative link and to the `find/?pattern=`
-// fallback, so it is part of the bytes. Cases cycle through depths 0, 1 and 2
-// so that a port which ignored the root, or applied it twice, could not pass.
-//
-// SOME INPUTS CRASH IT
-// --------------------
-// The two that kill `MD4Lean.parse` kill this too (a NUL inside a fenced code
-// block; a GFM table with a header and no body rows). The runner finds them by
-// resuming after each crash and records them separately -- a crash is not an
-// oracle.
+// The corpus is every docstring in that package's IR, deduplicated, plus the
+// hand-written cases from `gen-md4lean-expected.ts`. `getRoot` is prepended to
+// every relative link and to the `find/?pattern=` fallback, so it is part of
+// the bytes: cases cycle through depths 0, 1 and 2 so that a port which ignored
+// the root, or applied it twice, could not pass. Some inputs kill the Lean side
+// (`CRASHERS`); the runner resumes after each crash and records them
+// separately, because a crash is not an oracle.
 //
 // npm/node are broken in this environment; this must run under deno.
 //
@@ -45,21 +32,16 @@ const CURATED_FROM = new URL("gen-md4lean-expected.ts", import.meta.url);
 const DEFAULT_TARGET = "/Users/haruka/dev/lean-projects";
 const DEFAULT_IR = "/private/tmp/lean-doc-relay/w7h/base-ir";
 
-/** How many cases the committed fixture aims for. See `selectCases`. */
 const FIXTURE_TARGET = 320;
-
-// ---------------------------------------------------------- the corpus
 
 type Case = { what: string; depth: number; md: string };
 
 /**
  * The hand-written inputs, taken from `gen-md4lean-expected.ts` rather than
- * copied: one list, so a corner added for the parser is also rendered.
- *
- * Its `CURATED` is a plain array literal, so it is sliced out of the source and
- * evaluated. The dialect-varying and crashing lists are not reused: this
- * oracle's flags are whatever `docStringToHtml` hardcodes, and the crashers are
- * appended below with their own labels.
+ * copied: one list, so a corner added for the parser is also rendered. Its
+ * `CURATED` is a plain array literal, sliced out of the source and evaluated.
+ * The dialect-varying list is not reused -- this oracle's flags are whatever
+ * `docStringToHtml` hardcodes.
  */
 async function curatedCases(): Promise<[string, string][]> {
   const source = await Deno.readTextFile(CURATED_FROM);
@@ -78,10 +60,7 @@ async function curatedCases(): Promise<[string, string][]> {
   return module.CURATED;
 }
 
-/**
- * Corners that only exist once the tree is rendered, so the parser's corpus has
- * no reason to contain them. Each is still answered by doc-gen4.
- */
+/** Corners that only exist once the tree is rendered. Answered by doc-gen4. */
 const HTML_CURATED: [string, string][] = [
   ["heading id, punctuation runs", "# a..b -- c, d!\n"],
   ["heading id, leading and trailing punctuation", "# ...a...\n"],
@@ -134,14 +113,9 @@ const HTML_CURATED: [string, string][] = [
 ];
 
 /**
- * Real docstrings the sample must keep whatever the coverage search picks.
- *
- * The one entry is the *only* docstring in the package on which the frozen
- * prototype and doc-gen4 disagree 【実測: 1 of 4,858; measured by
- * `gen-ts-docstring-expected.ts`, which was removed with `experiments/` on
- * 2026-08-16 and exists only at tag `experiments-frozen`】. Without it the
- * committed fixture would
- * exercise that disagreement only through hand-written cases, and
+ * Real docstrings the sample must keep whatever the coverage search picks. The
+ * one entry is the *only* docstring in the package on which the frozen
+ * prototype and doc-gen4 disagree 【実測: 1 of 4,858】; without it
  * `tests/ts_docstring.rs` would have nothing real to stand on.
  */
 const MUST_INCLUDE = new Set([
@@ -187,15 +161,12 @@ const CRASHERS: [string, string][] = [
   ["table with a header and no body", "| a | b |\n|---|---|\n"],
 ];
 
-// ---------------------------------------------------------------- the oracle
-
 const DYLIB = Deno.build.os === "darwin" ? "dylib" : "so";
 /**
  * The interpreter needs a native implementation for every `@[extern]` the
  * script reaches. MD4Lean's are the parser; UnicodeBasic's is the general
  * category lookup, and without it every heading containing a non-ASCII
- * character dies (`getGC` answers ASCII from a literal table and calls out for
- * the rest) -- which looks exactly like a crashing corpus.
+ * character dies -- which looks exactly like a crashing corpus.
  */
 const LIBS = [
   `.lake/packages/MD4Lean/.lake/build/lib/libleanmd4c.${DYLIB}`,
@@ -205,10 +176,8 @@ const LIBS = [
 
 /**
  * Runs `dump-html.lean` over `cases`, resuming past any input that kills it.
- *
- * `lake env` has to run inside the target package (that is what supplies Lean,
- * doc-gen4 and the built MD4Lean); nothing is written there -- both file
- * arguments are in `work`.
+ * `lake env` has to run inside the target package -- that is what supplies
+ * Lean, doc-gen4 and the built MD4Lean -- and nothing is written there.
  */
 async function runOracle(
   target: string,
@@ -275,16 +244,12 @@ async function runOracle(
   return answers;
 }
 
-// ---------------------------------------------------------------- selection
-
 /**
- * What shape a rendered docstring has: which tags, which attributes and which
- * of the handful of one-off constructs it contains. Two docstrings with the
- * same signature exercise the same branches of the renderer, so keeping one of
- * each is what makes a sample worth as much as the corpus.
- *
- * Unlike the parser's oracle this reads the *output*, which is the thing being
- * checked -- there is no tree here to walk.
+ * Which tags, attributes and one-off constructs a rendered docstring contains.
+ * Two docstrings with the same signature exercise the same branches of the
+ * renderer, so keeping one of each is what makes a sample worth as much as the
+ * corpus. Unlike the parser's oracle this reads the *output*, which is the
+ * thing being checked -- there is no tree here to walk.
  */
 function signature(html: string): string {
   const features = new Set<string>();
@@ -320,11 +285,8 @@ function textFeatures(md: string): string[] {
  * greedy cover of the output features, then the first case showing each
  * byte-level feature, then an even stride over the rest.
  *
- * **This selection is now the whole of what any test checks.** The
- * `the_whole_corpus` test that read `--full` was deleted on 2026-08-16: its
- * recording lived in `/private/tmp`, which is emptied, so it was either red or
- * paid for by another doc-gen4 run over every docstring. `--full` still writes
- * every case, for a check by hand.
+ * **This selection is the whole of what any test checks.** `--full` writes
+ * every case, for a check by hand; nothing reads it.
  */
 function selectCases(
   cases: Case[],
@@ -391,8 +353,6 @@ function selectCases(
   }
   return [...chosen].sort((a, b) => a - b);
 }
-
-// -------------------------------------------------------------------- main
 
 const args = Deno.args;
 const flag = (name: string, fallback: string | null = null) => {

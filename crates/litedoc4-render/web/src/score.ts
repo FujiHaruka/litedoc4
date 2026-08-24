@@ -1,32 +1,16 @@
-/**
- * The ranking — the one place the order of the result list is decided.
- *
- * Separate from the walk that feeds it (`search.ts`) because the two are
- * checked against different things: the walk against the file format, this
- * against the JSON-scoring version it replaced (`tools/search-gate.sh` freezes
- * that comparison).
- */
+/** The ranking — the one place the order of the result list is decided. */
 import { utf16Length } from "./index-format.js";
 import type { SearchIndex } from "./types.js";
 
-/**
- * How many hits are worth keeping for the next keystroke.
- *
- * Re-scoring a few hundred names is obviously cheaper than walking the whole
- * section; keeping thousands would cost more to copy than the walk it saves.
- */
+/** Hits kept for the next keystroke: past this, copying costs more than the
+ * walk it saves. */
 export const NARROW_MAX = 512;
 
 /**
- * Ranks a folded name against a folded query, in bytes.
- *
- * Three tiers, cheapest first: a prefix of the last component beats a prefix of
- * the full name, which beats a substring anywhere. Nothing else matches — a
- * subsequence matcher finds `Nat.add` for `nd` and buries the exact hit.
- *
- * The lengths are UTF-16 lengths because the version this replaces scored
- * `String.prototype.length`, and a name with `β` in it would otherwise rank
- * differently for no reason a reader could see.
+ * Ranks a folded name against a folded query, in bytes. Three tiers, cheapest
+ * first: a prefix of the last component beats a prefix of the full name, which
+ * beats a substring anywhere. Nothing else matches — a subsequence matcher
+ * finds `Nat.add` for `nd` and buries the exact hit.
  */
 export function scoreBytes(
   name: Uint8Array,
@@ -64,10 +48,7 @@ export function scoreBytes(
   return -1;
 }
 
-/** The hits, best first, as subscripts into the index. */
 export function rank(index: SearchIndex, hits: number): number[] {
-  // Ties break by name length and then by position in the file, which is the
-  // order the JSON version's stable sort produced.
   const order = Array.from({ length: hits }, (_, k) => k);
   order.sort(
     (a, b) =>

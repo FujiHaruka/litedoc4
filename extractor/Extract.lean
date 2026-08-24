@@ -16,114 +16,6 @@ the `Core.Context` options, `collectSpans`, the kind/modifier split, and
 litedoc4 as a whole is licensed separately; see this repository's LICENSE.
 This binary does **not** link doc-gen4 — it imports only `Lean`.
 
----
-
-**litedoc4's extractor.** This file was **moved**, not ported: the extractor is
-the one stage that has to run inside the target package's Lean environment
-(`importModules` over its oleans), so it stays Lean while everything outside it
-is Rust.
-
-The source it moved from is `experiments/stage7d/Extract.lean`, which is
-**frozen** together with the rest of `experiments/`: every benchmark number was
-taken with a binary built there, and an extractor that has been edited cannot
-reproduce them. That copy is therefore left exactly as it is, and this one is
-the product's.
-
-**Two changes were made on the way in, both to the command line and neither to
-what comes out** (`extractor/README.md` lists them, and the gate that checked
-this on the way in was a byte comparison of the IR tree this binary writes
-against the frozen binary's over the same module list — 436/436 files):
-
-1. `defaultIrDir` is **gone**. It held one session's scratchpad path, so a
-   `--write-ir` run that forgot `--ir-dir` wrote several MB into a directory the
-   caller had never named. `--ir-dir` is now required whenever `--write-ir` is.
-2. The `IR_DIR` environment variable is **no longer read**; see `getIrDir`.
-
-Stage 7d, which this file is a copy of, added two things to stage 7c and changed
-**nothing** about what comes out:
-
-1. `--pp-breakdown` splits `ppUs` — measured at 75% of (warm) extraction time —
-   along the steps the Lean pretty printer takes:
-   delaborate, sanitize, parenthesize, format, lay out. Plus `--decl-profile`,
-   which keeps the per-declaration numbers so the distribution can be read.
-2. `--jobs N` analyzes declarations on N threads. The candidate list is taken in
-   strides and the answers are written back by candidate index, so the output
-   order does not depend on N; `--jobs 1` runs stage 7c's loop verbatim.
-
-**The IR is the invariant.** Every claim in `benchmarks/results/stage7d-summary.txt`
-is accompanied by `diff -r` against the stage-7c control's IR; a configuration
-that is faster and different is worth nothing here.
-
-Everything below this paragraph is stage 4b's original header, still accurate
-except where the stage-7a / 7b / 7d notes above and in `irSchemaVersion` say
-otherwise.
-
-Stage 4b experiment for litedoc4.
-
-Started as a copy of `experiments/stage4/Extract.lean`, which was itself a copy of
-`experiments/stage3/Extract.lean` (stages 1-4 are frozen for reproducibility of
-their numbers). Everything stage 4 did is still here unchanged.
-
-What stage 4b adds is **positional tagged code** in the IR (`--tagged-code`).
-Stage 4 increment 1 measured that a *set* of `(module, name)` references is not
-enough to rebuild doc-gen4's signature HTML: 44.0% of its 72,421 signature anchors
-have no textual relation between the printed token and the constant (`ℕ`->`Nat`,
-`≤`->`LE.le`, `{`/`}`->`Singleton.singleton`), reconstruction from plain text plus
-the set tops out at 56% recall (51.7% measured), and signatures are 71.1% of the
-rendered bytes. So the IR has to carry *where in the printed text* each tag sits.
-See `collectSpans` for the format and `experiments/stage4b/README.md` for why it
-is a flat pre-order list rather than a tree.
-
-`--tagged-code` also adds the three small things increment 1 found missing:
-the declaration range's **end** line/column (doc-gen4's `gh_link` is
-`#L<start>-L<end>`), the `noncomputable` / `abbrev` / `unsafe` / `partial`
-**modifiers** of the kind word, and the declaration's **index** within its module
-(two modules on the fixed target have declarations whose `(line, col)` tie).
-
-Both IR persistence and tagged code are OFF by default (`--write-ir` and
-`--tagged-code` turn them on) so that the stage-3 and stage-4 baselines can still
-be reproduced from this tree; see the README's "Baseline identity".
-
-The extraction stage 2 already did, for every declaration reached through the
-index route:
-
-* the pretty printed signature (binders + result type), through the same
-  delaborator path doc-gen4 uses (`Info.ofConstantVal` -> `Info.ofTypedName`):
-  `delabCore` with `delabForallParamsWithSignature`, `sanitizeSyntax`,
-  `parenthesize`, then `format` of each binder and of the type;
-* the docstring (`findDocString?`);
-* the declaration kind (def / theorem / instance / structure / ...);
-* the declaration range (`findDeclarationRanges?`);
-* optionally the equation lemmas (`getEqnsFor?`), which is what actually
-  elaborates. OFF by default, `--equations` turns it on.
-
-The blacklist is a transcription of doc-gen4's `DocInfo.isBlackListed`, because
-comparing times only means something if both tools keep the same declarations.
-
-Only `import Lean`: litedoc4 does not depend on doc-gen4.
-
-It also collects what doc-gen4's `getAllModuleDocs` collects (module docstrings,
-direct imports, tactic documentation) — but enumerating the tactic table *once*
-for the whole environment and bucketing by defining module, instead of once per
-module. Doing it once per module instead means scanning the whole environment
-just to process one module of it; on the fixed target doc-gen4 pays 16.7 s for
-it.
-
-From stage 3: `--refs` collects, per declaration, every constant doc-gen4's
-`renderTagged` would tag as `.const` — see `collectConsts` for the exact
-semantics — and `--dump-refs` writes the unique set with its defining module.
-Both are off by default so that the stage-2 baseline can still be reproduced
-byte for byte from this binary.
-
-From stage 4: `--write-ir` persists the result as module-granular IR (see the
-"IR persistence" section below for the on-disk shape). `--refs` feeds it: without
-`--refs` the per-declaration `refs` arrays are empty, so measure the two together.
-
-New in stage 4b: `--tagged-code`. It makes the code walk record positions as well
-as names, and puts them (plus the end position, the modifiers and the index) into
-the IR. With `--refs` on as well the names are *derived from* the positions, so
-the two walks are one walk and `refOccurrences` is unchanged.
-
 Usage: extract <modules.txt> <out.jsonl> [options]
   --equations         generate equation lemmas (default: off)
   --write-ir          persist the result as one JSON file per module + an index
@@ -132,12 +24,12 @@ Usage: extract <modules.txt> <out.jsonl> [options]
                       spans `renderTagged` would produce, and add the declaration
                       range end / kind modifiers / in-module index to the IR
                       (default: off; bumps the IR schema version to 4)
-  --no-attrs          ablation: skip the attribute collection (stage 7b)
-  --no-inst-index     ablation: skip the instance type index (stage 7b)
+  --no-attrs          ablation: skip the attribute collection
+  --no-inst-index     ablation: skip the instance type index
   --no-member-extra   ablation: skip the structure members' binders / docstring /
-                      origin (stage 7b)
-  --no-sorry          ablation: skip the `sorry` / `sorryAx` classification
-                      (schema 5, B-1). Any ablation marks the IR unrenderable.
+                      origin
+  --no-sorry          ablation: skip the `sorry` / `sorryAx` classification.
+                      Any ablation marks the IR unrenderable.
   --ir-dir <path>     where to write it. **Required with `--write-ir`** and it
                       has no default (see `getIrDir`).
                       **Never point this inside the measurement target.**
@@ -155,18 +47,17 @@ Usage: extract <modules.txt> <out.jsonl> [options]
                       per constant, with its defining module (needs --refs)
   --link-index <p>    also write the dependency closure's `name -> module` map
                       (`.lidx`) from the imported environment: the file the
-                      renderer resolves docstring autolinks through, which used
-                      to be derived from a doc-gen4 site's
-                      `declaration-data.bmp` (see `writeLinkIndex`)
+                      renderer resolves docstring autolinks through
+                      (see `writeLinkIndex`)
   --link-index-omit <p>  modules whose declaration groups are left out of that
                       map, one name per line. Their names stay in the `@`
-                      section (段 C; see `writeLinkIndex`)
+                      section (see `writeLinkIndex`)
   --link-index-key <t>  an opaque token standing for everything about the map
                       that this process cannot see — the caller's `extractKey`
                       and the omit list. With it, a map whose sidecar
                       `<p>.key` holds the same token and whose `@` section is
                       still this environment's is left alone: no scan, no
-                      write (段 D; see `writeLinkIndex`)
+                      write (see `writeLinkIndex`)
   --skip-analyze      skip the semantic analysis (module docs / tactics only)
   --tactics-emulate   additionally run the tactic collection doc-gen4's way
                       (`allTacticDocs` once per module) for comparison
@@ -180,8 +71,6 @@ open Lean.Parser.Tactic.Doc (tacticTagExt alternativeOfTactic getTacticExtension
 
 namespace Litedoc4
 
-/-! ## Timing sink (same JSONL shape as the doc-gen4 instrumentation) -/
-
 structure Sink where
   handle : IO.FS.Handle
   pid : UInt32
@@ -191,7 +80,6 @@ def Sink.create (path : FilePath) : IO Sink := do
   let pid ← IO.Process.getPID
   return { handle, pid }
 
-/-- Appends one record. `extra` values are spliced in as raw JSON. -/
 def Sink.emit (s : Sink) (phase : String) (nanos : Nat)
     (extra : List (String × String) := []) : IO Unit := do
   let extraStr := extra.foldl (init := "") fun acc (k, v) => acc ++ s!",\"{k}\":{v}"
@@ -204,8 +92,6 @@ def fmtDur (nanos : Nat) : String :=
   let pad := if frac < 10 then "00" else if frac < 100 then "0" else ""
   s!"{ms / 1000}.{pad}{frac}s"
 
-/-! ## Configuration -/
-
 structure Cfg where
   modulesPath : FilePath
   outPath : FilePath
@@ -215,88 +101,49 @@ structure Cfg where
   onlyPath : Option FilePath := none
   openNamespaces : Array Name := #[]
   tagCode : Bool := false
-  /-- `--refs`: collect the constants doc-gen4 would link. Independent of `--tag`,
-  which stays as the stage-2 baseline for the cost of `Widget.tagCodeInfos`. -/
   collectRefs : Bool := false
   dumpRefsPath : Option FilePath := none
   skipAnalyze : Bool := false
-  /-- `--link-index <path>`: also write the dependency closure's
-  `name -> module` map (`.lidx`) out of the imported environment. It is a
-  by-product of an environment that is loaded anyway, which is the whole reason
-  it lives here rather than in a tool of its own; see `writeLinkIndex`. -/
+  /-- A by-product of an environment that is imported for the extraction anyway,
+  which is why it lives here rather than in a tool of its own. -/
   linkIndexPath : Option FilePath := none
-  /-- `--link-index-omit <path>`: the modules whose declaration groups are left
-  out of the `--link-index` map, one module name per line (`readNameList`'s
-  format). Their names still appear in the `@` section — only their groups go
-  away; see `writeLinkIndex` for why the two halves are treated differently and
-  for the measurement that licenses the omission. Without `--link-index` it
-  means nothing and is ignored. -/
   linkIndexOmitPath : Option FilePath := none
-  /-- `--link-index-key <token>`: an opaque string the caller supplies for
-  everything the map depends on that **this process cannot cheaply see** — the
-  oleans behind the imported modules, and the omit list's contents. Given it, the
-  map is rewritten only when it is not already the right file; see
-  `writeLinkIndex`'s 段 D heading for what "the right file" means and why the
-  token is a sidecar rather than a line of the map. Without it the map is
-  rewritten every time, which is the pre-段 D behaviour byte for byte. -/
+  /-- An opaque token the caller supplies for everything the map depends on that
+  **this process cannot cheaply see** — the oleans behind the imported modules,
+  and the omit list's contents. The caller promises it moves whenever either
+  does; see `linkIndexIsCurrent`. -/
   linkIndexKey : Option String := none
   tacticsEmulate : Bool := false
   tacticsProbe : Bool := false
   tacticsDumpPath : Option FilePath := none
-  /-- `--write-ir`: persist the result as module-granular IR. Off by default so
-  that this binary still reproduces the stage-3 baseline. -/
   writeIR : Bool := false
   /-- `--ir-dir`. `none` is only legal together with `writeIR := false`;
   `parseArgs` refuses the combination, so `getIrDir` never has to invent one. -/
   irDir : Option FilePath := none
-  /-- `--tagged-code`: record tag positions, not just tag names, and add the
-  declaration range end / kind modifiers / in-module index to the IR. Off by
-  default so that this binary still reproduces the stage-4 IR byte for byte. -/
   taggedCode : Bool := false
-  /-- `--no-attrs`, `--no-inst-index`, `--no-member-extra`: turn off one of the
-  three things stage 7b adds, so that its cost can be measured by ablation
-  instead of argued for. They only mean anything together with `--tagged-code`
-  (all three additions are gated on it, like stage 4b's `modifiers`).
-
-  **An ablated run writes an incomplete IR.** `index.json` then carries an
-  `ablations` list and `render.ts` refuses to read it; the IR of such a run is
-  for the stopwatch only. -/
+  /-- **An ablated run writes an incomplete IR.** `index.json` then carries an
+  `ablations` list and the reader refuses it; such an IR is for the stopwatch
+  only. All three only mean anything together with `--tagged-code`. -/
   noAttrs : Bool := false
   noInstIndex : Bool := false
   noMemberExtra : Bool := false
-  /-- `--no-sorry`: the same device for schema 5's `sorry` key (B-1). It is here
-  rather than as an opt-in `--sorry` so that the two arms of the measurement are
-  **the same binary** with one flag between them, which is what the other three
-  ablations are for. -/
   noSorry : Bool := false
-  /-- `--serve`: stay resident and take extraction requests on stdin, reusing
-  one imported environment (stage 6). -/
   serve : Bool := false
-  /-- `--pp-breakdown` (stage 7d): split `ppUs` into delaboration / syntax
-  transforms / formatting / layout, and time the blacklist test separately.
-
-  **Off by default and gated at every site**, because measuring costs: the probe
-  adds ~10 clock reads per declaration. Whether that moves `total` is checked by
-  running the same configuration with and without the flag (README, pitfall 6). -/
+  /-- **Off by default and gated at every site**, because measuring costs: the
+  probe adds ~10 clock reads per declaration. Whether that moves `total` is
+  checked by running the same configuration with and without the flag. -/
   ppBreakdown : Bool := false
-  /-- `--decl-profile <p>`: one JSONL record per *candidate* (blacklisted ones
-  included) with its wall time and its `pp`/`eq` slices, so the distribution can
-  be read instead of assumed. Implies `--pp-breakdown`. -/
   declProfilePath : Option FilePath := none
-  /-- `--jobs N` (stage 7d): analyze declarations on N worker threads. `1` keeps
-  the stage-7c loop verbatim. The declaration order of the output is independent
-  of `N` — workers take a stride of the candidate list and the results are merged
-  back by candidate index — which is what makes the IR byte-comparable. -/
+  /-- The declaration order of the output is independent of `N`: workers take a
+  stride of the candidate list and the results are merged back by candidate
+  index, which is what makes the IR byte-comparable across `N`. -/
   jobs : Nat := 1
   deriving Inhabited
 
-/-- The three stage-7b additions, each gated on `--tagged-code` so that with the
-flag off this binary still does exactly what stage 4 did, timings included. -/
 def Cfg.wantAttrs (c : Cfg) : Bool := c.taggedCode && !c.noAttrs
 def Cfg.wantInstIndex (c : Cfg) : Bool := c.taggedCode && !c.noInstIndex
 def Cfg.wantMemberExtra (c : Cfg) : Bool := c.taggedCode && !c.noMemberExtra
 
-/-- Schema 5's `sorry` key, gated on `--tagged-code` like the three above. -/
 def Cfg.wantSorry (c : Cfg) : Bool := c.taggedCode && !c.noSorry
 
 def Cfg.ablations (c : Cfg) : Array String :=
@@ -313,9 +160,7 @@ def Cfg.ablations (c : Cfg) : Array String :=
     Released under Apache 2.0 license as described in the file LICENSE.
     Authors: Henrik Böving
 
-`DocGen4/Process/DocInfo.lean:142-165`. Kept identical on purpose: a different
-exclusion granularity changes the declaration count, and then the time
-comparison against doc-gen4 means nothing.
+`DocGen4/Process/DocInfo.lean:142-165`.
 -/
 
 def isProjFn (declName : Name) : MetaM Bool := do
@@ -350,16 +195,7 @@ The renderer resolves a docstring autolink the way doc-gen4's
 `Output/DocString.lean:nameToLink?` does: it looks the token up in a global
 `name -> module` map. doc-gen4 holds the whole environment and reads
 `env.name2ModIdx`; the renderer holds none of it, so for it the map is an input
-file — the `.lidx` read by `crates/litedoc4-render/src/link_index.rs`. It is not
-optional: with the same IR and the same `--source-url`, having it or not moves
-432 of 432 pages' worth of links and 150 pages' bytes (実装計画 決定 4).
-
-Until M5 that file was derived from a doc-gen4 site's
-`declarations/declaration-data.bmp` (`experiments/stage7d/build-link-index.ts`),
-which presumes a published site built from the *same* Lean and Mathlib as the
-package being documented. For this target that is false — the published site is
-two Lean minor versions ahead (実装計画 §4, 実測) — so the map is built here
-instead, from the environment this process has already imported.
+file — the `.lidx` read by `crates/litedoc4-render/src/link_index.rs`.
 
 **What goes in is doc-gen4's choice, which is three predicates, not one:**
 
@@ -370,7 +206,7 @@ instead, from the environment this process has already imported.
 * the module of a name is `env.const2ModIdx` — that is literally what
   `Output/Base.lean:231`'s `declNameToLink` reads — and **not** the module whose
   `constNames` the name was reached through. The two disagree for the names that
-  live in more than one module's olean (25 on this target, 段階 1).
+  live in more than one module's olean (25 on the measurement target).
 
 Walking modules instead of `env.constants` costs one extra hash lookup per name
 and buys a deterministic order (`header.moduleNames`, i.e. import order), so two
@@ -378,16 +214,12 @@ runs of this produce byte-identical files.
 
 **Escaping is not uniform, and that is copied rather than fixed**: declaration
 names are `Name.toString` with escaping on, because that is what doc-gen4 writes
-into the `.bmp` (798 escaped names on this target), while module names are
-written unescaped, because doc-gen4 builds the page path out of
-`Name.toString (escape := false)` components (`Output/Base.lean:188`) and the
-renderer splits the module on `.` to rebuild that path. No module name on this
-target needs escaping, so the two spellings coincide here.
+into the `.bmp`, while module names are written unescaped, because doc-gen4
+builds the page path out of `Name.toString (escape := false)` components
+(`Output/Base.lean:188`) and the renderer splits the module on `.` to rebuild
+that path.
 
-**M7-a — each declaration also carries its source line range**, so that a link
-into a dependency can be a version-pinned GitHub blob URL with the anchor
-doc-gen4's own pages already have
-(`…/Mathlib/Order/Basic.lean#L67-L67`, 実装計画 §M7):
+The file:
 
 ```text
 #lidx2                                  the marker moves with the field count
@@ -397,71 +229,54 @@ Mathlib.Order.Basic                     a group header, unescaped
 ```
 
 The range is `findDeclarationRanges?`'s `range.pos.line` and
-`range.endPos.line` — the same two fields the IR's own `line`/`endLine` carry
-(`baseInfo`), which is what doc-gen4 builds the anchor out of. A name a tab can
-never appear in is what makes the extra fields unambiguous.
+`range.endPos.line`, which is what doc-gen4 builds its `#L<start>-L<end>` anchor
+out of. A name a tab can never appear in is what makes the extra fields
+unambiguous. **A declaration with no range keeps the one-field line**: dropping
+it would lose the link entirely, where the missing range only costs the anchor.
+Both counts are reported so that "no range" stays a number rather than a silence
+— and on the measurement target that number is **0 of 255,975**
+【実測 2026-08-16 → `benchmarks/results/m7a-summary.txt`】.
 
-**A declaration with no range keeps the one-field line.** Dropping it would lose
-the link entirely, where the missing range only costs the anchor: the fallback
-is a blob URL without one, which is the shape doc-gen4's `gh_nav_link` already
-has (実装計画 §M7「行範囲が取れない宣言でリンクを消さない」). Both counts are
-reported so that "no range" stays a number rather than a silence — and on the
-measurement target that number is **0 of 255,975**【実測 2026-08-16 →
-`benchmarks/results/m7a-summary.txt`】, so the fallback has no instance here and
-is covered by the reader's unit tests only.
-
-### 段 C — the package's own groups can be left out (`--link-index-omit`)
+### The package's own groups can be left out (`--link-index-omit`)
 
 **The renderer never reads them.** A docstring token is resolved by
-`NameIndex::module_of` (`crates/litedoc4-render/src/autolink.rs:258`), which
-asks the IR-derived index *first* and only falls back to the `.lidx`, so a name
-the package itself declares is answered before this file is consulted at all.
-And the line range this file carries is spent only where
-`ExternalLinks::url_for` has a root for the module
-(`crates/litedoc4-render/src/external.rs:146-162`) — that is, only for a
-**dependency**: for an own-package module `href` takes the relative-page branch
-and drops the range it was handed. So every own-package group in the map is
-written, read past, and discarded.
-
-That is an argument, and it was measured rather than believed: with all of the
-package's own groups removed from the map, the rendered site is **byte-identical
-— 0 of 429 files differ**; the positive control, which removes the *dependency*
-half instead, differs in **408 of 429**【実測 2026-08-17 →
+`NameIndex::module_of` (`crates/litedoc4-render/src/autolink.rs`), which asks the
+IR-derived index *first* and only falls back to the `.lidx`; and the line range
+this file carries is spent only where `ExternalLinks::url_for` has a root for the
+module (`crates/litedoc4-render/src/external.rs`) — that is, only for a
+**dependency**. Measured rather than believed: with all of the package's own
+groups removed from the map, the rendered site is **byte-identical — 0 of 429
+files differ**; the positive control, which removes the *dependency* half
+instead, differs in **408 of 429** 【実測 2026-08-17 →
 `benchmarks/results/lidx-own-half-2026-08-17.txt`】.
 
 **Why leave them out, given that they are only 3.6% of the file.** Because they
 are the only part of it that moves when a module of the package is edited, and
 the map's SHA-256 is part of the renderer's `renderKey`: one added declaration
 moves the map, the key moves with it, and all 422 pages re-render for an edit
-that touched one. Dropping the own half makes the map stop moving for exactly
-the edits this pipeline exists to make cheap.
+that touched one.
 
-**The `@` section stays complete — omitted modules included.** It is a different
-map answering a different question: `module_for_source_path`
-(`crates/litedoc4-render/src/autolink.rs:289-315`) scans `known_modules`
-linearly for a docstring source path and answers `None` when **two** entries
-match, so taking an entry out can turn a `None` into a `Some` — a link that did
-not exist before, possibly to a page this run did not write. The measurement saw
-no difference on this target either way; keeping the set whole is what stops
-that from being a claim about this target only.
+**The `@` section stays complete — omitted modules included.** It answers a
+different question: `module_for_source_path` scans `known_modules` linearly for a
+docstring source path and answers `None` when **two** entries match, so taking an
+entry out can turn a `None` into a `Some` — a link that did not exist before,
+possibly to a page this run did not write.
 
 **What is left out is counted, not merely absent** (`omitted`,
 `omittedDeclarations`). An omitted module is walked exactly as it would be
 otherwise and only its *output* is dropped, which makes both counts exact and
-leaves the run with two invariants a reader can check against a run without the
-flag: `modules + omitted` and `declarations + omittedDeclarations` are that
-run's `modules` and `declarations`, and `scanned` does not move at all. The
-saving that is given up by still walking them is ~3.6% of a 0.9 s phase; a
-silent omission is the failure mode this project keeps catching, and it is not
-worth 30 ms.
+leaves two invariants a reader can check against a run without the flag:
+`modules + omitted` and `declarations + omittedDeclarations` are that run's
+`modules` and `declarations`, and `scanned` does not move at all. The saving that
+is given up by still walking them is ~3.6% of a 0.9 s phase; a silent omission is
+the failure mode this project keeps catching, and it is not worth 30 ms.
 
-### 段 D — a map that is already right is not rewritten (`--link-index-key`)
+### A map that is already right is not rewritten (`--link-index-key`)
 
-段 C made the map stop *moving*; it still gets *rewritten* on every extraction
-request — 490,287 constants walked and 10 MB written, **1.20〜1.81 s** of a 6.2 s
-one-module incremental build【実測 2026-08-17 →
-`benchmarks/results/g3-stage-c-2026-08-17.txt`】. The file it produces is a
-function of exactly three things:
+Rewriting on every extraction request is 490,287 constants walked and 10 MB
+written, **1.20〜1.81 s** of a 6.2 s one-module incremental build
+【実測 2026-08-17 → `benchmarks/results/g3-stage-c-2026-08-17.txt`】. The file
+it produces is a function of exactly three things:
 
 1. **the set of modules in the imported environment** (`env.header.moduleNames`),
    which decides both the `@` section and which oleans are walked;
@@ -469,134 +284,99 @@ function of exactly three things:
    line ranges;
 3. **the omit list**, which decides whose groups are dropped.
 
-Only (1) is something this process can read cheaply — it is already in memory.
-(2) would mean hashing the dependency closure's oleans, which is most of the cost
-this is trying to avoid, and (3) is the caller's own input. So (2) and (3) are
-delegated: the caller passes **one opaque token** (`--link-index-key`) that it
-promises moves whenever either of them does, and this process checks (1) itself.
-On this pipeline the token is a digest of the run's `extractKey` (Lean toolchain
-+ `lake-manifest.json` SHA-256 + extractor id + IR schema) and the omit list's
-bytes — the same key that already invalidates every IR on the Rust side, so a
-toolchain or dependency bump re-writes the map for the same reason it re-extracts
-everything.
+Only (1) is something this process can read cheaply. (2) would mean hashing the
+dependency closure's oleans, which is most of the cost this is trying to avoid,
+and (3) is the caller's own input. So (2) and (3) are delegated to **one opaque
+token** (`--link-index-key`) that the caller promises moves whenever either of
+them does, and this process checks (1) itself.
 
-**The token goes in a sidecar `<path>.key`, not in a `#` header line of the map**
-— and that is not a style choice. The map's SHA-256 is an input to the renderer's
-`renderKey`, so anything written *into* the file re-renders every page when it
-changes. Folding `extractKey` in would tie every toolchain bump to a full
-re-render of a map whose content did not move, which is precisely the coupling
-段 C exists to break. A separate file carries the token without touching the
-bytes the renderer hashes.
+**The token goes in a sidecar `<path>.key`, not in a `#` header line of the
+map** — and that is not a style choice. The map's SHA-256 is an input to the
+renderer's `renderKey`, so anything written *into* the file re-renders every page
+when it changes. Folding the caller's key in would tie every toolchain bump to a
+full re-render of a map whose content did not move.
 
 **The `@`-section comparison is not redundant with the token, in either
 direction.** The token cannot see the closure: a package that adds
 `import Mathlib.NewThing` pulls in modules whose declarations belong in the map,
 and neither `lean-toolchain` nor `lake-manifest.json` moves for it — the token
 would still match while the map is short. Conversely the `@` section cannot see
-the oleans: the same module list can be built from a different Mathlib. Each
-closes what the other leaves open, so **both** are required, compared **in order
-and in count** (a prefix match would accept a truncated map, and equal counts
-with a reordered list would accept a map written under a different import order,
-whose group order is that same list — see the ordering note above).
+the oleans: the same module list can be built from a different Mathlib. So
+**both** are required, compared **in order and in count** (a prefix match would
+accept a truncated map, and equal counts with a reordered list would accept a map
+written under a different import order).
 
 **The failure direction is: any doubt rewrites.** No token, no sidecar, an
 unreadable sidecar, a token that differs, a count that differs, one name that
 differs — every one of them falls through to the full walk and a full write.
 Being wrong here means serving a stale map, which is silent; being conservative
-costs 1.2 s. And when no token is supplied at all, a stale `<path>.key` left by
-an earlier run is **deleted**, so a later run with a token cannot match a sidecar
+costs 1.2 s. And when no token is supplied at all, a stale `<path>.key` left by an
+earlier run is **deleted**, so a later run with a token cannot match a sidecar
 that describes a map this run has since overwritten. -/
 
 structure LinkIndexStats where
-  /-- Names walked: every constant in every loaded module's olean. -/
   scanned : Nat := 0
-  /-- Names written. -/
   declarations : Nat := 0
-  /-- Of those, the ones written with a source line range. -/
   ranged : Nat := 0
-  /-- Of those, the ones `findDeclarationRanges?` had no range for. They are
-  written with one field, and their link loses its anchor rather than the whole
-  URL. `ranged + unranged = declarations`. -/
+  /-- `ranged + unranged = declarations`. These are written with one field, and
+  their link loses its anchor rather than the whole URL. -/
   unranged : Nat := 0
   /-- Groups written: modules defining at least one of them. -/
   modules : Nat := 0
-  /-- Groups **not** written because `--link-index-omit` named the module
-  (段 C). Counted the same way `modules` is — a module with nothing to write
-  would have had no group either way, so it is in neither number — which makes
-  `modules + omitted` the `modules` of the same run without the flag. -/
+  /-- Groups **not** written because `--link-index-omit` named the module. A
+  module with nothing to write would have had no group either way, so it is in
+  neither number: `modules + omitted` is the `modules` of a run without the flag. -/
   omitted : Nat := 0
-  /-- The declarations in those groups: what `declarations` would have been
-  larger by. `declarations + omittedDeclarations` is the `declarations` of the
-  same run without the flag, and `scanned` is the same in both. -/
+  /-- `declarations + omittedDeclarations` is the `declarations` of the same run
+  without the flag, and `scanned` is the same in both. -/
   omittedDeclarations : Nat := 0
-  /-- The `@` section: every module in the environment, whether or not it
-  defines anything, because a module name is a link target in its own right
-  (doc-gen4 checks `res.moduleNames.contains` before the module-local search).
-  **`--link-index-omit` does not shrink this** — see `writeLinkIndex`'s heading
-  on `module_for_source_path`. -/
+  /-- Every module in the environment, whether or not it defines anything,
+  because a module name is a link target in its own right (doc-gen4 checks
+  `res.moduleNames.contains` before the module-local search).
+  **`--link-index-omit` does not shrink this.** -/
   moduleNames : Nat := 0
-  /-- Size of the file, in bytes rather than in UTF-16 code units — the
-  prototype reported the latter and the two differ by 13,454 (落とし穴 1). -/
   bytes : Nat := 0
-  /-- 段 D: the map on disk was already the right file and was left alone.
+  /-- The map on disk was already the right file and was left alone.
 
   **Every other field of this structure is then 0, and 0 here means "not counted
-  this time" — never "the map is empty".** Nothing was scanned, so `scanned` is
-  0; nothing was written, so `declarations`, `modules` and `bytes` are 0; the
-  `@` section was *read* and compared but not produced, so `moduleNames` is 0
-  too. The map still on disk holds whatever the run that wrote it counted. A
-  reader that sums these fields across runs has to drop the reused ones, which
-  is why this flag is reported unconditionally in the events file rather than
-  only when it is true. -/
+  this time" — never "the map is empty".** The map still on disk holds whatever
+  the run that wrote it counted. A reader that sums these fields across runs has
+  to drop the reused ones, which is why this flag is reported unconditionally in
+  the events file rather than only when it is true. -/
   reused : Bool := false
   deriving Inhabited
 
-/-- 段 D: where the token that describes a map is kept — beside it, never in it.
-
-`<the map>.key`, so the two travel together and a `rm` of the map's directory
-takes both. See `writeLinkIndex`'s 段 D heading for why this is not a `#` line
-of the map itself (the map's SHA-256 is an input to the renderer's key). -/
+/-- `<the map>.key`, so the two travel together and a `rm` of the map's directory
+takes both. Never a line *of* the map: the map's SHA-256 is an input to the
+renderer's key. -/
 def linkIndexKeyPath (path : FilePath) : FilePath := ⟨path.toString ++ ".key"⟩
 
-/-- The marker `writeLinkIndex` puts on the first line, and the one 段 D's reuse
+/-- The marker `writeLinkIndex` puts on the first line, and the one the reuse
 check requires to be there already.
 
-**One definition for both** because it is the only thing standing between a
-format change and a map reused across it. The caller's token covers the oleans
-and the omit list; it does **not** cover this file's own layout, and the value in
-`extractKey` that names the extractor (`EXTRACTOR_ID`) is a constant somebody has
-to remember to bump. The marker is the guard that does not need remembering: the
-number in it moves with the field count (see `writeLinkIndex`'s heading, where
-`#lidx1` is name-only and `#lidx2` adds the two line numbers), so a writer that
-changes the format changes this string in the same edit, and every map written
-before it stops being reusable on the next run. -/
+**One definition for both**: the caller's token covers the oleans and the omit
+list but not this file's own layout, and the number in the marker moves with the
+field count, so a writer that changes the format changes this string in the same
+edit and every map written before it stops being reusable on the next run. -/
 def linkIndexMarker : String := "#lidx2"
 
-/-- 段 D: does the `@` section of an existing `.lidx` still describe this
-environment?
+/-- Does the `@` section of an existing `.lidx` still describe this environment?
 
-Reads the file **a line at a time and stops at the first line that is neither
-`#` nor `@`**, which is the group header of the first declaration group: the
-`@` section is written first (`writeLinkIndex`), so this touches the head of a
-10 MB file rather than the whole of it. `#` lines are skipped because the format
-marker (`#lidx2`) is one and the renderer's own parser ignores them, so a future
-comment line must not be read as the end of the section.
+Reads the file **a line at a time and stops at the first line that is neither `#`
+nor `@`**, which is the group header of the first declaration group: the `@`
+section is written first, so this touches the head of a 10 MB file rather than
+the whole of it. `#` lines are skipped because the format marker is one, so a
+future comment line must not be read as the end of the section.
 
-The comparison is **in order and in count**: `i` walks `modNames` in step with
-the `@` lines, a mismatch fails immediately, and reaching the end of the section
-with `i` short of `modNames.size` (a truncated map) or finding an `@` line past
-the end (a longer one) fails too. Order matters because the map's group order is
-this same array's order; count matters because a prefix would otherwise pass.
-
-Module names are compared against `toString (escape := false)`, which is how
-`writeLinkIndex` spells them — see the escaping note in its heading, where the
-two spellings are deliberately different for declarations and modules. -/
+The comparison is **in order and in count**: order matters because the map's
+group order is `modNames`'s order, count matters because a prefix would otherwise
+pass. Module names are compared against `toString (escape := false)`, which is
+how `writeLinkIndex` spells them. -/
 private partial def linkIndexAtSectionMatches
     (h : IO.FS.Handle) (modNames : Array Name) (i : Nat) : IO Bool := do
   let raw ← h.getLine
-  -- `getLine` answers "" only at EOF: a map that is nothing but its `@` section
-  -- (an environment in which no module defines anything) is legal, so this is a
-  -- count check rather than a refusal.
+  -- `getLine` answers "" only at EOF, and a map that is nothing but its `@`
+  -- section is legal, so this is a count check rather than a refusal.
   if raw.isEmpty then
     return i == modNames.size
   let line := raw.trimAscii.toString
@@ -610,31 +390,23 @@ private partial def linkIndexAtSectionMatches
     else
       return false
   else
-    -- The first group header. The `@` section ended here, so it is complete iff
-    -- it named every module.
+    -- The first group header: the `@` section is complete iff it named every module.
     return i == modNames.size
 
-/-- 段 D: is the map already on disk the one this run would write?
+/-- Is the map already on disk the one this run would write?
 
-**Three** halves have to hold, which is one more than the design started with:
-the caller's token, which covers the oleans and the omit list; the `@` section,
-which covers the module set (see `writeLinkIndex`'s 段 D heading for why neither
-implies the other); and `linkIndexMarker`, which covers **this file's own
-format** — the one input neither of the other two can see, because the caller
-cannot know what shape this code writes and the module set is the same whatever
-shape it is written in. Everything that is not a clear "yes" answers `false`: a
-missing map, a missing or unreadable sidecar, a token that differs by one byte, a
-section that differs by one name, a marker from an older format. Rewriting when
-it was not needed costs 1.2 s; not rewriting when it was needed serves a stale
-map, silently.
+**Three** things have to hold: the caller's token, which covers the oleans and
+the omit list; the `@` section, which covers the module set (neither implies the
+other); and `linkIndexMarker`, which covers **this file's own format** — the one
+input neither of the other two can see. Everything that is not a clear "yes"
+answers `false`: a missing map, a missing or unreadable sidecar, a token that
+differs by one byte, a section that differs by one name, a marker from an older
+format. Rewriting when it was not needed costs 1.2 s; not rewriting when it was
+needed serves a stale map, silently.
 
-The marker is required on the **first** line rather than looked for among the
-`#` lines: that is where `writeLinkIndex` puts it, and accepting it anywhere
-would accept a file that has a `#lidx1` first line and a `#lidx2` comment.
-
-The sidecar is written with a trailing newline and compared after trimming ASCII
-whitespace: the token is a hex digest with no whitespace in it, so this is an
-exact comparison that also tolerates a file somebody `echo`ed by hand. -/
+The marker is required on the **first** line rather than looked for among the `#`
+lines: accepting it anywhere would accept a file that has a `#lidx1` first line
+and a `#lidx2` comment. -/
 def linkIndexIsCurrent (path : FilePath) (key : String) (modNames : Array Name) :
     IO Bool := do
   unless ← path.pathExists do return false
@@ -649,10 +421,9 @@ def linkIndexIsCurrent (path : FilePath) (key : String) (modNames : Array Name) 
 
 /-- Writes the map as one `.lidx`. Returns what went into it.
 
-`omitModules` is `--link-index-omit`'s set (段 C): a module in it contributes its
-name to the `@` section like any other and contributes **no declaration group**.
-An empty set is the pre-段 C behaviour byte for byte. (Spelled out rather than
-`omit`, which Lean 4 reserves for the `variable`-section instance elision.) -/
+A module in `omitModules` contributes its name to the `@` section like any other
+and contributes **no declaration group**. (Spelled out rather than `omit`, which
+Lean 4 reserves for the `variable`-section instance elision.) -/
 def writeLinkIndex (path : FilePath) (omitModules : Std.HashSet Name) :
     MetaM LinkIndexStats := do
   let env ← getEnv
@@ -664,9 +435,6 @@ def writeLinkIndex (path : FilePath) (omitModules : Std.HashSet Name) :
   let mut stats : LinkIndexStats := { moduleNames := modNames.size }
   -- Written in chunks: one `putStr` per line would be 750k calls, one string
   -- for the whole file would be 8 MB of appends.
-  -- `linkIndexMarker`, not a literal: 段 D's reuse check compares the first line
-  -- against the same definition, and two spellings of a format marker is how a
-  -- format change and the guard against reusing across it drift apart.
   let mut buf := linkIndexMarker ++ "\n"
   for m in modNames do
     buf := buf ++ "@" ++ m.toString (escape := false) ++ "\n"
@@ -690,9 +458,8 @@ def writeLinkIndex (path : FilePath) (omitModules : Std.HashSet Name) :
       if ← isBlackListed n then continue
       kept := kept.push n
     if kept.isEmpty then continue
-    -- 段 C. The walk above is deliberately *not* skipped for an omitted module:
-    -- its cost is 3.6% of this phase and doing it is what makes `omitted` and
-    -- `omittedDeclarations` exact rather than "however many there were".
+    -- The walk above is deliberately *not* skipped for an omitted module: its
+    -- cost is 3.6% of this phase and doing it is what makes the counts exact.
     if omitModules.contains m then
       stats := { stats with omitted := stats.omitted + 1,
                             omittedDeclarations := stats.omittedDeclarations + kept.size }
@@ -726,39 +493,25 @@ turned into a plain `def`:
     Released under Apache 2.0 license as described in the file LICENSE.
     Authors: Henrik Böving
 
-`DocGen4/Process/Attributes.lean`. doc-gen4 calls it from `Info.ofTypedName`
-(`Process/NameInfo.lean:125`) for **every** declaration and prints the result as
-one `div.attributes` line (`Output/Module.lean:88-94`). Stage 7a did not collect it: attribute
-collection, the instance index, and struct member binders were the three
-things still missing when 13.71 s was measured, which is why that number was
-not quoted as a finished one.
+`DocGen4/Process/Attributes.lean`. doc-gen4 calls it from `Info.ofTypedName` for
+**every** declaration and prints the result as one `div.attributes` line.
 
-Transcribed, not imported: `import Lean` is this extractor's only dependency.
-The four lists and the composition order (`customs ++ tags ++ enums ++
-parametric`) are doc-gen4's — the order is what the printed string looks like,
-so it is part of the specification, not a detail.
+Transcribed, not imported: `import Lean` is this extractor's only dependency. The
+four lists and the composition order (`customs ++ tags ++ enums ++ parametric`)
+are doc-gen4's — the order is what the printed string looks like, so it is part
+of the specification, not a detail. doc-gen4 routes the value-carrying attributes
+through a `ValueAttr` type class so that one loop can serve both `EnumAttributes`
+and `ParametricAttribute`; the lists have 1 and 5 entries, so the loop is written
+out instead. What has to stay identical is the strings and their order.
 
-doc-gen4 routes the value-carrying attributes through a `ValueAttr` type class
-so that one loop can serve both `EnumAttributes` and `ParametricAttribute`. That
-indirection is not reproduced here: the lists have 1 and 5 entries and are
-`def`s, so the loop is written out. What has to stay identical is the strings
-and their order.
-
-## Schema 5: the name and the value are separate
-
-doc-gen4 concatenates them — `parametricGetValue` returns
-`<attribute name> <value>` as one string, and that is what schema 4 carried. The
-pair is split here instead, and written on the wire as a two-element array
-`["deprecated", "Foo (since := \"…\")"]`, the same shape `refs` uses. **The
-split happens at this end because this is the only end that knows where the
-boundary is**: an attribute value can contain spaces (`deprecated`) and brackets
+**The name and the value are separate.** doc-gen4 concatenates them —
+`parametricGetValue` returns `<attribute name> <value>` as one string. The split
+happens at **this** end because this is the only end that knows where the
+boundary is: an attribute value can contain spaces (`deprecated`) and brackets
 (`specialize`), so a reader given the concatenation would have to guess, and a
 guess made downstream is a second answer to a question already answered here.
-
-Every collector below therefore returns `Array (String × String)`. A tag
-attribute has no value and carries `""` — which is a different thing from a
-value that happens to be empty in the printed form, but nothing in doc-gen4's
-fixed list distinguishes those either, and the concatenation could not have.
+Every collector below therefore returns `Array (String × String)`; a tag
+attribute has no value and carries `""`.
 -/
 
 def tagAttributes : Array TagAttribute :=
@@ -799,21 +552,15 @@ def getTags (decl : Name) : MetaM (Array (String × String)) := do
   return tagAttributes.filter (TagAttribute.hasTag · env decl)
     |>.map (fun a => (a.attr.name.toString, ""))
 
-/-- doc-gen4's `enumAttributes`: exactly one entry, `Compiler.inlineAttrs`.
-
-The enum's own string *is* the attribute name (`inline`, `macro_inline`, …), so
-this is a name with no value rather than a value with no name — doc-gen4 prints
-it alone for the same reason. -/
+/-- doc-gen4's `enumAttributes`: exactly one entry. The enum's own string *is*
+the attribute name, so this is a name with no value. -/
 def getEnumValues (decl : Name) : MetaM (Array (String × String)) := do
   let env ← getEnv
   match EnumAttributes.getValue Compiler.inlineAttrs env decl with
   | some v => return #[(inlineAttrString v, "")]
   | none => return #[]
 
-/-- doc-gen4's `parametricAttributes`, in its order. These are the four entries
-that actually carry a value; doc-gen4's `parametricGetValue` glues it to the name
-as `<attribute name> <value>` and the pair is kept apart here (see the heading).
--/
+/-- doc-gen4's `parametricAttributes`, in doc-gen4's order. -/
 def getParametricValues (decl : Name) : MetaM (Array (String × String)) := do
   let env ← getEnv
   let mut res : Array (String × String) := #[]
@@ -824,12 +571,10 @@ def getParametricValues (decl : Name) : MetaM (Array (String × String)) := do
   if let some v := ParametricAttribute.getParam? exportAttr env decl then
     res := res.push (exportAttr.attr.name.toString, toString v)
   if let some v := ParametricAttribute.getParam? Compiler.specializeAttr env decl then
-    -- `Compiler.specializeAttr : ParametricAttribute (Array Nat)` in Lean
-    -- v4.31.0, so the string is core's `ToString (Array α)`, i.e. `#[0, 1]`.
-    -- doc-gen4 also carries a `ToString SpecializeAttributeKind` instance for
-    -- this entry; it is dead code there, because that is not the attribute's
-    -- parameter type. Reproducing the dead instance would produce the wrong
-    -- string, so it is not reproduced.
+    -- `Compiler.specializeAttr : ParametricAttribute (Array Nat)`, so the
+    -- string is core's `ToString (Array α)`, i.e. `#[0, 1]`. doc-gen4 also
+    -- carries a `ToString SpecializeAttributeKind` instance for this entry; it
+    -- is dead code there, and reproducing it would produce the wrong string.
     res := res.push (Compiler.specializeAttr.attr.name.toString, toString v)
   if let some v := ParametricAttribute.getParam? Linter.deprecatedAttr env decl then
     res := res.push (Linter.deprecatedAttr.attr.name.toString, deprecationString v)
@@ -838,30 +583,26 @@ def getParametricValues (decl : Name) : MetaM (Array (String × String)) := do
 /-- doc-gen4's `customAttrs` (`hasSimp`, `hasCsimp`, `getReducibility`) in order.
 `semireducible` is the default and is deliberately not printed.
 
-The reducibility name is taken from Lean's own `ReducibilityStatus.toAttrString`
-rather than matched constructor by constructor, which is where doc-gen4 spells it
-out (`DocGen4/Process/Attributes.lean`, `getReducibility`). The reason is a
-version break, measured: **Lean v4.33.0 added `instanceReducible` to the
-inductive**, and an exhaustive `match` over the four older constructors stops
-compiling the moment a fifth appears — while one carrying `| _ => pure ()` would
-compile and silently drop the new attribute from the IR instead
-(→ `benchmarks/results/lean-version-2026-08-18.txt`). Deriving the string keeps a
-single source building on v4.31 through v4.33 *and* keeps a constructor nobody
-here has heard of in the output; the strings are unchanged for the four that
-existed before, so the IR does not move — 436 of 436 files byte identical over
-the measurement target, with 75 declarations actually taking this branch
-(→ `benchmarks/results/lean-433-fix-2026-08-18.txt`). What is not derivable
-is the bracketing, so that is asserted rather than assumed: if `toAttrString`
-ever stops returning `[name]` this throws instead of writing a mangled attribute
-— which, like every other `throwError` in the analysis loop, costs the
-declaration and lands in the `failures` report rather than failing the process.
-Verified by building a copy with the call replaced by an unbracketed literal: it
-reported `failures (75)`, exactly the number of declarations in the measurement
-target that carry a non-`semireducible` status, and nothing else moved.
-The slicing is spelled `drop`/`dropEnd`/`toString` because that is what compiles
-warning-free on all three toolchains: `String.drop` returns a `String.Slice` here,
-`Slice.dropRight` is deprecated in favour of `dropEnd`, and `String.mk` is
-deprecated in favour of `ofList` — all measured, not assumed. -/
+The reducibility name comes from Lean's own `ReducibilityStatus.toAttrString`
+rather than from a constructor-by-constructor `match`, which is where doc-gen4
+spells it out. **Lean v4.33.0 added `instanceReducible` to the inductive**: an
+exhaustive `match` over the four older constructors stops compiling the moment a
+fifth appears, and one carrying `| _ => pure ()` would compile and silently drop
+the new attribute from the IR instead. Deriving the string keeps a single source
+building on v4.31 through v4.33 *and* keeps a constructor nobody here has heard
+of in the output; the strings are unchanged for the four that existed before, so
+the IR does not move — 436 of 436 files byte identical over the measurement
+target, with 75 declarations actually taking this branch
+(→ `benchmarks/results/lean-433-fix-2026-08-18.txt`).
+
+What is not derivable is the bracketing, so that is asserted rather than assumed:
+if `toAttrString` ever stops returning `[name]` this throws instead of writing a
+mangled attribute — which, like every other `throwError` in the analysis loop,
+costs the declaration and lands in the `failures` report rather than failing the
+process. The slicing is spelled `drop`/`dropEnd`/`toString` because that is what
+compiles warning-free on all three toolchains: `String.drop` returns a
+`String.Slice` here, `Slice.dropRight` is deprecated in favour of `dropEnd`, and
+`String.mk` in favour of `ofList`. -/
 def getCustomAttrs (decl : Name) : MetaM (Array (String × String)) := do
   let mut res : Array (String × String) := #[]
   let thms ← simpExtension.getTheorems
@@ -899,12 +640,8 @@ def getAllAttributes (decl : Name) : MetaM (Array (String × String)) := do
   priority is not the default 1000, and `defaultInstance <priority>` — appended
   *after* `getAllAttributes`, so the order matters for the printed string;
 * the **type index**: the class name and the head symbols of the instance's
-  arguments. Those never reach a module page — the browser fills the
-  "Instances" / "Instances For" lists from `declarations/declaration-data.bmp`,
-  so this cannot move the byte reproduction rate by a single byte. It is here
-  because doc-gen4 computes it and litedoc4 did not, and
-  a comparison of two tools that are not doing the same work is not a
-  comparison.
+  arguments. Those never reach a module page — the browser fills the "Instances"
+  lists from `declarations/declaration-data.bmp`.
 -/
 
 def getInstanceTypes (typ : Expr) : MetaM (Array Name) := do
@@ -925,8 +662,7 @@ where
     | _ => return ()
 
 /-- `some priority` only when it differs from the default 1000, exactly like
-doc-gen4 (`getInstPriority`), because that is what decides whether the
-`instance <priority>` attribute is printed at all. -/
+doc-gen4: that is what decides whether the attribute is printed at all. -/
 def getInstPriority (name : Name) : MetaM (Option Nat) := do
   let instances := instanceExtension.getState (← getEnv)
   let some instEntry := instances.instanceNames.find? name
@@ -944,18 +680,14 @@ def getDefaultInstanceAttr (decl : Name) (className : Name) :
 /-! ## Referenced constants — the demand side of the link map
 
 doc-gen4 turns a `Format` into linkable `RenderedCode` in two steps:
-`Widget.tagCodeInfos` (Lean core, `Lean/Widget/InteractiveCode.lean`) wraps every
-tag position in a `SubexprInfo`, and doc-gen4's own `renderTagged`
-(`DocGen4/RenderedCode.lean`) is what actually decides which of them become
-`<a href>`. Only the second step names constants.
+`Widget.tagCodeInfos` (Lean core) wraps every tag position in a `SubexprInfo`,
+and doc-gen4's own `renderTagged` (`DocGen4/RenderedCode.lean`) decides which of
+them become `<a href>`. Only the second step names constants.
 -/
 
-/-- Per-declaration output of the reference collector. -/
 structure RefAcc where
-  /-- Every occurrence, not a set: the unique count and the occurrence count are
-  both wanted, so the deduplication happens in the driver. -/
+  /-- Every occurrence, not a set: deduplication happens in the driver. -/
   names : Array Name := #[]
-  /-- Time spent inside the collector itself (including `prettyTagged`). -/
   nanos : Nat := 0
   deriving Inhabited
 
@@ -963,21 +695,17 @@ structure RefAcc where
 The names doc-gen4's `renderTagged` tags as `.const`, i.e. exactly the ones that
 become links in its HTML.
 
-`renderTagged` matches `.tag i t` where `i.info.val.info` is `Elab.Info.ofTermInfo ti`
-and `ti.expr.consumeMData` is `.const c _`. Here the same test is done directly
-against `infos`, skipping `Widget.tagCodeInfos`: the only thing that step adds is a
-`WithRpcRef.mk` per tag (an `IO.Ref` allocation for the RPC layer), which cannot
-change which names come out.
+`renderTagged` matches `.tag i t` where `i.info.val.info` is
+`Elab.Info.ofTermInfo ti` and `ti.expr.consumeMData` is `.const c _`. The same
+test is done directly against `infos`, skipping `Widget.tagCodeInfos`: the only
+thing that step adds is a `WithRpcRef.mk` per tag (an `IO.Ref` allocation for the
+RPC layer), which cannot change which names come out.
 
-Two deliberate choices, both "reproduce doc-gen4" rather than "be complete",
-because stage 3 asks whether litedoc4 reaches *the same* link targets:
-
-* `Elab.Info.ofFieldInfo` and `.ofDelabTermInfo` carry constants too, but
-  `renderTagged` only matches `.ofTermInfo`, so those are not links in doc-gen4's
-  output and are not collected here either. This is likely a doc-gen4 oversight;
-  it is reproduced on purpose.
-* `Expr.sort` gets its own (non-constant) tag in `renderTagged`, and every other
-  `Expr` head falls through to `.otherExpr`. Neither yields a name.
+`Elab.Info.ofFieldInfo` and `.ofDelabTermInfo` carry constants too, but
+`renderTagged` only matches `.ofTermInfo`, so those are not links in doc-gen4's
+output and are not collected here either — likely a doc-gen4 oversight,
+reproduced on purpose. `Expr.sort` gets its own (non-constant) tag and every
+other `Expr` head falls through to `.otherExpr`; neither yields a name.
 
 Walking *every* tag is equivalent to `renderTagged`'s recursion: it descends into
 the subtree of a `.const` tag whenever that subtree is not a bare `.text`, and a
@@ -998,23 +726,20 @@ partial def collectConsts (infos : SubExpr.PosMap Elab.Info)
       | _ => acc
     collectConsts infos t acc
 
-/-! ### Positional tags — the same walk, keeping the offsets (stage 4b)
+/-! ### Positional tags — the same walk, keeping the offsets
 
 `collectConsts` above throws the positions away. `collectSpans` below does not:
 it is the same traversal, but every tag that survives into doc-gen4's HTML comes
 out as a half-open interval over the fragment's **plain text**, in pre-order.
 
-Offsets are in **UTF-16 code units**, not characters and not UTF-8 bytes. See the
-README ("Offsets") for why; the short version is that the consumer is a
-`String`-slicing runtime and this is the unit that makes `s.slice(start, stop)`
-correct there without a conversion pass. Lean's own `String.length` is code
-points, so nothing here may use it.
+Offsets are in **UTF-16 code units**, not characters and not UTF-8 bytes: the
+consumer is a `String`-slicing runtime and this is the unit that makes
+`s.slice(start, stop)` correct there without a conversion pass. Lean's own
+`String.length` is code points, so nothing here may use it.
 -/
 
-/-- Width of one character in UTF-16 code units. -/
 @[inline] def charUtf16 (c : Char) : Nat := if c.val < 0x10000 then 1 else 2
 
-/-- Length of `s` in UTF-16 code units. -/
 def utf16Len (s : String) : Nat :=
   String.foldl (fun n c => n + charUtf16 c) 0 s
 
@@ -1039,13 +764,13 @@ structure Span where
   kind : Nat
   /-- Only meaningful for `kind = 1`. -/
   name : Name := .anonymous
-  /-- Schema 3. Width, in UTF-16 code units, of the whitespace `splitWhitespaces`
-  cut off the **front** of this tag's bare text — the units `[start - front, start)`.
-  doc-gen4 re-emits that run as plain spaces, so a consumer that does not know the
-  width cannot tell a rebuilt `' '` from the pretty printer's original `'\n'`.
-  Zero for every span that is not the `kind = 1` bare-text case. -/
+  /-- Width, in UTF-16 code units, of the whitespace `splitWhitespaces` cut off
+  the **front** of this tag's bare text — the units `[start - front, start)`.
+  doc-gen4 re-emits that run as plain spaces, so a consumer that does not know
+  the width cannot tell a rebuilt `' '` from the pretty printer's original
+  `'\n'`. Zero for every span that is not the `kind = 1` bare-text case. -/
   front : Nat := 0
-  /-- Schema 3. Same for the **back**: the units `[stop, stop + back)`. -/
+  /-- Same for the **back**: the units `[stop, stop + back)`. -/
   back : Nat := 0
   deriving Inhabited
 
@@ -1084,13 +809,12 @@ def sortPrefixLen (s : String) : Nat :=
 /--
 The pre-order span list of one formatted fragment.
 
-Node for node the same walk as `renderTagged` (`DocGen4/RenderedCode.lean:240-274`)
-composed with `Widget.tagCodeInfos`:
+Node for node the same walk as `renderTagged`
+(`DocGen4/RenderedCode.lean:240-274`) composed with `Widget.tagCodeInfos`:
 
-* a tag position that is not in `infos` is **dropped** by `tagCodeInfos`
-  (`Lean/Widget/InteractiveCode.lean`, the `none` branch returns the subtree
-  untagged), so `renderTagged` never sees it and no span is emitted — the subtree
-  is still walked;
+* a tag position that is not in `infos` is **dropped** by `tagCodeInfos`, so
+  `renderTagged` never sees it and no span is emitted — the subtree is still
+  walked;
 * `.ofTermInfo` whose expression is `.const c _` -> kind 1, `.sort _` -> kind 2,
   anything else -> kind 0; any other `Elab.Info` -> kind 0. This reproduces
   doc-gen4, including its blind spot for `.ofFieldInfo` / `.ofDelabTermInfo`
@@ -1132,26 +856,18 @@ partial def collectSpans (infos : SubExpr.PosMap Elab.Info)
         let (acc, off') := collectSpans infos t acc off
         (acc.set! idx ⟨off, off', kind, name, 0, 0⟩, off')
 
-/-- The per-declaration code-walk sink. `--refs` wants the names, `--tagged-code`
-wants the positions; either flag creates it, and with both on there is still only
-one walk (the names are read off the spans). -/
+/-- The per-declaration code-walk sink. With both flags on there is still only
+one walk: the names are read off the spans. -/
 structure CodeSink where
   ref : IO.Ref RefAcc
-  /-- `--tagged-code`. -/
   tagged : Bool
-  /-- `--refs`. -/
   wantNames : Bool
 
-/-- `none` when both `--refs` and `--tagged-code` are off, and then every
-collector call is a no-op. -/
+/-- `none` when both `--refs` and `--tagged-code` are off. -/
 abbrev RefSink := Option CodeSink
 
-/--
-Walks one formatted fragment, folds the constant names into the per-declaration
-accumulator and hands the spans back to the caller (empty without `--tagged-code`).
-
-`text` must be `fmt.pretty` of the same `fmt`; it is what the spans index.
--/
+/-- Walks one formatted fragment. `text` must be `fmt.pretty` of the same `fmt`;
+it is what the spans index. -/
 def RefSink.collect (sink : RefSink) (fmt : Std.Format) (text : String)
     (infos : SubExpr.PosMap Elab.Info) : MetaM (Array Span) := do
   let some s := sink | return #[]
@@ -1160,10 +876,9 @@ def RefSink.collect (sink : RefSink) (fmt : Std.Format) (text : String)
   let mut spans : Array Span := #[]
   if s.tagged then
     let (sp, width) := collectSpans infos (Widget.TaggedText.prettyTagged fmt) #[] 0
-    -- Not a debug assertion. It is the only thing between a correct offset and a
-    -- silently shifted one, and it is also what keeps the walk inside the timer:
-    -- a pure `let` whose consumers are all below the next clock read gets sunk
-    -- past it, and three phases of this experiment measured zero that way.
+    -- Not a debug assertion: it is the only thing between a correct offset and a
+    -- silently shifted one, and it also keeps the walk inside the timer (a pure
+    -- `let` whose consumers are below the next clock read gets sunk past it).
     if width != utf16Len text then
       throwError "tagged-code width {width} does not match the printed width {utf16Len text}"
     if s.wantNames then
@@ -1172,52 +887,42 @@ def RefSink.collect (sink : RefSink) (fmt : Std.Format) (text : String)
             if x.kind == 1 then ns.push x.name else ns }
     spans := sp
   else if s.wantNames then
-    -- The walk is written *inside* `modify` rather than in a `let` above it. A pure
-    -- `let` whose only consumer is the closure below can be sunk into that closure,
-    -- and then nothing happens between `t0` and `t1` and `refUs` measures zero.
-    -- Appending forces the array, so this way the work is inside the timer. Stage 2's
-    -- `--tactics-probe` was bitten by the same class of mistake.
+    -- The walk is written *inside* `modify` rather than in a `let` above it: a
+    -- pure `let` whose only consumer is the closure below can be sunk into it,
+    -- and then `refUs` measures zero. Appending forces the array.
     r.modify fun a =>
       { a with names := a.names ++ collectConsts infos (Widget.TaggedText.prettyTagged fmt) #[] }
   let t1 ← IO.monoNanosNow
   r.modify fun a => { a with nanos := a.nanos + (t1 - t0) }
   return spans
 
-/-! ## Pretty-print breakdown (stage 7d)
+/-! ## Pretty-print breakdown (`--pp-breakdown`)
 
-`ppUs` was one number: everything between the two clock reads in `timedPp`. Since
-§6.1 puts 75% of the extraction there, the number has to be split before anything
-can be said about reducing it. The split follows the steps the Lean pretty printer
-actually goes through, which are the same ones doc-gen4 goes through:
+`ppUs` is everything between the two clock reads in `timedPp`. The split follows
+the steps the Lean pretty printer actually goes through, which are the same ones
+doc-gen4 goes through:
 
     Expr --delab--> Syntax --sanitize--> Syntax --parenthesize--> Syntax
          --format--> Format --pretty--> String
 
-`--tagged-code`'s span collection is *not* in here: it already has its own counter
-(`refUs`), and it runs after `pretty` on the same `Format`.
+`--tagged-code`'s span collection is *not* in here: it already has its own
+counter (`refUs`), and it runs after `pretty` on the same `Format`.
 
 The probe is `none` unless `--pp-breakdown`, and then every site is one `Option`
 test plus two clock reads.
 -/
 structure PpAcc where
-  /-- `Expr` → `Syntax`: `delabCore`. -/
   delabNanos : Nat := 0
-  /-- `Syntax` → `Syntax`: `sanitizeSyntax` (and, on the term path, the local
-  context's `sanitizeNames`). -/
   sanitizeNanos : Nat := 0
-  /-- `Syntax` → `Syntax`: `parenthesize`. -/
   parenNanos : Nat := 0
-  /-- `Syntax` → `Format`: `PrettyPrinter.format` / `formatCategory`. -/
   formatNanos : Nat := 0
-  /-- `Format` → `String`: `Format.pretty`, the layout algorithm. -/
   prettyNanos : Nat := 0
-  /-- `--tag` only (`Widget.tagCodeInfos`). Off in the production configuration;
-  the production configuration's tagging is `--tagged-code`, i.e. `refUs`. -/
+  /-- `--tag` only. The production configuration's tagging is `--tagged-code`,
+  i.e. `refUs`. -/
   tagNanos : Nat := 0
-  /-- The equation *generation* step, i.e. everything in `computeEquations`
-  outside `ppEquation`: `getEqnsFor?` (which elaborates the equation lemmas) or
-  `valueToEq`, plus the `inferType` of each lemma. Only ever non-zero on the
-  probe `withEquations` hands to `computeEquations`. -/
+  /-- Everything in `computeEquations` outside `ppEquation`: `getEqnsFor?` (which
+  elaborates the equation lemmas) or `valueToEq`, plus the `inferType` of each
+  lemma. -/
   eqGenNanos : Nat := 0
   sigCalls : Nat := 0
   termCalls : Nat := 0
@@ -1243,7 +948,6 @@ def PpAcc.add (a b : PpAcc) : PpAcc :=
 def PpAcc.accounted (a : PpAcc) : Nat :=
   a.delabNanos + a.sanitizeNanos + a.parenNanos + a.formatNanos + a.prettyNanos + a.tagNanos
 
-/-- `none` without `--pp-breakdown`; then `now` returns 0 and `bump` is a no-op. -/
 abbrev PpProbe := Option (IO.Ref PpAcc)
 
 @[inline] def PpProbe.now (p : PpProbe) : BaseIO Nat :=
@@ -1257,21 +961,16 @@ abbrev PpProbe := Option (IO.Ref PpAcc)
   | some r => r.modify f
 
 /--
-Consumes a pure value while the clock is running.
-
-`@[noinline]` is load-bearing, not decoration. Lean's compiler may float a pure
-`let` down to its use site; three phases of this experiment measured a zero that
-way (see `RefSink.collect`). An opaque call that reads the value pins the
-evaluation between the two clock reads.
+Consumes a pure value while the clock is running. `@[noinline]` is load-bearing,
+not decoration: Lean's compiler may float a pure `let` down to its use site, and
+an opaque call that reads the value pins the evaluation between the two clock
+reads.
 -/
 @[noinline] def pin (n : Nat) : BaseIO Unit :=
   if n == 0 then return () else return ()
 
-/-! ## Pretty printing -/
-
-/-- A pretty printed signature: the binders in front of the `:` and the type after it.
-The `*Spans` fields are empty without `--tagged-code`; each one indexes the string
-next to it. -/
+/-- A pretty printed signature. The `*Spans` fields are empty without
+`--tagged-code`; each one indexes the string next to it. -/
 structure Sig where
   binders : Array String
   implicits : Array Bool
@@ -1281,13 +980,13 @@ structure Sig where
   deriving Inhabited
 
 /--
-The same path as doc-gen4's `Info.ofTypedName`, minus the tagging step: delaborate
-the type as a `declSig`, sanitize, parenthesize, then format the binders one by one
-and the result type separately.
+The same path as doc-gen4's `Info.ofTypedName`, minus the tagging step:
+delaborate the type as a `declSig`, sanitize, parenthesize, then format the
+binders one by one and the result type separately.
 
-`currNamespace := n.getPrefix` mirrors doc-gen4. Note that `openDecls` stays at
-whatever the caller put in the `Core.Context` -- doc-gen4 leaves it empty, which is
-why scoped notation never appears in its output.
+`currNamespace := n.getPrefix` mirrors doc-gen4. `openDecls` stays at whatever
+the caller put in the `Core.Context` — doc-gen4 leaves it empty, which is why
+scoped notation never appears in its output.
 -/
 def ppSignature (probe : PpProbe) (tagCode : Bool) (refs : RefSink) (n : Name) (t : Expr) :
     MetaM Sig := do
@@ -1297,8 +996,6 @@ def ppSignature (probe : PpProbe) (tagCode : Bool) (refs : RefSink) (n : Name) (
       `(declSig| $binders* : $type))
   let s1 ← probe.now
   let sigStx := (sanitizeSyntax sigStx).run' { options := (← getOptions) }
-  -- `sanitizeSyntax … |>.run'` is pure; without the pin the whole traversal is
-  -- free to happen at the `parenthesize` call below and `sanitizeNanos` is 0.
   if probe.isSome then pin sigStx.getNumArgs
   let s2 ← probe.now
   let sigStx ← parenthesize Parser.Command.declSig.parenthesizer sigStx
@@ -1321,8 +1018,6 @@ def ppSignature (probe : PpProbe) (tagCode : Bool) (refs : RefSink) (n : Name) (
       let _ ← tagIt fmt infos
     let f2 ← probe.now
     let txt := fmt.pretty
-    -- Same reason as above: `Format.pretty` is pure, and its only consumers are
-    -- below the next clock read.
     if probe.isSome then pin txt.utf8ByteSize
     let f3 ← probe.now
     probe.bump fun a => { a with
@@ -1368,11 +1063,10 @@ where
 /--
 doc-gen4's `prettyPrintTerm` (`Process/Base.lean`), without the tagging.
 
-With `--refs` off this is stage 2's `Meta.ppExpr` verbatim, so the baseline output
-and timing are unchanged. With `--refs` on it switches to `ppExprWithInfos`, the
-call doc-gen4 makes, because that is the only way to get the `infos` the constants
-live in; `Meta.ppExpr` is `ppExprWithInfos` with the map thrown away, so the
-printed text is the same either way.
+With `--refs` off this is `Meta.ppExpr`; with `--refs` on it switches to
+`ppExprWithInfos`, the call doc-gen4 makes, because that is the only way to get
+the `infos` the constants live in. `Meta.ppExpr` is `ppExprWithInfos` with the
+map thrown away, so the printed text is the same either way.
 -/
 def ppTermTagged (probe : PpProbe) (refs : RefSink) (e : Expr) : MetaM (String × Array Span) := do
   match refs with
@@ -1386,11 +1080,8 @@ def ppTermTagged (probe : PpProbe) (refs : RefSink) (e : Expr) : MetaM (String �
       return (txt, spans)
     | some _ =>
       -- `PrettyPrinter.ppExprWithInfos` (`Lean/PrettyPrinter.lean:49-55`) inlined
-      -- so the same four steps can be told apart. `maybePrependExprSizes` is
-      -- omitted: it is the identity unless `pp.exprSizes` is set, and this
-      -- extractor never sets it. That the inlining is faithful is not argued —
-      -- the IR of a `--pp-breakdown` run is compared byte for byte against the
-      -- IR of a run without it.
+      -- so the four steps can be told apart. `maybePrependExprSizes` is omitted:
+      -- the identity unless `pp.exprSizes` is set, which this extractor never sets.
       let s0 ← probe.now
       let lctx := (← getLCtx).sanitizeNames.run' { options := (← getOptions) }
       if probe.isSome then pin lctx.size
@@ -1422,8 +1113,6 @@ def ppTermTagged (probe : PpProbe) (refs : RefSink) (e : Expr) : MetaM (String �
 def ppTerm (probe : PpProbe) (refs : RefSink) (e : Expr) : MetaM String := do
   return (← ppTermTagged probe refs e).1
 
-/-! ## Equations (doc-gen4's `DefinitionInfo.computeEquations?`) -/
-
 def valueToEq (v : DefinitionVal) : MetaM Expr := withLCtx {} {} do
   withOptions (Lean.Meta.tactic.hygienic.set · false) do
     lambdaTelescope v.value fun xs body => do
@@ -1436,8 +1125,7 @@ def ppEquation (probe : PpProbe) (refs : RefSink) (e : Expr) : MetaM (String × 
 
 def computeEquations (probe : PpProbe) (refs : RefSink) (v : DefinitionVal) :
     MetaM (Array (String × Array Span)) := do
-  -- `getEqnsFor?` *elaborates* the equation lemmas; `ppEquation` only prints
-  -- them. `eqUs` was the sum of the two, so the two are timed apart here.
+  -- `getEqnsFor?` *elaborates* the equation lemmas; `ppEquation` only prints.
   let g0 ← probe.now
   let eqs? ← getEqnsFor? v.name
   let g1 ← probe.now
@@ -1457,28 +1145,22 @@ def computeEquations (probe : PpProbe) (refs : RefSink) (v : DefinitionVal) :
     probe.bump fun a => { a with eqGenNanos := a.eqGenNanos + (h1 - h0) }
     return #[← ppEquation probe refs ty]
 
-/-! ## The extracted record -/
-
 structure Member where
   label : String
   name : Name
   text : String
-  /-- Spans over `text`. Empty without `--tagged-code`. -/
   spans : Array Span := #[]
-  /-- Schema 4, `label = "field"` only: the binders of the field's own signature.
-  `ppSignature` always computed these — stage 7a threw them away, and
-  `fieldToHtml` (`Output/Structure.lean:27`) prints them as `span.decl_args`
-  inside `div.structure_field_info`. -/
+  /-- `label = "field"` only: the binders of the field's own signature, which
+  `fieldToHtml` (`Output/Structure.lean:27`) prints as `span.decl_args`. -/
   binders : Array String := #[]
   implicits : Array Bool := #[]
   binderSpans : Array (Array Span) := #[]
-  /-- Schema 4: the field's docstring (`div.structure_field_doc`). doc-gen4
-  reads it back from the *projection function's* row (`DB/Read.lean:355-380`),
-  which is `findDocString? projFn` — the same thing this stores. -/
+  /-- The field's docstring. doc-gen4 reads it back from the *projection
+  function's* row, which is `findDocString? projFn` — what this stores. -/
   doc : Option String := none
-  /-- Schema 4: doc-gen4's `getFieldOrigin`. `false` selects the whole other
-  branch of `fieldToHtml`: no docstring, the short name becomes a link, and the
-  `<li>` gets `inherited_field` and usually no `id`. -/
+  /-- doc-gen4's `getFieldOrigin`. `false` selects the whole other branch of
+  `fieldToHtml`: no docstring, the short name becomes a link, and the `<li>` gets
+  `inherited_field` and usually no `id`. -/
   isDirect : Bool := true
 
 structure DeclOut where
@@ -1489,24 +1171,21 @@ structure DeclOut where
   doc : Option String
   line : Nat
   col : Nat
-  /-- End of `DeclarationRanges.range`, the same range doc-gen4 stores
-  (`DocGen4/Process/NameInfo.lean:124`) and feeds to `mkGithubSourceLinker`
-  (`DocGen4/Output/SourceLinker.lean:12-14`) as `#L<line>-L<endLine>`. Stage 4
-  dropped it, so the IR could not produce a `gh_link`. -/
+  /-- End of `DeclarationRanges.range`, which doc-gen4 feeds to
+  `mkGithubSourceLinker` as `#L<line>-L<endLine>`. -/
   endLine : Nat := 0
   endCol : Nat := 0
-  /-- Schema 5: `DeclarationRanges.selectionRange` — the *other* range
-  `findDeclarationRanges?` returns, which `range` above has always thrown away.
+  /-- `DeclarationRanges.selectionRange` — the *other* range
+  `findDeclarationRanges?` returns, which `range` above throws away.
 
   For a declaration the source names, this is the `declId`
   (`Lean.Elab.addDeclarationRangesForBuiltin` passes it explicitly), so it is a
-  proper sub-range of `range`. For a declaration nothing in the source names,
-  the elaborator that built it calls `addDeclarationRangesFromSyntax` with one
-  syntax tree and `selectionRange` is **defaulted to `range`**
+  proper sub-range of `range`. For a declaration nothing in the source names, the
+  elaborator calls `addDeclarationRangesFromSyntax` with one syntax tree and
+  `selectionRange` is **defaulted to `range`**
   (`Lean/Elab/DeclarationRange.lean:50-55`). The two being equal is therefore a
   fact about *how the declaration got its position*, which is what telling a
-  generated declaration apart from a hand-written one needs, and what
-  `(line, col)` alone could not say. -/
+  generated declaration apart from a hand-written one needs. -/
   selLine : Nat := 0
   selCol : Nat := 0
   selEndLine : Nat := 0
@@ -1523,24 +1202,18 @@ structure DeclOut where
   /-- The words doc-gen4's `getKindDescription` puts in front of the kind word.
   Empty without `--tagged-code`; see `declModifiers`. -/
   modifiers : Array String := #[]
-  /-- Schema 4: `getAllAttributes` plus, for instances, the two attributes
-  `InstanceInfo.ofDefinitionInfo` appends. Empty without `--tagged-code`.
-
-  Schema 5 splits each entry into `(name, value)`; `value` is `""` for the
-  attributes that do not take one. See the attributes heading for why the split
-  is made here and not by the reader. -/
+  /-- `getAllAttributes` plus, for instances, the two attributes
+  `InstanceInfo.ofDefinitionInfo` appends. `value` is `""` for the attributes
+  that do not take one. Empty without `--tagged-code`. -/
   attrs : Array (String × String) := #[]
-  /-- Schema 4, instances only: `isClass?` of the instance's type. -/
   instClass : Option Name := none
-  /-- Schema 4, instances only: `getInstanceTypes`. Never printed on a module
-  page — the browser builds those lists from `declaration-data.bmp`. -/
+  /-- Instances only: `getInstanceTypes`. Never printed on a module page — the
+  browser builds those lists from `declaration-data.bmp`. -/
   instTypes : Array Name := #[]
-  /-- Schema 5: `"direct"`, `"transitive"` or `none`. Filled by a pass of its own
-  after the analysis (`sorryTag`), not by `analyze`, so that `--jobs` cannot
-  reach it. `none` without `--tagged-code` and under `--no-sorry`. -/
+  /-- `"direct"`, `"transitive"` or `none`. Filled by a pass of its own after the
+  analysis (`sorryTag`), not by `analyze`, so that `--jobs` cannot reach it. -/
   sorryTag : Option String := none
-  /-- Schema 5 (B-3): the declaration `@[ext]` realized this one from. See
-  `extOriginOf`, which is the only thing that fills it. -/
+  /-- The declaration `@[ext]` realized this one from; see `extOriginOf`. -/
   extOrigin : Option Name := none
 
 def DeclOut.toJson (d : DeclOut) : Json :=
@@ -1562,48 +1235,37 @@ def DeclOut.toJson (d : DeclOut) : Json :=
     ("refs", Json.arr (d.refs.map (Json.str ·.toString)))
   ]
 
-/-! ## Analysis of one declaration -/
-
 structure Counters where
   ppNanos : Nat := 0
   eqNanos : Nat := 0
   docNanos : Nat := 0
   eqCount : Nat := 0
   eqFailures : Nat := 0
-  /-- Time inside the reference collector. It runs *inside* the pretty printing it
-  measures, so this is a part of `ppNanos` (and of `eqNanos` for the equations),
-  not an addition to it — same as what `--tag` does to `ppNanos` in stage 2. -/
+  /-- Runs *inside* the pretty printing it measures, so this is a part of
+  `ppNanos` (and of `eqNanos` for the equations), not an addition to it. -/
   refNanos : Nat := 0
   /-- Occurrences, not unique names. -/
   refCount : Nat := 0
-  /-- Stage 7b, addition (1): `getAllAttributes`. A term of its own, *not*
-  contained in `ppNanos` — it runs next to the pretty printing, not inside it. -/
+  /-- `getAllAttributes`. A term of its own, *not* contained in `ppNanos`. -/
   attrNanos : Nat := 0
   attrCount : Nat := 0
-  /-- Declarations that ended up with at least one attribute, i.e. the ones that
-  produce a `div.attributes`. -/
   attrDecls : Nat := 0
-  /-- Stage 7b, addition (2): the instance type index (`isClass?`,
-  `getInstanceTypes`, the priority and default-instance lookups). Also its own
-  term. -/
+  /-- The instance type index. Also its own term. -/
   instNanos : Nat := 0
   instCount : Nat := 0
   instTypeNames : Nat := 0
-  /-- Stage 7b, addition (3): `getFieldOrigin` + the field docstring lookup.
-  This one **is inside `ppNanos`**: it happens in the same telescope as the
-  member pretty printing, which `timedPp` wraps. Subtract it before adding, the
-  same way `refNanos` has to be. -/
+  /-- `getFieldOrigin` + the field docstring lookup. This one **is inside
+  `ppNanos`**: it happens in the same telescope as the member pretty printing,
+  which `timedPp` wraps. Subtract it before adding, like `refNanos`. -/
   memberNanos : Nat := 0
   memberFields : Nat := 0
   memberInherited : Nat := 0
-  /-- Stage 7d, `--pp-breakdown`: the split of `ppNanos` + `eqNanos` into the
-  pretty printer's own steps. Zero without the flag. -/
+  /-- The split of `ppNanos` + `eqNanos` into the pretty printer's own steps.
+  Zero without `--pp-breakdown`. -/
   pp : PpAcc := {}
-  /-- The part of `pp` that the equations produced (`withEquations` runs
-  `computeEquations` on a probe of its own and folds it into both). -/
   eqPp : PpAcc := {}
-  /-- Stage 7d: `isBlackListed`, which runs for every *candidate*, including the
-  4,074 that are then dropped. Timed only with `--pp-breakdown`. -/
+  /-- `isBlackListed`, which runs for every *candidate*, including the dropped
+  ones. Timed only with `--pp-breakdown`. -/
   blNanos : Nat := 0
   blCalls : Nat := 0
   deriving Inhabited
@@ -1639,42 +1301,42 @@ def timedPp (act : MetaM α) : AnalyzeM α := do
   modify fun c => { c with ppNanos := c.ppNanos + (t1 - t0) }
   return r
 
-/-- Schema 5: the declaration `@[ext]` realized this one *from*, or nothing.
+/-- The declaration `@[ext]` realized `name` *from*, or nothing.
 
 **This is the only origin litedoc4 emits**, and not because the others are
 uninteresting: `simps` / `to_additive` / `mk_iff` / `to_dual` / `alias` keep
-their maps in **Mathlib's** environment extensions, and an extractor that
-imports Mathlib stops building against a Mathlib-free package — which is the
-one thing `e2e/micro` and its CI gate exist to keep working.
-`extExtension` is in Lean core.
+their maps in **Mathlib's** environment extensions, and an extractor that imports
+Mathlib stops building against a Mathlib-free package — which is the one thing
+`e2e/micro` and its CI gate exist to keep working. `extExtension` is in Lean
+core.
 
 Two conditions, and **both are load-bearing**:
 
 * **The name has one of the two shapes core builds, and the environment agrees.**
   `realizeExtTheorem` names its theorem `structName ++ "ext"` and refuses to run
   unless `isStructure structName`; `realizeExtIffTheorem` names its theorem
-  `extName ++ "_iff"` (`Lean/Elab/Tactic/Ext.lean:107,142`). Neither name is
-  guessed at — these are the two lines of core that construct them.
+  `extName ++ "_iff"` (`Lean/Elab/Tactic/Ext.lean:107,142`).
 * **`selectionRange == range`.** Being in the extension is *not* the same as
   being generated: `@[ext] theorem MulHom.ext` is hand written and is in the
   extension. A hand-written declaration has a `declId` for the elaborator to
-  record as its selection range, so the two ranges differ. A realized one is
+  record as its selection range, so the two ranges differ; a realized one is
   positioned by `addDeclarationRangesFromSyntax name (← getRef)` with no
-  selection syntax at all, and `Lean/Elab/DeclarationRange.lean:53` then
-  defaults `selectionRange` to `range`.
+  selection syntax at all, and `Lean/Elab/DeclarationRange.lean:53` then defaults
+  `selectionRange` to `range`.
 
 What comes back is the declaration the realization **took as input, one step**:
-`P.ext` came from the structure `P`, `P.ext_iff` came from `P.ext`. The chain is
-left for the reader to follow. Collapsing `P.ext_iff` onto `P` here would make
-it claim a structure as its origin in the case where `P.ext` is hand written,
-which is precisely the case the second condition exists to keep apart.
+`P.ext` came from the structure `P`, `P.ext_iff` came from `P.ext`. Collapsing
+`P.ext_iff` onto `P` would make it claim a structure as its origin in the case
+where `P.ext` is hand written, which is precisely the case the second condition
+exists to keep apart.
 
 **`selectionRange == range` on its own is not "generated"** and must not be used
-as if it were 【実測 2026-08-21 → `benchmarks/results/generated-decls-2026-08-21.txt`】:
-over 2,786 Mathlib declarations it also fires on structure and class field
-projections and on macro-defined declarations, and it does *not* fire on the
-`to_additive` twins whose additive name the author wrote out. It is a necessary
-condition here, joined to a name the environment can confirm. -/
+as if it were 【実測 2026-08-21 →
+`benchmarks/results/generated-decls-2026-08-21.txt`】: over 2,786 Mathlib
+declarations it also fires on structure and class field projections and on
+macro-defined declarations, and it does *not* fire on the `to_additive` twins
+whose additive name the author wrote out. It is a necessary condition here,
+joined to a name the environment can confirm. -/
 def extOriginOf (name : Name) (sameRange : Bool) : CoreM (Option Name) := do
   unless sameRange do return none
   match name with
@@ -1718,8 +1380,6 @@ def baseInfo (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (kin
       && ranges.range.pos.column == ranges.selectionRange.pos.column
       && ranges.range.endPos.line == ranges.selectionRange.endPos.line
       && ranges.range.endPos.column == ranges.selectionRange.endPos.column
-  -- Costs an environment lookup only for the two name shapes `@[ext]` builds;
-  -- every other name falls out of `extOriginOf` on the first `match`.
   let extOrigin ← extOriginOf cv.name sameRange
   return {
     name := cv.name, module, kind, sig, doc, attrs, extOrigin,
@@ -1735,8 +1395,7 @@ def baseInfo (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (kin
 def withEquations (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : DefinitionVal)
     (d : DeclOut) : AnalyzeM DeclOut := do
   unless cfg.genEquations do return d
-  -- A probe of its own, so that the equations' share of the pretty printer can be
-  -- separated from the signatures' share; it is folded into both at the end.
+  -- A probe of its own, so the equations' share can be separated; folded into both.
   let eqProbe : PpProbe ← match probe with
     | none => pure none
     | some _ => do let r ← IO.mkRef ({} : PpAcc); pure (some r)
@@ -1779,16 +1438,12 @@ partial def getFieldOrigin (structName field : Name) : MetaM (Bool × Name) := d
     | throwError "no such field {field} in {structName}"
   return (true, fi.projFn)
 
-/-- Fields and parents of a structure, as doc-gen4's `getFieldTypes` computes them.
-
-Stage 7b keeps the binders `ppSignature` produces (stage 7a dropped them), and
-adds the field's docstring and origin. Note what is *not* here: doc-gen4 also
-runs `getAllAttributes` on the projection function a second time inside
-`getFieldTypes`, and then throws that away on the way out of the database — the
-output path reads the field's attributes from the projection function's own
-`name_info` row (`DB/Read.lean:379`). The projection function is a declaration
-this extractor already visits, so its attributes are already in the IR; doing the
-work twice would only inflate this side's clock. -/
+/-- Fields and parents of a structure, as doc-gen4's `getFieldTypes` computes
+them. Note what is *not* here: doc-gen4 also runs `getAllAttributes` on the
+projection function a second time inside `getFieldTypes` and then throws that
+away — the output path reads the field's attributes from the projection
+function's own `name_info` row. The projection function is a declaration this
+extractor already visits, so its attributes are already in the IR. -/
 def structureMembers (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : InductiveVal) :
     AnalyzeM (Array Member) := do
   let env ← getEnv
@@ -1800,8 +1455,7 @@ def structureMembers (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : Inducti
     #[{ label := "ctor", name := ctorVal.name, text := ctorSig.type, spans := ctorSig.typeSpans }]
   let wantExtra := cfg.wantMemberExtra
   -- The extra work is inside the telescope, which `timedPp` bills to `ppNanos`,
-  -- so its own duration has to be carried back out rather than accumulated in
-  -- place: `AnalyzeM`'s state is not reachable from this `MetaM` block.
+  -- so its duration is carried back out: `AnalyzeM`'s state is not reachable here.
   let (inner, extraNanos, fields, inherited) ← timedPp <|
     forallTelescopeReducing v.type fun params _ =>
       withLocalDeclD `self (mkAppN (mkConst structName us) params) fun s => do
@@ -1854,12 +1508,9 @@ def inductiveMembers (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : Inducti
   return out
 
 /--
-The words doc-gen4's `getKindDescription` (`DocGen4/Process/DocInfo.lean:211-247`)
-puts in front of the kind word, as flags. Stage 4's IR only had `kind`, and on the
-fixed target that mislabels 456 of 650 `definition`s and 1 of 56 `instance`s.
-
-The composition rule is doc-gen4's, and the consumer has to reapply it (README,
-"Kind modifiers"):
+The words doc-gen4's `getKindDescription`
+(`DocGen4/Process/DocInfo.lean:211-247`) puts in front of the kind word, as
+flags. The composition rule is doc-gen4's, and the consumer has to reapply it:
 
 | `kind` | `span.decl_kind` |
 |---|---|
@@ -1870,18 +1521,10 @@ The composition rule is doc-gen4's, and the consumer has to reapply it (README,
 | `inductive` | `unsafe`? then `inductive` |
 | everything else | the kind word alone |
 
-Where each flag comes from, in doc-gen4:
-
-* `unsafe`, `noncomputable`, `abbrev`: `DefinitionInfo.ofDefinitionVal`
-  (`Process/DefinitionInfo.lean:41-60`) — `v.safety`, `isNoncomputable`, `v.hints`;
-* `partial`: `OpaqueInfo.ofOpaqueVal` (`Process/OpaqueInfo.lean:15-29`) — the
-  existence of `Compiler.mkUnsafeRecName v.name`, which wins over `unsafe`;
-* nothing for a theorem, even when it is an instance:
-  `InstanceInfo.ofTheoremVal` (`Process/InstanceInfo.lean:66-85`) hard-codes
-  `isUnsafe := false` and `isNonComputable := false`;
-* nothing for `structure` / `class` / `class inductive`: those `getKindDescription`
-  branches ignore `isUnsafe`, and `.quotInfo` becomes an `opaque` with
-  `definitionSafety := .safe`.
+Nothing is emitted for a theorem, even when it is an instance
+(`InstanceInfo.ofTheoremVal` hard-codes both flags false), and nothing for
+`structure` / `class` / `class inductive`, whose `getKindDescription` branches
+ignore `isUnsafe`.
 -/
 def declModifiers (ci : ConstantInfo) (kind : String) : MetaM (Array String) := do
   let env ← getEnv
@@ -1900,10 +1543,10 @@ def declModifiers (ci : ConstantInfo) (kind : String) : MetaM (Array String) := 
   | .inductInfo i => return if kind == "inductive" && i.isUnsafe then #["unsafe"] else #[]
   | _ => return #[]
 
-/-- doc-gen4's `InstanceInfo.ofDefinitionInfo` (`Process/InstanceInfo.lean:43-60`)
-for one declaration that `isInstance` said yes to: two more attributes and the
-type index. Runs after `baseInfo`, because the two attributes are *appended* to
-`getAllAttributes`'s result and the order is what gets printed. -/
+/-- doc-gen4's `InstanceInfo.ofDefinitionInfo` for one declaration `isInstance`
+said yes to: two more attributes and the type index. Runs after `baseInfo`,
+because the two attributes are *appended* to `getAllAttributes`'s result and the
+order is what gets printed. -/
 def withInstanceIndex (cfg : Cfg) (type : Expr) (d : DeclOut) : AnalyzeM DeclOut := do
   unless cfg.wantInstIndex do return d
   let t0 ← IO.monoNanosNow
@@ -1960,11 +1603,6 @@ def analyzeCore (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (
   | .quotInfo i => return some (← baseInfo cfg probe refs module "opaque" i.toConstantVal)
   | .recInfo _ => return none
 
-/--
-`analyzeCore` plus the per-declaration reference accumulator: one `IO.Ref` is
-created here (only with `--refs`), every pretty printing path below appends to it,
-and what comes out lands in `DeclOut.refs` and in the counters.
--/
 def analyze (cfg : Cfg) (module : Name) (name : Name) (ci : ConstantInfo) :
     AnalyzeM (Option DeclOut) := do
   let refs : RefSink ←
@@ -1988,8 +1626,6 @@ def analyze (cfg : Cfg) (module : Name) (name : Name) (ci : ConstantInfo) :
   | none => return none
   | some d =>
     let d := { d with refs := acc.names }
-    -- Behind the flag on purpose: with `--tagged-code` off this function must do
-    -- exactly what stage 4 did, timings included.
     if cfg.taggedCode then
       return some { d with modifiers := ← declModifiers ci d.kind }
     else
@@ -2009,16 +1645,15 @@ with almost no information in it.
 whose per-declaration axiom arrays are computed when a module's olean is
 *written*; for an **imported** constant `collectAxioms` is a binary search in
 that module's entry array and walks no expression at all. Everything this
-extractor analyzes is imported — `importModules` over the target's oleans — so
-the memo that a per-declaration closure walk would need has already been paid,
-once, by whoever built the oleans. Byte-identical in v4.31.0 / v4.32.2 /
-v4.33.0, so this is not a version-specific accident to guard against.
+extractor analyzes is imported, so the memo a per-declaration closure walk would
+need has already been paid, once, by whoever built the oleans. Byte-identical in
+v4.31.0 / v4.32.2 / v4.33.0.
 
 **The direct half is the part that walks expressions, so it is only asked when
 the answer can be `"direct"`.** A declaration whose axiom array has no `sorryAx`
 cannot be either value and is answered by the binary search alone; the cost of
 the whole feature therefore scales with the number of *tainted* declarations,
-not with the package. That is what `--no-sorry` measures.
+not with the package.
 -/
 
 /-- Does this declaration's **own** statement or proof mention `sorryAx`?
@@ -2049,9 +1684,7 @@ def sorryTag (name : Name) : MetaM (Option String) := do
     | return some "transitive"
   return some (if mentionsSorryAx ci then "direct" else "transitive")
 
-/-- What the `sorry` pass did, for the events file and the summary. -/
 structure SorryStats where
-  /-- Declarations the pass looked at, i.e. the denominator. -/
   asked : Nat := 0
   direct : Nat := 0
   transitive : Nat := 0
@@ -2059,15 +1692,12 @@ structure SorryStats where
 
 /-! ## Module docs and tactics — doc-gen4's `getAllModuleDocs`, restructured
 
-doc-gen4 (`DocGen4/Process/Analyze.lean`) loops over the relevant modules and calls
-`collectTactics module env` for each one; `collectTactics` calls
+doc-gen4 (`DocGen4/Process/Analyze.lean`) loops over the relevant modules and
+calls `collectTactics module env` for each one; `collectTactics` calls
 `Elab.Tactic.Doc.allTacticDocs`, which rebuilds the *whole* environment's tactic
 table from the parser tables, and then throws away everything not defined in
-`module`. That is 432 rebuilds of the same table.
-
-Here the table is built once and bucketed by defining module. Everything else
-(`getModuleDoc?`, the direct imports out of `moduleData`) is per module either way
-and is a hash lookup.
+`module`. That is 432 rebuilds of the same table. Here the table is built once
+and bucketed by defining module.
 -/
 
 structure ModDocOut where
@@ -2117,7 +1747,6 @@ def mkTacticOut (doc : TacticDoc) (definingModule : Name) : TacticOut :=
       ("\n\n".intercalate doc.extensionDocs.toList)
     definingModule }
 
-/-- Module docstrings and direct imports. One hash lookup per target module. -/
 def collectModuleDocs (targets : Array Name) : MetaM (Array ModuleOut) := do
   let env ← getEnv
   let header := env.header
@@ -2145,10 +1774,8 @@ def collectTacticsOnce (mods : Array ModuleOut) : MetaM (Array ModuleOut × Nat 
   let mut idxOf : Std.HashMap Name Nat := Std.HashMap.emptyWithCapacity mods.size
   for h : i in [0 : mods.size] do
     idxOf := idxOf.insert mods[i].name i
-  -- `EnvironmentHeader.moduleNames` is a *function*, not a field: it maps over
-  -- `header.modules` and allocates a fresh 6,021-element array on every call.
-  -- doc-gen4's `collectTactics` calls it inside its per-tactic loop; hoisting it is
-  -- what actually removes the 12.98 s (see the `--tactics-probe` numbers).
+  -- `EnvironmentHeader.moduleNames` is a *function*, not a field: a fresh array
+  -- per call. doc-gen4 calls it inside its per-tactic loop; hoisting removes 12.98 s.
   let modNames := header.moduleNames
   let allDocs ← allTacticDocs
   let mut mods := mods
@@ -2162,8 +1789,7 @@ def collectTacticsOnce (mods : Array ModuleOut) : MetaM (Array ModuleOut × Nat 
   return (mods, allDocs.size, assigned)
 
 /-- Every tactic in the environment with its defining module, regardless of the
-target list. Used to build a module list on which the bucketing can be checked
-against doc-gen4 (the fixed target defines no tactics of its own). -/
+target list: a module list on which the bucketing can be checked against doc-gen4. -/
 def dumpAllTactics (path : FilePath) : MetaM Nat := do
   let env ← getEnv
   let modNames := env.header.moduleNames
@@ -2225,25 +1851,15 @@ structure TacticProbe where
   trailingToks : Nat := 0
   collectKindsCalls : Nat := 0
   firstTokens : Nat := 0
-  /-- 5 × the real `Elab.Tactic.Doc.allTacticDocs`, results forced. -/
   direct5 : Nat := 0
-  /-- 5 × doc-gen4's filter loop over the result (`getModuleIdxFor?` per tactic). -/
   bucket5 : Nat := 0
-  /-- 5 × forcing `extensionDocs` of every returned `TacticDoc`. -/
   forceExt5 : Nat := 0
-  /-- 5 × `env.getModuleIdxFor?` alone. -/
   idxOnly5 : Nat := 0
-  /-- 5 × the same lookup with `env.const2ModIdx` hoisted out of the loop. -/
   hoisted5 : Nat := 0
-  /-- The filter loop again, on the same (now already touched) array. -/
   bucket5b : Nat := 0
-  /-- 5 × touching `internalName` only. -/
   touch5 : Nat := 0
-  /-- 5 × `internalName` + `getModuleIdxFor?`. -/
   lookup5 : Nat := 0
-  /-- 5 × the above + `header.moduleNames[idx]!` and the name comparison. -/
   full5 : Nat := 0
-  /-- 5 × the same loop with `header.moduleNames` hoisted out of it. -/
   fullHoisted5 : Nat := 0
   deriving Inhabited
 
@@ -2305,9 +1921,8 @@ def probeAllTacticDocs : MetaM TacticProbe := do
                 collectKindsCalls := p.collectKindsCalls + tc,
                 firstTokens := firstTokens.size }
 
-  -- The `tactics.kinds` loop, with the docstring and extension lookups timed
-  -- separately. Every result is folded into a counter: a plain `let _ := ...` is
-  -- never forced, and the probe then measures nothing (this bit them once).
+  -- Every result is folded into a counter: a plain `let _ := ...` is never
+  -- forced, and the probe then measures nothing.
   let mut docNanos := 0
   let mut extNanos := 0
   let mut produced := 0
@@ -2337,8 +1952,8 @@ def probeAllTacticDocs : MetaM TacticProbe := do
   p := { p with kindLoop := t8 - t7, docString := docNanos, extensions := extNanos,
                 kinds, produced, extStrings, tagsSeen }
 
-  -- The transcription above only accounts for part of one `allTacticDocs` call, so
-  -- measure the real function and doc-gen4's filter loop over its result directly.
+  -- The transcription above only accounts for part of one call, so measure the
+  -- real function and doc-gen4's filter loop over its result directly.
   let header := env.header
   let mut sink := 0
   let t9 ← IO.monoNanosNow
@@ -2413,7 +2028,7 @@ def probeAllTacticDocs : MetaM TacticProbe := do
   if sink > 1000000000 then throwError "unreachable"
   return p
 
-/-! ## IR persistence (stage 4)
+/-! ## IR persistence (`--write-ir`)
 
 The granularity is the module, so the layout is
 
@@ -2423,78 +2038,47 @@ The granularity is the module, so the layout is
 <irDir>/deps/<Root>.json               dependency-side map slice, one per package
 ```
 
-Three properties are deliberate, all of them conclusions of stage 3:
+Three properties are deliberate:
 
 * **Absolute identifiers only.** A reference is a `(defining module, name)` pair.
   No URL — relative or absolute — is stored; relativisation happens at output
   time.
 * **The dependency slice is two columns** (name -> module) and covers only the
-  constants this package actually refers to. Stage 3 increment 2 measured that
-  slice at 53 KB against 34.3 MB for the whole of doc-gen4's `declaration-data.bmp`.
-* **Every module carries a content hash**, the single source of truth for
-  "what has to be re-extracted / re-rendered".
-
-The format is JSON because the *granularity* decides, not the
-format; this is a throwaway experiment, not a format decision.
+  constants this package actually refers to.
+* **Every module carries a content hash**, the single source of truth for "what
+  has to be re-extracted / re-rendered".
 -/
 
-/-- Schema version of the on-disk IR. Part of every module
-file, therefore part of every module hash: a schema change invalidates the cache.
+/-- Schema version of the on-disk IR. Part of every module file, therefore part
+of every module hash: a schema change invalidates the cache. The flag picks the
+version rather than always bumping it.
 
-Version 1 is stage 4's; version 2 is what stage 4b's `--tagged-code` wrote;
-version 3 is stage 7a's, which added the `splitWhitespaces` widths to `kind = 1`
-spans (see `spanToJson`); version 4 is stage 7b's, which adds the declaration's
-attributes, the instance type index, and the structure members' binders /
-docstring / origin. The flag picks the version rather than always bumping it, so
-that with the flag off this binary still reproduces stage 4's IR byte for byte.
+Schema 5 adds `sorry`, whose *absent* key means "no sorry" — a meaning a
+schema-4 file cannot carry, since there the key could not exist. The reading side
+keeps the two apart with `ModuleFile::sorry_of`, which answers `Unknown` below
+schema 5. Nothing has to migrate: the extract key carries `irSchemaVersion`, so a
+bump re-extracts.
 
-**Version 5 is the product tree's first bump** — the schema is raised once and
-later work adds keys under the same version rather than bumping it again.
-It adds `sorry`, whose *absent* key means "no sorry" — a meaning a schema-4 file
-cannot carry, since there the key could not exist. The reading side keeps the
-two apart with `ModuleFile::sorry_of`, which answers `Unknown` below schema 5;
-`litedoc4-ir`'s `MIN_SCHEMA_VERSION` deliberately stays at 4 until the fixture
-re-freeze (see its doc comment for why). Nothing has to migrate either way: the
-extract key carries `irSchemaVersion`, so this bump re-extracts.
-
-Version 5 also **changes** a field rather than adding one: `attrs` elements are
-`[name, value]` arrays where schema 4 had one concatenated string. That
-is a change the version number cannot announce on its own — the number was
-already 5 when the elements were still strings — so `litedoc4-incr`'s
-`EXTRACTOR_ID` carries it instead, and the reader accepts both shapes because a
-schema-4 file is still readable and still says `4`.
-
-A later change adds two more keys under the same 5, and bumps `EXTRACTOR_ID`
-again for the same reason: `selectionRange`, written for **every** declaration
-of a tagged file, and `generated`, written only for the declarations `@[ext]`
-realized (see `extOriginOf`). The first costs **+0.96%** of the IR on the target
-【実測 -> `benchmarks/results/generated-decls-2026-08-21.txt`】 and is paid on
-every declaration on purpose — an omission rule would give its absence two
-meanings. -/
+**Not every change to what is written moves this number.** `attrs` elements
+became `[name, value]` arrays where schema 4 had one concatenated string, and
+`selectionRange` and `generated` were added, all under the same 5;
+`litedoc4-incr`'s `EXTRACTOR_ID` is what carries those, and the reader accepts
+both `attrs` shapes because a schema-4 file is still readable and still says `4`.
+`selectionRange` costs **+0.96%** of the IR on the measurement target
+【実測 → `benchmarks/results/generated-decls-2026-08-21.txt`】 and is written for
+every declaration of a tagged file on purpose — an omission rule would give its
+absence two meanings. -/
 def irSchemaVersion (tagged : Bool) : Nat := if tagged then 5 else 1
 
-/-- Where `--write-ir` writes. **`--ir-dir` and nothing else** — no default, and
-the `IR_DIR` environment variable is not consulted 【判断, M4-a】.
-
-The experiment had three sources, in the order flag, `IR_DIR`, `defaultIrDir`.
-Both fallbacks are removed here, for the same reason and not for two:
-
-* **`defaultIrDir` was one session's scratchpad path**, hard-coded. Every caller
-  passed `--ir-dir`, so it never fired and never showed up in a number — which is
-  exactly what makes it a footgun rather than a bug: a `--write-ir` run that
-  forgets the flag writes several MB into a directory nobody named, and reports
-  success. In a product tree that path also does not exist on anyone else's
-  machine.
-* **`IR_DIR` is the same hole with an extra way in.** It is the flag's value
-  arriving from outside the command line, so an exported variable left over from
-  another run silently redirects the IR of a run whose command line looks
-  complete. The two callers that exist (`litedoc4 extract`, and through it
-  `litedoc4 incremental --extractor`) always pass `--ir-dir`, so nothing is lost;
-  `benchmarks/tools/read-ir.ts` and `html-inventory.py` read `IR_DIR` to find a
-  tree, which is the reading side and is unaffected.
+/-- Where `--write-ir` writes: **`--ir-dir` and nothing else**. No default, and
+the `IR_DIR` environment variable is not consulted — both were ways for a
+`--write-ir` run to put several MB into a directory the caller never named and
+report success, and an environment variable left over from another run can
+redirect a command line that looks complete.
 
 `parseArgs` rejects `--write-ir` without `--ir-dir`, so this is total in
-practice; the `throw` is what makes "in practice" checkable rather than assumed. -/
+practice; the `throw` is what makes "in practice" checkable rather than
+assumed. -/
 def getIrDir (cfg : Cfg) : IO FilePath := do
   match cfg.irDir with
   | some p => return p
@@ -2502,44 +2086,28 @@ def getIrDir (cfg : Cfg) : IO FilePath := do
 
 /-- 16 hex digits of Lean's `String.hash`.
 
-**This is a 64-bit non-cryptographic hash**, not SHA-256: Lean core (v4.31.0)
-ships no digest, and pulling one in would put an unrelated implementation inside a
-number this experiment is trying to measure. For 432 modules the collision
-probability is ~5e-15, which is fine for change detection; it is *not* fine as a
-tamper-evident content address, and leg 7 should revisit it if the IR ever becomes
-a distributed artifact. `lean_string_hash` is also only stable within a Lean
-version — harmless here, because §5.4 already puts the Lean version in the cache
-key. -/
+**This is a 64-bit non-cryptographic hash**, not SHA-256: Lean core ships no
+digest, and pulling one in would put an unrelated implementation inside a number
+this is trying to measure. For 432 modules the collision probability is ~5e-15,
+which is fine for change detection; it is *not* fine as a tamper-evident content
+address. `lean_string_hash` is also only stable within a Lean version, which is
+harmless because the Lean version is already in the cache key. -/
 def hashHex (s : String) : String :=
   let digits := String.ofList (Nat.toDigits 16 (hash s).toNat)
   "".pushn '0' (16 - digits.length) ++ digits
 
-/-- First component of a module name, used as a stand-in for "which package does
-this dependency belong to". A heuristic: Lake package membership is not derivable
-from the environment alone, and `Mathlib.*` / `Init.*` / `Std.*` / `Batteries.*`
-happen to coincide with it on this target. -/
+/-- First component of a module name, standing in for "which package does this
+dependency belong to". A heuristic: Lake package membership is not derivable from
+the environment alone. -/
 def moduleRoot : Name → Name
   | .str p s => if p.isAnonymous then .str p s else moduleRoot p
   | .num p n => if p.isAnonymous then .num p n else moduleRoot p
   | .anonymous => .anonymous
 
-/-- One declaration as it goes into the IR.
+/-- One span as it goes on the wire.
 
-Two differences from `DeclOut.toJson` (the stage-2/3 debug dump, which stays
-byte-compatible so the baseline check keeps working): the owning module is the
-file's rather than a per-declaration field, and `refs` are deduplicated
-`(module, name)` pairs instead of bare names in order of occurrence. Occurrence
-order is dropped on purpose — it only means something together with the tagged
-text it indexes, which schema 1 does not carry.
-
-Schema 2 (`--tagged-code`) does carry it: every printed fragment gets a flat
-pre-order list of `[start, stop, kind]` / `[start, stop, 1, name]` over its own
-plain text (`collectSpans`). The plain text stays as it is — redundant with the
-spans, but it lets a consumer check one against the other.
-
-Schema 3 adds the two whitespace widths that schema 2 computed and threw away:
-a `kind = 1` span whose tag text had leading or trailing whitespace is written
-as `[start, stop, 1, name, front, back]`. Without them the consumer cannot
+A `kind = 1` span whose tag text had leading or trailing whitespace is written as
+`[start, stop, 1, name, front, back]`. Without those two the consumer cannot
 reproduce `splitWhitespaces`, which **rewrites that whitespace as spaces**
 (`Base.lean:281-288`, `"".pushn ' ' n`) — same width, different characters. The
 pair is emitted only when at least one of the two is non-zero, so the cost falls
@@ -2556,16 +2124,14 @@ def spanToJson (s : Span) : Json :=
 
 def spansToJson (sp : Array Span) : Json := Json.arr (sp.map spanToJson)
 
-/-- Per-kind tally of the spans actually written, for the size report. -/
 structure SpanTally where
   total : Nat := 0
   const : Nat := 0
   sort : Nat := 0
   other : Nat := 0
-  /-- Schema 3: `kind = 1` spans that carry a non-zero `front`/`back`, i.e. the
-  ones whose serialisation grew by two numbers. -/
+  /-- `kind = 1` spans that carry a non-zero `front`/`back`. -/
   ws : Nat := 0
-  /-- Schema 3: total UTF-16 units of whitespace those spans describe. -/
+  /-- Total UTF-16 units of whitespace those spans describe. -/
   wsUnits : Nat := 0
   deriving Inhabited
 
@@ -2580,9 +2146,9 @@ def SpanTally.add (t : SpanTally) (sp : Array Span) : SpanTally :=
     | _ => { t with total := t.total + 1, other := t.other + 1 }
 
 /-- `index` is the declaration's position in the order the extractor enumerated
-its module (`moduleData.constNames`, blacklisted names dropped). Increment 1 found
-2 modules / 4 declarations whose `(line, col)` are equal, so position on the page
-is not recoverable from the range alone. -/
+its module (`moduleData.constNames`, blacklisted names dropped): two modules on
+the measurement target have declarations whose `(line, col)` tie, so position on
+the page is not recoverable from the range alone. -/
 def declToIrJson (tagged : Bool) (index : Nat) (d : DeclOut) (refs : Array (Name × Name)) : Json :=
   Json.mkObj (
     [ ("name", Json.str d.name.toString),
@@ -2599,9 +2165,8 @@ def declToIrJson (tagged : Bool) (index : Nat) (d : DeclOut) (refs : Array (Name
           [ ("label", Json.str m.label), ("name", Json.str m.name.toString),
             ("text", Json.str m.text) ] ++
           (if tagged then [("code", spansToJson m.spans)] else []) ++
-          -- Schema 4. Only `field` members carry these: `fieldToHtml` is the
-          -- only consumer, and a `ctor` / `parent` member would pay 5 empty
-          -- keys per structure for nothing.
+          -- Only `field` members carry these: `fieldToHtml` is the only
+          -- consumer, and a `ctor` / `parent` member would pay 5 empty keys.
           (if tagged && m.label == "field" then
             [ ("binders", Json.arr (m.binders.map Json.str)),
               ("implicits", Json.arr (m.implicits.map (Json.bool ·))),
@@ -2616,12 +2181,8 @@ def declToIrJson (tagged : Bool) (index : Nat) (d : DeclOut) (refs : Array (Name
       [ ("index", Json.num index),
         ("endLine", Json.num d.endLine),
         ("endCol", Json.num d.endCol),
-        -- Schema 5, B-3. One four-element array rather than four keys: the
-        -- reader is hand-written either way, and `[line, col, endLine, endCol]`
-        -- costs four names less per declaration on the wire. Always present in
-        -- a tagged file — an omission rule ("only when it differs from
-        -- `range`") would make the *absent* key mean two things, which is the
-        -- mistake `sorry` was shaped to avoid.
+        -- Always present in a tagged file: an omission rule ("only when it
+        -- differs from `range`") would make the *absent* key mean two things.
         ("selectionRange", Json.arr #[Json.num d.selLine, Json.num d.selCol,
                                       Json.num d.selEndLine, Json.num d.selEndCol]),
         ("modifiers", Json.arr (d.modifiers.map Json.str)),
@@ -2629,31 +2190,20 @@ def declToIrJson (tagged : Bool) (index : Nat) (d : DeclOut) (refs : Array (Name
         ("typeCode", spansToJson d.sig.typeSpans),
         ("equationCode", Json.arr (d.equationSpans.map spansToJson)) ]
      else []) ++
-    -- Schema 4, emitted only when there is something to say. 4,750 declarations
-    -- with `"attrs":[]` would be 52 KB of nothing; a reader distinguishes
-    -- "absent" from "old schema" by `schemaVersion`, not by the key.
-    --
-    -- Schema 5 changes the element from a string to `[name, value]` — the shape
-    -- `refs` above already uses, rather than an object with keys, because the
-    -- reader is hand-written either way and two element names would be two more
-    -- strings per attribute on the wire. The reason the pair exists at all is
-    -- that only this side knows where the boundary between the two is; see the
-    -- attributes heading.
+    -- Emitted only when there is something to say: 4,750 declarations with
+    -- `"attrs":[]` would be 52 KB of nothing, and a reader tells "absent" from
+    -- "old schema" by `schemaVersion`, not by the key.
     (if tagged && !d.attrs.isEmpty then
        [("attrs", Json.arr (d.attrs.map fun (n, v) => Json.arr #[Json.str n, Json.str v]))]
      else []) ++
-    -- Schema 5, same rule: present only when there is something to say. The
-    -- absent key means "no sorry" and it means that **because the file says
-    -- `schemaVersion` 5** — in a schema-4 file the key could not exist, so the
-    -- same absence means "nobody was asked". `ModuleFile::sorry_of` is the only
-    -- thing on the reading side that is allowed to collapse the two.
+    -- Same rule. The absent key means "no sorry" **because the file says
+    -- `schemaVersion` 5** — in a schema-4 file it could not exist, so the same
+    -- absence means "nobody was asked". `ModuleFile::sorry_of` collapses the two.
     (match (if tagged then d.sorryTag else none) with
      | some tag => [("sorry", Json.str tag)]
      | none => []) ++
-    -- Schema 5, B-3, same rule again: present only when there is something to
-    -- say. `[origin, name]` rather than a bare name because the origin is the
-    -- half that decides what the reader may claim — `"ext"` is the one
-    -- attribute whose map is in Lean core (`extOriginOf`), and a second origin
+    -- Same rule again. `[origin, name]` rather than a bare name because the
+    -- origin is the half that decides what the reader may claim; a second origin
     -- would arrive as a second first element rather than as a second key.
     (match (if tagged then d.extOrigin else none) with
      | some origin => [("generated", Json.arr #[Json.str "ext", Json.str origin.toString])]
@@ -2673,7 +2223,7 @@ structure IrStats where
   /-- Deduplicated `(declaration, reference)` pairs actually written. -/
   refPairs : Nat := 0
   /-- References whose defining module the environment could not name. Dropped
-  from the IR; expected to be 0 on this target (stage 3 increment 1). -/
+  from the IR. -/
   refsUnresolved : Nat := 0
   depFiles : Nat := 0
   depEntries : Nat := 0
@@ -2682,22 +2232,14 @@ structure IrStats where
   /-- Fragments (binder / result type / equation / member) carrying a span list.
   Zero without `--tagged-code`. -/
   spanFragments : Nat := 0
-  /-- Spans written, in total and per kind. -/
   spans : SpanTally := {}
-  /-- Building the `Json` and compressing it to a `String`. -/
   serializeNanos : Nat := 0
-  /-- `hashHex` over that string. Separated out because §5.5 makes the hash
-  load-bearing, so its cost has to be visible rather than folded into "writing". -/
+  /-- `hashHex` over that string, kept apart from the write because the hash is
+  load-bearing for the cache. -/
   hashNanos : Nat := 0
-  /-- `IO.FS.writeFile`. -/
   writeNanos : Nat := 0
   deriving Inhabited
 
-/--
-Writes the whole IR. Everything is derived from data already computed by the
-analysis; nothing here consults the environment except `getModuleIdxFor?` for the
-defining module of a referenced constant.
--/
 def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env : Environment)
     (targets : Array Name) (mods : Array ModuleOut) (results : Array DeclOut) : IO IrStats := do
   let modulesDir := dir / "modules"
@@ -2705,8 +2247,7 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env
   IO.FS.createDirAll modulesDir
   IO.FS.createDirAll depsDir
 
-  -- `EnvironmentHeader.moduleNames` is a `def`, not a field: a fresh
-  -- 6,021-element array per call (this cost stage 2 13 s). Hoist it.
+  -- `moduleNames` is a `def`, not a field: a fresh array per call. Hoist it.
   let modNames := env.header.moduleNames
   let targetSet : Std.HashSet Name :=
     Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
@@ -2718,8 +2259,7 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env
 
   let mut st : IrStats := {}
   let mut indexEntries : Array Json := #[]
-  -- Dependency-side map, accumulated while the declarations are walked so the
-  -- reference resolution is paid exactly once.
+  -- Accumulated while the declarations are walked: resolution is paid once.
   let mut depMap : Std.HashMap Name Name := Std.HashMap.emptyWithCapacity 1024
 
   for m in mods do
@@ -2751,7 +2291,6 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env
           tally := tally.add sp
         for mem in d.members do
           tally := tally.add mem.spans
-          -- Schema 4: the member binder fragments are new span carriers.
           frags := frags + mem.binderSpans.size
           for sp in mem.binderSpans do
             tally := tally.add sp
@@ -2773,11 +2312,9 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env
     ]
     let text := body.compress
     let bytes := text.utf8ByteSize
-    -- The `throw` branch is what keeps the serialisation inside this timer. A
-    -- plain `let` is not enough: its only consumers are below the next clock
-    -- read, and the compiler sinks it there. Same class of mistake as stage 2's
-    -- `--tactics-probe` and stage 3's `refUs`; measured here first as 0 µs for
-    -- the hash, which is physically impossible for 8.6 MB.
+    -- The `throw` branch is what keeps the serialisation inside this timer: a
+    -- plain `let`'s only consumers are below the next clock read and the compiler
+    -- sinks it there. Measured here first as 0 µs for 8.6 MB.
     if bytes == 0 then throw <| IO.userError s!"empty IR body for {m.name}"
     let tSer1 ← IO.monoNanosNow
     let h := hashHex text
@@ -2800,8 +2337,7 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env
       ("declarations", Json.num decls.size),
       ("contentHash", Json.str h)]
 
-  -- Dependency-side map slice, one file per package (§5.3: two columns, name ->
-  -- module; `kind` is only needed by a search UI).
+  -- Dependency-side map slice, one file per package: two columns, name -> module.
   let mut byRoot : Std.HashMap Name (Array (Name × Name)) := {}
   for (n, defMod) in depMap do
     let r := moduleRoot defMod
@@ -2832,8 +2368,6 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env
       ("package", Json.str r.toString), ("file", Json.str file),
       ("entries", Json.num entries.size), ("bytes", Json.num bytes)]
 
-  -- Package index. §5.4 wants Lean version, extractor version and schema version
-  -- in the cache key; the olean hash is the piece still missing (leg 7).
   let tIdx0 ← IO.monoNanosNow
   let index := Json.mkObj ([
     ("schemaVersion", Json.num (irSchemaVersion tagged)),
@@ -2842,8 +2376,8 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env
     ("hashAlgorithm", Json.str "lean-string-hash-64/hex16"),
     ("moduleCount", Json.num st.moduleFiles),
     ("declarationCount", Json.num st.declarations)] ++
-    -- Present only for an ablation run, and then it is a refusal marker: this
-    -- IR is missing a part of schema 4 on purpose and must not be rendered.
+    -- Present only for an ablation run, and then it is a refusal marker: this IR
+    -- is missing a part of the schema on purpose and must not be rendered.
     (if ablations.isEmpty then [] else [("ablations", Json.arr (ablations.map Json.str))]) ++
     [("modules", Json.arr indexEntries),
     ("dependencyMaps", Json.arr depEntriesJson)])
@@ -2857,8 +2391,6 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env
     indexBytes := bytes
     serializeNanos := st.serializeNanos + (tIdx1 - tIdx0)
     writeNanos := st.writeNanos + (tIdx2 - tIdx1) }
-
-/-! ## Driver -/
 
 def readNameList (path : FilePath) : IO (Array Name) := do
   let text ← IO.FS.readFile path
@@ -2874,10 +2406,10 @@ structure Failure where
   name : Name
   message : String
 
-/-- Stage 7d, `--decl-profile`: one record per *candidate*, blacklisted ones
-included. `analyze` bills its time to phase counters that are only ever read as a
-sum; this keeps the per-declaration numbers so the distribution can be looked at
-instead of assumed to be uniform. -/
+/-- One record per *candidate*, blacklisted ones included. `analyze` bills its
+time to phase counters that are only ever read as a sum; this keeps the
+per-declaration numbers so the distribution can be looked at instead of assumed
+to be uniform. -/
 structure DeclProf where
   index : Nat
   name : Name
@@ -2908,12 +2440,11 @@ def DeclProf.line (p : DeclProf) : String :=
 
 /-- One extraction.
 
-`preEnv` is the resident mode's whole contribution (stage 6): when it is given,
-the search path is already initialised and the environment already imported, so
-both are skipped and everything downstream runs unchanged. The environment is
-*not* threaded back out — each request derives its own (`--open` activation
-returns a new one) and drops it, which is what makes reuse sound rather than
-merely fast. -/
+When `preEnv` is given the search path is already initialised and the environment
+already imported, so both are skipped and everything downstream runs unchanged.
+The environment is *not* threaded back out — each request derives its own
+(`--open` activation returns a new one) and drops it, which is what makes reuse
+sound rather than merely fast. -/
 def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
   let sink ← Sink.create cfg.outPath
   let tTotal0 ← IO.monoNanosNow
@@ -2950,10 +2481,9 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
   sink.emit "stage4b.envStats" 0 [("loadedModules", toString header.moduleNames.size)]
 
   -- `--open` probe. Scoped notation lives in `ScopedEnvExtension`s, which an
-  -- imported environment has *not* activated; putting the namespace in
-  -- `Core.Context.openDecls` alone is not enough, the extension state has to be
-  -- activated on the environment itself. doc-gen4 does neither, which is why its
-  -- output never uses scoped notation.
+  -- imported environment has *not* activated; `Core.Context.openDecls` alone is
+  -- not enough, the extension state has to be activated on the environment
+  -- itself. doc-gen4 does neither, which is why it never uses scoped notation.
   let env ←
     if cfg.openNamespaces.isEmpty then
       pure env
@@ -2963,9 +2493,8 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
         { env := env }
       pure st.env
 
-  -- Index route: module -> declarations. First module in the input order owns a
-  -- name that appears in several modules' oleans (stage 1, "index route does not
-  -- decide the owning module": 25 such names on this target).
+  -- Index route: module -> declarations. The first module in input order owns a
+  -- name that appears in several modules' oleans (25 such names on the target).
   let tIdx0 ← IO.monoNanosNow
   let mut seen : Std.HashSet Name := Std.HashSet.emptyWithCapacity (16 * targets.size)
   let mut candidates : Array (Name × Name) := #[]
@@ -3008,36 +2537,28 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     let (a, _, _) ← act.toIO coreCtx { env := env } {} {}
     return a
 
-  -- The dependency closure's `name -> module` map, out of the environment that
-  -- was imported for the extraction anyway (`writeLinkIndex`).
   let mut linkIndex : Option LinkIndexStats := none
   let mut tLi := 0
   if let some p := cfg.linkIndexPath then
-    -- 段 C. Read here rather than inside `writeLinkIndex` so that the file is
-    -- read once per request and the writer takes a set, not a path.
+    -- Read here rather than inside `writeLinkIndex`, so the writer takes a set.
     let omitModules ← match cfg.linkIndexOmitPath with
       | some q => do
         let ns ← readNameList q
         pure (Std.HashSet.emptyWithCapacity ns.size |>.insertMany ns)
       | none => pure {}
     let t0 ← IO.monoNanosNow
-    -- 段 D. The check runs **before anything is scanned**, and the whole of the
-    -- work is inside the same phase timer either way: a phase that vanished
-    -- from the events file when it got cheap would be indistinguishable from a
-    -- run that stopped writing the map at all. It collapses instead.
+    -- The check runs **before anything is scanned**, and the work is inside the
+    -- same phase timer either way: a phase that vanished from the events file
+    -- when it got cheap would look like one that stopped writing the map at all.
     let s ← match cfg.linkIndexKey with
       | some key =>
         if ← linkIndexIsCurrent p key header.moduleNames then
           pure { reused := true }
         else do
-          -- Down before the map, up after it, and the "down" is not redundant
-          -- with the "up". The sidecar this rewrite replaces may hold the *same*
-          -- token — the usual reason to be here is that the module set moved,
-          -- not that the token did — so a rewrite that died halfway would leave
-          -- last run's sidecar vouching for a half-written map, and a truncation
-          -- past the `@` section is exactly the shape `linkIndexIsCurrent`
-          -- cannot see. With no sidecar during the write, a death leaves the
-          -- next run no choice but to write it again.
+          -- Down before the map, up after it: the sidecar this rewrite replaces
+          -- may hold the *same* token, so a rewrite that died halfway would leave
+          -- last run's sidecar vouching for a half-written map — and a truncation
+          -- past the `@` section is exactly what `linkIndexIsCurrent` cannot see.
           let keyPath := linkIndexKeyPath p
           if ← keyPath.pathExists then IO.FS.removeFile keyPath
           let s ← runMeta (writeLinkIndex p omitModules)
@@ -3045,10 +2566,8 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
           pure s
       | none => do
         let s ← runMeta (writeLinkIndex p omitModules)
-        -- No token means "rewrite every time", which is the pre-段 D behaviour —
-        -- but a sidecar an earlier run left behind describes a map that no
-        -- longer exists, and a later run *with* a token would believe it. It is
-        -- this run's map, so it is this run's job to take the claim down.
+        -- A sidecar an earlier run left behind describes a map that no longer
+        -- exists, and a later run *with* a token would believe it.
         let keyPath := linkIndexKeyPath p
         if ← keyPath.pathExists then IO.FS.removeFile keyPath
         pure s
@@ -3059,21 +2578,17 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
       [("scanned", toString s.scanned), ("declarations", toString s.declarations),
        ("ranged", toString s.ranged), ("unranged", toString s.unranged),
        ("modules", toString s.modules), ("moduleNames", toString s.moduleNames),
-       -- 段 C. Always emitted, including as `0 0` when the flag is absent: a
-       -- reader of the events file has to be able to tell "nothing was omitted"
-       -- from "this run predates the counter".
+       -- Always emitted, including as `0 0` when the flag is absent: a reader has
+       -- to tell "nothing was omitted" from "this run predates the counter".
        ("omitted", toString s.omitted),
        ("omittedDeclarations", toString s.omittedDeclarations),
        ("bytes", toString s.bytes),
-       -- 段 D. Emitted on **both** paths, as `true` and as `false`, for the same
-       -- reason: every other number in this record is 0 when it is `true`, and
-       -- without the field a reader cannot tell "nothing was counted" from "the
-       -- map came out empty" — nor a reused run from one that predates 段 D.
+       -- Emitted on **both** paths: every other number here is 0 when it is
+       -- `true`, so without it "nothing counted" and "empty map" look alike.
        ("reused", if s.reused then "true" else "false")]
 
-  -- doc-gen4's `getAllModuleDocs`, split in two so the two halves can be told
-  -- apart: the per-module part (module docstrings + direct imports) and the part
-  -- doc-gen4 repeats per module (the tactic table).
+  -- doc-gen4's `getAllModuleDocs`, split so the per-module part (docstrings +
+  -- imports) and the part doc-gen4 repeats per module (tactics) can be told apart.
   let tMd0 ← IO.monoNanosNow
   let mods ← runMeta (collectModuleDocs targets)
   let tMd1 ← IO.monoNanosNow
@@ -3177,7 +2692,6 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
       blNanos := c.blNanos, eqCount := c.eqCount, bytes := c.pp.bytes }
   let tAn0 ← IO.monoNanosNow
   if cfg.jobs ≤ 1 then
-    -- Stage 7c's loop, unchanged.
     for i in [0 : work.size] do
       let (name, module) := work[i]!
       if !wanted name then
@@ -3193,16 +2707,11 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
       | .ok (some d) => results := results.push d
       | .error msg => failures := failures.push ⟨name, msg⟩
   else
-    -- Stage 7d, `--jobs N`. Worker `k` takes the candidates at indices
-    -- `k, k+N, k+2N, …` — a stride rather than a block, because the cost per
-    -- declaration is not uniform and blocks of the candidate list are not
-    -- interchangeable (it is grouped by module).
-    --
-    -- **The order of the output does not depend on N.** Every answer carries its
-    -- candidate index and is written back into a slot, so `results` comes out in
-    -- candidate order exactly as the sequential loop produces it. That is what
-    -- makes the IR of a `--jobs 8` run byte-comparable with a `--jobs 1` run,
-    -- and it is checked rather than asserted.
+    -- Worker `k` takes the candidates at indices `k, k+N, k+2N, …` — a stride
+    -- rather than a block, because the cost per declaration is not uniform and
+    -- the candidate list is grouped by module. **The order of the output does not
+    -- depend on N**: every answer carries its candidate index and is written back
+    -- into a slot, which is what makes two `--jobs` values byte-comparable.
     let jobs := cfg.jobs
     let tasks ← (Array.range jobs).mapM fun k =>
       IO.asTask (prio := Task.Priority.dedicated) do
@@ -3263,8 +2772,8 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
      ("refOccurrences", toString counters.refCount),
      ("collectRefs", if cfg.collectRefs then "true" else "false"),
      ("taggedCode", if cfg.taggedCode then "true" else "false"),
-     -- Stage 7b. `attrUs` and `instUs` are terms of their own; `memberUs` is a
-     -- slice of `ppUs`, like `refUs`.
+     -- `attrUs` and `instUs` are terms of their own; `memberUs` is a slice of
+     -- `ppUs`, like `refUs`.
      ("attrUs", toString (counters.attrNanos / 1000)),
      ("attrCalls", toString counters.attrCount),
      ("attrDecls", toString counters.attrDecls),
@@ -3274,11 +2783,10 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
      ("memberUs", toString (counters.memberNanos / 1000)),
      ("memberFields", toString counters.memberFields),
      ("memberInherited", toString counters.memberInherited),
-     -- Stage 7d. `jobs` > 1 makes every `*Us` above a sum over threads, i.e. CPU
-     -- time, not wall time; `us` (the phase itself) stays wall time.
+     -- `jobs` > 1 makes every `*Us` above a sum over threads, i.e. CPU time, not
+     -- wall time; `us` (the phase itself) stays wall time.
      ("jobs", toString cfg.jobs),
      ("ppBreakdown", if cfg.ppBreakdown then "true" else "false"),
-     -- The split of `ppUs` + `eqUs`. All zero without `--pp-breakdown`.
      ("delabUs", toString (counters.pp.delabNanos / 1000)),
      ("sanitizeUs", toString (counters.pp.sanitizeNanos / 1000)),
      ("parenUs", toString (counters.pp.parenNanos / 1000)),
@@ -3297,15 +2805,13 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
      ("eqFormatUs", toString (counters.eqPp.formatNanos / 1000)),
      ("eqPrettyUs", toString (counters.eqPp.prettyNanos / 1000)),
      ("eqTermCalls", toString counters.eqPp.termCalls),
-     -- `isBlackListed`, run for every candidate including the dropped ones.
      ("blUs", toString (counters.blNanos / 1000)),
      ("blCalls", toString counters.blCalls),
      ("ablations", s!"\"{String.intercalate "," cfg.ablations.toList}\"")]
 
-  -- Schema 5's `sorry` key (doc-gen4 #270). A pass of its own, after the
-  -- analysis and **single-threaded**: `--jobs` must not be able to reach it, and
-  -- a phase of its own is what lets the cost be read off one run instead of
-  -- being inferred from the difference between two.
+  -- Schema 5's `sorry` key (doc-gen4 #270). A pass of its own, after the analysis
+  -- and **single-threaded**: `--jobs` must not be able to reach it, and a phase
+  -- of its own lets the cost be read off one run.
   let mut sorryStats : SorryStats := {}
   let tSy0 ← IO.monoNanosNow
   if cfg.wantSorry then
@@ -3333,8 +2839,6 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
       h.putStr r.line
     IO.println s!"decl profile         {profile.size} records -> {p}"
 
-  -- IR persistence. This phase's cost was an unverified assumption (仮定)
-  -- before it was measured here.
   let mut irStats : IrStats := {}
   let mut irDirUsed : Option FilePath := none
   if cfg.writeIR then
@@ -3384,9 +2888,7 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     let tD1 ← IO.monoNanosNow
     sink.emit "stage4b.dumpModules" (tD1 - tD0) [("records", toString mods.size)]
 
-  -- The unique set of referenced constants: the demand side of the link map.
-  -- One line per constant, in order of first appearance so that two runs diff
-  -- cleanly.
+  -- The unique set, in order of first appearance so that two runs diff cleanly.
   let mut refUnique := 0
   let mut refOwn := 0
   let mut refUnresolved := 0
@@ -3394,8 +2896,7 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     if !cfg.collectRefs then
       IO.eprintln "WARNING: --dump-refs without --refs; nothing was collected"
     let tD0 ← IO.monoNanosNow
-    -- `EnvironmentHeader.moduleNames` is a `def`, not a field: it allocates a fresh
-    -- 6,021-element array per call (this cost 13 s in stage 2). Hoist it.
+    -- `moduleNames` is a `def`, not a field: a fresh array per call. Hoist it.
     let modNames := header.moduleNames
     let targetSet : Std.HashSet Name :=
       Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
@@ -3443,11 +2944,8 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
   IO.println s!"indexLookup          {fmtDur (tIdx1 - tIdx0)}  enumerated {enumerated}, unique {candidates.size}"
   IO.println s!"moduleDocs           {fmtDur (tMd1 - tMd0)}  {modDocCount} docs in {modsWithDocs} modules, {importCount} imports"
   if let some s := linkIndex then
-    -- 段 D. Two shapes, because the counting line would be a lie on the reuse
-    -- path: it would report 0 declarations in 0 modules for a map that has a
-    -- quarter of a million of them. The word `reused` and the path it was reused
-    -- from are what this line has to say, and it says the rest in words so that
-    -- a reader who greps for a count and finds none knows why there is none.
+    -- Two shapes: the counting line would be a lie on the reuse path, reporting
+    -- 0 declarations for a map that has a quarter of a million of them.
     let liPath := (cfg.linkIndexPath.map (·.toString)).getD "?"
     if s.reused then
       IO.println s!"linkIndex            {fmtDur tLi}  reused {liPath} \
@@ -3458,9 +2956,8 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
       IO.println s!"linkIndex            {fmtDur tLi}  {s.declarations} declarations in {s.modules} modules \
         ({s.ranged} with a line range, {s.unranged} without, {s.scanned} constants scanned, \
         {s.moduleNames} module names, {s.bytes} bytes)"
-      -- 段 C. Printed only when something was actually left out, so the line
-      -- cannot be mistaken for noise — but then unconditionally, because the one
-      -- thing an omission must never be is invisible.
+      -- Printed only when something was actually left out — but then
+      -- unconditionally, because an omission must never be invisible.
       if s.omitted != 0 || s.omittedDeclarations != 0 then
         IO.println s!"  omitted            {s.omittedDeclarations} declarations in {s.omitted} modules \
           (--link-index-omit; their names are still in the @ section)"
@@ -3544,29 +3041,24 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
       IO.println s!"  {f.name}: {f.message.take 300}"
   return 0
 
-/-- Stage 6: one process, many extractions.
+/-- One process, many extractions.
 
-The environment load is the extraction's fixed cost (~3.1 s warm, §6.5), and it
-is paid per *process*. Anything that runs the extractor more than once per edit
-pays it more than once — which stage 5e made the normal case rather than an
-exotic one, because L3-1 turns re-extraction into rounds.
+The environment load is the extraction's fixed cost (~3.1 s warm) and it is paid
+per *process*, so anything that runs the extractor more than once per edit pays
+it more than once.
 
-The import list is the **superset**: whatever `<modules.txt>` names, typically
-the whole package. Requests then extract subsets of it. That is the right
-direction for soundness — stage 5b's S3 refuted "a single-module target list
-reproduces the full extraction" for `--open`, and the failure was that the
-single-module list left the environment too *small*. A resident process's
-environment is never smaller than the one-shot's, so it cannot fail that way;
-whether it is nonetheless byte-identical is what stage 5h measures rather than
-argues.
+The import list is the **superset**: whatever `<modules.txt>` names, typically the
+whole package. Requests then extract subsets of it. That is the right direction
+for soundness — a single-module target list can leave the environment too
+*small* (measured for `--open`), and a resident process's environment is never
+smaller than the one-shot's.
 
 **What this deliberately does not do is reload.** An olean that changed on disk
 after the import is not picked up: Lean has no way to swap one module out of an
 imported environment. So a resident server is only valid for re-extracting
-modules whose *own* olean has not changed — which is exactly the case L3-1
-creates (the referring module is stale precisely because its olean did not move),
-and exactly not the case for the module the user just edited. The protocol makes
-that explicit by refusing nothing and reporting everything: the caller decides.
+modules whose *own* olean has not changed — and exactly not the module the user
+just edited. The protocol makes that explicit by refusing nothing and reporting
+everything: the caller decides.
 
 Protocol, one request per line on stdin, tab- or space-separated:
 
@@ -3595,15 +3087,11 @@ partial def serve (cfg : Cfg) : IO UInt32 := do
     let parts := (line.splitOn " ").flatMap (·.splitOn "\t") |>.filter (!·.isEmpty)
     match parts with
     | modules :: out :: rest =>
-      -- Three fields, and `linkIndexOmitPath` is deliberately not one of them
-      -- (段 C): the request's `<modules.txt>` is a *subset* of the start-up
-      -- list, so deriving the omit set from it would make the map's bytes
-      -- depend on which round wrote it. The start-up list is the package, and
-      -- it is what the map is written against every round. `linkIndexKey` is
-      -- start-up configuration for the same reason and a stronger one (段 D):
-      -- it stands for inputs that are fixed for the life of this process — the
-      -- imported environment's oleans and the omit list — so a per-request one
-      -- could only ever say something this process has no way to have learnt.
+      -- `linkIndexOmitPath` is deliberately not a fourth field: the request's
+      -- `<modules.txt>` is a *subset* of the start-up list, so deriving the omit
+      -- set from it would make the map's bytes depend on which round wrote it.
+      -- `linkIndexKey` is start-up configuration for a stronger version of the
+      -- same reason: it stands for inputs fixed for the life of this process.
       let reqCfg := { cfg with
         modulesPath := ⟨modules⟩, outPath := ⟨out⟩,
         irDir := match rest with | dir :: _ => some ⟨dir⟩ | [] => cfg.irDir }
@@ -3627,10 +3115,9 @@ def parseArgs (args : List String) : Except String Cfg :=
   | modules :: out :: rest => go { modulesPath := ⟨modules⟩, outPath := ⟨out⟩ } rest >>= check
   | _ => .error "usage: extract <modules.txt> <out.jsonl> [--equations] [--dump <p>] [--dump-modules <p>] [--only <p>] [--open <ns,..>] [--tag] [--refs] [--dump-refs <p>] [--link-index <p>] [--link-index-omit <p>] [--link-index-key <t>] [--write-ir --ir-dir <p>] [--tagged-code] [--skip-analyze] [--tactics-emulate] [--tactics-probe] [--pp-breakdown] [--decl-profile <p>] [--jobs <n>]"
 where
-  /-- The one cross-flag rule (M4-a). It is checked **before anything runs**
-  rather than where the directory is used, because the IR is written at the very
-  end of a 20-second extraction: a run that dies there has already paid for the
-  whole of it, and the message would arrive too late to be a usage error. -/
+  /-- The one cross-flag rule, checked **before anything runs** rather than where
+  the directory is used: the IR is written at the very end of a 20-second
+  extraction, and a run that dies there has already paid for the whole of it. -/
   check (cfg : Cfg) : Except String Cfg :=
     if cfg.writeIR && cfg.irDir.isNone then
       .error "--write-ir needs --ir-dir <path>, which has no default: an IR tree written \
@@ -3641,32 +3128,29 @@ where
   | "--equations" :: rest => go { cfg with genEquations := true } rest
   | "--write-ir" :: rest => go { cfg with writeIR := true } rest
   | "--tagged-code" :: rest => go { cfg with taggedCode := true } rest
-  -- Ablations (stage 7b). They subtract one of the three additions so its cost
-  -- can be measured; the resulting IR is marked and is not renderable.
+  -- Ablations. They subtract one of the additions so its cost can be measured;
+  -- the resulting IR is marked and is not renderable.
   | "--no-attrs" :: rest => go { cfg with noAttrs := true } rest
   | "--no-inst-index" :: rest => go { cfg with noInstIndex := true } rest
   | "--no-member-extra" :: rest => go { cfg with noMemberExtra := true } rest
   | "--no-sorry" :: rest => go { cfg with noSorry := true } rest
   | "--serve" :: rest => go { cfg with serve := true } rest
-  -- Deliberately does *not* imply `--write-ir`: "the IR is off unless --write-ir"
-  -- is the one rule that keeps the stage-3 baseline reproducible from this tree.
+  -- Deliberately does *not* imply `--write-ir`: the IR stays off unless
+  -- `--write-ir` says otherwise, which keeps one rule instead of two.
   | "--ir-dir" :: p :: rest => go { cfg with irDir := some ⟨p⟩ } rest
   | "--tag" :: rest => go { cfg with tagCode := true } rest
   | "--refs" :: rest => go { cfg with collectRefs := true } rest
   | "--dump-refs" :: p :: rest => go { cfg with dumpRefsPath := some ⟨p⟩ } rest
   | "--skip-analyze" :: rest => go { cfg with skipAnalyze := true } rest
   | "--link-index" :: p :: rest => go { cfg with linkIndexPath := some ⟨p⟩ } rest
-  -- 段 C. Not an error without `--link-index`: `check` refuses the one cross-flag
-  -- combination that would write a wrong artefact, and this one writes nothing
-  -- at all — a caller that passes the omit list unconditionally and the map path
-  -- only sometimes is doing the reasonable thing, not a mistake.
+  -- Not an error without `--link-index`: this one writes nothing at all, and a
+  -- caller that passes the omit list unconditionally and the map path only
+  -- sometimes is doing the reasonable thing, not a mistake.
   | "--link-index-omit" :: p :: rest => go { cfg with linkIndexOmitPath := some ⟨p⟩ } rest
-  -- 段 D. Opaque here on purpose: this process cannot check what the token
-  -- claims (the caller's `extractKey` and the omit list's bytes), only whether
-  -- it is the same string as last time. Tolerated without `--link-index` for the
-  -- same reason as the flag above.
+  -- Opaque here on purpose: this process cannot check what the token claims, only
+  -- whether it is the same string as last time. Tolerated without `--link-index`
+  -- for the same reason as the flag above.
   | "--link-index-key" :: k :: rest => go { cfg with linkIndexKey := some k } rest
-  -- Stage 7d.
   | "--pp-breakdown" :: rest => go { cfg with ppBreakdown := true } rest
   | "--decl-profile" :: p :: rest =>
     go { cfg with declProfilePath := some ⟨p⟩, ppBreakdown := true } rest
