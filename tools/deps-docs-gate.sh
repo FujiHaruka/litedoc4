@@ -1,112 +1,63 @@
 #!/usr/bin/env bash
-# A-1 — the two halves of the rule, read out of the HTML a run actually wrote.
+# The two halves of the dependency-documentation rule, read out of the HTML a run
+# actually wrote.
 #
-# WHAT IT PROVES WHEN IT FAILS, IN ONE LINE
-#   Either "a link this run wrote to a dependency's documentation site does not
-#   exist there", or "a name the table did not hold was linked at that site
-#   anyway" — and it names the href, the page's HTTP status, the anchor the page
-#   does not carry, or the name whose fallback did not happen.
+# It fails saying either "a link this run wrote to a dependency's documentation
+# site does not exist there" or "a name the table did not hold was linked at that
+# site anyway" — naming the href, the page's HTTP status, the anchor the page
+# does not carry, or the name whose fallback did not happen.
 #
-# WHY IT IS A GATE AND NOT A TEST
-#   It needs the measurement target, its toolchain, the Lean extractor **and the
-#   network**. `cargo test --workspace` must never reach any of those, so this is
-#   in tools/ with the rest of them and is not on any `cargo test` path.
-#   `crates/litedoc4/src/deps_docs.rs`'s own tests read a declaration table from
-#   disk; what they cannot ask is whether the other side's server agrees.
+# A gate and not a test because it needs the measurement target, its toolchain,
+# the Lean extractor **and the network**, none of which `cargo test --workspace`
+# may reach. `deps_docs.rs`'s own tests read a declaration table from disk; what
+# they cannot ask is whether the other side's server agrees.
 #
-# THE RULE HAS TWO BRANCHES AND BOTH ARE CHECKED
-#   deps_docs.rs states it as one rule with two outcomes: a name the site's
-#   declaration table holds gets the documentation page; a name it does not hold
-#   keeps the version-pinned source. **A gate that only checks the first branch
-#   checks the half that is easy to get right.**
+# **Both branches of the rule are checked**, because a gate that only checks the
+# first checks the half that is easy to get right.
 #
-#   BRANCH 1 — verified names resolve.
-#     Every `<base>/...` href the site wrote is collected out of the HTML,
-#     entities and all, and split into a page and an `#anchor`. Each distinct
-#     page is fetched (GET) and each distinct anchor is looked for in the bytes
-#     that came back, as `id="<anchor>"` with the page's own escaping undone.
+# Branch 1 — verified names resolve. Every `<base>/...` href is collected out of
+# the HTML, entities and all, each distinct page is fetched, and each anchor is
+# looked for in the bytes that came back as `id="<anchor>"`. **The anchor is
+# looked for in the served page and not in the declaration table**: the table is
+# the build's own input, so checking against it would answer "the resolver copied
+# the table correctly" and call it "the link resolves" — and a declaration
+# renamed inside a module that still exists (Mathlib's deprecated aliases expire
+# after six months → benchmarks/results/deps-link-rot-2026-08-19.txt §4) is
+# invisible to a page-only check and to a table-only check alike. The expensive
+# way costs a couple of seconds: a page is 12-31 kB and ~0.2 s, six at a time
+# 【実測 2026-08-19】.
 #
-#     THE ANCHOR HALF IS THE POINT, AND IT IS NOT CHECKED AGAINST THE DECLARATION
-#     TABLE. The cheap way to check anchors is to re-read the table the build
-#     resolved from and confirm the name is in it — but that is the build's own
-#     input, so it would answer "the resolver copied the table correctly" and
-#     call it "the link resolves". A declaration renamed inside a module that
-#     still exists is exactly the case the version-pinned fallback exists for
-#     (`benchmarks/results/deps-link-rot-2026-08-19.txt` §4: Mathlib's deprecated
-#     aliases expire after six months), and it is invisible to a page-only check
-#     and to a table-only check alike. So the anchor is looked for in the page
-#     the server actually served.
+# Branch 2 — names the table did not hold really fell back. For each: (a) no href
+# anywhere on the site is that name's documentation page, read off the collected
+# hrefs by fragment, so a link to a page that exists and answers 200 is caught
+# just the same — a wrong-but-live page passes every HTTP check branch 1 has; and
+# (b) where the name is linked at all, the href is its root's **version-pinned
+# source**, whose base is asked of `litedoc4 links --out` rather than rebuilt
+# here, so this compares the renderer with the product's own answer and not with
+# a second implementation of the same string join. (b) goes by anchor text, the
+# *display* form, so a name rendered as notation (`≤`) or shortened is reported
+# as not found by text rather than as verified; (a) has no such gap.
 #
-#     Measured cost of doing it the expensive way 【実測 2026-08-19】: a
-#     mathlib4_docs page is 12-31 kB and ~0.2 s, so a few hundred of them fetched
-#     six at a time is a couple of seconds — cheaper than the 5.7 MB table the
-#     build itself downloads.
+# Init is pointed at the site by default and not only Mathlib because branch 2 is
+# empty otherwise: the table holds 396 of 396 Mathlib names and 127 of 130 Init
+# names 【実測 2026-08-19】, so Init is the only root where the fallback fires at
+# all. mathlib4_docs documents Lean core, which is why Init has an answer there.
 #
-#   BRANCH 2 — names the table did not hold really fell back.
-#     The resolved map says which names were asked about and which the table
-#     answered for; the difference is the fallback set. For every name in it:
+# Not covered: **resolved names the site never links** — they exist, 11 of 396 on
+# the measurement target, so branch 1's denominator is **the hrefs the site
+# wrote** and not the map's names, which would report links as checked that were
+# never written. Nor **anything about tomorrow** (mathlib4_docs is rebuilt from
+# `master`, so a pass is a statement about the minute it ran in), nor **the
+# page's own correctness** (`id="X"` present is not "X says the right thing").
 #
-#       (a) **no href anywhere on the site is that name's documentation page** —
-#           read off the collected hrefs by fragment, so a link to a page that
-#           exists and answers 200 is caught just the same. Branch 1 cannot see
-#           that one: a wrong-but-live page passes every HTTP check there is.
-#       (b) where the name is linked at all, the href is its root's
-#           **version-pinned source**. The base it is compared against is not
-#           built here — `litedoc4 links --out` is asked for it, so this checks
-#           the renderer against the product's own answer instead of against a
-#           second implementation of the same string join (the trap
-#           `main.rs`'s `LinkRow` doc names).
-#
-#     (b) is by anchor text, which is the *display* form: a name rendered as
-#     notation (`≤`) or shortened does not match and is reported as not found by
-#     text rather than as verified. (a) has no such gap.
-#
-#   WHY Init IS POINTED AT THE SITE BY DEFAULT AND NOT ONLY Mathlib
-#     Because branch 2 is empty otherwise. On the measurement target the table
-#     holds 396 of 396 Mathlib names and 127 of 130 Init names 【実測
-#     2026-08-19】, so **Init is the only root where the fallback fires at all**
-#     — and a default run that never fires it is a gate for one branch wearing
-#     the name of two. mathlib4_docs documents Lean core, which is why Init has
-#     an answer there to compare against.
-#
-# WHAT THIS DOES **NOT** COVER
-#   * **Source links in general.** Branch 2 checks the fallback names' source
-#     links and nothing else; the version-pinned URLs of the roots that were
-#     never pointed at documentation are `litedoc4 links`' business (U1) and
-#     the relative links are `tools/site-gate.sh`'s.
-#   * **Names this package never refers to.** The denominator is what the run
-#     resolved and what the site wrote; a dependency declaration mentioned only
-#     inside a docstring reaches the page through the `.lidx` and is not in the
-#     request set at all (`deps_docs.rs`, "what is kept in memory").
-#   * **Resolved names the site never links.** They exist — 11 of 396 on the
-#     measurement target — so branch 1's denominator is **the hrefs the site
-#     wrote**, not the map's names. Counting the map's names would report links
-#     as checked that were never written.
-#   * **Anything about tomorrow.** mathlib4_docs is rebuilt from `master`, so a
-#     pass is a statement about the minute it ran in and not about the site.
-#   * **The page's own correctness.** `id="X"` present is not "X is documented
-#     there and says the right thing".
-#   * **Roots that were not pointed at documentation.** Lean, and whatever else
-#     `--root-name` leaves out.
-#
-# HOW TO MAKE IT FAIL ON PURPOSE (and it has been, 【実測 2026-08-19】)
-#   Three modes, one per thing the gate claims to see. All of them rewrite only
-#   copies **under this script's own work area** — the repository, the target and
-#   the built site are never modified, and no `git checkout` is involved.
-#
-#     --inject anchor    one resolved entry's `#anchor` becomes a name the page
-#                        does not carry, and the pages are rendered from that
-#                        map. The page still answers 200: this is the case a
-#                        page-only check passes.
-#     --inject page      the same entry points at a page the site does not have.
-#     --inject fallback  branch 2. One **verified and linked** name is removed
-#                        from the *reference* map, which makes it a fallback
-#                        name while the real pages still link it at its real,
-#                        live documentation page. Staged on the reference side
-#                        on purpose: a documentation href that is live in every
-#                        respect is the only thing branch 1 cannot see, and the
-#                        only way to have one is to take a name that really is
-#                        documented.
+# Made to fail on purpose 【実測 2026-08-19】, rewriting only copies under this
+# script's work area: `--inject anchor` points one entry at an anchor the page
+# does not carry (the page still answers 200 — the case a page-only check
+# passes); `--inject page` points it at a page the site does not have; `--inject
+# fallback` removes a verified, linked name from the *reference* map, so the real
+# pages still link it at its real live documentation page. The last is staged on
+# the reference side because a documentation href that is live in every respect
+# is the only thing branch 1 cannot see.
 #
 # usage: tools/deps-docs-gate.sh [--out DIR] [--keep] [--inject anchor|page|fallback]
 #                                [--target DIR] [--lib NAME] [--jobs N]
@@ -129,16 +80,12 @@ source "$HERE/lib/target.sh" || exit 1
 # shellcheck source=lib/common.sh
 source "$HERE/lib/common.sh" || exit 1
 
-# Everything below is overridable, and every default is this repository's own
-# measurement setup (CLAUDE.md 「ベンチマーク」).
 OUT=/private/tmp/lean-doc-relay/depsdocs
 TARGET="$TARGET_REPO"
 LIB=InformationTheory
 JOBS=4
 PARALLEL=6
 BASE=https://leanprover-community.github.io/mathlib4_docs
-# Mathlib **and Init**: see the heading — Init is the only root on this target
-# where the fallback branch fires, so leaving it out makes branch 2 vacuous.
 ROOTS=(Mathlib Init)
 ROOTS_GIVEN=0
 INJECT=
@@ -191,8 +138,7 @@ esac
 #
 # `if`, never `[ … ] && rm`: an EXIT trap's last command decides the script's
 # exit status, so a trailing test that comes out false makes a successful run
-# exit 1 — which `tools/e2e-micro.sh` actually did, printing "ok" 【実測
-# 2026-08-18】.
+# exit 1, printing "ok" 【実測 2026-08-18】.
 cleanup () {
   if [ "$KEEP" -eq 0 ]; then
     if [ -d "$OUT" ]; then rm -rf "$OUT"; fi
@@ -208,8 +154,6 @@ MAP="$SITE_OUT/work/deps-docs-map.json"
 LINKS="$OUT/links.json"
 ROOT_LIST="$(IFS=,; printf '%s' "${ROOTS[*]}")"
 
-# ------------------------------------------------------------------- 1. build
-
 say "1/4 build $LIB with $ROOT_LIST -> $BASE"
 if [ "$REUSE" -eq 1 ] && [ -f "$MAP" ] && [ -f "$LINKS" ]; then
   echo "reusing $SITE_OUT"
@@ -221,7 +165,7 @@ else
   done
   # Redirected to a file rather than piped through `tee`: a pipeline reports its
   # **last** stage's status, so `litedoc4 … | tee` is exit 0 even when litedoc4
-  # refused with 3 【実測 2026-08-18, CLAUDE.md】.
+  # refused with 3 【実測 2026-08-18】.
   build_status=0
   "$LITEDOC4" build --root "$TARGET" --lib "$LIB" --out "$SITE_OUT" \
     --extractor-bin "$EXTRACT_BIN" --lake "$LAKE" --jobs "$JOBS" \
@@ -245,23 +189,19 @@ else
 fi
 grep -E '^(deps|external|source) ' "$OUT/build.log" || true
 
-# The resolved map has to be there, or the run under test never had the feature
-# on and everything below would check zero links and pass. This is the
-# 「測る前に測れる状態か」 check: the answer to "0 dead links" is only worth
+# Without the resolved map the run under test never had the feature on, and
+# everything below would check zero links and pass: "0 dead links" is only worth
 # something next to "of how many".
 [ -f "$MAP" ] || {
   echo "no resolved documentation map at $MAP — the build did not turn A-1 on" >&2
   KEEP=1
   exit 1; }
 
-# ------------------------------------------------------- 2/3. collect and check
-#
-# One python program does every half so that the inventory it built and the
-# inventory it reports on cannot drift apart — the failure CLAUDE.md records four
-# separate spellings of ("a gate reported success while checking nothing"). It
-# fetches through `curl` because a build already depends on `curl` and adding a
-# second HTTP client to this repository for a gate would be a second thing to be
-# wrong.
+# One python program does every half, so that the inventory it built and the
+# inventory it reports on cannot drift apart — that is how a gate comes to report
+# success while checking nothing. It fetches through `curl` because a build
+# already depends on `curl`, and a second HTTP client would be a second thing to
+# be wrong.
 check_site () { # check_site <label> <page tree> <report> <reference map>
   python3 - "$1" "$2" "$3" "$BASE" "$ROOT_LIST" "$4" "$PARALLEL" "$OUT" \
     "$SITE_OUT/ir" "$LINKS" <<'PY'
@@ -279,14 +219,10 @@ base = base.rstrip("/")
 parallel = max(1, int(parallel))
 roots = [name for name in root_list.split(",") if name]
 
-# ------------------------------------------------------------ the inventory
-#
-# Every href on the site, as written into the HTML, plus the text of the anchor
-# that carries it. The attribute's value is unescaped before anything is done
-# with it: an `id` or an `href` compared without undoing `&amp;`/`&lt;` produces
-# a difference in both directions at once, which is this project's own
-# 2026-08-17 lesson about comparing two different character sets and calling it
-# a broken site.
+# Attribute values are unescaped before anything is done with them: an `id` or an
+# `href` compared without undoing `&amp;`/`&lt;` produces a difference in both
+# directions at once, which reads as a broken site and is really two different
+# character sets 【実測 2026-08-17】.
 ANCHOR = re.compile(r'<a[^>]*href="([^"]*)"[^>]*>([^<]*)</a>')
 HREF = re.compile(r'href="([^"]*)"')
 ID = re.compile(r'id="([^"]*)"')
@@ -320,22 +256,19 @@ for entries in links.values():
     for _f, page, anchor in entries:
         if anchor:
             anchors_wanted.setdefault(page, set()).add(anchor)
-# Which names the site wrote a documentation href for, by fragment. doc-gen4's
-# `docLink` for a declaration ends in its full name, which is what makes this
-# the name-level question and not a string search.
+# By fragment: doc-gen4's `docLink` for a declaration ends in its full name,
+# which is what makes this the name-level question and not a string search.
 documented_here = {}
 for url, entries in links.items():
     for where, _page, anchor in entries:
         if anchor:
             documented_here.setdefault(anchor, set()).add((where, url))
 
-# ------------------------------------------------- what the run asked and got
-#
 # The request set is re-derived from the IR the way `Want::of` does — every
 # `deps/*.json` slice, bucketed by the **defining module's** first component —
-# and then checked against the count the product itself recorded. A re-derivation
-# that disagrees with `requestedNames` is a bug in this script, and it has to say
-# so rather than quietly report a fallback set of its own invention.
+# and checked against the count the product recorded. A re-derivation that
+# disagrees with `requestedNames` is a bug in this script, and it says so rather
+# than report a fallback set of its own invention.
 with open(map_path, encoding="utf-8") as handle:
     resolved = json.load(handle)
 by_root = {entry["root"]: entry for entry in resolved.get("roots", [])}
@@ -376,12 +309,8 @@ if not links:
     )
     sys.exit(1)
 
-# ------------------------------------------------------------- the fetching
-#
-# `curl --parallel` over a config file: one process, one connection pool, and a
-# `%{http_code} %{size_download} %{url}` line per transfer on stdout. The body of
-# every page goes to its own file, named by index so that a URL's characters
-# never become a path's.
+# One process, one connection pool. Bodies are named by index so that a URL's
+# characters never become a path's.
 jar = os.path.join(work, "fetched-" + label)
 os.makedirs(jar, exist_ok=True)
 config = os.path.join(work, "fetch-" + label + ".curl")
@@ -444,9 +373,9 @@ for page in pages_wanted:
         codes[page] = answer[0]
         wire_bytes += answer[1]
 
-# **The count of what was answered, against the count of what was asked.** This
-# is the check that makes the numbers below mean anything: curl exiting 0 says
-# nothing about how many of the URLs in its config file it actually got to.
+# What was answered against what was asked, which is what makes the numbers below
+# mean anything: curl exiting 0 says nothing about how many of the URLs in its
+# config file it got to.
 unanswered = [page for page in pages_wanted if page not in codes]
 if unanswered:
     print(
@@ -460,8 +389,6 @@ if unanswered:
     if finished.stderr:
         print(finished.stderr.decode("utf-8", "replace").strip()[:2000], file=sys.stderr)
     sys.exit(1)
-
-# --------------------------------------------- branch 1: the verified names
 
 dead = []
 pages_ok = 0
@@ -490,8 +417,6 @@ for page in pages_wanted:
                 % (page, anchor, anchor, where[0] if where else "?")
             )
 
-# --------------------------------------------- branch 2: the fallen-back names
-
 leaked = []
 leaked_names = set()
 fell_back_total = 0
@@ -503,7 +428,7 @@ for root in sorted(fallback):
     for name in fallback[root]:
         fell_back_total += 1
         # (a) the site must not have sent anyone to that name's documentation
-        #     page — whatever that page answers.
+        #     page, whatever that page answers.
         for where, url in sorted(documented_here.get(name, set())):
             leaked_names.add(name)
             leaked.append(
@@ -563,10 +488,9 @@ lines.append("leaked fallbacks   %d name(s), %d occurrence(s)"
 with open(report, "w", encoding="utf-8") as handle:
     for line in lines + dead + leaked + problems:
         handle.write(line + "\n")
-# The inventory itself, one href per line. `--inject` reads it so that the link
-# it breaks is one the site demonstrably wrote: breaking a map entry nothing
-# links to would produce a tree with no dead link in it, and the gate would then
-# fail for having *not* found one — a false alarm about its own alarm.
+# `--inject` reads this so that the link it breaks is one the site demonstrably
+# wrote: breaking a map entry nothing links to would produce a tree with no dead
+# link in it, and the gate would then fail for having *not* found one.
 with open(report + ".urls", "w", encoding="utf-8") as handle:
     for url in sorted(links):
         handle.write(url + "\n")
@@ -577,7 +501,7 @@ if fell_back_total == 0:
           "table, so nothing here checked the source fallback")
 
 # A tree whose anchors were all unchecked passes the loop above without looking
-# at anything. Every href this site wrote into a declaration carries one, so
+# at anything, and every href this site wrote into a declaration carries one, so
 # zero is not a state a real run reaches.
 if anchors_checked == 0:
     print(
@@ -622,12 +546,9 @@ if [ "$check_status" -ne 0 ]; then
   exit 1
 fi
 
-# ------------------------------------------------------------------ 3. inject
-
 if [ -n "$INJECT" ]; then
   say "3/4 --inject $INJECT — break one thing on purpose and check that tree"
-  # Only copies under this work area are rewritten. The repository, the target
-  # and the built site are untouched, so there is nothing to restore and no
+  # Only copies under this work area are rewritten: nothing to restore, and no
   # `git checkout` to get wrong.
   python3 - "$MAP" "$OUT/injected-map.json" "$INJECT" "$ROOT_LIST" "$BASE" \
     "$OUT/report-real.txt.urls" <<'PY'
@@ -644,8 +565,8 @@ with open(src, encoding="utf-8") as handle:
 for entry in record.get("roots", []):
     if entry["root"] not in roots:
         continue
-    # A name whose href the real site demonstrably wrote, so that the break is
-    # on a page and the checker has to meet it.
+    # A name whose href the real site demonstrably wrote, so that the break is on
+    # a page and the checker has to meet it.
     candidates = [
         name
         for name, link in sorted(entry.get("declarations", {}).items())
@@ -658,18 +579,17 @@ for entry in record.get("roots", []):
     page, _, _anchor = was.partition("#")
     if mode == "anchor":
         # A declaration renamed inside a module that still exists: the page is
-        # served, the anchor is not on it. This is the half a page-only check
-        # cannot see.
+        # served, the anchor is not on it — the half a page-only check misses.
         entry["declarations"][name] = page + "#litedoc4GateNoSuchDeclaration"
         now = entry["declarations"][name]
     elif mode == "page":
         entry["declarations"][name] = "Mathlib/Litedoc4Gate/NoSuchModule.html#" + name
         now = entry["declarations"][name]
     else:
-        # branch 2: the reference map loses a name the real pages link at its
-        # real documentation page, so the reference says "this one fell back"
-        # while the HTML says otherwise. Nothing about that href is broken —
-        # which is the whole point, because branch 1 checks hrefs.
+        # The reference map loses a name the real pages link at its real
+        # documentation page, so the reference says "this one fell back" while
+        # the HTML says otherwise. Nothing about that href is broken, which is
+        # the point: branch 1 checks hrefs.
         del entry["declarations"][name]
         now = "(removed from the reference map)"
     with open(dst, "w", encoding="utf-8") as handle:
@@ -724,8 +644,6 @@ PY
   echo
   echo "the injected fault was reported (exit $inject_status), which is what --inject asks for"
 fi
-
-# ------------------------------------------------------------------ 4. summary
 
 say "4/4 summary"
 cat "$OUT/report-real.txt"

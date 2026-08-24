@@ -1,79 +1,32 @@
 #!/usr/bin/env bash
 # End to end, on a machine that has never seen the measurement target.
 #
-# WHAT THIS COVERS THAT `cargo test` CANNOT
-#   Every test under `crates/litedoc4/tests/` fakes the extractor with a
-#   `/bin/sh` script that copies a baked IR tree — deliberately, because needing
-#   a Lean toolchain would mean those tests were never run. The cost is that the
-#   **contract between the extractor and the Rust side is not checked by
-#   anything**: change what `Extract.lean` writes and every one of them stays
-#   green. This script is the one place where a real Lean environment produces a
-#   real IR and the real pipeline turns it into a real site.
+# Every test under `crates/litedoc4/tests/` fakes the extractor with a `/bin/sh`
+# script that copies a baked IR tree — deliberately, because needing a Lean
+# toolchain would mean those tests were never run. The cost is that **the contract
+# between the extractor and the Rust side is checked by nothing**: change what
+# `Extract.lean` writes and every one of them stays green. This is the one place
+# where a real Lean environment produces a real IR and the real pipeline turns it
+# into a real site.
 #
-# WHY THE FIXTURE IS TINY AND MATHLIB-FREE
-#   `e2e/micro` depends on Lean core and nothing else, so `lake build` takes
-#   about a second and this runs on a free CI runner. The measurement target
-#   pulls in all of Mathlib and can never be what a push is judged by.
+# The fixture is tiny and Mathlib-free so that `lake build` takes about a second
+# and this runs on a free CI runner; the measurement target pulls in all of
+# Mathlib and can never be what a push is judged by. It holds, on purpose, the
+# declaration shapes the target does not contain — `class`, `inductive`, `class
+# inductive`, a non-`mk` constructor, an inherited field, an implicit binder on a
+# field, an astral identifier (U+1D49C), scoped notation. Nine of the renderer's
+# 41 branches never fire over the real package
+# (crates/litedoc4-render/tests/page_parts.rs), and one of them was silently
+# rendering nothing — an inductive's constructors missing from their page while
+# the search index still linked to them 【実測】.
 #
-#   It also holds, on purpose, the declaration shapes the target does not
-#   contain — `class`, `inductive`, `class inductive`, a non-`mk` constructor,
-#   an inherited field, an implicit binder on a field, an astral identifier
-#   (U+1D49C, the U1/U2 traps), scoped notation. Nine of the renderer's 41
-#   branches never fire over the real package (crates/litedoc4-render/tests/
-#   page_parts.rs), and the first run of this script found one of them silently
-#   rendering nothing: an inductive's constructors were missing from their page
-#   while the search index still linked to them.
-#
-# THE GATES
-#   1 ONE COMMAND    `litedoc4 build` over the fixture writes a site, and
-#                    `tools/site-gate.sh` finds it internally consistent:
-#                    0 dead links, 0 external resources, and the search index
-#                    and the pages agreeing in both directions.
-#   2 IDEMPOTENCE    the same command again, nothing changed: not one byte of
-#                    the site different. The incremental path and the full path
-#                    have to agree about a world that did not move.
-#   3 DETERMINISM    a *second* full build into a different directory is byte
-#                    identical to the first. Anything that leaks a hash order, a
-#                    timestamp or a path into the output breaks here — and this
-#                    is the invariant that replaces an external oracle, because
-#                    it needs nobody's opinion about what the bytes should be.
-#   4 --jobs         the extractor's parallelism changes neither the IR nor the
-#                    site.
-#   5 WORK           how much the two runs *did*, read out of
-#                    `litedoc4-build.json`'s `work` record.
-#   6 ONE EDIT       what a one-declaration edit costs, and that the tree it
-#                    leaves is what a whole render of its own IR writes.
-#   7 SORRY          the three shapes of doc-gen4 #270 — a direct `sorry`, a
-#                    declaration that only depends on one, and neither — come
-#                    out of the extractor as three different answers, by name.
-#   8 ATTRS          every kind of attribute the extractor collects arrives in
-#                    the IR as a `[name, value]` pair, split where the extractor
-#                    knows the boundary and nowhere else.
-#   9 GENERATED      the declarations `@[ext]` realizes name what they were
-#                    realized from, by name and one step; the hand-written ext
-#                    theorem sitting in the same environment extension does not;
-#                    and the 33 declarations whose two ranges are equal without
-#                    being realized keep the rule from collapsing into range
-#                    equality.
-#
-# WHY GATE 5 EXISTS, AND WHY IT IS NOT A STOPWATCH
-#   This project's product is speed and it had no regression gate at all. It
-#   cannot have a wall-clock one: the oleans are mmap'ed, so the same unchanged
-#   run's environment load moves by 5x with the page cache (2.5 s ↔ 13 s
-#   【実測】, CLAUDE.md). A threshold over seconds is either loose enough to pass
-#   a regression or tight enough to fail a cold runner.
-#
-#   What is decidable is the *work*: deterministic integers that do not care what
-#   the machine felt like doing. GATE 5 asserts the shape the whole incremental
-#   design exists to produce — a second run over an unchanged package
-#   re-extracts nothing, renders nothing, and starts Lean not at all — and it
-#   asserts that the three full builds did **identical** work, which is GATE 3's
-#   determinism claim stated about the pipeline rather than about its output.
-#
-#   It reads JSON rather than grepping the log on purpose. GATE 2 used to check
-#   the counters with `grep -qE '^render +modules [1-9]'`, which passes silently
-#   the day that line is reworded — a gate whose failure mode is "quietly stops
-#   testing" is worse than none.
+# **No assertion here is a duration.** The oleans are mmap'ed, so an unchanged
+# run's environment load moves 5x with the page cache (2.5 s <-> 13 s 【実測】):
+# a threshold over seconds is either loose enough to pass a regression or tight
+# enough to fail a cold runner. What is decidable is the *work* — deterministic
+# integers — and it is read out of `litedoc4-build.json` rather than grepped out
+# of the log, because a gate that greps prose stops testing the day the line is
+# reworded and says nothing about it.
 #
 # usage: e2e-micro.sh [--out DIR] [--extractor BIN] [--keep]
 #   --out        where to build (default: a temporary directory)
@@ -120,17 +73,16 @@ say "1/15 build the fixture package (Lean core only)"
 (cd "$FIXTURE" && "$LAKE" build)
 
 say "2/15 build the extractor inside the fixture's environment"
-# The extractor is `import Lean` and nothing else, which is what lets it be
-# built against a package that has no Mathlib. `-rdynamic` is load-bearing:
+# The extractor is `import Lean` and nothing else, which is what lets it be built
+# against a package that has no Mathlib. `-rdynamic` is load-bearing:
 # `importModules (loadExts := true)` resolves symbols in the running executable
-# through the Lean interpreter (extractor/build.sh says the same thing).
+# through the Lean interpreter.
 if [ -z "$EXTRACTOR" ]; then
   EXTRACTOR="$FIXTURE/.lake/e2e-extract/extract"
-  # Rebuilt when the source is newer, not only when the binary is missing. The
-  # first version of this reused whatever was in `.lake/e2e-extract`, which means
-  # every gate below could pass against an extractor built before the change
-  # under test — "the contract between the extractor and Rust" is the one thing
-  # this script exists to check, and a stale binary makes it check nothing.
+  # Rebuilt when the source is newer, not only when the binary is missing: a
+  # stale binary would let every gate below pass against an extractor built
+  # before the change under test, and the extractor-to-Rust contract is the one
+  # thing this script exists to check.
   if [ ! -x "$EXTRACTOR" ] || [ "$ROOT/extractor/Extract.lean" -nt "$EXTRACTOR" ]; then
     mkdir -p "$FIXTURE/.lake/e2e-extract"
     (cd "$FIXTURE" && "$LAKE" env lean --root="$ROOT/extractor" \
@@ -152,24 +104,20 @@ rm -rf "$OUT/first"
 
 "$HERE/site-gate.sh" "$OUT/first/site"
 
-# Snapshot *before* the second run touches the same directory. Comparing the
-# tree with a copy taken afterwards compares it with itself, which passes
-# whatever happens — the first version of this script did exactly that and its
-# GATE 2 was checking nothing at all.
+# Snapshot *before* the second run touches the same directory: comparing the tree
+# with a copy taken afterwards compares it with itself and passes whatever
+# happens.
 rm -rf "$OUT/first-snapshot"
 cp -R "$OUT/first/site" "$OUT/first-snapshot"
-# The marker too: the second run overwrites it in place, and its `work` record is
-# half of GATE 5. Snapshotting it here is the same lesson the site snapshot above
-# was learned from — a copy taken afterwards is a copy of the wrong run.
+# The marker too — the second run overwrites it in place, and its `work` record is
+# half of GATE 5.
 cp "$OUT/first/litedoc4-build.json" "$OUT/first-build.json"
 
 say "4/15 GATE 2 — the second run changes nothing"
 "$LITEDOC4" build --root "$FIXTURE" --lib Micro --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/second.log"
 
-# Bytes only. What the run *did* is GATE 5, out of the marker — a diff has to be
-# reported as a diff rather than as whatever the log happened to say, and the
-# counters have to be read from a record rather than grepped out of prose.
+# Bytes only; what the run *did* is GATE 5, out of the marker.
 if ! diff -r "$OUT/first-snapshot" "$OUT/first/site"; then
   echo "the second run changed the site" >&2
   exit 1
@@ -194,11 +142,9 @@ if ! diff -r "$OUT/first/ir" "$OUT/again/ir"; then
 fi
 
 say "6/15 GATE 4 — --jobs does not change the output"
-# The extractor splits declarations across threads inside one environment.
-# That the IR comes out identical was measured once at stage
-# 7d; that the *site* does has never been checked, and a parallel step that
-# reorders its output is exactly the kind of thing that shows up as a diff on one
-# machine and not another.
+# The extractor splits declarations across threads inside one environment, and a
+# parallel step that reorders its output is exactly the kind of thing that shows
+# up as a diff on one machine and not another.
 rm -rf "$OUT/jobs4"
 "$LITEDOC4" build --root "$FIXTURE" --lib Micro --out "$OUT/jobs4" \
   --extractor-bin "$EXTRACTOR" --jobs 4 >"$OUT/jobs4.log"
@@ -214,8 +160,7 @@ fi
 say "7/15 GATE 5 — the work, as integers"
 # Four markers: the first full build (snapshotted before the second run
 # overwrote it), the incremental run over an unchanged world, and the two other
-# full builds. Python because this repository's other gates use it and because a
-# nested JSON record is not a thing to take apart with `sed`.
+# full builds.
 python3 - \
   "$OUT/first-build.json" \
   "$OUT/first/litedoc4-build.json" \
@@ -260,9 +205,9 @@ def want(label, record, key, expected):
         problems.append(f"{label}: work.{key} is {got}, expected {expected}")
 
 
-# 1 -- the first run does everything. Not a floor but an equality: a full
-#      generation that extracted or rendered *fewer* modules than the package has
-#      left something out, and one that did more counted something twice.
+# An equality and not a floor: a full generation that extracted or rendered fewer
+# modules than the package has left something out, and one that did more counted
+# something twice.
 want("full", full, "modulesExtracted", modules)
 want("full", full, "pagesRendered", modules)
 want("full", full, "extractorRequests", 1)
@@ -271,20 +216,18 @@ want("full", full, "extractorRequests", 1)
 want("full", full, "globalCacheHits", 0)
 want("full", full, "globalCacheMisses", modules)
 
-# 2 -- the second run, over a world that did not move, does nothing. THIS IS THE
-#      GATE. Every one of these three zeros is the incremental path's whole
-#      reason to exist, and `extractorRequests` is the sharpest: its zero says
-#      Lean was never started.
+# The second run, over a world that did not move, does nothing. Each of these
+# three zeros is the incremental path's whole reason to exist, and
+# `extractorRequests` is the sharpest: its zero says Lean was never started.
 want("incremental", incr, "modulesExtracted", 0)
 want("incremental", incr, "pagesRendered", 0)
 want("incremental", incr, "extractorRequests", 0)
 want("incremental", incr, "globalCacheHits", modules)
 want("incremental", incr, "globalCacheMisses", 0)
 
-# 3 -- and it reads less of the IR than a full build does. The exact count is
-#      deliberately not pinned to a number here (that would make this script
-#      the place a deliberate change has to be argued); what is pinned is the
-#      direction, which no correct change reverses.
+# The direction and not the exact count: pinning a number would make this script
+# the place a deliberate change has to be argued, while no correct change reverses
+# the direction.
 full_reads = full["irReads"]["module"]
 incr_reads = incr["irReads"]["module"]
 if full_reads < modules:
@@ -298,9 +241,9 @@ if incr_reads >= full_reads:
         f"full build's {full_reads} — the incremental path stopped saving IR reads"
     )
 
-# 4 -- the same world costs the same work. GATE 3 says two full builds produce
-#      the same bytes; this says they did the same amount of work to get there,
-#      which is the half that would otherwise be free to double silently.
+# GATE 3 says two full builds produce the same bytes; this says they did the same
+# amount of work to get there, which is the half that would otherwise be free to
+# double silently.
 for label, other in (("again", again), ("--jobs 4", jobs4)):
     if other != full:
         problems.append(
@@ -325,11 +268,9 @@ say "8/15 GATE 7 — the three sorry shapes are three different answers"
 # itself, and a declaration that merely depends on such a one. `Micro/Sorry.lean`
 # holds one of each plus a control, and **this is the only place the extractor's
 # answer meets a real Lean environment**: `sorry` is a property of the elaborated
-# term, so a hand-written IR fixture can check what the renderer does with the
-# key but never that the extractor put the right value there.
-#
-# Reads the IR rather than the site on purpose — bundle B is extraction and IR
-# only, and no page shows this yet.
+# term, so a hand-written IR fixture can check what the renderer does with the key
+# but never that the extractor put the right value there. Reads the IR rather than
+# the site, because no page shows this yet.
 python3 - "$OUT/first/ir" <<'PY'
 import json
 import pathlib
@@ -369,9 +310,8 @@ for name, want in sorted(expected.items()):
     if got != want:
         problems.append(f"{name}: sorry is {got!r}, expected {want!r}")
 
-# The count, not the absence of complaints. An expectation that never ran
-# reports nothing, and this script's own history is of gates that passed by not
-# looking (see "GATE ITSELF WAS BROKEN" in e2e/README.md).
+# The count, not the absence of complaints: an expectation that never ran reports
+# nothing.
 if checked != len(expected):
     problems.append(f"{checked} of {len(expected)} shapes were actually compared")
 
@@ -392,37 +332,26 @@ print(f"sorry        {checked} shapes compared over {len(found)} declarations: "
 PY
 
 say "9/15 GATE 8 — attributes arrive split into name and value"
-# Schema 5 carries each attribute as a two-element `[name, value]` array where
-# schema 4 carried one concatenated string. The split is made in the extractor
-# because that is the only side that knows
-# where the boundary is: `deprecated`'s value contains spaces, parentheses and
-# quotes, `specialize`'s contains brackets, and a reader given the concatenation
-# would have to guess.
+# The `[name, value]` split is made in the extractor because that is the only side
+# that knows where the boundary is: `deprecated`'s value contains spaces,
+# parentheses and quotes, `specialize`'s contains brackets, and a reader given the
+# concatenation would have to guess.
 #
 # `Micro/Attrs.lean` holds one declaration per *kind* of attribute the four
 # collectors produce. The measurement target has none of the hard shapes — 163
 # occurrences over 6 distinct strings, all bare names but one `deprecated`
-# 【実測 2026-08-21】 — so this fixture is where they exist at all.
+# 【実測 2026-08-21】 — so this fixture is where they exist at all. Reads the IR,
+# not the site: the page still prints the rejoined string. Runs before GATE 6,
+# which appends a probe declaration to the fixture and rebuilds it.
 #
-# Reads the IR, not the site: bundle B is extraction and IR only, and the page
-# still prints the rejoined string. Runs before GATE 6, which appends a probe
-# declaration to the fixture and rebuilds it.
-#
-# THREE THINGS, AND THE LAST TWO ARE WHY THE FIRST IS NOT ENOUGH
-#   the pairs        each named declaration's `attrs`, compared whole. Positive
-#                    expectations, and the count of them is asserted for the
-#                    reason GATE 7 gives: an expectation that never ran reports
-#                    nothing.
-#   the shape        *every* attrs entry in the whole IR is two strings. One
-#                    collector left writing a concatenated string is invisible to
-#                    the expectations above if it is not one of theirs.
-#   the counts       how many declarations claim each attribute name, over the
-#                    whole IR. This is GATE 7's stray check in the form this
-#                    field needs: attributes are not rare here, so "nobody else
-#                    claims one" is false, and a collector that answered `simp`
-#                    for everything would sail past two positive expectations.
-#                    The numbers are this fixture's; adding a declaration with an
-#                    attribute means updating one, and the gate names which.
+# Three things, and the last two are why the first is not enough: the **pairs**
+# are positive expectations over named declarations; the **shape** check says
+# every attrs entry in the whole IR is two strings, so a collector left writing a
+# concatenated string is caught even when it is none of theirs; and the **counts**
+# per attribute name are the stray check in the form this field needs — attributes
+# are not rare here, so "nobody else claims one" is false, and a collector that
+# answered `simp` for everything would sail past two positive expectations. The
+# numbers are this fixture's, and the gate names which one to update.
 python3 - "$OUT/first/ir" <<'PY'
 import json
 import pathlib
@@ -453,10 +382,9 @@ expected = {
     "Micro.Attrs.tinyBool": [["implicit_reducible", ""], ["defaultInstance", "1000"]],
 }
 
-# Declarations claiming each attribute name, over every module of the fixture.
 name_counts = {
-    # 19 rather than 9 since `Micro/Gen.lean` arrived: every structure
-    # projection is `@[reducible]`, and that module declares six structures.
+    # Every structure projection is `@[reducible]`, and `Micro/Gen.lean` declares
+    # six structures.
     "reducible": 19,
     "implicit_reducible": 6,
     "inline": 2,
@@ -538,40 +466,28 @@ print(f"attrs        {checked} declarations compared, {sum(counts.values())} pai
 PY
 
 say "10/15 GATE 9 — the origin of a realized declaration, and the three ways of not having one"
-# It was measured that Lean gives a declaration it
-# realizes from an attribute the position of **the attribute token**, and that no
-# rule over `(line, col)` gets from there to the parent: in a 144-group Mathlib
-# sample the parent was in the group 0 times and 47 groups spanned two or more
-# namespaces. The extractor's answer is to name the origin itself, from
-# core's `extExtension` plus `selectionRange`.
+# Lean gives a declaration it realizes from an attribute the position of **the
+# attribute token**, and no rule over `(line, col)` gets from there to the parent:
+# in a 144-group Mathlib sample the parent was in the group 0 times and 47 groups
+# spanned two or more namespaces 【実測】. So the extractor names the origin
+# itself, from core's `extExtension` plus `selectionRange`. Reads the IR, not the
+# site.
 #
-# `Micro/Gen.lean` holds the four positions and the counter-example. Reads the
-# IR, not the site: bundle B is extraction and IR only.
-#
-# FIVE THINGS, AND THE LAST THREE ARE WHY THE FIRST IS NOT ENOUGH
-#   the origins       each named declaration's `generated`, compared whole,
-#                     positives *and* negatives. `Micro.Gen.Solo.ext` is the
-#                     sharp one: it is hand written and sits in the same
-#                     environment extension as the realized theorems, so a rule
-#                     that only asked the extension would claim it.
-#   the count         how many expectations actually ran — GATE 7's lesson.
-#   the strays        nobody else claims an origin. 9 in the whole fixture, and
-#                     the number is asserted rather than the absence of
-#                     surprises: a rule that answered "realized by ext" for
-#                     everything passes every positive expectation above.
-#   the trap          `selectionRange == range` is **42** declarations here and
-#                     only 9 of them are realized by `@[ext]` — the other 33 are
-#                     projections, constructors and a `scoped notation`. A rule
-#                     that read the range equality as "generated" would claim 42
-#                     and fail here 【実測 2026-08-21, and the same shape over
-#                     2,786 Mathlib declarations →
-#                     benchmarks/results/generated-decls-2026-08-21.txt】.
-#   the falsifier     every origin named is a declaration this IR has, and none
-#                     of the realized ones sorts *before* it. B-0 §13.2 records
-#                     that as a property of one Lean version's `declRange`
-#                     rather than a law, so it is counted rather than assumed;
-#                     the three-toolchain version of this count is in the log
-#                     above.
+# Five things, and the last three are why the first is not enough. The
+# **origins** are compared whole, positives *and* negatives — `Micro.Gen.Solo.ext`
+# is the sharp one, hand written and sitting in the same environment extension as
+# the realized theorems, so a rule that only asked the extension would claim it.
+# The **count** says how many expectations actually ran. The **strays** number is
+# asserted rather than the absence of surprises, because a rule that answered
+# "realized by ext" for everything passes every positive expectation. The **trap**
+# is that `selectionRange == range` holds for **42** declarations here and only 9
+# of them are realized by `@[ext]` — the other 33 are projections, constructors
+# and a `scoped notation` — so a rule reading range equality as "generated" claims
+# 42 and fails here 【実測 2026-08-21, same shape over 2,786 Mathlib declarations
+# → benchmarks/results/generated-decls-2026-08-21.txt】. The **falsifier** is that
+# every origin named is a declaration this IR has and none of the realized ones
+# sorts before it — a property of one Lean version's `declRange` rather than a
+# law, so it is counted rather than assumed.
 python3 - "$OUT/first/ir" <<'PY'
 import json
 import pathlib
@@ -582,8 +498,8 @@ index = json.loads((root / "index.json").read_text(encoding="utf-8"))
 if index.get("schemaVersion") != 5:
     sys.exit(f"{root}/index.json: schemaVersion is {index.get('schemaVersion')!r}, not 5")
 
-# Exact, by name, and negatives are expectations too. Each `None` below is a
-# *different* way of not being realized by `@[ext]`.
+# Negatives are expectations too: each `None` below is a *different* way of not
+# being realized by `@[ext]`.
 expected = {
     # `@[ext]` written on the structure: both theorems land inside its range.
     "Micro.Gen.Pair.ext": ["ext", "Micro.Gen.Pair"],
@@ -673,8 +589,6 @@ strays = [name for name in claimed if expected.get(name) is None]
 if strays:
     problems.append(f"{len(strays)} unexpected declaration(s) claim an origin: {', '.join(strays[:5])}")
 
-# The trap. If these two numbers ever become equal, something started reading
-# range equality as "generated".
 if len(selection_eq) != SELECTION_EQ_RANGE:
     problems.append(
         f"{len(selection_eq)} declaration(s) have selectionRange == range, "
@@ -700,7 +614,6 @@ for name in claimed:
     if origin not in positions:
         problems.append(f"{name} names {origin} as its origin, which is not in this IR")
         continue
-    # Follow the chain to something that is not itself realized.
     seen = set()
     while found.get(origin) is not None and origin not in seen:
         seen.add(origin)
@@ -730,35 +643,21 @@ print(f"generated    {checked} declarations compared, {len(claimed)} realized by
 PY
 
 say "11/15 GATE 10 — docstring math becomes MathML, and unreadable math does not"
-# Five assertions over `Micro/Math.html` plus one over the run's marker, and
-# that last one is what the others cannot make:
+# Five assertions over `Micro/Math.html` plus one over the run's marker, and that
+# last one is what the others cannot make: **a fallback leaves a valid page** — no
+# byte count, no page count and no exit code moves when a formula fails — so
+# without `work.mathFallbacks` a run that converted nothing would look exactly
+# like a run that converted everything.
 #
-#   the count            `work.mathFallbacks` is **1**, and one is the number
-#                        `Micro/Math.lean` was written to produce. A fallback
-#                        leaves a *valid page* — no byte count, no page count and
-#                        no exit code moves when a formula fails — so without
-#                        this number a run that converted nothing would look
-#                        exactly like a run that converted everything.
-#
-#   conversion happened  three inline `<math>` and one `<math display="block">`.
-#                        Exact, not "at least one": a renderer emitting a
-#                        `<math>` per character would pass a lower bound.
-#
-#   the fallback is the source  `$\colim_k F(k)$` is on the page, dollars and
-#                        all — what doc-gen4 emits for every span. A page whose
-#                        mathematics failed is no worse than doc-gen4's page.
-#
-#   nothing is half-escaped  no `<` that opens no tag and no `&` that opens no
-#                        entity, inside the `<math>` elements. This is the defect
-#                        that decided the crate: `pulldown-latex` writes
-#                        `<mo><</mo>` for `$a < b$` (61 of Mathlib's 2,123
-#                        spans) and `math-core` does not. Swap the dependency
-#                        back and this line is what says so.
-#
-#   the dollars are gone where it worked  `$a &lt; b$` must **not** be on the
-#                        page. It is the fallback's spelling for the escape
-#                        case, and finding it would mean conversion silently
-#                        stopped while `mathFallbacks` stayed at 1.
+# The `<math>` counts are exact and not lower bounds, because a renderer emitting
+# one per character would pass a floor. `$\colim_k F(k)$` has to be on the page
+# with its dollars, which is what doc-gen4 emits for every span. Nothing inside a
+# `<math>` element may be half-escaped — no `<` that opens no tag, no `&` that
+# opens no entity: this is the defect that decided the crate, `pulldown-latex`
+# writing `<mo><</mo>` for `$a < b$` (61 of Mathlib's 2,123 spans) where
+# `math-core` does not. And `$a &lt; b$` must **not** be on the page, because
+# finding the fallback's escape spelling would mean conversion silently stopped
+# while `mathFallbacks` stayed at 1.
 python3 - "$OUT/first/site/Micro/Math.html" "$OUT/first-build.json" <<'MATHPY'
 import json
 import re
@@ -776,10 +675,9 @@ def want(label, got, expected):
         problems.append(f"{label}: {got}, expected {expected}")
 
 
-# Read by name out of the record the run wrote. A missing key exits here rather
-# than defaulting to a number that would pass — a gate that looks for a key that
-# is not there checks nothing at all, and has done exactly that in this
-# repository before (CLAUDE.md, 2026-08-18).
+# A missing key exits here rather than defaulting to a number that would pass: a
+# gate looking for a key that is not there checks nothing at all, and one in this
+# repository did 【実測 2026-08-18】.
 if "mathFallbacks" not in work:
     sys.exit("GATE 10 FAIL  the marker has no work.mathFallbacks")
 want("work.mathFallbacks", work["mathFallbacks"], 1)
@@ -815,53 +713,39 @@ print(f"math         {len(re.findall(r'<math', page))} formula(s) rendered, "
 MATHPY
 
 say "12/15 GATE 11 — every reverse reference agrees with the IR, both ways"
-# See doc-gen4 #77. The script is its own file because it is worth running
-# against the measurement target too, where the
-# numbers are 849 targets over 10,163 edges 【実測 2026-08-22】 rather than the
-# fixture's handful. Its heading says what it asserts and why both directions
-# are needed.
+# See doc-gen4 #77. Its own file because it is worth running against the
+# measurement target too, where the numbers are 849 targets over 10,163 edges
+# 【実測 2026-08-22】 rather than the fixture's handful.
 "$HERE/usedby-gate.sh" --ir "$OUT/first/ir" --site "$OUT/first/site"
 
 say "13/15 GATE 12 — litedoc4.toml reaches every command that writes HTML"
-# The fixture carries a `litedoc4.toml` on purpose: with no file the four
-# commands agree trivially and
-# a gate that can only pass is not a gate. The script says what it compares and
-# why the counts are asserted.
+# The fixture carries a `litedoc4.toml` on purpose: with no file the four commands
+# agree trivially, and a gate that can only pass is not a gate.
 "$HERE/config-gate.sh" --root "$FIXTURE" --ir "$OUT/first/ir" --built "$OUT/first/site" \
   --link-index "$OUT/first/link-index.lidx" --out "$OUT/config"
 
 say "14/15 GATE 6 — one edited module does not re-render the package"
-# The question the other five cannot ask. GATE 2 asks what an *unchanged* world
-# costs; this asks what a one-declaration edit costs, which is the shape a user
-# actually produces and the one where the dependency map used to force every page
-# to be written again (段 C).
+# GATE 2 asks what an *unchanged* world costs; this asks what a one-declaration
+# edit costs, which is the shape a user actually produces.
 #
-# Three assertions, and the first is the sharp one:
-#
-#   the map does not move       `link-index.lidx` is byte-identical across the
-#                               edit. It is the *cause*: its SHA-256 is a
-#                               `renderKey` input (`litedoc4-incr/src/ledger.rs`
-#                               `render_key`), and a moved `renderKey` overrides
-#                               --mode to `all` (`litedoc4-incr/src/impact.rs`).
-#                               This fails on any extractor that writes the
-#                               package's own declarations into the map.
-#   fewer pages than modules    the *effect*. An inequality rather than a number:
-#                               the fixture's import graph is allowed to grow,
-#                               and pinning "1" would make this script the place
-#                               that argument has to happen.
-#   the tree is a whole render  the *oracle*. Under-rendering is silent, so a
-#                               page count on its own is not evidence. What the
-#                               incremental run left on disk has to be what a
-#                               whole render of its own IR writes.
+# Three assertions, and the first is the sharp one. **The map does not move**:
+# `link-index.lidx` is byte-identical across the edit, and it is the *cause* —
+# its SHA-256 is a `render_key` input (`litedoc4-incr/src/ledger.rs`) and a moved
+# render key overrides --mode to `all` (`litedoc4-incr/src/impact.rs`), so this
+# fails on any extractor that writes the package's own declarations into the map.
+# **Fewer pages than modules** is the *effect*, an inequality rather than a
+# number, because the fixture's import graph is allowed to grow. **The tree is a
+# whole render** is the *oracle*: under-rendering is silent, so a page count is
+# not evidence — what the incremental run left on disk has to be what a whole
+# render of its own IR writes.
 PROBE="$FIXTURE/Micro/Basic.lean"
 cp "$PROBE" "$OUT/probe.orig"
 # `set -e` must not leave the fixture edited: everything below this line runs
 # under a trap that puts the file back, including the failure paths.
 # `if`, not `[ … ] && cp`: an EXIT trap's last command decides the script's exit
 # status, and with a temporary --out this function runs *after* `$OUT` has been
-# deleted, so the test is false and the `&&` form returned 1 — this script
-# printed "E2E MICRO: ok" and exited 1 【実測 2026-08-18】. CI never saw it
-# because it always passes `--out … --keep`. A failing `cp` still fails here.
+# deleted, so the test is false and the `&&` form returned 1 — this script printed
+# "E2E MICRO: ok" and exited 1 【実測 2026-08-18】. A failing `cp` still fails here.
 restore_probe () {
   if [ -f "$OUT/probe.orig" ]; then cp "$OUT/probe.orig" "$PROBE"; fi
 }
@@ -907,10 +791,9 @@ if [ -n "$gate6_diff" ]; then
   exit 1
 fi
 
-# The integers, out of the one file that owns them. The same script runs on the
-# Linux runner against the generated package (`ci-template.yml`), so what "a
-# one-module edit is allowed to cost" is written down once and both callers get
-# the same answer.
+# The same script runs on the Linux runner against the generated package
+# (`ci-template.yml`), so what "a one-module edit is allowed to cost" is written
+# down once and both callers get the same answer.
 "$HERE/onemod-gate.sh" "$OUT/first/litedoc4-build.json" "$OUT/first/work/serve.out"
 
 say "15/15 summary"

@@ -1,85 +1,40 @@
 #!/usr/bin/env bash
-# L2 — does `resolveLitedoc4` really fetch the Rust half from a GitHub Release?
+# Does `resolveLitedoc4` really fetch the Rust half from a GitHub Release?
 #
-# The lakefile's `resolveLitedoc4` has two sources beyond the local build: a
-# version-pinned cache and a checksum-verified download from the release that
-# matches this tree's `Cargo.toml`. This gate is the only place
-# either of them is executed.
+# The lakefile has two sources beyond the local build: a version-pinned cache and
+# a checksum-verified download from the release matching this tree's
+# `Cargo.toml`. This gate is the only place either of them is executed —
+# `tools/lake-package-gate.sh` sets `LITEDOC4_BIN`, which is source 1, so it
+# returns before sources 2..5 are reached and has never run a line of this code
+# 【実測 2026-08-18】. **This gate must therefore never set `LITEDOC4_BIN`**:
+# setting it would turn every item below into a check of nothing, and the output
+# would look exactly the same.
 #
-# WHY THIS GATE EXISTS SEPARATELY FROM tools/lake-package-gate.sh
-#   That gate sets `LITEDOC4_BIN`, which is source 1, so it returns before
-#   sources 2..5 are reached — it has never run a single line of this code
-#   【実測 2026-08-18】. **This gate must therefore never set `LITEDOC4_BIN`.**
-#   Setting it would turn every item below into a check of nothing, and the
-#   output would look exactly the same.
+# **There are two worlds, and a run says which one it was in.** The binary is
+# looked up by the version in *this tree's* `Cargo.toml`, so whether a release
+# exists for it is a property of the checkout, not of the machine: on a release
+# tag items 1 and 2 are the download and the cache; on a mid-cycle main nothing
+# carries that version, so they grade the **documented fall-through** (source 3
+# announces the missing asset, PATH answers, a site is written, nothing is
+# cached) and both the summary and the verdict say **NOT EXERCISED**. Reporting
+# `ok` for a path that never ran and reporting FAILED for a mechanism that was
+# merely not run are both lies.
 #
-# THERE ARE TWO WORLDS, AND A RUN SAYS WHICH ONE IT WAS IN
-#   `lakefile.lean` looks the binary up by the version in **this tree's**
-#   `Cargo.toml`, so whether a release exists for it is a property of the
-#   checkout, not of the machine:
+# Which world it is, is decided **once, up front**, from the asset URL's status:
+# 200 is a release, 404 is none, and anything else — including curl unable to
+# reach GitHub — is a hard exit 2. Offline is a failure of this gate, not a
+# third world.
 #
-#     ON A RELEASE TAG        a release carries v<version>. Items 1 and 2 are
-#                             the download and the cache, exactly as written.
-#     ON main, MID-CYCLE      no release carries v<version> — the normal state
-#                             of a tree that is ahead of the last release. There
-#                             is nothing to download, so items 1 and 2 grade the
-#                             **documented fall-through** instead: source 3 says
-#                             the asset is not there, PATH answers, a site is
-#                             written, and nothing lands in the cache.
+# The five items: 1 downloads into an empty cache and verifies the SHA-256
+# against the published checksums.txt; 2 re-runs with curl replaced by one that
+# always fails, so the cache must answer alone; 3 serves a **wrong**
+# checksums.txt for a genuine archive, so the run must fail, cache nothing and
+# execute nothing; 4 checks `LITEDOC4_NO_DOWNLOAD=1` skips source 3 out loud; 5
+# checks a target the releases do not carry falls through rather than hanging,
+# guessing or failing.
 #
-#   In the second world the summary and the final verdict both say **the
-#   download path was NOT EXERCISED**, the way `tools/deps-docs-gate.sh` says it
-#   of its branch 2. Reporting `ok` for a path that never ran is the failure this
-#   repository has shipped four spellings of (CLAUDE.md 「skip で緑を返さない」);
-#   reporting FAILED would be the opposite lie, because the mechanism is not
-#   broken — it was not run.
-#
-#   Which world it is, is decided **once, up front**, by asking the asset URL for
-#   its status: 200 is a release, 404 is no release, and anything else — curl
-#   unable to reach GitHub at all — is a hard exit 2. Offline is a failure of
-#   this gate, not a third world.
-#
-# THE FIVE ITEMS
-#   1 DOWNLOAD   an empty cache + the real network: the release archive is
-#                fetched, its SHA-256 is checked against the published
-#                checksums.txt, the binary lands in the cache and builds a site.
-#                Falls: the download path is broken, or the release moved.
-#                *No release*: source 3 announces that there is no asset for
-#                this version, PATH answers, a site is still written and the
-#                cache stays empty. Falls: it goes quiet, does not fall through,
-#                or writes nothing.
-#   2 CACHED     the same cache with **curl replaced by one that always fails**:
-#                the second run must not need the network at all. Falls: the
-#                cache is not being consulted (judged by whether curl was
-#                invoked, not by whether a line was printed).
-#                *No release*: the mirror image — item 1 cached nothing, so the
-#                second run **must** reach for curl again and fall through
-#                again. Falls: a failed download was remembered as a cache hit.
-#   3 CHECKSUM   a curl that serves an archive with a **wrong**
-#                checksums.txt: the run must fail, leave nothing in the cache
-#                and execute nothing it downloaded. Falls: verification is
-#                decorative. The archive is the released one where there is a
-#                release and a locally built one otherwise; either way it is a
-#                **valid** archive that is really hashed and really disagrees,
-#                so nothing about the product's verification is stubbed.
-#   4 NO-DL      `LITEDOC4_NO_DOWNLOAD=1` with an empty cache: source 3 is
-#                skipped, out loud, and source 4 (PATH) answers. Falls: the
-#                opt-out does not opt out, or does it silently.
-#   5 NO ASSET   a target the releases do not carry: source 3 says so and falls
-#                through. Falls: a machine with no asset would hang, guess, or
-#                fail instead of moving on. Releases carry two targets on
-#                purpose (`.github/workflows/release.yml`), so this is a normal
-#                path for every other machine, not an error path.
-#
-# HOW THE NETWORK IS CONTROLLED
-#   Items 2..5 put a shim `curl` first on PATH which logs every invocation. That
-#   is what "did not download" is judged by: a run that printed nothing about
-#   downloading but still called curl would fail here. Item 1 uses the real one.
-#
-# WHAT IS NEVER TOUCHED
-#   **The user's ~/.cache.** Every run sets XDG_CACHE_HOME to a directory under
-#   $OUT, so nothing outside $OUT is written or removed. Also not touched:
-#   /Users/haruka/dev/lean-projects, and `$LITEDOC4_BIN` (see above).
+# **The user's ~/.cache is never touched**: every run sets XDG_CACHE_HOME to a
+# directory under $OUT, so nothing outside $OUT is written or removed.
 #
 # usage: lake-download-gate.sh [--out DIR] [--keep]
 #   --out   working directory (default: a temporary one, removed on success)
@@ -109,9 +64,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# No input, no gate. Every one of these is a hard non-zero exit rather than a
-# skip: `skipping: offline` + exit 0 is the failure shape this project has
-# already paid for (CLAUDE.md 「skip で緑を返さない」).
+# Hard non-zero exits and never a skip: `skipping: offline` + exit 0 is the
+# failure shape this project has already paid for.
 [ -x "$LAKE" ] || { echo "no lake at $LAKE — set LAKE" >&2; exit 2; }
 [ -x "$LITEDOC4" ] || { echo "no litedoc4 at $LITEDOC4 — cargo build --bin litedoc4" >&2; exit 2; }
 [ -f "$ROOT/lakefile.lean" ] || { echo "no $ROOT/lakefile.lean — nothing to check" >&2; exit 2; }
@@ -120,19 +74,18 @@ command -v curl >/dev/null || { echo "no curl — this gate downloads a release"
 command -v shasum >/dev/null || command -v sha256sum >/dev/null \
   || { echo "no shasum and no sha256sum — nothing here could verify a download" >&2; exit 2; }
 
-# The version the lakefile will ask the release for. Read here as well so that a
-# gate run says out loud which release it is grading.
+# Read here as well as by the lakefile, so that a run says out loud which release
+# it is grading.
 VERSION="$(awk '
   /^\[/ { in_pkg = ($0 ~ /^\[workspace\.package\]/); next }
   in_pkg && /^version[[:space:]]*=/ { gsub(/^[^"]*"|".*$/, ""); print; exit }
 ' "$ROOT/Cargo.toml")"
 [ -n "$VERSION" ] || { echo "no [workspace.package] version in $ROOT/Cargo.toml" >&2; exit 2; }
 
-# The expected target triple, derived from `uname` — **deliberately the other
-# source**. The lakefile uses `System.Platform.target` (plan §6 D3); if its
-# normalisation is ever wrong, the cache file will not be where this gate looks
-# and item 1 fails, which is the whole point of not asking the same oracle
-# twice.
+# Derived from `uname` — **deliberately the other source**. The lakefile uses
+# `System.Platform.target`; if its normalisation is ever wrong, the cache file
+# will not be where this gate looks and item 1 fails, which is the whole point of
+# not asking the same oracle twice.
 case "$(uname -s)/$(uname -m)" in
   Darwin/arm64)  TRIPLE=aarch64-apple-darwin ;;
   Linux/x86_64)  TRIPLE=x86_64-unknown-linux-musl ;;
@@ -151,21 +104,10 @@ else
   TEMPORARY=0
 fi
 
-# ---------------------------------------------------------------------------
-# Which world is this?  (see "THERE ARE TWO WORLDS" in the header)
-# ---------------------------------------------------------------------------
-# The three answers are kept apart on purpose, because collapsing them is how a
-# gate starts lying:
-#
-#   200          a release carries this version — items 1 and 2 run the download.
-#   404          no release carries it — items 1 and 2 run the fall-through, and
-#                every line this script prints afterwards says so.
-#   anything     including curl's own failure to connect: **exit 2**. "I could
-#   else         not ask" is not an answer, and reading it as "no release" would
-#                turn an offline machine into a green run.
-#
-# No `-f`, deliberately: `-f` makes a 404 curl's exit code instead of an HTTP
-# status, and then the one thing this probe exists to distinguish is gone.
+# The three answers are kept apart because collapsing them is how a gate starts
+# lying: "I could not ask" read as "no release" turns an offline machine into a
+# green run. No `-f`, deliberately — `-f` makes a 404 curl's exit code instead of
+# an HTTP status, and then the one thing this probe distinguishes is gone.
 PROBE_ERR="$OUT/release-probe.err"
 probe_rc=0
 HTTP="$(curl -sSL --head -o /dev/null -w '%{http_code}' \
@@ -188,9 +130,8 @@ ITEMS=5
 ran=0
 failed=0
 
-# Said before the first item rather than only in the summary: a reader scrolling
-# a CI log meets the items first, and "ITEM 1 ok" means two different things in
-# the two worlds.
+# Said before the first item and not only in the summary: "ITEM 1 ok" means two
+# different things in the two worlds.
 if [ "$HAVE_RELEASE" -eq 1 ]; then
   printf 'world: a release carries v%s (%s answered 200) — items 1 and 2 run the download\n' \
     "$VERSION" "$BASE/$ASSET"
@@ -204,17 +145,12 @@ pass () { ran=$((ran + 1)); printf 'ITEM %s ok    %s\n' "$1" "$2"; }
 fail () { ran=$((ran + 1)); failed=$((failed + 1)); printf 'ITEM %s FAIL  %s\n' "$1" "$2" >&2; }
 say  () { printf '\n=== %s\n' "$1"; }
 
-# ---------------------------------------------------------------------------
-# Shims. All of them live under $OUT and are put *first* on PATH.
-# ---------------------------------------------------------------------------
 mkdir -p "$OUT/nonet" "$OUT/nocargo" "$OUT/pathbin" "$OUT/shim3" "$OUT/stage"
 CURL_LOG="$OUT/curl-calls.log"
 
-# A curl that cannot reach anything, and says it was asked to. What the items
-# assert about this log is that it says whether the tool was **invoked** — not
-# whether a message was printed (plan §5 L2-f item 2). Items 4 and 5 want it
-# empty; item 2 wants it empty where there is a release (the cache answered) and
-# non-empty where there is none (nothing was cached, so source 3 had to try).
+# A curl that cannot reach anything, and logs that it was asked to. The items
+# judge by whether the tool was **invoked**, never by whether a message was
+# printed.
 cat > "$OUT/nonet/curl" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$CURL_LOG"
@@ -222,20 +158,19 @@ echo "lake-download-gate: the network is disabled for this item" >&2
 exit 7
 EOF
 
-# A cargo that refuses. Source 5 of resolveLitedoc4 is a release build of this
-# workspace; without this, an item that is *supposed* to end in failure would
-# instead spend minutes compiling and then succeed for the wrong reason.
+# Source 5 of resolveLitedoc4 is a release build of this workspace; without a
+# cargo that refuses, an item that is *supposed* to end in failure would instead
+# spend minutes compiling and then succeed for the wrong reason.
 cat > "$OUT/nocargo/cargo" <<'EOF'
 #!/usr/bin/env bash
 echo "lake-download-gate: cargo is disabled for this item" >&2
 exit 1
 EOF
 
-# Item 3's curl: serves a genuine archive with a checksums.txt that does not
-# match it. Nothing about the product's verification is stubbed — a real archive
-# is really hashed, and really disagrees. Where the archive comes from is
-# `stage`'s business below; item 3 never touches the network either way, so it
-# is the one item that runs identically in both worlds.
+# Item 3's curl serves a genuine archive with a checksums.txt that does not match
+# it: nothing about the product's verification is stubbed — a real archive is
+# really hashed and really disagrees. It never touches the network, so item 3 is
+# the one that runs identically in both worlds.
 cat > "$OUT/shim3/curl" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$OUT/shim3-calls.log"
@@ -259,9 +194,9 @@ EOF
 chmod +x "$OUT/nonet/curl" "$OUT/nocargo/cargo" "$OUT/shim3/curl"
 cp "$LITEDOC4" "$OUT/pathbin/litedoc4"
 
-# PATH with every directory that holds a `litedoc4` removed, so that items which
-# must fall all the way through cannot be rescued by whatever this machine
-# happens to have installed. Items 4 and 5 add $OUT/pathbin back on purpose.
+# Every directory holding a `litedoc4` is removed, so that items which must fall
+# all the way through cannot be rescued by whatever this machine happens to have
+# installed. Items 4 and 5 add $OUT/pathbin back on purpose.
 CLEAN_PATH="$(
   IFS=:
   first=1
@@ -272,13 +207,10 @@ CLEAN_PATH="$(
   done
 )"
 
-# Stage item 3's payload: an archive, and an all-zero digest for it.
-#
-# The released archive when there is one — that keeps item 3 byte-for-byte the
-# check it has always been. When there is none, one is built here from
-# `$LITEDOC4`, laid out the way `release.yml` lays a release out
-# (`litedoc4-<version>-<triple>/litedoc4`). What item 3 grades is unaffected
-# either way: `fetchRelease` hashes the archive **before** it unpacks it, so it
+# Item 3's payload: the released archive where there is one, otherwise one built
+# here from `$LITEDOC4` and laid out the way `release.yml` lays a release out
+# (`litedoc4-<version>-<triple>/litedoc4`). Which it is does not change what item
+# 3 grades: `fetchRelease` hashes the archive **before** it unpacks it, so it
 # never reaches these bytes' contents — it has to reject them for the digest.
 if [ "$HAVE_RELEASE" -eq 1 ]; then
   STAGE_ORIGIN="the released $ASSET"
@@ -295,9 +227,7 @@ printf '%s  %s\n' "0000000000000000000000000000000000000000000000000000000000000
 sha256_of () { if command -v shasum >/dev/null; then shasum -a 256 "$1" | cut -d' ' -f1
                else sha256sum "$1" | cut -d' ' -f1; fi; }
 
-# `lake run docs` in the fixture, with a controlled environment. $1 is the item
-# number (names the log and the site), the rest is `env` assignments.
-run_docs () {
+run_docs () { # run_docs <item number> <env assignment>...
   local n="$1"; shift
   local rc=0
   # `env -u`: whatever the caller's shell already had set for these must not
@@ -318,9 +248,7 @@ NOT_USED="litedoc4: release v$VERSION $TRIPLE not used:"
 FELL_THROUGH="litedoc4: $OUT/pathbin/litedoc4 build --root"
 
 if [ "$HAVE_RELEASE" -eq 1 ]; then
-  # -------------------------------------------------------------------------
   say "1/5 an empty cache downloads the release and builds a site"
-  # -------------------------------------------------------------------------
   # Real curl, no `litedoc4` anywhere on PATH and no cargo: if the download does
   # not work there is nothing left to rescue the run, which is what makes this
   # item's exit code mean something.
@@ -339,8 +267,8 @@ if [ "$HAVE_RELEASE" -eq 1 ]; then
   elif [ ! -f "$OUT/site1/site/index.html" ]; then
     fail 1 "lake run docs exited 0 but wrote no site: $OUT/site1/site/index.html is missing"
   elif [ "$(sha256_of "$CACHED1")" = "$(sha256_of "$LITEDOC4")" ]; then
-    # Not pedantry: if these ever match, this item is grading the local build
-    # under a cache-shaped path and has stopped saying anything about releases.
+    # If these ever match, the item is grading the local build under a
+    # cache-shaped path and has stopped saying anything about releases.
     fail 1 "$CACHED1 is byte-identical to $LITEDOC4 — that is the local build, not the release"
   elif [ -e "$CACHEDIR1/.download" ]; then
     fail 1 "a .download directory was left behind in the cache"
@@ -348,11 +276,9 @@ if [ "$HAVE_RELEASE" -eq 1 ]; then
     pass 1 "v$VERSION $TRIPLE: $(sha256_of "$CACHED1" | cut -c1-12)… ($("$CACHED1" --version)), site at $OUT/site1/site"
   fi
 
-  # -------------------------------------------------------------------------
   say "2/5 the second run needs no network"
-  # -------------------------------------------------------------------------
-  # Same cache, curl replaced by one that always fails and logs. Nothing is said
-  # about what the run *prints*: the assertion is that curl was never called.
+  # Nothing is asserted about what the run *prints*: the assertion is that curl
+  # was never called.
   rm -f "$CURL_LOG"
   rc2="$(run_docs 2 "PATH=$OUT/nonet:$OUT/nocargo:$CLEAN_PATH" "XDG_CACHE_HOME=$CACHE1")"
   if [ ! -x "$CACHED1" ]; then
@@ -370,20 +296,14 @@ if [ "$HAVE_RELEASE" -eq 1 ]; then
     pass 2 "cache hit, 0 curl invocations, site at $OUT/site2/site"
   fi
 else
-  # -------------------------------------------------------------------------
   say "1/5 no asset for this version: source 3 says so, PATH answers, a site is written"
-  # -------------------------------------------------------------------------
-  # **This is not the download path with the assertions relaxed.** It is the
-  # other branch of `resolveLitedoc4`, the one every checkout ahead of a release
-  # takes, and what is asserted below is exactly what its documentation promises:
-  # it announces the attempt, it announces the failure, it falls through to the
-  # next source, it writes a site, and it leaves nothing behind that a later run
-  # would take for a cache.
+  # **Not the download path with the assertions relaxed** — the other branch of
+  # `resolveLitedoc4`, the one every checkout ahead of a release takes.
   #
-  # $OUT/pathbin is on PATH here — items 4 and 5 do the same — because source 4
-  # is the one that has to answer. Without it the run would end at source 6 and
-  # this item would grade "a missing release is fatal", which is the opposite of
-  # what the lakefile says.
+  # $OUT/pathbin is on PATH here, as in items 4 and 5, because source 4 is the
+  # one that has to answer. Without it the run would end at source 6 and this
+  # item would grade "a missing release is fatal", the opposite of what the
+  # lakefile says.
   rc1="$(run_docs 1 "PATH=$OUT/nocargo:$OUT/pathbin:$CLEAN_PATH" "XDG_CACHE_HOME=$CACHE1")"
   if [ "$rc1" -ne 0 ]; then
     fail 1 "lake run docs exited $rc1 with no release to download — a checkout ahead of every release cannot build docs; see $OUT/run1.log"
@@ -404,17 +324,13 @@ else
     pass 1 "v$VERSION $TRIPLE has no asset: announced, nothing cached, PATH answered, site at $OUT/site1/site (DOWNLOAD NOT EXERCISED)"
   fi
 
-  # -------------------------------------------------------------------------
   say "2/5 a download that could not happen is not remembered as a cache hit"
-  # -------------------------------------------------------------------------
-  # The mirror image of the cache item. There, curl **must not** be called on the
-  # second run; here it **must**, because item 1 had nothing to put in the cache
-  # — and an empty log would mean source 2 answered from a cache entry that a
-  # failed download had no business creating.
+  # The mirror image of the cache item: there curl **must not** be called on the
+  # second run, here it **must**, because an empty log would mean source 2
+  # answered from a cache entry a failed download had no business creating.
   #
-  # The `nonet` curl is used rather than the real one so that this says something
-  # about the resolver and not about GitHub: whatever curl the resolver reaches
-  # for, it fails, and the run still has to end at PATH with a site.
+  # The `nonet` curl rather than the real one, so that this says something about
+  # the resolver and not about GitHub.
   rm -f "$CURL_LOG"
   rc2="$(run_docs 2 "PATH=$OUT/nonet:$OUT/nocargo:$OUT/pathbin:$CLEAN_PATH" "XDG_CACHE_HOME=$CACHE1")"
   if [ "$rc2" -ne 0 ]; then
@@ -435,9 +351,7 @@ else
   fi
 fi
 
-# ---------------------------------------------------------------------------
 say "3/5 a checksum that does not match stops the run"
-# ---------------------------------------------------------------------------
 CACHE3="$OUT/cache3"
 CACHED3="$CACHE3/litedoc4/v$VERSION/$TRIPLE/litedoc4"
 rm -f "$OUT/shim3-calls.log"
@@ -462,9 +376,7 @@ else
   pass 3 "$shim_calls fetch(es), mismatch reported, exit $rc3, nothing cached, nothing built"
 fi
 
-# ---------------------------------------------------------------------------
 say "4/5 LITEDOC4_NO_DOWNLOAD=1 skips the release, out loud"
-# ---------------------------------------------------------------------------
 CACHE4="$OUT/cache4"
 rm -f "$CURL_LOG"
 rc4="$(run_docs 4 "PATH=$OUT/nonet:$OUT/pathbin:$CLEAN_PATH" "XDG_CACHE_HOME=$CACHE4" \
@@ -486,12 +398,9 @@ else
   pass 4 "release skipped, 0 curl invocations, PATH answered, site at $OUT/site4/site"
 fi
 
-# ---------------------------------------------------------------------------
 say "5/5 a target with no asset falls through instead of going quiet"
-# ---------------------------------------------------------------------------
-# x86_64-apple-darwin is the honest example: `release.yml` says in a comment why
-# it is not built (no Intel runner to test one on), so this is what an Intel Mac
-# actually meets.
+# x86_64-apple-darwin is the honest example: `release.yml` does not build it (no
+# Intel runner to test one on), so this is what an Intel Mac actually meets.
 NO_ASSET=x86_64-apple-darwin
 CACHE5="$OUT/cache5"
 rm -f "$CURL_LOG"
@@ -512,9 +421,7 @@ else
   pass 5 "$NO_ASSET announced as unavailable, 0 curl invocations, PATH answered, site at $OUT/site5/site"
 fi
 
-# ---------------------------------------------------------------------------
 say "summary"
-# ---------------------------------------------------------------------------
 printf 'version        : v%s %s (from %s)\n' "$VERSION" "$TRIPLE" "$ROOT/Cargo.toml"
 if [ "$HAVE_RELEASE" -eq 1 ]; then
   printf 'release        : %s answered 200\n' "$BASE/$ASSET"
@@ -543,9 +450,8 @@ if [ "$TEMPORARY" -eq 1 ] && [ "$KEEP" -eq 0 ]; then
   rm -rf "$OUT"
 fi
 echo
-# The verdict carries the caveat, the way `tools/deps-docs-gate.sh` carries
-# "branch 2 not exercised": whoever reads only the last line of a green run has
-# to be told which of the two worlds produced it.
+# The verdict carries the caveat: whoever reads only the last line of a green run
+# has to be told which of the two worlds produced it.
 if [ "$HAVE_RELEASE" -eq 1 ]; then
   echo "LAKE DOWNLOAD GATE: ok"
 else

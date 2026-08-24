@@ -1,95 +1,30 @@
 #!/usr/bin/env bash
 # Build a Lean package **and its documentation** in one job.
 #
-# Milestone **M6**. This is the body of the CI job; `.github/workflow-templates/
-# litedoc4-docs.yml` is a wrapper that checks things out and calls this file.
+# The commands live here rather than inline in the workflow so that the
+# interesting half can be run on a laptop against a real package; the workflow
+# shrinks to checkout + caches + one `run:` line.
 #
-# ============================================================================
-# WHY THE COMMANDS ARE HERE AND NOT IN THE YAML
-# ============================================================================
-#   GitHub Actions cannot be run from where this was written (no runner, no
-#   network), so a workflow that carried the commands inline would be a file
-#   nobody had ever executed. Put the commands in a script and the workflow
-#   shrinks to checkout + caches + one `run:` line: the interesting half can
-#   then be run on a laptop, against a real package, and the untested remainder
-#   is reduced to the actions themselves. What has NOT been executed is stated
-#   in README.md and in the workflow's own header — it is not implied to work.
+# `lake build` and the docs are in the same job because the extractor's floor is
+# loading the Lean environment, and that cost is page cache, not Lean: same
+# runner, cache dropped, 13.5-22.3 s against 2.4-2.6 s resident — **5.2-11.9x**
+# 【実測 2026-08-16, n=5】. A split "docs" job is not reliably cold (it writes
+# the oleans itself), so the split's cost depends on the runner's RAM against
+# the package's working set; one job does not have to ask.
 #
-# ============================================================================
-# WHY `lake build` AND THE DOCS ARE IN THE SAME JOB  【実測】
-# ============================================================================
-#   The extractor's floor is loading the Lean environment, and that cost is I/O,
-#   not Lean: what decides it is whether the oleans are in the page cache. How
-#   much a split job costs depends on the runner's memory, and the answer has
-#   changed once already:
+# `lake exe cache get` is behind `--cache-get` rather than unconditional because
+# it needs the network: on a developer machine the dependencies are already
+# there and an unconditional download would make a local run of "the CI command"
+# not the same command. A run without it says so, with the reason — a silent
+# skip is the failure mode where CI passes on the last run's leftovers.
 #
-#     2 cores / 7.75 GiB (2026-08-10)  same job 2.61 s, split 20-89 s = 8-34x
-#     4 cores / 15.6 GiB (2026-08-16)  same job 2.4-2.6 s, split 2.5-2.9 s
-#                                      = **1.08-1.58x**, n=5, product end to end
-#     same runner, cache dropped       13.5-22.3 s = **5.2-11.9x** (the control)
-#
-#   A separate "docs" job does NOT reliably start cold: it writes the oleans
-#   itself, with `lake exe cache get` and whatever restores the package's build,
-#   and on a runner with room they stay resident. The 8-34x was a consequence of
-#   7.75 GiB, not of the split.
-#
-#   The placement is still the point of this script — `lake build` first, then
-#   `litedoc4 build`, one job, one runner, one page cache — but for the reason
-#   the control gives, not the one the first measurement suggested: **the cold
-#   penalty is 5-12x, and whether a split job is cold depends on the runner's
-#   RAM against the package's working set.** One job does not have to ask.
-#
-# ============================================================================
-# HOW MATHLIB'S OLEANS ARE OBTAINED  — `lake exe cache get`, and why it is a flag
-# ============================================================================
-#   A Mathlib-dependent package does not compile Mathlib; it downloads the
-#   prebuilt oleans with `lake exe cache get`. That needs the network, so it is
-#   behind `--cache-get` rather than being unconditional:
-#
-#     * in CI it is what you want, and the workflow passes it;
-#     * on a developer machine (and in this repository's own measurements) the
-#       dependencies are already there, and an unconditional network call would
-#       make a local run of "the CI command" not the same command;
-#     * `~/.cache/mathlib` is what `actions/cache` should key on
-#       `lake-manifest.json` — the download is the slow part, not the unpack.
-#
-#   A run without `--cache-get` says so in its log, with the reason. A silent
-#   skip would be the failure mode where CI passes because the last run's
-#   leftovers were still on disk.
-#
-# ============================================================================
-# WHEN THE EXTRACTOR IS BUILT
-# ============================================================================
-#   `extractor/build.sh` compiles Extract.lean against **the package's own
-#   toolchain** (`lake env` borrows it — litedoc4 has no toolchain and no Mathlib
-#   of its own, CLAUDE.md; the root `lakefile.lean` deliberately has no
-#   `lean-toolchain` beside it either). It therefore cannot be shipped as a
-#   binary and cannot be built before the package's toolchain exists. It also
-#   does not change between commits of the package, so in CI it belongs in a
-#   cache keyed on `lean-toolchain` + the hash of `Extract.lean` — see the
-#   workflow. Here: built if `--extractor-bin` is missing, skipped if present,
-#   and either way the phase is timed and reported.
-#
-#   Cost, measured: **14.90 s wall / 10.07 s user, peak RSS 1.52 GB** on an
-#   Apple M1 with a warm page cache 【実測 2026-08-15】. It is cached because it
-#   does not change between commits, not because it is enormous — on a cold
-#   runner the environment import inside it is the spread above, and that is the
-#   part that is not measured here.
-#
-#   Same measurement, one thing worth knowing: built against a *different*
-#   package (the same toolchain and the same `.lake/packages`), the binary came
-#   out **byte for byte identical** (SHA-256 47f95072...). That is evidence for
-#   the cache key, not proof of it: the two packages' dependency sets were
-#   copies of each other.
-#
-# ============================================================================
-# WHAT THIS NEVER DOES
-# ============================================================================
-#   It never writes inside `--root` beyond what `lake build` itself writes:
-#   `--out` is refused by `litedoc4 build` if it is under `--root`, and this
-#   script refuses it earlier so that the run stops before it has done anything.
-#   The documentation tree is `<out>/site`; a caller who wants it inside the
-#   repository copies it there.
+# The extractor is built by `extractor/build.sh` against **the package's own
+# toolchain** (`lake env` borrows it; litedoc4 has no toolchain and no Mathlib of
+# its own), so it cannot be shipped as a binary and cannot be built before the
+# package's toolchain exists. It does not change between commits of the package,
+# so in CI it belongs in a cache keyed on `lean-toolchain` + the hash of
+# `Extract.lean`. Cost **14.90 s wall / 10.07 s user, peak RSS 1.52 GB** on an
+# Apple M1, warm 【実測 2026-08-15】.
 #
 # usage:
 #   ci-build.sh --root <lean package> --out <dir> [options] [-- <build args>...]
@@ -148,13 +83,11 @@ done
 
 ROOT="$(cd "$ROOT" && pwd)"
 
-# Stated against the paths rather than left to the later stage: `litedoc4 build`
-# refuses this too, but by then the run has already spent `lake build`.
-#
-# **Before `mkdir`, and twice.** Creating the directory is itself a write into
-# the package (M4-b paid for exactly this: a guard that ran after the directory
-# existed), so the lexical form is checked while --out is still just a string;
-# and again after it is resolved, because a symlink can land inside --root.
+# Checked here as well as in `litedoc4 build`, which by then has already spent
+# `lake build` — and **before `mkdir`, and twice**: creating the directory is
+# itself a write into the package, so the lexical form is checked while --out is
+# still a string, and again after it resolves, because a symlink can land inside
+# --root.
 case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
 refuse_out_inside_root () {
   case "$1" in
@@ -167,13 +100,8 @@ OUT="$(cd "$OUT" && pwd)"
 refuse_out_inside_root "$OUT"
 [ -n "$TIMINGS" ] || TIMINGS="$OUT/ci-timings.json"
 
-# ------------------------------------------------------------------ timing
-#
 # `date` on BSD has no sub-second format, so the clock is bash 5's
-# $EPOCHREALTIME with a perl fallback. Every phase is timed, including the ones
-# that are skipped (a note says why), so that a reader can see which step a slow
-# job spent its minutes in. The phases do not quite add up to the total: the
-# version banner above is outside all of them.
+# $EPOCHREALTIME with a perl fallback.
 now () {
   if [ -n "${EPOCHREALTIME:-}" ]; then printf '%s' "${EPOCHREALTIME/,/.}"
   else perl -MTime::HiRes -e 'printf "%.6f", Time::HiRes::time()'; fi
@@ -189,7 +117,6 @@ step () { echo; echo "=== $* ==="; }
 
 T0="$(now)"
 
-# ------------------------------------------------------------------ versions
 step "environment"
 echo "package     $ROOT"
 echo "output      $OUT"
@@ -197,16 +124,15 @@ echo "litedoc4    $REPO"
 if [ -f "$ROOT/lean-toolchain" ]; then
   echo "toolchain   $(tr -d '\n' < "$ROOT/lean-toolchain")"
 fi
-# Asked from inside the package: `lake` is an elan shim that picks the
-# toolchain from the nearest `lean-toolchain`, and litedoc4 has none of its own
-# (CLAUDE.md), so the same command run from this repository answers "not found".
+# Asked from inside the package: `lake` is an elan shim that picks the toolchain
+# from the nearest `lean-toolchain`, and litedoc4 has none of its own, so the
+# same command run from this repository answers "not found".
 echo "lake        $( (cd "$ROOT" && "$LAKE" --version 2>&1 | head -1) || echo 'not found')"
 echo "uname       $(uname -srm)"
 if command -v git > /dev/null && git -C "$ROOT" rev-parse HEAD > /dev/null 2>&1; then
   echo "HEAD        $(git -C "$ROOT" rev-parse HEAD)"
 fi
 
-# ------------------------------------------------------------------ 1 cache get
 step "1/5  lake exe cache get"
 t="$(now)"
 if [ "$CACHE_GET" = 1 ]; then
@@ -218,11 +144,6 @@ else
   record cache-get "$(elapsed "$t" "$(now)")" "skipped (no --cache-get)"
 fi
 
-# ------------------------------------------------------------------ 2 lake build
-#
-# The placement this whole script exists for. It is also the step that puts the
-# oleans in the page cache, which is what the import's cost turns on — 2.4-2.6 s
-# resident against 13.5-22.3 s with the cache dropped 【実測 n=5】.
 step "2/5  lake build"
 t="$(now)"
 if [ "$LAKE_BUILD" = 1 ]; then
@@ -234,16 +155,13 @@ else
   record lake-build "$(elapsed "$t" "$(now)")" "skipped (--no-lake-build)"
 fi
 
-# ------------------------------------------------------------------ 3 extractor
 step "3/5  the extractor (Lean)"
 t="$(now)"
-# "It exists" is not "it is the one this checkout describes". The workflow's
-# cache key for this binary does hash `extractor/Extract.lean`, so a stale one
-# cannot normally be restored under a matching key — but this script is also run
-# by hand, where nothing enforces that, and the failure is silent: every number
-# below would describe an extractor nobody is looking at. So the source decides,
-# not the presence of a file. `-nt` and not a rebuild every time because
-# `extractor/build.sh` is ~16 s.
+# "It exists" is not "it is the one this checkout describes": run by hand,
+# nothing hashes `Extract.lean` into the path, and the failure is silent — every
+# number below would describe an extractor nobody is looking at. So the source
+# decides, not the presence of a file; `-nt` rather than an unconditional
+# rebuild because `extractor/build.sh` is ~16 s.
 if [ -x "$EXTRACTOR_BIN" ] && [ ! "$REPO/extractor/Extract.lean" -nt "$EXTRACTOR_BIN" ]; then
   echo "cached: $EXTRACTOR_BIN"
   record extractor "$(elapsed "$t" "$(now)")" "cached"
@@ -257,19 +175,15 @@ else
   exit 1
 fi
 
-# ------------------------------------------------------------------ 4 litedoc4
 step "4/5  the litedoc4 binary (Rust)"
 t="$(now)"
-# **Always ask cargo**, rather than skipping it because the file is there.
-#
-# The workflow's cache key for `target/` is `hashFiles('litedoc4/Cargo.lock')`,
-# which does not move when litedoc4's *sources* do — so "the binary exists" was
-# true of a binary built from a different commit, and the run measured code
-# nobody had written yet【実測 2026-08-17, runs 31963079828 / 31963305864: both
-# built the current extractor and ran a `litedoc4` from before 段 C, and the
-# one-module gate is what noticed】. Cargo is the tool that knows whether the
-# binary matches the sources; a shell `-x` test is not. A fresh tree costs ~0.2 s
-# here, which is the whole price of never asking that question wrong again.
+# **Always ask cargo**, rather than skipping because the file is there: the
+# workflow's cache key for `target/` is `hashFiles('litedoc4/Cargo.lock')`, which
+# does not move when litedoc4's *sources* do, so "the binary exists" was true of
+# a binary built from a different commit and the run measured code nobody had
+# written yet 【実測 2026-08-17, runs 31963079828 / 31963305864】. Cargo knows
+# whether the binary matches the sources; a shell `-x` test does not, and a fresh
+# tree costs ~0.2 s here.
 #
 # An explicit --litedoc4-bin is taken as given: the caller named a file outside
 # this checkout and this script has no standing to rebuild it.
@@ -284,12 +198,6 @@ else
   exit 1
 fi
 
-# ------------------------------------------------------------------ 5 the docs
-#
-# One command. --lib comes from the lakefile, the module list from the source
-# glob, --source-url from git, the dependency map from the environment the
-# extractor imports anyway, and the choice between full generation and the
-# incremental path from what is already under --out.
 step "5/5  litedoc4 build"
 t="$(now)"
 "$LITEDOC4_BIN" build \
@@ -304,7 +212,6 @@ record docs "$(elapsed "$t" "$(now)")" "ran"
 
 TOTAL="$(elapsed "$T0" "$(now)")"
 
-# ------------------------------------------------------------------ the report
 step "summary"
 printf '%-12s %10s  %s\n' phase seconds note
 for i in "${!PHASE_NAME[@]}"; do

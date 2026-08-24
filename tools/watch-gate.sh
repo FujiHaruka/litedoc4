@@ -1,87 +1,38 @@
 #!/usr/bin/env bash
-# A-2 — `litedoc4 watch` notices one changed module, rebuilds exactly that much,
-# and serves it.
+# `litedoc4 watch` notices one changed module, rebuilds exactly that much, and
+# serves it.
 #
-# WHAT IT PROVES WHEN IT FAILS, IN ONE LINE
-#   Either "the loop rebuilt the wrong amount of work" — naming the count it got
-#   and the count it expected — or "the loop rebuilt the wrong module", naming
-#   both; or the server did not answer the page the rebuild had just written.
+# It fails saying either "the loop rebuilt the wrong amount of work" — with the
+# count it got and the count it expected — or "the loop rebuilt the wrong
+# module", naming both; or that the server did not answer the page the rebuild
+# had just written.
 #
-# WHY IT IS A GATE AND NOT A TEST
-#   It needs a real Lean environment and a real extractor: what it proves is that
-#   the loop does one module's worth of work against oleans Lean actually wrote.
-#   `cargo test --workspace` reaches neither.
+# A gate and not a test because it needs a real Lean environment and a real
+# extractor. It does **not** need the measurement target: `--target`, `--lib`,
+# `--module`, `--other` and `EXTRACT_BIN` are arguments, and the same gate runs
+# against `e2e/micro` in seconds 【実測 2026-08-24 →
+# benchmarks/results/watch-gate-e2e-2026-08-24.txt】. The defaults below name the
+# measurement target because that is the workload the numbers in `benchmarks/`
+# come from.
 #
-#   **It does not need the measurement target, and never did** 【実測 2026-08-24
-#   → benchmarks/results/watch-gate-e2e-2026-08-24.txt】. `--target`, `--lib`,
-#   `--module`, `--other` and `EXTRACT_BIN` are all arguments, so the same gate
-#   runs against `e2e/micro` — Lean core, ten modules, no Mathlib — in seconds
-#   (4.0 s and 6.1 s over two runs; wall clock, asserted on by nothing), and
-#   `.github/workflows/ci.yml`'s `e2e-micro` job runs it there on every push.
-#   The defaults below still name the measurement target because that is the
-#   workload the numbers in `benchmarks/` come from.
+# **The assertions are integers; not one of them is a duration.** This workload's
+# environment load moves 5x with the page cache (2.5 s <-> 13 s 【実測】), so a
+# bound loose enough to pass a cold runner passes a regression too. What one edit
+# costs in *work* does not move: 1 module extracted, 1 page rendered, 1 extractor
+# request — plus the render set **by name**, which is the one the three integers
+# cannot give (one module extracted and one page rendered could be the wrong
+# one). The wall clock is printed and asserted on by nothing.
 #
-#   What the tests own is everything the loop does that a `/bin/sh` extractor can
-#   stand in for: the four arms of one pass, the banner, the server, and a failed
-#   rebuild that is said once and waited out
-#   (`crates/litedoc4/tests/watch.rs`) — plus the two halves that own their input
-#   outright, the decision function and the question it asks
-#   (`crates/litedoc4/src/watch.rs`) and the server's routing and refusals
-#   (`crates/litedoc4/src/httpd.rs`).
+# The module is made stale with `litedoc4 ledger touch` and not with `touch`:
+# mtime is not what the ledger hashes (sha256 of content), and rewriting the
+# olean would write into the measurement target, which nothing here may do. The
+# ledger written is this run's own `$OUT/build/ledger.json`.
 #
-# THE ASSERTIONS ARE INTEGERS. NOT ONE OF THEM IS A DURATION.
-#   This workload's environment load moves 5x with the page cache (2.5 s <-> 13 s
-#   【実測】, CLAUDE.md), so a second is not a threshold — a bound loose enough to
-#   pass a cold runner passes a regression too, and one tight enough to catch a
-#   regression fails on a cold runner. What one edit costs in *work* does not move:
-#
-#     modulesExtracted   == 1     the touched module, and only it
-#     pagesRendered      == 1     its own page (mode self, empty map delta)
-#     extractorRequests  == 1     Lean was started once, not once per round
-#     render-set.txt     == that module, by name
-#
-#   The fourth is the one the first three cannot give: a run that re-extracted
-#   one module and re-rendered one page could have done it to the wrong one, and
-#   three integers would all be green. It is read from the pipeline's own
-#   diagnostic rather than recomputed here.
-#
-#   The wall clock is printed, because a person reading this wants to know, and
-#   is asserted on by nothing.
-#
-# HOW THE MODULE IS "TOUCHED", AND WHY NOT WITH `touch`
-#   `touch` moves an mtime, and the ledger hashes **content** (sha256), so it
-#   would change nothing. Rewriting the olean would change something — the
-#   measurement target, which nothing in this repository is allowed to write to
-#   (CLAUDE.md). So the change is injected into this run's own copy of the ledger
-#   with `litedoc4 ledger touch`, which exists for exactly this reason
-#   (`crates/litedoc4/src/main.rs`: "the measurement target must not be modified,
-#   so 'module M changed' is injected into the ledger instead"). What the loop
-#   sees is what it would see after a real `lake build` of that module: its
-#   ledger entry no longer matches the olean on disk.
-#
-#   The ledger being written is `$OUT/build/ledger.json`, which this script's own
-#   build wrote. Nothing under the target is opened for writing.
-#
-# HOW TO MAKE IT FAIL ON PURPOSE (and it has been, 【実測 2026-08-19】)
-#     --inject wrong-module   touch a **different** module from the one the
-#                             assertions expect. The three counts stay 1/1/1 —
-#                             the loop did exactly one module's worth of work —
-#                             and the name check is the only thing that catches
-#                             it, which is the whole reason it is here.
-#     --inject no-touch       touch nothing at all and still wait for a rebuild:
-#                             the gate must time out and say so rather than
-#                             report a green run it never saw.
-#   Both break only files under this script's work area. The repository, the
-#   target and their ledgers are not touched, and no `git checkout` is involved.
-#
-# WHAT IT REFUSES BEFORE IT STARTS
-#   Another `litedoc4 watch` already using this work area or this port. `watch`
-#   outlives the shell that started it, so one from an interrupted session is
-#   still rewriting the IR this script is about to read and recreating the files
-#   its cleanup is about to delete — which is reported as a corrupt IR tree and
-#   as `rm: Directory not empty` respectively 【実測 2026-08-21】. It is named
-#   and refused (exit 2), never killed: killing a process this script does not
-#   own is not a gate's call.
+# Made to fail on purpose 【実測 2026-08-19】: `--inject wrong-module` leaves the
+# three counts at 1/1/1 — the loop did one module's worth of work — so the name
+# check is the only thing that catches it; `--inject no-touch` must time out
+# rather than report a green run it never saw. Both touch only this script's
+# work area.
 #
 # usage: tools/watch-gate.sh [--out DIR] [--keep] [--reuse] [--port N]
 #                            [--target DIR] [--lib NAME] [--jobs N]
@@ -106,11 +57,10 @@ TARGET="$TARGET_REPO"
 LIB=InformationTheory
 JOBS=4
 PORT=8485
-# One of the 422, and its page is its own: `impact --mode self` selects exactly
-# the changed module unless the whole-package map delta adds more, and this one's
-# delta is empty. `tools/build-gate.sh` moves a different module on purpose (one
-# whose name is quoted in another module's docstring); this gate wants the
-# *simplest* answer, because it is asserting an exact number.
+# Chosen because its page is its own: `impact --mode self` selects exactly the
+# changed module unless the whole-package map delta adds more, and this one's
+# delta is empty. `tools/build-gate.sh` deliberately moves a module whose name is
+# quoted elsewhere; this gate wants the simplest answer, being an exact number.
 MODULE=InformationTheory.Shannon.ArithmeticCoding
 OTHER=InformationTheory.Shannon.BroadcastChannel.Basic
 INJECT=
@@ -157,32 +107,20 @@ esac
 BUILD="$OUT/build"
 LOG="$OUT/watch.log"
 WATCH_PID=
-# **Whether this run owns the work area.** 0 until the guard below has passed,
-# and the cleanup deletes nothing while it is 0 — a run that *refuses* to use a
-# directory must not then delete it. This script removed a work area another
-# process was using, on the way out of the refusal that existed to protect it
-# 【実測 2026-08-21】.
+# 0 until the guard below has passed, and the cleanup deletes nothing while it is
+# 0: a run that *refuses* to use a directory must not then delete it — this
+# script removed a work area another process was using, on the way out of the
+# refusal that existed to protect it 【実測 2026-08-21】.
 OWNED=0
 
-# ------------------------------------------------- nobody else is watching this
-#
-# `litedoc4 watch` is long-lived and **outlives the shell that started it**, so
-# one left over from an interrupted session is still holding a work area that
-# looks free. Two things then happen, and neither of them looks like what it is
-# 【実測 2026-08-21】:
-#
-#   * it rewrites the IR while this script's build reads it — the gate fails with
-#     `EOF while parsing a value at line 1 column 0` on an IR module, which reads
-#     as a corrupt tree rather than as a second writer (the incremental pipeline
-#     writes IR module files in place, `litedoc4-incr::merge`'s `copy`/`write`,
-#     so a half-written file is a state a reader can see);
-#   * it recreates files while the cleanup deletes them — `rm: Directory not
-#     empty`, three times.
-#
-# So: **refused by name, and not killed.** Killing a process this script does not
-# own is not a gate's call; saying which pid it is, is. The difference this makes
-# is between "the gate is broken" and "the machine has a leftover process", and
-# the first reading costs a full diagnosis.
+# `litedoc4 watch` outlives the shell that started it, so one left over from an
+# interrupted session holds a work area that looks free, and neither symptom
+# looks like what it is 【実測 2026-08-21】: it rewrites the IR while this
+# script's build reads it (`EOF while parsing a value at line 1 column 0`, which
+# reads as a corrupt tree rather than as a second writer), and it recreates files
+# while the cleanup deletes them (`rm: Directory not empty`). **Refused by name,
+# and not killed** — killing a process this script does not own is not a gate's
+# call; saying which pid it is, is.
 others () { pgrep -f 'litedoc4 watch' 2>/dev/null; }
 
 guard_no_other_watch () {
@@ -236,9 +174,8 @@ trap cleanup EXIT
 
 say () { printf '\n=== %s\n' "$1"; }
 
-# Every assertion this run made, and every one that failed. **The two are
-# reported together** — a gate that prints only failures cannot be told from a
-# gate that checked nothing (CLAUDE.md, 「ゲートは『走った本数』を数える」).
+# Checks made and checks failed are reported **together**: a gate that prints
+# only failures cannot be told from a gate that checked nothing.
 CHECKS=0
 FAILURES=0
 check () { # check <ok|fail> <one line>
@@ -251,9 +188,9 @@ check () { # check <ok|fail> <one line>
   fi
 }
 
-# Wait for a line, bounded, and **notice when the thing being waited on has
-# died**. A wait that cannot end is the failure this whole feature exists to
-# remove (doc-gen4 #404), so the gate does not have one either.
+# Bounded, and it notices when the process being waited on has died: a wait that
+# cannot end is the failure this whole feature exists to remove (doc-gen4 #404),
+# so the gate does not have one either.
 wait_for () { # wait_for <regex> <seconds> <what>
   local pattern="$1" limit="$2" what="$3" waited=0
   while [ "$waited" -lt "$limit" ]; do
@@ -272,12 +209,8 @@ wait_for () { # wait_for <regex> <seconds> <what>
 }
 
 guard_no_other_watch
-# Past the guard: from here the work area is this run's, and the cleanup may
-# remove it.
 mkdir -p "$OUT"
 OWNED=1
-
-# ------------------------------------------------------------------- 1. build
 
 say "1/5 a site to watch"
 if [ "$REUSE" -eq 1 ] && [ -f "$BUILD/ledger.json" ]; then
@@ -299,8 +232,6 @@ else
 fi
 MODULES="$(grep -c . "$BUILD/work/modules.txt")"
 
-# ------------------------------------------------------------------- 2. watch
-
 say "2/5 start watch on port $PORT"
 : > "$LOG"
 "$LITEDOC4" watch --root "$TARGET" --out "$BUILD" --lib "$LIB" \
@@ -316,8 +247,6 @@ if [ "$code" = 200 ]; then
 else
   check fail "the server answered / with $code, expected 200"
 fi
-
-# ------------------------------------------------------- 3. change one module
 
 say "3/5 make one module stale"
 TOUCHED="$MODULE"
@@ -339,16 +268,13 @@ if [ "$INJECT" != no-touch ]; then
   sed 's/^/  /' "$OUT/touch.log"
 fi
 
-# The rebuild is one module's extraction on top of one Lean import; 300 s is
-# generous for a cold page cache and is a bound, not an expectation. With
-# nothing touched there is nothing to wait for, so the wait is short and its
-# timeout *is* the answer.
+# A bound, not an expectation: 300 s is generous for one module's extraction on
+# top of one Lean import with a cold page cache. With nothing touched there is
+# nothing to wait for, so the wait is short and its timeout *is* the answer.
 DEADLINE=300
 if [ "$INJECT" = no-touch ]; then DEADLINE=30; fi
 if ! wait_for '^watch   #1 reload' "$DEADLINE" "the first rebuild"; then exit 1; fi
 sed -n '/^watch   #1 the ledger reports/,$p' "$LOG" | sed 's/^/  /'
-
-# ------------------------------------------------------------ 4. the integers
 
 say "4/5 what the pass cost, as integers"
 python3 - "$BUILD/litedoc4-build.json" "$BUILD/work/render-set.txt" "$MODULE" "$MODULES" "$LOG" \
@@ -368,10 +294,9 @@ requests = work.get("extractorRequests")
 with open(render_set_path, encoding="utf-8") as handle:
     render_set = [line.strip() for line in handle if line.strip()]
 
-# The pipeline's own count of the affected set, out of the line it printed —
-# a **second** number for the same claim, produced by `impact` rather than by
-# the renderer. Comparing the renderer's `pagesWritten` with the map/impact
-# union is the one comparison here that is not the record agreeing with itself.
+# A second number for the same claim, produced by `impact` rather than by the
+# renderer: comparing them is the one comparison here that is not the record
+# agreeing with itself.
 affected = None
 mode = None
 with open(log_path, encoding="utf-8") as handle:
@@ -420,8 +345,6 @@ if [ "$status" != 0 ] && [ "${failed:-0}" = 0 ]; then
   FAILURES=$((FAILURES + 1))
 fi
 
-# ------------------------------------------------------------- 5. the server
-
 say "5/5 the server serves what the rebuild wrote"
 PAGE="/$(printf '%s' "$MODULE" | tr '.' '/').html"
 code="$(curl -sS -o "$OUT/page.html" -w '%{http_code}' "http://127.0.0.1:$PORT$PAGE" 2>/dev/null)"
@@ -446,8 +369,7 @@ else
   check fail "GET /../../../etc/passwd -> $code, expected 403"
 fi
 
-# The 3 GB process is the loop's, not the machine's: nothing may be left holding
-# an imported Lean environment once watch is gone.
+# Nothing may be left holding an imported Lean environment once watch is gone.
 kill "$WATCH_PID" 2>/dev/null
 wait "$WATCH_PID" 2>/dev/null
 WATCH_PID=
@@ -457,8 +379,6 @@ if [ "$left" = 0 ]; then
 else
   check fail "$left resident extractor process(es) survived the watch loop"
 fi
-
-# ------------------------------------------------------------------ the verdict
 
 {
   printf '\n'

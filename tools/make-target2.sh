@@ -2,70 +2,40 @@
 # Build the **second target**: a small Mathlib-dependent Lean package that has
 # never seen doc-gen4, generated from scratch by this script.
 #
-# Milestone **M5-b**, and the subject of plan §1's gate B ("a Mathlib-dependent
-# package *other than* the measurement target, `litedoc4 build` in one command,
-# and the incremental path works there"). The measurement target cannot answer
-# that question on its own: it carries a 736 MB doc-gen4 output tree, so a
-# dependency map can always be handed to the renderer from outside. Here there
-# is none, and whatever the product cannot derive itself, it does not get.
+# The measurement target cannot answer whether the product derives everything
+# itself: it carries a 736 MB doc-gen4 output tree, so a dependency map can
+# always be handed to the renderer from outside. Here there is none.
 #
-# WHY A GENERATOR AND NOT A CHECKED-IN TREE
-#   The package lives under /private/tmp, which this machine empties; a session
-#   has already lost one clone that way. What is committed is therefore the
-#   thing that makes the package, not the package. Everything below — the two
-#   libraries, the module list, every boundary value — is *in this file*, so a
-#   number measured on target 2 can be re-derived from the repository alone.
+# A generator and not a checked-in tree because the package lives under
+# /private/tmp, which this machine empties. Everything — the two libraries, the
+# module list, every boundary value — is *in this file*, so a number measured on
+# target 2 can be re-derived from the repository alone.
 #
-# WHY THE DEPENDENCIES ARE NEVER RESOLVED
-#   `lake update` needs the network and would pick today's Mathlib; this package
-#   has to be built against **the same Mathlib the measurement target uses**
-#   (`fabf563a7c95`, Lean v4.31.0) or its numbers are not comparable with any
-#   other number in this repository. So `lake-manifest.json` and `lean-toolchain`
-#   are copied verbatim from the measurement target in **both** modes below, the
-#   `[[require]]` block is derived from that manifest (see the lakefile section),
-#   and the revisions are pinned by the manifest rather than by anything this
-#   script decides.
+# The dependencies are never resolved here: `lake update` needs the network and
+# would pick today's Mathlib, and this package has to be built against **the same
+# Mathlib the measurement target uses** (`fabf563a7c95`, Lean v4.31.0) or its
+# numbers are not comparable with any other number in this repository. So
+# `lake-manifest.json` and `lean-toolchain` are copied verbatim in **both** modes
+# and the revisions are pinned by that manifest.
 #
-# HOW THE DEPENDENCIES GET THERE — TWO MODES  (`--deps`)
+# `--deps` picks how the dependencies get there:
 #   clone   an **APFS clonefile copy** (`cp -Rc`) of the measurement target's
-#           `.lake/packages`: copy-on-write, ~0 real disk, no network, and the
-#           source tree is read and never written. CLAUDE.md forbids writing
-#           into the measurement target, and that includes its `.lake/packages`
-#           — a symlink would not do, because Lake writes into a package
-#           directory it believes it owns. **macOS only**: `cp -c` is a BSD
-#           extension and the filesystem has to be APFS.
-#   fetch   `lake exe cache get` in the generated package: Lake clones the
-#           revisions the copied manifest pins and downloads Mathlib's prebuilt
-#           oleans. **Needs the network**, and is the path a Linux runner takes
-#           — a GitHub runner has no measurement target to clone from, only its
-#           checkout. The manifest still decides which Mathlib, so the two modes
-#           agree on the thing that has to be identical.
+#           `.lake/packages`: copy-on-write, ~0 real disk, no network, source
+#           read and never written. A symlink would not do — Lake writes into a
+#           package directory it believes it owns, and the measurement target may
+#           not be written to. **macOS only**: `cp -c` is a BSD extension and the
+#           filesystem has to be APFS.
+#   fetch   `lake exe cache get` in the generated package. **Needs the network**,
+#           and is the path a Linux runner takes — a GitHub runner has no
+#           measurement target to clone from, only its checkout.
 #   auto    (default) `clone` where `cp -Rc` works, `fetch` otherwise.
 #
-#   The two modes are NOT interchangeable for measurement: `fetch` leaves the
-#   oleans in the state a download leaves them in, `clone` in the state a
-#   copy-on-write leaves them in. Numbers from one are not numbers from the
-#   other; the mode is printed at the end so a log says which was used.
+# The two modes are NOT interchangeable for measurement — the oleans are left in
+# the state a download leaves them in, or in the state a copy-on-write leaves
+# them in — so the mode is printed at the end.
 #
-# THE POINT OF THE SOURCES: SIX BOUNDARY VALUES, ONE PER MODULE
-#   Plan §5, §7 and §8 each name an input that "does not occur in the target
-#   package but can occur in a second one". They are all here, one per module so
-#   that a failure names itself:
-#
-#     Alpha/NulCode.lean      NUL inside a fenced code block  — MD4Lean SIGSEGVs
-#                             (`wrapper.c:558`); Rust substitutes U+FFFD
-#     Alpha/EmptyTable.lean   a GFM table with no body row    — MD4Lean SIGABRTs
-#                             (`wrapper.c:389`); Rust emits an empty body
-#     Alpha/AstralNames.lean  declaration names above the BMP (U1): UTF-16 code
-#                             unit order and code point order **disagree**
-#     Alpha/HeadingSplit.lean a heading containing U+2B96, one of the 4,802 code
-#                             points where UnicodeBasic and V8 disagree (§5.3)
-#     Alpha/Odd-Name.lean     a module whose name needs `«…»` (M5-a trap 4)
-#     Alpha/Private.lean      `_private.` names (決定 5)
-#     Beta/TokenSep.lean      U+088F inside a docstring code span — a separator
-#                             for V8 and not for UnicodeBasic (§8, V6)
-#     Beta/DupNames.lean      forces another module's equation lemmas, which is
-#                             how one name comes to be in two modules' oleans
+# The sources carry, one per module so that a failure names itself, inputs that
+# do not occur in the measurement target but can occur in a second package.
 #
 # usage:
 #   make-target2.sh [--out <dir>] [--force] [--deps auto|clone|fetch]
@@ -95,8 +65,8 @@ done
 
 case "$DEPS" in auto | clone | fetch) ;; *) echo "unknown --deps: $DEPS" >&2; usage ;; esac
 
-# The one rule this script cannot get wrong: it never writes inside the
-# measurement target. Stated against the path rather than assumed.
+# Stated against the path rather than assumed: this script never writes inside
+# the measurement target.
 case "$OUT" in
   "$SRC"|"$SRC"/*) echo "refusing to write inside the measurement target" >&2; exit 2 ;;
 esac
@@ -125,12 +95,8 @@ fi
 
 mkdir -p "$OUT/.lake"
 
-# ---------------------------------------------------------------- the packages
-#
-# Decided here and reported at the end, because the two modes leave the oleans
-# in different states and a number taken on one is not a number taken on the
-# other. The probe is the operation itself: `cp -c` is a BSD flag and clonefile
-# needs APFS, so asking the kernel is more honest than asking `uname`.
+# The probe is the operation itself: `cp -c` is a BSD flag and clonefile needs
+# APFS, so asking the kernel is more honest than asking `uname`.
 if [ "$DEPS" = auto ]; then
   probe="$OUT/.lake/.clonefile-probe"
   : > "$probe"
@@ -144,31 +110,22 @@ if [ "$DEPS" = clone ]; then
   time cp -Rc "$SRC/.lake/packages" "$OUT/.lake/packages"
 fi
 
-# Both modes: the revisions come from the measurement target's manifest, never
-# from a resolution run here.
 cp "$SRC/lean-toolchain" "$OUT/lean-toolchain"
 cp "$SRC/lake-manifest.json" "$OUT/lake-manifest.json"
 
-# ---------------------------------------------------------------- the lakefile
-#
 # **Two `[[lean_lib]]` blocks**, which is the shape the measurement target does
-# not have (it declares one). `litedoc4 build` derives `--lib` from this file
-# (`crates/litedoc4/src/lakefile.rs`), and a recogniser that reads only the first
-# block would document half the package and report success — the silent
-# under-read that file is written against. Here it has two to find.
+# not have (it declares one): a `--lib` recogniser that reads only the first
+# block would document half the package and report success. Here it has two to
+# find.
 #
-# THE `[[require]]` BLOCK IS DERIVED FROM THE MANIFEST, NOT WRITTEN HERE
-#   Lake refuses a `[[require]]` the manifest does not pin, and the measurement
-#   target's manifest is not this script's to keep still. It used to be copied
-#   verbatim — loogle, mathlib and doc-gen4 — and on 2026-08-16 the target moved
-#   its development tools behind a condition (`c4f6af29`), so `doc-gen4` left the
-#   manifest and the copy became a lakefile Lake will not resolve:
-#   **`error: dependency '«doc-gen4»' not in manifest`**【実測 2026-08-16, CI】.
-#   The clone path never saw it, because it never asks Lake to resolve anything.
-#
-#   Only mathlib is required: it is the only dependency these sources import.
-#   The other eight entries in the manifest are mathlib's own transitive set,
-#   which Lake reads from the same file.
+# The `[[require]]` block is derived from the copied manifest rather than written
+# out, because Lake refuses a `[[require]]` the manifest does not pin and the
+# measurement target's manifest is not this script's to keep still — a verbatim
+# copy became a lakefile Lake will not resolve when the target moved doc-gen4
+# behind a condition: **`error: dependency '«doc-gen4»' not in manifest`**
+# 【実測 2026-08-16, CI】. The clone path never saw it, because it never asks
+# Lake to resolve anything. Only mathlib is required — the other manifest entries
+# are its own transitive set, which Lake reads from the same file.
 command -v jq > /dev/null || { echo "jq is required to read the copied manifest" >&2; exit 1; }
 MATHLIB_SCOPE="$(jq -r '.packages[] | select(.name == "mathlib") | .scope // ""' "$OUT/lake-manifest.json")"
 MATHLIB_REV="$(jq -r '.packages[] | select(.name == "mathlib") | .inputRev // .rev // ""' "$OUT/lake-manifest.json")"
@@ -203,7 +160,6 @@ name = "Beta"
 globs = ["Beta", "Beta.+"]
 TOML
 
-# ----------------------------------------------------------------- the sources
 mkdir -p "$OUT/Alpha" "$OUT/Beta"
 
 cat > "$OUT/Alpha.lean" <<'LEAN'
@@ -284,12 +240,12 @@ def emptyTable : Nat := 2
 end Alpha.EmptyTable
 LEAN
 
-# U+1D49C MATHEMATICAL SCRIPT CAPITAL A is inside Lean's letter-like range, so
-# it is an ordinary identifier character; U+FB00 is not, so `«…»` is needed. The
+# U+1D49C MATHEMATICAL SCRIPT CAPITAL A is inside Lean's letter-like range, so it
+# is an ordinary identifier character; U+FB00 is not, so `«…»` is needed. The
 # pair is the point: `«𝒜-z»` sorts **before** `«ﬀ-z»` in UTF-16 code unit order
-# (D835 < FB00) and **after** it by code point (1D49C > FB00). Every file whose
-# bytes are made by one of the prototype's bare `.sort()` calls — name-map.json,
-# declaration-data.bmp, navbar.html — is decided by that order (plan §7, U1).
+# (D835 < FB00) and **after** it by code point (1D49C > FB00). Every sorted
+# output — name-map.json, declaration-data.bmp, navbar.html — is decided by that
+# order.
 cat > "$OUT/Alpha/AstralNames.lean" <<'LEAN'
 import Alpha.Basic
 
@@ -313,7 +269,7 @@ LEAN
 # U+2B96 is unassigned in V8's UCD (general category Cn ⊂ C) and assigned in the
 # UnicodeBasic the target's doc-gen4 was built against. A heading id is built by
 # splitting on that table, so this is the input that separates them — and unlike
-# the token separators, a heading id reaches `id=` and `href=#` (plan §5.3).
+# the token separators, a heading id reaches `id=` and `href=#`.
 cat > "$OUT/Alpha/HeadingSplit.lean" <<'LEAN'
 import Alpha.Basic
 
@@ -336,8 +292,8 @@ perl -CSD -0777 -i -pe 's/\@\@U2B96\@\@/\x{2b96}/g' "$OUT/Alpha/HeadingSplit.lea
 # identifier character, so `Name.toString` escapes the component and
 # `Name.toString (escape := false)` does not. The `.lidx` writer uses the second
 # spelling for module names and the first for declaration names
-# (`Extract.lean:writeLinkIndex`), and M5-a recorded that as a divergence this
-# target cannot exhibit. This is the target that can.
+# (`Extract.lean:writeLinkIndex`); the measurement target cannot exhibit that
+# divergence and this package can.
 cat > "$OUT/Alpha/Odd-Name.lean" <<'LEAN'
 import Alpha.Basic
 
@@ -395,8 +351,8 @@ end Beta.Basic
 LEAN
 
 # U+088F ARABIC HALF MADDA OVER MADDA: the first of the 4,803 code points V8
-# splits tokens on and UnicodeBasic does not (plan §8, V6 —
-# `benchmarks/results/m2b-v6-token-separators.json`). It is inside a code span
+# splits tokens on and UnicodeBasic does not 【実測 →
+# benchmarks/results/m2b-v6-token-separators.json】. It is inside a code span
 # because that is the only place `ModuleFacts::tokens` looks
 # (`litedoc4-global/src/facts.rs`).
 cat > "$OUT/Beta/TokenSep.lean" <<'LEAN'
@@ -451,32 +407,27 @@ theorem step_succ (n : Nat) : Alpha.Basic.step (n + 1) = n := by
 end Beta.DupNames
 LEAN
 
-# ------------------------------------------------------------ the oleans (CI)
-#
 # Last, because Lake needs the lakefile and the sources to exist before it will
-# resolve anything, and because a failure here should leave a package that is
-# complete except for its dependencies rather than a half-written tree.
+# resolve anything, and because a failure here should leave a package complete
+# except for its dependencies rather than a half-written tree.
 if [ "$DEPS" = fetch ]; then
   echo "### lake exe cache get in $OUT (network; revisions pinned by the copied manifest)"
   (cd "$OUT" && lake exe cache get)
 fi
 
-# -------------------------------------------------------------------- the repo
-#
 # `litedoc4 build` derives `--source-url` from git: `HEAD` has to be 40 hex
-# digits (plan 決定 1 — the acceptance oracle normalises `/blob/[0-9a-f]{40}/`
-# and nothing else) and the remote has to be a github.com one, because the
-# `/blob/<rev>/<path>` shape is GitHub's and a guessed one 404s on every
-# declaration of every page (M4-d). Nothing is ever pushed there.
+# digits and the remote a github.com one, because the `/blob/<rev>/<path>` shape
+# is GitHub's and a guessed one 404s on every declaration of every page. Nothing
+# is ever pushed there.
 cat > "$OUT/.gitignore" <<'IGNORE'
 /.lake
 IGNORE
 #
 # **The commit's dates are fixed**, so HEAD is the same 40 hex digits every time
-# this script runs. That is not cosmetic: `--source-url` carries the revision and
-# the revision reaches every page's bytes, so a re-generated target 2 with a new
-# HEAD would make every number measured on the old one incomparable — and
-# /private/tmp is emptied often enough that re-generating is the normal case.
+# this script runs. `--source-url` carries the revision and the revision reaches
+# every page's bytes, so a re-generated target 2 with a new HEAD would make every
+# number measured on the old one incomparable — and /private/tmp is emptied often
+# enough that re-generating is the normal case.
 git -C "$OUT" init -q
 git -C "$OUT" add -A
 GIT_AUTHOR_DATE="2026-08-15T00:00:00+0000" GIT_COMMITTER_DATE="2026-08-15T00:00:00+0000" \

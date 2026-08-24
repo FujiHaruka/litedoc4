@@ -1,20 +1,6 @@
 #!/usr/bin/env bash
-# M3-d4 — the real gate: two **real** edits inside a clone of the measurement
-# target, each followed by a real `lake build`, each run through the incremental
-# pipeline.
-#
-# **M7-c moved dependency links, and this compares against a doc-gen4-era
-# reference.** Every link into a dependency is now that package's version-pinned
-# GitHub blob URL whenever the run resolves a package root (`build` always does;
-# `site` and `render` do when given `--root`), so a diff here is **expected** and
-# is no longer a failure of the port. Gate A is suspended, not redefined.
-#
-# **Rust only.** Until 2026-08-16 this script also ran the two scenarios through
-# the TS prototype (`--impl ts`) and gate 2 compared the two records.
-# `experiments/` was removed, so **that comparison can no longer be made from this
-# tree** — the prototype exists only at tag `experiments-frozen`. Gate 1, which is
-# the one that decides correctness, is a within-implementation question and is
-# untouched.
+# Two **real** edits inside a clone of the measurement target, each followed by a
+# real `lake build`, each run through the incremental pipeline.
 #
 # **The sibling of tools/incremental-reference.sh**: same per-scenario record
 # shape (`<s>-counts.json` / `<s>-work/` / `<s>-status.txt` /
@@ -26,129 +12,74 @@
 #                            [--move-module <Module>]
 #   phases: setup | move | delete | reset | all
 #
-# ============================================================================
-# WHY THIS EXISTS — the path M3-d3 never walked 【実測 2026-08-15】
-# ============================================================================
-#   M3-d3 injected change with `ledger touch`, which invalidates a ledger entry
-#   and **does not touch the olean**. Re-extracting a module whose olean did not
-#   move reproduces its IR byte for byte, so across all seven scenarios
-#   `irChanged` was 0 wherever the change was injected, **`staleFound` (L3-1) was
-#   0 in 7 of 7** and **`globalStale` (L3-2) was 0 in 7 of 7** — and no run ever
-#   reached a second round. The two derivations that make this pipeline
-#   non-trivial were only ever compared **on the empty answer**.
+# **Why the edits are real.** `ledger touch` invalidates a ledger entry and does
+# not touch the olean, and re-extracting a module whose olean did not move
+# reproduces its IR byte for byte — so a harness built on it drove `staleFound`
+# and `globalStale` to 0 in 7 of 7 scenarios and never reached a second round
+# 【実測 2026-08-15】: the two derivations that make this pipeline non-trivial
+# were only ever compared on the empty answer. Here the sources are really edited
+# and `lake build` really runs, so **`staleFound`, `globalStale` and `rounds >= 2`
+# have to come out non-empty** — if they do not, the module choice or the protocol
+# is wrong and the run must be stopped rather than "passed".
 #
-#   Here the sources are really edited and `lake build` really runs, so the
-#   oleans really move. **The point of the exercise is that `staleFound`,
-#   `globalStale` and `rounds >= 2` come out non-empty** — if they do not, the
-#   module choice or the protocol is wrong and the run must be stopped rather
-#   than "passed".
+# The two scenarios:
 #
-# ============================================================================
-# THE TWO SCENARIOS
-# ============================================================================
 #   move    `--move-module`'s body moves into a new module `…Core`; the original
-#           becomes a one-line shim (`tools/setup-clone.sh move … minimal`). Site
-#           denominator **439** = 432 pages + 6 whole-package artifacts + the new
-#           module's page.
+#           becomes a one-line shim. Site denominator **439** = 432 pages + 6
+#           whole-package artifacts + the new module's page.
 #
-#           THE MODULE IS A PARAMETER AND CHOOSING IT WRONG COSTS THE RUN ONE OF
-#           THE TWO DERIVATIONS. `setup-clone.sh:18-25` already says it must have
-#           **referrers**, or the move is invisible in the IR's `refs`. That is
-#           necessary and **not sufficient**: L3-1 and L3-2 key on different
-#           things, and a module can satisfy one and not the other.
-#
-#             L3-1 (`staleFound`) reads the IR's `refs` — who *names* a
-#                  declaration that moved.
-#             L3-2 (`globalStale`) reads [`ModuleFacts::tokens`], which is built
-#                  from **declaration docstrings' code spans and markdown link
-#                  targets only** (`facts.rs:94-108`) — who *documents* a name
-#                  that moved.
-#
-#           Measured on this package 【実測 2026-08-15】: only **7 of the 432
-#           modules** have any of their declarations named inside another module's
-#           docstring at all, so the second condition is the scarce one.
-#           `InformationTheory.Shannon.Huffman.Length` (declarations 27,
-#           referrersDirect 4) is *not* one of them — a whole move of it was run
-#           and produced **rounds 2, staleFound 1, globalStale 0**, gate 1 439/439
-#           identical. Real, and half the experiment.
-#           The default below is one of the 7 and has the widest reference set of
-#           them 【実測 census + `litedoc4 global --before`】: declarations 25,
-#           directImports 2, importedByDirect 6, importersTransitive 37,
-#           **referrersDirect 33**, and its names are documented by
-#           `…BroadcastChannel.Marton.Basic`, so the map delta reports 25 names
-#           moved and 1 module affected.
+#           **The module is a parameter and choosing it wrong costs the run one of
+#           the two derivations.** Having referrers is necessary and not
+#           sufficient: `staleFound` reads the IR's `refs` — who *names* a moved
+#           declaration — while `globalStale` reads `ModuleFacts::tokens`, built
+#           from declaration docstrings' code spans and markdown link targets only
+#           — who *documents* one. Only **7 of the 432 modules** have any of their
+#           declarations named inside another module's docstring at all, so the
+#           second condition is the scarce one 【実測 2026-08-15】; the default
+#           below is the one of those 7 with the widest reference set 【実測
+#           census + `litedoc4 global --before`】: declarations 25,
+#           referrersDirect 33, documented by `…BroadcastChannel.Marton.Basic`, so
+#           the map delta reports 25 names moved and 1 module affected.
 #
 #   delete  `InformationTheory.Shannon.ArithmeticCoding`'s source file is deleted
 #           and the single `import` line naming it is removed from
 #           `InformationTheory.lean`. Chosen because it is imported by **exactly
-#           one** file 【実測: `rg -l '^import InformationTheory\.Shannon\.ArithmeticCoding$'`
-#           hits `InformationTheory.lean` and nothing else; census: declarations 6,
-#           importedByDirect 1, importersTransitive 1, referrersDirect 0】, so the
-#           build stays green after the deletion.
+#           one** file 【実測 census: declarations 6, importedByDirect 1,
+#           importersTransitive 1, referrersDirect 0】, so the build stays green.
 #           **Lake does not delete the orphaned olean** and this script leaves it
 #           where it is: the module list is a glob over the *sources*, so the
 #           module correctly reads as gone, and the orphan is the field test of
-#           「孤児 olean を拾わない」 (plan §5, M3-d).
+#           not picking orphaned oleans up.
 #           Site denominator **437** = 431 pages + 6 whole-package artifacts.
 #
-# ============================================================================
-# THE GATE
-# ============================================================================
-#   GATE 1 (recorded in `<s>-sitecheck.txt`)
-#     INCREMENTAL — the base {ir, pages, ledger, state} copied, then
-#     `litedoc4 incremental` over the **post-edit** module list — is compared with
-#     `/usr/bin/diff -r` against FROM-SCRATCH: the same post-edit module list
-#     extracted from zero and put through `litedoc4 site`. Bytes, whole tree, plus
-#     the same comparison one layer down on the IR.
-#     This is a *within-implementation* question and it is the one that decides
-#     whether the pipeline is correct.
+# **The gate** (recorded in `<s>-sitecheck.txt`): INCREMENTAL — the base
+# {ir, pages, ledger, state} copied, then `litedoc4 incremental` over the
+# **post-edit** module list — compared with `/usr/bin/diff -r` against
+# FROM-SCRATCH, the same post-edit module list extracted from zero and put
+# through `litedoc4 site`. Bytes, whole tree, plus the same comparison one layer
+# down on the IR.
 #
-#   There used to be a GATE 2: the same two scenarios run under `--impl ts` and
-#   the two records put through `tools/incremental-compare.sh`. It went with
-#   `experiments/` on 2026-08-16. It never compared page bytes anyway 【決定 4,
-#   実測】 — the prototype rendered without `--link-index`, which moves 150 of the
-#   432 pages' bytes — so what it added over gate 1 was a second opinion on the
-#   *answers*, from an implementation that is now frozen.
+# **The protocol.** The clone is a baseline only if its oleans were built **at
+# the clone's own path** (`tools/rebuild-own.sh`); without that the moved
+# module's referrers rebuild for the wrong reason and **the gate passes for a
+# reason nobody meant**. `require_baseline` checks that with `strings`, checks
+# `git status` is clean, checks Lake reports every target up to date, and — once
+# a base ledger exists — checks the ledger's own fixed point (0 changed, 0 added,
+# 0 removed against the base IR), which is what says a `reset` really put the
+# oleans back.
 #
-# ============================================================================
-# THE PROTOCOL — what has to be true before an edit, and after the reset
-# ============================================================================
-#   The clone is a baseline only if its oleans were built **at the clone's own
-#   path** (`tools/rebuild-own.sh`). Without that the moved module's
-#   referrers would rebuild for the wrong reason and **the gate would pass for a
-#   reason nobody meant** (stage 5e (e)). `require_baseline` checks it with
-#   `strings`, checks `git status` is clean, checks Lake reports every target up
-#   to date, and — once a base ledger exists — checks the ledger's own fixed
-#   point: 0 changed, 0 added, 0 removed against the base IR. That last one is
-#   what says a `reset` really put the oleans back.
+# **Nothing outside $OUT, $OUT.work, $SHARED and the clone's sources is
+# written.** The measurement target is never opened for writing; the clone's
+# `.lake/build/doc` is never touched; no `git commit` is ever run.
 #
-#   NOTHING OUTSIDE $OUT, $OUT.work, $SHARED AND THE CLONE'S SOURCES IS WRITTEN.
-#   The measurement target is never opened for writing by anything here; the
-#   clone's `.lake/build/doc` (doc-gen4's reference tree) is never touched; no
-#   `git commit` is ever run.
-#
-# ============================================================================
-# WHAT IS SHARED BETWEEN RUNS, AND WHAT IS NOT
-# ============================================================================
-#   The split below was drawn when this script drove two implementations. **It is
-#   kept**: `--shared` still lets a second `--out` reuse an extraction that costs
-#   minutes, and the reasons the seed may not be shared are properties of the
-#   ledger, not of the prototype.
-#
-#   SHARED (built once, in $SHARED)
-#     the module lists (before / after each edit) and every IR tree the
-#     **extractor** produces — base IR and the two from-scratch IRs. The
-#     extraction is deterministic given the module list, so producing these twice
-#     would only add a way for two runs to be handed different inputs.
-#     One module list is built here 【M3-d2 実測】: the extractor keeps the order
-#     it is given, and that order makes the bytes of the ledger's `modules` array
-#     and of the merged `index.json`.
-#
-#   PER RUN (in $OUT.work/fixtures)
-#     `base-site/`, `base-state/`, `base-ledger.json`. `extractKey.extractor` and
-#     `STATE_DERIVATION` are **designed** to differ between implementations (plan
-#     §6): feeding one implementation's seed to another reports every module
-#     changed and measures the key mismatch instead of the pipeline.
+# Shared between runs, in $SHARED: the module lists (before / after each edit)
+# and every IR tree the **extractor** produces. Extraction is deterministic given
+# the module list, so producing these twice would only add a way for two runs to
+# be handed different inputs. Not shared, per run in $OUT.work/fixtures:
+# `base-site/`, `base-state/`, `base-ledger.json` — `extractKey.extractor` and
+# `STATE_DERIVATION` are **designed** to differ between implementations, so one
+# run's seed under another reports every module changed and measures the key
+# mismatch instead of the pipeline.
 
 set -euo pipefail
 
@@ -160,12 +91,10 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SETUP_CLONE="$REPO/tools/setup-clone.sh"
 RUST_BIN="$REPO/target/release/litedoc4"
 # The Lean extractor (IR schema 5), built by extractor/build.sh. Its own CLI is
-# `extract <modules> <events> [flags]`; what turns that into the
-# `--modules --ir-dir --timings` contract the pipeline's `--extractor` speaks is
-# `litedoc4 extract` — the job the frozen `stage7g/extract-once.sh` used to do.
-# `EXTRACT_BIN` is the same environment variable `litedoc4 extract` reads, so
-# overriding it here and overriding it for a bare `litedoc4 extract` mean the
-# same thing.
+# `extract <modules> <events> [flags]`; `litedoc4 extract` is what turns that into
+# the `--modules --ir-dir --timings` contract the pipeline's `--extractor` speaks.
+# This is the same environment variable `litedoc4 extract` reads, so overriding it
+# here and overriding it for a bare `litedoc4 extract` mean the same thing.
 EXTRACT_BIN="${EXTRACT_BIN:-$REPO/extractor/build/extract}"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 # `diff` is aliased to a colordiff that is not installed here; its exit 127 reads
@@ -186,7 +115,7 @@ SHARED=
 LIDX=/private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx
 LIB=InformationTheory
 JOBS=4
-# See the heading: the default is a module that exercises **both** L3-1 and L3-2.
+# The default exercises **both** derivations — `staleFound` and `globalStale`.
 MOVE_MODULE=InformationTheory.Shannon.BroadcastChannel.Basic
 
 while [ $# -gt 0 ]; do
@@ -207,9 +136,7 @@ SHARED="${SHARED:-$ROOT/shared}"
 WORKROOT="$OUT.work"
 FIX="$WORKROOT/fixtures"
 
-# The measurement target. Named only so that every path this script writes can be
-# checked against it. This is a guard, so it reads TARGET_REPO_BASELINE, the name
-# nothing can override — see tools/lib/target.sh.
+# A guard, so it reads TARGET_REPO_BASELINE — the name nothing can override.
 case "$CLONE" in
   "$TARGET_REPO_BASELINE"|"$TARGET_REPO_BASELINE"/*)
     echo "the clone may not be inside the measurement target" >&2; exit 2 ;;
@@ -227,10 +154,9 @@ command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 # spawns the extractor as a child, so this is exported as well as passed.
 export TARGET_REPO="$CLONE"
 
-# The clone's own HEAD, 40 lower-case hex digits, because `litedoc4 incremental`
-# refuses anything else (plan 決定 1). Unquoted on every use below: a
-# `--source-url` that still carries its quotes renders into every page and turns
-# the whole site into a difference.
+# 40 lower-case hex digits, because `litedoc4 incremental` refuses anything else.
+# Unquoted on every use below: a `--source-url` that still carries its quotes
+# renders into every page and turns the whole site into a difference.
 REV="$(git -C "$CLONE" rev-parse HEAD)"
 case "$REV" in
   [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
@@ -238,7 +164,6 @@ case "$REV" in
 esac
 URL="https://github.com/FujiHaruka/information-theory/blob/$REV"
 
-# The move's parameters, and the module the deletion removes.
 A_MOD="$MOVE_MODULE"
 X_MOD="${A_MOD}Core"
 A_REL="$(printf '%s' "$A_MOD" | tr '.' '/').lean"
@@ -263,8 +188,6 @@ global-delta.json prune.json"
 
 mkdir -p "$OUT" "$WORKROOT" "$FIX" "$SHARED"
 
-# ----------------------------------------------------------- the implementation
-
 ledger_build () { # ledger_build <modules> <ir> <out>
   "$RUST_BIN" ledger build --modules "$1" --target "$CLONE" --ir "$2" \
     --source-url "$URL" --out "$3"
@@ -278,9 +201,9 @@ base_site () { # one command: `site` writes the pages, the six artifacts and the
     --link-index "$LIDX" --state "$3"
 }
 # `--extractor-arg` values are in the order the program sees them, before the
-# three flags `pipeline.rs` appends (`--modules --ir-dir --timings`). This is the
-# same spelling tools/incremental-reference.sh's `--extractor product` uses, so
-# the two harnesses drive the extraction identically.
+# three flags `pipeline.rs` appends (`--modules --ir-dir --timings`) — the same
+# spelling tools/incremental-reference.sh's `--extractor product` uses, so the two
+# harnesses drive the extraction identically.
 pipeline () {
   "$RUST_BIN" incremental --ir "$1" --pages "$2" --ledger "$3" --work "$4" \
     --state "$5" --modules "$6" --mode "$7" --source-url "$URL" \
@@ -292,8 +215,6 @@ pipeline () {
     --extractor-arg --jobs --extractor-arg "$JOBS"
 }
 
-# ------------------------------------------------------------------- plumbing
-
 guard_writable () { # guard_writable <path>
   case "$1" in
     "$WORKROOT"/*|"$OUT"/*|"$SHARED"/*) ;;
@@ -303,9 +224,10 @@ guard_writable () { # guard_writable <path>
 
 nlines () { grep -c . "$1" 2>/dev/null || true; }
 
-# One module list, built under LC_ALL=C from the clone's **sources**, checked
-# against `litedoc4 modules`, and handed to both implementations. The check is
-# what documents the trap (M3-d2) instead of merely avoiding it.
+# Built under LC_ALL=C from the clone's **sources** and checked against
+# `litedoc4 modules`: the order makes the bytes of the ledger's `modules` array
+# and of the merged `index.json`, and the check documents that instead of merely
+# avoiding it.
 modlist () { # modlist <out file>
   guard_writable "$1"
   ( cd "$CLONE" && LC_ALL=C find "$ROOT_LEAN" "$LIB" -name '*.lean' | LC_ALL=C sort ) \
@@ -321,12 +243,11 @@ modlist () { # modlist <out file>
   echo "  $(nlines "$1") modules -> $1"
 }
 
-# An IR tree is reused only when it is a tree of **exactly** the modules asked
-# for, in the order asked for. Keying the cache on the scenario's name alone is
-# not enough: `--move-module` changes which modules the post-move list holds
-# while the scenario is still called `move`, and a stale tree then becomes the
-# from-scratch side of gate 1. Measured, not imagined — it happened on the first
-# run with a second module, and gate 1 caught it as 42 differing files.
+# Reused only when it is a tree of **exactly** the modules asked for, in the order
+# asked for. Keying on the scenario's name is not enough: `--move-module` changes
+# which modules the post-move list holds while the scenario is still called
+# `move`, and a stale tree then becomes the from-scratch side of the gate — which
+# happened, and showed up as 42 differing files 【実測】.
 extract_all () { # extract_all <modules> <ir dir> <log prefix>
   guard_writable "$2"
   if [ -f "$2/index.json" ]; then
@@ -355,8 +276,6 @@ r=json.load(open('$3.json'))
 print('  extract: %.2f s, %s modules' % (r.get('total',0.0), r.get('targetModules','?')))"
 }
 
-# ------------------------------------------------------------- the clone's state
-#
 # baseline | moved | deleted | unknown. Every phase states which one it needs.
 clone_state () {
   local dirty x del
@@ -369,9 +288,9 @@ clone_state () {
   else echo unknown; fi
 }
 
-# The oleans must have been built at the clone's own path. If they were copied
-# from the measurement target, the referrers of a moved declaration rebuild for
-# the wrong reason and **the gate passes for a reason nobody meant** (stage 5e).
+# If the oleans were copied from the measurement target rather than built at the
+# clone's own path, the referrers of a moved declaration rebuild for the wrong
+# reason and **the gate passes for a reason nobody meant**.
 require_own_oleans () {
   local probe="$CLONE/.lake/build/lib/lean/${A_MOD//.//}.olean"
   local dump="$WORKROOT/olean-strings.txt"
@@ -420,10 +339,8 @@ require_baseline () { # require_baseline <tag>
   fi
 }
 
-# --------------------------------------------------------------- the recording
-# Identical in shape to tools/incremental-reference.sh, so that
+# The recording is identical in shape to tools/incremental-reference.sh's, so that
 # tools/incremental-compare.sh reads this tree with no change at all.
-
 record () { # record <name> <status>
   printf '%s\n' "$2" > "$OUT/$1-status.txt"
   if [ -s "$OUT/$1-stderr.txt" ]; then
@@ -485,15 +402,12 @@ page_list () { # page_list <name> <page tree>
   printf 'files %s\n' "$(nlines "$OUT/$name-pages.txt")" > "$OUT/$name-pages-count.txt"
 }
 
-# GATE 1. Skipped by the comparator (it is a within-run oracle, not a record two
-# runs share — decision 4). It asks the only question that decides correctness:
-# **did the incremental run leave the tree a from-scratch run would have
-# written**, byte for byte, at both layers.
-#
-# Note this is a *stronger* form than M3-d3's `<s>-sitecheck.txt`, which
-# re-rendered the IR the round left behind. Here the from-scratch side is an
-# independent extraction of the post-edit sources, so a merge that produced a
-# wrong IR cannot cancel out.
+# Skipped by the comparator — a within-run oracle, not a record two runs share. It
+# asks the only question that decides correctness: **did the incremental run leave
+# the tree a from-scratch run would have written**, byte for byte, at both layers.
+# The from-scratch side is an independent extraction of the post-edit sources, not
+# a re-render of the IR the round left behind, so a merge that produced a wrong IR
+# cannot cancel out.
 gate1 () { # gate1 <name> <live dir> <from-scratch ir> <from-scratch site> <expected files>
   local name="$1" d="$2" fir="$3" fsite="$4" expect="$5"
   local inc_files scratch_files ir_status site_status
@@ -534,8 +448,6 @@ gate1 () { # gate1 <name> <live dir> <from-scratch ir> <from-scratch site> <expe
   } > "$OUT/$name-sitecheck.txt"
   cat "$OUT/$name-sitecheck.txt"
 }
-
-# ------------------------------------------------------------------ the phases
 
 # setup — the base every scenario starts from. Needs the clone at baseline and
 # leaves it there.
