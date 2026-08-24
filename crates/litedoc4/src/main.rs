@@ -1,8 +1,5 @@
-//! The `litedoc4` binary: dispatch, and nothing else.
-//!
-//! Everything the subcommands are made of is in the library beside this file
-//! (`lib.rs`), so that a test of a command line does not have to start a
-//! process to reach it.
+//! The `litedoc4` binary: dispatch, and nothing else. Everything the
+//! subcommands are made of is in `lib.rs`.
 
 use std::process::ExitCode;
 

@@ -1,23 +1,16 @@
 //! Linking a dependency's declarations at **its own documentation site**,
 //! for the names that site was verified to document.
 //!
-//! Feature **A-1**. Everything that touches
-//! the network is here, and nothing downstream of this file knows there is a
-//! network: [`litedoc4_render::DepDocs`] is a value — a base URL and two
-//! name -> page maps — and [`litedoc4_render::ExternalLinks`] is where the
-//! renderer reads it.
+//! Everything that touches the network is here, and nothing downstream of this
+//! file knows there is a network.
 //!
-//! # The rule is one rule
-//!
-//! A dependency's documentation is built from *a* revision (mathlib4_docs from
-//! `master`; no versioned copy exists 【実測 2026-08-19,
+//! **The rule.** A dependency's documentation is built from *a* revision
+//! (mathlib4_docs from `master`; no versioned copy exists 【実測 2026-08-19,
 //! `benchmarks/results/deps-link-rot-2026-08-19.txt` §9】) and the manifest pins
-//! *another*, so the two can disagree about whether a name exists. The answer is
-//! not to link optimistically and hope:
+//! *another*, so the two can disagree about whether a name exists:
 //!
 //! * the site's declaration table holds the name ⇒ **the docs page**;
-//! * it does not ⇒ **the version-pinned source**, which is what every
-//!   dependency link was before this feature;
+//! * it does not ⇒ **the version-pinned source**;
 //! * the table could not be read at all ⇒ **the version-pinned source for
 //!   everything of that root**, and the run says so on its own line.
 //!
@@ -26,44 +19,33 @@
 //! 【実測】 at a two month pin the fallback fires 0 times in 396 names; 【外挿】
 //! at twelve months, 10.3 times.
 //!
-//! # Why `curl` and not an HTTP client
+//! **`curl` rather than an HTTP client**, which would be a dependency tree with
+//! a TLS implementation under it for one GET per build of an optional feature —
+//! so this shells out as [`crate::build`] does to `git` and [`crate::extract`]
+//! to `lake`. A missing `curl` is refused by name; a `curl` that ran and failed
+//! is the "table could not be read" state above.
 //!
-//! This workspace depends on `serde_json`, `sha2` and its own crates. An HTTP
-//! stack is a dependency tree with a TLS implementation under it, for one GET
-//! per build of an optional feature — so the fetch shells out, exactly as
-//! [`crate::build`] shells out to `git` and [`crate::extract`] to `lake`. A
-//! missing `curl` is refused **by name**; a `curl` that ran and failed is the
-//! "table could not be read" state above, because that is what it is.
-//!
-//! # What is kept in memory, and what is not
-//!
-//! The real table is **66,715,005 B of JSON with 420,714 declarations and
-//! 11,351 modules** 【実測 2026-08-19】, and a build of the measurement target
-//! already peaks near 4 GB. So it is streamed, and the two halves are bounded
+//! **The table is streamed**: the real one is 66,715,005 B of JSON with 420,714
+//! declarations and 11,351 modules 【実測 2026-08-19】 and a build of the
+//! measurement target already peaks near 4 GB. The two halves are bounded
 //! differently because their smallest available bound differs:
 //!
 //! * **declarations are kept only if this run can refer to them** — the names
-//!   in the IR's own `deps/*.json` slices, 527 of them on the target. The
-//!   request set exists, so it is used.
+//!   in the IR's own `deps/*.json` slices, 527 of them on the target;
 //! * **modules are kept in full for the roots being linked** (11,351 entries at
 //!   most, about a megabyte). There is no request set for them: the import list
 //!   is not in `index.json`, so building one would mean reading every module
 //!   file — a whole extra pass over the IR, which is a number this project
 //!   reports and gates on (`work.irReads`).
 //!
-//! A name resolved only through the `.lidx` — a docstring that mentions a
-//! dependency's declaration nothing in this package refers to — is **not** in
-//! the request set and keeps its source link. The run's line names its own
-//! denominator so that this is readable off the log rather than inferred.
+//! A name resolved only through the `.lidx` — a docstring mentioning a
+//! declaration nothing in this package refers to — is not in the request set and
+//! keeps its source link, which is why the run's line names its own denominator.
 //!
-//! # When it is resolved
-//!
-//! **Once per run, from the IR tree whose render key the ledger is about to
-//! record.** On a full generation that is the tree the extraction just wrote; on
-//! an incremental run it is the tree the round starts from, because the render
-//! key has to be known before `detect` compares it with the ledger's. Resolving
-//! it twice in one run is how the pages and the ledger would come to disagree,
-//! and a disagreement there re-renders every page on every run for ever.
+//! **Resolved once per run**, from the IR tree whose render key the ledger is
+//! about to record. Resolving it twice in one run is how the pages and the
+//! ledger would come to disagree, and a disagreement there re-renders every page
+//! on every run for ever.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -77,38 +59,22 @@ use serde::de::{DeserializeSeed, Deserializer, Error as _, IgnoredAny, MapAccess
 
 use crate::{Failure, usage};
 
-/// Where doc-gen4 writes the declaration table under a site's root, and
-/// therefore the default for `--deps-docs-index`.
-///
-/// The extension says `bmp` and the bytes are JSON; that is the other side's
-/// choice and copying it is how the default finds the file.
+/// Where doc-gen4 writes the declaration table under a site's root. The
+/// extension says `bmp` and the bytes are JSON; that is the other side's choice
+/// and copying it is how the default finds the file.
 const DEFAULT_INDEX: &str = "declarations/declaration-data.bmp";
 
-/// How long `curl` may spend getting a connection.
-///
-/// Not a read timeout: 5.7 MB gzipped 【実測】 over a slow link is a long
-/// download and a correct one. What this catches is a host that never answers,
-/// which would otherwise hang a build with no output at all.
+/// The handshake only: 5.7 MB gzipped 【実測】 over a slow link is a long
+/// download and a correct one. This catches a host that never answers.
 const CONNECT_TIMEOUT: &str = "10";
 
-/// `--max-time`, the whole transfer.
-///
-/// `--connect-timeout` bounds the handshake and nothing after it, so a stalled
-/// transfer hangs the build with no output — which is the shape of doc-gen4
-/// #404 ("lake build … hangs indefinitely"), one of the reports this feature
-/// exists because of. A ceiling is not a tuning knob: the measured fetch of
-/// mathlib4_docs' 5.7 MB gzipped table is 0.63 s 【実測 2026-08-19,
-/// benchmarks/results/deps-link-rot-2026-08-19.txt】, so anything near this is
-/// a link that is never going to finish, and the run says so and links to
-/// source instead.
+/// The whole transfer, which `--connect-timeout` does not bound — a stalled one
+/// would hang the build with no output. Not a tuning knob: the measured fetch of
+/// mathlib4_docs' table is 0.63 s 【実測 2026-08-19,
+/// benchmarks/results/deps-link-rot-2026-08-19.txt】, so anything near this is a
+/// link that is never going to finish.
 const MAX_TIME: &str = "120";
 
-// --------------------------------------------------------------- the request
-
-/// One `--deps-docs-url <Root>=<url>`, with the index that goes with it.
-///
-/// `Debug` so that a `Result<_, Failure>` can be `expect_err`ed in a test, as
-/// [`Failure`] itself is.
 #[derive(Debug)]
 pub(crate) struct Site {
     pub root: String,
@@ -116,11 +82,9 @@ pub(crate) struct Site {
     pub index: Source,
 }
 
-/// Where a declaration table is read from.
-///
-/// **A local path is not a testing convenience.** It is what makes the feature
-/// usable from a machine with no outbound network and what lets this file be
-/// tested at all — a test that needs mathlib4_docs to be up is not a test.
+/// Where a declaration table is read from. The local path is not a testing
+/// convenience: it is what makes the feature usable from a machine with no
+/// outbound network.
 #[derive(Debug)]
 pub(crate) enum Source {
     Url(String),
@@ -128,11 +92,10 @@ pub(crate) enum Source {
 }
 
 impl Source {
-    /// `http://` and `https://` are URLs; everything else is a path.
-    ///
-    /// A scheme this cannot fetch (`ftp://`, `file://`) would be handed to
-    /// `curl` as a path and fail to open with its own name in the message,
-    /// which is the right amount of guessing to do.
+    /// `http://` and `https://` are URLs; everything else is a path. A scheme
+    /// this cannot fetch (`ftp://`, `file://`) is handed to `curl` as a path and
+    /// fails to open with its own name in the message, which is the right amount
+    /// of guessing to do.
     fn parse(value: &str) -> Self {
         if value.starts_with("https://") || value.starts_with("http://") {
             Self::Url(value.to_owned())
@@ -149,11 +112,9 @@ impl Source {
     }
 }
 
-/// `--deps-docs-url` and `--deps-docs-index`, checked against each other.
-///
 /// Repeats and an index for a root with no site are refused rather than
 /// resolved: both are a caller saying two things about one root, and picking one
-/// of them is how a build ends up linking somewhere nobody asked for.
+/// of them is how a build links somewhere nobody asked for.
 pub(crate) fn parse(urls: &[String], indexes: &[String]) -> Result<Vec<Site>, Failure> {
     let mut sites: Vec<Site> = Vec::new();
     for raw in urls {
@@ -200,13 +161,9 @@ fn split(raw: &str, flag: &str) -> Result<(String, String), Failure> {
     }
 }
 
-/// Refuses a root that is not a dependency of the package being documented.
-///
-/// **Before anything is written**, because the answer is a typo or a package
-/// that is not there, and both are things to say now rather than after an
-/// extraction. It cannot be a warning: a run that quietly linked nowhere would
-/// be reported by the one line this feature prints as a run that linked
-/// nothing, which reads like a table that came out empty.
+/// Refused before anything is written, and refused rather than warned about: a
+/// run that quietly linked nowhere would print the line a table that came out
+/// empty prints.
 pub(crate) fn check_roots(sites: &[Site], links: &ExternalLinks) -> Result<(), Failure> {
     for site in sites {
         if links.base_for(&site.root).is_some() {
@@ -233,26 +190,20 @@ pub(crate) fn check_roots(sites: &[Site], links: &ExternalLinks) -> Result<(), F
     Ok(())
 }
 
-// -------------------------------------------------------------- the resolved
-
-/// One root's answer: the site, what was asked of it, and what it holds.
 #[derive(Debug)]
 pub(crate) struct Resolved {
     pub root: String,
-    /// How many names of this root the IR refers to — the denominator of the
-    /// line below, and the reason it is stored in the artifact rather than
-    /// recomputed: `litedoc4 render` has no IR request set of its own and has to
-    /// report the same fact `build` did.
+    /// How many names of this root the IR refers to. Stored in the artifact
+    /// rather than recomputed: `litedoc4 render` has no IR request set of its
+    /// own and has to report the same fact `build` did.
     pub requested_names: usize,
     pub docs: DepDocs,
 }
 
 impl Resolved {
-    /// The one line a run prints per documentation site.
-    ///
-    /// Both halves of the rule are in it, with their denominators: what went to
-    /// the site and what did not. A line that reported only the first would make
-    /// a table that answers nothing look like a table that answers everything.
+    /// Both halves of the rule with their denominators: a line reporting only
+    /// what went to the site would make a table that answers nothing look like
+    /// one that answers everything.
     fn line(&self) -> String {
         format!(
             "deps    {}: {}/{} name(s) and {} module(s) -> {}, {} name(s) not in the table -> \
@@ -268,12 +219,9 @@ impl Resolved {
     }
 }
 
-/// Attaches what was resolved to the source map, printing one line each.
-///
 /// The printing is here rather than at the two producers so that a run driven by
-/// `--deps-docs-url` and a run driven by `--deps-docs-map` report the same fact
-/// in the same words: the second is supposed to reproduce the first, and two
-/// spellings of the report would hide it when they stop doing so.
+/// `--deps-docs-url` and one driven by `--deps-docs-map` report the same fact in
+/// the same words: the second is supposed to reproduce the first.
 pub(crate) fn attach(links: &ExternalLinks, resolved: Vec<Resolved>) -> ExternalLinks {
     let mut entries: Vec<(String, DepDocs)> = Vec::with_capacity(resolved.len());
     for site in resolved {
@@ -283,12 +231,9 @@ pub(crate) fn attach(links: &ExternalLinks, resolved: Vec<Resolved>) -> External
     links.clone().with_docs(entries)
 }
 
-/// Reads every configured site's table and keeps what this IR can ask about.
-///
-/// A site whose table will not read costs that site and nothing else: its line
-/// says the whole root went to the source, and the map comes back without it —
-/// which is a *different digest* from a run that read it, so the ledger cannot
-/// record a half-applied feature as up to date.
+/// A site whose table will not read costs that site and nothing else: the map
+/// comes back without it, which is a *different digest* from a run that read it,
+/// so the ledger cannot record a half-applied feature as up to date.
 pub(crate) fn resolve(
     sites: &[Site],
     ir: &Path,
@@ -350,9 +295,6 @@ pub(crate) fn resolve(
     Ok(resolved)
 }
 
-// ---------------------------------------------------------- what is asked for
-
-/// The names this run can refer to, by the root that documents them.
 struct Want {
     /// Full name -> the root whose site would answer for it.
     names: BTreeMap<String, String>,
@@ -360,14 +302,12 @@ struct Want {
 
 impl Want {
     /// Every name in the IR's dependency slices whose **defining module** is
-    /// under one of `roots`.
-    ///
-    /// Bucketed by the defining module rather than by which `deps/<Package>.json`
-    /// the name was in, because that is the question the renderer asks:
-    /// [`litedoc4_render::ExternalLinks::docs_url_for`] finds the root from the
-    /// module the IR says a name lives in, so a name filed under one package and
-    /// defined in another root's module has to be filed here the same way or it
-    /// would be looked for in a site that was never asked about it.
+    /// under one of `roots` — bucketed by the defining module rather than by
+    /// which `deps/<Package>.json` the name was in, because that is the question
+    /// the renderer asks: [`litedoc4_render::ExternalLinks::docs_url_for`] finds
+    /// the root from the module the IR says a name lives in, so a name filed
+    /// under one package and defined in another root's module would otherwise be
+    /// looked for in a site that was never asked about it.
     fn of(ir: &Path, roots: &BTreeSet<String>) -> Result<Self, Failure> {
         let tree = litedoc4_ir::IrTree::open(ir).map_err(|source| Failure::io(ir, &source))?;
         let mut names = BTreeMap::new();
@@ -387,7 +327,6 @@ impl Want {
         Ok(Self { names })
     }
 
-    /// Which root would answer for a name, if any.
     fn owner(&self, name: &str) -> Option<&str> {
         self.names.get(name).map(String::as_str)
     }
@@ -397,9 +336,6 @@ impl Want {
     }
 }
 
-// ------------------------------------------------------------- reading a table
-
-/// Why a table did not produce a map.
 enum Problem {
     /// The machine cannot fetch at all. Refused by name, as a missing `git` is.
     Missing(String),
@@ -407,7 +343,6 @@ enum Problem {
     Unreadable(String),
 }
 
-/// What one pass over one table kept.
 #[derive(Debug, Default)]
 struct Found {
     /// root -> name -> `docLink`.
@@ -434,10 +369,8 @@ fn read(source: &Source, want: &Want, roots: &BTreeSet<String>) -> Result<Found,
 ///
 /// **The exit code that matters is `curl`'s, not the parser's.** A failed
 /// request produces an empty body, so the parser fails first with "expected a
-/// JSON object" — which is true and useless. So the child is waited for before
-/// any parse error is believed, and its own message wins. This is the trap
-/// CLAUDE.md records for `| tail` seen from the other side: the last stage of a
-/// pipeline is not the one that failed.
+/// JSON object" — true and useless. The child is waited for before any parse
+/// error is believed, and its own message wins.
 fn fetch(url: &str, want: &Want, roots: &BTreeSet<String>) -> Result<Found, Problem> {
     let mut child = Command::new("curl")
         // `--fail` so that an HTML error page is an exit code rather than a
@@ -488,11 +421,9 @@ fn fetch(url: &str, want: &Want, roots: &BTreeSet<String>) -> Result<Found, Prob
     parsed.map_err(Problem::Unreadable)
 }
 
-/// The streaming parse: the whole table in, the requested entries out.
-///
 /// Every value this run has no use for goes through [`IgnoredAny`], which walks
-/// the JSON without building it — that is what keeps a 66 MB table from
-/// becoming a 66 MB `Value` and then a map fifty times larger than the answer.
+/// the JSON without building it — that is what keeps a 66 MB table from becoming
+/// a 66 MB `Value`.
 fn parse_table<R: Read>(reader: R, want: &Want, roots: &BTreeSet<String>) -> Result<Found, String> {
     let mut found = Found::default();
     let mut de = serde_json::Deserializer::from_reader(reader);
@@ -512,12 +443,8 @@ fn parse_table<R: Read>(reader: R, want: &Want, roots: &BTreeSet<String>) -> Res
 }
 
 /// `{"declarations": {...}, "modules": {...}, …}` — the two sections that are
-/// read, and every other key skipped.
-///
-/// **Both sections are required.** A table with no `declarations` is not a table
-/// with nothing in it: it is a file of some other shape, and treating the two
-/// alike is how a run reports "0 names found" for a URL that answered with
-/// somebody's index page.
+/// read, and every other key skipped. Both are required: a table with no
+/// `declarations` is a file of some other shape, not a table with nothing in it.
 struct Table<'a> {
     want: &'a Want,
     roots: &'a BTreeSet<String>,
@@ -579,8 +506,6 @@ impl<'de> Visitor<'de> for Table<'_> {
     }
 }
 
-/// Which of the two sections is being walked. They differ in what a value looks
-/// like and in what decides whether an entry is kept.
 #[derive(Clone, Copy)]
 enum Kind {
     Declaration,
@@ -611,10 +536,9 @@ impl<'de> Visitor<'de> for Section<'_> {
 
     fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<(), M::Error> {
         while let Some(key) = map.next_key::<String>()? {
-            // Which root, if any, would answer for this entry. A declaration is
-            // answered by the root that defines it *according to this run's IR*;
-            // a module by its own first component, since there is nothing else
-            // it could belong to.
+            // A declaration is answered by the root that defines it *according
+            // to this run's IR*; a module by its own first component, since
+            // there is nothing else it could belong to.
             let root = match self.kind {
                 Kind::Declaration => self.want.owner(&key).map(str::to_owned),
                 Kind::Module => litedoc4_ir::module_components(&key)
@@ -646,9 +570,8 @@ impl<'de> Visitor<'de> for Section<'_> {
 ///
 /// `kind` is deliberately not read: it is the other side's classification and
 /// this side has its own out of the IR. Unknown keys are skipped rather than
-/// refused, because the table gains them — `sourceLink` and `line` are in the
-/// per-module files already — and a reader that broke on a new one would break
-/// on the day mathlib4_docs adds a field.
+/// refused, because the table gains them and a reader that broke on a new one
+/// would break on the day mathlib4_docs adds a field.
 #[derive(Deserialize)]
 struct DeclarationEntry {
     #[serde(rename = "docLink")]
@@ -666,21 +589,15 @@ struct ModuleEntry {
     url: String,
 }
 
-// -------------------------------------------------------------- the artifact
-
-/// The format version of the file [`write_map`] writes.
 const MAP_VERSION: u64 = 1;
 
 /// What `litedoc4 build` writes and `litedoc4 site` / `litedoc4 render` read.
 ///
-/// # Why an artifact and not the same flags on three commands
-///
-/// `crates/litedoc4-render/src/frame.rs:66-70` records the rule this follows:
-/// three commands render, and a flag that has to be repeated on all three is one
-/// that will be forgotten on one of them — after which two of the three disagree
-/// about what the site says, silently. So the resolution happens **once**, in
-/// the command that has a package and a network, and the other two read its
-/// answer. They cannot re-derive it and therefore cannot differ from it.
+/// An artifact rather than the same flags on all three commands: a flag that has
+/// to be repeated on three commands is one that will be forgotten on one of
+/// them, after which two of the three disagree about what the site says,
+/// silently. So the resolution happens once, in the command that has a package
+/// and a network, and the other two read its answer.
 fn write_map(path: &Path, resolved: &[Resolved]) -> Result<(), Failure> {
     let roots: Vec<serde_json::Value> = resolved
         .iter()
@@ -714,12 +631,10 @@ fn write_map(path: &Path, resolved: &[Resolved]) -> Result<(), Failure> {
     std::fs::write(path, body).map_err(|source| Failure::io(path, &source))
 }
 
-/// The artifact, read back.
-///
-/// Every shape that is not this one is **refused by name** rather than read as
-/// far as it goes: this file decides where a third of a page's links point, and
-/// a partial read of it would move some of them and not others with nothing in
-/// the output to say which.
+/// Every shape that is not this one is refused by name rather than read as far
+/// as it goes: this file decides where a third of a page's links point, and a
+/// partial read would move some of them and not others with nothing in the
+/// output to say which.
 pub(crate) fn read_map(path: &Path) -> Result<Vec<Resolved>, Failure> {
     let refuse = |why: String| Failure::Refused {
         code: crate::EXIT_REFUSED,
@@ -782,16 +697,12 @@ pub(crate) fn read_map(path: &Path) -> Result<Vec<Resolved>, Failure> {
 mod tests {
     use super::*;
 
-    /// The fixture table.
-    ///
-    /// **Written here, not copied from mathlib4_docs.** The real file is 66 MB
-    /// and its contents are somebody else's build; what a test needs is the
-    /// *shape*, which is doc-gen4's `JsonIndex`
-    /// (`DocGen4/Output/ToJson.lean`: `declarations`, `instances`, `modules`,
-    /// `instancesFor`, with a module's link under `url` and a declaration's
-    /// under `docLink`). Seven entries, chosen so that every branch of the rule
-    /// has a witness: a name asked for and present, one present and not asked
-    /// for, one asked for and absent, and a root that was never asked about.
+    /// The shape is doc-gen4's `JsonIndex` (`DocGen4/Output/ToJson.lean`:
+    /// `declarations`, `instances`, `modules`, `instancesFor`, with a module's
+    /// link under `url` and a declaration's under `docLink`). Seven entries, so
+    /// that every branch of the rule has a witness: a name asked for and
+    /// present, one present and not asked for, one asked for and absent, and a
+    /// root that was never asked about.
     const TABLE: &str = include_str!("../tests/data/declaration-data.json");
 
     fn want(pairs: &[(&str, &str)]) -> Want {
@@ -811,9 +722,6 @@ mod tests {
         parse_table(text.as_bytes(), want, roots)
     }
 
-    /// **Both directions of the rule, off one table.** `Dep.wanted` is asked for
-    /// and is there; `Dep.gone` is asked for and is not; `Dep.unwanted` is there
-    /// and is not asked for, so it is not carried.
     #[test]
     fn a_requested_name_the_table_holds_is_kept_and_one_it_does_not_is_not() {
         let want = want(&[("Dep.wanted", "Dep"), ("Dep.gone", "Dep")]);
@@ -828,9 +736,6 @@ mod tests {
         assert_eq!(declarations.len(), 1);
     }
 
-    /// Modules are kept in full for the roots being linked, and the link comes
-    /// out of `url` — the key doc-gen4 uses for a module and not for a
-    /// declaration.
     #[test]
     fn every_module_of_a_linked_root_is_kept_and_others_are_not() {
         let found = read_fixture(TABLE, &want(&[]), &roots(&["Dep"])).expect("the fixture parses");
@@ -845,7 +750,6 @@ mod tests {
         assert!(!found.modules.contains_key("Other"));
     }
 
-    /// A root nothing was asked about produces nothing, rather than everything.
     #[test]
     fn a_table_read_for_no_root_keeps_nothing() {
         let found = read_fixture(TABLE, &want(&[]), &roots(&[])).expect("the fixture parses");
@@ -853,9 +757,6 @@ mod tests {
         assert!(found.modules.is_empty());
     }
 
-    /// **Refused by name, not guessed at.** Each of these is a file somebody
-    /// could plausibly point this at, and each has to say what is wrong with it
-    /// rather than come back with an empty map.
     #[test]
     fn a_table_of_another_shape_is_refused_by_name() {
         let cases: [(&str, &str); 6] = [
@@ -883,7 +784,6 @@ mod tests {
         }
     }
 
-    /// A module entry with no `url` is the same failure one section over.
     #[test]
     fn a_module_entry_with_no_url_is_refused() {
         let text = "{\"declarations\":{},\"modules\":{\"Dep.Home\":{\"importedBy\":[]}}}";
@@ -892,9 +792,6 @@ mod tests {
         assert!(error.contains("url"), "{error}");
     }
 
-    /// The keys the reader does not use are walked past rather than built:
-    /// `instances` and `instancesFor` are half the file and `importedBy` is most
-    /// of the rest.
     #[test]
     fn the_sections_this_does_not_read_are_skipped() {
         let found = read_fixture(TABLE, &want(&[("Dep.wanted", "Dep")]), &roots(&["Dep"]))
@@ -902,8 +799,6 @@ mod tests {
         assert_eq!(found.declarations["Dep"].len(), 1);
         assert_eq!(found.modules["Dep"].len(), 2);
     }
-
-    // ------------------------------------------------------------ the flags
 
     #[test]
     fn the_index_defaults_to_the_sites_own_declaration_table() {
@@ -954,8 +849,6 @@ mod tests {
         }
     }
 
-    /// A root that is not a dependency is a refusal that names the roots that
-    /// are — the answer to a typo is the list it was nearly in.
     #[test]
     fn a_root_that_is_not_a_dependency_is_refused_with_the_ones_that_are() {
         let links = ExternalLinks::new([("Mathlib", "https://host/m/blob/abc"), ("Init", "")]);
@@ -968,16 +861,12 @@ mod tests {
         assert!(message.contains("Mathib"), "{message}");
         assert!(message.contains("Mathlib, Init"), "{message}");
 
-        // …and a root that *is* one passes, including the unpinnable third
-        // state: a `path` dependency can still publish documentation.
+        // A root that *is* one passes, including the unpinnable third state: a
+        // `path` dependency can still publish documentation.
         let ok = parse(&["Init=https://host.invalid/docs".to_owned()], &[]).expect("parsed");
         check_roots(&ok, &links).expect("Init is a root of this map");
     }
 
-    // -------------------------------------------------------- the artifact
-
-    /// The artifact round-trips: what `build` writes is what `render` reads, to
-    /// the same links and the same reported numbers.
     #[test]
     fn the_resolved_map_round_trips() {
         let dir = std::env::temp_dir().join(format!("litedoc4-deps-docs-{}", std::process::id()));
@@ -1000,9 +889,8 @@ mod tests {
         assert_eq!(read[0].requested_names, 3);
         assert_eq!(read[0].docs, written[0].docs);
         assert_eq!(read[0].line(), written[0].line());
-        // The line is the fact the run reports, so it is asserted rather than
-        // only compared: a round trip between two wrong values is also a round
-        // trip.
+        // Asserted rather than only compared: a round trip between two wrong
+        // values is also a round trip.
         assert_eq!(
             read[0].line(),
             "deps    Dep: 1/3 name(s) and 2 module(s) -> https://host.invalid/docs, 2 name(s) not \
@@ -1011,7 +899,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// An artifact of another shape is refused by name rather than half-read.
     #[test]
     fn a_resolved_map_of_another_shape_is_refused() {
         let dir =

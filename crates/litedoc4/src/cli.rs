@@ -1,16 +1,10 @@
 //! The one command-line parser, so that thirteen of them are not thirteen
 //! answers to the same question.
 //!
-//! Every subcommand had its own copy of the same skeleton — a `while let` over
-//! the arguments, a `value` closure that took the next one or refused by name,
-//! a `--help` arm, and an `unknown argument` arm. The closure was byte for byte
-//! identical in all thirteen; the `--help` arm was not, and had already drifted
-//! into three spellings.
-//!
 //! **What this does not take over is the `match`.** Each subcommand's arms are
-//! its interface — including the refusals it words itself, which are part of
-//! the product's output — so they stay where they are. What moves here is only
-//! the mechanism they all shared.
+//! its interface — including the refusals it words itself, which are part of the
+//! product's output — so they stay where they are. Only the shared mechanism is
+//! here.
 //!
 //! ```ignore
 //! let mut args = Args::new(argv);
@@ -28,7 +22,6 @@ use std::str::FromStr;
 
 use crate::{Failure, USAGE, usage};
 
-/// The argument list, and the one way to take a flag's value off it.
 pub(crate) struct Args<'a> {
     rest: std::slice::Iter<'a, String>,
 }
@@ -38,20 +31,16 @@ impl<'a> Args<'a> {
         Self { rest: args.iter() }
     }
 
-    /// The next argument, or `None` at the end.
-    ///
     /// **Not an `Iterator` impl.** `for arg in args` would borrow the whole
     /// struct for the loop, and every caller needs [`Args::value`] *inside* it.
-    /// (`clippy::should_implement_trait` does not fire on this — the method is
-    /// not public — so there is nothing to `#[expect]`.)
+    /// (`clippy::should_implement_trait` does not fire — the method is not
+    /// public — so there is nothing to `#[expect]`.)
     pub(crate) fn next(&mut self) -> Option<&'a String> {
         self.rest.next()
     }
 
-    /// The value belonging to `flag`, or a refusal naming it.
-    ///
-    /// The refusal is by name because the alternative — "expected a value" —
-    /// leaves the reader to count arguments to find out which flag ran out.
+    /// The refusal names the flag, because the alternative — "expected a value"
+    /// — leaves the reader counting arguments to find out which one ran out.
     pub(crate) fn value(&mut self, flag: &str) -> Result<String, Failure> {
         match self.rest.next() {
             Some(value) => Ok(value.clone()),
@@ -59,8 +48,6 @@ impl<'a> Args<'a> {
         }
     }
 
-    /// The value belonging to `flag`, parsed.
-    ///
     /// **The refusal quotes what was given**: `--jobs wants a number, not four`
     /// says which of the two words on the command line was the problem, where
     /// "invalid digit found in string" does not.
@@ -71,28 +58,16 @@ impl<'a> Args<'a> {
     }
 }
 
-/// What every subcommand's `--help` arm does.
-///
-/// Twelve of the fourteen subcommands answer it this way. The other two do
-/// not, and both differences are on purpose: [`crate::build`] returns
-/// `Err(Failure::Answered(0))` because its `Ok` means "run", and
-/// [`crate::watch`] scans for it before the parse. Their reasons are written
-/// where they are.
-///
-/// **This said eleven and three until 2026-08-24, and the third was never
-/// named** — because nothing had decided it. [`crate::ledger`] takes a
-/// subcommand in front of its flag loop, so `litedoc4 ledger --help` never
-/// reached the arm above: it was refused as an unknown subcommand *called*
-/// `--help`, alone among the fourteen. **The count that did not add up was the
-/// only sign there was.** `crates/litedoc4/tests/cli_surface.rs` now asks all
-/// fourteen, so the next one to drift is a red test rather than a sentence
-/// nobody re-derives.
+/// Twelve of the fourteen subcommands answer `--help` this way. The other two do
+/// not, on purpose: [`crate::build`] returns `Err(Failure::Answered(0))` because
+/// its `Ok` means "run", and [`crate::watch`] scans for it before the parse.
+/// `crates/litedoc4/tests/cli_surface.rs` asks all fourteen, so the next one to
+/// drift is a red test rather than a sentence nobody re-derives.
 pub(crate) fn help() -> Result<(), Failure> {
     println!("{USAGE}");
     Ok(())
 }
 
-/// What every subcommand's last `match` arm does.
 pub(crate) fn unknown<T>(arg: &str) -> Result<T, Failure> {
     usage(format!("unknown argument `{arg}`"))
 }
@@ -105,8 +80,6 @@ mod tests {
         args.iter().map(|arg| (*arg).to_owned()).collect()
     }
 
-    /// The message of a refusal that came from the command line.
-    ///
     /// Panics on any other variant: everything this module produces is a
     /// `Usage`, and a test that quietly accepted a `Failed` would be checking
     /// that *something* went wrong rather than that the right thing did.
@@ -127,11 +100,6 @@ mod tests {
         assert!(args.next().is_none(), "the list is exhausted");
     }
 
-    /// A flag that runs out is refused **by its own name**.
-    ///
-    /// Thirteen subcommands share this one message, so the name is the only
-    /// thing that tells a reader which of their flags was the problem —
-    /// "expected a value" would leave them counting arguments.
     #[test]
     fn a_flag_with_nothing_after_it_is_refused_by_name() {
         for flag in ["--out", "--ir", "--extractor-bin"] {
@@ -154,8 +122,6 @@ mod tests {
         assert_eq!(args.number::<usize>("--jobs").expect("a number"), 4);
     }
 
-    /// The refusal quotes **what was given**, which is the half that
-    /// `invalid digit found in string` does not have.
     #[test]
     fn number_refuses_by_quoting_what_it_was_given() {
         for raw_value in ["four", "", "4.5", "-1"] {

@@ -1,9 +1,7 @@
 //! The stages that answer a question about an IR tree without writing a site:
 //! `ownership`, `merge`, `impact`, `prune`, and `links`.
 //!
-//! Each is one call into [`litedoc4_incr`] with its command line in front of
-//! it. `links` is the odd one — it reads the dependency map rather than the
-//! IR — but it belongs to the same shape: a question, a table, no site.
+//! Each is one call into [`litedoc4_incr`] with its command line in front of it.
 
 use std::path::PathBuf;
 
@@ -15,25 +13,18 @@ use litedoc4_incr::{
 
 use crate::{Failure, refused, resolve_external_links, usage, with_dependency_docs};
 
-/// One row of [`links`]: a module root, the blob prefix it resolved to, the URL
-/// of the root module's own source file, and — with a link index — one deeper
-/// module of that root.
+/// One row of [`links`].
 ///
-/// **The deep sample is the one that judges the path building.** A root module
-/// is a single component, so `Mathlib` -> `Mathlib.lean` exercises no dot, no
-/// nesting and no guillemet; `Mathlib.Order.Basic` -> `Mathlib/Order/Basic.lean`
-/// does. Both come from [`litedoc4_render::ExternalLinks::url_for`] — the call
-/// the renderer makes — rather than from joining strings here, because a checker
-/// that builds the URL its own way would agree with a renderer that builds it
-/// wrongly.
-///
-/// The two documentation columns (A-1) mirror the two source ones **module for
-/// module**, and are filled from
-/// [`litedoc4_render::ExternalLinks::docs_url_for`] — again the renderer's own
-/// call. Each says where a reader of that exact module is sent; a single column
-/// that meant the source URL sometimes and the documentation URL other times
-/// would be this command reporting two facts in one place, which is the shape
-/// the map exists to prevent.
+/// **The deep sample is what judges the path building.** A root module is a
+/// single component, so `Mathlib` -> `Mathlib.lean` exercises no dot, no nesting
+/// and no guillemet; `Mathlib.Order.Basic` -> `Mathlib/Order/Basic.lean` does.
+/// Every URL here comes from the renderer's own calls
+/// ([`litedoc4_render::ExternalLinks::url_for`],
+/// [`litedoc4_render::ExternalLinks::docs_url_for`]) rather than from joining
+/// strings, because a checker that builds the URL its own way would agree with a
+/// renderer that builds it wrongly. The documentation columns mirror the source
+/// ones module for module: one column meaning the source URL sometimes and the
+/// documentation URL other times would report two facts in one place.
 struct LinkRow {
     root: String,
     base: String,
@@ -43,11 +34,9 @@ struct LinkRow {
     deep_docs_url: Option<String>,
 }
 
-/// The lexicographically first module of `root` below the root itself.
-///
-/// First rather than longest so that the sample does not move when the index
-/// gains a module; the point is a path with more than one component, and any
-/// such path does.
+/// The lexicographically first module of `root` below the root itself — first
+/// rather than longest, so that the sample does not move when the index gains a
+/// module.
 fn sample_module(index: &litedoc4_render::LinkIndex, root: &str) -> Option<String> {
     let prefix = format!("{root}.");
     index
@@ -69,8 +58,8 @@ fn link_rows(
                 .as_ref()
                 .and_then(|module| links.url_for(module, None).map(|url| (module.clone(), url)));
             LinkRow {
-                // `M7-b`: a root is a top-level `Foo.lean`, so the root module's
-                // own file is the one file every resolved root is known to have.
+                // A root is a top-level `Foo.lean`, so the root module's own file
+                // is the one file every resolved root is known to have.
                 url: links.url_for(root, None),
                 docs_url: links.docs_url_for(root, None),
                 deep_docs_url: sample
@@ -86,19 +75,13 @@ fn link_rows(
 
 /// The dependency link map, as the renderer will see it.
 ///
-/// **Why a subcommand for this.** M7-b resolved the map offline and checked it
-/// against doc-gen4's reference tree, which documents only the target's import
-/// closure: **12 of that day's 39 roots had an oracle and 27 did not**
-/// 【実測 2026-08-16】. The 27 were not unverifiable — they are URLs,
-/// and the server serving them will say whether they resolve — but the map
-/// itself was observable only as a one-line count in `build`'s log, so nothing
-/// could be pointed at them. This prints the rows so that something can —
-/// see `benchmarks/results/external-links-2026-08-18.txt` for that check run
-/// over HTTP.
+/// doc-gen4's reference tree documents only the target's import closure, so most
+/// roots have no oracle — **12 of 39 had one, 27 did not** 【実測 2026-08-16】.
+/// The other 27 are URLs a server will answer for, so this prints the rows for
+/// something to check (`benchmarks/results/external-links-2026-08-18.txt`).
 ///
 /// It reads; it writes nothing but `--out`. `lake` runs (core's revision comes
-/// from `lake env lean --githash`), so this needs the target's toolchain the way
-/// the rest of the pipeline does.
+/// from `lake env lean --githash`), so this needs the target's toolchain.
 pub fn links(args: &[String]) -> Result<(), Failure> {
     let mut root: Option<PathBuf> = None;
     let mut lake: Option<PathBuf> = None;
@@ -140,8 +123,7 @@ pub fn links(args: &[String]) -> Result<(), Failure> {
 
     for row in &rows {
         // Tab-separated, `-` for "nothing here" — the shape `cut` and `awk` read
-        // without a parser. The count lines go through `resolve_external_links`,
-        // so what a caller redirects is rows only.
+        // without a parser. Only rows go to stdout here; the counts are below.
         let (module, deep) = row
             .deep
             .as_ref()
@@ -162,8 +144,7 @@ pub fn links(args: &[String]) -> Result<(), Failure> {
         );
     }
     // Printed only with a map, because without one the answer is 0 for every
-    // root and a zero nobody asked for reads like a failure (M7's rule for the
-    // unpinned-root note, one feature over).
+    // root and a zero nobody asked for reads like a failure.
     if deps_docs_map.is_some() {
         println!(
             "external  {documented}/{} root(s) whose own documentation site answers for their \
@@ -198,13 +179,10 @@ pub fn links(args: &[String]) -> Result<(), Failure> {
     Ok(())
 }
 
-/// The `ownership` stage (L3-1): which modules point at a name that has moved.
+/// Which modules point at a name that has moved.
 ///
 /// Runs **before** `merge` in a round, and the reason is not a preference: merge
-/// overwrites the base IR's idea of who owns each name (plan §6, constraint 1).
-/// The pipeline that sequences them — and that bounds the rounds with
-/// `--max-rounds`, leaving **exit 5** when the bound is hit with modules still
-/// stale — is M3-d's; `incremental.sh:264-294` is what has to move.
+/// overwrites the base IR's idea of who owns each name.
 pub fn ownership(args: &[String]) -> Result<(), Failure> {
     let mut base: Option<PathBuf> = None;
     let mut inc: Option<PathBuf> = None;
@@ -227,8 +205,8 @@ pub fn ownership(args: &[String]) -> Result<(), Failure> {
         }
     }
 
-    // The prototype's own refusal: without a tree to diff against and without a
-    // deletion list there is no question to answer.
+    // Without a tree to diff against and without a deletion list there is no
+    // question to answer.
     let Some(base) = base.filter(|_| inc.is_some() || removed.is_some()) else {
         return usage(
             "ownership needs --base <ir> and at least one of --inc <ir> / --removed <file>",
@@ -262,16 +240,13 @@ pub fn ownership(args: &[String]) -> Result<(), Failure> {
     Ok(())
 }
 
-/// The `merge` stage: fold a partial extraction back into the package IR, and
-/// the `--verify` that compares two trees.
+/// Folds a partial extraction back into the package IR; `--verify` instead
+/// compares two trees.
 ///
-/// **`--modules` is the prototype's unimplemented flag, implemented** (M3-d2b).
-/// `merge-ir.ts` offers it in its usage and never reads it (`:29, :40`), so M3-b
-/// did not reproduce it; it is here now because the merged `index.json`'s module
-/// order has to be a from-scratch extraction's, and that is the order of the list
-/// the extractor is handed. Left out, the order is the base index's with new
-/// modules appended — the pre-M3-d2b behaviour, kept for callers that have no
-/// list.
+/// **`--modules` is what makes the merged `index.json`'s module order a
+/// from-scratch extraction's**, which is the order of the list the extractor is
+/// handed. Left out, the order is the base index's with new modules appended,
+/// for callers that have no list.
 pub fn merge(args: &[String]) -> Result<(), Failure> {
     let mut base: Option<PathBuf> = None;
     let mut inc: Option<PathBuf> = None;
@@ -316,8 +291,7 @@ pub fn merge(args: &[String]) -> Result<(), Failure> {
     let Some(base) = base.filter(|_| inc.is_some() || remove.is_some()) else {
         return usage("merge needs --base <ir> and at least one of --inc <ir> / --remove <file>");
     };
-    // `opt("--out", BASE + ".merged")`: the base tree is never written to unless
-    // the caller asks for it by name.
+    // The base tree is never written to unless the caller asks for it by name.
     let out = out.unwrap_or_else(|| {
         let mut merged = base.clone().into_os_string();
         merged.push(".merged");
@@ -369,14 +343,12 @@ pub fn merge(args: &[String]) -> Result<(), Failure> {
     Ok(())
 }
 
-/// The `impact` stage (L3-2): a changed module set in, the modules to re-render
-/// out.
+/// A changed module set in, the modules to re-render out.
 ///
-/// **`global` runs before this** (plan §6, constraint 2) — but not into it. The
-/// whole-package map's delta is the other half of the render set and it reaches
-/// the renderer by being *unioned* with this stage's `--print-set`, which is the
-/// pipeline's job (M3-d, `incremental.sh:354-360`). Two things M3-d inherits:
-/// a delta with no changes is a **0-byte file, not a blank line**, and this
+/// **`global` runs before this** — but not into it: the whole-package map's
+/// delta is the other half of the render set, and it reaches the renderer by
+/// being *unioned* with this stage's `--print-set`, which is the pipeline's job.
+/// A delta with no changes is a **0-byte file, not a blank line**, and this
 /// command writes **no `--print-set` at all** when the changed set is empty and
 /// the mode is not `all` — a missing file is the empty set.
 pub fn impact(args: &[String]) -> Result<(), Failure> {
@@ -406,8 +378,8 @@ pub fn impact(args: &[String]) -> Result<(), Failure> {
     let Some(ir) = ir else {
         return usage("--ir is required");
     };
-    // The flags first, then the file's lines: the order reaches the summary's
-    // `changed` array, and repeats are kept rather than folded.
+    // The order reaches the summary's `changed` array, and repeats are kept
+    // rather than folded.
     if let Some(path) = &changed_file {
         changed.extend(read_module_list(path).map_err(refused)?);
     }
@@ -425,21 +397,16 @@ pub fn impact(args: &[String]) -> Result<(), Failure> {
     if let (Some(modules), Some(path)) = (run.census_modules, &census) {
         println!("census -> {} ({modules} modules)", path.display());
     }
-    // The whole summary, as the prototype prints it: every count in it is a
-    // denominator, and `selected` is the one the renderer is about to be given.
     if let Some(summary) = &run.summary {
         println!("{}", summary.to_json());
     }
     Ok(())
 }
 
-/// The `prune` stage: the deletion path's page third.
-///
 /// **The one subcommand that deletes.** Two guards are in the library
 /// (containment, and paths built by concatenation rather than
-/// [`std::path::Path::join`]);
-/// the third is here, in the shape of the flag: `--dry-run` computes the whole
-/// answer and writes nothing, so "what would this remove" is a question that can
+/// [`std::path::Path::join`]); the third is the shape of the flag — `--dry-run`
+/// computes the whole answer and writes nothing, so "what would this remove" can
 /// be asked of a tree nobody is willing to lose.
 pub fn prune(args: &[String]) -> Result<(), Failure> {
     let mut pages: Option<PathBuf> = None;
@@ -461,9 +428,9 @@ pub fn prune(args: &[String]) -> Result<(), Failure> {
         }
     }
 
-    // The prototype's own refusal: a page tree with neither a deletion list nor
-    // an IR to call orphans against has nothing to do, and doing nothing quietly
-    // is how a deleted module's page survives.
+    // A page tree with neither a deletion list nor an IR to call orphans against
+    // has nothing to do, and doing nothing quietly is how a deleted module's
+    // page survives.
     let Some(pages) = pages.filter(|_| remove.is_some() || ir.is_some()) else {
         return usage("prune needs --pages <dir> and at least one of --remove <file> / --ir <dir>");
     };
@@ -497,7 +464,7 @@ mod tests {
     use litedoc4_render::{ExternalLinks, LinkIndex};
 
     /// `@Module` headers are what a `.lidx` calls a known module; the entries
-    /// under them are declarations and are not modules.
+    /// under them are declarations.
     fn index() -> LinkIndex {
         LinkIndex::parse(
             "#lidx2\n@Mathlib\n@Mathlib.Order.Basic\n@Mathlib.Algebra.Group\n@Init.Prelude\n",
@@ -506,8 +473,6 @@ mod tests {
 
     #[test]
     fn sample_module_takes_a_module_below_the_root() {
-        // First in order, not the root itself: the point of the sample is a path
-        // with more than one component.
         assert_eq!(
             sample_module(&index(), "Mathlib").as_deref(),
             Some("Mathlib.Algebra.Group")
@@ -516,18 +481,16 @@ mod tests {
 
     #[test]
     fn sample_module_is_none_when_the_root_stands_alone() {
-        // `Init` is in the index with no `Init.*` below it here, and a root whose
-        // only module is itself must not sample itself — that URL is already the
-        // row's `url` and would make the deep column a duplicate that looks like
-        // coverage.
+        // A root whose only module is itself must not sample itself: that URL is
+        // already the row's `url`, and the deep column would become a duplicate
+        // that looks like coverage.
         let index = LinkIndex::parse("#lidx2\n@Init\n");
         assert_eq!(sample_module(&index, "Init"), None);
     }
 
     #[test]
     fn sample_module_does_not_match_a_root_by_prefix() {
-        // `Mathlib` must not pick up `MathlibTest.Foo`: the separator is part of
-        // the prefix.
+        // The separator is part of the prefix, so `MathlibTest.Foo` is not one.
         let index = LinkIndex::parse("#lidx2\n@MathlibTest.Foo\n");
         assert_eq!(sample_module(&index, "Mathlib"), None);
     }
@@ -555,7 +518,6 @@ mod tests {
             Some("https://example.invalid/blob/deadbeef/Mathlib.lean")
         );
         assert_eq!(module, "Mathlib.Algebra.Group");
-        // The dots became slashes: this is the shape the root row cannot check.
         assert_eq!(
             deep,
             "https://example.invalid/blob/deadbeef/Mathlib/Algebra/Group.lean"

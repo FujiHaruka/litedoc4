@@ -1,56 +1,30 @@
 //! The `litedoc4` command line tool.
 //!
-//! **The subcommand surface is milestone M4's.** What is here is the
-//! subcommands M1, M2 and M3 need to be judged: `render`, which turns an IR tree
-//! into a tree of module pages, `global`, which turns the same tree into the
-//! six whole-package artifacts, and `ledger`, which answers "which modules must
-//! be re-extracted" without starting Lean. `tools/render-compare.sh`,
-//! `tools/global-compare.sh` and `tools/ledger-compare.sh` run them against the
-//! frozen prototype's output. Everything else — extraction, the rest of the
-//! incremental pipeline, the resident server — arrives with its own milestone,
-//! and guessing at its flags now would only have to be undone.
+//! **The product's command is [`build`]**: a package in, a site out, in one
+//! command — it reads the lakefile for the libraries, globs the sources for the
+//! modules, derives `--source-url` from git, chooses between full generation and
+//! the incremental pipeline, and writes the ledger back. Everything else here is
+//! a **stage of it**, kept on the surface because the gates are stated against
+//! them one at a time.
 //!
-//! **The product's command is [`build`]** (M4-d): a package in, a site out, in
-//! one command — it reads the lakefile for the libraries, globs the sources for
-//! the modules, derives `--source-url` from git, chooses between full generation
-//! and the incremental pipeline, and writes the ledger back. Everything else
-//! here is a **stage of it**, kept on the surface because each is separately
-//! comparable against the frozen prototype and because the gates are stated
-//! against them: `site` is full generation over an IR tree that already exists
-//! (M3-d1), `incremental` is the six-stage round (M3-d2), `modules` is the glob
-//! (M3-d2), `extract` is one extractor process (M4-b). A caller that wants to
-//! name every path itself still can; a caller that wants documentation runs
-//! `build`.
-//!
-//! Three flags are deliberately more awkward than the prototype's:
+//! Three flags are deliberately awkward:
 //!
 //! - **`--only` and `--only-from` are the same option in two spellings, and
-//!   `--only-from` an empty file renders nothing.** `render.ts` could not say
-//!   "no modules": zero `--only` flags meant every module, so the incremental
-//!   pipeline had to guard the call in shell (plan §5). A regeneration set is
-//!   usually empty, so that hole is on the common path.
-//! - **One of `--link-index` and `--no-link-index` is required.** The
-//!   dependency map is not optional in the product (plan 決定 4); leaving it
-//!   out costs 150 of 432 pages their correct bytes, and it does so silently.
-//! - **`--root` on a stage command is the package, not the output** (M7-c). It
-//!   is what the dependency link map is resolved from, it is optional there
-//!   because a stage command may be pointed at an IR tree with no package next
-//!   to it, and leaving it out is a *different site* — every link into a
-//!   dependency stays a relative link to a page nothing writes. So the run says
-//!   which of the two it did, on its own line, rather than letting the answer be
-//!   read off the pages. [`build`] has a package by construction and never asks.
-//!
-//! # Where the subcommands live
-//!
-//! This file holds what every subcommand needs — [`Failure`], [`usage`],
-//! [`USAGE`], the two summary printers, the external-link resolution — and the
-//! stages themselves are next door: [`stages`] (`site`, `render`, `global`),
-//! [`queries`] (`ownership`, `merge`, `impact`, `prune`, `links`), [`ledger`]
-//! and [`build`]. `main.rs` is the dispatch and nothing else.
+//!   `--only-from` an empty file renders nothing** — a regeneration set is
+//!   usually empty, so "no flags means every module" would put that hole on the
+//!   common path.
+//! - **One of `--link-index` and `--no-link-index` is required**: leaving the
+//!   dependency map out costs 150 of 432 pages their correct bytes, silently.
+//! - **`--root` on a stage command is the package, not the output.** It is what
+//!   the dependency link map is resolved from, optional because a stage command
+//!   may be pointed at an IR tree with no package next to it, and leaving it out
+//!   is a *different site* — every link into a dependency stays a relative link
+//!   to a page nothing writes. So the run says which of the two it did on its own
+//!   line, rather than letting the answer be read off the pages. [`build`] has a
+//!   package by construction and never asks.
 //!
 //! **It is a library with a binary on top, and that is what makes the parsers
-//! testable**: an integration test of a `bin` target can only start a process,
-//! so before this split every check of a command line paid for one.
+//! testable**: an integration test of a `bin` target can only start a process.
 
 use std::path::PathBuf;
 
@@ -331,7 +305,7 @@ usage: litedoc4 build  --root <repo> --out <dir> [--link-index <file>]
 /// prints one to a user, which is what the three arms of `main` are for.
 #[derive(Debug)]
 pub enum Failure {
-    /// The command line is wrong. Exit 2, as the prototype does.
+    /// The command line is wrong. Exit 2.
     Usage(String),
     Failed(String),
     /// The command ran to completion and answered "no" — `merge --verify` with
@@ -340,9 +314,8 @@ pub enum Failure {
     /// reporting a working comparison as a broken one.
     Answered(u8),
     /// The run stopped because the world and the files disagree — a ledger too
-    /// old, a module with no olean. **Exit 3**, as the prototype does: a
-    /// pipeline that treats "the ledger is stale" the same as "the disk is
-    /// full" retries the wrong thing.
+    /// old, a module with no olean. **Exit 3**: a pipeline that treats "the
+    /// ledger is stale" the same as "the disk is full" retries the wrong thing.
     Refused {
         code: u8,
         message: String,
@@ -351,12 +324,6 @@ pub enum Failure {
 
 impl Failure {
     /// An I/O failure, named by the path it happened to.
-    ///
-    /// `format!("{}: {source}", path.display())` was written out thirty-two
-    /// times, and the closure's binding was `|e|` in thirteen of them and
-    /// `|source|` in the rest — two spellings of one thing, which is how a
-    /// third arrives.
-    ///
     /// [`Failure::Failed`] and not [`Failure::Refused`]: a file that will not
     /// open is exit 1, "this run did not finish". Exit 3 is for a world that
     /// disagrees with the files, which is a thing a caller can act on
@@ -371,22 +338,19 @@ pub fn usage<T>(message: impl Into<String>) -> Result<T, Failure> {
 }
 
 /// The map that says where each **dependency's** source lives, resolved **once
-/// per run** and then handed to both the renderer and the render key (M7-c).
+/// per run** and then handed to both the renderer and the render key.
 ///
-/// `root` is the package being documented. `None` is a real case rather than an
-/// oversight: `render` and `site` are pointed at an *IR tree*, which need not sit
-/// next to any checkout — the harnesses under `tools/` run them against trees
-/// extracted months ago — and with no package there is no manifest, no
-/// revisions, and therefore nothing to link a dependency at. The map comes out
-/// empty and every dependency link stays the relative page link v0.1 shipped
-/// before M7. The run says which of the two happened, because the difference is
-/// invisible in the exit code and visible on every page.
+/// A `root` of `None` is a real case rather than an oversight: `render` and
+/// `site` are pointed at an *IR tree*, which need not sit next to any checkout,
+/// and with no package there is no manifest, no revisions, and nothing to link a
+/// dependency at. The map comes out empty and every dependency link stays a
+/// relative page link. The run says which of the two happened, because the
+/// difference is invisible in the exit code and visible on every page.
 ///
-/// **Problems do not stop the run**: a
-/// package missing from disk, a manifest that will not parse, a `lake` that will
-/// not run — each costs the roots it would have contributed and is printed. A
-/// partial map renders a partial improvement; refusing would trade a site with
-/// some dead links for no site at all.
+/// **Problems do not stop the run**: a package missing from disk, a manifest
+/// that will not parse, a `lake` that will not run — each costs the roots it
+/// would have contributed and is printed. Refusing would trade a site with some
+/// dead links for no site at all.
 fn resolve_external_links(
     root: Option<&std::path::Path>,
     lake: Option<&std::path::Path>,
@@ -411,8 +375,7 @@ fn resolve_external_links(
     );
     // The roots in that count that carry no URL: they are in the map so that the
     // pages stop linking into them, which is the opposite of what the line above
-    // reads like on its own (M7, 2026-08-17). Printed only when there are any,
-    // because on the measurement target there are none.
+    // reads like on its own.
     if resolved.unpinned_roots > 0 {
         println!(
             "external  note: {} of those root(s) have no version-pinned URL, so names in them \
@@ -429,17 +392,14 @@ fn resolve_external_links(
     resolved.links
 }
 
-/// The same map with the **resolved documentation map** `build` wrote applied
-/// to it (A-1), or unchanged when no `--deps-docs-map` was named.
+/// The same map with the **resolved documentation map** `build` wrote applied to
+/// it, or unchanged when no `--deps-docs-map` was named.
 ///
-/// `render` and `site` do not resolve one of their own, and that is the whole
-/// point of the file: three commands render, so a flag repeated on all three is
-/// one that gets forgotten on one of them and then two of the three link
-/// somewhere different, silently. `crates/litedoc4-render/src/frame.rs:66-70`
-/// is where that rule is written down; this reads an answer instead of
-/// re-deriving one, so the three cannot disagree.
-///
-/// Nothing here fetches anything: the artifact holds the verified names.
+/// `render` and `site` do not resolve one of their own: a flag repeated on three
+/// rendering commands is one that gets forgotten on one of them, after which two
+/// of the three link somewhere different, silently. This reads an answer instead
+/// of re-deriving one, and nothing here fetches anything — the artifact holds
+/// the verified names.
 fn with_dependency_docs(
     links: litedoc4_render::ExternalLinks,
     map: Option<&std::path::Path>,
@@ -450,48 +410,38 @@ fn with_dependency_docs(
     Ok(deps_docs::attach(&links, deps_docs::read_map(path)?))
 }
 
-/// What leaving the dependency map out costs.
-///
 /// **One string, three call sites** (`render`, `site`, `incremental`), so that
-/// they cannot drift apart on the one question this project has answered wrongly
-/// twice: the prototype's `render()` (`stage7h/run.sh:78-80`) passed no
-/// dependency map, and without it **150 of the target package's 432 pages change
-/// bytes** 【実測, plan 決定 4】. It fails silently — a docstring name that did
-/// not become a link looks exactly like a name that was never linkable — so the
-/// guard is in the shape of the flags rather than in a default.
-const LINK_INDEX_COST: &str = "without the dependency map 150 of the target package's 432 pages \
-     change bytes (plan 決定 4)";
+/// they cannot drift apart: without the dependency map **150 of the target
+/// package's 432 pages change bytes** 【実測】, and it fails silently — a
+/// docstring name that did not become a link looks exactly like a name that was
+/// never linkable — so the guard is in the shape of the flags, not in a default.
+const LINK_INDEX_COST: &str =
+    "without the dependency map 150 of the target package's 432 pages change bytes";
 
-/// The refusal `render` and `site` print. Both offer `--no-link-index`, which is
-/// how a caller says "no map, on purpose"; `incremental` does not (see
-/// [`pipeline`]).
+/// `render` and `site` offer `--no-link-index` as the way to say "no map, on
+/// purpose"; `incremental` does not (see [`pipeline`]).
 fn link_index_required() -> String {
     format!("pass --link-index <file>, or --no-link-index to say so on purpose: {LINK_INDEX_COST}")
 }
 
-/// The refusal `site`, `render` and `incremental` all give for a missing
-/// `--source-url`.
-///
-/// One string, because it is one rule: the URL is configuration no IR carries,
-/// and a page written without it links every declaration to `/`.
+/// One string for three commands, because it is one rule: the URL is
+/// configuration no IR carries, and a page written without it links every
+/// declaration to `/`.
 pub(crate) const SOURCE_URL_REQUIRED: &str =
     "--source-url is required: doc-gen4 reads it from lake plus git, and it is not in the IR";
 
 /// What `site` and `render` both need before they can render anything.
 ///
-/// The two commands read the same seven flags and check them the same way, and
-/// **the M4-d gate cannot see a disagreement between them**: it compares the
-/// trees they write, so handing both halves the same wrong interpretation
-/// produces two identical wrong trees. [`stages::generate_site`] already exists
-/// for that reason on the *output* side; this is the input side.
+/// Shared rather than read twice because **no gate can see a disagreement
+/// between them**: the gates compare the trees they write, so handing both
+/// halves the same wrong interpretation produces two identical wrong trees.
+/// [`stages::generate_site`] is the same idea on the output side.
 pub(crate) struct RenderInputs {
     pub(crate) source_url: String,
     pub(crate) external: litedoc4_render::ExternalLinks,
     pub(crate) config: litedoc4_render::SiteConfig,
 }
 
-/// Checks the shared flags and resolves what they name.
-///
 /// `link_index.is_some() == no_link_index` is an exclusive-or written as an
 /// equality: both given and neither given are the same mistake, and
 /// [`link_index_required`] says what it costs rather than which one happened.
@@ -518,24 +468,18 @@ pub(crate) fn render_inputs(
     })
 }
 
-/// The renderer's counts. Every number is a denominator something else is quoted
-/// against, so a run that says "done" and nothing else is not comparable to the
-/// prototype's numbers at all.
-///
-/// `lead` is what each line starts with: empty for `render`, which has one
-/// stage, and the stage's name for `site`, which has two.
 /// `<root>/litedoc4.toml`, read **here and nowhere else in this binary**.
 ///
-/// Feature-sweep C-3【決定 3】. Four commands put HTML on disk (`build`,
-/// `site`, `render`, `global`) and every one of them has to end up with the
-/// same title, so the file is read in one function and the value is handed on.
-/// The alternative — each command calling `SiteConfig::read` for itself — is
-/// four places that decide what "the package root" means, which is the shape
-/// the rejected `--title` flag had.
+/// Four commands put HTML on disk (`build`, `site`, `render`, `global`) and
+/// every one has to end up with the same title, so the file is read once and the
+/// value handed on. Each command calling `SiteConfig::read` for itself would be
+/// four places deciding what "the package root" means.
 fn site_config(root: Option<&std::path::Path>) -> Result<litedoc4_render::SiteConfig, Failure> {
     litedoc4_render::SiteConfig::read(root).map_err(|e| Failure::Failed(e.to_string()))
 }
 
+/// `lead` is what each line starts with: empty for `render`, which has one
+/// stage, and the stage's name for `site`, which has two.
 fn print_render_summary(lead: &str, summary: &RenderSummary) {
     println!(
         "{lead}modules {}/{}  declarations {}/{} ({} suppressed)  module docs {}  bytes {}",
@@ -551,14 +495,12 @@ fn print_render_summary(lead: &str, summary: &RenderSummary) {
         "{lead}known {}  link index {}  known modules {}",
         summary.known_entries, summary.link_index_entries, summary.known_modules,
     );
-    // Printed even when it is zero. The thing it reports is a *silent* fallback
-    // — a formula that stayed `$…$` still renders a valid page — so a line that
-    // appears only on failure is indistinguishable from a line that stopped
-    // being printed (CLAUDE.md「skip で緑を返さない」).
+    // Printed even when it is zero: it reports a *silent* fallback — a formula
+    // that stayed `$…$` still renders a valid page — so a line that appears only
+    // on failure cannot be told from a line that stopped being printed.
     println!("{lead}math spans kept as LaTeX {}", summary.math_failures);
 }
 
-/// The whole-package derivation's counts, including the delta when there is one.
 fn print_global_summary(lead: &str, summary: &GlobalSummary) {
     println!(
         "{lead}modules {}  declarations {} + {} dependency names  instance classes {}  \
@@ -598,11 +540,6 @@ fn print_global_summary(lead: &str, summary: &GlobalSummary) {
 
 /// "The world and the files disagree" — the widest of the four exit codes, and
 /// the one every refusal that is not a usage error uses.
-///
-/// It had no name while 4 (`EXIT_EXTRACTOR`) and 5 (`EXIT_ROUNDS`) did, so the
-/// contract [`Failure`] states — "a pipeline that treats \"the ledger is
-/// stale\" the same as \"the disk is full\" retries the wrong thing" — could
-/// only be followed by grep.
 pub(crate) const EXIT_REFUSED: u8 = 3;
 
 /// Carries the library's exit code out to the process, so that "the ledger is
@@ -618,8 +555,7 @@ pub(crate) fn refused(error: litedoc4_incr::Error) -> Failure {
     }
 }
 
-/// `Number.prototype.toLocaleString("en-US")` for the one place the prototype
-/// prints a byte count to a human.
+/// Thousands separators, for the one place a byte count is printed to a human.
 fn grouped(value: u64) -> String {
     let digits = value.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
@@ -636,20 +572,17 @@ fn grouped(value: u64) -> String {
 mod usage_tests {
     //! Does [`USAGE`] describe the command line the parsers actually accept?
     //!
-    //! Nothing kept the two together: `USAGE` is a 254-line string literal and
-    //! the flags are `match` arms in eight files, so a flag could be added to
-    //! one and not the other and every test would still pass. That had already
-    //! happened once in the other direction — `ledger` accepted eighteen flags
-    //! where `USAGE` declared three (D1).
+    //! Nothing else keeps the two together: `USAGE` is one long string literal
+    //! and the flags are `match` arms in eight files, so a flag could be added to
+    //! one and not the other and every test would still pass.
 
     use super::USAGE;
     use std::collections::BTreeSet;
     use std::sync::LazyLock;
 
-    /// Every flag named in a `match` arm, across the crate.
-    ///
-    /// The sources are read rather than the constants listed, because a list of
-    /// constants is a third place to keep in step.
+    /// Every flag named in a `match` arm, across the crate. The sources are read
+    /// rather than the constants listed, because a list of constants would be a
+    /// third place to keep in step.
     static PARSED: LazyLock<BTreeSet<String>> = LazyLock::new(|| {
         const SOURCES: [&str; 14] = [
             include_str!("build.rs"),
@@ -671,8 +604,8 @@ mod usage_tests {
         for source in SOURCES {
             // Each `=>` is read backwards through the literals in front of it.
             // An arm may span lines (`"--a" | "--b"` then `| "--c" => …`), so
-            // taking one line at a time misses part of it — that was worth
-            // eight of the flags this test found【実測 2026-08-23】.
+            // taking one line at a time misses eight of the flags 【実測
+            // 2026-08-23】.
             for (before, _) in source.split_once("=>").into_iter().chain(
                 source
                     .match_indices("=>")
@@ -684,8 +617,6 @@ mod usage_tests {
         out
     });
 
-    /// The flag literals immediately in front of a `=>`, read backwards.
-    ///
     /// Stops at the first thing that is not `"-…"` or `|`, so an arm with a
     /// binding (`flag if FIXED_FLAGS.contains(&flag)`) or an expression
     /// contributes nothing rather than half of something.
@@ -713,8 +644,8 @@ mod usage_tests {
 
     /// Every flag [`USAGE`] spells as a flag: in a synopsis line or as the
     /// subject of a description. **Not prose** — `USAGE` mentions
-    /// `lean --githash` and "the reason there is no --title", and neither is a
-    /// flag of this tool.
+    /// `lean --githash` and "there is no --title", and neither is a flag of this
+    /// tool.
     fn documented() -> BTreeSet<String> {
         let mut out = BTreeSet::new();
         for line in USAGE.lines() {
@@ -723,8 +654,7 @@ mod usage_tests {
                 let name = rest.split([' ', ',', ')', '.', ':']).next().unwrap_or(rest);
                 out.insert(format!("--{name}"));
             }
-            // Synopsis lines: `usage: litedoc4 site --ir <dir> …` and their
-            // continuations, which are indented under one.
+            // Synopsis lines and their continuations, indented under one.
             if trimmed.starts_with("usage:") || trimmed.starts_with('[') || trimmed.starts_with('(')
             {
                 for word in trimmed.split_whitespace() {
@@ -738,21 +668,12 @@ mod usage_tests {
         out
     }
 
-    /// **A flag `USAGE` promises has to exist.**
-    ///
     /// One direction only. The other — "every flag the parsers accept is in
-    /// `USAGE`" — is not checked here, and the reason is that [`PARSED`] reads
-    /// source text: it cannot tell a `match` arm from the same characters in a
-    /// comment, so the set it produces is a superset. That is harmless for this
-    /// direction (a superset can only make the test pass more easily on the
-    /// parser side, and what it asserts is about `USAGE`) and useless for the
-    /// other, where the extra entries would have to be listed or counted and
-    /// neither number would mean anything.
-    ///
-    /// What it does catch is a flag written into the help text and never
-    /// implemented — and the reverse of D1, where `ledger` accepted eighteen
-    /// flags and `USAGE` declared three, is caught by
-    /// [`crate::ledger::LEDGER_FLAGS`] instead.
+    /// `USAGE`" — cannot be asked here, because [`PARSED`] reads source text and
+    /// cannot tell a `match` arm from the same characters in a comment, so its
+    /// set is a superset. A superset only makes *this* direction pass more
+    /// easily on the parser side, and what it asserts is about `USAGE`. The
+    /// other direction is [`crate::ledger::LEDGER_FLAGS`]'s.
     #[test]
     fn every_documented_flag_is_parsed() {
         let documented = documented();

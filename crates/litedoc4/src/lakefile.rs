@@ -1,52 +1,37 @@
 //! Where `--lib` comes from: the package's own lakefile.
 //!
-//! Milestone **M4-d**, and M3-d2's fifth debt (plan §7). `litedoc4 modules
-//! --root <repo> --lib <Name>` made the caller name the library, with "which
-//! libraries a package declares is in its lakefile, and reading one is M4's" as
-//! the reason. This is that reading.
-//!
-//! # What is read, and what is refused by name 【判断】
-//!
 //! A Lake package declares its libraries in one of two files, and they are not
 //! the same kind of thing:
 //!
-//! * **`lakefile.toml`** — data. `[[lean_lib]]` blocks with a `name` key. That
-//!   is what the measurement target has, and it is what this reads.
+//! * **`lakefile.toml`** — data. `[[lean_lib]]` blocks with a `name` key, which
+//!   is what this reads.
 //! * **`lakefile.lean`** — *code*. `lean_lib` is a Lake DSL command in a Lean
 //!   file that Lake elaborates; the library name can come from an `open`ed
 //!   namespace, from string interpolation, from an `if`. Reading it honestly
 //!   means running Lake, which this command does not do. **It is refused by
 //!   name, with `--lib` as the answer** — never parsed hopefully.
 //!
-//! The same rule runs one level deeper, inside the TOML. This is **not** a TOML
-//! parser and does not pretend to be one: it is a recogniser for the exact
-//! shape the format's `[[lean_lib]]`/`name` pair is written in, and **every line
-//! it cannot account for stops it** rather than being skipped. The failure it is
-//! built against is silent under-reading — a `[[lean_lib]]` written in a spelling
-//! the recogniser skips produces a *shorter* module list, and a module list that
-//! is missing a library looks exactly like a package whose modules were deleted:
-//! the pages are simply never written and nothing says so.
+//! The same rule runs one level deeper. This is **not** a TOML parser: it is a
+//! recogniser for the exact shape `[[lean_lib]]`/`name` is written in, and
+//! **every line it cannot account for stops it** rather than being skipped. The
+//! failure it is built against is silent under-reading — a `[[lean_lib]]` in a
+//! spelling the recogniser skips produces a *shorter* module list, and a module
+//! list missing a library looks exactly like a package whose modules were
+//! deleted: the pages are never written and nothing says so. So every refusal
+//! here ends in the same sentence — pass `--lib`.
 //!
-//! So the refusals below are deliberately loud, and all of them end in the same
-//! sentence — pass `--lib`. A caller with a lakefile this cannot read is never
-//! stuck; it is only told to say the name out loud.
-//!
-//! # `defaultTargets` is not consulted 【判断】
-//!
-//! Every `[[lean_lib]]` is returned, not the subset `defaultTargets` names. The
-//! two answer different questions: `defaultTargets` is what `lake build` builds
-//! with no arguments (and it can name executables, which have no modules to
-//! document), while this list is "which module roots does this package own". A
-//! package that declares a library it does not build by default has no olean for
-//! it, and `detect` says so by name (exit 3) — which is a better failure than
-//! documenting less than the package has and reporting success.
+//! **`defaultTargets` is not consulted.** It answers a different question: what
+//! `lake build` builds with no arguments (and it can name executables, which
+//! have no modules to document), where this list is "which module roots does
+//! this package own". A package that declares a library it does not build by
+//! default has no olean for it, and `detect` says so by name (exit 3) — a better
+//! failure than documenting less than the package has and reporting success.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::Failure;
 
-/// The libraries a package declares, and the file that said so.
 pub(crate) struct Libraries {
     pub names: Vec<String>,
     /// For the log line: a caller that gets a surprising module list needs to
@@ -54,8 +39,6 @@ pub(crate) struct Libraries {
     pub file: PathBuf,
 }
 
-/// The libraries declared in `<root>`'s lakefile.
-///
 /// Exit 3 (`Failure::Refused`) rather than exit 2 for every failure here: the
 /// command line was fine and the *package* is a shape this cannot read, which is
 /// the same kind of answer as "this module has no olean".
@@ -90,13 +73,11 @@ pub(crate) fn read_libraries(root: &Path) -> Result<Libraries, Failure> {
 ///
 /// 1. a line whose first non-blank character is `[` is a table header; the only
 ///    one that opens a library block is exactly `[[lean_lib]]`;
-/// 2. inside such a block, a line whose key is `name` must be
-///    `name = "<Ident>"`, with an optional `#` comment after it, and the string
-///    must be a plain one — no escapes;
-/// 3. any other line is a key of some table this does not care about, and is
-///    skipped **only because rules 1 and 2 make a missed `[[lean_lib]]`
-///    impossible to reach**: a header that mentions `lean_lib` in any other
-///    spelling stops the run instead of being skipped as "some other table";
+/// 2. inside such a block, a `name` key must be `name = "<Ident>"`, with an
+///    optional `#` comment after it and no escapes in the string;
+/// 3. any other line is skipped **only because rules 1 and 2 make a missed
+///    `[[lean_lib]]` impossible to reach**: a header mentioning `lean_lib` in
+///    any other spelling stops the run;
 /// 4. multi-line strings (`"""` / `'''`) stop the run before any of the above,
 ///    because their content can be an arbitrary line and rule 1 would read it as
 ///    structure.
@@ -169,16 +150,9 @@ fn lean_libs(text: &str, path: &Path) -> Result<Vec<String>, Failure> {
     Ok(names)
 }
 
-/// Ends the current `[[lean_lib]]` block, if there is one.
-///
 /// A block with no `name` is refused rather than skipped: Lake defaults the
 /// library's name to the package's, and guessing that here would produce a
 /// module root nobody wrote down.
-///
-/// The two layers of [`Option`] are the two questions the scan tracks and are
-/// not the same question twice: the outer one is whether a block is open, the
-/// inner one whether that block has given its `name` yet. `Some(None)` — open,
-/// unnamed — is the state rule 2 refuses at the block's end.
 #[expect(
     clippy::option_option,
     reason = "outer = a block is open, inner = it has a name; a named enum would restate this"
@@ -204,10 +178,8 @@ fn close(
     }
 }
 
-/// The text after `name` and its `=`, when the line's key is exactly `name`.
-///
-/// `name_of = "x"` is a different key and must not match, which is why the
-/// prefix is checked against a boundary rather than with `starts_with("name")`.
+/// The text after `name` and its `=`, when the line's key is exactly `name` —
+/// `name_of = "x"` is a different key and must not match.
 fn key_is_name(line: &str) -> Option<&str> {
     let rest = line.strip_prefix("name")?;
     let rest = rest.trim_start();
@@ -229,7 +201,6 @@ fn plain_string(text: &str) -> Option<String> {
     }
 }
 
-/// Exit 3, as [`read_libraries`]'s heading says.
 fn refuse<T>(message: String) -> Result<T, Failure> {
     Err(Failure::Refused {
         code: crate::EXIT_REFUSED,

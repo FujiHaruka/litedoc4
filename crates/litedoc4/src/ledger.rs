@@ -4,6 +4,10 @@
 //! [`LEDGER_FLAGS`] is why they are one subcommand with three names rather than
 //! three that share a parser: the flags do not overlap, and one flat parse
 //! accepted every flag for all three and read it for one.
+//!
+//! `touch` is here for the same reason it is in the library: the measurement
+//! target must not be modified, so "module M changed" is injected into the
+//! ledger instead.
 
 use std::path::PathBuf;
 
@@ -14,23 +18,13 @@ use litedoc4_incr::{
 
 use crate::{Failure, grouped, refused, resolve_external_links, usage, with_dependency_docs};
 
-/// The `detect` stage: the olean hash ledger (plan §6, milestone M3-a).
-///
-/// Three subcommands rather than three top-level ones, because they share the
-/// ledger file and nothing else in the CLI does. `touch` is here for the same
-/// reason it is in the library: the measurement target must not be modified, so
-/// "module M changed" is injected into the ledger instead.
 /// Which `ledger` subcommand accepts which flag.
 ///
 /// `ledger` parses one flat set of flags and then dispatches on the subcommand,
 /// so without this table every flag is accepted by all three and read by one:
-/// `ledger touch --concurrency 9` used to run, ignore the number, and say
-/// nothing. **A flag that does nothing is the shape this project keeps
-/// finding** — `extract` refuses it by name for the same reason
-/// (`--link-index-omit` without `--link-index`): the run looks right and the
-/// artefact is not the one that was asked for.
-///
-/// `--help` is not here because it is not a subcommand's: every one answers it.
+/// `ledger touch --concurrency 9` would run, ignore the number, and say nothing.
+/// **A flag that does nothing is the shape this project keeps finding** — the
+/// run looks right and the artefact is not the one that was asked for.
 const LEDGER_FLAGS: [(&str, &[&str]); 17] = [
     ("--modules", &["build", "check"]),
     ("--target", &["build"]),
@@ -73,12 +67,10 @@ pub fn ledger(args: &[String]) -> Result<(), Failure> {
     let Some(command) = args.first().map(String::as_str) else {
         return usage("ledger needs a subcommand: build, check or touch");
     };
-    // **Before the subcommand, because that is where a person types it.** Every
-    // other subcommand answers `--help` inside its own flag loop, and so does
-    // this one (`ledger check --help`) — but this is the only command with a
-    // subcommand in front of that loop, so without this arm `litedoc4 ledger
-    // --help` reaches the loop's `other` arm and is refused as an unknown
-    // subcommand *named* `--help`.
+    // Before the subcommand, because that is where a person types it: this is
+    // the only command with a subcommand in front of its flag loop, so without
+    // this arm `litedoc4 ledger --help` is refused as an unknown subcommand
+    // *named* `--help`.
     if matches!(command, "--help" | "-h") {
         return crate::cli::help();
     }
@@ -100,23 +92,19 @@ pub fn ledger(args: &[String]) -> Result<(), Failure> {
             "--ledger" => ledger = Some(args.value("--ledger")?.into()),
             "--ir" => ir = Some(args.value("--ir")?.into()),
             "--source-url" => source_url = args.value("--source-url")?,
-            // M5-b: the dependency map joins the render key, so `ledger build`
-            // and `ledger check` have to be able to name it. Absent, and a path
-            // that does not exist, both leave the key out.
+            // These three are part of the render key, so a `ledger` run that
+            // cannot see them computes a different key from the one `build`
+            // recorded and then reports "changed" or "unchanged" untruthfully.
+            // For `--link-index`, absent and a path that does not exist both
+            // leave the key out.
             "--link-index" => link_index = Some(args.value("--link-index")?.into()),
-            // M7-c. **Not `--target`**, even though on a real package the two
-            // are the same directory: `--target` is the tree whose oleans are
-            // hashed, and this is the package whose manifest and toolchain pin
-            // the dependencies. Keeping them apart is what lets `ledger build`
-            // over a hashed tree with no package behind it — every test in this
-            // repository — go on producing the key it produced before M7.
+            // **Not `--target`**, even though on a real package the two are the
+            // same directory: `--target` is the tree whose oleans are hashed, and
+            // this is the package whose manifest and toolchain pin the
+            // dependencies. Keeping them apart is what lets `ledger build` run
+            // over a hashed tree with no package behind it.
             "--root" => package = Some(args.value("--root")?.into()),
             "--lake" => lake = Some(args.value("--lake")?.into()),
-            // A-1, and it is here for exactly the reason `--link-index` and
-            // `--root` are: the resolved documentation map is part of the render
-            // key, so a `ledger` run that cannot see it computes a different key
-            // from the one `build` recorded and then reports "changed" or
-            // "unchanged" for a reason that is not true.
             "--deps-docs-map" => deps_docs_map = Some(args.value("--deps-docs-map")?.into()),
             "--algorithm" => algorithm = Some(Algorithm::new(args.value("--algorithm")?)),
             "--concurrency" => concurrency = args.number("--concurrency")?,
@@ -193,8 +181,6 @@ pub fn ledger(args: &[String]) -> Result<(), Failure> {
                 timings: timings.as_deref(),
             })
             .map_err(refused)?;
-            // The counts first, then the reasons, then the names: a run that
-            // re-extracts everything has to say which key did it.
             println!(
                 "check {} modules ({}, concurrency {}): {} changed, {} added, {} removed",
                 summary.modules,

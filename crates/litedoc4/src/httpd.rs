@@ -1,40 +1,28 @@
 //! `litedoc4 watch`'s file server: **the bytes that were built, and nothing
 //! else**.
 //!
-//! Feature sweep A-2. It is a few hundred lines over [`std::net::TcpListener`]
-//! and it stays that way on purpose — this tree's whole dependency list is
-//! `serde`, `serde_json` and `sha2`, and a static file server is not a reason to
-//! lengthen it (`Cargo.toml`, and A-1's `curl` decision one feature over).
+//! A few hundred lines over [`std::net::TcpListener`], and it stays that way on
+//! purpose — this tree's whole dependency list is `serde`, `serde_json` and
+//! `sha2`, and a static file server is not a reason to lengthen it.
 //!
-//! # No live-reload script is injected 【判断】
-//!
-//! The obvious feature is a snippet appended to every page that polls and
-//! reloads the tab. It is not here, and the reason is the same one that keeps
-//! `build` and `site` sharing one function: **what a developer is looking at has
-//! to be what they will publish.** A server that rewrites the HTML on its way
-//! out makes the previewed page and the shipped page two different files, and
-//! the difference is invisible exactly when it matters — a selector that only
+//! **No live-reload script is injected.** A snippet appended to every page would
+//! make the previewed page and the shipped page two different files, and the
+//! difference is invisible exactly when it matters — a selector that only
 //! matches because of the injected node, a script error the injected script
 //! swallowed. `watch` prints a line per rebuild instead; the reload is a
-//! keystroke.
+//! keystroke. What the server owes the reader is that the keystroke works:
+//! `Cache-Control: no-store` on every response, because a 200 the browser served
+//! out of its own cache is "local build does not refresh after code change" with
+//! the fix already applied.
 //!
-//! What the server *does* owe the reader is that the keystroke works:
-//! `Cache-Control: no-store` on every response, because doc-gen4 #389 is
-//! literally "local build does not refresh after code change" and a 200 the
-//! browser served out of its own cache is that bug with the fix already applied.
+//! **A taken port is an error with a name** ([`bind`]), not a reason to try the
+//! next one: an address that moves between runs leaves the tab the reader
+//! already has open pointing at nothing, and nothing says so.
 //!
-//! # The port is refused, never moved 【判断】
-//!
-//! A taken port is an error with a name ([`bind`]), not a reason to try the next
-//! one. An address that moves between runs is worse than one that is refused,
-//! because the tab the reader already has open then points at nothing and
-//! nothing says so. [`DEFAULT_PORT`] carries the rest of the reasoning.
-//!
-//! # Loopback only
-//!
-//! `127.0.0.1`, not `0.0.0.0`: this serves a half-finished documentation site
-//! out of somebody's working tree, and binding every interface publishes it to
-//! whatever network the machine is on without anybody having asked.
+//! **Loopback only.** `127.0.0.1`, not `0.0.0.0`: this serves a half-finished
+//! documentation site out of somebody's working tree, and binding every
+//! interface publishes it to whatever network the machine is on without anybody
+//! having asked.
 
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -44,23 +32,16 @@ use std::thread;
 
 use crate::Failure;
 
-/// The port `watch` binds unless `--port` says otherwise.
-///
-/// **Not 8899**: `tools/check-site-browser.ts` drives puppeteer there and
-/// CLAUDE.md records that it sometimes leaks the listener, so a default that
-/// collided with it would fail for a reason that has nothing to do with this
-/// command. Not 3000 / 8000 / 8080 / 5173 / 4173 either — those are where every
-/// other development server in a working tree already is, and the first thing a
-/// default port must do is be free.
+/// **Not 8899**, where `tools/check-site-browser.ts` drives puppeteer and
+/// sometimes leaks the listener; not 3000 / 8000 / 8080 / 5173 / 4173 either,
+/// where every other development server in a working tree already is. The first
+/// thing a default port must do is be free.
 pub(crate) const DEFAULT_PORT: u16 = 8484;
 
-/// How much of a request head is read before it is answered with 400.
-///
-/// A request line plus headers; the body is never read because no method here
+/// A request line plus headers; the body is never read, because no method here
 /// has one.
 const MAX_HEAD_BYTES: u64 = 8 * 1024;
 
-/// The listener, or a refusal that names the port.
 pub(crate) fn bind(port: u16) -> Result<TcpListener, Failure> {
     TcpListener::bind(("127.0.0.1", port)).map_err(|source| Failure::Refused {
         code: crate::EXIT_REFUSED,
@@ -102,9 +83,6 @@ pub(crate) fn serve(listener: &TcpListener, root: &Path) {
     }
 }
 
-// ------------------------------------------------------------------ answering
-
-/// One request, from the first byte to the last.
 fn answer(stream: &TcpStream, root: &Path) -> std::io::Result<()> {
     let Some(line) = head(stream)? else {
         let empty = Response::text(400, "Bad Request", "no request line");
@@ -131,11 +109,9 @@ fn answer(stream: &TcpStream, root: &Path) -> std::io::Result<()> {
     write_response(stream, &respond(root, target), body)
 }
 
-/// The request line, with the rest of the head read and discarded.
-///
-/// Bounded: a connection that never sends a blank line is answered rather than
-/// waited on, which is the same rule the loop upstairs follows — nothing here
-/// may look like a hang.
+/// The request line, with the rest of the head read and discarded. Bounded, so
+/// that a connection which never sends a blank line is answered rather than
+/// waited on — nothing here may look like a hang.
 fn head(stream: &TcpStream) -> std::io::Result<Option<String>> {
     let mut reader = BufReader::new(stream).take(MAX_HEAD_BYTES);
     let mut first = String::new();
@@ -161,12 +137,10 @@ fn head(stream: &TcpStream) -> std::io::Result<Option<String>> {
     Ok((!first.is_empty()).then_some(first))
 }
 
-/// What the server says about one request target.
 fn respond(root: &Path, target: &str) -> Response {
     if !root.is_dir() {
-        // The first build has not finished, or it failed. **Said, not hung on**:
-        // doc-gen4 #404 was a ten-minute silence its reporter read as a hang, and
-        // an empty page with no explanation is the browser's version of it.
+        // The first build has not finished, or it failed. Said, not hung on: an
+        // empty page with no explanation is the browser's version of a hang.
         return Response::text(
             503,
             "Service Unavailable",
@@ -209,7 +183,6 @@ fn not_found(root: &Path, target: &str) -> Response {
     }
 }
 
-/// What one request target resolves to, before the file is read.
 #[derive(Debug, PartialEq, Eq)]
 enum Route {
     File(PathBuf),
@@ -221,15 +194,13 @@ enum Route {
     Outside(&'static str),
 }
 
-/// The file a request target names, **or a refusal**.
-///
-/// Two layers, and both are tested, because they fail differently. The first is
-/// [`segments`], which never lets a `..` become part of a path at all. The
-/// second is the `starts_with` below, which catches the case the first cannot
-/// see: a symlink *inside* the site pointing out of it, where every component is
-/// innocent and the resolved file is somebody's private key. A generated site
-/// holds no symlinks, which is the argument for leaving the check out and
-/// exactly why it is in — the site is a directory a person can put anything in.
+/// Two layers, because they fail differently. [`segments`] never lets a `..`
+/// become part of a path at all; the `starts_with` below catches what that
+/// cannot see — a symlink *inside* the site pointing out of it, where every
+/// component is innocent and the resolved file is somebody's private key. A
+/// generated site holds no symlinks, which is the argument for leaving the
+/// second check out and exactly why it is in: the site is a directory a person
+/// can put anything in.
 fn route(root: &Path, target: &str) -> Route {
     let segments = match segments(target) {
         Ok(segments) => segments,
@@ -256,15 +227,12 @@ fn route(root: &Path, target: &str) -> Route {
     }
 }
 
-/// The path components of a request target, percent-decoded and checked.
-///
 /// **Decoded first, checked second**, which is the order that matters: `%2e%2e`
 /// is `..` and `%2f` is `/`, so a check that ran before the decoding would pass
 /// both. Everything that survives is a single component with no separator in it,
 /// so the join in [`route`] cannot leave the tree.
 fn segments(target: &str) -> Result<Vec<String>, Route> {
-    // The query and the fragment are not part of the file name. A fragment never
-    // reaches a server, but a hand-written request can carry one.
+    // A fragment never reaches a server, but a hand-written request can carry one.
     let path = target.split(['?', '#']).next().unwrap_or_default();
     if !path.starts_with('/') {
         return Err(Route::Bad(
@@ -326,17 +294,13 @@ fn decode(segment: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// The `Content-Type` for a file of the site.
-///
-/// The site is HTML, CSS, one script, JSON and one SVG (`litedoc4_render::ASSETS`
-/// and `litedoc4_global`'s artifacts); the rest of the list is what a person
-/// drops into a site directory. Anything unrecognised is served as bytes rather
-/// than guessed at.
+/// The site itself is HTML, CSS, one script, JSON and one SVG; the rest of the
+/// list is what a person drops into a site directory. Anything unrecognised is
+/// served as bytes rather than guessed at.
 fn content_type(path: &Path) -> &'static str {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     // Lowercased because APFS is case-insensitive by default, so the extension
-    // the file has and the extension a comparison sees are two questions
-    // (CLAUDE.md's `case_sensitive_file_extension_comparisons`).
+    // the file has and the extension a comparison sees are two questions.
     let name = name.to_lowercase();
     let extension = name.rsplit_once('.').map_or("", |(_, tail)| tail);
     match extension {
@@ -357,9 +321,6 @@ fn content_type(path: &Path) -> &'static str {
     }
 }
 
-// ------------------------------------------------------------------ responses
-
-/// One answer, ready to be written.
 struct Response {
     status: u16,
     reason: &'static str,
@@ -378,11 +339,9 @@ impl Response {
     }
 }
 
-/// The head and, for `GET`, the body.
-///
 /// `Content-Length` is the file's length on a `HEAD` too — that is what the
-/// header means — and `Connection: close` because there is no keep-alive here:
-/// one request per connection is what makes the read above bounded.
+/// header means — and `Connection: close` because there is no keep-alive: one
+/// request per connection is what makes the read above bounded.
 fn write_response(stream: &TcpStream, response: &Response, body: bool) -> std::io::Result<()> {
     let head = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: \
@@ -400,20 +359,15 @@ fn write_response(stream: &TcpStream, response: &Response, body: bool) -> std::i
     out.flush()
 }
 
-// --------------------------------------------------------------------- tests
-
-/// The routing, the refusals and one real socket.
-///
 /// All of it owns its input — a directory this module writes and a listener on
-/// port 0 — so it is a test rather than a gate. What the gate has instead is the
-/// measurement target and a running `watch` (`tools/watch-gate.sh`).
+/// port 0 — so it is a test rather than a gate. The gate has the measurement
+/// target and a running `watch` (`tools/watch-gate.sh`).
 #[cfg(test)]
 mod tests {
     use std::net::TcpStream;
 
     use super::*;
 
-    /// A three-file site, and the temporary directory it lives in.
     struct Site {
         root: PathBuf,
     }
@@ -474,9 +428,6 @@ mod tests {
         assert_eq!(route(&site.root, "/nope/"), Route::Missing);
     }
 
-    /// The correctness test the design owes: **a request may not name a file
-    /// outside the directory being served**, in every spelling that reaches this
-    /// function.
     #[test]
     fn a_path_that_leaves_the_site_is_refused_in_every_spelling() {
         let site = Site::new("traversal");
@@ -497,8 +448,8 @@ mod tests {
                 other => panic!("{target} was not refused: {other:?}"),
             }
         }
-        // And the two failures that are *not* traversal keep their own answer,
-        // so a 400 and a 403 do not become one word.
+        // The two failures that are *not* traversal keep their own answer, so a
+        // 400 and a 403 do not become one word.
         assert!(matches!(route(&site.root, "index.html"), Route::Bad(_)));
         assert!(matches!(route(&site.root, "/%zz.html"), Route::Bad(_)));
         let _ = fs::remove_file(&outside);
@@ -549,8 +500,7 @@ mod tests {
     }
 
     /// One real connection, because the routing above says nothing about the
-    /// bytes on the wire — the status line, the length and the header that keeps
-    /// a reload from being served out of the browser's cache.
+    /// bytes on the wire.
     #[test]
     fn a_real_request_gets_the_file_and_a_real_miss_gets_the_sites_own_404() {
         let site = Site::new("socket");
@@ -614,7 +564,6 @@ mod tests {
         );
     }
 
-    /// One request, one connection, the whole answer as text.
     fn request(port: u16, line: &str) -> String {
         let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("the server is listening");
         stream

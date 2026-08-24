@@ -1,8 +1,7 @@
 //! The stages that turn an IR tree into a site: `site`, `render`, `global`.
 //!
-//! One IR tree in, pages or whole-package artifacts out. `site` is both halves
-//! in one command and `render` is the first half alone; [`generate_site`] is
-//! what keeps them from being two answers to one question (M4-d).
+//! `site` is both halves in one command and `render` is the first half alone;
+//! [`generate_site`] is what keeps them from being two answers to one question.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -16,30 +15,15 @@ use crate::{Failure, print_global_summary, print_render_summary, site_config, us
 /// Full generation: the module pages **and** the six whole-package artifacts,
 /// into one tree, from one IR tree, in one command.
 ///
-/// **The prototype has no script for this.** `stage7h/run.sh:78-80`'s `render()`
-/// is three lines of shell — `render.ts` and then `global.ts build` over the
-/// same IR and the same output directory — and every reference site this project
-/// owns was made by it. The order is kept because the comparison is stated
-/// against it, not because the stages talk: the cache `global` reads is keyed on
-/// the IR, and the two write disjoint files 【実測, plan §7, M2】.
-///
-/// **The incremental round runs the same two stages the other way round**
-/// (`incremental.sh` steps 6 and 7), and that is not an inconsistency to tidy
-/// away: there, `global`'s map delta is half of the render set, so it has to
-/// precede the renderer (plan §6, constraint 2). Here there is no delta and no
-/// set, so nothing constrains the order — which is exactly why M3-d2 must not
-/// read this function as saying render comes first.
-///
-/// Five of the two subcommands' flags are deliberately **not** accepted:
+/// Five flags of the two subcommands it calls are deliberately **not** accepted:
 ///
 /// - **`--only` / `--only-from`.** Full generation is every module; that is what
 ///   the word means. A subset is `render`'s job, and the page set here is
 ///   [`ModuleSet::All`] with no way to say otherwise.
 /// - **`--before` / `--print-set` / `--delta-json`.** The map delta answers
-///   "which pages can have gone stale", which only an incremental round (M3-d2)
-///   asks. A full run re-renders all of them, so a delta here would be a
-///   diagnostic nobody reads — and one that quietly suggests the run was
-///   partial.
+///   "which pages can have gone stale", which only an incremental round asks. A
+///   full run re-renders all of them, so a delta here would be a diagnostic
+///   nobody reads — and one that quietly suggests the run was partial.
 pub fn site(args: &[String]) -> Result<(), Failure> {
     let mut ir: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
@@ -119,9 +103,8 @@ pub fn site(args: &[String]) -> Result<(), Failure> {
     let (rendered, derived) = (&site.rendered, &site.derived);
 
     if let Some(path) = timings {
-        // `renderSeconds` / `globalSeconds` / `totalSeconds` are
-        // `incremental.sh:416-419`'s names for the same two phases, so a full
-        // run and an incremental one subtract.
+        // `renderSeconds` / `globalSeconds` / `totalSeconds` are the incremental
+        // round's names for the same two phases, so the two records subtract.
         let record = serde_json::json!({
             "command": "site",
             "pagesWritten": rendered.pages_written,
@@ -139,7 +122,6 @@ pub fn site(args: &[String]) -> Result<(), Failure> {
     Ok(())
 }
 
-/// What full generation produced: both stages' counts and both stages' clocks.
 pub(crate) struct Site {
     pub(crate) rendered: RenderSummary,
     pub(crate) derived: GlobalSummary,
@@ -147,21 +129,17 @@ pub(crate) struct Site {
     pub(crate) global_seconds: f64,
 }
 
-/// Full generation, as a function.
+/// **`site` and [`crate::build`] call this, and that is the point**: the gate is
+/// "the tree `build` writes is byte-identical to the tree `litedoc4 site`
+/// writes", and a shared function turns that from a thing to measure into a
+/// thing to state. It is still measured — a shared function can be called with
+/// different arguments — but the failure it removes is the two commands drifting
+/// a flag apart until the comparison is of two different questions.
 ///
-/// **`site` and [`crate::build`] call this, and that is the point** 【判断】: the M4-d
-/// gate is "the tree `build` writes is byte-identical to the tree `litedoc4
-/// site` writes", and a shared function turns that from a thing to measure into
-/// a thing to state. It is still measured — a shared function can still be
-/// called with different arguments — but the failure mode it removes is the one
-/// where the two commands drift a flag apart and the comparison quietly becomes
-/// a comparison of two different questions.
-///
-/// The order (render, then the whole-package derivation) is the prototype's
-/// three lines of shell, and it is free here: the cache `global` reads is keyed
-/// on the IR, and the two stages write disjoint files 【実測, plan §7, M2】. The
-/// incremental round runs them the other way round because there the map delta
-/// is half of the render set (plan §6, constraint 2).
+/// The order (render, then the whole-package derivation) is free here: the cache
+/// `global` reads is keyed on the IR, and the two stages write disjoint files
+/// 【実測】. The incremental round runs them the other way round because there
+/// the map delta is half of the render set.
 pub(crate) fn generate_site(
     ir: &std::path::Path,
     out: &std::path::Path,
@@ -179,7 +157,7 @@ pub(crate) fn generate_site(
         external_links,
         link_index,
         config,
-        // Not a parameter. See `site`'s own documentation.
+        // Not a parameter: full generation is every module.
         only: &ModuleSet::All,
     })
     .map_err(|e| Failure::Failed(e.to_string()))?;
@@ -191,9 +169,9 @@ pub(crate) fn generate_site(
     let derived = build_global(&options).map_err(|e| Failure::Failed(e.to_string()))?;
     let total = started.elapsed();
 
-    // Both stages' counts, each labelled with the stage that produced it. One
-    // merged line would lose which half of the tree a number is about, and the
-    // two stages count different things under the same word ("modules").
+    // Labelled per stage: one merged line would lose which half of the tree a
+    // number is about, and the two count different things under the same word
+    // ("modules").
     print_render_summary("render  ", &rendered);
     print_global_summary("global  ", &derived);
     Ok(Site {
@@ -207,12 +185,10 @@ pub(crate) fn generate_site(
 /// The whole-package artifacts, the `contentHash` cache and the map delta.
 ///
 /// No `--only`: the derivation is over the whole package by construction, and
-/// the cache makes it cheap rather than partial. No `--source-url` either —
-/// none of the seven carries a source link (which is why `index.html` has no
-/// "repository" anchor; see `litedoc4_global::entry`).
-///
-/// `--print-set` / `--delta-json` do nothing without `--before`, exactly as in
-/// the prototype: the delta is off unless there is a map to compare against.
+/// the cache makes it cheap rather than partial. No `--source-url` either — none
+/// of the seven artifacts carries a source link, which is why `index.html` has
+/// no "repository" anchor. `--print-set` / `--delta-json` do nothing without
+/// `--before`: the delta is off unless there is a map to compare against.
 pub fn global(args: &[String]) -> Result<(), Failure> {
     let mut ir: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
@@ -222,9 +198,8 @@ pub fn global(args: &[String]) -> Result<(), Failure> {
     let mut delta_json: Option<PathBuf> = None;
     let mut timings: Option<PathBuf> = None;
     // `--root` is here for one reason: this command writes `index.html`, and
-    // `litedoc4.toml` decides what is on it (feature-sweep C-3). Without it,
-    // `litedoc4 global` and `litedoc4 site` would put different titles on the
-    // same package — which is exactly the disagreement 決定 3 refuses.
+    // `litedoc4.toml` decides what is on it. Without it, `litedoc4 global` and
+    // `litedoc4 site` would put different titles on the same package.
     let mut root: Option<PathBuf> = None;
 
     let mut args = crate::cli::Args::new(args);
@@ -272,9 +247,8 @@ pub fn render(args: &[String]) -> Result<(), Failure> {
     let mut root: Option<PathBuf> = None;
     let mut lake: Option<PathBuf> = None;
     let mut deps_docs_map: Option<PathBuf> = None;
-    // `None` until an `--only` of either spelling appears: the distinction
-    // between "no subset asked for" and "a subset that came out empty" is the
-    // whole point (plan §5).
+    // `None` until an `--only` of either spelling appears: "no subset asked for"
+    // and "a subset that came out empty" are different answers.
     let mut only: Option<BTreeSet<String>> = None;
 
     let mut args = crate::cli::Args::new(args);
