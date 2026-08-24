@@ -1,70 +1,65 @@
-# Handoff — 2026-08-24 (テストの穴を埋める)
+# Handoff — 2026-08-24 (コメント削減)
 
 ## Relay control
-- Mode: DONE
-- Goal: テストの穴を埋める計画を全 30 項目決着まで完遂する。**達成**。
+- Mode: ON
+- Goal: `CLAUDE.md` の新しい `## コードのコメント` 規則 (既定はコメントしない /
+  非自明な why not だけ) に合わせて、**コード表面のコメントを全面的に削減する**。
 - Leg: 1 / cap 8
 - Predecessor: none
-- Stop-on: completion
-- **結果**: **全 30 項目決着**。**新しく書いたテストは 57 本**、本体カバレッジは
-  **86.9% → 92.4%**、**製品の欠陥を 1 件出して直した** (`litedoc4 ledger --help` だけが
-  使い方を出さず exit 2 で拒否していた)。**`ci.yml` に watch gate を載せた** —
-  ブランチで実走して緑を確認してから main へ入れ、**main でも 3 ジョブ緑**
-  ([run 32656489911](https://github.com/FujiHaruka/litedoc4/actions/runs/32656489911))。
+- Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger:
-  - r1: 段 0〜7 のすべて。commit `c7df7a5`〜`5c34fbf`
+  - r1: (進行中)
 
-## State
+## この作業の規範
 
-- Branch: **`main`** / clean / push 済み
-- **計画は全 30 項目決着。この計画でやることは残っていない**
-- 数字の SoT は
-  [`benchmarks/results/coverage-2026-08-24.txt`](../benchmarks/results/coverage-2026-08-24.txt)、
-  (計画文書と実装ログは 2026-08-24 に削除した — 経緯は git 履歴)
-- **検証は全部緑**【実測 2026-08-24】 — `cargo test --workspace --no-fail-fast` が
-  **46 バイナリ / 564 passed / 0 failed / 22 ignored**、fmt / clippy / doc / machete /
-  `corpus-gate.sh --verify-list` も 0。検証スクリプトは
-  `/private/tmp/lean-doc-relay/testcov/verify.sh` (各段のログと終了コードを別々に残す。
-  **パイプを使わない**)
-- **`#[ignore]` は 22 のまま**なので `tools/corpus-tests.txt` は触っていない
-- ディスク: 空き **17 GiB**。`cargo llvm-cov clean --workspace` 済み (869 → 112 MB)
+- **`CLAUDE.md` の `## コードのコメント`** が規範。
+- **作業手順版は [`/private/tmp/lean-doc-relay/comment-diet/policy.md`](/private/tmp/lean-doc-relay/comment-diet/policy.md)**
+  — 「消す 8 分類 / 残す a〜e / 絶対に消さない (provenance) / 触らない」。
+  **subagent には必ずこれを読ませる。** 消えていたら `git log` の
+  この handoff の履歴か、CLAUDE.md から再生成する。
 
-## やらないと決めたもの (再検討するなら同じ測り方をやり直すこと)
+## 進め方 (確立済み)
 
-- **`litedoc4-md/src/parse.rs` の未カバー 52 行** — 50 行が `Error::Malformed` 系の
-  防御分岐で、入力から到達できない
-- **段 6 の P2〜P5** — 残り 724 行は `?` の伝播 / getter / `--serve` の常駐経路
-  (機材が要る = ゲートの領分) / 診断用フラグ (ゲートが既に読んでいる)
-- **`extractor/Extract.lean` の単体テスト** — e2e のゲート 7/8/9 が実 IR を名前レベルで
-  検査している。**「テストが 1 本も無い」は「検査が無い」ではない**
-- **カバレッジのしきい値を CI のゲートにすること** — 壁時計をゲートにしないのと同じ理由
-- **`cargo-mutants` を網羅的に回すこと** — 代わりに**テスト 1 本ごとに 3〜4 通りの変異を
-  手で当てた** (計 26 通り)。**それで「何をしても通るテスト」を 1 件捕まえた**
+1. crate / ディレクトリ単位で subagent に dispatch (**同時 1 体**、commit させない)
+2. 戻ってきたら `git diff` を読んで判断を検証
+3. **`/private/tmp/lean-doc-relay/comment-diet/verify.sh`** を回す
+   (CI の「test (no corpus, no Lean)」ジョブと同じ 8 段。**パイプ無し**、
+   各段のログは `logs/<段>.log`、終了コードは行ごとに印字)
+4. 緑なら commit & push
 
-## この leg で踏んだもの (繰り返さない)
+## 残っている範囲 (コメント行数は着手前の実測)
 
-1. **`cargo fmt --all` を回さずに commit して、HEAD の `cargo fmt --check` を赤くした**
-   (`ci.yml:121`)。→ **commit の前に必ず `fmt --check` を回す**
-2. **カバレッジの行の数え方を自作して間違えた。** `--json` の segments は 1 行に複数
-   リージョンが乗る (`?` のエラー経路)。最小を取れば 81.6%、最大なら 87.3%、
-   llvm-cov 自身の per-file 値はその間。→ **`--lcov` を使う** (1 行に 1 つの count)。
-   確定値は **本体 86.9%** (`#[cfg(test)]` より手前だけ)
-3. **`rg -oh` は `--help` を出す** — ripgrep の `-h` は `--no-filename` ではない (`-I` がそれ)
-4. **subagent の「CI で走らないゲート」報告が誤りだった。** `e2e-micro.sh` が
-   `site`/`usedby`/`config`/`onemod` の 4 本を内部で呼ぶ。**呼び出しは 2 段ある**
+| 範囲 | ファイル | コメント行 | 状態 |
+|---|---|---|---|
+| `crates/litedoc4-ir` | 10 | 1098 | **r1 で subagent 実行中** |
+| `crates/litedoc4-md` | 16 | 1271 | 未 |
+| `crates/litedoc4-testutil` | 7 | 689 | 未 |
+| `crates/litedoc4-global` | 12 | 1920 | 未 |
+| `crates/litedoc4-incr` | 13 | 2303 | 未 |
+| `crates/litedoc4-render` | 24 | 3831 | 未 |
+| `crates/litedoc4` | 26 | 5210 | 未 (src / tests で分ける) |
+| `tools/*.sh` | ~30 | ~2500 | 未 |
+| `extractor/Extract.lean` + `lakefile.lean` | 2 | 511 | 未 |
+| TS (`crates/litedoc4-render/web/src`, `tests/oracle`) | ~12 | ~600 | 未 |
+| `benchmarks/tools/*` | ~20 | ~700 | 未 (最後。計測条件は残す) |
 
-## 計測コマンド (再計測はこれ)
+合計 **約 20,500 行**が着手前のコメント行数。
 
-```sh
-mise exec -- cargo llvm-cov --workspace --no-fail-fast --lcov --output-path cov.lcov
-# 本体だけ数える: 各 src ファイルの最初の `#[cfg(test)]` より手前の DA: 行を数える
-# 集計スクリプトはスクラッチにある (セッションが変わったら書き直す。20 行程度)
-```
+## 済んだもの
 
-**`target/llvm-cov-target` は 880 MB、空きは 16 GiB。段 7 F1 で `cargo llvm-cov clean` する
-— 掃除の主体はそこ。** このリポジトリは満杯のディスクで対象リポジトリを一度壊している。
+- `CLAUDE.md` に `## コードのコメント` 節を追加 (`c57f2df`)
+- コンフリクトする「コード表面から docs を参照しない」規則を削除し、
+  先頭の SoT 記述と `crates/` の表の行を新規則に揃えた (`3ad2073`)
 
-## 作業領域
+## 罠 (この作業固有)
 
-`/private/tmp/lean-doc-relay/testcov/` — e2e の出力 (6.6 MB)、検証ログ、
-falsify 用のバックアップ。**段 7 が終わったら消す。**
+- **`tools/provenance-files.txt` が指す attribution 文字列を消すと `provenance-gate.sh` が落ちる。**
+  対象は `extractor/Extract.lean` / `litedoc4-md` の 6 ファイル / `litedoc4-render` の 3 ファイル /
+  `litedoc4-global/src/v8_gc.rs` / `assets/style.css`。policy.md に一覧がある
+- **doctest はテスト**。```` ```rust ```` フェンスを消すとテストが減る
+  (```text / ```no_run / ```ignore は走らない)
+- **intra-doc link** を消すと、それを指している側で `cargo doc -D warnings` が落ちる
+- `Cargo.toml` の `[workspace.lints]` のコメントは **CLAUDE.md が保存を要求している** — 触らない
+- `.github/workflows/ci.yml` の Rustdoc links ステップのコメントが
+  「this repository's doc comments are where the reasoning lives」と書いている。
+  **新規則と食い違うので最後に直す**
