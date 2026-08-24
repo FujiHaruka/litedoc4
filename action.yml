@@ -10,7 +10,7 @@
 #
 #       - uses: FujiHaruka/litedoc4@v0.1.4
 #         id: docs
-#       - uses: actions/upload-pages-artifact@v3
+#       - uses: actions/upload-pages-artifact@v5
 #         with: { path: "${{ steps.docs.outputs.site }}" }
 #
 #   Publishing is deliberately NOT here. Where the site goes is the caller's
@@ -150,7 +150,7 @@ runs:
 
     - name: Cache the Rust build
       if: inputs.cache == 'true' && steps.keys.outputs.first == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         # Absolute, because the action's own tree is outside the workspace and a
         # relative path here would resolve against the workspace.
@@ -164,14 +164,14 @@ runs:
 
     - name: Cache the Lean extractor
       if: inputs.cache == 'true' && steps.keys.outputs.first == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ github.action_path }}/extractor/build
         key: litedoc4-extractor-${{ runner.os }}-${{ steps.keys.outputs.extractor }}
 
     - name: Cache Mathlib's oleans
       if: inputs.cache == 'true' && inputs.cache-get == 'true' && steps.keys.outputs.first == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/mathlib
         key: litedoc4-mathlib-${{ steps.keys.outputs.manifest }}
@@ -181,7 +181,7 @@ runs:
     # so each run saves its own, and restore-keys picks the most recent one up.
     - name: Cache the incremental state
       if: inputs.cache == 'true' && inputs.full != 'true' && steps.keys.outputs.first == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ steps.keys.outputs.out }}
         key: litedoc4-state-${{ steps.keys.outputs.toolchain }}-${{ github.sha }}
@@ -271,7 +271,7 @@ runs:
     # and never gets here.
     - name: Node toolchain
       if: steps.binary.outputs.bin == ''
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v7
       with:
         node-version: "24.19.0"
 
