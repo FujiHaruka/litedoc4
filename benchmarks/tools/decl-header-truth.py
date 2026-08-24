@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
 #
-# Ground truth for the stage-4 HTML generator's acceptance test.
-#
-# The generator (next increment) has to re-emit `div.decl_header` from the IR.
-# To score it we need doc-gen4's own answer in a form that can be diffed
-# *positionally*. The previous increment scored a naive re-linker by comparing
-# per-declaration *multisets* of (text, target); that scored precision 100.0%
-# while ignoring where on the page each link sits, i.e. it measured an upper
-# bound, not a reproduction. This tool removes that escape hatch: for every
-# declaration it emits the ordered sequence of anchors, each carrying its start
-# offset in the header's plaintext.
+# doc-gen4's own `div.decl_header`, in a form that can be diffed *positionally*:
+# for every declaration, the ordered sequence of anchors, each carrying its
+# start offset in the header's plaintext. Comparing per-declaration multisets of
+# (text, target) instead ignores where on the page each link sits, which scores
+# an upper bound rather than a reproduction.
 #
 # usage:
 #   decl-header-truth.py --doc-root <dir> --out <path.jsonl> [--summary <path.txt>]
@@ -19,7 +14,8 @@
 #   --out       JSONL, one declaration per line (required)
 #   --summary   also write the conditions block + the cross-check table here
 #
-# EXTRACTION (the definition the generator will be held to)
+# The extraction, which is the definition anything scored against this JSONL is
+# held to:
 #   1. A declaration is a `<div class="decl" id="...">` (also `class="decl
 #      sorried"`); the `id` is its fully qualified name.
 #   2. Its header is the `<div class="decl_header">` inside it. `div.gh_link`
@@ -39,11 +35,9 @@
 #   5. Per declaration we also keep `kind_text` (`span.decl_kind`),
 #      `header_text`, and `impl_arg_count` (`span.impl_arg`).
 #
-# WHAT IS NOT MEASURED
-#   * Nothing is timed. This is a content extraction.
-#   * Anything outside `div.decl_header`: docstrings, `ul.equations`,
-#     `nav.internal_nav`, `div.gh_link`, instances-for lists.
-#   * Pages outside the given --doc-root.
+# Nothing is timed, and nothing outside `div.decl_header` is read: docstrings,
+# `ul.equations`, `nav.internal_nav`, `div.gh_link` and instances-for lists are
+# all out, as are pages outside --doc-root.
 #
 # The doc tree is opened read-only; the measurement target is never written to.
 
@@ -61,7 +55,6 @@ import time
 
 DEFAULT_TARGET_REPO = "/Users/haruka/dev/lean-projects"
 
-# Patterns for the independent cross-parse (see cross_parse below).
 _X_DECL = re.compile(r'<div class="decl(?: sorried)?" id="([^"]*)">')
 _X_ANCHOR = re.compile(r"<a\b[^>]*>(.*?)</a>", re.S)
 _X_HREF = re.compile(r'href="([^"]*)"')
@@ -88,15 +81,12 @@ EXPECTED = [
 
 
 def u16len(s):
-    """Length of `s` in UTF-16 code units (not codepoints)."""
     return len(s.encode("utf-16-le")) // 2
 
 
 class DeclHeaderParser(html.parser.HTMLParser):
-    """Streaming extractor for `div.decl_header` contents.
-
-    convert_charrefs=True makes html.parser decode character references in text
-    for us; attribute values are unescaped by html.parser unconditionally.
+    """convert_charrefs=True makes html.parser decode character references in
+    text; attribute values are unescaped by html.parser unconditionally.
     """
 
     def __init__(self, module, page):
@@ -117,7 +107,6 @@ class DeclHeaderParser(html.parser.HTMLParser):
         self._kind = None
         self._open_anchors = []    # (record, [text chunks]) for anchors still open
 
-    # -- helpers ----------------------------------------------------------
     def _in_header(self):
         return self._header_depth is not None
 
@@ -245,11 +234,6 @@ class DeclHeaderParser(html.parser.HTMLParser):
             self._kind.append(data)
 
 
-# --------------------------------------------------------------------------
-# conditions block
-# --------------------------------------------------------------------------
-
-
 def git_describe(repo):
     def run(*cmd):
         try:
@@ -298,17 +282,12 @@ def conditions(doc_root, pages):
     ]
 
 
-# --------------------------------------------------------------------------
-
-
 def cross_parse(text):
-    """Second, independent extraction path, used only to check the first.
-
-    Deliberately built the way `html-inventory.py` builds things -- tag-depth
-    walking plus regex strip-tags -- so that a shared bug in html.parser's
-    handling of this markup cannot make both agree. Returns
-    {name: (plaintext, [(href, text), ...])}. Offsets are not produced here;
-    those are checked by the slice self-test instead.
+    """Second extraction path, used only to check the first. Deliberately built
+    the way `html-inventory.py` builds things — tag-depth walking plus regex
+    strip-tags — so that a shared bug in html.parser's handling of this markup
+    cannot make both agree. Returns {name: (plaintext, [(href, text), ...])};
+    offsets are checked by the slice self-test instead.
     """
     out = {}
     for m in _X_DECL.finditer(text):
@@ -349,7 +328,6 @@ def _x_block_end(text, start, tag):
 
 
 def page_module(doc_root, path):
-    """`<root>/Fano/Core.html` -> `InformationTheory.Fano.Core` for root=…/InformationTheory."""
     rel = os.path.relpath(path, doc_root)
     stem = rel[: -len(".html")]
     return os.path.basename(os.path.normpath(doc_root)) + "." + stem.replace(os.sep, ".")

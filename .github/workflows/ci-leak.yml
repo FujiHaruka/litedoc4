@@ -1,19 +1,13 @@
-# The leak check, on the machine that can run it.
+# LeakSanitizer does not run on macOS, so a buffer md4c allocates and never frees
+# would not show on this desk. `ubuntu-latest` runs LSan.
 #
-# `fuzz/README.md` records: "Leak detection is not part of this. LeakSanitizer
-# does not run on macOS, so a buffer md4c allocates and never frees would not
-# show here." That is a fact about **this desk**, not about the project:
-# `ubuntu-latest` runs LSan and has been free all along.
+# This is not the fuzzer coming to CI: time-boxed exploration stays out of every
+# push. What runs here is the committed corpus, once each (`-runs=0`), a bounded
+# job with a fixed input set. `workflow_dispatch` all the same, because it needs
+# nightly and a `cargo-fuzz` install.
 #
-# This is not the fuzzer coming to CI. Time-boxed exploration stays out of
-# every push and that stands — what runs here is the **committed corpus, once
-# each** (`-runs=0`), which is a bounded job with a fixed input set. It stays on
-# `workflow_dispatch` all the same: it needs nightly and a `cargo-fuzz` install.
-#
-# **The canary runs first and must fail.** A leak check that reports nothing
-# looks identical whether the subject is clean or the sanitizer never got linked
-# in — the same shape as Q6's `CFLAGS` finding, where a fuzzer that reached none
-# of the C looked exactly like a fuzzer that found nothing.
+# The canary runs first and must fail. A leak check that reports nothing looks
+# identical whether the subject is clean or the sanitizer never got linked in.
 name: leak check on Linux (U4)
 
 on:
@@ -21,23 +15,20 @@ on:
 
 concurrency:
   # `cancel-in-progress: false`: a double dispatch queues instead of killing the
-  # run already measuring. Losing a 40-minute measurement to a stray click is
-  # worse than waiting for it.
+  # run already measuring.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
-  # **`cc` on ubuntu-latest is gcc**, and `-fsanitize=fuzzer-no-link` / `-mllvm`
-  # are clang's. The first run of this workflow died in `cc-rs` on exactly that
-  # ("unrecognized argument to '-fsanitize=' option: 'fuzzer-no-link'"), which is
-  # what the canary step is for: it reported "exited 1, but not because LSan
-  # reported a leak" rather than letting a build failure read as a clean run.
+  # `cc` on ubuntu-latest is gcc, and `-fsanitize=fuzzer-no-link` / `-mllvm` are
+  # clang's: without this, `cc-rs` dies with "unrecognized argument to
+  # '-fsanitize=' option: 'fuzzer-no-link'".
   CC: clang
-  # Q6: `RUSTFLAGS` reaches Rust only, so without this the md4c C is neither
-  # instrumented nor watched. cov went 1023 -> 2487 when it was added.
-  # `-mllvm -asan-guard-against-version-mismatch=0` is in `fuzz/README.md` for
-  # the macOS toolchain and is left out here; the runner's clang and its
-  # sanitizer runtime come from the same install.
+  # `RUSTFLAGS` reaches Rust only, so without this the md4c C is neither
+  # instrumented nor watched — cov 1023 -> 2487 when it was added
+  # 【実測 2026-08-17】. `-mllvm -asan-guard-against-version-mismatch=0`, which
+  # the macOS toolchain needs, is left out: the runner's clang and its sanitizer
+  # runtime come from the same install.
   CFLAGS: "-fsanitize=address -fsanitize=fuzzer-no-link -fno-omit-frame-pointer -g"
   ASAN_OPTIONS: "detect_leaks=1"
 
@@ -66,8 +57,8 @@ jobs:
 
       # Negative control. `set +e` because a non-zero exit is the pass here, and
       # the log is grepped as well as the status: "it exited non-zero" and "LSan
-      # reported a leak" are different claims (CLAUDE.md: a toolchain mismatch
-      # once returned non-zero from `lake` before `extract` ever started).
+      # reported a leak" are different claims, and a build failure would satisfy
+      # only the first.
       - name: The canary must leak
         working-directory: fuzz
         run: |

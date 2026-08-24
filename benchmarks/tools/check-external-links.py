@@ -2,12 +2,11 @@
 """Sample the version-pinned GitHub URLs a site writes, and ask GitHub whether
 they exist.
 
-M7-b closed the *offline* oracle question: for the roots doc-gen4's reference
-tree also documents, litedoc4's URLs match it byte for byte. That left the roots
-the reference tree never had a page for -- `Archive`, `Counterexamples`, `Cli`,
-`MD4Lean`, `UnicodeBasic` and the rest -- with **no offline way to be checked at
-all**. They are not unverifiable, though: they are URLs, and the server that
-serves them will say whether they resolve.
+For the roots doc-gen4's reference tree also documents, litedoc4's URLs can be
+checked against it offline. The roots that tree never had a page for — `Archive`,
+`Counterexamples`, `Cli`, `MD4Lean`, `UnicodeBasic` and the rest — have no
+offline oracle at all. They are still URLs, and the server serving them will say
+whether they resolve.
 
 What this can and cannot judge:
 

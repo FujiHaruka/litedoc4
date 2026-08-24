@@ -1,18 +1,9 @@
 #!/usr/bin/env python3
 #
-# Read-only inventory of doc-gen4's finished HTML against the stage-4 IR.
-#
-# Stage 4 asks whether litedoc4 and doc-gen4 are doing *the same work*, which is
-# the precondition for any speed number to mean anything. This tool answers the
-# other half of that question: given the IR the extractor writes, what is still
-# missing before the HTML could be rebuilt from it? It counts, on the same 348
-# pages the benchmarks are taken on, every anchor, every byte region and every
-# element class that a renderer would have to reproduce, and scores the IR
-# against them.
-#
-# It replaces three throwaway scripts (`siglinks.py`, `irprobe.py`,
-# `headtohead.py`) so that the numbers quoted in `docs/` have a committed
-# provenance, per CLAUDE.md's 計測の誠実性 rule.
+# Read-only inventory of doc-gen4's finished HTML against the IR: given what the
+# extractor writes, what is still missing before the HTML could be rebuilt from
+# it? Counts every anchor, byte region and element class a renderer would have
+# to reproduce, and scores the IR against them.
 #
 # usage:
 #   html-inventory.py [--doc <dir>] [--ir <dir>] [--out <file>] [--json <file>]
@@ -20,38 +11,31 @@
 #
 #   --doc   doc-gen4's HTML for the package, default $TARGET_REPO (else
 #           /Users/haruka/dev/lean-projects) + .lake/build/doc/InformationTheory
-#   --ir    IR root written by `experiments/stage4/run.sh --write-ir`,
-#           default $IR_DIR, else the session scratchpad path below
+#   --ir    IR root, default $IR_DIR, else the scratchpad path below
 #   --out   also write the Markdown report here
 #   --json  also write a machine-readable version here
 #   --top   rows in the "notation" table (default 20)
 #
-# WHAT IS MEASURED
-#   A  population: pages, div.decl blocks, IR modules/declarations, the join
-#   B  every anchor inside div.decl_header, classified by how the anchor *text*
-#      relates to the *target name* (identical / namespace suffix / notation)
-#   C  bytes per page region, so "which part of the page is expensive" is a
-#      measured share and not a guess
-#   D  an upper bound on re-linking a signature from the IR alone: link the
-#      identifier-shaped tokens of `binders + type` against the `refs` set
-#   E  the cases where a *set* of references provably cannot decide the answer
-#   F  the opposite direction: link *targets* the IR can already resolve
-#   G  everything else the HTML carries that the IR has no field for
+# The report's sections: A population and the join / B anchors inside
+# div.decl_header by how the anchor text relates to the target name /
+# C bytes per page region / D an upper bound on re-linking a signature from the
+# IR alone / E the cases a *set* of references provably cannot decide /
+# F link targets the IR can already resolve / G what the HTML carries that the
+# IR has no field for.
 #
-# WHAT IS NOT MEASURED
-#   * Nothing is timed here. This is a content diff; the cost numbers live in
-#     `analyze.ts` / `read-ir.ts`.
-#   * Correctness of the *rendering*, only of the data behind it. Two anchors
-#     with the same text and target count as equal wherever they sit on the
-#     page: section D compares multisets, so its score is an upper bound on any
-#     reconstruction, not an achievable rate (see the note printed in D).
+# What the numbers do NOT claim:
+#   * Nothing is timed. This is a content diff.
+#   * Only the data behind the rendering, not the rendering. Two anchors with
+#     the same text and target count as equal wherever they sit on the page —
+#     section D compares multisets, so its score is an upper bound on any
+#     reconstruction, not an achievable rate.
 #   * Pages outside `doc/InformationTheory` (Mathlib's own pages, `search.html`,
 #     `foundational_types.html`) are never read.
 #   * Anchors whose first attribute is not `href` are excluded from every anchor
-#     count. doc-gen4 writes `class` first in exactly two places -- the
+#     count. doc-gen4 writes `class` first in exactly two places — the
 #     declaration's own name link (`a.break_within`, which also appears in the
 #     per-declaration jump list in `nav.internal_nav`) and heading hover links
-#     (`a.hover-link`) -- so this drops self-links and anchors, never a
+#     (`a.hover-link`) — so this drops self-links and anchors, never a
 #     cross-reference. Both are counted separately in section F.
 #
 # Nothing is ever written to the measurement target: the doc tree and the IR are
@@ -78,8 +62,8 @@ DEFAULT_IR = (
 # prints a notice instead (`DocGen4/Process/Base.lean: def equationLimit`).
 EQUATION_LIMIT = 200
 
-# Lean identifier characters, generously: letters (incl. Greek and the Latin
-# extensions Lean's pretty printer emits), digits, _ ' ! ?, sub/superscripts,
+# Lean identifier characters, generously: Lean's pretty printer emits Greek and
+# the Latin extensions, and identifiers may carry _ ' ! ?, sub/superscripts and
 # dotted components.
 IDENT = re.compile(
     r"[A-Za-z_À-ɏͰ-ϿḀ-῿]"
@@ -93,13 +77,12 @@ EQUATIONS_RE = re.compile(r'<ul class="equations">')
 KIND_RE = re.compile(r'<span class="decl_kind">([^<]*)</span>')
 GH_RE = re.compile(r'<div class="gh_link"><a href="([^"]*)">')
 GH_RANGE_RE = re.compile(r"#L(\d+)-L(\d+)$")
-# Only anchors that open with `href` -- see WHAT IS NOT MEASURED above.
+# Only anchors that open with `href`; see the exclusion note in the header.
 ANCHOR_RE = re.compile(r'<a href="([^"]*)">(.*?)</a>', re.S)
 CLASS_ANCHOR_RE = re.compile(r'<a class="([^"]*)"')
 TAG_RE = re.compile(r"<[^>]+>")
 CLASS_ATTR_RE = re.compile(r'<(\w+)[^>]*\bclass="([^"]*)"')
 
-# Element classes section G reports one by one, as (tag, class) pairs.
 TRACKED_CLASSES = [
     ("div", "attributes"),
     ("li", "structure_field"),
@@ -131,9 +114,7 @@ def strip_tags(s):
 
 
 def block_end(text, start, tag):
-    """End offset (exclusive) of the element opening at `start`, by tag depth.
-
-    doc-gen4's blocks nest (`div.decl_type` inside `div.decl_header`), so the
+    """doc-gen4's blocks nest (`div.decl_type` inside `div.decl_header`), so the
     extent cannot be found with a regex; walk opening/closing tags instead.
     """
     pat = re.compile(r"</?%s\b" % tag)
@@ -160,11 +141,6 @@ def pct(part, whole):
     return 0.0 if not whole else 100.0 * part / whole
 
 
-# --------------------------------------------------------------------------
-# IR side
-# --------------------------------------------------------------------------
-
-
 def read_ir(ir_dir):
     index = json.load(open(os.path.join(ir_dir, "index.json"), encoding="utf-8"))
     modules = {}
@@ -179,10 +155,8 @@ def read_ir(ir_dir):
 
 
 def ir_token_census(modules):
-    """Section E's IR-wide half: how much of the printed text is even a name?
-
-    Runs over every declaration in the IR, not only the ones that reached HTML,
-    because the question ("can a plaintext type plus a set of names be
+    """Runs over every declaration in the IR, not only the ones that reached
+    HTML, because the question ("can a plaintext type plus a set of names be
     re-linked?") is about the IR as a format.
     """
     stats = collections.Counter()
@@ -242,16 +216,13 @@ def ir_token_census(modules):
 
 
 def printed_text(d):
-    """The plaintext a renderer would have to re-link: binders, then the type."""
     return " ".join(d["binders"]) + " : " + d["type"]
 
 
 def naive_links(d):
-    """The strongest link reconstruction the IR alone supports.
-
-    Cut `binders + type` into identifier-shaped tokens; a token becomes a link
-    if it is exactly the name of a `refs` entry, else if it is the unique short
-    name among `refs`. Everything else stays plain text. Returns a multiset of
+    """The strongest link reconstruction the IR alone supports: a token of
+    `binders + type` becomes a link if it is exactly the name of a `refs` entry,
+    else if it is the unique short name among `refs`. Returns a multiset of
     (anchor text, target name).
     """
     refs = set(name for _mod, name in d["refs"])
@@ -269,13 +240,7 @@ def naive_links(d):
     return out
 
 
-# --------------------------------------------------------------------------
-# HTML side
-# --------------------------------------------------------------------------
-
-
 def page_module(doc_dir, path):
-    """`.../doc/InformationTheory/Fano/Core.html` -> `InformationTheory.Fano.Core`."""
     rel = os.path.relpath(path, doc_dir)[: -len(".html")]
     return os.path.basename(doc_dir) + "." + rel.replace(os.sep, ".")
 
@@ -313,12 +278,10 @@ def scan(doc_dir, ir_modules, ir_names, top):
         r["pages"] += 1
         bytes_["total"] += utf8(text)
 
-        # --- C: page chrome ------------------------------------------------
-        # One contiguous prefix: the file opens with <html>, <head>, <body>,
-        # <header> and nav.internal_nav before <main>. Measured as a prefix
-        # (rather than as three separate slices) because the 69 bytes of
-        # <html>/<body>/nav-toggle markup between them belong to the same
-        # "not the declarations" bucket; the slices are reported too.
+        # Page chrome is measured as one contiguous prefix rather than as three
+        # separate slices, because the 69 bytes of <html>/<body>/nav-toggle
+        # markup between <head>, <header> and nav.internal_nav belong to the
+        # same "not the declarations" bucket. The slices are reported too.
         head_i, head_j = text.index("<head>"), text.index("</head>") + len("</head>")
         hdr_i, hdr_j = text.index("<header>"), text.index("</header>") + len("</header>")
         nav_i = text.index('<nav class="internal_nav">')
@@ -328,7 +291,6 @@ def scan(doc_dir, ir_modules, ir_names, top):
         bytes_["internal_nav"] += utf8(text[nav_i:nav_j])
         bytes_["chrome"] += utf8(text[:nav_j])
 
-        # --- region maps for anchor attribution ----------------------------
         header_spans = []
         for m in DECL_HEADER_RE.finditer(text):
             span = (m.start(), block_end(text, m.start(), "div"))
@@ -349,7 +311,6 @@ def scan(doc_dir, ir_modules, ir_names, top):
                     return "equations"
             return "other"
 
-        # --- F: every internal anchor on the page --------------------------
         for m in ANCHOR_RE.finditer(text):
             href = m.group(1)
             r["anchors_href_first"] += 1
@@ -374,7 +335,6 @@ def scan(doc_dir, ir_modules, ir_names, top):
             r["anchors_class_first"] += 1
             class_census[("a", m.group(1))] += 1
 
-        # --- G: element class census ---------------------------------------
         for m in CLASS_ATTR_RE.finditer(text):
             class_census[(m.group(1), m.group(2))] += 1
 
@@ -383,7 +343,6 @@ def scan(doc_dir, ir_modules, ir_names, top):
         if 'id="top"' in text:
             pages_with_top_id += 1
 
-        # --- per declaration -------------------------------------------------
         ir_decls = {d["name"]: d for d in ir_modules[module]["declarations"]}
         decl_starts = [(m.group(1), m.start()) for m in DECL_RE.finditer(text)]
         if decl_starts:
@@ -396,7 +355,6 @@ def scan(doc_dir, ir_modules, ir_names, top):
             seg = text[start:end]
             d = ir_decls[name]
 
-            # B: anchors of this declaration's signature
             hi = text.index('<div class="decl_header">', start)
             hj = block_end(text, hi, "div")
             header = text[hi:hj]
@@ -436,11 +394,9 @@ def scan(doc_dir, ir_modules, ir_names, top):
                 if len(tgts) > 1:
                     r["same_text_two_targets_in_one_signature"] += 1
 
-            # G: decl_kind
             km = KIND_RE.search(seg)
             kind_pairs[(d["kind"], km.group(1) if km else None)] += 1
 
-            # G: equations, against doc-gen4's equationLimit rule
             eqs = d["equations"]
             omitted = any(len(e) >= EQUATION_LIMIT for e in eqs)
             rendered = sum(1 for e in eqs if len(e) < EQUATION_LIMIT)
@@ -452,7 +408,6 @@ def scan(doc_dir, ir_modules, ir_names, top):
             eq_rule[("ul", actual_ul, predicted_li > 0)] += 1
             eq_rule[("li_count", actual_li == predicted_li)] += 1
 
-            # G: gh_link
             gm = GH_RE.search(seg)
             if gm:
                 gh["links"] += 1
@@ -462,7 +417,6 @@ def scan(doc_dir, ir_modules, ir_names, top):
                     if int(rm.group(1)) == d["line"]:
                         gh["start_line_matches_ir"] += 1
 
-        # G: declaration order
         key = lambda n: (ir_decls[n]["line"], ir_decls[n]["col"])
         if sorted(order, key=key) == order:
             r["order_reproduced"] += 1
@@ -497,11 +451,6 @@ def scan(doc_dir, ir_modules, ir_names, top):
         pages_with_top_id=pages_with_top_id,
         top=top,
     )
-
-
-# --------------------------------------------------------------------------
-# conditions block
-# --------------------------------------------------------------------------
 
 
 def git_describe(repo):
@@ -558,11 +507,6 @@ def conditions(args, index, pages):
         "python": sys.version.split()[0],
         "platform": platform.platform(),
     }
-
-
-# --------------------------------------------------------------------------
-# report
-# --------------------------------------------------------------------------
 
 
 def md_escape(s):
@@ -622,7 +566,6 @@ def render(cond, s, ir_index, ir_names, ir_name_parts, census, head2head):
         "出力 HTML は変えない。計測対象には一切書き込んでいない。")
     say("")
 
-    # ---- A ----------------------------------------------------------------
     say("## A. 母数")
     say("")
     say("| | |")
@@ -639,7 +582,6 @@ def render(cond, s, ir_index, ir_names, ir_name_parts, census, head2head):
     say(f"| HTML にあって IR に無い | {n(census['html_only'])} |")
     say("")
 
-    # ---- B ----------------------------------------------------------------
     say("## B. `div.decl_header` 内のアンカー内訳")
     say("")
     say(f"署名 (binder + 結果型 + `extends`) の中のアンカー **{n(ak['anchors'])} 件**。"
@@ -672,7 +614,6 @@ def render(cond, s, ir_index, ir_names, ir_name_parts, census, head2head):
         say(f"| {n(c)} | `{md_escape(t)}` | `{md_escape(g)}` |")
     say("")
 
-    # ---- C ----------------------------------------------------------------
     say("## C. ページ内バイト比")
     say("")
     say("領域はバイト (UTF-8) で数えている。`chrome` はファイル先頭から "
@@ -696,7 +637,6 @@ def render(cond, s, ir_index, ir_names, ir_name_parts, census, head2head):
     say("**HTML の 7 割は署名の描画**。B の 44% はここに乗っている。")
     say("")
 
-    # ---- D ----------------------------------------------------------------
     h = head2head
     say("## D. 素朴照合 — IR の平文 + `refs` 集合だけでリンクを再構成した上限")
     say("")
@@ -734,7 +674,6 @@ def render(cond, s, ir_index, ir_names, ir_name_parts, census, head2head):
         "「足りている」ではない。**recall が上限で半分**というのがこの節の結論。")
     say("")
 
-    # ---- E ----------------------------------------------------------------
     tc = census["token_census"]
     say("## E. 集合では原理的に決まらないケース")
     say("")
@@ -759,7 +698,6 @@ def render(cond, s, ir_index, ir_names, ir_name_parts, census, head2head):
     say(f"| どれにも当たらない (束縛変数・記号・キーワード) | {n(tc['tokens_unmatched'])} |")
     say("")
 
-    # ---- F ----------------------------------------------------------------
     say("## F. あて先解決 — こちらは集合で足りている")
     say("")
     say("B〜E は「どこにリンクを張るか」の話。**張る先の名前を解決できるか**は別問題で、"
@@ -803,7 +741,6 @@ def render(cond, s, ir_index, ir_names, ir_name_parts, census, head2head):
         f"フラグメント無しのモジュールリンク ({n(r['anchors_no_fragment'])} 件) も除外。")
     say("")
 
-    # ---- G ----------------------------------------------------------------
     say("## G. その他の差分 (IR に足りないもの / 規則で埋まるもの)")
     say("")
     say("### 宣言の並び順")
@@ -926,16 +863,12 @@ def render(cond, s, ir_index, ir_names, ir_name_parts, census, head2head):
     return "\n".join(lines) + "\n"
 
 
-# --------------------------------------------------------------------------
-
-
 def main():
     args = parse_args()
     t0 = time.time()
 
     ir_index, ir_modules, ir_deps = read_ir(args.ir)
 
-    # The name set a link target can resolve against.
     decl_names, ref_names, member_names, dep_names = set(), set(), set(), set()
     for m in ir_modules.values():
         for d in m["declarations"]:
@@ -958,7 +891,6 @@ def main():
     s = scan(args.doc, ir_modules, ir_names, args.top)
     cond = conditions(args, ir_index, s["pages"])
 
-    # Section D: naive reconstruction against the HTML truth.
     ir_by_name = {d["name"]: d for m in ir_modules.values() for d in m["declarations"]}
     h = collections.Counter()
     for name, truth in s["truth"].items():
@@ -977,7 +909,6 @@ def main():
 
     token_census, ambiguous_examples, shadow_examples = ir_token_census(ir_modules)
 
-    # Section A / G: the join between the HTML declarations and the IR ones.
     page_modules = set(page_module(args.doc, p) for p in s["pages"])
     ir_in_pages = {
         d["name"]: d for mod in page_modules for d in ir_modules[mod]["declarations"]

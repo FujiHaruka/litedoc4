@@ -9,8 +9,8 @@ here, committed as `mono-charset.json`, and read by the gate on a runner that
 has never seen the target.
 
 Input is an HTML tree; the default is doc-gen4's own reference tree for the
-target's modules, which is where the measured 178-character set came from
-(counted 2026-08-16 by stripping tags from 348 pages).
+target's modules, which is where the committed 178-character set comes from
+【実測 2026-08-16, 348 pages with tags stripped】.
 
 usage: mono-charset.py [TREE] [-o OUT]
   TREE  a directory of .html files (default: the target's InformationTheory tree)

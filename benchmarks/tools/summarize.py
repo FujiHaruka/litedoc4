@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-"""Summarize a JSONL timing series.
-
-Moved here from `experiments/stage5/` on 2026-08-16, when `experiments/` was
-removed (tag `experiments-frozen`). The contents are unchanged. Its original
-driver `time-step.sh` went with `experiments/`; the caller in this tree is
+"""Summarize a JSONL timing series. Called from
 `benchmarks/tools/measure-ledger.sh`.
 
 Deliberately generic: it reads the outer numbers (`/usr/bin/time -l` + a
 monotonic wall clock, both put in the record by `benchmarks/tools/merge-timing.py`)
 and whatever scalar keys the measured program wrote into its own `--timings` JSON.
 
-`CLAUDE.md` asks for major page faults as the primary warm/cold signal rather
-than (user+sys)/wall, because a multi-threaded runtime pushes that ratio above 1
-for reasons that have nothing to do with the page cache. Both are printed; the
-fault column is the one to read.
+Major page faults are the warm/cold signal to read, not (user+sys)/wall: a
+multi-threaded runtime pushes that ratio above 1 for reasons that have nothing to
+do with the page cache. Both are printed.
 
 usage:
   summarize.py FILE.jsonl [--keys k1,k2,...] [--title T]

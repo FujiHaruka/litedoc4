@@ -1,38 +1,28 @@
-# Runs the workflow template — `.github/workflow-templates/litedoc4-docs.yml` —
-# so that its header stops saying it has never been run.
+# Runs `.github/workflow-templates/litedoc4-docs.yml` so that its header stops
+# saying it has never been run. The actions' versions and inputs, the cache keys,
+# the elan install and `lake exe cache get` (which needs the network) are all
+# below, copied from the template rather than rewritten, so a run is evidence
+# about that file and not about a paraphrase of it.
 #
-# WHAT THE TEMPLATE'S HEADER SAYS IS UNVERIFIED, AND WHAT THIS COVERS
-#   "the actions' versions and inputs, the cache keys, the elan install, and
-#   `lake exe cache get` (which needs the network)". Every one of those is below,
-#   copied from the template rather than rewritten, so a run of this workflow is
-#   evidence about that file and not about a paraphrase of it.
-#
-# THE FOUR DIFFERENCES, AND WHY EACH IS FORCED
+# Four differences, each forced:
 #   1. `on:` is `workflow_dispatch` only. The template also runs on push, which
 #      here would download several GB per commit of a repository that is not a
 #      Lean package.
-#   2. The package is **generated, not checked out**. litedoc4 has no Lean
-#      package of its own and creating one outside this repository was ruled out,
-#      so `tools/make-target2.sh` builds the second target in the job. It is the
-#      right package for this: its `lakefile.toml` declares **two**
-#      `[[lean_lib]]` blocks, which is what `litedoc4 build` has to read to
-#      derive `--lib` — the step the template depends on and never states.
-#   3. elan is installed **before** the package exists, from the measurement
-#      target's `lean-toolchain` — the same bytes `make-target2.sh` then copies
-#      into the package. The template installs it from `package/lean-toolchain`;
-#      generating the package needs `lake` first, so the order is inverted and
-#      the file read is the same one.
-#   4. The site is not uploaded. The template's last step is an
-#      `upload-artifact` of a directory, which is not in doubt.
+#   2. The package is generated, not checked out — litedoc4 has no Lean package
+#      of its own, so `tools/make-target2.sh` builds the second target in the
+#      job. Its `lakefile.toml` declares two `[[lean_lib]]` blocks, which is what
+#      `litedoc4 build` has to read to derive `--lib`: the step the template
+#      depends on and never states.
+#   3. elan is installed before the package exists, from the measurement target's
+#      `lean-toolchain` — the same bytes `make-target2.sh` then copies into the
+#      package. Generating the package needs `lake` first, so the template's
+#      order is inverted while the file read stays the same.
+#   4. The site is not uploaded. The template's last step is an `upload-artifact`
+#      of a directory, which is not in doubt.
 #
-#   Everything else — `actions/checkout@v4`, the four `actions/cache@v4` blocks
-#   and their keys, the elan install line, and the single `ci-build.sh` call with
-#   its four flags — is the template's, verbatim.
-#
-# WHAT A GREEN RUN HERE DOES NOT PROVE
-#   That the template works **in a user's repository**: there, `package` is the
-#   caller's own checkout and the workflow triggers on push. Both are ordinary
-#   GitHub mechanics, and neither is what the header called into question.
+# Everything else is the template's, verbatim. A green run still does not say the
+# template works in a user's repository, where `package` is the caller's own
+# checkout and the trigger is push — both ordinary GitHub mechanics.
 name: template (validation)
 
 on:
@@ -45,8 +35,7 @@ on:
 
 concurrency:
   # `cancel-in-progress: false`: a double dispatch queues instead of killing the
-  # run already measuring. Losing a 40-minute measurement to a stray click is
-  # worse than waiting for it.
+  # run already measuring.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
@@ -56,19 +45,19 @@ permissions:
 jobs:
   docs:
     runs-on: ubuntu-latest
-    # Measured: 2 min over five runs. 120 was a guess made before any ran.
+    # 2 min over five runs 【実測】.
     timeout-minutes: 30
     steps:
-      # litedoc4 itself — the template's second checkout, with no token, which
-      # is the line the public repository made possible.
+      # The template's second checkout, and no token is needed: this repository
+      # is public.
       - name: check out litedoc4
         uses: actions/checkout@v4
         with:
           repository: FujiHaruka/litedoc4
           path: litedoc4
 
-      # Difference 2/3: the package does not exist yet, so what is checked out
-      # here is only the source of its `lean-toolchain` and `lake-manifest.json`.
+      # The package does not exist yet, so what is checked out here is only the
+      # source of its `lean-toolchain` and `lake-manifest.json`.
       - name: check out the measurement target (for its pinned toolchain and manifest)
         uses: actions/checkout@v4
         with:
@@ -112,8 +101,8 @@ jobs:
             extractor-${{ hashFiles('package/lean-toolchain',
             'litedoc4/extractor/Extract.lean') }}
 
-      # Key prefixed per workflow: it used to be the bare `cargo-<os>-` that
-      # ci.yml's `restore-keys` reached into.
+      # Key prefixed per workflow so no other workflow's `restore-keys` can
+      # reach into it.
       - name: cache the Rust build
         uses: actions/cache@v4
         with:
@@ -123,10 +112,10 @@ jobs:
             litedoc4/target
           key: cargo-v2-${{ runner.os }}-template-${{ hashFiles('litedoc4/Cargo.lock') }}
 
-      # The template's fourth cache. `id:` is the one addition — the run has to
+      # The template's fourth cache; `id:` is the one addition. The run has to
       # be able to say whether it restored anything, because "extract was fast"
-      # and "extract was skipped" are different claims and a timing alone cannot
-      # tell them apart.
+      # and "extract was skipped" are different claims that a timing alone cannot
+      # tell apart.
       - name: cache the documentation state (IR + ledger + site)
         id: docs-cache
         uses: actions/cache@v4
@@ -137,8 +126,7 @@ jobs:
             litedoc4-docs-
 
       # The template's one step, verbatim except for `tee`: the counts that say
-      # how many modules were re-extracted are on stdout, and this is a
-      # measurement run.
+      # how many modules were re-extracted are on stdout.
       - name: build the package and its documentation
         run: |
           set -o pipefail
@@ -149,15 +137,12 @@ jobs:
             --jobs 4 2>&1 | tee build-log.txt
 
       # Not the template's, and the reason this workflow is worth more than
-      # "does the template still run".
-      #
-      # The package above is generated deterministically, so **every run after
-      # the first is a no-change run** — `extract 0 / render 0 / requests 0`,
-      # `incremental in 0.0164 s`【実測 2026-08-17, run 31962696064】. That is the
-      # cheap half of the incremental claim and it was the only half a Linux
-      # runner had ever exercised. What 段 C and 段 D buy is the cost of a
-      # **one-module edit**, and until this step existed that number came only
-      # from one laptop.
+      # "does the template still run". The package above is generated
+      # deterministically, so every run after the first is a no-change run —
+      # `extract 0 / render 0 / requests 0`, `incremental in 0.0164 s`
+      # 【実測 2026-08-17, run 31962696064】. That is the cheap half of the
+      # incremental claim; a one-module edit is the other half, and without this
+      # step that number comes only from one laptop.
       #
       # Into a *copy* of the state, not into `docs-out` itself: `docs-out` is
       # what the cache saves at the end of the job, and it has to keep describing
@@ -165,17 +150,17 @@ jobs:
       # run restoring a state whose IR carries a declaration the regenerated
       # sources do not have, which silently turns the no-change measurement above
       # into a second one-module measurement.
-      # **Two edits, and the gate reads the second.** The restored state may have
-      # been written by a litedoc4 from before 段 C — the cache's `restore-keys`
-      # match on a prefix, so it usually was. Such a map still carries the
-      # package's own declaration groups and has no `.key` sidecar, so the first
-      # edit's build rewrites it into the current shape, its digest moves, and
-      # every page re-renders. **That is a real cost and it is not a bug**: it is
-      # what upgrading litedoc4 across 段 C costs, once, on a state built before
-      # it【実測 2026-08-17, run 31963079828, where this step first ran and
-      # failed exactly here】. It is also not what this gate asks. So the first
-      # round takes the state to its steady shape and the second is the one
-      # measured; both logs are kept so the transition stays visible.
+      #
+      # Two edits, and the gate reads the second. The restored state may have
+      # been written by an older litedoc4 — `restore-keys` match on a prefix, so
+      # it usually was — and such a map still carries the package's own
+      # declaration groups and has no `.key` sidecar, so the first edit's build
+      # rewrites it into the current shape, its digest moves, and every page
+      # re-renders. That is a real cost and not a bug: it is what upgrading
+      # across a map-format change costs, once, on a state built before it
+      # 【実測 2026-08-17, run 31963079828】. It is not what this gate asks, so
+      # the first round takes the state to its steady shape and the second is the
+      # one measured; both logs are kept so the transition stays visible.
       - name: edit one module and build again
         run: |
           set -o pipefail
@@ -192,9 +177,8 @@ jobs:
             docs-out-onemod/litedoc4-build.json \
             docs-out-onemod/work/serve.out
 
-      # Not the template's: what makes the run readable afterwards. The template
-      # ends by uploading `<out>/site`, which this repeats with the timings and
-      # the machine beside it.
+      # Not the template's: it ends by uploading `<out>/site`, which this
+      # repeats with the timings and the machine beside it.
       - name: what the run produced
         if: always()
         run: |

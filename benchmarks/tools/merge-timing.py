@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-# Moved here from `experiments/stage4c/` on 2026-08-16, when `experiments/` was
-# removed (tag `experiments-frozen`). The contents are unchanged.
 """Run one measured process, and merge its `/usr/bin/time -l` block with the
-`render.ts --timings` JSON.
+`--timings` JSON the measured program writes.
 
 Three jobs, all deliberately dumb:
 
@@ -17,15 +15,13 @@ Why this wraps `/usr/bin/time -l` rather than just parsing it: macOS prints
 0.5% of a two-second run but 50% of a 20 ms one, and the Deno start-up floor is
 a 20 ms measurement. So the wall clock is taken here with `time.monotonic()`
 (microseconds) and `/usr/bin/time -l` is still run, for the CPU split, the peak
-RSS and the page faults that `CLAUDE.md` asks to keep. Both numbers go into the
-record; `wallSeconds` is the precise one and `wallSecondsTimeL` is the coarse
-one they are checked against.
+RSS and the page faults. Both numbers go into the record; `wallSeconds` is the
+precise one and `wallSecondsTimeL` is the coarse one it is checked against.
 
-Keeping the outside timer (the process) and the inside timers
-(`performance.now()`, the phases) in the SAME record is what lets them check
-each other: phases that sum to more than the wall clock, or a wall clock far
-above user+sys, show up on their own line -- `CLAUDE.md`: wall ~ user+sys means
-warm.
+Keeping the outside timer (the process) and the inside timers (the measured
+program's own phases) in the SAME record is what lets them check each other:
+phases that sum to more than the wall clock, or a wall clock far above
+user+sys, show up on their own line. Wall ~ user+sys means warm.
 
 usage:
   merge-timing.py --name N --run I --time-l FILE --timings FILE --exec -- CMD...
@@ -95,16 +91,14 @@ def emit(args):
     wall = run(args.exec_cmd, args.time_l) if args.exec_cmd else None
     rec.update(parse_time_l(args.time_l))
     if wall is not None:
-        # The precise wall clock replaces the 10 ms-granular one, which is kept
-        # beside it so the two can be compared.
         rec["wallSecondsTimeL"] = rec["wallSeconds"]
         rec["wallSeconds"] = round(wall, 6)
     with open(args.timings, encoding="utf-8") as fh:
         rec["inProcess"] = json.load(fh)
     cpu = rec["userSeconds"] + rec["sysSeconds"]
     rec["cpuSeconds"] = round(cpu, 4)
-    # `CLAUDE.md`: wall ~ user+sys is the warm signature. Recorded per run, not
-    # asserted -- a cold run is a legitimate measurement, it just is not warm.
+    # Wall ~ user+sys is the warm signature. Recorded per run, not asserted --
+    # a cold run is a legitimate measurement, it just is not warm.
     rec["cpuOverWall"] = round(cpu / rec["wallSeconds"], 3) if rec["wallSeconds"] else None
     print(json.dumps(rec))
 
@@ -151,7 +145,8 @@ def summarize(path):
             )
     lines.append("")
 
-    # Run 1 is dropped, exactly as stage 4 increment 2 did.
+    # Run 1 is dropped: it is the cold one, and the medians below are the warm
+    # floor.
     keep = [r for r in recs if r["run"] != 1]
     dropped = "run 1 dropped"
     if not keep:  # a single-run series (the cold side): there is nothing to drop

@@ -1,20 +1,17 @@
-# Can a prebuilt Lean extractor be shipped?
-#
-# Three questions, one per job, none of which can be answered on the machine
-# this was written on:
+# Can a prebuilt Lean extractor be shipped? One question per job, none of them
+# answerable on a laptop:
 #
 #   X3  uniqueness  — on Linux, is `extract` decided by the toolchain alone?
-#                     (macOS says yes: 4 builds, 0 to 15 dependency packages,
-#                     one SHA-256 — benchmarks/results/extractor-uniqueness-
-#                     2026-08-18.txt. Linux may link differently.)
+#                     macOS says yes: 4 builds, 0 to 15 dependency packages, one
+#                     SHA-256 【実測 → benchmarks/results/extractor-uniqueness-
+#                     2026-08-18.txt】. Linux may link differently.
 #   X4  portable    — does a binary built in one job still work in another job,
 #                     on another runner, reached only through an artifact?
 #   X5  mismatch    — run against a toolchain it was NOT built for, does it fail
 #                     loudly or write a wrong IR quietly?
 #
 # `workflow_dispatch` only: this is a measurement, not a gate, and it costs an
-# elan download per job. CLAUDE.md's rule for taking CI numbers without turning
-# main red.
+# elan download per job.
 #
 # The commands live in tools/extractor-uniqueness.sh and tools/extractor-
 # mismatch.sh, which run on a laptop too. What is only here is the part that
@@ -31,21 +28,18 @@ on:
 
 concurrency:
   # `cancel-in-progress: false`: a double dispatch queues instead of killing the
-  # run already measuring. Losing a 40-minute measurement to a stray click is
-  # worse than waiting for it.
+  # run already measuring.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
-  # See ci.yml: the incremental state is written and cached but never read
-  # back on a throwaway runner. Only the jobs that build the dev profile need
-  # this — `--release` has incremental off already.
+  # The incremental state is written and cached but never read back on a
+  # throwaway runner.
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
 
 jobs:
-  # ------------------------------------------------------------------- X3
   uniqueness:
     name: X3 — one toolchain, different dependency sets
     runs-on: ubuntu-latest
@@ -80,8 +74,6 @@ jobs:
           path: ${{ runner.temp }}/uniqueness.json
           if-no-files-found: warn
 
-  # ------------------------------------------------------------------- X4
-  #
   # The question is not "does the file survive a round trip" but "does a binary
   # that never met this runner produce a site here". So it runs the whole e2e,
   # not a --version check: e2e-micro.sh builds the fixture, generates, and
@@ -95,10 +87,9 @@ jobs:
       - uses: actions/checkout@v5
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
-      # `app.js`, so **cargo cannot build this workspace without node**
-      # Pinned rather than left to
-      # whatever the runner image happens to ship: the version is the one in
-      # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
+      # `app.js`, so cargo cannot build this workspace without node. Pinned
+      # rather than left to whatever the runner image ships: the version is the
+      # one in `mise.toml`, and `tools/assets-gate.sh` checks that they agree.
       - uses: actions/setup-node@v6
         with:
           node-version: "24.19.0"
@@ -143,7 +134,6 @@ jobs:
             --extractor "$RUNNER_TEMP/downloaded/extract" \
             --out "$RUNNER_TEMP/e2e" --keep
 
-  # ------------------------------------------------------------------- X5
   mismatch:
     name: X5 — wrong toolchain, loud or quiet?
     needs: uniqueness
@@ -165,11 +155,11 @@ jobs:
           name: extract-linux-x86_64
           path: ${{ runner.temp }}/downloaded
 
-      # **The whole e2e/ directory, not just micro.** `e2e/micro` requires
+      # The whole e2e/ directory, not just micro: `e2e/micro` requires
       # `../micro-dep` by path, so copying the one directory produces a package
-      # that lake cannot resolve — and the first run of this job read that
-      # failure as "the toolchain mismatch was refused" while the extractor had
-      # never started. Both fixtures move together and both get the new pin.
+      # lake cannot resolve — and that failure reads as "the toolchain mismatch
+      # was refused" while the extractor never started 【実測】. Both fixtures
+      # move together and both get the new pin.
       - name: A package pinning the other toolchain
         run: |
           cp -r e2e "$RUNNER_TEMP/other-e2e"
@@ -196,8 +186,6 @@ jobs:
           path: ${{ runner.temp }}/mismatch.json
           if-no-files-found: warn
 
-  # ------------------------------------------------------------------- X6
-  #
   # X4 moves the binary between runners that all have the same `/home/runner`
   # and the same `~/.elan`, so it cannot see a path baked in at build time —
   # and the Linux binary carries 17 strings starting with the builder's home.
@@ -212,11 +200,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
-      # `app.js`, so **cargo cannot build this workspace without node**
-      # Pinned rather than left to
-      # whatever the runner image happens to ship: the version is the one in
-      # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
       - uses: actions/setup-node@v6
         with:
           node-version: "24.19.0"
@@ -252,8 +235,8 @@ jobs:
             --json "$RUNNER_TEMP/elsewhere.json"
           cat "$RUNNER_TEMP/elsewhere.json"
 
-      # Running is half of it. This is the other half: the IR it writes there
-      # must be the IR the e2e gates expect, so the whole fixture is generated.
+      # Running is half of it; the IR it writes there also has to be the IR the
+      # e2e gates expect, so the whole fixture is generated below.
       - name: Install the toolchain rust-toolchain.toml asks for
         run: rustup show
 
@@ -262,8 +245,6 @@ jobs:
 
       # `LAKE` is explicit because e2e-micro.sh defaults to ~/.elan/bin/lake,
       # and the whole point of this job is that there is nothing in ~/.elan.
-      # (That default is fine for the fixture's normal use; it just cannot be
-      # left implicit here.)
       - name: End to end, with the toolchain in an unusual place
         run: |
           tools/e2e-micro.sh \

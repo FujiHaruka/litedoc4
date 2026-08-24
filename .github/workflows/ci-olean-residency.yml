@@ -1,25 +1,17 @@
-# Measures the one number the CI axis is missing: right after `lake exe cache get`
-# extracts Mathlib's oleans on `ubuntu-latest`, how much of them is resident in the
-# page cache?
+# Right after `lake exe cache get` extracts Mathlib's oleans on `ubuntu-latest`,
+# how much of them is resident in the page cache?
 #
-# WHY THIS CANNOT BE ANSWERED LOCALLY
-#   The macOS answer is "no" (measured) and it is the *unfavourable* side, so it
-#   does not transfer: a refutation on one
-#   platform says nothing about another. What decides the answer is (a) whether
-#   extraction leaves written pages in cache and (b) whether the runner has enough
-#   RAM to keep ~5-6 GB of oleans there. (b) is a property of the runner, so a local
-#   Linux VM would answer a different question.
+# Not answerable locally. The macOS answer is "no" 【実測】 and that is the
+# unfavourable side, which does not transfer. What decides it is (a) whether
+# extraction leaves written pages in cache and (b) whether the runner has enough
+# RAM to keep ~5-6 GB of oleans there — and (b) is a property of the runner, so a
+# local Linux VM answers a different question.
 #
-# WHY IT IS `workflow_dispatch` ONLY
-#   It is a measurement, not a check. It must never run on a push, and it must never
-#   run without someone deciding to spend the minutes. This workflow is what
-#   closes the open question when triggered.
+# `workflow_dispatch` only: it is a measurement, not a check.
 #
-# WHAT IT DELIBERATELY DOES NOT DO
-#   It does not build the extractor and does not measure the prefetch effect. The
-#   primary sub-question — "is it warm straight after `cache get`" — needs neither,
-#   and adding them would make the run long enough that the answer to the cheap
-#   question would be held hostage to the expensive one.
+# It deliberately does not build the extractor or measure the prefetch effect.
+# The question here needs neither, and adding them would hold the cheap answer
+# hostage to the expensive one.
 name: CI olean residency (measurement)
 
 on:
@@ -32,8 +24,7 @@ on:
 
 concurrency:
   # `cancel-in-progress: false`: a double dispatch queues instead of killing the
-  # run already measuring. Losing a 40-minute measurement to a stray click is
-  # worse than waiting for it.
+  # run already measuring.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 

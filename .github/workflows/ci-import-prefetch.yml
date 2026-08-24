@@ -1,44 +1,38 @@
-# Closes the last open item on the CI axis: does prefetching buy back the cold start
-# on Linux?
+# Does prefetching buy back the cold start on Linux?
 #
-# WHY IT IS STILL OPEN AFTER ci-import-modules.yml
-#   That run established the cold ceiling on `ubuntu-latest`: 63.4-70.6 s of
-#   `importModules` against 2.61 s when doc generation shares a job with `lake build`.
-#   Prefetch only matters in the split-job topology — but there the Linux cold penalty
-#   is 4.2-4.7x the macOS one, so it matters more there, not less.
+# ci-import-modules.yml established the cold ceiling on `ubuntu-latest`:
+# 63.4-70.6 s of `importModules` against 2.61 s when doc generation shares a job
+# with `lake build`. Prefetch only matters in the split-job topology, and there
+# the Linux cold penalty is 4.2-4.7x the macOS one — so it matters more there,
+# not less.
 #
-# WHY THE MACOS RESULT DOES NOT TRANSFER
-#   macOS measured -49.0% with madvise/16 concurrent with extraction. `MADV_WILLNEED` is
-#   advisory and its synchronous/asynchronous behaviour differs between the two kernels,
-#   so the *choice of method* cannot be carried over — only the question.
+# The macOS result does not transfer: it measured -49.0% with madvise/16
+# concurrent with extraction, but `MADV_WILLNEED` is advisory and its
+# synchronous/asynchronous behaviour differs between the two kernels. Only the
+# question carries over, not the choice of method.
 #
-# VARIANTS (definitions copied from benchmarks/tools/measure-prefetch.sh so the two are
-# comparable in shape; only the evictor differs — `drop_caches` here, olean-evict there)
+# Variants, defined as in benchmarks/tools/measure-prefetch.sh so the two are
+# comparable in shape; only the evictor differs (`drop_caches` here,
+# olean-evict there):
 #   baseline    drop, run the extractor. The cold reference for this session.
-#   sequential  drop, prefetch to completion, then extract. Upper bound on the effect,
-#               and a wall clock that must be paid in full (prefetch + extract).
-#   overlapped  drop, start the prefetcher and the extractor at once. The actual play.
-#               It can LOSE to sequential: demand faults and the prefetcher contend.
-#   honesty     drop, prefetch, then measure residency with mincore. A prefetcher that
-#               finishes fast because the cache dropped its bytes is worse than useless,
-#               and only mincore separates the two.
+#   sequential  drop, prefetch to completion, then extract. Upper bound on the
+#               effect, and a wall clock paid in full (prefetch + extract).
+#   overlapped  drop, start the prefetcher and the extractor at once. The actual
+#               play, and it can LOSE to sequential: demand faults and the
+#               prefetcher contend.
+#   honesty     drop, prefetch, then measure residency with mincore. A prefetcher
+#               that finishes fast because the cache dropped its bytes is worse
+#               than useless, and only mincore separates the two.
 #
-# WHY `workflow_dispatch` ONLY
-#   It is a measurement, not a check.
+# `workflow_dispatch` only: it is a measurement, not a check.
 #
-# THE EXTRACTOR WAS SWAPPED, AND THIS WORKFLOW HAS NOT RUN SINCE
-#   Until 2026-08-16 the steps below built and ran `experiments/stage4b`, the frozen
-#   prototype extractor (IR schema 3). `experiments/` was removed, so they now build and
-#   run `extractor/` (IR schema 4) instead. The CLI shape is identical —
-#   `extract <modules.txt> <out.jsonl> [flags]` — but **schema 4 does more analysis after
-#   the import**, so the thing being measured is not the thing that was measured before.
-#
-#   **The swap is UNVERIFIED: the workflow has not been run once since.**
-#
-#   **Do not put a number produced after the swap next to a recorded stage4b number.** The
-#   percentages quoted above (-49.0%, 76%, 4%) were measured with schema 3; a variant
-#   comparison run entirely on this side of the swap is internally valid, a comparison
-#   across it is not.
+# The extractor was swapped and this workflow has not run since — the swap is
+# UNVERIFIED. The steps below now build and run `extractor/` (IR schema 4); the
+# percentages quoted above (-49.0%, 76%, 4%) were measured with the frozen
+# prototype extractor (IR schema 3, tag `experiments-frozen`). The CLI shape is
+# identical — `extract <modules.txt> <out.jsonl> [flags]` — but schema 4 does
+# more analysis after the import. A variant comparison run entirely on this side
+# of the swap is internally valid; a comparison across it is not.
 name: CI importModules prefetch (measurement)
 
 on:
@@ -59,17 +53,16 @@ on:
 
 concurrency:
   # `cancel-in-progress: false`: a double dispatch queues instead of killing the
-  # run already measuring. Losing a 40-minute measurement to a stray click is
-  # worse than waiting for it.
+  # run already measuring.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   prefetch:
     runs-on: ubuntu-latest
-    # GitHub terminates any job at 6 h, so 330 left half an hour to tell
-    # "this hung" apart from "GitHub gave up" — not enough to read a red
-    # run by. Measured at the default inputs: 47 min. `reps` scales this.
+    # GitHub terminates any job at 6 h, so a timeout close to that cannot tell
+    # "this hung" from "GitHub gave up". 47 min at the default inputs; `reps`
+    # scales it.
     timeout-minutes: 180
     steps:
       - name: Check out litedoc4 (the measurement tools)
@@ -124,10 +117,10 @@ jobs:
         working-directory: target
         run: /usr/bin/time -v lake build 2>&1 | tail -12
 
-      # The set to prefetch must be something an implementation could compute before the
-      # extractor starts. macOS used the import closure derived from .lean headers; if
-      # that script cannot run here, fall back to the blind set (every olean) and SAY SO
-      # in the log — the two are different claims.
+      # The set to prefetch has to be something an implementation could compute
+      # before the extractor starts. macOS used the import closure derived from
+      # .lean headers; if that script cannot run here, fall back to the blind set
+      # (every olean) and say so in the log — the two are different claims.
       - name: Build the prefetch file set (import closure, blind set as fallback)
         env:
           TARGET_REPO: ${{ github.workspace }}/target

@@ -1,34 +1,20 @@
-# Build the `litedoc4` binary for each platform, prove it works, and attach it
-# to a GitHub release.
+# Only the Rust binary is shipped. The Lean extractor is 171 MB against this
+# binary's 2.5 MB, and building it takes ~16 s against cargo's ~24 s 【実測】:
+# shipping the small one removes a 24 s build and a several-hundred-MB cargo
+# cache from every user's CI, while shipping the large one would trade a 16 s
+# build for a 46 MB download and a matrix that multiplies by toolchain. Whether
+# it could be shipped at all is ci-extractor-portability.yml's question.
 #
-# ============================================================================
-# WHY ONLY THE RUST BINARY IS HERE
-# ============================================================================
-#   The Lean extractor is 171 MB against this binary's 2.5 MB, and building it
-#   takes ~16 s against cargo's ~24 s 【実測】. Shipping the small one removes a
-#   24 s build **and** a several-hundred-MB cargo cache from every user's CI;
-#   shipping the large one would trade a 16 s build for a 46 MB download and a
-#   matrix that multiplies by toolchain. Whether it can be shipped at all is a
-#   separate measurement — .github/workflows/ci-extractor-portability.yml.
+# The archive is `litedoc4` + `LICENSE` + `NOTICE`, not just the binary: a
+# binary release is Apache-2.0 §4's "Object form", which triggers (a), and md4c
+# is compiled in under MIT, whose permission notice must travel with "all
+# copies". NOTICE carries md4c's full text rather than pointing at
+# vendor/md4c/LICENSE.md, which is not in the archive. docs/provenance.md §4 is
+# the record.
 #
-# ============================================================================
-# WHAT IS IN THE ARCHIVE, AND WHY IT IS NOT JUST THE BINARY
-# ============================================================================
-#   `litedoc4` + `LICENSE` + `NOTICE`. A binary release is Apache-2.0 §4's
-#   "Object form", which triggers (a): recipients get the licence text. And md4c
-#   is compiled into the binary under MIT, whose permission notice must travel
-#   with "all copies" — NOTICE used to *point* at vendor/md4c/LICENSE.md, which
-#   is not in this archive, so the full text was moved into NOTICE on
-#   2026-08-18. docs/provenance.md §4 is the record.
-#
-# ============================================================================
-# WHY A SMOKE JOB THAT BUILDS A WHOLE SITE
-# ============================================================================
-#   `--version` proves the file is executable, not that it is correct: a musl
-#   build with a broken md4c link would pass it and then produce documentation
-#   with no rendered markdown. So the archive that will be uploaded is unpacked
-#   on a clean runner and run through tools/e2e-micro.sh, which is the same
-#   three gates CI uses (one command / idempotence / determinism).
+# The smoke job builds a whole site because `--version` proves the file is
+# executable, not that it is correct: a musl build with a broken md4c link
+# passes it and then produces documentation with no rendered markdown.
 name: release
 
 on:
@@ -62,19 +48,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The one that matters for the happy path: GitHub Actions runners.
           # musl so that the glibc version of the runner image stops being a
           # thing anyone has to think about.
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
           - target: aarch64-apple-darwin
             os: macos-latest
-          # NO x86_64-apple-darwin. It needs an Intel runner to be *tested* on,
-          # and `macos-13` sat queued for over 15 minutes on 2026-08-18 without
-          # ever starting. Cross-compiling it from the arm runner would produce
-          # a binary nobody had executed — the same "it built, therefore it
-          # works" this file's smoke job exists to refuse. Intel macOS builds
-          # from source; README says so.
+          # No x86_64-apple-darwin: it needs an Intel runner to be *tested* on,
+          # and `macos-13` does not start here 【実測 2026-08-18: queued >15 min
+          # without ever starting】. Cross-compiling from the arm runner would
+          # produce a binary nobody had executed — the "it built, therefore it
+          # works" the smoke job below exists to refuse. Intel macOS builds from
+          # source.
           #
           # Also absent: aarch64-unknown-linux-*. It needs a cross toolchain for
           # the vendored C, and there is no arm Linux runner here to test on.
@@ -82,10 +67,9 @@ jobs:
       - uses: actions/checkout@v5
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
-      # `app.js`, so **cargo cannot build this workspace without node**
-      # Pinned rather than left to
-      # whatever the runner image happens to ship: the version is the one in
-      # `mise.toml`, and `tools/assets-gate.sh` checks that these two agree.
+      # `app.js`, so cargo cannot build this workspace without node. Pinned
+      # rather than left to whatever the runner image ships: the version is the
+      # one in `mise.toml`, and `tools/assets-gate.sh` checks that they agree.
       - uses: actions/setup-node@v6
         with:
           node-version: "24.19.0"
@@ -107,9 +91,9 @@ jobs:
         env:
           CC_x86_64_unknown_linux_musl: musl-gcc
 
-      # A musl target that came out dynamically linked is the failure this
-      # whole choice of target exists to avoid, and it is invisible until it
-      # runs on a machine with a different libc. Assert it here.
+      # A musl target that came out dynamically linked defeats the point of
+      # choosing musl, and it is invisible until it runs on a machine with a
+      # different libc.
       - name: It is what it claims to be
         run: |
           BIN=target/${{ matrix.target }}/release/litedoc4
@@ -180,8 +164,7 @@ jobs:
           path: dist/*.tar.gz
           retention-days: 7
 
-  # --------------------------------------------------------------------------
-  # The archive, on a runner that never built it, generating a real site.
+  # On a runner that never built the archive.
   smoke:
     name: smoke — the Linux archive builds a site
     needs: build
@@ -219,7 +202,6 @@ jobs:
           "$BIN" --version || true
           LITEDOC4="$BIN" tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
 
-  # --------------------------------------------------------------------------
   publish:
     name: publish
     needs: [build, smoke]
