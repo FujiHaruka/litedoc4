@@ -64,13 +64,13 @@ jobs:
           # Also absent: aarch64-unknown-linux-*. It needs a cross toolchain for
           # the vendored C, and there is no arm Linux runner here to test on.
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so cargo cannot build this workspace without node. Pinned
       # rather than left to whatever the runner image ships: the version is the
       # one in `mise.toml`, and `tools/assets-gate.sh` checks that they agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -158,7 +158,7 @@ jobs:
           rm -rf "dist/$DIR"
           ls -l dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.v.outputs.asset }}
           path: dist/*.tar.gz
@@ -171,9 +171,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: "*x86_64-unknown-linux-musl"
           path: ${{ runner.temp }}/dl
@@ -211,9 +211,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/dl
           merge-multiple: true

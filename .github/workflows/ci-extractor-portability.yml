@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/setup-elan
 
@@ -60,7 +60,7 @@ jobs:
             --json "$RUNNER_TEMP/uniqueness.json"
 
       - name: Upload the extractor for the other jobs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: extract-linux-x86_64
           path: ${{ runner.temp }}/extract
@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload the report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: uniqueness-json
           path: ${{ runner.temp }}/uniqueness.json
@@ -84,13 +84,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so cargo cannot build this workspace without node. Pinned
       # rather than left to whatever the runner image ships: the version is the
       # one in `mise.toml`, and `tools/assets-gate.sh` checks that they agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -99,7 +99,7 @@ jobs:
 
       # Keyed per job and without `restore-keys` — see the long note in ci.yml.
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -110,7 +110,7 @@ jobs:
 
       - uses: ./.github/actions/setup-elan
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: extract-linux-x86_64
           path: ${{ runner.temp }}/downloaded
@@ -140,7 +140,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install elan with BOTH toolchains
         run: |
@@ -150,7 +150,7 @@ jobs:
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
           "$HOME/.elan/bin/elan" toolchain install "${{ inputs.other-toolchain }}"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: extract-linux-x86_64
           path: ${{ runner.temp }}/downloaded
@@ -180,7 +180,7 @@ jobs:
 
       - name: Upload the report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mismatch-json
           path: ${{ runner.temp }}/mismatch.json
@@ -198,9 +198,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -216,7 +216,7 @@ jobs:
           # Proof it is not the default one: the default would be ~/.elan
           test ! -d "$HOME/.elan" || { echo "a default elan exists too — this job would not prove anything" >&2; exit 1; }
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: extract-linux-x86_64
           path: ${{ runner.temp }}/downloaded

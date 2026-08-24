@@ -114,14 +114,14 @@ jobs:
     permissions: { contents: read, pages: write, id-token: write }
     environment: { name: github-pages }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: FujiHaruka/litedoc4@v0.1.4
         id: docs
         with:
           cache-get: true             # `lake exe cache get` — drop it if you have no Mathlib
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with: { path: "${{ steps.docs.outputs.site }}" }
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5
 ```
 
 That is the whole thing: the action installs elan if it is missing, runs `lake build` and the

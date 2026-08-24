@@ -84,7 +84,7 @@ jobs:
         pair: ${{ fromJSON(github.event.inputs.pairs || '[1]') }}
     steps:
       - name: Check out litedoc4
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           path: litedoc4
 
@@ -92,12 +92,12 @@ jobs:
       # `app.js`, so cargo cannot build this workspace without node. Pinned
       # rather than left to whatever the runner image ships: the version is the
       # one in `mise.toml`, and `tools/assets-gate.sh` checks that they agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
       - name: Check out the measurement target (public), pinned
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: FujiHaruka/information-theory
           ref: ${{ github.event.inputs.target_ref }}
@@ -171,7 +171,7 @@ jobs:
           ls -l oleans.tar extract-bin
 
       - name: Upload them
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-outputs-${{ matrix.pair }}
           path: |
@@ -185,7 +185,7 @@ jobs:
 
       - name: Upload the raw logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: placement-same-${{ matrix.pair }}
           path: |
@@ -203,16 +203,16 @@ jobs:
         pair: ${{ fromJSON(github.event.inputs.pairs || '[1]') }}
     steps:
       - name: Check out litedoc4
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           path: litedoc4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
       - name: Check out the measurement target (public), pinned
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: FujiHaruka/information-theory
           ref: ${{ github.event.inputs.target_ref }}
@@ -241,7 +241,7 @@ jobs:
 
       # Restored, not rebuilt: this stands in for `actions/cache`.
       - name: Restore the package's oleans and the extractor
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: build-outputs-${{ matrix.pair }}
 
@@ -265,7 +265,7 @@ jobs:
 
       - name: Upload the raw logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: placement-split-${{ matrix.pair }}
           path: |
@@ -279,12 +279,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: litedoc4
 
       - name: Collect every arm's results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: placement-*
           path: arms
@@ -314,7 +314,7 @@ jobs:
 
       - name: Upload the summary
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: placement-summary
           path: results/

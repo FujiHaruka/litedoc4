@@ -51,7 +51,7 @@ jobs:
       # The template's second checkout, and no token is needed: this repository
       # is public.
       - name: check out litedoc4
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: FujiHaruka/litedoc4
           path: litedoc4
@@ -59,7 +59,7 @@ jobs:
       # The package does not exist yet, so what is checked out here is only the
       # source of its `lean-toolchain` and `lake-manifest.json`.
       - name: check out the measurement target (for its pinned toolchain and manifest)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: FujiHaruka/information-theory
           ref: ${{ github.event.inputs.target_ref }}
@@ -88,13 +88,13 @@ jobs:
           cat package/lakefile.toml
 
       - name: cache Mathlib's oleans
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/mathlib
           key: mathlib-${{ hashFiles('package/lake-manifest.json') }}
 
       - name: cache the Lean extractor
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: litedoc4/extractor/build
           key: >-
@@ -104,7 +104,7 @@ jobs:
       # Key prefixed per workflow so no other workflow's `restore-keys` can
       # reach into it.
       - name: cache the Rust build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -118,7 +118,7 @@ jobs:
       # tell apart.
       - name: cache the documentation state (IR + ledger + site)
         id: docs-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: docs-out
           key: litedoc4-docs-${{ github.sha }}
@@ -219,7 +219,7 @@ jobs:
 
       - name: upload the site and the log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: template-validation
           path: |

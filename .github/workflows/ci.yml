@@ -31,13 +31,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
       # `app.js`, so cargo cannot build this workspace without node. Pinned
       # rather than left to whatever the runner image ships: the version is the
       # one in `mise.toml`, and `tools/assets-gate.sh` checks that they agree.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -70,7 +70,7 @@ jobs:
       # because it is cheap and correct, not because it was shown to pay
       # 【実測 → benchmarks/results/ci-cache-2026-08-19.txt】.
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -133,7 +133,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
@@ -147,9 +147,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.19.0"
 
@@ -160,7 +160,7 @@ jobs:
       # job builds one binary; `test` builds --all-targets, so a shared key
       # would have them overwriting each other's entry.
       - name: Cache cargo registry and build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
@@ -223,7 +223,7 @@ jobs:
 
       - name: Upload the generated site
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-micro-site
           path: ${{ runner.temp }}/e2e/first/site
