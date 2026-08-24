@@ -1,39 +1,16 @@
 //! The ledger file: what a module's inputs hash to, and the two global keys.
 //!
-//! Ported from `experiments/stage5/ledger.ts` (frozen). Milestone **M3-a**.
-//! The shape: one `ledger.json`, `ledgerSchema: 2`, `extractKey` / `renderKey`
-//! inside it, values in the clear.
-//!
-//! ```text
-//! module name ──> <libDir>/<Module/Path>{.olean,.olean.server,.olean.private}
-//!                   │
-//!                   ├─ --algorithm sha256: read the bytes, hash them here
-//!                   └─ --algorithm lake:   read <file>.hash, already on disk
-//!                   │
-//!                   └──> ModuleEntry.hash = sha256("<path> <hash>\n…")
-//! ```
-//!
-//! # What is hashed, and why it is the olean
-//!
-//! The extractor's only view of a module is its `.olean`: `importModules` reads
-//! nothing else. The `.lean` source is one step too early — it carries changes
-//! the olean does not (whitespace inside a proof) and misses changes the olean
-//! has (anything a rebuild of a dependency puts there) — and the IR's own
-//! `contentHash` is one step too late, because computing it means running the
-//! extraction this stage exists to skip. That hash has the other job: which
-//! *pages* to rewrite.
+//! What is hashed is the `.olean`, because that is the extractor's only view of
+//! a module: `importModules` reads nothing else. The `.lean` source is one step
+//! too early — it carries changes the olean does not (whitespace inside a proof)
+//! and misses changes the olean has (anything a rebuild of a dependency puts
+//! there) — and the IR's own `contentHash` is one step too late, because
+//! computing it means running the extraction this stage exists to skip. That
+//! hash has the other job: which *pages* to rewrite.
 //!
 //! Modules built with Lean's module system have up to three olean files and
 //! **all present ones are hashed**: declaration ranges and docstrings live in
-//! the server data and private declarations in the private one. On the
-//! measurement target the package's own modules have only `.olean`; Mathlib's
-//! have all three.
-//!
-//! # The per-module hash is over the per-file hashes, not over the bytes
-//!
-//! [`ModuleEntry::hash`] is a SHA-256 of `"<relative path> <file hash>"` lines,
-//! so a module that gains or loses one of its three files changes even when
-//! every file it kept is identical.
+//! the server data, private declarations in the private one.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -48,87 +25,45 @@ use sha2::{Digest, Sha256};
 use crate::error::Error;
 use crate::ordered::Ordered;
 
-/// The ledger file format. `1` had a single `envKey`; `2` splits it into
-/// `extractKey` and `renderKey`, which do not invalidate the same thing.
+/// `1` had a single `envKey`; `2` splits it into `extractKey` and `renderKey`,
+/// which do not invalidate the same thing. A schema-1 file on disk is refused
+/// rather than reinterpreted.
 pub const LEDGER_SCHEMA: u64 = 2;
 
 /// `extractKey.extractor`: which implementation will run when the key says
-/// "re-extract".
-///
-/// **Deliberately not the prototype's `"lean-doc/experiments/stage4b"`.** Plan
-/// §6 states the discipline and the failure it prevents: the string names an
-/// implementation, so leaving the prototype's there would let a ledger written
-/// by one pipeline be trusted by the other — "a different implementation with
-/// the same key", and the cache hits when it must not. This is the same rule
+/// "re-extract". The string names an implementation, so a ledger written by one
+/// must never be trusted by another — the same rule
 /// [`litedoc4_global::STATE_DERIVATION`] follows.
 ///
-/// Note what does **not** change with it: `extractKey.irGenerator` still
-/// carries whatever wrote the IR (today `lean-doc/experiments/stage4b`), because
-/// that is a fact about the tree on disk rather than about this crate.
+/// **Bump the version whenever a re-extraction can produce different IR bytes**,
+/// including when `irSchemaVersion` cannot see the difference: the schema number
+/// has stayed put across changes to what the IR's own keys hold, and then the
+/// only thing separating two IRs is which extractor wrote them. The failure a
+/// missed bump produces is silent — the reused IR renders today's bytes and is
+/// simply missing what the new consumer wanted.
 ///
-/// Bump the version when a re-extraction can produce different IR bytes.
-///
-/// **v2** is B-2: `attrs` elements became
-/// `[name, value]` arrays where they had been one concatenated string. That is
-/// the case this constant exists for and `irSchemaVersion` cannot cover —
-/// the schema was already 5 when the elements were still strings, so the only
-/// thing that separates the two IRs is which extractor wrote them. Without the
-/// bump an IR extracted before the change is reused, renders the same bytes
-/// today, and silently has nothing for bundle C to link `@[deprecated Foo]` to.
-///
-/// **v3** is B-3, and it is the same case a second time: `selectionRange` and
-/// `generated` are new keys under a schema number that was already 5. Neither
-/// changes a rendered byte today, so the failure this bump prevents is again
-/// silent — a reused IR would carry no origin for bundle C to fold `@[ext]`'s
-/// theorems by, and would say so by omitting exactly the key whose omission
-/// means "not realized by `@[ext]`".
+/// `extractKey.irGenerator` does **not** move with this: it carries whatever
+/// wrote the IR (`lean-doc/experiments/stage4b`, which is what the extractor
+/// writes), a fact about the tree on disk rather than about this crate.
 ///
 /// [`litedoc4_global::STATE_DERIVATION`]: ../litedoc4_global/constant.STATE_DERIVATION.html
 pub const EXTRACTOR_ID: &str = "litedoc4 extractor v3";
 
 /// `renderKey.renderer`: which implementation will run when the key says
-/// "re-render everything".
+/// "re-render everything", under the same rule as [`EXTRACTOR_ID`].
 ///
-/// Deliberately not the prototype's `"lean-doc/experiments/stage4c"`, for the
-/// reason above and for one that is already measured: the Rust renderer and
-/// `render.ts` do **not** agree on every byte (plan §5 registers the CommonMark
-/// divergence, 1 page of 432). A ledger written by one and believed by the
-/// other would report that page as up to date while its bytes differ.
-///
-/// Bump the version when the renderer's output bytes can change with the IR
-/// held fixed.
-///
-/// **v1 -> v2 (M7-b)**: the render key gained `externalLinks`, so a v1 ledger and
-/// a v2 one are not comparable — a ledger written before the key existed has no
-/// value for it, and "the key is absent" would otherwise be read as "the map did
-/// not move" for every page rendered without one.
-///
-/// **v2 -> v3 (feature-sweep bundle C)**: three changes to what a page holds,
-/// none of which any other key can see. `$…$` became MathML (C-1), every
-/// declaration gained a `Used by` block (C-2), and the site's title can now come
-/// from `litedoc4.toml` (C-3). The IR did not move for any of them, so without
-/// this bump an incremental build over a site rendered by a v2 binary would find
-/// every page up to date and **leave the old bytes in place** — a site half of
-/// whose pages have mathematics and half of which do not, reported as "0 pages
-/// rendered" and therefore as success.
-///
-/// **v3 -> v4 (residual-sweep R3)**: a docstring that names a module by the
-/// `.lidx`'s unescaped spelling — `Dep-Aux.Basic` for `«Dep-Aux».Basic` — now
-/// links, where it used to render as a bare code span
-/// (`NameIndex::module_for_unescaped`). Only a package with a quoted module
-/// component can see it, and the IR does not move when it does, so this bump is
-/// the only thing that makes such a site re-render.
+/// **Bump the version whenever the renderer's output bytes can change with the
+/// IR held fixed.** Nothing else can see such a change, so a missed bump leaves
+/// an incremental build finding every page up to date, keeping the old bytes,
+/// and reporting "0 pages rendered" as success.
 pub const RENDERER_ID: &str = "litedoc4 renderer v4";
 
-/// The olean files a module can have, in the order they are hashed.
+/// In the order they are hashed.
 pub const OLEAN_SUFFIXES: [&str; 3] = [".olean", ".olean.server", ".olean.private"];
 
-/// Where a file's hash comes from.
-///
 /// A string rather than an enum because the ledger stores it verbatim and
-/// **anything that is not `lake` reads and hashes the bytes** — that is the
-/// prototype's `algorithm === "lake" ? … : …` transcribed, and it means an
-/// unknown algorithm degrades to the reference one rather than to nothing.
+/// **anything that is not `lake` reads and hashes the bytes**, so an unknown
+/// algorithm degrades to the reference one rather than to nothing.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Algorithm(String);
@@ -162,15 +97,12 @@ impl Algorithm {
         &self.0
     }
 
-    /// Whether the olean bytes are read and hashed here, rather than Lake's
-    /// hash being read off the disk.
     #[must_use]
     pub fn hashes_bytes(&self) -> bool {
         self.0 != Self::LAKE
     }
 }
 
-/// One olean file of one module.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileEntry {
     /// Relative to the ledger's `target`.
@@ -182,7 +114,6 @@ pub struct FileEntry {
     pub hash: String,
 }
 
-/// One module's entry.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleEntry {
     pub module: String,
@@ -191,15 +122,9 @@ pub struct ModuleEntry {
     pub hash: String,
 }
 
-/// An ordered `name -> value` map, as `extractKey` and `renderKey` are stored.
-///
-/// Ordered because the ledger's bytes are `JSON.stringify` of an object built
-/// key by key, and a `BTreeMap` would re-sort it. Values are **in the clear,
-/// not hashed**, so that a mismatch names itself in a log (plan §6).
-///
-/// The order and the duplicate-key rule are [`Ordered`]'s, shared with the
-/// merged index ([`crate::merge::JsonObject`]); what belongs to the ledger is
-/// [`Ordered::diff`] below and the refusal message next to it.
+/// How `extractKey` and `renderKey` are stored: ordered, because the key order
+/// is part of the ledger's bytes, and with the values **in the clear rather
+/// than hashed**, so that a mismatch names itself in a log.
 pub type KeySet = Ordered<String>;
 
 impl<'de> Deserialize<'de> for KeySet {
@@ -212,16 +137,15 @@ impl Ordered<String> {
     /// The names, in UTF-16 order, of the keys **present in either set** whose
     /// values differ.
     ///
-    /// The union is the rule plan §5 states for M3, and it is what makes a
-    /// missing key loud: a key that vanished — an `--ir` that was not passed
-    /// this time, a forgotten `--source-url` — compares `None != Some(_)` and
-    /// counts as a change. Over-extracting and over-rendering are the safe
-    /// directions; the failure this prevents is silently rendering too little,
-    /// which nobody reports because the site still looks built.
+    /// The union is what makes a missing key loud: a key that vanished — an
+    /// `--ir` that was not passed this time, a forgotten `--source-url` —
+    /// compares `None != Some(_)` and counts as a change. Over-extracting and
+    /// over-rendering are the safe directions; the failure this prevents is
+    /// silently rendering too little, which nobody reports because the site
+    /// still looks built.
     ///
-    /// Sorted with [`cmp_utf16`]: `ledger.ts:213` is a bare
-    /// `Array.prototype.sort()` (plan §7, U1). The order reaches a file — the
-    /// reason lines of `--render-all-out`.
+    /// The [`cmp_utf16`] order reaches a file — the reason lines of
+    /// `--render-all-out`.
     #[must_use]
     pub fn diff(&self, now: &Self) -> Vec<String> {
         let mut seen: HashSet<&str> = HashSet::new();
@@ -241,26 +165,22 @@ impl Ordered<String> {
     }
 }
 
-/// The ledger file.
-///
-/// Field order **is** the file's key order: `serde` emits a struct's fields as
-/// declared, and this list transcribes the prototype's object literal
-/// (`ledger.ts:244-252`). `tests/ledger.rs` compares the result with a ledger
-/// the prototype wrote, byte for byte.
+/// Field order **is** the file's key order — `serde` emits a struct's fields as
+/// declared, and `tests/ledger.rs` compares the result against frozen bytes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ledger {
-    /// `ledger.ledgerSchema ?? 1`: a file without the field is a schema-1 file,
-    /// not a parse failure, so that `check` can name what is wrong with it.
+    /// A file without the field is a schema-1 file, not a parse failure, so that
+    /// `check` can name what is wrong with it.
     #[serde(default = "schema_before_the_split")]
     pub ledger_schema: u64,
     pub algorithm: Algorithm,
     pub target: String,
     pub lib_dir: String,
     pub extract_key: KeySet,
-    /// `ledger.renderKey ?? {}` at the comparison, but **`None` stays absent on
-    /// the way out**: `touch` rewrites the file it read, and a key this crate
-    /// invented would be a byte nobody asked for.
+    /// Read as empty at the comparison, but **`None` stays absent on the way
+    /// out**: `touch` rewrites the file it read, and a key this crate invented
+    /// would be a byte nobody asked for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub render_key: Option<KeySet>,
     pub modules: Vec<ModuleEntry>,
@@ -271,38 +191,34 @@ fn schema_before_the_split() -> u64 {
 }
 
 impl Ledger {
-    /// The file's bytes: `JSON.stringify(ledger) + "\n"`.
     #[must_use]
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("a ledger is strings, numbers and arrays of them") + "\n"
     }
 
-    /// The entry for a module, or `None` when the ledger has never seen it.
     #[must_use]
     pub fn entry(&self, module: &str) -> Option<&ModuleEntry> {
         self.modules.iter().find(|entry| entry.module == module)
     }
 
-    /// The render key as the comparison sees it: an absent one is empty, which
-    /// makes every current render key a change rather than no change at all.
+    /// An absent render key reads as empty, which makes every current key a
+    /// change rather than no change at all.
     #[must_use]
     pub fn render_key_or_empty(&self) -> KeySet {
         self.render_key.clone().unwrap_or_default()
     }
 }
 
-/// The `extractKey`: everything that can change the IR bytes.
+/// Everything that can change the IR bytes. Changed ⇒ re-extract everything;
+/// which pages are then stale still follows from the IR diff, so a
+/// re-extraction that lands byte-identical rewrites no page.
 ///
-/// Changed ⇒ re-extract everything. Which pages are then stale still follows
-/// from the IR diff, as usual — a re-extraction that lands byte-identical
-/// rewrites no page.
-///
-/// The split from [`render_key`] is not cosmetic (`ledger.ts:159-185`).
-/// `--source-url` carries a 40-hex git revision, so it changes on *every
-/// commit*, which is exactly when an incremental build runs; under one key every
-/// real incremental build would pay a full re-extraction — Lean started, 27 s —
-/// for an input Lean cannot see. The test for which side an input belongs on is
-/// not "does it change the output" (both do) but "can it change the IR".
+/// The split from [`render_key`] is not cosmetic. `--source-url` carries a
+/// 40-hex git revision, so it changes on *every commit*, which is exactly when
+/// an incremental build runs; under one key every real incremental build would
+/// pay a full re-extraction — Lean started, 27 s【実測】 — for an input Lean
+/// cannot see. The test for which side an input belongs on is not "does it
+/// change the output" (both do) but "can it change the IR".
 pub fn extract_key(target: &str, ir: Option<&Path>) -> Result<KeySet, Error> {
     let mut key = KeySet::new();
     let root = Path::new(target);
@@ -320,9 +236,9 @@ pub fn extract_key(target: &str, ir: Option<&Path>) -> Result<KeySet, Error> {
     if let Some(ir) = ir {
         let path = ir.join("index.json");
         // Two fields of the index, read as plain JSON — but a read of an IR file
-        // all the same, so it is counted like every other (`litedoc4_ir::metrics`).
-        // `detect` and `build`'s final ledger write both come through here, which
-        // is why an unchanged run still shows `index` reads with `module` at zero.
+        // all the same, so it is counted like every other. Both `detect` and
+        // `build`'s final ledger write come through here, which is why an
+        // unchanged run still shows `index` reads with `module` at zero.
         litedoc4_ir::metrics::record(litedoc4_ir::IrFile::Index);
         let index: serde_json::Value = serde_json::from_str(&read_to_string(&path)?)
             .map_err(|source| Error::Json { path, source })?;
@@ -332,52 +248,28 @@ pub fn extract_key(target: &str, ir: Option<&Path>) -> Result<KeySet, Error> {
     Ok(key)
 }
 
-/// The `renderKey`: what changes the page bytes with the IR held fixed.
+/// What changes the page bytes with the IR held fixed. Changed ⇒ re-extract
+/// **nothing**, re-render **everything**. The renderer id stands in for the
+/// configuration that has no flag of its own; everything that does have a flag
+/// and reaches the output bytes belongs here beside it.
 ///
-/// Changed ⇒ re-extract **nothing**, re-render **everything**. The generator id
-/// stands in for the renderer's configuration that has no flag of its own;
-/// everything that does have a flag and reaches the output bytes belongs here
-/// beside it.
+/// `linkIndex` is the dependency map: with the same IR and the same
+/// `--source-url`, having it or not moves **150 of the measurement target's 432
+/// pages' bytes**【実測】. Its identity is the **SHA-256 of the file's bytes**,
+/// not its path and not its size — the bytes are what the renderer reads, so two
+/// maps that hash the same produce the same pages whoever wrote them.
 ///
-/// # `linkIndex` — the hole M4-d left, closed in M5-b 【実測】
+/// `externalLinks` is where a **dependency's** source lives (`Mathlib` ->
+/// `…/mathlib4/blob/<rev>`, and eighteen more). A bumped dependency moves a
+/// `rev`, which moves the href of every link into it, on exactly the occasion an
+/// incremental build runs. Its identity is
+/// [`litedoc4_render::ExternalLinks::digest`], a function of what the map
+/// *resolves* rather than of how it was built: a resolver that reorders its scan
+/// must not re-render 432 pages for nothing.
 ///
-/// The third input is the dependency map. Until M5 it was a file somebody
-/// handed the renderer, derived outside the product from a doc-gen4 site, and
-/// the plan recorded the consequence rather than fixing it: with the same IR and
-/// the same `--source-url`, **having the map or not moves 150 of the target's
-/// 432 pages' bytes** (plan 決定 4), and nothing in the ledger named it — so a
-/// run whose only changed input was the map re-rendered nothing and reported
-/// success. `--full` was the escape hatch.
+/// `None` leaves either key absent, and [`KeySet::diff`] counts an appearing or
+/// vanishing key as a change — the loud direction.
 ///
-/// M5-a made the map something the product derives from the environment the
-/// extractor has already imported, which is what gives it an identity worth
-/// recording. The identity is the **SHA-256 of the file's bytes**, not its path
-/// and not its size: the bytes are what the renderer reads, so two maps that
-/// hash the same produce the same pages whoever wrote them and wherever they
-/// came from. `None` — no map at all — leaves the key absent, and
-/// [`KeySet::diff`] counts an appearing or vanishing key as a change, which is
-/// the loud direction.
-///
-/// The cost is one hash of 8.5 MB per `detect`, ~11 ms with the `asm` feature
-/// this crate already needs for the olean hashes.
-///
-/// # `externalLinks` — the same hole one level out (M7-b)
-///
-/// The fourth input is where a **dependency's** source lives: `Mathlib` ->
-/// `…/mathlib4/blob/<rev>`, and eighteen more
-/// (`litedoc4_render::ExternalLinks`). It is an input to every page for the same
-/// reason the dependency map is — a bumped dependency moves a `rev`, which moves
-/// the href of every link into it — and it changes on exactly the occasion an
-/// incremental build runs, so a run whose only changed input was that map has to
-/// re-render rather than report success.
-///
-/// The identity is [`litedoc4_render::ExternalLinks::digest`], which is a
-/// function of what the map *resolves* rather than of how it was built: a
-/// resolver that reorders its scan must not re-render 432 pages for nothing.
-/// `None` leaves the key absent, and an appearing key is a change — the loud
-/// direction, as above.
-///
-/// [`litedoc4_render::ExternalLinks`]: ../litedoc4_render/struct.ExternalLinks.html
 /// [`litedoc4_render::ExternalLinks::digest`]: ../litedoc4_render/struct.ExternalLinks.html#method.digest
 #[must_use]
 pub fn render_key(
@@ -399,9 +291,6 @@ pub fn render_key(
     key
 }
 
-/// The identity [`render_key`] records for a dependency map: SHA-256 of its
-/// bytes.
-///
 /// `Ok(None)` when the file is not there, which is a real state and not an
 /// error — a first `build` computes the ledger's hashes *before* the extraction
 /// that writes the map, and `litedoc4 render --no-link-index` never has one. Any
@@ -422,12 +311,8 @@ pub fn link_index_digest(path: Option<&Path>) -> Result<Option<String>, Error> {
     }
 }
 
-/// `String(value)` for the two values read out of `index.json`.
-///
-/// A missing key is the string `"undefined"`, which is what the prototype writes
-/// into the ledger and what makes an IR without a `schemaVersion` compare equal
-/// to another IR without one. Numbers and booleans print as JSON prints them,
-/// which for the integers involved is what JavaScript prints.
+/// A missing key becomes the string `"undefined"`, which is what makes an IR
+/// without a `schemaVersion` compare equal to another IR without one.
 fn js_string(value: Option<&serde_json::Value>) -> String {
     match value {
         None => "undefined".to_owned(),
@@ -436,14 +321,13 @@ fn js_string(value: Option<&serde_json::Value>) -> String {
     }
 }
 
-/// The olean files a module actually has, in [`OLEAN_SUFFIXES`] order.
-///
-/// A suffix that is absent is not an error: this build simply does not use
-/// Lean's module system for that module.
+/// The olean files a module actually has, in [`OLEAN_SUFFIXES`] order. A suffix
+/// that is absent is not an error: this build simply does not use Lean's module
+/// system for that module.
 #[must_use]
 pub fn module_paths(lib_dir: &str, module: &str) -> Vec<String> {
-    // The olean is at the source's path, so the components are unescaped
-    // (M5-b): `Alpha.«Odd-Name»` is built from `Alpha/Odd-Name.lean` into
+    // The olean is at the source's path, so the components are unescaped:
+    // `Alpha.«Odd-Name»` is built from `Alpha/Odd-Name.lean` into
     // `Alpha/Odd-Name.olean`.
     let base = format!("{lib_dir}/{}", litedoc4_ir::module_path(module));
     OLEAN_SUFFIXES
@@ -453,20 +337,14 @@ pub fn module_paths(lib_dir: &str, module: &str) -> Vec<String> {
         .collect()
 }
 
-/// One module's entry, or `None` when the module has no olean at all.
-///
 /// **`None` is a real answer, not an error**: a module can be deleted between
 /// `build` and `check`, and the deletion is exactly what the caller needs to
-/// hear about. Throwing here is what made the prototype's `check` die with an
-/// exception instead of reporting a removed module (stage 5b, S4).
+/// hear about.
 ///
 /// A module that has an olean but whose `<file>.hash` is missing under
 /// `--algorithm lake` is a different case and *is* an error: the file the
 /// algorithm names is not there, and reporting the module as removed would
 /// delete its pages.
-// `bytes.len() as i64`: the field is signed because `-1` is how the `lake`
-// algorithm says "this file was not read", so a size and that sentinel share one
-// number. An olean larger than 8 EiB is not the case to degrade gracefully on.
 #[expect(
     clippy::cast_possible_wrap,
     reason = "the field is i64 to carry the -1 sentinel; no olean approaches i64::MAX"
@@ -513,13 +391,9 @@ pub fn hash_module(
     }))
 }
 
-/// The path as the ledger records it: relative to the target repository.
-///
-/// The prototype slices by length (`p.slice(target.length + 1)`). Every path
-/// this is called with begins with the target and a separator, so stripping the
-/// prefix is the same string; when it does not — a `libDir` hand-edited to point
-/// outside the target — the prototype cuts the path at an arbitrary offset and
-/// this keeps it whole. Nothing `build` writes can reach that.
+/// Relative to the target repository. A path that does not begin with the
+/// target — a `libDir` hand-edited to point outside it — is kept whole rather
+/// than cut at an arbitrary offset; nothing `build` writes can reach that.
 fn relative_path(target: &str, path: &str) -> String {
     path.strip_prefix(target)
         .and_then(|rest| rest.strip_prefix('/'))
@@ -527,11 +401,8 @@ fn relative_path(target: &str, path: &str) -> String {
         .to_owned()
 }
 
-/// Bounded-concurrency map, so the read path can be measured at 1 and at N.
-///
 /// The result is in input order whatever the scheduling, which is what lets the
-/// ledger's bytes be independent of `--concurrency` — `tests/ledger.rs` asserts
-/// that rather than assuming it.
+/// ledger's bytes be independent of `--concurrency`.
 pub(crate) fn map_pool<T: Send>(
     items: &[String],
     concurrency: usize,
@@ -573,7 +444,6 @@ pub(crate) fn map_pool<T: Send>(
         .collect()
 }
 
-/// `Deno.readTextFile`, with the path in the error.
 pub(crate) fn read_to_string(path: &Path) -> Result<String, Error> {
     fs::read_to_string(path).map_err(|source| Error::Io {
         path: path.to_owned(),
@@ -581,21 +451,19 @@ pub(crate) fn read_to_string(path: &Path) -> Result<String, Error> {
     })
 }
 
-/// SHA-256 of some bytes, lower-case hex — `crypto.subtle.digest("SHA-256")`.
 #[must_use]
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
         // `write!` rather than `push_str(&format!(..))`: the corpus test hashes
-        // about 4 GB, and the temporary `String` per byte is 32 allocations per
+        // about 4 GB, and a temporary `String` per byte is 32 allocations per
         // digest that nothing reads.
         write!(hex, "{byte:02x}").expect("writing to a String cannot fail");
     }
     hex
 }
 
-/// SHA-256 of a string's UTF-8 bytes — `TextEncoder` then the digest.
 #[must_use]
 pub fn sha256_text(text: &str) -> String {
     sha256_hex(text.as_bytes())

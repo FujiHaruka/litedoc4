@@ -1,34 +1,17 @@
-//! The `detect` stage: `build`, `check` and `touch`.
+//! `build`, `check` and `touch`: which modules must be re-extracted, answered
+//! **without starting Lean**.
 //!
-//! Ported from `experiments/stage5/ledger.ts:216-422` (frozen). The three
-//! commands are the whole of the input side of incrementality — which modules
-//! must be re-extracted, answered **without starting Lean**.
+//! `touch` is shipped rather than kept in a test because it is the honest fake
+//! a measurement rests on. The measurement target must not be modified — its
+//! `.lake/build` is the baseline for every number in this repository — so the
+//! *fact* "module M changed" is injected by invalidating M's ledger entry, and
+//! everything downstream stays real: the re-extraction, the merge, the page set,
+//! the clocks.
 //!
-//! ```text
-//! build  modules + target ──> ledger.json
-//! check  ledger.json + the oleans as they are now
-//!          ├─ extractKey diff ──> every module re-extracted
-//!          ├─ per-module hash  ──> --changed-out   (changed ∪ added)
-//!          ├─ module gone      ──> --removed-out
-//!          └─ renderKey diff   ──> --render-all-out (one reason per line)
-//! touch  ledger.json ──> the same ledger with one module's hash invalidated
-//! ```
-//!
-//! # Why `touch` is in the product and not in a test
-//!
-//! It is the honest fake the whole stage-5 experiment rests on. The measurement
-//! target must not be modified — its `.lake/build` is the baseline for every
-//! number in this repository — so the *fact* "module M changed" is injected by
-//! invalidating M's ledger entry. Everything downstream is real: the
-//! re-extraction, the merge, the page set, the clocks. Without it the pipeline
-//! cannot be exercised end to end on any repository somebody cares about.
-//!
-//! # The two sets are reported separately on purpose
-//!
-//! A changed `extractKey` invalidates every module's IR; a changed `renderKey`
-//! invalidates **no** IR at all and is deliberately not folded into the
-//! re-extract set. Computing the key diff and then not acting on it was the
-//! whole failure of the prototype's S1.
+//! The two key diffs are reported separately on purpose: a changed `extractKey`
+//! invalidates every module's IR, a changed `renderKey` invalidates **no** IR at
+//! all, so folding the second into the re-extract set would re-extract a whole
+//! target to change a URL prefix.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -44,17 +27,16 @@ use crate::ledger::{
     map_pool, read_to_string, render_key,
 };
 
-/// What `build` needs to know.
 #[derive(Clone, Copy, Debug)]
 pub struct BuildOptions<'a> {
     /// The modules to hash, in the order they will appear in the ledger.
     /// **From a glob over the sources, never from a walk of `.lake/build`** —
-    /// the build tree carries 659 orphan oleans on the target (plan §5).
+    /// the build tree carries 659 orphan oleans on the measurement target
+    /// 【実測】.
     pub modules: &'a [String],
-    /// The target repository. A trailing slash is stripped, as the prototype
-    /// strips it, because the string is a prefix of every recorded path.
+    /// The target repository. A trailing slash is stripped, because the string
+    /// is a prefix of every recorded path.
     pub target: &'a str,
-    /// Where the ledger goes.
     pub out: &'a Path,
     /// An IR tree. Its `schemaVersion` and `generator` join the extract key;
     /// without it those two keys are absent, and an absent key is a change
@@ -64,39 +46,34 @@ pub struct BuildOptions<'a> {
     /// silent: the next `check` that passes one will re-render everything.
     pub source_url: &'a str,
     /// The dependency map the pages are rendered against; its bytes join the
-    /// render key ([`render_key`], M5-b). `None`, and a path that does not
-    /// exist, both leave the key absent — on a first `build` the ledger is
-    /// computed *before* the extraction that writes the map.
+    /// render key ([`render_key`]). `None`, and a path that does not exist, both
+    /// leave the key absent — on a first `build` the ledger is computed *before*
+    /// the extraction that writes the map.
     pub link_index: Option<&'a Path>,
     /// The digest of the dependency **link** map — where each dependency's
-    /// source lives (M7-b, `litedoc4_render::ExternalLinks::digest`). A path
-    /// would be wrong here: the map is resolved from the target's manifest and
-    /// its toolchain rather than read from a file, so what the ledger can record
-    /// is its identity and nothing else. `None` leaves the key absent.
+    /// source lives (`litedoc4_render::ExternalLinks::digest`). A path would be
+    /// wrong here: the map is resolved from the target's manifest and its
+    /// toolchain rather than read from a file, so its identity is all the ledger
+    /// can record. `None` leaves the key absent.
     pub external_links: Option<&'a str>,
     pub algorithm: &'a Algorithm,
     pub concurrency: usize,
     pub timings: Option<&'a Path>,
 }
 
-/// What `build` did.
 #[derive(Clone, Debug)]
 pub struct BuildSummary {
     pub ledger: Ledger,
     pub modules: usize,
     pub files: usize,
-    /// Olean bytes read and hashed. Zero under `--algorithm lake`, which reads
-    /// no olean at all.
+    /// Zero under `--algorithm lake`, which reads no olean at all.
     pub hashed_bytes: u64,
     pub ledger_bytes: usize,
-    /// Seconds spent hashing, for the log line the prototype prints.
     pub hash_seconds: f64,
 }
 
-/// Hashes every module and writes the ledger.
-///
 /// A module in the list with no olean at all stops the run
-/// ([`Error::NoOlean`], exit 3): at `build` time the list and the build tree are
+/// ([`Error::NoOlean`]): at `build` time the list and the build tree are
 /// supposed to agree, and a ledger that silently omits modules would report them
 /// as *added* on the next `check` — the one direction that looks like progress.
 pub fn build_ledger(options: &BuildOptions<'_>) -> Result<BuildSummary, Error> {
@@ -175,7 +152,6 @@ pub fn build_ledger(options: &BuildOptions<'_>) -> Result<BuildSummary, Error> {
     Ok(summary)
 }
 
-/// What `check` needs to know.
 #[derive(Clone, Copy, Debug)]
 pub struct CheckOptions<'a> {
     pub ledger: &'a Path,
@@ -183,22 +159,18 @@ pub struct CheckOptions<'a> {
     /// two hashes are not comparable, so changing it makes every module differ.
     pub algorithm: Option<&'a Algorithm>,
     /// **`None` and `Some(&[])` are different questions.** `None` re-reads the
-    /// ledger's module list, which cannot see a module that appeared or
-    /// vanished since `build`; `Some` is the current list, and an empty one
-    /// says every module in the ledger is gone. Freezing the list at build time
-    /// is what made a vanished module throw instead of being reported (stage 5b,
-    /// S4).
+    /// ledger's module list, which cannot see a module that appeared or vanished
+    /// since `build`; `Some` is the current list, and an empty one says every
+    /// module in the ledger is gone.
     pub modules: Option<&'a [String]>,
     pub ir: Option<&'a Path>,
     pub source_url: &'a str,
-    /// The dependency map the pages will be rendered against (M5-b). See
-    /// [`BuildOptions::link_index`] and [`render_key`]: this is the half of the
-    /// question that can be answered *before* the run — "did somebody hand us a
-    /// different map". The half that cannot is the map this run's own extraction
-    /// rewrites, and it is checked after the rounds by `crate::pipeline`.
+    /// See [`BuildOptions::link_index`] and [`render_key`]. This is the half of
+    /// the question that can be answered *before* the run — "did somebody hand
+    /// us a different map". The half that cannot is the map this run's own
+    /// extraction rewrites, which the caller checks after the rounds.
     pub link_index: Option<&'a Path>,
-    /// The dependency **link** map's digest (M7-b). See
-    /// [`BuildOptions::external_links`].
+    /// See [`BuildOptions::external_links`].
     pub external_links: Option<&'a str>,
     pub concurrency: usize,
     /// The re-extract set, one module per line. Empty file, not a blank line.
@@ -211,7 +183,6 @@ pub struct CheckOptions<'a> {
     pub timings: Option<&'a Path>,
 }
 
-/// What `check` found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckSummary {
     /// The algorithm actually used — the ledger's, unless overridden.
@@ -234,43 +205,39 @@ pub struct CheckSummary {
     pub re_extract: Vec<String>,
     /// **The ledger this check would leave behind if the run it licenses
     /// succeeds** — the hashes as they were *here*, before anything was
-    /// extracted from them.
+    /// extracted from them, and not written by this function: `check` answers a
+    /// question, and a caller that stops on the answer must not have moved the
+    /// ledger.
     ///
-    /// Not written by this function 【判断】: `check` answers a question and a
-    /// caller that stops on the answer must not have moved the ledger. Who
-    /// writes it is `litedoc4 build` (M4-d), and the reason the value is taken
-    /// here rather than re-hashed afterwards is a race with one silent
-    /// direction: an olean that moves *while* the run is in flight, re-hashed at
-    /// the end, would be recorded as the one its IR came from, and that module
-    /// is then never re-extracted again. Recording the hash the extraction was
-    /// licensed by can only make a later run re-extract something it need not —
-    /// wasteful, and loud in the next run's `changed` count.
+    /// Taken here rather than re-hashed afterwards because the race has one
+    /// silent direction: an olean that moves *while* the run is in flight,
+    /// re-hashed at the end, would be recorded as the one its IR came from, and
+    /// that module is then never re-extracted again. Recording the hash the
+    /// extraction was licensed by can only make a later run re-extract something
+    /// it need not — wasteful, and loud in the next run's `changed` count.
     ///
     /// The module entries are the ones **that still have an olean**, in the
     /// order `--modules` named them: a removed module has to leave the ledger,
     /// or the next `check` reports it removed for ever. The two keys are this
     /// check's own; a caller whose run replaces the IR tree recomputes
-    /// [`crate::extract_key`] against the tree that now exists (see
-    /// `crates/litedoc4/src/build.rs`).
+    /// [`crate::extract_key`] against the tree that now exists.
     pub fresh: Ledger,
 }
 
 impl CheckSummary {
-    /// Whether the extract key changed, i.e. whether every module's IR is
-    /// invalid regardless of its own hash.
+    /// Every module's IR is invalid, regardless of its own hash.
     #[must_use]
     pub fn extract_invalidated(&self) -> bool {
         !self.extract_key_changed.is_empty()
     }
 
-    /// Whether every page has to be re-rendered from IR that is still valid.
+    /// Every page has to be re-rendered, from IR that is still valid.
     #[must_use]
     pub fn render_all(&self) -> bool {
         !self.render_key_changed.is_empty()
     }
 }
 
-/// Compares the ledger with the oleans as they are now.
 pub fn check_ledger(options: &CheckOptions<'_>) -> Result<CheckSummary, Error> {
     let started = Instant::now();
     let text = read_to_string(options.ledger)?;
@@ -295,13 +262,11 @@ pub fn check_ledger(options: &CheckOptions<'_>) -> Result<CheckSummary, Error> {
     );
     let key_done = started.elapsed();
 
-    // L1 in two halves (see [`extract_key`]): one invalidates the IR, the other
-    // only the pages rendered from it.
+    // One key invalidates the IR, the other only the pages rendered from it.
     let extract_key_changed = ledger.extract_key.diff(&extract);
     let render_key_changed = ledger.render_key_or_empty().diff(&render);
 
-    // A JavaScript `Map` built from the entries: a repeated module keeps its
-    // first position and takes its last value.
+    // A repeated module keeps its first position and takes its last value.
     let mut previous: HashMap<&str, &ModuleEntry> = HashMap::new();
     let mut previous_order: Vec<&str> = Vec::new();
     for entry in &ledger.modules {
@@ -348,9 +313,9 @@ pub fn check_ledger(options: &CheckOptions<'_>) -> Result<CheckSummary, Error> {
         }
     }
 
-    // A changed extract key invalidates every module's IR (L1). The set is the
-    // present modules in list order, not the sorted union below: the prototype
-    // reports what it just hashed.
+    // A changed extract key invalidates every module's IR. The set is then the
+    // present modules in list order — what was just hashed — not the sorted
+    // union.
     let re_extract = if extract_key_changed.is_empty() {
         let mut union: Vec<String> = changed.iter().chain(&added).cloned().collect();
         union.sort_by(|a, b| cmp_utf16(a, b));
@@ -384,10 +349,9 @@ pub fn check_ledger(options: &CheckOptions<'_>) -> Result<CheckSummary, Error> {
         added,
         removed,
         re_extract,
-        // See [`CheckSummary::fresh`]: built here, written by nobody. The
-        // algorithm is the one that produced these hashes — the ledger's own
-        // unless `--algorithm` overrode it — because a ledger whose entries and
-        // whose declared algorithm disagree compares every module as changed
+        // The algorithm is the one that produced these hashes — the ledger's
+        // own unless `--algorithm` overrode it — because a ledger whose entries
+        // and whose declared algorithm disagree compares every module as changed
         // for ever after.
         fresh: Ledger {
             ledger_schema: LEDGER_SCHEMA,
@@ -431,21 +395,17 @@ pub fn check_ledger(options: &CheckOptions<'_>) -> Result<CheckSummary, Error> {
     Ok(summary)
 }
 
-/// What `touch` needs to know.
 #[derive(Clone, Copy, Debug)]
 pub struct TouchOptions<'a> {
     pub ledger: &'a Path,
     pub module: &'a str,
-    /// Defaults to the ledger itself in the prototype; here the caller says so.
     pub out: &'a Path,
 }
 
 /// Invalidates one module's entry, so that the next `check` reports it as
-/// **changed**.
-///
-/// Invalidating rather than deleting is the point: a deleted entry would be
-/// reported as *added*, and an added module is not what an edit produces. The
-/// olean is not touched — the injected fact is a fact about the ledger.
+/// **changed**. Invalidating rather than deleting is the point: a deleted entry
+/// would be reported as *added*, and an added module is not what an edit
+/// produces. The olean is not touched — the injected fact is about the ledger.
 pub fn touch_ledger(options: &TouchOptions<'_>) -> Result<usize, Error> {
     let text = read_to_string(options.ledger)?;
     let mut ledger: Ledger = serde_json::from_str(&text).map_err(|source| Error::Json {
@@ -468,7 +428,6 @@ pub fn touch_ledger(options: &TouchOptions<'_>) -> Result<usize, Error> {
     Ok(body.len())
 }
 
-/// A module list file: one name per line, `#` comments and blank lines dropped.
 pub fn read_module_list(path: &Path) -> Result<Vec<String>, Error> {
     Ok(read_to_string(path)?
         .split('\n')
@@ -478,7 +437,7 @@ pub fn read_module_list(path: &Path) -> Result<Vec<String>, Error> {
         .collect())
 }
 
-/// Olean bytes actually read. `-1` (the `lake` path) clamps to zero.
+/// `-1` (the `lake` path, which reads no olean) clamps to zero.
 fn hashed_bytes(entries: &[ModuleEntry]) -> u64 {
     entries
         .iter()
@@ -487,9 +446,8 @@ fn hashed_bytes(entries: &[ModuleEntry]) -> u64 {
         .sum()
 }
 
-/// The `--timings` record of a `build`. Key order is the prototype's object
-/// literal; the durations in it are **diagnostics** — wall clock, different
-/// every run, and no test may assert on them.
+/// The durations are diagnostics — wall clock, different every run, and no test
+/// may assert on them.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BuildTimings<'a> {
@@ -505,11 +463,9 @@ struct BuildTimings<'a> {
     total_seconds: f64,
 }
 
-/// The `--timings` record of a `check`.
-///
-/// The four durations partition the run the way the prototype's do, so the two
-/// records subtract: read the ledger, build the keys, hash the modules, compare
-/// the sets. The output files are written after the last of them, as there.
+/// The four durations partition the run, so they subtract: read the ledger,
+/// build the keys, hash the modules, compare the sets. The output files are
+/// written after the last of them.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CheckTimings<'a> {

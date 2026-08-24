@@ -1,16 +1,6 @@
-//! The `impact` stage (layer L3-2): a changed module set in, the set of pages
-//! that have to be rewritten out.
+//! A changed module set in, the set of pages that have to be rewritten out.
 //!
-//! Ported from `experiments/stage5/impact.ts` (frozen). Milestone **M3-c**.
-//!
-//! ```text
-//! IR ──> imports  ──reverse, transitive──> IMPORTERS(M)
-//!    └─> refs     ──reverse, direct─────> REFERRERS(M)
-//!                                            │
-//!                 --changed / --changed-file ┴──> --print-set
-//! ```
-//!
-//! # Two closures, because they answer different questions
+//! Two closures, because they answer different questions.
 //!
 //! **IMPORTERS(M)** is the reverse *transitive* import closure of `M`, cut down
 //! to the package's own modules. It is the **sound** bound: a module that does
@@ -23,66 +13,16 @@
 //! of `M`'s.
 //!
 //! Neither is "the answer" on its own, which is why `--mode` exists and why
-//! nothing here picks a default for the pipeline.
+//! nothing here picks a default for the caller.
 //!
-//! # What this stage is *not* given, and why that is not an oversight
+//! The pages whose docstring links went stale because a name moved somewhere
+//! else entirely are the other half of the render set, and **this stage never
+//! reads that half**: the caller unions the two *after* both have been computed,
+//! which is the point of deriving them separately.
 //!
-//! The whole-package name map's delta (plan §6, constraint 2: `global` runs
-//! **before** `impact`) is the other half of L3-2 — the pages whose docstring
-//! links went stale because a name moved somewhere else entirely. It arrives as
-//! [`crate::detect`]'s sibling file, `global-set.txt`, and **this stage never
-//! reads it**: `incremental.sh:354-360` unions the two sets *after* both have
-//! been computed, which is the point of deriving them separately. So the
-//! constraint is the pipeline's to keep (M3-d), and the union is the pipeline's
-//! to take.
-//!
-//! Two consequences worth writing down before M3-d inherits them:
-//!
-//! - **A `global-set.txt` with no changes is 0 bytes, not a blank line**
-//!   (plan §7, M2 の結果). An empty *file* is a real answer here — "no page went
-//!   stale through the map" — and must not be read as "nobody said".
-//! - **When the changed set is empty and `--mode` is not `all`, this stage
-//!   writes no `--print-set` at all** (`impact.ts:179` guards the whole block).
-//!   The prototype's pipeline then feeds `sort -u` a file that does not exist.
-//!   Reproduced exactly ([`ImpactRun::summary`] is `None`), because changing it
-//!   would move bytes that the oracle compares — but the caller has to treat a
-//!   missing file as the empty set, and M3-d is where that belongs.
-//!
-//! # M3-b's key-order change does not reach here【実測 2026-08-12】
-//!
-//! The merger now writes `deps/*.json` and `index.json`'s `dependencyMaps`
-//! entries in **Lean's** order rather than the prototype's (plan §7, M3-b の
-//! 決着). This stage reads neither: it needs `index.modules[]`'s `module`,
-//! `file` and `bytes`, and each module file's `imports` / `declarations`.
-//! Measured rather than reasoned — two trees merged from the same inputs by the
-//! two implementations differ in exactly those four files (same byte counts,
-//! different bytes) and produce **byte-identical** census, `--print-set` and
-//! summary, and a byte-identical `prune --ir` report.
-//!
-//! # What builds the module list is not this stage either
-//!
-//! Same division as `detect`'s (plan §5, M3-d): the package's module list comes
-//! from a **glob over the sources**. A walk of `.lake/build` picks up 659 orphan
-//! oleans【実測】. Here the list comes from `index.json`, so the question does
-//! not arise — but `--changed` names are checked against it, and a name that is
-//! not one of the package's modules is a **refusal** (exit 3) rather than a
-//! silently empty answer.
-//!
-//! # Two places this port is not the prototype, both refusals
-//!
-//! - **A module file that disagrees with the index about which module it is.**
-//!   The prototype keys every map by the *file's* own `module` field, so an
-//!   index entry pointing at the wrong file silently produces a graph with a
-//!   node nobody asked for; the reader here checks the two agree and stops
-//!   (exit 1). Same choice `ownership` makes, and for the same reason: a graph
-//!   with the wrong nodes under-renders, and under-rendering has to be loud.
-//! - **A summary is printed after the files are written, not before.** The
-//!   prototype prints it first (`impact.ts:228-230`), so a failing write leaves
-//!   the answer on stdout and a non-zero exit. Nothing downstream reads stdout,
-//!   and the two orders differ only on a failing write.
-//!
-//! Reads the IR only. Lean is never started and the measurement target is never
-//! touched.
+//! **When the changed set is empty and `--mode` is not `all`, this stage writes
+//! no `--print-set` at all** ([`ImpactRun::summary`] is `None`), so the caller
+//! has to read a missing file as the empty set.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -94,38 +34,27 @@ use serde::Serialize;
 use crate::error::Error;
 use crate::io::write;
 
-/// Which set of modules `--mode` asks for.
-///
-/// [`Mode::Unrecognised`] is a state the prototype really has: `--mode` is a
-/// string until the `switch` runs, and the `switch` only runs when there is
-/// something to select (`impact.ts:179`). So `--mode nonsense` with an empty
-/// changed set **exits 0 having done nothing**, and a type that refused the
-/// string at parse time would not reproduce that.
+/// [`Mode::Unrecognised`] is carried rather than refused at parse time, because
+/// the mode is only ever consulted when there is something to select: `--mode
+/// nonsense` with an empty changed set **exits 0 having done nothing**.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Mode {
-    /// The changed modules themselves — the rule the olean-hash ledger already
-    /// implements on its own.
     SelfOnly,
     /// self + REFERRERS, **direct only**. The transitive count is reported
     /// beside it but is not what this mode selects.
     Referrers,
     /// self + IMPORTERS, transitively: the sound bound.
-    ///
-    /// The default, because `opt("--mode", "importers")` is.
     #[default]
     Importers,
     /// Every module of the package, whatever changed — **and valid with an empty
     /// changed set**. Not a wider closure over the same graph: it is the answer
     /// when the *renderer's* input moved rather than any module's, so no module
-    /// IR is stale and every page is (`detect`'s `--render-all-out`).
+    /// IR is stale and every page is.
     All,
-    /// A `--mode` nobody recognises, carried rather than rejected. See the type
-    /// heading.
     Unrecognised(String),
 }
 
 impl Mode {
-    /// `opt("--mode", "…")` — the string as the caller wrote it.
     #[must_use]
     pub fn parse(text: &str) -> Self {
         match text {
@@ -137,7 +66,6 @@ impl Mode {
         }
     }
 
-    /// The string the summary reports, which is the one the caller passed.
     #[must_use]
     pub fn name(&self) -> &str {
         match self {
@@ -150,10 +78,9 @@ impl Mode {
     }
 }
 
-/// What `impact` needs to know.
 #[derive(Clone, Copy, Debug)]
 pub struct ImpactOptions<'a> {
-    /// The IR tree. Its `index.json` defines the package's modules.
+    /// Its `index.json` is what defines the package's modules.
     pub ir: &'a Path,
     /// The changed modules, **in the order they were given** — the `--changed`
     /// flags first, then the lines of `--changed-file`. The order reaches the
@@ -161,37 +88,27 @@ pub struct ImpactOptions<'a> {
     pub changed: &'a [String],
     pub mode: &'a Mode,
     /// A per-module census (TSV). Written whatever the changed set is, and
-    /// **before** the selection, as in the prototype.
+    /// **before** the selection.
     pub census: Option<&'a Path>,
     /// The selected modules, one name per line — the render set's first half.
     pub print_set: Option<&'a Path>,
-    /// The summary, as JSON.
     pub json: Option<&'a Path>,
 }
 
-/// What one `impact` run did.
-///
-/// Both halves are optional because both are conditional in the prototype: the
-/// census on `--census`, the selection on "there is something to select".
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImpactRun {
-    /// Modules in the census, when one was written. `index.modules.length`.
     pub census_modules: Option<usize>,
     /// `None` when the changed set was empty and the mode was not
-    /// [`Mode::All`]: the prototype skips the whole block, writes no
-    /// `--print-set` and prints nothing.
+    /// [`Mode::All`]: no `--print-set` is written at all.
     pub summary: Option<ImpactSummary>,
 }
 
-/// What `impact` selected.
-///
 /// **`PartialEq`**, unlike the other stages' summaries: nothing in it is a
 /// clock. Every number here is a denominator something else gets quoted
 /// against, so tests are meant to assert on all of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImpactSummary {
-    /// The `--ir` argument as it was given — the prototype reports the string,
-    /// not a resolved path.
+    /// The argument as it was given, not a resolved path.
     pub ir: String,
     pub changed: Vec<String>,
     pub mode: String,
@@ -201,15 +118,14 @@ pub struct ImpactSummary {
     pub referrers_direct: usize,
     pub referrers_transitive: usize,
     pub importers_transitive: usize,
-    /// The selection, in **UTF-16 order** (plan §7, U1): this list is what
-    /// `--print-set` writes and what the renderer is then asked for.
+    /// In **UTF-16 order**: this list is what `--print-set` writes and what the
+    /// renderer is then asked for.
     pub selected: Vec<String>,
     /// Summed from the **module files**, not from `index.json`'s `declarations`
-    /// column — that is where the prototype reads it (`impact.ts:113`).
+    /// column.
     pub selected_declarations: usize,
-    /// Summed from `index.json`'s `bytes` column, over the index entries whose
-    /// module was selected. A repeated index entry counts twice, as it does
-    /// there (`impact.ts:223`).
+    /// Summed from `index.json`'s `bytes` column over the selected entries, so a
+    /// repeated index entry counts twice.
     pub selected_ir_bytes: u64,
 }
 
@@ -244,9 +160,7 @@ pub fn impact(options: &ImpactOptions<'_>) -> Result<ImpactRun, Error> {
                 .collect(),
         );
         decl_count.insert(name, module.declarations.len());
-        // A `Set`: each named module once, whatever how many declarations name
-        // it. Insertion order is not observable — every use is a count or a
-        // membership test.
+        // Each named module once, however many declarations name it.
         let mut named: Vec<&str> = Vec::new();
         let mut seen: HashSet<&str> = HashSet::new();
         for decl in &module.declarations {
@@ -305,8 +219,7 @@ pub fn impact(options: &ImpactOptions<'_>) -> Result<ImpactRun, Error> {
         None => None,
     };
 
-    // The whole selection is conditional: with nothing changed and a mode that
-    // is not `all` there is no question. See the module heading.
+    // With nothing changed and a mode that is not `all` there is no question.
     if options.changed.is_empty() && *options.mode != Mode::All {
         return Ok(ImpactRun {
             census_modules,
@@ -345,8 +258,7 @@ pub fn impact(options: &ImpactOptions<'_>) -> Result<ImpactRun, Error> {
         }
     };
 
-    // Plan §7, U1: `.sort()` is UTF-16 code unit order, and this list decides
-    // the order of `--print-set`.
+    // UTF-16 code unit order; this list decides `--print-set`'s.
     let mut list: Vec<String> = selected.iter().map(|m| (*m).to_owned()).collect();
     sort_utf16(&mut list);
 
@@ -377,13 +289,11 @@ pub fn impact(options: &ImpactOptions<'_>) -> Result<ImpactRun, Error> {
         write(path, &(body + "\n"))?;
     }
     if let Some(path) = options.print_set {
-        // **Not** [`crate::io::write_text`]: the prototype writes
-        // `list.join("\n") + "\n"`, so an empty selection would be one blank
-        // line rather than an empty file. That case needs an IR with no modules
-        // at all (every mode selects a superset of a non-empty changed set, and
-        // `all` selects every module), and a blank line and an empty file are
-        // the same set to `--only-from`, which drops blank lines. Kept as the
-        // prototype has it so the bytes compare.
+        // **Not** [`crate::io::write_text`]: this writes one blank line where
+        // that would write an empty file. Reaching the difference needs an IR
+        // with no modules at all, and `--only-from` drops blank lines, so the
+        // two spell the same set; the bytes here are what the frozen fixtures
+        // compare against.
         write(path, &(summary.selected.join("\n") + "\n"))?;
     }
     Ok(ImpactRun {
@@ -393,8 +303,7 @@ pub fn impact(options: &ImpactOptions<'_>) -> Result<ImpactRun, Error> {
 }
 
 impl ImpactSummary {
-    /// `JSON.stringify(summary, null, 2)` — what the prototype prints and what
-    /// `--json` holds (with a trailing newline added there, not here).
+    /// What `--json` holds, with the trailing newline added by the caller.
     #[must_use]
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(&ImpactJson {
@@ -414,12 +323,10 @@ impl ImpactSummary {
     }
 }
 
-/// The census's header row, tab separated.
 const CENSUS_HEADER: &str =
     "module\tdeclarations\tdirectImports\timportedByDirect\timportersTransitive\treferrersDirect";
 
-/// The summary as it is written. Key order is the prototype's object literal
-/// (`impact.ts:212-227`), and `self` is a Rust keyword so the field is renamed.
+/// Field order is part of the summary file's bytes.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ImpactJson<'a> {
@@ -439,12 +346,11 @@ struct ImpactJson<'a> {
 
 /// Everything reachable from `seeds` along `edges`.
 ///
-/// **The seeds are not in the result unless something leads back to them.** The
-/// prototype seeds the stack and not the visited set (`impact.ts:138-151`), and
-/// every caller unions the seeds back in itself — which is what makes
-/// `importersTransitive` a count of *other* modules. On an acyclic import graph
-/// the two spellings differ by exactly the seeds; on a cyclic reference graph
-/// they do not, and that is measurable rather than hypothetical.
+/// **The seeds are not in the result unless something leads back to them** —
+/// the stack is seeded, the visited set is not — so `importersTransitive` counts
+/// *other* modules and every caller unions the seeds back in itself. On an
+/// acyclic import graph the two spellings differ by exactly the seeds; on a
+/// cyclic reference graph they do not.
 fn closure<'a>(seeds: &[&'a str], edges: &HashMap<&'a str, Vec<&'a str>>) -> HashSet<&'a str> {
     let mut seen: HashSet<&str> = HashSet::new();
     let mut stack: Vec<&str> = seeds.to_vec();

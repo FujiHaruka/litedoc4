@@ -1,44 +1,14 @@
-//! The `ownership` stage (layer L3-1): which modules point at a name that has
-//! moved.
-//!
-//! Ported from `experiments/stage5/ownership.ts` (frozen). Milestone **M3-b**.
-//!
-//! ```text
-//! base IR + inc IR ──> lost(M)   names M no longer defines
-//!                      gained(M) names M now defines
-//!                        │
-//! every other base module's refs ──> stale modules ──> --print-set
-//! ```
-//!
-//! # The hole this closes, and why nothing else closes it
+//! Which modules point at a name that has moved.
 //!
 //! The IR stores every reference as a `(defining module, name)` pair, because
 //! the printed token and the constant it links to often have no textual relation
-//! (`ℕ` -> `Nat`). That pair is a fact about *where a name lives*, and it goes
-//! stale when the name moves — even though nothing about the referring module
-//! changed.
-//!
-//! Stage 5c measured that this is invisible to every other layer: moving a
+//! (`ℕ` -> `Nat`). That pair goes stale when the name moves, even though nothing
+//! about the referring module changed — and no other layer can see it: moving a
 //! declaration from A to X leaves the referring module C's `.olean` **byte
-//! identical** (and Lake's hash unmoved), so [`crate::detect`] cannot see it, and
-//! no widening of the *render* set can fix it either — the stale bytes are in
-//! C's IR, so C has to be re-**extracted**. Renaming, by contrast, does change
-//! C's olean, because the new name is embedded in C's terms.
-//!
-//! # Why it runs before the merge
-//!
-//! It needs the base IR's idea of who owns each name, and the merge is about to
-//! overwrite exactly that (plan §6, constraint 1). The two stages read the same
-//! tree in the same round and only one order gives an answer.
-//!
-//! # Deletion and relocation are one mechanism
-//!
-//! `--removed` names modules that no longer exist. Every name they defined is
-//! lost, which is the same computation as a move with an empty "gained" side —
-//! so there is one rule here, not two.
-//!
-//! Reads the IR only. Lean is never started and the measurement target is never
-//! touched.
+//! identical** (and Lake's hash unmoved)【実測】, so [`crate::detect`] cannot
+//! see it, and widening the *render* set cannot fix it either, because the stale
+//! bytes are in C's IR and C has to be re-**extracted**. Renaming, by contrast,
+//! does change C's olean, because the new name is embedded in C's terms.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
@@ -51,7 +21,6 @@ use crate::detect::read_module_list;
 use crate::error::Error;
 use crate::io::{write, write_text};
 
-/// What `ownership` needs to know.
 #[derive(Clone, Copy, Debug)]
 pub struct OwnershipOptions<'a> {
     /// The IR as it was before this round.
@@ -62,49 +31,37 @@ pub struct OwnershipOptions<'a> {
     /// Modules that no longer exist, one per line.
     pub removed: Option<&'a Path>,
     /// Modules already scheduled for re-extraction, one per line. They are fresh
-    /// by definition and are never reported. Normally the changed-set file.
+    /// by definition and are never reported.
     pub exclude: Option<&'a Path>,
     /// The stale modules, one per line — the next round's input.
     pub print_set: Option<&'a Path>,
-    /// The diagnostic summary.
     pub json: Option<&'a Path>,
 }
 
-/// One reason one module was called stale, for the log and the summary.
-///
-/// Field order is the file's: `ownership.ts` pushes an object literal in this
-/// order and `JSON.stringify` keeps it.
+/// Field order is part of the summary file's bytes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Witness {
     pub module: String,
-    /// `lostOwner` or `movedElsewhere`.
+    /// [`RULE_LOST_OWNER`] or [`RULE_MOVED_ELSEWHERE`].
     pub rule: &'static str,
-    /// The reference that gave the module away: `[defining module, name]`.
+    /// `[defining module, name]`.
     #[serde(rename = "ref")]
     pub reference: [String; 2],
 }
 
-/// The two rules, kept apart so the summary can report which one fired.
-///
-/// (b) is not implied by (a): (a) needs the losing module itself to be in the
-/// re-extracted set, which holds for a move (removing a declaration changes the
-/// source module's olean) but is worth checking separately rather than assuming.
 pub const RULE_LOST_OWNER: &str = "lostOwner";
 pub const RULE_MOVED_ELSEWHERE: &str = "movedElsewhere";
 
-/// What `ownership` found.
-///
 /// **No `PartialEq`**: the three `*Seconds` are wall clock, and a summary that
 /// compares equal to another one would be asserting on them.
 #[derive(Clone, Debug)]
 pub struct OwnershipSummary {
     pub inc_modules: usize,
     pub removed_modules: usize,
-    /// `baseEntries.length - exclude.size`, or 0 when nothing was watched.
-    ///
-    /// **Signed**, because the prototype subtracts two counts that are not
-    /// nested: the exclude file may name modules the base IR never had, and then
-    /// the prototype reports a negative number rather than none at all.
+    /// Base modules minus excluded ones, or 0 when nothing was watched.
+    /// **Signed**, because the two counts are not nested: the exclude file may
+    /// name modules the base IR never had, and the negative is reported as it
+    /// falls out rather than clamped away.
     pub scanned_base_modules: i64,
     /// Occurrences, not distinct names: one per (name, module) pair.
     pub lost_names: usize,
@@ -113,21 +70,18 @@ pub struct OwnershipSummary {
     pub gained_names_distinct: usize,
     pub stale_by_lost_owner: usize,
     pub stale_by_moved_elsewhere: usize,
-    /// The union of the two rules, in **UTF-16 order** (plan §7, U1): the order
-    /// reaches `--print-set`, which the next round re-extracts.
+    /// The union of the two rules, in **UTF-16 order**: the order reaches
+    /// `--print-set`, which the next round re-extracts.
     pub stale_modules: Vec<String>,
-    /// Every witness, in scan order — at most one per (module, rule). The
-    /// summary file keeps the first [`WITNESSES_IN_SUMMARY`], the log the first
-    /// [`WITNESSES_IN_LOG`].
+    /// In scan order, at most one per (module, rule). The summary file keeps the
+    /// first [`WITNESSES_IN_SUMMARY`], the log the first [`WITNESSES_IN_LOG`].
     pub witnesses: Vec<Witness>,
     pub diff_seconds: f64,
     pub scan_seconds: f64,
     pub total_seconds: f64,
 }
 
-/// How many witnesses the `--json` summary keeps.
 pub const WITNESSES_IN_SUMMARY: usize = 20;
-/// How many witnesses the log line prints.
 pub const WITNESSES_IN_LOG: usize = 10;
 
 /// Diffs the re-extracted modules against the base IR and scans every other
@@ -153,9 +107,8 @@ pub fn ownership(options: &OwnershipOptions<'_>) -> Result<OwnershipSummary, Err
         .map(|entry| entry.module.as_str())
         .collect();
 
-    // A module that is not in the base IR cannot have lost anything, so a name
-    // in `--removed` that the base never had is dropped rather than being an
-    // error.
+    // A module the base IR never had cannot have lost anything, so `--removed`
+    // naming one is dropped rather than refused.
     let removed_modules: Vec<String> = match options.removed {
         Some(path) => read_module_list(path)?
             .into_iter()
@@ -164,9 +117,7 @@ pub fn ownership(options: &OwnershipOptions<'_>) -> Result<OwnershipSummary, Err
         None => Vec::new(),
     };
 
-    // ------------------------------------------------------------- 1. the diff
-
-    /// name -> the modules that lost it / the modules that gained it.
+    /// name -> the modules that lost it, or the modules that gained it.
     type Owners = HashMap<String, HashSet<String>>;
     let mut lost_owners: Owners = HashMap::new();
     let mut gained_owners: Owners = HashMap::new();
@@ -184,8 +135,8 @@ pub fn ownership(options: &OwnershipOptions<'_>) -> Result<OwnershipSummary, Err
             .into_iter()
             .map(|decl| decl.name)
             .collect();
-        // A module absent from the base IR is new: it has no ownership history,
-        // so nothing can be pointing at it wrongly yet.
+        // A module absent from the base IR is new: nothing can be pointing at it
+        // wrongly yet.
         let was: HashSet<String> = match base_file_of.get(entry.module.as_str()) {
             Some(base_entry) => base
                 .module(base_entry)
@@ -216,12 +167,12 @@ pub fn ownership(options: &OwnershipOptions<'_>) -> Result<OwnershipSummary, Err
         }
     }
 
-    // A deleted module is a module whose whole name set was lost. Same
-    // computation, empty "gained" side.
+    // A deleted module is one whose whole name set was lost: the same
+    // computation with an empty "gained" side.
     //
-    // The declarations are walked as the **array** the file holds, not as a set:
-    // that is what the prototype does, so a module that declared one name twice
-    // counts twice in `lostNames`. The distinct count beside it is the set.
+    // Walked as the **array** the file holds, not as a set, so a module that
+    // declared one name twice counts twice in `lostNames`. The distinct count
+    // beside it is the set.
     for module in &removed_modules {
         let entry = base_file_of[module.as_str()];
         for decl in base.module(entry).map_err(Error::Ir)?.declarations {
@@ -233,8 +184,6 @@ pub fn ownership(options: &OwnershipOptions<'_>) -> Result<OwnershipSummary, Err
         }
     }
     let diff_done = started.elapsed();
-
-    // ------------------------------------------------------------- 2. the scan
 
     let mut exclude: HashSet<String> = match options.exclude {
         Some(path) => read_module_list(path)?.into_iter().collect(),
@@ -249,7 +198,7 @@ pub fn ownership(options: &OwnershipOptions<'_>) -> Result<OwnershipSummary, Err
     let mut witnesses: Vec<Witness> = Vec::new();
 
     // Nothing moved and nothing was deleted: no module can be pointing anywhere
-    // wrong, and the whole base IR does not have to be read.
+    // wrong, so the base IR is not read at all.
     let watching = !lost_owners.is_empty() || !gained_owners.is_empty();
     if watching {
         for entry in &base.index().modules {
@@ -322,8 +271,8 @@ pub fn ownership(options: &OwnershipOptions<'_>) -> Result<OwnershipSummary, Err
     if let Some(path) = options.json {
         let record = OwnershipJson {
             base: &options.base.display().to_string(),
-            // `opt("--inc")` defaults to the empty string, and the empty string
-            // is what lands in the file when no tree was given.
+            // The empty string, not a null, is what lands in the file when no
+            // tree was given.
             inc: &options
                 .inc
                 .map(|dir| dir.display().to_string())
@@ -344,7 +293,6 @@ pub fn ownership(options: &OwnershipOptions<'_>) -> Result<OwnershipSummary, Err
             scan_seconds: summary.scan_seconds,
             total_seconds: summary.total_seconds,
         };
-        // `JSON.stringify(summary, null, 2) + "\n"`.
         let body = serde_json::to_string_pretty(&record)
             .expect("counts, strings and durations serialise")
             + "\n";
@@ -356,9 +304,9 @@ pub fn ownership(options: &OwnershipOptions<'_>) -> Result<OwnershipSummary, Err
     Ok(summary)
 }
 
-/// The `--json` summary. Key order is the prototype's object literal
-/// (`ownership.ts:188-206`); the three `*Seconds` in it are **diagnostics** —
-/// wall clock, different every run, and no test may assert on them.
+/// Field order is part of this file's bytes. The three `*Seconds` are
+/// diagnostics — wall clock, different every run, and no test may assert on
+/// them.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OwnershipJson<'a> {

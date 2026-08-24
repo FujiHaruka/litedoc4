@@ -1,17 +1,11 @@
-//! Milestone **M3-c**: the `impact` and `prune` stages.
+//! The `impact` and `prune` stages, against three oracles, none of which is
+//! this file's own opinion:
 //!
-//! Three oracles, none of which is this file's own opinion:
-//!
-//! - **The frozen prototype's own answers.** `tools/impact-reference.sh --impl
-//!   ts` ran `experiments/stage5/{impact,prune-pages}.ts` over the base IR, the
-//!   432-page reference tree and the whole 438-file site;
-//!   `tests/oracle/gen-impact-expected.ts` reduced that tree to
-//!   `tests/data/impact-expected.json`, which [`the_corpus_matches_the_prototype`]
-//!   compares against scenario by scenario.
-//!   **The fixture is a frozen value: HEAD has no way to regenerate it.** The
-//!   generator, the prototype and the `--impl ts` half of the harness were
-//!   removed with `experiments/` on 2026-08-16 and exist only at tag
-//!   `experiments-frozen`.
+//! - **A frozen corpus.** `tests/data/impact-expected.json` holds the answers a
+//!   run over the base IR, the reference page tree and a whole site produced,
+//!   and [`the_corpus_matches_the_prototype`] compares against it scenario by
+//!   scenario. **HEAD has no way to regenerate it**: the generator was removed
+//!   with `experiments/` and exists only at tag `experiments-frozen`.
 //! - **A second reader, here.** [`SecondTree`] rebuilds the import and reference
 //!   graphs out of `serde_json::Value` and recomputes both closures, so the
 //!   counts in every summary are checked against a rule written twice rather
@@ -21,24 +15,13 @@
 //!   compares every survivor against the tree it came from, so deleting one page
 //!   too many fails even when the summary says the right number.
 //!
-//! # Byte equality is not branch coverage (plan §7)
-//!
-//! Of the [`BRANCHES`] this milestone added:
-//!
-//! | exercise | reaches |
-//! |---|---:|
-//! | one changed module, `--mode importers`, one page deleted ([`ONE_RUN`]) | **24** |
-//! | everything the 29 scenarios reach ([`HARNESS`]) | **53** |
-//! | curated cases only ([`NO_REAL_DATA_REACHES`]) | **16** |
-//!
-//! Of 69. **Mutation testing found the sixteenth**: thirteen plausible mistakes
-//! were applied to the two stages, the whole-corpus byte comparison caught
-//! seven, and of the six that escaped it one — `fs::metadata` losing its
-//! symlink-following — escaped these tests too, until
+//! Byte equality is not branch coverage, and
+//! [`the_curated_cases_cover_what_the_package_does_not`] asserts the accounting
+//! rather than describing it. Mutation testing is what found the last gap:
+//! thirteen plausible mistakes were applied to the two stages, the whole-corpus
+//! byte comparison caught seven, and of the six that escaped it one —
+//! `fs::metadata` losing its symlink-following — escaped these tests too, until
 //! `pageIsDanglingSymlink` and its case were added【実測 2026-08-12】.
-//!
-//! The dependency is asserted rather than commented:
-//! [`the_curated_cases_cover_what_the_package_does_not`].
 
 #![expect(
     clippy::case_sensitive_file_extension_comparisons,
@@ -64,27 +47,22 @@ use litedoc4_testutil::tree::copy_tree;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
 
-/// The temporary directories this file makes. The prefix names the file,
-/// so a directory a failed run leaves behind names what made it.
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-impact");
 
 /// U+1D49C MATHEMATICAL SCRIPT CAPITAL A and U+FB00 LATIN SMALL LIGATURE FF:
 /// the pair that separates UTF-16 order from code point order. `𝒜` sorts
-/// *before* `ﬀ` in UTF-16 and after it by code point (plan §7, U1).
+/// *before* `ﬀ` in UTF-16 and after it by code point.
 const ASTRAL: &str = "\u{1D49C}";
 const LIGATURE: &str = "\u{FB00}";
 
-// --------------------------------------------------------------- the branches
-
-/// Every branch M3-c added, named by an event of the run rather than by a line
-/// of the code.
+/// Every branch these two stages have, named by an **event of the run** rather
+/// than by a line of the code.
 ///
 /// Each is decided by [`observe`] from the inputs a run was given and the files
 /// it produced — never by asking the code under test what it decided. Where the
 /// decision needs a rule (which modules import which? what does the closure
 /// reach?) the rule is written out a second time in [`SecondTree`].
 const BRANCHES: [&str; 69] = [
-    // impact: what it was given.
     "impactChangedGiven",
     "impactChangedEmpty",
     "impactCensusWritten",
@@ -95,7 +73,6 @@ const BRANCHES: [&str; 69] = [
     "impactPrintSetOmittedWithSelection",
     "impactJsonWritten",
     "impactJsonOmitted",
-    // impact: the graph the IR carries.
     "importEdgeOwn",
     "importEdgeForeign",
     "moduleImportsNothingOwn",
@@ -104,7 +81,6 @@ const BRANCHES: [&str; 69] = [
     "refEdgeSelf",
     "refEdgeForeign",
     "refEdgeRepeated",
-    // impact: the closures.
     "closureEmpty",
     "closureOneLevel",
     "closureMultiLevel",
@@ -112,7 +88,6 @@ const BRANCHES: [&str; 69] = [
     "closureContainsASeed",
     "closureSeedReachesItself",
     "closureRepeatedSeed",
-    // impact: the modes.
     "modeSelf",
     "modeReferrers",
     "modeImporters",
@@ -120,7 +95,6 @@ const BRANCHES: [&str; 69] = [
     "modeAllWithEmptyChanged",
     "modeUnrecognisedRefused",
     "modeUnrecognisedUnreached",
-    // impact: the selection.
     "changedRepeated",
     "changedNotAModule",
     "referrersDirectBelowTransitive",
@@ -128,7 +102,6 @@ const BRANCHES: [&str; 69] = [
     "selectionSortAboveBmp",
     "selectedIrBytesRepeatedEntry",
     "selectionEmpty",
-    // prune: what it was given.
     "pruneRemoveGiven",
     "pruneRemoveAbsent",
     "pruneIrGiven",
@@ -139,11 +112,9 @@ const BRANCHES: [&str; 69] = [
     "pruneJsonOmitted",
     "removeListEmpty",
     "removeListRepeated",
-    // prune: the deletions.
     "pagePresentDeleted",
     "pageAlreadyAbsent",
     "pageIsDanglingSymlink",
-    // prune: the orphans.
     "orphanFound",
     "orphanNoneFound",
     "orphanAtTreeRoot",
@@ -153,13 +124,11 @@ const BRANCHES: [&str; 69] = [
     "walkDescendsDirectory",
     "walkSkipsNonHtml",
     "walkSkipsSymlinkedDirectory",
-    // prune: the empty directories.
     "directoryEmptied",
     "directoryEmptiedByOrphans",
     "directoryCascaded",
     "directoryKept",
     "emptyPassSkippedByDryRun",
-    // prune: the guards.
     "pathEscapeRefused",
     "pathOutsideRootRefused",
     "pruneIndexRefusedShape",
@@ -167,9 +136,7 @@ const BRANCHES: [&str; 69] = [
 
 /// What the commonest single run reaches: one changed module, `--mode
 /// importers`, `--print-set` and `--json` written, and one page deleted from a
-/// tree with an orphan-free IR.
-///
-/// Twenty-four of the sixty-nine. Every mode but one, both deletion guards, the
+/// tree with an orphan-free IR. Every mode but one, both deletion guards, the
 /// whole orphan half and the whole empty-directory cascade are invisible to it —
 /// and so is every refusal.
 const ONE_RUN: [&str; 24] = [
@@ -199,10 +166,8 @@ const ONE_RUN: [&str; 24] = [
     "walkDescendsDirectory",
 ];
 
-/// Fifty-three of sixty-nine. What the whole harness reaches — the 18 `impact`
-/// and 11 `prune` scenarios of
-/// `tools/impact-reference.sh`, replayed in process by
-/// [`the_corpus_matches_the_prototype`]. **Measured there, not assumed.**
+/// What the corpus scenarios reach, **measured** in
+/// [`the_corpus_matches_the_prototype`] rather than assumed.
 const HARNESS: [&str; 53] = [
     "changedNotAModule",
     "changedRepeated",
@@ -260,39 +225,17 @@ const HARNESS: [&str; 53] = [
 ];
 
 /// The branches **no exercise over the real corpus reaches at all**, whatever
-/// the scenario.
+/// the scenario: the deletion guards (no module name reaches either, because
+/// [`page_of`] turns every dot into a separator), the UTF-16 / code-point traps
+/// (the package has no name above the BMP — 0 of 4,750 declaration names, 0
+/// module names【実測 2026-08-12】), flags a real run always passes, input
+/// shapes only a hand edit produces, and graph or page-tree shapes the target
+/// does not have. Each case below says which.
 ///
-/// Sixteen of sixty-nine.
-///
-/// - **Two are the deletion guards** (`pathEscapeRefused`,
-///   `pathOutsideRootRefused`). No module name can reach either, because
-///   [`page_of`] turns every dot into a separator and a `..` is made of dots —
-///   which is the argument, and the guards are the check. `pathEscapeRefused` is
-///   counted by hand below, because there is no *run* that reaches it.
-/// - **Two are the UTF-16 / code-point traps** (`selectionSortAboveBmp`,
-///   `selectionEmpty`). The package has no name above the BMP — 0 of 4,750
-///   declaration names, 0 module names【実測 2026-08-12】— and no package with
-///   modules can select nothing.
-/// - **Four are flags the pipeline always passes** (`pruneJsonOmitted`,
-///   `impactPrintSetOmittedWithSelection`, `directoryEmptiedByOrphans`,
-///   `orphanInSubdirectory`): `incremental.sh` asks for every output file and
-///   never passes `--ir` to `prune`, so the orphan rule's own consequences are
-///   off the pipeline's path entirely.
-/// - **Four are input shapes only a hand edit produces** (`removeListEmpty`,
-///   `removeListRepeated`, `selectedIrBytesRepeatedEntry`,
-///   `pruneIndexRefusedShape`).
-/// - **Four are corpus shapes the target does not have**: an import cycle
-///   (`closureSeedReachesItself` — Lean cannot produce one), more than twenty
-///   orphans (`orphansTruncatedInSummary` — the target has three), a symlinked
-///   directory in the page tree (`walkSkipsSymlinkedDirectory`), and a page that
-///   is a dangling symlink (`pageIsDanglingSymlink` — the only shape that tells
-///   `metadata` from `symlink_metadata`, and the one mutation testing caught
-///   this file missing).
-///
-/// **The neighbouring-package trick does not help here**【判断】. M3-a borrowed
-/// Mathlib's oleans for a file shape the target lacked; what is missing here is a
-/// *graph* shape (a cycle) and a *page tree* shape (a symlink), neither of which
-/// any package supplies. So these stay curated.
+/// **Borrowing a neighbouring package does not help here.** A file shape the
+/// target lacks can be taken from Mathlib's oleans; what is missing is a *graph*
+/// shape (a cycle) and a *page tree* shape (a symlink), which no package
+/// supplies. So these stay curated.
 const NO_REAL_DATA_REACHES: [&str; 16] = [
     "closureSeedReachesItself",
     "directoryEmptiedByOrphans",
@@ -312,13 +255,9 @@ const NO_REAL_DATA_REACHES: [&str; 16] = [
     "walkSkipsSymlinkedDirectory",
 ];
 
-// ------------------------------------------------------------- the observer
-
-/// One run of one command, with everything needed to say what it reached.
 enum Run<'a> {
     Impact {
         options: &'a ImpactOptions<'a>,
-        /// The IR as a *second* reader sees it.
         tree: &'a SecondTree,
         result: &'a Result<ImpactRun, Error>,
     },
@@ -355,13 +294,10 @@ fn observe(run: &Run<'_>) -> BTreeSet<&'static str> {
     fired
 }
 
-/// An IR tree as this file reads it: the index and every module file, as plain
-/// JSON.
-///
-/// Deliberately **not** `litedoc4_ir`: the observer has to be a second reader,
-/// or a bug in the one under test would hide itself here too. Built once per
-/// directory ([`SecondTree::open`] is the expensive call in this file) and
-/// handed to every run over that tree.
+/// The index and every module file, as plain JSON. Deliberately **not**
+/// `litedoc4_ir`: the observer has to be a second reader, or a bug in the one
+/// under test would hide itself here too. Built once per directory
+/// ([`SecondTree::open`] is the expensive call in this file).
 struct SecondTree {
     /// Module names in index order — repeats kept, because the index may have
     /// them and the byte total counts them twice.
@@ -490,7 +426,6 @@ fn observe_impact(
     result: &Result<ImpactRun, Error>,
     fire: &mut impl FnMut(&'static str),
 ) {
-    // 1. What it was given.
     if options.changed.is_empty() {
         fire("impactChangedEmpty");
     } else {
@@ -509,8 +444,8 @@ fn observe_impact(
     match (options.print_set, result) {
         (None, run) => {
             fire("impactPrintSetOmitted");
-            // Asked for on every run of the pipeline, so a selection that
-            // nobody wanted written is a shape only a curated case produces.
+            // Asked for on every real run, so a selection that nobody wanted
+            // written is a shape only a curated case produces.
             if matches!(run, Ok(run) if run.summary.is_some()) {
                 fire("impactPrintSetOmittedWithSelection");
             }
@@ -530,7 +465,7 @@ fn observe_impact(
         (Some(_), Err(_)) => fire("impactPrintSetSkipped"),
     }
 
-    // 2. The graph, decided from the IR and not from the run.
+    // The graph, decided from the IR and not from the run.
     let mut some_module_imports_nothing_own = false;
     for module in &tree.own {
         let mut own = 0usize;
@@ -570,7 +505,6 @@ fn observe_impact(
         fire("selectedIrBytesRepeatedEntry");
     }
 
-    // 3. The modes and the refusals.
     match (options.mode, result) {
         (Mode::Unrecognised(_), Err(Error::UnknownMode { .. })) => fire("modeUnrecognisedRefused"),
         (Mode::Unrecognised(_), Ok(run)) => {
@@ -608,7 +542,7 @@ fn observe_impact(
         fire("closureRepeatedSeed");
     }
 
-    // 4. The selection, held against the rule written out again above.
+    // The selection, held against the rule written out again above.
     let Ok(run) = result else { return };
     let Some(summary) = &run.summary else { return };
     let seeds: Vec<&str> = options.changed.iter().map(String::as_str).collect();
@@ -674,7 +608,6 @@ fn observe_impact(
         fire("selectionSortAboveBmp");
     }
 
-    // The selection itself, recomputed.
     let expected: BTreeSet<String> = match options.mode {
         Mode::SelfOnly => seeds.iter().map(|m| (*m).to_owned()).collect(),
         Mode::Referrers => seeds
@@ -715,7 +648,6 @@ fn observe_impact(
     );
 }
 
-/// A page tree as a listing: relative file and directory paths.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Snapshot {
     files: BTreeSet<String>,
@@ -904,8 +836,8 @@ fn observe_prune(
     } else {
         fire("directoryEmptied");
         if options.remove.is_none() {
-            // Only the orphan pass can have emptied it. The pipeline never
-            // passes `--ir`, so this is a curated shape.
+            // Only the orphan pass can have emptied it, and `--ir` is never
+            // passed on a real run, so this is a curated shape.
             fire("directoryEmptiedByOrphans");
         }
         if summary.emptied.iter().any(|dir| {
@@ -921,8 +853,6 @@ fn observe_prune(
         }
     }
 }
-
-// ------------------------------------------------------------ running things
 
 fn run_impact(
     options: &ImpactOptions<'_>,
@@ -947,8 +877,6 @@ fn run_prune(options: &PruneOptions<'_>) -> (Result<PruneSummary, Error>, BTreeS
     });
     (result, fired)
 }
-
-// ------------------------------------------------------------ the fixture
 
 struct Expected {
     value: Value,
@@ -986,10 +914,8 @@ fn corpus() -> (PathBuf, PathBuf, PathBuf) {
     )
 }
 
-// ------------------------------------------------------- the corpus test
-
-/// Every scenario `tools/impact-reference.sh` defines, replayed in process and
-/// compared with the frozen prototype's answers.
+/// Every scenario the frozen fixture holds, replayed in process and compared
+/// with the answers recorded in it.
 #[test]
 #[ignore = "corpus: needs LITEDOC4_BASE_IR + LITEDOC4_PAGES + LITEDOC4_SITE (tools/corpus-gate.sh)"]
 fn the_corpus_matches_the_prototype() {
@@ -1010,7 +936,7 @@ fn the_corpus_matches_the_prototype() {
     let other = "InformationTheory.Polymatroid.Basic".to_owned();
     let ghost = "InformationTheory.Nonexistent.Module".to_owned();
 
-    // The 18 `impact` scenarios, in the harness's order.
+    // The `impact` scenarios, in the fixture's order.
     let one = vec![hub.clone()];
     let leaf_only = vec![leaf.clone()];
     let ghost_only = vec![ghost.clone()];
@@ -1253,7 +1179,7 @@ fn the_corpus_matches_the_prototype() {
         }
     }
 
-    // The 9 `prune` scenarios that touch a page tree.
+    // The `prune` scenarios that touch a page tree.
     let fixtures = TEMP.make("impact-lists");
     let write_list = |name: &str, modules: &[&str]| -> PathBuf {
         let path = fixtures.path().join(name);
@@ -1347,8 +1273,7 @@ fn the_corpus_matches_the_prototype() {
     survivors_checked += compare_survivors(&pages_src, &rerun_pages, "rerun");
 
     // The two usage refusals are the CLI's, not the library's: the library is
-    // never called without a page tree. Recorded in the fixture as the exit
-    // codes the shell harness compares.
+    // never called without a page tree. The fixture records them as exit codes.
     for name in ["no-list", "no-pages"] {
         assert_eq!(
             e.scenario("prune", name)["status"].as_u64(),
@@ -1357,7 +1282,6 @@ fn the_corpus_matches_the_prototype() {
         );
     }
 
-    // Every scenario of the fixture, and no more.
     let compared = e.seen.borrow().clone();
     let mut in_fixture: BTreeSet<String> = BTreeSet::new();
     for stage in ["impact", "prune"] {
@@ -1376,7 +1300,7 @@ fn the_corpus_matches_the_prototype() {
     assert_eq!(compared.len(), 28);
     assert_eq!(survivors_checked, 3_458);
 
-    // How [`HARNESS`] was written: measured, then transcribed.
+    // [`HARNESS`] is measured, then transcribed.
     // `LITEDOC4_DUMP_BRANCHES=1 cargo test -p litedoc4-incr --test impact` prints
     // it again when a scenario is added, so the constant stays a record of a
     // measurement rather than a guess that has to be reverse-engineered.
@@ -1484,19 +1408,15 @@ fn compare_survivors(source: &Path, tree: &Path, name: &str) -> usize {
     after.files.len()
 }
 
-// ------------------------------------------------------- the curated cases
-
-/// The dependency this milestone's coverage rests on, stated so that it fails
-/// when it stops being true (plan §7: 全件バイト一致は分岐被覆の証明ではない).
+/// The dependency the coverage rests on, stated so that it fails when it stops
+/// being true. Four claims, all counted rather than believed:
 ///
-/// Four claims, all counted rather than believed:
-///
-/// 1. The commonest single run reaches [`ONE_RUN`] — 21 of the 64.
-/// 2. The whole harness reaches [`HARNESS`] — 44 of 64, measured in
+/// 1. The commonest single run reaches [`ONE_RUN`].
+/// 2. The whole harness reaches [`HARNESS`], measured in
 ///    [`the_corpus_matches_the_prototype`].
-/// 3. The other 19 are reachable only by a written-down case, so every one of
+/// 3. Everything else is reachable only by a written-down case, so every one of
 ///    them is one.
-/// 4. Everything together is all 64.
+/// 4. Everything together is [`BRANCHES`].
 #[test]
 fn the_curated_cases_cover_what_the_package_does_not() {
     // (1) One changed module, the default mode, one page deleted.
@@ -1625,9 +1545,9 @@ fn curated_impact_branches() -> BTreeSet<&'static str> {
     covered.extend(fired);
 
     // A package with no modules at all: `--mode all` selects nothing, and the
-    // `--print-set` is **one blank line** rather than an empty file — the
-    // prototype writes `list.join("\n") + "\n"`. Unreachable with any non-empty
-    // IR, and harmless because `--only-from` drops blank lines.
+    // `--print-set` is **one blank line** rather than an empty file.
+    // Unreachable with any non-empty IR, and harmless because `--only-from`
+    // drops blank lines.
     let repo = FakeIr::new("empty");
     repo.finish();
     let tree = SecondTree::open(repo.dir.path());
@@ -1651,8 +1571,7 @@ fn curated_impact_branches() -> BTreeSet<&'static str> {
     assert_eq!(fs::read_to_string(&set).expect("written"), "\n");
     covered.extend(fired);
 
-    // Two index entries for one module: the byte total counts both, as the
-    // prototype's `filter(...).reduce(...)` over `index.modules` does.
+    // Two index entries for one module: the byte total counts both.
     let repo = FakeIr::new("repeated-entry");
     repo.module("Pkg.A", &[], &[]);
     repo.repeat_index_entry("Pkg.A");
@@ -1708,7 +1627,7 @@ fn curated_impact_branches() -> BTreeSet<&'static str> {
     assert_eq!(summary.referrers_direct, summary.referrers_transitive);
     covered.extend(fired);
 
-    // `--print-set` not asked for while there **is** a selection: the pipeline
+    // `--print-set` not asked for while there **is** a selection: a real run
     // always asks, so no scenario over the corpus reaches it.
     let repo = FakeIr::target_shaped("no-print-set");
     let tree = SecondTree::open(repo.dir.path());
@@ -1734,12 +1653,12 @@ fn curated_impact_branches() -> BTreeSet<&'static str> {
 }
 
 /// The deletion guards, the page-tree shapes the target does not have, and the
-/// two flags the pipeline always passes.
+/// two flags a real run always passes.
 fn curated_prune_branches() -> BTreeSet<&'static str> {
     let mut covered = BTreeSet::new();
 
     // A `--remove` list with a repeat, an empty one, and no `--json`: three
-    // shapes the pipeline never produces.
+    // shapes no real run produces.
     let work = TEMP.make("prune-lists");
     let pages = work.path().join("pages");
     fs::create_dir_all(pages.join("Pkg")).expect("creatable");
@@ -1812,8 +1731,8 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     );
     covered.extend(fired);
 
-    // A directory emptied by the **orphan** pass rather than by `--remove`. The
-    // pipeline never passes `--ir`, so nothing on the target can reach it.
+    // A directory emptied by the **orphan** pass rather than by `--remove`.
+    // `--ir` is never passed on a real run, so nothing on the target reaches it.
     let work = TEMP.make("prune-orphan-empties");
     let pages = work.path().join("pages");
     fs::create_dir_all(pages.join("Pkg/Gone")).expect("creatable");
@@ -1891,10 +1810,9 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
         !page_of("../../etc/passwd").contains(".."),
         "page_of let a `..` through"
     );
-    // …but a Lean module name **can** carry one, which is why `PageRoot`
-    // checks rather than trusts. `«…»` is Lean's own escape and its contents
-    // are not split on `.`, so `..` survives as one component (M5-b:
-    // `page_of` goes through `module_path`, not `replace('.', "/")`).
+    // …but a Lean module name **can** carry one, which is why `PageRoot` checks
+    // rather than trusts: `«…»` is Lean's own escape and its contents are not
+    // split on `.`, so `..` survives as one component.
     assert_eq!(
         page_of("«..».Foo"),
         "../Foo.html",
@@ -1972,10 +1890,10 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
         "the page root can be removed"
     );
 
-    // A page that is a **dangling symlink**. `Deno.statSync` follows links, so
-    // the prototype calls it absent and leaves the link alone; `symlink_metadata`
-    // would call it present and unlink it. Nothing in the corpus has the shape,
-    // and mutation testing found that nothing else here did either.
+    // A page that is a **dangling symlink**. `metadata` follows links, so it
+    // counts as absent and the link survives; `symlink_metadata` would call it
+    // present and unlink it. Nothing in the corpus has the shape, and mutation
+    // testing found that nothing else here did either.
     let work = TEMP.make("prune-dangling");
     let pages = work.path().join("pages");
     fs::create_dir_all(pages.join("Pkg")).expect("creatable");
@@ -2022,9 +1940,6 @@ fn curated_prune_branches() -> BTreeSet<&'static str> {
     covered
 }
 
-// ----------------------------------------------------------------- fixtures
-
-/// A hand-built IR tree.
 struct FakeIr {
     dir: TempDir,
     entries: std::cell::RefCell<Vec<Value>>,
@@ -2082,7 +1997,6 @@ impl FakeIr {
         }));
     }
 
-    /// A second index entry for a module that already has one.
     fn repeat_index_entry(&self, name: &str) {
         let found = self
             .entries

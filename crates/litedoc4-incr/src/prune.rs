@@ -1,26 +1,11 @@
-//! The `prune` stage: the deletion path's page third.
+//! Deleting the pages of modules that are gone.
 //!
-//! Ported from `experiments/stage5/prune-pages.ts` (frozen). Milestone **M3-c**.
+//! The renderer only ever writes: `render --only` writes the pages it was asked
+//! for and never looks at what else is in the tree. So without this a deleted
+//! module's page survives every later incremental run and looks exactly like a
+//! live one — a failure nothing downstream can notice.
 //!
-//! A module that no longer exists leaves three things behind, and the renderer
-//! cleans up none of them because **it only ever writes**: `render --only` writes
-//! the pages it was asked for and never looks at what else is in the tree. So a
-//! deleted module's page survives every later incremental run and looks exactly
-//! like a live one. The failure is silent, which is why stage 5b's S4 found the
-//! pipeline exiting rather than pretending to have succeeded.
-//!
-//! The other two thirds: the IR is [`mod@crate::merge`]'s `--remove`, and the ledger
-//! is rebuilt outright (`build` costs the same ~0.05 s as `check`, so there is no
-//! reason for an incremental ledger-update path).
-//!
-//! ```text
-//! --remove <file> ──> the pages of modules that are gone
-//! --ir <dir>      ──> every .html under the root that is not a live module page
-//!                     (orphans)
-//! either          ──> directories the deletions left empty
-//! ```
-//!
-//! # This is the one stage that deletes, so the guards are structural
+//! This is the one stage that deletes, so the guards are structural:
 //!
 //! 1. **Every path is built by the renderer's own rule and checked against the
 //!    root.** [`page_of`] turns dots into separators, so a name cannot carry a
@@ -28,51 +13,22 @@
 //!    lexically before the path is used, physically (`canonicalize`) before
 //!    anything is unlinked. A path that resolves outside the page root is a
 //!    refusal, not a deletion.
-//! 2. **Paths are concatenated, never `Path::join`ed.** The prototype builds
-//!    `` `${PAGES}/${page}` ``, and `Path::join` with an absolute right-hand side
-//!    *discards the left* — so a `--remove` line of `/etc/passwd` would name
-//!    `<pages>//etc/passwd.html` in JavaScript and `/etc/passwd.html` here. The
-//!    difference is a deletion outside the tree.
+//! 2. **Paths are concatenated, never `Path::join`ed**, because `Path::join`
+//!    with an absolute right-hand side *discards the left*: a `--remove` line of
+//!    `/etc/passwd` would name `/etc/passwd.html` instead of
+//!    `<pages>//etc/passwd.html`, which is a deletion outside the tree.
 //! 3. **The walk never descends a symlink.** `file_type()` does not follow, so a
-//!    symlinked subdirectory is neither a directory to recurse into nor a file to
-//!    keep — exactly as `Deno.readDir`'s `isDirectory` behaves.
-//! 4. **`--dry-run` computes everything and writes nothing**, so the harness can
-//!    compare *what would be deleted* without deleting it.
-//!
-//! # The orphan rule is about `.html`, and the site holds more than pages
+//!    symlinked subdirectory is neither a directory to recurse into nor a file
+//!    to keep.
 //!
 //! `--ir` deletes every `.html` under the root whose relative path is not
-//! [`page_of`] of a module in the IR. On the target's **site** that is not only
+//! [`page_of`] of a module in the IR, and on a real **site** that is not only
 //! the dead pages: four of the seven whole-package artifacts are `.html` files
-//! no module owns, so the rule calls them orphans【実測 2026-08-12 —
-//! `tools/impact-reference.sh` の `orphans-site` シナリオ】. **M8-d changed
-//! which four, and raised the stakes**: it used to be `navbar.html`,
-//! `references.html` and `tactics.html`, none of which anything read; it is now
-//! `index.html`, `404.html`, `search.html` and `foundational_types.html` — the
-//! site's front door, its not-found page, and the target of a link on all 432
-//! module pages. The other three artifacts are not `.html`
-//! (`declarations/name-map.json`, `modules.json`, `search-index.bin`) and are
-//! invisible to it, as are the static assets (`style.css`, `app.js`,
-//! `favicon.svg` since M8-a), which are **not in the byte-reproduction
-//! denominator at all** (432 pages + 7 artifacts = 439 since M8-d; 438 at M6).
-//!
-//! **The pipeline never passes `--ir`** — `incremental.sh:304-305` passes only
-//! `--remove` — so nothing has been deleting them. Reproduced as it is, and
-//! written down here because "prune the orphans" is a plausible thing for M3-d to
-//! start doing and it would take three artifacts with it.
-//!
-//! # The static assets survive both halves, and that is now asserted (M8-a)
-//!
-//! From M8-a every build writes `style.css`, `app.js` and `favicon.svg` into the
-//! site root. They are **not** module
-//! pages, no ledger names them, and nothing regenerates them mid-pipeline — so
-//! an incremental run that deleted them would leave a site that renders unstyled
-//! until the next full generation, which is a silent failure of exactly the kind
-//! this stage's heading is otherwise about. Nothing here deletes them today: the
-//! orphan rule only looks at names ending in `.html`, and the empty-directory
-//! pass never removes the root. The two tests at the foot of this file hold it
-//! to that, so a later change to either rule fails here rather than in a
-//! browser.
+//! no module owns — `index.html`, `404.html`, `search.html`,
+//! `foundational_types.html` — so the rule calls them orphans and takes the
+//! site's front door with them【実測 2026-08-12】. The caller passes only
+//! `--remove` for that reason; turning the orphan rule on over a whole site is a
+//! plausible-looking change that is not one.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -84,7 +40,6 @@ use crate::detect::read_module_list;
 use crate::error::Error;
 use crate::io::write;
 
-/// What `prune` needs to know.
 #[derive(Clone, Copy, Debug)]
 pub struct PruneOptions<'a> {
     /// The page tree. Nothing outside it is ever touched.
@@ -92,24 +47,21 @@ pub struct PruneOptions<'a> {
     /// Modules whose pages are to be deleted, one name per line.
     pub remove: Option<&'a Path>,
     /// An IR tree. With it, every `.html` with no module in that IR is deleted
-    /// too — see the module heading before turning this on over a whole site.
+    /// too — read the orphan rule above before turning this on over a site.
     pub ir: Option<&'a Path>,
-    /// Report and delete nothing. The empty-directory pass does not run either,
-    /// as in the prototype: there is nothing for it to have emptied.
+    /// Report and delete nothing. The empty-directory pass does not run either:
+    /// there is nothing for it to have emptied.
     pub dry_run: bool,
     pub json: Option<&'a Path>,
 }
 
-/// What `prune` did.
-///
 /// **No `PartialEq`**: `total_seconds` is wall clock, and a summary that
 /// compared equal to another one would be asserting on it.
 #[derive(Clone, Debug)]
 pub struct PruneSummary {
-    /// `--pages` as it was given — the prototype reports the string.
+    /// `--pages` as it was given.
     pub pages: String,
     pub dry_run: bool,
-    /// Lines in `--remove`.
     pub requested: usize,
     /// Modules whose page was there. Under `--dry-run` these are the ones that
     /// *would* be deleted.
@@ -125,26 +77,19 @@ pub struct PruneSummary {
     pub total_seconds: f64,
 }
 
-/// How many orphan paths the `--json` summary keeps.
 pub const ORPHANS_IN_SUMMARY: usize = 20;
-/// How many the log line prints.
 pub const ORPHANS_IN_LOG: usize = 10;
 
 /// The renderer's path rule: dots become directory separators.
 ///
-/// This crate's name for [`litedoc4_ir::page_path`], and a wrapper rather than
-/// a second spelling for the reason M5-b found: **the renderer writes the page
-/// and this deletes it**, so a rule that differs by one character makes `prune`
-/// report "already absent" and leave the dead page behind. The rule lives in
-/// `litedoc4-ir` because `litedoc4_global::page_path` is the third crate that
-/// needs it.
+/// A wrapper over [`litedoc4_ir::page_path`] rather than a second spelling,
+/// because **the renderer writes the page and this deletes it**: a rule that
+/// differs by one character makes `prune` report "already absent" and leave the
+/// dead page behind.
 ///
-/// `"A.B".split(".").join("/") + ".html"` for a plain name. **A name can carry
-/// a `..` through this**, which is why [`PageRoot`] checks rather than trusts:
-/// `«…»` is Lean's own escape and its contents are not split on `.`, so
-/// `«..».Foo` comes out as `../Foo.html`【実測 2026-08-23,
-/// `tests/impact.rs`】. The claim that it could not was written when this
-/// function was `replace('.', "/")`, and M5-b replaced that.
+/// **A name can carry a `..` through this**, which is why [`PageRoot`] checks
+/// rather than trusts: `«…»` is Lean's own escape and its contents are not split
+/// on `.`, so `«..».Foo` comes out as `../Foo.html`【実測 2026-08-23】.
 #[must_use]
 pub fn page_of(module: &str) -> String {
     litedoc4_ir::page_path(module)
@@ -152,29 +97,23 @@ pub fn page_of(module: &str) -> String {
 
 /// The tree `prune` is allowed to delete inside.
 ///
-/// Holds the string the caller gave — which is what the summary reports, what
-/// relative paths hang off, and what the prototype concatenates. The canonical
-/// form is resolved **at the moment of a deletion** rather than up front, for a
-/// reason that is behaviour and not taste: the prototype does not look at
-/// `--pages` at all until it needs it, so `--dry-run --remove` over a page tree
-/// that is not there reports every module as already absent and exits 0.
-/// Canonicalising in a constructor would turn that into a failure.
+/// Holds the string the caller gave, and resolves the canonical form **at the
+/// moment of a deletion** rather than up front: `--dry-run --remove` over a page
+/// tree that is not there has to report every module as already absent and exit
+/// 0, which canonicalising in a constructor would turn into a failure.
 #[derive(Clone, Debug)]
 pub struct PageRoot {
     given: String,
 }
 
-/// The three guards are **public**, and that is the point: they are the
-/// contract, not an implementation detail. A module name **can** reach the
-/// escape refusal — `«..».Foo` is a legal Lean name and [`page_of`] gives it
-/// `../Foo.html`【実測 2026-08-23】 — and no run over the measurement target
-/// ever has, so the only way to hold them to the contract is to call them,
-/// which `tests/impact.rs` does.
+/// The guards are **public** because they are the contract rather than an
+/// implementation detail, and because no run over a real target reaches the
+/// escape refusal — calling them directly is the only way to hold them to it.
 impl PageRoot {
     #[must_use]
     pub fn new(pages: &Path) -> Self {
         Self {
-            // `${PAGES}/${page}` — trailing slashes and all, as given.
+            // Trailing slashes and all, as given.
             given: pages.display().to_string(),
         }
     }
@@ -183,8 +122,8 @@ impl PageRoot {
     ///
     /// Lexical, and it runs before the path is used for anything — a missing
     /// file must still be a *refusal* when the name was suspect, not an
-    /// "already absent". **Concatenation, not [`Path::join`]**: see guard 2 in
-    /// the module heading.
+    /// "already absent". **Concatenation, not [`Path::join`]**, which would
+    /// discard the root for an absolute `relative`.
     pub fn resolve(&self, relative: &str) -> Result<PathBuf, Error> {
         let escapes = relative
             .split('/')
@@ -206,8 +145,8 @@ impl PageRoot {
     }
 
     /// The same check for a directory this stage is about to remove, plus the
-    /// root itself: the caller stops one level above it (the prototype's
-    /// `dir !== PAGES`), and this says so a second time.
+    /// root itself: the caller stops one level above it, and this says so a
+    /// second time.
     pub fn allow_remove_dir(&self, path: &Path) -> Result<(), Error> {
         self.contains(path, path, true)
     }
@@ -245,8 +184,8 @@ pub fn prune(options: &PruneOptions<'_>) -> Result<PruneSummary, Error> {
     let mut already_absent: Vec<String> = Vec::new();
     for module in &requested {
         let path = root.resolve(&page_of(module))?;
-        // `Deno.statSync` follows symlinks, so a dangling link is "not there"
-        // and the link itself survives — the prototype's behaviour, kept.
+        // `metadata` follows symlinks, so a dangling link counts as absent and
+        // the link itself survives.
         if fs::metadata(&path).is_err() {
             already_absent.push(module.clone());
             continue;
@@ -263,9 +202,9 @@ pub fn prune(options: &PruneOptions<'_>) -> Result<PruneSummary, Error> {
 
     let mut orphans: Vec<String> = Vec::new();
     if let Some(ir) = options.ir {
-        // Read as plain JSON rather than through `IrTree`: the prototype needs
-        // one column of `index.json` and this stage runs on a tree that the
-        // merge may have just rewritten.
+        // Read as plain JSON rather than through `IrTree`: one column of
+        // `index.json` is all this needs, and the tree may have just been
+        // rewritten by the merge.
         let index = read_index_modules(ir)?;
         let live: std::collections::HashSet<String> =
             index.iter().map(|module| page_of(module)).collect();
@@ -311,12 +250,10 @@ pub fn prune(options: &PruneOptions<'_>) -> Result<PruneSummary, Error> {
     Ok(summary)
 }
 
-/// `index.modules[].module`, read as plain JSON.
 fn read_index_modules(ir: &Path) -> Result<Vec<String>, Error> {
     let path = ir.join("index.json");
-    // Counted like every other IR read (`litedoc4_ir::metrics`). Never fires on
-    // the pipeline's path — `prune_removed` passes no `--ir`, deliberately (see
-    // `litedoc4/src/pipeline.rs`) — so a run whose counter moves here is a run
+    // Counted like every other IR read. It never fires on the caller's usual
+    // path, which passes no `--ir`, so a run whose counter moves here is a run
     // that turned the orphan rule on.
     litedoc4_ir::metrics::record(litedoc4_ir::IrFile::Index);
     let text = fs::read_to_string(&path).map_err(|source| Error::Io {
@@ -333,9 +270,8 @@ fn read_index_modules(ir: &Path) -> Result<Vec<String>, Error> {
             message: "modules is not an array".to_owned(),
         });
     };
-    // An entry with no `module` string would make the prototype call
-    // `undefined.split(".")`; refused rather than skipped, as `merge` refuses
-    // the same shape (plan §7's IndexShape).
+    // An entry with no `module` string is refused rather than skipped, as
+    // `merge` refuses the same shape.
     modules
         .iter()
         .map(
@@ -350,19 +286,14 @@ fn read_index_modules(ir: &Path) -> Result<Vec<String>, Error> {
         .collect()
 }
 
-/// Depth first in directory order, as `Deno.readDir` gives it.
+/// Depth first, in directory order.
 ///
-/// `relative` is the path of `dir` under the root, `""` at the top. The
-/// prototype cuts the same string off the front of the absolute path
-/// (`prune-pages.ts:87`); building it up instead means a `--pages` with a
+/// `relative` is the path of `dir` under the root, `""` at the top. Built up
+/// rather than cut off the front of the absolute path, so a `--pages` with a
 /// trailing slash does not shift the cut by one.
-// `ends_with(".html")` is case-sensitive here on purpose: the prototype's
-// `Deno.readDir` loop compares the same way, and this stage's job is to agree
-// with it about which files are pages. A `.HTML` the renderer never writes is
-// left alone rather than unlinked.
 #[expect(
     clippy::case_sensitive_file_extension_comparisons,
-    reason = "matches the prototype's comparison, which decides what is a page"
+    reason = "only the renderer's own lower-case .html is a page; a .HTML is left alone"
 )]
 fn walk_orphans(
     root: &PageRoot,
@@ -377,9 +308,9 @@ fn walk_orphans(
         if kind.is_dir() {
             walk_orphans(root, dry_run, live, &child, orphans)?;
         } else if name.ends_with(".html") && !live.contains(&child) {
-            // Note the prototype does not ask whether the entry is a *file*:
-            // anything not a directory whose name ends in `.html` is a
-            // candidate, symlinks included. Unlinking one removes the link.
+            // Whether the entry is a *file* is not asked: anything that is not a
+            // directory and ends in `.html` is a candidate, symlinks included,
+            // and unlinking one removes the link.
             orphans.push(child.clone());
             if !dry_run {
                 let path = root.resolve(&child)?;
@@ -394,10 +325,8 @@ fn walk_orphans(
     Ok(())
 }
 
-/// Removes directories with nothing left in them, deepest first.
-///
-/// Returns whether `relative` was itself removed, which is how the caller knows
-/// whether it still counts as content. The root is never removed.
+/// Deepest first, and never the root. Returns whether `relative` was itself
+/// removed, which is how the caller knows whether it still counts as content.
 fn prune_empty(root: &PageRoot, relative: &str, emptied: &mut Vec<String>) -> Result<bool, Error> {
     let mut any = false;
     for (name, kind) in read_dir(root, relative)? {
@@ -424,11 +353,8 @@ fn prune_empty(root: &PageRoot, relative: &str, emptied: &mut Vec<String>) -> Re
 
 /// One directory's entries, in the order the filesystem lists them.
 ///
-/// **Not sorted.** `Deno.readDir` does not sort either, and the order reaches
-/// the `orphanPages` field of the summary; sorting here would be a change to the
-/// bytes under comparison rather than to the answer. Both runtimes call
-/// `readdir(3)` on the same directory, which is why the two implementations
-/// agree — `tools/impact-compare.sh` checks that rather than assuming it.
+/// **Not sorted**: the order reaches the summary's `orphanPages` field, so
+/// sorting here would change the bytes under comparison rather than the answer.
 fn read_dir(root: &PageRoot, relative: &str) -> Result<Vec<(String, fs::FileType)>, Error> {
     let dir = if relative.is_empty() {
         PathBuf::from(&root.given)
@@ -462,9 +388,8 @@ fn join_relative(relative: &str, name: &str) -> String {
     }
 }
 
-/// The `--json` summary. Key order is the prototype's object literal
-/// (`prune-pages.ts:120-131`); `totalSeconds` is a **diagnostic** — wall clock,
-/// different every run, and no test may assert on it.
+/// Field order is part of the summary file's bytes. `totalSeconds` is a
+/// diagnostic — wall clock, different every run, and no test may assert on it.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PruneJson<'a> {
@@ -482,24 +407,17 @@ struct PruneJson<'a> {
 
 #[cfg(test)]
 mod tests {
-    //! **M8-a's gate on this stage**: the static assets are not pages, and
-    //! neither half of `prune` may take them.
-    //!
-    //! The corpus tests (`tests/impact.rs`) compare this stage against the
-    //! frozen prototype over a site that had **no** assets in it — the prototype
-    //! never wrote any — so they cannot answer this question at all. These two
-    //! are curated for the same reason four of the sixteen branches over there
-    //! are: the shape does not exist in the recorded corpus.
+    //! Every build writes static assets into the site root. They are not module
+    //! pages and no ledger names them, so a run that deleted them would leave a
+    //! site rendering unstyled until the next full generation — and neither half
+    //! of `prune` may take them. The frozen corpus holds no site with assets in
+    //! it, so this shape only exists here.
 
     use super::*;
     use litedoc4_testutil::TempDirs;
 
-    /// The temporary directories this file makes. The prefix names the file,
-    /// so a directory a failed run leaves behind names what made it.
     const TEMP: TempDirs = TempDirs::prefixed("litedoc4-prune");
 
-    /// The three files `litedoc4 build` writes into the site root (M8-a).
-    ///
     /// Spelled out rather than imported: this crate does not depend on the
     /// renderer, and the property under test is not about *these* names — the
     /// rule is "a file that is not a module page stays", and any non-page the
@@ -516,9 +434,8 @@ mod tests {
         for name in ASSETS {
             write_file(&pages.join(name), "/* the shipped bytes */");
         }
-        // A whole-package artifact too: four of the seven are `.html` and the
-        // orphan rule really does take them (see the module heading). Keeping
-        // one here is what stops this test from passing because the rule
+        // A whole-package artifact too, which the orphan rule really does take:
+        // keeping one here is what stops this test from passing because the rule
         // stopped deleting anything at all.
         write_file(&pages.join("index.html"), "<html>the front page</html>");
 
@@ -547,7 +464,7 @@ mod tests {
         }
     }
 
-    /// The pipeline's own call — a deletion list and no `--ir`. The empty
+    /// The caller's usual call — a deletion list and no `--ir`. The empty
     /// directory pass runs on this path, which is the one that could plausibly
     /// take the site root's contents with it.
     #[test]
@@ -573,8 +490,8 @@ mod tests {
     }
 
     /// The orphan rule, which is the half that walks the whole tree. It deletes
-    /// `.html` files no module owns — `index.html` here, as the heading says —
-    /// and must not widen to the assets, which no module owns either.
+    /// `.html` files no module owns — `index.html` here — and must not widen to
+    /// the assets, which no module owns either.
     #[test]
     fn the_static_assets_are_not_orphans() {
         let dir = TEMP.make("prune-assets-orphans");

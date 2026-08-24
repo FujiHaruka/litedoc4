@@ -1,38 +1,21 @@
-//! Milestone **M3-b**: the `ownership` and `merge` stages.
+//! The `ownership` and `merge` stages, against three oracles, none of which is
+//! this file's own opinion:
 //!
-//! Three oracles, none of which is this file's own opinion:
-//!
-//! - **The frozen prototype's own files.** `tools/merge-reference.sh --impl ts`
-//!   ran `experiments/stage5/{ownership,merge-ir}.ts` over the base IR and wrote
-//!   nine rounds and three verifications;
-//!   `tests/oracle/gen-merge-expected.ts` reduced that tree to
-//!   `tests/data/merge-expected.json`, which [`the_corpus_matches_the_prototype`]
-//!   compares against file by file.
-//!   **The fixture is a frozen value: HEAD has no way to regenerate it.** The
-//!   generator, the prototype and the `--impl ts` half of the harness were
-//!   removed with `experiments/` on 2026-08-16 and exist only at tag
-//!   `experiments-frozen`.
-//! - **The from-scratch IR itself.** The port writes `deps/<Root>.json` in
-//!   Lean's order rather than the prototype's insertion order (plan §7's "already
-//!   not byte-identical" note, decided in M3), so the merged slice can be held
-//!   against the one `Extract.lean` wrote:
+//! - **A frozen corpus.** `tests/data/merge-expected.json` holds the sizes and
+//!   digests of everything nine rounds and three verifications over the base IR
+//!   produced, and [`the_corpus_matches_the_prototype`] compares against it file
+//!   by file. **HEAD has no way to regenerate it**: the generator was removed
+//!   with `experiments/` and exists only at tag `experiments-frozen`.
+//! - **The from-scratch IR itself.** `deps/<Root>.json` is written in Lean's
+//!   order, so a merged slice can be held against the one `Extract.lean` wrote:
 //!   [`the_dependency_slices_are_the_from_scratch_bytes`].
-//! - **A second writer, here.** [`lean_order_slice`] is the sorting rule written
-//!   out again, so the invariant above is checked even for a mapping the
+//! - **A second writer, here.** [`lean_order_slice`] is that sorting rule
+//!   written out again, so the invariant is checked even for a mapping the
 //!   from-scratch tree does not contain.
 //!
-//! # Byte equality is not branch coverage (plan §7)
-//!
-//! Of the [`BRANCHES`] this milestone added:
-//!
-//! | exercise | reaches |
-//! |---|---:|
-//! | the merged tree's byte comparison — one round over the base IR ([`ONE_ROUND`]) | **19** |
-//! | everything the nine rounds and three verifications reach ([`HARNESS_AND_INDEX`]) | **48** |
-//! | curated cases only ([`NO_REAL_DATA_REACHES`]) | **23** |
-//!
-//! The dependency is asserted rather than commented:
-//! [`the_curated_cases_cover_what_the_package_does_not`].
+//! Byte equality is not branch coverage, and
+//! [`the_curated_cases_cover_what_the_package_does_not`] asserts the accounting
+//! rather than describing it.
 
 #![expect(
     clippy::cast_possible_truncation,
@@ -61,20 +44,16 @@ use litedoc4_testutil::tree::copy_tree;
 use litedoc4_testutil::{TempDir, TempDirs};
 use serde_json::{Value, json};
 
-/// The temporary directories this file makes. The prefix names the file,
-/// so a directory a failed run leaves behind names what made it.
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-merge");
 
 /// U+1D49C MATHEMATICAL SCRIPT CAPITAL A and U+FB00 LATIN SMALL LIGATURE FF:
 /// the pair that separates UTF-16 order from code point order. `𝒜` sorts
-/// *before* `ﬀ` in UTF-16 and after it by code point (plan §7, U1).
+/// *before* `ﬀ` in UTF-16 and after it by code point.
 const ASTRAL: &str = "\u{1D49C}";
 const LIGATURE: &str = "\u{FB00}";
 
-// --------------------------------------------------------------- the branches
-
-/// Every branch M3-b added, named by an event of the run rather than by a line
-/// of the code.
+/// Every branch these two stages have, named by an **event of the run** rather
+/// than by a line of the code.
 ///
 /// Each is decided by [`observe`] from the inputs a run was given and the files
 /// it produced — never by asking the code under test what it decided. Where the
@@ -82,7 +61,6 @@ const LIGATURE: &str = "\u{FB00}";
 /// rule is written out a second time there, over `serde_json::Value` rather than
 /// over the IR reader.
 const BRANCHES: [&str; 71] = [
-    // ownership: what it was given.
     "ownershipIncGiven",
     "ownershipIncAbsent",
     "ownershipRemovedGiven",
@@ -90,7 +68,6 @@ const BRANCHES: [&str; 71] = [
     "ownershipRemovedNotInBase",
     "ownershipExcludeGiven",
     "ownershipExcludeAbsent",
-    // ownership: the diff.
     "incModuleKnownToBase",
     "incModuleNewToBase",
     "nameLost",
@@ -98,7 +75,6 @@ const BRANCHES: [&str; 71] = [
     "nameKept",
     "removedModuleNamesLost",
     "declarationNameRepeated",
-    // ownership: the scan.
     "scanSkippedNothingMoved",
     "scanRan",
     "scanSkippedExcluded",
@@ -110,13 +86,11 @@ const BRANCHES: [&str; 71] = [
     "witnessesTruncatedInSummary",
     "staleSortAboveBmp",
     "scannedBaseModulesNegative",
-    // ownership: what it writes.
     "printSetWritten",
     "printSetOmitted",
     "printSetEmpty",
     "ownershipJsonWritten",
     "ownershipJsonOmitted",
-    // merge: what it was given.
     "mergeIncGiven",
     "mergeIncAbsent",
     "mergeOutIsBase",
@@ -125,21 +99,18 @@ const BRANCHES: [&str; 71] = [
     "mergeRemoveMissedIndex",
     "mergeRemoveEmpty",
     "mergeRemoveRepeated",
-    // merge: the package's module list (M3-d2b).
     "mergeModulesGiven",
     "mergeModulesAbsent",
     "mergeModulesReordersIndex",
     "mergeModulesRepeated",
     "mergeModulesMissingFromTree",
     "mergeModulesExtraInTree",
-    // merge: folding.
     "incModuleReplaced",
     "incModuleAppended",
     "contentHashMoved",
     "contentHashUnchanged",
     "baseModuleCopied",
     "baseModuleDeletedInPlace",
-    // merge: the dependency slice.
     "depSliceWritten",
     "depSliceStaleRemoved",
     "depSliceNone",
@@ -147,16 +118,13 @@ const BRANCHES: [&str; 71] = [
     "depNamesAboveBmp",
     "depRootsAboveBmp",
     "depSchemaVersionAbsent",
-    // merge: the index.
     "indexCarriesAblations",
     "indexRefusedShape",
-    // merge: what it writes.
     "changedOutWritten",
     "changedOutOmitted",
     "changedOutEmpty",
     "mergeTimingsWritten",
     "mergeTimingsOmitted",
-    // verify.
     "verifyAgreed",
     "verifyModuleCountDiffers",
     "verifyMissingInB",
@@ -167,12 +135,9 @@ const BRANCHES: [&str; 71] = [
 ];
 
 /// What a byte comparison of **one merged tree** reaches: one round that folds
-/// one re-extracted module back in place, which is what a green
-/// `tools/merge-compare.sh` on the commonest scenario means.
-///
-/// Nineteen of the seventy-one. Every shape of edit the pipeline is *for* — a
-/// move, a deletion, a module that never existed — is invisible to it, and so is
-/// every question `verify` asks.
+/// one re-extracted module back in place. Every shape of edit an incremental
+/// build is *for* — a move, a deletion, a module that never existed — is
+/// invisible to it, and so is every question `verify` asks.
 const ONE_ROUND: [&str; 19] = [
     "changedOutWritten",
     "contentHashMoved",
@@ -195,9 +160,8 @@ const ONE_ROUND: [&str; 19] = [
     "scanSkippedNothingMoved",
 ];
 
-/// What the whole harness reaches — the nine rounds and three verifications of
-/// `tools/merge-reference.sh`, replayed in process by
-/// [`the_corpus_matches_the_prototype`]. **Measured there, not assumed.**
+/// What the nine rounds and three verifications reach, **measured** in
+/// [`the_corpus_matches_the_prototype`] rather than assumed.
 const HARNESS_AND_INDEX: [&str; 48] = [
     "baseModuleCopied",
     "baseModuleDeletedInPlace",
@@ -252,24 +216,18 @@ const HARNESS_AND_INDEX: [&str; 48] = [
 /// The branches **no exercise over the real base IR reaches at all**, whatever
 /// the scenario.
 ///
-/// Twenty-three of seventy-one. Four are flags the pipeline always passes; four
-/// are shapes of an index or a remove list only a hand edit produces; three are
-/// the UTF-16 / code-point traps, which need a name above the BMP and the
-/// package has none — one of them, the order of the *roots*, is the one place
-/// where keeping `index.json` the prototype's and each slice Lean's pull apart;
-/// four are dependency shapes the package cannot have (no external references at
+/// Flags a real run always passes; shapes of an index or a remove list only a
+/// hand edit produces; the UTF-16 / code-point traps, which need a name above
+/// the BMP; dependency shapes the package cannot have (no external references at
 /// all, a name owned by two modules at once, a base index with no schema
-/// version, an ablation marker); two are answers that need a tree the harness
-/// does not build; and **five are `--modules`** (M3-d2b), which the harness
-/// never passes because it replays the prototype, and the prototype never reads
-/// the flag it offers.
+/// version, an ablation marker); answers that need a tree the corpus does not
+/// hold; and the `--modules` branches, which the corpus never exercises.
 ///
-/// The three UTF-16 ones are **not hypothetical, and the neighbouring packages
-/// cannot supply them cheaply**. The target's IR has no supplementary scalar at
-/// all — 0 of 4,750 declaration names, 0 reference names, 0 module names — while
-/// the dependency closure's link index has **37 of 264,535** declaration lines
-/// carrying one (`Topology.term𝓝`, `Cardinal.term𝔠`, …)【実測 2026-08-12】. M3-a
-/// could borrow Mathlib's *oleans* for the shape the target lacked; here the
+/// The UTF-16 ones are **not hypothetical, and no neighbouring package supplies
+/// them cheaply**. The target's IR has no supplementary scalar at all — 0 of
+/// 4,750 declaration names, 0 reference names, 0 module names — while the
+/// dependency closure's link index has **37 of 264,535** declaration lines
+/// carrying one (`Topology.term𝓝`, `Cardinal.term𝔠`, …)【実測 2026-08-12】. The
 /// shape has to be inside an IR tree's `refs`, and no dependency IR tree exists
 /// without running the extractor over Mathlib. So these stay curated.
 const NO_REAL_DATA_REACHES: [&str; 23] = [
@@ -298,9 +256,6 @@ const NO_REAL_DATA_REACHES: [&str; 23] = [
     "verifyDepValueDiffers",
 ];
 
-// ------------------------------------------------------------- the observer
-
-/// One run of one command, with everything needed to say what it reached.
 enum Run<'a> {
     Ownership {
         options: &'a OwnershipOptions<'a>,
@@ -344,10 +299,9 @@ fn observe(run: &Run<'_>) -> BTreeSet<&'static str> {
     fired
 }
 
-/// A tree as this file reads it: the index and the module files, as plain JSON.
-///
-/// Deliberately **not** `litedoc4_ir`: the observer has to be a second reader,
-/// or a bug in the one under test would hide itself here too.
+/// The index and the module files, as plain JSON. Deliberately **not**
+/// `litedoc4_ir`: the observer has to be a second reader, or a bug in the one
+/// under test would hide itself here too.
 struct Tree {
     root: PathBuf,
     index: Value,
@@ -383,7 +337,6 @@ impl Tree {
             .find(|entry| entry.get("module").and_then(Value::as_str) == Some(module))
     }
 
-    /// The module file, as JSON.
     fn body(&self, module: &str) -> Option<Value> {
         let file = self.entry(module)?.get("file")?.as_str()?.to_owned();
         serde_json::from_str(&fs::read_to_string(self.root.join(file)).ok()?).ok()
@@ -404,7 +357,6 @@ impl Tree {
             .unwrap_or_default()
     }
 
-    /// `(defining module, name)` references, per module.
     fn references(&self, module: &str) -> Vec<(String, String)> {
         self.body(module)
             .and_then(|body| {
@@ -461,7 +413,6 @@ impl Tree {
     }
 }
 
-/// A module list file, as the stages read it.
 fn read_lines(path: Option<&Path>) -> Vec<String> {
     let Some(path) = path else { return Vec::new() };
     fs::read_to_string(path)
@@ -646,10 +597,9 @@ fn observe_merge(
     } else {
         "mergeModulesAbsent"
     });
-    // `litedoc4_incr::merge::same_tree`, not `options.out == options.base`: the
-    // observer asking the question a second way is how a spelling that fools
-    // the implementation fools the inventory too, and the two agree on being
-    // wrong.
+    // `same_tree`, not `options.out == options.base`: asking the question the
+    // same way the implementation does is how a spelling that fools it fools the
+    // inventory too, and the two agree on being wrong.
     fire(if same_tree(options.base, options.out) {
         "mergeOutIsBase"
     } else {
@@ -752,7 +702,6 @@ fn observe_merge(
         fire("depSchemaVersionAbsent");
     }
 
-    // The dependency slice, recomputed here from the merged tree.
     let Some(merged) = Tree::open(options.out) else {
         return;
     };
@@ -803,9 +752,8 @@ fn observe_merge(
     }
 }
 
-/// A module list with repeats collapsed, each name keeping its first position —
-/// the rule an index and `litedoc4 modules`' own output follow, written out here
-/// a second time.
+/// Repeats collapsed, each name keeping its first position — the rule an index
+/// follows, written out here a second time.
 fn deduplicated(list: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::with_capacity(list.len());
     for module in list {
@@ -816,8 +764,8 @@ fn deduplicated(list: &[String]) -> Vec<String> {
     out
 }
 
-/// The `--modules` branches (M3-d2b), and whether the list describes the tree
-/// the merge was about to write.
+/// The `--modules` branches, and whether the list describes the tree the merge
+/// was about to write.
 ///
 /// The tree is derived here from the three inputs — the base index **as it was**,
 /// the remove list and the partial extraction — rather than from what `merge`
@@ -961,8 +909,6 @@ fn list_dir(dir: &Path) -> BTreeSet<String> {
         .unwrap_or_default()
 }
 
-// ------------------------------------------------------------ running things
-
 fn run_ownership(
     options: &OwnershipOptions<'_>,
 ) -> (Result<OwnershipSummary, Error>, BTreeSet<&'static str>) {
@@ -1002,14 +948,12 @@ fn run_verify(a: &Path, b: &Path) -> (Result<VerifyReport, Error>, BTreeSet<&'st
     (result, fired)
 }
 
-// --------------------------------------------------------------- the fixture
-
 struct Expected {
     value: Value,
     seen: std::cell::RefCell<BTreeSet<String>>,
-    /// The files the port is expected **not** to match, because it writes them
-    /// in Lean's order on purpose. Filled in as the comparison runs and asserted
-    /// against [`Expected::diverged_by_design`] at the end.
+    /// The files this crate is expected **not** to match byte for byte, because
+    /// it writes them in Lean's order on purpose. Filled in as the comparison
+    /// runs and asserted against [`Expected::diverged_by_design`] at the end.
     diverged: std::cell::RefCell<BTreeSet<String>>,
 }
 
@@ -1033,7 +977,6 @@ impl Expected {
         )
     }
 
-    /// Compares one produced file with the prototype's, by size and digest.
     fn check(&self, name: &str, body: &[u8]) {
         let (bytes, digest) = self.file(name);
         self.seen.borrow_mut().insert(name.to_owned());
@@ -1051,9 +994,9 @@ impl Expected {
         );
     }
 
-    /// A `deps/*.json`, which the port writes in Lean's order rather than the
-    /// prototype's. Asserts **both** halves of the decision: it is not the
-    /// prototype's bytes, and it is the sorted writer's.
+    /// A `deps/*.json`, written in Lean's order rather than the recorded one.
+    /// Asserts **both** halves: it is not the recorded bytes, and it is the
+    /// sorted writer's.
     fn check_diverged(&self, name: &str, body: &[u8], lean_order: &[u8]) {
         let (bytes, digest) = self.file(name);
         self.seen.borrow_mut().insert(name.to_owned());
@@ -1075,13 +1018,13 @@ impl Expected {
         );
     }
 
-    /// The merged `index.json`, which diverges from the prototype in exactly one
-    /// place: every `dependencyMaps` element is written in Lean's alphabetical
-    /// key order rather than the prototype's object literal.
+    /// The merged `index.json`, which diverges from the recorded bytes in
+    /// exactly one place: every `dependencyMaps` element is written in Lean's
+    /// alphabetical key order.
     ///
     /// Stated independently of the code under test — this reads the produced
-    /// bytes back with an order-preserving parser and asserts the order it finds,
-    /// rather than comparing against a second copy of the writer.
+    /// bytes back with an order-preserving parser and asserts the order it
+    /// finds, rather than comparing against a second copy of the writer.
     fn check_diverged_index(&self, name: &str, body: &[u8]) {
         let (bytes, digest) = self.file(name);
         self.seen.borrow_mut().insert(name.to_owned());
@@ -1123,9 +1066,6 @@ impl Expected {
 
 /// The dependency slice as **Lean** writes it, written out here a second time:
 /// alphabetical top-level keys, declaration names in code point order, compact.
-///
-/// This is the whole content of M3-b's deliberate divergence, stated
-/// independently of the code that implements it.
 fn lean_order_slice(mapping: &BTreeMap<String, String>, package: &str, schema: &Value) -> Vec<u8> {
     let mut body = String::from("{\"declarations\":{");
     for (i, (name, module)) in mapping.iter().enumerate() {
@@ -1146,8 +1086,7 @@ fn lean_order_slice(mapping: &BTreeMap<String, String>, package: &str, schema: &
     body.into_bytes()
 }
 
-/// The `name -> defining module` mapping a tree's `deps/` should hold,
-/// recomputed from the merged module files.
+/// Recomputed from the merged module files, not read from `deps/`.
 fn dep_mapping_of(tree: &Tree) -> BTreeMap<String, BTreeMap<String, String>> {
     let own: BTreeSet<String> = tree.module_names().into_iter().collect();
     let mut flat: BTreeMap<String, String> = BTreeMap::new();
@@ -1165,8 +1104,6 @@ fn dep_mapping_of(tree: &Tree) -> BTreeMap<String, BTreeMap<String, String>> {
     }
     by_root
 }
-
-// --------------------------------------------------------------- the corpus
 
 /// The base IR and the harness's own fixtures, or a panic naming what to set.
 ///
@@ -1186,20 +1123,17 @@ struct Round<'a> {
     name: &'a str,
     /// The tree ownership diffs against and merge folds into.
     ir: PathBuf,
-    /// Where merge writes. Equal to `ir` for an in-place round.
+    /// Equal to `ir` for an in-place round.
     out: PathBuf,
     inc: Option<PathBuf>,
     removed: Option<PathBuf>,
     exclude: Option<PathBuf>,
 }
 
-/// The shape of the prototype's answers, pinned **whether or not the corpus is
-/// on this machine**, so the numbers in the report have a home.
-///
-/// Split out of [`the_corpus_matches_the_prototype`], which needs the base IR
-/// and the harness's fixtures and is therefore `#[ignore]`d: a fixture that
-/// quietly lost a round, or was taken against a different package, has to be
-/// caught on a machine that has never seen that package.
+/// The shape of the recorded answers, pinned **whether or not the corpus is on
+/// this machine**: a fixture that quietly lost a round, or was taken against a
+/// different package, has to be caught on a machine that has never seen that
+/// package.
 ///
 /// [`the_corpus_matches_the_prototype`]: the_corpus_matches_the_prototype
 #[test]
@@ -1211,14 +1145,11 @@ fn the_recorded_corpus_counts_are_pinned_without_the_corpus() {
     assert_eq!(e.value["trees"].as_object().expect("a map").len(), 9);
 }
 
-/// The whole harness, in process: nine rounds and three verifications, each file
-/// compared with the size and digest the prototype produced.
-///
-/// This is `tools/merge-compare.sh` without the shell, and it is where
-/// [`HARNESS_SCENARIOS`] is measured rather than assumed. The partial
-/// extractions come from the harness's own `fixtures/` directory, so the
-/// scenarios have exactly one definition. The fixture's own counts are pinned
-/// without the corpus by
+/// Nine rounds and three verifications, each file compared with the size and
+/// digest recorded for it. This is where [`HARNESS_AND_INDEX`] is measured
+/// rather than assumed. The partial extractions come from the harness's own
+/// `fixtures/` directory, so the scenarios have exactly one definition, and the
+/// fixture's own counts are pinned without the corpus by
 /// [`the_recorded_corpus_counts_are_pinned_without_the_corpus`].
 ///
 /// [`the_recorded_corpus_counts_are_pinned_without_the_corpus`]: the_recorded_corpus_counts_are_pinned_without_the_corpus
@@ -1376,8 +1307,8 @@ fn the_corpus_matches_the_prototype() {
 
         // The merged tree, snapshotted now: two rounds share one tree and the
         // second overwrites the first. Neither `index.json` nor `deps/*.json` is
-        // the prototype's bytes: both are the from-scratch writer's, which is
-        // what makes a merged tree a from-scratch one.
+        // the recorded bytes: both are the from-scratch writer's, which is what
+        // makes a merged tree a from-scratch one.
         let tree = Tree::open(&round.out).expect("the merged tree opens");
         e.check_diverged_index(
             &format!("{}-index.json", round.name),
@@ -1441,7 +1372,6 @@ fn the_corpus_matches_the_prototype() {
         );
     }
 
-    // The three verifications.
     for (name, a) in [
         ("same", work.path().join("rerun")),
         ("moved", work.path().join("moved")),
@@ -1458,7 +1388,6 @@ fn the_corpus_matches_the_prototype() {
         computed_files_checked += 2;
     }
 
-    // Every file of the reference tree, and no more.
     let compared = e.seen.borrow().clone();
     let in_fixture: BTreeSet<String> = e.value["files"]
         .as_object()
@@ -1474,8 +1403,8 @@ fn the_corpus_matches_the_prototype() {
     assert_eq!(module_files_checked, 3_890);
     assert_eq!(computed_files_checked, 76);
 
-    // The divergence, pinned: the port differs from the prototype on these files
-    // and on nothing else.
+    // The divergence, pinned: the recorded bytes differ on these files and on
+    // nothing else.
     let diverged = e.diverged.borrow().clone();
     assert_eq!(diverged.len(), 34);
     assert!(
@@ -1494,7 +1423,7 @@ fn the_corpus_matches_the_prototype() {
         "one merged index per round, and no more"
     );
 
-    // How [`HARNESS_AND_INDEX`] was written: measured, then transcribed.
+    // [`HARNESS_AND_INDEX`] is measured, then transcribed.
     // `LITEDOC4_DUMP_BRANCHES=1 cargo test -p litedoc4-incr --test merge` prints
     // it again when a scenario is added, so the constant stays a record of a
     // measurement rather than a guess that has to be reverse-engineered.
@@ -1539,8 +1468,8 @@ fn check_normalised(e: &Expected, section: &str, round: &str, path: &Path, drop:
     );
 }
 
-/// **The invariant M3-b bought**: an incremental tree's dependency slices are
-/// byte for byte the ones a from-scratch extraction wrote.
+/// **The invariant**: an incremental tree's dependency slices are byte for byte
+/// the ones a from-scratch extraction wrote.
 ///
 /// Stated against the real `Extract.lean` output rather than against the writer
 /// in [`lean_order_slice`], so it is the Lean side that is being matched and not
@@ -1597,25 +1526,15 @@ fn nested_json_keeps_its_key_order() {
     assert_eq!(serde_json::to_string(&value).expect("serialises"), text);
 }
 
-/// An `--out` that spells the base tree another way is still the base tree.
-///
-/// `merge` decides whether to copy the untouched modules by comparing `out`
-/// with `base`, and `Path`'s `PartialEq` compares components: `x/../x` and `x`
-/// are different paths naming one directory. Taking the copy branch there is
-/// not a wasted write, it is a destructive one — `fs::copy` opens the
-/// destination with `O_TRUNC` before it reads the source, so copying a file
-/// onto itself returns `Ok(0)` and leaves it empty【実測 2026-08-23】. The
-/// modules emptied are exactly the ones the partial extraction did not touch,
-/// and after `--out` the base tree is the only copy there was.
-/// The merged index claims the **weakest** schema under the tree, not the base's.
+/// The merged index claims the **weakest** schema under the tree, not the
+/// base's.
 ///
 /// `merge` copies the incremental module files in verbatim, so one tree can hold
 /// two extractor runs' output at once — which is why [`litedoc4_ir::IrTree`]
 /// re-checks every module file rather than trusting the index. But the index is
-/// what every *cheap* "can this be read" question asks, `litedoc4 build`'s plan
-/// among them, and a number higher than some
-/// module's is a claim that is only found false when a reader dies on that
-/// module — after the plan chose to continue.
+/// what every *cheap* "can this be read" question asks, and a number higher than
+/// some module's is a claim that is only found false when a reader dies on that
+/// module, after the caller chose to continue.
 ///
 /// The tree here is the one an older binary hands this function: it re-extracts
 /// into its own schema and merges into a tree a newer one wrote.
@@ -1731,20 +1650,16 @@ fn an_out_that_spells_the_base_differently_is_still_in_place() {
     );
 }
 
-// ------------------------------------------------------- the curated cases
-
-/// The dependency this milestone's coverage rests on, stated so that it fails
-/// when it stops being true (plan §7: 全件バイト一致は分岐被覆の証明ではない).
+/// The dependency the coverage rests on, stated so that it fails when it stops
+/// being true. Four claims, all counted rather than believed:
 ///
-/// Four claims, all counted rather than believed:
-///
-/// 1. A byte comparison of **one merged tree** reaches [`ONE_ROUND`] — 19 of the
-///    71. Every edit the pipeline exists for is invisible to it.
-/// 2. The whole harness reaches [`HARNESS_AND_INDEX`] — 48 of 71, measured in
+/// 1. A byte comparison of **one merged tree** reaches [`ONE_ROUND`]. Every edit
+///    an incremental build exists for is invisible to it.
+/// 2. The whole harness reaches [`HARNESS_AND_INDEX`], measured in
 ///    [`the_corpus_matches_the_prototype`].
-/// 3. The other 23 are reachable only by a written-down case, so every one of
+/// 3. Everything else is reachable only by a written-down case, so every one of
 ///    them is one.
-/// 4. Everything together is all 71.
+/// 4. Everything together is [`BRANCHES`].
 #[test]
 fn the_curated_cases_cover_what_the_package_does_not() {
     // (1) One round over a package shaped like the target: one module
@@ -1804,8 +1719,8 @@ fn the_curated_cases_cover_what_the_package_does_not() {
     assert_eq!(all.len(), BRANCHES.len());
 }
 
-/// The flags the pipeline always passes, the two sorts, and the shapes of a
-/// module list only a hand edit produces.
+/// The flags a real run always passes, the two sorts, and the shapes of a module
+/// list only a hand edit produces.
 fn curated_ownership_branches() -> BTreeSet<&'static str> {
     let mut covered = BTreeSet::new();
 
@@ -1875,7 +1790,7 @@ fn curated_ownership_branches() -> BTreeSet<&'static str> {
     covered.extend(fired);
 
     // An exclude list longer than the base IR: `scannedBaseModules` goes
-    // negative, as the prototype's subtraction of two unnested counts does.
+    // negative, because the two counts are not nested.
     let exclude = twice.dir.path().join("exclude.txt");
     fs::write(&exclude, "A\nB\nC\nD\nE\n").expect("writable");
     let (result, fired) = run_ownership(&OwnershipOptions {
@@ -1894,8 +1809,8 @@ fn curated_ownership_branches() -> BTreeSet<&'static str> {
     covered.extend(fired);
 
     // Two stale modules whose names are the UTF-16 pair. The set reaches
-    // `--print-set`, which the next round re-extracts, so its order is in a file
-    // (plan §7, U1) — and `𝒜` comes first, which code point order reverses.
+    // `--print-set`, which the next round re-extracts, so its order is in a
+    // file — and `𝒜` comes first, which code point order reverses.
     let astral = format!("Pkg.{ASTRAL}");
     let ligature = format!("Pkg.{LIGATURE}");
     let moved = FakeIr::new("ownership-astral");
@@ -1990,7 +1905,7 @@ fn curated_ownership_branches() -> BTreeSet<&'static str> {
     covered
 }
 
-/// The dependency slice's shapes, the index's, and the flags the pipeline always
+/// The dependency slice's shapes, the index's, and the flags a real run always
 /// passes.
 fn curated_merge_branches() -> BTreeSet<&'static str> {
     let mut covered = BTreeSet::new();
@@ -2025,8 +1940,7 @@ fn curated_merge_branches() -> BTreeSet<&'static str> {
     );
     covered.extend(fired);
 
-    // A base index with no `schemaVersion`: the slice is written without one,
-    // which is what `JSON.stringify` does with an undefined property.
+    // A base index with no `schemaVersion`: the slice is written without one.
     let bare = FakeIr::new("merge-bare-index");
     bare.write_module(&bare.base, "Pkg.A", &[decl("Pkg.a", &[("Dep.M", "Dep.x")])]);
     bare.write_index_without_schema(&bare.base, &["Pkg.A"]);
@@ -2049,8 +1963,7 @@ fn curated_merge_branches() -> BTreeSet<&'static str> {
     covered.extend(fired);
 
     // Dependency names above the BMP. Lean's writer sorts by code point, so the
-    // ligature comes **first** — the opposite of the prototype's UTF-16 order,
-    // and the whole visible content of M3-b's divergence.
+    // ligature comes **first**, which is the opposite of UTF-16 order.
     let astral = FakeIr::new("merge-astral-deps");
     let refs: Vec<(String, String)> = vec![
         ("Dep.M".to_owned(), format!("Dep.{ASTRAL}")),
@@ -2090,10 +2003,9 @@ fn curated_merge_branches() -> BTreeSet<&'static str> {
     covered.extend(fired);
 
     // Dependency **roots** above the BMP. The `dependencyMaps` array order is
-    // part of `index.json`, which this milestone writes the from-scratch way, so
-    // it follows `Extract.lean:2050` (code point order) and not the prototype's
-    // `.sort()` (UTF-16, plan §7 U1). The real roots (`Init` / `Lean` /
-    // `Mathlib`) are ASCII, where the two agree, so only a built pair shows it.
+    // part of `index.json`, written the from-scratch way, so it is code point
+    // order and not UTF-16. The real roots (`Init` / `Lean` / `Mathlib`) are
+    // ASCII, where the two agree, so only a built pair shows it.
     let roots = FakeIr::new("merge-astral-roots");
     let refs: Vec<(String, String)> = vec![
         (format!("{ASTRAL}.M"), format!("{ASTRAL}.x")),
@@ -2132,8 +2044,8 @@ fn curated_merge_branches() -> BTreeSet<&'static str> {
     );
     covered.extend(fired);
 
-    // One name owned by two modules at once: the last writer wins, as
-    // `Map.prototype.set` does. The modules are visited in index order.
+    // One name owned by two modules at once: the last writer wins, and the
+    // modules are visited in index order.
     let clash = FakeIr::new("merge-clash");
     clash.write_module(
         &clash.base,
@@ -2250,12 +2162,8 @@ fn curated_merge_branches() -> BTreeSet<&'static str> {
     covered
 }
 
-/// `--modules` (M3-d2b): the list orders the index, and a list that does not
-/// describe the merged tree is refused.
-///
-/// A case of its own rather than more of [`curated_merge_branches`], because it
-/// is the one flag here that the prototype offers and never reads — so what it
-/// does is this port's own claim, and the claim is worth a name.
+/// The list orders the index, and a list that does not describe the merged tree
+/// is refused.
 #[test]
 fn the_module_list_orders_the_index_or_is_refused() {
     curated_module_list_branches();
@@ -2389,7 +2297,7 @@ fn curated_module_list_branches() -> BTreeSet<&'static str> {
 
     // The other direction: a module in the merged tree the list does not name.
     // Following it would append that one, which is exactly the divergence from a
-    // from-scratch extraction M3-d2b removed.
+    // from-scratch extraction the list exists to remove.
     let stale = FakeIr::target_shaped("merge-modules-stale-list");
     let before = tree_bytes(&stale.base);
     let listed = ["Pkg.B".to_owned()];
@@ -2495,8 +2403,6 @@ fn curated_verify_branches() -> BTreeSet<&'static str> {
     covered
 }
 
-// -------------------------------------------------------------- the fake IR
-
 /// A synthetic IR tree pair: a `base` and an `inc`, both schema 5.
 struct FakeIr {
     dir: TempDir,
@@ -2541,7 +2447,7 @@ impl FakeIr {
     }
 
     /// One round, observed: `ownership` then `merge`, in place, with every
-    /// output file the pipeline asks for.
+    /// output file a real run asks for.
     fn one_round(&self) -> BTreeSet<&'static str> {
         let mut fired = BTreeSet::new();
         let stale = self.dir.path().join("stale.txt");
@@ -2562,8 +2468,8 @@ impl FakeIr {
             base: &self.base,
             inc: Some(&self.inc),
             out: &self.base,
-            // The common round has no deletion at all: `incremental.sh` passes
-            // `--remove` only in the first round, and only when something went.
+            // The common round has no deletion at all: `--remove` is passed
+            // only in the first round, and only when something went.
             removed: &[],
             modules: None,
             changed_out: Some(&changed),
