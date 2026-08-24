@@ -1,28 +1,10 @@
-//! The run: an IR tree in, the whole-package artifacts out — plus, since M2-b,
-//! the `contentHash` cache, the map delta and the timings record.
+//! The run: an IR tree in, the whole-package artifacts out, plus the
+//! `contentHash` cache, the map delta and the timings record.
 //!
-//! Ported from `experiments/stage7h/global.ts:238-467` (frozen). The phases and
-//! their boundaries are the prototype's, in its order:
-//!
-//! ```text
-//! open index -> State::load -> facts_for -> derive+write files -> delta -> State::save -> timings
-//!               t_state        t_read       t_write               t_delta   t_save
-//! ```
-//!
-//! # The cache attaches at exactly one place
-//!
-//! [`facts_for`] is the only place a module's IR becomes [`ModuleFacts`], which
-//! is why plan §3 asked for it before there was a cache to put in it. Its body
-//! grew a hash test and its signature grew the cache and the hit/miss counts;
-//! nothing downstream of [`ModuleFacts`] moved, and the artifacts were byte for
-//! byte what M2-a produced. (M8-d changed *which* artifacts there are — see
-//! [`crate::artifacts`] — but not this seam.)
-//!
-//! # Without `--state` this is still the from-scratch build
-//!
-//! Not a fallback — the program the prototype's own oracle compares the cached
-//! run against, and it has to be the same program. `tests/state_and_delta.rs`
-//! makes that comparison over seven IR states.
+//! **Without `--state` this is not a fallback path, it is the same program.**
+//! `tests/state_and_delta.rs` compares a cached run against a from-scratch one
+//! over seven IR states, which is only a comparison while the two share this
+//! code.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -39,13 +21,12 @@ use crate::delta::{Delta, DeltaTimings};
 use crate::facts::ModuleFacts;
 use crate::state::State;
 
-/// What a run needs to know that the IR does not carry.
 #[derive(Clone, Copy, Debug)]
 pub struct GlobalOptions<'a> {
     /// The IR tree: `index.json`, `modules/`, `deps/`.
     pub ir: &'a Path,
-    /// The site root. `declarations/` is created under it for the name map; the
-    /// other six artifacts sit directly in it, next to the module pages.
+    /// The site root, next to the module pages. `declarations/` is created under
+    /// it for the name map.
     pub out: &'a Path,
     /// `--state <dir>`: where the `contentHash` cache lives. `None` reads every
     /// module, which is the from-scratch build.
@@ -61,12 +42,10 @@ pub struct GlobalOptions<'a> {
     pub delta_json: Option<&'a Path>,
     /// `--timings <p>`: one JSON line of counts and durations.
     pub timings: Option<&'a Path>,
-    /// What `<root>/litedoc4.toml` said, already read (feature-sweep C-3).
-    ///
-    /// `index.html` is written here and by nothing else, so this is where the
-    /// configured title and the configured intro reach a page. A borrow rather
-    /// than a path for the reason [`litedoc4_render::RenderOptions::config`]
-    /// gives: one reader, several commands.
+    /// What `<root>/litedoc4.toml` said, already read. `index.html` is written
+    /// here and by nothing else, so this is where the configured title and
+    /// intro reach a page. A borrow rather than a path so that several commands
+    /// share one reader.
     pub config: &'a SiteConfig,
 }
 
@@ -87,33 +66,24 @@ impl<'a> GlobalOptions<'a> {
     }
 }
 
-/// What a run did, in the units its inputs are counted in.
-///
-/// The prototype prints the same numbers, so the two runs can be put side by
-/// side without re-deriving anything. No durations: they are in the timings
-/// file, they are not comparable between runs, and keeping them out is what
-/// lets this type be compared with `==`.
+/// What a run did, in the units its inputs are counted in. **No durations** —
+/// they live in the timings file, they are not comparable between runs, and
+/// keeping them out is what lets this type be compared with `==`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GlobalSummary {
     pub modules: usize,
-    /// Distinct declaration names, i.e. the size of `declarations`.
+    /// Distinct declaration names.
     pub declarations: usize,
     pub dependency_names: usize,
     pub instance_classes: usize,
-    /// Keys of `instances.json`'s `instancesFor` (M8-d; search-v2 P0 moved the
-    /// two instance maps out of the search index).
+    /// Keys of `instances.json`'s `instancesFor`.
     pub instance_types: usize,
-    /// Keys of `declarations/used-by.json` (C-2) — the third derived map, and
-    /// the only one this summary did not report the size of.
+    /// Keys of `declarations/used-by.json`.
     pub used_by_targets: usize,
     /// Names listed across that file, after the per-key deduplication it is
     /// written with. **Not** the number of references the IR holds — see
     /// [`crate::artifacts::Counts::used_by_edges`].
     pub used_by_edges: usize,
-    /// Tactic docstrings declared by the package. `tactics.html` is gone
-    /// (M8-d) and nothing renders this any more, but it is still a fact about
-    /// the package, it is still in [`crate::facts::ModuleFacts`], and it is
-    /// still 0 on the target 【実測】.
     pub tactic_docs: usize,
     pub name_map_bytes: usize,
     pub modules_json_bytes: usize,
@@ -137,17 +107,15 @@ pub struct FactsRun {
     pub cache_misses: usize,
 }
 
-/// Derives the facts of every module of the IR, in index order, reading only
-/// the modules the cache cannot answer for.
+/// Derives the facts of every module of the IR, reading only the modules the
+/// cache cannot answer for. Pass [`State::empty`] for the from-scratch build.
 ///
-/// **The one funnel** — see the module heading. Index order is not incidental:
-/// [`Artifacts::derive`] resolves a duplicated declaration name in favour of the
-/// later module.
-///
-/// The hit test is `cached.content_hash == entry.content_hash` and nothing else.
-/// The hash is the extractor's `String.hash` of the module JSON, the same value
-/// `merge-ir.ts` uses to decide which pages are stale: equal hash, equal bytes,
-/// equal facts. Pass [`State::empty`] for the from-scratch build.
+/// **The one place a module's IR becomes [`ModuleFacts`]**, and index order is
+/// not incidental: [`Artifacts::derive`] resolves a duplicated declaration name
+/// in favour of the later module. The hit test is
+/// `cached.content_hash == entry.content_hash` and nothing else — the hash is
+/// the extractor's `String.hash` of the module JSON, so equal hash is equal
+/// bytes is equal facts.
 pub fn facts_for(tree: &IrTree, cached: &State) -> Result<FactsRun, litedoc4_ir::Error> {
     let mut run = FactsRun {
         facts: Vec::with_capacity(tree.index().modules.len()),
@@ -170,8 +138,6 @@ pub fn facts_for(tree: &IrTree, cached: &State) -> Result<FactsRun, litedoc4_ir:
     Ok(run)
 }
 
-/// Reads the IR, derives the whole-package artifacts, writes them, and — when
-/// asked — updates the cache and reports the map delta.
 pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error> {
     let started = Instant::now();
     let tree = IrTree::open(options.ir)?;
@@ -182,14 +148,12 @@ pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error>
     let read = started.elapsed();
 
     let dep_maps = tree.load_dep_maps()?;
-    // The intro is Markdown in the package, rendered here because this is the
-    // only stage that writes the page it goes on.
-    //
-    // **With no link resolver.** A name in a package's own index page is prose
-    // until something can say where it lives, and the answer for a name from a
-    // dependency needs the map that `render` holds and this stage does not. A
-    // code span that stays a code span is right; a link to a page nobody wrote
-    // is the failure M8's UI-2 measured 160 of.
+    // Rendered here because this is the only stage that writes the page the
+    // intro goes on, and **with no link resolver**: a name in a package's own
+    // index page is prose until something can say where it lives, and the answer
+    // for a dependency's name needs a map `render` holds and this stage does
+    // not. A code span that stays a code span is right; a link to a page nobody
+    // wrote is not.
     let intro = options.config.index_markdown.as_deref().map(|markdown| {
         litedoc4_md::Renderer::new("./", &litedoc4_md::NoLinks).docstring(markdown)
     });
@@ -210,9 +174,6 @@ pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error>
     }
     let written = started.elapsed();
 
-    // The prototype's `diffSeconds` covers the read of `before` and the key
-    // comparison, `scanSeconds` the token scan. Diagnostics either way — see
-    // `Delta::to_json`.
     let mut split = DeltaTimings::default();
     let delta = match options.before {
         None => None,
@@ -222,8 +183,8 @@ pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error>
             let diffed = started.elapsed();
             let delta = Delta::scan(before.len(), artifacts.name_map.len(), changed, &run.facts);
             let scanned = started.elapsed();
-            // `saturating_sub` rather than `-` throughout the timings: these are
-            // stage boundaries read off one `Instant`, so the later one is later
+            // `saturating_sub` rather than `-` throughout the timings: these
+            // are stage boundaries off one `Instant`, so the later one is later
             // by construction — but `Duration - Duration` panics if it ever is
             // not, and a run that dies while reporting how long it took is a
             // worse failure than a zero in a field.
@@ -246,11 +207,9 @@ pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error>
     let state_bytes = State::save(options.state, tree.index(), &run.facts)?;
     let total = started.elapsed();
 
-    // Reported by the derivation rather than recounted from the facts. Up to
-    // M7 these were read back out of `declaration-data.bmp` — a summary that
-    // counts the inputs again can disagree with the file it is reporting on —
-    // and M8-d deleted that file, so [`Artifacts::derive`] counts as it builds
-    // and `artifacts::tests::the_counts_are_what_the_files_hold` is what keeps
+    // Counted by the derivation as it builds, never recounted from the facts: a
+    // summary that counts the inputs again can disagree with the file it is
+    // reporting on. `artifacts::tests::the_counts_are_what_the_files_hold` keeps
     // the numbers and the JSON in step.
     let counts = artifacts.counts;
 
@@ -273,10 +232,8 @@ pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error>
     };
 
     if let Some(path) = options.timings {
-        // Same phase boundaries as the prototype's, so the two records
-        // subtract. `readSeconds` covers the state load *and* the modules that
-        // missed: together they are what a from-scratch run spends reading all
-        // of them.
+        // `readSeconds` covers the state load *and* the modules that missed:
+        // together they are what a from-scratch run spends reading all of them.
         let record = TimingsRecord {
             command: "build",
             state: if options.state.is_some() { "on" } else { "off" },
@@ -316,11 +273,9 @@ pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error>
     Ok(summary)
 }
 
-/// A `name -> module` map as `name-map.json` holds it.
-///
-/// Loudly, unlike [`State::load`]: `--before` names a file the caller believes
-/// in, and a delta computed against an unreadable map would report every name
-/// in the package as changed.
+/// Fails loudly, unlike [`State::load`]: `--before` names a file the caller
+/// believes in, and a delta computed against an unreadable map would report
+/// every name in the package as changed.
 fn read_name_map(path: &Path) -> Result<BTreeMap<String, String>, Error> {
     let text = fs::read_to_string(path).map_err(|source| Error::Io {
         path: path.to_owned(),
@@ -345,18 +300,14 @@ fn write(path: &Path, body: &str) -> Result<(), Error> {
     })
 }
 
-/// The `--timings` record. Key order is the prototype's object literal — with
-/// `bmpBytes` replaced by the two files that took `declaration-data.bmp`'s place
-/// (M8-d) — and the durations in it are **diagnostics**: they are wall clock,
-/// they differ between runs, and no test may assert on them. What the oracle
-/// reads out of this file is `cacheHits` and `cacheMisses`.
+/// The `--timings` record. The durations in it are **diagnostics** — wall clock,
+/// different every run, and no test may assert on them; what is read back out of
+/// this file is `cacheHits` and `cacheMisses`.
 ///
-/// C-2's two used-by counts are **appended after `delta`**, not filed with the
-/// counts they belong with, so that everything before them is still the
-/// prototype's literal in the prototype's order. That is the rule
-/// [`crate::facts::ModuleFacts`]'s `instances_for` follows in the state file:
-/// the prototype's keys, then the new ones, so the two files can still be read
-/// against each other key by key.
+/// The two used-by counts are **appended after `delta`** rather than filed with
+/// the counts they belong with, so that everything before them is still the
+/// prototype's key order and the two records can be read against each other key
+/// by key. Same rule as [`crate::facts::ModuleFacts`] in the state file.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TimingsRecord<'a> {
@@ -396,7 +347,6 @@ struct TimingsDelta {
     scan_seconds: f64,
 }
 
-/// Why a run stopped.
 #[derive(Debug)]
 pub enum Error {
     Ir(litedoc4_ir::Error),
@@ -404,7 +354,6 @@ pub enum Error {
         path: PathBuf,
         source: io::Error,
     },
-    /// A file this crate reads rather than writes — today only `--before`.
     Json {
         path: PathBuf,
         source: serde_json::Error,

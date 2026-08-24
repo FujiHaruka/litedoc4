@@ -1,17 +1,12 @@
 //! `search-index.bin` — every declaration the package documents, as bytes.
 //!
-//! The measurements this design rests on are
-//! `benchmarks/results/search-design-2026-08-19.txt`. The short version: the
-//! JSON this replaces cost **860 KiB of JS heap for a 405,402 B file, and 1,651
-//! KiB at the peak** because `response.json()` has to materialise the body as a
-//! string before parsing it【実測】. This file is read with `arrayBuffer()` and
-//! searched in place, so what the page holds is the file.
-//!
-//! **It is not faster.** At 4,584 declarations the scan is 0.65 ms either way
-//! and the debounce is 90 ms【実測】. What changes is memory, and the headroom
-//! for a package with more declarations than this one.
-//!
-//! # The layout
+//! **The point is memory, not speed.** The JSON this replaces cost 860 KiB of JS
+//! heap for a 405,402 B file and 1,651 KiB at the peak, because
+//! `response.json()` has to materialise the body as a string before parsing it;
+//! this file is read with `arrayBuffer()` and searched in place, so what the
+//! page holds is the file. The scan itself is 0.65 ms either way at 4,584
+//! declarations, against a 90 ms debounce 【実測 2026-08-19 →
+//! `benchmarks/results/search-design-2026-08-19.txt`】.
 //!
 //! All integers are little-endian and unaligned-safe: the reader assembles them
 //! byte by byte, so no section needs padding and no platform needs to agree
@@ -30,34 +25,26 @@
 //! 44  fold_off/len        u32 u32
 //! ```
 //!
-//! ## Names are front-coded
+//! Names are front-coded: each is `(shared u8, suffix_len u8, suffix bytes)`
+//! against the one before it, restarting every [`RESTART`] declarations so that
+//! one declaration can be decoded without reading the file from the start.
+//! Sorted Lean names share long prefixes — 285,148 B of names became 93,497
+//! 【実測、平均共有 46.7 文字】. **The order is load-bearing**: the search sorts
+//! equal-scoring hits by their position here, so a different order is a
+//! different result list.
 //!
-//! Each name is `(shared u8, suffix_len u8, suffix bytes)` against the one
-//! before it, restarting every [`RESTART`] declarations so that a single
-//! declaration can be decoded without reading the file from the start. The
-//! order is the JSON's — UTF-16 code unit order over the original names — and
-//! **that is load-bearing**: the search sorts equal-scoring hits by their
-//! position here, so a different order is a different result list.
-//!
-//! Sorted Lean names share long prefixes: 285,148 B of names became 93,497
-//! 【実測、平均共有 46.7 文字】.
-//!
-//! A `suffix_len` of 255 means the real length follows as a u16 — the escape
+//! A `suffix_len` of 255 means the real length follows as a u16. The escape
 //! exists because a name longer than 254 bytes is possible even though the
 //! measured corpus stops at 129, and **an encoder that truncated one would
 //! produce a site whose search silently disagrees with its pages**. `shared` is
 //! capped at 254 instead, which only costs compression.
 //!
-//! ## Case folding, and the exceptions to it
-//!
-//! The search is case-insensitive, and the reader folds ASCII by adding 32 to
-//! `A`..=`Z`. For the measured corpus that is exactly `toLowerCase()` — **0 of
-//! 4,584 names differ**【実測】 — but a package with `Γ` in a name would, so the
-//! encoder compares the two per name and writes the ones that disagree into the
-//! fold section. The reader substitutes them. `0 entries` is the common case
-//! and costs 4 bytes.
+//! The search is case-insensitive and the reader folds ASCII by adding 32 to
+//! `A`..=`Z`, which for the measured corpus is exactly `toLowerCase()` — but a
+//! package with `Γ` in a name would differ, so the encoder compares the two per
+//! name and writes the ones that disagree into the fold section for the reader
+//! to substitute. No exceptions is the common case and costs 4 bytes.
 
-/// The first four bytes of the file.
 pub const MAGIC: [u8; 4] = *b"LD4S";
 /// Bumped when a reader that does not know the change would be wrong.
 pub const VERSION: u32 = 2;
@@ -68,7 +55,6 @@ pub const HEADER_BYTES: usize = 52;
 /// A `suffix_len` of this value means the real length follows as a u16.
 pub const LONG_SUFFIX: u8 = 255;
 
-/// One declaration, as the index carries it.
 #[derive(Clone, Copy, Debug)]
 pub struct Entry<'a> {
     pub name: &'a str,
@@ -112,34 +98,20 @@ fn ascii_fold(name: &str) -> String {
         .collect()
 }
 
-/// Serialises the index.
-///
 /// `entries` must already be in the order the site wants them ranked in;
 /// nothing here sorts. `kinds` are the badge labels the subscripts point at.
 ///
 /// # Panics
 ///
-/// On a package this format cannot hold. Every limit below is a field width of
-/// `search-index.bin` — they are the module heading's layout read as
-/// constraints — so breaking one says "this package is larger than the file can
-/// describe", not "the input is malformed". That is why they are assertions:
-/// there is no partial index to hand back, and truncating one name silently
-/// would be a search that disagrees with the pages it links to.
-///
-/// | limit | the field whose width it is |
-/// |---|---|
-/// | at most 255 kind labels, and every [`Entry::kind`] under 256 | `kind_of`, one byte per declaration |
-/// | every kind label under 256 bytes | the label's own length byte |
-/// | fewer than 65,536 modules | the module column, one u16 per declaration |
-/// | every name, and its `to_lowercase()`, under 64 KiB | the long-suffix escape and the fold section's length |
-/// | fewer than 2^32 declarations | `count`, and the subscripts in the fold section |
-/// | the file itself under 4 GiB | every offset and length in the 52-byte header |
-///
-/// **The nearest of them is the module column**, and it is an eighth of the way
-/// off: Mathlib entire is 8,169 modules 【実測 →
-/// `benchmarks/results/mathlib-scale-summary.txt`】.
-/// [`decode`] does not panic for any of this — it answers a different question,
-/// "are these bytes such a file", and says `None` when they are not.
+/// On a package this format cannot hold. Every limit asserted below is one of
+/// the layout's field widths, so breaking one says "this package is larger than
+/// the file can describe", not "the input is malformed" — and it is an assertion
+/// rather than an error because there is no partial index worth handing back and
+/// a silently truncated name is a search that disagrees with the pages it links
+/// to. The nearest limit is the module column's u16, an eighth of the way off:
+/// Mathlib entire is 8,169 modules 【実測 →
+/// `benchmarks/results/mathlib-scale-summary.txt`】. [`decode`] panics for none
+/// of this — it answers "are these bytes such a file" with `None`.
 #[must_use]
 pub fn encode(entries: &[Entry<'_>], kinds: &[&str]) -> Vec<u8> {
     assert!(
@@ -257,7 +229,6 @@ pub fn encode(entries: &[Entry<'_>], kinds: &[&str]) -> Vec<u8> {
     out
 }
 
-/// What [`decode`] hands back: the four parallel arrays the file holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decoded {
     /// Declaration names, in the file's order — which is the site's ranking
@@ -265,7 +236,6 @@ pub struct Decoded {
     pub names: Vec<String>,
     /// The kind vocabulary, indexed by [`Decoded::kind_of`].
     pub labels: Vec<String>,
-    /// One kind subscript per declaration.
     pub kind_of: Vec<usize>,
     /// One `modules.json` subscript per declaration.
     pub modules: Vec<usize>,
@@ -273,15 +243,12 @@ pub struct Decoded {
 
 /// Reads a file [`encode`] wrote, or `None` if it is not one.
 ///
-/// **This is not what decides the format.** A reader beside its writer agrees
-/// with it by construction; what decides it is `tools/search-gate.sh`, where
-/// the site's own `app.js` and a third implementation in Python read the same
-/// bytes and are held against `declarations/name-map.json`. This exists so that
-/// tests and tools can say what the bytes mean without a browser.
-///
-/// Every read is bounds-checked: a truncated or corrupt file returns `None`
-/// rather than panicking, because the callers that matter are checking whether
-/// a file is well-formed.
+/// **This is not what decides the format** — a reader beside its writer agrees
+/// with it by construction. What decides it is the gate where the site's own
+/// `app.js` reads the same bytes and is held against
+/// `declarations/name-map.json`; this exists so that tests and tools can say
+/// what the bytes mean without a browser. Every read is bounds-checked, because
+/// the callers that matter are asking whether a file is well-formed.
 #[must_use]
 #[expect(
     clippy::missing_panics_doc,
@@ -394,9 +361,8 @@ mod tests {
         assert_eq!(back.modules, (0..names.len()).collect::<Vec<_>>());
     }
 
-    /// The block boundary is where front coding is easiest to get wrong: the
-    /// 17th name shares everything with the 16th and still has to be written
-    /// out whole.
+    /// The 17th name shares everything with the 16th and still has to be
+    /// written out whole.
     #[test]
     fn every_restart_block_stands_alone() {
         let names: Vec<String> = (0..40)
@@ -417,8 +383,8 @@ mod tests {
         );
     }
 
-    /// 254 bytes is where the one-byte length runs out. A name that long is not
-    /// in the measured corpus (129 B is), which is exactly why it is here.
+    /// 254 bytes is where the one-byte length runs out. No name in the measured
+    /// corpus is that long, which is exactly why this is here.
     #[test]
     fn a_name_longer_than_the_short_length_survives() {
         let long = format!("Pkg.{}", "x".repeat(400));
@@ -430,7 +396,6 @@ mod tests {
         );
     }
 
-    /// The fold section, and the fact that it is empty for ASCII.
     #[test]
     fn only_the_names_ascii_folding_is_wrong_for_are_carried() {
         let plain = encode(&entries(&["Pkg.Abc", "Pkg.dEF"]), &["def"]);

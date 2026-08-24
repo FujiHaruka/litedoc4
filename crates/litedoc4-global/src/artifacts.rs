@@ -1,69 +1,26 @@
 //! The whole-package artifacts, derived from [`ModuleFacts`].
 //!
-//! ```text
-//! declarations/name-map.json  name -> module, flat, declarations and dependencies merged
-//! index.html                  the front page: the package, its size, every module
-//! 404.html                    what GitHub Pages serves for anything else
-//! search.html                 where the top bar's form submits
-//! foundational_types.html     what every `Sort` in every signature links to
-//! modules.json                every module, its page, and what imports it
-//! search-index.bin            every declaration, and the kind vocabulary
-//! instances.json              the two instance maps
-//! declarations/used-by.json   every declaration, and what refers to it (C-2)
-//! ```
+//! **How many there are is [`ARTIFACT_PATHS`]'s answer.** A tenth needs a line in
+//! three places: that array, [`Artifacts::files`] and [`Artifacts::derive`].
 //!
-//! **The count is [`ARTIFACT_PATHS`]'s, and it is nine.** A tenth needs a line
-//! in three places — that array, [`Artifacts::files`] and [`derive`] — so this
-//! list has to be read against it rather than instead of it.
+//! `declarations/name-map.json` is the one with nothing to do with the UI — the
+//! incremental pipeline reads it back as `--before` to compute the map delta, so
+//! dropping it would leave the delta comparing the new map with nothing and
+//! silently re-rendering too little.
 //!
-//! # M8-d removed five files and their reader in the same step
+//! **Every sort here goes through [`cmp_utf16`]**, including in the files
+//! nothing compares against anything: `Vec<String>::sort()` is UTF-8 byte order,
+//! which agrees with UTF-16 throughout the BMP and inverts at U+10000 — `𝒜`
+//! (U+1D49C) sorts *below* `ﬀ` (U+FB00) in UTF-16 and above it by code point —
+//! and a site with two orders in it is a site whose order is nobody's.
 //!
-//! Up to M7 this module wrote six artifacts, transcribed from
-//! `experiments/stage7h/global.ts:277-361` (frozen) because the acceptance
-//! oracle was byte equality with doc-gen4's own build. Five of the six existed
-//! **only** for doc-gen4's six JavaScript files, and M8-c replaced those with
-//! `litedoc4-render`'s `web/src`, so the files went with their reader:
-//!
-//! | | why it is gone |
-//! |---|---|
-//! | `declarations/declaration-data.bmp` | 1,216,017 B【実測】read by `search.js` / `declaration-data.js` and nothing else — **and already broken**: it never carried `instancesFor` or `modules[].url`, so the deployed site's Instances For (245 pages) and Imported By (432 pages) did nothing【実測 2026-08-16】 |
-//! | `navbar.html` | 57,949 B【実測】for an `<iframe>` nav that 決定 4 replaced with `modules.json` |
-//! | `tactics.html` | one sentence with two counts in it; this package declares **0** tactics【実測】 |
-//! | `references.bib` | always empty — written so that a link to it was not a 404, and the link is gone |
-//! | `references.html` | constant HTML, same link |
-//!
-//! **`declarations/name-map.json` stays**, and it is the one that has nothing to
-//! do with the UI: the incremental pipeline reads it back as `--before` to
-//! compute the whole-package map delta (M2-b). Deleting it would leave the delta
-//! comparing the new map with nothing and silently re-rendering too little.
-//!
-//! So the byte-reproduction denominator moves with the file list: **432 pages +
-//! 6 artifacts = 438** was M6's, M8-d's is **432 pages + 7 artifacts = 439**,
-//! and splitting `instances.json` out of the search index makes it
-//! **432 + 8 = 440** (plus the 3 static assets, which
-//! have never been in it — `tools/build-gate.sh` counts a tree that does have
-//! them, which is why its number is 443 and not 440). The old numbers are not
-//! retroactively corrected — each is what that milestone actually shipped.
-//!
-//! # Every sort here is UTF-16 (plan §7, U1)
-//!
-//! The prototype sorts with an argument-less `Array.prototype.sort()`, and the
-//! bytes of `name-map.json` are that order. `Vec<String>::sort()` is UTF-8 byte
-//! order, which agrees with it throughout the BMP and inverts at U+10000: `𝒜`
-//! (U+1D49C) sorts *below* `ﬀ` (U+FB00) in UTF-16 and above it by code point. So
-//! every sort goes through [`cmp_utf16`], including the ones in the new files —
-//! not because anything compares them with the prototype, but because a site
-//! with two orders in it is a site whose order is nobody's.
-//!
-//! # `serde_json`'s `preserve_order` is load-bearing
-//!
-//! Every JSON object here is built by inserting into a `Map` in explicitly
-//! sorted order. A `BTreeMap` would re-sort — by code point, undoing the
-//! paragraph above — and `name-map.json` would additionally lose the
-//! interleaving of declaration and dependency names. The feature is set on the
-//! workspace dependency; this module's `preserve_order_is_enabled` test fails if
-//! it is ever dropped as unused. (Not a link: `#[cfg(test)]` items are invisible
-//! to rustdoc.)
+//! **`serde_json`'s `preserve_order` is load-bearing**: every JSON object here
+//! is built by inserting into a `Map` in explicitly sorted order, and a
+//! `BTreeMap` would re-sort by code point, undoing the paragraph above and
+//! losing `name-map.json`'s interleaving of declaration and dependency names.
+//! The feature is set on the workspace dependency, and the
+//! `preserve_order_is_enabled` test fails if it is ever dropped as unused. (Not
+//! a link: `#[cfg(test)]` items are invisible to rustdoc.)
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -75,28 +32,21 @@ use crate::entry;
 use crate::facts::ModuleFacts;
 use crate::search_index;
 
-/// The renderer's path rule: dots become directory separators.
+/// The renderer's path rule: dots become directory separators, and the result is
+/// a **URL** path, so the separator is `/` on every platform.
 ///
-/// This crate's name for [`litedoc4_ir::page_path`], and a wrapper rather than
-/// a second spelling because a disagreement here is not a wrong file but
-/// `declaration-data.bmp` pointing at pages that were never written — 4,750
-/// dead links that no byte comparison of either side notices.
-///
-/// A URL path, so the separator is `/` on every platform.
-/// `litedoc4_render::page_path` returns a `PathBuf` for the filesystem side of
-/// the same rule and `litedoc4_incr::page_of` is what deletes what it wrote;
-/// `crates/litedoc4/tests/page_paths.rs` is the one place all three are
-/// compared.
+/// A wrapper around [`litedoc4_ir::page_path`] rather than a second spelling of
+/// it, because a disagreement here is not a wrong file but an index pointing at
+/// pages that were never written — thousands of dead links that no byte
+/// comparison of either side notices.
 #[must_use]
 pub fn page_path(module: &str) -> String {
     litedoc4_ir::page_path(module)
 }
 
-/// The nine files, as bytes, before anything is written.
-///
 /// Held in memory rather than streamed: the largest is a few hundred kilobytes
-/// on the target package【実測】, and having them as values is what lets the
-/// tests compare them without a filesystem.
+/// 【実測】, and having them as values is what lets the tests compare them
+/// without a filesystem.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Artifacts {
     pub name_map_json: String,
@@ -106,59 +56,45 @@ pub struct Artifacts {
     pub foundational_types_html: String,
     /// What `app.js` draws the module tree and the "Imported by" block from.
     /// Fetched on **every** page, so it carries names and indices and nothing
-    /// else (決定 4).
+    /// else.
     pub modules_json: String,
-    /// What `app.js` searches. Fetched on the first keystroke, never before
-    /// (決定 5). Carries the declarations and the kind vocabulary and nothing
-    /// else — module names come from [`Artifacts::modules_json`], which is
-    /// already on the page.
-    ///
-    /// Bytes rather than JSON: see
-    /// [`crate::search_index`] for the layout and for why.
+    /// What `app.js` searches, fetched on the first keystroke and never before.
+    /// Carries the declarations and the kind vocabulary and nothing else —
+    /// module names come from [`Artifacts::modules_json`], which is already on
+    /// the page. Bytes rather than JSON: [`crate::search_index`] has the layout
+    /// and the reason.
     pub search_index_bin: Vec<u8>,
     /// The two instance maps, fetched only when a reader opens one of the two
-    /// `<details>` blocks. Split off from the search index.
+    /// `<details>` blocks.
     pub instances_json: String,
-    /// **Which declarations of this package mention each of its declarations**
-    /// — doc-gen4 #77 / #63.
+    /// **Which declarations of this package mention each of its declarations.**
     ///
-    /// Fetched only when a reader opens a `Used by` block, for the same reason
-    /// the instance maps are a file of their own: it is the largest artifact
-    /// here (730 KB on the target【実測 2026-08-22】) and most readers never
-    /// open one.
+    /// A file of its own, fetched only when a reader opens a `Used by` block,
+    /// for the reason the instance maps are: it is the largest artifact here
+    /// (730 KB on the target 【実測 2026-08-22】) and most readers never open
+    /// one.
     ///
-    /// Names that this package does not declare are **not** keys: a reference
-    /// into Mathlib has users here, but this package cannot know how many, so
+    /// Names this package does not declare are **not** keys: a reference into
+    /// Mathlib has users here, but this package cannot know how many, so
     /// answering "used by 3" for it would be a wrong number rather than a
     /// partial one.
     pub used_by_json: String,
-    /// The same `name -> module` map [`Artifacts::name_map_json`] is the
-    /// serialisation of, as data.
+    /// The delta's `after` side — the same map [`Artifacts::name_map_json`] is
+    /// the serialisation of, kept rather than read back off disk.
     ///
-    /// This is the delta's `after` side. The prototype's stage 5 read
-    /// `name-map.json` back off disk because the delta was a second process, and
-    /// says so: doing that here "would be the only way to get a *different*
-    /// answer" than the map just written. A `BTreeMap` rather than an ordered
-    /// one because nothing reads it in order — [`crate::delta::Delta`] wants
-    /// membership and lookup, and does its own UTF-16 sorting on the way out.
+    /// A `BTreeMap` rather than an ordered one because nothing reads it in
+    /// order: [`crate::delta::Delta`] wants membership and lookup, and does its
+    /// own UTF-16 sorting on the way out.
     pub name_map: BTreeMap<String, String>,
     pub counts: Counts,
 }
 
 /// What the derivation counted on its way through, for [`crate::GlobalSummary`].
 ///
-/// **These used to be read back out of `declaration-data.bmp`** — the summary
-/// parsed the file it had just written rather than recounting its inputs, so
-/// that a number quoted in a document could not disagree with the file it was
-/// about. That file is gone, so the derivation reports its own sizes instead and
-/// this module's `the_counts_are_what_the_files_hold` test is what keeps the two
-/// honest.
-///
-/// **That test destructures this struct**, so a field added here with no file to
-/// hold it against does not compile. It is spelled that way because the version
-/// that read `counts.declarations` and three siblings by name stayed green
-/// through C-2, which added the two `used_by` fields: a test that lists what it
-/// checks says nothing about what it does not.
+/// `the_counts_are_what_the_files_hold` holds these against the files they are
+/// about, and **it destructures this struct**, so a field added here with no
+/// file to hold it against does not compile. A test that reads the fields it
+/// checks by name says nothing about the ones it does not.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Counts {
     /// Distinct declaration names in the package.
@@ -169,8 +105,7 @@ pub struct Counts {
     pub instance_classes: usize,
     /// Keys of `instances.json`'s `instancesFor`.
     pub instance_types: usize,
-    /// Keys of `declarations/used-by.json` — declarations of this package that
-    /// at least one other declaration of this package mentions.
+    /// Keys of `declarations/used-by.json`.
     pub used_by_targets: usize,
     /// Pairs in it. **Not** the number of references the IR holds: a reference
     /// into a dependency has no key here, and the target package's 54,424
@@ -178,8 +113,6 @@ pub struct Counts {
     pub used_by_edges: usize,
 }
 
-/// The order the artifacts are listed and written in, and the paths they take
-/// under the site root.
 pub const ARTIFACT_PATHS: [&str; 9] = [
     "declarations/name-map.json",
     "index.html",
@@ -193,9 +126,6 @@ pub const ARTIFACT_PATHS: [&str; 9] = [
 ];
 
 impl Artifacts {
-    /// Derives all nine from the facts of every module, in index order, and
-    /// the dependency slices, in index order.
-    ///
     /// **Index order is behaviour, twice.** Two modules declaring the same name
     /// leave the later one in the map, and a module's importer list is built in
     /// it (before being sorted). Passing the facts in any other order is a
@@ -208,7 +138,7 @@ impl Artifacts {
         intro: Option<&str>,
     ) -> Self {
         // name -> (module, kind). Last writer wins, which is why this is fed in
-        // index order; `render.ts` resolves the same collision the same way.
+        // index order.
         let mut name_map: HashMap<&str, (&str, &str)> = HashMap::new();
         let mut instances: HashMap<&str, Vec<&str>> = HashMap::new();
         let mut instances_for: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -238,9 +168,9 @@ impl Artifacts {
         }
 
         // The module array both files index into. One order, computed once:
-        // `modules.json`'s `i` and `search-index.bin`'s module column
-        // (`module_off`, one u16 per declaration) are subscripts into it, and
-        // two orders would be two different files agreeing by accident.
+        // `modules.json`'s `i` and `search-index.bin`'s module column are
+        // subscripts into it, and two orders would be two files agreeing by
+        // accident.
         let own_sorted = sorted(own.iter().copied());
         let pages: Vec<(&str, String)> = own_sorted
             .iter()
@@ -252,8 +182,7 @@ impl Artifacts {
             .map(|(i, module)| (*module, i))
             .collect();
 
-        // The dependency half: name -> module for the constants this package
-        // refers to from its dependencies. Later slices overwrite earlier ones.
+        // Later slices overwrite earlier ones.
         let mut deps: HashMap<&str, &str> = HashMap::new();
         for map in dep_maps {
             for (name, module) in &map.declarations {
@@ -264,10 +193,8 @@ impl Artifacts {
         let sorted_names = sorted(name_map.keys().copied());
         let dep_names = sorted(deps.keys().copied());
 
-        // `[...sortedNames, ...depNames].sort()`: the two lists are concatenated
-        // *before* sorting, so a name in both appears twice and the second
-        // insertion only overwrites the first's value with the same value. A
-        // declaration always wins over a dependency slice.
+        // The two lists are concatenated *before* sorting, so a name in both
+        // appears twice and a declaration always wins over a dependency slice.
         let mut merged: Vec<&str> = sorted_names.clone();
         merged.extend(dep_names.iter().copied());
         merged.sort_by(|a, b| cmp_utf16(a, b));
@@ -288,10 +215,10 @@ impl Artifacts {
                     pages
                         .iter()
                         .map(|(module, page)| {
-                            // The importers, as subscripts into this same array.
-                            // **The direction is the whole point**: `i` is who
-                            // imports *this* module, so a page's "Imported by"
-                            // block is a lookup rather than a scan of all 432.
+                            // Subscripts into this same array, and **the
+                            // direction is the whole point**: `i` is who imports
+                            // *this* module, so a page's "Imported by" block is a
+                            // lookup rather than a scan of every module.
                             let mut importers: Vec<usize> =
                                 sorted(imported_by[module].iter().copied())
                                     .into_iter()
@@ -320,10 +247,10 @@ impl Artifacts {
             .collect::<Map<String, Value>>(),
         );
 
-        // The kind strings, as the declaration headers spell them: `css_kind`
-        // maps the IR's `definition` to `def` and `class_inductive` to `class`,
-        // and a search result whose badge disagrees with the page it leads to is
-        // a badge nobody trusts.
+        // The kind strings as the declaration headers spell them — `css_kind`
+        // maps the IR's `definition` to `def` and `class_inductive` to `class` —
+        // because a search result whose badge disagrees with the page it leads
+        // to is a badge nobody trusts.
         let mut kinds: Vec<&str> = sorted_names
             .iter()
             .map(|name| css_kind(name_map[name].1))
@@ -337,9 +264,8 @@ impl Artifacts {
             .collect();
 
         // Every declared name, including the ones no page has an entry for
-        // (constructors, and whatever `Suppressed` drops). That is the same
-        // population `name-map.json` has and the same one doc-gen4's own
-        // `declarations` had; narrowing it here would make the search index and
+        // (constructors, and whatever `Suppressed` drops) — the same population
+        // `name-map.json` has. Narrowing it here would make the search index and
         // the map two different answers to "what does this package declare".
         let entries: Vec<search_index::Entry<'_>> = sorted_names
             .iter()
@@ -353,10 +279,10 @@ impl Artifacts {
             })
             .collect();
 
-        // "Used by", inverted. **After** `name_map` is complete, because the
-        // filter is "does this package declare the target" and the answer is not
-        // known until every module has contributed — a module early in index
-        // order refers to names later ones declare.
+        // Inverted **after** `name_map` is complete, because the filter is "does
+        // this package declare the target" and that is not known until every
+        // module has contributed: a module early in index order refers to names
+        // later ones declare.
         let mut used_by: HashMap<&str, Vec<&str>> = HashMap::new();
         for facts in facts {
             for (target, users) in &facts.refs {
@@ -365,10 +291,9 @@ impl Artifacts {
                 }
                 let entry = used_by.entry(target).or_default();
                 for &user in users {
-                    // The index is this crate's own, written next to `decls` in
-                    // the same pass; a state file edited by hand could still put
-                    // one past the end, and a panic there would be a crash on
-                    // corrupt input rather than a diagnosis.
+                    // Indexed rather than sliced: a hand-edited state file could
+                    // put a subscript past the end, and panicking there would be
+                    // a crash on corrupt input rather than a diagnosis.
                     if let Some((name, _)) = facts.decls.get(user as usize) {
                         entry.push(name);
                     }
@@ -399,15 +324,14 @@ impl Artifacts {
         };
 
         // **No `modules` array here.** `modules.json` already carries one, in
-        // the same order and with the same subscripts — both are built from the
-        // one `own_sorted` above, and `app.js` fetches that file on every page
-        // for the module tree. A second copy is 12.8% of this file【実測
+        // the same order and with the same subscripts, and `app.js` fetches that
+        // file on every page anyway. A second copy is 12.8% of this file 【実測
         // 2026-08-19: 51,975 of 405,402 B】and a second thing to disagree with.
         let search_index_bin = search_index::encode(&entries, &kinds);
 
-        // The instance maps leave with them. A search never reads either, so
-        // carrying them here made every first keystroke pay for a block most
-        // readers never open.
+        // Their own file because a search never reads either: carried in the
+        // index, they made every first keystroke pay for a block most readers
+        // never open.
         let instances_json = object([
             ("instances".to_owned(), instances_out),
             ("instancesFor".to_owned(), instances_for_out),
@@ -429,8 +353,7 @@ impl Artifacts {
         }
     }
 
-    /// The nine files paired with the paths they go to, in [`ARTIFACT_PATHS`]
-    /// order.
+    /// Paired with the paths they go to, in [`ARTIFACT_PATHS`] order.
     #[must_use]
     pub fn files(&self) -> [(&'static str, &[u8]); 9] {
         [
@@ -450,12 +373,9 @@ impl Artifacts {
 /// `{ key: [name, …] }` with both levels in UTF-16 order and the names
 /// deduplicated.
 ///
-/// **The deduplication is doc-gen4's, not the prototype's.** doc-gen4 collects
-/// each list into an `RBTree` (`Output/ToJson.lean:53-55`), so an instance whose
-/// class application names the same type twice appears once; the prototype's
-/// array `push` would have kept both. No instance of the target package has a
-/// repeated type name 【実測 2026-08-16: 91 instances, 91 type names, 0
-/// duplicates】, so this changes nothing here and is the rule anyway.
+/// **The deduplication is doc-gen4's rule**: it collects each list into an
+/// `RBTree`, so an instance whose class application names the same type twice
+/// appears once.
 fn name_lists(map: &HashMap<&str, Vec<&str>>) -> Value {
     object(sorted(map.keys().copied()).into_iter().map(|key| {
         let mut names = sorted(map[key].iter().copied());
@@ -464,17 +384,14 @@ fn name_lists(map: &HashMap<&str, Vec<&str>>) -> Value {
     }))
 }
 
-/// A subscript into one of the two module arrays, as JSON.
-///
-/// Named rather than inlined because that is what the two files' compactness
-/// rests on: a module is written out once and referred to by number everywhere
-/// else, which is the difference between `modules.json` being fetched on every
-/// page and being too big to.
+/// Named rather than inlined because it is what the two files' compactness rests
+/// on: a module is written out once and referred to by number everywhere else,
+/// which is the difference between `modules.json` being fetched on every page
+/// and being too big to be.
 fn index_value(i: usize) -> Value {
     Value::from(i)
 }
 
-/// Sorted in UTF-16 code unit order, as `Array.prototype.sort()` is.
 fn sorted<'a>(items: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
     let mut items: Vec<&str> = items.into_iter().collect();
     items.sort_by(|a, b| cmp_utf16(a, b));
@@ -495,8 +412,6 @@ fn strings<'a>(items: impl IntoIterator<Item = &'a str>) -> Value {
     )
 }
 
-/// `JSON.stringify` with no spacing. Serialising a `Value` tree of objects,
-/// arrays, numbers and strings cannot fail.
 fn to_json(value: &Value) -> String {
     serde_json::to_string(value).expect("a tree of objects, arrays and strings serialises")
 }
@@ -505,10 +420,6 @@ fn to_json(value: &Value) -> String {
 mod tests {
     use super::*;
 
-    /// Without `preserve_order` every object in the JSON artifacts comes back
-    /// out in code-point order, which is neither the order this module chose nor
-    /// the order the prototype wrote. The feature is a workspace dependency
-    /// setting that nothing else in this crate would miss.
     #[test]
     fn preserve_order_is_enabled() {
         let value = object([
@@ -524,8 +435,7 @@ mod tests {
         );
     }
 
-    /// Re-inserting a key keeps its first position and takes the new value —
-    /// the behaviour `name-map.json` leans on when a name is both declared and
+    /// The behaviour `name-map.json` leans on when a name is both declared and
     /// in a dependency slice.
     #[test]
     fn reinserting_a_key_keeps_its_place() {
@@ -557,18 +467,16 @@ mod tests {
         }
     }
 
-    /// A package whose three modules form a chain, so "imports" and "imported
-    /// by" cannot be confused for each other by symmetry.
+    /// Three modules in a chain, so "imports" and "imported by" cannot be
+    /// confused for each other by symmetry.
     ///
-    /// **It carries references too**, and they are what makes
-    /// `declarations/used-by.json` something other than `{}` here: with none of
-    /// them the two `used_by` counts are 0 and every assertion about them holds
-    /// whatever the derivation does. Three cases are in it on purpose — a target
-    /// two declarations mention, a target one does, and a reference to a name
-    /// this package does not declare (dropped by the inversion) — and `Pkg.dup`
-    /// is declared by **two** modules, which is the only way one target's user
-    /// list holds the same name twice and so the only way the per-key
-    /// deduplication is visible in a count.
+    /// **The references are load-bearing**: with none of them
+    /// `declarations/used-by.json` is `{}`, the two `used_by` counts are 0, and
+    /// every assertion about them holds whatever the derivation does. Hence a
+    /// target two declarations mention, a target one does, a reference to a name
+    /// this package does not declare, and `Pkg.dup` declared by **two** modules
+    /// — the only way one target's user list holds the same name twice, and so
+    /// the only way the per-key deduplication shows up in a count.
     fn chain() -> Vec<ModuleFacts> {
         let mut root = facts("Pkg", &[]);
         root.decls = vec![("Pkg.a".to_owned(), "definition".to_owned())];
@@ -594,8 +502,7 @@ mod tests {
             // `Pkg.B`'s, so `Pkg.a` is mentioned by it twice.
             ("Pkg.a".to_owned(), vec![1]),
             ("Pkg.B.inst".to_owned(), vec![0]),
-            // Declared by a dependency, not here, so it is not a key of the
-            // artifact and contributes no edge.
+            // Declared by a dependency, so it is not a key of the artifact.
             ("Dep.outside".to_owned(), vec![0]),
         ]
         .into_iter()
@@ -607,9 +514,9 @@ mod tests {
         serde_json::from_str(body).expect("the artifact is JSON")
     }
 
-    /// **The direction of `modules[].i`.** Getting it backwards renders an
-    /// "Imported by" block that lists the module's imports — markup that is
-    /// well formed, styled, populated and wrong.
+    /// Getting `modules[].i` backwards renders an "Imported by" block that lists
+    /// the module's imports — markup that is well formed, styled, populated and
+    /// wrong.
     #[test]
     fn the_module_index_lists_importers_not_imports() {
         let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
@@ -639,8 +546,6 @@ mod tests {
         assert_eq!(importers(2), Vec::<&str>::new());
     }
 
-    /// The shape the site's script reads, field by field —
-    /// `litedoc4-render/web/src/types.ts` is the other side of it.
     #[test]
     fn the_search_index_is_the_shape_the_script_reads() {
         let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
@@ -684,15 +589,9 @@ mod tests {
         );
     }
 
-    /// The summary's numbers against the files they are about — the invariant
-    /// the old "read it back off the artifact" trick used to give for free.
-    ///
-    /// **Destructured rather than read field by field.** C-2 added
-    /// `used_by_targets` and `used_by_edges` to [`Counts`] and this test went on
-    /// passing without them, so what its docstring promised held for four of the
-    /// six. A seventh count now stops this test *compiling* until it is checked
-    /// here too, which is what [`crate::facts::PROTOTYPE_FACT_KEYS`] does for
-    /// the state file's keys.
+    /// **Destructured rather than read field by field**, so that a count added
+    /// to [`Counts`] stops this test compiling until it is checked here too. A
+    /// test that names the fields it reads goes on passing when one is added.
     #[test]
     fn the_counts_are_what_the_files_hold() {
         let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
@@ -726,15 +625,13 @@ mod tests {
         assert_eq!(dependency_names, 0);
         assert_eq!(declarations + dependency_names, artifacts.name_map.len());
 
-        // `declarations/used-by.json`: its keys are the targets, its lists are
-        // the edges. Read off the parsed artifact rather than off `used_by`,
-        // because the artifact is what the numbers are about.
+        // Read off the parsed artifact rather than off `used_by`, because the
+        // artifact is what the numbers are about.
         let used_by = parsed(&artifacts.used_by_json);
         let used_by = used_by.as_object().expect("used-by is an object");
-        // An empty artifact would let the two below hold with the derivation
-        // counting anything at all, and empty is what this fixture wrote before
-        // it carried references. `>` rather than `>=` because a target with two
-        // users is what makes the deduplication show up in a count.
+        // An empty artifact would let the two assertions below hold with the
+        // derivation counting anything at all. `>` rather than `>=` because a
+        // target with two users is what makes the deduplication show in a count.
         assert!(
             used_by_edges > used_by_targets && used_by_targets > 0,
             "the fixture's used-by artifact holds these counts to nothing: \
@@ -755,7 +652,6 @@ mod tests {
         );
     }
 
-    /// Every path is written, distinct, relative and inside the site root.
     #[test]
     fn the_file_list_and_the_paths_agree() {
         let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
@@ -776,8 +672,8 @@ mod tests {
         );
     }
 
-    /// The five files M8-d stopped writing. Named here so that a revert is a
-    /// failure rather than a surprise in a deployment.
+    /// The five files that existed only for doc-gen4's JavaScript, named so that
+    /// bringing one back is a failure rather than a surprise in a deployment.
     #[test]
     fn the_doc_gen4_only_artifacts_are_gone() {
         let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
@@ -800,8 +696,6 @@ mod tests {
         assert!(!artifacts.name_map_json.is_empty());
     }
 
-    /// U1 where it can still be seen: a name above the BMP sorts before one
-    /// inside it in every list this module builds.
     #[test]
     fn the_new_files_sort_in_utf16_order_too() {
         let mut above = facts("Pkg.\u{1D49C}", &[]);

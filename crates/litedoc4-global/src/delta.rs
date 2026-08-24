@@ -1,24 +1,13 @@
 //! The whole-package map delta: which pages a moved name makes stale.
 //!
-//! Ported from `experiments/stage7h/global.ts:365-421` (frozen). Milestone
-//! **M2-b**.
-//!
-//! ```text
-//! before (name -> module, from disk)  ┐
-//! after  (name -> module, this run)   ┴─> changed ─┐
-//! [ModuleFacts].tokens, index order ───────────────┴─> affected ──> --print-set
-//! ```
-//!
-//! # Why this is the widest hole in the pipeline
-//!
-//! `--print-set` is the input to the incremental impact analysis (plan §6: "the
-//! whole-package map delta is L3-2's input"). A module missing from it keeps a
-//! page that links a name to the module it used to live in, and **nothing
-//! downstream notices** — the site builds, every page is well-formed, and the
-//! link is wrong. Over-reporting costs a re-render. So the two halves of this
-//! file lean opposite ways on purpose: [`crate::facts::autolink_tokens`] is a
-//! deliberate over-approximation, and `changed` is taken over the **union** of
-//! the two key sets so that a name that exists on only one side counts.
+//! `--print-set` is the input to the incremental impact analysis. A module
+//! missing from it keeps a page that links a name to the module it used to live
+//! in, and **nothing downstream notices** — the site builds, every page is
+//! well-formed, and the link is wrong; over-reporting only costs a re-render. So
+//! both halves of this file err wide on purpose:
+//! [`crate::facts::autolink_tokens`] over-approximates, and `changed` is taken
+//! over the **union** of the two key sets, so that a name present on only one
+//! side counts as a change.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -27,23 +16,16 @@ use serde::Serialize;
 
 use crate::facts::ModuleFacts;
 
-/// How many affected modules the JSON summary names one token for.
 const WITNESS_LIMIT: usize = 20;
 
-/// How many changed names the JSON summary lists.
 const CHANGED_SAMPLE: usize = 20;
 
-/// What one delta found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Delta {
     pub before_names: usize,
     pub after_names: usize,
     /// Every name whose module differs between the two maps, **sorted in UTF-16
-    /// code unit order** (plan §7 U1).
-    ///
-    /// The prototype keeps a `Set` here, whose order is the union's insertion
-    /// order; it only ever asks for the size and for a sorted 20-name prefix, so
-    /// storing it sorted is the same answer and one fewer thing to get wrong.
+    /// code unit order**.
     pub changed: Vec<String>,
     /// The modules to re-render, sorted in UTF-16 code unit order.
     pub affected: Vec<String>,
@@ -54,7 +36,6 @@ pub struct Delta {
     pub witnesses: Vec<Witness>,
 }
 
-/// Why one module is in the affected set.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Witness {
     pub module: String,
@@ -62,16 +43,9 @@ pub struct Witness {
 }
 
 impl Delta {
-    /// Compares the map on disk with the map this run just built, and scans the
-    /// facts for modules that mention a name that moved.
-    ///
-    /// `after` is **this run's map**, not a re-read of `name-map.json`: the
-    /// prototype reads its own output back only because stage 5 ran the delta in
-    /// a second process, and reading it back is the only way to get a different
-    /// answer than the one just written.
-    ///
-    /// `facts` must be in index order — that is the order `witnesses` is filled
-    /// in, and the order the prototype scans.
+    /// `before` is the map on disk, `after` **this run's map** rather than a
+    /// re-read of `name-map.json`. `facts` must be in index order — that is the
+    /// order `witnesses` is filled in.
     #[must_use]
     pub fn compute(
         before: &BTreeMap<String, String>,
@@ -82,18 +56,13 @@ impl Delta {
         Self::scan(before.len(), after.len(), changed, facts)
     }
 
-    /// Every name whose module differs, sorted in UTF-16 code unit order.
-    ///
     /// Split out of [`Delta::compute`] only so that the caller can time the two
-    /// halves the way the prototype's record does; the two are one operation.
+    /// halves separately; they are one operation.
     #[must_use]
     pub fn changed(
         before: &BTreeMap<String, String>,
         after: &BTreeMap<String, String>,
     ) -> Vec<String> {
-        // The union of both key sets: a name on only one side has moved in or
-        // out of the package and is a change (plan §5, M3: "compare keys over
-        // the union — never silently under-render").
         let mut changed: BTreeSet<&str> = BTreeSet::new();
         for name in before.keys().chain(after.keys()) {
             if before.get(name) != after.get(name) {
@@ -116,13 +85,11 @@ impl Delta {
     ) -> Self {
         let mut affected: Vec<String> = Vec::new();
         let mut witnesses: Vec<Witness> = Vec::new();
-        // THIS SHORT CIRCUIT IS ONLY AN OPTIMISATION 【実測】. With an empty
-        // changed set the loop below finds nothing anyway, so removing it
-        // changes no output and no test in this crate fails — that was checked
-        // by removing it rather than assumed. It is transcribed because the
-        // prototype has it and because the scan is the second-most expensive
-        // thing here (the pipeline's common case is exactly this one: nothing
-        // moved), not because it decides anything.
+        // Only an optimisation, and it decides nothing: with an empty changed
+        // set the loop finds nothing anyway, and removing it changes no output
+        // and fails no test 【実測, checked by removing it】. It is here because
+        // "nothing moved" is the pipeline's common case and the scan is the
+        // second-most expensive thing in this file.
         if !changed.is_empty() {
             let lookup: HashSet<&str> = changed.iter().map(String::as_str).collect();
             for facts in facts {
@@ -142,8 +109,6 @@ impl Delta {
                 }
             }
         }
-        // Scanned in index order, reported sorted. `Array.prototype.sort()` is
-        // UTF-16 code unit order and this file is read by the next stage.
         affected.sort_by(|a, b| cmp_utf16(a, b));
 
         Self {
@@ -157,12 +122,10 @@ impl Delta {
 
     /// The `--print-set` file: one module per line.
     ///
-    /// **An empty set is an empty file, with no newline.** The prototype writes
-    /// `affected.join("\n")` followed by a newline only when there is something
-    /// to follow — the consumer counts lines, so a lone newline would be one
-    /// module named by the empty string. The renderer distinguishes "no subset
-    /// asked for" from "a subset that came out empty" (plan §5), and this file
-    /// is how that empty subset is spelled.
+    /// **An empty set is an empty file, with no newline.** The consumer counts
+    /// lines, so a lone newline would be one module named by the empty string —
+    /// and the renderer has to tell "no subset asked for" apart from "a subset
+    /// that came out empty", which this file is how to spell.
     #[must_use]
     pub fn print_set(&self) -> String {
         if self.affected.is_empty() {
@@ -173,13 +136,12 @@ impl Delta {
         text
     }
 
-    /// The `--delta-json` file: `JSON.stringify(summary, null, 2) + "\n"`.
+    /// The `--delta-json` file.
     ///
-    /// **The three durations are diagnostics and are not byte-comparable.** A
-    /// float's shortest round-trip form differs between V8 and `ryu` for values
-    /// that happen to be integral (`100` against `100.0`), and the numbers are
-    /// wall clock anyway. Nothing may assert on this file's bytes; assert on
-    /// [`Delta`] instead, or on `--print-set`, which has no floats in it.
+    /// **Nothing may assert on this file's bytes** — the three durations are
+    /// wall clock, and a float's shortest round-trip form differs between V8 and
+    /// `ryu` for values that happen to be integral (`100` against `100.0`).
+    /// Assert on [`Delta`], or on `--print-set`, which has no floats in it.
     #[must_use]
     pub fn to_json(&self, timings: DeltaTimings) -> String {
         let record = DeltaRecord {
@@ -202,8 +164,6 @@ impl Delta {
     }
 }
 
-/// The wall-clock split the JSON summary reports. See [`Delta::to_json`]: these
-/// are diagnostics.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DeltaTimings {
     pub diff_seconds: f64,
@@ -211,7 +171,6 @@ pub struct DeltaTimings {
     pub total_seconds: f64,
 }
 
-/// The JSON summary's shape. Key order is the prototype's object literal.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DeltaRecord<'a> {
@@ -253,7 +212,6 @@ mod tests {
         }
     }
 
-    /// The three ways a name changes, one of which exists only in `before`.
     #[test]
     fn changed_is_the_union_of_both_key_sets() {
         let delta = Delta::compute(
@@ -278,8 +236,6 @@ mod tests {
         assert_eq!(delta.print_set(), "");
     }
 
-    /// Scanned in index order, reported sorted, and the witness names the first
-    /// *matching* token rather than the first token.
     #[test]
     fn affected_is_sorted_and_witnesses_are_in_index_order() {
         let delta = Delta::compute(

@@ -1,31 +1,16 @@
 //! The `contentHash` cache: `--state <dir>` keeps `<dir>/global-state.json`.
 //!
-//! Ported from `experiments/stage7h/global.ts:127-229` (frozen). Milestone
-//! **M2-b**: the goal was the cache version key plus the test that breaks it,
-//! rather than the cache implementation itself.
+//! A hit is decided on the IR's own hash, never on the caller's idea of what
+//! changed, so a driver that passes a wrong changed-set cannot corrupt this
+//! cache.
 //!
-//! ```text
-//! index.json ──┬─> State::load ──> facts_for ──> [ModuleFacts] ──> State::save
-//!              └─ contentHash: the only thing a hit is decided on
-//! ```
-//!
-//! # The key is the IR's own hash, not the caller's idea of what changed
-//!
-//! A driver that passes a wrong changed-set cannot corrupt this cache: an entry
-//! is used iff its `contentHash` equals the one `index.json` carries now. A
-//! stale entry needs the extractor to emit the same hash for different bytes,
-//! which is the assumption the whole incremental pipeline already makes.
-//!
-//! # Everything that can go wrong loads as "empty"
-//!
-//! [`State::load`] returns an empty cache when the file is missing, when it does
-//! not parse, and when any of the four version keys disagrees with the index. It
-//! says nothing on the way out. That is the prototype's behaviour and this is a
-//! port: a cold cache is the normal first run, and a `--state` directory that
-//! has been left behind by another tool is not an error the caller can act on —
-//! the only correct response is to rebuild, which is what happens. The cost of
-//! being wrong here is time; the cost of trusting a foreign entry is a wrong
-//! artifact that nobody reports.
+//! **Everything that can go wrong loads as "empty", silently** — a missing file,
+//! a file that does not parse, any of the four version keys disagreeing with the
+//! index. A cold cache is the normal first run, and a `--state` directory left
+//! behind by another tool is not an error the caller can act on: the only
+//! correct response is to rebuild, which is what happens. Being wrong this way
+//! costs time, where trusting a foreign entry costs a wrong artifact that nobody
+//! reports.
 
 use std::collections::HashMap;
 use std::fs;
@@ -37,62 +22,44 @@ use serde::{Deserialize, Serialize, Serializer};
 use crate::facts::ModuleFacts;
 use crate::site::Error;
 
-/// The one file a state directory holds.
 pub const STATE_FILE: &str = "global-state.json";
 
-/// Bumped when the *file format* changes. Kept separate from
+/// Bumped when the *file format* changes. Kept apart from
 /// [`STATE_DERIVATION`], which is bumped when the *facts* change, because the
 /// two rot for different reasons.
 pub const STATE_VERSION: u64 = 1;
 
-/// Which rule built the facts in the file.
+/// Which rule built the facts in the file. **Bump it whenever a field of
+/// [`ModuleFacts`] or the way one is derived changes**: bumping makes every
+/// entry a miss, which is correct and slow, where keeping entries built by an
+/// older rule is fast and wrong — every module that hits then derives its
+/// artifacts from a fact that is silently absent.
 ///
-/// **Deliberately not the prototype's `"stage7h/global.ts facts v1"`.** Plan §6
-/// states the discipline for `extractKey.extractor` and `renderKey.renderer`:
-/// the identity string names an implementation, so a different implementation
-/// with the same string is a silent wrong-cache hit. This crate derives
-/// [`ModuleFacts`] with its own code — same intent, different tokeniser in one
-/// documented place (see [`crate::facts::autolink_tokens`]) — so a state written
-/// by the TypeScript prototype must miss on every module here, and one written
-/// here must miss over there. Changing this string to match would make the two
-/// caches interchangeable, which is exactly the claim nobody has checked.
-///
-/// Bump this whenever a field of [`ModuleFacts`] or the way one is derived
-/// changes. Bumping makes every entry a miss, which is correct and slow;
-/// keeping entries built by another rule is fast and wrong.
-///
-/// **v2 is M8-d**: [`ModuleFacts::instances_for`] joined the struct, and a v1
-/// entry reused for a module would leave that module's instances out of
-/// `search-index.bin` — a wrong artifact nobody reports, which is precisely
-/// what this string exists to prevent.
-///
-/// **v3 is feature-sweep C-2**: [`ModuleFacts::refs`] joined it, and a v2 entry
-/// reused for a module would leave every declaration of that module out of
-/// `declarations/used-by.json` — the same failure one artifact over.
+/// **Deliberately not the prototype's `"stage7h/global.ts facts v1"`.** The
+/// string names an implementation, and this crate derives [`ModuleFacts`] with
+/// its own code — same intent, a different tokeniser in one documented place
+/// ([`crate::facts::autolink_tokens`]) — so a state written by the TypeScript
+/// prototype has to miss on every module here, and one written here has to miss
+/// over there. Matching the strings would make the two caches interchangeable,
+/// which is exactly the claim nobody has checked.
 pub const STATE_DERIVATION: &str = "litedoc4-global facts v3";
 
 /// The facts a previous run left behind, already checked against this run's
-/// index.
-///
-/// Empty is a complete and valid value: it means every module will be read.
+/// index. Empty is a complete and valid value: every module will be read.
 #[derive(Clone, Debug, Default)]
 pub struct State {
     modules: HashMap<String, ModuleFacts>,
 }
 
 impl State {
-    /// A cache that hits nothing — what `--state` being absent gives, and what
-    /// every failure in [`State::load`] gives.
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
     }
 
-    /// Reads `<dir>/global-state.json`, or gives an empty cache.
-    ///
-    /// See the module heading for why no failure is reported. The four version
-    /// keys are checked against `index` here rather than at the hit test, so
-    /// that a foreign state costs one parse and not 432 comparisons.
+    /// The four version keys are checked against `index` here rather than at the
+    /// hit test, so a foreign state costs one parse and not one comparison per
+    /// module.
     #[must_use]
     pub fn load(dir: Option<&Path>, index: &Index) -> Self {
         let Some(dir) = dir else {
@@ -101,15 +68,9 @@ impl State {
         let Ok(raw) = fs::read_to_string(dir.join(STATE_FILE)) else {
             return Self::empty();
         };
-        // A missing key, a key of the wrong type and a key with the wrong value
-        // all end here. The prototype reaches the same place by a different
-        // road — `undefined !== STATE_VERSION` — because JSON.parse accepts
-        // anything and the comparison rejects it.
         let Ok(state) = serde_json::from_str::<StateFile>(&raw) else {
             return Self::empty();
         };
-        // A state written by a different rule, a different IR schema or a
-        // different extractor is not a cache, it is a guess. Drop it whole.
         if state.state_version != STATE_VERSION
             || state.derivation != STATE_DERIVATION
             || state.schema_version != index.schema_version
@@ -122,11 +83,9 @@ impl State {
         }
     }
 
-    /// The stored facts for a module, whatever hash they were built for.
-    ///
-    /// The hash test is the caller's ([`crate::facts_for`]) so that this type
-    /// has no opinion about what a hit is: `cached.content_hash ==
-    /// entry.content_hash`, and nothing else.
+    /// The stored facts for a module, **whatever hash they were built for** —
+    /// the hash test is the caller's ([`crate::facts_for`]), so that this type
+    /// has no opinion about what a hit is.
     #[must_use]
     pub fn get(&self, module: &str) -> Option<&ModuleFacts> {
         self.modules.get(module)
@@ -150,10 +109,8 @@ impl State {
     /// entry for a module that has left the package has to disappear with it:
     /// keeping it would leave a name in `name-map.json` and a module in
     /// `importedBy` that no IR file backs, and a cache that only ever grows
-    /// passes every other test (`oracle.sh` state 4 exists for this).
-    /// Index order rather than hash order so that two runs over the same module
-    /// set write the same bytes; a file that churns for no reason is a file
-    /// nobody can diff.
+    /// passes every other test. Index order rather than hash order so that two
+    /// runs over the same module set write the same bytes.
     pub fn save(dir: Option<&Path>, index: &Index, facts: &[ModuleFacts]) -> Result<usize, Error> {
         let Some(dir) = dir else {
             return Ok(0);
@@ -162,9 +119,9 @@ impl State {
             path: dir.to_owned(),
             source,
         })?;
-        // Keyed by the facts' own module name, which is the index entry's:
+        // Keying on the facts' own module name is keying on the index entry's:
         // `IrTree::module` refuses a file that disagrees with the index about
-        // which module it holds, so this is the prototype's `facts.get(e.module)`.
+        // which module it holds.
         let by_module: HashMap<&str, &ModuleFacts> = facts
             .iter()
             .map(|facts| (facts.module.as_str(), facts))
@@ -193,8 +150,6 @@ impl State {
     }
 }
 
-/// The file as read. Field order is irrelevant here and load-bearing in
-/// [`StateOut`].
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StateFile {
@@ -202,20 +157,13 @@ struct StateFile {
     derivation: String,
     schema_version: u32,
     generator: String,
-    /// `st.modules ?? {}`: a file with no module map is a valid empty cache
-    /// rather than a parse failure.
     #[serde(default)]
     modules: HashMap<String, ModuleFacts>,
 }
 
-/// The file as written.
-///
-/// **The key order is the bytes.** `JSON.stringify` of the prototype's object
-/// literal emits `stateVersion` / `derivation` / `schemaVersion` / `generator` /
-/// `modules`, and serde emits a struct's fields in declaration order, so this
-/// list is a transcription. [`ModuleFacts`]'s own field order is the same kind
-/// of transcription — see `tests/state_and_delta.rs`, which compares this file
-/// with one the prototype wrote, byte for byte.
+/// The file as written. **The field order below is the key order, and the key
+/// order is the bytes** — `tests/state_and_delta.rs` compares this file with one
+/// the prototype wrote, byte for byte.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StateOut<'a> {
@@ -227,10 +175,8 @@ struct StateOut<'a> {
 }
 
 /// The module map, serialised in the order given rather than through a
-/// `serde_json::Map`.
-///
-/// A map's *serialisation* order is the iterator's, so this needs no
-/// `preserve_order` — unlike the artifacts, which build `Value` trees.
+/// `serde_json::Map`: a map's *serialisation* order is the iterator's, so this
+/// needs no `preserve_order` — unlike the artifacts, which build `Value` trees.
 struct Modules<'a>(&'a [&'a ModuleFacts]);
 
 impl Serialize for Modules<'_> {
@@ -283,14 +229,10 @@ mod tests {
         }
     }
 
-    /// The contract of [`State::save`], which the whole-package tests cannot
-    /// make non-vacuous: they only ever hand it facts that came from the index
-    /// it is passed, so the filter below is unreachable from there and a port
-    /// that dropped it would pass every one of them.
-    ///
-    /// What is at stake is `oracle.sh` state 4: a module that has left the
-    /// package must leave the cache with it, and the entry that names it must
-    /// not survive into the file.
+    /// The whole-package tests cannot make this non-vacuous: they only ever hand
+    /// [`State::save`] facts that came from the index it is passed, so the
+    /// filter is unreachable from there and dropping it would pass every one of
+    /// them.
     #[test]
     fn only_the_index_survives_into_the_file() {
         let dir = std::env::temp_dir().join(format!("litedoc4-state-save-{}", std::process::id()));
@@ -312,7 +254,6 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// No state directory, no file, no bytes — and no error either.
     #[test]
     fn without_a_directory_nothing_is_written() {
         assert_eq!(

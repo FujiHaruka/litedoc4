@@ -1,14 +1,11 @@
-//! The `search-index.bin` the TypeScript decoder is tested against.
+//! The `search-index.bin` the TypeScript decoder in
+//! `crates/litedoc4-render/web/test/` is tested against.
 //!
-//! `crates/litedoc4-render/web/test/` has a decoder for this format written in
-//! TypeScript, and something has to say what the right answer is. **It is this
-//! encoder** — not a second encoder written in TypeScript, which is the shape
-//! CLAUDE.md rules out ("オラクルを同じ言語・同じ設計で書き直さない"): two
-//! implementations of one design make the same mistake and agree about it.
-//!
-//! So the bytes are produced here, committed, and read there. This test exists
-//! to keep the committed copy from drifting away from the encoder that made it:
-//! it rebuilds them from [`CASES`] and compares.
+//! **The right answer comes from this encoder**, not from a second encoder
+//! written in TypeScript: two implementations of one design make the same
+//! mistake and agree about it. So the bytes are produced here, committed, and
+//! read there, and this test rebuilds them from [`CASES`] so the committed copy
+//! cannot drift away from the encoder that made it.
 //!
 //! Regenerate with `UPDATE_WEB_FIXTURE=1 cargo test -p litedoc4-global`.
 
@@ -75,7 +72,6 @@ static CASES: &[Case] = &[
     ("Pkg.\u{3B2}eta", 3, 5),
 ];
 
-/// The 400-`x` name, built rather than typed.
 fn long_name() -> String {
     format!("Pkg.{}", "x".repeat(400))
 }
@@ -100,9 +96,8 @@ fn build() -> (Vec<u8>, String) {
         .collect();
     let bytes = encode(&entries, &KINDS);
 
-    // A hand-rolled writer rather than serde_json: this file is read by one
-    // test in another language, and its shape is three parallel arrays. Pulling
-    // in a dependency to write eight lines of JSON is not worth the coupling.
+    // Hand-rolled rather than serde_json: pulling in a dependency to write eight
+    // lines of three parallel arrays is not worth the coupling.
     let mut json = String::from("{\n  \"kinds\": [");
     for (i, kind) in KINDS.iter().enumerate() {
         if i > 0 {
@@ -168,7 +163,6 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// The corpus is only worth committing if it still exercises what it claims to.
 #[test]
 fn the_corpus_covers_what_its_comment_says() {
     let (names, _, _) = corpus();
@@ -202,8 +196,6 @@ fn fold_ascii(c: char) -> char {
     }
 }
 
-/// The committed bytes are the ones this encoder produces today.
-///
 /// Not `#[ignore]`: the input is in this file and the encoder is in this
 /// workspace, so it needs no toolchain, no target repository and no network.
 #[test]

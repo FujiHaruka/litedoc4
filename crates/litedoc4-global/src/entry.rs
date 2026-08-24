@@ -1,52 +1,35 @@
-//! The four pages a reader arrives at rather than navigates to.
+//! The four pages a reader arrives at rather than navigates to: `index.html`,
+//! the site's front door and the `<noscript>` landing place the sidebar falls
+//! back to; `404.html`, which GitHub Pages serves for anything missing and
+//! `app.js` fills in; `search.html`, where the top bar's form submits; and
+//! `foundational_types.html`, which every `Sort` / `Type` / `Prop` span in every
+//! signature links to (`litedoc4_render::code`).
 //!
-//! Milestone **M8-d**. Up to here the site had
-//! **no entry at all**: `litedoc4 build` wrote 432 module pages and no
-//! `index.html`, while every page's top bar linked to `index.html` and
-//! `search.html` and every `Sort` in every signature linked to
-//! `foundational_types.html` (`litedoc4_render::code`). Three dead links on all
-//! 432 pages, and the deployed site's Search button was a 404 【実測 2026-08-16】.
+//! **Building HTML in the *global* crate is not the layering mistake it looks
+//! like.** What decides a page's shape is [`litedoc4_render`] — the head, the
+//! top bar, the class names, the stylesheet they are written against — and all
+//! four take theirs from there unchanged. What decides a page's *content* is a
+//! fact about the **whole package** (how many modules, which ones, how many
+//! declarations), and the whole package is what this crate is; putting them in
+//! the renderer would mean handing it the module list a second time, from the
+//! other side of the pipeline.
 //!
-//! | | why it exists |
-//! |---|---|
-//! | `index.html` | the site's front door, and the `<noscript>` landing place the sidebar's fallback link points at (決定 4) |
-//! | `404.html` | GitHub Pages serves it (`custom_404: true` 【実測】); `app.js` fills in the path and the near misses |
-//! | `search.html` | where the top bar's form submits |
-//! | `foundational_types.html` | `code.rs` links every `Sort` / `Type` / `Prop` here |
-//!
-//! # These are HTML built in the *global* crate, which looks like a layering
-//! mistake
-//!
-//! It is not one. What decides a page's shape is [`litedoc4_render`] — the head,
-//! the top bar, the class names, the stylesheet they are written against — and
-//! all four of those come from there, unchanged. What decides a page's *content*
-//! is a fact about the **whole package** (how many modules, which ones, how many
-//! declarations), and the whole package is what this crate is. Putting them in
-//! the renderer would mean handing the renderer the module list a second time,
-//! from the other side of the pipeline.
-//!
-//! # No sidebar, and no repository link
-//!
-//! `topbar_html(root, site, false)` and `<body class="plain">`: these pages are
-//! one column, and a drawer button that opens an empty drawer is worse than no
-//! button. The hand-written preview (`design/preview/index.html`) also carries a
-//! "repository" link in the module heading, and this does not — the repository
-//! URL is `--source-url`, which reaches the renderer and not this crate, and a
-//! second path for one anchor is not worth a knob that can be forgotten on one
-//! of the two commands that build a site.
+//! These pages are one column and carry no repository link. A drawer button that
+//! opens an empty drawer is worse than no button, and the repository URL is
+//! `--source-url`, which reaches the renderer and not this crate — a second path
+//! for one anchor is not worth a knob that can be forgotten on one of the two
+//! commands that build a site.
 
 use litedoc4_md::escape_html;
 use litedoc4_render::{SiteMeta, break_within, head_html, topbar_html};
 
-/// Everything at the site root, so every asset and every page is one hop away.
+/// All four pages sit at the site root, so every asset is one hop away.
 const ROOT: &str = "./";
 
 /// One page's frame, with `body` dropped into `main.content`.
 ///
-/// `title` is what goes in `<title>` before the site name — a module page passes
-/// its module there, and these pass a word. The `data-module` attribute is empty
-/// on purpose: `app.js` reads it to decide which tree node is current, and none
-/// of these pages *is* a module.
+/// The `data-module` attribute is empty on purpose: `app.js` reads it to decide
+/// which tree node is current, and none of these pages *is* a module.
 fn plain_page(title: &str, site: &SiteMeta<'_>, body: &str) -> String {
     let mut out = String::with_capacity(body.len() + 2048);
     out.push_str("<!DOCTYPE html><html lang=\"en\">");
@@ -64,14 +47,12 @@ fn plain_page(title: &str, site: &SiteMeta<'_>, body: &str) -> String {
 
 /// The front page: what the package is, how big it is, and every module of it.
 ///
-/// **The module list is the whole list, spelled out in the HTML.** It is the
-/// page the sidebar's `<noscript>` sends a reader to, so it is the one page that
-/// may not need JavaScript to say anything — 決定 4 traded the tree away for a
-/// JSON fetch and this is what it traded it for.
+/// **The module list is the whole list, spelled out in the HTML** — the sidebar
+/// is a JSON fetch, and this is the page its `<noscript>` sends a reader to, so
+/// it is the one page that may not need JavaScript to say anything.
 ///
-/// `modules` is expected already sorted; the caller has the UTF-16 comparator
-/// this crate sorts everything else with and there is no reason for a second
-/// order here.
+/// `modules` is expected already sorted, in the UTF-16 order this crate sorts
+/// everything else with.
 #[must_use]
 pub fn index_html(site: &SiteMeta<'_>, modules: &[(&str, String)], declarations: usize) -> String {
     let mut body = String::with_capacity(modules.len() * 128 + 1024);
@@ -84,9 +65,9 @@ pub fn index_html(site: &SiteMeta<'_>, modules: &[(&str, String)], declarations:
          against.</p></div>",
     );
 
-    // `litedoc4.toml`'s `index`, rendered (feature-sweep C-3 / doc-gen4 #43).
-    // **Between the lede and the counts**: it is what the package wants said
-    // about itself, and the counts are what this tool has to say about it.
+    // `litedoc4.toml`'s `index`, between the lede and the counts: it is what the
+    // package wants said about itself, and the counts are what this tool has to
+    // say about it.
     if let Some(intro) = site.intro {
         body.push_str("<div class=\"intro doc\">");
         body.push_str(intro);
@@ -105,8 +86,7 @@ pub fn index_html(site: &SiteMeta<'_>, modules: &[(&str, String)], declarations:
         body.push_str(&escape_html(page));
         body.push_str("\">");
         // The same per-component markup the module headings and the sidebar
-        // use, so a 60-character name wraps between components rather than
-        // mid-word.
+        // use, so a long name wraps between components rather than mid-word.
         body.push_str(&break_within(module));
         body.push_str("</a></li>");
     }
@@ -114,16 +94,11 @@ pub fn index_html(site: &SiteMeta<'_>, modules: &[(&str, String)], declarations:
     plain_page(site.title, site, &body)
 }
 
-/// The page GitHub Pages serves for anything that is not there.
-///
-/// Static markup with two holes in it: `#missing-path` gets the URL that was
-/// asked for and `#how-about` gets the nearest declaration names, both from
-/// `app.js`. The heading above the list starts `hidden` because "Did you mean"
-/// with nothing under it is worse than silence — the script removes the
-/// attribute only once it has something to put there.
-///
-/// With JavaScript off both holes stay empty, which is why the paragraph names
-/// the module index in prose rather than relying on the list.
+/// Static markup with two holes `app.js` fills: `#missing-path` gets the URL
+/// that was asked for, `#how-about` the nearest declaration names. The heading
+/// above the list starts `hidden` because "Did you mean" with nothing under it
+/// is worse than silence, and the paragraph names the module index in prose
+/// because with JavaScript off both holes stay empty.
 #[must_use]
 pub fn not_found_html(site: &SiteMeta<'_>) -> String {
     plain_page(
@@ -139,13 +114,11 @@ pub fn not_found_html(site: &SiteMeta<'_>) -> String {
     )
 }
 
-/// The search results page.
-///
 /// **There is no input field here.** `app.js`'s `initSearchPage` reads the top
 /// bar's `#search-input`, seeds it from `?q=` and renders into `#page-results`;
-/// a second box on a search page is a question about which one is real. The
-/// note is `aria-live` because it is the only thing that says how many hits
-/// there were.
+/// a second box on a search page is a question about which one is real. The note
+/// is `aria-live` because it is the only thing that says how many hits there
+/// were.
 #[must_use]
 pub fn search_html(site: &SiteMeta<'_>) -> String {
     plain_page(
@@ -165,14 +138,11 @@ pub fn search_html(site: &SiteMeta<'_>) -> String {
 /// What `Type`, `Prop` and `Sort` mean, for the reader who clicked one in a
 /// signature.
 ///
-/// Every `Sort` span in every signature links here (`code.rs`), so the page has
-/// to exist before the link is anything but a 404 — it never did until M8-d.
-///
-/// **Written here rather than copied from doc-gen4**, whose page is a different
-/// project's prose under a different licence. It is deliberately short: this is
-/// a footnote a reader reaches from a signature, not a tutorial, and anything
-/// longer competes with Lean's own documentation, which the last paragraph
-/// points at instead.
+/// **Written here rather than copied from doc-gen4**, whose page is another
+/// project's prose under a different licence. Deliberately short: this is a
+/// footnote reached from a signature, not a tutorial, and anything longer
+/// competes with Lean's own documentation, which the last paragraph points at
+/// instead.
 #[must_use]
 pub fn foundational_types_html(site: &SiteMeta<'_>) -> String {
     plain_page(
@@ -216,11 +186,6 @@ pub fn foundational_types_html(site: &SiteMeta<'_>) -> String {
     )
 }
 
-/// A count with a thin separator every three digits: `4750` reads as `4,750`.
-///
-/// Only ever applied to the two numbers on the index page, and only there
-/// because they are set in a large weight where the eye has nothing else to
-/// group by.
 fn grouped(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
@@ -252,8 +217,6 @@ mod tests {
         assert_eq!(grouped(1_000_000), "1,000,000");
     }
 
-    /// The four hrefs the rest of the site already points at, from the one page
-    /// that has to answer for all of them.
     #[test]
     fn every_page_is_one_column_and_names_no_other_host() {
         let modules = [("Pkg", "Pkg.html".to_owned())];
@@ -277,8 +240,8 @@ mod tests {
         }
     }
 
-    /// The three ids `app.js` looks up by name. A rename on either side is a
-    /// page that loads, validates and does nothing.
+    /// A rename on either side of these ids is a page that loads, validates and
+    /// does nothing.
     #[test]
     fn the_script_finds_the_holes_it_fills() {
         let not_found = not_found_html(&site());
@@ -319,7 +282,6 @@ mod tests {
         );
     }
 
-    /// `code.rs` sends every sort here, so the page has to be about sorts.
     #[test]
     fn the_foundational_page_covers_the_four_things_a_signature_links_to() {
         let page = foundational_types_html(&site());

@@ -9,13 +9,11 @@
 //! `14.7.173.20-rusty`), enumerated over every code point. Regenerate with the
 //! script above; `--check` fails if this file is not what it produces.
 //!
-//! # Not the renderer's table, and not a general-purpose one
-//!
-//! [`crate::facts::autolink_tokens`] splits on this set **united with**
+//! **Nothing may use this table alone, and nothing that produces bytes may use
+//! it at all.** [`crate::facts::autolink_tokens`] splits on it **united with**
 //! [`litedoc4_md::gc::is_z_c`], which is UnicodeBasic's answer and the one the
-//! renderer's `autoLinkInline` uses. Nothing may use this table alone, and
-//! nothing that produces bytes may use it at all: the renderer's split is what
-//! doc-gen4's output is compared against, and it is UnicodeBasic's.
+//! renderer's `autoLinkInline` uses — and the renderer's split is what
+//! doc-gen4's output is compared against.
 //!
 //! Surrogates are members here (they are `Cs`, inside `C`), as they are in
 //! `litedoc4_md::gc`; no `char` can hold one anyway.
@@ -777,10 +775,8 @@ fn contains(table: &[(u32, u32)], c: char) -> bool {
         .is_ok()
 }
 
-/// `c` matches V8's `/[\p{Z}\p{C}]/u`.
-///
-/// Half of what [`crate::facts::autolink_tokens`] splits on. See the module
-/// docs: this is never the whole answer.
+/// `c` matches V8's `/[\p{Z}\p{C}]/u` — half of what
+/// [`crate::facts::autolink_tokens`] splits on, never the whole answer.
 #[must_use]
 pub fn is_z_c(c: char) -> bool {
     contains(&Z_C, c)
@@ -803,9 +799,9 @@ mod tests {
         }
     }
 
-    /// The separators and the punctuation, the same spot checks
-    /// `litedoc4_md::gc` makes: a tokeniser that splits on `.` would offer
-    /// every component of every name and re-render half the package.
+    /// The same spot checks `litedoc4_md::gc` makes: a tokeniser that split on
+    /// `.` would offer every component of every name and re-render half the
+    /// package.
     #[test]
     fn the_category_is_the_one_named() {
         for c in [' ', '\t', '\n', '\u{0}', '\u{a0}', '\u{ad}', '\u{2028}'] {
