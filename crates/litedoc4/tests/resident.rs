@@ -1,22 +1,11 @@
-//! Milestone **M4-c**: the command-line surface of `litedoc4 incremental
-//! --serve`.
+//! The command-line surface of `litedoc4 incremental --serve`: which flag means
+//! what, and which combinations are refused before anything is started. Every
+//! case below ends before a process exists, which is the property being tested —
+//! a command line that is wrong costs nothing.
 //!
-//! Three layers judge the resident extractor and this is the outermost of them:
-//!
-//! - **The gate** — the resident path and the one-shot path write the same 436 IR
-//!   files over the same module list, and the M3-d3 harness gets the same 3,213
-//!   answers through either. That needs a Lean toolchain, a built package and a
-//!   3 GB process, so it is a gate and not a test.
-//! - **`src/resident.rs`'s own tests** — the protocol, the olean-generation
-//!   guard and the teardown, against a fake server. That is where "a failure does
-//!   not leak a 3 GB process" is asserted rather than observed once by hand.
-//! - **Here** — which flag means what, and which combinations are refused before
-//!   anything is started. Every case below ends before a process exists, which is
-//!   the property being tested: **a command line that is wrong costs nothing**.
-//!
-//! The one rule the whole surface follows: `--serve` and `--extractor` are two
-//! answers to the same question, so every flag belongs to exactly one of them and
-//! saying so is the refusal's job.
+//! The protocol and the teardown belong to `src/resident.rs`'s own tests, and
+//! agreement between the resident and one-shot paths needs a Lean toolchain and
+//! a 3 GB process, so it is a gate.
 
 #![cfg(unix)]
 
@@ -28,19 +17,14 @@ use litedoc4_testutil::cli::{Cli, code, message, stderr};
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 
-/// The binary under test, with `EXTRACT_BIN`, `TARGET_REPO` and `LAKE` taken
-/// out of the environment it starts in.
-///
-/// This file is the only one of the five that clears anything, and the clearing
-/// belongs to it: every case here ends **before a process exists**, so an
-/// inherited `EXTRACT_BIN` is the one thing that could carry a command line
-/// past a refusal and make "this flag is required" pass for the wrong reason.
-/// The other four `crates/litedoc4/tests/*.rs` deliberately keep the ambient
-/// environment.
+/// Every case here ends before a process exists, so an inherited `EXTRACT_BIN`
+/// is the one thing that could carry a command line past a refusal and make a
+/// "this flag is required" case pass for the wrong reason. The other test files
+/// in this crate deliberately keep the ambient environment.
 const LITEDOC4: Cli = Cli::at(BIN).clearing(&["EXTRACT_BIN", "TARGET_REPO", "LAKE"]);
 
 /// 40 lower-case hex digits after `/blob/`, or `incremental` refuses the URL
-/// before it ever looks at these flags (plan 決定 1).
+/// before it ever reaches the flags under test.
 const URL: &str = "https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567";
 
 #[test]
@@ -53,8 +37,6 @@ fn serve_and_extractor_are_two_answers_to_the_same_question() {
         "{}",
         message(&refusal)
     );
-    // And with neither, the refusal has to name both — otherwise it reads as
-    // "--extractor is required", which after M4-c is only half true.
     let refusal = world.run(&[]);
     assert_eq!(code(&refusal), 2, "{}", stderr(&refusal));
     let said = message(&refusal);
@@ -65,8 +47,8 @@ fn serve_and_extractor_are_two_answers_to_the_same_question() {
 #[test]
 fn the_servers_own_flags_are_refused_without_it() {
     let world = World::new("serve-only-flags");
-    // Each is a real flag of `litedoc4 extract`, so a caller who tries it here
-    // has to hear which command owns it rather than "unknown argument".
+    // Each is a real flag of `litedoc4 extract`, so the refusal owes the caller
+    // which command owns it rather than "unknown argument".
     for (flag, value) in [
         ("--extractor-bin", "/tmp/extract"),
         ("--target", "/tmp/repo"),
@@ -77,20 +59,18 @@ fn the_servers_own_flags_are_refused_without_it() {
         let said = message(&refusal);
         assert!(said.contains("a flag of --serve"), "{flag}: {said}");
     }
-    // `--jobs` is the same rule with the reason plan §6 constraint 6 gives: the
-    // resident server's job count is its start-up `cfg`, so it is this command's
-    // to choose exactly when this command starts the server.
+    // The resident server's job count is fixed by its start-up `cfg`, so it is
+    // this command's to choose exactly when this command starts the server.
     let refusal = world.run(&["--extractor", "/bin/true", "--jobs", "4"]);
     assert_eq!(code(&refusal), 2, "{}", stderr(&refusal));
     let said = message(&refusal);
     assert!(said.contains("--extractor-arg --jobs"), "{said}");
-    assert!(said.contains("constraint 6"), "{said}");
+    assert!(said.contains("fixes it at start-up"), "{said}");
 }
 
 #[test]
 fn the_two_paths_with_no_default_are_required_by_serve() {
     let world = World::new("serve-required");
-    // No `--extractor-bin`, and `EXTRACT_BIN` unset.
     let refusal = world.run(&["--serve", "--target", "/tmp/repo"]);
     assert_eq!(code(&refusal), 2, "{}", stderr(&refusal));
     let said = message(&refusal);
@@ -100,7 +80,6 @@ fn the_two_paths_with_no_default_are_required_by_serve() {
         "the reason there is no default: {said}"
     );
 
-    // No `--target`, and `TARGET_REPO` unset.
     let refusal = world.run(&["--serve", "--extractor-bin", "/tmp/extract"]);
     assert_eq!(code(&refusal), 2, "{}", stderr(&refusal));
     let said = message(&refusal);
@@ -114,9 +93,8 @@ fn the_two_paths_with_no_default_are_required_by_serve() {
 #[test]
 fn the_two_paths_may_come_from_the_environment_instead() {
     let world = World::new("serve-env");
-    // The prototype's variable names (`serve-ctl.sh:48-50`), so a shell that
-    // already exports them keeps working. Reaching the *next* refusal — the
-    // target does not exist — is the proof both were picked up.
+    // Reaching the *next* refusal — the target does not exist — is the proof
+    // both were picked up.
     let refusal = world.run_with_env(
         &["--serve"],
         &[
@@ -136,7 +114,7 @@ fn the_two_paths_may_come_from_the_environment_instead() {
 fn an_empty_environment_variable_is_not_a_value() {
     let world = World::new("serve-empty-env");
     // `TARGET_REPO=` in a wrapper script is how a shell spells "I did not set
-    // this"; taking it literally would make the target the filesystem root.
+    // this"; taken literally it would make the target the filesystem root.
     let refusal = world.run_with_env(
         &["--serve", "--extractor-bin", "/tmp/extract"],
         &[("TARGET_REPO", "")],
@@ -179,10 +157,9 @@ fn a_job_count_of_zero_is_refused() {
 #[test]
 fn the_two_flags_that_stayed_retired_say_what_replaced_them() {
     let world = World::new("retired");
-    // `--serve-dir` and `--serve-from` are the prototype's two spellings for a
-    // server the caller owns. Both are refused, and the reason is the same
-    // measurement: correctness comes from the server's olean generation and never
-    // from the round number 【実測, stage 6a】.
+    // Both name a server the caller owns, and both are refused for the same
+    // reason: correctness comes from the server's olean generation, never from
+    // the round number.
     let refusal = world.run(&["--extractor", "/bin/true", "--serve-dir", "/tmp/server"]);
     assert_eq!(code(&refusal), 2, "{}", stderr(&refusal));
     let said = message(&refusal);
@@ -200,9 +177,6 @@ fn the_two_flags_that_stayed_retired_say_what_replaced_them() {
 
 #[test]
 fn extract_still_refuses_every_serve_spelling_and_now_says_why() {
-    // M4-b refused these three with "M4-c will bring them". M4-c brought them
-    // somewhere else, so the refusal has to say where and why rather than name a
-    // milestone that has passed.
     for flag in ["--serve", "--serve-dir", "--serve-from"] {
         let refusal = LITEDOC4.run(&["extract", flag]);
         assert_eq!(code(&refusal), 2, "{flag}: {}", stderr(&refusal));
@@ -215,10 +189,8 @@ fn extract_still_refuses_every_serve_spelling_and_now_says_why() {
     }
 }
 
-// ------------------------------------------------------------------- plumbing
-
 /// A module list and nothing else: every case here is decided before the
-/// pipeline opens an IR tree, which is the point of them.
+/// pipeline opens an IR tree.
 struct World {
     root: PathBuf,
     modules: PathBuf,
@@ -240,7 +212,6 @@ impl World {
         Self { root, modules }
     }
 
-    /// The eight flags every run needs, plus whatever the case adds.
     fn base(&self) -> Vec<String> {
         [
             "incremental",
@@ -266,9 +237,6 @@ impl World {
         .collect()
     }
 
-    /// Every run clears `EXTRACT_BIN`, `TARGET_REPO` and `LAKE` (see
-    /// [`LITEDOC4`]), so a developer who exports one cannot make a "this is
-    /// required" case pass for the wrong reason.
     fn run(&self, extra: &[&str]) -> Output {
         self.run_with_env(extra, &[])
     }

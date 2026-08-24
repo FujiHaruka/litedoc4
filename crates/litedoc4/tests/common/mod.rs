@@ -1,101 +1,48 @@
 //! The fake extractor, written once for every test binary in this directory
 //! that needs one.
 //!
-//! `--extractor` has no default (`src/pipeline.rs`), so the extraction step is
-//! the one seam these tests hand a stand-in through: a `/bin/sh` script that
-//! takes a module list and writes a partial IR tree, every byte of it copied
-//! out of a baked world so that an incrementally merged tree and a from-scratch
-//! one stay comparable. A second Rust binary would ship with the product; a
-//! real Lean toolchain would mean none of these tests exist.
+//! `--extractor` has no default, so the extraction step is the one seam these
+//! tests hand a stand-in through: a `/bin/sh` script that takes a module list
+//! and writes a partial IR tree, every byte of it copied out of a baked world so
+//! that an incrementally merged tree and a from-scratch one stay comparable. A
+//! second Rust binary would ship with the product; a real Lean toolchain would
+//! mean none of these tests exist.
 //!
-//! # Why one script and not one per file
+//! One script and not one per file, because `build.rs` and `incremental.rs`
+//! **both** hold a gate that compares what the fake extractor baked against a
+//! full generation. While the script existed twice, one copy's IR-generation
+//! rule could move while the other stood still and both comparisons would still
+//! pass, each against a tree its own script wrote. [`Features`] names what the
+//! two flavours differ by, so a new one is added here rather than by forking.
 //!
-//! `build.rs` and `incremental.rs` **both** hold a gate that compares what the
-//! fake extractor baked against a full generation. While the script existed
-//! twice, one copy's IR-generation rule could move while the other stood
-//! still — and both comparisons would still pass, because each compares a tree
-//! its own script wrote against a tree built from its own baked world. The
-//! oracle would stop being one, silently and in both files at once —
-//! roughly forty lines managed twice, with `build.rs`'s copy a superset.
-//!
-//! **So a flag is added here.** [`Features`] names what the two flavours
-//! differ by, and a caller that wants a new one gets it by naming it in this
-//! file, where the other caller's script is written by the same lines.
-//!
-//! # Why this file and not `litedoc4-testutil`
-//!
-//! What the script writes is a format **the extractor owns**: `index.json`'s
-//! `schemaVersion`, `generator`, `hashAlgorithm`, `leanVersion` and
-//! `dependencyMaps` are `extractor/Extract.lean`'s spelling, and the only
-//! program that reads them back is the `litedoc4` binary this directory tests.
-//! Both callers are in `crates/litedoc4/tests/`, and a `tests/common/mod.rs`
-//! reaches exactly them and nothing else — `crates/litedoc4-render/tests/
-//! common/mod.rs` is the same pattern one crate over.
-//!
-//! `litedoc4-testutil` exists for what a `tests/common/mod.rs` **cannot** reach:
-//! its own `lib.rs` records that five of the `TempDir` copies it folded sit in a
-//! `#[cfg(test)] mod tests` inside `src/`. Nothing here does. Putting a second
-//! writer of the extractor's format in a crate every crate may depend on would
-//! invite a third caller that is not testing this binary at all.
-//!
-//! # The line it records
-//!
-//! Every run appends its whole command line to `<work>/extractor-calls.txt`:
-//!
-//! ```text
-//! --world <world> --modules <list> --ir-dir <dir> --timings <file>
-//! ```
-//!
-//! That shape is not free. It has two readers that disagree about how to read
-//! it, and only one of them asserts anything about the shape itself:
-//!
-//! - `incremental.rs`'s `case_extractor_contract` requires the line to **start
-//!   with** `--world ` and to carry ` --modules `, ` --ir-dir ` and
-//!   ` --timings ` in that order — it is checking that the product calls the
-//!   extractor the way `stage7g/extract-once.sh` is called, with every
-//!   `--extractor-arg` in front.
-//! - `build.rs`'s `Live::extractions` wants only the module list, and reads it
-//!   **by name**: the token after `--modules`. It used to read the token at
-//!   index 1, which is the same token only for a line that begins `--modules`,
-//!   and is why the fork survived — the two files could not have shared a
-//!   script without one of them being wrong 【実測 2026-08-23】.
-//!
-//! `--world` is passed by the product on every run that starts the script
-//! (`Live::build` in `build.rs` and `Live::round` in `incremental.rs` both pass
-//! it as an `--extractor-arg`, and the script cannot copy a module without it),
-//! so recording it in both flavours loses nothing.
+//! This file and not `litedoc4-testutil`, because what the script writes is a
+//! format **the extractor owns** — `index.json`'s `schemaVersion`, `generator`,
+//! `hashAlgorithm`, `leanVersion` and `dependencyMaps` are
+//! `extractor/Extract.lean`'s spelling, and the only program that reads them
+//! back is the `litedoc4` binary this directory tests. A `tests/common/mod.rs`
+//! reaches exactly the two callers and nothing else; a writer of that format in
+//! a crate every crate may depend on would invite a third caller that is not
+//! testing this binary at all.
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-/// What the two flavours of the script differ by.
-///
-/// Named fields rather than two positional `bool`s: the same weakness
-/// removed from three other signatures elsewhere in this workspace,
-/// because the compiler says nothing when two arguments of the same
-/// type are swapped.
 #[derive(Clone, Copy)]
 pub(crate) struct Features {
-    /// Accept `--corrupt <Module>` and, after a **successful** extraction,
-    /// write bytes the renderer cannot read into that module's IR file.
-    ///
-    /// The run then fails in the renderer, which is the half of the ledger's
-    /// ordering no failing extractor can reach: a failing extractor stops the
-    /// run before the IR exists.
+    /// Accept `--corrupt <Module>` and, after a **successful** extraction, write
+    /// bytes the renderer cannot read into that module's IR file. The run then
+    /// fails in the renderer, which is the half of the ledger's ordering no
+    /// failing extractor can reach: a failing extractor stops the run before the
+    /// IR exists.
     pub(crate) corrupt: bool,
-    /// Carry the world's dependency slices through: copy `ir/deps/*.json` and
-    /// inline `ir/deps-index.json` as `index.json`'s `dependencyMaps`.
-    ///
-    /// Off, the array is written empty. The array is inlined rather than
+    /// Copy `ir/deps/*.json` and inline `ir/deps-index.json` as `index.json`'s
+    /// `dependencyMaps`; off, the array is written empty. Inlined rather than
     /// computed because a shell that worked out the byte counts itself would be
     /// a second writer of a format the extractor owns.
     pub(crate) deps: bool,
 }
 
-/// Write the fake extractor to `path` and make it executable.
-///
-/// See this module's header for what the script is and what it records.
 pub(crate) fn write_fake_extractor(path: &Path, features: Features) {
     let mut script = String::new();
 
@@ -168,9 +115,8 @@ done < "$MODULES"
 {
 "#,
     );
-    // The one line of `index.json` the two flavours do not share. Byte for byte
-    // what each wrote before they were folded: with no `deps-index.json` in the
-    // world `$DEPS` is empty, so the two spellings agree there too.
+    // The one line of `index.json` the two flavours do not share — and with no
+    // `deps-index.json` in the world `$DEPS` is empty, so even here they agree.
     script.push_str(if features.deps {
         "  printf '{\"declarationCount\":0,\"dependencyMaps\":[%s],' \"$DEPS\"\n"
     } else {
@@ -205,23 +151,20 @@ rm -f "$ENTRIES"
     fs::set_permissions(path, perms).expect("the script is chmod-able");
 }
 
-// The generator's own tests. They run `/bin/sh` over a two-module world and
-// read what the script wrote, because the subject is what the script *does*
-// with a world — asserting on the script's text would only restate the lines
-// above it.
+// These run `/bin/sh` over a two-module world and read what the script wrote:
+// the subject is what the script *does*, and asserting on its text would only
+// restate the lines above.
 //
-// `mod common;` compiles this into every binary that declares it, so these run
-// once per such binary. That is deliberate: whichever of `build.rs` and
-// `incremental.rs` a developer runs on its own, the generator both of them now
-// share is checked in that run.
+// `mod common;` compiles this into every binary that declares it, so they run
+// once per such binary — deliberately, so that whichever of `build.rs` and
+// `incremental.rs` a developer runs on its own checks the shared generator.
 //
-// **What they are here for.** Nothing else reads the incremental flavour's
-// `"dependencyMaps":[]` — `litedoc4-incr::merge` recomputes the array from the
-// merged module files (`merge.rs:362-395`) rather than taking the incremental
-// tree's, and a two-module world with a dependency map spliced into that array
-// leaves all nineteen of `incremental.rs`'s tests green 【実測 2026-08-23】. So
-// the bytes each flavour writes are pinned here, where a change to one flavour
-// is visible next to the other.
+// Nothing else reads the incremental flavour's `"dependencyMaps":[]`:
+// `litedoc4-incr::merge` recomputes the array from the merged module files
+// rather than taking the incremental tree's, so a world with a dependency map
+// spliced into that array leaves every test in `incremental.rs` green
+// 【実測 2026-08-23】. Hence the bytes each flavour writes are pinned here,
+// where a change to one flavour is visible next to the other.
 #[cfg(test)]
 mod tests {
     use std::process::Output;
@@ -237,10 +180,8 @@ mod tests {
     /// /bin/sh --extractor-arg <script>` becomes `/bin/sh <script> …`.
     const SH: Cli = Cli::at("/bin/sh");
 
-    /// A baked world of two modules whose index entries are the two shortest
-    /// objects that can be told apart. The script copies bytes and counts
-    /// lines; it never parses either file, so the fixture need only be
-    /// distinguishable.
+    /// The script copies bytes and counts lines and never parses either file, so
+    /// the two modules need only be distinguishable.
     fn write_world(world: &Path) {
         for (module, entry) in [
             ("Pkg", r#"{"module":"Pkg"}"#),
@@ -266,7 +207,6 @@ mod tests {
         fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     }
 
-    /// One extraction: the four flags the product passes, plus `extra`.
     fn extract(script: &Path, world: &Path, ir: &Path, extra: &[&str]) -> Output {
         let work = ir.parent().expect("a work directory");
         fs::create_dir_all(work).expect("writable");
@@ -288,10 +228,8 @@ mod tests {
         SH.run(&args)
     }
 
-    /// **The bytes, both flavours.** `index.json`'s field order, its empty
-    /// `dependencyMaps`, `"declarationCount":0` and the three strings that name
-    /// the extractor are what a merged tree is compared against, so they are
-    /// written out here rather than derived from the generator.
+    /// The expected bytes are written out rather than derived from the
+    /// generator: they are what a merged tree is compared against.
     #[test]
     fn a_world_with_no_dependency_map_gets_the_same_index_from_both_flavours() {
         let temp = TEMP.make("no-deps");
@@ -341,10 +279,10 @@ mod tests {
         }
     }
 
-    /// **The recorded line, both flavours.** `incremental.rs`'s
-    /// `case_extractor_contract` asserts the order and that `--world` is first;
-    /// `build.rs`'s `Live::extractions` takes the token after `--modules`. One
-    /// line has to satisfy both, and this is where that is stated.
+    /// Two readers disagree about how to read the line: `incremental.rs`'s
+    /// `case_extractor_contract` asserts the order and that `--world` is first,
+    /// while `build.rs`'s `Live::extractions` takes the token after `--modules`.
+    /// One line has to satisfy both, and this is where that is stated.
     #[test]
     fn the_recorded_call_names_every_flag_with_the_world_first() {
         let temp = TEMP.make("call-line");
@@ -387,7 +325,6 @@ mod tests {
                 ),
                 "{what}",
             );
-            // Both readers, on the line the other one's file asserts about.
             assert!(line.starts_with("--world "), "{what}: {line}");
             let mut tokens = line.split_whitespace();
             let modules = tokens
@@ -398,10 +335,6 @@ mod tests {
         }
     }
 
-    /// **Only the flavour that asks for them.** The dependency slices are
-    /// copied and the index array is the world's `deps-index.json` verbatim;
-    /// the other flavour leaves the array empty and writes no `deps`
-    /// directory at all.
     #[test]
     fn the_dependency_slices_are_carried_only_where_the_feature_is_on() {
         let temp = TEMP.make("deps");
@@ -457,10 +390,6 @@ mod tests {
         );
     }
 
-    /// **`--corrupt` is a flag, not a default.** With the feature on, the
-    /// extraction still succeeds and one IR file comes out unreadable — the run
-    /// then fails in the renderer, which is the half of the ledger's ordering a
-    /// failing extractor cannot reach. With it off the flag is not a flag.
     #[test]
     fn corrupt_writes_unreadable_bytes_only_where_the_feature_is_on() {
         let temp = TEMP.make("corrupt");
@@ -489,7 +418,6 @@ mod tests {
             "the index was written before the corruption and stays whole",
         );
 
-        // The same flavour, asked for nothing: it corrupts nothing.
         let ir = temp.path().join("on-clean/ir");
         let output = extract(&on, &world, &ir, &[]);
         assert_eq!(code(&output), 0, "{}", stderr(&output));

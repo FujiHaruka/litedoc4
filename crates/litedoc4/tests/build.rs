@@ -1,33 +1,20 @@
-//! `litedoc4 build` — the one command (milestone M4-d).
+//! `litedoc4 build` — the one command.
 //!
-//! Four things are checked here, and they are different in kind.
+//! A first run extracts and renders everything; a second over an unchanged
+//! package runs the incremental pipeline and has to leave the same site, byte
+//! for byte — and that site has to be `litedoc4 site`'s over the same IR plus
+//! the static assets. That is the gate, in miniature and on a machine that has
+//! never seen the measurement target.
 //!
-//! **That the two paths agree.** A first run extracts everything and renders
-//! everything; a second run over an unchanged package runs the incremental
-//! pipeline. The site after the second run has to be the site after the first,
-//! byte for byte, and the first one has to be the site `litedoc4 site` writes
-//! from the same IR. That is the M4-d gate, in miniature and on a machine that
-//! has never seen the measurement target.
+//! The rest is the failures that are quiet. The write-back's whole design is
+//! *when*: a ledger written before the pages licenses a site nobody rendered,
+//! and once written it is never questioned again, so the failing runs below
+//! assert the ledger did **not** move. The lakefile recogniser reads one shape
+//! and refuses the rest by name, because silent under-reading produces a shorter
+//! module list that looks exactly like a package whose modules were deleted.
 //!
-//! **That the ledger is written at the right moment.** The whole of the
-//! write-back's design is *when*: a ledger written before the pages licenses a
-//! site nobody rendered, and once written it is never questioned again — the
-//! next run reports 0 changed and stops. So the failing-extractor case is here,
-//! and it asserts the ledger did **not** move.
-//!
-//! **That `--lib` has an origin.** The lakefile recogniser reads exactly one
-//! shape and refuses everything else by name; the refusals are the tests,
-//! because the failure they prevent is silent under-reading — a library that is
-//! skipped produces a shorter module list, which looks exactly like a package
-//! whose modules were deleted.
-//!
-//! **That the command line cannot be got wrong quietly.** Every refusal is a
-//! flag that names a decision this command has taken over, or a directory it
-//! would otherwise delete somebody's files in.
-//!
-//! The extractor is a `/bin/sh` script, as in `tests/incremental.rs`: this file
-//! is about the sequencing, and needing a built Lean toolchain to run it would
-//! mean it is not run.
+//! The extractor is a `/bin/sh` script: this file is about the sequencing, and
+//! needing a built Lean toolchain to run it would mean it is not run.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -43,31 +30,21 @@ mod common;
 
 use common::{Features, write_fake_extractor};
 
-/// The temporary directories this file makes. The prefix names the file,
-/// so a directory a failed run leaves behind names what made it.
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-build");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 
-/// The binary under test, with this process's environment.
 const LITEDOC4: Cli = Cli::at(BIN);
 
-/// Plan 決定 1: 40 hex digits, or the acceptance oracle's revless normalisation
-/// misses and the score drops 3.1103 points 【実測】.
+/// 40 hex digits after `/blob/`, which is the shape the product requires.
 const URL: &str =
     "https://example.invalid/owner/repo/blob/0123456789abcdef0123456789abcdef01234567";
 
-/// The package the fixtures build. Three modules, one of which nothing imports.
 const MODULES: [&str; 3] = ["Pkg", "Pkg.B", "Pkg.C"];
 
-// ------------------------------------------------------------------ the world
-
-/// A module as the fixture knows it: what its olean hashes to, and what its IR
-/// says.
-///
-/// The two move **independently**, which is the whole reason the ledger exists:
-/// a re-extraction whose IR comes out identical rewrites no page, and an olean
-/// that did not move is not re-extracted at all.
+/// The olean and the IR move **independently**, which is the whole reason the
+/// ledger exists: a re-extraction whose IR comes out identical rewrites no page,
+/// and an olean that did not move is not re-extracted at all.
 #[derive(Clone)]
 struct ModuleSpec {
     name: &'static str,
@@ -109,15 +86,11 @@ fn decl(name: &str, doc: Option<&str>) -> Value {
     })
 }
 
-/// The declaration name a module owns: `Pkg` owns `Pkg.a`, `Pkg.B` owns
-/// `Pkg.B.b`.
 fn decl_name(module: &str) -> String {
     let leaf = module.rsplit('.').next().expect("a leaf");
     format!("{module}.{}", leaf.to_lowercase())
 }
 
-/// The baked IR of the whole world, and the `index.json` entry of each module,
-/// as the fake extractor copies them.
 fn write_world(root: &Path, world: &[ModuleSpec]) {
     let _ = fs::remove_dir_all(root);
     for module in world {
@@ -139,9 +112,8 @@ fn write_world(root: &Path, world: &[ModuleSpec]) {
             &root.join(format!("ir/modules/{}.json", module.name)),
             body.as_bytes(),
         );
-        // The `contentHash` is the fixture's own: the extractor computes it with
-        // Lean's `String.hash` and nothing here re-implements that. What matters
-        // is that it moves when the IR moves and not otherwise.
+        // The `contentHash` is the fixture's own — the extractor computes it
+        // with Lean's `String.hash`. What matters is that it moves with the IR.
         let entry = json!({
             "bytes": body.len(),
             "contentHash": format!("{:016x}", fnv(&body)),
@@ -158,7 +130,6 @@ fn write_world(root: &Path, world: &[ModuleSpec]) {
     }
 }
 
-/// A 64-bit hash, spelled in hex, standing in for Lean's `String.hash`.
 fn fnv(text: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in text.as_bytes() {
@@ -168,8 +139,7 @@ fn fnv(text: &str) -> u64 {
     hash
 }
 
-/// The repository: the lakefile, the sources the glob finds and the oleans the
-/// ledger hashes.
+/// The lakefile, the sources the glob finds and the oleans the ledger hashes.
 fn write_repo(repo: &Path, world: &[ModuleSpec]) {
     write(
         &repo.join("lakefile.toml"),
@@ -199,9 +169,6 @@ fn write_lidx(path: &Path) {
     );
 }
 
-// ----------------------------------------------------------------- the harness
-
-/// One package and one `--out` directory, run over and over.
 struct Live {
     trees: TempDir,
     repo: PathBuf,
@@ -236,14 +203,11 @@ impl Live {
         live
     }
 
-    /// The world both the oleans and the baked IR come from, replaced.
     fn set_world(&self, world: &[ModuleSpec]) {
         write_repo(&self.repo, world);
         write_world(&self.world, world);
     }
 
-    /// `litedoc4 build`, with the fixture's extractor and the flags every run
-    /// needs.
     fn build(&self, extra: &[&str]) -> Output {
         let mut args: Vec<String> = vec![
             "build".to_owned(),
@@ -272,13 +236,9 @@ impl Live {
         self.out.join("site")
     }
 
-    /// How many times the extractor has been called, and with how many modules.
-    ///
-    /// The module list is found **by the flag that names it** and not by
-    /// position. Reading the token at index 1 worked only while this file's
-    /// extractor recorded a line beginning `--modules`, and that is what kept
-    /// the script forked: `incremental.rs` records `--world` first and asserts
-    /// that it does.
+    /// How many times the extractor was called, and with how many modules. The
+    /// module list is found by the flag that names it, not by position: the line
+    /// the fake extractor records begins with `--world`.
     fn extractions(&self) -> Vec<usize> {
         let calls = self.out.join("work/extractor-calls.txt");
         let Ok(text) = fs::read_to_string(&calls) else {
@@ -308,12 +268,6 @@ impl Live {
     }
 }
 
-// ------------------------------------------------------------------ the paths
-
-/// **The gate, in miniature.** One command over a package that has never been
-/// built produces a site; a second command over an unchanged package produces
-/// the same bytes and starts no extraction at all; and the site is the one
-/// `litedoc4 site` writes from the same IR.
 #[test]
 fn the_first_run_builds_and_the_second_one_does_nothing() {
     let live = Live::new("build-twice");
@@ -324,11 +278,6 @@ fn the_first_run_builds_and_the_second_one_does_nothing() {
     assert!(log.contains("plan    full generation"), "{log}");
     assert!(log.contains("lib     Pkg (from"), "{log}");
     let after_first = tree(&live.site());
-    // 3 module pages + the 9 whole-package artifacts + the 3 static assets:
-    // the target's 440 + 3 (M8-d made it 439 + 3 by dropping the five
-    // doc-gen4-only artifacts; splitting `instances.json` out of the search
-    // index adds it back, and feature-sweep C-2 adds
-    // `declarations/used-by.json`) with its 432 pages replaced by 3.
     assert_eq!(after_first.len(), 15, "{:?}", after_first.keys());
     assert_eq!(live.extractions(), vec![3], "the first run extracts all");
 
@@ -350,13 +299,10 @@ fn the_first_run_builds_and_the_second_one_does_nothing() {
     );
 
     // …and the site is `litedoc4 site`'s **plus the static assets**, from the IR
-    // the run left behind.
-    //
-    // The difference is M8-a and it is deliberate: `litedoc4 site` is the composition of `render` and `global` — the
-    // claim `tests/site.rs` makes and checks file by file — while `build` is the
-    // command that produces something publishable, and a tree whose `<head>`
-    // names a `style.css` nobody wrote is not that. So the gate is stated with
-    // the three named rather than dropped.
+    // the run left behind. The difference is deliberate: `site` is the
+    // composition of `render` and `global`, while `build` is the command that
+    // produces something publishable, and a tree whose `<head>` names a
+    // `style.css` nobody wrote is not that.
     let reference = live.trees.path().join("reference-site");
     let ok = LITEDOC4.run(&[
         "site",
@@ -386,9 +332,6 @@ fn the_first_run_builds_and_the_second_one_does_nothing() {
     );
 }
 
-/// A module whose olean and IR both moved is re-extracted, its page is
-/// rewritten, and **the run after it is quiet** — which is the write-back doing
-/// its job. Without it the same module would be re-extracted for ever.
 #[test]
 fn a_changed_module_is_re_extracted_once() {
     let live = Live::new("build-change");
@@ -412,7 +355,6 @@ fn a_changed_module_is_re_extracted_once() {
         "the changed module's page was not rewritten",
     );
 
-    // The point of the write-back: the same edit is not re-extracted twice.
     let quiet = live.build(&[]);
     assert_eq!(code(&quiet), 0, "{}", stderr(&quiet));
     assert!(
@@ -428,10 +370,6 @@ fn a_changed_module_is_re_extracted_once() {
     assert_eq!(tree(&live.site()), after, "the quiet run moved a byte");
 }
 
-/// **The ordering that has a silent failure.** A run whose extractor fails
-/// leaves the ledger where it was, so the next run re-extracts the same module.
-/// Writing the ledger any earlier would license a site nobody rendered, and
-/// nothing downstream would ever ask again.
 #[test]
 fn a_failed_run_does_not_move_the_ledger() {
     let live = Live::new("build-fail");
@@ -452,7 +390,6 @@ fn a_failed_run_does_not_move_the_ledger() {
     );
     assert_eq!(tree(&live.site()), site_before, "the site moved");
 
-    // The marker says the run did not finish, so the repair is a full one.
     let repair = live.build(&[]);
     assert_eq!(code(&repair), 0, "{}", stderr(&repair));
     assert!(
@@ -460,8 +397,6 @@ fn a_failed_run_does_not_move_the_ledger() {
         "{}",
         stdout(&repair),
     );
-    // 3 (the first run), 1 (the one module whose olean moved, which failed),
-    // 3 (the repair, which is a full generation).
     assert_eq!(live.extractions(), vec![3, 1, 3]);
     let after = tree(&live.site());
     assert_eq!(after.len(), 15);
@@ -471,20 +406,14 @@ fn a_failed_run_does_not_move_the_ledger() {
         "the repair left a stale ledger"
     );
 
-    // And the repaired tree is still the incremental fixed point.
     assert_eq!(code(&live.build(&[])), 0);
     assert_eq!(tree(&live.site()), after);
 }
 
-/// The same ordering on the **first** run, where there is no previous ledger to
-/// leave alone: a full generation whose extractor fails must leave no ledger at
-/// all.
-///
-/// This is the half the type does not cover. On the incremental path the module
-/// hashes only exist inside the value `run_incremental` returns on success, so
-/// "write the ledger before the pages" is not a line to move; on the full path
-/// they are in hand before the extractor is called, and writing them there is
-/// one line — which would license a site nobody rendered on the very first run.
+/// The half the type does not cover: on the incremental path the module hashes
+/// only exist inside the value `run_incremental` returns on success, so "write
+/// the ledger before the pages" is not a line to move; on the full path they are
+/// in hand before the extractor is called, and writing them there is one line.
 #[test]
 fn a_first_run_that_fails_leaves_no_ledger() {
     let live = Live::new("build-first-fails");
@@ -499,21 +428,15 @@ fn a_first_run_that_fails_leaves_no_ledger() {
         "a run that never rendered left a site"
     );
 
-    // …and the next run does the whole thing, rather than believing a ledger
-    // the previous run had no right to write.
     let repair = live.build(&[]);
     assert_eq!(code(&repair), 0, "{}", stderr(&repair));
     assert_eq!(live.extractions(), vec![3, 3]);
     assert_eq!(tree(&live.site()).len(), 15);
 }
 
-/// The other half of the ordering: a run whose **renderer** fails leaves no
-/// ledger either.
-///
-/// A failing extractor cannot reach this — it stops the run before the IR
-/// exists — so without this case "write the ledger once the extraction is done"
-/// would pass every other test in this file while licensing a site that was
-/// never written.
+/// A failing extractor cannot reach this — it stops the run before the IR exists
+/// — so without this case "write the ledger once the extraction is done" would
+/// pass every other test in this file while licensing a site nobody wrote.
 #[test]
 fn a_run_that_fails_in_the_renderer_leaves_no_ledger() {
     let live = Live::new("build-render-fails");
@@ -524,20 +447,16 @@ fn a_run_that_fails_in_the_renderer_leaves_no_ledger() {
         "the ledger was written for a site the renderer never finished",
     );
 
-    // The repair is a full one, and it succeeds once the IR is readable again.
     let repair = live.build(&[]);
     assert_eq!(code(&repair), 0, "{}", stderr(&repair));
     assert_eq!(tree(&live.site()).len(), 15);
     assert!(live.out.join("ledger.json").is_file());
 }
 
-/// The ledger the run writes is the one a `ledger build` over the same tree
-/// would write — the module hashes and the two keys, with `irGenerator` taken
-/// from **the IR that now exists**.
-///
-/// The last one is the trap: writing back `detect`'s copy of the key would name
-/// whatever wrote the *previous* tree, and if the two differ every later run
-/// re-extracts every module for ever.
+/// `irGenerator` is taken from **the IR that now exists**, and that is the trap:
+/// writing back `detect`'s copy of the key would name whatever wrote the
+/// *previous* tree, and if the two differ every later run re-extracts everything
+/// for ever.
 #[test]
 fn the_ledger_names_the_tree_that_now_exists() {
     let live = Live::new("build-ledger");
@@ -567,8 +486,7 @@ fn the_ledger_names_the_tree_that_now_exists() {
     assert_eq!(ledger["extractKey"]["irSchemaVersion"], json!("5"));
     assert_eq!(ledger["renderKey"]["sourceUrl"], json!(URL));
 
-    // `ledger check` over the same tree is the independent statement of the
-    // same thing: nothing changed, nothing added, nothing removed.
+    // `ledger check` is the independent statement of the same thing.
     let check = LITEDOC4.run(&[
         "ledger",
         "check",
@@ -587,9 +505,8 @@ fn the_ledger_names_the_tree_that_now_exists() {
     );
 }
 
-/// A module that vanished from the sources loses its page, and the ledger stops
-/// naming it. The full-generation path answers the same question by removing the
-/// site first — the renderer only ever writes.
+/// The full-generation path answers the same question by removing the site
+/// first: the renderer only ever writes.
 #[test]
 fn a_deleted_module_leaves_the_site_and_the_ledger() {
     let live = Live::new("build-delete");
@@ -600,7 +517,7 @@ fn a_deleted_module_leaves_the_site_and_the_ledger() {
     live.set_world(&world);
     fs::remove_file(live.repo.join("Pkg/C.lean")).expect("the source goes");
     // Lake does not remove the orphaned olean and neither does this: the module
-    // list is a glob over the *sources* (plan §5, M3-d).
+    // list is a glob over the *sources*.
     let deleted = live.build(&[]);
     assert_eq!(code(&deleted), 0, "{}", stderr(&deleted));
     assert!(
@@ -615,32 +532,23 @@ fn a_deleted_module_leaves_the_site_and_the_ledger() {
         .map(|entry| entry["module"].as_str().expect("a name"))
         .collect();
     assert_eq!(named, ["Pkg", "Pkg.B"]);
-    // 2 pages + 9 artifacts + 3 static assets.
     assert_eq!(tree(&live.site()).len(), 14);
 }
 
-/// **The gate of M8-a**: a build into an empty
-/// directory leaves the assets the pages reference, and no later run loses them
-/// — not the quiet one that renders nothing, and not the one whose incremental
-/// pipeline runs `prune` over the tree.
-///
-/// The clobbered file in the middle is the point of writing them unconditionally
-/// rather than keying on them. They are **not** in `renderKey` (a page's bytes
-/// do not depend on their content), so a run that skipped them because "the file
-/// is already there" would ship whatever is on disk for ever.
+/// The clobbered file in the middle is why the assets are written
+/// unconditionally rather than keyed on: they are **not** in `renderKey` (a
+/// page's bytes do not depend on their content), so a run that skipped them
+/// because "the file is already there" would ship whatever is on disk for ever.
 #[test]
 fn every_run_writes_the_static_assets() {
     let live = Live::new("build-assets");
     assert_eq!(code(&live.build(&[])), 0);
     assert_shipped(&live.site());
-    // The `<head>` names all three since M8-b, and before M8-a nothing in the
-    // tree answered it.
     let page = fs::read_to_string(live.site().join("Pkg.html")).expect("the page is there");
     for (name, _) in ASSETS {
         assert!(page.contains(name), "the page stopped naming {name}");
     }
 
-    // A run that re-extracts and re-renders nothing still puts them back.
     fs::write(live.site().join("style.css"), "/* clobbered */").expect("the asset is writable");
     let quiet = live.build(&[]);
     assert_eq!(code(&quiet), 0, "{}", stderr(&quiet));
@@ -649,8 +557,7 @@ fn every_run_writes_the_static_assets() {
     assert!(log.contains("render  nothing to render"), "{log}");
     assert_shipped(&live.site());
 
-    // …and so does the run whose pipeline prunes: a module vanishes, its page
-    // goes, the assets stay.
+    // …and so does the run whose pipeline prunes.
     let world: Vec<ModuleSpec> = base_world().into_iter().take(2).collect();
     live.set_world(&world);
     fs::remove_file(live.repo.join("Pkg/C.lean")).expect("the source goes");
@@ -663,7 +570,6 @@ fn every_run_writes_the_static_assets() {
     assert_shipped(&live.site());
 }
 
-/// Every asset is on disk with the bytes the binary carries.
 fn assert_shipped(site: &Path) {
     for (name, body) in ASSETS {
         let path = site.join(name);
@@ -673,9 +579,9 @@ fn assert_shipped(site: &Path) {
     }
 }
 
-/// `--full` regenerates, and the tree it leaves is the tree the incremental path
-/// was maintaining. It is the escape hatch for the inputs no ledger key covers —
-/// the dependency map is one (150 of 432 pages 【実測, plan 決定 4】).
+/// `--full` is the escape hatch for the inputs no ledger key covers — the
+/// dependency map is one (150 of 432 pages 【実測】) — and the tree it leaves is
+/// the tree the incremental path was maintaining.
 #[test]
 fn full_regenerates_the_same_tree() {
     let live = Live::new("build-full");
@@ -693,14 +599,11 @@ fn full_regenerates_the_same_tree() {
     assert_eq!(tree(&live.site()), incremental);
 }
 
-// ------------------------------------------------- the dependency's own docs
-
 /// A dependency with a version-pinned URL, a module root and a declaration this
-/// package refers to — everything A-1 needs to have something to link.
-///
-/// Returns the declaration table on disk. **A file rather than a URL**: a test
-/// that needs mathlib4_docs to be up is not a test, and the local-path spelling
-/// of `--deps-docs-index` is a shipped feature rather than a hook for this.
+/// package refers to, and the declaration table on disk. **A file rather than a
+/// URL**: a test that needs mathlib4_docs to be up is not a test, and the
+/// local-path spelling of `--deps-docs-index` is a shipped feature rather than a
+/// hook for this.
 fn write_dependency(live: &Live) -> PathBuf {
     write(
         &live.repo.join("lake-manifest.json"),
@@ -713,8 +616,8 @@ fn write_dependency(live: &Live) -> PathBuf {
         b"-- the dependency's module root\n",
     );
 
-    // The IR the fake extractor copies: `Dep.elsewhere` is a name this package
-    // refers to, so it is what the table is asked about.
+    // `Dep.elsewhere` is a name this package refers to, so it is what the table
+    // is asked about.
     let slice =
         br#"{"schemaVersion":5,"package":"Dep","declarations":{"Dep.elsewhere":"Dep.Home"}}"#;
     write(&live.world.join("ir/deps/Dep.json"), slice);
@@ -735,18 +638,14 @@ fn write_dependency(live: &Live) -> PathBuf {
     table
 }
 
-/// The package as A-1 needs it: one docstring naming a dependency declaration
-/// the table documents **and** one it does not.
+/// One docstring naming a dependency declaration the table documents **and** one
+/// it does not.
 fn docs_world() -> Vec<ModuleSpec> {
     let mut world = base_world();
     world[0].doc = Some("See `Dep.elsewhere` and `Dep.Home.other`.".to_owned());
     world
 }
 
-/// **The rule, on a real page.** `Dep.elsewhere` is in the dependency's
-/// declaration table, so its link is the dependency's own documentation;
-/// `Dep.Home.other` is not, so its link stays the version-pinned source. One
-/// docstring, one page, both answers.
 #[test]
 fn a_verified_name_links_at_the_dependencys_documentation_and_the_rest_at_its_source() {
     let live = Live::new("build-deps-docs");
@@ -761,9 +660,6 @@ fn a_verified_name_links_at_the_dependencys_documentation_and_the_rest_at_its_so
     ]);
     assert_eq!(code(&ok), 0, "{}", stderr(&ok));
 
-    // **The line, with both halves of the rule and their denominators.** One
-    // name was asked for and found; the table's two `Dep.*` modules came with
-    // it; nothing fell through.
     let log = stdout(&ok);
     assert!(
         log.contains(
@@ -788,12 +684,8 @@ fn a_verified_name_links_at_the_dependencys_documentation_and_the_rest_at_its_so
     );
 }
 
-/// **The artifact round-trips**: `build` resolves once and writes the map, and
-/// `render` reading that map produces the same page bytes.
-///
-/// This is what the artifact is *for* — three commands render, and a flag
-/// repeated on all three is one that gets forgotten on one of them
-/// (`crates/litedoc4-render/src/frame.rs:66-70`). `render` here is given no
+/// What the artifact is *for*: three commands render, and a flag repeated on all
+/// three is one that gets forgotten on one of them. `render` here is given no
 /// `--deps-docs-url` at all and has no way to fetch anything.
 #[test]
 fn the_resolved_map_is_written_and_render_reproduces_the_same_page() {
@@ -828,9 +720,8 @@ fn the_resolved_map_is_written_and_render_reproduces_the_same_page() {
         &map.display().to_string(),
     ]);
     assert_eq!(code(&rendered), 0, "{}", stderr(&rendered));
-    // The same line, out of the artifact rather than out of a table: the second
-    // command has to report the fact the first one established, in the same
-    // words, or a drift between them is invisible.
+    // The same line out of the artifact rather than out of a table: reported in
+    // the same words, or a drift between the two is invisible.
     assert!(
         stdout(&rendered).contains("deps    Dep: 1/1 name(s) and 2 module(s)"),
         "{}",
@@ -847,13 +738,9 @@ fn the_resolved_map_is_written_and_render_reproduces_the_same_page() {
     }
 }
 
-/// **A table that will not read sends the whole root to the source**, says so,
-/// and does not stop the build.
-///
-/// The plan's 撤退ライン, as behaviour: guessing at a table this could not read
-/// would put a link on every page of a dependency nobody verified. The run still
-/// produces a site — the links are the ones v0.1 shipped — and the line is the
-/// only way anyone finds out, so it is what is asserted.
+/// Guessing at a table this could not read would put a link on every page of a
+/// dependency nobody verified. The run still produces a site, and the line it
+/// prints is the only way anyone finds out, so the line is what is asserted.
 #[test]
 fn a_table_that_will_not_read_costs_the_root_its_documentation_links() {
     let live = Live::new("build-deps-docs-unreadable");
@@ -878,8 +765,6 @@ fn a_table_that_will_not_read_costs_the_root_its_documentation_links() {
     );
     assert!(log.contains("no-such-table.json"), "{log}");
 
-    // Both names take the source, and no resolved map is left behind claiming
-    // otherwise.
     let page = fs::read_to_string(live.site().join("Pkg.html")).expect("the root page");
     assert!(!page.contains("docs.invalid"), "{page}");
     assert!(
@@ -929,8 +814,7 @@ fn the_documentation_map_reaches_the_render_key() {
         "the ledger records the same key with and without the documentation map, so a run that \
          gained or lost it would report success without re-rendering",
     );
-    // …and the map is not in the tree any more, so the run cannot be read as
-    // still using it.
+    // …and the run cannot be read as still using the map.
     assert!(
         !stdout(&without).contains("deps    Dep:"),
         "{}",
@@ -938,20 +822,14 @@ fn the_documentation_map_reaches_the_render_key() {
     );
 }
 
-/// **`litedoc4 ledger` computes the key `build` recorded — with the map, and
-/// only with it.**
-///
-/// `ledger build` and `ledger check` render nothing, so no page of theirs can
-/// show which links a site carries; what they produce is the key that decides
-/// whether those pages are re-rendered at all. A `ledger` run that cannot see
-/// the resolved documentation map therefore hashes a *different*
+/// `ledger build` and `ledger check` render nothing; what they produce is the
+/// key that decides whether the pages are re-rendered at all. A `ledger` run
+/// that cannot see the resolved documentation map hashes a *different*
 /// `externalLinks` from the run that wrote the pages, and then answers about a
-/// difference that is not there — the silent divergence this flag closes.
+/// difference that is not there.
 ///
 /// Both directions are asserted, because only the pair distinguishes "the flag
-/// is read" from "the key does not depend on it": with the map the whole
-/// `renderKey` is `build`'s object for object, and without it `check` says the
-/// render key moved and every page has to be rendered again.
+/// is read" from "the key does not depend on it".
 #[test]
 fn the_ledger_command_reproduces_the_builds_render_key_only_with_the_map() {
     let live = Live::new("ledger-deps-docs");
@@ -973,8 +851,7 @@ fn the_ledger_command_reproduces_the_builds_render_key_only_with_the_map() {
     let map = live.out.join("work/deps-docs-map.json");
     assert!(map.is_file(), "the resolved map was not written");
     let map = map.display().to_string();
-    // Exactly what `build` handed its own detect stage: same IR, same
-    // --source-url, same dependency closure, same package.
+    // Exactly what `build` handed its own detect stage.
     let modules = live.out.join("work/modules.txt").display().to_string();
     let ir = live.out.join("ir").display().to_string();
     let repo = live.repo.display().to_string();
@@ -997,7 +874,6 @@ fn the_ledger_command_reproduces_the_builds_render_key_only_with_the_map() {
         args
     };
 
-    // `ledger build`, with the map and without it.
     let rebuilt = |name: &str, extra: &[&str]| -> Value {
         let out = live.trees.path().join(name);
         let mut args: Vec<String> = [
@@ -1032,8 +908,7 @@ fn the_ledger_command_reproduces_the_builds_render_key_only_with_the_map() {
          flag reaches nothing and the map's names are not in the key",
     );
 
-    // `ledger check` against the ledger `build` wrote: the same divergence, seen
-    // from the side that decides whether to re-render.
+    // The same divergence, seen from the side that decides whether to re-render.
     let checked = |extra: &[&str]| -> String {
         let mut args: Vec<String> = [
             "ledger",
@@ -1064,16 +939,13 @@ fn the_ledger_command_reproduces_the_builds_render_key_only_with_the_map() {
     );
 }
 
-// ---------------------------------------------------------------- the lakefile
-
-/// The one shape that is read, and every refusal, each naming `--lib`.
 #[test]
 fn the_lakefile_is_read_or_refused_by_name() {
     let trees = TEMP.make("build-lakefile");
     let world = base_world();
 
-    // What the measurement target's lakefile.toml looks like, plus the shapes a
-    // real one has around it.
+    // The measurement target's own lakefile.toml, plus the shapes a real one
+    // has around it.
     let read: [(&str, &str, &[&str]); 3] = [
         ("plain", "[[lean_lib]]\nname = \"Pkg\"\n", &["Pkg"]),
         (
@@ -1093,13 +965,12 @@ fn the_lakefile_is_read_or_refused_by_name() {
         write_repo(&repo, &world);
         write(&repo.join("lakefile.toml"), body.as_bytes());
         // The second library needs a root of its own, or the glob refuses it —
-        // which is a different refusal than the one under test here.
+        // a different refusal from the one under test.
         write(&repo.join("Other.lean"), b"-- another library\n");
         let ok = LITEDOC4.run(&["modules", "--root", &repo.display().to_string()]);
         assert_eq!(code(&ok), 0, "{what}: {}", stderr(&ok));
         // The diagnostic is on stderr: stdout is the module list, and a caller
-        // redirecting it into a file must not get a library name as its first
-        // module.
+        // redirecting it must not get a library name as its first module.
         let log = stderr(&ok);
         assert!(
             log.contains(&format!("lib     {} (from", expected.join(", "))),
@@ -1114,7 +985,6 @@ fn the_lakefile_is_read_or_refused_by_name() {
         assert!(listed.contains(&"Pkg"), "{what}: {listed:?}");
     }
 
-    // Everything else stops, with the same last sentence.
     let refused: [(&str, Option<&str>, &str); 6] = [
         ("lakefile-lean", None, "is Lean code, not data"),
         (
@@ -1158,7 +1028,6 @@ fn the_lakefile_is_read_or_refused_by_name() {
         assert!(message.contains("--lib"), "{what}: {message}");
     }
 
-    // A package with no lakefile at all says so, and still names `--lib`.
     let bare = trees.path().join("bare");
     write_repo(&bare, &world);
     fs::remove_file(bare.join("lakefile.toml")).expect("the toml goes");
@@ -1184,14 +1053,10 @@ fn the_lakefile_is_read_or_refused_by_name() {
     }
 }
 
-// --------------------------------------------------------------- the source URL
-
-/// `--source-url` from the checkout: `git rev-parse HEAD` and the origin remote,
-/// which is what `incremental.sh:106` hard-codes.
-///
-/// Only github.com is derived — the `/blob/<rev>/` shape is GitHub's and the
-/// acceptance oracle normalises exactly it — so the second half of this test is
-/// a remote that is refused rather than guessed at.
+/// `--source-url` from the checkout: `git rev-parse HEAD` and the origin remote.
+/// Only github.com is derived, because the `/blob/<rev>/` shape is GitHub's, so
+/// the second half of this test is a remote that is refused rather than guessed
+/// at.
 #[test]
 fn the_source_url_comes_from_git() {
     let live = Live::new("build-git");
@@ -1231,7 +1096,6 @@ fn the_source_url_comes_from_git() {
         "{page:.400}"
     );
 
-    // A remote whose /blob/ shape is not knowable stops, naming --source-url.
     let other = TEMP.make("build-git-other");
     let repo = other.path().join("repo");
     write_repo(&repo, &base_world());
@@ -1253,8 +1117,6 @@ fn the_source_url_comes_from_git() {
     assert!(message.contains("--source-url"), "{message}");
 }
 
-// ---------------------------------------------------------------- the refusals
-
 /// `--out` is the directory this command owns, and it will not take over one it
 /// cannot see it wrote — because a full generation removes the site tree.
 #[test]
@@ -1271,10 +1133,9 @@ fn a_directory_this_command_did_not_write_is_refused() {
         "the refusal deleted the file it refused to overwrite",
     );
 
-    // **`--full` does not get past it either**, and that is the ordering that
+    // `--full` does not get past it either, and that is the ordering that
     // matters: a full generation is the path that *deletes* <out>/site and
-    // <out>/ir, so a `--full` answered before the marker was read would be the
-    // one way to remove a directory this command never checked it owns.
+    // <out>/ir.
     write(&live.out.join("site/index.html"), b"somebody's site\n");
     let forced = live.build(&["--full"]);
     assert_eq!(code(&forced), 3, "{}", stdout(&forced));
@@ -1340,9 +1201,8 @@ fn an_out_inside_the_root_is_refused() {
     assert!(!inside.exists(), "the refused directory was created anyway");
 }
 
-/// Every flag that names a decision `build` has taken over is refused **by
-/// name**, with the decision as the reason. "unknown argument" would send the
-/// caller looking for a typo.
+/// Refused **by name**, with the decision as the reason: "unknown argument"
+/// would send the caller looking for a typo.
 #[test]
 fn the_command_line_is_checked() {
     let live = Live::new("build-cli");
@@ -1353,9 +1213,9 @@ fn the_command_line_is_checked() {
     let cases: [(&[&str], i32, &str); 16] = [
         (&["build"], 2, "--root <repo> is required"),
         (&["build", "--root", &repo], 2, "--out <dir> is required"),
-        // M5-b: `--link-index` is optional now — left out, the map is
+        // `--link-index` is optional: left out, the map is
         // <out>/link-index.lidx and the resident extractor writes it. The one
-        // shape that cannot work is a `--extractor <program>`, whose interface
+        // shape that cannot work is an `--extractor <program>`, whose interface
         // has no room to ask for one.
         (
             &[
@@ -1418,10 +1278,9 @@ fn the_command_line_is_checked() {
         (
             &["build", "--root", &repo, "--out", &out, "--no-link-index"],
             2,
-            // The refusal's own words, not the usage text's: this assertion used
-            // to be satisfied by a line of `USAGE` that happened to carry the
-            // same phrase, so editing the help text broke a test about a
-            // refusal (M5-b).
+            // The refusal's own words, not the usage text's: `USAGE` carries
+            // the same phrase, so a check over the whole of stderr would pass
+            // whatever the refusal said.
             "150 of the target package's 432 pages",
         ),
         (
@@ -1455,9 +1314,9 @@ fn the_command_line_is_checked() {
             2,
             "--mode takes self|referrers|importers|all",
         ),
-        // A-1. The resolved map is this command's *output*, so naming one as an
-        // input would render against somebody else's answer while recording the
-        // digest of this run's.
+        // The resolved map is this command's *output*, so naming one as an input
+        // would render against somebody else's answer while recording the digest
+        // of this run's.
         (
             &[
                 "build",
@@ -1505,11 +1364,9 @@ fn the_command_line_is_checked() {
             3,
             "is not a module root of any dependency",
         ),
-        // `ledger` parses one flat set of flags and then dispatches, so every
-        // flag of every subcommand used to be accepted by all three and read by
-        // one. A flag that does nothing is the shape `extract` already refuses
-        // by name (`--link-index-omit` without `--link-index`): the run looks
-        // right and the artefact is not the one that was asked for.
+        // `ledger` parses one flat set of flags and then dispatches, so without
+        // this table a flag of one subcommand is accepted by all three and read
+        // by one: the run looks right and the artefact is not the one asked for.
         (
             &[
                 "ledger",
@@ -1557,7 +1414,6 @@ fn the_command_line_is_checked() {
     );
 }
 
-/// `--timings` is one JSON line, and it says which of the two paths ran.
 #[test]
 fn the_timings_record_names_the_path() {
     let live = Live::new("build-timings");
@@ -1572,8 +1428,8 @@ fn the_timings_record_names_the_path() {
     assert_eq!(record["path"], json!("full"));
     assert_eq!(record["modules"], json!(3));
     assert_eq!(record["extracted"], json!(3));
-    // 3 pages + 9 artifacts + 3 static assets: counted **after** the assets are
-    // written, so the number is the tree that shipped and not a stage of it.
+    // Counted **after** the assets are written, so the number is the tree that
+    // shipped and not a stage of it.
     assert_eq!(record["pagesInSite"], json!(15));
     assert_eq!(record["pagesRendered"], json!(3));
 
@@ -1594,20 +1450,14 @@ fn the_timings_record_names_the_path() {
     }
 }
 
-/// The marker's `work` record — **the performance gate this project could not
-/// otherwise have.**
-///
-/// Nothing here can be judged by a clock: the oleans are `mmap`ed, so the same
-/// unchanged run's environment load moves by 5x with the page cache 【実測】. So
-/// the gate is over deterministic integers instead, and this test pins the two
-/// shapes that matter — a first run does all the work, a second run over a world
-/// that did not move does **none** of it. `tools/e2e-micro.sh`'s GATE 5 asserts
-/// the same thing through a real Lean extractor; this asserts it in `cargo test`,
-/// where it actually runs on every change.
+/// The performance gate, over deterministic integers: nothing here can be judged
+/// by a clock, because the oleans are `mmap`ed and the same unchanged run's
+/// environment load moves by 5x with the page cache 【実測】. A first run does all
+/// the work, a second over a world that did not move does **none** of it.
 ///
 /// `extractorRequests` is cross-checked against the fixture's own tally of how
-/// often it was called, which is the point of the number: it is the one counter
-/// whose zero says Lean was never started.
+/// often it was called: it is the one counter whose zero says Lean was never
+/// started.
 #[test]
 fn the_marker_records_the_work() {
     let live = Live::new("build-work");
@@ -1618,13 +1468,11 @@ fn the_marker_records_the_work() {
     assert_eq!(full["pagesRendered"], json!(3));
     assert_eq!(full["extractorRequests"], json!(1));
     assert_eq!(full["extractorRequests"], json!(live.extractions().len()));
-    // Nothing was cached before the first run, so every module is a miss.
     assert_eq!(full["globalCacheHits"], json!(0));
     assert_eq!(full["globalCacheMisses"], json!(3));
     // Two whole passes over the module files: the renderer's and the
-    // whole-package derivation's. Pinned rather than
-    // bounded — a change to it is a change to what the pipeline does, and this
-    // is where that has to be noticed.
+    // whole-package derivation's. Pinned rather than bounded — a change to it is
+    // a change to what the pipeline does, and this is where that is noticed.
     assert_eq!(full["irReads"]["module"], json!(2 * 3));
 
     let before = live.extractions().len();
@@ -1653,8 +1501,6 @@ fn the_marker_records_the_work() {
     );
 }
 
-/// A run that dies leaves **`work: null`**, not a record of zeros.
-///
 /// Zeros are the exact shape a *successful* incremental run has, so a gate
 /// reading a crashed run's marker would see "re-extracted nothing, rendered
 /// nothing" and pass. `null` makes that read fail instead.
@@ -1666,8 +1512,6 @@ fn an_unfinished_run_records_no_work() {
     assert_eq!(marker["complete"], json!(false));
     assert_eq!(marker["work"], Value::Null);
 }
-
-// ------------------------------------------------------------------- plumbing
 
 fn marker(live: &Live) -> Value {
     let path = live.out.join("litedoc4-build.json");
@@ -1681,7 +1525,6 @@ fn work(live: &Live) -> Value {
     marker["work"].clone()
 }
 
-/// A checkout with one commit and one remote, for the `--source-url` derivation.
 fn git_init(repo: &Path, remote: &str) {
     let run = |args: &[&str]| {
         let output = Command::new("git")
@@ -1704,15 +1547,10 @@ fn git_init(repo: &Path, remote: &str) {
     run(&["commit", "-q", "-m", "the fixture"]);
 }
 
-/// **M5-b: the dependency map is in `renderKey`, and a map that moved
-/// re-renders every page.**
-///
-/// M4-d left this as a named hole (plan §7): the key was `renderer` +
-/// `sourceUrl`, so a run whose IR was unchanged and whose map was not went
-/// undetected — and the map reaches 150 of the measurement target's 432 pages'
-/// bytes 【実測, plan 決定 4】. `--full` was the escape hatch. Since M5-a the
-/// product derives the map, so it has an identity worth recording, and the
-/// identity is the file's SHA-256.
+/// The dependency map is in `renderKey`, because it reaches 150 of the
+/// measurement target's 432 pages' bytes 【実測】 and a run whose IR was unchanged
+/// and whose map was not would otherwise go undetected. The identity recorded is
+/// the file's SHA-256.
 #[test]
 fn a_moved_dependency_map_re_renders_every_page() {
     let live = Live::new("build-link-index-key");
@@ -1742,7 +1580,7 @@ fn a_moved_dependency_map_re_renders_every_page() {
     );
     assert!(
         log.contains("impact  mode all"),
-        "a moved render key overrides --mode (plan §6, constraint 4): {log}",
+        "a moved render key overrides --mode: {log}",
     );
     assert_eq!(
         live.extractions(),
@@ -1756,8 +1594,8 @@ fn a_moved_dependency_map_re_renders_every_page() {
     );
 
     // Three module pages were rewritten; this fixture's map reaches none of
-    // their bytes, so the tree is the same tree. **The gate is the decision,
-    // not the diff** — what M4-d could not do was notice.
+    // their bytes, so the tree is the same tree. The gate is the decision to
+    // re-render, not the diff.
     assert_eq!(
         before.keys().collect::<Vec<_>>(),
         tree(&live.site()).keys().collect::<Vec<_>>()
@@ -1777,13 +1615,11 @@ fn a_moved_dependency_map_re_renders_every_page() {
     assert_eq!(live.ledger()["renderKey"]["linkIndex"], json!(digest));
 }
 
-/// A map that is **gone** is answered with a full generation, not with a
-/// refusal and not with a subset render (M5-b).
-///
-/// An incremental run renders a subset, so a round that could not read the map
-/// would leave pages whose links are missing mixed into a tree of pages that
-/// still have theirs — a site that is wrong in a way no count reports. A full
-/// generation writes every page, so it is the answer that cannot be half-right.
+/// A map that is **gone** is answered with a full generation, not with a refusal
+/// and not with a subset render: a round that rendered a subset would leave pages
+/// whose links are missing mixed into a tree of pages that still have theirs, a
+/// site wrong in a way no count reports. A full generation writes every page, so
+/// it is the answer that cannot be half-right.
 #[test]
 fn a_missing_dependency_map_forces_a_full_generation() {
     let live = Live::new("build-link-index-gone");
@@ -1813,16 +1649,13 @@ fn a_missing_dependency_map_forces_a_full_generation() {
     );
 }
 
-/// An IR under `--out` that **this version cannot read** is answered with a full
-/// generation, not with an incremental round that dies part-way.
-///
-/// This is the shape a CI cache produces: the restored state is the *previous*
-/// binary's, and a schema bump makes every file under it unreadable. `detect` is
-/// not the guard — it correctly answers "re-extract every module", and the round
-/// then reads the **base** IR, the tree that re-extraction is about to replace,
-/// to answer ownership. Measured on `ci-action.yml` 2026-08-23: `10 to
-/// re-extract` followed by `ir/modules/Micro.json is schema 4`, exit 1, with the
-/// site left as it was.
+/// An IR under `--out` that **this version cannot read** is the shape a CI cache
+/// produces: the restored state is the *previous* binary's, and a schema bump
+/// makes every file under it unreadable. `detect` is not the guard — it correctly
+/// answers "re-extract every module", and the round then reads the **base** IR,
+/// the tree that re-extraction is about to replace, to answer ownership 【実測
+/// 2026-08-23, on `ci-action.yml`: `10 to re-extract`, then
+/// `ir/modules/Micro.json is schema 4`, exit 1, site untouched】.
 ///
 /// A full generation is the answer rather than a refusal because it is the one
 /// that always works: it deletes the tree it cannot read and writes one it can.
@@ -1832,10 +1665,9 @@ fn an_unreadable_ir_forces_a_full_generation() {
     assert_eq!(code(&live.build(&[])), 0);
     assert_eq!(live.extractions(), vec![3]);
 
-    // Age the whole tree by one schema, exactly as an older binary would have
-    // left it. The ledger keeps saying 5, so `detect` — were it reached — would
-    // find the extract key moved and license the re-extraction that then reads
-    // these files.
+    // Aged exactly as an older binary would have left it. The ledger keeps
+    // saying the current schema, so `detect` — were it reached — would find the
+    // extract key moved and license the re-extraction that reads these files.
     let ir = live.out.join("ir");
     age_the_ir(&ir);
     assert_eq!(index_schema(&ir), litedoc4_ir::MIN_SCHEMA_VERSION - 1);
@@ -1884,7 +1716,6 @@ fn age_the_ir(ir: &Path) {
     );
 }
 
-/// Every `*.json` under an IR tree, index and modules and dependency slices.
 fn ir_files(ir: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut stack = vec![ir.to_owned()];
@@ -1912,8 +1743,7 @@ fn index_schema(ir: &Path) -> u32 {
     .expect("a schema version fits in u32")
 }
 
-/// SHA-256 of a file, lower-case hex — the same value `renderKey.linkIndex`
-/// carries.
+/// Lower-case hex, the spelling `renderKey.linkIndex` carries.
 fn sha256_of(path: &Path) -> String {
     litedoc4_incr::sha256_hex(&fs::read(path).expect("the file is readable"))
 }
@@ -1928,7 +1758,6 @@ fn git_head(repo: &Path) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
-/// Every file under `root`, keyed by its path relative to it.
 fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut files = BTreeMap::new();
     let mut stack = vec![root.to_owned()];

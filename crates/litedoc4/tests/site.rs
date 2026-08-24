@@ -1,23 +1,17 @@
-//! `litedoc4 site` — full generation in one command (milestone M3-d1).
+//! `litedoc4 site` — full generation in one command. Two things are checked, and
+//! they are different in kind.
 //!
-//! Two things are checked here, and they are different in kind.
+//! **The composition adds and drops nothing.** `site` is `render` followed by
+//! `global` inside one process, so the site it writes must be byte-identical to
+//! the site those two write separately — here over a synthetic package, so it
+//! runs on a machine that has never seen the target one. The corpus-scale
+//! statement of the same thing is `tools/site-compare.sh`.
 //!
-//! **That the composition adds and drops nothing.** The prototype's full
-//! generation is three lines of shell (`stage7h/run.sh:78-80`) that call the
-//! renderer and then `global.ts build` over the same IR and the same output
-//! directory. `site` is those two calls inside one process, so the site it
-//! writes must be byte-identical to the site `render` and `global` write
-//! separately — over a synthetic package, so this runs on a machine that has
-//! never seen the target one. The corpus-scale statement of the same thing is
-//! `tools/site-compare.sh` against `m2/gate/ref-site` (438 files at M6; M8-d
-//! moved the denominator to 439 — see `litedoc4_global::artifacts`).
-//!
-//! **That the command line cannot be got wrong quietly.** Every refusal below
-//! is a flag combination that would otherwise produce a site that looks
-//! finished and is not: a missing dependency map costs 150 of 432 pages their
-//! bytes 【実測, plan 決定 4】, and a subset flag would make "full generation"
-//! mean whatever subset was passed. They exit 2, which is what the prototype
-//! exits on a bad command line, and they say why.
+//! **The command line cannot be got wrong quietly.** Every refusal below is a
+//! flag combination that would otherwise produce a site that looks finished and
+//! is not: a missing dependency map costs 150 of 432 pages their bytes 【実測】,
+//! and a subset flag would make "full generation" mean whatever subset was
+//! passed. They exit 2 and they say why.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,26 +20,17 @@ use litedoc4_testutil::TempDirs;
 use litedoc4_testutil::cli::{Cli, code, stderr, stdout};
 use serde_json::{Value, json};
 
-/// The temporary directories this file makes. The prefix names the file,
-/// so a directory a failed run leaves behind names what made it.
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-site");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 
-/// The binary under test, with this process's environment.
 const LITEDOC4: Cli = Cli::at(BIN);
 
-/// Plan 決定 1: 40 hex digits, or the acceptance oracle's revless normalisation
-/// misses and the score drops by 3.1103 points 【実測】. Nothing here reads the
-/// host, but a fixture that models the URL wrongly teaches the wrong shape.
+/// 40 hex digits after `/blob/`. Nothing here reads the host, but a fixture that
+/// models the URL wrongly teaches the wrong shape.
 const URL: &str =
     "https://example.invalid/owner/repo/blob/0123456789abcdef0123456789abcdef01234567";
 
-// --------------------------------------------------------------- the refusals
-
-/// **The refusal M3-d1 exists for.** `run.sh`'s `render()` passes no dependency
-/// map and this project has ported that omission twice; the third guard is that
-/// the choice cannot be made by saying nothing.
 #[test]
 fn neither_link_index_flag_is_refused() {
     let trees = TEMP.make("no-link-index-flag");
@@ -64,8 +49,8 @@ fn neither_link_index_flag_is_refused() {
 
     assert_eq!(code(&output), 2, "{}", stderr(&output));
     let message = stderr(&output);
-    // The count *and* its denominator: "some pages change" is a sentence
-    // nobody acts on, and the reason this is not a default is the size of it.
+    // The count *and* its denominator: "some pages change" is a sentence nobody
+    // acts on.
     assert!(message.contains("150"), "{message}");
     assert!(message.contains("432"), "{message}");
     assert!(message.contains("--no-link-index"), "{message}");
@@ -76,8 +61,8 @@ fn neither_link_index_flag_is_refused() {
     );
 }
 
-/// Both spellings is not "the last one wins": one of them is a statement about
-/// the run that the other contradicts.
+/// Not "the last one wins": each spelling is a statement about the run that the
+/// other contradicts.
 #[test]
 fn both_link_index_flags_are_refused() {
     let trees = TEMP.make("both-link-index-flags");
@@ -138,9 +123,8 @@ fn a_subset_flag_is_refused() {
     }
 }
 
-/// The delta flags belong to the incremental round (M3-d2). A full run
-/// re-renders every page, so a delta computed here would describe a decision
-/// nobody took.
+/// The delta flags belong to the incremental round. A full run re-renders every
+/// page, so a delta computed here would describe a decision nobody took.
 #[test]
 fn a_delta_flag_is_refused() {
     for flag in ["--before", "--print-set", "--delta-json"] {
@@ -193,8 +177,6 @@ fn the_renderers_spelling_of_the_output_tree_is_refused() {
     assert!(stderr(&output).contains("--out"), "{}", stderr(&output));
 }
 
-/// The three required flags, a misspelling, and a value-taking flag with no
-/// value left on the line. All exit 2 and all name what is wrong.
 #[test]
 fn the_rest_of_the_command_line_is_checked() {
     let trees = TEMP.make("required-flags");
@@ -243,8 +225,8 @@ fn the_rest_of_the_command_line_is_checked() {
     }
 }
 
-/// `--help` is not a refusal, and the usage it prints has to mention `site` —
-/// a subcommand that only exists in the dispatch is one nobody finds.
+/// The usage has to mention `site`: a subcommand that only exists in the
+/// dispatch is one nobody finds.
 #[test]
 fn help_is_answered_and_the_usage_names_the_subcommand() {
     for args in [vec!["site", "--help"], vec!["--help"]] {
@@ -256,15 +238,9 @@ fn help_is_answered_and_the_usage_names_the_subcommand() {
     }
 }
 
-// ------------------------------------------------------------ the composition
-
-/// **The composition is exactly the two subcommands.** Same IR, same URL, same
-/// map: one tree from `site`, one from `render` followed by `global`, compared
-/// file by file.
-///
-/// The file *set* is asserted too. Byte equality between two empty trees is
-/// also byte equality, and the failure this test is really watching for — one
-/// stage overwriting the other's file — would show up as a tree that is
+/// The file *set* is asserted as well as the bytes: byte equality between two
+/// empty trees is also byte equality, and the failure this is really watching
+/// for — one stage overwriting the other's file — shows up as a tree that is
 /// internally consistent and short.
 #[test]
 fn the_site_is_render_then_global_over_the_same_tree() {
@@ -323,11 +299,9 @@ fn the_site_is_render_then_global_over_the_same_tree() {
         .collect();
     assert!(differing.is_empty(), "differing: {differing:?}");
 
-    // Five module pages, seven whole-package artifacts (M8-d). Written out
-    // rather than computed from the same walk that produced the trees.
-    //
-    // No static assets: `write_assets` is `build`'s step 5, and `site` is the
-    // composition of `render` and `global` and nothing else — which is what
+    // Written out rather than computed from the same walk that produced the
+    // trees. No static assets: `write_assets` belongs to `build`, and `site` is
+    // the composition of `render` and `global` and nothing else — which is what
     // makes the comparison above a comparison of those two stages.
     let mut expected: Vec<PathBuf> = [
         "Pkg.html",
@@ -351,16 +325,13 @@ fn the_site_is_render_then_global_over_the_same_tree() {
     expected.sort();
     assert_eq!(from_site.keys().cloned().collect::<Vec<_>>(), expected);
 
-    // `site` reports both stages, and neither report is the other's.
     let log = String::from_utf8_lossy(&ok.stdout).into_owned();
     assert!(log.contains("render  modules 5/5"), "{log}");
     assert!(log.contains("global  modules 5"), "{log}");
 }
 
-/// The dependency map is not decoration: with it and without it the same IR
-/// produces different pages. 決定 4's 150-of-432 at synthetic scale — if this
-/// ever stops failing, the flag stopped doing anything and the refusal above is
-/// guarding nothing.
+/// The 150-of-432 at synthetic scale: if this ever stops failing, the flag
+/// stopped doing anything and the refusal above is guarding nothing.
 #[test]
 fn the_dependency_map_changes_the_bytes() {
     let trees = TEMP.make("with-and-without-map");
@@ -413,11 +384,9 @@ fn the_dependency_map_changes_the_bytes() {
     );
 }
 
-/// `--timings` is one JSON line, and its two phase names are
-/// `incremental.sh:416-419`'s, so a full run and an incremental one subtract.
-///
-/// The durations are wall clock and nothing asserts on them; the counts are
-/// what a report quotes.
+/// The two phase names are the incremental round's, so a full run and an
+/// incremental one subtract. The durations are wall clock and nothing asserts on
+/// them; the counts are what a report quotes.
 #[test]
 fn the_timings_record_names_both_stages() {
     let trees = TEMP.make("site-timings");
@@ -453,8 +422,7 @@ fn the_timings_record_names_both_stages() {
     }
 }
 
-/// `--state` reaches `global` and nothing else: a second run over an unchanged
-/// IR hits the cache for every module and writes the same site anyway.
+/// `--state` reaches `global` and nothing else.
 #[test]
 fn the_cache_directory_reaches_the_derivation() {
     let trees = TEMP.make("site-state");
@@ -488,9 +456,6 @@ fn the_cache_directory_reaches_the_derivation() {
     assert_eq!(sites[0], sites[1], "the cached run wrote a different site");
 }
 
-// ------------------------------------------------------------------- fixtures
-
-/// Every file under `root`, keyed by its path relative to it.
 fn tree(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
     let mut files = std::collections::BTreeMap::new();
     let mut stack = vec![root.to_owned()];
@@ -509,8 +474,7 @@ fn tree(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
     files
 }
 
-/// A declaration with every schema-5 key `litedoc4_ir` requires — the same
-/// shape `litedoc4-global/tests/state_and_delta.rs` writes.
+/// Every schema-5 key `litedoc4_ir` requires, and no other.
 fn decl(name: &str, kind: &str, doc: Option<&str>) -> Value {
     json!({
         "name": name, "kind": kind, "modifiers": [], "binders": [], "implicits": [],
@@ -533,11 +497,10 @@ fn synthetic_ir(root: &Path) {
                 "def",
                 // `Dep.elsewhere` is in the IR's own dependency slice, so it
                 // links either way; `Dep.Home.other` and `Pkg.B.only_in_lidx`
-                // exist only in the `.lidx`, which is the difference the flag
-                // makes. The second of the two is the one that reaches the
-                // bytes: since 2026-08-17 a name whose module has no page is
-                // not linked at all, and `Dep.Home` is not a page this site
-                // writes — `Pkg.B` is.
+                // exist only in the `.lidx`. Of those two only the second
+                // reaches the bytes: a name whose module has no page is not
+                // linked at all, and this site writes a page for `Pkg.B` but
+                // not for `Dep.Home`.
                 Some("See `Pkg.B.b`, `Dep.elsewhere`, `Dep.Home.other` and `Pkg.B.only_in_lidx`."),
             )],
         ),
@@ -624,13 +587,9 @@ fn synthetic_ir(root: &Path) {
     );
 }
 
-/// A dependency closure holding the names `Pkg.a`'s docstring mentions and the
-/// IR does not define.
-///
-/// It is the **environment**, not only the dependencies: `Pkg.B` is a module of
-/// the package being documented and the map names it too, which is what a real
-/// `.lidx` does. That group is the one whose absence moves a byte — a name in
-/// `Dep.Home` gets no link either way, because this site writes no page for it.
+/// The **environment**, not only the dependencies: a real `.lidx` also names the
+/// modules of the package being documented, and `Pkg.B`'s group is the one whose
+/// absence moves a byte.
 fn write_lidx(path: &Path) {
     write(
         path,

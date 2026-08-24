@@ -118,7 +118,7 @@ usage: litedoc4 build  --root <repo> --out <dir> [--link-index <file>]
                  optional, and for two things. One is the dependency link map:
                  with it, every link into a dependency is that package's
                  version-pinned GitHub blob URL, read out of its
-                 lake-manifest.json plus `lean --githash` (M7-c); without it
+                 lake-manifest.json plus `lean --githash`; without it
                  those links stay relative to pages this site does not write.
                  The other is <root>/litedoc4.toml, which sets the site's title
                  and the Markdown on its index page — the same file for every
@@ -144,21 +144,20 @@ usage: litedoc4 build  --root <repo> --out <dir> [--link-index <file>]
                  so while it waits.
   --full         (`build`) regenerate everything, ignoring what is under --out.
                  The escape hatch for an input no ledger key covers. The
-                 dependency map used to be one; since M5-b its bytes are in
-                 renderKey, so a map that moved re-renders on its own.
+                 dependency map is not one: its bytes are in renderKey, so a
+                 map that moved re-renders on its own.
   --ir           an IR tree written by the extractor (schema 5)
-  --ir-dir       (`extract`) where the extractor writes that tree. Required and
-                 with no default: the extractor's own default was one session's
-                 scratchpad path and is gone (M4-a)
+  --ir-dir       (`extract`) where the extractor writes that tree. Required,
+                 with no default
   --pages        where the pages go; directories are created
   --source-url   https://host/owner/repo/blob/<40-hex-rev>. `incremental`
                  checks the 40 hex digits; `render` and `site` do not.
   --link-index   the dependency closure's name -> module map (.lidx). Its
                  SHA-256 is part of renderKey: a map that moved re-renders every
-                 page (150 of the target's 432 change bytes, plan 決定 4).
+                 page (150 of the target's 432 change bytes).
                  For `build` it is optional — left out, the map is this
                  command's own <out>/link-index.lidx, written by the extractor
-                 from the environment it imported anyway (M5-a). Given, it is an
+                 from the environment it imported anyway. Given, it is an
                  input and is never written to. For `extract` it asks the
                  extractor to write one.
   --deps-docs-url  (`build`) <Root>=<url>: link that dependency's declarations
@@ -177,8 +176,8 @@ usage: litedoc4 build  --root <repo> --out <dir> [--link-index <file>]
   --deps-docs-map  (`site`, `render`, `incremental`, `ledger`, `links`) the
                  resolved map `build` wrote under <out>/work. It carries the base
                  URL and the verified names, so the commands that render cannot
-                 disagree about the links (the reason there is no --title,
-                 frame.rs:66-70). Nothing here reads a table or the network.
+                 disagree about the links (the reason there is no --title).
+                 Nothing here reads a table or the network.
                  It is an input to renderKey, so `ledger build` and `ledger
                  check` need it for the same reason --root and --link-index are
                  theirs: without it they compute a different key from the one the

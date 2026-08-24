@@ -1,23 +1,11 @@
 //! `litedoc4 ledger` — the three subcommands' own command line, and what
-//! `check` and `touch` say.
+//! `check` and `touch` say. The answers themselves belong to `litedoc4-incr`'s
+//! tests; the subcommand layer is what only exists here.
 //!
-//! **What is new here is the subcommand layer, not the answers.**
-//! `litedoc4-incr`'s own tests hold the hashing, the key comparison and the
-//! entry invalidation; `crates/litedoc4/tests/incremental.rs` drives
-//! `ledger build` as the seed of every incremental round. What none of them
-//! reaches is `crates/litedoc4/src/ledger.rs`: the one flat parse that then
-//! dispatches on the subcommand, and the six lines `check` prints.
-//!
-//! Two of those are the reason this file exists rather than a unit test:
-//!
-//! - **`LEDGER_FLAGS` is a refusal by name.** One parse accepts every flag for
-//!   all three subcommands and reads it for one, so without the table
-//!   `ledger touch --concurrency 9` runs, ignores the number and says nothing.
-//!   A flag that does nothing is the shape this project keeps finding.
-//! - **`ledger touch` had no test at all.** It is the only way this repository
-//!   can express "module M changed" without writing to a package it is not
-//!   allowed to write to (`tools/watch-gate.sh`, `tools/build-gate.sh`), so the
-//!   round trip below — touch, then check — is what those gates rest on.
+//! `ledger touch` is the only way this repository can express "module M changed"
+//! without writing to a package it is not allowed to write to, so the round trip
+//! below — touch, then check — is what `tools/watch-gate.sh` and
+//! `tools/build-gate.sh` rest on.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,17 +17,11 @@ const TEMP: TempDirs = TempDirs::prefixed("litedoc4-ledger");
 
 const LITEDOC4: Cli = Cli::at(env!("CARGO_BIN_EXE_litedoc4"));
 
-// ------------------------------------------------------------------ the world
-
-/// The package a ledger is built over: the sources `--modules` names and the
-/// oleans `--target` holds.
-///
 /// Four modules rather than one, because `check`'s counts line reports three
 /// numbers at once and a fixture with one module cannot tell "1 changed" from
 /// "1 added".
 const MODULES: [&str; 4] = ["Pkg", "Pkg.A", "Pkg.B", "Pkg.C"];
 
-/// One package, one ledger, run over and over.
 struct World {
     dir: litedoc4_testutil::TempDir,
     target: PathBuf,
@@ -71,9 +53,8 @@ impl World {
         world
     }
 
-    /// The olean the ledger hashes. **Its bytes are the whole subject**: the
-    /// ledger is a content hash, so an mtime does not move it and neither does
-    /// anything else this fixture could do to the file.
+    /// The bytes are the whole subject: the ledger is a content hash, so an
+    /// mtime does not move it and neither does anything else about the file.
     fn set_olean(&self, module: &str, body: &str) {
         put(
             &self.target.join(format!(
@@ -94,10 +75,9 @@ impl World {
         put(&self.modules, body.as_bytes());
     }
 
-    /// The ledger over the package as it is now. Nothing is asserted about what
-    /// `build` prints: `tests/incremental.rs` drives this same subcommand as the
-    /// seed of every round, and a second check of its counts line would be a
-    /// second reader of one answer rather than a check of another.
+    /// Nothing is asserted about what `build` prints: `tests/incremental.rs`
+    /// drives this same subcommand as the seed of every round, and a second
+    /// reader of one answer is not a check of another.
     fn build(&self) {
         let output = LITEDOC4.run(&[
             "ledger".as_ref(),
@@ -117,9 +97,6 @@ impl World {
         );
     }
 
-    /// `ledger check`, with `extra` appended. Handed back whole — stdout,
-    /// stderr and the exit — because half of what is asserted below is a
-    /// refusal.
     fn check(&self, extra: &[&str]) -> std::process::Output {
         let mut args: Vec<String> = vec![
             "ledger".to_owned(),
@@ -139,26 +116,18 @@ fn put(path: &Path, body: &[u8]) {
     fs::write(path, body).expect("writable");
 }
 
-/// The lines `check` indents, which are the ones about a module or a key.
-///
-/// Read by prefix rather than by position: `check` opens with whatever
-/// `resolve_external_links` has to say about a run with no `--root`, and a
-/// fixture that asserted on the first line would be asserting on that note.
+/// The lines about a module or a key, read by prefix rather than by position:
+/// `check` opens with whatever `resolve_external_links` has to say about a run
+/// with no `--root`, and asserting on the first line would assert on that note.
 fn indented(log: &str) -> Vec<&str> {
     log.lines().filter(|line| line.starts_with("  ")).collect()
 }
 
-// ---------------------------------------------------------------- the refusals
-
-/// The two ways of naming a subcommand that is not one, and the flag table that
-/// decides which subcommand a flag belongs to.
-///
-/// The last of the three is the one with a history: `ledger` parses one flat set
-/// of flags and *then* dispatches, so before [`LEDGER_FLAGS`]
-/// `ledger touch --concurrency 9` ran, ignored the number and said nothing. The
-/// refusal names both the flag and the subcommands that do read it, because
-/// "unknown argument" would send the reader looking for a typo in a flag that
-/// exists.
+/// `ledger` parses one flat set of flags and *then* dispatches, so without a
+/// table saying which subcommand owns which flag `ledger touch --concurrency 9`
+/// would run, ignore the number and say nothing. The refusal names the flag and
+/// the subcommands that do read it, because "unknown argument" would send the
+/// reader looking for a typo in a flag that exists.
 #[test]
 fn ledger_refuses_no_subcommand_an_unknown_one_and_a_flag_that_belongs_to_another() {
     let world = World::new("ledger-refusals");
@@ -196,8 +165,6 @@ fn ledger_refuses_no_subcommand_an_unknown_one_and_a_flag_that_belongs_to_anothe
         "a flag accepted by the parse and read by nobody is the failure this table exists for",
     );
 
-    // The two "this subcommand needs these" refusals, which is what a caller
-    // that named the subcommand and nothing else sees.
     let no_ledger = LITEDOC4.run(&["ledger", "check"]);
     assert_eq!(code(&no_ledger), 2);
     assert_eq!(
@@ -224,11 +191,6 @@ fn ledger_refuses_no_subcommand_an_unknown_one_and_a_flag_that_belongs_to_anothe
         "litedoc4: ledger build needs --modules <file>, --target <repo> and --out <ledger.json>",
     );
 
-    // The two arms every subcommand in this repository shares.
-    // `crates/litedoc4/tests/queries.rs` states them for the five query
-    // subcommands and **does not reach `ledger`**, which is the same gap the
-    // `--help` arm had drifted into three spellings through before `cli::help`
-    // existed.
     let help = LITEDOC4.run(&["ledger", "check", "--help"]);
     assert_eq!(code(&help), 0, "{}", litedoc4_testutil::cli::stderr(&help));
     assert_eq!(stdout(&help), format!("{}\n", litedoc4::USAGE));
@@ -242,15 +204,10 @@ fn ledger_refuses_no_subcommand_an_unknown_one_and_a_flag_that_belongs_to_anothe
     );
 }
 
-// ------------------------------------------------------------------- `check`
-
-/// **The three states a module can be in, in one run.**
-///
-/// They are separate lines because they are separate things to do: a *changed*
-/// module is re-extracted, an *added* one has never been extracted, and a
-/// *removed* one has a page to delete. A run that reported three numbers and no
-/// names would leave a caller unable to act on any of them, and this is exactly
-/// what `tools/build-gate.sh` reads.
+/// The three states are separate lines because they are separate things to do: a
+/// *changed* module is re-extracted, an *added* one has never been extracted, and
+/// a *removed* one has a page to delete. Counts alone would leave the caller —
+/// `tools/build-gate.sh` — unable to act on any of them.
 #[test]
 fn check_counts_and_names_the_changed_the_added_and_the_removed() {
     let world = World::new("ledger-three-states");
@@ -276,17 +233,13 @@ fn check_counts_and_names_the_changed_the_added_and_the_removed() {
         stdout(&quiet),
     );
 
-    // One module's olean rewritten, one module that the ledger has never seen,
-    // one that has left the package.
     world.set_olean("Pkg.A", "olean:Pkg.A:1");
     world.set_olean("Pkg.New", "olean:Pkg.New:0");
     world.list(&["Pkg", "Pkg.A", "Pkg.B", "Pkg.New"]);
 
-    // The three files the next stage reads, plus the diagnostic. They are asked
-    // for here rather than in a case of their own because the point is that they
-    // are **the same answer as the printed one** — a run whose file and whose
-    // log disagreed would have the extractor and the reader working from two
-    // different sets.
+    // Asked for in the same run as the printed answer, because the point is that
+    // they are that answer: a run whose files and whose log disagreed would have
+    // the extractor and the reader working from two different sets.
     let changed_out = world.dir.path().join("changed.txt");
     let removed_out = world.dir.path().join("removed.txt");
     let render_all_out = world.dir.path().join("render-all.txt");
@@ -319,9 +272,8 @@ fn check_counts_and_names_the_changed_the_added_and_the_removed() {
          an answer, and `Pkg.B` did not move: {log}",
     );
 
-    // `--changed-out` is the **re-extract** set, which is `changed ∪ added` —
-    // not the `changed` line alone. A stage handed the printed `changed` list
-    // instead would leave `Pkg.New` without IR and its page unwritten.
+    // `--changed-out` is the re-extract set, `changed ∪ added` — not the
+    // `changed` line alone, which would leave `Pkg.New` without IR.
     assert_eq!(
         fs::read_to_string(&changed_out).expect("--changed-out was written"),
         "Pkg.A\nPkg.New\n",
@@ -343,21 +295,17 @@ fn check_counts_and_names_the_changed_the_added_and_the_removed() {
     );
 }
 
-/// **The two keys, and the sentence each of them ends in.**
-///
-/// They are different answers and the difference is the whole of the incremental
-/// design: a moved *extract* key means every module's IR is invalid whatever its
-/// own hash says, and a moved *render* key means the IR is fine and every page
-/// has to be written again. A run that printed one for the other would either
-/// re-import Lean for nothing or serve pages built against inputs that have
-/// moved.
+/// A moved *extract* key means every module's IR is invalid whatever its own
+/// hash says; a moved *render* key means the IR is fine and every page has to be
+/// written again. A run that printed one for the other would either re-import
+/// Lean for nothing or serve pages built against inputs that have moved.
 #[test]
 fn check_says_which_key_moved_and_what_that_costs() {
     let world = World::new("ledger-keys");
     world.build();
 
-    // `leanToolchain` is one of `extractKey`'s five values: a different compiler
-    // wrote the oleans, so no module's IR can be trusted.
+    // `leanToolchain` is part of the extract key: a different compiler wrote the
+    // oleans, so no module's IR can be trusted.
     put(
         &world.target.join("lean-toolchain"),
         b"leanprover/lean4:v4.33.0\n",
@@ -375,8 +323,6 @@ fn check_says_which_key_moved_and_what_that_costs() {
         stdout(&extract),
     );
 
-    // The render key is the other half: the IR is untouched and the pages are
-    // not, so the re-extract count on this line is zero.
     put(
         &world.target.join("lean-toolchain"),
         b"leanprover/lean4:v4.31.0\n",
@@ -395,22 +341,11 @@ fn check_says_which_key_moved_and_what_that_costs() {
     );
 }
 
-// ------------------------------------------------------------------- `touch`
-
-/// **The round trip the gates rest on**: `touch` then `check` reports that
-/// module, and only it, as *changed*.
-///
-/// Three things are being asserted and each is a separate way for the injection
-/// to be useless:
-///
-/// - **the olean is not written.** The measurement target must not be modified
-///   (CLAUDE.md), which is the entire reason this subcommand exists rather than
-///   the gates rewriting a file;
-/// - **it comes back as `changed`, not as `added`.** The entry is invalidated
-///   rather than deleted, and a deleted entry would be reported as an addition —
-///   which is not what an edit produces, and selects a different render set;
-/// - **`--out` puts the injection somewhere else and leaves the original
-///   alone**, so a gate can inject into a copy of a ledger it did not write.
+/// Not writing the olean is the entire reason this subcommand exists rather than
+/// the gates rewriting a file in the measurement target. Coming back as
+/// `changed` and not as `added` is the other half: the entry is invalidated
+/// rather than deleted, and a deleted entry reads as an addition, which is not
+/// what an edit produces and selects a different render set.
 #[test]
 fn touch_makes_the_next_check_report_that_module_as_changed_and_leaves_the_olean_alone() {
     let world = World::new("ledger-touch");
@@ -463,9 +398,8 @@ fn touch_makes_the_next_check_report_that_module_as_changed_and_leaves_the_olean
          injected for: {log}",
     );
 
-    // `--out`: the same injection, written somewhere else. Without it a gate
-    // that wanted to keep the ledger it was handed would have to copy the file
-    // itself and hope the two spellings of "where the ledger is" agree.
+    // `--out` lets a gate inject into a copy of a ledger it did not write,
+    // instead of copying the file itself and spelling the path twice.
     let elsewhere = world.dir.path().join("injected/ledger.json");
     let copied = LITEDOC4.run(&[
         "ledger".as_ref(),
@@ -498,9 +432,8 @@ fn touch_makes_the_next_check_report_that_module_as_changed_and_leaves_the_olean
         "the second injection is not in the file --out named",
     );
 
-    // A module the ledger has never heard of is **exit 3**, not a silent
-    // success: a gate that injected a change into a name it misspelled would
-    // otherwise wait for a rebuild that has no reason to happen.
+    // Exit 3 and not a silent success: a gate that injected a change into a name
+    // it misspelled would otherwise wait for a rebuild that cannot happen.
     let nobody = LITEDOC4.run(&[
         "ledger".as_ref(),
         "touch".as_ref(),

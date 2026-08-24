@@ -1,18 +1,10 @@
-//! Milestone **M4-b**: `litedoc4 extract`.
+//! The part of `litedoc4 extract` that is **not** the extraction: the command
+//! line it builds, the directory it refuses, and the fold from the events JSONL
+//! into one JSON object. Judging the extraction itself needs a Lean toolchain, a
+//! built target package and 20 seconds, so it is a gate.
 //!
-//! The real oracle for this subcommand is a comparison with the frozen
-//! prototype: `stage7g/extract-once.sh` and `litedoc4 extract` over the same 432
-//! modules write **436/436 identical IR files** and two timings records with the
-//! same 91 keys and the same 59 non-duration values 【実測 2026-08-15】. That
-//! comparison needs a Lean toolchain, a built target package and 20 seconds, so
-//! it lives in the gate and not here.
-//!
-//! What is here is the part of this subcommand that is **not** the extraction:
-//! the command line it builds, the directory it refuses, and the fold from the
-//! events JSONL into one JSON object. All of it is exercised against a fake
-//! `lake` and a fake extractor — two shell scripts — for the same reason
-//! `tests/incremental.rs` fakes the extractor: without the seam none of these
-//! assertions would exist at all.
+//! Everything here runs against a fake `lake` and a fake extractor — two shell
+//! scripts. Without that seam none of these assertions would exist at all.
 
 #![cfg(unix)]
 
@@ -24,23 +16,18 @@ use std::process::{Command, Output};
 use litedoc4_testutil::cli::{Cli, code, message, stderr};
 use litedoc4_testutil::{TempDir, TempDirs};
 
-/// The temporary directories this file makes. The prefix names the file,
-/// so a directory a failed run leaves behind names what made it.
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-extract");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 
-/// The binary under test, with this process's environment.
-///
-/// One test below starts `BIN` through `Command` itself rather than through
-/// this: its whole subject is the child's **working directory**, which is the
-/// one thing a shared runner does not carry.
+/// One test below starts `BIN` through `Command` itself instead: its subject is
+/// the child's working directory, which is the one thing a shared runner does
+/// not carry.
 const LITEDOC4: Cli = Cli::at(BIN);
 
-/// The events three phases of a real run emit, shortened. Two properties are
-/// load-bearing and both come from a real `*-events.jsonl`: the `stage4b.`
-/// prefix is on every phase, and the extra keys are **typed** — numbers,
-/// booleans and strings in the same file.
+/// Shortened from a real `*-events.jsonl`. Two of its properties are
+/// load-bearing: the `stage4b.` prefix is on every phase, and the extra keys are
+/// typed — numbers, booleans and strings in the same file.
 const EVENTS: &str = r#"{"phase":"stage4b.initSearchPath","pid":7,"us":34}
 {"phase":"stage4b.importModules","pid":7,"us":2498376,"directImports":432,"resident":0}
 
@@ -54,11 +41,9 @@ fn the_events_become_one_timings_object() {
     assert_eq!(code(&output), 0, "{}", stderr(&output));
 
     let record = world.timings();
-    // A phase's own `us`, in seconds, under the name with `stage4b.` gone.
     assert_eq!(record["initSearchPath"], serde_json::json!(0.000_034));
     assert_eq!(record["importModules"], serde_json::json!(2.498_376));
     assert_eq!(record["writeIR"], serde_json::json!(0.123_456));
-    // Every other key of the event, `pid` excepted, with its JSON type intact.
     assert_eq!(
         record["importModules:directImports"],
         serde_json::json!(432)
@@ -71,8 +56,6 @@ fn the_events_become_one_timings_object() {
         record.get("initSearchPath:pid").is_none(),
         "pid identifies the process, not the measurement: {record}"
     );
-    // The two the wrapper adds. `targetModules` counts the list the way the
-    // prototype counts it: blank lines and `#` comments are not modules.
     assert_eq!(record["targetModules"], serde_json::json!(2));
     assert_eq!(record["jobsRequested"], serde_json::json!(3));
     assert_eq!(
@@ -103,7 +86,7 @@ fn the_extractor_is_run_inside_the_target_with_the_schema_5_flags() {
             "--ir-dir".to_owned(),
             world.ir_dir.display().to_string(),
         ],
-        "the order is `extract-once.sh:63-64`'s",
+        "the order the extractor is given its flags in",
     );
     assert_eq!(
         fs::canonicalize(
@@ -124,9 +107,9 @@ fn the_extractor_is_run_inside_the_target_with_the_schema_5_flags() {
 #[test]
 fn the_events_file_defaults_beside_the_timings_and_is_never_appended_to() {
     let world = World::new("stale-events");
-    // What an earlier round left behind. `incremental` passes only `--timings`,
-    // so this is the file the default names — and a fold that appended would
-    // report a phase this run never ran.
+    // `incremental` passes only `--timings`, so a stale round's events land in
+    // the file the default names, and a fold that appended would report a phase
+    // this run never ran.
     fs::write(
         world.events(),
         "{\"phase\":\"stage4b.ghost\",\"pid\":1,\"us\":9}\n",
@@ -164,21 +147,15 @@ fn an_ir_dir_inside_the_target_is_refused() {
     );
 }
 
-/// A relative path on the child's command line resolves against the **target**,
-/// because that is the child's working directory 【実測 2026-08-15, M4-c】.
-///
-/// The failure this prevents is the worst one this project has: `--ir-dir out`
-/// passes the guard above — it resolves against *this* process's directory,
-/// which is not under the target — and then the extractor writes several MB into
-/// `<target>/out`, which is a write into the measurement target arriving through
-/// the one command whose heading says it never happens. The mirror-image case is
-/// loud rather than silent (`--modules list.txt` makes the extractor exit 1 with
-/// "no such file or directory"), and that is how this was found.
+/// A relative path on the child's command line resolves against the target,
+/// because that is the child's working directory 【実測 2026-08-15】. So
+/// `--ir-dir out` passes the guard above — it resolves against *this* process's
+/// directory, which is not under the target — and then the extractor writes
+/// several MB into `<target>/out`: a write into the measurement target through
+/// the one command that promises never to make one.
 #[test]
 fn every_path_reaches_the_child_absolute_because_its_directory_is_the_target() {
     let world = World::new("relative-paths");
-    // Run from inside the fixture with every path spelled relative to it — a
-    // caller in their own project directory, in other words.
     let output = Command::new(BIN)
         .current_dir(&world.root)
         .args([
@@ -193,8 +170,7 @@ fn every_path_reaches_the_child_absolute_because_its_directory_is_the_target() {
             "extract",
             "--target",
             "target-repo",
-            // Absolute, and the only one: `--lake` is a name looked up on PATH,
-            // so it is the one path this rule does not apply to.
+            // The one exception: `--lake` is a name looked up on PATH.
             "--lake",
             &world.lake.display().to_string(),
         ])
@@ -246,11 +222,8 @@ fn a_failing_extractor_is_exit_4_and_says_the_tree_is_incomplete() {
     );
 }
 
-/// Every flag refused by name, and the word each refusal has to carry.
-///
-/// Refusing by name rather than as "unknown argument" is this CLI's rule
-/// (`pipeline.rs`, `main.rs`): each of these *is* a real flag of the program
-/// behind this one, so the answer a caller needs is why it is not offered.
+/// Each of these is a real flag of the extractor behind this command, so the
+/// answer a caller needs is why it is not offered — not "unknown argument".
 #[test]
 fn the_flags_that_are_not_offered_are_refused_by_name() {
     for (flag, word) in [
@@ -293,18 +266,14 @@ fn the_paths_with_no_default_are_required() {
     ] {
         let output = world.run_without(missing);
         assert_eq!(code(&output), 2, "{missing}: {}", stderr(&output));
-        // The *message*, not the usage text printed under it: every one of
-        // these words also appears in `USAGE`, so a test that read the whole of
-        // stderr would pass whatever the refusal said.
+        // The *message*, not the whole of stderr: every one of these words also
+        // appears in the `USAGE` printed under it.
         let said = message(&output);
         assert!(said.contains(missing), "{missing} is named: {said}");
         assert!(said.contains(word), "{missing} says `{word}`: {said}");
     }
 }
 
-// ------------------------------------------------------------------- plumbing
-
-/// A fake target package, a fake `lake` and a fake extractor.
 struct World {
     root: PathBuf,
     target: PathBuf,
@@ -338,9 +307,8 @@ impl World {
         .expect("writable");
         make_executable(&lake);
 
-        // The extractor: records its argv and its working directory, writes the
-        // events its caller is about to fold, and prints to stdout (which is
-        // sent to /dev/null, as the prototype sends it).
+        // Prints to stdout as well as writing the events, because the caller is
+        // supposed to send that stdout to /dev/null.
         let extractor = root.join("extract");
         fs::write(
             &extractor,
@@ -370,7 +338,7 @@ impl World {
         }
     }
 
-    /// Where `--events` lands when nobody passes it (`extract-once.sh:52`).
+    /// Where `--events` lands when nobody passes it.
     fn events(&self) -> PathBuf {
         self.root.join("timings-events.jsonl")
     }
@@ -381,7 +349,6 @@ impl World {
         LITEDOC4.run(&args)
     }
 
-    /// The same command line with one flag and its value dropped.
     fn run_without(&self, flag: &str) -> Output {
         let base = self.base_args();
         let mut args: Vec<String> = Vec::new();
@@ -443,9 +410,8 @@ fn make_executable(path: &Path) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("chmod");
 }
 
-/// The temporary paths hold a process id and a counter, never a quote — but a
-/// path that reaches a shell script is quoted anyway, so the fixture cannot be
-/// the thing that breaks.
+/// These paths hold a process id and a counter, never a quote — quoted anyway
+/// so that the fixture cannot be the thing that breaks.
 fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
 }

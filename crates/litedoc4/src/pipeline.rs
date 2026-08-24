@@ -880,7 +880,7 @@ pub fn incremental(args: &[String]) -> Result<(), Failure> {
     if make_link_index && !serve {
         return usage(
             "--make-link-index is a flag of --serve: the dependency map is written by the Lean \
-             extractor out of the environment it imported for the extraction (M5-a), and --serve \
+             extractor out of the environment it imported for the extraction, and --serve \
              is the path where this command spells that command line. Behind --extractor, the \
              program is the one that decides — `litedoc4 extract --link-index <file>` writes it — \
              and --link-index here names the file it wrote",

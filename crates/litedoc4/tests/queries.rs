@@ -1,17 +1,11 @@
 //! The five stages that answer a question about a tree without writing a site:
-//! `links`, `ownership`, `merge`, `impact` and `prune`.
+//! `links`, `ownership`, `merge`, `impact` and `prune`. The answers belong to
+//! `litedoc4-incr`'s own tests; what is new here is the command line — which
+//! flags each subcommand reads, what it prints, which files it writes, and what
+//! the shell is then told. So every case below starts the real binary.
 //!
-//! **What is new here is the command line, not the answers.** `litedoc4-incr`'s
-//! own tests are the thick ones — they hold the curated branch inventories for
-//! `ownership`, `merge`, `impact` and `prune` and compare a corpus run against
-//! the frozen prototype. What none of them can reach is the layer
-//! `crates/litedoc4/src/queries.rs` adds on top: which flags each subcommand
-//! reads, what it prints, which files it writes, and what the shell is then
-//! told. So every case below **starts the real binary** and asserts on stdout,
-//! stderr and the exit code.
-//!
-//! Two exits are the reason this file starts a process at all, because neither
-//! exists inside the library:
+//! Two exits are the reason it starts a process at all, because neither exists
+//! inside the library:
 //!
 //! - **`Failure::Answered` is exit 1 with an empty stderr.** `merge --verify`
 //!   that finds a difference has *answered* the question it was asked; a caller
@@ -22,31 +16,16 @@
 //!   leave `--pages` — and a pipeline that treats that the same as "the disk is
 //!   full" retries the wrong thing.
 //!
-//! # Why the world is built here and not shared with `incremental.rs`
-//!
-//! `crates/litedoc4/tests/incremental.rs` has a `World` / `write_world` pair
-//! that writes an IR tree, and it was the first candidate. It is **not** moved
-//! into `tests/common/mod.rs`, for two reasons that are both about what it
-//! carries:
-//!
-//! - It is shaped for the fake extractor and the ledger, not for a question
-//!   about an IR tree. `write_world` writes a second copy of every index entry
-//!   under `entries/` for the fake extractor to splice, and `ModuleSpec` holds
-//!   an `olean` string that exists only so `write_target` can write a
-//!   repository for `litedoc4 ledger` to hash. Nothing on this page needs a
-//!   repository, an olean or a spliceable entry.
-//! - Moving it would put dead code in every binary in this directory.
-//!   `mod common;` compiles the whole module into each test binary that
-//!   declares it, so `ModuleSpec::olean` would be "never read" here and
-//!   `write_ir` below would be "never used" in `build.rs` — and this tree
-//!   refuses to silence that: `litedoc4-testutil` pins that the workspace holds
-//!   **exactly one** inner `#![allow]`, and `#[expect]` cannot be used for it
-//!   because whether an item is dead depends on which binary is compiling it.
-//!
-//! What is shared instead is the *shape*: the declaration object below has the
-//! same keys as `incremental.rs`'s `decl_json` and `litedoc4-incr`'s `decl`,
-//! because `litedoc4_ir`'s model is `deny_unknown_fields` and there is exactly
-//! one set of keys that parses.
+//! The world below is written here rather than shared with
+//! `crates/litedoc4/tests/incremental.rs`, whose `World` is shaped for the fake
+//! extractor and the ledger: it writes a second copy of every index entry for
+//! the extractor to splice and carries an olean string for `ledger` to hash, and
+//! nothing on this page needs either. Moving it into `tests/common/mod.rs` would
+//! also put dead code in every binary in this directory — `mod common;` compiles
+//! the whole module into each one — and that cannot be silenced, because
+//! `litedoc4-testutil` pins that the workspace holds exactly one inner
+//! `#![allow]` and `#[expect]` does not work when whether an item is dead
+//! depends on which binary is compiling it.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -61,40 +40,29 @@ const TEMP: TempDirs = TempDirs::prefixed("litedoc4-queries");
 
 const LITEDOC4: Cli = Cli::at(env!("CARGO_BIN_EXE_litedoc4"));
 
-// ------------------------------------------------------------------ the world
-
-/// One declaration: its name, and the `(defining module, name)` pairs its IR
-/// records as references.
-///
-/// The pair is what makes `ownership` a stage at all — it is a fact about where
-/// a name lives, and it goes stale when the name moves even though nothing
-/// about the referring module changed.
+/// A reference is a `(defining module, name)` pair, which is what makes
+/// `ownership` a stage at all: it is a fact about where a name lives, and it
+/// goes stale when the name moves even though nothing about the referring
+/// module changed.
 struct Decl<'a> {
     name: &'a str,
     refs: &'a [(&'a str, &'a str)],
 }
 
-/// One module of the synthetic package.
 struct Module<'a> {
     name: &'a str,
     imports: &'a [&'a str],
     decls: &'a [Decl<'a>],
 }
 
-/// The package every case below starts from.
-///
-/// Three relationships are load-bearing, and each is used by a different
-/// subcommand:
-///
-/// - `Pkg.B` **refers to** `Pkg.A.moved` while `Pkg.A` defines it, so
-///   re-extracting `Pkg.A` without that declaration makes `Pkg.B` stale through
-///   a reference and through nothing else — `ownership`'s whole subject.
-/// - `Pkg.B` **imports** `Pkg.A` and `Pkg.C` imports neither, so a change to
-///   `Pkg.A` reaches exactly one other module under `--mode importers` and none
-///   under `--mode self`. Two modes, one changed set, different answers.
-/// - `Pkg.B` refers to `Dep.elsewhere`, which no module of the package defines,
-///   so `deps/Dep.json` is non-empty and `merge --verify` has a dependency
-///   mapping to compare rather than two empty ones.
+/// Three relationships carry the cases below, one per subcommand: `Pkg.B`
+/// **refers to** `Pkg.A.moved` while `Pkg.A` defines it, so re-extracting
+/// `Pkg.A` without that declaration makes `Pkg.B` stale through a reference and
+/// nothing else; `Pkg.B` **imports** `Pkg.A` and `Pkg.C` imports neither, so a
+/// change to `Pkg.A` reaches one other module under `--mode importers` and none
+/// under `--mode self`; and `Pkg.B` refers to `Dep.elsewhere`, which no module
+/// of the package defines, so `merge --verify` has a dependency mapping to
+/// compare rather than two empty ones.
 fn package() -> Vec<Module<'static>> {
     vec![
         Module {
@@ -138,8 +106,8 @@ fn package() -> Vec<Module<'static>> {
     ]
 }
 
-/// `Pkg.A` re-extracted with `Pkg.A.moved` gone: the partial tree a round hands
-/// to `ownership` and `merge`.
+/// The partial tree a round hands to `ownership` and `merge`: `Pkg.A` again,
+/// without `Pkg.A.moved`.
 fn reextracted_a() -> Vec<Module<'static>> {
     vec![Module {
         name: "Pkg.A",
@@ -151,9 +119,8 @@ fn reextracted_a() -> Vec<Module<'static>> {
     }]
 }
 
-/// One declaration with every key the schema-5 reader requires, and no other:
-/// `litedoc4_ir::Decl` is `deny_unknown_fields`, so a spare key is a parse
-/// failure rather than a field nobody reads.
+/// Every key the schema-5 reader requires and no other: `litedoc4_ir::Decl` is
+/// `deny_unknown_fields`, so a spare key is a parse failure.
 fn decl_json(decl: &Decl<'_>) -> Value {
     json!({
         "binderCode": [], "binders": [], "col": 0, "doc": Value::Null,
@@ -165,13 +132,10 @@ fn decl_json(decl: &Decl<'_>) -> Value {
     })
 }
 
-/// Writes the IR tree `modules` describes at `root`, the way a full extraction
-/// of exactly those modules would leave it.
-///
 /// The dependency slices are derived rather than declared: a reference whose
 /// defining module is not one of `modules` is a dependency, which is the rule
 /// `litedoc4_incr::merge` recomputes with. A fixture that listed them by hand
-/// could disagree with the merge and the test would be checking the fixture.
+/// could disagree with the merge, and the test would be checking the fixture.
 fn write_ir(root: &Path, modules: &[Module<'_>]) {
     let own: Vec<&str> = modules.iter().map(|module| module.name).collect();
     let mut index_entries: Vec<Value> = Vec::new();
@@ -256,8 +220,8 @@ fn read(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|source| panic!("{}: {source}", path.display()))
 }
 
-/// The lines of stdout that are table rows: `links` separates its columns with
-/// tabs and everything else it prints is prose.
+/// The table rows: `links` separates its columns with tabs and everything else
+/// it prints is prose.
 fn rows(output: &std::process::Output) -> Vec<Vec<String>> {
     stdout(output)
         .lines()
@@ -266,19 +230,14 @@ fn rows(output: &std::process::Output) -> Vec<Vec<String>> {
         .collect()
 }
 
-// ------------------------------------------------------------------- `links`
-
-/// A dependency pinned at forty hex digits, because `packages.rs` refuses
-/// anything else — a tag or a branch is not a version-pinned link.
+/// Forty hex digits, because `packages.rs` refuses anything else: a tag or a
+/// branch is not a version-pinned link.
 const DEP_REV: &str = "89abcdef0123456789abcdef0123456789abcdef";
 
-/// A package with two dependencies on disk: one with a version-pinned URL and
-/// one without.
-///
-/// The second is not a broken fixture — it is the resolver's third state, "a
-/// dependency, and there is no URL to link it at". Its roots reach the map with
-/// an **empty base** so that pages stop linking into it, and `links` is the one
-/// command that can be pointed at the difference.
+/// Two dependencies, one version-pinned and one not. The second is not a broken
+/// fixture — it is the resolver's third state, "a dependency, and there is no
+/// URL to link it at": its roots reach the map with an empty base so that pages
+/// stop linking into it.
 fn write_repo(repo: &Path) {
     put(
         &repo.join("lake-manifest.json"),
@@ -306,24 +265,19 @@ fn write_repo(repo: &Path) {
     );
 }
 
-/// A `--lake` whose `lean` is not there.
-///
 /// `packages::lean_beside` turns `<dir>/lake` into `<dir>/lean`, and Lean core's
 /// revision is that program's answer to `--githash`. Pointed at nothing, core
-/// contributes no roots and the run **still succeeds**: a partial map renders a
-/// partial improvement, and refusing would trade a site with some dead links for
-/// no site at all. Naming a real toolchain here would make these cases depend on
-/// the machine, which is the line between a test and a gate.
+/// contributes no roots and the run **still succeeds**: refusing would trade a
+/// site with some dead links for no site at all. Naming a real toolchain instead
+/// would make these cases depend on the machine, which is the line between a
+/// test and a gate.
 fn lake_that_is_not_there(dir: &Path) -> PathBuf {
     dir.join("no-toolchain/lake")
 }
 
-/// The map, printed: one row per root, with the two source columns filled from
-/// the renderer's own `url_for`.
-///
-/// The row that judges the path building is `Dep`'s **deep** one. A root module
-/// is a single component, so `Dep` -> `Dep.lean` exercises no dot and no
-/// nesting; `Dep.Inner.Deep` -> `Dep/Inner/Deep.lean` does.
+/// The row that judges the path building is `Dep`'s deep one: a root module is a
+/// single component, so `Dep` -> `Dep.lean` exercises no dot and no nesting,
+/// while `Dep.Inner.Deep` -> `Dep/Inner/Deep.lean` does.
 #[test]
 fn links_prints_a_row_per_root_and_a_deep_sample_only_with_a_link_index() {
     let work = TEMP.make("links-rows");
@@ -405,13 +359,6 @@ fn links_prints_a_row_per_root_and_a_deep_sample_only_with_a_link_index() {
     );
 }
 
-/// `--out` is the same answer as a file, and `--deps-docs-map` is what fills the
-/// two documentation columns.
-///
-/// The columns mirror the source ones **module for module**: one says where a
-/// reader of that exact module is sent. A single column that meant the source
-/// URL sometimes and the documentation URL other times would be this command
-/// reporting two facts in one place.
 #[test]
 fn links_writes_the_rows_to_out_and_the_documentation_columns_come_from_the_map() {
     let work = TEMP.make("links-out");
@@ -504,7 +451,6 @@ fn links_writes_the_rows_to_out_and_the_documentation_columns_come_from_the_map(
     );
 }
 
-/// The two refusals `links` words itself.
 #[test]
 fn links_refuses_a_missing_root_and_a_missing_index() {
     let work = TEMP.make("links-refusals");
@@ -515,8 +461,7 @@ fn links_refuses_a_missing_root_and_a_missing_index() {
 
     // Exit 1 and not 3: a file that will not open is "this run did not finish",
     // which is a different thing to retry from "the world and the files
-    // disagree". The refusal names the file so the reader is not left guessing
-    // which of the paths on the line was wrong.
+    // disagree".
     let missing = work.path().join("nowhere.lidx");
     let unreadable = LITEDOC4.run(&[
         "links".as_ref(),
@@ -533,13 +478,6 @@ fn links_refuses_a_missing_root_and_a_missing_index() {
     );
 }
 
-/// The two arms every one of the five shares, checked on all five at once.
-///
-/// They are the mechanism `cli::help` and `cli::unknown` exist for, and the
-/// reason they exist is that the `--help` arm **had already drifted into three
-/// spellings** before there was one function. Written once here rather than
-/// five times beside each subcommand's own refusals, so that a sixth spelling
-/// cannot appear in whichever of the five nobody looked at.
 #[test]
 fn every_query_answers_help_with_the_usage_and_refuses_an_unknown_flag_by_name() {
     for subcommand in ["links", "ownership", "merge", "impact", "prune"] {
@@ -568,11 +506,6 @@ fn every_query_answers_help_with_the_usage_and_refuses_an_unknown_flag_by_name()
     }
 }
 
-// --------------------------------------------------------------- `ownership`
-
-/// The stage's whole subject, through the command line: `Pkg.A` was
-/// re-extracted without `Pkg.A.moved`, so `Pkg.B` — which nothing else touched —
-/// is pointing at a name its owner no longer defines.
 #[test]
 fn ownership_names_the_module_whose_reference_lost_its_owner() {
     let work = TEMP.make("ownership-lost");
@@ -619,11 +552,8 @@ fn ownership_names_the_module_whose_reference_lost_its_owner() {
     assert_eq!(summary["lostNames"], json!(1));
 }
 
-/// The same mechanism with the other input: a module that is gone lost every
-/// name it defined, and `--removed` alone is enough to ask.
-///
-/// `--inc` is absent here on purpose — a pure deletion re-extracts nothing, so a
-/// round that required a partial tree could not ask this question at all.
+/// `--inc` is absent on purpose: a pure deletion re-extracts nothing, so a round
+/// that required a partial tree could not ask this question at all.
 #[test]
 fn ownership_answers_for_a_deletion_with_no_incremental_tree() {
     let work = TEMP.make("ownership-removed");
@@ -655,8 +585,6 @@ fn ownership_answers_for_a_deletion_with_no_incremental_tree() {
     );
 }
 
-/// Without a tree to diff against and without a deletion list there is no
-/// question to answer, and `--base` on its own is not one.
 #[test]
 fn ownership_refuses_a_base_with_neither_an_inc_tree_nor_a_removal_list() {
     let work = TEMP.make("ownership-refusal");
@@ -671,10 +599,6 @@ fn ownership_refuses_a_base_with_neither_an_inc_tree_nor_a_removal_list() {
     );
 }
 
-// ------------------------------------------------------------------- `merge`
-
-/// The fold: the partial tree's module replaces the base's, the base is not
-/// written to, and the dependency slice is recomputed from the merged files.
 #[test]
 fn merge_folds_the_partial_tree_into_out_and_leaves_the_base_alone() {
     let work = TEMP.make("merge-fold");
@@ -735,14 +659,11 @@ fn merge_folds_the_partial_tree_into_out_and_leaves_the_base_alone() {
     );
 }
 
-/// A pure deletion, with no `--inc` and no `--out`.
-///
-/// Two things are being checked and both are about a tree nobody named. **The
-/// default `--out` is `<base>.merged`**, so a caller who wanted the base
-/// rewritten has to say so by name — a merge that defaulted to the base would
-/// destroy the only copy of the tree it was reading. And a deletion needs no
-/// partial extraction: a module that is gone was not re-extracted, so requiring
-/// `--inc` would make the commonest deletion impossible to express.
+/// Both halves are about a tree nobody named. The default `--out` is
+/// `<base>.merged` because a merge that defaulted to the base would destroy the
+/// only copy of the tree it was reading, so rewriting it has to be asked for by
+/// name. And a deletion needs no partial extraction: requiring `--inc` would
+/// make the commonest deletion impossible to express.
 #[test]
 fn merge_deletes_without_an_inc_tree_and_defaults_out_to_the_base_plus_merged() {
     let work = TEMP.make("merge-remove");
@@ -794,12 +715,8 @@ fn merge_deletes_without_an_inc_tree_and_defaults_out_to_the_base_plus_merged() 
     );
 }
 
-/// `--verify` on two trees written the same way: exit **0**, and the answer is
-/// on stdout.
-///
-/// Two directories rather than one path twice — the comparison is over bytes and
-/// index fields, and pointing it at a single tree would pass for a comparator
-/// that only checked the argument.
+/// Two directories rather than one path twice: pointing the comparison at a
+/// single tree would pass for a comparator that only checked the argument.
 #[test]
 fn merge_verify_agrees_on_two_separately_written_trees() {
     let work = TEMP.make("verify-ok");
@@ -825,12 +742,6 @@ fn merge_verify_agrees_on_two_separately_written_trees() {
     );
 }
 
-/// **`Failure::Answered` — exit 1, and stderr stays empty.**
-///
-/// The command line was right and the comparison ran; what it found is a "no".
-/// A caller that printed this as an error message would be reporting a working
-/// comparison as a broken one, so the whole answer is on stdout and the usage
-/// is not printed either.
 #[test]
 fn merge_verify_answers_no_with_exit_1_an_empty_stderr_and_the_report_on_stdout() {
     let work = TEMP.make("verify-differs");
@@ -863,9 +774,9 @@ fn merge_verify_answers_no_with_exit_1_an_empty_stderr_and_the_report_on_stdout(
         "",
         "an answer of `no` is not an error message",
     );
-    // The four are one module's file plus the three index fields that describe
-    // it. They are counted separately on purpose: an index entry that still
-    // claims the old byte count is a different fault from a file that changed.
+    // One module's file plus the three index fields that describe it, counted
+    // separately: an index entry that still claims the old byte count is a
+    // different fault from a file that changed.
     for line in [
         "FAIL index.bytes Pkg.A: ",
         "FAIL index.declarations Pkg.A: 1 vs 2",
@@ -886,12 +797,6 @@ fn merge_verify_answers_no_with_exit_1_an_empty_stderr_and_the_report_on_stdout(
     );
 }
 
-/// **`Failure::Refused` — exit 3, with the output tree never created.**
-///
-/// `--modules` is the package's own module list, and the set the merge is about
-/// to produce is known before anything is written. A list that does not describe
-/// it is the world and the files disagreeing, which is a different thing for a
-/// pipeline to retry than a run that could not finish.
 #[test]
 fn merge_refuses_a_module_list_that_does_not_describe_the_merged_tree_with_exit_3() {
     let work = TEMP.make("merge-list");
@@ -928,7 +833,6 @@ fn merge_refuses_a_module_list_that_does_not_describe_the_merged_tree_with_exit_
     );
 }
 
-/// `--verify` is a two-flag question, and half of it is not one.
 #[test]
 fn merge_refuses_verify_without_against_and_a_base_with_nothing_to_fold() {
     let work = TEMP.make("merge-refusals");
@@ -950,14 +854,9 @@ fn merge_refuses_verify_without_against_and_a_base_with_nothing_to_fold() {
     );
 }
 
-// ------------------------------------------------------------------ `impact`
-
-/// One changed module, two modes, two answers.
-///
 /// `--mode` is not a preference: `self` is what an olean-hash ledger already
 /// knows, and `importers` is the sound transitive bound that also re-renders the
-/// pages naming the changed module. A run that returned the same set for both
-/// would make one of the two flags a lie.
+/// pages naming the changed module.
 #[test]
 fn impact_selects_the_importers_of_the_changed_module_and_self_alone_under_self() {
     let work = TEMP.make("impact-modes");
@@ -1002,16 +901,14 @@ fn impact_selects_the_importers_of_the_changed_module_and_self_alone_under_self(
     );
 }
 
-/// The three files: the changed set comes **in** through `--changed-file`, and
-/// the selection and the census go **out**.
 #[test]
 fn impact_reads_the_changed_set_from_a_file_and_writes_the_set_the_census_and_the_summary() {
     let work = TEMP.make("impact-files");
     let ir = work.path().join("ir");
     write_ir(&ir, &package());
     let changed = work.path().join("changed.txt");
-    // A comment and a blank line, because the file is written by a previous
-    // stage and read by this one — both are dropped rather than being modules.
+    // A comment and a blank line: the file is written by a previous stage, and
+    // neither is a module.
     put(&changed, b"# the round's changed set\n\nPkg.A\n");
     let set = work.path().join("render.txt");
     let census = work.path().join("census.tsv");
@@ -1055,12 +952,9 @@ fn impact_reads_the_changed_set_from_a_file_and_writes_the_set_the_census_and_th
     assert_eq!(summary["selected"], json!(2));
 }
 
-/// An empty changed set writes **no `--print-set` at all**, and prints nothing.
-///
-/// A missing file is the empty set, and the next stage reads it as one. Writing
-/// an empty file instead would be the same answer — but writing a *blank line*
-/// would not, and the shape that cannot make that mistake is the one that writes
-/// nothing.
+/// A missing file is the empty set and the next stage reads it as one. An empty
+/// file would be the same answer — but a file holding a *blank line* would not,
+/// and the shape that cannot make that mistake is the one that writes nothing.
 #[test]
 fn impact_with_nothing_changed_writes_no_print_set_and_says_nothing() {
     let work = TEMP.make("impact-empty");
@@ -1097,11 +991,9 @@ fn impact_with_nothing_changed_writes_no_print_set_and_says_nothing() {
     assert_eq!(read(&set), "Pkg\nPkg.A\nPkg.B\nPkg.C\n");
 }
 
-/// The two refusals: a stage with no tree to read, and a mode nobody recognises.
-///
-/// The second is **exit 2 rather than 3**, which is the library's own choice —
-/// a `--mode` that is not one of the four is a command line to re-read, not a
-/// world that disagrees with the files.
+/// An unrecognised `--mode` is **exit 2 rather than 3**: a mode that is not one
+/// of the modes is a command line to re-read, not a world that disagrees with
+/// the files.
 #[test]
 fn impact_refuses_a_missing_ir_and_an_unrecognised_mode() {
     let work = TEMP.make("impact-refusals");
@@ -1129,13 +1021,9 @@ fn impact_refuses_a_missing_ir_and_an_unrecognised_mode() {
     );
 }
 
-/// A `--changed` name the index does not have is **exit 3, by name**.
-///
-/// This is the typo a person actually makes, and the reason it cannot be
-/// ignored is in `litedoc4_incr`'s own docstring: under-rendering has to be
-/// loud. A run that shrugged at an unknown name would select nothing for it,
-/// report a smaller set, and leave the pages that really did change unwritten —
-/// with every count in the summary looking reasonable.
+/// Under-rendering has to be loud: a run that shrugged at an unknown name would
+/// select nothing for it, report a smaller set, and leave the pages that really
+/// did change unwritten, with every count in the summary looking reasonable.
 #[test]
 fn impact_refuses_a_changed_module_the_index_does_not_have() {
     let work = TEMP.make("impact-not-a-module");
@@ -1162,21 +1050,12 @@ fn impact_refuses_a_changed_module_the_index_does_not_have() {
     );
 }
 
-// ------------------------------------------------------------------- `prune`
-
-/// The page tree a deletion is asked of, plus one page no module claims.
 fn write_pages(pages: &Path) {
     for page in ["Pkg.html", "Pkg/A.html", "Pkg/B.html", "Pkg/C.html"] {
         put(&pages.join(page), page.as_bytes());
     }
 }
 
-/// **`--dry-run` computes the whole answer and writes nothing.**
-///
-/// This is the third guard, and the only one shaped like a flag: "what would
-/// this remove" has to be a question that can be asked of a tree nobody is
-/// willing to lose. A dry run that reported nothing would be useless; one that
-/// deleted anything would be the opposite of the flag.
 #[test]
 fn prune_dry_run_reports_the_pages_it_would_delete_and_deletes_none_of_them() {
     let work = TEMP.make("prune-dry");
@@ -1211,11 +1090,9 @@ fn prune_dry_run_reports_the_pages_it_would_delete_and_deletes_none_of_them() {
     }
 }
 
-/// The real run: the page goes, and so does the directory the deletion emptied.
-///
-/// The empty directory is harmless to leave — but then the page tree is not
-/// equal to a from-scratch one, and byte equality with a from-scratch build is
-/// the only oracle this project trusts.
+/// The emptied directory is harmless to leave — but then the page tree is not
+/// equal to a from-scratch one, and that equality is the only oracle this
+/// project trusts.
 #[test]
 fn prune_deletes_the_pages_and_the_directory_the_deletions_emptied() {
     let work = TEMP.make("prune-real");
@@ -1250,7 +1127,6 @@ fn prune_deletes_the_pages_and_the_directory_the_deletions_emptied() {
     );
 }
 
-/// `--ir`: a page with no module in the tree is an orphan, and is deleted.
 #[test]
 fn prune_deletes_a_page_the_ir_no_longer_names() {
     let work = TEMP.make("prune-orphan");
@@ -1292,10 +1168,8 @@ fn prune_deletes_a_page_the_ir_no_longer_names() {
     assert_eq!(summary["orphanPages"], json!(["Pkg/Ghost.html"]));
 }
 
-/// **Nothing outside `--pages` is ever deleted, and the attempt is exit 3.**
-///
 /// `«..».Foo` is a legal Lean name — the guillemets are Lean's own escape and
-/// their contents are not split on `.` — so it reaches [`page_path`] as
+/// their contents are not split on `.` — so it reaches the page path rule as
 /// `../Foo.html`. No run over the measurement target has ever produced one,
 /// which is exactly why the guard needs a test rather than a witness.
 #[test]
@@ -1307,10 +1181,9 @@ fn prune_refuses_a_page_name_that_would_leave_the_page_tree_and_deletes_nothing(
     let outside = work.path().join("Foo.html");
     put(&outside, b"not this program's file");
     let remove = work.path().join("remove.txt");
-    // The escaping name **first**, so that the run is refused with nothing
-    // unlinked yet: the guard is lexical and runs before the path is used for
-    // anything, and a list that had already deleted a page by the time it was
-    // reached would not show that.
+    // The escaping name **first**: the guard is lexical and runs before the path
+    // is used for anything, and a list that had already deleted a page by the
+    // time it was reached would not show that.
     put(&remove, "«..».Foo\nPkg.A\n".as_bytes());
 
     let output = LITEDOC4.run(&[
@@ -1336,8 +1209,7 @@ fn prune_refuses_a_page_name_that_would_leave_the_page_tree_and_deletes_nothing(
     );
 }
 
-/// A page tree with neither a deletion list nor an IR has nothing to do, and
-/// doing nothing quietly is how a deleted module's page survives.
+/// Doing nothing quietly is how a deleted module's page survives.
 #[test]
 fn prune_refuses_a_page_tree_with_nothing_to_delete_by() {
     let work = TEMP.make("prune-refusal");

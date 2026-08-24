@@ -1,37 +1,23 @@
-//! Milestone **M3-d2**: `litedoc4 incremental` and `litedoc4 modules`.
+//! `litedoc4 incremental` and `litedoc4 modules`.
 //!
-//! Three oracles, none of which is this file's own opinion:
+//! The oracle is full generation: `litedoc4 site` over the world as it now is,
+//! compared with the tree an incremental round left behind, file by file, byte by
+//! byte. It is the only statement that catches a stage that ran with the wrong
+//! input rather than one that crashed, and it is made at every one of the seven
+//! source states — base / rerun / modified / removed / added / restored /
+//! stale-state — each carrying an IR, a page tree, a ledger and a cache.
+//! `litedoc4-global/tests/state_and_delta.rs` is the same seven one layer down.
 //!
-//! - **Full generation.** `litedoc4 site` over the world as it now is, compared
-//!   with the tree an incremental round left behind, file by file, byte by byte.
-//!   That is the composition of every gate M1 to M3-d1 passed, and it is the only
-//!   statement that catches a stage that ran with the wrong input rather than one
-//!   that crashed.
-//! - **`experiments/stage7h/oracle.sh`, lifted one level.** Its seven states —
-//!   base / rerun / modified / removed / added / restored / stale-state — are a
-//!   sequence over IR trees carrying one cache; here they are a sequence over
-//!   **source** states carrying an IR, a page tree, a ledger and a cache, with
-//!   the comparison above made at every one.
-//!   `litedoc4-global/tests/state_and_delta.rs` is the same seven states one
-//!   layer down.
-//! - **A fake extractor.** `--extractor` has no default (see `src/pipeline.rs`),
-//!   so the extraction step is a `/bin/sh` script that copies a baked IR tree.
-//!   Every other stage is the real one. Without this seam every test here would
-//!   need a Lean toolchain, which in practice means none of them would exist.
+//! `--extractor` has no default, so the extraction step is a `/bin/sh` script
+//! that copies a baked IR tree; every other stage is the real one. Without that
+//! seam every test here would need a Lean toolchain, which in practice means
+//! none of them would exist.
 //!
-//! # Byte equality is not branch coverage (plan §7)
-//!
-//! Of the [`BRANCHES`] this milestone added:
-//!
-//! | exercise | reaches |
-//! |---|---:|
-//! | one ordinary round — one changed module, nothing else ([`ONE_RUN`]) | **18** |
-//! | the seven states ([`SEVEN_STATES`]) | **32** |
-//! | curated cases only ([`NO_SEVEN_STATE_RUN_REACHES`]) | **27** |
-//!
-//! Of 59. The dependency is asserted rather than commented:
-//! [`the_curated_cases_cover_what_the_seven_states_do_not`] runs every curated
-//! case and checks that together they reach all 27.
+//! Byte equality is not branch coverage, so [`BRANCHES`] is the list, [`ONE_RUN`]
+//! what one ordinary round reaches, [`SEVEN_STATES`] what the sequence reaches
+//! and [`NO_SEVEN_STATE_RUN_REACHES`] what no run of it can. That partition is
+//! asserted rather than commented, by
+//! [`the_curated_cases_cover_what_the_seven_states_do_not`].
 
 #![cfg(unix)]
 #![expect(
@@ -51,30 +37,23 @@ mod common;
 
 use common::{Features, write_fake_extractor};
 
-/// The temporary directories this file makes. The prefix names the file,
-/// so a directory a failed run leaves behind names what made it.
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-incr");
 
 const BIN: &str = env!("CARGO_BIN_EXE_litedoc4");
 
-/// The binary under test, with this process's environment.
 const LITEDOC4: Cli = Cli::at(BIN);
 
-/// Plan 決定 1: 40 lower-case hex digits after `/blob/`, or `coverage.ts:512`'s
-/// revless normalisation misses and the acceptance score drops 3.1103 points
-/// 【実測】. `incremental` is the one command that checks it.
+/// 40 lower-case hex digits after `/blob/`. `incremental` is the one command
+/// that checks the shape.
 const URL: &str =
     "https://example.invalid/owner/repo/blob/0123456789abcdef0123456789abcdef01234567";
-/// A second revision, for the `renderKey` moved case: same everything, new
-/// commit.
+/// A second revision, for the `renderKey` moved case.
 const URL_NEXT: &str =
     "https://example.invalid/owner/repo/blob/fedcba9876543210fedcba9876543210fedcba98";
 
-/// The seven whole-package artifacts (M8-d — five doc-gen4-only files went and
-/// six took their place). **Four are `.html`**, which is what makes plan §7
-/// debt 4 — `prune --ir` pointed at a site calls them orphans — a thing that
-/// can happen at all; and it is now the site's entry pages that would go, not
-/// three files nothing read.
+/// The whole-package artifacts. **Four are `.html`**, which is what makes
+/// `prune --ir` pointed at a site able to sweep them away as orphans — and what
+/// would go is the site's entry pages.
 const ARTIFACTS: [&str; 8] = [
     "declarations/name-map.json",
     "index.html",
@@ -86,10 +65,7 @@ const ARTIFACTS: [&str; 8] = [
     "instances.json",
 ];
 
-// --------------------------------------------------------------- the branches
-
-/// Every branch M3-d2 added, named by an event of the run rather than by a line
-/// of the code.
+/// Every branch, named by an event of the run rather than by a line of the code.
 ///
 /// Each is decided by [`observe`] and [`observe_modules`] from what a run was
 /// given and what it left on disk — never by asking the code under test what it
@@ -168,13 +144,10 @@ const BRANCHES: [&str; 61] = [
 ];
 
 /// What one ordinary round reaches: one module's olean and docstring moved,
-/// nothing added, nothing deleted, the default mode and the default round
-/// bound.
-///
-/// **Eighteen of sixty-one**, and measured by [`case_one_ordinary_round`]
-/// rather than asserted here. Every deletion branch, both round-loop boundaries,
-/// the whole global-only half of the render set and every refusal are invisible
-/// to it — and that half is the one plan §7's debt 1 is about.
+/// nothing added, nothing deleted, the default mode and the default round bound.
+/// Measured by [`case_one_ordinary_round`] rather than asserted here. Every
+/// deletion branch, both round-loop boundaries, the whole global-only half of
+/// the render set and every refusal are invisible to it.
 const ONE_RUN: [&str; 18] = [
     "deltaOn",
     "detectChangedNonEmpty",
@@ -196,8 +169,8 @@ const ONE_RUN: [&str; 18] = [
     "timingsWritten",
 ];
 
-/// Thirty-two of sixty-one: what the seven states reach, together —
-/// **measured** by [`the_seven_states_match_full_generation`], not assumed.
+/// What the seven states reach together — **measured** by
+/// [`the_seven_states_match_full_generation`], not assumed.
 const SEVEN_STATES: [&str; 32] = [
     "deletionsInFirstRound",
     "deltaOn",
@@ -234,24 +207,11 @@ const SEVEN_STATES: [&str; 32] = [
 ];
 
 /// The branches **no run of the seven-state sequence reaches**, whatever the
-/// data. Twenty-nine of sixty-one, in four groups.
-///
-/// - **Twelve are refusals** (`sourceUrl*Refused`, `modeUnrecognisedRefused`,
-///   `maxRoundsZeroRefused`, `requiredFlagMissing`, `retiredFlagRefused`,
-///   `extractorFailed`, `roundsExceeded`, `modulesLibMissingRefused`,
-///   `modulesRequiredFlagMissing`, `modulesLakefileRefused`). A sequence that
-///   passes asks for none of them, which is the point: the whole surface of
-///   "this command line is wrong" is invisible to any run that works.
-/// - **Four are flags the pipeline always passes the same way**
-///   (`timingsOmitted`, `extractorArgsEmpty`, `modeGiven`, `maxRoundsGiven`).
-/// - **Five are shapes the seven states do not contain.** `roundsMany` and
-///   `deletionsNotRepeated` need a *declaration moving between modules*, which
-///   is `run.sh`'s end-to-end scenario rather than `oracle.sh`'s;
-///   `renderAllFired` needs a new revision; `mapBeforeAbsent` and `deltaOff`
-///   need a page tree with no `declarations/name-map.json`, which after a full
-///   generation never happens.
-/// - **Nine are `litedoc4 modules`**, which the sequence calls once per state,
-///   with `--lib`, and never varies.
+/// data: every refusal, because a sequence that passes asks for none of them;
+/// the flags the pipeline always passes the same way; the shapes the seven
+/// states do not contain (a declaration moving between modules, a new revision,
+/// a page tree with no `declarations/name-map.json`); and `litedoc4 modules`,
+/// which the sequence calls once per state, with `--lib`, and never varies.
 const NO_SEVEN_STATE_RUN_REACHES: [&str; 29] = [
     "deletionsNotRepeated",
     "deltaOff",
@@ -288,8 +248,6 @@ const NO_SEVEN_STATE_RUN_REACHES: [&str; 29] = [
 
 type Files = BTreeMap<PathBuf, Vec<u8>>;
 
-/// One run of `litedoc4 incremental`, with everything needed to say what it
-/// reached.
 struct Report {
     args: Vec<String>,
     code: i32,
@@ -348,8 +306,8 @@ fn lines(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Plan 決定 1's rule, written a second time: `/blob/`, then 40 lower-case hex
-/// digits, then the end of the string or a `/`.
+/// The rule, written a second time: `/blob/`, then 40 lower-case hex digits,
+/// then the end of the string or a `/`.
 fn revision_is_forty_hex(url: &str) -> bool {
     let Some((_, rest)) = url.split_once("/blob/") else {
         return false;
@@ -361,16 +319,12 @@ fn revision_is_forty_hex(url: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// Whether the hand-written assertions run, as against the byte comparison
-/// alone.
-///
-/// **This exists for the mutation survey and for nothing else.** Plan §7's
-/// standing rule is that a whole-tree byte comparison is not branch coverage, and
-/// the only way to put a number on that is to run the gate — the site and IR
-/// comparisons against full generation — with every other check switched off and
-/// see which mutants it still catches. `LITEDOC4_GATE_ONLY=1` does that. It can
-/// only ever *remove* checks, so an ordinary run (and CI, which sets nothing) is
-/// the strict one.
+/// Whether the hand-written assertions run, as against the byte comparison alone.
+/// **For the mutation survey and nothing else**: putting a number on "a
+/// whole-tree byte comparison is not branch coverage" means running the site and
+/// IR comparisons with every other check off, which `LITEDOC4_GATE_ONLY=1` does.
+/// It can only ever *remove* checks, so an ordinary run — and CI, which sets
+/// nothing — is the strict one.
 fn beyond_the_gate() -> bool {
     std::env::var_os("LITEDOC4_GATE_ONLY").is_none()
 }
@@ -383,12 +337,10 @@ fn fire_into(fired: &mut BTreeSet<&'static str>, branch: &'static str) {
     fired.insert(branch);
 }
 
-/// Which branches one `incremental` run reached.
 fn observe(run: &Report) -> BTreeSet<&'static str> {
     let mut fired: BTreeSet<&'static str> = BTreeSet::new();
     let mut fire = |branch: &'static str| fire_into(&mut fired, branch);
 
-    // The command line, judged by this file's own reading of it.
     match run.value_of("--source-url") {
         Some(url) if revision_is_forty_hex(url) => fire("sourceUrlAccepted"),
         Some(url) if !url.contains("/blob/") => fire("sourceUrlNoBlobRefused"),
@@ -407,10 +359,9 @@ fn observe(run: &Report) -> BTreeSet<&'static str> {
         Some("0") => fire("maxRoundsZeroRefused"),
         Some(_) => fire("maxRoundsGiven"),
     }
-    // **`--serve` is not among them any more** (M4-c): it is a live flag, and
-    // `tests/resident.rs` is where it is judged. `--serve-dir` and `--serve-from`
-    // stayed retired — see `src/resident.rs` for why a server this run did not
-    // start is one it cannot vouch for.
+    // `--serve` is not among them: it is a live flag, judged in
+    // `tests/resident.rs`. `--serve-dir` and `--serve-from` stayed retired,
+    // because a server this run did not start is one it cannot vouch for.
     for retired in [
         "--jobs",
         "--l3-1",
@@ -420,9 +371,8 @@ fn observe(run: &Report) -> BTreeSet<&'static str> {
         "--count-reads",
         "--module",
         "--no-link-index",
-        // M5-b: not the prototype's, but refused on the same branch — the map
-        // is written by the Lean extractor and `--extractor <program>` has no
-        // room to be asked for one.
+        // Refused on the same branch: the map is written by the Lean extractor
+        // and `--extractor <program>` has no room to be asked for one.
         "--make-link-index",
     ] {
         if run.flag(retired) {
@@ -591,11 +541,10 @@ fn observe(run: &Report) -> BTreeSet<&'static str> {
         (true, false) => "renderSetFromGlobalOnly",
         (false, false) => "renderSetFromBoth",
     });
-    // **Every module whose IR bytes moved is in the render set.** Not a branch:
-    // an invariant, and the one a pipeline breaks when it hands `impact` the
-    // ledger's changed set instead of the round loop's `seen` — the modules L3-1
-    // found are exactly the ones whose IR moved without their olean moving, and
-    // dropping them under-renders silently.
+    // Every module whose IR bytes moved is in the render set: an invariant, not
+    // a branch. A pipeline that handed `impact` the ledger's changed set instead
+    // of the round loop's `seen` would drop the modules whose IR moved without
+    // their olean moving, and under-render silently.
     let ir_changed = run.work_set("ir-changed.txt").unwrap_or_default();
     assert!(
         ir_changed.is_subset(&render_set) || !beyond_the_gate(),
@@ -629,7 +578,6 @@ fn observe(run: &Report) -> BTreeSet<&'static str> {
     fired
 }
 
-/// One run of `litedoc4 modules`, and the library layout it was pointed at.
 struct ModulesReport {
     args: Vec<String>,
     code: i32,
@@ -649,8 +597,8 @@ fn observe_modules(run: &ModulesReport) -> BTreeSet<&'static str> {
         fire("modulesRequiredFlagMissing");
         return fired;
     }
-    // M4-d: `--lib` is optional, and left out the names come from the lakefile
-    // — which either answers or refuses by name.
+    // `--lib` is optional; left out, the names come from the lakefile, which
+    // either answers or refuses by name.
     if !run.args.iter().any(|arg| arg == "--lib") {
         if run.code == 0 {
             fire("modulesLibFromLakefile");
@@ -688,17 +636,13 @@ fn observe_modules(run: &ModulesReport) -> BTreeSet<&'static str> {
     fired
 }
 
-// ------------------------------------------------------------------ the world
-
-/// One module of the synthetic package.
 #[derive(Clone)]
 struct ModuleSpec {
     name: String,
-    /// The compiled artifact's bytes. **Separate from the IR on purpose**: stage
-    /// 5c measured that moving a declaration out of A leaves the referring
-    /// module B's olean byte-identical while B's IR changes, which is the whole
-    /// reason L3-1 exists. A fixture that derived one from the other could not
-    /// contain that case.
+    /// The compiled artifact's bytes, **separate from the IR on purpose**:
+    /// moving a declaration out of A leaves the referring module B's olean
+    /// byte-identical while B's IR changes 【実測】, and a fixture that derived
+    /// one from the other could not contain that case.
     olean: String,
     imports: Vec<String>,
     decls: Vec<DeclSpec>,
@@ -732,8 +676,8 @@ impl DeclSpec {
     }
 }
 
-/// The package, in the order a source glob produces (plan §7, U1 — every name
-/// here is ASCII, where every order agrees).
+/// The package, in the order a source glob produces. Every name here is ASCII,
+/// where every order agrees.
 #[derive(Clone)]
 struct World(Vec<ModuleSpec>);
 
@@ -796,22 +740,17 @@ impl World {
     }
 }
 
-/// The base package.
-///
-/// Five relationships are load-bearing and each is used by exactly one state:
-///
-/// - `Pkg.C`'s docstring mentions `Pkg.Leaf.l` **without a `refs` entry**, so
-///   deleting `Pkg.Leaf` moves the whole-package name map and moves *no*
-///   module's IR. That is the shape plan §7 debt 1 loses.
-/// - `Pkg.B`'s docstring mentions `Pkg.Added.a`, a name nothing defines yet, so
-///   adding `Pkg.Added` makes `Pkg.B` stale through the map and `Pkg.Added`
-///   stale through the changed set — both halves of the render set at once.
-/// - `Pkg.B` **refers to** `Pkg.A.moved`, so moving that declaration to `Pkg.X`
-///   leaves `Pkg.B`'s olean alone and its IR wrong: the second round.
-/// - `Pkg.C` refers to `Dep.elsewhere`, so `deps/Dep.json` is non-empty and the
-///   merge has to rebuild it to the from-scratch bytes.
-/// - `Pkg` imports nothing and `Pkg.Leaf` is imported by nothing, which keeps
-///   the deletion a leaf deletion.
+/// Five relationships are load-bearing and each is used by exactly one state.
+/// `Pkg.C`'s docstring mentions `Pkg.Leaf.l` **without a `refs` entry**, so
+/// deleting `Pkg.Leaf` moves the whole-package name map and moves *no* module's
+/// IR. `Pkg.B`'s docstring mentions `Pkg.Added.a`, a name nothing defines yet, so
+/// adding `Pkg.Added` makes `Pkg.B` stale through the map and `Pkg.Added` stale
+/// through the changed set — both halves of the render set at once. `Pkg.B`
+/// **refers to** `Pkg.A.moved`, so moving that declaration to `Pkg.X` leaves
+/// `Pkg.B`'s olean alone and its IR wrong: the second round. `Pkg.C` refers to
+/// `Dep.elsewhere`, so `deps/Dep.json` is non-empty and the merge has to rebuild
+/// it to the from-scratch bytes. And `Pkg.Leaf` is imported by nothing, which
+/// keeps the deletion a leaf deletion.
 fn base_world() -> World {
     World(vec![
         ModuleSpec {
@@ -865,9 +804,9 @@ fn base_world() -> World {
     ])
 }
 
-/// Lean's `String.hash` stands in for FNV-1a here: 16 hex digits, derived from
-/// the module's bytes and from nothing else, which is the only property the
-/// `contentHash` cache and the merge's staleness test rely on.
+/// Standing in for Lean's `String.hash`: 16 hex digits derived from the module's
+/// bytes and nothing else, which is the only property the `contentHash` cache
+/// and the merge's staleness test rely on.
 fn content_hash(body: &str) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in body.as_bytes() {
@@ -888,15 +827,12 @@ fn decl_json(decl: &DeclSpec) -> Value {
     })
 }
 
-/// Writes the IR a full extraction of `world` would produce, plus one file per
-/// index entry for the fake extractor to splice.
-///
-/// The three orders that decide the bytes are written out here a second time
-/// (plan §7, M3-b): `deps/<Root>.json` has its top-level keys and its
-/// declaration names in **code point** order, `index.json`'s `dependencyMaps`
-/// entries are keyed `bytes` / `entries` / `file` / `package`, and that array is
-/// in code point order of the root. If `merge` ever stops agreeing, the seven
-/// states say so at `index.json` rather than somewhere downstream.
+/// The IR a full extraction of `world` would produce, plus one file per index
+/// entry for the fake extractor to splice. The three orders that decide the
+/// bytes are written out here a second time: `deps/<Root>.json` has its
+/// top-level keys and its declaration names in **code point** order,
+/// `index.json`'s `dependencyMaps` entries are keyed `bytes` / `entries` /
+/// `file` / `package`, and that array is in code point order of the root.
 fn write_world(root: &Path, world: &World) {
     let ir = root.join("ir");
     let entries_dir = root.join("entries");
@@ -982,8 +918,8 @@ fn write_world(root: &Path, world: &World) {
     );
 }
 
-/// Writes the repository the ledger hashes: the sources the glob finds and the
-/// oleans `detect` reads.
+/// The repository the ledger hashes: the sources the glob finds and the oleans
+/// `detect` reads.
 fn write_target(repo: &Path, world: &World) {
     let _ = fs::remove_dir_all(repo.join("Pkg"));
     let _ = fs::remove_file(repo.join("Pkg.lean"));
@@ -1011,10 +947,6 @@ fn write_lidx(path: &Path) {
     );
 }
 
-// -------------------------------------------------------------- the harness
-
-/// One live tree: the IR, the pages, the ledger and the cache an incremental
-/// round carries forward, plus the repository they describe.
 struct Live {
     trees: TempDir,
     repo: PathBuf,
@@ -1031,9 +963,7 @@ struct Live {
 
 impl Live {
     /// Full generation over `world`, then a ledger over the repository that
-    /// produced it.
-    ///
-    /// **This is where the cache comes from** (plan §7 debt 8): an incremental
+    /// produced it. **This is where the cache comes from**: an incremental
     /// round's premise is that the previous run left a `--state` behind, and
     /// `litedoc4 site --state` is the run that does it.
     fn setup(what: &str, world: &World) -> Self {
@@ -1095,13 +1025,10 @@ impl Live {
         assert_eq!(code(&ok), 0, "{}", stderr(&ok));
     }
 
-    /// The ledger, as the repository is now.
-    ///
-    /// **The caller's job, not the pipeline's.** `incremental` reads the ledger
-    /// and never rewrites it, and neither does `incremental.sh` — `run.sh:167`
-    /// re-seeds `base-ledger.json` for every variant it measures. Who owns this
-    /// between two real runs is M4's question; here it is done explicitly, so
-    /// that the seven states are seven states and not one repeated.
+    /// The ledger, as the repository is now. **The caller's job, not the
+    /// pipeline's**: `incremental` reads the ledger and never rewrites it. Done
+    /// explicitly here so that the seven states are seven states and not one
+    /// repeated.
     fn refresh_ledger(&self) {
         let ok = LITEDOC4.run(&[
             "ledger",
@@ -1114,9 +1041,9 @@ impl Live {
             &self.ir.display().to_string(),
             "--source-url",
             URL,
-            // M5-b: the dependency map's bytes are in `renderKey`, so the seed
-            // has to name the same map the rounds render against. Without it
-            // every round would see the key appear and re-render everything —
+            // The dependency map's bytes are in `renderKey`, so the seed has to
+            // name the same map the rounds render against. Without it every
+            // round would see the key appear and re-render everything —
             // correctly, and uselessly, for ever.
             "--link-index",
             &self.lidx.display().to_string(),
@@ -1135,7 +1062,6 @@ impl Live {
         self.write_module_list();
     }
 
-    /// One incremental round, with `extra` appended to the command line.
     fn round(&mut self, what: &str, extra: &[&str]) -> Report {
         self.runs += 1;
         let work = self.trees.path().join(format!("work-{}-{what}", self.runs));
@@ -1214,10 +1140,8 @@ impl Live {
         root
     }
 
-    /// The pages this round produced against the pages full generation
-    /// produces. Returns the denominator — the number of files compared — and
-    /// panics with the differing paths, which is the only failure message worth
-    /// reading here.
+    /// Returns the denominator — the number of files compared — and panics with
+    /// the differing paths, which is the only failure message worth reading.
     fn assert_site_matches(&self, what: &str, full: &Path) -> usize {
         let site = tree(&full.join("site"));
         let pages = tree(&self.pages);
@@ -1240,29 +1164,20 @@ impl Live {
     }
 }
 
-/// What comparing the live IR against a from-scratch one found.
 struct IrVerdict {
     same: usize,
     differing: Vec<String>,
-    /// True when the only difference is `index.json`, and that file holds the
-    /// same entries in a different sequence.
-    ///
-    /// **Nothing may reach this any more** (M3-d2b): it is kept so that a
-    /// failure can say *which* divergence came back — the module order, or
-    /// something that changed the data — instead of only that one did.
+    /// True when the only difference is `index.json` and that file holds the
+    /// same entries in a different sequence. **Nothing may reach this any
+    /// more**: it is kept so that a failure can say *which* divergence came
+    /// back — the module order, or something that changed the data.
     index_order_only: bool,
 }
 
-/// Compares two IR trees file by file.
-///
-/// **This used to have a registered exception, and no longer does** (M3-d2b).
-/// `merge` appended a module the base index did not have, while a from-scratch
-/// extraction lists modules in the order the extractor was handed them — the
-/// glob's — so a run that *added* a module produced an `index.json` with the
-/// same entries, the same counts and the same dependency maps in a different
-/// sequence (`added` / `restored` / `stale-state`, 54 of 57 files). The pipeline
-/// now hands `merge` the same module list it hands `detect`, so the two orders
-/// are one and every file of every state is compared without an excuse.
+/// Compares two IR trees file by file, with **no registered exception**: the
+/// pipeline hands `merge` the same module list it hands `detect`, so the merged
+/// index and a from-scratch one list modules in one order and every file of
+/// every state is compared without an excuse.
 fn compare_ir(live: &Path, scratch: &Path) -> IrVerdict {
     let a = tree(live);
     let b = tree(scratch);
@@ -1305,10 +1220,8 @@ fn compare_ir(live: &Path, scratch: &Path) -> IrVerdict {
     verdict
 }
 
-// ------------------------------------------------------------- the sequence
-
-/// One state: advance the world, run the round, compare against full
-/// generation, then hand the ledger on to the next state.
+/// One state: advance the world, run the round, compare against full generation,
+/// then hand the ledger on to the next state.
 fn step(live: &mut Live, what: &str, world: &World) -> (BTreeSet<&'static str>, IrVerdict) {
     live.advance(world);
     let report = live.round(what, &[]);
@@ -1333,13 +1246,9 @@ fn step(live: &mut Live, what: &str, world: &World) -> (BTreeSet<&'static str>, 
     (covered, ir)
 }
 
-/// **The gate.** The seven states of `stage7h/oracle.sh`, over the whole
-/// pipeline, each compared with `litedoc4 site` over the same world.
-///
-/// The **site** is identical in all seven, which is the statement plan §1's gate
-/// is about. The IR is compared too, and since M3-d2b that answer is "identical"
-/// everywhere as well — see [`compare_ir`] for the exception that used to be
-/// registered here.
+/// **The gate.** The seven states over the whole pipeline, each compared with
+/// `litedoc4 site` over the same world: the site is identical in all seven, and
+/// so is the IR.
 #[test]
 fn the_seven_states_match_full_generation() {
     let mut world = base_world();
@@ -1347,8 +1256,6 @@ fn the_seven_states_match_full_generation() {
     let mut covered: BTreeSet<&'static str> = BTreeSet::new();
     let mut verdicts: Vec<(&str, IrVerdict)> = Vec::new();
 
-    // 1. the unchanged world. Nothing was extracted, nothing was rendered, and
-    //    the site is still the one full generation writes.
     let (fired, ir) = step(&mut live, "base", &world);
     if beyond_the_gate() {
         assert!(fired.contains("roundsZero"), "base ran a round");
@@ -1366,8 +1273,6 @@ fn the_seven_states_match_full_generation() {
     covered.extend(&fired);
     verdicts.push(("rerun", ir));
 
-    // 3. one module's docstring changes: its olean moves, its IR moves, its page
-    //    moves and nothing else does.
     world.edit_a_docstring("1");
     let (fired, ir) = step(&mut live, "modified", &world);
     if beyond_the_gate() {
@@ -1376,21 +1281,21 @@ fn the_seven_states_match_full_generation() {
     covered.extend(&fired);
     verdicts.push(("modified", ir));
 
-    // 4. a leaf module disappears. **Plan §7's debt 1**: no module changed, so
-    //    `impact` writes no selection at all, and the only stale page —
-    //    `Pkg.C`, whose docstring links a name that has just left the package —
-    //    is named by the global map delta alone.
+    // 4. a leaf module disappears: no module changed, so `impact` writes no
+    //    selection at all, and the only stale page — `Pkg.C`, whose docstring
+    //    links a name that has just left — is named by the map delta alone.
     world.drop_module("Pkg.Leaf");
     let (fired, ir) = step(&mut live, "removed", &world);
     if beyond_the_gate() {
         assert!(
             fired.contains("renderSetFromGlobalOnly"),
-            "the deletion was visible to `impact`, so this state is not debt 1's: {fired:?}",
+            "the deletion was visible to `impact`, so this is not the \
+             global-map-only state: {fired:?}",
         );
         assert!(fired.contains("impactSelectionSkipped"), "{fired:?}");
         assert!(
             fired.contains("globalArtifactsSurvivedPrune"),
-            "plan §7 debt 4: the whole-package artifacts did not survive the prune",
+            "the whole-package artifacts did not survive the prune",
         );
     }
     covered.extend(&fired);
@@ -1411,8 +1316,6 @@ fn the_seven_states_match_full_generation() {
     covered.extend(&fired);
     verdicts.push(("added", ir));
 
-    // 6. back to the world of state 1, from a tree that has seen all of the
-    //    above: one module returns, one goes, one changes back.
     world = base_world();
     let (fired, ir) = step(&mut live, "restored", &world);
     if beyond_the_gate() {
@@ -1464,18 +1367,15 @@ fn the_seven_states_match_full_generation() {
             verdict.differing.is_empty(),
             "{what}: the IR is not the one a full extraction writes{}\n{joined}",
             if verdict.index_order_only {
-                " — same entries, different module order, so `merge` stopped following \
-                 `--modules` (M3-d2b)"
+                " — same entries, different module order, so `merge` stopped \
+                 following `--modules`"
             } else {
                 ""
             },
         );
     }
-    // **Empty, and pinned as empty** (M3-d2b). Before the pipeline handed `merge`
-    // the package's module list this held `["added", "restored", "stale-state"]`
-    // — the three states that add a module — and the difference was `index.json`
-    // alone, which no page byte follows. Asserting the set rather than deleting
-    // it is what makes a divergence that comes back say so.
+    // Empty, and asserted as empty rather than deleted, so that a divergence
+    // which comes back says so.
     let diverged: Vec<&str> = verdicts
         .iter()
         .filter(|(_, verdict)| !verdict.differing.is_empty())
@@ -1495,10 +1395,8 @@ fn the_seven_states_match_full_generation() {
     }
 }
 
-// ------------------------------------------------------- the curated cases
-//
-// Each is a function that returns the branches it reached, so that the named
-// test below it reads as a statement and
+// Each curated case is a function that returns the branches it reached, so that
+// the named test below it reads as a statement and
 // `the_curated_cases_cover_what_the_seven_states_do_not` can run all of them and
 // check the coverage claim rather than repeat it.
 
@@ -1523,14 +1421,10 @@ fn one_ordinary_round_reaches_eighteen_branches() {
     );
 }
 
-/// **Debt 1, on its own.** A `name-map.json` one state behind — what a run
-/// interrupted between `merge` and `global` leaves — with nothing changed and
-/// nothing deleted.
-///
-/// The prototype loses this run entirely: `impact` writes no `impact-set.txt`,
-/// `sort -u` fails on the missing file, and `|| : > "$RENDERSET"` empties the
-/// render set. Here the two halves meet in memory, so the global map's answer
-/// reaches the renderer.
+/// A `name-map.json` one state behind — what a run interrupted between `merge`
+/// and `global` leaves — with nothing changed and nothing deleted. `impact`
+/// writes no selection at all, so the global map's half of the render set is the
+/// only half there is, and it has to reach the renderer.
 fn case_stale_name_map() -> BTreeSet<&'static str> {
     let world = base_world();
     let mut live = Live::setup("stale-name-map", &world);
@@ -1553,11 +1447,11 @@ fn case_stale_name_map() -> BTreeSet<&'static str> {
     assert!(covered.contains("detectChangedEmpty"), "{covered:?}");
     assert!(covered.contains("detectRemovedEmpty"), "{covered:?}");
     assert!(covered.contains("roundsZero"), "{covered:?}");
-    // The prototype's two halves, as they are on disk: one file missing, the
-    // other naming the page that has to be re-rendered.
+    // The two halves as they are on disk: one file missing, the other naming the
+    // page that has to be re-rendered.
     assert!(
         !report.work.join("impact-set.txt").exists(),
-        "`impact` wrote a selection, so this is not the case debt 1 is about",
+        "`impact` wrote a selection, so this is not the global-map-only case",
     );
     let global_set = report.work_set("global-set.txt").unwrap_or_default();
     assert_eq!(
@@ -1567,7 +1461,7 @@ fn case_stale_name_map() -> BTreeSet<&'static str> {
     assert_eq!(
         report.work_set("render-set.txt").unwrap_or_default(),
         global_set,
-        "the global map's half of the render set was dropped — this is debt 1",
+        "the global map's half of the render set was dropped",
     );
     assert!(covered.contains("renderRan"), "{covered:?}");
     assert!(covered.contains("renderSetFromGlobalOnly"), "{covered:?}");
@@ -1579,14 +1473,11 @@ fn a_stale_name_map_alone_still_reaches_the_renderer() {
     case_stale_name_map();
 }
 
-/// **The snapshot debt 6 is about.** `name-map.json` is both the "before" side
-/// of the delta and the file `global` overwrites in place, so the snapshot has
-/// to be taken before anything runs.
-///
+/// `name-map.json` is both the "before" side of the delta and the file `global`
+/// overwrites in place, so the snapshot has to be taken before anything runs.
 /// The counterfactual is run rather than described: `litedoc4 global --before`
 /// against the map **as it is after the round** produces an empty print set,
-/// which is what a pipeline that snapshotted late would have handed the
-/// renderer.
+/// which is what a pipeline that snapshotted late would have handed the renderer.
 #[test]
 fn the_name_map_is_snapshotted_before_the_round_overwrites_it() {
     let world = base_world();
@@ -1696,14 +1587,11 @@ fn case_moved_declaration() -> BTreeSet<&'static str> {
          re-extracted in round 1 came back, or one that refers to the moved name did not",
     );
 
-    // **Why round 2 is always the last one, and why `--exclude` cannot be
-    // observed.** A module reaches round 2 only because its *references* went
-    // stale; its own olean did not move, so its declaration names are the base
-    // IR's — and `ownership` derives "lost" and "gained" from declaration names
-    // alone. Round 2 therefore watches nothing, scans no base module, and can
-    // report nobody. The mutation survey found `--exclude: None` unkillable for
-    // exactly this reason; if this assertion ever fails, a third round became
-    // possible and that mutant became killable.
+    // Why round 2 is always the last one: a module reaches it only because its
+    // *references* went stale, so its own olean did not move, its declaration
+    // names are the base IR's, and `ownership` derives "lost" and "gained" from
+    // declaration names alone. Round 2 watches nothing and can report nobody. If
+    // this ever fails, a third round became possible.
     let second = report
         .work_json("ownership-2.json")
         .expect("round 2 wrote a summary");
@@ -1727,8 +1615,6 @@ fn a_moved_declaration_takes_two_rounds() {
     case_moved_declaration();
 }
 
-/// `--max-rounds` reached with modules still stale is **exit 5**, and nothing
-/// downstream of the loop ran.
 fn case_round_bound() -> BTreeSet<&'static str> {
     let mut world = base_world();
     let mut live = Live::setup("round-bound", &world);
@@ -1752,9 +1638,8 @@ fn the_round_bound_is_exit_five() {
     case_round_bound();
 }
 
-/// A moved `renderKey` overrides `--mode` and re-renders every page — including
-/// the ones whose IR nobody touched — and the result is still full generation's
-/// bytes at the new revision.
+/// A moved `renderKey` overrides `--mode` and re-renders every page, including
+/// the ones whose IR nobody touched.
 fn case_render_key() -> BTreeSet<&'static str> {
     let world = base_world();
     let mut live = Live::setup("render-key", &world);
@@ -1785,12 +1670,10 @@ fn a_moved_render_key_renders_every_page() {
 }
 
 /// The renderer is skipped on an empty set, **and** it would render nothing if
-/// it were not.
-///
-/// The second half is what plan §5 calls "the type replaced the guard": the
-/// prototype's `if [ ${#ONLY[@]} -eq 0 ]` was the only thing between an empty
-/// regeneration set and 432 re-rendered pages, because `render.ts` reads no
-/// `--only` as "all". Here `--only-from` an empty file is an empty set.
+/// it were not. The second half is the type replacing a guard: a renderer that
+/// read no `--only` as "all" would need one line between an empty regeneration
+/// set and every page re-rendered, while `--only-from` an empty file is an empty
+/// set.
 #[test]
 fn an_empty_regeneration_set_renders_nothing_twice_over() {
     let world = base_world();
@@ -1833,9 +1716,8 @@ fn an_empty_regeneration_set_renders_nothing_twice_over() {
     );
 }
 
-/// The three flags the extractor is called with are `stage7g/extract-once.sh`'s
-/// required arguments, in its order, with every `--extractor-arg` in front of
-/// them.
+/// The three flags the extractor is called with, in order, with every
+/// `--extractor-arg` in front of them.
 fn case_extractor_contract() -> BTreeSet<&'static str> {
     let mut world = base_world();
     let mut live = Live::setup("extractor-contract", &world);
@@ -1872,8 +1754,6 @@ fn the_extractor_is_called_the_way_extract_once_expects() {
     case_extractor_contract();
 }
 
-/// An extractor that fails stops the run with **exit 4**, names the child's own
-/// exit code and leaves the pages alone.
 fn case_failing_extractor() -> BTreeSet<&'static str> {
     let mut world = base_world();
     let mut live = Live::setup("extractor-failure", &world);
@@ -1908,8 +1788,8 @@ fn a_failing_extractor_stops_the_run() {
     case_failing_extractor();
 }
 
-/// The timings record's field names are `incremental.sh:393-424`'s, so the
-/// aggregation and the JSONL already in `benchmarks/results/` keep reading.
+/// The timings record's field names are the ones the aggregation and the JSONL
+/// already in `benchmarks/results/` read.
 fn case_timings() -> BTreeSet<&'static str> {
     let mut world = base_world();
     let mut live = Live::setup("timings", &world);
@@ -1941,15 +1821,14 @@ fn case_timings() -> BTreeSet<&'static str> {
     assert_eq!(record["irChanged"], json!(1));
     assert_eq!(record["globalStale"], json!(0));
     assert_eq!(record["pagesRendered"], json!(1));
-    // The prototype's own fields that this command does not have.
+    // Fields this command does not have.
     for gone in ["module", "l3_1", "global_impl"] {
         assert!(record.get(gone).is_none(), "{gone} came back: {record}");
     }
-    // M4-c: `serve` is written on both paths, so a resident run and a fresh run
-    // are told apart in the record — which is what the prototype's comment says
-    // the field is for. `jobs` and `serveGeneration` are the resident path's, and
-    // this run is not one: behind `--extractor` the job count is inside somebody
-    // else's argument list.
+    // `serve` is written on both paths, so a resident run and a fresh run are
+    // told apart in the record. `jobs` and `serveGeneration` are the resident
+    // path's, and this run is not one: behind `--extractor` the job count is
+    // inside somebody else's argument list.
     assert_eq!(record["serve"], json!(false));
     for absent in ["jobs", "serveGeneration"] {
         assert!(
@@ -1957,7 +1836,7 @@ fn case_timings() -> BTreeSet<&'static str> {
             "{absent} on the one-shot path: {record}",
         );
     }
-    // The nested per-stage records, as the prototype embeds them.
+    // The nested per-stage records.
     assert_eq!(record["merge"]["command"], json!("merge"));
     assert!(record["global"]["cacheHits"].is_number(), "{record}");
     assert_eq!(record["render"]["pagesWritten"], json!(1));
@@ -1981,8 +1860,8 @@ fn the_timings_record_keeps_the_prototypes_field_names() {
     case_timings();
 }
 
-/// Plan §7 debt 7: the revision has to be 40 lower-case hex digits, and the
-/// refusal has to say what breaks.
+/// The revision has to be 40 lower-case hex digits, and the refusal has to say
+/// what breaks.
 fn case_source_url() -> BTreeSet<&'static str> {
     let world = base_world();
     let mut live = Live::setup("source-url", &world);
@@ -1997,7 +1876,7 @@ fn case_source_url() -> BTreeSet<&'static str> {
             "sourceUrlNotHexRefused",
         ),
         (
-            // Upper case: `coverage.ts`'s character class is `[0-9a-f]`.
+            // Upper case: the character class is `[0-9a-f]`.
             "https://example.invalid/owner/repo/blob/0123456789ABCDEF0123456789abcdef01234567",
             "sourceUrlNotHexRefused",
         ),
@@ -2016,7 +1895,7 @@ fn case_source_url() -> BTreeSet<&'static str> {
         assert_eq!(report.code, 2, "{url}: {}", report.stderr);
         assert!(report.stderr.contains("3.1103"), "{url}: {}", report.stderr);
         assert!(
-            report.stderr.contains("coverage.ts"),
+            report.stderr.contains("/blob/[0-9a-f]{40}/"),
             "{url}: {}",
             report.stderr,
         );
@@ -2042,8 +1921,8 @@ fn a_source_url_without_a_forty_hex_revision_is_refused() {
     case_source_url();
 }
 
-/// Every flag the prototype has and this command refuses, refused **by name**
-/// with the reason — and every flag it requires, missing.
+/// Every retired flag, refused **by name** with the reason — and every required
+/// flag, missing.
 fn case_command_line() -> BTreeSet<&'static str> {
     let world = base_world();
     let mut live = Live::setup("command-line", &world);
@@ -2051,10 +1930,9 @@ fn case_command_line() -> BTreeSet<&'static str> {
 
     let retired: [(&[&str], &str); 9] = [
         (&["--jobs", "4"], "--extractor-arg"),
-        // M5-b. Not a retired flag of the prototype but a flag of `--serve`,
-        // refused here for the same reason `--jobs` is: the map is written by
-        // the Lean extractor, and `--extractor <program>`'s interface is three
-        // flags — the seam these tests hand a fake through.
+        // A flag of `--serve`, refused for the same reason `--jobs` is: the map
+        // is written by the Lean extractor, and `--extractor <program>`'s
+        // interface is three flags — the seam these tests hand a fake through.
         (&["--make-link-index"], "flag of --serve"),
         (&["--l3-1", "off"], "wrong site"),
         (&["--global", "old"], "--state is required"),
@@ -2089,7 +1967,6 @@ fn case_command_line() -> BTreeSet<&'static str> {
     assert_eq!(report.code, 2, "{}", report.stderr);
     covered.extend(observe(&report));
 
-    // Each required flag, dropped in turn.
     let full = live.round("full", &[]).args;
     for flag in [
         "--ir",
@@ -2135,8 +2012,6 @@ fn the_command_line_is_checked() {
     case_command_line();
 }
 
-/// The deletion path is the first round's, and the second round does not ask
-/// again.
 fn case_deletions_first_round_only() -> BTreeSet<&'static str> {
     let mut world = base_world();
     let mut live = Live::setup("deletions", &world);
@@ -2163,7 +2038,7 @@ fn case_deletions_first_round_only() -> BTreeSet<&'static str> {
     for artifact in ARTIFACTS {
         assert!(
             live.pages.join(artifact).exists(),
-            "plan §7 debt 4: {artifact} was swept away as an orphan",
+            "{artifact} was swept away as an orphan",
         );
     }
     let full = live.full_generation("deleted-and-moved", &world, URL);
@@ -2204,14 +2079,10 @@ fn a_re_extraction_that_changes_nothing_rewrites_nothing() {
     );
 }
 
-/// `litedoc4 merge --modules <file>` — the one stage flag M3-d2b added, checked
-/// at the **process** boundary.
-///
-/// The pipeline reaches the same code as a library call, so nothing above proves
-/// that the subcommand parses the flag and hands it on; a CLI that accepted it
-/// and dropped it would leave every test here green. The refusal is checked in
-/// the same run, because a caller's only sign that the list is stale is the exit
-/// code.
+/// `litedoc4 merge --modules <file>` at the **process** boundary: the pipeline
+/// reaches the same code as a library call, so nothing above proves that the
+/// subcommand parses the flag and hands it on, and a CLI that accepted it and
+/// dropped it would leave every test here green.
 #[test]
 fn the_merge_command_takes_a_module_list() {
     let world = base_world();
@@ -2274,8 +2145,6 @@ fn the_merge_command_takes_a_module_list() {
     );
 }
 
-// ------------------------------------------------------------ the module glob
-
 /// `litedoc4 modules`: the source glob, in every shape a library root comes in.
 fn case_module_glob() -> BTreeSet<&'static str> {
     let trees = TEMP.make("module-glob");
@@ -2326,9 +2195,9 @@ fn case_module_glob() -> BTreeSet<&'static str> {
     assert_eq!(missing.code, 3, "{}", missing.stdout);
     covered.extend(observe_modules(&missing));
 
-    // **`--lib` left out** (M4-d): the lakefile answers. `crates/litedoc4/
-    // tests/build.rs` owns the recogniser's own cases; what is checked here is
-    // that this command reaches it and that the answer is the same list.
+    // **`--lib` left out**: the lakefile answers. `tests/build.rs` owns the
+    // recogniser's own cases; what is checked here is that this command reaches
+    // it and that the answer is the same list.
     write(
         &repo.join("lakefile.toml"),
         b"name = \"lib\"\n\n[[lean_lib]]\nname = \"Lib\"\n",
@@ -2418,13 +2287,10 @@ fn run_modules(repo: &Path, libs: &[&str], out: Option<&Path>) -> ModulesReport 
     }
 }
 
-// ----------------------------------------------------------- the branch ledger
-
 /// The three lists are a partition, and the curated cases really do reach
-/// everything the seven states cannot.
-///
-/// **This is the test that fails when somebody deletes a curated case because
-/// "the seven states pass anyway".** It runs every one of them.
+/// everything the seven states cannot. **This is the test that fails when
+/// somebody deletes a curated case because "the seven states pass anyway"** —
+/// it runs every one of them.
 #[test]
 fn the_curated_cases_cover_what_the_seven_states_do_not() {
     let states: BTreeSet<&str> = SEVEN_STATES.iter().copied().collect();
@@ -2485,10 +2351,8 @@ fn the_curated_cases_cover_what_the_seven_states_do_not() {
     );
 }
 
-// ------------------------------------------------------------------- plumbing
-
-/// Every file under `root`, keyed by its path relative to it. A missing root is
-/// an empty tree, which is what a run that has not written yet leaves.
+/// A missing root is an empty tree, which is what a run that has not written yet
+/// leaves.
 fn tree(root: &Path) -> Files {
     let mut files = Files::new();
     let mut stack = vec![root.to_owned()];
@@ -2514,14 +2378,10 @@ fn tree(root: &Path) -> Files {
 /// directory at the end because that is what an IR root the pipeline will read
 /// has to have.
 ///
-/// **Deliberately not `litedoc4_testutil::tree::copy_tree`, which shares its
-/// name and nothing else** — one of several pairs of names elsewhere in this
-/// workspace that collide by accident rather than share an implementation.
-/// The shared one merges into
-/// whatever the destination already holds and copies entry by entry; this one
-/// starts with `remove_dir_all`, goes through this file's own `tree`/`write`
-/// pair so that a run is comparable with the ones those two record, and creates
-/// `deps`. Folding the two would change both.
+/// **Deliberately not `litedoc4_testutil::tree::copy_tree`, which shares the
+/// name and nothing else**: that one merges into whatever the destination
+/// already holds, while this one starts with `remove_dir_all`, goes through this
+/// file's own `tree`/`write` pair, and creates `deps`.
 fn copy_tree(from: &Path, to: &Path) {
     let _ = fs::remove_dir_all(to);
     for (path, bytes) in tree(from) {

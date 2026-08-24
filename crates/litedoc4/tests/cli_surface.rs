@@ -1,11 +1,8 @@
-//! The outermost surface of the command line: dispatch, the three ways of
-//! asking for the usage, and what a `Failure` costs at the exit.
-//!
-//! **`main.rs` is the one file no library test reaches.** It is the only place
-//! a [`litedoc4::Failure`] becomes an `ExitCode`, and an `ExitCode` exists only
-//! in a process that has ended — so everything here starts the real binary.
-//! The library tests beside it check which `Failure` a command line produces;
-//! what they cannot ask is what the shell then sees.
+//! `main.rs` is the one file no library test reaches: it is the only place a
+//! [`litedoc4::Failure`] becomes an `ExitCode`, and an `ExitCode` exists only
+//! in a process that has ended. So every case here starts the real binary and
+//! asks what the shell sees, which is the one thing the library tests beside
+//! it cannot.
 
 use litedoc4_testutil::TempDirs;
 use litedoc4_testutil::cli::{Cli, code, message, stderr, stdout};
@@ -14,11 +11,10 @@ const TEMP: TempDirs = TempDirs::prefixed("litedoc4-cli-surface");
 
 const LITEDOC4: Cli = Cli::at(env!("CARGO_BIN_EXE_litedoc4"));
 
-/// Every subcommand `main.rs` dispatches, spelled out.
-///
-/// Derived from nothing: the dispatch `match` is the only other place these
-/// names live, and a list built from it would agree with it by construction.
-/// A subcommand added there and not here is one nobody checked.
+/// Spelled out rather than derived: the dispatch `match` is the only other
+/// place these names live, so a list built from it would agree with it by
+/// construction and a subcommand added there and not here is one nobody
+/// checked.
 const COMMANDS: [&str; 14] = [
     "build",
     "watch",
@@ -36,8 +32,8 @@ const COMMANDS: [&str; 14] = [
     "prune",
 ];
 
-/// `--version` is read by a release check, so it says the crate's own version
-/// rather than a string beside it that could drift.
+/// The release check reads `--version`, so it has to be the crate's own
+/// version and not a literal beside it that could drift.
 #[test]
 fn version_prints_the_name_and_the_crate_version() {
     let output = LITEDOC4.run(&["--version"]);
@@ -49,11 +45,6 @@ fn version_prints_the_name_and_the_crate_version() {
     assert!(stderr(&output).is_empty(), "{}", stderr(&output));
 }
 
-/// Three ways of asking for the usage, and they have to be one answer.
-///
-/// The point is not that each prints something — it is that they print the
-/// **same bytes as each other and as `USAGE`**. `cli::help` exists because the
-/// `--help` arm had already drifted into three spellings once.
 #[test]
 fn every_way_of_asking_for_the_usage_prints_the_same_bytes_and_succeeds() {
     let bare = LITEDOC4.run::<&str>(&[]);
@@ -66,9 +57,6 @@ fn every_way_of_asking_for_the_usage_prints_the_same_bytes_and_succeeds() {
     }
 }
 
-/// `Failure::Usage` is exit 2, the refusal names what it did not know, and the
-/// usage follows it — on **stderr**, so a caller reading stdout for an answer
-/// gets nothing rather than a wall of flags.
 #[test]
 fn an_unknown_subcommand_is_refused_by_name_and_costs_exit_2() {
     let output = LITEDOC4.run(&["frobnicate"]);
@@ -89,12 +77,6 @@ fn an_unknown_subcommand_is_refused_by_name_and_costs_exit_2() {
     );
 }
 
-/// `Failure::Failed` is exit 1 and prints **no** usage.
-///
-/// The distinction is the product's, not a detail: the command line was right
-/// and the run did not finish, so the flags are not what the reader should be
-/// looking at. A run that printed the usage here would send them to re-read
-/// the flags for a missing file.
 #[test]
 fn a_run_that_could_not_finish_costs_exit_1_and_prints_no_usage() {
     let dir = TEMP.make("no-ledger");
@@ -118,14 +100,8 @@ fn a_run_that_could_not_finish_costs_exit_1_and_prints_no_usage() {
     );
 }
 
-/// **Every subcommand answers `--help`, and with the same bytes.**
-///
-/// `cli::help` exists because this arm had already drifted into three
-/// spellings once, and the drift is silent: a subcommand that stops answering
-/// still builds, still runs, and only fails the person who typed `--help`.
-///
 /// Both spellings, because they are separate patterns in every arm that has
-/// them — a `match` that lost `-h` passes a check that only asks `--help`.
+/// them: a `match` that lost `-h` passes a check that only asks `--help`.
 #[test]
 fn every_subcommand_answers_help_with_the_same_usage() {
     let usage = stdout(&LITEDOC4.run(&["--help"]));
@@ -151,19 +127,9 @@ fn every_subcommand_answers_help_with_the_same_usage() {
     }
 }
 
-/// **Every subcommand refuses an argument it does not know, and quotes it.**
-///
-/// The companion of the sweep above, and worth asking of all fourteen for the
-/// same reason: a subcommand that started *ignoring* what it does not
-/// understand would take a misspelt flag, run without it, and report success.
-/// That is the one failure a person cannot see in the output — the run looks
-/// exactly like the one they meant to ask for.
-///
-/// `ledger` words it differently on purpose (`--frobnicate` arrives where a
-/// subcommand belongs, so it is refused as one). What is asserted of all
-/// fourteen is the exit code, that the refusal quotes what was given, and that
-/// nothing reached stdout — a caller reading stdout for an answer gets
-/// silence, not a usage.
+/// The wording is not compared: `ledger` takes `--frobnicate` where a
+/// subcommand belongs and refuses it as one. What all fourteen owe is the exit
+/// code, quoting back what they were given, and silence on stdout.
 #[test]
 fn every_subcommand_refuses_an_unknown_argument_and_quotes_it() {
     for command in COMMANDS {
