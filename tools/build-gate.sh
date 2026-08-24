@@ -1,81 +1,35 @@
 #!/usr/bin/env bash
-# M4-d — the gate of M4: **one command**, run against a clone of the measurement
-# target, with a real edit and a real `lake build` in the middle.
-#
-# **Gate 1's site comparison is no longer run.** M7-c moved dependency links to
-# version-pinned GitHub blob URLs and the reference side here predates it, so the
-# two differ by design. It used to run anyway and report a difference the reader
-# was told to ignore — which is the worst state for a gate to be in, because
-# after that nobody reads its output at all. The property it stood for (one
-# command produces the site the staged pipeline does) is now checked by
-# `tools/e2e-micro.sh`, against a Mathlib-free fixture and a reference that is
-# not stale. Gate A itself (byte reproduction against doc-gen4) ended at M8.
-#
-# The rest of this script still judges: the IR comparison, the module list, the
-# second run, the real move and the real deletion.
+# One `litedoc4 build` over a clone of the measurement target, with a real edit
+# and a real `lake build` in the middle.
 #
 # usage: tools/build-gate.sh <phase> [--clone DIR] [--out DIR] [--lidx FILE]
 #                            [--jobs N] [--move-module <Module>]
 #   phases: gate1 | gate2 | gate3 | gate4 | reset | all
 #
-# ============================================================================
-# THE FIVE GATES
-# ============================================================================
-#   1  ONE COMMAND       `litedoc4 build` over a clean clone produces a site,
-#                        and that site is byte-identical to the one
-#                        `litedoc4 site` writes from the **independently
-#                        extracted** base IR of M3-d4 (the frozen prototype's
-#                        `extract-once.sh` + stage 7d binary). Denominator 438
-#                        = 432 module pages + 6 whole-package artifacts.
-#                        The IR trees are compared too (436 files), which is
-#                        the stronger half: `build` derived its own module list,
-#                        its own source URL and ran its own resident extractor,
-#                        and the tree still has to come out the same bytes.
+# What a failing phase means:
+#   1  the IR `build` derived on its own (module list, source URL, resident
+#      extractor) is no longer byte-identical to the independently extracted
+#      reference. **The site half is not run** — the reference differs by design,
+#      and `tools/e2e-micro.sh` checks that property on a Mathlib-free fixture.
+#   2  a second run with nothing changed re-extracted or moved a byte of the
+#      site: the ledger was not written back.
+#   3  after a real move + `lake build`, the second `build` still reports
+#      something changed, i.e. it would re-extract the same modules for ever.
+#   4  the tree the incremental runs left behind differs from one built from
+#      zero over the same sources.
+#   5  `setup-clone.sh reset` left the clone dirty or out of date.
 #
-#   2  THE SECOND RUN    the same command again, with nothing changed: 0 to
-#                        re-extract, 0 pages rendered, and **not one byte of the
-#                        site moves**. This is what the ledger write-back buys;
-#                        without it the second run re-extracts the first run's
-#                        changed set (plan §7, M3-d2's debt 1).
+# Every path written is under $OUT or is the clone's own sources: the
+# measurement target is never opened for writing and no `git commit` is run.
 #
-#   3  THE WRITE-BACK    a **real** move inside the clone
-#                        (`setup-clone.sh move … minimal` + `lake build`), then
-#                        `build`, then `build` again. The second one must report
-#                        **0 changed**. Without a write-back it would re-extract
-#                        the same modules for ever, and the difference between
-#                        "the ledger was written" and "the ledger was not" is
-#                        exactly this run.
-#
-#   4  INCREMENTAL == FULL  the tree gate 3 left behind, against a `build` run
-#                        from zero over the same edited sources, in a different
-#                        --out. Byte for byte, denominator 439 (the move adds a
-#                        module). This is M3-d4's gate 1 restated through
-#                        `build`: both sides now derive the module list, the
-#                        source URL and the layout themselves, so a difference
-#                        in any of those three shows up here.
-#
-#   5  THE RESET         `setup-clone.sh reset`, then: `git status` empty,
-#                        `lake build --no-build` = All targets up-to-date.
-#
-# ============================================================================
-# WHAT IS NEVER TOUCHED
-# ============================================================================
-#   The measurement target /Users/haruka/dev/lean-projects is not opened for
-#   writing by anything here — every path this script writes is under $OUT or is
-#   the clone's own sources. The clone's `.lake/build/doc` (doc-gen4's reference
-#   tree) is never touched and no `git commit` is ever run.
-#
-#   The clone is a baseline only if its oleans were built **at the clone's own
-#   path** (`tools/rebuild-own.sh`): without that, a moved
-#   declaration's referrers rebuild for the wrong reason and the gate passes for
-#   a reason nobody meant (stage 5e (e)). `require_baseline` checks it with
-#   `strings`, and checks that Lake considers the tree up to date.
+# The clone is a baseline only if its oleans were built **at the clone's own
+# path** (`tools/rebuild-own.sh`) — otherwise a moved declaration's referrers
+# rebuild for the wrong reason and the gate passes for a reason nobody meant.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# TARGET_REPO_BASELINE: the measurement target, named here only so that every
-# path this script writes can be checked against it. This is a guard, so it
-# reads the name nothing can override — see tools/lib/target.sh.
+# The write guards below check paths against TARGET_REPO_BASELINE, the spelling
+# nothing can override, rather than the overridable TARGET_REPO.
 # shellcheck source=lib/target.sh
 . "$REPO/tools/lib/target.sh" || exit 1
 # shellcheck source=lib/common.sh
@@ -84,9 +38,8 @@ RUST_BIN="$REPO/target/release/litedoc4"
 EXTRACT_BIN="${EXTRACT_BIN:-$REPO/extractor/build/extract}"
 SETUP_CLONE="$REPO/tools/setup-clone.sh"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
-# `diff` is aliased to a colordiff that is not installed here; its exit 127
-# reads as "differences found" and has already cost this project one wrong
-# conclusion.
+# `diff` is aliased to a colordiff that is not installed here, and its exit 127
+# reads as "differences found".
 DIFF=/usr/bin/diff
 
 PHASE="${1-}"
@@ -98,15 +51,12 @@ esac
 CLONE=/private/tmp/lean-doc-relay/clone
 OUT=/private/tmp/lean-doc-relay/m4d
 LIDX=/private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx
-# M3-d4's independently extracted trees: the base IR is the reference gate 1
-# compares against, and it was produced by the **prototype's** extractor.
 REF_IR=/private/tmp/lean-doc-relay/m3d4/shared/base-ir
 REF_MODULES=/private/tmp/lean-doc-relay/m3d4/shared/modules-base.txt
 JOBS=4
-# The module M3-d4 chose, and its reasons hold here: it is one of the 7 modules
-# of 432 whose declarations are named inside another module's docstring, so the
-# move exercises **both** derivations (L3-1 through the IR's refs, L3-2 through
-# the whole-package map delta). See plan §7, M3-d4.
+# One of the 7 modules of 432 whose declarations are named inside another
+# module's docstring, so moving it exercises **both** derivations: the IR's
+# `refs` and the whole-package name-map delta.
 MOVE_MODULE=InformationTheory.Shannon.BroadcastChannel.Basic
 
 while [ $# -gt 0 ]; do
@@ -143,28 +93,14 @@ X_REL="$(printf '%s' "$X_MOD" | tr '.' '/').lean"
 DEL_MOD=InformationTheory.Shannon.ArithmeticCoding
 DEL_REL="$(printf '%s' "$DEL_MOD" | tr '.' '/').lean"
 
-# Written down rather than derived, so that a run which produced the wrong
-# number of pages fails instead of redefining the question.
-#
-#   432 module pages + 8 whole-package artifacts + 3 static assets = 443,
-#   and the move adds one module and therefore one page.
-#
-# **These were 438/439 until 2026-08-19 and had been wrong since M8-a.** They
-# were set at M4, when the site was pages + 6 artifacts and carried no static
-# assets; M8-a added `style.css` / `app.js` / `favicon.svg` to the tree, M8-d
-# took the artifacts to 7, and splitting `instances.json` out of the search
-# index takes them to 8.
-# Nobody noticed because a wrong denominator only printed — see the exit status
-# below, which is the other half of this fix. **The new numbers are derived
-# from that arithmetic and not yet measured**: the next real run either agrees
-# or prints the true count beside them.
+# Written down rather than derived, so a run that produced the wrong number of
+# pages fails instead of redefining the question: 432 module pages + 8
+# whole-package artifacts + 3 static assets, and the move adds one page.
 EXPECT_BASE=443
 EXPECT_MOVE=444
 
 nlines () { grep -c . "$1" 2>/dev/null || true; }
 files_in () { find "$1" -type f | wc -l | tr -d ' '; }
-
-# ---------------------------------------------------------------- the protocol
 
 clone_state () {
   local dirty x del
@@ -205,11 +141,10 @@ require_baseline () { # require_baseline <tag>
   require_up_to_date "$1"
 }
 
-# `litedoc4 build`, with **only** the flags a caller cannot derive: where the
-# package is, where the output goes, the dependency map (M5 owns its supply) and
-# the extractor binary (171 MB, built against the target's toolchain, so it can
-# have no default — M4-a). Everything else — the library, the module list, the
-# source URL, the choice between full and incremental — is the command's.
+# **Only** the flags a caller cannot derive. The extractor binary is 171 MB and
+# built against the target's own toolchain, so it can have no default; the
+# library, the module list, the source URL and full-vs-incremental are the
+# command's own to derive, and passing them here would hide a wrong derivation.
 build () { # build <out dir> <log> [extra args…]
   local out="$1" log="$2"; shift 2
   "$RUST_BIN" build --root "$CLONE" --out "$out" --link-index "$LIDX" \
@@ -217,18 +152,12 @@ build () { # build <out dir> <log> [extra args…]
     --timings "$out.timings.json" "$@" > "$log" 2>&1
 }
 
-# A manifest of the whole site, so that "nothing moved" is a comparison of
-# bytes rather than of file counts.
 manifest () { # manifest <site> <out file>
   ( cd "$1" && find . -type f | LC_ALL=C sort | xargs shasum -a 256 ) > "$2"
 }
 
-# One `diff -r`, reported with its denominator and with the first differing byte
-# of every file that differs — "they differ" is not a finding.
-# Set by `compare` when any comparison fails, read by the exit status at the
-# bottom. **A gate that prints FAIL and exits 0 is not a gate** — CLAUDE.md's
-# "出力と終了コードが食い違う形はゲートを嘘にする", which this script was an
-# instance of until 2026-08-19.
+# Set by `compare`, read by the exit status at the bottom: a gate that prints
+# FAIL and exits 0 is a lie.
 FAILURES=0
 
 compare () { # compare <name> <a> <b> <expected files>
@@ -260,12 +189,9 @@ compare () { # compare <name> <a> <b> <expected files>
   [ "$verdict" = PASS ] || FAILURES=$((FAILURES + 1))
 }
 
-# What the run said it did, in the four numbers the gates are stated in.
 counts () { # counts <log>
   grep -E '^(lib|modules|source|plan|detect|round |extract|prune|impact|render|global|ledger|build) ' "$1" || true
 }
-
-# ------------------------------------------------------------------- the gates
 
 phase_gate1 () {
   echo "### gate 1 — one command over a clean clone"
@@ -275,23 +201,14 @@ phase_gate1 () {
   counts "$OUT/base.log"
   manifest "$OUT/base/site" "$OUT/base.sha256"
 
-  # **The site half of gate 1 cannot be judged any more, and pretending
-  # otherwise is worse than not running it.** The reference below is
-  # `litedoc4 site` invoked *without* `--root`, so it writes relative links into
-  # dependencies; `build` always resolves a package root and writes M7-c's
-  # version-pinned blob URLs. The two therefore differ **by design**, and this
-  # comparison was left in place reporting a difference nobody was allowed to
-  # act on — a gate whose expected result is "FAIL" teaches its reader to skip
-  # the output.
-  #
-  # The property it used to check — one command produces the same site as the
-  # pipeline run stage by stage — is checked by `tools/e2e-micro.sh` GATE 1-3,
-  # against a fixture, with no Mathlib and no stale reference.
+  # The reference is `litedoc4 site` without `--root`, so it writes relative
+  # links into dependencies; `build` resolves a package root and writes
+  # version-pinned blob URLs. The two differ by design.
   echo "  gate1-site: NOT RUN — the reference predates M7-c and differs by design."
   echo "              The same property is checked by tools/e2e-micro.sh."
   compare gate1-ir "$OUT/base/ir" "$REF_IR" "$(files_in "$REF_IR")"
-  # The module list is the other half of "it derived the same question": the
-  # order makes the ledger's and the merged index.json's bytes (M3-d2b).
+  # The other half of "it derived the same question": the order makes the
+  # ledger's and the merged index.json's bytes.
   "$DIFF" "$OUT/base/work/modules.txt" "$REF_MODULES" > "$OUT/gate1-modules.diff" \
     && echo "  module list: identical to M3-d4's ($(nlines "$REF_MODULES") modules)" \
     || { echo "  module list DIFFERS from M3-d4's" >&2; exit 3; }
@@ -337,8 +254,7 @@ phase_gate3 () {
   counts "$OUT/moved.log"
   manifest "$OUT/base/site" "$OUT/moved.sha256"
 
-  # The gate itself: **the run after the run**. A ledger that was not written
-  # back re-extracts the same modules, and says so.
+  # The gate itself: the run after the run.
   build "$OUT/base" "$OUT/moved-again.log"
   counts "$OUT/moved-again.log"
   manifest "$OUT/base/site" "$OUT/moved-again.sha256"
@@ -360,8 +276,6 @@ phase_gate4 () {
   counts "$OUT/scratch.log"
   compare gate4-site "$OUT/base/site" "$OUT/scratch/site" "$EXPECT_MOVE"
   compare gate4-ir "$OUT/base/ir" "$OUT/scratch/ir" "$(files_in "$OUT/scratch/ir")"
-  # The ledgers are two independent answers to "which oleans is this IR from",
-  # one reached through five incremental runs and one from zero.
   if "$DIFF" -q "$OUT/base/ledger.json" "$OUT/scratch/ledger.json" > /dev/null; then
     echo "  ledger              identical"
   else
@@ -409,8 +323,6 @@ case "$PHASE" in
 esac
 conditions
 
-# The gates above print PASS / FAIL per comparison. This is what makes a caller
-# — CI, a script, a person reading `echo $?` — see the same answer.
 [ "$FAILURES" = 0 ] || {
   echo "### $FAILURES comparison(s) FAILED" >&2
   exit 1

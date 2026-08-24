@@ -4,70 +4,45 @@
 #
 # usage: tools/incremental-compare.sh REFERENCE_DIR CANDIDATE_DIR
 #
-# The loop it was built for compared the TS prototype with the product. **That
-# comparison is gone**: `experiments/` was removed on 2026-08-16 and
-# `incremental-reference.sh` is Rust-only, so the two trees a run produces now
-# differ in how the extraction was spelled, not in who computed the answers:
-#
 #   cargo build --release -p litedoc4
 #   tools/incremental-reference.sh --extractor product  --out .../m3d3/product
 #   tools/incremental-reference.sh --extractor resident --out .../m3d3/resident
 #   tools/incremental-compare.sh /private/tmp/lean-doc-relay/m3d3/product \
 #                                /private/tmp/lean-doc-relay/m3d3/resident
 #
-# WHAT IS NOT COMPARED, AND WHY IT IS NOT LAZINESS
+# Not compared — dropping one of these would change the denominator, not just
+# the verdict:
 #
-#   The four exclusions below were drawn when the two sides were two different
-#   implementations. They are kept as they are so that a tree recorded before the
-#   prototype was removed stays comparable with one recorded after it — dropping
-#   an exclusion would change the denominator, not just the verdict.
-#
-#   *-stderr.txt    A diagnostic's wording belongs to the implementation. What
-#                   *is* compared is *-complained.txt, which the harness derives
-#                   from it — whether the run complained at all is a fact about
-#                   the answer.
-#   *-stdout.txt    `litedoc4 incremental` prints a progress line per stage
-#                   (`pipeline.rs:339`, `:445`, `:477`, `:504`, `:543`) as well as
-#                   the timings JSON, and only the timings record is an answer.
-#                   The harness distils it into *-counts.json — which *is*
-#                   compared, and which is what this gate is about.
-#   *-sitecheck.txt The incremental page tree diffed against a whole site rebuilt
-#                   from the same IR. It is a *within-run* oracle, read by hand.
+#   *-stderr.txt    Wording belongs to the implementation. *-complained.txt,
+#                   derived from it, *is* compared: whether the run complained
+#                   is a fact about the answer.
+#   *-stdout.txt    Progress lines as well as the timings JSON, and only the
+#                   timings record is an answer — distilled into *-counts.json.
+#   *-sitecheck.txt A *within-run* oracle, read by hand.
 #   conditions.txt  The clock, the host and the extractor's own name.
 #
-# HOW EVERYTHING ELSE IS COMPARED
+# **Everything else is compared byte for byte first, including every `.json`** —
+# the difference from tools/impact-compare.sh. The order of an array inside
+# `index.json` is itself an answer, and a comparator that parses JSON before
+# comparing cannot see an ordering difference at all. Only a file whose bytes
+# differ is classified further:
 #
-#   **Byte for byte, first, including every `.json`.** That is deliberate and it
-#   is the difference from tools/impact-compare.sh: M3-d2b is a statement about
-#   the *order of an array inside `index.json`*, and a comparator that parses
-#   JSON before comparing it cannot see an ordering difference at all. So bytes
-#   decide, and only a file whose bytes differ is classified further:
+#   REORDERED        both parse as JSON and are equal as values — the same
+#                    mapping written with the keys in another order.
+#   (masked)         equal once every `*Seconds` key is dropped (at any depth)
+#                    and each side's own output root is masked out of the
+#                    strings. Counted as identical, reported separately so the
+#                    number is never mistaken for a byte match.
+#   ARRAY-REORDERED  the same elements in another sequence, in a JSON array or
+#                    in a line-oriented file. **It still fails the run**: whether
+#                    a difference was intended is a judgement for a person, and a
+#                    comparator that made it would be an exception list with
+#                    extra steps.
+#   DIFFERS          everything else.
 #
-#     REORDERED        both parse as JSON and are equal as values — the same
-#                      mapping written with the keys in another order.
-#     (masked)         equal once every `*Seconds` key is dropped (at any depth)
-#                      and each side's own output root is masked out of the
-#                      strings. Counted as identical, and reported separately so
-#                      the number is never mistaken for a byte match.
-#     ARRAY-REORDERED  the same elements in another sequence — every JSON array
-#                      recursively sorted makes the two equal, or (for a
-#                      line-oriented file, which is an array written with
-#                      newlines) the two hold the same lines in another order.
-#                      **This is where `index.json` and `render-set.txt` are
-#                      expected to land**: the prototype's merge keeps whatever
-#                      order the base index had and appends a re-added module to
-#                      the end while the product orders the index by `--modules`
-#                      (M3-d2b), and the prototype's `sort -u` collates in the
-#                      caller's locale while the product sorts in UTF-16 code
-#                      units (plan §7, U1). It still **fails the run** (exit 1).
-#                      Whether a difference was intended is a judgement for a
-#                      person; a comparator that made it would be an exception
-#                      list with extra steps.
-#     DIFFERS          everything else.
-#
-#   **There is no exception list.** No rule below names a file. The four classes
-#   are decided by suffix and by the shape of the content, so a difference that
-#   appears somewhere nobody predicted is reported rather than absorbed.
+# **There is no exception list**: no rule above names a file. The classes are
+# decided by suffix and by the shape of the content, so a difference somewhere
+# nobody predicted is reported rather than absorbed.
 
 set -uo pipefail
 
@@ -87,10 +62,9 @@ missing=0
 skipped=0
 status=0
 
-# Answers with `reordered`, `masked`, `array-reordered`, `differs` or `not-json`,
-# and names nothing. The two roots are the only strings that differ between the
-# sides by construction: a run's own output directory reaches `prune.json`'s
-# `pages` field. `$REF` is a prefix of `$REF.work`, so masking it masks both.
+# The two roots are the only strings that differ between the sides by
+# construction: a run's own output directory reaches `prune.json`'s `pages`
+# field. `$REF` is a prefix of `$REF.work`, so masking it masks both.
 classify () { # classify <ref> <cand> <ref root> <cand root>
   python3 - "$1" "$2" "$3" "$4" <<'PY'
 import json, sys
@@ -124,11 +98,9 @@ def text(path, root):
 try:
     a, b = load(sys.argv[1]), load(sys.argv[2])
 except Exception:
-    # Not JSON. A file of one name per line **is** an array, written with
-    # newlines instead of brackets, so it gets the same ladder. The trailing
-    # newline is compared rather than normalised away: an empty set is an empty
-    # file and not one blank line, and every stage in this project spells it
-    # that way on purpose.
+    # A file of one name per line **is** an array written with newlines, so it
+    # gets the same ladder. The trailing newline is compared rather than
+    # normalised away: an empty set is an empty file, not one blank line.
     ta, tb = text(sys.argv[1], sys.argv[3]), text(sys.argv[2], sys.argv[4])
     if ta == tb:
         print('masked')
@@ -189,9 +161,8 @@ for path in $( (cd "$REF" && find . -type f | sed 's|^\./||' | LC_ALL=C sort) );
   esac
 done
 
-# The same four suffixes are dropped here. A file the comparator refuses to read
-# on the reference side is not "extra" on the candidate side either — a tree
-# recorded before the prototype was removed has no *-sitecheck.txt at all.
+# The same four suffixes are dropped here: a file the comparator refuses to read
+# on the reference side is not "extra" on the candidate side either.
 listing () { # listing <root>
   ( cd "$1" && find . -type f | sed 's|^\./||' \
     | grep -v -e '\-stderr\.txt$' -e '\-stdout\.txt$' -e '\-sitecheck\.txt$' -e '^conditions\.txt$' \

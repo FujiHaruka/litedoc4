@@ -2,28 +2,19 @@
 # Rebuild the package's own modules inside the clone, so that every olean in it
 # carries the *clone's* path.
 #
-# Moved here from `experiments/stage5e/` on 2026-08-16, when `experiments/` was
-# removed. **The contents are unchanged** apart from this note.
+# `cp -Rc` copies the build tree along with the sources, so the clone starts with
+# oleans produced at the ORIGINAL path — and Mathlib's style linter stores its
+# log, absolute source paths included, in an environment extension serialized
+# into the olean (429/432 modules)【実測】. So the moment any module is rebuilt
+# inside the clone its olean changes by the path-length difference alone.
 #
-# WHY THIS IS NECESSARY, AND WHY IT WAS NOT OBVIOUS
-#   `cp -Rc` copies the build tree along with the sources, so the clone starts
-#   with oleans that were produced at the ORIGINAL path. Stage 5c measured that
-#   Mathlib's style linter stores its log — including absolute source paths — in
-#   an environment extension that is serialized into the olean (429/432 modules).
-#   So the moment any module is rebuilt inside the clone, its olean changes by
-#   the path-length difference alone: C's went 5,968 -> 6,048 B, the +80 the
-#   stage 5c path-dependence experiment predicts.
+# For a measurement that is severe and easy to miss: a ledger taken over the
+# cloned oleans reports every rebuilt module as changed for reasons that have
+# nothing to do with the edit under test. Rebuilding the package's own 432
+# modules once makes the path constant across the baseline and everything after.
 #
-#   The consequence for a *measurement* is severe and easy to miss: a ledger
-#   taken over the cloned oleans reports every rebuilt module as changed, for
-#   reasons that have nothing to do with the edit under test. The first stage 5e
-#   run hit exactly this and appeared to refute stage 5c's P3. It did not — the
-#   referring module C showed up as changed even after the edit was *reverted*,
-#   which is what gave it away.
-#
-#   Rebuilding the package's own 432 modules once makes the path constant across
-#   the baseline and everything after it. Mathlib is left alone: it is not edited
-#   here, so its oleans are never rebuilt and their stale paths never matter.
+# Mathlib is left alone: it is never edited here, so its oleans are never rebuilt
+# and their stale paths never matter.
 #
 # usage: rebuild-own.sh <clone-dir>
 set -euo pipefail

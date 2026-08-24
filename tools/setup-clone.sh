@@ -2,39 +2,27 @@
 # Make an APFS clonefile copy of the measurement target, and move one module's
 # body into a new module inside it.
 #
-# Moved here from `experiments/stage5e/` on 2026-08-16, when `experiments/` was
-# removed. **The contents are unchanged** apart from this note.
+# The measurement target must not be modified and this experiment needs `lake
+# build` to run over an edited source. `cp -Rc` on APFS is copy-on-write: the
+# 12 GB tree costs ~0 real disk and ~34 s, and the original is never written to.
 #
-# WHY A CLONE
-#   CLAUDE.md forbids modifying the measurement target, and this experiment needs
-#   `lake build` to run over an edited source. `cp -Rc` on APFS is copy-on-write:
-#   the 12 GB tree costs ~0 real disk and ~34 s, and the original is not written
-#   to at all. Stage 5c established this; it is reused verbatim.
+# The move: A's body goes to a new module X = A ++ "Core" and A becomes a shim
+# that imports X. Full names do not change — a namespace comes from the
+# `namespace` command, not the file path — so the only thing that changes is
+# *which module defines the names*, which is invisible in a referring module's olean.
 #
-# THE MOVE
-#   A's body moves to a new module X = A ++ "Core"; A becomes a shim that
-#   imports X. Full names do not change — a namespace comes from the `namespace`
-#   command, not the file path — so the only thing that changes is *which module
-#   defines the names*. Stage 5c measured that change to be invisible in a
-#   referring module's olean.
+# **A is a parameter, and choosing it wrong wastes the experiment.** A module
+# whose names nobody mentions in a printed signature makes the move unobservable
+# by construction: backticks in a *module docstring* of a module with zero
+# declarations do not count. Pick A from `litedoc4 impact --census` — it must
+# have referrers.
 #
-#   A IS A PARAMETER, AND CHOOSING IT WRONG WASTES THE EXPERIMENT. Stage 5c used
-#   `Shannon.GaussianPDFVarianceDerivative` and described
-#   `Shannon.FisherDeBruijnGaussian` as referring to it "in two places". Those
-#   two places are backticks in a **module docstring**: that module has **zero
-#   declarations**, and *no module in the package names anything of A's in a
-#   printed signature*. For an olean-level question that did not matter. For a
-#   question about what the IR's `refs` say, it makes the move unobservable by
-#   construction. Pick A from `impact.ts --census`: it must have referrers.
-#
-# THE SHIM STYLE IS ALSO A PARAMETER
-#   minimal       A becomes `import X` and nothing else.
-#   keep-imports  A keeps its original imports and adds `import X`.
-#
-#   `keep-imports` leaves imports the now-empty A does not use, which changes
-#   what Mathlib's style linter logs — and that log is an environment extension
-#   serialized into oleans (stage 5c found it embeds absolute source paths in
-#   429/432 modules). `minimal` is the default for that reason.
+# The shim style is a parameter too:
+#   minimal       A becomes `import X` and nothing else. The default.
+#   keep-imports  A keeps its original imports and adds `import X`, which leaves
+#                 imports the now-empty A does not use. That changes what
+#                 Mathlib's style linter logs, and that log is an environment
+#                 extension serialized into oleans.
 #
 # usage:
 #   setup-clone.sh clone <clone-dir>
@@ -56,7 +44,6 @@ if [ "$CMD" = clone ]; then
     echo "### cloning $SRC -> $CLONE (APFS clonefile)"
     time cp -Rc "$SRC" "$CLONE"
   fi
-  # The clone is only usable as a baseline if Lake agrees nothing needs building.
   echo "### verifying the clone is up to date"
   (cd "$CLONE" && "$LAKE" build --no-build 2>&1 | tail -2)
   exit 0
@@ -89,12 +76,11 @@ import sys
 a_path, x_path, x_mod, style = sys.argv[1:]
 src = open(a_path, encoding="utf-8").read()
 
-# X is A verbatim: same imports, same namespace, same declarations. Only the
-# file it lives in differs, which is exactly the change under test.
+# X is A verbatim; only the file it lives in differs, which is the change under test.
 open(x_path, "w", encoding="utf-8").write(src)
 
-# A becomes a pure re-export. It must still exist and still be importable,
-# because the referring modules import A and they are not allowed to change.
+# A must still exist and still be importable: the referring modules import it and
+# they are not allowed to change.
 if style == "minimal":
     shim = f"import {x_mod}\n"
 elif style == "keep-imports":

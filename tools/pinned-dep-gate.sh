@@ -2,41 +2,26 @@
 # The shape no fixture had: a **version-pinnable dependency whose module names
 # need guillemets**.
 #
-# `e2e/micro-dep` is required by *path*, so its manifest entry has no `url` and
-# no `rev`, so `crates/litedoc4/src/packages.rs` cannot build a `/blob/<rev>`
-# for it, so every reference to it renders as text with no link. That branch is
-# checked by `tools/e2e-micro.sh`. What it cannot check is the other half: when
-# the dependency *can* be pinned, the guillemets have to come off on the way
-# into the URL, and the three spellings a docstring can use for the same module
-# have to agree about where they point. `e2e/README.md` said so and called the
-# instance missing.
+# `e2e/micro-dep` required by *path* has no `url` and no `rev`, so no
+# `/blob/<rev>` can be built and every reference renders as plain text — the
+# branch `tools/e2e-micro.sh` checks. Here the same fixture *can* be pinned, so
+# the guillemets have to come off on the way into the URL and the three spellings
+# a docstring can use for one module have to agree about where they point.
+# **Only a pinnable dependency makes that visible**: unpinnable, all three render
+# as plain text and agree by accident. Only the wiring differs between the two,
+# so pinnability is the only variable.
 #
-# **Building it is what showed that they did not agree.** `Dep-Aux.Basic` — the
-# `.lidx`\'s spelling — resolved nowhere, and only a *pinnable* dependency can
-# make that visible: with an unpinnable one all three spellings render as plain
-# text, so they agree by accident.
+# Two things here that are not decoration:
 #
-# It was not missing for want of hardware. The same `e2e/micro-dep` is the
-# fixture; only the **wiring** changes, which is what makes the comparison worth
-# anything — the modules, the docstrings and the toolchain are identical to the
-# path-required run, and pinnability is the only variable.
-#
-# # Two things this script does that are not decoration
-#
-#   the git remote     Lake clones from the `url` it writes into the manifest,
-#                      so a `file://` remote would put `file://` into every blob
-#                      URL. That is not the shape under test, and it also makes
-#                      `tools/site-gate.sh` call those links *internal* and
-#                      report five dead ones — a failure of the harness that
-#                      reads exactly like a failure of the product. `git`'s
-#                      `insteadOf` is used instead: the manifest carries
-#                      `https://example.invalid/micro-dep` and the clone still
-#                      happens offline, from a repository this script builds.
-#
-#   the commit         made with fixed author, committer and dates, so the rev
-#                      is a function of `e2e/micro-dep`'s contents. Nothing
-#                      pins the hash — the gate reads it back out of the
-#                      manifest and requires *that* to be what it built.
+#   the git remote  Lake clones from the `url` it writes into the manifest, so a
+#                   `file://` remote would put `file://` into every blob URL —
+#                   not the shape under test, and `tools/site-gate.sh` would call
+#                   those links *internal* and report five dead ones. `git`'s
+#                   `insteadOf` keeps the manifest at the https URL while the
+#                   clone still happens offline.
+#   the commit      fixed author, committer and dates, so the rev is a function of
+#                   `e2e/micro-dep`'s contents. Nothing pins the hash — the gate
+#                   reads it back out of the manifest and requires *that*.
 #
 # usage: pinned-dep-gate.sh [--out DIR] [--keep]
 set -euo pipefail
@@ -46,8 +31,8 @@ ROOT="$(cd "$HERE/.." && pwd)"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 LITEDOC4="${LITEDOC4:-$ROOT/target/debug/litedoc4}"
 
-# Not a real host, on purpose: `.invalid` is reserved (RFC 2606) so nothing can
-# ever resolve it, and the gate never fetches these URLs — it compares them.
+# `.invalid` is reserved (RFC 2606), so nothing can ever resolve these. The gate
+# never fetches them, it compares them.
 DEP_URL="https://example.invalid/micro-dep"
 SELF_URL="https://example.invalid/micro/blob/0000000000000000000000000000000000000000"
 
@@ -98,8 +83,8 @@ echo "  rev $REV"
 say "2/6 rewire e2e/micro to require it by git"
 rm -rf "$OUT/micro"
 cp -R "$ROOT/e2e/micro" "$OUT/micro"
-# The manifest has to be *written by Lake*, not copied: a hand-edited one would
-# make this gate assert its own input.
+# Written by Lake, not copied: a hand-edited manifest would make this gate assert
+# its own input.
 rm -rf "$OUT/micro/.lake" "$OUT/micro/lake-manifest.json"
 python3 - "$OUT/micro/lakefile.toml" "$DEP_URL" "$REV" <<'PY'
 import pathlib, sys
@@ -116,8 +101,8 @@ if old not in s:
 p.write_text(s.replace(old, f'[[require]]\nname = "«micro-dep»"\ngit = "{url}"\nrev = "{rev}"'))
 PY
 
-# Offline: git rewrites the remote, Lake never learns about it, and the manifest
-# keeps the URL the blob links have to be built from.
+# git rewrites the remote, Lake never learns about it, and the manifest keeps the
+# URL the blob links have to be built from.
 export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0="url.file://$OUT/dep.insteadOf"
 export GIT_CONFIG_VALUE_0="$DEP_URL"
@@ -125,9 +110,8 @@ export GIT_CONFIG_VALUE_0="$DEP_URL"
 (cd "$OUT/micro" && "$LAKE" build)
 
 say "3/6 GATE 1 — the manifest really is the shape under test"
-# "測った" の前に "測れる状態か": if this entry is not git-with-a-rev then every
-# assertion below is about the *unpinnable* branch again and passes for the
-# wrong reason.
+# If this entry is not git-with-a-rev then everything below is about the
+# *unpinnable* branch again and passes for the wrong reason.
 python3 - "$OUT/micro/lake-manifest.json" "$DEP_URL" "$REV" <<'PY' || FAILED=1
 import json, pathlib, re, sys
 manifest, url, rev = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -178,8 +162,7 @@ def linked(spelling):
     return re.findall(r'<a href="([^"]+)"[^>]*>' + re.escape(spelling) + r"</a>", html)
 
 problems = []
-# The two spellings that resolve, and the one number that says the guillemets
-# were handled: a `«` anywhere in a path is a link nobody can follow.
+# A `«` anywhere in a path is a link nobody can follow.
 for spelling in ("«Dep-Aux».Basic", "Dep-Aux/Basic.lean"):
     hrefs = set(linked(spelling))
     if not hrefs:
@@ -189,13 +172,10 @@ for spelling in ("«Dep-Aux».Basic", "Dep-Aux/Basic.lean"):
 if "«" in html.split("<body")[0] + "".join(re.findall(r'href="([^"]*)"', html)):
     problems.append("a href still carries a guillemet")
 
-# **The third spelling, and all three at the same URL**【決定 2026-08-22、
-# ユーザー判断】. The `.lidx` writes module names unescaped and the IR does not,
-# so `Dep-Aux.Basic` is a third way to name the same module. It used to get no
-# link at all — not because the map lacked it, but because it is not a Lean name
-# literal and never reached a lookup. `NameIndex::module_for_unescaped` is the
-# answer, and what is asserted here is that the three *agree*, not merely that
-# each of them resolves.
+# The `.lidx` writes module names unescaped and the IR does not, so
+# `Dep-Aux.Basic` is a third way to name the same module — not a Lean name
+# literal, so it resolves through `NameIndex::module_for_unescaped`. All three
+# spellings must agree, not merely resolve 【決定 2026-08-22、ユーザー判断】.
 hrefs = set(linked("Dep-Aux.Basic"))
 if not hrefs:
     problems.append(

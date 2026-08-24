@@ -1,24 +1,20 @@
 #!/usr/bin/env bash
 # Compare two sets of whole-package artifacts byte for byte and say what differs.
 #
-# Six files, not 432, so this prints every one of them with its size rather than
-# a summary: a percentage is not useful while porting, and with six files there
-# is no reason to summarise at all.
+# Six files, not 432, so every one is printed with its size: a path and a byte
+# offset are useful where a percentage is not.
 #
 # usage: tools/global-compare.sh REFERENCE_DIR CANDIDATE_DIR
 #
-# This takes both trees as arguments and cares about neither's provenance, so it
-# still works — but **the way M2's reference tree was built is no longer in this
-# repository**. `tools/global-reference.sh` ran the frozen TypeScript prototype
-# (`experiments/stage7h/global.ts`) and went with `experiments/` on 2026-08-16;
-# it exists only at tag `experiments-frozen`, and the tree it wrote lived under
-# /private/tmp. Point REFERENCE_DIR at whatever tree you actually want to hold
-# the candidate to, and say which one it was.
+# Both trees are arguments and neither's provenance is checked, so point
+# REFERENCE_DIR at whatever tree you want to hold the candidate to — and say which
+# one it was.
 #
-# The candidate comes from the Rust port; the whole loop is
+# The candidate:
 #   cargo build --release -p litedoc4 && ./target/release/litedoc4 global \
 #     --ir /private/tmp/lean-doc-relay/w7h/base-ir --out /tmp/rust-global
 #   tools/global-compare.sh <reference tree> /tmp/rust-global
+#
 # `cargo test -p litedoc4-global --test global` makes the same comparison in
 # process against a committed fixture.
 
@@ -53,8 +49,6 @@ for f in "${ARTIFACTS[@]}"; do
   if cmp -s "$REF/$f" "$CAND/$f"; then
     printf '%-36s identical  %s B\n' "$f" "$a"
   else
-    # /usr/bin/cmp, and /usr/bin/diff elsewhere: `diff` is aliased to colordiff
-    # in this shell and colordiff is not installed.
     printf '%-36s DIFFERS    reference %s B, candidate %s B\n' "$f" "$a" "$b"
     printf '    %s\n' "$(cmp "$REF/$f" "$CAND/$f" 2>&1 | head -1)"
     status=1
@@ -62,7 +56,7 @@ for f in "${ARTIFACTS[@]}"; do
 done
 
 # Anything the candidate wrote that the six do not name is a surprise worth
-# hearing about: the site's byte-reproduction denominator is 439 exactly.
+# hearing about.
 extra=$( (cd "$CAND" && find . -type f | sed 's|^\./||' | sort) \
   | grep -vxF -f <(printf '%s\n' "${ARTIFACTS[@]}") || true )
 if [ -n "$extra" ]; then

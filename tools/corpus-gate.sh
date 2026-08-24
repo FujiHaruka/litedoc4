@@ -1,28 +1,16 @@
 #!/usr/bin/env bash
 # The tests that need the measurement target — run on purpose, never by accident.
 #
-# WHY THESE ARE NOT ORDINARY TESTS
-#   A test owns its input. These do not: they read the 432-module package at
-#   /Users/haruka/dev/lean-projects, its doc-gen4 reference tree, generated IR
-#   trees and multi-megabyte `--full` recordings, none of which is in the
-#   repository. `crates/litedoc4/tests/resident.rs` already draws this line —
-#   "that needs a Lean toolchain, a built package and a 3 GB process, so it is a
-#   gate and not a test" — and this script is where the line is enforced.
+# A test owns its input; these do not. They read the 432-module package at
+# /Users/haruka/dev/lean-projects, its doc-gen4 reference tree, generated IR
+# trees and multi-megabyte `--full` recordings, none of which is in the repository.
 #
-# WHY `#[ignore]` AND NOT A SILENT SKIP
-#   They used to print "skipping: …" and return, which is invisible in an exit
-#   code: on CI, where the corpus can never exist, every one of them passed
-#   without running and the green said nothing about them. Worse, it hid real
-#   rot — two of them had been skipping for want of a fixture that had been
-#   deleted from this machine, and nobody could have told. `#[ignore]` makes
-#   `cargo test` report them by count, and this script makes the set of them
-#   auditable.
-#
-# THE INVENTORY
-#   tools/corpus-tests.txt lists every ignored test. `--verify-list` fails if the
-#   two sides drift, which is what CI runs: a test that quietly stops being in
-#   the gate, and a gate that names a test nobody wrote, are the same bug seen
-#   from two ends. Adding an ignored test means adding a line, on purpose.
+# They are `#[ignore]`d rather than skipped from inside, because a
+# `eprintln!("skipping: …") + return` never reaches the exit code: 7 of them were
+# green while the fixtures they wanted had been deleted 【実測 2026-08-16】.
+# `tools/corpus-tests.txt` is the inventory and `--verify-list` fails if the two
+# sides drift — a test that quietly leaves the gate and a gate that names a test
+# nobody wrote are the same bug seen from two ends.
 #
 # usage:
 #   corpus-gate.sh                 run every corpus test (needs the corpus)
@@ -38,20 +26,12 @@ source "$HERE/lib/common.sh" || exit 1
 INVENTORY="$HERE/corpus-tests.txt"
 PYTHON="${PYTHON:-python3}"
 
-# Every `#[ignore]`d test cargo knows about, as `<target>::<name>`.
-#
-# The target prefix is not decoration: `the_corpus_matches_the_prototype` names
-# three tests (ledger, impact, merge) and `the_whole_corpus_matches_the_prototype`
-# names two (autolink, fragment), so a bare name collapses the inventory from 21
-# entries to 19 and hides three tests inside their namesakes【実測 2026-08-23】.
-# The prefix comes from cargo's own `Running … (target/debug/deps/NAME-HASH)` line.
-# Asking each test binary directly, rather than reading `cargo test`'s combined
-# output: cargo prints `Running …` on stderr and the binary prints the names on
-# stdout, so the interleaving depends on whether stdout is a terminal. On a
-# CI runner it is not, the names arrive in one block after the last `Running`
-# line, and an awk script that pairs them up produces `::name` for everything.
-# That is exactly the shape of bug this gate exists to catch, so it should not
-# have one of its own.
+# Every `#[ignore]`d test cargo knows about, as `<target>::<name>`. The target
+# prefix is not decoration: bare names collapse the inventory from 21 entries to
+# 19 and hide three tests inside their namesakes 【実測 2026-08-23】. Each binary
+# is asked directly rather than `cargo test`'s combined output parsed — cargo
+# prints `Running …` on stderr and the names on stdout, so on a CI runner they
+# arrive in one block and pairing them up yields `::name` for everything.
 listed() {
   (cd "$ROOT" && cargo test --workspace --no-run --message-format=json 2>/dev/null) \
     | "$PYTHON" -c '
@@ -69,7 +49,6 @@ for line in sys.stdin:
     exe = message.get("executable")
     if not exe:
         continue
-    # `target/debug/deps/global-0e4a257eabf6c141` -> `global`
     target = os.path.basename(exe).rsplit("-", 1)[0]
     listed = subprocess.run(
         [exe, "--ignored", "--list"], capture_output=True, text=True
@@ -81,9 +60,8 @@ for line in sys.stdin:
 ' | sort -u
 }
 
-# `<cargo test target> <the binary cargo built for it>`, from cargo's own output
-# rather than by guessing at `target/debug/deps/*`: the hash suffix is cargo's
-# and stale binaries from earlier builds sit in the same directory.
+# From cargo's own output rather than by globbing `target/debug/deps/*`: the hash
+# suffix is cargo's, and stale binaries from earlier builds sit beside the fresh ones.
 executables() {
   (cd "$ROOT" && cargo test --workspace --no-run --message-format=json 2>/dev/null) \
     | "$PYTHON" -c '
@@ -105,9 +83,8 @@ for line in sys.stdin:
 ' | sort -u
 }
 
-# The inventory, minus comments and section headers. A trailing `# note` on a
-# line is documentation of *why* that test needs the corpus and is not part of
-# the name.
+# A trailing `# note` on a line says why that test needs the corpus and is not
+# part of the name.
 entries() {
   sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$1" | grep -v '^$' | sort -u
 }
@@ -116,10 +93,9 @@ expected() {
   entries "$INVENTORY"
 }
 
-# The subset that can actually run here. Everything after the `## frozen`
-# header needs a generator that is not in HEAD (tag `experiments-frozen`), so
-# running it can only ever panic — and a gate that is permanently red is a gate
-# nobody reads.
+# Everything after the `## frozen` header needs a generator that is not in HEAD
+# (tag `experiments-frozen`), so running it could only ever panic — and a gate
+# that is permanently red is a gate nobody reads.
 runnable() {
   sed '/^## frozen/,$d' "$INVENTORY" > "$TMP_RUNNABLE"
   entries "$TMP_RUNNABLE"
@@ -140,10 +116,8 @@ case "${1:-run}" in
     ;;
 
   --update-list)
-    # Deliberately additive: new tests are appended under `## corpus` and the
-    # frozen section is preserved, because which section a test belongs in is a
-    # judgement about whether its input can be regenerated from HEAD — not
-    # something cargo knows.
+    # Additive on purpose: which section a test belongs in is a judgement about
+    # whether its input can be regenerated from HEAD, which cargo cannot make.
     added=0
     for name in $(listed); do
       if ! expected | grep -qxF "$name"; then
@@ -154,7 +128,6 @@ case "${1:-run}" in
     if [ "$added" -eq 0 ]; then
       echo "nothing to add: $INVENTORY already lists every ignored test"
     else
-      # Insert before the frozen header so the sections stay meaningful.
       awk -v add="$TMP_RUNNABLE.add" '
         /^## frozen/ && !done { while ((getline line < add) > 0) print line; done=1 }
         { print }
@@ -210,27 +183,15 @@ case "${1:-run}" in
     fi
 
     echo "== the tests"
-    # A missing input is a failure here, not a skip: these tests panic naming the
-    # variable they wanted. That is the whole point of the move to #[ignore].
+    # A missing input is a failure here, not a skip: these tests panic naming
+    # the variable they wanted.
     #
-    # **One inventory entry, one test binary, one test.** The gate used to hand
-    # `cargo test --workspace -- --exact NAME` the bare test name, which is wrong
-    # in three ways that each hid tests rather than failing:
-    #
-    #   1. `--exact` matches the whole path a binary prints, so entries of the
-    #      form `litedoc4::packages::tests::NAME` cut down to `NAME` matched
-    #      nothing — and `cargo test` exits 0 when a filter selects no tests, so
-    #      three tests were reported run, and green, without running.
-    #   2. Without `--no-fail-fast`, cargo stopped at the first binary that
-    #      failed, so a red test hid its namesakes in other crates.
-    #   3. A name shared by a runnable entry and a frozen one pulls the frozen
-    #      one in — which is exactly the case now that `impact::` is frozen and
-    #      `merge::` is not, both being `the_corpus_matches_the_prototype`.
-    #
-    # Asking cargo for the binaries and running each **by target** removes all
-    # three: the target prefix in the inventory is what disambiguates, and it is
-    # in the inventory precisely because these names collide. The count below
-    # stays as the guard — one entry has to report exactly one result.
+    # **One inventory entry, one test binary, one test.** A bare name passed to
+    # `cargo test -- --exact` is wrong three ways that each hid tests rather than
+    # failing 【実測】: `--exact` matches the whole path a binary prints and cargo
+    # exits 0 when a filter selects nothing; without `--no-fail-fast` a red binary
+    # hides its namesakes; and a name shared by a runnable and a frozen entry
+    # pulls the frozen one in. Running each binary by target removes all three.
     status=0
     ran_total=0
     want_total="$(runnable | wc -l | tr -d ' ')"
@@ -250,7 +211,6 @@ case "${1:-run}" in
       log="$(mktemp)"
       "$exe" --ignored --exact "$test_path" --nocapture > "$log" 2>&1 || status=1
       cat "$log"
-      # `test result: ok. 1 passed; 0 failed; …` — one binary, so one line.
       ran="$(sed -n 's/^test result:[^0-9]*\([0-9]*\) passed; \([0-9]*\) failed.*/\1 \2/p' "$log" \
              | awk '{ total += $1 + $2 } END { print total + 0 }')"
       echo "   reported a result: $ran"

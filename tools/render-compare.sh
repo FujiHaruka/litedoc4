@@ -1,33 +1,29 @@
 #!/usr/bin/env bash
 # Compare two rendered page trees byte for byte and say what differs.
 #
-# **M7-c moved dependency links, and this compares against a doc-gen4-era
-# reference.** Every link into a dependency is now that package's version-pinned
-# GitHub blob URL whenever the run resolves a package root (`build` always does;
-# `site` and `render` do when given `--root`), so a diff here is **expected** and
-# is no longer a failure of the port. Gate A is suspended, not redefined.
+# **Against a doc-gen4-era reference, dependency links differ by design**: every
+# link into a dependency is that package's version-pinned GitHub blob URL
+# whenever the run resolves a package root (`build` always does; `site` and
+# `render` do when given `--root`).
 #
-# The point is to fail loudly and specifically: which files are missing, which
-# are extra, and for the ones that differ, where the first differing byte is.
-# A percentage is not useful while porting — a path and an offset are.
+# It fails loudly and specifically — which files are missing, which are extra,
+# and where the first differing byte is. A percentage is not useful; a path and
+# an offset are.
 #
 # usage: tools/render-compare.sh REFERENCE_DIR CANDIDATE_DIR [--show N]
 #
-# This takes both trees as arguments and cares about neither's provenance, so it
-# still works — but **the way M1's reference tree was built is no longer in this
-# repository**. `tools/render-reference.sh` ran the frozen TypeScript prototype
-# (`experiments/stage7d/render.ts`) and went with `experiments/` on 2026-08-16;
-# it exists only at tag `experiments-frozen`, and the tree it wrote lived under
-# /private/tmp. Point REFERENCE_DIR at whatever tree you actually want to hold
-# the candidate to, and say which one it was.
+# Both trees are arguments and neither's provenance is checked, so point
+# REFERENCE_DIR at whatever tree you want to hold the candidate to — and say
+# which one it was.
 #
-# The candidate tree comes from the Rust renderer; the whole loop is
+# The candidate comes from the Rust renderer:
 #   cargo build --release -p litedoc4 && ./target/release/litedoc4 render \
 #     --ir /private/tmp/lean-doc-relay/w7h/base-ir --pages /tmp/rust-pages \
 #     --source-url "$URL" --link-index /private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx
+#
 # `cargo test -p litedoc4-render --test pages` makes the same comparison in
-# process against a committed fixture, and pins the one page the prototype and
-# md4c disagree on so that a second divergence fails.
+# process against a committed fixture, and pins the one page where md4c disagrees
+# so that a second divergence fails.
 
 set -uo pipefail
 
@@ -55,8 +51,7 @@ trap 'rm -rf "$tmp"' EXIT
 list "$REF" > "$tmp/ref.txt"
 list "$CAND" > "$tmp/cand.txt"
 
-# /usr/bin/diff because `diff` is aliased to colordiff in this shell and
-# colordiff is not installed.
+# Absolute paths: `diff` is aliased to a colordiff that is not installed here.
 /usr/bin/comm -23 "$tmp/ref.txt" "$tmp/cand.txt" > "$tmp/missing.txt"
 /usr/bin/comm -13 "$tmp/ref.txt" "$tmp/cand.txt" > "$tmp/extra.txt"
 /usr/bin/comm -12 "$tmp/ref.txt" "$tmp/cand.txt" > "$tmp/common.txt"

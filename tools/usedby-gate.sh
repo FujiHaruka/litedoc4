@@ -1,31 +1,23 @@
 #!/usr/bin/env bash
 # "Used by", checked against the IR it was derived from — **in both directions**.
 #
-# WHAT IT ASSERTS
-#   For declarations A and B of the same package:
+# For declarations A and B of the same package:
 #
-#       A's IR mentions B   ⟺   B's entry in declarations/used-by.json holds A
+#     A's IR mentions B   ⟺   B's entry in declarations/used-by.json holds A
 #
-#   Both halves, because each catches a failure the other cannot. Only the
-#   forward half and a used-by that dropped every second entry still passes on
-#   whatever it kept; only the backward half and a used-by that invented users
-#   passes on whatever it invented. The pair has no external oracle: the IR is
-#   the site's own input, so this is an *invariant* gate.
+# Both halves, because each catches a failure the other cannot: a used-by that
+# dropped every second entry passes the forward half on whatever it kept, and one
+# that invented users passes the backward half on whatever it invented. The pair
+# needs no external oracle — the IR is the site's own input.
 #
-#   See doc-gen4 #77, #63.
+# It does **not** assert that a name in the file has a page:
+# `benchmarks/tools/check-site-closure.py` does that for the other maps, and two
+# gates checking one property is how the second stops being read.
 #
-# WHAT IT DOES NOT ASSERT
-#   That a name in the file is a declaration the site has a page for — that is
-#   `benchmarks/tools/check-site-closure.py`'s job and it already does it for
-#   the other maps. Two gates checking one property is how the second one stops
-#   being read.
-#
-# READING THE TWO SIDES DIFFERENTLY IS THE POINT
-#   The expected side is built here, from `refs` in the module IR, by code that
-#   shares nothing with `litedoc4-global`: a Python dict of sets against a Rust
-#   `HashMap<&str, Vec<&str>>` filled from a per-module `BTreeMap` of indices.
-#   An oracle written in the same language with the same design makes the same
-#   mistake (CLAUDE.md).
+# The expected side is built here from `refs` in the module IR by code that shares
+# nothing with `litedoc4-global` — a Python dict of sets against a Rust
+# `HashMap<&str, Vec<&str>>` filled from a per-module `BTreeMap`. An oracle
+# written in the same language with the same design makes the same mistake.
 #
 # usage: usedby-gate.sh --ir <dir> --site <dir> [--drop <name>]
 #          --drop  remove one entry from the artifact before comparing, to see
@@ -57,7 +49,6 @@ import sys
 ir, site, drop = sys.argv[1:4]
 problems = []
 
-# --- the expected side, from the IR -----------------------------------------
 own_modules = set()
 declares = {}          # name -> module
 forward = []           # (user name, target name)
@@ -78,14 +69,12 @@ for name in files:
             forward.append((decl["name"], reference[1]))
 
 # The filter is "does this package declare the target", not "is the defining
-# module ours" — they agree today and the first is what the artifact's keys
-# mean, so the gate asserts the one that is written down.
+# module ours": they agree today, and the first is what the artifact's keys mean.
 want = {}
 for user, target in forward:
     if target in declares:
         want.setdefault(target, set()).add(user)
 
-# --- the side under test -----------------------------------------------------
 with open(os.path.join(site, "declarations", "used-by.json"), encoding="utf-8") as handle:
     got_raw = json.load(handle)
 if drop:
@@ -94,7 +83,6 @@ if drop:
     del got_raw[drop]
 got = {key: set(value) for key, value in got_raw.items()}
 
-# --- both directions ---------------------------------------------------------
 missing = []       # in the IR, not in the artifact
 invented = []      # in the artifact, not in the IR
 for target, users in want.items():
@@ -115,9 +103,8 @@ if invented:
         + "; ".join(sorted(invented)[:5])
     )
 
-# The count of what was actually compared, not the absence of complaints: a
-# gate over an empty expected set reports "ok" having checked nothing, which is
-# the shape CLAUDE.md calls 「skip で緑を返さない」.
+# What was actually compared, not the absence of complaints: a gate over an empty
+# expected set reports "ok" having checked nothing.
 edges = sum(len(users) for users in want.values())
 if not files:
     problems.append("no module IR was read")

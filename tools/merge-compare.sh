@@ -3,17 +3,13 @@
 #
 # usage: tools/merge-compare.sh REFERENCE_DIR CANDIDATE_DIR
 #
-# It takes both trees as arguments and cares about neither's provenance, so it
-# still works — but **the loop it was built for is gone**. The reference side used
-# to be `tools/merge-reference.sh --impl ts`, the frozen prototype, and
-# `experiments/` was removed on 2026-08-16; it exists only at tag
-# `experiments-frozen`. What remains is a diff of two recordings of the Rust side:
 #   cargo build --release -p litedoc4
 #   tools/merge-reference.sh --out /private/tmp/lean-doc-relay/m3b/before
 #   ...change something...
 #   tools/merge-reference.sh --out /private/tmp/lean-doc-relay/m3b/after
 #   tools/merge-compare.sh /private/tmp/lean-doc-relay/m3b/before \
 #                          /private/tmp/lean-doc-relay/m3b/after
+#
 # `cargo test -p litedoc4-incr --test merge` makes the same comparison in process
 # when the base IR is on the machine.
 #
@@ -22,27 +18,16 @@
 #   *timings*.json      keys and counts, ignoring every `*Seconds`: durations are
 #                       wall clock and differ between runs by construction.
 #   *-ownership.json    the same rule, plus the two path fields (`base` / `inc`),
-#                       which name the tree the run was given and so differ by
-#                       construction too.
+#                       which name the tree the run was given.
 #   *-stdout.txt        byte for byte after masking the durations and the tree
-#                       root — the two stages print the prototype's exact lines
-#                       (that is what the port reproduced), so the shape is
-#                       compared even though the clock is not.
+#                       root, so the shape is compared even though the clock is not.
 #   everything else     byte for byte. The merged IR trees, the module sets, the
 #                       `--changed-out` files and the `--verify` transcripts.
 #
-# **There is no exception list.** M3-b changes the key order of `deps/*.json`
-# and of `index.json`'s `dependencyMaps` entries on purpose (plan §7's "already
-# not byte-identical" note, decided in M3: the port writes Lean's order so that
-# an incremental tree is byte for byte a from-scratch one). A comparator with an
-# exception list would swallow the second divergence silently, so instead every
-# difference is *classified* by a rule that names no file: a file whose JSON is
-# the same mapping in another key order is reported as REORDERED and counted
-# separately. The run is still `DIFFERENT`, and the counts are what tells you
-# whether the divergence stayed where it was meant to.
-#
-# Measured 2026-08-12: 4,051 files, 3,986 identical, **65 REORDERED** (48
-# `deps/*.json` + 17 `index.json`), 0 differing, 0 missing.
+# **There is no exception list**: every difference is *classified* by a rule that
+# names no file — a file whose JSON is the same mapping in another key order is
+# reported as REORDERED and counted separately. The run is still `DIFFERENT`, and
+# the counts are what tell you whether a divergence stayed where it was meant to.
 
 set -uo pipefail
 
@@ -74,8 +59,8 @@ for key in sorted(set(a) | set(b)):
 PY
 }
 
-# A log line differs in two places by construction: the clock, and the directory
-# the run was given. Both are masked by shape, not by file name.
+# The clock and the directory the run was given differ by construction. Both are
+# masked by shape, not by file name.
 compare_masked () { # <ref> <cand> <ref root> <cand root>
   python3 - "$1" "$2" "$3" "$4" <<'PY'
 import re, sys
@@ -96,8 +81,6 @@ if a != b:
 PY
 }
 
-# Same JSON mapping, different key order? Answers with `reordered`, `differs` or
-# `not-json`, and names nothing.
 classify_json () { # <ref> <cand>
   python3 - "$1" "$2" <<'PY'
 import json, sys
@@ -155,8 +138,7 @@ for path in $( (cd "$REF" && find . -type f | sed 's|^\./||' | sort) ); do
         else
           printf '%-58s DIFFERS    reference %s B, candidate %s B\n' "$path" "$a" "$b"
           printf '    %s\n' "$(cmp "$REF/$path" "$CAND/$path" 2>&1 | head -1)"
-          # /usr/bin/diff: `diff` is aliased to colordiff in this shell and
-          # colordiff is not installed.
+          # `diff` is aliased to a colordiff that is not installed here.
           /usr/bin/diff "$REF/$path" "$CAND/$path" | head -6 | sed 's/^/    /'
           differing=$((differing + 1)); status=1
         fi

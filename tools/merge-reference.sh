@@ -2,24 +2,15 @@
 # Run the `ownership` and `merge` stages over the measurement target's IR and
 # record everything they write.
 #
-# **Rust only.** Until 2026-08-16 `--impl ts` ran the same scenarios against the
-# frozen prototype (`experiments/stage5/{ownership,merge-ir}.ts`) and
-# tools/merge-compare.sh diffed the two trees. `experiments/` was removed, so
-# **that comparison can no longer be made from this tree** — the prototype exists
-# only at tag `experiments-frozen`. This script stays the single definition of the
-# scenarios; the comparator now diffs two recordings of it.
-#
-# **One script for both stages, on purpose.** A round of the incremental pipeline
-# is `extract -> ownership -> merge` over one edit (plan §6, constraint 1), so the
-# two stages share every scenario. Splitting them would mean writing each edit
-# down twice, which is the failure this file exists to avoid.
+# A round of the incremental pipeline is `extract -> ownership -> merge` over one
+# edit, so both stages live here and share every scenario; splitting them would
+# write each edit down twice.
 #
 # The edits are injected into the IR, never into the measurement target: the
-# fixtures below are partial extraction trees built out of the base IR's own
-# module files, which is what the extractor would have written for the same
-# module list. The `contentHash` of an edited module is **fabricated** (FNV-1a of
-# the file, marked in the fixture manifest) — only Lean can compute the real one,
-# and every consumer of it only ever compares it for equality.
+# fixtures are partial extraction trees built out of the base IR's own module
+# files. The `contentHash` of an edited module is **fabricated** (FNV-1a of the
+# file, marked in the fixture manifest) — only Lean can compute the real one, and
+# every consumer only ever compares it for equality.
 #
 # usage: tools/merge-reference.sh [--out DIR] [--base-ir DIR]
 
@@ -53,10 +44,8 @@ merge ()     { "$RUST_BIN" merge "$@"; }
 rm -rf "$OUT"
 mkdir -p "$OUT/fixtures"
 
-# --- the edits -------------------------------------------------------------
-# One module that 49 others reference through a `(module, name)` pair, one leaf
-# nobody references which is also the only user of the `Lean` dependency slice,
-# and the names of the modules the moves invent.
+# OWNER is referenced by 49 other modules through a `(module, name)` pair; LEAF is
+# referenced by none and is the only user of the `Lean` dependency slice.
 OWNER=InformationTheory.Shannon.Bridge
 MOVED_NAME=InformationTheory.Shannon.entropy
 NEW_HOME=InformationTheory.Shannon.BridgeMoved
@@ -66,9 +55,8 @@ LEAF=InformationTheory.Meta.EntryPoint
 python3 - "$BASE_IR" "$OUT/fixtures" "$OWNER" "$MOVED_NAME" "$NEW_HOME" "$ADDED" "$LEAF" <<'PY'
 """Build the partial-extraction trees the scenarios feed to the two stages.
 
-Deterministic: the same base IR always produces the same fixtures, byte for
-byte, so two recordings really are answering the same question. The comparator
-checks that by diffing these files too.
+The same base IR always produces the same fixtures byte for byte, so two
+recordings answer the same question; the comparator diffs these files too.
 """
 import json, os, sys
 
@@ -96,8 +84,7 @@ def module_json(name):
     return read(os.path.join(base, by_module[name]["file"]))
 
 def write_tree(name, modules, hashes=None):
-    """One partial extraction: index.json + modules/, and the own-package
-    dependency slice a one-module run wrongly produces (merge has to ignore it)."""
+    """One partial extraction: index.json + modules/ + the own-package slice."""
     root = os.path.join(out, name)
     os.makedirs(os.path.join(root, "modules"), exist_ok=True)
     os.makedirs(os.path.join(root, "deps"), exist_ok=True)
@@ -113,12 +100,11 @@ def write_tree(name, modules, hashes=None):
             "file": rel,
             "bytes": len(raw),
             "declarations": len(body["declarations"]),
-            # Fabricated: only Lean computes the real one, and everything
-            # downstream only compares it for equality.
+            # Fabricated — see the heading.
             "contentHash": (hashes or {}).get(module) or fnv1a64(raw),
         })
-    # The misfiled own-package slice: with a one-module target list the
-    # extractor calls the package's other modules dependencies.
+    # The misfiled own-package slice a one-module target list makes the
+    # extractor write, which merge has to ignore.
     slice_body = {"schemaVersion": index["schemaVersion"], "package": "InformationTheory",
                   "declarations": {moved_name: owner}}
     slice_text = compact(slice_body)
@@ -142,18 +128,16 @@ def write_tree(name, modules, hashes=None):
     with open(os.path.join(root, "index.json"), "w", encoding="utf-8") as f:
         f.write(compact(partial))
 
-# 1. rerun: the same module, the same bytes, the same hash. Nothing changed.
 write_tree("inc-rerun", [(owner, module_json(owner))],
            hashes={owner: by_module[owner]["contentHash"]})
 
-# 2. modified: the same declaration names, different bytes. The IR hash moves,
-#    nothing moved owner.
+# The same declaration names, different bytes: the IR hash moves, nothing moved owner.
 edited = module_json(owner)
 edited["declarations"][0]["doc"] = "Injected edit: the bytes move, the names do not.\n"
 write_tree("inc-modified", [(edited["module"], edited)])
 
-# 3. moved: one declaration leaves `owner` for a module the base IR has never
-#    seen. This is the case no olean hash can see (stage 5c).
+# One declaration leaves `owner` for a module the base IR has never seen — the
+# case no olean hash can see.
 shrunk = module_json(owner)
 carried = [d for d in shrunk["declarations"] if d["name"] == moved_name]
 assert len(carried) == 1, f"{moved_name} is not in {owner}"
@@ -163,14 +147,12 @@ new_module = {"schemaVersion": shrunk["schemaVersion"], "module": new_home,
               "declarations": [dict(carried[0], index=0)]}
 write_tree("inc-moved", [(owner, shrunk), (new_home, new_module)])
 
-# 3b. the same move with only the *new* home re-extracted — the build order the
-#     second rule exists for. Nothing was lost (the old owner was not looked at),
-#     so a referrer is only caught by "that name now lives somewhere else".
+# The same move with only the *new* home re-extracted: nothing was lost, so a
+# referrer is caught only by "that name now lives somewhere else".
 write_tree("inc-gained", [(new_home, new_module)])
 
-# 4. added: a module with no ownership history at all, carrying a reference to a
-#    dependency name the package does not otherwise mention — so the dependency
-#    slice grows by exactly one entry.
+# No ownership history at all, and a reference to a dependency name the package
+# does not otherwise mention, so the dependency slice grows by exactly one entry.
 grown = {"schemaVersion": index["schemaVersion"], "module": added,
          "imports": ["Mathlib.Order.Basic"], "moduleDocs": [], "tactics": [],
          "declarations": [{
@@ -184,12 +166,9 @@ grown = {"schemaVersion": index["schemaVersion"], "module": added,
          }]}
 write_tree("inc-added", [(added, grown)])
 
-# 5. restored: the leaf module comes back exactly as it was, after having been
-#    deleted in the round before.
 write_tree("inc-restored", [(leaf, module_json(leaf))],
            hashes={leaf: by_module[leaf]["contentHash"]})
 
-# --- the lists the two stages take
 with open(os.path.join(out, "removed-leaf.txt"), "w", encoding="utf-8") as f:
     f.write(leaf + "\n")
 # Three of the modules that reference the moved name, so that `--exclude` has
@@ -216,9 +195,8 @@ PY
 
 FIX="$OUT/fixtures"
 
-# --- one round of the pipeline ----------------------------------------------
 # `ownership` before `merge`, always: merge overwrites the base IR's idea of who
-# owns each name (plan §6, constraint 1).
+# owns each name.
 round () { # round <name> <ir> <out ir> [--inc DIR] [--removed FILE] [--exclude FILE]
   local name="$1" ir="$2" merged="$3"; shift 3
   # bash 3.2: an empty array is unset under `set -u`, hence the `${a[@]+...}`.
@@ -240,8 +218,8 @@ round () { # round <name> <ir> <out ir> [--inc DIR] [--removed FILE] [--exclude 
     --changed-out "$OUT/$name-changed.txt" \
     --timings "$OUT/$name-merge-timings.json" \
     > "$OUT/$name-merge-stdout.txt"
-  # A snapshot of what the round computed, taken now: two rounds share one tree
-  # (the deletion and the restore), and the second overwrites the first.
+  # Taken now: two rounds share one tree (the deletion and the restore) and the
+  # second overwrites the first.
   cp "$merged/index.json" "$OUT/$name-index.json"
   cp -R "$merged/deps" "$OUT/$name-deps"
   ( cd "$merged/modules" && find . -type f | wc -l | tr -d ' ' ) > "$OUT/$name-modules.txt"
@@ -254,33 +232,30 @@ work () { # work <name> -> a fresh in-place copy of the base IR
   printf '%s' "$dir"
 }
 
-# 1. a re-extraction that changed nothing: the answer the pipeline sees most.
+# A re-extraction that changed nothing: the answer the pipeline sees most.
 round rerun    "$(work rerun)"    "$OUT/rerun/ir"    --inc "$FIX/inc-rerun"
-# 2. the bytes moved, the names did not.
 round modified "$(work modified)" "$OUT/modified/ir" --inc "$FIX/inc-modified"
-# 3. the move — the one no olean hash can see — with three referrers excluded.
+# The move, with three referrers excluded.
 round moved    "$(work moved)"    "$OUT/moved/ir"    --inc "$FIX/inc-moved" \
                                                      --exclude "$FIX/exclude-three.txt"
-# 3b. only the new home re-extracted: the `movedElsewhere` rule, which the
-#     `lostOwner` one hides whenever both ends of the move are in the same round.
+# Only the new home re-extracted: the `movedElsewhere` rule, which `lostOwner`
+# hides whenever both ends of the move are in the same round.
 round gained   "$(work gained)"   "$OUT/gained/ir"   --inc "$FIX/inc-gained"
-# 4. the same move written to a *different* tree: the copy branch of merge.
+# The same move written to a *different* tree: the copy branch of merge.
 IR_COPY="$(work copyout)"
 mkdir -p "$OUT/copyout/merged"
 round copyout  "$IR_COPY"         "$OUT/copyout/merged" --inc "$FIX/inc-moved"
-# 5. a module with no ownership history, adding one dependency name.
 round added    "$(work added)"    "$OUT/added/ir"    --inc "$FIX/inc-added"
-# 6. a deletion with nothing re-extracted, which also empties a whole dependency
-#    slice: the leaf is the only module in the package that mentions `Lean.*`.
+# A deletion with nothing re-extracted, which also empties a whole dependency
+# slice: the leaf is the only module in the package that mentions `Lean.*`.
 round removed  "$(work removed)"  "$OUT/removed/ir"  --removed "$FIX/removed-leaf.txt"
-# 7. …and the deleted module coming back, as a second round on the same tree.
+# …and the deleted module coming back, as a second round on the same tree.
 RESTORED="$(work restored)"
 round restored-1 "$RESTORED" "$RESTORED" --removed "$FIX/removed-leaf.txt"
 round restored-2 "$RESTORED" "$RESTORED" --inc "$FIX/inc-restored"
 
-# --- verify ------------------------------------------------------------------
-# Its whole output is the answer, so it is compared byte for byte rather than
-# skipped the way a log line is.
+# `merge --verify`'s whole output is the answer, so it is compared byte for byte
+# rather than skipped the way a log line is.
 verify () { # verify <name> <a> <b>
   local name="$1" a="$2" b="$3" status=0
   merge --verify "$a" --against "$b" > "$OUT/$name-verify.txt" || status=$?
@@ -290,8 +265,7 @@ verify same    "$OUT/rerun/ir"   "$BASE_IR"
 verify moved   "$OUT/moved/ir"   "$BASE_IR"
 verify deleted "$OUT/removed/ir" "$BASE_IR"
 
-# A manifest makes the tree verifiable later without rerunning anything, and
-# makes an accidental edit loud.
+# Makes an accidental edit to the recorded tree loud.
 ( cd "$OUT" && find . -type f | sort | xargs shasum -a 256 ) > "$OUT.sha256"
 
 printf 'base IR: %s\n' "$BASE_IR"

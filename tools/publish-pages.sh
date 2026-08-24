@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 # Publish a site tree built by `litedoc4 build` to a repository's Pages branch.
 #
-# The tree is published *as the whole branch*: the branch content is replaced,
-# not merged into. That is the only way a removed module's page stops being
-# served, and it is why this script clones into a scratch directory instead of
-# touching the target repository's working tree.
+# The branch content is **replaced, not merged into** — the only way a removed
+# module's page stops being served — so this clones into a scratch directory
+# rather than touching the target repository's working tree.
 #
-# It does not push unless told to. The default run clones, stages the
-# replacement and prints what would change — publishing is an outward-facing,
-# hard-to-take-back action and it should not be the thing that happens when a
-# flag is forgotten.
+# It does not push unless told to: publishing is hard to take back, so it should
+# not be what happens when a flag is forgotten.
 #
 # usage:
 #   tools/publish-pages.sh --site <dir> --repo <path-or-url> [options]
@@ -43,9 +40,8 @@ while [ $# -gt 0 ]; do
     --message) MESSAGE="${2:?--message needs text}"; shift 2 ;;
     --push)    PUSH=1; shift ;;
     --keep)    KEEP=1; shift ;;
-    # Bounded by the `set -` line, not by a line number: this header grew by
-    # four lines the moment lib/common.sh was sourced, and a hardcoded `2,25p`
-    # answers with shell code and exit 0. See tools/lib/common.sh.
+    # Bounded by the `set -` line, not by a line number: a hardcoded range
+    # answers with shell code as soon as the header grows, and still exits 0.
     -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d'; exit 0 ;;
     *)         die "unknown argument \`$1\`" ;;
   esac
@@ -55,8 +51,8 @@ done
 [ -n "$REPO" ] || die "--repo is required"
 [ -d "$SITE" ] || die "no such directory: $SITE"
 
-# A site without an entry point is a site nobody can open, and publishing one
-# would replace a working branch with a broken one.
+# Publishing a site with no entry point would replace a working branch with a
+# broken one.
 for required in index.html style.css app.js; do
   [ -f "$SITE/$required" ] || die "$SITE has no $required — is this a finished build?"
 done
@@ -70,8 +66,7 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/litedoc4-pages.XXXXXX")
 cleanup() { [ "$KEEP" -eq 1 ] || rm -rf "$WORK"; }
 on_exit cleanup
 
-# `--single-branch` keeps the clone to the branch being replaced; the history of
-# a documentation branch is not interesting and can be very large.
+# `--single-branch`: a documentation branch's history can be very large.
 if git ls-remote --exit-code --heads "$REPO" "$BRANCH" >/dev/null 2>&1; then
   git clone --quiet --single-branch --branch "$BRANCH" "$REPO" "$WORK/repo"
   echo "branch  $BRANCH exists, replacing its content"
@@ -82,14 +77,14 @@ else
   echo "branch  $BRANCH does not exist, creating it"
 fi
 
-# Everything tracked goes, then the tree lands. Deleting first is what removes
-# files the new build no longer produces — a merge would serve them forever.
+# Deleting first is what removes files the new build no longer produces; a merge
+# would serve them forever.
 git -C "$WORK/repo" rm -rq --ignore-unmatch . >/dev/null 2>&1 || true
 find "$WORK/repo" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 
 cp -R "$SITE"/. "$WORK/repo"/
-# Without this, GitHub Pages runs the tree through Jekyll, which drops every
-# path whose name starts with an underscore.
+# Without this GitHub Pages runs the tree through Jekyll, which drops every path
+# whose name starts with an underscore.
 touch "$WORK/repo/.nojekyll"
 
 git -C "$WORK/repo" add .

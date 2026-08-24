@@ -3,43 +3,35 @@
 #
 # usage: tools/ledger-compare.sh REFERENCE_DIR CANDIDATE_DIR
 #
-# It takes both trees as arguments and cares about neither's provenance, so it
-# still works — but **the loop it was built for is gone**. The reference side used
-# to be `tools/ledger-reference.sh --impl ts`, the frozen prototype, and
-# `experiments/` was removed on 2026-08-16; it exists only at tag
-# `experiments-frozen`. What remains is a diff of two recordings of the Rust side:
 #   cargo build --release -p litedoc4
 #   tools/ledger-reference.sh --out /private/tmp/lean-doc-relay/m3/before
 #   ...change something...
 #   tools/ledger-reference.sh --out /private/tmp/lean-doc-relay/m3/after
 #   tools/ledger-compare.sh /private/tmp/lean-doc-relay/m3/before \
 #                           /private/tmp/lean-doc-relay/m3/after
+#
 # `cargo test -p litedoc4-incr --test ledger` does **not** make this comparison.
-# The byte comparison against the prototype was deleted rather than re-frozen
-# (the head of `crates/litedoc4-incr/tests/ledger.rs` says why). What survives in
-# process is `the_harness_scenarios_are_measured_on_a_synthetic_package`, which
-# replays the twelve scenarios below on a `FakeRepo` -- so it needs no target
-# repository, has no `#[ignore]`, and runs on CI.
+# What survives in process is
+# `the_harness_scenarios_are_measured_on_a_synthetic_package`, which replays the
+# twelve scenarios on a `FakeRepo`, so it needs no target repository and runs on CI.
 #
 # Three classes of file, compared three ways:
 #
-#   ledger-*.json   byte for byte, after substituting the **two** key strings
-#                   the port deliberately changed (plan §6). The substitution is
-#                   anchored on the key name, because `extractKey.irGenerator`
-#                   holds the same string as the prototype's
-#                   `extractKey.extractor` and must **not** move: it names
-#                   whatever wrote the IR on disk, which really is stage4b.
-#                   **It is a no-op between two Rust recordings** and is kept only
-#                   so that a tree recorded before `experiments/` was removed is
-#                   still readable; the two literals below are values a prototype
-#                   ledger holds, not paths this script opens.
+#   ledger-*.json   byte for byte, after substituting the two key strings a
+#                   ledger written by another implementation holds. The
+#                   substitution is anchored on the key name because
+#                   `extractKey.irGenerator` holds the same string and must
+#                   **not** move: it names whatever wrote the IR on disk. **A
+#                   no-op between two recordings of the same implementation**,
+#                   kept so an older tree stays readable — and the two literals
+#                   below are values inside such a ledger, not paths this script
+#                   opens.
 #   *timings*.json  keys and counts, ignoring every `*Seconds`: durations are
 #                   wall clock and differ between runs by construction.
 #   *.txt           byte for byte. These are the answers the pipeline consumes.
 #
-# `*-stdout.txt` is skipped: the two command line tools word their log lines
-# differently on purpose, and every number in them is also in the timings
-# record, which is compared.
+# `*-stdout.txt` is skipped: log wording belongs to the implementation, and every
+# number in it is also in the timings record, which is compared.
 
 set -uo pipefail
 
@@ -50,8 +42,7 @@ CAND="${2-}"
 [ -d "$REF" ] || { echo "no such directory: $REF" >&2; exit 1; }
 [ -d "$CAND" ] || { echo "no such directory: $CAND" >&2; exit 1; }
 
-# The port's own identity strings, read out of the source so that this script
-# cannot drift from them.
+# Read out of the source, so this script cannot drift from it.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LEDGER_RS="$REPO/crates/litedoc4-incr/src/ledger.rs"
 NEW_EXTRACTOR=$(sed -n 's/^pub const EXTRACTOR_ID: &str = "\(.*\)";$/\1/p' "$LEDGER_RS")
@@ -118,8 +109,7 @@ for path in $( (cd "$REF" && find . -type f | sed 's|^\./||' | sort) ); do
         printf '%-34s identical  %s B%s\n' "$path" "$a" \
           "$([ "$a" -eq 0 ] && echo '  (empty: no lines, not a blank line)')"
       else
-        # /usr/bin/cmp, and /usr/bin/diff elsewhere: `diff` is aliased to
-        # colordiff in this shell and colordiff is not installed.
+        # `diff` is aliased to a colordiff that is not installed here.
         printf '%-34s DIFFERS    reference %s B, candidate %s B\n' "$path" "$a" "$b"
         printf '    %s\n' "$(cmp "$REF/$path" "$CAND/$path" 2>&1 | head -1)"
         /usr/bin/diff "$REF/$path" "$CAND/$path" | head -6 | sed 's/^/    /'

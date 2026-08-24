@@ -6,14 +6,11 @@
 # this checks is the part a document cannot: that every file the document says
 # carries an attribution **still carries it**.
 #
-# Why it matters now and did not before: Apache-2.0 §4 fires on distribution,
-# and the repository was private until 2026-08-16. The obligations were paid
-# ahead of that (provenance.md §6), so nothing here is new work — but an
-# attribution deleted by a refactor is now a licence problem rather than an
-# untidiness, and refactors do not read NOTICE files.
+# Apache-2.0 §4 fires on distribution and this repository is public, so an
+# attribution deleted by a refactor is a licence problem rather than an
+# untidiness — and refactors do not read NOTICE files (provenance.md §6).
 #
-# The inventory is `tools/provenance-files.txt`, in the same spirit as
-# `tools/corpus-tests.txt`: a reviewed list, not something derived.
+# The inventory is `tools/provenance-files.txt`: a reviewed list, not derived.
 #
 # usage: provenance-gate.sh [--list]
 set -euo pipefail
@@ -43,9 +40,8 @@ while IFS= read -r line; do
     failed=$((failed + 1))
     continue
   fi
-  # Fixed-string search over the whole file: an attribution may sit in a header
-  # comment, a licence block or a table, and pinning the line number would make
-  # this fail on formatting rather than on substance.
+  # Fixed-string over the whole file: an attribution may sit in a header comment,
+  # a licence block or a table, and a line number would fail on formatting.
   if ! grep -qF -- "$want" "$full"; then
     echo "  MISSING TEXT  $path does not contain \"$want\""
     failed=$((failed + 1))
@@ -63,31 +59,23 @@ if [ "$failed" -ne 0 ]; then
 fi
 echo "  files: ok ($checked claims)"
 
-# ---------------------------------------------------------------------------
-# 2. NOTICE against the dependency closure — the half that must not be curated
+# NOTICE against the dependency closure — **the half that must not be curated**.
+# Which crates are in the closure changes without anyone editing this repository,
+# so a reviewed list goes stale silently: `strum` / `phf` / `zmij` shipped in the
+# binary with no notice for that reason 【実測, docs/provenance.md §7-8】.
 #
-# Everything above is a reviewed list, because "does this file still carry its
-# header" is a question a list can answer. This is the opposite kind: which
-# crates are in the closure changes without anyone editing this repository, so a
-# reviewed list is exactly the wrong shape — it goes stale silently, which is
-# how `strum` / `phf` / `zmij` were shipping in the binary with no notice from
-# 2026-08-22 until this was written (docs/provenance.md §7-8).
+# No exception list. A crate needs its own notice iff its licence expression is
+# **not satisfiable by Apache-2.0 alone** — either it does not offer Apache-2.0,
+# or it ANDs something onto it. `MIT OR Apache-2.0` is covered by LICENSE and
+# NOTICE; `MIT` is not; `(MIT OR Apache-2.0) AND Unicode-3.0` is not.
 #
-# The rule has no exception list, on purpose. A crate needs its own notice iff
-# its licence expression is **not satisfiable by Apache-2.0 alone** — either it
-# does not offer Apache-2.0, or it ANDs something onto it. `MIT OR Apache-2.0`
-# is covered by LICENSE and NOTICE already; `MIT` is not; `(MIT OR Apache-2.0)
-# AND Unicode-3.0` is not.
-#
-# The targets come from release.yml rather than from a copy here: the closure is
+# The targets come from release.yml rather than a copy: the closure is
 # platform-dependent, and checking one target while shipping two is the same
 # silent narrowing as checking one direction of a two-way diff.
 #
-# The `|| true` on the two pipelines below is load-bearing and not sloppiness:
-# `grep` exits 1 when it matches nothing, and under `set -e` a command
-# substitution ending in one kills this script **with no message** — which is
-# the first thing that happened when this gate was falsified against the NOTICE
-# it was written to fix. The emptiness is the answer here, not an error.
+# The `|| true` on the two pipelines below is load-bearing: `grep` exits 1 when
+# it matches nothing, and under `set -e` a command substitution ending in one
+# kills this script **with no message**. Emptiness is the answer here, not an error.
 
 command -v cargo >/dev/null 2>&1 || {
   echo "PROVENANCE GATE: cargo is not on PATH, and the NOTICE half needs it" >&2
@@ -115,8 +103,7 @@ $tree"
 done
 
 # `{p}` is "name version [(path or proc-macro)]"; `{l}` is the SPDX expression,
-# empty for a crate that declares none (which is itself a failure — nobody has
-# read it).
+# empty for a crate that declares none — itself a failure, nobody has read it.
 uncovered=$(printf '%s\n' "$closure" \
   | sed 's/ (\*)$//' \
   | grep -F '|' \

@@ -1,49 +1,29 @@
 #!/usr/bin/env bash
-# L1 — is litedoc4 usable as a Lake dependency?
+# Is litedoc4 usable as a Lake dependency? A consumer writes
+# `require «litedoc4»` and runs `lake run docs -- --out <dir>`; what that buys is
+# the two flags nobody can supply by hand — `--extractor-bin` (Lake builds the
+# extractor against the consumer's toolchain) and `--lib` (read out of the
+# elaborated workspace, the only honest way to read a `lakefile.lean`).
 #
-# A consumer writes `require «litedoc4»` and runs
-# `lake run docs -- --out <dir>`. What that buys is two flags nobody can
-# supply by hand — `--extractor-bin` (Lake builds the extractor against the
-# consumer's toolchain) and `--lib` (read out of the elaborated workspace, which
-# is the only honest way to read a `lakefile.lean`). This gate is where those two
-# claims are checked.
+# What a failing item means:
+#   1 WIRED     `lake script list` in `e2e/consumer` does not offer
+#               `litedoc4/docs`: the dependency's lakefile.lean is not loaded.
+#   2 IT RUNS   `lake run docs` wrote no site: the arguments the script
+#               assembles are wrong.
+#   3 IT CLOSES `tools/site-gate.sh` found that site inconsistent.
+#   4 SAME IR   the extractor Lake builds and the one `extractor/build.sh`
+#               builds write different IR over `e2e/micro`.
+#   5 --lib     the run passed no `--lib` and the site does not document every
+#               library root the fixture declares: the Lake-side lookup broke.
 #
-# THE FIVE ITEMS
-#   1 WIRED       `lake script list` in `e2e/consumer` offers `litedoc4/docs`.
-#                 Falls: the dependency's lakefile.lean is not being loaded.
-#   2 IT RUNS     `lake run docs -- --out <tmp>` writes a site. Falls: the
-#                 arguments the script assembles are wrong.
-#   3 IT CLOSES   `tools/site-gate.sh` finds that site internally consistent.
-#                 Falls: the output is broken.
-#   4 SAME IR     the extractor Lake builds and the one `extractor/build.sh`
-#                 builds write **byte-identical IR** over `e2e/micro`. Falls: the
-#                 two build paths have diverged.
-#   5 --lib       the run above passed no `--lib`, and the site documents every
-#                 library root the fixture declares. Falls: the Lake-side lookup
-#                 broke.
+# Item 4 compares **IR, not binaries**: Lake prefixes package-local symbols and
+# compiles the generated C with `-O3 -DNDEBUG`, so the two builds differ by
+# +308,032 B 【実測 2026-08-18,
+# benchmarks/results/lake-package-probe-2026-08-18.txt §2】. The fixture is
+# `e2e/micro` because it carries declaration shapes the measurement target does
+# not have, and a comparison is only as good as the shapes that reach it.
 #
-# ITEM 4 IS THE BODY OF THE GATE
-#   The Lake build is not byte-reproducible against `build.sh`'s: Lake prefixes
-#   package-local symbols and compiles the generated C with `-O3 -DNDEBUG`, which
-#   is +308,032 B 【実測 2026-08-18, benchmarks/results/lake-package-probe-
-#   2026-08-18.txt §2】. So the oracle is not the binary but the **IR**, which is
-#   what the rest of the product actually consumes. `extractor-uniqueness-2026-
-#   08-18.txt` §6 wrote down its own limit — "「起動できる」と「正しい IR を書く」
-#   は別" — and a build path that necessarily moves the bytes is precisely the
-#   case it could not cover.
-#
-#   Two extractors that are the *same file* would make this item pass while
-#   comparing nothing, so their digests are compared first and equal digests are
-#   a failure with that sentence as the reason. The fixture is `e2e/micro` rather
-#   than `e2e/consumer` because micro carries the declaration shapes the target
-#   package does not have (`e2e/README.md`), and a comparison is only as good as
-#   the shapes that reach it.
-#
-# WHAT IS NEVER TOUCHED
-#   /Users/haruka/dev/lean-projects — the measurement target — has nothing to do
-#   with this and is not read. Everything written goes under $OUT, under
-#   `e2e/micro/.lake/` or under `<repo>/.lake/`, all three of which are
-#   gitignored build output.
+# Everything written goes under $OUT, `e2e/micro/.lake/` or `<repo>/.lake/`.
 #
 # usage: lake-package-gate.sh [--out DIR] [--keep]
 #   --out   working directory (default: a temporary one, removed on success)
@@ -59,8 +39,8 @@ FIXTURE="$ROOT/e2e/consumer"
 MICRO="$ROOT/e2e/micro"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 LITEDOC4="${LITEDOC4:-$ROOT/target/debug/litedoc4}"
-# `diff` is aliased to a colordiff that is not installed on this machine, and its
-# exit 127 reads as "differences found". Always the real one.
+# `diff` is aliased to a colordiff that is not installed here, and its exit 127
+# reads as "differences found".
 DIFF=/usr/bin/diff
 
 OUT=""
@@ -74,9 +54,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# No input, no gate: every one of these is a hard exit rather than a skip. A
-# `return 0` here is the failure shape this project has already paid for —
-# `eprintln!("skipping: …")` does not reach the exit code (CLAUDE.md).
+# A hard exit rather than a skip: a missing input that prints and returns 0 does
+# not reach the exit code, which is how a gate goes green with nothing to check.
 [ -x "$LAKE" ] || { echo "no lake at $LAKE — set LAKE" >&2; exit 2; }
 [ -x "$LITEDOC4" ] || { echo "no litedoc4 at $LITEDOC4 — cargo build --bin litedoc4" >&2; exit 2; }
 [ -f "$ROOT/lakefile.lean" ] || { echo "no $ROOT/lakefile.lean — this gate has nothing to check" >&2; exit 2; }
@@ -91,10 +70,8 @@ else
   TEMPORARY=0
 fi
 
-# Every item reports exactly once, and the count is compared with the inventory
-# at the end. "The gate ran" and "the gate looked at something" are different
-# claims, and this project has been caught believing the first one four separate
-# ways in one day (CLAUDE.md 「ゲートは『走った本数』を数える」).
+# Every item reports exactly once and the count is checked against ITEMS at the
+# end: "the gate ran" and "the gate looked at something" are different claims.
 ITEMS=5
 ran=0
 failed=0
@@ -103,9 +80,7 @@ pass () { ran=$((ran + 1)); printf 'ITEM %s ok    %s\n' "$1" "$2"; }
 fail () { ran=$((ran + 1)); failed=$((failed + 1)); printf 'ITEM %s FAIL  %s\n' "$1" "$2" >&2; }
 say  () { printf '\n=== %s\n' "$1"; }
 
-# ---------------------------------------------------------------------------
 say "1/5 the script is wired up"
-# ---------------------------------------------------------------------------
 if (cd "$FIXTURE" && "$LAKE" script list) >"$OUT/script-list.txt" 2>"$OUT/script-list.err"; then
   if grep -qx 'litedoc4/docs' "$OUT/script-list.txt"; then
     pass 1 "lake script list offers litedoc4/docs"
@@ -118,13 +93,10 @@ else
   sed -n '1,20p' "$OUT/script-list.err" >&2
 fi
 
-# ---------------------------------------------------------------------------
 say "2/5 lake run docs writes a site"
-# ---------------------------------------------------------------------------
-# **No `--lib` and no `--extractor-bin`.** That is the whole point: the script
-# has to get both out of Lake. `LITEDOC4_BIN` is source 1 of `resolveLitedoc4`
-# and pins which Rust binary is under test — without it the gate would grade
-# whatever happens to be on PATH.
+# **No `--lib` and no `--extractor-bin`**: the script has to get both out of
+# Lake. `LITEDOC4_BIN` pins which Rust binary is under test — without it the gate
+# would grade whatever happens to be on PATH.
 SITE_OUT="$OUT/docs"
 rm -rf "$SITE_OUT"
 site_ok=0
@@ -141,9 +113,7 @@ else
   tail -20 "$OUT/docs.log" >&2
 fi
 
-# ---------------------------------------------------------------------------
 say "3/5 the site closes over itself"
-# ---------------------------------------------------------------------------
 if [ "$site_ok" -eq 1 ]; then
   if "$HERE/site-gate.sh" "$SITE_OUT/site" >"$OUT/site-gate.log" 2>&1; then
     pass 3 "site-gate.sh: 0 dead links, index and pages agree both ways"
@@ -152,28 +122,22 @@ if [ "$site_ok" -eq 1 ]; then
     tail -20 "$OUT/site-gate.log" >&2
   fi
 else
-  # Not skipped: item 2 already failed, and an item that quietly disappears is
-  # how a gate stops testing without anybody noticing.
   fail 3 "no site to check — item 2 did not write one"
 fi
 
-# ---------------------------------------------------------------------------
 say "4/5 both extractors write the same IR over e2e/micro"
-# ---------------------------------------------------------------------------
 IR="$OUT/ir"
 mkdir -p "$IR"
 
-# (a) the extractor Lake builds. Built here rather than taken from item 2 so
-#     that this item fails on its own terms when the target is gone.
+# Built here rather than taken from item 2, so this item fails on its own terms
+# when the target is gone.
 (cd "$FIXTURE" && "$LAKE" build litedoc4/extract) >"$OUT/lake-build.log" 2>&1 \
   || { echo "lake build litedoc4/extract failed — see $OUT/lake-build.log" >&2; tail -20 "$OUT/lake-build.log" >&2; }
 LAKE_EXTRACT="$ROOT/.lake/build/bin/extract"
 
-# (b) the extractor `extractor/build.sh` builds, in the two steps that script
-#     uses, inside the fixture's environment (`tools/e2e-micro.sh` step 2 builds
-#     it exactly this way). Rebuilt when the source is newer, not only when the
-#     binary is missing: a stale binary would make this item compare a change
-#     against itself.
+# `extractor/build.sh`'s two steps, inside the fixture's environment. Rebuilt
+# when the source is newer, not only when the binary is missing: a stale binary
+# would make this item compare a change against itself.
 MANUAL_EXTRACT="$MICRO/.lake/e2e-extract/extract"
 if [ ! -x "$MANUAL_EXTRACT" ] || [ "$ROOT/extractor/Extract.lean" -nt "$MANUAL_EXTRACT" ]; then
   mkdir -p "$MICRO/.lake/e2e-extract"
@@ -185,7 +149,7 @@ if [ ! -x "$MANUAL_EXTRACT" ] || [ "$ROOT/extractor/Extract.lean" -nt "$MANUAL_E
     -o "$MANUAL_EXTRACT" "$MICRO/.lake/e2e-extract/Extract.c") >>"$OUT/manual-build.log" 2>&1
 fi
 
-# The extractor needs the fixture's own oleans (probe §3).
+# The extractor needs the fixture's own oleans.
 (cd "$MICRO" && "$LAKE" build) >"$OUT/micro-build.log" 2>&1
 
 # The same six flags `crates/litedoc4/src/extract.rs` fixes, in the same order:
@@ -204,10 +168,8 @@ else
   lake_digest="$(shasum -a 256 "$LAKE_EXTRACT" | cut -d' ' -f1)"
   manual_digest="$(shasum -a 256 "$MANUAL_EXTRACT" | cut -d' ' -f1)"
   if [ "$lake_digest" = "$manual_digest" ]; then
-    # Not a happy coincidence to wave through: the two builds differ by
-    # construction (+308,032 B 【実測, probe §2】), so identical bytes mean one
-    # binary has been copied over the other and this item is comparing an
-    # extractor with itself.
+    # The two builds differ by construction, so identical bytes mean one binary
+    # was copied over the other and this item compares an extractor with itself.
     fail 4 "the two extractors are the same bytes ($lake_digest) — this item would compare one extractor with itself"
   else
     "$LITEDOC4" modules --root "$MICRO" --out "$IR/modules.txt" >"$IR/modules.log" 2>&1
@@ -235,27 +197,19 @@ else
   fi
 fi
 
-# ---------------------------------------------------------------------------
 say "5/5 --lib came from Lake, not from the caller"
-# ---------------------------------------------------------------------------
-# The fixture declares two `lean_lib`s and puts only one of them in
-# `defaultTargets` (`e2e/consumer/lakefile.toml` says why). So this is not the
-# tautology "the flag we passed came out again": nothing above passed `--lib`,
-# and a script that read `defaultTargets`, took the first library, or used the
-# package name would produce a *shorter* site — the exact failure shape
-# `crates/litedoc4/src/lakefile.rs` is built against.
-#
-# Two assertions, cause and effect. The command line is the cause; the module
-# index is the effect, and it is the one that cannot be satisfied by printing.
+# The fixture declares two `lean_lib`s and puts only one in `defaultTargets`, so
+# a script that read `defaultTargets`, took the first library or used the package
+# name would produce a *shorter* site. Both the command line and the module index
+# are asserted: only the second cannot be satisfied by printing.
 EXPECTED_LIBS="Consumer ConsumerExtra"
 EXPECTED_MODULES="Consumer Consumer.Basic ConsumerExtra"
 if [ "$site_ok" -eq 1 ]; then
   got_libs="$(python3 - "$OUT/docs.log" <<'PY'
 import sys
 
-# The one line the script prints before spawning: `litedoc4: <bin> build …`.
-# Read out of the log rather than reconstructed, because what is being checked
-# is the command line that actually ran.
+# Read out of the log rather than reconstructed: what is checked is the command
+# line that actually ran (`litedoc4: <bin> build …`).
 line = ""
 with open(sys.argv[1], encoding="utf-8") as handle:
     for text in handle:
@@ -285,9 +239,7 @@ else
   fail 5 "no run to inspect — item 2 did not produce one"
 fi
 
-# ---------------------------------------------------------------------------
 say "summary"
-# ---------------------------------------------------------------------------
 printf 'items reported : %s of %s\n' "$ran" "$ITEMS"
 printf 'failed         : %s\n' "$failed"
 printf 'out            : %s\n' "$OUT"

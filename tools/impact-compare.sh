@@ -3,59 +3,42 @@
 #
 # usage: tools/impact-compare.sh REFERENCE_DIR CANDIDATE_DIR
 #
-# It takes both trees as arguments and cares about neither's provenance, so it
-# still works — but **the loop it was built for is gone**. The reference side used
-# to be `tools/impact-reference.sh --impl ts`, the frozen prototype, and
-# `experiments/` was removed on 2026-08-16; it exists only at tag
-# `experiments-frozen`. What remains is a diff of two recordings of the Rust side:
 #   cargo build --release -p litedoc4
 #   tools/impact-reference.sh --out /private/tmp/lean-doc-relay/m3c/before
 #   ...change something...
 #   tools/impact-reference.sh --out /private/tmp/lean-doc-relay/m3c/after
 #   tools/impact-compare.sh /private/tmp/lean-doc-relay/m3c/before \
 #                           /private/tmp/lean-doc-relay/m3c/after
+#
 # `cargo test -p litedoc4-incr --test impact` makes the same comparison in
-# process -- but not from HEAD. Its one corpus test reads the reference pages,
-# and `tools/corpus-tests.txt` lists that tree under `frozen`: emptied, with no
-# regenerator outside tag `experiments-frozen`. The gate does not attempt it.
+# process, but not from HEAD: its corpus test reads the reference pages, and
+# `tools/corpus-tests.txt` lists that tree under `frozen`.
 #
 # Four classes of file, compared four ways — **by suffix, never by name**:
 #
-#   *-stderr.txt        NOT compared, and the reason is not laziness: a
-#                       diagnostic's wording belongs to the implementation that
-#                       wrote it. What *is* compared is
-#                       *-complained.txt, which the harness derives from it —
-#                       whether the run complained at all is a fact about the
-#                       answer, and it is checked for every scenario.
+#   *-stderr.txt        NOT compared: a diagnostic's wording belongs to the
+#                       implementation that wrote it. What *is* compared is
+#                       *-complained.txt, which the harness derives from it.
 #   *-prune.json        keys and values, ignoring every `*Seconds` (wall clock,
 #                       different every run by construction) and with the run's
 #                       own output root masked out of the strings — `pages` is
 #                       the directory the run was given.
 #   *-stdout.txt        byte for byte after masking the durations and the output
-#                       root: both stages print the prototype's exact lines (that
-#                       is what the port reproduced), so the shape is compared
-#                       even though the clock is not.
+#                       root, so the shape is compared even though the clock is not.
 #   everything else     byte for byte. The selected sets, the census, the
 #                       summaries, the exit statuses, the surviving page trees
 #                       and their counts.
 #
-# **There is no exception list.** Where a difference is still a difference, it is
-# *classified* by a rule that names no file: a JSON file holding the same mapping
-# in another key order is REORDERED, as in tools/merge-compare.sh. Nothing in
-# M3-c is expected to reorder anything, so a non-zero REORDERED count is news.
+# **There is no exception list**: a difference is *classified* by a rule that
+# names no file — a JSON file holding the same mapping in another key order is
+# REORDERED. Nothing here is expected to reorder anything, so a non-zero
+# REORDERED count is news.
 #
-# Measured 2026-08-12: **3,631 files compared, 3,631 identical**, 0 reordered,
-# 0 differing, 0 missing, 29 not compared (*-stderr.txt).
-#
-# **What the denominator is made of**, because 3,631 flatters the stages: 3,458
-# of them are the *surviving pages* of the eight page trees `prune` ran over —
-# files neither implementation wrote, and the check is that neither deleted them.
-# That leaves **165 computed records** (29 exit statuses, 29 "did it complain",
-# 29 stdouts, 16 "was --print-set written", 12 selected sets, 12 impact
-# summaries, 9 prune summaries, 2 censuses, and 27 listings and counts of what
-# survived) and 8 input fixtures. Quote the 165 when the question is "does the
-# port compute the same answers"; quote the 3,458 when it is "did it delete
-# exactly the right files".
+# **The file count flatters the stages.** Of 3,631 files, 3,458 are the surviving
+# pages of the eight page trees `prune` ran over — files neither side wrote, and
+# the check is that neither deleted them. That leaves 165 computed records and 8
+# input fixtures 【実測 2026-08-12】. Quote the 165 for "are the answers the
+# same", the 3,458 for "did it delete exactly the right files".
 
 set -uo pipefail
 
@@ -73,8 +56,8 @@ missing=0
 skipped=0
 status=0
 
-# The durations and the run's own output root are the two things that differ by
-# construction. Both are masked by shape, not by file name.
+# The durations and the run's own output root differ by construction. Both are
+# masked by shape, not by file name.
 compare_json_masked () { # <ref> <cand> <ref root> <cand root>
   python3 - "$1" "$2" "$3" "$4" <<'PY'
 import json, sys
@@ -117,8 +100,6 @@ if a != b:
 PY
 }
 
-# Same JSON mapping, different key order? Answers with `reordered`, `differs` or
-# `not-json`, and names nothing.
 classify_json () { # <ref> <cand>
   python3 - "$1" "$2" <<'PY'
 import json, sys
@@ -175,8 +156,7 @@ for path in $( (cd "$REF" && find . -type f | sed 's|^\./||' | sort) ); do
         else
           printf '%-58s DIFFERS    reference %s B, candidate %s B\n' "$path" "$a" "$b"
           printf '    %s\n' "$(cmp "$REF/$path" "$CAND/$path" 2>&1 | head -1)"
-          # /usr/bin/diff: `diff` is aliased to colordiff in this shell and
-          # colordiff is not installed.
+          # `diff` is aliased to a colordiff that is not installed here.
           /usr/bin/diff "$REF/$path" "$CAND/$path" | head -6 | sed 's/^/    /'
           differing=$((differing + 1)); status=1
         fi

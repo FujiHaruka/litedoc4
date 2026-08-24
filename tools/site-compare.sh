@@ -1,30 +1,22 @@
 #!/usr/bin/env bash
 # Compare two whole sites byte for byte and say what differs.
 #
-# **M7-c moved dependency links, and this compares against a doc-gen4-era
-# reference.** Every link into a dependency is now that package's version-pinned
-# GitHub blob URL whenever the run resolves a package root (`build` always does;
-# `site` and `render` do when given `--root`), so a diff here is **expected** and
-# is no longer a failure of the port. Gate A is suspended, not redefined.
+# **Against a doc-gen4-era reference, dependency links differ by design**: every
+# link into a dependency is that package's version-pinned GitHub blob URL
+# whenever the run resolves a package root (`build` always does; `site` and
+# `render` do when given `--root`), and the reference tree does not move with it.
 #
-# A "site" here is what full generation produces: the module pages **and** the
-# whole-package artifacts in one tree. That was 6 artifacts and 438 files for
-# the target package when this comparator was written; M8-d took it to 7 and
-# splitting `instances.json` out of the search index took it to 8, so it is
-# 440 now, 441 once a module has been added. **The reference side is doc-gen4's
-# tree and does not move with it** — which is one more reason gate A is
-# suspended rather than redefined. `render-compare.sh` looks at `*.html` only,
-# so it cannot see `declaration-data.bmp`, `name-map.json` or `references.bib`;
-# `global-compare.sh` looks at those six and nothing else. This compares every
-# file of both kinds, which is the milestone gate's denominator.
+# A "site" is the module pages **and** the whole-package artifacts in one tree.
+# `render-compare.sh` looks at `*.html` only and `global-compare.sh` at the
+# artifacts only; this compares every file of both kinds.
 #
 # usage: tools/site-compare.sh REFERENCE_DIR CANDIDATE_DIR [--show N]
 #
-# **No exception list.** A comparator that carries known divergences swallows
-# the second one silently (plan §5); the registered divergence is pinned in the
-# Rust tests instead, where a *set* is asserted rather than skipped.
+# **No exception list.** A comparator that carries known divergences swallows the
+# second one silently; a registered divergence is pinned in the Rust tests
+# instead, where a *set* is asserted rather than skipped.
 #
-# The candidate comes from `litedoc4 site`; the M3-d1 gate is
+# The candidate comes from `litedoc4 site`:
 #   URL=https://github.com/FujiHaruka/information-theory/blob/573793b243fb1343636088eb62d1789ab2b14cec
 #   cargo build --release -p litedoc4
 #   ./target/release/litedoc4 site \
@@ -32,12 +24,11 @@
 #     --source-url $URL \
 #     --link-index /private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx
 #   tools/site-compare.sh /private/tmp/lean-doc-relay/m2/gate/ref-site /tmp/rust-site
-# Pass $URL unquoted: a `"..."` that keeps its quotes reaches the renderer as
-# part of the URL and every page then differs.
+# Pass $URL unquoted: a `"..."` that keeps its quotes reaches the renderer as part
+# of the URL and every page then differs.
 #
-# The same comparator answers the other half of M3-d1 — that composing the two
-# subcommands adds and drops nothing — by being pointed at a tree built with
-# `render` and `global` run separately over the same IR.
+# Pointed at a tree built with `render` and `global` run separately over one IR,
+# it also answers whether composing the two adds or drops anything.
 
 set -uo pipefail
 
@@ -58,9 +49,8 @@ done
 [ -d "$REF" ] || { echo "no such directory: $REF" >&2; exit 1; }
 [ -d "$CAND" ] || { echo "no such directory: $CAND" >&2; exit 1; }
 
-# Every file, not just `*.html`: the six artifacts include a `.bmp`, a `.json`
-# and a `.bib`, and an extension filter here would report a full site while
-# comparing three quarters of one.
+# Every file: an extension filter would report a full site while comparing three
+# quarters of one.
 list() { ( cd "$1" && find . -type f | sort ); }
 
 tmp="$(mktemp -d)"
@@ -68,8 +58,8 @@ trap 'rm -rf "$tmp"' EXIT
 list "$REF" > "$tmp/ref.txt"
 list "$CAND" > "$tmp/cand.txt"
 
-# /usr/bin/comm and /usr/bin/cmp: `diff` is aliased to a colordiff that is not
-# installed in this shell, and its exit 127 reads as "differences found".
+# Absolute paths: `diff` is aliased to a colordiff that is not installed here,
+# and its exit 127 reads as "differences found".
 /usr/bin/comm -23 "$tmp/ref.txt" "$tmp/cand.txt" > "$tmp/missing.txt"
 /usr/bin/comm -13 "$tmp/ref.txt" "$tmp/cand.txt" > "$tmp/extra.txt"
 /usr/bin/comm -12 "$tmp/ref.txt" "$tmp/cand.txt" > "$tmp/common.txt"
@@ -87,9 +77,9 @@ n_common=$(wc -l < "$tmp/common.txt" | tr -d ' ')
 n_differ=$(wc -l < "$tmp/differ.txt" | tr -d ' ')
 n_same=$(( n_common - n_differ ))
 
-# The two kinds are counted apart as well as together: a site comparison whose
-# denominator is 438 is dominated by module pages, and the six artifacts can
-# fail inside it without moving the percentage that gets quoted.
+# Counted apart as well as together: the denominator is dominated by module
+# pages, so the whole-package artifacts can fail inside it without moving the
+# percentage that gets quoted.
 ARTIFACTS=(
   ./declarations/declaration-data.bmp
   ./declarations/name-map.json

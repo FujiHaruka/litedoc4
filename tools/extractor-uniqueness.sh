@@ -1,38 +1,21 @@
 #!/usr/bin/env bash
 # Is `extract` decided by the toolchain alone, or also by the target package's
-# dependency set?
+# dependency set? If the toolchain alone, one prebuilt extractor can be shipped
+# per toolchain; if not, the binary cannot be shipped at all and a CI cache is the
+# only option. Run it over packages whose dependency sets are **not** copies of
+# each other — that is what makes the answer worth anything.
 #
-# ============================================================================
-# WHY THIS QUESTION IS WORTH A SCRIPT
-# ============================================================================
-#   If the answer is "the toolchain alone", one prebuilt extractor can be
-#   shipped per toolchain and every user's CI stops spending ~16 s building it.
-#   If it is not, the binary cannot be shipped at all and the CI cache is the
-#   only option. `tools/ci-build.sh` already reported a byte-for-byte match
-#   across two packages, and says in the same breath why that was weak evidence:
-#   the two dependency sets were copies of each other. This script exists to be
-#   run over packages that are *not* copies of each other.
+# **No `lake build`.** `extractor/Extract.lean` imports only `Lean`, and the
+# target package is borrowed for its environment (`lake env` sets LEAN_PATH and
+# picks the toolchain), not for its build output, so a package that has never been
+# built works here — and building would be the slow, disk-hungry part.
 #
-# ============================================================================
-# WHY NO `lake build`
-# ============================================================================
-#   `extractor/Extract.lean` imports only `Lean`. The target package is borrowed
-#   for its environment (`lake env` sets LEAN_PATH and picks the toolchain), not
-#   for its build output, so a package that has never been built works here.
-#   Building would also be the slow, disk-hungry part — CLAUDE.md's disk rule.
-#
-# ============================================================================
-# WHAT IS COMPARED, AND WHAT IS NOT
-# ============================================================================
-#   The SHA-256 of the binary and of the C that `lean` emits on the way. The
-#   binaries are NOT kept side by side: `extractor/build.sh` writes to a fixed
-#   path, so this builds, hashes, and moves on. That keeps peak disk at one
-#   copy (171 MB) instead of one per package. `--keep-binary` saves exactly one
-#   for a caller that wants to ship or upload it.
-#
-#   NOT compared: the IR two binaries produce. Once the binaries are identical
-#   that question is answered; when they are NOT identical this script fails and
-#   the IR comparison is the follow-up, not a substitute.
+# Compared: the SHA-256 of the binary and of the C `lean` emits on the way. The
+# binaries are not kept side by side (`extractor/build.sh` writes to a fixed
+# path), which holds peak disk at one copy of 171 MB instead of one per package;
+# `--keep-binary` saves exactly one. **Not compared: the IR two binaries produce**
+# — once the binaries are identical that question is answered, and when they are
+# not this fails and the IR comparison is the follow-up.
 #
 # usage:
 #   extractor-uniqueness.sh <package> <package> [<package>...]
@@ -64,11 +47,8 @@ GENC="$REPO/extractor/build/Extract.c"
 WORKLIST="$(mktemp)"
 on_exit 'rm -f "$WORKLIST"'
 
-# ---------------------------------------------------------------- toolchains
-#
-# Same toolchain across every package is the *premise*, not a finding: comparing
-# binaries built against different toolchains would answer a question nobody
-# asked. Checked before anything is built so the run stops in a second.
+# One toolchain across every package is the *premise*, not a finding. Checked
+# before anything is built, so a mixed set stops the run in a second.
 TOOLCHAIN=""
 for p in "${PKGS[@]}"; do
   [ -d "$p" ] || { echo "no such package: $p" >&2; exit 1; }
@@ -96,17 +76,16 @@ sha () { shasum -a 256 "$1" 2>/dev/null | cut -d' ' -f1; }
 
 for p in "${PKGS[@]}"; do
   name="$(basename "$p")"
-  # Not `ls … | wc -l`: with `pipefail` a missing directory fails the pipeline,
-  # and a package with **no dependencies at all** is precisely the interesting
-  # end of the range this script measures. It killed the first run silently.
+  # Not `ls … | wc -l`: under `pipefail` a missing directory fails the pipeline,
+  # and a package with **no dependencies at all** is the interesting end of the
+  # range this script measures.
   deps=0
   if [ -d "$p/.lake/packages" ]; then
     deps="$(find "$p/.lake/packages" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
   fi
   echo
   # Counted under .lake/packages, so a **path** dependency reads as 0 here even
-  # though it is on LEAN_PATH. The wide end of the range (Mathlib, 15) is only
-  # reachable on a machine that has the target checked out.
+  # though it is on LEAN_PATH.
   echo "=== $name  (.lake/packages: $deps)"
   rm -f "$BUILT" "$GENC"
   t0=$SECONDS
@@ -120,7 +99,6 @@ for p in "${PKGS[@]}"; do
   NAMES+=("$name"); SHAS+=("$s"); CSHAS+=("$c"); DEPS+=("$deps"); SECS+=("$((t1 - t0))")
 done
 
-# ------------------------------------------------------------------- verdict
 echo
 echo "=== verdict"
 FIRST="${SHAS[0]}"
@@ -131,8 +109,6 @@ for i in "${!SHAS[@]}"; do
   printf '%-14s deps=%-3s %s  %s\n' "${NAMES[$i]}" "${DEPS[$i]}" "${SHAS[$i]:0:16}…" "$mark"
 done
 
-# ------------------------------------------------------- what it links against
-#
 # The other half of "can this be shipped": a binary that is identical everywhere
 # is still unusable if it resolves a path from the machine that built it.
 echo
@@ -144,9 +120,8 @@ if command -v readelf > /dev/null 2>&1; then
   echo "--- RPATH/RUNPATH"
   readelf -d "$BUILT" 2>/dev/null | grep -E "RPATH|RUNPATH" || echo "(none)"
 fi
-# Not a curiosity: a path from the build machine that the binary *reads* at run
-# time is the difference between "shippable" and "works only where it was
-# built". The count alone cannot tell those apart, so print samples.
+# A path the binary *reads* at run time is the difference between "shippable" and
+# "works only where it was built", and the count alone cannot tell those apart.
 echo "--- absolute paths from this machine's home baked in"
 strings -a "$BUILT" 2>/dev/null | grep "^$HOME" | sort -u > "$WORKLIST" || true
 echo "count: $(wc -l < "$WORKLIST" | tr -d ' ')"

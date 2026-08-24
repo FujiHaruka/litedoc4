@@ -1,91 +1,31 @@
 #!/usr/bin/env bash
-# M5-b — the gate of plan §1's **gate B**: `litedoc4 build`, one command, on a
-# Mathlib-dependent package that has never seen doc-gen4.
-#
-# **Gate 1's site comparison is live again, and every comparison here now shows
-# up in the exit code.** Two things were wrong with it:
-#
-#   - The reference was `litedoc4 site` invoked **without `--root`**, so it wrote
-#     relative links into dependencies while `build`, which always resolves a
-#     package root, wrote M7-c's version-pinned blob URLs. The two differed **by
-#     design** and the gate reported a FAIL nobody was allowed to act on. `site`
-#     takes `--root` as well, so the reference is now built the same way and the
-#     trees agree byte for byte.
-#   - `compare` printed `RESULT FAIL` and returned 0. **The whole script exited 0
-#     with gate 1 failing** — every byte comparison here was decoration. Failures
-#     are counted and the script exits non-zero.
-#
-# The one structural difference that remains is that `site` writes no static
-# assets and `build` writes three. They are **named**, removed from the copy that
-# is compared, and their absence is itself a failure — not passed to a `--exclude`
-# that would swallow a fourth.
+# `litedoc4 build`, one command, on a Mathlib-dependent package that has never
+# seen doc-gen4 — so there is no doc-gen4 tree, no `.bmp` and no published site
+# to hand in, and `build` runs **without `--link-index`**: whatever it cannot
+# derive, it does not get. `tools/make-target2.sh` builds the package.
 #
 # usage: tools/target2-gate.sh <phase> [--target2 DIR] [--out DIR] [--jobs N]
 #   phases: gate1 | gate2 | gate3 | gate4 | boundary | reset | all
 #
-# ============================================================================
-# WHY THIS TARGET AND NOT THE MEASUREMENT ONE
-# ============================================================================
-#   The measurement target carries a 736 MB doc-gen4 output tree, so the
-#   dependency map can always be handed to the renderer from outside — which is
-#   what every gate up to M4-d did (`--link-index …/w7c/linkindex/…`). It
-#   therefore cannot answer the question M5 exists for: **can the product make
-#   the map itself?** Here there is no doc-gen4 tree, no `.bmp`, no published
-#   site at the right Mathlib revision, and `build` is run **without
-#   `--link-index`**. Whatever it cannot derive, it does not get.
+# What a failing phase means:
+#   1  `build` (finding both libraries in the lakefile, globbing the modules,
+#      deriving --source-url from git, writing its own dependency map) produced
+#      a site that differs from what `site` writes from the same IR and map.
+#   2  the same command into a second --out is not byte-identical.
+#   3  a run over an unchanged tree re-extracted or moved a byte of the site.
+#   4  after a real move + `lake build`, the incremental tree differs from a
+#      from-scratch build of the edited sources. The move keeps every full name
+#      and changes only which module defines them, so both re-render derivations
+#      fire: the IR's `refs` and the whole-package map delta.
+#   boundary  what the six boundary values did to the bytes.
 #
-#   `tools/make-target2.sh` builds the package (13 modules, two libraries, six
-#   boundary values). It is a generator rather than a checked-in tree because
-#   /private/tmp is emptied; see its heading.
+# Every path written is under $OUT or is target 2's own sources.
 #
-# ============================================================================
-# THE GATES
-# ============================================================================
-#   1  ONE COMMAND, NO MAP    `litedoc4 build --root <target2> --out <dir>
-#                             --extractor-bin <bin>` and nothing else. It has to
-#                             find both libraries in the lakefile, glob the
-#                             modules, derive --source-url from git, write its
-#                             own dependency map and produce a site — which is
-#                             then compared byte for byte with the tree
-#                             `litedoc4 site --root <target2>` writes from the
-#                             same IR and the same map. A difference means
-#                             `build` does something to the site that the
-#                             stage-by-stage path does not.
-#
-#   2  DETERMINISM            the same command into a second, empty --out. Two
-#                             sites, byte for byte.
-#
-#   3  NOTHING CHANGED        `build` again over gate 1's tree: 0 to re-extract,
-#                             nothing rendered, and not one byte of the site
-#                             moves.
-#
-#   4  A REAL CHANGE          `Alpha.Basic`'s body moves into a new module
-#                             `Alpha.BasicCore` and `lake build` really runs;
-#                             then `build`, and the result is compared with a
-#                             **from-scratch** build of the edited sources. The
-#                             move is the M3-d4 shape: full names do not change,
-#                             only which module defines them, so it is the edit
-#                             that makes both re-render derivations fire — L3-1
-#                             through the IR's refs (`Beta.Referrer` names
-#                             `Alpha.Basic.alphaConst` in a signature) and L3-2
-#                             through the whole-package map delta (`Beta.Basic`
-#                             and `Beta.TokenSep` name it in a docstring code
-#                             span).
-#
-#   boundary                  what the six boundary values did to the bytes.
-#
-# ============================================================================
-# WHAT IS NEVER TOUCHED
-# ============================================================================
-#   /Users/haruka/dev/lean-projects — the measurement target — is read by
-#   `make-target2.sh` (an APFS clone of `.lake/packages`) and by nothing here.
-#   Every path this script writes is under $OUT or is target 2's own sources.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# TARGET_REPO_BASELINE: the measurement target, named here only so that every
-# path this script writes can be checked against it. This is a guard, so it
-# reads the name nothing can override — see tools/lib/target.sh.
+# The write guards below check paths against TARGET_REPO_BASELINE, the spelling
+# nothing can override, rather than the overridable TARGET_REPO.
 # shellcheck source=lib/target.sh
 . "$REPO/tools/lib/target.sh" || exit 1
 # shellcheck source=lib/common.sh
@@ -93,9 +33,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUST_BIN="$REPO/target/release/litedoc4"
 EXTRACT_BIN="${EXTRACT_BIN:-$REPO/extractor/build/extract}"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
-# `diff` is aliased to a colordiff that is not installed here; its exit 127
-# reads as "differences found" and has already cost this project one wrong
-# conclusion.
+# `diff` is aliased to a colordiff that is not installed here, and its exit 127
+# reads as "differences found".
 DIFF=/usr/bin/diff
 
 PHASE="${1-}"
@@ -133,23 +72,20 @@ esac
 WORK="$OUT/work"
 mkdir -p "$OUT" "$WORK"
 
-# Every check that can fail adds to this, and the script exits non-zero if it is
-# not empty. Checks print and keep going rather than exiting at the first
-# failure: the phases after a failed comparison still say something useful, and
-# a gate that stops at the first line teaches its reader to run it repeatedly.
+# Checks print and keep going rather than exiting at the first failure, so the
+# exit status is the only thing that says whether the run was clean.
 FAILURES=0
 fail () { # fail <what>
   FAILURES=$((FAILURES + 1))
   FAILED_CHECKS="${FAILED_CHECKS:+$FAILED_CHECKS, }$1"
 }
 
-# `site` writes pages and the global artifacts; `build` writes those and the
-# three static assets. Named here so that a fourth one appearing is a failure
-# rather than a silent exclusion.
+# `build` writes these and `site` does not. Named rather than excluded by
+# pattern, so a fourth difference cannot be absorbed here silently.
 STATIC_ASSETS="app.js favicon.svg style.css"
 
-# The move, in the shape `stage5e/setup-clone.sh` established: A's body goes to
-# X = A ++ "Core" inside the same `namespace`, and A becomes a one-line shim.
+# A's body goes to X = A ++ "Core" inside the same `namespace`, and A becomes a
+# one-line shim.
 A_MOD=Alpha.Basic
 X_MOD=Alpha.BasicCore
 A_REL=Alpha/Basic.lean
@@ -157,8 +93,6 @@ X_REL=Alpha/BasicCore.lean
 
 nlines () { grep -c . "$1" 2>/dev/null || true; }
 files_in () { find "$1" -type f | wc -l | tr -d ' '; }
-
-# ---------------------------------------------------------------- the protocol
 
 target2_state () {
   if [ -f "$TARGET2/$X_REL" ]; then echo moved
@@ -175,10 +109,9 @@ require_up_to_date () { # require_up_to_date <tag>
   echo "  target2: $(tail -1 "$WORK/$1-nobuild.txt")"
 }
 
-# **The command line the gate is about.** No `--lib` (the lakefile has two
+# The command line the gate is about: no `--lib` (the lakefile has two
 # [[lean_lib]] blocks and the command has to find both), no `--source-url` (git
-# HEAD and the origin remote), and **no `--link-index`**: the map is
-# <out>/link-index.lidx and this run writes it.
+# HEAD and the origin remote), no `--link-index` (this run writes it).
 build () { # build <out dir> <log> [extra args…]
   local out="$1" log="$2"; shift 2
   "$RUST_BIN" build --root "$TARGET2" --out "$out" \
@@ -226,8 +159,6 @@ counts () { # counts <log>
   grep -E '^(lib|modules|source|plan|detect|round |extract|serve|prune|impact|render|global|ledger|build) ' "$1" || true
 }
 
-# ------------------------------------------------------------------- the gates
-
 phase_gate1 () {
   echo "### gate 1 — one command, and no dependency map handed in"
   require_up_to_date gate1
@@ -240,14 +171,9 @@ phase_gate1 () {
   echo "  site files          $pages"
   echo "  link index          $(wc -c < "$OUT/base/link-index.lidx" | tr -d ' ') B (derived by this run)"
 
-  # The reference: `litedoc4 site` over the IR this run wrote, with the map this
-  # run derived. It is the *other* code path to the same tree — full generation
-  # through `site` rather than through `build` — so a difference means `build`
-  # is doing something to the site that `site` does not.
-  #
-  # **`--root` is what makes this comparable.** Without it `site` writes relative
-  # links into dependencies where `build` writes M7-c's version-pinned blob URLs,
-  # and every page differs for a reason that says nothing about `build`.
+  # `--root` is what makes the reference comparable: without it `site` writes
+  # relative links into dependencies where `build` writes version-pinned blob
+  # URLs, and every page differs for a reason that says nothing about `build`.
   local url
   # The URL line, not the `source  note: N uncommitted change(s)` line that
   # precedes it when the tree is dirty.
@@ -258,9 +184,6 @@ phase_gate1 () {
     --link-index "$OUT/base/link-index.lidx" --state "$OUT/ref-state" \
     --root "$TARGET2" > "$OUT/ref-site.log" 2>&1
 
-  # The three assets `build` writes and `site` does not, taken out of a copy by
-  # name. A missing one is a failure here, so this cannot quietly become the
-  # place where a fourth difference is absorbed.
   cp -R "$OUT/base/site" "$OUT/base-pages"
   local asset assets=0
   for asset in $STATIC_ASSETS; do
@@ -341,7 +264,6 @@ phase_gate4 () {
   counts "$OUT/moved.log"
   manifest "$OUT/base/site" "$OUT/moved.sha256"
 
-  # The write-back: the run after the run has to report 0 changed.
   build "$OUT/base" "$OUT/moved-again.log" || { tail -20 "$OUT/moved-again.log" >&2; exit 3; }
   counts "$OUT/moved-again.log"
   manifest "$OUT/base/site" "$OUT/moved-again.sha256"
@@ -355,7 +277,6 @@ phase_gate4 () {
     fail "gate4-write-back"
   fi
 
-  # Incremental == from scratch, over the edited sources.
   rm -rf "$OUT/scratch" "$OUT/scratch.timings.json"
   build "$OUT/scratch" "$OUT/scratch.log" || { tail -20 "$OUT/scratch.log" >&2; exit 3; }
   counts "$OUT/scratch.log"
@@ -377,7 +298,6 @@ phase_gate4 () {
   fi
 }
 
-# What each boundary value did, read off the produced site rather than argued.
 phase_boundary () {
   echo "### boundary values — what came out"
   local site="$OUT/base/site" ir="$OUT/base/ir"

@@ -1,31 +1,20 @@
 #!/usr/bin/env bash
-# What happens when a prebuilt `extract` meets the WRONG toolchain?
+# What happens when a prebuilt `extract` meets the WRONG toolchain? Shipping one
+# binary per toolchain means somebody will eventually run one against a toolchain
+# it was not built for. Two outcomes are acceptable and one is not:
 #
-# ============================================================================
-# WHY THIS DECIDES WHETHER A PREBUILT EXTRACTOR CAN BE SHIPPED
-# ============================================================================
-#   Shipping one binary per toolchain means users will eventually run one
-#   against a toolchain it was not built for — a package bumps `lean-toolchain`
-#   and a cache, a pinned action, or a stale download hands over yesterday's
-#   binary. Two outcomes are acceptable and one is not:
+#   it refuses to run          -> fine, the user sees an error and rebuilds
+#   it runs and is correct     -> fine (and surprising)
+#   it runs and writes IR      -> NOT fine. Silent wrong output is worse than no
+#   that is subtly wrong          distribution, because the docs look built.
 #
-#     it refuses to run          -> fine, the user sees an error and rebuilds
-#     it runs and is correct     -> fine (and surprising)
-#     it runs and writes an IR   -> NOT fine. Silent wrong output is worse than
-#     that is subtly wrong          no distribution at all, because the docs
-#                                   look built and nobody checks.
+# So the success condition is "it did NOT quietly succeed", and this is red when
+# the extractor comes back 0 while reading a foreign environment.
 #
-#   So this script's success condition is "it did NOT quietly succeed", and it
-#   is red when the extractor comes back 0 while reading a foreign environment.
-#
-# ============================================================================
-# WHY NO `lake build`, AND WHY THE MODULE IS `Init`
-# ============================================================================
-#   The module list names `Init`, which lives in the toolchain itself, so the
-#   package needs no build output at all — only its `lean-toolchain` and enough
-#   of a lakefile for `lake env` to resolve. That keeps this to an elan download
-#   and seconds of work, and it puts the version skew exactly where it matters:
-#   in the oleans `importModules` reads.
+# The module list names `Init`, which lives in the toolchain itself, so the
+# package needs no build output — only its `lean-toolchain` and enough of a
+# lakefile for `lake env` to resolve. That puts the version skew exactly where it
+# matters: in the oleans `importModules` reads.
 #
 # usage:
 #   extractor-mismatch.sh --extractor <bin> --package <dir> [--built-for <tc>]
@@ -61,11 +50,9 @@ done
 [ -x "$EXTRACTOR" ] || { echo "--extractor must be an executable" >&2; exit 2; }
 [ -d "$PACKAGE" ] || { echo "--package must be a directory" >&2; exit 2; }
 
-# **Absolute, before anything runs.** The extractor is launched from inside
-# --package, so a relative path resolves against the wrong directory: the first
-# run of this script reported "REFUSED — the mismatch is visible as a failure"
-# for a binary that had never started. A non-zero exit is only evidence about
-# the toolchain if the process actually ran.
+# Absolute before anything runs: the extractor is launched from inside --package,
+# so a relative path resolves against the wrong directory and the binary never
+# starts — and a non-zero exit is evidence about the toolchain only if it ran.
 EXTRACTOR="$(cd "$(dirname "$EXTRACTOR")" && pwd)/$(basename "$EXTRACTOR")"
 PACKAGE="$(cd "$PACKAGE" && pwd)"
 [ -f "$PACKAGE/lean-toolchain" ] || { echo "no lean-toolchain in $PACKAGE" >&2; exit 2; }
@@ -85,16 +72,11 @@ WORK="$(mktemp -d)"
 on_exit 'rm -rf "$WORK"'
 echo "Init" > "$WORK/modules.txt"
 
-# ---------------------------------------------------------------- precondition
-#
-# **`lake env` must be able to build an environment here before the result of
-# running anything in it means a thing.** The first CI run of this script came
-# back "REFUSED — the mismatch is visible as a failure" for a package whose path
-# dependency did not exist at the copied location: lake failed during package
-# resolution, the extractor never started, and a non-zero exit was read as
-# evidence about toolchains. Same failure shape as CLAUDE.md's `skip` that
-# returns green — so the environment is proved first, separately, and a failure
-# here is an error (exit 2) rather than a pass.
+# **`lake env` must be able to build an environment here before running anything
+# in it means a thing.** A package whose path dependency is missing fails during
+# lake's own resolution, the extractor never starts, and the non-zero exit reads
+# as "REFUSED" 【実測】. So the environment is proved first, separately, and a
+# failure here is an error (exit 2) rather than a pass.
 if ! ( cd "$PACKAGE" && "$LAKE" env true ) > "$WORK/env.txt" 2>&1; then
   echo "DID NOT RUN: \`lake env\` cannot build an environment in $PACKAGE." >&2
   echo "The package does not resolve, so nothing here is about the toolchain:" >&2
@@ -126,11 +108,8 @@ if [ -n "$JSON" ]; then
 fi
 
 echo
-# **"It exited non-zero" is not the finding.** A process that never started
-# exits non-zero too, and reporting that as "the mismatch was refused" would be
-# a green light bought with a broken invocation — the same shape as CLAUDE.md's
-# `eprintln!("skipping") + return`. So the not-launched case is separated out,
-# and it is an error, not a pass.
+# **"It exited non-zero" is not the finding**: a process that never started exits
+# non-zero too, so the not-launched case is separated out and is an error.
 if grep -q "could not execute external process" "$WORK/stderr.txt" 2>/dev/null; then
   echo "DID NOT RUN: lake could not launch the extractor at all." >&2
   echo "That is a broken invocation, not evidence about toolchains." >&2

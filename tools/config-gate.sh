@@ -1,28 +1,22 @@
 #!/usr/bin/env bash
 # `litedoc4.toml`, read the same way by every command that writes HTML.
 #
-# WHAT IT ASSERTS
-#   Four commands put HTML on disk — `build`, `site`, `render`, `global` — and
-#   the site's title and its index prose come from a file in the package
-#   (`litedoc4.toml`) rather than from a flag. The
-#   whole argument for the file is that a flag can be forgotten on one command
-#   and then two of them disagree. This gate is what turns that argument into a
-#   checked property:
+# Four commands put HTML on disk — `build`, `site`, `render`, `global` — and the
+# site's title and index prose come from `litedoc4.toml` rather than from a flag,
+# because a flag can be forgotten on one command and then two of them disagree.
+# This gate turns that argument into a checked property:
 #
-#     - every module page's <title> ends in the configured title, in all three
-#       trees that write module pages
-#     - index.html's <title>, its <h1> and the rendered `index` Markdown are
-#       byte-identical in all three trees that write index.html
+#   - every module page's <title> ends in the configured title, in all three
+#     trees that write module pages
+#   - index.html's <title>, its <h1> and the rendered `index` Markdown are
+#     byte-identical in all three trees that write index.html
 #
-#   The comparison is over the *rendered* bytes, not over "did the command read
-#   the file": a command that read it and then dropped the value would pass the
-#   second question and fail this one.
+# The comparison is over the *rendered* bytes, not over "did the command read the
+# file": a command that read it and then dropped the value would pass that
+# question and fail this one.
 #
-# WHY THE COUNTS ARE ASSERTED
-#   A package with no `litedoc4.toml` makes every command agree trivially, and
-#   so does a run that produced no pages. Both would print "ok" having compared
-#   nothing. So the gate refuses a configuration that sets nothing, and refuses
-#   a tree with no module pages.
+# The counts are asserted too, because a package with no `litedoc4.toml` and a run
+# that produced no pages both make every command agree trivially.
 #
 # usage: config-gate.sh --root <pkg> --ir <dir> --built <site> [--out <dir>]
 #                       [--link-index <file>] [--blind site|render|global]
@@ -63,8 +57,6 @@ TEMPORARY=0
 if [ -z "$OUT" ]; then OUT="$(mktemp -d)"; TEMPORARY=1; fi
 mkdir -p "$OUT"
 
-# `--root` unless this run is the falsification, in which case one command is
-# blinded to the package it is documenting.
 root_for() { [ "$1" = "$BLIND" ] || printf -- '--root\n%s\n' "$ROOT"; }
 
 URL="https://example.invalid/o/r/blob/$(printf '0%.0s' $(seq 40))"
@@ -93,9 +85,8 @@ import sys
 root, built, site, render, glob_out = sys.argv[1:6]
 problems = []
 
-# What the package asked for, read straight out of the file rather than out of
-# any command's output: the gate's expectation may not come from the thing it
-# is checking.
+# Read straight out of the file: the gate's expectation may not come from the
+# thing it is checking.
 config = open(os.path.join(root, "litedoc4.toml"), encoding="utf-8").read()
 want_title = re.search(r'^title\s*=\s*"([^"]*)"', config, re.M)
 want_index = re.search(r'^index\s*=\s*"([^"]*)"', config, re.M)
@@ -121,7 +112,6 @@ def pages(tree):
 trees = {"build": pages(built), "site": pages(site), "render": pages(render),
          "global": pages(glob_out)}
 
-# --- module pages: the three trees that write them ---------------------------
 module_pages = sorted(
     name for name, text in trees["render"].items() if 'data-module="' in text
 )
@@ -147,7 +137,6 @@ for page in module_pages:
             f"which does not end in the configured {title!r}"
         )
 
-# --- index.html: the three trees that write it -------------------------------
 index_writers = ("build", "site", "global")
 indexes = {}
 for which in index_writers:
@@ -170,8 +159,8 @@ elif indexes:
     if want_index and not got_intro:
         problems.append("litedoc4.toml names an `index` but no index prose is on the page")
     if want_index and got_intro:
-        # The Markdown really went through the renderer rather than being
-        # pasted: a heading is an <h1>, not a line starting with `#`.
+        # A heading is an <h1>, not a line starting with `#`: the Markdown went
+        # through the renderer rather than being pasted.
         if "#" in got_intro.split("<")[0]:
             problems.append("the index prose reached the page unrendered")
 

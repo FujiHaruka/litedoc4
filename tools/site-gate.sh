@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
-# Does a generated site close over itself? — the gate that outlived gate A.
+# Does a generated site close over itself?
 #
-# Byte reproduction against doc-gen4 ended at M8: the UI is ours, so no third
-# party knows what these bytes should be. What
-# survives the loss of an external oracle is what the tree can be asked about
-# itself, and that is the two checks run here. Neither needs the network, the
-# corpus, or doc-gen4.
+# There is no external oracle for these bytes — the UI is ours — so what is left
+# is what the tree can be asked about itself. Neither check needs the network,
+# the corpus, or doc-gen4.
 #
 #   check-dead-links.py    every relative href resolves to a file in the tree
-#   check-site-closure.py  the module index, the search index and the pages
-#                          agree about which declarations exist, in *both*
-#                          directions, and nothing loads an external resource
+#   check-site-closure.py  the module index, the search index and the pages agree
+#                          about which declarations exist, in *both* directions,
+#                          and nothing loads an external resource
 #
-# The two directions matter. An index that is a subset of the pages passes one
-# of them, pages that are a subset of the index pass the other, and both are
-# exactly how a renderer and an index generator drift apart.
+# Both directions matter: an index that is a subset of the pages passes one of
+# them, pages that are a subset of the index pass the other, and both are exactly
+# how a renderer and an index generator drift apart.
 #
 # usage: site-gate.sh <site dir> [<site dir> ...]
 set -euo pipefail
