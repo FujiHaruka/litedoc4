@@ -98,8 +98,14 @@
 | 2 | `extractor/Extract.lean` + `lakefile.lean` | 511 | **`Extract.lean` のヘッダは `--help` の usage を兼ねている。usage は残す。`Böving` / `Apache` は provenance ゲートが grep する。検査は `tools/e2e-micro.sh` (実 extractor を建てる)** |
 | 3 | TS (`crates/litedoc4-render/web/src`, `**/tests/oracle/*.ts`, `tools/*.ts`) | 806 | 触ったら **`mise exec -- tools/assets-gate.sh`** (素で呼ぶと node が SIGKILL) |
 | 4 | `benchmarks/tools/*` | 1353 | **計測条件・単位・集計方法は残す**。`benchmarks/results/**` には触るな |
-| 5 | `.github/workflows/*.yml` | ? | `ci.yml` の Rustdoc links ステップが「this repository's doc comments are where the reasoning lives」と書いている — **新規則と食い違うので直す** |
+| 5 | `.github/workflows/*.yml` | ? | `ci.yml` の Rustdoc links ステップが「this repository's doc comments are where the reasoning lives」と書いている — **新規則と食い違うので直す**。**`action.yml` は範囲外** (下記) |
 | 6 | **印字文字列の死んだ参照の一括掃除** | — | 下の一覧。**最後に 1 回だけ、フル 8 段 + e2e-micro と一緒に** |
+
+## 触らない: `action.yml`
+
+**別のセッションが `action.yml` を編集している**【ユーザーから 2026-08-24】。
+この作業の範囲外。`git status` に出ても無視し、**staging は必ずパス指定で**行う
+(`git add -A` は元々禁止)。push が相手とぶつかったら pull/rebase してから再送。
 
 ## 最後にやる: 印字文字列に埋まった死んだ参照
 
