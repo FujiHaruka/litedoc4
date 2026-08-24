@@ -7,18 +7,13 @@
 //! declaration's result type, one of its binders, one of its equations, a
 //! structure member's text, or one of a member's binders. Each is plain printed
 //! Lean plus a flat pre-order list of tag positions over it, and this module is
-//! doc-gen4's `renderedCodeToHtmlAux` (`Base.lean:337-381`) over that pair.
+//! doc-gen4's `renderedCodeToHtmlAux` over that pair.
 //!
-//! Ported from `experiments/stage7d/render.ts` (frozen): `buildTree` 419-443,
-//! `Renderer` 597-702, `privateToUserName` 705-708, `moduleFromPrivatePrefix`
-//! 711-714, `findLinkableParent` 402-413, `kindDescription` 349-380, `cssKind`
-//! 832-843, `breakWithin` 719-724.
-//!
-//! # The three things that are easy to get subtly wrong
+//! Three things here are easy to get subtly wrong:
 //!
 //! 1. **Offsets are UTF-16 code units.** Everything here indexes
 //!    [`Utf16Text`], never bytes; that is why the fragment text keeps its type
-//!    all the way through the whitespace rewrite (plan §7, U2).
+//!    all the way through the whitespace rewrite.
 //! 2. **An anchor inside an anchor is suppressed, and the suppression is what
 //!    the return value carries.** `hasAnchor` propagates *up* out of a subtree
 //!    ([`Rendered::has_anchor`]), and both the sort branch and the constant
@@ -28,22 +23,8 @@
 //! 3. **The signature path resolves against the IR's own map only.** The link
 //!    lookup goes to [`NameIndex::known`] and deliberately *not* to
 //!    [`NameIndex::module_of`]: the dependency closure's `.lidx` is fifty times
-//!    larger and belongs to the docstring path (`render.ts:2059-2064`). Letting
-//!    it under this path would move links that are byte-exact today.
-//!
-//! # The counters are not here
-//!
-//! The prototype threads a `FragCounters` sink through this walk (`stats` /
-//! `pageStats`, `render.ts:445-533`) and bumps it in eight places. **None of
-//! them reaches a byte**: they exist for the prototype's `--report` JSON, and
-//! the acceptance oracle compares pages. They are dropped rather than
-//! transcribed, because a counter that no test reads is a second definition of
-//! the branch structure that can drift out of step with the first. The one
-//! counter that had a caller kept its caller — [`WsRewrite::changed_units`] —
-//! and the branch coverage this walk needs is asserted on the *output* instead
-//! (`tests/fragment.rs`), which is the thing the gate is about.
-//!
-//! [`WsRewrite::changed_units`]: crate::whitespace::WsRewrite::changed_units
+//!    larger and belongs to the docstring path. Letting it under this path
+//!    would move links that are right today.
 
 use std::collections::HashMap;
 
@@ -56,16 +37,13 @@ use crate::whitespace::apply_ws_widths;
 /// A declaration's resolved references, inverted to name -> defining module.
 ///
 /// The extractor resolved every constant it tagged with `env.getModuleIdxFor?`,
-/// which *is* the `const2ModIdx` doc-gen4 indexes, so this is the IR's stand-in
-/// for the map doc-gen4 has because it holds the environment. It is consulted
-/// before the global map and is the reason a constant links to the module that
-/// defined it rather than to whichever module happened to be read last.
+/// which *is* the `const2ModIdx` doc-gen4 indexes. Consulted before the global
+/// map, which is what makes a constant link to the module that defined it
+/// rather than to whichever module happened to be read last.
 pub type Refs<'a> = HashMap<&'a str, &'a str>;
 
-/// `render.ts:728-729` — `for (const [m, n] of d.refs) refs.set(n, m)`.
-///
 /// Note the inversion: on the wire a reference is `[module, name]`, and the map
-/// is keyed by the name. A later entry wins, as `Map.set` does.
+/// is keyed by the name. A later entry wins.
 #[must_use]
 pub fn decl_refs(decl: &Decl) -> Refs<'_> {
     let mut refs = HashMap::with_capacity(decl.refs.len());
@@ -75,19 +53,15 @@ pub fn decl_refs(decl: &Decl) -> Refs<'_> {
     refs
 }
 
-/// One rendered fragment, or one rendered sub-range of one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rendered {
     pub html: String,
-    /// Whether this HTML already contains an `<a>` produced by this walk.
-    ///
-    /// Not a statistic: an enclosing tag consults it and renders *itself*
-    /// without an anchor when it is set (`Base.lean:374-381`).
+    /// Whether this HTML already contains an `<a>` produced by this walk. Not a
+    /// statistic: an enclosing tag consults it and renders *itself* without an
+    /// anchor when it is set.
     pub has_anchor: bool,
 }
 
-/// The code-fragment renderer — `render.ts`'s `Renderer` class.
-///
 /// Named `CodeRenderer` because [`litedoc4_md::Renderer`] is the *docstring*
 /// renderer and the page builder holds both. The two never share a code path:
 /// this one walks tag spans over printed Lean, that one walks a markdown AST.
@@ -97,24 +71,20 @@ pub struct CodeRenderer<'a> {
 }
 
 impl<'a> CodeRenderer<'a> {
-    /// Borrows the run's name index. One renderer serves every page.
     #[must_use]
     pub const fn new(names: &'a NameIndex) -> Self {
         Self { names }
     }
 
-    /// The name index this renderer resolves against.
     #[must_use]
     pub const fn names(&self) -> &'a NameIndex {
         self.names
     }
 
-    /// `renderedCodeToHtmlAux` over one fragment (`render.ts:606-610`).
-    ///
-    /// `root` is [`crate::autolink::page_root`] of the page being written — it prefixes
-    /// every link, so it is part of the bytes — and `refs` is [`decl_refs`] of
-    /// the declaration the fragment belongs to. Members and equations use the
-    /// *declaration's* references, not their own; they have none.
+    /// `root` is [`crate::autolink::page_root`] of the page being written — it
+    /// prefixes every link, so it is part of the bytes — and `refs` is
+    /// [`decl_refs`] of the declaration the fragment belongs to. Members and
+    /// equations use the *declaration's* references; they have none.
     #[must_use]
     pub fn fragment(
         &self,
@@ -142,8 +112,6 @@ impl<'a> CodeRenderer<'a> {
         Rendered { html, has_anchor }
     }
 
-    /// `Renderer.range` — the untagged text between children, escaped, with each
-    /// child rendered in place.
     #[expect(
         clippy::too_many_arguments,
         reason = "the span tree, the text and the link context all have to reach here"
@@ -175,11 +143,9 @@ impl<'a> CodeRenderer<'a> {
         has_anchor
     }
 
-    /// `Renderer.node` — one tag, after its subtree.
-    ///
-    /// The subtree is written into `out` first and the wrapper is inserted in
-    /// front of it afterwards, because which wrapper it is depends on whether
-    /// the subtree produced an anchor.
+    /// One tag, after its subtree: the subtree is written into `out` first and
+    /// the wrapper inserted in front of it afterwards, because which wrapper it
+    /// is depends on whether the subtree produced an anchor.
     fn node(
         &self,
         out: &mut String,
@@ -206,8 +172,8 @@ impl<'a> CodeRenderer<'a> {
                 inner
             }
             SpanKind::Sort => {
-                // `Base.lean:374-381`: no `fn` wrapper, and no anchor of its own
-                // when the subtree already has one.
+                // No `fn` wrapper, and no anchor of its own when the subtree
+                // already has one.
                 if inner {
                     return true;
                 }
@@ -216,10 +182,8 @@ impl<'a> CodeRenderer<'a> {
                 anchor(out, at, &href);
                 true
             }
-            // `.const name` (`Base.lean:337-373`), and anything the extractor
-            // starts emitting that this crate does not know about. The prototype
-            // reaches this branch the same way — its `node` tests kind 0 and
-            // kind 2 and falls through — so an unknown kind renders as an
+            // `.const name`, and anything the extractor starts emitting that
+            // this crate does not know about: an unknown kind renders as an
             // unnamed constant rather than disappearing.
             SpanKind::Const | SpanKind::Other(_) => {
                 let link = self.const_link(node.name, root, refs);
@@ -236,8 +200,7 @@ impl<'a> CodeRenderer<'a> {
         }
     }
 
-    /// `renderedCodeToHtmlAux`'s `.const` resolution (`render.ts:674-701`), in
-    /// order:
+    /// `renderedCodeToHtmlAux`'s `.const` resolution, in order:
     ///
     /// 1. a direct hit, unless the name is private — the declaration's own
     ///    references first, the IR's global map second;
@@ -245,17 +208,17 @@ impl<'a> CodeRenderer<'a> {
     /// 3. for a private name, the module its prefix names;
     /// 4. otherwise no link, and the caller renders a `span.fn`.
     ///
-    /// All three linking branches go through [`NameIndex::link_to`] (M7-c), so
-    /// a constant defined in a dependency links at that dependency's pinned
-    /// source rather than at a page this site never wrote. **Which name the
-    /// anchor is taken from is not always `name`**: branch 2 links the *parent*,
-    /// and it is the parent's source range that belongs on that URL.
+    /// All three linking branches go through [`NameIndex::link_to`], so a
+    /// constant defined in a dependency links at that dependency's pinned source
+    /// rather than at a page this site never wrote. **Which name the anchor is
+    /// taken from is not always `name`**: branch 2 links the *parent*, and it is
+    /// the parent's source range that belongs on that URL.
     ///
     /// A branch that resolves the name to an **unpinnable** dependency returns
-    /// that branch's `None` rather than trying the next one (2026-08-17): the
-    /// caller's answer to `None` is branch 4's, a `span.fn` with the name in it,
-    /// which is exactly right here — the constant is named, and nothing claims
-    /// to know where to read it.
+    /// that branch's `None` rather than trying the next one: the caller's answer
+    /// to `None` is branch 4's, a `span.fn` with the name in it, which is
+    /// exactly right — the constant is named, and nothing claims to know where
+    /// to read it.
     #[must_use]
     pub fn const_link(&self, name: &str, root: &str, refs: &Refs<'_>) -> Option<String> {
         let is_private = name.starts_with(PRIVATE_PREFIX);
@@ -264,7 +227,6 @@ impl<'a> CodeRenderer<'a> {
         {
             return self.names.link_to(root, module, Some(name));
         }
-        // Step 1: auxiliary name removal.
         let search = if is_private {
             private_to_user_name(name)
         } else {
@@ -277,7 +239,7 @@ impl<'a> CodeRenderer<'a> {
                 .expect("find_linkable_parent only returns names the index knows");
             return self.names.link_to(root, module, Some(parent));
         }
-        // Step 2: the module link a private name still has.
+        // The module link a private name still has.
         if is_private && let Some(module) = module_from_private_prefix(name) {
             return self.names.link_to(root, module, None);
         }
@@ -285,7 +247,6 @@ impl<'a> CodeRenderer<'a> {
     }
 }
 
-/// Puts `open`/`close` around what was written into `out` from `at` onwards.
 fn wrap(out: &mut String, at: usize, open: &str, close: &str) {
     out.insert_str(at, open);
     out.push_str(close);
@@ -300,13 +261,10 @@ fn anchor(out: &mut String, at: usize, href: &str) {
     wrap(out, at, &open, "</a>");
 }
 
-// ------------------------------------------------------------------ span tree
-
-/// The flat pre-order span list rebuilt as a tree.
-///
-/// Nodes live in one arena and children are indices into it: the shape is a
-/// tree, but the lifetime is the fragment's, and an arena says that without a
-/// borrow checker argument per node.
+/// The flat pre-order span list rebuilt as a tree. Nodes live in one arena and
+/// children are indices into it: the shape is a tree, but the lifetime is the
+/// fragment's, and an arena says that without a borrow checker argument per
+/// node.
 #[derive(Debug)]
 struct SpanTree<'s> {
     nodes: Vec<TreeNode<'s>>,
@@ -318,15 +276,14 @@ struct TreeNode<'s> {
     start: u32,
     stop: u32,
     kind: SpanKind,
-    /// The constant's name, or `""` for a span form that carries none — which
-    /// is what the prototype's `Node` stores (`render.ts:434`).
+    /// The constant's name, or `""` for a span form that carries none.
     name: &'s str,
     children: Vec<usize>,
 }
 
 impl<'s> SpanTree<'s> {
-    /// `buildTree` (`render.ts:426-443`): pop while the new span starts at or
-    /// after the top of the stack ends, then attach to whatever is left.
+    /// `buildTree`: pop while the new span starts at or after the top of the
+    /// stack ends, then attach to whatever is left.
     ///
     /// **`>=`, not `>`.** Two spans that merely touch — one ending exactly where
     /// the next begins — are siblings. With `>` the second becomes a child of
@@ -361,11 +318,8 @@ impl<'s> SpanTree<'s> {
     }
 }
 
-// -------------------------------------------------------------- name handling
-
-/// `findLinkableParent` (`Base.lean`, `render.ts:402-413`): strip trailing
-/// components that are numeric or start with `_`, and return the first prefix
-/// the index knows.
+/// `findLinkableParent`: strip trailing components that are numeric or start
+/// with `_`, and return the first prefix the index knows.
 ///
 /// The IR has no `Name` structure, only the printed string, so a `.num`
 /// component is recognised by being all ASCII digits — which is how
@@ -388,24 +342,20 @@ pub fn find_linkable_parent<'n>(names: &NameIndex, name: &'n str) -> Option<&'n 
     }
 }
 
-/// True for the four scalars JavaScript's `.` does not match: it is what makes
-/// the two regexes below stop at a line break.
-///
-/// Lean names are not expected to contain any of these — a `«…»` component
-/// could in principle — but the prototype's behaviour on one is *decided* by
-/// the regex flags rather than by anything anyone chose, and reproducing it
-/// costs four characters.
+/// True for the four scalars JavaScript's `.` does not match, which is what
+/// makes doc-gen4's two private-name regexes stop at a line break. Lean names
+/// are not expected to contain any of these — a `«…»` component could in
+/// principle — and reproducing the behaviour costs four characters.
 const fn is_js_line_terminator(c: char) -> bool {
     matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}')
 }
 
 /// Splits `_private.<Module>.<n>.<rest>` into `(<Module>, <rest>)`.
 ///
-/// This is the common part of the two regexes at `render.ts:705-714`. The
-/// module part is **lazy**: the first `.<digits>.` after `_private.` ends it, so
-/// `_private.A.B.0.f` gives `A.B` and not `A`. `\d` is ASCII digits only, and
-/// the greedy digit run needs no backtracking (a shorter run is followed by a
-/// digit, never by the `.` the pattern wants next).
+/// The module part is **lazy**: the first `.<digits>.` after `_private.` ends
+/// it, so `_private.A.B.0.f` gives `A.B` and not `A`. `\d` is ASCII digits only,
+/// and the greedy digit run needs no backtracking (a shorter run is followed by
+/// a digit, never by the `.` the pattern wants next).
 fn split_private(name: &str) -> Option<(&str, &str)> {
     let rest = name.strip_prefix(PRIVATE_PREFIX)?;
     for (at, c) in rest.char_indices() {
@@ -426,9 +376,9 @@ fn split_private(name: &str) -> Option<(&str, &str)> {
 }
 
 /// `Lean.privateToUserName?`: `_private.<Module>.<n>.<rest>` -> `<rest>`, and
-/// the name itself when it is not of that shape (`render.ts:705-708`).
+/// the name itself when it is not of that shape.
 ///
-/// The prototype's regex ends in `$`, which in JavaScript is end of input, so a
+/// doc-gen4's regex ends in `$`, which in JavaScript is end of input, so a
 /// `<rest>` containing a line break makes the whole match fail — unlike
 /// [`module_from_private_prefix`], whose regex has no anchor at the end.
 #[must_use]
@@ -439,18 +389,14 @@ pub fn private_to_user_name(name: &str) -> &str {
     }
 }
 
-/// `moduleFromPrivatePrefix`: `_private.Init.Prelude.0.Foo` -> `Init.Prelude`
-/// (`render.ts:711-714`).
+/// `moduleFromPrivatePrefix`: `_private.Init.Prelude.0.Foo` -> `Init.Prelude`.
 #[must_use]
 pub fn module_from_private_prefix(name: &str) -> Option<&str> {
     split_private(name).map(|(module, _)| module)
 }
 
-// ------------------------------------------------------------------- the kind
-
-/// `getKindDescription` (`Process/DocInfo.lean:211-247`) recomposed from the
-/// IR's `kind` plus `modifiers` — the text of `span.decl_kind`
-/// (`render.ts:349-380`).
+/// `getKindDescription` recomposed from the IR's `kind` plus `modifiers` — the
+/// text of `span.decl_kind`.
 ///
 /// Not the same mapping as [`css_kind`], and the two are next to each other in
 /// the page: this one is the words a reader sees, that one is a CSS class.
@@ -480,28 +426,24 @@ pub fn kind_description(kind: &str, modifiers: &[String]) -> String {
         "opaque" if has("unsafe") => "unsafe opaque".to_owned(),
         "inductive" if has("unsafe") => "unsafe inductive".to_owned(),
         "class_inductive" => "class inductive".to_owned(),
-        // structure / class / theorem / constructor, and the unmodified cases
-        // of the four above.
         other => other.to_owned(),
     }
 }
 
-/// `DocInfo.getKind` (`Process/DocInfo.lean:48-58`) — the CSS class of the
-/// declaration's `div`, which is **not** the text of `span.decl_kind`
-/// (`render.ts:832-843`).
+/// `DocInfo.getKind` — the CSS class of the declaration's `div`, which is
+/// **not** the text of `span.decl_kind`.
 #[must_use]
 pub fn css_kind(kind: &str) -> &str {
     match kind {
         "definition" => "def",
         "class_inductive" => "class",
         "constructor" => "ctor",
-        // axiom / theorem / opaque / instance / inductive / structure / class
         other => other,
     }
 }
 
-/// `breakWithin` (`Base.lean`): each dot-separated component in its own
-/// `span.name`, with the dots left between them (`render.ts:719-724`).
+/// `breakWithin`: each dot-separated component in its own `span.name`, with the
+/// dots left between them.
 #[must_use]
 pub fn break_within(name: &str) -> String {
     let mut out = String::with_capacity(name.len() + 32);
@@ -523,10 +465,9 @@ mod tests {
     use crate::external::ExternalLinks;
     use crate::link_index::LinkIndex;
 
-    /// The world these cases resolve against: these declarations, and **a page
-    /// for every module they name** — which is what a run has for its own
-    /// package's modules, and what [`NameIndex::link_to`]'s last branch checks
-    /// (2026-08-17).
+    /// These declarations, and **a page for every module they name** — which is
+    /// what a run has for its own package's modules, and what
+    /// [`NameIndex::link_to`]'s last branch checks.
     fn index(entries: &[(&str, &str)]) -> NameIndex {
         let mut builder = NameIndex::builder();
         for (name, module) in entries {
@@ -536,7 +477,7 @@ mod tests {
     }
 
     /// [`index`] plus modules that have a page and declare nothing this case
-    /// names: a `refs` target, or the module a private name's prefix spells.
+    /// names.
     fn index_with_pages(entries: &[(&str, &str)], pages: &[&str]) -> NameIndex {
         let mut builder = NameIndex::builder();
         for (name, module) in entries {
@@ -548,8 +489,7 @@ mod tests {
         builder.build(LinkIndex::default(), ExternalLinks::default())
     }
 
-    /// The same index with a dependency map and a `.lidx` that carries ranges —
-    /// the M7-c side of every case below that has one.
+    /// The same index with a dependency map and a `.lidx` that carries ranges.
     fn index_with_dependency(entries: &[(&str, &str)], lidx: &str) -> NameIndex {
         let mut builder = NameIndex::builder();
         for (name, module) in entries {
@@ -588,7 +528,6 @@ mod tests {
         CodeRenderer::new(names).fragment(&Utf16Text::from(text), spans, root, &Refs::default())
     }
 
-    /// Touching spans are siblings; the tree only nests on strict containment.
     #[test]
     fn build_tree_nests_on_containment_not_on_touching() {
         let spans = [
@@ -630,8 +569,8 @@ mod tests {
         assert!(out.has_anchor);
     }
 
-    /// The suppression, in both directions: a sort around a linked constant
-    /// renders no anchor of its own, and the flag still comes back set.
+    /// Both directions: a sort around a linked constant renders no anchor of its
+    /// own, and the flag still comes back set.
     #[test]
     fn an_anchor_inside_an_anchor_is_suppressed() {
         let names = index(&[("Nat", "Init.Prelude")]);
@@ -660,7 +599,6 @@ mod tests {
         assert!(!out.has_anchor);
     }
 
-    /// The declaration's own references outrank the global map.
     #[test]
     fn references_are_consulted_before_the_global_map() {
         let names = index_with_pages(&[("Nat.succ", "Stale.Module")], &["Init.Prelude"]);
@@ -677,8 +615,8 @@ mod tests {
         );
     }
 
-    /// The link target goes through `Html.escape` — a module name with a `&` in
-    /// it is not reachable in practice, but the escape is in the byte path.
+    /// A module name with a `&` in it is not reachable in practice, but the
+    /// escape is in the byte path.
     #[test]
     fn the_link_target_is_escaped() {
         let names = index(&[("f", "A&B")]);
@@ -686,8 +624,8 @@ mod tests {
         assert_eq!(out.html, "<a href=\"./A&amp;B.html#f\">f</a>");
     }
 
-    /// **M7-c**, on all three of [`CodeRenderer::const_link`]'s linking
-    /// branches. The empty-map form of each is the case above or below it.
+    /// All three of [`CodeRenderer::const_link`]'s linking branches. The
+    /// empty-map form of each is the case above or below it.
     #[test]
     fn a_constant_from_a_dependency_links_at_its_pinned_source() {
         // Branch 1: a direct hit.
@@ -734,13 +672,9 @@ mod tests {
         );
     }
 
-    /// **2026-08-17**, the signature half of the fix: a constant defined in a
-    /// dependency with no version-pinned URL renders as branch 4's `span.fn` —
-    /// the name is on the page and nothing links out of it.
-    ///
-    /// The three branches are asserted separately because each of them resolved
-    /// the name a different way, and each used to hand back a relative link to a
-    /// page this site never wrote.
+    /// A constant defined in a dependency with no version-pinned URL renders as
+    /// branch 4's `span.fn`. The three branches are asserted separately because
+    /// each resolves the name a different way.
     #[test]
     fn a_constant_from_a_dependency_that_cannot_be_pinned_is_not_a_link() {
         let mut builder = NameIndex::builder();
@@ -859,8 +793,7 @@ mod tests {
         assert_eq!(out.html, "𝓧 <a href=\"./Pkg/A.html#X\">y</a>");
     }
 
-    /// The whitespace widths are replayed *before* the walk, and the walk still
-    /// uses the original offsets.
+    /// Replayed *before* the walk, and the walk still uses the original offsets.
     #[test]
     fn the_whitespace_rewrite_runs_first() {
         let names = index(&[("HAdd.hAdd", "Init.Prelude")]);

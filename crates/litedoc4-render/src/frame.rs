@@ -1,36 +1,20 @@
 //! The page frame: `<head>`, the top bar, the sidebar and the module heading.
 //!
-//! **M8-b replaced this module wholesale.** Up to M7 it was a transcription of
-//! doc-gen4's `baseHtmlGenerator` / `internalNav`, kept byte-identical because
-//! the acceptance oracle compared bytes with doc-gen4's own output. That oracle
-//! is gone (plan §1: gate A is suspended, and M8 stops claiming byte
-//! compatibility), and what is here now is litedoc4's own frame:
+//! Nothing here names another host: the site renders from a bare directory.
 //!
-//! | doc-gen4 had | here |
-//! |---|---|
-//! | four CDN dependencies (Lato, JuliaMono, polyfill, MathJax) | none — the site renders from a bare directory |
-//! | `<nav><iframe src="navbar.html">` | a sidebar the module tree is drawn into from `modules.json` |
-//! | `</meta>` / `</link>` closing tags (Lean's `Html` prints them) | HTML5 |
-//! | one `<script>` per behaviour, six of them | one `app.js` |
-//!
-//! The hand-written page this has to agree with is `design/preview/module.html`;
-//! **keep the two in step**, because the stylesheet is written against that file
-//! and a class renamed here silently loses its styling rather than failing.
-//!
-//! # Two things here are deliberate and look like mistakes
+//! Two things are deliberate and look like mistakes:
 //!
 //! 1. **The theme is set by an inline script in `<head>`.** An external module
 //!    runs after first paint, so a reader on the dark theme would see a white
 //!    flash on every navigation. The cost is ~120 bytes on every page.
-//! 2. **The import list is sorted by [`crate::order::cmp_name`], not by string order.**
-//!    `Name.lt` compares parents first: `Init` and `Mathlib` both precede
-//!    `Init.Core`. This is doc-gen4's order and there is no reason to change it
-//!    — it groups a package's modules together, which alphabetical order does
-//!    not.
+//! 2. **The import list is sorted by [`crate::order::cmp_name`], not by string
+//!    order.** `Name.lt` compares parents first, so `Init` and `Mathlib` both
+//!    precede `Init.Core`. This is doc-gen4's order, and it groups a package's
+//!    modules together where alphabetical order does not.
 //!
-//! Duplicate imports are dropped keeping the first occurrence, as they were
-//! before: the module system does produce duplicates, and doc-gen4's DB hid
-//! them behind an `INSERT OR IGNORE` (`DB.lean:162`).
+//! Duplicate imports are dropped keeping the first occurrence: the module system
+//! does produce duplicates, and doc-gen4's DB hid them behind an
+//! `INSERT OR IGNORE`.
 
 use crate::autolink::NameIndex;
 use crate::code::break_within;
@@ -38,8 +22,7 @@ use crate::config::SiteConfig;
 use crate::escape::escape_html_into;
 use crate::order::sort_names;
 
-/// What every page says about the site it belongs to. Configuration, not IR:
-/// `litedoc4 build` fills it from the package it was pointed at.
+/// What every page says about the site it belongs to. Configuration, not IR.
 #[derive(Clone, Copy, Debug)]
 pub struct SiteMeta<'a> {
     /// Shown in the top bar and after the module name in `<title>`.
@@ -49,9 +32,9 @@ pub struct SiteMeta<'a> {
     /// `litedoc4.toml`'s `index`, **already rendered to HTML**.
     ///
     /// Reaches the site's index page and nothing else — a module page is about
-    /// its module. Carried here rather than passed alongside because the title
-    /// and this come from one file and are decided together
-    /// ([`SiteMeta::of`]); two carriers is two things to forget.
+    /// its module. Carried here rather than passed alongside because it and the
+    /// title come from one file and are decided together; two carriers is two
+    /// things to forget.
     pub intro: Option<&'a str>,
 }
 
@@ -67,16 +50,14 @@ impl Default for SiteMeta<'_> {
 impl<'a> SiteMeta<'a> {
     /// The name the modules share, when they share one.
     ///
-    /// The IR does not carry a package name, and the CLI's `--root` is a
-    /// directory rather than a name — but a package whose modules are all
-    /// `Foo.*` is called `Foo`, and that is the name a reader types to import
-    /// it. When they do not all agree there is no right answer, and the generic
+    /// The IR does not carry a package name and the CLI's `--root` is a
+    /// directory, but a package whose modules are all `Foo.*` is called `Foo`.
+    /// When they do not all agree there is no right answer, and the generic
     /// title is the honest one.
     ///
     /// Derived rather than configured on purpose: a `--title` flag would be one
     /// more thing that can be forgotten on one of the three commands that
-    /// render, and then two of them would disagree about what the site is
-    /// called.
+    /// render, and then two of them would disagree.
     #[must_use]
     pub fn of_modules(modules: impl IntoIterator<Item = &'a str>) -> Self {
         let mut roots = modules
@@ -93,11 +74,10 @@ impl<'a> SiteMeta<'a> {
 
     /// [`SiteMeta::of_modules`], with whatever the package configured on top.
     ///
-    /// **This is the one place the two sources are combined** (feature-sweep
-    /// C-3【決定 3】). Every command that renders calls it with the same
-    /// [`SiteConfig`], so "the three commands agree" is a property of one
-    /// function rather than of three call sites that have to be kept in step —
-    /// which is the failure a `--title` flag would have had.
+    /// **This is the one place the two sources are combined.** Every command
+    /// that renders calls it with the same [`SiteConfig`], so "the three
+    /// commands agree" is a property of one function rather than of three call
+    /// sites that have to be kept in step.
     ///
     /// `intro` is the rendered `index` Markdown; the caller renders it, because
     /// this crate's docstring renderer takes a link resolver and the answer to
@@ -123,12 +103,10 @@ impl<'a> SiteMeta<'a> {
 /// the first paint — so it is inlined, and it is the smallest thing that can do
 /// the job.
 ///
-/// It is nevertheless *written* in TypeScript, in
-/// `web/src/theme-boot.ts`, and bundled by `build.rs` alongside `app.js`.
-/// The reason is the storage key:
-/// until 2026-08-19 this was a Rust string literal, and `"litedoc4-theme"`
-/// existed once here and once in the script that reads it back — two languages,
-/// either renameable alone. Now both come from `web/src/theme-key.ts`.
+/// It is nevertheless *written* in TypeScript, in `web/src/theme-boot.ts`, and
+/// bundled by `build.rs` alongside `app.js`, so that the storage key is one
+/// string (`web/src/theme-key.ts`) rather than a Rust literal and a TypeScript
+/// one that can be renamed apart.
 const THEME_BOOT_JS: &str = include_str!(concat!(env!("OUT_DIR"), "/theme-boot.js"));
 
 const ICON_MENU: &str =
@@ -136,15 +114,13 @@ const ICON_MENU: &str =
 const ICON_THEME: &str = "<svg viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M10 3a7 7 0 1 0 7 7 5.5 5.5 0 0 1-7-7z\"/></svg>";
 
 /// `getSourceUrl` for a module: the configured repository/revision prefix, the
-/// module's components as directories, and `.lean`.
-///
-/// The prefix is **configuration, not IR** — doc-gen4 reads it from lake plus
-/// git and the extractor never saw it.
+/// module's components as directories, and `.lean`. The prefix is
+/// **configuration, not IR** — the extractor never saw it.
 #[must_use]
 pub fn module_source_url(base: &str, module: &str) -> String {
     let mut out = String::with_capacity(base.len() + module.len() + 6);
     out.push_str(base);
-    // The source file's path, so the components are the unescaped ones (M5-b):
+    // The source file's path, so the components are the unescaped ones:
     // `Alpha.«Odd-Name»` lives in `Alpha/Odd-Name.lean`.
     for part in litedoc4_ir::module_components(module) {
         out.push('/');
@@ -154,8 +130,6 @@ pub fn module_source_url(base: &str, module: &str) -> String {
     out
 }
 
-/// `<head>`: two meta tags, the title, the stylesheet, the icon, the theme boot
-/// and `app.js`. Nothing else — in particular nothing from another host.
 #[must_use]
 pub fn head_html(module: &str, root: &str, site: &SiteMeta<'_>) -> String {
     let mut out = String::with_capacity(640);
@@ -194,12 +168,9 @@ fn push_asset(out: &mut String, root: &str, name: &str) {
     escape_html_into(out, &href);
 }
 
-/// The top bar: the drawer button (only where there is a drawer), the site
-/// name, the search box and the theme button.
-///
 /// `with_nav` is false on the pages that have no sidebar — the index, search
-/// and not-found pages are one column, and a button that opens nothing is
-/// worse than no button.
+/// and not-found pages are one column, and a button that opens nothing is worse
+/// than no button.
 #[must_use]
 pub fn topbar_html(root: &str, site: &SiteMeta<'_>, with_nav: bool) -> String {
     let mut out = String::with_capacity(768);
@@ -230,16 +201,14 @@ pub fn topbar_html(root: &str, site: &SiteMeta<'_>, with_nav: bool) -> String {
     out
 }
 
-/// The sidebar: this page's declarations, then the module tree `app.js` draws.
-///
 /// `member_names` is the page's declarations **in page order** — the order
 /// `page_html` emitted them in, not a sort — because it is a table of contents
 /// for what is below it.
 ///
-/// The tree is empty markup on purpose (plan 決定 4): `navbar.html` is 57,949 B
-/// for this package and putting it on all 432 pages would add ~25 MB. The
-/// `<noscript>` link is the fallback, and it is the reason `index.html` has to
-/// exist.
+/// The module tree is empty markup that `app.js` fills: doc-gen4's equivalent
+/// `navbar.html` is 57,949 B for the target package, and putting it on all 432
+/// pages would add ~25 MB. The `<noscript>` link is the fallback, and it is the
+/// reason `index.html` has to exist.
 #[must_use]
 pub fn sidebar_html(root: &str, member_names: &[&str]) -> String {
     let mut out = String::with_capacity(512 + member_names.len() * 96);
@@ -269,8 +238,6 @@ pub fn sidebar_html(root: &str, member_names: &[&str]) -> String {
     out
 }
 
-/// The module's own heading: its name and a link to its source.
-///
 /// No breadcrumb: the name is spelled out in full here and the tree in the
 /// sidebar already shows where it sits, so a second copy of the hierarchy would
 /// only compete with it.
@@ -287,25 +254,17 @@ pub fn module_head_html(module: &str, module_source_url: &str) -> String {
 
 /// The two import blocks under the heading.
 ///
-/// # The import list was the most visibly dead link on the page before M7
-///
 /// Nearly every import of a package like the measurement target is a
 /// *dependency's* module — `Mathlib.Order.Basic`, `Init.Prelude` — and this site
-/// has a page for none of them, so the relative link this used to write was a
-/// 404 on every page. [`NameIndex::link_to_module`] turns those into the
-/// dependency's pinned source.
+/// has a page for none of them, so a relative link here is a 404 on every page.
 ///
-/// **Two kinds of import get no `<a>` at all** — a dependency that could not be
+/// **Two kinds of import get no `<a>` at all**: a dependency that could not be
 /// version-pinned, and a module of *this* package that this run writes no page
-/// for (2026-08-17, both). They are listed by name inside their `<li>`: the
-/// import is a fact about the module and stays on the page, while where to read
-/// it is a fact this run does not have. Writing the relative link anyway put the
-/// pre-M7 404 back one module at a time, which is why the whole three-way
-/// decision is [`NameIndex::link_to`]'s rather than this function's.
-///
-/// The index is taken whole rather than the dependency map alone for exactly
-/// that reason: with the map, this list could tell a dependency from the rest
-/// and nothing else.
+/// for. They are listed by name inside their `<li>` — the import is a fact about
+/// the module and stays on the page, while where to read it is a fact this run
+/// does not have. That whole three-way decision is [`NameIndex::link_to`]'s
+/// rather than this function's, which is why the index is taken whole rather
+/// than the dependency map alone.
 ///
 /// "Imported by" is empty markup and starts `hidden`: it is a fact about the
 /// whole site, `app.js` fills it from `modules.json`, and a module nothing
@@ -345,11 +304,9 @@ pub fn module_meta_html(root: &str, imports: &[String], index: &NameIndex) -> St
     out
 }
 
-/// The import list: duplicates dropped keeping the first occurrence, then a
-/// **stable** sort by `Name.lt`.
-///
-/// The de-duplication happens before the sort, which is why it keeps the first
-/// occurrence rather than any other.
+/// Duplicates dropped keeping the first occurrence, then a **stable** sort by
+/// `Name.lt`. The de-duplication happens before the sort, which is why it keeps
+/// the first occurrence rather than any other.
 #[must_use]
 fn sorted_imports(imports: &[String]) -> Vec<&str> {
     let mut seen = std::collections::HashSet::with_capacity(imports.len());
@@ -369,12 +326,10 @@ mod tests {
     use crate::external::ExternalLinks;
     use crate::link_index::LinkIndex;
 
-    /// A world for the import list: `pages` are the modules this run rendered,
-    /// `external` is what it knows about everything else.
-    ///
-    /// The index is built here rather than passed a bare [`ExternalLinks`]
-    /// because the list's three answers are [`NameIndex::link_to`]'s, and two of
-    /// them need the page set (2026-08-17).
+    /// `pages` are the modules this run rendered, `external` is what it knows
+    /// about everything else. A whole index rather than a bare
+    /// [`ExternalLinks`], because two of the list's three answers need the page
+    /// set.
     fn index(pages: &[&str], external: ExternalLinks) -> NameIndex {
         let mut builder = NameIndex::builder();
         for module in pages {
@@ -392,7 +347,7 @@ mod tests {
         assert_eq!(module_source_url("", "Foo"), "/Foo.lean");
     }
 
-    /// The whole point of M8: a page asks its own directory for everything.
+    /// A page asks its own directory for everything.
     #[test]
     fn the_head_names_no_other_host() {
         let head = head_html(
@@ -410,8 +365,6 @@ mod tests {
         assert!(head.contains("<title>Foo.Bar · Pkg</title>"), "{head}");
     }
 
-    /// The theme has to be applied before the first paint, so it cannot live in
-    /// `app.js`.
     #[test]
     fn the_theme_is_set_inline_before_the_module_script() {
         let head = head_html("Foo", "./", &SiteMeta::default());
@@ -420,14 +373,11 @@ mod tests {
         assert!(boot < app, "{head}");
     }
 
-    /// **The one thing inlining a bundle can break that linking it cannot.**
-    ///
     /// `THEME_BOOT_JS` is minifier output pasted between `<script>` and
     /// `</script>` without escaping — which is correct, script content is not
     /// HTML — so a `</script` anywhere inside it would close the tag early and
-    /// spill the rest of the bundle into the document as text. Nothing in the
-    /// source can produce one today; this is here because the minifier chooses
-    /// the output and nobody reviews it.
+    /// spill the rest of the bundle into the document as text. The minifier
+    /// chooses the output and nobody reviews it.
     #[test]
     fn the_inlined_boot_script_cannot_close_its_own_tag() {
         let lowered = THEME_BOOT_JS.to_ascii_lowercase();
@@ -441,9 +391,9 @@ mod tests {
         assert!(!THEME_BOOT_JS.contains("<!--"), "{THEME_BOOT_JS}");
     }
 
-    /// The boot script and the toggle have to agree about the storage key, and
-    /// since 2026-08-19 they do so by construction — both come from
-    /// `web/src/theme-key.ts`. This checks the half that reaches Rust.
+    /// The boot script and the toggle agree about the storage key by
+    /// construction — both come from `web/src/theme-key.ts`. This checks the
+    /// half that reaches Rust.
     #[test]
     fn the_boot_script_carries_the_storage_key() {
         assert!(
@@ -504,8 +454,6 @@ mod tests {
         );
     }
 
-    /// A module with no declarations gets no "On this page" heading — an empty
-    /// table of contents is a heading with nothing under it.
     #[test]
     fn an_empty_page_has_no_table_of_contents() {
         let side = sidebar_html("./", &[]);
@@ -568,11 +516,8 @@ mod tests {
         );
     }
 
-    /// **M7-c**: an import of a dependency is the dependency's source file; an
-    /// import of the package's own modules keeps its page link.
-    ///
-    /// The sort is unaffected — it is over the module names, not the hrefs — so
-    /// `A` still leads even though its href is now the longer one.
+    /// The sort is over the module names, not the hrefs, so `A` still leads even
+    /// though its href is the longer one.
     #[test]
     fn an_import_of_a_dependency_points_at_its_pinned_source() {
         let imports = vec!["B.C".to_owned(), "A".to_owned()];
@@ -593,12 +538,9 @@ mod tests {
         );
     }
 
-    /// **2026-08-17**: an import of a dependency with no version-pinned URL is
-    /// the module's name and nothing else — the `<li>` stays, the `<a>` goes.
-    ///
-    /// The count and the sort are over the imports, not the links, so both are
-    /// unchanged; `B.C` beside it still gets its page link, which is what says
-    /// the loss is confined to the root that could not be resolved.
+    /// The `<li>` stays, the `<a>` goes. `B.C` beside it still gets its page
+    /// link, which is what says the loss is confined to the root that could not
+    /// be resolved.
     #[test]
     fn an_import_that_cannot_be_version_pinned_is_listed_without_a_link() {
         let imports = vec!["B.C".to_owned(), "A".to_owned()];
@@ -618,13 +560,10 @@ mod tests {
         assert!(!meta.contains("<a href=\".././A.html\">"), "{meta}");
     }
 
-    /// **2026-08-17, the import half of the `batteries` fix**: the three answers
-    /// an import can get, on one list.
-    ///
-    /// `Pkg.Recycling` is the case this test exists for — a module of the
-    /// package being documented that this run writes no page for, which is what
-    /// a `lakefile.toml` with more than one `[[lean_lib]]` produces. It gets the
-    /// same treatment as the unpinnable dependency beside it: named, not linked.
+    /// The three answers an import can get, on one list. `Pkg.Recycling` is the
+    /// case this exists for — a module of the package being documented that this
+    /// run writes no page for, which is what a `lakefile.toml` with more than
+    /// one `[[lean_lib]]` produces.
     #[test]
     fn an_import_this_run_writes_no_page_for_is_listed_without_a_link() {
         let imports: Vec<String> = ["Mathlib.Order", "Dep.Aux", "Pkg.Recycling", "Pkg.Two"]

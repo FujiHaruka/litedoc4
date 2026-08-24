@@ -1,33 +1,23 @@
-//! One module page, from the IR to the bytes on disk.
-//!
-//! Ported from `experiments/stage7d/render.ts` (frozen): `pageHtml` 1900-1973,
-//! which is `moduleToHtml` (`Output/Module.lean:179-206`) wrapped in
-//! `baseHtmlGenerator` (`Output/Template.lean`). The two things it decides that
-//! nothing below it can are **which declarations get an entry** and **in what
+//! One module page, from the IR to the bytes on disk. What it decides that
+//! nothing below it can is **which declarations get an entry** and **in what
 //! order they and the module docstrings appear**.
 //!
-//! # The suppressed set is not a property of a module
+//! The suppressed set is not a property of a module. `DocInfo.ofConstant` sets
+//! `render := false` for projection functions and for constructors, i.e.
+//! exactly the names that appear as some declaration's `members`, so the
+//! IR-side rule is "is this name a member of *anything*" — collected **across
+//! every module**, because a structure declared in `A` can have its projections
+//! attributed to `B`, and a per-module set leaves those on `B`'s page. 190 of
+//! the target package's declarations are in it 【実測 2026-08-21: 4,584
+//! declarations / 422 modules】.
 //!
-//! `DocInfo.ofConstant` sets `render := false` for projection functions and for
-//! constructors (`Process/DocInfo.lean:176/186/207`), i.e. exactly the names
-//! that appear as some declaration's `members`. The IR-side rule is therefore
-//! "is this name a member of *anything*", and `render.ts:2043-2048` collects it
-//! **across every module** for that reason: a structure declared in `A` can
-//! have its projections attributed to `B`, and building the set per module
-//! leaves those on `B`'s page. [`Suppressed::of_site`] takes the whole site for
-//! this reason, and 190 of the target package's declarations are in it
-//! 【実測: 4,750 declarations / 432 modules at the revision M5 measured, and
-//! **still 190** at 4,584 / 422 on 2026-08-21 — the count is the same, the
-//! denominator is not, so the denominator carries its revision】.
-//!
-//! # The order is a stable sort on three keys, and the third one is not `index`
-//!
+//! The order is a stable sort on `(line, col)` plus a tie-breaker.
 //! `Process.Module.members` is the module docstrings in file order followed by
-//! every `DocInfo`, then `qsort ModuleMember.order` on the declaration range.
-//! qsort is not stable; a stable sort on `(line, col)` was measured to
-//! reproduce doc-gen4's page order on 348/348 pages (increment 1), so that is
-//! what is used — with the docstrings kept ahead of the declarations at an
-//! equal position, because that is the insertion order qsort was given.
+//! every `DocInfo`, then `qsort ModuleMember.order` on the declaration range;
+//! qsort is not stable, and a stable sort was measured to reproduce doc-gen4's
+//! page order on 348/348 pages — with the docstrings kept ahead of the
+//! declarations at an equal position, because that is the insertion order qsort
+//! was given.
 //!
 //! That last clause is why the tie-breaker is a **running sequence number** and
 //! not `Decl::index`: the docstrings take `0..k` and a declaration takes
@@ -48,18 +38,12 @@ use crate::frame::{
 };
 
 /// The names that get no page entry: every name that is some declaration's
-/// member, over the **whole site**.
-///
-/// There is no per-module constructor on purpose. See the module comment.
+/// member, over the **whole site**. There is no per-module constructor on
+/// purpose.
 #[derive(Clone, Debug, Default)]
 pub struct Suppressed(HashSet<String>);
 
 impl Suppressed {
-    /// Collects the set from every module of the site.
-    ///
-    /// The argument is the *site*, not a module: a name declared in one module
-    /// can be a member of a declaration in another, and a set built per module
-    /// would leave it on the page.
     #[must_use]
     pub fn of_site<'a>(modules: impl IntoIterator<Item = &'a ModuleFile>) -> Self {
         let mut names = HashSet::new();
@@ -91,23 +75,16 @@ impl Suppressed {
     }
 }
 
-/// One thing on a page: a module docstring or a declaration.
 #[derive(Clone, Copy, Debug)]
 pub enum PageItem<'a> {
     ModuleDoc(&'a ModuleDoc),
     Decl(&'a Decl),
 }
 
-/// What the page contains and in what order (`render.ts:1926-1949`).
-///
-/// Exposed because the order is the part of the page a byte comparison
-/// localises worst: a page whose items are shuffled differs at its first
-/// declaration and says nothing about why.
 #[must_use]
 pub fn page_items<'a>(module: &'a ModuleFile, suppressed: &Suppressed) -> Vec<PageItem<'a>> {
     // `(line, col, seq)`, where `seq` numbers the module docstrings `0..k` and
-    // then offsets each declaration's in-module index by `k`. See the module
-    // comment for why it is not `Decl::index`.
+    // then offsets each declaration's in-module index by `k`.
     let mut items: Vec<(u32, u32, usize, PageItem<'a>)> =
         Vec::with_capacity(module.module_docs.len() + module.declarations.len());
     let mut seq = 0usize;
@@ -130,19 +107,13 @@ pub fn page_items<'a>(module: &'a ModuleFile, suppressed: &Suppressed) -> Vec<Pa
     items.into_iter().map(|(_, _, _, item)| item).collect()
 }
 
-/// The whole page for one module.
+/// `suppressed` is [`Suppressed::of_site`] over **every** module of the IR, not
+/// just this one.
 ///
-/// `source_url` is the repository/revision prefix ([`module_source_url`] turns
-/// it into this module's link), `index` is the run's name index, `suppressed` is
-/// [`Suppressed::of_site`] over **every** module of the IR — not just this one —
-/// and `site` is what the page says about the package it belongs to.
-///
-/// # The order the body is assembled in is not the order it is written in
-///
-/// The sidebar's table of contents is the page's declarations *in page order*,
-/// which is only known once they have been laid out. So `main` is built first
-/// and the frame around it second, even though the frame comes first in the
-/// output.
+/// The body is assembled in a different order from the one it is written in:
+/// the sidebar's table of contents is the page's declarations *in page order*,
+/// which is only known once they have been laid out, so `main` is built first
+/// and the frame around it second.
 pub fn page_html(
     module: &ModuleFile,
     index: &NameIndex,
@@ -202,16 +173,11 @@ pub fn page_html(
     })
 }
 
-/// What [`page_html`] produced, and the one thing it noticed on the way.
-///
-/// The count is here rather than in a log line because the fallback it counts
-/// is **invisible in the output**: a math span that could not be converted is
-/// emitted as `$…$`, which is a legal page. Without a number reaching
-/// [`crate::RenderSummary`], a build where every formula failed and a build
-/// where none did print the same thing.
+/// The math failure count is here rather than in a log line because the
+/// fallback it counts is **invisible in the output**: a math span that could
+/// not be converted is emitted as `$…$`, which is a legal page.
 #[derive(Debug)]
 pub struct RenderedPage {
-    /// The page.
     pub html: String,
     /// Math spans that fell back to their LaTeX source
     /// ([`litedoc4_md::Renderer::math_failures`]).
@@ -219,14 +185,10 @@ pub struct RenderedPage {
 }
 
 /// Where a module's page goes under the site root: its components as
-/// directories (`render.ts:2122`).
-///
-/// The components are the **unescaped** ones (M5-b): doc-gen4 builds this path
-/// out of `Name.toString (escape := false)` (`Output/Base.lean:188`), so a
-/// module Lean spells `Alpha.«Odd-Name»` has its page at `Alpha/Odd-Name.html`.
-/// For every module name that is a plain identifier — all of the measurement
-/// target's, 432 of them at the revision this was measured at and 422 on
-/// 2026-08-21 — this is `module.split('.')` unchanged.
+/// directories, **unescaped**. doc-gen4 builds this path out of
+/// `Name.toString (escape := false)`, so a module Lean spells
+/// `Alpha.«Odd-Name»` has its page at `Alpha/Odd-Name.html`. For a module name
+/// that is a plain identifier this is `module.split('.')` unchanged.
 #[must_use]
 pub fn page_path(module: &str) -> std::path::PathBuf {
     let mut path = std::path::PathBuf::new();
@@ -247,8 +209,8 @@ pub fn page_path(module: &str) -> std::path::PathBuf {
 mod tests {
     use super::*;
 
-    /// A module with two docstrings and three declarations, one of which is
-    /// another declaration's member.
+    /// Two docstrings and three declarations, one of which is another
+    /// declaration's member.
     const MODULE_JSON: &str = r#"{
         "schemaVersion": 5,
         "module": "Pkg.Two",
@@ -342,9 +304,9 @@ mod tests {
         );
     }
 
-    /// The tie-breaker, on its own. `Pkg.Two.b` has in-module index 0 and sits
-    /// at the same `(line, col)` as the second module docstring, so `index` and
-    /// `k + index` disagree about which comes first — and only here.
+    /// `Pkg.Two.b` has in-module index 0 and sits at the same `(line, col)` as
+    /// the second module docstring, so `index` and `k + index` disagree about
+    /// which comes first — and only here.
     #[test]
     fn a_module_docstring_precedes_a_declaration_at_the_same_position() {
         let module = module();
@@ -372,8 +334,6 @@ mod tests {
         );
     }
 
-    /// The frame around `main`, which is the only part of the page that is not
-    /// assembled from a piece checked against the prototype.
     #[test]
     fn the_page_wraps_main_in_the_frame() {
         let module = module();

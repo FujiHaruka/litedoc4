@@ -3,10 +3,6 @@
 //!
 //! Replaying doc-gen4's `splitWhitespaces` from the schema-3 widths.
 //!
-//! Ported from `experiments/stage7d/render.ts` (`applyWsWidths` 555-593), which
-//! is frozen. Its comment explains the history; what matters to the port is the
-//! contract:
-//!
 //! doc-gen4 rewrites the whitespace that sits immediately outside a tagged
 //! sub-expression as plain spaces, so a `\n` or `\t` there comes out as `' '`.
 //! Every tag carries the width of that run on each side, in UTF-16 code units,
@@ -16,21 +12,18 @@
 //!
 //! The ranges are disjoint by construction. An overlap or an out-of-range width
 //! means the IR disagrees with its own text, and this panics rather than
-//! quietly producing plausible bytes — the prototype threw, and
-//! [`Utf16Text::slice`] takes the same position.
+//! quietly producing plausible bytes, as [`Utf16Text::slice`] does.
 
 use std::borrow::Cow;
 use std::ops::Range;
 
 use litedoc4_ir::{Span, Utf16Text};
 
-/// The rewritten fragment, plus what the prototype's report counts.
 pub struct WsRewrite<'a> {
-    /// The fragment with the whitespace runs flattened. Borrowed when nothing
-    /// needed flattening.
+    /// Borrowed when nothing needed flattening.
     pub text: Cow<'a, Utf16Text>,
-    /// Code units that were not already `' '`, i.e. the prototype's
-    /// `wsWidthChars`. Zero exactly when `text` is borrowed.
+    /// Code units that were not already `' '`. Zero exactly when `text` is
+    /// borrowed.
     pub changed_units: u32,
 }
 
@@ -40,12 +33,7 @@ impl WsRewrite<'_> {
     }
 }
 
-/// Rewrites the whitespace runs the spans point at as plain spaces.
-///
-/// # Panics
-///
-/// If the widths overlap, run backwards, or reach past the end of the
-/// fragment.
+/// Panics if the widths overlap, run backwards, or reach past the end.
 pub fn apply_ws_widths<'a>(text: &'a Utf16Text, spans: &[Span]) -> WsRewrite<'a> {
     let unchanged = || WsRewrite {
         text: Cow::Borrowed(text),
@@ -164,8 +152,6 @@ mod tests {
         assert_eq!(out.changed_units, 0);
     }
 
-    /// The widths are UTF-16 code units, so a fragment with a surrogate pair in
-    /// it is the case a byte-indexed port gets wrong.
     #[test]
     fn offsets_are_utf16_code_units() {
         // "𝓧\n:\tType" — 𝓧 is two code units, so the tag on `:` starts at 3.

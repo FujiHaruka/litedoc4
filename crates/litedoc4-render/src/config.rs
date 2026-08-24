@@ -1,22 +1,4 @@
-//! `litedoc4.toml` — what a package says about its own site.
-//!
-//! doc-gen4 #43 and #102.
-//!
-//! # Why a file and not a flag
-//!
-//! [`crate::SiteMeta::of_modules`] derives the title from the module names and
-//! says why there is no `--title`: three commands render (`build`, `site`,
-//! `render`) and a flag forgotten on one of them makes two of them disagree
-//! about what the site is called. That argument is right, and it is an argument
-//! against *flags*, not against configuration — a file inside the package is
-//! read by whichever command is pointed at the package, so there is nothing to
-//! forget per command.
-//!
-//! What replaces "forgotten flag" is "unread file", and that is what
-//! `tools/config-gate.sh` is for: it renders one package through all three
-//! commands and compares what they say.
-//!
-//! # The whole surface
+//! `litedoc4.toml` — what a package says about its own site:
 //!
 //! ```toml
 //! title = "MyPkg"          # the top bar, and the second half of every <title>
@@ -24,16 +6,19 @@
 //! ```
 //!
 //! Both optional. An absent file, an empty file and a file with neither key are
-//! the same thing: [`SiteConfig::default`], which is what every site rendered
-//! before C-3 already had.
+//! the same thing: [`SiteConfig::default`].
 //!
-//! # What is deliberately not here
+//! A file rather than flags, because three commands render (`build`, `site`,
+//! `render`) and a flag forgotten on one of them makes two of them disagree
+//! about what the site is called; a file inside the package is read by whichever
+//! command is pointed at it. What replaces "forgotten flag" is "unread file",
+//! which is what `tools/config-gate.sh` is for.
 //!
-//! `--source-url` and the dependency documentation map. Both are configuration
-//! too, and both belong to the *checkout* rather than to the package: the
-//! source URL carries a git revision that changes on every commit, and the
-//! deps map is derived from `lake-manifest.json`. A value that a package
-//! commits has to be one that stays true across commits.
+//! `--source-url` and the dependency documentation map are deliberately not
+//! here. Both belong to the *checkout* rather than to the package — the source
+//! URL carries a git revision that changes on every commit, and the deps map is
+//! derived from `lake-manifest.json` — and a value a package commits has to be
+//! one that stays true across commits.
 
 use std::fmt;
 use std::fs;
@@ -45,15 +30,12 @@ use serde::Deserialize;
 /// The file's name under the package root.
 pub const CONFIG_FILE: &str = "litedoc4.toml";
 
-/// What one package configured, with the `index` file already read.
-///
 /// **Reading the Markdown here rather than at the point of use** is the whole
-/// reason this is a type and not a struct of two `Option<String>`s: `index` is
-/// a path relative to the package root, and resolving it anywhere else would be
-/// a second place that knows what it is relative to.
+/// reason this is a type and not a struct of two `Option<String>`s: `index` is a
+/// path relative to the package root, and resolving it anywhere else would be a
+/// second place that knows what it is relative to.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SiteConfig {
-    /// `title`, when the file set one.
     pub title: Option<String>,
     /// The **contents** of the file `index` named, not its path.
     pub index_markdown: Option<String>,
@@ -62,11 +44,8 @@ pub struct SiteConfig {
 }
 
 impl SiteConfig {
-    /// The configuration of a package that configured nothing.
-    ///
-    /// The same value as [`SiteConfig::default`], as a `const` — so a caller
-    /// that needs a `&'static SiteConfig` (an options struct's default, a test)
-    /// has one without keeping a local alive next to it.
+    /// [`SiteConfig::default`] as a `const`, so that a caller needing a
+    /// `&'static SiteConfig` has one without keeping a local alive next to it.
     pub const EMPTY: Self = Self {
         title: None,
         index_markdown: None,
@@ -78,14 +57,8 @@ impl SiteConfig {
     ///
     /// **A file that is there and does not parse is an error**, and so is an
     /// `index` naming a file that is not there. The alternative — carrying on
-    /// with the derived title — is a site that silently ignores what the
-    /// package asked for, which is the failure this whole item exists to
-    /// remove.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Parse`] for a malformed file, [`Error::Io`] for one that cannot
-    /// be read and for an `index` that names nothing.
+    /// with the derived title — is a site that silently ignores what the package
+    /// asked for.
     pub fn read(root: Option<&Path>) -> Result<Self, Error> {
         let Some(root) = root else {
             return Ok(Self::default());
@@ -125,8 +98,8 @@ impl SiteConfig {
     }
 }
 
-/// The file's shape. Separate from [`SiteConfig`] because that one carries the
-/// Markdown and this one carries the path to it.
+/// Separate from [`SiteConfig`] because that one carries the Markdown and this
+/// one carries the path to it.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
@@ -134,7 +107,6 @@ struct File {
     index: Option<String>,
 }
 
-/// Why a configuration could not be read.
 #[derive(Debug)]
 pub enum Error {
     Io { path: PathBuf, source: io::Error },
@@ -166,12 +138,10 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    /// The temporary directories this file makes. The prefix names the file,
-    /// so a directory a failed run leaves behind names what made it.
     const TEMP: TempDirs = TempDirs::prefixed("litedoc4-config");
 
-    /// A scratch directory with the two moves every test here makes: put a file
-    /// in it, then read the configuration out of it.
+    /// The two moves every test here makes: put a file in it, then read the
+    /// configuration out of it.
     struct Dir(TempDir);
 
     impl Dir {
@@ -218,8 +188,6 @@ mod tests {
         );
     }
 
-    /// An empty title is not a title: it would put a blank where every page
-    /// names the site, which is worse than the derived name.
     #[test]
     fn a_blank_title_falls_back_to_the_derived_one() {
         let dir = Dir::new("blank");
@@ -227,8 +195,7 @@ mod tests {
         assert_eq!(dir.read().expect("valid").title, None);
     }
 
-    /// The three ways the file is wrong, all of which stop the build. Carrying
-    /// on with the derived title is the silent failure C-3 exists to remove.
+    /// The three ways the file is wrong, all of which stop the build.
     #[test]
     fn a_file_that_is_wrong_is_an_error_and_not_a_default() {
         let bad = Dir::new("bad-toml");
@@ -247,8 +214,7 @@ mod tests {
         assert!(matches!(missing.read(), Err(Error::Io { .. })));
     }
 
-    /// The error names the file, because "could not read the configuration" with
-    /// no path is a bisection.
+    /// "Could not read the configuration" with no path is a bisection.
     #[test]
     fn the_error_names_the_path() {
         let dir = Dir::new("names");

@@ -1,34 +1,16 @@
 //! The run: an IR tree in, a tree of module pages out.
 //!
-//! Ported from `experiments/stage7d/render.ts` (frozen): the main body,
-//! 1981-2136, minus the timing instrumentation and minus the flatten probe
-//! (`render.ts:2120` exists to defeat V8's rope representation and has no
-//! meaning here — the source even carries a literal NUL byte for it).
+//! The name map has three sources and they are not commutative: the dependency
+//! slices, then every declaration of every module — which **overwrites** — then
+//! every reference the extractor resolved, which **fills gaps only**.
+//! [`crate::autolink::NameIndexBuilder`] enforces the difference at the call
+//! site; this module's job is to feed it in that order.
 //!
-//! # The order the maps are built in is behaviour
-//!
-//! `known` has three sources and they are not commutative (`render.ts:2001-2036`):
-//! the dependency slices, then every declaration of every module — which
-//! **overwrites** — then every reference the extractor resolved, which **fills
-//! gaps only**. [`crate::autolink::NameIndexBuilder`] enforces the difference at
-//! the call site; this module's job is to feed it in that order.
-//!
-//! # Two things that are read for the whole site before any page is written
-//!
-//! Every module file is read even when only one page is being rendered.
-//! `known`, `knownModules` and [`Suppressed`] are site-wide, and a page
-//! rendered against a partial map differs in the links it draws rather than
-//! failing — which is a byte difference that no error message announces.
-//! That is also why [`ModuleSet`] filters *pages*, not *reads*.
-//!
-//! # `--only` with nothing in it means nothing
-//!
-//! The prototype spelled the module filter as the presence of a repeated flag
-//! (`ONLY.length > 0 ? new Set(ONLY) : null`), so passing zero modules meant
-//! "render all 432". The incremental pipeline's shell had to guard the call
-//! (`incremental.sh:367`), and an empty regeneration set is the common case
-//! once revisions are out of the bytes. [`ModuleSet`] has no `Default` and its
-//! empty case is a value, not the absence of one (plan §5).
+//! Every module file is read even when only one page is being rendered. The
+//! name map and [`Suppressed`] are site-wide, and a page rendered against a
+//! partial map differs in the links it draws rather than failing — a byte
+//! difference no error message announces. That is why [`ModuleSet`] filters
+//! *pages*, not *reads*.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -53,9 +35,7 @@ use crate::page::{Suppressed, page_html, page_path};
 /// "the caller did not ask for a subset".
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ModuleSet {
-    /// Every module in the IR.
     All,
-    /// Exactly these, and nothing else.
     These(BTreeSet<String>),
 }
 
@@ -82,35 +62,26 @@ impl ModuleSet {
     }
 }
 
-/// What a run needs to know that the IR does not carry.
 #[derive(Clone, Copy, Debug)]
 pub struct RenderOptions<'a> {
     /// The IR tree: `index.json`, `modules/`, `deps/`.
     pub ir: &'a Path,
-    /// Where the pages go. Directories are created as needed.
+    /// Directories are created as needed.
     pub pages: &'a Path,
     /// The `https://host/owner/repo/blob/<rev>` prefix every `source` link is
     /// built from. Configuration, not IR — doc-gen4 reads it from lake plus
-    /// git. Trailing slashes are stripped here, as `render.ts:286` does.
-    ///
-    /// Plan 決定 1: the revision has to be 40 hex digits or the acceptance
-    /// oracle scores the tree lower.
+    /// git. Trailing slashes are stripped here.
     pub source_url: &'a str,
-    /// Where each **dependency's** source lives (M7-c).
+    /// Where each **dependency's** source lives. Configuration the IR does not
+    /// carry — `litedoc4`'s `packages` module resolves it from the target's
+    /// `lake-manifest.json` and its toolchain.
     ///
-    /// Next to `source_url` because it is the same kind of thing one level out:
-    /// that one says where *this* package's sources are, this one says where
-    /// everything it imports keeps theirs. Both are configuration the IR does
-    /// not carry — `litedoc4`'s `packages` module resolves this one from the
-    /// target's `lake-manifest.json` and its toolchain.
-    ///
-    /// [`ExternalLinks::default`] is the pre-M7 renderer, byte for byte: every
-    /// link into a dependency stays a relative page link to a page this site
-    /// never writes. It is spelled as an empty map rather than an `Option`
-    /// because the two mean the same thing here and one of them cannot be
-    /// misread as "the default".
+    /// An empty map (the [`ExternalLinks::default`]) leaves every link into a
+    /// dependency a relative page link to a page this site never writes. It is
+    /// an empty map rather than an `Option` because the two would mean the same
+    /// thing and one of them can be misread as "the default".
     pub external_links: &'a ExternalLinks,
-    /// What `<root>/litedoc4.toml` said, already read (feature-sweep C-3).
+    /// What `<root>/litedoc4.toml` said, already read.
     ///
     /// A borrow rather than a path because **resolving it is not this
     /// function's job**: three commands render, and if each read the file for
@@ -121,18 +92,13 @@ pub struct RenderOptions<'a> {
     /// The dependency closure's `name -> module` map.
     ///
     /// `None` is a decision, not a default: without it 150 of the target
-    /// package's 432 pages change bytes 【実測, plan 決定 4】. The product
-    /// always passes one.
+    /// package's 432 pages change bytes 【実測】. The product always passes one.
     pub link_index: Option<&'a Path>,
-    /// Which modules get a page.
     pub only: &'a ModuleSet,
 }
 
-/// What a run did, in the units its inputs are counted in.
-///
-/// Every field is a denominator something else can be quoted against; a run
-/// that reports "done" and nothing else cannot be compared to the prototype's
-/// numbers at all.
+/// What a run did, in the units its inputs are counted in: every field is a
+/// denominator something else can be quoted against.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RenderSummary {
     pub modules_in_ir: usize,
@@ -140,16 +106,15 @@ pub struct RenderSummary {
     /// Names that are some declaration's member, over the whole site.
     pub declarations_suppressed: usize,
     pub pages_written: usize,
-    /// Declaration blocks on the pages that were written.
+    /// Blocks on the pages that were written, not in the IR.
     pub declarations_rendered: usize,
-    /// Module docstring blocks on the pages that were written.
     pub module_docs_rendered: usize,
     pub known_entries: usize,
     pub link_index_entries: usize,
     pub known_modules: usize,
     pub bytes_written: u64,
     /// Math spans that could not be converted to MathML and were written back
-    /// as their LaTeX source ([`crate::page::RenderedPage::math_failures`]).
+    /// as their LaTeX source.
     ///
     /// Zero is the number to expect: the target package's three spans and
     /// 99.58% of Mathlib's 2,123 convert 【実測 2026-08-22 →
@@ -158,13 +123,10 @@ pub struct RenderSummary {
     pub math_failures: usize,
 }
 
-/// Reads the IR, builds the maps, and writes one page per wanted module.
 pub fn render_site(options: &RenderOptions<'_>) -> Result<RenderSummary, Error> {
     let source_url = options.source_url.trim_end_matches('/');
     let tree = IrTree::open(options.ir)?;
 
-    // `known`: dependency slices first, then the modules — declarations
-    // overwrite, references only fill gaps.
     let mut builder = NameIndex::builder();
     for dep in tree.load_dep_maps()? {
         builder.dep_map(&dep);
@@ -182,12 +144,9 @@ pub fn render_site(options: &RenderOptions<'_>) -> Result<RenderSummary, Error> 
     };
     let index = builder.build(links, options.external_links.clone());
 
-    // Site-wide, not per module: see [`Suppressed`].
     let suppressed = Suppressed::of_site(&modules);
     // Over **every** module of the IR, not the subset being rendered: an
     // incremental round that re-renders one page must not retitle the site.
-    // The intro is `index.html`'s and `litedoc4-global` renders it; a module
-    // page carries only the title.
     let site = SiteMeta::of(
         options.config,
         None,
@@ -230,16 +189,9 @@ pub fn render_site(options: &RenderOptions<'_>) -> Result<RenderSummary, Error> 
     Ok(summary)
 }
 
-/// Writes one page, making the directories above it first.
-///
 /// The two calls fail with different paths — the directory that could not be
 /// made, and the file that could not be written — and [`Error::Io`] carries
 /// whichever it was, which is the whole reason this is not `fs::write` alone.
-///
-/// [`crate::assets::write_assets`] has the same two steps and does **not** share this:
-/// it makes the site root once and then writes into it, so a per-file
-/// `create_dir_all` there would be one syscall per asset for a directory that
-/// already exists.
 fn write_page(path: &Path, html: &str) -> Result<(), Error> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|source| Error::Io {
@@ -253,7 +205,6 @@ fn write_page(path: &Path, html: &str) -> Result<(), Error> {
     })
 }
 
-/// Why a run stopped.
 #[derive(Debug)]
 pub enum Error {
     Ir(litedoc4_ir::Error),
@@ -301,8 +252,6 @@ mod tests {
     use super::*;
     use litedoc4_testutil::TempDirs;
 
-    /// The temporary directories this file makes. The prefix names the file,
-    /// so a directory a failed run leaves behind names what made it.
     const TEMP: TempDirs = TempDirs::prefixed("litedoc4-site");
 
     #[test]
@@ -320,12 +269,6 @@ mod tests {
         assert!(!ModuleSet::from_lines("Pkg.One\n").contains("Pkg.Two"));
     }
 
-    /// `Pkg/Sub/M.html` lands under a `pages` directory that has neither of the
-    /// two directories above it yet.
-    ///
-    /// The pages of a package are one file per **dotted** module name, so every
-    /// run writes into directories nothing has made — which is why the write is
-    /// two calls and not one.
     #[test]
     fn a_page_is_written_under_directories_that_did_not_exist() {
         let dir = TEMP.reserve("nested");
@@ -339,13 +282,6 @@ mod tests {
         );
     }
 
-    /// When the directories cannot be made, the error names **the directory** —
-    /// not the page that was going to go in it.
-    ///
-    /// Nothing else checks this, and it is the whole reason the two `map_err`
-    /// arms carry different paths: told the page's name, a reader would go
-    /// looking for a file that was never the problem.
-    ///
     /// The blocked parent is this crate's own `Cargo.toml`, so the test writes
     /// nothing anywhere: `create_dir_all` refuses before any file is opened.
     #[test]

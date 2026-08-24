@@ -1,40 +1,24 @@
 //! One declaration's block on a module page.
 //!
-//! **What is emitted here is litedoc4's own markup as of M8-b**; up to M7 it was
-//! a transcription of doc-gen4's, byte for byte, because the acceptance oracle
-//! compared the two. The *decisions* are still doc-gen4's, and they are the part
-//! worth keeping: which kinds get equations, which get an instances block, when
-//! an inherited field may claim an anchor, and what counts as an equation too
-//! long to print. Those came out of `Output/{Module,Arg,Definition,Structure,
-//! Inductive,Class}.lean` by way of `experiments/stage7d/render.ts`, and every
-//! one of them is a fact about Lean rather than about a stylesheet.
+//! The markup is litedoc4's own; the *decisions* are doc-gen4's, and they are
+//! the part worth keeping: which kinds get equations, which get an instances
+//! block, when an inherited field may claim an anchor, and what counts as an
+//! equation too long to print. Every one of them is a fact about Lean rather
+//! than about a stylesheet.
 //!
-//! The shape they are poured into is new, and its reference is the hand-written
-//! `design/preview/module.html`. Keep the two in step: the stylesheet is written
-//! against that file, so a class renamed here loses its styling silently rather
-//! than failing.
+//! Three of them are easy to get subtly wrong:
 //!
-//! # Five things that are easy to get subtly wrong
-//!
-//! 1. **An inherited field is `isDirect === false`, not `!isDirect`.** The
-//!    prototype's test is an identity comparison, so a *missing* key is a
-//!    direct field. [`litedoc4_ir::Member::is_direct`] is therefore an
-//!    `Option<bool>` and [`litedoc4_ir::Member::is_inherited`] is the only
-//!    reader — plan §5. No byte comparison on this package can catch the other
-//!    reading: all 156 field members carry the key 【実測】.
+//! 1. **An inherited field is `isDirect === false`, not `!isDirect`.** The test
+//!    is an identity comparison, so a *missing* key is a direct field.
+//!    [`litedoc4_ir::Member::is_direct`] is therefore an `Option<bool>` and
+//!    [`litedoc4_ir::Member::is_inherited`] is the only reader. No comparison
+//!    against the target package can catch the other reading: all 156 field
+//!    members carry the key 【実測】.
 //! 2. **The equation limit counts code points**, not bytes and not UTF-16
 //!    units (`RenderedCode.textLength` is over Lean `Char`s).
-//! 3. **The `div.attributes` element ends in a newline.** It is the one
-//!    non-flattened element at this level, so `Html.toStringAux` prints
-//!    `<div …>…</div>\n`, and the newline belongs to the element rather than to
-//!    the join around it.
-//! 4. **[`decl_name_to_link`] fails rather than guessing.** doc-gen4 indexes
+//! 3. **[`decl_name_to_link`] fails rather than guessing.** doc-gen4 indexes
 //!    `name2ModIdx` with `!` and panics; emitting a plausible `href` instead
-//!    would be a wrong byte that costs a debugging round to locate.
-//! 5. **Attribute order is byte identity.** [`DeclRenderer::structure_html`]'s
-//!    two `<li>` shapes write `id` before `class` and `class` alone; the
-//!    inherited branch's optional `id` is not the direct branch's `id`, and
-//!    the two are written out separately for that reason.
+//!    would be a wrong link that costs a debugging round to locate.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -49,16 +33,15 @@ use crate::autolink::{NameIndex, module_link};
 use crate::code::{CodeRenderer, Refs, break_within, css_kind, decl_refs, kind_description};
 use crate::escape::escape_html_into;
 
-/// `Process/Base.lean:119` — an equation whose printed text reaches this many
-/// **code points** is stored as NULL by the DB and replaced by a notice.
+/// An equation whose printed text reaches this many **code points** is stored
+/// as NULL by doc-gen4's DB and replaced by a notice.
 pub const EQUATION_LIMIT: usize = 200;
 
 /// A name that has to be linked and cannot be placed in a module.
 ///
 /// doc-gen4 reaches this state with `name2ModIdx[name]!`, i.e. it panics. This
-/// crate returns instead of panicking, but it does **not** invent a link: a
-/// wrong `href` is a wrong byte either way, and a silent one costs a debugging
-/// round to find (`render.ts:1732-1734`).
+/// crate returns instead, but it does **not** invent a link: a wrong `href` is
+/// wrong either way, and a silent one costs a debugging round to find.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnplaceableName {
     pub name: String,
@@ -76,41 +59,25 @@ impl fmt::Display for UnplaceableName {
 
 impl std::error::Error for UnplaceableName {}
 
-/// `declNameToLink` (`Base.lean:231-234`): the module a rendered name lives in,
-/// the declaration's own references first.
+/// `declNameToLink`: the module a rendered name lives in, the declaration's own
+/// references first, then the IR's map, then the dependency closure's `.lidx`.
 ///
-/// # Why the `.lidx` is consulted here and not in [`CodeRenderer::const_link`]
+/// **The `.lidx` is consulted here and not in [`CodeRenderer::const_link`].** An
+/// inherited field of a class **the documented package does not declare** — as
+/// `batteries`' `class LawfulLTCmp … extends Std.OrientedCmp` has — is a name
+/// the IR's own map has never heard of, and the build stopped on it 【実測
+/// 2026-08-17】. The name is in the `.lidx`, which covers the environment rather
+/// than the package, so the fall-through is a *correct* answer rather than a
+/// guess. `const_link` keeps the narrower lookup because *its* misses render as
+/// unlinked text, so widening it there would move links that are right.
 ///
-/// It was not, until a real package stopped a build【実測 2026-08-17】.
-/// `batteries` declares `class LawfulLTCmp … extends Std.OrientedCmp`, and an
-/// inherited field of a class **the documented package does not declare** is a
-/// name the IR's own map has never heard of: `litedoc4 build` rendered nothing
-/// and exited with `no defining module for Std.OrientedCmp.eq_swap`. The name
-/// was in the `.lidx` the whole time — that index covers the environment, not
-/// the package — so the fall-through below is a *correct* answer rather than a
-/// guess, which is what the paragraph above refuses to make.
-///
-/// **No byte that renders today can move.** The `.lidx` is reached only after
-/// `refs` and [`NameIndex::known`] both miss, and that state was an `Err` that
-/// stopped the run. [`CodeRenderer::const_link`] keeps the narrower lookup
-/// because *its* misses render as unlinked text against an oracle that agrees
-/// (`render.ts:2059-2064`), so widening it there would move bytes.
-///
-/// **Which module the field is in is one question; where that module's source
-/// lives is another** (M7-c). The lookup above is unchanged and still refuses to
-/// guess; what changed is that the href it hands back is
-/// [`NameIndex::link_to`]'s, so an inherited field of a structure declared in a
-/// dependency links at that dependency's pinned source. Inherited fields are the
-/// case where that matters most: the parent structure is very often mathlib's.
-///
-/// # The two failures are different and the return type says so
-///
-/// `Err` is doc-gen4's panic: **no module at all** knows the name, so the IR
-/// this run was handed disagrees with itself and the caller stops. `Ok(None)` is
-/// the 2026-08-17 case: the module is known and belongs to a dependency with no
-/// version-pinned URL, so there is a name to render and no page to point it at.
-/// Collapsing the second into the first would refuse to render a page over a
-/// missing link; collapsing it into `Ok(href)` is the dead link this changed.
+/// **The two failures are different and the return type says so.** `Err` is
+/// doc-gen4's panic: **no module at all** knows the name, so the IR this run was
+/// handed disagrees with itself and the caller stops. `Ok(None)` is a module
+/// that is known and belongs to a dependency with no version-pinned URL — a name
+/// to render and no page to point it at. Collapsing the second into the first
+/// would refuse to render a page over a missing link; collapsing it into
+/// `Ok(href)` is a dead link.
 pub fn decl_name_to_link(
     name: &str,
     root: &str,
@@ -132,25 +99,21 @@ pub fn decl_name_to_link(
 /// **Which instances exist is a fact about the whole site**, not about the
 /// module being rendered — an instance of a type declared here can live in any
 /// module — so it cannot be written statically by a renderer that is handed one
-/// module at a time. doc-gen4 had the same problem and solved it the same way.
-///
-/// M8-c changed the contract rather than the shape: doc-gen4 keyed off the
-/// element `id` and read `declaration-data.bmp`; this keys off `data-name` and
-/// reads `search-index.bin`, so the name no longer has to survive a round trip
-/// through an HTML identifier. The two blocks below differ only in `data-fill`.
+/// module at a time. The name is carried in `data-name` rather than in the
+/// element `id`, so it does not have to survive a round trip through an HTML
+/// identifier. The three blocks below differ only in `data-fill`.
 #[must_use]
 pub fn instances_for_html(name: &str) -> String {
     fill_block(name, "instances-for", "Instances For")
 }
 
-/// The instances of a class. See [`instances_for_html`] — same shape, other map.
+/// See [`instances_for_html`] — same shape, other map.
 #[must_use]
 pub fn class_instances_html(name: &str) -> String {
     fill_block(name, "instances", "Instances")
 }
 
-/// Which declarations of this package mention this one — doc-gen4 #77 / #63.
-/// Same shape again, third map.
+/// Which declarations of this package mention this one.
 ///
 /// **Emitted for every declaration, whether or not it has users.** Knowing
 /// which have users is a fact about the whole package, and a renderer that
@@ -176,14 +139,13 @@ fn fill_block(name: &str, fill: &str, summary: &str) -> String {
     out
 }
 
-/// The `containedNames` query (`DB/Read.lean:177-185`): which names of the same
-/// module have their declaration range **inside** `parent`'s.
+/// The `containedNames` query: which names of the same module have their
+/// declaration range **inside** `parent`'s.
 ///
 /// The population is every declaration the IR carries for the module, including
-/// the ones that never get a page entry, which is the same population as the
-/// DB's `name_info` rows. Both comparisons are non-strict on the inner
-/// coordinate (`col >= parent.col`, `end_col <= parent.end_col`) — a field
-/// declared at exactly the structure's own start counts.
+/// the ones that never get a page entry. Both comparisons are non-strict on the
+/// inner coordinate — a field declared at exactly the structure's own start
+/// counts.
 #[must_use]
 pub fn contained_names<'m>(module: &'m ModuleFile, parent: &Decl) -> HashSet<&'m str> {
     let mut out = HashSet::new();
@@ -202,11 +164,9 @@ pub fn contained_names<'m>(module: &'m ModuleFile, parent: &Decl) -> HashSet<&'m
     out
 }
 
-/// `equationsToHtml` (`Definition.lean`) plus the DB's `equationLimit` filter.
-///
-/// Returns the empty string when there is nothing to show — an equation list
-/// that is empty because every equation was dropped still renders, with the
-/// notice and no items.
+/// `equationsToHtml` plus the `equationLimit` filter. Empty when there is
+/// nothing to show — but an equation list that is empty because every equation
+/// was dropped still renders, with the notice and no items.
 #[must_use]
 pub fn equations_html(decl: &Decl, root: &str, refs: &Refs<'_>, code: &CodeRenderer<'_>) -> String {
     let mut keep: Vec<usize> = Vec::with_capacity(decl.equations.len());
@@ -244,9 +204,6 @@ pub fn equations_html(decl: &Decl, root: &str, refs: &Refs<'_>, code: &CodeRende
     out
 }
 
-/// One binder, in the two places binders appear — a declaration's signature and
-/// a structure field's own.
-///
 /// **The trailing newline is layout, not formatting.** A binder is an
 /// `inline-block`, so the whitespace between two of them is what lets a line
 /// break there; with the binders run together, a signature with eight implicit
@@ -264,10 +221,7 @@ fn push_arg(out: &mut String, body: &str, implicit: bool) {
     out.push_str("</span></span>\n");
 }
 
-/// Every binder of a declaration or of a structure field, in order.
-///
-/// `implicits` may be shorter than `binders` — the prototype indexes it and
-/// gets `undefined`, which is falsy — so a missing entry is explicit.
+/// `implicits` may be shorter than `binders`, and a missing entry is explicit.
 fn push_args(
     out: &mut String,
     binders: &[Utf16Text],
@@ -284,9 +238,6 @@ fn push_args(
     }
 }
 
-/// The line a reader scans for: what kind of thing this is, what it is called,
-/// and where its source is.
-///
 /// `<h2>` because it *is* the heading of the section below it, and because the
 /// sidebar's table of contents is a list of these — a page whose declarations
 /// are `<div>`s has no outline for a screen reader to walk.
@@ -295,12 +246,10 @@ fn push_args(
 /// declarations that get no page entry too, before anything about the page is
 /// known.
 ///
-/// `root` is [`crate::autolink::page_root`] of `module`, and it is a parameter rather than
+/// `root` is [`crate::autolink::page_root`] of `module`, a parameter rather than
 /// something this derives: [`DeclRenderer`] holds one, and a second one derived
-/// here would put two paths to the same value inside one `<section>` — the head
-/// and the signature from this one, the equations and the fields from the
-/// renderer's. [`crate::autolink::PageLinks::renderer`] closed exactly that for a
-/// different pair, with the same reason: links that are half right.
+/// here would put two paths to the same value inside one `<section>`, which is
+/// how links come out half right.
 #[must_use]
 pub fn decl_head_html(decl: &Decl, root: &str, module: &str, source_url: &str) -> String {
     let mut out = String::with_capacity(384);
@@ -323,20 +272,14 @@ pub fn decl_head_html(decl: &Decl, root: &str, module: &str, source_url: &str) -
     out
 }
 
-/// `<div class="sig">` — the binders, the `extends` clause, and the type.
-///
 /// Split from [`decl_head_html`] because they wrap differently: the head is a
 /// flex row that reflows, the signature is code whose whitespace the IR already
 /// decided (see [`push_arg`]).
-/// `root` is [`crate::autolink::page_root`] of `module` — a parameter for the reason
-/// [`decl_head_html`] gives.
 #[must_use]
 pub fn decl_signature(decl: &Decl, root: &str, code: &CodeRenderer<'_>) -> String {
     signature_with(decl, root, code, &decl_refs(decl))
 }
 
-/// [`decl_signature`] with the reference table already built.
-///
 /// The split is not for reuse but for arithmetic: [`DeclRenderer::decl_html`]
 /// has a `Refs` in hand when it asks for the signature, and building a second
 /// one from the same declaration is work whose answer is already known —
@@ -356,8 +299,8 @@ fn signature_with(decl: &Decl, root: &str, code: &CodeRenderer<'_>, refs: &Refs<
         code,
     );
 
-    // Structures and classes only. A `class_inductive` has no parents section
-    // even when it has parent members.
+    // A `class_inductive` has no parents section even when it has parent
+    // members.
     if decl.kind == "structure" || decl.kind == "class" {
         let parents: Vec<&Member> = decl
             .members
@@ -387,10 +330,8 @@ fn signature_with(decl: &Decl, root: &str, code: &CodeRenderer<'_>, refs: &Refs<
     out
 }
 
-/// Everything one page's declarations render against.
-///
-/// Per page rather than per run because three of the five members are: the
-/// root, the source URL and the docstring renderer (whose resolver scans *this*
+/// Per page rather than per run because three of the five members are: the root,
+/// the source URL and the docstring renderer (whose resolver scans *this*
 /// module's declarations) all change from page to page.
 pub struct DeclRenderer<'a> {
     module: &'a ModuleFile,
@@ -407,8 +348,7 @@ impl<'a> DeclRenderer<'a> {
     ///
     /// The two renderers are separate arguments because they resolve names
     /// against different maps on purpose: the code renderer reads the IR's own
-    /// map, the docstring renderer also reads the dependency closure's `.lidx`
-    /// (`render.ts:2059-2064`).
+    /// map, the docstring renderer also reads the dependency closure's `.lidx`.
     #[must_use]
     pub const fn new(
         module: &'a ModuleFile,
@@ -426,18 +366,13 @@ impl<'a> DeclRenderer<'a> {
         }
     }
 
-    /// `structureToHtml` + `fieldToHtml` (`Structure.lean`).
+    /// A constructor whose last component is `mk` is the anonymous one and gets
+    /// no note; a structure with no `ctor` member at all is treated as having
+    /// `<name>.mk`.
     ///
-    /// The constructor decides the outer shape: a constructor whose last
-    /// component is `mk` is the anonymous one and the fields are a plain list;
-    /// anything else is printed as `Name :: ( … )`. A structure with no `ctor`
-    /// member at all is treated as having `<name>.mk`, i.e. the first shape.
-    /// `refs` is [`decl_refs`] of `decl`, built once by the caller: this is one
-    /// of three places that used to build the same table from the same input in
-    /// one render of one declaration (the others are [`Self::decl_html`] and
-    /// [`decl_signature`]). Three tables from one input is three places for one
-    /// to fall behind, and on a Mathlib package `refs` runs to hundreds of
-    /// entries per declaration.
+    /// `refs` is [`decl_refs`] of `decl`, built once by the caller: three of
+    /// these from one input is three places for one to fall behind, and on a
+    /// Mathlib package `refs` runs to hundreds of entries per declaration.
     pub fn structure_html(&self, decl: &Decl, refs: &Refs<'_>) -> Result<String, UnplaceableName> {
         let mut contained: Option<HashSet<&str>> = None;
         let mut lis = String::with_capacity(512);
@@ -453,9 +388,7 @@ impl<'a> DeclRenderer<'a> {
         let mut out = String::with_capacity(lis.len() + 128);
         // A constructor called `mk` is the anonymous one and saying so is
         // noise; anything else is a name the reader has to write, so it gets a
-        // line of its own. doc-gen4 spelled the second case as nested lists
-        // reading `Name :: ( … )`, which put the fields two levels deep for the
-        // sake of a syntax nobody types at that position.
+        // line of its own.
         if short != "mk" {
             out.push_str("<p class=\"ctor-note\">constructor <code>");
             escape_html_into(&mut out, short);
@@ -469,21 +402,12 @@ impl<'a> DeclRenderer<'a> {
         Ok(out)
     }
 
-    /// The constructors of an `inductive` or a `class inductive`
-    /// (`inductiveToHtml` / `ctorToHtml`, `Output/Inductive.lean`).
+    /// The constructors of an `inductive` or a `class inductive`.
     ///
-    /// **This is the branch the measurement target cannot reach.** That package
-    /// holds no `inductive` and no `class_inductive` declaration at all
-    /// (`tests/page_parts.rs` names it as one of the nine such branches), so
-    /// until `e2e/micro` existed nothing rendered a constructor through the real
-    /// pipeline — and nothing did: the body came out empty, so the constructors
-    /// were absent from the page while staying in the search index, which sends
-    /// a reader to `#Micro.Colour.red` and lands them at the top of the page.
-    ///
-    /// Byte reproduction could not have caught it either: the oracle only ever
-    /// saw pages of a package with no inductives on it.
-    /// `refs` is [`decl_refs`] of `decl` — a parameter for the reason
-    /// [`Self::structure_html`] gives.
+    /// **This is a branch the measurement target cannot reach**: that package
+    /// holds no `inductive` and no `class_inductive` declaration at all, so no
+    /// comparison against it can say anything about this code. `e2e/micro` is
+    /// what renders it.
     pub fn constructors_html(&self, decl: &Decl, refs: &Refs<'_>) -> String {
         let mut lis = String::with_capacity(256);
         for ctor in decl.members.iter().filter(|m| m.label == "ctor") {
@@ -499,22 +423,16 @@ impl<'a> DeclRenderer<'a> {
         out
     }
 
-    /// One constructor. Deliberately the same shape as a direct field
-    /// ([`Self::field_html`]'s second branch): both are a name, its arguments,
-    /// its type and an optional docstring, and a reader gains nothing from
-    /// their being laid out differently. There is no inherited case — a
-    /// constructor belongs to exactly one inductive.
     /// Everything inside the `<li>` a constructor and a directly declared field
-    /// both are: the signature row, and the docstring when there is one.
+    /// both are: the signature row, and the docstring when there is one. The two
+    /// are laid out alike on purpose — both are a name, its arguments, its type
+    /// and an optional docstring.
     ///
-    /// **The opening tag stays at the call sites, and that is on purpose.**
-    /// `ctor_html`'s doc says its shape is "deliberately the same as
-    /// [`Self::field_html`]'s second branch" — this makes that a fact rather
-    /// than a comment. But the `class="ctor"` / `class="field"` literals do not
-    /// move: `assets::tests::every_class_the_renderer_emits_is_styled` reads
-    /// this file's text, so a class name behind a parameter is a class name
-    /// that gate can no longer see. Sharing fifteen lines is not worth
-    /// blinding it【実測 2026-08-23: parameterising the class made the gate
+    /// **The opening tag stays at the call sites, and that is on purpose.** The
+    /// `class="ctor"` / `class="field"` literals do not move, because
+    /// `assets::tests::every_class_the_renderer_emits_is_styled` reads this
+    /// file's text and a class name behind a parameter is one that gate can no
+    /// longer see 【実測 2026-08-23: parameterising the class made the gate
     /// report `.");` as an emitted class】.
     fn member_body(
         &self,
@@ -558,11 +476,9 @@ impl<'a> DeclRenderer<'a> {
         self.member_body(out, short, &args, &body.html, nonempty(ctor.doc.as_deref()));
     }
 
-    /// `fieldToHtml`, whose two branches differ in more than a CSS class.
-    ///
-    /// `contained` is the lazily built [`contained_names`] of the structure: the
-    /// prototype computes it on the first inherited field and not at all
-    /// otherwise, which matters because it is a scan of the whole module.
+    /// `contained` is the lazily built [`contained_names`] of the structure:
+    /// computed on the first inherited field and not at all otherwise, because
+    /// it is a scan of the whole module.
     fn field_html(
         &self,
         out: &mut String,
@@ -601,10 +517,8 @@ impl<'a> DeclRenderer<'a> {
                 out.push_str("<li class=\"field inherited\">");
             }
             // No href: the field keeps its name and its `field-name` class and
-            // loses only the anchor — the same element the branch below writes
-            // for a field this structure declares itself. An `<a>` with no
-            // target, or a name dropped for want of one, would both be worse
-            // than the dead link this replaced.
+            // loses only the anchor. An `<a>` with no target, or a name dropped
+            // for want of one, would both be worse.
             match &link {
                 Some(link) => {
                     out.push_str("<div class=\"field-sig\"><a class=\"field-name\" href=\"");
@@ -639,18 +553,14 @@ impl<'a> DeclRenderer<'a> {
         Ok(())
     }
 
-    /// The whole `<section class="decl">`: head, attributes, signature,
-    /// docstring, fields, and whatever the kind adds after them.
     pub fn decl_html(&self, decl: &Decl) -> Result<String, UnplaceableName> {
         let refs = decl_refs(decl);
         let head = decl_head_html(decl, self.root, &self.module.module, self.source_url);
         let signature = signature_with(decl, self.root, &self.code, &refs);
 
-        // `Attr::text` rejoins the schema-5 `(name, value)` pair into the one
-        // string schema 4 carried, which is what keeps this byte-identical
-        // across the shape change. Acting on
-        // the parts — linking `@[deprecated Foo]` to `Foo`, styling by name — is
-        // bundle C's, and it happens here.
+        // `Attr::text` rejoins the `(name, value)` pair into one string. Acting
+        // on the parts — linking `@[deprecated Foo]` to `Foo`, styling by name —
+        // would happen here.
         let mut attrs = String::new();
         if !decl.attrs.is_empty() {
             attrs.push_str("<div class=\"attrs\">");
@@ -659,10 +569,10 @@ impl<'a> DeclRenderer<'a> {
             attrs.push_str("</div>");
         }
 
-        // Wrapped, unlike doc-gen4, which let the docstring's own `<p>` land
-        // directly in the declaration block. Everything the stylesheet says
-        // about prose — measure, spacing, code, tables — hangs off `.doc`, and
-        // an unwrapped docstring loses all of it without failing.
+        // Everything the stylesheet says about prose — measure, spacing, code,
+        // tables — hangs off `.doc`, and an unwrapped docstring (doc-gen4 let
+        // the docstring's own `<p>` land directly in the block) loses all of it
+        // without failing.
         let doc = match nonempty(decl.doc.as_deref()) {
             Some(doc) => {
                 let mut wrapped = String::with_capacity(doc.len() + 64);
@@ -701,8 +611,8 @@ impl<'a> DeclRenderer<'a> {
             // theorem / axiom / opaque / constructor
             _ => {}
         }
-        // Last, and for every kind: "Used by" is the one block that asks a
-        // question about a declaration rather than about what kind it is.
+        // For every kind: "Used by" asks a question about a declaration rather
+        // than about what kind it is.
         extra.push_str(&used_by_html(&decl.name));
 
         let mut out = String::with_capacity(
@@ -727,14 +637,13 @@ impl<'a> DeclRenderer<'a> {
     }
 }
 
-/// `name.split(".").pop()!` — the last dot-separated component, the whole name
-/// when there is no dot. Never `None`: `split` yields at least one piece.
+/// The last dot-separated component, or the whole name when there is no dot.
 fn last_component(name: &str) -> &str {
     name.rsplit('.').next().unwrap_or(name)
 }
 
-/// JavaScript truthiness for the two optional docstrings: `""` is falsy, so an
-/// empty docstring renders **nothing**, not an empty `<div>`.
+/// An empty docstring renders **nothing**, not an empty `<div>` — doc-gen4's
+/// test is JavaScript truthiness, where `""` is falsy.
 fn nonempty(s: Option<&str>) -> Option<&str> {
     s.filter(|s| !s.is_empty())
 }
@@ -748,10 +657,9 @@ mod tests {
     use crate::link_index::LinkIndex;
     use litedoc4_ir::SpanKind;
 
-    /// The world these cases resolve against: these declarations, and **a page
-    /// for every module they name** — which is what a run has for its own
-    /// package's modules, and what [`NameIndex::link_to`]'s last branch checks
-    /// (2026-08-17).
+    /// These declarations, and **a page for every module they name** — which is
+    /// what a run has for its own package's modules, and what
+    /// [`NameIndex::link_to`]'s last branch checks.
     fn index(entries: &[(&str, &str)]) -> NameIndex {
         let mut builder = NameIndex::builder();
         for (name, module) in entries {
@@ -786,16 +694,10 @@ mod tests {
         serde_json::from_str(json).expect("the literal is a schema-5 member")
     }
 
-    /// **The one mutant that survived.** `cargo mutants` over this file reports
-    /// 74 mutants, 73 of them caught; the survivor replaced this type's
-    /// `Display` with the empty string 【実測 2026-08-16】.
-    ///
-    /// That is a real hole rather than noise. This error exists *only* to be
-    /// read: doc-gen4 panics at the same point (`name2ModIdx[name]!`) and this
-    /// crate returns instead, on the grounds — stated at the top of this file —
-    /// that a wrong `href` is a wrong byte either way and a silent one costs a
-    /// debugging round to locate. An error that does not name the declaration it
-    /// could not place spends that round anyway.
+    /// This error exists *only* to be read, so an error that does not name the
+    /// declaration it could not place spends the debugging round it was meant to
+    /// save 【実測 2026-08-16: the one `cargo mutants` survivor over this file
+    /// replaced its `Display` with the empty string】.
     #[test]
     fn an_unplaceable_name_says_which_name() {
         let text = UnplaceableName {
@@ -809,11 +711,6 @@ mod tests {
         );
     }
 
-    /// The head is what a reader scans for; the signature is what they read.
-    /// They are two functions since M8-b because they wrap differently, so both
-    /// halves are pinned here — the kind, the self link, the source link, and
-    /// then the binders with the implicit ones marked and the type in its own
-    /// block.
     #[test]
     fn a_head_is_kind_name_and_source_and_a_signature_is_binders_and_type() {
         let names = index(&[("Nat", "Init.Prelude")]);
@@ -860,8 +757,6 @@ mod tests {
         );
     }
 
-    /// `extends` is emitted for structures and classes only, and the parents
-    /// are joined with `", "`.
     #[test]
     fn extends_is_rendered_for_structures_and_classes_only() {
         let names = index(&[]);
@@ -918,10 +813,7 @@ mod tests {
         assert_eq!(equations_html(&d, "./", &Refs::default(), &code), "");
     }
 
-    /// The two stubs are the same shape and differ only in the map `app.js`
-    /// fills them from — which is the M8-c contract. Both carry the name in
-    /// `data-name`, escaped: doc-gen4 spelled it into an element `id` and so had
-    /// to survive a round trip through an HTML identifier.
+    /// Both carry the name in `data-name`, escaped.
     #[test]
     fn the_two_instance_stubs_differ_only_in_the_map_that_fills_them() {
         assert_eq!(
@@ -951,13 +843,10 @@ mod tests {
         );
     }
 
-    /// **2026-08-17**: an inherited field of a class the documented package does
-    /// **not** declare. `batteries` stopped a whole build on this shape — the
-    /// name is in no `refs` and in no IR map, and it is in the `.lidx`, which is
-    /// the environment rather than the package.
-    ///
-    /// The two assertions are the point: the fall-through answers, and a name
-    /// that is in **neither** map is still an error rather than a guessed href.
+    /// An inherited field of a class the documented package does **not**
+    /// declare: the name is in no `refs` and in no IR map, and it is in the
+    /// `.lidx`. The two assertions are the point — the fall-through answers, and
+    /// a name in **neither** map is still an error rather than a guessed href.
     #[test]
     fn a_field_inherited_from_outside_the_package_is_found_in_the_lidx() {
         let mut builder = NameIndex::builder();
@@ -983,13 +872,9 @@ mod tests {
         );
     }
 
-    /// **M7-c**: the same lookup, with the field's module in the dependency map.
-    /// The refusal above is unchanged — a name in no module is still an error,
-    /// not a blob URL to nowhere.
-    ///
-    /// **2026-08-17** added the third answer: `Ok(None)` for a field whose
-    /// module belongs to a dependency with no version-pinned URL. The two either
-    /// side of it are asserted here as bytes, because they must not move.
+    /// The same lookup with the field's module in the dependency map, and all
+    /// three answers on one index: a pinned dependency, this package's own
+    /// module, and `Ok(None)` for a dependency with no version-pinned URL.
     #[test]
     fn an_inherited_field_of_a_dependencys_structure_links_at_its_source() {
         let mut builder = NameIndex::builder();
@@ -1021,7 +906,6 @@ mod tests {
         assert!(decl_name_to_link("nowhere", "./", &Refs::default(), &names).is_err());
     }
 
-    /// The range test is non-strict at both ends and skips the parent itself.
     #[test]
     fn contained_names_uses_closed_ranges() {
         let mut parent = decl("S", "structure");
@@ -1059,11 +943,8 @@ mod tests {
     impl Page {
         /// The index a run has when it renders this page: the module's *own*
         /// declarations are in it, because `render_site` feeds every module to
-        /// the builder before it renders any of them. `entries` are the other
-        /// modules' names.
-        ///
-        /// Building it any other way is a world that cannot occur, and
-        /// [`PageLinks::new`] says so.
+        /// the builder before it renders any of them. Building it any other way
+        /// is a world that cannot occur, and [`PageLinks::new`] says so.
         fn new(entries: &[(&str, &str)], module: ModuleFile) -> Self {
             let mut builder = NameIndex::builder();
             for (name, m) in entries {
@@ -1074,8 +955,6 @@ mod tests {
             Self { names, module }
         }
 
-        /// Renders one declaration of the page, wiring the two renderers the
-        /// way a run does.
         fn render(&self, at: usize) -> Result<String, UnplaceableName> {
             let root = page_root(&self.module.module);
             let decl_names = module_decl_names(&self.module);
@@ -1088,14 +967,10 @@ mod tests {
         }
     }
 
-    /// The whole `section.decl`, with the head, the attributes and the
-    /// docstring in their places.
-    ///
-    /// The order they are assembled in is the assertion: the kind and the name
-    /// lead, the attributes sit between the head and the signature, and the
-    /// docstring follows the signature rather than the head — a docstring that
-    /// drifted above the type would read as belonging to the declaration before
-    /// it.
+    /// The order is the assertion: the kind and the name lead, the attributes
+    /// sit between the head and the signature, and the docstring follows the
+    /// signature — one that drifted above the type would read as belonging to
+    /// the declaration before it.
     #[test]
     fn a_declaration_is_head_attributes_signature_doc_and_extra() {
         let mut d = decl("Pkg.M.f", "definition");
@@ -1138,8 +1013,6 @@ mod tests {
         assert!(html.ends_with("</ul></details></section>"), "{html}");
     }
 
-    /// An empty docstring is falsy in JavaScript, so it renders nothing — not
-    /// the two newlines `docStringToHtml` would append to it.
     #[test]
     fn an_empty_docstring_renders_nothing() {
         let mut d = decl("f", "theorem");
@@ -1147,7 +1020,7 @@ mod tests {
         let page = Page::new(&[], module_with(vec![d]));
         let html = page.render(0).expect("nothing to place");
         // The signature's two closing `</div>`s, and then straight to the
-        // `Used by` block every declaration ends in (C-2): nothing between them.
+        // `Used by` block every declaration ends in: nothing between them.
         assert!(
             html.contains("</div></div><details class=\"extra\" data-fill=\"used-by\""),
             "{html}"
@@ -1174,8 +1047,8 @@ mod tests {
                 "{kind}: {html}"
             );
             if extra.is_empty() {
-                // Every kind now ends in a `Used by` block (C-2), so "no extra"
-                // means *that one and nothing else* rather than no `<details>`.
+                // Every kind ends in a `Used by` block, so "no extra" means
+                // *that one and nothing else* rather than no `<details>`.
                 assert_eq!(html.matches("<details").count(), 1, "{kind}: {html}");
             } else {
                 assert!(html.contains(extra), "{kind}: {html}");
@@ -1188,15 +1061,10 @@ mod tests {
         }
     }
 
-    /// Whether the constructor is named, and the fact that a missing `ctor`
-    /// takes the anonymous shape.
-    ///
-    /// doc-gen4 spelled the named case as nested lists reading `Name :: ( … )`;
-    /// M8-b replaced that with a note above the same field list, so what is
-    /// asserted is the *distinction* — a `mk` constructor says nothing, any
-    /// other name is printed — rather than doc-gen4's two `<ul>` shapes. The
-    /// constructor's name still lands on the field list as its `id` either way,
-    /// because that is what an inherited field's anchor is resolved against.
+    /// What is asserted is the *distinction* — a `mk` constructor says nothing,
+    /// any other name is printed — and that a missing `ctor` takes the anonymous
+    /// shape. The constructor's name lands on the field list as its `id` either
+    /// way, because that is what an inherited field's anchor resolves against.
     #[test]
     fn the_constructor_name_decides_the_structure_shape() {
         let field = r#"{"label": "field", "name": "S.x", "text": "Nat", "code": [],
@@ -1245,21 +1113,11 @@ mod tests {
         );
     }
 
-    /// **The regression the corpus could not have caught.**
-    ///
-    /// The measurement package holds no `inductive` and no `class_inductive`
-    /// declaration at all — `tests/page_parts.rs` counts that among nine
-    /// branches real data never reaches — so byte reproduction against doc-gen4
-    /// never rendered a constructor, and the curated cases reached the branch
-    /// without ever looking at what came out of it. What came out was nothing:
-    /// the body was empty, so the constructors were absent from their own page
-    /// while the search index went on pointing at `#C.red`.
-    ///
-    /// Found by `e2e/micro`, the fixture whose purpose is to hold the shapes the
-    /// target does not. The lesson is the one plan §7 already states — full
-    /// byte equality is not branch coverage — sharpened: it is not even
-    /// *reachability*, because a branch the oracle's own input cannot contain is
-    /// invisible however many bytes match.
+    /// The regression the corpus could not have caught: the measurement package
+    /// holds no `inductive` and no `class_inductive` declaration at all, so a
+    /// comparison against it never rendered a constructor. Full byte equality is
+    /// not branch coverage, and it is not even *reachability* — a branch the
+    /// oracle's own input cannot contain is invisible however many bytes match.
     #[test]
     fn an_inductives_constructors_are_rendered_with_their_own_anchors() {
         let red = r#"{"label": "ctor", "name": "C.red", "text": "C", "code": [],
@@ -1298,9 +1156,6 @@ mod tests {
         assert!(!html.contains("data-fill=\"instances-for\""), "{html}");
     }
 
-    /// The inherited branch: a different `<li>`, a link instead of plain text,
-    /// no docstring, and an `id` only when the projection is declared inside
-    /// the structure's own range.
     #[test]
     fn an_inherited_field_is_a_link_and_an_absent_key_is_not_inherited() {
         let direct = r#"{"label": "field", "name": "S.x", "text": "Nat", "code": [],
@@ -1341,8 +1196,8 @@ mod tests {
         );
     }
 
-    /// The `id` on an inherited field comes from `containedNames`, so a
-    /// declaration `S.y` inside `S`'s range turns it on.
+    /// The `id` comes from `containedNames`, so a declaration `S.y` inside `S`'s
+    /// range turns it on.
     #[test]
     fn an_inherited_field_gets_an_id_when_the_projection_is_contained() {
         let inherited = r#"{"label": "field", "name": "P.y", "text": "", "code": [],
@@ -1363,8 +1218,6 @@ mod tests {
         );
     }
 
-    /// A field that cannot be placed stops the page rather than producing a
-    /// link that points somewhere plausible.
     #[test]
     fn an_inherited_field_with_no_module_fails_the_page() {
         let inherited = r#"{"label": "field", "name": "P.y", "text": "", "code": [],

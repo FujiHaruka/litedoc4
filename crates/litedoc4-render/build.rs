@@ -1,18 +1,12 @@
 //! Build the site's `app.js` from the TypeScript in `web/`.
 //!
-//! **There is no committed bundle.**
-//! `web/src` is the only copy of this code in the repository, and
-//! [`crate::assets`] picks the bundle out of cargo's `OUT_DIR`, so it cannot be
-//! a version behind its sources — which also means there is no freshness gate
-//! to write and no "forgot to commit the build output" to diagnose.
+//! No bundle is committed: `web/src` is the only copy, and the build output
+//! lives in cargo's `OUT_DIR`, so it cannot be a version behind its sources.
+//! The cost is that node is a build dependency of this crate, paid by whoever
+//! builds from source; litedoc4 itself ships as the prebuilt archives
+//! `release.yml` produces.
 //!
-//! The cost is that **node is a build dependency of this crate**. It is paid by
-//! whoever builds from source (developers and CI); litedoc4 itself ships as the
-//! prebuilt archives `release.yml` produces, and the workspace is
-//! `publish = false`.
-//!
-//! There is deliberately **no fallback**. A tree without node does not quietly
-//! use yesterday's bundle — it fails here, saying what to install. Two ways of
+//! There is deliberately no fallback to a checked-in bundle. Two ways of
 //! answering "where does app.js come from" is the shape where only one of them
 //! ever gets fixed.
 
@@ -37,16 +31,12 @@ fn main() {
 
     // `npm ci` rather than `npm install`: the lockfile is the version everything
     // downstream was tested against, and a build is not the place to resolve a
-    // new one. Only when there is nothing installed — after that, `npm run
-    // build` is the whole cost, and the `rerun-if-changed` above means even that
-    // is skipped unless a source moved.
+    // new one.
     if !Path::new("web/node_modules").exists() {
         npm(&["ci", "--no-audit", "--no-fund"], &out_dir);
     }
     npm(&["run", "build"], &out_dir);
 
-    // Two bundles: the deferred module every page links, and the classic script
-    // `frame.rs` inlines into `<head>` before the first paint.
     for name in ["app.js", "theme-boot.js"] {
         let bundle = Path::new(&out_dir).join(name);
         assert!(
@@ -59,19 +49,15 @@ fn main() {
     }
 }
 
-/// One npm invocation in `web/`, with cargo's `OUT_DIR` handed to vite.
-///
-/// Output is captured and only shown when the command fails: a build script's
-/// stdout is cargo's directive channel, and npm's progress lines are not
-/// directives.
+/// Output is captured and only shown on failure: a build script's stdout is
+/// cargo's directive channel, and npm's progress lines are not directives.
 fn npm(args: &[&str], out_dir: &str) {
     let shown = args.join(" ");
     let result = Command::new("npm")
         .args(args)
         .current_dir("web")
-        // `web/vite.config.ts` reads this. Absent (a bare `npm run build` by
-        // hand) it writes to `web/dist` instead, so the two never contend for
-        // the same file.
+        // `web/vite.config.ts` reads this; absent it writes to `web/dist`
+        // instead, so a hand-run `npm run build` never contends for this file.
         .env("LITEDOC4_ASSET_OUT_DIR", out_dir)
         .output();
 

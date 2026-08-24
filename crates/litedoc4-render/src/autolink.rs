@@ -1,73 +1,40 @@
 //! Derived from doc-gen4 (Copyright (c) 2021 Henrik Böving, Apache-2.0) and
 //! changed; see this repository's NOTICE and `docs/provenance.md`.
 //!
-//! Resolving the names a docstring mentions to pages.
+//! Resolving the names a docstring mentions to pages. This is the half of
+//! `DocGen4/Output/DocString.lean` that md4c does not replace.
 //!
-//! Ported from `experiments/stage7d/render.ts` (925-1077), which is frozen —
-//! `nameToLink`, `isNameLit`, `isLetterLike`, and the maps they read
-//! (`render.ts:2008-2085`). This is the half of `DocGen4/Output/DocString.lean`
-//! that md4c does not replace (plan §7): 153 lines that have to be written out
-//! by hand, against a 594-line CommonMark subset that FFI deleted.
-//!
-//! # Why this is here and not in `litedoc4-md`
-//!
-//! [`litedoc4_md::Renderer`] takes a [`LinkResolver`]; this module is the
-//! implementation. It has to live on this side because the answer needs
+//! It lives here rather than in `litedoc4-md` — whose [`litedoc4_md::Renderer`]
+//! takes the [`LinkResolver`] this implements — because the answer needs
 //! [`LinkIndex`] and the IR, neither of which a markdown crate should know
 //! about, and the crate dependency runs `litedoc4-render` → `litedoc4-md`.
 //!
-//! **The first branch of `nameToLink?` is here too, and that is an M8 change.**
-//! A word that ends in `.lean` and contains a `/` is a path to a source file,
-//! and doc-gen4 turns it into a page with no index at all: the path is read as
-//! relative to the repository root and the extension is swapped. That is right
-//! for `Mathlib/Order/Basic.lean` and wrong for the target package, whose
-//! docstrings write the path relative to their own module — the produced page
-//! was never written, and 160 of the site's 32,868 internal links were dangling
-//! because of it 【実測 2026-08-16,
-//! `benchmarks/results/m8-ui2-dead-links.txt`】.
-//! [`NameIndex::module_for_source_path`] is the answer that consults
-//! `knownModules`, and gate UI-2 is what it is for.
+//! `nameToLink?`'s first branch is here for a related reason. A word that ends
+//! in `.lean` and contains a `/` is a path to a source file, and doc-gen4 turns
+//! it into a page with no index at all: the path is read as relative to the
+//! repository root and the extension is swapped. That is right for
+//! `Mathlib/Order/Basic.lean` and wrong for a package whose docstrings write
+//! the path relative to their own module — the produced page is never written,
+//! and 160 of the target site's 32,868 internal links were dangling because of
+//! it 【実測 2026-08-16, `benchmarks/results/m8-ui2-dead-links.txt`】.
+//! [`NameIndex::module_for_source_path`] consults `knownModules` instead.
 //!
-//! # Which name is documented where — three sources, not one
+//! doc-gen4 asks `env.name2ModIdx` for which name is documented where, because
+//! it holds the whole environment. This renderer holds none of it, so the map
+//! is assembled from three sources: `known` (the IR's `deps/*.json`,
+//! declarations and resolved references) is branch 2, the `.lidx`'s `\t`
+//! entries are branch 2 after it, and its `@` entries are branch 3.
+//! `known_modules` is the **union of all three**, because resolving with the
+//! `.lidx` alone drops links one anchor at a time and the page still renders.
 //!
-//! doc-gen4 asks `env.name2ModIdx`, which it has because it holds the whole
-//! environment. This renderer holds none of it, so the map is assembled
-//! (`render.ts:2001-2085`), and *which* of the three sources answers decides the
-//! shape of the link:
-//!
-//! | source | fills | reached by |
-//! |---|---|---|
-//! | `deps/*.json` + every declaration + every resolved reference of the IR | `known` | branch 2, and `knownModules` through its values |
-//! | the `\t` entries of the `.lidx` | the dependency closure's map | branch 2, after `known` |
-//! | the `@` entries of the `.lidx` | `knownModules` | branch 3 |
-//!
-//! `knownModules` is the **union of all three** (plan §5, pitfall 6): the IR's
-//! own module names, every module named as a value in `known`, and the `.lidx`'s
-//! `@` section. Resolving with the `.lidx` alone drops links, and the way it
-//! drops them is one anchor at a time — the page still renders, so a weak test
-//! passes. [`NameIndexBuilder::build`] takes the `.lidx` as an argument rather
-//! than letting it be forgotten.
-//!
-//! `known` is consulted **before** the `.lidx`, and the two are kept apart on
-//! purpose (`render.ts:2059-2064`): `known` also backs the signature path, which
-//! is byte-exact today, and a map fifty times larger underneath it would move
-//! results that are already right.
-//!
-//! # "A name that is a module" and "a module this run wrote a page for" differ
-//!
-//! `knownModules` answers the first question and [`NameIndex::has_page`] the
-//! second, and the gap between them is **modules of the package being
-//! documented that this run does not render**. A `lakefile.toml` may declare
-//! more than one `[[lean_lib]]` — `batteries` declares three — and
-//! `litedoc4 build --lib Batteries` extracts one of them while the `.lidx` holds
-//! the whole environment, so `BatteriesRecycling.*` is a known module, is in no
-//! dependency's map, and has no page 【実測 2026-08-17】. Reading absence from
-//! [`ExternalLinks`] as "this package's module, so link to its page" wrote a
-//! relative href to a file that was never created, which is the same dead link
-//! the empty-base state closed one level up (see [`crate::external`]).
-//!
-//! So the page set is carried separately: [`NameIndexBuilder::build`] freezes it
-//! **before** the union that widens `knownModules`, and
+//! "A name that is a module" and "a module this run wrote a page for" are
+//! different questions — [`NameIndex::has_page`] is the second one. The gap is
+//! **modules of the package being documented that this run does not render**: a
+//! `lakefile.toml` may declare more than one `[[lean_lib]]` (`batteries`
+//! declares three), so `--lib Batteries` extracts one of them while the `.lidx`
+//! holds the whole environment, and `BatteriesRecycling.*` is a known module
+//! with no page 【実測 2026-08-17】. So the page set is carried separately:
+//! [`NameIndexBuilder::build`] freezes it **before** the union, and
 //! [`NameIndex::link_to`]'s last branch consults it.
 
 use std::collections::{HashMap, HashSet};
@@ -79,18 +46,18 @@ use crate::external::ExternalLinks;
 use crate::link_index::LinkIndex;
 
 /// The prefix Lean prints on a private name. `nameToLink` refuses to look one
-/// up (`render.ts:940`), so a `_private.…` word in a code span stays text even
-/// when the map happens to know it.
+/// up, so a `_private.…` word in a code span stays text even when the map
+/// happens to know it.
 pub const PRIVATE_PREFIX: &str = "_private.";
 
 /// `moduleNameToLink`: the site root, the module's components as directories,
-/// and `.html` (`render.ts:385-387`).
+/// and `.html`.
 #[must_use]
 pub fn module_link(root: &str, module: &str) -> String {
     let mut out = String::with_capacity(root.len() + module.len() + 5);
     out.push_str(root);
-    // Unescaped, as [`crate::page_path`] is and for the same reason (M5-b): an
-    // href has to reach the file the renderer wrote.
+    // Unescaped, as `page_path` is and for the same reason: an href has to
+    // reach the file the renderer wrote.
     for (i, part) in litedoc4_ir::module_components(module)
         .into_iter()
         .enumerate()
@@ -104,9 +71,8 @@ pub fn module_link(root: &str, module: &str) -> String {
     out
 }
 
-/// `getRoot`: `../` once per component below the top, then `./`
-/// (`render.ts:389-393`). `Foo.Bar` sits two directories deep, so its pages link
-/// back through `.././`.
+/// `getRoot`: `../` once per component below the top, then `./`. `Foo.Bar` sits
+/// two directories deep, so its pages link back through `.././`.
 #[must_use]
 pub fn page_root(module: &str) -> String {
     let depth = litedoc4_ir::module_components(module).len() - 1;
@@ -118,15 +84,13 @@ pub fn page_root(module: &str) -> String {
     out
 }
 
-// --------------------------------------------------------------- name literals
-
-/// `Lean.isLetterLike` (`Init/Meta/Defs.lean:101-109`), which is what lets `α`,
-/// `ℕ` and `𝒜` start an identifier.
+/// `Lean.isLetterLike`, which is what lets `α`, `ℕ` and `𝒜` start an
+/// identifier.
 ///
-/// The last range is **above the BMP**. That is not a curiosity: it is the
-/// mathematical alphanumerics, the same block that makes UTF-16 order differ
-/// from UTF-8 order (plan §7, U1), and a port that quietly dropped it would
-/// still resolve every ASCII name — which is nearly all of them.
+/// The last range is **above the BMP** — the mathematical alphanumerics, the
+/// same block that makes UTF-16 order differ from UTF-8 order. A port that
+/// quietly dropped it would still resolve every ASCII name, which is nearly all
+/// of them.
 #[must_use]
 pub fn is_letter_like(c: char) -> bool {
     let c = c as u32;
@@ -142,8 +106,8 @@ pub fn is_letter_like(c: char) -> bool {
         || (0x100..=0x17f).contains(&c)
 }
 
-/// `Lean.isSubScriptAlnum` (`Init/Meta/Defs.lean:114-118`): the subscript digits
-/// and letters that may appear inside an identifier but not start one.
+/// `Lean.isSubScriptAlnum`: the subscript digits and letters that may appear
+/// inside an identifier but not start one.
 #[must_use]
 pub fn is_sub_script_alnum(c: char) -> bool {
     let c = c as u32;
@@ -162,7 +126,7 @@ fn is_id_rest(c: char) -> bool {
         || c == '_'
         // `'`, `!` and `?` are identifier characters in Lean. Rejecting them —
         // which an ASCII-identifier notion of "name" does — costs every `foo'`
-        // in the package its link 【実測: 9 anchors, stage 7b】.
+        // in the package its link 【実測: 9 anchors】.
         || c == '\''
         || c == '!'
         || c == '?'
@@ -170,19 +134,16 @@ fn is_id_rest(c: char) -> bool {
         || is_sub_script_alnum(c)
 }
 
-/// `Lean.Syntax.decodeNameLit ("`" ++ s)` — whether `s` is a name literal
-/// (`render.ts:995-1022`, i.e. `splitNameLitAux`, `Init/Meta/Defs.lean:1180-1203`,
-/// plus "not anonymous").
+/// `Lean.Syntax.decodeNameLit ("`" ++ s)` — whether `s` is a name literal.
 ///
 /// A component is `«…»`, an identifier ([`is_id_first`] then [`is_id_rest`]\*)
 /// or a run of digits, and after each component the rest must be empty or start
 /// with `.`.
 ///
 /// The empty string is **not** a name literal — it decodes to the anonymous
-/// name. That matters: `autoLinkInline` splits on separators and keeps the
-/// empty pieces between two of them, so this function is asked about `""`
-/// routinely, and a resolver that answered would put an empty anchor into every
-/// double space.
+/// name. `autoLinkInline` splits on separators and keeps the empty pieces
+/// between two of them, so this is asked about `""` routinely, and a resolver
+/// that answered would anchor every double space.
 #[must_use]
 pub fn is_name_lit(s: &str) -> bool {
     let bytes = s.as_bytes();
@@ -223,23 +184,14 @@ pub fn is_name_lit(s: &str) -> bool {
     }
 }
 
-// ------------------------------------------------------------------ the index
-
-/// Which name is documented in which module, which names are modules, and —
-/// since M7-c — where a **dependency's** source lives.
+/// Which name is documented in which module, which names are modules, and where
+/// a **dependency's** source lives. Built once per run and shared by every page.
 ///
-/// Built once per run by [`NameIndexBuilder`] and shared by every page. See the
-/// module comment for what goes in.
-///
-/// # Why the dependency map is in here
-///
-/// Because every caller that has to answer "what is the href for this name"
-/// already holds this index — the docstring resolver below, the signature path
-/// ([`crate::code::CodeRenderer::const_link`]) and the structure-field path
-/// ([`crate::decl::decl_name_to_link`]) — and the answer needs *both* the `.lidx`'s
-/// source range and the dependency map's prefix. Threading a second value
-/// through the same three constructors would let the two get out of step on the
-/// one thing [`NameIndex::link_to`] exists to keep together.
+/// The dependency map is in here because every caller that has to answer "what
+/// is the href for this name" already holds this index, and the answer needs
+/// *both* the `.lidx`'s source range and the dependency map's prefix. Threading
+/// a second value through the same three constructors would let the two get out
+/// of step on the one thing [`NameIndex::link_to`] keeps together.
 #[derive(Debug, Default)]
 pub struct NameIndex {
     known: HashMap<String, String>,
@@ -247,31 +199,27 @@ pub struct NameIndex {
     known_modules: HashSet<String>,
     page_modules: HashSet<String>,
     /// Set by [`NameIndexBuilder::build_with_a_page_for_every_module`] only.
-    /// `false` — the derived default — is the product's answer and the safe one:
-    /// a page has to be in `page_modules` to be linked to.
+    /// `false` — the derived default — is the safe answer: a page has to be in
+    /// `page_modules` to be linked to.
     every_module_has_a_page: bool,
     external: ExternalLinks,
     /// The **unescaped** spelling of a known module, back to the module — the
-    /// `.lidx`'s spelling of a name the IR quotes. See
-    /// [`NameIndex::module_for_unescaped`] for why it is a separate map and why
-    /// it is usually empty.
+    /// `.lidx`'s spelling of a name the IR quotes.
     unescaped_modules: HashMap<String, String>,
 }
 
 impl NameIndex {
-    /// A builder with nothing in it.
     #[must_use]
     pub fn builder() -> NameIndexBuilder {
         NameIndexBuilder::default()
     }
 
-    /// The module a name is declared in **according to the IR alone**
-    /// (`known`), which is the map the signature path reads.
+    /// The module a name is declared in **according to the IR alone**, which is
+    /// the map the signature path reads.
     ///
     /// Deliberately not the same lookup as [`NameIndex::module_of`]: the
     /// dependency closure's map is fifty times larger, and letting it under
-    /// `findLinkableParent` would move results that are byte-exact today
-    /// (`render.ts:2059-2064`).
+    /// `findLinkableParent` would move results that are right today.
     #[must_use]
     pub fn known(&self, name: &str) -> Option<&str> {
         self.known.get(name).map(String::as_str)
@@ -284,21 +232,18 @@ impl NameIndex {
         self.known(name).or_else(|| self.links.module_of(name))
     }
 
-    /// Whether a name **is a module** — the union of all three sources.
-    ///
-    /// Not the same question as [`NameIndex::has_page`]: this one decides which
-    /// branch of `nameToLink?` answers, and that one decides what the answer
-    /// looks like. A module of a dependency is `true` here.
+    /// The union of all three sources. Not the same question as
+    /// [`NameIndex::has_page`]: this one decides which branch of `nameToLink?`
+    /// answers, that one decides what the answer looks like. A module of a
+    /// dependency is `true` here.
     #[must_use]
     pub fn is_known_module(&self, name: &str) -> bool {
         self.known_modules.contains(name)
     }
 
     /// Whether **this run wrote a page for** `module` — the modules the builder
-    /// was fed, before the union that widens `known_modules`.
-    ///
-    /// This is the set the site actually has files for, and the reason it is
-    /// kept apart from `known_modules` is in the module comment.
+    /// was fed, before the union that widens `known_modules`. This is the set
+    /// the site actually has files for.
     #[must_use]
     pub fn has_page(&self, module: &str) -> bool {
         self.every_module_has_a_page || self.page_modules.contains(module)
@@ -307,45 +252,25 @@ impl NameIndex {
     /// The module an **unescaped** module name spells, or `None` when nothing
     /// or more than one thing answers to it.
     ///
-    /// # Why this exists
-    ///
-    /// A module component that is not an identifier is quoted, and the two
-    /// sides of this codebase disagree about whether to write the quotes: the
-    /// IR and a page's import list say `«Dep-Aux».Basic`, the `.lidx` says
-    /// `Dep-Aux.Basic`. A docstring that names the module the second way used
-    /// to get no link at all — not because the map lacked it, but because
-    /// `Dep-Aux.Basic` **is not a Lean name literal** ([`is_name_lit`] stops at
-    /// the `-`), so it never reached a lookup. Meanwhile a *source path*
-    /// spelling of the same module resolved, because
-    /// [`NameIndex::module_for_source_path`] escapes before it looks up.
-    ///
-    /// **The same question was being answered two ways** — CLAUDE.md's "judgment
-    /// in one place". This is the third place it is asked and the one that used
-    /// to have no answer 【実測 2026-08-22 →
+    /// A module component that is not an identifier is quoted, and the two sides
+    /// disagree about whether to write the quotes: the IR and a page's import
+    /// list say `«Dep-Aux».Basic`, the `.lidx` says `Dep-Aux.Basic`. The second
+    /// spelling reaches no other branch, because it **is not a Lean name
+    /// literal** ([`is_name_lit`] stops at the `-`) 【実測 2026-08-22 →
     /// `benchmarks/results/residual-sweep-2026-08-22.txt` §3】.
     ///
-    /// # Why a map and not `escape_module` on the query
-    ///
-    /// Because unescaping is not injective and escaping is not its inverse.
-    /// `«Dep-Aux».Basic` and `«Dep-Aux.Basic»` both unescape to
+    /// A map rather than `escape_module` on the query, because unescaping is not
+    /// injective: `«Dep-Aux».Basic` and `«Dep-Aux.Basic»` both unescape to
     /// `Dep-Aux.Basic`, and no rule applied to the query can tell which was
-    /// meant. Built as a map, the collision is **visible at build time** and the
-    /// entry is dropped: two answers is `None`, the same rule
-    /// [`NameIndex::module_for_source_path`] states — a link to the wrong page
-    /// is worse than no link.
+    /// meant. As a map the collision is visible at build time and the entry is
+    /// dropped — two answers is `None`.
     ///
-    /// # Why it is usually empty
-    ///
-    /// Only a module with a quoted component has a spelling different from its
-    /// own name, and one whose spelling is still a **name literal** is left out
-    /// as well: that string takes the ordinary branches, so answering here could
-    /// only move a byte that already renders. Mathlib contributes **0 entries**
-    /// to this map 【実測: 8,169 modules】.
-    ///
-    /// Note that the spelling being in `known_modules` does **not** disqualify
-    /// it — the `.lidx` puts unescaped spellings there itself, so that set holds
-    /// both spellings of the same module and membership says nothing about which
-    /// branch can reach the word.
+    /// It is usually empty: only a module with a quoted component has a spelling
+    /// different from its own name, and one whose spelling is still a name
+    /// literal is left out too, since that string takes the ordinary branches.
+    /// Mathlib contributes **0 entries** 【実測: 8,169 modules】. Being in
+    /// `known_modules` does **not** disqualify a spelling — the `.lidx` puts
+    /// unescaped spellings there itself.
     #[must_use]
     pub fn module_for_unescaped(&self, spelling: &str) -> Option<&str> {
         self.unescaped_modules.get(spelling).map(String::as_str)
@@ -355,21 +280,19 @@ impl NameIndex {
     /// when no known module matches it or more than one does.
     ///
     /// `path` is the word `nameToLink?`'s first branch took, without its
-    /// `.lean`: `EPI/Stam/ToBridge`. Its components are a module name —
-    /// `EPI.Stam.ToBridge` — and the question is which module of this run's
-    /// world that is:
+    /// `.lean` — `EPI/Stam/ToBridge`, whose components are a module name.
+    /// Which module that is:
     ///
-    /// 1. that name itself, when it is a known module. This is the
-    ///    repository-root-relative path doc-gen4 assumes, and it is what
+    /// 1. that name itself, when it is a known module — the
+    ///    repository-root-relative path doc-gen4 assumes, and what
     ///    `Mathlib/Order/Basic.lean` takes.
     /// 2. otherwise the one known module that has it as a **proper suffix on a
-    ///    component boundary**: `InformationTheory.Shannon.EPI.Stam.ToBridge`
-    ///    is a match for `EPI.Stam.ToBridge` and `XEPI.Stam.ToBridge` is not.
-    ///    This is the path a docstring writes relative to its own module, which
-    ///    is what the target package does.
+    ///    component boundary**, which is the path a docstring writes relative to
+    ///    its own module: `A.B.EPI.Stam.ToBridge` matches `EPI.Stam.ToBridge`
+    ///    and `XEPI.Stam.ToBridge` does not.
     ///
-    /// **Two matches is `None`, not the first one.** A link to the wrong page
-    /// is worse than no link: the reader who follows a 404 knows something is
+    /// **Two matches is `None`, not the first one.** A link to the wrong page is
+    /// worse than no link: the reader who follows a 404 knows something is
     /// missing, and the reader who lands on a plausible wrong page does not.
     #[must_use]
     pub fn module_for_source_path(&self, path: &str) -> Option<&str> {
@@ -400,18 +323,12 @@ impl NameIndex {
         found
     }
 
-    /// **The link every page draws** (M7-c), and the only copy of the decision:
-    /// where to point at `module`, anchored at the declaration `anchor` when
-    /// there is one — or `None` when the honest answer is no link at all.
+    /// **The link every page draws**, and the only copy of the decision. Every
+    /// call site in this crate that builds a link to *another* module goes
+    /// through here; the one that does not is a declaration's own self-link,
+    /// which is on this page by construction.
     ///
-    /// `module` is where the target is defined and `anchor` is the declaration
-    /// being linked to, or `None` when the link is to a module rather than into
-    /// one ([`NameIndex::link_to_module`] is that call spelled out). Every call
-    /// site in this crate that builds a link to *another* module goes through
-    /// here; the one that does not is a declaration's own self-link, which is on
-    /// this page by construction.
-    ///
-    /// # Four questions, because absence means four different things
+    /// Four questions, because absence means four different things:
     ///
     /// | asked | answer | which module |
     /// |---|---|---|
@@ -425,18 +342,16 @@ impl NameIndex {
     /// package's own module" and that in turn meant "a page exists". **Neither
     /// implication holds**, and each was a dead link 【実測 2026-08-17】: a
     /// `path` dependency breaks the first (see [`crate::external`]) and
-    /// `batteries` breaks the second (see the module comment). So the questions
-    /// are asked separately and in this order — question 2 has to come before 3,
-    /// because a dependency's module has no page either and answering it with
-    /// question 3 would lose *why* there is no link.
+    /// `batteries` breaks the second. Question 2 has to come before 3, because a
+    /// dependency's module has no page either and answering it with question 3
+    /// would lose *why* there is no link.
     ///
-    /// **Question 0 is not a preference between two links, it is a different
-    /// question** (A-1). It asks whether the dependency's own documentation site
-    /// was **verified to document this name**, and only a `yes` answers; a `no`
-    /// falls to question 1 and gets the version-pinned source, which is where
-    /// every dependency link went before the flag existed. There is no third
-    /// outcome and in particular no "try the docs site and see": a 404 is not
-    /// visible from here, and avoiding one is the whole reason the pin is there.
+    /// **Question 0 is a different question, not a preference between two
+    /// links.** It asks whether the dependency's own documentation site was
+    /// **verified to document this name**; a `no` falls to question 1 and gets
+    /// the version-pinned source. There is in particular no "try the docs site
+    /// and see": a 404 is not visible from here, and avoiding one is the whole
+    /// reason the pin is there.
     ///
     /// **`None` means "render the name, draw no link"**. Every caller turns that
     /// into text, and none of them falls through to a later branch: a resolved
@@ -453,8 +368,8 @@ impl NameIndex {
         }
         // Membership rather than `url_for`'s answer: that one folds "not a
         // dependency" and "a dependency with nothing to build a URL from" into
-        // the same `None`, and those two get different answers here.
-        // The *unescaped* first component, as `url_for` looks it up.
+        // the same `None`, and those two get different answers here. The
+        // component is the *unescaped* one, as `url_for` looks it up.
         if litedoc4_ir::module_components(module)
             .first()
             .is_some_and(|component| self.external.base_for(component).is_some())
@@ -472,9 +387,6 @@ impl NameIndex {
         Some(out)
     }
 
-    /// [`NameIndex::link_to`] for a link **to** a module rather than into one:
-    /// the page frame's import list, where there is no declaration.
-    ///
     /// Its own method rather than `link_to(root, module, None)` at the call site
     /// so that the import list cannot drift onto a second rule — the anchor is
     /// the only thing that differs, and a module has no source range to look up.
@@ -483,7 +395,7 @@ impl NameIndex {
         self.link_to(root, module, None)
     }
 
-    /// Names in `known` (the IR's own map).
+    /// Names in `known`, the IR's own map.
     #[must_use]
     pub fn len(&self) -> usize {
         self.known.len()
@@ -507,8 +419,6 @@ impl NameIndex {
     }
 }
 
-/// Accumulates [`NameIndex`] in the order `render.ts:2008-2085` does.
-///
 /// Order is behaviour, not taste. A declaration overwrites whatever was there;
 /// a reference only fills a gap; and the modules are read after the dependency
 /// slices, so a name this package declares beats the same name in a dependency.
@@ -528,8 +438,6 @@ impl NameIndexBuilder {
         self
     }
 
-    /// One module of the IR: its name, its declarations, and the references the
-    /// extractor resolved for each of them.
     pub fn module(&mut self, module: &ModuleFile) -> &mut Self {
         self.module_name(&module.module);
         for decl in &module.declarations {
@@ -564,13 +472,10 @@ impl NameIndexBuilder {
         self
     }
 
-    /// A module of the package being rendered. Every one of them is a link
-    /// target whether or not it declares anything.
-    ///
-    /// **This is also the page set** ([`NameIndex::has_page`]): the modules fed
-    /// here — by [`NameIndexBuilder::module`], once per module of the IR — are
-    /// the ones the run writes files for, and a module named only as a value in
-    /// `known` or in the `.lidx` is not one of them.
+    /// A link target whether or not it declares anything, and **also the page
+    /// set** ([`NameIndex::has_page`]): the modules fed here are the ones the
+    /// run writes files for, and a module named only as a value in `known` or in
+    /// the `.lidx` is not one of them.
     pub fn module_name(&mut self, module: &str) -> &mut Self {
         if !self.modules.contains(module) {
             self.modules.insert(module.to_owned());
@@ -578,25 +483,17 @@ impl NameIndexBuilder {
         self
     }
 
-    /// Closes the index over the dependency closure's map and the dependency
-    /// **link** map.
+    /// Where the three sources of `known_modules` meet.
     ///
-    /// This is where the three sources of `knownModules` meet
-    /// (`render.ts:2051-2052, 2079`). Taking the `.lidx` by value here is the
-    /// reason a caller cannot finish without deciding about it: the product
-    /// always has one (plan 決定 4), and passing [`LinkIndex::default`] is a
-    /// visible choice rather than an omission.
+    /// Both arguments are taken by value so that a caller cannot finish without
+    /// deciding about them: an empty [`ExternalLinks`] leaves every link into a
+    /// dependency a relative page link to a page this run never wrote, so
+    /// passing a default has to be something a caller *says*.
     ///
-    /// **`external` is the second argument for exactly the same reason** (M7-c).
-    /// [`ExternalLinks::default`] is the pre-M7 renderer — every link into a
-    /// dependency stays a relative page link — and that has to be something a
-    /// caller *says*, because the failure it produces is a site full of hrefs
-    /// pointing at pages this run never wrote.
-    ///
-    /// **The page set is taken here, before the union** (2026-08-17): the
-    /// modules fed to this builder are the ones the run renders, and the two
-    /// sources below only widen "which names are modules". Widening both is the
-    /// dead link the module comment describes.
+    /// **The page set is taken here, before the union**: the modules fed to this
+    /// builder are the ones the run renders, and the two sources below only
+    /// widen "which names are modules". Widening both is the dead link the
+    /// module comment describes.
     #[must_use]
     pub fn build(self, links: LinkIndex, external: ExternalLinks) -> NameIndex {
         let pages = self.modules.clone();
@@ -606,17 +503,12 @@ impl NameIndexBuilder {
     /// [`NameIndexBuilder::build`] for a world where **every module has a
     /// page**, which no product run is and none should become.
     ///
-    /// It is what the frozen oracles need. doc-gen4 and the prototype rendered
-    /// the whole environment, so their bytes link into `Mathlib.*`, into the
-    /// modules the `.lidx` groups its entries under, and into the module a
-    /// private name's prefix spells — a list no page set could be enumerated
-    /// from, since the last of those is conjured from the name rather than read
-    /// out of a map. Resolving a fixture in a *run's* world would drop links the
-    /// oracle has and report it as a difference in this crate's output.
-    ///
-    /// Spelling it as a second constructor rather than an argument keeps the
-    /// assumption in one place: the product path cannot reach it by passing a
-    /// wrong flag, and a reader of a test can see which world is being claimed.
+    /// The frozen oracles need it: they came from a renderer that walked the
+    /// whole environment, so their bytes link into modules no page set could be
+    /// enumerated from — the last of them is conjured from a private name's
+    /// prefix rather than read out of a map. A second constructor rather than an
+    /// argument, so that the product path cannot reach it by passing a wrong
+    /// flag.
     #[must_use]
     pub fn build_with_a_page_for_every_module(
         self,
@@ -626,8 +518,6 @@ impl NameIndexBuilder {
         self.close(links, external, HashSet::new(), true)
     }
 
-    /// The union `knownModules` is (`render.ts:2051-2052, 2079`), with the page
-    /// set the caller decided on.
     fn close(
         self,
         links: LinkIndex,
@@ -657,14 +547,10 @@ impl NameIndexBuilder {
             // ever consulted for a word they refuse.
             //
             // **The test is `is_name_lit`, not `modules.contains`**【実測
-            // 2026-08-22】. The first version asked whether a known module
-            // already answered to the spelling, on the reasoning that such a
-            // string would be reached by branch 3 — and the map came out
-            // **empty on the very fixture it was written for**. `known_modules`
-            // is a *mixture of spellings*: the IR contributes `«Dep-Aux».Basic`
-            // and the `.lidx`'s `@` section contributes `Dep-Aux.Basic` for the
-            // same module. Being in that set is not the same question as being
-            // reachable, and only the second one is about bytes moving.
+            // 2026-08-22】: `known_modules` is a *mixture of spellings*, since
+            // the IR contributes `«Dep-Aux».Basic` and the `.lidx`'s `@` section
+            // `Dep-Aux.Basic` for the same module, so membership is not the same
+            // question as reachability.
             if spelling == *module || is_name_lit(&spelling) {
                 continue;
             }
@@ -688,16 +574,14 @@ impl NameIndexBuilder {
     }
 }
 
-// ------------------------------------------------------------------- per page
-
-/// The declarations `nameToLink`'s last branch scans, in the order it scans them
-/// (`render.ts:1910-1918`).
+/// The declarations `nameToLink`'s last branch scans, in the order it scans
+/// them.
 ///
-/// `res.moduleInfo[current].members` is every `DocInfo` of the module — including
-/// the ones that get no page entry, because doc-gen4 filters that list with
-/// `filterDocInfo` and not with `shouldRender` — minus the private ones, in
+/// `res.moduleInfo[current].members` is every `DocInfo` of the module —
+/// including the ones that get no page entry, because doc-gen4 filters that list
+/// with `filterDocInfo` and not with `shouldRender` — minus the private ones, in
 /// declaration-range order. Passing the IR's own order instead picks the wrong
-/// one of two candidates 【実測: 6 anchors, stage 7b】.
+/// one of two candidates 【実測: 6 anchors】.
 #[must_use]
 pub fn module_decl_names(module: &ModuleFile) -> Vec<&str> {
     let mut decls: Vec<&Decl> = module
@@ -709,12 +593,9 @@ pub fn module_decl_names(module: &ModuleFile) -> Vec<&str> {
     decls.into_iter().map(|d| d.name.as_str()).collect()
 }
 
-/// [`LinkResolver`] for one page: the run's [`NameIndex`], the page's root, and
-/// the page's own declarations.
-///
-/// Two of the four branches depend on the page rather than the run, which is why
-/// this is per page and not per run: the root prefixes every link, and the last
-/// branch searches the current module.
+/// [`LinkResolver`] for one page. Two of the four branches depend on the page
+/// rather than the run, which is why this is per page: the root prefixes every
+/// link, and the last branch searches the current module.
 pub struct PageLinks<'a> {
     index: &'a NameIndex,
     root: &'a str,
@@ -725,17 +606,12 @@ impl<'a> PageLinks<'a> {
     /// `root` is [`page_root`] of the module being rendered, `decl_names` is
     /// [`module_decl_names`] of it.
     ///
-    /// # Panics
-    ///
-    /// In debug builds, if a name in `decl_names` is not in `index`. That is
-    /// the invariant the last branch of [`LinkResolver::name_to_link`] stands
-    /// on, and it holds by calling convention alone: `decl_names` is a plain
-    /// slice, and only a caller that took it from a module the builder was fed
-    /// can keep it. Checking it here is what makes a broken wiring name
-    /// *itself* — the resolver reached with a name it cannot place is doing
-    /// nothing wrong, so failing there points at the wrong thing.
-    ///
-    /// The check is debug-only because it walks `decl_names` on every page.
+    /// Panics in debug builds if a name in `decl_names` is not in `index` — the
+    /// invariant [`LinkResolver::name_to_link`]'s last branch stands on, which
+    /// holds by calling convention alone because `decl_names` is a plain slice.
+    /// Checking it here is what makes a broken wiring name *itself*: the
+    /// resolver reached with a name it cannot place is doing nothing wrong.
+    /// Debug-only because it walks `decl_names` on every page.
     #[must_use]
     pub fn new(index: &'a NameIndex, root: &'a str, decl_names: &'a [&'a str]) -> Self {
         #[cfg(debug_assertions)]
@@ -750,20 +626,15 @@ impl<'a> PageLinks<'a> {
     }
 
     /// [`PageLinks::new`] without the check, for a world that is a **slice** of
-    /// a run's rather than a whole one.
+    /// a run's rather than a whole one. Not `unsafe` and not a speed knob: all
+    /// it can cost is the panic moving back inside `name_to_link`'s last branch.
     ///
-    /// Not `unsafe` and not a speed knob: the only thing it can cost is the
-    /// panic moving back to where it was, inside the last branch of
-    /// `name_to_link`, when a name that branch matches turns out not to be in
-    /// `known`.
-    ///
-    /// The caller this exists for is `tests/autolink.rs`: the prototype's
-    /// recorded cases carry a `known` holding the names each docstring needs
-    /// and no more — **2,263 of the fixture's 2,492 `declNames` are outside it**
-    /// 【実測 2026-08-23】 — so the slice is the fixture's shape, not a wiring
-    /// mistake. A run has no such slice: `render_site` feeds every module of the
-    /// IR to the builder before it renders any page from it
-    /// (`site.rs:172-174`).
+    /// The caller this exists for is `tests/autolink.rs`: the frozen cases carry
+    /// a `known` holding the names each docstring needs and no more — **2,263 of
+    /// the fixture's 2,492 `declNames` are outside it** 【実測 2026-08-23】 — so
+    /// the slice is the fixture's shape, not a wiring mistake. A run has no such
+    /// slice, because `render_site` feeds every module of the IR to the builder
+    /// before it renders any page from it.
     #[must_use]
     pub const fn new_unchecked(
         index: &'a NameIndex,
@@ -777,8 +648,6 @@ impl<'a> PageLinks<'a> {
         }
     }
 
-    /// A docstring renderer wired to this page.
-    ///
     /// Use this rather than [`Renderer::new`]: the root reaches the output
     /// through two paths — the renderer's own `extendLink` and this resolver's
     /// `moduleNameToLink` — and handing them different values would produce
@@ -790,8 +659,8 @@ impl<'a> PageLinks<'a> {
 }
 
 impl LinkResolver for PageLinks<'_> {
-    /// `nameToLink?` from its second branch on (`render.ts:938-956`); the first
-    /// is [`PageLinks::source_path_to_link`].
+    /// `nameToLink?` from its second branch on; the first is
+    /// [`PageLinks::source_path_to_link`].
     ///
     /// In order: a name literal or nothing; the name in `known` then in the
     /// `.lidx`, unless it is private; the name as a module; and finally the
@@ -799,9 +668,7 @@ impl LinkResolver for PageLinks<'_> {
     /// which is what links a bare `succ` inside `Nat`'s page.
     ///
     /// Three of the four branches name a module that may belong to a
-    /// dependency, so all three go through [`NameIndex::link_to`] (M7-c). The
-    /// second branch is where most of them are: it is the one the `.lidx`
-    /// answers, and the `.lidx` *is* the dependency closure.
+    /// dependency, so all three go through [`NameIndex::link_to`].
     ///
     /// **A branch that answers returns its answer, `None` included**: when the
     /// module is an unpinnable dependency's the word stays a code span, and the
@@ -810,11 +677,9 @@ impl LinkResolver for PageLinks<'_> {
     /// in `succ`, which is a wrong link where there was going to be none.
     fn name_to_link(&self, s: &str) -> Option<String> {
         if !is_name_lit(s) {
-            // **The only place the unescaped spelling is consulted, and that is
-            // what makes this change byte-neutral**: every branch below is
-            // reached only by a name literal, and this arm returned `None`
-            // unconditionally until 2026-08-22. A word that renders as a link
-            // today is a name literal and cannot arrive here.
+            // The only place the unescaped spelling is consulted, and every
+            // branch below is reached only by a name literal — so nothing that
+            // resolves elsewhere can arrive here.
             let module = self.index.module_for_unescaped(s)?;
             return self.index.link_to(self.root, module, None);
         }
@@ -835,9 +700,9 @@ impl LinkResolver for PageLinks<'_> {
             let k = want.len().min(have.len());
             if want[..k] == have[..k] {
                 // Every name in `decl_names` came from a module that was fed to
-                // the builder, so `known` has it — which is what
-                // `PageLinks::new` checks, so that a caller who broke the
-                // invariant hears about it there rather than here.
+                // the builder, so `known` has it — which `PageLinks::new`
+                // checks, so that a caller who broke the invariant hears about
+                // it there rather than here.
                 let module = self
                     .index
                     .known(name)
@@ -848,11 +713,11 @@ impl LinkResolver for PageLinks<'_> {
         None
     }
 
-    /// `nameToLink?`'s first branch, **through the index** (M8, gate UI-2):
+    /// `nameToLink?`'s first branch, **through the index**:
     /// [`NameIndex::module_for_source_path`] decides which module the path
     /// names, and the link is that module's page — or its pinned source, when
     /// the module belongs to a dependency, since this goes through
-    /// [`NameIndex::link_to`] like every other module link (M7-c).
+    /// [`NameIndex::link_to`] like every other module link.
     ///
     /// `root` is the renderer's, which is [`PageLinks::root`] by construction
     /// ([`PageLinks::renderer`]); taking it as an argument is what lets the
@@ -917,8 +782,8 @@ mod tests {
         }
     }
 
-    /// The range that lives above the BMP, on its own: dropping it leaves every
-    /// ASCII name resolving, so nothing else in a test suite would notice.
+    /// Dropping this range leaves every ASCII name resolving, so nothing else
+    /// in the suite would notice.
     #[test]
     fn letter_like_reaches_the_mathematical_alphanumerics() {
         assert!(is_letter_like('\u{1d49c}'));
@@ -959,8 +824,6 @@ mod tests {
         serde_json::from_str(MODULE_JSON).expect("the literal is schema 5")
     }
 
-    /// The page's scan list is declaration-range order with the private names
-    /// removed — not the IR's order, and not a sort by name.
     #[test]
     fn decl_names_are_in_declaration_range_order_without_the_private_ones() {
         assert_eq!(module_decl_names(&module()), ["Pkg.Two.a", "Pkg.Two.b"]);
@@ -987,13 +850,10 @@ mod tests {
         assert_eq!(index.known("_private.Pkg.Two.hidden"), Some("Pkg.Two"));
     }
 
-    /// The union, source by source. Each of the three contributes a module that
-    /// the other two do not have, so dropping any one of them fails here.
-    ///
-    /// `Pkg.Empty` is the load-bearing one for the first source: a module that
-    /// declares nothing is not a value in `known` either, so it is a link
-    /// target only because the IR listed it. Modules that do declare something
-    /// hide that source behind the second.
+    /// Each of the three sources contributes a module the other two do not
+    /// have, so dropping any one of them fails here. `Pkg.Empty` is the
+    /// load-bearing one: a module that declares nothing is not a value in
+    /// `known` either, so it is a link target only because the IR listed it.
     #[test]
     fn known_modules_is_the_union_of_three_sources() {
         let mut builder = NameIndex::builder();
@@ -1014,14 +874,9 @@ mod tests {
         PageLinks::new(index, "../", decl_names).name_to_link(s)
     }
 
-    /// A `decl_names` the index does not know is refused where it is handed
-    /// over, not where it is read.
-    ///
-    /// `decl_names` is a plain `&[&str]`, so nothing in the type keeps a caller
-    /// from passing a name whose module was never fed to the builder. The last
-    /// branch of `name_to_link` then looks that name up in `known`, finds
-    /// nothing, and panics — and the panic reads as if the resolver were
-    /// broken. It is the input that is.
+    /// Refused where it is handed over, not where it is read: the last branch
+    /// of `name_to_link` would panic looking the name up in `known`, and that
+    /// panic reads as if the resolver were broken. It is the input that is.
     #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "Nowhere.gone")]
@@ -1033,15 +888,11 @@ mod tests {
         let _ = PageLinks::new(&index, "../", &["Nowhere.gone"]);
     }
 
-    /// The `.lidx`'s spelling of a quoted module resolves — and stops resolving
-    /// the moment two modules answer to it.
-    ///
-    /// **Both halves are the point.** The first is the behaviour the measurement
-    /// asked for 【実測 2026-08-22】: `Dep-Aux.Basic` is how the `.lidx` writes
-    /// `«Dep-Aux».Basic`, and it used to get no link because it is not a name
-    /// literal. The second is why this is a map rather than an `escape` on the
-    /// query: `«Dep-Aux.Basic»` is a *different* module with the same unescaped
-    /// spelling, and no rule applied to the query can choose between them.
+    /// Both halves are the point. `Dep-Aux.Basic` is how the `.lidx` writes
+    /// `«Dep-Aux».Basic`, and it reaches no other branch because it is not a
+    /// name literal 【実測 2026-08-22】. The second half is why this is a map
+    /// rather than an `escape` on the query: `«Dep-Aux.Basic»` is a *different*
+    /// module with the same unescaped spelling.
     #[test]
     fn the_unescaped_spelling_of_a_module_resolves_unless_it_is_ambiguous() {
         let mut builder = NameIndex::builder();
@@ -1076,10 +927,8 @@ mod tests {
         assert_eq!(resolve(&index, &[], "Dep-Aux.Basic"), None);
     }
 
-    /// A spelling a **real module** owns is not taken over by this map.
-    ///
     /// `A.B` is a name literal, so it takes the ordinary branches; letting the
-    /// map answer for it would be the one way this change could move a byte.
+    /// map answer for it is the one way this map could move a byte.
     #[test]
     fn a_real_module_keeps_its_own_spelling() {
         let mut builder = NameIndex::builder();
@@ -1098,8 +947,8 @@ mod tests {
         );
     }
 
-    /// The `.lidx` the branch tests share: one dependency declaration, with a
-    /// source range, and one dependency module that declares nothing.
+    /// One dependency declaration with a source range, and one dependency
+    /// module that declares nothing.
     const LIDX: &str = "@Lidx.Only\nDep.M\n\tDep.only_in_lidx\t12\t14\n";
 
     #[test]
@@ -1144,13 +993,10 @@ mod tests {
         assert_eq!(resolve(&index, &names, "_private.Pkg.Two.hidden"), None);
     }
 
-    /// **M7-c**: the same four branches with a dependency map, one root of which
-    /// (`Dep`) is a dependency and one of which (`Pkg`) is not.
-    ///
-    /// The three branches that can name another package's module move to its
-    /// pinned source; the two that can only name this package's own do not. The
-    /// case above is the same assertions with an empty map, so the two together
-    /// are both sides of [`NameIndex::link_to`]'s first two branches.
+    /// The same four branches with a dependency map, one root of which (`Dep`)
+    /// is a dependency and one of which (`Pkg`) is not. The case above is the
+    /// same assertions with an empty map, so the two together are both sides of
+    /// [`NameIndex::link_to`]'s first two branches.
     #[test]
     fn a_docstring_link_into_a_dependency_is_a_blob_url() {
         let mut builder = NameIndex::builder();
@@ -1175,8 +1021,7 @@ mod tests {
             resolve(&index, &names, "Lidx.Only").as_deref(),
             Some("https://h/o/l/blob/def/Lidx/Only.lean")
         );
-        // 2 and 4 into this package: **unchanged**, which is what §M7
-        // 「自パッケージのリンクを巻き込まない」 means at a call site.
+        // 2 and 4 into this package: **unchanged**.
         assert_eq!(
             resolve(&index, &names, "Pkg.Two.a").as_deref(),
             Some("../Pkg/Two.html#Pkg.Two.a")
@@ -1186,7 +1031,7 @@ mod tests {
             Some("../Pkg/Two.html#Pkg.Two.a")
         );
         // A name the .lidx has no range for keeps the file's URL rather than
-        // losing the link (§M7「行範囲が取れない宣言でリンクを消さない」).
+        // losing the link.
         let no_range = NameIndex::builder().build(
             LinkIndex::parse("Dep.M\n\tDep.bare\n"),
             ExternalLinks::new([("Dep", "https://host/o/dep/blob/abc")]),
@@ -1197,15 +1042,15 @@ mod tests {
         );
     }
 
-    /// **2026-08-17**, the docstring half of the fix: a name that resolves into
-    /// a dependency with no version-pinned URL stays a code span.
+    /// A name that resolves into a dependency with no version-pinned URL stays
+    /// a code span.
     ///
     /// The bytes are asserted through the renderer, not just the resolver,
-    /// because the failure mode this replaced is invisible at the resolver: a
+    /// because the failure this replaced is invisible at the resolver: a
     /// `<a href>` that renders perfectly and 404s. `Dep.only_in_lidx` is
-    /// load-bearing in the other direction too — it is a name this page's own
-    /// declarations *end* with nothing like, so branch 4 cannot quietly answer
-    /// for it, and `a` right after it is the one that could.
+    /// load-bearing in the other direction too — this page's own declarations
+    /// end with nothing like it, so branch 4 cannot quietly answer for it, and
+    /// `a` right after it is the one that could.
     #[test]
     fn a_docstring_name_in_a_dependency_that_cannot_be_pinned_stays_text() {
         let mut builder = NameIndex::builder();
@@ -1247,11 +1092,9 @@ mod tests {
     }
 
     /// [`NameIndex::link_to`]'s four answers on **one** index, which is the only
-    /// way to see that they are one decision and not four call sites.
-    ///
-    /// M7-c's two rows, the 2026-08-17 empty-base row, and the same day's
-    /// no-page row. The map and the page set disagree on purpose: `Mathlib` is
-    /// pinned, `Dep` is not, `Pkg.Two` has a page and `Pkg.One` does not.
+    /// way to see that they are one decision and not four call sites. The map
+    /// and the page set disagree on purpose: `Mathlib` is pinned, `Dep` is not,
+    /// `Pkg.Two` has a page and `Pkg.One` does not.
     #[test]
     fn a_link_takes_one_of_four_branches() {
         const MATHLIB: &str = "https://host/o/mathlib4/blob/fabf563";
@@ -1272,8 +1115,7 @@ mod tests {
                 .as_deref(),
             Some("https://host/o/mathlib4/blob/fabf563/Mathlib/Order/Basic.lean#L67-L67")
         );
-        // …and a declaration the `.lidx` has no range for keeps the file's URL
-        // (§M7「行範囲が取れない宣言でリンクを消さない」).
+        // …and a declaration the `.lidx` has no range for keeps the file's URL.
         assert_eq!(
             index
                 .link_to(".././", "Mathlib.Order.Basic", Some("no.range"))
@@ -1299,15 +1141,13 @@ mod tests {
         assert_eq!(index.link_to_module("../", "Pkg.One"), None);
     }
 
-    /// **The branch in front of all four** (A-1): a dependency whose own
-    /// documentation site was verified to hold the name.
+    /// The branch in front of all four: a dependency whose own documentation
+    /// site was verified to hold the name.
     ///
-    /// The map is [`a_link_takes_one_of_four_branches`]'s with one difference —
-    /// mathlib now publishes documentation, and its table holds one of the two
-    /// names and one of the two modules. So the same index answers both ways,
-    /// which is the statement that this is a lookup and not a preference: a name
-    /// **on** the site gets the site, a name **off** it gets the version-pinned
-    /// source it got before the flag existed, and neither is a retry of the
+    /// The map is [`a_link_takes_one_of_four_branches`]'s with mathlib
+    /// publishing documentation that holds one of the two names and one of the
+    /// two modules. The same index answering both ways is the statement that
+    /// this is a lookup and not a preference — neither outcome is a retry of the
     /// other.
     #[test]
     fn a_verified_name_takes_the_dependencys_own_documentation() {
@@ -1362,16 +1202,16 @@ mod tests {
         );
     }
 
-    /// **2026-08-17, `batteries`**: a module of *this* package that this run
-    /// writes no page for is not a link target either.
+    /// A module of *this* package that this run writes no page for is not a link
+    /// target either.
     ///
     /// `batteries`' `lakefile.toml` declares three `[[lean_lib]]`s, so
-    /// `--lib Batteries` extracts one of them while the `.lidx` — which is the
-    /// whole environment — holds all three. `Pkg.Recycling` is that shape: a
-    /// module no dependency map says anything about, known to the index through
-    /// the `.lidx` and through a resolved reference, and with **no page**. The
-    /// relative link this used to draw was a 404
-    /// 【実測 2026-08-17, `tools/site-gate.sh`: DEAD internal link 1】.
+    /// `--lib Batteries` extracts one of them while the `.lidx` — the whole
+    /// environment — holds all three. `Pkg.Recycling` is that shape: a module no
+    /// dependency map says anything about, known to the index through the
+    /// `.lidx` and through a resolved reference, and with **no page**. A
+    /// relative link there is a 404 【実測 2026-08-17, `tools/site-gate.sh`:
+    /// DEAD internal link 1】.
     #[test]
     fn a_module_of_this_package_with_no_page_is_not_a_link() {
         let mut builder = NameIndex::builder();
@@ -1416,14 +1256,11 @@ mod tests {
         );
     }
 
-    /// **M8, gate UI-2**: a source path is a question for the index like any
-    /// other, and the answers it has no right to give are the interesting ones.
-    ///
     /// `PkgSole.Target` is the load-bearing distractor: it ends with the bytes
     /// of `Sole.Target` and is not a match, because the match has to fall on a
     /// component boundary. A port that compared bytes would find two candidates
-    /// for `Sole/Target.lean` and answer `None` — so this case fails in the
-    /// *safe* direction, which is why it is asserted positively.
+    /// for `Sole/Target.lean` and answer `None` — this case fails in the *safe*
+    /// direction, which is why it is asserted positively.
     #[test]
     fn a_source_path_is_resolved_through_the_known_modules() {
         let mut builder = NameIndex::builder();
@@ -1467,8 +1304,6 @@ mod tests {
         assert_eq!(index.module_for_source_path("Sole"), None);
     }
 
-    /// The same three answers as bytes, through the renderer that asks the
-    /// question — including the one that must **not** appear.
     #[test]
     fn an_unresolved_source_path_stays_a_code_span() {
         let mut builder = NameIndex::builder();
@@ -1490,8 +1325,7 @@ mod tests {
             render("`Deep/Sub/Thing.lean`\n"),
             "<p><code><a href=\"../Pkg/Deep/Sub/Thing.html\">Deep/Sub/Thing.lean</a></code></p>"
         );
-        // Into a dependency: the pinned source, like every other module link
-        // (M7-c).
+        // Into a dependency: the pinned source, like every other module link.
         assert_eq!(
             render("`Dep/Sub/Thing.lean`\n"),
             "<p><code><a href=\"https://host/o/dep/blob/abc/Dep/Sub/Thing.lean\">\
