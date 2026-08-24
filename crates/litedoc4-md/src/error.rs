@@ -1,28 +1,15 @@
-//! What can go wrong between md4c and the AST.
-
 use std::fmt;
 
-/// A parse that did not produce a document.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
-    /// The input is longer than `MD_SIZE` can address. md4c's offsets are
-    /// 32-bit, so this is a hard limit of the parser, not of this crate.
-    InputTooLarge {
-        /// The input's length in bytes.
-        bytes: usize,
-    },
-    /// `md_parse` reported a runtime failure (it returns `-1` for, e.g., a
-    /// failed allocation).
-    Md4c {
-        /// `md_parse`'s return value.
-        code: i32,
-    },
-    /// md4c handed back a byte range that is not valid UTF-8. Its callbacks
-    /// hand out slices of the input, which was a `&str`, so this cannot happen
-    /// unless the parser or this binding is wrong.
+    /// md4c's offsets are 32-bit: this is the parser's limit, not this crate's.
+    InputTooLarge { bytes: usize },
+    /// `md_parse` returned non-zero (e.g. `-1` for a failed allocation).
+    Md4c { code: i32 },
+    /// md4c's callbacks hand out slices of the input, which was a `&str`, so
+    /// this cannot happen unless the parser or this binding is wrong.
     NotUtf8,
-    /// md4c produced something MD4Lean's ADT has no constructor for, so this
-    /// crate's AST has none either.
+    /// md4c produced something MD4Lean's ADT has no constructor for.
     ///
     /// Only reachable by parsing with flags doc-gen4 does not use: inline raw
     /// HTML puts text directly in a paragraph where `MD4Lean.Text` allows only
@@ -51,5 +38,4 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The result of a parse.
 pub type Result<T> = std::result::Result<T, Error>;

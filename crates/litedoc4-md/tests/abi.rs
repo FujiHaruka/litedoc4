@@ -1,16 +1,15 @@
 //! Every number in this file comes from the **C compiler**, not from a reading
 //! of `md4c.h`.
 //!
-//! `src/ffi.rs` is a hand transcription of the vendored header. The failure
-//! mode that transcription has is silent: a field of the wrong width, a
-//! reordered pair, an enumerator off by one — all of them still compile, still
-//! link, and then make the parser read details from the wrong place. So
+//! `src/ffi.rs` is a hand transcription of the vendored header, and that
+//! transcription's failure mode is silent: a field of the wrong width, a
+//! reordered pair, an enumerator off by one all still compile, still link, and
+//! then make the parser read details from the wrong place. So
 //! `csrc/layout_probe.c` computes `sizeof`, `_Alignof`, `offsetof` and every
-//! enumerator and flag from the same header, and the tests below assert that
-//! the Rust side agrees with all of them, name by name.
-//!
-//! A name that exists on one side and not the other is a failure too: this is
-//! also what notices that `vendor/md4c` moved to a version with a new field.
+//! enumerator and flag from the same header, and the tests below assert name by
+//! name that the Rust side agrees. A name that exists on one side and not the
+//! other fails too, which is what notices that `vendor/md4c` moved to a version
+//! with a new field.
 
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_char, c_int, c_uint};

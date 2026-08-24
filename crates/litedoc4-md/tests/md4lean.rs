@@ -15,29 +15,15 @@
 //! ```
 //!
 //! The fixture is `include_str!`d, so these tests need no files at run time and
-//! pass on a machine that has never seen the target package. It holds a
-//! selected 533 of the 4,947 cases — a greedy cover of the constructors plus a
-//! stride over the rest.
-//!
-//! **The other 4,414 are not checked**【判断 2026-08-16】. They used to be, by a
-//! `the_whole_corpus` test reading a 5 MB `--full` recording out of
-//! `/private/tmp` — which is emptied, so the test was either red or paid for by
-//! re-running MD4Lean over every docstring in the package. What the oracle is
+//! pass on a machine that has never seen the target package. It holds a selected
+//! 533 of the 4,947 cases — a greedy cover of the constructors plus a stride
+//! over the rest — and **the other 4,414 are not checked**. What the oracle is
 //! for is the **dialect** (which constructors MD4Lean's flags turn on, and how
-//! it reads the corners), and that is a claim about the rules which the selected
-//! cover states; [`the_corpus_still_covers_the_constructors`] is what keeps the
-//! cover honest. The 4,414 are the price, stated rather than hidden.
-//!
-//! # What a passing run is worth
-//!
-//! The corpus is real docstrings, so it says the two parsers agree on what the
-//! package actually contains. [`the_corpus_still_covers_the_constructors`] is
-//! what stops it from decaying: it fails if a constructor stops appearing
-//! anywhere, and it fails if `html`, `u` or `wikiLink` appears under the
-//! docstring dialect, which cannot produce them — that would mean the flags
-//! had drifted. Those three are covered by the handful of cases the generator
-//! runs with other flags, so they are checked against MD4Lean too rather than
-//! against something written here.
+//! it reads the corners), a claim about the rules which the selected cover
+//! states; [`the_corpus_still_covers_the_constructors`] is what keeps the cover
+//! honest, failing if a constructor stops appearing anywhere or if `html`, `u`
+//! or `wikiLink` appears under the docstring dialect, which cannot produce them.
+//! The 4,414 are the price, stated rather than hidden.
 
 use std::collections::BTreeSet;
 
@@ -51,11 +37,9 @@ const FIXTURE: &str = include_str!("data/md4lean-expected.json");
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Expected {
-    /// How the answers were produced, for the report a failure prints.
     oracle: String,
     lean_toolchain: String,
     md4lean_rev: Option<String>,
-    /// How many distinct docstrings the target package's IR holds.
     ir_docstrings: usize,
     /// The docstring dialect, as MD4Lean's own constants add up.
     flags: u32,
@@ -68,13 +52,13 @@ struct Expected {
 struct Case {
     /// Where the docstring came from: a declaration name, or `curated: ...`.
     what: String,
-    /// What the oracle parsed this one with. Almost always the docstring
-    /// dialect; a handful of `dialect: ...` cases vary it so that the three
-    /// constructors that dialect cannot produce are still checked against
-    /// MD4Lean rather than against a hand-written expectation.
+    /// Almost always the docstring dialect; a handful of `dialect: ...` cases
+    /// vary it so that the three constructors that dialect cannot produce are
+    /// still checked against MD4Lean rather than against a hand-written
+    /// expectation.
     flags: u32,
     md: String,
-    /// MD4Lean's tree, or `null` if `MD4Lean.parse` returned `none`.
+    /// `null` if `MD4Lean.parse` returned `none`.
     ast: Value,
 }
 
@@ -91,7 +75,7 @@ fn expected() -> Expected {
     serde_json::from_str(FIXTURE).expect("tests/data/md4lean-expected.json is valid")
 }
 
-// ------------------------------------------ the encoding `dump-ast.lean` uses
+// The tuple encoding `dump-ast.lean` writes.
 
 fn enc_attr(attr: &AttrText) -> Value {
     match attr {
@@ -218,10 +202,6 @@ fn enc_document(doc: &Document) -> Value {
     enc_blocks(&doc.blocks)
 }
 
-// ---------------------------------------------------------------- the checks
-
-/// Compares one case, returning a description of the disagreement.
-///
 /// The docstring cases go through [`litedoc4_md::parse`] rather than through
 /// `parse_with_flags(.., case.flags)`, so that the default this crate hands
 /// every caller is the thing being checked. `docstring_flags` is the *oracle's*
@@ -279,8 +259,7 @@ fn the_fixture_is_md4leans_own_output() {
     assert!(e.cases.len() >= 500, "only {} cases", e.cases.len());
     assert_eq!(e.crashes_md4lean.len(), 3);
 
-    // Nearly every case is the real dialect; the handful that are not are
-    // there on purpose and are named as such.
+    // The handful of cases that are not the real dialect are named as such.
     let (default, varied): (Vec<_>, Vec<_>) = e.cases.iter().partition(|c| c.flags == e.flags);
     assert!(
         default.len() > 500,
@@ -367,11 +346,10 @@ fn the_corpus_still_covers_the_constructors() {
         assert!(docstring_tags.contains(wanted), "no case produces {wanted}");
     }
 
-    // And the three it cannot. `MD_FLAG_NOHTML` is why raw HTML never becomes
-    // a block; `MD_FLAG_UNDERLINE` and `MD_FLAG_WIKILINKS` are off. Any of
-    // them turning up under the docstring dialect means the flags drifted —
-    // and each still has to turn up *somewhere*, or the code that builds it is
-    // unchecked. That is what the `dialect: ...` cases are for.
+    // And the three it cannot, because `MD_FLAG_NOHTML` is on and
+    // `MD_FLAG_UNDERLINE` / `MD_FLAG_WIKILINKS` are off. Each still has to turn
+    // up *somewhere*, or the code that builds it is unchecked — that is what the
+    // `dialect: ...` cases are for.
     for only_elsewhere in ["html/1", "u/1", "wikiLink/2"] {
         assert!(
             !docstring_tags.contains(only_elsewhere),
@@ -384,13 +362,10 @@ fn the_corpus_still_covers_the_constructors() {
     }
 }
 
-/// The inputs that kill `MD4Lean.parse`, and what this crate does instead.
-///
 /// All three are undefined behaviour on the Lean side, so there is no tree to
-/// match; what is pinned here is that none of them crashes us, and what we
-/// chose: U+FFFD for a NUL in verbatim content (CommonMark's rule, and what
-/// doc-gen4 renders `.nullchar` as), and an empty body for a table with no
-/// body rows.
+/// match; what is pinned is that none of them crashes us, and what we chose:
+/// U+FFFD for a NUL in verbatim content (CommonMark's rule, and what doc-gen4
+/// renders `.nullchar` as), and an empty body for a table with no body rows.
 #[test]
 fn the_inputs_that_kill_md4lean_parse_here() {
     let crashers = expected().crashes_md4lean;
@@ -415,10 +390,9 @@ fn the_inputs_that_kill_md4lean_parse_here() {
         panic!("{:?}", doc.blocks)
     };
     // The NUL survives *twice*: md4c reports it as `MD_TEXT_NULLCHAR` and then
-    // resumes the verbatim text at the NUL rather than after it
-    // (`md4c.c:387-408` advances `off` but not `str`). So the replacement
-    // character this crate substitutes is followed by the byte itself. That is
-    // md4c's behaviour, not a choice made here.
+    // resumes the verbatim text at the NUL rather than after it, so the
+    // replacement character this crate substitutes is followed by the byte
+    // itself. That is md4c's behaviour, not a choice made here.
     assert_eq!(content.concat(), "a\u{FFFD}\0b\n");
 
     let doc = litedoc4_md::parse("| a | b |\n|---|---|\n").expect("a table with no body");
@@ -434,10 +408,9 @@ fn the_inputs_that_kill_md4lean_parse_here() {
     );
 }
 
-/// A NUL in ordinary text is *not* one of those cases: md4c reports it as
-/// `MD_TEXT_NULLCHAR` in a position where MD4Lean's types have a constructor
-/// for it, so it is checked against the oracle like everything else. This
-/// states which side of the line it is on.
+/// md4c reports it as `MD_TEXT_NULLCHAR` in a position where MD4Lean's types
+/// have a constructor for it, so this one is checked against the oracle like
+/// everything else.
 #[test]
 fn a_nul_in_ordinary_text_is_a_normal_case() {
     let doc = litedoc4_md::parse("a\0b\n").expect("a NUL in text");

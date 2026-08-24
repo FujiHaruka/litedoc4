@@ -3,50 +3,40 @@
 //!
 //! md4c's push callbacks, assembled into the AST of [`crate::ast`].
 //!
-//! # This file is a transliteration, not a design
+//! This is a transliteration, not a design. doc-gen4 renders `MD4Lean.parse`'s
+//! output, and `wrapper.c` is what turns md4c's callbacks into that value, so
+//! the way to be sure our tree is the same tree is to run the same algorithm
+//! rather than an equivalent one. Two of its rules are not obvious:
 //!
-//! doc-gen4 renders `MD4Lean.parse`'s output. `MD4Lean/wrapper/wrapper.c` is
-//! what turns md4c's callbacks into that value, so the way to be sure our tree
-//! is the same tree is to run the same algorithm rather than an equivalent one.
-//! Every rule below is `wrapper.c`'s:
-//!
-//! - a stack of frames, each collecting the children of one open node;
-//! - **details are read where the wrapper reads them.** md4c fills the detail
-//!   struct from the block record it is currently walking, and for containers
-//!   one record can close one node and open the next, so `leave_block`'s
+//! - **Details are read where the wrapper reads them.** For containers one
+//!   md4c block record can close one node and open the next, so `leave_block`'s
 //!   `detail` is not always the leaving node's. The wrapper keeps UL / OL / H
 //!   details from `enter_block` and takes LI / CODE (and every span's) from
-//!   `leave_block` / `leave_span`; `wrapper.c:262, 284, 298, 342` say so in as
-//!   many words. Copying the choice is cheaper than re-deriving it;
-//! - **implicit paragraphs inside list items.** md4c puts text directly under
+//!   `leave_block` / `leave_span`; copying that choice is cheaper than
+//!   re-deriving it.
+//! - **Implicit paragraphs inside list items.** md4c puts text directly under
 //!   `MD_BLOCK_LI`, mixed with real blocks; MD4Lean's `Li` holds blocks only,
 //!   so a `P` is opened when text arrives under an `LI` and closed when a
-//!   sibling block starts or the item ends (`wrapper.c:47-77`). doc-gen4's
-//!   `renderLi` iterates blocks, so this is load-bearing, not cosmetic.
-//!
-//! # Where we knowingly differ from MD4Lean
+//!   sibling block starts or the item ends. doc-gen4's `renderLi` iterates
+//!   blocks, so this is load-bearing, not cosmetic.
 //!
 //! Three inputs make the Lean wrapper do something undefined — all three kill
-//! the process, 実測. None can be matched, so each is decided here and pinned
-//! by `tests/md4lean.rs`:
+//! the process 【実測】 — so none can be matched. Each is decided here and
+//! pinned by `tests/md4lean.rs`:
 //!
-//! 1. **A NUL inside a code block.** md4c reports it as `MD_TEXT_NULLCHAR`
-//!    even in verbatim content (`md4c.c:404`), where MD4Lean's types expect
-//!    strings; the wrapper pushes a scalar constructor into an `Array String`
-//!    (`wrapper.c:558`) and MD4Lean segfaults. We substitute U+FFFD, which is
-//!    what CommonMark asks for and what doc-gen4 renders `.nullchar` as
-//!    (`DocString.lean:208`).
+//! 1. **A NUL inside a code block.** md4c reports `MD_TEXT_NULLCHAR` even in
+//!    verbatim content, where MD4Lean's types expect strings, and the wrapper
+//!    pushes a scalar constructor into an `Array String`. We substitute U+FFFD,
+//!    which is what CommonMark asks for and what doc-gen4 renders `.nullchar`
+//!    as.
 //! 2. **A table with a header and no body rows.** md4c then emits no
-//!    `MD_BLOCK_TBODY` at all (`md4c.c:4632`), leaving one child under the
-//!    table; the wrapper indexes the second (`wrapper.c:389-391`) and aborts.
-//!    We produce an empty body.
+//!    `MD_BLOCK_TBODY` at all, and the wrapper indexes a child that is not
+//!    there. We produce an empty body.
 //! 3. **Inline raw HTML**, which needs `MD_FLAG_NOHTMLSPANS` off and so cannot
-//!    happen to a docstring. md4c hands the HTML to `text()` inside the
-//!    paragraph, where `MD4Lean.Text` has no constructor for it; the wrapper
-//!    puts a bare `String` in an `Array Text`. We return
-//!    [`Error::Unrepresentable`] rather than invent a constructor MD4Lean does
-//!    not have — this crate's AST is that ADT, and widening it would put a
-//!    branch in the HTML port that doc-gen4 has no counterpart for.
+//!    happen to a docstring. `MD4Lean.Text` has no constructor for it, and the
+//!    wrapper puts a bare `String` in an `Array Text`. We return
+//!    [`Error::Unrepresentable`]: widening this crate's AST would put a branch
+//!    in the HTML port that doc-gen4 has no counterpart for.
 
 use std::ffi::{c_int, c_void};
 use std::slice;
@@ -60,31 +50,19 @@ use crate::ffi::{
 };
 use crate::flags;
 
-/// Parses a docstring with the flags doc-gen4 uses ([`flags::DOCSTRING_FLAGS`]).
+/// Parses with the flags doc-gen4 uses ([`flags::DOCSTRING_FLAGS`]).
 ///
 /// ```
 /// let doc = litedoc4_md::parse("a *b*").unwrap();
 /// assert_eq!(doc.blocks.len(), 1);
 /// ```
-///
-/// # Errors
-///
-/// Fails if the input is larger than md4c's 32-bit size, if md4c reports a
-/// runtime failure, or if the callback sequence did not fit the tree builder —
-/// see [`Error`].
 pub fn parse(text: &str) -> Result<Document> {
     parse_with_flags(text, flags::DOCSTRING_FLAGS)
 }
 
-/// Parses with an explicit `MD_FLAG_*` bitmask.
-///
-/// Present because the differential test against MD4Lean wants to drive both
-/// sides with the same flags, and because a dialect argument that only exists
-/// as a constant is a dialect nobody can vary in a test.
-///
-/// # Errors
-///
-/// As [`parse`].
+/// Public so the differential test against MD4Lean can drive both sides with
+/// the same flags: a dialect that only exists as a constant is one nobody can
+/// vary in a test.
 pub fn parse_with_flags(text: &str, flags: u32) -> Result<Document> {
     let size =
         MdSize::try_from(text.len()).map_err(|_| Error::InputTooLarge { bytes: text.len() })?;
@@ -97,8 +75,6 @@ pub fn parse_with_flags(text: &str, flags: u32) -> Result<Document> {
         enter_span: Some(enter_span),
         leave_span: Some(leave_span),
         text: Some(on_text),
-        // As in `wrapper.c:623-624`: no diagnostics sink, and `syntax` is
-        // reserved and must stay null.
         debug_log: None,
         syntax: None,
     };
@@ -134,17 +110,13 @@ pub fn parse_with_flags(text: &str, flags: u32) -> Result<Document> {
         ))
 }
 
-// ---------------------------------------------------------------- the stack
-
 /// What a frame is collecting, which decides where implicit paragraphs go.
-/// `wrapper.c:77`'s `tag`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Tag {
     /// A block other than a list item.
     Block,
     /// A span.
     Text,
-    /// A list item.
     Li,
     /// A paragraph this builder opened, not md4c.
     ImplicitP,
@@ -160,19 +132,16 @@ enum Detail {
     H(MdBlockHDetail),
 }
 
-/// One child of an open node. The Lean wrapper pushes all of these into the
-/// same untyped `Array`; the enum is what replaces its `assert`s.
+/// The Lean wrapper pushes every child of an open node into the same untyped
+/// `Array`; this enum is what replaces its `assert`s.
 enum Node {
     Block(Block),
     Text(Text),
     /// Verbatim content: `MD_TEXT_CODE` / `MD_TEXT_HTML` / `MD_TEXT_LATEXMATH`.
     Str(String),
     Li(Li),
-    /// One `<th>` or `<td>`.
     Cell(Vec<Text>),
-    /// One `<tr>`.
     Row(Vec<Vec<Text>>),
-    /// A `<tbody>`.
     Body(Vec<Vec<Vec<Text>>>),
 }
 
@@ -185,8 +154,7 @@ struct Frame {
 struct Builder {
     /// Always non-empty: index 0 is the root, whose tag is `Block` so that the
     /// implicit-paragraph test at the top of `enter_block` has something
-    /// defined to read. (`wrapper.c` leaves `tags[0]` uninitialised and reads
-    /// it on the very first callback.)
+    /// defined to read. `wrapper.c` leaves `tags[0]` uninitialised instead.
     stack: Vec<Frame>,
     document: Option<Vec<Block>>,
     error: Option<Error>,
@@ -217,11 +185,6 @@ impl Builder {
         });
     }
 
-    /// Pops the open frame, returning its children and its saved detail.
-    ///
-    /// One path out, not two: the length check and the `pop` used to carry the
-    /// same message, and a `pop` that ran after `len() >= 2` could not fail, so
-    /// half the diagnostic named a branch nothing reaches.
     fn pop_frame(&mut self) -> Result<(Vec<Node>, Detail)> {
         if self.stack.len() < 2 {
             return Err(Error::Malformed("left more nodes than were entered"));
@@ -239,15 +202,9 @@ impl Builder {
         Ok(())
     }
 
-    /// Closes the paragraph this builder opened under a list item.
-    /// `wrapper.c:218-224` and `wrapper.c:302-309`.
     fn close_implicit_p(&mut self) -> Result<()> {
-        // Checked before the pop, not after: the parent is what the check is
-        // about, and asking afterwards means the builder has already been
-        // changed by the time the answer is no. Nothing reads that state today
-        // — `with_builder` latches the error and stops feeding callbacks — but
-        // the order in `wrapper.c` is this one, and this file is a
-        // transcription.
+        // Checked before the pop, not after: asking afterwards means the
+        // builder has already been changed by the time the answer is no.
         if self.stack.len() < 2 || self.stack[self.stack.len() - 2].tag != Tag::Li {
             return Err(Error::Malformed(
                 "an implicit paragraph was not directly inside a list item",
@@ -257,8 +214,6 @@ impl Builder {
         self.save(Node::Block(Block::P(into_texts(items)?)))
     }
 
-    /// Opens one under a list item when text or a span arrives there.
-    /// `wrapper.c:437-439` and `wrapper.c:547-549`.
     fn open_implicit_p_if_in_li(&mut self) {
         if self.top_tag() == Tag::Li {
             self.push_frame(Detail::None, Tag::ImplicitP);
@@ -266,17 +221,13 @@ impl Builder {
     }
 }
 
-// ------------------------------------------------- children -> typed vectors
-
 fn into_texts(items: Vec<Node>) -> Result<Vec<Text>> {
     items
         .into_iter()
         .map(|node| match node {
             Node::Text(text) => Ok(text),
             // Only `MD_TEXT_HTML` reaches here, and only with
-            // `MD_FLAG_NOHTMLSPANS` off: md4c puts inline raw HTML straight
-            // into the paragraph, and `MD4Lean.Text` has no constructor for
-            // it. See this module's note; MD4Lean itself dies on this input.
+            // `MD_FLAG_NOHTMLSPANS` off. MD4Lean itself dies on this input.
             Node::Str(_) => Err(Error::Unrepresentable(
                 "inline raw HTML (parse with MD_FLAG_NOHTMLSPANS, as doc-gen4 does)",
             )),
@@ -299,8 +250,8 @@ fn into_blocks(items: Vec<Node>) -> Result<Vec<Block>> {
         .collect()
 }
 
-/// Verbatim content. See this module's note 1: a NUL inside it becomes U+FFFD
-/// rather than the type confusion MD4Lean produces.
+/// A NUL inside verbatim content becomes U+FFFD rather than the type confusion
+/// MD4Lean produces.
 fn into_strings(items: Vec<Node>) -> Result<Vec<String>> {
     items
         .into_iter()
@@ -350,8 +301,6 @@ fn into_rows(items: Vec<Node>) -> Result<Vec<Vec<Vec<Text>>>> {
         .collect()
 }
 
-// ------------------------------------------------------------ reading from C
-
 /// # Safety
 ///
 /// `text` must point at `size` initialised bytes.
@@ -370,8 +319,6 @@ unsafe fn read_str(text: *const MdChar, size: MdSize) -> Result<String> {
         .map_err(|_| Error::NotUtf8)
 }
 
-/// `get_attr` (`wrapper.c:157-191`).
-///
 /// # Safety
 ///
 /// `attr` must be a live `MD_ATTRIBUTE` as md4c fills it.
@@ -418,8 +365,6 @@ unsafe fn read_attr(attr: &MdAttribute) -> Result<Vec<AttrText>> {
     Ok(out)
 }
 
-/// Reads a detail struct md4c passed by pointer.
-///
 /// # Safety
 ///
 /// `detail` must point at a live `T` for the duration of the callback.
@@ -443,10 +388,7 @@ fn mark_char(mark: MdChar) -> char {
     char::from(mark as u8)
 }
 
-// ------------------------------------------------------------- the callbacks
-
-/// Runs `body` against the builder behind `userdata`, latching the first error
-/// and telling md4c to stop.
+/// Latches the first error and tells md4c to stop.
 ///
 /// # Safety
 ///
@@ -481,7 +423,7 @@ unsafe extern "C" fn enter_block(ty: c_int, detail: *mut c_void, userdata: *mut 
                 .ok_or(Error::Malformed("md4c reported an unknown block type"))?;
 
             // A block that is a sibling of text under a list item closes the
-            // paragraph that text opened. `wrapper.c:218-224`.
+            // paragraph that text opened.
             if builder.top_tag() == Tag::ImplicitP {
                 builder.close_implicit_p()?;
             }
@@ -541,7 +483,7 @@ unsafe extern "C" fn leave_block(ty: c_int, detail: *mut c_void, userdata: *mut 
                 }
                 MdBlockType::Li => {
                     // Unlike UL / OL / H, the item's own detail is the one
-                    // handed to `leave_block`. `wrapper.c:296-298`.
+                    // handed to `leave_block`.
                     let li = detail_of::<MdBlockLiDetail>(detail)?;
                     if builder.top_tag() != Tag::Li {
                         builder.close_implicit_p()?;
@@ -617,7 +559,7 @@ unsafe extern "C" fn leave_block(ty: c_int, detail: *mut c_void, userdata: *mut 
                 }
                 MdBlockType::Thead => {
                     // md4c documents exactly one header row, so the extra
-                    // level of nesting is dropped here. `wrapper.c:399-408`.
+                    // level of nesting is dropped here.
                     let (items, _) = builder.pop_frame()?;
                     let mut rows = into_rows(items)?;
                     if rows.len() != 1 {
@@ -651,7 +593,7 @@ unsafe extern "C" fn enter_span(ty: c_int, _detail: *mut c_void, userdata: *mut 
             MdSpanType::from_raw(ty)
                 .ok_or(Error::Malformed("md4c reported an unknown span type"))?;
             // The detail md4c passes here is not the one to keep; every span
-            // that carries one reads it at `leave_span`. `wrapper.c:440-441`.
+            // that carries one reads it at `leave_span`.
             builder.open_implicit_p_if_in_li();
             builder.push_frame(Detail::None, Tag::Text);
             Ok(())

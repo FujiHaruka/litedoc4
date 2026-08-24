@@ -1,46 +1,26 @@
 //! Derived from doc-gen4 (Copyright (c) 2021 Henrik Böving, Apache-2.0) and
 //! changed; see this repository's NOTICE and `docs/provenance.md`.
 //!
-//! `DocGen4/Output/DocString.lean:112-402`, transcribed.
+//! `DocGen4/Output/DocString.lean`, transcribed.
 //!
 //! doc-gen4 builds an `Html` tree and then serialises it; every element the
 //! docstring path creates is built with `flatten = true`, whose serialisation
-//! (`ToHtmlFormat.lean:66`) is `<tag attrs>children</tag>` with no whitespace of
-//! its own. Nothing here depends on the tree existing, so this writes the same
-//! bytes straight into a `String`. The two node kinds that are *not* elements
-//! still matter and are marked at each use: `Html.text` is escaped,
-//! `Html.raw` is not.
+//! is `<tag attrs>children</tag>` with no whitespace of its own. Nothing here
+//! depends on the tree existing, so this writes the same bytes straight into a
+//! `String`. The two node kinds that are *not* elements still matter and are
+//! marked at each use: `Html.text` is escaped, `Html.raw` is not.
 //!
-//! # What is deferred, and where it plugs in
-//!
-//! `nameToLink?` (`DocString.lean:39-80`) answers "does this name have a page?".
-//! Its answer needs the union of three sources — the IR's module names, the
-//! ledger's `known`, and the `@` sections of the `.lidx` file (plan §5, pitfall
-//! 6) — and none of them belongs to a markdown crate. So it is a caller-supplied
-//! [`LinkResolver`], and this milestone step ships [`NoLinks`], which resolves
-//! no name. Its source-path branch is deferred the same way and for the same
-//! reason, though it kept doc-gen4's index-free rule as the trait's default
-//! (M8, gate UI-2). Everything downstream of it is here and is exercised: `extendLink`
-//! reaches all four of its branches, and `autoLinkInline` still splits, still
-//! retries on the last `.`, and still emits the same text nodes — with a
-//! resolver that never answers, the anchors are simply absent.
-//!
-//! # What is *not* deferred, though it is next door
-//!
-//! `mdGetHeadingId` is in the same 150 lines of the prototype but needs no link
-//! index at all — only Unicode general categories ([`crate::gc`]). It is here
-//! because 1,500 of the target package's 4,947 docstrings contain a heading
-//! 【実測】, and a renderer that cannot produce a heading's `id` could not be
-//! compared against doc-gen4 on any of them.
-//!
-//! # Bibliography
+//! `nameToLink?` is a caller-supplied [`LinkResolver`]: answering it needs the
+//! union of the IR's module names, the ledger's `known` and the `@` sections of
+//! the `.lidx` file, none of which belongs to a markdown crate. Everything
+//! downstream of it is here and runs even under [`NoLinks`], with the anchors
+//! simply absent.
 //!
 //! `docStringToHtml` also appends a reference-link definition for every citekey
-//! the docstring mentions, and rewrites `references.html#ref_…` links into
-//! backref anchors. The target package has no `.bib` file, so `refsMap` is
-//! empty, `findAllReferences` finds nothing, and the appended text is exactly
-//! `"\n\n"` — which is what [`Renderer::docstring`] appends. Anything else would
-//! be a feature this milestone has no oracle for.
+//! the docstring mentions. The target package has no `.bib` file, so `refsMap`
+//! is empty and the appended text is exactly the `"\n\n"`
+//! [`Renderer::docstring`] appends; anything else would be a feature there is
+//! no oracle for.
 
 use std::cell::Cell;
 
@@ -50,24 +30,16 @@ use crate::gc::{is_p_z_c, is_z_c};
 use crate::math::to_mathml;
 use crate::parse::parse;
 
-/// `nameToLink?` — whether a name mentioned in a docstring has a page, and
-/// where.
-///
-/// This is `DocString.lean:39-75`: both the source-path branch and the name
-/// branches. [`Renderer::resolve_link`] decides which of the two a word is and
-/// asks nothing else.
-///
 /// Implementations receive the string exactly as the docstring wrote it (minus
 /// the `.lean` of a source path) and return a URL ready to be escaped into an
 /// `href`.
 pub trait LinkResolver {
-    /// The link for `name`, or `None` when nothing of that name is documented.
     fn name_to_link(&self, name: &str) -> Option<String>;
 
-    /// The link for a **source path** — `DocString.lean:39-42`, the branch a
-    /// word like `Foo/Bar.lean` takes. `path` is that word without its `.lean`
-    /// and always contains a `/`; `root` is the renderer's site root, passed in
-    /// so that a resolver holding no root of its own can still answer.
+    /// The branch a word like `Foo/Bar.lean` takes. `path` is that word without
+    /// its `.lean` and always contains a `/`; `root` is the renderer's site
+    /// root, passed in so that a resolver holding no root of its own can still
+    /// answer.
     ///
     /// The default is doc-gen4's own answer: the path is read as relative to
     /// the **repository root**, so the page is the same path with the extension
@@ -85,14 +57,11 @@ pub trait LinkResolver {
     }
 }
 
-/// A resolver that resolves no *name*.
-///
-/// What a caller that has no dependency map should render with: every
-/// `` `Nat.succ` `` stays plain text rather than becoming a dangling link. A
-/// source path still resolves, because [`LinkResolver::source_path_to_link`]'s
-/// default needs no index — this is the configuration that reproduces doc-gen4
-/// with an empty `AnalyzerResult`, which is what `tests/docgen4.rs` compares
-/// against.
+/// A resolver that resolves no *name*: every `` `Nat.succ` `` stays plain text
+/// rather than becoming a dangling link. A source path still resolves, because
+/// [`LinkResolver::source_path_to_link`]'s default needs no index — this is the
+/// configuration that reproduces doc-gen4 with an empty `AnalyzerResult`, which
+/// is what `tests/docgen4.rs` compares against.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoLinks;
 
@@ -102,27 +71,19 @@ impl LinkResolver for NoLinks {
     }
 }
 
-/// Renders parsed docstrings the way doc-gen4 does.
-///
 /// `root` is the relative path back to the site root from the page being
 /// written (`getRoot`: `"./"`, `"../"`, `"../.././"`, …). It is prepended to
 /// every relative link, so it is part of the bytes.
 pub struct Renderer<'a> {
     root: &'a str,
     links: &'a dyn LinkResolver,
-    /// How many `$…$` spans this renderer could not convert
-    /// ([`Renderer::math_failures`]).
-    ///
     /// A `Cell` because every rendering method takes `&self` — the alternative
     /// was threading a counter through nine of them. It makes `Renderer` not
-    /// `Sync`, which costs nothing: one is built per page
-    /// (`litedoc4_render::PageLinks::renderer`) and never shared.
+    /// `Sync`, which costs nothing: one is built per page and never shared.
     math_failures: Cell<usize>,
 }
 
 impl<'a> Renderer<'a> {
-    /// A renderer writing links relative to `root`, resolving names with
-    /// `links`.
     #[must_use]
     pub const fn new(root: &'a str, links: &'a dyn LinkResolver) -> Self {
         Self {
@@ -132,27 +93,22 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// How many math spans this renderer fell back on since it was built.
-    ///
-    /// The fallback is silent in the page — it emits the dollars and the source,
-    /// which is what doc-gen4 emits always — so this is the only place a build
-    /// can learn that a docstring's mathematics did not come out as
-    /// mathematics. `litedoc4 build` prints it.
+    /// The math fallback is silent in the page, so this counter is the only
+    /// place a build can learn that a docstring's mathematics did not come out
+    /// as mathematics.
     #[must_use]
     pub fn math_failures(&self) -> usize {
         self.math_failures.get()
     }
 
-    /// `docStringToHtml` (`DocString.lean:383-402`): parse, then render.
-    ///
-    /// The trailing `"\n\n"` is doc-gen4's `refsMarkdown` with an empty
-    /// bibliography, and it is not cosmetic — it terminates whatever block the
-    /// docstring ended in the middle of.
+    /// `docStringToHtml`. The trailing `"\n\n"` is doc-gen4's `refsMarkdown`
+    /// with an empty bibliography, and it is not cosmetic — it terminates
+    /// whatever block the docstring ended in the middle of.
     ///
     /// When the parser refuses the input, doc-gen4 records an error and emits a
     /// red message followed by the source; that is reproduced rather than
-    /// panicking, though md4c has never yet refused one of this package's
-    /// docstrings 【実測 M1-c 前半: 4,947 件】.
+    /// panicking, though md4c has never refused one of the target package's
+    /// 4,947 docstrings 【実測】.
     #[must_use]
     pub fn docstring(&self, md: &str) -> String {
         let mut source = String::with_capacity(md.len() + 2);
@@ -171,8 +127,6 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// Every block of a parsed document, concatenated.
-    ///
     /// No trimming: `Html.toString` trims the whole page once, at the top, and
     /// a docstring is never the whole page.
     #[must_use]
@@ -182,19 +136,16 @@ impl<'a> Renderer<'a> {
         out
     }
 
-    // -------------------------------------------------------------- blocks
-
     fn blocks_into(&self, out: &mut String, blocks: &[Block], tight: bool) {
         for block in blocks {
             self.block_into(out, block, tight);
         }
     }
 
-    /// `renderBlock` (`DocString.lean:287-350`). `tight` reaches only `.p`.
+    /// `renderBlock`. `tight` reaches only `.p`.
     fn block_into(&self, out: &mut String, block: &Block, tight: bool) {
         match block {
             Block::P(texts) => {
-                // A tight list item drops the `<p>` and keeps the children.
                 if tight {
                     self.texts_into(out, texts, false);
                 } else {
@@ -216,8 +167,6 @@ impl<'a> Renderer<'a> {
                 items,
                 ..
             } => {
-                // `start=` is written only when it is not 1, so the common list
-                // has no attribute at all.
                 if *start == 1 {
                     out.push_str("<ol>");
                 } else {
@@ -257,7 +206,6 @@ impl<'a> Renderer<'a> {
                     out.push('"');
                 }
                 out.push('>');
-                // `isLeanCode`: an absent or `lean` info string is auto-linked.
                 if lang_str.is_empty() || lang_str == "lean" {
                     self.auto_link_inline(out, content);
                 } else {
@@ -297,11 +245,10 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// `renderLi` (`DocString.lean:353-363`).
+    /// `renderLi`.
     fn li_into(&self, out: &mut String, li: &Li, tight: bool) {
         out.push_str("<li>");
         if li.is_task {
-            // `Html.raw`, so the attributes are written as they stand.
             if li.task_char == Some('x') || li.task_char == Some('X') {
                 out.push_str("<input type=\"checkbox\" checked=\"\" disabled=\"\">");
             } else {
@@ -312,17 +259,13 @@ impl<'a> Renderer<'a> {
         out.push_str("</li>");
     }
 
-    // -------------------------------------------------------------- inlines
-
     fn texts_into(&self, out: &mut String, texts: &[Text], in_link: bool) {
         for text in texts {
             self.text_into(out, text, in_link);
         }
     }
 
-    /// `renderText` (`DocString.lean:205-277`).
-    ///
-    /// `in_link` suppresses auto-linking inside an `<a>`, which is what stops
+    /// `renderText`. `in_link` suppresses auto-linking inside an `<a>`, which is what stops
     /// the output from nesting anchors.
     fn text_into(&self, out: &mut String, text: &Text, in_link: bool) {
         match text {
@@ -334,7 +277,7 @@ impl<'a> Renderer<'a> {
             Text::SoftBr(_) => out.push('\n'),
             // `Html.raw s`: entities are passed through with their `&` and `;`,
             // unvalidated and unexpanded. This is why no entity table is
-            // vendored (plan §7).
+            // vendored.
             Text::Entity(s) => out.push_str(s),
             Text::Em(ts) => self.wrap_into(out, "em", ts, in_link),
             Text::Strong(ts) => self.wrap_into(out, "strong", ts, in_link),
@@ -362,8 +305,8 @@ impl<'a> Renderer<'a> {
                 out.push_str("</a>");
             }
             Text::Img { src, title, alt } => {
-                // Built as a raw string, so each piece is escaped once here and
-                // the attribute order is fixed: src, alt, then title if any.
+                // Built as a raw string, so the attribute order is fixed: src,
+                // alt, then title if any.
                 let title_str = attr_text_to_string(title);
                 out.push_str("<img src=\"");
                 escape_html_into(out, &attr_text_to_string(src));
@@ -390,7 +333,6 @@ impl<'a> Renderer<'a> {
                 }
                 out.push_str("</code>");
             }
-            // The dollars are `Html.raw`; MathJax reads them in the browser.
             Text::LatexMath(parts) => self.math_into(out, &parts.concat(), false),
             Text::LatexMathDisplay(parts) => self.math_into(out, &parts.concat(), true),
             Text::WikiLink { target, children } => {
@@ -403,14 +345,10 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    /// One math span: the MathML, or the dollars and the source when the LaTeX
-    /// does not parse.
-    ///
-    /// The fallback is **byte for byte what this renderer emitted before C-1**
-    /// and what doc-gen4 emits for every span — so a page whose mathematics
-    /// could not be converted is no worse than a doc-gen4 page, and a reader
-    /// with MathJax loaded from elsewhere still sees it. What is lost is
-    /// silence, which is why [`Renderer::math_failures`] counts.
+    /// The MathML, or — when the LaTeX does not parse — the dollars and the
+    /// source, which is what doc-gen4 emits for every span, so such a page is no
+    /// worse than a doc-gen4 page. What is lost is silence, which is why
+    /// [`Renderer::math_failures`] counts.
     fn math_into(&self, out: &mut String, latex: &str, display: bool) {
         if let Some(mathml) = to_mathml(latex, display) {
             // `Html.raw`: the MathML is markup, and escaping it would print it.
@@ -434,19 +372,11 @@ impl<'a> Renderer<'a> {
         out.push('>');
     }
 
-    // --------------------------------------------------------------- links
-
-    /// `nameToLink?` (`DocString.lean:39-80`) in full: which of the resolver's
-    /// two questions a word is, and nothing else.
-    ///
     /// A word that ends in `.lean` and contains a `/` is a path to a source
-    /// file. It is not a rare corner — it is how the target package's module
-    /// docs cross-reference each other, and it accounts for **131 of the 4,987
-    /// docstrings** 【実測】 — and *which page* that path names is a question
-    /// about the packages being documented, so it goes to the resolver like
-    /// every other lookup (M8, gate UI-2). This crate used to answer it here,
-    /// with doc-gen4's rule; that rule is now
-    /// [`LinkResolver::source_path_to_link`]'s default.
+    /// file — not a rare corner, it is how the target package's module docs
+    /// cross-reference each other and accounts for 131 of its 4,987 docstrings
+    /// 【実測】. Which page that path names is a question about the packages
+    /// being documented, so it goes to the resolver like every other lookup.
     #[must_use]
     pub fn resolve_link(&self, s: &str) -> Option<String> {
         if let Some(path) = s.strip_suffix(".lean")
@@ -457,13 +387,9 @@ impl<'a> Renderer<'a> {
         self.links.name_to_link(s)
     }
 
-    /// `extendLink` (`DocString.lean:90-103`).
-    ///
-    /// Four cases in this order: `##name` is a name search that falls back to
-    /// the search page, `#id` is an anchor on this page, anything starting
-    /// `http` is left alone, and everything else is relative to the site root.
-    /// The third test is `startsWith "http"`, not a scheme check — `httpfoo:` is
-    /// left alone too, and that is doc-gen4's behaviour, not a simplification.
+    /// `extendLink`. The `http` test is `startsWith "http"`, not a scheme check
+    /// — `httpfoo:` is left alone too, and that is doc-gen4's behaviour, not a
+    /// simplification.
     fn extend_link(&self, s: &str) -> String {
         if let Some(name) = s.strip_prefix("##") {
             return self
@@ -476,15 +402,14 @@ impl<'a> Renderer<'a> {
         format!("{}{s}", self.root)
     }
 
-    /// `autoLinkInline` (`DocString.lean:175-197`): every whitespace-separated
-    /// word of a code span or Lean code block that names something documented
-    /// becomes a link to it.
+    /// `autoLinkInline`: every whitespace-separated word of a code span or Lean
+    /// code block that names something documented becomes a link to it.
     ///
     /// Two lookups per word: the word itself, then — if that fails — whatever
-    /// follows its last `.`, so that `Nat.succ` in prose links `succ` when the
-    /// qualified name is unknown. With [`NoLinks`] both fail and the words are
-    /// written out as text, which reassembles the original string exactly:
-    /// `splitAround` keeps the separators it splits on.
+    /// follows its last `.`, so that `Nat.succ` links `succ` when the qualified
+    /// name is unknown. When neither resolves, the words written back out
+    /// reassemble the original string exactly, because `splitAround` keeps the
+    /// separators it splits on.
     fn auto_link_inline(&self, out: &mut String, parts: &[String]) {
         for part in parts {
             for piece in split_around(part, is_z_c) {
@@ -492,10 +417,9 @@ impl<'a> Renderer<'a> {
                     push_anchor(out, &link, piece);
                     continue;
                 }
-                // `dropEndWhile (· != '.')` keeps everything up to and
-                // including the last dot; `takeEndWhile` is the rest. With no
-                // dot at all the head is empty and the tail is the whole piece,
-                // so the second lookup repeats the first — as it does in Lean.
+                // With no dot at all the head is empty and the tail is the
+                // whole piece, so the second lookup repeats the first — as it
+                // does in Lean.
                 let (head, tail) = match piece.rfind('.') {
                     Some(at) => piece.split_at(at + 1),
                     None => ("", piece),
@@ -521,10 +445,8 @@ fn push_anchor(out: &mut String, href: &str, text: &str) {
     out.push_str("</a>");
 }
 
-// ------------------------------------------------------------------ plaintext
-
-/// `attrTextToString` (`DocString.lean:113-119`): a link destination, title or
-/// info string flattened. Entities stay as written.
+/// `attrTextToString`: a link destination, title or info string flattened.
+/// Entities stay as written.
 #[must_use]
 pub fn attr_text_to_string(attrs: &[AttrText]) -> String {
     let mut out = String::new();
@@ -537,17 +459,15 @@ pub fn attr_text_to_string(attrs: &[AttrText]) -> String {
     out
 }
 
-/// `textToPlaintext` (`DocString.lean:123-140`): an inline run with all
-/// formatting dropped. Feeds image alt text and heading ids.
+/// `textToPlaintext`: an inline run with all formatting dropped. Feeds image
+/// alt text and heading ids.
 fn text_to_plaintext(out: &mut String, text: &Text) {
     match text {
         Text::Normal(s) | Text::Entity(s) => out.push_str(s),
         Text::NullChar => out.push('\u{FFFD}'),
-        // Both break kinds become a newline, which the heading id then treats
-        // as a separator like any other `C` character.
+        // A newline is what the heading id treats as a separator, like any
+        // other `C` character.
         Text::Br(_) | Text::SoftBr(_) => out.push('\n'),
-        // Formatting and links alike contribute their children and nothing of
-        // themselves: the wrapper is what plaintext drops.
         Text::Em(ts)
         | Text::Strong(ts)
         | Text::U(ts)
@@ -558,7 +478,6 @@ fn text_to_plaintext(out: &mut String, text: &Text) {
                 text_to_plaintext(out, t);
             }
         }
-        // An image contributes its alt text, not its source.
         Text::Img { alt, .. } => {
             for t in alt {
                 text_to_plaintext(out, t);
@@ -572,13 +491,10 @@ fn text_to_plaintext(out: &mut String, text: &Text) {
     }
 }
 
-/// `mdGetHeadingId` (`DocString.lean:155-165`): the heading's plain text with
-/// every run of `P | Z | C` replaced by one `-`, and no leading or trailing
-/// `-` because the empty pieces are dropped first.
-///
-/// Cases are preserved, so `## Main results` becomes `Main-results` and not
-/// `main-results`. The classification is [`crate::gc`], which is UnicodeBasic's
-/// — the same table doc-gen4 asks.
+/// `mdGetHeadingId`: the heading's plain text with every run of `P | Z | C`
+/// replaced by one `-`, and no leading or trailing `-` because the empty pieces
+/// are dropped first. Cases are preserved, so `## Main results` becomes
+/// `Main-results` and not `main-results`.
 #[must_use]
 pub fn heading_id(texts: &[Text]) -> String {
     let mut plain = String::new();
@@ -600,13 +516,10 @@ pub fn heading_id(texts: &[Text]) -> String {
     out
 }
 
-/// `splitAround` (`DocString.lean:11-27`): `String.split` that keeps the
-/// separators as elements of their own.
-///
-/// `splitAround "a b" (· == ' ')` is `["a", " ", "b"]`. Empty pieces are kept —
-/// two separators in a row produce an empty string between them — because
-/// `autoLinkInline` looks every piece up, and a piece that resolves to nothing
-/// is written back out unchanged.
+/// `splitAround`: `String.split` that keeps the separators as elements of their
+/// own, so `"a b"` is `["a", " ", "b"]`. Empty pieces are kept — two separators
+/// in a row produce an empty string between them — because `autoLinkInline`
+/// writes every piece it cannot resolve back out unchanged.
 fn split_around(s: &str, p: fn(char) -> bool) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0;
@@ -633,15 +546,13 @@ mod tests {
     fn math_becomes_mathml_and_a_failure_keeps_the_dollars() {
         let renderer = Renderer::new("../", &NoLinks);
         let good = renderer.docstring("$x^2$ and $$\\sum_i x_i$$");
-        // Inline math carries no `display` attribute: `inline` is MathML's
-        // default and writing it would be bytes that mean nothing.
         assert!(good.contains("<math><msup>"), "{good}");
         assert!(good.contains("<math display=\"block\">"), "{good}");
         assert!(!good.contains('$'), "{good}");
         assert_eq!(renderer.math_failures(), 0);
 
         // `\colim` is not a command this parser has, so the page keeps what the
-        // docstring wrote — escaped, exactly as before C-1.
+        // docstring wrote, escaped.
         let bad = renderer.docstring("$a < \\colim_k F$");
         assert!(bad.contains("$a &lt; \\colim_k F$"), "{bad}");
         assert_eq!(renderer.math_failures(), 1, "the fallback is counted");
@@ -681,15 +592,14 @@ mod tests {
     #[test]
     fn entities_are_passed_through_raw() {
         // Not expanded, not escaped, not even validated: md4c reports anything
-        // shaped like an entity as one and `Html.raw` writes it out
-        // (`DocString.lean:211`). `&notanentity;` therefore survives with its
-        // `&` intact, where an escaped text node would have produced `&amp;n…`.
+        // shaped like an entity as one and `Html.raw` writes it out, so
+        // `&notanentity;` survives with its `&` intact.
         assert_eq!(
             render("&amp; &notanentity;\n"),
             "<p>&amp; &notanentity;</p>"
         );
         // A bare `&` is *not* entity-shaped, so it goes through the text path
-        // and is escaped. The two live one character apart.
+        // and is escaped.
         assert_eq!(render("a & b\n"), "<p>a &amp; b</p>");
     }
 
@@ -710,9 +620,6 @@ mod tests {
         );
     }
 
-    /// The injection point, exercised: the same input renders with anchors once
-    /// a resolver answers, and the anchor text is the word `splitAround` cut
-    /// out rather than the whole span.
     #[test]
     fn a_resolver_that_answers_puts_anchors_in_code_spans() {
         struct Yes;

@@ -1,62 +1,46 @@
-//! `$…$` and `$$…$$` to MathML, at build time.
+//! `$…$` and `$$…$$` to MathML, at build time, with `math-core` (MIT).
 //!
 //! doc-gen4 leaves the dollars in the page and lets MathJax find them in the
-//! browser; this converts them while the page is written, so a reader
-//! downloads no script and runs no layout pass for the mathematics. MathML
-//! Core is what every current browser draws natively, which is why the target
-//! format is MathML and not an image or a span tree.
+//! browser; converting them while the page is written means a reader downloads
+//! no script and runs no layout pass for the mathematics. MathML Core is what
+//! every current browser draws natively, which is why the target format is
+//! MathML and not an image or a span tree.
 //!
-//! # Which converter, and how that was decided
+//! Not `pulldown-latex`, whose whole dependency closure is one crate against
+//! eighteen: it escapes `<` and `&` inside `\text{…}` and nowhere else, so
+//! `$a < b$` renders as `<mo><</mo>` — markup an HTML parser has to guess at.
+//! 61 of Mathlib's 2,123 math spans (2.9%) come out that way, and `$a < b$` is
+//! not an exotic input; [`math_core`] writes none 【実測 2026-08-22 →
+//! `benchmarks/results/mathml-2026-08-22.txt`】.
 //!
-//! The original choice was `pulldown-latex`, because its whole dependency
-//! closure is one crate. Measuring it against Mathlib's docstrings overturned
-//! that: it escapes
-//! `<` and `&` inside `\text{…}` and nowhere else, so `$a < b$` renders as
-//! `<mo><</mo>` — markup an HTML parser has to guess at. **61 of Mathlib's
-//! 2,123 math spans (2.9%) come out that way**, and `$a < b$` is not an exotic
-//! input. [`math_core`] writes none 【実測 2026-08-22 →
-//! `benchmarks/results/mathml-2026-08-22.txt`】. The two convert the same
-//! corpus to within one span of each other (2,114 against 2,113), so the choice
-//! was between eighteen crates and correct markup.
+//! A failed conversion is not rendered: [`math_core`] returns an error rather
+//! than writing something into the output, and [`to_mathml`] turns that into
+//! `None`, so the caller emits the dollars and the source. Not a rare branch —
+//! ten of Mathlib's spans do not convert 【実測 2026-08-22】.
 //!
-//! # A failed conversion is not rendered
-//!
-//! [`math_core`] returns an error rather than writing something into the output
-//! — there is no in-band failure to detect — and [`to_mathml`] turns that into
-//! `None`. The caller then emits the dollars and the source, which is what the
-//! page said before this existed.
-//!
-//! It is not a rare branch. Ten of Mathlib's spans do not convert: four are
-//! LaTeX no parser can read (`\sum (i=0}^{q-1}`, `n$th`, …) and the rest use
-//! commands this one does not implement 【実測 2026-08-22】.
-//!
-//! # No annotation, and no equation numbering
-//!
-//! `MathCoreConfig::annotation` would copy the LaTeX source into the output as
-//! an `<annotation encoding="application/x-tex">`; on the Mathlib corpus that is
-//! another 40 KB of markup no browser shows and the search index would have to
-//! be taught to skip. `convert_with_local_state` rather than
-//! `convert_with_global_state` for a related reason: a global equation counter
-//! would make one docstring's rendering depend on how many were rendered before
-//! it, and pages are rendered in an order the incremental build decides.
+//! `MathCoreConfig::annotation` stays off: it would copy the LaTeX source into
+//! the output as an `<annotation encoding="application/x-tex">`, which on the
+//! Mathlib corpus is another 40 KB of markup no browser shows and the search
+//! index would have to be taught to skip. `convert_with_local_state` rather
+//! than `convert_with_global_state` for a related reason: a global equation
+//! counter would make one docstring's rendering depend on how many were
+//! rendered before it, and pages are rendered in an order the incremental
+//! build decides.
 
 use std::sync::OnceLock;
 
 use math_core::{LatexToMathML, MathCoreConfig, MathDisplay};
 
-/// The converter, built once.
-///
-/// Building it compiles the macro table, so one per span would be the whole
-/// cost of the feature. `convert_with_local_state` takes `&self`, so one shared
+/// Building this compiles the macro table, so one per span would be the whole
+/// cost of the feature; `convert_with_local_state` takes `&self`, so one shared
 /// instance is all a renderer needs.
 fn converter() -> &'static LatexToMathML {
     static CONVERTER: OnceLock<LatexToMathML> = OnceLock::new();
     CONVERTER.get_or_init(|| {
         LatexToMathML::new(MathCoreConfig {
-            // The default. Named because the alternative — `true` — is the one
-            // that would put a red "unknown command" into the page instead of
-            // letting `to_mathml` answer `None`, which is the whole contract
-            // here.
+            // The default, named because `true` would put a red "unknown
+            // command" into the page instead of letting `to_mathml` answer
+            // `None`, which is the whole contract here.
             ignore_unknown_commands: false,
             ..MathCoreConfig::default()
         })
@@ -64,10 +48,7 @@ fn converter() -> &'static LatexToMathML {
     })
 }
 
-/// The MathML for one span, or `None` when the LaTeX does not parse.
-///
-/// `display` picks `<math display="block">` (`$$…$$`) over
-/// `<math display="inline">` (`$…$`).
+/// `display` picks `<math display="block">` (`$$…$$`) over inline (`$…$`).
 ///
 /// ```
 /// let html = litedoc4_md::math::to_mathml("x^2", false).expect("x^2 parses");
@@ -91,9 +72,8 @@ pub fn to_mathml(latex: &str, display: bool) -> Option<String> {
 mod tests {
     use super::to_mathml;
 
-    /// Inline is the MathML default, so it is written by **leaving the
-    /// attribute out** — asserting `display="inline"` would be asserting a
-    /// spelling nothing requires.
+    /// Inline is the MathML default, so it is written by leaving the attribute
+    /// out; asserting `display="inline"` would assert a spelling nothing requires.
     #[test]
     fn inline_and_display_are_told_apart_in_the_output() {
         let inline = to_mathml("x", false).expect("x parses");
@@ -110,9 +90,8 @@ mod tests {
         assert!(!html.contains('$'), "{html}");
     }
 
-    /// The reason this crate is `math-core` and not `pulldown-latex`: the
-    /// characters HTML reserves have to leave as entities, in *math* content and
-    /// not only inside `\text{…}`.
+    /// Why `math-core` and not `pulldown-latex`: the characters HTML reserves
+    /// have to leave as entities in *math* content, not only inside `\text{…}`.
     #[test]
     fn html_metacharacters_come_out_escaped() {
         let lt = to_mathml("a < b", false).expect("a < b parses");
@@ -123,10 +102,9 @@ mod tests {
         assert!(amp.contains("&amp;"), "{amp}");
     }
 
-    /// Nothing this function returns may carry a bare `<` or `&` outside a tag.
-    /// Written as a scan rather than as three `contains` because the failure it
-    /// guards against is *any* content character reaching the page unescaped,
-    /// not the three that were known when it was written.
+    /// A scan rather than three `contains`, because the failure it guards
+    /// against is *any* content character reaching the page unescaped, not the
+    /// three that were known when it was written.
     #[test]
     fn no_output_carries_markup_outside_a_tag() {
         for latex in [
@@ -142,7 +120,7 @@ mod tests {
         }
     }
 
-    /// The four shapes that fail, all but the last from the Mathlib corpus.
+    /// All but the last from the Mathlib corpus.
     #[test]
     fn unreadable_latex_answers_none() {
         for latex in [
@@ -155,16 +133,14 @@ mod tests {
         }
     }
 
-    /// A span that is empty or only spaces is legal LaTeX; it must not be
-    /// mistaken for a failure.
     #[test]
     fn an_empty_span_is_not_a_failure() {
         assert!(to_mathml("", false).is_some());
         assert!(to_mathml("   ", false).is_some());
     }
 
-    /// Every `<` that does not open a tag, and every `&` that does not open an
-    /// entity. Returns the byte offsets so a failure names where.
+    /// Byte offsets of every `<` that does not open a tag and every `&` that
+    /// does not open an entity.
     fn strays(html: &str) -> Vec<usize> {
         let bytes = html.as_bytes();
         let mut found = Vec::new();
