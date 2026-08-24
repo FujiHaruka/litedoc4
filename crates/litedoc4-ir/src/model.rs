@@ -1,20 +1,11 @@
-//! The IR's schema-5 shapes, as the extractor writes them.
-//!
-//! The authority for every field here is `experiments/stage7d/Extract.lean`
-//! (`declToIrJson` / `writeIRTree`), not the TypeScript prototype: the writer is
-//! what decides which keys exist and which are omitted. Where the prototype's
-//! `render.ts` reads *fewer* fields than the writer emits, this module still
-//! models the writer's — see the notes on [`IndexEntry::content_hash`] and
-//! [`ModuleFile::tactics`], both of which other stages consume.
+//! The IR's schema-5 shapes, as the extractor writes them: it decides which
+//! keys exist and which are omitted, and this module models what it writes
+//! rather than what any one consumer reads.
 //!
 //! Every struct is `deny_unknown_fields`. A field the extractor starts emitting
 //! and this crate does not know about is then a loud parse failure instead of a
 //! silent drop; the schema version is what governs compatibility, so there is no
 //! forward-compatibility left for tolerant parsing to buy.
-//!
-//! Keys are alphabetically ordered on the wire (Lean's `Json.mkObj` is backed by
-//! a sorted map). That matters for writing, which this crate does not do; for
-//! reading it is irrelevant, and nothing here depends on field order.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -25,31 +16,27 @@ use serde::{Deserialize, Deserializer};
 
 use crate::{Span, Utf16Text};
 
-/// `index.json` — the package index.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Index {
     pub schema_version: u32,
-    /// The extractor's identity string, part of the extraction cache key
-    /// (plan §6: it must change when the implementation does).
+    /// The extractor's identity string, part of the extraction cache key: it
+    /// must change when the implementation does.
     pub generator: String,
     pub lean_version: String,
-    /// Names the algorithm behind [`IndexEntry::content_hash`]; currently
-    /// `lean-string-hash-64/hex16`.
+    /// Names the algorithm behind [`IndexEntry::content_hash`].
     pub hash_algorithm: String,
     pub module_count: u32,
     pub declaration_count: u32,
-    /// Present only when the extractor ran with an ablation flag, and then it
-    /// is a refusal marker: the IR is deliberately incomplete and rendering it
-    /// would produce a page that looks fine and is wrong. See
-    /// [`Index::require_renderable`].
+    /// A refusal marker: the extractor ran with an ablation flag, so the IR is
+    /// deliberately incomplete and rendering it would produce a page that looks
+    /// fine and is wrong.
     #[serde(default)]
     pub ablations: Vec<String>,
     pub modules: Vec<IndexEntry>,
     pub dependency_maps: Vec<DepMapEntry>,
 }
 
-/// One module's entry in `index.json`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct IndexEntry {
@@ -60,29 +47,21 @@ pub struct IndexEntry {
     /// The writer's `String.utf8ByteSize` of the module file.
     pub bytes: u64,
     pub declarations: u32,
-    /// Lean's `String.hash` of the module JSON, 16 hex digits.
-    ///
-    /// **Never recomputed on this side** (plan §7): the extractor stays in
-    /// Lean, so reading the value is enough, and recomputing would mean porting
-    /// `lean_string_hash`. It is the key the IR cache of plan §3 hangs off.
+    /// Lean's `String.hash` of the module JSON, 16 hex digits. **Never
+    /// recomputed on this side** — that would mean porting `lean_string_hash`.
     pub content_hash: String,
 }
 
-/// One dependency slice's entry in `index.json`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DepMapEntry {
-    /// The dependency's package root, e.g. `Mathlib`.
     pub package: String,
-    /// Path relative to the IR root, e.g. `deps/Mathlib.json`.
     pub file: String,
     pub entries: u32,
     pub bytes: u64,
 }
 
 impl Index {
-    /// Rejects an IR that must not be rendered: too old a schema, or written
-    /// with an ablation. `render.ts` exits on both before doing anything else.
     pub fn require_renderable(&self) -> Result<(), crate::Error> {
         if self.schema_version < crate::MIN_SCHEMA_VERSION {
             return Err(crate::Error::Schema {
@@ -100,7 +79,6 @@ impl Index {
     }
 }
 
-/// `modules/<Module.Full.Name>.json` — one module.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModuleFile {
@@ -108,24 +86,17 @@ pub struct ModuleFile {
     pub module: String,
     pub imports: Vec<String>,
     pub module_docs: Vec<ModuleDoc>,
-    /// Tactic docstrings declared by this module.
-    ///
-    /// `render.ts` does not model this field at all; `global.ts` counts it for
-    /// `tactics.html`, so it is modelled here. **Empty for every module of the
-    /// target package** (432 at the revision this was measured at, 422 on
-    /// 2026-08-21) — the shape below follows the writer
-    /// (`Extract.lean:2007-2011`), not observed data.
+    /// **Empty for every module of the target package** 【実測 2026-08-21】, so
+    /// the shape below follows the writer (`Extract.lean:2007-2011`), not
+    /// observed data.
     pub tactics: Vec<Tactic>,
     pub declarations: Vec<Decl>,
 }
 
 impl ModuleFile {
-    /// What this file says about one of its declarations and `sorry`.
-    ///
-    /// **Three-valued, and it has to be** — the same lesson as
-    /// [`Member::is_direct`], in the other direction. A schema-5 writer omits
-    /// the key to mean "no `sorry`"; a schema-4 file has no key to omit, so the
-    /// same absence means "nobody was asked". Reading [`Decl::sorry`] directly
+    /// **Three-valued, and it has to be.** A schema-5 writer omits the key to
+    /// mean "no `sorry`"; a schema-4 file has no key to omit, so the same
+    /// absence means "nobody was asked". Reading [`Decl::sorry`] directly
     /// conflates them into "this package has no holes", which is a claim about
     /// the package made from a fact about the extractor's version.
     ///
@@ -141,12 +112,9 @@ impl ModuleFile {
         }
     }
 
-    /// Whether the source names one of this file's declarations at a place of
-    /// its own — [`Decl::selection_range`]'s three-valued reading.
-    ///
-    /// Below schema 5 the key cannot exist, so the answer is
-    /// [`DeclNaming::Unknown`] without looking. This is the only thing that
-    /// should read [`Decl::selection_range`].
+    /// [`Decl::selection_range`]'s three-valued reading: below schema 5 the key
+    /// cannot exist, so the answer is [`DeclNaming::Unknown`] without looking.
+    /// This is the only thing that should read [`Decl::selection_range`].
     pub fn naming_of(&self, decl: &Decl) -> DeclNaming {
         if self.schema_version < crate::reader::SELECTION_RANGE_SCHEMA_VERSION {
             return DeclNaming::Unknown;
@@ -167,10 +135,8 @@ impl ModuleFile {
         }
     }
 
-    /// What realized one of this file's declarations, if the extractor could
-    /// say so without guessing — [`Decl::generated`]'s three-valued reading.
-    ///
-    /// This is the only thing that should read [`Decl::generated`].
+    /// [`Decl::generated`]'s three-valued reading. This is the only thing that
+    /// should read [`Decl::generated`].
     pub fn generated_by<'a>(&self, decl: &'a Decl) -> GeneratedFact<'a> {
         if self.schema_version < crate::reader::SELECTION_RANGE_SCHEMA_VERSION {
             return GeneratedFact::Unknown;
@@ -182,8 +148,6 @@ impl ModuleFile {
     }
 }
 
-/// [`ModuleFile::sorry_of`]'s answer: the two claims of doc-gen4 #270, plus the
-/// two ways of not making one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SorryFact {
     /// The file predates schema 5. Nothing is known — in particular this is
@@ -191,13 +155,10 @@ pub enum SorryFact {
     Unknown,
     /// Schema 5 or newer, and the writer said nothing: no `sorry`.
     Clean,
-    /// This declaration's own statement or proof mentions `sorryAx`.
     Direct,
-    /// It does not, but something it depends on does.
     Transitive,
 }
 
-/// A module-level docstring (`/-! ... -/`).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModuleDoc {
@@ -207,7 +168,6 @@ pub struct ModuleDoc {
     pub text: String,
 }
 
-/// A tactic docstring. Never observed non-empty on the target package.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Tactic {
@@ -217,22 +177,8 @@ pub struct Tactic {
     pub doc_string: String,
 }
 
-/// One declaration.
-///
-/// The fields that carry tag spans come in pairs — text plus span list — and
-/// the text side is a [`Utf16Text`] because the spans index it in UTF-16 code
-/// units:
-///
-/// | text | spans |
-/// |---|---|
-/// | [`Decl::binders`]`[i]` | [`Decl::binder_code`]`[i]` |
-/// | [`Decl::ty`] | [`Decl::type_code`] |
-/// | [`Decl::equations`]`[i]` | [`Decl::equation_code`]`[i]` |
-/// | [`Member::text`] | [`Member::code`] |
-/// | [`Member::binders`]`[i]` | [`Member::binder_code`]`[i]` |
-///
-/// Every other string is an ordinary `String`: names, docstrings and attributes
-/// are never indexed by a span.
+/// A span list indexes its paired text in UTF-16 code units; every other string
+/// is an ordinary `String`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Decl {
@@ -245,7 +191,6 @@ pub struct Decl {
     pub implicits: Vec<bool>,
     /// Parallel to `binders`.
     pub binder_code: Vec<Vec<Span>>,
-    /// The result type. Named `ty` because `type` is a Rust keyword.
     #[serde(rename = "type")]
     pub ty: Utf16Text,
     pub type_code: Vec<Span>,
@@ -253,16 +198,12 @@ pub struct Decl {
     pub col: u32,
     pub end_line: u32,
     pub end_col: u32,
-    /// The *other* range `findDeclarationRanges?` returns, added in schema 5.
-    /// On its own, `selection_range == range` does not reliably mean
-    /// "auto-generated" — it takes a check for whether the declaration sits
-    /// in a known Lean-core extension alongside it (see
-    /// [`ModuleFile::generated_by`]) to tell the two apart.
+    /// The *other* range `findDeclarationRanges?` returns. On its own,
+    /// `selection_range == range` does not reliably mean "auto-generated".
     ///
     /// **Read it through [`ModuleFile::naming_of`], not directly.** A schema-4
     /// file has no such key, so `None` here means "nobody was asked" rather
-    /// than any fact about the declaration — the same three-valued shape
-    /// [`Decl::sorry`] has, for the same reason.
+    /// than any fact about the declaration.
     #[serde(default)]
     pub selection_range: Option<SelectionRange>,
     /// Position in the order the extractor enumerated the module. Two pairs of
@@ -277,21 +218,19 @@ pub struct Decl {
     pub equation_code: Vec<Vec<Span>>,
     /// Deduplicated references, `(defining module, name)`.
     pub refs: Vec<Ref>,
-    /// Schema 4. Omitted by the writer when empty, so an empty vector here
-    /// means "no attributes", never "unknown".
-    ///
-    /// The **element** shape moved in schema 5: `[name, value]` where schema 4
-    /// had `"name value"`. Both parse — see [`Attr`].
+    /// Omitted by the writer when empty, so an empty vector means "no
+    /// attributes", never "unknown". The element shape moved in schema 5:
+    /// `[name, value]` where schema 4 had `"name value"`; both parse.
     #[serde(default)]
     pub attrs: Vec<Attr>,
-    /// Schema 4, instances only: the class this instance is for. `None` for
-    /// everything else, and then `inst_types` is empty as well.
+    /// Instances only: the class this instance is for. `None` for everything
+    /// else, and then `inst_types` is empty as well.
     #[serde(default)]
     pub inst_class: Option<String>,
-    /// Schema 4, instances only.
+    /// Instances only.
     #[serde(default)]
     pub inst_types: Vec<String>,
-    /// Schema 5 (doc-gen4 #270): whether this declaration is a hole, and whose.
+    /// Whether this declaration is a hole, and whose (doc-gen4 #270).
     ///
     /// **Read it through [`ModuleFile::sorry_of`], not directly.** The writer
     /// omits the key when neither value applies, so `None` means "no `sorry`" —
@@ -299,13 +238,12 @@ pub struct Decl {
     /// no key to omit. On its own this field cannot tell the two apart.
     #[serde(default)]
     pub sorry: Option<SorryKind>,
-    /// Schema 5 (B-3): the declaration `@[ext]` realized this one **from**, one
-    /// step, as `["ext", name]` on the wire.
+    /// The declaration `@[ext]` realized this one **from**, one step, as
+    /// `["ext", name]` on the wire.
     ///
-    /// **Read it through [`ModuleFile::generated_by`], not directly**, for the
-    /// third time and the third reason: the writer omits the key when it has
-    /// nothing to say, so `None` is "not realized by `@[ext]`" only in a file
-    /// that says `schemaVersion` 5.
+    /// **Read it through [`ModuleFile::generated_by`], not directly**: the
+    /// writer omits the key when it has nothing to say, so `None` is "not
+    /// realized by `@[ext]`" only in a file that says `schemaVersion` 5.
     ///
     /// Only `@[ext]` is ever named here, and the boundary is not a matter of
     /// taste: `simps` / `to_additive` / `mk_iff` / `to_dual` / `alias` keep
@@ -320,13 +258,10 @@ pub struct Decl {
     pub generated: Option<Generated>,
 }
 
-/// [`Decl::selection_range`]'s payload: `[line, col, endLine, endCol]`.
+/// `[line, col, endLine, endCol]` on the wire.
 ///
-/// The name is the interesting half. For a declaration the source names, the
-/// elaborator records the `declId` here and this range is a proper sub-range of
-/// [`Decl::line`]`..`[`Decl::end_line`]. For a declaration nothing in the
-/// source names, the elaborator that built it had one syntax tree to point at
-/// and Lean defaults the selection range to the whole range
+/// Where the source names the declaration this is a proper sub-range of it;
+/// where nothing does, Lean defaults the selection range to the whole range
 /// (`Lean/Elab/DeclarationRange.lean:53`), so the two are **equal**.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SelectionRange {
@@ -348,41 +283,25 @@ impl<'de> Deserialize<'de> for SelectionRange {
     }
 }
 
-/// [`ModuleFile::naming_of`]'s answer: whether the source gives this
-/// declaration a place of its own.
-///
 /// **This is not "generated" and must not be read as it**
-/// 【実測 2026-08-21 → `benchmarks/results/generated-decls-2026-08-21.txt`】.
-/// Over 2,786 Mathlib declarations, [`DeclNaming::Unnamed`] also covers
-/// structure and class field projections and macro-defined declarations
-/// (209 of 779), and it does **not** cover the `to_additive` twins whose
-/// additive name the author wrote out (376 declarations whose range is an
-/// attribute token are [`DeclNaming::Named`]). What it is good for is the
-/// second half of a rule whose first half already knows which declaration it is
-/// looking at — see [`Decl::generated`].
+/// 【実測 2026-08-21 → `benchmarks/results/generated-decls-2026-08-21.txt`】:
+/// over 2,786 Mathlib declarations, [`DeclNaming::Unnamed`] also covers field
+/// projections and macro-defined declarations (209 of 779), and does **not**
+/// cover the `to_additive` twins whose additive name the author wrote out (376
+/// are [`DeclNaming::Named`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeclNaming {
     /// No `selectionRange` key. Nothing is known — in particular this is
     /// **not** [`DeclNaming::Unnamed`].
     Unknown,
-    /// The selection range is a proper sub-range of the declaration's range:
-    /// there is a `declId` (or, for an anonymous `instance`, a keyword) at that
-    /// position and the elaborator recorded it.
     Named(SelectionRange),
-    /// The two ranges are equal: whatever built this declaration had a single
-    /// syntax tree to point at.
     Unnamed,
 }
 
-/// [`Decl::generated`]'s payload: `[origin, name]` on the wire.
-///
-/// Two strings rather than one because the origin is the half that decides what
-/// a reader may claim. Today it is always `ext`; a second origin would arrive
-/// as a second value here rather than as a second key.
+/// `[origin, name]` on the wire. `origin` is always `ext` today; a second
+/// origin would arrive as a second value here rather than as a second key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Generated {
-    /// The attribute that realized the declaration. `ext`, and nothing else so
-    /// far.
     pub origin: String,
     /// What the realization took as **input**, one step: `P.ext` names the
     /// structure `P`, `P.ext_iff` names `P.ext`. Following the chain — and
@@ -401,33 +320,25 @@ impl<'de> Deserialize<'de> for Generated {
 /// [`ModuleFile::generated_by`]'s answer.
 ///
 /// Three values, and the middle one is the reason: **"the extractor said
-/// nothing" is not "the author wrote it"**. The extractor only knows the one
-/// attribute whose map is in Lean core, so [`GeneratedFact::Unclaimed`] covers
-/// hand-written declarations *and* everything `simps` / `to_additive` /
-/// `mk_iff` / `to_dual` / `alias` realized. A reader that prints "written by
-/// hand" for this value is making a claim the IR does not carry.
+/// nothing" is not "the author wrote it"**. [`GeneratedFact::Unclaimed`] covers
+/// hand-written declarations *and* everything the Mathlib-side attributes
+/// realized, so a reader that prints "written by hand" for it is making a claim
+/// the IR does not carry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GeneratedFact<'a> {
     /// The file predates the key. Nothing is known.
     Unknown,
-    /// Schema 5 or newer, and the writer said nothing: not realized by
-    /// `@[ext]`. See above for what that does **not** mean.
+    /// Schema 5 or newer, and the writer said nothing: not realized by `@[ext]`.
     Unclaimed,
-    /// Realized by an attribute the extractor can name, from this declaration.
     By(&'a Generated),
 }
 
-/// Which of doc-gen4 #270's two claims a declaration makes.
+/// Two values rather than a flag because they are **different claims**; a
+/// declaration that is both is `Direct`.
 ///
-/// They are **different claims** and a reader treats them differently, so this
-/// is two values rather than a flag: `Direct` is a hole in this declaration,
-/// `Transitive` is a hole somewhere underneath it. A declaration that is both is
-/// `Direct` — the stronger claim, and the one that is acted on.
-///
-/// What the IR deliberately does *not* carry is the axiom set. Every
-/// Mathlib-dependent declaration transitively uses `Classical.choice` /
-/// `propext` / `Quot.sound`, so the full list is a large field with almost no
-/// information in it.
+/// The IR deliberately does *not* carry the axiom set: every Mathlib-dependent
+/// declaration transitively uses `Classical.choice` / `propext` / `Quot.sound`,
+/// so the full list is a large field with almost no information in it.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SorryKind {
@@ -437,44 +348,18 @@ pub enum SorryKind {
     Transitive,
 }
 
-/// One attribute on a declaration: the attribute's name, and the value the
-/// extractor printed for it.
+/// Schema 5 writes a two-element `[name, value]` array; schema 4 wrote one
+/// concatenated string per attribute, `"deprecated Foo"`, and **that still
+/// parses** — a bare string arrives here as a name with an empty
+/// [`Attr::value`].
 ///
-/// On the wire (schema 5) it is a two-element array, `["deprecated", "Foo
-/// (since := \"2026-05-21\")"]` — the shape [`Ref`] already uses, rather than an
-/// object, because the reader is hand-written either way and keys would be two
-/// more strings per attribute in every module file.
-///
-/// # Why the two shapes
-///
-/// Schema 4 wrote one concatenated string per attribute, `"deprecated Foo"`,
-/// and **that file still parses**: a bare string arrives here as a name with an
-/// empty [`Attr::value`].
-///
-/// It no longer *has* to — [`crate::MIN_SCHEMA_VERSION`] moved to 5 in
-/// feature-sweep C-4 and the curated IR that was schema 4 was migrated with it,
-/// so nothing in this tree feeds a bare string here any more. It is kept because
-/// **`serde` is not the only reader of these bytes**: an `attrs` array written
-/// by a schema-4 extractor is what a v0.1.x release produced, and answering
-/// "name, no value" is a better failure than refusing to parse at a depth where
-/// the error names a serde path rather than a module.
-///
-/// # What the reader must not do
-///
-/// Split a schema-4 string on its first space. An attribute value can contain
-/// spaces (`deprecated`) and brackets (`specialize #[0, 1]`), so where the
-/// boundary is is a fact about the attribute rather than about the string, and
-/// the extractor is the only side that has it. Guessing here would be a second
-/// answer to a question already answered there; a schema-4 file simply does not
-/// carry the answer, and says so by leaving `value` empty.
-///
-/// The consequence for a consumer that wants to *act* on an attribute — link
-/// `@[deprecated Foo]` to `Foo`, style by name — is that it must check
+/// What the reader must **not** do is split such a string on its first space.
+/// An attribute value can contain spaces (`deprecated`) and brackets
+/// (`specialize #[0, 1]`), so where the boundary is is a fact only the
+/// extractor has. A consumer that wants to *act* on an attribute must check
 /// [`Attr::value`] is non-empty rather than assume the pair was split.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Attr {
-    /// `simp`, `deprecated`, `instance`, ... Never empty in practice; the
-    /// extractor's four collectors all name their attribute.
     pub name: String,
     /// Empty for the attributes that take no argument, and for **every**
     /// attribute of a schema-4 file.
@@ -482,12 +367,6 @@ pub struct Attr {
 }
 
 impl Attr {
-    /// The one string schema 4 carried: the name alone, or `name value`.
-    ///
-    /// This is what makes the shape change invisible to a renderer that only
-    /// prints attributes — a schema-4 string round-trips through
-    /// [`Attr::name`] unchanged, and a schema-5 pair rejoins to what the same
-    /// extractor used to write.
     pub fn text(&self) -> Cow<'_, str> {
         if self.value.is_empty() {
             Cow::Borrowed(&self.name)
@@ -503,12 +382,10 @@ impl<'de> Deserialize<'de> for Attr {
     }
 }
 
-/// Accepts the two wire shapes and **nothing else**.
-///
-/// In particular an array of any arity but two is an error rather than a
-/// best-effort read: a one-element array would otherwise become a name with no
-/// value, which is indistinguishable from a legitimate schema-4 string, and a
-/// three-element one would silently drop whatever the writer added.
+/// An array of any arity but two is an error rather than a best-effort read: a
+/// one-element array would become a name with no value, indistinguishable from
+/// a legitimate schema-4 string, and a three-element one would silently drop
+/// whatever the writer added.
 struct AttrVisitor;
 
 impl<'de> Visitor<'de> for AttrVisitor {
@@ -546,13 +423,9 @@ impl<'de> Visitor<'de> for AttrVisitor {
     }
 }
 
-/// A structure field, constructor or parent, as listed under a declaration.
-///
-/// Only `label == "field"` members carry the five schema-4 keys
-/// (`binders` / `implicits` / `binder_code` / `doc` / `is_direct`); the writer
+/// Only `label == "field"` members carry the five optional keys; the writer
 /// omits them for `ctor` and `parent` rather than paying five empty keys per
-/// structure. They default here — and for [`Member::is_direct`] the default has
-/// to be a third state rather than `false`, see below.
+/// structure.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Member {
@@ -569,36 +442,26 @@ pub struct Member {
     pub binder_code: Vec<Vec<Span>>,
     #[serde(default)]
     pub doc: Option<String>,
-    /// Whether the field is declared by this structure rather than inherited —
-    /// **three-valued on purpose**.
-    ///
-    /// `fieldToHtml` selects the inherited branch with `f.isDirect === false`
-    /// (`render.ts:1799`), so in the prototype a *missing* key is a direct
-    /// field. A plain `#[serde(default)] bool` would make a missing key
-    /// `false` = inherited: the opposite reading, and one that no byte
-    /// comparison on this package can catch, because all 156 field members of
-    /// the target package's IR carry the key 【実測】. The default is therefore
-    /// `None`, and [`Member::is_inherited`] is the only thing that reads it.
+    /// **Three-valued on purpose.** A *missing* key is a direct field, so a
+    /// plain `#[serde(default)] bool` would make it `false` = inherited: the
+    /// opposite reading, and one no byte comparison on this package can catch,
+    /// because all 156 field members of the target package's IR carry the key
+    /// 【実測】. [`Member::is_inherited`] is the only thing that reads it.
     #[serde(default)]
     pub is_direct: Option<bool>,
 }
 
 impl Member {
-    /// True for the members that carry the schema-4 field keys.
     pub fn is_field(&self) -> bool {
         self.label == "field"
     }
 
-    /// `f.isDirect === false` — the inherited branch of `fieldToHtml`.
-    ///
-    /// Absent is **not** inherited. See [`Member::is_direct`].
     pub fn is_inherited(&self) -> bool {
         self.is_direct == Some(false)
     }
 }
 
-/// A resolved reference: which module defines the constant a declaration
-/// mentions. On the wire it is a two-element array, `[module, name]`.
+/// `[module, name]` on the wire: which module defines the constant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ref {
     pub module: String,
@@ -612,20 +475,14 @@ impl<'de> Deserialize<'de> for Ref {
     }
 }
 
-/// `deps/<PackageRoot>.json` — the name -> defining module map for the
-/// constants this package refers to from one dependency package.
-///
-/// Two columns is all a link needs; `kind` is only wanted by
-/// a search UI, and `docLink` is recoverable from `(module, name)`.
+/// `deps/<PackageRoot>.json`. Two columns is all a link needs: `kind` is only
+/// wanted by a search UI, and `docLink` is recoverable from `(module, name)`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DepMap {
     pub schema_version: u32,
     pub package: String,
-    /// Constant name -> defining module.
-    ///
-    /// A `BTreeMap` rather than an order-preserving map: the from-scratch
-    /// writer emits these keys sorted anyway, the incremental merger emits them
-    /// in insertion order, and no consumer does anything but look names up.
+    /// Constant name -> defining module. A `BTreeMap` rather than an
+    /// order-preserving map: no consumer does anything but look names up.
     pub declarations: BTreeMap<String, String>,
 }

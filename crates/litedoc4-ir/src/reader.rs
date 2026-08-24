@@ -1,12 +1,8 @@
 //! Opening an IR tree and reading files out of it.
 //!
 //! [`IrTree::module`] is the single funnel every module read goes through —
-//! including the ones [`IrTree::modules`] and [`IrTree::load_modules`] make.
-//! That is the structural constraint plan §3 asks for: the incremental pipeline
-//! still reads the whole IR five times, and the `contentHash` cache that would
-//! remove four of them has exactly one place to go. The cache itself is not
-//! here yet — it is performance, not correctness, and gate A does not include
-//! it — but nothing else has to move when it arrives.
+//! including the ones [`IrTree::modules`] and [`IrTree::load_modules`] make — so
+//! a `contentHash` cache in front of those reads has exactly one place to go.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,45 +13,21 @@ use crate::error::{Error, Result};
 use crate::metrics::{self, IrFile};
 use crate::model::{DepMap, DepMapEntry, Index, IndexEntry, ModuleFile};
 
-/// The schema this reader understands. Schema 3 has no attributes, no instance
-/// index and no member binders / docstrings / origin, so a schema-3 IR cannot
-/// produce a byte-identical page.
-///
-/// **It moved to 5 in feature-sweep C-4**, and
-/// what that buys is one meaning per absence. Schema 5 adds `sorry`,
+/// A floor of 5 buys one meaning per absence: schema 5 adds `sorry`,
 /// `selectionRange` and `generated`, and for each of them an *absent* key says
 /// something — "no `sorry`", "not realized by an attribute" — that a schema-4
-/// file cannot say, because there the key could not exist. While the floor was
-/// 4 the two states had to be kept apart at every read;
-/// [`crate::ModuleFile::sorry_of`] is what did it, and it is still the only way
-/// [`crate::Decl::sorry`] is read.
-///
-/// It stayed at 4 through B-1 because raising it meant migrating the curated
-/// schema-4 IR embedded in two fixtures, and a fixture is not something to edit
-/// in passing. C-4 is the step that migrates fixtures, so it is the step that
-/// raised this 【決定 2026-08-22、ユーザー判断】.
-///
-/// The reader that enforces this is [`read_module_file`], so what a low number
-/// costs a consumer is concrete: an IR tree left behind by an older `litedoc4`
-/// is **refused by name** rather than rendered into a site whose pages are
-/// missing the half of their content the newer keys carry.
+/// file cannot say, because there the key could not exist.
 pub const MIN_SCHEMA_VERSION: u32 = 5;
 
-/// The first schema whose module files carry [`crate::Decl::sorry`].
-///
 /// Below it the key's absence says nothing; at or above it, it says "no
 /// `sorry`". [`crate::ModuleFile::sorry_of`] is the only place this is applied.
 pub(crate) const SORRY_SCHEMA_VERSION: u32 = 5;
 
-/// The first schema whose module files carry [`crate::Decl::selection_range`]
-/// and [`crate::Decl::generated`].
-///
 /// The same number as [`SORRY_SCHEMA_VERSION`] and a constant of its own on
-/// purpose: the two keys arrived under one version bump, but what each absence
-/// means is a fact about that key, and a reader that shared one constant would
-/// have to be edited in two places the day they stop being the same schema.
-/// [`crate::ModuleFile::naming_of`] and [`crate::ModuleFile::generated_by`] are
-/// the only places this is applied.
+/// purpose: what each absence means is a fact about that key, and one shared
+/// constant would have to be edited in two places the day they stop being the
+/// same schema. [`crate::ModuleFile::naming_of`] and
+/// [`crate::ModuleFile::generated_by`] are the only places this is applied.
 pub(crate) const SELECTION_RANGE_SCHEMA_VERSION: u32 = 5;
 
 /// An IR tree on disk: `index.json`, `modules/`, `deps/`.
@@ -66,9 +38,6 @@ pub struct IrTree {
 }
 
 impl IrTree {
-    /// Reads `index.json` and refuses an IR that must not be rendered — too old
-    /// a schema, or written with an ablation.
-    ///
     /// Only the index is read; module files are read on demand.
     pub fn open(root: impl Into<PathBuf>) -> Result<Self> {
         let tree = Self::open_unvalidated(root)?;
@@ -92,18 +61,13 @@ impl IrTree {
         &self.index
     }
 
-    /// Resolves a path recorded in the index (`modules/Foo.json`,
-    /// `deps/Mathlib.json`) against the tree root.
     pub fn path(&self, relative: &str) -> PathBuf {
         self.root.join(relative)
     }
 
-    /// Reads one module file.
-    ///
-    /// Checks that the file agrees with the index about which module it is, and
-    /// that its own `schemaVersion` is new enough: an incremental tree is a
-    /// merge of files from several extractor runs, so the index's version does
-    /// not vouch for the modules'.
+    /// The `schemaVersion` is checked here too: an incremental tree is a merge
+    /// of files from several extractor runs, so the index's version does not
+    /// vouch for the modules'.
     pub fn module(&self, entry: &IndexEntry) -> Result<ModuleFile> {
         let path = self.path(&entry.file);
         let module = read_module_file(&path)?;
@@ -117,25 +81,18 @@ impl IrTree {
         Ok(module)
     }
 
-    /// Every module, in index order, read lazily.
-    ///
-    /// Lazily so that a caller which only needs a few modules — or which wants
-    /// to stream rather than hold 16 MB of IR — does not pay for the rest.
     pub fn modules(&self) -> impl Iterator<Item = Result<ModuleFile>> + '_ {
         self.index.modules.iter().map(|entry| self.module(entry))
     }
 
-    /// Every module, in index order, all at once. Stops at the first failure.
     pub fn load_modules(&self) -> Result<Vec<ModuleFile>> {
         self.modules().collect()
     }
 
-    /// Reads one dependency slice.
     pub fn dep_map(&self, entry: &DepMapEntry) -> Result<DepMap> {
         read_json(&self.path(&entry.file), IrFile::DepMap)
     }
 
-    /// Every dependency slice, in index order.
     pub fn load_dep_maps(&self) -> Result<Vec<DepMap>> {
         self.index
             .dependency_maps
@@ -145,22 +102,9 @@ impl IrTree {
     }
 }
 
-/// Reads one module file by path, checking only its own `schemaVersion`.
-///
-/// The funnel [`IrTree::module`] goes through, and the way in for the one caller
-/// that has no index to check the file against: the **merger** reads the tree it
-/// is in the middle of writing, whose `index.json` is written last. Keeping it
-/// here rather than letting that caller reach for `serde_json` is the plan §3
-/// constraint — the `contentHash` cache has one place to go.
-///
-/// **That constraint holds for module files and not for `index.json`**【実測
-/// 2026-08-16, the work counters】. Three callers read the index outside this
-/// crate: `merge` (which round-trips index keys this crate does not model),
-/// `ledger::extract_key` and `prune::read_index_modules`. The V2 cache belongs
-/// on the module files, so the design stands — but a counter placed only inside
-/// this crate under-reports every incremental run by three or four index reads,
-/// and the claim as originally written ("every read of the IR is in this crate")
-/// was false.
+/// The way in for the one caller that has no index to check the file against:
+/// the **merger** reads the tree it is in the middle of writing, whose
+/// `index.json` is written last.
 pub fn read_module_file(path: &Path) -> Result<ModuleFile> {
     let module: ModuleFile = read_json(path, IrFile::Module)?;
     if module.schema_version < MIN_SCHEMA_VERSION {
@@ -173,12 +117,9 @@ pub fn read_module_file(path: &Path) -> Result<ModuleFile> {
     Ok(module)
 }
 
-/// The one place this crate touches the disk — and therefore the one place the
-/// work counter can be kept honest.
-///
-/// `kind` is a parameter rather than something derived from `path` 【判断】: a
-/// caller that adds a read has to say what it is reading, and a guess from the
-/// file name would be a fourth spelling of the tree's layout that nothing checks.
+/// `kind` is a parameter rather than something derived from `path`: a caller
+/// that adds a read has to say what it is reading, and a guess from the file
+/// name would be a fourth spelling of the tree's layout that nothing checks.
 fn read_json<T: DeserializeOwned>(path: &Path, kind: IrFile) -> Result<T> {
     metrics::record(kind);
     // Read the whole file, then parse, rather than `from_reader`: the largest

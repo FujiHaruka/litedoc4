@@ -7,26 +7,23 @@
 //! ```text
 //! [start, stop, kind]                      kind 0 (fn) or 2 (sort)
 //! [start, stop, 1, name]                   kind 1 (const), no whitespace to restore
-//! [start, stop, 1, name, front, back]      kind 1 (const), schema 3 widths
+//! [start, stop, 1, name, front, back]      kind 1 (const), widths
 //! ```
 //!
 //! All four numbers are **UTF-16 code unit** offsets into the fragment text —
-//! see [`crate::Utf16Text`]. They are left as plain `u32` here on purpose: the
-//! text type refuses to be indexed by bytes, so there is no byte offset around
-//! for them to be confused with.
+//! see [`crate::Utf16Text`]. They are left as plain `u32`: the text type refuses
+//! to be indexed by bytes, so there is no byte offset to confuse them with.
 //!
-//! They are also not independent of each other. `start <= stop` because
-//! `[start, stop)` is a range, and `front <= start` because `front` counts
-//! units *in front of* `start`. Both are checked while reading, for the reason
-//! the rest of this crate refuses rather than guesses: the arithmetic that
-//! assumes them is one method call away from any [`Span`] that exists.
+//! `start <= stop` and `front <= start` are checked while reading, because the
+//! arithmetic that assumes them is one method call away from any [`Span`] that
+//! exists.
 
 use std::ops::Range;
 
 use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
 use std::fmt;
 
-/// What a span tags. Numbered as the extractor writes them.
+/// Numbered as the extractor writes them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SpanKind {
     /// `0` — a printed sub-expression with no link of its own (`span.fn`).
@@ -35,9 +32,8 @@ pub enum SpanKind {
     Const,
     /// `2` — a sort (`Type`, `Prop`, ...), linked to `foundational_types.html`.
     Sort,
-    /// Any other code. Never produced by the current extractor; kept so that
-    /// reading an IR from a newer writer cannot fail, and so the renderer can
-    /// decide what to do rather than the reader deciding for it.
+    /// Never produced by the current extractor; kept so that reading an IR from
+    /// a newer writer cannot fail.
     Other(u8),
 }
 
@@ -61,7 +57,6 @@ impl SpanKind {
     }
 }
 
-/// One tag position over a printed fragment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Span {
     /// First UTF-16 code unit of the tagged text.
@@ -72,9 +67,9 @@ pub struct Span {
     /// The constant's name. `Some` exactly when the wire form carried a fourth
     /// element, which the extractor only writes for [`SpanKind::Const`].
     pub name: Option<String>,
-    /// Schema 3: UTF-16 code units of whitespace immediately *before* `start`
-    /// that doc-gen4 rewrites as plain spaces. Zero when the wire form was the
-    /// short one.
+    /// UTF-16 code units of whitespace immediately *before* `start` that
+    /// doc-gen4 rewrites as plain spaces. Zero when the wire form was the short
+    /// one.
     pub front: u32,
     /// Same, immediately *after* `stop`.
     pub back: u32,
@@ -85,31 +80,22 @@ impl Span {
         self.kind == SpanKind::Const
     }
 
-    /// The tagged text's own range.
     pub fn range(&self) -> Range<u32> {
         self.start..self.stop
     }
 
-    /// The leading whitespace run doc-gen4 turns into spaces, if any.
-    ///
     /// # Panics
     ///
-    /// If `front > start`, which is a run of whitespace longer than the text in
-    /// front of it. A deserialised [`Span`] cannot be in that state — the
-    /// visitor refuses the pair — so this is reachable only by building one
-    /// field by field, and it panics rather than guessing which of the two
-    /// numbers was meant.
+    /// If `front > start`. A deserialised [`Span`] cannot be in that state —
+    /// the visitor refuses the pair — so this is reachable only by building one
+    /// field by field.
     pub fn front_range(&self) -> Option<Range<u32>> {
         (self.front > 0).then(|| self.start - self.front..self.start)
     }
 
-    /// The trailing whitespace run doc-gen4 turns into spaces, if any.
-    ///
     /// `None` when the run would end past `u32::MAX`. Unlike `front`, that is
     /// **not** a relation the visitor can refuse on its own: `stop` and `back`
-    /// are each legal and only their sum is not, and a fragment that long does
-    /// not exist to hold the range anyway — so the same `None` that means "no
-    /// trailing whitespace" is the right answer rather than a guess.
+    /// are each legal and only their sum is not.
     pub fn back_range(&self) -> Option<Range<u32>> {
         (self.back > 0)
             .then(|| self.stop.checked_add(self.back))
@@ -159,15 +145,10 @@ impl<'de> Visitor<'de> for SpanVisitor {
             _ => return Err(de::Error::invalid_length(5, &self)),
         };
 
-        // The element count and the kind were the only things checked here, and
-        // the four numbers also have to stand in a relation to one another. The
-        // extractor writes them from one accumulator — `start = off + front`
-        // and `stop = off + total - back` (`Extract.lean:1125`) — so both
-        // relations hold by construction on anything it wrote; what these
-        // refuse is an IR from somewhere else. Refused at the seam rather than
-        // survived downstream: `front_range` is `start - front`, one call away
-        // from a `Span` that exists, and an integer overflow there says nothing
-        // about which fragment or which span was wrong.
+        // The extractor writes the four numbers from one accumulator — `start =
+        // off + front` and `stop = off + total - back` (`Extract.lean:1125`) —
+        // so both relations hold by construction on anything it wrote; what
+        // these refuse is an IR from somewhere else.
         if start > stop {
             return Err(de::Error::custom(format!(
                 "span [{start}, {stop}) is not a range: it ends before it starts"
@@ -257,9 +238,8 @@ mod tests {
         }
     }
 
-    /// The refusals name the numbers, as [`crate::Utf16Text::slice`]'s panic
-    /// does: a reader who sees `span [5, 2)` in a log knows which span in which
-    /// fragment to go and look at, and "invalid value" does not.
+    /// A reader who sees `span [5, 2)` in a log knows which span to go and look
+    /// at; "invalid value" does not.
     #[test]
     fn the_refusals_say_which_numbers() {
         let inverted = serde_json::from_str::<Span>("[5,2,0]")
@@ -273,9 +253,6 @@ mod tests {
         assert!(front.contains('3'), "{front}");
     }
 
-    /// A span at the very end of the address space: `stop + back` is what
-    /// [`Span::back_range`] adds, and the pair is legal on the wire, so the
-    /// addition is the one that has to be checked rather than refused.
     #[test]
     fn a_trailing_width_that_runs_off_the_end_is_not_a_range() {
         let s = parse(&format!(r#"[0,{max},1,"n",0,1]"#, max = u32::MAX));

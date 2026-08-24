@@ -1,18 +1,11 @@
-//! Reads the real IR tree of the target package.
-//!
-//! The fixture is the 432-module IR of `lean-projects` (the `InformationTheory`
-//! package on Mathlib), which is what every number in `docs/` is measured on.
-//! It lives outside the repository — 16 MB of generated JSON — so these tests
-//! are `#[ignore]`d rather than silently skipped: `cargo test` has to pass on a
-//! machine that has never run the extractor, and a run that reports them as
-//! ignored says out loud that they did not run. A `return` did not.
-//!
-//! Point the environment variable `LITEDOC4_BASE_IR` at another tree to run the
-//! structural half against it; the exact counts below are specific to this
-//! fixture and are then skipped too.
+//! The fixture is the 432-module IR of `lean-projects`, and it lives outside
+//! the repository — so these tests are `#[ignore]`d rather than silently
+//! skipped: a run that reports them as ignored says out loud that they did not
+//! run, and a `return` does not. `LITEDOC4_BASE_IR` may point at another tree,
+//! which then gets the structural half only.
 //!
 //! Every count asserted here was taken from the fixture directly (実測, by
-//! enumerating the JSON), not from a previous run of this reader. The point is
+//! enumerating the JSON), not from a previous run of this reader: the point is
 //! that the reader agrees with the writer, so the expected values must not come
 //! from the reader.
 
@@ -24,15 +17,12 @@ use litedoc4_ir::{
 };
 use litedoc4_testutil::corpus;
 
-/// The fixture, or a panic naming what to set.
+/// Every caller is `#[ignore]`d, so reaching this function means the corpus gate
+/// asked for the test by name: returning "not here, never mind" would be a green
+/// result for a comparison that never ran.
 ///
-/// Every caller is `#[ignore]`d, so reaching this function at all means the
-/// corpus gate asked for the test by name. Returning "not here, never mind"
-/// there would be a green result for a comparison that never ran.
-///
-/// `raw` and not `path`: naming `index.json` is a **stronger** check than the
-/// file count behind [`corpus::Input::path`] — it says what an IR tree must
-/// hold rather than how much of anything it holds.
+/// `raw` and not `path`: naming `index.json` says what an IR tree must hold
+/// rather than how much of anything it holds.
 fn fixture() -> PathBuf {
     let path = corpus::LITEDOC4_BASE_IR.raw();
     assert!(
@@ -44,27 +34,19 @@ fn fixture() -> PathBuf {
     path
 }
 
-/// What the tree the exact counts were measured on says about itself.
+/// `(generator, leanVersion, moduleCount, declarationCount)` from the
+/// `index.json` the exact counts were measured on.
 ///
-/// `(generator, leanVersion, moduleCount, declarationCount)` from its
-/// `index.json`.
-/// `generator` is the extractor's own name for itself, and it is a **deliberate
-/// old spelling** — `extractor/Extract.lean:2838` still writes
-/// `lean-doc/experiments/stage4b`, because the port does not claim to be what
-/// wrote the tree on disk.
+/// `generator` is a **deliberate old spelling** — `extractor/Extract.lean:2838`
+/// still writes `lean-doc/experiments/stage4b`, because the port does not claim
+/// to be what wrote the tree on disk.
 const MEASURED_FIXTURE: (&str, &str, u32, u32) =
     ("lean-doc/experiments/stage4b", "4.31.0", 432, 4_750);
 
-/// True when the fixture is the one the exact counts were measured on.
-///
-/// **Judged by what the tree holds, not by where it sits.** The path this used
-/// to compare against is under `/private/tmp/lean-doc-relay/`, a work area that
-/// is swept and rebuilt: a different generation of the IR standing at the same
-/// path would have been read as the measured one and checked against counts it
-/// never had, while the measured tree reached through a symlink or with a
-/// trailing slash would have dropped the exact checks and gone green on
-/// structure alone. CLAUDE.md records the same failure at
-/// `link_index_fixture`【実測 2026-08-16】: "入力の同一性を「パス」で判定しない".
+/// **Judged by what the tree holds, not by where it sits**: the path this used
+/// to compare against is a work area that is swept and rebuilt, so a different
+/// generation standing there would have been checked against counts it never had
+/// 【実測 2026-08-16】.
 fn is_default_fixture(index: &litedoc4_ir::Index) -> bool {
     let (generator, lean_version, modules, declarations) = MEASURED_FIXTURE;
     index.generator == generator
@@ -73,8 +55,6 @@ fn is_default_fixture(index: &litedoc4_ir::Index) -> bool {
         && index.declaration_count == declarations
 }
 
-/// Every (text, spans) pair in a declaration. The five carriers of plan §7's
-/// UTF-16 offsets, and the only fields that pair a text with positions.
 fn tagged(decl: &Decl) -> Vec<(&Utf16Text, &[Span])> {
     let mut out: Vec<(&Utf16Text, &[Span])> = Vec::new();
     for (i, text) in decl.binders.iter().enumerate() {
@@ -107,12 +87,9 @@ struct Counts {
     tactics: usize,
     members: usize,
     members_field: usize,
-    /// Field members that actually carry `isDirect`.
-    ///
-    /// Counted because it is what makes the byte comparison blind to the
-    /// default: if every field has the key, `Option<bool>` and a `false`
-    /// default produce the same pages, and only the type says which reading is
-    /// right (plan §5, `Member::is_direct`).
+    /// Counted because it is what makes a byte comparison blind to the default:
+    /// if every field has the key, `Option<bool>` and a `false` default produce
+    /// the same pages.
     members_field_is_direct_present: usize,
     members_field_inherited: usize,
     members_ctor: usize,
@@ -120,18 +97,14 @@ struct Counts {
     with_attrs: usize,
     with_inst_class: usize,
     refs: usize,
-    /// Tagged fragments, and how many of them are not pure ASCII.
     fragments: usize,
     fragments_non_ascii: usize,
-    /// Fragments containing at least one scalar above U+FFFF — the case where
-    /// UTF-16 and UTF-8 offsets disagree by more than a constant factor and a
-    /// slice can land inside a surrogate pair.
+    /// Scalars above U+FFFF: the case where a slice can land inside a
+    /// surrogate pair.
     fragments_astral: usize,
-    /// Spans whose UTF-16 start is not equal to its byte offset.
     spans_offset_shifted: usize,
     spans_by_arity: [usize; 3],
     spans_by_kind: [usize; 3],
-    /// Fragments whose parallel arrays disagree in length.
     ragged_arrays: usize,
 }
 
@@ -180,7 +153,7 @@ impl Counts {
             "parent" => self.members_parent += 1,
             other => panic!("unknown member label {other:?}"),
         }
-        // The five schema-4 keys arrive as a group, on field members only.
+        // The five optional keys arrive as a group, on field members only.
         let has_extras = !member.binders.is_empty()
             || !member.implicits.is_empty()
             || !member.binder_code.is_empty()
@@ -253,9 +226,8 @@ impl Counts {
                 self.spans_offset_shifted += 1;
             }
 
-            // The whitespace `splitWhitespaces` rewrites as plain spaces must
-            // really be whitespace, or the widths do not mean what schema 3
-            // says they mean.
+            // The whitespace the extractor rewrites as plain spaces must really
+            // be whitespace, or the widths do not mean what the schema says.
             for range in [span.front_range(), span.back_range()]
                 .into_iter()
                 .flatten()
@@ -285,11 +257,10 @@ fn reads_every_module_of_the_target_package() {
     let tree = IrTree::open(&root).expect("the fixture is a schema-5 IR");
     let index = tree.index();
 
-    // `>= MIN_SCHEMA_VERSION`, not a literal: this asserted `== 4` from M1-a
-    // until C-4 raised the minimum to 5, at which point no value could satisfy
-    // both it and the `open` above — schema 4 fails there, schema 5 fails here.
-    // The test is `#[ignore]`d on the corpus, so it ran nowhere and said
-    // nothing for as long as it was impossible【実測 2026-08-23】.
+    // `>=`, not a literal: a literal here was once unsatisfiable together with
+    // `open` above, and since the test is `#[ignore]`d on the corpus it ran
+    // nowhere and said nothing for as long as it was impossible 【実測
+    // 2026-08-23】.
     assert!(index.schema_version >= litedoc4_ir::MIN_SCHEMA_VERSION);
     assert!(index.ablations.is_empty());
     assert_eq!(index.modules.len(), index.module_count as usize);
@@ -299,7 +270,6 @@ fn reads_every_module_of_the_target_package() {
         let module = module.unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(module.module, entry.module);
         assert_eq!(module.declarations.len(), entry.declarations as usize);
-        // The content hash is carried, never recomputed (plan §7).
         assert_eq!(entry.content_hash.len(), 16, "{}", entry.module);
         assert!(
             entry.content_hash.bytes().all(|b| b.is_ascii_hexdigit()),
@@ -376,9 +346,8 @@ fn reads_every_module_of_the_target_package() {
     );
 }
 
-/// The one case plan §9 says the port fails on: a name above U+FFFF, where a
-/// UTF-16 offset is two units for one scalar. `𝓧` (U+1D4E7) really occurs in
-/// this package's binders.
+/// `𝓧` (U+1D4E7) really occurs in this package's binders, and a UTF-16 offset
+/// there is two units for one scalar.
 #[test]
 #[ignore = "corpus: needs LITEDOC4_BASE_IR (tools/corpus-gate.sh)"]
 fn astral_binders_slice_correctly() {
@@ -446,11 +415,6 @@ fn module_with_sorry(schema: u32, decls: &[(&str, Option<&str>)]) -> ModuleFile 
     .expect("the literal is a module file")
 }
 
-/// Schema 5's two values survive the round trip and stay apart.
-///
-/// They are **different claims** (doc-gen4 #270): `direct` is a hole in this
-/// declaration, `transitive` is a hole underneath it. A reader that collapsed
-/// them would pass every test that only asks "is there a sorry".
 #[test]
 fn the_two_sorry_values_are_read_back_as_two() {
     let module = module_with_sorry(
@@ -476,11 +440,7 @@ fn the_two_sorry_values_are_read_back_as_two() {
     assert_eq!(module.declarations[2].sorry, None);
 }
 
-/// A schema-4 module file still parses — and says **`Unknown`**, not `Clean`.
-///
-/// The whole point of [`ModuleFile::sorry_of`]. `Decl::sorry` is `None` in both
-/// files below; only the schema separates "this package has no holes" from
-/// "this extractor was never asked", and reading the field directly cannot.
+/// `Decl::sorry` is `None` in both files below; only the schema separates them.
 #[test]
 fn a_schema_4_module_says_unknown_rather_than_clean() {
     let old = module_with_sorry(4, &[("Pkg.M.clean", None)]);
@@ -493,9 +453,8 @@ fn a_schema_4_module_says_unknown_rather_than_clean() {
     assert_eq!(new.sorry_of(&new.declarations[0]), SorryFact::Clean);
 }
 
-/// A `sorry` value the extractor never writes is a loud failure, not a silent
-/// `None`. `#[serde(default)]` fills in a *missing* key; it must not swallow a
-/// present one that this crate does not understand.
+/// `#[serde(default)]` fills in a *missing* key; it must not swallow a present
+/// one that this crate does not understand.
 #[test]
 fn an_unknown_sorry_value_is_rejected() {
     let json = r#"{"name":"Pkg.M.f","kind":"theorem","modifiers":[],"binders":[],
@@ -517,15 +476,6 @@ fn decl_with_attrs_json(attrs: &str) -> String {
     )
 }
 
-/// Both wire shapes parse, and the schema-4 one comes out **name-only**.
-///
-/// The reader still takes a string, though `MIN_SCHEMA_VERSION` moved to 5 in
-/// feature-sweep C-4 and no fixture feeds it one any more: the shape is what a
-/// v0.1.x release wrote, and answering "name, no value" beats a serde error at a
-/// depth that names a path rather than a module. What it must not do is
-/// split that string on a space to invent a value: the boundary is a fact about
-/// the attribute (`deprecated`'s value has spaces in it) that only the extractor
-/// has, so a schema-4 file carries a name and an empty value — and says so.
 #[test]
 fn an_attribute_reads_from_both_wire_shapes() {
     let schema5: Decl = serde_json::from_str(&decl_with_attrs_json(
@@ -558,7 +508,8 @@ fn an_attribute_reads_from_both_wire_shapes() {
                 value: String::new(),
             },
             Attr {
-                // The whole string, *not* split at the first space.
+                // The whole string, *not* split at the first space: where the
+                // boundary is is a fact only the extractor has.
                 name: r#"deprecated Pkg.M.g (since := "2026-05-21")"#.to_owned(),
                 value: String::new(),
             },
@@ -566,8 +517,6 @@ fn an_attribute_reads_from_both_wire_shapes() {
         "a schema-4 string was split downstream"
     );
 
-    // And the two agree about what a renderer prints, which is what makes the
-    // shape change invisible to bundle B's output.
     let printed = |decl: &Decl| {
         decl.attrs
             .iter()
@@ -577,12 +526,6 @@ fn an_attribute_reads_from_both_wire_shapes() {
     assert_eq!(printed(&schema5), printed(&schema4));
 }
 
-/// An `attrs` array of any arity but two is an error, not a best guess.
-///
-/// A one-element array read as a name would be indistinguishable from the
-/// schema-4 string it is not; a three-element one read as a pair would drop
-/// whatever a future writer put third. Both are the "推測しない" rule from
-/// CLAUDE.md applied to the wire.
 #[test]
 fn an_attribute_array_of_the_wrong_arity_is_rejected() {
     for attrs in [
@@ -599,7 +542,6 @@ fn an_attribute_array_of_the_wrong_arity_is_rejected() {
         );
     }
 
-    // Neither is a shape that is not a string or an array at all.
     let err =
         serde_json::from_str::<Decl>(&decl_with_attrs_json(r#"[{"name":"simp","value":""}]"#))
             .unwrap_err()
@@ -607,11 +549,6 @@ fn an_attribute_array_of_the_wrong_arity_is_rejected() {
     assert!(err.contains("two-element"), "{err}");
 }
 
-/// `Attr::text` is the schema-4 string, both ways round.
-///
-/// This is the only thing that lets a schema-5 pair and the schema-4 string it
-/// replaced render the same bytes, so it is asserted rather than left to the
-/// renderer's test to imply.
 #[test]
 fn an_attributes_text_is_the_string_schema_4_carried() {
     let tag = Attr {
@@ -647,12 +584,6 @@ fn decl_json(name: &str, extra: &str) -> String {
     )
 }
 
-/// The three states of `selectionRange`, and the one that is not a state.
-///
-/// `Named` and `Unnamed` are what the key says; `Unknown` is what its absence
-/// says, and it is **not** `Unnamed` — a file that never carried the key is not
-/// a file reporting that the elaborator had no name position. Same shape as
-/// `sorry_of`, same reason.
 #[test]
 fn a_selection_range_is_read_as_three_states() {
     let module = module_with_decls(
@@ -698,11 +629,9 @@ fn a_selection_range_is_read_as_three_states() {
     assert_eq!(old.naming_of(&old.declarations[0]), DeclNaming::Unknown);
 }
 
-/// A `selectionRange` of any arity but four is an error, not a best guess.
-///
-/// Three numbers read as a range would silently invent an end column, and five
-/// would drop whatever a future writer put last — either way a declaration's
-/// position would be decided by this reader rather than by the extractor.
+/// Three numbers read as a range would invent an end column, and five would drop
+/// whatever a future writer put last — either way a declaration's position would
+/// be decided by this reader rather than by the extractor.
 #[test]
 fn a_malformed_selection_range_is_rejected() {
     for bad in [
@@ -723,12 +652,9 @@ fn a_malformed_selection_range_is_rejected() {
     }
 }
 
-/// `generated` names an origin and the declaration it was realized from, and
-/// its absence is read three ways for the reason the other two keys are.
-///
 /// The middle state is the one worth a test of its own: `Unclaimed` is **not**
 /// "the author wrote it". The extractor can only name `@[ext]`, so everything
-/// `simps` / `to_additive` / `mk_iff` realized lands here too.
+/// `simps` / `to_additive` / `mk_iff` realized lands there too.
 #[test]
 fn a_generated_key_names_its_origin_and_its_absence_is_not_a_denial() {
     let module = module_with_decls(
@@ -791,7 +717,6 @@ fn a_generated_key_names_its_origin_and_its_absence_is_not_a_denial() {
     );
 }
 
-/// A `generated` array of any arity but two is an error, not a best guess.
 #[test]
 fn a_malformed_generated_key_is_rejected() {
     for bad in [

@@ -1,13 +1,9 @@
-//! What can go wrong while reading an IR tree.
-
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
-/// Reading an IR tree failed.
-///
-/// Every variant names the file it is about: a build reads 436 files, and an
-/// error that does not say which one costs a bisection.
+/// A variant that is about a file carries its path: a build reads 436 files,
+/// and an error that does not say which one costs a bisection.
 #[derive(Debug)]
 pub enum Error {
     Io {
@@ -18,21 +14,14 @@ pub enum Error {
         path: PathBuf,
         source: serde_json::Error,
     },
-    /// The IR is older than this reader understands.
     Schema {
-        /// The file or entry the version came from.
         what: String,
         found: u32,
         required: u32,
     },
-    /// The IR was written with ablations: parts of the schema are missing on
-    /// purpose, and rendering it would produce a page that looks fine and is
-    /// wrong.
     Ablated {
         ablations: Vec<String>,
     },
-    /// A module file names a module other than the one the index filed it
-    /// under. An incremental merge that copied the wrong file looks like this.
     ModuleMismatch {
         path: PathBuf,
         expected: String,

@@ -1,16 +1,6 @@
 //! The five refusals `litedoc4_ir::Error` names, reached **from an input**
-//! rather than constructed by hand.
-//!
-//! Before this file every variant of that enum was unreachable from
-//! `cargo test`: the `Display` bodies ran zero times, and so did the branches
-//! in `reader.rs` that build them. That matters more than "an error type is
-//! not covered" usually does, because these messages are the whole of what a
-//! user is given. `Error::Schema` names the next thing to do
-//! (`re-extract with --tagged-code`), and `Error::ModuleMismatch`'s own
-//! docstring says an incremental merge that copied the wrong file looks like
-//! this — so a test that only checked the variant, and not that the message
-//! carries the file and both module names, would leave the useful half
-//! unchecked.
+//! rather than constructed by hand. These messages are the whole of what a user
+//! is given, so each test asserts the message and not only the variant.
 
 use std::error::Error as _;
 use std::fs;
@@ -47,7 +37,6 @@ fn index_json(schema: u32, ablations: &[&str], entries: &[(&str, &str)]) -> Stri
     )
 }
 
-/// One module file, likewise minimal.
 fn module_json(schema: u32, module: &str) -> String {
     format!(
         "{{\"schemaVersion\":{schema},\"module\":\"{module}\",\"imports\":[],\
@@ -55,7 +44,6 @@ fn module_json(schema: u32, module: &str) -> String {
     )
 }
 
-/// A tree whose index and whose one module file can be told apart.
 fn write_tree(root: &Path, index: &str, module_file: Option<(&str, &str)>) {
     fs::create_dir_all(root.join("modules")).expect("the modules directory");
     fs::write(root.join("index.json"), index).expect("index.json");
@@ -64,13 +52,10 @@ fn write_tree(root: &Path, index: &str, module_file: Option<(&str, &str)>) {
     }
 }
 
-/// The refusal as a user would see it.
 fn shown(error: &Error) -> String {
     error.to_string()
 }
 
-/// An IR the reader is too new for is refused **by name and by number**, not
-/// rendered into a page missing the half the newer keys carry.
 #[test]
 fn an_index_older_than_the_reader_is_refused_with_both_versions_and_the_way_out() {
     let dir = TEMP.make("old-index");
@@ -96,10 +81,8 @@ fn an_index_older_than_the_reader_is_refused_with_both_versions_and_the_way_out(
     );
 }
 
-/// An ablated IR is a *refusal marker*: it is deliberately incomplete, and a
-/// page made from it would look fine and be wrong. The names have to reach the
-/// message, because which ablation was on is what tells the reader whose
-/// stopwatch run they picked up.
+/// Which ablation was on is what tells the reader whose stopwatch run they
+/// picked up, so the names have to reach the message.
 #[test]
 fn an_ablated_index_is_refused_and_names_every_ablation() {
     let dir = TEMP.make("ablated");
@@ -127,9 +110,8 @@ fn an_ablated_index_is_refused_and_names_every_ablation() {
     );
 }
 
-/// `open_unvalidated` is the way in for a tool that wants to *look at* a tree
-/// `open` refuses. Both refusals have to be the difference between them —
-/// otherwise one of the two doors is decoration.
+/// Both refusals have to be the difference between the two doors — otherwise
+/// one of them is decoration.
 #[test]
 fn open_unvalidated_reads_exactly_what_open_refuses() {
     for (what, index) in [
@@ -145,9 +127,8 @@ fn open_unvalidated_reads_exactly_what_open_refuses() {
     }
 }
 
-/// The mismatch `Error::ModuleMismatch`'s docstring names: an incremental merge
-/// that copied the wrong file. **Both** names have to be in the message — one
-/// of them alone leaves the reader unable to tell which side moved.
+/// **Both** names have to be in the message — one of them alone leaves the
+/// reader unable to tell which side moved.
 #[test]
 fn a_module_file_that_disagrees_with_the_index_names_both_sides() {
     let dir = TEMP.make("mismatch");
@@ -183,9 +164,8 @@ fn a_module_file_that_disagrees_with_the_index_names_both_sides() {
     assert!(message.contains("Micro.Other"), "{message}");
 }
 
-/// **The index's version does not vouch for the modules'.** An incremental tree
-/// is a merge of files from several extractor runs, so a new index over an old
-/// module file is a real state — and the one this catches.
+/// An incremental tree is a merge of files from several extractor runs, so a new
+/// index over an old module file is a real state.
 #[test]
 fn a_module_file_older_than_the_reader_is_refused_even_under_a_new_index() {
     let dir = TEMP.make("old-module");
@@ -223,9 +203,6 @@ fn a_module_file_older_than_the_reader_is_refused_even_under_a_new_index() {
     assert!(matches!(direct, Error::Schema { .. }), "{direct:?}");
 }
 
-/// A build reads 436 files. **An error that does not say which one costs a
-/// bisection** — so the path is asserted, and so is the underlying error being
-/// kept as `source()` rather than flattened into a string.
 #[test]
 fn a_file_that_is_not_there_names_the_path_and_keeps_the_io_error() {
     let dir = TEMP.make("no-index");
@@ -238,8 +215,7 @@ fn a_file_that_is_not_there_names_the_path_and_keeps_the_io_error() {
     assert!(error.source().is_some(), "the io::Error is kept");
 }
 
-/// A JSON file that stops in the middle — a write that was interrupted, which
-/// is what a killed run leaves behind.
+/// A write that was interrupted is what a killed run leaves behind.
 #[test]
 fn a_truncated_file_names_the_path_and_keeps_the_parse_error() {
     let dir = TEMP.make("truncated");
