@@ -1,98 +1,7 @@
 //! `litedoc4 build` — a Lean package in, a documentation site out, in one
-//! command.
-//!
-//! Milestone **M4-d**, and the gate of M4. Every stage this drives already
-//! exists; what did not exist is **the thing that knows what to call them
-//! with**. Before this command a caller had to know, and get right, all of:
-//!
-//! ```text
-//!   litedoc4 modules --root <repo> --lib <Name>       > modules.txt
-//!   litedoc4 extract --modules modules.txt --ir-dir <ir> --timings <t>
-//!   litedoc4 site    --ir <ir> --out <site> --source-url <url> --link-index …
-//!   litedoc4 ledger  build --modules modules.txt --target <repo> --ir <ir> …
-//!   # …and on the second commit, a different five commands, with --state and
-//!   # --ledger and --work threaded between them in the right order
-//! ```
-//!
-//! — plus the two answers nothing in that list computes: **which library the
-//! package declares** (M3-d2's debt 5, now [`crate::lakefile`]) and **what
-//! `--source-url` is** (the prototype writes a 40-hex revision into a shell
-//! variable by hand, `incremental.sh:106` / `run.sh:55`, which plan §6 lists as
-//! one of the last hard-coded values). And it had to choose, correctly, between
-//! the full path and the incremental one.
-//!
-//! `build` is those decisions, in this order:
-//!
-//! ```text
-//!   1  --lib          the lakefile's [[lean_lib]] names, unless given
-//!   2  the modules    the source glob (`litedoc4 modules`), one list, reused
-//!   3  --source-url   git HEAD + the origin remote, unless given
-//!   4  the layout     what is under --out already, and whether it is complete
-//!   5a first run      hash → extract everything → site → write the ledger
-//!   5b later runs     hash → the incremental pipeline → write the ledger
-//! ```
-//!
-//! # Where things go, and why there is no default for `--out` 【判断】
-//!
-//! `--out <dir>` is **required**, and the directory is the command's own:
-//!
-//! ```text
-//!   <out>/site/                the site — 432 module pages + 7 whole-package
-//!                              artifacts (M8-d) + 3 static assets (M8-a) on
-//!                              the target. This is what ships.
-//!   <out>/ir/                  the IR tree (16 MB), carried between runs
-//!   <out>/state/               global-state.json, the contentHash cache
-//!   <out>/ledger.json          which oleans the IR was built from
-//!   <out>/work/                one run's diagnostics; read by nobody
-//!   <out>/litedoc4-build.json  the marker below
-//! ```
-//!
-//! **There is no default, and in particular the default is not
-//! `<root>/.lake/build/doc`** — which is where doc-gen4 writes, and where this
-//! project's target holds a 736 MB reference tree that took about nine hours to
-//! produce. A default that overwrites another tool's output tree is a data-loss
-//! bug with a friendly face; and this repository has already paid for one baked
-//! path (`defaultIrDir`, M4-a) and for one relative path that resolved inside
-//! the package being documented (M4-c). Naming the output is one word, and it is
-//! the word that says where megabytes are about to land.
-//!
-//! **`--out` may not be inside `--root`.** `litedoc4 extract` already refuses an
-//! `--ir-dir` under its `--target`, because the package being documented is
-//! opened read-only; since the IR lives under `--out`, an `--out` inside the
-//! package would be refused one stage later and with a worse message. Stating it
-//! here means the run stops before it has written anything at all. A caller who
-//! wants the site *inside* the repository copies `<out>/site` there — one `cp
-//! -R` of the thing that ships, without 16 MB of IR and a cache landing in
-//! somebody's working tree.
-//!
-//! # The marker, and how a half-finished run is recognised
-//!
-//! `<out>/litedoc4-build.json` is written **twice** per run: `complete: false`
-//! before anything else, `complete: true` after the ledger. It records the
-//! layout version, the root it was built from, the libraries and — on the second
-//! write only — [`WorkCounts`], **how much work the run did**, which is the one
-//! thing about this command's performance that can be gated in CI (see that
-//! type). It is what makes the choice in step 4 answerable rather than guessed:
-//!
-//! * `--out` absent or empty → **full generation**;
-//! * marker present, `complete: true`, and the ledger, IR, state and site all
-//!   there → **incremental**;
-//! * marker present and `complete: false`, or a piece missing → **full
-//!   generation**, and the site tree is removed first (see below);
-//! * **`--out` not empty and no marker → exit 3.** This command deletes and
-//!   overwrites inside `--out`, so it will only do that to a directory it can
-//!   see it wrote. "It looked empty enough" is not a reason to remove somebody's
-//!   files.
-//! * marker present naming a **different `--root`** → exit 3. The ledger stores
-//!   the target it hashed; carrying it over to another package would compare one
-//!   package's oleans with another's hashes and re-extract everything, or worse,
-//!   not.
-//!
-//! The site tree is removed before a full generation because **the renderer only
-//! ever writes**: a module that vanished between two full runs would keep its
-//! page for ever, and the page tree would carry a file no from-scratch run
-//! produces. Deletion is confined to `<out>/site`, and only when the marker says
-//! this command created it.
+//! command: the libraries, the module list, the source URL, the choice between
+//! the full path and the incremental one, and the layout under `--out` that lets
+//! a second run find what the first one left.
 //!
 //! # When the ledger is written — the one ordering that has a silent failure
 //!
@@ -114,10 +23,8 @@
 //! [`litedoc4_incr::CheckSummary::fresh`] (or, on the first run, from a
 //! `ledger build` that runs *before* the extractor), and the file is written by
 //! [`write_ledger`] as the last thing a successful run does. Every failure
-//! before that point — the extractor exiting non-zero (exit 4), the round loop
-//! not converging (exit 5), a stage refusing (exit 3), the renderer failing
-//! (exit 1) — leaves the previous ledger in place, and the next run redoes the
-//! work. **Redoing work is the safe direction**; it is loud (the next run's
+//! before that point leaves the previous ledger in place and the next run redoes
+//! the work. **Redoing work is the safe direction**; it is loud (the next run's
 //! `changed` count says so) and it is finite.
 //!
 //! The two keys are the exception, and deliberately so: `extractKey` is
@@ -127,24 +34,23 @@
 //! IR was written by whatever wrote the old one, and if the two differ every
 //! later run re-extracts all 432 modules for ever.
 //!
-//! # What `renderKey` covers, and what `--full` is still for 【実測】
+//! # What `renderKey` covers, and what `--full` is still for
 //!
-//! `renderKey` was `renderer` + `sourceUrl` alone, so a run whose **dependency
-//! map changed** and whose IR did not was not detected — and the map reaches 150
-//! of the target's 432 pages' bytes 【実測, plan 決定 4】. That hole is closed
-//! twice over: M5-b put the `.lidx`'s digest in the key, and M7-c put the
-//! **dependency link map's** there ([`Request::external_links`]), so a bumped
+//! The key holds `renderer`, `sourceUrl`, the `.lidx`'s digest and the
+//! **dependency link map's** ([`Request::external_links`]), so a bumped
 //! dependency — which moves a `rev` and therefore every href into that package —
-//! re-renders on its own.
+//! re-renders on its own. Without the last two a run whose dependency map moved
+//! and whose IR did not went undetected, and that map reaches 150 of the
+//! measurement target's 432 pages' bytes 【実測】.
 //!
 //! `--full` remains the escape hatch for whatever is *not* in the key — a set
 //! that cannot be closed, because it is every input the ledger does not name.
-//! And the M7-c key has a mirror-image cost worth stating: a run whose
-//! resolution **degraded** (a package gone from disk, `lake` not on the path)
-//! produces a smaller map, a different digest, and therefore a full re-render.
-//! That is the right direction — the links really would have changed — but it
-//! means an environment that half-works re-renders 432 pages rather than
-//! reporting nothing.
+//! The key has a mirror-image cost worth stating: a run whose resolution
+//! **degraded** (a package gone from disk, `lake` not on the path) produces a
+//! smaller map, a different digest, and therefore a full re-render. That is the
+//! right direction — the links really would have changed — but it means an
+//! environment that half-works re-renders 432 pages rather than reporting
+//! nothing.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -167,41 +73,32 @@ use crate::{Failure, LINK_INDEX_COST, USAGE, refused, usage};
 const LAYOUT: u64 = 1;
 
 /// The marker file. Not inside `<out>/site`, because the site's file count is a
-/// denominator this project quotes (438 on the target at M6, 439 since M8-d)
-/// and a stray file in it would change that number.
+/// denominator this project quotes and a stray file in it would change that
+/// number.
 const MARKER: &str = "litedoc4-build.json";
 
-/// `opt("--max-rounds", 5)`, the pipeline's own default.
 pub(crate) const DEFAULT_MAX_ROUNDS: usize = 5;
 
-/// Where every piece of one package's documentation state lives.
 pub(crate) struct Layout {
     out: PathBuf,
-    /// The site — what ships, and what `watch` serves.
     pub(crate) site: PathBuf,
-    /// The IR tree, carried between runs. `watch`'s trigger names it because the
-    /// extract key is computed against it.
+    /// The IR tree, carried between runs.
     pub(crate) ir: PathBuf,
     state: PathBuf,
     work: PathBuf,
-    /// Which oleans the IR was built from. `watch` asks this file — through
-    /// `litedoc4_incr::check_ledger`, not by reading it — whether there is
-    /// anything to do.
+    /// Which oleans the IR was built from.
     pub(crate) ledger: PathBuf,
     marker: PathBuf,
-    /// `<out>/link-index.lidx`, where the dependency map goes when this command
-    /// derives it (M5-b). Overridden by `--link-index`, which names one
-    /// somebody else made.
+    /// Where the dependency map goes when this command derives it. Overridden by
+    /// `--link-index`, which names one somebody else made.
     link_index: PathBuf,
-    /// `<out>/work/deps-docs-map.json` — the resolved documentation map (A-1),
-    /// which `litedoc4 site --deps-docs-map` and `litedoc4 render
-    /// --deps-docs-map` read back.
+    /// The resolved documentation map, which `litedoc4 site --deps-docs-map` and
+    /// `litedoc4 render --deps-docs-map` read back.
     ///
     /// Under `work` because it is **one run's answer**: it holds the names that
     /// run verified against the table that run fetched, and a stale one would
     /// link at a page the site no longer documents. Written only when
-    /// `--deps-docs-url` was passed, so a run without the feature leaves the
-    /// directory exactly as it left it before.
+    /// `--deps-docs-url` was passed.
     deps_docs_map: PathBuf,
 }
 
@@ -223,15 +120,13 @@ impl Layout {
     /// Whether every file a continuation reads is there.
     ///
     /// The name map is in the list because the incremental round's map delta
-    /// compares against it (`pipeline.rs`), and a site tree without one runs
-    /// with the delta off — which is a *correct* run that re-renders too little
-    /// the first time the map moves.
-    ///
-    /// So is the dependency map (M5-b): an incremental run renders a *subset*,
-    /// so a missing map does not fail — it produces pages whose links are gone,
-    /// mixed into a tree of pages that still have theirs. A full generation
-    /// extracts everything and therefore writes the map again, which is why a
-    /// missing map is answered by taking that path rather than by refusing.
+    /// compares against it, and a site tree without one runs with the delta off —
+    /// a *correct* run that re-renders too little the first time the map moves.
+    /// So is the dependency map: an incremental round renders a *subset*, so a
+    /// missing map produces pages whose links are gone, mixed into a tree of
+    /// pages that still have theirs. A full generation writes the map again,
+    /// which is why a missing one is answered by taking that path rather than by
+    /// refusing.
     fn carries_a_previous_run(&self, link_index: &Path) -> bool {
         self.ledger.is_file()
             && self.ir.join("index.json").is_file()
@@ -245,32 +140,24 @@ impl Layout {
     }
 }
 
-/// Which of the two paths this run takes, and why.
 enum Plan {
-    /// Nothing to continue from: extract everything, render everything.
     Full(&'static str),
-    /// A previous run left a complete tree behind.
     Incremental,
 }
 
-// ------------------------------------------------------------------- the CLI
-
-/// `litedoc4 build`: parse the command line, then do it once.
 pub fn build(args: &[String]) -> Result<(), Failure> {
     run(&parse(args, None)?)?;
     Ok(())
 }
 
 /// The command line of `build` — **and of `watch`**, which is the same request
-/// asked over and over (A-2).
+/// asked over and over.
 ///
-/// One parser, not two 【判断】. `watch` takes every flag `build` takes and
-/// answers the same refusals, because it *is* `build` in a loop: a second parser
-/// would be a second place for `--out` to mean something, and the first thing to
-/// drift would be one of the by-name refusals below, which are the part a caller
-/// reads only when they are already confused. `watch` passes its own two flags
-/// through [`crate::watch::Flags`]; `None` here means they are refused by name,
-/// which is the same treatment every other misplaced flag gets.
+/// One parser, not two: a second would be a second place for `--out` to mean
+/// something, and the first thing to drift would be one of the by-name refusals
+/// below, which are the part a caller reads only when they are already confused.
+/// `None` for `watch` means its own two flags are refused by name here, which is
+/// the same treatment every other misplaced flag gets.
 pub(crate) fn parse(
     args: &[String],
     mut watch: Option<&mut crate::watch::Flags>,
@@ -309,10 +196,9 @@ pub(crate) fn parse(
             "--mode" => mode = Some(args.value("--mode")?),
             "--max-rounds" => max_rounds = args.number("--max-rounds")?,
             "--timings" => timings = Some(args.value("--timings")?.into()),
-            // A-2. `watch`'s own two, and they are refused by name on `build`
-            // for the same reason `build`'s are refused on `site`: each is a
-            // real flag of a command next door, so what the caller needs to hear
-            // is which command owns it.
+            // `watch`'s own two, refused by name on `build`: each is a real flag
+            // of a command next door, so what the caller needs to hear is which
+            // command owns it.
             "--port" => {
                 let raw = args.value("--port")?;
                 match watch.as_deref_mut() {
@@ -369,9 +255,9 @@ pub(crate) fn parse(
                      digest in the ledger",
                 );
             }
-            // Refused by name rather than as "unknown argument": every one of
-            // these is a real flag of a subcommand this one drives, so what the
-            // caller needs to hear is which decision `build` has taken over.
+            // Refused by name: every one is a real flag of a subcommand this one
+            // drives, so what the caller needs to hear is which decision `build`
+            // has taken over.
             "--ir" | "--pages" | "--ledger" | "--work" | "--state" => {
                 return usage(format!(
                     "{arg} is not a `build` flag: this command owns the layout under --out \
@@ -411,10 +297,8 @@ pub(crate) fn parse(
                      generation it cannot vouch for",
                 ));
             }
-            // **`Answered(0)`, not `Ok(())`**: this function's `Ok` is a
-            // request to run, and `--help` is not one. `main` turns an
-            // `Answered` into that exit code with nothing on stderr, which is
-            // what asking for the usage is.
+            // **`Answered(0)`, not `Ok(())`**: this function's `Ok` is a request
+            // to run, and `--help` is not one.
             "--help" | "-h" => {
                 println!("{USAGE}");
                 return Err(Failure::Answered(0));
@@ -434,15 +318,12 @@ pub(crate) fn parse(
              data-loss bug with a friendly face",
         );
     };
-    // **`--link-index` stopped being required in M5-b.** Left out, the map is
-    // this command's own artefact: `<out>/link-index.lidx`, written by the
-    // resident extractor out of the environment it imported for the extraction
-    // (M5-a). Given, it is an input somebody else made and this command does not
-    // touch it — which is what keeps every M4-d measurement re-runnable.
-    //
-    // The one shape that cannot work is `--extractor <program>` without
-    // `--link-index`: that program's contract is three flags and it is the seam
-    // the tests hand a fake through, so nothing here can make it write a map.
+    // Left out, the map is this command's own artefact: `<out>/link-index.lidx`,
+    // written by the resident extractor out of the environment it imported for
+    // the extraction. Given, it is an input somebody else made and this command
+    // does not touch it. The one shape that cannot work is `--extractor
+    // <program>` without `--link-index`: that program's contract is three flags,
+    // so nothing here can make it write a map.
     if link_index.is_none() && extractor.is_some() {
         return usage(format!(
             "--extractor <program> needs --link-index <file>: the dependency map is written by the \
@@ -474,17 +355,16 @@ pub(crate) fn parse(
         if jobs != 1 {
             return usage(
                 "--jobs is a flag of the resident path: a resident extractor fixes its job count \
-                 at start-up (plan §6, constraint 6). Behind --extractor, pass it through with \
-                 `--extractor-arg --jobs --extractor-arg <n>`",
+                 at start-up. Behind --extractor, pass it through with `--extractor-arg --jobs \
+                 --extractor-arg <n>`",
             );
         }
     }
     let mode = match mode {
-        // See [`plan_of`]'s neighbours: `self` is the mode every measured run of
-        // this pipeline used, and what makes it enough is that the render set is
-        // a **union** with the whole-package map delta. A
-        // change that reaches another module's page without moving a name is a
-        // change L3-1 already re-extracted the other module for.
+        // What makes `self` enough is that the render set is a **union** with the
+        // whole-package map delta: a change that reaches another module's page
+        // without moving a name is a change ownership already re-extracted the
+        // other module for.
         None => Mode::SelfOnly,
         Some(text) => match Mode::parse(&text) {
             Mode::Unrecognised(text) => {
@@ -497,8 +377,7 @@ pub(crate) fn parse(
     };
 
     // Canonicalised **before** anything is compared against it: `--out` under a
-    // symlinked `--root` is still under `--root`, and the guard that says so is
-    // the one M4-c found a real leak through.
+    // symlinked `--root` is still under `--root`.
     let root = fs::canonicalize(&root).map_err(|source| Failure::Refused {
         code: crate::EXIT_REFUSED,
         message: format!("--root {}: {source}", root.display()),
@@ -513,10 +392,8 @@ pub(crate) fn parse(
          into the repository afterwards if that is where the pages belong",
     )?;
 
-    // A-2: `watch`'s own two flags, checked **here** — after the required ones
-    // and before the `lake` below. A misspelled port is a usage error, and a
-    // usage error that arrives after a subprocess has run is one the caller
-    // waited for.
+    // Checked here, before the `lake` below: a usage error that arrives after a
+    // subprocess has run is one the caller waited for.
     if let Some(flags) = watch {
         flags.check()?;
     }
@@ -529,8 +406,8 @@ pub(crate) fn parse(
     // on both sides of this run.
     let external_links = crate::resolve_external_links(Some(&root), lake.as_deref());
     // **Before the marker, before the work directory, before Lean**: the two
-    // answers this can give are "that root is not a dependency" and "that flag
-    // is not a pair", and both are things to say while nothing has been written.
+    // answers this can give — "that root is not a dependency" and "that flag is
+    // not a pair" — are both things to say while nothing has been written.
     let deps_docs = crate::deps_docs::parse(&deps_docs_urls, &deps_docs_indexes)?;
     crate::deps_docs::check_roots(&deps_docs, &external_links)?;
     Ok(Request {
@@ -554,20 +431,17 @@ pub(crate) fn parse(
     })
 }
 
-/// Why `watch` does not resolve a dependency's documentation site.
+/// Why `watch` does not resolve a dependency's documentation site, stated once
+/// because two flags say it.
 ///
-/// Stated once because two flags say it. The resolution is one fetch of a 5.7 MB
-/// declaration table verified against the IR tree 【実測 2026-08-19,
-/// `benchmarks/results/deps-docs-2026-08-19.txt` §3】, and a loop has only two
-/// ways to hold it: fetch it again on every rebuild — which puts a network round
-/// trip on the edit-to-page path this command exists to shorten — or resolve it
-/// once and let it go stale against an IR tree that is changing under it.
+/// The resolution is one fetch of a 5.7 MB declaration table verified against the
+/// IR tree 【実測 2026-08-19,
+/// `benchmarks/results/deps-docs-2026-08-19.txt` §3】.
 const DEPS_DOCS_IN_WATCH: &str = "it resolves a dependency's declaration table over the network, \
      once, against the IR tree of that run. A loop would either re-fetch 5.7 MB on every rebuild \
      or serve pages resolved against an IR tree that has moved since. Use `litedoc4 build` for a \
      site with documentation links";
 
-/// A flag `build` has and `watch` does not, refused by name.
 fn only_in_build(watching: bool, flag: &str, why: &str) -> Result<(), Failure> {
     if watching {
         return usage(format!("{flag} is not a `watch` flag: {why}"));
@@ -578,28 +452,23 @@ fn only_in_build(watching: bool, flag: &str, why: &str) -> Result<(), Failure> {
 /// One `build` invocation, after the command line has been checked.
 ///
 /// **`watch` holds one of these for the whole session and calls [`run`] with it
-/// over and over** (A-2), which is why nothing in here is derived per run by the
-/// caller: the two answers that would otherwise be re-derived — the libraries
-/// and the source URL — are pinned by [`crate::watch`] at start-up so that the
-/// loop's trigger and the run it triggers cannot disagree about what they are
-/// looking at.
+/// over and over**, so nothing in here is derived per run: the libraries and the
+/// source URL are pinned by [`crate::watch`] at start-up, or the loop's trigger
+/// and the run it triggers could disagree about what they are looking at.
 pub(crate) struct Request {
     pub(crate) root: PathBuf,
     pub(crate) layout: Layout,
     pub(crate) libs: Vec<String>,
-    /// Where each **dependency's** source lives (M7-c), resolved **once** — in
+    /// Where each **dependency's** source lives, resolved **once** — in
     /// [`build`], from `--root`'s manifest and toolchain — and then used by both
     /// the renderer and `renderKey.externalLinks`. Resolving it twice is how the
     /// two would come to disagree, and a disagreement there re-renders every page
     /// on every run for ever.
     pub(crate) external_links: litedoc4_render::ExternalLinks,
-    /// `--deps-docs-url` / `--deps-docs-index` (A-1), parsed and checked against
-    /// the map above. Empty is the default and means the map is used exactly as
-    /// M7-c left it.
     deps_docs: Vec<crate::deps_docs::Site>,
-    /// The dependency map the pages are rendered against, absolute.
+    /// Absolute.
     pub(crate) link_index: PathBuf,
-    /// Whether this run *writes* that file (M5-b) or only reads it.
+    /// Whether this run *writes* that file or only reads it.
     derived_link_index: bool,
     pub(crate) source_url: Option<String>,
     extractor: Option<String>,
@@ -615,19 +484,17 @@ pub(crate) struct Request {
 
 /// One whole run: the plan, the two paths, the assets, the ledger, the record.
 ///
-/// Returns [`Ran`] rather than `()` because `watch` calls this in a loop and has
-/// to say what each pass did (A-2). The numbers are [`WorkCounts`]' own — the
-/// same values the `work` line and the marker carry — so the loop's report and
-/// the run's report cannot drift.
+/// Returns [`Ran`] because `watch` calls this in a loop and has to say what each
+/// pass did, out of [`WorkCounts`]' own numbers — the same values the `work` line
+/// and the marker carry — so the two reports cannot drift.
 pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
     let started = Instant::now();
     let layout = &request.layout;
     // The IR read counters are the *process's*, and this command is one run per
-    // process — so this line changes nothing today and says what `work.irReads`
-    // means tomorrow, when something else in the process has read an IR first.
+    // process — so this changes nothing today and says what `work.irReads` means
+    // tomorrow, when something else in the process has read an IR first.
     litedoc4_ir::metrics::reset();
 
-    // 1 -- the libraries ------------------------------------------------------
     let libs = if request.libs.is_empty() {
         let declared = crate::lakefile::read_libraries(&request.root)?;
         println!(
@@ -641,10 +508,9 @@ pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
         request.libs.clone()
     };
 
-    // 2 -- the module list ----------------------------------------------------
-    // One list, written down, and handed to every stage that takes one. M3-d2b:
-    // its order is the ledger's `modules` array order and the merged
-    // `index.json`'s, so two derivations of it are two different files.
+    // One list, written down, and handed to every stage that takes one: its order
+    // is the ledger's `modules` array order and the merged `index.json`'s, so two
+    // derivations of it are two different files.
     let modules = module_names(&request.root, &libs)?;
     if modules.is_empty() {
         return Err(Failure::Refused {
@@ -659,7 +525,6 @@ pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
     }
     println!("modules {}", modules.len());
 
-    // 3 -- the source URL -----------------------------------------------------
     let source_url = match &request.source_url {
         Some(url) => url.clone(),
         None => derive_source_url(&request.root)?,
@@ -667,7 +532,6 @@ pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
     check_source_url(&source_url)?;
     println!("source  {source_url}");
 
-    // 4 -- what is already there ----------------------------------------------
     // **Before anything is written**, and that ordering is load-bearing: the
     // question `plan_of` asks is "is `--out` empty, and if not, did this command
     // write it", and creating the work directory first would make every answer
@@ -695,24 +559,18 @@ pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
             incremental_generation(request, modules.clone(), &source_url, &mut extractor)
         }
     };
-    // Not a `?` above 【判断】, exactly as `incremental` does it: the resident
-    // environment is released on the failing path too, and doing it here puts
-    // the stop *before* the error reaches the caller rather than after.
+    // Not a `?` above, exactly as `incremental` does it: the resident environment
+    // is released on the failing path too, and doing it here puts the stop
+    // *before* the error reaches the caller rather than after.
     extractor.release();
     let done = outcome?;
 
-    // 5 -- the static assets, unconditionally ---------------------------------
-    // Both paths, every run, whether or not a page was re-rendered — see
-    // [`litedoc4_render::assets`]. They
-    // are **not** in `renderKey` (a page's bytes do not depend on them, so
-    // keying on them would re-render 432 pages for a moved CSS rule and change
-    // nothing), and the price of leaving them out of the key is exactly this
-    // line: the tree is rewritten from the binary every time rather than
-    // trusted to be current. Three files.
-    //
-    // Before the ledger for the same reason everything else is: the ledger's
-    // claim is about a *finished* tree, and an asset write that fails must not
-    // leave one behind saying the site is up to date.
+    // The assets on both paths, every run, whether or not a page was re-rendered.
+    // They are **not** in `renderKey` — a page's bytes do not depend on them, so
+    // keying on them would re-render 432 pages for a moved CSS rule — and the
+    // price of leaving them out is this line: the tree is rewritten from the
+    // binary every time rather than trusted to be current. Before the ledger,
+    // whose claim is about a *finished* tree.
     litedoc4_render::write_assets(&layout.site)
         .map_err(|source| Failure::Failed(source.to_string()))?;
     println!(
@@ -720,17 +578,15 @@ pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
         litedoc4_render::ASSETS.len(),
         layout.site.display(),
     );
-    // Counted here rather than in the two paths: this is the first point at
-    // which the site holds everything a run puts in it, and `pagesInSite` is a
+    // Counted here rather than in the two paths: this is the first point at which
+    // the site holds everything a run puts in it, and `pagesInSite` is a
     // denominator quoted elsewhere (432 pages + 7 artifacts + 3 assets = 442 on
-    // the target since M8-d; it was 438 + 3 while the five doc-gen4-only
-    // artifacts were still written).
+    // the measurement target).
     let pages_in_site = count_files(&layout.site);
 
-    // 6 -- the ledger, last ---------------------------------------------------
-    // See this module's heading: everything that could have failed has now
-    // succeeded, so the claim "the IR was built from these oleans and the pages
-    // from that IR" is true when it is written and not before.
+    // The ledger last: everything that could have failed has now succeeded, so
+    // the claim "the IR was built from these oleans and the pages from that IR"
+    // is true when it is written and not before.
     let bytes = write_ledger(
         done.detected,
         &layout.ledger,
@@ -745,7 +601,6 @@ pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
         layout.ledger.display(),
     );
 
-    // 7 -- what the run cost, in work rather than in seconds -------------------
     // Taken **here**, after the last stage that touches the IR: `write_ledger`'s
     // `extractKey` reads `index.json`, so a snapshot one line earlier would
     // report a number the next run's would not reproduce.
@@ -797,12 +652,9 @@ pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
     })
 }
 
-/// What one call to [`run`] did, for a caller that makes many of them.
-///
-/// Four numbers and a clock, and **not one of them is counted here**: they are
-/// [`WorkCounts`]', which are in turn the stages' own (see that type). `watch`
-/// prints them per pass; the clock is last because it is the one a gate may not
-/// assert on — this workload's wall clock moves 5x with the page cache.
+/// What one call to [`run`] did, for a caller that makes many of them. The clock
+/// is the one field a gate may not assert on — this workload's wall clock moves
+/// 5x with the page cache.
 pub(crate) struct Ran {
     pub what: &'static str,
     pub modules_extracted: usize,
@@ -811,19 +663,14 @@ pub(crate) struct Ran {
     pub seconds: f64,
 }
 
-/// What a run produced, in the shape the two paths have in common.
 struct Done {
     what: &'static str,
     /// Modules handed to the extractor, summed over the rounds.
     extracted: usize,
     rounds: usize,
     pages_rendered: usize,
-    /// Math spans that fell back to `$…$`, from whichever path rendered
-    /// ([`litedoc4_render::RenderSummary::math_failures`]).
     math_fallbacks: usize,
     ledger_modules: usize,
-    /// The whole-package derivation's `contentHash` cache, exactly as the
-    /// `global  cache H hit / M miss` line reports it.
     cache_hits: usize,
     cache_misses: usize,
     extract_seconds: f64,
@@ -832,65 +679,45 @@ struct Done {
     /// The ledger this run licensed, with the hashes read **before** the
     /// extraction.
     detected: Ledger,
-    /// **The map the pages were rendered with**, which is `--root`'s sources
-    /// plus whatever `--deps-docs-url` resolved (A-1).
+    /// **The map the pages were rendered with.**
     ///
     /// It comes out of the path rather than in on [`Request`] because the two
-    /// paths resolve it at different moments and both are "as soon as there is
-    /// an IR tree to read": a full generation has none until it has extracted,
-    /// and an incremental round has to know its render key before `detect`
-    /// compares it with the ledger's. Carrying it back here is what makes
-    /// [`write_ledger`] record the map the pages actually got.
+    /// paths resolve it at different moments, both "as soon as there is an IR
+    /// tree to read": a full generation has none until it has extracted, and an
+    /// incremental round has to know its render key before `detect` compares it
+    /// with the ledger's. Carrying it back here is what makes [`write_ledger`]
+    /// record the map the pages actually got.
     external_links: litedoc4_render::ExternalLinks,
 }
 
-// ------------------------------------------------------------------- the work
-
 /// **How much work one run did, as integers that do not depend on the machine.**
 ///
-/// This is the gate this project could not otherwise have. Its product is speed,
-/// and a wall clock cannot judge speed here: the oleans are `mmap`ed, so the same
-/// unchanged run's environment load moves by 5x with the page cache (2.5 s ↔ 13 s
-/// 【実測】, CLAUDE.md). A CI threshold over seconds is either loose enough to pass
-/// a regression or tight enough to fail a cold runner, and both are worse than no
-/// gate, because they look like one.
+/// This project's product is speed, and a wall clock cannot judge speed here: the
+/// oleans are `mmap`ed, so the same unchanged run's environment load moves by 5x
+/// with the page cache (2.5 s ↔ 13 s 【実測】). A CI threshold over seconds is
+/// either loose enough to pass a regression or tight enough to fail a cold
+/// runner, and both are worse than no gate because they look like one. So the
+/// gate is over **work**: the same input does the same amount, on every machine,
+/// in every cache state. `tools/e2e-micro.sh`'s GATE 5 reads these numbers rather
+/// than `grep`ping a log line, which passes silently the day the wording changes.
 ///
-/// So the gate is over **work**: the same input does the same amount, on every
-/// machine, in every cache state. `tools/e2e-micro.sh`'s GATE 5 asserts the shape
-/// the whole incremental design exists to produce — *a second run over an
-/// unchanged package re-extracts nothing, renders nothing and starts Lean not at
-/// all* — from these numbers rather than from `grep` over a log line, which passes
-/// silently the day the wording changes.
+/// **Not one field is counted here** — every one is the stage's own value. Re-
+/// deriving any of them for the record would create a second truth, and the
+/// failure mode of two truths is that the log stays right while the gate goes
+/// quietly wrong (or the reverse, which is worse).
 ///
-/// # Every field is somebody else's variable
-///
-/// Not one of them is counted here. `modulesExtracted` is [`Done::extracted`],
-/// `pagesRendered` is the renderer's own `pages_written`, `extractorRequests` is
-/// the same field the `serve stopped after N request(s)` line prints,
-/// `globalCache*` is [`litedoc4_global::GlobalSummary`]'s, and `irReads` is
-/// [`litedoc4_ir::metrics`]. Re-deriving any of them for the record would create a
-/// second truth, and the failure mode of two truths is that the log stays right
-/// while the gate goes quietly wrong (or the reverse, which is worse).
-///
-/// # Why `irReads` is here at all
-///
-/// The outer half's limit is not rendering but **reading the
-/// whole IR**, with five such passes left, and the next win is the V2
-/// `contentHash` cache over them
-/// 【実測 → `benchmarks/results/mathlib-scale-summary.txt`】. That claim is
-/// currently a measurement somebody took once; `irReads.module / modules`
-/// makes it a number every run reports, so V2's payoff can be argued in the
+/// `irReads` is here because the outer half's limit is not rendering but
+/// **reading the whole IR** 【実測 →
+/// `benchmarks/results/mathlib-scale-summary.txt`】: `irReads.module / modules`
+/// makes that a number every run reports, so a change to it can be argued in the
 /// units the claim is stated in instead of in seconds nobody can reproduce.
 struct WorkCounts {
     /// Modules handed to the extractor, summed over the rounds.
     modules_extracted: usize,
-    /// Pages the renderer wrote.
     pages_rendered: usize,
-    /// Math spans written back as their LaTeX source rather than as MathML.
-    ///
-    /// In the record because the fallback leaves a **valid page**: no other
-    /// number here moves when a formula fails, so a gate asserting that a
-    /// package's mathematics came out as mathematics has nothing else to read.
+    /// Math spans written back as their LaTeX source rather than as MathML. In
+    /// the record because the fallback leaves a **valid page**: no other number
+    /// here moves when a formula fails.
     math_fallbacks: usize,
     /// Extractions asked for: processes on `--extractor`, requests on the
     /// resident path.
@@ -923,10 +750,9 @@ impl WorkCounts {
 
     /// The same numbers on stdout, so that the log and the marker cannot drift.
     ///
-    /// `irPasses` is `irReads.module / modules` — §5.6's unit — and is printed
-    /// rather than stored: it is a quotient of two values the record already
-    /// holds, and a float in the marker would be a third spelling of a number
-    /// that is already there twice.
+    /// `irPasses` is `irReads.module / modules`, printed rather than stored: it
+    /// is a quotient of two values the record already holds, and a float in the
+    /// marker would be a third spelling of a number that is already there twice.
     fn line(&self, modules: usize) -> String {
         let passes = match self.ir_reads.full_passes(modules) {
             Some(passes) => format!("{passes:.2}"),
@@ -948,13 +774,10 @@ impl WorkCounts {
     }
 }
 
-// -------------------------------------------------------------- the two paths
-
 /// The first run: hash, extract everything, render everything.
 ///
-/// The extraction is one request for the whole package — the same shape M4-b and
-/// M4-c measured (436/436 byte-identical IR on both extraction paths) — and the
-/// site is [`crate::stages::generate_site`], which is `litedoc4 site`'s own body, so the
+/// The extraction is one request for the whole package, and the site is
+/// [`crate::stages::generate_site`], which is `litedoc4 site`'s own body — so the
 /// tree this writes is the tree that command writes.
 fn full_generation(
     request: &Request,
@@ -970,23 +793,18 @@ fn full_generation(
         modules,
         target: &request.root.to_string_lossy(),
         out: &layout.work.join("ledger-detect.json"),
-        // No IR yet — the two IR keys are filled in from the tree this run is
-        // about to write (see [`write_ledger`]).
+        // No IR and, on a first run, no map yet: both keys are filled in from the
+        // tree this run is about to write, by [`write_ledger`].
         ir: None,
         source_url,
-        // The map, if there is one yet. On a first run there is not: this
-        // ledger is computed **before** the extraction that writes it, and the
-        // key is filled in from the finished file by [`write_ledger`].
         link_index: Some(&request.link_index),
-        // M7-c: the map this run renders with, so the ledger's claim and the
-        // pages agree by construction. A bumped dependency moves a `rev`, which
-        // moves the href of every link into it — and this is the key that makes
-        // the next run notice.
+        // The map this run renders with, so the ledger's claim and the pages
+        // agree by construction. A bumped dependency moves a `rev`, which moves
+        // the href of every link into it, and this is the key that makes the next
+        // run notice.
         external_links: Some(&request.external_links.digest()),
         algorithm: &Algorithm::sha256(),
-        // The ledger's bytes do not depend on this (M3-a 【実測】); its speed
-        // does — the same default the incremental path uses, from the same
-        // measurement (段 F, [`crate::pipeline::hash_concurrency`]).
+        // The ledger's bytes do not depend on this; its speed does.
         concurrency: crate::pipeline::hash_concurrency(),
         timings: Some(&layout.work.join("ledger-timings.json")),
     })
@@ -997,7 +815,7 @@ fn full_generation(
     // The page tree is removed rather than written over: the renderer only ever
     // writes, so a module that vanished since the tree was made would keep its
     // page and the site would hold a file no from-scratch run produces. The
-    // marker is what says this command made it (see the heading).
+    // marker is what says this command made it.
     if layout.site.exists() {
         fs::remove_dir_all(&layout.site).map_err(|source| Failure::io(&layout.site, &source))?;
     }
@@ -1022,11 +840,11 @@ fn full_generation(
         modules.len()
     );
 
-    // **The documentation map, now that there is an IR to ask about** (A-1).
-    // Not before the extraction: on this path the tree does not exist yet, and
-    // the set of dependency names to verify is exactly what it holds. Nothing
-    // has compared a render key on this path — `write_ledger` recomputes the one
-    // that reaches the file — so resolving here costs no consistency.
+    // **The documentation map, now that there is an IR to ask about.** Not before
+    // the extraction: on this path the tree does not exist yet, and the set of
+    // dependency names to verify is exactly what it holds. Nothing has compared a
+    // render key on this path — `write_ledger` recomputes the one that reaches
+    // the file — so resolving here costs no consistency.
     let external_links = resolve_docs(request, &layout.ir)?;
 
     let config = crate::site_config(Some(&request.root))?;
@@ -1064,9 +882,9 @@ fn incremental_generation(
     extractor: &mut Extractor,
 ) -> Result<Done, Failure> {
     let layout = &request.layout;
-    // **Before the round, from the tree the round starts on** (A-1). `detect` is
-    // about to compare this map's digest with the ledger's, and the render uses
-    // the same value, so it has to be resolved once and here. The cost is that a
+    // **Before the round, from the tree the round starts on.** `detect` is about
+    // to compare this map's digest with the ledger's, and the render uses the
+    // same value, so it has to be resolved once and here. The cost is that a
     // dependency name a module starts referring to *during* this round is
     // verified on the next run rather than this one — at which point the map
     // moves, the render key moves, and every page is re-rendered with it.
@@ -1107,35 +925,31 @@ fn incremental_generation(
 }
 
 /// `--root`'s source map with every configured documentation site verified
-/// against `ir` and attached (A-1).
+/// against `ir` and attached.
 ///
 /// **One function, two call sites, and they are the same rule**: resolve as soon
 /// as there is an IR tree whose render key this run is about to record. Without
-/// `--deps-docs-url` it is the identity — no fetch, no artifact, no line — which
-/// is what makes the feature's default "nothing changes".
+/// `--deps-docs-url` it is the identity — no fetch, no artifact, no line.
 fn resolve_docs(request: &Request, ir: &Path) -> Result<litedoc4_render::ExternalLinks, Failure> {
     let resolved =
         crate::deps_docs::resolve(&request.deps_docs, ir, Some(&request.layout.deps_docs_map))?;
     Ok(crate::deps_docs::attach(&request.external_links, resolved))
 }
 
-// ------------------------------------------------------------ the four answers
-
-/// Step 4: full or incremental, and the reason, which is printed.
+/// Full or incremental, and the reason, which is printed.
 ///
-/// See the module heading for the whole table. The refusal in the middle is the
-/// important one: this command removes and overwrites things under `--out`, so
-/// it does that only to a directory whose marker says it made it.
+/// The refusal in the middle is the important one: this command removes and
+/// overwrites things under `--out`, so it does that only to a directory whose
+/// marker says it made it.
 fn plan_of(request: &Request, libs: &[String]) -> Result<Plan, Failure> {
     let layout = &request.layout;
     if !layout.out.exists() || is_empty_dir(&layout.out) {
         return Ok(Plan::Full("nothing there yet"));
     }
-    // **`--full` is answered after the ownership checks, not before them**
-    // 【判断】. A full generation *deletes* `<out>/site` and `<out>/ir`, so a
-    // `--full` that short-circuited this would be the one way to make this
-    // command remove a directory whose marker it never looked at — which is the
-    // exact sentence the module heading promises it cannot do.
+    // **`--full` is answered after the ownership checks, not before them.** A
+    // full generation *deletes* `<out>/site` and `<out>/ir`, so a `--full` that
+    // short-circuited this would be the one way to make this command remove a
+    // directory whose marker it never looked at.
     let Some(marker) = read_marker(&layout.marker)? else {
         return Err(Failure::Refused {
             code: crate::EXIT_REFUSED,
@@ -1192,22 +1006,19 @@ fn plan_of(request: &Request, libs: &[String]) -> Result<Plan, Failure> {
     }
     // **The IR under `--out` has to be one this binary can read.** A CI cache
     // restores the *previous* binary's state, so a schema bump arrives here as a
-    // tree every reader below refuses 【実測 2026-08-23, `ci-action.yml`】.
+    // tree every reader below refuses 【実測 2026-08-23】. `detect` is not this
+    // guard and cannot be: it answers "re-extract every module" correctly, and
+    // the round then reads the **base** IR — the tree the re-extraction is about
+    // to replace — to answer ownership, and dies there with the site left as it
+    // was.
     //
-    // `detect` is not this guard and cannot be: it answers "re-extract every
-    // module" correctly, and the round then reads the **base** IR — the tree the
-    // re-extraction is about to replace — to answer ownership, and dies there
-    // with the site left as it was. The decision belongs where every other "can
-    // this run continue" answer already is, which is here.
-    //
-    // Only the index is read: one file, not a pass over the tree. That is a
-    // **lower bound and not a proof**. `merge` writes the weakest schema under
-    // the tree into the index, so a tree *this* version merged cannot overstate;
-    // a tree an older binary merged can, because it copied its own older modules
-    // in and kept the newer index number it found. That tree still fails — on
-    // the first module the round reads, which is where it failed before this
-    // guard existed. What the guard buys is the case that actually reaches CI: a
-    // whole tree from one older binary, which a cache restores as a unit.
+    // Only the index is read, which is a **lower bound and not a proof**: `merge`
+    // writes the weakest schema under the tree into the index, so a tree *this*
+    // version merged cannot overstate, but a tree an older binary merged can,
+    // because it copied its own older modules in and kept the newer index number
+    // it found. That tree still fails on the first module the round reads. What
+    // the guard buys is the case that reaches CI: a whole tree from one older
+    // binary, which a cache restores as a unit.
     if !ir_is_readable(&layout.ir) {
         return Ok(Plan::Full(
             "the IR under --out is not one this version reads",
@@ -1228,13 +1039,12 @@ fn ir_is_readable(ir: &Path) -> bool {
 
 /// The extractor, in the same two shapes [`crate::pipeline`] offers.
 ///
-/// **The resident one is the default** 【判断】, and `--extractor` is the seam.
-/// The product's own extraction is a Lean environment this run owns; a caller
-/// who wants something else — a wrapper, a recording, the frozen prototype's
-/// `extract-once.sh`, a fake in a test that has no Lean at all — names a program
-/// instead. Neither has a default *path*: `--extractor-bin` falls back to
-/// `$EXTRACT_BIN` and then to a refusal, because the binary is 171 MB and built
-/// against the target's own toolchain (M4-a).
+/// **The resident one is the default**, and `--extractor` is the seam: the
+/// product's own extraction is a Lean environment this run owns, and a caller who
+/// wants something else — a wrapper, a recording, a fake in a test that has no
+/// Lean at all — names a program instead. Neither has a default *path*:
+/// `--extractor-bin` falls back to `$EXTRACT_BIN` and then to a refusal, because
+/// the binary is 171 MB and built against the target's own toolchain.
 fn open_extractor(
     request: &Request,
     modules_file: &Path,
@@ -1256,28 +1066,23 @@ fn open_extractor(
             modules_file,
             modules,
             work: &request.layout.work,
-            // M5-b: the resident extractor writes the map when this command owns
-            // it. With `--link-index` it is somebody else's file and is not
-            // overwritten — the command line the M4-d gate ran is unchanged.
+            // The resident extractor writes the map when this command owns it.
+            // With `--link-index` it is somebody else's file and is not
+            // overwritten.
             link_index: request
                 .derived_link_index
                 .then_some(request.link_index.as_path()),
-            // 段 D: for the reuse token, not for the server — its `index.json`
-            // is part of `extractKey`. On a full generation it does not exist
-            // yet, which the token computation expects.
         })?,
     )?)))
 }
 
 /// `https://github.com/<owner>/<repo>/blob/<40-hex>`, from the checkout itself.
 ///
-/// **Only `github.com` remotes are read** 【判断】. The `/blob/<rev>/<path>`
-/// shape is GitHub's; GitLab spells the same thing `/-/blob/`, Gitea and sr.ht
-/// differ again, and the acceptance oracle normalises `/blob/[0-9a-f]{40}/` and
-/// nothing else (plan 決定 1). Guessing a host's URL scheme produces links that
-/// are *plausible* and 404, on every declaration of every page. So anything else
-/// is refused by name, with `--source-url` as the answer — the same shape as
-/// [`crate::lakefile`]'s refusals.
+/// **Only `github.com` remotes are read.** The `/blob/<rev>/<path>` shape is
+/// GitHub's; GitLab spells the same thing `/-/blob/`, Gitea and sr.ht differ
+/// again. Guessing a host's URL scheme produces links that are *plausible* and
+/// 404, on every declaration of every page, so anything else is refused by name
+/// with `--source-url` as the answer.
 ///
 /// The revision is `HEAD`, and an uncommitted working tree is reported rather
 /// than refused: the pages will link to the last commit, which is a fact worth
@@ -1308,8 +1113,8 @@ pub(crate) fn derive_source_url(root: &Path) -> Result<String, Failure> {
     Ok(format!("https://github.com/{path}/blob/{rev}"))
 }
 
-/// `<owner>/<repo>` when the remote is a github.com one, in any of the three
-/// spellings git writes.
+/// `<owner>/<repo>` when the remote is a github.com one, in any of the spellings
+/// git writes.
 fn github_path(remote: &str) -> Option<String> {
     let remote = remote.trim();
     let rest = [
@@ -1329,7 +1134,6 @@ fn github_path(remote: &str) -> Option<String> {
     Some(format!("{owner}/{repo}"))
 }
 
-/// One `git` command in the checkout, or a refusal naming it.
 fn git(root: &Path, args: &[&str]) -> Result<String, Failure> {
     let output = Command::new("git")
         .arg("-C")
@@ -1355,14 +1159,12 @@ fn git(root: &Path, args: &[&str]) -> Result<String, Failure> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-// ------------------------------------------------------------------- the state
-
 /// The ledger, with the keys taken from the tree that now exists.
 ///
-/// See the module heading: the module hashes are `detect`'s (taken before the
-/// extraction), the two keys are recomputed here (they describe the IR on disk,
-/// which after a successful run is the merged tree). Returns the file's size,
-/// which is the only number a caller can check the write by.
+/// See the module heading: the module hashes are `detect`'s, taken before the
+/// extraction, while the two keys are recomputed here because they describe the
+/// IR on disk. Returns the file's size, which is the only number a caller can
+/// check the write by.
 fn write_ledger(
     mut ledger: Ledger,
     path: &Path,
@@ -1372,13 +1174,11 @@ fn write_ledger(
     external_links: &litedoc4_render::ExternalLinks,
 ) -> Result<usize, Failure> {
     ledger.extract_key = extract_key(&ledger.target, Some(ir)).map_err(refused)?;
-    // **The map as it is now, not as `detect` saw it** (M5-b), for exactly the
-    // reason `extractKey` is recomputed here: both keys describe *the tree on
-    // disk*, and after a successful run that is what this run produced. Writing
-    // back the pre-run digest would leave a ledger claiming the pages were
-    // rendered against a map that no longer exists, and the next run would
-    // compare the new map with the old digest and re-render everything, for
-    // ever.
+    // **The map as it is now, not as `detect` saw it**, for exactly the reason
+    // `extractKey` is recomputed here: both keys describe *the tree on disk*.
+    // Writing back the pre-run digest would leave a ledger claiming the pages
+    // were rendered against a map that no longer exists, and the next run would
+    // compare the new map with the old digest and re-render everything, for ever.
     ledger.render_key = Some(render_key(
         source_url,
         link_index_digest(Some(link_index))
@@ -1396,23 +1196,18 @@ fn write_ledger(
 }
 
 /// The marker, written twice per run — `complete: false` on the way in and
-/// `complete: true` after the ledger.
+/// `complete: true` after the ledger — and the file [`plan_of`] reads to decide
+/// whether this directory is one this command may overwrite.
 ///
-/// It is a fixed set of keys in a fixed order and carries **no timestamp**: a
-/// file that changes when nothing changed is one that cannot be compared across
-/// two runs, and two runs of this command over an unchanged package have to be
-/// able to produce identical trees. [`WorkCounts`] keeps that promise — every
-/// number in it is a count of work, and the same world costs the same work.
+/// A fixed set of keys in a fixed order, with **no timestamp**: two runs of this
+/// command over an unchanged package have to be able to produce identical trees.
 ///
-/// # `complete` and `work` are one argument 【判断】
-///
-/// `work: None` *is* `complete: false`, and it writes `"work": null` rather than
-/// a record of zeros. A half-finished run has done some amount of work and this
-/// file does not know how much — and zeros would be **the exact shape a
+/// **`work: None` *is* `complete: false`**, and it writes `"work": null` rather
+/// than a record of zeros. A half-finished run has done some amount of work and
+/// this file does not know how much — and zeros would be **the exact shape a
 /// successful second run has**, so a gate reading a marker left by a crashed
 /// first run would see "re-extracted nothing, rendered nothing" and pass. `null`
-/// makes that read fail instead, which is the direction an unfinished run should
-/// fail in.
+/// makes that read fail instead.
 fn write_marker(
     request: &Request,
     libs: &[String],
@@ -1455,15 +1250,12 @@ fn read_marker(path: &Path) -> Result<Option<serde_json::Value>, Failure> {
     Ok(Some(record))
 }
 
-// ------------------------------------------------------------------ plumbing
-
 fn is_empty_dir(path: &Path) -> bool {
     fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_none())
 }
 
-/// Every file under `root`, recursively. The site's denominator (442 on the
-/// target since M8-d, 441 before it) is a number this project quotes, so the run
-/// reports its own.
+/// Every file under `root`, recursively. The site's file count is a denominator
+/// this project quotes, so the run reports its own.
 fn count_files(root: &Path) -> usize {
     let mut total = 0;
     let mut stack = vec![root.to_owned()];
