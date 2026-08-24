@@ -3,13 +3,12 @@
 #
 # The measurement it guards is `.github/workflows/ci-placement.yml`: the same
 # documentation build run in the SAME job as `lake build` (arm `same`) and in a
-# SEPARATE job (arm `split`). What makes such a run worth reading is not that
-# the steps were green — a measurement that silently ran four times instead of
-# ten is green — but that
+# SEPARATE job (arm `split`). Green steps are not what makes such a run worth
+# reading — a measurement that silently ran four times instead of ten is green.
+# What makes it readable is that
 #
 #   1. every run the workflow SAID it would do reported a result, and no result
-#      appeared that was never declared (both directions, like the corpus
-#      gate's `--verify-list`), and
+#      appeared that was never declared (both directions), and
 #   2. the two arms did the SAME WORK: placement is supposed to change the
 #      clock, not the bytes. Two clean builds of the measurement target produce
 #      a byte-identical site 【実測 2026-08-17: 432 files, digest faf6d6c9…】,
@@ -46,7 +45,6 @@ INVENTORY="$DIR/runs.txt"
 fail=0
 note () { echo "FAIL: $*" >&2; fail=1; }
 
-# ------------------------------------------------------------------ declared
 declared=""
 n_declared=0
 while read -r arm idx _rest; do
@@ -58,7 +56,6 @@ done < "$INVENTORY"
 
 [ "$n_declared" -gt 0 ] || { note "inventory is empty"; exit 1; }
 
-# ------------------------------------------------------- every declared run
 digests=""
 n_reported=0
 for run in $declared; do
@@ -118,7 +115,6 @@ for run in $declared; do
   n_reported=$((n_reported + 1))
 done
 
-# ------------------------------------------------------ nothing undeclared
 # The other direction: a result nobody asked for means the inventory and the
 # run loop disagree, and the count in the report is then not the count that ran.
 for t in "$DIR"/timings-*.json; do
@@ -130,7 +126,6 @@ for t in "$DIR"/timings-*.json; do
   esac
 done
 
-# ---------------------------------------------------------- same work, twice
 uniq_digests="$(for e in $digests; do echo "${e#*:}"; done | sort -u | wc -l | tr -d ' ')"
 if [ "$n_reported" -gt 1 ] && [ "$uniq_digests" != 1 ]; then
   note "the arms did not produce the same site ($uniq_digests distinct digests) — the runs are not comparable"

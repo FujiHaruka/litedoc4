@@ -1,15 +1,15 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run
 //
-// Stage 3, increment 2: matches the demand side (the constants litedoc4 collects
-// from a signature, `stage3-refs.jsonl`) against the supply side (doc-gen4's
+// Matches the demand side (the constants litedoc4 collects from a signature,
+// `stage3-refs.jsonl`) against the supply side (doc-gen4's
 // `declarations/declaration-data.bmp`), and measures how big that map actually
 // is in three cuts: everything, the dependency side only, and just the
 // constants this package really references.
 //
-// The map is what stage 3 is about: if links into Mathlib can be resolved from
-// a name -> module -> URL table alone, nobody has to build an IR for the 8k
-// dependency modules. This tool answers "does the table cover the demand" and
-// "how many bytes and how many seconds is the table".
+// If links into Mathlib can be resolved from a name -> module -> URL table
+// alone, nobody has to build an IR for the 8k dependency modules. This tool
+// answers "does the table cover the demand" and "how many bytes and how many
+// seconds is the table".
 //
 // usage:
 //   map-size.ts [--bmp <file>] [--refs <jsonl>] [--modules <list>] [--doc <dir>]
@@ -19,7 +19,7 @@
 //
 //   --bmp      doc-gen4's search index, default
 //              $TARGET_REPO/.lake/build/doc/declarations/declaration-data.bmp
-//   --refs     unique reference set from increment 1, default
+//   --refs     unique constants collected from the signatures, default
 //              benchmarks/results/stage3-refs.jsonl
 //   --modules  the target package's module list, default
 //              benchmarks/results/it-modules.txt
@@ -111,7 +111,7 @@ async function gzipBytes(s: string): Promise<number> {
   return n;
 }
 
-/** Reads + JSON.parses `path` `RUNS` times, drops run 1, returns seconds. */
+/** Seconds per read + JSON.parse, run 1 dropped as cold. */
 async function loadTimes(path: string): Promise<number[]> {
   const ts: number[] = [];
   for (let i = 0; i < RUNS; i++) {
@@ -130,8 +130,6 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
 };
 
-// ---------------------------------------------------------------- inputs
-
 const bmpBytes = (await Deno.stat(BMP)).size;
 const bmpText = await Deno.readTextFile(BMP);
 const bmp = JSON.parse(bmpText);
@@ -145,7 +143,7 @@ const targetModules = new Set(
 
 // The `own` flag in the refs file means "defining module is in the target
 // module list". Recompute it here instead of trusting it: the dependency count
-// is the headline number of this increment, so it gets a second route.
+// is the headline number, so it gets a second route.
 const ownFlagMismatches = refs.filter((r) => r.own !== targetModules.has(r.module));
 const depRefs = refs.filter((r) => !targetModules.has(r.module));
 const ownRefs = refs.filter((r) => targetModules.has(r.module));
@@ -162,8 +160,6 @@ for (const n of declNames) {
   declModule.set(n, m);
   modulesWithDecls.add(m);
 }
-
-// ---------------------------------------------------------------- coverage
 
 const AUX_LEAF = new Set([
   "rec", "recOn", "brecOn", "binductionOn", "below", "ibelow", "casesOn", "ndrec", "ndrecOn",
@@ -225,8 +221,6 @@ const occTotal = refs.reduce((a, r) => a + r.occurrences, 0);
 const occDepTotal = depRefs.reduce((a, r) => a + r.occurrences, 0);
 const occDepMissed = depRefs.filter((r) => !decls[r.name]).reduce((a, r) => a + r.occurrences, 0);
 
-// ---------------------------------------------------------------- docLink resolution
-
 const depHits = hits.filter((r) => !targetModules.has(r.module));
 const step = Math.max(1, Math.floor(depHits.length / SAMPLE));
 const sampled = depHits.filter((_, i) => i % step === 0).slice(0, SAMPLE);
@@ -250,16 +244,13 @@ for (const r of sampled) {
   else brokenLinks.push(`${r.name} -> ${link} (file exists, anchor missing)`);
 }
 
-// ---------------------------------------------------------------- dead links doc-gen4 already emits
-
-// The retreat line for stage 3 is "the dependency-side blacklist cannot be
-// recovered from the map, so we link to declarations that have no page". Before
-// accepting that as a cost of the map, check what doc-gen4 does today: its link
-// renderer consults `name2ModIdx`, which is `env.const2ModIdx` (Analyze.lean:243)
-// -- every constant in the environment, blacklisted ones included -- while the
-// index only holds what it published. So a name can be linked and have no
-// anchor. Search the package's own HTML for exactly the names that are missing
-// from the index.
+// The cost the map is suspected of is "the dependency-side blacklist cannot be
+// recovered from it, so we link to declarations that have no page". Before
+// accepting that, check what doc-gen4 does today: its link renderer consults
+// `name2ModIdx`, which is `env.const2ModIdx` (Analyze.lean:243) -- every constant
+// in the environment, blacklisted ones included -- while the index only holds
+// what it published. So a name can be linked and have no anchor. Search the
+// package's own HTML for exactly the names that are missing from the index.
 async function* htmlFiles(dir: string): AsyncGenerator<string> {
   for await (const e of Deno.readDir(dir)) {
     if (e.isDirectory) yield* htmlFiles(`${dir}/${e.name}`);
@@ -289,8 +280,6 @@ for (const n of deadLinks.keys()) {
   }
 }
 
-// ---------------------------------------------------------------- size variants
-
 type Slice = { label: string; names: string[] };
 const slices: Slice[] = [
   { label: "all", names: declNames },
@@ -298,7 +287,6 @@ const slices: Slice[] = [
   { label: "referenced only", names: depRefs.filter((r) => decls[r.name]).map((r) => r.name) },
 ];
 
-/** The four shapes the map could take, from doc-gen4's own to the real floor. */
 function shapes(names: string[]) {
   const withKind: Record<string, IndexedDecl> = {};
   const noKind: Record<string, string> = {};
@@ -360,8 +348,6 @@ for (const s of slices) {
   }
 }
 
-// ---------------------------------------------------------------- load time
-
 type TimeRow = { label: string; bytes: number; times: number[] };
 const timeRows: TimeRow[] = [];
 for (const f of timedFiles) timeRows.push({ label: f.label, bytes: f.bytes, times: await loadTimes(f.path) });
@@ -385,17 +371,6 @@ if (STANDALONE > 0) {
     standaloneRows.push({ label: f.label, bytes: f.bytes, times: times.slice(1) });
   }
 }
-
-// ---------------------------------------------------------------- kind usage
-
-// Where `kind` is consumed, checked in the doc-gen4 tree rather than guessed:
-//   DocGen4/Output/ToJson.lean          `JsonIndexedDeclarationInfo := { kind, docLink }`
-//   static/declaration-data.js:177-191  the only reader; feeds `allowedKinds`
-//   static/search.js:111,181            `.kind_checkbox`, the search filter UI
-//   DocGen4/Output/Base.lean:338-381    link rendering -- reads `name2ModIdx` only
-// i.e. the *link* never looks at `kind`; the search page's type filter does.
-
-// ---------------------------------------------------------------- report
 
 say("stage 3 / increment 2 -- demand vs supply, and the real size of the map");
 say();

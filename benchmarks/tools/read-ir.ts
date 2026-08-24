@@ -1,24 +1,23 @@
 #!/usr/bin/env -S deno run --allow-read --allow-env --allow-run
 //
-// Stage 4 preparation: reads the module-granular IR `experiments/stage4` writes
-// and measures how long that takes. Schema 2 (`experiments/stage4b`, the
-// positional span lists) is read by the same code path — see "Schema 2" below.
+// Reads a module-granular IR tree and measures how long that takes. Schema 2
+// (the positional span lists) is read by the same code path — see "Schema 2"
+// below.
 //
-// This is the stand-in for the stage-4 consumer: HTML, search index and cross
-// references are all meant to be built outside Lean from the IR. The
-// point of the tool is not what it computes — declaration, reference and byte
-// totals are just enough work to force every file to be parsed — but that it
-// **never starts Lean**. If the numbers below are small, the "Lean is an
-// extractor, output lives outside it" boundary is affordable; if reading the IR
-// cost as much as the 2.5 s warm `importModules` floor, the split would be
-// paying for itself twice.
+// This stands in for the IR consumer: HTML, search index and cross references
+// are all meant to be built outside Lean from the IR. The point of the tool is
+// not what it computes — declaration, reference and byte totals are just enough
+// work to force every file to be parsed — but that it **never starts Lean**. If
+// the numbers below are small, the "Lean is an extractor, output lives outside
+// it" boundary is affordable; if reading the IR cost as much as the 2.5 s warm
+// `importModules` floor, the split would be paying for itself twice.
 //
 // usage:
 //   read-ir.ts [--ir <dir>] [--runs N] [--standalone N] [--json <out>]
 //              [--verify-hashes] [--note <line>]...
 //
-//   --ir        IR root written by `experiments/stage4/run.sh --write-ir`,
-//               default $IR_DIR, else the session scratchpad path below
+//   --ir        IR root written by `experiments/stage4/run.sh --write-ir` (tag
+//               `experiments-frozen`), default $IR_DIR, else the path below
 //   --runs      repetitions (default 7); run 1 is dropped as page-cache cold
 //   --standalone N  repeat with one fresh process per read as a cross-check
 //                   (default 0 = off; needs --allow-run)
@@ -34,9 +33,9 @@
 // measurement target.
 //
 // Schema 2: the tagged IR adds a flat span list per printed fragment
-// (`binderCode` / `typeCode` / `equationCode` / `members[].code`, see
-// `experiments/stage4b/README.md`). This reader walks those lists and tallies
-// them by kind, for the same reason it sums references: to force the parsed
+// (`binderCode` / `typeCode` / `equationCode` / `members[].code`). This reader
+// walks those lists and tallies them by kind, for the same reason it sums
+// references: to force the parsed
 // objects to be touched rather than dropped. The extension is **additive** — the
 // span walk is behind `schemaVersion >= 2`, so a schema-1 IR takes exactly the
 // code path it took before and must produce exactly the same counts.
@@ -114,9 +113,8 @@ type Totals = {
 /** `[start, stop, kind]`, or `[start, stop, 1, name]` when kind is 1. */
 type Span = [number, number, number] | [number, number, 1, string];
 
-/** Tally one fragment's span list. Counts the fragment even when it has no
- *  spans, which is how the writer counts `spanFragments` — so the two numbers
- *  are comparable (`experiments/stage4b/Extract.lean`, `IrStats.spanFragments`). */
+/** Counts the fragment even when it has no spans, which is how the writer
+ *  counts `spanFragments` — so the two numbers are comparable. */
 function tallySpans(t: Totals, spans: Span[]): void {
   t.spanFragments++;
   for (const s of spans) {
@@ -132,7 +130,6 @@ function tallySpans(t: Totals, spans: Span[]): void {
   }
 }
 
-/** One full pass over the IR: index, every module file, every dependency map. */
 async function readAll(): Promise<Totals> {
   const indexText = await Deno.readTextFile(`${IR}/index.json`);
   const index: Index = JSON.parse(indexText);
@@ -149,7 +146,7 @@ async function readAll(): Promise<Totals> {
     imports: 0,
     equations: 0,
     members: 0,
-    bytesRead: 0, // filled from the index below (UTF-8 bytes recorded by the writer)
+    bytesRead: 0,
     depPackages: 0,
     depEntries: 0,
     spanFragments: 0,

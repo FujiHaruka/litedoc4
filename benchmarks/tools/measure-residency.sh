@@ -9,14 +9,12 @@
 # produced on demand and *verified* by R0 rather than assumed from "first run of the
 # session". Without it, only the very first extractor run after a long idle is cold.
 #
-# THE WORKLOAD IS NO LONGER BUILT IN
-#   Until 2026-08-16 the E-steps ran `experiments/stage1/run.sh <name>` — the stage-1
-#   extractor over the fixed target. That is what produced every committed
-#   `ci-residency-*` number. `experiments/` was removed; stage 1 now only exists at tag
-#   `experiments-frozen`, and **HEAD has no equivalent**, so those numbers cannot be
-#   reproduced from this tree. `RUN_CMD` therefore has no default: whoever measures has
-#   to name the workload, and a run driven by any other workload is a NEW baseline, not
-#   a continuation of the recorded one.
+# `RUN_CMD` has no default. Every committed `ci-residency-*` number came from
+# `experiments/stage1/run.sh <name>`, which only exists at tag
+# `experiments-frozen`; **HEAD has no equivalent**, so those numbers cannot be
+# reproduced from this tree. Whoever measures has to name the workload, and a run
+# driven by any other workload is a NEW baseline, not a continuation of the
+# recorded one.
 #
 # usage: RUN_CMD='<cmd>' measure-residency.sh <paths.txt> <snapdir> [runs]
 #          runs defaults to 6. RUN_CMD is invoked once per E-step as `$RUN_CMD <name>`,

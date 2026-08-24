@@ -1,27 +1,25 @@
 #!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-run --allow-write
 /**
- * Gate UI-3 and the half of M8 that static checks cannot see.
+ * Drives the generated site in a real browser — the half static checks cannot see.
  *
  * `check-dead-links.py` and `check-site-closure.py` read the bytes. They cannot
- * tell whether the page *works*, and since M8-c most of what this site does is
- * decided at runtime: the module tree is drawn from `modules.json`, Instances
- * For is filled from `search-index.json` on first open, search runs in the
- * browser, and the theme toggle rewrites a root attribute. Every one of those
- * can be perfectly well-formed HTML and still be broken.
+ * tell whether the page *works*, and most of what this site does is decided at
+ * runtime: the module tree is drawn from `modules.json`, Instances For is filled
+ * from `search-index.json` on first open, search runs in the browser, and the
+ * theme toggle rewrites a root attribute. Every one of those can be perfectly
+ * well-formed HTML and still be broken.
  *
- * It also closes gate UI-3: the CSS is written for a 375 px mobile width, but
- * writing CSS for a width and confirming a real browser renders it that way
- * (no horizontal scroll on the page body) are different claims.
+ * The CSS is written for a 375 px mobile width, but writing CSS for a width and
+ * confirming a real browser renders it that way (no horizontal scroll on the page
+ * body) are different claims, so that is checked here too.
  *
- * WHY A SERVER AND NOT file://
- *   The pages fetch their indexes. Under `file://` those fetches fail on CORS
- *   grounds, so a file:// run would report a broken site that is not broken —
- *   and, worse, would keep reporting it after somebody "fixed" it.
+ * Over a server, not `file://`: the pages fetch their indexes, and under
+ * `file://` those fetches fail on CORS grounds — a file:// run would report a
+ * broken site that is not broken, and keep reporting it after somebody "fixed" it.
  *
- * WHY puppeteer-core AND NOT puppeteer
- *   `-core` does not download a browser. CI runners ship Chrome and this machine
- *   has one; a 150 MB download per run to drive a browser that is already there
- *   is not a dependency worth taking.
+ * puppeteer-core rather than puppeteer: `-core` does not download a browser. CI
+ * runners ship Chrome and this machine has one; a 150 MB download per run to
+ * drive a browser that is already there is not a dependency worth taking.
  *
  * usage:
  *   check-site-browser.ts <site dir> [--chrome PATH] [--port N] [--json FILE]
@@ -63,7 +61,7 @@ function findChrome(explicit?: string): string {
     try {
       if (Deno.statSync(path).isFile) return path;
     } catch {
-      // try the next one
+      // next candidate
     }
   }
   console.error(
@@ -73,7 +71,6 @@ function findChrome(explicit?: string): string {
   Deno.exit(2);
 }
 
-/** A static file server over the generated site, so that fetch() works. */
 function serve(root: string, port: number) {
   const types: Record<string, string> = {
     ".html": "text/html; charset=utf-8",
@@ -108,7 +105,6 @@ function serve(root: string, port: number) {
   });
 }
 
-/** Every console error and uncaught exception a page produces. */
 function watch(page: Page, sink: string[]) {
   page.on("console", (message) => {
     if (message.type() === "error") sink.push(`console: ${message.text()}`);
@@ -166,7 +162,6 @@ async function main() {
       args: ["--no-sandbox", "--disable-dev-shm-usage"],
     });
 
-    // 1 — nothing errors on load, anywhere.
     const noisy: string[] = [];
     for (const path of pages) {
       const page = await browser.newPage();
@@ -202,7 +197,6 @@ async function main() {
       }
     }
 
-    // 2 — the module tree is drawn from modules.json rather than shipped.
     {
       const page = await browser.newPage();
       await page.goto(`${base}/${first}`, { waitUntil: "networkidle0" });
@@ -215,8 +209,8 @@ async function main() {
       await page.close();
     }
 
-    // 3 — search finds a declaration that is in the index. **Two paths, and
-    // they render into different elements**: the top bar's dropdown writes into
+    // Search finds a declaration that is in the index. **Two paths, and they
+    // render into different elements**: the top bar's dropdown writes into
     // `#search-results`, while `search.html` removes that element on purpose
     // (two boxes on a search page is a question about which one is real) and
     // renders into `#page-results` instead. Checking only one of them leaves the
@@ -265,12 +259,9 @@ async function main() {
       await page.close();
     }
 
-    // 3b — the byte searcher ranks what the string one ranked.
-    //
-    // The scorer was switched from one over JS strings to one over the bytes
-    // of `search-index.bin`, justified entirely by the claim that it does not
-    // change the answer. So the oracle is the scorer it replaced, **frozen**
-    // below.
+    // The byte searcher over `search-index.bin` is justified entirely by the
+    // claim that it does not change the answer, so the oracle is the string
+    // scorer it replaced, **frozen** below.
     //
     // Neither side of this comparison reads the index format: the expected list
     // is computed from `declarations/name-map.json`, the actual one is read out
@@ -288,9 +279,8 @@ async function main() {
       // written in and therefore the order equal scores fall back to.
       const names = Object.keys(nameMap).filter((name) => own.has(nameMap[name])).sort();
 
-      // **FROZEN — the pre-P1 scorer from `assets/app.js`, verbatim.** Do not
-      // edit it to agree with a change in the searcher: catching that is the
-      // whole point.
+      // **FROZEN — the string scorer this replaced, verbatim.** Do not edit it
+      // to agree with a change in the searcher: catching that is the whole point.
       const frozenScore = (name: string, query: string) => {
         const lower = name.toLowerCase();
         const last = lower.slice(lower.lastIndexOf(".") + 1);
@@ -399,8 +389,8 @@ async function main() {
       }
     }
 
-    // 4 — Instances For fills in on open (M8-c changed where it reads from, and
-    // the previous published site had this silently broken for 245 pages).
+    // Instances For fills in on open. The markup ships empty, and a published
+    // site once had this silently broken on 245 pages.
     {
       const page = await browser.newPage();
       await page.goto(`${base}/${first}`, { waitUntil: "networkidle0" });
@@ -420,11 +410,10 @@ async function main() {
       await page.close();
     }
 
-    // 4b — a `Used by` block fills in on open, from the file of its own.
-    //
-    // Feature-sweep C-2. The same shape as check 4 and for the same reason: the
-    // markup ships empty, so "the block is on the page" and "the block answers"
-    // are different questions and only this one asks the second. The fixture
+    // A `Used by` block fills in on open, from a file of its own. Same shape as
+    // the check above and for the same reason: the markup ships empty, so "the
+    // block is on the page" and "the block answers" are different questions and
+    // only this one asks the second. The fixture
     // declaration is chosen because something in the package really does use it
     // — a block that filled with "None" everywhere would pass a test that only
     // looked for text.
@@ -474,7 +463,6 @@ async function main() {
       await page.close();
     }
 
-    // 5 — the theme toggle actually changes the document.
     {
       const page = await browser.newPage();
       await page.goto(`${base}/${first}`, { waitUntil: "networkidle0" });
@@ -489,13 +477,11 @@ async function main() {
       await page.close();
     }
 
-    // 5b — the themes' actual colours, not just that the attribute moves.
-    //
-    // Check 5 clicks the toggle and asks whether `data-theme` changed. That is
-    // the mechanism; what a reader gets is the contrast, and a theme can rewrite
-    // every colour and still be unreadable. **Both** themes are measured,
-    // because a palette that is only ever looked at in one of them is exactly
-    // how the other one rots.
+    // The themes' actual colours, not just that the attribute moves: the toggle
+    // is the mechanism, what a reader gets is the contrast, and a theme can
+    // rewrite every colour and still be unreadable. **Both** themes are measured,
+    // because a palette that is only ever looked at in one of them is exactly how
+    // the other one rots.
     //
     // Threshold: WCAG 2.1 SC 1.4.3, 4.5:1 for body-sized text. The elements are
     // named rather than crawled, and **a name that matches nothing fails** — a
@@ -563,7 +549,6 @@ async function main() {
       await page.close();
     }
 
-    // 6 — UI-3, the gate that a 375 px mobile viewport does not scroll horizontally.
     for (const width of [375, 1440]) {
       const page = await browser.newPage();
       await page.setViewport({ width, height: 800 });
@@ -577,7 +562,6 @@ async function main() {
       await page.close();
     }
 
-    // 7 — the prose is readable with JavaScript off (the M8-c gate).
     {
       const page = await browser.newPage();
       await page.setJavaScriptEnabled(false);
@@ -591,23 +575,22 @@ async function main() {
       await page.close();
     }
 
-    // 8b — MathML is drawn by the browser rather than merely present.
+    // MathML is drawn by the browser rather than merely present.
     //
-    // `litedoc4-md` converts `$…$` at build time and ships no MathJax, no
-    // KaTeX and no math web font, so the whole feature rests on an
-    // assumption nothing else here checks: **that this
-    // browser lays out MathML Core natively.** A `<math>` element in a browser
-    // that does not is `display: inline` with no glyphs and **zero width** —
-    // the page still validates, the markup is still right, and the formula is
-    // simply gone. This is the only check that can see that.
+    // `litedoc4-md` converts `$…$` at build time and ships no MathJax, no KaTeX
+    // and no math web font, so the whole feature rests on an assumption nothing
+    // else here checks: **that this browser lays out MathML Core natively.** A
+    // `<math>` element in a browser that does not is `display: inline` with no
+    // glyphs and **zero width** — the page still validates, the markup is still
+    // right, and the formula is simply gone. This is the only check that can see
+    // that.
     //
     // Also asserted: the box is *wider than its own LaTeX source would be*, so
     // that a browser rendering the elements as run-together text (which has a
     // width, and would pass a `> 0` test) does not pass.
     //
-    // The page is named rather than searched for. A search that finds no math
-    // page would report "ok, 0 formulas" — the shape CLAUDE.md calls
-    // 「skip で緑を返さない」— so a missing page is a failure here.
+    // The page is named rather than searched for: a search that finds no math
+    // page would report "ok, 0 formulas", so a missing page is a failure here.
     {
       const mathPage = pages.find((p) => p.endsWith("Math.html"));
       if (!mathPage) {
@@ -653,14 +636,11 @@ async function main() {
       }
     }
 
-    // 8 — the monospace stack can draw what a Lean package puts in a signature.
+    // The monospace stack can draw what a Lean package puts in a signature.
     //
-    // The site ships no JuliaMono web font, on the **assumption** that the
-    // system stack renders the 178 non-ASCII characters the measurement
-    // target's pages contain (`mono-charset.json`, regenerable with
-    // `mono-charset.py`). That assumption had only ever been looked at on macOS,
-    // and this runner is ubuntu-latest — the Linux machine was free the whole
-    // time.
+    // The site ships no JuliaMono web font, on the **assumption** that the system
+    // stack renders the 178 non-ASCII characters the measurement target's pages
+    // contain (`mono-charset.json`, regenerable with `mono-charset.py`).
     //
     // **The character set comes from the target, not from the site under test.**
     // The e2e fixture is deliberately tiny, so judging the font stack by what it
@@ -668,12 +648,12 @@ async function main() {
     //
     // Two different questions, and only one of them is a failure:
     //
-    // * **Is there a glyph at all?** 決定 2 is a bet that there is. A character
-    //   that draws nothing is unreadable, so it fails.
-    // * **Is the advance the monospace advance?** 決定 2 says outright that
-    //   「**字幅は崩れうる**」 — a proportional fallback mixing in is an accepted
-    //   cost, not a regression. So this is counted and reported, never failed on.
-    //   The count is what UI-V1 (subset and vendor JuliaMono) would be decided on.
+    // * **Is there a glyph at all?** Shipping no web font is a bet that there is.
+    //   A character that draws nothing is unreadable, so it fails.
+    // * **Is the advance the monospace advance?** 「**字幅は崩れうる**」 — a
+    //   proportional fallback mixing in is an accepted cost, not a regression. So
+    //   this is counted and reported, never failed on. The count is what a
+    //   decision to subset and vendor JuliaMono would be made on.
     {
       const charset = JSON.parse(
         await Deno.readTextFile(new URL("./mono-charset.json", import.meta.url)),
@@ -738,10 +718,9 @@ async function main() {
         return { font, unit, total, blank, offWidth };
       }, charset.chars);
 
-      // Which families actually drew it. This is the diagnosis a width number
-      // cannot give: Chrome reports the real fonts used for a laid-out node, so
-      // a failure names the family that is missing the glyphs instead of saying
-      // that something was wide.
+      // Chrome reports the real fonts used for a laid-out node, so a failure can
+      // name the family that is missing the glyphs instead of saying that
+      // something was wide.
       let families = "";
       try {
         const cdp = await page.createCDPSession();

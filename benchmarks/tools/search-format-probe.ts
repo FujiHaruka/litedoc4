@@ -40,10 +40,8 @@ async function gzipLen(bytes: Uint8Array): Promise<number> {
 }
 const median = (xs: number[]) => xs.slice().sort((a, b) => a - b)[xs.length >> 1];
 
-// ---------------------------------------------------------------- format v2
-//
-// One file, four sections, no permutation and no dictionary — both were
-// measured and both cost more than they save (see the report).
+// Format v2: one file, four sections, no permutation and no dictionary — both
+// were measured and both cost more than they save (section 3 below).
 //
 //   1 names   front-coded against the previous name, restarting every 16 so a
 //             single declaration can still be decoded without reading the file
@@ -145,7 +143,6 @@ function makeSearcher(idx: ReturnType<typeof encodeV2>, n: number) {
   };
 }
 
-/** Random access, for the handful of rows a result list actually shows. */
 function nameAt(idx: ReturnType<typeof encodeV2>, want: number) {
   const blob = idx.blob;
   let at = idx.restarts[(want / RESTART) | 0];
@@ -160,12 +157,8 @@ function nameAt(idx: ReturnType<typeof encodeV2>, want: number) {
   return decoder.decode(buf.subarray(0, end));
 }
 
-// ------------------------------------------------------- the shipped scorer
-// Copied verbatim from the shipped scorer — it is the oracle, so it must not be
-// rewritten here. It lived in `crates/litedoc4-render/assets/app.js` when this
-// was written; since the site's JavaScript became TypeScript the source is
-// `crates/litedoc4-render/web/src/score.ts` and `app.js` is built into
-// `OUT_DIR` rather than committed.
+// Copied verbatim from the shipped scorer (`crates/litedoc4-render/web/src/
+// score.ts`) — it is the oracle, so it must not be rewritten here.
 function shippedScore(name: string, query: string) {
   const lower = name.toLowerCase();
   const last = lower.slice(lower.lastIndexOf(".") + 1);
@@ -182,7 +175,6 @@ function shippedSearch(decls: Decl[], query: string) {
   return hits.map(([s, d]) => ({ name: d[0], score: s }));
 }
 
-// ------------------------------------------------------------------- memory
 if (memMode) {
   const snap = () => { for (let i = 0; i < 5; i++) (globalThis as any).gc(); const m = Deno.memoryUsage(); return m; };
   const before = snap();
@@ -214,7 +206,6 @@ if (memMode) {
   Deno.exit(0);
 }
 
-// --------------------------------------------------------------------- main
 const rawText = Deno.readTextFileSync(path);
 const data = JSON.parse(rawText) as Index;
 if (emitTo) {

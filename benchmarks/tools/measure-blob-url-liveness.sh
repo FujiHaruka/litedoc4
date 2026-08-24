@@ -1,11 +1,11 @@
 #!/bin/bash
-# Check that version-pinned GitHub blob URLs actually resolve (M7-d).
+# Check that version-pinned GitHub blob URLs actually resolve.
 #
 # Counterpart to `measure-docsite-drift.sh`: that one measures how much of the
 # *public doc site* has drifted away from the version this project is pinned to;
-# this one measures whether the blob URLs M7 emits instead are live. The two
-# share a rule — the product never does this at build time. Liveness is measured
-# here, offline the rest of the time.
+# this one measures whether the version-pinned blob URLs emitted instead are
+# live. The two share a rule — the product never does this at build time.
+# Liveness is measured here, offline the rest of the time.
 #
 # Input is a file of URLs, one per line (e.g. cut out of a generated site, or out
 # of the reference tree's oracle). A deterministic every-Nth sample is taken so a

@@ -11,7 +11,7 @@
 # Cold means the closure's oleans have been evicted from the page cache
 # (`olean-evict`, msync(MS_INVALIDATE), no sudo) — this workload reads olean
 # through mmap, so the phase's own cost depends on whether `declRangeExt`'s
-# pages are resident (CLAUDE.md「ベンチマーク」).
+# pages are resident.
 #
 # usage: EXTRACT_BIN=<binary> measure-link-index.sh <label> [rounds]
 # out:   benchmarks/results/m7a-linkindex-<label>.jsonl (one object per run)
@@ -42,7 +42,6 @@ OLEANS="$WORK/closure-oleans.txt"
 OLEAN_FILES=$(grep -c . "$OLEANS")
 echo "eviction set: $OLEAN_FILES oleans"
 
-# The conditions, next to the numbers (CLAUDE.md「計測条件を毎回記録する」).
 {
   echo "date (UTC)          : $(date -u '+%Y-%m-%d %H:%M:%S')"
   echo "host                : $(uname -sr) $(uname -m), $(sysctl -n hw.ncpu) CPU, \
@@ -59,7 +58,7 @@ $(( $(sysctl -n hw.memsize) / 1073741824 )) GB RAM"
 } > "$RESULTS_DIR/m7a-linkindex-$LABEL-env.txt"
 cat "$RESULTS_DIR/m7a-linkindex-$LABEL-env.txt"
 
-one_run () { # one_run <series> <index>
+one_run () {
   local s="$1" i="$2"
   local ev="$WORK/raw/events-$LABEL-$s-$i.jsonl"
   local tl="$WORK/raw/time-$LABEL-$s-$i.txt"

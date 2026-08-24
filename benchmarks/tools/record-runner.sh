@@ -2,30 +2,25 @@
 # Record which machine a measurement ran on, in enough detail to tell two
 # `ubuntu-latest` runners apart.
 #
-# WHY THIS EXISTS
-#   The four CI measurement workflows before this one recorded date, `uname`,
-#   `nproc`, page size, image version, `/proc/meminfo` and `df` — and **all four
-#   env files came out byte-identical** in every one of those fields (kernel
-#   6.17.0-1020-azure, nproc 2, page size 4096, image ubuntu24 20260720.247.2).
-#   Yet the runs behind them split into two clearly different machines: the same
-#   cold import took 20.4 s on one and 63-89 s on the other, at 5.3 ms per major
-#   fault against 0.67 ms 【実測 →
-#   benchmarks/results/ci-importmodules-linux-summary.txt,
-#   benchmarks/results/ci-prefetch-linux-summary.txt】. Nothing recorded
-#   identified which machine a run had landed on; the split could only be
-#   inferred from the numbers it was supposed to explain.
+# date / `uname` / `nproc` / page size / image version / `/proc/meminfo` / `df`
+# are not enough: four CI measurement runs came out **byte-identical** in all of
+# those (kernel 6.17.0-1020-azure, nproc 2, page size 4096, image ubuntu24
+# 20260720.247.2) while landing on two clearly different machines — the same cold
+# import took 20.4 s on one and 63-89 s on the other, at 5.3 ms per major fault
+# against 0.67 ms 【実測 → benchmarks/results/ci-importmodules-linux-summary.txt,
+# benchmarks/results/ci-prefetch-linux-summary.txt】.
 #
-#   Worse for an A/B: a pure-CPU phase of the same work varied **2.19x** across
-#   runner instances and did **not** line up with the I/O split — the runner with
-#   the fastest disk had the slowest CPU 【実測, same runs】. Two arms on two
-#   runners can therefore differ by 2x for reasons that have nothing to do with
-#   what is being tested.
+# Worse for an A/B: a pure-CPU phase of the same work varied **2.19x** across
+# runner instances and did **not** line up with the I/O split — the runner with
+# the fastest disk had the slowest CPU 【実測, same runs】. Two arms on two
+# runners can therefore differ by 2x for reasons that have nothing to do with
+# what is being tested.
 #
-#   So this records the fields that name the hardware (CPU model, `lscpu`,
-#   readahead, block devices) and, because none of them is guaranteed to be
-#   truthful on a VM, a **CPU calibrator**: a fixed amount of pure-CPU work,
-#   timed. A calibrator that differs between two runners is the warning that
-#   their other numbers are not directly comparable.
+# So this records the fields that name the hardware (CPU model, `lscpu`,
+# readahead, block devices) and, because none of them is guaranteed to be
+# truthful on a VM, a **CPU calibrator**: a fixed amount of pure-CPU work, timed.
+# A calibrator that differs between two runners is the warning that their other
+# numbers are not directly comparable.
 #
 # usage:
 #   record-runner.sh <outfile> [<lean package dir>]
@@ -44,7 +39,6 @@ have () { command -v "$1" > /dev/null 2>&1; }
   echo "pagesize    $(getconf PAGESIZE)"
   echo "runner      ${RUNNER_OS:-?} / ${RUNNER_ARCH:-?} / image ${ImageOS:-?} ${ImageVersion:-?}"
 
-  # ---------------------------------------------------------------- the machine
   echo
   echo "## cpu"
   if [ -r /proc/cpuinfo ]; then
@@ -90,8 +84,6 @@ have () { command -v "$1" > /dev/null 2>&1; }
   echo "## df"
   df -h / /mnt 2> /dev/null || df -h /
 
-  # ------------------------------------------------------------- the calibrator
-  #
   # A fixed amount of CPU work with no disk in it: 1 GiB of zeroes from the
   # kernel through sha256. Three times, because the first one on a fresh VM is
   # not representative; the minimum is the machine's floor. This is a *relative*
@@ -106,7 +98,6 @@ have () { command -v "$1" > /dev/null 2>&1; }
     awk -v a="$s" -v b="$e" 'BEGIN{printf "%.3f\n", b-a}'
   done
 
-  # ----------------------------------------------------------------- the target
   if [ -n "$TARGET" ] && [ -d "$TARGET" ]; then
     echo
     echo "## target"

@@ -37,17 +37,12 @@ EVICT="$HERE/olean-evict"
 PREFETCH="$HERE/olean-prefetch"
 TARGET_REPO="${TARGET_REPO:-/Users/haruka/dev/lean-projects}"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
-# Which extractor to time. stage1 answers "how long is the cold import", stage4b answers
-# "how long is the whole first generation" because it also runs the semantic analysis and
-# writes the IR. EXTRACT_ARGS goes to the binary after <modules> <out.jsonl>.
-#
-# EXTRACT_BIN HAS NO DEFAULT ANY MORE
-#   It used to default to experiments/stage1/build/extract, and that default is what
-#   produced every committed ci-prefetch-* number. `experiments/` was removed on
-#   2026-08-16; stage 1 only exists at tag `experiments-frozen` and **HEAD has no
-#   equivalent** (extractor/ is the schema-4 extractor, which does strictly more work
-#   after the import). A run driven by any other binary is a NEW baseline, not a
-#   continuation of the recorded one — do not put the two in one table.
+# Which extractor to time; EXTRACT_ARGS goes to the binary after <modules> <out.jsonl>.
+# EXTRACT_BIN has no default. Every committed ci-prefetch-* number came from
+# experiments/stage1/build/extract, which only exists at tag `experiments-frozen`;
+# **HEAD has no equivalent** (extractor/ is the schema-4 extractor, which does strictly
+# more work after the import). A run driven by any other binary is a NEW baseline, not a
+# continuation of the recorded one — do not put the two in one table.
 BIN="${EXTRACT_BIN:-}"
 [ -n "$BIN" ] || { echo "EXTRACT_BIN is unset: name the extractor to time." >&2
   echo "The recorded ci-prefetch-* numbers used experiments/stage1/build/extract," >&2
@@ -63,8 +58,6 @@ for t in "$RESIDENCY" "$EVICT" "$PREFETCH"; do
   [ -x "$t" ] || { echo "not built: cc -O2 -o $t $t.c" >&2; exit 1; }
 done
 [ -x "$BIN" ] || { echo "not executable: EXTRACT_BIN=$BIN" >&2; exit 1; }
-
-# --- helpers ----------------------------------------------------------------------------
 
 # Same shape as measure-warmstart.sh: headroom = free + speculative + purgeable + inactive,
 # an upper bound on what could accept new file pages.
@@ -109,7 +102,6 @@ print(json.dumps({"files": f, "bytes": b, "resident_file_bytes": rf,
 ' "$1"
 }
 
-# Pull the numbers the extractor and /usr/bin/time -l printed into one JSON object.
 extract_json() {
   python3 -c '
 import sys, json, re
@@ -129,13 +121,13 @@ print(json.dumps({
   "footprint": f(r"(\d+)\s+peak memory footprint", int),
   "agree": ("declaration sets agree" in txt),
   "decls": f(r"agree \((\d+) declarations\)", int),
-  # stage4b does not run the cross-check, so its identity of work is the analyze line.
+  # not every extractor runs the cross-check; "produced" is then the identity of work.
   "produced": f(r"produced (\d+)", int),
 }))
 ' "$1"
 }
 
-emit() { # meta vm_before vm_after extra
+emit() {
   python3 -c '
 import sys, json
 rec = json.loads(sys.argv[1])
@@ -150,7 +142,7 @@ print(json.dumps(rec))
 # full sweep, so the per-run text is appended to one transcript instead of littering
 # results/ with 80 files; the machine-readable copy is the event record.
 SUMMARY=""
-run_extract() { # name
+run_extract() {
   local name="$1"
   SUMMARY="$WORK/$name-summary.txt"
   ( cd "$TARGET_REPO" && "$LAKE" env /usr/bin/time -l "$BIN" "$MODULES" \
@@ -161,8 +153,6 @@ run_extract() { # name
 # NB: python's time.monotonic() is *per process* on macOS (it starts near zero in every
 # interpreter), so it cannot time across forks. CLOCK_MONOTONIC_RAW is since boot.
 now_s() { python3 -c 'import time; print("%.3f" % time.clock_gettime(time.CLOCK_MONOTONIC_RAW))'; }
-
-# --- modes ------------------------------------------------------------------------------
 
 mode="${1:?usage: see header}"
 
@@ -275,9 +265,9 @@ overlapped)
 
 warm)
   # No eviction at all: back-to-back runs that inherit the previous run's page cache.
-  # Needed in the *same session* as the cold variants, because the cold total is a
-  # delta against warm and CLAUDE.md forbids pairing a cold number with a warm number
-  # taken under a different memory state.
+  # Needed in the *same session* as the cold variants: the cold total is a delta
+  # against warm, and a cold number must never be paired with a warm number taken
+  # under a different memory state.
   OUTDIR="${2:?}"; REPS="${3:?}"; TAG="${4:?}"
   mkdir -p "$OUTDIR"; EVENTS="$OUTDIR/ci-prefetch-events.jsonl"
   for rep in $(seq 1 "$REPS"); do

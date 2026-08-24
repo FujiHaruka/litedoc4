@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Apply (or verify) the timing instrumentation on the target repo's doc-gen4.
 #
-# `.lake/packages` is a build artifact of the target repo: `lake update` wipes it,
-# taking the instrumentation with it. This script puts it back.
+# `lake update` wipes `.lake/packages`, taking the instrumentation with it.
 #
 # Usage:
 #   apply-instrumentation.sh            apply the patch and rebuild doc-gen4

@@ -19,14 +19,13 @@
 # Each run gets a fresh `--out`, so every run is a full build and none of them
 # takes the incremental path.
 #
-# THE THIRD ARM, AND WHY A NULL RESULT NEEDS IT
-#   arm `cold` is the same runner as `same` with the page cache dropped before
-#   every build. It is not a placement — it is the **positive control**. If the
-#   A/B comes back "no difference", that reading is worth nothing unless the
-#   instrument is known to be able to show one; `cold` is the condition where a
-#   difference must appear, and if it does not, the measurement is broken rather
-#   than the claim being refuted. Dropping the cache is therefore allowed to
-#   fail the run: a `cold` arm that was not cold is a control that lies.
+# arm `cold` is the same runner as `same` with the page cache dropped before
+# every build. It is not a placement — it is the **positive control**. If the
+# A/B comes back "no difference", that reading is worth nothing unless the
+# instrument is known to be able to show one; `cold` is the condition where a
+# difference must appear, and if it does not, the measurement is broken rather
+# than the claim being refuted. Dropping the cache is therefore allowed to fail
+# the run: a `cold` arm that was not cold is a control that lies.
 #
 # environment:
 #   ARM            same | split | cold                    (required)
@@ -74,12 +73,9 @@ if /usr/bin/time -v true > /dev/null 2>&1; then TIME_CMD="/usr/bin/time -v"
 elif /usr/bin/time -l true > /dev/null 2>&1; then TIME_CMD="/usr/bin/time -l"
 fi
 
-# ---------------------------------------------------------------- the inventory
-#
-# Written BEFORE the first build, so that a run that dies leaves a declared line
-# with nothing behind it and `check-placement.sh` says so. An inventory written
-# afterwards would only ever list what happened, which is the failure mode this
-# repository has already paid for twice (CLAUDE.md「ゲートは走った本数を数える」).
+# The inventory is written BEFORE the first build, so that a run that dies leaves
+# a declared line with nothing behind it and `check-placement.sh` says so. An
+# inventory written afterwards would only ever list what happened.
 [ "$APPEND" = 1 ] || : > "$RESULTS/runs.txt"
 for i in $(seq 1 "$REPS"); do
   echo "$ARM p${PAIR}r${i}" >> "$RESULTS/runs.txt"

@@ -29,7 +29,7 @@ crate・CLI・Lake パッケージ名のすべて。`litedoc` を選ばなかっ
 (同カテゴリの Python ドキュメント生成器が PyPI と CLI 名 `litedoc` を占有、Rust の
 `litedoc-core` / `litedoc-cli` が crates.io に実在、153★ の PDF→Markdown コンバータが
 検索一位)。`litedoc4` は crates.io / npm / PyPI / GitHub 検索すべて空きだった。
-**旧名 `lean-doc` を意図的に残した箇所が 5 種ある。「消し忘れ」と読んで直さない**:
+**プロトタイプ期の名前を意図的に残した箇所が 6 種ある。「消し忘れ」と読んで直さない**:
 
 1. **`benchmarks/results/**` (361 ファイル)** — 生ログ。過去の実測を書き換えない
 2. **`crates/*/tests/data/**` (14 ファイル)** — 凍結フィクスチャ。生成時のパスが焼かれていて、
@@ -43,6 +43,12 @@ crate・CLI・Lake パッケージ名のすべて。`litedoc` を選ばなかっ
    検査するもので、書き換えると**実在しない文字列と比べる無意味な検査**になる。
    `extractor/Extract.lean` は今もこの値を書く。**一度誤って置換して復元した**
 5. **tag `v0.1.0`〜`v0.1.3` の資産名 `lean-doc-*.tar.gz`** — 既存 Release に実在する名前
+6. **計時 JSONL の `phase` キー `stage4b.*` / `stage1.*` / `stage2.*` / `stage3.*`**
+   (2026-08-24 に確認) — **生きているワイヤ形式の識別子**。`extractor/Extract.lean` が
+   `sink.emit "stage4b.<phase>"` を **16 箇所**で書き、`benchmarks/tools/analyze.ts` が
+   `stage1.`〜`stage3.` を前置詞にして集計し、`benchmarks/tools/measure-link-index.sh` が
+   `"stage4b."` を剥がす。**「プロトタイプ由来だから死んでいる」と読んで消すと、
+   集計はエラーではなく 0 行を返す** — 静かに壊れる形
 
 一括置換は「これからの識別子」と「外部に実在する物を指す固有名詞」を区別しない。
 

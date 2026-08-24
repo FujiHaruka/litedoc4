@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write --allow-env
 //
-// Stage 4 increment 4: **byte accounting** of the generated module pages against
-// doc-gen4's own pages, region by region.
+// **Byte accounting** of the generated module pages against doc-gen4's own
+// pages, region by region.
 //
 // The question this answers is not "does it look right" but "of the bytes
 // doc-gen4 writes, which ones can be produced from the IR, and which ones
@@ -12,17 +12,16 @@
 //   coverage.ts --pages <dir> [--doc-root <dir>] [--report <path.txt>]
 //               [--diffs <path.txt>] [--max-diffs N]
 //
-//   --pages     the generator's output tree (render.ts --pages)
+//   --pages     the generator's output tree
 //   --doc-root  doc-gen4's HTML, default $TARGET_REPO (else
 //               /Users/haruka/dev/lean-projects) + .lake/build/doc/InformationTheory
 //
 // The doc tree is opened read-only; the measurement target is never written to.
 //
-// SEGMENTATION
-//   Every page is cut into non-overlapping regions that **tile the file** -- the
-//   tool asserts that the segment byte lengths sum to the file size, so a region
-//   cannot be quietly dropped from the denominator. The cut points come from
-//   doc-gen4's own structure (`Output/Template.lean`, `Output/Module.lean`):
+// Every page is cut into non-overlapping regions that **tile the file** -- the
+// tool asserts that the segment byte lengths sum to the file size, so a region
+// cannot be quietly dropped from the denominator. The cut points come from
+// doc-gen4's own structure (`Output/Template.lean`, `Output/Module.lean`):
 //
 //     frame          <html>, <body>, the nav-toggle input, <main>, the trailing
 //                    <nav class="nav"> and the closing tags
@@ -37,17 +36,17 @@
 //     decl_frame     div.decl + div.<kind> open/close tags
 //     gh_link        div.gh_link
 //     attributes     div.attributes
-//     decl_header    div.decl_header   (increment 3's territory)
+//     decl_header    div.decl_header
 //     docstring      the declaration docstring (CommonMark)
 //     members        ul.structure_fields / ul.structure_ext / ul.constructors
 //     equations      details > ul.equations
 //     instances      details.instances-for-list / details.instances
 //
-//   Both sides go through the same segmenter. That is fine here because the
-//   comparison is a byte comparison: a shared misreading of the markup can move
-//   a byte from one region to another, but it cannot turn a difference into a
-//   match. The page-level byte-identity number below is computed without the
-//   segmenter at all, as a cross-check on that.
+// Both sides go through the same segmenter. That is fine here because the
+// comparison is a byte comparison: a shared misreading of the markup can move a
+// byte from one region to another, but it cannot turn a difference into a match.
+// The page-level byte-identity number below is computed without the segmenter at
+// all, as a cross-check on that.
 
 const argv = Deno.args.slice();
 const opt = (n: string, d = "") => {
@@ -68,14 +67,12 @@ if (!PAGES) {
 const enc = new TextEncoder();
 const u8 = (s: string) => enc.encode(s).length;
 
-// ---------------------------------------------------------------- tag scanner
-
 /** Tags doc-gen4 emits unclosed. All of them come from `Html.raw` in DocString.lean. */
 const VOID = new Set(["br", "hr", "img", "wbr"]);
 
 type Tag = { close: boolean; name: string; start: number; end: number; text: string };
 
-/** The next tag at or after `i`. Attribute values are `Html.escape`d, so no `>` inside. */
+/** Attribute values are `Html.escape`d, so there is no `>` inside one. */
 function nextTag(html: string, i: number): Tag | null {
   for (;;) {
     const lt = html.indexOf("<", i);
@@ -108,7 +105,6 @@ function isVoidTag(html: string, t: Tag): boolean {
   return false;
 }
 
-/** End offset (exclusive) of the element whose open tag starts at `pos`. */
 function elementEnd(html: string, pos: number): number {
   const open = nextTag(html, pos)!;
   if (open.start !== pos) throw new Error(`no tag at ${pos}: ${JSON.stringify(html.slice(pos, pos + 40))}`);
@@ -130,7 +126,6 @@ function elementEnd(html: string, pos: number): number {
 
 type Child = { kind: "el" | "text"; start: number; end: number; tag: string; attrs: string };
 
-/** The top-level children of the range `[start, end)`. */
 function children(html: string, start: number, end: number): Child[] {
   const out: Child[] = [];
   let i = start;
@@ -153,8 +148,6 @@ const attr = (openTag: string, name: string): string | null => {
   return m ? m[1] : null;
 };
 
-// ---------------------------------------------------------------- segmentation
-
 type Seg = { region: string; key: string; start: number; end: number };
 
 function segmentPage(html: string): Seg[] {
@@ -163,23 +156,18 @@ function segmentPage(html: string): Seg[] {
     if (b > a) segs.push({ region, key, start: a, end: b });
   };
 
-  // <html lang="en">
   const htmlOpen = nextTag(html, 0)!;
-  // <head> ... </head>
   const headEnd = elementEnd(html, htmlOpen.end);
   push("frame", "frame:html-open", 0, htmlOpen.end);
   push("head", "head", htmlOpen.end, headEnd);
 
-  // <body> <input id="nav_toggle" …></input>
   const bodyOpen = nextTag(html, headEnd)!;
   const inputEnd = elementEnd(html, bodyOpen.end);
   push("frame", "frame:body-open", headEnd, inputEnd);
 
-  // <header> … </header>
   const headerEnd = elementEnd(html, inputEnd);
   push("header", "header", inputEnd, headerEnd);
 
-  // <nav class="internal_nav"> … </nav>
   const navOpen = nextTag(html, headerEnd)!;
   const navEnd = elementEnd(html, headerEnd);
   const navCloseStart = html.lastIndexOf("</nav>", navEnd);
@@ -201,7 +189,6 @@ function segmentPage(html: string): Seg[] {
     }
   }
 
-  // <main> … </main>
   const mainOpen = nextTag(html, navEnd)!;
   const mainEnd = elementEnd(html, navEnd);
   const mainCloseStart = html.lastIndexOf("</main>", mainEnd);
@@ -295,8 +282,6 @@ function segmentDecl(
   flushDoc();
 }
 
-// ---------------------------------------------------------------- corpus
-
 async function* walk(dir: string): AsyncGenerator<string> {
   for await (const e of Deno.readDir(dir)) {
     const p = `${dir}/${e.name}`;
@@ -312,8 +297,6 @@ theirPaths.sort();
 let minePages = 0;
 for await (const _ of walk(PAGES)) minePages++;
 
-// ---------------------------------------------------------------- accounting
-
 type Row = {
   theirBytes: number;
   theirCount: number;
@@ -324,7 +307,6 @@ type Row = {
   missingCount: number; // key present in doc-gen4's page, absent from ours
   extraCount: number; // key present in ours only
   extraBytes: number;
-  // How the mismatching regions differ.
   diffWsOnly: number; // same length, every difference is whitespace-vs-whitespace
   diffLength: number; // different length
   diffOther: number; // same length, a non-whitespace difference
@@ -352,7 +334,6 @@ const row = (r: string): Row => {
   return x;
 };
 
-/** Same classification `bytes.ts` uses, so the two tools can be read together. */
 function classify(mine: string, theirs: string): "ws" | "len" | "other" {
   if (mine.length !== theirs.length) return "len";
   for (let i = 0; i < mine.length; i++) {
@@ -382,7 +363,7 @@ let fieldsWithBinders = 0;
 let fieldsWithDoc = 0;
 let fieldsTotal = 0;
 
-/** Regions that carry CommonMark output; see "docstring" in the report. */
+/** Regions that carry CommonMark output. */
 const PROSE = new Set(["docstring", "mod_doc"]);
 
 /**
@@ -392,7 +373,7 @@ const PROSE = new Set(["docstring", "mod_doc"]);
  *      -> configuration; the IR never had it (and doc-gen4's own tree carries
  *      two different revisions, see §D)
  *   2. same length, whitespace-vs-whitespace only -> the `splitWhitespaces`
- *      gap that stage4b's schema 2 cannot close
+ *      gap schema 2 cannot close
  *   3. a docstring / module docstring that becomes identical once every `<a>`
  *      is stripped from both sides -> the autolink index; doc-gen4 resolves the
  *      name against the whole environment and the IR only carries what the
@@ -421,7 +402,6 @@ const addCause = (c: string, bytes: number) => {
 /** Characters that actually differ, for the mismatches where the length is unchanged. */
 let diffCharsWs = 0;
 
-// ---- fine-grained accounting added for the stage-7b breakdown -------------
 const fine = new Map<string, { bytes: number; count: number }>();
 const fineAdd = (cause: string, region: string, bytes: number) => {
   const k = `${cause} ${region}`;
@@ -547,7 +527,7 @@ for (const path of theirPaths) {
     // Prose is checked before the whitespace rule: a whitespace difference in a
     // docstring is this renderer's CommonMark approximation, not the IR's
     // `splitWhitespaces` gap, and folding the two together would inflate the
-    // gap the schema-3 change is supposed to close.
+    // gap a schema change is supposed to close.
     const noAnchors = (x: string) => x.replace(/<a [^>]*>|<\/a>/g, "");
     const cause = revOnly
       ? CAUSES[0]
@@ -574,9 +554,7 @@ for (const path of theirPaths) {
         if (aTheir > aMine) autolinkTheirMore++;
         else if (aMine > aTheir) autolinkMineMore++;
         else autolinkSameCount++;
-        // bytes of the anchor tags themselves, both sides
         for (const t of text.match(/<a [^>]*>|<\/a>/g) ?? []) autolinkTagBytesTheir += u8(t);
-        // which link targets do we fail to emit?
         const mineHrefs = new Set((m.match(/<a href="[^"]*"/g) ?? []));
         for (const a of text.match(/<a href="[^"]*"/g) ?? []) {
           if (mineHrefs.has(a)) continue;
@@ -637,8 +615,6 @@ for (const path of theirPaths) {
   pc.bytes += pageMissBytes;
   pageCauseSets.set(key, pc);
 }
-
-// ---------------------------------------------------------------- report
 
 const n = (x: number) => x.toLocaleString("en-US");
 const pct = (a: number, b: number) => (b === 0 ? "—" : `${((100 * a) / b).toFixed(1)}%`);
@@ -807,7 +783,6 @@ if (segmentErrors.length > 0) {
   say();
 }
 
-// ---------------------------------------------------------------- fine-grained
 say("## X1. 原因 × 領域 (母数 = " + n(inv.total) + " B)");
 say();
 say("| 原因 | 領域 | バイト | 母数比 | 領域数 |");

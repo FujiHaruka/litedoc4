@@ -14,8 +14,8 @@
 #          isolates "how much of a write survives" from "the copy source evicted it".
 #   ltar   the real CI path: leantar -x of the current-rev Mathlib cache cluster into a
 #          scratch root, then residency of what it wrote.
-#   import the same question in seconds: run the stage-1 extractor against a Mathlib that
-#          was written moments ago (fresh) / evicted (cold) / already read (warm).
+#   import the same question in seconds: run the extractor against a Mathlib that was
+#          written moments ago (fresh) / evicted (cold) / already read (warm).
 #
 # Every step records vm_stat before and after, because on a 16 GiB host under memory
 # pressure the answer is a function of headroom, not a constant.
@@ -36,8 +36,6 @@ MIN_FREE_GIB="${MIN_FREE_GIB:-9}"
 
 [ -x "$RESIDENCY" ] || { echo "not built: cc -O2 -o $RESIDENCY $RESIDENCY.c" >&2; exit 1; }
 [ -x "$EVICT" ] || { echo "not built: cc -O2 -o $EVICT $EVICT.c" >&2; exit 1; }
-
-# --- helpers ----------------------------------------------------------------------------
 
 free_gib() { df -g /private/tmp | awk 'NR==2 {print $4}'; }
 
@@ -93,8 +91,6 @@ print(json.dumps({"files": f, "bytes": b, "resident_file_bytes": rf, "resident_b
 ' "$1"
 }
 
-# Emits one event record joining the payload description, the timing, the before/after
-# vm_stat and the residency totals.
 emit() {
   python3 -c '
 import sys, json
@@ -138,8 +134,6 @@ with open(out, "w") as o:
 print(tot)
 ' "$src" "$want_bytes" "$out"
 }
-
-# --- modes ------------------------------------------------------------------------------
 
 mode="${1:?usage: see header}"
 
@@ -243,8 +237,8 @@ ltar)
   ;;
 
 import)
-  # The question A and B answer in percent, answered in seconds: how long does
-  # importModules take when Mathlib's olean was written moments ago?
+  # The `sizes` / `zeros` / `ltar` question in seconds rather than percent: how long
+  # does importModules take when Mathlib's olean was written moments ago?
   #
   # Mathlib is served out of the leantar scratch root by swapping that one entry of
   # LEAN_PATH; every other olean in the closure (Lean core, the project, the 14 other
@@ -256,11 +250,11 @@ import)
   DEST="$WORK/ltar-root"
   SCRATCH_LIB="$DEST/.lake/build/lib/lean"
   TARGET_REPO="${TARGET_REPO:-/Users/haruka/dev/lean-projects}"
-  # EXTRACT_BIN has no default: it used to be experiments/stage1/build/extract, which
-  # produced every committed ci-warmstart-* number. `experiments/` was removed on
-  # 2026-08-16 (tag `experiments-frozen`) and HEAD has no equivalent — extractor/ is the
-  # schema-4 extractor, which does strictly more work after the import. A run with any
-  # other binary is a NEW baseline, not a continuation of the recorded one.
+  # EXTRACT_BIN has no default. Every committed ci-warmstart-* number came from
+  # experiments/stage1/build/extract, which only exists at tag `experiments-frozen`;
+  # HEAD has no equivalent — extractor/ is the schema-4 extractor, which does strictly
+  # more work after the import. A run with any other binary is a NEW baseline, not a
+  # continuation of the recorded one.
   BIN="${EXTRACT_BIN:-}"
   [ -n "$BIN" ] || { echo "EXTRACT_BIN is unset: name the extractor to time." >&2
     echo "The recorded ci-warmstart-* numbers used experiments/stage1/build/extract," >&2
