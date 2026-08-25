@@ -69,7 +69,7 @@ pub enum Error {
     /// A check rather than a comment because it is reachable from a module
     /// name: [`crate::prune::page_of`] goes through `litedoc4_ir::module_path`,
     /// and a name Lean spells `«..».Foo` keeps its `..` as one
-    /// component【実測 2026-08-23】.
+    /// component (measured 2026-08-23).
     OutsidePageRoot {
         root: PathBuf,
         path: PathBuf,

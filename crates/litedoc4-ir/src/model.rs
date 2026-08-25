@@ -86,7 +86,7 @@ pub struct ModuleFile {
     pub module: String,
     pub imports: Vec<String>,
     pub module_docs: Vec<ModuleDoc>,
-    /// **Empty for every module of the target package** 【実測 2026-08-21】, so
+    /// **Empty for every module of the target package** (measured 2026-08-21), so
     /// the shape below follows the writer (`Extract.lean:2007-2011`), not
     /// observed data.
     pub tactics: Vec<Tactic>,
@@ -208,7 +208,7 @@ pub struct Decl {
     pub selection_range: Option<SelectionRange>,
     /// Position in the order the extractor enumerated the module. Two pairs of
     /// declarations in this package share a `(line, col)` — four declarations
-    /// 【実測 2026-08-21 → `benchmarks/results/generated-decls-2026-08-21.txt`】
+    /// (measured 2026-08-21 → `benchmarks/results/generated-decls-2026-08-21.txt`)
     /// — so the range alone does not order the page.
     pub index: u32,
     pub members: Vec<Member>,
@@ -251,8 +251,8 @@ pub struct Decl {
     /// imported Mathlib would stop building against a Mathlib-free package.
     /// The measured cost of that boundary is that **7 of 94 `ext`-shaped
     /// declarations in the Mathlib sample are realized through `to_additive` /
-    /// `to_dual` and get no key** 【実測 2026-08-21 →
-    /// `benchmarks/results/generated-decls-2026-08-21.txt`】; none of them gets
+    /// `to_dual` and get no key** (measured 2026-08-21 →
+    /// `benchmarks/results/generated-decls-2026-08-21.txt`); none of them gets
     /// a *wrong* one.
     #[serde(default)]
     pub generated: Option<Generated>,
@@ -284,7 +284,7 @@ impl<'de> Deserialize<'de> for SelectionRange {
 }
 
 /// **This is not "generated" and must not be read as it**
-/// 【実測 2026-08-21 → `benchmarks/results/generated-decls-2026-08-21.txt`】:
+/// (measured 2026-08-21 → `benchmarks/results/generated-decls-2026-08-21.txt`):
 /// over 2,786 Mathlib declarations, [`DeclNaming::Unnamed`] also covers field
 /// projections and macro-defined declarations (209 of 779), and does **not**
 /// cover the `to_additive` twins whose additive name the author wrote out (376
@@ -446,7 +446,7 @@ pub struct Member {
     /// plain `#[serde(default)] bool` would make it `false` = inherited: the
     /// opposite reading, and one no byte comparison on this package can catch,
     /// because all 156 field members of the target package's IR carry the key
-    /// 【実測】. [`Member::is_inherited`] is the only thing that reads it.
+    /// (measured). [`Member::is_inherited`] is the only thing that reads it.
     #[serde(default)]
     pub is_direct: Option<bool>,
 }

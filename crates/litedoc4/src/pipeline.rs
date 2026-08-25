@@ -484,7 +484,7 @@ pub(crate) fn run_incremental(
     // round rewrites `index.html`, `search.html` and `foundational_types.html`
     // with the *derived* title while the full generation used the configured
     // one — `tools/e2e-micro.sh`'s GATE 2 sees that as "the second run changed
-    // the site" 【実測 2026-08-22】.
+    // the site" (measured 2026-08-22).
     derive.config = options.config;
     derive.state = Some(options.state);
     derive.timings = Some(&work.global_timings);
@@ -686,7 +686,7 @@ pub(crate) struct Timings {
 /// which calls every `.html` that is not a live module page an orphan — pointed
 /// at a site that includes the whole-package artifacts, that is `index.html`,
 /// `404.html`, `search.html` and `foundational_types.html`, and the site goes
-/// **439 → 435** 【実測】. There is no parameter here to pass `--ir` through, so
+/// **439 → 435** (measured). There is no parameter here to pass `--ir` through, so
 /// the pipeline cannot ask for orphan sweeping by accident.
 fn prune_removed(
     pages: &Path,
@@ -792,7 +792,7 @@ pub fn incremental(args: &[String]) -> Result<(), Failure> {
                      server it does not own is one whose olean generation it cannot vouch for. \
                      Correctness comes from that generation and never from the round number — a \
                      server imported before the edit returns the pre-edit owner of every name that \
-                     moved, and then no round is safe, including round 2 【実測, stage 6a】. See \
+                     moved, and then no round is safe, including round 2 (measured, stage 6a). See \
                      `crates/litedoc4/src/resident.rs`",
                 );
             }
@@ -1063,7 +1063,7 @@ pub(crate) fn serve_options(request: ServeRequest<'_>) -> Result<Serve, Failure>
         code: crate::EXIT_REFUSED,
         message: format!("--target {}: {source}", target.display()),
     })?;
-    // **Absolute, all of them** 【実測 2026-08-15】. The server's working
+    // **Absolute, all of them** (measured 2026-08-15). The server's working
     // directory is the target, so a relative path on its command line resolves
     // against the package being documented — the binary would be looked for
     // there, and the start-up events file *written* there. `--lake` is the
@@ -1107,7 +1107,7 @@ pub(crate) fn serve_options(request: ServeRequest<'_>) -> Result<Serve, Failure>
 /// this can be a default rather than a decision: `detect` reads and hashes every
 /// module's oleans — **228,448,584 B over 422 modules** on the measurement
 /// target. Measured with `litedoc4 ledger check --concurrency N --timings`,
-/// read-only, on that target 【実測 2026-08-17】:
+/// read-only, on that target (measured 2026-08-17):
 ///
 /// ```text
 /// concurrency  1   hashSeconds 0.500
@@ -1146,7 +1146,7 @@ pub(crate) fn hash_concurrency() -> usize {
 /// IR**, which the map is not, and including them cost real behaviour — they are
 /// read out of `<ir>/index.json`, which a first-ever build has not written yet,
 /// so **the first incremental build after a first-ever build rewrote the map for
-/// nothing** 【実測 2026-08-17】.
+/// nothing** (measured 2026-08-17).
 ///
 /// **The omit list goes in by its bytes, not its path**, because it changes when
 /// the package gains or loses a module and a path is not an identity. The format
@@ -1209,7 +1209,7 @@ pub(crate) fn is_forty_hex(rev: &str) -> bool {
 pub(crate) fn check_source_url(url: &str) -> Result<(), Failure> {
     let broken = "the acceptance oracle normalises `/blob/[0-9a-f]{40}/` and nothing else, so \
                   with a tag or a branch name here every page keeps its revision in the compared \
-                  bytes and the score drops 3.1103 points with no diagnostic 【実測】";
+                  bytes and the score drops 3.1103 points with no diagnostic (measured)";
     let Some((_, rest)) = url.split_once("/blob/") else {
         return usage(format!(
             "--source-url has no `/blob/` segment: {url}\n  {broken}",
@@ -1327,7 +1327,7 @@ fn write_timings(
 /// `litedoc4 modules` — the package's module list, from a glob over the sources.
 ///
 /// **The sources, never `.lake/build`.** A walk of the build tree picks up
-/// **659 orphan oleans** on the measurement target 【実測】 — modules deleted
+/// **659 orphan oleans** on the measurement target (measured) — modules deleted
 /// from the sources whose compiled output Lake never removed — and every one of
 /// them becomes a module the ledger watches and the extractor is asked for.
 ///
@@ -1338,8 +1338,8 @@ fn write_timings(
 /// The names are sorted in **UTF-16 code unit order** rather than by a locale
 /// collation, which is not the same order: `en_US.UTF-8` ignores the `.`
 /// separator and puts `…Shannon.ArithmeticCoding` before `…Shannon.AWGN.Main`
-/// where code units do the opposite 【実測 2026-08-12: same 432 names, 22 lines
-/// moved】. This list's order **is** the ledger's `modules` array order, so a
+/// where code units do the opposite (measured 2026-08-12: same 432 names, 22 lines
+/// moved). This list's order **is** the ledger's `modules` array order, so a
 /// ledger built on two machines with different locales would be two different
 /// files. **No generated byte depends on it** — `check` sorts its re-extract set
 /// and `impact` sorts its selection — so the order reaches the ledger's array
@@ -1422,7 +1422,7 @@ pub(crate) fn module_names(root: &Path, libs: &[String]) -> Result<Vec<String>, 
         }
     }
     // **The path's components become a Lean *name*, and that is an escaping**
-    // 【実測】. `Alpha/Odd-Name.lean` is the module Lean spells
+    // (measured). `Alpha/Odd-Name.lean` is the module Lean spells
     // `Alpha.«Odd-Name»`; written as `Alpha.Odd-Name` it does not parse — the
     // extractor's `String.toName` yields `Name.anonymous` and the run dies with
     // `import failed, trying to import module with anonymous name` before it has

@@ -18,7 +18,7 @@
 //! Over the whole corpus (4,987 inputs: every one of the 4,858 real docstrings
 //! plus the 129 hand-written cases doc-gen4 survives), the prototype differs
 //! from doc-gen4 on **41**, of which **exactly one is a real docstring**
-//! 【実測 2026-08-11】. The other 40 are the corners the subset's own comment
+//! (measured 2026-08-11). The other 40 are the corners the subset's own comment
 //! says it does not implement: tables, task lists, images, hard breaks,
 //! entities, permissive autolinks, reference links, strikethrough, backslash
 //! escapes, CRLF and NUL.

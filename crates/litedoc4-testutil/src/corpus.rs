@@ -361,7 +361,7 @@ mod tests {
     /// written.** The argument is a `&str`, so nothing else looks at it: a
     /// renamed flag leaves an instruction that still reads correctly, is still
     /// printed to the one reader who has the target but not the file, and
-    /// cannot be run. A stale one survived a week that way 【実測 2026-08-23】.
+    /// cannot be run. A stale one survived a week that way (measured 2026-08-23).
     ///
     /// The check is on the flags and not on the whole line: the paths in these
     /// messages are `<dir>`-shaped placeholders on purpose, so "runnable" here

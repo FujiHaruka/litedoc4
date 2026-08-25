@@ -6,12 +6,12 @@ description: >
 # WHY THE TOOLCHAIN FILE IS NOT AN INPUT
 #   All twelve call sites pin the same file. An earlier design expected two
 #   (`e2e/micro/lean-toolchain` and `target/lean-toolchain`); the
-#   tree has one 【実測 2026-08-23】. An input with one caller is a parameter
+#   tree has one (measured 2026-08-23). An input with one caller is a parameter
 #   nobody has chosen yet — add it when a second toolchain arrives, and let the
 #   cache key change with it then.
 #
 # WHY THE TARBALL NAMES A LINUX ARCHITECTURE
-#   Every one of the twelve jobs is `runs-on: ubuntu-latest` 【実測】, including
+#   Every one of the twelve jobs is `runs-on: ubuntu-latest` (measured), including
 #   the one in ci-browser-windows.yml, whose Windows half is a different job and
 #   installs no Lean. A `runner.os` switch here would be a branch nothing takes.
 runs:

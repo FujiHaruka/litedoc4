@@ -73,7 +73,7 @@ describe("search", () => {
   /**
    * `𝒜` is one code point, two UTF-16 units and four UTF-8 bytes, and the score
    * is `3000 - utf16Length(last component)`: counting bytes or code points
-   * instead moves the name 【実測 2026-08-19, browser gate】.
+   * instead moves the name (measured 2026-08-19, browser gate).
    */
   it("scores an astral character as two units, not one and not four", () => {
     const q = ENCODER.encode("scr");

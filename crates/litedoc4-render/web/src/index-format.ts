@@ -2,7 +2,7 @@
  * `search-index.bin`, read in place: the page holds the file, not a parsed copy
  * of it. The layout is `crates/litedoc4-global/src/search_index.rs`, and the
  * JSON this replaces cost 860 KiB of JS heap for a 405,402 B file
- * 【実測 → `benchmarks/results/search-design-2026-08-19.txt`】.
+ * (measured → `benchmarks/results/search-design-2026-08-19.txt`).
  *
  * `tsconfig.json`'s `noUncheckedIndexedAccess` is wrong here: every byte read
  * below is at an offset the format guarantees, and a truncated file fails the
@@ -74,7 +74,7 @@ export function readIndex(bytes: Uint8Array): SearchIndex | null {
  * UTF-16 length, which is what the scoring counts (`String.prototype.length`)
  * and **not** the code point count: a character above the BMP is two units, so
  * a 4-byte UTF-8 sequence counts twice. The score is `2000 - length`, so one
- * unit is one place in the list 【実測 2026-08-19, browser gate】.
+ * unit is one place in the list (measured 2026-08-19, browser gate).
  */
 export function utf16Length(bytes: Uint8Array, from: number, to: number): number {
   let n = 0;

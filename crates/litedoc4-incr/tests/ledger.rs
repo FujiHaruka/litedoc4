@@ -854,7 +854,7 @@ fn the_dependency_link_maps_digest_is_a_render_key_of_its_own() {
 /// `Ordered::insert` states the rule for the merged `index.json` too, and that
 /// was the only half anything measured: breaking it two ways — taking the first
 /// value, and moving the key to the last position — turns 8 and 4 tests red
-/// respectively【実測 2026-08-23】 and **none of them is in this file**.
+/// respectively (measured 2026-08-23) and **none of them is in this file**.
 #[test]
 fn a_repeated_key_keeps_its_first_position_and_its_last_value() {
     let keys: KeySet = serde_json::from_str(r#"{"a":"1","b":"2","a":"3"}"#).expect("parses");

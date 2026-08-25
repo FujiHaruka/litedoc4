@@ -18,8 +18,8 @@
 #
 # Item 4 compares **IR, not binaries**: Lake prefixes package-local symbols and
 # compiles the generated C with `-O3 -DNDEBUG`, so the two builds differ by
-# +308,032 B 【実測 2026-08-18,
-# benchmarks/results/lake-package-probe-2026-08-18.txt §2】. The fixture is
+# +308,032 B (measured 2026-08-18,
+# benchmarks/results/lake-package-probe-2026-08-18.txt §2). The fixture is
 # `e2e/micro` because it carries declaration shapes the measurement target does
 # not have, and a comparison is only as good as the shapes that reach it.
 #

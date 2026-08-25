@@ -29,8 +29,8 @@ The Rust half (`litedoc4`) is *not* built by Lake: see `resolveLitedoc4`.
 
 ## There is deliberately no `lean-toolchain` next to this file
 
-**Not an oversight. Do not add one** 【実測 2026-08-18,
-`benchmarks/results/lake-package-probe-2026-08-18.txt` §1】.
+**Not an oversight. Do not add one** (measured 2026-08-18,
+`benchmarks/results/lake-package-probe-2026-08-18.txt` §1).
 
 `lake update` in the *consumer* compares every dependency's `lean-toolchain`
 against the root's and **rewrites the root's** when a dependency names a higher
@@ -60,7 +60,7 @@ module initializers through the Lean interpreter, which resolves symbols in the
 running executable.
 
 The two builds do **not** produce the same bytes (Lake adds a package symbol
-prefix and compiles the generated C with `-O3 -DNDEBUG`; +308,032 B 【実測】) but
+prefix and compiles the generated C with `-O3 -DNDEBUG`; +308,032 B (measured)) but
 they write **byte-identical IR**, which is what `tools/lake-package-gate.sh`
 re-checks on every run.
 -/
@@ -143,7 +143,7 @@ None of them is a warning.
 -/
 
 /--
-The target triples a release actually carries 【実測 2026-08-18】.
+The target triples a release actually carries (measured 2026-08-18).
 
 Only these two, and not by accident: `.github/workflows/release.yml` builds no
 `x86_64-apple-darwin` (there is no Intel runner to *test* one on) and no
@@ -162,7 +162,7 @@ This machine's target triple, spelled the way `release.yml` spells it.
 
 Taken from `System.Platform`, not from `uname -m`. `System.Platform.target` is
 the LLVM triple Lean was compiled for and reads `arm64-apple-darwin24.6.0` here
-【実測 2026-08-18】, so the architecture is its first field. `uname -m` was
+(measured 2026-08-18), so the architecture is its first field. `uname -m` was
 measured beside it (`arm64` — the same answer) and is deliberately *not* used: it
 costs a subprocess, and a subprocess is one more way for this to fail on a
 machine where nothing else is wrong.
@@ -273,7 +273,7 @@ def sha256OfFile (path : FilePath) : IO (Option String) := do
 
 def curlTo (curl : FilePath) (url : String) (dest : FilePath) : IO (Except String Unit) := do
   -- `-L` is not optional: a release asset URL answers a redirect to
-  -- `release-assets.githubusercontent.com` 【実測 2026-08-18】, and without it curl
+  -- `release-assets.githubusercontent.com` (measured 2026-08-18), and without it curl
   -- writes the redirect body and exits 0 — a "successful" download of a few hundred
   -- bytes of HTML. `-f` turns a 404 into a non-zero exit for the same reason.
   let out ← IO.Process.output {
@@ -475,7 +475,7 @@ executable Lake just built) — and passes the rest through.
 -/
 script docs (args) do
   -- `lake run docs -- --out X` hands the `--` to the script as an argument; Lake
-  -- does not strip it 【実測 2026-08-18】. Both spellings have to work.
+  -- does not strip it (measured 2026-08-18). Both spellings have to work.
   let args := match args with
     | "--" :: rest => rest
     | other => other
@@ -511,7 +511,7 @@ script docs (args) do
 
   -- The package being documented has to be built first: the `runBuild` below
   -- builds the *extractor* and nothing else, and an extractor run against an
-  -- unbuilt package dies with "No directory 'Micro' … in the search path" 【実測】.
+  -- unbuilt package dies with "No directory 'Micro' … in the search path" (measured).
   for lib in root.leanLibs do
     let _ ← runBuild lib.fetch
 
@@ -552,7 +552,7 @@ script docs (args) do
 
   IO.println s!"litedoc4: {litedoc4} {String.intercalate " " cmdArgs.toList}"
   -- No augmented environment: `lake run` does not put `LEAN_PATH` in the script's
-  -- environment 【実測】 and `litedoc4 build` does not want one — it runs `lake env`
+  -- environment (measured) and `litedoc4 build` does not want one — it runs `lake env`
   -- inside `--root` itself for every extraction. That is what `--lake` is for.
   let child ← IO.Process.spawn {cmd := litedoc4.toString, args := cmdArgs}
   child.wait

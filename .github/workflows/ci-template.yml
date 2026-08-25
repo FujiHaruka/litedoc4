@@ -45,7 +45,7 @@ permissions:
 jobs:
   docs:
     runs-on: ubuntu-latest
-    # 2 min over five runs 【実測】.
+    # 2 min over five runs (measured).
     timeout-minutes: 30
     steps:
       # The template's second checkout, and no token is needed: this repository
@@ -140,7 +140,7 @@ jobs:
       # "does the template still run". The package above is generated
       # deterministically, so every run after the first is a no-change run —
       # `extract 0 / render 0 / requests 0`, `incremental in 0.0164 s`
-      # 【実測 2026-08-17, run 31962696064】. That is the cheap half of the
+      # (measured 2026-08-17, run 31962696064). That is the cheap half of the
       # incremental claim; a one-module edit is the other half, and without this
       # step that number comes only from one laptop.
       #
@@ -158,7 +158,7 @@ jobs:
       # rewrites it into the current shape, its digest moves, and every page
       # re-renders. That is a real cost and not a bug: it is what upgrading
       # across a map-format change costs, once, on a state built before it
-      # 【実測 2026-08-17, run 31963079828】. It is not what this gate asks, so
+      # (measured 2026-08-17, run 31963079828). It is not what this gate asks, so
       # the first round takes the state to its steady shape and the second is the
       # one measured; both logs are kept so the transition stays visible.
       - name: edit one module and build again

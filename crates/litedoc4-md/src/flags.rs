@@ -34,7 +34,7 @@ pub const MD_DIALECT_COMMONMARK: u32 = 0;
 pub const MD_DIALECT_GITHUB: u32 =
     MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS;
 
-/// The flags doc-gen4 parses docstrings with 【実測】: `DocGen4/Output/DocString.lean`
+/// The flags doc-gen4 parses docstrings with (measured): `DocGen4/Output/DocString.lean`
 /// builds `MD_DIALECT_GITHUB ||| MD_FLAG_LATEXMATHSPANS ||| MD_FLAG_NOHTML`.
 ///
 /// This is why the parser is vendored rather than reimplemented: the oracle

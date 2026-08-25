@@ -32,7 +32,7 @@ pub struct BuildOptions<'a> {
     /// The modules to hash, in the order they will appear in the ledger.
     /// **From a glob over the sources, never from a walk of `.lake/build`** —
     /// the build tree carries 659 orphan oleans on the measurement target
-    /// 【実測】.
+    /// (measured).
     pub modules: &'a [String],
     /// The target repository. A trailing slash is stripped, because the string
     /// is a prefix of every recorded path.

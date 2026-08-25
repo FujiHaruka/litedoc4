@@ -11,8 +11,8 @@
 //! the path is read as relative to the repository root and the extension is
 //! swapped. The measurement target writes those paths relative to the *module*
 //! they sit in, so the page named does not exist; 160 of the site's 32,868
-//! internal links were dangling 【実測 2026-08-16,
-//! `benchmarks/results/m8-ui2-dead-links.txt`】. This crate asks
+//! internal links were dangling (measured 2026-08-16,
+//! `benchmarks/results/m8-ui2-dead-links.txt`). This crate asks
 //! `NameIndex::module_for_source_path` instead, which is the only branch of
 //! `nameToLink?` where its answer is deliberately not its oracle's.
 //!

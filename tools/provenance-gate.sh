@@ -62,7 +62,7 @@ echo "  files: ok ($checked claims)"
 # NOTICE against the dependency closure — **the half that must not be curated**.
 # Which crates are in the closure changes without anyone editing this repository,
 # so a reviewed list goes stale silently: `strum` / `phf` / `zmij` shipped in the
-# binary with no notice for that reason 【実測, docs/provenance.md §7-8】.
+# binary with no notice for that reason (measured, docs/provenance.md §7-8).
 #
 # No exception list. A crate needs its own notice iff its licence expression is
 # **not satisfiable by Apache-2.0 alone** — either it does not offer Apache-2.0,
@@ -79,7 +79,7 @@ echo "  files: ok ($checked claims)"
 
 command -v cargo >/dev/null 2>&1 || {
   echo "PROVENANCE GATE: cargo is not on PATH, and the NOTICE half needs it" >&2
-  echo "  (this gate does not skip: see CLAUDE.md, skip で緑を返さない)" >&2
+  echo "  (this gate does not skip: see CLAUDE.md, never return green by skipping)" >&2
   exit 2
 }
 

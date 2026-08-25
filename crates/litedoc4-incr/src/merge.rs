@@ -40,8 +40,8 @@
 //! `index.json`'s **`modules` array** follows [`MergeOptions::modules`] when it
 //! is given, because a from-scratch extraction's order is the order the
 //! extractor was handed its module list in — the extractor does not sort
-//! 【実測 2026-08-12: the target's `index.json` matches `find … | sort`'s locale
-//! collation exactly and disagrees with `LC_ALL=C sort` at 163 of 432 entries】.
+//! (measured 2026-08-12: the target's `index.json` matches `find … | sort`'s locale
+//! collation exactly and disagrees with `LC_ALL=C sort` at 163 of 432 entries).
 //! Without the list the order is the base index's with new modules appended, so
 //! a merge that *added* a module leaves the same entries in a sequence no
 //! extraction produces.
@@ -172,7 +172,7 @@ impl<'de> Deserialize<'de> for JsonObject {
 /// paths naming one directory. Reading that as "out is a separate tree" is not
 /// a wasted write but a destructive one: [`fs::copy`] opens the destination
 /// with `O_TRUNC` before it reads the source, so copying a file onto itself
-/// returns `Ok(0)` and leaves it empty【実測 2026-08-23】. The files emptied
+/// returns `Ok(0)` and leaves it empty (measured 2026-08-23). The files emptied
 /// would be the modules the partial extraction did not touch — and when `--out`
 /// names the base, that tree is the only copy there was.
 ///

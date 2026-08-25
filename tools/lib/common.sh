@@ -13,13 +13,13 @@
 #                       the first difference into a crash.
 #
 # `pipefail` is not a preference: with it `( exit 3 ) | tail -1` is 3 rather than
-# 0 【実測 2026-08-23】. The pipe trap CLAUDE.md records is a trap of the
+# 0 (measured 2026-08-23). The pipe trap CLAUDE.md records is a trap of the
 # *interactive* shell, which is zsh and has neither `pipefail` nor `PIPESTATUS`.
 
 # Run `$1` when the shell exits, without letting it change the exit status.
 #
 # **Not `trap cleanup EXIT`**: under `set -e` a plain EXIT trap replaces the
-# script's answer with 1 【実測 2026-08-23, bash 3.2.57 and 5.3.9 alike】:
+# script's answer with 1 (measured 2026-08-23, bash 3.2.57 and 5.3.9 alike):
 #
 #                       falls off the end   exit 0   exit 7
 #   set -uo pipefail            0              0        7
@@ -27,11 +27,11 @@
 #
 # A failing command *inside* the trap trips `set -e`, which aborts the trap, so
 # ending the cleanup in `return "$rc"` does not help either. tools/e2e-micro.sh
-# printed "E2E MICRO: ok" and exited 1 this way 【実測 2026-08-18】. Here `$1`
+# printed "E2E MICRO: ok" and exited 1 this way (measured 2026-08-18). Here `$1`
 # runs in a subshell with `-e` off; a cleanup that fails is still said on stderr,
 # it just does not get to answer the question the script was asked.
 #
-# `$1` is expanded when the trap runs, not when it is installed 【実測】, so
+# `$1` is expanded when the trap runs, not when it is installed (measured), so
 # `on_exit 'rm -rf "$WORK"'` sees the `$WORK` of the moment it fires. Calling
 # `on_exit` twice replaces the action, as a second `trap` would.
 on_exit () {
@@ -53,7 +53,7 @@ __on_exit_run () {
 # It answers `?` rather than a number when neither `sysctl` nor /proc does:
 # `sysctl -n hw.memsize` off macOS prints nothing, `$(( / 1024 / 1024 / 1024 ))`
 # is a syntax error on stderr and the field comes out empty while the script
-# exits 0 【実測 2026-08-23】 — and a fallback of `0 GB` is worse still, because
+# exits 0 (measured 2026-08-23) — and a fallback of `0 GB` is worse still, because
 # an empty field is visibly missing and `0` reads as a measurement.
 record_host () {
   printf 'date              %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

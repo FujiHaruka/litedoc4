@@ -16,8 +16,8 @@
 //! under `NoLinks` the two are byte-identical, which is why thousands of
 //! comparisons against the prototype had not seen it. This crate follows
 //! doc-gen4, and this file is where that expectation comes from. **No docstring
-//! of the target package reaches the difference** 【実測: 0 of 4,858,
-//! `tests/autolink.rs`】.
+//! of the target package reaches the difference** (measured: 0 of 4,858,
+//! `tests/autolink.rs`).
 //!
 //! The two specifications differ in three more places and the corpus avoids all
 //! three rather than papering over them — see the generator. The one enforced
@@ -153,8 +153,8 @@ fn matches_doc_gen4_on_every_case() {
     // up, and doc-gen4 looks nothing up to link a source path — so none of the
     // modules the paths name is in them, and every one of these anchors is a
     // link this crate declines to build. What the rule does with a real world
-    // is `tests/autolink.rs`'s and `tests/pages.rs`'s number 【実測
-    // 2026-08-16】.
+    // is `tests/autolink.rs`'s and `tests/pages.rs`'s number (measured
+    // 2026-08-16).
     assert_eq!(
         tally,
         Tally {

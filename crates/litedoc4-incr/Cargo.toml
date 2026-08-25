@@ -23,7 +23,7 @@ serde_json = { workspace = true }
 # `asm` is what puts the ARMv8 SHA-256 instructions under it (`src/sha256/
 # aarch64.rs`, chosen at run time by `cpufeatures`); without it sha2 falls back
 # to the portable implementation and the same 237,909,832 B take **0.8631 s
-# instead of 0.3022 s**【実測 2026-08-12、同一セッション warm】. The bytes are
+# instead of 0.3022 s** (measured 2026-08-12, same session, warm). The bytes are
 # identical either way — this is which instructions compute them, not which
 # hash. The prototype's `crypto.subtle.digest` reaches the same instructions
 # through BoringSSL, so leaving it off would have made the two implementations

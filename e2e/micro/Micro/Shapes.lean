@@ -72,7 +72,7 @@ this run is handed knows where the inherited field lives. Here it does not:
 which is what doc-gen4 uses — has nothing for it.
 
 **The measurement target never produced this shape and `batteries` did on the
-first page it was pointed at**【実測 2026-08-17】: `class LawfulLTCmp … extends
+first page it was pointed at** (measured 2026-08-17): `class LawfulLTCmp … extends
 Std.OrientedCmp` made `litedoc4 build` stop with `no defining module for
 Std.OrientedCmp.eq_swap`, having rendered nothing. The name is in the `.lidx`
 all along — the whole environment is — so the fix was to let the lookup fall

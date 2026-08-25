@@ -26,7 +26,7 @@
 //! the dead pages: four of the seven whole-package artifacts are `.html` files
 //! no module owns — `index.html`, `404.html`, `search.html`,
 //! `foundational_types.html` — so the rule calls them orphans and takes the
-//! site's front door with them【実測 2026-08-12】. The caller passes only
+//! site's front door with them (measured 2026-08-12). The caller passes only
 //! `--remove` for that reason; turning the orphan rule on over a whole site is a
 //! plausible-looking change that is not one.
 
@@ -89,7 +89,7 @@ pub const ORPHANS_IN_LOG: usize = 10;
 ///
 /// **A name can carry a `..` through this**, which is why [`PageRoot`] checks
 /// rather than trusts: `«…»` is Lean's own escape and its contents are not split
-/// on `.`, so `«..».Foo` comes out as `../Foo.html`【実測 2026-08-23】.
+/// on `.`, so `«..».Foo` comes out as `../Foo.html` (measured 2026-08-23).
 #[must_use]
 pub fn page_of(module: &str) -> String {
     litedoc4_ir::page_path(module)

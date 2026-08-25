@@ -7,13 +7,13 @@
 //! not run.
 //!
 //! **It asserts no entry counts, and must not.** The counts on record —
-//! 258,760 entries / 5,775 modules 【実測,
-//! `benchmarks/results/stage7c-render-timings.jsonl`】 — were measured over the
+//! 258,760 entries / 5,775 modules (measured,
+//! `benchmarks/results/stage7c-render-timings.jsonl`) — were measured over the
 //! prototype's `.lidx`, derived from Mathlib's `declaration-data.bmp` by a
 //! generator that exists only at tag `experiments-frozen`. The product derives
 //! the same map by **walking the environment** instead: a different
 //! construction and so a different tally, 255,809 entries over the same target
-//! 【実測 2026-08-16】. A count here would be a claim about whichever file
+//! (measured 2026-08-16). A count here would be a claim about whichever file
 //! happens to sit at the path rather than about the reader, so what is checked
 //! instead is the reader against the **text** of the file it was handed.
 

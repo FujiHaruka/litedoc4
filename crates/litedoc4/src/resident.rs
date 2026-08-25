@@ -35,7 +35,7 @@
 //! # There is no `--serve-dir`: a server this process does not own
 //!
 //! **Correctness comes from the server's olean generation, never from the round
-//! number** 【実測, stage 6a】. A server imported *before* an edit answers with
+//! number** (measured, stage 6a). A server imported *before* an edit answers with
 //! the pre-edit owner of every name that moved — the exact stale pair ownership
 //! exists to repair — and with such a server *no* round is safe, including round
 //! 2. Pointing at somebody else's server can only read that server's self-report,
@@ -54,7 +54,7 @@
 //! # Two traps, both measured
 //!
 //! 1. **`--ir-dir` is required at start-up even though every request overrides
-//!    it** 【実測 2026-08-15】: the extractor refuses `--write-ir` without one
+//!    it** (measured 2026-08-15): the extractor refuses `--write-ir` without one
 //!    (`Extract.lean:2778-2782`), so a start-up line without it exits 1 before
 //!    importing anything, while a request's third field replaces it
 //!    (`Extract.lean:2753`). The value passed here names nothing that is written.
@@ -62,7 +62,7 @@
 //!    error has to reach the caller, and the two extraction paths have to be
 //!    diagnosable the same way. Capturing it would also change what a recorded
 //!    run's output holds: `lake` warns about a modified dependency checkout on
-//!    every start 【実測】.
+//!    every start (measured).
 
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
@@ -110,8 +110,8 @@ pub(crate) struct Serve {
     /// `cfg` from the start-up one, so a map path given here is written once per
     /// request. That is acceptable because every round writes the same bytes —
     /// the map is derived from the *environment*, which a resident server imports
-    /// once and never reloads 【実測: five runs of one environment at 8,465,776 B,
-    /// 5/5 byte-identical】 — and because the cost is marginal, 0.9 s warm on top
+    /// once and never reloads (measured: five runs of one environment at 8,465,776 B,
+    /// 5/5 byte-identical) — and because the cost is marginal, 0.9 s warm on top
     /// of an extraction that is already several seconds. [`Server::start`]'s
     /// `--link-index-omit` is the second and stronger reason for the same
     /// property.
@@ -998,7 +998,7 @@ mod tests {
     ///
     /// **This is a fix for a measured symptom against a reasoned cause, and the
     /// cause is not itself measured**: CI went red once in eight pushes
-    /// 【実測 2026-08-18, run 32133544132】 with `the resident extractor exited
+    /// (measured 2026-08-18, run 32133544132) with `the resident extractor exited
     /// 126 before ` + "`ready`" + `, on a commit that changed only prose. macOS
     /// has never reproduced it, and a green run after this does not prove the
     /// diagnosis.

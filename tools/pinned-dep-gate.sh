@@ -175,7 +175,7 @@ if "«" in html.split("<body")[0] + "".join(re.findall(r'href="([^"]*)"', html))
 # The `.lidx` writes module names unescaped and the IR does not, so
 # `Dep-Aux.Basic` is a third way to name the same module — not a Lean name
 # literal, so it resolves through `NameIndex::module_for_unescaped`. All three
-# spellings must agree, not merely resolve 【決定 2026-08-22、ユーザー判断】.
+# spellings must agree, not merely resolve (decided 2026-08-22, user's call).
 hrefs = set(linked("Dep-Aux.Basic"))
 if not hrefs:
     problems.append(

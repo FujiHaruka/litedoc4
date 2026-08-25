@@ -138,7 +138,7 @@ pub(crate) struct Site {
 ///
 /// The order (render, then the whole-package derivation) is free here: the cache
 /// `global` reads is keyed on the IR, and the two stages write disjoint files
-/// 【実測】. The incremental round runs them the other way round because there
+/// (measured). The incremental round runs them the other way round because there
 /// the map delta is half of the render set.
 pub(crate) fn generate_site(
     ir: &std::path::Path,

@@ -641,7 +641,7 @@ struct ModuleSpec {
     name: String,
     /// The compiled artifact's bytes, **separate from the IR on purpose**:
     /// moving a declaration out of A leaves the referring module B's olean
-    /// byte-identical while B's IR changes 【実測】, and a fixture that derived
+    /// byte-identical while B's IR changes (measured), and a fixture that derived
     /// one from the other could not contain that case.
     olean: String,
     imports: Vec<String>,
@@ -1230,7 +1230,7 @@ fn step(live: &mut Live, what: &str, world: &World) -> (BTreeSet<&'static str>, 
     let full = live.full_generation(what, world, URL);
     let site = live.assert_site_matches(what, &full);
     let ir = compare_ir(&live.ir, &full.join("ir"));
-    // The denominators, printed rather than only asserted: a gate whose母数 is
+    // The denominators, printed rather than only asserted: a gate whose denominator is
     // not in the log is one nobody can quote (`cargo test -- --nocapture`).
     println!(
         "  {what:<12} site {site}/{site} byte-identical   IR {}/{} byte-identical{}",

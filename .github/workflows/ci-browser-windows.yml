@@ -1,6 +1,6 @@
 # The site ships no monospace web font (e.g. JuliaMono); it bets that the system
 # monospace stack renders what a Lean package's pages contain. macOS and
-# `ubuntu-latest` show no missing glyph 【実測】. Windows is measurable here and
+# `ubuntu-latest` show no missing glyph (measured). Windows is measurable here and
 # not on this desk: `windows-latest` ships Consolas *and* Chrome.
 #
 # Two jobs, because the site has to be built where Lean runs: ubuntu builds the

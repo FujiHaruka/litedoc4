@@ -17,8 +17,8 @@
 //! and [`corpus_facts_match_the_prototype`], both `#[ignore]`d because the
 //! corpus is not in this repository. The curated cases exist to reach the
 //! corners the corpus has none of, and the fixture records which: fourteen of
-//! its thirty-seven branches never fire on the target package 【実測,
-//! `branchTotals`】, among them every branch the UTF-16 sort order depends on.
+//! its thirty-seven branches never fire on the target package (measured,
+//! `branchTotals`), among them every branch the UTF-16 sort order depends on.
 //!
 //! [`artifacts_match_the_reference`]: artifacts_match_the_reference
 //! [`corpus_facts_match_the_prototype`]: corpus_facts_match_the_prototype
@@ -814,7 +814,7 @@ fn artifacts_match_the_reference() {
     assert_eq!(summary.tactic_docs, 0);
     // The 91 instances of this package name 88 distinct types between them, and
     // each of the 59 that doc-gen4's own reference tree also has agrees with its
-    // `instancesFor` entry exactly 【実測 2026-08-16】.
+    // `instancesFor` entry exactly (measured 2026-08-16).
     assert_eq!(summary.instance_types, 88);
 
     let shared = ["declarations/name-map.json"];

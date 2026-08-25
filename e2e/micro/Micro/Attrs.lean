@@ -23,8 +23,8 @@ right name and the right value in the right halves.
 concatenation would have to guess where the name ends, and `deprecated`'s value
 contains spaces, parentheses and quotes while `specialize`'s contains brackets.
 The measurement target has neither shape — 163 attribute occurrences over 6
-distinct strings, all of them either bare names or one `deprecated`【実測
-2026-08-21】 — so this fixture is the only place the hard cases exist at all.
+distinct strings, all of them either bare names or one `deprecated` (measured
+2026-08-21) — so this fixture is the only place the hard cases exist at all.
 
 This module has **no imports on purpose**: `Micro/Basic.lean` is what GATE 6
 appends its probe to, and every module that imports it is re-rendered by that

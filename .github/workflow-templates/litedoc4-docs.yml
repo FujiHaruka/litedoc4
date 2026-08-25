@@ -6,7 +6,7 @@
 # GitHub runs workflows from, and this repository has no Lean package to build.
 #
 # ============================================================================
-# WHAT HAS RUN, AND WHAT HAS NOT  【実測 2026-08-16】
+# WHAT HAS RUN, AND WHAT HAS NOT  (measured 2026-08-16)
 # ============================================================================
 #   These steps have run green on a real `ubuntu-latest` runner:
 #   https://github.com/FujiHaruka/litedoc4/actions/runs/31955883894
@@ -28,16 +28,16 @@
 #   M1 laptop with a warm page cache, not on a runner.
 #
 # ============================================================================
-# THE ONE THING NOT TO CHANGE: ONE JOB  【実測】
+# THE ONE THING NOT TO CHANGE: ONE JOB  (measured)
 # ============================================================================
 #   `lake build` and the documentation build must stay in the SAME job. The
 #   extractor's floor is importing the environment, and that is I/O: what decides
 #   it is whether the oleans are in the page cache.
 #
 #   **How much a split costs depends on the runner's memory**, and that has
-#   already changed once 【実測 -> the litedoc4 repo's
+#   already changed once (measured -> the litedoc4 repo's
 #   benchmarks/results/ci-placement-*-summary.txt, which carry the runner model,
-#   core count, major-fault counts and per-run timings behind every row below】:
+#   core count, major-fault counts and per-run timings behind every row below):
 #
 #     2 cores / 7.75 GiB (2026-08-10)  same job 2.61 s / split 20-89 s = 8-34x
 #     4 cores / 15.6 GiB (2026-08-16)  same job 2.4-2.6 s / split 2.5-2.9 s
@@ -61,7 +61,7 @@
 #                      the hash of Extract.lean — the two inputs that decide its
 #                      bytes. It does not depend on the package's own sources,
 #                      so it survives every ordinary commit. Building it costs
-#                      14.90 s on an M1 with a warm cache 【実測】; the reason to
+#                      14.90 s on an M1 with a warm cache (measured); the reason to
 #                      cache it is that it never changes, not that it is slow.
 #   cargo + target     the Rust side. Keyed on Cargo.lock, which pins it.
 #   docs-out           **the documentation state** — the IR, the ledger and the
@@ -88,14 +88,14 @@
 #   out byte-identical or nothing matches and the cache buys nothing. Measured
 #   on 9 modules (3.6 KB - 1.2 MB oleans) on an M1: byte-identical after a
 #   delete-and-rebuild and again after an edit was reverted, with the edited
-#   build as the positive control 【実測 2026-08-17,
-#   benchmarks/results/olean-determinism-2026-08-17*.txt】. Measured again on a
+#   build as the positive control (measured 2026-08-17,
+#   benchmarks/results/olean-determinism-2026-08-17*.txt). Measured again on a
 #   Linux runner by running `.github/workflows/ci-template.yml` twice on one
 #   commit: the second job restored the cache, rebuilt every olean with
 #   `lake build` all the same, and re-extracted **0 of 13 modules** — the
-#   ledger matched every hash 【実測 2026-08-17, runs 31959354738 / 31959511320】.
+#   ledger matched every hash (measured 2026-08-17, runs 31959354738 / 31959511320).
 #
-#   WHAT IT IS WORTH, WITH THE DENOMINATOR STATED 【実測 2026-08-17】
+#   WHAT IT IS WORTH, WITH THE DENOMINATOR STATED (measured 2026-08-17)
 #   Nothing changed: `litedoc4 build` 1.6741 s -> 0.0163 s on that 13-module
 #   package; on a 422-module package measured locally, 9.8848 s -> 0.313 s
 #   (31.6x), with no Lean process started at all.
@@ -195,7 +195,7 @@ jobs:
       # lakefile, the modules from the source glob, the source URL from git, and
       # the dependency map from the environment the extractor imports anyway.
       #
-      # ONE EXCEPTION, AND IT IS NOT OPTIONAL: `lakefile.lean`.  【実測 2026-08-17】
+      # ONE EXCEPTION, AND IT IS NOT OPTIONAL: `lakefile.lean`.  (measured 2026-08-17)
       #   The libraries are derived from `lakefile.toml`. A package that uses
       #   `lakefile.lean` instead gets a refusal, not a guess — `lean_lib` there
       #   is a Lake DSL command whose argument can come from any Lean expression,

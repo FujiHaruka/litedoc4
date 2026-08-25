@@ -10,13 +10,13 @@
 //! eighteen: it escapes `<` and `&` inside `\text{…}` and nowhere else, so
 //! `$a < b$` renders as `<mo><</mo>` — markup an HTML parser has to guess at.
 //! 61 of Mathlib's 2,123 math spans (2.9%) come out that way, and `$a < b$` is
-//! not an exotic input; [`math_core`] writes none 【実測 2026-08-22 →
-//! `benchmarks/results/mathml-2026-08-22.txt`】.
+//! not an exotic input; [`math_core`] writes none (measured 2026-08-22 →
+//! `benchmarks/results/mathml-2026-08-22.txt`).
 //!
 //! A failed conversion is not rendered: [`math_core`] returns an error rather
 //! than writing something into the output, and [`to_mathml`] turns that into
 //! `None`, so the caller emits the dollars and the source. Not a rare branch —
-//! ten of Mathlib's spans do not convert 【実測 2026-08-22】.
+//! ten of Mathlib's spans do not convert (measured 2026-08-22).
 //!
 //! `MathCoreConfig::annotation` stays off: it would copy the LaTeX source into
 //! the output as an `<annotation encoding="application/x-tex">`, which on the

@@ -4,7 +4,7 @@
 //! run, and a `return` does not. `LITEDOC4_BASE_IR` may point at another tree,
 //! which then gets the structural half only.
 //!
-//! Every count asserted here was taken from the fixture directly (実測, by
+//! Every count asserted here was taken from the fixture directly (measured, by
 //! enumerating the JSON), not from a previous run of this reader: the point is
 //! that the reader agrees with the writer, so the expected values must not come
 //! from the reader.
@@ -46,7 +46,7 @@ const MEASURED_FIXTURE: (&str, &str, u32, u32) =
 /// **Judged by what the tree holds, not by where it sits**: the path this used
 /// to compare against is a work area that is swept and rebuilt, so a different
 /// generation standing there would have been checked against counts it never had
-/// 【実測 2026-08-16】.
+/// (measured 2026-08-16).
 fn is_default_fixture(index: &litedoc4_ir::Index) -> bool {
     let (generator, lean_version, modules, declarations) = MEASURED_FIXTURE;
     index.generator == generator
@@ -259,8 +259,8 @@ fn reads_every_module_of_the_target_package() {
 
     // `>=`, not a literal: a literal here was once unsatisfiable together with
     // `open` above, and since the test is `#[ignore]`d on the corpus it ran
-    // nowhere and said nothing for as long as it was impossible 【実測
-    // 2026-08-23】.
+    // nowhere and said nothing for as long as it was impossible (measured
+    // 2026-08-23).
     assert!(index.schema_version >= litedoc4_ir::MIN_SCHEMA_VERSION);
     assert!(index.ablations.is_empty());
     assert_eq!(index.modules.len(), index.module_count as usize);
@@ -310,7 +310,7 @@ fn reads_every_module_of_the_target_package() {
         return;
     }
 
-    // 実測, enumerated from the fixture's JSON.
+    // measured, enumerated from the fixture's JSON.
     assert_eq!(counts.modules, 432);
     assert_eq!(counts.declarations, 4_750);
     assert_eq!(counts.module_docs, 1_515);

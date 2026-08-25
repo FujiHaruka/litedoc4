@@ -39,7 +39,7 @@ use std::path::Path;
 pub const FORMAT_MARKER: &str = "#lidx2";
 
 /// 12 bytes, and that is the point: the target package's map is **255,975** of
-/// these 【実測 2026-08-16】. The range is `Option<(NonZeroU32, u32)>` rather
+/// these (measured 2026-08-16). The range is `Option<(NonZeroU32, u32)>` rather
 /// than two `Option`s or a `String` because Lean's `Position.line` is 1-based,
 /// so the niche is free — `None` costs no extra word, and a `String` per range
 /// would be 24 bytes of header before a single digit of it.
@@ -53,7 +53,7 @@ struct Entry {
 /// closure.
 ///
 /// Module names are interned: the target package's map is 255,975 entries over
-/// 5,693 modules 【実測 2026-08-16】, so storing the module name per entry would
+/// 5,693 modules (measured 2026-08-16), so storing the module name per entry would
 /// be about 40x the text it stands for.
 #[derive(Debug, Default)]
 pub struct LinkIndex {

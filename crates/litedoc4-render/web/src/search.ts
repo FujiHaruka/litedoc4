@@ -4,7 +4,7 @@
  * **All three tiers require the query to occur in the folded name**, so typing
  * one more character can only shrink the hit set: a query that extends the
  * previous one is answered from what the previous one matched, which touches
- * 48.2% of the candidates a rescan would 【実測 2026-08-19】.
+ * 48.2% of the candidates a rescan would (measured 2026-08-19).
  */
 import { DOT, ENCODER, FOLD, utf16Length } from "./index-format.js";
 import { NARROW_MAX, rank, scoreBytes } from "./score.js";

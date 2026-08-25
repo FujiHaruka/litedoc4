@@ -1,19 +1,19 @@
 //! How much of the IR one process read — a **counter, not a clock**.
 //!
 //! A wall clock decides nothing here: the oleans are `mmap`ed, so the same run's
-//! environment load moves by 5x with the page cache (2.5 s ↔ 13 s 【実測】).
+//! environment load moves by 5x with the page cache (2.5 s ↔ 13 s (measured)).
 //! File reads do not move, so every number here is an integer.
 //!
 //! Counted: IR files opened and parsed, wherever that happens — including the
 //! three callers outside this crate (`litedoc4_incr`'s merge, ledger and prune)
 //! that read `index.json` directly, without which the count under-reports every
-//! incremental run 【実測 2026-08-16】. Not counted: `fs::copy` of a module
+//! incremental run (measured 2026-08-16). Not counted: `fs::copy` of a module
 //! file, which transfers bytes without parsing them.
 //!
 //! One full pass over a package is `modules` module-file reads, so
 //! `module / modules` is a run's number of full passes; the incremental pipeline
-//! still leaves five in place 【実測 →
-//! `benchmarks/results/mathlib-scale-summary.txt`】.
+//! still leaves five in place (measured →
+//! `benchmarks/results/mathlib-scale-summary.txt`).
 //!
 //! The counters are `static`, so they are the *process's*, not a run's — hence
 //! [`reset`].

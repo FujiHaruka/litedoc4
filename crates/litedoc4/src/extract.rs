@@ -104,7 +104,7 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
                      extraction — so the only caller it can pay off for is the round loop, which \
                      owns the server for the whole run. `--serve-dir` is not offered anywhere: a \
                      server this process did not start is one whose olean generation it cannot \
-                     vouch for, and that is where correctness comes from 【実測】",
+                     vouch for, and that is where correctness comes from (measured)",
                 ));
             }
             flag if FIXED_FLAGS.contains(&flag) => {
@@ -216,7 +216,7 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
 
     let events = events.unwrap_or_else(|| events_beside(&timings));
     // **Every path handed to the child is made absolute first, and the guard
-    // above is why** 【実測 2026-08-15】. `lake env` runs inside `--target`, so a
+    // above is why** (measured 2026-08-15). `lake env` runs inside `--target`, so a
     // relative path on that command line resolves against the package being
     // documented: `--ir-dir out` passes the guard (it resolves against *this*
     // process's directory, which is not under the target) and the extractor then

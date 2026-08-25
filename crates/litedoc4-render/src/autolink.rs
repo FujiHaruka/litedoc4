@@ -16,7 +16,7 @@
 //! `Mathlib/Order/Basic.lean` and wrong for a package whose docstrings write
 //! the path relative to their own module — the produced page is never written,
 //! and 160 of the target site's 32,868 internal links were dangling because of
-//! it 【実測 2026-08-16, `benchmarks/results/m8-ui2-dead-links.txt`】.
+//! it (measured 2026-08-16, `benchmarks/results/m8-ui2-dead-links.txt`).
 //! [`NameIndex::module_for_source_path`] consults `knownModules` instead.
 //!
 //! doc-gen4 asks `env.name2ModIdx` for which name is documented where, because
@@ -33,7 +33,7 @@
 //! `lakefile.toml` may declare more than one `[[lean_lib]]` (`batteries`
 //! declares three), so `--lib Batteries` extracts one of them while the `.lidx`
 //! holds the whole environment, and `BatteriesRecycling.*` is a known module
-//! with no page 【実測 2026-08-17】. So the page set is carried separately:
+//! with no page (measured 2026-08-17). So the page set is carried separately:
 //! [`NameIndexBuilder::build`] freezes it **before** the union, and
 //! [`NameIndex::link_to`]'s last branch consults it.
 
@@ -126,7 +126,7 @@ fn is_id_rest(c: char) -> bool {
         || c == '_'
         // `'`, `!` and `?` are identifier characters in Lean. Rejecting them —
         // which an ASCII-identifier notion of "name" does — costs every `foo'`
-        // in the package its link 【実測: 9 anchors】.
+        // in the package its link (measured: 9 anchors).
         || c == '\''
         || c == '!'
         || c == '?'
@@ -256,8 +256,8 @@ impl NameIndex {
     /// disagree about whether to write the quotes: the IR and a page's import
     /// list say `«Dep-Aux».Basic`, the `.lidx` says `Dep-Aux.Basic`. The second
     /// spelling reaches no other branch, because it **is not a Lean name
-    /// literal** ([`is_name_lit`] stops at the `-`) 【実測 2026-08-22 →
-    /// `benchmarks/results/residual-sweep-2026-08-22.txt` §3】.
+    /// literal** ([`is_name_lit`] stops at the `-`) (measured 2026-08-22 →
+    /// `benchmarks/results/residual-sweep-2026-08-22.txt` §3).
     ///
     /// A map rather than `escape_module` on the query, because unescaping is not
     /// injective: `«Dep-Aux».Basic` and `«Dep-Aux.Basic»` both unescape to
@@ -268,7 +268,7 @@ impl NameIndex {
     /// It is usually empty: only a module with a quoted component has a spelling
     /// different from its own name, and one whose spelling is still a name
     /// literal is left out too, since that string takes the ordinary branches.
-    /// Mathlib contributes **0 entries** 【実測: 8,169 modules】. Being in
+    /// Mathlib contributes **0 entries** (measured: 8,169 modules). Being in
     /// `known_modules` does **not** disqualify a spelling — the `.lidx` puts
     /// unescaped spellings there itself.
     #[must_use]
@@ -340,7 +340,7 @@ impl NameIndex {
     ///
     /// One lookup would do if "the map has no entry for this root" meant "this
     /// package's own module" and that in turn meant "a page exists". **Neither
-    /// implication holds**, and each was a dead link 【実測 2026-08-17】: a
+    /// implication holds**, and each was a dead link (measured 2026-08-17): a
     /// `path` dependency breaks the first (see [`crate::external`]) and
     /// `batteries` breaks the second. Question 2 has to come before 3, because a
     /// dependency's module has no page either and answering it with question 3
@@ -546,8 +546,8 @@ impl NameIndexBuilder {
             // that string takes the ordinary branches, and this map is only
             // ever consulted for a word they refuse.
             //
-            // **The test is `is_name_lit`, not `modules.contains`**【実測
-            // 2026-08-22】: `known_modules` is a *mixture of spellings*, since
+            // **The test is `is_name_lit`, not `modules.contains`** (measured
+            // 2026-08-22): `known_modules` is a *mixture of spellings*, since
             // the IR contributes `«Dep-Aux».Basic` and the `.lidx`'s `@` section
             // `Dep-Aux.Basic` for the same module, so membership is not the same
             // question as reachability.
@@ -581,7 +581,7 @@ impl NameIndexBuilder {
 /// including the ones that get no page entry, because doc-gen4 filters that list
 /// with `filterDocInfo` and not with `shouldRender` — minus the private ones, in
 /// declaration-range order. Passing the IR's own order instead picks the wrong
-/// one of two candidates 【実測: 6 anchors】.
+/// one of two candidates (measured: 6 anchors).
 #[must_use]
 pub fn module_decl_names(module: &ModuleFile) -> Vec<&str> {
     let mut decls: Vec<&Decl> = module
@@ -631,7 +631,7 @@ impl<'a> PageLinks<'a> {
     ///
     /// The caller this exists for is `tests/autolink.rs`: the frozen cases carry
     /// a `known` holding the names each docstring needs and no more — **2,263 of
-    /// the fixture's 2,492 `declNames` are outside it** 【実測 2026-08-23】 — so
+    /// the fixture's 2,492 `declNames` are outside it** (measured 2026-08-23) — so
     /// the slice is the fixture's shape, not a wiring mistake. A run has no such
     /// slice, because `render_site` feeds every module of the IR to the builder
     /// before it renders any page from it.
@@ -890,7 +890,7 @@ mod tests {
 
     /// Both halves are the point. `Dep-Aux.Basic` is how the `.lidx` writes
     /// `«Dep-Aux».Basic`, and it reaches no other branch because it is not a
-    /// name literal 【実測 2026-08-22】. The second half is why this is a map
+    /// name literal (measured 2026-08-22). The second half is why this is a map
     /// rather than an `escape` on the query: `«Dep-Aux.Basic»` is a *different*
     /// module with the same unescaped spelling.
     #[test]
@@ -1210,8 +1210,8 @@ mod tests {
     /// environment — holds all three. `Pkg.Recycling` is that shape: a module no
     /// dependency map says anything about, known to the index through the
     /// `.lidx` and through a resolved reference, and with **no page**. A
-    /// relative link there is a 404 【実測 2026-08-17, `tools/site-gate.sh`:
-    /// DEAD internal link 1】.
+    /// relative link there is a 404 (measured 2026-08-17, `tools/site-gate.sh`:
+    /// DEAD internal link 1).
     #[test]
     fn a_module_of_this_package_with_no_page_is_not_a_link() {
         let mut builder = NameIndex::builder();

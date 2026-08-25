@@ -40,8 +40,8 @@ const TERMINATORS: [&str; 4] = ["</div>", "<div", "<details", "<ul class=\"struc
 /// which the subset's `indexOf` scan closes in the wrong place.
 ///
 /// It is *not* an autolink difference: the same input differs under `NoLinks`,
-/// and doc-gen4 produces this crate's bytes 【実測 → `litedoc4-md`'s
-/// `tests/ts_docstring.rs`】. The reference page is the wrong one here, so this
+/// and doc-gen4 produces this crate's bytes (measured → `litedoc4-md`'s
+/// `tests/ts_docstring.rs`). The reference page is the wrong one here, so this
 /// test names it rather than counting how many differ.
 const KNOWN_SUBSET_DIVERGENCE: &str =
     "InformationTheory.Shannon.TimeBandLimiting.Count module doc 1";

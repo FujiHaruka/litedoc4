@@ -198,7 +198,7 @@ fn matches_the_prototype_on_every_case() {
     // path: the module a path names is in the case's world only when the path
     // happens to be the module's own full name. What the rule does with the
     // real world is [`the_whole_corpus_matches_the_prototype`]'s number
-    // 【実測 2026-08-16】.
+    // (measured 2026-08-16).
     assert_eq!(
         tally,
         Tally {
@@ -248,7 +248,7 @@ fn a_name_search_for_an_unknown_source_path_falls_back_to_the_find_page() {
 /// comparisons could not see it. This port follows doc-gen4, and
 /// `tests/docgen4_linked.rs` carries the positive expectation.
 ///
-/// **No docstring of the target package reaches it** 【実測: 0 of 4,858】.
+/// **No docstring of the target package reaches it** (measured: 0 of 4,858).
 /// What is asserted here is that the difference is *real*: a port that had
 /// reproduced the prototype's nesting would fail.
 #[test]
@@ -472,8 +472,8 @@ fn the_whole_corpus_matches_the_prototype() {
     assert!(compared >= 4_800, "only {compared} cases were compared");
     // How many source paths the corpus's docstrings write is a property of the
     // IR, so it is pinned; how they split is a property of the `.lidx` this run
-    // was given, so it is not. 【実測 2026-08-16, IR `m4d-final/base/ir` +
-    // `.lidx m5a/full-link-index-r4`】 `Tally { unchanged: 39, relinked: 153,
+    // was given, so it is not. (measured 2026-08-16, IR `m4d-final/base/ir` +
+    // `.lidx m5a/full-link-index-r4`) `Tally { unchanged: 39, relinked: 153,
     // dropped: 1 }`: the prototype's repository-root reading was right for the
     // paths that name their module in full and wrong for those that name it
     // relative to the module, which are the dangling links this rule is about.

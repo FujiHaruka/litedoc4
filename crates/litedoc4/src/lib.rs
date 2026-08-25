@@ -411,7 +411,7 @@ fn with_dependency_docs(
 
 /// **One string, three call sites** (`render`, `site`, `incremental`), so that
 /// they cannot drift apart: without the dependency map **150 of the target
-/// package's 432 pages change bytes** 【実測】, and it fails silently — a
+/// package's 432 pages change bytes** (measured), and it fails silently — a
 /// docstring name that did not become a link looks exactly like a name that was
 /// never linkable — so the guard is in the shape of the flags, not in a default.
 const LINK_INDEX_COST: &str =
@@ -603,8 +603,8 @@ mod usage_tests {
         for source in SOURCES {
             // Each `=>` is read backwards through the literals in front of it.
             // An arm may span lines (`"--a" | "--b"` then `| "--c" => …`), so
-            // taking one line at a time misses eight of the flags 【実測
-            // 2026-08-23】.
+            // taking one line at a time misses eight of the flags (measured
+            // 2026-08-23).
             for (before, _) in source.split_once("=>").into_iter().chain(
                 source
                     .match_indices("=>")

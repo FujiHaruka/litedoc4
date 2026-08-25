@@ -16,7 +16,7 @@
 # not touch the olean, and re-extracting a module whose olean did not move
 # reproduces its IR byte for byte — so a harness built on it drove `staleFound`
 # and `globalStale` to 0 in 7 of 7 scenarios and never reached a second round
-# 【実測 2026-08-15】: the two derivations that make this pipeline non-trivial
+# (measured 2026-08-15): the two derivations that make this pipeline non-trivial
 # were only ever compared on the empty answer. Here the sources are really edited
 # and `lake build` really runs, so **`staleFound`, `globalStale` and `rounds >= 2`
 # have to come out non-empty** — if they do not, the module choice or the protocol
@@ -35,17 +35,17 @@
 #           from declaration docstrings' code spans and markdown link targets only
 #           — who *documents* one. Only **7 of the 432 modules** have any of their
 #           declarations named inside another module's docstring at all, so the
-#           second condition is the scarce one 【実測 2026-08-15】; the default
-#           below is the one of those 7 with the widest reference set 【実測
-#           census + `litedoc4 global --before`】: declarations 25,
+#           second condition is the scarce one (measured 2026-08-15); the default
+#           below is the one of those 7 with the widest reference set (measured
+#           census + `litedoc4 global --before`): declarations 25,
 #           referrersDirect 33, documented by `…BroadcastChannel.Marton.Basic`, so
 #           the map delta reports 25 names moved and 1 module affected.
 #
 #   delete  `InformationTheory.Shannon.ArithmeticCoding`'s source file is deleted
 #           and the single `import` line naming it is removed from
 #           `InformationTheory.lean`. Chosen because it is imported by **exactly
-#           one** file 【実測 census: declarations 6, importedByDirect 1,
-#           importersTransitive 1, referrersDirect 0】, so the build stays green.
+#           one** file (measured census: declarations 6, importedByDirect 1,
+#           importersTransitive 1, referrersDirect 0), so the build stays green.
 #           **Lake does not delete the orphaned olean** and this script leaves it
 #           where it is: the module list is a glob over the *sources*, so the
 #           module correctly reads as gone, and the orphan is the field test of
@@ -247,7 +247,7 @@ modlist () { # modlist <out file>
 # asked for. Keying on the scenario's name is not enough: `--move-module` changes
 # which modules the post-move list holds while the scenario is still called
 # `move`, and a stale tree then becomes the from-scratch side of the gate — which
-# happened, and showed up as 42 differing files 【実測】.
+# happened, and showed up as 42 differing files (measured).
 extract_all () { # extract_all <modules> <ir dir> <log prefix>
   guard_writable "$2"
   if [ -f "$2/index.json" ]; then

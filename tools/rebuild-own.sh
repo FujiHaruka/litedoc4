@@ -5,7 +5,7 @@
 # `cp -Rc` copies the build tree along with the sources, so the clone starts with
 # oleans produced at the ORIGINAL path — and Mathlib's style linter stores its
 # log, absolute source paths included, in an environment extension serialized
-# into the olean (429/432 modules)【実測】. So the moment any module is rebuilt
+# into the olean (429/432 modules) (measured). So the moment any module is rebuilt
 # inside the clone its olean changes by the path-length difference alone.
 #
 # For a measurement that is severe and easy to miss: a ledger taken over the

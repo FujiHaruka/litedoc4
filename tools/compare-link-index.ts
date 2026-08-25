@@ -111,7 +111,7 @@ const top = (m: Map<string, number>, k: number) =>
 const lines: string[] = [];
 const say = (s = "") => lines.push(s);
 
-say(`# link-index の突き合わせ (集合比較)`);
+say(`# link-index cross-check (set comparison)`);
 say();
 say(`A = ${A}`);
 say(`B = ${B}`);
@@ -119,69 +119,69 @@ say(`date ${new Date().toISOString()}`);
 say();
 say(`| | A | B |`);
 say(`|---|---:|---:|`);
-say(`| 宣言 (名前 → モジュール) | ${n(a.names.size)} | ${n(b.names.size)} |`);
-say(`| グループ (宣言を持つモジュール) | ${n(a.modules.size)} | ${n(b.modules.size)} |`);
-say(`| \`@\` 節 (モジュール名) | ${n(a.known.size)} | ${n(b.known.size)} |`);
+say(`| declarations (name → module) | ${n(a.names.size)} | ${n(b.names.size)} |`);
+say(`| groups (modules that have declarations) | ${n(a.modules.size)} | ${n(b.modules.size)} |`);
+say(`| \`@\` section (module names) | ${n(a.known.size)} | ${n(b.known.size)} |`);
 say();
-say(`## 名前の集合`);
+say(`## The set of names`);
 say();
-say(`| | 件数 |`);
+say(`| | count |`);
 say(`|---|---:|`);
-say(`| 両方にあり、モジュールも一致 | ${n(same)} |`);
-say(`| **両方にあるがモジュールが食い違う** | **${n(moved.length)}** |`);
-say(`| A にしかない | ${n(onlyA.length)} |`);
-say(`| B にしかない | ${n(onlyB.length)} |`);
+say(`| in both, and the module agrees | ${n(same)} |`);
+say(`| **in both, but the modules disagree** | **${n(moved.length)}** |`);
+say(`| A only | ${n(onlyA.length)} |`);
+say(`| B only | ${n(onlyB.length)} |`);
 say();
 for (const [label, names, cls, from] of [
-  ["A にしかない", onlyA, clsA, a],
-  ["B にしかない", onlyB, clsB, b],
+  ["A only", onlyA, clsA, a],
+  ["B only", onlyB, clsB, b],
 ] as [string, string[], ReturnType<typeof classify>, Index][]) {
   if (names.length === 0) continue;
-  say(`### ${label} — ${n(names.length)} 件の内訳`);
+  say(`### ${label} — breakdown of ${n(names.length)}`);
   say();
-  say(`| 相手側にそのモジュールが | 件数 |`);
+  say(`| that module on the other side | count |`);
   say(`|---|---:|`);
-  say(`| **無い** (モジュールごと欠けている: ${n(cls.absentModules.size)} モジュール) | ${n(cls.moduleAbsent)} |`);
-  say(`| ある (同じモジュールの中で欠けている) | ${n(cls.moduleShared)} |`);
+  say(`| **absent** (the whole module is missing: ${n(cls.absentModules.size)} modules) | ${n(cls.moduleAbsent)} |`);
+  say(`| present (missing inside a module both sides have) | ${n(cls.moduleShared)} |`);
   say();
-  say(`名前の形:`);
+  say(`Name shapes:`);
   say();
-  say(`| 形 | 件数 |`);
+  say(`| shape | count |`);
   say(`|---|---:|`);
   for (const [k, v] of top(shapes(names), 12)) say(`| ${k} | ${n(v)} |`);
   say();
-  say(`上位モジュール:`);
+  say(`Top modules:`);
   say();
-  say(`| モジュール | 件数 | 相手側にある |`);
+  say(`| module | count | on the other side |`);
   say(`|---|---:|---|`);
   for (const [m, c] of top(cls.byModule, SAMPLES)) {
     const other = label.startsWith("A") ? b : a;
-    say(`| ${m} | ${n(c)} | ${other.known.has(m) ? "あり" : "**なし**"} |`);
+    say(`| ${m} | ${n(c)} | ${other.known.has(m) ? "yes" : "**no**"} |`);
   }
   say();
-  say(`例: ${names.slice(0, 5).join(", ")}`);
+  say(`Examples: ${names.slice(0, 5).join(", ")}`);
   say();
 }
 if (moved.length > 0) {
-  say(`### モジュールが食い違う ${n(moved.length)} 件`);
+  say(`### ${n(moved.length)} names whose module disagrees`);
   say();
-  say(`| 名前 | A | B |`);
+  say(`| name | A | B |`);
   say(`|---|---|---|`);
   for (const [nm, ma, mb] of moved.slice(0, 40)) say(`| ${nm} | ${ma} | ${mb} |`);
   say();
 }
-say(`## \`@\` 節 (モジュール名)`);
+say(`## \`@\` section (module names)`);
 say();
 const knownOnlyA = [...a.known].filter((m) => !b.known.has(m));
 const knownOnlyB = [...b.known].filter((m) => !a.known.has(m));
-say(`| | 件数 |`);
+say(`| | count |`);
 say(`|---|---:|`);
-say(`| 両方 | ${n(a.known.size - knownOnlyA.length)} |`);
-say(`| A のみ | ${n(knownOnlyA.length)} |`);
-say(`| B のみ | ${n(knownOnlyB.length)} |`);
+say(`| both | ${n(a.known.size - knownOnlyA.length)} |`);
+say(`| A only | ${n(knownOnlyA.length)} |`);
+say(`| B only | ${n(knownOnlyB.length)} |`);
 say();
-if (knownOnlyA.length) say(`A のみ (先頭 20): ${knownOnlyA.slice(0, 20).join(", ")}`);
-if (knownOnlyB.length) say(`B のみ (先頭 20): ${knownOnlyB.slice(0, 20).join(", ")}`);
+if (knownOnlyA.length) say(`A only (first 20): ${knownOnlyA.slice(0, 20).join(", ")}`);
+if (knownOnlyB.length) say(`B only (first 20): ${knownOnlyB.slice(0, 20).join(", ")}`);
 say();
 
 const out = lines.join("\n");

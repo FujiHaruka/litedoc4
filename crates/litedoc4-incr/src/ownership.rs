@@ -5,7 +5,7 @@
 //! (`ℕ` -> `Nat`). That pair goes stale when the name moves, even though nothing
 //! about the referring module changed — and no other layer can see it: moving a
 //! declaration from A to X leaves the referring module C's `.olean` **byte
-//! identical** (and Lake's hash unmoved)【実測】, so [`crate::detect`] cannot
+//! identical** (and Lake's hash unmoved) (measured), so [`crate::detect`] cannot
 //! see it, and widening the *render* set cannot fix it either, because the stale
 //! bytes are in C's IR and C has to be re-**extracted**. Renaming, by contrast,
 //! does change C's olean, because the new name is embedded in C's terms.

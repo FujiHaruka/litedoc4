@@ -41,7 +41,7 @@
 //! dependency — which moves a `rev` and therefore every href into that package —
 //! re-renders on its own. Without the last two a run whose dependency map moved
 //! and whose IR did not went undetected, and that map reaches 150 of the
-//! measurement target's 432 pages' bytes 【実測】.
+//! measurement target's 432 pages' bytes (measured).
 //!
 //! `--full` remains the escape hatch for whatever is *not* in the key — a set
 //! that cannot be closed, because it is every input the ledger does not name.
@@ -435,8 +435,8 @@ pub(crate) fn parse(
 /// because two flags say it.
 ///
 /// The resolution is one fetch of a 5.7 MB declaration table verified against the
-/// IR tree 【実測 2026-08-19,
-/// `benchmarks/results/deps-docs-2026-08-19.txt` §3】.
+/// IR tree (measured 2026-08-19,
+/// `benchmarks/results/deps-docs-2026-08-19.txt` §3).
 const DEPS_DOCS_IN_WATCH: &str = "it resolves a dependency's declaration table over the network, \
      once, against the IR tree of that run. A loop would either re-fetch 5.7 MB on every rebuild \
      or serve pages resolved against an IR tree that has moved since. Use `litedoc4 build` for a \
@@ -694,7 +694,7 @@ struct Done {
 ///
 /// This project's product is speed, and a wall clock cannot judge speed here: the
 /// oleans are `mmap`ed, so the same unchanged run's environment load moves by 5x
-/// with the page cache (2.5 s ↔ 13 s 【実測】). A CI threshold over seconds is
+/// with the page cache (2.5 s ↔ 13 s (measured)). A CI threshold over seconds is
 /// either loose enough to pass a regression or tight enough to fail a cold
 /// runner, and both are worse than no gate because they look like one. So the
 /// gate is over **work**: the same input does the same amount, on every machine,
@@ -707,8 +707,8 @@ struct Done {
 /// quietly wrong (or the reverse, which is worse).
 ///
 /// `irReads` is here because the outer half's limit is not rendering but
-/// **reading the whole IR** 【実測 →
-/// `benchmarks/results/mathlib-scale-summary.txt`】: `irReads.module / modules`
+/// **reading the whole IR** (measured →
+/// `benchmarks/results/mathlib-scale-summary.txt`): `irReads.module / modules`
 /// makes that a number every run reports, so a change to it can be argued in the
 /// units the claim is stated in instead of in seconds nobody can reproduce.
 struct WorkCounts {
@@ -1006,7 +1006,7 @@ fn plan_of(request: &Request, libs: &[String]) -> Result<Plan, Failure> {
     }
     // **The IR under `--out` has to be one this binary can read.** A CI cache
     // restores the *previous* binary's state, so a schema bump arrives here as a
-    // tree every reader below refuses 【実測 2026-08-23】. `detect` is not this
+    // tree every reader below refuses (measured 2026-08-23). `detect` is not this
     // guard and cannot be: it answers "re-extract every module" correctly, and
     // the round then reads the **base** IR — the tree the re-extraction is about
     // to replace — to answer ownership, and dies there with the site left as it

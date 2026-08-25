@@ -235,7 +235,7 @@ unambiguous. **A declaration with no range keeps the one-field line**: dropping
 it would lose the link entirely, where the missing range only costs the anchor.
 Both counts are reported so that "no range" stays a number rather than a silence
 — and on the measurement target that number is **0 of 255,975**
-【実測 2026-08-16 → `benchmarks/results/m7a-summary.txt`】.
+(measured 2026-08-16 → `benchmarks/results/m7a-summary.txt`).
 
 ### The package's own groups can be left out (`--link-index-omit`)
 
@@ -247,8 +247,8 @@ module (`crates/litedoc4-render/src/external.rs`) — that is, only for a
 **dependency**. Measured rather than believed: with all of the package's own
 groups removed from the map, the rendered site is **byte-identical — 0 of 429
 files differ**; the positive control, which removes the *dependency* half
-instead, differs in **408 of 429** 【実測 2026-08-17 →
-`benchmarks/results/lidx-own-half-2026-08-17.txt`】.
+instead, differs in **408 of 429** (measured 2026-08-17 →
+`benchmarks/results/lidx-own-half-2026-08-17.txt`).
 
 **Why leave them out, given that they are only 3.6% of the file.** Because they
 are the only part of it that moves when a module of the package is edited, and
@@ -274,8 +274,8 @@ the failure mode this project keeps catching, and it is not worth 30 ms.
 ### A map that is already right is not rewritten (`--link-index-key`)
 
 Rewriting on every extraction request is 490,287 constants walked and 10 MB
-written, **1.20〜1.81 s** of a 6.2 s one-module incremental build
-【実測 2026-08-17 → `benchmarks/results/g3-stage-c-2026-08-17.txt`】. The file
+written, **1.20-1.81 s** of a 6.2 s one-module incremental build
+(measured 2026-08-17 → `benchmarks/results/g3-stage-c-2026-08-17.txt`). The file
 it produces is a function of exactly three things:
 
 1. **the set of modules in the imported environment** (`env.header.moduleNames`),
@@ -1331,8 +1331,8 @@ where `P.ext` is hand written, which is precisely the case the second condition
 exists to keep apart.
 
 **`selectionRange == range` on its own is not "generated"** and must not be used
-as if it were 【実測 2026-08-21 →
-`benchmarks/results/generated-decls-2026-08-21.txt`】: over 2,786 Mathlib
+as if it were (measured 2026-08-21 →
+`benchmarks/results/generated-decls-2026-08-21.txt`): over 2,786 Mathlib
 declarations it also fires on structure and class field projections and on
 macro-defined declarations, and it does *not* fire on the `to_additive` twins
 whose additive name the author wrote out. It is a necessary condition here,
@@ -2065,7 +2065,7 @@ became `[name, value]` arrays where schema 4 had one concatenated string, and
 `litedoc4-incr`'s `EXTRACTOR_ID` is what carries those, and the reader accepts
 both `attrs` shapes because a schema-4 file is still readable and still says `4`.
 `selectionRange` costs **+0.96%** of the IR on the measurement target
-【実測 → `benchmarks/results/generated-decls-2026-08-21.txt`】 and is written for
+(measured → `benchmarks/results/generated-decls-2026-08-21.txt`) and is written for
 every declaration of a tagged file on purpose — an omission rule would give its
 absence two meanings. -/
 def irSchemaVersion (tagged : Bool) : Nat := if tagged then 5 else 1

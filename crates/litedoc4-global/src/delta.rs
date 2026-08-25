@@ -87,7 +87,7 @@ impl Delta {
         let mut witnesses: Vec<Witness> = Vec::new();
         // Only an optimisation, and it decides nothing: with an empty changed
         // set the loop finds nothing anyway, and removing it changes no output
-        // and fails no test 【実測, checked by removing it】. It is here because
+        // and fails no test (measured, checked by removing it). It is here because
         // "nothing moved" is the pipeline's common case and the scan is the
         // second-most expensive thing in this file.
         if !changed.is_empty() {

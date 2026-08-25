@@ -13,7 +13,7 @@
 //!    [`litedoc4_ir::Member::is_direct`] is therefore an `Option<bool>` and
 //!    [`litedoc4_ir::Member::is_inherited`] is the only reader. No comparison
 //!    against the target package can catch the other reading: all 156 field
-//!    members carry the key 【実測】.
+//!    members carry the key (measured).
 //! 2. **The equation limit counts code points**, not bytes and not UTF-16
 //!    units (`RenderedCode.textLength` is over Lean `Char`s).
 //! 3. **[`decl_name_to_link`] fails rather than guessing.** doc-gen4 indexes
@@ -65,8 +65,8 @@ impl std::error::Error for UnplaceableName {}
 /// **The `.lidx` is consulted here and not in [`CodeRenderer::const_link`].** An
 /// inherited field of a class **the documented package does not declare** — as
 /// `batteries`' `class LawfulLTCmp … extends Std.OrientedCmp` has — is a name
-/// the IR's own map has never heard of, and the build stopped on it 【実測
-/// 2026-08-17】. The name is in the `.lidx`, which covers the environment rather
+/// the IR's own map has never heard of, and the build stopped on it (measured
+/// 2026-08-17). The name is in the `.lidx`, which covers the environment rather
 /// than the package, so the fall-through is a *correct* answer rather than a
 /// guess. `const_link` keeps the narrower lookup because *its* misses render as
 /// unlinked text, so widening it there would move links that are right.
@@ -119,7 +119,7 @@ pub fn class_instances_html(name: &str) -> String {
 /// which have users is a fact about the whole package, and a renderer that
 /// consulted it would make each page's *bytes* depend on every other module:
 /// editing one module would then restale every page it refers into — 15 of the
-/// target's 422 at worst, 2 at the median 【実測 2026-08-22】 — through an
+/// target's 422 at worst, 2 at the median (measured 2026-08-22) — through an
 /// impact direction that does not exist today. The block that says "None" is
 /// the price of not adding one.
 #[must_use]
@@ -432,8 +432,8 @@ impl<'a> DeclRenderer<'a> {
     /// `class="ctor"` / `class="field"` literals do not move, because
     /// `assets::tests::every_class_the_renderer_emits_is_styled` reads this
     /// file's text and a class name behind a parameter is one that gate can no
-    /// longer see 【実測 2026-08-23: parameterising the class made the gate
-    /// report `.");` as an emitted class】.
+    /// longer see (measured 2026-08-23: parameterising the class made the gate
+    /// report `.");` as an emitted class).
     fn member_body(
         &self,
         out: &mut String,
@@ -696,8 +696,8 @@ mod tests {
 
     /// This error exists *only* to be read, so an error that does not name the
     /// declaration it could not place spends the debugging round it was meant to
-    /// save 【実測 2026-08-16: the one `cargo mutants` survivor over this file
-    /// replaced its `Display` with the empty string】.
+    /// save (measured 2026-08-16: the one `cargo mutants` survivor over this file
+    /// replaced its `Display` with the empty string).
     #[test]
     fn an_unplaceable_name_says_which_name() {
         let text = UnplaceableName {

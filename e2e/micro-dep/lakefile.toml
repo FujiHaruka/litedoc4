@@ -4,8 +4,8 @@
 # `crates/litedoc4/src/packages.rs` can only build a version-pinned blob URL out
 # of a manifest entry that is `type: git` with a 40-hex `rev`. Every one of the
 # measurement target's packages is exactly that, so the branch that handles a
-# dependency it *cannot* pin had never run outside a unit test — README's
-# 未検証項目 #10. A path require is the cheapest real instance of it: no network,
+# dependency it *cannot* pin had never run outside a unit test.
+# A path require is the cheapest real instance of it: no network,
 # no Mathlib, and Lake writes `{"type": "path", "dir": …}` with no `url` and no
 # `rev` at all.
 #
@@ -18,7 +18,7 @@ version = "0.1.0"
 defaultTargets = ["«Dep-Aux»"]
 
 # A module root whose name is not an identifier, so every module under it is
-# spelled `«Dep-Aux».Basic` in the IR and `Dep-Aux.Basic` in the `.lidx`
-# (README's 未検証項目 #4). `e2e/README.md` records what that difference does.
+# spelled `«Dep-Aux».Basic` in the IR and `Dep-Aux.Basic` in the `.lidx`.
+# `e2e/README.md` records what that difference does.
 [[lean_lib]]
 name = "«Dep-Aux»"

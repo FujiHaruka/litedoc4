@@ -12,13 +12,13 @@
 # The name is `<cargo test target>::<test>`, because two names are each carried
 # by more than one test: `the_corpus_matches_the_prototype` (ledger, impact,
 # merge) and `the_whole_corpus_matches_the_prototype` (autolink, fragment).
-# Bare names collapse the inventory from 21 entries to 19【実測 2026-08-23】.
+# Bare names collapse the inventory from 21 entries to 19 (measured 2026-08-23).
 # A trailing `# …` says what the test needs.
 #
 # Doctests are **not** in here, so `cargo test --workspace` reports one more
 # ignored test than this file has entries: `crates/litedoc4/src/cli.rs`'s
 # ```ignore``` sketch is an illustration, not a test with an input it cannot
-# reach【実測 2026-08-23】. The gate does refuse in both directions — deleting a
+# reach (measured 2026-08-23). The gate does refuse in both directions — deleting a
 # line here fails with `ignored but not in the inventory`, checked by deleting
 # one.
 

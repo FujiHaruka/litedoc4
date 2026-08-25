@@ -21,7 +21,7 @@
 //! thirteen plausible mistakes were applied to the two stages, the whole-corpus
 //! byte comparison caught seven, and of the six that escaped it one —
 //! `fs::metadata` losing its symlink-following — escaped these tests too, until
-//! `pageIsDanglingSymlink` and its case were added【実測 2026-08-12】.
+//! `pageIsDanglingSymlink` and its case were added (measured 2026-08-12).
 
 #![expect(
     clippy::case_sensitive_file_extension_comparisons,
@@ -228,7 +228,7 @@ const HARNESS: [&str; 53] = [
 /// the scenario: the deletion guards (no module name reaches either, because
 /// [`page_of`] turns every dot into a separator), the UTF-16 / code-point traps
 /// (the package has no name above the BMP — 0 of 4,750 declaration names, 0
-/// module names【実測 2026-08-12】), flags a real run always passes, input
+/// module names (measured 2026-08-12)), flags a real run always passes, input
 /// shapes only a hand edit produces, and graph or page-tree shapes the target
 /// does not have. Each case below says which.
 ///

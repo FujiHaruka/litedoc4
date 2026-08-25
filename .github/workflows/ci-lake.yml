@@ -140,7 +140,7 @@ jobs:
           # A real consumer is a git checkout with a GitHub `origin`, and
           # `litedoc4 build` derives --source-url from exactly that. The first
           # version of this step skipped it and the job failed with
-          # `git rev-parse HEAD … not a git repository` 【実測 2026-08-18】 — the
+          # `git rev-parse HEAD … not a git repository` (measured 2026-08-18) — the
           # fixture, not the product, was the thing that did not look like a
           # user's package. `.lake/` is excluded because `lake update` clones
           # litedoc4 into it and a repository inside a repository is not what is

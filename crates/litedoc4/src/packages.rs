@@ -8,7 +8,7 @@
 //! | which module roots that dependency provides | a scan of `<packagesDir>/<name>/` |
 //! | **Lean core's revision** | **`lean --githash`** — core is not in the manifest |
 //!
-//! # Four things the scan found that a reading of Lake would not have 【実測】
+//! # Four things the scan found that a reading of Lake would not have (measured)
 //!
 //! 1. **A manifest name is not always the directory name.** doc-gen4 is
 //!    `«doc-gen4»` in the manifest — Lake writes a name that needs quoting with
@@ -33,7 +33,7 @@
 //! rendering with: a site with no external links is still a site, while one
 //! missing *mathlib's* links is a regression worth stopping for.
 //!
-//! # A dropped entry still contributes its roots — with **no** base 【実測 2026-08-17】
+//! # A dropped entry still contributes its roots — with **no** base (measured 2026-08-17)
 //!
 //! An entry that cannot be version-pinned is dropped as a *link target*, but its
 //! directory is still scanned and its roots go into the map **with an empty
@@ -56,7 +56,7 @@ use litedoc4_render::ExternalLinks;
 pub(crate) const CORE_URL: &str = "https://github.com/leanprover/lean4";
 
 /// Core's module roots and the directory each lives in inside that checkout.
-/// **`Lake` is not under `src/` with the other three** 【実測】, and sharing one
+/// **`Lake` is not under `src/` with the other three** (measured), and sharing one
 /// base would 404 every Lake link.
 pub(crate) const CORE_ROOTS: [(&str, &str); 4] = [
     ("Init", "src"),
@@ -411,13 +411,13 @@ fn lean_beside(lake: &Path) -> PathBuf {
 ///
 /// **Not `lake env lean --githash`**, which costs **0.763 s** of a 5.33 s
 /// one-module incremental — the largest item after the Lean environment load
-/// 【実測 2026-08-17 → `benchmarks/results/g3-attribution-2026-08-17.txt`】.
+/// (measured 2026-08-17 → `benchmarks/results/g3-attribution-2026-08-17.txt`).
 /// Nearly all of it is Lake's own start-up, and `--githash` needs none of what
 /// Lake sets: not `LEAN_PATH`, not the build tree, not the dependencies. What it
 /// needs is the toolchain, and that is elan's answer — its `lean` shim resolves
 /// the same `lean-toolchain` from the working directory that `lake env lean`
 /// ultimately hands to the same shim. **The two were measured to agree** on both
-/// targets, byte for byte, with byte-identical sites either way (同ログ). That
+/// targets, byte for byte, with byte-identical sites either way (same log). That
 /// equality is the whole argument: a setup that broke it would return a
 /// *different* revision rather than an error, and every external link into Lean
 /// core would point at the wrong commit. The guard is [`is_revision`] plus the
@@ -425,7 +425,7 @@ fn lean_beside(lake: &Path) -> PathBuf {
 /// every page loudly rather than editing a few links quietly.
 ///
 /// **Only stdout is read.** Warnings go to stderr — the measurement target prints
-/// one about a dependency with local changes 【実測】 — and folding those into the
+/// one about a dependency with local changes (measured) — and folding those into the
 /// answer would produce a revision that is not one.
 fn core_githash(root: &Path, lake: &Path) -> Result<String, String> {
     let lean = lean_beside(lake);
@@ -785,8 +785,8 @@ mod tests {
         );
         assert_eq!(resolved.declared, 9, "the target's manifest declares 9");
         // A collision reappearing is a fact about the dependency set worth
-        // failing on, so this is an empty set rather than a count 【実測
-        // 2026-08-16: none】.
+        // failing on, so this is an empty set rather than a count (measured
+        // 2026-08-16: none).
         assert_eq!(
             resolved.collisions,
             Vec::<String>::new(),
@@ -888,7 +888,7 @@ mod tests {
     /// **Only the mismatch bucket is a failure.** The two populations are not the
     /// same set — the `.lidx` is the environment this extraction loaded, while
     /// the oracle is whatever pages that doc-gen4 build happened to write — so
-    /// every bucket is printed with its 母数 and only a name the two *both* have
+    /// every bucket is printed with its denominator and only a name the two *both* have
     /// and disagree about fails.
     #[test]
     #[ignore = "corpus: needs LITEDOC4_LINK_INDEX + LITEDOC4_DECL_URLS (tools/corpus-gate.sh)"]

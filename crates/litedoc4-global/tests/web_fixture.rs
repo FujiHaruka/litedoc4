@@ -33,7 +33,7 @@ type Case = (&'static str, usize, usize);
 /// - twenty `Pkg.block.n**` — more than [`RESTART`], so the second block starts
 ///   with a name written out whole and the restart table has to be consulted.
 /// - `Pkg.script𝒜` — **astral**. One code point, two UTF-16 units, four UTF-8
-///   bytes: the length the ranking counts is 2, not 1 (U1, 実測 2026-08-19).
+///   bytes: the length the ranking counts is 2, not 1 (U1, measured 2026-08-19).
 /// - `Pkg.Γamma` — `toLowerCase()` and "add 32 to A-Z" disagree, so this one
 ///   lands in the fold section and the reader has to substitute it.
 /// - `Pkg.` + 400 × `x` — past 254 bytes, where the suffix length escapes to a

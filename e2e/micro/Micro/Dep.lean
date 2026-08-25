@@ -25,7 +25,7 @@ module names **unescaped** and the IR does not:
 * `Dep-Aux/Basic.lean` — a source path, which `module_for_source_path` escapes
   before it looks anything up
 
-Whether each of the three resolves is what README's 未検証項目 #4 is about, and
-`../README.md` records what was measured.
+Whether each of the three resolves is the thing under test here, and
+`e2e/README.md` records what was measured.
 -/
 def Micro.usesDep : Nat := DepAux.marker + 1

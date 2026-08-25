@@ -619,7 +619,7 @@ body.plain .modhead h1 { font-size: clamp(1.75rem, 1.1rem + 2.6vw, 2.75rem); }
        produce that element.
 
    The `menclose` block is kept even though the measurement corpus produces
-   none 【実測 2026-08-22: 0 of 2,113 converted spans】. It is not dead the way
+   none (measured 2026-08-22: 0 of 2,113 converted spans). It is not dead the way
    the `merror` rule is: a docstring that writes `\cancel{…}` produces it, and
    without these rules Chromium draws nothing at all. */
 
@@ -677,7 +677,7 @@ mtr > mtd:last-child { padding-right: 0; }
 }
 
 /* Chromium and Safari — the accent gap Firefox already produces. 42 of the
-   corpus's spans carry an accent 【実測 2026-08-22】. */
+   corpus's spans carry an accent (measured 2026-08-22). */
 @supports (not (-moz-appearance: none)) {
   mover[accent="true" i] > mo:nth-child(2) { margin-bottom: .15ex; }
 }

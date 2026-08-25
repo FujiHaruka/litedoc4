@@ -19,8 +19,8 @@ the only place where the *whole* path — Lean docstring, extractor, IR, rendere
 `MD_FLAG_LATEXMATHSPANS` saw a `$` where Lean put one.
 
 The measurement target has **three** math spans in 5,079 docstrings, so it could
-never have exercised this 【実測 2026-08-22 →
-`benchmarks/results/mathml-2026-08-22.txt`】.
+never have exercised this (measured 2026-08-22 →
+`benchmarks/results/mathml-2026-08-22.txt`).
 -/
 
 namespace Micro.Math
@@ -43,7 +43,7 @@ def escapes (a : Nat) : Nat := a
 /-- **The fallback.** `\colim` is not a command the converter implements, so
 this span stays $\colim_k F(k)$ — dollars, source, escaping, exactly what the
 page held before MathML existed. It is one of the nine spans in Mathlib that
-fail 【実測 2026-08-22】.
+fail (measured 2026-08-22).
 
 **Do not "fix" this to a command that parses.** It is the input. -/
 theorem fallbackStays (n : Nat) : Micro.double n = n + n := rfl

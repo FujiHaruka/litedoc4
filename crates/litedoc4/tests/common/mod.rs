@@ -163,7 +163,7 @@ rm -f "$ENTRIES"
 // `litedoc4-incr::merge` recomputes the array from the merged module files
 // rather than taking the incremental tree's, so a world with a dependency map
 // spliced into that array leaves every test in `incremental.rs` green
-// 【実測 2026-08-23】. Hence the bytes each flavour writes are pinned here,
+// (measured 2026-08-23). Hence the bytes each flavour writes are pinned here,
 // where a change to one flavour is visible next to the other.
 #[cfg(test)]
 mod tests {

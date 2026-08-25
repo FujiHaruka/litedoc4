@@ -24,7 +24,7 @@ export interface InstancesFile {
 /**
  * A name with no users is **absent**, not an empty array — the file is the
  * largest of the four and 81% of the target package's declarations have no
- * users 【実測 2026-08-22】.
+ * users (measured 2026-08-22).
  */
 export type UsedByFile = Readonly<Record<string, readonly string[]>>;
 
@@ -69,7 +69,7 @@ export interface SearchIndex {
   /**
    * Scored in place: allocated once per page, and sized to what they hold
    * rather than to a machine word. Three `Int32Array`s cost **55 KiB of the
-   * 156 KiB** the index took in Chrome 【実測 2026-08-19】, against a file of
+   * 156 KiB** the index took in Chrome (measured 2026-08-19), against a file of
    * 106 KiB.
    */
   readonly score: Uint16Array;

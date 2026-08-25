@@ -269,7 +269,7 @@ impl Live {
 
 /// `Child` does **not** kill on drop, and this process serves a port and
 /// rewrites a directory: one left behind holds both, and the next thing to use
-/// either reports a fault that is not its own 【実測 2026-08-21】. `Drop` runs on
+/// either reports a fault that is not its own (measured 2026-08-21). `Drop` runs on
 /// a panicking assertion, which is the case that matters — killing the child on
 /// a test's last line would leak one on every failure.
 struct Watching {

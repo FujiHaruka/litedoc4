@@ -6,7 +6,7 @@
 # `Cargo.toml`. This gate is the only place either of them is executed —
 # `tools/lake-package-gate.sh` sets `LITEDOC4_BIN`, which is source 1, so it
 # returns before sources 2..5 are reached and has never run a line of this code
-# 【実測 2026-08-18】. **This gate must therefore never set `LITEDOC4_BIN`**:
+# (measured 2026-08-18). **This gate must therefore never set `LITEDOC4_BIN`**:
 # setting it would turn every item below into a check of nothing, and the output
 # would look exactly the same.
 #

@@ -7,7 +7,7 @@
 //!
 //! The rule is doc-gen4's: every page of its reference tree already carries the
 //! URL this builds, with an `#L<a>-L<b>` anchor on every one of 241,553 entries
-//! over 6,080 pages 【実測 2026-08-16 → `benchmarks/results/m7a-summary.txt`】.
+//! over 6,080 pages (measured 2026-08-16 → `benchmarks/results/m7a-summary.txt`).
 //! So a lookup needs only **which prefix a module's first component belongs
 //! to** — mathlib's is the manifest's `url` plus its 40-hex `rev`, core's
 //! carries a `/src` on the end because that is where the lean4 checkout keeps
@@ -31,7 +31,7 @@
 //! dependency, or one pinned at a tag, has no version-pinned URL, so every link
 //! into it becomes a **relative link to a page this site never writes** — three
 //! dead links per shape (the import list, a docstring's name reference, a
-//! signature's constant) 【実測 2026-08-17】. Such a root is carried **with an
+//! signature's constant) (measured 2026-08-17). Such a root is carried **with an
 //! empty base** and [`crate::autolink::NameIndex::link_to`] answers `None`: a
 //! link to the wrong page is worse than no link. It is *not* the case of a
 //! declaration with no line range inside a package that **is** pinned — there
@@ -41,11 +41,11 @@
 //! [`DepDocs`], where a reader lands on a page with the signature, the
 //! docstring and the instances instead of on a `.lean` file. That is not simply
 //! better, because such a site is built from one revision (mathlib4_docs from
-//! `master`, with no versioned copy 【実測 2026-08-19,
-//! `benchmarks/results/deps-link-rot-2026-08-19.txt` §9】) while the manifest
+//! `master`, with no versioned copy (measured 2026-08-19,
+//! `benchmarks/results/deps-link-rot-2026-08-19.txt` §9)) while the manifest
 //! pins another, so a name this package refers to may not be on it: **0 of 396
-//! Mathlib names missing at a two month pin 【実測】, 10.3 of 396 expected at
-//! twelve 【外挿】**. So the state carries the site's **declaration table** and
+//! Mathlib names missing at a two month pin (measured), 10.3 of 396 expected at
+//! twelve (extrapolated)**. So the state carries the site's **declaration table** and
 //! the rule is one rule rather than a fallback chain: the table holds the name
 //! ⇒ the docs page at the table's own `docLink`; it does not ⇒ the
 //! version-pinned source; there is no table ⇒ the version-pinned source. A run
@@ -497,7 +497,7 @@ mod tests {
         );
     }
 
-    /// **The third state** 【実測 2026-08-17】. The two roots either side of it
+    /// **The third state** (measured 2026-08-17). The two roots either side of it
     /// are in the same map, so a change that answered `None` too widely fails
     /// here rather than somewhere downstream.
     #[test]

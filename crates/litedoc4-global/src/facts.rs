@@ -63,7 +63,7 @@ pub struct ModuleFacts {
     /// verbatim into [`litedoc4_ir::Decl::inst_types`], so nothing is re-derived
     /// here — the IR is read. Measured against doc-gen4's own
     /// `declarations/declaration-data.bmp`: **59 of 59** shared instances agree
-    /// exactly 【実測 2026-08-16】, where taking every constant in the printed
+    /// exactly (measured 2026-08-16), where taking every constant in the printed
     /// type instead agrees with **0 of 59**.
     pub instances_for: Vec<(String, String)>,
     /// **Which of this module's declarations mention each constant** — the
@@ -73,7 +73,7 @@ pub struct ModuleFacts {
     /// Value: **indices into [`ModuleFacts::decls`]**, ascending and
     /// deduplicated. Indices rather than names because names are what makes this
     /// field large: 54,424 edges over 422 modules cost 469 KB as indices and
-    /// about four times that as names 【実測 2026-08-22】, on a state file that
+    /// about four times that as names (measured 2026-08-22), on a state file that
     /// was 838 KB.
     ///
     /// **Not filtered to this package, on purpose.** A reference whose defining
@@ -221,8 +221,8 @@ pub fn autolink_tokens(doc: &str) -> Vec<String> {
 /// The tables disagree on 4,803 code points, every one of them a separator for
 /// V8 and not for UnicodeBasic — a UCD version gap, the code points being
 /// assigned in UnicodeBasic's database and unassigned (`Cn`, inside `C`) in
-/// V8's 【実測 2026-08-12 →
-/// `benchmarks/results/m2b-v6-token-separators.json`】. So the first disjunct is
+/// V8's (measured 2026-08-12 →
+/// `benchmarks/results/m2b-v6-token-separators.json`). So the first disjunct is
 /// dead today and stays: the two tables are pinned to things that move
 /// independently (a `lake-manifest.json` rev and a V8 build), and the day one
 /// gains a separator the other lacks, the `||` is what keeps this a superset of
@@ -431,7 +431,7 @@ mod tests {
                 unicode_basic_only += 1;
             }
         }
-        // 【実測 2026-08-12 → benchmarks/results/m2b-v6-token-separators.json】
+        // (measured 2026-08-12 → benchmarks/results/m2b-v6-token-separators.json)
         assert_eq!(
             v8_only, 4_803,
             "the code points only the prototype splits on are not the 4,803 V6 measured"

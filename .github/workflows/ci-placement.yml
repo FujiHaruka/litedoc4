@@ -2,8 +2,8 @@
 # and in a SEPARATE job, on a real runner.
 #
 # The whole `litedoc4 build` comes out at 1.08-1.58x between the two, n=5, on
-# the 4-core / 15.6 GiB runner 【実測 run 31956756819, 2026-08-16 →
-# benchmarks/results/ci-placement-5-summary.txt】. The 8-34x figure elsewhere in
+# the 4-core / 15.6 GiB runner (measured run 31956756819, 2026-08-16 →
+# benchmarks/results/ci-placement-5-summary.txt). The 8-34x figure elsewhere in
 # this repository is `importModules` alone on the 2-core / 7.75 GiB runner
 # (`ci-import-modules.yml`): the mechanism survives, the premise that a split job
 # starts cold does not. The two numbers do not belong next to each other.
@@ -21,7 +21,7 @@
 #          twice.
 #   cold   the `same` runner again, with `drop_caches` before each build. The
 #          control, not a placement: the first run of this A/B came back at 1.06x
-#          【実測 2026-08-16, run 31955398801, n=1】, and a null result is
+#          (measured 2026-08-16, run 31955398801, n=1), and a null result is
 #          unreadable without a condition where the instrument is known to show a
 #          difference.
 #
@@ -37,7 +37,7 @@
 # `benchmarks/tools/check-placement.sh` runs per arm and again over the union:
 # every declared run reported, nothing reported that was not declared, and every
 # arm a byte-identical site. Two clean builds of this target agree byte for byte
-# 【実測 2026-08-17, local】, so a disagreement means the arms did different work
+# (measured 2026-08-17, local), so a disagreement means the arms did different work
 # and the ratio between them is not a ratio of anything.
 name: CI placement A/B (measurement)
 

@@ -66,7 +66,7 @@ npx tsc -p tsconfig.node.json
 
 echo "== tests (vitest)"
 # A full template, not `mktemp -t <prefix>`: BSD mktemp appends the random part to
-# a prefix, GNU mktemp demands the X's and fails with "too few X's" 【実測 2026-08-19】.
+# a prefix, GNU mktemp demands the X's and fails with "too few X's" (measured 2026-08-19).
 REPORT="$(mktemp "${TMPDIR:-/tmp}/assets-gate-vitest.XXXXXX")"
 # `--outputFile` and not a pipe: through a pipe the exit code would be the last
 # command's, not vitest's.

@@ -123,7 +123,7 @@ cp "$SRC/lake-manifest.json" "$OUT/lake-manifest.json"
 # measurement target's manifest is not this script's to keep still — a verbatim
 # copy became a lakefile Lake will not resolve when the target moved doc-gen4
 # behind a condition: **`error: dependency '«doc-gen4»' not in manifest`**
-# 【実測 2026-08-16, CI】. The clone path never saw it, because it never asks
+# (measured 2026-08-16, CI). The clone path never saw it, because it never asks
 # Lake to resolve anything. Only mathlib is required — the other manifest entries
 # are its own transitive set, which Lake reads from the same file.
 command -v jq > /dev/null || { echo "jq is required to read the copied manifest" >&2; exit 1; }
@@ -351,8 +351,8 @@ end Beta.Basic
 LEAN
 
 # U+088F ARABIC HALF MADDA OVER MADDA: the first of the 4,803 code points V8
-# splits tokens on and UnicodeBasic does not 【実測 →
-# benchmarks/results/m2b-v6-token-separators.json】. It is inside a code span
+# splits tokens on and UnicodeBasic does not (measured →
+# benchmarks/results/m2b-v6-token-separators.json). It is inside a code span
 # because that is the only place `ModuleFacts::tokens` looks
 # (`litedoc4-global/src/facts.rs`).
 cat > "$OUT/Beta/TokenSep.lean" <<'LEAN'
@@ -396,7 +396,7 @@ namespace Beta.DupNames
 
 /-- Forces `Alpha.Basic.step`'s equation lemmas to be realised here, so that a
 name declared in one module ends up in a second module's olean — the shape
-plan 決定 5 calls "one name, several modules" (25 of them on the measurement
+plan decision 5 calls "one name, several modules" (25 of them on the measurement
 target). -/
 theorem step_zero : Alpha.Basic.step 0 = 0 := by simp [Alpha.Basic.step]
 

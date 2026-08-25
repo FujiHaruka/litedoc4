@@ -8,7 +8,7 @@
 # `lake build` and the docs are in the same job because the extractor's floor is
 # loading the Lean environment, and that cost is page cache, not Lean: same
 # runner, cache dropped, 13.5-22.3 s against 2.4-2.6 s resident — **5.2-11.9x**
-# 【実測 2026-08-16, n=5】. A split "docs" job is not reliably cold (it writes
+# (measured 2026-08-16, n=5). A split "docs" job is not reliably cold (it writes
 # the oleans itself), so the split's cost depends on the runner's RAM against
 # the package's working set; one job does not have to ask.
 #
@@ -24,7 +24,7 @@
 # package's toolchain exists. It does not change between commits of the package,
 # so in CI it belongs in a cache keyed on `lean-toolchain` + the hash of
 # `Extract.lean`. Cost **14.90 s wall / 10.07 s user, peak RSS 1.52 GB** on an
-# Apple M1, warm 【実測 2026-08-15】.
+# Apple M1, warm (measured 2026-08-15).
 #
 # usage:
 #   ci-build.sh --root <lean package> --out <dir> [options] [-- <build args>...]
@@ -181,7 +181,7 @@ t="$(now)"
 # workflow's cache key for `target/` is `hashFiles('litedoc4/Cargo.lock')`, which
 # does not move when litedoc4's *sources* do, so "the binary exists" was true of
 # a binary built from a different commit and the run measured code nobody had
-# written yet 【実測 2026-08-17, runs 31963079828 / 31963305864】. Cargo knows
+# written yet (measured 2026-08-17, runs 31963079828 / 31963305864). Cargo knows
 # whether the binary matches the sources; a shell `-x` test does not, and a fresh
 # tree costs ~0.2 s here.
 #

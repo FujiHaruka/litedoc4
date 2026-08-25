@@ -5,8 +5,8 @@
 //! file knows there is a network.
 //!
 //! **The rule.** A dependency's documentation is built from *a* revision
-//! (mathlib4_docs from `master`; no versioned copy exists 【実測 2026-08-19,
-//! `benchmarks/results/deps-link-rot-2026-08-19.txt` §9】) and the manifest pins
+//! (mathlib4_docs from `master`; no versioned copy exists (measured 2026-08-19,
+//! `benchmarks/results/deps-link-rot-2026-08-19.txt` §9)) and the manifest pins
 //! *another*, so the two can disagree about whether a name exists:
 //!
 //! * the site's declaration table holds the name ⇒ **the docs page**;
@@ -16,7 +16,7 @@
 //!
 //! There is no "try the docs site and fall back on a 404": a build cannot see a
 //! 404, and avoiding one is the entire reason the source link is pinned.
-//! 【実測】 at a two month pin the fallback fires 0 times in 396 names; 【外挿】
+//! (measured) at a two month pin the fallback fires 0 times in 396 names; (extrapolated)
 //! at twelve months, 10.3 times.
 //!
 //! **`curl` rather than an HTTP client**, which would be a dependency tree with
@@ -26,7 +26,7 @@
 //! is the "table could not be read" state above.
 //!
 //! **The table is streamed**: the real one is 66,715,005 B of JSON with 420,714
-//! declarations and 11,351 modules 【実測 2026-08-19】 and a build of the
+//! declarations and 11,351 modules (measured 2026-08-19) and a build of the
 //! measurement target already peaks near 4 GB. The two halves are bounded
 //! differently because their smallest available bound differs:
 //!
@@ -64,14 +64,14 @@ use crate::{Failure, usage};
 /// and copying it is how the default finds the file.
 const DEFAULT_INDEX: &str = "declarations/declaration-data.bmp";
 
-/// The handshake only: 5.7 MB gzipped 【実測】 over a slow link is a long
+/// The handshake only: 5.7 MB gzipped (measured) over a slow link is a long
 /// download and a correct one. This catches a host that never answers.
 const CONNECT_TIMEOUT: &str = "10";
 
 /// The whole transfer, which `--connect-timeout` does not bound — a stalled one
 /// would hang the build with no output. Not a tuning knob: the measured fetch of
-/// mathlib4_docs' table is 0.63 s 【実測 2026-08-19,
-/// benchmarks/results/deps-link-rot-2026-08-19.txt】, so anything near this is a
+/// mathlib4_docs' table is 0.63 s (measured 2026-08-19,
+/// benchmarks/results/deps-link-rot-2026-08-19.txt), so anything near this is a
 /// link that is never going to finish.
 const MAX_TIME: &str = "120";
 
@@ -375,7 +375,7 @@ fn fetch(url: &str, want: &Want, roots: &BTreeSet<String>) -> Result<Found, Prob
     let mut child = Command::new("curl")
         // `--fail` so that an HTML error page is an exit code rather than a
         // parse failure; `--compressed` because the table is 8.5% of its size
-        // gzipped 【実測】; `--location` because a docs site is usually a
+        // gzipped (measured); `--location` because a docs site is usually a
         // redirect away.
         .args([
             "--fail",

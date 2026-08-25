@@ -24,7 +24,7 @@ Four positions, and the last one is why the gate cannot be a count:
 `@[ext]`'s: it must stay unclaimed.
 
 The measurement target has one `@[ext]` and two realized theorems in 4,584
-declarations 【実測 2026-08-21】, and `Micro.Gen.Solo` is a shape it does not
+declarations (measured 2026-08-21), and `Micro.Gen.Solo` is a shape it does not
 have at all.
 -/
 

@@ -8,7 +8,7 @@
 //! re-encoding each fragment into `Vec<u16>`: everything downstream wants UTF-8
 //! again, slicing stays borrow-only, and a fragment whose UTF-16 length equals
 //! its UTF-8 length is pure ASCII and needs no table at all (10,016 of the
-//! target package's 55,514 tagged fragments 【実測】). The table is built on
+//! target package's 55,514 tagged fragments (measured)). The table is built on
 //! first use, because a full IR read touches every fragment's *text* but only
 //! slices the modules it renders.
 //!

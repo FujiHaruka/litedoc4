@@ -21,7 +21,7 @@
 //!   blocks, so this is load-bearing, not cosmetic.
 //!
 //! Three inputs make the Lean wrapper do something undefined — all three kill
-//! the process 【実測】 — so none can be matched. Each is decided here and
+//! the process (measured) — so none can be matched. Each is decided here and
 //! pinned by `tests/md4lean.rs`:
 //!
 //! 1. **A NUL inside a code block.** md4c reports `MD_TEXT_NULLCHAR` even in

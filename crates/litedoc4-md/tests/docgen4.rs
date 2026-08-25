@@ -109,7 +109,7 @@ fn the_fixture_is_doc_gen4s_own_output() {
         Some("0bc516c1b9db83658d6475c40d9b1ed71219b921"),
         "the doc-gen4 the reference tree was built with"
     );
-    // 実測: the target package's IR holds this many distinct docstrings.
+    // measured: the target package's IR holds this many distinct docstrings.
     assert_eq!(e.ir_docstrings, 4_858);
     // The root reaches the bytes, so more than one of them has to be exercised.
     assert_eq!(e.roots, ["./", ".././", "../.././"]);

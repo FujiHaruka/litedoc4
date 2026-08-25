@@ -3,8 +3,8 @@
 #
 #   X3  uniqueness  — on Linux, is `extract` decided by the toolchain alone?
 #                     macOS says yes: 4 builds, 0 to 15 dependency packages, one
-#                     SHA-256 【実測 → benchmarks/results/extractor-uniqueness-
-#                     2026-08-18.txt】. Linux may link differently.
+#                     SHA-256 (measured → benchmarks/results/extractor-uniqueness-
+#                     2026-08-18.txt). Linux may link differently.
 #   X4  portable    — does a binary built in one job still work in another job,
 #                     on another runner, reached only through an artifact?
 #   X5  mismatch    — run against a toolchain it was NOT built for, does it fail
@@ -158,7 +158,7 @@ jobs:
       # The whole e2e/ directory, not just micro: `e2e/micro` requires
       # `../micro-dep` by path, so copying the one directory produces a package
       # lake cannot resolve — and that failure reads as "the toolchain mismatch
-      # was refused" while the extractor never started 【実測】. Both fixtures
+      # was refused" while the extractor never started (measured). Both fixtures
       # move together and both get the new pin.
       - name: A package pinning the other toolchain
         run: |

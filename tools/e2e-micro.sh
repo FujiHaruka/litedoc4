@@ -18,10 +18,10 @@
 # 41 branches never fire over the real package
 # (crates/litedoc4-render/tests/page_parts.rs), and one of them was silently
 # rendering nothing — an inductive's constructors missing from their page while
-# the search index still linked to them 【実測】.
+# the search index still linked to them (measured).
 #
 # **No assertion here is a duration.** The oleans are mmap'ed, so an unchanged
-# run's environment load moves 5x with the page cache (2.5 s <-> 13 s 【実測】):
+# run's environment load moves 5x with the page cache (2.5 s <-> 13 s (measured)):
 # a threshold over seconds is either loose enough to pass a regression or tight
 # enough to fail a cold runner. What is decidable is the *work* — deterministic
 # integers — and it is read out of `litedoc4-build.json` rather than grepped out
@@ -340,7 +340,7 @@ say "9/15 GATE 8 — attributes arrive split into name and value"
 # `Micro/Attrs.lean` holds one declaration per *kind* of attribute the four
 # collectors produce. The measurement target has none of the hard shapes — 163
 # occurrences over 6 distinct strings, all bare names but one `deprecated`
-# 【実測 2026-08-21】 — so this fixture is where they exist at all. Reads the IR,
+# (measured 2026-08-21) — so this fixture is where they exist at all. Reads the IR,
 # not the site: the page still prints the rejoined string. Runs before GATE 6,
 # which appends a probe declaration to the fixture and rebuilds it.
 #
@@ -469,7 +469,7 @@ say "10/15 GATE 9 — the origin of a realized declaration, and the three ways o
 # Lean gives a declaration it realizes from an attribute the position of **the
 # attribute token**, and no rule over `(line, col)` gets from there to the parent:
 # in a 144-group Mathlib sample the parent was in the group 0 times and 47 groups
-# spanned two or more namespaces 【実測】. So the extractor names the origin
+# spanned two or more namespaces (measured). So the extractor names the origin
 # itself, from core's `extExtension` plus `selectionRange`. Reads the IR, not the
 # site.
 #
@@ -483,8 +483,8 @@ say "10/15 GATE 9 — the origin of a realized declaration, and the three ways o
 # is that `selectionRange == range` holds for **42** declarations here and only 9
 # of them are realized by `@[ext]` — the other 33 are projections, constructors
 # and a `scoped notation` — so a rule reading range equality as "generated" claims
-# 42 and fails here 【実測 2026-08-21, same shape over 2,786 Mathlib declarations
-# → benchmarks/results/generated-decls-2026-08-21.txt】. The **falsifier** is that
+# 42 and fails here (measured 2026-08-21, same shape over 2,786 Mathlib declarations
+# → benchmarks/results/generated-decls-2026-08-21.txt). The **falsifier** is that
 # every origin named is a declaration this IR has and none of the realized ones
 # sorts before it — a property of one Lean version's `declRange` rather than a
 # law, so it is counted rather than assumed.
@@ -677,7 +677,7 @@ def want(label, got, expected):
 
 # A missing key exits here rather than defaulting to a number that would pass: a
 # gate looking for a key that is not there checks nothing at all, and one in this
-# repository did 【実測 2026-08-18】.
+# repository did (measured 2026-08-18).
 if "mathFallbacks" not in work:
     sys.exit("GATE 10 FAIL  the marker has no work.mathFallbacks")
 want("work.mathFallbacks", work["mathFallbacks"], 1)
@@ -715,7 +715,7 @@ MATHPY
 say "12/15 GATE 11 — every reverse reference agrees with the IR, both ways"
 # See doc-gen4 #77. Its own file because it is worth running against the
 # measurement target too, where the numbers are 849 targets over 10,163 edges
-# 【実測 2026-08-22】 rather than the fixture's handful.
+# (measured 2026-08-22) rather than the fixture's handful.
 "$HERE/usedby-gate.sh" --ir "$OUT/first/ir" --site "$OUT/first/site"
 
 say "13/15 GATE 12 — litedoc4.toml reaches every command that writes HTML"
@@ -745,7 +745,7 @@ cp "$PROBE" "$OUT/probe.orig"
 # `if`, not `[ … ] && cp`: an EXIT trap's last command decides the script's exit
 # status, and with a temporary --out this function runs *after* `$OUT` has been
 # deleted, so the test is false and the `&&` form returned 1 — this script printed
-# "E2E MICRO: ok" and exited 1 【実測 2026-08-18】. A failing `cp` still fails here.
+# "E2E MICRO: ok" and exited 1 (measured 2026-08-18). A failing `cp` still fails here.
 restore_probe () {
   if [ -f "$OUT/probe.orig" ]; then cp "$OUT/probe.orig" "$PROBE"; fi
 }

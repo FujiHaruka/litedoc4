@@ -1,5 +1,5 @@
 # Only the Rust binary is shipped. The Lean extractor is 171 MB against this
-# binary's 2.5 MB, and building it takes ~16 s against cargo's ~24 s 【実測】:
+# binary's 2.5 MB, and building it takes ~16 s against cargo's ~24 s (measured):
 # shipping the small one removes a 24 s build and a several-hundred-MB cargo
 # cache from every user's CI, while shipping the large one would trade a 16 s
 # build for a 46 MB download and a matrix that multiplies by toolchain. Whether
@@ -55,8 +55,8 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
           # No x86_64-apple-darwin: it needs an Intel runner to be *tested* on,
-          # and `macos-13` does not start here 【実測 2026-08-18: queued >15 min
-          # without ever starting】. Cross-compiling from the arm runner would
+          # and `macos-13` does not start here (measured 2026-08-18: queued >15 min
+          # without ever starting). Cross-compiling from the arm runner would
           # produce a binary nobody had executed — the "it built, therefore it
           # works" the smoke job below exists to refuse. Intel macOS builds from
           # source.

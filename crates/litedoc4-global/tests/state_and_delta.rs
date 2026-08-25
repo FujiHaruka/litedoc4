@@ -136,8 +136,8 @@ const CORPUS_DELTA: [&str; 17] = [
 /// name above the BMP, never more than twenty changed names, never a change that
 /// nothing mentions, the pipeline always asks for the print set, and **no code
 /// span in any docstring holds a code point the two separator sets disagree
-/// about** (0 of 233,713 code points inside 16,044 code spans 【実測 2026-08-12
-/// → `benchmarks/results/m2b-v6-token-separators.json`】 — which is why the
+/// about** (0 of 233,713 code points inside 16,044 code spans (measured 2026-08-12
+/// → `benchmarks/results/m2b-v6-token-separators.json`) — which is why the
 /// state file can be the prototype's bytes despite the two implementations
 /// tokenising differently).
 const NO_REAL_DATA_REACHES: [&str; 9] = [
@@ -316,8 +316,8 @@ fn observe(run: &Run<'_>) -> BTreeSet<&'static str> {
 /// Whether any code span in this IR's declaration docstrings holds a code point
 /// **V8 splits on and UnicodeBasic does not** — the direction of the
 /// disagreement that costs correctness. The other direction is not looked for
-/// because it is empty 【実測 2026-08-12, asserted by
-/// `facts::tests::the_two_separator_sets_disagree_the_way_v6_measured_them`】.
+/// because it is empty (measured 2026-08-12, asserted by
+/// `facts::tests::the_two_separator_sets_disagree_the_way_v6_measured_them`).
 ///
 /// Memoised per path: every tree this suite mutates is written before the first
 /// run over it, so the answer for a path does not change once it has been asked.
@@ -772,7 +772,7 @@ fn mutate_modified(ir: &Path) -> String {
 ///
 /// Leaves only, so that the tree stays consistent, and one at a time with a
 /// recompute between, because **the target package has exactly one module nobody
-/// imports** 【実測: the root, which imports all 431 others】 — taking two in one
+/// imports** (measured: the root, which imports all 431 others) — taking two in one
 /// pass would not distinguish "drop the entries that left" from "drop the last
 /// entry".
 fn mutate_removed(ir: &Path, count: usize) -> Vec<String> {
@@ -932,7 +932,7 @@ fn write_synthetic(root: &Path, modules: &[Synthetic], deps: &[(&str, Value)]) {
 
 /// U+1D49C MATHEMATICAL SCRIPT CAPITAL A: a surrogate pair, so it sorts *below*
 /// every BMP name in UTF-16 and above them by code point. No name of the target
-/// package is above the BMP 【実測】, so nothing derived from the corpus can tell
+/// package is above the BMP (measured), so nothing derived from the corpus can tell
 /// the affected set's sort order from a UTF-8 one.
 const ASTRAL: &str = "\u{1D49C}";
 
@@ -1566,7 +1566,7 @@ enum Damage {
 
 /// U+088F ARABIC HALF MADDA OVER MADDA: **a separator for V8 and not for
 /// UnicodeBasic**, one of the 4,803 code points the two tables disagree about
-/// 【実測 2026-08-12】. Nothing in the target package contains any of them.
+/// (measured 2026-08-12). Nothing in the target package contains any of them.
 const V8_ONLY_SEPARATOR: char = '\u{088F}';
 
 /// The tokeniser splits on the **union** of the prototype's separator set and

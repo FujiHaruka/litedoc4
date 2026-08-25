@@ -227,7 +227,7 @@ const HARNESS_AND_INDEX: [&str; 48] = [
 /// them cheaply**. The target's IR has no supplementary scalar at all — 0 of
 /// 4,750 declaration names, 0 reference names, 0 module names — while the
 /// dependency closure's link index has **37 of 264,535** declaration lines
-/// carrying one (`Topology.term𝓝`, `Cardinal.term𝔠`, …)【実測 2026-08-12】. The
+/// carrying one (`Topology.term𝓝`, `Cardinal.term𝔠`, …) (measured 2026-08-12). The
 /// shape has to be inside an IR tree's `refs`, and no dependency IR tree exists
 /// without running the extractor over Mathlib. So these stay curated.
 const NO_REAL_DATA_REACHES: [&str; 23] = [

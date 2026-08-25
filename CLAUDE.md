@@ -1,412 +1,458 @@
-# litedoc4 プロジェクト規則
+# litedoc4 project rules
 
-Mathlib に依存する Lean パッケージのための、高速ドキュメント生成基盤。
-**検証段階は全部完了** (`approach.md` §7 の 1〜8 + CI 軸)。**移設も完了** — 使い捨てプロトタイプ
-(TS + シェル) から Rust の製品ツリー `crates/` への移設は M1〜M8 で終わり、
-プロトタイプは **2026-08-16 に HEAD から撤去した** (→ 下の「撤去したプロトタイプ」)。
-**v0.1 は 2026-08-17 に締めた** — tag **`v0.1.0`**。締めた根拠はゲート A / B の決着だけで、
-**未検証項目は 18 → 13 → 3 件**まで来た。**減り方の中身が本体で、件数ではない**:
-18 → 15 は**分類と鮮度**、15 → 13 は**実際に潰した 2 件**で**どちらも未検証ではなく壊れていた**
-(版固定できない依存へのリンクが死んでいた件と、`batteries` での実走 →
-`benchmarks/results/batteries-2026-08-17.txt`)。**13 → 3 は 2026-08-18 の全件棚卸し** —
-**5 件は実測して決着** (U1〜U5)、**4 件は「未検証ではなかった」ので決定・仕様判断に移し**、
-**2 件を閉じた**。**一覧は復元しない**【決定、ユーザー判断】 — 番号参照は一覧より先に腐っていた。
-旧一覧は `git show e744f79^:README.md` (13 件版) / `git show 117e928:README.md` (18 件版)。
-**そして件数が減ったこととは別に、やることが 1 件増え、同じ日に閉じた** — U5 が
-**Lean v4.33.0 で extractor が建たない**ことを実測し、**3 版 (v4.31.0/v4.32.2/v4.33.0) で
-建つように直した** (→ `benchmarks/results/lean-433-fix-2026-08-18.txt`)。
-**直し方は版で分岐させることではない** — 列挙を Lean 自身の `toAttrString` に委ねた。
-**残り 3 件も「たぶん大丈夫」と読まない。**)
-**「v0.1」を「完成」の意味で書かない。**
-アプローチの SoT は `docs/approach*.md` の 3 ファイル、数字の SoT は `docs/verification-log.md`。
-**実装の SoT はコード**【決定 2026-08-24、ユーザー判断】 — 実装計画・実装ログ・完遂した計画文書
-19 本は同日に削除した。ゲートの定義は `tools/*-gate.sh` と `.github/workflows/`、挙動は
-コードそのものが持ち、コメントが持つのは**非自明な why not だけ** (→ 下の「コードの
-コメント」)。経緯を読むなら git 履歴。**docs を復元しない。**
+A fast documentation generation platform for Lean packages that depend on Mathlib.
+**All verification stages are complete** (`approach.md` §7, 1–8, plus the CI axis). **The migration
+is complete too** — moving from the throwaway prototype (TS + shell) to the Rust product tree
+`crates/` finished in M1–M8, and the prototype was **removed from HEAD on 2026-08-16**
+(→ "The removed prototype" below).
+**v0.1 was closed on 2026-08-17** — tag **`v0.1.0`**. The basis for closing it was only the
+settlement of gates A / B, and **unverified items came down 18 → 13 → 3**.
+**The substance is how they went down, not the count**:
+18 → 15 was **classification and freshness**, 15 → 13 was **2 items actually killed**, and
+**neither was unverified — both were broken** (the dead link to a dependency that cannot be
+version-pinned, and a real run on `batteries` →
+`benchmarks/results/batteries-2026-08-17.txt`). **13 → 3 was the full inventory on 2026-08-18** —
+**5 items were settled by measurement** (U1–U5), **4 were "not actually unverified" and were moved
+to decisions and spec judgements**, and **2 were closed**. **The list is not restored**
+(decided, user's call) — the numbered references rotted before the list did.
+The old lists are `git show e744f79^:README.md` (the 13-item version) /
+`git show 117e928:README.md` (the 18-item version).
+**And separately from the count going down, 1 item was added and closed the same day** — U5
+measured that **the extractor does not build on Lean v4.33.0**, and **it was fixed to build on
+3 versions (v4.31.0/v4.32.2/v4.33.0)** (→ `benchmarks/results/lean-433-fix-2026-08-18.txt`).
+**The fix is not branching on version** — enumeration was delegated to Lean's own `toAttrString`.
+**Do not read the remaining 3 as "probably fine" either.**
+**Do not write "v0.1" to mean "finished".**
+The SoT for the approach is the 3 files `docs/approach*.md`; the SoT for the numbers is
+`docs/verification-log.md`.
+**The SoT for the implementation is the code** (decided 2026-08-24, user's call) — the 19
+implementation plans, implementation logs, and completed planning documents were deleted the same
+day. The definition of the gates is `tools/*-gate.sh` and `.github/workflows/`, the behaviour is
+held by the code itself, and what comments hold is **only the non-obvious why not** (→ "Code
+comments" below). To read the history, read git. **Do not restore docs.**
 
-**2026-08-18 に `lean-doc` から `litedoc4` へ改名した**【決定、ユーザー判断】 — GitHub リポジトリ・
-crate・CLI・Lake パッケージ名のすべて。`litedoc` を選ばなかったのは**実測の衝突**による
-(同カテゴリの Python ドキュメント生成器が PyPI と CLI 名 `litedoc` を占有、Rust の
-`litedoc-core` / `litedoc-cli` が crates.io に実在、153★ の PDF→Markdown コンバータが
-検索一位)。`litedoc4` は crates.io / npm / PyPI / GitHub 検索すべて空きだった。
-**プロトタイプ期の名前を意図的に残した箇所が 6 種ある。「消し忘れ」と読んで直さない**:
+**On 2026-08-18 it was renamed from `lean-doc` to `litedoc4`** (decided, user's call) — the GitHub
+repository, the crate, the CLI, and the Lake package name, all of them. `litedoc` was not chosen
+because of **a measured collision** (a Python documentation generator in the same category occupies
+PyPI and the CLI name `litedoc`, the Rust `litedoc-core` / `litedoc-cli` actually exist on
+crates.io, and a 153★ PDF→Markdown converter is the top search hit). `litedoc4` was free on
+crates.io / npm / PyPI / GitHub search alike.
+**There are 6 categories where the prototype-era name is deliberately kept. Do not read them as
+"forgot to delete" and fix them**:
 
-1. **`benchmarks/results/**` (361 ファイル)** — 生ログ。過去の実測を書き換えない
-2. **`crates/*/tests/data/**` (14 ファイル)** — 凍結フィクスチャ。生成時のパスが焼かれていて、
-   **再生成手段は HEAD に無い**。`PROVENANCE.md` の
-   `git show experiments-frozen:crates/lean-doc-*/…` は**タグ内の実在パス**で、改名すると解決しない
-3. **文字列 `lean-doc-relay` (32 ファイル)** — ゲートの作業領域 `/private/tmp/lean-doc-relay/<段>`。
-   凍結フィクスチャに生成時のパスとして入っていて、**`litedoc4_testutil::corpus` の既定パスが
-   それと一致している必要がある**
-4. **`lean-doc/experiments/stage4b` / `stage4c` (6 ファイル)** — プロトタイプが IR の `generator`
-   に書いていた**実在の識別子**。`ledger.rs` の `assert_ne!` は「今の ID がこれと違う」ことを
-   検査するもので、書き換えると**実在しない文字列と比べる無意味な検査**になる。
-   `extractor/Extract.lean` は今もこの値を書く。**一度誤って置換して復元した**
-5. **tag `v0.1.0`〜`v0.1.3` の資産名 `lean-doc-*.tar.gz`** — 既存 Release に実在する名前
-6. **計時 JSONL の `phase` キー `stage4b.*` / `stage1.*` / `stage2.*` / `stage3.*`**
-   (2026-08-24 に確認) — **生きているワイヤ形式の識別子**。`extractor/Extract.lean` が
-   `sink.emit "stage4b.<phase>"` を **16 箇所**で書き、`benchmarks/tools/analyze.ts` が
-   `stage1.`〜`stage3.` を前置詞にして集計し、`benchmarks/tools/measure-link-index.sh` が
-   `"stage4b."` を剥がす。**「プロトタイプ由来だから死んでいる」と読んで消すと、
-   集計はエラーではなく 0 行を返す** — 静かに壊れる形
+1. **`benchmarks/results/**` (361 files)** — raw logs. Do not rewrite past measurements
+2. **`crates/*/tests/data/**` (14 files)** — frozen fixtures. The paths at generation time are
+   baked in, and **there is no way to regenerate them in HEAD**. The
+   `git show experiments-frozen:crates/lean-doc-*/…` in `PROVENANCE.md` is **a real path inside the tag**, and renaming makes it stop resolving
+3. **The string `lean-doc-relay` (32 files)** — the gates' work area `/private/tmp/lean-doc-relay/<stage>`.
+   It is in the frozen fixtures as the path at generation time, and **the default path of
+   `litedoc4_testutil::corpus` has to match it**
+4. **`lean-doc/experiments/stage4b` / `stage4c` (6 files)** — **real identifiers** that the
+   prototype wrote into the IR's `generator`. The `assert_ne!` in `ledger.rs` checks that "the
+   current ID differs from these", and rewriting it makes it **a meaningless check against a
+   string that does not exist**.
+   `extractor/Extract.lean` still writes this value. **It was once replaced by mistake and restored**
+5. **The asset names `lean-doc-*.tar.gz` in tags `v0.1.0`–`v0.1.3`** — names that really exist on the existing Releases
+6. **The `phase` keys `stage4b.*` / `stage1.*` / `stage2.*` / `stage3.*` in the timing JSONL**
+   (confirmed 2026-08-24) — **live wire-format identifiers**. `extractor/Extract.lean` writes
+   `sink.emit "stage4b.<phase>"` in **16 places**, `benchmarks/tools/analyze.ts` aggregates using
+   `stage1.`–`stage3.` as prefixes, and `benchmarks/tools/measure-link-index.sh` strips
+   `"stage4b."`. **If you read them as "prototype-derived, therefore dead" and delete them, the
+   aggregation returns 0 rows rather than an error** — the silently-broken shape
 
-一括置換は「これからの識別子」と「外部に実在する物を指す固有名詞」を区別しない。
+A bulk replace does not distinguish "identifiers going forward" from "proper nouns pointing at
+things that really exist outside".
 
-**このリポジトリは public** (2026-08-16 に private から変更【決定、ユーザー判断】 — 理由は
-GitHub Actions を無料枠で回すこと)。計測対象の `lean-projects` も public。
-**書くものはすべて公開物として扱う** — docs・コミットメッセージ・handoff を含む。
-**履歴も tag も公開されている** (→ 下の「撤去したプロトタイプ」)。
+**This repository is public** (changed from private on 2026-08-16 (decided, user's call) — the
+reason is to run GitHub Actions on the free tier). The measurement target `lean-projects` is public
+too.
+**Treat everything you write as published** — including docs, commit messages, and handoffs.
+**The history and the tags are public too** (→ "The removed prototype" below).
 
-## リポジトリの構成
+## Repository layout
 
 | | |
 |---|---|
-| `docs/approach.md` | アプローチ計画 §1〜4 / §7〜10。**アプローチの SoT はこれと下の 2 つの合併**。実装レベルの詳細は書かない |
-| `docs/approach-pillars.md` | 同 **§5 設計の柱** (5.1〜5.6)。2026-08-18 に分割。**節番号は分割前のまま** |
-| `docs/approach-performance.md` | 同 **§6 性能** (6.1〜6.6)。同上。`approach.md` 末尾に対応表がある |
-| `docs/verification-log.md` | **検証段階 (approach.md §7 の 1〜8) の結果**。**予測と食い違ったらこちらが SoT** |
-| `docs/provenance.md` | doc-gen4 / 第三者コードの由来判定とライセンス上の義務。**由来判定の SoT** |
-| `benchmarks/` | 実測レポート・計装パッチ・ツール・生ログ。**数字の出所** |
-| `crates/` | **製品コード (Rust)。実装の SoT。** コメントは非自明な why not だけ |
-| `e2e/micro/` | **e2e フィクスチャ** — Mathlib に依存しない Lean パッケージ。**対象が持たない宣言の形**を構成として持つ (→ `e2e/README.md`) |
-| `tools/*-gate.sh` | **ゲート** = 機材・対象・toolchain を要する判定。`cargo test` は機材ゼロ依存のものだけ |
-| `.claude/handoff.md` | セッション間の引き継ぎ (tracked、コミットする) |
+| `docs/approach.md` | Approach plan §1–4 / §7–10. **The SoT for the approach is the union of this and the 2 below**. Do not write implementation-level detail here |
+| `docs/approach-pillars.md` | Same, **§5 Design pillars** (5.1–5.6). Split out on 2026-08-18. **Section numbers stay as they were before the split** |
+| `docs/approach-performance.md` | Same, **§6 Performance** (6.1–6.6). Ditto. There is a mapping table at the end of `approach.md` |
+| `docs/verification-log.md` | **Results of the verification stages (approach.md §7, 1–8)**. **If they disagree with the prediction, this is the SoT** |
+| `docs/provenance.md` | Provenance determination for doc-gen4 / third-party code and the resulting licensing obligations. **The SoT for provenance determination** |
+| `benchmarks/` | Measurement reports, instrumentation patch, tools, raw logs. **Where the numbers come from** |
+| `crates/` | **Product code (Rust). The SoT for the implementation.** Comments are only the non-obvious why not |
+| `e2e/micro/` | **e2e fixtures** — a Lean package that does not depend on Mathlib. It holds, by construction, **the declaration shapes the target does not have** (→ `e2e/README.md`) |
+| `tools/*-gate.sh` | **Gates** = judgements that require hardware, the target, or a toolchain. `cargo test` holds only what depends on zero hardware |
+| `.claude/handoff.md` | Handoff between sessions (tracked, committed) |
 
-Lean 側のビルドは `lake env` で計測対象リポジトリの環境を借りる — **litedoc4 側に toolchain も
-Mathlib も置かない**。
+Lean-side builds borrow the environment of the measurement target repository via `lake env` —
+**no toolchain and no Mathlib live on the litedoc4 side**.
 
-**Rust 側は `cargo build` + node で建つ** (Rust 1.97.1 / rustup、node は `mise.toml` が
-固定する 24.19.0)。**2026-08-19 まで「`cargo build` で完結する」だった**
-【決定 2026-08-19、ユーザー判断】 — サイトの JS が
-TypeScript になり、`crates/litedoc4-render/build.rs` が vite を回して `app.js` を
-`OUT_DIR` に焼くようになったため。**生成物はリポジトリに無い**。
-**利用者は node を払わない** — ワークスペースは `publish = false` で、配布は
-`release.yml` が焼く musl バイナリ。払うのはソースからビルドする者、つまり開発者と CI
-(だから cargo を回すワークフロー 8 本と `action.yml` の cargo 経路に `setup-node` がある)。
-**フォールバックは無い。** node が無ければ `build.rs` が落ちる — 「あれば作る、無ければ
-コミット済のを使う」は経路を 2 本にするので取らない。
+**The Rust side builds with `cargo build` + node** (Rust 1.97.1 / rustup; node is pinned to
+24.19.0 by `mise.toml`). **Until 2026-08-19 it was "complete with `cargo build` alone"**
+(decided 2026-08-19, user's call) — because the site's JS became
+TypeScript and `crates/litedoc4-render/build.rs` came to run vite and bake `app.js` into
+`OUT_DIR`. **The artefact is not in the repository.**
+**Users do not pay for node** — the workspace is `publish = false`, and distribution is the musl
+binaries that `release.yml` bakes. The ones who pay are those who build from source, i.e.
+developers and CI (which is why the 8 workflows that run cargo and the cargo path in `action.yml`
+have `setup-node`).
+**There is no fallback.** If node is absent, `build.rs` fails — "build it if it is there, use the
+committed one if not" makes 2 paths, so it is not taken.
 
-**`lakefile.lean` は置く** (2026-08-18) — 利用者が
-`require «litedoc4»` で使えるようにするため。**`lean-toolchain` は置かない、が強化された**:
-依存側が root より高い版の `lean-toolchain` を持つと **`lake update` が利用者の
-`lean-toolchain` を書き換える**、低いと**警告すら出ずに黙殺される**【実測 →
-`benchmarks/results/lake-package-probe-2026-08-18.txt` §1】。**置かなければ Lake は何も言わず
-root の toolchain を使う。** 代償は「litedoc4 自身のディレクトリでは `lake` が動かない」ことで、
-`lake-manifest.json` は手書き、ビルドは常に利用者のワークスペース側から。
+**`lakefile.lean` is kept** (2026-08-18) — so that users can use it with
+`require «litedoc4»`. **`lean-toolchain` is not kept, and this got stronger**:
+if the dependency side has a `lean-toolchain` with a higher version than the root,
+**`lake update` rewrites the user's `lean-toolchain`**; if lower, **it is silently ignored with not
+even a warning** (measured →
+`benchmarks/results/lake-package-probe-2026-08-18.txt` §1). **If it is not there, Lake says nothing
+and uses the root's toolchain.** The price is that "`lake` does not run in litedoc4's own
+directory", so `lake-manifest.json` is hand-written and builds always come from the user's
+workspace side.
 
-### 撤去したプロトタイプ — tag `experiments-frozen`
+### The removed prototype — tag `experiments-frozen`
 
-検証段階 1〜8 の使い捨てプロトタイプ (`experiments/`、27 ディレクトリ / 164 ファイル) は
-**2026-08-16 に HEAD から消した**【決定、ユーザー判断】。**履歴には残っている** —
-`experiments/` が完全な状態の最後の commit (`a15addc`) に tag **`experiments-frozen`**
-が打ってあり、そこから読める:
+The throwaway prototype for verification stages 1–8 (`experiments/`, 27 directories / 164 files)
+was **deleted from HEAD on 2026-08-16** (decided, user's call). **It remains in the history** —
+the last commit where `experiments/` was complete (`a15addc`) is tagged **`experiments-frozen`**,
+and it can be read from there:
 
 ```
 git show experiments-frozen:experiments/stage7d/render.ts
 git log experiments-frozen -- experiments/
 ```
 
-- **docs が `experiments/...` を数字の出所として指している箇所は、すべてこの tag を伴う。**
-  タグ無しで `experiments/` を書かない (HEAD に無いパスを指すことになる)
-- **消えたのは採点器であって数字ではない。** commit 済フィクスチャ
-  (`crates/*/tests/data/*-expected.json`) は凍結値として残り、`cargo test` は無傷。
-  ただし **再生成手段は HEAD に無い** — 作り直すには tag から生成器を復元する
-- **履歴の書き換えはしない。** リポジトリが public になった (2026-08-16) ので、
-  **tag 経由で `experiments/` 164 ファイルは実際に読める**。これは承知の上の判断で、
-  撤去の理由は方針であって法務ではない — 追加のライセンス義務は発生しない
-  (`docs/provenance.md` §8)。**「見せない」は満たされていない**、という事実で運用する
+- **Every place where docs point at `experiments/...` as the source of a number carries this tag.**
+  Do not write `experiments/` without the tag (it would point at a path that is not in HEAD)
+- **What disappeared is the scorer, not the numbers.** The committed fixtures
+  (`crates/*/tests/data/*-expected.json`) remain as frozen values, and `cargo test` is untouched.
+  But **there is no way to regenerate them in HEAD** — to rebuild them, restore the generator from the tag
+- **The history is not rewritten.** Since the repository became public (2026-08-16),
+  **the 164 files of `experiments/` really can be read via the tag**. This is a knowing decision:
+  the reason for the removal is policy, not legal — no additional licensing obligation arises
+  (`docs/provenance.md` §8). Operate on the fact that **"not showing it" is not satisfied**
 
-**抽出器は Lean、その外側 (IR 消費・レンダリング・増分・検索索引) は Rust** (2026-08-11 決定
-→ 計画 §5.6)。**選定理由は速度ではない** — 外側の速度差は言語ではなく **IR 全読みの回数**で
-決まる (検証ログ)。**「Rust だから速い」と書かない。** §6.4 の倍率は「やらなくてよい仕事を
-やめた」ことによるもので、言語と速度を因果で結ぶのは誇大。
+**The extractor is Lean; everything outside it (IR consumption, rendering, incremental, search
+index) is Rust** (decided 2026-08-11 → plan §5.6). **The reason for the choice is not speed** —
+the speed difference on the outside is decided not by the language but by **the number of full IR
+reads** (verification log). **Do not write "it is fast because it is Rust".** The multipliers in
+§6.4 come from "stopping work that did not need doing", and tying language and speed together
+causally is overstatement.
 
-## ベンチマーク
+## Benchmarks
 
-**計測対象は常に `/Users/haruka/dev/lean-projects`** (Lean 4 + Mathlib の
-`InformationTheory` プロジェクト、432 モジュール、Mathlib 全体に依存)。
+**The measurement target is always `/Users/haruka/dev/lean-projects`** (the Lean 4 + Mathlib
+`InformationTheory` project, 432 modules, depending on all of Mathlib).
 
-対象を固定するのは、**比較が同一ワークロード上でのみ意味を持つ**ため。
-このリポジトリの数字はすべてこの対象で取られていて、ベースラインが既にある。
-別の対象を測りたくなったら、置き換えるのではなく**追加**し、既存の数字は残す。
+The target is fixed because **a comparison is only meaningful on the same workload**.
+Every number in this repository was taken on this target, and the baseline already exists.
+If you want to measure a different target, **add** it rather than replacing, and keep the existing numbers.
 
-- 計測のために触るのは対象リポジトリの `.lake/packages/doc-gen4` だけ
-  (gitignored)。**対象リポジトリにコミットしない。**
-- 計装は `benchmarks/doc-gen4-instrumentation.patch`。`.lake` は `lake update` で
-  消えるので、消えていたら `benchmarks/tools/apply-instrumentation.sh` で当て直す。
-  当たっているかの確認も同スクリプトの `--check`。
-- 生ログ (JSONL) は `benchmarks/results/` にコミットする。集計は `tools/analyze.ts`。
-- **計測条件を毎回記録する** — 機材 / Lean・Mathlib・doc-gen4 のバージョン /
-  olean 暖機の有無 / ページキャッシュ / 並列度。特にこのワークロードは
-  **CPU ではなくメモリ律速**なので、RAM 量と並列度が無いと数字が読めない。
-- **1 回だけ測った数字を信じない。** olean は mmap で読むので page cache の状態で
-  環境ロードが 5 倍動く (実測 2.5s ↔ 13s)。**同じ計測を連続 5 回以上回して収束を見て、
-  cold 側と warm 側を両方記録する**。壁時計 ≒ CPU 時間 (user+sys) になっていれば warm。
-  `/usr/bin/time -l` を噛ませて CPU 時間・peak RSS・page faults を残す。
-- **cold と warm を混ぜて比較しない。** 方式を比べるときは同じセッションで
-  同じ暖機状態で測り直す。過去の数字と新しい数字を並べるのは、条件が一致していると
-  確認できたときだけ。
-- 長い計測はバックグラウンドで走らせる (foreground の `sleep` は使わない)。
-- **計測が終わったら作業ディレクトリを消す。掃除する主体を決めておく。**
-  ゲートは `/private/tmp/lean-doc-relay/<段>` を作業領域にする (**改名後もこのパスは旧名のまま** —
-  凍結フィクスチャに生成時のパスとして焼かれていて、`litedoc4_testutil::corpus` の既定パスが
-  それと一致している必要がある → 上の「旧名を残した 5 種」)。どれも「再生成できる」前提で
-  書かれているが、**誰も消さないので溜まる**。2026-08-17 に 5 世代ぶん **24 GB** 溜まって
-  ディスクが満杯になり、**中断された `lake build` が対象の olean を 1 つ欠落させた**
-  【実測】。**ディスクが尽きると被害は計測の失敗では済まない** — 対象リポジトリの
-  状態が壊れ、シェルコマンド自体が動かなくなって復旧手段も失う。
-  1 回のサイトは約 60 MB、`make-target2.sh` の package は数 GB。
+- The only thing touched for measurement is the target repository's `.lake/packages/doc-gen4`
+  (gitignored). **Do not commit to the target repository.**
+- Instrumentation is `benchmarks/doc-gen4-instrumentation.patch`. `.lake` is wiped by
+  `lake update`, so if it is gone, re-apply it with `benchmarks/tools/apply-instrumentation.sh`.
+  Checking whether it is applied is `--check` on the same script.
+- Raw logs (JSONL) are committed to `benchmarks/results/`. Aggregation is `tools/analyze.ts`.
+- **Record the measurement conditions every time** — hardware / versions of Lean, Mathlib and
+  doc-gen4 / whether the oleans are warm / page cache / parallelism. This workload in particular is
+  **memory-bound, not CPU-bound**, so without the amount of RAM and the parallelism the numbers
+  cannot be read.
+- **Do not trust a number measured only once.** Oleans are read via mmap, so environment loading
+  moves by 5× depending on the state of the page cache (measured 2.5s ↔ 13s). **Run the same
+  measurement 5 or more times in a row, watch it converge, and record both the cold side and the
+  warm side.** If wall clock ≒ CPU time (user+sys), it is warm.
+  Put `/usr/bin/time -l` in front and keep CPU time, peak RSS, and page faults.
+- **Do not mix cold and warm in a comparison.** When comparing approaches, re-measure in the same
+  session in the same warm state. Putting an old number next to a new one is allowed only when the
+  conditions have been confirmed to match.
+- Run long measurements in the background (do not use a foreground `sleep`).
+- **Delete the work directory when a measurement finishes. Decide who does the cleaning up.**
+  Gates use `/private/tmp/lean-doc-relay/<stage>` as their work area (**this path keeps the old name even after the rename** —
+  it is baked into the frozen fixtures as the path at generation time, and the default path of
+  `litedoc4_testutil::corpus` has to match it → "the 6 categories where the old name is kept"
+  above). All of them are written on the assumption that they "can be regenerated", but
+  **nobody deletes them, so they pile up**. On 2026-08-17, 5 generations' worth piled up to
+  **24 GB**, the disk filled, and **an interrupted `lake build` left one of the target's oleans
+  missing** (measured). **When the disk runs out, the damage is not limited to a failed
+  measurement** — the target repository's state breaks, shell commands themselves stop working,
+  and the means of recovery is lost too.
+  One site is about 60 MB; the package from `make-target2.sh` is several GB.
 
-## 計測の誠実性
+## Measurement honesty
 
-このプロジェクトの成果物は数字なので、**数字の出所の管理が品質そのもの**。
-docs に書くすべての数字は、次の 4 ラベルのいずれかを持つ:
+The deliverable of this project is numbers, so **managing where the numbers come from is quality
+itself**. Every number written in docs carries one of the following 4 labels:
 
-| ラベル | 意味 | 義務 |
+| Label | Meaning | Obligation |
 |---|---|---|
-| **実測** | ログがある | ログのパスを辿れること |
-| **外挿** | 実測の一部から伸ばした | 何割を実測したか書く |
-| **仮定** | 根拠がない | 仮定と明記し、検証項目に落とす |
-| **理論値** | 上記の合成 | 前提を列挙し「未検証」と書く |
+| **(measured)** | there is a log | the path to the log must be followable |
+| **(extrapolated)** | extended from part of a measurement | write what fraction was measured |
+| **(assumed)** | no basis | state it as an assumption and turn it into a verification item |
+| **(theoretical)** | a composition of the above | list the premises and write "unverified" |
 
-- **ラベルを落とした数字を書かない。** 圧縮・要約でラベルだけ消すのが最悪の劣化。
-- **完走しなかった計測を完走したように書かない** (フルビルドは 42% で打ち切っている)。
-- **倍率は分母を明示する。** 「同じ仕事量で 43 倍」と「ゼロからサイト構築で 1,251 倍」は
-  別の主張で、後者の大半は実装の巧拙ではなく作業範囲の差。混ぜると誇大になる。
-- **自分に有利な数字が出たときほど疑う。** 単位・集計の取り違え・計測対象の
-  取り違えは、都合の良い方向に出たときに見逃される。
-- 数字を更新したら、それを引用している docs も同じコミットで直す。
-- **「未検証」を「たぶん大丈夫」と読まない。** README の未検証項目を 4 件潰したら
-  **3 件で実際に欠陥が出た**【実測 2026-08-17】。測っていないものは動いていない可能性が
-  同じだけあり、**未検証項目は「残っている作業」ではなく「まだ知らない欠陥」の一覧**。
-  **2026-08-18 に 5 件測ったら、また 1 件出た** — Lean v4.33.0 で extractor が建たない。
-- **「機材が無い」と書いてある項目を疑う。** 2026-08-18 に潰した 5 件のうち **2 件は
-  機材が無いのではなく、持っている機材を使っていなかった**【実測】 — Windows の等幅フォント
-  (`windows-latest` に Consolas も Chrome もある) と LeakSanitizer (`ubuntu-latest` で走る)。
-  Q8 が 2026-08-17 に同じ失敗を Linux で記録している。**public リポジトリの CI ランナーは
-  3 OS ぶんの機材**で、「ここに無い」は「手元に無い」でしかない。
-- **docs の「未」は腐る。** 同じ日に `cargo-deny` が「未」のまま CI で緑だった【実測】。
-  項目を潰す前に**まず現況を確認する** — 作業がもう終わっていることがある。
+- **Do not write a number with the label dropped.** Deleting only the label while compressing or summarising is the worst decay.
+- **Do not write a measurement that did not run to completion as if it did** (the full build is cut off at 42%).
+- **State the denominator of a multiplier.** "43× for the same amount of work" and "1,251× for
+  building a site from zero" are different claims, and most of the latter is the difference in
+  scope of work, not the skill of the implementation. Mixing them makes it overstatement.
+- **Doubt a number most when it comes out in your own favour.** Mistaking a unit, an aggregation,
+  or the measurement target gets overlooked when it comes out in the convenient direction.
+- When you update a number, fix the docs that quote it in the same commit.
+- **Do not read "unverified" as "probably fine".** 4 unverified items in the README were killed and
+  **3 of them actually turned up defects** (measured 2026-08-17). What has not been measured is
+  just as likely not to work, and **the unverified items are not a list of "work remaining" but a
+  list of "defects not yet known"**.
+  **5 were measured on 2026-08-18 and another one turned up** — the extractor does not build on Lean v4.33.0.
+- **Doubt items that say "we do not have the hardware".** Of the 5 killed on 2026-08-18, **2 were
+  not a lack of hardware but a failure to use the hardware we have** (measured) — the Windows
+  monospace font (`windows-latest` has both Consolas and Chrome) and LeakSanitizer (which runs on
+  `ubuntu-latest`). Q8 recorded the same failure on Linux on 2026-08-17. **The CI runners of a
+  public repository are hardware for 3 OSes**, and "not here" is only "not on this machine".
+- **The "not yet" in docs rots.** On the same day, `cargo-deny` was green in CI while still marked
+  "not yet" (measured). Before killing an item, **first check the current state** — the work may already be done.
 
-## 品質ゲート
+## Quality gates
 
-**doc-gen4 互換 (byte 再現) は追わない** — M8 で終了、再定義しない。代わりに置いたのは
-**外部オラクルを要らない 3 種**: **自己整合性** (出力が自分の中で閉じているか) /
-**不変量** (別経路が同じ答えを出すか) / **Lean 自身**。**この 3 種が「緑」の定義**で、
-実体は `cargo test --workspace` と `tools/*-gate.sh` と `.github/workflows/`。
+**doc-gen4 compatibility (byte reproduction) is not pursued** — it ended at M8 and is not
+redefined. What was put in its place is **3 kinds that need no external oracle**:
+**self-consistency** (whether the output closes over itself) /
+**invariants** (whether a different path gives the same answer) / **Lean itself**.
+**These 3 are the definition of "green"**, and their substance is
+`cargo test --workspace`, `tools/*-gate.sh`, and `.github/workflows/`.
 
-- **「テスト」と「ゲート」を分ける。境界は CI の境界と一致させる。**
-  テストは**自分の入力を持ち機材ゼロ依存**で `cargo test --workspace` が緑の定義。
-  ゲートは機材・対象・toolchain を要り `tools/*-gate.sh` に置く。
-  **対象リポジトリを読むものはテストではない** — 対象が動けば壊れるものは定義上テストではない
-- **skip で緑を返さない。** 入力が無いテストは `#[ignore]` にして
-  `tools/corpus-tests.txt` に載せる (CI が `--verify-list` で両方向の差を見る)。
-  **`eprintln!("skipping: …") + return` は終了コードに出ない** —
-  実際にこれで **7 本が「フィクスチャが消えているのに緑」**だった【実測 2026-08-16】
-- **ゲートは「走った本数」を数える。** 上の一般形で、**同じ日にさらに 3 通り出た**【実測】:
-  ゲートがテスト名からモジュールパスを削って `--exact` が 0 件マッチ (**cargo は 0 件でも exit 0**) /
-  `--no-fail-fast` が無く赤が同名の残りを隠す / frozen と runnable に同名が跨る。
-  **どれも出力は「合っている」ように見える。** 捕まえたのは
-  **inventory の本数と、実際に結果を報告した本数の突き合わせ**だけ
-- **入力の同一性を「パス」で判定しない。** 「既定パスなら母数まで検査、他のファイルなら構造だけ」
-  という設計は、**既定パスに別物を置いた瞬間に主張の強さが黙って変わる**【実測 2026-08-16、
-  `link_index_fixture`】。同一性を主張するなら**中身で判定する** (digest / 生成条件)
-- **性能を壁時計でゲートしない。** page cache で 5 倍動く。
-  ゲートに使うのは**決定的な整数** (再抽出数 / 描画ページ数 / IR 読み取り回数 / プロセス起動数)
-- **オラクルを同じ言語・同じ設計で書き直さない** (両方同じ間違いをする経路ができる)。
-  サイト検査が Python のままなのはこの理由
-- **例外リストを持つ比較器を作らない。** 2 件目の乖離を黙って飲む
-- **落ちたときに何が壊れたか 1 行で言えないゲートは足さない。** 数を目標にしない
-- **ゲートは自分では自分を検査しない。** 新しいゲートは**必ず一度落として**から通す
-  (作った当日に「何をしても通るゲート」を 2 件作っている【実測】)
-- **ゲートの被検査範囲を数字で確かめる。** 「走らせた」と「見ている」は別。
-  `cargo-fuzz` の `-Zsanitizer=address` は `RUSTFLAGS` 経由なので **Rust にしか届かず、
-  `build.rs` が焼く C は素通り**だった — `CFLAGS` を渡すと同一条件で cov **1023 → 2487**
-  【実測 2026-08-17】。**計装した場合としない場合で数字が動くか**を見るのが唯一の確認手段
-- **ゲートの部分集合を commit の判定に使わない。**【実測 2026-08-24、main を 2 回赤くした】
-  コメント削減で「速い 5 段」(`cargo test` 抜き) を判定に使ったら、削減が**製品が印字する
-  文字列リテラル**に踏み込んでいたのを誰も見ていなかった。拒否メッセージから
-  `(coverage.ts:512)` を落として、**別のクレートの `tests/` にある assert 2 本**が落ちた。
-  subagent に出す検証指示も **`cargo test -p <crate>`** にする — **`--lib` は `tests/` を見ない**。
-  一般形: **判定に使うゲートは、変更が届きうる範囲を全部覆っていること**を先に確かめる。
-- **「測った」の前に「測れる状態か」を確かめる。** 同じ失敗が 2 形でさらに出た
-  【実測 2026-08-18】: (1) 増分ゲートが `pagesRendered` を**推測した名前で探し**、
-  見ていたファイルにそのキーが無く**何も検査せずに緑**だった → 実際の出力を 1 度
-  出させてからキーを書く。(2) toolchain 不一致の検査が「拒否された」と緑を返したが、
-  **extract は起動しておらず lake の package 解決で落ちていた** → 非ゼロ終了を答えと
-  読む前に、**環境が作れること自体を別の段で確かめる**
-- **両方向で同時に落ちる差分は、対象ではなく比較器を疑う。** 索引 → ページとページ → 索引が
-  同じ名前で同時に食い違ったら、それは「サイトが不整合」ではなく「**比較の文字集合が違う**」。
-  実際 `id` 属性を unescape していないだけだった【実測 2026-08-17】
+- **Separate "tests" from "gates". Make the boundary coincide with CI's boundary.**
+  A test **holds its own input and depends on zero hardware**, and `cargo test --workspace` is the
+  definition of green.
+  A gate requires hardware, the target, or a toolchain, and lives in `tools/*-gate.sh`.
+  **Anything that reads the target repository is not a test** — anything that breaks when the target moves is by definition not a test
+- **Never return green by skipping.** A test with no input is made `#[ignore]` and listed in
+  `tools/corpus-tests.txt` (CI looks at the difference in both directions with `--verify-list`).
+  **`eprintln!("skipping: …") + return` does not show up in the exit code** —
+  this actually made **7 of them "green while the fixture was gone"** (measured 2026-08-16)
+- **Gates count "how many ran".** The general form of the above, and **3 more variants turned up on the same day** (measured):
+  the gate stripped the module path from the test name so `--exact` matched 0 (**cargo exits 0 even at 0 matches**) /
+  there was no `--no-fail-fast` so a red one hid the rest with the same name / the same name spanned frozen and runnable.
+  **In all of them the output looks "correct".** The only thing that caught them was
+  **reconciling the count in the inventory against the count that actually reported a result**
+- **Do not judge input identity by "path".** A design of "check up to the denominator if it is the
+  default path, structure only for another file" **silently changes the strength of the claim the
+  moment something else is put at the default path** (measured 2026-08-16,
+  `link_index_fixture`). If you claim identity, **judge it by content** (digest / generation conditions)
+- **Do not gate performance on wall clock.** It moves by 5× with the page cache.
+  What gates use is **deterministic integers** (re-extraction count / rendered page count / IR read count / process spawn count)
+- **Do not rewrite an oracle in the same language with the same design** (it creates a path where
+  both make the same mistake). This is why the site check is still Python
+- **Never build a comparator with an exception list.** It silently swallows the second divergence
+- **Do not add a gate that cannot say in one line what broke when it fails.** Do not make the count a goal
+- **A gate does not check itself.** A new gate is **always made to fail once** before it is allowed to pass
+  (on the day they were made, 2 "gates that pass no matter what" were built (measured))
+- **Confirm a gate's checked scope with a number.** "Ran it" and "watching it" are different.
+  `cargo-fuzz`'s `-Zsanitizer=address` goes through `RUSTFLAGS`, so **it only reaches Rust and the
+  C that `build.rs` bakes goes straight through** — passing `CFLAGS` moved cov **1023 → 2487** under identical conditions
+  (measured 2026-08-17). **Whether the number moves with and without instrumentation** is the only means of confirmation
+- **Do not use a subset of the gates as the judgement for a commit.** (measured 2026-08-24, turned main red twice)
+  When the "fast 5 stages" (without `cargo test`) were used as the judgement during comment
+  reduction, nobody saw that the reduction had stepped into **string literals the product prints**.
+  Dropping `(coverage.ts:512)` from a rejection message made **2 asserts in another crate's `tests/`** fail.
+  Verification instructions given to subagents are also **`cargo test -p <crate>`** — **`--lib` does not look at `tests/`**.
+  General form: **first confirm that the gate used for the judgement covers the whole range the change can reach.**
+- **Before "measured", confirm "is it in a state where it can be measured".** The same failure
+  turned up in 2 more shapes (measured 2026-08-18): (1) the incremental gate **looked for
+  `pagesRendered` under a guessed name**, the file it was looking at did not have that key, and it
+  was **green having checked nothing** → make it emit the real output once, then write the key.
+  (2) the toolchain-mismatch check returned green saying "it was rejected", but **extract had not
+  even started — it was failing in lake's package resolution** → before reading a non-zero exit as
+  the answer, **confirm in a separate step that the environment can even be built**
+- **A diff that fails in both directions at once is the comparator's fault, not the target's.**
+  If index → page and page → index disagree on the same name at once, that is not "the site is
+  inconsistent" but "**the character sets being compared differ**".
+  It was actually just not unescaping the `id` attribute (measured 2026-08-17)
 
-## Rust の lint
+## Rust lints
 
-**lint 設定の SoT は root `Cargo.toml` の `[workspace.lints]`。** CI の
-`cargo clippy -- -D warnings` は**昇格しかしていない** — どの lint が有効かは
-Cargo.toml が決める。これは意図的で、**ローカルの `cargo check` と CI が
-同じことを言う**ようにするため。CI のコマンドラインに `-W` を足さない
-(ローカルから見えないゲートになる)。
+**The SoT for lint configuration is `[workspace.lints]` in the root `Cargo.toml`.** CI's
+`cargo clippy -- -D warnings` **only promotes** — which lints are enabled is decided by
+Cargo.toml. This is deliberate, so that **the local `cargo check` and CI
+say the same thing**. Do not add `-W` to CI's command line
+(it becomes a gate invisible from local).
 
-- **グループを丸ごと入れない。** `clippy::pedantic` + `nursery` はこの木で
-  **約 1,800 件**出る【実測 2026-08-17】が、その大半は publish しないクレート向けの
-  doc lint (`missing_errors_doc`, `must_use_candidate`) と好みの問題
-  (`option_if_let_else`, `too_many_lines`)。**採用したのは 35 件** (うち deny 6)。
-  グループを入れて 400 件 allow するのは「例外リストを持つ比較器」と同じ失敗
-- **基準は「発火したら何が壊れたか 1 行で言えるか」。** 言えないものは入れない。
-  実際 `missing_debug_implementations` / `trivially_copy_pass_by_ref` /
+- **Do not take a whole group.** `clippy::pedantic` + `nursery` produce
+  **about 1,800 hits** in this tree (measured 2026-08-17), but most of them are doc lints for
+  crates that are not published (`missing_errors_doc`, `must_use_candidate`) and matters of taste
+  (`option_if_let_else`, `too_many_lines`). **35 were adopted** (6 of them deny).
+  Taking the group and allowing 400 is the same failure as "a comparator with an exception list"
+- **The criterion is "if it fires, can you say in one line what broke".** If you cannot, do not take it.
+  In fact `missing_debug_implementations` / `trivially_copy_pass_by_ref` /
   `unreadable_literal` / `assigning_clones` / `unused_self` /
-  `iter_on_single_items` は**一度入れてから外した** —
-  全件が FFI 型・`&self`・Unicode の `0x10FFFF`・テストの `to_owned()` で、
-  「壊れている」と言えなかった。**外した理由は Cargo.toml に残してある**
-  (再検討のたびに同じ調査をやり直さないため)
-- **`#[allow]` を書かない。`#[expect(..., reason = "...")]` を書く。**
-  `allow_attributes` / `allow_attributes_without_reason` で機械的に強制している
-  (両方 warn → CI で error。**理由なしの `#[allow]` 1 個で落ちることを確認済み**)。
-  `#[expect]` は**lint が発火しなくなったときに警告する**のが要点 —
-  実際これで `litedoc4-md/src/ffi.rs` の `#![allow(non_camel_case_types)]` が
-  **もう不要**だと分かって消えた【実測 2026-08-17】。`#[allow]` は黙って腐る
-- **doc コメントを折り返し直すと `clippy::doc_lazy_continuation` で落ちる**【実測 2026-08-24】 —
-  継続行の行頭が `+` / `-` になるとリスト項目と読まれる。**`cargo check` では出ない**ので、
-  コメントを触ったら `cargo clippy --workspace --all-targets` を回す。
-- **`cargo clippy --fix` の結果を読まずに信じない。** 自動修正が
-  `needless_collect` を落として**失敗時の診断を壊した** (両方のマップに在る
-  パスが 2 回列挙される) 【実測 2026-08-17】。テストは通る —
-  **その枝はテストが落ちたときしか走らない**
+  `iter_on_single_items` were **taken and then dropped again** —
+  every hit was an FFI type, `&self`, Unicode's `0x10FFFF`, or a `to_owned()` in a test,
+  and "broken" could not be said. **The reasons for dropping them are kept in Cargo.toml**
+  (so the same investigation is not redone at every reconsideration)
+- **Do not write `#[allow]`. Write `#[expect(..., reason = "...")]`.**
+  `allow_attributes` / `allow_attributes_without_reason` enforce it mechanically
+  (both warn → error in CI. **Confirmed that a single `#[allow]` without a reason makes it fail**).
+  The point of `#[expect]` is that **it warns when the lint stops firing** —
+  this is exactly how `#![allow(non_camel_case_types)]` in `litedoc4-md/src/ffi.rs` turned out to be
+  **no longer needed** and was deleted (measured 2026-08-17). `#[allow]` rots silently
+- **Re-wrapping a doc comment makes `clippy::doc_lazy_continuation` fail** (measured 2026-08-24) —
+  a continuation line whose head becomes `+` / `-` is read as a list item. **It does not show up in
+  `cargo check`**, so when you touch comments, run `cargo clippy --workspace --all-targets`.
+- **Do not trust the result of `cargo clippy --fix` without reading it.** The auto-fix
+  dropped a `needless_collect` and **broke the diagnostics on failure** (a path present in
+  both maps is listed twice) (measured 2026-08-17). The tests pass —
+  **that branch only runs when a test fails**
 
-lint と別に CI が持っているもの: **rustdoc のリンク**
-(`cargo doc` + `RUSTDOCFLAGS=-D warnings`。初回に **15 件**壊れていて、
-2 件は改名された型を指していた【実測】) と **未使用依存** (`cargo machete`。
-`litedoc4` が `litedoc4-md` を宣言だけしていた【実測】)。
+What CI holds besides lints: **rustdoc links**
+(`cargo doc` + `RUSTDOCFLAGS=-D warnings`. **15** were broken the first time, and
+2 pointed at renamed types (measured)) and **unused dependencies** (`cargo machete`.
+`litedoc4` was declaring `litedoc4-md` without using it (measured)).
 
-## 欠陥を直すとき
+## Fixing defects
 
-- **修正を一般形に引き上げたか、毎回問う。** 「マップに root が無い ⇒ 自パッケージ ⇒
-  相対リンク」という推論の穴を**同じ日に 2 回踏んだ**【実測 2026-08-17】 —
-  1 回目 (版固定できない依存) を直したとき、**自パッケージ側にも同じ推論がある**ことに
-  気づかず、実在パッケージが教えてくれるまで見えなかった。
-  直したら **「この判断をしている箇所は他にあるか」「同じ前提が別の入力で崩れないか」**を問う。
-- **判断は 1 箇所に集める。** 同じ問いに答える経路が 2 本あると、片方だけ直る。
-- **単体テストが通っていることは、その枝が正しいことを意味しない。**
-  「不正な rev は落とす」は検査されていたが、**落ちた後に何が描かれるか**を見るものが無かった。
-  **入口の判定だけでなく、その帰結が出力に出るところまで**検査する。
+- **Ask every time whether the fix was raised to its general form.** The hole in the inference
+  "root is not in the map ⇒ own package ⇒ relative link" was **stepped on twice on the same day**
+  (measured 2026-08-17) —
+  when the first one (a dependency that cannot be version-pinned) was fixed, **the fact that the
+  same inference also exists on the own-package side** was not noticed, and it stayed invisible
+  until a real package pointed it out.
+  Once fixed, ask **"is this judgement made anywhere else?" and "does the same premise break on a different input?"**.
+- **Collect the judgement in one place.** If there are 2 paths answering the same question, only one of them gets fixed.
+- **A passing unit test does not mean that branch is correct.**
+  "Reject an invalid rev" was checked, but **nothing looked at what gets rendered after it is rejected**.
+  Check **not just the judgement at the entrance but all the way to where its consequence appears in the output**.
 
-## docs の衛生
+## Documentation hygiene
 
-- **利用者向けドキュメント (README・`action.yml` の説明・リリースノート・サイトの文言) は
-  最終状態だけを書く**【決定 2026-08-19、ユーザー判断】。**差分・過程・経緯を書かない** —
-  改名 (「`lean-doc` から改名した」)、版の履歴 (「vX 以前はこうだった」)、
-  発覚の経緯 (「これは〜で気づいた」)、やめた案。**判定基準は「文脈をまったく知らない読者が
-  読んで価値があるか」**で、無ければ消す。理由は、これらが**読者の持っていない過去を前提に
-  する**ことと、**過去は増え続けるので放っておくと本文が履歴に浸食される**こと。
-  - **例外は「今の読者の行動を変える事実」だけ** — 「`v0.1.4` 以降に pin する」のように
-    **今どうすべきか**の形に畳んで書く。「なぜなら改名前は〜」は書かない。
-  - **計測の出所・条件は過程ではない。落とさない** — 機材 / 版 / 暖機 / 母数 /
-    【実測・外挿・仮定・理論値】のラベルとログのパスは最終状態の一部
-    (→ 上の「計測の誠実性」)。
-  - **設計判断の理由も過程ではない** — 「`lean-toolchain` を置かない」のように
-    **利用者が今その挙動に出会う**ものは、理由ごと残す。
-  - **経緯は git 履歴が持つ。** 利用者向けから消すことは、記録を捨てることではない。
-- **docs 同士も、完遂して消える見込みのある文書を SoT として指さない。** ポインタは腐る —
-  docs は消え、節番号は動き、計画は完遂すると畳まれる。
-- 計画文書は 600 行を超えたら `/compact-plan`。**要約と分割は別の手段で、既定は分割ではない** —
-  ただし **`approach.md` は分割を選んだ**【決定 2026-08-18、ユーザー判断】。理由は
-  §5 と §6 が**節ごと丸ごと生きている**ことで、要約すると【実測 / 外挿 / 仮定】の
-  ラベルと前提から先に落ちる。**分割するときは節番号を振り直さない** — 番号は
-  docs と `benchmarks/results/` の凍結ログから引かれていて、振り直すと一斉に腐る。
-  代わりに元ファイルに対応表を残す。
-- **予測と結果が食い違ったら結果が SoT。** 計画側を直す (逆をやらない)。
-- 決着した選択の経緯は消してよい (git が持つ)。**仮説と、それを否定する条件は残す**
-  — これが消えると計画が単なるやることリストに退化する。
+- **User-facing documentation (README, the descriptions in `action.yml`, release notes, site copy)
+  writes only the final state** (decided 2026-08-19, user's call). **Do not write diffs, process, or history** —
+  renames ("renamed from `lean-doc`"), version history ("before vX it was like this"),
+  how something was discovered ("this was noticed when …"), abandoned options. **The criterion is
+  "is there value in it for a reader with no context at all"**, and if there is not, delete it.
+  The reasons are that these **assume a past the reader does not have**, and that
+  **the past keeps growing, so left alone the body gets eroded by history**.
+  - **The only exception is "a fact that changes what today's reader does"** — fold it into the
+    form of **what to do now**, like "pin to `v0.1.4` or later". Do not write "because before the rename it was …".
+  - **The provenance and conditions of a measurement are not process. Do not drop them** —
+    hardware / versions / warmth / denominator /
+    the (measured) / (extrapolated) / (assumed) / (theoretical) labels and the path to the log are
+    part of the final state (→ "Measurement honesty" above).
+  - **The reason behind a design decision is not process either** — for something like "we do not
+    keep a `lean-toolchain`", which **the user meets in the behaviour today**, keep it together with its reason.
+  - **The history is held by git.** Deleting it from the user-facing side is not throwing the record away.
+- **Between docs too, do not point at a document expected to be completed and disappear as a SoT.** Pointers rot —
+  docs disappear, section numbers move, and plans get folded away when completed.
+- A planning document over 600 lines goes to `/compact-plan`. **Summarising and splitting are
+  different means, and the default is not splitting** —
+  but **`approach.md` chose splitting** (decided 2026-08-18, user's call). The reason is that
+  §5 and §6 are **alive whole, section by section**, and summarising drops the
+  (measured) / (extrapolated) / (assumed) labels and the premises first. **When splitting, do not
+  renumber the sections** — the numbers are cited from
+  docs and from the frozen logs in `benchmarks/results/`, and renumbering rots all of them at once.
+  Leave a mapping table in the original file instead.
+- **If the prediction and the result disagree, the result is the SoT.** Fix the plan side (do not do the reverse).
+- The history of a settled choice may be deleted (git holds it). **Keep the hypothesis and the condition that would falsify it**
+  — when that disappears, a plan degenerates into a mere to-do list.
 
-## コードのコメント
+## Code comments
 
-- **既定はコメントを書かない**【決定 2026-08-24、ユーザー判断】。what / how はコードが
-  言っている。なぞったコメントは**コードが変わったときに黙って嘘になる**。
-- **コメントが要ると感じたら、まずそれを設計の匂いとして読む。** 名前・分割・型・
-  データ構造で同じことを言えないかを先に試し、**別の設計に落ちないと確かめてから**書く。
-  「説明が要る」は多くの場合「説明が要る構造になっている」。
-- **書いてよいのは非自明な why not だけ** — 「なぜ、素直に見える別の選択肢を取らなかったのか」。
-  読者が「こう書けばいいのに」と思う場所にだけ置き、**それを否定する条件**
-  (この前提が崩れたら素直な方でよい) まで書く。
+- **The default is to write no comment** (decided 2026-08-24, user's call). What / how is said by the
+  code. A comment that traces the code **silently becomes a lie when the code changes**.
+- **When you feel a comment is needed, first read that as a design smell.** Try first to say the
+  same thing with a name, a split, a type, or a data structure, and write it
+  **only after confirming it does not fall out into a different design**.
+  "It needs explaining" usually means "it has a structure that needs explaining".
+- **The only thing allowed to be written is the non-obvious why not** — "why was the seemingly straightforward alternative not taken".
+  Put it only where a reader would think "you could just write it like this", and write
+  **the condition that falsifies it** (if this premise breaks, the straightforward one is fine) as well.
 
-## オーケストレーション
+## Orchestration
 
-- 調査・実装・長い計測は subagent に dispatch し、自分は計画・検証・統合・commit を回す。
-- **同時に走らせる subagent は 1 体まで。** 「N 並列で」と言われても逐次に落とす
-  (同時実行は使用量上限に当たってセッションごと止まる)。
-- 創造的タスク (設計案の発想・行き詰まりの打開) は Fable、
-  それ以外 (実装・調査・集計・監査) は Opus。迷ったら Opus。
-- **subagent には「コミットするな」と明示する。** こちらが検証してから commit する。
+- Dispatch investigation, implementation, and long measurements to subagents; run planning, verification, integration, and commits yourself.
+- **At most 1 subagent running at a time.** Even when told "N in parallel", drop it to sequential
+  (concurrent execution hits the usage limit and stops the whole session).
+- Creative tasks (coming up with design options, breaking a deadlock) go to Fable;
+  everything else (implementation, investigation, aggregation, auditing) goes to Opus. When in doubt, Opus.
+- **Tell subagents explicitly "do not commit".** We verify here, then commit.
 
-## この機材の罠
+## Traps on this machine
 
-**すべて実際に踏んだもの。** ハンドオフに毎回書き写さない — 恒久的な事実はここに置く。
+**All of these were actually stepped on.** Do not copy them into the handoff every time — permanent facts live here.
 
-- **ssh (port 22) はこの機材から通らない。** push は HTTPS + `gh`:
+- **ssh (port 22) does not get through from this machine.** Push is HTTPS + `gh`:
   ```
   GIT_CONFIG_COUNT=2 \
   GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0='' \
   GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='!gh auth git-credential' \
   git push https://github.com/FujiHaruka/litedoc4.git main:main
   ```
-- **`diff` は `colordiff` に alias されていて存在しない。`/usr/bin/diff` を使う。**
-- **`rg` の `-r` は `--replace`。`-rn` のように束ねない** (後続フラグが置換文字列に食われる)。
-- **Python 3.9 の f-string に backslash / ネスト同種クォートが書けない。**
-- **`git checkout <file>` を無効化実験に使わない。** subagent の実装を吹き飛ばした実績がある。
-  スクラッチのコピーか `git stash` で。
-- **ブラウザゲートの後に puppeteer が port 8899 を掴んだまま残ることがある** —
-  `AddrInUse` が出たら `pkill -f check-site-browser.ts`。
-- **`litedoc4 watch` は長命なので、セッションが落ちても生き残る**【実測 2026-08-21】。
-  中断されたセッションの `watch` が同じ `--out` を書き続けていて、後から回した
-  `tools/watch-gate.sh` が**書きかけの IR を読んで落ちた**
-  (`EOF while parsing a value at line 1 column 0`) — 続けて cleanup の `rm` が
-  「Directory not empty」で失敗した (消す先から相手が作り直すため)。
-  **症状は「ゲートが壊れた」ように見えるが、壊れているのは環境。**
-  長命プロセスを起こすゲートを回す前に `pgrep -f 'litedoc4 watch'` を見る。
-  一般形: **作業領域を共有する長命プロセスは、失敗を作業領域のせいに見せかける。**
-- **CI の実測値を main を赤くせずに取るには、ブランチ push + `gh workflow run ci.yml --ref <branch>`**
-  (検証用ワークフローは `workflow_dispatch` のみ。`ci.yml` だけが push / PR で走る)。
-- **パイプを噛ませた瞬間、見ている終了コードは最後のコマンドのものになる。**
-  `litedoc4 build … | tail -25` は **litedoc4 が拒否して 3 で落ちても 0 に見える**
-  【実測 2026-08-18、この日 2 回踏んだ】。ログを読むために `| tail` を足すのは日常なので、
-  **終了コードを判定に使う場面では、パイプを外してファイルにリダイレクトする**。
-  `${PIPESTATUS[0]}` は `tools/*.sh` (bash) では使えるが、**このセッションのシェルは zsh で
-  `PIPESTATUS` を持たない** (zsh では `$pipestatus[1]`、1 始まり)【実測 2026-08-19】。
-  綴りを間違えると**空文字列が `0` のように振る舞う**ので、パイプを外すのが確実。上の「出力と終了コードが食い違う形はゲートを嘘にする」の、
-  こちら側が観測を誤る版。
-- **`trap … EXIT` の最後のコマンドの終了コードが、スクリプトの終了コードになる。**
-  `cleanup() { [ -f "$F" ] && cp …; }` は、`$F` が無いときに **1 を返す**。
-  実際に `tools/e2e-micro.sh` が **「E2E MICRO: ok」と印字して exit 1** していた
-  【実測 2026-08-18】(CI は常に `--out … --keep` で呼ぶので発火しなかった)。
-  `&&` ではなく `if` で書く。**「出力と終了コードが食い違う」形はゲートを嘘にする。**
-- **C++ をビルドするとき、Command Line Tools の `usr/include/c++/v1` にヘッダが無い** —
-  `CXXFLAGS="-isystem $(xcrun --show-sdk-path)/usr/include/c++/v1"` が要る。
-- **PATH 上の `node` / `npm` は死んでいる。** `/usr/local/bin/node` は 2023 年の pkg 版で、
-  署名が不正なので **SIGKILL (exit 137) で即死する**【実測 2026-08-19】。しかも
-  `command -v node` は通り、`node -v` は**何も印字せずに**落ちるので、パイプ越しだと
-  「空の出力」に見える。`cargo build` は build.rs で npm を呼ぶので**これに当たる**。
-  同じ理由で **`tools/assets-gate.sh` は `mise exec --` 越しに呼ぶ**【実測 2026-08-21】 —
-  中で `npx biome` を直に叩くので、素で呼ぶと **exit 137 (SIGKILL)** になり、
-  出力は assets について何も言わない。CI は job に `setup-node` があるので緑。
-  使うのは mise 側: **`mise exec -- cargo build`** / `mise exec -- npm …`
-  (`mise.toml` が node を固定している)。`mise` はシェル関数で、非対話シェルでは
-  PATH を書き換えていない — だから `mise exec` を明示する。
-- **走っているシェルスクリプトを書き換えると、その実行が壊れる**【実測 2026-08-24】 —
-  bash はスクリプトをバイト位置で読み進めるので、実行中のファイルを編集すると
-  **途中から別の位置を読む**。検証スクリプトを回している最中に直して
-  `line 24: eps: command not found` になった。長い検証を回す前に、そのファイルの編集を終える。
-- **`biome.json` にコメントを書くと、biome は設定ごと黙って捨てて既定値で走る**
-  【実測 2026-08-19】。エラーも警告も出ず、**終了コードは 0**。症状は
-  「`indentStyle: "space"` と書いたのに全ファイルがタブに整形される」。
-  コメントを書くなら **`biome.jsonc`** にする (拡張子で判定される)。
-  これも「出力と終了コードが食い違う」形。
+- **`diff` is aliased to `colordiff`, which does not exist. Use `/usr/bin/diff`.**
+- **`rg`'s `-r` is `--replace`. Do not bundle it as `-rn`** (the following flag gets eaten as the replacement string).
+- **Python 3.9's f-string cannot contain a backslash or a nested quote of the same kind.**
+- **Do not use `git checkout <file>` for a disable experiment.** It has a track record of blowing away a subagent's implementation.
+  Use a scratch copy or `git stash`.
+- **After the browser gate, puppeteer sometimes stays holding port 8899** —
+  if `AddrInUse` comes up, `pkill -f check-site-browser.ts`.
+- **`litedoc4 watch` is long-lived, so it survives the session dying** (measured 2026-08-21).
+  A `watch` from an interrupted session kept writing to the same `--out`, and
+  `tools/watch-gate.sh` run afterwards **read a half-written IR and failed**
+  (`EOF while parsing a value at line 1 column 0`) — then cleanup's `rm` failed with
+  "Directory not empty" (because the other side keeps recreating what is being deleted).
+  **The symptom looks like "the gate broke", but what is broken is the environment.**
+  Before running a gate that starts a long-lived process, look at `pgrep -f 'litedoc4 watch'`.
+  General form: **a long-lived process sharing a work area makes its failures look like the work area's fault.**
+- **To take a measured CI value without turning main red: push a branch + `gh workflow run ci.yml --ref <branch>`**
+  (the verification workflows are `workflow_dispatch` only. Only `ci.yml` runs on push / PR).
+- **The moment you put a pipe in, the exit code you are looking at is the last command's.**
+  `litedoc4 build … | tail -25` **looks like 0 even when litedoc4 rejects and exits 3**
+  (measured 2026-08-18, stepped on twice that day). Adding `| tail` to read the log is routine, so
+  **when the exit code is used as a judgement, remove the pipe and redirect to a file**.
+  `${PIPESTATUS[0]}` works in `tools/*.sh` (bash), but **this session's shell is zsh and has no
+  `PIPESTATUS`** (in zsh it is `$pipestatus[1]`, 1-based) (measured 2026-08-19).
+  Getting the spelling wrong makes **an empty string behave like `0`**, so removing the pipe is the sure thing. This is the version of "a shape where the output and the exit code disagree makes a gate a lie" above
+  where the observing side is the one that gets it wrong.
+- **The exit code of the last command in `trap … EXIT` becomes the script's exit code.**
+  `cleanup() { [ -f "$F" ] && cp …; }` **returns 1** when `$F` is absent.
+  `tools/e2e-micro.sh` actually **printed "E2E MICRO: ok" and exited 1**
+  (measured 2026-08-18) (it never fired because CI always calls it with `--out … --keep`).
+  Write it with `if`, not `&&`. **A shape where "the output and the exit code disagree" makes a gate a lie.**
+- **When building C++, the Command Line Tools' `usr/include/c++/v1` has no headers** —
+  `CXXFLAGS="-isystem $(xcrun --show-sdk-path)/usr/include/c++/v1"` is required.
+- **`node` / `npm` on PATH are dead.** `/usr/local/bin/node` is a 2023 pkg build whose
+  signature is invalid, so it **dies instantly with SIGKILL (exit 137)** (measured 2026-08-19). And
+  `command -v node` succeeds while `node -v` fails **printing nothing**, so through a pipe it looks
+  like "empty output". `cargo build` calls npm from build.rs, so **it hits this**.
+  For the same reason **`tools/assets-gate.sh` is called through `mise exec --`** (measured 2026-08-21) —
+  it hits `npx biome` directly inside, so calling it bare gives **exit 137 (SIGKILL)** and
+  the output says nothing about assets. CI is green because the job has `setup-node`.
+  Use the mise side: **`mise exec -- cargo build`** / `mise exec -- npm …`
+  (`mise.toml` pins node). `mise` is a shell function and does not rewrite
+  PATH in a non-interactive shell — which is why `mise exec` is stated explicitly.
+- **Editing a shell script while it is running breaks that run** (measured 2026-08-24) —
+  bash reads the script forward by byte offset, so editing the file while it is executing makes it
+  **read a different position from partway through**. Fixing a verification script while it was running produced
+  `line 24: eps: command not found`. Finish editing a file before running a long verification with it.
+- **Writing a comment in `biome.json` makes biome silently discard the whole config and run with defaults**
+  (measured 2026-08-19). No error, no warning, and **the exit code is 0**. The symptom is
+  "every file is formatted with tabs even though `indentStyle: "space"` is written".
+  If you want to write comments, use **`biome.jsonc`** (it is decided by the extension).
+  This too is a shape where "the output and the exit code disagree".
 
 ## Commits
 
-- コミット・プッシュは自律的に行う。ユーザーに報告しない。
-- メッセージは 1 行、短く。
+- Commit and push autonomously. Do not report it to the user.
+- Messages are one line, short.
 
-## 言語
+## Language
 
-- docs・コミットメッセージ: 日本語。
-- コード表面 (識別子・コメント・docstring・スクリプトの usage): 英語。
+- Everything is English: docs, commit messages, and code surface (identifiers, comments,
+  docstrings, script usage).
+- The four honesty labels are written `(measured)` / `(extrapolated)` / `(assumed)` /
+  `(theoretical)`, in **round parentheses**. Square brackets are not used: in a Rust doc comment
+  rustdoc parses `[measured]` as an intra-doc link, fails to resolve it, and CI runs
+  `RUSTDOCFLAGS=-D warnings cargo doc`, so it would turn CI red. Decisions attributed to the user
+  are written `(decided <date>, user's call)`.
+- These are still Japanese and were deliberately left that way: `docs/`, `benchmarks/README.md`,
+  `benchmarks/doc-gen4-report.md` and `.html`, `benchmarks/tools/`, `e2e/README.md`,
+  `extractor/README.md`, and `.claude/`. **Do not translate them opportunistically**; new text
+  written into them is English.
+- `benchmarks/results/**` is never rewritten at all — see the `Measurement honesty` section.

@@ -4,7 +4,7 @@
 # without `-e`, and there a failing `source` prints its error and the script keeps
 # going with whatever was already assigned: with a syntax error appended to this
 # file, tools/watch-gate.sh ran the whole gate and printed
-# "WATCH GATE: ok — 12 check(s), 0 failed" with exit 0 【実測 2026-08-23】. Under
+# "WATCH GATE: ok — 12 check(s), 0 failed" with exit 0 (measured 2026-08-23). Under
 # `set -e` the shell aborts on its own, so the suffix costs those scripts nothing.
 #
 # The target is fixed on purpose: numbers are only comparable when they come from

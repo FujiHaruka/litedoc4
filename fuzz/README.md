@@ -38,7 +38,7 @@ feedback from inside the parser, and an overflow there is caught only if it
 happens to hit an unmapped page.
 
 The difference is measurable, and was measured before the exploration was
-trusted — same seeds, same `-seed=1`, same `-runs=20000`【実測 2026-08-17】:
+trusted — same seeds, same `-seed=1`, same `-runs=20000` (measured 2026-08-17):
 
 | md4c | libFuzzer's `cov:` |
 |---|---|
@@ -63,7 +63,7 @@ nightly + `cargo-fuzz` 0.13.2):
 | 2026-08-17 | `-max_len=200001`, 300 s, same corpus | **388,027** | 4,145 | **0** |
 | 2026-08-17 | `-max_len=4096`, 600 s, **empty corpus** (below) | **7,404,720** | 7,988 | **0** |
 
-**8,939,197 executions, no crash and no ASan report**【実測】. That is a
+**8,939,197 executions, no crash and no ASan report** (measured). That is a
 statement about this machine, this build and this input distribution — not a
 proof, and not a reason to stop adding corpus entries when a real docstring
 surprises the parser.

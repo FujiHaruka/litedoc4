@@ -115,7 +115,7 @@ const HTML_CURATED: [string, string][] = [
 /**
  * Real docstrings the sample must keep whatever the coverage search picks. The
  * one entry is the *only* docstring in the package on which the frozen
- * prototype and doc-gen4 disagree 【実測: 1 of 4,858】; without it
+ * prototype and doc-gen4 disagree (measured: 1 of 4,858); without it
  * `tests/ts_docstring.rs` would have nothing real to stand on.
  */
 const MUST_INCLUDE = new Set([

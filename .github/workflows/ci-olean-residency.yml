@@ -1,7 +1,7 @@
 # Right after `lake exe cache get` extracts Mathlib's oleans on `ubuntu-latest`,
 # how much of them is resident in the page cache?
 #
-# Not answerable locally. The macOS answer is "no" 【実測】 and that is the
+# Not answerable locally. The macOS answer is "no" (measured) and that is the
 # unfavourable side, which does not transfer. What decides it is (a) whether
 # extraction leaves written pages in cache and (b) whether the runner has enough
 # RAM to keep ~5-6 GB of oleans there — and (b) is a property of the runner, so a

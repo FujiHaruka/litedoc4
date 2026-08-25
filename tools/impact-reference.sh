@@ -49,7 +49,7 @@ rm -rf "$OUT"
 mkdir -p "$OUT/fixtures"
 
 # declarations / importedByDirect / importersTransitive / referrersDirect, from
-# `litedoc4 impact --census` over the base IR 【実測 2026-08-15】:
+# `litedoc4 impact --census` over the base IR (measured 2026-08-15):
 #   HUB   4 / 15 / 261 / 49 — 49 modules name something of its through a
 #         (module, name) pair, which is what `--mode referrers` follows.
 #   LEAF  1 / 281 / 414 / 0 — **a misnomer**: 281 modules import it. What the

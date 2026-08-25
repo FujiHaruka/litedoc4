@@ -580,7 +580,7 @@ fn assert_shipped(site: &Path) {
 }
 
 /// `--full` is the escape hatch for the inputs no ledger key covers — the
-/// dependency map is one (150 of 432 pages 【実測】) — and the tree it leaves is
+/// dependency map is one (150 of 432 pages (measured)) — and the tree it leaves is
 /// the tree the incremental path was maintaining.
 #[test]
 fn full_regenerates_the_same_tree() {
@@ -1452,7 +1452,7 @@ fn the_timings_record_names_the_path() {
 
 /// The performance gate, over deterministic integers: nothing here can be judged
 /// by a clock, because the oleans are `mmap`ed and the same unchanged run's
-/// environment load moves by 5x with the page cache 【実測】. A first run does all
+/// environment load moves by 5x with the page cache (measured). A first run does all
 /// the work, a second over a world that did not move does **none** of it.
 ///
 /// `extractorRequests` is cross-checked against the fixture's own tally of how
@@ -1548,7 +1548,7 @@ fn git_init(repo: &Path, remote: &str) {
 }
 
 /// The dependency map is in `renderKey`, because it reaches 150 of the
-/// measurement target's 432 pages' bytes 【実測】 and a run whose IR was unchanged
+/// measurement target's 432 pages' bytes (measured) and a run whose IR was unchanged
 /// and whose map was not would otherwise go undetected. The identity recorded is
 /// the file's SHA-256.
 #[test]
@@ -1653,9 +1653,9 @@ fn a_missing_dependency_map_forces_a_full_generation() {
 /// produces: the restored state is the *previous* binary's, and a schema bump
 /// makes every file under it unreadable. `detect` is not the guard — it correctly
 /// answers "re-extract every module", and the round then reads the **base** IR,
-/// the tree that re-extraction is about to replace, to answer ownership 【実測
+/// the tree that re-extraction is about to replace, to answer ownership (measured
 /// 2026-08-23, on `ci-action.yml`: `10 to re-extract`, then
-/// `ir/modules/Micro.json is schema 4`, exit 1, site untouched】.
+/// `ir/modules/Micro.json is schema 4`, exit 1, site untouched).
 ///
 /// A full generation is the answer rather than a refusal because it is the one
 /// that always works: it deletes the tree it cannot read and writes one it can.

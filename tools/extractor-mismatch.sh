@@ -75,7 +75,7 @@ echo "Init" > "$WORK/modules.txt"
 # **`lake env` must be able to build an environment here before running anything
 # in it means a thing.** A package whose path dependency is missing fails during
 # lake's own resolution, the extractor never starts, and the non-zero exit reads
-# as "REFUSED" 【実測】. So the environment is proved first, separately, and a
+# as "REFUSED" (measured). So the environment is proved first, separately, and a
 # failure here is an error (exit 2) rather than a pass.
 if ! ( cd "$PACKAGE" && "$LAKE" env true ) > "$WORK/env.txt" 2>&1; then
   echo "DID NOT RUN: \`lake env\` cannot build an environment in $PACKAGE." >&2

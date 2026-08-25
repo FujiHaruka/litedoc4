@@ -10,13 +10,13 @@
 # A gate and not a test because it needs a real Lean environment and a real
 # extractor. It does **not** need the measurement target: `--target`, `--lib`,
 # `--module`, `--other` and `EXTRACT_BIN` are arguments, and the same gate runs
-# against `e2e/micro` in seconds 【実測 2026-08-24 →
-# benchmarks/results/watch-gate-e2e-2026-08-24.txt】. The defaults below name the
+# against `e2e/micro` in seconds (measured 2026-08-24 →
+# benchmarks/results/watch-gate-e2e-2026-08-24.txt). The defaults below name the
 # measurement target because that is the workload the numbers in `benchmarks/`
 # come from.
 #
 # **The assertions are integers; not one of them is a duration.** This workload's
-# environment load moves 5x with the page cache (2.5 s <-> 13 s 【実測】), so a
+# environment load moves 5x with the page cache (2.5 s <-> 13 s (measured)), so a
 # bound loose enough to pass a cold runner passes a regression too. What one edit
 # costs in *work* does not move: 1 module extracted, 1 page rendered, 1 extractor
 # request — plus the render set **by name**, which is the one the three integers
@@ -28,7 +28,7 @@
 # olean would write into the measurement target, which nothing here may do. The
 # ledger written is this run's own `$OUT/build/ledger.json`.
 #
-# Made to fail on purpose 【実測 2026-08-19】: `--inject wrong-module` leaves the
+# Made to fail on purpose (measured 2026-08-19): `--inject wrong-module` leaves the
 # three counts at 1/1/1 — the loop did one module's worth of work — so the name
 # check is the only thing that catches it; `--inject no-touch` must time out
 # rather than report a green run it never saw. Both touch only this script's
@@ -110,12 +110,12 @@ WATCH_PID=
 # 0 until the guard below has passed, and the cleanup deletes nothing while it is
 # 0: a run that *refuses* to use a directory must not then delete it — this
 # script removed a work area another process was using, on the way out of the
-# refusal that existed to protect it 【実測 2026-08-21】.
+# refusal that existed to protect it (measured 2026-08-21).
 OWNED=0
 
 # `litedoc4 watch` outlives the shell that started it, so one left over from an
 # interrupted session holds a work area that looks free, and neither symptom
-# looks like what it is 【実測 2026-08-21】: it rewrites the IR while this
+# looks like what it is (measured 2026-08-21): it rewrites the IR while this
 # script's build reads it (`EOF while parsing a value at line 1 column 0`, which
 # reads as a corrupt tree rather than as a second writer), and it recreates files
 # while the cleanup deletes them (`rm: Directory not empty`). **Refused by name,
@@ -158,7 +158,7 @@ guard_no_other_watch () {
 # `if`, never `[ … ] && …`: an EXIT trap's last command decides the script's exit
 # status, so a trailing test that comes out false turns a passing run into
 # exit 1 — which `tools/e2e-micro.sh` actually did while printing "ok"
-# 【実測 2026-08-18】.
+# (measured 2026-08-18).
 cleanup () {
   if [ -n "$WATCH_PID" ]; then
     if kill -0 "$WATCH_PID" 2>/dev/null; then
@@ -219,7 +219,7 @@ else
   rm -rf "$BUILD"
   # Redirected to a file rather than piped: a pipeline's exit status is its last
   # stage's, and this project has read a refusal as a success twice that way
-  # 【実測 2026-08-18】.
+  # (measured 2026-08-18).
   "$LITEDOC4" build --root "$TARGET" --out "$BUILD" --lib "$LIB" \
     --extractor-bin "$EXTRACT_BIN" --lake "$LAKE" --jobs "$JOBS" > "$OUT/build.log" 2>&1
   status=$?

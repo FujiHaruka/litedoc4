@@ -216,7 +216,7 @@ impl Ledger {
 /// The split from [`render_key`] is not cosmetic. `--source-url` carries a
 /// 40-hex git revision, so it changes on *every commit*, which is exactly when
 /// an incremental build runs; under one key every real incremental build would
-/// pay a full re-extraction — Lean started, 27 s【実測】 — for an input Lean
+/// pay a full re-extraction — Lean started, 27 s (measured) — for an input Lean
 /// cannot see. The test for which side an input belongs on is not "does it
 /// change the output" (both do) but "can it change the IR".
 pub fn extract_key(target: &str, ir: Option<&Path>) -> Result<KeySet, Error> {
@@ -255,7 +255,7 @@ pub fn extract_key(target: &str, ir: Option<&Path>) -> Result<KeySet, Error> {
 ///
 /// `linkIndex` is the dependency map: with the same IR and the same
 /// `--source-url`, having it or not moves **150 of the measurement target's 432
-/// pages' bytes**【実測】. Its identity is the **SHA-256 of the file's bytes**,
+/// pages' bytes** (measured). Its identity is the **SHA-256 of the file's bytes**,
 /// not its path and not its size — the bytes are what the renderer reads, so two
 /// maps that hash the same produce the same pages whoever wrote them.
 ///

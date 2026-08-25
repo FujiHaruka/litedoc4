@@ -45,7 +45,7 @@ pub fn page_path(module: &str) -> String {
 }
 
 /// Held in memory rather than streamed: the largest is a few hundred kilobytes
-/// 【実測】, and having them as values is what lets the tests compare them
+/// (measured), and having them as values is what lets the tests compare them
 /// without a filesystem.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Artifacts {
@@ -71,7 +71,7 @@ pub struct Artifacts {
     ///
     /// A file of its own, fetched only when a reader opens a `Used by` block,
     /// for the reason the instance maps are: it is the largest artifact here
-    /// (730 KB on the target 【実測 2026-08-22】) and most readers never open
+    /// (730 KB on the target (measured 2026-08-22)) and most readers never open
     /// one.
     ///
     /// Names this package does not declare are **not** keys: a reference into
@@ -109,7 +109,7 @@ pub struct Counts {
     pub used_by_targets: usize,
     /// Pairs in it. **Not** the number of references the IR holds: a reference
     /// into a dependency has no key here, and the target package's 54,424
-    /// references reduce to 10,163 pairs 【実測 2026-08-22】.
+    /// references reduce to 10,163 pairs (measured 2026-08-22).
     pub used_by_edges: usize,
 }
 
@@ -325,8 +325,8 @@ impl Artifacts {
 
         // **No `modules` array here.** `modules.json` already carries one, in
         // the same order and with the same subscripts, and `app.js` fetches that
-        // file on every page anyway. A second copy is 12.8% of this file 【実測
-        // 2026-08-19: 51,975 of 405,402 B】and a second thing to disagree with.
+        // file on every page anyway. A second copy is 12.8% of this file (measured
+        // 2026-08-19: 51,975 of 405,402 B) and a second thing to disagree with.
         let search_index_bin = search_index::encode(&entries, &kinds);
 
         // Their own file because a search never reads either: carried in the

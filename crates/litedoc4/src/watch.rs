@@ -19,8 +19,8 @@
 //! each operating system. "Events where available, polling otherwise" is two
 //! code paths; polling is not the fallback here, it is the path. The cost is
 //! measured: an idle pass is one `check_ledger` over the target's 422 modules —
-//! 228 MB of oleans, 0.13 s warm 【実測
-//! `benchmarks/results/watch-2026-08-21.txt`】. The price is that an edit is
+//! 228 MB of oleans, 0.13 s warm (measured
+//! `benchmarks/results/watch-2026-08-21.txt`). The price is that an edit is
 //! noticed up to [`Flags::interval`] late.
 //!
 //! **A pass acts only when the ledger's answer is the same as the previous

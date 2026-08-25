@@ -18,7 +18,7 @@
 // the first fragment of that module's documentation, and rustdoc then resolves
 // the whole of it — including the module's own `//!` header — against *this*
 // module. All eight intra-doc links in `corpus.rs`'s header broke that way, and
-// `RUSTDOCFLAGS=-D warnings cargo doc` is what said so 【実測 2026-08-23】.
+// `RUSTDOCFLAGS=-D warnings cargo doc` is what said so (measured 2026-08-23).
 // Each module's documentation lives in its own file.
 pub mod cli;
 pub mod corpus;
@@ -36,11 +36,11 @@ mod tests {
     /// `clippy::allow_attributes` — the lint that pushes every suppression
     /// towards `#[expect]`, which fails once the lint stops firing — **does not
     /// look at the inner `#![allow]` form**, while `allow_attributes_without_reason`
-    /// does 【実測 2026-08-23】. A reasoned inner `#![allow]` can therefore be
+    /// does (measured 2026-08-23). A reasoned inner `#![allow]` can therefore be
     /// written anywhere and `cargo clippy -- -D warnings` stays green.
     ///
     /// Pinning the count is the whole guard: an allowlist of files would be the
-    /// "例外リストを持つ比較器" this repository refuses, and a lint cannot be
+    /// "a comparator with an exception list" this repository refuses, and a lint cannot be
     /// made to fire. A number can only be raised on purpose.
     #[test]
     fn the_tree_has_one_inner_allow_and_this_is_it() {

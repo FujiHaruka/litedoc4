@@ -18,7 +18,7 @@
 //!
 //! The cases here are curated, to reach the corners the real corpus has none
 //! of: **eight of the twenty-one branches never fire on it**
-//! 【実測, `branchTotals`】 — no module without imports, no module name needing
+//! (measured, `branchTotals`) — no module without imports, no module name needing
 //! HTML escaping, no `_private.` declaration, and no module docstring sharing a
 //! position with a declaration. That last is the whole difference between the
 //! page order's real tie-breaker and the obvious wrong one.
@@ -151,14 +151,14 @@ fn every_case_carries_the_prototypes_page_content() {
     // The rewrite above is the one place this oracle is *re-answered* rather
     // than trusted, so it has to keep firing: at zero it would be comparing the
     // prototype's bytes unchanged and this test would say nothing about the
-    // dropped-link rule 【実測: 4 over the committed cases】.
+    // dropped-link rule (measured: 4 over the committed cases).
     assert!(
         dangling >= 4,
         "only {dangling} of the prototype's links pointed at a page it did not write"
     );
     // A `PageContent` that came out empty on both sides would pass every
     // comparison above, so the extractor is held to finding something.
-    // 【実測 2026-08-16: 19 items over the committed cases】
+    // (measured 2026-08-16: 19 items over the committed cases)
     assert!(items >= 15, "only {items} page items were compared");
 }
 
@@ -540,7 +540,7 @@ fn pages_carry_the_reference_trees_content() {
     // by name and by count, so a *second* divergence fails here. It survives
     // the content comparison because the divergence is *in* a module docstring,
     // and those are still compared byte for byte
-    // 【実測 → `litedoc4-md/tests/ts_docstring.rs`】.
+    // (measured → `litedoc4-md/tests/ts_docstring.rs`).
     let differing: Vec<&String> = want
         .iter()
         .filter(|(path, html)| {
@@ -567,8 +567,8 @@ fn pages_carry_the_reference_trees_content() {
 ///
 /// **Two things it cannot compare.** The line ranges in the source links: the
 /// tree on disk is older than the IR, so most shared pages have a declaration
-/// whose `#L…-L…` moved because the `.lean` file was edited 【実測
-/// 2026-08-16】 — source drift, not a renderer difference, so the *path* is
+/// whose `#L…-L…` moved because the `.lean` file was edited (measured
+/// 2026-08-16) — source drift, not a renderer difference, so the *path* is
 /// compared instead. And anything about the modules doc-gen4 has no page for,
 /// which were added to the package after the tree was last built.
 ///
@@ -701,7 +701,7 @@ fn pages_carry_the_doc_gen4_trees_declarations() {
     );
     eprintln!("doc-gen4 tree: {pages} pages, {anchors} anchors, {docs} module docstrings");
     // A run that matched nothing would pass every assertion above
-    // 【実測 2026-08-16: 348 pages, 3,477 anchors, 1,232 module docstrings】.
+    // (measured 2026-08-16: 348 pages, 3,477 anchors, 1,232 module docstrings).
     assert!(
         pages >= 300 && anchors >= 3_000 && docs >= 1_000,
         "{pages} pages, {anchors} anchors, {docs} docstrings: the tree stopped overlapping the IR"
@@ -841,7 +841,7 @@ impl PageContent {
     /// The prototype linked any module it could resolve, and it resolved the
     /// whole environment: a module of a dependency, or of the package that this
     /// run does not render, got a relative `<a href>` to a file nobody created
-    /// 【実測 2026-08-17, on `batteries`】. The fixture's own page list is the
+    /// (measured 2026-08-17, on `batteries`). The fixture's own page list is the
     /// proof in miniature, since `Dep/M.html` and `Pkg/One.html` are links in
     /// pages the prototype wrote and are not pages it wrote.
     ///

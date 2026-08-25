@@ -8,8 +8,8 @@
 //! IR-side rule is "is this name a member of *anything*" — collected **across
 //! every module**, because a structure declared in `A` can have its projections
 //! attributed to `B`, and a per-module set leaves those on `B`'s page. 190 of
-//! the target package's declarations are in it 【実測 2026-08-21: 4,584
-//! declarations / 422 modules】.
+//! the target package's declarations are in it (measured 2026-08-21: 4,584
+//! declarations / 422 modules).
 //!
 //! The order is a stable sort on `(line, col)` plus a tie-breaker.
 //! `Process.Module.members` is the module docstrings in file order followed by

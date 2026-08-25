@@ -148,7 +148,7 @@ fn an_ir_dir_inside_the_target_is_refused() {
 }
 
 /// A relative path on the child's command line resolves against the target,
-/// because that is the child's working directory 【実測 2026-08-15】. So
+/// because that is the child's working directory (measured 2026-08-15). So
 /// `--ir-dir out` passes the guard above — it resolves against *this* process's
 /// directory, which is not under the target — and then the extractor writes
 /// several MB into `<target>/out`: a write into the measurement target through

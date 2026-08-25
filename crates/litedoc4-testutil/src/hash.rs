@@ -1,7 +1,7 @@
 //! The digest the frozen fixtures record artifacts by.
 //!
 //! **This is an instrument, not an oracle, and forking it again would buy
-//! nothing** 【実測 2026-08-23】. No product code computes an FNV hash, so this
+//! nothing** (measured 2026-08-23). No product code computes an FNV hash, so this
 //! is not a second spelling of anything the tree ships. The independent side of
 //! every comparison is the prototype that wrote the digest literals in
 //! `litedoc4-{incr,global}/tests/data/*-expected.json`; it left HEAD with tag

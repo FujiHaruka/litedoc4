@@ -253,7 +253,7 @@ fn the_fixture_is_md4leans_own_output() {
     // oracle is answering a different question. Both sides wrote the bitmask
     // down independently: `MD4Lean.lean` and `src/flags.rs`.
     assert_eq!(e.flags, litedoc4_md::flags::DOCSTRING_FLAGS);
-    // 実測: the target package's IR holds this many distinct docstrings.
+    // measured: the target package's IR holds this many distinct docstrings.
     assert_eq!(e.ir_docstrings, 4_858);
     // A fixture that shrank is a fixture that stopped covering something.
     assert!(e.cases.len() >= 500, "only {} cases", e.cases.len());

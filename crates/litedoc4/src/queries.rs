@@ -76,7 +76,7 @@ fn link_rows(
 /// The dependency link map, as the renderer will see it.
 ///
 /// doc-gen4's reference tree documents only the target's import closure, so most
-/// roots have no oracle — **12 of 39 had one, 27 did not** 【実測 2026-08-16】.
+/// roots have no oracle — **12 of 39 had one, 27 did not** (measured 2026-08-16).
 /// The other 27 are URLs a server will answer for, so this prints the rows for
 /// something to check (`benchmarks/results/external-links-2026-08-18.txt`).
 ///

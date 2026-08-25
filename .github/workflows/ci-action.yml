@@ -48,7 +48,7 @@ jobs:
       # to hold. Without it the first call can legitimately render 0 pages — a
       # previous run's state is restored and there is nothing left to do — and
       # then "the first run rendered nothing" is a property of the cache, not of
-      # the action 【実測】. It also skips the state restore, so the pair below
+      # the action (measured). It also skips the state restore, so the pair below
       # is first=everything, second=nothing, every time.
       - id: docs
         uses: ./

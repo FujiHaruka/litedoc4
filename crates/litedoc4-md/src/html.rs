@@ -46,8 +46,8 @@ pub trait LinkResolver {
     /// swapped. That is right for a docstring that writes
     /// `Mathlib/Order/Basic.lean` and wrong for one that writes a path relative
     /// to its own module, which resolves to a page nobody wrote — 160 dangling
-    /// links on the measurement target 【実測 2026-08-16,
-    /// `benchmarks/results/m8-ui2-dead-links.txt`】.
+    /// links on the measurement target (measured 2026-08-16,
+    /// `benchmarks/results/m8-ui2-dead-links.txt`).
     ///
     /// **A resolver that holds a module index should override this** and answer
     /// `None` rather than guess: a link to the wrong page is worse than no link
@@ -108,7 +108,7 @@ impl<'a> Renderer<'a> {
     /// When the parser refuses the input, doc-gen4 records an error and emits a
     /// red message followed by the source; that is reproduced rather than
     /// panicking, though md4c has never refused one of the target package's
-    /// 4,947 docstrings 【実測】.
+    /// 4,947 docstrings (measured).
     #[must_use]
     pub fn docstring(&self, md: &str) -> String {
         let mut source = String::with_capacity(md.len() + 2);
@@ -375,7 +375,7 @@ impl<'a> Renderer<'a> {
     /// A word that ends in `.lean` and contains a `/` is a path to a source
     /// file — not a rare corner, it is how the target package's module docs
     /// cross-reference each other and accounts for 131 of its 4,987 docstrings
-    /// 【実測】. Which page that path names is a question about the packages
+    /// (measured). Which page that path names is a question about the packages
     /// being documented, so it goes to the resolver like every other lookup.
     #[must_use]
     pub fn resolve_link(&self, s: &str) -> Option<String> {

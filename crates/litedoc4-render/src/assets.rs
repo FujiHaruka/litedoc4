@@ -83,7 +83,7 @@ mod tests {
 
     /// Every class the site's TypeScript assigns at run time. `x.className =
     /// "name";` and nothing else — the site's scripts have no other spelling
-    /// 【実測 2026-08-23: `rg 'className|classList|class='` over `web/src`】,
+    /// (measured 2026-08-23: `rg 'className|classList|class='` over `web/src`),
     /// and a scanner that guessed at more shapes would be claiming a coverage
     /// it cannot check.
     fn scripted_classes(source: &str) -> Vec<&str> {
@@ -149,7 +149,7 @@ mod tests {
             ("code.rs", include_str!("code.rs")),
         ];
         // The site's scripts put classes on the page too
-        // 【実測 2026-08-23: 8 classes, all styled】.
+        // (measured 2026-08-23: 8 classes, all styled).
         let scripted = [
             ("web/src/tree.ts", include_str!("../web/src/tree.ts")),
             (
@@ -228,9 +228,9 @@ mod tests {
     /// The limits are **round numbers above the current size, not the current
     /// size**: a budget pinned to today's bytes fails on every edit, which
     /// teaches people to raise it without looking. This one only speaks when
-    /// something grows by a lot 【実測 2026-08-16: style.css 21,516 B /
-    /// favicon.svg 360 B; 実測 2026-08-19: app.js 15,113 B minified,
-    /// 4,912 B gzipped】.
+    /// something grows by a lot (measured 2026-08-16: style.css 21,516 B /
+    /// favicon.svg 360 B; measured 2026-08-19: app.js 15,113 B minified,
+    /// 4,912 B gzipped).
     /// Raising a limit is allowed; raising it *without reading what grew* is
     /// what this is here to make awkward.
     #[test]

@@ -4,7 +4,7 @@
 // The frozen prototype's `autolinkTokens` splits code spans on V8's
 // `/[\p{Z}\p{C}]/u`; the renderer — and therefore `litedoc4_md::gc` — splits on
 // UnicodeBasic's `Z | C`, and the two disagree on 4,803 code points, all in one
-// direction 【実測 2026-08-12 → benchmarks/results/m2b-v6-token-separators.json】.
+// direction (measured 2026-08-12 → benchmarks/results/m2b-v6-token-separators.json).
 // The map delta's tokeniser splits on the **union**, which is what this table
 // is for; it is generated because the alternative is a hand-copied UCD.
 //

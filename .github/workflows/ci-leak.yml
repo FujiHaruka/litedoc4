@@ -26,7 +26,7 @@ env:
   CC: clang
   # `RUSTFLAGS` reaches Rust only, so without this the md4c C is neither
   # instrumented nor watched — cov 1023 -> 2487 when it was added
-  # 【実測 2026-08-17】. `-mllvm -asan-guard-against-version-mismatch=0`, which
+  # (measured 2026-08-17). `-mllvm -asan-guard-against-version-mismatch=0`, which
   # the macOS toolchain needs, is left out: the runner's clang and its sanitizer
   # runtime come from the same install.
   CFLAGS: "-fsanitize=address -fsanitize=fuzzer-no-link -fno-omit-frame-pointer -g"

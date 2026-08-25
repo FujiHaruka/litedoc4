@@ -9,7 +9,7 @@
 //!
 //! **The command line cannot be got wrong quietly.** Every refusal below is a
 //! flag combination that would otherwise produce a site that looks finished and
-//! is not: a missing dependency map costs 150 of 432 pages their bytes 【実測】,
+//! is not: a missing dependency map costs 150 of 432 pages their bytes (measured),
 //! and a subset flag would make "full generation" mean whatever subset was
 //! passed. They exit 2 and they say why.
 

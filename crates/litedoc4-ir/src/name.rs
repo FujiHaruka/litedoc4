@@ -6,7 +6,7 @@
 //! identifier, an escaped `«…»`, or a numeral (`Init/Meta/Defs.lean:1218-1233`).
 //! `Odd-Name` is none of the three, so the entry parses as `Name.anonymous` and
 //! the extractor exits 1 with `import failed, trying to import module with
-//! anonymous name` 【実測 2026-08-15】.
+//! anonymous name` (measured 2026-08-15).
 //!
 //! So which spelling is canonical is not a choice. **The name** is
 //! `Alpha.«Odd-Name»`: the extractor writes it into `index.json` and into
@@ -15,7 +15,7 @@
 //! path, and doc-gen4 builds a page path out of
 //! `Name.toString (escape := false)` components (`Output/Base.lean:188`). All
 //! 432 module names of the measurement target are plain identifiers, so both
-//! spellings are the identity there 【実測】.
+//! spellings are the identity there (measured).
 //!
 //! [`is_id_first`] / [`is_id_rest`] / [`is_letter_like`] / [`is_subscript_alnum`]
 //! are transcribed from `Init/Meta/Defs.lean:98-137` of the toolchain the
@@ -109,7 +109,7 @@ pub fn escape_module<'a>(components: impl IntoIterator<Item = &'a str>) -> Strin
 pub fn module_components(module: &str) -> Vec<&str> {
     // `char_indices`, not a byte walk: a byte walk slices inside a multi-byte
     // character the moment a name holds one, and both `𝒜` and `ﬀ` are in this
-    // project's curated test cases 【実測】.
+    // project's curated test cases (measured).
     let mut out = Vec::new();
     let mut start = 0;
     let mut depth = 0usize;
@@ -153,7 +153,7 @@ pub fn module_path(module: &str) -> String {
 /// path as much as a file path.
 ///
 /// **A name can carry a `..` through this**: `«..».Foo` comes out as
-/// `../Foo.html` 【実測 2026-08-23】. Refusing it belongs where there is a tree
+/// `../Foo.html` (measured 2026-08-23). Refusing it belongs where there is a tree
 /// to refuse against, `litedoc4_incr::prune::PageRoot`.
 #[must_use]
 pub fn page_path(module: &str) -> String {
@@ -225,7 +225,7 @@ mod tests {
     }
 
     /// Asserted so that a future escape-time change cannot silently make
-    /// `litedoc4_incr::prune::PageRoot`'s reason stale 【実測 2026-08-23】.
+    /// `litedoc4_incr::prune::PageRoot`'s reason stale (measured 2026-08-23).
     #[test]
     fn an_escaped_component_can_spell_a_parent_directory() {
         assert_eq!(page_path("«..».Foo"), "../Foo.html");

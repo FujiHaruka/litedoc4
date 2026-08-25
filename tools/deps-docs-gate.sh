@@ -25,7 +25,7 @@
 # after six months → benchmarks/results/deps-link-rot-2026-08-19.txt §4) is
 # invisible to a page-only check and to a table-only check alike. The expensive
 # way costs a couple of seconds: a page is 12-31 kB and ~0.2 s, six at a time
-# 【実測 2026-08-19】.
+# (measured 2026-08-19).
 #
 # Branch 2 — names the table did not hold really fell back. For each: (a) no href
 # anywhere on the site is that name's documentation page, read off the collected
@@ -40,7 +40,7 @@
 #
 # Init is pointed at the site by default and not only Mathlib because branch 2 is
 # empty otherwise: the table holds 396 of 396 Mathlib names and 127 of 130 Init
-# names 【実測 2026-08-19】, so Init is the only root where the fallback fires at
+# names (measured 2026-08-19), so Init is the only root where the fallback fires at
 # all. mathlib4_docs documents Lean core, which is why Init has an answer there.
 #
 # Not covered: **resolved names the site never links** — they exist, 11 of 396 on
@@ -50,7 +50,7 @@
 # `master`, so a pass is a statement about the minute it ran in), nor **the
 # page's own correctness** (`id="X"` present is not "X says the right thing").
 #
-# Made to fail on purpose 【実測 2026-08-19】, rewriting only copies under this
+# Made to fail on purpose (measured 2026-08-19), rewriting only copies under this
 # script's work area: `--inject anchor` points one entry at an anchor the page
 # does not carry (the page still answers 200 — the case a page-only check
 # passes); `--inject page` points it at a page the site does not have; `--inject
@@ -134,11 +134,11 @@ case "$OUT" in
 esac
 
 # Deleted on the way out unless --keep: a site is tens of megabytes and this
-# repository has filled a disk with five generations of them 【実測 2026-08-17】.
+# repository has filled a disk with five generations of them (measured 2026-08-17).
 #
 # `if`, never `[ … ] && rm`: an EXIT trap's last command decides the script's
 # exit status, so a trailing test that comes out false makes a successful run
-# exit 1, printing "ok" 【実測 2026-08-18】.
+# exit 1, printing "ok" (measured 2026-08-18).
 cleanup () {
   if [ "$KEEP" -eq 0 ]; then
     if [ -d "$OUT" ]; then rm -rf "$OUT"; fi
@@ -165,7 +165,7 @@ else
   done
   # Redirected to a file rather than piped through `tee`: a pipeline reports its
   # **last** stage's status, so `litedoc4 … | tee` is exit 0 even when litedoc4
-  # refused with 3 【実測 2026-08-18】.
+  # refused with 3 (measured 2026-08-18).
   build_status=0
   "$LITEDOC4" build --root "$TARGET" --lib "$LIB" --out "$SITE_OUT" \
     --extractor-bin "$EXTRACT_BIN" --lake "$LAKE" --jobs "$JOBS" \
@@ -222,7 +222,7 @@ roots = [name for name in root_list.split(",") if name]
 # Attribute values are unescaped before anything is done with them: an `id` or an
 # `href` compared without undoing `&amp;`/`&lt;` produces a difference in both
 # directions at once, which reads as a broken site and is really two different
-# character sets 【実測 2026-08-17】.
+# character sets (measured 2026-08-17).
 ANCHOR = re.compile(r'<a[^>]*href="([^"]*)"[^>]*>([^<]*)</a>')
 HREF = re.compile(r'href="([^"]*)"')
 ID = re.compile(r'id="([^"]*)"')

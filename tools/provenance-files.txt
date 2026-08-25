@@ -59,7 +59,8 @@ crates/litedoc4-render/assets/style.css : Charles Edward Gagnon
 crates/litedoc4-md/src/math.rs : math-core
 
 # --- generated fixtures whose origin has to stay recoverable --------------
-# These are program output, not copied source, but "由来の記録は等しく要る —
-# 再生成の手順が分からなくなる方が実害が大きい" (provenance.md §7).
+# These are program output, not copied source, but "the record of provenance is
+# required just the same — losing track of how to regenerate it does more real
+# harm" (provenance.md §7).
 crates/litedoc4-md/tests/data/PROVENANCE.md : doc-gen4
 crates/litedoc4-render/tests/data/PROVENANCE.md : experiments-frozen

@@ -5,8 +5,8 @@
 //! `response.json()` has to materialise the body as a string before parsing it;
 //! this file is read with `arrayBuffer()` and searched in place, so what the
 //! page holds is the file. The scan itself is 0.65 ms either way at 4,584
-//! declarations, against a 90 ms debounce 【実測 2026-08-19 →
-//! `benchmarks/results/search-design-2026-08-19.txt`】.
+//! declarations, against a 90 ms debounce (measured 2026-08-19 →
+//! `benchmarks/results/search-design-2026-08-19.txt`).
 //!
 //! All integers are little-endian and unaligned-safe: the reader assembles them
 //! byte by byte, so no section needs padding and no platform needs to agree
@@ -29,9 +29,9 @@
 //! against the one before it, restarting every [`RESTART`] declarations so that
 //! one declaration can be decoded without reading the file from the start.
 //! Sorted Lean names share long prefixes — 285,148 B of names became 93,497
-//! 【実測、平均共有 46.7 文字】. **The order is load-bearing**: the search sorts
-//! equal-scoring hits by their position here, so a different order is a
-//! different result list.
+//! (measured; 46.7 characters shared on average). **The order is load-bearing**:
+//! the search sorts equal-scoring hits by their position here, so a different
+//! order is a different result list.
 //!
 //! A `suffix_len` of 255 means the real length follows as a u16. The escape
 //! exists because a name longer than 254 bytes is possible even though the
@@ -109,8 +109,8 @@ fn ascii_fold(name: &str) -> String {
 /// rather than an error because there is no partial index worth handing back and
 /// a silently truncated name is a search that disagrees with the pages it links
 /// to. The nearest limit is the module column's u16, an eighth of the way off:
-/// Mathlib entire is 8,169 modules 【実測 →
-/// `benchmarks/results/mathlib-scale-summary.txt`】. [`decode`] panics for none
+/// Mathlib entire is 8,169 modules (measured →
+/// `benchmarks/results/mathlib-scale-summary.txt`). [`decode`] panics for none
 /// of this — it answers "are these bytes such a file" with `None`.
 #[must_use]
 pub fn encode(entries: &[Entry<'_>], kinds: &[&str]) -> Vec<u8> {

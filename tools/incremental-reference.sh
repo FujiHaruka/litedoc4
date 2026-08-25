@@ -38,7 +38,7 @@
 # `litedoc4 modules`, **refusing to run if they differ**. `litedoc4 modules`
 # sorts in UTF-16 code-unit order; a `find … | sort` sorts in the caller's locale,
 # and on `en_US.UTF-8` **163 of the 432 lines land in a different position** —
-# same set, same count 【実測】. That order makes bytes: it is the order of the
+# same set, same count (measured). That order makes bytes: it is the order of the
 # ledger's `modules` array and of the merged `index.json`'s.
 #
 # **The ledger and the global-derivation cache are seeded by the run itself.**
@@ -104,7 +104,7 @@ URL_NEXT="https://github.com/FujiHaruka/information-theory/blob/0011223344556677
 
 # The module the deletion / addition scenarios turn on. **Not a leaf**: 1
 # declaration, imports nothing itself, imported directly by 281 of the 432
-# modules 【実測 2026-08-15, `litedoc4 impact --census`】. Chosen because its
+# modules (measured 2026-08-15, `litedoc4 impact --census`). Chosen because its
 # single declaration is an `initialize`, so removing it moves one entry of the
 # global name map and no other module's `refs`; with `--mode self` none of the
 # 281 importers is walked, so the scenario stays cheap.
@@ -412,7 +412,7 @@ if selected self-one; then
 fi
 
 # The wide blast radius: `--mode importers` over a module 15 others import
-# directly and 261 transitively 【実測 census】.
+# directly and 261 transitively (measured census).
 if selected importers-hub; then
   setup_live importers-hub "$FIX/base-ir" "$FIX/base-site" "$FIX/base-ledger.json" "$FIX/base-state"
   ledger_touch "$WORKROOT/importers-hub/ledger.json" "$HUB" > "$WORKROOT/importers-hub/touch.log"
@@ -420,7 +420,7 @@ if selected importers-hub; then
 fi
 
 # Two modules and the other closure: `--mode referrers` is the direct one, and
-# the hub has 49 direct referrers 【実測 census】.
+# the hub has 49 direct referrers (measured census).
 if selected referrers-two; then
   setup_live referrers-two "$FIX/base-ir" "$FIX/base-site" "$FIX/base-ledger.json" "$FIX/base-state"
   ledger_touch "$WORKROOT/referrers-two/ledger.json" "$HUB" > "$WORKROOT/referrers-two/touch.log"

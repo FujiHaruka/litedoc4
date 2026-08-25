@@ -92,7 +92,7 @@ pub struct RenderOptions<'a> {
     /// The dependency closure's `name -> module` map.
     ///
     /// `None` is a decision, not a default: without it 150 of the target
-    /// package's 432 pages change bytes 【実測】. The product always passes one.
+    /// package's 432 pages change bytes (measured). The product always passes one.
     pub link_index: Option<&'a Path>,
     pub only: &'a ModuleSet,
 }
@@ -117,8 +117,8 @@ pub struct RenderSummary {
     /// as their LaTeX source.
     ///
     /// Zero is the number to expect: the target package's three spans and
-    /// 99.58% of Mathlib's 2,123 convert 【実測 2026-08-22 →
-    /// `benchmarks/results/mathml-2026-08-22.txt`】. A non-zero value is a
+    /// 99.58% of Mathlib's 2,123 convert (measured 2026-08-22 →
+    /// `benchmarks/results/mathml-2026-08-22.txt`). A non-zero value is a
     /// docstring to look at, not a bug in the build.
     pub math_failures: usize,
 }

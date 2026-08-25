@@ -37,7 +37,7 @@
 # **The file count flatters the stages.** Of 3,631 files, 3,458 are the surviving
 # pages of the eight page trees `prune` ran over — files neither side wrote, and
 # the check is that neither deleted them. That leaves 165 computed records and 8
-# input fixtures 【実測 2026-08-12】. Quote the 165 for "are the answers the
+# input fixtures (measured 2026-08-12). Quote the 165 for "are the answers the
 # same", the 3,458 for "did it delete exactly the right files".
 
 set -uo pipefail

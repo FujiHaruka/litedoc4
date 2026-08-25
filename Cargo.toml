@@ -61,8 +61,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 #   Measuring it decided otherwise: it escapes `<` and `&` inside
 #   `\text{…}` and **nowhere else**, so `$a < b$` — the most ordinary formula
 #   there is — comes out as `<mo><</mo>`. 61 of Mathlib's 2,123 math spans
-#   (2.9%) carry markup a browser has to guess at 【実測 2026-08-22 →
-#   benchmarks/results/mathml-2026-08-22.txt】. `math-core` writes 0.
+#   (2.9%) carry markup a browser has to guess at (measured 2026-08-22 →
+#   benchmarks/results/mathml-2026-08-22.txt). `math-core` writes 0.
 #
 #   It costs eighteen crates (phf, strum, stable-arena and their closure) against
 #   `pulldown-latex`'s one, which is the largest single addition this workspace
@@ -97,9 +97,9 @@ basic-toml = "0.1.10"
 #   report about 1,800 findings here, and the large blocks of that are doc-style
 #   lints for crates nobody imports (`missing_errors_doc`, `must_use_candidate`)
 #   and taste calls (`option_if_let_else`, `too_many_lines`). Adopting a group
-#   and then allowing 400 of its findings would be the "比較器に例外リストを
-#   持たせる" failure in CLAUDE.md's own words. What is listed below are the
-#   lints where a firing says, in one line, what is broken.
+#   and then allowing 400 of its findings would be the "comparator with an
+#   exception list" failure in CLAUDE.md's own words. What is listed below are
+#   the lints where a firing says, in one line, what is broken.
 #
 #   Each `#[expect]` in the tree carries a reason, and `allow_attributes*` below
 #   is what keeps that true.
@@ -183,7 +183,7 @@ unimplemented = "deny"
 # `#[expect]` fails when the lint stops firing; `#[allow]` goes stale in silence
 # — which is exactly how a suppression outlives the code it was written for.
 #
-# THE TWO DO NOT SEE THE SAME ATTRIBUTES 【実測 2026-08-23】
+# THE TWO DO NOT SEE THE SAME ATTRIBUTES (measured 2026-08-23)
 #   `allow_attributes_without_reason` fires on the inner form too: a reasonless
 #   `#![allow(dead_code)]` added to `litedoc4-ir/src/lib.rs` took clippy to
 #   **exit 101**. `allow_attributes` does not: the reasoned

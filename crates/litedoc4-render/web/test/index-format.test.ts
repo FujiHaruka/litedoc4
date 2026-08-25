@@ -61,7 +61,7 @@ describe("kindAt / moduleAt", () => {
 describe("utf16Length", () => {
   /** A character above the BMP is **two** UTF-16 units and the score is
    * `2000 - length`, so counting it once moves the name up one place
-   * 【実測 2026-08-19, browser gate】. */
+   * (measured 2026-08-19, browser gate). */
   it("counts what String.prototype.length counts", () => {
     for (const name of EXPECTED.names) {
       const bytes = ENCODER.encode(name);

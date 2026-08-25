@@ -7,7 +7,7 @@
 #
 # They are `#[ignore]`d rather than skipped from inside, because a
 # `eprintln!("skipping: …") + return` never reaches the exit code: 7 of them were
-# green while the fixtures they wanted had been deleted 【実測 2026-08-16】.
+# green while the fixtures they wanted had been deleted (measured 2026-08-16).
 # `tools/corpus-tests.txt` is the inventory and `--verify-list` fails if the two
 # sides drift — a test that quietly leaves the gate and a gate that names a test
 # nobody wrote are the same bug seen from two ends.
@@ -28,7 +28,7 @@ PYTHON="${PYTHON:-python3}"
 
 # Every `#[ignore]`d test cargo knows about, as `<target>::<name>`. The target
 # prefix is not decoration: bare names collapse the inventory from 21 entries to
-# 19 and hide three tests inside their namesakes 【実測 2026-08-23】. Each binary
+# 19 and hide three tests inside their namesakes (measured 2026-08-23). Each binary
 # is asked directly rather than `cargo test`'s combined output parsed — cargo
 # prints `Running …` on stderr and the names on stdout, so on a CI runner they
 # arrive in one block and pairing them up yields `::name` for everything.
@@ -188,7 +188,7 @@ case "${1:-run}" in
     #
     # **One inventory entry, one test binary, one test.** A bare name passed to
     # `cargo test -- --exact` is wrong three ways that each hid tests rather than
-    # failing 【実測】: `--exact` matches the whole path a binary prints and cargo
+    # failing (measured): `--exact` matches the whole path a binary prints and cargo
     # exits 0 when a filter selects nothing; without `--no-fail-fast` a red binary
     # hides its namesakes; and a name shared by a runnable and a frozen entry
     # pulls the frozen one in. Running each binary by target removes all three.

@@ -4,7 +4,7 @@
 // doc-gen4 classifies on `UnicodeBasic`, whose character database is pinned by
 // the target package's `lake-manifest.json`. Any other copy of the UCD is a
 // different answer: V8's `\p{P}\p{Z}\p{C}` and this one disagree on 4,802 code
-// points 【実測 2026-08-11】. So the ranges are dumped by `dump-gc.lean` from
+// points (measured 2026-08-11). So the ranges are dumped by `dump-gc.lean` from
 // the build doc-gen4 links, and written here as Rust.
 //
 // npm/node are broken in this environment; this must run under deno.
