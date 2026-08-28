@@ -127,6 +127,21 @@ mod tests {
         out
     }
 
+    /// Not a lower bound on how many were found: the scripts assign 9 times
+    /// and `search-empty` is two of them, so a threshold of 8 stays green
+    /// through the first deletion and then blames the scan for the second. A
+    /// name that arrives or leaves has to fail here as that name.
+    const SCRIPTED_CLASSES: [&str; 8] = [
+        "count",
+        "kind",
+        "node-name",
+        "row",
+        "search-empty",
+        "twisty",
+        "twisty-spacer",
+        "where",
+    ];
+
     /// The failure this catches is silent: a class renamed in `decl.rs` still
     /// renders, still validates, and simply has no styling.
     ///
@@ -148,8 +163,10 @@ mod tests {
             ("decl.rs", include_str!("decl.rs")),
             ("code.rs", include_str!("code.rs")),
         ];
-        // The site's scripts put classes on the page too
-        // (measured 2026-08-23: 8 classes, all styled).
+        // Not a glob over `web/src`: `include_str!` needs a literal, and a
+        // sixth file assigning a class would be invisible here. What catches
+        // that is `tools/assets-gate.sh`, which reconciles this list against
+        // the files that actually assign one.
         let scripted = [
             ("web/src/tree.ts", include_str!("../web/src/tree.ts")),
             (
@@ -179,19 +196,21 @@ mod tests {
                 }
             }
         }
-        let mut from_scripts = 0;
+        let mut from_scripts: Vec<&str> = Vec::new();
         for (file, source) in scripted {
             for class in scripted_classes(source) {
                 seen += 1;
-                from_scripts += 1;
+                from_scripts.push(class);
                 if !styled.contains(class) {
                     missing.push(format!("{file}: .{class}"));
                 }
             }
         }
-        assert!(
-            from_scripts >= 8,
-            "only {from_scripts} scripted class names found — did the scan break?"
+        from_scripts.sort_unstable();
+        from_scripts.dedup();
+        assert_eq!(
+            from_scripts, SCRIPTED_CLASSES,
+            "the classes the site's scripts assign are not the recorded ones"
         );
         missing.sort_unstable();
         missing.dedup();
