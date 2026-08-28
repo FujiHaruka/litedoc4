@@ -1,0 +1,141 @@
+Four gates that looked like they were watching something (measured 2026-08-28)
+=============================================================================
+
+Four checks whose printed output read as a pass while the thing they claimed to
+watch was not being watched. Each is recorded here with the number that moved
+when it was fixed, because "it passes" and "it would fail if broken" are
+different claims and only the second one is a gate.
+
+Conditions
+----------
+  Apple M1 / macOS 26.0 (Darwin 25.6.0) / bash 3.2.57 / deno 2.7.14 /
+  Rust 1.97.1 / node 24.19.0 (mise.toml).
+  CI: ubuntu-latest, run 33180485902 (ci.yml) and 33180479986 (probe),
+  branch ci-setup-node.
+  No measurement target and no Mathlib were involved; none of these are timings.
+
+
+1. build-gate.sh — the IR denominator was read off a compared tree
+-----------------------------------------------------------------
+  `compare gate1-ir "$OUT/base/ir" "$REF_IR" "$(files_in "$REF_IR")"` takes the
+  expected file count from the right-hand side of the very comparison it is
+  gating, so the "denominator ok" line only restated that the two sides had the
+  same number of files. `EXPECT_BASE=443` sat two lines above, read by nobody:
+  it was the site count for gate1-site, which is NOT RUN by design.
+
+  Same input, both versions, synthetic trees (5 modules expected, both sides
+  carrying 4):
+
+    OLD (denominator from the right-hand tree)      RESULT PASS   FAILURES=0
+    NEW (denominator from the recorded module list) RESULT FAIL   FAILURES=1
+      expected files      5 (left 4, right 4)
+      DENOMINATOR         WRONG
+
+  The new denominator is `nlines "$REF_MODULES"`, a third source, counted over
+  the `modules/` subtree only — the IR is one file per module there
+  (Extract.lean: `<irDir>/modules/<Module.Name>.json`), while `index.json` and
+  `deps/` are not per-module and stay covered by the tree diff.
+  `EXPECT_MOVE` is now `$((EXPECT_BASE + 1))`, so the written-down 443 is load
+  bearing again.
+
+  Exercised with the real function text extracted from tools/build-gate.sh:
+  PASS / DENOMINATOR WRONG / diff-FAIL / whole-tree mode, FAILURES=3 of 5 cases.
+
+
+2. assets.rs — a scripted-class threshold with a margin of one
+--------------------------------------------------------------
+  `assert!(from_scripts >= 8, "only {from_scripts} scripted class names found —
+  did the scan break?")` counted *occurrences*, not names. The site's scripts
+  assign 9 times over 8 distinct names (`search-empty` twice), so the first
+  deletion left 8 and passed, and the second would have blamed the scan for
+  something the scan got right.
+
+  Replaced by an inventory of the 8 names. Made to fail once by renaming
+  `twisty-spacer` to `twisty-gap` in web/src/tree.ts:
+
+    assertion `left == right` failed: the classes the site's scripts assign
+    are not the recorded ones
+      left:  [... "twisty", "twisty-gap", "where"]
+      right: [... "twisty", "twisty-spacer", "where"]
+
+  The other half of that test's blind spot is that `include_str!` needs a
+  literal, so it names five scripts by hand and a sixth would be scanned by
+  nobody. tools/assets-gate.sh now reconciles the two sets; made to fail once by
+  pointing assets.rs at a script that does not exist:
+
+    assets.rs scans a different set of scripts than the ones that assign a class:
+      < listed in assets.rs   > assigning a class
+      0a1 > imported-by.ts
+      5d5 < xxx.ts
+
+  On the runner: `== 5 script(s) assign a class, and assets.rs scans exactly those`.
+
+
+3. The node pin — thirteen copies and a gate that reconciled them
+-----------------------------------------------------------------
+  `node-version: "24.19.0"` appeared in 13 workflow steps plus action.yml, and
+  assets-gate.sh checked that they all agreed with mise.toml. That holds only
+  while whoever adds the fourteenth copy knows the gate exists.
+
+  Now one composite action, .github/actions/setup-node, reads the pin out of
+  mise.toml at run time; action.yml reads it out of $GITHUB_ACTION_PATH for the
+  same reason it cannot say `uses: ./…` (a local `uses:` inside a published
+  action resolves against the caller's checkout, not this repository). The gate
+  fails on a literal version anywhere but mise.toml instead of reconciling
+  copies.
+
+    == node 24.19.0, written once in mise.toml, read by 2 action(s), used at 16 site(s)
+
+  (the same line on the runner read "18 site(s)": the branch carried the two
+  extra call sites of the throwaway probe workflow described below.)
+
+  Made to fail once, both ways:
+    a literal creeping back  -> "mise.toml pins node 24.19.0; these write a
+                                version of their own: …/ci.yml:38"
+    action.yml stops reading -> "the composite action and action.yml should
+                                both read mise.toml; 1 do"
+
+  Both spellings of the local `uses:` were measured on a runner rather than
+  assumed, because ci-placement.yml checks this repository out under `litedoc4/`
+  (probe run 33180479986, both jobs green):
+
+    checkout at the workspace root              mise.toml: 24.19.0 / node: v24.19.0
+    checkout under litedoc4/ (ci-placement)     mise.toml: 24.19.0 / node: v24.19.0
+
+
+4. benchmarks/tools — twelve scripts nothing ever type-checked
+---------------------------------------------------------------
+  `deno run` strips types rather than checking them, and there was no deno
+  config, so none of the 12 scripts had ever been type-checked.
+
+    deno check *.ts (no config)          33 errors
+      TS2584 x21, TS2304 x11   `document`, `getComputedStyle` — browser globals
+                               inside puppeteer `page.evaluate` callbacks; a
+                               missing `lib`, not a defect
+      TS18046 x1               real: `error` is `unknown` in the `pageerror`
+                               handler, so a non-Error throw would have written
+                               "undefined" into the sink
+
+    + lib ["deno.ns","dom","dom.iterable"]   2 errors
+      TS2504 x1                new: DOM's ReadableStream has no
+                               [Symbol.asyncIterator]; needs dom.asynciterable
+    + dom.asynciterable                      1 error
+    + narrowing the pageerror value          0 errors
+
+  tools/benchmarks-ts-gate.sh runs it; ci.yml runs the gate. Made to fail once
+  with a planted `const _gateProbe: number = "not a number"` (exit 1, TS2322)
+  and once with the config removed (exit 1, named).
+
+  Green on two deno versions, so the clean result is not one release's opinion:
+
+    local  == deno 2.7.14 (stable, release, aarch64-apple-darwin), 12 script(s)
+    CI     == deno 2.9.6 (stable, release, x86_64-unknown-linux-gnu), 12 script(s)
+             BENCHMARKS TS GATE: ok (12 script(s))
+
+
+What the four have in common
+----------------------------
+  None of them failed. All four printed output that read as a pass. What found
+  them was asking, of each printed number, "what is the denominator, and where
+  did it come from" — and in three of the four the denominator came from the
+  thing being measured.
