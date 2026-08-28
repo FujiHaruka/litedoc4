@@ -1,92 +1,85 @@
-# Handoff — 2026-08-24 (コメント削減)
+# Handoff — 2026-08-28 (見張っていなかったゲート 4 件)
 
 ## Relay control
 - Mode: DONE
-- Goal: `CLAUDE.md` の新しい `## コードのコメント` 規則 (既定はコメントしない /
-  非自明な why not だけ) に合わせて、**コード表面のコメントを全面的に削減する**。**達成**。
+- Goal: 2026-08-24 の handoff が「見つけたが直していないもの」として残した 7 件を潰す。**達成**。
 - Leg: 1 / cap 8
-- Predecessor: none
+- Predecessor: `2026-08-24 (コメント削減)`
 - Stop-on: completion
-- **結果**: **コード表面のコメント 25,366 → 16,443 行 (−8,923 行、−35%)**【実測】。
-  **挙動は動いていない** — `cargo test --workspace --no-fail-fast` は着手前と同じ
-  **564 passed / 0 failed / 22 ignored** (doctest 12 本)、`tools/e2e-micro.sh` は 15/15 緑、
-  CI の 8 段も緑。
 - Progress ledger:
-  - r1: 全範囲。commit `c57f2df`〜`108cefa` (14 本)
+  - r1: 全 7 件。commit `12687b9`〜`fd87775` (5 本)
 
 ## State
 
-- Branch: **`main`** / clean / push 済み
+- Branch: **`main`** / push 済み (`fd87775`)
 - **この計画でやることは残っていない**
-- **`action.yml` は別セッションが編集中**【ユーザーから 2026-08-24】。触っていない
+- ローカル `cargo test --workspace --no-fail-fast`: **564 passed / 0 failed / 22 ignored**
+  (doctest 12 本)、EXIT=0。**着手前と同じ数**なので挙動は動いていない。
+  **exit code はパイプを外してファイルに落として取った** — `| tail` の先で読むと
+  `tail` の 0 を見ることになる (CLAUDE.md の罠。この回、実際に一度読み違えた)
+- 検証 (runner 上で実際に走ったもの):
+  - `ci.yml` 4 ジョブ緑 — ブランチで run 33180485902、main で run 33180856819
+    (`cargo test --workspace` / `assets-gate.sh` / 新設の `benchmarks-ts` / e2e)
+  - `ci-action.yml` 緑 (run 33180856811) / `ci-lake.yml` 緑 (run 33180856903)
+  - probe 2 ジョブ緑 (run 33180479986) — `uses:` のローカルパス 2 形を両方実測
+- **composite を使う 7 ワークフローのうち 4 本は runner で未実走** —
+  `ci-browser-windows` / `ci-extractor-portability` / `ci-placement` / `release`。
+  いずれも workflow_dispatch か release 契機。ただし `ci-placement` が要る
+  `./litedoc4/...` の形は probe が直接測った
 
-## 何をしたか
+## 何をしたか — 前回の 7 件の決着
 
-| 範囲 | before → after | |
+| | 項目 | 決着 |
 |---|---|---|
-| Rust 7 crate (108 ファイル) | 16,313 → 9,761 | −40% |
-| `tools/*.sh` (37 本) | 3,396 → 2,066 | −39% |
-| `.github/workflows/*.yml` (13 本) | 921 → 661 | −28% |
-| TS + CSS (35 本) | 997 → 621 | −38% |
-| `benchmarks/tools` の `*.ts` `*.sh` (30 本) | 1,316 → 1,152 | −12% |
-| `extractor/Extract.lean` + `lakefile.lean` | 511 → 324 | −37% |
-| `benchmarks/tools/*.py` (12 本) | 251 → 181 | −28% |
+| 1 | `build-gate.sh` の `EXPECT_BASE=443` が死んでいた | **直した**。分母を「比較する片辺」から**記録済みモジュール一覧**に移した |
+| 2 | `search-gate.sh` が存在しない | **穴ではなかった**。`index-format.ts` / `score.ts` は vitest 23 件が見ていて、それを `assets-gate.sh` が回し、`ci.yml` が回している |
+| 3 | `assets.rs` の `from_scripts >= 8` の余裕が 1 | **直した**。オカレンス数の閾値をやめ、**相異なる 8 名の台帳**と突き合わせる |
+| 4 | node の説明が 6 ワークフロー 11 箇所にコピペ | **直した**。`.github/actions/setup-node` 1 本にし、版は `mise.toml` から**読む** |
+| 5 | `--jobs` 拒否メッセージの重複 | **前セッションで解決済み**だった (`pipeline.rs:916` の 1 箇所のみ) |
+| 6 | `benchmarks/tools/*.ts` が型検査されていない | **直した**。`deno.json` + `tools/benchmarks-ts-gate.sh`、`ci.yml` が回す |
+| 7 | `extractor/README.md` が実験期の枠組み | **直した**。腐った事実 2 件を含めて書き直した |
 
-規則そのものも整備した — `## コードのコメント` を新設し、**コンフリクトする
-「コード表面から docs を参照しない」規則を削除**、先頭の SoT 記述と `crates/` の表を揃えた。
+**数字と、それがどう動いたかは `benchmarks/results/gate-honesty-2026-08-28.txt`。**
+4 件とも「落ちていなかった」ではなく「**落ちる形になっていなかった**」ので、
+すべて**一度落としてから**通した。
 
-## ついでに直した、腐っていたもの
+## この回で分かった一般形
 
-コメント削減の副産物。**どれも製品の欠陥ではないが、読む人を誤らせるもの**:
+- **印字された分母の出所を疑う。** 4 件のうち 3 件で、分母が**測っている対象そのもの**から
+  来ていた (`files_in "$REF_IR"` / `from_scripts >= 8` / 13 個のコピーを突き合わせる node 版)。
+  出所が対象の中にあると、**両辺が同じだけ壊れた**ときに必ず通る
+- **閾値ではなく台帳にする。** `>= 8` は実体 9 オカレンス / 8 名で、偶然一致していただけ。
+  台帳なら「消えた名前」「増えた名前」が名指しで出る
+- **コピーを突き合わせるゲートは、次のコピーを足す人がゲートを知っている間しかもたない。**
+  出所を 1 つにして「**コピーが増えたら落ちる**」に反転させるほうが強い
+- **`deno run` は型を剥がすだけで検査しない。** 走っている ≠ 検査されている
 
-- **死んだ計画への参照** — doc コメント / `litedoc4 --help` の usage / ゲートの拒否
-  メッセージ / assert メッセージ。実装計画 19 本は 2026-08-24 に削除済みで、
-  `plan §6` `M3-d2 の債務` `段 D` `stage 5e (e)` `決定 2` はもう解決しない
-- **doc の付き先が隣の宣言にずれていた 4 件** (`page_parts.rs` / `lib.rs` / `ledger.rs` /
-  `merge.rs`) — 関数が消えると doc が次の宣言へ黙って移る。`cargo doc` も clippy も見ない
-- **doc の数字とアサーションの食い違い 5 件** — 「64 のうち 21」と書いてあって実体は
-  `[&str; 69]` だった。数字を直すのではなく**定数名を指す**ようにした
-- **`docs/provenance.md` の腐った行番号** — `style.css:320-325` は既に外れていた。
-  セレクタ名 (`.fn` / `.break_within`) で指すようにし、`Extract.lean` の行数も実測に更新
-- **`tools/*-reference.sh` / `*-compare.sh` の 7 本が説明していた `--impl ts`** —
-  引数ループを読んで**実在しない経路**であることを確認して落とした
-- **`ci.yml` の「this repository's doc comments are where the reasoning lives」** —
-  新規則と食い違うので書き直した
+## 腐っていたので直した事実 (`extractor/README.md`)
 
-## 見つけたが直していないもの (次に拾うならここ)
+- `Extract.lean` は **3,687 行ではなく 3,174 行**
+- 「`--serve` は製品側から配線するのが M4-c」→ **配線済み** (`resident.rs:445` が spawn する)
+- 解決しない計画 ID (`M5-a` `M5-b` `M4-a`〜`M4-c` `M3-d2` `M7-a` `段 C` `段 D` `計画 §4`) を全廃
+- 撤去済プロトタイプとの移行差分の節をまるごと落とし、**今効いている約束**の一覧に置き換えた
 
-- **`tools/build-gate.sh` の `EXPECT_BASE=443` はどこからも読まれていない。**
-  コメントは「ページ数の取り違えを捕まえる分母」だと言っているが、gate 1 は
-  `$(files_in "$REF_IR")` を渡していて、書き下した分母が効いているのは移動後のツリーだけ
-- **`tools/search-gate.sh` は存在しない**のに、`index-format.ts` と `score.ts` が
-  生きているゲートとして引用していた (引用は落としたが、そのゲート自体が無い)
-- **`assets.rs` の `from_scripts >= 8` は余裕が 1**。実数は 9 で、`search-empty` が
-  2 ファイルで代入されている。片方を消すと 8 になり、次で落ちる。
-  失敗メッセージは「走査が壊れたか」と言うが、走査は壊れていない
-- **`build.rs` が node を要るという説明が 6 ワークフロー 11 箇所にコピペ**されていて、
-  全コピーが編集途中で壊れた文だった。1 ファイル 1 コピーに減らしたが、
-  `setup-elan` と同じ composite action にすれば重複自体が消える
-- **`--jobs` の拒否メッセージが `build.rs` と `pipeline.rs` にバイト単位で重複**。
-  `LINK_INDEX_COST` のように共有されていない (「判断は 1 箇所に集める」がユーザー向け
-  文字列のレベルで破れている)
-- **`benchmarks/tools/*.ts` は一度も単体で型検査されていない** — `deno.json` が無く、
-  `check-site-browser.ts` は `deno check` で既存の `TS18046` を出す (今回の変更前から)
-- **`extractor/README.md`** だけが stage4b / 7d の実験期の枠組みで書かれたまま残っている
+## 残っている確認 (次に拾うならここ)
 
-## 意図的に残したもの (「消し忘れ」と読んで直さない)
+- **`build-gate.sh` は実物で回していない** — 対象リポジトリと `REF_IR` /
+  `REF_MODULES` (`/private/tmp/lean-doc-relay/m3d4/shared/`) が要り、**どちらも今は無い**。
+  合成フィクスチャで `compare` を関数ごと抽出して 5 ケース通した (旧実装との差も実測) が、
+  **実走はしていない**。回すなら `REF_MODULES` の復元が先
+- **CLAUDE.md の「8 ワークフローが `setup-node` を持つ」は 7 が正しい** (probe を消した後)。
+  ルール文書なので触っていない
 
-- `tools/make-target2.sh` が生成する `.lean` の docstring 3 件 (`L3-1` `L3-2` `plan 決定 5`) —
-  **target 2 の IR とページのバイトに出る**。直すなら `target2-gate.sh` を回せる状態で
-- `extractor/Extract.lean` の `stage4b.*` キー 16 件 — **生きているワイヤ形式**
-  (→ CLAUDE.md の保護一覧 6 種目に追加した)
-- `benchmarks/tools` の計測レポート見出しにある `stage 1` / `stage 3` —
-  **実測値に付いた唯一の由来標識**
-- `benchmarks/results/**` / `crates/*/tests/data/**` — 凍結。触っていない
+## 意図的にやらなかったこと
 
-## この作業で恒久化した罠 (CLAUDE.md に入れた)
+- `benchmarks/results/**` と `crates/*/tests/data/**` は凍結。触っていない
+- `extractor/README.md` は日本語のまま (CLAUDE.md の言語規則: 翻訳はしない)。
+  新しい計測記録 `gate-honesty-2026-08-28.txt` は英語で書いた
+  (`benchmarks/results/` は「日本語のまま」の一覧に入っていない)
 
-- **ゲートの部分集合を commit の判定に使わない** (`## 品質ゲート`)
-- **doc の折り返しは `clippy::doc_lazy_continuation` で落ちる。`cargo check` では出ない**
-  (`## Rust の lint`)
-- **走っているシェルスクリプトを書き換えると実行が壊れる** (`## この機材の罠`)
-- **計時 JSONL の `phase` キーは生きている識別子** (`## リポジトリの構成` の保護一覧 6 種目)
+## 最初に読むファイル
+
+1. `benchmarks/results/gate-honesty-2026-08-28.txt` — この回の数字と、何をどう落としたか
+2. `tools/build-gate.sh` の `compare` / `phase_gate1` / `phase_gate4`
+3. `.github/actions/setup-node/action.yml` と `tools/assets-gate.sh` の node の段
+4. `tools/benchmarks-ts-gate.sh`
