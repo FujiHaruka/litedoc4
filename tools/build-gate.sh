@@ -97,10 +97,21 @@ DEL_REL="$(printf '%s' "$DEL_MOD" | tr '.' '/').lean"
 # pages fails instead of redefining the question: 432 module pages + 8
 # whole-package artifacts + 3 static assets, and the move adds one page.
 EXPECT_BASE=443
-EXPECT_MOVE=444
+EXPECT_MOVE=$((EXPECT_BASE + 1))
 
 nlines () { grep -c . "$1" 2>/dev/null || true; }
 files_in () { find "$1" -type f | wc -l | tr -d ' '; }
+
+# Not folded into the `$(nlines ...)` at the call sites: an `exit` inside a
+# command substitution leaves only the subshell, so the caller would carry on
+# with an empty denominator. Inline it again only if the guard stops needing to
+# abort the run.
+require_ref_modules () {
+  [ -f "$REF_MODULES" ] || {
+    echo "the recorded module list is missing: $REF_MODULES" >&2
+    echo "it is the denominator for the IR comparisons; restore it before judging" >&2
+    exit 3; }
+}
 
 clone_state () {
   local dirty x del
@@ -160,21 +171,24 @@ manifest () { # manifest <site> <out file>
 # FAIL and exits 0 is a lie.
 FAILURES=0
 
-compare () { # compare <name> <a> <b> <expected files>
-  local name="$1" a="$2" b="$3" expect="$4" status=0 verdict=FAIL
+compare () { # compare <name> <a> <b> <expected files> [subtree]
+  local name="$1" a="$2" b="$3" expect="$4" sub="${5-}" status=0 verdict=FAIL
+  local ca cb
+  ca="$(files_in "$a${sub:+/$sub}")"
+  cb="$(files_in "$b${sub:+/$sub}")"
   "$DIFF" -r -q "$a" "$b" > "$OUT/$name.diff" 2>&1 || status=$?
   {
     printf 'comparison          %s\n' "$name"
     printf 'left                %s (%s file(s))\n' "$a" "$(files_in "$a")"
     printf 'right               %s (%s file(s))\n' "$b" "$(files_in "$b")"
-    printf 'expected files      %s\n' "$expect"
-    if [ "$(files_in "$a")" != "$expect" ] || [ "$(files_in "$b")" != "$expect" ]; then
+    printf 'counted             %s\n' "${sub:-the whole tree}"
+    printf 'expected files      %s (left %s, right %s)\n' "$expect" "$ca" "$cb"
+    if [ "$ca" != "$expect" ] || [ "$cb" != "$expect" ]; then
       printf 'DENOMINATOR         WRONG\n'
     else
       printf 'denominator         ok\n'
     fi
-    if [ "$status" = 0 ] && [ "$(files_in "$a")" = "$expect" ] \
-       && [ "$(files_in "$b")" = "$expect" ]; then verdict=PASS; fi
+    if [ "$status" = 0 ] && [ "$ca" = "$expect" ] && [ "$cb" = "$expect" ]; then verdict=PASS; fi
     printf 'diff                %s\n' \
       "$([ "$status" = 0 ] && echo identical || echo "$(nlines "$OUT/$name.diff") line(s)")"
     sed 's/^/  /' "$OUT/$name.diff"
@@ -196,6 +210,7 @@ counts () { # counts <log>
 phase_gate1 () {
   echo "### gate 1 — one command over a clean clone"
   require_baseline gate1
+  require_ref_modules
   rm -rf "$OUT/base" "$OUT/ref-site" "$OUT/ref-state"
   build "$OUT/base" "$OUT/base.log"
   counts "$OUT/base.log"
@@ -206,7 +221,13 @@ phase_gate1 () {
   # version-pinned blob URLs. The two differ by design.
   echo "  gate1-site: NOT RUN — the reference predates the dependency link map and differs by design."
   echo "              The same property is checked by tools/e2e-micro.sh."
-  compare gate1-ir "$OUT/base/ir" "$REF_IR" "$(files_in "$REF_IR")"
+  # Not `files_in "$REF_IR"`: a denominator read off one of the two trees being
+  # compared can only restate the diff, so it passes even when both sides are
+  # short. The recorded module list is the third source, and the IR is one file
+  # per module under `modules/` (`index.json` and `deps/` are not per-module, so
+  # the tree diff covers them, not the count). If the extractor ever writes more
+  # than one file per module, count the modules some other way.
+  compare gate1-ir "$OUT/base/ir" "$REF_IR" "$(nlines "$REF_MODULES")" modules
   # The other half of "it derived the same question": the order makes the
   # ledger's and the merged index.json's bytes.
   "$DIFF" "$OUT/base/work/modules.txt" "$REF_MODULES" > "$OUT/gate1-modules.diff" \
@@ -271,11 +292,13 @@ phase_gate3 () {
 phase_gate4 () {
   echo "### gate 4 — incremental == full, through \`build\` on both sides"
   [ -f "$CLONE/$X_REL" ] || { echo "the clone does not carry the move; run gate3" >&2; exit 3; }
+  require_ref_modules
   rm -rf "$OUT/scratch"
   build "$OUT/scratch" "$OUT/scratch.log" --full
   counts "$OUT/scratch.log"
   compare gate4-site "$OUT/base/site" "$OUT/scratch/site" "$EXPECT_MOVE"
-  compare gate4-ir "$OUT/base/ir" "$OUT/scratch/ir" "$(files_in "$OUT/scratch/ir")"
+  compare gate4-ir "$OUT/base/ir" "$OUT/scratch/ir" \
+    "$(( $(nlines "$REF_MODULES") + 1 ))" modules
   if "$DIFF" -q "$OUT/base/ledger.json" "$OUT/scratch/ledger.json" > /dev/null; then
     echo "  ledger              identical"
   else
