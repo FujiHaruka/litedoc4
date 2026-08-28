@@ -4,11 +4,12 @@
 A consumer requires this package and gets a `docs` script:
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v0.1.4"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v0.2.0"
 ```
 
-Pin `v0.1.4` or later: an earlier tag's tree has no `lakefile.lean`, so Lake
-cannot resolve it as a package at all. `@ "main"` also works and moves.
+Pin `v0.2.0` or later: earlier releases have neither `watch` nor `litedoc4.toml`,
+and the oldest tag Lake can resolve at all is `v0.1.4`. `@ "main"` also works
+and moves.
 
 ```
 lake run docs -- --out ../mypkg-docs

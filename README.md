@@ -13,10 +13,10 @@ Live example: <https://fujiharuka.github.io/information-theory/> — 422 modules
 ## Is this for you?
 
 **Yes**, if doc-gen4 is too slow for your CI and your package lives on GitHub and is on Lean
-4.31.x through 4.33.x. Any Lean 4 package works — the payoff just scales with how large your dependencies are
-next to your own code, and Mathlib is as large as that gets. You get a module tree, search,
-instance lists, "Imported by", "Used by" (within your package), typeset math, hyperlinked
-signatures, and a dark theme.
+4.31.0, 4.32.2 or 4.33.0. Any Lean 4 package works — the payoff just scales with how large your
+dependencies are next to your own code, and Mathlib is as large as that gets. You get a module
+tree, search, instance lists, "Imported by", "Used by" (within your package), typeset math,
+hyperlinked signatures, and a dark theme.
 
 **No**, if:
 
@@ -115,7 +115,7 @@ jobs:
     environment: { name: github-pages }
     steps:
       - uses: actions/checkout@v7
-      - uses: FujiHaruka/litedoc4@v0.1.4
+      - uses: FujiHaruka/litedoc4@v0.2.0
         id: docs
         with:
           cache-get: true             # `lake exe cache get` — drop it if you have no Mathlib
@@ -149,7 +149,7 @@ toolchain.
 Add it to your `lakefile.lean` (or the `[[require]]` equivalent in `lakefile.toml`):
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v0.1.4"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v0.2.0"
 ```
 
 ```sh
@@ -251,14 +251,15 @@ not GitHub (another host is refused rather than guessed).
 
 ## Status
 
-`v0.1.4` — the action and the released binaries. Tested on macOS (Apple Silicon) and
+`v0.2.0` — the action and the released binaries. Tested on macOS (Apple Silicon) and
 `ubuntu-latest` with Lean/Mathlib v4.31.0, and the browser side also on `windows-latest`.
 **Lean 4.31.0, 4.32.2 and 4.33.0 all build the extractor**: 4.31.0 and 4.32.2 write
 byte-identical IR, and 4.33.0 differs only where Lean itself reclassified instances
 (`implicit_reducible` → `instance_reducible`, 4 declarations in the fixture). Only 4.31.0 has
 been run over a Mathlib-sized package.
-Pin the action and the `require` to a tag — `v0.1.4` or later, since that is the oldest release
-usable as a Lake dependency. `@main` moves.
+Pin the action and the `require` to a tag — `v0.2.0` or later, since `watch`, `litedoc4.toml`,
+the math in docstrings and "Used by" are in that release and not in the ones before it.
+`@main` moves.
 
 The extractor is not distributed as a binary. It **could** be — it is decided by the toolchain
 alone, it is portable, and against the wrong toolchain it fails loudly rather than writing a
