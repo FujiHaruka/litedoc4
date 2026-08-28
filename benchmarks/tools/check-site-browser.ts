@@ -109,7 +109,13 @@ function watch(page: Page, sink: string[]) {
   page.on("console", (message) => {
     if (message.type() === "error") sink.push(`console: ${message.text()}`);
   });
-  page.on("pageerror", (error) => sink.push(`pageerror: ${error.message}`));
+  page.on(
+    "pageerror",
+    // `error` is `unknown` here, and a non-Error throw would have put
+    // "undefined" in the sink rather than what was thrown.
+    (error) =>
+      sink.push(`pageerror: ${error instanceof Error ? error.message : String(error)}`),
+  );
   page.on("requestfailed", (request) => {
     sink.push(`requestfailed: ${request.url()} (${request.failure()?.errorText})`);
   });

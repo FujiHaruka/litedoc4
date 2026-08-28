@@ -132,6 +132,22 @@ jobs:
         with:
           command: check
 
+  # `deno run` strips types rather than checking them, so nothing else in CI
+  # looks at the measurement tooling's TypeScript at all.
+  benchmarks-ts:
+    name: measurement tooling (types)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check benchmarks/tools
+        run: tools/benchmarks-ts-gate.sh
+
   # The only job that runs a real Lean environment. Every test in the job above
   # fakes the extractor, so nothing there checks the contract between
   # `extractor/Extract.lean` and the Rust side: change what the extractor writes
