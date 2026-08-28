@@ -86,13 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
-      # `app.js`, so cargo cannot build this workspace without node. Pinned
-      # rather than left to whatever the runner image ships: the version is the
-      # one in `mise.toml`, and `tools/assets-gate.sh` checks that they agree.
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24.19.0"
+      - uses: ./.github/actions/setup-node
 
       - name: Install the toolchain rust-toolchain.toml asks for
         run: rustup show
@@ -200,9 +194,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24.19.0"
+      - uses: ./.github/actions/setup-node
 
       - name: elan in a non-default location
         run: |

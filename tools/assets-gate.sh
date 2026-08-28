@@ -40,14 +40,39 @@ cd "$WEB"
 ROOT="$(cd "$HERE/.." && pwd)"
 PINNED="$(sed -n 's/^node[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/mise.toml")"
 [ -n "$PINNED" ] || { echo "mise.toml names no node version" >&2; exit 1; }
-DISAGREE="$(grep -rn 'node-version:' "$ROOT/.github/workflows" "$ROOT/action.yml" \
-  | grep -v "\"$PINNED\"" || true)"
-if [ -n "$DISAGREE" ]; then
-  echo "mise.toml pins node $PINNED and these do not:" >&2
-  echo "$DISAGREE" >&2
+#
+# What is checked is that `mise.toml` is the *only* place the version is
+# written: `.github/actions/setup-node` and `action.yml` both read it out of
+# that file at run time. Reconciling copies was the earlier shape, and it holds
+# only while whoever adds the next copy knows this gate exists.
+WRITTEN="$(grep -rn 'node-version:' "$ROOT/.github" "$ROOT/action.yml" | grep -vF '${{' || true)"
+if [ -n "$WRITTEN" ]; then
+  echo "mise.toml pins node $PINNED; these write a version of their own:" >&2
+  echo "$WRITTEN" >&2
   exit 1
 fi
-echo "== node $PINNED, in mise.toml and $(grep -rc 'node-version:' "$ROOT/.github/workflows" "$ROOT/action.yml" | awk -F: '{n+=$2} END{print n}') workflow steps"
+READERS="$(grep -rl 'mise.toml' "$ROOT/.github/actions" "$ROOT/action.yml" | wc -l | tr -d ' ')"
+[ "$READERS" -ge 2 ] || {
+  echo "the composite action and action.yml should both read mise.toml; $READERS do" >&2
+  exit 1; }
+USES="$(grep -rc 'actions/setup-node' "$ROOT/.github" "$ROOT/action.yml" | awk -F: '{n+=$2} END{print n}')"
+echo "== node $PINNED, written once in mise.toml, read by $READERS action(s), used at $USES site(s)"
+
+# `assets.rs` checks that every class the scripts assign is styled, and it names
+# the scripts one by one because `include_str!` takes a literal. A sixth file
+# that assigns a class would be scanned by nobody and the test would stay green.
+# Checked here rather than there for the same reason: Rust cannot glob at test
+# time. Drop this if that list ever stops being hand-written.
+ASSETS_RS="$ROOT/crates/litedoc4-render/src/assets.rs"
+LISTED="$(grep -o '"web/src/[a-z0-9-]*\.ts"' "$ASSETS_RS" | tr -d '"' | sed 's|web/src/||' | LC_ALL=C sort -u)"
+ASSIGNING="$(grep -l '\.className = "' "$WEB"/src/*.ts | xargs -n1 basename | LC_ALL=C sort -u)"
+if [ "$LISTED" != "$ASSIGNING" ]; then
+  echo "assets.rs scans a different set of scripts than the ones that assign a class:" >&2
+  echo "  < listed in assets.rs   > assigning a class" >&2
+  /usr/bin/diff <(printf '%s\n' "$LISTED") <(printf '%s\n' "$ASSIGNING") >&2 || true
+  exit 1
+fi
+echo "== $(printf '%s\n' "$LISTED" | wc -l | tr -d ' ') script(s) assign a class, and assets.rs scans exactly those"
 
 
 # `npm ci` and not `npm install`: the lockfile is the version everything here was

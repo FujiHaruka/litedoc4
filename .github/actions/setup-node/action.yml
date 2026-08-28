@@ -1,0 +1,35 @@
+name: Set up node
+description: >
+  Install the node version `mise.toml` pins, so that cargo can run
+  `crates/litedoc4-render/build.rs`.
+
+# WHY THE VERSION IS READ AND NOT WRITTEN
+#   `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
+#   `app.js`, so cargo cannot build this workspace without node — and thirteen
+#   jobs used to say so with their own copy of the version. One pin that
+#   everything reads cannot drift. Copies plus a gate reconciling them works
+#   only while whoever adds the fourteenth copy remembers the gate exists, and
+#   `tools/assets-gate.sh` now fails on a literal version anywhere but
+#   `mise.toml` instead.
+#
+# WHY THE PATH GOES THROUGH `github.action_path`
+#   `ci-placement.yml` checks this repository out under `litedoc4/`, so the
+#   working directory is not the repository root for every caller. The action's
+#   own directory is, three levels up — and it is wherever the checkout put it.
+runs:
+  using: composite
+  steps:
+    - name: Read the pinned version out of mise.toml
+      id: pin
+      shell: bash
+      run: |
+        set -euo pipefail
+        MISE="${{ github.action_path }}/../../../mise.toml"
+        V="$(sed -n 's/^node[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$MISE")"
+        [ -n "$V" ] || { echo "mise.toml names no node version: $MISE" >&2; exit 1; }
+        echo "version=$V" >> "$GITHUB_OUTPUT"
+        echo "node $V, from mise.toml"
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ steps.pin.outputs.version }}

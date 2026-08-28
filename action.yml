@@ -269,11 +269,27 @@ runs:
     # node, because `crates/litedoc4-render/build.rs` bundles the site's
     # TypeScript into `app.js`. A caller on a released ref downloads a binary
     # and never gets here.
+    #
+    # Not `uses: ./.github/actions/setup-node`, the way the workflows say it: a
+    # local `uses:` inside a published action resolves against the *caller's*
+    # checkout, which is their repository and not this one. So the pin is read
+    # here as well, out of this action's own directory.
+    - name: Read the node version mise.toml pins
+      id: node-pin
+      if: steps.binary.outputs.bin == ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        MISE="$GITHUB_ACTION_PATH/mise.toml"
+        V="$(sed -n 's/^node[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$MISE")"
+        [ -n "$V" ] || { echo "mise.toml names no node version: $MISE" >&2; exit 1; }
+        echo "version=$V" >> "$GITHUB_OUTPUT"
+
     - name: Node toolchain
       if: steps.binary.outputs.bin == ''
       uses: actions/setup-node@v7
       with:
-        node-version: "24.19.0"
+        node-version: ${{ steps.node-pin.outputs.version }}
 
     - name: Rust toolchain
       if: steps.binary.outputs.bin == ''
