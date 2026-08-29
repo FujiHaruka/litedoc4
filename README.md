@@ -57,8 +57,11 @@ A module whose docstring opens with prose instead is listed by name alone, and t
 many were described and how many said only what the row already says:
 
 ```
-global  module descriptions 10 of 11 (0 repeat the module name)
+global  module descriptions 390 of 422 (0 repeat the module name)
 ```
+
+That is the live example's own front page (measured 2026-08-29,
+[`benchmarks/results/module-summary-live-2026-08-29.txt`](benchmarks/results/module-summary-live-2026-08-29.txt)).
 
 A heading that repeats the module's own name — `# Basic` on `Pkg.Basic` — is written to the page
 as it stands rather than dropped. That second number is what tells you to write a better heading;

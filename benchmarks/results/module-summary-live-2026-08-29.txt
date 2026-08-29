@@ -1,0 +1,56 @@
+# Module descriptions, through a real build (measured 2026-08-29)
+
+The source scan in `module-summary-source-2026-08-29.txt` predicted how many
+modules could carry a one-line description by reading `.lean` files. This is the
+same question answered by the pipeline instead: extractor -> IR -> facts ->
+front page, on the 422-module target, published.
+
+## Conditions
+
+  built by      litedoc4 v1.2.0, FujiHaruka/litedoc4@v1.2.0 (the released
+                x86_64-unknown-linux-musl binary, not a cargo build)
+  runner        ubuntu-latest, GitHub Actions
+  workflow      FujiHaruka/information-theory .github/workflows/docs.yml,
+                run 33255806841, commit 7c1fbd3a
+  target        InformationTheory, 422 modules, Lean v4.31.0 + Mathlib fabf563a7c
+  published     https://fujiharuka.github.io/information-theory/
+  cache         cold: 0 global cache hits, 422 misses
+
+## What the build reported
+
+  modules 422
+  render  modules 422/422  declarations 4394/4584 (190 suppressed)  module docs 1484
+  global  modules 422  declarations 4584 + 527 dependency names
+  global  module descriptions 390 of 422 (0 repeat the module name)
+  work    extract 422 / render 422 / math-fallback 0 / requests 1 /
+          cache 0 hit 422 miss / summary 390 (0 name-only) /
+          ir 853 file(s) (844 module read(s) = 2.00 full pass(es))
+
+## What the published page holds
+
+Counted by fetching the deployed `index.html` and parsing its `ul.modlist`:
+
+  list marked modlist-described   yes
+  rows                            422
+  rows carrying a description     390
+  descriptions containing <code>  35
+  descriptions containing <math>  0
+
+## Prediction against result
+
+The source scan found **390** `.lean` files under `InformationTheory/` opening
+their first `/-! … -/` block with a `# ` heading, out of 421 files. The build
+reports **390** descriptions out of 422 modules. The two agree exactly, and the
+one-module difference in the denominator is the root `InformationTheory.lean`,
+which the scan's directory walk did not reach and which carries no heading.
+
+`0 repeat the module name` is the second number the build prints, and this is
+the first corpus it has been read on: no module of the target heads its
+docstring with its own last name component. The source scan had said the same
+(0 of 390), so nothing here is new information about the target — what is new is
+that the count derived through the pipeline agrees with the count derived from
+the text.
+
+The 35 descriptions carrying `<code>` are the reason the front page renders
+inline Markdown rather than escaping the heading as plain text: those rows would
+otherwise show their backticks.
