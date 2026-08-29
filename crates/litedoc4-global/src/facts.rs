@@ -377,18 +377,15 @@ mod tests {
 
     #[test]
     fn only_a_level_one_atx_heading_that_opens_the_docstring_counts() {
-        assert_eq!(leading_heading(&[doc(1, "# Title")]).as_deref(), Some("Title"));
+        assert_eq!(
+            leading_heading(&[doc(1, "# Title")]).as_deref(),
+            Some("Title")
+        );
         assert_eq!(
             leading_heading(&[doc(1, "\n  # Title  \nmore")]).as_deref(),
             Some("Title")
         );
-        for none in [
-            "## Sub",
-            "#NoSpace",
-            "Prose first\n\n# Title",
-            "# ",
-            "",
-        ] {
+        for none in ["## Sub", "#NoSpace", "Prose first\n\n# Title", "# ", ""] {
             assert_eq!(leading_heading(&[doc(1, none)]), None, "{none:?}");
         }
         assert_eq!(leading_heading(&[]), None);
@@ -398,8 +395,14 @@ mod tests {
     /// that CommonMark needs; `# C#` is a module about C#.
     #[test]
     fn a_closing_hash_run_is_dropped_and_a_trailing_hash_is_not() {
-        assert_eq!(leading_heading(&[doc(1, "# Title #")]).as_deref(), Some("Title"));
-        assert_eq!(leading_heading(&[doc(1, "# Title ###")]).as_deref(), Some("Title"));
+        assert_eq!(
+            leading_heading(&[doc(1, "# Title #")]).as_deref(),
+            Some("Title")
+        );
+        assert_eq!(
+            leading_heading(&[doc(1, "# Title ###")]).as_deref(),
+            Some("Title")
+        );
         assert_eq!(leading_heading(&[doc(1, "# C#")]).as_deref(), Some("C#"));
     }
 

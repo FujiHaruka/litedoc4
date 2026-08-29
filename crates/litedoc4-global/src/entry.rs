@@ -409,7 +409,10 @@ mod tests {
                 }
             }
         }
-        assert!(seen > 20, "only {seen} class names found — did the scan break?");
+        assert!(
+            seen > 20,
+            "only {seen} class names found — did the scan break?"
+        );
     }
 
     #[test]

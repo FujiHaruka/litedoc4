@@ -571,7 +571,10 @@ mod tests {
     #[test]
     fn inline_renders_one_line_without_a_block_wrapper() {
         let renderer = Renderer::new("../", &NoLinks);
-        assert_eq!(renderer.inline("The `observe` tactic"), "The <code>observe</code> tactic");
+        assert_eq!(
+            renderer.inline("The `observe` tactic"),
+            "The <code>observe</code> tactic"
+        );
         assert_eq!(renderer.inline("a < b & c"), "a &lt; b &amp; c");
         assert!(renderer.inline("$x^2$").starts_with("<math>"));
         assert_eq!(renderer.inline(""), "");

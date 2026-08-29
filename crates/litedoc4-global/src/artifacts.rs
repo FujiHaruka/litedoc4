@@ -770,7 +770,8 @@ mod tests {
         above.decls = vec![("Pkg.\u{1D49C}.a".to_owned(), "definition".to_owned())];
         let mut inside = facts("Pkg.\u{FB00}", &[]);
         inside.decls = vec![("Pkg.\u{FB00}.a".to_owned(), "definition".to_owned())];
-        let artifacts = Artifacts::derive(&[inside, above], &[], &SiteConfig::EMPTY, None, "4.31.0");
+        let artifacts =
+            Artifacts::derive(&[inside, above], &[], &SiteConfig::EMPTY, None, "4.31.0");
         // The binary index carries its names as UTF-8, so the same search for
         // the two characters answers the same question about it.
         let index = String::from_utf8_lossy(&artifacts.search_index_bin).into_owned();
