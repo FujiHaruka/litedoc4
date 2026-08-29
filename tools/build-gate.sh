@@ -105,18 +105,10 @@ DEL_REL="$(printf '%s' "$DEL_MOD" | tr '.' '/').lean"
 # (measured 2026-08-29: it still said 432 modules when the target had 422, and 11
 # artefacts when the site writes 12), and both times the symptom was a number
 # nobody could attribute. A name that disappears is now reported as that name.
-SITE_ARTEFACTS="404.html
-foundational_types.html
-index.html
-search.html
-app.js
-declarations/name-map.json
-declarations/used-by.json
-favicon.svg
-instances.json
-modules.json
-search-index.bin
-style.css"
+SITE_ARTEFACTS="$(grep -v '^[[:space:]]*#' "$REPO/tools/site-artefacts.txt" | grep .)"
+[ -n "$SITE_ARTEFACTS" ] || {
+  echo "tools/site-artefacts.txt is empty — the page denominator would be the module count alone" >&2
+  exit 2; }
 
 artefact_count () { printf '%s\n' "$SITE_ARTEFACTS" | grep -c .; }
 
@@ -133,7 +125,10 @@ require_site_artefacts () { # require_site_artefacts <site>
   local name
   while read -r name; do
     [ -n "$name" ] || continue
-    [ -e "$site/$name" ] || missing="$missing $name"
+    # `-s`, not `-e`: a zero-byte artefact is present on both sides, so the tree
+    # diff calls it identical and the count still adds up. Emptiness is the one
+    # way one of these can break without moving any of the other numbers.
+    [ -s "$site/$name" ] || missing="$missing $name"
   done <<EOF
 $SITE_ARTEFACTS
 EOF

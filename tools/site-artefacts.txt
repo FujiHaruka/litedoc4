@@ -1,0 +1,23 @@
+# The files a site carries besides one page per module.
+#
+# One place, because two gates ask the same question of it: tools/build-gate.sh
+# uses it as the non-module half of the page denominator, and tools/clone-gate.sh
+# copies each one out of every scenario's tree to compare them. When the list
+# lived in both, only one got updated — clone-gate.sh still named
+# `declarations/declaration-data.bmp`, `navbar.html`, `tactics.html`,
+# `references.html` and `references.bib`, which are doc-gen4's, and its own
+# handling writes an `.absent` marker for a file that is not there. Five of its
+# six entries were absent on both sides of every comparison, so that half of the
+# gate agreed with itself and could not fail (measured 2026-08-29).
+404.html
+foundational_types.html
+index.html
+search.html
+app.js
+declarations/name-map.json
+declarations/used-by.json
+favicon.svg
+instances.json
+modules.json
+search-index.bin
+style.css

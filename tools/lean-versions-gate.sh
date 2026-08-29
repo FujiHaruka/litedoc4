@@ -72,13 +72,34 @@ def module_files(root):
     }
 
 
+# How many bytes the normalisation actually rewrote, per toolchain. Printed at the
+# end: a normalisation whose reach is unknown is an ignore-list wearing a
+# different hat, and the number is the only way to see it grow.
+rewrites: dict[str, int] = {}
+
+
 def normalised(path, toolchain):
     raw = path.read_bytes()
-    return raw.replace(spelling[toolchain].encode(), CANONICAL.encode())
+    want = spelling[toolchain].encode()
+    if want == CANONICAL.encode():
+        return raw
+    rewrites[toolchain] = rewrites.get(toolchain, 0) + raw.count(want)
+    return raw.replace(want, CANONICAL.encode())
 
 
 base_toolchain, base_root = legs[0]
 base_files = module_files(base_root)
+
+# Agreement over nothing is not agreement. The fixture has ten modules and two
+# dependency slices; anything under that means the artifact did not arrive whole,
+# and without this the gate prints "agree over 0 IR files" and exits 0 (measured
+# 2026-08-29, on synthetic empty trees).
+FLOOR = 10
+if len(base_files) < FLOOR:
+    sys.exit(
+        f"lean-versions: {base_toolchain} has {len(base_files)} IR file(s), fewer than "
+        f"the {FLOOR} this fixture always writes — comparing these would prove nothing"
+    )
 
 for toolchain, root in legs[1:]:
     files = module_files(root)
@@ -148,10 +169,11 @@ if problems:
         print(f"LEAN VERSIONS FAIL  {problem}", file=sys.stderr)
     sys.exit(1)
 
+reach = ", ".join(f"{t} {n}" for t, n in sorted(rewrites.items())) or "none"
 print(
     "LEAN VERSIONS: "
     + ", ".join(t for t, _ in legs)
     + f" agree over {len(base_files)} IR files "
-    f"(the recorded rename to `{CANONICAL}` applied, nothing else)"
+    f"(rename to `{CANONICAL}` applied {reach} time(s), nothing else normalised)"
 )
 PY

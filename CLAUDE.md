@@ -40,11 +40,11 @@ crates.io / npm / PyPI / GitHub search alike.
 **There are 6 categories where the prototype-era name is deliberately kept. Do not read them as
 "forgot to delete" and fix them**:
 
-1. **`benchmarks/results/**` (361 files)** — raw logs. Do not rewrite past measurements
+1. **`benchmarks/results/**`** — raw logs. Do not rewrite past measurements
 2. **`crates/*/tests/data/**` (14 files)** — frozen fixtures. The paths at generation time are
    baked in, and **there is no way to regenerate them in HEAD**. The
    `git show experiments-frozen:crates/lean-doc-*/…` in `PROVENANCE.md` is **a real path inside the tag**, and renaming makes it stop resolving
-3. **The string `lean-doc-relay` (32 files)** — the gates' work area `/private/tmp/lean-doc-relay/<stage>`.
+3. **The string `lean-doc-relay`** — the gates' work area `/private/tmp/lean-doc-relay/<stage>`.
    It is in the frozen fixtures as the path at generation time, and **the default path of
    `litedoc4_testutil::corpus` has to match it**
 4. **`lean-doc/experiments/stage4b` / `stage4c` (6 files)** — **real identifiers** that the
@@ -122,8 +122,9 @@ TypeScript and `crates/litedoc4-render/build.rs` came to run vite and bake `app.
 `OUT_DIR`. **The artefact is not in the repository.**
 **Users do not pay for node** — the workspace is `publish = false`, and distribution is the musl
 binaries that `release.yml` bakes. The ones who pay are those who build from source, i.e.
-developers and CI (which is why the 7 workflows that run cargo and the cargo path in `action.yml`
-have `setup-node`).
+developers and CI (which is why every workflow that runs cargo, and the cargo path in
+`action.yml`, has `setup-node` — **`tools/workflow-gate.sh` checks that rule rather than a count**;
+the count was written down as 8, corrected to 7 and made 9 by two new workflows on the same day).
 **There is no fallback.** If node is absent, `build.rs` fails — "build it if it is there, use the
 committed one if not" makes 2 paths, so it is not taken.
 
@@ -213,7 +214,7 @@ itself**. Every number written in docs carries one of the following 4 labels:
 
 | Label | Meaning | Obligation |
 |---|---|---|
-| **(measured)** | there is a log | the path to the log must be followable |
+| **(measured)** | there is a log | the path to the log must be followable (**`tools/docs-gate.sh`** checks every cited `benchmarks/results/<file>`) |
 | **(extrapolated)** | extended from part of a measurement | write what fraction was measured |
 | **(assumed)** | no basis | state it as an assumption and turn it into a verification item |
 | **(theoretical)** | a composition of the above | list the premises and write "unverified" |
@@ -252,6 +253,10 @@ redefined. What was put in its place is **3 kinds that need no external oracle**
   A test **holds its own input and depends on zero hardware**, and `cargo test --workspace` is the
   definition of green.
   A gate requires hardware, the target, or a toolchain, and lives in `tools/*-gate.sh`.
+  **The gates have an inventory of their own** — `tools/gates.txt`, checked in both directions by
+  `tools/workflow-gate.sh`, which also verifies that a row marked `ci` is really reached from a
+  workflow and one marked `manual` is really not. Without it, `build-gate.sh` sat for months as a
+  gate nobody had ever run (measured 2026-08-29)
   **Anything that reads the target repository is not a test** — anything that breaks when the target moves is by definition not a test
 - **Never return green by skipping.** A test with no input is made `#[ignore]` and listed in
   `tools/corpus-tests.txt` (CI looks at the difference in both directions with `--verify-list`).
@@ -367,7 +372,9 @@ What CI holds besides lints: **rustdoc links**
   - **The reason behind a design decision is not process either** — for something like "we do not
     keep a `lean-toolchain`", which **the user meets in the behaviour today**, keep it together with its reason.
   - **The history is held by git.** Deleting it from the user-facing side is not throwing the record away.
-- **Between docs too, do not point at a document expected to be completed and disappear as a SoT.** Pointers rot —
+- **Between docs too, do not point at a document expected to be completed and disappear as a SoT.**
+  A reference to a deleted document is allowed only when the line says it was deleted;
+  **`tools/docs-gate.sh`** enforces that. Pointers rot —
   docs disappear, section numbers move, and plans get folded away when completed.
 - A planning document over 600 lines goes to `/compact-plan`. **Summarising and splitting are
   different means, and the default is not splitting** —

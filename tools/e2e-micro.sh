@@ -416,6 +416,21 @@ expected = {
     "Micro.Attrs.tinyBool": [[REDUCIBLE_INSTANCE, ""], ["defaultInstance", "1000"]],
 }
 
+# A Python dict literal with a duplicate key keeps the last one, silently. The
+# reducible-instance spelling below is a *variable*, so a toolchain that ever
+# spelled it `reducible` would drop the 19 without a word (verified: the literal
+# collapses from three keys to two). Checked rather than assumed.
+LITERAL_ATTR_NAMES = {
+    "reducible", "inline", "simp", "match_pattern", "specialize", "deprecated",
+    "instance", "defaultInstance",
+}
+if REDUCIBLE_INSTANCE in LITERAL_ATTR_NAMES:
+    sys.exit(
+        f"GATE 8: this toolchain spells the reducible-instance attribute "
+        f"{REDUCIBLE_INSTANCE!r}, which is already one of the names counted below — "
+        "the two would silently become one entry. Split them before trusting this gate."
+    )
+
 name_counts = {
     # Every structure projection is `@[reducible]`, and `Micro/Gen.lean` declares
     # six structures.

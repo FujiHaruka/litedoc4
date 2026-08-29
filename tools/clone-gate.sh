@@ -172,15 +172,22 @@ DEL_MOD="$LIB.Shannon.ArithmeticCoding"
 DEL_REL="$(printf '%s' "$DEL_MOD" | tr '.' '/').lean"
 ROOT_LEAN="$LIB.lean"
 
-# The denominators, written down rather than derived, so that a run which
-# silently produced the wrong number of pages fails instead of redefining the
-# question. 6 = the whole-package artifacts.
-GLOBAL_FILES=6
-EXPECT_MOVE=439
-EXPECT_DELETE=437
+# The denominators. Written down as *literals* they were wrong on both halves at
+# once — 432 module pages when the target has 422, and doc-gen4's six
+# whole-package files when the site writes twelve — and a single total is a
+# number nobody can attribute (measured 2026-08-29, the same defect found in
+# tools/build-gate.sh). So: the module half comes from the recorded base module
+# list this gate writes itself, and the rest from tools/site-artefacts.txt, which
+# tools/build-gate.sh reads too.
+GLOBAL_ARTIFACTS="$(grep -v '^[[:space:]]*#' "$REPO/tools/site-artefacts.txt" | grep . | tr '\n' ' ')"
+[ -n "$GLOBAL_ARTIFACTS" ] || {
+  echo "tools/site-artefacts.txt is empty — every scenario would compare nothing" >&2; exit 2; }
+GLOBAL_FILES=$(printf '%s\n' $GLOBAL_ARTIFACTS | grep -c .)
 
-GLOBAL_ARTIFACTS="declarations/declaration-data.bmp declarations/name-map.json \
-navbar.html tactics.html references.html references.bib"
+# Functions, not constants: the base module list only exists after `setup`.
+base_modules () { nlines "$SHARED/modules-base.txt"; }
+expect_move ()   { echo $(( $(base_modules) + 1 + GLOBAL_FILES )); }
+expect_delete () { echo $(( $(base_modules) - 1 + GLOBAL_FILES )); }
 
 WORK_FILES="changed.txt removed.txt render-all.txt seen.txt ir-changed.txt \
 global-set.txt impact-set.txt render-set.txt name-map-before.json \
@@ -536,11 +543,11 @@ phase_move () {
   cp "$SHARED/modules-move.txt" "$OUT/modules-move.txt"
   grep -qx "$X_MOD" "$SHARED/modules-move.txt" || {
     echo "$X_MOD is not in the post-move module list" >&2; exit 3; }
-  [ "$(nlines "$SHARED/modules-move.txt")" = "$((EXPECT_MOVE - GLOBAL_FILES))" ] || {
-    echo "post-move module count is $(nlines "$SHARED/modules-move.txt"), expected $((EXPECT_MOVE - GLOBAL_FILES))" >&2
+  [ "$(nlines "$SHARED/modules-move.txt")" = "$(( $(base_modules) + 1 ))" ] || {
+    echo "post-move module count is $(nlines "$SHARED/modules-move.txt"), expected $(( $(base_modules) + 1 ))" >&2
     exit 3; }
   extract_all "$SHARED/modules-move.txt" "$SHARED/move-ir" "$SHARED/move-extract"
-  run_scenario move "$SHARED/modules-move.txt" "$SHARED/move-ir" "$EXPECT_MOVE"
+  run_scenario move "$SHARED/modules-move.txt" "$SHARED/move-ir" "$(expect_move)"
 }
 
 # delete — the source file goes, the one import line naming it goes, `lake build`.
@@ -587,11 +594,11 @@ PY
   if grep -qx "$DEL_MOD" "$SHARED/modules-delete.txt"; then
     echo "$DEL_MOD is still in the post-deletion module list" >&2; exit 3
   fi
-  [ "$(nlines "$SHARED/modules-delete.txt")" = "$((EXPECT_DELETE - GLOBAL_FILES))" ] || {
-    echo "post-deletion module count is $(nlines "$SHARED/modules-delete.txt"), expected $((EXPECT_DELETE - GLOBAL_FILES))" >&2
+  [ "$(nlines "$SHARED/modules-delete.txt")" = "$(( $(base_modules) - 1 ))" ] || {
+    echo "post-deletion module count is $(nlines "$SHARED/modules-delete.txt"), expected $(( $(base_modules) - 1 ))" >&2
     exit 3; }
   extract_all "$SHARED/modules-delete.txt" "$SHARED/delete-ir" "$SHARED/delete-extract"
-  run_scenario delete "$SHARED/modules-delete.txt" "$SHARED/delete-ir" "$EXPECT_DELETE"
+  run_scenario delete "$SHARED/modules-delete.txt" "$SHARED/delete-ir" "$(expect_delete)"
 }
 
 # reset — put the clone back and **prove** it went back. A scenario run on a tree

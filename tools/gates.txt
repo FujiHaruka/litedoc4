@@ -1,0 +1,41 @@
+# Every tools/*-gate.sh, and who runs it.
+#
+# `tools/corpus-gate.sh --verify-list` does this for `#[ignore]`d tests, for the
+# reason that applies here too: a check nobody runs and a list naming a check
+# nobody wrote are the same bug from two ends. There was no equivalent for the
+# gates themselves, and it cost — `build-gate.sh` had never once been run over
+# the target (measured 2026-08-28, fixed 2026-08-29), and `clone-gate.sh` still
+# carried the module count and the whole-package artefact names of a tree from
+# before the UI was rewritten.
+#
+# COLUMN 2 — `ci` means a workflow invokes it, and `tools/workflow-gate.sh`
+# checks that it really does. `manual` means it needs the measurement target, a
+# clone of it, or a second package, so a free runner cannot have it; the gate
+# checks those are *not* wired into CI, because a label that lies is worse than
+# no label.
+#
+# COLUMN 3 — what it needs, in enough words that a reader knows why it is where
+# it is. Nothing parses it.
+#
+# script                     who     needs
+assets-gate.sh               ci      node, via mise; the site's TypeScript
+benchmarks-ts-gate.sh        ci      deno; type-checks benchmarks/tools
+browser-gate.sh              ci      a headless Chrome and a built site
+build-gate.sh                manual  the target, an APFS clone of it, a reference IR and a .lidx
+clone-gate.sh                manual  the same clone; produces build-gate's reference
+config-gate.sh               ci      a built site (e2e-micro calls it)
+corpus-gate.sh               ci      nothing for --verify-list; the corpus for the rest
+deps-docs-gate.sh            manual  a package whose dependency docs are published
+docs-gate.sh                 ci      nothing; reads the tracked files
+lake-download-gate.sh        ci      the network, and a release carrying this version
+lake-package-gate.sh         ci      elan and e2e/consumer
+lean-versions-gate.sh        ci      one IR tree per toolchain in lean-toolchains.txt
+onemod-gate.sh               ci      a built site (e2e-micro calls it)
+pinned-dep-gate.sh           ci      elan, e2e/micro and e2e/micro-dep as a git require
+provenance-gate.sh           ci      nothing; reads the tree
+public-surface-gate.sh       ci      nothing; reads the tree
+site-gate.sh                 ci      a built site
+target2-gate.sh              manual  a second synthetic package on the target's Mathlib revision
+usedby-gate.sh               ci      a built site (e2e-micro calls it)
+watch-gate.sh                ci      elan and e2e/micro
+workflow-gate.sh             ci      nothing; reads the tree

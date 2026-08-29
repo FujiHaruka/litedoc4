@@ -184,7 +184,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 |---|---|---|
 | **litedoc4 リポジトリ** | **public = 配布中** (2026-08-16 に private から変更) | A の 20 箇所すべて。**§4 は発動した。義務は発動前に払ってあるので、新たな履行は無い** — (a) `LICENSE`・(b)(c) 各ファイルの帰属表示と README / NOTICE 冒頭の告知はすべて §6 で置いた (2026-08-16)、(d) は不発動 |
 | **生成サイト** (<https://fujiharuka.github.io/information-theory/>) | **public = 配布中** | **`style.css` の 8 行のみ**。HTML の class 名と URL 形は C (インタフェース)。ホスト先の `FujiHaruka/information-theory` は**既に Apache-2.0**【実測: `gh api`】 |
-| **Release のバイナリ** (`litedoc4`, `.tar.gz`) | **これから配布する** (→ `plans/distribution.md` D2) | **Object form**。§4 は "in Source **or Object** form" なので発動する。(a) **`LICENSE` を書庫に入れる**。(b) 著作物レベルの告知は `NOTICE` が持つ。**(c) は "in the Source form of any Derivative Works" と限定されているので Object 単体では不発動**。(d) 不発動。**新しく効くのは Apache ではなく MIT** — 下の枠 |
+| **Release のバイナリ** (`litedoc4`, `.tar.gz`) | **配布している** (`release.yml`) | **Object form**。§4 は "in Source **or Object** form" なので発動する。(a) **`LICENSE` を書庫に入れる**。(b) 著作物レベルの告知は `NOTICE` が持つ。**(c) は "in the Source form of any Derivative Works" と限定されているので Object 単体では不発動**。(d) 不発動。**新しく効くのは Apache ではなく MIT** — 下の枠 |
 
 > **配布形態が増えたとき、参照で済ませていた義務は崩れる**【2026-08-18】。
 > `NOTICE` は md4c について「全文は `vendor/md4c/LICENSE.md` にある」と**指していただけ**だった。

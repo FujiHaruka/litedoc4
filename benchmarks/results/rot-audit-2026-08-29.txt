@@ -1,0 +1,96 @@
+# A sweep for things that break or rot without saying so, after v1.0.0
+
+Asked for straight after tagging v1.0.0: "is there anything left that breaks
+quietly?" The answer was no — nine findings, four of them in code written the
+same day. Conditions: reading the tree, plus falsification runs on this machine
+(Apple M1 / Darwin 25.6.0), 2026-08-29.
+
+## A. Green while checking nothing
+
+1. **`tools/lean-versions-gate.sh` passed over zero IR files.** Written this
+   morning. Two synthetic trees holding only an `index.json` produced
+   `agree over 0 IR files`, exit 0. Fixed with a floor: the fixture always writes
+   at least ten, and fewer than that is an artifact that did not arrive whole.
+   Falsified: the same two trees now exit 1 by name.
+
+2. **`tools/clone-gate.sh` compared six whole-package files, five of which never
+   exist.** Its `GLOBAL_ARTIFACTS` still named doc-gen4's
+   `declaration-data.bmp`, `navbar.html`, `tactics.html`, `references.html` and
+   `references.bib`. `copy_globals` writes an `.absent` marker for a file that is
+   not there, so both sides of every scenario agreed on five markers. That half
+   of the gate could not fail.
+
+3. **The same file's page denominators were stale on both halves at once.**
+   `EXPECT_MOVE=439` / `EXPECT_DELETE=437` encoded 432 modules (the target has
+   422) and six artefacts (the site writes twelve). Both are now derived — the
+   module half from the base module list the gate writes itself, the rest from
+   the new `tools/site-artefacts.txt`, which `tools/build-gate.sh` reads too so
+   that one question has one answer.
+
+4. **Four gates were reachable from nothing**, and there was no list saying which
+   should be. `build-gate.sh` and `target2-gate.sh` are manual by design;
+   `clone-gate.sh` and `deps-docs-gate.sh` are too, but nothing said so.
+   Added `tools/gates.txt` + `tools/workflow-gate.sh`, in the shape
+   `tools/corpus-tests.txt` already has for `#[ignore]`d tests: both directions,
+   plus a check that a `ci` row is really reached (transitively — `config-gate.sh`
+   and `usedby-gate.sh` are run by `e2e-micro.sh`, not by YAML) and a `manual`
+   row really is not.
+
+## B. A number in prose, wrong within the same day
+
+5. **CLAUDE.md's "the N workflows that run cargo have setup-node".** Corrected
+   8 -> 7 in the morning; two new workflows made it 9 by the afternoon. The number
+   is gone; the rule it was standing in for is now checked
+   (`tools/workflow-gate.sh`, question 3). Two other counts in the same document
+   had drifted (365 not 361 result files, 34 not 32 files naming the work area)
+   and were removed rather than corrected, for the same reason.
+
+## C. Silent overwrite
+
+6. **`tools/e2e-micro.sh` GATE 8 builds a dict whose key is a variable.** The
+   reducible-instance spelling now comes from `tools/lean-toolchains.txt`. A
+   toolchain that spelled it `reducible` would collide with the literal
+   `"reducible": 19` in the same dict, and Python keeps the last one silently —
+   verified: the literal collapses from three keys to two. Guarded by name.
+
+## D. Rot found, and rot not found
+
+7. **Five references to documents deleted on 2026-08-24** (`plans/stage3.md`,
+   `plans/three-axes.md`, `plans/ui-redesign.md`, `plans/distribution.md`). The
+   convention `docs/approach.md` already used — name it and send the reader to
+   git — is now applied to all of them and enforced by `tools/docs-gate.sh`.
+
+8. **Every `(measured)` citation resolves.** 158 `benchmarks/results/<file>`
+   paths named outside that directory, all present. This was checked rather than
+   assumed, and it is now checked on every push.
+
+## E. Two of these gates were noisy before they were right
+
+Worth recording, because a gate people learn to skip is worse than no gate.
+
+- The first cut of the log-citation check reported **28 dead paths; 26 were the
+  extraction's fault** — globs, `<label>` templates, and paths a comment had
+  wrapped across two lines.
+- The first cut of the deleted-document check reported **11 more**, all of them
+  `docs/index.md` (the `litedoc4.toml` example, a path in the *user's* package)
+  and `docs/nope.md` (a fixture named for not existing).
+- The `setup-node` check accepted `setup-nodeX`, because it tested for a
+  substring. Found while trying to make the check fail — the first falsification
+  attempt passed, which is the only reason it was noticed.
+
+## What ran green afterwards
+
+    tools/public-surface-gate.sh   ok
+    tools/workflow-gate.sh         21 gates inventoried, 17 ci, 4 manual;
+                                   9 cargo workflows all install node
+    tools/docs-gate.sh             158 citations resolve, 0.23 s
+    cargo fmt --check              0
+    cargo clippy -D warnings       0
+    cargo test --workspace         565 passed / 0 failed / 22 ignored
+    tools/e2e-micro.sh             E2E MICRO: ok
+
+`tools/clone-gate.sh`'s `move` and `delete` phases were **not** re-run: they need
+the clone, a real edit and a `lake build` each. The change removes literals in
+favour of values the gate derives from its own output, and the arithmetic matches
+what `build-gate.sh` measured today (422 + 12 = 434 base, 435 after the move),
+but it has not been executed end to end since.

@@ -119,6 +119,18 @@ jobs:
       - name: The 1.x surface is all still there
         run: tools/public-surface-gate.sh
 
+      # Three claims about the workflows themselves: the gate inventory covers
+      # every gate, the ci/manual labels are true, and nothing runs cargo without
+      # node. The last one replaces a count that lived in prose and was wrong
+      # twice in one day.
+      - name: The workflows do what the tree says they do
+        run: tools/workflow-gate.sh
+
+      # Two obligations CLAUDE.md states: a `(measured)` number's log has to be
+      # followable, and a pointer at a deleted document has to say it is deleted.
+      - name: Citations resolve
+        run: tools/docs-gate.sh
+
       - name: Verify the corpus gate's inventory
         run: tools/corpus-gate.sh --verify-list
 

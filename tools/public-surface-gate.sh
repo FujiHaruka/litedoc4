@@ -66,7 +66,11 @@ for line in action:
     if line and not line[0].isspace():
         block = None
         continue
-    if block and re.fullmatch(r"  ([a-z][a-z0-9-]*):", line.rstrip()):
+    # Deliberately wider than the names in the file today: a key this pattern
+    # cannot see is one the "declares something nobody promised" direction would
+    # miss, which is the half that costs nothing and is therefore the half worth
+    # keeping honest.
+    if block and re.fullmatch(r"  ([A-Za-z0-9_-]+):", line.rstrip()):
         found[block].append(line.strip().rstrip(":"))
 
 for key in ("action-inputs", "action-outputs"):
@@ -81,7 +85,13 @@ for key in ("action-inputs", "action-outputs"):
 
 # --- build / watch, against USAGE's synopsis --------------------------------
 lib = (root / "crates/litedoc4/src/lib.rs").read_text(encoding="utf-8")
-usage = lib.split('pub const USAGE: &str = "\\\n', 1)[1].split('\n";', 1)[0]
+MARKER = 'pub const USAGE: &str = "\\\n'
+if MARKER not in lib:
+    sys.exit(
+        "public-surface: `pub const USAGE` is not where this gate looks for it in "
+        "crates/litedoc4/src/lib.rs — the flag checks below would read an empty string"
+    )
+usage = lib.split(MARKER, 1)[1].split('\n";', 1)[0]
 
 synopsis: dict[str, list[str]] = {}
 command = None
