@@ -4,10 +4,10 @@
 A consumer requires this package and gets a `docs` script:
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.0.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.0.1"
 ```
 
-Pin `v1.0.0` or later: it is the first release that promises its own surface
+Pin `v1.0.1` or later: it is the first release that promises its own surface
 will not move, and the oldest tag Lake can resolve at all is `v0.1.4`.
 `@ "main"` also works and moves.
 

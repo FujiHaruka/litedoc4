@@ -120,7 +120,7 @@ jobs:
     environment: { name: github-pages }
     steps:
       - uses: actions/checkout@v7
-      - uses: FujiHaruka/litedoc4@v1.0.0
+      - uses: FujiHaruka/litedoc4@v1.0.1
         id: docs
         with:
           cache-get: true             # `lake exe cache get` — drop it if you have no Mathlib
@@ -154,7 +154,7 @@ toolchain.
 Add it to your `lakefile.lean` (or the `[[require]]` equivalent in `lakefile.toml`):
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.0.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.0.1"
 ```
 
 ```sh
@@ -256,10 +256,11 @@ not GitHub (another host is refused rather than guessed).
 
 ## Status
 
-`v1.0.0` — the action and the released binaries. Tested on macOS (Apple Silicon) and
+`v1.0.1` — the action and the released binaries. Tested on macOS (Apple Silicon) and
 `ubuntu-latest` with Lean/Mathlib v4.31.0, and the browser side also on `windows-latest`.
-Pin the action and the `require` to a tag — `v1.0.0` or later, since the names below are what
-1.x keeps and the releases before it kept nothing. `@main` moves.
+Pin the action and the `require` to a tag — `v1.0.1` or later, since the names below are what
+1.x keeps and the releases before it kept nothing. If your package is not at the top of its
+repository, `v1.0.1` is the first release whose source links point at it. `@main` moves.
 
 **Every Lean version above is run end to end on every change to the extractor or the fixture**,
 and their output is compared: v4.31.0, v4.32.2, v4.33.0 and v4.33.1 produce byte-identical IR

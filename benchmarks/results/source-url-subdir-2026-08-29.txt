@@ -1,0 +1,60 @@
+# Every source link on a package that is not at its repository's root was a 404
+
+Reported by looking at the example site published earlier the same day.
+
+## The defect (measured 2026-08-29)
+
+`https://fujiharuka.github.io/litedoc4/Micro/Basic.html` linked to
+
+    https://github.com/FujiHaruka/litedoc4/blob/8a0104a…/Micro/Basic.lean      HTTP 404
+    https://github.com/FujiHaruka/litedoc4/blob/8a0104a…/e2e/micro/Micro/Basic.lean  HTTP 200
+
+`derive_source_url` built `https://github.com/<owner>/<repo>/blob/<rev>` and the
+renderer appended the module's path **relative to the package root**. Nothing
+carried the path from the repository root to the package, so every declaration of
+every page pointed at a file that is not there.
+
+## Who it reached
+
+Anyone whose Lean package is not at the top of its repository — which the action
+supports and documents (`root:`), and which the Lake dependency path allows too.
+It did not reach the measurement target, and that is the whole reason it survived:
+**the target *is* its repository**, so the missing component is the empty string
+there, and every number in `benchmarks/` and every site built for it was correct.
+The one package in this tree that has the shape is `e2e/micro`, and until
+2026-08-29 its site was never published or checked against the checkout.
+
+## The fix
+
+`git rev-parse --show-prefix` in the package root — `e2e/micro/` there, empty at a
+repository root — appended to the base, with the trailing slash trimmed because
+the renderer joins with one. At a repository root the result is byte-identical to
+what it produced before, which is why no frozen fixture and no recorded number
+moves.
+
+## What now watches it
+
+  - `build::source_url_tests` (two unit tests, no toolchain and no target: they
+    `git init` a repository and ask for the URL at the root and one directory
+    down). Falsified by reverting the fix: the subdirectory case fails with
+    `blob/<rev>` against `blob/<rev>/e2e/micro`, the root case passes either way,
+    which is the evidence that root-level behaviour did not change.
+  - `tools/e2e-micro.sh` **GATE 13**: every `github.com/<this repo>/blob/<rev>/<path>`
+    link on the generated site has to name a file that exists in the checkout.
+    Resolved locally, never fetched, so it does not depend on the network or on
+    the commit having been pushed; links into other repositories are skipped by
+    owner/repo because their paths are not here to check. It refuses when it finds
+    no such link at all, rather than passing over an empty set.
+
+    Falsified with the defect itself: `e2e-micro.sh` exits 1 and prints
+    `GATE 13 FAIL  the site links to Micro/Basic.lean, which is not in this checkout`
+    for each of the ten paths. Clean run: `source links 10 distinct path(s) into
+    FujiHaruka/litedoc4, all present in the checkout`.
+
+## The general form
+
+The measurement target is one package that happens to be one repository. A
+property that is trivially true in that arrangement — "the package root is the
+repository root" — was load-bearing everywhere and checked nowhere. `e2e/micro`
+exists precisely to hold shapes the target does not have, and this is one of them;
+it just had no gate until its site was published where someone could click it.

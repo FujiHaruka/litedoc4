@@ -8,7 +8,7 @@
 #   blocks whose keys you had to get right, an elan install, and a call into
 #   tools/ci-build.sh. All of that is here now, and the caller writes:
 #
-#       - uses: FujiHaruka/litedoc4@v1.0.0
+#       - uses: FujiHaruka/litedoc4@v1.0.1
 #         id: docs
 #       - uses: actions/upload-pages-artifact@v5
 #         with: { path: "${{ steps.docs.outputs.site }}" }

@@ -82,10 +82,10 @@ if [ -z "$REDUCIBLE_ATTR" ]; then
 fi
 echo "toolchain $TOOLCHAIN, reducible-instance attribute $REDUCIBLE_ATTR"
 
-say "1/15 build the fixture package (Lean core only)"
+say "1/16 build the fixture package (Lean core only)"
 (cd "$FIXTURE" && "$LAKE" build)
 
-say "2/15 build the extractor inside the fixture's environment"
+say "2/16 build the extractor inside the fixture's environment"
 # The extractor is `import Lean` and nothing else, which is what lets it be built
 # against a package that has no Mathlib. `-rdynamic` is load-bearing:
 # `importModules (loadExts := true)` resolves symbols in the running executable
@@ -109,7 +109,7 @@ if [ -z "$EXTRACTOR" ]; then
   fi
 fi
 
-say "3/15 GATE 1 — one command"
+say "3/16 GATE 1 — one command"
 rm -rf "$OUT/first"
 "$LITEDOC4" build --root "$FIXTURE" --lib Micro --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/first.log"
@@ -126,7 +126,7 @@ cp -R "$OUT/first/site" "$OUT/first-snapshot"
 # half of GATE 5.
 cp "$OUT/first/litedoc4-build.json" "$OUT/first-build.json"
 
-say "4/15 GATE 2 — the second run changes nothing"
+say "4/16 GATE 2 — the second run changes nothing"
 "$LITEDOC4" build --root "$FIXTURE" --lib Micro --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/second.log"
 
@@ -140,7 +140,7 @@ if ! grep -qE 'incremental|0 module\(s\)|nothing to' "$OUT/second.log"; then
   sed -n '1,20p' "$OUT/second.log" >&2
 fi
 
-say "5/15 GATE 3 — a second full build is byte identical"
+say "5/16 GATE 3 — a second full build is byte identical"
 rm -rf "$OUT/again"
 "$LITEDOC4" build --root "$FIXTURE" --lib Micro --out "$OUT/again" \
   --extractor-bin "$EXTRACTOR" >"$OUT/again.log"
@@ -154,7 +154,7 @@ if ! diff -r "$OUT/first/ir" "$OUT/again/ir"; then
   exit 1
 fi
 
-say "6/15 GATE 4 — --jobs does not change the output"
+say "6/16 GATE 4 — --jobs does not change the output"
 # The extractor splits declarations across threads inside one environment, and a
 # parallel step that reorders its output is exactly the kind of thing that shows
 # up as a diff on one machine and not another.
@@ -170,7 +170,7 @@ if ! diff -r "$OUT/first/site" "$OUT/jobs4/site"; then
   exit 1
 fi
 
-say "7/15 GATE 5 — the work, as integers"
+say "7/16 GATE 5 — the work, as integers"
 # Four markers: the first full build (snapshotted before the second run
 # overwrote it), the incremental run over an unchanged world, and the two other
 # full builds.
@@ -276,7 +276,7 @@ if problems:
     sys.exit(1)
 PY
 
-say "8/15 GATE 7 — the three sorry shapes are three different answers"
+say "8/16 GATE 7 — the three sorry shapes are three different answers"
 # doc-gen4 #270 asks for two claims and not one: a declaration that uses `sorry`
 # itself, and a declaration that merely depends on such a one. `Micro/Sorry.lean`
 # holds one of each plus a control, and **this is the only place the extractor's
@@ -344,7 +344,7 @@ print(f"sorry        {checked} shapes compared over {len(found)} declarations: "
       ", ".join(f"{name.rpartition('.')[2]}={found[name]}" for name in sorted(expected)))
 PY
 
-say "9/15 GATE 8 — attributes arrive split into name and value"
+say "9/16 GATE 8 — attributes arrive split into name and value"
 # The `[name, value]` split is made in the extractor because that is the only side
 # that knows where the boundary is: `deprecated`'s value contains spaces,
 # parentheses and quotes, `specialize`'s contains brackets, and a reader given the
@@ -514,7 +514,7 @@ print(f"attrs        {checked} declarations compared, {sum(counts.values())} pai
       f"{len(counts)} attribute name(s), {valued} with a value")
 PY
 
-say "10/15 GATE 9 — the origin of a realized declaration, and the three ways of not having one"
+say "10/16 GATE 9 — the origin of a realized declaration, and the three ways of not having one"
 # Lean gives a declaration it realizes from an attribute the position of **the
 # attribute token**, and no rule over `(line, col)` gets from there to the parent:
 # in a 144-group Mathlib sample the parent was in the group 0 times and 47 groups
@@ -691,7 +691,7 @@ print(f"generated    {checked} declarations compared, {len(claimed)} realized by
       f"{len(before)} sort before their origin")
 PY
 
-say "11/15 GATE 10 — docstring math becomes MathML, and unreadable math does not"
+say "11/16 GATE 10 — docstring math becomes MathML, and unreadable math does not"
 # Five assertions over `Micro/Math.html` plus one over the run's marker, and that
 # last one is what the others cannot make: **a fallback leaves a valid page** — no
 # byte count, no page count and no exit code moves when a formula fails — so
@@ -761,19 +761,19 @@ print(f"math         {len(re.findall(r'<math', page))} formula(s) rendered, "
       f"{work['mathFallbacks']} kept as LaTeX, {len(strays)} unescaped character(s)")
 MATHPY
 
-say "12/15 GATE 11 — every reverse reference agrees with the IR, both ways"
+say "12/16 GATE 11 — every reverse reference agrees with the IR, both ways"
 # See doc-gen4 #77. Its own file because it is worth running against the
 # measurement target too, where the numbers are 849 targets over 10,163 edges
 # (measured 2026-08-22) rather than the fixture's handful.
 "$HERE/usedby-gate.sh" --ir "$OUT/first/ir" --site "$OUT/first/site"
 
-say "13/15 GATE 12 — litedoc4.toml reaches every command that writes HTML"
+say "13/16 GATE 12 — litedoc4.toml reaches every command that writes HTML"
 # The fixture carries a `litedoc4.toml` on purpose: with no file the four commands
 # agree trivially, and a gate that can only pass is not a gate.
 "$HERE/config-gate.sh" --root "$FIXTURE" --ir "$OUT/first/ir" --built "$OUT/first/site" \
   --link-index "$OUT/first/link-index.lidx" --out "$OUT/config"
 
-say "14/15 GATE 6 — one edited module does not re-render the package"
+say "14/16 GATE 6 — one edited module does not re-render the package"
 # GATE 2 asks what an *unchanged* world costs; this asks what a one-declaration
 # edit costs, which is the shape a user actually produces.
 #
@@ -845,7 +845,50 @@ fi
 # down once and both callers get the same answer.
 "$HERE/onemod-gate.sh" "$OUT/first/litedoc4-build.json" "$OUT/first/work/serve.out"
 
-say "15/15 summary"
+say "15/16 GATE 13 — every source link names a file that is really in this checkout"
+# The fixture is a package **inside** a repository, which the measurement target
+# is not: the target *is* its repository, so the derived source URL needed no path
+# to the package and every number in benchmarks/ was taken with an empty one. The
+# published example site is what showed the gap — `blob/<rev>/Micro/Basic.lean`
+# where the file is at `e2e/micro/Micro/Basic.lean` (measured 2026-08-29: 404 and
+# 200 respectively). Anyone using the action's `root` input had the same site.
+#
+# Resolved against this checkout rather than fetched: the answer must not depend
+# on the network, on a rate limit, or on the commit having been pushed. Links into
+# *other* repositories are skipped by owner/repo, since their paths are not here.
+python3 - "$OUT/first/site" "$ROOT" <<'LINKS'
+import pathlib
+import re
+import subprocess
+import sys
+
+site, repo = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+remote = subprocess.run(
+    ["git", "-C", str(repo), "config", "--get", "remote.origin.url"],
+    capture_output=True, text=True,
+).stdout.strip()
+slug = re.sub(r"^.*github\.com[:/]", "", remote).removesuffix(".git").strip("/")
+if not slug:
+    sys.exit("GATE 13: no github remote to attribute source links to")
+
+own = re.compile("https://github\\.com/" + re.escape(slug) + "/blob/[0-9a-f]+/([^\"#]+)")
+seen, missing = set(), set()
+for page in sorted(site.rglob("*.html")):
+    for path in own.findall(page.read_text(encoding="utf-8")):
+        seen.add(path)
+        if not (repo / path).exists():
+            missing.add(path)
+
+if not seen:
+    sys.exit("GATE 13: no source link into " + slug + " on any page — nothing was checked")
+for path in sorted(missing):
+    print("GATE 13 FAIL  the site links to " + path + ", which is not in this checkout", file=sys.stderr)
+if missing:
+    sys.exit(1)
+print("source links " + str(len(seen)) + " distinct path(s) into " + slug + ", all present in the checkout")
+LINKS
+
+say "16/16 summary"
 printf 'site files : %s\n' "$(find "$OUT/first/site" -type f | wc -l | tr -d ' ')"
 printf 'ir files   : %s\n' "$(find "$OUT/first/ir" -type f | wc -l | tr -d ' ')"
 printf 'out        : %s\n' "$OUT"

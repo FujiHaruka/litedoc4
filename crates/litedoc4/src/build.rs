@@ -1101,6 +1101,14 @@ pub(crate) fn derive_source_url(root: &Path) -> Result<String, Failure> {
             ),
         });
     };
+    // Where the package sits inside the repository. Empty at the root, which is
+    // the shape every number in benchmarks/ was taken with — and the reason this
+    // was missing for so long: the measurement target *is* the repository, so the
+    // links were right there and 404 for everyone using the action's `root`
+    // input. `e2e/micro` is such a package and its published site proved it
+    // (measured 2026-08-29: `blob/<rev>/Micro/Basic.lean` is 404,
+    // `blob/<rev>/e2e/micro/Micro/Basic.lean` is 200).
+    let prefix = git(root, &["rev-parse", "--show-prefix"])?;
     if let Ok(dirty) = git(root, &["status", "--porcelain"]) {
         let count = dirty.lines().filter(|line| !line.trim().is_empty()).count();
         if count > 0 {
@@ -1110,7 +1118,12 @@ pub(crate) fn derive_source_url(root: &Path) -> Result<String, Failure> {
             );
         }
     }
-    Ok(format!("https://github.com/{path}/blob/{rev}"))
+    // The renderer appends `/<module path>.lean`, so the base must not end in a
+    // slash; at the repository root `prefix` is empty and this is byte-identical
+    // to what it produced before.
+    Ok(format!("https://github.com/{path}/blob/{rev}/{prefix}")
+        .trim_end_matches('/')
+        .to_owned())
 }
 
 /// `<owner>/<repo>` when the remote is a github.com one, in any of the spellings
@@ -1272,4 +1285,83 @@ fn count_files(root: &Path) -> usize {
         }
     }
     total
+}
+
+#[cfg(test)]
+mod source_url_tests {
+    //! `derive_source_url` shells out to git, so these build a repository rather
+    //! than a fake: the question is what `git rev-parse` answers for a package
+    //! that is not at the top of one, and a fake would answer whatever it was
+    //! told. git is present wherever cargo is, and nothing here reads the
+    //! measurement target, so this is a test and not a gate.
+
+    use super::derive_source_url;
+    use litedoc4_testutil::TempDirs;
+    use std::path::Path;
+    use std::process::Command;
+
+    const TEMP: TempDirs = TempDirs::prefixed("litedoc4-source-url");
+
+    fn run(dir: &Path, args: &[&str]) {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .expect("git");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn repository(what: &str) -> litedoc4_testutil::TempDir {
+        let dir = TEMP.make(what);
+        let root = dir.path();
+        run(root, &["init", "-q", "-b", "main"]);
+        run(root, &["config", "user.email", "t@example.com"]);
+        run(root, &["config", "user.name", "t"]);
+        run(
+            root,
+            &["config", "remote.origin.url", "https://github.com/o/r.git"],
+        );
+        std::fs::create_dir_all(root.join("e2e/micro")).expect("mkdir");
+        std::fs::write(root.join("e2e/micro/Micro.lean"), "-- x\n").expect("write");
+        run(root, &["add", "-A"]);
+        run(root, &["commit", "-qm", "x"]);
+        dir
+    }
+
+    fn head(root: &Path) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .expect("git");
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn a_package_at_the_repository_root_keeps_the_bare_blob_url() {
+        let dir = repository("root");
+        let rev = head(dir.path());
+        assert_eq!(
+            derive_source_url(dir.path()).expect("derive"),
+            format!("https://github.com/o/r/blob/{rev}")
+        );
+    }
+
+    /// The one this repository's own example site was getting wrong: without the
+    /// prefix every declaration links to a path that is not in the repository.
+    #[test]
+    fn a_package_in_a_subdirectory_carries_the_path_to_it() {
+        let dir = repository("subdir");
+        let rev = head(dir.path());
+        assert_eq!(
+            derive_source_url(&dir.path().join("e2e/micro")).expect("derive"),
+            format!("https://github.com/o/r/blob/{rev}/e2e/micro")
+        );
+    }
 }

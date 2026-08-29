@@ -30,7 +30,7 @@ members = ["crates/*"]
 # checkout, not a gap: source 3 finds no asset, says so, and falls through to
 # PATH and then `cargo build` — which is the only binary guaranteed to match
 # these sources.
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 rust-version = "1.97"
 # Portions are derived from doc-gen4, which is Apache-2.0; NOTICE lists every
