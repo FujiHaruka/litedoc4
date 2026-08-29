@@ -27,7 +27,7 @@ not from `@[ext]`: it stays unmarked too.
 `tools/e2e-micro.sh` GATE 9 compares the origins over this module whole,
 positives *and* negatives, so the shapes here are the gate's input:
 
-- Do not fold `Micro.Gen.Solo.ext` into `@[ext] structure Solo`. A hand-written
+- Do not fold `Example.Gen.Solo.ext` into `@[ext] structure Solo`. A hand-written
   ext theorem is in the environment extension exactly like a realized one, and
   this is the only declaration keeping "is in the extension" from being read as
   "was realized" — Mathlib has 20 of this shape (measured 2026-08-21).
@@ -41,7 +41,7 @@ and `to_dual` are Mathlib's, and an extractor that imported Mathlib would stop
 building against this package.
 -/
 
-namespace Micro.Gen
+namespace Example.Gen
 
 /-- A structure carrying `@[ext]` inline. `Pair.ext` and `Pair.ext_iff` are
 realized at the `ext` token on the attribute line, which is inside this
@@ -101,4 +101,4 @@ does. -/
 theorem Solo.ext : ∀ {x y : Solo}, x.s = y.s → x = y
   | ⟨_⟩, ⟨_⟩, rfl => rfl
 
-end Micro.Gen
+end Example.Gen

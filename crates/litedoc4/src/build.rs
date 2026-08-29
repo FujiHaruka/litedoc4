@@ -1117,8 +1117,8 @@ pub(crate) fn derive_source_url(root: &Path) -> Result<String, Failure> {
     // was missing for so long: the measurement target *is* the repository, so the
     // links were right there and 404 for everyone using the action's `root`
     // input. `e2e/micro` is such a package and its published site proved it
-    // (measured 2026-08-29: `blob/<rev>/Micro/Basic.lean` is 404,
-    // `blob/<rev>/e2e/micro/Micro/Basic.lean` is 200).
+    // (measured 2026-08-29: `blob/<rev>/Example/Basic.lean` is 404,
+    // `blob/<rev>/e2e/micro/Example/Basic.lean` is 200).
     let prefix = git(root, &["rev-parse", "--show-prefix"])?;
     if let Ok(dirty) = git(root, &["status", "--porcelain"]) {
         let count = dirty.lines().filter(|line| !line.trim().is_empty()).count();
@@ -1338,7 +1338,7 @@ mod source_url_tests {
             &["config", "remote.origin.url", "https://github.com/o/r.git"],
         );
         std::fs::create_dir_all(root.join("e2e/micro")).expect("mkdir");
-        std::fs::write(root.join("e2e/micro/Micro.lean"), "-- x\n").expect("write");
+        std::fs::write(root.join("e2e/micro/Example.lean"), "-- x\n").expect("write");
         run(root, &["add", "-A"]);
         run(root, &["commit", "-qm", "x"]);
         dir

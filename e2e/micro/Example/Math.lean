@@ -1,4 +1,4 @@
-import Micro.Basic
+import Example.Basic
 
 /-!
 # LaTeX in a docstring, converted while the site is built
@@ -25,7 +25,7 @@ without a span that fails, nothing distinguishes a run that converted everything
 from one that converted nothing.
 -/
 
-namespace Micro.Math
+namespace Example.Math
 
 /-- An inline span: $x^2 + 1$ sits in the run of text around it. -/
 def inlineSpan (n : Nat) : Nat := n * n + 1
@@ -45,6 +45,6 @@ def escapes (a : Nat) : Nat := a
 /-- **The fallback.** `\colim` is not a command the converter implements, so this
 span stays $\colim_k F(k)$ — dollars, source and escaping, exactly what the page
 held before MathML. -/
-theorem fallbackStays (n : Nat) : Micro.double n = n + n := rfl
+theorem fallbackStays (n : Nat) : Example.double n = n + n := rfl
 
-end Micro.Math
+end Example.Math

@@ -270,8 +270,8 @@ jobs:
       - name: Watch gate (the loop, on the sample package)
         run: |
           tools/watch-gate.sh --out "$RUNNER_TEMP/watch" \
-            --target "$GITHUB_WORKSPACE/e2e/micro" --lib Micro \
-            --module Micro.Unicode --other Micro.Notation
+            --target "$GITHUB_WORKSPACE/e2e/micro" --lib Example \
+            --module Example.Unicode --other Example.Notation
         env:
           LITEDOC4: ${{ github.workspace }}/target/debug/litedoc4
           EXTRACT_BIN: ${{ github.workspace }}/e2e/micro/.lake/e2e-extract/extract

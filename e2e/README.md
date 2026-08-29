@@ -46,15 +46,15 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 
 | モジュール | 担当する形 |
 |---|---|
-| `Micro/Basic.lean` | **import の無いモジュール**。docstring 付きの def / theorem / structure / instance / `abbrev` (L3-1 が名指しした形) / inductive |
-| `Micro/Notation.lean` | **`scoped notation`** — doc-gen4 が出せない唯一のもの。署名が `⟦n⟧` と印字されなくなったらここで出る |
-| `Micro/Unicode.lean` | **U1 / U2 の罠** — `𝒜` (U+1D49C) は BMP 外なので、UTF-16 順ソートと UTF-8 順ソートが食い違う唯一の領域。docstring 内の markdown (heading / code span / リスト) も |
-| `Micro/Shapes.lean` | **`class` / `class inductive` / 非 `mk` constructor / `extends` の継承 field / field の implicit binder** |
-| `Micro/Dep.lean` + `../micro-dep/` | **版固定できない依存** — path require なので manifest entry に `url` も `rev` も無い。モジュール名は **`«Dep-Aux»`** (ギュメが要る形)。**版固定できない依存へのリンク**と**`.lidx` の綴り差**がここを通る (下記) |
-| `Micro/Gen.lean` | **`@[ext]` が実現する宣言と、しない宣言** — inline の `@[ext]` / 後から来る `attribute [ext] Trip` / **1 つの位置に 2 つの親の子が 4 つ** (`attribute [ext] Quad Quint`) / `extends` の親射影 / そして**手書きの `@[ext] theorem`**。最後のものが要点で、**拡張に居ることは「生成された」を意味しない**ことをここだけが示す |
+| `Example/Basic.lean` | **import の無いモジュール**。docstring 付きの def / theorem / structure / instance / `abbrev` (L3-1 が名指しした形) / inductive |
+| `Example/Notation.lean` | **`scoped notation`** — doc-gen4 が出せない唯一のもの。署名が `⟦n⟧` と印字されなくなったらここで出る |
+| `Example/Unicode.lean` | **U1 / U2 の罠** — `𝒜` (U+1D49C) は BMP 外なので、UTF-16 順ソートと UTF-8 順ソートが食い違う唯一の領域。docstring 内の markdown (heading / code span / リスト) も |
+| `Example/Shapes.lean` | **`class` / `class inductive` / 非 `mk` constructor / `extends` の継承 field / field の implicit binder** |
+| `Example/Dep.lean` + `../micro-dep/` | **版固定できない依存** — path require なので manifest entry に `url` も `rev` も無い。モジュール名は **`«Dep-Aux»`** (ギュメが要る形)。**版固定できない依存へのリンク**と**`.lidx` の綴り差**がここを通る (下記) |
+| `Example/Gen.lean` | **`@[ext]` が実現する宣言と、しない宣言** — inline の `@[ext]` / 後から来る `attribute [ext] Trip` / **1 つの位置に 2 つの親の子が 4 つ** (`attribute [ext] Quad Quint`) / `extends` の親射影 / そして**手書きの `@[ext] theorem`**。最後のものが要点で、**拡張に居ることは「生成された」を意味しない**ことをここだけが示す |
 | `litedoc4.toml` + `docs/index.md` | **サイト設定** (feature-sweep C-3) — `title` と `index`。**何も設定していないパッケージでは 4 経路が自明に一致する**ので、`tools/config-gate.sh` が比較するものを持たせるために置いてある |
-| `Micro/Math.lean` | **docstring の数式** (feature-sweep C-1) — インライン `$…$` / ブロック `$$…$$` / HTML が気にする文字を含む式 / **変換できない `\colim`**。最後のものが要点で、**失敗が `$…$` のまま残り、その件数が `work.mathFallbacks` に出る**ことをここだけが示す。対象は 5,079 docstring 中 3 span しか数式を持たないので、**対象では一度も通らない経路** |
-| `Micro/Sorry.lean` | **`sorry` の 3 形** (doc-gen4 #270) — 直接 `sorry` を書いた定理 / それに依存するだけの定理 / どちらでもない定理。**`sorry` は elaborate 済みの項の性質**なので、手書き IR では「抽出器が正しい値を入れたか」を検査できない。ここが唯一の経路 |
+| `Example/Math.lean` | **docstring の数式** (feature-sweep C-1) — インライン `$…$` / ブロック `$$…$$` / HTML が気にする文字を含む式 / **変換できない `\colim`**。最後のものが要点で、**失敗が `$…$` のまま残り、その件数が `work.mathFallbacks` に出る**ことをここだけが示す。対象は 5,079 docstring 中 3 span しか数式を持たないので、**対象では一度も通らない経路** |
+| `Example/Sorry.lean` | **`sorry` の 3 形** (doc-gen4 #270) — 直接 `sorry` を書いた定理 / それに依存するだけの定理 / どちらでもない定理。**`sorry` は elaborate 済みの項の性質**なので、手書き IR では「抽出器が正しい値を入れたか」を検査できない。ここが唯一の経路 |
 
 ## 初回に出たもの【実測 2026-08-16】
 
@@ -102,7 +102,7 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 ### ギュメ付きモジュール名 — `.lidx` の綴り差は実在した【実測 2026-08-17】
 
 `.lidx` はモジュール名を**非エスケープ**で書く (`Dep-Aux.Basic`)。IR と import リストは
-**エスケープ済み** (`«Dep-Aux».Basic`)。`Micro/Dep.lean` の docstring が同じモジュールを
+**エスケープ済み** (`«Dep-Aux».Basic`)。`Example/Dep.lean` の docstring が同じモジュールを
 3 通りに綴っていて、**修正前**の解決結果は次のとおり割れた:
 
 | docstring の綴り | 解決したか |
@@ -198,7 +198,7 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
    `work` から読む (再抽出 0 / 描画 0 / Lean 起動 0)
 6. **1 モジュール編集** — 編集で `.lidx` が動かないこと、描いたページ数がモジュール数未満、
    残った木が**自分の IR の全描画と一致**すること
-7. **`sorry` の 3 形** — `Micro/Sorry.lean` の 3 宣言が IR で **`"direct"` /
+7. **`sorry` の 3 形** — `Example/Sorry.lean` の 3 宣言が IR で **`"direct"` /
    `"transitive"` / キー無し**の 3 通りに分かれること。**名前で照合し、比較した本数を数える**
    (期待値が 1 つも走らなくても「問題なし」に見えるので)。加えて**他の宣言が `sorry` を
    名乗っていないこと** — 全部に `"transitive"` を返す分類器は前 2 つを通る。
@@ -206,8 +206,8 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
    抽出器が正しく答えていて**どのページにも出ない**のは、読者にとって答えが無いのと同じ
 8. **属性が name と value に分かれて届く** — 宣言ごとの `attrs` を丸ごと照合し、
    IR 全体で**どの要素も 2 要素の文字列配列**であること、**属性名ごとの主張数**も数える
-9. **生成宣言の由来** — `Micro/Gen.lean` の 9 宣言が `["ext", <実現の入力>]` を名乗り、
-   **手書きの `Micro.Gen.Solo.ext` は名乗らない**こと。名前で照合し、比較した本数と
+9. **生成宣言の由来** — `Example/Gen.lean` の 9 宣言が `["ext", <実現の入力>]` を名乗り、
+   **手書きの `Example.Gen.Solo.ext` は名乗らない**こと。名前で照合し、比較した本数と
    由来を主張した総数を数える。加えて**`selectionRange == range` の 42 件のうち
    33 件は名乗っていない**ことを数える — この等式を「生成」と読み替えた実装は
    42 件を名乗ってここで落ちる。**ページ側の pill の集合が IR の 9 件と一致し、
@@ -255,10 +255,10 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
   足すのは歓迎 (担当を上の表に書くこと)。ただし**属性を持つ宣言を足すとゲート 8 の
   属性名ごとの本数が動く** — ゲートが名指しするので、その数を直す
   (structure を 1 つ足すと射影のぶん `reducible` が増える)
-- **`Micro/Gen.lean` の `Micro.Gen.Solo.ext` を `@[ext] structure Solo` に「まとめない」。**
+- **`Example/Gen.lean` の `Example.Gen.Solo.ext` を `@[ext] structure Solo` に「まとめない」。**
   手書きの ext 定理は**環境拡張には入る**ので、拡張だけを見る規則を落とすのはこの 1 形だけ。
   まとめるとゲート 9 の否定側の期待が消える (Mathlib 標本ではこの形が 20 件ある【実測】)
-- **`Micro/Sorry.lean` の `sorry` を「直さない」。** `sorryHole` は**入力**で、
+- **`Example/Sorry.lean` の `sorry` を「直さない」。** `sorryHole` は**入力**で、
   他の 2 つはそれと違う答えでなければならない。`lake build` の
   ``declaration uses `sorry` `` 警告はこのサンプルの一部
 - **`micro-dep/` を git 依存に変えない。** path であること (= manifest に `url` も `rev` も

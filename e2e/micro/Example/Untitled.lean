@@ -1,4 +1,4 @@
-import Micro.Basic
+import Example.Basic
 
 /-!
 A module docstring that opens with prose instead of a title.
@@ -16,7 +16,7 @@ module that has none, nothing tells a front page that describes every module
 apart from one that draws an empty element for the modules it cannot describe.
 -/
 
-namespace Micro.Untitled
+namespace Example.Untitled
 
 /-- The two states a coin can be in. Ordinary in every way; the module it lives
 in is what this page is about. -/
@@ -33,4 +33,4 @@ def Coin.flip : Coin → Coin
 theorem Coin.flip_flip (c : Coin) : c.flip.flip = c := by
   cases c <;> rfl
 
-end Micro.Untitled
+end Example.Untitled

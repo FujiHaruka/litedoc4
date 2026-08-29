@@ -1,4 +1,4 @@
-import Micro.Basic
+import Example.Basic
 
 /-!
 # An identifier above U+FFFF, and Markdown in a docstring
@@ -20,7 +20,7 @@ both traps: the sort order above U+FFFF, and IR offsets that are UTF-16 code
 units, which make a naive byte slice land in the middle of a character.
 -/
 
-namespace Micro
+namespace Example
 
 /-- The script capital `𝒜` (U+1D49C) lives outside the BMP, which is where the
 two orders part company. -/
@@ -31,7 +31,7 @@ is.
 
 # A heading, which gets an id of its own
 
-A paragraph with a `code span`, a reference to `Micro.double` that becomes a
+A paragraph with a `code span`, a reference to `Example.double` that becomes a
 link, and a list:
 
 * first
@@ -41,4 +41,4 @@ The heading above is linkable: its id is derived from its own text, so the
 address of a section is decided by what the section says. -/
 def documented : Nat := script𝒜 + double 1
 
-end Micro
+end Example

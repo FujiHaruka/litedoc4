@@ -1,13 +1,13 @@
-import Micro.Attrs
-import Micro.Basic
-import Micro.Dep
-import Micro.Gen
-import Micro.Math
-import Micro.Notation
-import Micro.Shapes
-import Micro.Sorry
-import Micro.Unicode
-import Micro.Untitled
+import Example.Attrs
+import Example.Basic
+import Example.Dep
+import Example.Gen
+import Example.Math
+import Example.Notation
+import Example.Shapes
+import Example.Sorry
+import Example.Unicode
+import Example.Untitled
 
 /-!
 # A sample package, one module per thing a page can carry

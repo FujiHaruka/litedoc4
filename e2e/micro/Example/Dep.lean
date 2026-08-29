@@ -27,4 +27,4 @@ All three name one module, and litedoc4 gives all three the same answer. Here
 that answer is "no link", because the dependency cannot be pinned; where it can,
 all three become the same URL into its source.
 -/
-def Micro.usesDep : Nat := DepAux.marker + 1
+def Example.usesDep : Nat := DepAux.marker + 1

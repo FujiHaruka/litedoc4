@@ -513,7 +513,7 @@ script docs (args) do
 
   -- The package being documented has to be built first: the `runBuild` below
   -- builds the *extractor* and nothing else, and an extractor run against an
-  -- unbuilt package dies with "No directory 'Micro' … in the search path" (measured).
+  -- unbuilt package dies with "No directory 'Example' … in the search path" (measured).
   for lib in root.leanLibs do
     let _ ← runBuild lib.fetch
 

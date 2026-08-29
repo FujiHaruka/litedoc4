@@ -5,10 +5,10 @@
 # lakefile.rs` recognises, and this package is also what proves it recognises it.
 name = "micro"
 version = "0.1.0"
-defaultTargets = ["Micro"]
+defaultTargets = ["Example"]
 
 [[lean_lib]]
-name = "Micro"
+name = "Example"
 
 # Still no Mathlib and still nothing off the network: `../micro-dep` is in this
 # repository. What it adds is a manifest entry that has no `url` and no `rev`,

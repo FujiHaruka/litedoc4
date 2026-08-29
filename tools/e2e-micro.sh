@@ -111,7 +111,7 @@ fi
 
 say "3/17 GATE 1 — one command"
 rm -rf "$OUT/first"
-"$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/first" \
+"$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/first.log"
 [ -f "$OUT/first/site/index.html" ] || { echo "no site was written" >&2; exit 1; }
 
@@ -127,7 +127,7 @@ cp -R "$OUT/first/site" "$OUT/first-snapshot"
 cp "$OUT/first/litedoc4-build.json" "$OUT/first-build.json"
 
 say "4/17 GATE 2 — the second run changes nothing"
-"$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/first" \
+"$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/second.log"
 
 # Bytes only; what the run *did* is GATE 5, out of the marker.
@@ -142,7 +142,7 @@ fi
 
 say "5/17 GATE 3 — a second full build is byte identical"
 rm -rf "$OUT/again"
-"$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/again" \
+"$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/again" \
   --extractor-bin "$EXTRACTOR" >"$OUT/again.log"
 if ! diff -r "$OUT/first/site" "$OUT/again/site"; then
   echo "two full builds of the same world disagree — determinism is broken" >&2
@@ -159,7 +159,7 @@ say "6/17 GATE 4 — --jobs does not change the output"
 # parallel step that reorders its output is exactly the kind of thing that shows
 # up as a diff on one machine and not another.
 rm -rf "$OUT/jobs4"
-"$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/jobs4" \
+"$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/jobs4" \
   --extractor-bin "$EXTRACTOR" --jobs 4 >"$OUT/jobs4.log"
 if ! diff -r "$OUT/first/ir" "$OUT/jobs4/ir"; then
   echo "--jobs 4 extracted a different IR than --jobs 1" >&2
@@ -278,7 +278,7 @@ PY
 
 say "8/17 GATE 7 — the three sorry shapes are three different answers"
 # doc-gen4 #270 asks for two claims and not one: a declaration that uses `sorry`
-# itself, and a declaration that merely depends on such a one. `Micro/Sorry.lean`
+# itself, and a declaration that merely depends on such a one. `Example/Sorry.lean`
 # holds one of each plus a control, and **this is the only place the extractor's
 # answer meets a real Lean environment**: `sorry` is a property of the elaborated
 # term, so a hand-written IR fixture can check what the renderer does with the key
@@ -303,9 +303,9 @@ if index.get("schemaVersion") != 5:
     sys.exit(f"{root}/index.json: schemaVersion is {index.get('schemaVersion')!r}, not 5")
 
 expected = {
-    "Micro.Sorry.sorryHole": "direct",
-    "Micro.Sorry.usesHole": "transitive",
-    "Micro.Sorry.noHole": None,
+    "Example.Sorry.sorryHole": "direct",
+    "Example.Sorry.usesHole": "transitive",
+    "Example.Sorry.noHole": None,
 }
 found = {}
 for entry in index["modules"]:
@@ -382,7 +382,7 @@ say "9/17 GATE 8 — attributes arrive split into name and value"
 # parentheses and quotes, `specialize`'s contains brackets, and a reader given the
 # concatenation would have to guess.
 #
-# `Micro/Attrs.lean` holds one declaration per *kind* of attribute the four
+# `Example/Attrs.lean` holds one declaration per *kind* of attribute the four
 # collectors produce. The measurement target has none of the hard shapes — 163
 # occurrences over 6 distinct strings, all bare names but one `deprecated`
 # (measured 2026-08-21) — so this sample is where they exist at all. Reads the IR,
@@ -431,21 +431,21 @@ if index.get("schemaVersion") != 5:
 # Exact and ordered. Order is doc-gen4's `customs ++ tags ++ enums ++
 # parametric`, with the instance attributes appended after all four, and it is
 # what the printed `@[a, b]` line looks like — so it is part of the answer.
-DEPRECATED_VALUE = 'Micro.Attrs.scale (since := "2026-08-21")'
+DEPRECATED_VALUE = 'Example.Attrs.scale (since := "2026-08-21")'
 expected = {
     # getCustomAttrs — the simp extension, and the reducibility status
-    "Micro.Attrs.scale_zero": [["simp", ""]],
-    "Micro.Attrs.Weight": [["reducible", ""]],
+    "Example.Attrs.scale_zero": [["simp", ""]],
+    "Example.Attrs.Weight": [["reducible", ""]],
     # getTags — a tag attribute has no value at all
-    "Micro.Attrs.zero": [["match_pattern", ""]],
+    "Example.Attrs.zero": [["match_pattern", ""]],
     # getEnumValues — the enum's own name *is* the attribute
-    "Micro.Attrs.scale": [["inline", ""]],
+    "Example.Attrs.scale": [["inline", ""]],
     # getParametricValues — the two that make the split necessary
-    "Micro.Attrs.applyTwice": [["specialize", "#[]"]],
-    "Micro.Attrs.scaleOld": [["deprecated", DEPRECATED_VALUE]],
+    "Example.Attrs.applyTwice": [["specialize", "#[]"]],
+    "Example.Attrs.scaleOld": [["deprecated", DEPRECATED_VALUE]],
     # InstanceInfo.ofDefinitionInfo — appended after the four collectors
-    "Micro.Attrs.tinyNat": [[REDUCIBLE_INSTANCE, ""], ["instance", "100"]],
-    "Micro.Attrs.tinyBool": [[REDUCIBLE_INSTANCE, ""], ["defaultInstance", "1000"]],
+    "Example.Attrs.tinyNat": [[REDUCIBLE_INSTANCE, ""], ["instance", "100"]],
+    "Example.Attrs.tinyBool": [[REDUCIBLE_INSTANCE, ""], ["defaultInstance", "1000"]],
 }
 
 # A Python dict literal with a duplicate key keeps the last one, silently. The
@@ -464,7 +464,7 @@ if REDUCIBLE_INSTANCE in LITERAL_ATTR_NAMES:
     )
 
 name_counts = {
-    # Every structure projection is `@[reducible]`, and `Micro/Gen.lean` declares
+    # Every structure projection is `@[reducible]`, and `Example/Gen.lean` declares
     # six structures.
     "reducible": 19,
     REDUCIBLE_INSTANCE: 6,
@@ -555,7 +555,7 @@ say "10/17 GATE 9 — the origin of a realized declaration, and the three ways o
 # the pages, which carry the same pair as a pill.
 #
 # Five things, and the last three are why the first is not enough. The
-# **origins** are compared whole, positives *and* negatives — `Micro.Gen.Solo.ext`
+# **origins** are compared whole, positives *and* negatives — `Example.Gen.Solo.ext`
 # is the sharp one, hand written and sitting in the same environment extension as
 # the realized theorems, so a rule that only asked the extension would claim it.
 # The **count** says how many expectations actually ran. The **strays** number is
@@ -585,27 +585,27 @@ if index.get("schemaVersion") != 5:
 # being realized by `@[ext]`.
 expected = {
     # `@[ext]` written on the structure: both theorems land inside its range.
-    "Micro.Gen.Pair.ext": ["ext", "Micro.Gen.Pair"],
-    "Micro.Gen.Pair.ext_iff": ["ext", "Micro.Gen.Pair.ext"],
+    "Example.Gen.Pair.ext": ["ext", "Example.Gen.Pair"],
+    "Example.Gen.Pair.ext_iff": ["ext", "Example.Gen.Pair.ext"],
     # `attribute [ext] Trip` on a later line: both land outside its range.
-    "Micro.Gen.Trip.ext": ["ext", "Micro.Gen.Trip"],
-    "Micro.Gen.Trip.ext_iff": ["ext", "Micro.Gen.Trip.ext"],
+    "Example.Gen.Trip.ext": ["ext", "Example.Gen.Trip"],
+    "Example.Gen.Trip.ext_iff": ["ext", "Example.Gen.Trip.ext"],
     # `attribute [ext] Quad Quint`: one position, two parents, four theorems.
     # No rule over positions splits this group; each still names its own.
-    "Micro.Gen.Quad.ext": ["ext", "Micro.Gen.Quad"],
-    "Micro.Gen.Quad.ext_iff": ["ext", "Micro.Gen.Quad.ext"],
-    "Micro.Gen.Quint.ext": ["ext", "Micro.Gen.Quint"],
-    "Micro.Gen.Quint.ext_iff": ["ext", "Micro.Gen.Quint.ext"],
+    "Example.Gen.Quad.ext": ["ext", "Example.Gen.Quad"],
+    "Example.Gen.Quad.ext_iff": ["ext", "Example.Gen.Quad.ext"],
+    "Example.Gen.Quint.ext": ["ext", "Example.Gen.Quint"],
+    "Example.Gen.Quint.ext_iff": ["ext", "Example.Gen.Quint.ext"],
     # Realized from a *hand-written* ext theorem, so it names the theorem.
-    "Micro.Gen.Solo.ext_iff": ["ext", "Micro.Gen.Solo.ext"],
+    "Example.Gen.Solo.ext_iff": ["ext", "Example.Gen.Solo.ext"],
     # Hand written, and in `extExtension` exactly like the realized ones.
-    "Micro.Gen.Solo.ext": None,
+    "Example.Gen.Solo.ext": None,
     # Realized, but by `extends` rather than by `@[ext]`.
-    "Micro.Gen.PairPlus.toPair": None,
+    "Example.Gen.PairPlus.toPair": None,
     # A projection: `selectionRange == range`, and not realized by `@[ext]`.
-    "Micro.Gen.Pair.fst": None,
+    "Example.Gen.Pair.fst": None,
     # The parent itself.
-    "Micro.Gen.Pair": None,
+    "Example.Gen.Pair": None,
 }
 
 GENERATED = 9        # declarations with an origin, over the whole sample
@@ -773,7 +773,7 @@ print(f"generated    {checked} declarations compared, {len(claimed)} realized by
 PY
 
 say "11/17 GATE 10 — docstring math becomes MathML, and unreadable math does not"
-# Five assertions over `Micro/Math.html` plus one over the run's marker, and that
+# Five assertions over `Example/Math.html` plus one over the run's marker, and that
 # last one is what the others cannot make: **a fallback leaves a valid page** — no
 # byte count, no page count and no exit code moves when a formula fails — so
 # without `work.mathFallbacks` a run that converted nothing would look exactly
@@ -788,7 +788,7 @@ say "11/17 GATE 10 — docstring math becomes MathML, and unreadable math does n
 # `math-core` does not. And `$a &lt; b$` must **not** be on the page, because
 # finding the fallback's escape spelling would mean conversion silently stopped
 # while `mathFallbacks` stayed at 1.
-python3 - "$OUT/first/site/Micro/Math.html" "$OUT/first-build.json" <<'MATHPY'
+python3 - "$OUT/first/site/Example/Math.html" "$OUT/first-build.json" <<'MATHPY'
 import json
 import re
 import sys
@@ -851,11 +851,11 @@ say "12/17 GATE 14 — the front page describes each module by the heading its d
 # show up here); the one module whose docstring opens with prose has to draw **no
 # element at all**, because an empty one is a placeholder no reader can tell from
 # a module that described itself with a blank line; and a heading's Markdown has
-# to have been rendered, which is what `Micro.Shapes` — headed with a code span —
+# to have been rendered, which is what `Example.Shapes` — headed with a code span —
 # is here to say.
 #
 # `moduleSummariesEchoingTheName` is 0 and asserted as 0: a heading that only
-# repeats the module's own last component renders as `Micro.Math — Math`, which
+# repeats the module's own last component renders as `Example.Math — Math`, which
 # is a row that costs a line and says nothing. litedoc4 does not suppress it, so
 # the sample is where the rule is kept.
 python3 - "$OUT/first/site/index.html" "$OUT/first-build.json" <<'INDEXPY'
@@ -930,15 +930,15 @@ if work["moduleSummariesEchoingTheName"] != 0:
         "heads its docstring with its own name, which describes nothing"
     )
 
-if "Micro/Untitled.html" in described:
+if "Example/Untitled.html" in described:
     problems.append(
-        "Micro.Untitled has a description: its docstring opens with prose, and a "
+        "Example.Untitled has a description: its docstring opens with prose, and a "
         "module that said nothing about itself must draw no element at all"
     )
-shapes = described.get("Micro/Shapes.html", "")
-if "<code>Micro.Basic</code>" not in shapes:
+shapes = described.get("Example/Shapes.html", "")
+if "<code>Example.Basic</code>" not in shapes:
     problems.append(
-        f"Micro.Shapes' description is {shapes!r} — the heading's code span did "
+        f"Example.Shapes' description is {shapes!r} — the heading's code span did "
         "not survive as markup, so the description is not being rendered as "
         "Markdown"
     )
@@ -978,7 +978,7 @@ say "15/17 GATE 6 — one edited module does not re-render the package"
 # whole render** is the *oracle*: under-rendering is silent, so a page count is
 # not evidence — what the incremental run left on disk has to be what a whole
 # render of its own IR writes.
-PROBE="$SAMPLE/Micro/Basic.lean"
+PROBE="$SAMPLE/Example/Basic.lean"
 cp "$PROBE" "$OUT/probe.orig"
 # `set -e` must not leave the sample edited: everything below this line runs
 # under a trap that puts the file back, including the failure paths.
@@ -995,7 +995,7 @@ cp "$OUT/first/link-index.lidx" "$OUT/lidx-before"
 printf '\n/-- A probe appended by GATE 6; removed before this script exits. -/\ndef e2eGate6Probe_ : Nat := 13\n' >> "$PROBE"
 (cd "$SAMPLE" && "$LAKE" build)
 
-"$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/first" \
+"$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/edited.log"
 
 restore_probe
@@ -1040,8 +1040,8 @@ say "16/17 GATE 13 — every source link names a file that is really in this che
 # The sample is a package **inside** a repository, which the measurement target
 # is not: the target *is* its repository, so the derived source URL needed no path
 # to the package and every number in benchmarks/ was taken with an empty one. The
-# published sample site is what showed the gap — `blob/<rev>/Micro/Basic.lean`
-# where the file is at `e2e/micro/Micro/Basic.lean` (measured 2026-08-29: 404 and
+# published sample site is what showed the gap — `blob/<rev>/Example/Basic.lean`
+# where the file is at `e2e/micro/Example/Basic.lean` (measured 2026-08-29: 404 and
 # 200 respectively). Anyone using the action's `root` input had the same site.
 #
 # Resolved against this checkout rather than fetched: the answer must not depend

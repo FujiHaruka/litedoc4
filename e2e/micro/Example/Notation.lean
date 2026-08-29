@@ -1,4 +1,4 @@
-import Micro.Basic
+import Example.Basic
 
 /-!
 # A signature printed with the package's own notation
@@ -16,12 +16,12 @@ litedoc4 ever loses `Lean.activateScoped`, `useNotation`'s signature stops
 printing as `⟦n⟧`, and this module is where that shows.
 -/
 
-namespace Micro
+namespace Example
 
 /-- Doubling, written with brackets. -/
-scoped notation "⟦" x "⟧" => Micro.double x
+scoped notation "⟦" x "⟧" => Example.double x
 
 /-- A definition whose *signature* uses the scoped notation. -/
 def useNotation (n : Nat) : Nat := ⟦n⟧
 
-end Micro
+end Example

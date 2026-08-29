@@ -27,7 +27,7 @@ This module imports nothing.
 /-
 Two obligations, one for each of two gates in `tools/e2e-micro.sh`:
 
-- No imports on purpose. GATE 6 appends its probe to `Micro/Basic.lean`, and
+- No imports on purpose. GATE 6 appends its probe to `Example/Basic.lean`, and
   every module importing it is re-rendered by that edit; importing it here would
   spend that gate's `pagesRendered < modules` margin to buy nothing.
 - Do not tidy the attributes away, and do not add one casually. Each line below
@@ -39,7 +39,7 @@ Nothing uses `scaleOld`, and nothing should: a use makes `lake build` print a
 deprecation warning, and this package's warnings are read.
 -/
 
-namespace Micro.Attrs
+namespace Example.Attrs
 
 /-- An enum-valued attribute: its printed form is the enum's own name, with no
 argument after it. -/
@@ -82,4 +82,4 @@ no number: the two lines together show the value is read off the environment
 rather than off the text. -/
 @[default_instance] instance tinyBool : Tiny Bool := ⟨false⟩
 
-end Micro.Attrs
+end Example.Attrs

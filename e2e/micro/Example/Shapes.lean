@@ -1,14 +1,14 @@
-import Micro.Basic
+import Example.Basic
 
 /-!
-# The declaration shapes `Micro.Basic` does not have
+# The declaration shapes `Example.Basic` does not have
 
 Each of them prints differently from the others: a `class`, a `class inductive`,
 a structure whose constructor has a name of its own, a structure that inherits a
 field, a field carrying an implicit binder, and a class extending one from Lean
 core.
 
-`Micro.Basic` is the module with no imports; the rest of the unusual shapes live
+`Example.Basic` is the module with no imports; the rest of the unusual shapes live
 here.
 -/
 
@@ -20,14 +20,14 @@ inside its structure's range, no implicit binder on a field, no module without
 imports. Curated unit tests reach them with hand-written IR; this module is what
 reaches them through the real pipeline, so do not thin it out.
 
-`Micro.Preferred` is a regression: a class extending one whose defining module is
+`Example.Preferred` is a regression: a class extending one whose defining module is
 outside the package made `litedoc4 build` stop with `no defining module for
 Std.OrientedCmp.eq_swap`, having rendered nothing, on the first page it was
 pointed at in `batteries` (measured 2026-08-17). The measurement target never
 produced the shape.
 -/
 
-namespace Micro
+namespace Example
 
 /-- A class, whose members are printed with the class rather than as
 declarations of their own. -/
@@ -88,4 +88,4 @@ instance : Preferred Nat where
   default := 7
   reason := "seven is small and not zero"
 
-end Micro
+end Example

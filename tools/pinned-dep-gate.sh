@@ -147,12 +147,12 @@ mkdir -p "$OUT/micro/.lake/e2e-extract"
 (cd "$OUT/micro" && "$LAKE" env leanc -rdynamic \
   -o "$OUT/micro/.lake/e2e-extract/extract" "$OUT/micro/.lake/e2e-extract/Extract.c")
 rm -rf "$OUT/site"
-"$LITEDOC4" build --root "$OUT/micro" --lib Micro --out "$OUT/site" \
+"$LITEDOC4" build --root "$OUT/micro" --lib Example --out "$OUT/site" \
   --source-url "$SELF_URL" \
   --extractor-bin "$OUT/micro/.lake/e2e-extract/extract" > "$OUT/build.log"
 
 say "5/6 GATE 2 — the guillemets come off on the way into the URL"
-python3 - "$OUT/site/site/Micro/Dep.html" "$DEP_URL" "$REV" <<'PY' || FAILED=$((FAILED + 1))
+python3 - "$OUT/site/site/Example/Dep.html" "$DEP_URL" "$REV" <<'PY' || FAILED=$((FAILED + 1))
 import pathlib, re, sys
 page, url, rev = sys.argv[1], sys.argv[2], sys.argv[3]
 html = pathlib.Path(page).read_text()

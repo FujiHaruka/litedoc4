@@ -9,7 +9,7 @@ This module imports nothing of its own, so the only entry in its import list is
 the `Init` every Lean module gets.
 -/
 
-namespace Micro
+namespace Example
 
 /-- Twice `n`. A plain definition with a docstring — the smallest thing a page
 has to show. -/
@@ -50,4 +50,4 @@ def Colour.name : Colour → String
   | .red => "red"
   | .green => "green"
 
-end Micro
+end Example

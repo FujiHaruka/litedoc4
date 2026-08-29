@@ -1,4 +1,4 @@
-import Micro.Basic
+import Example.Basic
 
 /-!
 # The two marks an incomplete proof leaves on a page
@@ -19,28 +19,28 @@ Do not "fix" these proofs. `sorryHole` is the input and the other two are the
 answers that have to differ from it, so `tools/e2e-micro.sh` GATE 7 checks all
 three by name and counts how many it compared.
 
-They are here rather than in `Micro/Basic.lean` because `sorry` makes `lake
+They are here rather than in `Example/Basic.lean` because `sorry` makes `lake
 build` print a warning for the whole module, and GATE 6 appends a probe
 declaration to `Basic.lean` — a module whose build is already noisy is a bad
 place to read a new warning out of.
 -/
 
-namespace Micro.Sorry
+namespace Example.Sorry
 
 /-- A theorem proved by `sorry`: its own proof term is the hole, so the page
 marks it **uses `sorry`**. This is the declaration the other two are defined
 against. -/
-theorem sorryHole (n : Nat) : Micro.double n = n + n := by
+theorem sorryHole (n : Nat) : Example.double n = n + n := by
   sorry
 
 /-- A theorem with a complete proof of its own that *uses* `sorryHole`. Its term
 never mentions the hole, so the page marks it **depends on `sorry`** — the weaker
 of the two claims, and the reason there are two. -/
-theorem usesHole (n : Nat) : Micro.double n = 2 * n := by
+theorem usesHole (n : Nat) : Example.double n = 2 * n := by
   rw [sorryHole, Nat.two_mul]
 
 /-- A theorem that depends on neither, and is marked neither. -/
-theorem noHole (n : Nat) : Micro.double n + 0 = Micro.double n :=
+theorem noHole (n : Nat) : Example.double n + 0 = Example.double n :=
   Nat.add_zero _
 
-end Micro.Sorry
+end Example.Sorry

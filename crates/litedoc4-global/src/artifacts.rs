@@ -123,7 +123,7 @@ pub struct SummaryCounts {
     /// Of those, how many said only what the row already says.
     ///
     /// **Reported rather than suppressed.** A heading equal to the module's own
-    /// last component is a row that reads `Micro.Math — Math`, and the
+    /// last component is a row that reads `Example.Math — Math`, and the
     /// straightforward fix is to leave it out — but the rule that would do it is
     /// wrong the first time a package heads `Polymatroid/Basic.lean` with
     /// `# Polymatroid`, and it puts the tool in the position of deciding the
