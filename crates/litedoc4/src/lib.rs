@@ -300,6 +300,33 @@ usage: litedoc4 build  --root <repo> --out <dir> [--link-index <file>]
   --dry-run      report what would be deleted and delete nothing
 ";
 
+/// What `litedoc4` with no arguments prints. [`USAGE`] is behind `--help-all`
+/// and behind every subcommand's own `--help`, because a reader who has already
+/// typed `site` is past the front door.
+///
+/// Two commands rather than fourteen: the other twelve are invoked by
+/// `tools/*-gate.sh` and by `build` itself, and by nothing a consumer runs —
+/// `action.yml` and `lakefile.lean`'s `docs` script call `build` and nothing
+/// else (measured 2026-08-29). Listing all fourteen as equals said the opposite.
+pub const SUMMARY: &str = "\
+usage: litedoc4 build  --root <repo> --out <dir> --extractor-bin <path>
+                       [--lib <Name>]... [--jobs <n>] [--source-url <url>]
+                       [--full]
+       litedoc4 watch  --root <repo> --out <dir> --extractor-bin <path>
+                       [--lib <Name>]... [--jobs <n>] [--port <n>]
+
+  `build` writes the site once. `watch` rebuilds it whenever the package's
+  oleans change and serves it, without ever running `lake build` itself.
+
+  Twelve more subcommands exist — extract, modules, links, incremental, site,
+  render, global, ledger, ownership, merge, impact, prune. They are the stages
+  `build` runs and the queries the gates ask of them, not a second way to use
+  this tool, and each answers its own --help.
+
+  litedoc4 --help-all    every command line and every flag
+  litedoc4 --version
+";
+
 /// `Debug` so that a `Result<_, Failure>` can be `expect`ed in a test; nothing
 /// prints one to a user, which is what the three arms of `main` are for.
 #[derive(Debug)]
@@ -575,7 +602,7 @@ mod usage_tests {
     //! and the flags are `match` arms in eight files, so a flag could be added to
     //! one and not the other and every test would still pass.
 
-    use super::USAGE;
+    use super::{SUMMARY, USAGE};
     use std::collections::BTreeSet;
     use std::sync::LazyLock;
 
@@ -641,13 +668,15 @@ mod usage_tests {
         }
     }
 
-    /// Every flag [`USAGE`] spells as a flag: in a synopsis line or as the
-    /// subject of a description. **Not prose** — `USAGE` mentions
+    /// Every flag [`USAGE`] or [`SUMMARY`] spells as a flag: in a synopsis line
+    /// or as the subject of a description. `SUMMARY` is read too because it is
+    /// the text most readers see, and a flag only it names would otherwise be
+    /// checked by nothing. **Not prose** — `USAGE` mentions
     /// `lean --githash` and "there is no --title", and neither is a flag of this
     /// tool.
     fn documented() -> BTreeSet<String> {
         let mut out = BTreeSet::new();
-        for line in USAGE.lines() {
+        for line in USAGE.lines().chain(SUMMARY.lines()) {
             let trimmed = line.trim_start();
             if let Some(rest) = trimmed.strip_prefix("--") {
                 let name = rest.split([' ', ',', ')', '.', ':']).next().unwrap_or(rest);

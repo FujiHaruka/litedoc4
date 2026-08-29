@@ -245,7 +245,7 @@ a floor, not something tuning the loop moves. It does not include your own `lake
 runs before any of it. Apple M1, 422 modules, warm page cache; raw logs in
 [`benchmarks/`](benchmarks/).
 
-Run `litedoc4` with no arguments for the full flag list. The two you may need:
+Run `litedoc4 --help-all` for the full flag list. The two you may need:
 `--lib <Name>` if your libraries are not in `lakefile.toml`, `--source-url <url>` if `origin` is
 not GitHub (another host is refused rather than guessed).
 

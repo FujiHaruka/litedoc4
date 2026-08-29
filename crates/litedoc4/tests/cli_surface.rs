@@ -45,16 +45,41 @@ fn version_prints_the_name_and_the_crate_version() {
     assert!(stderr(&output).is_empty(), "{}", stderr(&output));
 }
 
+/// The front door is [`litedoc4::SUMMARY`], not [`litedoc4::USAGE`]: only
+/// `build` and `watch` are things a consumer runs, and `--help-all` is where
+/// the other twelve keep their command lines.
 #[test]
 fn every_way_of_asking_for_the_usage_prints_the_same_bytes_and_succeeds() {
     let bare = LITEDOC4.run::<&str>(&[]);
     assert_eq!(code(&bare), 0, "{}", stderr(&bare));
-    assert_eq!(stdout(&bare), format!("{}\n", litedoc4::USAGE));
+    assert_eq!(stdout(&bare), format!("{}\n", litedoc4::SUMMARY));
     for spelling in ["--help", "-h"] {
         let output = LITEDOC4.run(&[spelling]);
         assert_eq!(code(&output), 0, "{spelling}: {}", stderr(&output));
         assert_eq!(stdout(&output), stdout(&bare), "{spelling}");
     }
+
+    let all = LITEDOC4.run(&["--help-all"]);
+    assert_eq!(code(&all), 0, "{}", stderr(&all));
+    assert_eq!(stdout(&all), format!("{}\n", litedoc4::USAGE));
+}
+
+/// A subcommand the front door does not name is one nobody finds. It does not
+/// have to be named as a synopsis — being named at all, next to the sentence
+/// that says where its command line is, is the whole obligation.
+#[test]
+fn the_summary_names_every_subcommand_and_says_where_the_rest_of_them_live() {
+    let summary = stdout(&LITEDOC4.run(&["--help"]));
+    for command in COMMANDS {
+        assert!(
+            summary.contains(command),
+            "`{command}` is reachable from the dispatch and named nowhere a reader looks: {summary}"
+        );
+    }
+    assert!(
+        summary.contains("--help-all"),
+        "the twelve are hidden with no way back to them: {summary}"
+    );
 }
 
 #[test]
@@ -104,7 +129,7 @@ fn a_run_that_could_not_finish_costs_exit_1_and_prints_no_usage() {
 /// them: a `match` that lost `-h` passes a check that only asks `--help`.
 #[test]
 fn every_subcommand_answers_help_with_the_same_usage() {
-    let usage = stdout(&LITEDOC4.run(&["--help"]));
+    let usage = stdout(&LITEDOC4.run(&["--help-all"]));
     assert!(
         usage.starts_with("usage: litedoc4 build"),
         "the top-level usage is the thing being compared against: {usage}"

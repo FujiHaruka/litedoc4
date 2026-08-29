@@ -3,7 +3,9 @@
 
 use std::process::ExitCode;
 
-use litedoc4::{Failure, USAGE, build, extract, ledger, pipeline, queries, stages, usage, watch};
+use litedoc4::{
+    Failure, SUMMARY, USAGE, build, extract, ledger, pipeline, queries, stages, usage, watch,
+};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -42,6 +44,10 @@ fn run(args: &[String]) -> Result<(), Failure> {
         Some("impact") => queries::impact(&args[1..]),
         Some("prune") => queries::prune(&args[1..]),
         Some("--help" | "-h") | None => {
+            println!("{SUMMARY}");
+            Ok(())
+        }
+        Some("--help-all") => {
             println!("{USAGE}");
             Ok(())
         }

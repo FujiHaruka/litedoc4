@@ -226,16 +226,22 @@ fn the_rest_of_the_command_line_is_checked() {
 }
 
 /// The usage has to mention `site`: a subcommand that only exists in the
-/// dispatch is one nobody finds.
+/// dispatch is one nobody finds. `--help` is the front door, which names `site`
+/// as plumbing and no more; the command line is behind `--help-all` and behind
+/// `site --help` itself.
 #[test]
 fn help_is_answered_and_the_usage_names_the_subcommand() {
-    for args in [vec!["site", "--help"], vec!["--help"]] {
+    for args in [vec!["site", "--help"], vec!["--help-all"]] {
         let output = LITEDOC4.run(&args);
         assert_eq!(code(&output), 0, "{args:?}: {}", stderr(&output));
         let text = stdout(&output);
         assert!(text.contains("litedoc4 site"), "{args:?}: {text}");
         assert!(text.contains("--no-link-index"), "{args:?}: {text}");
     }
+
+    let summary = stdout(&LITEDOC4.run(&["--help"]));
+    assert!(summary.contains("site"), "{summary}");
+    assert!(summary.contains("--help-all"), "{summary}");
 }
 
 /// The file *set* is asserted as well as the bytes: byte equality between two
