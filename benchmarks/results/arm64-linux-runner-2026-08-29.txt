@@ -1,0 +1,134 @@
+arm64 Linux: is the runner there, and what does the tree say when it runs on one
+================================================================================
+2026-08-29.  Two runs of a throwaway workflow on branch `arm64-probe`
+(deleted before merge), GitHub-hosted `ubuntu-24.04-arm`, public repository.
+
+  run 1  https://github.com/FujiHaruka/litedoc4/actions/runs/33240539699  success
+  run 2  https://github.com/FujiHaruka/litedoc4/actions/runs/33240695191  failure
+
+WHY IT WAS RUN
+--------------
+`release.yml` and `lakefile.lean` both said there is no arm Linux runner here,
+and `release.yml` added that an arm64 build would need a cross toolchain for the
+vendored C.  Neither had been re-checked.  This is the shape 2026-08-18 already
+produced twice ("not a lack of hardware but a failure to use the hardware we
+have" — the Windows monospace font and LeakSanitizer), so it was measured rather
+than reasoned about.
+
+THE MACHINE
+-----------
+  Linux runnervmmc83g 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:12:01
+    UTC 2026 aarch64 aarch64 aarch64 GNU/Linux
+  nproc                4
+  MemTotal             15 GiB (3.0 GiB swap)
+  rustup               stable-aarch64-unknown-linux-gnu, rustc 1.98.0
+  node                 24.19.0 (mise.toml, via .github/actions/setup-node)
+  elan                 elan-aarch64-unknown-linux-gnu.tar.gz, toolchain
+                       leanprover/lean4:v4.31.0 (e2e/micro/lean-toolchain)
+
+The runner starts.  It is not the `macos-13` case (measured 2026-08-18: queued
+>15 min without ever starting): the job was picked up immediately and run 1
+finished, checkout to green, in **86 s**.
+
+1  THE BUILD IS NATIVE, AND THE ARCHIVE WORKS  (measured)
+---------------------------------------------------------
+  musl-tools                     installed from Ubuntu's own arm64 archive
+  cargo build --release --locked --target aarch64-unknown-linux-musl
+                                 53 crates, finished in 28.78 s
+  file                           ELF 64-bit LSB executable, ARM aarch64,
+                                 statically linked
+  ldd                            resolved nothing
+  size                           3 871 920 bytes
+  litedoc4 --version             litedoc4 1.0.1
+  tools/e2e-micro.sh             16/16 gates, "E2E MICRO: ok"
+
+No cross toolchain is involved: an arm64 musl-gcc compiles the vendored C on an
+arm64 machine, and the binary that ran the end-to-end gates is the one unpacked
+from the archive, on the architecture the archive is for.  The sentence in
+`release.yml` was written when it was true and had gone stale.
+
+2  THREE THINGS THAT ONLY SHOW UP HERE  (measured, run 2)
+---------------------------------------------------------
+Run 2 added `cargo clippy --workspace --all-targets` and
+`cargo test --workspace`.  Neither had ever run on aarch64.
+
+(a) `crates/litedoc4-md/src/parse.rs:388`, three findings at one line:
+
+      warning: trivial numeric cast: `u8` as `u8`
+      warning: casting to the same type is unnecessary (`u8` -> `u8`)
+      warning: this lint expectation is unfulfilled   [clippy::cast_sign_loss]
+
+    `MD_CHAR` is `c_char`, and `c_char` is `i8` on x86-64 and on Apple Silicon
+    but `u8` on aarch64 Linux.  `mark as u8` is therefore a sign loss on one
+    architecture and a no-op on the other, and the `#[expect(cast_sign_loss)]`
+    the tree carried is unfulfilled on the second.  Under CI's
+    `cargo clippy -- -D warnings` these are three errors.  Fixed by asking for
+    the byte instead of the sign (`mark.to_ne_bytes()[0]`), which is exact on
+    both.  The docstring that said "`MD_CHAR` is signed" was true of the machine
+    it was written on.
+
+(b) `cargo test --workspace` fails, 3 of 66 in `litedoc4`'s lib:
+
+      packages::tests::a_root_with_nothing_in_it_degrades_to_an_empty_map
+      packages::tests::a_dependency_that_cannot_be_pinned_contributes_roots_with_no_base
+      packages::tests::an_unpinnable_entry_with_no_directory_to_scan_is_the_one_line_it_already_had
+
+    Not an architecture difference — an environment one.  All three passed
+    `Path::new("lake-that-does-not-exist")` to mean "no Lean core", and
+    `packages::lean_beside` turns that into the **bare name** `lean`, which
+    `Command::new` resolves on `PATH`.  The probe installs elan with a default
+    toolchain, so `lean --githash` answered, and Init/Lean/Std/Lake arrived in a
+    map the tests assert is empty.
+
+      left:  [("Init", ".../lean4/blob/68218e876…/src"), ("Lean", …),
+              ("Std", …), ("Lake", …/src/lake), ("DepAux",""), …]
+      right: [("DepAux",""), ("Tagged",""), ("Pinned", …)]
+
+    Reproduced on the development machine in 0.34 s with a `lean` shim on
+    `PATH` that prints a githash — no elan state changed:
+
+      printf '#!/bin/sh\nif [ "$1" = "--githash" ]; then echo <40 hex>; fi\n' > shim/lean
+      PATH="$PWD/shim:$PATH" cargo test -p litedoc4 --lib packages::
+      => 8 passed; 3 failed
+
+    So `cargo test --workspace` — CLAUDE.md's definition of green — was green
+    only because no machine that runs it has a **default** Lean toolchain
+    configured.  `elan default stable` on a developer's machine turns it red.
+    `crates/litedoc4/tests/queries.rs` had already solved this, with
+    `lake_that_is_not_there(dir) -> dir.join("no-toolchain/lake")` and a
+    docstring saying why; the unit tests in `packages.rs` never got it.  The
+    helper is now `litedoc4_testutil::toolchain::lake_that_is_not_there` and
+    both call it.
+
+(c) Read out of the same log, and **not** an arm fact:
+
+      warning: lint `clippy::from_iter_instead_of_collect` has been removed:
+               lint has proved problematic
+        = note: the `renamed_and_removed_lints` lint ignores `-D warnings`
+
+    One of the 35 lints adopted in `Cargo.toml` no longer exists in clippy
+    1.98.0, which CI has been running since it moved off 1.97.  It has been
+    enforcing nothing, and `-D warnings` cannot say so — rustc exempts
+    `renamed_and_removed_lints` from it by design.  The same log line is in
+    CI's own green run on `main` (33238420949).  This is the
+    "output and exit code disagree" shape from CLAUDE.md, arriving from
+    upstream rather than from anything in this tree.
+
+    Fixed by dropping the lint and adding `renamed_and_removed_lints = "deny"`,
+    which does reach it.  Made to fail once, on the development machine, with a
+    lint clippy 0.1.97 has already renamed:
+
+      cyclomatic_complexity = "warn"  =>  exit 101
+        error: lint `clippy::cyclomatic_complexity` has been renamed …
+          = note: requested on the command line with `-D renamed-and-removed-lints`
+
+WHAT THIS CHANGED
+-----------------
+`aarch64-unknown-linux-musl` is now built and smoke-tested by `release.yml` on
+`ubuntu-24.04-arm`, and `ci.yml` checks the workspace on aarch64 so that (a) and
+(b) cannot come back unseen.  The three consumer-side tables that decide whether
+a machine has an asset — `lakefile.lean`'s `releaseTargets`, `action.yml`'s
+`RUNNER_OS-$(uname -m)` case, and `tools/lake-download-gate.sh`'s — carry the
+new triple.  `.github/actions/setup-elan` reads `uname -m` instead of naming
+x86_64, and its cache key carries `runner.arch`, because `runner.os` is `Linux`
+on both and a key that cannot tell them apart hands an arm job an x86_64 elan.

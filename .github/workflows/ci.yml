@@ -131,6 +131,12 @@ jobs:
       - name: Citations resolve
         run: tools/docs-gate.sh
 
+      # The release notes are a tracked file that release.yml publishes, so the
+      # platforms and Lean versions they promise are checked here rather than
+      # read for the first time on the Releases page.
+      - name: The release notes still describe the release
+        run: tools/release-notes-gate.sh
+
       - name: Verify the corpus gate's inventory
         run: tools/corpus-gate.sh --verify-list
 
@@ -138,6 +144,49 @@ jobs:
       # a refactor deleting an attribution that is legally load-bearing.
       - name: Provenance
         run: tools/provenance-gate.sh
+
+  # Releases carry an aarch64 Linux binary, and until 2026-08-29 no job had ever
+  # compiled this tree on that architecture. Two things were waiting there
+  # (measured → benchmarks/results/arm64-linux-runner-2026-08-29.txt): three
+  # clippy findings at one line, because `c_char` is unsigned here and signed on
+  # every machine that had run clippy; and three unit tests that read the
+  # machine's Lean toolchain off `PATH`, which is green wherever elan has no
+  # default toolchain and red where it has one.
+  #
+  # **Lints and tests only.** The gates, the licences and the TypeScript are
+  # architecture-blind, and running them twice would buy a slower CI and the
+  # same answer. What this job is for is the code that is allowed to differ.
+  test-arm64:
+    name: aarch64 (lints and tests)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-node
+
+      - name: Install the toolchain rust-toolchain.toml asks for
+        run: |
+          rustup show
+          rustc --version
+
+      # `runner.arch` and not just `runner.os`: `Linux` names both runners, and a
+      # key that cannot tell them apart hands this job the x86_64 job's `target/`.
+      - name: Cache cargo registry and build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-v2-${{ runner.os }}-${{ runner.arch }}-ci-test-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --no-fail-fast
 
   # The tree we pull in, as opposed to the attributions we wrote (which the test
   # job checks). Policy is deny.toml.

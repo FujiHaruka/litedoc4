@@ -4,11 +4,12 @@
 A consumer requires this package and gets a `docs` script:
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.0.1"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.1.0"
 ```
 
-Pin `v1.0.1` or later: it is the first release that promises its own surface
-will not move, and the oldest tag Lake can resolve at all is `v0.1.4`.
+Pin `v1.0.1` or later: 1.x does not move the names your own files contain,
+and it is the first release whose source links work for a package below its
+repository root. The oldest tag Lake can resolve at all is `v0.1.4`.
 `@ "main"` also works and moves.
 
 ```
@@ -144,16 +145,16 @@ None of them is a warning.
 -/
 
 /--
-The target triples a release actually carries (measured 2026-08-18).
+The target triples a release actually carries (measured 2026-08-29).
 
-Only these two, and not by accident: `.github/workflows/release.yml` builds no
-`x86_64-apple-darwin` (there is no Intel runner to *test* one on) and no
-`aarch64-unknown-linux-*` (no arm Linux runner), because shipping a binary nobody
-has executed is what that workflow's smoke job exists to refuse. So **"this
-machine has no asset" is a normal path, not a fault**.
+Not every triple, and not by accident: `.github/workflows/release.yml` builds no
+`x86_64-apple-darwin`, because there is no Intel runner to *test* one on and
+shipping a binary nobody has executed is what that workflow's smoke job exists
+to refuse. So **"this machine has no asset" is a normal path, not a fault** —
+Windows and Intel macOS take it.
 -/
 def releaseTargets : List String :=
-  ["x86_64-unknown-linux-musl", "aarch64-apple-darwin"]
+  ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin"]
 
 def releaseBaseUrl (version : String) : String :=
   s!"https://github.com/FujiHaruka/litedoc4/releases/download/v{version}"
@@ -182,7 +183,7 @@ already designed path as an Intel Mac.
 def hostTarget : IO String := do
   -- **Test-only**: `tools/lake-download-gate.sh` has to reach the "no asset for
   -- this machine" branch *from* a machine that has one, which is otherwise code
-  -- only Intel-Mac and arm-Linux users ever run. Nothing weakens — it chooses which
+  -- only Intel-Mac and Windows users ever run. Nothing weakens — it chooses which
   -- asset is looked for; the table, the download and the checksum are unchanged.
   match ← IO.getEnv "LITEDOC4_TARGET_OVERRIDE" with
   | some raw => if !raw.isEmpty then return raw

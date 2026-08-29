@@ -10,10 +10,18 @@ description: >
 #   nobody has chosen yet — add it when a second toolchain arrives, and let the
 #   cache key change with it then.
 #
-# WHY THE TARBALL NAMES A LINUX ARCHITECTURE
-#   Every one of the twelve jobs is `runs-on: ubuntu-latest` (measured), including
-#   the one in ci-browser-windows.yml, whose Windows half is a different job and
-#   installs no Lean. A `runner.os` switch here would be a branch nothing takes.
+# WHY THE ARCHITECTURE IS READ AND NOT WRITTEN
+#   Every caller is Linux, and until 2026-08-29 every one of them was x86_64, so
+#   the tarball name was a literal. `release.yml`'s smoke job now runs on
+#   `ubuntu-24.04-arm`, and a literal would have installed an x86_64 elan on it.
+#   `uname -m` spells the architecture the way elan's assets do, on both
+#   (`x86_64` / `aarch64`), so nothing translates it.
+#
+# WHY THE CACHE KEY CARRIES THE ARCHITECTURE
+#   `runner.os` is `Linux` on both, and a key that cannot tell them apart hands
+#   the arm job the x86_64 elan it just went to the trouble of not downloading —
+#   a cache hit that installs the wrong binary, which fails at the first `lake`
+#   and blames Lean.
 runs:
   using: composite
   steps:
@@ -22,13 +30,14 @@ runs:
       uses: actions/cache@v6
       with:
         path: ~/.elan
-        key: elan-${{ runner.os }}-${{ hashFiles('e2e/micro/lean-toolchain') }}
+        key: elan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('e2e/micro/lean-toolchain') }}
 
     - name: Install elan at the fixture's toolchain
       if: steps.elan-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        curl -sSfL https://github.com/leanprover/elan/releases/latest/download/elan-x86_64-unknown-linux-gnu.tar.gz \
+        set -euo pipefail
+        curl -sSfL "https://github.com/leanprover/elan/releases/latest/download/elan-$(uname -m)-unknown-linux-gnu.tar.gz" \
           | tar xz
         ./elan-init -y --default-toolchain "$(cat e2e/micro/lean-toolchain)"
 

@@ -52,6 +52,13 @@ jobs:
           # thing anyone has to think about.
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
+          # Native, not cross: `ubuntu-24.04-arm` is a real arm64 runner (4 vCPU,
+          # 15 GiB), so the vendored C is compiled by an arm musl-gcc and the
+          # binary is executed by the smoke job below. No cross toolchain is
+          # involved (measured 2026-08-29,
+          # benchmarks/results/arm64-linux-runner-2026-08-29.txt).
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
           - target: aarch64-apple-darwin
             os: macos-latest
           # No x86_64-apple-darwin: it needs an Intel runner to be *tested* on,
@@ -60,9 +67,6 @@ jobs:
           # produce a binary nobody had executed — the "it built, therefore it
           # works" the smoke job below exists to refuse. Intel macOS builds from
           # source.
-          #
-          # Also absent: aarch64-unknown-linux-*. It needs a cross toolchain for
-          # the vendored C, and there is no arm Linux runner here to test on.
     steps:
       - uses: actions/checkout@v7
 
@@ -84,6 +88,7 @@ jobs:
         run: cargo build --release --locked --bin litedoc4 --target ${{ matrix.target }}
         env:
           CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
 
       # A musl target that came out dynamically linked defeats the point of
       # choosing musl, and it is invisible until it runs on a machine with a
@@ -93,21 +98,25 @@ jobs:
           BIN=target/${{ matrix.target }}/release/litedoc4
           ls -l "$BIN"
           file "$BIN"
-          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
-            # The test is "did ldd resolve any shared object", i.e. does its
-            # output contain `=>`. **Not** the wording: a static binary makes
-            # ldd say "not a dynamic executable" on some systems and
-            # "statically linked" on others, and the first version of this
-            # check failed the build over that difference rather than over
-            # anything about the binary.
-            if ldd "$BIN" 2>&1 | grep -q "=>"; then
-              echo "::error::expected a static binary, but ldd resolved shared objects"
-              ldd "$BIN" || true
-              exit 1
-            fi
-            echo "statically linked — ldd resolved nothing:"
-            ldd "$BIN" 2>&1 || true
-          fi
+          # Every musl target, not one named triple: the check that names its
+          # target only ever grades the target somebody remembered to name.
+          case "${{ matrix.target }}" in
+            *-linux-musl)
+              # The test is "did ldd resolve any shared object", i.e. does its
+              # output contain `=>`. **Not** the wording: a static binary makes
+              # ldd say "not a dynamic executable" on some systems and
+              # "statically linked" on others, and the first version of this
+              # check failed the build over that difference rather than over
+              # anything about the binary.
+              if ldd "$BIN" 2>&1 | grep -q "=>"; then
+                echo "::error::expected a static binary, but ldd resolved shared objects"
+                ldd "$BIN" || true
+                exit 1
+              fi
+              echo "statically linked — ldd resolved nothing:"
+              ldd "$BIN" 2>&1 || true
+              ;;
+          esac
 
       - name: Work out the version
         id: v
@@ -158,18 +167,30 @@ jobs:
           path: dist/*.tar.gz
           retention-days: 7
 
-  # On a runner that never built the archive.
+  # On a runner that never built the archive, and on the architecture the
+  # archive is for: a binary executed only by the machine that produced it has
+  # not been executed by anyone the release is for.
   smoke:
-    name: smoke — the Linux archive builds a site
+    name: smoke — ${{ matrix.target }} builds a site
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
 
+      # `*x86_64-…` and `*aarch64-…` each match exactly one artifact: neither
+      # architecture's spelling occurs inside the other's.
       - uses: actions/download-artifact@v8
         with:
-          pattern: "*x86_64-unknown-linux-musl"
+          pattern: "*${{ matrix.target }}"
           path: ${{ runner.temp }}/dl
           merge-multiple: true
 
@@ -196,9 +217,45 @@ jobs:
           "$BIN" --version || true
           LITEDOC4="$BIN" tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
 
+  # **Renders on a dry run too**, which is the whole reason it is a job and not a
+  # step inside `publish`: `publish` is skipped unless the ref is a tag, so the
+  # notes would otherwise be rendered for the first time by the release itself,
+  # in the one run where a failure is expensive.
+  #
+  # The version is `Cargo.toml`'s, with no second copy of "a tag wins": `build`
+  # has already failed the run if the tag and the workspace version disagree, so
+  # by the time this job starts there is only one number.
+  notes:
+    name: the notes this release ships with
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Substitute the version
+        run: |
+          set -euo pipefail
+          V="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          mkdir -p "$RUNNER_TEMP/notes"
+          sed "s/@VERSION@/$V/g" .github/release-notes.md > "$RUNNER_TEMP/notes/notes.md"
+          # A placeholder that survived would publish `@VERSION@` as the thing to
+          # pin, on a page nobody re-reads after the release is out.
+          if grep -q '@VERSION@' "$RUNNER_TEMP/notes/notes.md"; then
+            echo "::error::a @VERSION@ placeholder survived substitution in the release notes"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/notes/notes.md"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes/notes.md
+          retention-days: 7
+
   publish:
     name: publish
-    needs: [build, smoke]
+    needs: [build, smoke, notes]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -207,10 +264,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # `pattern`, so that the notes artifact does not land among the things
+      # `sha256sum *.tar.gz` and `gh release create ./*.tar.gz` glob over.
       - uses: actions/download-artifact@v8
         with:
+          pattern: "litedoc4-*"
           path: ${{ runner.temp }}/dl
           merge-multiple: true
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes
 
       - name: Checksums
         run: |
@@ -223,17 +288,29 @@ jobs:
       # git repository, and `gh` works out the repository from the checkout it
       # is standing in. Without it the step dies with "fatal: not a git
       # repository" after everything else has already succeeded.
+      # **A tracked file, not `--generate-notes`.** A generated list of commit
+      # subjects is process, which is the one thing user-facing documentation in
+      # this repository does not carry — so every release before this one had its
+      # notes replaced by hand afterwards, which is a step that gets forgotten
+      # rather than a design. `tools/release-notes-gate.sh` reconciles what the
+      # file claims against the assets this workflow asserts and against
+      # `tools/lean-toolchains.txt`.
       - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}
           R: ${{ github.repository }}
+          N: ${{ runner.temp }}/notes/notes.md
         run: |
           cd "$RUNNER_TEMP/dl"
+          # Both paths set the notes: a re-run over an existing release exists to
+          # make the release match the tree, and notes that stayed as the first
+          # run left them would be the half it silently did not fix.
           if gh release view "$GITHUB_REF_NAME" --repo "$R" > /dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" ./*.tar.gz checksums.txt --clobber --repo "$R"
+            gh release edit "$GITHUB_REF_NAME" --notes-file "$N" --repo "$R"
           else
             gh release create "$GITHUB_REF_NAME" ./*.tar.gz checksums.txt \
-              --title "$GITHUB_REF_NAME" --generate-notes --repo "$R"
+              --title "$GITHUB_REF_NAME" --notes-file "$N" --repo "$R"
           fi
 
       # "The command exited 0" is not "the assets are on the release". Ask.
@@ -246,6 +323,7 @@ jobs:
           NAMES="$(gh release view "$GITHUB_REF_NAME" --repo "$R" --json assets --jq '.assets[].name' | sort)"
           echo "$NAMES"
           for want in litedoc4-x86_64-unknown-linux-musl.tar.gz \
+                      litedoc4-aarch64-unknown-linux-musl.tar.gz \
                       litedoc4-aarch64-apple-darwin.tar.gz \
                       checksums.txt; do
             echo "$NAMES" | grep -qx "$want" || { echo "::error::missing asset: $want"; exit 1; }

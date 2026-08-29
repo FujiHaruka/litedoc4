@@ -466,6 +466,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use litedoc4_testutil::toolchain::lake_that_is_not_there;
     use litedoc4_testutil::{TempDirs, corpus};
 
     /// The prefix names the file, so a directory a failed run leaves behind
@@ -644,7 +645,7 @@ mod tests {
         )
         .expect("the temporary tree is writable");
 
-        let resolved = external_links(&root, Path::new("lake-that-does-not-exist"));
+        let resolved = external_links(&root, &lake_that_is_not_there(tmp.path()));
         // Core did not resolve either, so the map is the three packages' roots
         // alone, in manifest order.
         assert_eq!(
@@ -703,7 +704,7 @@ mod tests {
         )
         .expect("the temporary tree is writable");
 
-        let resolved = external_links(&root, Path::new("lake-that-does-not-exist"));
+        let resolved = external_links(&root, &lake_that_is_not_there(tmp.path()));
         assert!(resolved.links.is_empty());
         assert_eq!(resolved.unpinned_roots, 0);
         assert_eq!(resolved.resolved, 0);
@@ -720,7 +721,7 @@ mod tests {
     #[test]
     fn a_root_with_nothing_in_it_degrades_to_an_empty_map() {
         let dir = TEMP.make("empty");
-        let resolved = external_links(dir.path(), Path::new("lake-that-does-not-exist"));
+        let resolved = external_links(dir.path(), &lake_that_is_not_there(dir.path()));
         assert!(resolved.links.is_empty());
         assert_eq!(resolved.declared, 0);
         assert_eq!(resolved.resolved, 0);

@@ -26,8 +26,8 @@ math, hyperlinked signatures, and a dark theme.
   end, and they are listed in [`tools/lean-toolchains.txt`](tools/lean-toolchains.txt). The
   extractor is compiled against your toolchain, so a version it cannot handle surfaces as a build
   failure, not as bad output
-- **you are on Windows, Intel macOS, or Linux/arm64** — releases carry Linux/x86-64 and
-  Apple Silicon; anything else builds from source, which needs Rust and a C compiler
+- **you are on Windows or Intel macOS** — releases carry Linux (x86-64 and arm64) and Apple
+  Silicon; anything else builds from source, which needs Rust and a C compiler
 
 A `lakefile.lean` package is fine — the live example is one. The CLI will not guess library names
 out of Lean code, so pass `--lib` by hand; used as a Lake dependency (below) it is read for you.
@@ -120,7 +120,7 @@ jobs:
     environment: { name: github-pages }
     steps:
       - uses: actions/checkout@v7
-      - uses: FujiHaruka/litedoc4@v1.0.1
+      - uses: FujiHaruka/litedoc4@v1.1.0
         id: docs
         with:
           cache-get: true             # `lake exe cache get` — drop it if you have no Mathlib
@@ -154,7 +154,7 @@ toolchain.
 Add it to your `lakefile.lean` (or the `[[require]]` equivalent in `lakefile.toml`):
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.0.1"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.1.0"
 ```
 
 ```sh
@@ -177,9 +177,10 @@ the first request and is used only if its SHA-256 matches the `checksums.txt` pu
 — a mismatch, or no way to compute a SHA-256 at all, is a refusal rather than a warning, and
 leaves the cache empty.
 
-Releases carry `x86_64-unknown-linux-musl` and `aarch64-apple-darwin` only. On anything else —
-Intel macOS, arm Linux — the script says there is no asset for your target and falls through to
-`PATH` and `cargo build`; that is a normal path, not a failure. **That last fallback needs node**,
+Releases carry `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` and
+`aarch64-apple-darwin`. On anything else — Windows, Intel macOS — the script says there is no
+asset for your target and falls through to `PATH` and `cargo build`; that is a normal path, not a
+failure. **That last fallback needs node**,
 because building from source builds the site's JavaScript too; a release binary needs nothing but
 itself.
 
@@ -203,8 +204,9 @@ git clone https://github.com/FujiHaruka/litedoc4 && cd litedoc4
 # the extractor — always built here, against your package's toolchain (~16 s)
 TARGET_REPO=/path/to/your-package extractor/build.sh     # -> extractor/build/extract
 
-# the binary — download it (Linux/x86-64 shown; aarch64-apple-darwin is the
-# other one), which unpacks to litedoc4-<version>-<target>/litedoc4 …
+# the binary — download it (Linux/x86-64 shown; aarch64-unknown-linux-musl and
+# aarch64-apple-darwin are the others), which unpacks to
+# litedoc4-<version>-<target>/litedoc4 …
 curl -sSfL https://github.com/FujiHaruka/litedoc4/releases/latest/download/litedoc4-x86_64-unknown-linux-musl.tar.gz \
   | tar xz
 # … or build it, which needs Rust (via rustup), a C compiler and node.
@@ -256,8 +258,9 @@ not GitHub (another host is refused rather than guessed).
 
 ## Status
 
-`v1.0.1` — the action and the released binaries. Tested on macOS (Apple Silicon) and
-`ubuntu-latest` with Lean/Mathlib v4.31.0, and the browser side also on `windows-latest`.
+`v1.1.0` — the action and the released binaries. Tested on macOS (Apple Silicon),
+`ubuntu-latest` and `ubuntu-24.04-arm` with Lean/Mathlib v4.31.0, and the browser side also on
+`windows-latest`.
 Pin the action and the `require` to a tag — `v1.0.1` or later, since the names below are what
 1.x keeps and the releases before it kept nothing. If your package is not at the top of its
 repository, `v1.0.1` is the first release whose source links point at it. `@main` moves.

@@ -83,6 +83,18 @@ promises, each with a gate. **Do not read v1 as "finished" any more than v0.1 me
   reducibility status). **A toolchain with no row fails by name**; a row marked `UNMEASURED`
   fails *carrying the value to write down*. **Do not branch on the version** — the extractor
   delegates enumeration to Lean's own `toAttrString`, and this file records the consequence.
+- **Releases carry three triples**, and four places decide whether a machine has an asset:
+  `release.yml`'s matrix, `lakefile.lean`'s `releaseTargets`, `action.yml`'s
+  `RUNNER_OS-$(uname -m)` case, and `tools/lake-download-gate.sh`'s. Adding one means all four.
+  `ci.yml` also builds and tests on **aarch64 Linux** — not for the binary but because `c_char` is
+  unsigned there and signed everywhere else the tree had been compiled, and because that is the
+  architecture nothing had ever run. **Both defects it found the first time were waiting**
+  (measured 2026-08-29 → `benchmarks/results/arm64-linux-runner-2026-08-29.txt`).
+- **The release notes are `.github/release-notes.md`**, published by `release.yml` with `@VERSION@`
+  substituted. **Do not edit the notes on the Releases page** — the next release republishes the
+  file, and a hand edit is a change nobody reviewed. `tools/release-notes-gate.sh` reconciles the
+  archives they list against the ones the publish job asserts and their Lean versions against
+  `tools/lean-toolchains.txt`, in both directions.
 - **Two example sites, and one of them is a maintenance obligation.**
   `https://fujiharuka.github.io/litedoc4/` is `e2e/micro` rebuilt from `main` on every push
   (`pages.yml`, downstream of `tools/e2e-micro.sh`, so a site that failed its gates is never
@@ -267,6 +279,13 @@ redefined. What was put in its place is **3 kinds that need no external oracle**
   there was no `--no-fail-fast` so a red one hid the rest with the same name / the same name spanned frozen and runnable.
   **In all of them the output looks "correct".** The only thing that caught them was
   **reconciling the count in the inventory against the count that actually reported a result**
+- **A bare program name in a test is `PATH`, not a path.** Three unit tests passed
+  `Path::new("lake-that-does-not-exist")` to mean "no Lean core"; the sibling `lean` derived from
+  it has no directory in it, so `Command::new` resolved it on `PATH` and the tests read whichever
+  toolchain the machine had. Green on every machine where elan has no **default** toolchain, red
+  on one that has (measured 2026-08-29). `cargo test --workspace` is the definition of green, so a
+  test that reads the environment moves the definition. The helper that gets this right is
+  `litedoc4_testutil::toolchain::lake_that_is_not_there`
 - **Do not judge input identity by "path".** A design of "check up to the denominator if it is the
   default path, structure only for another file" **silently changes the strength of the claim the
   moment something else is put at the default path** (measured 2026-08-16,

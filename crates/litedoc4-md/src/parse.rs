@@ -378,14 +378,21 @@ unsafe fn detail_of<T: Copy>(detail: *mut c_void) -> Result<T> {
 }
 
 /// md4c's marks and delimiters are ASCII by construction (`-`, `+`, `*`, `.`,
-/// `)`, `` ` ``, `~`, `x`, `X`, space). `MD_CHAR` is signed, so this is where
-/// that assumption is written down rather than hidden in a cast.
-#[expect(
-    clippy::cast_sign_loss,
-    reason = "md4c's marks are the ASCII set listed above, so the sign is never set"
-)]
+/// `)`, `` ` ``, `~`, `x`, `X`, space), so the byte is the character.
+///
+/// **Not `mark as u8`.** `MD_CHAR` is `c_char`, whose signedness belongs to the
+/// platform: `i8` on x86-64 and on Apple Silicon, `u8` on aarch64 Linux. The
+/// cast is a sign loss on one and a no-op on the other, so whichever
+/// `#[expect]` is written is unfulfilled on the architecture that is not the
+/// one it was written on — the tree carried `cast_sign_loss`, and clippy on
+/// aarch64 Linux answered at this single line with that expectation
+/// unfulfilled, `trivial_numeric_casts`, and `unnecessary_cast`
+/// (measured 2026-08-29, benchmarks/results/arm64-linux-runner-2026-08-29.txt).
+/// `to_ne_bytes` asks for the byte rather than for the sign, and is exact on
+/// both. It stops being the simpler spelling if `MD_CHAR` ever stops being one
+/// byte wide, which the `abi` test would catch first.
 fn mark_char(mark: MdChar) -> char {
-    char::from(mark as u8)
+    char::from(mark.to_ne_bytes()[0])
 }
 
 /// Latches the first error and tells md4c to stop.

@@ -87,8 +87,9 @@ VERSION="$(awk '
 # will not be where this gate looks and item 1 fails, which is the whole point of
 # not asking the same oracle twice.
 case "$(uname -s)/$(uname -m)" in
-  Darwin/arm64)  TRIPLE=aarch64-apple-darwin ;;
-  Linux/x86_64)  TRIPLE=x86_64-unknown-linux-musl ;;
+  Darwin/arm64)   TRIPLE=aarch64-apple-darwin ;;
+  Linux/x86_64)   TRIPLE=x86_64-unknown-linux-musl ;;
+  Linux/aarch64)  TRIPLE=aarch64-unknown-linux-musl ;;
   *) echo "this machine ($(uname -s)/$(uname -m)) has no release asset, so items 1..3 cannot run" >&2
      echo "run this gate on a machine the releases carry: see releaseTargets in lakefile.lean" >&2
      exit 2 ;;

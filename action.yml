@@ -8,7 +8,7 @@
 #   blocks whose keys you had to get right, an elan install, and a call into
 #   tools/ci-build.sh. All of that is here now, and the caller writes:
 #
-#       - uses: FujiHaruka/litedoc4@v1.0.1
+#       - uses: FujiHaruka/litedoc4@v1.1.0
 #         id: docs
 #       - uses: actions/upload-pages-artifact@v5
 #         with: { path: "${{ steps.docs.outputs.site }}" }
@@ -233,6 +233,7 @@ runs:
         # is the tool that knows whether the binary matches the sources.
         case "$RUNNER_OS-$(uname -m)" in
           Linux-x86_64)   T=x86_64-unknown-linux-musl ;;
+          Linux-aarch64)  T=aarch64-unknown-linux-musl ;;
           macOS-arm64)    T=aarch64-apple-darwin ;;
           macOS-x86_64)   T=x86_64-apple-darwin ;;
           *)              T="" ;;

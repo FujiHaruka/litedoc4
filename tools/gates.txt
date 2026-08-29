@@ -34,6 +34,7 @@ onemod-gate.sh               ci      a built site (e2e-micro calls it)
 pinned-dep-gate.sh           ci      elan, e2e/micro and e2e/micro-dep as a git require
 provenance-gate.sh           ci      nothing; reads the tree
 public-surface-gate.sh       ci      nothing; reads the tree
+release-notes-gate.sh        ci      nothing; reads the tracked files
 site-gate.sh                 ci      a built site
 target2-gate.sh              manual  a second synthetic package on the target's Mathlib revision
 usedby-gate.sh               ci      a built site (e2e-micro calls it)

@@ -30,7 +30,7 @@ members = ["crates/*"]
 # checkout, not a gap: source 3 finds no asset, says so, and falls through to
 # PATH and then `cargo build` — which is the only binary guaranteed to match
 # these sources.
-version = "1.0.1"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.97"
 # Portions are derived from doc-gen4, which is Apache-2.0; NOTICE lists every
@@ -117,6 +117,12 @@ unused_lifetimes = "warn"
 explicit_outlives_requirements = "warn"
 trivial_casts = "warn"
 trivial_numeric_casts = "warn"
+# **`-D warnings` does not reach this one** (rustc says so in the note it
+# prints), so a lint this file names that clippy has since removed warns into a
+# log nobody reads and enforces nothing — which is what `from_iter_instead_of_collect`
+# did until it was noticed by reading an arm64 build log (measured 2026-08-29).
+# Naming the level here is what makes the next removal a red run.
+renamed_and_removed_lints = "deny"
 # NOT `missing_debug_implementations`: it fires 16 times here and 12 of those are
 # md4c's structs written out in `litedoc4-md/src/ffi.rs`, which are never printed
 # as Rust values. Nothing was ever hard to assert against for want of a `Debug`,
@@ -171,7 +177,10 @@ elidable_lifetime_names = "warn"
 # NOT `unreadable_literal`: every one of its findings is `0x10FFFF`, the top of
 # the Unicode range, in the general-category tables. `0x0010_FFFF` is what the
 # lint asks for and is harder to recognise than the spelling the standard uses.
-from_iter_instead_of_collect = "warn"
+# NOT `from_iter_instead_of_collect`: clippy removed it ("lint has proved
+# problematic"), and a removed lint checks nothing. It was named here from
+# 2026-08-17 to 2026-08-29 and spent the last of that enabling a warning that
+# said so; `renamed_and_removed_lints` above is what makes the next one fail.
 useless_let_if_seq = "warn"
 # NOT `unused_self`: all three findings are test builders whose `&'a self` is the
 # lifetime the returned options borrow from, so the receiver is load-bearing even

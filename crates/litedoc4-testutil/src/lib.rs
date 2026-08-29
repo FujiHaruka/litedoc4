@@ -25,6 +25,7 @@ pub mod corpus;
 pub mod hash;
 mod temp;
 pub mod text;
+pub mod toolchain;
 pub mod tree;
 
 pub use temp::{TempDir, TempDirs};

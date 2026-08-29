@@ -29,11 +29,12 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use litedoc4_testutil::TempDirs;
 use litedoc4_testutil::cli::{Cli, code, message, stderr, stdout};
 use litedoc4_testutil::hash::fnv1a64;
+use litedoc4_testutil::toolchain::lake_that_is_not_there;
 use serde_json::{Value, json};
 
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-queries");
@@ -263,16 +264,6 @@ fn write_repo(repo: &Path) {
         &repo.join(".lake/packages/loose/Loose.lean"),
         b"-- a root\n",
     );
-}
-
-/// `packages::lean_beside` turns `<dir>/lake` into `<dir>/lean`, and Lean core's
-/// revision is that program's answer to `--githash`. Pointed at nothing, core
-/// contributes no roots and the run **still succeeds**: refusing would trade a
-/// site with some dead links for no site at all. Naming a real toolchain instead
-/// would make these cases depend on the machine, which is the line between a
-/// test and a gate.
-fn lake_that_is_not_there(dir: &Path) -> PathBuf {
-    dir.join("no-toolchain/lake")
 }
 
 /// The row that judges the path building is `Dep`'s deep one: a root module is a
