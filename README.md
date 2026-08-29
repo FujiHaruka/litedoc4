@@ -161,7 +161,7 @@ jobs:
     environment: { name: github-pages }
     steps:
       - uses: actions/checkout@v7
-      - uses: FujiHaruka/litedoc4@v1.1.0
+      - uses: FujiHaruka/litedoc4@v1.2.0
         id: docs
         with:
           cache-get: true             # `lake exe cache get` — drop it if you have no Mathlib
@@ -195,7 +195,7 @@ toolchain.
 Add it to your `lakefile.lean` (or the `[[require]]` equivalent in `lakefile.toml`):
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.1.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.2.0"
 ```
 
 ```sh
@@ -299,7 +299,7 @@ not GitHub (another host is refused rather than guessed).
 
 ## Status
 
-`v1.1.0` — the action and the released binaries. Tested on macOS (Apple Silicon),
+`v1.2.0` — the action and the released binaries. Tested on macOS (Apple Silicon),
 `ubuntu-latest` and `ubuntu-24.04-arm` with Lean/Mathlib v4.31.0, and the browser side also on
 `windows-latest`.
 Pin the action and the `require` to a tag — `v1.0.1` or later, since the names below are what

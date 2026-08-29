@@ -4,7 +4,7 @@
 A consumer requires this package and gets a `docs` script:
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.1.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.2.0"
 ```
 
 Pin `v1.0.1` or later: 1.x does not move the names your own files contain,
