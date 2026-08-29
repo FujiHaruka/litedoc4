@@ -20,4 +20,4 @@
 leanprover/lean4:v4.31.0     implicit_reducible
 leanprover/lean4:v4.32.2     implicit_reducible
 leanprover/lean4:v4.33.0     instance_reducible
-leanprover/lean4:v4.33.1     UNMEASURED
+leanprover/lean4:v4.33.1     instance_reducible

@@ -79,9 +79,14 @@ jobs:
       # is why no input had to be added to the composite: the matrix moves the
       # file, and the file is what the composite already follows.
       - name: Point the fixture at ${{ matrix.toolchain }}
+        id: leg
         run: |
           echo "${{ matrix.toolchain }}" > e2e/micro/lean-toolchain
           echo "${{ matrix.toolchain }}" > e2e/micro-dep/lean-toolchain
+          # An artifact name may not hold `/` or `:`, which a toolchain always
+          # does. The version alone is unique across the file and is what the
+          # compare job rebuilds this name from.
+          echo "version=${{ matrix.toolchain }}" | sed 's|=.*:v|=v|' >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/actions/setup-node
 
@@ -117,7 +122,7 @@ jobs:
       - name: Keep the IR for the comparison
         uses: actions/upload-artifact@v7
         with:
-          name: ir-${{ matrix.toolchain }}
+          name: ir-${{ steps.leg.outputs.version }}
           path: ${{ runner.temp }}/e2e/first/ir
           if-no-files-found: error
 
@@ -139,7 +144,7 @@ jobs:
           set -euo pipefail
           ARGS=()
           while read -r toolchain; do
-            DIR="$RUNNER_TEMP/ir/ir-$toolchain"
+            DIR="$RUNNER_TEMP/ir/ir-${toolchain##*:}"
             test -d "$DIR" || { echo "::error::no IR artifact for $toolchain"; exit 1; }
             ARGS+=("$toolchain=$DIR")
           done < <(awk '{ sub(/#.*/, "") } NF { print $1 }' tools/lean-toolchains.txt)
