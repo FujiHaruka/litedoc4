@@ -94,7 +94,7 @@ TypeScript and `crates/litedoc4-render/build.rs` came to run vite and bake `app.
 `OUT_DIR`. **The artefact is not in the repository.**
 **Users do not pay for node** — the workspace is `publish = false`, and distribution is the musl
 binaries that `release.yml` bakes. The ones who pay are those who build from source, i.e.
-developers and CI (which is why the 8 workflows that run cargo and the cargo path in `action.yml`
+developers and CI (which is why the 7 workflows that run cargo and the cargo path in `action.yml`
 have `setup-node`).
 **There is no fallback.** If node is absent, `build.rs` fails — "build it if it is there, use the
 committed one if not" makes 2 paths, so it is not taken.

@@ -1,0 +1,66 @@
+name: Something litedoc4 did
+description: A build that failed, a page that came out wrong, a link that goes nowhere.
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Four of the fields below are things litedoc4 already prints. Pasting them
+        is faster than describing them, and they decide which half of the tool the
+        problem is in: the Lean extractor is compiled against **your** toolchain,
+        the rest is a binary that may have come from a release, a cache or cargo.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: litedoc4 --version
+      description: >
+        Or, if you use the action, the tag you pinned — and the `binary-source`
+        output, which says whether the binary came from `release`, `cached` or `cargo`.
+      placeholder: "litedoc4 0.2.0 / binary-source=release"
+    validations:
+      required: true
+
+  - type: input
+    id: toolchain
+    attributes:
+      label: Your lean-toolchain
+      placeholder: "leanprover/lean4:v4.31.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: how
+    attributes:
+      label: How you ran it
+      options:
+        - The GitHub Action
+        - As a Lake dependency (lake run docs)
+        - The binary, by hand
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+      placeholder: "ubuntu-latest / macOS 15 arm64 / Windows 11"
+    validations:
+      required: true
+
+  - type: textarea
+    id: work
+    attributes:
+      label: The `work` line, and the error if there was one
+      description: >
+        `litedoc4 build` ends with a line like
+        `work    extract 422 / render 422 / math-fallback 3 / …`. It says how much
+        of the run actually happened, which an error message on its own does not.
+      render: text

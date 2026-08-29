@@ -1,0 +1,82 @@
+# The example site, rebuilt from HEAD.
+#
+# The other example — the Mathlib-dependent package in the README — is published
+# by *that* repository when it releases, so it shows whichever litedoc4 it pinned.
+# This one shows what this commit produces, which is the question a reader looking
+# at a change actually has.
+#
+# It publishes `e2e/micro`, the fixture built to hold the declaration shapes the
+# measurement target does not have (scoped notation, an astral identifier, a
+# formula the converter refuses, `class inductive`, the three shapes of `sorry`).
+# Seven modules: this is the shapes, not the scale.
+#
+# `tools/e2e-micro.sh` runs first and the deployment is downstream of it, so a
+# site that failed its own gates is never the one being served.
+name: example site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "extractor/**"
+      - "e2e/micro/**"
+      - "e2e/micro-dep/**"
+      - "tools/e2e-micro.sh"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Queued, not cancelled: a deployment killed halfway leaves Pages serving a tree
+# nobody chose.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-node
+
+      - name: Install the toolchain rust-toolchain.toml asks for
+        run: rustup show
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-v2-${{ runner.os }}-pages-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+
+      - uses: ./.github/actions/setup-elan
+
+      - name: Build the CLI
+        run: cargo build --bin litedoc4
+
+      - name: Build the site, through every gate
+        run: tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ runner.temp }}/e2e/first/site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

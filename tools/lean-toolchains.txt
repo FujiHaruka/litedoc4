@@ -1,0 +1,23 @@
+# The Lean toolchains litedoc4 claims to work on, and the one thing that moves
+# between them.
+#
+# This file is the single place that list lives. Three readers:
+#   - tools/e2e-micro.sh          reads the row for e2e/micro/lean-toolchain
+#   - tools/lean-versions-gate.sh normalises the second column before comparing
+#   - .github/workflows/ci-lean-versions.yml  runs one job per row, and fails if
+#     its matrix and this file disagree in either direction
+# README's "Is this for you?" quotes it. A version that is not here is a version
+# nothing ran.
+#
+# COLUMN 2 — what Lean spells the reducibility status of a reducible instance.
+# Lean renamed it, and the extractor does not branch on the version: it delegates
+# enumeration to `ReducibilityStatus.toAttrString`, so the spelling is a fact
+# about the toolchain. Writing it down rather than branching keeps the rename
+# visible; a new toolchain with no row here fails by name rather than by a
+# mismatched attribute forty lines into a gate.
+#
+# toolchain                  reducible-instance attribute
+leanprover/lean4:v4.31.0     implicit_reducible
+leanprover/lean4:v4.32.2     implicit_reducible
+leanprover/lean4:v4.33.0     instance_reducible
+leanprover/lean4:v4.33.1     UNMEASURED

@@ -69,6 +69,19 @@ fi
 
 say() { printf '\n=== %s\n' "$1"; }
 
+# The one thing that moves between the toolchains this repository claims: Lean
+# renamed the reducibility status of a reducible instance. The spelling comes out
+# of tools/lean-toolchains.txt rather than out of a version comparison here, so
+# that a toolchain nobody has run fails by name instead of failing forty lines
+# into GATE 8 as a mismatched attribute.
+TOOLCHAIN="$(cat "$FIXTURE/lean-toolchain")"
+REDUCIBLE_ATTR="$(awk -v t="$TOOLCHAIN" '$1 == t { print $2 }' "$HERE/lean-toolchains.txt")"
+if [ -z "$REDUCIBLE_ATTR" ]; then
+  echo "e2e-micro: $TOOLCHAIN has no row in tools/lean-toolchains.txt — every version this repository claims is listed there" >&2
+  exit 2
+fi
+echo "toolchain $TOOLCHAIN, reducible-instance attribute $REDUCIBLE_ATTR"
+
 say "1/15 build the fixture package (Lean core only)"
 (cd "$FIXTURE" && "$LAKE" build)
 
@@ -352,12 +365,33 @@ say "9/15 GATE 8 — attributes arrive split into name and value"
 # are not rare here, so "nobody else claims one" is false, and a collector that
 # answered `simp` for everything would sail past two positive expectations. The
 # numbers are this fixture's, and the gate names which one to update.
-python3 - "$OUT/first/ir" <<'PY'
+python3 - "$OUT/first/ir" "$REDUCIBLE_ATTR" <<'PY'
 import json
 import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
+# tools/lean-toolchains.txt names it; Lean renamed it between v4.32.2 and v4.33.0.
+REDUCIBLE_INSTANCE = sys.argv[2]
+if REDUCIBLE_INSTANCE == "UNMEASURED":
+    # Deliberately here and not at the top of the script: the point of running a
+    # toolchain nobody has run is to find out what it spells, and that is only
+    # knowable once the IR exists. It still fails — an UNMEASURED row never goes
+    # green — but it fails carrying the value to write down.
+    seen = sorted(
+        {
+            attr[0]
+            for path in (pathlib.Path(sys.argv[1]) / "modules").glob("*.json")
+            for decl in json.loads(path.read_text(encoding="utf-8")).get("declarations", [])
+            for attr in decl.get("attrs", [])
+            if attr[0].endswith("_reducible")
+        }
+    )
+    sys.exit(
+        "GATE 8: this toolchain is UNMEASURED in tools/lean-toolchains.txt. "
+        f"Lean spelled the reducible-instance attribute {seen!r} here — "
+        "put that in column 2 and run this again."
+    )
 index = json.loads((root / "index.json").read_text(encoding="utf-8"))
 if index.get("schemaVersion") != 5:
     sys.exit(f"{root}/index.json: schemaVersion is {index.get('schemaVersion')!r}, not 5")
@@ -378,15 +412,15 @@ expected = {
     "Micro.Attrs.applyTwice": [["specialize", "#[]"]],
     "Micro.Attrs.scaleOld": [["deprecated", DEPRECATED_VALUE]],
     # InstanceInfo.ofDefinitionInfo — appended after the four collectors
-    "Micro.Attrs.tinyNat": [["implicit_reducible", ""], ["instance", "100"]],
-    "Micro.Attrs.tinyBool": [["implicit_reducible", ""], ["defaultInstance", "1000"]],
+    "Micro.Attrs.tinyNat": [[REDUCIBLE_INSTANCE, ""], ["instance", "100"]],
+    "Micro.Attrs.tinyBool": [[REDUCIBLE_INSTANCE, ""], ["defaultInstance", "1000"]],
 }
 
 name_counts = {
     # Every structure projection is `@[reducible]`, and `Micro/Gen.lean` declares
     # six structures.
     "reducible": 19,
-    "implicit_reducible": 6,
+    REDUCIBLE_INSTANCE: 6,
     "inline": 2,
     "simp": 1,
     "match_pattern": 1,

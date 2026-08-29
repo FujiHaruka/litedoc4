@@ -1,0 +1,146 @@
+# Every Lean toolchain this repository claims, run end to end and compared.
+#
+# The claim used to be a sentence: "4.31.0, 4.32.2 and 4.33.0 all build the
+# extractor", measured once on 2026-08-18 and watched by nothing afterwards.
+# CI touched one toolchain, the one `e2e/micro/lean-toolchain` pins, so the other
+# two were free to rot — and one of them had (measured 2026-08-29: on v4.33.0 the
+# e2e gate failed, because GATE 8 spelled the reducibility attribute the way
+# v4.31.0 does).
+#
+# The matrix is read out of tools/lean-toolchains.txt rather than written here:
+# with two lists, only one of them gets a new version added to it.
+name: Lean versions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "extractor/**"
+      - "e2e/micro/**"
+      - "e2e/micro-dep/**"
+      - "tools/e2e-micro.sh"
+      - "tools/lean-toolchains.txt"
+      - "tools/lean-versions-gate.sh"
+      - ".github/workflows/ci-lean-versions.yml"
+  pull_request:
+    paths:
+      - "extractor/**"
+      - "e2e/micro/**"
+      - "e2e/micro-dep/**"
+      - "tools/e2e-micro.sh"
+      - "tools/lean-toolchains.txt"
+      - "tools/lean-versions-gate.sh"
+      - ".github/workflows/ci-lean-versions.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  toolchains:
+    name: the list, from tools/lean-toolchains.txt
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: read
+        run: |
+          set -euo pipefail
+          M="$(awk '{ sub(/#.*/, "") } NF { printf "%s%s", sep, $1; sep = "\n" }' \
+                 tools/lean-toolchains.txt | jq -R . | jq -sc .)"
+          echo "$M"
+          # An empty list would make every job below `skipped` and the workflow
+          # green, which is the "green while checking nothing" shape.
+          test "$(echo "$M" | jq 'length')" -ge 2 \
+            || { echo "::error::tools/lean-toolchains.txt lists fewer than two toolchains"; exit 1; }
+          echo "matrix=$M" >> "$GITHUB_OUTPUT"
+
+  e2e:
+    name: e2e on ${{ matrix.toolchain }}
+    needs: toolchains
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: ${{ fromJSON(needs.toolchains.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Before setup-elan, which reads this file and keys its cache on it. That
+      # is why no input had to be added to the composite: the matrix moves the
+      # file, and the file is what the composite already follows.
+      - name: Point the fixture at ${{ matrix.toolchain }}
+        run: |
+          echo "${{ matrix.toolchain }}" > e2e/micro/lean-toolchain
+          echo "${{ matrix.toolchain }}" > e2e/micro-dep/lean-toolchain
+
+      - uses: ./.github/actions/setup-node
+
+      - name: Install the toolchain rust-toolchain.toml asks for
+        run: rustup show
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-v2-${{ runner.os }}-lean-versions-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+
+      - uses: ./.github/actions/setup-elan
+
+      - name: The toolchain that is actually installed
+        run: |
+          lean --version
+          # `elan` resolving to something else than the fixture asks for would
+          # make every assertion below about a version nobody selected.
+          lean --version | grep -q "$(sed 's|.*:v||' e2e/micro/lean-toolchain)" \
+            || { echo "::error::lean is not ${{ matrix.toolchain }}"; exit 1; }
+
+      - name: Build the CLI
+        run: cargo build --bin litedoc4
+
+      - name: End to end
+        run: tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
+
+      - name: Keep the IR for the comparison
+        uses: actions/upload-artifact@v7
+        with:
+          name: ir-${{ matrix.toolchain }}
+          path: ${{ runner.temp }}/e2e/first/ir
+          if-no-files-found: error
+
+  compare:
+    name: the versions agree
+    needs: [toolchains, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/ir
+          pattern: "ir-*"
+
+      - name: Compare every toolchain's IR
+        run: |
+          set -euo pipefail
+          ARGS=()
+          while read -r toolchain; do
+            DIR="$RUNNER_TEMP/ir/ir-$toolchain"
+            test -d "$DIR" || { echo "::error::no IR artifact for $toolchain"; exit 1; }
+            ARGS+=("$toolchain=$DIR")
+          done < <(awk '{ sub(/#.*/, "") } NF { print $1 }' tools/lean-toolchains.txt)
+          tools/lean-versions-gate.sh "${ARGS[@]}"

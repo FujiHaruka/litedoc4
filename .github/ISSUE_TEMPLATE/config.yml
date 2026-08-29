@@ -1,0 +1,3 @@
+# Blank issues stay on: a question or an idea does not fit the bug form, and a
+# form that is the only way in turns those into no issue at all.
+blank_issues_enabled: true
