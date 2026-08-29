@@ -17,7 +17,7 @@ this repository's `main` on every push: the declaration shapes rather than the s
 4.31.0, 4.32.2, 4.33.0 or 4.33.1. Any Lean 4 package works — the payoff just scales with how
 large your dependencies are next to your own code, and Mathlib is as large as that gets. You get
 a module tree, search, instance lists, "Imported by", "Used by" (within your package), typeset
-math, hyperlinked signatures, and a dark theme.
+math, hyperlinked signatures, `sorry` markers, and a dark theme.
 
 **No**, if:
 
@@ -54,6 +54,18 @@ still a valid page. On Mathlib's own docstrings **2,113 of 2,123 formulas conver
 2026-08-22, [`benchmarks/results/mathml-2026-08-22.txt`](benchmarks/results/mathml-2026-08-22.txt));
 the ten that do not use commands the converter does not implement — `\colim`, `\dotsc`, `\cr` —
 or are LaTeX no parser accepts.
+
+## `sorry`
+
+A declaration whose own statement or proof uses `sorry` is marked **uses `sorry`** on its page; one
+whose own proof is complete but which depends on such a declaration is marked **depends on
+`sorry`**. Those are different claims and the page keeps them apart. The answer comes from the
+compiled environment — the declaration's axiom set — so it holds through any depth of dependency,
+and a declaration marked neither has no hole under it.
+
+A declaration Lean realized from `@[ext]` is marked **realized by `@[ext]` from …**, naming and
+linking the declaration it came from: its own source link points at the attribute, which is where
+Lean puts it.
 
 ## Configuring the site
 

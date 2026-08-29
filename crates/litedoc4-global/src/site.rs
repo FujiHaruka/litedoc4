@@ -157,7 +157,13 @@ pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error>
     let intro = options.config.index_markdown.as_deref().map(|markdown| {
         litedoc4_md::Renderer::new("./", &litedoc4_md::NoLinks).docstring(markdown)
     });
-    let artifacts = Artifacts::derive(&run.facts, &dep_maps, options.config, intro.as_deref());
+    let artifacts = Artifacts::derive(
+        &run.facts,
+        &dep_maps,
+        options.config,
+        intro.as_deref(),
+        &tree.index().lean_version,
+    );
 
     for (relative, body) in artifacts.files() {
         let path = options.out.join(relative);

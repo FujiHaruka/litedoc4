@@ -136,6 +136,7 @@ impl Artifacts {
         dep_maps: &[DepMap],
         config: &SiteConfig,
         intro: Option<&str>,
+        lean_version: &str,
     ) -> Self {
         // name -> (module, kind). Last writer wins, which is why this is fed in
         // index order.
@@ -340,7 +341,7 @@ impl Artifacts {
         let site = SiteMeta::of(config, intro, own_sorted.iter().copied());
         Self {
             name_map_json: to_json(&flat),
-            index_html: entry::index_html(&site, &pages, counts.declarations),
+            index_html: entry::index_html(&site, &pages, counts.declarations, lean_version),
             not_found_html: entry::not_found_html(&site),
             search_html: entry::search_html(&site),
             foundational_types_html: entry::foundational_types_html(&site),
@@ -519,7 +520,7 @@ mod tests {
     /// wrong.
     #[test]
     fn the_module_index_lists_importers_not_imports() {
-        let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
+        let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None, "4.31.0");
         let json = parsed(&artifacts.modules_json);
         let modules = json["modules"].as_array().expect("an array of modules");
         let names: Vec<&str> = modules
@@ -548,7 +549,7 @@ mod tests {
 
     #[test]
     fn the_search_index_is_the_shape_the_script_reads() {
-        let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
+        let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None, "4.31.0");
         let index = search_index::decode(&artifacts.search_index_bin)
             .expect("a file this crate just wrote");
         // The module array is `modules.json`'s, and only its. The subscripts
@@ -594,7 +595,7 @@ mod tests {
     /// test that names the fields it reads goes on passing when one is added.
     #[test]
     fn the_counts_are_what_the_files_hold() {
-        let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
+        let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None, "4.31.0");
         let Counts {
             declarations,
             dependency_names,
@@ -654,7 +655,7 @@ mod tests {
 
     #[test]
     fn the_file_list_and_the_paths_agree() {
-        let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
+        let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None, "4.31.0");
         let files = artifacts.files();
         assert_eq!(files.len(), ARTIFACT_PATHS.len());
         for (i, (path, body)) in files.iter().enumerate() {
@@ -676,7 +677,7 @@ mod tests {
     /// bringing one back is a failure rather than a surprise in a deployment.
     #[test]
     fn the_doc_gen4_only_artifacts_are_gone() {
-        let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None);
+        let artifacts = Artifacts::derive(&chain(), &[], &SiteConfig::EMPTY, None, "4.31.0");
         for dropped in [
             "declarations/declaration-data.bmp",
             "navbar.html",
@@ -702,7 +703,7 @@ mod tests {
         above.decls = vec![("Pkg.\u{1D49C}.a".to_owned(), "definition".to_owned())];
         let mut inside = facts("Pkg.\u{FB00}", &[]);
         inside.decls = vec![("Pkg.\u{FB00}.a".to_owned(), "definition".to_owned())];
-        let artifacts = Artifacts::derive(&[inside, above], &[], &SiteConfig::EMPTY, None);
+        let artifacts = Artifacts::derive(&[inside, above], &[], &SiteConfig::EMPTY, None, "4.31.0");
         // The binary index carries its names as UTF-8, so the same search for
         // the two characters answers the same question about it.
         let index = String::from_utf8_lossy(&artifacts.search_index_bin).into_owned();

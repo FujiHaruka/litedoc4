@@ -282,11 +282,14 @@ say "8/16 GATE 7 — the three sorry shapes are three different answers"
 # holds one of each plus a control, and **this is the only place the extractor's
 # answer meets a real Lean environment**: `sorry` is a property of the elaborated
 # term, so a hand-written IR fixture can check what the renderer does with the key
-# but never that the extractor put the right value there. Reads the IR rather than
-# the site, because no page shows this yet.
-python3 - "$OUT/first/ir" <<'PY'
+# but never that the extractor put the right value there. Reads the IR **and** the
+# pages: a value the extractor gets right and no page prints is, to a reader, the
+# same as no answer at all.
+python3 - "$OUT/first/ir" "$OUT/first/site" <<'PY'
+import html
 import json
 import pathlib
+import re
 import sys
 
 root = pathlib.Path(sys.argv[1])
@@ -335,12 +338,41 @@ strays = sorted(name for name, value in found.items() if value is not None and n
 if strays:
     problems.append(f"{len(strays)} other declaration(s) claim a sorry: {', '.join(strays[:5])}")
 
+# The same three expectations again, against the bytes a reader gets. Keyed by
+# `data-flag` and not by the pill's words, so this fails on a flag that stops
+# being drawn rather than on one that is reworded.
+site = pathlib.Path(sys.argv[2])
+pill = {"direct": ["sorry-direct"], "transitive": ["sorry-transitive"], None: []}
+blocks = {}
+for page in sorted(site.rglob("*.html")):
+    for chunk in re.split(r'(?=<section class="decl" id=")', page.read_text(encoding="utf-8")):
+        head = re.match(r'<section class="decl" id="([^"]+)"', chunk)
+        if head is None:
+            continue
+        blocks[html.unescape(head.group(1))] = re.findall(r'data-flag="(sorry-[a-z]+)"', chunk)
+
+if not blocks:
+    problems.append("no declaration block on any page — the site half checked nothing")
+on_page = 0
+for name, want in sorted(expected.items()):
+    if name not in blocks:
+        problems.append(f"{name} is in the IR and has no block on any page")
+        continue
+    on_page += 1
+    if blocks[name] != pill[want]:
+        problems.append(f"{name}: the page carries {blocks[name]}, the IR says {want!r}")
+page_strays = sorted(name for name, flags in blocks.items() if flags and name not in expected)
+if page_strays:
+    problems.append(
+        f"{len(page_strays)} other block(s) carry a sorry pill: {', '.join(page_strays[:5])}")
+
 if problems:
     for problem in problems:
         print(f"GATE 7 FAIL  {problem}", file=sys.stderr)
     sys.exit(1)
 
-print(f"sorry        {checked} shapes compared over {len(found)} declarations: " +
+print(f"sorry        {checked} shapes compared over {len(found)} declarations, "
+      f"{on_page} of them again over {len(blocks)} blocks on the site: " +
       ", ".join(f"{name.rpartition('.')[2]}={found[name]}" for name in sorted(expected)))
 PY
 
@@ -519,8 +551,8 @@ say "10/16 GATE 9 — the origin of a realized declaration, and the three ways o
 # attribute token**, and no rule over `(line, col)` gets from there to the parent:
 # in a 144-group Mathlib sample the parent was in the group 0 times and 47 groups
 # spanned two or more namespaces (measured). So the extractor names the origin
-# itself, from core's `extExtension` plus `selectionRange`. Reads the IR, not the
-# site.
+# itself, from core's `extExtension` plus `selectionRange`. Reads the IR and then
+# the pages, which carry the same pair as a pill.
 #
 # Five things, and the last three are why the first is not enough. The
 # **origins** are compared whole, positives *and* negatives — `Micro.Gen.Solo.ext`
@@ -537,9 +569,11 @@ say "10/16 GATE 9 — the origin of a realized declaration, and the three ways o
 # every origin named is a declaration this IR has and none of the realized ones
 # sorts before it — a property of one Lean version's `declRange` rather than a
 # law, so it is counted rather than assumed.
-python3 - "$OUT/first/ir" <<'PY'
+python3 - "$OUT/first/ir" "$OUT/first/site" <<'PY'
+import html
 import json
 import pathlib
+import re
 import sys
 
 root = pathlib.Path(sys.argv[1])
@@ -680,13 +714,60 @@ if before:
         "as 0 on both samples: " + "; ".join(before[:3])
     )
 
+# The pages carry the same pair, and the set is compared rather than each pill:
+# a renderer that drew the pill on every declaration would satisfy all nine
+# positive expectations. Every claimed declaration is a theorem here, so every
+# one of them has a block of its own — a name that reaches this with no block is
+# a page that lost it.
+PILL = re.compile(r'<span class="flag" data-flag="generated">(.*?)</span>')
+ORIGIN = re.compile(r'realized by <code>@\[([^\]]*)\]</code> from (?:<a [^>]*>)?<code>([^<]*)</code>')
+site = pathlib.Path(sys.argv[2])
+blocks = {}
+for page in sorted(site.rglob("*.html")):
+    for chunk in re.split(r'(?=<section class="decl" id=")', page.read_text(encoding="utf-8")):
+        head = re.match(r'<section class="decl" id="([^"]+)"', chunk)
+        if head is None:
+            continue
+        blocks[html.unescape(head.group(1))] = PILL.findall(chunk)
+
+if not blocks:
+    problems.append("no declaration block on any page — the site half checked nothing")
+pilled = sorted(name for name, pills in blocks.items() if pills)
+if pilled != claimed:
+    only_page = [name for name in pilled if name not in found or found[name] is None]
+    only_ir = [name for name in claimed if name not in pilled]
+    problems.append(
+        f"{len(pilled)} block(s) carry an origin pill and {len(claimed)} declaration(s) "
+        f"claim one in the IR; on the page only: {', '.join(only_page[:3])}; "
+        f"in the IR only: {', '.join(only_ir[:3])}"
+    )
+on_page = 0
+for name in claimed:
+    pills = blocks.get(name, [])
+    if len(pills) != 1:
+        problems.append(f"{name}: {len(pills)} origin pill(s) in its block, expected 1")
+        continue
+    said = ORIGIN.search(pills[0])
+    if said is None:
+        problems.append(f"{name}: the pill does not name an attribute and an origin: {pills[0]}")
+        continue
+    on_page += 1
+    # Unescaped after the match and not before it: a declaration name may contain
+    # `<`, and unescaping first would put a tag boundary inside the name.
+    say = [html.unescape(part) for part in said.groups()]
+    if say != found[name]:
+        problems.append(
+            f"{name}: the page says {json.dumps(say)}, the IR says {json.dumps(found[name])}"
+        )
+
 if problems:
     for problem in problems:
         print(f"GATE 9 FAIL  {problem}", file=sys.stderr)
     sys.exit(1)
 
 print(f"generated    {checked} declarations compared, {len(claimed)} realized by @[ext] over "
-      f"{len(found)} declarations; {len(selection_eq)} have selectionRange == range and "
+      f"{len(found)} declarations, {on_page} of them again as a pill over {len(blocks)} "
+      f"blocks on the site; {len(selection_eq)} have selectionRange == range and "
       f"{len(selection_eq) - len(claimed)} of those are not realized; "
       f"{len(before)} sort before their origin")
 PY

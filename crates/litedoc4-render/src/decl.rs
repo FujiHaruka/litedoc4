@@ -24,7 +24,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt;
 
-use litedoc4_ir::{Attr, Decl, Member, ModuleFile, Span, Utf16Text};
+use litedoc4_ir::{Attr, Decl, GeneratedFact, Member, ModuleFile, SorryFact, Span, Utf16Text};
 use litedoc4_md::Renderer as DocRenderer;
 
 #[cfg(test)]
@@ -137,6 +137,16 @@ fn fill_block(name: &str, fill: &str, summary: &str) -> String {
     out.push_str(summary);
     out.push_str("</summary><ul></ul></details>");
     out
+}
+
+/// One pill of [`DeclRenderer::flags_html`]. `body` is markup; `kind` is what
+/// the stylesheet selects on.
+fn push_flag(out: &mut String, kind: &str, body: &str) {
+    out.push_str("<span class=\"flag\" data-flag=\"");
+    out.push_str(kind);
+    out.push_str("\">");
+    out.push_str(body);
+    out.push_str("</span>");
 }
 
 /// The `containedNames` query: which names of the same module have their
@@ -553,10 +563,67 @@ impl<'a> DeclRenderer<'a> {
         Ok(())
     }
 
+    /// The two facts about a declaration that its signature cannot print: that
+    /// it is a hole, and whose (doc-gen4 #270), and that an attribute realized
+    /// it rather than an author writing it.
+    ///
+    /// **Not part of [`decl_head_html`]**, where the pills belong beside the
+    /// name. That header's words are compared against the prototype's own
+    /// output (`tests/page_parts.rs`), which is the last oracle over this markup
+    /// this tree did not write itself; a word added there is a word the
+    /// comparison can no longer falsify. Move them up when that half stops
+    /// being an oracle.
+    fn flags_html(&self, decl: &Decl, refs: &Refs<'_>) -> String {
+        let mut pills = String::new();
+        match self.module.sorry_of(decl) {
+            // Two facts, one silence. `Unknown` is a file too old to have been
+            // asked, and a pill saying "no `sorry`" over it would be this
+            // renderer's claim rather than the extractor's.
+            SorryFact::Clean | SorryFact::Unknown => {}
+            SorryFact::Direct => push_flag(&mut pills, "sorry-direct", "uses <code>sorry</code>"),
+            SorryFact::Transitive => push_flag(
+                &mut pills,
+                "sorry-transitive",
+                "depends on <code>sorry</code>",
+            ),
+        }
+        if let GeneratedFact::By(generated) = self.module.generated_by(decl) {
+            let mut body = String::with_capacity(128);
+            body.push_str("realized by <code>@[");
+            escape_html_into(&mut body, &generated.origin);
+            body.push_str("]</code> from ");
+            // An unlinkable origin is rendered as text rather than dropped: the
+            // name is the fact, and the link is a convenience — this is not
+            // [`decl_name_to_link`]'s situation, where a name that reaches no
+            // module means the IR disagrees with itself.
+            if let Some(href) = self.code.const_link(&generated.from, self.root, refs) {
+                body.push_str("<a href=\"");
+                escape_html_into(&mut body, &href);
+                body.push_str("\"><code>");
+                escape_html_into(&mut body, &generated.from);
+                body.push_str("</code></a>");
+            } else {
+                body.push_str("<code>");
+                escape_html_into(&mut body, &generated.from);
+                body.push_str("</code>");
+            }
+            push_flag(&mut pills, "generated", &body);
+        }
+        if pills.is_empty() {
+            return pills;
+        }
+        let mut out = String::with_capacity(pills.len() + 32);
+        out.push_str("<div class=\"flags\">");
+        out.push_str(&pills);
+        out.push_str("</div>");
+        out
+    }
+
     pub fn decl_html(&self, decl: &Decl) -> Result<String, UnplaceableName> {
         let refs = decl_refs(decl);
         let head = decl_head_html(decl, self.root, &self.module.module, self.source_url);
         let signature = signature_with(decl, self.root, &self.code, &refs);
+        let flags = self.flags_html(decl, &refs);
 
         // `Attr::text` rejoins the `(name, value)` pair into one string. Acting
         // on the parts — linking `@[deprecated Foo]` to `Foo`, styling by name —
@@ -616,7 +683,14 @@ impl<'a> DeclRenderer<'a> {
         extra.push_str(&used_by_html(&decl.name));
 
         let mut out = String::with_capacity(
-            head.len() + attrs.len() + signature.len() + doc.len() + body.len() + extra.len() + 64,
+            head.len()
+                + flags.len()
+                + attrs.len()
+                + signature.len()
+                + doc.len()
+                + body.len()
+                + extra.len()
+                + 64,
         );
         out.push_str("<section class=\"decl\" id=\"");
         escape_html_into(&mut out, &decl.name);
@@ -627,6 +701,7 @@ impl<'a> DeclRenderer<'a> {
         escape_html_into(&mut out, css_kind(&decl.kind));
         out.push_str("\">");
         out.push_str(&head);
+        out.push_str(&flags);
         out.push_str(&attrs);
         out.push_str(&signature);
         out.push_str(&doc);
@@ -655,7 +730,7 @@ mod tests {
     use crate::autolink::{PageLinks, module_decl_names};
     use crate::external::ExternalLinks;
     use crate::link_index::LinkIndex;
-    use litedoc4_ir::SpanKind;
+    use litedoc4_ir::{Generated, SorryKind, SpanKind};
 
     /// These declarations, and **a page for every module they name** — which is
     /// what a run has for its own package's modules, and what
@@ -1011,6 +1086,103 @@ mod tests {
             "{html}"
         );
         assert!(html.ends_with("</ul></details></section>"), "{html}");
+    }
+
+    /// A schema-4 file has no `sorry` key to omit, so its silence is the
+    /// extractor's version rather than a fact about the package.
+    fn module_v4(decls: Vec<Decl>) -> ModuleFile {
+        let mut module: ModuleFile = serde_json::from_str(
+            r#"{"schemaVersion": 4, "module": "Pkg.M", "imports": [],
+                "moduleDocs": [], "tactics": [], "declarations": []}"#,
+        )
+        .expect("the literal is schema 4");
+        module.declarations = decls;
+        module
+    }
+
+    /// doc-gen4 #270 asks for two claims and not one, so the page draws two:
+    /// the third declaration is the control that must draw nothing.
+    #[test]
+    fn the_three_sorry_shapes_are_three_different_blocks() {
+        let mut hole = decl("Pkg.M.hole", "theorem");
+        hole.sorry = Some(SorryKind::Direct);
+        let mut uses = decl("Pkg.M.uses", "theorem");
+        uses.sorry = Some(SorryKind::Transitive);
+        let clean = decl("Pkg.M.clean", "theorem");
+        let page = Page::new(&[], module_with(vec![hole, uses, clean]));
+
+        let direct = page.render(0).expect("nothing to place");
+        assert!(
+            direct.contains(
+                "</header><div class=\"flags\">\
+                 <span class=\"flag\" data-flag=\"sorry-direct\">uses <code>sorry</code></span>\
+                 </div><div class=\"sig\">"
+            ),
+            "{direct}"
+        );
+
+        let transitive = page.render(1).expect("nothing to place");
+        assert!(
+            transitive.contains(
+                "<span class=\"flag\" data-flag=\"sorry-transitive\">\
+                 depends on <code>sorry</code></span>"
+            ),
+            "{transitive}"
+        );
+
+        let clean = page.render(2).expect("nothing to place");
+        assert!(!clean.contains("flag"), "{clean}");
+    }
+
+    /// The renderer says nothing rather than "no `sorry`": the file is too old
+    /// to have been asked, and the difference is the whole reason
+    /// [`ModuleFile::sorry_of`] is three-valued.
+    #[test]
+    fn a_file_that_was_never_asked_about_sorry_gets_no_flag() {
+        let mut d = decl("Pkg.M.f", "theorem");
+        d.sorry = Some(SorryKind::Direct);
+        let page = Page::new(&[], module_v4(vec![d]));
+        let html = page.render(0).expect("nothing to place");
+        assert!(!html.contains("flag"), "{html}");
+    }
+
+    #[test]
+    fn a_realized_declaration_names_its_origin_and_links_it() {
+        let mut d = decl("Pkg.M.Pair.ext", "theorem");
+        d.generated = Some(Generated {
+            origin: "ext".to_owned(),
+            from: "Pkg.M.Pair".to_owned(),
+        });
+        let page = Page::new(&[("Pkg.M.Pair", "Pkg.M")], module_with(vec![d]));
+        let html = page.render(0).expect("nothing to place");
+        assert!(
+            html.contains(
+                "<span class=\"flag\" data-flag=\"generated\">realized by \
+                 <code>@[ext]</code> from <a href=\".././Pkg/M.html#Pkg.M.Pair\">\
+                 <code>Pkg.M.Pair</code></a></span>"
+            ),
+            "{html}"
+        );
+    }
+
+    /// The origin of a realized declaration can be a name this site has no page
+    /// for. The claim is the name, so it is still printed — unlike
+    /// [`decl_name_to_link`], where a name no module knows is the IR
+    /// contradicting itself.
+    #[test]
+    fn an_unplaceable_origin_is_printed_without_a_link() {
+        let mut d = decl("Pkg.M.f", "theorem");
+        d.generated = Some(Generated {
+            origin: "ext".to_owned(),
+            from: "Other.Pkg.Thing".to_owned(),
+        });
+        let page = Page::new(&[], module_with(vec![d]));
+        let html = page.render(0).expect("nothing to place");
+        assert!(
+            html.contains("from <code>Other.Pkg.Thing</code></span>"),
+            "{html}"
+        );
+        assert!(!html.contains("<a href=\"\">"), "{html}");
     }
 
     #[test]

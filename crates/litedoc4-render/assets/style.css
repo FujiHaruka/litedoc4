@@ -73,6 +73,12 @@ a { color: inherit; }
   --k-inst:    light-dark(#0d6a86, #63bcd8);
   --k-other:   light-dark(#5f6c7a, #8a99aa);
 
+  /* The one thing on a page that outranks the reader's own position, so it is
+     warm where the kind families are not — 30 degrees of hue off `--mark`,
+     which is the nearest thing to it. 5.9:1 on the lighter surface and 7.6:1
+     on the darker one. */
+  --hole:      light-dark(#b02a1f, #f09a92);
+
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
           Arial, "Noto Sans", sans-serif;
   /* No webfont, so the mathematics comes out of what is installed: `Menlo`
@@ -332,6 +338,30 @@ code, pre, .sig, .tree, .toc a, .decl-name, kbd { font-family: var(--mono); }
 .attrs {
   font-family: var(--mono); font-size: .76rem; color: var(--fg-faint);
   margin-top: .35rem;
+}
+
+/* What the signature cannot say. A pill rather than a line of prose: it sits
+   between the name and the type, where anything tall pushes the thing the
+   reader came for off the first screen. */
+.flags { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .45rem; }
+.flag {
+  font-size: .74rem; line-height: 1.6;
+  padding: 0 .5rem;
+  border: 1px solid var(--line); border-radius: 999px;
+  color: var(--fg-dim);
+}
+.flag code { font-family: var(--mono); font-size: .95em; }
+.flag a { color: inherit; }
+/* `sorry` is two claims and they are drawn as two: the declaration's own hole
+   is filled, a hole underneath it is only outlined. */
+.flag[data-flag="sorry-direct"] {
+  color: var(--hole);
+  border-color: color-mix(in srgb, var(--hole) 45%, transparent);
+  background: color-mix(in srgb, var(--hole) 10%, transparent);
+}
+.flag[data-flag="sorry-transitive"] {
+  color: var(--hole);
+  border-color: color-mix(in srgb, var(--hole) 30%, transparent);
 }
 
 /* -- 9. signature -------------------------------------------------------- */

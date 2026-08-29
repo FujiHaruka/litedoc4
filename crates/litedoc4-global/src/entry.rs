@@ -53,8 +53,17 @@ fn plain_page(title: &str, site: &SiteMeta<'_>, body: &str) -> String {
 ///
 /// `modules` is expected already sorted, in the UTF-16 order this crate sorts
 /// everything else with.
+///
+/// `lean_version` is `index.json`'s, which is the toolchain the environment was
+/// read from rather than the one the reader has. An empty one draws no row: the
+/// field is the extractor's and a page saying `Lean ` says less than nothing.
 #[must_use]
-pub fn index_html(site: &SiteMeta<'_>, modules: &[(&str, String)], declarations: usize) -> String {
+pub fn index_html(
+    site: &SiteMeta<'_>,
+    modules: &[(&str, String)],
+    declarations: usize,
+    lean_version: &str,
+) -> String {
     let mut body = String::with_capacity(modules.len() * 128 + 1024);
     body.push_str("<div class=\"modhead\"><h1>");
     body.push_str(&escape_html(site.title));
@@ -78,7 +87,13 @@ pub fn index_html(site: &SiteMeta<'_>, modules: &[(&str, String)], declarations:
     body.push_str(&grouped(modules.len()));
     body.push_str("</dd></div><div><dt>Declarations</dt><dd>");
     body.push_str(&grouped(declarations));
-    body.push_str("</dd></div></dl>");
+    body.push_str("</dd></div>");
+    if !lean_version.is_empty() {
+        body.push_str("<div><dt>Lean</dt><dd>");
+        body.push_str(&escape_html(lean_version));
+        body.push_str("</dd></div>");
+    }
+    body.push_str("</dl>");
 
     body.push_str("<h2 class=\"section-title\">Modules</h2><ul class=\"modlist\">");
     for (module, page) in modules {
@@ -221,7 +236,7 @@ mod tests {
     fn every_page_is_one_column_and_names_no_other_host() {
         let modules = [("Pkg", "Pkg.html".to_owned())];
         for page in [
-            index_html(&site(), &modules, 1),
+            index_html(&site(), &modules, 1, "4.31.0"),
             not_found_html(&site()),
             search_html(&site()),
             foundational_types_html(&site()),
@@ -262,13 +277,24 @@ mod tests {
         );
     }
 
+    /// The toolchain the environment was read from, and silence when the IR did
+    /// not say — an empty row would read as a package built with no Lean.
+    #[test]
+    fn the_index_names_the_toolchain_the_ir_was_read_from() {
+        let modules = [("Pkg", "Pkg.html".to_owned())];
+        let page = index_html(&site(), &modules, 1, "4.33.0");
+        assert!(page.contains("<dt>Lean</dt><dd>4.33.0</dd>"), "{page}");
+        let unsaid = index_html(&site(), &modules, 1, "");
+        assert!(!unsaid.contains("Lean"), "{unsaid}");
+    }
+
     #[test]
     fn the_index_lists_every_module_and_its_counts() {
         let modules = [
             ("Pkg", "Pkg.html".to_owned()),
             ("Pkg.A<B", "Pkg/A<B.html".to_owned()),
         ];
-        let page = index_html(&site(), &modules, 4_750);
+        let page = index_html(&site(), &modules, 4_750, "4.31.0");
         assert!(page.contains("<dd>2</dd>"), "{page}");
         assert!(page.contains("<dd>4,750</dd>"), "{page}");
         assert!(page.contains("href=\"./Pkg.html\""), "{page}");
