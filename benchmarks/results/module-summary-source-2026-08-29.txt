@@ -1,0 +1,137 @@
+# Where a one-line module description could come from (measured 2026-08-29)
+
+Question: litedoc4's front page lists every module by name only. If it were to
+carry a one-line description per module, which part of a Lean module docstring
+is that line?
+
+This is a scan of Lean SOURCE TEXT, not of the IR. It reads the first `/-! ... -/`
+block of every `.lean` file and classifies it. The IR equivalent is
+`moduleDocs[0]` after sorting by (line, col); the two agree in shape but this log
+does not assert that they agree file by file.
+
+## Conditions
+
+  host          Darwin 25.6.0 (aarch64)
+  scanner       python3 (stdlib re/os only); source below
+  Mathlib       .lake/packages/mathlib @ fabf563a7c
+  target        /Users/haruka/dev/lean-projects (InformationTheory) @ 3dfc4a7e
+                lean-toolchain leanprover/lean4:v4.31.0
+  e2e/micro     litedoc4 HEAD
+  denominator   every `.lean` file under the named root, `.lake/` excluded
+
+Static text: no timing, no page cache, nothing to warm. Re-running it on the same
+three revisions gives the same integers.
+
+## Definitions
+
+  "module doc"        the file's first `/-! ... -/` block
+  "'# ' heading"      that block's first line starts with `# `
+  "paragraph"         the first run of non-blank lines after the heading that
+                      does not itself start with `#`
+  "first sentence"    that paragraph split once on `(?<=[.!?])\s`
+  ">120ch"            how many are too long to sit in a list row next to a name
+
+## Result
+
+=== Mathlib (fabf563a7c)
+  .lean 8169 / module doc 8035 / '# ' heading 7867 / paragraph 6709
+  heading len:        min 2 median 34 p90 58 max 98  >120ch: 0 (0%)
+  heading == filename stem: 155
+  first sentence len: min 2 median 107 p90 207 max 796  >120ch: 2770 (41%)
+  paragraph had no sentence break: 3978
+=== InformationTheory (3dfc4a7e)
+  .lean 421 / module doc 414 / '# ' heading 390 / paragraph 369
+  heading len:        min 11 median 54 p90 77 max 93  >120ch: 0 (0%)
+  heading == filename stem: 0
+  first sentence len: min 4 median 172 p90 297 max 482  >120ch: 260 (70%)
+  paragraph had no sentence break: 193
+=== e2e/micro (HEAD)
+  .lean 10 / module doc 10 / '# ' heading 10 / paragraph 10
+  heading len:        min 3 median 5 p90 8 max 8  >120ch: 0 (0%)
+  heading == filename stem: 10
+  first sentence len: min 69 median 113 p90 291 max 291  >120ch: 3 (30%)
+  paragraph had no sentence break: 7
+
+## What it says
+
+1. The material is there. 98.4% of Mathlib's modules (8,035 / 8,169) and 98.3% of
+   the target's (414 / 421) open with a module docstring, and 96.3% / 92.6% of
+   the files open it with a `# ` heading.
+
+2. The heading fits a list row and the prose does not. No heading in any of the
+   three corpora exceeds 120 characters (median 34 / 54 / 5); the first sentence
+   of the prose exceeds it for 41% of Mathlib and 70% of the target. Splitting on
+   sentence punctuation does not help: 3,978 of Mathlib's 6,709 paragraphs (59%)
+   and 193 of the target's 369 (52%) contain no sentence break at all, so their
+   "first sentence" is the whole paragraph.
+
+3. rustdoc's rule does not transfer. rustdoc summarises a module by the first
+   sentence of its doc comment because Rust's convention is to open with one.
+   Lean's convention opens with a Markdown H1 and writes mathematical prose
+   underneath, so the same rule lands on (2).
+
+4. The heading is rarely just the name. It repeats the filename stem for 155 of
+   Mathlib's 7,867 headings (2.0%) and for 0 of the target's 390 -- but for all
+   10 of e2e/micro's, which are `# Basic`, `# Math` and so on. A design that
+   takes the heading has to say what it does when the heading adds nothing to the
+   name, and litedoc4's own sample is the worst case rather than a typical one.
+
+5. 18% of Mathlib's headings (7,867 -> 6,709) have no paragraph under them at
+   all, which is a second reason the prose cannot be the only source.
+
+## Scanner
+
+    import re, sys, os
+    
+    BLOCK = re.compile(r"/-!(.*?)-/", re.S)
+    SENT  = re.compile(r"(?<=[.!?])\s")
+    
+    def sentence(s):
+        parts = SENT.split(s, 1)
+        return parts[0]
+    
+    def run(root, label):
+        total=has=heading=para=0
+        slen=[]; hlen=[]; same=0; nosent=0
+        for dirpath,_,files in os.walk(root):
+            if "/.lake/" in dirpath[len(root):]: continue
+            for f in files:
+                if not f.endswith(".lean"): continue
+                p=os.path.join(dirpath,f)
+                try: t=open(p,encoding="utf-8").read()
+                except Exception: continue
+                total+=1
+                m=BLOCK.search(t)
+                if not m: continue
+                has+=1
+                lines=[l.rstrip() for l in m.group(1).strip().splitlines()]
+                if not lines: continue
+                if not lines[0].startswith("# "): continue
+                heading+=1
+                h=lines[0][2:].strip()
+                hlen.append(len(h))
+                stem=os.path.splitext(os.path.basename(p))[0]
+                if h.lower().replace(" ","")==stem.lower(): same+=1
+                rest=lines[1:]; i=0
+                while i<len(rest) and not rest[i].strip(): i+=1
+                buf=[]
+                while i<len(rest) and rest[i].strip() and not rest[i].startswith("#"):
+                    buf.append(rest[i].strip()); i+=1
+                if not buf: continue
+                para+=1
+                s=sentence(" ".join(buf))
+                if s==" ".join(buf): nosent+=1
+                slen.append(len(s))
+        def stats(xs):
+            if not xs: return "n/a"
+            xs=sorted(xs)
+            over=sum(1 for x in xs if x>120)
+            return "min %d median %d p90 %d max %d  >120ch: %d (%.0f%%)" % (xs[0],xs[len(xs)//2],xs[int(len(xs)*0.9)],xs[-1],over,100.0*over/len(xs))
+        print("=== %s" % label)
+        print("  .lean %d / module doc %d / '# ' heading %d / paragraph %d" % (total,has,heading,para))
+        print("  heading len:        %s" % stats(hlen))
+        print("  heading == filename stem: %d" % same)
+        print("  first sentence len: %s" % stats(slen))
+        print("  paragraph had no sentence break: %d" % nosent)
+    
+    run(sys.argv[1], sys.argv[2])
