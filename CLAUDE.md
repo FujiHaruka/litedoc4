@@ -63,6 +63,34 @@ crates.io / npm / PyPI / GitHub search alike.
 A bulk replace does not distinguish "identifiers going forward" from "proper nouns pointing at
 things that really exist outside".
 
+## v1.0.0 — what is promised, and what that costs to keep
+
+**`v1.0.0` was tagged on 2026-08-29.** The basis was not a feature list: it was
+**"someone other than the author can keep using it without the author"**, which turned into four
+promises, each with a gate. **Do not read v1 as "finished" any more than v0.1 meant it.**
+
+- **The 1.x surface is `tools/public-surface.txt`** — the action's inputs and outputs,
+  `litedoc4.toml`'s keys, `build`'s and `watch`'s flags, and the site's page paths and anchors.
+  **The rule that decides membership is "can it appear in a file someone else maintains".**
+  `tools/public-surface-gate.sh` (run by `ci.yml`) fails when a promised name goes missing.
+  **The IR schema, the ledger and `.lidx` are internal** — a consumer pins one ref and the action
+  and the Lake script resolve the binary by the version in *that* ref, so the two halves always
+  come from the same tree. Checks are **one-directional on purpose** (adding breaks nobody;
+  removing and renaming do); `action.yml` is checked both ways because it is plain data.
+- **The Lean versions are `tools/lean-toolchains.txt`**, and that file is also the matrix
+  `ci-lean-versions.yml` runs — **read from the file, so two lists cannot drift**. Column 2 is the
+  one thing that legitimately moves between toolchains (Lean's rename of a reducible instance's
+  reducibility status). **A toolchain with no row fails by name**; a row marked `UNMEASURED`
+  fails *carrying the value to write down*. **Do not branch on the version** — the extractor
+  delegates enumeration to Lean's own `toAttrString`, and this file records the consequence.
+- **Two example sites, and one of them is a maintenance obligation.**
+  `https://fujiharuka.github.io/litedoc4/` is `e2e/micro` rebuilt from `main` on every push
+  (`pages.yml`, downstream of `tools/e2e-micro.sh`, so a site that failed its gates is never
+  served). `https://fujiharuka.github.io/information-theory/` is the real-scale one, and it is
+  built by **whatever litedoc4 the target repository pins**. **Bump that pin on every release** —
+  it was left at `v0.1.4` for eleven days while the README described features the deployed site
+  did not have (measured 2026-08-29: `Used by` 0 occurrences before, 21 after).
+
 **This repository is public** (changed from private on 2026-08-16 (decided, user's call) — the
 reason is to run GitHub Actions on the free tier). The measurement target `lean-projects` is public
 too.
