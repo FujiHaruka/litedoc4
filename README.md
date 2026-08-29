@@ -8,23 +8,24 @@ reference to them links to that dependency's **version-pinned source on GitHub**
 self-contained static site.
 
 Live example: <https://fujiharuka.github.io/information-theory/> — 422 modules, one command,
-**24.5 s**.
+**24.5 s**. A second one, <https://fujiharuka.github.io/litedoc4/>, is seven modules rebuilt from
+this repository's `main` on every push: the declaration shapes rather than the scale.
 
 ## Is this for you?
 
 **Yes**, if doc-gen4 is too slow for your CI and your package lives on GitHub and is on Lean
-4.31.0, 4.32.2 or 4.33.0. Any Lean 4 package works — the payoff just scales with how large your
-dependencies are next to your own code, and Mathlib is as large as that gets. You get a module
-tree, search, instance lists, "Imported by", "Used by" (within your package), typeset math,
-hyperlinked signatures, and a dark theme.
+4.31.0, 4.32.2, 4.33.0 or 4.33.1. Any Lean 4 package works — the payoff just scales with how
+large your dependencies are next to your own code, and Mathlib is as large as that gets. You get
+a module tree, search, instance lists, "Imported by", "Used by" (within your package), typeset
+math, hyperlinked signatures, and a dark theme.
 
 **No**, if:
 
 - **you want to search dependency declarations** — search covers your package only
-- **you are on a Lean newer than 4.33.0** — only 4.31.0, 4.32.2 and 4.33.0 have been built
-  (measured 2026-08-18, `benchmarks/results/lean-433-fix-2026-08-18.txt`). The extractor is
-  compiled against your toolchain, so a version it cannot handle surfaces as a build failure,
-  not as bad output
+- **you are on a Lean newer than 4.33.1** — the four versions above are the ones CI runs end to
+  end, and they are listed in [`tools/lean-toolchains.txt`](tools/lean-toolchains.txt). The
+  extractor is compiled against your toolchain, so a version it cannot handle surfaces as a build
+  failure, not as bad output
 - **you are on Windows, Intel macOS, or Linux/arm64** — releases carry Linux/x86-64 and
   Apple Silicon; anything else builds from source, which needs Rust and a C compiler
 
@@ -253,13 +254,28 @@ not GitHub (another host is refused rather than guessed).
 
 `v0.2.0` — the action and the released binaries. Tested on macOS (Apple Silicon) and
 `ubuntu-latest` with Lean/Mathlib v4.31.0, and the browser side also on `windows-latest`.
-**Lean 4.31.0, 4.32.2 and 4.33.0 all build the extractor**: 4.31.0 and 4.32.2 write
-byte-identical IR, and 4.33.0 differs only where Lean itself reclassified instances
-(`implicit_reducible` → `instance_reducible`, 4 declarations in the fixture). Only 4.31.0 has
-been run over a Mathlib-sized package.
 Pin the action and the `require` to a tag — `v0.2.0` or later, since `watch`, `litedoc4.toml`,
 the math in docstrings and "Used by" are in that release and not in the ones before it.
 `@main` moves.
+
+**Every Lean version above is run end to end on every change to the extractor or the fixture**,
+and their output is compared: v4.31.0, v4.32.2, v4.33.0 and v4.33.1 produce byte-identical IR
+once one rename is applied — Lean's own reclassification of a reducible instance
+(`implicit_reducible` → `instance_reducible`, from v4.33.0). That rename is the only recorded
+difference between them, in
+[`tools/lean-toolchains.txt`](tools/lean-toolchains.txt) (measured 2026-08-29). A toolchain that
+is not in that file fails by name. Only v4.31.0 has been run over a Mathlib-sized package.
+
+### What 1.x keeps
+
+The names your own files can contain do not move inside 1.x: the action's inputs and outputs,
+`litedoc4.toml`'s keys, `build`'s and `watch`'s flags, and the site's page paths and declaration
+anchors. The list is [`tools/public-surface.txt`](tools/public-surface.txt), and CI fails when one
+of them goes missing.
+
+The IR schema, the ledger and `.lidx` are internal, and you never pin them yourself: the action
+and the Lake script resolve the binary by the version in the ref you pinned, so the extractor and
+the binary always come from the same tree.
 
 The extractor is not distributed as a binary. It **could** be — it is decided by the toolchain
 alone, it is portable, and against the wrong toolchain it fails loudly rather than writing a

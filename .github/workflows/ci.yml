@@ -112,6 +112,13 @@ jobs:
       # The corpus tests are `#[ignore]`d rather than run here; this asserts the
       # set of them is exactly the set the gate knows about, so neither side can
       # drift and a test cannot quietly stop running.
+      # Reads files, nothing else: no binary, no toolchain, no target. The names
+      # it checks are the ones a consumer's own workflow, `litedoc4.toml` or
+      # script can contain, so a rename here is a broken file in someone else's
+      # repository.
+      - name: The 1.x surface is all still there
+        run: tools/public-surface-gate.sh
+
       - name: Verify the corpus gate's inventory
         run: tools/corpus-gate.sh --verify-list
 

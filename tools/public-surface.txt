@@ -1,0 +1,78 @@
+# What 1.x keeps. One line per name a consumer's own files can contain.
+#
+# The rule that decides what belongs here: **can it appear in a file someone else
+# maintains?** A GitHub workflow names the action's inputs and reads its outputs;
+# a `litedoc4.toml` names its keys; a script names `build`'s and `watch`'s flags;
+# a link into the site names a page path and an anchor. Those break other people's
+# files when they move. The IR schema, the ledger and `.lidx` do not: a consumer
+# pins one ref, and the action and the Lake script resolve the binary by the
+# version in *that* ref, so the two halves always come from the same tree.
+#
+# ONE DIRECTION, ON PURPOSE
+#   Adding an input, a flag or a key does not break anyone. Removing or renaming
+#   one does. So the checks ask "is every promised name still there", and only
+#   action.yml is asked the other way too — it is plain data, so it costs nothing,
+#   and it makes a rename read as one added plus one removed rather than as two
+#   unrelated lines.
+#
+# The reader is tools/public-surface-gate.sh; README's "Status" quotes it.
+
+[action-inputs]
+root
+out
+cache-get
+lake-build
+jobs
+lib
+source-url
+full
+install-elan
+cache
+
+[action-outputs]
+site
+out
+timings
+binary-source
+
+[build]
+--root
+--out
+--lib
+--source-url
+--full
+--extractor-bin
+--extractor
+--extractor-arg
+--lake
+--jobs
+--link-index
+--deps-docs-url
+--deps-docs-index
+--mode
+--max-rounds
+--timings
+
+[watch]
+--root
+--out
+--lib
+--source-url
+--port
+--interval
+--extractor-bin
+--extractor
+--extractor-arg
+--lake
+--jobs
+--mode
+--max-rounds
+
+[litedoc4.toml]
+title
+index
+
+# Page paths and declaration anchors keep doc-gen4's shape — `Foo/Bar.html` and
+# `#Foo.bar` — so links into an existing site survive. That one is not a list of
+# names: it is `page_path`'s own tests (crates/litedoc4-render/src/page.rs) and
+# the anchors asserted in crates/litedoc4-render/tests/pages.rs.
