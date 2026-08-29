@@ -3,7 +3,7 @@
 # and a real `lake build` in the middle.
 #
 # usage: tools/build-gate.sh <phase> [--clone DIR] [--out DIR] [--lidx FILE]
-#                            [--jobs N] [--move-module <Module>]
+#                            [--jobs N] [--move-module <Module>] [--lib <Name>]
 #   phases: gate1 | gate2 | gate3 | gate4 | reset | all
 #
 # What a failing phase means:
@@ -58,12 +58,16 @@ JOBS=4
 # module's docstring, so moving it exercises **both** derivations: the IR's
 # `refs` and the whole-package name-map delta.
 MOVE_MODULE=InformationTheory.Shannon.BroadcastChannel.Basic
+# The package is a `lakefile.lean` one, so the library name cannot be derived
+# from it — see `build` below.
+LIB=InformationTheory
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --clone) CLONE="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --lidx) LIDX="$2"; shift 2 ;;
+    --lib) LIB="$2"; shift 2 ;;
     --jobs) JOBS="$2"; shift 2 ;;
     --move-module) MOVE_MODULE="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -93,11 +97,50 @@ X_REL="$(printf '%s' "$X_MOD" | tr '.' '/').lean"
 DEL_MOD=InformationTheory.Shannon.ArithmeticCoding
 DEL_REL="$(printf '%s' "$DEL_MOD" | tr '.' '/').lean"
 
-# Written down rather than derived, so a run that produced the wrong number of
-# pages fails instead of redefining the question: 432 module pages + 8
-# whole-package artifacts + 3 static assets, and the move adds one page.
-EXPECT_BASE=443
-EXPECT_MOVE=$((EXPECT_BASE + 1))
+# The site is one page per module plus a fixed set of whole-package files.
+#
+# The module half comes from the recorded module list — the third source, not
+# either side of a comparison — and the rest is **named** here rather than
+# counted. A literal total was wrong twice for two different reasons at once
+# (measured 2026-08-29: it still said 432 modules when the target had 422, and 11
+# artefacts when the site writes 12), and both times the symptom was a number
+# nobody could attribute. A name that disappears is now reported as that name.
+SITE_ARTEFACTS="404.html
+foundational_types.html
+index.html
+search.html
+app.js
+declarations/name-map.json
+declarations/used-by.json
+favicon.svg
+instances.json
+modules.json
+search-index.bin
+style.css"
+
+artefact_count () { printf '%s\n' "$SITE_ARTEFACTS" | grep -c .; }
+
+# `expect_base` and `expect_move` are functions, not constants: the module list
+# is only guaranteed to be there after `require_ref_modules`.
+expect_base () { echo $(( $(nlines "$REF_MODULES") + $(artefact_count) )); }
+expect_move () { echo $(( $(expect_base) + 1 )); }
+
+# The count above is only a count. This says which files it is about, so a site
+# that lost `search-index.bin` and gained something else still fails, and fails
+# by name.
+require_site_artefacts () { # require_site_artefacts <site>
+  local site="$1" missing=""
+  local name
+  while read -r name; do
+    [ -n "$name" ] || continue
+    [ -e "$site/$name" ] || missing="$missing $name"
+  done <<EOF
+$SITE_ARTEFACTS
+EOF
+  [ -z "$missing" ] || {
+    echo "  site is missing whole-package file(s):$missing" >&2
+    FAILURES=$((FAILURES + 1)); }
+}
 
 nlines () { grep -c . "$1" 2>/dev/null || true; }
 files_in () { find "$1" -type f | wc -l | tr -d ' '; }
@@ -153,14 +196,28 @@ require_baseline () { # require_baseline <tag>
 }
 
 # **Only** the flags a caller cannot derive. The extractor binary is 171 MB and
-# built against the target's own toolchain, so it can have no default; the
-# library, the module list, the source URL and full-vs-incremental are the
-# command's own to derive, and passing them here would hide a wrong derivation.
+# built against the target's own toolchain, so it can have no default; the module
+# list, the source URL and full-vs-incremental are the command's own to derive,
+# and passing them here would hide a wrong derivation.
+#
+# `--lib` is on the other side of that line, and not because it is convenient:
+# the target's package is a `lakefile.lean` one, and `litedoc4 build` **refuses
+# by design** to read a library name out of Lean code (`lean_lib` is a Lake DSL
+# command whose argument can be any expression). Withholding it does not test a
+# derivation — there is none to test — it just makes the run refuse. That refusal
+# is what this gate had never got past (measured 2026-08-29).
 build () { # build <out dir> <log> [extra args…]
-  local out="$1" log="$2"; shift 2
-  "$RUST_BIN" build --root "$CLONE" --out "$out" --link-index "$LIDX" \
+  local out="$1" log="$2" code=0; shift 2
+  "$RUST_BIN" build --root "$CLONE" --out "$out" --lib "$LIB" --link-index "$LIDX" \
     --extractor-bin "$EXTRACT_BIN" --jobs "$JOBS" \
-    --timings "$out.timings.json" "$@" > "$log" 2>&1
+    --timings "$out.timings.json" "$@" > "$log" 2>&1 || code=$?
+  # Without this the run ends on `set -e` with the refusal still inside the log
+  # file, and the gate exits non-zero having printed nothing — the shape this
+  # repository keeps finding, seen from the failing side.
+  [ "$code" -eq 0 ] || {
+    echo "  litedoc4 build FAILED (exit $code) — $log" >&2
+    tail -3 "$log" >&2
+    exit "$code"; }
 }
 
 manifest () { # manifest <site> <out file>
@@ -296,7 +353,9 @@ phase_gate4 () {
   rm -rf "$OUT/scratch"
   build "$OUT/scratch" "$OUT/scratch.log" --full
   counts "$OUT/scratch.log"
-  compare gate4-site "$OUT/base/site" "$OUT/scratch/site" "$EXPECT_MOVE"
+  require_site_artefacts "$OUT/base/site"
+  require_site_artefacts "$OUT/scratch/site"
+  compare gate4-site "$OUT/base/site" "$OUT/scratch/site" "$(expect_move)"
   compare gate4-ir "$OUT/base/ir" "$OUT/scratch/ir" \
     "$(( $(nlines "$REF_MODULES") + 1 ))" modules
   if "$DIFF" -q "$OUT/base/ledger.json" "$OUT/scratch/ledger.json" > /dev/null; then

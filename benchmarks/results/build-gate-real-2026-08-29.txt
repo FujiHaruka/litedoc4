@@ -1,0 +1,94 @@
+# tools/build-gate.sh, run over the measurement target for the first time
+
+Until today this gate had only ever been exercised on synthetic fixtures, with
+`compare` extracted as a function (2026-08-28). Running it for real took three
+fixes, and two of them were the gate's own defects.
+
+Conditions:
+  hardware      Apple M1 / 16 GB / Darwin 25.6.0
+  litedoc4      0.2.0 (release), rustc 1.97.1
+  clone         /private/tmp/lean-doc-relay/clone, APFS clonefile of
+                /Users/haruka/dev/lean-projects @ eed40cb6, own oleans rebuilt at
+                the clone's path (421 rebuilt, Mathlib untouched)
+  toolchain     leanprover/lean4:v4.31.0
+  move module   InformationTheory.Shannon.BroadcastChannel.Basic -> ...BasicCore
+  link index    10,098,730 B
+  free disk     11 GiB before, 7.5 GiB after; the clone itself is copy-on-write
+
+## What had to be fixed before it could run at all
+
+1. **The clone inherited the target's untracked files.** `cp -Rc` copies
+   `docs/doc-gen-bench/`, which the target has and does not track, so
+   `clone_state` said `unknown` and every phase refused. The gate is right; the
+   clone has to be scrubbed. Not a code change.
+
+2. **`build` was called without `--lib`, and the target cannot be read without
+   it.** The gate withheld it on the argument that the library name is the
+   command's own to derive. It is not: the target's package is a `lakefile.lean`
+   one, and `litedoc4 build` **refuses by design** to read `lean_lib` out of Lean
+   code. So the gate was withholding a flag to test a derivation that does not
+   exist, and the run refused every time. `--lib` is now passed, and is a flag.
+
+3. **The refusal printed nothing.** `build` redirects to a log, so `set -e` ended
+   the script with the reason still in the file: exit 3, no message. It now
+   prints `litedoc4 build FAILED (exit N) — <log>` and the last three lines.
+
+## What the run then found
+
+Gates 1-3 passed on the first real run. Gate 4 failed on its **denominator**,
+with the trees byte-identical:
+
+    comparison gate4-site   left 435 file(s)   right 435 file(s)
+    expected files 444      DENOMINATOR WRONG      diff identical
+
+`EXPECT_BASE=443` was a literal, and it was stale in two ways at once: it encoded
+**432** module pages when the target has **422**, and **11** whole-package files
+when the site writes **12**. Both errors were invisible because the number was a
+single total nobody could attribute.
+
+It is now derived: the module half from the recorded module list (the third
+source, not either side of the comparison), and the rest from `SITE_ARTEFACTS`, a
+list of the twelve **by name** —
+
+    404.html  foundational_types.html  index.html  search.html
+    app.js  declarations/name-map.json  declarations/used-by.json  favicon.svg
+    instances.json  modules.json  search-index.bin  style.css
+
+## The result after the fix (measured 2026-08-29)
+
+    gate1-ir     expected 422 (left 422, right 422)   denominator ok   identical   PASS
+    module list  identical to the recorded reference's (422 modules)
+    GATE 2       PASS — 434 files, not one byte moved
+    GATE 3       PASS — a real move + `lake build`, 0 changed, the site did not move
+    gate4-site   expected 435 (left 435, right 435)   denominator ok   identical   PASS
+    gate4-ir     expected 423 (left 423, right 423)   denominator ok   identical   PASS
+    ledger       identical
+    reset        state=baseline, HEAD=eed40cb6, git status 0 line(s)
+
+    tools/build-gate.sh all -> exit 0
+
+## The by-name check was made to fail once
+
+`favicon.svg` renamed to `favicon.svgx` in `SITE_ARTEFACTS`, keeping the count at
+twelve so only the name check could fire:
+
+    site is missing whole-package file(s): favicon.svgx     (twice, both sites)
+    gate4-site RESULT PASS      gate4-ir RESULT PASS
+    ### 2 comparison(s) FAILED           gate4 -> exit 1
+
+Both tree comparisons still said PASS. That is the point: an identical diff no
+longer means green.
+
+## How to regenerate the fixtures (they are not kept)
+
+    tools/setup-clone.sh clone /private/tmp/lean-doc-relay/clone
+    rm -rf /private/tmp/lean-doc-relay/clone/docs/doc-gen-bench   # untracked, inherited
+    tools/rebuild-own.sh /private/tmp/lean-doc-relay/clone        # ~10 min
+    litedoc4 build --root <clone> --out <scratch> --lib InformationTheory \
+      --extractor-bin extractor/build/extract --jobs 4
+    cp <scratch>/link-index.lidx /private/tmp/lean-doc-relay/w7c/linkindex/
+    tools/clone-gate.sh setup                                     # writes m3d4/shared
+    tools/build-gate.sh all
+
+The work area was deleted afterwards. One generation is about 2.3 GB of real
+blocks on top of the copy-on-write clone.
