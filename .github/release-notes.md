@@ -2,7 +2,7 @@ Fast HTML documentation for Lean 4 packages that depend on Mathlib. litedoc4 doc
 package only; every reference to a dependency links to that dependency's version-pinned source on
 GitHub. [README](https://github.com/FujiHaruka/litedoc4#readme) is the manual, and there are two
 live sites: [422 modules](https://fujiharuka.github.io/information-theory/) built by this
-release, and a [ten-module sample](https://fujiharuka.github.io/litedoc4/) rebuilt from `main` on
+release, and an [eleven-module sample](https://fujiharuka.github.io/litedoc4/) rebuilt from `main` on
 every push.
 
 ## Pin to this tag

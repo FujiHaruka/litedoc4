@@ -1,7 +1,7 @@
 import Micro.Basic
 
 /-!
-# Unicode
+# An identifier above U+FFFF, and Markdown in a docstring
 
 Identifiers and docstrings that leave the Basic Multilingual Plane, and Markdown
 that goes the whole way through.

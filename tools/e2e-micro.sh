@@ -82,10 +82,10 @@ if [ -z "$REDUCIBLE_ATTR" ]; then
 fi
 echo "toolchain $TOOLCHAIN, reducible-instance attribute $REDUCIBLE_ATTR"
 
-say "1/16 build the sample package (Lean core only)"
+say "1/17 build the sample package (Lean core only)"
 (cd "$SAMPLE" && "$LAKE" build)
 
-say "2/16 build the extractor inside the sample's environment"
+say "2/17 build the extractor inside the sample's environment"
 # The extractor is `import Lean` and nothing else, which is what lets it be built
 # against a package that has no Mathlib. `-rdynamic` is load-bearing:
 # `importModules (loadExts := true)` resolves symbols in the running executable
@@ -109,7 +109,7 @@ if [ -z "$EXTRACTOR" ]; then
   fi
 fi
 
-say "3/16 GATE 1 — one command"
+say "3/17 GATE 1 — one command"
 rm -rf "$OUT/first"
 "$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/first.log"
@@ -126,7 +126,7 @@ cp -R "$OUT/first/site" "$OUT/first-snapshot"
 # half of GATE 5.
 cp "$OUT/first/litedoc4-build.json" "$OUT/first-build.json"
 
-say "4/16 GATE 2 — the second run changes nothing"
+say "4/17 GATE 2 — the second run changes nothing"
 "$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/second.log"
 
@@ -140,7 +140,7 @@ if ! grep -qE 'incremental|0 module\(s\)|nothing to' "$OUT/second.log"; then
   sed -n '1,20p' "$OUT/second.log" >&2
 fi
 
-say "5/16 GATE 3 — a second full build is byte identical"
+say "5/17 GATE 3 — a second full build is byte identical"
 rm -rf "$OUT/again"
 "$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/again" \
   --extractor-bin "$EXTRACTOR" >"$OUT/again.log"
@@ -154,7 +154,7 @@ if ! diff -r "$OUT/first/ir" "$OUT/again/ir"; then
   exit 1
 fi
 
-say "6/16 GATE 4 — --jobs does not change the output"
+say "6/17 GATE 4 — --jobs does not change the output"
 # The extractor splits declarations across threads inside one environment, and a
 # parallel step that reorders its output is exactly the kind of thing that shows
 # up as a diff on one machine and not another.
@@ -170,7 +170,7 @@ if ! diff -r "$OUT/first/site" "$OUT/jobs4/site"; then
   exit 1
 fi
 
-say "7/16 GATE 5 — the work, as integers"
+say "7/17 GATE 5 — the work, as integers"
 # Four markers: the first full build (snapshotted before the second run
 # overwrote it), the incremental run over an unchanged world, and the two other
 # full builds.
@@ -276,7 +276,7 @@ if problems:
     sys.exit(1)
 PY
 
-say "8/16 GATE 7 — the three sorry shapes are three different answers"
+say "8/17 GATE 7 — the three sorry shapes are three different answers"
 # doc-gen4 #270 asks for two claims and not one: a declaration that uses `sorry`
 # itself, and a declaration that merely depends on such a one. `Micro/Sorry.lean`
 # holds one of each plus a control, and **this is the only place the extractor's
@@ -376,7 +376,7 @@ print(f"sorry        {checked} shapes compared over {len(found)} declarations, "
       ", ".join(f"{name.rpartition('.')[2]}={found[name]}" for name in sorted(expected)))
 PY
 
-say "9/16 GATE 8 — attributes arrive split into name and value"
+say "9/17 GATE 8 — attributes arrive split into name and value"
 # The `[name, value]` split is made in the extractor because that is the only side
 # that knows where the boundary is: `deprecated`'s value contains spaces,
 # parentheses and quotes, `specialize`'s contains brackets, and a reader given the
@@ -546,7 +546,7 @@ print(f"attrs        {checked} declarations compared, {sum(counts.values())} pai
       f"{len(counts)} attribute name(s), {valued} with a value")
 PY
 
-say "10/16 GATE 9 — the origin of a realized declaration, and the three ways of not having one"
+say "10/17 GATE 9 — the origin of a realized declaration, and the three ways of not having one"
 # Lean gives a declaration it realizes from an attribute the position of **the
 # attribute token**, and no rule over `(line, col)` gets from there to the parent:
 # in a 144-group Mathlib sample the parent was in the group 0 times and 47 groups
@@ -772,7 +772,7 @@ print(f"generated    {checked} declarations compared, {len(claimed)} realized by
       f"{len(before)} sort before their origin")
 PY
 
-say "11/16 GATE 10 — docstring math becomes MathML, and unreadable math does not"
+say "11/17 GATE 10 — docstring math becomes MathML, and unreadable math does not"
 # Five assertions over `Micro/Math.html` plus one over the run's marker, and that
 # last one is what the others cannot make: **a fallback leaves a valid page** — no
 # byte count, no page count and no exit code moves when a formula fails — so
@@ -842,19 +842,129 @@ print(f"math         {len(re.findall(r'<math', page))} formula(s) rendered, "
       f"{work['mathFallbacks']} kept as LaTeX, {len(strays)} unescaped character(s)")
 MATHPY
 
-say "12/16 GATE 11 — every reverse reference agrees with the IR, both ways"
+say "12/17 GATE 14 — the front page describes each module by the heading its docstring opens with"
+# The front page is the only place a reader meets every module at once, and the
+# description in each row is the module docstring's opening `# ` heading, taken
+# verbatim. Three things have to hold at once and none of them implies the
+# others: the rows and the marker have to agree on **how many** there are (a
+# renderer that dropped rows and a count derived from anything but the rows both
+# show up here); the one module whose docstring opens with prose has to draw **no
+# element at all**, because an empty one is a placeholder no reader can tell from
+# a module that described itself with a blank line; and a heading's Markdown has
+# to have been rendered, which is what `Micro.Shapes` — headed with a code span —
+# is here to say.
+#
+# `moduleSummariesEchoingTheName` is 0 and asserted as 0: a heading that only
+# repeats the module's own last component renders as `Micro.Math — Math`, which
+# is a row that costs a line and says nothing. litedoc4 does not suppress it, so
+# the sample is where the rule is kept.
+python3 - "$OUT/first/site/index.html" "$OUT/first-build.json" <<'INDEXPY'
+import json
+import re
+import sys
+
+page_path, marker_path = sys.argv[1:3]
+page = open(page_path, encoding="utf-8").read()
+with open(marker_path) as handle:
+    marker = json.load(handle)
+work = marker["work"]
+problems = []
+
+# A missing key exits rather than defaulting to a number that would pass — the
+# same failure GATE 10 records, which this repository has actually shipped.
+for key in ("moduleSummaries", "moduleSummariesEchoingTheName"):
+    if key not in work:
+        sys.exit(f"GATE 14 FAIL  the marker has no work.{key}")
+
+listing = re.search(r'<ul class="modlist([^"]*)">(.*?)</ul>', page, re.S)
+if not listing:
+    sys.exit("GATE 14 FAIL  index.html has no module list")
+classes, body = listing.group(1), listing.group(2)
+if "modlist-described" not in classes:
+    problems.append(
+        "the list is not marked modlist-described, so the stylesheet keeps the "
+        "columns it uses for bare names and the descriptions land in them"
+    )
+
+rows = re.findall(r"<li>(.*?)</li>", body, re.S)
+described = {}
+listed = []
+for row in rows:
+    href = re.search(r'<a href="\./([^"]+)"', row)
+    if not href:
+        problems.append(f"a row with no link: {row[:80]!r}")
+        continue
+    listed.append(href.group(1))
+    # Sliced at the anchor rather than searched for `<a` anywhere, because the
+    # description is allowed one of its own — as a *sibling*. Inside the row's
+    # link it would be an anchor in an anchor, which no parser reads back.
+    anchor = row[row.index("<a ") : row.index("</a>")]
+    if "<a " in anchor[3:]:
+        problems.append(f"{href.group(1)}: an anchor inside the row's link")
+    summary = re.search(r'<span class="modsummary">(.*?)</span>', row, re.S)
+    if summary:
+        described[href.group(1)] = summary.group(1)
+
+if len(rows) != marker["modules"]:
+    problems.append(
+        f"{len(rows)} row(s) for {marker['modules']} module(s) — the front page "
+        "is not the whole list"
+    )
+
+# The reconciliation: the page and the record, over the same run.
+if len(described) != work["moduleSummaries"]:
+    problems.append(
+        f"{len(described)} row(s) carry a description, work.moduleSummaries says "
+        f"{work['moduleSummaries']}"
+    )
+if work["moduleSummaries"] != marker["modules"] - 1:
+    problems.append(
+        f"work.moduleSummaries is {work['moduleSummaries']} of {marker['modules']} "
+        "module(s) — exactly one module of this sample opens its docstring with "
+        "prose, and every other one opens with a heading"
+    )
+if work["moduleSummariesEchoingTheName"] != 0:
+    problems.append(
+        f"work.moduleSummariesEchoingTheName is "
+        f"{work['moduleSummariesEchoingTheName']}, not 0 — a module of the sample "
+        "heads its docstring with its own name, which describes nothing"
+    )
+
+if "Micro/Untitled.html" in described:
+    problems.append(
+        "Micro.Untitled has a description: its docstring opens with prose, and a "
+        "module that said nothing about itself must draw no element at all"
+    )
+shapes = described.get("Micro/Shapes.html", "")
+if "<code>Micro.Basic</code>" not in shapes:
+    problems.append(
+        f"Micro.Shapes' description is {shapes!r} — the heading's code span did "
+        "not survive as markup, so the description is not being rendered as "
+        "Markdown"
+    )
+
+if problems:
+    for problem in problems:
+        print(f"GATE 14 FAIL  {problem}", file=sys.stderr)
+    sys.exit(1)
+
+print(f"front page   {len(described)} of {len(rows)} module(s) described, "
+      f"{work['moduleSummariesEchoingTheName']} repeating their own name")
+INDEXPY
+
+say "13/17 GATE 11 — every reverse reference agrees with the IR, both ways"
 # See doc-gen4 #77. Its own file because it is worth running against the
 # measurement target too, where the numbers are 849 targets over 10,163 edges
 # (measured 2026-08-22) rather than the sample's handful.
 "$HERE/usedby-gate.sh" --ir "$OUT/first/ir" --site "$OUT/first/site"
 
-say "13/16 GATE 12 — litedoc4.toml reaches every command that writes HTML"
+say "14/17 GATE 12 — litedoc4.toml reaches every command that writes HTML"
 # The sample carries a `litedoc4.toml` on purpose: with no file the four commands
 # agree trivially, and a gate that can only pass is not a gate.
 "$HERE/config-gate.sh" --root "$SAMPLE" --ir "$OUT/first/ir" --built "$OUT/first/site" \
   --link-index "$OUT/first/link-index.lidx" --out "$OUT/config"
 
-say "14/16 GATE 6 — one edited module does not re-render the package"
+say "15/17 GATE 6 — one edited module does not re-render the package"
 # GATE 2 asks what an *unchanged* world costs; this asks what a one-declaration
 # edit costs, which is the shape a user actually produces.
 #
@@ -926,7 +1036,7 @@ fi
 # down once and both callers get the same answer.
 "$HERE/onemod-gate.sh" "$OUT/first/litedoc4-build.json" "$OUT/first/work/serve.out"
 
-say "15/16 GATE 13 — every source link names a file that is really in this checkout"
+say "16/17 GATE 13 — every source link names a file that is really in this checkout"
 # The sample is a package **inside** a repository, which the measurement target
 # is not: the target *is* its repository, so the derived source URL needed no path
 # to the package and every number in benchmarks/ was taken with an empty one. The
@@ -969,7 +1079,7 @@ if missing:
 print("source links " + str(len(seen)) + " distinct path(s) into " + slug + ", all present in the checkout")
 LINKS
 
-say "16/16 summary"
+say "17/17 summary"
 printf 'site files : %s\n' "$(find "$OUT/first/site" -type f | wc -l | tr -d ' ')"
 printf 'ir files   : %s\n' "$(find "$OUT/first/ir" -type f | wc -l | tr -d ' ')"
 printf 'out        : %s\n' "$OUT"

@@ -20,7 +20,7 @@
 //! for one anchor is not worth a knob that can be forgotten on one of the two
 //! commands that build a site.
 
-use litedoc4_md::escape_html;
+use litedoc4_md::{NoLinks, Renderer, escape_html};
 use litedoc4_render::{SiteMeta, break_within, head_html, topbar_html};
 
 /// All four pages sit at the site root, so every asset is one hop away.
@@ -45,6 +45,17 @@ fn plain_page(title: &str, site: &SiteMeta<'_>, body: &str) -> String {
     out
 }
 
+/// One row of the front page's module list.
+pub struct ModuleRow<'a> {
+    pub name: &'a str,
+    pub page: String,
+    /// The module docstring's opening heading, as Markdown source
+    /// (`litedoc4_global::facts::ModuleFacts::summary`). `None` draws no
+    /// element, where an empty one would be a placeholder a reader cannot tell
+    /// from a module that described itself with a blank line.
+    pub summary: Option<&'a str>,
+}
+
 /// The front page: what the package is, how big it is, and every module of it.
 ///
 /// **The module list is the whole list, spelled out in the HTML** — the sidebar
@@ -60,7 +71,7 @@ fn plain_page(title: &str, site: &SiteMeta<'_>, body: &str) -> String {
 #[must_use]
 pub fn index_html(
     site: &SiteMeta<'_>,
-    modules: &[(&str, String)],
+    modules: &[ModuleRow<'_>],
     declarations: usize,
     lean_version: &str,
 ) -> String {
@@ -95,15 +106,32 @@ pub fn index_html(
     }
     body.push_str("</dl>");
 
-    body.push_str("<h2 class=\"section-title\">Modules</h2><ul class=\"modlist\">");
-    for (module, page) in modules {
+    body.push_str("<h2 class=\"section-title\">Modules</h2><ul class=\"modlist");
+    if modules.iter().any(|module| module.summary.is_some()) {
+        body.push_str(" modlist-described");
+    }
+    body.push_str("\">");
+    // `NoLinks`, so a declaration name in a heading stays a code span: the row
+    // already has one destination, and 400 rows of prose each carrying their own
+    // would be a list nobody can scan. Its `math_failures` is not added to the
+    // run's count either — the same span is rendered again on the module's own
+    // page, where it is already counted, and the number means "spans in this
+    // package the converter could not read", not "renderings that fell back".
+    let renderer = Renderer::new(ROOT, &NoLinks);
+    for module in modules {
         body.push_str("<li><a href=\"./");
-        body.push_str(&escape_html(page));
+        body.push_str(&escape_html(&module.page));
         body.push_str("\">");
         // The same per-component markup the module headings and the sidebar
         // use, so a long name wraps between components rather than mid-word.
-        body.push_str(&break_within(module));
-        body.push_str("</a></li>");
+        body.push_str(&break_within(module.name));
+        body.push_str("</a>");
+        if let Some(summary) = module.summary {
+            body.push_str("<span class=\"modsummary\">");
+            body.push_str(&renderer.inline(summary));
+            body.push_str("</span>");
+        }
+        body.push_str("</li>");
     }
     body.push_str("</ul>");
     plain_page(site.title, site, &body)
@@ -224,6 +252,14 @@ mod tests {
         }
     }
 
+    fn row(name: &'static str, page: &str, summary: Option<&'static str>) -> ModuleRow<'static> {
+        ModuleRow {
+            name,
+            page: page.to_owned(),
+            summary,
+        }
+    }
+
     #[test]
     fn counts_are_grouped_in_threes() {
         assert_eq!(grouped(0), "0");
@@ -234,7 +270,7 @@ mod tests {
 
     #[test]
     fn every_page_is_one_column_and_names_no_other_host() {
-        let modules = [("Pkg", "Pkg.html".to_owned())];
+        let modules = [row("Pkg", "Pkg.html", None)];
         for page in [
             index_html(&site(), &modules, 1, "4.31.0"),
             not_found_html(&site()),
@@ -281,7 +317,7 @@ mod tests {
     /// not say — an empty row would read as a package built with no Lean.
     #[test]
     fn the_index_names_the_toolchain_the_ir_was_read_from() {
-        let modules = [("Pkg", "Pkg.html".to_owned())];
+        let modules = [row("Pkg", "Pkg.html", None)];
         let page = index_html(&site(), &modules, 1, "4.33.0");
         assert!(page.contains("<dt>Lean</dt><dd>4.33.0</dd>"), "{page}");
         let unsaid = index_html(&site(), &modules, 1, "");
@@ -291,8 +327,8 @@ mod tests {
     #[test]
     fn the_index_lists_every_module_and_its_counts() {
         let modules = [
-            ("Pkg", "Pkg.html".to_owned()),
-            ("Pkg.A<B", "Pkg/A<B.html".to_owned()),
+            row("Pkg", "Pkg.html", None),
+            row("Pkg.A<B", "Pkg/A<B.html", None),
         ];
         let page = index_html(&site(), &modules, 4_750, "4.31.0");
         assert!(page.contains("<dd>2</dd>"), "{page}");
@@ -306,6 +342,74 @@ mod tests {
             page.contains("<span class=\"name\">A&lt;B</span>"),
             "the module name was not escaped: {page}"
         );
+    }
+
+    /// The description is a *sibling* of the row's anchor. Inside it, a heading
+    /// that contains a link would nest one anchor in another, which no HTML
+    /// parser reads back the way it was written.
+    #[test]
+    fn a_description_sits_beside_the_link_rather_than_inside_it() {
+        let modules = [row("Pkg.M", "Pkg/M.html", Some("The `observe` tactic"))];
+        let page = index_html(&site(), &modules, 1, "4.31.0");
+        assert!(
+            page.contains(
+                "</a><span class=\"modsummary\">The <code>observe</code> tactic</span></li>"
+            ),
+            "{page}"
+        );
+    }
+
+    /// A module that said nothing about itself draws no element at all, so the
+    /// stylesheet has nothing to lay out and a reader has nothing to read past.
+    #[test]
+    fn a_module_without_a_heading_draws_no_description() {
+        let modules = [row("Pkg", "Pkg.html", None)];
+        let page = index_html(&site(), &modules, 1, "4.31.0");
+        assert!(!page.contains("modsummary"), "{page}");
+    }
+
+    #[test]
+    fn a_description_is_escaped_like_everything_else() {
+        let modules = [row("Pkg", "Pkg.html", Some("a < b & c"))];
+        let page = index_html(&site(), &modules, 1, "4.31.0");
+        assert!(page.contains(">a &lt; b &amp; c</span>"), "{page}");
+    }
+
+    /// `litedoc4_render`'s own version of this reads its four source files and
+    /// cannot see this crate, so a class invented here — `modlist` was one for
+    /// months — is styled by nobody and nothing says so. Read off the built
+    /// pages rather than off the literals, because that is where a class that
+    /// only appears on one branch shows up.
+    #[test]
+    fn every_class_these_pages_emit_is_styled() {
+        let css = litedoc4_render::ASSETS
+            .iter()
+            .find(|(path, _)| *path == "style.css")
+            .expect("the stylesheet is an asset")
+            .1;
+        let modules = [
+            row("Pkg", "Pkg.html", Some("Described")),
+            row("Pkg.B", "Pkg/B.html", None),
+        ];
+        let mut seen = 0;
+        for page in [
+            index_html(&site(), &modules, 1, "4.31.0"),
+            not_found_html(&site()),
+            search_html(&site()),
+            foundational_types_html(&site()),
+        ] {
+            for attr in page.split("class=\"").skip(1) {
+                let value = attr.split('"').next().expect("a closed attribute");
+                for class in value.split_whitespace() {
+                    seen += 1;
+                    assert!(
+                        css.contains(&format!(".{class}")),
+                        "the stylesheet says nothing about .{class}"
+                    );
+                }
+            }
+        }
+        assert!(seen > 20, "only {seen} class names found — did the scan break?");
     }
 
     #[test]

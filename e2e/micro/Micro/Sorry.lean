@@ -1,10 +1,10 @@
 import Micro.Basic
 
 /-!
-# Sorry
+# The two marks an incomplete proof leaves on a page
 
-The two marks a page can carry about an incomplete proof, and the declaration
-that carries neither.
+Three declarations: one with a hole of its own, one that depends on it, and one
+with neither.
 
 A declaration whose own statement or proof uses `sorry` is marked **uses
 `sorry`**. One whose own proof is complete but which depends on such a

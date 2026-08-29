@@ -90,11 +90,11 @@ def normalised(path, toolchain):
 base_toolchain, base_root = legs[0]
 base_files = module_files(base_root)
 
-# Agreement over nothing is not agreement. The sample has ten modules and two
+# Agreement over nothing is not agreement. The sample has eleven modules and two
 # dependency slices; anything under that means the artifact did not arrive whole,
 # and without this the gate prints "agree over 0 IR files" and exits 0 (measured
 # 2026-08-29, on synthetic empty trees).
-FLOOR = 10
+FLOOR = 11
 if len(base_files) < FLOOR:
     sys.exit(
         f"lean-versions: {base_toolchain} has {len(base_files)} IR file(s), fewer than "

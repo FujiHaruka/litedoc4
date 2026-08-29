@@ -542,6 +542,15 @@ fn print_global_summary(lead: &str, summary: &GlobalSummary) {
         "{lead}name map {} B  module index {} B  search index {} B",
         summary.name_map_bytes, summary.modules_json_bytes, summary.search_index_bytes,
     );
+    // Printed even when it is zero, and the second number with it: a package
+    // whose modules all repeat their own name on the front page reads as one
+    // that described itself, and only the count says otherwise.
+    println!(
+        "{lead}module descriptions {} of {} ({} repeat the module name)",
+        summary.module_summaries.rendered,
+        summary.modules,
+        summary.module_summaries.echoing_the_name,
+    );
     // The hit/miss counts are what the cache's oracle reads, and it reads them
     // twice: here and out of `--timings`. A cache that is silent about how often
     // it hit is one nobody notices has stopped hitting.

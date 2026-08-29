@@ -16,7 +16,7 @@ use litedoc4_ir::IrTree;
 use litedoc4_render::SiteConfig;
 use serde::Serialize;
 
-use crate::artifacts::Artifacts;
+use crate::artifacts::{Artifacts, SummaryCounts};
 use crate::delta::{Delta, DeltaTimings};
 use crate::facts::ModuleFacts;
 use crate::state::State;
@@ -84,6 +84,8 @@ pub struct GlobalSummary {
     /// written with. **Not** the number of references the IR holds — see
     /// [`crate::artifacts::Counts::used_by_edges`].
     pub used_by_edges: usize,
+    /// Front-page module descriptions: how many, and how many say only the name.
+    pub module_summaries: SummaryCounts,
     pub tactic_docs: usize,
     pub name_map_bytes: usize,
     pub modules_json_bytes: usize,
@@ -227,6 +229,7 @@ pub fn build_global(options: &GlobalOptions<'_>) -> Result<GlobalSummary, Error>
         instance_types: counts.instance_types,
         used_by_targets: counts.used_by_targets,
         used_by_edges: counts.used_by_edges,
+        module_summaries: counts.module_summaries,
         tactic_docs: run.facts.iter().map(|facts| facts.tactics).sum(),
         name_map_bytes: artifacts.name_map_json.len(),
         modules_json_bytes: artifacts.modules_json.len(),

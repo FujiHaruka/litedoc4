@@ -1,12 +1,12 @@
 import Micro.Basic
 
 /-!
-# Shapes
+# The declaration shapes `Micro.Basic` does not have
 
-The declaration kinds `Micro.Basic` does not have, each printed differently from
-the others: a `class`, a `class inductive`, a structure whose constructor has a
-name of its own, a structure that inherits a field, a field carrying an implicit
-binder, and a class extending one from Lean core.
+Each of them prints differently from the others: a `class`, a `class inductive`,
+a structure whose constructor has a name of its own, a structure that inherits a
+field, a field carrying an implicit binder, and a class extending one from Lean
+core.
 
 `Micro.Basic` is the module with no imports; the rest of the unusual shapes live
 here.

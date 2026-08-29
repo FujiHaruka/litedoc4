@@ -7,13 +7,14 @@ import Micro.Notation
 import Micro.Shapes
 import Micro.Sorry
 import Micro.Unicode
+import Micro.Untitled
 
 /-!
-# Micro
+# A sample package, one module per thing a page can carry
 
 A small Lean package, published as a sample of what litedoc4 renders. It stands
 on Lean core and on one sibling package reached by path, so there is no Mathlib
-underneath and the whole site is ten modules.
+underneath and the whole site is eleven modules.
 
 Each module shows one thing a page can carry — the kinds a declaration comes in,
 attributes, scoped notation, mathematics in a docstring, `sorry` markers,

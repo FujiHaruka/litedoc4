@@ -1,10 +1,10 @@
 import «Dep-Aux».Basic
 
 /-!
-# Dep
+# A reference into a dependency that has no page here
 
-A module that reaches into a dependency, and the one place on this site where a
-reference goes somewhere litedoc4 will not write a page for.
+The one place on this site where a reference leads somewhere litedoc4 will not
+write a page for.
 
 litedoc4 documents this package only. A reference to a dependency becomes a link
 into that dependency's **version-pinned source**, taken from the revision your

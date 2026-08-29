@@ -209,6 +209,7 @@ mod tests {
             tokens: tokens.iter().map(|t| (*t).to_owned()).collect(),
             instances_for: Vec::new(),
             refs: BTreeMap::new(),
+            summary: None,
         }
     }
 

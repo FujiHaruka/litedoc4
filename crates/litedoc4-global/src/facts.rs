@@ -12,7 +12,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use litedoc4_ir::{Decl, ModuleFile, SpanKind, cmp_utf16};
+use litedoc4_ir::{Decl, ModuleDoc, ModuleFile, SpanKind, cmp_utf16};
 use serde::{Deserialize, Serialize};
 
 /// The seven keys the frozen prototype's `factsOf` emits, in its order.
@@ -84,6 +84,45 @@ pub struct ModuleFacts {
     /// answering that after it became part of the package, with an unchanged
     /// `contentHash` and nothing to notice it.
     pub refs: BTreeMap<String, Vec<u32>>,
+    /// The `# ` heading this module's docstring opens with, as **Markdown
+    /// source** — what the front page shows beside the module's name.
+    ///
+    /// Source rather than the HTML it renders to: rendering it here would put
+    /// [`litedoc4_md`]'s output into a cache entry, and a change to inline
+    /// rendering would then have to remember to bump [`crate::STATE_DERIVATION`]
+    /// or serve yesterday's markup on every hit.
+    ///
+    /// Serialised even when absent, where the rest of a `None` would be
+    /// `skip_serializing_if`. The 7 KB that costs on the target's state file
+    /// buys the failure direction: a file written before this field existed
+    /// fails to parse and the run rebuilds, where a `default` would let it load
+    /// and quietly answer "no module here has a heading".
+    pub summary: Option<String>,
+}
+
+/// The heading a module docstring opens with, without its `#`.
+///
+/// ATX only. A setext heading (a line of `=` under the title) is a heading to
+/// every Markdown parser and is not read here, because neither Mathlib's 8,035
+/// module docstrings nor the target's 414 contain one (measured 2026-08-29 →
+/// `benchmarks/results/module-summary-source-2026-08-29.txt`) and the rule a
+/// package author has to keep in mind stays one they can apply by eye. If a
+/// corpus turns up that writes them, this is where it is answered.
+fn leading_heading(docs: &[ModuleDoc]) -> Option<String> {
+    let first = docs.iter().min_by_key(|doc| (doc.line, doc.col))?;
+    let line = first.text.lines().find(|line| !line.trim().is_empty())?;
+    let rest = line.trim_start().strip_prefix('#')?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let text = rest.trim();
+    // CommonMark's closing sequence: `# Title #` is titled "Title", but `# C#`
+    // is titled "C#" — the run of hashes only closes when a space precedes it.
+    let text = match text.rsplit_once(char::is_whitespace) {
+        Some((head, tail)) if !tail.is_empty() && tail.chars().all(|c| c == '#') => head.trim_end(),
+        _ => text,
+    };
+    (!text.is_empty()).then(|| text.to_owned())
 }
 
 impl ModuleFacts {
@@ -150,6 +189,7 @@ impl ModuleFacts {
             tokens,
             instances_for,
             refs,
+            summary: leading_heading(&module.module_docs),
         }
     }
 }
@@ -321,6 +361,48 @@ fn is_js_space(c: char) -> bool {
 mod tests {
     use super::*;
 
+    fn doc(line: u32, text: &str) -> ModuleDoc {
+        ModuleDoc {
+            line,
+            col: 0,
+            text: text.to_owned(),
+        }
+    }
+
+    #[test]
+    fn the_heading_is_the_first_one_by_position_not_by_order() {
+        let docs = vec![doc(90, "# Later"), doc(12, "# First\n\nprose")];
+        assert_eq!(leading_heading(&docs).as_deref(), Some("First"));
+    }
+
+    #[test]
+    fn only_a_level_one_atx_heading_that_opens_the_docstring_counts() {
+        assert_eq!(leading_heading(&[doc(1, "# Title")]).as_deref(), Some("Title"));
+        assert_eq!(
+            leading_heading(&[doc(1, "\n  # Title  \nmore")]).as_deref(),
+            Some("Title")
+        );
+        for none in [
+            "## Sub",
+            "#NoSpace",
+            "Prose first\n\n# Title",
+            "# ",
+            "",
+        ] {
+            assert_eq!(leading_heading(&[doc(1, none)]), None, "{none:?}");
+        }
+        assert_eq!(leading_heading(&[]), None);
+    }
+
+    /// A closing run of hashes is CommonMark's, so it needs the space before it
+    /// that CommonMark needs; `# C#` is a module about C#.
+    #[test]
+    fn a_closing_hash_run_is_dropped_and_a_trailing_hash_is_not() {
+        assert_eq!(leading_heading(&[doc(1, "# Title #")]).as_deref(), Some("Title"));
+        assert_eq!(leading_heading(&[doc(1, "# Title ###")]).as_deref(), Some("Title"));
+        assert_eq!(leading_heading(&[doc(1, "# C#")]).as_deref(), Some("C#"));
+    }
+
     #[test]
     fn the_prototypes_keys_come_first() {
         let facts = ModuleFacts {
@@ -333,6 +415,7 @@ mod tests {
             tokens: Vec::new(),
             instances_for: Vec::new(),
             refs: BTreeMap::new(),
+            summary: None,
         };
         let value = serde_json::to_value(&facts).expect("the facts serialise");
         let object = value.as_object().expect("a struct is an object");

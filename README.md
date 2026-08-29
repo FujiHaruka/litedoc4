@@ -8,7 +8,7 @@ reference to them links to that dependency's **version-pinned source on GitHub**
 self-contained static site.
 
 Live example: <https://fujiharuka.github.io/information-theory/> — 422 modules, one command,
-**24.5 s**. A sample, <https://fujiharuka.github.io/litedoc4/>, is ten modules rebuilt from this
+**24.5 s**. A sample, <https://fujiharuka.github.io/litedoc4/>, is eleven modules rebuilt from this
 repository's `main` on every push: the shapes a page can take rather than the scale.
 
 ## Is this for you?
@@ -34,6 +34,35 @@ out of Lean code, so pass `--lib` by hand; used as a Lake dependency (below) it 
 
 Already hosting doc-gen4 output? Page paths (`Foo/Bar.html`) and declaration anchors
 (`#Foo.bar`) keep doc-gen4's shape, so existing links into your own docs survive.
+
+## The module list
+
+The front page lists every module of your package with a one-line description, and the
+description is the heading the module's docstring opens with:
+
+```lean
+/-!
+# Strong typicality (Cover-Thomas)
+
+Three main theorems for the strongly typical set …
+-/
+```
+
+`Strong typicality (Cover-Thomas)` becomes that module's row on the front page; the prose under
+it stays on the module's own page. Nothing else to write — Mathlib's own modules already open
+this way 7,867 times out of 8,169 (measured 2026-08-29,
+[`benchmarks/results/module-summary-source-2026-08-29.txt`](benchmarks/results/module-summary-source-2026-08-29.txt)).
+
+A module whose docstring opens with prose instead is listed by name alone, and the build says how
+many were described and how many said only what the row already says:
+
+```
+global  module descriptions 10 of 11 (0 repeat the module name)
+```
+
+A heading that repeats the module's own name — `# Basic` on `Pkg.Basic` — is written to the page
+as it stands rather than dropped. That second number is what tells you to write a better heading;
+guessing which headings were worth keeping is not litedoc4's call to make.
 
 ## Math in docstrings
 

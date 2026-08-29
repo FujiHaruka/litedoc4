@@ -1,7 +1,7 @@
 import Micro.Basic
 
 /-!
-# Notation
+# A signature printed with the package's own notation
 
 `scoped notation` declared by the package itself, and a signature that uses it.
 

@@ -1,7 +1,7 @@
 /-!
-# Gen
+# Declarations Lean realized from an attribute
 
-Declarations Lean built from an attribute, and the ones that only look like it.
+And, next to them, the ones that only look as if Lean had.
 
 `@[ext]` on a structure makes Lean realize extensionality theorems for it. Such
 a declaration is given the position of the **attribute token**, not of the

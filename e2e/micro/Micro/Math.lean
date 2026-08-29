@@ -1,11 +1,11 @@
 import Micro.Basic
 
 /-!
-# Math
+# LaTeX in a docstring, converted while the site is built
 
-Mathematics written in a docstring, converted to MathML **while the site is
-built**. Nothing is loaded in the browser to draw it — no MathJax, no KaTeX, no
-math web font — because every current browser lays MathML out itself.
+It reaches the page as MathML. Nothing is loaded in the browser to draw it — no
+MathJax, no KaTeX, no math web font — because every current browser lays MathML
+out itself.
 
 The four declarations below are the four answers, and the last one is the one to
 look at: a formula the converter cannot read is written back as its own source,

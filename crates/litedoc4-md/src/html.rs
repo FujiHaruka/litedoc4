@@ -127,6 +127,32 @@ impl<'a> Renderer<'a> {
         }
     }
 
+    /// A run of Markdown rendered without the block element it arrived in —
+    /// a heading's own text, put somewhere that is not a heading.
+    ///
+    /// Not [`Renderer::docstring`] with the `<p>` trimmed back off: nothing
+    /// downstream can tell that wrapper from a `<p>` the author wrote, and the
+    /// input is only one paragraph when it parses as one. Anything else is
+    /// escaped, so a caller that hands this a list or a table gets the author's
+    /// characters rather than markup it did not ask for.
+    #[must_use]
+    pub fn inline(&self, md: &str) -> String {
+        let mut source = String::with_capacity(md.len() + 2);
+        source.push_str(md);
+        source.push_str("\n\n");
+        let parsed = parse(&source);
+        if let Ok(doc) = &parsed
+            && let [Block::P(texts)] = doc.blocks.as_slice()
+        {
+            let mut out = String::new();
+            self.texts_into(&mut out, texts, false);
+            return out;
+        }
+        let mut out = String::new();
+        escape_html_into(&mut out, md);
+        out
+    }
+
     /// No trimming: `Html.toString` trims the whole page once, at the top, and
     /// a docstring is never the whole page.
     #[must_use]
@@ -540,6 +566,26 @@ mod tests {
 
     fn render(md: &str) -> String {
         Renderer::new("../", &NoLinks).docstring(md)
+    }
+
+    #[test]
+    fn inline_renders_one_line_without_a_block_wrapper() {
+        let renderer = Renderer::new("../", &NoLinks);
+        assert_eq!(renderer.inline("The `observe` tactic"), "The <code>observe</code> tactic");
+        assert_eq!(renderer.inline("a < b & c"), "a &lt; b &amp; c");
+        assert!(renderer.inline("$x^2$").starts_with("<math>"));
+        assert_eq!(renderer.inline(""), "");
+    }
+
+    /// Input that is not one paragraph reaches the caller as its own characters:
+    /// a list in a place with no room for one is still readable, where `<ul>`
+    /// dropped into a table cell is not.
+    #[test]
+    fn inline_escapes_what_is_not_a_single_paragraph() {
+        let renderer = Renderer::new("../", &NoLinks);
+        assert_eq!(renderer.inline("- a\n- b"), "- a\n- b");
+        assert_eq!(renderer.inline("# H"), "# H");
+        assert_eq!(renderer.inline("a\n\nb"), "a\n\nb");
     }
 
     #[test]

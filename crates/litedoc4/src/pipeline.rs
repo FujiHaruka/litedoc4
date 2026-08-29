@@ -269,6 +269,7 @@ pub(crate) struct Summary {
     pub math_fallbacks: usize,
     pub cache_hits: usize,
     pub cache_misses: usize,
+    pub module_summaries: litedoc4_global::SummaryCounts,
     pub mode: String,
 }
 
@@ -613,6 +614,7 @@ pub(crate) fn run_incremental(
             math_fallbacks,
             cache_hits: derived.cache_hits,
             cache_misses: derived.cache_misses,
+            module_summaries: derived.module_summaries,
             mode: mode.name().to_owned(),
         },
         timings: {

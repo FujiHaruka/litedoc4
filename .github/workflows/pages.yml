@@ -5,7 +5,7 @@
 # it pinned. This one shows what this commit produces, which is the question a
 # reader looking at a change actually has.
 #
-# It publishes `e2e/micro`, the ten-module sample package: scoped notation, an
+# It publishes `e2e/micro`, the eleven-module sample package: scoped notation, an
 # astral identifier, a formula the converter refuses, `class inductive`, the
 # three shapes of `sorry`. **Its docstrings and `docs/index.md` are this site's
 # copy** — strangers read them, so they are written for a stranger, and the

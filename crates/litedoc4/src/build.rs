@@ -611,6 +611,7 @@ pub(crate) fn run(request: &Request) -> Result<Ran, Failure> {
         extractor_requests: extractor.requests(),
         cache_hits: done.cache_hits,
         cache_misses: done.cache_misses,
+        module_summaries: done.module_summaries,
         ir_reads: litedoc4_ir::metrics::snapshot(),
     };
     println!("{}", work.line(modules.len()));
@@ -673,6 +674,7 @@ struct Done {
     ledger_modules: usize,
     cache_hits: usize,
     cache_misses: usize,
+    module_summaries: litedoc4_global::SummaryCounts,
     extract_seconds: f64,
     render_seconds: f64,
     global_seconds: f64,
@@ -724,6 +726,9 @@ struct WorkCounts {
     extractor_requests: usize,
     cache_hits: usize,
     cache_misses: usize,
+    /// Front-page rows that carry a description, and the ones whose description
+    /// only repeats the module's own name.
+    module_summaries: litedoc4_global::SummaryCounts,
     ir_reads: litedoc4_ir::IrReads,
 }
 
@@ -736,6 +741,8 @@ impl WorkCounts {
             "extractorRequests": self.extractor_requests,
             "globalCacheHits": self.cache_hits,
             "globalCacheMisses": self.cache_misses,
+            "moduleSummaries": self.module_summaries.rendered,
+            "moduleSummariesEchoingTheName": self.module_summaries.echoing_the_name,
             // Split by kind, because only the module files divide into a number
             // of full passes: `index.json` and the dependency slices are read a
             // fixed number of times per run whatever the package's size.
@@ -760,7 +767,7 @@ impl WorkCounts {
         };
         format!(
             "work    extract {} / render {} / math-fallback {} / requests {} / \
-             cache {} hit {} miss / \
+             cache {} hit {} miss / summary {} ({} name-only) / \
              ir {} file(s) ({} module read(s) = {passes} full pass(es))",
             self.modules_extracted,
             self.pages_rendered,
@@ -768,6 +775,8 @@ impl WorkCounts {
             self.extractor_requests,
             self.cache_hits,
             self.cache_misses,
+            self.module_summaries.rendered,
+            self.module_summaries.echoing_the_name,
             self.ir_reads.total(),
             self.ir_reads.module,
         )
@@ -866,6 +875,7 @@ fn full_generation(
         ledger_modules: detected.modules.len(),
         cache_hits: site.derived.cache_hits,
         cache_misses: site.derived.cache_misses,
+        module_summaries: site.derived.module_summaries,
         extract_seconds,
         render_seconds: site.render_seconds,
         global_seconds: site.global_seconds,
@@ -916,6 +926,7 @@ fn incremental_generation(
         ledger_modules: run.detected.modules.len(),
         cache_hits: run.summary.cache_hits,
         cache_misses: run.summary.cache_misses,
+        module_summaries: run.summary.module_summaries,
         extract_seconds: run.timings.extract,
         render_seconds: run.timings.render,
         global_seconds: run.timings.global,

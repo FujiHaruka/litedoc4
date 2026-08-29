@@ -1,9 +1,9 @@
 /-!
-# Basic
+# The kinds a declaration comes in
 
-The kinds a declaration comes in, each with a docstring of its own: `def`,
-`theorem`, `structure`, `instance`, `abbrev` and `inductive`. Every page on this
-site is laid out the same way, so this is the one to read first.
+One of each, with a docstring apiece: `def`, `theorem`, `structure`, `instance`,
+`abbrev` and `inductive`. Every page on this site is laid out the same way, so
+this is the one to read first.
 
 This module imports nothing of its own, so the only entry in its import list is
 the `Init` every Lean module gets.

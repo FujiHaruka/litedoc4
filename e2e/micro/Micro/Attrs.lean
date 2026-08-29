@@ -1,5 +1,5 @@
 /-!
-# Attrs
+# How an attribute's name and value are printed
 
 One declaration per kind of attribute, so that a page can be read next to the
 source to see how each of them is printed.

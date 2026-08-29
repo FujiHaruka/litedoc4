@@ -42,7 +42,7 @@ pub const STATE_VERSION: u64 = 1;
 /// prototype has to miss on every module here, and one written here has to miss
 /// over there. Matching the strings would make the two caches interchangeable,
 /// which is exactly the claim nobody has checked.
-pub const STATE_DERIVATION: &str = "litedoc4-global facts v3";
+pub const STATE_DERIVATION: &str = "litedoc4-global facts v4";
 
 /// The facts a previous run left behind, already checked against this run's
 /// index. Empty is a complete and valid value: every module will be read.
@@ -203,6 +203,7 @@ mod tests {
             tokens: Vec::new(),
             instances_for: Vec::new(),
             refs: BTreeMap::new(),
+            summary: None,
         }
     }
 

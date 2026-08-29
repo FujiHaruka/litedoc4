@@ -29,6 +29,7 @@ use litedoc4_render::{SiteConfig, SiteMeta, css_kind};
 use serde_json::{Map, Value};
 
 use crate::entry;
+use crate::entry::ModuleRow;
 use crate::facts::ModuleFacts;
 use crate::search_index;
 
@@ -111,6 +112,35 @@ pub struct Counts {
     /// into a dependency has no key here, and the target package's 54,424
     /// references reduce to 10,163 pairs (measured 2026-08-22).
     pub used_by_edges: usize,
+    pub module_summaries: SummaryCounts,
+}
+
+/// What the front page's module descriptions came to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SummaryCounts {
+    /// Modules whose docstring opened with a heading.
+    pub rendered: usize,
+    /// Of those, how many said only what the row already says.
+    ///
+    /// **Reported rather than suppressed.** A heading equal to the module's own
+    /// last component is a row that reads `Micro.Math — Math`, and the
+    /// straightforward fix is to leave it out — but the rule that would do it is
+    /// wrong the first time a package heads `Polymatroid/Basic.lean` with
+    /// `# Polymatroid`, and it puts the tool in the position of deciding the
+    /// author's copy is worthless. A number the author can watch go to zero
+    /// says the same thing without editing anything.
+    pub echoing_the_name: usize,
+}
+
+/// Case-insensitive, and against the source rather than the rendered text: a
+/// heading of `` `Math` `` on `Pkg.Math` is not caught, which keeps this a
+/// count that means one thing and never a claim that it found them all.
+fn echoes_the_name(row: &ModuleRow<'_>) -> bool {
+    let Some(summary) = row.summary else {
+        return false;
+    };
+    let last = row.name.rsplit('.').next().unwrap_or(row.name);
+    summary.eq_ignore_ascii_case(last)
 }
 
 pub const ARTIFACT_PATHS: [&str; 9] = [
@@ -173,9 +203,17 @@ impl Artifacts {
         // subscripts into it, and two orders would be two files agreeing by
         // accident.
         let own_sorted = sorted(own.iter().copied());
-        let pages: Vec<(&str, String)> = own_sorted
+        let summaries: HashMap<&str, &str> = facts
             .iter()
-            .map(|module| (*module, page_path(module)))
+            .filter_map(|facts| Some((facts.module.as_str(), facts.summary.as_deref()?)))
+            .collect();
+        let pages: Vec<ModuleRow<'_>> = own_sorted
+            .iter()
+            .map(|module| ModuleRow {
+                name: module,
+                page: page_path(module),
+                summary: summaries.get(*module).copied(),
+            })
             .collect();
         let at: HashMap<&str, usize> = own_sorted
             .iter()
@@ -215,21 +253,28 @@ impl Artifacts {
                 Value::Array(
                     pages
                         .iter()
-                        .map(|(module, page)| {
+                        .map(|module| {
                             // Subscripts into this same array, and **the
                             // direction is the whole point**: `i` is who imports
                             // *this* module, so a page's "Imported by" block is a
                             // lookup rather than a scan of every module.
                             let mut importers: Vec<usize> =
-                                sorted(imported_by[module].iter().copied())
+                                sorted(imported_by[module.name].iter().copied())
                                     .into_iter()
                                     .map(|importer| at[importer])
                                     .collect();
                             importers.dedup();
+                            // **No description here.** This file is fetched by
+                            // every page of the site for the sidebar and the
+                            // "Imported by" block; the target's 432 modules cost
+                            // 8,500 B gzipped (measured 2026-08-19 →
+                            // benchmarks/results/search-design-2026-08-19.txt),
+                            // and a heading each roughly doubles it to serve a
+                            // tree whose rows are names.
                             Value::Object(
                                 [
-                                    ("n".to_owned(), Value::String((*module).to_owned())),
-                                    ("p".to_owned(), Value::String(page.clone())),
+                                    ("n".to_owned(), Value::String(module.name.to_owned())),
+                                    ("p".to_owned(), Value::String(module.page.clone())),
                                     (
                                         "i".to_owned(),
                                         Value::Array(
@@ -322,6 +367,10 @@ impl Artifacts {
                     users.len()
                 })
                 .sum(),
+            module_summaries: SummaryCounts {
+                rendered: pages.iter().filter(|row| row.summary.is_some()).count(),
+                echoing_the_name: pages.iter().filter(|row| echoes_the_name(row)).count(),
+            },
         };
 
         // **No `modules` array here.** `modules.json` already carries one, in
@@ -465,6 +514,7 @@ mod tests {
             tokens: Vec::new(),
             instances_for: Vec::new(),
             refs: BTreeMap::new(),
+            summary: None,
         }
     }
 
@@ -481,7 +531,11 @@ mod tests {
     fn chain() -> Vec<ModuleFacts> {
         let mut root = facts("Pkg", &[]);
         root.decls = vec![("Pkg.a".to_owned(), "definition".to_owned())];
+        root.summary = Some("The `Pkg` root".to_owned());
         let mut middle = facts("Pkg.B", &["Pkg"]);
+        // Says only what the row says. One of the three, so the two summary
+        // counts cannot be each other.
+        middle.summary = Some("b".to_owned());
         middle.decls = vec![
             ("Pkg.B.inst".to_owned(), "instance".to_owned()),
             ("Pkg.dup".to_owned(), "theorem".to_owned()),
@@ -603,6 +657,7 @@ mod tests {
             instance_types,
             used_by_targets,
             used_by_edges,
+            module_summaries,
         } = artifacts.counts;
         let instances = parsed(&artifacts.instances_json);
         assert_eq!(
@@ -625,6 +680,18 @@ mod tests {
         );
         assert_eq!(dependency_names, 0);
         assert_eq!(declarations + dependency_names, artifacts.name_map.len());
+
+        // The reconciliation the e2e gate makes over a built site, made here
+        // over the string this crate produced: a renderer that dropped a row and
+        // a count that was derived from something other than the rows both fail.
+        assert_eq!(
+            module_summaries.rendered,
+            artifacts.index_html.matches("class=\"modsummary\"").count(),
+            "the front page and the count disagree on how many modules described \
+             themselves"
+        );
+        assert_eq!(module_summaries.rendered, 2);
+        assert_eq!(module_summaries.echoing_the_name, 1);
 
         // Read off the parsed artifact rather than off `used_by`, because the
         // artifact is what the numbers are about.

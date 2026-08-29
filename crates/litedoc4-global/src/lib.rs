@@ -32,7 +32,7 @@ pub mod v8_gc;
 // everything else is reached as `litedoc4_global::<module>::<item>`.
 // `unreachable_pub` catches a re-export that stops being needed, except for
 // `Error`, which is reachable only as `build_global`'s error type.
-pub use artifacts::page_path;
+pub use artifacts::{SummaryCounts, page_path};
 pub use site::{Error, FactsRun, GlobalOptions, GlobalSummary, build_global, facts_for};
 // Re-exported for their meaning rather than for a caller: anything that has to
 // find the cache file, or decide whether a cached entry answers for this

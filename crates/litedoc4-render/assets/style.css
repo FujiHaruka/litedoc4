@@ -537,6 +537,16 @@ body.plain .modhead h1 { font-size: clamp(1.75rem, 1.1rem + 2.6vw, 2.75rem); }
 
 .modlist { list-style: none; margin-top: 1rem; columns: 19rem; column-gap: 2.5rem; }
 .modlist li { break-inside: avoid; }
+/* Only when the package described its modules. A grid of one wide row each is
+   the wrong shape for a list of bare names — 432 of them in one column is a
+   page nobody scrolls — so the columns stay until there is a second thing in
+   the row to line up. */
+.modlist-described { columns: auto; }
+.modlist-described li {
+  display: grid; grid-template-columns: minmax(0, 21rem) minmax(0, 1fr);
+  gap: 0 1.5rem; align-items: baseline;
+}
+.modsummary { color: var(--fg-faint); font-size: .85rem; line-height: 1.5; }
 .modlist a {
   display: block; padding: .2rem .4rem .2rem 1.45rem;
   text-indent: -1.05rem; border-radius: var(--radius);
@@ -592,6 +602,8 @@ body.plain .modhead h1 { font-size: clamp(1.75rem, 1.1rem + 2.6vw, 2.75rem); }
 }
 
 @media (max-width: 60rem) {
+  .modlist-described li { grid-template-columns: minmax(0, 1fr); }
+  .modsummary { padding: 0 .4rem .35rem 1.45rem; }
   .shell { grid-template-columns: minmax(0, 1fr); }
 
   .sidebar {
