@@ -454,8 +454,13 @@ What CI holds besides lints: **rustdoc links**
   **The symptom looks like "the gate broke", but what is broken is the environment.**
   Before running a gate that starts a long-lived process, look at `pgrep -f 'litedoc4 watch'`.
   General form: **a long-lived process sharing a work area makes its failures look like the work area's fault.**
-- **To take a measured CI value without turning main red: push a branch + `gh workflow run ci.yml --ref <branch>`**
-  (the verification workflows are `workflow_dispatch` only. Only `ci.yml` runs on push / PR).
+- **To take a measured CI value without turning main red: push a branch + `gh workflow run <wf> --ref <branch>`**
+  — **a branch push starts nothing**: every `push:` trigger in the tree is limited to `main`, and
+  `release.yml`'s to `v*` tags (measured 2026-08-29). **`pull_request:` does not filter**, so opening a PR does start `ci.yml`,
+  `ci-action.yml`, `ci-lake.yml` and `ci-lean-versions.yml` (each behind its own `paths:`); the
+  other nine are `workflow_dispatch` only. **`workflow_dispatch` needs the workflow to exist on the
+  default branch** — a new one on a branch cannot be dispatched by name at all, and the way to run
+  it is a `push:` trigger naming that branch.
 - **The moment you put a pipe in, the exit code you are looking at is the last command's.**
   `litedoc4 build … | tail -25` **looks like 0 even when litedoc4 rejects and exits 3**
   (measured 2026-08-18, stepped on twice that day). Adding `| tail` to read the log is routine, so

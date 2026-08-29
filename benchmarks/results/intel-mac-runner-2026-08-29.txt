@@ -1,0 +1,37 @@
+Intel macOS: which runner labels start
+======================================
+2026-08-29.  Throwaway workflow on branch `intel-mac-probe` (deleted), public
+repository.  https://github.com/FujiHaruka/litedoc4/actions/runs/33243094230
+
+WHY IT WAS RUN
+--------------
+`release.yml` and `lakefile.lean` said there is no `x86_64-apple-darwin` build
+because there is no Intel runner to *test* one on — measured 2026-08-18, when
+`macos-13` queued >15 min without ever starting.  The same sentence about arm
+Linux had just turned out to be stale
+(`benchmarks/results/arm64-linux-runner-2026-08-29.txt`), so the label list was
+asked rather than reasoned about.
+
+WHAT COMPLETED  (measured)
+--------------------------
+  macos-15-intel   starts.  Queued 08:25:01Z, started 08:25:15Z, green.
+                   Darwin 24.6.0, xnu-11417.140.69.711.44 RELEASE_X86_64,
+                   `uname -m` = x86_64
+  macos-13         did not start.  Still queued when the run was cancelled,
+                   ~9 min after it was created — the same behaviour as
+                   2026-08-18
+
+**Nothing else was measured.**  A second job was building
+`x86_64-apple-darwin` and would have run `cargo test` and `tools/e2e-micro.sh`
+with the unpacked archive, and it was **cancelled part-way through the build**.
+So this file says which labels schedule, and nothing about whether the tree
+builds, tests or renders on Intel macOS.
+
+WHAT IT CHANGED
+---------------
+Nothing about what is shipped.  **Intel macOS is out of scope**
+(decided 2026-08-29, user's call), so `x86_64-apple-darwin` stays absent from
+`release.yml`'s matrix and from `lakefile.lean`'s `releaseTargets`.  What
+changed is the reason written next to that absence: "there is no runner" was
+true when it was written and is not true now, and a comment that gives a false
+reason is the thing that gets re-investigated.

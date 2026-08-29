@@ -148,10 +148,10 @@ None of them is a warning.
 The target triples a release actually carries (measured 2026-08-29).
 
 Not every triple, and not by accident: `.github/workflows/release.yml` builds no
-`x86_64-apple-darwin`, because there is no Intel runner to *test* one on and
-shipping a binary nobody has executed is what that workflow's smoke job exists
-to refuse. So **"this machine has no asset" is a normal path, not a fault** —
-Windows and Intel macOS take it.
+`x86_64-apple-darwin`, because Intel macOS is out of scope
+(decided 2026-08-29, user's call). So **"this machine has no asset" is a normal
+path, not a fault** — Windows and Intel macOS take it, and both build from
+source.
 -/
 def releaseTargets : List String :=
   ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin"]

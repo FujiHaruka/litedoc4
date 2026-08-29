@@ -61,12 +61,14 @@ jobs:
             os: ubuntu-24.04-arm
           - target: aarch64-apple-darwin
             os: macos-latest
-          # No x86_64-apple-darwin: it needs an Intel runner to be *tested* on,
-          # and `macos-13` does not start here (measured 2026-08-18: queued >15 min
-          # without ever starting). Cross-compiling from the arm runner would
-          # produce a binary nobody had executed — the "it built, therefore it
-          # works" the smoke job below exists to refuse. Intel macOS builds from
-          # source.
+          # No x86_64-apple-darwin: **Intel macOS is out of scope**
+          # (decided 2026-08-29, user's call), and it builds from source.
+          # Not for want of a machine — `macos-15-intel` starts here and
+          # `macos-13` still does not (measured 2026-08-29,
+          # benchmarks/results/intel-mac-runner-2026-08-29.txt). The decision is
+          # what to reopen if it is reopened, and the smoke job is what any
+          # reopening has to satisfy: a binary cross-compiled from the arm runner
+          # would be one nobody had executed.
     steps:
       - uses: actions/checkout@v7
 
