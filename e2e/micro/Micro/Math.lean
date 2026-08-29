@@ -3,24 +3,26 @@ import Micro.Basic
 /-!
 # Math
 
-Docstring mathematics, which `litedoc4-md` converts to MathML at build time.
-doc-gen4 leaves the dollars in the page for MathJax to find in the browser;
-nothing here loads a script.
+Mathematics written in a docstring, converted to MathML **while the site is
+built**. Nothing is loaded in the browser to draw it — no MathJax, no KaTeX, no
+math web font — because every current browser lays MathML out itself.
 
-The four declarations below are the four answers, and the last one is the one
-that matters: **a span the LaTeX parser refuses is written back as its source**,
-so the page is never worse than doc-gen4's. The build counts those and prints
-the count, because a page full of unconverted formulas is otherwise
-indistinguishable from a page full of converted ones.
+The four declarations below are the four answers, and the last one is the one to
+look at: a formula the converter cannot read is written back as its own source,
+so a page is never worse than one that never tried. The build says how many were
+kept that way, because a page whose formulas silently stayed unconverted is
+still a valid page.
+-/
 
-This module is a separate file for the same reason `Micro/Sorry.lean` is: it is
-the only place where the *whole* path — Lean docstring, extractor, IR, renderer
-— is walked for math, and a hand-written IR fixture cannot show that md4c's
-`MD_FLAG_LATEXMATHSPANS` saw a `$` where Lean put one.
+/-
+`tools/e2e-micro.sh` GATE 10 reads this module's page and the run's marker: three
+inline formulas, one displayed, one fallback, and no half-escaped markup inside a
+MathML element. The counts are exact, so a formula added or removed here — in a
+docstring or in the module doc above — has to be added or removed there.
 
-The measurement target has **three** math spans in 5,079 docstrings, so it could
-never have exercised this (measured 2026-08-22 →
-`benchmarks/results/mathml-2026-08-22.txt`).
+Do not "fix" `\colim` to a command the converter implements. It is the input:
+without a span that fails, nothing distinguishes a run that converted everything
+from one that converted nothing.
 -/
 
 namespace Micro.Math
@@ -35,17 +37,14 @@ $$\sum_{i = 0}^{n} i = \frac{n(n+1)}{2}$$
 and the prose continues after it. -/
 def displaySpan (n : Nat) : Nat := n * (n + 1) / 2
 
-/-- Escaping still applies to whatever is *not* converted, and the conversion
-has to survive characters HTML cares about: $a < b$ and $c \& d$ are both
-legal LaTeX. -/
+/-- Escaping still applies to whatever is *not* converted, and the conversion has
+to survive characters HTML cares about: $a < b$ and $c \& d$ are both legal
+LaTeX and both come out as mathematics rather than as markup. -/
 def escapes (a : Nat) : Nat := a
 
-/-- **The fallback.** `\colim` is not a command the converter implements, so
-this span stays $\colim_k F(k)$ — dollars, source, escaping, exactly what the
-page held before MathML existed. It is one of the nine spans in Mathlib that
-fail (measured 2026-08-22).
-
-**Do not "fix" this to a command that parses.** It is the input. -/
+/-- **The fallback.** `\colim` is not a command the converter implements, so this
+span stays $\colim_k F(k)$ — dollars, source and escaping, exactly what the page
+held before MathML. -/
 theorem fallbackStays (n : Nat) : Micro.double n = n + n := rfl
 
 end Micro.Math

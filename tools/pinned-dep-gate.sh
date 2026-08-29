@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# The shape no fixture had: a **version-pinnable dependency whose module names
-# need guillemets**.
+# The shape nothing in this repository had: a **version-pinnable dependency whose
+# module names need guillemets**.
 #
 # `e2e/micro-dep` required by *path* has no `url` and no `rev`, so no
 # `/blob/<rev>` can be built and every reference renders as plain text — the
-# branch `tools/e2e-micro.sh` checks. Here the same fixture *can* be pinned, so
+# branch `tools/e2e-micro.sh` checks. Here the same dependency *can* be pinned, so
 # the guillemets have to come off on the way into the URL and the three spellings
 # a docstring can use for one module have to agree about where they point.
 # **Only a pinnable dependency makes that visible**: unpinnable, all three render
@@ -135,7 +135,7 @@ for problem in problems:
     print(f"  FAIL  {problem}")
 raise SystemExit(1 if problems else 0)
 PY
-[ "$FAILED" = 1 ] && { echo "the fixture is not the shape under test; nothing below would mean anything" >&2; exit 1; }
+[ "$FAILED" = 1 ] && { echo "the input is not the shape under test; nothing below would mean anything" >&2; exit 1; }
 echo "  ok  git + 40-hex rev + «micro-dep»"
 
 say "4/6 build the extractor and the site"

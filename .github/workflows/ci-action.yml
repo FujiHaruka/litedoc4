@@ -3,8 +3,8 @@
 # `hashFiles()` that cannot see outside the workspace, an input that never
 # reaches the script — and none of that is visible to `cargo test`.
 #
-# The fixture stands in for a user's package: e2e/micro depends on Lean core
-# only, so this costs an elan download and seconds of Lean, not Mathlib.
+# The sample package stands in for a user's package: e2e/micro depends on Lean
+# core only, so this costs an elan download and seconds of Lean, not Mathlib.
 name: action (self-test)
 
 on:

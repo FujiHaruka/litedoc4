@@ -4,10 +4,10 @@
 # not on this desk: `windows-latest` ships Consolas *and* Chrome.
 #
 # Two jobs, because the site has to be built where Lean runs: ubuntu builds the
-# e2e fixture's site and uploads it, Windows downloads it and drives Chrome. The
+# sample package's site and uploads it, Windows downloads it and drives Chrome. The
 # font check does not read its character set out of the site — it reads
 # `benchmarks/tools/mono-charset.json`, the 178 non-ASCII characters of the
-# measurement target — so the tiny fixture is enough to judge a font stack.
+# measurement target — so the tiny sample is enough to judge a font stack.
 #
 # `workflow_dispatch` only: verification workflows stay off `push`.
 name: browser gate on Windows (U3)
@@ -28,7 +28,7 @@ env:
 
 jobs:
   site:
-    name: build the fixture's site (ubuntu)
+    name: build the sample's site (ubuntu)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

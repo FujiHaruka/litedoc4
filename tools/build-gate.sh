@@ -10,7 +10,7 @@
 #   1  the IR `build` derived on its own (module list, source URL, resident
 #      extractor) is no longer byte-identical to the independently extracted
 #      reference. **The site half is not run** — the reference differs by design,
-#      and `tools/e2e-micro.sh` checks that property on a Mathlib-free fixture.
+#      and `tools/e2e-micro.sh` checks that property on the Mathlib-free sample.
 #   2  a second run with nothing changed re-extracted or moved a byte of the
 #      site: the ledger was not written back.
 #   3  after a real move + `lake build`, the second `build` still reports

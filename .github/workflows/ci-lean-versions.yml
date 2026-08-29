@@ -78,7 +78,7 @@ jobs:
       # Before setup-elan, which reads this file and keys its cache on it. That
       # is why no input had to be added to the composite: the matrix moves the
       # file, and the file is what the composite already follows.
-      - name: Point the fixture at ${{ matrix.toolchain }}
+      - name: Point the sample at ${{ matrix.toolchain }}
         id: leg
         run: |
           echo "${{ matrix.toolchain }}" > e2e/micro/lean-toolchain
@@ -108,7 +108,7 @@ jobs:
       - name: The toolchain that is actually installed
         run: |
           lean --version
-          # `elan` resolving to something else than the fixture asks for would
+          # `elan` resolving to something else than the sample asks for would
           # make every assertion below about a version nobody selected.
           lean --version | grep -q "$(sed 's|.*:v||' e2e/micro/lean-toolchain)" \
             || { echo "::error::lean is not ${{ matrix.toolchain }}"; exit 1; }

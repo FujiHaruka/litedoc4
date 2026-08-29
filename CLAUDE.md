@@ -95,10 +95,14 @@ promises, each with a gate. **Do not read v1 as "finished" any more than v0.1 me
   file, and a hand edit is a change nobody reviewed. `tools/release-notes-gate.sh` reconciles the
   archives they list against the ones the publish job asserts and their Lean versions against
   `tools/lean-toolchains.txt`, in both directions.
-- **Two example sites, and one of them is a maintenance obligation.**
+- **Two live sites, and both are a maintenance obligation.**
   `https://fujiharuka.github.io/litedoc4/` is `e2e/micro` rebuilt from `main` on every push
   (`pages.yml`, downstream of `tools/e2e-micro.sh`, so a site that failed its gates is never
-  served). `https://fujiharuka.github.io/information-theory/` is the real-scale one, and it is
+  served). **It is the sample, so `e2e/micro`'s docstrings, its `docs/index.md` and its
+  `litedoc4.toml` title are user-facing documentation** — the hygiene rules below apply to them,
+  and the reasons a declaration is there (which gate counts it, what must not be tidied away)
+  belong in plain `/- … -/` comments, which the site never shows.
+  `https://fujiharuka.github.io/information-theory/` is the real-scale one, and it is
   built by **whatever litedoc4 the target repository pins**. **Bump that pin on every release** —
   it was left at `v0.1.4` for eleven days while the README described features the deployed site
   did not have (measured 2026-08-29: `Used by` 0 occurrences before, 21 after).
@@ -120,7 +124,7 @@ too.
 | `docs/provenance.md` | Provenance determination for doc-gen4 / third-party code and the resulting licensing obligations. **The SoT for provenance determination** |
 | `benchmarks/` | Measurement reports, instrumentation patch, tools, raw logs. **Where the numbers come from** |
 | `crates/` | **Product code (Rust). The SoT for the implementation.** Comments are only the non-obvious why not |
-| `e2e/micro/` | **e2e fixtures** — a Lean package that does not depend on Mathlib. It holds, by construction, **the declaration shapes the target does not have** (→ `e2e/README.md`) |
+| `e2e/micro/` | **The sample package** — a Lean package that does not depend on Mathlib, published at `https://fujiharuka.github.io/litedoc4/` and run by the gates. It holds, by construction, **the declaration shapes the target does not have** (→ `e2e/README.md`). **Its docstrings are published copy**; keep the gates' reasons in `/- … -/` comments |
 | `tools/*-gate.sh` | **Gates** = judgements that require hardware, the target, or a toolchain. `cargo test` holds only what depends on zero hardware |
 | `.claude/handoff.md` | Handoff between sessions (tracked, committed) |
 

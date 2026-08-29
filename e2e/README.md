@@ -5,7 +5,7 @@
 **抽出器と Rust の間の契約を検査するものが 1 つも無くなる**。`Extract.lean` が書く形を変えても
 `cargo test` は全部緑のまま通る。ここはその穴を塞ぐ唯一の場所。
 
-走らせるのは `tools/e2e-micro.sh`。**フィクスチャは 2 つあり、担当が違う**
+走らせるのは `tools/e2e-micro.sh`。**入力は 2 つあり、担当が違う**
 (→ 下の「`consumer/` — なぜ micro と別なのか」)。
 
 ```
@@ -16,6 +16,11 @@ tools/lake-package-gate.sh  # consumer/ — Lake の配線
 tools/lake-download-gate.sh # consumer/ — Release からバイナリを取る経路 (要ネットワーク)
 ```
 
+`micro/` is also **the published sample**: `.github/workflows/pages.yml` serves the
+very site `tools/e2e-micro.sh` builds, at <https://fujiharuka.github.io/litedoc4/>.
+So it wears two hats, and the second one decides how it is written — see
+「触るときの注意」 below.
+
 ## なぜ Mathlib に依存しないのか
 
 **計測対象は CI の判定には使えない** — import closure が数 GB あり、無料枠の外。
@@ -24,9 +29,9 @@ tools/lake-download-gate.sh # consumer/ — Release からバイナリを取る�
 **ネットワークは要らない** — `micro-dep/` は path で require している。
 
 抽出器が Mathlib 無しで立つのは `import Lean` しか書いていないから
-(→ `extractor/Extract.lean`)。`lake env` で借りる環境は**このフィクスチャのもの**でよい。
+(→ `extractor/Extract.lean`)。`lake env` で借りる環境は**このサンプルのもの**でよい。
 
-## フィクスチャが持っているもの — 「対象が持たない形」
+## サンプルが持っているもの — 「対象が持たない形」
 
 `crates/litedoc4-render/tests/page_parts.rs` が記録している事実:
 
@@ -53,7 +58,7 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 
 ## 初回に出たもの【実測 2026-08-16】
 
-このフィクスチャを最初に通した時点で、**レンダラの実欠陥が 1 件出た**。
+このサンプルを最初に通した時点で、**レンダラの実欠陥が 1 件出た**。
 
 `inductive` と `class_inductive` の **constructor がページに 1 つも描かれていなかった**
 (`decl.rs` の分岐が body を空のまま返していた)。search 索引には載っているので、
@@ -69,7 +74,7 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 
 ## path 依存を足して出たもの【実測 2026-08-17】
 
-**2 件目も、フィクスチャを足した初回に出た。** `micro-dep/` を path で require した瞬間、
+**2 件目も、依存を足した初回に出た。** `micro-dep/` を path で require した瞬間、
 `tools/site-gate.sh` が **DEAD internal links 3 (1 distinct destination)** を出して落ちた。
 
 **壊れていたのは相対リンクへのフォールバックそのもの。** `litedoc4` は依存のモジュールに
@@ -111,7 +116,7 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 
 ### その実物を作った — `tools/pinned-dep-gate.sh`【実測 2026-08-22】
 
-**フィクスチャは同じ `micro-dep` で、変えたのは配線だけ**。path require を git require に
+**使うのは同じ `micro-dep` で、変えたのは配線だけ**。path require を git require に
 差し替えると manifest entry が `type: git` + 40 桁 rev になり、版固定できる側に落ちる。
 **モジュールも docstring も toolchain も同一なので、動く変数は版固定可能性だけ**。
 
@@ -146,7 +151,7 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 
 ## `consumer/` — なぜ micro と別なのか
 
-**フィクスチャは 2 つある。担当が違う。**
+**入力は 2 つある。担当が違う。**
 
 | | 担当 | 走らせるもの |
 |---|---|---|
@@ -222,7 +227,7 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 
 **最後の 1 つだけ入力がここに無い**: 検査 8 は**計測対象由来の非 ASCII 178 種**
 (`benchmarks/tools/mono-charset.json`) を等幅スタックで描いて字形の欠けを見る。
-**このフィクスチャに出る文字で判定すると意味が無い**からで — micro は意図的に小さいので、
+**このサンプルに出る文字で判定すると意味が無い**からで — micro は意図的に小さいので、
 `ℝ` を描けないフォントでも通ってしまう。**サイトは micro、文字集合は対象**という組み合わせは
 このゲートだけ。
 
@@ -239,6 +244,13 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 
 ## 触るときの注意
 
+- **`micro/` says everything it says to strangers.** Its module docstrings, its
+  declaration docstrings, `docs/index.md` and `litedoc4.toml`'s `title` are the
+  published sample's copy. Write them for a reader who has never seen this
+  repository: what the declaration shows about a page, not which gate counts it.
+  The reasons — which gate reads this shape, what must not be tidied away, what
+  number moves — go in plain `/- … -/` comments, which Lean ignores and the site
+  never renders. A `/--` doc comment is a page; a `/- -/` comment is a note.
 - **`micro/` の宣言を消さない。** 1 つ 1 つが「対象が持たない形」を担当している。
   足すのは歓迎 (担当を上の表に書くこと)。ただし**属性を持つ宣言を足すとゲート 8 の
   属性名ごとの本数が動く** — ゲートが名指しするので、その数を直す
@@ -248,9 +260,9 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
   まとめるとゲート 9 の否定側の期待が消える (Mathlib 標本ではこの形が 20 件ある【実測】)
 - **`Micro/Sorry.lean` の `sorry` を「直さない」。** `sorryHole` は**入力**で、
   他の 2 つはそれと違う答えでなければならない。`lake build` の
-  ``declaration uses `sorry` `` 警告はこのフィクスチャの一部
+  ``declaration uses `sorry` `` 警告はこのサンプルの一部
 - **`micro-dep/` を git 依存に変えない。** path であること (= manifest に `url` も `rev` も
-  無いこと) がこのフィクスチャの担当。GitHub にすると**そのまま版固定リンクが組めてしまい**、
+  無いこと) がこの依存の担当。GitHub にすると**そのまま版固定リンクが組めてしまい**、
   上の 3 経路を守るものが消える
 - **Mathlib を足さない。** 足した瞬間にこれは CI で回らなくなる
 - `micro/.lake/` は gitignored。`lake build` で作り直せる

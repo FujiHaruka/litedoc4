@@ -3,29 +3,28 @@ import «Dep-Aux».Basic
 /-!
 # Dep
 
-The module that reaches into a dependency. Everything interesting about it is in
-one docstring, because the question is not what Lean does with the import — it
-is what the **renderer** does with a module it can neither give a page to nor
-pin a revision for.
+A module that reaches into a dependency, and the one place on this site where a
+reference goes somewhere litedoc4 will not write a page for.
 
-`../../micro-dep` is required by path, so its manifest entry has no `url` and no
-`rev`. `crates/litedoc4/src/packages.rs` drops such an entry, which means the
-root `«Dep-Aux»` is not in the external-link map, which means every reference
-below is a dependency reference that cannot become a blob URL.
+litedoc4 documents this package only. A reference to a dependency becomes a link
+into that dependency's **version-pinned source**, taken from the revision your
+`lake-manifest.json` records. `«Dep-Aux»` is required by *path*, so its manifest
+entry has no repository and no revision: there is no revision to link into, and
+a link to the wrong page is worse than no link. The names below stay as text.
 -/
 
 /--
 Names `DepAux.marker`, a declaration in a dependency module.
 
-The module itself is spelled three ways on purpose, because the `.lidx` writes
-module names **unescaped** and the IR does not:
+The module is spelled three ways on purpose, because a module name is written
+with guillemets in some places and without them in others:
 
-* `«Dep-Aux».Basic` — the IR's spelling
-* `Dep-Aux.Basic` — the `.lidx`'s spelling
-* `Dep-Aux/Basic.lean` — a source path, which `module_for_source_path` escapes
-  before it looks anything up
+* `«Dep-Aux».Basic` — the way Lean spells it
+* `Dep-Aux.Basic` — the same name without the guillemets
+* `Dep-Aux/Basic.lean` — the path to the file it lives in
 
-Whether each of the three resolves is the thing under test here, and
-`e2e/README.md` records what was measured.
+All three name one module, and litedoc4 gives all three the same answer. Here
+that answer is "no link", because the dependency cannot be pinned; where it can,
+all three become the same URL into its source.
 -/
 def Micro.usesDep : Nat := DepAux.marker + 1

@@ -1,8 +1,9 @@
 Fast HTML documentation for Lean 4 packages that depend on Mathlib. litedoc4 documents **your**
 package only; every reference to a dependency links to that dependency's version-pinned source on
 GitHub. [README](https://github.com/FujiHaruka/litedoc4#readme) is the manual, and there are two
-live examples: [422 modules](https://fujiharuka.github.io/information-theory/) built by this
-release, and [seven](https://fujiharuka.github.io/litedoc4/) rebuilt from `main` on every push.
+live sites: [422 modules](https://fujiharuka.github.io/information-theory/) built by this
+release, and a [ten-module sample](https://fujiharuka.github.io/litedoc4/) rebuilt from `main` on
+every push.
 
 ## Pin to this tag
 
@@ -29,7 +30,7 @@ The IR schema, the ledger and `.lidx` are internal, and you never pin them yours
 ## Lean versions
 
 v4.31.0, v4.32.2, v4.33.0 and v4.33.1. Every one of them is built and run end to end on each
-change to the extractor or the fixture, and their output is compared: they write byte-identical IR
+change to the extractor or the sample, and their output is compared: they write byte-identical IR
 once Lean's own rename of a reducible instance's reducibility status is applied, which is the only
 recorded difference between them. A toolchain that is not in `tools/lean-toolchains.txt` fails by
 name rather than by bad output.

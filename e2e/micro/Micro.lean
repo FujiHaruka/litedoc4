@@ -11,11 +11,16 @@ import Micro.Unicode
 /-!
 # Micro
 
-The e2e fixture package. It depends on Lean core and on one sibling package
-reached by path (`../micro-dep`), which is what keeps it runnable on a CI
-runner: the measurement target pulls in all of Mathlib, so it can never be the
-thing a push is judged by.
+A small Lean package, published as a sample of what litedoc4 renders. It stands
+on Lean core and on one sibling package reached by path, so there is no Mathlib
+underneath and the whole site is ten modules.
+
+Each module shows one thing a page can carry — the kinds a declaration comes in,
+attributes, scoped notation, mathematics in a docstring, `sorry` markers,
+declarations Lean realized from an attribute, identifiers outside the BMP, and a
+reference into a dependency that has no page here. Read a page next to the
+source it links to; that is what the sample is for.
 
 This root module imports every other one, so `lake build` over the default
-target builds the whole fixture.
+target builds all of them.
 -/

@@ -3,38 +3,42 @@ import Micro.Basic
 /-!
 # Unicode
 
-Two UTF-16/UTF-8 traps, on purpose:
+Identifiers and docstrings that leave the Basic Multilingual Plane, and Markdown
+that goes the whole way through.
 
-* **U1** — sorting. `Vec<String>::sort()` is UTF-8 byte order, JavaScript's
-  `Array.prototype.sort()` is UTF-16 code-unit order, and they **disagree above
-  U+FFFF**. `𝒜` is U+1D49C, which is exactly there.
-* **U2** — spans. IR offsets are UTF-16 code units, so a docstring holding an
-  astral character (`𝒜`) makes every naive byte-offset slice land in the middle
-  of a character.
+`𝒜` is U+1D49C, above U+FFFF. That is where a site comes apart if one half of it
+counts characters differently from the other: the pages are written by a program
+that walks UTF-8, the search index is sorted in a browser that walks UTF-16, and
+the two orders agree everywhere except above U+FFFF. Search for `𝒜` and the
+entry is where the sort says it is.
+-/
 
-The corpus caught these because it happened to contain such names; this fixture
-contains them **by construction**, so a machine that has never seen the corpus
-still runs into them.
+/-
+This package carries the astral character **by construction** rather than by
+luck, so a machine that has never seen a Mathlib-sized corpus still runs into
+both traps: the sort order above U+FFFF, and IR offsets that are UTF-16 code
+units, which make a naive byte slice land in the middle of a character.
 -/
 
 namespace Micro
 
-/-- The script capital `𝒜` (U+1D49C) lives outside the BMP, which is where U1
-and U2 bite. -/
+/-- The script capital `𝒜` (U+1D49C) lives outside the BMP, which is where the
+two orders part company. -/
 def script𝒜 : Nat := 1
 
-/-- Markdown in a docstring, so that the CommonMark path is exercised end to
-end.
+/-- Markdown in a docstring, rendered the same way every docstring on this site
+is.
 
-# A heading, whose id comes from the UnicodeBasic split table
+# A heading, which gets an id of its own
 
-A paragraph with a `code span`, a reference to `Micro.double`, and a list:
+A paragraph with a `code span`, a reference to `Micro.double` that becomes a
+link, and a list:
 
 * first
 * second
 
-The heading above is the one shape that puts a generated id into the page's
-bytes (`heading_id`), so a change to the split table shows here. -/
+The heading above is linkable: its id is derived from its own text, so the
+address of a section is decided by what the section says. -/
 def documented : Nat := script𝒜 + double 1
 
 end Micro

@@ -3,10 +3,17 @@ import Micro.Basic
 /-!
 # Notation
 
-`scoped notation` is the one thing doc-gen4 cannot print for a package's own
-declarations, so the fixture has to contain it: if litedoc4
-ever loses `Lean.activateScoped`, the signature of `useNotation` below stops
-printing as `⟦n⟧` and this fixture is where that shows.
+`scoped notation` declared by the package itself, and a signature that uses it.
+
+A signature is printed the way Lean prints it, with the package's own notation
+in scope — so `useNotation` below reads as `⟦n⟧` rather than as the application
+underneath it.
+-/
+
+/-
+This is the one shape doc-gen4 cannot print for a package's own declarations. If
+litedoc4 ever loses `Lean.activateScoped`, `useNotation`'s signature stops
+printing as `⟦n⟧`, and this module is where that shows.
 -/
 
 namespace Micro

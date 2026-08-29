@@ -14,14 +14,15 @@
 #   4 SAME IR   the extractor Lake builds and the one `extractor/build.sh`
 #               builds write different IR over `e2e/micro`.
 #   5 --lib     the run passed no `--lib` and the site does not document every
-#               library root the fixture declares: the Lake-side lookup broke.
+#               library root the consumer declares: the Lake-side lookup broke.
 #
 # Item 4 compares **IR, not binaries**: Lake prefixes package-local symbols and
 # compiles the generated C with `-O3 -DNDEBUG`, so the two builds differ by
 # +308,032 B (measured 2026-08-18,
-# benchmarks/results/lake-package-probe-2026-08-18.txt §2). The fixture is
-# `e2e/micro` because it carries declaration shapes the measurement target does
-# not have, and a comparison is only as good as the shapes that reach it.
+# benchmarks/results/lake-package-probe-2026-08-18.txt §2). It compares over
+# `e2e/micro` because that package carries declaration shapes the measurement
+# target does not have, and a comparison is only as good as the shapes that reach
+# it.
 #
 # Everything written goes under $OUT, `e2e/micro/.lake/` or `<repo>/.lake/`.
 #
@@ -60,7 +61,7 @@ done
 [ -x "$LITEDOC4" ] || { echo "no litedoc4 at $LITEDOC4 — cargo build --bin litedoc4" >&2; exit 2; }
 [ -f "$ROOT/lakefile.lean" ] || { echo "no $ROOT/lakefile.lean — this gate has nothing to check" >&2; exit 2; }
 [ -f "$FIXTURE/lakefile.toml" ] || { echo "no consumer fixture at $FIXTURE" >&2; exit 2; }
-[ -f "$MICRO/lakefile.toml" ] || { echo "no micro fixture at $MICRO" >&2; exit 2; }
+[ -f "$MICRO/lakefile.toml" ] || { echo "no sample package at $MICRO" >&2; exit 2; }
 
 if [ -z "$OUT" ]; then
   OUT="$(mktemp -d)"
@@ -135,7 +136,7 @@ mkdir -p "$IR"
   || { echo "lake build litedoc4/extract failed — see $OUT/lake-build.log" >&2; tail -20 "$OUT/lake-build.log" >&2; }
 LAKE_EXTRACT="$ROOT/.lake/build/bin/extract"
 
-# `extractor/build.sh`'s two steps, inside the fixture's environment. Rebuilt
+# `extractor/build.sh`'s two steps, inside the sample's environment. Rebuilt
 # when the source is newer, not only when the binary is missing: a stale binary
 # would make this item compare a change against itself.
 MANUAL_EXTRACT="$MICRO/.lake/e2e-extract/extract"
@@ -149,7 +150,7 @@ if [ ! -x "$MANUAL_EXTRACT" ] || [ "$ROOT/extractor/Extract.lean" -nt "$MANUAL_E
     -o "$MANUAL_EXTRACT" "$MICRO/.lake/e2e-extract/Extract.c") >>"$OUT/manual-build.log" 2>&1
 fi
 
-# The extractor needs the fixture's own oleans.
+# The extractor needs the sample's own oleans.
 (cd "$MICRO" && "$LAKE" build) >"$OUT/micro-build.log" 2>&1
 
 # The same six flags `crates/litedoc4/src/extract.rs` fixes, in the same order:

@@ -32,7 +32,7 @@ runs:
         path: ~/.elan
         key: elan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('e2e/micro/lean-toolchain') }}
 
-    - name: Install elan at the fixture's toolchain
+    - name: Install elan at the sample's toolchain
       if: steps.elan-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |

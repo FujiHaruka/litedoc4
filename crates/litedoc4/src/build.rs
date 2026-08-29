@@ -1353,7 +1353,7 @@ mod source_url_tests {
         );
     }
 
-    /// The one this repository's own example site was getting wrong: without the
+    /// The one this repository's own sample site was getting wrong: without the
     /// prefix every declaration links to a path that is not in the repository.
     #[test]
     fn a_package_in_a_subdirectory_carries_the_path_to_it() {

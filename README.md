@@ -8,8 +8,8 @@ reference to them links to that dependency's **version-pinned source on GitHub**
 self-contained static site.
 
 Live example: <https://fujiharuka.github.io/information-theory/> — 422 modules, one command,
-**24.5 s**. A second one, <https://fujiharuka.github.io/litedoc4/>, is seven modules rebuilt from
-this repository's `main` on every push: the declaration shapes rather than the scale.
+**24.5 s**. A sample, <https://fujiharuka.github.io/litedoc4/>, is ten modules rebuilt from this
+repository's `main` on every push: the shapes a page can take rather than the scale.
 
 ## Is this for you?
 
@@ -277,7 +277,7 @@ Pin the action and the `require` to a tag — `v1.0.1` or later, since the names
 1.x keeps and the releases before it kept nothing. If your package is not at the top of its
 repository, `v1.0.1` is the first release whose source links point at it. `@main` moves.
 
-**Every Lean version above is run end to end on every change to the extractor or the fixture**,
+**Every Lean version above is run end to end on every change to the extractor or the sample**,
 and their output is compared: v4.31.0, v4.32.2, v4.33.0 and v4.33.1 produce byte-identical IR
 once one rename is applied — Lean's own reclassification of a reducible instance
 (`implicit_reducible` → `instance_reducible`, from v4.33.0). That rename is the only recorded

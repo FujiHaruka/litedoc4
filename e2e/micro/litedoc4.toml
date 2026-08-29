@@ -1,7 +1,7 @@
-# What this package says about its own site (title and index page).
+# What this package says about its own site: the title and the index page.
 #
-# It is here so that `tools/config-gate.sh` has a package that configures
-# something: with no file at all the four commands that write HTML agree
-# trivially, and a gate that can only pass is not a gate.
-title = "Micro Fixture"
+# It is also what `tools/config-gate.sh` compares — with no file at all the four
+# commands that write HTML agree trivially, and a gate that can only pass is not
+# a gate.
+title = "litedoc4 sample"
 index = "docs/index.md"

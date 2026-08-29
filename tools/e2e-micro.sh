@@ -9,8 +9,8 @@
 # where a real Lean environment produces a real IR and the real pipeline turns it
 # into a real site.
 #
-# The fixture is tiny and Mathlib-free so that `lake build` takes about a second
-# and this runs on a free CI runner; the measurement target pulls in all of
+# The sample package is tiny and Mathlib-free so that `lake build` takes about a
+# second and this runs on a free CI runner; the measurement target pulls in all of
 # Mathlib and can never be what a push is judged by. It holds, on purpose, the
 # declaration shapes the target does not contain — `class`, `inductive`, `class
 # inductive`, a non-`mk` constructor, an inherited field, an implicit binder on a
@@ -39,7 +39,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=lib/common.sh
 source "$HERE/lib/common.sh" || exit 1
-FIXTURE="$ROOT/e2e/micro"
+SAMPLE="$ROOT/e2e/micro"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 LITEDOC4="${LITEDOC4:-$ROOT/target/debug/litedoc4}"
 
@@ -74,7 +74,7 @@ say() { printf '\n=== %s\n' "$1"; }
 # of tools/lean-toolchains.txt rather than out of a version comparison here, so
 # that a toolchain nobody has run fails by name instead of failing forty lines
 # into GATE 8 as a mismatched attribute.
-TOOLCHAIN="$(cat "$FIXTURE/lean-toolchain")"
+TOOLCHAIN="$(cat "$SAMPLE/lean-toolchain")"
 REDUCIBLE_ATTR="$(awk -v t="$TOOLCHAIN" '$1 == t { print $2 }' "$HERE/lean-toolchains.txt")"
 if [ -z "$REDUCIBLE_ATTR" ]; then
   echo "e2e-micro: $TOOLCHAIN has no row in tools/lean-toolchains.txt — every version this repository claims is listed there" >&2
@@ -82,28 +82,28 @@ if [ -z "$REDUCIBLE_ATTR" ]; then
 fi
 echo "toolchain $TOOLCHAIN, reducible-instance attribute $REDUCIBLE_ATTR"
 
-say "1/16 build the fixture package (Lean core only)"
-(cd "$FIXTURE" && "$LAKE" build)
+say "1/16 build the sample package (Lean core only)"
+(cd "$SAMPLE" && "$LAKE" build)
 
-say "2/16 build the extractor inside the fixture's environment"
+say "2/16 build the extractor inside the sample's environment"
 # The extractor is `import Lean` and nothing else, which is what lets it be built
 # against a package that has no Mathlib. `-rdynamic` is load-bearing:
 # `importModules (loadExts := true)` resolves symbols in the running executable
 # through the Lean interpreter.
 if [ -z "$EXTRACTOR" ]; then
-  EXTRACTOR="$FIXTURE/.lake/e2e-extract/extract"
+  EXTRACTOR="$SAMPLE/.lake/e2e-extract/extract"
   # Rebuilt when the source is newer, not only when the binary is missing: a
   # stale binary would let every gate below pass against an extractor built
   # before the change under test, and the extractor-to-Rust contract is the one
   # thing this script exists to check.
   if [ ! -x "$EXTRACTOR" ] || [ "$ROOT/extractor/Extract.lean" -nt "$EXTRACTOR" ]; then
-    mkdir -p "$FIXTURE/.lake/e2e-extract"
-    (cd "$FIXTURE" && "$LAKE" env lean --root="$ROOT/extractor" \
-      -o "$FIXTURE/.lake/e2e-extract/Extract.olean" \
-      -c "$FIXTURE/.lake/e2e-extract/Extract.c" \
+    mkdir -p "$SAMPLE/.lake/e2e-extract"
+    (cd "$SAMPLE" && "$LAKE" env lean --root="$ROOT/extractor" \
+      -o "$SAMPLE/.lake/e2e-extract/Extract.olean" \
+      -c "$SAMPLE/.lake/e2e-extract/Extract.c" \
       "$ROOT/extractor/Extract.lean")
-    (cd "$FIXTURE" && "$LAKE" env leanc -rdynamic \
-      -o "$EXTRACTOR" "$FIXTURE/.lake/e2e-extract/Extract.c")
+    (cd "$SAMPLE" && "$LAKE" env leanc -rdynamic \
+      -o "$EXTRACTOR" "$SAMPLE/.lake/e2e-extract/Extract.c")
   else
     echo "reusing $EXTRACTOR"
   fi
@@ -111,7 +111,7 @@ fi
 
 say "3/16 GATE 1 — one command"
 rm -rf "$OUT/first"
-"$LITEDOC4" build --root "$FIXTURE" --lib Micro --out "$OUT/first" \
+"$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/first.log"
 [ -f "$OUT/first/site/index.html" ] || { echo "no site was written" >&2; exit 1; }
 
@@ -127,7 +127,7 @@ cp -R "$OUT/first/site" "$OUT/first-snapshot"
 cp "$OUT/first/litedoc4-build.json" "$OUT/first-build.json"
 
 say "4/16 GATE 2 — the second run changes nothing"
-"$LITEDOC4" build --root "$FIXTURE" --lib Micro --out "$OUT/first" \
+"$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/second.log"
 
 # Bytes only; what the run *did* is GATE 5, out of the marker.
@@ -142,7 +142,7 @@ fi
 
 say "5/16 GATE 3 — a second full build is byte identical"
 rm -rf "$OUT/again"
-"$LITEDOC4" build --root "$FIXTURE" --lib Micro --out "$OUT/again" \
+"$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/again" \
   --extractor-bin "$EXTRACTOR" >"$OUT/again.log"
 if ! diff -r "$OUT/first/site" "$OUT/again/site"; then
   echo "two full builds of the same world disagree — determinism is broken" >&2
@@ -159,7 +159,7 @@ say "6/16 GATE 4 — --jobs does not change the output"
 # parallel step that reorders its output is exactly the kind of thing that shows
 # up as a diff on one machine and not another.
 rm -rf "$OUT/jobs4"
-"$LITEDOC4" build --root "$FIXTURE" --lib Micro --out "$OUT/jobs4" \
+"$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/jobs4" \
   --extractor-bin "$EXTRACTOR" --jobs 4 >"$OUT/jobs4.log"
 if ! diff -r "$OUT/first/ir" "$OUT/jobs4/ir"; then
   echo "--jobs 4 extracted a different IR than --jobs 1" >&2
@@ -207,7 +207,7 @@ jobs4_marker, jobs4 = load(jobs4_path)
 
 modules = full_marker["modules"]
 if modules < 1:
-    sys.exit(f"{full_path}: {modules} module(s) — the fixture is empty")
+    sys.exit(f"{full_path}: {modules} module(s) — the sample is empty")
 
 
 def want(label, record, key, expected):
@@ -319,7 +319,7 @@ problems = []
 checked = 0
 for name, want in sorted(expected.items()):
     if name not in found:
-        problems.append(f"{name} is not in the IR at all — the fixture lost a shape")
+        problems.append(f"{name} is not in the IR at all — the sample lost a shape")
         continue
     checked += 1
     got = found[name]
@@ -385,9 +385,9 @@ say "9/16 GATE 8 — attributes arrive split into name and value"
 # `Micro/Attrs.lean` holds one declaration per *kind* of attribute the four
 # collectors produce. The measurement target has none of the hard shapes — 163
 # occurrences over 6 distinct strings, all bare names but one `deprecated`
-# (measured 2026-08-21) — so this fixture is where they exist at all. Reads the IR,
+# (measured 2026-08-21) — so this sample is where they exist at all. Reads the IR,
 # not the site: the page still prints the rejoined string. Runs before GATE 6,
-# which appends a probe declaration to the fixture and rebuilds it.
+# which appends a probe declaration to the sample and rebuilds it.
 #
 # Three things, and the last two are why the first is not enough: the **pairs**
 # are positive expectations over named declarations; the **shape** check says
@@ -396,7 +396,7 @@ say "9/16 GATE 8 — attributes arrive split into name and value"
 # per attribute name are the stray check in the form this field needs — attributes
 # are not rare here, so "nobody else claims one" is false, and a collector that
 # answered `simp` for everything would sail past two positive expectations. The
-# numbers are this fixture's, and the gate names which one to update.
+# numbers are this sample's, and the gate names which one to update.
 python3 - "$OUT/first/ir" "$REDUCIBLE_ATTR" <<'PY'
 import json
 import pathlib
@@ -508,7 +508,7 @@ for entry in index["modules"]:
 checked = 0
 for name, want in sorted(expected.items()):
     if name not in found:
-        problems.append(f"{name} is not in the IR at all — the fixture lost a shape")
+        problems.append(f"{name} is not in the IR at all — the sample lost a shape")
         continue
     checked += 1
     got = found[name]
@@ -608,7 +608,7 @@ expected = {
     "Micro.Gen.Pair": None,
 }
 
-GENERATED = 9        # declarations with an origin, over the whole fixture
+GENERATED = 9        # declarations with an origin, over the whole sample
 SELECTION_EQ_RANGE = 42   # declarations whose two ranges are equal
 
 found = {}
@@ -645,7 +645,7 @@ problems = []
 checked = 0
 for name, want in sorted(expected.items()):
     if name not in found:
-        problems.append(f"{name} is not in the IR at all — the fixture lost a shape")
+        problems.append(f"{name} is not in the IR at all — the sample lost a shape")
         continue
     checked += 1
     got = found[name]
@@ -689,7 +689,7 @@ if len(selection_eq) == len(equal_and_claimed):
         "rule has collapsed into range equality, which is not what it means"
     )
 
-# The falsifier, on this fixture. The three-toolchain form of the same count is
+# The falsifier, on this sample. The three-toolchain form of the same count is
 # in benchmarks/results/generated-decls-2026-08-21.txt.
 before = []
 for name in claimed:
@@ -845,13 +845,13 @@ MATHPY
 say "12/16 GATE 11 — every reverse reference agrees with the IR, both ways"
 # See doc-gen4 #77. Its own file because it is worth running against the
 # measurement target too, where the numbers are 849 targets over 10,163 edges
-# (measured 2026-08-22) rather than the fixture's handful.
+# (measured 2026-08-22) rather than the sample's handful.
 "$HERE/usedby-gate.sh" --ir "$OUT/first/ir" --site "$OUT/first/site"
 
 say "13/16 GATE 12 — litedoc4.toml reaches every command that writes HTML"
-# The fixture carries a `litedoc4.toml` on purpose: with no file the four commands
+# The sample carries a `litedoc4.toml` on purpose: with no file the four commands
 # agree trivially, and a gate that can only pass is not a gate.
-"$HERE/config-gate.sh" --root "$FIXTURE" --ir "$OUT/first/ir" --built "$OUT/first/site" \
+"$HERE/config-gate.sh" --root "$SAMPLE" --ir "$OUT/first/ir" --built "$OUT/first/site" \
   --link-index "$OUT/first/link-index.lidx" --out "$OUT/config"
 
 say "14/16 GATE 6 — one edited module does not re-render the package"
@@ -864,13 +864,13 @@ say "14/16 GATE 6 — one edited module does not re-render the package"
 # render key overrides --mode to `all` (`litedoc4-incr/src/impact.rs`), so this
 # fails on any extractor that writes the package's own declarations into the map.
 # **Fewer pages than modules** is the *effect*, an inequality rather than a
-# number, because the fixture's import graph is allowed to grow. **The tree is a
+# number, because the sample's import graph is allowed to grow. **The tree is a
 # whole render** is the *oracle*: under-rendering is silent, so a page count is
 # not evidence — what the incremental run left on disk has to be what a whole
 # render of its own IR writes.
-PROBE="$FIXTURE/Micro/Basic.lean"
+PROBE="$SAMPLE/Micro/Basic.lean"
 cp "$PROBE" "$OUT/probe.orig"
-# `set -e` must not leave the fixture edited: everything below this line runs
+# `set -e` must not leave the sample edited: everything below this line runs
 # under a trap that puts the file back, including the failure paths.
 # `if`, not `[ … ] && cp`: an EXIT trap's last command decides the script's exit
 # status, and with a temporary --out this function runs *after* `$OUT` has been
@@ -883,13 +883,13 @@ on_exit restore_probe
 
 cp "$OUT/first/link-index.lidx" "$OUT/lidx-before"
 printf '\n/-- A probe appended by GATE 6; removed before this script exits. -/\ndef e2eGate6Probe_ : Nat := 13\n' >> "$PROBE"
-(cd "$FIXTURE" && "$LAKE" build)
+(cd "$SAMPLE" && "$LAKE" build)
 
-"$LITEDOC4" build --root "$FIXTURE" --lib Micro --out "$OUT/first" \
+"$LITEDOC4" build --root "$SAMPLE" --lib Micro --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" | tee "$OUT/edited.log"
 
 restore_probe
-(cd "$FIXTURE" && "$LAKE" build)
+(cd "$SAMPLE" && "$LAKE" build)
 
 if ! cmp -s "$OUT/lidx-before" "$OUT/first/link-index.lidx"; then
   echo "GATE 6: link-index.lidx moved for a one-declaration edit" >&2
@@ -913,7 +913,7 @@ PY
 rm -rf "$OUT/gate6-oracle" "$OUT/gate6-state"
 "$LITEDOC4" site --ir "$OUT/first/ir" --out "$OUT/gate6-oracle" \
   --source-url "$EDITED_URL" --link-index "$OUT/first/link-index.lidx" \
-  --state "$OUT/gate6-state" --root "$FIXTURE" >"$OUT/gate6-oracle.log"
+  --state "$OUT/gate6-state" --root "$SAMPLE" >"$OUT/gate6-oracle.log"
 gate6_diff="$(/usr/bin/diff -r -q "$OUT/gate6-oracle" "$OUT/first/site" | grep -v '^Only in' || true)"
 if [ -n "$gate6_diff" ]; then
   echo "GATE 6: the incremental tree is not what a whole render of its IR writes" >&2
@@ -927,10 +927,10 @@ fi
 "$HERE/onemod-gate.sh" "$OUT/first/litedoc4-build.json" "$OUT/first/work/serve.out"
 
 say "15/16 GATE 13 — every source link names a file that is really in this checkout"
-# The fixture is a package **inside** a repository, which the measurement target
+# The sample is a package **inside** a repository, which the measurement target
 # is not: the target *is* its repository, so the derived source URL needed no path
 # to the package and every number in benchmarks/ was taken with an empty one. The
-# published example site is what showed the gap — `blob/<rev>/Micro/Basic.lean`
+# published sample site is what showed the gap — `blob/<rev>/Micro/Basic.lean`
 # where the file is at `e2e/micro/Micro/Basic.lean` (measured 2026-08-29: 404 and
 # 200 respectively). Anyone using the action's `root` input had the same site.
 #
