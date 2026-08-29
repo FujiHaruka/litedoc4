@@ -4,12 +4,12 @@
 A consumer requires this package and gets a `docs` script:
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v0.2.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.0.0"
 ```
 
-Pin `v0.2.0` or later: earlier releases have neither `watch` nor `litedoc4.toml`,
-and the oldest tag Lake can resolve at all is `v0.1.4`. `@ "main"` also works
-and moves.
+Pin `v1.0.0` or later: it is the first release that promises its own surface
+will not move, and the oldest tag Lake can resolve at all is `v0.1.4`.
+`@ "main"` also works and moves.
 
 ```
 lake run docs -- --out ../mypkg-docs
