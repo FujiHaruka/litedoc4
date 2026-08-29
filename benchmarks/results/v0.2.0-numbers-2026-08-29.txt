@@ -1,0 +1,57 @@
+# Do the recorded numbers still hold at v0.2.0?
+
+Conditions (all of it one session, nothing else running):
+  hardware      Apple M1 / 16 GB / Darwin 25.6.0
+  litedoc4      0.2.0 (release build, this tree)
+  target        /Users/haruka/dev/lean-projects @ eed40cb6, lib InformationTheory,
+                422 modules, lean-toolchain leanprover/lean4:v4.31.0
+  extractor     extractor/build.sh against the target's toolchain
+  invocation    litedoc4 build --root <target> --out <w> --lib InformationTheory
+                --extractor-bin <e> --jobs 4
+  full runs     `rm -rf <w>` before each one, so every one of them is from nothing
+  free disk     11 GiB before, 10 GiB after; the work directory was deleted
+
+## 1. The integers did not move (measured)
+
+full     {"extractorRequests": 1, "globalCacheHits": 0, "globalCacheMisses": 422,
+          "irReads": {"depMap": 6, "index": 3, "module": 844, "total": 853},
+          "mathFallbacks": 0, "modulesExtracted": 422, "pagesRendered": 422}
+no-op    {"extractorRequests": 0, "globalCacheHits": 422, "globalCacheMisses": 0,
+          "irReads": {"depMap": 3, "index": 5, "module": 422, "total": 430},
+          "mathFallbacks": 0, "modulesExtracted": 0, "pagesRendered": 0}
+
+Identical to the values recorded on 2026-08-22 (bundle-c-2026-08-22.txt): 422/422,
+one extractor process, 2.00 IR passes full and 1.00 no-op, and no math fallback —
+the target's three formulas all convert.
+
+## 2. The wall clock moved 3x between two runs of the same command (measured)
+
+  full 1   26.32 s   peak RSS 3.22 GB
+  full 2    9.12 s   peak RSS 3.20 GB
+  full 3    8.85 s   peak RSS 3.23 GB
+  full 4    8.85 s   peak RSS 3.21 GB
+  full 5    8.80 s   peak RSS 3.23 GB
+
+  no-op    0.26 / 0.25 / 0.25 / 0.25 / 0.25 s
+
+Every one of the five built the site from nothing and did exactly the work the
+integers above describe. What separates run 1 from runs 2-5 is the page cache:
+the extraction is ~96% of a full build and is dominated by `importModules`, and
+the oleans are mmap'ed. Run 1 paged Mathlib in; the rest read it from memory.
+
+**README's 24.5 s is not rewritten.** It is the first-run figure, which is the one
+a CI job pays, and 26.32 s here reproduces it (+7%, one run against a median of
+six). The 8.8 s is a second full build in the same session — a real number for a
+real state, and the wrong one to put next to a CI cost.
+
+The no-op's 0.25 s sits just under the recorded 0.31 s; one run of five does not
+overwrite a median, and the integers say the work is identical.
+
+## 3. Not measured here
+
+"Rebuild after one added declaration" (README: 4.35 s, median of six, 3.96-6.22 s)
+needs a real edit plus a real `lake build` in the target, which is what
+tools/build-gate.sh does over an APFS clone. It is unchanged by this run.
+
+The doc-gen4 comparison row (1,076 s single-threaded over 432 modules) is at a
+different revision of the target and was not re-measured.

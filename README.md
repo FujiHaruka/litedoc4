@@ -88,7 +88,11 @@ of its revisions (432 and 422 modules); each row names the one it ran on:
 | Rebuild with nothing changed (422) | — | **0.31 s** |
 
 The rebuild row is the median of 6 runs spread over 3.96–6.22 s. What moves between them is Lean's
-environment load, not the work, so that wall clock is not something to gate on.
+environment load, not the work, so that wall clock is not something to gate on. The full row moves
+the same way and by more: a second full build in the same session, with the oleans already
+resident, takes **8.8 s** against a first run's 26.3 s, doing byte for byte the same work (measured
+2026-08-29, [`benchmarks/results/v0.2.0-numbers-2026-08-29.txt`](benchmarks/results/v0.2.0-numbers-2026-08-29.txt)).
+The 24.5 s is the first-run figure, which is what a CI job pays.
 
 **The dashes are the point**: doc-gen4 is not doing these jobs. It documents your entire import
 closure — ~8,600 modules here against your 432 — and regenerates every page on every run. That
