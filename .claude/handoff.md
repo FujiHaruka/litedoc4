@@ -1,139 +1,68 @@
-# Handoff — 2026-08-31 (relay leg 3 → leg 4)
+# Handoff — 2026-08-31 (relay leg 4 → leg 5)
 
 ## State
 
-**M3 完了。** `litedoc4 site` が Rust と **20/20 バイト一致**し、closure と used-by が
-Lean のサイトで緑。計画は `.claude/purelean-plan.md`（このリレーの SoT）。
+**M4 完了。** `litedoc4 build --root e2e/micro` が Lean で **23/23 バイト一致**し、
+`site-gate` / `config-gate` が緑。**M5 も 2 項目済み**（`--state` と `Generation`）。
+計画は `.claude/purelean-plan.md`（このリレーの SoT）。
 
-- litedoc4: main `8b038b0`、clean、push 済み
-- `cargo test --workspace` 緑（46 バイナリ、exit 0）
-- `tools/purelean-micro-gate.sh` **8/8 緑**。CI（`lake package (self-test)`）の
-  `purelean-micro` ジョブも `ab32c35` で **8/8 緑**、同じ 20 ファイル / 151,828 バイト
-  （x86_64 Linux。サイトのバイトはこの機械の性質ではない）
-- `tools/docs-gate.sh` 207 引用すべて解決 / `tools/provenance-gate.sh` 56 claims 緑 /
-  `tools/workflow-gate.sh` 緑
+- litedoc4: main `51d907e`、clean、push 済み。CI は `7b8fee5` まで緑
+  （`51d907e` は docs のみで、push 時点では走行中だった。**leg 5 は最初に `gh run list` で確認すること**）
+- `tools/purelean-micro-gate.sh` **14/14**、`purelean-render-gate.sh` 6/6（422 モジュール）、
+  `cargo test --workspace` 582 passed
+- disk **8.1 GiB**。`/private/tmp/lean-doc-relay/purelean`（398 MB）は
+  `purelean-render-gate.sh` が要る — **消さないこと**。他は掃除済み
 
-| | |
-|---|---|
-| `litedoc4 site` の 20 ファイル | Rust とバイト一致（ページ 11 + アーティファクト 9） |
-| 合成 IR（`«Odd-Name»`）の 20 ファイル | 同じくバイト一致 |
-| Lean 側 cold build | 3,887 行 26 モジュールで **6.2 s に収束** |
+## Next step — M5 incremental
 
-## What was done in leg 3（5 commits）
+**完了判定そのものが直っていない。** 5 つの判定器のうち **4 つは比較器で、Lean を指せない**
+（`*-reference.sh` が `RUST_BIN` をハードコード、実測）。→ 計画の U13。
 
-**M3 の境界を実測で引き直した**（`d91c3d9`）。`litedoc4 site` が書くのは **20 ファイル**で
-23 ではない — `write_assets` は `build` からしか呼ばれず、
-`crates/litedoc4/tests/site.rs` が「`site` は `render` と `global` の合成でありそれ以外では
-ない」を不変量として固定している。bare な `site` の木は `site-gate` の dead-link 側が
-必ず落ちる（`style.css` / `favicon.svg`）が **closure 側は全項目緑**なので、M3 の判定は
-closure + used-by にした（→ `benchmarks/results/purelean-site-boundary-2026-08-31.txt`）。
+やる順（計画の U1〜U13 表に対応。**U6 が一番安く立つ** — 対象リポジトリが要らない）:
 
-**`litedoc4-global` を Lean に転写**（`53d4f51` / `8f641ce` / `ab32c35`）。
-`cmpUtf16` / JSON writer / `Facts` / `Artifacts` / `Entry`（landing page 4 枚）/
-`SearchIndex` / `Lower`（`str::to_lowercase`）、そして `site` サブコマンド。
+1. **`Json.lean` を先に直す** — `JScan.digits` は整数しか読まず、`incremental --timings` が
+   読み戻す `work/*-timings*.json` は `"copySeconds":0.000398834` を含む。**U11 の前に必須**
+2. **U2 ledger リーダ + `checkLedger`** — M5 が読む中で**最も鋭い入口**
+   （`--ledger` は任意のバージョンが書いたファイル）
+3. U6 merge（`merge-reference.sh` は base IR だけで走る）→ U4 impact → U5 ownership
+4. U10 Resident の遅延起動 → U11 pipeline → U12 planOf 4〜9
 
-**ゲートを 5 → 8 項目に**（`ab32c35`）。6 = `site` の木（`render-compare.sh --all` を新設。
-JSON 4 つとバイナリ 1 つを見ないと「ページは同じで検索インデックスが違う」を見逃す）/
-7 = `site` の要約 / 8 = closure + used-by。**3 つとも個別に落としてから通した**。
-
-**帰属表示を払った**（`ab32c35`）。`src/Litedoc4/Lower.lean` は Rust std の
-`str::to_lowercase` の答えを総当たりした表なので、`NOTICE` に節を足し、
-`docs/provenance.md` §7 に行と理由を足し、`tools/provenance-files.txt` に 3 行足した。
-**新しい行が本当に検査されていることを、1 行を存在しない文字列に変えて確認した**。
-
-**消費者のビルド時間を計測した**（`8b038b0`、計画が M3 に課していた項目）。
-
-## 見つかったことで、記録しておく価値のあるもの
-
-1. **M2 のレンダラに乖離が残っていた（塞いだ）。** Rust は名前の分割器を **2 つ**持ち、
-   呼び出し箇所ごとに使い分ける — `module_components`（`«…»` の内側では割らず剥がす。
-   `page_path` / `module_link` / `page_root` / `module_source_url` / サイトタイトル）と
-   素の `split('.')`（`cmp_name` / tail match / `echoes_the_name`）。Lean は 1 つしか
-   持っていなかった。**対象 432 モジュールにも e2e/micro の 11 にも `«…»` の
-   モジュール名が無いので両コーパスが素通ししていた**。合成 IR で発火させると
-   塞ぐ前は 3 つの出力がずれる（→ `benchmarks/results/purelean-guillemet-2026-08-31.txt`）。
-   **一般形**: 「1 つに寄せる」は、Rust 側が意図して 2 つ持っている所では退行になる。
-   転写のとき、対応する Rust 関数を呼び出し箇所ごとに引き当てること
-2. **項目 8 は最初 `site_ok` で守られていて、独立に落ちられない形だった。**
-   6 が緑のときだけ走るなら、それは Rust のサイトの整合性を言い直すだけで自分では
-   落ちない。ガードを外して初めて落ちた（宣言を 1 つ落として
-   `pages -> search-index: 56 checked, 1 failed`）。**新項目は「落とせるか」を
-   1 つずつ確かめる** — 3 つまとめて落ちたのは 1 つが落ちたのと同じ情報しかない
-3. **`name-map.json` の依存名の側は closure 検査が見ていない**（実測）。末尾 1 件を
-   落としても項目 8 は緑のまま、項目 6 だけが落ちた。**M9 でオラクルが消えると
-   誰も見なくなる**
-4. **subagent の報告は今回も 1 件だけ実物と食い違った** — 「`components` を
-   `module_components` に寄せればよい」という報告。実際は上の 1 のとおり 2 つ要る。
-   報告の「未計測」「未実装」の申告自体は正確だった
+**`benchmarks/lean-prototype/Incr.lean`（1,079 行）が impact/ownership/merge を実装済み**で、
+422 モジュールで Rust とバイト一致を確認済み。ただし**無いものがそのファイルに書いてある**
+（`--census` / `--exclude` / `--removed` / `--modules` / `--timings` / `merge --verify` /
+拒否のほぼ全部）。`Litedoc4.Json` / `Litedoc4.Ir` への載せ替えも要る。
 
 ## Files to read first
 
-1. `.claude/purelean-plan.md` — M3 は達成として書き直し、**閉じていない 4 件**も
-   そこに書いてある。まずここ
-2. `tools/purelean-micro-gate.sh` — leg 4 の採点器。項目 6/7/8 の形をそのまま伸ばす
-3. `crates/litedoc4/src/build.rs`（1,378 行）— M4 の仕様
-4. `crates/litedoc4-render/src/assets.rs` / `crates/litedoc4-render/build.rs` — assets の
-   現状。**`build.rs` は「checked-in bundle への fallback は意図的に無い」と書いてある**
-5. `crates/litedoc4/src/{lakefile,packages,extract,ledger}.rs` — `--lib` / external links /
-   extractor 起動 / ledger
+1. `.claude/purelean-plan.md` — M5 の節に**移植単位の表・実測値・前提を崩す発見**が全部ある。まずここ
+2. `tools/purelean-micro-gate.sh` — leg 5 の採点器（14 項目）。新項目は 1 つずつ落としてから通す
+3. `crates/litedoc4/src/pipeline.rs`（1,534 行）— U11 の仕様
+4. `benchmarks/lean-prototype/Incr.lean` — U4〜U6 の下敷き
+5. `crates/litedoc4/tests/incremental.rs` — 61 分岐の点検表
 
-## Next step — M4 build
+## Load-bearing context
 
-**完了判定は `litedoc4 build --root e2e/micro` の 23/23 バイト一致 + `site-gate` と
-`config-gate` が Lean のサイトで緑。**
-
-leg 3 で決めた M4 の判断（leg 4 はここから始めてよい。ただし**まず 1 ファイルで
-計測**してから）:
-
-1. **`assets/` をリポジトリ直下に作り、3 つの正本をそこに置く。**
-   `style.css` と `favicon.svg` は `crates/litedoc4-render/assets/` から**移す**
-   （Rust の `include_str!` を張り替える。`tools/provenance-files.txt` の
-   `crates/litedoc4-render/assets/style.css` の 2 行も追随させること）。
-   `app.js` は**リポジトリに新規に置く** — vite の出力を commit する。
-   Lean 側に vite は持ち込まない（計画の「TypeScript は移植対象外」）
-2. **`src/Litedoc4/Assets.lean` は生成物**。`assets/` の 3 ファイルを Lean の
-   文字列リテラルとして持つ。**29 KB のリテラルが通るかは未計測 — まず
-   `style.css` 1 つで確かめる**。通らなければ代案を発明する前に報告すること。
-   エスケープは `\` と `"`（minify 済み JS は両方大量に含む）
-3. **生成器は `--check` を持ち、新しいゲート `tools/assets-embed-gate.sh` が
-   (a) vite の出力と `assets/app.js` の一致 (b) 生成器の `--check` を見る。**
-   `tools/gates.txt` に行を足し、ワークフローから届かせる。
-   **これは `crates/litedoc4-render/build.rs` の「fallback は 2 つの答えを作るので
-   取らない」に正面から向き合う場所** — M4〜M8 のあいだ答えは実際に 2 つある
-   （Rust は vite、Lean は commit 済み）ので、**一致を見る場所を 1 か所に名前付きで
-   作る**。M9 で vite の側が消えて答えは 1 つに戻る
-4. `writeAssets` は Rust と同じく **`build` だけが呼ぶ**（`site` は呼ばない）
-
-やる順に: (1) assets（上の 1〜3。**ここが唯一の未計測**）→ (2) `litedoc4.toml` と
-`--root` → (3) `--lib` 解決と modules 列挙（`lake` を subprocess で起動）→
-(4) external links（`lake-manifest.json`）→ (5) extractor 起動 → (6) ledger と
-`litedoc4-build.json` → (7) micro ゲートに `build` の 23 ファイル比較と `site-gate` /
-`config-gate`（**先に一度落とす。1 項目ずつ**）。
-
-**作法**（計画の「各 leg の作法」に加えて）: Rust 側が帰属表示を持つファイルを
-転写・移動したら `tools/provenance-files.txt` と `docs/provenance.md` を追随させる。
-照合語は固有名詞にする。
-
-## 環境の注意
-
-- **disk の空きが 9.1 GiB**（228 GiB 中 160 GiB 使用、95%）。対象リポジトリの計測を
-  回す前に `df -h` を見ること
-- `/private/tmp/lean-doc-relay/purelean`（398 MB）は**対象の IR と .lidx で、
-  `purelean-render-gate.sh` が要る**。消さないこと
-- `/private/tmp/lean-doc-relay/purelean-m3` に **leg 3 のオラクルが残っている**:
-  `build/`（IR + link index + Rust の 23 ファイルのサイト）/ `site-only/`（Rust の
-  `site` 20 ファイル）/ `ir-guillemet` と `g-rust`（`«Odd-Name»` の合成 IR とその
-  Rust 出力）。**M4 の突き合わせにそのまま使える**
-- e2e/micro の extractor は `e2e/micro/.lake/e2e-extract/extract` にある。
-  ビルド判断は `tools/lib/common.sh` の `micro_extractor` 1 か所に集約済み
-- **Lean のビルドは `cd e2e/consumer && ~/.elan/bin/lake build litedoc4/litedoc4`**、
-  バイナリは `.lake/build/bin/litedoc4`
+- **`ownership` の `watching` ガードは最適化ではない。** 名前が動いていなければ base の IR を
+  1 つも読まない / 動いていれば全部読む。**423 読み対 2 読み**（実測）。
+  無条件にループする移植は「正しくて 200 倍遅い」
+- **Rust は最初に抽出するリクエストでサーバを遅延起動する。** Lean は full path しか無いので
+  常に起動している。**incremental を入れるとき遅延も一緒に運ばないと、いちばん多い答え
+  （「stale なものは無い」）がいちばん高くつく**
+- **項目 13 は `litedoc4-build.json` を `work.irReads` ごと比較する。** 実測値は
+  full `{3,22,4,29}` / incremental 変化なし `{5,11,2,18}` / 1 モジュール編集 `{10,46,4,60}`。
+  読む位置がずれるとここにだけ出る
+- **対象は 432 ではなく 422 モジュール**（→ `benchmarks/results/target-drift-2026-08-31.txt`）。
+  過去の 432 era の数字はそのまま正しい。**新しい数字と並べないこと**
+- **壊したのにゲートが落ちないときは、まず「本当に壊れたか」を疑う。** Lean ソースの文字列は
+  `\"` でエスケープされているので、素朴な置換パターンは 0 箇所しか当たらずに成功したように見える
+  （leg 4 で 2 回踏んだ）
+- **`say "…\`x\`…"` はコマンド置換になる。** `workflow-gate.sh` の質問 4 が機械で見るようになった
 
 ## Relay control
 - Mode: ON
 - Goal: litedoc4 の Rust 半分を Lean に移植し切る（計画 `.claude/purelean-plan.md` の M1〜M10）
-- Leg: 4 / cap 40
-- Predecessor: purelean-r3
+- Leg: 5 / cap 40
+- Predecessor: purelean-r4
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger:
   - r1: 計画 + 4 判断 (1c3d7ce) / M1 骨格 (8294e56) / 帰属表示 (129ea01) /
@@ -143,7 +72,12 @@ leg 3 で決めた M4 の判断（leg 4 はここから始めてよい。ただ�
     (d47f9c1) / 不在の名前でレンダを止める (b0e16f7) / math フォールバックを要約に
     (6a7084a) / CI ゲート purelean-micro 5 項目 + render ゲート項目 6 (91f0c11) /
     Linux CI も同バイト (b765a2c) / M3-M4 境界を実測で引き直し (5dc900c)
-  - r3: **M3 完了**。M3 の境界を実測で再確定 20 ファイル (d91c3d9) / global の JSON 4 種 +
-    名前分割器の乖離を塞ぐ (53d4f51) / landing page 4 枚 (8f641ce) /
-    search-index.bin + ゲート 5→8 項目 + 帰属表示 (ab32c35) /
-    消費者ビルド時間 6.2 s (8b038b0)。CI も 8/8 緑
+  - r3: **M3 完了**。境界を再確定 20 ファイル (d91c3d9) / global の JSON 4 種 + 名前分割器の
+    乖離 (53d4f51) / landing page 4 枚 (8f641ce) / search-index.bin + ゲート 5→8 項目
+    (ab32c35) / 消費者ビルド 6.2 s (8b038b0)
+  - r4: **M4 完了 + M5 の 2 項目**。アセット 4 ファイルを `assets/` に一本化 + 新ゲート
+    (c47ee15, d9f4fff) / M4 仕様と handoff の 3 誤り (a53cf57) / レンダラの `--root`
+    4 通りバイト一致 (9c127c2) / resident プロトコル実証 (fc667fc) / SHA-256 + ledger
+    11 通り一致 (efaa12e) / **build 23/23 + ゲート 4 項目** (1ae4c7a) / state cache +
+    source-url の `//` を塞ぐ (b1141e5) / Generation digest 一致 (7b8fee5) /
+    対象 422 + M5 仕様 (51d907e)。ゲートは 8 → 14 項目、増分は全部個別に落としてから通した
