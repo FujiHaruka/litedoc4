@@ -16,7 +16,13 @@
 #   1 BUILDS    `lake build litedoc4/litedoc4` in e2e/consumer produced no
 #               binary: there is no Lean renderer to compare.
 #   2 IR        the sample's IR was not extracted, so there is nothing to render.
-#   3 PAGES     the two trees differ with a link index.
+#   3 PAGES     the two trees differ with a link index. Run twice, over the same
+#               IR with two spellings of --source-url: bare, and with a trailing
+#               slash. `render` and `site` accept any non-empty URL, and the
+#               Lean renderer was writing `…/e2e/micro//Mod.lean` for the second
+#               one while every gate passed, because they all pass the first
+#               (measured 2026-08-31). `build` cannot reach it — it demands 40
+#               hex and builds the base itself.
 #   4 REFUSAL   the two disagree about the name that cannot be placed.
 #               `Example.Preferred` extends `Inhabited`, whose defining module
 #               the sample does not declare, so with `--no-link-index` the name
@@ -51,6 +57,17 @@
 #               prose have to reach the pages the same way from every command
 #               that writes HTML. The oracle here is still the Rust binary:
 #               the gate runs `global`, which the Lean CLI does not have yet.
+#  14 BUILD OUT  the two `build` runs print different transcripts. Item 10
+#               compares files; nothing compared what the command *said*, and
+#               that is where `global … state 0 B` sat for a while against
+#               Rust's `state 10499 B` with every item green.
+#               Three things are normalised, each of which moves for a reason
+#               that is not the port's: a duration, the `ready` timestamp, and
+#               the two runs' different `--out`. A fourth, `, generation <hex>`,
+#               is **a known gap and not an exception list**: `Generation` is
+#               M5's, so the item asserts Rust prints it and Lean does not, and
+#               fails the day either stops being true — which is the signal to
+#               delete the normalisation rather than to widen it.
 #  13 MARKER    the two `litedoc4-build.json` differ. Compared whole, and that
 #               includes `work.irReads` — counts of how many times each reader
 #               opened the IR. They are a property of the reader's call
@@ -136,7 +153,7 @@ else
   TEMPORARY=0
 fi
 
-ITEMS=13
+ITEMS=14
 ran=0
 failed=0
 
@@ -166,7 +183,7 @@ site_run () {
   echo "$rc"
 }
 
-say "1/13 the Lean half builds from a consumer's workspace"
+say "1/14 the Lean half builds from a consumer's workspace"
 built=0
 build_rc=0
 (cd "$FIXTURE" && "$LAKE" build litedoc4/litedoc4) >"$OUT/build.log" 2>&1 || build_rc=$?
@@ -180,7 +197,7 @@ else
   tail -20 "$OUT/build.log" >&2
 fi
 
-say "2/13 the sample's IR, extracted here"
+say "2/14 the sample's IR, extracted here"
 extracted=0
 (cd "$MICRO" && "$LAKE" build) >"$OUT/micro-build.log" 2>&1
 EXTRACTOR="$(micro_extractor "$ROOT" "$MICRO" "$LAKE" "$OUT/extractor-build.log")"
@@ -204,29 +221,41 @@ else
   fi
 fi
 
-say "3/13 with --link-index, the two trees are the same bytes"
+say "3/14 with --link-index, the two trees are the same bytes"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
-  rm -rf "$OUT/lean" "$OUT/rust"
+  rm -rf "$OUT/lean" "$OUT/rust" "$OUT/lean-slash" "$OUT/rust-slash"
   lean_rc="$(render "$LEAN_EXE" "$OUT/lean" lean --link-index "$OUT/build/link-index.lidx")"
   rust_rc="$(render "$LITEDOC4" "$OUT/rust" rust --link-index "$OUT/build/link-index.lidx")"
   n_lean="$(html_count "$OUT/lean")"
   n_rust="$(html_count "$OUT/rust")"
   cmp_rc=0
   "$HERE/render-compare.sh" "$OUT/rust" "$OUT/lean" >"$OUT/compare-3.txt" 2>&1 || cmp_rc=$?
+  # The same question with a trailing slash on the URL. Not a separate item: it
+  # is the same claim ("the two renderers agree") over an input the first
+  # spelling cannot reach, and an item of its own would report the same defect
+  # twice.
+  lean_s2_rc="$(SOURCE_URL="$SOURCE_URL/" render "$LEAN_EXE" "$OUT/lean-slash" lean-slash --link-index "$OUT/build/link-index.lidx")"
+  rust_s2_rc="$(SOURCE_URL="$SOURCE_URL/" render "$LITEDOC4" "$OUT/rust-slash" rust-slash --link-index "$OUT/build/link-index.lidx")"
+  cmp_slash_rc=0
+  "$HERE/render-compare.sh" "$OUT/rust-slash" "$OUT/lean-slash" >"$OUT/compare-3-slash.txt" 2>&1 || cmp_slash_rc=$?
   if [ "$lean_rc" -ne 0 ] || [ "$rust_rc" -ne 0 ]; then
     fail 3 "a render exited non-zero (lean=$lean_rc rust=$rust_rc) — see $OUT/{lean,rust}.err"
   elif [ "$n_lean" -eq 0 ] || [ "$n_rust" -eq 0 ]; then
     fail 3 "a render wrote no page (lean $n_lean, rust $n_rust)"
   elif [ "$cmp_rc" -ne 0 ]; then
     fail 3 "$(awk '/^(differing|missing|extra) /{printf "%s %s, ", $3, $1}' "$OUT/compare-3.txt")first name in $OUT/compare-3.txt"
+  elif [ "$lean_s2_rc" -ne 0 ] || [ "$rust_s2_rc" -ne 0 ]; then
+    fail 3 "a render with a trailing slash on --source-url exited non-zero (lean=$lean_s2_rc rust=$rust_s2_rc)"
+  elif [ "$cmp_slash_rc" -ne 0 ]; then
+    fail 3 "with a trailing slash on --source-url: $(awk '/^(differing|missing|extra) /{printf "%s %s, ", $3, $1}' "$OUT/compare-3-slash.txt")first name in $OUT/compare-3-slash.txt"
   else
-    pass 3 "$n_lean pages identical, $(find "$OUT/lean" -type f -name '*.html' -exec cat {} + | wc -c | tr -d ' ') bytes"
+    pass 3 "$n_lean pages identical, $(find "$OUT/lean" -type f -name '*.html' -exec cat {} + | wc -c | tr -d ' ') bytes; identical again with a trailing slash on --source-url"
   fi
 else
   fail 3 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "4/13 with --no-link-index, both refuse the same unplaceable name"
+say "4/14 with --no-link-index, both refuse the same unplaceable name"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean-nolidx" "$OUT/rust-nolidx"
   lean_n_rc="$(render "$LEAN_EXE" "$OUT/lean-nolidx" lean-nolidx --no-link-index)"
@@ -248,7 +277,7 @@ else
   fail 4 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "5/13 the two runs print the same stdout"
+say "5/14 the two runs print the same stdout"
 # The whole of stdout and not a slice of it: both halves take `--root`, so the
 # `external ` block one prints is the other's too, and a comparison that began
 # at the first counts line would swallow a difference in the dependency map the
@@ -265,7 +294,7 @@ else
   fail 5 "item 3 did not leave two runs' stdout to compare"
 fi
 
-say "6/13 \`site\` writes the same 20 files, bytes and all"
+say "6/14 \`site\` writes the same 20 files, bytes and all"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/site-lean" "$OUT/site-rust"
   lean_s_rc="$(site_run "$LEAN_EXE" "$OUT/site-lean" site-lean)"
@@ -289,7 +318,7 @@ else
   fail 6 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "7/13 the two \`site\` runs print the same stdout"
+say "7/14 the two \`site\` runs print the same stdout"
 if [ -s "$OUT/site-lean.out" ] && [ -s "$OUT/site-rust.out" ]; then
   if ! $DIFF_CMD "$OUT/site-rust.out" "$OUT/site-lean.out" >"$OUT/site-summary.diff" 2>&1; then
     fail 7 "stdout differs — see $OUT/site-summary.diff"
@@ -307,7 +336,7 @@ fi
 # own. This is the only oracle-free question asked of the Lean tree, and it is
 # the one that outlives the oracle: after the Rust half is deleted, item 6 has
 # nothing to compare against and this is what is left.
-say "8/13 the Lean site closes over itself"
+say "8/14 the Lean site closes over itself"
 if [ "$(find "$OUT/site-lean" -type f 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]; then
   closure_rc=0
   "$PYTHON" "$ROOT/benchmarks/tools/check-site-closure.py" "$OUT/site-lean" \
@@ -330,7 +359,7 @@ else
   fail 8 "the Lean site is empty or was not written — item 6 says why"
 fi
 
-say "9/13 the two \`ledger build\` runs write the same bytes"
+say "9/14 the two \`ledger build\` runs write the same bytes"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   mod_rc=0
   "$LITEDOC4" modules --root "$MICRO" --lib Example --out "$OUT/ledger-modules.txt" \
@@ -371,7 +400,7 @@ fi
 # 11 pages between two runs while this was being written (measured 2026-08-31).
 BUILD_URL="https://github.com/FujiHaruka/litedoc4/blob/0000000000000000000000000000000000000000/e2e/micro"
 
-say "10/13 \`build\` writes the same 23 files, bytes and all"
+say "10/14 \`build\` writes the same 23 files, bytes and all"
 lean_built_site=""
 if [ "$built" -eq 1 ] && [ -x "$EXTRACTOR" ]; then
   rm -rf "$OUT/b-lean" "$OUT/b-rust"
@@ -411,7 +440,7 @@ else
   fail 10 "no binary or no extractor — item 1 or 2 did not produce one"
 fi
 
-say "11/13 the Lean-built site passes site-gate"
+say "11/14 the Lean-built site passes site-gate"
 if [ -n "$lean_built_site" ]; then
   sg_rc=0
   "$HERE/site-gate.sh" "$lean_built_site" >"$OUT/site-gate.txt" 2>&1 || sg_rc=$?
@@ -429,7 +458,7 @@ else
   fail 11 "the Lean build wrote no site — item 10 says why"
 fi
 
-say "12/13 the Lean-built site passes config-gate"
+say "12/14 the Lean-built site passes config-gate"
 if [ -n "$lean_built_site" ]; then
   cg_rc=0
   "$HERE/config-gate.sh" --root "$MICRO" --ir "$OUT/b-lean/ir" \
@@ -444,7 +473,7 @@ else
   fail 12 "the Lean build wrote no site — item 10 says why"
 fi
 
-say "13/13 the two builds leave the same litedoc4-build.json"
+say "13/14 the two builds leave the same litedoc4-build.json"
 if [ -n "$lean_built_site" ]; then
   if [ ! -s "$OUT/b-rust/litedoc4-build.json" ]; then
     fail 13 "the Rust build left no marker"
@@ -455,6 +484,32 @@ if [ -n "$lean_built_site" ]; then
   fi
 else
   fail 13 "the Lean build wrote no site, so there is no marker — item 10 says why"
+fi
+
+say "14/14 the two \`build\` runs print the same transcript"
+if [ -n "$lean_built_site" ] && [ -s "$OUT/b-rust.out" ]; then
+  # One sed each, so a rule that stops matching shows up as a difference rather
+  # than as silence.
+  normalise () {
+    sed -e 's/[0-9][0-9]*\.[0-9][0-9]* *s/<t>/g' \
+        -e 's/ready [0-9][0-9]*/ready <ns>/' \
+        -e "s|$OUT/b-rust|<out>|g" -e "s|$OUT/b-lean|<out>|g" "$1"
+  }
+  gen_in_rust="$(grep -c ', generation [0-9a-f]' "$OUT/b-rust.out" || true)"
+  gen_in_lean="$(grep -c ', generation [0-9a-f]' "$OUT/b-lean.out" || true)"
+  normalise "$OUT/b-rust.out" | sed 's/, generation [0-9a-f]*//' >"$OUT/t-rust.txt"
+  normalise "$OUT/b-lean.out" >"$OUT/t-lean.txt"
+  if [ "$gen_in_rust" -eq 0 ]; then
+    fail 14 "the Rust build no longer prints \`, generation <hex>\` — the normalisation below is now hiding nothing, delete it"
+  elif [ "$gen_in_lean" -ne 0 ]; then
+    fail 14 "the Lean build now prints \`, generation <hex>\` too — Generation landed, so delete the normalisation and compare the line"
+  elif ! diff -q "$OUT/t-rust.txt" "$OUT/t-lean.txt" >/dev/null 2>&1; then
+    fail 14 "$(diff "$OUT/t-rust.txt" "$OUT/t-lean.txt" | head -2 | tr '\n' ' ') — $OUT/t-{rust,lean}.txt"
+  else
+    pass 14 "$(wc -l <"$OUT/t-lean.txt" | tr -d ' ') line(s) identical after normalising 3 values; Generation still absent as M5 expects"
+  fi
+else
+  fail 14 "the Lean build wrote no site — item 10 says why"
 fi
 
 say "summary"

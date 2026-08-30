@@ -129,7 +129,7 @@ def headingId (texts : Array Md.Text) : String := Id.run do
   let mut piece := ""
   let mut first := true
   for c in plain.toList do
-    if isPZC c then
+    if isPZC c.val then
       if !piece.isEmpty then
         if first then first := false else out := out.push '-'
         out := out ++ piece

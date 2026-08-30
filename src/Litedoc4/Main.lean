@@ -21,7 +21,7 @@ def usage : String :=
                        [--root <dir>] [--lake <path>]
        litedoc4 site --ir <dir> --out <dir> --source-url <url>
                      (--link-index <file> | --no-link-index)
-                     [--root <dir>] [--lake <path>]
+                     [--state <dir>] [--root <dir>] [--lake <path>]
        litedoc4 ledger build --modules <file> --target <repo> --out <ledger.json>
                              [--ir <dir>] [--source-url <url>] [--link-index <file>]
                              [--root <dir>] [--lake <path>]
@@ -161,6 +161,7 @@ structure SiteArgs where
   sourceUrl : Option String := none
   linkIndex : Option String := none
   noLinkIndex : Bool := false
+  state : Option String := none
   root : Option String := none
   lake : Option String := none
   help : Bool := false
@@ -169,7 +170,7 @@ structure SiteArgs where
 /-- Flags the Rust `site` takes and this one does not, refused by name for the
 reason `renderUnimplemented` is. -/
 def siteUnimplemented : List String :=
-  ["--deps-docs-map", "--state", "--timings"]
+  ["--deps-docs-map", "--timings"]
 
 /-- Flags the Rust `site` refuses by name because they belong to a subcommand it
 calls: a caller needs *why it is not here*, not that it was misspelled. -/
@@ -202,6 +203,8 @@ partial def parseSite : List String → SiteArgs → Except String SiteArgs
       let (v, more) ← value; parseSite more { acc with linkIndex := some v }
     else if flag == "--no-link-index" then
       parseSite rest { acc with noLinkIndex := true }
+    else if flag == "--state" then do
+      let (v, more) ← value; parseSite more { acc with state := some v }
     else if flag == "--root" then do
       let (v, more) ← value; parseSite more { acc with root := some v }
     else if flag == "--lake" then do
@@ -234,7 +237,8 @@ def site (args : List String) : IO UInt32 := do
         { ir := ir, pages := out, sourceUrl := sourceUrl
           linkIndex := a.linkIndex.map (⟨·⟩)
           external := inputs.external, title := inputs.config.title }
-      let derived ← buildGlobal ir out inputs.config.indexMarkdown inputs.config.title
+      let derived ← buildGlobal ir out (a.state.map (⟨·⟩)) inputs.config.indexMarkdown
+        inputs.config.title
       -- Labelled per stage: one merged line would lose which half of the tree a
       -- number is about, and the two count different things under the same word
       -- ("modules").

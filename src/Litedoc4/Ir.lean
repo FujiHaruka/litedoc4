@@ -168,6 +168,9 @@ structure IndexEntry where
   module : String := ""
   /-- Relative to the IR root, e.g. `modules/Foo.Bar.json`. -/
   file : String := ""
+  /-- Lean's `String.hash` of the module JSON, in hex. The whole-package cache's
+  key, and the only thing that decides a hit. -/
+  contentHash : String := ""
   deriving Inhabited
 
 structure DepMapEntry where
@@ -176,6 +179,7 @@ structure DepMapEntry where
 
 structure Index where
   schemaVersion : Nat := 0
+  generator : String := ""
   leanVersion : String := ""
   ablations : Array String := #[]
   modules : Array IndexEntry := #[]
@@ -187,6 +191,7 @@ def toIndexEntry (v : JVal) : IndexEntry := Id.run do
   for (k, x) in asObj v do
     if k == "module" then e := { e with module := asStr x }
     else if k == "file" then e := { e with file := asStr x }
+    else if k == "contentHash" then e := { e with contentHash := asStr x }
   return e
 
 def toDepMapEntry (v : JVal) : DepMapEntry := Id.run do
@@ -199,6 +204,7 @@ def toIndex (v : JVal) : Index := Id.run do
   let mut ix : Index := {}
   for (k, x) in asObj v do
     if k == "schemaVersion" then ix := { ix with schemaVersion := asNat x }
+    else if k == "generator" then ix := { ix with generator := asStr x }
     else if k == "leanVersion" then ix := { ix with leanVersion := asStr x }
     else if k == "ablations" then ix := { ix with ablations := toStrings x }
     else if k == "modules" then ix := { ix with modules := (asArr x).map toIndexEntry }

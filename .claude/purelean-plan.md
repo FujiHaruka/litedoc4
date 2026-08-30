@@ -291,10 +291,17 @@ ledger を**読み戻す**側（`check` / `touch` / schema 1 の拒否）が無�
 1. **`Generation` は移植していない**（M5 に送った。意図的で、黙って落としたのではない）。
    対象の olean をハッシュして spawn 前とリクエスト前後で照合する仕組みが無いので、
    `serve ready …` の行に `generation <hex>` が付かない
-2. **`<out>/state/global-state.json` を書かない。** Lean の `buildGlobal` に `--state` が
-   無いので、M3 から続くギャップが build で露出した。**23 ファイルは `site/` の中なので
-   判定には影響しない**が、`planOf` の検査 8 はこのファイルの存在を要求するので、
-   **M5 で incremental に入るには先にこれが要る**
+2. ~~**`<out>/state/global-state.json` を書かない。**~~ **2026-08-31 に閉じた** —
+   `Global/State.lean` を移植し、`site --state` と `build` に通した。
+   `global-state.json` は cold も warm も **10,499 B でバイト一致**、
+   `global  cache 0 hit / 11 miss` → warm で `11 hit / 0 miss` も一致。
+   **壊れた state 10 通り**（4 つの version キーを 1 つずつ / 切り詰め / 非 JSON /
+   空 / エントリ欠損 / 末尾の `}`）が**両方とも黙って cold に落ちる**ことも確認した
+   （良い state での 11 hit を対照に置いてある）。
+   対象規模でも確認: 422 モジュールの IR で state は **1,337,956 B バイト一致**、
+   サイト 431 ファイルも stdout も一致。
+   `tokens` が一番高くついた — Rust の規則は**意図的に UnicodeBasic と V8 の
+   2 つの GC 表の和**なので、`Global/V8Gc.lean`（737 レンジ）を足して `Md/Gc.lean` と共有させた
 3. **`work/extract-timings-1.json` と `work/ledger-timings.json` を書かない。**
    前者は `fold_timings` 未移植（events JSONL 自体は書かれる）
 4. **config-gate のオラクルはまだ Rust。** ゲートは `global` サブコマンドを走らせ、
@@ -303,6 +310,35 @@ ledger を**読み戻す**側（`check` / `touch` / schema 1 の拒否）が無�
 5. **Lean の `panic!` する JSON リーダに入口が 1 つ増えた** — 壊れた `<ir>/index.json` が
    `extractKey` に届く。`lake-manifest.json` はテキストとしてハッシュするだけなので
    そちらは増えていない
+
+#### `--source-url` の末尾スラッシュ（2026-08-31 に見つけて塞いだ）
+
+**Rust は `…/e2e/micro/Example.lean`、Lean は `…/e2e/micro//Example.lean`** を書いていた。
+`render` と `site` は `--source-url` を検査しない（`build` だけが 40-hex を要求する）ので、
+**末尾スラッシュ付きの URL を渡すと 11/11 ページが乖離する**。
+
+**一般形の関数は既にあった。** `trimTrailingSlash` は `External.lean` にあり、
+Rust が剥がす 4 箇所のうち **3 箇所（ledger ×2 / packages / external）では呼ばれていて、
+`renderSite` の 1 箇所だけが呼び忘れ**だった。「一般形に上げ忘れた」ではなく
+「一般形はあったのに 1 箇所で使わなかった」— **検査は「関数があるか」ではなく
+「呼ぶべき場所すべてで呼んでいるか」を見る必要がある**。
+
+ゲートは**項目を増やさずに**塞いだ: **項目 3 を 2 つの綴り**（素、末尾スラッシュ付き）で走らせる。
+同じ主張を別の入力で確かめるだけなので、項目にすると同じ欠陥を 2 回報告することになる。
+落としたとき「with a trailing slash on --source-url: 11 differing」と**どちらの綴りで
+落ちたか**を言う。
+
+#### 項目 14 — build の transcript（2026-08-31）
+
+**項目 10 はファイルしか比べていなかった**ので、`global … state 0 B` と Rust の
+`state 10499 B` の差が**全項目緑のまま**残っていた。`build` が何を言ったかは誰も見ていなかった。
+
+正規化は 3 つ（duration / `ready` のタイムスタンプ / 2 つの run の `--out`）で、
+どれも「移植のせいではない理由で動く値」。**4 つ目の `, generation <hex>` は
+例外リストではなく既知の欠落**として符号化した: 項目は
+**「Rust は出す・Lean は出さない」を主張し、どちらかが崩れた日に落ちる**。
+Lean が出すようになったら「Generation landed, so delete the normalisation」と言う。
+両分岐とも実際に落として確認した。
 
 #### 実測で分かった、もう 1 つの状態
 
@@ -314,8 +350,10 @@ ledger を**読み戻す**側（`check` / `touch` / schema 1 の拒否）が無�
 試行のあいだに `rm -rf` するゲートは後者を隠す。
 
 ### M5 incremental — ledger / impact / ownership / merge / mode
-- **最初にやるのは `--state`**（M4 の閉じなかったもの 2）。`buildGlobal` が
-  `global-state.json` を書かないと `planOf` の検査 8 が通らず、**incremental に入れない**
+- ~~最初にやるのは `--state`~~ **2026-08-31 に済んだ**。`planOf` の検査 8 は通る
+- **次は `Generation`**（M4 の閉じなかったもの 1）。対象の olean をハッシュして
+  spawn 前とリクエスト前後で照合する。**入れると項目 14 が落ちる** — それが
+  正規化を消す合図で、そこで `serve ready` の行が比較対象に戻る
 - プロトタイプの `Incr.lean` が土台。**bimodal な `ownership`（423 読み vs 2 読み）を保つ**
 - `onemod-gate.sh` は**ここ**（旧 M3 から移した）。引数が
   `<litedoc4-build.json> <serve.out>` で、1 モジュール編集後の

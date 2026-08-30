@@ -43,6 +43,11 @@ structure Summary where
   deriving Inhabited
 
 def renderSite (o : Options) : IO Summary := do
+  -- `render` and `site` accept any non-empty `--source-url`, so a caller may
+  -- hand one a trailing slash and every page would carry `…/e2e/micro//Mod.lean`
+  -- (measured 2026-08-31). `build` cannot reach it — it demands 40 hex and
+  -- builds the base itself — which is why every gate missed this.
+  let sourceUrl := trimTrailingSlash o.sourceUrl
   let tree ← openIrTree o.ir
   let deps ← tree.loadDepMaps
   let mods ← tree.loadModules
@@ -56,7 +61,7 @@ def renderSite (o : Options) : IO Summary := do
   let mut bytes := 0
   let mut mathFailures := 0
   for m in mods do
-    let (html, pageMathFailures) ← match (pageHtml ix m sup o.sourceUrl title).run 0 with
+    let (html, pageMathFailures) ← match (pageHtml ix m sup sourceUrl title).run 0 with
       | .ok r => pure r
       | .error message => throw (IO.userError s!"rendering {m.name}: {message}")
     bytes := bytes + html.utf8ByteSize

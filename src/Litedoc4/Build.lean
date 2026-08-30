@@ -627,7 +627,8 @@ def runBuild (r : BuildRequest) : BuildM Unit := do
   let rendered ← renderSite
     { ir := layout.ir, pages := layout.site, sourceUrl
       linkIndex := some linkIndex, external := r.external, title := config.title }
-  let derived ← buildGlobal layout.ir layout.site config.indexMarkdown config.title
+  let derived ← buildGlobal layout.ir layout.site (some layout.state) config.indexMarkdown
+    config.title
   printRenderSummary "render  " rendered
   printGlobalSummary "global  " derived
 
