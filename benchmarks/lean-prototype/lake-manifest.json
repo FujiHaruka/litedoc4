@@ -1,6 +1,16 @@
 {"version": "1.2.0",
  "packagesDir": ".lake/packages",
- "packages": [],
+ "packages":
+ [{"url": "https://github.com/acmepjz/md4lean",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "31907cc18f48a95384f99cee5582c00fb39e0f67",
+   "name": "MD4Lean",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "31907cc18f48a95384f99cee5582c00fb39e0f67",
+   "inherited": false,
+   "configFile": "lakefile.lean"}],
  "name": "leanproto",
  "lakeDir": ".lake",
  "fixedToolchain": false}

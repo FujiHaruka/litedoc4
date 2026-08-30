@@ -25,6 +25,7 @@ Modes:
 -/
 import Std.Data.HashMap
 import Std.Data.HashSet
+import MD4Lean
 
 open System
 
@@ -426,6 +427,9 @@ structure NameIndex where
   noConstLink : Bool := false
   noFragment : Bool := false
   plainDoc : Bool := false
+  /-- Not an ablation: the Markdown path is the thing being measured, and the
+  scan path stays in the binary so both numbers come from one process. -/
+  markdown : Bool := false
   deriving Inhabited
 
 def buildIndex (deps : Array (Array (String × String))) (mods : Array Module)
@@ -946,9 +950,8 @@ def autoLinkInline (out : String) (c : PageCtx) (s : String) : String := Id.run 
 
 /-- The backtick scan: a run of `k` backticks closes at the next run of exactly
 `k`. Three or more is a fenced block. -/
-def docstring (out : String) (c : PageCtx) (text : String) : String := Id.run do
+def docstringScan (out : String) (c : PageCtx) (text : String) : String := Id.run do
   let n := text.utf8ByteSize
-  if c.ix.plainDoc then return escapeSub out text 0 n
   let mut acc := out
   let mut seg := 0
   let mut i := 0
@@ -981,6 +984,246 @@ def docstring (out : String) (c : PageCtx) (text : String) : String := Id.run do
         i := close + run
         seg := i
   return escapeSub acc text seg n
+
+/-! ## Markdown
+
+`crates/litedoc4-md/src/html.rs`, transcribed — which is itself
+`DocGen4/Output/DocString.lean`, transcribed. The parser is **MD4Lean**, the same
+md4c the Rust side vendors, so what differs between the two sides is the language
+the renderer is written in and nothing about the dialect.
+
+Left out: **math**. `latexMath` falls back to the dollars and the escaped source,
+which is what doc-gen4 emits when its own LaTeX parser refuses a span. -/
+
+open MD4Lean in
+def docstringFlags : UInt32 :=
+  MD_DIALECT_GITHUB ||| MD_FLAG_LATEXMATHSPANS ||| MD_FLAG_NOHTML
+
+/-- The `P | Z | C` code point ranges, as `lo-hi` hex pairs — the table
+`crates/litedoc4-md/src/gc.rs` holds, which derives from `UnicodeBasic`, which is
+what doc-gen4 asks the question of. A string literal rather than an array
+literal because 839 array elements are elaborated one by one and a string is
+one token; a renderer that was not being timed for its build would take the
+package. -/
+def pzcTable : String :=
+  "0-23,25-2A,2C-2F,3A-3B,3F-40,5B-5D,5F-5F,7B-7B,7D-7D,7F-A1,A7-A7,AB-AB,AD-AD,B6-B7,BB-BB,BF-BF,378-379,37E-37E,380-383,387-387,38B-38B,38D-38D,3A2-3A2,530-530,557-558,55A-55F,589-58C,590-590,5BE-5BE,5C0-5C0,5C3-5C3,5C6-5C6,5C8-5CF,5EB-5EE,5F3-605,609-60A,60C-60D,61B-61F,66A-66D,6D4-6D4,6DD-6DD,700-70F,74B-74C,7B2-7BF,7F7-7F9,7FB-7FC,82E-83F,85C-85F,86B-86F,890-896,8E2-8E2,964-965,970-970,984-984,98D-98E,991-992,9A9-9A9,9B1-9B1,9B3-9B5,9BA-9BB,9C5-9C6,9C9-9CA,9CF-9D6,9D8-9DB,9DE-9DE,9E4-9E5,9FD-9FD,9FF-A00,A04-A04,A0B-A0E,A11-A12,A29-A29,A31-A31,A34-A34,A37-A37,A3A-A3B,A3D-A3D,A43-A46,A49-A4A,A4E-A50,A52-A58,A5D-A5D,A5F-A65,A76-A80,A84-A84,A8E-A8E,A92-A92,AA9-AA9,AB1-AB1,AB4-AB4,ABA-ABB,AC6-AC6,ACA-ACA,ACE-ACF,AD1-ADF,AE4-AE5,AF0-AF0,AF2-AF8,B00-B00,B04-B04,B0D-B0E,B11-B12,B29-B29,B31-B31,B34-B34,B3A-B3B,B45-B46,B49-B4A,B4E-B54,B58-B5B,B5E-B5E,B64-B65,B78-B81,B84-B84,B8B-B8D,B91-B91,B96-B98,B9B-B9B,B9D-B9D,BA0-BA2,BA5-BA7,BAB-BAD,BBA-BBD,BC3-BC5,BC9-BC9,BCE-BCF,BD1-BD6,BD8-BE5,BFB-BFF,C0D-C0D,C11-C11,C29-C29,C3A-C3B,C45-C45,C49-C49,C4E-C54,C57-C57,C5B-C5B,C5E-C5F,C64-C65,C70-C77,C84-C84,C8D-C8D,C91-C91,CA9-CA9,CB4-CB4,CBA-CBB,CC5-CC5,CC9-CC9,CCE-CD4,CD7-CDB,CDF-CDF,CE4-CE5,CF0-CF0,CF4-CFF,D0D-D0D,D11-D11,D45-D45,D49-D49,D50-D53,D64-D65,D80-D80,D84-D84,D97-D99,DB2-DB2,DBC-DBC,DBE-DBF,DC7-DC9,DCB-DCE,DD5-DD5,DD7-DD7,DE0-DE5,DF0-DF1,DF4-E00,E3B-E3E,E4F-E4F,E5A-E80,E83-E83,E85-E85,E8B-E8B,EA4-EA4,EA6-EA6,EBE-EBF,EC5-EC5,EC7-EC7,ECF-ECF,EDA-EDB,EE0-EFF,F04-F12,F14-F14,F3A-F3D,F48-F48,F6D-F70,F85-F85,F98-F98,FBD-FBD,FCD-FCD,FD0-FD4,FD9-FFF,104A-104F,10C6-10C6,10C8-10CC,10CE-10CF,10FB-10FB,1249-1249,124E-124F,1257-1257,1259-1259,125E-125F,1289-1289,128E-128F,12B1-12B1,12B6-12B7,12BF-12BF,12C1-12C1,12C6-12C7,12D7-12D7,1311-1311,1316-1317,135B-135C,1360-1368,137D-137F,139A-139F,13F6-13F7,13FE-1400,166E-166E,1680-1680,169B-169F,16EB-16ED,16F9-16FF,1716-171E,1735-173F,1754-175F,176D-176D,1771-1771,1774-177F,17D4-17D6,17D8-17DA,17DE-17DF,17EA-17EF,17FA-180A,180E-180E,181A-181F,1879-187F,18AB-18AF,18F6-18FF,191F-191F,192C-192F,193C-193F,1941-1945,196E-196F,1975-197F,19AC-19AF,19CA-19CF,19DB-19DD,1A1C-1A1F,1A5F-1A5F,1A7D-1A7E,1A8A-1A8F,1A9A-1AA6,1AA8-1AAF,1ADE-1ADF,1AEC-1AFF,1B4D-1B4F,1B5A-1B60,1B7D-1B7F,1BF4-1BFF,1C38-1C3F,1C4A-1C4C,1C7E-1C7F,1C8B-1C8F,1CBB-1CBC,1CC0-1CCF,1CD3-1CD3,1CFB-1CFF,1F16-1F17,1F1E-1F1F,1F46-1F47,1F4E-1F4F,1F58-1F58,1F5A-1F5A,1F5C-1F5C,1F5E-1F5E,1F7E-1F7F,1FB5-1FB5,1FC5-1FC5,1FD4-1FD5,1FDC-1FDC,1FF0-1FF1,1FF5-1FF5,1FFF-2043,2045-2051,2053-206F,2072-2073,207D-207E,208D-208F,209D-209F,20C2-20CF,20F1-20FF,218C-218F,2308-230B,2329-232A,242A-243F,244B-245F,2768-2775,27C5-27C6,27E6-27EF,2983-2998,29D8-29DB,29FC-29FD,2B74-2B75,2CF4-2CFC,2CFE-2CFF,2D26-2D26,2D28-2D2C,2D2E-2D2F,2D68-2D6E,2D70-2D7E,2D97-2D9F,2DA7-2DA7,2DAF-2DAF,2DB7-2DB7,2DBF-2DBF,2DC7-2DC7,2DCF-2DCF,2DD7-2DD7,2DDF-2DDF,2E00-2E2E,2E30-2E4F,2E52-2E7F,2E9A-2E9A,2EF4-2EFF,2FD6-2FEF,3000-3003,3008-3011,3014-301F,3030-3030,303D-303D,3040-3040,3097-3098,30A0-30A0,30FB-30FB,3100-3104,3130-3130,318F-318F,31E6-31EE,321F-321F,A48D-A48F,A4C7-A4CF,A4FE-A4FF,A60D-A60F,A62C-A63F,A673-A673,A67E-A67E,A6F2-A6FF,A7DD-A7F0,A82D-A82F,A83A-A83F,A874-A87F,A8C6-A8CF,A8DA-A8DF,A8F8-A8FA,A8FC-A8FC,A92E-A92F,A954-A95F,A97D-A97F,A9C1-A9CE,A9DA-A9DF,A9FF-A9FF,AA37-AA3F,AA4E-AA4F,AA5A-AA5F,AAC3-AADA,AADE-AADF,AAF0-AAF1,AAF7-AB00,AB07-AB08,AB0F-AB10,AB17-AB1F,AB27-AB27,AB2F-AB2F,AB6C-AB6F,ABEB-ABEB,ABEE-ABEF,ABFA-ABFF,D7A4-D7AF,D7C7-D7CA,D7FC-F8FF,FA6E-FA6F,FADA-FAFF,FB07-FB12,FB18-FB1C,FB37-FB37,FB3D-FB3D,FB3F-FB3F,FB42-FB42,FB45-FB45,FD3E-FD3F,FDD0-FDEF,FE10-FE1F,FE30-FE61,FE63-FE63,FE67-FE68,FE6A-FE6F,FE75-FE75,FEFD-FF03,FF05-FF0A,FF0C-FF0F,FF1A-FF1B,FF1F-FF20,FF3B-FF3D,FF3F-FF3F,FF5B-FF5B,FF5D-FF5D,FF5F-FF65,FFBF-FFC1,FFC8-FFC9,FFD0-FFD1,FFD8-FFD9,FFDD-FFDF,FFE7-FFE7,FFEF-FFFB,FFFE-FFFF,1000C-1000C,10027-10027,1003B-1003B,1003E-1003E,1004E-1004F,1005E-1007F,100FB-10106,10134-10136,1018F-1018F,1019D-1019F,101A1-101CF,101FE-1027F,1029D-1029F,102D1-102DF,102FC-102FF,10324-1032C,1034B-1034F,1037B-1037F,1039E-1039F,103C4-103C7,103D0-103D0,103D6-103FF,1049E-1049F,104AA-104AF,104D4-104D7,104FC-104FF,10528-1052F,10564-1056F,1057B-1057B,1058B-1058B,10593-10593,10596-10596,105A2-105A2,105B2-105B2,105BA-105BA,105BD-105BF,105F4-105FF,10737-1073F,10756-1075F,10768-1077F,10786-10786,107B1-107B1,107BB-107FF,10806-10807,10809-10809,10836-10836,10839-1083B,1083D-1083E,10856-10857,1089F-108A6,108B0-108DF,108F3-108F3,108F6-108FA,1091C-1091F,1093A-1093F,1095A-1097F,109B8-109BB,109D0-109D1,10A04-10A04,10A07-10A0B,10A14-10A14,10A18-10A18,10A36-10A37,10A3B-10A3E,10A49-10A5F,10A7F-10A7F,10AA0-10ABF,10AE7-10AEA,10AF0-10AFF,10B36-10B3F,10B56-10B57,10B73-10B77,10B92-10BA8,10BB0-10BFF,10C49-10C7F,10CB3-10CBF,10CF3-10CF9,10D28-10D2F,10D3A-10D3F,10D66-10D68,10D6E-10D6E,10D86-10D8D,10D90-10E5F,10E7F-10E7F,10EAA-10EAA,10EAD-10EAF,10EB2-10EC1,10EC8-10ED0,10ED9-10EF9,10F28-10F2F,10F55-10F6F,10F86-10FAF,10FCC-10FDF,10FF7-10FFF,11047-11051,11076-1107E,110BB-110C1,110C3-110CF,110E9-110EF,110FA-110FF,11135-11135,11140-11143,11148-1114F,11174-11175,11177-1117F,111C5-111C8,111CD-111CD,111DB-111DB,111DD-111E0,111F5-111FF,11212-11212,11238-1123D,11242-1127F,11287-11287,11289-11289,1128E-1128E,1129E-1129E,112A9-112AF,112EB-112EF,112FA-112FF,11304-11304,1130D-1130E,11311-11312,11329-11329,11331-11331,11334-11334,1133A-1133A,11345-11346,11349-1134A,1134E-1134F,11351-11356,11358-1135C,11364-11365,1136D-1136F,11375-1137F,1138A-1138A,1138C-1138D,1138F-1138F,113B6-113B6,113C1-113C1,113C3-113C4,113C6-113C6,113CB-113CB,113D4-113E0,113E3-113FF,1144B-1144F,1145A-1145D,11462-1147F,114C6-114C6,114C8-114CF,114DA-1157F,115B6-115B7,115C1-115D7,115DE-115FF,11641-11643,11645-1164F,1165A-1167F,116B9-116BF,116CA-116CF,116E4-116FF,1171B-1171C,1172C-1172F,1173C-1173E,11747-117FF,1183B-1189F,118F3-118FE,11907-11908,1190A-1190B,11914-11914,11917-11917,11936-11936,11939-1193A,11944-1194F,1195A-1199F,119A8-119A9,119D8-119D9,119E2-119E2,119E5-119FF,11A3F-11A46,11A48-11A4F,11A9A-11A9C,11A9E-11AAF,11AF9-11B5F,11B68-11BBF,11BE1-11BEF,11BFA-11BFF,11C09-11C09,11C37-11C37,11C41-11C4F,11C6D-11C71,11C90-11C91,11CA8-11CA8,11CB7-11CFF,11D07-11D07,11D0A-11D0A,11D37-11D39,11D3B-11D3B,11D3E-11D3E,11D48-11D4F,11D5A-11D5F,11D66-11D66,11D69-11D69,11D8F-11D8F,11D92-11D92,11D99-11D9F,11DAA-11DAF,11DDC-11DDF,11DEA-11EDF,11EF7-11EFF,11F11-11F11,11F3B-11F3D,11F43-11F4F,11F5B-11FAF,11FB1-11FBF,11FF2-11FFF,1239A-123FF,1246F-1247F,12544-12F8F,12FF1-12FFF,13430-1343F,13456-1345F,143FB-143FF,14647-160FF,1613A-167FF,16A39-16A3F,16A5F-16A5F,16A6A-16A6F,16ABF-16ABF,16ACA-16ACF,16AEE-16AEF,16AF5-16AFF,16B37-16B3B,16B44-16B44,16B46-16B4F,16B5A-16B5A,16B62-16B62,16B78-16B7C,16B90-16D3F,16D6D-16D6F,16D7A-16E3F,16E97-16E9F,16EB9-16EBA,16ED4-16EFF,16F4B-16F4E,16F88-16F8E,16FA0-16FDF,16FE2-16FE2,16FE5-16FEF,16FF7-16FFF,18CD6-18CFE,18D1F-18D7F,18DF3-1AFEF,1AFF4-1AFF4,1AFFC-1AFFC,1AFFF-1AFFF,1B123-1B131,1B133-1B14F,1B153-1B154,1B156-1B163,1B168-1B16F,1B2FC-1BBFF,1BC6B-1BC6F,1BC7D-1BC7F,1BC89-1BC8F,1BC9A-1BC9B,1BC9F-1CBFF,1CCFD-1CCFF,1CEB4-1CEB9,1CED1-1CEDF,1CEF1-1CEFF,1CF2E-1CF2F,1CF47-1CF4F,1CFC4-1CFFF,1D0F6-1D0FF,1D127-1D128,1D173-1D17A,1D1EB-1D1FF,1D246-1D2BF,1D2D4-1D2DF,1D2F4-1D2FF,1D357-1D35F,1D379-1D3FF,1D455-1D455,1D49D-1D49D,1D4A0-1D4A1,1D4A3-1D4A4,1D4A7-1D4A8,1D4AD-1D4AD,1D4BA-1D4BA,1D4BC-1D4BC,1D4C4-1D4C4,1D506-1D506,1D50B-1D50C,1D515-1D515,1D51D-1D51D,1D53A-1D53A,1D53F-1D53F,1D545-1D545,1D547-1D549,1D551-1D551,1D6A6-1D6A7,1D7CC-1D7CD,1DA87-1DA9A,1DAA0-1DAA0,1DAB0-1DEFF,1DF1F-1DF24,1DF2B-1DFFF,1E007-1E007,1E019-1E01A,1E022-1E022,1E025-1E025,1E02B-1E02F,1E06E-1E08E,1E090-1E0FF,1E12D-1E12F,1E13E-1E13F,1E14A-1E14D,1E150-1E28F,1E2AF-1E2BF,1E2FA-1E2FE,1E300-1E4CF,1E4FA-1E5CF,1E5FB-1E6BF,1E6DF-1E6DF,1E6F6-1E6FD,1E700-1E7DF,1E7E7-1E7E7,1E7EC-1E7EC,1E7EF-1E7EF,1E7FF-1E7FF,1E8C5-1E8C6,1E8D7-1E8FF,1E94C-1E94F,1E95A-1EC70,1ECB5-1ED00,1ED3E-1EDFF,1EE04-1EE04,1EE20-1EE20,1EE23-1EE23,1EE25-1EE26,1EE28-1EE28,1EE33-1EE33,1EE38-1EE38,1EE3A-1EE3A,1EE3C-1EE41,1EE43-1EE46,1EE48-1EE48,1EE4A-1EE4A,1EE4C-1EE4C,1EE50-1EE50,1EE53-1EE53,1EE55-1EE56,1EE58-1EE58,1EE5A-1EE5A,1EE5C-1EE5C,1EE5E-1EE5E,1EE60-1EE60,1EE63-1EE63,1EE65-1EE66,1EE6B-1EE6B,1EE73-1EE73,1EE78-1EE78,1EE7D-1EE7D,1EE7F-1EE7F,1EE8A-1EE8A,1EE9C-1EEA0,1EEA4-1EEA4,1EEAA-1EEAA,1EEBC-1EEEF,1EEF2-1EFFF,1F02C-1F02F,1F094-1F09F,1F0AF-1F0B0,1F0C0-1F0C0,1F0D0-1F0D0,1F0F6-1F0FF,1F1AE-1F1E5,1F203-1F20F,1F23C-1F23F,1F249-1F24F,1F252-1F25F,1F266-1F2FF,1F6D9-1F6DB,1F6ED-1F6EF,1F6FD-1F6FF,1F7DA-1F7DF,1F7EC-1F7EF,1F7F1-1F7FF,1F80C-1F80F,1F848-1F84F,1F85A-1F85F,1F888-1F88F,1F8AE-1F8AF,1F8BC-1F8BF,1F8C2-1F8CF,1F8D9-1F8FF,1FA58-1FA5F,1FA6E-1FA6F,1FA7D-1FA7F,1FA8B-1FA8D,1FAC7-1FAC7,1FAC9-1FACC,1FADD-1FADE,1FAEB-1FAEE,1FAF9-1FAFF,1FB93-1FB93,1FBFB-1FFFF,2A6E0-2A6FF,2B81E-2B81F,2CEAE-2CEAF,2EBE1-2EBEF,2EE5E-2F7FF,2FA1E-2FFFF,3134B-3134F,3347A-E00FF,E01F0-10FFFF"
+
+def pzcRanges : Array (UInt32 × UInt32) := Id.run do
+  let s := pzcTable
+  let n := s.utf8ByteSize
+  let mut out : Array (UInt32 × UInt32) := Array.mkEmpty 900
+  let mut cur : UInt32 := 0
+  let mut lo : UInt32 := 0
+  let mut i := 0
+  while i < n do
+    let b := byteAt s i
+    if b == 45 then
+      lo := cur
+      cur := 0
+    else if b == 44 then
+      out := out.push (lo, cur)
+      cur := 0
+    else
+      cur := cur * 16 + (if b <= 57 then b.toUInt32 - 48 else b.toUInt32 - 55)
+    i := i + 1
+  return out.push (lo, cur)
+
+def isPZC (c : Char) : Bool := Id.run do
+  let v := c.val
+  let rs := pzcRanges
+  let mut lo := 0
+  let mut hi := rs.size
+  while lo < hi do
+    let mid := (lo + hi) / 2
+    let (a, b) := rs[mid]!
+    if v < a then hi := mid
+    else if v > b then lo := mid + 1
+    else return true
+  return false
+
+/-- `attrTextToString`: a link destination, title or info string flattened.
+Entities stay as written. -/
+def attrToString (a : Array MD4Lean.AttrText) : String :=
+  a.foldl (fun acc x => match x with
+    | .normal s => acc ++ s
+    | .entity s => acc ++ s
+    | .nullchar => acc ++ "�") ""
+
+/-- `textToPlaintext`: an inline run with all formatting dropped. -/
+partial def textToPlain (out : String) (t : MD4Lean.Text) : String :=
+  match t with
+  | .normal s => out ++ s
+  | .entity s => out ++ s
+  | .nullchar => out ++ "�"
+  | .br _ => out ++ "\n"
+  | .softbr _ => out ++ "\n"
+  | .em ts => ts.foldl textToPlain out
+  | .strong ts => ts.foldl textToPlain out
+  | .u ts => ts.foldl textToPlain out
+  | .del ts => ts.foldl textToPlain out
+  | .a _ _ _ ts => ts.foldl textToPlain out
+  | .wikiLink _ ts => ts.foldl textToPlain out
+  | .img _ _ alt => alt.foldl textToPlain out
+  | .code ps => ps.foldl (· ++ ·) out
+  | .latexMath ps => ps.foldl (· ++ ·) out
+  | .latexMathDisplay ps => ps.foldl (· ++ ·) out
+
+/-- `mdGetHeadingId`: the plain text with every run of `P | Z | C` replaced by
+one `-`, the empty pieces dropped first so there is no leading or trailing one.
+Cases are preserved. -/
+def headingId (texts : Array MD4Lean.Text) : String := Id.run do
+  let plain := texts.foldl textToPlain ""
+  let mut out := ""
+  let mut piece := ""
+  let mut first := true
+  for c in plain.toList do
+    if isPZC c then
+      if !piece.isEmpty then
+        if first then first := false else out := out.push '-'
+        out := out ++ piece
+        piece := ""
+    else
+      piece := piece.push c
+  if !piece.isEmpty then
+    if !first then out := out.push '-'
+    out := out ++ piece
+  return out
+
+/-- `extendLink`. The `http` test is `startsWith "http"`, not a scheme check. -/
+def extendLink (c : PageCtx) (s : String) : String :=
+  if s.startsWith "##" then
+    let name := byteSub s 2 s.utf8ByteSize
+    match resolveLink c name with
+    | some l => l
+    | none => c.root ++ "find/?pattern=" ++ name ++ "#doc"
+  else if s.startsWith "#" || s.startsWith "http" then s
+  else c.root ++ s
+
+/-- No MathML here: the dollars and the source, which is doc-gen4's own fallback.
+The target has 3 such spans on 2 of its 422 pages, so this is the whole of the
+difference math makes to the counts. -/
+def mdMath (out : String) (latex : String) (display : Bool) : String :=
+  let d := if display then "$$" else "$"
+  escapeInto (out ++ d) latex ++ d
+
+mutual
+
+partial def mdTexts (out : String) (c : PageCtx) (ts : Array MD4Lean.Text)
+    (inLink : Bool) : String :=
+  ts.foldl (fun acc t => mdText acc c t inLink) out
+
+partial def mdWrap (out : String) (c : PageCtx) (tag : String)
+    (ts : Array MD4Lean.Text) (inLink : Bool) : String :=
+  mdTexts (out ++ "<" ++ tag ++ ">") c ts inLink ++ "</" ++ tag ++ ">"
+
+/-- `renderText`. `inLink` suppresses auto-linking inside an `<a>`, which is what
+stops the output from nesting anchors. -/
+partial def mdText (out : String) (c : PageCtx) (t : MD4Lean.Text)
+    (inLink : Bool) : String :=
+  match t with
+  | .normal s => escapeInto out s
+  | .nullchar => out ++ "�"
+  | .br _ => out ++ "<br>\n"
+  | .softbr _ => out ++ "\n"
+  | .entity s => out ++ s
+  | .em ts => mdWrap out c "em" ts inLink
+  | .strong ts => mdWrap out c "strong" ts inLink
+  | .u ts => mdWrap out c "u" ts inLink
+  | .del ts => mdWrap out c "del" ts inLink
+  | .a href title _ ts =>
+    let ttl := attrToString title
+    let acc := escapeInto (out ++ "<a href=\"") (extendLink c (attrToString href)) ++ "\""
+    let acc := if ttl.isEmpty then acc else escapeInto (acc ++ " title=\"") ttl ++ "\""
+    mdTexts (acc ++ ">") c ts true ++ "</a>"
+  | .img src title alt =>
+    let ttl := attrToString title
+    let acc := escapeInto (out ++ "<img src=\"") (attrToString src) ++ "\" alt=\""
+    let acc := escapeInto acc (alt.foldl textToPlain "") ++ "\""
+    let acc := if ttl.isEmpty then acc else escapeInto (acc ++ " title=\"") ttl ++ "\""
+    acc ++ ">"
+  | .code ps =>
+    let acc := out ++ "<code>"
+    let acc := if inLink then ps.foldl (fun a p => escapeInto a p) acc
+               else ps.foldl (fun a p => autoLinkInline a c p) acc
+    acc ++ "</code>"
+  | .latexMath ps => mdMath out (ps.foldl (· ++ ·) "") false
+  | .latexMathDisplay ps => mdMath out (ps.foldl (· ++ ·) "") true
+  | .wikiLink tgt ts =>
+    let acc := escapeInto (out ++ "<x-wikilink data-target=\"") (attrToString tgt) ++ "\">"
+    mdTexts acc c ts inLink ++ "</x-wikilink>"
+
+partial def mdBlocks (out : String) (c : PageCtx) (bs : Array MD4Lean.Block)
+    (tight : Bool) : String :=
+  bs.foldl (fun acc b => mdBlock acc c b tight) out
+
+/-- `renderLi`. -/
+partial def mdLi (out : String) (c : PageCtx) (li : MD4Lean.Li MD4Lean.Block)
+    (tight : Bool) : String :=
+  let acc := out ++ "<li>"
+  let acc := if li.isTask then
+      acc ++ (if li.taskChar == some 'x' || li.taskChar == some 'X'
+              then "<input type=\"checkbox\" checked=\"\" disabled=\"\">"
+              else "<input type=\"checkbox\" disabled=\"\">")
+    else acc
+  mdBlocks acc c li.contents tight ++ "</li>"
+
+/-- `renderBlock`. `tight` reaches only `.p`. -/
+partial def mdBlock (out : String) (c : PageCtx) (b : MD4Lean.Block)
+    (tight : Bool) : String :=
+  match b with
+  | .p ts =>
+    if tight then mdTexts out c ts false
+    else mdTexts (out ++ "<p>") c ts false ++ "</p>"
+  | .ul t _ items =>
+    (items.foldl (fun a i => mdLi a c i t) (out ++ "<ul>")) ++ "</ul>"
+  | .ol t start _ items =>
+    let acc := if start == 1 then out ++ "<ol>"
+               else out ++ "<ol start=\"" ++ toString start ++ "\">"
+    (items.foldl (fun a i => mdLi a c i t) acc) ++ "</ol>"
+  | .hr => out ++ "<hr>\n"
+  | .header level ts =>
+    let id := headingId ts
+    let acc := escapeInto (out ++ "<h" ++ toString level ++ " id=\"") id
+    let acc := mdTexts (acc ++ "\" class=\"markdown-heading\">") c ts false
+    escapeInto (acc ++ " <a class=\"hover-link\" href=\"#") id
+      ++ "\">#</a></h" ++ toString level ++ ">"
+  | .code _ lang _ content =>
+    let l := attrToString lang
+    let acc := out ++ "<pre><code"
+    let acc := if l.isEmpty then acc
+               else escapeInto (acc ++ " class=\"language-") l ++ "\""
+    let acc := acc ++ ">"
+    let acc := if l.isEmpty || l == "lean"
+               then content.foldl (fun a p => autoLinkInline a c p) acc
+               else content.foldl (fun a p => escapeInto a p) acc
+    acc ++ "</code></pre>"
+  | .html content => content.foldl (· ++ ·) out
+  | .blockquote bs => mdBlocks (out ++ "<blockquote>") c bs false ++ "</blockquote>"
+  | .table head body =>
+    let acc := head.foldl (fun a cell => mdTexts (a ++ "<th>") c cell false ++ "</th>")
+      (out ++ "<table><thead><tr>")
+    let acc := acc ++ "</tr></thead><tbody>"
+    let acc := body.foldl (fun a row =>
+      (row.foldl (fun a2 cell => mdTexts (a2 ++ "<td>") c cell false ++ "</td>")
+        (a ++ "<tr>")) ++ "</tr>") acc
+    acc ++ "</tbody></table>"
+
+end
+
+/-- `docStringToHtml`. The trailing `"\n\n"` is doc-gen4's `refsMarkdown` with an
+empty bibliography, and it is not cosmetic — it terminates whatever block the
+docstring ended in the middle of. -/
+def docstringMd (out : String) (c : PageCtx) (text : String) : String :=
+  match MD4Lean.parse (text ++ "\n\n") docstringFlags with
+  | some doc => mdBlocks out c doc.blocks false
+  | none =>
+    escapeInto (out ++ "<span style='color:red;'>Error: failed to parse markdown: </span>") text
+
+/-- The three docstring paths, chosen once per run. -/
+def docstring (out : String) (c : PageCtx) (text : String) : String :=
+  if c.ix.plainDoc then escapeSub out text 0 text.utf8ByteSize
+  else if c.ix.markdown then docstringMd out c text
+  else docstringScan out c text
 
 /-! ## The declaration block -/
 
@@ -1490,7 +1733,7 @@ def readParseChunk (files : Array FilePath) : IO (Array Module) := do
     out := out.push (parseModule c)
   return out
 
-def run (w outDir : FilePath) (workers : Nat) (ablate : String) : IO UInt32 := do
+def run (w outDir : FilePath) (workers : Nat) (ablate : String) (md : Bool) : IO UInt32 := do
   let rev ← IO.FS.readFile (w / "rev.txt")
   let sourceUrl := "https://github.com/FujiHaruka/lean-projects/blob/" ++ rev.trimAscii
   let files ← jsonFilesIn (w / "ir" / "modules")
@@ -1529,7 +1772,8 @@ def run (w outDir : FilePath) (workers : Nat) (ablate : String) : IO UInt32 := d
     let ix := { ix with
       noConstLink := ablate == "links" || ablate == "frag"
       noFragment := ablate == "frag"
-      plainDoc := ablate == "doc" || ablate == "frag" }
+      plainDoc := ablate == "doc" || ablate == "frag"
+      markdown := md }
     return (ix, ix.known.size + ix.knownModules.size)
   let sup ← timeIt "suppressed" do
     let s ← suppressedOf mods
@@ -1599,14 +1843,23 @@ def runSplit (w : FilePath) : IO UInt32 := do
   IO.println s!"# modules {mods.size}"
   return 0
 
+def parseFlags : List String → Nat → String → Bool → Option (Nat × String × Bool)
+  | [], w, a, m => some (w, a, m)
+  | "--par" :: k :: t, _, a, m => parseFlags t k.toNat! a m
+  | "--ablate" :: x :: t, w, _, m => parseFlags t w x m
+  | "--md" :: t, w, a, _ => parseFlags t w a true
+  | _, _, _, _ => none
+
+def usage : IO UInt32 := do
+  IO.eprintln "usage: render <work-dir> <out-dir> [--par N] [--md] \
+    [--ablate links|doc|frag] | render <work-dir> --split"
+  return 2
+
 def main (args : List String) : IO UInt32 := do
   match args with
   | [w, "--split"] => runSplit w
-  | [w, out] => run w out 1 "none"
-  | [w, out, "--par", k] => run w out k.toNat! "none"
-  | [w, out, "--ablate", a] => run w out 1 a
-  | [w, out, "--par", k, "--ablate", a] => run w out k.toNat! a
-  | _ => do
-    IO.eprintln "usage: render <work-dir> <out-dir> [--par N] [--ablate links|doc|frag] \
-      | render <work-dir> --split"
-    return 2
+  | w :: out :: rest =>
+    match parseFlags rest 1 "none" false with
+    | some (workers, ablate, md) => run w out workers ablate md
+    | none => usage
+  | _ => usage

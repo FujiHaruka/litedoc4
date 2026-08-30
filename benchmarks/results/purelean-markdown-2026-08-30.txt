@@ -1,0 +1,97 @@
+pure-Lean replacement study — Markdown in, and the output matches byte for byte
+==============================================================================
+2026-08-30. The fourth measurement, and the one that closes the largest hole in
+`purelean-renderer-2026-08-30.txt`: that renderer put docstrings in escaped,
+leaving 72% of 1,625,158 docstring bytes unprocessed, so its 2.6x was a floor.
+
+WHAT WAS ADDED
+  MD4Lean, pinned to `31907cc18f48a95384f99cee5582c00fb39e0f67` (2026-06-22) —
+  the same md4c the Rust half vendors, and the package doc-gen4 itself requires.
+  `Render.lean` 1,612 -> 1,866 lines.
+  Pinned to a SHA and not a tag: the only tag is `v4.19.0-rc1`, naming a Lean
+  twelve releases old. Its own `lean-toolchain` is v4.29.0-rc1 — **lower** than
+  ours, so `lake update` left ours alone. (A dependency naming a HIGHER version
+  rewrites the root's; measured 2026-08-18, lake-package-probe.)
+  It built on Lean v4.31.0 first try: no patch, no API mismatch, and importing
+  its experimental-module-system code from a plain file needed no configuration.
+
+THE OUTPUT IS THE SAME OUTPUT
+                         Rust           Lean --md      Lean without --md
+  pages                  422            422            422
+  bytes                  24,546,157     24,544,693     24,191,054
+  `<a href=`             29,560         29,560         29,563
+  `<a ` (every form)     41,786         41,786         39,621
+  `<code`                24,967         24,967         24,974
+  `<p>`                  5,790          5,790          0
+  `<ul>` / `<li>`        6,700 / 10,503 6,700 / 10,503 6,025 / 8,603
+  `<h1..h4`              812/6625/354/11  identical    422/5212/0/0
+  `<pre><code`           111            111            88
+  `<em>`/`<strong>`/`<ol`/`<blockquote>`  457/178/28/3  identical  0/0/0/0
+  hover-link / md-heading  2,168 / 2,168  2,168 / 2,168  0 / 0
+  `<span class="fn">`    388,868        388,868        388,868
+  `<math`                3              0              0
+
+  **`diff -rq` finds 2 differing files out of 422** (verified again with `cmp`
+  per file). Both are the pages with LaTeX: the only difference on them is the
+  3 math spans, 920 + 544 = **1,464 B — exactly the byte gap**. 0 docstrings
+  failed to parse. Every other count is exact.
+
+  420 of 422 pages are byte-identical to what the Rust renderer wrote,
+  **including every autolink inside every code span**.
+
+TIME — interleaved in one session, n=7, run 1 discarded, medians of 6
+  Each iteration ran rust, lean-sequential, lean-4-workers back to back, so no
+  two rows come from different cache states.
+                          wall     CPU (user+sys)
+  Rust `litedoc4 render`  0.39 s   0.38 s
+  Lean --md, sequential   1.07 s   1.06 s     **2.74x**
+  Lean --md, 4 workers    0.52 s   1.30 s     **1.33x wall, 3.4x CPU**
+
+  Rust is single-threaded and has not been threaded (`render_site` is a plain
+  `for`, no rayon in the workspace), so the 4-worker row is what Lean buys with
+  cores, not a like-for-like comparison.
+
+MARKDOWN WAS NEVER THE HIDDEN COST
+  Sequential, same binary, same session: md OFF 1.030 s, md ON 1.070 s.
+  At 4 workers the two are indistinguishable — re-run interleaved in 7 pairs,
+  off 0.51 / on 0.49 median, spreads overlapping (0.49-0.52 vs 0.47-0.53).
+  **The 0.02 s is not a result.**
+
+  Ablation on `page.render`: escape only 0.506 s, backtick scan 0.625 s,
+  md4c + the `html.rs` transcription 0.661 s. **The marginal cost of real
+  Markdown is +0.036 s, 3.4% of the command** — because the backtick scan it
+  replaces was already paying 0.119 s of that 0.155 s.
+
+  Why: the scan and md4c agree on where code spans are. That is also why 420
+  pages come out byte-identical — the stand-in was faithful, not approximate.
+
+WHAT THE DEPENDENCY COSTS — `lake build render` from clean
+  before (1,612 lines, 4 jobs, no deps)                     4.52 s / 4.99 user
+  after, own package clean, dependency prebuilt             5.28 s / 5.60
+  after, own + dependency built clean                       7.45 s / 7.25
+  **fresh checkout: rm -rf .lake + lake update + build      8.95 s / 7.90**
+  md4c's four `.o` in isolation, plus the relink            0.47 s / 0.32
+
+  4.52 -> 8.95 decomposes as: +0.34 the bare `import MD4Lean`; +0.42 the 254
+  new lines; +2.17 compiling the MD4Lean package; +1.50 `lake update`'s clone
+  (network-bound). **md4c's C compile is ~0 s marginal** — Lake compiles the
+  objects alongside MD4Lean's Lean modules, so keeping them saves nothing.
+
+  Against the Rust half's 2.9 s release download, the fresh-checkout Lean build
+  is **+6.1 s**, up from +1.6 s before the dependency.
+
+TWO THINGS MD4Lean DOES NOT GIVE YOU (real costs, not in the numbers above)
+  - **The Unicode general category `P|Z|C`** that heading ids need. This
+    prototype embedded `crates/litedoc4-md/src/gc.rs`'s 839 ranges as a literal;
+    a real implementation takes `UnicodeBasic` — the package doc-gen4 already
+    requires — which is **a second git dependency not in the build numbers**.
+  - **LaTeX -> MathML.** Not attempted. `latexMath` falls back to the dollars,
+    which is the whole 2-page, 1,464-byte difference above. On this target that
+    is 3 spans; a Mathlib-shaped target has 2,123 (mathml-2026-08-22.txt).
+
+READ THIS AS
+  **2.74x sequentially, 1.33x on four threads, for output that is byte-identical
+  on 420 of 422 pages.** The 2.6x floor held with Markdown added, which settles
+  the question the previous file left open: the gap is not in any one component,
+  it is the ~10 cycles per byte that Lean pays everywhere. Adding a C library
+  through FFI did not move it, and neither would replacing another component.

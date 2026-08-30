@@ -8,3 +8,8 @@ root = "Main"
 [[lean_exe]]
 name = "render"
 root = "Render"
+
+[[require]]
+name = "MD4Lean"
+git = "https://github.com/acmepjz/md4lean"
+rev = "31907cc18f48a95384f99cee5582c00fb39e0f67"

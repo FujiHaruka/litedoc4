@@ -1,0 +1,131 @@
+pure-Lean replacement study — Markdown through MD4Lean, raw numbers
+==================================================================
+2026-08-30. Extends `benchmarks/results/purelean-renderer-2026-08-30.txt`, which
+measured the same renderer with Markdown left out. Not committed; raw data for
+the results file.
+
+WHAT CHANGED
+  `Render.lean` 1,612 -> 1,866 lines. `import MD4Lean`, pinned in
+  `lakefile.toml` to commit 31907cc18f48a95384f99cee5582c00fb39e0f67 (main,
+  2026-06-22). The only tag the repository has is `v4.19.0-rc1`, which names a
+  Lean version 12 releases old, so a commit SHA is the pin.
+  `crates/litedoc4-md/src/html.rs` transcribed into `mdBlock` / `mdText` /
+  `mdLi` / `headingId` / `extendLink`; the backtick-scan path is kept behind the
+  absence of `--md`, so both numbers come from one binary.
+  Not transcribed: `math.rs` (LaTeX -> MathML). `latexMath` falls back to the
+  dollars and the escaped source.
+
+CONDITIONS
+  Apple M1, 8 cores (4P+4E), 16 GiB, macOS 26.6.1, Lean v4.31.0, warm page
+  cache, n=6, run 1 discarded, medians of 5, `/usr/bin/time -l`.
+  Rust: `target/release/litedoc4` built 2026-08-29 13:02, rustc 1.97.1
+  --release — the same binary as the earlier files, re-measured in this session.
+  Target: 422 modules / 15,233,730 B IR / 4,584 declarations / link index
+  10,448,225 B.
+
+OUTPUT — Lean with Markdown against Rust
+  metric                     Rust         Lean(--md)   Lean(no --md)
+  pages                      422          422          422
+  bytes                      24,546,157   24,544,693   24,191,054
+  `<a href=`                 29,560       29,560       29,563
+  `<a ` (every form)         41,786       41,786       39,621
+  `<code`                    24,967       24,967       24,974
+  `<p>`                      5,790        5,790        0
+  `<ul>`                     6,700        6,700        6,025
+  `<li>`                     10,503       10,503       8,603
+  `<h1`                      812          812          422
+  `<h2`                      6,625        6,625        5,212
+  `<h3`                      354          354          0
+  `<h4`                      11           11           0
+  `<h5` / `<h6`              0 / 0        0 / 0        0 / 0
+  `<pre><code`               111          111          88
+  `<em>`                     457          457          0
+  `<strong>`                 178          178          0
+  `<ol`                      28           28           0
+  `<blockquote>`             3            3            0
+  class="markdown-heading"   2,168        2,168        0
+  class="hover-link"         2,168        2,168        0
+  `<span class="fn">`        388,868      388,868      388,868
+  `<math`                    3            0            0
+  `<table>`/`<hr>`/`<br>`/`<img `/`<del>`  0 on all three
+
+  `diff -rq pages pages-md`: **2 of 422 files differ**. 420 pages are
+  byte-identical to the Rust output. The 2 are BrascampLieb.html and
+  LoomisWhitney.html, and the only difference on them is the 3 LaTeX math spans
+  rendered as `$$...$$` instead of MathML — 920 + 544 = 1,464 B, which is the
+  whole byte gap (24,546,157 - 24,544,693 = 1,464).
+  0 docstrings failed to parse (md4c refused none of the 4,885).
+
+TIME — n=6, run 1 discarded, medians of 5
+  config                 wall     user    sys     CPU     RSS      instructions
+  Rust render            0.380    0.320   0.050   0.370   129.4MB  4.78e9
+  Lean md OFF, seq       1.030    0.960   0.060   1.020   172.3MB  1.418e10
+  Lean md ON,  seq       1.070    1.000   0.060   1.060   173.0MB  1.434e10
+  Lean md OFF, 4 workers 0.530    1.210   0.080   1.290   180.8MB  1.44e10
+  Lean md ON,  4 workers 0.480    1.120   0.080   1.200   183.5MB  1.459e10
+
+  raw walls
+    md OFF seq   1.05 1.04 1.03 1.03 1.02 1.05
+    md ON  seq   1.07 1.07 1.07 1.07 1.09 1.08
+    md OFF par4  0.51 0.52 0.53 0.53 0.53 0.52
+    md ON  par4  0.53 0.49 0.49 0.48 0.48 0.48
+
+  The par4 rows are the wrong way round, so they were re-run interleaved
+  (off/on/off/on..., 7 pairs):
+    off  0.51 0.51 0.49 0.52 0.49 0.50 0.51   median 0.51
+    on   0.48 0.52 0.53 0.47 0.48 0.50 0.49   median 0.49
+  The spreads overlap. **At 4 workers Markdown costs nothing measurable**; the
+  0.02 s is not a result.
+
+  phase sums against process wall (the laziness check): seq md ON 1.021 / 1.07,
+  md OFF 0.988 / 1.04; par4 md ON 0.425 / 0.48, md OFF 0.463 / 0.52. The
+  0.05 s outside the phases is process start, `jsonFilesIn`, `loadDeps` and
+  exit, and it is the same in every configuration — no phase is hiding work.
+
+WHAT MARKDOWN ITSELF COSTS — `page.render`, sequential, medians of 5
+  --ablate doc  (docstrings escaped, nothing else)     0.506
+  no --md       (backtick scan + autoLinkInline)       0.625   -> 0.119
+  --md          (md4c + the html.rs transcription)     0.661   -> 0.155
+  So the docstring path costs 0.155 s of a 1.07 s command, and 0.119 s of that
+  was already being paid by the scan it replaces. **Marginal cost of real
+  Markdown: +0.036 s, 3.4% of the command.**
+
+`lake build render` — before and after MD4Lean
+  n=6, `rm -rf` then build, medians of 5.
+  before  no deps, 1,612 lines, 4 jobs        4.52 wall / 4.99 user
+          (reproduces the 4.52 / 4.97 in purelean-renderer-2026-08-30.txt)
+  after   1,866 lines, 18 jobs
+    A  own package clean, dep prebuilt        5.28 / 5.60
+    B  own + dep build clean                  7.45 / 7.25
+    C  = B with md4c's 4 .o files kept        7.49 / 7.10
+    E  only the 4 .o + relink                 0.47 / 0.32
+    D  fresh checkout: rm -rf .lake,
+       lake update (clone) + lake build       8.95 / 7.90   (run 1 9.84)
+  and, for the same before-tree, rm -rf .lake: 4.52 (run 1 4.86).
+
+  **md4c's C compile is 0.47 s in isolation and ~0 s marginal**: B and C are the
+  same within noise, because Lake compiles the 4 objects alongside MD4Lean's
+  Lean modules.
+
+  4.52 -> 8.95 decomposed
+    +0.34  `import MD4Lean` alone, same 1,612 lines, dep prebuilt (4.86)
+    +0.42  the 254 lines of Markdown renderer (5.28 - 4.86)
+    +2.17  compiling the MD4Lean package (7.45 - 5.28)
+    +1.50  `lake update`: clone + manifest resolve (8.95 - 7.45), network-bound
+  Against the Rust half's 2.9 s release download
+  (`purelean-ci-runs-2026-08-30.txt`).
+
+FRICTION
+  - no usable tag (only `v4.19.0-rc1`); pinned main's SHA
+  - MD4Lean's `lean-toolchain` is v4.29.0-rc1, **lower** than the prototype's
+    v4.31.0, so `lake update` left ours alone. A higher one would have rewritten
+    it
+  - MD4Lean uses the experimental module system (`module` / `public section`);
+    importing it from a plain non-module file needed no configuration
+  - built and ran on v4.31.0 first try, no patch, no API mismatch
+  - it does **not** answer the Unicode general category `P | Z | C` that
+    `mdGetHeadingId` needs. The 839 ranges from `crates/litedoc4-md/src/gc.rs`
+    are embedded here as a string literal; a real implementation takes the
+    `UnicodeBasic` package doc-gen4 already requires — **a second git dependency
+    that is not in these build numbers**
+  - it does not do LaTeX -> MathML either (`math.rs`, 179 lines)
