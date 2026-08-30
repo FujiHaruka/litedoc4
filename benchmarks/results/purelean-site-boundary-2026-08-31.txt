@@ -1,0 +1,83 @@
+WHAT `litedoc4 site` WRITES, AND WHY THE ASSETS ARE NOT IN IT (measured)
+2026-08-31, arm64 macOS (Darwin 25.6.0), Lean v4.31.0, Rust litedoc4
+target/release at 0dbfe41, sample package e2e/micro (11 modules).
+
+Taken because M3's completion criterion said "23/23 bytes out of `litedoc4
+site`" and the code says otherwise. The criterion was written from a
+`litedoc4 build` run; `site` is not `build`.
+
+WHAT EACH COMMAND WRITES
+
+  litedoc4 build --root e2e/micro --lib Example --out W/build --extractor-bin …
+    -> W/build/site  23 files
+       11 module pages + 9 artifacts + 3 assets
+
+  litedoc4 site --ir W/build/ir --out W/site-only \
+    --source-url https://github.com/FujiHaruka/litedoc4/blob/HEAD/e2e/micro \
+    --link-index W/build/link-index.lidx
+    -> W/site-only    20 files
+       11 module pages + 9 artifacts, and no assets
+
+  `write_assets` is called from `crates/litedoc4/src/build.rs` and from nowhere
+  else. `crates/litedoc4/tests/site.rs` fixes the reason as an invariant: `site`
+  is the composition of `render` and `global` and nothing else, which is what
+  makes "the tree `site` writes equals the tree `render` plus `global` writes" a
+  comparison of those two stages.
+
+  Artifact sizes (bytes) in W/site-only:
+    declarations/name-map.json   4351
+    declarations/used-by.json    5361
+    modules.json                  626
+    instances.json                400
+    search-index.bin             1215
+    index.html                   3693
+    404.html                     1591
+    search.html                  1701
+    foundational_types.html      3440
+
+SITE-GATE ON A BARE `site` TREE
+
+  tools/site-gate.sh W/site-only
+
+  == dead links   FAILS
+       files                : 20
+       internal links       : 320
+       external links       : 67
+       fragment-only links  : 82
+       DEAD internal links  : 30 (2 distinct destinations, 15 pages)
+           15  style.css     e.g. on 404.html
+           15  favicon.svg   e.g. on 404.html
+
+  == closure      PASSES, every item
+       pages                             : 15
+       modules.json: module pages exist  : 11 checked, 0 failed
+       search-index: module subscripts   : 97 checked, 0 failed
+       search-index: kind subscripts     : 97 checked, 0 failed
+       search-index -> pages             : 97 checked, 0 failed
+       pages -> search-index             : 56 checked, 0 failed
+       search-index == name-map          : 97 checked, 0 failed
+       instances -> declarations         : 5 checked, 0 failed
+       instancesFor -> declarations      : 5 checked, 0 failed
+       external resources                : 15 checked, 0 failed
+
+  `app.js` is not among the dead: the dead-link scan reads `href`, and the
+  script is loaded with `src`. So the gate would still be silent about a missing
+  `app.js` on a tree that had the other two.
+
+WHAT THIS MOVED
+
+  M3's completion is `site`'s **20/20** bytes, plus check-site-closure.py and
+  usedby-gate on the Lean tree — the closure half is exactly the question M3
+  answers (do `global`'s artifacts and `render`'s pages agree, in both
+  directions), and it needs no assets.
+
+  The 3 assets (style.css 29,499 / app.js 15,370 / favicon.svg 360 = 45,229 B)
+  and the full site-gate move to M4, with `build`, which is what writes them.
+
+HOW TO REPRODUCE
+  ./target/release/litedoc4 build --root e2e/micro --lib Example \
+      --out W/build --extractor-bin e2e/micro/.lake/e2e-extract/extract
+  ./target/release/litedoc4 site --ir W/build/ir --out W/site-only \
+      --source-url https://github.com/FujiHaruka/litedoc4/blob/HEAD/e2e/micro \
+      --link-index W/build/link-index.lidx
+  tools/site-gate.sh W/site-only

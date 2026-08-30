@@ -63,7 +63,7 @@
   外部リンク・依存 docs を入れる
 - **完了判定**: e2e/micro の IR から出したページが Rust の `pages/` とバイト一致
 
-### M3 site — `litedoc4 site` が e2e/micro のサイト 23 ファイルを出す
+### M3 site — `litedoc4 site` が e2e/micro の 20 ファイルを出す
 
 **M3 と M4 の境界は 2026-08-31 に実測で引き直した**（→
 `benchmarks/results/purelean-micro-2026-08-31.txt` の追記節）。サイトの中身は:
@@ -79,14 +79,32 @@
 `declaration-data.bmp` は書かれない（doc-gen4 のための 5 ファイルは意図的に落としてあり、
 `artifacts.rs` のテストが復活を落とす）。`.lidx` は extractor が書くので Lean 側は既に持っている。
 
+**アセット 3 つは M3 ではなく M4**（2026-08-31 に実測で引き直した →
+`benchmarks/results/purelean-site-boundary-2026-08-31.txt`）。`write_assets` は
+`build` の持ち物で、`litedoc4 site` は呼ばない — Rust の `site` が書くのは
+**ページ 11 + アーティファクト 9 = 20 ファイル**（実測）。`site` は `render` と `global` の
+合成でありそれ以外ではない、というのが `crates/litedoc4/tests/site.rs` が固定している不変量で、
+Lean 側に assets を足すとその不変量ごと比較が崩れる。
+
+その帰結として **`site-gate` も M4**（実測）: bare な `site` の木に対して
+`check-dead-links.py` は `style.css` / `favicon.svg` を DEAD と数えて落ちる
+（30 dead / 2 distinct / 15 pages）。`check-site-closure.py` の方は**緑**で、
+これが M3 が判定に使うべき半分 — `global` のアーティファクトと `render` のページが
+互いに整合するかを両方向に見る検査だから。
+
 - **完了判定**: `litedoc4 site --ir … --out … --link-index …` の出力が Rust 版と
-  **23/23 バイト一致**し、`site-gate` / `usedby-gate` が Lean 実装のサイトで緑
+  **20/20 バイト一致**し、`benchmarks/tools/check-site-closure.py` と `usedby-gate` が
+  Lean 実装のサイトで緑
 
 ### M4 build — `site` の周りのパイプライン
+- **アセット 3 つ**（`style.css` 29,499 / `app.js` 15,370 / `favicon.svg` 360 = 45,229 B）を
+  Lean バイナリに載せ、`build` が書く。Rust では `include_str!`；Lean 側の手段は**未計測**で、
+  文字列リテラルで足りるかまず 1 ファイルで確かめる。`app.js` は `build.rs` が vite で作るので
+  リポジトリに置いたビルド済み JS を読む（計画の「TypeScript は移植対象外」）。置き場所は M4 で決める
 - `--lib` 解決と modules 列挙（`lake` を subprocess で起動する）/ `litedoc4.toml` /
   external links（`lake-manifest.json`）/ extractor 起動 / ledger / `litedoc4-build.json`
-- **完了判定**: `litedoc4 build --root e2e/micro` の出力が Rust 版とバイト一致し、
-  `config-gate` が Lean 実装で緑
+- **完了判定**: `litedoc4 build --root e2e/micro` の出力が Rust 版と **23/23 バイト一致**し、
+  `site-gate` と `config-gate` が Lean 実装で緑
 
 ### M5 incremental — ledger / impact / ownership / merge / mode
 - プロトタイプの `Incr.lean` が土台。**bimodal な `ownership`（423 読み vs 2 読み）を保つ**
