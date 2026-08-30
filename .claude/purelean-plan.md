@@ -420,8 +420,8 @@ Lean が出すようになったら「Generation landed, so delete the normalisa
 | # | 単位 | Rust | 状態 |
 |---|---|---|---|
 | U1 | `openUnvalidated` / `Ordered α` | `ir/reader.rs`, `incr/ordered.rs` | 小 |
-| U2 | ledger **リーダ** + `KeySet.diff` + `checkLedger` + 3 つの出力ファイル | `incr/detect.rs`, `ledger.rs` | ライタはある、**リーダは無い** |
-| U3 | `ledger touch` | `incr/detect.rs:409` | 極小 |
+| U2 | ledger **リーダ** + `KeySet.diff` + `checkLedger` + 3 つの出力ファイル | `incr/detect.rs`, `ledger.rs` | **済み 2026-08-31** |
+| U3 | `ledger touch` | `incr/detect.rs:409` | **済み 2026-08-31** |
 | U4 | `impact`（4 つの mode） | `incr/impact.rs` | プロトタイプあり |
 | U5 | `ownership` — **`watching` ガードを保つ** | `incr/ownership.rs` | プロトタイプあり |
 | U6 | `merge` + `--verify` | `incr/merge.rs` (773) | **`merge-reference.sh` は対象リポジトリ不要 = 一番安く立つ** |
@@ -431,7 +431,7 @@ Lean が出すようになったら「Generation landed, so delete the normalisa
 | U10 | `Resident`: **遅延起動** / リクエスト数 / 冪等な stop / `foldTimings` | `resident.rs`, `extract.rs` | 今は単発 |
 | U11 | `incremental` パイプライン本体 | `pipeline.rs` (1,534) | **ゼロから**。`tests/incremental.rs` の 61 分岐が点検表 |
 | U12 | `planOf` の検査 4〜9 + `incrementalGeneration` | `build.rs` | U11 の後なら小 |
-| U13 | ゲート配線（4 本に `LITEDOC4`、micro ゲートを 14 → 16） | — | **新項目は 1 つずつ落としてから通す** |
+| U13 | ゲート配線（4 本に `LITEDOC4`、micro ゲートを 14 → 16） | — | **4 本は済み 2026-08-31**（`62bab9b`）。micro ゲートの項目はまだ |
 
 **`ownership` の bimodality の正体**（実測）: `lostOwners` も `gainedOwners` も空なら
 **base の IR を 1 つも読まない**。空でなければ **exclude を除く全 base モジュールを読む**。
@@ -442,6 +442,27 @@ e2e/micro で `scannedBaseModules` が **10 と 0**、対象で **423 読み対 
 **`irReads` の実測値**（項目 13 が丸ごと比較するので、ここがずれると出る）:
 full = `{3, 22, 4, 29}` / incremental で何も stale でない = `{5, 11, 2, 18}` /
 1 モジュール編集 = `{10, 46, 4, 60}`。
+
+#### U2 / U3 で分かったこと（2026-08-31）
+
+`ledger-compare.sh` が **`IDENTICAL`**（66 ファイル: 台帳 9 本がバイト一致、
+timings 19 本が持続時間を除いて一致、`.txt` 38 本がバイト一致）。
+比較器は先に一度落とした — 台帳の 1 バイト / timings の `modules` / `.txt` の 1 行を
+摂動して 3 つとも `DIFFERS`、持続時間の**値だけ**の摂動は `same counts` のまま。
+
+- **Rust の `LedgerSchema` 拒否は本物の schema-1 ファイルには届かない**（実測）。
+  `check_ledger` は `serde_json::from_str` を**先に**完走させるので、`envKey` しか持たない
+  schema-1 は `missing field `extractKey`` で exit 1 になる。`ledger.rs` のコメントが約束する
+  「schema-1 はパース失敗ではなく schema-1 として名指す」は**その約束のほうが正しい**ので、
+  Lean 側は schema を先に見て exit 3 にした。schema-2 の全フィールドを持ちつつ
+  `ledgerSchema: 1` のファイルでは両者が完全に一致する
+- **`Algorithm` は `Ledger.lean` の外でも使われている** — `Build.lean` の `Generation.take` が
+  `hashModule .lake` を呼ぶ（micro ゲート項目 14 が通る経路）。`grep Algorithm` では出ない
+- 空集合の綴りを 1 か所に寄せた（`Fs.linesFile` / `writeLines`）。`modules --out` が
+  同じ判断を別に持っていた
+- **`--concurrency` は受け取って記録するが、ハッシュは逐次**。stdout は `concurrency 1`
+  （やったこと）を出し、N > 1 なら別行で「逐次でやった」と言う。timings は Rust と同じく
+  **要求値**を記録する。スレッドプールは別単位
 
 #### M5 に入る前に塞ぐもの: `Json.lean` は整数しか読まない → **2026-08-31 に塞いだ**
 

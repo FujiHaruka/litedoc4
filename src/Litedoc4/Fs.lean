@@ -54,4 +54,19 @@ def isInside (container candidate : FilePath) : Bool :=
   let x := candidate.toString
   x == c || x.startsWith (c ++ "/")
 
+/-- Writes `body` to `path`, making its directory first. -/
+def writeFile (path : FilePath) (body : String) : IO Unit := do
+  if let some dir := path.parent then
+    if !dir.toString.isEmpty then IO.FS.createDirAll dir
+  IO.FS.writeFile path body
+
+/-- One name per line, and **no line at all** when there are no names: the sets
+this writes are handed to `--only-from`, where an empty file has to mean "render
+nothing" rather than "render everything". -/
+def linesFile (items : Array String) : String :=
+  if items.isEmpty then "" else "\n".intercalate items.toList ++ "\n"
+
+def writeLines (path : FilePath) (items : Array String) : IO Unit :=
+  writeFile path (linesFile items)
+
 end Litedoc4

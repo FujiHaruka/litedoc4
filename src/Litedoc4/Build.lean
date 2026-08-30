@@ -54,12 +54,6 @@ prints the usage text; 3 is "the world and the files disagree"; 4 is the
 extractor's, so that a caller sees the same code whichever half produced it. -/
 abbrev BuildM := ExceptT (UInt32 × String) IO
 
-/-- Writes `body` to `path`, making its directory first. -/
-def writeFile (path : FilePath) (body : String) : IO Unit := do
-  if let some dir := path.parent then
-    if !dir.toString.isEmpty then IO.FS.createDirAll dir
-  IO.FS.writeFile path body
-
 /-- The static files a page needs to look like a page, written from the binary
 on **every** build.
 
@@ -677,7 +671,7 @@ def runBuild (r : BuildRequest) : BuildM Unit := do
       { modules, target := r.root.toString, ir := none, sourceUrl
         linkIndex := some linkIndex, externalLinks := some r.external.digest } with
     | .error message => throw (3, message)
-    | .ok ledger => pure ledger
+    | .ok (ledger, _) => pure ledger
   writeFile (layout.work / "ledger-detect.json") detected.toJson
   IO.println s!"detect  {detected.modules.size} module(s) hashed"
 
@@ -715,8 +709,8 @@ def runBuild (r : BuildRequest) : BuildM Unit := do
   -- everything against, for ever.
   let ledger := { detected with
     extractKey := ← extractKey detected.target (some layout.ir)
-    renderKey := renderKey sourceUrl (← linkIndexDigest (some linkIndex))
-      (some r.external.digest) }
+    renderKey := some (renderKey sourceUrl (← linkIndexDigest (some linkIndex))
+      (some r.external.digest)) }
   let body := ledger.toJson
   writeFile layout.ledger body
   IO.println s!"ledger  {ledger.modules.size} module(s) -> {layout.ledger} \

@@ -24,7 +24,15 @@ def usage : String :=
                      [--state <dir>] [--root <dir>] [--lake <path>]
        litedoc4 ledger build --modules <file> --target <repo> --out <ledger.json>
                              [--ir <dir>] [--source-url <url>] [--link-index <file>]
-                             [--root <dir>] [--lake <path>]
+                             [--root <dir>] [--lake <path>] [--algorithm <name>]
+                             [--concurrency <n>] [--timings <file>]
+       litedoc4 ledger check --ledger <ledger.json> [--modules <file>] [--ir <dir>]
+                             [--source-url <url>] [--link-index <file>]
+                             [--root <dir>] [--lake <path>] [--algorithm <name>]
+                             [--concurrency <n>] [--changed-out <file>]
+                             [--removed-out <file>] [--render-all-out <file>]
+                             [--timings <file>]
+       litedoc4 ledger touch --ledger <ledger.json> --module <Module> [--out <file>]
        litedoc4 --version
        litedoc4 --help"
 
@@ -253,88 +261,251 @@ structure LedgerArgs where
   modules : Option String := none
   target : Option String := none
   out : Option String := none
+  ledger : Option String := none
   ir : Option String := none
   sourceUrl : String := ""
   linkIndex : Option String := none
   root : Option String := none
   lake : Option String := none
+  algorithm : Option String := none
+  concurrency : Nat := 1
+  module : Option String := none
+  changedOut : Option String := none
+  removedOut : Option String := none
+  renderAllOut : Option String := none
+  timings : Option String := none
   help : Bool := false
   deriving Inhabited
 
-/-- Flags the Rust `ledger build` takes and this one does not. `--algorithm` and
-`--concurrency` are refused rather than accepted-and-ignored: this build offers
-one algorithm and one thread, and a run that took `--concurrency 8` would look
-like it had done what was asked. -/
-def ledgerUnimplemented : List String :=
-  ["--algorithm", "--concurrency", "--deps-docs-map", "--timings"]
+/-- Which `ledger` subcommand accepts which flag.
 
-partial def parseLedger : List String → LedgerArgs → Except String LedgerArgs
+One flat parse followed by a dispatch on the subcommand accepts every flag for
+all three and reads it for one: `ledger touch --concurrency 9` would run, ignore
+the number, and say nothing. **A flag that does nothing is the shape this project
+keeps finding** — the run looks right and the artefact is not the one that was
+asked for. -/
+def ledgerFlags : List (String × List String) :=
+  [("--modules", ["build", "check"]),
+   ("--target", ["build"]),
+   ("--out", ["build", "touch"]),
+   ("--ledger", ["check", "touch"]),
+   ("--ir", ["build", "check"]),
+   ("--source-url", ["build", "check"]),
+   ("--link-index", ["build", "check"]),
+   ("--root", ["build", "check"]),
+   ("--lake", ["build", "check"]),
+   ("--deps-docs-map", ["build", "check"]),
+   ("--algorithm", ["build", "check"]),
+   ("--concurrency", ["build", "check"]),
+   ("--module", ["touch"]),
+   ("--changed-out", ["check"]),
+   ("--removed-out", ["check"]),
+   ("--render-all-out", ["check"]),
+   ("--timings", ["build", "check"])]
+
+/-- Flags the Rust `ledger` takes and this one does not, refused by name rather
+than ignored for the reason `renderUnimplemented` is. `--deps-docs-map` folds a
+map of where a dependency's documentation is published into the render key, and a
+run that dropped it would compute a key `build` never recorded. -/
+def ledgerUnimplemented : List String :=
+  ["--deps-docs-map"]
+
+def ledgerFlagRefusal (command flag : String) : Option String :=
+  match ledgerFlags.find? (·.1 == flag) with
+  | some (_, accepted) =>
+    if accepted.contains command then none
+    else some s!"{flag} is not a flag of `ledger {command}`: it belongs to \
+      {" / ".intercalate (accepted.map (s!"`ledger {·}`"))}"
+  | none => none
+
+partial def parseLedger (command : String) :
+    List String → LedgerArgs → Except String LedgerArgs
   | [], acc => .ok acc
   | flag :: rest, acc =>
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
       | [] => .error s!"{flag} wants a value"
+    match ledgerFlagRefusal command flag with
+    | some message => .error message
+    | none =>
     if flag == "--modules" then do
-      let (v, more) ← value; parseLedger more { acc with modules := some v }
+      let (v, more) ← value; parseLedger command more { acc with modules := some v }
     else if flag == "--target" then do
-      let (v, more) ← value; parseLedger more { acc with target := some v }
+      let (v, more) ← value; parseLedger command more { acc with target := some v }
     else if flag == "--out" then do
-      let (v, more) ← value; parseLedger more { acc with out := some v }
+      let (v, more) ← value; parseLedger command more { acc with out := some v }
+    else if flag == "--ledger" then do
+      let (v, more) ← value; parseLedger command more { acc with ledger := some v }
     else if flag == "--ir" then do
-      let (v, more) ← value; parseLedger more { acc with ir := some v }
+      let (v, more) ← value; parseLedger command more { acc with ir := some v }
     else if flag == "--source-url" then do
-      let (v, more) ← value; parseLedger more { acc with sourceUrl := v }
+      let (v, more) ← value; parseLedger command more { acc with sourceUrl := v }
     else if flag == "--link-index" then do
-      let (v, more) ← value; parseLedger more { acc with linkIndex := some v }
+      let (v, more) ← value; parseLedger command more { acc with linkIndex := some v }
     else if flag == "--root" then do
-      let (v, more) ← value; parseLedger more { acc with root := some v }
+      let (v, more) ← value; parseLedger command more { acc with root := some v }
     else if flag == "--lake" then do
-      let (v, more) ← value; parseLedger more { acc with lake := some v }
+      let (v, more) ← value; parseLedger command more { acc with lake := some v }
+    else if flag == "--algorithm" then do
+      let (v, more) ← value; parseLedger command more { acc with algorithm := some v }
+    else if flag == "--concurrency" then do
+      let (v, more) ← value
+      match v.toNat? with
+      | some n => parseLedger command more { acc with concurrency := n }
+      | none => .error s!"--concurrency takes a number, not `{v}`"
+    else if flag == "--module" then do
+      let (v, more) ← value; parseLedger command more { acc with module := some v }
+    else if flag == "--changed-out" then do
+      let (v, more) ← value; parseLedger command more { acc with changedOut := some v }
+    else if flag == "--removed-out" then do
+      let (v, more) ← value; parseLedger command more { acc with removedOut := some v }
+    else if flag == "--render-all-out" then do
+      let (v, more) ← value; parseLedger command more { acc with renderAllOut := some v }
+    else if flag == "--timings" then do
+      let (v, more) ← value; parseLedger command more { acc with timings := some v }
     else if flag == "--help" || flag == "-h" then
-      parseLedger rest { acc with help := true }
+      parseLedger command rest { acc with help := true }
     else if ledgerUnimplemented.contains flag then
-      .error s!"{flag} is a `ledger build` flag this build does not implement"
+      .error s!"{flag} is a `ledger {command}` flag this build does not implement"
     else
       .error s!"unknown argument `{flag}`"
+
+/-- `--concurrency` is accepted and its value is recorded, and a run that took it
+must not read as though it had used it: this build hashes one module at a time. -/
+def sequentialNote (concurrency : Nat) : IO Unit := do
+  if concurrency > 1 then
+    IO.println s!"ledger  --concurrency {concurrency} was asked for; this build hashes one module \
+      at a time, and the timings record keeps the number that was asked for"
+
+def jsonNames (out : String) (names : Array String) : String := Id.run do
+  let mut o := out.push '['
+  let mut first := true
+  for name in names do
+    if !first then o := o.push ','
+    first := false
+    o := jsonStr o name
+  return o.push ']'
+
+/-- `BuildTimings` in `crates/litedoc4-incr/src/detect.rs`. The key order is that
+record's field order, and every value but the durations is compared against a
+recording of it. -/
+def buildTimingsJson (algorithm : String) (concurrency modules files hashedBytes : Nat)
+    (keyNanos hashNanos writeNanos totalNanos : Nat) : String :=
+  jsonStr "{\"command\":\"build\",\"algorithm\":" algorithm
+    ++ s!",\"concurrency\":{concurrency},\"modules\":{modules},\"files\":{files}"
+    ++ s!",\"hashedBytes\":{hashedBytes},\"keySeconds\":{seconds keyNanos 9}"
+    ++ s!",\"hashSeconds\":{seconds hashNanos 9},\"writeSeconds\":{seconds writeNanos 9}"
+    ++ s!",\"totalSeconds\":{seconds totalNanos 9}" ++ "}\n"
+
+/-- `CheckTimings`, under the rule `buildTimingsJson` states. -/
+def checkTimingsJson (concurrency : Nat) (s : CheckSummary) (totalNanos : Nat) : String :=
+  let p := s.phases
+  let o := jsonStr "{\"command\":\"check\",\"algorithm\":" s.algorithm.name
+  let o := o ++ s!",\"concurrency\":{concurrency},\"modules\":{s.modules},\"moduleListSource\":"
+  let o := jsonStr o (if s.fromList then "list" else "ledger")
+  let o := o ++ s!",\"files\":{s.files},\"hashedBytes\":{s.hashedBytes},\"extractKeyChanged\":"
+  let o := jsonNames o s.extractKeyChanged
+  let o := o ++ s!",\"extractInvalidated\":{s.extractInvalidated},\"renderKeyChanged\":"
+  let o := jsonNames o s.renderKeyChanged
+  let o := o ++ s!",\"renderAll\":{s.renderAll},\"changed\":{s.changed.size},\"changedModules\":"
+  let o := jsonNames o s.changed
+  let o := o ++ s!",\"added\":{s.added.size},\"addedModules\":"
+  let o := jsonNames o s.added
+  let o := o ++ s!",\"removed\":{s.removed.size},\"removedModules\":"
+  let o := jsonNames o s.removed
+  o ++ s!",\"reExtract\":{s.reExtract.size}"
+    ++ s!",\"readLedgerSeconds\":{seconds (p.readDone - p.started) 9}"
+    ++ s!",\"keySeconds\":{seconds (p.keyDone - p.readDone) 9}"
+    ++ s!",\"hashSeconds\":{seconds (p.hashDone - p.keyDone) 9}"
+    ++ s!",\"compareSeconds\":{seconds (p.compareDone - p.hashDone) 9}"
+    ++ s!",\"totalSeconds\":{seconds totalNanos 9}" ++ "}\n"
 
 def ledgerBuildRun (a : LedgerArgs) (modules target out : String) : IO UInt32 := do
   let names ← readModuleList ⟨modules⟩
   let external ← resolveExternal a.root a.lake
+  let algorithm : Algorithm := match a.algorithm with
+    | some name => { name }
+    | none => Algorithm.sha256
   let result ← buildLedger
     { modules := names, target := target, ir := a.ir.map (⟨·⟩), sourceUrl := a.sourceUrl
-      linkIndex := a.linkIndex.map (⟨·⟩), externalLinks := some external.digest }
+      linkIndex := a.linkIndex.map (⟨·⟩), externalLinks := some external.digest, algorithm }
   match result with
-  | .error message =>
-    IO.eprintln s!"litedoc4: {message}"
-    return 3
-  | .ok ledger =>
+  | .error message => refusedWith 3 message
+  | .ok (ledger, phases) =>
     let body := ledger.toJson
-    if let some dir := (⟨out⟩ : System.FilePath).parent then
-      if !dir.toString.isEmpty then IO.FS.createDirAll dir
-    IO.FS.writeFile out body
-    let files := ledger.modules.foldl (fun n m => n + m.files.size) 0
-    let hashed := ledger.modules.foldl (fun n m => m.files.foldl (fun k f => k + f.bytes) n) 0
+    writeFile ⟨out⟩ body
+    let files := fileCountOf ledger.modules
+    let hashed := hashedBytesOf ledger.modules
+    if let some path := a.timings then
+      let total ← IO.monoNanosNow
+      writeFile ⟨path⟩ (buildTimingsJson algorithm.name a.concurrency ledger.modules.size files
+        hashed (phases.keyDone - phases.started) (phases.hashDone - phases.keyDone)
+        (total - phases.hashDone) (total - phases.started))
+    sequentialNote a.concurrency
     IO.println s!"build {ledger.modules.size} modules, {files} olean file(s), {hashed} B hashed \
-      -> {out} ({body.utf8ByteSize} B)"
+      in {seconds (phases.hashDone - phases.keyDone) 4} s -> {out} ({body.utf8ByteSize} B)"
     return 0
 
-def ledgerBuild (args : List String) : IO UInt32 := do
-  match parseLedger args {} with
-  | .error message => refuse message
-  | .ok a =>
-    if a.help then
-      IO.println usage
-      return 0
+def ledgerCheckRun (a : LedgerArgs) (path : String) : IO UInt32 := do
+  let names ← match a.modules with
+    | some list => pure (some (← readModuleList ⟨list⟩))
+    | none => pure none
+  let external ← resolveExternal a.root a.lake
+  let result ← checkLedger
+    { ledger := ⟨path⟩, algorithm := a.algorithm.map ({ name := · }), modules := names
+      ir := a.ir.map (⟨·⟩), sourceUrl := a.sourceUrl, linkIndex := a.linkIndex.map (⟨·⟩)
+      externalLinks := some external.digest
+      changedOut := a.changedOut.map (⟨·⟩), removedOut := a.removedOut.map (⟨·⟩)
+      renderAllOut := a.renderAllOut.map (⟨·⟩) }
+  match result with
+  | .error (code, message) => refusedWith code message
+  | .ok summary =>
+    if let some timings := a.timings then
+      writeFile ⟨timings⟩
+        (checkTimingsJson a.concurrency summary ((← IO.monoNanosNow) - summary.phases.started))
+    sequentialNote a.concurrency
+    IO.println s!"check {summary.modules} modules ({summary.algorithm.name}, concurrency 1): \
+      {summary.changed.size} changed, {summary.added.size} added, {summary.removed.size} removed"
+    if summary.extractInvalidated then
+      IO.println s!"  extract key changed ({",".intercalate summary.extractKeyChanged.toList}) \
+        -> all {summary.reExtract.size} re-extracted"
+    if summary.renderAll then
+      IO.println s!"  render key changed ({",".intercalate summary.renderKeyChanged.toList}) \
+        -> re-render all, re-extract {summary.reExtract.size}"
+    for module in summary.changed do
+      IO.println s!"  changed  {module}"
+    for module in summary.added do
+      IO.println s!"  added    {module}"
+    for module in summary.removed do
+      IO.println s!"  removed  {module}"
+    return 0
+
+def ledgerTouchRun (path module out : String) : IO UInt32 := do
+  match readLedger path (← IO.FS.readFile path) >>= touchLedger path module with
+  | .error (code, message) => refusedWith code message
+  | .ok ledger =>
+    let body := ledger.toJson
+    writeFile ⟨out⟩ body
+    IO.println s!"touched {module} in {out} ({body.utf8ByteSize} B; injected change, the olean is \
+      untouched)"
+    return 0
+
+def ledgerRun (command : String) (a : LedgerArgs) : IO UInt32 := do
+  if command == "build" then
     let missing := "ledger build needs --modules <file>, --target <repo> and --out <ledger.json>"
     let some modules := a.modules | refuse missing
     let some target := a.target | refuse missing
     let some out := a.out | refuse missing
-    try
-      return ← ledgerBuildRun a modules target out
-    catch e =>
-      IO.eprintln s!"litedoc4: {e}"
-      return 1
+    ledgerBuildRun a modules target out
+  else if command == "check" then
+    let some path := a.ledger | refuse "ledger check needs --ledger <ledger.json>"
+    ledgerCheckRun a path
+  else
+    let missing := "ledger touch needs --ledger <ledger.json> and --module <Module>"
+    let some path := a.ledger | refuse missing
+    let some module := a.module | refuse missing
+    ledgerTouchRun path module (a.out.getD path)
 
 structure ModulesArgs where
   root : Option String := none
@@ -379,9 +550,7 @@ def modulesRun (a : ModulesArgs) (root : String) : IO UInt32 := do
     | .ok names =>
       match a.out with
       | some path => do
-        -- **No line at all** when there are no names: an empty set has to be an
-        -- empty file rather than one blank line.
-        writeFile ⟨path⟩ (if names.isEmpty then "" else "\n".intercalate names.toList ++ "\n")
+        writeLines ⟨path⟩ names
         IO.println s!"{names.size} modules -> {path}"
         return 0
       | none => do
@@ -505,20 +674,30 @@ def build (args : List String) : IO UInt32 := do
       IO.eprintln s!"litedoc4: {e}"
       pure (1 : UInt32)
 
-/-- `check` and `touch` are refused by name rather than as a misspelling: they
-are the incremental half, and a caller needs to hear that this build stops at
-the ledger the first round writes. -/
 def ledger (args : List String) : IO UInt32 := do
   match args with
-  | [] => refuse "ledger needs a subcommand: build"
+  | [] => refuse "ledger needs a subcommand: build, check or touch"
   | command :: rest =>
-    if command == "build" then ledgerBuild rest
-    else if command == "check" || command == "touch" then
-      refuse s!"`ledger {command}` is not implemented by this build"
-    else if command == "--help" || command == "-h" then do
+    -- Before the subcommand, because that is where a person types it: this is the
+    -- only command with a subcommand in front of its flag loop, so without this
+    -- arm `litedoc4 ledger --help` is refused as an unknown subcommand *named*
+    -- `--help`.
+    if command == "--help" || command == "-h" then do
       IO.println usage
       return 0
-    else refuse s!"unknown `ledger` subcommand `{command}`"
+    else if command != "build" && command != "check" && command != "touch" then
+      refuse s!"unknown `ledger` subcommand `{command}`"
+    else match parseLedger command rest {} with
+      | .error message => refuse message
+      | .ok a =>
+        if a.help then
+          IO.println usage
+          return 0
+        try
+          ledgerRun command a
+        catch e =>
+          IO.eprintln s!"litedoc4: {e}"
+          pure (1 : UInt32)
 
 end Litedoc4
 
