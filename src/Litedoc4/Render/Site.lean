@@ -20,6 +20,12 @@ structure Options where
   came out empty: the flag is required precisely so that neither can be reached
   by forgetting the other. -/
   linkIndex : Option FilePath
+  /-- Empty is the answer for a run with no `--root`: no manifest, no revisions,
+  and nothing to link a dependency at. -/
+  external : ExternalLinks := {}
+  /-- `litedoc4.toml`'s `title`; `none` takes the one `siteTitle` derives from
+  the module names. -/
+  title : Option String := none
   deriving Inhabited
 
 structure Summary where
@@ -43,9 +49,9 @@ def renderSite (o : Options) : IO Summary := do
   let lidx ← match o.linkIndex with
     | some p => do parseLidx (← readIrFile p)
     | none => pure emptyLidx
-  let ix ← buildIndex deps mods lidx
+  let ix ← buildIndex deps mods lidx o.external
   let sup ← suppressedOf mods
-  let title := siteTitle (mods.map (·.name))
+  let title := o.title.getD (siteTitle (mods.map (·.name)))
   IO.FS.createDirAll o.pages
   let mut bytes := 0
   let mut mathFailures := 0

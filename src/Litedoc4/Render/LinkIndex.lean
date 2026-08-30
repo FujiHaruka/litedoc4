@@ -74,6 +74,16 @@ def parseLidx (text : String) : IO Lidx := do
     i := j + 1
   return { names, modules }
 
+/-- `none` covers two different things on purpose — a name the map does not
+hold, and a name it holds with no range — because the caller does the same thing
+with both: build the URL without an anchor if the module resolves at all. A `0`
+start line is the second case; the `.lidx` counts lines from 1, which is what
+`crates/litedoc4-render/src/link_index.rs` spells with `NonZeroU32`. -/
+def Lidx.rangeOf (l : Lidx) (name : String) : Option (Nat × Nat) :=
+  match l.names.get? name with
+  | some e => if e.startLine == 0 then none else some (e.startLine, e.endLine)
+  | none => none
+
 def emptyLidx : Lidx :=
   { names := Std.HashMap.emptyWithCapacity 0, modules := Std.HashSet.emptyWithCapacity 0 }
 

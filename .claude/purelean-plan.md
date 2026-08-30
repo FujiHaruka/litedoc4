@@ -181,6 +181,45 @@ M3 で分かって**閉じていない**もの、次に触る人向け:
 
 `fold_timings`（events JSONL → `extract-timings-<n>.json`）は **23 ファイルには不要**。
 
+#### 単位 1〜4 は 2026-08-31 に済んだ（レンダラが `--root` を取る）
+
+`render` と `site` が `--root` / `--lake` を取り、`litedoc4.toml`・`ExternalLinks`・
+`linkTo` の問い 1・2 が入った。**4 通りすべて Rust とバイト一致 + stdout 一致**（実測）:
+
+| | Lean vs Rust |
+|---|---|
+| `render` `--root` 無し | 11 ページ 131,862 B 一致 |
+| `render --root e2e/micro` | 11 ページ **146,728 B** 一致（`--root` で +14,866 B、ページごと +137〜+3,945） |
+| `site` `--root` 無し | 20 ファイル 154,240 B 一致 |
+| `site --root e2e/micro` | 20 ファイル **169,887 B** 一致 |
+
+**比較は空虚でない** — `--root` は 11/11 ページと 20 中 15 ファイルを動かす
+（5 つの JSON/バイナリは title もリンクも運ばないので不変）。
+
+ゲート側も強くした: 項目 5/7 は stdout の**先頭を切り落として**比べていた
+（Lean が `external` ブロックを出せなかったから）。その理由が消えたので切り落としをやめ、
+**stdout 全体**を比べる（3/7 行 → 4/8 行）。落としてから通した。
+
+#### 単位 1〜4 で分かって、閉じていないもの
+
+1. **`Json.lean` の `panic!` は止まらない。** `pArr` / `pObj` は説明できない入力で
+   `panic!` を呼ぶが、Lean の `panic!` は既定値を返して**続行する**。
+   壊れた IR 4 通り（index.json の切り詰め / モジュールファイルの切り詰め ×2 /
+   閉じない配列）で **exit code もページ数も Rust と一致した**（実測 2026-08-31、
+   どちらも rc=1・0 ページ）が、**一致は「panic のあとの空の値がたまたま後段の検証を
+   落とす」ことに依存している**。落とさない壊れ方は探していない。
+   Rust は `EOF while parsing a string at line 1 column 200` と言い、Lean は
+   `PANIC at Litedoc4.JScan.pObj … backtrace:` を出す。**入口が増えたのは今日**で、
+   `lake-manifest.json` は**ユーザーが書くファイル**（IR は extractor が書く）。
+   直すなら `Json.lean` に `Except` を通す 10 関数の書き換えで、M7 の診断と一緒が安い
+2. **エラーの文言は Rust と違う**（判定と exit code は一致）。OS エラーとパーサの
+   メッセージを引用する場所すべて。**何もゲートしていない** → M7
+3. **`litedoc4.toml` の読み手は Rust より狭い。** TOML のリテラル文字列（`title = 'x'`）と
+   複数行文字列を Lean は拒否し、Rust（`basic_toml`）は受け入れる。**拒否は安全側**だが
+   差であり、そう綴ったパッケージは壊れる。どのゲートも通っていない
+4. **`--root` は 422 モジュールでは未検証。** `purelean-render-gate.sh` は `--root` を
+   渡さないので、対象規模で確かめたのは `--root` 無しの経路だけ
+
 #### M4 で足すゲート項目（`purelean-micro-gate.sh`、1 つずつ落としてから通す）
 
 9 = `build` の 23 ファイルがバイト一致 / 10 = `site-gate.sh` が Lean の木で緑

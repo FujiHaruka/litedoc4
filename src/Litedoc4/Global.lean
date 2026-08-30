@@ -25,19 +25,18 @@ structure GlobalSummary where
   stateBytes : Nat := 0
   deriving Inhabited
 
-/-- `indexMarkdown` is `litedoc4.toml`'s `index`. Nothing passes it yet, because
-naming that file is `--root`'s job and this build refuses `--root` by name; the
-parameter is here rather than a `none` written into the body so that adding
-`--root` is one call site rather than a rewrite of what the front page can
-carry. -/
-def buildGlobal (ir out : FilePath) (indexMarkdown : Option String := none) :
-    IO GlobalSummary := do
+/-- `indexMarkdown` and `title` are `litedoc4.toml`'s two keys, resolved by
+whoever read the file — `--root` names the package this stage is never told
+about, and the index path is relative to it. -/
+def buildGlobal (ir out : FilePath) (indexMarkdown : Option String := none)
+    (title : Option String := none) : IO GlobalSummary := do
   let tree ← openIrTree ir
   let mut facts : Array ModuleFacts := Array.mkEmpty tree.index.modules.size
   for entry in tree.index.modules do
     facts := facts.push (factsOf (← tree.module entry))
   let depMaps ← tree.loadDepMaps
-  let artifacts := derive facts depMaps (indexMarkdown.map introHtml) tree.index.leanVersion
+  let artifacts :=
+    derive facts depMaps title (indexMarkdown.map introHtml) tree.index.leanVersion
   for (relative, body) in artifactFiles artifacts do
     let path := irPath out relative
     match path.parent with

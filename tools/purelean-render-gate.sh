@@ -23,7 +23,7 @@
 #   5 REFUSED   `render` accepted a flag it does not implement. A silently
 #               ignored `--only` renders every module and still matches, so this
 #               is the one failure the byte comparison cannot see.
-#   6 SUMMARY   the counts the run prints differ. The other failure the byte
+#   6 SUMMARY   the two runs' stdout differs. The other failure the byte
 #               comparison cannot see, from the other end: `math spans kept as
 #               LaTeX` reports a fallback that renders a *valid* page, so a half
 #               that stopped counting is 422 of 422 identical and silent.
@@ -106,14 +106,6 @@ render () {
     >"$log" 2>"${log%.log}.err" || rc=$?
   return $rc
 }
-
-# The block `print_render_summary` writes, wherever it starts: `render` prints an
-# external-links line before it that the Lean half cannot print, because it
-# refuses `--root` by name. Taking the tail from `modules ` rather than dropping
-# named lines means a *new* summary line is a difference rather than something an
-# exception list swallows. When the Lean `render` grows `--root` (M3), this slice
-# stops being needed and the whole stdout should be compared.
-summary_of () { sed -n '/^modules /,$p' "$1"; }
 
 html_count () { find "$1" -type f -name '*.html' 2>/dev/null | wc -l | tr -d ' '; }
 
@@ -203,22 +195,21 @@ else
   fail 5 "no Lean binary to run — item 1 did not build one"
 fi
 
-say "6/6 the two runs report the same counts"
-if [ "$rendered" -eq 1 ]; then
-  summary_of "$OUT/rust.log" >"$OUT/rust.summary"
-  summary_of "$OUT/lean.log" >"$OUT/lean.summary"
-  if [ ! -s "$OUT/rust.summary" ] || [ ! -s "$OUT/lean.summary" ]; then
-    # Two empty slices compare equal, and a run that printed no summary at all is
-    # exactly when that would happen.
-    fail 6 "a run printed no summary block (rust $(wc -l <"$OUT/rust.summary" | tr -d ' ') line(s), lean $(wc -l <"$OUT/lean.summary" | tr -d ' '))"
-  elif ! /usr/bin/diff "$OUT/rust.summary" "$OUT/lean.summary" >"$OUT/summary.diff" 2>&1; then
-    fail 6 "the summaries differ — see $OUT/summary.diff"
+say "6/6 the two runs print the same stdout"
+# The whole of stdout and not a slice of it: both halves take `--root`, so the
+# `external ` block one prints is the other's too, and a comparison that began
+# at the first counts line would swallow a difference in the dependency map the
+# two resolved. The `-s` tests are what keeps two empty files from comparing
+# equal — a run that printed nothing at all is exactly when that would happen.
+if [ "$rendered" -eq 1 ] && [ -s "$OUT/rust.log" ] && [ -s "$OUT/lean.log" ]; then
+  if ! /usr/bin/diff "$OUT/rust.log" "$OUT/lean.log" >"$OUT/summary.diff" 2>&1; then
+    fail 6 "stdout differs — see $OUT/summary.diff"
     cat "$OUT/summary.diff" >&2
   else
-    pass 6 "$(wc -l <"$OUT/lean.summary" | tr -d ' ') identical line(s)"
+    pass 6 "$(wc -l <"$OUT/lean.log" | tr -d ' ') identical line(s)"
   fi
 else
-  fail 6 "nothing was rendered — item 2 did not produce two summaries"
+  fail 6 "nothing was rendered — item 2 did not produce two runs' stdout"
 fi
 
 say "summary"

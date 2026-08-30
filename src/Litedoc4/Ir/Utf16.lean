@@ -51,6 +51,48 @@ def mkFragOf (text : String) : Frag :=
       ||| (((byteAt s (i + 2)).toUInt32 &&& 0x3F) <<< 6)
       ||| ((byteAt s (i + 3)).toUInt32 &&& 0x3F), 4)
 
+/-- Unicode `White_Space`, which is what Rust's `char::is_whitespace` is and
+what every `trim` below has to agree with. Lean's own `Char.isWhitespace` is the
+four ASCII ones, so a heading padded with U+00A0 would keep the pad. -/
+def isWhiteSpaceCp (c : UInt32) : Bool :=
+  (c ≥ 0x09 && c ≤ 0x0D) || c == 0x20 || c == 0x85 || c == 0xA0 || c == 0x1680
+    || (c ≥ 0x2000 && c ≤ 0x200A) || c == 0x2028 || c == 0x2029 || c == 0x202F
+    || c == 0x205F || c == 0x3000
+
+/-- Byte offset of the character before `i`. -/
+def prevCpAt (s : String) (i : Nat) : Nat := Id.run do
+  let mut j := i - 1
+  while j > 0 && (byteAt s j) &&& 0xC0 == 0x80 do
+    j := j - 1
+  return j
+
+def wsStart (s : String) : Nat := Id.run do
+  let n := s.utf8ByteSize
+  let mut i := 0
+  while i < n do
+    let (c, w) := cpAt s i
+    if !isWhiteSpaceCp c then return i
+    i := i + w
+  return n
+
+def wsEnd (s : String) : Nat := Id.run do
+  let mut e := s.utf8ByteSize
+  while e > 0 do
+    let j := prevCpAt s e
+    let (c, _) := cpAt s j
+    if !isWhiteSpaceCp c then return e
+    e := j
+  return 0
+
+def trimWs (s : String) : String :=
+  let a := wsStart s
+  let b := wsEnd s
+  if a ≥ b then "" else byteSub s a b
+
+def trimStartWs (s : String) : String := byteSub s (wsStart s) s.utf8ByteSize
+
+def trimEndWs (s : String) : String := byteSub s 0 (wsEnd s)
+
 /-- The first UTF-16 code unit `cp` encodes as. -/
 @[inline] def leadUnit (cp : UInt32) : UInt32 :=
   if cp ≥ 0x10000 then (0xD800 : UInt32) + ((cp - 0x10000) >>> 10) else cp

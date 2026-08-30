@@ -9,4 +9,16 @@ namespace Litedoc4
 @[inline] def byteSub (s : String) (a b : Nat) : String :=
   String.Pos.Raw.extract s ⟨a⟩ ⟨b⟩
 
+/-- `String.lt` is code-point order, and UTF-8 byte order coincides with it. -/
+def byteLt (a b : String) : Bool := Id.run do
+  let na := a.utf8ByteSize
+  let nb := b.utf8ByteSize
+  let mut i := 0
+  while i < na && i < nb do
+    let x := byteAt a i
+    let y := byteAt b i
+    if x != y then return x < y
+    i := i + 1
+  return na < nb
+
 end Litedoc4

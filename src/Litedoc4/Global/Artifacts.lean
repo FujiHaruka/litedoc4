@@ -98,7 +98,8 @@ leave the later one in the map, and a module's importer list is built in it
 (before being sorted). Passing the facts in any other order is a different
 answer. -/
 def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String)))
-    (intro : Option String) (leanVersion : String) : Artifacts := Id.run do
+    (titleOverride : Option String) (intro : Option String) (leanVersion : String) :
+    Artifacts := Id.run do
   let mut nameMap : Std.HashMap String (String × String) := Std.HashMap.emptyWithCapacity 4096
   let mut instances : Std.HashMap String (Array String) := Std.HashMap.emptyWithCapacity 256
   let mut instancesFor : Std.HashMap String (Array String) := Std.HashMap.emptyWithCapacity 256
@@ -227,7 +228,7 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
       usedBy := usedBy.insert target entry
 
   let usedByPairs := nameListPairs usedBy
-  let title := siteTitle ownSorted
+  let title := titleOverride.getD (siteTitle ownSorted)
   return {
     nameMapJson
     indexHtml := indexHtml title intro pages sortedNames.size leanVersion

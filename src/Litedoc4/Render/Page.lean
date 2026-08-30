@@ -51,10 +51,7 @@ def pageItems (m : Module) (sup : Std.HashSet String) : Array Item := Id.run do
 def pageHtml (ix : NameIndex) (m : Module) (sup : Std.HashSet String)
     (sourceUrl title : String) : RenderM String := do
   let root := pageRoot m.name
-  let mut moduleUrl := sourceUrl
-  for part in moduleComponents m.name do
-    moduleUrl := moduleUrl ++ "/" ++ part
-  moduleUrl := moduleUrl ++ ".lean"
+  let moduleUrl := moduleSourceUrl sourceUrl m.name
   let declNames := moduleDeclNames m
   let c : PageCtx :=
     { ix, root, declNames, declComps := declNames.map components }

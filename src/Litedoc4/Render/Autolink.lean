@@ -3,6 +3,7 @@ Derived from doc-gen4 (Apache-2.0, Copyright (c) 2021 Henrik Böving) by way of
 `crates/litedoc4-render/src/autolink.rs`, and changed; see this repository's NOTICE
 and `docs/provenance.md`.
 -/
+import Litedoc4.External
 import Litedoc4.Ir
 import Litedoc4.Ir.Name
 import Litedoc4.Md.Html
@@ -26,10 +27,11 @@ structure NameIndex where
   knownModules : Std.HashSet String
   /-- The same set as an array, because the source-path branch scans it. -/
   knownModuleArray : Array String
+  external : ExternalLinks
   deriving Inhabited
 
 def buildIndex (deps : Array (Array (String × String))) (mods : Array Module)
-    (lidx : Lidx) : IO NameIndex := do
+    (lidx : Lidx) (external : ExternalLinks) : IO NameIndex := do
   let mut known : Std.HashMap String String := Std.HashMap.emptyWithCapacity 16384
   for dep in deps do
     for (name, module) in dep do
@@ -48,7 +50,7 @@ def buildIndex (deps : Array (Array (String × String))) (mods : Array Module)
     knownModules := knownModules.insert module
   for m in mods do
     knownModules := knownModules.insert m.name
-  return { known, lidx, pages, knownModules, knownModuleArray := knownModules.toArray }
+  return { known, lidx, pages, knownModules, knownModuleArray := knownModules.toArray, external }
 
 /-! ## Lean name syntax
 
@@ -136,20 +138,32 @@ def pageRoot (module : String) : String := Id.run do
   for _ in [0:depth] do out := out ++ "../"
   return out ++ "./"
 
-/-- `NameIndex::link_to`. The measurement target is rendered with an **empty**
-dependency map (`external no package named (--root)` in `render.log`), so the
-two external branches are constant `none` here — but the `.lidx` probe for the
-source range they consume is not, and it runs on every anchored link, which is
-where most of this renderer's link-index traffic comes from. -/
+/-- `NameIndex::link_to`, **the only copy of the decision**: every call site that
+builds a link to another module goes through here.
+
+`none` means "render the name, draw no link", and **no caller falls through to a
+later branch**: a resolved name that happens to be unlinkable must not be
+re-resolved to some other declaration that happens to have a page.
+
+The dependency-documentation question `crates/litedoc4-render/src/autolink.rs`
+asks ahead of these is deliberately absent: it is answered from a resolved
+`--deps-docs-map`, which is not a flag this build takes. What would falsify
+this: that flag arriving here. -/
 @[inline] def linkTo (ix : NameIndex) (root module : String) (anchor : Option String) :
     Option String :=
-  let _range := match anchor with
-    | some name => ix.lidx.names.get? name
-    | none => none
-  if !ix.pages.contains module then none
-  else match anchor with
-    | some a => some (moduleLink root module ++ "#" ++ a)
-    | none => some (moduleLink root module)
+  match ix.external.baseFor (moduleComponents module)[0]! with
+  -- Membership and not `urlFor`'s answer: a root the map holds with no
+  -- version-pinned URL gets no link at all rather than the page link below,
+  -- which is a page this site never writes — and `urlFor` answers `none` to
+  -- that root and to a module of this package alike. What would falsify this: a
+  -- map that never holds a root with an empty base, which `e2e/micro`'s `path`
+  -- require is.
+  | some _ => ix.external.urlFor module (anchor.bind ix.lidx.rangeOf)
+  | none =>
+    if !ix.pages.contains module then none
+    else match anchor with
+      | some a => some (moduleLink root module ++ "#" ++ a)
+      | none => some (moduleLink root module)
 
 /-! ## What a name on this page can link to -/
 

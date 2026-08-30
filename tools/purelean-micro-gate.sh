@@ -26,15 +26,17 @@
 #               message, and the same pages written before stopping. If both
 #               exit 0 this item fails too: the sample has stopped covering the
 #               branch, which is the failure that hides all the others.
-#   5 SUMMARY   the counts the run prints differ. The pages can agree while a
+#   5 SUMMARY   the two runs' stdout differs. The pages can agree while a
 #               silent fallback goes unreported — `math spans kept as LaTeX` is
 #               exactly such a line — so the bytes are not the whole answer.
+#               Compared whole, not from the first counts line: the dependency
+#               link map is reported above them and nowhere else.
 #   6 SITE      `litedoc4 site` writes the pages *and* the nine whole-package
 #               artifacts, and the two trees differ. Compared with `--all`: four
 #               of the artifacts are JSON and one is binary, and a comparison
 #               that saw only `*.html` would call two sites identical while
 #               their search indexes disagreed.
-#   7 SITE SUM  the two `site` runs report different counts.
+#   7 SITE SUM  the two `site` runs print different stdout.
 #   8 CLOSURE   the Lean site does not close over itself. `check-site-closure.py`
 #               asks whether the index, the search index and the pages agree
 #               about which declarations exist **in both directions**, and
@@ -130,20 +132,6 @@ render () {
   echo "$rc"
 }
 
-# The block `print_render_summary` writes, wherever it starts: `render` prints an
-# external-links line before it that the Lean half cannot print, because it
-# refuses `--root` by name. Taking the tail from `modules ` rather than dropping
-# named lines means a *new* summary line is a difference rather than something
-# an exception list swallows. When the Lean `render` grows `--root` (M3), this
-# slice stops being needed and the whole stdout should be compared.
-summary_of () { sed -n '/^modules /,$p' "$1"; }
-
-# `site` prefixes its lines `render  ` / `global  `, and Rust prints an
-# `external ` line before them that the Lean half cannot print because it refuses
-# `--root` by name. Sliced from the first line rather than by dropping named
-# ones, for the reason above: a *new* summary line has to be a difference.
-site_summary_of () { sed -n '/^render  modules /,$p' "$1"; }
-
 site_run () {
   local exe="$1" out="$2" name="$3"; shift 3
   local rc=0
@@ -235,22 +223,21 @@ else
   fail 4 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "5/8 the two runs report the same counts"
+say "5/8 the two runs print the same stdout"
+# The whole of stdout and not a slice of it: both halves take `--root`, so the
+# `external ` block one prints is the other's too, and a comparison that began
+# at the first counts line would swallow a difference in the dependency map the
+# two resolved. The `-s` tests are what keeps two empty files from comparing
+# equal — a run that printed nothing at all is exactly when that would happen.
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ] && [ -s "$OUT/lean.out" ] && [ -s "$OUT/rust.out" ]; then
-  summary_of "$OUT/rust.out" >"$OUT/rust.summary"
-  summary_of "$OUT/lean.out" >"$OUT/lean.summary"
-  if [ ! -s "$OUT/rust.summary" ] || [ ! -s "$OUT/lean.summary" ]; then
-    # Two empty slices compare equal, and a run that printed no summary at all is
-    # exactly when that would happen.
-    fail 5 "a run printed no summary block (rust $(wc -l <"$OUT/rust.summary" | tr -d ' ') line(s), lean $(wc -l <"$OUT/lean.summary" | tr -d ' '))"
-  elif ! $DIFF_CMD "$OUT/rust.summary" "$OUT/lean.summary" >"$OUT/summary.diff" 2>&1; then
-    fail 5 "the summaries differ — see $OUT/summary.diff"
-    $DIFF_CMD "$OUT/rust.summary" "$OUT/lean.summary" >&2 || true
+  if ! $DIFF_CMD "$OUT/rust.out" "$OUT/lean.out" >"$OUT/summary.diff" 2>&1; then
+    fail 5 "stdout differs — see $OUT/summary.diff"
+    $DIFF_CMD "$OUT/rust.out" "$OUT/lean.out" >&2 || true
   else
-    pass 5 "$(wc -l <"$OUT/lean.summary" | tr -d ' ') identical line(s)"
+    pass 5 "$(wc -l <"$OUT/lean.out" | tr -d ' ') identical line(s)"
   fi
 else
-  fail 5 "item 3 did not leave two summaries to compare"
+  fail 5 "item 3 did not leave two runs' stdout to compare"
 fi
 
 say "6/8 \`site\` writes the same 20 files, bytes and all"
@@ -277,20 +264,16 @@ else
   fail 6 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "7/8 the two \`site\` runs report the same counts"
+say "7/8 the two \`site\` runs print the same stdout"
 if [ -s "$OUT/site-lean.out" ] && [ -s "$OUT/site-rust.out" ]; then
-  site_summary_of "$OUT/site-rust.out" >"$OUT/site-rust.summary"
-  site_summary_of "$OUT/site-lean.out" >"$OUT/site-lean.summary"
-  if [ ! -s "$OUT/site-rust.summary" ] || [ ! -s "$OUT/site-lean.summary" ]; then
-    fail 7 "a run printed no summary block (rust $(wc -l <"$OUT/site-rust.summary" | tr -d ' ') line(s), lean $(wc -l <"$OUT/site-lean.summary" | tr -d ' '))"
-  elif ! $DIFF_CMD "$OUT/site-rust.summary" "$OUT/site-lean.summary" >"$OUT/site-summary.diff" 2>&1; then
-    fail 7 "the summaries differ — see $OUT/site-summary.diff"
-    $DIFF_CMD "$OUT/site-rust.summary" "$OUT/site-lean.summary" >&2 || true
+  if ! $DIFF_CMD "$OUT/site-rust.out" "$OUT/site-lean.out" >"$OUT/site-summary.diff" 2>&1; then
+    fail 7 "stdout differs — see $OUT/site-summary.diff"
+    $DIFF_CMD "$OUT/site-rust.out" "$OUT/site-lean.out" >&2 || true
   else
-    pass 7 "$(wc -l <"$OUT/site-lean.summary" | tr -d ' ') identical line(s)"
+    pass 7 "$(wc -l <"$OUT/site-lean.out" | tr -d ' ') identical line(s)"
   fi
 else
-  fail 7 "item 6 did not leave two summaries to compare"
+  fail 7 "item 6 did not leave two runs' stdout to compare"
 fi
 
 # Deliberately **not** guarded on item 6. Guarding it there would make it a
