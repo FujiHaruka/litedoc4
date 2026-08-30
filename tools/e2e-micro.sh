@@ -91,22 +91,7 @@ say "2/17 build the extractor inside the sample's environment"
 # `importModules (loadExts := true)` resolves symbols in the running executable
 # through the Lean interpreter.
 if [ -z "$EXTRACTOR" ]; then
-  EXTRACTOR="$SAMPLE/.lake/e2e-extract/extract"
-  # Rebuilt when the source is newer, not only when the binary is missing: a
-  # stale binary would let every gate below pass against an extractor built
-  # before the change under test, and the extractor-to-Rust contract is the one
-  # thing this script exists to check.
-  if [ ! -x "$EXTRACTOR" ] || [ "$ROOT/extractor/Extract.lean" -nt "$EXTRACTOR" ]; then
-    mkdir -p "$SAMPLE/.lake/e2e-extract"
-    (cd "$SAMPLE" && "$LAKE" env lean --root="$ROOT/extractor" \
-      -o "$SAMPLE/.lake/e2e-extract/Extract.olean" \
-      -c "$SAMPLE/.lake/e2e-extract/Extract.c" \
-      "$ROOT/extractor/Extract.lean")
-    (cd "$SAMPLE" && "$LAKE" env leanc -rdynamic \
-      -o "$EXTRACTOR" "$SAMPLE/.lake/e2e-extract/Extract.c")
-  else
-    echo "reusing $EXTRACTOR"
-  fi
+  EXTRACTOR="$(micro_extractor "$ROOT" "$SAMPLE" "$LAKE" "$OUT/extractor-build.log")"
 fi
 
 say "3/17 GATE 1 — one command"

@@ -77,3 +77,34 @@ __memory_gb () {
   kb="$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null)" || kb=""
   if [ -n "$kb" ]; then echo "$((kb / 1024 / 1024))"; else echo '?'; fi
 }
+
+# The extractor, built inside e2e/micro's environment, at the path every caller
+# already agreed on. Three scripts want it — tools/e2e-micro.sh,
+# tools/lake-package-gate.sh and tools/purelean-micro-gate.sh — and the two
+# decisions it makes are the ones a second copy gets wrong: **where the binary
+# lives** (a gitignored directory inside the sample, so a checkout never carries
+# a stale one) and **when to rebuild it** (when the source is newer, not only
+# when it is missing — a stale binary lets every check downstream pass against
+# an extractor built before the change under test).
+#
+# `-rdynamic` is load-bearing: `importModules (loadExts := true)` resolves
+# symbols in the running executable through the Lean interpreter.
+#
+# usage: micro_extractor <repo-root> <micro-dir> <lake> <build-log>
+# echoes the binary's path; the caller decides whether a missing one is fatal.
+micro_extractor () {
+  local root="$1" micro="$2" lake="$3" log="$4"
+  local exe="$micro/.lake/e2e-extract/extract"
+  if [ ! -x "$exe" ] || [ "$root/extractor/Extract.lean" -nt "$exe" ]; then
+    mkdir -p "$micro/.lake/e2e-extract"
+    ( cd "$micro" && "$lake" env lean --root="$root/extractor" \
+        -o "$micro/.lake/e2e-extract/Extract.olean" \
+        -c "$micro/.lake/e2e-extract/Extract.c" \
+        "$root/extractor/Extract.lean" ) >"$log" 2>&1
+    ( cd "$micro" && "$lake" env leanc -rdynamic \
+        -o "$exe" "$micro/.lake/e2e-extract/Extract.c" ) >>"$log" 2>&1
+  else
+    echo "reusing $exe" >&2
+  fi
+  echo "$exe"
+}

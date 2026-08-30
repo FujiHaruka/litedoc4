@@ -36,6 +36,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$HERE/lib/common.sh" || exit 1
 FIXTURE="$ROOT/e2e/consumer"
 MICRO="$ROOT/e2e/micro"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
@@ -136,19 +138,8 @@ mkdir -p "$IR"
   || { echo "lake build litedoc4/extract failed — see $OUT/lake-build.log" >&2; tail -20 "$OUT/lake-build.log" >&2; }
 LAKE_EXTRACT="$ROOT/.lake/build/bin/extract"
 
-# `extractor/build.sh`'s two steps, inside the sample's environment. Rebuilt
-# when the source is newer, not only when the binary is missing: a stale binary
-# would make this item compare a change against itself.
-MANUAL_EXTRACT="$MICRO/.lake/e2e-extract/extract"
-if [ ! -x "$MANUAL_EXTRACT" ] || [ "$ROOT/extractor/Extract.lean" -nt "$MANUAL_EXTRACT" ]; then
-  mkdir -p "$MICRO/.lake/e2e-extract"
-  (cd "$MICRO" && "$LAKE" env lean --root="$ROOT/extractor" \
-    -o "$MICRO/.lake/e2e-extract/Extract.olean" \
-    -c "$MICRO/.lake/e2e-extract/Extract.c" \
-    "$ROOT/extractor/Extract.lean") >"$OUT/manual-build.log" 2>&1
-  (cd "$MICRO" && "$LAKE" env leanc -rdynamic \
-    -o "$MANUAL_EXTRACT" "$MICRO/.lake/e2e-extract/Extract.c") >>"$OUT/manual-build.log" 2>&1
-fi
+# `extractor/build.sh`'s two steps, inside the sample's environment.
+MANUAL_EXTRACT="$(micro_extractor "$ROOT" "$MICRO" "$LAKE" "$OUT/manual-build.log")"
 
 # The extractor needs the sample's own oleans.
 (cd "$MICRO" && "$LAKE" build) >"$OUT/micro-build.log" 2>&1
