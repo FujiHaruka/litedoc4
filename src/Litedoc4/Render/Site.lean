@@ -48,7 +48,9 @@ def renderSite (o : Options) : IO Summary := do
   IO.FS.createDirAll o.pages
   let mut bytes := 0
   for m in mods do
-    let html := pageHtml ix m sup o.sourceUrl title
+    let html ← match pageHtml ix m sup o.sourceUrl title with
+      | .ok html => pure html
+      | .error message => throw (IO.userError s!"rendering {m.name}: {message}")
     bytes := bytes + html.utf8ByteSize
     writePage o.pages m.name html
   return {

@@ -49,7 +49,7 @@ def pageItems (m : Module) (sup : Std.HashSet String) : Array Item := Id.run do
   return items.qsort itemLt
 
 def pageHtml (ix : NameIndex) (m : Module) (sup : Std.HashSet String)
-    (sourceUrl title : String) : String := Id.run do
+    (sourceUrl title : String) : RenderM String := do
   let root := pageRoot m.name
   let mut moduleUrl := sourceUrl
   for part in components m.name do
@@ -68,7 +68,7 @@ def pageHtml (ix : NameIndex) (m : Module) (sup : Std.HashSet String)
     else
       let d := m.decls[it.idx]!
       memberNames := memberNames.push d.name
-      main := declHtml main dr m d moduleUrl
+      main ← declHtml main dr m d moduleUrl
   let mut out := "<!DOCTYPE html><html lang=\"en\">"
   out := headHtml out m.name root title
   out := escapeInto (out ++ "<body data-root=\"") root

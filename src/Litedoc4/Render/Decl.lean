@@ -3,6 +3,16 @@ import Litedoc4.Render.Code
 
 namespace Litedoc4
 
+/-- What a page builder returns: the markup, or the message the run stops with.
+
+Named rather than spelled `Except String` at each signature because a render's
+other out-of-band results — how many math spans fell back to their LaTeX source
+is the one the summary reports — run along this same chain from the innermost
+builder up to `renderSite`, and a layer added here reaches all of them at once.
+What would falsify the alias: an out-of-band result that travels only part of the
+chain, which would want its own type rather than this one widened. -/
+abbrev RenderM := Except String
+
 /-- Per page rather than per run: the root, the source URL and the docstring
 renderer (whose resolver scans *this* module's declarations) all change from
 page to page. -/
@@ -10,6 +20,22 @@ structure DeclRenderer where
   ix : NameIndex
   root : String
   md : Renderer
+
+/-- `declNameToLink`: the declaration's own references first, then the IR's map,
+then the dependency closure's `.lidx`.
+
+**The two failures are different and the return type says so.** `.error` is
+doc-gen4's `name2ModIdx[name]!` panic: **no module at all** knows the name, so
+the IR this run was handed disagrees with itself and the page is not written.
+`.ok none` is a module that *is* known and has no page here — a name to render
+and nowhere to point it. Collapsing the second into the first refuses a page over
+a missing link; collapsing it into a link is a dead one. What would falsify the
+split: an index in which every known module also has a page. -/
+def declNameToLink (ix : NameIndex) (refs : Std.HashMap String String)
+    (root name : String) : RenderM (Option String) :=
+  match (refs.get? name).orElse fun _ => moduleOf ix name with
+  | some module => .ok (linkTo ix root module (some name))
+  | none => .error s!"declNameToLink: no defining module for {name} (doc-gen4 would panic here)"
 
 def lastComponent (name : String) : String := Id.run do
   let n := name.utf8ByteSize
@@ -142,7 +168,7 @@ def memberBody (out : String) (c : DeclRenderer) (short args body : String) (doc
   return acc ++ "</li>"
 
 def structureHtml (out : String) (c : DeclRenderer) (m : Module) (d : Decl)
-    (refs : Std.HashMap String String) : String := Id.run do
+    (refs : Std.HashMap String String) : RenderM String := do
   let mut lis := ""
   let mut contained : Option (Std.HashSet String) := none
   for f in d.members do
@@ -151,14 +177,7 @@ def structureHtml (out : String) (c : DeclRenderer) (m : Module) (d : Decl)
     let args := pushArgs "" c.ix refs c.root f.binders f.binderCode f.implicits
     let (body, _) := fragment c.ix refs c.root f.text f.code
     if f.inherited then
-      -- `declNameToLink`: the declaration's own references first, then the IR's
-      -- map, then the dependency closure's `.lidx`
-      let module := match refs.get? f.name with
-        | some x => some x
-        | none => moduleOf c.ix f.name
-      let link := match module with
-        | some mm => linkTo c.ix c.root mm (some f.name)
-        | none => none
+      let link ← declNameToLink c.ix refs c.root f.name
       let cs := match contained with
         | some x => x
         | none => containedNames m d
@@ -203,7 +222,7 @@ def constructorsHtml (out : String) (c : DeclRenderer) (d : Decl)
   return out ++ "<ul class=\"ctors\">" ++ lis ++ "</ul>"
 
 def declHtml (out : String) (c : DeclRenderer) (m : Module) (d : Decl) (sourceUrl : String) :
-    String := Id.run do
+    RenderM String := do
   let refs := declRefs d
   let mut acc := escapeInto (out ++ "<section class=\"decl\" id=\"") d.name ++ "\" data-kind=\""
   acc := escapeInto acc (cssKind d.kind) ++ "\">"
@@ -221,7 +240,7 @@ def declHtml (out : String) (c : DeclRenderer) (m : Module) (d : Decl) (sourceUr
     acc := docstring (acc ++ "<div class=\"doc\">") c.md d.doc ++ "</div>"
   let mut extra := ""
   if d.kind == "structure" || d.kind == "class" then
-    acc := structureHtml acc c m d refs
+    acc ← structureHtml acc c m d refs
     extra := fillBlock "" d.name
       (if d.kind == "class" then "instances" else "instances-for")
       (if d.kind == "class" then "Instances" else "Instances For")
