@@ -153,31 +153,140 @@ def toModule (v : JVal) : Module := Id.run do
         return r }
   return m
 
-def jsonFilesIn (dir : FilePath) : IO (Array FilePath) := do
-  let entries ← dir.readDir
-  let files := entries.filterMap fun e =>
-    if e.fileName.endsWith ".json" then some e.path else none
-  return files.qsort (·.toString < ·.toString)
-
 def parseModule (text : String) : Module :=
   let n := text.utf8ByteSize
   let (j, _) := JScan.pVal text n (JScan.skipWs text n 0)
   toModule j
 
-def loadDeps (dir : FilePath) : IO (Array (Array (String × String))) := do
-  if !(← dir.isDir) then return #[]
-  let files ← jsonFilesIn dir
-  let mut out : Array (Array (String × String)) := #[]
-  for f in files do
-    let c ← IO.FS.readFile f
-    let n := c.utf8ByteSize
-    let (j, _) := JScan.pVal c n (JScan.skipWs c n 0)
-    let mut ds : Array (String × String) := #[]
-    for (k, v) in asObj j do
-      if k == "declarations" then
-        for (name, m) in asObj v do
-          ds := ds.push (name, asStr m)
-    out := out.push ds
+structure IndexEntry where
+  module : String := ""
+  /-- Relative to the IR root, e.g. `modules/Foo.Bar.json`. -/
+  file : String := ""
+  deriving Inhabited
+
+structure DepMapEntry where
+  file : String := ""
+  deriving Inhabited
+
+structure Index where
+  schemaVersion : Nat := 0
+  ablations : Array String := #[]
+  modules : Array IndexEntry := #[]
+  dependencyMaps : Array DepMapEntry := #[]
+  deriving Inhabited
+
+def toIndexEntry (v : JVal) : IndexEntry := Id.run do
+  let mut e : IndexEntry := {}
+  for (k, x) in asObj v do
+    if k == "module" then e := { e with module := asStr x }
+    else if k == "file" then e := { e with file := asStr x }
+  return e
+
+def toDepMapEntry (v : JVal) : DepMapEntry := Id.run do
+  let mut e : DepMapEntry := {}
+  for (k, x) in asObj v do
+    if k == "file" then e := { e with file := asStr x }
+  return e
+
+def toIndex (v : JVal) : Index := Id.run do
+  let mut ix : Index := {}
+  for (k, x) in asObj v do
+    if k == "schemaVersion" then ix := { ix with schemaVersion := asNat x }
+    else if k == "ablations" then ix := { ix with ablations := toStrings x }
+    else if k == "modules" then ix := { ix with modules := (asArr x).map toIndexEntry }
+    else if k == "dependencyMaps" then
+      ix := { ix with dependencyMaps := (asArr x).map toDepMapEntry }
+  return ix
+
+/-- A floor of 5 buys one meaning per absence: schema 5 adds `sorry`,
+`selectionRange` and `generated`, and for each of them an *absent* key says
+something a schema-4 file cannot say, because there the key could not exist. -/
+def minSchemaVersion : Nat := 5
+
+def schemaRefusal (what : String) (found : Nat) : String :=
+  s!"{what} is schema {found}; this reader needs schema {minSchemaVersion} or newer \
+    (re-extract with --tagged-code)"
+
+def ablatedRefusal (ablations : Array String) : String :=
+  s!"this IR was written with ablations [{", ".intercalate ablations.toList}] \
+    and is incomplete on purpose; it is for the stopwatch only"
+
+def mismatchRefusal (path : FilePath) (expected found : String) : String :=
+  s!"{path} declares module {found}, but the index files it under {expected}"
+
+/-- Not `FilePath./`: it appends a separator unconditionally, so an `--ir` that
+already ends in one yields `…/ir//modules/Foo.json`. The file opens either way,
+but the path is quoted verbatim in three refusals whose wording has to match
+Rust's `Path::join`. What would falsify this: a caller that normalizes the root
+before it gets here. -/
+def irPath (root : FilePath) (sub : String) : FilePath :=
+  let s : FilePath := ⟨sub⟩
+  let r := root.toString
+  if s.isAbsolute || r.isEmpty then s
+  else if FilePath.pathSeparators.contains r.back then ⟨r ++ sub⟩
+  else root / s
+
+def readIrFile (path : FilePath) : IO String := do
+  try
+    IO.FS.readFile path
+  catch e =>
+    throw (IO.userError s!"reading {path}: {e}")
+
+/-- An IR tree on disk: `index.json`, `modules/`, `deps/`. -/
+structure IrTree where
+  root : FilePath
+  index : Index
+
+def openIrTree (root : FilePath) : IO IrTree := do
+  let text ← readIrFile (irPath root "index.json")
+  let n := text.utf8ByteSize
+  let (j, _) := JScan.pVal text n (JScan.skipWs text n 0)
+  let index := toIndex j
+  if index.schemaVersion < minSchemaVersion then
+    throw (IO.userError (schemaRefusal "index.json" index.schemaVersion))
+  if !index.ablations.isEmpty then
+    throw (IO.userError (ablatedRefusal index.ablations))
+  return { root, index }
+
+/-- The `schemaVersion` is checked here too: an incremental tree is a merge of
+files from several extractor runs, so the index's version does not vouch for the
+modules'. -/
+def IrTree.module (t : IrTree) (e : IndexEntry) : IO Module := do
+  let path := irPath t.root e.file
+  let m := parseModule (← readIrFile path)
+  if m.schemaVersion < minSchemaVersion then
+    throw (IO.userError (schemaRefusal path.toString m.schemaVersion))
+  if m.name != e.module then
+    throw (IO.userError (mismatchRefusal path e.module m.name))
+  return m
+
+/-- The index names the modules and their order; a sorted listing of `modules/`
+would answer the same on a tree the extractor just wrote and diverge on any
+other — a stale file left in the directory becomes a page, and a merged tree's
+order becomes the file names' rather than the index's. What would falsify this:
+an index that stopped carrying `modules`. -/
+def IrTree.loadModules (t : IrTree) : IO (Array Module) := do
+  let mut out : Array Module := Array.mkEmpty t.index.modules.size
+  for e in t.index.modules do
+    out := out.push (← t.module e)
+  return out
+
+def IrTree.depMap (t : IrTree) (e : DepMapEntry) : IO (Array (String × String)) := do
+  let text ← readIrFile (irPath t.root e.file)
+  let n := text.utf8ByteSize
+  let (j, _) := JScan.pVal text n (JScan.skipWs text n 0)
+  let mut ds : Array (String × String) := #[]
+  for (k, v) in asObj j do
+    if k == "declarations" then
+      for (name, m) in asObj v do
+        ds := ds.push (name, asStr m)
+  return ds
+
+def IrTree.loadDepMaps (t : IrTree) : IO (Array (Array (String × String))) := do
+  let mut out : Array (Array (String × String)) :=
+    Array.mkEmpty t.index.dependencyMaps.size
+  for e in t.index.dependencyMaps do
+    out := out.push (← t.depMap e)
   return out
 
 end Litedoc4

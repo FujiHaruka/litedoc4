@@ -80,16 +80,20 @@ def render (args : List String) : IO UInt32 := do
     let some sourceUrl := a.sourceUrl | refuse "--source-url is required"
     if sourceUrl.isEmpty then return ← refuse "--source-url is required"
     if a.linkIndex.isSome == a.noLinkIndex then return ← refuse linkIndexRequired
-    let summary ← renderSite
-      { ir := ir, pages := pages, sourceUrl := sourceUrl
-        linkIndex := a.linkIndex.map (⟨·⟩) }
-    IO.println s!"modules {summary.pagesWritten}/{summary.modulesInIr}  \
-      declarations {summary.declarationsRendered}/{summary.declarationsInIr} \
-      ({summary.declarationsSuppressed} suppressed)  module docs {summary.moduleDocs}  \
-      bytes {summary.bytes}"
-    IO.println s!"known {summary.known}  link index {summary.linkIndexEntries}  \
-      known modules {summary.knownModules}"
-    return 0
+    try
+      let summary ← renderSite
+        { ir := ir, pages := pages, sourceUrl := sourceUrl
+          linkIndex := a.linkIndex.map (⟨·⟩) }
+      IO.println s!"modules {summary.pagesWritten}/{summary.modulesInIr}  \
+        declarations {summary.declarationsRendered}/{summary.declarationsInIr} \
+        ({summary.declarationsSuppressed} suppressed)  module docs {summary.moduleDocs}  \
+        bytes {summary.bytes}"
+      IO.println s!"known {summary.known}  link index {summary.linkIndexEntries}  \
+        known modules {summary.knownModules}"
+      return 0
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      return 1
 
 end Litedoc4
 

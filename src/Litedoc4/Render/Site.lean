@@ -36,13 +36,11 @@ structure Summary where
   deriving Inhabited
 
 def renderSite (o : Options) : IO Summary := do
-  let files ← jsonFilesIn (o.ir / "modules")
-  let mut mods : Array Module := Array.mkEmpty files.size
-  for f in files do
-    mods := mods.push (parseModule (← IO.FS.readFile f))
-  let deps ← loadDeps (o.ir / "deps")
+  let tree ← openIrTree o.ir
+  let deps ← tree.loadDepMaps
+  let mods ← tree.loadModules
   let lidx ← match o.linkIndex with
-    | some p => do parseLidx (← IO.FS.readFile p)
+    | some p => do parseLidx (← readIrFile p)
     | none => pure emptyLidx
   let ix ← buildIndex deps mods lidx
   let sup ← suppressedOf mods
