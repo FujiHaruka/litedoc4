@@ -56,6 +56,7 @@ structure Decl where
   /-- `[origin, from]`: the attribute that realized this declaration, and what
   it took as input one step back. -/
   generated : Option (String × String) := none
+  instTypes : Array String := #[]
   deriving Inhabited
 
 structure ModuleDoc where
@@ -72,6 +73,8 @@ structure Module where
   imports : Array String := #[]
   moduleDocs : Array ModuleDoc := #[]
   decls : Array Decl := #[]
+  /-- Only the length of `tactics` is ever read, so the entries are not. -/
+  tacticCount : Nat := 0
   deriving Inhabited
 
 def toSpan (v : JVal) : Span := Id.run do
@@ -130,6 +133,7 @@ def toDecl (v : JVal) : Decl := Id.run do
     else if k == "attrs" then
       d := { d with attrs := (asArr x).map fun r =>
         let a := asArr r; (asStr a[0]!, asStr a[1]!) }
+    else if k == "instTypes" then d := { d with instTypes := toStrings x }
     else if k == "sorry" then d := { d with sorryTag := asStr x }
     else if k == "generated" then
       let a := asArr x
@@ -143,6 +147,7 @@ def toModule (v : JVal) : Module := Id.run do
     else if k == "schemaVersion" then m := { m with schemaVersion := asNat x }
     else if k == "imports" then m := { m with imports := toStrings x }
     else if k == "declarations" then m := { m with decls := (asArr x).map toDecl }
+    else if k == "tactics" then m := { m with tacticCount := (asArr x).size }
     else if k == "moduleDocs" then
       m := { m with moduleDocs := (asArr x).map fun md => Id.run do
         let mut r : ModuleDoc := {}
@@ -170,6 +175,7 @@ structure DepMapEntry where
 
 structure Index where
   schemaVersion : Nat := 0
+  leanVersion : String := ""
   ablations : Array String := #[]
   modules : Array IndexEntry := #[]
   dependencyMaps : Array DepMapEntry := #[]
@@ -192,6 +198,7 @@ def toIndex (v : JVal) : Index := Id.run do
   let mut ix : Index := {}
   for (k, x) in asObj v do
     if k == "schemaVersion" then ix := { ix with schemaVersion := asNat x }
+    else if k == "leanVersion" then ix := { ix with leanVersion := asStr x }
     else if k == "ablations" then ix := { ix with ablations := toStrings x }
     else if k == "modules" then ix := { ix with modules := (asArr x).map toIndexEntry }
     else if k == "dependencyMaps" then

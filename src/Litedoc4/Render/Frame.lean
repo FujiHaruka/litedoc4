@@ -22,9 +22,9 @@ def iconTheme : String :=
 
 def siteTitle (mods : Array Module) : String := Id.run do
   if mods.isEmpty then return "Documentation"
-  let head := (components mods[0]!.name)[0]!
+  let head := (moduleComponents mods[0]!.name)[0]!
   for m in mods do
-    if (components m.name)[0]! != head then return "Documentation"
+    if (moduleComponents m.name)[0]! != head then return "Documentation"
   return head
 
 def headHtml (out : String) (module root title : String) : String := Id.run do

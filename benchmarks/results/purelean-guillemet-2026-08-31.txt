@@ -1,0 +1,63 @@
+A MODULE NAME IN GUILLEMETS SPLIT TWO WAYS (measured)
+2026-08-31, arm64 macOS (Darwin 25.6.0), Lean v4.31.0, Rust litedoc4
+target/release at d91c3d9, sample IR from e2e/micro (11 modules).
+
+Found while porting `litedoc4-global` to Lean. The Lean half had **one** name
+splitter — a plain byte split on `.` — where the Rust half has **two**, and uses
+them at different call sites on purpose:
+
+  crates/litedoc4-ir/src/name.rs   module_components   splits only outside
+                                                       `«…»`, unescapes each
+                                                       component
+  crates/litedoc4-render/src/order.rs  cmp_name         plain `split('.')`
+
+Neither corpus exercises the difference: the measurement target's 432 modules
+and e2e/micro's 11 are all plain identifiers. `«Dep-Aux».Basic` is in
+e2e/micro's dependency slice, but it is an import with no page and no external
+base, so nothing ever builds a link for it and the two splits agree on the
+bytes.
+
+THE PROBE
+
+A synthetic IR derived from the sample's, with one module renamed throughout
+(`Example.Sorry` -> `Example.«Odd-Name»`, in `index.json`, the module file's
+name and `module` key, every `imports` entry and every declaration name):
+
+  litedoc4 site --ir <ir-guillemet> --out … --source-url … --link-index …
+
+  Rust                              Example/Odd-Name.html
+  Lean, one splitter                Example/«Odd-Name».html
+  Lean, two splitters               Example/Odd-Name.html
+
+  Files that differed with one splitter, against the Rust tree:
+    Example/Odd-Name.html vs Example/«Odd-Name».html   the page itself
+    Example.html                                        the link to it
+    modules.json                                        the `p` it indexes
+
+  With two splitters: 0 differing files, and the corpus tree stays at 0 too.
+
+WHY IT IS TWO FUNCTIONS AND NOT ONE
+
+Collapsing them the other way is equally wrong. `cmp_name`, the tail match in
+`name_to_link` and `echoes_the_name` all take the **plain** split — they compare
+a spelling against a spelling. `page_path`, `module_link`, `page_root`,
+`module_source_url` and the site title take the **unescaped** one — they have to
+name the file the renderer wrote. A single splitter is a divergence that no byte
+comparison of one side finds: the page is written under one name and linked
+under the other.
+
+STILL OPEN, SAME FAMILY
+
+Lean's `nameToLink` has no equivalent of Rust's `NameIndex::module_for_unescaped`
+(`crates/litedoc4-render/src/autolink.rs`), which resolves a code span spelled
+without guillemets back to the module that owns it. It is masked today: the only
+such name in the corpus belongs to a dependency with no page and no external
+base, so both halves answer "no link". It becomes reachable with `--root`, which
+the Lean build refuses by name.
+
+HOW TO REPRODUCE
+  cp -R <ir> <ir-guillemet>
+  # rename Example.Sorry -> Example.«Odd-Name» in every .json and in the file name
+  ./target/release/litedoc4 site --ir <ir-guillemet> --out A …
+  .lake/build/bin/litedoc4    site --ir <ir-guillemet> --out B …
+  /usr/bin/diff -r A B

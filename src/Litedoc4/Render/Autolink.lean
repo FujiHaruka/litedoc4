@@ -124,14 +124,14 @@ def privatePrefix : String := "_private."
 def moduleLink (root : String) (module : String) : String := Id.run do
   let mut out := root
   let mut first := true
-  for part in components module do
+  for part in moduleComponents module do
     if !first then out := out ++ "/"
     out := out ++ part
     first := false
   return out ++ ".html"
 
 def pageRoot (module : String) : String := Id.run do
-  let depth := (components module).size - 1
+  let depth := (moduleComponents module).size - 1
   let mut out := ""
   for _ in [0:depth] do out := out ++ "../"
   return out ++ "./"

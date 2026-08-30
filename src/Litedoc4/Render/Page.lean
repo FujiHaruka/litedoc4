@@ -52,7 +52,7 @@ def pageHtml (ix : NameIndex) (m : Module) (sup : Std.HashSet String)
     (sourceUrl title : String) : RenderM String := do
   let root := pageRoot m.name
   let mut moduleUrl := sourceUrl
-  for part in components m.name do
+  for part in moduleComponents m.name do
     moduleUrl := moduleUrl ++ "/" ++ part
   moduleUrl := moduleUrl ++ ".lean"
   let declNames := moduleDeclNames m
@@ -83,7 +83,7 @@ def pageHtml (ix : NameIndex) (m : Module) (sup : Std.HashSet String)
   return out ++ main ++ "</main></div></body></html>"
 
 def pagePath (outDir : FilePath) (module : String) : FilePath := Id.run do
-  let parts := components module
+  let parts := moduleComponents module
   let mut p := outDir
   for i in [0:parts.size] do
     p := p / (if i + 1 == parts.size then parts[i]! ++ ".html" else parts[i]!)
