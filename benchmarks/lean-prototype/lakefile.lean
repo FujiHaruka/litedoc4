@@ -31,9 +31,20 @@ WHICH COMPILER BUILDS THE C, AND WHY IT IS LEAN'S OWN
   system-compiler build is kept working and the two are compared on 422
   rendered pages.
 -/
+/- `-Werror=implicit-function-declaration` is the load-bearing flag, not a
+tidiness one. Without it a function `csrc/libc` forgot to declare is not an
+error but an implicit `int f()`, and the build is green while the call goes out
+with a guessed signature. That is what happened: `strcspn` was missed, macOS
+compiled it implicitly and rendered all 422 pages correctly, and only a
+stricter clang on Linux said so (measured 2026-08-30 →
+`benchmarks/results/purelean-bare-2026-08-30.txt`). The conformance check
+cannot see this one — it compares declarations that exist and a missing
+declaration is not there to compare — so the compiler has to be the one that
+refuses. -/
 def ccFlags (pkg : Package) (shim : Bool) : FetchM (Array String) := do
   let base := #["-I", (← getLeanIncludeDir).toString,
-                "-I", (pkg.dir / md4cDir).toString, "-fPIC"]
+                "-I", (pkg.dir / md4cDir).toString, "-fPIC",
+                "-Werror=implicit-function-declaration"]
   if shim then
     return base ++ #["-I", ((← getLeanIncludeDir) / "clang").toString,
                      "-I", (pkg.dir / csrcDir / "libc").toString]
