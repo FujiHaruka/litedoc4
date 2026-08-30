@@ -1,0 +1,6 @@
+name = "leanproto"
+defaultTargets = ["bench"]
+
+[[lean_exe]]
+name = "bench"
+root = "Main"

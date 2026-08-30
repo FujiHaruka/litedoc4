@@ -1,0 +1,155 @@
+pure-Lean replacement study — the floor Lean pays, against the Rust renderer
+============================================================================
+2026-08-30
+
+WHAT THIS MEASURES
+  Whether replacing the Rust half of litedoc4 with Lean is affordable. This
+  file is step one and answers only the narrow question: how long does Lean
+  take to do the *unavoidable* parts of `litedoc4 render` — read the IR, parse
+  it, parse the link index, look names up in it, build the page strings and
+  write them — with **none of the rendering logic in it**. A renderer written
+  in Lean cannot beat these numbers; it can only be slower.
+
+  The Rust side of the comparison is the real `litedoc4 render`, logic and all.
+
+CONDITIONS
+  hardware      Apple M1, 8 cores, 16 GiB, macOS 26.6.1
+  page cache    warm (wall clock == user+sys on every run; run 1 discarded)
+  target        /Users/haruka/dev/lean-projects (InformationTheory + Mathlib)
+                422 modules, 4,584 declarations
+  IR            schema 5, 15,233,730 B across 422 files, generated 2026-08-30
+  link index    10,448,225 B, 261,672 entries, format #lidx2
+  HTML output   24,546,157 B across 422 pages (Rust); the Lean floor builds
+                24,551,960 B of the same shape
+  Lean          leanprover/lean4:v4.31.0, `lake build` (-O3), no Mathlib
+  Rust          rustc 1.97.1, --release, litedoc4 @ e7863b0
+  math          NOT a factor on this target: 2 of 422 pages contain MathML.
+                `math spans kept as LaTeX 0`. The `math-core` dependency is
+                therefore invisible in these numbers (it is not invisible on a
+                Mathlib-shaped target — see OPEN below)
+  threads       both sides single-threaded (Rust: user 0.32 / real 0.40)
+
+RUST — `litedoc4 render`, n=6, median (full log below)
+  full (with --link-index)          0.40 s   RSS 129 MB   4.80e9 instructions
+  --no-link-index                   0.31 s   RSS  66 MB
+  --only <1 module>                 0.14 s   RSS 122 MB
+  => link index read+parse          ~0.09 s  (0.40 - 0.31)
+  => fixed cost before any page     ~0.14 s
+  => 422 pages once fixed cost paid ~0.26 s
+
+LEAN — the floor, n=5, median
+  ir.read        0.0503 s   15,233,730 B over 422 files
+  ir.parse       0.1673 s   Lean.Json.parse, 4,584 declarations reached
+  lidx.read      0.0283 s   10,448,225 B
+  lidx.parse     0.2351 s   261,672 entries into Std.HashMap  <-- the largest
+  lidx.lookup    0.1049 s   1,046,688 lookups (100 ns each)
+  html.build     0.0316 s   24,551,960 B of page-shaped strings
+  html.write     0.0499 s   422 files
+  ------------------------------------------------------------
+  sum            0.667 s    RSS 238 MB, process wall 0.76 s
+
+THE COMPARISON, PHASE BY PHASE
+  link index (read+parse)   Rust ~0.09 s   Lean 0.263 s    2.9x
+  everything else           Rust ~0.26 s   Lean 0.404 s    1.6x  (Lean has NO
+                                                                  logic in it)
+  whole command             Rust  0.40 s   Lean 0.667 s+   1.7x and rising
+
+READ THIS AS
+  **Not** "Lean is 1.7x slower than Rust". The Lean side is a floor with the
+  renderer removed and the Rust side is the finished renderer, so the honest
+  statement is: **a pure-Lean renderer starts 0.27 s behind before it renders
+  anything**, and whatever the rendering logic costs is added on top.
+
+  The Lean floor is not yet Lean's best. `lidx.parse` is 35% of it and is
+  written the obvious way — `String.splitOn "\n"` over 10.4 MB, which allocates
+  261,672 strings before a single one is used. A ByteArray scan should move it.
+  Whether it moves it enough is the next measurement, and until it is taken the
+  2.9x on the link index is a fact about *this* implementation, not about Lean.
+
+WHERE THIS SITS IN THE WHOLE BUILD
+  A full build of this target is extraction 14.08 s (1 thread) / 6.50 s
+  (--jobs 4) plus rendering (measured, docs/approach-performance.md 6.1). At
+  0.40 s the Rust renderer is 6% of the 1-thread build. Tripling it costs the
+  full build ~6%, which is not the reason to keep or drop Rust. The incremental
+  build is where the Rust half is 73% of the work (6.5), and that is measured
+  separately.
+
+OPEN
+  - math: this target has none, so nothing here says what `math-core` costs to
+    replace. A Mathlib-shaped target has 2,123 math spans (measured
+    2026-08-22, mathml-2026-08-22.txt).
+  - the incremental path (IR full reads, ledger, impact) is not in this file.
+  - the CI axis (a cargo build or a release download, against a `lake build` of
+    a Lean renderer) is not in this file.
+
+RAW — Rust, `litedoc4 render` full, n=6
+        0.43 real         0.35 user         0.07 sys  129351680 max rss  4846249423 instructions
+        0.40 real         0.32 user         0.06 sys  129318912 max rss  4843978659 instructions
+        0.41 real         0.32 user         0.06 sys  129024000 max rss  4821833533 instructions
+        0.40 real         0.32 user         0.06 sys  129548288 max rss  4812406437 instructions
+        0.39 real         0.32 user         0.06 sys  129384448 max rss  4795330591 instructions
+        0.39 real         0.32 user         0.06 sys  129302528 max rss  4797004705 instructions
+
+RAW — Rust, --only InformationTheory.Fano, n=3
+        0.15 real         0.12 user         0.02 sys  121716736 max rss
+        0.13 real         0.11 user         0.02 sys  121896960 max rss
+        0.14 real         0.11 user         0.02 sys  121716736 max rss
+
+RAW — Rust, --no-link-index, n=3
+        0.31 real         0.26 user         0.04 sys   66256896 max rss
+        0.31 real         0.26 user         0.05 sys   66535424 max rss
+        0.31 real         0.26 user         0.05 sys   66256896 max rss
+
+RAW — Lean floor, n=5 (label, seconds, count)
+--- 1 ---
+ir.read	0.055762	15233730
+ir.parse	0.167157	4584
+lidx.read	0.028213	10448225
+lidx.parse	0.237500	261672
+lidx.lookup	0.115298	1046688
+html.build	0.032124	24551960
+html.write	0.049958	422
+        1.95 real         0.69 user         0.12 sys  237830144 max rss
+--- 2 ---
+ir.read	0.050758	15233730
+ir.parse	0.166787	4584
+lidx.read	0.028434	10448225
+lidx.parse	0.234546	261672
+lidx.lookup	0.103902	1046688
+html.build	0.031596	24551960
+html.write	0.049922	422
+        0.76 real         0.66 user         0.08 sys  237879296 max rss
+--- 3 ---
+ir.read	0.050301	15233730
+ir.parse	0.167283	4584
+lidx.read	0.028285	10448225
+lidx.parse	0.235087	261672
+lidx.lookup	0.100364	1046688
+html.build	0.031630	24551960
+html.write	0.053844	422
+        0.76 real         0.65 user         0.08 sys  237813760 max rss
+--- 4 ---
+ir.read	0.050224	15233730
+ir.parse	0.165928	4584
+lidx.read	0.028146	10448225
+lidx.parse	0.267441	261672
+lidx.lookup	0.106066	1046688
+html.build	0.032334	24551960
+html.write	0.036847	422
+        0.78 real         0.69 user         0.08 sys  237862912 max rss
+--- 5 ---
+ir.read	0.050687	15233730
+ir.parse	0.167319	4584
+lidx.read	0.028325	10448225
+lidx.parse	0.235065	261672
+lidx.lookup	0.104909	1046688
+html.build	0.031646	24551960
+html.write	0.034746	422
+        0.75 real         0.66 user         0.08 sys  237830144 max rss
+
+NOTE ON THE FIRST VERSION OF THIS BENCHMARK
+  It reported `lidx.parse 0.000001` and `html.build` at half the real cost.
+  Lean is lazy: `timeIt (pure (parseLidx text))` times the allocation of a
+  thunk. Every phase here returns a `Nat` computed inside `IO` and printed, so
+  the work happens inside the timer. A phase whose number looks impossibly good
+  is the first thing to distrust.
