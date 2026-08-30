@@ -17,3 +17,12 @@ rev = "31907cc18f48a95384f99cee5582c00fb39e0f67"
 [[lean_exe]]
 name = "incr"
 root = "Incr"
+
+[[require]]
+name = "MathML4Lean"
+git = "https://github.com/FujiHaruka/MathML4Lean"
+rev = "f262589445b6944703efd1d1e3d1f3155313c3ed"
+
+[[lean_exe]]
+name = "mathml"
+root = "Mathml"

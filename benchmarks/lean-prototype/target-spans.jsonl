@@ -1,0 +1,30 @@
+# Math spans in one consumer's docstrings, with math-core's answer.
+#
+# Lines starting with '#' are the header; every other line is one JSON object:
+#   id       1-based, in file order then document order
+#   source   the file the span was read from, relative to the scanned tree
+#   display  "inline" for $...$, "block" for $$...$$
+#   latex    the span's text, exactly as md4c reported it
+#   mathml   math-core's answer, or null where math-core refused
+#
+# generated       2026-08-30
+# generator       consumer-spans 0.1.0
+# source          https://github.com/FujiHaruka/information-theory
+# source-rev      78cf1b43cefdfdae18a7095dbd6273da44468c29
+# oracle          math-core 0.7.0 (default-features = false, ignore_unknown_commands = false, convert_with_local_state)
+# span-finder     md4c via litedoc4-md, MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS | MD_FLAG_NOHTML
+#
+# counts (measured by this run)
+#   lean source files          421
+#   docstrings                 5146
+#   docstrings containing math 3  (0.06%)
+#   files containing math      2
+#   inline spans  $...$        0
+#   block spans   $$...$$      3
+#   spans total                3
+#   latex bytes                137
+#   math-core converts         3
+#   math-core refuses          0
+{"id":1,"source":"Shannon/BrascampLieb.lean","display":"block","latex":"|A|^k \\le \\prod_{i : \\iota} |\\pi_{S_i}(A)|.","mathml":"<math display=\"block\"><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><mi>A</mi><msup><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><mi>k</mi></msup><mo>≤</mo><munder><mo lspace=\"0\">∏</mo><mrow><mi>i</mi><mo lspace=\"0\" rspace=\"0\">:</mo><mi>ι</mi></mrow></munder><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><msub><mi>π</mi><msub><mi>S</mi><mi>i</mi></msub></msub><mo stretchy=\"false\">(</mo><mi>A</mi><mo stretchy=\"false\">)</mo><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><mi>.</mi></math>"}
+{"id":2,"source":"Shannon/BrascampLieb.lean","display":"block","latex":"|A|^k \\le \\prod_{i : \\iota} |\\pi_{S_i}(A)|.","mathml":"<math display=\"block\"><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><mi>A</mi><msup><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><mi>k</mi></msup><mo>≤</mo><munder><mo lspace=\"0\">∏</mo><mrow><mi>i</mi><mo lspace=\"0\" rspace=\"0\">:</mo><mi>ι</mi></mrow></munder><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><msub><mi>π</mi><msub><mi>S</mi><mi>i</mi></msub></msub><mo stretchy=\"false\">(</mo><mi>A</mi><mo stretchy=\"false\">)</mo><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><mi>.</mi></math>"}
+{"id":3,"source":"Shannon/LoomisWhitney.lean","display":"block","latex":"|A|^{n-1} \\le \\prod_{i : \\text{Fin}\\,n} |\\pi_i(A)|,","mathml":"<math display=\"block\"><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><mi>A</mi><msup><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><mrow><mi>n</mi><mo lspace=\"0\" rspace=\"0\">−</mo><mn>1</mn></mrow></msup><mo>≤</mo><munder><mo lspace=\"0\">∏</mo><mrow><mi>i</mi><mo lspace=\"0\" rspace=\"0\">:</mo><mtext>Fin</mtext><mspace width=\"0.16666667em\"/><mi>n</mi></mrow></munder><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><msub><mi>π</mi><mi>i</mi></msub><mo stretchy=\"false\">(</mo><mi>A</mi><mo stretchy=\"false\">)</mo><mo stretchy=\"false\" lspace=\"0\" rspace=\"0\">|</mo><mo rspace=\"0\">,</mo></math>"}
