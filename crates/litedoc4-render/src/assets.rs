@@ -338,7 +338,10 @@ mod tests {
                 committed.len(),
                 bundled.len(),
                 at.map_or_else(
-                    || format!("none — one is a prefix of the other, at {}", bundled.len().min(committed.len())),
+                    || format!(
+                        "none — one is a prefix of the other, at {}",
+                        bundled.len().min(committed.len())
+                    ),
                     |at| at.to_string()
                 ),
             );

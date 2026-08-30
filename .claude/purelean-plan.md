@@ -117,12 +117,34 @@ M3 で分かって**閉じていない**もの、次に触る人向け:
    （→ `benchmarks/results/purelean-guillemet-2026-08-31.txt`）。`--root` で露出する
 
 ### M4 build — `site` の周りのパイプライン
-- **アセット 3 つ**（`style.css` 29,499 / `app.js` 15,370 / `favicon.svg` 360 = 45,229 B）を
-  Lean バイナリに載せ、`build` が書く。Rust では `include_str!`；Lean 側の手段は**未計測**で、
-  文字列リテラルで足りるかまず 1 ファイルで確かめる。`app.js` は `build.rs` が vite で作るので
-  リポジトリに置いたビルド済み JS を読む（計画の「TypeScript は移植対象外」）。置き場所は M4 で決める
-- `--lib` 解決と modules 列挙（`lake` を subprocess で起動する）/ `litedoc4.toml` /
-  external links（`lake-manifest.json`）/ extractor 起動 / ledger / `litedoc4-build.json`
+
+**アセットは 2026-08-31 に済んだ**（`c47ee15`）。未計測だった 1 点は潰れた —
+**Lean の文字列リテラルは 29 KB を運ぶ**（→
+`benchmarks/results/purelean-assets-literal-2026-08-31.txt`）。4 ファイル 45,397 B が
+バイト一致で往復し、モジュール単体の再ビルドは 0.47–0.50 s。**エスケープは `\` と `"` の
+2 つで足りる**（CR も、`\n` `\t` 以外の制御文字も無い）。生成器は**見つけたものを
+エスケープするのではなく、想定外の制御文字を見つけたら止まる** — Lean の `\x` / `\u` は
+未計測で、間違ったエンコードは「CSS が微妙に CSS でないサイト」になるから。
+
+**アセットは 3 つではなく 4 つだった**（実測）。`theme-boot.js` は vite の 4 つ目の出力で、
+`frame.rs` が**ファイルに書かず全ページの `<head>` にインライン**する。Lean 側は M2 以来
+`Frame.lean` に**手写しのリテラル**を持っていて、**誰も vite の出力と突き合わせていなかった**
+（今日まで一致していた。だから黙って古くなる形だった）。今は `Assets.lean` の生成値を参照する。
+
+正本は**リポジトリ直下の `assets/`** で、鎖は 3 リンク・各リンクを 1 か所だけが見る:
+
+| リンク | 見る場所 | なぜそこか |
+|---|---|---|
+| vite → `assets/` | `assets.rs` の `the_committed_bundles_match_what_build_rs_bundled`（**テスト**） | `build.rs` がその時点で既に vite を走らせている。追加コストが無く、`cargo test --workspace` が毎回見る。**M9 で vite ごと去る**のが正しい |
+| `assets/` → `Assets.lean` | `tools/assets-embed-gate.sh` 項目 2（`gen-assets.py --check`） | 木を読むだけ。node も toolchain も要らない |
+| `assets/` → `assets.rs` | 同 項目 3 | 「正本が 2 つに割れた」を数で見る。**存在ではなく回数**を数える（2 つ目の `include_str!` は存在検査を素通りする） |
+
+計画は当初これを 1 つのゲートに畳む形で書いていたが、vite の側をゲートにすると
+**vite が 2 回走り、しかも M9 で消える検査が M9 まで残る**。3 項目とも個別に落としてから通した。
+
+- 残り: `--lib` 解決と modules 列挙（`lake` を subprocess で起動する）/ `litedoc4.toml` /
+  external links（`lake-manifest.json`）/ extractor 起動 / ledger / `litedoc4-build.json` /
+  `writeAssets`（Rust と同じく **`build` だけが呼ぶ**）
 - **完了判定**: `litedoc4 build --root e2e/micro` の出力が Rust 版と **23/23 バイト一致**し、
   `site-gate` と `config-gate` が Lean 実装で緑
 
