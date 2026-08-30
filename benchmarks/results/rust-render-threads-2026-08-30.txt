@@ -1,0 +1,184 @@
+the Rust renderer, threaded — the row purelean-report.md could not fill in
+==========================================================================
+2026-08-30. `purelean-report.md` puts "Lean, 4 workers 0.50 s" next to "Rust
+0.39 s" and says plainly that **Rust has never been threaded**, so the 1.26x
+there is Lean-with-cores against Rust-without. This file measures Rust with
+cores on the same IR, the same link index and the same machine.
+
+CONDITIONS
+  Apple M1, 8 cores (**4 P + 4 E**), 16 GiB, macOS 26.6.1 (25G76).
+  `sysctl -n hw.ncpu hw.perflevel0.logicalcpu hw.perflevel1.logicalcpu`
+  -> `8 / 4 / 4`. **8 workers is not 8 equal workers**, and that turns out to
+  be the whole story above 4.
+  rustc 1.97.1, `mise exec -- cargo build --release`, **one binary for every
+  arm** — the thread count is read from `LITEDOC4_RENDER_THREADS` at run time,
+  so no arm is a different build.
+  Warm. n=7 per arm, run 1 of each arm discarded, medians of 6.
+  **The arms were interleaved round-robin 1,2,4,8 x 7** in one session, not
+  arm-by-arm, so no arm sits in a warmer cache state than another.
+  Work area `/private/tmp/lean-doc-relay/purelean` (APFS, internal SSD).
+  Target: the same 422 modules / 15,233,730 B IR / 4,584 declarations / link
+  index 10,448,225 B as `purelean-renderer-2026-08-30.txt`.
+
+  Note on the baseline: the binary that produced the 0.39-0.40 s in
+  `purelean-report.md` was built 2026-08-29 13:02 and emits 24,546,157 B. This
+  one is HEAD (post-25af76d) and emits **24,546,639 B** — 482 B more, the pills.
+  The 1-thread arm below is the same-build baseline for every ratio in this
+  file. Do not cross-quote the ratios against the other file's absolute number.
+
+THE TABLE (medians of 6, run 1 discarded)
+           wall     CPU(u+s)  peak RSS   wall min/max     speedup   CPU cost
+  1 thr    0.400 s  0.390 s   129.5 MB   0.390 / 0.410    1.000     1.00x
+  2 thr    0.280 s  0.400 s   129.7 MB   0.270 / 0.300    1.429     1.03x
+  4 thr    0.220 s  0.420 s   130.4 MB   0.210 / 0.230    1.818     1.08x
+  8 thr    0.210 s  0.540 s   131.5 MB   0.210 / 0.230    1.905     1.38x
+
+  Warmth, per arm (cpu/wall): 1 thr **0.975 — wall = CPU, warm**. The other
+  arms cannot be read that way by construction (cpu/wall 1.43, 1.91, 2.57 is
+  the parallelism, not the temperature); they ran interleaved with the 1-thread
+  arm in the same session, and their page-fault count is 0, so they are warm too.
+
+  **1.82x on four threads at 1.08x the CPU. 1.90x on eight at 1.38x the CPU.**
+  For contrast, the same file's Lean row bought 1.26x on four threads at 3.3x
+  the CPU.
+
+  `/usr/bin/time -l` reports wall to 2 decimals. At 0.21-0.40 s that is
+  +/-1.2% to +/-2.4% on a single run; the min/max columns show the spread is
+  real and small. Derived quantities that subtract two such numbers are
+  labelled where they appear below.
+
+BYTE IDENTITY — the check, not a footnote
+  Each arm rendered to its own directory; `/usr/bin/diff -r` against the
+  1-thread arm.
+    threads=1   422 files   24,546,639 B   (reference)
+    threads=2   422 files   diff -r exit 0, 0 lines of output
+    threads=4   422 files   diff -r exit 0, 0 lines of output
+    threads=8   422 files   diff -r exit 0, 0 lines of output
+  The `RenderSummary` line is character-identical on all four arms:
+  `modules 422/422  declarations 4394/4584 (190 suppressed)  module docs 1484
+  bytes 24546639` / `known 5124  link index 255809  known modules 6011` /
+  `math spans kept as LaTeX 0`.
+
+  And the default: with `LITEDOC4_RENDER_THREADS` **unset**, 0.40 s (3 of 4
+  runs; one 0.48 outlier) and `diff -r` against the 1-thread arm is empty.
+  **Unset = 1 = today's `for` loop**, verified rather than asserted.
+
+WHERE IT STOPS SCALING — the CPU side, and three separate ceilings
+  (1) THE SERIAL FLOOR, measured directly.
+  `render --only InformationTheory` still reads all 422 module files and the
+  whole 10.4 MB link index (`site.rs` says so: `ModuleSet` filters *pages*, not
+  *reads*). n=7, run 1 discarded:
+    **0.140 s wall, 0.130 s CPU, 121.5 MB RSS, 1.505e9 instructions**
+  That is 31% of the full run's 4.80e9 instructions and 35% of its wall clock,
+  and **no thread count touches it**. Ceiling on the whole command, at any
+  thread count: 0.400 / 0.140 = **2.86x**.
+
+  Derived parallel section (wall - 0.140), and its speedup:
+    1 thr  0.260 s  (1.00x)
+    2 thr  0.140 s  (1.86x)
+    4 thr  0.080 s  (3.25x)
+    8 thr  0.070 s  (3.71x)
+  (extrapolated) — two 2-decimal numbers subtracted, so the 0.080 and 0.070
+  carry about +/-12%. The wall totals above are the solid figures; these are
+  indicative.
+
+  (2) THE CHUNKING CEILING. The split is contiguous and equal by module
+  **count**; the work is not equal by count. Chunk totals, in rendered output
+  bytes, in `index.json`'s module order:
+    2 workers  12.78 / 11.76 MB                            max/mean 1.042
+    4 workers  7.30 / 5.49 / 5.66 / 6.09 MB                max/mean 1.190
+    8 workers  2.01 / 5.29 / 2.93 / 2.56 / 2.36 / 3.30 /
+               2.75 / 3.34 MB                              max/mean 1.725
+  The last worker to finish sets the wall clock, so equal-count chunking alone
+  caps the parallel section at **1.92x / 3.36x / 4.64x**, not 2 / 4 / 8.
+  Observed against that ceiling: **0.97 / 0.97 / 0.80**.
+  **Through 4 workers the parallel section is within 3% of everything this
+  chunking allows.** A work-stealing or by-bytes split is the lever here, and
+  it is worth at most the gap to 4.64x at 8 workers.
+
+  (3) THE E-CORES, and this is why it flattens from 4 to 8. Per-run counters
+  from `/usr/bin/time -l` (medians of 6):
+      thr   instructions   cycles     IPC    invol ctx  vol ctx  blk out  faults
+      1     4.801e9        1.243e9    3.86   6          32       0        0
+      2     4.829e9        1.260e9    3.83   38         29       0        0
+      4     4.848e9        1.302e9    3.72   756        20       0        0
+      8     4.866e9        1.531e9    3.18   1038       21       0        0
+
+  - **Instructions retired move 1.4% across all four arms.** No arm does more
+    work. Whatever the extra CPU time at 8 threads is, it is not extra work.
+  - **Cycles +23%, IPC -18%** at 8 threads. The same instructions take more
+    cycles.
+  - Implied average clock (cycles / CPU seconds): **3.19, 3.15, 3.10, 2.83
+    GHz**. The first three are M1 P-core speed (3.2 GHz). The 8-thread arm is
+    dragged toward E-core speed (2.06 GHz). 4 P + 4 E, exactly as `sysctl` said.
+  - **Voluntary context switches go DOWN, 32 -> 21.** That is the number that
+    rises when threads block — on a lock, or on I/O. It does not rise. There is
+    no contention to find.
+  - Involuntary context switches 6 -> 1038 is the scheduler time-slicing 8
+    runnable threads, not the renderer waiting for anything.
+
+  **IT FLATTENED ON THE CPU SIDE, NOT THE I/O SIDE.** The loop does write 422
+  files and 24.5 MB, and that never became the limiter:
+  **`block output operations` = 0 in all 28 runs, and `page faults` = 0 in 27
+  of 28** (the exception is one 8-thread run with 7) — the writes went into the
+  page cache with no synchronous block write inside the timed region — and
+  `sys` time rose only 0.06 -> 0.09 s across the whole 1-to-8 range while
+  `user` rose 0.33 -> 0.45 s. `page reclaims` rose 8,080 -> 8,278 (+2.5%),
+  which is the thread stacks.
+
+  Memory: peak RSS 129.5 -> 131.5 MB (+2 MB, which is 7 extra thread stacks and
+  their buffers); `peak memory footprint` 128.1 -> 130.1 MB. Not memory-pressure
+  bound at this size. **This does not license extrapolating to a Mathlib-shaped
+  target**, where the doc-gen4 workload is memory-bound rather than CPU-bound.
+
+  Summary of the three ceilings, multiplied out for 4 workers:
+  0.140 s serial + 0.260 s / 3.36 (chunking) = 0.217 s predicted, 0.220 s
+  observed. For 8: 0.140 + 0.260 / 4.64 = 0.196 s predicted, 0.210 s observed —
+  the 0.014 s miss is the E-core term.
+
+THE IMPLEMENTATION THAT WAS MEASURED
+  `crates/litedoc4-render/src/site.rs` only. `std::thread::scope`, **no new
+  dependency and the lockfile is untouched**. The filtered modules are collected
+  into a `Vec<&ModuleFile>`, split into contiguous equal-count chunks, each
+  worker accumulates a private `Partial` (pages, bytes, module docs, decls,
+  math failures) plus its own `Result`, and the partials are folded in worker
+  order after joining — deterministic regardless of finishing order.
+
+  **Nothing had to be cloned or wrapped to make it compile.** `NameIndex`,
+  `Suppressed`, `SiteMeta` and `ModuleFile` are all `Sync` as they stand; it
+  built on the first attempt. `litedoc4_md::Renderer` holds a `Cell<usize>` and
+  is deliberately not `Sync`, but it is constructed inside `page_html` per page
+  and never crosses a thread, so it never came up — the comment on that field
+  ("one is built per page and never shared") is still true under threads.
+
+  Errors: each worker stops at its first error and returns it; the first `Err`
+  in worker order becomes the run's error. Nothing is dropped. **One honest
+  difference from the sequential path**: the sequential loop returns
+  immediately and writes nothing further, whereas sibling workers finish their
+  chunks before the error surfaces. Pages written after a failing page are
+  therefore possible in the threaded path and are not in the sequential one.
+
+  `clippy::needless_collect` fires on the handle `Vec` and **its suggestion is
+  wrong here**: dropping the `collect()` makes `spawn` lazy, so every worker
+  would be joined before the next is spawned — a fully sequential run that
+  still looks threaded, and which would have quietly produced four identical
+  arms. Suppressed with `#[expect(..., reason = "...")]` per the project rule.
+  This is the same shape as the `needless_collect` auto-fix trap already in
+  CLAUDE.md.
+
+  Green: `cargo clippy --workspace --all-targets` 0 warnings,
+  `cargo test --workspace` exit 0 (0 failed).
+
+FILES TOUCHED
+  `git status --short` at the end of the session:
+      M crates/litedoc4-render/src/site.rs
+  `git diff --stat`: 1 file changed, 92 insertions(+), 17 deletions(-).
+  Nothing else in the tree was touched, nothing was committed, and no branch
+  was made. Cleanup: `pages-t1`..`pages-t8`, `pages-bench-t*`, `pages-serial`
+  and `pages-unset` were removed from the work area; its original contents are
+  as they were.
+
+WHAT THIS FILE DOES NOT SAY
+  It does not draw a conclusion about the pure-Lean migration. It fills in the
+  row `purelean-report.md` left empty: **Rust on four threads is 0.220 s**,
+  against Lean's 0.50 s on four and Rust's own 0.400 s on one.
