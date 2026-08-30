@@ -33,6 +33,8 @@ asset exists, that means Rust, a C compiler and node.
 | CI, cache cold, release exists | 2.9 s | 9.25 s | +6.4 s (measured) |
 | CI, cache cold, no release asset | 23.6–27.6 s | 9.25 s | −14 to −18 s (measured) |
 | CI, cache warm | 0 s | 0 s | 0 |
+| incremental core (impact+ownership+merge), sequential | **0.31 s** | **0.60 s** | 1.9x (measured) |
+| the same, 4 threads | not threaded | **0.20 s** | 0.65x — Lean is faster (measured) |
 | binary a consumer would fetch | 3.4 MB | 5.3 MB | (measured) |
 
 The whole `docs.yml` job on the real target is 146–182 s (measured), so the CI
@@ -103,9 +105,44 @@ is the small half, and it is the same order as the Rust binary's 3.4 MB.
 
 ## The incremental path
 
-→ measured separately; see `results/purelean-incremental-2026-08-30.txt`
+→ `results/purelean-incremental-2026-08-30.txt`
 
-*(pending)*
+The renderer is half the Rust code. The other half is the incremental path, and
+section 6.5 of the approach says "the outside" is 73% of an incremental build.
+Its three commands that carry the IR full reads were written in Lean (1,079
+lines, no dependencies at all) and measured interleaved against the Rust ones
+(measured, n=6, run 1 discarded).
+
+| | Rust | Lean seq | Lean 4 workers |
+|---|---:|---:|---:|
+| `impact` | 0.07 s | 0.18 s (2.6x) | **0.06 s** (0.86x) |
+| `ownership` | 0.06 s | 0.18 s (3.0x) | **0.06 s** (1.00x) |
+| `merge` | 0.18 s | 0.24 s (1.3x) | **0.08 s** (0.44x) |
+| sum | 0.31 s | 0.60 s (1.9x) | **0.20 s** (0.65x) |
+
+All three produce the **same answer**: `impact`'s 422-line set identical and its
+JSON byte-identical, `ownership`'s 34-line set identical, `merge`'s output tree
+identical over 426 files.
+
+**At four workers the Lean incremental core beats the single-threaded Rust one
+in wall clock**, and this is the part of the system where Lean does best:
+
+- where a stage parses, it is the same 2.6–3.0x — and an ablation that parses
+  only four fields, with identical output, buys 9.5%. The gap is the scan over
+  15.2 MB, not the typed conversion;
+- where a stage does not parse, Lean nearly closes: `merge`'s copy half is
+  **1.10x**, through user space, against a kernel-side `fs::copy`;
+- **memory goes the other way**: `impact` peaks at 10.4 MB against Rust's
+  56.2 MB, because Rust materialises every module into a `Vec` and Lean's
+  refcounting frees each one after four fields are read.
+
+The implementation also **counted the IR full reads**, which decomposes section
+5.6's measured 4.00 for a one-module edit exactly — and explains the 4.00-vs-3.00
+discrepancy recorded there: `ownership` reads 423 modules when a declaration name
+enters or leaves the global map and **2 when none does**. Those two modes differ
+by 421x and nothing before the extraction can predict which one a build gets.
+**The incremental path is bimodal, not a distribution** — an average incremental
+build time is an average of two modes.
 
 ## What replacing Rust buys
 
