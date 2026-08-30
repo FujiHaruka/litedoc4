@@ -1,79 +1,127 @@
-# Handoff — 2026-08-31 (relay leg 1 → leg 2)
+# Handoff — 2026-08-31 (relay leg 2 → leg 3)
 
 ## State
 
-**M1 完了、M2 は未完了**（完了判定の e2e/micro バイト一致が 10/11 で止まっている）。
-計画は `.claude/purelean-plan.md`（このリレーの SoT）。
+**M2 完了。** Lean の `render` と Rust の `render` が **両コーパスでバイト一致**し、
+拒否も要約も一致する。計画は `.claude/purelean-plan.md`（このリレーの SoT）。
 
-- litedoc4: main `542303e`、clean、push 済み
-- MathML4Lean: main `6265363`、**tag `v0.1.1`** + GitHub Release、litedoc4 が pin 済み
+- litedoc4: main `5dc900c`、clean、push 済み。CI（`CI` / `lake package (self-test)` 6 ジョブ）緑
+- `cargo test --workspace` 緑
 
-## What was done in leg 1
+| | |
+|---|---|
+| e2e/micro `--link-index` | 11/11、129,450 B |
+| e2e/micro `--no-link-index` | 両者 exit 1・7 ページ後・stderr 121 B 一致 |
+| 要約 3 行 | 一致（`math spans kept as LaTeX 1`） |
+| 対象 422 モジュール | `purelean-render-gate` 6/6、24,546,639 / 24,547,048 B |
+| Linux x86_64 CI | 同じ 129,450 B（バイトはこの機械の性質ではない） |
 
-**M1 骨格** — `src/Litedoc4/` 新設、root lakefile の target 再編（package の `srcDir` を
-`.` に戻し各 target に持たせた）、vendor md4c + libc shim を製品ツリーへ、
-`tools/purelean-gate.sh` 新設（5 項目、全部一度落として確認）。
-バイナリ 2.16 MB → M2 後 3.66 MB。**`import Lean` はゲート項目 5 が禁じている**。
+## What was done in leg 2（7 commits）
 
-**M2 レンダラ** — プロトタイプの `Render.lean` を製品ツリーへ移し、17 モジュールに分割。
-移設と分割を別々に計測。`litedoc4 render --ir --pages --source-url
-(--link-index|--no-link-index)`。未実装フラグは**名指しで拒否**（黙って無視しない）。
-対象リポジトリで **422/422 バイト一致**、`tools/purelean-render-gate.sh`（manual）。
+**新しい CI ゲート `tools/purelean-micro-gate.sh`**（5 項目、`ci-lake.yml` の
+`purelean-micro` ジョブ）。**先に一度落として**から通した。
+`purelean-render-gate.sh` にも要約比較の項目 6 を足した（同じく一度落として確認）。
 
-**帰属表示** — `parse.rs` の MIT 表示が Lean 転写に運ばれていなかった。一般形に上げて
-プロトタイプの `Md.lean` / `Render.lean` にも。分割後は passage 単位に落とし直し済み。
-照合語は固有名詞（`Jz Pan` / `Böving`）。claims 35 → 53。
+**閉じた欠陥 3 件。どれも対象リポジトリの 422 ページでは緑だった**:
 
-**MathML4Lean v0.1.1** — `\$` `\%` `\&` `\_` が拒否されていた（`\#` `\{` `\}` は通っていた）。
-`\text{…}` の中は**書いていないバックスラッシュが出力に出ていた**（拒否より悪い）。
-bare `&` は変換をやめて拒否に変えた（TeX の catcode 4、math-core も拒否、Rust 側とも一致する）。
-Mathlib コーパスは不動（2000/107/6）、unit 45 → 64、3 toolchain 緑。
+1. **IR をディレクトリ列挙で読んでいた**。`index.json` の `modules` / `dependencyMaps`
+   配列ではなく `modules/*.json` のソート。載っていない `Stray.json` が 12 ページ目になり、
+   `ablations` / schema 4 / モジュール名不一致を全部受理していた。今は 4 つの拒否メッセージが
+   `crates/litedoc4-ir/src/error.rs` と**逐語一致**
+2. **どのモジュールも知らない名前でレンダを止めていなかった**。`Ok(None)`（既知だがページが無い
+   → リンク無しで描く）と `Err`（どのマップも知らない → 止まる）を 1 つに潰していた
+3. **沈黙するフォールバックを報告していなかった**（`math spans kept as LaTeX`）。
+   **対象では検出できない** — 対象の count は 422 ページで 0、サンプルは意図的な `\colim` の 1
 
-## 見つかった欠陥で、記録しておく価値のあるもの
+**M3/M4 の境界を実測で引き直した**（下記）。
 
-1. **study の「422/422」は 6 時間古い参照と比べたものだった。**
-   凍結 `pages/` は `25af76d`（`<div class="flags">` 追加）より前のビルド。
-   **プロトタイプも同じ機能を欠いていたので両側が同じ穴を持ち緑だった。**
-   → `benchmarks/results/purelean-render-move-2026-08-31.txt`。バイト総数は
-   24,546,157 → **24,546,639**。並べてはいけない
-2. **`lake build -v` はコンパイラを証明しない** — Lake は最新 target のログを再生する。
-   `.o` を消して `Replayed` 行も拒む必要がある
-3. **docs-gate に穴があった** — 正規表現が絶対形 `benchmarks/results/...` にしか当たらず、
-   `benchmarks/` 内の文書が書く相対形 `results/...` を見ていなかった。
-   `purelean-report.md` の 12 引用が全部ノーチェック。直して count 184 → **199**
-4. **コーパスの沈黙はカバレッジではない** — Mathlib 2,113 span に `\&` `\$` `\%` `\_` は
-   1 つも無い。見つけたのは e2e/micro という小さな手作りフィクスチャ
+## 見つかったことで、記録しておく価値のあるもの
+
+1. **subagent の調査報告は額面で受け取ってはいけない。** M3 の地図を作らせた報告の §1 と §5 が
+   **実物と食い違っていた** — 「41 ファイル / 6.4 MB」「`app.js` 1,935,414 B」
+   「`declaration-data.bmp` が 2 か所に重複」。実際は **23 ファイル / 215,116 B**、
+   `app.js` は 15,370 B、`declaration-data.bmp` は**どこにも書かれない**
+   （`artifacts.rs` の `the_doc_gen4_only_artifacts_are_gone` が復活を落とす）。
+   バイナリを 1 回走らせれば分かることで、**「走らせた」と書いてあっても確かめる**
+2. **ページだけ比べるゲートは、嘘をつく要約を見られない。** 欠陥 3 は 422/422 一致のまま
+   通り抜けていた。これが `purelean-render-gate.sh` の項目 6 を足した理由
+3. **`FilePath./` は区切りを二重にする**（`Path::join` はしない）。`--ir …/tree/` で Lean の拒否が
+   `tree//modules/X.json` と言い、Rust は `tree/modules/X.json` と言った（計測）。
+   `Ir.lean` の `irPath` で塞いだが、**ユーザーに見えるパスを `/` で組む他の箇所は同じ穴**
+4. **Lean の `IO` エラーと JSON 失敗は Rust に合わせられない**（計測）。
+   `No such file or directory (os error 2)` に対し
+   `no such file or directory (error code: 4294967294)`（errno ではなく −2 の `UInt32`）。
+   `src/Litedoc4/Json.lean` は不正 JSON で `panic!` する。
+   **stderr を比べるゲートに、存在しないファイルや壊れた JSON を食わせてはいけない**
+
+## M3 の実測（`benchmarks/results/purelean-micro-2026-08-31.txt` 末尾）
+
+サイトは **23 ファイル / 215,116 B**、所有者は 3 つに分かれる:
+
+| | ファイル | バイト | 書くのは |
+|---|---|---|---|
+| モジュールページ | 11 | 146,728 | `litedoc4-render::site`（**M2 完了**） |
+| アセット | 3 | 45,229 | `litedoc4-render::assets` の `ASSETS`。`style.css` / `app.js` / `favicon.svg`、全部 `include_str!` の**テキスト** |
+| アーティファクト | 9 | 23,159 | `litedoc4-global` の `ARTIFACT_PATHS` |
+
+**ランディングページ 4 枚（`index.html` / `404.html` / `search.html` /
+`foundational_types.html`）は `render` ではなく `global` が書く。** だから `global` 抜きに
+サイトは成立せず、旧 M4 を M3 に畳んだ。`onemod-gate.sh` は incremental を測るゲート
+（引数が `<litedoc4-build.json> <serve.out>`）なので M5 に移した。
+
+**146,728 B は 129,450 B と並べてはいけない** — こちらは `--root` 付きで依存へのリンクが
+外部 URL に解決される分だけ長い。同じレンダラの違う設定。
 
 ## Files to read first
 
-1. `.claude/purelean-plan.md` — マイルストーンと完了判定、各 leg の作法
-2. `benchmarks/results/purelean-render-move-2026-08-31.txt` — 「まだ一致していない」節が
-   そのまま leg 2 の作業リスト
-3. `src/Litedoc4/Main.lean` — CLI の現状（`render` のみ）
-4. `tools/purelean-render-gate.sh` — manual ゲートの作り（両バイナリを 1 セッションで走らせる。
-   保存済みツリーは自分の `--source-url` を焼き込んでいるので参照にできない）
+1. `.claude/purelean-plan.md` — M3 は書き直してある。まずここ
+2. `tools/purelean-micro-gate.sh` — leg 3 の採点器。**`site` の比較もここに足すのが素直**
+   （新しい比較の形を発明しない。両バイナリを 1 セッションで走らせる形は既にある）
+3. `crates/litedoc4-global/src/artifacts.rs` — 9 アーティファクトの中身と
+   **UTF-16 順**（`cmp_utf16`。UTF-8 バイト順と U+10000 で逆転する）
+4. `crates/litedoc4-render/src/assets.rs` — `ASSETS` 3 つと `write_assets` の冪等性
+5. `crates/litedoc4/src/site.rs` — `litedoc4 site` の引数と段取り
 
-## Next step — M2 を完了させる
+## Next step — M3
 
-**完了判定は e2e/micro でのバイト一致。** 4 件:
+**完了判定は `litedoc4 site` の 23/23 バイト一致 + `site-gate` / `usedby-gate` が Lean のサイトで緑。**
 
-1. **e2e/micro の IR で Lean と Rust を突き合わせ、CI ゲートにする**（elan と micro だけで
-   足りるので `ci`。対象リポジトリが要る render ゲートと違う）。
-   MathML4Lean v0.1.1 で数式の差は消えたはずだが**未計測** — まず測る
-2. **`UnplaceableName` のエラー経路が転写されていない** — `--no-link-index` で Rust は
-   `declNameToLink: no defining module for Inhabited.default` と言って exit 1、
-   Lean は 11 ページ黙って書く。対象では発火しないので 422 ページのゲートは跨いで緑
-3. **モジュール順が `<ir>/modules/*.json` のソート**で、Rust の読む `index.json` の
-   `modules` 配列ではない。両コーパスでバイト一致するがプロトタイプの近道
-4. `render` の要約が Rust の 3 行目 `math spans kept as LaTeX N` を出していない
+やる順に:
+
+1. **アセット 3 つを Lean バイナリに載せる**。45 KB のテキストなので Rust の `include_str!` の
+   置き換えは Lean の文字列リテラルで足りる見込み（**未計測 — まず 1 ファイルで確かめる**）。
+   `csrc/` の C 配列 + FFI という既存機構もあるが、45 KB のテキストにそれを使う理由は
+   今のところ無い。`app.js` は `build.rs` が vite で作るので、**リポジトリに置いたビルド済み JS を
+   読む**（計画の「TypeScript は移植対象外」）。どこに置くかは決めること
+2. **`litedoc4-global` を転写**。9 アーティファクト。UTF-16 順が全体に効いている
+3. **`litedoc4 site` サブコマンド**を足し、micro ゲートに `site` の 23 ファイル比較を足す
+   （**先に一度落とす**）
+4. `site-gate.sh` / `usedby-gate.sh` を Lean のサイトに当てる
+
+**作法**（計画の「各 leg の作法」に加えて）: Rust 側が帰属表示を持つファイルを転写したら
+`tools/provenance-files.txt` と `docs/provenance.md` に行を足す。照合語は固有名詞。
+
+## 環境の注意
+
+- **disk の空きが 10 GiB**（228 GiB 中 160 GiB 使用、95%）。リポジトリ側の寄与は 3.5 GB で
+  主因ではないが、対象リポジトリの計測を回す前に `df -h` を見ること。
+  過去にディスクが埋まって**対象リポジトリの olean が欠けた**事故がある
+- `/private/tmp/lean-doc-relay/purelean`（398 MB）は**対象の IR と .lidx で、
+  `purelean-render-gate.sh` が要る**。消さないこと
+- e2e/micro の extractor は `e2e/micro/.lake/e2e-extract/extract` に既にある。
+  ビルド判断は `tools/lib/common.sh` の `micro_extractor` 1 か所に集約済み
 
 ## Relay control
 - Mode: ON
 - Goal: litedoc4 の Rust 半分を Lean に移植し切る（計画 `.claude/purelean-plan.md` の M1〜M10）
-- Leg: 2 / cap 40
-- Predecessor: none
+- Leg: 3 / cap 40
+- Predecessor: purelean-r2
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger:
   - r1: 計画 + 4 判断 (1c3d7ce) / M1 骨格 (8294e56) / 帰属表示 (129ea01) /
     M2 レンダラ移設・分割 422/422 (bd505f4) / docs-gate の穴 184→199 (3ee806d) /
     MathML4Lean v0.1.1 + pin (542303e)
+  - r2: **M2 完了**。IR 読み込みを index.json 起点へ (b715912) / extractor ビルドを 1 か所へ
+    (d47f9c1) / 不在の名前でレンダを止める (b0e16f7) / math フォールバックを要約に
+    (6a7084a) / CI ゲート purelean-micro 5 項目 + render ゲート項目 6 (91f0c11) /
+    Linux CI も同バイト (b765a2c) / M3-M4 境界を実測で引き直し (5dc900c)
