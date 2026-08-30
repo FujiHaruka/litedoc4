@@ -1,0 +1,74 @@
+pure-Lean replacement study — the CI axis, measured on the real target
+=====================================================================
+2026-08-30. Extends `purelean-ci-baseline-2026-08-30.txt` (which read one
+existing run); this one dispatches runs on purpose.
+
+WHERE
+  FujiHaruka/information-theory, branch `purelean-ci-bench` (measurement only,
+  never merged to main). `.github/workflows/docs.yml` on that branch is the
+  release workflow with the publishing removed — no `environment`, no
+  deploy-pages — so it can be dispatched from a branch without touching the live
+  Pages site. ubuntu-latest.
+
+THE THREE RUNS
+  run              litedoc4    binary     extractor   caches         total job
+  33286269732        46 s      cargo      built 19.4  none saved       180 s
+  33286423780        51 s      cargo      built 20.9  none saved       146 s
+  33286861275         4 s      release    cached      extractor+state  103 s
+
+  The first two are NOT the production path. See the trap below. The third is.
+
+RUN 3 — the production path with warm caches (measured)
+  4.0 s total for `FujiHaruka/litedoc4@v1.2.0`, made of:
+    ~0.2 s  cargo cache lookup (not found — and it does not matter)
+    ~1.0 s  extractor cache RESTORED (`litedoc4-extractor-Linux-a722f6026c193ad2`)
+    ~0.5 s  incremental state cache restored
+    <0.7 s  the litedoc4 binary, `binary-source: release`
+     1.8 s  the build itself: `render 422`, extract 0 (state cache was warm)
+    summary line: `extractor 0.001 cached` / `cargo 0.001 given`
+  Output: 426 pages, 36,762,205 B.
+  The whole job is 103 s, 91 s of which is `leanprover/lean-action@v1`.
+
+THE TWO ENDS, FOR THE DECISION
+  cache hit   (run 3, measured)                    litedoc4 =  4.0 s
+  cache miss  (run 33255806841 on main, measured)  litedoc4 = 44.0 s
+              = extractor build 20.2 + release download 2.9 + extract 17.5
+  no release asset for the platform (runs 1-2, measured)
+              = the above with `cargo build` 23.6 s / 27.6 s instead of 2.9 s
+                (this is the path Windows and Intel macOS take today)
+
+  **So the Rust half costs 2.9 s where a release exists and 23.6-27.6 s where
+  one does not, and 0 s whenever the cache is warm.**
+
+  A pure-Lean renderer does not add a second build: **it goes into the extractor
+  build that already runs**, 19.4-20.9 s for Extract.lean's 3,174 lines on this
+  runner (measured). The question the CI axis reduces to is therefore
+  **"what does that 20 s become when ~10,000 more lines of Lean are in it"** —
+  and the 2.9 s saved is subtracted from whatever that is. Nothing here answers
+  it; it is measured with the prototype.
+
+A TRAP THAT MADE TWO RUNS MEASURE THE WRONG THING (measured 2026-08-30)
+  The first version of the workflow checked litedoc4 out and used it as a local
+  action, so that the revision under measurement could be an input (`uses:`
+  cannot take an expression). **Both runs succeeded and both measured something
+  else**, in two ways at once, neither visible in the exit code:
+
+  1. `actions/cache` never saved anything. The action's cache paths then sit
+     inside GITHUB_WORKSPACE and every save ended
+     `[warning]Invalid pattern '/home/runner/work/.../litedoc4/...'`. A warning,
+     not an error. Both runs reported "Cache not found" on the way in and looked
+     like ordinary cold runs — **there is no way to tell a cache that missed
+     from a cache that was never written, from the restore side alone.**
+  2. `github.action_ref` is empty for a local action, so no release asset
+     applied and the binary came from `cargo build` (23.6 s / 27.6 s). The step
+     that says which is `binary-source`, and it said `cargo` where production
+     says `release`.
+
+  The fix is to write the revision into the file and push the branch again.
+  General form, and it is the same one this repository keeps meeting: **a run
+  that is green is not a run that measured what you meant.** The two things that
+  caught it were an output whose whole job is to name the path
+  (`binary-source`), and reading the Post step's log rather than the step's.
+
+  The 23.6 s / 27.6 s are kept, because that path is real for anyone whose
+  platform has no release asset.
