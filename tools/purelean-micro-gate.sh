@@ -63,11 +63,13 @@
 #               Rust's `state 10499 B` with every item green.
 #               Three things are normalised, each of which moves for a reason
 #               that is not the port's: a duration, the `ready` timestamp, and
-#               the two runs' different `--out`. A fourth, `, generation <hex>`,
-#               is **a known gap and not an exception list**: `Generation` is
-#               M5's, so the item asserts Rust prints it and Lean does not, and
-#               fails the day either stops being true — which is the signal to
-#               delete the normalisation rather than to widen it.
+#               the two runs' different `--out`. Nothing else is, and the
+#               `serve ready` line's `generation <hex>` is the one that earns
+#               the item: it is a digest over Lake's own `<file>.hash` beside
+#               every olean of every module, so the two halves agree on it only
+#               if they read the same files in the same order — the guard that
+#               stops a `lake build` landing mid-run from being extracted from,
+#               compared end to end rather than asserted to exist.
 #  13 MARKER    the two `litedoc4-build.json` differ. Compared whole, and that
 #               includes `work.irReads` — counts of how many times each reader
 #               opened the IR. They are a property of the reader's call
@@ -495,18 +497,12 @@ if [ -n "$lean_built_site" ] && [ -s "$OUT/b-rust.out" ]; then
         -e 's/ready [0-9][0-9]*/ready <ns>/' \
         -e "s|$OUT/b-rust|<out>|g" -e "s|$OUT/b-lean|<out>|g" "$1"
   }
-  gen_in_rust="$(grep -c ', generation [0-9a-f]' "$OUT/b-rust.out" || true)"
-  gen_in_lean="$(grep -c ', generation [0-9a-f]' "$OUT/b-lean.out" || true)"
-  normalise "$OUT/b-rust.out" | sed 's/, generation [0-9a-f]*//' >"$OUT/t-rust.txt"
+  normalise "$OUT/b-rust.out" >"$OUT/t-rust.txt"
   normalise "$OUT/b-lean.out" >"$OUT/t-lean.txt"
-  if [ "$gen_in_rust" -eq 0 ]; then
-    fail 14 "the Rust build no longer prints \`, generation <hex>\` — the normalisation below is now hiding nothing, delete it"
-  elif [ "$gen_in_lean" -ne 0 ]; then
-    fail 14 "the Lean build now prints \`, generation <hex>\` too — Generation landed, so delete the normalisation and compare the line"
-  elif ! diff -q "$OUT/t-rust.txt" "$OUT/t-lean.txt" >/dev/null 2>&1; then
+  if ! diff -q "$OUT/t-rust.txt" "$OUT/t-lean.txt" >/dev/null 2>&1; then
     fail 14 "$(diff "$OUT/t-rust.txt" "$OUT/t-lean.txt" | head -2 | tr '\n' ' ') — $OUT/t-{rust,lean}.txt"
   else
-    pass 14 "$(wc -l <"$OUT/t-lean.txt" | tr -d ' ') line(s) identical after normalising 3 values; Generation still absent as M5 expects"
+    pass 14 "$(wc -l <"$OUT/t-lean.txt" | tr -d ' ') line(s) identical after normalising 3 values, the \`serve ready\` generation digest included"
   fi
 else
   fail 14 "the Lean build wrote no site — item 10 says why"

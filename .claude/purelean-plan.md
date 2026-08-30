@@ -288,9 +288,7 @@ ledger を**読み戻す**側（`check` / `touch` / schema 1 の拒否）が無�
 
 #### M4 で閉じなかったもの
 
-1. **`Generation` は移植していない**（M5 に送った。意図的で、黙って落としたのではない）。
-   対象の olean をハッシュして spawn 前とリクエスト前後で照合する仕組みが無いので、
-   `serve ready …` の行に `generation <hex>` が付かない
+1. ~~**`Generation` は移植していない**~~ **2026-08-31 に閉じた**（→ M5 の節）
 2. ~~**`<out>/state/global-state.json` を書かない。**~~ **2026-08-31 に閉じた** —
    `Global/State.lean` を移植し、`site --state` と `build` に通した。
    `global-state.json` は cold も warm も **10,499 B でバイト一致**、
@@ -351,9 +349,21 @@ Lean が出すようになったら「Generation landed, so delete the normalisa
 
 ### M5 incremental — ledger / impact / ownership / merge / mode
 - ~~最初にやるのは `--state`~~ **2026-08-31 に済んだ**。`planOf` の検査 8 は通る
-- **次は `Generation`**（M4 の閉じなかったもの 1）。対象の olean をハッシュして
-  spawn 前とリクエスト前後で照合する。**入れると項目 14 が落ちる** — それが
-  正規化を消す合図で、そこで `serve ready` の行が比較対象に戻る
+- ~~次は `Generation`~~ **2026-08-31 に済んだ**。両バイナリが同じ digest
+  （`d78f65c3ecda6961`）を出し、`.hash` sidecar を書き換えると**両方が同じ新しい値**
+  （`13e1737c29490fc3`）に変わる — 実際に Lake の sidecar を読んでいる。
+  `Algorithm` は `.sha256` / `.lake` の 2 択になり、**walk は共有**（`modulePaths` は 1 つ）。
+  予告どおり項目 14 が落ちたので**正規化を消した** — `serve ready` の digest まで
+  比較対象に戻っている。
+  照合が exit 3 で落ちることは **3 つの窓のうち 2 つ**で確認した
+  （spawn 時 / リクエスト後。両バイナリがバイト同一のメッセージ）。
+  **3 つ目（リクエスト前）は構成できていない** — `detect` の最中に世界が動く必要があり、
+  フックが無かった。同じ `checkGeneration` を通るという議論はあるが、**議論であって計測ではない**
+
+- **M5 で持ち越す設計上の注意**: Rust は**最初のリクエストで遅延して**サーバを起動する。
+  何も抽出しない run が 3 GB と import を払わないためで、Lean 側は full path しか無いので
+  常に起動している。**incremental を入れるときに遅延も一緒に持ってこないと、
+  いちばん多い答え（「stale なものは無い」）がいちばん高くつく**
 - プロトタイプの `Incr.lean` が土台。**bimodal な `ownership`（423 読み vs 2 読み）を保つ**
 - `onemod-gate.sh` は**ここ**（旧 M3 から移した）。引数が
   `<litedoc4-build.json> <serve.out>` で、1 モジュール編集後の

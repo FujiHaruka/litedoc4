@@ -332,9 +332,70 @@ structure Serve where
   target : FilePath
   jobs : Nat
   modulesFile : FilePath
+  /-- The same list, parsed — `Generation` hashes exactly these. -/
+  modules : Array String
   work : FilePath
   linkIndex : FilePath
   linkIndexKey : String
+
+/-- The oleans of one module list, as Lake's own content hashes.
+
+`.lake` rather than `.sha256`, and `hashModule` rather than a walk of its own:
+this reads the same files in the same order the ledger's `detect` reads, which is
+what makes "the world" one thing here rather than two. What would falsify it: a
+ledger that hashed a different file set, at which point the guard and `detect`
+could disagree about which module moved. -/
+structure Generation where
+  /-- `(module, hash)`, in the module list's order. `-` is a module with no olean
+  at all, which is a real state: it is what `detect` reports as removed. -/
+  entries : Array (String × String)
+  digest : String
+
+def Generation.take (s : Serve) : BuildM Generation := do
+  let target := trimTrailingSlash s.target.toString
+  let libDir := s!"{target}/.lake/build/lib/lean"
+  let mut entries : Array (String × String) := #[]
+  for module in s.modules do
+    match ← (hashModule .lake target libDir module).toBaseIO with
+    | .error e => throw (3, s!"the resident extractor's generation over {libDir}: {e}")
+    | .ok entry => entries := entries.push (module, (entry.map (·.hash)).getD "-")
+  let joined := "\n".intercalate (entries.toList.map fun (module, hash) => s!"{module} {hash}")
+  return { entries, digest := sha256Text joined }
+
+/-- The modules that differ between two takes, by name.
+
+The lists are the same module list in the same order, so this is a walk rather
+than a join — and if they ever are not, the length difference is reported rather
+than silently zipped away. -/
+def Generation.moved (before after : Generation) : Array String := Id.run do
+  if before.digest == after.digest && before.entries.size == after.entries.size then return #[]
+  let mut moved : Array String := #[]
+  for i in [0 : min before.entries.size after.entries.size] do
+    if before.entries[i]! != after.entries[i]! then moved := moved.push before.entries[i]!.1
+  for i in [after.entries.size : before.entries.size] do
+    moved := moved.push before.entries[i]!.1
+  for i in [before.entries.size : after.entries.size] do
+    moved := moved.push after.entries[i]!.1
+  return moved
+
+def movedInMessage : Nat := 5
+
+/-- Modules whose oleans moved under a running server. -/
+def stale (moved : Array String) (when : String) : UInt32 × String :=
+  let named := moved.toList.take movedInMessage
+  let rest := moved.size - named.length
+  let more := if rest > 0 then s!" and {rest} more" else ""
+  (3, s!"the oleans moved {when}: {moved.size} module(s) — {", ".intercalate named}{more}. The \
+    resident extractor imported the world as it was at the head of this run and Lean cannot swap \
+    one module out of an imported environment (`Extract.lean:2716-2721`), so every answer it has \
+    given since is about the old world. Re-run after the build that is in flight has finished")
+
+/-- The one place the world is re-read and judged, rather than the reading
+written out at each of the three moments it is wanted: three copies are three
+answers to one question, which is how two guards start disagreeing. -/
+def checkGeneration (s : Serve) (gen : Generation) (when : String) : BuildM Unit := do
+  let moved := gen.moved (← Generation.take s)
+  if !moved.isEmpty then throw (stale moved when)
 
 /-- The token the extractor checks the map's `.key` sidecar against before
 deciding whether the map on disk can be reused.
@@ -420,7 +481,7 @@ a handle, so the pipe is held in a reference cell and the stop is emptying it �
 the last reference goes and the finaliser closes the fd. What would falsify the
 cell: a `Handle.close` in core, which would make the cell an indirection with
 nothing behind it. -/
-def extractOnce (s : Serve) (irDir timings : FilePath) : BuildM Nat := do
+def extractOnce (s : Serve) (gen : Generation) (irDir timings : FilePath) : BuildM Nat := do
   IO.FS.createDirAll s.work
   let startEvents := s.work / "serve-events.jsonl"
   discard <| (IO.FS.removeFile startEvents).toBaseIO
@@ -438,6 +499,7 @@ def extractOnce (s : Serve) (irDir timings : FilePath) : BuildM Nat := do
     throw (3, s!"the round's --ir-dir {resolved} is inside the target {s.target}: the package \
       being documented is opened read-only and nothing is ever written into it")
   let line ← requestLine #[s.modulesFile, events, irDir]
+  checkGeneration s gen "before the request"
   let started ← IO.monoNanosNow
   let child ← IO.Process.spawn
     { cmd := s.lake.toString
@@ -458,7 +520,9 @@ def extractOnce (s : Serve) (irDir timings : FilePath) : BuildM Nat := do
   let out := child.stdout
   match ← waitFor out log "ready " with
   | .error message => throw (4, message)
-  | .ok ready => IO.println s!"serve   {ready} ({s.jobs} jobs)"
+  | .ok ready =>
+    checkGeneration s gen "while the server was importing"
+    IO.println s!"serve   {ready} ({s.jobs} jobs, generation {byteSub gen.digest 0 16})"
   match ← stdin.get with
   | none => throw (4, "the resident extractor was already stopped")
   | some handle =>
@@ -472,6 +536,9 @@ def extractOnce (s : Serve) (irDir timings : FilePath) : BuildM Nat := do
   match reply with
   | .error message => throw (4, message)
   | .ok text =>
+    -- After as well as before, so that the interval the request ran in is one
+    -- the world provably did not move in.
+    checkGeneration s gen "after the request"
     if (text.splitOn " ").getD 1 "" != "0" then
       throw (4, s!"the resident extractor answered `{text}` for {s.modulesFile}; the IR tree at \
         {irDir} is incomplete")
@@ -597,9 +664,15 @@ def runBuild (r : BuildRequest) : BuildM Unit := do
       target := r.root
       jobs := r.jobs
       modulesFile := ← absolutePath modulesFile
+      modules
       work := ← absolutePath layout.work
       linkIndex
       linkIndexKey := ← linkIndexKeyOf r.root modulesFile }
+
+  -- Taken once, at the head of the run, and every later check is against this
+  -- one value: a second reading to compare a third against would be a second
+  -- answer to the same question.
+  let generation ← Generation.take serve
 
   -- The hashes, **before** the extraction they license. Written into `work` as a
   -- diagnostic; the file that counts is written at the end of the run.
@@ -620,7 +693,7 @@ def runBuild (r : BuildRequest) : BuildM Unit := do
   if ← layout.ir.pathExists then IO.FS.removeDirAll layout.ir
 
   let extractStarted ← IO.monoNanosNow
-  discard <| extractOnce serve layout.ir (layout.work / "extract-timings-1.json")
+  discard <| extractOnce serve generation layout.ir (layout.work / "extract-timings-1.json")
   IO.println s!"extract {modules.size} module(s) in {seconds ((← IO.monoNanosNow) - extractStarted) 4} s"
 
   let config ← readSiteConfig (some r.root)

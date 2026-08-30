@@ -34,9 +34,20 @@ def rendererId : String := "litedoc4 renderer v4"
 /-- In the order they are hashed. -/
 def oleanSuffixes : Array String := #[".olean", ".olean.server", ".olean.private"]
 
+/-- What a module's hash is taken over. `lake` reads the `<file>.hash` Lake
+already wrote beside every olean (`computeBinFileHash`, `Lake/Build/Common.lean`)
+instead of the olean's bytes: a string read, 6.9 KB instead of 227 MB on the
+measurement target. The ledger is always `sha256` — cryptographic, and not an
+undocumented implementation detail of the build tool. -/
+inductive Algorithm where
+  | sha256
+  | lake
+
 structure LedgerFile where
   path : String
-  bytes : Nat
+  /-- **`-1` under `.lake`**: nothing was read but the hash file, so there is no
+  byte count to report and a zero would read as an empty olean. -/
+  bytes : Int
   hash : String
   deriving Inhabited
 
@@ -172,13 +183,23 @@ def relativePath (target path : String) : String :=
 
 /-- `none` is a real answer, not an error: a module can be deleted between
 `build` and `check`, and the deletion is exactly what the caller needs to hear
-about. -/
-def hashModule (target libDir module : String) : IO (Option LedgerModule) := do
+about.
+
+A module that has an olean but whose `<file>.hash` is missing under `.lake` is a
+different case and *is* an error: the file the algorithm names is not there, and
+reporting the module as removed would delete its pages. -/
+def hashModule (algorithm : Algorithm) (target libDir module : String) :
+    IO (Option LedgerModule) := do
   let mut files : Array LedgerFile := #[]
   for path in ← modulePaths libDir module do
-    let bytes ← IO.FS.readBinFile path
-    files := files.push
-      { path := relativePath target path, bytes := bytes.size, hash := sha256Hex bytes }
+    let file : LedgerFile ← match algorithm with
+      | .sha256 => do
+        let bytes ← IO.FS.readBinFile path
+        pure { path := relativePath target path, bytes := bytes.size, hash := sha256Hex bytes }
+      | .lake => do
+        let hash ← IO.FS.readFile (path ++ ".hash")
+        pure { path := relativePath target path, bytes := -1, hash := hash.trimAscii.toString }
+    files := files.push file
   if files.isEmpty then return none
   let combined := "\n".intercalate (files.toList.map fun f => s!"{f.path} {f.hash}")
   return some { module, files, hash := sha256Text combined }
@@ -206,7 +227,7 @@ def buildLedger (i : LedgerInputs) : IO (Except String Ledger) := do
   let mut modules : Array LedgerModule := #[]
   let mut missing : Array String := #[]
   for module in i.modules do
-    match ← hashModule target libDir module with
+    match ← hashModule .sha256 target libDir module with
     | some entry => modules := modules.push entry
     | none => missing := missing.push module
   if !missing.isEmpty then
