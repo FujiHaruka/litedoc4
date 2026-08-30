@@ -1,6 +1,7 @@
 /- `crates/litedoc4-ir/src/{model,reader}.rs`: the IR as typed values, and the
 tree on disk they are read from. -/
 import Litedoc4.Json
+import Litedoc4.Metrics
 
 open System
 
@@ -245,6 +246,7 @@ structure IrTree where
   index : Index
 
 def openIrTree (root : FilePath) : IO IrTree := do
+  recordIrRead .index
   let text ← readIrFile (irPath root "index.json")
   let n := text.utf8ByteSize
   let (j, _) := JScan.pVal text n (JScan.skipWs text n 0)
@@ -259,6 +261,7 @@ def openIrTree (root : FilePath) : IO IrTree := do
 files from several extractor runs, so the index's version does not vouch for the
 modules'. -/
 def IrTree.module (t : IrTree) (e : IndexEntry) : IO Module := do
+  recordIrRead .module
   let path := irPath t.root e.file
   let m := parseModule (← readIrFile path)
   if m.schemaVersion < minSchemaVersion then
@@ -279,6 +282,7 @@ def IrTree.loadModules (t : IrTree) : IO (Array Module) := do
   return out
 
 def IrTree.depMap (t : IrTree) (e : DepMapEntry) : IO (Array (String × String)) := do
+  recordIrRead .depMap
   let text ← readIrFile (irPath t.root e.file)
   let n := text.utf8ByteSize
   let (j, _) := JScan.pVal text n (JScan.skipWs text n 0)

@@ -1,3 +1,4 @@
+import Litedoc4.Build
 import Litedoc4.Config
 import Litedoc4.Global
 import Litedoc4.Ledger

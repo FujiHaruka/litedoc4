@@ -145,6 +145,13 @@ M3 で分かって**閉じていない**もの、次に触る人向け:
 - **完了判定**: `litedoc4 build --root e2e/micro` の出力が Rust 版と **23/23 バイト一致**し、
   `site-gate` と `config-gate` が Lean 実装で緑
 
+**2026-08-31 に達成。** 判定器は `tools/purelean-micro-gate.sh` の項目 10〜13
+（build の 23 ファイル / site-gate / config-gate / marker。**4 つとも個別に落としてから通した**）。
+サイトの外も一致する: `ledger.json` / `link-index.lidx`(+`.key`) / `work/modules.txt` /
+`ir/` の木すべて、そして **`litedoc4-build.json` は `work.irReads` を含めてバイト一致**
+（`{index:3, module:22, depMap:4, total:29}`。**Lean のリーダは Rust と同じ回数 IR を開く**ので、
+未検証だった項目 13 の除外は要らなかった）。
+
 #### 実測で分かった 3 つの訂正（2026-08-31。leg 3 の handoff は 3 つとも間違っていた）
 
 1. **modules 列挙で `lake` は起動されない。** 実体は**ファイルシステムの glob**
@@ -266,15 +273,36 @@ ledger を**読み戻す**側（`check` / `touch` / schema 1 の拒否）が無�
 
 #### M4 で足すゲート項目（`purelean-micro-gate.sh`、1 つずつ落としてから通す）
 
-**項目 9 は ledger で埋まった**ので、残りは 10 = `build` の 23 ファイルがバイト一致 /
-11 = `site-gate.sh` が Lean の木で緑（**アセット 3 つがここで効く** — 無いと dead-link 側が
-落ちる）/ 12 = `config-gate.sh` が Lean の木で緑 /
-13 = 両者の `litedoc4-build.json` の突き合わせ。
+**全部足した。ゲートは 13 項目**（9 = ledger、10 = build の 23 ファイル、
+11 = site-gate、12 = config-gate、13 = marker）。
 
-**13 には未検証がある**: `work.irReads` は `{index:3, module:22, depMap:4, total:29}` で、
-これは **Rust のリーダの呼び出し回数**。Lean が同じ回数読むかは未計測。
-**違ったら、フィールドごとに比べて `irReads` を除外し、その差を書き残す**
-（黙って落とさない）。
+**11 と 12 は「10 の比較が通ったとき」ではなく「Lean の build が site を書いたとき」に走る。**
+最初は比較に従属させていて、それだと**10 が落ちると 11/12 は自分の理由で落ちられない** —
+項目 8 が `site_ok` に守られていたのと同じ形。緩めたので、アセットを 1 つ落とすと
+10 は「1 missing」、11 は「DEAD internal links: 15 (1 distinct destinations, 15 pages)」と
+**別々の理由**を言う。
+
+**壊したのに落ちなかったら、まず壊れたかを確かめる。** 項目 13 を落とそうとして
+`"litedoc4 build"` を置換したが 0 箇所しか当たらず（Lean ソース中は `\"` でエスケープされている）、
+**ゲートが弱いのではなく変更が入っていなかった**。
+
+#### M4 で閉じなかったもの
+
+1. **`Generation` は移植していない**（M5 に送った。意図的で、黙って落としたのではない）。
+   対象の olean をハッシュして spawn 前とリクエスト前後で照合する仕組みが無いので、
+   `serve ready …` の行に `generation <hex>` が付かない
+2. **`<out>/state/global-state.json` を書かない。** Lean の `buildGlobal` に `--state` が
+   無いので、M3 から続くギャップが build で露出した。**23 ファイルは `site/` の中なので
+   判定には影響しない**が、`planOf` の検査 8 はこのファイルの存在を要求するので、
+   **M5 で incremental に入るには先にこれが要る**
+3. **`work/extract-timings-1.json` と `work/ledger-timings.json` を書かない。**
+   前者は `fold_timings` 未移植（events JSONL 自体は書かれる）
+4. **config-gate のオラクルはまだ Rust。** ゲートは `global` サブコマンドを走らせ、
+   Lean の CLI にはまだ無い（`--built` に Lean のサイトを渡す形で検証した）。
+   `LITEDOC4` を Lean にするには `global` が要る → M7
+5. **Lean の `panic!` する JSON リーダに入口が 1 つ増えた** — 壊れた `<ir>/index.json` が
+   `extractKey` に届く。`lake-manifest.json` はテキストとしてハッシュするだけなので
+   そちらは増えていない
 
 #### 実測で分かった、もう 1 つの状態
 
@@ -286,6 +314,8 @@ ledger を**読み戻す**側（`check` / `touch` / schema 1 の拒否）が無�
 試行のあいだに `rm -rf` するゲートは後者を隠す。
 
 ### M5 incremental — ledger / impact / ownership / merge / mode
+- **最初にやるのは `--state`**（M4 の閉じなかったもの 2）。`buildGlobal` が
+  `global-state.json` を書かないと `planOf` の検査 8 が通らず、**incremental に入れない**
 - プロトタイプの `Incr.lean` が土台。**bimodal な `ownership`（423 読み vs 2 読み）を保つ**
 - `onemod-gate.sh` は**ここ**（旧 M3 から移した）。引数が
   `<litedoc4-build.json> <serve.out>` で、1 モジュール編集後の

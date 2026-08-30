@@ -37,6 +37,25 @@
 #               that saw only `*.html` would call two sites identical while
 #               their search indexes disagreed.
 #   7 SITE SUM  the two `site` runs print different stdout.
+#  10 BUILD     the two `build` runs write different bytes. This is the whole
+#               pipeline rather than `site` again: it globs the sources, reads
+#               `lakefile.toml`, derives nothing (the URL is pinned here, see
+#               BUILD_URL), drives the resident extractor, writes the assets
+#               and the ledger, and leaves a marker. 23 files, not 20 — the
+#               three assets are `build`'s and `site` never writes them.
+#  11 SITEGATE  `site-gate.sh` fails on the Lean-built site. It is the
+#               dead-link half that item 8 cannot ask: a bare `site` tree has
+#               no `style.css`, so the question only becomes answerable once
+#               `build` has written them.
+#  12 CONFIG    `config-gate.sh` fails on it. `litedoc4.toml`'s title and index
+#               prose have to reach the pages the same way from every command
+#               that writes HTML. The oracle here is still the Rust binary:
+#               the gate runs `global`, which the Lean CLI does not have yet.
+#  13 MARKER    the two `litedoc4-build.json` differ. Compared whole, and that
+#               includes `work.irReads` — counts of how many times each reader
+#               opened the IR. They are a property of the reader's call
+#               pattern, not of the output, so a Lean reader that took a
+#               different number of passes would show up here and nowhere else.
 #   9 LEDGER    the two `ledger build` runs write different bytes. The ledger is
 #               what M5's incremental path reads to decide what is stale, so a
 #               field that drifts here is a build that later re-extracts
@@ -117,7 +136,7 @@ else
   TEMPORARY=0
 fi
 
-ITEMS=9
+ITEMS=13
 ran=0
 failed=0
 
@@ -147,7 +166,7 @@ site_run () {
   echo "$rc"
 }
 
-say "1/9 the Lean half builds from a consumer's workspace"
+say "1/13 the Lean half builds from a consumer's workspace"
 built=0
 build_rc=0
 (cd "$FIXTURE" && "$LAKE" build litedoc4/litedoc4) >"$OUT/build.log" 2>&1 || build_rc=$?
@@ -161,7 +180,7 @@ else
   tail -20 "$OUT/build.log" >&2
 fi
 
-say "2/9 the sample's IR, extracted here"
+say "2/13 the sample's IR, extracted here"
 extracted=0
 (cd "$MICRO" && "$LAKE" build) >"$OUT/micro-build.log" 2>&1
 EXTRACTOR="$(micro_extractor "$ROOT" "$MICRO" "$LAKE" "$OUT/extractor-build.log")"
@@ -185,7 +204,7 @@ else
   fi
 fi
 
-say "3/9 with --link-index, the two trees are the same bytes"
+say "3/13 with --link-index, the two trees are the same bytes"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean" "$OUT/rust"
   lean_rc="$(render "$LEAN_EXE" "$OUT/lean" lean --link-index "$OUT/build/link-index.lidx")"
@@ -207,7 +226,7 @@ else
   fail 3 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "4/9 with --no-link-index, both refuse the same unplaceable name"
+say "4/13 with --no-link-index, both refuse the same unplaceable name"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean-nolidx" "$OUT/rust-nolidx"
   lean_n_rc="$(render "$LEAN_EXE" "$OUT/lean-nolidx" lean-nolidx --no-link-index)"
@@ -229,7 +248,7 @@ else
   fail 4 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "5/9 the two runs print the same stdout"
+say "5/13 the two runs print the same stdout"
 # The whole of stdout and not a slice of it: both halves take `--root`, so the
 # `external ` block one prints is the other's too, and a comparison that began
 # at the first counts line would swallow a difference in the dependency map the
@@ -246,7 +265,7 @@ else
   fail 5 "item 3 did not leave two runs' stdout to compare"
 fi
 
-say "6/9 \`site\` writes the same 20 files, bytes and all"
+say "6/13 \`site\` writes the same 20 files, bytes and all"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/site-lean" "$OUT/site-rust"
   lean_s_rc="$(site_run "$LEAN_EXE" "$OUT/site-lean" site-lean)"
@@ -270,7 +289,7 @@ else
   fail 6 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "7/9 the two \`site\` runs print the same stdout"
+say "7/13 the two \`site\` runs print the same stdout"
 if [ -s "$OUT/site-lean.out" ] && [ -s "$OUT/site-rust.out" ]; then
   if ! $DIFF_CMD "$OUT/site-rust.out" "$OUT/site-lean.out" >"$OUT/site-summary.diff" 2>&1; then
     fail 7 "stdout differs — see $OUT/site-summary.diff"
@@ -288,7 +307,7 @@ fi
 # own. This is the only oracle-free question asked of the Lean tree, and it is
 # the one that outlives the oracle: after the Rust half is deleted, item 6 has
 # nothing to compare against and this is what is left.
-say "8/9 the Lean site closes over itself"
+say "8/13 the Lean site closes over itself"
 if [ "$(find "$OUT/site-lean" -type f 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]; then
   closure_rc=0
   "$PYTHON" "$ROOT/benchmarks/tools/check-site-closure.py" "$OUT/site-lean" \
@@ -311,7 +330,7 @@ else
   fail 8 "the Lean site is empty or was not written — item 6 says why"
 fi
 
-say "9/9 the two \`ledger build\` runs write the same bytes"
+say "9/13 the two \`ledger build\` runs write the same bytes"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   mod_rc=0
   "$LITEDOC4" modules --root "$MICRO" --lib Example --out "$OUT/ledger-modules.txt" \
@@ -344,6 +363,98 @@ if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   fi
 else
   fail 9 "no binary or no IR — item 1 or 2 did not produce one"
+fi
+
+# Pinned rather than derived: `build` demands 40 lower-case hex after `/blob/`
+# (`render` and `site` do not), and deriving it from git HEAD makes the pages
+# carry a revision that moves under the gate — a concurrent commit changed all
+# 11 pages between two runs while this was being written (measured 2026-08-31).
+BUILD_URL="https://github.com/FujiHaruka/litedoc4/blob/0000000000000000000000000000000000000000/e2e/micro"
+
+say "10/13 \`build\` writes the same 23 files, bytes and all"
+lean_built_site=""
+if [ "$built" -eq 1 ] && [ -x "$EXTRACTOR" ]; then
+  rm -rf "$OUT/b-lean" "$OUT/b-rust"
+  build_run () {
+    local exe="$1" out="$2" name="$3"
+    local rc=0
+    "$exe" build --root "$MICRO" --lib Example --out "$out" \
+      --extractor-bin "$EXTRACTOR" --source-url "$BUILD_URL" \
+      >"$OUT/$name.out" 2>"$OUT/$name.err" || rc=$?
+    echo "$rc"
+  }
+  lean_b_rc="$(build_run "$LEAN_EXE" "$OUT/b-lean" b-lean)"
+  rust_b_rc="$(build_run "$LITEDOC4" "$OUT/b-rust" b-rust)"
+  n_lean_b="$(find "$OUT/b-lean/site" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  n_rust_b="$(find "$OUT/b-rust/site" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  # Set on "the Lean build wrote a site", deliberately not on "the comparison
+  # passed": items 11 and 12 ask oracle-free questions of that tree, and gating
+  # them on 10 would make them restate 10 rather than fail on their own.
+  [ "$lean_b_rc" -eq 0 ] && [ "$n_lean_b" -gt 0 ] && lean_built_site="$OUT/b-lean/site"
+  cmp10_rc=0
+  "$HERE/render-compare.sh" --all "$OUT/b-rust/site" "$OUT/b-lean/site" \
+    >"$OUT/compare-10.txt" 2>&1 || cmp10_rc=$?
+  if [ "$lean_b_rc" -ne 0 ] || [ "$rust_b_rc" -ne 0 ]; then
+    fail 10 "a build exited non-zero (lean=$lean_b_rc rust=$rust_b_rc) — see $OUT/b-{lean,rust}.err"
+  elif [ "$n_rust_b" -eq 0 ]; then
+    fail 10 "the Rust build wrote no file"
+  elif [ "$n_rust_b" -ne 23 ]; then
+    # Not a style check: the count is the denominator this project quotes, and a
+    # site that grew or lost a file silently would still compare identical.
+    fail 10 "the Rust build wrote $n_rust_b files, not 23 — the site's shape moved"
+  elif [ "$cmp10_rc" -ne 0 ]; then
+    fail 10 "$(awk '/^(differing|missing|extra) /{printf "%s %s, ", $3, $1}' "$OUT/compare-10.txt")first name in $OUT/compare-10.txt"
+  else
+    pass 10 "$n_lean_b files identical, $(find "$OUT/b-lean/site" -type f -exec cat {} + | wc -c | tr -d ' ') bytes"
+  fi
+else
+  fail 10 "no binary or no extractor — item 1 or 2 did not produce one"
+fi
+
+say "11/13 the Lean-built site passes site-gate"
+if [ -n "$lean_built_site" ]; then
+  sg_rc=0
+  "$HERE/site-gate.sh" "$lean_built_site" >"$OUT/site-gate.txt" 2>&1 || sg_rc=$?
+  if [ "$sg_rc" -ne 0 ]; then
+    # `== dead links` is the section heading and says nothing; the line that
+    # carries the number is the one worth quoting, and a closure failure has no
+    # DEAD line at all, so both shapes are looked for before falling back.
+    first="$(awk '/DEAD internal links *: *[1-9]|FAIL/{print; exit}' "$OUT/site-gate.txt")"
+    [ -n "$first" ] || first="$(tail -1 "$OUT/site-gate.txt")"
+    fail 11 "$(printf '%s' "$first" | sed 's/^ *//') — see $OUT/site-gate.txt"
+  else
+    pass 11 "$(grep -c '^  ok' "$OUT/site-gate.txt" | tr -d ' ') check(s) over the built tree"
+  fi
+else
+  fail 11 "the Lean build wrote no site — item 10 says why"
+fi
+
+say "12/13 the Lean-built site passes config-gate"
+if [ -n "$lean_built_site" ]; then
+  cg_rc=0
+  "$HERE/config-gate.sh" --root "$MICRO" --ir "$OUT/b-lean/ir" \
+    --built "$lean_built_site" --link-index "$OUT/b-lean/link-index.lidx" \
+    --out "$OUT/config" >"$OUT/config-gate.txt" 2>&1 || cg_rc=$?
+  if [ "$cg_rc" -ne 0 ]; then
+    fail 12 "$(tail -1 "$OUT/config-gate.txt") — see $OUT/config-gate.txt"
+  else
+    pass 12 "$(tail -1 "$OUT/config-gate.txt" | sed 's/^config *//')"
+  fi
+else
+  fail 12 "the Lean build wrote no site — item 10 says why"
+fi
+
+say "13/13 the two builds leave the same litedoc4-build.json"
+if [ -n "$lean_built_site" ]; then
+  if [ ! -s "$OUT/b-rust/litedoc4-build.json" ]; then
+    fail 13 "the Rust build left no marker"
+  elif ! cmp -s "$OUT/b-rust/litedoc4-build.json" "$OUT/b-lean/litedoc4-build.json"; then
+    fail 13 "$(cmp "$OUT/b-rust/litedoc4-build.json" "$OUT/b-lean/litedoc4-build.json" 2>&1 | head -1) — $OUT/b-{rust,lean}/litedoc4-build.json"
+  else
+    pass 13 "$(wc -c <"$OUT/b-lean/litedoc4-build.json" | tr -d ' ') bytes identical, irReads $(grep -o '"total":[0-9]*' "$OUT/b-lean/litedoc4-build.json" | head -1 | cut -d: -f2)"
+  fi
+else
+  fail 13 "the Lean build wrote no site, so there is no marker — item 10 says why"
 fi
 
 say "summary"

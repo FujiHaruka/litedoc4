@@ -12,7 +12,11 @@ import Litedoc4
 namespace Litedoc4
 
 def usage : String :=
-"usage: litedoc4 render --ir <dir> --pages <dir> --source-url <url>
+"usage: litedoc4 build --root <repo> --out <dir> --extractor-bin <path>
+                      [--lib <Name>] [--source-url <url>] [--lake <path>]
+                      [--jobs <n>] [--full]
+       litedoc4 modules --root <repo> [--lib <Name>] [--out <file>]
+       litedoc4 render --ir <dir> --pages <dir> --source-url <url>
                        (--link-index <file> | --no-link-index)
                        [--root <dir>] [--lake <path>]
        litedoc4 site --ir <dir> --out <dir> --source-url <url>
@@ -74,6 +78,12 @@ def refuse (message : String) : IO UInt32 := do
   IO.eprintln ""
   IO.eprintln usage
   return 2
+
+/-- Exit 3 and no usage text: the command line was fine and the *world* is a
+shape this cannot work with, which is a thing a caller can act on. -/
+def refusedWith (code : UInt32) (message : String) : IO UInt32 := do
+  IO.eprintln s!"litedoc4: {message}"
+  return code
 
 /-- The cost is why the choice is not a default: the map is what turns a name in
 a signature into a link, and a site built without one is a site of dead names. -/
@@ -139,17 +149,7 @@ def render (args : List String) : IO UInt32 := do
         { ir := ir, pages := pages, sourceUrl := sourceUrl
           linkIndex := a.linkIndex.map (⟨·⟩)
           external := inputs.external, title := inputs.config.title }
-      IO.println s!"modules {summary.pagesWritten}/{summary.modulesInIr}  \
-        declarations {summary.declarationsRendered}/{summary.declarationsInIr} \
-        ({summary.declarationsSuppressed} suppressed)  module docs {summary.moduleDocs}  \
-        bytes {summary.bytes}"
-      IO.println s!"known {summary.known}  link index {summary.linkIndexEntries}  \
-        known modules {summary.knownModules}"
-      -- Printed at zero too: the fallback it reports is silent, so a line that
-      -- appeared only above zero could not be told from one that had stopped
-      -- being printed. What would falsify that: a fallback the page itself
-      -- shows, which the reader could see without being told.
-      IO.println s!"math spans kept as LaTeX {summary.mathFailures}"
+      printRenderSummary "" summary
       return 0
     catch e =>
       IO.eprintln s!"litedoc4: {e}"
@@ -238,24 +238,8 @@ def site (args : List String) : IO UInt32 := do
       -- Labelled per stage: one merged line would lose which half of the tree a
       -- number is about, and the two count different things under the same word
       -- ("modules").
-      IO.println s!"render  modules {rendered.pagesWritten}/{rendered.modulesInIr}  \
-        declarations {rendered.declarationsRendered}/{rendered.declarationsInIr} \
-        ({rendered.declarationsSuppressed} suppressed)  module docs {rendered.moduleDocs}  \
-        bytes {rendered.bytes}"
-      IO.println s!"render  known {rendered.known}  link index {rendered.linkIndexEntries}  \
-        known modules {rendered.knownModules}"
-      IO.println s!"render  math spans kept as LaTeX {rendered.mathFailures}"
-      IO.println s!"global  modules {derived.modules}  declarations {derived.declarations} + \
-        {derived.dependencyNames} dependency names  instance classes \
-        {derived.instanceClasses}  instance types {derived.instanceTypes}  \
-        tactic docs {derived.tacticDocs}"
-      IO.println s!"global  name map {derived.nameMapBytes} B  \
-        module index {derived.modulesJsonBytes} B  \
-        search index {derived.searchIndexBytes} B"
-      IO.println s!"global  module descriptions {derived.summariesRendered} of \
-        {derived.modules} ({derived.summariesEchoingTheName} repeat the module name)"
-      IO.println s!"global  cache {derived.cacheHits} hit / {derived.cacheMisses} miss  \
-        state {derived.stateBytes} B"
+      printRenderSummary "render  " rendered
+      printGlobalSummary "global  " derived
       return 0
     catch e =>
       IO.eprintln s!"litedoc4: {e}"
@@ -348,6 +332,175 @@ def ledgerBuild (args : List String) : IO UInt32 := do
       IO.eprintln s!"litedoc4: {e}"
       return 1
 
+structure ModulesArgs where
+  root : Option String := none
+  libs : Array String := #[]
+  out : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+partial def parseModules : List String → ModulesArgs → Except String ModulesArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} wants a value"
+    if flag == "--root" then do
+      let (v, more) ← value; parseModules more { acc with root := some v }
+    else if flag == "--lib" then do
+      let (v, more) ← value; parseModules more { acc with libs := acc.libs.push v }
+    else if flag == "--out" then do
+      let (v, more) ← value; parseModules more { acc with out := some v }
+    else if flag == "--help" || flag == "-h" then
+      parseModules rest { acc with help := true }
+    else
+      .error s!"unknown argument `{flag}`"
+
+def modulesRun (a : ModulesArgs) (root : String) : IO UInt32 := do
+  let libs ← if !a.libs.isEmpty then pure (Except.ok a.libs) else
+    match ← readLibraries ⟨root⟩ with
+    | .error message => pure (.error message)
+    | .ok declared => do
+      -- **On stderr**: this command's stdout is the module list itself when
+      -- `--out` is absent, and a caller redirecting it into a file would
+      -- otherwise get a diagnostic as its first module.
+      IO.eprintln s!"lib     {", ".intercalate declared.names.toList} (from {declared.file})"
+      pure (.ok declared.names)
+  match libs with
+  | .error message => refusedWith 3 message
+  | .ok libs =>
+    match ← moduleNames ⟨root⟩ libs with
+    | .error message => refusedWith 3 message
+    | .ok names =>
+      match a.out with
+      | some path => do
+        -- **No line at all** when there are no names: an empty set has to be an
+        -- empty file rather than one blank line.
+        writeFile ⟨path⟩ (if names.isEmpty then "" else "\n".intercalate names.toList ++ "\n")
+        IO.println s!"{names.size} modules -> {path}"
+        return 0
+      | none => do
+        for name in names do
+          IO.println name
+        return 0
+
+def modules (args : List String) : IO UInt32 := do
+  match parseModules args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    let some root := a.root | refuse "--root <repo> is required"
+    try
+      modulesRun a root
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      pure (1 : UInt32)
+
+structure BuildArgs where
+  root : Option String := none
+  out : Option String := none
+  libs : Array String := #[]
+  sourceUrl : Option String := none
+  extractorBin : Option String := none
+  lake : Option String := none
+  jobs : Nat := 1
+  full : Bool := false
+  help : Bool := false
+  deriving Inhabited
+
+/-- Flags the Rust `build` takes and this one does not. Refused by name rather
+than ignored, because every one of them changes what a run *did* rather than
+whether it ran: a build that took `--mode importers` and re-rendered everything,
+or `--timings` and wrote no record, would look from the outside like the run that
+was asked for. `--link-index` is here for the opposite reason — it names a map
+somebody else made, and this build always writes its own. -/
+def buildUnimplemented : List String :=
+  ["--mode", "--max-rounds", "--timings", "--extractor", "--extractor-arg",
+   "--deps-docs-url", "--deps-docs-index", "--link-index"]
+
+partial def parseBuild : List String → BuildArgs → Except String BuildArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} wants a value"
+    if flag == "--root" then do
+      let (v, more) ← value; parseBuild more { acc with root := some v }
+    else if flag == "--out" then do
+      let (v, more) ← value; parseBuild more { acc with out := some v }
+    else if flag == "--lib" then do
+      let (v, more) ← value; parseBuild more { acc with libs := acc.libs.push v }
+    else if flag == "--source-url" then do
+      let (v, more) ← value; parseBuild more { acc with sourceUrl := some v }
+    else if flag == "--extractor-bin" then do
+      let (v, more) ← value; parseBuild more { acc with extractorBin := some v }
+    else if flag == "--lake" then do
+      let (v, more) ← value; parseBuild more { acc with lake := some v }
+    else if flag == "--jobs" then do
+      let (v, more) ← value
+      match v.toNat? with
+      | some n => if n == 0 then .error "--jobs must be at least 1"
+                  else parseBuild more { acc with jobs := n }
+      | none => .error s!"--jobs takes a number, not `{v}`"
+    else if flag == "--full" then
+      parseBuild rest { acc with full := true }
+    else if flag == "--help" || flag == "-h" then
+      parseBuild rest { acc with help := true }
+    else if buildUnimplemented.contains flag then
+      .error s!"{flag} is a `build` flag this build does not implement"
+    else
+      .error s!"unknown argument `{flag}`"
+
+def buildRun (a : BuildArgs) (root out : String) : IO UInt32 := do
+  -- Canonicalised **before** anything is compared against it: `--out` under a
+  -- symlinked `--root` is still under `--root`.
+  let rootPath ← match ← (IO.FS.realPath ⟨root⟩).toBaseIO with
+    | .error e => return ← refusedWith 3 s!"--root {root}: {e}"
+    | .ok path => pure path
+  let outPath ← absolutePath ⟨out⟩
+  let resolved ← resolvePath outPath
+  if isInside rootPath resolved then
+    return ← refusedWith 3 s!"--out {resolved} is inside --root {rootPath}: the package being \
+      documented is opened read-only and nothing is ever written into it — `litedoc4 extract` \
+      refuses an --ir-dir there for the same reason. Copy <out>/site into the repository \
+      afterwards if that is where the pages belong"
+  -- Before anything is written, and once: `lake env lean --githash` starts a
+  -- process inside the target, and the digest it feeds has to be the same one on
+  -- both sides of this run.
+  let external ← resolveExternal (some rootPath.toString) a.lake
+  let request : BuildRequest :=
+    { root := rootPath, layout := layoutOf outPath, libs := a.libs, external
+      sourceUrl := a.sourceUrl, extractorBin := a.extractorBin.map (⟨·⟩)
+      lake := a.lake.map (⟨·⟩), jobs := a.jobs, full := a.full }
+  match ← (runBuild request).run with
+  | .ok () => return 0
+  | .error (code, message) =>
+    if code == 2 then refuse message
+    else refusedWith code message
+
+def build (args : List String) : IO UInt32 := do
+  match parseBuild args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    let some root := a.root | refuse "--root <repo> is required: the Lean package to document"
+    let some out := a.out
+      | refuse "--out <dir> is required and has no default: it is where the site, the IR, the \
+          cache and the ledger go. The obvious default would be <root>/.lake/build/doc, which is \
+          doc-gen4's own output tree — a default that overwrites another tool's output is a \
+          data-loss bug with a friendly face"
+    try
+      buildRun a root out
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      pure (1 : UInt32)
+
 /-- `check` and `touch` are refused by name rather than as a misspelling: they
 are the incremental half, and a caller needs to hear that this build stops at
 the ledger the first round writes. -/
@@ -370,6 +523,8 @@ def main (args : List String) : IO UInt32 := do
   | "--version" :: _ =>
     IO.println s!"litedoc4 {Litedoc4.version}"
     return 0
+  | "build" :: rest => Litedoc4.build rest
+  | "modules" :: rest => Litedoc4.modules rest
   | "render" :: rest => Litedoc4.render rest
   | "ledger" :: rest => Litedoc4.ledger rest
   | "site" :: rest => Litedoc4.site rest

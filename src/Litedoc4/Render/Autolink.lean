@@ -54,33 +54,10 @@ def buildIndex (deps : Array (Array (String × String))) (mods : Array Module)
 
 /-! ## Lean name syntax
 
-`Lean.isLetterLike` and `Lean.isSubScriptAlnum`, which is what lets `α`, `ℕ` and
-`𝒜` start an identifier. The last range is above the BMP; a port that drops it
-still resolves every ASCII name, which is nearly all of them. -/
-
-def isLetterLike (c : Char) : Bool :=
-  let v := c.val.toNat
-  ((0x3b1 ≤ v && v ≤ 0x3c9) && v != 0x3bb)
-    || ((0x391 ≤ v && v ≤ 0x3a9) && v != 0x3a0 && v != 0x3a3)
-    || (0x3ca ≤ v && v ≤ 0x3fb)
-    || (0x1f00 ≤ v && v ≤ 0x1ffe)
-    || (0x2100 ≤ v && v ≤ 0x214f)
-    || (0x1d49c ≤ v && v ≤ 0x1d59f)
-    || ((0xc0 ≤ v && v ≤ 0xff) && v != 0xd7 && v != 0xf7)
-    || (0x100 ≤ v && v ≤ 0x17f)
-
-def isSubScriptAlnum (c : Char) : Bool :=
-  let v := c.val.toNat
-  (0x2080 ≤ v && v ≤ 0x2089) || (0x2090 ≤ v && v ≤ 0x209c)
-    || (0x1d62 ≤ v && v ≤ 0x1d6a) || v == 0x2c7c
-
-def isIdFirst (c : Char) : Bool :=
-  ('a' ≤ c && c ≤ 'z') || ('A' ≤ c && c ≤ 'Z') || c == '_' || isLetterLike c
-
-def isIdRest (c : Char) : Bool :=
-  ('a' ≤ c && c ≤ 'z') || ('A' ≤ c && c ≤ 'Z') || ('0' ≤ c && c ≤ '9')
-    || c == '_' || c == '\'' || c == '!' || c == '?'
-    || isLetterLike c || isSubScriptAlnum c
+`isIdFirst` / `isIdRest` and the two ranges under them are `Litedoc4.Ir.Name`'s:
+the same tables decide whether a component of a module *name* needs escaping and
+whether a character can start an identifier the autolinker will resolve, and two
+copies of them are two answers to one question. -/
 
 /-- `Lean.Syntax.decodeNameLit ("`" ++ s)`. The empty string is **not** a name
 literal: the autolink splitter hands `""` over routinely, and a resolver that

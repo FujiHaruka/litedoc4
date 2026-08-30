@@ -11,8 +11,10 @@ extraction this stage exists to skip.
 written after the render.** A ledger written first would claim modules are up to
 date whose IR a failed run never produced. -/
 import Litedoc4.External
+import Litedoc4.Fs
 import Litedoc4.Json
 import Litedoc4.JsonWrite
+import Litedoc4.Metrics
 import Litedoc4.Sha256
 
 namespace Litedoc4
@@ -118,6 +120,7 @@ def extractKey (target : String) (ir : Option System.FilePath) :
   key := key.push ("manifestSha256", sha256Text (← IO.FS.readFile (root / "lake-manifest.json")))
   key := key.push ("extractor", extractorId)
   if let some ir := ir then
+    recordIrRead .index
     let text ← IO.FS.readFile (ir / "index.json")
     let n := text.utf8ByteSize
     let (j, _) := JScan.pVal text n (JScan.skipWs text n 0)
@@ -146,11 +149,6 @@ def linkIndexDigest : Option System.FilePath → IO (Option String)
   | none => return none
   | some path => do
     if ← path.pathExists then return some (← sha256File path) else return none
-
-def isRegularFile (p : System.FilePath) : BaseIO Bool := do
-  match ← p.metadata.toBaseIO with
-  | .ok m => return m.type == .file
-  | .error _ => return false
 
 /-- The olean files a module actually has, in `oleanSuffixes` order. A suffix
 that is absent is not an error: this build simply does not use Lean's module

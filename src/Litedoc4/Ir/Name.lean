@@ -58,4 +58,57 @@ def moduleComponents (s : String) : Array String := Id.run do
   out := out.push (unescapeComponent (byteSub s a n))
   return out
 
+/-- `Lean.isLetterLike` — `Init/Meta/Defs.lean:101-112`. Written out rather than
+reached for in a Unicode table: `Char.isAlpha` is ASCII in Lean, so every
+non-ASCII identifier character comes from these ranges, and a different UCD
+would spell a different module name than the extractor's. -/
+def isLetterLike (c : Char) : Bool :=
+  let v := c.val
+  (0x3b1 ≤ v && v ≤ 0x3c9 && v != 0x3bb)
+    || (0x391 ≤ v && v ≤ 0x3a9 && v != 0x3a0 && v != 0x3a3)
+    || (0x3ca ≤ v && v ≤ 0x3fb)
+    || (0x1f00 ≤ v && v ≤ 0x1ffe)
+    || (0x2100 ≤ v && v ≤ 0x214f)
+    || (0x1d49c ≤ v && v ≤ 0x1d59f)
+    || (0xc0 ≤ v && v ≤ 0xff && v != 0xd7 && v != 0xf7)
+    || (0x100 ≤ v && v ≤ 0x17f)
+
+/-- `Lean.isSubScriptAlnum` — `Init/Meta/Defs.lean:114-118`. -/
+def isSubScriptAlnum (c : Char) : Bool :=
+  let v := c.val
+  (0x2080 ≤ v && v ≤ 0x2089) || (0x2090 ≤ v && v ≤ 0x209c)
+    || (0x1d62 ≤ v && v ≤ 0x1d6a) || v == 0x2c7c
+
+/-- `Lean.isIdFirst`. `Char.isAlpha` is ASCII in Lean, which is the whole reason
+`isLetterLike` is here beside it. -/
+def isIdFirst (c : Char) : Bool := c.isAlpha || c == '_' || isLetterLike c
+
+/-- `Lean.isIdRest`. `Char.isAlphanum` is ASCII in Lean. -/
+def isIdRest (c : Char) : Bool :=
+  c.isAlphanum || c == '_' || c == '\'' || c == '!' || c == '?'
+    || isLetterLike c || isSubScriptAlnum c
+
+/-- Whether a component is spelled as itself by `Name.toString`. -/
+def needsNoEscape (component : String) : Bool :=
+  match component.toList with
+  | [] => false
+  | first :: rest => isIdFirst first && rest.all isIdRest
+
+/-- `Name.escapePart` with `force := false` (`Init/Meta/Defs.lean:198-207`).
+
+A component containing `»` is **not** escaped, because wrapping it would produce
+something that does not parse back. Transcribed, not improved — the spelling
+this has to agree with is the extractor's. -/
+def escapeComponent (component : String) : String :=
+  if needsNoEscape component || component.contains '»' then component
+  else "«" ++ component ++ "»"
+
+/-- A module name built from path components, as `Name.toString` spells it.
+The inverse direction of `moduleComponents`, and the reason a module list is not
+just the paths with `/` replaced: `Alpha/Odd-Name.lean` is the module Lean spells
+`Alpha.«Odd-Name»`, and the extractor's `String.toName` yields
+`Name.anonymous` for anything else. -/
+def escapeModule (components : Array String) : String :=
+  ".".intercalate (components.map escapeComponent).toList
+
 end Litedoc4
