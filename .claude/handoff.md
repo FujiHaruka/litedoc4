@@ -2,56 +2,81 @@
 
 ## State
 
-- Branch: main
-- Uncommitted: clean
-- Active phase / 作業中の文脈: **pure Lean 置き換えの調査は完了** (`4903423`)。
-  次は「移行するかの判断を詰める」段。実装は捨てプロトタイプで、製品コードは無傷
-- 計測環境: 作業領域 `/private/tmp/lean-doc-relay/purelean/` (399 MB) に IR 422 モジュール /
-  link-index / Rust の出力 `pages/` / Lean の出力 `lmd/` / 増分 fixtures が残っている。
-  消してよい。再生成は `extractor/build.sh` → `litedoc4 modules` → `litedoc4 extract --link-index`
+- **作業対象は別リポジトリ `../MathML4Lean`**。このリポジトリ (lean-doc/litedoc4) は
+  **消費者であり、今回は基本的に触らない**。`git status` が clean なのは正常
+- lean-doc: branch main, clean, `e251365` まで push 済み、CI 緑
+- MathML4Lean: branch main, clean, `133f24a` まで push 済み
+  (https://github.com/FujiHaruka/MathML4Lean, public)
+- **Claude セッションは常に `/Users/haruka/dev/lean-doc` で作る**(ユーザー指示)。
+  handoff / relay / carryon スキルがここにしか無いため。作業先へは `../MathML4Lean` で届く
 
 ## Where we are
 
-調査は完遂した。速度 **2.74x（逐次）/ 1.33x（4 スレッド）**、出力は **420/422 ページが
-Rust とバイト一致**、CI は **±4%**、増分コアは 4 スレッドで Rust の逐次より速い。
-結論と判断材料は `benchmarks/purelean-report.md`、実測 8 本は `benchmarks/results/purelean-*.txt`。
-推奨は「**今は移行しない。ただし Rust を維持する積極的な理由も、もう無い**」。
-**判断を左右するのに未検証のものが 2 つ残っている** — Windows の release アセットが作れるか、
-並列化した Rust が何秒か。
+litedoc4 の pure-Lean 化調査で**唯一「Lean にライブラリが存在しない」と判明したのが
+LaTeX→MathML** (他は MD4Lean / UnicodeBasic / 素の Lean で埋まっている)。
+そこをスクラッチで書く新規ライブラリ `MathML4Lean` を起こしたところ。
+
+**計画は `../MathML4Lean/docs/plan.md` が SoT。** スコープ・テスト方法・M0〜M6・
+完遂基準・反証条件が全部そこにある。**まずこれを読む。**
+
+決まっていること (要点だけ。詳細は plan.md):
+- **コーパスがスコープ定義でありオラクル** — Mathlib 8,169 ファイル → docstring 91,815 →
+  数式を含む 651 → **span 2,123** (inline 1,946 / block 177、LaTeX 39,970 B)。
+  math-core 0.7.0 は 2,113 を変換し 10 を落とす (measured 2026-08-22 →
+  lean-doc `benchmarks/results/mathml-2026-08-22.txt`)
+- **math-core はブラックボックスのオラクル。ソースを読まない**。表は W3C MathML Core
+  operator dictionary と unicode-math から起こす (スクラッチ実装であること + provenance)
+- 判定は **math-core が成功する 2,113 件でバイト一致**。落ちる 10 件は報告するだけ。
+  **例外リストは作らない**。比較した行数と file の行数を突き合わせて 0 件緑を防ぐ
 
 ## Next step
 
-**Windows の release アセットが作れるかを確かめる。** これが移行の動機の大半を消すか残すかを決める。
+**M0: コーパスとオラクルを凍結する。**
 
-- `.github/workflows/release.yml` の matrix に `x86_64-pc-windows-msvc` / `windows-latest` を
-  足したブランチを切り、**`push:` トリガーでそのブランチを名指しして**走らせる
-  （`workflow_dispatch` は default branch に無いワークフローには効かない → CLAUDE.md）
-- 確かめるのは 2 つだけ: `cargo build --release` が MSVC で通るか、
-  `crates/litedoc4-md/vendor/md4c` の C が MSVC で通るか
-- 通るなら `lakefile.lean` の `releaseTargets`、`action.yml` の `RUNNER_OS-$(uname -m)` case、
-  `tools/lake-download-gate.sh` も**同時に**足す（4 箇所そろえる、CLAUDE.md に明記）
-- 次に安いのは **Rust の `render_site` を std::thread で分割して測る**こと。
-  製品コードを触る実験なので commit しない（scratch copy か stash で）
+1. `../MathML4Lean/tools/` に span 抽出器を書く — Mathlib のソースは
+   `/Users/haruka/dev/lean-projects/.lake/packages/mathlib/Mathlib` (8,169 ファイル、
+   母数一致を確認済み)。docstring から `$…$` / `$$…$$` を取る。
+   **2,123 という数を再現できるかが最初のチェック** — 合わなければ抽出条件が違う
+2. math-core オラクルを作る — 小さな Rust バイナリ (`math-core = "0.7.0"`,
+   `default-features = false`)。litedoc4 の `crates/litedoc4-md/src/math.rs` が
+   **呼び方の参考**になる (`LatexToMathML::new` + `convert_with_local_state`、
+   `ignore_unknown_commands: false`)。**中身の実装は読まない**
+3. `corpus/mathlib-spans.jsonl` を生成してコミット。header に Mathlib の rev /
+   math-core のバージョン / 日付を書く。`NOTICE` は既に両方の義務を書いてある
+4. `tools/build-corpus.sh` として再生成手順を残す (これは gate であって test ではない)
+
+その次は M1 (CI 4 toolchain + **わざと赤いゲート**)。
 
 ## Files to read first
 
-- `benchmarks/purelean-report.md` — 調査の結論と判断材料。まずこれ
-- `.github/workflows/release.yml` L49-70 — matrix と、Intel Mac を外した理由。
-  **Windows を外した理由はどこにも書かれていない**
-- `CLAUDE.md` の「Releases carry three triples」— 4 箇所そろえる根拠
-- `benchmarks/results/purelean-incremental-2026-08-30.txt` — 増分が Lean に有利な理由と、
-  §5.6 の 4.00 vs 3.00 の分解
+- `../MathML4Lean/docs/plan.md` — **最初にこれ**。スコープ / テスト方法 / M0-M6 / 反証条件
+- `../MathML4Lean/CLAUDE.md` — この新リポジトリの規律 (コーパスがスコープ、
+  math-core を読まない、test と gate の境界、セッションは lean-doc で作る)
+- `benchmarks/results/mathml-2026-08-22.txt` — 2,123 の内訳、math-core が落とす 10 件の
+  正体、出力 MathML の要素構成 (munder 175 / mover 44 / accent 42 / mtext 16 / mtable 4)
+- `crates/litedoc4-md/src/math.rs` — 消費者側の API 形状と、期待される出力の実例
 
 ## Load-bearing context
 
-- **Windows が release に無い理由は無言**。Intel macOS には `decided 2026-08-29, user's call`
-  があるが Windows には無い。単に追加されていないだけの可能性が高い。
-  `windows-latest` は `ci-browser-windows.yml` で既に動いている（ランナーは使える）
-- **並列化した Rust は未測定**。`render_site` は素の `for` で workspace に rayon なし。
-  今の 1.33x / 0.65x は「4 スレッドの Lean 対 1 スレッドの Rust」で公平ではない
-- 測定ブランチ 2 本を意図的に残してある。**main にマージしない**:
-  litedoc4 `purelean-ci-probe`、information-theory `purelean-ci-bench`
-- 今回踏んだ罠 4 つは results に記録済み。特に効くのは
-  **`lake build` は `defaultTargets` しか作らない**（Render.lean を一度もコンパイルせずに
-  「レンダラのビルド時間」を報告した）と、**ローカル `uses: ./action` は cache も release も
-  効かない**（どちらも exit code 0）
+- **完遂基準は M5** — litedoc4 の `benchmarks/lean-prototype` がこのライブラリを
+  `require` して、対象の 3 span を Rust 側とバイト一致で変換できること。
+  **製品の extractor に配線するのは明示的にスコープ外** (IR schema を変える別判断)
+- **反証条件を持っている**: math-core の恣意的な内部選択 (属性順 / 仕様に無い spacing /
+  クラス名) を写さないと閉じない乖離が **3 クラス出たら**、バイト一致は間違ったゲート。
+  構造的同値に差し替える — **それはユーザーに戻す判断**
+- toolchain は v4.31.0〜v4.33.1 の 4 本 (`lean-toolchains.txt`)。**lean-toolchain は
+  最低版に固定** — 依存側が上だと `lake update` が消費者の lean-toolchain を書き換え、
+  下なら黙って無視される (measured)。新しい版にしか無い API は使えない
+- ローカルに入っている toolchain は v4.31.0 / v4.32.2 / v4.33.0 の 3 本。**v4.33.1 は未導入**
+- push は HTTPS + gh (ssh は通らない)。MathML4Lean の remote は HTTPS に直してある
+- `lake new` が作った `.github/workflows/lean_action_ci.yml` が残っている。M1 で
+  `lean-toolchains.txt` を読む matrix に置き換える
+
+## Relay control
+- Mode: ON
+- Goal: MathML4Lean を書き上げ、litedoc4 から依存ライブラリとして使えるようにする (plan.md の M5)
+- Leg: 1 / cap 12
+- Predecessor: none
+- Stop-on: completion | user-decision | no-progress×2 | leg-cap
+- Progress ledger:
+  - r1: (in progress) 計画・リポジトリ・NOTICE 作成 → MathML4Lean 133f24a
