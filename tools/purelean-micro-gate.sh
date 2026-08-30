@@ -55,8 +55,10 @@
 #               `build` has written them.
 #  12 CONFIG    `config-gate.sh` fails on it. `litedoc4.toml`'s title and index
 #               prose have to reach the pages the same way from every command
-#               that writes HTML. The oracle here is still the Rust binary:
-#               the gate runs `global`, which the Lean CLI does not have yet.
+#               that writes HTML. Asked twice over the same built site — once
+#               with the Rust half re-deriving the three trees and once with the
+#               Lean half, which can since it grew a `global`. Two spellings of
+#               one claim, so a failure names which half was deriving.
 #  14 BUILD OUT  the two `build` runs print different transcripts. Item 10
 #               compares files; nothing compared what the command *said*, and
 #               that is where `global … state 0 B` sat for a while against
@@ -470,16 +472,34 @@ else
   fail 11 "the Lean build wrote no site — item 10 says why"
 fi
 
-say "12/15 the Lean-built site passes config-gate"
+say "12/15 the Lean-built site passes config-gate, with either half deriving"
+# Run twice over the same Lean-built site. `config-gate.sh` re-derives the three
+# trees that write HTML and asks whether the configured title reaches all of
+# them, so which binary derives them is a second question the same claim can be
+# asked of: once against the Rust half (the cross-implementation oracle) and once
+# against the Lean one (which now has `global`, so it can). Not two items — the
+# same claim over an input the first spelling cannot reach.
+#
+# `LITEDOC4` is passed rather than left to the gate's own default, which is
+# `target/debug/litedoc4` alone: this gate resolves release-then-debug, and the
+# item would otherwise depend on which of the two happens to be on the machine.
 if [ -n "$lean_built_site" ]; then
   cg_rc=0
-  "$HERE/config-gate.sh" --root "$MICRO" --ir "$OUT/b-lean/ir" \
+  LITEDOC4="$LITEDOC4" "$HERE/config-gate.sh" --root "$MICRO" --ir "$OUT/b-lean/ir" \
     --built "$lean_built_site" --link-index "$OUT/b-lean/link-index.lidx" \
     --out "$OUT/config" >"$OUT/config-gate.txt" 2>&1 || cg_rc=$?
+  cg_lean_rc=0
+  LITEDOC4="$LEAN_EXE" "$HERE/config-gate.sh" --root "$MICRO" --ir "$OUT/b-lean/ir" \
+    --built "$lean_built_site" --link-index "$OUT/b-lean/link-index.lidx" \
+    --out "$OUT/config-lean" >"$OUT/config-gate-lean.txt" 2>&1 || cg_lean_rc=$?
+  # Truncated: `config-gate.sh`'s own last line carries the whole differing
+  # mapping, which is the right thing in its file and not a line here.
   if [ "$cg_rc" -ne 0 ]; then
-    fail 12 "$(tail -1 "$OUT/config-gate.txt") — see $OUT/config-gate.txt"
+    fail 12 "with the Rust half deriving: $(tail -1 "$OUT/config-gate.txt" | cut -c1-120) — see $OUT/config-gate.txt"
+  elif [ "$cg_lean_rc" -ne 0 ]; then
+    fail 12 "with the Lean half deriving: $(tail -1 "$OUT/config-gate-lean.txt" | cut -c1-120) — see $OUT/config-gate-lean.txt"
   else
-    pass 12 "$(tail -1 "$OUT/config-gate.txt" | sed 's/^config *//')"
+    pass 12 "$(tail -1 "$OUT/config-gate.txt" | sed 's/^config *//'); the same with the Lean half deriving"
   fi
 else
   fail 12 "the Lean build wrote no site — item 10 says why"

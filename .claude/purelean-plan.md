@@ -437,7 +437,7 @@ Lean 側が同じバイトを出すには**同じ `--pages` が要る**。今は
 | U10 | `Resident`: **遅延起動** / リクエスト数 / 冪等な stop / `foldTimings` | `resident.rs`, `extract.rs` | 今は単発 |
 | U11 | `incremental` パイプライン本体 | `pipeline.rs` (1,534) | **ゼロから**。`tests/incremental.rs` の 61 分岐が点検表 |
 | U12 | `planOf` の検査 4〜9 + `incrementalGeneration` | `build.rs` | U11 の後なら小 |
-| U13 | ゲート配線（4 本に `LITEDOC4`、micro ゲートを 14 → 16） | — | **4 本は済み**（`62bab9b`）。**項目 15（`--only-from`）も済み 2026-08-31**。残りは項目 12 のオラクルを Lean に倒すこと |
+| U13 | ゲート配線（4 本に `LITEDOC4`、micro ゲートを 14 → 16） | — | **4 本は済み**（`62bab9b`）。**項目 15（`--only-from`）と項目 12 の 2 つ目の綴りも済み 2026-08-31** |
 
 **`ownership` の bimodality の正体**（実測）: `lostOwners` も `gainedOwners` も空なら
 **base の IR を 1 つも読まない**。空でなければ **exclude を除く全 base モジュールを読む**。
@@ -575,8 +575,13 @@ delta は `--before` を 4 通り作って `--print-set` / `--delta-json` /
   残りは両側で不在になって「自分と一致する」半分ができる）ので、
   **表を無くして両木の和集合を比べる形にした**。4 方向（1 バイト差 / 候補だけにある /
   参照だけにある / 両方空）で落としてから通した
-- **micro ゲート項目 12 の但し書きは嘘になった** — Lean に `global` ができたので
-  `config-gate.sh` のオラクルは Lean にできる
+- **micro ゲート項目 12 は同じ主張を両半分に訊くようにした**（2026-08-31）。
+  Lean に `global` ができたので `config-gate.sh` は Lean 側でも 3 つの木を導出できる。
+  **オラクルを倒すのではなく綴りを 2 つにした** — Rust 側での導出は実装間の照合で、
+  Lean 側での導出は Lean の 3 コマンドが互いに一致するかで、**別の問い**。
+  どちらの半分で落ちたかを名指す。`--blind global` で両方落として確認した。
+  ついでに `LITEDOC4` を明示で渡すようにした — `config-gate.sh` の既定は
+  `target/debug/litedoc4` **だけ**で、release しか無い機械では項目が環境に依存していた
 
 #### M5 に入る前に塞ぐもの: `Json.lean` は整数しか読まない → **2026-08-31 に塞いだ**
 
