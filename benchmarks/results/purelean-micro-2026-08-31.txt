@@ -143,3 +143,18 @@ TWO THINGS A LATER GATE MUST NOT ASSUME
 HOW TO REPRODUCE
   tools/purelean-micro-gate.sh          # elan, e2e/micro, e2e/consumer, a Rust litedoc4
   tools/purelean-render-gate.sh         # and the target's IR under PURELEAN_WORK
+
+THE SAME IDENTITY ON A SECOND PLATFORM (measured)
+  `ci-lake.yml`'s `purelean-micro` job, run 33322823257 at `91f0c11`,
+  ubuntu-latest / x86_64, Lean v4.31.0, the Rust half `cargo build --bin
+  litedoc4` (debug, not the release binary the numbers above used):
+
+    ITEM 1 ok    .lake/build/bin/litedoc4 (5,826,232 bytes)
+    ITEM 2 ok    11 module(s) and 1175494 bytes of link index
+    ITEM 3 ok    11 pages identical, 129450 bytes
+    ITEM 4 ok    both exited 1 after 7 page(s), same message
+    ITEM 5 ok    3 identical line(s)
+
+  Same bytes as arm64 macOS, from a different Lean binary (5.83 MB against
+  3.66 MB) and a different Rust profile. The page bytes are not a property of
+  this machine.
