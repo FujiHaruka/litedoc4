@@ -1,0 +1,127 @@
+pure-Lean replacement study — dropping MD4Lean, and the last two pages
+======================================================================
+2026-08-30. The sixth measurement. It answers the one row the study left as a
+cost rather than a number — "LaTeX -> MathML has no Lean equivalent"
+(purelean-report.md) — and, on the way, replaces the Markdown dependency.
+
+Two changes, measured separately so that neither hides the other.
+
+WHAT WAS BUILT
+  1. `benchmarks/lean-prototype/vendor/md4c/` + `csrc/md_events.c` + `Md.lean`
+     replace the `MD4Lean` git dependency. The C is `md4c.c` / `md4c.h` copied
+     from `crates/litedoc4-md/vendor/md4c/` and **byte-identical to it**
+     (`/usr/bin/diff -q`, all three files including LICENSE.md), which is in
+     turn the copy MD4Lean itself compiles, so all three sides run the same
+     parser by construction rather than by version number.
+     `md_events.c` (273 lines) flattens md4c's callbacks into one byte buffer;
+     `Md.lean` (469 lines) rebuilds the tree from it. The tree shape is not a
+     free choice — `crates/litedoc4-md/src/parse.rs` is transcribed, because its
+     output is the reference these pages have to reproduce.
+  2. `mdMath` in `Render.lean` calls `MathML4Lean.toMathML` (v0.1.0) instead of
+     emitting the dollars and the escaped source. It mirrors `math_into` in
+     `crates/litedoc4-md/src/html.rs`: the MathML goes in as markup, and a span
+     the converter refuses falls back to the dollars.
+
+CONDITIONS
+  Apple M1, 8 cores (4P+4E), 16 GiB, macOS 26.6.1, arm64, Lean v4.31.0
+  `lake build`, warm page cache. Same work directory, same IR and same link
+  index as the five earlier files: 422 modules / 15,233,730 B IR / 4,584
+  declarations / 10,448,225 B link index.
+  Rust reference: `pages/` as the earlier files left it — `target/release/litedoc4`
+  built 2026-08-29 13:02, rustc 1.97.1 --release.
+  Everything below is an identity, not a duration, so it is deterministic and
+  one run settles it. No timing was re-measured; the speed rows in
+  purelean-report.md are untouched by this file.
+
+THE RESULT (measured)
+
+  comparison                                        differing files
+  Lean(--md, vendored md4c) vs Lean(--md, MD4Lean)  0 of 422
+  Lean(--md, vendored md4c, + MathML4Lean) vs Rust  0 of 422
+
+  bytes                                     value
+  Lean --md, no math (as the study left it) 24,544,693
+  Lean --md, with MathML4Lean               24,546,157
+  Rust                                      24,546,157
+
+  The first row is the faithfulness proof for the parser swap: whatever tree
+  MD4Lean built, this one builds too, over all 422 pages and every construction
+  the target's 5,146 docstrings contain. The second closes the study's last
+  gap — the pure-Lean renderer is now **byte-identical to the Rust renderer on
+  every page**, where the best it had reached was 420 of 422.
+
+  The two pages that used to differ were `Shannon/BrascampLieb.html` and
+  `Shannon/LoomisWhitney.html`, which hold the target's only three LaTeX spans.
+  They differ no longer.
+
+  Confirmation that the parser is the path being exercised, and not a fallback
+  that happens to agree: the same binary without `--md` writes 24,191,054 B,
+  the backtick-scan number from purelean-renderer-2026-08-30.txt.
+
+WHAT THIS DOES NOT PROVE
+  Three spans of LaTeX, on one target. MathML4Lean's own corpus gate is the
+  wide evidence — 2,000 of Mathlib's 2,113 spans byte-identical to math-core,
+  107 differing only where a named rule says so, 6 refused — and this file adds
+  a consumer, not a corpus. A target whose docstrings reach the 107 will not
+  produce a page-for-page match with the Rust half, **by design**: MathML4Lean
+  follows the specification where math-core departs from it, which is a
+  decision (2026-08-30, user's call), not a defect to be fixed back.
+
+A CLAIM THAT WAS MADE AND IS FALSE — the C compiler does not go away
+  Vendoring md4c was expected to leave a consumer needing nothing but elan.
+  It does not. `compileO`'s default compiler is bare `cc`, the machine's own,
+  and passing Lean's instead does not build:
+
+    $ leanc -c -o /tmp/md4c-probe.o vendor/md4c/md4c.c -I vendor/md4c -fPIC
+    vendor/md4c/md4c.c:30:10: fatal error: 'stdio.h' file not found
+
+  Lean's bundled clang ships no libc headers, and `getLeanCc`'s clang fails the
+  same way. MD4Lean is in the same position and does the same thing: its
+  `adhoc_include/` — hand-written `stdio.h` / `stdlib.h` / `string.h` declaring
+  the dozen functions md4c calls — is reached **only on Windows**.
+
+  So the study's motive loses two of its three items, not three:
+
+    a consumer on a platform with no release asset needs
+      today          Rust toolchain + C compiler + node
+      pure Lean      C compiler
+
+  The way to remove the last one is known and is MD4Lean's: shims on every
+  platform, not just Windows. Not attempted here, so **not claimed** — and note
+  that it was `-v` on the build, not the build's success, that showed which
+  compiler ran. The build was green either way.
+
+WHAT REPLACING MD4LEAN BUYS
+  Not speed and not correctness — it works, and the first row above is this
+  file proving it works. Four things go, and one thing arrives:
+
+    - a git dependency with **no releases**: the only tag MD4Lean carries is
+      `v4.19.0-rc1`, naming a Lean twelve releases old, so a pin is a commit on
+      `main`;
+    - a dependency carrying `lean-toolchain: leanprover/lean4:v4.29.0-rc1`.
+      Lake ignores that silently from below — which is the case today, the root
+      being v4.31.0 — and **rewrites the consumer's from above**. litedoc4
+      declines to ship a `lean-toolchain` for exactly this reason
+      (`benchmarks/results/lake-package-probe-2026-08-18.txt` §1), and would
+      have been handing its users a dependency that does not;
+    - `leanOptions := #[⟨`experimental.module, true⟩]`;
+    - `precompileModules := true`, and the native shared library it builds.
+
+    + 810 lines to maintain (`Md.lean` 469, `md_events.c` 273, `lakefile.lean`
+      68), against MD4Lean's 581 C + 345 Lean. The vendored md4c itself is
+      6,896 lines that are not ours and are not edited.
+
+  After this, the pure-Lean renderer's only external git dependency is
+  MathML4Lean — pure Lean, no C, no dependencies of its own, pinned to the
+  lowest toolchain it supports.
+
+HOW TO REPRODUCE
+  cd benchmarks/lean-prototype && lake build render
+  ./.lake/build/bin/render <work> <out> --md
+  /usr/bin/diff -rq <work>/pages <out>
+
+  `<work>` is a directory holding `ir/` and `link-index.json` as
+  `litedoc4 extract` leaves them. The one this file used was
+  /private/tmp/lean-doc-relay/purelean, which the earlier five files left
+  behind; its `pages/` is the Rust reference and its `pages-md/` is the
+  MD4Lean-built Lean output the first comparison uses.

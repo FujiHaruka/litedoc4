@@ -25,7 +25,8 @@ Modes:
 -/
 import Std.Data.HashMap
 import Std.Data.HashSet
-import MD4Lean
+import Md
+import MathML4Lean
 
 open System
 
@@ -988,14 +989,15 @@ def docstringScan (out : String) (c : PageCtx) (text : String) : String := Id.ru
 /-! ## Markdown
 
 `crates/litedoc4-md/src/html.rs`, transcribed — which is itself
-`DocGen4/Output/DocString.lean`, transcribed. The parser is **MD4Lean**, the same
-md4c the Rust side vendors, so what differs between the two sides is the language
-the renderer is written in and nothing about the dialect.
+`DocGen4/Output/DocString.lean`, transcribed. The parser is `Md`, which runs
+`vendor/md4c/md4c.c` — byte for byte the file the Rust side vendors — so what
+differs between the two sides is the language the renderer is written in and
+nothing about the dialect.
 
 Left out: **math**. `latexMath` falls back to the dollars and the escaped source,
 which is what doc-gen4 emits when its own LaTeX parser refuses a span. -/
 
-open MD4Lean in
+open Md in
 def docstringFlags : UInt32 :=
   MD_DIALECT_GITHUB ||| MD_FLAG_LATEXMATHSPANS ||| MD_FLAG_NOHTML
 
@@ -1043,14 +1045,14 @@ def isPZC (c : Char) : Bool := Id.run do
 
 /-- `attrTextToString`: a link destination, title or info string flattened.
 Entities stay as written. -/
-def attrToString (a : Array MD4Lean.AttrText) : String :=
+def attrToString (a : Array Md.AttrText) : String :=
   a.foldl (fun acc x => match x with
     | .normal s => acc ++ s
     | .entity s => acc ++ s
     | .nullchar => acc ++ "�") ""
 
 /-- `textToPlaintext`: an inline run with all formatting dropped. -/
-partial def textToPlain (out : String) (t : MD4Lean.Text) : String :=
+partial def textToPlain (out : String) (t : Md.Text) : String :=
   match t with
   | .normal s => out ++ s
   | .entity s => out ++ s
@@ -1071,7 +1073,7 @@ partial def textToPlain (out : String) (t : MD4Lean.Text) : String :=
 /-- `mdGetHeadingId`: the plain text with every run of `P | Z | C` replaced by
 one `-`, the empty pieces dropped first so there is no leading or trailing one.
 Cases are preserved. -/
-def headingId (texts : Array MD4Lean.Text) : String := Id.run do
+def headingId (texts : Array Md.Text) : String := Id.run do
   let plain := texts.foldl textToPlain ""
   let mut out := ""
   let mut piece := ""
@@ -1099,26 +1101,31 @@ def extendLink (c : PageCtx) (s : String) : String :=
   else if s.startsWith "#" || s.startsWith "http" then s
   else c.root ++ s
 
-/-- No MathML here: the dollars and the source, which is doc-gen4's own fallback.
-The target has 3 such spans on 2 of its 422 pages, so this is the whole of the
-difference math makes to the counts. -/
+/-- `math_into` in `crates/litedoc4-md/src/html.rs`. The MathML goes in as
+markup — escaping it would print it — and a span the converter refuses falls
+back to the dollars and the escaped source, which is what doc-gen4 emits for
+every span, so such a page is no worse than a doc-gen4 page. Refusal is a
+contract and not a rare branch: 6 of Mathlib's 2,113 spans take it. -/
 def mdMath (out : String) (latex : String) (display : Bool) : String :=
-  let d := if display then "$$" else "$"
-  escapeInto (out ++ d) latex ++ d
+  match MathML4Lean.toMathML latex (if display then .block else .inline) with
+  | some mathml => out ++ mathml
+  | none =>
+    let d := if display then "$$" else "$"
+    escapeInto (out ++ d) latex ++ d
 
 mutual
 
-partial def mdTexts (out : String) (c : PageCtx) (ts : Array MD4Lean.Text)
+partial def mdTexts (out : String) (c : PageCtx) (ts : Array Md.Text)
     (inLink : Bool) : String :=
   ts.foldl (fun acc t => mdText acc c t inLink) out
 
 partial def mdWrap (out : String) (c : PageCtx) (tag : String)
-    (ts : Array MD4Lean.Text) (inLink : Bool) : String :=
+    (ts : Array Md.Text) (inLink : Bool) : String :=
   mdTexts (out ++ "<" ++ tag ++ ">") c ts inLink ++ "</" ++ tag ++ ">"
 
 /-- `renderText`. `inLink` suppresses auto-linking inside an `<a>`, which is what
 stops the output from nesting anchors. -/
-partial def mdText (out : String) (c : PageCtx) (t : MD4Lean.Text)
+partial def mdText (out : String) (c : PageCtx) (t : Md.Text)
     (inLink : Bool) : String :=
   match t with
   | .normal s => escapeInto out s
@@ -1152,12 +1159,12 @@ partial def mdText (out : String) (c : PageCtx) (t : MD4Lean.Text)
     let acc := escapeInto (out ++ "<x-wikilink data-target=\"") (attrToString tgt) ++ "\">"
     mdTexts acc c ts inLink ++ "</x-wikilink>"
 
-partial def mdBlocks (out : String) (c : PageCtx) (bs : Array MD4Lean.Block)
+partial def mdBlocks (out : String) (c : PageCtx) (bs : Array Md.Block)
     (tight : Bool) : String :=
   bs.foldl (fun acc b => mdBlock acc c b tight) out
 
 /-- `renderLi`. -/
-partial def mdLi (out : String) (c : PageCtx) (li : MD4Lean.Li MD4Lean.Block)
+partial def mdLi (out : String) (c : PageCtx) (li : Md.Li Md.Block)
     (tight : Bool) : String :=
   let acc := out ++ "<li>"
   let acc := if li.isTask then
@@ -1168,7 +1175,7 @@ partial def mdLi (out : String) (c : PageCtx) (li : MD4Lean.Li MD4Lean.Block)
   mdBlocks acc c li.contents tight ++ "</li>"
 
 /-- `renderBlock`. `tight` reaches only `.p`. -/
-partial def mdBlock (out : String) (c : PageCtx) (b : MD4Lean.Block)
+partial def mdBlock (out : String) (c : PageCtx) (b : Md.Block)
     (tight : Bool) : String :=
   match b with
   | .p ts =>
@@ -1214,7 +1221,7 @@ end
 empty bibliography, and it is not cosmetic — it terminates whatever block the
 docstring ended in the middle of. -/
 def docstringMd (out : String) (c : PageCtx) (text : String) : String :=
-  match MD4Lean.parse (text ++ "\n\n") docstringFlags with
+  match Md.parse (text ++ "\n\n") docstringFlags with
   | some doc => mdBlocks out c doc.blocks false
   | none =>
     escapeInto (out ++ "<span style='color:red;'>Error: failed to parse markdown: </span>") text

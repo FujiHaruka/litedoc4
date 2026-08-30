@@ -5,9 +5,9 @@ numbers a decision would need, with the conditions they were taken under.
 
 Every number is labelled `(measured)` / `(extrapolated)` / `(assumed)` /
 `(theoretical)`. The raw logs are in `benchmarks/results/` — `purelean-*.txt`,
-plus `rust-render-threads-2026-08-30.txt` and `windows-probe-2026-08-30.txt`,
-which answered the two questions this study first had to leave open — and each
-claim below names the one it came from.
+plus `rust-render-threads-2026-08-30.txt`, `windows-probe-2026-08-30.txt` and
+`purelean-md4c-2026-08-30.txt`, which answered the three questions this study
+first had to leave open — and each claim below names the one it came from.
 
 ## The question
 
@@ -32,7 +32,7 @@ asset exists, that means Rust, a C compiler and node.
 | render 422 modules, 4 threads | **0.220 s** | **0.52 s** | 2.4x (extrapolated) |
 | CPU for the same work | 0.38 s / 0.42 s | 1.06 s / 1.30 s | 2.8x / 3.1x (measured) |
 | what four threads cost in CPU | **1.08x** | **3.3x** | (measured) |
-| output | — | **420 of 422 pages byte-identical** | (measured) |
+| output | — | **422 of 422 pages byte-identical** | (measured) |
 | CI, cache cold, release exists | 2.9 s | 9.25 s | +6.4 s (measured) |
 | CI, cache cold, no release asset | 23.6–27.6 s | 9.25 s | −14 to −18 s (measured) |
 | CI, cache warm | 0 s | 0 s | 0 |
@@ -53,9 +53,11 @@ and measured against `litedoc4 render` on the same IR — 422 modules, 15,233,73
 of IR, a 10,448,225 B link index, 24.5 MB of HTML out. Both were run interleaved
 in one session, n=7, run 1 discarded (measured).
 
-**It does the same work, and the check is the output.** 420 of 422 pages come
-out byte-identical to Rust's. The two that differ contain the target's only
-three LaTeX spans, 1,464 B, which is exactly the total byte gap. Every
+**It does the same work, and the check is the output.** All 422 pages come out
+byte-identical to Rust's — 420 of them as first measured, and the last two once
+the math was wired up (→ `results/purelean-md4c-2026-08-30.txt`); those two
+contain the target's only three LaTeX spans, 1,464 B, which was exactly the
+total byte gap. Every
 structural count matches exactly: 41,786 anchors, 388,868 code spans, 5,790
 paragraphs, 4,394 declaration anchors of 4,584 (the same 190 suppressed), the
 heading hover-links, the lists, the block quotes.
@@ -179,8 +181,14 @@ build time is an average of two modes.
   its 560 lines — exists to find a binary: `$LITEDOC4_BIN`, a version-pinned
   cache, a GitHub release with a checksum, `PATH`, then `cargo build`. All of it
   goes.
-- **Windows and Intel macOS stop being a fallback path.** Today they take the
-  `cargo build` branch and need a Rust toolchain, a C compiler and node.
+- **Windows and Intel macOS lose two of the three things the fallback needs.**
+  Today they take the `cargo build` branch and need a Rust toolchain, a C
+  compiler and node; pure Lean needs the C compiler still. md4c is C either
+  way, and **Lean's bundled clang cannot compile it** — it ships no libc
+  headers, so `leanc` stops at `'stdio.h' file not found` (measured
+  2026-08-30 → `results/purelean-md4c-2026-08-30.txt`). MD4Lean is in the same
+  position; the shims that would remove the requirement are in its tree and are
+  reached only on Windows.
 
   **This was the larger of the two motives, and it is now smaller than it was.**
   → `results/windows-probe-2026-08-30.txt`. A Windows binary was never
@@ -207,12 +215,21 @@ build time is an average of two modes.
 
 - **2.74x wall and 2.8x CPU sequentially** for the same output; 1.33x wall and
   3.4x CPU with four threads. On this target that is 0.68 s per full build.
-- **A second git dependency** (MD4Lean) and, for heading ids, a third
-  (`UnicodeBasic`, which doc-gen4 also requires). Neither is in the build
-  numbers above beyond MD4Lean's 4.4 s.
-- **LaTeX → MathML has no Lean equivalent.** `math-core` is 18 crates. On this
-  target it is 3 spans; on a Mathlib-shaped target 2,123 (measured 2026-08-22).
-  The options are a client-side renderer or writing one.
+- **One git dependency** (MathML4Lean), down from the two this study started
+  with. MD4Lean was dropped for md4c vendored directly, which is the same C the
+  Rust half already vendors, and the swap changes no byte on any of the 422
+  pages (measured → `results/purelean-md4c-2026-08-30.txt`). What it costs is
+  810 lines of glue to maintain; what it avoids is a dependency with no
+  releases, carrying `lean-toolchain: v4.29.0-rc1` — which Lake **rewrites the
+  consumer's from above** — plus `experimental.module` and `precompileModules`.
+- **LaTeX → MathML now has a Lean equivalent, and it is not math-core.**
+  MathML4Lean v0.1.0 converts 2,000 of Mathlib's 2,113 spans byte-identically
+  to `math-core`, differs on 107 only where a named rule says so, and refuses
+  6. On this target's 3 spans it agrees exactly. **A target that reaches the
+  107 will not match the Rust half page for page, by design**: the
+  specification decides where it speaks and the oracle only where it is silent
+  (decided 2026-08-30, user's call). Adopting it is a decision about output,
+  not a gap to be closed.
 - **`build.rs` currently bakes the site's JS into the binary.** Without it the
   built asset has to be committed, reversing the current "the artefact is not in
   the repository" rule.
@@ -224,7 +241,6 @@ build time is an average of two modes.
 
 ## Not measured
 
-- `math-core`'s replacement, at all;
 - the search index, `watch` and its HTTP server (Lean 4.31 has `Std.Async.TCP`,
   so it is writable — that is a capability check, not a measurement);
 - a real pure-Lean litedoc4 end to end on CI. The CI numbers above are measured
