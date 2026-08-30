@@ -253,11 +253,25 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 
 | | ライセンス | 規模 | 由来ファイル |
 |---|---|---|---|
-| `crates/litedoc4-md/vendor/md4c/` (md4c 0.5.2) | MIT © 2016-2024 Martin Mitáš | 6,489 行の C | **有り** — `LICENSE.md` + `PROVENANCE.md`。**唯一の前例** |
+| `crates/litedoc4-md/vendor/md4c/` (md4c 0.5.2) | MIT © 2016-2024 Martin Mitáš | 6,489 行の C | **有り** — `LICENSE.md` + `PROVENANCE.md` |
+| `vendor/md4c/` (md4c 0.5.2、上と byte 一致) | 同上 | 同上 | **有り** — `LICENSE.md` + `PROVENANCE.md` |
+| `benchmarks/lean-prototype/vendor/md4c/` (md4c 0.5.2、上と byte 一致) | 同上 | 同上 | **有り** — `LICENSE.md` + `PROVENANCE.md` |
 | `crates/litedoc4-md/src/parse.rs` (MD4Lean `wrapper/wrapper.c` の transliteration) | MD4Lean = MIT © Jz Pan | 743 行 | **無し** |
 | `crates/litedoc4-md/src/ffi.rs` (`md4c.h` の転写) | md4c = MIT | 342 行 | 無し (vendor の PROVENANCE が間接的に覆う) |
 | `crates/litedoc4-md/src/gc.rs` (UnicodeBasic の出力を列挙したデータ) | UnicodeBasic = Apache 2.0 | 1,691 行 | 無し (冒頭に rev `a2e430a4…` の記録のみ) |
 | `crates/litedoc4-global/src/v8_gc.rs` (V8 を総当たりした出力データ) | V8 = BSD-3 | 818 行 | 無し (deno 2.7.14 / V8 rev の記録のみ) |
+
+**md4c is the only work in this table that carries its own attribution files, and
+it is in the tree three times** (2026-08-30). The three are byte-identical
+(`/usr/bin/diff -q`, all three files) and each is redistributed on its own: Lake
+builds a package from the package directory, so `vendor/md4c/` — the copy
+`lean_exe litedoc4` links — cannot reach into `crates/`, and a symlink would not
+survive a checkout on every platform. The MIT permission notice is therefore an
+obligation **per copy**: one copy losing its `LICENSE.md` is unpaid whatever the
+other two carry, which is why `tools/provenance-files.txt` has a line for each
+rather than one line for the work. `benchmarks/lean-prototype/vendor/md4c/` is a
+frozen measurement artefact and stays; `crates/litedoc4-md/vendor/md4c/` goes
+when the Rust half does, and `vendor/md4c/` is the copy that remains.
 
 **2026-08-22 に 1 件増えた** — `math-core` (MIT © 2024 Hiromu Sugiura / Thomas MK)。
 これは**性質が上の 5 件と違い、2 つに分かれる**:

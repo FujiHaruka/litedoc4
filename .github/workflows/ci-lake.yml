@@ -16,18 +16,30 @@ on:
       - "lakefile.lean"
       - "lake-manifest.json"
       - "extractor/**"
+      - "src/**"
+      - "csrc/**"
+      - "vendor/**"
       - "e2e/consumer/**"
+      - "Cargo.toml"
       - "tools/lake-package-gate.sh"
       - "tools/lake-download-gate.sh"
+      - "tools/purelean-gate.sh"
+      - "tools/libc-shim-gate.sh"
       - ".github/workflows/ci-lake.yml"
   pull_request:
     paths:
       - "lakefile.lean"
       - "lake-manifest.json"
       - "extractor/**"
+      - "src/**"
+      - "csrc/**"
+      - "vendor/**"
       - "e2e/consumer/**"
+      - "Cargo.toml"
       - "tools/lake-package-gate.sh"
       - "tools/lake-download-gate.sh"
+      - "tools/purelean-gate.sh"
+      - "tools/libc-shim-gate.sh"
       - ".github/workflows/ci-lake.yml"
   workflow_dispatch:
 
@@ -67,6 +79,39 @@ jobs:
 
       - name: Gate
         run: tools/lake-package-gate.sh
+
+  # The Lean half: `lean_exe litedoc4`, built the way a consumer builds it.
+  # Nothing in ci.yml reaches it — it is Lean and C, and neither `cargo test` nor
+  # `cargo clippy` has a view of either — and `lake` cannot run beside the root
+  # lakefile (there is deliberately no `lean-toolchain` there), so this job and
+  # the development machine are the only two places it is ever compiled.
+  purelean:
+    name: the Lean half builds and runs from a consumer
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-node
+
+      - uses: ./.github/actions/setup-elan
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The one check that wants the machine's compiler rather than the
+      # toolchain's, and the reason it is worth running here as well: a
+      # `csrc/libc` declaration that disagrees with glibc's is undefined
+      # behaviour no build error announces, and the macOS headers are only one
+      # platform's opinion.
+      - name: csrc/libc agrees with the platform's libc
+        run: tools/libc-shim-gate.sh
+
+      # `purelean-gate.sh` compares the two halves' `--version`, so it needs one.
+      - name: Build litedoc4
+        run: cargo build --bin litedoc4
+
+      - name: Gate
+        run: tools/purelean-gate.sh
 
   # The channel a user actually goes through: a generated consumer says
   # `require «litedoc4» from git … @ "<this commit>"`, so Lake clones this

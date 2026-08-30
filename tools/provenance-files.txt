@@ -45,8 +45,15 @@ crates/litedoc4-render/src/whitespace.rs : doc-gen4
 crates/litedoc4-render/src/autolink.rs : doc-gen4
 
 # --- the other third-party works (provenance.md §7) -----------------------
+# md4c is in the tree three times, byte-identical (provenance.md §7). Each copy
+# is redistributed on its own — Lake builds `vendor/md4c/` from the package
+# directory and never reaches into `crates/` — so each carries the MIT notice.
 crates/litedoc4-md/vendor/md4c/LICENSE.md : MIT
 crates/litedoc4-md/vendor/md4c/PROVENANCE.md : md4c
+vendor/md4c/LICENSE.md : MIT
+vendor/md4c/PROVENANCE.md : md4c
+benchmarks/lean-prototype/vendor/md4c/LICENSE.md : MIT
+benchmarks/lean-prototype/vendor/md4c/PROVENANCE.md : md4c
 crates/litedoc4-md/src/parse.rs : MD4Lean
 crates/litedoc4-md/src/ffi.rs : md4c
 crates/litedoc4-md/src/gc.rs : Unicode

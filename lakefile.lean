@@ -27,7 +27,9 @@ being a dependency rather than a checkout:
   one honestly means elaborating it with Lake — and this script *is* that
   elaboration. Mathlib and doc-gen4 are both `lakefile.lean` packages.
 
-The Rust half (`litedoc4`) is *not* built by Lake: see `resolveLitedoc4`.
+The Rust half is *not* built by Lake: see `resolveLitedoc4`. The Lean half is —
+`lean_exe litedoc4`, built from `src/` and linked against the C in `vendor/md4c`
+and `csrc/`.
 
 ## There is deliberately no `lean-toolchain` next to this file
 
@@ -52,8 +54,7 @@ open Lake DSL
 
 open System (FilePath)
 
-package «litedoc4» where
-  srcDir := "extractor"
+package «litedoc4»
 
 /--
 `supportInterpreter := true` is how Lake spells the `-rdynamic` that
@@ -68,7 +69,77 @@ re-checks on every run.
 -/
 lean_exe extract where
   root := `Extract
+  srcDir := "extractor"
   supportInterpreter := true
+
+def md4cDir : FilePath := "vendor" / "md4c"
+def csrcDir : FilePath := "csrc"
+
+/--
+`compileO`'s default compiler is a bare `cc`, the machine's own. Taking it would
+require every consumer to have a C toolchain, and a Lean consumer is not
+guaranteed to: elan's toolchain compiles with its own clang against its own
+sysroot and links with its own lld against its own `lib/libc` stubs, so Lean
+itself asks for no system compiler at all (measured 2026-08-30 →
+`benchmarks/results/purelean-md4c-shim-2026-08-30.txt`). What the toolchain does
+not ship is libc *headers* — the link stubs are there, so the symbols resolve;
+only the declarations are missing, and `csrc/libc` supplies them for the eleven
+functions this C calls and no more.
+
+`-Werror=implicit-function-declaration` is load-bearing and not tidiness.
+Without it a function `csrc/libc` forgot to declare is an implicit `int f()`
+rather than an error, and the build is green while the call goes out with a
+guessed signature. That is what happened: `strcspn` was missed, macOS compiled
+it implicitly and rendered all 422 pages correctly, and only a stricter clang on
+Linux said so (measured 2026-08-30 →
+`benchmarks/results/purelean-bare-2026-08-30.txt`). `tools/libc-shim-gate.sh`
+cannot see that one — it compares declarations that exist, and a missing
+declaration is not there to compare — so the compiler has to be what refuses.
+-/
+def ccFlags (pkg : Package) (shim : Bool) : FetchM (Array String) := do
+  let base := #["-I", (← getLeanIncludeDir).toString,
+                "-I", (pkg.dir / md4cDir).toString, "-fPIC",
+                "-Werror=implicit-function-declaration"]
+  if shim then
+    return base ++ #["-I", ((← getLeanIncludeDir) / "clang").toString,
+                     "-I", (pkg.dir / csrcDir / "libc").toString]
+  else
+    return base
+
+/-- `LITEDOC4_SYSTEM_CC=1` builds the C with the machine's compiler and its real
+libc headers instead. It exists so the two can be compared: it is the control
+arm for `csrc/libc`, not a fallback, and nothing selects it automatically. -/
+def useSystemCc : IO Bool := do
+  return (← IO.getEnv "LITEDOC4_SYSTEM_CC").isSome
+
+def compileC (pkg : Package) (oName srcPath : FilePath) : FetchM (Job FilePath) := do
+  let oFile := pkg.buildDir / oName
+  let src ← inputTextFile <| pkg.dir / srcPath
+  let system ← useSystemCc
+  let flags ← ccFlags pkg (shim := !system)
+  let cc : FilePath ← if system then pure ⟨"cc"⟩ else getLeanCc
+  buildFileAfterDep oFile src fun srcFile => do
+    compileO oFile srcFile flags cc
+
+target md4cObj pkg : FilePath :=
+  compileC pkg "md4c.o" (md4cDir / "md4c.c")
+
+target mdEventsObj pkg : FilePath :=
+  compileC pkg "md_events.o" (csrcDir / "md_events.c")
+
+lean_lib Litedoc4 where
+  srcDir := "src"
+
+/-- Deliberately **not** `supportInterpreter`, and deliberately importing no
+`Lean`: an executable that imports `Lean` measures 226 MB against 5.3 MB for one
+that stops at `Std` (measured 2026-08-30 →
+`benchmarks/results/purelean-ci-probe-2026-08-30.txt`), and this is the half a
+consumer builds on every checkout. `extract` above pays that cost because it
+reads oleans; nothing here does. -/
+lean_exe litedoc4 where
+  root := `Litedoc4.Main
+  srcDir := "src"
+  moreLinkObjs := #[md4cObj, mdEventsObj]
 
 /-- Everything else `litedoc4 build` offers is deliberately not plumbed through:
 this script fills in the three flags a consumer cannot know. -/

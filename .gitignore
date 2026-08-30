@@ -14,9 +14,10 @@ node_modules/
 /e2e/*/.lake/
 
 # Lake's build output for litedoc4 itself (lakefile.lean). A consumer that
-# requires this package by path builds the extractor here — 171 MB of binary
-# plus the C it comes from, regenerable by `lake build litedoc4/extract` from the
-# consumer's workspace.
+# requires this package by path builds both executables here — the extractor
+# (171 MB of binary plus the C it comes from) and `litedoc4` with its md4c
+# objects — regenerable by `lake build litedoc4/extract` and
+# `lake build litedoc4/litedoc4` from the consumer's workspace.
 /.lake/
 
 # cargo-mutants working output. Mutation is an exploration, not a gate
