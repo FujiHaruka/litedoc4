@@ -1,93 +1,78 @@
-# Handoff — 2026-08-30 (relay leg 1 → 2)
+# Handoff — 2026-08-30 (relay leg 2, terminal)
 
 ## State
 
-- **作業対象は別リポジトリ `../MathML4Lean`**。lean-doc/litedoc4 は消費者で、今回は触っていない。
-  lean-doc の `git status` が clean なのは正常
-- MathML4Lean: branch main, clean, **`a274a8d`** まで push 済み
-  (https://github.com/FujiHaruka/MathML4Lean, public)
-- lean-doc: branch main, clean, `ebcf07a` まで push 済み
-- **Claude セッションは常に `/Users/haruka/dev/lean-doc` で作る**(ユーザー指示)。
-  handoff / relay / carryon スキルがここにしか無い。作業先へは `../MathML4Lean`
-- ローカル toolchain は v4.31.0 / v4.32.2 / v4.33.0 の 3 本。**v4.33.1 は未導入で CI 専用**
+**ゴール達成。MathML4Lean は書き上がり、litedoc4 から依存ライブラリとして使える。**
+plan.md の完遂基準 M5 を満たし、M6 も「我々に閉じられる範囲」は全部済んでいる。
 
-## Where we are
+- MathML4Lean: main `48c53c6`、**tag `v0.1.0`**（commit `35a35fe`)、GitHub Release あり。
+  CI は 4 toolchain green
+  https://github.com/FujiHaruka/MathML4Lean/releases/tag/v0.1.0
+- litedoc4: main `da08896`。触ったのは `benchmarks/lean-prototype/` だけ
+- 両リポジトリとも clean、push 済み
 
-**M0〜M4 完了。** 現在のゲート:
+## What was done in this leg
+
+**M5（完遂基準）** — litedoc4 の `benchmarks/lean-prototype` が MathML4Lean を git 依存で
+`require` し、対象の 3 span を変換して Rust 側とバイト一致:
 
 ```
-corpus gate result: 2000 / 2113 match, 107 depart under a named rule, 6 refused
-unit tests result: 45 / 45 pass
+mathml gate result: 3 / 3 match the Rust half byte for byte
 ```
 
-`2000 + 107 + 6 = 2113`、**未分類の乖離 0**。3 toolchain とも警告 0、ライブラリの外部 import はゼロ。
+- `benchmarks/lean-prototype/Mathml.lean` — consumer-spans の JSONL を読み、変換して突き合わせ、
+  件数を突き合わせる。**逸脱ルール表は持たない**（この入力では両者一致するので、
+  何も覆わないルールは無い方がよい。差が出たらそれは欠陥）
+- `benchmarks/lean-prototype/mathml-gate.sh` — 両側を走らせて食い違えば落ちる。**手動ゲート**
+- `benchmarks/lean-prototype/target-spans.jsonl` — Rust 側の答え（3 行）。ゲートが毎回書き直す
+- MathML4Lean 側 `tools/corpus` を lib + 2 bin に分割し、`consumer-spans` を追加。
+  **span finder と math-core 設定は 1 つのまま**（分ければ「span の定義」が消費者とずれる場所が 2 つできる）
+- リファクタで答えは 1 バイトも動いていない（コーパスを scratch に再生成して `/usr/bin/diff` 一致）
 
-**SoT は `../MathML4Lean/docs/plan.md`。まずこれを読む** — スコープ / 判定の設計 /
-M0-M6 / 完遂基準 / 反証条件。
+**M6** — tag `v0.1.0` / GitHub Release / README を他人向けに更新（`rev = "v0.1.0"`)。
+README の `#eval` の出力も「Use it」の手順も**実際に走らせて確認**（空ディレクトリから
+v4.33.0 の消費者パッケージを作り、network 越しに require してビルド・実行が通る）。
 
-### 途中で変わった一番大きいこと(決定)
+## Reservoir — ここだけ他人に依存する（残り 1 件）
 
-**バイト一致は目標でない。独立したライブラリとして正しいことが目標**
-(decided 2026-08-30, user's call)。plan.md §0。判定はこう:
+条件は 4 つで、**star 数だけ未達**（実測 2026-08-30、GitHub API）:
 
-> **仕様が語るところは仕様が決める。仕様が黙るところはオラクルが決める。**
+| 条件 | 状態 |
+|---|---|
+| public / non-fork / non-template | ○ |
+| top-level `lake-manifest.json` | ○ |
+| GitHub が認識する OSI ライセンス | ○ Apache-2.0 |
+| **star 2 個以上** | **× 0 個** |
 
-乖離は**名前付き逸脱ルール + 仕様の引用**で覆う。これは例外リストではない —
-**どのルールにも当たらない乖離はゲートが落ちる**し、**1 行も覆わないルールもゲートが落ちる**
-(`#[expect]` と同じ形)。今 4 ルール、最大でも 62 行。
-**新しい反証条件: ルールが 20 個超、または 1 ルールが一致行数より多くを覆ったら判断を戻す。**
+自動インデックス（申請不要、約 1 日ごと）。**star を作りに行くのは閉じ方ではない**。
+plan.md のマイルストーン表の下と `docs/release-2026-08-30.txt` §3 に記録済み。
 
-### 効いている作業原理(2 度実証された)
+## Files to read first（続きをやるなら）
 
-**記憶で判断せず実物を取り寄せる。** M2 は「恣意的」8 件中 3 件、M3 は 5 件中 4 件、
-M4 は合わせ込みルールが、実物(W3C operator dictionary / MathML Core / unicode-math /
-`tex.web`)を読んだら消えるか逆転した。**M4 では両方の分岐が逆向きだった。**
+- `../MathML4Lean/docs/plan.md` — SoT。M6 の下に Reservoir の注記
+- `../MathML4Lean/docs/consumption-2026-08-30.txt` — M5 の報告（何を証明し、何を証明していないか）
+- `../MathML4Lean/docs/release-2026-08-30.txt` — M6 の報告
 
-## Next step
+## 残っている「未検証」（"probably fine" と読まないこと）
 
-**M5 = 完遂基準。litedoc4 から依存ライブラリとして使えるようにする。**
-
-1. `../lean-doc/benchmarks/lean-prototype/lakefile.lean` は既に `require MD4Lean` を
-   持っている。そこに `require MathML4Lean` を足す(git 依存、rev は `main` か tag)
-2. 対象 `/Users/haruka/dev/lean-projects` の docstring にある **3 つの数式 span** を変換し、
-   litedoc4 の Rust 側の出力と比べる。**バイト一致は要求しない** —
-   差があれば「名前付き逸脱で説明できるか」を見る。説明できない差はバグ
-3. 3 span の実体は `$$|A|^{n-1} \le \prod …$$` 形が Loomis-Whitney と Brascamp-Lieb の
-   2 モジュールに(litedoc4 `benchmarks/results/mathml-2026-08-22.txt` §1)。
-   `../MathML4Lean/tools/corpus/` のバイナリが同じ抽出をできる
-4. **注意**: lean-prototype に手を入れるのは litedoc4 リポジトリを触ること。
-   `crates/` `tools/` `.github/` は触らない。`benchmarks/lean-prototype/` は計測用なので可
-
-その後 M6(README を他人向けに、tag、Reservoir)。
-
-## Files to read first
-
-- `../MathML4Lean/docs/plan.md` — **最初にこれ**
-- `../MathML4Lean/CLAUDE.md` — 規律。特に「dated reports は記録であって手順書でない」
-- `../MathML4Lean/docs/serializer-2026-08-30.txt` — M4 の報告。`tex.web` §764/§766/§681 からの
-  導出と、閉じなかった 6 件それぞれの理由
-- `benchmarks/results/mathml-2026-08-22.txt` — 対象の 3 span の出所
-
-## Load-bearing context
-
-- **拒否は正当な答え。数字を動かすために推測しない。** 残り 6 件は
-  「MathML Core にその概念の語彙が無いので符号化が選択になる」もの
-  (`\mathop` / `\!` / 台のない下付き / `cases` の `\right.` / `align` は文書レベルの環境で
-  docstring span には式番号カウンタが無い)
-- **ライブラリは何も import しない** (`Lean` はもちろん `Std` も)。テスト側は `Lean` 可
-- **`corpus/mathlib-spans.jsonl` は絶対に手で編集しない**
-- **math-core のソースは読まない**
-- 単体テストは 45 件、全部「一度赤くしてから」通してある。ゲートの失敗パスも同様
-- push は HTTPS + gh (ssh 不通)
+- **v4.33.1 の消費者**は誰も走らせていない。CI はライブラリ本体を v4.33.1 で見ているが、
+  「v4.33.1 の消費者が require する」経路は未実施（このマシンに v4.33.1 が無い）
+- コーパスの 6 refusals は仕様側に語彙が無いもの。**拒否は正当な答え**（plan.md §0）
+- `mathml-gate.sh` は `tools/gates.txt` に無い。litedoc4 の製品が MathML4Lean に依存していない
+  ので意図的。製品 extractor が MathML を焼く日に `tools/` へ移して行を足す
 
 ## Relay control
-- Mode: ON
+- Mode: DONE
 - Goal: MathML4Lean を書き上げ、litedoc4 から依存ライブラリとして使えるようにする (plan.md の M5)
 - Leg: 2 / cap 12
 - Predecessor: none
-- Stop-on: completion | user-decision | no-progress×2 | leg-cap
+- Stop-on: completion
 - Progress ledger:
   - r1: M0 コーパス凍結 2,123 span (49f41cf) / M1 骨組み+ゲート+CI 4 toolchain (e957aca) /
     センサス 136 コマンド (5b7edd1) / M2 字句・構文・直列化 1237 (a84602a) /
     判定設計をバイト一致から仕様基準へ (304046d) / M3 記号表+逸脱ルール 2104 (ba3f839) /
     M4 tex.web から導出、2107 説明済み・単体テスト 45 (a274a8d)
+  - r2: **M5 達成** — corpus tool を lib 化 + consumer-spans (MathML4Lean f262589) /
+    lean-prototype が require して 3/3 バイト一致 (litedoc4 65642b0) / M5 記録 (ebbe724) /
+    **M6** README + Reservoir の残条件を記録 (35a35fe) / **tag v0.1.0 + Release** /
+    prototype の pin をリリース commit へ (litedoc4 3a7e963, da08896) / M6 記録 (48c53c6)
