@@ -1,0 +1,108 @@
+pure-Lean replacement study — the renderer, written and measured
+===============================================================
+2026-08-30. The third measurement. The first two are
+`purelean-microbench-2026-08-30.txt` (the floor, written the obvious way) and
+`purelean-microbench-optimised-2026-08-30.txt` (the floor, written properly).
+This one puts the rendering logic on top of that floor.
+
+WHAT WAS BUILT
+  `benchmarks/lean-prototype/Render.lean`, 1,612 lines of Lean, no dependencies
+  outside Lean core. It does what `litedoc4 render` does: the document frame,
+  the module head with its source link, the import list, and every declaration
+  in page order with its anchor, kind, modifiers, binders, type, attributes,
+  equations, source range and docstring — and the autolinking of every constant
+  a signature names and every name a docstring's code spans name.
+
+  Left out on purpose: **Markdown and math** (see LEFT OUT).
+
+CONDITIONS
+  Apple M1, 8 cores (4P+4E), 16 GiB, macOS 26.6.1, Lean v4.31.0 `lake build`,
+  rustc 1.97.1 --release, warm, n=6, run 1 discarded, medians of 5.
+  Target: 422 modules / 15,233,730 B IR / 4,584 declarations / link index
+  10,448,225 B / 261,672 distinct keys. Same IR and same link index as the two
+  earlier files.
+
+THE SAME AMOUNT OF WORK — verified, not asserted
+                          Rust            Lean            ratio
+  pages                   422             422             1.000
+  output bytes            24,546,157      24,191,054      0.986
+  `<a href=` occurrences  29,560          29,563          1.0001
+  declaration anchors     4,394 / 4,584   4,394 / 4,584   1.000
+  Corroborating and exactly equal: `<span class="fn">` 388,868 on both sides.
+  2 of 422 pages are byte-identical — the two with no docstring. On the other
+  420, every byte up to the first docstring is identical.
+
+  The 190 suppressed declarations are decided in `page.rs`
+  (`Suppressed::of_site`), not `decl.rs`: every name that is some declaration's
+  `members` entry, collected across the **whole site**, because a structure
+  declared in one module can have its projections attributed to another.
+  Reproduced exactly.
+
+TIME
+                      wall     CPU(u+s)   RSS      instructions
+  Rust (current)      0.40 s   0.38 s     129 MB   4.82e9
+  Lean, sequential    1.05 s   1.03 s     172 MB   14.18e9
+  Lean, 4 workers     0.50 s   1.26 s     182 MB
+  Lean, 8 workers     0.43 s   1.45 s     193 MB
+
+  **2.6x sequentially. 1.26x on four threads, at 3.3x the CPU.**
+  The 4-worker output is byte-identical to the sequential one (`diff -r`).
+  **Rust has not been threaded at all** (`render_site` is a plain `for` loop and
+  the workspace has no rayon), so the threaded row is "what Lean buys with
+  cores", not a like-for-like comparison. Nobody has measured a threaded Rust.
+
+WHERE THE 0.63 s OF RENDERING GOES (by ablation, one part removed at a time)
+  frame, module head, imports, decl heads, toc, escaping, assembly   0.2993  47%
+  code-fragment walk (span tree, UTF-16 offsets, whitespace rewrite) 0.1357  21%
+  docstrings (backtick scan + autoLinkInline)                        0.1311  20%
+  const-link resolution (refs -> known -> .lidx)                     0.0754  12%
+
+  **No single thing dominates**, and that is the finding. 0.13 s of the 0.98 s
+  total is the link index and 0.08 s is link resolution; the other 0.77 s is
+  spread evenly over touching bytes — parsing 15.2 MB, escaping and assembling
+  24 MB, walking 385,880 spans through a UTF-16 offset map. That is the same
+  ~10 cycles per byte the optimised floor file identified, and no restructuring
+  moves it.
+
+TWO THINGS THE EARLIER FILES HAD WRONG
+  - **The link index is not where the gap lives.** Const-link resolution is 12%
+    of the rendering and 7.7% of the whole command.
+  - **`lidx.lookup 0.1442` is not a lower bound on a renderer's lookups.** It
+    probed all 261,672 keys four times (1,046,688 probes). A renderer's rendered
+    fragments hold **127,047 const spans of which 127,041 resolve** — about 8x
+    less traffic. A floor built from a synthetic access pattern can be too high
+    as easily as too low.
+
+`lake build` — the number the CI axis needs
+  6.62 s from clean, **4.52 s warm** (user 4.97), 1,612 lines, 4 Lake jobs, no
+  dependencies. Against the Rust half's **2.9 s release download** (measured,
+  `purelean-ci-runs-2026-08-30.txt`). Net **+1.6 s**, and a pure-Lean renderer
+  does not add a build: it goes into the extractor build that already runs
+  (19.4-20.9 s for 3,174 lines on ubuntu-latest).
+  Caveat: 1,612 lines is a renderer without Markdown, math, the incremental
+  path, the global artifacts or anything outside a module page.
+
+LEFT OUT, WITH SIZES
+  Markdown   4,885 docstrings, 1,625,158 B. **455,212 B (28.0%) are inside the
+             25,139 backtick code spans this renderer does scan and autolink**;
+             the other 1,169,946 B (72.0%) go in escaped. That is the whole
+             355,103-byte and 2,165-anchor shortfall (the missing anchors are
+             the 2,168 Markdown heading hover-links). Rust runs md4c (C) over
+             these; **nobody has measured md4c on this input**, so 2.6x is a
+             FLOOR for a renderer that also does Markdown, not an estimate of
+             one.
+  math       2 of 422 pages, 0 fallbacks on this target. Invisible here; not on
+             a Mathlib-shaped target (2,123 spans, mathml-2026-08-22.txt).
+  pills      `sorry` / `@[ext]`: 2 declarations carry the key. The Rust binary
+             that produced `pages/` and the 0.40 s (built 2026-08-29 13:02)
+             predates commit 25af76d and emits 0 pills, so the Lean side matched
+             the binary rather than HEAD. **Both sides emit 0.**
+
+A THIRD SHAPE OF THE LAZY-TIMER TRAP (measured 2026-08-30)
+  `timeIt` over a phase written `do let x := pureFn y; return (x, n)` charges
+  **nothing**: the pure call sits outside the closure the `do` block compiles
+  to, so it runs while the argument is being built, before `t0`. A first version
+  reported `index.build 0.000000` for 60 ms of real work. This is worse than the
+  two shapes already recorded, because the time lands in **no phase at all**
+  rather than in a suspiciously fast one — the sum of the phases simply stops
+  matching the process wall clock. **Check that sum against the wall clock.**

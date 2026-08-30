@@ -4,3 +4,7 @@ defaultTargets = ["bench"]
 [[lean_exe]]
 name = "bench"
 root = "Main"
+
+[[lean_exe]]
+name = "render"
+root = "Render"

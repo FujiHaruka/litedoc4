@@ -1,0 +1,173 @@
+pure-Lean replacement study — what the rendering logic costs on top of the floor
+================================================================================
+2026-08-30. Reads after `purelean-microbench-2026-08-30.txt` and
+`purelean-microbench-optimised-2026-08-30.txt`, which measured the floor with no
+rendering logic in it. This one measures a Lean renderer that does the job.
+
+WHAT WAS MEASURED
+  `benchmarks/lean-prototype/Render.lean` — 1,612 lines (1,298 non-comment,
+  of which 316 are the JSON/`.lidx`/byte/escape infrastructure copied from
+  `Main.lean`) — against `litedoc4 render` on the same IR, the same `.lidx` and
+  the same output directory shape.
+
+  It renders: the document frame (head, theme boot, topbar, sidebar shell,
+  module head with its `source` link), the import list with a relative link for
+  every own-package import, and every declaration in page order — anchor id,
+  kind, modifiers, binders, type, attributes, structure fields, equations, the
+  `source` link with its `#L<a>-L<b>` range, the docstring — plus **autolinking**:
+  the span-tree walk over every printed code fragment resolving each constant
+  through the declaration's own `refs`, then the IR's map, then the `.lidx`, and
+  `autoLinkInline` over every word of every docstring code span.
+
+  LEFT OUT: **Markdown and math.** A docstring goes in escaped, with its
+  backtick-delimited code spans found by a byte scan rather than by a parser.
+  See "WHAT IS MISSING" for the size of that.
+
+CONDITIONS
+  Identical to the two earlier files: Apple M1, 8 cores (4 P + 4 E), 16 GiB,
+  macOS 26.6.1, Lean v4.31.0 `lake build` (-O3), no Mathlib, warm page cache.
+  IR 422 modules / 15,233,730 B / 4,584 declarations; `.lidx` 10,448,225 B /
+  255,809 declaration entries + 6,011 `@` module entries.
+  Rust: rustc 1.97.1 --release, `target/release/litedoc4` built 2026-08-29 13:02
+  — the same binary that wrote `pages/` and that the 0.40 s comes from. It
+  predates the `sorry` / `@[ext]` pill commit (25af76d), so its output has 0
+  `data-flag` elements, and the Lean side matches the binary, not HEAD.
+  n=6, run 1 discarded, medians of 5.
+
+THE SAME AMOUNT OF WORK — Lean against Rust, counted in the output
+  metric                          Rust          Lean          Lean/Rust
+  pages                           422           422           1.000
+  bytes                           24,546,157    24,191,054     0.986
+  `<a href=` (bare form)          29,560        29,563        1.0001
+  `<a ` of every form             41,786        39,621         0.948
+  declaration anchors             4,394/4,584   4,394/4,584   1.000
+  `<span class="fn">`             388,868       388,868       1.000
+  `foundational_types.html`       6,684         6,684         1.000
+  `<code>`                        24,967        24,974        1.0003
+  `<pre><code`                    111           88             0.793
+  `<a class="hover-link" href=`   2,168         0              0     <- Markdown
+  The whole shortfall in `<a `is the 2,168 heading hover-links, which are
+  Markdown structure. The autolink counts match to 3 parts in 30,000.
+
+  The 190 suppressed declarations are `Suppressed::of_site` in
+  `crates/litedoc4-render/src/page.rs`, not `decl.rs`: every name that is some
+  declaration's `members` entry — constructors and field projections — collected
+  across the **whole site**, because a structure declared in one module can have
+  its projections attributed to another. 194 member names, 190 of which are
+  declarations. Reproduced exactly.
+
+  2 of 422 pages are **byte-identical** to the Rust output; they are the two
+  with no docstring on them. On the other 420 every byte up to the first
+  docstring is identical, and the diff from there is Markdown block structure.
+
+SEQUENTIAL, n=6, medians of 5
+  phase              Lean       what it is
+  ir.read            0.0504     15,233,730 B over 422 files
+  ir.parse           0.1301     JSON + conversion to typed declarations
+  lidx.read          0.0274     10,448,225 B
+  lidx.parse         0.0981     255,809 names + 6,011 modules
+  index.build        0.0026     5,124 known names, 6,011 known modules
+  suppressed         0.0002     190 names
+  page.render        0.6255     422 pages, 24,191,054 B  <-- the rendering logic
+  page.write         0.0457     422 files
+  ---------------------------------------------------------
+  SUM                0.9800
+  process wall       1.03    CPU 1.02   RSS 172 MB   14.18e9 instructions
+
+  **Rust `litedoc4 render`, single-threaded: 0.40 s wall / 0.38 CPU, RSS 129 MB,
+  4.82e9 instructions.**  Lean is 2.6x the wall, 2.7x the CPU and 2.9x the
+  instructions for output that is 98.6% of the bytes.
+
+WHERE `page.render` GOES — ablations, each removing one part and nothing else
+  (n=3, one back-to-back set; control 0.6415 in that set)
+  what                                            cost     share
+  frame, module head, imports, decl heads, toc,
+    section markup, HTML escaping, string build   0.2993    47%
+  code-fragment walk (span tree, UTF-16 offsets,
+    whitespace rewrite, escaping)                 0.1357    21%
+  const-link resolution (refs -> known -> .lidx)  0.0754    12%
+  docstrings (backtick scan + autoLinkInline)     0.1311    20%
+  ----------------------------------------------------------
+  page.render                                     0.6415
+
+  The link resolution — the phase this study expected to dominate — is 12% of
+  the rendering and 7.7% of the whole command. `lidx.lookup` looked like the
+  largest single phase in the floor because the floor probed all 261,672 keys
+  **four times**, 1,046,688 probes. A renderer does not: it probes once per
+  const span that resolves to a module, and this target's rendered fragments
+  hold **127,047 const spans of which 127,041 resolve** (measured over the IR),
+  plus one probe per docstring code-span word that resolves. The floor's
+  `lidx.lookup 0.1442` is therefore about 8x the traffic a renderer generates,
+  and the floor is not a lower bound on that one phase.
+
+4 THREADS (`IO.asTask`, `Task.Priority.dedicated`), n=6, medians of 5
+  phase                  1 worker   4 workers   8 workers
+  ir.read + ir.parse     0.1805     0.0580      0.0492
+  lidx.read              0.0274     0.0278      0.0273
+  lidx.parse             0.0981     0.1008      0.0988
+  index.build            0.0026     0.0027      0.0026
+  suppressed             0.0002     0.0002      0.0002
+  page.render + write    0.6712     0.2612      0.1864
+  -----------------------------------------------------
+  SUM                    0.9800     0.4508      0.3645
+  process wall           1.03       0.51        0.43
+  CPU (user+sys)         1.02       1.26        1.45
+  RSS                    172 MB     182 MB      193 MB
+  Pages parallelise 2.6x at 4 workers and 3.6x at 8; the IR read+parse 3.1x /
+  3.7x. The 4-worker output is byte-identical to the sequential output.
+  What does not move is the link index: `lidx.read` + `lidx.parse` is one file
+  and one map, 0.128 s, which is **28% of the 4-worker total**.
+
+THE PARSE SPLIT (`--split`, n=4)
+  ir.read          0.0473
+  ir.parse.jval    0.1066   the same hand parser the earlier file measured at
+                            0.1062 — an independent reproduction
+  ir.build.typed   0.0355   JSON tree -> typed declarations, spans, members
+  In the pipeline the two run as one pass (0.1301) because each file's JSON tree
+  is freed as soon as its module is built.
+
+`lake build` FROM CLEAN (`rm -rf .lake/build`, then `lake build render`)
+  6.62 s the first time (cold), 4.52 / 4.53 s after. user 4.97 s.
+  1,612 lines of Lean, 4 Lake jobs, no dependencies, no Mathlib.
+  For scale, the Rust half this replaces is 1,933 non-comment non-test lines
+  across the ten `crates/litedoc4-render/src` files ported here — and that
+  excludes `litedoc4-md` (Markdown + math) and `litedoc4-ir`, which are not
+  ported at all.
+
+WHAT IS MISSING, WITH A SIZE
+  **Markdown.** 4,885 docstrings, 1,625,158 B. Of those bytes, 455,212 (28.0%)
+  are inside the 25,139 backtick code spans this renderer does scan and
+  autolink; the remaining 1,169,946 B (72.0%) go in escaped where Rust runs md4c
+  over them and emits paragraphs, headings with ids and hover anchors, lists,
+  tables and links. That is the 355,103-byte and 2,168-anchor shortfall.
+  **Nobody has measured what md4c costs on this input**, so the honest reading
+  is that the Lean numbers here are a floor for a renderer that also does
+  Markdown, not an estimate of one.
+  **Math.** 2 of 422 pages carry MathML on this target and `math spans kept as
+  LaTeX 0`, so it is invisible in these numbers — but not on a Mathlib-shaped
+  target (2,123 spans, `mathml-2026-08-22.txt`).
+  **`sorry` / `@[ext]` pills.** 2 declarations carry a `generated` key. The Rust
+  binary that produced the comparison output predates the feature and emits 0
+  pills, so the Lean side emits none either.
+  **The unescaped-module-spelling map** (`module_for_unescaped`): no module of
+  this target has a quoted component, so the map is empty and the branch is not
+  implemented.
+  **Everything outside a module page**: `index.html`, `search.html`, the assets,
+  the search index, `modules.json`, the incremental ledger.
+
+READ THIS AS
+  A pure-Lean renderer that does the same autolinking as the Rust one, on this
+  target, costs **0.98 s sequential and 0.51 s on 4 threads**, against the Rust
+  renderer's **0.40 s single-threaded**. So: **2.6x sequentially, 1.3x with four
+  threads against a Rust binary that has not been threaded at all** — and 2.7x
+  the CPU sequentially, 3.3x threaded.
+
+  The gap is not concentrated where this study kept looking. The link index is
+  0.13 s of it and the const-link resolution 0.08 s; the other 0.77 s is spread
+  evenly over *touching bytes* — parsing 15.2 MB, escaping and assembling 24 MB,
+  walking 385,880 spans through a UTF-16 offset map. That is the same 10-cycles-
+  per-byte the optimised floor file identified, and no restructuring moves it.
+
+  What is not measured here is Markdown, which is 72% of the docstring bytes and
+  a C library on the Rust side, and the incremental path, where the Rust half is
+  73% of the work.
