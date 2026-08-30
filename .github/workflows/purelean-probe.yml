@@ -37,24 +37,33 @@ jobs:
           echo "PROBE extractor.build $(echo "$T1 - $T0" | bc)"
           ls -la extractor/build/extract | awk '{print "PROBE extractor.bytes " $5}'
 
-      - name: B — the Lean renderer prototype, from clean
+      # `lake build` alone builds only `defaultTargets` (= bench). Naming both
+      # is what makes Render.lean actually compile — the first version of this
+      # step did not, and reported the renderer's build time for a binary that
+      # was never built (measured 2026-08-30, run 33289444629).
+      - name: B — the Lean renderer prototype, from clean, three times
         run: |
           set -euo pipefail
           cd benchmarks/lean-prototype
-          rm -rf .lake
-          T0=$(date +%s.%N)
-          lake build
-          T1=$(date +%s.%N)
-          echo "PROBE renderer.build $(echo "$T1 - $T0" | bc)"
-          wc -l Render.lean Main.lean | tail -1 | awk '{print "PROBE renderer.lines " $1}'
-          for f in .lake/build/bin/*; do echo "PROBE bin.$(basename "$f") $(stat -c%s "$f")"; done
+          for i in 1 2 3; do
+            rm -rf .lake
+            T0=$(date +%s.%N)
+            lake build bench render
+            T1=$(date +%s.%N)
+            echo "PROBE renderer.build.$i $(echo "$T1 - $T0" | bc)"
+          done
+          for f in .lake/build/bin/*; do
+            case "$f" in *.hash|*.rsp|*.trace) continue;; esac
+            echo "PROBE bin.$(basename "$f") $(stat -c%s "$f")"
+          done
+          wc -l Render.lean | awk '{print "PROBE renderer.lines " $1}'
 
-      - name: B2 — the renderer again, warm
+      - name: B2 — the renderer again after touching one file
         run: |
           set -euo pipefail
           cd benchmarks/lean-prototype
           touch Render.lean
           T0=$(date +%s.%N)
-          lake build
+          lake build bench render
           T1=$(date +%s.%N)
           echo "PROBE renderer.rebuild $(echo "$T1 - $T0" | bc)"
