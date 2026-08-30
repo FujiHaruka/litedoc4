@@ -13,38 +13,53 @@ def md4cDir : FilePath := "vendor" / "md4c"
 def csrcDir : FilePath := "csrc"
 
 /-
-WHICH COMPILER BUILDS THE C, AND WHY IT IS THE MACHINE'S
-  `compileO`'s default is bare `cc`, the system compiler on PATH, and that is
-  what this keeps. Passing `(← getLeanCc)` instead was tried and does not
-  build: Lean's bundled clang ships no libc headers, so md4c stops at
-  `'stdio.h' file not found` — and so does `leanc`
-  (measured 2026-08-30 → `benchmarks/results/purelean-md4c-2026-08-30.txt`).
-  MD4Lean does the same thing on this platform for the same reason; its
-  `adhoc_include/` shims, which declare the dozen libc functions md4c calls by
-  hand, are reached only on Windows.
+WHICH COMPILER BUILDS THE C, AND WHY IT IS LEAN'S OWN
+  `compileO`'s default is bare `cc`, the machine's system compiler. Taking it
+  would require every consumer to have a C toolchain — and a Lean consumer is
+  not guaranteed to: elan's toolchain compiles with its own clang against its
+  own sysroot and links with its own lld against its own `lib/libc` stubs, so
+  Lean itself asks for no system compiler at all
+  (measured 2026-08-30 → `benchmarks/results/purelean-md4c-shim-2026-08-30.txt`).
+  Windows is where that bites first, which is why MD4Lean carries the same
+  shims for that platform alone.
 
-  So **vendoring md4c does not remove the C compiler from what a consumer
-  needs.** It removes the git dependency, not the toolchain. What would
-  falsify that: shims like MD4Lean's on every platform, at which point Lean's
-  own clang is enough and the requirement really does go.
+  The one thing the toolchain does not ship is libc *headers* — the link stubs
+  are there, so the symbols resolve; only the declarations are missing. That is
+  what `csrc/libc` supplies, for the ten functions md4c calls and no more.
+  What would falsify this: a declaration in `csrc/libc` that disagrees with the
+  platform's real one is undefined behaviour no build error announces, so the
+  system-compiler build is kept working and the two are compared on 422
+  rendered pages.
 -/
-def ccFlags (pkg : Package) : FetchM (Array String) := do
-  return #["-I", (← getLeanIncludeDir).toString,
-           "-I", (pkg.dir / md4cDir).toString, "-fPIC"]
+def ccFlags (pkg : Package) (shim : Bool) : FetchM (Array String) := do
+  let base := #["-I", (← getLeanIncludeDir).toString,
+                "-I", (pkg.dir / md4cDir).toString, "-fPIC"]
+  if shim then
+    return base ++ #["-I", ((← getLeanIncludeDir) / "clang").toString,
+                     "-I", (pkg.dir / csrcDir / "libc").toString]
+  else
+    return base
 
-target md4cObj pkg : FilePath := do
-  let oFile := pkg.buildDir / "md4c.o"
-  let src ← inputTextFile <| pkg.dir / md4cDir / "md4c.c"
-  let flags ← ccFlags pkg
-  buildFileAfterDep oFile src fun srcFile => do
-    compileO oFile srcFile flags
+/-- `LITEDOC4_SYSTEM_CC=1` builds the C with the machine's compiler and its real
+libc headers instead. It exists so the two can be compared: it is the control
+arm for `csrc/libc`, not a fallback, and nothing selects it automatically. -/
+def useSystemCc : IO Bool := do
+  return (← IO.getEnv "LITEDOC4_SYSTEM_CC").isSome
 
-target mdEventsObj pkg : FilePath := do
-  let oFile := pkg.buildDir / "md_events.o"
-  let src ← inputTextFile <| pkg.dir / csrcDir / "md_events.c"
-  let flags ← ccFlags pkg
+def compileC (pkg : Package) (oName srcPath : FilePath) : FetchM (Job FilePath) := do
+  let oFile := pkg.buildDir / oName
+  let src ← inputTextFile <| pkg.dir / srcPath
+  let system ← useSystemCc
+  let flags ← ccFlags pkg (shim := !system)
+  let cc : FilePath ← if system then pure ⟨"cc"⟩ else getLeanCc
   buildFileAfterDep oFile src fun srcFile => do
-    compileO oFile srcFile flags
+    compileO oFile srcFile flags cc
+
+target md4cObj pkg : FilePath :=
+  compileC pkg "md4c.o" (md4cDir / "md4c.c")
+
+target mdEventsObj pkg : FilePath :=
+  compileC pkg "md_events.o" (csrcDir / "md_events.c")
 
 require «MathML4Lean» from git
   "https://github.com/FujiHaruka/MathML4Lean" @ "v0.1.0"

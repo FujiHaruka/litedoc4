@@ -1,0 +1,119 @@
+pure-Lean replacement study — removing the C compiler from what a consumer needs
+================================================================================
+2026-08-30. The seventh measurement, and it **supersedes one section** of
+`purelean-md4c-2026-08-30.txt`: the one headed "A CLAIM THAT WAS MADE AND IS
+FALSE — the C compiler does not go away". It does go away. That file is left as
+written (results are not rewritten); this is where the answer moved to.
+
+THE QUESTION
+  Vendoring md4c left `cc`, the machine's own compiler, in the build. The
+  question was whether that is safe to assume — every platform has one — or
+  whether it is a requirement that has to be removed.
+
+WHAT WAS MEASURED FIRST: does Lean itself need a system C toolchain?
+  No. The whole build is closed over the toolchain elan installs. From
+  `lake build render -v` (measured):
+
+    compile   <toolchain>/bin/clang --sysroot <toolchain>
+                -nostdinc -isystem <toolchain>/include/clang
+    link      <toolchain>/bin/clang -fuse-ld=lld
+                --sysroot <toolchain> -L <toolchain>/lib/libc
+
+  `<toolchain>/lib/libc/` holds `libSystem.tbd` and `libc++.dylib`; the linker
+  is the shipped `ld64.lld`. No system SDK, no system compiler, no system
+  linker is named anywhere in the command or its response file.
+
+  So a Lean consumer is **not** guaranteed to have `cc`, and requiring one is a
+  new requirement rather than one Lean already imposes. Windows is where that
+  bites first — MD4Lean carries libc shims for that platform and no other,
+  which is the same conclusion reached independently and already in the tree.
+
+WHAT IS MISSING, EXACTLY
+  Not much, and that is the point.
+
+    compiler headers   shipped — 28 of them, including limits.h, stdint.h,
+                       stddef.h, stdbool.h, stdatomic.h, stdnoreturn.h, which
+                       is everything md4c and `lean/lean.h` take from that side
+    libc link stubs    shipped — libSystem.tbd, so the symbols resolve
+    libc declarations  NOT shipped  <- the only gap
+
+  And the closure of what is actually called is ten functions (measured, by
+  reading every call site in `vendor/md4c/md4c.c` and `csrc/md_events.c`):
+
+    stdlib.h   malloc realloc free qsort bsearch
+    string.h   memcpy memmove memset memcmp strchr
+    stdio.h    nothing — md4c includes it and calls nothing from it. Its 43
+               occurrences of `abort` are a goto label, not the libc function.
+
+WHAT WAS BUILT
+  `csrc/libc/{stdlib,string,stdio}.h` declare those ten and no more.
+  `lakefile.lean` passes `(← getLeanCc)` and `-I csrc/libc`.
+  `LITEDOC4_SYSTEM_CC=1` selects the old path — the machine's `cc` with its real
+  headers — as a control arm. Nothing selects it automatically.
+
+THE RESULT (measured)
+
+  arm                                        compiler that ran      vs Rust
+  shim + getLeanCc                           <toolchain>/bin/clang  0 of 422
+  LITEDOC4_SYSTEM_CC=1                       cc                     0 of 422
+  the two arms against each other                                   0 of 422
+
+  Bytes on every arm: 24,546,157, the Rust figure.
+
+  Which compiler ran was read off `lake build -v`, not inferred from the build
+  succeeding — the build is green either way, and that is how the `cc` default
+  went unnoticed in the first place.
+
+A CHECK THAT WAS PROPOSED, TRIED, AND DOES NOT WORK
+  The plan was that the 422-page comparison would guard the shims: a
+  declaration that disagrees with the real libc would show up as a wrong page.
+  **It does not.**
+
+  `memset` was redeclared with its second and third parameters swapped —
+  `void *memset(void *s, size_t n, int c)` for the real
+  `void *memset(void *s, int c, size_t n)`. It compiled without a warning,
+  rendered without a crash, and produced **all 422 pages byte-identical**
+  (measured, arm64 macOS). The call sites pass 0 and a length, and those two
+  values go into the same two registers whichever way the parameters are
+  declared, so the wrong declaration is a no-op on this ABI. On another ABI it
+  would not be, and nothing in the output would have said so.
+
+  **A declaration can be wrong in a way no output reveals.** This is the
+  general form of a rule this repository already has — do not gate on an
+  observable that the defect does not have to move.
+
+WHAT GUARDS THEM INSTEAD
+  `csrc/libc-conformance.c` includes the platform's real headers and then the
+  shims, and lets the compiler do the comparison. Run by
+  `benchmarks/lean-prototype/libc-shim-gate.sh`.
+
+  Made to fail before it was allowed to pass: with the swapped `memset` still
+  in place it reports (measured)
+
+    csrc/libc/string.h:13:7: error: conflicting types for 'memset'
+    /Library/.../_string.h:84:3: note: previous declaration is here
+
+  One line, naming the function. With the correct header it passes against
+  Apple clang 17.0.0.
+
+  `-D_FORTIFY_SOURCE=0` is required and is not cosmetic: macOS rewrites the
+  `mem*` family into macros, and a macro cannot be compared against a
+  declaration — without it the gate fails on `memcpy` for a reason that has
+  nothing to do with the shims.
+
+  The gate is not in `tools/gates.txt`, for the reason `mathml-gate.sh` is not:
+  the product does not depend on the prototype. It needs the system compiler
+  and its real headers, so it is a gate and not part of the build — and note
+  that this inverts the usual direction. The *default* build needs no system
+  compiler; the *check* on it does.
+
+WHERE THIS LEAVES THE STUDY'S MOTIVE
+
+    a consumer on a platform with no release asset needs
+      today          Rust toolchain + C compiler + node
+      pure Lean      elan
+
+  Measured on arm64 macOS only. The claim for Windows and Linux rests on the
+  toolchain shipping the same three things there, which is how elan is built
+  but was not verified here — and Windows is precisely where MD4Lean found it
+  necessary, so it is the one to check first.
