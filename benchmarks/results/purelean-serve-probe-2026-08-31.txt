@@ -1,0 +1,58 @@
+purelean M4 — can Lean drive the resident extractor?
+====================================================
+2026-08-31. `litedoc4 build` keeps one Lean environment alive and talks to it
+over a pipe: it writes a request line to the child's stdin and reads a reply
+from its stdout, and the child ends when stdin closes. Rust does this with
+`Command` + `drop(stdin)` (`crates/litedoc4/src/resident.rs`). Whether Lean can
+hold the same shape was unmeasured — `IO.Process.spawn` has `.piped` on all
+three handles, but Lean has no explicit close and a handle is released by the
+garbage collector.
+
+Conditions
+----------
+  machine     Darwin 25.6.0, arm64 (M-series), 16 GB
+  Lean        leanprover/lean4:v4.31.0
+  driver      a standalone Lean program run with `lake env lean --run`,
+              importing nothing but core (no `import Lean`)
+  extractor   e2e/micro/.lake/e2e-extract/extract, started through `lake env`
+              with cwd = e2e/micro, exactly the argv Rust uses
+  request     2 of e2e/micro's 11 modules (Example, Example.Basic)
+
+What happened
+-------------
+  * the server printed its `ready <ns> <envModules> <targets>` line and the
+    driver read it;
+  * the driver wrote one request line `<modules>\t<events>\t<ir-dir>\n` and
+    flushed;
+  * the server wrote its progress lines and then `ok 0 65996416`;
+  * the driver stopped holding stdin and the child exited 0.
+
+  wall clock 4.37 s real / 0.49 user / 0.74 sys for the whole probe, which is
+  dominated by `lake env` building the environment, not by the protocol.
+
+The output is byte-identical to the Rust-driven extraction
+-------------------------------------------------------------
+  ir/modules/Example.json        identical to the M3 tree
+  ir/modules/Example.Basic.json  identical to the M3 tree
+
+  (compared against /private/tmp/lean-doc-relay/purelean-m3/build/ir, which was
+  written by the Rust `build` in an earlier session.)
+
+What this settles
+-----------------
+  Lean can drive the resident extractor. No second mechanism (a temporary
+  file, one process per round, a socket) has to be invented for M4.
+
+What it does NOT settle
+-----------------------
+  * **Closing stdin is not explicit.** Rust drops the handle; here the child
+    ended when the driver stopped referring to it, which is the garbage
+    collector's timing rather than the program's. It worked in this probe. A
+    driver that keeps the handle alive in a structure — which the real one
+    will, since it holds the child across rounds — may not get the same
+    behaviour, and the failure mode is a build that never returns.
+  * Only one request was made. The real loop re-checks the olean generation
+    before and after every request (`Generation::take`), and that was not
+    exercised.
+  * stderr was inherited, as Rust does. Nothing checked what happens when the
+    child writes to it heavily.
