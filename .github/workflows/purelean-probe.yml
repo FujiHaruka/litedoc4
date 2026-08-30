@@ -48,9 +48,13 @@ jobs:
           for i in 1 2 3; do
             rm -rf .lake
             T0=$(date +%s.%N)
-            lake build bench render
+            lake build render
             T1=$(date +%s.%N)
             echo "PROBE renderer.build.$i $(echo "$T1 - $T0" | bc)"
+            T2=$(date +%s.%N)
+            lake build bench
+            T3=$(date +%s.%N)
+            echo "PROBE benchonly.build.$i $(echo "$T3 - $T2" | bc)"
           done
           for f in .lake/build/bin/*; do
             case "$f" in *.hash|*.rsp|*.trace) continue;; esac
@@ -64,6 +68,6 @@ jobs:
           cd benchmarks/lean-prototype
           touch Render.lean
           T0=$(date +%s.%N)
-          lake build bench render
+          lake build render
           T1=$(date +%s.%N)
           echo "PROBE renderer.rebuild $(echo "$T1 - $T0" | bc)"
