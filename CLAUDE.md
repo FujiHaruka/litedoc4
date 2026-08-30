@@ -186,7 +186,13 @@ causally is overstatement.
 ## Benchmarks
 
 **The measurement target is always `/Users/haruka/dev/lean-projects`** (the Lean 4 + Mathlib
-`InformationTheory` project, 432 modules, depending on all of Mathlib).
+`InformationTheory` project, depending on all of Mathlib). **It has 422 modules as of
+2026-08-31, not the 432 most numbers here were measured against** — ten
+`Shannon.BroadcastChannel.*` modules left the sources and only their stale oleans keep
+`benchmarks/results/it-modules.txt` (frozen at 432) working
+(→ `benchmarks/results/target-drift-2026-08-31.txt`). **Every recorded 432-era number stays
+correct** — the denominator belongs to its measurement. A new number has a denominator of
+422, and putting the two side by side is the "do not mix conditions" mistake.
 
 The target is fixed because **a comparison is only meaningful on the same workload**.
 Every number in this repository was taken on this target, and the baseline already exists.

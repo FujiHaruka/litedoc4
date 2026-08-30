@@ -1,0 +1,43 @@
+The measurement target has 422 modules, not 432
+===============================================
+2026-08-31. Noticed while reading `tools/ledger-reference.sh`, which drives
+`ledger build` off the frozen list `benchmarks/results/it-modules.txt`.
+
+  benchmarks/results/it-modules.txt   432 lines (frozen, do not rewrite)
+  litedoc4 modules --root /Users/haruka/dev/lean-projects --lib InformationTheory
+                                      422 modules (measured today)
+
+The ten that are gone, all from one subtree:
+
+  InformationTheory.Shannon.BroadcastChannel.Marton.CardinalityBound
+  InformationTheory.Shannon.BroadcastChannel.Marton.ObjectiveAssembly
+  InformationTheory.Shannon.BroadcastChannel.Marton.ObjectiveConvexity
+  InformationTheory.Shannon.BroadcastChannel.Marton.ObjectiveVectorForm
+  InformationTheory.Shannon.BroadcastChannel.Marton.RegionCardinality
+  InformationTheory.Shannon.BroadcastChannel.Marton.SupportReduction
+  InformationTheory.Shannon.BroadcastChannel.Marton.Swap
+  InformationTheory.Shannon.BroadcastChannel.MoreCapableBinary
+  InformationTheory.Shannon.BroadcastChannel.OuterBoundTransport
+  InformationTheory.Shannon.BroadcastChannel.Thm7Region
+
+They left the *sources*. Their oleans are still under
+`.lake/build/lib/lean` (705 oleans against 422 source modules), which is why
+`ledger build` over the frozen 432-line list still succeeds and why nothing
+had failed.
+
+What this does and does not mean
+--------------------------------
+  * **Every number already recorded against "432 modules" stays correct.** It
+    was measured on the target as it stood, and `benchmarks/results/**` is
+    never rewritten. The denominator belongs to the measurement, not to today.
+  * **A number measured from here on has a denominator of 422**, and putting
+    one next to a 432-era number is the "do not mix conditions" mistake with a
+    different variable. Say which the number is against.
+  * `tools/ledger-reference.sh` and anything else driving off
+    `it-modules.txt` is now extracting from a list that names ten modules with
+    no source. That is not a failure today (the oleans are there), but it is a
+    reference tree nobody could regenerate from the sources.
+
+Not investigated: whether the ten were deleted, renamed, or moved behind a
+different library root, and whether the target's git history says so. The
+target is not this repository's to change.

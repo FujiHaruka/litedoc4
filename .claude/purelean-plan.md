@@ -371,6 +371,74 @@ Lean が出すようになったら「Generation landed, so delete the normalisa
 - **完了判定**: `incremental-compare.sh` / `impact-compare.sh` / `merge-compare.sh` /
   `ledger-compare.sh` / `onemod-gate.sh` が Lean 実装で緑
 
+#### 完了判定そのものを直す必要がある（実測 2026-08-31）
+
+**5 つのうち 4 つは「ゲート」ではなく比較器で、Lean を指せない。**
+`incremental` / `impact` / `merge` / `ledger` の `*-reference.sh` は 4 本とも
+`RUST_BIN="$REPO/target/release/litedoc4"` を**ハードコード**していて、フラグも環境変数も無い
+（実測）。`tools/gates.txt` にも 4 本とも載っていない — 載っているのは `onemod-gate.sh` だけ。
+**U13 で `LITEDOC4` 環境変数を足す**（`purelean-*-gate.sh` と同じ綴りにする。
+バイナリを `target/release/litedoc4` に置き換えるのは、Rust のオラクルを壊すので取らない）。
+
+**`onemod-gate.sh` だけは本物のゲート**で、要求は 3 つ、うち 2 つは**等号ではなく不等号**:
+`modulesExtracted >= 1`（0 は「速いビルド」ではなく「走らなかったビルド」）/
+`1 <= pagesRendered < modules`（上限は `.lidx` が毎回動く退行を捕まえる。
+その digest は `renderKey` の入力なので、1 宣言増えるだけで全ページ再描画になる）/
+`serve.out` に extractor 自身の `linkIndex … reused` 行があること
+（「動いていない」と「書かれていない」はバイトで区別できないので**ファイルではなく extractor に訊く**）。
+
+#### 大きなヘッドスタートが 1 つある
+
+**`benchmarks/lean-prototype/Incr.lean`（1,079 行、43 KB、core だけ）が
+`impact` / `ownership` / `merge` を実装済み**で、422 モジュールの対象で Rust と
+バイト一致を確認済み（→ `benchmarks/results/purelean-incremental-2026-08-30.txt`）。
+**ただし無いものがそのファイル自身に書いてある**: `--census` / `--changed-file` /
+`--exclude` / `--removed` / `--modules` / `--timings` / `merge --verify`、そして
+拒否のほぼ全部。自前の JSON リーダと型も持っているので、`src/` に入れるには
+`Litedoc4.Json` / `Litedoc4.Ir` に載せ替えが要る。**「1,079 行あるから終わり」ではない**。
+
+#### 移植の単位（U1〜U13）
+
+| # | 単位 | Rust | 状態 |
+|---|---|---|---|
+| U1 | `openUnvalidated` / `Ordered α` | `ir/reader.rs`, `incr/ordered.rs` | 小 |
+| U2 | ledger **リーダ** + `KeySet.diff` + `checkLedger` + 3 つの出力ファイル | `incr/detect.rs`, `ledger.rs` | ライタはある、**リーダは無い** |
+| U3 | `ledger touch` | `incr/detect.rs:409` | 極小 |
+| U4 | `impact`（4 つの mode） | `incr/impact.rs` | プロトタイプあり |
+| U5 | `ownership` — **`watching` ガードを保つ** | `incr/ownership.rs` | プロトタイプあり |
+| U6 | `merge` + `--verify` | `incr/merge.rs` (773) | **`merge-reference.sh` は対象リポジトリ不要 = 一番安く立つ** |
+| U7 | `prune` | `incr/prune.rs` (518) | **ゼロから** |
+| U8 | `ModuleSet` + `--only` / `--only-from` | `render/site.rs` | ゼロから。**`purelean-render-gate.sh` 項目 5 が「`--only` を拒否する」を主張しているので同じ変更で直す** |
+| U9 | global の delta（`--before` / `--print-set` / `--delta-json`） | `global/delta.rs` | `tokens` はある |
+| U10 | `Resident`: **遅延起動** / リクエスト数 / 冪等な stop / `foldTimings` | `resident.rs`, `extract.rs` | 今は単発 |
+| U11 | `incremental` パイプライン本体 | `pipeline.rs` (1,534) | **ゼロから**。`tests/incremental.rs` の 61 分岐が点検表 |
+| U12 | `planOf` の検査 4〜9 + `incrementalGeneration` | `build.rs` | U11 の後なら小 |
+| U13 | ゲート配線（4 本に `LITEDOC4`、micro ゲートを 14 → 16） | — | **新項目は 1 つずつ落としてから通す** |
+
+**`ownership` の bimodality の正体**（実測）: `lostOwners` も `gainedOwners` も空なら
+**base の IR を 1 つも読まない**。空でなければ **exclude を除く全 base モジュールを読む**。
+e2e/micro で `scannedBaseModules` が **10 と 0**、対象で **423 読み対 2 読み**。
+**`watching` ガードは最適化ではなく、その 2 つを分ける唯一のもの** — 無条件にループする
+移植は「正しくて 200 倍遅い」。
+
+**`irReads` の実測値**（項目 13 が丸ごと比較するので、ここがずれると出る）:
+full = `{3, 22, 4, 29}` / incremental で何も stale でない = `{5, 11, 2, 18}` /
+1 モジュール編集 = `{10, 46, 4, 60}`。
+
+#### M5 に入る前に塞ぐもの: `Json.lean` は整数しか読まない
+
+`JScan.digits` は小数点も指数も符号も読まない（実測）。**`incremental --timings` は
+`work/*-timings*.json` を読み戻し、それらは `"copySeconds":0.000398834` を含む**ので、
+Lean のパーサは `.` で `,` を期待して `panic!` する。**U11 の前に直す。**
+
+そしてこれは、より大きな話の一部: **M1〜M4 で Lean が読んだ JSON は「同じ run で自分の
+extractor が書いたもの」だけだった。M5 は自分より前から在るファイルを読み始める** —
+`--ledger`（**任意のバージョンが書いた**、手編集もありうる。M5 が読む中で最も鋭い入口）/
+marker（**壊れた run** が残したもの。Lean は既に `.malformed` を持つ）/
+`<out>/ir/**`（**古い litedoc4** が書いた木を CI キャッシュが戻す）/
+`name-map.json` を `--before` として。**どれもファイル名を言って止まる必要があり、
+既定値を返して続けてはいけない**。
+
 ### M6 watch と HTTP サーバ（`Std.Async.TCP`）
 - **完了判定**: `watch-gate.sh` が Lean 実装で緑
 
