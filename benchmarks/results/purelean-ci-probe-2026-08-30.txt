@@ -1,0 +1,58 @@
+pure-Lean replacement study — what Lean compilation costs on a CI runner
+=======================================================================
+2026-08-30. The number `purelean-ci-runs-2026-08-30.txt` said the CI axis
+reduces to, measured.
+
+THE QUESTION
+  A pure-Lean litedoc4 stops downloading a Rust binary (2.9 s where a release
+  asset exists; 23.6-27.6 s of `cargo build` where one does not) and instead
+  compiles more Lean **inside the extractor build that already runs**. So: how
+  long does Lean take to build the renderer, on the same runner, next to the
+  extractor?
+
+WHERE
+  FujiHaruka/litedoc4, branch `purelean-ci-probe` (measurement only, never
+  merged), `.github/workflows/purelean-probe.yml`, run 33289444629,
+  ubuntu-latest. A `push:` trigger naming the branch, because a workflow absent
+  from the default branch cannot be dispatched by name.
+  The environment is borrowed from `e2e/micro` (0 dependencies, no Mathlib).
+
+MEASURED
+  setup-elan                                              17.0 s
+  build e2e/micro (the borrowed environment; not counted)  1.0 s
+  A — extractor alone, Extract.lean 3,174 lines           11.65 s
+      binary                                              226,671,304 B
+  B — the Lean renderer prototype, from clean              4.79 s
+      Render.lean 1,612 + Main.lean 1,070 = 2,682 lines
+
+  So **4.79 s of Lean compilation buys the renderer**, against **2.9 s** for the
+  Rust binary's release download. **Net +1.9 s** on a cache-cold CI run, and
+  0 s whenever the extractor cache is warm (both halves live in the same cache
+  entry, keyed on toolchain + sources).
+
+  Against the `cargo build` path — the one Windows and Intel macOS take, because
+  no release asset covers them — 4.79 s replaces **23.6-27.6 s**, a saving of
+  ~19-23 s. That is the platform where pure Lean is unambiguously ahead.
+
+READ WITH CARE
+  - **2,682 lines, not 1,612**: Lake builds `bench` (the floor benchmark) as
+    well as `render`. The renderer alone is less than 4.79 s and this
+    measurement does not separate them. It is an upper bound for 1,612 lines.
+  - **11.65 s here vs 19.4-20.9 s in information-theory's job** (measured,
+    purelean-ci-runs-2026-08-30.txt) for the same Extract.lean. The difference
+    is the environment being borrowed: e2e/micro has 0 dependencies, the
+    measurement target has 15 including all of Mathlib. Extractor build time is
+    not a property of Extract.lean alone.
+  - The renderer prototype has **no Markdown, no math, no incremental path and
+    no global artifacts**. Those add lines and therefore compile time.
+  - The extractor binary is **226 MB**. A Lean renderer in the same binary adds
+    its own code to that, not another 226 MB — but a Lean binary is two orders
+    of magnitude larger than the Rust one (3.4 MB), which is why the Lean half
+    is built by the consumer and cached rather than downloaded.
+
+WHAT FAILED IN THIS RUN
+  Step B's last line (`ls .lake/build/bin/render`) and step B2 (the warm
+  rebuild) did not run: the step exited non-zero on that `ls` under
+  `set -euo pipefail`. The two timings above are unaffected — they are printed
+  before it — but the renderer's binary size and its incremental rebuild time
+  are NOT in this file.
