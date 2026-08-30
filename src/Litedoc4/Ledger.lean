@@ -103,6 +103,7 @@ partial def jvalJson : JVal → String
   | .null => "null"
   | .bool b => if b then "true" else "false"
   | .num n => toString n
+  | .real lex => lex
   | .str s => jsonStr "" s
   | .arr a => "[" ++ ",".intercalate (a.toList.map jvalJson) ++ "]"
   | .obj a => "{" ++ ",".intercalate (a.toList.map fun (k, v) => jsonStr "" k ++ ":" ++ jvalJson v)
