@@ -397,6 +397,24 @@ Lean が出すようになったら「Generation landed, so delete the normalisa
 拒否のほぼ全部。自前の JSON リーダと型も持っているので、`src/` に入れるには
 `Litedoc4.Json` / `Litedoc4.Ir` に載せ替えが要る。**「1,079 行あるから終わり」ではない**。
 
+#### オラクルの記録（2026-08-31 に 3 本取った）
+
+`*-reference.sh` は**実装の答えを記録する**スクリプトで、`*-compare.sh` が 2 つの記録を
+比べる。**Rust 側の記録は取ってある**ので、Lean 側は同じ引数で 2 本目を取るだけでよい。
+`LITEDOC4` を渡す（U13 の前半、`62bab9b`）。**対象リポジトリは読むだけ。**
+
+| 記録 | 入力 | 出力 |
+|---|---|---|
+| ledger | `--ir /private/tmp/lean-doc-relay/purelean/ir`（422 モジュール） | `m5-ledger/rust`（78 ファイル、1.1 MB） |
+| merge / ownership | `--base-ir` 同上 | `m5-merge/rust`（3,961 ファイル、141 MB） |
+| impact / prune | `--base-ir` 同上 / `--pages m5-render/rust` / `--site m5-impact/ref-site` | `m5-impact/rust`（3,585 ファイル） |
+
+`m5-impact/ref-site` は `target/release/litedoc4 site` で作った 422 ページのサイト（26 MB）、
+`m5-render/rust` は `purelean-render-gate.sh` が残したページ木。
+**`it-modules.txt` は 432 のまま動く** — 10 個の stale な olean が残っているので
+`ledger build` は 432 モジュール全部にハッシュを付けられる（実測: `clean` シナリオが
+432 モジュール 0 changed で通る）。
+
 #### 移植の単位（U1〜U13）
 
 | # | 単位 | Rust | 状態 |
