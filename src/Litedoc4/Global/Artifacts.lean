@@ -44,6 +44,9 @@ structure Counts where
 
 structure Artifacts where
   nameMapJson : String := ""
+  /-- The delta's `after` side — the same map `nameMapJson` is written from,
+  kept as a map because the delta asks it one name at a time. -/
+  nameMap : Std.HashMap String String := Std.HashMap.emptyWithCapacity 0
   indexHtml : String := ""
   notFoundHtml : String := ""
   searchHtml : String := ""
@@ -145,6 +148,7 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
   -- The two lists are concatenated *before* sorting, so a name in both appears
   -- twice and a declaration always wins over a dependency slice.
   let merged := sortUtf16 (sortedNames ++ depNames)
+  let mut flatMap : Std.HashMap String String := Std.HashMap.emptyWithCapacity merged.size
   let mut nameMapJson := "{"
   let mut previous : Option String := none
   let mut firstName := true
@@ -154,6 +158,7 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
     let module := match nameMap.get? name with
       | some (module, _) => module
       | none => deps.getD name ""
+    flatMap := flatMap.insert name module
     if !firstName then nameMapJson := nameMapJson.push ','
     firstName := false
     nameMapJson := (jsonStr nameMapJson name).push ':'
@@ -225,6 +230,7 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
   let title := titleOverride.getD (siteTitle ownSorted)
   return {
     nameMapJson
+    nameMap := flatMap
     indexHtml := indexHtml title intro pages sortedNames.size leanVersion
     notFoundHtml := notFoundHtml title
     searchHtml := searchHtml title

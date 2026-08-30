@@ -77,6 +77,11 @@ def printGlobalSummary (label : String) (d : GlobalSummary) : IO Unit := do
   IO.println s!"{label}module descriptions {d.summariesRendered} of {d.modules} \
     ({d.summariesEchoingTheName} repeat the module name)"
   IO.println s!"{label}cache {d.cacheHits} hit / {d.cacheMisses} miss  state {d.stateBytes} B"
+  if let some delta := d.delta then
+    IO.println s!"{label}delta: {delta.changed.size} name(s) moved in or out of the map \
+      ({delta.beforeNames} -> {delta.afterNames}) -> {delta.affected.size} page(s) to re-render"
+    for w in delta.witnesses.extract 0 10 do
+      IO.println s!"{label}  {w.module}  (mentions `{w.name}`)"
 
 /-! ## The source URL -/
 
@@ -680,8 +685,9 @@ def runBuild (r : BuildRequest) : BuildM Unit := do
   let rendered ← renderSite
     { ir := layout.ir, pages := layout.site, sourceUrl
       linkIndex := some linkIndex, external := r.external, title := config.title }
-  let derived ← buildGlobal layout.ir layout.site (some layout.state) config.indexMarkdown
-    config.title
+  let derived ← buildGlobal
+    { ir := layout.ir, out := layout.site, state := some layout.state
+      indexMarkdown := config.indexMarkdown, title := config.title }
   printRenderSummary "render  " rendered
   printGlobalSummary "global  " derived
 

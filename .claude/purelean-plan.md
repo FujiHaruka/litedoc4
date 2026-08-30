@@ -432,8 +432,8 @@ Lean 側が同じバイトを出すには**同じ `--pages` が要る**。今は
 | U5 | `ownership` — **`watching` ガードを保つ** | `incr/ownership.rs` | **済み 2026-08-31** |
 | U6 | `merge` + `--verify` | `incr/merge.rs` (773) | **済み 2026-08-31** |
 | U7 | `prune` | `incr/prune.rs` (518) | **済み 2026-08-31** |
-| U8 | `ModuleSet` + `--only` / `--only-from` | `render/site.rs` | ゼロから。**`purelean-render-gate.sh` 項目 5 が「`--only` を拒否する」を主張しているので同じ変更で直す** |
-| U9 | global の delta（`--before` / `--print-set` / `--delta-json`） | `global/delta.rs` | `tokens` はある |
+| U8 | `ModuleSet` + `--only` / `--only-from` | `render/site.rs` | **済み 2026-08-31** |
+| U9 | global の delta（`--before` / `--print-set` / `--delta-json`） | `global/delta.rs` | **済み 2026-08-31**（`global` サブコマンドごと） |
 | U10 | `Resident`: **遅延起動** / リクエスト数 / 冪等な stop / `foldTimings` | `resident.rs`, `extract.rs` | 今は単発 |
 | U11 | `incremental` パイプライン本体 | `pipeline.rs` (1,534) | **ゼロから**。`tests/incremental.rs` の 61 分岐が点検表 |
 | U12 | `planOf` の検査 4〜9 + `incrementalGeneration` | `build.rs` | U11 の後なら小 |
@@ -541,6 +541,29 @@ prune の答えは時計を除いて全部比較されている。
   `litedoc4_ir::page_path` と `litedoc4_render::page_path` を分けている。
   畳むと **Windows で区切りが `\` の経路の中に `/` が入る**。
   反証条件はリリースの triple から Windows が消えること
+
+#### U8 / U9 で分かったこと（2026-08-31）
+
+`--only` / `--only-from` は 6 通り（1 つ / 2 つ / ファイル 3 名 / 空ファイル /
+IR に無い名前 / 両方併用）で**ページ木・stdout・終了コードとも Rust と一致**。
+`global --ir <422 モジュール> --out` は 9 ファイルがバイト一致し、
+delta は `--before` を 4 通り作って `--print-set` / `--delta-json` /
+木 / stdout とも一致（`--delta-json` の差は 3 つの `*Seconds` だけ）。
+
+- **空の `--only-from` は「何も描かない」で、`--pages` を作りさえしない**（両バイナリ）。
+  IR に無い名前も**黙って空集合**で exit 0 — 綴り間違いは言ってくれない（Rust に忠実）
+- **`Global/Delta.lean` の持続時間が何も測っていなかった**（実測して直した）。
+  2 つの `IO.monoNanosNow` の間に純粋な `let` を置くと、**Lean はその値が最初に見られる
+  場所まで計算を動かす**ので、212 モジュールを走査している間の `scanSeconds` が **84 ns**
+  と出ていた。`timedPure`（`IO.mkRef` は不透明な extern なので仕事が越えられない）を入れて
+  0.0019 s に。**`Ledger.lean` の phase は IO を挟むので本物**だったが、
+  **純粋な段を計る Lean の実装は全部この穴を持つ**
+- **項目 5 は `--deps-docs-map` に付け替えた**（`render` でまだ実装していない唯一のフラグ）。
+  形は変えていない — 黙って無視されるフラグは項目 3 / 4 のバイト比較に映らない。
+  2 通りで落として確認した
+- **`--only` はバイト一致を確認したが、どのゲートも通っていない** → micro ゲートの新項目へ
+- **micro ゲート項目 12 の但し書きは嘘になった** — Lean に `global` ができたので
+  `config-gate.sh` のオラクルは Lean にできる
 
 #### M5 に入る前に塞ぐもの: `Json.lean` は整数しか読まない → **2026-08-31 に塞いだ**
 

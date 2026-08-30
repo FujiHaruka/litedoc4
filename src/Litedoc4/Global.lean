@@ -1,11 +1,35 @@
 /- `crates/litedoc4-global/src/site.rs`: an IR tree in, the whole-package
 artifacts out. -/
 import Litedoc4.Global.Artifacts
+import Litedoc4.Global.Delta
 import Litedoc4.Global.State
 
 open System
 
 namespace Litedoc4
+
+structure GlobalOptions where
+  /-- The IR tree: `index.json`, `modules/`, `deps/`. -/
+  ir : FilePath
+  /-- The site root, next to the module pages. `declarations/` is created under
+  it for the name map. -/
+  out : FilePath
+  /-- Where the `contentHash` cache lives. `none` reads every module, which is
+  the from-scratch build. -/
+  state : Option FilePath := none
+  /-- A previous `name-map.json`. `some` turns the delta on; nothing else does. -/
+  before : Option FilePath := none
+  /-- The affected modules, one per line, for the incremental pipeline. Ignored
+  without `before`. -/
+  printSet : Option FilePath := none
+  /-- The delta's diagnostic summary. Ignored without `before`. -/
+  deltaJson : Option FilePath := none
+  /-- `litedoc4.toml`'s two keys, resolved by whoever read the file — `--root`
+  names the package this stage is never told about, and the index path is
+  relative to it. -/
+  indexMarkdown : Option String := none
+  title : Option String := none
+  deriving Inhabited
 
 structure GlobalSummary where
   modules : Nat := 0
@@ -24,6 +48,8 @@ structure GlobalSummary where
   cacheHits : Nat := 0
   cacheMisses : Nat := 0
   stateBytes : Nat := 0
+  /-- `some` iff `--before` was given. -/
+  delta : Option Delta := none
   deriving Inhabited
 
 /-- One `ModuleFacts` per index entry, in index order, and where each came
@@ -54,26 +80,50 @@ def factsFor (tree : IrTree) (cached : State) : IO FactsRun := do
       run := { run with facts := run.facts.push derived, cacheMisses := run.cacheMisses + 1 }
   return run
 
-/-- `indexMarkdown` and `title` are `litedoc4.toml`'s two keys, resolved by
-whoever read the file — `--root` names the package this stage is never told
-about, and the index path is relative to it. -/
-def buildGlobal (ir out : FilePath) (state : Option FilePath := none)
-    (indexMarkdown : Option String := none)
-    (title : Option String := none) : IO GlobalSummary := do
-  let tree ← openIrTree ir
-  let cached ← State.load state tree.index
+/-- Fails loudly, unlike `State.load`: `--before` names a file the caller
+believes in, and a delta computed against an unreadable map would report every
+name in the package as changed. -/
+def readNameMap (path : FilePath) : IO (Std.HashMap String String) := do
+  let text ← IO.FS.readFile path
+  let bad (why : String) : IO (Std.HashMap String String) :=
+    throw (IO.userError s!"{path}: {why}")
+  match parseJson text with
+  | .error why => bad why
+  | .ok (.obj pairs) => do
+    let mut map : Std.HashMap String String := Std.HashMap.emptyWithCapacity (pairs.size * 2 + 8)
+    for (name, value) in pairs do
+      match value with
+      | .str module => map := map.insert name module
+      | _ => return ← bad s!"the name map's `{name}` is not a string"
+    return map
+  | .ok _ => bad "the name map is not a JSON object"
+
+def buildGlobal (o : GlobalOptions) : IO GlobalSummary := do
+  let tree ← openIrTree o.ir
+  let cached ← State.load o.state tree.index
   let run ← factsFor tree cached
   let facts := run.facts
   let depMaps ← tree.loadDepMaps
   let artifacts :=
-    derive facts depMaps title (indexMarkdown.map introHtml) tree.index.leanVersion
+    derive facts depMaps o.title (o.indexMarkdown.map introHtml) tree.index.leanVersion
   for (relative, body) in artifactFiles artifacts do
-    let path := irPath out relative
+    let path := irPath o.out relative
     match path.parent with
     | some dir => IO.FS.createDirAll dir
     | none => pure ()
     IO.FS.writeBinFile path body
-  let stateBytes ← State.save state tree.index facts
+  let written ← IO.monoNanosNow
+  let delta ← match o.before with
+    | none => pure none
+    | some path => do
+      let before ← readNameMap path
+      let (changed, diffed) ← timedPure (deltaChanged before artifacts.nameMap)
+      let (delta, scanned) ← timedPure (deltaScan before.size artifacts.nameMap.size changed facts)
+      if let some path := o.printSet then writeFile path (deltaPrintSet delta)
+      if let some path := o.deltaJson then
+        writeFile path (deltaJson delta (diffed - written) (scanned - diffed) (scanned - written))
+      pure (some delta)
+  let stateBytes ← State.save o.state tree.index facts
   let counts := artifacts.counts
   return {
     modules := facts.size
@@ -91,6 +141,7 @@ def buildGlobal (ir out : FilePath) (state : Option FilePath := none)
     searchIndexBytes := artifacts.searchIndexBin.size
     cacheHits := run.cacheHits
     cacheMisses := run.cacheMisses
-    stateBytes }
+    stateBytes
+    delta }
 
 end Litedoc4

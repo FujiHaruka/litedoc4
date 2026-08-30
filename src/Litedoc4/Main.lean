@@ -19,9 +19,13 @@ def usage : String :=
        litedoc4 render --ir <dir> --pages <dir> --source-url <url>
                        (--link-index <file> | --no-link-index)
                        [--root <dir>] [--lake <path>]
+                       [--only <Module>]... [--only-from <file>]...
        litedoc4 site --ir <dir> --out <dir> --source-url <url>
                      (--link-index <file> | --no-link-index)
                      [--state <dir>] [--root <dir>] [--lake <path>]
+       litedoc4 global --ir <dir> --out <dir> [--root <dir>] [--state <dir>]
+                       [--before <name-map.json>] [--print-set <file>]
+                       [--delta-json <file>]
        litedoc4 ledger build --modules <file> --target <repo> --out <ledger.json>
                              [--ir <dir>] [--source-url <url>] [--link-index <file>]
                              [--root <dir>] [--lake <path>] [--algorithm <name>]
@@ -54,14 +58,20 @@ structure RenderArgs where
   noLinkIndex : Bool := false
   root : Option String := none
   lake : Option String := none
+  /-- The `--only` names, and the `--only-from` paths, kept apart because one of
+  the two costs a file read. Both empty is "no subset asked for"; either
+  non-empty is a subset, and `--only-from` naming an empty file is the subset
+  that came out empty. -/
+  only : Array String := #[]
+  onlyFrom : Array String := #[]
   help : Bool := false
   deriving Inhabited
 
 /-- Flags the Rust `render` takes and this one does not. They are refused by
-name rather than ignored: a run that silently dropped `--only` would write every
-page, and the output would look like a match. -/
+name rather than ignored: a run that silently dropped one would write the same
+pages as a run that honoured it, and the output would look like a match. -/
 def renderUnimplemented : List String :=
-  ["--deps-docs-map", "--only", "--only-from"]
+  ["--deps-docs-map"]
 
 partial def parseRender : List String → RenderArgs → Except String RenderArgs
   | [], acc => .ok acc
@@ -84,6 +94,10 @@ partial def parseRender : List String → RenderArgs → Except String RenderArg
       let (v, more) ← value; parseRender more { acc with root := some v }
     else if flag == "--lake" then do
       let (v, more) ← value; parseRender more { acc with lake := some v }
+    else if flag == "--only" then do
+      let (v, more) ← value; parseRender more { acc with only := acc.only.push v }
+    else if flag == "--only-from" then do
+      let (v, more) ← value; parseRender more { acc with onlyFrom := acc.onlyFrom.push v }
     else if flag == "--help" || flag == "-h" then
       parseRender rest { acc with help := true }
     else if renderUnimplemented.contains flag then
@@ -149,6 +163,15 @@ def resolveExternal (root lake : Option String) : IO ExternalLinks := do
 def renderInputs (root lake : Option String) : IO RenderInputs := do
   return { external := ← resolveExternal root lake, config := ← readSiteConfig (root.map (⟨·⟩)) }
 
+/-- The two spellings fold into one set, and both empty stays `all`. -/
+def resolveOnly (names files : Array String) : IO ModuleSet := do
+  if names.isEmpty && files.isEmpty then return .all
+  let mut set : Std.HashSet String := Std.HashSet.emptyWithCapacity (names.size + 64)
+  for name in names do set := set.insert name
+  for file in files do
+    for name in moduleSetLines (← IO.FS.readFile ⟨file⟩) do set := set.insert name
+  return .these set
+
 def render (args : List String) : IO UInt32 := do
   match parseRender args {} with
   | .error message => refuse message
@@ -156,17 +179,21 @@ def render (args : List String) : IO UInt32 := do
     if a.help then
       IO.println usage
       return 0
-    let some ir := a.ir | refuse "--ir is required"
-    let some pages := a.pages | refuse "--pages is required"
-    let some sourceUrl := a.sourceUrl | refuse "--source-url is required"
-    if sourceUrl.isEmpty then return ← refuse "--source-url is required"
-    if a.linkIndex.isSome == a.noLinkIndex then return ← refuse linkIndexRequired
     try
+      -- Before the required-flag checks because Rust reads `--only-from` in the
+      -- flag loop: a file that will not open is exit 1 there even when `--ir` is
+      -- missing too, and moving the read down would make that exit 2.
+      let only ← resolveOnly a.only a.onlyFrom
+      let some ir := a.ir | return ← refuse "--ir is required"
+      let some pages := a.pages | return ← refuse "--pages is required"
+      let some sourceUrl := a.sourceUrl | return ← refuse "--source-url is required"
+      if sourceUrl.isEmpty then return ← refuse "--source-url is required"
+      if a.linkIndex.isSome == a.noLinkIndex then return ← refuse linkIndexRequired
       let inputs ← renderInputs a.root a.lake
       let summary ← renderSite
         { ir := ir, pages := pages, sourceUrl := sourceUrl
           linkIndex := a.linkIndex.map (⟨·⟩)
-          external := inputs.external, title := inputs.config.title }
+          external := inputs.external, title := inputs.config.title, only }
       printRenderSummary "" summary
       return 0
     catch e =>
@@ -255,13 +282,89 @@ def site (args : List String) : IO UInt32 := do
         { ir := ir, pages := out, sourceUrl := sourceUrl
           linkIndex := a.linkIndex.map (⟨·⟩)
           external := inputs.external, title := inputs.config.title }
-      let derived ← buildGlobal ir out (a.state.map (⟨·⟩)) inputs.config.indexMarkdown
-        inputs.config.title
+      let derived ← buildGlobal
+        { ir := ir, out := out, state := a.state.map (⟨·⟩)
+          indexMarkdown := inputs.config.indexMarkdown, title := inputs.config.title }
       -- Labelled per stage: one merged line would lose which half of the tree a
       -- number is about, and the two count different things under the same word
       -- ("modules").
       printRenderSummary "render  " rendered
       printGlobalSummary "global  " derived
+      return 0
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      return 1
+
+structure GlobalArgs where
+  ir : Option String := none
+  out : Option String := none
+  root : Option String := none
+  state : Option String := none
+  before : Option String := none
+  printSet : Option String := none
+  deltaJson : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+/-- Flags the Rust `global` takes and this one does not, refused by name for the
+reason `renderUnimplemented` is. -/
+def globalUnimplemented : List String :=
+  ["--timings"]
+
+partial def parseGlobal : List String → GlobalArgs → Except String GlobalArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} wants a value"
+    if flag == "--ir" then do
+      let (v, more) ← value; parseGlobal more { acc with ir := some v }
+    else if flag == "--out" then do
+      let (v, more) ← value; parseGlobal more { acc with out := some v }
+    else if flag == "--root" then do
+      let (v, more) ← value; parseGlobal more { acc with root := some v }
+    else if flag == "--state" then do
+      let (v, more) ← value; parseGlobal more { acc with state := some v }
+    else if flag == "--before" then do
+      let (v, more) ← value; parseGlobal more { acc with before := some v }
+    else if flag == "--print-set" then do
+      let (v, more) ← value; parseGlobal more { acc with printSet := some v }
+    else if flag == "--delta-json" then do
+      let (v, more) ← value; parseGlobal more { acc with deltaJson := some v }
+    else if flag == "--help" || flag == "-h" then
+      parseGlobal rest { acc with help := true }
+    else if globalUnimplemented.contains flag then
+      .error s!"{flag} is a `global` flag this build does not implement"
+    else
+      .error s!"unknown argument `{flag}`"
+
+/-- The whole-package artifacts, the `contentHash` cache and the map delta.
+
+No `--only`: the derivation is over the whole package by construction, and the
+cache makes it cheap rather than partial. No `--source-url` either — none of the
+nine artifacts carries a source link. `--root` is here for one reason: this
+command writes `index.html`, and `litedoc4.toml` decides what is on it.
+
+`--print-set` / `--delta-json` do nothing without `--before`: the delta is off
+unless there is a map to compare against. -/
+def globalCmd (args : List String) : IO UInt32 := do
+  match parseGlobal args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    let some ir := a.ir | refuse "--ir is required"
+    let some out := a.out | refuse "--out is required"
+    try
+      let config ← readSiteConfig (a.root.map (⟨·⟩))
+      let summary ← buildGlobal
+        { ir := ir, out := out, state := a.state.map (⟨·⟩)
+          before := a.before.map (⟨·⟩), printSet := a.printSet.map (⟨·⟩)
+          deltaJson := a.deltaJson.map (⟨·⟩)
+          indexMarkdown := config.indexMarkdown, title := config.title }
+      printGlobalSummary "" summary
       return 0
     catch e =>
       IO.eprintln s!"litedoc4: {e}"
@@ -1047,6 +1150,7 @@ def main (args : List String) : IO UInt32 := do
   | "render" :: rest => Litedoc4.render rest
   | "ledger" :: rest => Litedoc4.ledger rest
   | "site" :: rest => Litedoc4.site rest
+  | "global" :: rest => Litedoc4.globalCmd rest
   | "ownership" :: rest => Litedoc4.ownershipCmd rest
   | "merge" :: rest => Litedoc4.mergeCmd rest
   | "impact" :: rest => Litedoc4.impactCmd rest

@@ -20,9 +20,16 @@
 #   4 NOLIDX    they differ with `--no-link-index`. A separate item because the
 #               map decides most of the links: agreeing with it and disagreeing
 #               without it is a different defect from the reverse.
-#   5 REFUSED   `render` accepted a flag it does not implement. A silently
-#               ignored `--only` renders every module and still matches, so this
-#               is the one failure the byte comparison cannot see.
+#   5 REFUSED   `render` accepted a flag it does not implement. The flag is
+#               `--deps-docs-map`, which folds where each dependency's
+#               documentation is published into the links a page draws: items 3
+#               and 4 never pass it, so a half that took it and ignored it
+#               writes exactly the bytes they compare. This is the one failure
+#               the byte comparison cannot see. **When the Lean half implements
+#               it, this item does not go away** — it moves to whatever `render`
+#               flag is still missing, and if none is, it becomes the positive
+#               check: both binaries take the flag, both write the same bytes,
+#               and the result is not what a run without it writes.
 #   6 SUMMARY   the two runs' stdout differs. The other failure the byte
 #               comparison cannot see, from the other end: `math spans kept as
 #               LaTeX` reports a fallback that renders a *valid* page, so a half
@@ -180,16 +187,18 @@ else
 fi
 
 say "5/6 a flag render does not implement is refused by name"
+UNIMPLEMENTED=--deps-docs-map
 if [ "$built" -eq 1 ]; then
-  only_rc=0
-  "$LEAN_EXE" render --ir "$WORK/ir" --pages "$OUT/only" --source-url "$SOURCE_URL" \
-    --no-link-index --only InformationTheory >"$OUT/only.out" 2>"$OUT/only.err" || only_rc=$?
-  if [ "$only_rc" -eq 0 ]; then
-    fail 5 "render accepted --only and exited 0 — a subset flag that is ignored renders everything and still matches"
-  elif ! grep -qF -- "--only" "$OUT/only.err"; then
-    fail 5 "render refused --only with exit $only_rc but the message does not name it — see $OUT/only.err"
+  refused_rc=0
+  "$LEAN_EXE" render --ir "$WORK/ir" --pages "$OUT/refused" --source-url "$SOURCE_URL" \
+    --no-link-index "$UNIMPLEMENTED" "$OUT/deps-docs.json" \
+    >"$OUT/refused.out" 2>"$OUT/refused.err" || refused_rc=$?
+  if [ "$refused_rc" -eq 0 ]; then
+    fail 5 "render accepted $UNIMPLEMENTED and exited 0 — a flag that is ignored writes the bytes items 3 and 4 already compare, so nothing else here can see it"
+  elif ! grep -qF -- "$UNIMPLEMENTED" "$OUT/refused.err"; then
+    fail 5 "render refused $UNIMPLEMENTED with exit $refused_rc but the message does not name it — see $OUT/refused.err"
   else
-    pass 5 "exit $only_rc, naming the flag"
+    pass 5 "exit $refused_rc, naming $UNIMPLEMENTED"
   fi
 else
   fail 5 "no Lean binary to run — item 1 did not build one"
