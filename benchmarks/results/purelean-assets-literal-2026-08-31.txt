@@ -1,0 +1,63 @@
+purelean M4 — can a Lean string literal carry the site's assets?
+================================================================
+2026-08-31. The one unmeasured item the M4 plan named: Rust holds the three
+assets with `include_str!`; the Lean half has no such thing, and whether a
+29 KB literal survives the parser, the compiler and a round trip was unknown.
+
+Conditions
+----------
+  machine     Darwin 25.6.0, arm64 (M-series), 16 GB
+  Lean        leanprover/lean4:v4.31.0 (e2e/consumer's toolchain)
+  workspace   e2e/consumer, path require of litedoc4 (warm: a no-op
+              `lake build litedoc4/litedoc4` costs 3.5 s before this starts)
+  encoding    only `\` -> `\\` and `"` -> `\"`. Newlines, tabs and non-ASCII
+              are written raw into the literal
+  probe       src/Litedoc4/AssetsProbe.lean (generated, not committed) holding
+              four literals, dumped back to disk by `lake env lean --run`
+
+What the four files contain (measured)
+--------------------------------------
+  style.css       29,499 B  743 lines   2 backslash   68 dquote   10 distinct
+                                        non-ASCII (— ö ℝ ℕ ∑ ∈ ₁ › § …)
+  favicon.svg        360 B    7 lines   0 backslash   34 dquote   ASCII only
+  app.js          15,370 B  458 lines   9 backslash  282 dquote   603 tabs
+  theme-boot.js      168 B    0 lines   0 backslash    0 dquote   ASCII only
+
+  No CR, no control character other than \n and \t. That is why two escapes
+  are enough.
+
+Result — it works, and the round trip is byte-exact
+---------------------------------------------------
+  Lean source of the four literals            45,973 B
+  generated C (Litedoc4/AssetsProbe.c)        50,752 B
+  olean                                       54,984 B
+
+  cmp against the originals:  style.css OK / favicon.svg OK / app.js OK /
+                              theme-boot.js OK   (4/4)
+
+  Rebuild of the module alone, after `touch`, 5 runs in a row:
+      real 0.49 / 0.46 / 0.49 / 0.50 / 0.47   (user 0.18, sys 0.16-0.19)
+
+  Most of that half second is lake's own startup: the first build of the
+  single-literal version reported `Built Litedoc4.AssetsProbe (219ms)`.
+  Peak RSS 665 MB for the lake invocation, which is lake's baseline, not the
+  literal's — the single-file probe measured the same.
+
+What this settles
+-----------------
+  * Lean string literals carry the assets. No alternative encoding (byte
+    arrays, base64, a data file next to the binary) has to be invented.
+  * The escape set is two characters. Anything that later puts a CR or a
+    control character into an asset breaks that, so the generator escapes
+    what it finds rather than assuming.
+  * The cost to a consumer is under a second, against the 6.2 s the Lean half
+    already costs at M3 (`purelean-consumer-build-2026-08-31.txt`).
+
+What it does NOT settle
+-----------------------
+  * `theme-boot.js` is a **fourth** vite output, not one of the three the plan
+    listed. `frame.rs` inlines it into every page's `<head>` rather than
+    writing it as a file, and the Lean side already carries it as a
+    hand-copied literal in `src/Litedoc4/Render/Frame.lean`. Nothing checked
+    that copy against vite's output — the pages match byte for byte today, so
+    it is right today, and it would go stale silently.

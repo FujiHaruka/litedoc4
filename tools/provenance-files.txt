@@ -36,8 +36,8 @@ NOTICE : has been changed
 # --- doc-gen4 (Apache-2.0): the files §4(b)(c) names -----------------------
 extractor/Extract.lean : Böving
 extractor/Extract.lean : Apache
-crates/litedoc4-render/assets/style.css : Böving
-crates/litedoc4-render/assets/style.css : Apache 2.0
+assets/style.css : Böving
+assets/style.css : Apache 2.0
 crates/litedoc4-md/src/html.rs : doc-gen4
 crates/litedoc4-md/src/escape.rs : doc-gen4
 crates/litedoc4-render/src/code.rs : doc-gen4
@@ -109,8 +109,8 @@ NOTICE : str::to_lowercase
 # math-core (MIT): the CSS its MathML needs, reproduced in §15b of the sheet.
 # Two claims, because the file already carries doc-gen4's name and a gate that
 # only looked for "MIT" would be satisfied by the wrong paragraph.
-crates/litedoc4-render/assets/style.css : math-core
-crates/litedoc4-render/assets/style.css : Charles Edward Gagnon
+assets/style.css : math-core
+assets/style.css : Charles Edward Gagnon
 crates/litedoc4-md/src/math.rs : math-core
 
 # --- generated fixtures whose origin has to stay recoverable --------------

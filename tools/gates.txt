@@ -18,6 +18,7 @@
 # it is. Nothing parses it.
 #
 # script                     who     needs
+assets-embed-gate.sh         ci      nothing; reads the tree
 assets-gate.sh               ci      node, via mise; the site's TypeScript
 benchmarks-ts-gate.sh        ci      deno; type-checks benchmarks/tools
 browser-gate.sh              ci      a headless Chrome and a built site

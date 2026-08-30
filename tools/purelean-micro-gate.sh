@@ -253,7 +253,7 @@ else
   fail 5 "item 3 did not leave two summaries to compare"
 fi
 
-say "6/8 `site` writes the same 20 files, bytes and all"
+say "6/8 \`site\` writes the same 20 files, bytes and all"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/site-lean" "$OUT/site-rust"
   lean_s_rc="$(site_run "$LEAN_EXE" "$OUT/site-lean" site-lean)"
@@ -277,7 +277,7 @@ else
   fail 6 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "7/8 the two `site` runs report the same counts"
+say "7/8 the two \`site\` runs report the same counts"
 if [ -s "$OUT/site-lean.out" ] && [ -s "$OUT/site-rust.out" ]; then
   site_summary_of "$OUT/site-rust.out" >"$OUT/site-rust.summary"
   site_summary_of "$OUT/site-lean.out" >"$OUT/site-lean.summary"

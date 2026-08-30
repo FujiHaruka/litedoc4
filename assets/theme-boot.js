@@ -1,0 +1,1 @@
+(function(){var e=`litedoc4-theme`,t=[`light`,`dark`];try{let n=localStorage.getItem(e);n!==null&&t.includes(n)&&(document.documentElement.dataset.theme=n)}catch{}})();

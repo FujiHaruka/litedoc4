@@ -12,6 +12,11 @@
 #   3  every workflow that runs `cargo` installs node. `crates/litedoc4-render`'s
 #      build.rs runs vite, so a job without it fails inside a build script — and
 #      on the development machine the failure is exit 137 with no output at all
+#   4  no gate prints a heading that the shell will eat. A backtick inside double
+#      quotes is command substitution: `say "6/8 `site` writes ..."` ran `site`,
+#      printed `command not found` to stderr, and put an empty string where the
+#      word should have been — while the gate itself stayed green and correct
+#      (measured 2026-08-31, two headings in purelean-micro-gate.sh)
 #
 # Question 3 replaces a sentence in CLAUDE.md that counted the workflows. The
 # count was wrong twice in one day (8 -> 7 -> 9, measured 2026-08-29): a number in
@@ -119,6 +124,44 @@ for path, body in workflows.items():
 for name in sorted(missing_node):
     problems.append(f"{name} runs cargo and never installs node — build.rs runs vite")
 
+# Question 4. Deliberately narrow: only the lines that *print* — `say`, `echo`,
+# `printf`, and the `fail`/`pass`/`die` helpers — and only the span between the
+# first and last double quote on the line. A general shell parser here would be
+# a second implementation of bash; this one has no false positive over the whole
+# tree (measured 2026-08-31) because a backtick meant literally is already
+# written as an escaped one everywhere else.
+PRINTS = re.compile(r"^\s*(say|echo|printf|fail|pass|die)\b")
+HEREDOC = re.compile(r"<<-?'([A-Za-z_][A-Za-z0-9_]*)'")
+scripts = sorted(root.glob("tools/**/*.sh"))
+for path in scripts:
+    inside = None
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if inside is not None:
+            if line.strip() == inside:
+                inside = None
+            continue
+        opened = HEREDOC.search(line)
+        if opened:
+            inside = opened.group(1)
+            continue
+        if not PRINTS.match(line):
+            continue
+        first, last = line.find('"'), line.rfind('"')
+        if first < 0 or last <= first:
+            continue
+        span = line[first + 1:last]
+        bare = sum(
+            1
+            for i, char in enumerate(span)
+            if char == "`" and (i == 0 or span[i - 1] != "\\")
+        )
+        if bare:
+            name = path.relative_to(root)
+            problems.append(
+                f"{name}:{number} prints {bare} unescaped backtick(s) inside double "
+                "quotes — the shell runs what is between them and drops the word"
+            )
+
 if problems:
     for problem in problems:
         print(f"WORKFLOW GATE FAIL  {problem}", file=sys.stderr)
@@ -132,6 +175,7 @@ cargo_jobs = sum(
 )
 print(
     f"WORKFLOW GATE: {len(rows)} gate(s) inventoried, {ci} run by a workflow, "
-    f"{len(rows) - ci} manual; {cargo_jobs} workflow(s) run cargo and all install node"
+    f"{len(rows) - ci} manual; {cargo_jobs} workflow(s) run cargo and all install node; "
+    f"{len(scripts)} script(s) print no backtick the shell would eat"
 )
 PY

@@ -1,4 +1,5 @@
 /- `crates/litedoc4-render/src/frame.rs`. -/
+import Litedoc4.Assets
 import Litedoc4.Render.Code
 import Litedoc4.Render.Order
 
@@ -8,11 +9,9 @@ namespace Litedoc4
 
 The theme boot script is inlined in `<head>` on purpose: an external module runs
 after first paint, so a reader on the dark theme would see a white flash on
-every navigation. It is a build artefact of the Rust tree's `web/` bundle, so it
-is a literal here. -/
-
-def themeBoot : String :=
-  "(function(){var e=`litedoc4-theme`,t=[`light`,`dark`];try{let n=localStorage.getItem(e);n!==null&&t.includes(n)&&(document.documentElement.dataset.theme=n)}catch{}})();"
+every navigation. Its bytes come from `Litedoc4.Assets`, generated from
+`assets/theme-boot.js`, rather than a literal copied to here: a copy is right on
+the day it is made and goes stale without saying so. -/
 
 def iconMenu : String :=
   "<svg viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M3 5h14M3 10h14M3 15h14\"/></svg>"
@@ -34,7 +33,7 @@ def headHtml (out : String) (module root title : String) : String := Id.run do
     acc := escapeInto (acc ++ " · ") title
   acc := escapeInto (acc ++ "</title><link rel=\"stylesheet\" href=\"") (root ++ "style.css")
   acc := escapeInto (acc ++ "\"><link rel=\"icon\" href=\"") (root ++ "favicon.svg")
-  acc := acc ++ "\"><script>" ++ themeBoot ++ "</script><script type=\"module\" src=\""
+  acc := acc ++ "\"><script>" ++ themeBootJs ++ "</script><script type=\"module\" src=\""
   acc := escapeInto acc (root ++ "app.js")
   return acc ++ "\"></script></head>"
 

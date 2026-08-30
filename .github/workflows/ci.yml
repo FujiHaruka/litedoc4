@@ -131,6 +131,15 @@ jobs:
       - name: Citations resolve
         run: tools/docs-gate.sh
 
+      # The site's static files live in `assets/` and are read twice: by Rust
+      # with `include_str!`, and by the generated `src/Litedoc4/Assets.lean`
+      # that carries them as Lean string literals. Two copies of a stylesheet is
+      # the shape where only one of them is ever fixed. The vite half of the
+      # chain is checked by a unit test instead, because build.rs has already
+      # run vite by then.
+      - name: One answer to what the assets are
+        run: tools/assets-embed-gate.sh
+
       # The release notes are a tracked file that release.yml publishes, so the
       # platforms and Lean versions they promise are checked here rather than
       # read for the first time on the Releases page.

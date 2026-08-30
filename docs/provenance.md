@@ -85,7 +85,7 @@ doc-gen4・計測対象リポジトリがすべて Apache-2.0 なので、揃え
 | パス | 規模 | doc-gen4 側 |
 |---|---|---|
 | `extractor/Extract.lean` の 15 箇所 (`isProjFn` `isBlackListed` `tagAttributes` `inlineAttrString` `externEntryString` `externAttrString` `deprecationString` `getTags` `getAllAttributes` `getInstanceTypes` `getInstPriority` `getDefaultInstanceAttr` `getFieldOrigin` `mkTacticOut` / `Core.Context` の 4 options) | **計 約 112 行** (ファイル 3,174 行の 3.5%) | `Process/{DocInfo,Attributes,InstanceInfo,StructureInfo,Analyze}.lean`, `Load.lean:30-42` |
-| `crates/litedoc4-render/assets/style.css` の `.fn` と `.break_within` | **8 行** | `static/style.css:608-615` / `:664-670` |
+| `assets/style.css` の `.fn` と `.break_within` | **8 行** | `static/style.css:608-615` / `:664-670` |
 | `crates/litedoc4-md/tests/data/docgen4-expected.json`, `crates/litedoc4-render/tests/data/docgen4-linked-expected.json` | **371,488 B** | doc-gen4 の**出力**。ソースではない |
 | `benchmarks/doc-gen4-instrumentation.patch` | 全 441 行のうち **context 187 行が doc-gen4 のソース逐語** (Apache ヘッダ行を含む) | `Load.lean` `Output.lean` `Process/Analyze.lean` `Main.lean` を改変 + `Timing.lean` 新設 |
 
@@ -241,7 +241,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | ファイル | 何を書いたか |
 |---|---|
 | `extractor/Extract.lean` | 冒頭に全体の告知 + **逐字コピー 6 箇所それぞれに** Apache ヘッダ (blacklist / attributes / InstanceInfo / `getFieldOrigin` / `mkTacticOut` / `Core.Context` の options) |
-| `crates/litedoc4-render/assets/style.css` | ファイル冒頭に Apache ヘッダ、`.fn` と `.break_within` の各規則に出典行 |
+| `assets/style.css` | ファイル冒頭に Apache ヘッダ、`.fn` と `.break_within` の各規則に出典行 |
 | `html.rs` `escape.rs` `code.rs` `whitespace.rs` `autolink.rs` | 冒頭 2 行の告知 (移設だが安全側に倒した) |
 | `parse.rs` `ffi.rs` `gc.rs` `v8_gc.rs` | 同上 (MD4Lean / md4c / UnicodeBasic + Unicode® / V8) |
 | `src/Litedoc4/Md.lean` `benchmarks/lean-prototype/Md.lean` | 同上 (`parse.rs` の Lean 転写、二次の派生) |
@@ -300,7 +300,7 @@ dropping either would leave the record pointing at a table nobody can retrace.
 | | 何をしたか | 義務の形 |
 |---|---|---|
 | `crates/litedoc4-md/src/math.rs` | **リンクしただけ** (crates.io の release に依存)。ソースは 1 行も持ち込んでいない | MIT の permission notice。**バイナリに入るので NOTICE に全文**を置く — md4c と同じ理由で、release アーカイブが配るのは NOTICE であって checkout ではない |
-| `crates/litedoc4-render/assets/style.css` §15b | **CSS を複製した** (`css/mathmlfixes.css`)。整形し、webfont 規則と `merror` 規則を落とした | ソースの複製なので NOTICE に由来と改変の明記。`style.css` は doc-gen4 の名前も既に載せているので、**inventory は 2 文字列を要求する** (「MIT」だけだと別の段落で満たされてしまう) |
+| `assets/style.css` §15b | **CSS を複製した** (`css/mathmlfixes.css`)。整形し、webfont 規則と `merror` 規則を落とした | ソースの複製なので NOTICE に由来と改変の明記。`style.css` は doc-gen4 の名前も既に載せているので、**inventory は 2 文字列を要求する** (「MIT」だけだと別の段落で満たされてしまう) |
 
 **依存クレートを NOTICE に載せる基準はここで決まった**【決定 2026-08-22】 —
 「バイナリに入るか」。`serde` や `sha2` を載せていないのは基準の抜けではなく、

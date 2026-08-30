@@ -6,10 +6,12 @@
 //! separately can be the one from before those names moved, and the failure is
 //! a page that renders with half its rules silently not matching.
 //!
-//! `style.css` and `favicon.svg` are the bytes in `assets/`. **`app.js` is
-//! not** — it is the bundle `build.rs` compiles from the TypeScript in `web/`,
-//! read out of cargo's `OUT_DIR`, for the same reason one level down. What it
-//! costs is node, at build time, for whoever builds from source.
+//! `style.css` and `favicon.svg` are the bytes in the repository's `assets/`,
+//! which is also where the Lean half's generated `src/Litedoc4/Assets.lean`
+//! reads them from — one copy, two consumers. **`app.js` is not** — it is the
+//! bundle `build.rs` compiles from the TypeScript in `web/`, read out of
+//! cargo's `OUT_DIR`, for the same reason one level down. What it costs is
+//! node, at build time, for whoever builds from source.
 //!
 //! These are **not** in the incremental render key
 //! (`litedoc4_incr::render_key`), and that is a decision. A page's bytes do not
@@ -31,11 +33,13 @@ use crate::site::Error;
 /// [`crate::autolink::page_root`] of the page plus this name. A path added
 /// later keeps `/` as its separator — it is a URL, not a filesystem path.
 pub const ASSETS: [(&str, &str); 3] = [
-    ("style.css", include_str!("../assets/style.css")),
-    // Not in `assets/` and not in git: `build.rs` bundles `web/src` into
-    // `OUT_DIR` on the way here.
+    ("style.css", include_str!("../../../assets/style.css")),
+    // `assets/app.js` is committed for the Lean half, which cannot run vite,
+    // and this reads `OUT_DIR` anyway: a bundle that is a version behind its
+    // sources is the failure `build.rs` exists to prevent, and the two are
+    // reconciled by `the_committed_bundles_match_what_build_rs_bundled`.
     ("app.js", include_str!(concat!(env!("OUT_DIR"), "/app.js"))),
-    ("favicon.svg", include_str!("../assets/favicon.svg")),
+    ("favicon.svg", include_str!("../../../assets/favicon.svg")),
 ];
 
 /// **Unconditional and idempotent**: it overwrites whatever is at each path
@@ -287,6 +291,56 @@ mod tests {
             assert!(
                 ASSETS.iter().any(|(path, _)| *path == name),
                 "the <head> names {name} and nothing writes it",
+            );
+        }
+    }
+
+    /// The Lean half cannot run vite, so the bundles are **committed** under
+    /// `assets/` and `src/Litedoc4/Assets.lean` is generated from them. That is
+    /// two answers to "what is app.js" for as long as both halves exist, and
+    /// this is the one place that says they are the same answer.
+    ///
+    /// A test rather than a gate because `build.rs` has already run vite by the
+    /// time this compiles — the comparison costs nothing that was not paid
+    /// already, and `cargo test --workspace` is what every commit is judged by.
+    /// It leaves with the Rust tree, which is correct: after that there is one
+    /// bundle and nothing to reconcile.
+    #[test]
+    fn the_committed_bundles_match_what_build_rs_bundled() {
+        const PAIRS: [(&str, &str, &str); 2] = [
+            (
+                "app.js",
+                include_str!(concat!(env!("OUT_DIR"), "/app.js")),
+                include_str!("../../../assets/app.js"),
+            ),
+            (
+                "theme-boot.js",
+                include_str!(concat!(env!("OUT_DIR"), "/theme-boot.js")),
+                include_str!("../../../assets/theme-boot.js"),
+            ),
+        ];
+        for (name, bundled, committed) in PAIRS {
+            // Not `assert_eq!`: these are 15 KB of minified JavaScript, and a
+            // failure that prints both of them in full buries the one thing
+            // the reader needs.
+            let at = bundled
+                .bytes()
+                .zip(committed.bytes())
+                .position(|(a, b)| a != b);
+            assert!(
+                bundled == committed,
+                "assets/{name} is not the bundle vite just built \
+                 ({} B committed, {} B bundled, first difference at byte {}). \
+                 Rebuild and re-embed:\n  \
+                 cd crates/litedoc4-render/web && npm run build\n  \
+                 cp dist/{name} ../../../assets/{name}\n  \
+                 tools/gen-assets.py",
+                committed.len(),
+                bundled.len(),
+                at.map_or_else(
+                    || format!("none — one is a prefix of the other, at {}", bundled.len().min(committed.len())),
+                    |at| at.to_string()
+                ),
             );
         }
     }

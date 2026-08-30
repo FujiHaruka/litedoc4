@@ -38,7 +38,7 @@ restructured to write an IR instead of HTML:
     crates/litedoc4-render/src/code.rs
     crates/litedoc4-render/src/whitespace.rs
     crates/litedoc4-render/src/autolink.rs
-    crates/litedoc4-render/assets/style.css   (the `.fn` and `.break_within` rules)
+    assets/style.css   (the `.fn` and `.break_within` rules)
 
 Test fixtures produced by running doc-gen4:
 
@@ -158,7 +158,7 @@ browser will not supply, so that CSS is reproduced here, reformatted, without
 the webfont rules and without the rule for an element this configuration cannot
 emit:
 
-    crates/litedoc4-render/assets/style.css   (§15b)
+    assets/style.css   (§15b)
 
 ================================================================================
 Lean 4 / Unicode Basic — https://github.com/fgdorais/lean4-unicode-basic
