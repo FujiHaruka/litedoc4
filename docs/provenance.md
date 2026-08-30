@@ -244,6 +244,8 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | `crates/litedoc4-render/assets/style.css` | ファイル冒頭に Apache ヘッダ、`.fn` と `.break_within` の各規則に出典行 |
 | `html.rs` `escape.rs` `code.rs` `whitespace.rs` `autolink.rs` | 冒頭 2 行の告知 (移設だが安全側に倒した) |
 | `parse.rs` `ffi.rs` `gc.rs` `v8_gc.rs` | 同上 (MD4Lean / md4c / UnicodeBasic + Unicode® / V8) |
+| `src/Litedoc4/Md.lean` `benchmarks/lean-prototype/Md.lean` | 同上 (`parse.rs` の Lean 転写、二次の派生) |
+| `benchmarks/lean-prototype/Render.lean` | 同上。**ファイル単位**の告知で、`html.rs` `escape.rs` `code.rs` `whitespace.rs` `autolink.rs` `math.rs` の転写がまだ passage 単位に割れていないため安全側に倒した |
 | `benchmarks/doc-gen4-instrumentation.patch` | diff の前に前書き。**`git apply` は前書きを読み飛ばす** — `apply-instrumentation.sh --check` が `APPLIED` を返すことと、diff 本体が 1 バイトも変わっていないことを確認済【実測】 |
 | `tests/oracle/gen-gc-table.ts` / `gen-v8-gc-table.ts` | **生成器側**に書いた。`gc.rs` / `v8_gc.rs` は `--check` が生成器の出力と突き合わせるので、生成物を直接編集すると赤くなる |
 
@@ -257,6 +259,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | `vendor/md4c/` (md4c 0.5.2、上と byte 一致) | 同上 | 同上 | **有り** — `LICENSE.md` + `PROVENANCE.md` |
 | `benchmarks/lean-prototype/vendor/md4c/` (md4c 0.5.2、上と byte 一致) | 同上 | 同上 | **有り** — `LICENSE.md` + `PROVENANCE.md` |
 | `crates/litedoc4-md/src/parse.rs` (MD4Lean `wrapper/wrapper.c` の transliteration) | MD4Lean = MIT © Jz Pan | 743 行 | **無し** |
+| `src/Litedoc4/Md.lean` (上の Lean 転写、二次の派生) | 同上 | 474 行 | **無し** |
 | `crates/litedoc4-md/src/ffi.rs` (`md4c.h` の転写) | md4c = MIT | 342 行 | 無し (vendor の PROVENANCE が間接的に覆う) |
 | `crates/litedoc4-md/src/gc.rs` (UnicodeBasic の出力を列挙したデータ) | UnicodeBasic = Apache 2.0 | 1,691 行 | 無し (冒頭に rev `a2e430a4…` の記録のみ) |
 | `crates/litedoc4-global/src/v8_gc.rs` (V8 を総当たりした出力データ) | V8 = BSD-3 | 818 行 | 無し (deno 2.7.14 / V8 rev の記録のみ) |

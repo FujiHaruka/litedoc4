@@ -1,4 +1,8 @@
 /-!
+Derived from MD4Lean's `wrapper/wrapper.c` (MIT, Copyright (c) 2024 Jz Pan)
+by way of `crates/litedoc4-md/src/parse.rs`, and changed; see this repository's
+NOTICE and `docs/provenance.md`.
+
 # Markdown, straight from the vendored md4c
 
 `csrc/md_events.c` runs md4c and writes its callback stream into one buffer;

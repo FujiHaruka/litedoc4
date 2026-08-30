@@ -1,4 +1,10 @@
 /-
+Parts of this file are derived from doc-gen4 (Apache-2.0, Copyright (c) 2021
+Henrik Böving) by way of `crates/litedoc4-render/src/{code,whitespace,autolink}.rs`
+and `crates/litedoc4-md/src/{html,escape,math}.rs`, and changed; see this
+repository's NOTICE and `docs/provenance.md`. The notice is on the whole file
+because the transcription is not yet split along those boundaries.
+
 A pure-Lean renderer for the litedoc4 IR.
 
 It answers one question the floor benchmark in `Main.lean` could not: what does

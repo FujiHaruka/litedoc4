@@ -43,6 +43,13 @@ crates/litedoc4-md/src/escape.rs : doc-gen4
 crates/litedoc4-render/src/code.rs : doc-gen4
 crates/litedoc4-render/src/whitespace.rs : doc-gen4
 crates/litedoc4-render/src/autolink.rs : doc-gen4
+# The prototype renderer transcribes the five files above into Lean. The notice
+# is on the whole file rather than per passage because the transcription is not
+# split along their boundaries; `Böving` and not `doc-gen4`, because the file
+# argues about doc-gen4's output throughout and the bare word would be matched by
+# any of those sentences.
+benchmarks/lean-prototype/Render.lean : Böving
+benchmarks/lean-prototype/Render.lean : Apache-2.0
 
 # --- the other third-party works (provenance.md §7) -----------------------
 # md4c is in the tree three times, byte-identical (provenance.md §7). Each copy
@@ -55,6 +62,14 @@ vendor/md4c/PROVENANCE.md : md4c
 benchmarks/lean-prototype/vendor/md4c/LICENSE.md : MIT
 benchmarks/lean-prototype/vendor/md4c/PROVENANCE.md : md4c
 crates/litedoc4-md/src/parse.rs : MD4Lean
+# The Lean transcription of that transliteration. Both claims, and neither is
+# the word "MD4Lean": the file names MD4Lean a dozen times while arguing why it
+# is not a dependency, so a gate looking for that word would be satisfied by the
+# wrong sentence — the same trap `style.css` carries below.
+src/Litedoc4/Md.lean : Jz Pan
+src/Litedoc4/Md.lean : MIT
+benchmarks/lean-prototype/Md.lean : Jz Pan
+benchmarks/lean-prototype/Md.lean : MIT
 crates/litedoc4-md/src/ffi.rs : md4c
 crates/litedoc4-md/src/gc.rs : Unicode
 crates/litedoc4-global/src/v8_gc.rs : V8
