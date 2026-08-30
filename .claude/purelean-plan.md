@@ -407,16 +407,16 @@ Lean が出すようになったら「Generation landed, so delete the normalisa
 |---|---|---|
 | ledger | `--ir /private/tmp/lean-doc-relay/purelean/ir`（422 モジュール） | `m5-ledger/rust`（78 ファイル、1.1 MB） |
 | merge / ownership | `--base-ir` 同上 | `m5-merge/rust`（3,961 ファイル、141 MB） |
-| impact / prune | `--base-ir` 同上 / `--pages m5-render/rust` / `--site m5-impact/ref-site` | `m5-impact/rust`（3,585 ファイル） |
+| impact / prune | `--base-ir` 同上 / `--pages m5-impact/ref-pages` / `--site m5-impact/ref-site` | `m5-impact/rust`（3,585 ファイル、248 MB 込み） |
 
 `m5-impact/ref-site` は `target/release/litedoc4 site` で作った 422 ページのサイト（26 MB）。
 
-**impact の記録は取り直しが要る**（2026-08-31 に気づいた）: `--pages` に
-`purelean-render-gate.sh` が残した `m5-render/rust` を渡してしまい、**その木を掃除で消した**。
-`prune` は木を `$OUT` に複製してから消すのでオラクル自体は自己完結しているが、
-Lean 側の記録が同じバイトを出すには**同じ `--pages` が要る**（レンダゲートの URL は
-`.../lean-projects/blob/$REV` で、`ref-site` の URL とは違う）。U4 に入る前に
-**`ref-pages` を固定 URL で作り直し、Rust の記録も取り直す**こと。
+impact の記録は 2026-08-31 に**取り直した**。最初の記録は `--pages` に
+`purelean-render-gate.sh` が残した木を渡していて、その木を掃除で消してしまった —
+`prune` は木を `$OUT` に複製してから消すのでオラクル自体は自己完結していたが、
+Lean 側が同じバイトを出すには**同じ `--pages` が要る**。今は `ref-pages` も `ref-site` も
+`ref-site` と同じ固定 URL で `target/release/litedoc4` から作り直せる（上の表の入力）。
+**一般形: 記録の入力は、記録と同じ寿命を持つ場所に置く。**
 **`it-modules.txt` は 432 のまま動く** — 10 個の stale な olean が残っているので
 `ledger build` は 432 モジュール全部にハッシュを付けられる（実測: `clean` シナリオが
 432 モジュール 0 changed で通る）。
