@@ -142,11 +142,64 @@ M3 で分かって**閉じていない**もの、次に触る人向け:
 計画は当初これを 1 つのゲートに畳む形で書いていたが、vite の側をゲートにすると
 **vite が 2 回走り、しかも M9 で消える検査が M9 まで残る**。3 項目とも個別に落としてから通した。
 
-- 残り: `--lib` 解決と modules 列挙（`lake` を subprocess で起動する）/ `litedoc4.toml` /
-  external links（`lake-manifest.json`）/ extractor 起動 / ledger / `litedoc4-build.json` /
-  `writeAssets`（Rust と同じく **`build` だけが呼ぶ**）
 - **完了判定**: `litedoc4 build --root e2e/micro` の出力が Rust 版と **23/23 バイト一致**し、
   `site-gate` と `config-gate` が Lean 実装で緑
+
+#### 実測で分かった 3 つの訂正（2026-08-31。leg 3 の handoff は 3 つとも間違っていた）
+
+1. **modules 列挙で `lake` は起動されない。** 実体は**ファイルシステムの glob**
+   （`pipeline::module_names`）と**手書きの `lakefile.toml` 行認識器**（`lakefile.rs`。
+   説明できない行はすべて exit 3）。`build` が起こすプロセスは `git` ×4 /
+   `lean --githash` ×1 / `lake env <extractor> … --serve` ×1 の**計 6 つだけ**
+2. **`build` は `--source-url .../blob/HEAD/...` を exit 2 で拒否する。**
+   `check_source_url` が `/blob/` の後に **40 桁小文字 hex** を要求する
+   （`render` と `site` は要求しない）。**M4 のゲート項目は両方のバイナリに
+   40-hex の同一文字列を渡すこと**
+3. **URL を git から導出させるのはリレーでは罠。** 調査中に HEAD が動き
+   （並行 commit）、11 ページ全部が変わった。**ゲートは固定値を渡す**
+
+#### 移植の単位と順序（Rust の該当箇所つき）
+
+**バイトを動かすものが先**。1〜4 は `--root` をレンダラに通す塊で、
+`site --root e2e/micro` が Rust と 20/20 一致すれば閉じる（`build` を書く前に検証できる）。
+
+| # | 単位 | Rust | 備考 |
+|---|---|---|---|
+| 1 | `SiteConfig`（`title` / `index` の 2 キー） | `litedoc4-render/src/config.rs` | 未知キーは硬いエラー。**`renderSite` と `buildGlobal` の両方**が title を要る |
+| 2 | `ExternalLinks` 型（`baseFor` / `urlFor` / `iter`） | `litedoc4-render/src/external.rs` | 純データ |
+| 3 | `packages::externalLinks`（manifest 読み + root scan + `lean --githash`） | `litedoc4/src/packages.rs` | **すべて degrade する。例外を投げない**。core 4 件は `Init`/`Lean`/`Std` が `…/src`、**`Lake` だけ `…/src/lake`** |
+| 4 | `linkTo` の問い 1 と 2 | `litedoc4-render/src/autolink.rs:361` | **ここが 11/11 ページを動かす**。問い 0（deps-docs）は e2e/micro に届かないので範囲外 |
+| 5 | `escapeModule` / `needsNoEscape` | `litedoc4-ir/src/name.rs:55-102` | 6 が要る。`«Odd-Name»` の合成 IR が判定器 |
+| 6 | `moduleNames`（ソースの glob） | `litedoc4/src/pipeline.rs:1401` | 順序は `read_dir` 順 → `sortUtf16` → dedup。**この 1 本のリストが ledger / extractor / omit すべてに渡る**ので段ごとに derive し直さない |
+| 7 | `lakefile.toml` の `[[lean_lib]]` 認識器 | `litedoc4/src/lakefile.rs` | `--lib` を必須にすれば後回しにできるが、`e2e/consumer` の Lake script は導出側を使う |
+| 8 | `deriveSourceUrl` / `checkSourceUrl` | `build.rs:1101` / `pipeline.rs:1211` | `git` 4 本。remote は github の 4 綴りだけ |
+| 9 | `writeAssets` | `litedoc4-render/src/assets.rs:53` | `Litedoc4.assets` は済。20 → 23 ファイル |
+| 10 | `Layout` / `planOf`（所有検査 1〜3 + 常に full）/ marker の読み書き | `build.rs:82-141, 955-1039, 1235` | marker は compact JSON + 末尾 `\n`、キー順固定、**タイムスタンプ無し** |
+| 11 | ledger（`extractKey` / `renderKey` / `linkIndexDigest` / `buildLedger`） | `litedoc4-incr/src/ledger.rs` | sha256 が要る。**hash は抽出の前、書き出しは描画の後** |
+| 12 | resident extractor ドライバ（spawn / `ready`・request・`ok` / `linkIndexKey`） | `litedoc4/src/resident.rs` | argv は仕様。`Generation` は M5 に送れるが**送るなら明示する** |
+| 13 | `build` の組み立てと CLI と stdout の行 | `build.rs:148-654` | 最後 |
+
+`fold_timings`（events JSONL → `extract-timings-<n>.json`）は **23 ファイルには不要**。
+
+#### M4 で足すゲート項目（`purelean-micro-gate.sh`、1 つずつ落としてから通す）
+
+9 = `build` の 23 ファイルがバイト一致 / 10 = `site-gate.sh` が Lean の木で緑
+（**アセット 3 つがここで効く** — 無いと dead-link 側が落ちる）/
+11 = `config-gate.sh` が Lean の木で緑 / 12 = 両者の `litedoc4-build.json` の突き合わせ。
+
+**12 には未検証がある**: `work.irReads` は `{index:3, module:22, depMap:4, total:29}` で、
+これは **Rust のリーダの呼び出し回数**。Lean が同じ回数読むかは未計測。
+**違ったら、フィールドごとに比べて `irReads` を除外し、その差を書き残す**
+（黙って落とさない）。
+
+#### 実測で分かった、もう 1 つの状態
+
+`write_marker` は `open_extractor` の**前**に呼ばれる。つまり
+**`--extractor-bin` が無くて失敗した `build` も `litedoc4-build.json` と
+`work/modules.txt` を残す**（実測）。次の run はそれを所有物と認めて
+`Full("the previous run did not finish")` と答える — 正しい。
+だが「空の `--out`」と「失敗した run が触った `--out`」は**別の状態**で、
+試行のあいだに `rm -rf` するゲートは後者を隠す。
 
 ### M5 incremental — ledger / impact / ownership / merge / mode
 - プロトタイプの `Incr.lean` が土台。**bimodal な `ownership`（423 読み vs 2 読み）を保つ**
