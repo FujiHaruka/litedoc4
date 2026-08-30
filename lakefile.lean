@@ -65,7 +65,7 @@ Pinned to a tag, and to one whose `lean-toolchain` is the *lowest* it claims:
 dependency names a higher version (`benchmarks/results/lake-package-probe-2026-08-18.txt`
 §1), so a dependency that moved ahead would move the consumer with it. -/
 require «MathML4Lean» from git
-  "https://github.com/FujiHaruka/MathML4Lean" @ "v0.1.0"
+  "https://github.com/FujiHaruka/MathML4Lean" @ "v0.1.1"
 
 /--
 `supportInterpreter := true` is how Lake spells the `-rdynamic` that
