@@ -1,0 +1,55 @@
+WHAT THE LEAN HALF COSTS A CONSUMER TO BUILD (measured)
+2026-08-31, arm64 macOS (Darwin 25.6.0), Apple silicon, Lean v4.31.0 via elan,
+litedoc4 at ab32c35. `src/**/*.lean` is 3,887 lines over 26 modules at M3.
+
+Taken because the plan names build time as a condition that would break it:
+"if the build time is not acceptable to a consumer". The comparable number
+already on record is the extractor's 11.65-16.82 s.
+
+WHAT IS BEING TIMED
+
+  cd e2e/consumer && lake build litedoc4/litedoc4
+
+  The consumer's workspace is the only place litedoc4 can be built (there is
+  deliberately no `lean-toolchain` beside the root lakefile), so this is both the
+  development path and the user's.
+
+  **Cold means the 13 `Litedoc4*` artifacts and the binary were deleted, and
+  nothing else.** Already built and not rebuilt by any run below:
+    - the C: `md4c.o` and `md_events.o` (vendor/md4c + csrc)
+    - MathML4Lean, the one dependency (5.4 MB of build output)
+    - the extractor `lean_exe extract` (171 MB, `import Lean`), which no consumer
+      needs in order to build this half
+  A consumer's very first build pays for those once as well; this number is the
+  Lean half of litedoc4 alone.
+
+FIVE RUNS IN A ROW
+
+  run        wall     user      sys    note
+  cold 1     9.65 s   19.10 s   4.91 s  page cache cold
+  cold 2     6.45 s   19.13 s   4.32 s
+  cold 3     6.19 s   19.13 s   4.27 s
+  cold 4     6.21 s   19.08 s   4.35 s
+  warm       0.48 s    0.18 s   0.18 s  nothing to do
+
+  Converged at **6.2 s**, and the first run is the page cache, not the compiler:
+  user+sys is 23.4 s in every cold run including the first, so only the wall
+  clock moved. 23.4 s of CPU over 6.2 s of wall is 3.8x parallelism — lake builds
+  the 26 modules on the machine's cores.
+
+  Peak RSS 688 MB (`/usr/bin/time -l`, cold run 4).
+
+READ AGAINST
+
+  extractor (`lean_exe extract`, `import Lean`)   11.65-16.82 s (earlier record)
+  this half at M3, 3,887 lines                     6.2 s
+  binary                                       3,838,240 B
+
+  So the half that will grow through M4-M8 is currently cheaper than the half
+  that is already finished, and the ceiling the plan worried about is not near.
+  **This is not the whole consumer cost**: a first checkout also pays for
+  MathML4Lean, the two C objects and the extractor.
+
+HOW TO REPRODUCE
+  find .lake/build -name 'Litedoc4*' -o -name 'litedoc4*' | xargs rm -rf
+  cd e2e/consumer && /usr/bin/time -l ~/.elan/bin/lake build litedoc4/litedoc4
