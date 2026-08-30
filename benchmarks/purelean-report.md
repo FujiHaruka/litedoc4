@@ -4,8 +4,10 @@ A measurement study, 2026-08-30. **Nothing here is a decision.** It is the
 numbers a decision would need, with the conditions they were taken under.
 
 Every number is labelled `(measured)` / `(extrapolated)` / `(assumed)` /
-`(theoretical)`. The raw logs are in `benchmarks/results/purelean-*.txt` and
-each claim below names the one it came from.
+`(theoretical)`. The raw logs are in `benchmarks/results/` — `purelean-*.txt`,
+plus `rust-render-threads-2026-08-30.txt` and `windows-probe-2026-08-30.txt`,
+which answered the two questions this study first had to leave open — and each
+claim below names the one it came from.
 
 ## The question
 
@@ -27,8 +29,9 @@ asset exists, that means Rust, a C compiler and node.
 | | Rust today | pure Lean | |
 |---|---:|---:|---|
 | render 422 modules, sequential | **0.39 s** | **1.07 s** | 2.74x (measured) |
-| render 422 modules, 4 threads | not threaded | **0.52 s** | 1.33x of Rust's 1 thread (measured) |
-| CPU for the same work | 0.38 s | 1.06 s / 1.30 s | 2.8x / 3.4x (measured) |
+| render 422 modules, 4 threads | **0.220 s** | **0.52 s** | 2.4x (extrapolated) |
+| CPU for the same work | 0.38 s / 0.42 s | 1.06 s / 1.30 s | 2.8x / 3.1x (measured) |
+| what four threads cost in CPU | **1.08x** | **3.3x** | (measured) |
 | output | — | **420 of 422 pages byte-identical** | (measured) |
 | CI, cache cold, release exists | 2.9 s | 9.25 s | +6.4 s (measured) |
 | CI, cache cold, no release asset | 23.6–27.6 s | 9.25 s | −14 to −18 s (measured) |
@@ -73,10 +76,29 @@ UTF-16 offset map. A structural walk that builds nothing already costs 0.046 s.
 No restructuring moves this, and the measurements that tried are recorded with
 their numbers so nobody retries them.
 
-**Threading is the lever, and it is unpulled on both sides.** Lean reaches
-0.52 s on four workers with byte-identical output. Rust's `render_site` is a
-plain `for` loop and the workspace has no rayon, so **a threaded Rust has never
-been measured** — the 1.33x is Lean-with-cores against Rust-without.
+**Threading is the lever, and it has now been pulled on both sides.**
+→ `results/rust-render-threads-2026-08-30.txt`
+
+Lean reaches 0.52 s on four workers with byte-identical output. `render_site`
+was threaded too — 92 lines of `std::thread::scope`, no new dependency, the
+lockfile untouched, and nothing had to be cloned or wrapped to make it compile
+— and reaches **0.220 s on four threads, 1.82x, at 1.08x the CPU**, with all
+422 pages byte-identical to the sequential arm. Lean's four workers buy 1.26x
+at **3.3x** the CPU. The patch is kept as `render-threads.patch`; it is not in
+HEAD.
+
+**The two absolutes come from different sessions** — their Rust-sequential
+baselines are 0.39 s and 0.400 s, 2.5% apart, on builds whose output differs by
+482 B — so the 2.4x above is (extrapolated) from two measured numbers, on the
+premise that those baselines are the same workload. The two speedups, 1.82x and
+1.26x, are each measured within one session and are the solid figures.
+
+Rust's threading stops at 2.86x for the whole command no matter how many
+threads, and the ceiling was measured rather than reasoned: rendering **one**
+page still costs 0.140 s, because `ModuleSet` filters pages and not reads, so
+all 422 module files and the whole 10.4 MB link index are read every time. That
+serial floor is 35% of the run. Above four threads it is the M1's four E-cores:
+instructions retired move 1.4% across every arm while IPC falls 3.86 → 3.18.
 
 ## CI, in detail
 
@@ -125,7 +147,14 @@ JSON byte-identical, `ownership`'s 34-line set identical, `merge`'s output tree
 identical over 426 files.
 
 **At four workers the Lean incremental core beats the single-threaded Rust one
-in wall clock**, and this is the part of the system where Lean does best:
+in wall clock**, and this is the part of the system where Lean does best — but
+read the 0.65x the way the renderer's 1.33x had to be read before it was
+corrected: **Rust's incremental path is a plain loop nobody has threaded**, and
+the renderer's threading, once measured, cost 92 lines and no dependency and
+bought 1.82x at 1.08x the CPU. Whether the same lever exists in these three
+stages is not measured.
+
+Where Lean does best:
 
 - where a stage parses, it is the same 2.6–3.0x — and an ablation that parses
   only four fields, with identical output, buys 9.5%. The gap is the scan over
@@ -152,6 +181,21 @@ build time is an average of two modes.
   goes.
 - **Windows and Intel macOS stop being a fallback path.** Today they take the
   `cargo build` branch and need a Rust toolchain, a C compiler and node.
+
+  **This was the larger of the two motives, and it is now smaller than it was.**
+  → `results/windows-probe-2026-08-30.txt`. A Windows binary was never
+  impossible, only never built: `litedoc4.exe` comes out at 3,051,008 B in
+  1 m 48 s on `windows-latest` (measured), and the vendored md4c compiles under
+  `cl.exe` with all 47 of `litedoc4-md`'s tests passing. Two defects stood in
+  the way — `sha2`'s `asm` feature, which cannot build under MSVC, and
+  `build.rs` starting `npm` rather than `npm.cmd` — and both are fixed, so the
+  `cargo build` fallback README calls "a normal path, not a failure" is now one.
+  What is not done is the asset itself: the archive step and `lakefile.lean`'s
+  `fetchRelease` both spell the binary without `.exe`, the smoke job would need
+  elan and lake on Windows, three of the four places that decide whether a
+  machine has an asset do not name the triple, and `cargo test --workspace` is
+  not green on Windows (at least 7 `std::os::unix` sites, all in test code —
+  a lower bound, since the build stops at the first error).
 - **`release.yml`, 332 lines**, and the three-triple release matrix it feeds,
   along with `tools/lake-download-gate.sh` and the four places that have to
   agree about which platforms have assets.
@@ -180,7 +224,6 @@ build time is an average of two modes.
 
 ## Not measured
 
-- a threaded Rust renderer;
 - `math-core`'s replacement, at all;
 - the search index, `watch` and its HTTP server (Lean 4.31 has `Std.Async.TCP`,
   so it is writable — that is a capability check, not a measurement);
