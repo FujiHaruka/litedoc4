@@ -10,7 +10,7 @@
 # generated       2026-08-30
 # generator       consumer-spans 0.1.0
 # source          https://github.com/FujiHaruka/information-theory
-# source-rev      78cf1b43cefdfdae18a7095dbd6273da44468c29
+# source-rev      b9a7d42b546169616d33501fa24ecdf03b38e2cb
 # oracle          math-core 0.7.0 (default-features = false, ignore_unknown_commands = false, convert_with_local_state)
 # span-finder     md4c via litedoc4-md, MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS | MD_FLAG_NOHTML
 #
