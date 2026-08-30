@@ -1,69 +1,82 @@
-# Handoff — 2026-08-29 (v1.1.0。aarch64 Linux と、そこで走らせて出た 3 件)
+# Handoff — 2026-08-30 (pure Lean 置き換えの調査、leg 1 進行中)
 
 ## Relay control
-- Mode: DONE
-- Goal: 前ハンドオフの「次に拾うならここ」の 1 番目と 2 番目。**達成**
+- Mode: ON
+- Goal: Rust 部分を pure Lean に置き換えたときの速度インパクトを実測する。
+  (1) レンダリング + 増分を Lean で実装してベンチ比較（数式は両側除外）、
+  (2) information-theory で別ブランチ + workflow_dispatch を回して CI 総合時間を実測。
+  最後にレポートを出す。**調査であって移行そのものではない**（実装は捨てプロトタイプ）
 - Leg: 1 / cap 8
-- Predecessor: 2026-08-29 の v1.0.1 ハンドオフ
-- Stop-on: completion
+- Predecessor: none
+- Stop-on: completion | user-decision | no-progress×2 | leg-cap
+- Progress ledger:
+  - r1: `8ac9673` Lean の下限を実測 / `<次>` CI ベースラインを実測
 
-## この回でやったこと
+## ユーザーが決めたこと（leg 1 冒頭に確認済み）
+- **測定範囲はレンダリング + 増分**。全機能移植はしない
+- **数式は両側とも除外**して測る（Lean 側に math-core 相当が無いため）
+- **CI 実測は information-theory の別ブランチ + workflow_dispatch**。main と本番 Pages は触らない
 
-**「機材が無い」と書いてあるコメントを 1 回走らせて確かめた**、が全部の入口。
+## ここまでに分かったこと（すべて実測）
 
-- **`v1.1.0`** (`35425aa`、tag 済み、`latest`)。**aarch64 Linux のバイナリを出した**。
-  `ubuntu-24.04-arm` は実在してすぐ起動し、**クロスは要らない**（ネイティブ musl ビルド、
-  静的リンク、e2e-micro 16/16）。`release.yml` のコメントは書かれた当時は本当で、腐っていた
-- **そこで初めて走らせたら 3 件出た**（→ `benchmarks/results/arm64-linux-runner-2026-08-29.txt`）:
-  1. `c_char` が aarch64 Linux では unsigned。`parse.rs` の `mark as u8` が 1 行で clippy 3 件
-     （`-D warnings` ならエラー）。`to_ne_bytes()[0]` に置き換えた。**`#[expect]` はどちらを書いても
-     片方のアーキで不成立になる**ので使えない
-  2. `packages.rs` の unit test 3 本が **PATH の `lean` を読んでいた**。
-     `lean_beside("lake-that-does-not-exist")` が裸の `lean` になるため。
-     **`cargo test --workspace` が緑だったのは、default toolchain を持つマシンが無かったから**。
-     `queries.rs` は同じ問題を既に解いていたので、
-     `litedoc4_testutil::toolchain::lake_that_is_not_there` に寄せた
-  3. `clippy::from_iter_instead_of_collect` は **upstream で削除済み**で、
-     **`-D warnings` はこの警告に届かない**（rustc の仕様）。CI は 1.98.0 でずっと素通ししていた。
-     lint を落とし、`renamed_and_removed_lints = "deny"` を足した（ローカルで 1 回落として確認）
-- **`ci.yml` に `test-arm64` ジョブ**（clippy + test のみ）。上の 1 と 2 が黙って戻らないように
-- **リリースノートが tree から出るようになった**。`.github/release-notes.md` を `@VERSION@`
-  置換して `--notes-file`。**`--generate-notes` を毎回手で差し替える運用は終わり**。
-  `notes` は独立ジョブなので **dry run でもレンダリングを証明する**。
-  番人は新設 `tools/release-notes-gate.sh`（アーカイブ名 / Lean バージョンを両方向、
-  README のアーカイブ名を片方向。4 通りの落とし方を実測済み）
-- **Intel macOS は対象外**【決定 2026-08-29、ユーザー判断】。`macos-15-intel` は実在して起動する
-  （`macos-13` は今も起動しない）ので、**「機材が無い」という理由が嘘になった**。
-  理由だけ書き換えた（→ `benchmarks/results/intel-mac-runner-2026-08-29.txt`）。
-  **ビルド/テストは途中でキャンセルしたので、Intel で通るかは測っていない**
-- `information-theory` の pin を `v1.1.0` に上げ、docs.yml を dispatch して再デプロイした
+**1. Lean の「下限」は Rust の完成品の 1.67 倍**
+→ `benchmarks/results/purelean-microbench-2026-08-30.txt`
+- Rust `litedoc4 render` 全体 **0.40s** (warm, n=6, 422 モジュール, 24.5 MB HTML)
+- Lean の下限（レンダリングロジックゼロ）**0.667s**。内訳:
+  ir.read 0.050 / ir.parse 0.167 / lidx.read 0.028 / **lidx.parse 0.235** /
+  lidx.lookup 0.105 / html.build 0.032 / html.write 0.050
+- Rust の内訳（`--only` と `--no-link-index` で分離）: lidx 読み+パース ~0.09s、
+  固定コスト ~0.14s、422 ページ ~0.26s
+- **Lean の lidx.parse は素直な `String.splitOn` 実装**。ByteArray 走査でどこまで
+  下がるかを subagent が測定中（leg 1 で起動済み）
 
-## 状態
+**2. CI で Rust 半分が占めるのは 2.9 秒だけ**
+→ `benchmarks/results/purelean-ci-baseline-2026-08-30.txt`
+- information-theory `docs.yml` run 33255806841 = 182s。うち lean-action 109s /
+  **litedoc4 action 44s**
+- 44s の内訳: キャッシュ3種すべてミス 1.2s / **Rust バイナリ取得 2.9s**（release
+  アセット DL + SHA-256）/ **extractor ビルド 20.2s**（Extract.lean 3,174 行）/
+  抽出 17.5s / render+global 1.4s
+- **`cargo build` は走っていない**（3 トリプルには release がある）
+- pure Lean は 2.9s を Lean コンパイルに置き換える。extractor の 3,174 行 = 20.2s から
+  移植対象 ~10,500 行を外挿すると **約 60s (extrapolated、外挿は弱い。要実測)**
 
-- Branch **`main`** = `7e16e67`、push 済み。tag **`v1.1.0`**（assets 3 点 + checksums、`latest`）
-- ローカル: `cargo test --workspace` **567 passed / 0 failed / 22 ignored**
-  （**PATH に偽 `lean` を置いた状態で** — 修正前はここで 3 本落ちた）、fmt / clippy / 4 ゲート 0
-- CI: `7e16e67` で CI と lake package が緑。tag では release / CI / lake / pages / action が全緑。
-  `ci-action` の `uses:@v1.1.0` と `ci-lake` の「release が v1.1.0 を持つ世界」も dispatch して緑
-- 実例 2 本とも公開中・v1.1.0 出力: <https://fujiharuka.github.io/information-theory/> と
-  <https://fujiharuka.github.io/litedoc4/>
+**3. 技術的障害は思ったより低い**
+- **Lean 4.31 に `Std.Async.TCP` / `Std.Internal.UV` がある** → `watch` の HTTP サーバ
+  (`crates/litedoc4/src/httpd.rs` 577 行) は Lean で書ける
+- **このターゲットに数式は実質無い**（422 ページ中 MathML を含むのは 2 枚、
+  `math spans kept as LaTeX 0`）。Mathlib 形状のターゲットでは別（2,123 spans）
+- Markdown は doc-gen4 と同じ md4c。Lean 側は MD4Lean を require すればよい（未検証）
+- **残る本当の壁**: (a) `math-core` 相当（LaTeX→MathML）が Lean に無い、
+  (b) サイトの JS は今 `build.rs` が vite を回して OUT_DIR に焼いている。pure Lean だと
+  生成物をコミットする設計に反転する
 
-## まだ番人が居ないと分かっているもの
+**4. 移植対象の規模**（src のみ、テスト除く）
+render 7,004 / incr 3,443 / md 3,865 / ir 2,678 / global 4,133 / CLI 8,127 = **約 29,250 行**
 
-- **`clone-gate.sh` の `move` / `delete` は依然として再実走していない。** 前回から変わっていない。
-  clone + 実編集 + `lake build` が 2 回要る。算術は `build-gate` の実測と一致する（422 + 12 = 434、
-  移動後 435）が、通したわけではない
-- **Intel macOS でビルド/テストが通るかは未測定**（上記のとおり、対象外なので測る必要も無い）
+## 作業領域
+`/private/tmp/lean-doc-relay/purelean/` に IR（422 モジュール / 15.2 MB）、
+link-index.json（10.4 MB）、pages/（Rust の出力 24.5 MB）、rev.txt がある。
+**再生成不要。消さないこと**（extractor ビルド + extract で 1 分以上かかる）。
+ディスク残 17 GiB — CLAUDE.md の 24 GB 事故があるので測定のたびに掃除する。
 
-## 次に拾うならここ
+Lean プロトタイプは `benchmarks/lean-prototype/`（独立した lake パッケージ、
+lean-toolchain v4.31.0、Mathlib 非依存）。`lake build` → `.lake/build/bin/bench <workdir>`。
 
-- **`macos-13` を名指ししている場所が他に無いか**。今回直したのは `release.yml` と `lakefile.lean`
-  の 2 箇所だけ。同じ「機材が無い」型の主張は 2026-08-18 に 2 件、今回 2 件見つかっている
-- **小 RAM Linux での実走はやらない**【決定 2026-08-22】。外挿で答えが出ている
+## 次の一手
+1. **subagent の結果を受け取る** — Lean の lidx/IR パース最適化と Task 並列化。
+   これで「Lean の実力」の下限が確定する
+2. **Lean レンダラのプロトタイプを育てる** — 宣言のレンダリング（署名・docstring・
+   アンカー・autolink）まで。ここで「実装込みの Lean」対「Rust」が出る
+3. **Lean のコンパイル時間を実測** — プロトタイプが育った時点で行数と秒数を取る。
+   CI の答えはここで決まる
+4. **増分の比較** — `litedoc4 impact` は 0.07s（IR 全読みではない疑いあり、要確認）。
+   `tools/incremental-reference.sh` が 7 シナリオの既存測定手順
+5. **information-theory で CI A/B** — 別ブランチ + workflow_dispatch
 
-## 最初に読むファイル
-
-1. `CLAUDE.md` の「v1.0.0 — what is promised, and what that costs to keep」（3 項目増えている）
-2. `benchmarks/results/arm64-linux-runner-2026-08-29.txt` — 今回の 3 件の実測
-3. `tools/release-notes-gate.sh` と `.github/release-notes.md` — ノートの新しい出どころ
-4. `tools/public-surface.txt` / `tools/lean-toolchains.txt` — 約束の実体
+## 落とし穴（この回で踏んだ / 気づいた）
+- **Lean は遅延評価**。`timeIt (pure (f x))` は thunk 確保を測って 1 マイクロ秒と出る。
+  最初の版が実際にそうなり、`lidx.parse 0.000001` と `html.build` 半額を報告した。
+  **各フェーズは `IO` の中で `Nat` を計算して返し、それを印字する**形にしてある
+- `litedoc4 ownership` の引数は `--base`（`--ir` ではない）
+- Bash の cwd はツール呼び出しをまたいで残る。`cd` した後は絶対パスを使う
