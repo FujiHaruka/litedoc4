@@ -63,18 +63,38 @@
   外部リンク・依存 docs を入れる
 - **完了判定**: e2e/micro の IR から出したページが Rust の `pages/` とバイト一致
 
-### M3 build パイプライン — `litedoc4 build` が e2e/micro でサイトを出す
-- extract 起動 / link index / assets / `litedoc4.toml` / `--lib` 解決
-- **完了判定**: `litedoc4 build` の出力が Rust 版とバイト一致し、
-  `site-gate` / `onemod-gate` / `config-gate` / `usedby-gate` が Lean 実装のサイトで緑
+### M3 site — `litedoc4 site` が e2e/micro のサイト 23 ファイルを出す
 
-### M4 検索インデックスと global（`.lidx`、宣言の全体マップ）
-- **完了判定**: `.lidx` が Rust の出すものとバイト一致
+**M3 と M4 の境界は 2026-08-31 に実測で引き直した**（→
+`benchmarks/results/purelean-micro-2026-08-31.txt` の追記節）。サイトの中身は:
+
+| | | |
+|---|---|---|
+| モジュールページ 11 | `render_site` | **M2 で完了、バイト一致済み** |
+| アセット 3 | `assets.rs` の `ASSETS` — `style.css` / `app.js` / `favicon.svg`。全部 `include_str!` のテキストで合計 45,229 B | 未着手 |
+| アーティファクト 9 | `litedoc4-global` の `ARTIFACT_PATHS` — `index.html` / `404.html` / `search.html` / `foundational_types.html` / `modules.json` / `search-index.bin` / `instances.json` / `declarations/name-map.json` / `declarations/used-by.json` | 未着手 |
+
+合計 23 ファイル / 215,116 B。**ランディングページ 4 枚は `render` ではなく `global` が書く**ので、
+`global` 抜きにサイトは成立しない。よって**旧 M4（global）は M3 に畳む**。
+`declaration-data.bmp` は書かれない（doc-gen4 のための 5 ファイルは意図的に落としてあり、
+`artifacts.rs` のテストが復活を落とす）。`.lidx` は extractor が書くので Lean 側は既に持っている。
+
+- **完了判定**: `litedoc4 site --ir … --out … --link-index …` の出力が Rust 版と
+  **23/23 バイト一致**し、`site-gate` / `usedby-gate` が Lean 実装のサイトで緑
+
+### M4 build — `site` の周りのパイプライン
+- `--lib` 解決と modules 列挙（`lake` を subprocess で起動する）/ `litedoc4.toml` /
+  external links（`lake-manifest.json`）/ extractor 起動 / ledger / `litedoc4-build.json`
+- **完了判定**: `litedoc4 build --root e2e/micro` の出力が Rust 版とバイト一致し、
+  `config-gate` が Lean 実装で緑
 
 ### M5 incremental — ledger / impact / ownership / merge / mode
 - プロトタイプの `Incr.lean` が土台。**bimodal な `ownership`（423 読み vs 2 読み）を保つ**
+- `onemod-gate.sh` は**ここ**（旧 M3 から移した）。引数が
+  `<litedoc4-build.json> <serve.out>` で、1 モジュール編集後の
+  `modulesExtracted` / `pagesRendered` を見るゲートなので、測っている対象は incremental
 - **完了判定**: `incremental-compare.sh` / `impact-compare.sh` / `merge-compare.sh` /
-  `ledger-compare.sh` が Lean 実装で緑
+  `ledger-compare.sh` / `onemod-gate.sh` が Lean 実装で緑
 
 ### M6 watch と HTTP サーバ（`Std.Async.TCP`）
 - **完了判定**: `watch-gate.sh` が Lean 実装で緑

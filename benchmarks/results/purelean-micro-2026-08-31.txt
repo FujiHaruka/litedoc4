@@ -158,3 +158,38 @@ THE SAME IDENTITY ON A SECOND PLATFORM (measured)
   Same bytes as arm64 macOS, from a different Lean binary (5.83 MB against
   3.66 MB) and a different Rust profile. The page bytes are not a property of
   this machine.
+
+WHAT A SITE IS MADE OF, AND WHERE M3 ENDS (measured)
+  Taken the same day, because the next milestone's boundary depends on it and
+  the boundary the plan drew did not match the code's.
+
+    litedoc4 build --root e2e/micro --lib Example --out … --extractor-bin …
+
+  writes **23 files, 215,116 bytes** under `site/`, and they fall into exactly
+  three groups with three different owners:
+
+    group                      files    bytes    written by
+    module pages                  11  146,728   litedoc4-render::site  (M2, done)
+    assets                         3   45,229   litedoc4-render::assets — ASSETS
+    artifacts                      9   23,159   litedoc4-global — ARTIFACT_PATHS
+
+  The assets are `style.css` (29,499), `app.js` (15,370) and `favicon.svg`
+  (360), all three `include_str!` — **text, not bytes, and 45 KB, not
+  megabytes**. The artifacts are `index.html`, `404.html`, `search.html`,
+  `foundational_types.html`, `modules.json`, `search-index.bin`,
+  `instances.json`, `declarations/name-map.json`, `declarations/used-by.json`.
+
+  **The four landing pages belong to `global`, not to `render`.** So a site
+  cannot be assembled without `global`, and the plan's split — `build` in M3,
+  `global` in M4 — put the landing pages on the wrong side of a boundary. M3 and
+  M4 were redrawn against this (`.claude/purelean-plan.md`).
+
+  Two things that are *not* there, against expectation: **no
+  `declaration-data.bmp`** — `artifacts.rs`'s `the_doc_gen4_only_artifacts_are_gone`
+  fixes that it and four other doc-gen4-era files stay gone — and no `assets/`
+  directory: the three asset paths are flat, because `head_html` builds each
+  href as the page root plus the name.
+
+  The 146,728 bytes of pages are **not** the 129,450 above: this run passes
+  `--root`, so links into dependencies resolve to external URLs and every page
+  grows. Same renderer, different configuration; do not put the two side by side.
