@@ -21,6 +21,10 @@
 #                                       [--out DIR] [--target REPO] [--lib NAME]
 #                                       [--lidx FILE] [--base-ir DIR] [--ref-site DIR]
 #                                       [--only SCENARIO]...
+#
+#   LITEDOC4  the binary to record (default target/release/litedoc4). The
+#             recording is the implementation's answer, so a second one taken
+#             with another binary is what the matching *-compare.sh compares.
 #   --lib  the library whose modules are the module list; defaults to
 #          `InformationTheory`, which is the measurement target's. A different
 #          `--target` needs this too.
@@ -80,7 +84,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRODUCT_EXTRACT_BIN="$REPO/extractor/build/extract"
-RUST_BIN="$REPO/target/release/litedoc4"
+LITEDOC4="${LITEDOC4:-$REPO/target/release/litedoc4}"
 # shellcheck source=lib/target.sh
 . "$REPO/tools/lib/target.sh" || exit 1
 # shellcheck source=lib/common.sh
@@ -139,7 +143,7 @@ case "$EXTRACTOR_IMPL" in
   product|resident)
     # `resident` passes no --extractor at all; the binary is named by
     # --extractor-bin instead, so it is what the executability check is about.
-    [ "$EXTRACTOR_IMPL" = product ] && EXTRACTOR="$RUST_BIN" || EXTRACTOR="$PRODUCT_EXTRACT_BIN"
+    [ "$EXTRACTOR_IMPL" = product ] && EXTRACTOR="$LITEDOC4" || EXTRACTOR="$PRODUCT_EXTRACT_BIN"
     [ -x "$PRODUCT_EXTRACT_BIN" ] || {
       echo "missing extractor binary: $PRODUCT_EXTRACT_BIN — run: extractor/build.sh" >&2; exit 1; }
     ;;
@@ -153,8 +157,8 @@ esac
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 # Needed by both spellings: the module-list check below is stated against
 # `litedoc4 modules`, whose order the run depends on.
-[ -x "$RUST_BIN" ] || {
-  echo "missing: $RUST_BIN — run: cargo build --release -p litedoc4" >&2; exit 1; }
+[ -x "$LITEDOC4" ] || {
+  echo "missing: $LITEDOC4 — run: cargo build --release -p litedoc4, or set LITEDOC4" >&2; exit 1; }
 
 # `added-one` starts from what `removed-one` left behind, so selecting it
 # selects that too.
@@ -167,12 +171,12 @@ selected () { # selected <scenario>
 }
 
 ledger_build () { # ledger_build <modules> <ir> <out>
-  "$RUST_BIN" ledger build --modules "$1" --target "$TARGET" --ir "$2" \
+  "$LITEDOC4" ledger build --modules "$1" --target "$TARGET" --ir "$2" \
     --source-url "$URL" --out "$3"
 }
-ledger_touch () { "$RUST_BIN" ledger touch --ledger "$1" --module "$2"; }
+ledger_touch () { "$LITEDOC4" ledger touch --ledger "$1" --module "$2"; }
 base_site () { # one command: `site` writes the pages, the six artifacts and the cache
-  "$RUST_BIN" site --ir "$1" --out "$2" --source-url "$URL" \
+  "$LITEDOC4" site --ir "$1" --out "$2" --source-url "$URL" \
     --link-index "$LIDX" --state "$3"
 }
 # `product` is `--extractor <program>` with `--extractor-arg` values in the order
@@ -182,7 +186,7 @@ base_site () { # one command: `site` writes the pages, the six artifacts and the
 # the target and the job count are its own flags.
 case "$EXTRACTOR_IMPL" in
   product)
-    HOW=(--extractor "$RUST_BIN"
+    HOW=(--extractor "$LITEDOC4"
          --extractor-arg extract
          --extractor-arg --extractor-bin --extractor-arg "$PRODUCT_EXTRACT_BIN"
          --extractor-arg --target --extractor-arg "$TARGET"
@@ -194,7 +198,7 @@ case "$EXTRACTOR_IMPL" in
          --jobs "$JOBS") ;;
 esac
 pipeline () {
-  "$RUST_BIN" incremental --ir "$1" --pages "$2" --ledger "$3" --work "$4" \
+  "$LITEDOC4" incremental --ir "$1" --pages "$2" --ledger "$3" --work "$4" \
     --state "$5" --modules "$6" --mode "$7" --source-url "$8" \
     --link-index "$LIDX" --timings "$9" "${HOW[@]}"
 }
@@ -293,7 +297,7 @@ page_list () { # page_list <name> <page tree>
 sitecheck () { # sitecheck <name> <live dir> <url>
   local name="$1" d="$2" url="$3" status=0
   rm -rf "$d/sitecheck-site" "$d/sitecheck-state"
-  "$RUST_BIN" site --ir "$d/ir" --out "$d/sitecheck-site" --source-url "$url" \
+  "$LITEDOC4" site --ir "$d/ir" --out "$d/sitecheck-site" --source-url "$url" \
     --link-index "$LIDX" --state "$d/sitecheck-state" > "$d/sitecheck.log" 2>&1 || status=$?
   {
     printf 'site status       %s\n' "$status"
@@ -316,7 +320,7 @@ mkdir -p "$FIX"
 
 ( cd "$TARGET" && LC_ALL=C find "$LIB.lean" "$LIB" -name '*.lean' | LC_ALL=C sort ) \
   | sed 's/\.lean$//; s#/#.#g' > "$OUT/modules-432.txt"
-"$RUST_BIN" modules --root "$TARGET" --lib "$LIB" > "$WORKROOT/modules-from-cli.txt"
+"$LITEDOC4" modules --root "$TARGET" --lib "$LIB" > "$WORKROOT/modules-from-cli.txt"
 if ! /usr/bin/diff -q "$OUT/modules-432.txt" "$WORKROOT/modules-from-cli.txt" > /dev/null; then
   echo "the LC_ALL=C source glob and \`litedoc4 modules\` disagree — the run would" >&2
   echo "compare two different module orders, which makes two different ledgers and" >&2

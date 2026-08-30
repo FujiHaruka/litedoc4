@@ -13,11 +13,15 @@
 # every consumer only ever compares it for equality.
 #
 # usage: tools/merge-reference.sh [--out DIR] [--base-ir DIR]
+#
+#   LITEDOC4  the binary to record (default target/release/litedoc4). The
+#             recording is the implementation's answer, so a second one taken
+#             with another binary is what the matching *-compare.sh compares.
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUST_BIN="$REPO/target/release/litedoc4"
+LITEDOC4="${LITEDOC4:-$REPO/target/release/litedoc4}"
 
 OUT=
 BASE_IR=/private/tmp/lean-doc-relay/w7h/base-ir
@@ -35,11 +39,11 @@ OUT="${OUT:-/private/tmp/lean-doc-relay/m3b/rust}"
 [ -d "$BASE_IR" ] || { echo "missing: $BASE_IR" >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 
-[ -x "$RUST_BIN" ] || {
-  echo "missing: $RUST_BIN — run: cargo build --release -p litedoc4" >&2; exit 1;
+[ -x "$LITEDOC4" ] || {
+  echo "missing: $LITEDOC4 — run: cargo build --release -p litedoc4, or set LITEDOC4" >&2; exit 1;
 }
-ownership () { "$RUST_BIN" ownership "$@"; }
-merge ()     { "$RUST_BIN" merge "$@"; }
+ownership () { "$LITEDOC4" ownership "$@"; }
+merge ()     { "$LITEDOC4" merge "$@"; }
 
 rm -rf "$OUT"
 mkdir -p "$OUT/fixtures"

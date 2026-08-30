@@ -12,11 +12,15 @@
 #
 # usage: tools/impact-reference.sh [--out DIR] [--base-ir DIR]
 #                                  [--pages DIR] [--site DIR]
+#
+#   LITEDOC4  the binary to record (default target/release/litedoc4). The
+#             recording is the implementation's answer, so a second one taken
+#             with another binary is what the matching *-compare.sh compares.
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUST_BIN="$REPO/target/release/litedoc4"
+LITEDOC4="${LITEDOC4:-$REPO/target/release/litedoc4}"
 
 OUT=
 BASE_IR=/private/tmp/lean-doc-relay/w7h/base-ir
@@ -39,11 +43,11 @@ for d in "$BASE_IR" "$PAGES_SRC" "$SITE_SRC"; do
   [ -d "$d" ] || { echo "missing: $d" >&2; exit 1; }
 done
 
-[ -x "$RUST_BIN" ] || {
-  echo "missing: $RUST_BIN — run: cargo build --release -p litedoc4" >&2; exit 1;
+[ -x "$LITEDOC4" ] || {
+  echo "missing: $LITEDOC4 — run: cargo build --release -p litedoc4, or set LITEDOC4" >&2; exit 1;
 }
-impact () { "$RUST_BIN" impact "$@"; }
-prune ()  { "$RUST_BIN" prune "$@"; }
+impact () { "$LITEDOC4" impact "$@"; }
+prune ()  { "$LITEDOC4" prune "$@"; }
 
 rm -rf "$OUT"
 mkdir -p "$OUT/fixtures"

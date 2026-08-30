@@ -6,11 +6,15 @@
 # The target is only ever read: `touch` is what injects "module M changed".
 #
 # usage: tools/ledger-reference.sh [--out DIR] [--target REPO] [--ir DIR]
+#
+#   LITEDOC4  the binary to record (default target/release/litedoc4). The
+#             recording is the implementation's answer, so a second one taken
+#             with another binary is what tools/ledger-compare.sh compares.
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUST_BIN="$REPO/target/release/litedoc4"
+LITEDOC4="${LITEDOC4:-$REPO/target/release/litedoc4}"
 # shellcheck source=lib/target.sh
 . "$REPO/tools/lib/target.sh" || exit 1
 
@@ -53,10 +57,10 @@ for p in "$TARGET" "$IR" "$MODULES" "$MATHLIB_TARGET"; do
   [ -e "$p" ] || { echo "missing: $p" >&2; exit 1; }
 done
 
-[ -x "$RUST_BIN" ] || {
-  echo "missing: $RUST_BIN — run: cargo build --release -p litedoc4" >&2; exit 1;
+[ -x "$LITEDOC4" ] || {
+  echo "missing: $LITEDOC4 — run: cargo build --release -p litedoc4, or set LITEDOC4" >&2; exit 1;
 }
-ledger () { "$RUST_BIN" ledger "$@"; }
+ledger () { "$LITEDOC4" ledger "$@"; }
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
