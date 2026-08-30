@@ -50,6 +50,23 @@ crates/litedoc4-render/src/autolink.rs : doc-gen4
 # any of those sentences.
 benchmarks/lean-prototype/Render.lean : Böving
 benchmarks/lean-prototype/Render.lean : Apache-2.0
+# The product-side transcription of the same five, split along their boundaries,
+# so each module names the one Rust file it transcribes. `Böving` for the same
+# reason as above: these files discuss doc-gen4 throughout.
+#
+# There is no row for `crates/litedoc4-md/src/math.rs`: it is math-core's work
+# and not doc-gen4's, and the Lean side converts through MathML4Lean rather than
+# transcribing it. What `Md/Html.lean` carries is `math_into`, which is html.rs.
+src/Litedoc4/Md/Escape.lean : Böving
+src/Litedoc4/Md/Escape.lean : Apache-2.0
+src/Litedoc4/Md/Html.lean : Böving
+src/Litedoc4/Md/Html.lean : Apache-2.0
+src/Litedoc4/Render/Autolink.lean : Böving
+src/Litedoc4/Render/Autolink.lean : Apache-2.0
+src/Litedoc4/Render/Code.lean : Böving
+src/Litedoc4/Render/Code.lean : Apache-2.0
+src/Litedoc4/Render/Whitespace.lean : Böving
+src/Litedoc4/Render/Whitespace.lean : Apache-2.0
 
 # --- the other third-party works (provenance.md §7) -----------------------
 # md4c is in the tree three times, byte-identical (provenance.md §7). Each copy
@@ -72,6 +89,11 @@ benchmarks/lean-prototype/Md.lean : Jz Pan
 benchmarks/lean-prototype/Md.lean : MIT
 crates/litedoc4-md/src/ffi.rs : md4c
 crates/litedoc4-md/src/gc.rs : Unicode
+# The Lean transcription of that table. `Dorais` and not `Unicode`, for the
+# reason the two lines above this file's `MD4Lean` rows give: the word Unicode
+# appears wherever the table is discussed.
+src/Litedoc4/Md/Gc.lean : Dorais
+src/Litedoc4/Md/Gc.lean : Unicode
 crates/litedoc4-global/src/v8_gc.rs : V8
 # math-core (MIT): the CSS its MathML needs, reproduced in §15b of the sheet.
 # Two claims, because the file already carries doc-gen4's name and a gate that

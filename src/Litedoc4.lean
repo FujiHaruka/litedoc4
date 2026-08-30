@@ -1,2 +1,2 @@
-import Litedoc4.Md
+import Litedoc4.Render.Site
 import Litedoc4.Version

@@ -63,6 +63,17 @@ structural count matches exactly: 41,786 anchors, 388,868 code spans, 5,790
 paragraphs, 4,394 declaration anchors of 4,584 (the same 190 suppressed), the
 heading hover-links, the lists, the block quotes.
 
+**The reference those runs compared against was six hours stale, and the
+comparison could not see it** (measured 2026-08-31 →
+`results/purelean-render-move-2026-08-31.txt`). The frozen `pages/` tree was
+written by a Rust binary built before `25af76d` added the `<div class="flags">`
+block; the prototype had not implemented that block either, so both sides were
+missing the same feature and 422 of 422 was green over it. Re-run against a
+Rust binary built from the same tree, the renderer differed on one page until
+the block was transcribed, and then matched again — **422 of 422 at 24,546,639 B,
+not the 24,546,157 B above.** The two totals are six hours of product apart and
+must not be put side by side.
+
 **The gap is not in any one component.** Rendering costs 0.63 s of the 1.07 s,
 and splits 47% frame/escaping/assembly, 21% code-fragment walk, 20% docstrings,
 12% link resolution. Three separate attempts to find a dominant cost failed:
@@ -249,4 +260,10 @@ build time is an average of two modes.
 - the search index, `watch` and its HTTP server (Lean 4.31 has `Std.Async.TCP`,
   so it is writable — that is a capability check, not a measurement);
 - a real pure-Lean litedoc4 end to end on CI. The CI numbers above are measured
-  parts composed by hand, not one A/B run, because no pure-Lean litedoc4 exists.
+  parts composed by hand, not one A/B run.
+
+**This study is no longer the live document for the second item.** A pure-Lean
+`litedoc4` now exists in `src/` with a `render` subcommand, and the migration
+that builds the rest of it is tracked outside this report. What stays true here
+is the cost side: the speed, CPU and CI figures are the study's, and nothing in
+the migration has re-measured them.

@@ -1,0 +1,108 @@
+pure-Lean migration — the renderer becomes the product, and a stale reference
+=============================================================================
+2026-08-31. The ninth measurement, and the first taken during the migration
+rather than the study. **It supersedes the "422 of 422" in
+`purelean-md4c-2026-08-30.txt` — not by contradicting it, but by naming what it
+was measured against.** That file is left as written (results are not rewritten).
+
+WHAT WAS BUILT
+  `benchmarks/lean-prototype/Render.lean` (1,866 lines) moved into the product
+  tree as `lean_exe litedoc4`'s `render` subcommand, in two steps that were
+  measured separately so neither could hide the other:
+
+    1. MOVE      the renderer verbatim, minus the bench scaffolding, behind a
+                 CLI matching Rust's `render --ir --pages --source-url
+                 (--link-index | --no-link-index)`. Markdown is unconditional;
+                 the prototype's `--md` and its ablation knobs are gone.
+    2. SPLIT     one file into 17 modules along the boundaries of the Rust files
+                 they transcribe (`Ir`, `Md/{Escape,Gc,Html}`,
+                 `Render/{Order,LinkIndex,Autolink,Whitespace,Code,Decl,Frame,
+                 Page,Site}`, plus `Bytes` and `Json`, which have no Rust
+                 counterpart).
+
+  The prototype directory is untouched.
+
+WHAT THE FIRST RUN OF THE NEW GATE FOUND
+  `tools/purelean-render-gate.sh` runs **both binaries in one session** rather
+  than comparing against a stored tree. It went red on its first run:
+
+    ITEM 3 FAIL  --link-index: 1 differing, 0 missing, 0 extra
+    ./InformationTheory/Polymatroid/Basic.html  reference 13987 B, candidate 13505 B
+
+  The Rust renderer is deterministic (three runs, identical output). The
+  difference is that `/private/tmp/lean-doc-relay/purelean/pages` — the frozen
+  reference every earlier `purelean-*` file compared against — holds **0** pages
+  carrying `<div class="flags">`, and today's Rust binary emits **1**.
+
+  That tree was rendered by a binary built 2026-08-29 13:02
+  (recorded in `purelean-md4c-2026-08-30.txt` under CONDITIONS). The `flags`
+  block landed at **19:04 the same day**, in `25af76d` "Mark sorry, @[ext]
+  origins and the Lean version on the pages". So the reference was six hours
+  behind the tree it was called the reference for.
+
+  **The prototype did not implement that block, and the comparison was green
+  because the reference did not have it either.** Both sides were missing the
+  same feature, and a comparison cannot see what neither side does.
+
+  This is the general form of a rule this repository already has — *do not gate
+  on an observable the defect need not move* — reached from the other end: the
+  observable was right and the **oracle** was the thing that had moved. What
+  made it findable is that the earlier file wrote down the reference binary's
+  build time instead of saying "the Rust output". Recording the conditions is
+  what let a later run notice they had expired.
+
+WHAT WAS THEN TRANSCRIBED
+  `Decl.sorryTag` / `Decl.generated` / `Module.schemaVersion` in `Ir.lean`, and
+  `pushFlag` / `flagsHtml` in `Render/Decl.lean`. The schema-5 guard is one
+  guard for both facts, because both silences render the same.
+
+THE RESULT (measured) — both binaries run in one session, 2026-08-31
+
+  arm                 pages     bytes         differing
+  --link-index        422/422   24,546,639    0
+  --no-link-index     422/422   24,547,048    0
+
+  Conditions: Apple M1, 16 GiB, macOS 26.6.1, arm64, Lean v4.31.0, warm page
+  cache. Same IR and link index as the five study files:
+  422 modules / 15,233,730 B IR / 4,584 declarations / 10,448,225 B link index.
+  Rust reference: `target/release/litedoc4` at `129ea01`, rustc 1.97.1
+  --release. These are identities, not durations, so one run settles them.
+
+  **The byte totals moved and the earlier ones are not wrong.** 24,546,157 is
+  what a pre-`25af76d` Rust wrote; 24,546,639 is what today's writes. The 482 B
+  are the one `flags` block. Do not put the two next to each other.
+
+  The split moved nothing: step 1 and step 2 both report 422/422 at the same
+  byte count.
+
+A TRAP WORTH THE LINE
+  `--no-link-index` compared against the stored `pages-nolidx` tree fails on
+  **all 422 pages** unless it is re-rendered with the `--source-url` *that tree*
+  was made with (`https://github.com/x/y/blob/<rev>`, not the real remote). A
+  stored tree carries its own source URL baked into every link. This is why the
+  gate runs both binaries rather than trusting a tree on disk.
+
+WHAT IS STILL NOT MATCHED — this is not a finished milestone
+  - **e2e/micro is 10 of 11.** `Example/Math.html` differs by 35 B: MathML4Lean
+    refuses `$c \& d$` and falls back to the dollars where math-core converts
+    it. e2e/micro's own docstring asserts that both spans "come out as
+    mathematics rather than as markup", which the Lean renderer now makes false
+    — and that docstring is published sample copy.
+  - **An error path is not transcribed.** On the micro IR with
+    `--no-link-index`, Rust refuses: `declNameToLink: no defining module for
+    Inhabited.default (doc-gen4 would panic here)`, exit 1 after 7 pages. The
+    Lean side renders all 11 and says nothing. The target never triggers it, so
+    the 422-page gate is green over it.
+  - **Module order** comes from `<ir>/modules/*.json` sorted, not from
+    `index.json`'s `modules` array as Rust reads it. Byte-identical on both
+    corpora, but it is the prototype's shortcut rather than the Rust reader.
+  - The `render` summary omits Rust's third line, `math spans kept as LaTeX N`.
+    Counting needs a counter threaded through the Markdown fold; printing `0`
+    would be a number nothing measured.
+
+HOW TO REPRODUCE
+  tools/purelean-render-gate.sh
+
+  It needs `/private/tmp/lean-doc-relay/purelean/{ir,link-index.json}` and a
+  built `target/release/litedoc4`. It is `manual` in `tools/gates.txt`: the
+  target's IR is not something a free runner has.

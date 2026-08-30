@@ -1,0 +1,69 @@
+/- `crates/litedoc4-render/src/site.rs`: the whole of `litedoc4 render`. -/
+import Litedoc4.Render.Page
+
+open System
+
+namespace Litedoc4
+
+def writePage (outDir : FilePath) (module html : String) : IO Unit := do
+  let p := pagePath outDir module
+  match p.parent with
+  | some d => IO.FS.createDirAll d
+  | none => pure ()
+  IO.FS.writeFile p html
+
+structure Options where
+  ir : FilePath
+  pages : FilePath
+  sourceUrl : String
+  /-- `none` is `--no-link-index`, which is a different answer from a map that
+  came out empty: the flag is required precisely so that neither can be reached
+  by forgetting the other. -/
+  linkIndex : Option FilePath
+  deriving Inhabited
+
+structure Summary where
+  pagesWritten : Nat := 0
+  modulesInIr : Nat := 0
+  declarationsRendered : Nat := 0
+  declarationsInIr : Nat := 0
+  declarationsSuppressed : Nat := 0
+  moduleDocs : Nat := 0
+  bytes : Nat := 0
+  known : Nat := 0
+  linkIndexEntries : Nat := 0
+  knownModules : Nat := 0
+  deriving Inhabited
+
+def renderSite (o : Options) : IO Summary := do
+  let files ← jsonFilesIn (o.ir / "modules")
+  let mut mods : Array Module := Array.mkEmpty files.size
+  for f in files do
+    mods := mods.push (parseModule (← IO.FS.readFile f))
+  let deps ← loadDeps (o.ir / "deps")
+  let lidx ← match o.linkIndex with
+    | some p => do parseLidx (← IO.FS.readFile p)
+    | none => pure emptyLidx
+  let ix ← buildIndex deps mods lidx
+  let sup ← suppressedOf mods
+  let title := siteTitle mods
+  IO.FS.createDirAll o.pages
+  let mut bytes := 0
+  for m in mods do
+    let html := pageHtml ix m sup o.sourceUrl title
+    bytes := bytes + html.utf8ByteSize
+    writePage o.pages m.name html
+  return {
+    pagesWritten := mods.size
+    modulesInIr := mods.size
+    declarationsRendered :=
+      mods.foldl (fun a m => a + (m.decls.filter (fun d => !sup.contains d.name)).size) 0
+    declarationsInIr := mods.foldl (fun a m => a + m.decls.size) 0
+    declarationsSuppressed := sup.size
+    moduleDocs := mods.foldl (fun a m => a + m.moduleDocs.size) 0
+    bytes
+    known := ix.known.size
+    linkIndexEntries := ix.lidx.names.size
+    knownModules := ix.knownModules.size }
+
+end Litedoc4
