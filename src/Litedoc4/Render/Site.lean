@@ -45,7 +45,7 @@ def renderSite (o : Options) : IO Summary := do
     | none => pure emptyLidx
   let ix ← buildIndex deps mods lidx
   let sup ← suppressedOf mods
-  let title := siteTitle mods
+  let title := siteTitle (mods.map (·.name))
   IO.FS.createDirAll o.pages
   let mut bytes := 0
   let mut mathFailures := 0

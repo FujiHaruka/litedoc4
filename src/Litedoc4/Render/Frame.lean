@@ -20,11 +20,11 @@ def iconMenu : String :=
 def iconTheme : String :=
   "<svg viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M10 3a7 7 0 1 0 7 7 5.5 5.5 0 0 1-7-7z\"/></svg>"
 
-def siteTitle (mods : Array Module) : String := Id.run do
-  if mods.isEmpty then return "Documentation"
-  let head := (moduleComponents mods[0]!.name)[0]!
-  for m in mods do
-    if (moduleComponents m.name)[0]! != head then return "Documentation"
+def siteTitle (modules : Array String) : String := Id.run do
+  if modules.isEmpty then return "Documentation"
+  let head := (moduleComponents modules[0]!)[0]!
+  for m in modules do
+    if (moduleComponents m)[0]! != head then return "Documentation"
   return head
 
 def headHtml (out : String) (module root title : String) : String := Id.run do
@@ -38,10 +38,15 @@ def headHtml (out : String) (module root title : String) : String := Id.run do
   acc := escapeInto acc (root ++ "app.js")
   return acc ++ "\"></script></head>"
 
-def topbarHtml (out : String) (root title : String) : String := Id.run do
-  let mut acc := out ++ "<header class=\"topbar\"><button class=\"iconbtn\" id=\"nav-toggle\" \
-    aria-label=\"Modules\" aria-expanded=\"false\" aria-controls=\"sidebar\">" ++ iconMenu
-    ++ "</button><a class=\"home\" href=\""
+/-- `withNav` is false on the pages that have no sidebar — the index, search and
+not-found pages are one column, and a button that opens nothing is worse than no
+button. -/
+def topbarHtml (out : String) (root title : String) (withNav : Bool) : String := Id.run do
+  let mut acc := out ++ "<header class=\"topbar\">"
+  if withNav then
+    acc := acc ++ "<button class=\"iconbtn\" id=\"nav-toggle\" aria-label=\"Modules\" \
+      aria-expanded=\"false\" aria-controls=\"sidebar\">" ++ iconMenu ++ "</button>"
+  acc := acc ++ "<a class=\"home\" href=\""
   acc := escapeInto acc (root ++ "index.html") ++ "\">"
   acc := escapeInto acc title
   acc := acc ++ "</a><form class=\"search\" role=\"search\" action=\""

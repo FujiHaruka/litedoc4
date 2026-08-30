@@ -5,6 +5,7 @@ compares against anything: byte order agrees with UTF-16 throughout the BMP and
 inverts at U+10000, and a site with two orders in it is a site whose order is
 nobody's. -/
 import Std.Data.HashSet
+import Litedoc4.Global.Entry
 import Litedoc4.Global.Facts
 import Litedoc4.JsonWrite
 import Litedoc4.Ir.Name
@@ -16,12 +17,6 @@ platform. It has to be the rule `pagePath` writes the page with: a disagreement
 is not a wrong file but an index pointing at pages that were never written. -/
 def pageUrl (module : String) : String :=
   String.intercalate "/" (moduleComponents module).toList ++ ".html"
-
-structure ModuleRow where
-  name : String := ""
-  page : String := ""
-  summary : Option String := none
-  deriving Inhabited
 
 /-- Case-insensitive, and against the source rather than the rendered text: a
 heading of `` `Math` `` on `Pkg.Math` is not caught, which keeps this a count
@@ -54,6 +49,10 @@ structure Counts where
 
 structure Artifacts where
   nameMapJson : String := ""
+  indexHtml : String := ""
+  notFoundHtml : String := ""
+  searchHtml : String := ""
+  foundationalTypesHtml : String := ""
   modulesJson : String := ""
   instancesJson : String := ""
   usedByJson : String := ""
@@ -93,8 +92,8 @@ def nameListsJson (pairs : Array (String × Array String)) : String := Id.run do
 leave the later one in the map, and a module's importer list is built in it
 (before being sorted). Passing the facts in any other order is a different
 answer. -/
-def derive (facts : Array ModuleFacts)
-    (depMaps : Array (Array (String × String))) : Artifacts := Id.run do
+def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String)))
+    (intro : Option String) (leanVersion : String) : Artifacts := Id.run do
   let mut nameMap : Std.HashMap String (String × String) := Std.HashMap.emptyWithCapacity 4096
   let mut instances : Std.HashMap String (Array String) := Std.HashMap.emptyWithCapacity 256
   let mut instancesFor : Std.HashMap String (Array String) := Std.HashMap.emptyWithCapacity 256
@@ -199,8 +198,13 @@ def derive (facts : Array ModuleFacts)
       usedBy := usedBy.insert target entry
 
   let usedByPairs := nameListPairs usedBy
+  let title := siteTitle ownSorted
   return {
     nameMapJson
+    indexHtml := indexHtml title intro pages sortedNames.size leanVersion
+    notFoundHtml := notFoundHtml title
+    searchHtml := searchHtml title
+    foundationalTypesHtml := foundationalTypesHtml title
     modulesJson
     instancesJson :=
       "{\"instances\":" ++ nameListsJson (nameListPairs instances)
@@ -221,11 +225,14 @@ def derive (facts : Array ModuleFacts)
 
 /-- Paired with the paths they go to, in `ARTIFACT_PATHS` order.
 
-Four of the nine. `index.html`, `404.html`, `search.html`,
-`foundational_types.html` and `search-index.bin` are the rest of M3 and are not
-written yet. -/
+Eight of the nine. `search-index.bin` is the rest of M3 and is not written yet;
+its place is between `modules.json` and `instances.json`. -/
 def artifactFiles (a : Artifacts) : Array (String × String) :=
   #[("declarations/name-map.json", a.nameMapJson),
+    ("index.html", a.indexHtml),
+    ("404.html", a.notFoundHtml),
+    ("search.html", a.searchHtml),
+    ("foundational_types.html", a.foundationalTypesHtml),
     ("modules.json", a.modulesJson),
     ("instances.json", a.instancesJson),
     ("declarations/used-by.json", a.usedByJson)]

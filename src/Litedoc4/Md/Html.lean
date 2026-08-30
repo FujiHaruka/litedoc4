@@ -23,6 +23,10 @@ structure LinkResolver where
   sourcePathToLink : String → Option String
   deriving Inhabited
 
+/-- `NoLinks`: every name stays what the author wrote. -/
+def noLinks : LinkResolver :=
+  { nameToLink := fun _ => none, sourcePathToLink := fun _ => none }
+
 /-- `root` is the relative path from the page being written back to the site
 root (`"./"`, `"../"`, `"../.././"`, …). It is prepended to every relative link,
 so it is part of the bytes. -/
@@ -292,5 +296,21 @@ def docstring (out : String) (c : Renderer) (text : String) : StateM Nat String 
   | none =>
     pure (escapeInto
       (out ++ "<span style='color:red;'>Error: failed to parse markdown: </span>") text)
+
+/-- `Renderer::inline`: a run of Markdown rendered without the block element it
+arrived in — a heading's own text, put somewhere that is not a heading.
+
+Not `docstring` with the `<p>` trimmed back off: nothing downstream can tell that
+wrapper from a `<p>` the author wrote, and the input is only one paragraph when
+it parses as one. Anything else is escaped, so a caller that hands this a list or
+a table gets the author's characters rather than markup it did not ask for. What
+would falsify this: a caller that owns the whole element it puts the result in. -/
+def inlineMd (out : String) (c : Renderer) (text : String) : StateM Nat String :=
+  match Md.parse (text ++ "\n\n") docstringFlags with
+  | some doc =>
+    match doc.blocks.toList with
+    | [.p texts] => mdTexts out c texts false
+    | _ => pure (escapeInto out text)
+  | none => pure (escapeInto out text)
 
 end Litedoc4

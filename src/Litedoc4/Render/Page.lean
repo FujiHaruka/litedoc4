@@ -75,7 +75,7 @@ def pageHtml (ix : NameIndex) (m : Module) (sup : Std.HashSet String)
   out := escapeInto (out ++ "<body data-root=\"") root
   out := escapeInto (out ++ "\" data-module=\"") m.name
   out := out ++ "\"><a class=\"skip\" href=\"#content\">Skip to content</a>"
-  out := topbarHtml out root title
+  out := topbarHtml out root title true
   out := sidebarHtml (out ++ "<div class=\"shell\">") root memberNames
   out := out ++ "<main class=\"content\" id=\"content\">"
   out := moduleHeadHtml out m.name moduleUrl
