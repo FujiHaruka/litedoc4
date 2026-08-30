@@ -41,6 +41,14 @@ root = pathlib.Path(sys.argv[1])
 problems = []
 
 LOG = re.compile(r"benchmarks/results/[A-Za-z0-9._*{}<>,-]+")
+# A document that lives inside benchmarks/ writes the path it would type in a
+# shell there. Reading only the repository-root spelling left every citation in
+# `benchmarks/purelean-report.md` unchecked — twelve of them, and a citation
+# naming a file that does not exist passed (measured 2026-08-31). The lookbehind
+# is what keeps this from matching the tail of the absolute spelling twice, and
+# the base is only benchmarks/ because `results/` outside it means something else
+# (`.github/workflows/ci-placement.yml` names a runner's own output directory).
+LOG_REL = re.compile(r"(?<![A-Za-z0-9._/-])results/[A-Za-z0-9._*{}<>,-]+")
 # This repository's own planning documents, which is what the rule is about.
 DOC = re.compile(
     r"(?:docs/)?plans/[A-Za-z0-9._-]+\.md"
@@ -71,13 +79,17 @@ for path in files:
     except UnicodeDecodeError:
         continue
     rel = path.relative_to(root).as_posix()
+    bases = [(LOG, root)]
+    if rel.startswith("benchmarks/"):
+        bases.append((LOG_REL, root / "benchmarks"))
     for line_no, line in enumerate(text.splitlines(), 1):
-        for match in LOG.findall(line):
-            cited = match.rstrip(".,)")
-            if any(c in cited for c in "*{<") or cited.endswith(("-", "_")):
+        for pattern, base in bases:
+          for match in pattern.findall(line):
+            cited = match.rstrip(".,)}\"'")
+            if any(c in cited for c in "*{<") or cited.endswith(("-", "_", "/")):
                 continue
             logs_seen += 1
-            if not (root / cited).exists():
+            if not (base / cited).exists():
                 problems.append(f"{rel}:{line_no} cites {cited}, which is not there")
         for match in DOC.findall(line):
             cited = match.rstrip(".,)")
