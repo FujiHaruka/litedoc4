@@ -111,4 +111,19 @@ just the paths with `/` replaced: `Alpha/Odd-Name.lean` is the module Lean spell
 def escapeModule (components : Array String) : String :=
   ".".intercalate (components.map escapeComponent).toList
 
+/-- `Alpha.«Odd-Name»` → `Alpha/Odd-Name.html`, relative to the site root, with
+`/` on every platform because this is a URL path as much as a file path.
+
+**Three readers need this rule and it has to be one rule**: the renderer writes
+the page, `prune` deletes it, and the whole-package artifacts link to it. Writer
+and remover disagreeing leaves the dead page behind; writer and index
+disagreeing emits `href`s to pages that are not there, and **neither shows up in
+a byte comparison of either side**.
+
+**A name can carry a `..` through this** — `«..».Foo` comes out as
+`../Foo.html` — so the tree a deletion is allowed inside checks rather than
+trusts (`Litedoc4.PageRoot`). -/
+def pageUrl (module : String) : String :=
+  String.intercalate "/" (moduleComponents module).toList ++ ".html"
+
 end Litedoc4

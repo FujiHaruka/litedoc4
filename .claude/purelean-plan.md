@@ -428,10 +428,10 @@ Lean 側が同じバイトを出すには**同じ `--pages` が要る**。今は
 | U1 | `openUnvalidated` / `Ordered α` | `ir/reader.rs`, `incr/ordered.rs` | 小 |
 | U2 | ledger **リーダ** + `KeySet.diff` + `checkLedger` + 3 つの出力ファイル | `incr/detect.rs`, `ledger.rs` | **済み 2026-08-31** |
 | U3 | `ledger touch` | `incr/detect.rs:409` | **済み 2026-08-31** |
-| U4 | `impact`（4 つの mode） | `incr/impact.rs` | プロトタイプあり |
+| U4 | `impact`（4 つの mode） | `incr/impact.rs` | **済み 2026-08-31** |
 | U5 | `ownership` — **`watching` ガードを保つ** | `incr/ownership.rs` | **済み 2026-08-31** |
 | U6 | `merge` + `--verify` | `incr/merge.rs` (773) | **済み 2026-08-31** |
-| U7 | `prune` | `incr/prune.rs` (518) | **ゼロから** |
+| U7 | `prune` | `incr/prune.rs` (518) | **済み 2026-08-31** |
 | U8 | `ModuleSet` + `--only` / `--only-from` | `render/site.rs` | ゼロから。**`purelean-render-gate.sh` 項目 5 が「`--only` を拒否する」を主張しているので同じ変更で直す** |
 | U9 | global の delta（`--before` / `--print-set` / `--delta-json`） | `global/delta.rs` | `tokens` はある |
 | U10 | `Resident`: **遅延起動** / リクエスト数 / 冪等な stop / `foldTimings` | `resident.rs`, `extract.rs` | 今は単発 |
@@ -507,6 +507,40 @@ timings 19 本が持続時間を除いて一致、`.txt` 38 本がバイト一�
 M5 のオラクルを記録した base IR は **422 モジュール**（merge のシナリオは `into 422`/`423`
 と出る）。**台帳と IR index を突き合わせる段（U11）は、この 10 の差を「既知のドリフト」
 ではなく diff として踏む**。U11 に入る前に、どちらの母数で回すかを決めること。
+
+#### U4 / U7 で分かったこと（2026-08-31）
+
+`impact-compare.sh` が **3,556/3,556 一致（`IDENTICAL`）**、18 の `impact` シナリオと
+10 の `prune` シナリオ。比較器は先に 2 回落とした — 生き残ったページの 1 バイト
+（`cascade/pages/InformationTheory/Fano.html` の `search-input` → `searchZinput`）で
+`DIFFERS ... char 1001`、`orphans-only-prune.json` の `"orphans": 4 → 5` で
+`orphans: reference 4, candidate 5`。**`totalSeconds` はマスクされる**ので、
+prune の答えは時計を除いて全部比較されている。
+
+- **共通の綴りを 3 つ寄せた**。`pageUrl` は `Global/Artifacts.lean` にあったが、
+  **書き手（レンダラ）と消し手（prune）と索引が同じ規則でなければならない**ので
+  `Ir/Name.lean` へ（Rust の `litedoc4_ir::page_path` と同じ位置）。`jvalGet?` は
+  `Incr/Merge.lean` から `Json.lean` へ、`readModuleList` は `Ledger.lean` から
+  `Fs.lean` へ（`writeLines` と対になる）
+- **`IndexEntry` に `bytes` を足した**。`selectedIrBytes` は index の列を足すだけで、
+  ファイルを開かずに選択の代価を言う数字。重複した index エントリは 2 回数える
+- **`prune` のガードは 3 つで、記録はそのうち 1 つも通らない**（実測）。
+  記録の外で 2 つを Rust と突き合わせた: 語彙的な脱出（`«..».Foo` →
+  `../Foo.html`）と物理的な脱出（`pages/Esc` が外を指す symlink、`Esc.Foo`）は
+  **両バイナリがバイト同一のメッセージで exit 3**、外のファイルは残る。
+  3 つ目（symlink を降りない歩き方）も外で突き合わせて一致 — symlink のディレクトリは
+  素通り、symlink の `.html` はリンクごと消える、`.HTML` は残る。
+  **`allowRemoveDir` の `strictly`（ルート自身）だけは構成できていない** —
+  呼ぶ側が `relative` が空のときに止めるので、到達経路が無い
+- **census は 422 モジュール分の推移閉包を毎行計算してバイト一致**し、
+  `impact` 1 本の実時間は 0.34 s（422 モジュール、IR 15 MB、暖機済み）。
+  **IR 全部のパースは `ledger check --algorithm sha256` の 2.1 s より 1 桁安い** —
+  U11 で数えるべきは「パーサ」ではなく「IR を何回読むか」
+- **ページ経路の綴りは 2 つ残す**。`Ir/Name.pageUrl`（URL、`/` 区切り）と
+  `Render/Page.pagePath`（`FilePath`、部品ごと）で、Rust も
+  `litedoc4_ir::page_path` と `litedoc4_render::page_path` を分けている。
+  畳むと **Windows で区切りが `\` の経路の中に `/` が入る**。
+  反証条件はリリースの triple から Windows が消えること
 
 #### M5 に入る前に塞ぐもの: `Json.lean` は整数しか読まない → **2026-08-31 に塞いだ**
 

@@ -281,15 +281,6 @@ def buildLedger (i : LedgerInputs) : IO (Except String (Ledger × BuildPhases)) 
                 renderKey := some render, modules },
               { started, keyDone, hashDone })
 
-/-- One name per line; blank lines and `#` comments are dropped. -/
-def readModuleList (path : System.FilePath) : IO (Array String) := do
-  let text ← IO.FS.readFile path
-  let mut out : Array String := #[]
-  for line in text.splitOn "\n" do
-    let line := line.trimAscii.toString
-    if !line.isEmpty && !line.startsWith "#" then out := out.push line
-  return out
-
 def keySetInsert (kv : Array (String × String)) (key value : String) :
     Array (String × String) := orderedInsert kv key value
 

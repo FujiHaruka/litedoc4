@@ -38,6 +38,11 @@ def usage : String :=
        litedoc4 merge --base <ir> (--inc <ir> | --remove <file>) [--out <ir>]
                       [--modules <file>] [--changed-out <file>] [--timings <file>]
        litedoc4 merge --verify <ir> --against <ir>
+       litedoc4 impact --ir <dir> [--changed <Module>]... [--changed-file <file>]
+                       [--mode self|referrers|importers|all] [--census <file>]
+                       [--print-set <file>] [--json <file>]
+       litedoc4 prune --pages <dir> [--remove <file>] [--ir <dir>] [--dry-run]
+                      [--json <file>]
        litedoc4 --version
        litedoc4 --help"
 
@@ -861,6 +866,150 @@ def mergeCmd (args : List String) : IO UInt32 := do
       IO.eprintln s!"litedoc4: {e}"
       return 1
 
+structure ImpactArgs where
+  ir : Option String := none
+  /-- In the order they were given; the flags first, then the file's lines. -/
+  changed : Array String := #[]
+  changedFile : Option String := none
+  mode : Option String := none
+  census : Option String := none
+  printSet : Option String := none
+  json : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+partial def parseImpact : List String → ImpactArgs → Except String ImpactArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} wants a value"
+    if flag == "--ir" then do
+      let (v, more) ← value; parseImpact more { acc with ir := some v }
+    else if flag == "--changed" then do
+      let (v, more) ← value; parseImpact more { acc with changed := acc.changed.push v }
+    else if flag == "--changed-file" then do
+      let (v, more) ← value; parseImpact more { acc with changedFile := some v }
+    else if flag == "--mode" then do
+      let (v, more) ← value; parseImpact more { acc with mode := some v }
+    else if flag == "--census" then do
+      let (v, more) ← value; parseImpact more { acc with census := some v }
+    else if flag == "--print-set" then do
+      let (v, more) ← value; parseImpact more { acc with printSet := some v }
+    else if flag == "--json" then do
+      let (v, more) ← value; parseImpact more { acc with json := some v }
+    else if flag == "--help" || flag == "-h" then
+      parseImpact rest { acc with help := true }
+    else
+      .error s!"unknown argument `{flag}`"
+
+def impactRun (a : ImpactArgs) (ir : String) : IO UInt32 := do
+  -- The order reaches the summary's `changed` array, and repeats are kept rather
+  -- than folded.
+  let changed ← match a.changedFile with
+    | some path => do pure (a.changed ++ (← readModuleList ⟨path⟩))
+    | none => pure a.changed
+  match ← runImpact { ir := ⟨ir⟩, changed
+                      mode := (a.mode.map ImpactMode.parse).getD .importers
+                      census := a.census.map (⟨·⟩), printSet := a.printSet.map (⟨·⟩)
+                      json := a.json.map (⟨·⟩) } with
+  | .error (code, message) => refusedWith code message
+  | .ok run =>
+    if let (some modules, some path) := (run.censusModules, a.census) then
+      IO.println s!"census -> {path} ({modules} modules)"
+    if let some summary := run.summary then IO.println (impactJson summary)
+    return 0
+
+/-- A changed module set in, the modules to re-render out.
+
+**`global` runs before this** — but not into it: the whole-package map's delta is
+the other half of the render set, and it reaches the renderer by being *unioned*
+with this stage's `--print-set`, which is the pipeline's job. A delta with no
+changes is a **0-byte file, not a blank line**, and this command writes **no
+`--print-set` at all** when the changed set is empty and the mode is not `all` —
+a missing file is the empty set. -/
+def impactCmd (args : List String) : IO UInt32 := do
+  match parseImpact args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    let some ir := a.ir | refuse "--ir is required"
+    try
+      impactRun a ir
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      pure (1 : UInt32)
+
+structure PruneArgs where
+  pages : Option String := none
+  remove : Option String := none
+  ir : Option String := none
+  json : Option String := none
+  dryRun : Bool := false
+  help : Bool := false
+  deriving Inhabited
+
+partial def parsePrune : List String → PruneArgs → Except String PruneArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} wants a value"
+    if flag == "--pages" then do
+      let (v, more) ← value; parsePrune more { acc with pages := some v }
+    else if flag == "--remove" then do
+      let (v, more) ← value; parsePrune more { acc with remove := some v }
+    else if flag == "--ir" then do
+      let (v, more) ← value; parsePrune more { acc with ir := some v }
+    else if flag == "--json" then do
+      let (v, more) ← value; parsePrune more { acc with json := some v }
+    else if flag == "--dry-run" then
+      parsePrune rest { acc with dryRun := true }
+    else if flag == "--help" || flag == "-h" then
+      parsePrune rest { acc with help := true }
+    else
+      .error s!"unknown argument `{flag}`"
+
+def pruneRunCmd (a : PruneArgs) (pages : String) : IO UInt32 := do
+  match ← prune { pages := ⟨pages⟩, remove := a.remove.map (⟨·⟩), ir := a.ir.map (⟨·⟩)
+                  dryRun := a.dryRun, json := a.json.map (⟨·⟩) } with
+  | .error (code, message) => refusedWith code message
+  | .ok s =>
+    IO.println s!"prune-pages{if s.dryRun then " (dry run)" else ""}: deleted \
+      {s.deleted.size}/{s.requested} requested, {s.orphans.size} orphan(s), \
+      {s.emptied.size} empty dir(s) — {seconds s.totalNanos 4} s"
+    for orphan in s.orphans.extract 0 orphansInLog do
+      IO.println s!"  orphan  {orphan}"
+    return 0
+
+/-- **The one subcommand that deletes.** Two guards are in the library
+(containment, and paths built by concatenation rather than `FilePath./`); the
+third is the shape of the flag — `--dry-run` computes the whole answer and writes
+nothing, so "what would this remove" can be asked of a tree nobody is willing to
+lose. -/
+def pruneCmd (args : List String) : IO UInt32 := do
+  match parsePrune args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    -- A page tree with neither a deletion list nor an IR to call orphans against
+    -- has nothing to do, and doing nothing quietly is how a deleted module's
+    -- page survives.
+    let missing := "prune needs --pages <dir> and at least one of --remove <file> / --ir <dir>"
+    let some pages := a.pages | refuse missing
+    if a.remove.isNone && a.ir.isNone then return ← refuse missing
+    try
+      pruneRunCmd a pages
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      pure (1 : UInt32)
+
 def ledger (args : List String) : IO UInt32 := do
   match args with
   | [] => refuse "ledger needs a subcommand: build, check or touch"
@@ -900,6 +1049,8 @@ def main (args : List String) : IO UInt32 := do
   | "site" :: rest => Litedoc4.site rest
   | "ownership" :: rest => Litedoc4.ownershipCmd rest
   | "merge" :: rest => Litedoc4.mergeCmd rest
+  | "impact" :: rest => Litedoc4.impactCmd rest
+  | "prune" :: rest => Litedoc4.pruneCmd rest
   | [] | "--help" :: _ | "-h" :: _ =>
     IO.println Litedoc4.usage
     return 0

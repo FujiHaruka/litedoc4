@@ -79,6 +79,14 @@ def pageHtml (ix : NameIndex) (m : Module) (sup : Std.HashSet String)
   out := moduleMetaHtml out ix root m.imports
   return out ++ main ++ "</main></div></body></html>"
 
+/-- `pageUrl`'s rule as a path, built component by component.
+
+**Not `outDir / pageUrl module`**, which would say the rule once: a URL path
+joins with `/` on every platform, and appending one whole to a `FilePath` puts a
+`/` inside a path whose separator is a backslash on Windows. The two spellings are
+kept apart the way the Rust half keeps `litedoc4_ir::page_path` and
+`litedoc4_render::page_path` apart. What would falsify this: dropping Windows
+from the release triples, after which one spelling would do. -/
 def pagePath (outDir : FilePath) (module : String) : FilePath := Id.run do
   let parts := moduleComponents module
   let mut p := outDir

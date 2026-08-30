@@ -60,6 +60,17 @@ def writeFile (path : FilePath) (body : String) : IO Unit := do
     if !dir.toString.isEmpty then IO.FS.createDirAll dir
   IO.FS.writeFile path body
 
+/-- One name per line; blank lines and `#` comments are dropped. The reading
+side of `writeLines` below, and in the same module for that reason: the two
+decide together what an empty set looks like on disk. -/
+def readModuleList (path : FilePath) : IO (Array String) := do
+  let text ← IO.FS.readFile path
+  let mut out : Array String := #[]
+  for line in text.splitOn "\n" do
+    let line := line.trimAscii.toString
+    if !line.isEmpty && !line.startsWith "#" then out := out.push line
+  return out
+
 /-- One name per line, and **no line at all** when there are no names: the sets
 this writes are handed to `--only-from`, where an empty file has to mean "render
 nothing" rather than "render everything". -/

@@ -165,6 +165,11 @@ structure IndexEntry where
   module : String := ""
   /-- Relative to the IR root, e.g. `modules/Foo.Bar.json`. -/
   file : String := ""
+  /-- The writer's `String.utf8ByteSize` of that file. Taken from the index and
+  never from the file on disk: `impact` quotes it as the cost of a selection
+  before it has opened anything, and a repeated index entry is meant to count
+  twice. -/
+  bytes : Nat := 0
   /-- Lean's `String.hash` of the module JSON, in hex. The whole-package cache's
   key, and the only thing that decides a hit. -/
   contentHash : String := ""
@@ -188,6 +193,7 @@ def toIndexEntry (v : JVal) : IndexEntry := Id.run do
   for (k, x) in asObj v do
     if k == "module" then e := { e with module := asStr x }
     else if k == "file" then e := { e with file := asStr x }
+    else if k == "bytes" then e := { e with bytes := asNat x }
     else if k == "contentHash" then e := { e with contentHash := asStr x }
   return e
 

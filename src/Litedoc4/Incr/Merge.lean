@@ -60,14 +60,6 @@ structure MergeIndexEntry where
   raw : JVal
   deriving Inhabited
 
-/-- The last value under `key`, which is what a JSON parser backed by a map
-leaves behind for a document that repeats one. -/
-def jvalGet? (j : JVal) (key : String) : Option JVal := Id.run do
-  let mut found : Option JVal := none
-  for (k, v) in asObj j do
-    if k == key then found := some v
-  return found
-
 /-- Two lookups compare equal exactly when Rust's two `Option<&Value>` do.
 `JVal` carries no `BEq` — deriving one over `Array JVal` is a knot — and the
 written bytes decide the question anyway, as long as an absent key stays

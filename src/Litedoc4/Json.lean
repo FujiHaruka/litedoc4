@@ -211,4 +211,12 @@ def parseJson (text : String) : Except String JVal :=
 @[inline] def asBool : JVal → Bool | .bool b => b | _ => false
 @[inline] def isNull : JVal → Bool | .null => true | _ => false
 
+/-- The last value under `key`, which is what a JSON parser backed by a map
+leaves behind for a document that repeats one. -/
+def jvalGet? (j : JVal) (key : String) : Option JVal := Id.run do
+  let mut found : Option JVal := none
+  for (k, v) in asObj j do
+    if k == key then found := some v
+  return found
+
 end Litedoc4

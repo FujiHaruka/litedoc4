@@ -13,12 +13,6 @@ import Litedoc4.Ir.Name
 
 namespace Litedoc4
 
-/-- The renderer's path rule, as a **URL** path, so the separator is `/` on every
-platform. It has to be the rule `pagePath` writes the page with: a disagreement
-is not a wrong file but an index pointing at pages that were never written. -/
-def pageUrl (module : String) : String :=
-  String.intercalate "/" (moduleComponents module).toList ++ ".html"
-
 /-- Case-insensitive, and against the source rather than the rendered text: a
 heading of `` `Math` `` on `Pkg.Math` is not caught, which keeps this a count
 that means one thing and never a claim that it found them all. -/
