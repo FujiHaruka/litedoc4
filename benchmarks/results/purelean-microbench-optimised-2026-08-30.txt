@@ -1,0 +1,140 @@
+pure-Lean replacement study — how much of the Lean floor was Lean
+================================================================
+2026-08-30, the same day as and superseding parts of
+`purelean-microbench-2026-08-30.txt` (which is NOT rewritten; read it first,
+then this).
+
+WHY THIS FILE EXISTS
+  The first measurement wrote the Lean side the obvious way and got 0.667 s
+  against Rust's 0.40 s. The obvious way is not a fact about Lean. This file
+  rewrites the two expensive phases, verifies each rewrite against the original
+  **inside the same process**, and reports what is left.
+
+  It also corrects one number in the earlier file. See CORRECTION below.
+
+CONDITIONS
+  Identical to the earlier file: Apple M1, 8 cores (4 P + 4 E), 16 GiB,
+  macOS 26.6.1, Lean v4.31.0 `lake build`, warm, same IR (422 modules /
+  15,233,730 B / 4,584 declarations) and same link index (10,448,225 B /
+  261,672 distinct keys). n=6, run 1 discarded, medians of 5.
+  Every candidate and its original run **in one process in one run**, so no two
+  numbers here come from different sessions.
+
+VERIFIED, NOT ASSUMED
+  ir parser    a digest of every node of all 422 files, against Lean.Json:
+               nodes=2259350 strBytes=9282117 numSum=80995766 trues=28413
+               nulls=1339 — identical. The program fails loudly if they differ.
+  lidx parser  all 261,672 entries compared key by key (module + both line
+               numbers) against the `splitOn` map.
+  A parser that is faster because it parses less is not a result; this is how
+  that was kept out.
+
+THE TWO REWRITES
+  phase        was       now       x      what changed
+  lidx.parse   0.2333    0.0877    2.66   byte scan over the string, one
+                                          Pos.Raw.extract per key, hash map
+                                          given 524,288 buckets up front
+                                          (without the capacity: 0.1119)
+  ir.parse     0.1671    0.1065    1.57   hand-written JSON parser, same
+                                          fidelity: array-of-pairs objects
+                                          instead of TreeMap, Int instead of
+                                          JsonNumber, one memcpy per string
+                                          instead of String.push per char
+
+  Where lidx.parse's 0.0877 goes, same scan with pieces removed:
+    line+tab scan 0.0541 -> +numbers 0.0603 -> +key strings 0.0742 -> +hash and
+    insert 0.0877. **The raw byte walk is 62% of it**: 10.4 MB at 193 MB/s,
+    ~11 cycles/byte, because every `byteAt` is a Nat bounds compare plus an
+    extern call.
+
+  `ir.scan` — a structural walk that builds nothing — costs 0.0463 s. That is
+  the floor for touching 15.2 MB at all in Lean.
+
+THE FLOOR, END TO END (`--floor N`, n=6, medians of 5)
+  phase                1 worker   4 workers   8 workers
+  ir.read              0.0503     |           |
+  ir.parse             0.1062     | 0.0504    | 0.0469   (read+parse, threaded)
+  lidx.read            0.0279       0.0273      0.0274
+  lidx.parse           0.0883       0.0904      0.0909
+  lidx.lookup          0.1480       0.1441      0.1467
+  html.build           0.0320       0.0316      0.0317
+  html.write           0.0539       0.0443      0.0455
+  ---------------------------------------------------------
+  SUM                  0.5064       0.3881      0.3892
+  process wall         0.70         0.56        0.57
+  CPU (user+sys)       0.68         0.68        0.74
+  RSS                  204 MB       143 MB      153 MB
+
+  **Rust `litedoc4 render`, the finished renderer, single-threaded: 0.40 s.**
+
+PARALLEL SCALING — read + parse all 422 IR files (independent files)
+  workers  Lean.Json wall  CPU    x      hand parser wall  CPU    x
+  1        0.2277          0.24   1.00   0.1614            0.18   1.00
+  2        0.1247          0.25   1.83   0.0880            0.18   1.83
+  4        0.0702          0.26   3.24   0.0495            0.19   3.26
+  8        0.0661          0.33   3.44   0.0428            0.24   3.77
+  It really parallelises: 3.3x less wall for 1.1x more CPU at 4 workers.
+  8 buys almost nothing over 4 (4 P-cores + 4 E-cores) and CPU jumps
+  0.26 -> 0.33. `IO.asTask` with `Task.Priority.dedicated`. Every configuration
+  returns 4,584 declarations.
+
+CORRECTION TO THE EARLIER FILE
+  `lidx.lookup 0.1049` in `purelean-microbench-2026-08-30.txt` is **wrong in
+  the optimistic direction**, and the earlier file is left as it is (raw logs
+  are not rewritten) — this is the correction.
+  It looked names up with the very `String` objects the map stores, so
+  `lean_string_eq` settled every probe on pointer identity. Measured three ways
+  in one process:
+    pointer-identical keys                       0.0662
+    fresh keys allocated in probe order          0.1149
+    fresh keys scattered in memory               0.1442  <-- what a renderer has
+  A renderer looks names up that came from the IR against keys that came from
+  the link index; they are never the same objects. **0.1442 is the number.**
+  General form: a benchmark that reuses the container's own keys is measuring
+  pointer equality, not the hash map.
+
+WHAT DID NOT HELP (each with its number, so nobody re-tries them)
+  ByteArray instead of String for the scan   0.0912 vs 0.0877 — SLOWER, and that
+      includes the 10 MB conversion. `String.getUTF8Byte` is already
+      `lean_string_get_byte_fast`; there is nothing to win.
+  Bit-packing the value into a tagged Nat    0.1338 vs 0.0877 — 53% slower. The
+      control storing a plain small Nat runs at 0.0641, so it is
+      `Nat.shiftLeft`/`Nat.lor` that cost, not the boxing.
+  Dropping every skipWs from the IR parser   0.1003 vs 0.1065 — 6%, and it stops
+      being a JSON parser. (Legitimate only because the extractor emits compact
+      JSON: there is not one whitespace byte in the 15.2 MB.)
+  Parsing fewer fields                       no saving exists to take: `refs` is
+      27% of the IR bytes and the three code arrays another 43%, and a renderer
+      needs all of them for links and highlighting.
+
+READ THIS AS
+  **About a third of the original Lean floor was the obvious-but-slow way**
+  (0.667 -> 0.506 sequential, all of it from two phases). The rest is real.
+
+  The floor is now 1.27x of the *complete* Rust renderer sequentially, and
+  0.97x of it with the IR parse on 4 threads — but the Lean side still has
+  **no rendering logic in it at all**, and the Rust side is finished. The honest
+  statement is unchanged in shape and smaller in size: **a pure-Lean renderer
+  starts about 0.10 s (threaded) to 0.11 s (sequential) behind, not 0.27 s.**
+
+  Where the remaining gap lives:
+  - **Per-byte work costs ~10 cycles in Lean where Rust costs ~1.** `ir.scan`
+    builds nothing and costs 0.046 s; the link-index byte walk alone is 0.054 s.
+    That is 0.10 s of pure byte-touching against Rust's 0.09 s for the whole
+    link index *including* building the map. No restructuring moves this.
+  - **`lidx.lookup` at 0.1442 s is now the largest single phase**, larger than
+    either parse. 100-140 ns per `HashMap String` probe.
+  - **Parallelism is the lever with headroom, and Rust has not pulled it either**
+    — the 0.40 s is single-threaded (user 0.32 / real 0.40). 422 independent
+    pages parallelise the way the parse does. **A decision should rest on both
+    sides threaded, which nobody has measured.**
+
+FOUND ON THE WAY (not a benchmark result)
+  The link index has 261,820 entry lines but **261,672 distinct keys — 148 names
+  are repeated across modules**, and the last one wins in both implementations.
+  That is silent today, and it decides which page a link points at.
+
+WHAT THIS FILE STILL DOES NOT SETTLE
+  the rendering logic on top of the floor; the incremental path (where the Rust
+  half is 73% of the work); `math-core` on a target that has math spans; the CI
+  axis (Lean compile time against a 2.9 s binary download).
