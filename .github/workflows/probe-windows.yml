@@ -1,0 +1,84 @@
+# A probe, not a gate. It answers one question: **can a Windows binary be built
+# at all?** Windows is the largest of the platforms with no release asset, and
+# on those a consumer takes `lakefile.lean`'s `cargo build` branch and needs
+# Rust, a C compiler and node. Nothing in the tree records why Windows was left
+# out — `windows-latest` already runs `ci-browser-windows.yml`, so it is not a
+# question of having a runner.
+#
+# Three jobs and none of them `needs:` another, so one run answers all three
+# even when one fails. The C question is isolated in its own job because
+# `litedoc4-md` depends on neither `sha2` nor node: a failure there is md4c's,
+# and a failure only in the other two is not.
+#
+# `push:` on this branch by name, because `workflow_dispatch` cannot reach a
+# workflow that is not on the default branch (measured 2026-08-29).
+name: probe — does Windows build
+
+on:
+  push:
+    branches: ["windows-probe"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  md4c:
+    name: the vendored C, under MSVC
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the toolchain rust-toolchain.toml asks for
+        run: rustup show
+      - name: What the compiler is
+        shell: bash
+        run: |
+          rustc -vV
+          cargo -V
+      # No setup-node: this crate has no build.rs that runs npm, which is the
+      # point of testing it on its own.
+      - name: cargo test -p litedoc4-md
+        run: cargo test -p litedoc4-md
+
+  binary:
+    name: cargo build --release --bin litedoc4
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+      - name: Install the toolchain rust-toolchain.toml asks for
+        run: rustup show
+      - name: node is really there
+        shell: bash
+        run: node -v && npm -v
+      - name: Build
+        run: cargo build --release --locked --bin litedoc4
+      # `--version` proves the file is executable, not that it is correct — the
+      # tests job is what judges correctness. This is here to size the artefact
+      # a release asset would carry.
+      - name: What came out
+        shell: bash
+        run: |
+          ls -l target/release/litedoc4.exe
+          ./target/release/litedoc4.exe --version
+
+  tests:
+    name: how much of the workspace passes
+    runs-on: windows-latest
+    timeout-minutes: 60
+    # Informational: this is the size of the follow-on work, not the question.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-node
+      - name: Install the toolchain rust-toolchain.toml asks for
+        run: rustup show
+      - name: cargo test --workspace
+        run: cargo test --workspace
