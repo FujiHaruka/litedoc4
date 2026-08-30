@@ -21,4 +21,7 @@ def byteLt (a b : String) : Bool := Id.run do
     i := i + 1
   return na < nb
 
+@[inline] def hexDigit (n : Nat) : Char :=
+  if n < 10 then Char.ofNat (48 + n) else Char.ofNat (87 + n)
+
 end Litedoc4

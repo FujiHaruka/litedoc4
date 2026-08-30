@@ -37,6 +37,12 @@
 #               that saw only `*.html` would call two sites identical while
 #               their search indexes disagreed.
 #   7 SITE SUM  the two `site` runs print different stdout.
+#   9 LEDGER    the two `ledger build` runs write different bytes. The ledger is
+#               what M5's incremental path reads to decide what is stale, so a
+#               field that drifts here is a build that later re-extracts
+#               everything or, worse, nothing. Compared whole rather than
+#               field by field: its key order is insertion order, not sorted,
+#               and a comparison that parsed both would stop seeing that.
 #   8 CLOSURE   the Lean site does not close over itself. `check-site-closure.py`
 #               asks whether the index, the search index and the pages agree
 #               about which declarations exist **in both directions**, and
@@ -111,7 +117,7 @@ else
   TEMPORARY=0
 fi
 
-ITEMS=8
+ITEMS=9
 ran=0
 failed=0
 
@@ -141,7 +147,7 @@ site_run () {
   echo "$rc"
 }
 
-say "1/8 the Lean half builds from a consumer's workspace"
+say "1/9 the Lean half builds from a consumer's workspace"
 built=0
 build_rc=0
 (cd "$FIXTURE" && "$LAKE" build litedoc4/litedoc4) >"$OUT/build.log" 2>&1 || build_rc=$?
@@ -155,7 +161,7 @@ else
   tail -20 "$OUT/build.log" >&2
 fi
 
-say "2/8 the sample's IR, extracted here"
+say "2/9 the sample's IR, extracted here"
 extracted=0
 (cd "$MICRO" && "$LAKE" build) >"$OUT/micro-build.log" 2>&1
 EXTRACTOR="$(micro_extractor "$ROOT" "$MICRO" "$LAKE" "$OUT/extractor-build.log")"
@@ -179,7 +185,7 @@ else
   fi
 fi
 
-say "3/8 with --link-index, the two trees are the same bytes"
+say "3/9 with --link-index, the two trees are the same bytes"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean" "$OUT/rust"
   lean_rc="$(render "$LEAN_EXE" "$OUT/lean" lean --link-index "$OUT/build/link-index.lidx")"
@@ -201,7 +207,7 @@ else
   fail 3 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "4/8 with --no-link-index, both refuse the same unplaceable name"
+say "4/9 with --no-link-index, both refuse the same unplaceable name"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean-nolidx" "$OUT/rust-nolidx"
   lean_n_rc="$(render "$LEAN_EXE" "$OUT/lean-nolidx" lean-nolidx --no-link-index)"
@@ -223,7 +229,7 @@ else
   fail 4 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "5/8 the two runs print the same stdout"
+say "5/9 the two runs print the same stdout"
 # The whole of stdout and not a slice of it: both halves take `--root`, so the
 # `external ` block one prints is the other's too, and a comparison that began
 # at the first counts line would swallow a difference in the dependency map the
@@ -240,7 +246,7 @@ else
   fail 5 "item 3 did not leave two runs' stdout to compare"
 fi
 
-say "6/8 \`site\` writes the same 20 files, bytes and all"
+say "6/9 \`site\` writes the same 20 files, bytes and all"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/site-lean" "$OUT/site-rust"
   lean_s_rc="$(site_run "$LEAN_EXE" "$OUT/site-lean" site-lean)"
@@ -264,7 +270,7 @@ else
   fail 6 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "7/8 the two \`site\` runs print the same stdout"
+say "7/9 the two \`site\` runs print the same stdout"
 if [ -s "$OUT/site-lean.out" ] && [ -s "$OUT/site-rust.out" ]; then
   if ! $DIFF_CMD "$OUT/site-rust.out" "$OUT/site-lean.out" >"$OUT/site-summary.diff" 2>&1; then
     fail 7 "stdout differs — see $OUT/site-summary.diff"
@@ -282,7 +288,7 @@ fi
 # own. This is the only oracle-free question asked of the Lean tree, and it is
 # the one that outlives the oracle: after the Rust half is deleted, item 6 has
 # nothing to compare against and this is what is left.
-say "8/8 the Lean site closes over itself"
+say "8/9 the Lean site closes over itself"
 if [ "$(find "$OUT/site-lean" -type f 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]; then
   closure_rc=0
   "$PYTHON" "$ROOT/benchmarks/tools/check-site-closure.py" "$OUT/site-lean" \
@@ -303,6 +309,41 @@ if [ "$(find "$OUT/site-lean" -type f 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ];
   fi
 else
   fail 8 "the Lean site is empty or was not written — item 6 says why"
+fi
+
+say "9/9 the two \`ledger build\` runs write the same bytes"
+if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
+  mod_rc=0
+  "$LITEDOC4" modules --root "$MICRO" --lib Example --out "$OUT/ledger-modules.txt" \
+    >"$OUT/ledger-modules.log" 2>&1 || mod_rc=$?
+  ledger_run () {
+    local exe="$1" out="$2" name="$3"
+    local rc=0
+    "$exe" ledger build --modules "$OUT/ledger-modules.txt" --target "$MICRO" \
+      --out "$out" --ir "$OUT/build/ir" --source-url "$SOURCE_URL" \
+      --link-index "$OUT/build/link-index.lidx" --root "$MICRO" \
+      >"$OUT/$name.out" 2>"$OUT/$name.err" || rc=$?
+    echo "$rc"
+  }
+  if [ "$mod_rc" -ne 0 ]; then
+    fail 9 "litedoc4 modules exited $mod_rc — see $OUT/ledger-modules.log"
+  else
+    lean_l_rc="$(ledger_run "$LEAN_EXE" "$OUT/ledger-lean.json" ledger-lean)"
+    rust_l_rc="$(ledger_run "$LITEDOC4" "$OUT/ledger-rust.json" ledger-rust)"
+    if [ "$lean_l_rc" -ne 0 ] || [ "$rust_l_rc" -ne 0 ]; then
+      fail 9 "a ledger build exited non-zero (lean=$lean_l_rc rust=$rust_l_rc) — see $OUT/ledger-{lean,rust}.err"
+    elif [ ! -s "$OUT/ledger-rust.json" ]; then
+      # Two absent files compare equal, which is the shape that goes green
+      # having checked nothing.
+      fail 9 "the Rust ledger is empty or missing"
+    elif ! cmp -s "$OUT/ledger-rust.json" "$OUT/ledger-lean.json"; then
+      fail 9 "$(cmp "$OUT/ledger-rust.json" "$OUT/ledger-lean.json" 2>&1 | head -1) — $OUT/ledger-{rust,lean}.json"
+    else
+      pass 9 "$(wc -c <"$OUT/ledger-lean.json" | tr -d ' ') bytes identical, $(grep -o '"module":' "$OUT/ledger-lean.json" | wc -l | tr -d ' ') module(s)"
+    fi
+  fi
+else
+  fail 9 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
 say "summary"

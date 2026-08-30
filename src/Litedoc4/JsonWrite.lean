@@ -9,9 +9,6 @@ import Litedoc4.Bytes
 
 namespace Litedoc4
 
-@[inline] def hexDigit (n : Nat) : Char :=
-  if n < 10 then Char.ofNat (48 + n) else Char.ofNat (87 + n)
-
 /-- `serde_json` escapes `"`, `\` and the C0 controls, and nothing else: `/`
 stays `/`, DEL stays DEL, and every non-ASCII code point goes out as raw UTF-8. -/
 @[inline] def jsonNeedsEscape (b : UInt8) : Bool := b < 32 || b == 34 || b == 92

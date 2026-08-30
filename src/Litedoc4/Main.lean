@@ -18,6 +18,9 @@ def usage : String :=
        litedoc4 site --ir <dir> --out <dir> --source-url <url>
                      (--link-index <file> | --no-link-index)
                      [--root <dir>] [--lake <path>]
+       litedoc4 ledger build --modules <file> --target <repo> --out <ledger.json>
+                             [--ir <dir>] [--source-url <url>] [--link-index <file>]
+                             [--root <dir>] [--lake <path>]
        litedoc4 --version
        litedoc4 --help"
 
@@ -91,30 +94,32 @@ will not parse, a `lake` that will not run — each costs the roots it would hav
 contributed and is printed. Refusing would trade a site with some dead links for
 no site at all. `litedoc4.toml` is the opposite and is an error, because there
 the package asked for something by name. -/
+def resolveExternal (root lake : Option String) : IO ExternalLinks := do
+  match root with
+  | none => do
+    IO.println "external  no package named (--root), so links into a dependency stay relative \
+      to pages this site does not write"
+    return {}
+  | some root => do
+    let lake ← match lake with
+      | some path => pure path
+      | none => pure (((← IO.getEnv "LAKE").filter (!·.isEmpty)).getD "lake")
+    let resolved ← externalLinks ⟨root⟩ ⟨lake⟩
+    IO.println s!"external  {resolved.links.roots.size} root(s) from \
+      {resolved.resolved}/{resolved.declared} package(s) + core"
+    -- The roots in that count that carry no URL: they are in the map so that
+    -- the pages stop linking into them, which is the opposite of what the line
+    -- above reads like on its own.
+    if resolved.unpinnedRoots > 0 then
+      IO.println s!"external  note: {resolved.unpinnedRoots} of those root(s) have no \
+        version-pinned URL, so names in them render without a link rather than linking at a \
+        page this site does not write"
+    for line in resolved.collisions ++ resolved.problems do
+      IO.println s!"external  note: {line}"
+    return resolved.links
+
 def renderInputs (root lake : Option String) : IO RenderInputs := do
-  let external ← match root with
-    | none => do
-      IO.println "external  no package named (--root), so links into a dependency stay relative \
-        to pages this site does not write"
-      pure ({} : ExternalLinks)
-    | some root => do
-      let lake ← match lake with
-        | some path => pure path
-        | none => pure (((← IO.getEnv "LAKE").filter (!·.isEmpty)).getD "lake")
-      let resolved ← externalLinks ⟨root⟩ ⟨lake⟩
-      IO.println s!"external  {resolved.links.roots.size} root(s) from \
-        {resolved.resolved}/{resolved.declared} package(s) + core"
-      -- The roots in that count that carry no URL: they are in the map so that
-      -- the pages stop linking into them, which is the opposite of what the line
-      -- above reads like on its own.
-      if resolved.unpinnedRoots > 0 then
-        IO.println s!"external  note: {resolved.unpinnedRoots} of those root(s) have no \
-          version-pinned URL, so names in them render without a link rather than linking at a \
-          page this site does not write"
-      for line in resolved.collisions ++ resolved.problems do
-        IO.println s!"external  note: {line}"
-      pure resolved.links
-  return { external, config := ← readSiteConfig (root.map (⟨·⟩)) }
+  return { external := ← resolveExternal root lake, config := ← readSiteConfig (root.map (⟨·⟩)) }
 
 def render (args : List String) : IO UInt32 := do
   match parseRender args {} with
@@ -256,6 +261,108 @@ def site (args : List String) : IO UInt32 := do
       IO.eprintln s!"litedoc4: {e}"
       return 1
 
+structure LedgerArgs where
+  modules : Option String := none
+  target : Option String := none
+  out : Option String := none
+  ir : Option String := none
+  sourceUrl : String := ""
+  linkIndex : Option String := none
+  root : Option String := none
+  lake : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+/-- Flags the Rust `ledger build` takes and this one does not. `--algorithm` and
+`--concurrency` are refused rather than accepted-and-ignored: this build offers
+one algorithm and one thread, and a run that took `--concurrency 8` would look
+like it had done what was asked. -/
+def ledgerUnimplemented : List String :=
+  ["--algorithm", "--concurrency", "--deps-docs-map", "--timings"]
+
+partial def parseLedger : List String → LedgerArgs → Except String LedgerArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} wants a value"
+    if flag == "--modules" then do
+      let (v, more) ← value; parseLedger more { acc with modules := some v }
+    else if flag == "--target" then do
+      let (v, more) ← value; parseLedger more { acc with target := some v }
+    else if flag == "--out" then do
+      let (v, more) ← value; parseLedger more { acc with out := some v }
+    else if flag == "--ir" then do
+      let (v, more) ← value; parseLedger more { acc with ir := some v }
+    else if flag == "--source-url" then do
+      let (v, more) ← value; parseLedger more { acc with sourceUrl := v }
+    else if flag == "--link-index" then do
+      let (v, more) ← value; parseLedger more { acc with linkIndex := some v }
+    else if flag == "--root" then do
+      let (v, more) ← value; parseLedger more { acc with root := some v }
+    else if flag == "--lake" then do
+      let (v, more) ← value; parseLedger more { acc with lake := some v }
+    else if flag == "--help" || flag == "-h" then
+      parseLedger rest { acc with help := true }
+    else if ledgerUnimplemented.contains flag then
+      .error s!"{flag} is a `ledger build` flag this build does not implement"
+    else
+      .error s!"unknown argument `{flag}`"
+
+def ledgerBuildRun (a : LedgerArgs) (modules target out : String) : IO UInt32 := do
+  let names ← readModuleList ⟨modules⟩
+  let external ← resolveExternal a.root a.lake
+  let result ← buildLedger
+    { modules := names, target := target, ir := a.ir.map (⟨·⟩), sourceUrl := a.sourceUrl
+      linkIndex := a.linkIndex.map (⟨·⟩), externalLinks := some external.digest }
+  match result with
+  | .error message =>
+    IO.eprintln s!"litedoc4: {message}"
+    return 3
+  | .ok ledger =>
+    let body := ledger.toJson
+    if let some dir := (⟨out⟩ : System.FilePath).parent then
+      if !dir.toString.isEmpty then IO.FS.createDirAll dir
+    IO.FS.writeFile out body
+    let files := ledger.modules.foldl (fun n m => n + m.files.size) 0
+    let hashed := ledger.modules.foldl (fun n m => m.files.foldl (fun k f => k + f.bytes) n) 0
+    IO.println s!"build {ledger.modules.size} modules, {files} olean file(s), {hashed} B hashed \
+      -> {out} ({body.utf8ByteSize} B)"
+    return 0
+
+def ledgerBuild (args : List String) : IO UInt32 := do
+  match parseLedger args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    let missing := "ledger build needs --modules <file>, --target <repo> and --out <ledger.json>"
+    let some modules := a.modules | refuse missing
+    let some target := a.target | refuse missing
+    let some out := a.out | refuse missing
+    try
+      return ← ledgerBuildRun a modules target out
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      return 1
+
+/-- `check` and `touch` are refused by name rather than as a misspelling: they
+are the incremental half, and a caller needs to hear that this build stops at
+the ledger the first round writes. -/
+def ledger (args : List String) : IO UInt32 := do
+  match args with
+  | [] => refuse "ledger needs a subcommand: build"
+  | command :: rest =>
+    if command == "build" then ledgerBuild rest
+    else if command == "check" || command == "touch" then
+      refuse s!"`ledger {command}` is not implemented by this build"
+    else if command == "--help" || command == "-h" then do
+      IO.println usage
+      return 0
+    else refuse s!"unknown `ledger` subcommand `{command}`"
+
 end Litedoc4
 
 def main (args : List String) : IO UInt32 := do
@@ -264,6 +371,7 @@ def main (args : List String) : IO UInt32 := do
     IO.println s!"litedoc4 {Litedoc4.version}"
     return 0
   | "render" :: rest => Litedoc4.render rest
+  | "ledger" :: rest => Litedoc4.ledger rest
   | "site" :: rest => Litedoc4.site rest
   | [] | "--help" :: _ | "-h" :: _ =>
     IO.println Litedoc4.usage

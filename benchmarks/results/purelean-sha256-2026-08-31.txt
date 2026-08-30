@@ -1,0 +1,86 @@
+purelean M4 — SHA-256 in Lean, or in C?
+=======================================
+2026-08-31. The ledger hashes every olean it licenses an extraction from
+(`crates/litedoc4-incr/src/ledger.rs`), and neither Lean core nor Std has
+SHA-256. The two routes are a Lean implementation (no new dependency) and a C
+one under `csrc/`, the route `vendor/md4c` already takes (a third-party
+transcription, so an attribution obligation in `docs/provenance.md`).
+
+The rule agreed before measuring: **Lean, unless hashing e2e/micro's oleans
+takes more than 2 s, or the measurement target's more than 60 s.** Rust hashes
+with a thread pool and the Lean port is deliberately sequential, so a ratio of
+several times is expected and is not the question; what a consumer waits for is.
+
+Conditions
+----------
+  machine     Darwin 25.6.0, arm64 (M-series), 16 GB
+  Lean        leanprover/lean4:v4.31.0, `lean_exe litedoc4` built from `src/`
+              through `cd e2e/consumer && lake build litedoc4/litedoc4`
+  Rust        target/release/litedoc4 (the `sha2` crate, which uses the arm64
+              SHA-256 instructions)
+  warmth      warm — 5 consecutive runs, converged; wall clock = user+sys, and
+              `/usr/bin/time -l` reports 0 block input operations
+  threads     Lean sequential; Rust `ledger build --concurrency 1` and `8`
+  command     `litedoc4 ledger build --modules <list> --target <repo> --out <f>`
+
+Correctness first
+-----------------
+  FIPS 180-4 vectors, all matching:
+    ""                          e3b0c442…7852b855
+    "abc"                       ba7816bf…f20015ad
+    56 bytes ("abcdbcde…nopq")  248d6a61…19db06c1
+    1,000,000 × 'a'             cdc76e5c…c7112cd0
+  Block-boundary lengths 55 / 56 / 63 / 64 of 'x', against python3 hashlib: all
+  4 identical. 56 and 63 are the two-block padding path.
+
+  Against the Rust ledger on real input: **433 oleans, 229.1 MB, 0 differing
+  per-file hashes** (measured) — e2e/micro's 11 and the measurement target's
+  422, compared field by field against `ledger build`'s output in the same
+  session.
+
+Throughput
+----------
+  e2e/micro, 11 oleans, 643,104 B
+    Lean   0.01 s real (5 runs; process start included)   — budget 2 s
+    Rust   0.0006–0.0012 s of hashing, as `ledger build` reports it
+
+  /Users/haruka/dev/lean-projects, 422 modules, 228,439,544 B of olean
+    Lean            2.03–2.04 s real / 2.00 user / 0.03 sys (5 runs)  — budget 60 s
+    Rust  --concurrency 1   0.13 s real / 0.10 user / 0.02 sys (5 runs)
+    Rust  --concurrency 8   0.02–0.03 s real (3 runs)
+
+  Lean is 112 MB/s single-threaded; Rust at the same concurrency is 1,765 MB/s.
+  **The 15.6× is not the thread pool** — the Rust figure above is one thread. It
+  is the arm64 SHA-256 instructions, which is also what a C implementation under
+  `csrc/` would have to be written against to beat this.
+
+  Instruction counts for the Lean run (`/usr/bin/time -l`): 37,056,785,493
+  instructions and 6,558,627,968 cycles for 228.4 MB, i.e. ~10,400 instructions
+  per 64-byte block against the ~1,500 arithmetic operations the algorithm
+  names. Peak RSS 7.9 MB against a largest olean of 4.2 MB, so **whole-file
+  reads are not a memory problem and no chunked reader was written**.
+
+Decision
+--------
+  Both budgets pass with 200× and 30× of margin, so SHA-256 stays in Lean
+  (`src/Litedoc4/Sha256.lean`). What would reverse it: an input an order of
+  magnitude past the measurement target's oleans, or a caller that hashes them
+  more than once per build — `build` hashes once, before the extraction it
+  licenses.
+
+The whole ledger matches, not only the hashes
+---------------------------------------------
+  `ledger.json` byte-identical between the two binaries in 11 configurations:
+
+    e2e/micro (11 modules)   bare / +--ir / +--source-url +--link-index /
+                             +--root (externalLinks 8244901f…d57b84cb) /
+                             --link-index naming a file that is not there
+    synthetic target         a module with all three olean suffixes, sizes
+                             0/55/56/63/64 B; `Alpha.«Odd-Name»`; a module with
+                             only `.olean.server`; an index.json with the two
+                             keys missing; one with an array and a bool in them;
+                             a shuffled module list with a comment line
+    the measurement target   422 modules, 138,935 B of ledger
+
+  The refusal matches too: a module with no olean exits 3 from both, with the
+  same line, and neither writes a file.

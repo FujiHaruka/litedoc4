@@ -4,6 +4,7 @@ An empty `base` is a value and not a missing entry: it says "this root belongs t
 a dependency and there is no version-pinned URL for it", which `linkTo` turns
 into no link rather than into a relative one to a page this site never writes. -/
 import Litedoc4.Ir.Name
+import Litedoc4.Sha256
 
 namespace Litedoc4
 
@@ -52,6 +53,18 @@ def moduleSourceUrl (base module : String) : String := Id.run do
   for part in moduleComponents module do
     out := out ++ "/" ++ part
   return out ++ ".lean"
+
+/-- The bytes the digest is taken over: a marker line, then one `<root>\t<base>\n`
+per entry sorted by root. Sorted rather than in resolution order because the
+roots are unique, so two maps that resolve every module alike have to hash
+alike whatever order they were built in. -/
+def ExternalLinks.canonical (m : ExternalLinks) : String := Id.run do
+  let mut out := "litedoc4 external-links v1\n"
+  for r in m.roots.qsort (fun a b => byteLt a.name b.name) do
+    out := out ++ r.name ++ "\t" ++ r.base ++ "\n"
+  return out
+
+def ExternalLinks.digest (m : ExternalLinks) : String := sha256Text m.canonical
 
 def ExternalLinks.urlFor (m : ExternalLinks) (module : String) (lines : Option (Nat × Nat)) :
     Option String :=
