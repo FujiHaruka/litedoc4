@@ -1,0 +1,71 @@
+purelean M5 — what `ledger check` costs in Lean, and where the cost is
+======================================================================
+2026-08-31. `ledger check` is the answer an incremental build asks for most
+often ("nothing is stale"), so what it costs is what the common path costs.
+The Lean port hashes sequentially where Rust uses a thread pool, and the two
+halves' SHA-256 are different implementations, so the question this answers is
+not "which is faster" but **how much of the difference is the port and how much
+is the hash**.
+
+The control is `--algorithm lake`, which reads Lake's `<file>.hash` beside every
+olean instead of the olean's bytes: 6.9 KB read instead of 227 MB, over the same
+module list, through the same reader, the same key diff and the same comparison.
+Whatever separates the two binaries there is the port; whatever appears only
+under `sha256` is the hash.
+
+Conditions
+----------
+  machine     MacBookAir10,1 (Apple M1), 16 GB, Darwin 25.6.0
+  Lean        leanprover/lean4:v4.31.0, `lean_exe litedoc4` built from `src/`
+              through `cd e2e/consumer && lake build litedoc4/litedoc4`
+  Rust        target/release/litedoc4, the `sha2` crate with `asm` (the ARMv8
+              SHA-256 instructions)
+  target      /Users/haruka/dev/lean-projects at 16ff7a40
+  modules     432 — `benchmarks/results/it-modules.txt`, which is frozen at 432
+              while the sources hold 422; ten `Shannon.BroadcastChannel.*`
+              modules' stale oleans are what still answer for the other ten
+              (-> target-drift-2026-08-31.txt). 237,893,840 B of olean.
+  concurrency 1 on both sides (the default), so this is not a thread-pool
+              comparison
+  warmth      warm — five consecutive runs each, converged; wall clock = user+sys
+              from `/usr/bin/time -l` on every run but the first
+  command     litedoc4 ledger check --ledger <ledger> --modules <list>
+                                    --ir <ir> --source-url <url> --timings <f>
+              with each binary reading the ledger its own `build` wrote
+
+Results (`hashSeconds` from the timings record; run 1 is cold and shown apart)
+-----------------------------------------------------------------------------
+  --algorithm sha256   (227 MB read and hashed)
+    rust   0.3237 | 0.1357 0.1344 0.1346 0.1347   -> warm 0.135 s   RSS 9 MB
+    lean   2.1167 | 2.1152 2.1142 2.1158 2.1289   -> warm 2.115 s   RSS 9 MB
+                                                     ratio 15.7x
+
+  --algorithm lake     (6.9 KB read, no olean bytes)
+    rust   0.0548 | 0.0093 0.0092 0.0094 0.0095   -> warm 0.0093 s  RSS 4 MB
+    lean   0.0120 | 0.0119 0.0121 0.0120 0.0120   -> warm 0.0120 s  RSS 6 MB
+                                                     ratio 1.3x
+
+What it says
+------------
+**The gap is the hash, not the port.** With the bytes taken out, the whole of
+`check` — reading a 142 KB ledger, building both keys, diffing them, walking 432
+modules, writing three files and a timings record — is 2.7 ms slower in Lean.
+Under `sha256` the same run is 1.98 s slower, and 227 MB / 2.115 s is the
+112 MB/s already measured for `Litedoc4.Sha256`
+(-> purelean-sha256-2026-08-31.txt, where the rule agreed before measuring was
+"Lean unless the measurement target takes more than 60 s", and the C route was
+declined for its attribution obligation rather than for its speed).
+
+So the two things that would move this number are the ones that were already
+weighed: a thread pool (bounded by the core count), or C. Neither is licensed by
+2.1 s against a 60 s budget, and **the Lean run's cost is CPU, not I/O** — user+sys
+equals wall clock on every warm run, and RSS is 9 MB against 227 MB of input,
+so the oleans are streamed and the page cache is not the variable here.
+
+What would falsify the conclusion: a workload that hashes more than once per
+build, or a target an order of magnitude larger.
+
+Raw output
+----------
+  /private/tmp/lean-doc-relay/m5-ledger/hashbench.txt (not committed; the table
+  above is the whole of it)
