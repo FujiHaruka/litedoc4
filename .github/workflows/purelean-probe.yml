@@ -47,7 +47,7 @@ jobs:
           T1=$(date +%s.%N)
           echo "PROBE renderer.build $(echo "$T1 - $T0" | bc)"
           wc -l Render.lean Main.lean | tail -1 | awk '{print "PROBE renderer.lines " $1}'
-          ls -la .lake/build/bin/render | awk '{print "PROBE renderer.bytes " $5}'
+          for f in .lake/build/bin/*; do echo "PROBE bin.$(basename "$f") $(stat -c%s "$f")"; done
 
       - name: B2 — the renderer again, warm
         run: |
