@@ -1,0 +1,116 @@
+Can a Windows release asset be built at all?
+============================================
+2026-08-30. Three CI rounds, each of which found a real defect. The answer is
+**yes** — `litedoc4.exe` builds, runs and reports its version — and getting
+there took fixing two things that had never been compiled on Windows.
+
+THE QUESTION
+  Windows and Intel macOS are the platforms `release.yml` carries no asset for,
+  so a consumer there takes `lakefile.lean`'s `cargo build` branch and needs
+  Rust, a C compiler and node. That cost is one of the two stated motives in
+  `benchmarks/purelean-report.md` for replacing the Rust half with Lean.
+  Nothing in the tree records why Windows was left out: Intel macOS carries
+  `(decided 2026-08-29, user's call)` and Windows carries nothing, and
+  `windows-latest` already runs `ci-browser-windows.yml`, so it was never a
+  question of having a runner.
+
+  Two things were asked: does `cargo build --release --bin litedoc4` work under
+  MSVC, and does the vendored md4c C work under MSVC.
+
+WHERE
+  FujiHaruka/litedoc4, branch `windows-probe` (measurement only, never merged),
+  `.github/workflows/probe-windows.yml`, `windows-latest`. Runs 33293566892,
+  33293700285, 33293777615. A `push:` trigger naming the branch, because a
+  workflow absent from the default branch cannot be dispatched by name.
+
+  Three jobs, none of which `needs:` another, so one round answers all three
+  even when one fails. The C question is isolated in its own job because
+  `litedoc4-md` depends on neither `sha2` nor node.
+
+CONDITIONS
+  runner        windows-latest (GitHub-hosted)
+  rustc         1.98.0 (88d9e12ae 2026-08-18), host x86_64-pc-windows-msvc
+  MSVC          Visual Studio 18 Enterprise, VC Tools 14.51.36231, HostX64/x64
+  node          v24.19.0 (the version mise.toml pins, via setup-node)
+  cargo cache   cold on every round — no actions/cache in the probe
+
+MEASURED — the vendored C is not the problem
+  `cargo test -p litedoc4-md` on windows-latest: **47 tests, 47 passed, 0
+  failed**, across the crate's 7 test binaries (24 / 3 / 4 / 4 / 5 / 4 / 3).
+  Green on all three rounds, including the two where the workspace build failed.
+  md4c compiles under `cl.exe` and works through the FFI. This was the larger of
+  the two unknowns and it turned out to be nothing.
+
+MEASURED — two defects stood between the tree and a Windows binary
+  1. `sha2`'s `asm` feature cannot build under MSVC.
+       error: failed to run custom build command for `sha2-asm v0.6.4`
+       LINK : fatal error LNK1181: cannot open input file
+         '…\build\sha2-asm-…\out\81a71fbc30f7fcce-sha512_x64.o'
+     `sha2-asm` ships GAS-syntax `.S`; cc-rs hands it to `cl.exe`, which
+     produces no object for `lib.exe` to archive. Both `litedoc4-render` and
+     `litedoc4-incr` name `features = ["asm"]`.
+     Fixed by splitting on `target_env` rather than dropping the feature: on
+     aarch64 it is what reaches the ARMv8 SHA-256 instructions, worth 2.86x on
+     the olean hash (0.8631 s -> 0.3022 s for 237,909,832 B, measured
+     2026-08-12). Cargo.lock does not change — `sha2-asm` is still in the graph
+     for every other target.
+
+  2. `crates/litedoc4-render/build.rs` cannot start npm on Windows.
+       thread 'main' panicked at crates\litedoc4-render\build.rs:66:19:
+       could not run `npm ci --no-audit --no-fund` in
+       crates/litedoc4-render/web: program not found
+     **node was installed and on PATH** — the step before it ran `node -v &&
+     npm -v` successfully. `Command` on Windows is `CreateProcessW`, which
+     appends `.exe` and nothing else, so the extensionless `npm` shipped beside
+     `npm.cmd` is a shell script it will not start. Fixed with
+     `if cfg!(windows) { "npm.cmd" } else { "npm" }`.
+
+     Note what the failure looked like: the panic's own message says "node is
+     required to build it from source … `mise install` puts it on PATH", which
+     is the one cause it was not. A diagnostic written for the failure that had
+     been seen names the wrong thing for the one that had not.
+
+MEASURED — what came out
+  cargo build --release --locked --bin litedoc4    1 m 48 s, cold cache
+  target/release/litedoc4.exe                      3,051,008 B
+  ./target/release/litedoc4.exe --version          litedoc4 1.2.0
+  For comparison, the aarch64-apple-darwin binary is 3.4 MB.
+
+MEASURED — `cargo test --workspace` is NOT green on Windows
+  error[E0433]: cannot find `unix` in `os`
+    --> crates\litedoc4-incr\tests\impact.rs:2097:14
+     std::os::unix::fs::symlink(target, link)
+
+  `std::os::unix` appears at 7 sites in this tree, and every one of them is test
+  code — `tests/` directories, `#[cfg(test)] mod tests`, and `litedoc4-testutil`
+  (`publish = false`). No product source uses it. They are symlink creation and
+  `PermissionsExt`, i.e. tests of Unix-specific behaviour.
+
+  **This is a lower bound, not a survey.** `cargo test --workspace` stops at the
+  first compile error, so what is known is "at least these 7 sites"; nothing
+  behind them has been reached. A round that gates them and re-runs is what
+  would turn this into a count.
+
+WHAT THIS ANSWERS AND WHAT IT DOES NOT
+  Answers: a Windows binary can be produced, and the vendored C is not what was
+  stopping it. The two defects were waiting, in the same way the two that
+  aarch64 Linux found on 2026-08-29 were waiting: nothing had ever compiled this
+  tree on the platform.
+
+  Does not answer, and each is work rather than a question:
+  - the archive. `release.yml`'s Archive step does `cp target/…/release/litedoc4`
+    with no `.exe`, and `lakefile.lean`'s `fetchRelease` looks for
+    `targetDir / "litedoc4"`. Both need the suffix.
+  - the smoke job. `release.yml` builds a whole site on a runner that did not
+    build the archive, because `--version` proves the file is executable and not
+    that it is correct. That means elan and lake on Windows, which nothing here
+    has run.
+  - the four places that decide whether a machine has an asset — `release.yml`'s
+    matrix, `lakefile.lean`'s `releaseTargets`, `action.yml`'s
+    `RUNNER_OS-$(uname -m)` case, `tools/lake-download-gate.sh`'s. `lakefile.lean`
+    already spells the triple (`x86_64-pc-windows-msvc`, line 193); the other
+    three do not have it.
+  - `action.yml` does not run on Windows for a second reason: its elan step has
+    no Windows case and exits 1. Adding an asset serves local Windows
+    developers, not the action.
+  - whether `cargo test --workspace` can be green on Windows at all.
