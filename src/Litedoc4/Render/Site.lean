@@ -33,6 +33,7 @@ structure Summary where
   known : Nat := 0
   linkIndexEntries : Nat := 0
   knownModules : Nat := 0
+  mathFailures : Nat := 0
   deriving Inhabited
 
 def renderSite (o : Options) : IO Summary := do
@@ -47,11 +48,13 @@ def renderSite (o : Options) : IO Summary := do
   let title := siteTitle mods
   IO.FS.createDirAll o.pages
   let mut bytes := 0
+  let mut mathFailures := 0
   for m in mods do
-    let html ← match pageHtml ix m sup o.sourceUrl title with
-      | .ok html => pure html
+    let (html, pageMathFailures) ← match (pageHtml ix m sup o.sourceUrl title).run 0 with
+      | .ok r => pure r
       | .error message => throw (IO.userError s!"rendering {m.name}: {message}")
     bytes := bytes + html.utf8ByteSize
+    mathFailures := mathFailures + pageMathFailures
     writePage o.pages m.name html
   return {
     pagesWritten := mods.size
@@ -64,6 +67,7 @@ def renderSite (o : Options) : IO Summary := do
     bytes
     known := ix.known.size
     linkIndexEntries := ix.lidx.names.size
-    knownModules := ix.knownModules.size }
+    knownModules := ix.knownModules.size
+    mathFailures }
 
 end Litedoc4

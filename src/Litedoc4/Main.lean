@@ -90,6 +90,11 @@ def render (args : List String) : IO UInt32 := do
         bytes {summary.bytes}"
       IO.println s!"known {summary.known}  link index {summary.linkIndexEntries}  \
         known modules {summary.knownModules}"
+      -- Printed at zero too: the fallback it reports is silent, so a line that
+      -- appeared only above zero could not be told from one that had stopped
+      -- being printed. What would falsify that: a fallback the page itself
+      -- shows, which the reader could see without being told.
+      IO.println s!"math spans kept as LaTeX {summary.mathFailures}"
       return 0
     catch e =>
       IO.eprintln s!"litedoc4: {e}"

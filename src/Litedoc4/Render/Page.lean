@@ -64,7 +64,8 @@ def pageHtml (ix : NameIndex) (m : Module) (sup : Std.HashSet String)
   let mut memberNames : Array String := #[]
   for it in pageItems m sup do
     if it.isDoc then
-      main := docstring (main ++ "<div class=\"moddoc\">") md m.moduleDocs[it.idx]!.text ++ "</div>"
+      main ← renderDocstring (main ++ "<div class=\"moddoc\">") md m.moduleDocs[it.idx]!.text
+      main := main ++ "</div>"
     else
       let d := m.decls[it.idx]!
       memberNames := memberNames.push d.name
