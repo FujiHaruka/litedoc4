@@ -304,11 +304,8 @@ def readMarker (path : FilePath) : IO Marker := do
   match ← (IO.FS.readFile path).toBaseIO with
   | .error _ => return .absent
   | .ok text =>
-    let n := text.utf8ByteSize
-    let start := JScan.skipWs text n 0
-    if start ≥ n || byteAt text start != 123 then return .broken
-    match (JScan.pVal text n start).1 with
-    | .obj kv => return .fields kv
+    match parseJson text with
+    | .ok (.obj kv) => return .fields kv
     | _ => return .broken
 
 def markerString (kv : Array (String × JVal)) (key : String) : String := Id.run do

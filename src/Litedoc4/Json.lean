@@ -23,6 +23,13 @@ inductive JVal where
   | str (s : String)
   | arr (a : Array JVal)
   | obj (a : Array (String × JVal))
+  /-- Where the document stopped making sense, and why. A constructor rather
+  than an `Except` threading through the scanner: the IR is tens of megabytes of
+  values and wrapping every one of them would double the allocations on the only
+  path that reads it. Only `parse` ever holds one — it refuses — so no consumer
+  can be handed a `.bad` to fall through its catch-all. What would falsify this:
+  a caller that wants the prefix that did parse. -/
+  | bad (why : String)
   deriving Inhabited
 
 namespace JScan
@@ -80,6 +87,18 @@ partial def unescape (s : String) (endq : Nat) (segStart i : Nat) (acc : String)
   let (e, esc) := scanStrEnd s n i false
   if esc then (unescape s e i i "", e + 1) else (byteSub s i e, e + 1)
 
+/-- Whether `lit` is the bytes at `i`. Byte by byte rather than `byteSub` and a
+`String` comparison, which would allocate once per `true`, `false` and `null` in
+the IR. -/
+def isLit (s : String) (n i : Nat) (lit : String) : Bool := Id.run do
+  let m := lit.utf8ByteSize
+  if i + m > n then return false
+  let mut k := 0
+  while k < m do
+    if byteAt s (i + k) != byteAt lit k then return false
+    k := k + 1
+  return true
+
 partial def digits (s : String) (n i : Nat) (acc : Nat) : Nat × Nat :=
   if i < n then
     let c := byteAt s i
@@ -104,20 +123,24 @@ partial def realEnd (s : String) (n i : Nat) : Nat :=
 mutual
 
 partial def pVal (s : String) (n i : Nat) : JVal × Nat :=
+  if i >= n then (.bad s!"a value was expected at {i}, and the document ends there", n)
+  else
   let c := byteAt s i
   if c == 123 then pObj s n (i + 1) (Array.mkEmpty 24)
   else if c == 91 then pArr s n (i + 1) (Array.mkEmpty 8)
   else if c == 34 then
     let (v, i) := readStr s n (i + 1)
     (.str v, i)
-  else if c == 116 then (.bool true, i + 4)
-  else if c == 102 then (.bool false, i + 5)
-  else if c == 110 then (.null, i + 4)
+  else if isLit s n i "true" then (.bool true, i + 4)
+  else if isLit s n i "false" then (.bool false, i + 5)
+  else if isLit s n i "null" then (.null, i + 4)
   else
     let neg := c == 45
     let start := i
-    let (d, j) := digits s n (if neg then i + 1 else i) 0
-    if j < n && isRealByte (byteAt s j) then
+    let d0 := if neg then i + 1 else i
+    let (d, j) := digits s n d0 0
+    if j == d0 then (.bad s!"a value was expected at {i}, and byte {c} begins none", n)
+    else if j < n && isRealByte (byteAt s j) then
       let e := realEnd s n j
       (.real (byteSub s start e), e)
     else
@@ -125,33 +148,61 @@ partial def pVal (s : String) (n i : Nat) : JVal × Nat :=
 
 partial def pArr (s : String) (n i : Nat) (acc : Array JVal) : JVal × Nat :=
   let i := skipWs s n i
-  if byteAt s i == 93 then (.arr acc, i + 1)
+  if i < n && byteAt s i == 93 then (.arr acc, i + 1)
   else
     let (v, i) := pVal s n i
-    let acc := acc.push v
-    let i := skipWs s n i
-    let c := byteAt s i
-    if c == 44 then pArr s n (i + 1) acc
-    else if c == 93 then (.arr acc, i + 1)
-    else panic! s!"array: unexpected byte {c} at {i}"
+    match v with
+    | .bad _ => (v, n)
+    | _ =>
+      let acc := acc.push v
+      let i := skipWs s n i
+      let c := byteAt s i
+      if i < n && c == 44 then pArr s n (i + 1) acc
+      else if i < n && c == 93 then (.arr acc, i + 1)
+      else (.bad s!"an array wanted `,` or `]` at {i}, and found byte {c}", n)
 
 partial def pObj (s : String) (n i : Nat) (acc : Array (String × JVal)) : JVal × Nat :=
   let i := skipWs s n i
-  if byteAt s i == 125 then (.obj acc, i + 1)
+  if i < n && byteAt s i == 125 then (.obj acc, i + 1)
+  else if i >= n || byteAt s i != 34 then
+    (.bad s!"an object wanted a key at {i}, and found byte {byteAt s i}", n)
   else
     let (k, i) := readStr s n (i + 1)
-    let i := skipWs s n (i + 1)
-    let (v, i) := pVal s n i
-    let acc := acc.push (k, v)
     let i := skipWs s n i
-    let c := byteAt s i
-    if c == 44 then pObj s n (skipWs s n (i + 1)) acc
-    else if c == 125 then (.obj acc, i + 1)
-    else panic! s!"object: unexpected byte {c} at {i}"
+    if i >= n || byteAt s i != 58 then
+      (.bad s!"the key `{k}` wanted `:` at {i}, and found byte {byteAt s i}", n)
+    else
+    let (v, i) := pVal s n (skipWs s n (i + 1))
+    match v with
+    | .bad _ => (v, n)
+    | _ =>
+      let acc := acc.push (k, v)
+      let i := skipWs s n i
+      let c := byteAt s i
+      if i < n && c == 44 then pObj s n (skipWs s n (i + 1)) acc
+      else if i < n && c == 125 then (.obj acc, i + 1)
+      else (.bad s!"an object wanted `,` or `}` at {i}, and found byte {c}", n)
 
 end
 
 end JScan
+
+/-- The whole document, or what is wrong with it and where.
+
+The scanner's leniencies are refusals here rather than defaults: a key with no
+`:`, a `tru`, a `,` where a `]` belongs, bytes after the last value. M5 reads
+files this run did not write — a ledger any version may have written, a marker a
+broken run left, an IR tree a cache restored — and for those "it did not parse"
+has to be sayable, with the file's name, instead of a value nobody chose. -/
+def parseJson (text : String) : Except String JVal :=
+  let n := text.utf8ByteSize
+  let (v, i) := JScan.pVal text n (JScan.skipWs text n 0)
+  match v with
+  | .bad why => .error why
+  | _ =>
+    let e := JScan.skipWs text n i
+    if e == n then .ok v
+    else .error s!"the value ends at {i} and the document has {n - e} more byte(s)"
 
 @[inline] def asStr : JVal → String | .str s => s | _ => ""
 @[inline] def asNat : JVal → Nat | .num n => n.toNat | _ => 0

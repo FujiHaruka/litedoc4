@@ -94,15 +94,10 @@ def stripDotGit (url : String) : String :=
 bad *entry* costs that entry and nothing else** — one dependency pinned to a
 branch must not take the others' links with it. -/
 def parseManifest (path : FilePath) (text : String) : Except String Manifest := Id.run do
-  let n := text.utf8ByteSize
-  let start := JScan.skipWs text n 0
-  -- `JScan` reports a malformed document by panicking rather than by returning,
-  -- and this module's contract is that nothing throws. What would falsify this:
-  -- a JSON reader with an error path, which would let the whole document be
-  -- checked rather than only its first byte.
-  if start ≥ n || byteAt text start != 123 then
-    return .error s!"{path}: not a JSON object"
-  let (value, _) := JScan.pVal text n start
+  let value ← match parseJson text with
+    | .error why => return .error s!"{path}: {why}"
+    | .ok (.obj kv) => pure (JVal.obj kv)
+    | .ok _ => return .error s!"{path}: not a JSON object"
   let packagesDir := (jStrField value "packagesDir").getD defaultPackagesDir
   let some (.arr listed) := jField value "packages"
     | return .error s!"{path}: no `packages` array"

@@ -159,10 +159,7 @@ def toModule (v : JVal) : Module := Id.run do
         return r }
   return m
 
-def parseModule (text : String) : Module :=
-  let n := text.utf8ByteSize
-  let (j, _) := JScan.pVal text n (JScan.skipWs text n 0)
-  toModule j
+def parseModule (text : String) : Except String Module := (parseJson text).map toModule
 
 structure IndexEntry where
   module : String := ""
@@ -253,10 +250,11 @@ structure IrTree where
 
 def openIrTree (root : FilePath) : IO IrTree := do
   recordIrRead .index
-  let text ← readIrFile (irPath root "index.json")
-  let n := text.utf8ByteSize
-  let (j, _) := JScan.pVal text n (JScan.skipWs text n 0)
-  let index := toIndex j
+  let path := irPath root "index.json"
+  let text ← readIrFile path
+  let index ← match parseJson text with
+    | .error why => throw (IO.userError s!"{path}: {why}")
+    | .ok j => pure (toIndex j)
   if index.schemaVersion < minSchemaVersion then
     throw (IO.userError (schemaRefusal "index.json" index.schemaVersion))
   if !index.ablations.isEmpty then
@@ -269,7 +267,9 @@ modules'. -/
 def IrTree.module (t : IrTree) (e : IndexEntry) : IO Module := do
   recordIrRead .module
   let path := irPath t.root e.file
-  let m := parseModule (← readIrFile path)
+  let m ← match parseModule (← readIrFile path) with
+    | .error why => throw (IO.userError s!"{path}: {why}")
+    | .ok m => pure m
   if m.schemaVersion < minSchemaVersion then
     throw (IO.userError (schemaRefusal path.toString m.schemaVersion))
   if m.name != e.module then
@@ -289,9 +289,11 @@ def IrTree.loadModules (t : IrTree) : IO (Array Module) := do
 
 def IrTree.depMap (t : IrTree) (e : DepMapEntry) : IO (Array (String × String)) := do
   recordIrRead .depMap
-  let text ← readIrFile (irPath t.root e.file)
-  let n := text.utf8ByteSize
-  let (j, _) := JScan.pVal text n (JScan.skipWs text n 0)
+  let path := irPath t.root e.file
+  let text ← readIrFile path
+  let j ← match parseJson text with
+    | .error why => throw (IO.userError s!"{path}: {why}")
+    | .ok j => pure j
   let mut ds : Array (String × String) := #[]
   for (k, v) in asObj j do
     if k == "declarations" then

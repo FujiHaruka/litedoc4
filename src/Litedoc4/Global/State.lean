@@ -39,83 +39,6 @@ def stateDerivation : String := "litedoc4-global facts v4"
 
 /-! ## Reading a file nobody in this tree wrote -/
 
-partial def jsonStrSpan (s : String) (n i : Nat) : Option Nat :=
-  if i ≥ n then none
-  else
-    let c := byteAt s i
-    if c == 34 then some (i + 1)
-    else if c == 92 then jsonStrSpan s n (i + 2)
-    else jsonStrSpan s n (i + 1)
-
-partial def jsonDigitsEnd (s : String) (n i : Nat) : Nat :=
-  if i < n && byteAt s i ≥ 48 && byteAt s i ≤ 57 then jsonDigitsEnd s n (i + 1) else i
-
-def jsonLitSpan (s : String) (n i : Nat) (lit : String) : Option Nat :=
-  let e := i + lit.utf8ByteSize
-  if e ≤ n && byteSub s i e == lit then some e else none
-
-def jsonNumSpan (s : String) (n i : Nat) : Option Nat :=
-  let start := if i < n && byteAt s i == 45 then i + 1 else i
-  let e := jsonDigitsEnd s n start
-  if e == start then none else some e
-
-mutual
-
-/-- The index just past the value at `i`, or `none` if there is not one.
-
-**Stricter than `JScan.pVal` on purpose.** It answers "will the parser reach a
-`panic!`", and it may only ever err towards `none`: a text this rejects costs a
-cold cache, where a text this accepts and the parser then rejects costs the
-stderr line that makes "loads as empty" not silent. So the shapes `pVal` limps
-through rather than refusing — a fractional number, whitespace between a key and
-its colon, a leading comma in an array — are `none` here. -/
-partial def jsonSpan (s : String) (n i : Nat) : Option Nat :=
-  if i ≥ n then none
-  else
-    let c := byteAt s i
-    if c == 123 then jsonObjSpan s n (JScan.skipWs s n (i + 1))
-    else if c == 91 then jsonArrSpan s n (JScan.skipWs s n (i + 1))
-    else if c == 34 then jsonStrSpan s n (i + 1)
-    else if c == 116 then jsonLitSpan s n i "true"
-    else if c == 102 then jsonLitSpan s n i "false"
-    else if c == 110 then jsonLitSpan s n i "null"
-    else jsonNumSpan s n i
-
-partial def jsonObjSpan (s : String) (n i : Nat) : Option Nat :=
-  if i < n && byteAt s i == 125 then some (i + 1)
-  else if i ≥ n || byteAt s i != 34 then none
-  else match jsonStrSpan s n (i + 1) with
-    | none => none
-    | some key =>
-      if key ≥ n || byteAt s key != 58 then none
-      else match jsonSpan s n (JScan.skipWs s n (key + 1)) with
-        | none => none
-        | some after =>
-          let after := JScan.skipWs s n after
-          if after ≥ n then none
-          else if byteAt s after == 44 then jsonObjSpan s n (JScan.skipWs s n (after + 1))
-          else if byteAt s after == 125 then some (after + 1)
-          else none
-
-partial def jsonArrSpan (s : String) (n i : Nat) : Option Nat :=
-  if i < n && byteAt s i == 93 then some (i + 1)
-  else match jsonSpan s n i with
-    | none => none
-    | some after =>
-      let after := JScan.skipWs s n after
-      if after ≥ n then none
-      else if byteAt s after == 44 then jsonArrSpan s n (JScan.skipWs s n (after + 1))
-      else if byteAt s after == 93 then some (after + 1)
-      else none
-
-end
-
-def jsonComplete (s : String) : Bool :=
-  let n := s.utf8ByteSize
-  match jsonSpan s n (JScan.skipWs s n 0) with
-  | none => false
-  | some e => JScan.skipWs s n e == n
-
 def stateField (fields : Array (String × JVal)) (key : String) : JVal := Id.run do
   for (k, v) in fields do
     if k == key then return v
@@ -170,9 +93,8 @@ def State.load (dir : Option FilePath) (index : Index) : IO State := do
   let text ← match ← (IO.FS.readFile (dir / stateFile)).toBaseIO with
     | .error _ => return {}
     | .ok text => pure text
-  if !jsonComplete text then return {}
-  let n := text.utf8ByteSize
-  let fields := asObj (JScan.pVal text n (JScan.skipWs text n 0)).1
+  let .ok j := parseJson text | return {}
+  let fields := asObj j
   if asNat (stateField fields "stateVersion") != stateVersion then return {}
   if asStr (stateField fields "derivation") != stateDerivation then return {}
   if asNat (stateField fields "schemaVersion") != index.schemaVersion then return {}

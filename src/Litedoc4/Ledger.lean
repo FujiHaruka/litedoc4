@@ -104,6 +104,7 @@ partial def jvalJson : JVal → String
   | .bool b => if b then "true" else "false"
   | .num n => toString n
   | .real lex => lex
+  | .bad _ => "null"
   | .str s => jsonStr "" s
   | .arr a => "[" ++ ",".intercalate (a.toList.map jvalJson) ++ "]"
   | .obj a => "{" ++ ",".intercalate (a.toList.map fun (k, v) => jsonStr "" k ++ ":" ++ jvalJson v)
@@ -133,9 +134,11 @@ def extractKey (target : String) (ir : Option System.FilePath) :
   key := key.push ("extractor", extractorId)
   if let some ir := ir then
     recordIrRead .index
-    let text ← IO.FS.readFile (ir / "index.json")
-    let n := text.utf8ByteSize
-    let (j, _) := JScan.pVal text n (JScan.skipWs text n 0)
+    let path := ir / "index.json"
+    let text ← IO.FS.readFile path
+    let j ← match parseJson text with
+      | .error why => throw (IO.userError s!"{path}: {why}")
+      | .ok j => pure j
     key := key.push ("irSchemaVersion", jsString j "schemaVersion")
     key := key.push ("irGenerator", jsString j "generator")
   return key
