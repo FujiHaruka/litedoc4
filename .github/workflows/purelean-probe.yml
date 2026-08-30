@@ -1,0 +1,60 @@
+name: purelean probe
+
+# MEASUREMENT BRANCH — `purelean-ci-probe`. Do not merge this into main.
+#
+# One question: **on a CI runner, how long does Lean take to build the renderer
+# prototype, next to how long it takes to build the extractor?** The CI half of
+# the pure-Lean study reduces to that pair — the Rust binary a pure-Lean litedoc4
+# would stop downloading costs 2.9 s (measured, purelean-ci-runs-2026-08-30.txt),
+# and what replaces it is Lean compile time in the build that already runs.
+#
+# A `push:` trigger naming this branch, not `workflow_dispatch`: a workflow that
+# is not on the default branch cannot be dispatched by name at all.
+on:
+  push:
+    branches: [purelean-ci-probe]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/setup-elan
+
+      # The extractor borrows a package's toolchain through `lake env`; e2e/micro
+      # is the one that does not need Mathlib. Building it here is what makes
+      # `lake env` work, and it is NOT part of either timing below.
+      - name: build e2e/micro (the borrowed environment)
+        run: cd e2e/micro && lake build
+
+      - name: A — the extractor alone (Extract.lean, 3,174 lines)
+        run: |
+          set -euo pipefail
+          T0=$(date +%s.%N)
+          TARGET_REPO="$PWD/e2e/micro" ./extractor/build.sh
+          T1=$(date +%s.%N)
+          echo "PROBE extractor.build $(echo "$T1 - $T0" | bc)"
+          ls -la extractor/build/extract | awk '{print "PROBE extractor.bytes " $5}'
+
+      - name: B — the Lean renderer prototype, from clean
+        run: |
+          set -euo pipefail
+          cd benchmarks/lean-prototype
+          rm -rf .lake
+          T0=$(date +%s.%N)
+          lake build
+          T1=$(date +%s.%N)
+          echo "PROBE renderer.build $(echo "$T1 - $T0" | bc)"
+          wc -l Render.lean Main.lean | tail -1 | awk '{print "PROBE renderer.lines " $1}'
+          ls -la .lake/build/bin/render | awk '{print "PROBE renderer.bytes " $5}'
+
+      - name: B2 — the renderer again, warm
+        run: |
+          set -euo pipefail
+          cd benchmarks/lean-prototype
+          touch Render.lean
+          T0=$(date +%s.%N)
+          lake build
+          T1=$(date +%s.%N)
+          echo "PROBE renderer.rebuild $(echo "$T1 - $T0" | bc)"
