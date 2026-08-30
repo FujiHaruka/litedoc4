@@ -10,7 +10,12 @@
 # and where the first differing byte is. A percentage is not useful; a path and
 # an offset are.
 #
-# usage: tools/render-compare.sh REFERENCE_DIR CANDIDATE_DIR [--show N]
+# usage: tools/render-compare.sh REFERENCE_DIR CANDIDATE_DIR [--show N] [--all]
+#
+#   --all  compare every file, not only `*.html`. A whole site carries JSON and
+#          one binary index alongside its pages, and a comparison that saw only
+#          the pages would call two sites identical while their search indexes
+#          disagreed.
 #
 # Both trees are arguments and neither's provenance is checked, so point
 # REFERENCE_DIR at whatever tree you want to hold the candidate to — and say
@@ -28,23 +33,28 @@
 set -uo pipefail
 
 SHOW=10
+ALL=0
 REF=""
 CAND=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --show) SHOW="$2"; shift 2 ;;
+    --all) ALL=1; shift ;;
     -*) echo "unknown argument: $1" >&2; exit 2 ;;
     *) if [ -z "$REF" ]; then REF="$1"; elif [ -z "$CAND" ]; then CAND="$1"; else
          echo "too many arguments" >&2; exit 2; fi; shift ;;
   esac
 done
 
-[ -n "$REF" ] && [ -n "$CAND" ] || { echo "usage: $0 REFERENCE_DIR CANDIDATE_DIR [--show N]" >&2; exit 2; }
+[ -n "$REF" ] && [ -n "$CAND" ] || { echo "usage: $0 REFERENCE_DIR CANDIDATE_DIR [--show N] [--all]" >&2; exit 2; }
 [ -d "$REF" ] || { echo "no such directory: $REF" >&2; exit 1; }
 [ -d "$CAND" ] || { echo "no such directory: $CAND" >&2; exit 1; }
 
-list() { ( cd "$1" && find . -type f -name '*.html' | sort ); }
+list() {
+  if [ "$ALL" -eq 1 ]; then ( cd "$1" && find . -type f | sort )
+  else ( cd "$1" && find . -type f -name '*.html' | sort ); fi
+}
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

@@ -191,6 +191,23 @@ code point rather than copied from its sources:
     crates/litedoc4-global/src/v8_gc.rs
 
 ================================================================================
+The Rust Project — https://www.rust-lang.org
+================================================================================
+
+    Copyright (c) The Rust Project Developers
+    Licensed under MIT OR Apache-2.0.
+
+The following file holds the answers of Rust's `str::to_lowercase`, enumerated
+code point by code point rather than copied from its sources. The character data
+those answers come from is Unicode's, and is reproduced the same way:
+
+    Copyright (c) 1991-2025 Unicode, Inc. All rights reserved.
+    Distributed under the Unicode Copyright and Terms of Use,
+    https://www.unicode.org/copyright.html
+
+    src/Litedoc4/Lower.lean
+
+================================================================================
 Rust crates whose licence does not offer Apache-2.0
 ================================================================================
 

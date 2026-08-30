@@ -266,6 +266,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | `crates/litedoc4-md/src/gc.rs` (UnicodeBasic の出力を列挙したデータ) | UnicodeBasic = Apache 2.0 | 1,691 行 | 無し (冒頭に rev `a2e430a4…` の記録のみ) |
 | `src/Litedoc4/Md/Gc.lean` (上の Lean 転写、二次の派生) | 同上 | 55 行 (ranges as one string literal) | 無し |
 | `crates/litedoc4-global/src/v8_gc.rs` (V8 を総当たりした出力データ) | V8 = BSD-3 | 818 行 | 無し (deno 2.7.14 / V8 rev の記録のみ) |
+| `src/Litedoc4/Lower.lean` (Rust の `str::to_lowercase` を総当たりした出力データ) | Rust std = MIT OR Apache-2.0、元データは Unicode | 161 行 (2 tables as string literals) | 無し (冒頭の記録のみ) |
 
 **md4c is the only work in this table that carries its own attribution files, and
 it is in the tree three times** (2026-08-30). The three are byte-identical
@@ -278,6 +279,20 @@ other two carry, which is why `tools/provenance-files.txt` has a line for each
 rather than one line for the work. `benchmarks/lean-prototype/vendor/md4c/` is a
 frozen measurement artefact and stays; `crates/litedoc4-md/vendor/md4c/` goes
 when the Rust half does, and `vendor/md4c/` is the copy that remains.
+
+**One more on 2026-08-31** — `src/Litedoc4/Lower.lean`. It is the same shape as
+the two rows above it and is listed for the same reason: **enumerating another
+implementation's answers is a derivation of that implementation, not an
+independent one.** What forced it is that `search-index.bin`'s fold section is
+written by comparing a name's ASCII lowering against `str::to_lowercase`, so the
+Lean half cannot produce the same bytes without the same answers — and Lean core
+has neither the multi-code-point expansions (`İ`) nor `Final_Sigma`.
+
+The obligation is the permission notice, which `NOTICE` now carries; there is no
+attribution file in the tree because there is no upstream file here to carry one
+— the bytes are output, not copied source. **Two names are named, not one**: the
+mapping is Rust's answer and the character data behind it is Unicode's, and
+dropping either would leave the record pointing at a table nobody can retrace.
 
 **2026-08-22 に 1 件増えた** — `math-core` (MIT © 2024 Hiromu Sugiura / Thomas MK)。
 これは**性質が上の 5 件と違い、2 つに分かれる**:

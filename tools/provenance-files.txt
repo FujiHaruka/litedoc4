@@ -95,6 +95,17 @@ crates/litedoc4-md/src/gc.rs : Unicode
 src/Litedoc4/Md/Gc.lean : Dorais
 src/Litedoc4/Md/Gc.lean : Unicode
 crates/litedoc4-global/src/v8_gc.rs : V8
+# The same shape one language over: `str::to_lowercase`'s answers, enumerated.
+# Two claims, because two works are behind the table — Rust's mapping and
+# Unicode's data — and a row for only one of them would go on passing after the
+# other's name was dropped. Neither string is a bare `Rust` or a bare `Unicode`:
+# the file's own prose says both words while explaining what it holds.
+src/Litedoc4/Lower.lean : The Rust Project Developers
+src/Litedoc4/Lower.lean : Unicode®, Inc.
+# `str::to_lowercase` and not `The Rust Project Developers`: that name is already
+# in NOTICE for the `unicode-ident` crate, so a row matching it would be
+# satisfied by a paragraph about a different work.
+NOTICE : str::to_lowercase
 # math-core (MIT): the CSS its MathML needs, reproduced in §15b of the sheet.
 # Two claims, because the file already carries doc-gen4's name and a gate that
 # only looked for "MIT" would be satisfied by the wrong paragraph.

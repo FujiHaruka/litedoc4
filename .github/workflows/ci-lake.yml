@@ -27,6 +27,8 @@ on:
       - "tools/purelean-gate.sh"
       - "tools/purelean-micro-gate.sh"
       - "tools/render-compare.sh"
+      - "tools/usedby-gate.sh"
+      - "benchmarks/tools/check-site-closure.py"
       - "tools/lib/common.sh"
       - "tools/libc-shim-gate.sh"
       - ".github/workflows/ci-lake.yml"
@@ -46,6 +48,8 @@ on:
       - "tools/purelean-gate.sh"
       - "tools/purelean-micro-gate.sh"
       - "tools/render-compare.sh"
+      - "tools/usedby-gate.sh"
+      - "benchmarks/tools/check-site-closure.py"
       - "tools/lib/common.sh"
       - "tools/libc-shim-gate.sh"
       - ".github/workflows/ci-lake.yml"
@@ -127,8 +131,12 @@ jobs:
   # the target does not have, and one of them (a class extending one whose
   # defining module the sample does not declare) is the only input either
   # renderer has ever had to refuse.
+  #
+  # It covers `site` as well as `render`, so the nine whole-package artifacts are
+  # in it — and the last three items also ask whether the Lean site closes over
+  # itself, which two byte-identical trees can both fail to do.
   purelean-micro:
-    name: the two renderers agree on the sample package
+    name: the two implementations agree on the sample package
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:

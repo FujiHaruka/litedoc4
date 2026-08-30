@@ -96,6 +96,26 @@ Lean 側に assets を足すとその不変量ごと比較が崩れる。
   **20/20 バイト一致**し、`benchmarks/tools/check-site-closure.py` と `usedby-gate` が
   Lean 実装のサイトで緑
 
+**2026-08-31 に達成**。判定器は `tools/purelean-micro-gate.sh` の項目 6/7/8
+（tree / summary / closure。**3 つとも個別に落としてから通した**）。
+
+M3 で分かって**閉じていない**もの、次に触る人向け:
+
+1. **`search-index.bin` のエンコーダは Rust が assert する所で黙って切り詰める**。
+   kind 数 > 255 / モジュール数 > 65535 / 名前 > 64 KiB は Rust では `assert!`、
+   Lean では `Nat.toUInt8` / `toUInt16` が巻き込む。実在のパッケージでは届かない
+   （Mathlib 全体で 8,169 モジュール）が、**診断ではなく黙った切り詰め**なので M7 の
+   診断メッセージと一緒に片付ける
+2. **`name-map.json` の依存名の側を closure 検査は見ていない**（実測 2026-08-31 —
+   末尾 1 件を落としても項目 8 は緑のまま、項目 6 だけが落ちた）。
+   いまは Rust オラクルが捕まえるが、**M9 でオラクルが消えると誰も見なくなる**
+3. **`Lower.lean` の 2 つの表に生成器が無い**。`gc.rs` / `v8_gc.rs` には `--check`
+   付きの生成器が委譲されている（`src/Litedoc4/Md/Gc.lean` には無く、前例はある）。
+   表は Rust std の答えを全コードポイント総当たりで突き合わせて作られている（実測）が、
+   **再生成の手段がリポジトリに無い**
+4. **Lean の `nameToLink` に `module_for_unescaped` の分岐が無い**
+   （→ `benchmarks/results/purelean-guillemet-2026-08-31.txt`）。`--root` で露出する
+
 ### M4 build — `site` の周りのパイプライン
 - **アセット 3 つ**（`style.css` 29,499 / `app.js` 15,370 / `favicon.svg` 360 = 45,229 B）を
   Lean バイナリに載せ、`build` が書く。Rust では `include_str!`；Lean 側の手段は**未計測**で、

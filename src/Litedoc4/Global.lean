@@ -43,7 +43,7 @@ def buildGlobal (ir out : FilePath) (indexMarkdown : Option String := none) :
     match path.parent with
     | some dir => IO.FS.createDirAll dir
     | none => pure ()
-    IO.FS.writeFile path body
+    IO.FS.writeBinFile path body
   let counts := artifacts.counts
   return {
     modules := facts.size
@@ -58,6 +58,7 @@ def buildGlobal (ir out : FilePath) (indexMarkdown : Option String := none) :
     tacticDocs := facts.foldl (fun acc f => acc + f.tactics) 0
     nameMapBytes := artifacts.nameMapJson.utf8ByteSize
     modulesJsonBytes := artifacts.modulesJson.utf8ByteSize
+    searchIndexBytes := artifacts.searchIndexBin.size
     cacheMisses := facts.size }
 
 end Litedoc4

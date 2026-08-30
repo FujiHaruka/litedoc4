@@ -7,6 +7,7 @@ nobody's. -/
 import Std.Data.HashSet
 import Litedoc4.Global.Entry
 import Litedoc4.Global.Facts
+import Litedoc4.Global.SearchIndex
 import Litedoc4.JsonWrite
 import Litedoc4.Ir.Name
 
@@ -54,6 +55,10 @@ structure Artifacts where
   searchHtml : String := ""
   foundationalTypesHtml : String := ""
   modulesJson : String := ""
+  /-- What `app.js` searches, fetched on the first keystroke and never before.
+  Carries the declarations and the kind vocabulary and nothing else — module
+  names come from `modulesJson`, which is already on the page. -/
+  searchIndexBin : ByteArray := ByteArray.empty
   instancesJson : String := ""
   usedByJson : String := ""
   counts : Counts := {}
@@ -184,6 +189,30 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
     modulesJson := modulesJson ++ "]}"
   modulesJson := modulesJson ++ "]}"
 
+  -- `cssKind` and not the IR's own spelling: a result whose badge disagrees
+  -- with the page it leads to is a badge nobody trusts.
+  let mut kindList : Array String := Array.mkEmpty sortedNames.size
+  for name in sortedNames do
+    kindList := kindList.push (cssKind (nameMap.getD name ("", "")).2)
+  let kinds := dedupSorted (sortUtf16 kindList)
+  let mut kindAt : Std.HashMap String Nat := Std.HashMap.emptyWithCapacity kinds.size
+  for i in [0:kinds.size] do kindAt := kindAt.insert kinds[i]! i
+  -- Every declared name, including the ones no page has an entry for
+  -- (constructors, and whatever `Suppressed` drops) — the same population
+  -- `name-map.json` has. Narrowing it here would make the search index and the
+  -- map two different answers to "what does this package declare".
+  let mut entries : Array SearchEntry := Array.mkEmpty sortedNames.size
+  for name in sortedNames do
+    let (module, kind) := nameMap.getD name ("", "")
+    entries := entries.push
+      { name, kind := kindAt.getD (cssKind kind) 0, module := indexAt.getD module 0 }
+  -- Module *subscripts* and not module names: `modules.json` already carries
+  -- the array, in this order, and `app.js` fetches it on every page anyway, so
+  -- a second copy would be 12.8% of the index (measured 2026-08-19: 51,975 of
+  -- 405,402 B → `benchmarks/results/search-design-2026-08-19.txt`) and a second
+  -- thing to disagree with.
+  let searchIndexBin := searchIndex entries kinds
+
   -- Inverted **after** `nameMap` is complete, because the filter is "does this
   -- package declare the target" and that is not known until every module has
   -- contributed: a module early in index order refers to names later ones
@@ -206,6 +235,7 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
     searchHtml := searchHtml title
     foundationalTypesHtml := foundationalTypesHtml title
     modulesJson
+    searchIndexBin
     instancesJson :=
       "{\"instances\":" ++ nameListsJson (nameListPairs instances)
         ++ ",\"instancesFor\":" ++ nameListsJson (nameListPairs instancesFor) ++ "}"
@@ -225,16 +255,16 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
 
 /-- Paired with the paths they go to, in `ARTIFACT_PATHS` order.
 
-Eight of the nine. `search-index.bin` is the rest of M3 and is not written yet;
-its place is between `modules.json` and `instances.json`. -/
-def artifactFiles (a : Artifacts) : Array (String × String) :=
-  #[("declarations/name-map.json", a.nameMapJson),
-    ("index.html", a.indexHtml),
-    ("404.html", a.notFoundHtml),
-    ("search.html", a.searchHtml),
-    ("foundational_types.html", a.foundationalTypesHtml),
-    ("modules.json", a.modulesJson),
-    ("instances.json", a.instancesJson),
-    ("declarations/used-by.json", a.usedByJson)]
+Bytes and not `String`, for the one of the nine that is not text. -/
+def artifactFiles (a : Artifacts) : Array (String × ByteArray) :=
+  #[("declarations/name-map.json", a.nameMapJson.toUTF8),
+    ("index.html", a.indexHtml.toUTF8),
+    ("404.html", a.notFoundHtml.toUTF8),
+    ("search.html", a.searchHtml.toUTF8),
+    ("foundational_types.html", a.foundationalTypesHtml.toUTF8),
+    ("modules.json", a.modulesJson.toUTF8),
+    ("search-index.bin", a.searchIndexBin),
+    ("instances.json", a.instancesJson.toUTF8),
+    ("declarations/used-by.json", a.usedByJson.toUTF8)]
 
 end Litedoc4

@@ -29,6 +29,23 @@
 #   5 SUMMARY   the counts the run prints differ. The pages can agree while a
 #               silent fallback goes unreported — `math spans kept as LaTeX` is
 #               exactly such a line — so the bytes are not the whole answer.
+#   6 SITE      `litedoc4 site` writes the pages *and* the nine whole-package
+#               artifacts, and the two trees differ. Compared with `--all`: four
+#               of the artifacts are JSON and one is binary, and a comparison
+#               that saw only `*.html` would call two sites identical while
+#               their search indexes disagreed.
+#   7 SITE SUM  the two `site` runs report different counts.
+#   8 CLOSURE   the Lean site does not close over itself. `check-site-closure.py`
+#               asks whether the index, the search index and the pages agree
+#               about which declarations exist **in both directions**, and
+#               `usedby-gate.sh` asks the same of `used-by.json` against the IR.
+#               Both are oracle-free, and neither is a second byte comparison:
+#               two renderers can agree byte for byte on a site that contradicts
+#               itself. The dead-link half of `site-gate.sh` is deliberately not
+#               here — `style.css` and `favicon.svg` are written by `build`, not
+#               by `site` (measured 2026-08-31 ->
+#               `benchmarks/results/purelean-site-boundary-2026-08-31.txt`), so a
+#               bare `site` tree fails it by construction.
 #
 # usage: purelean-micro-gate.sh [--out DIR] [--keep]
 #   --out   working directory (default: a temporary one, removed on success)
@@ -37,6 +54,7 @@
 #   LITEDOC4  the Rust litedoc4: the oracle, and what extracts the IR
 #             (default target/release/litedoc4, else target/debug/litedoc4)
 #   LAKE      the lake executable (default: ~/.elan/bin/lake)
+#   PYTHON    the python3 item 8 runs the closure checks with (default python3)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,6 +64,7 @@ source "$HERE/lib/common.sh" || exit 1
 FIXTURE="$ROOT/e2e/consumer"
 MICRO="$ROOT/e2e/micro"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
+PYTHON="${PYTHON:-python3}"
 LEAN_EXE="$ROOT/.lake/build/bin/litedoc4"
 # `diff` is aliased to a colordiff that is not installed here, and its exit 127
 # reads as "differences found".
@@ -90,7 +109,7 @@ else
   TEMPORARY=0
 fi
 
-ITEMS=5
+ITEMS=8
 ran=0
 failed=0
 
@@ -119,7 +138,22 @@ render () {
 # slice stops being needed and the whole stdout should be compared.
 summary_of () { sed -n '/^modules /,$p' "$1"; }
 
-say "1/5 the Lean half builds from a consumer's workspace"
+# `site` prefixes its lines `render  ` / `global  `, and Rust prints an
+# `external ` line before them that the Lean half cannot print because it refuses
+# `--root` by name. Sliced from the first line rather than by dropping named
+# ones, for the reason above: a *new* summary line has to be a difference.
+site_summary_of () { sed -n '/^render  modules /,$p' "$1"; }
+
+site_run () {
+  local exe="$1" out="$2" name="$3"; shift 3
+  local rc=0
+  "$exe" site --ir "$OUT/build/ir" --out "$out" --source-url "$SOURCE_URL" \
+    --link-index "$OUT/build/link-index.lidx" \
+    >"$OUT/$name.out" 2>"$OUT/$name.err" || rc=$?
+  echo "$rc"
+}
+
+say "1/8 the Lean half builds from a consumer's workspace"
 built=0
 build_rc=0
 (cd "$FIXTURE" && "$LAKE" build litedoc4/litedoc4) >"$OUT/build.log" 2>&1 || build_rc=$?
@@ -133,7 +167,7 @@ else
   tail -20 "$OUT/build.log" >&2
 fi
 
-say "2/5 the sample's IR, extracted here"
+say "2/8 the sample's IR, extracted here"
 extracted=0
 (cd "$MICRO" && "$LAKE" build) >"$OUT/micro-build.log" 2>&1
 EXTRACTOR="$(micro_extractor "$ROOT" "$MICRO" "$LAKE" "$OUT/extractor-build.log")"
@@ -157,7 +191,7 @@ else
   fi
 fi
 
-say "3/5 with --link-index, the two trees are the same bytes"
+say "3/8 with --link-index, the two trees are the same bytes"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean" "$OUT/rust"
   lean_rc="$(render "$LEAN_EXE" "$OUT/lean" lean --link-index "$OUT/build/link-index.lidx")"
@@ -179,7 +213,7 @@ else
   fail 3 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "4/5 with --no-link-index, both refuse the same unplaceable name"
+say "4/8 with --no-link-index, both refuse the same unplaceable name"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean-nolidx" "$OUT/rust-nolidx"
   lean_n_rc="$(render "$LEAN_EXE" "$OUT/lean-nolidx" lean-nolidx --no-link-index)"
@@ -201,7 +235,7 @@ else
   fail 4 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "5/5 the two runs report the same counts"
+say "5/8 the two runs report the same counts"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ] && [ -s "$OUT/lean.out" ] && [ -s "$OUT/rust.out" ]; then
   summary_of "$OUT/rust.out" >"$OUT/rust.summary"
   summary_of "$OUT/lean.out" >"$OUT/lean.summary"
@@ -217,6 +251,75 @@ if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ] && [ -s "$OUT/lean.out" ] && [ -
   fi
 else
   fail 5 "item 3 did not leave two summaries to compare"
+fi
+
+say "6/8 `site` writes the same 20 files, bytes and all"
+if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
+  rm -rf "$OUT/site-lean" "$OUT/site-rust"
+  lean_s_rc="$(site_run "$LEAN_EXE" "$OUT/site-lean" site-lean)"
+  rust_s_rc="$(site_run "$LITEDOC4" "$OUT/site-rust" site-rust)"
+  n_lean_s="$(find "$OUT/site-lean" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  n_rust_s="$(find "$OUT/site-rust" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  cmp6_rc=0
+  "$HERE/render-compare.sh" --all "$OUT/site-rust" "$OUT/site-lean" >"$OUT/compare-6.txt" 2>&1 || cmp6_rc=$?
+  if [ "$lean_s_rc" -ne 0 ] || [ "$rust_s_rc" -ne 0 ]; then
+    fail 6 "a site run exited non-zero (lean=$lean_s_rc rust=$rust_s_rc) — see $OUT/site-{lean,rust}.err"
+  elif [ "$n_rust_s" -eq 0 ]; then
+    # Two empty trees compare identical, which is the shape that goes green
+    # having checked nothing.
+    fail 6 "the Rust site wrote no file"
+  elif [ "$cmp6_rc" -ne 0 ]; then
+    fail 6 "$(awk '/^(differing|missing|extra) /{printf "%s %s, ", $3, $1}' "$OUT/compare-6.txt")first name in $OUT/compare-6.txt"
+  else
+    pass 6 "$n_lean_s files identical, $(find "$OUT/site-lean" -type f -exec cat {} + | wc -c | tr -d ' ') bytes"
+  fi
+else
+  fail 6 "no binary or no IR — item 1 or 2 did not produce one"
+fi
+
+say "7/8 the two `site` runs report the same counts"
+if [ -s "$OUT/site-lean.out" ] && [ -s "$OUT/site-rust.out" ]; then
+  site_summary_of "$OUT/site-rust.out" >"$OUT/site-rust.summary"
+  site_summary_of "$OUT/site-lean.out" >"$OUT/site-lean.summary"
+  if [ ! -s "$OUT/site-rust.summary" ] || [ ! -s "$OUT/site-lean.summary" ]; then
+    fail 7 "a run printed no summary block (rust $(wc -l <"$OUT/site-rust.summary" | tr -d ' ') line(s), lean $(wc -l <"$OUT/site-lean.summary" | tr -d ' '))"
+  elif ! $DIFF_CMD "$OUT/site-rust.summary" "$OUT/site-lean.summary" >"$OUT/site-summary.diff" 2>&1; then
+    fail 7 "the summaries differ — see $OUT/site-summary.diff"
+    $DIFF_CMD "$OUT/site-rust.summary" "$OUT/site-lean.summary" >&2 || true
+  else
+    pass 7 "$(wc -l <"$OUT/site-lean.summary" | tr -d ' ') identical line(s)"
+  fi
+else
+  fail 7 "item 6 did not leave two summaries to compare"
+fi
+
+# Deliberately **not** guarded on item 6. Guarding it there would make it a
+# check that only runs when the two trees already agree — which is when it can
+# only restate the Rust site's own consistency, so it could never fail on its
+# own. This is the only oracle-free question asked of the Lean tree, and it is
+# the one that outlives the oracle: after the Rust half is deleted, item 6 has
+# nothing to compare against and this is what is left.
+say "8/8 the Lean site closes over itself"
+if [ "$(find "$OUT/site-lean" -type f 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]; then
+  closure_rc=0
+  "$PYTHON" "$ROOT/benchmarks/tools/check-site-closure.py" "$OUT/site-lean" \
+    >"$OUT/closure.txt" 2>&1 || closure_rc=$?
+  usedby_rc=0
+  "$HERE/usedby-gate.sh" --ir "$OUT/build/ir" --site "$OUT/site-lean" \
+    >"$OUT/usedby.txt" 2>&1 || usedby_rc=$?
+  if [ "$closure_rc" -ne 0 ]; then
+    first="$(awk '/FAIL/{print; exit}' "$OUT/closure.txt")"
+    # A run that died before printing a table has no FAIL line, and a bare
+    # "see the log" is exactly the one-line message this gate may not give.
+    [ -n "$first" ] || first="$(tail -1 "$OUT/closure.txt")"
+    fail 8 "$first — see $OUT/closure.txt"
+  elif [ "$usedby_rc" -ne 0 ]; then
+    fail 8 "used-by disagrees with the IR — see $OUT/usedby.txt"
+  else
+    pass 8 "$(grep -c '^  ok' "$OUT/closure.txt" | tr -d ' ') closure check(s), $(tail -1 "$OUT/usedby.txt")"
+  fi
+else
+  fail 8 "the Lean site is empty or was not written — item 6 says why"
 fi
 
 say "summary"
