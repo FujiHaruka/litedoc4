@@ -6,8 +6,9 @@ numbers a decision would need, with the conditions they were taken under.
 Every number is labelled `(measured)` / `(extrapolated)` / `(assumed)` /
 `(theoretical)`. The raw logs are in `benchmarks/results/` — `purelean-*.txt`,
 plus `rust-render-threads-2026-08-30.txt`, `windows-probe-2026-08-30.txt`,
-`purelean-md4c-2026-08-30.txt` and `purelean-md4c-shim-2026-08-30.txt`, which
-answered the three questions this study first had to leave open — and each claim below names the one it came from.
+`purelean-md4c-2026-08-30.txt`, `purelean-md4c-shim-2026-08-30.txt` and
+`purelean-bare-2026-08-30.txt`, which answered the three questions this study
+first had to leave open — and each claim below names the one it came from.
 
 ## The question
 
@@ -184,13 +185,15 @@ build time is an average of two modes.
 - **Windows and Intel macOS stop being a fallback path.** Today they take the
   `cargo build` branch and need a Rust toolchain, a C compiler and node; pure
   Lean needs **elan and nothing else**. That is not free — md4c is C, and
-  Lean's bundled clang ships no libc headers, so it takes ten hand-written
+  Lean's bundled clang ships no libc headers, so it takes eleven hand-written
   declarations (`benchmarks/lean-prototype/csrc/libc`) to compile md4c with the
   toolchain's own compiler. With them, all 422 pages come out byte-identical on
   both the shim build and a system-`cc` control arm (measured 2026-08-30 →
-  `results/purelean-md4c-shim-2026-08-30.txt`). Measured on arm64 macOS;
-  Windows is the one to check next, being where MD4Lean found the same
-  necessity.
+  `results/purelean-md4c-shim-2026-08-30.txt`), and the build completes on
+  **Linux, macOS and Windows with every system compiler stubbed to fail on
+  contact** — the same eleven declarations on all three, no Windows-specific
+  case (measured → `results/purelean-bare-2026-08-30.txt`). Byte identity is
+  still measured on arm64 macOS alone: the runners have no target IR to render.
 
   **This was the larger of the two motives, and it is now smaller than it was.**
   → `results/windows-probe-2026-08-30.txt`. A Windows binary was never

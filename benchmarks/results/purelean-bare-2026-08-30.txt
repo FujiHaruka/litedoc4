@@ -1,0 +1,107 @@
+pure-Lean replacement study — the bare-environment check, on three OSes
+=======================================================================
+2026-08-30. The eighth measurement. `purelean-md4c-shim-2026-08-30.txt` claimed
+that a consumer needs elan and nothing else, and said so from arm64 macOS alone.
+This is that claim run on Linux, macOS and Windows, with the system compilers
+made to fail loudly if the build reaches them.
+
+**It found a defect, and the defect was invisible on the machine the claim was
+made on.** Read the "WHAT LINUX CAUGHT" section before the result table.
+
+HOW A BARE ENVIRONMENT WAS SIMULATED
+  Not by finding a machine without a compiler — every runner has one. Instead a
+  directory is put at the head of PATH holding `cc` `gcc` `clang` `c++` `g++`
+  `clang++` `cpp` `as` `ld`, each a script that prints
+  `BARE-ENV VIOLATION: the build invoked <name>` and exits 111. A build that
+  quietly used the runner's toolchain then fails, and says which tool it
+  reached for. Lean's own compiler is invoked by absolute path, so the stubs do
+  not shadow it.
+
+  The stubs were made to fire before they were trusted: with
+  `LITEDOC4_SYSTEM_CC=1` — the control arm, which asks for the system compiler
+  on purpose — the same build stops at
+  `BARE-ENV VIOLATION: the build invoked cc` / `external command 'cc' exited
+  with code 111` (measured locally, arm64 macOS). A stub that never fires would
+  make every row below meaningless.
+
+  Locally: macOS 26.6.1, arm64, and the binary that came out of the stubbed
+  build renders all 422 pages byte-identical to Rust's.
+  On runners: `.github/workflows/purelean-bare-probe.yml`, on the branch
+  `purelean-bare-probe` and deliberately not on main — it is a measurement, not
+  a gate, and `workflow_dispatch` cannot start a workflow that is not on the
+  default branch, so the trigger names the branch. Run 33316232917.
+
+WHAT LINUX CAUGHT
+  `csrc/libc` declared ten functions. md4c calls **eleven**. The missing one was
+  `strcspn`, at `md4c.c:6224`.
+
+    ubuntu-latest, Lean 4.31.0 x86_64-unknown-linux-gnu:
+      md4c.c:6224:26: error: call to undeclared library function 'strcspn'
+      with type '__size_t (const char *, const char *)'; ISO C99 and later do
+      not support implicit function declarations
+
+  **macOS did not fail. It compiled, linked, and rendered all 422 pages
+  byte-identically.** Its clang knows `strcspn` as a builtin and used the
+  correct prototype without being told, so the missing declaration had no
+  consequence there. Linux's clang refused instead. A third compiler that
+  neither declares it nor knows it would have called it as an implicit
+  `int strcspn()` — the wrong return type on a 64-bit platform.
+
+  Two things follow, and both are the same lesson from opposite sides:
+
+  - **The 422-page output was green while the declaration set was wrong.** That
+    is the second time in two days this output has been green over a defect;
+    the first was a deliberately swapped `memset`
+    (→ `purelean-md4c-shim-2026-08-30.txt`).
+  - **The conformance check could not see it.** `csrc/libc-conformance.c`
+    compares declarations that exist against the real headers. A declaration
+    that is absent is not there to compare. It is the right check for the wrong
+    signature and no check at all for the missing one.
+
+  The fix is not the extra line. It is `-Werror=implicit-function-declaration`
+  on both C targets, so that a function nobody declared stops the build rather
+  than becoming an implicit `int`. That flag would not have fired on macOS
+  either — its clang had the builtin — which is the honest limit of it: **the
+  guard is the flag plus a compiler strict enough to apply it, and this machine
+  is not one.** Linux is.
+
+  How the eleven were finally settled, after two wrong methods: not by reading
+  call sites (`strchr` arrives as `#define md_strchr strchr` and is invisible to
+  a grep for `strchr(`), and not by `nm -u` on the object (macOS optimises the
+  `strcspn` call away entirely and shows `bzero`, which the source never names).
+  Both source and symbols, plus the macro layer, plus checking that `exit` sits
+  under `#ifdef DEBUG` and `sprintf` under `#if 0`.
+
+  The eleven: `malloc` `realloc` `free` `qsort` `bsearch` `memcpy` `memmove`
+  `memset` `memcmp` `strchr` `strcspn`.
+
+THE RESULT (measured) — run 33316232917, after the fix
+
+  runner           Lean                                  build   compiler that ran
+  ubuntu-latest    4.31.0 x86_64-unknown-linux-gnu       ok      the toolchain's own
+  macos-latest     4.31.0 arm64-apple-darwin24.6.0       ok      the toolchain's own
+  windows-latest   4.31.0 x86_64-w64-windows-gnu         ok      the toolchain's own
+
+  No `BARE-ENV VIOLATION` on any of the three. The assertion is on the compile
+  command read out of `lake build -v`, not on the build succeeding — the build
+  is green either way, which is how the bare `cc` default went unnoticed when
+  this work started.
+
+  Windows passing is the one worth naming: it is where MD4Lean found shims
+  necessary, and it is the platform litedoc4 has no release asset for. It needed
+  no Windows-specific case — the same eleven declarations serve all three.
+
+WHERE THIS LEAVES THE STUDY'S MOTIVE
+
+    a consumer on a platform with no release asset needs
+      today          Rust toolchain + C compiler + node
+      pure Lean      elan
+
+  Now measured on all three runner OSes rather than reasoned from one.
+
+WHAT IS STILL NOT MEASURED
+  That the *rendered output* matches on Linux and Windows. The probe builds and
+  runs the binary; the 422-page comparison needs the target's IR, which the
+  runners do not have. Byte identity is measured on arm64 macOS only, and
+  `strcspn` is a reminder that a platform can differ in ways one platform's
+  green does not reveal.
