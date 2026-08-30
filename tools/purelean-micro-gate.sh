@@ -81,6 +81,16 @@
 #               everything or, worse, nothing. Compared whole rather than
 #               field by field: its key order is insertion order, not sorted,
 #               and a comparison that parsed both would stop seeing that.
+#  15 ONLY      `--only-from` did not narrow the render. Two claims, because
+#               either alone is satisfied by a wrong implementation: the two
+#               halves write the **same** subset, and that subset is the size the
+#               set named — a `--only-from` that is accepted and ignored writes
+#               exactly the tree items 3 and 4 already compare, and one that
+#               silently drops everything writes nothing and would agree too.
+#               The empty set is checked beside it: an empty file has to mean
+#               render nothing, which is what the pipeline hands it when a round
+#               finds no page stale. The names come out of the IR, not out of
+#               this file, so a growing sample cannot leave a stale spelling here.
 #   8 CLOSURE   the Lean site does not close over itself. `check-site-closure.py`
 #               asks whether the index, the search index and the pages agree
 #               about which declarations exist **in both directions**, and
@@ -155,7 +165,7 @@ else
   TEMPORARY=0
 fi
 
-ITEMS=14
+ITEMS=15
 ran=0
 failed=0
 
@@ -185,7 +195,7 @@ site_run () {
   echo "$rc"
 }
 
-say "1/14 the Lean half builds from a consumer's workspace"
+say "1/15 the Lean half builds from a consumer's workspace"
 built=0
 build_rc=0
 (cd "$FIXTURE" && "$LAKE" build litedoc4/litedoc4) >"$OUT/build.log" 2>&1 || build_rc=$?
@@ -199,7 +209,7 @@ else
   tail -20 "$OUT/build.log" >&2
 fi
 
-say "2/14 the sample's IR, extracted here"
+say "2/15 the sample's IR, extracted here"
 extracted=0
 (cd "$MICRO" && "$LAKE" build) >"$OUT/micro-build.log" 2>&1
 EXTRACTOR="$(micro_extractor "$ROOT" "$MICRO" "$LAKE" "$OUT/extractor-build.log")"
@@ -223,7 +233,7 @@ else
   fi
 fi
 
-say "3/14 with --link-index, the two trees are the same bytes"
+say "3/15 with --link-index, the two trees are the same bytes"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean" "$OUT/rust" "$OUT/lean-slash" "$OUT/rust-slash"
   lean_rc="$(render "$LEAN_EXE" "$OUT/lean" lean --link-index "$OUT/build/link-index.lidx")"
@@ -257,7 +267,7 @@ else
   fail 3 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "4/14 with --no-link-index, both refuse the same unplaceable name"
+say "4/15 with --no-link-index, both refuse the same unplaceable name"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean-nolidx" "$OUT/rust-nolidx"
   lean_n_rc="$(render "$LEAN_EXE" "$OUT/lean-nolidx" lean-nolidx --no-link-index)"
@@ -279,7 +289,7 @@ else
   fail 4 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "5/14 the two runs print the same stdout"
+say "5/15 the two runs print the same stdout"
 # The whole of stdout and not a slice of it: both halves take `--root`, so the
 # `external ` block one prints is the other's too, and a comparison that began
 # at the first counts line would swallow a difference in the dependency map the
@@ -296,7 +306,7 @@ else
   fail 5 "item 3 did not leave two runs' stdout to compare"
 fi
 
-say "6/14 \`site\` writes the same 20 files, bytes and all"
+say "6/15 \`site\` writes the same 20 files, bytes and all"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/site-lean" "$OUT/site-rust"
   lean_s_rc="$(site_run "$LEAN_EXE" "$OUT/site-lean" site-lean)"
@@ -320,7 +330,7 @@ else
   fail 6 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "7/14 the two \`site\` runs print the same stdout"
+say "7/15 the two \`site\` runs print the same stdout"
 if [ -s "$OUT/site-lean.out" ] && [ -s "$OUT/site-rust.out" ]; then
   if ! $DIFF_CMD "$OUT/site-rust.out" "$OUT/site-lean.out" >"$OUT/site-summary.diff" 2>&1; then
     fail 7 "stdout differs — see $OUT/site-summary.diff"
@@ -338,7 +348,7 @@ fi
 # own. This is the only oracle-free question asked of the Lean tree, and it is
 # the one that outlives the oracle: after the Rust half is deleted, item 6 has
 # nothing to compare against and this is what is left.
-say "8/14 the Lean site closes over itself"
+say "8/15 the Lean site closes over itself"
 if [ "$(find "$OUT/site-lean" -type f 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]; then
   closure_rc=0
   "$PYTHON" "$ROOT/benchmarks/tools/check-site-closure.py" "$OUT/site-lean" \
@@ -361,7 +371,7 @@ else
   fail 8 "the Lean site is empty or was not written — item 6 says why"
 fi
 
-say "9/14 the two \`ledger build\` runs write the same bytes"
+say "9/15 the two \`ledger build\` runs write the same bytes"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   mod_rc=0
   "$LITEDOC4" modules --root "$MICRO" --lib Example --out "$OUT/ledger-modules.txt" \
@@ -402,7 +412,7 @@ fi
 # 11 pages between two runs while this was being written (measured 2026-08-31).
 BUILD_URL="https://github.com/FujiHaruka/litedoc4/blob/0000000000000000000000000000000000000000/e2e/micro"
 
-say "10/14 \`build\` writes the same 23 files, bytes and all"
+say "10/15 \`build\` writes the same 23 files, bytes and all"
 lean_built_site=""
 if [ "$built" -eq 1 ] && [ -x "$EXTRACTOR" ]; then
   rm -rf "$OUT/b-lean" "$OUT/b-rust"
@@ -442,7 +452,7 @@ else
   fail 10 "no binary or no extractor — item 1 or 2 did not produce one"
 fi
 
-say "11/14 the Lean-built site passes site-gate"
+say "11/15 the Lean-built site passes site-gate"
 if [ -n "$lean_built_site" ]; then
   sg_rc=0
   "$HERE/site-gate.sh" "$lean_built_site" >"$OUT/site-gate.txt" 2>&1 || sg_rc=$?
@@ -460,7 +470,7 @@ else
   fail 11 "the Lean build wrote no site — item 10 says why"
 fi
 
-say "12/14 the Lean-built site passes config-gate"
+say "12/15 the Lean-built site passes config-gate"
 if [ -n "$lean_built_site" ]; then
   cg_rc=0
   "$HERE/config-gate.sh" --root "$MICRO" --ir "$OUT/b-lean/ir" \
@@ -475,7 +485,7 @@ else
   fail 12 "the Lean build wrote no site — item 10 says why"
 fi
 
-say "13/14 the two builds leave the same litedoc4-build.json"
+say "13/15 the two builds leave the same litedoc4-build.json"
 if [ -n "$lean_built_site" ]; then
   if [ ! -s "$OUT/b-rust/litedoc4-build.json" ]; then
     fail 13 "the Rust build left no marker"
@@ -488,7 +498,7 @@ else
   fail 13 "the Lean build wrote no site, so there is no marker — item 10 says why"
 fi
 
-say "14/14 the two \`build\` runs print the same transcript"
+say "14/15 the two \`build\` runs print the same transcript"
 if [ -n "$lean_built_site" ] && [ -s "$OUT/b-rust.out" ]; then
   # One sed each, so a rule that stops matching shows up as a difference rather
   # than as silence.
@@ -506,6 +516,48 @@ if [ -n "$lean_built_site" ] && [ -s "$OUT/b-rust.out" ]; then
   fi
 else
   fail 14 "the Lean build wrote no site — item 10 says why"
+fi
+
+say "15/15 --only-from renders that set on both halves, and no more"
+# The one failure a byte comparison of two whole renders cannot see: a
+# `--only-from` that is accepted and ignored writes exactly the tree items 3 and
+# 4 already compare. So the claim here is an inequality as well as an equality —
+# the subset has to be **smaller than the whole**, and not empty.
+if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ] && [ "$n_lean" -gt 1 ]; then
+  rm -rf "$OUT/lean-only" "$OUT/rust-only" "$OUT/lean-none" "$OUT/rust-none"
+  # Read out of the IR rather than written down here: the sample gains modules,
+  # and a name spelt in this file would go stale without failing.
+  "$PYTHON" - "$OUT/build/ir/index.json" >"$OUT/only-from.txt" <<'ONLY'
+import json, sys
+index = json.load(open(sys.argv[1]))
+for entry in index["modules"][:1]:
+    print(entry["module"])
+ONLY
+  : >"$OUT/only-none.txt"
+  lean_o_rc="$(render "$LEAN_EXE" "$OUT/lean-only" lean-only --link-index "$OUT/build/link-index.lidx" --only-from "$OUT/only-from.txt")"
+  rust_o_rc="$(render "$LITEDOC4" "$OUT/rust-only" rust-only --link-index "$OUT/build/link-index.lidx" --only-from "$OUT/only-from.txt")"
+  lean_e_rc="$(render "$LEAN_EXE" "$OUT/lean-none" lean-none --link-index "$OUT/build/link-index.lidx" --only-from "$OUT/only-none.txt")"
+  rust_e_rc="$(render "$LITEDOC4" "$OUT/rust-none" rust-none --link-index "$OUT/build/link-index.lidx" --only-from "$OUT/only-none.txt")"
+  n_only_lean="$(html_count "$OUT/lean-only")"
+  n_only_rust="$(html_count "$OUT/rust-only")"
+  cmp15_rc=0
+  "$HERE/render-compare.sh" "$OUT/rust-only" "$OUT/lean-only" >"$OUT/compare-15.txt" 2>&1 || cmp15_rc=$?
+  wanted="$(wc -l <"$OUT/only-from.txt" | tr -d ' ')"
+  if [ "$lean_o_rc" -ne 0 ] || [ "$rust_o_rc" -ne 0 ]; then
+    fail 15 "a --only-from render exited non-zero (lean=$lean_o_rc rust=$rust_o_rc) — see $OUT/{lean,rust}-only.err"
+  elif [ "$n_only_lean" -ne "$wanted" ] || [ "$n_only_rust" -ne "$wanted" ]; then
+    fail 15 "--only-from named $wanted module(s) and got lean $n_only_lean / rust $n_only_rust page(s) — a set that is ignored renders all $n_lean"
+  elif [ "$cmp15_rc" -ne 0 ]; then
+    fail 15 "the two subsets differ: $(awk '/^(differing|missing|extra) /{printf "%s %s, ", $3, $1}' "$OUT/compare-15.txt")see $OUT/compare-15.txt"
+  elif [ "$lean_e_rc" -ne "$rust_e_rc" ]; then
+    fail 15 "an empty --only-from exited differently (lean=$lean_e_rc rust=$rust_e_rc)"
+  elif [ "$(html_count "$OUT/lean-none")" -ne 0 ] || [ "$(html_count "$OUT/rust-none")" -ne 0 ]; then
+    fail 15 "an empty --only-from wrote pages (lean $(html_count "$OUT/lean-none"), rust $(html_count "$OUT/rust-none")) — it has to mean render nothing, not render everything"
+  else
+    pass 15 "$wanted of $n_lean page(s) written and identical; an empty set writes none on both"
+  fi
+else
+  fail 15 "item 3 did not leave a whole render of more than one page to compare a subset against"
 fi
 
 say "summary"
