@@ -23,6 +23,10 @@
 #   5 REFUSED   `render` accepted a flag it does not implement. A silently
 #               ignored `--only` renders every module and still matches, so this
 #               is the one failure the byte comparison cannot see.
+#   6 SUMMARY   the counts the run prints differ. The other failure the byte
+#               comparison cannot see, from the other end: `math spans kept as
+#               LaTeX` reports a fallback that renders a *valid* page, so a half
+#               that stopped counting is 422 of 422 identical and silent.
 #
 # usage: purelean-render-gate.sh [--out DIR] [--keep]
 #   --out   working directory (default: a temporary one, removed on success)
@@ -82,7 +86,7 @@ fi
 REV="$(tr -d '\n' <"$WORK/rev.txt")"
 SOURCE_URL="https://github.com/FujiHaruka/lean-projects/blob/$REV"
 
-ITEMS=5
+ITEMS=6
 ran=0
 failed=0
 
@@ -96,14 +100,24 @@ say  () { printf '\n=== %s\n' "$1"; }
 render () {
   local exe="$1" pages="$2" log="$3"; shift 3
   local rc=0
+  # Apart, not `2>&1`: item 6 reads the summary out of stdout, and a warning on
+  # stderr interleaved into it would be compared as though the run had printed it.
   "$exe" render --ir "$WORK/ir" --pages "$pages" --source-url "$SOURCE_URL" "$@" \
-    >"$log" 2>&1 || rc=$?
+    >"$log" 2>"${log%.log}.err" || rc=$?
   return $rc
 }
 
+# The block `print_render_summary` writes, wherever it starts: `render` prints an
+# external-links line before it that the Lean half cannot print, because it
+# refuses `--root` by name. Taking the tail from `modules ` rather than dropping
+# named lines means a *new* summary line is a difference rather than something an
+# exception list swallows. When the Lean `render` grows `--root` (M3), this slice
+# stops being needed and the whole stdout should be compared.
+summary_of () { sed -n '/^modules /,$p' "$1"; }
+
 html_count () { find "$1" -type f -name '*.html' 2>/dev/null | wc -l | tr -d ' '; }
 
-say "1/5 the Lean half builds from a consumer's workspace"
+say "1/6 the Lean half builds from a consumer's workspace"
 built=0
 build_rc=0
 (cd "$FIXTURE" && "$LAKE" build litedoc4/litedoc4) >"$OUT/build.log" 2>&1 || build_rc=$?
@@ -117,7 +131,7 @@ else
   tail -20 "$OUT/build.log" >&2
 fi
 
-say "2/5 both renderers run over $WORK/ir"
+say "2/6 both renderers run over $WORK/ir"
 rendered=0
 if [ "$built" -eq 1 ]; then
   lean_rc=0
@@ -132,7 +146,7 @@ if [ "$built" -eq 1 ]; then
   n_rust="$(html_count "$OUT/rust")"
   if [ "$lean_rc" -ne 0 ] || [ "$rust_rc" -ne 0 ] \
      || [ "$lean_nolidx_rc" -ne 0 ] || [ "$rust_nolidx_rc" -ne 0 ]; then
-    fail 2 "a render exited non-zero (lean=$lean_rc rust=$rust_rc lean-nolidx=$lean_nolidx_rc rust-nolidx=$rust_nolidx_rc); see $OUT/*.log"
+    fail 2 "a render exited non-zero (lean=$lean_rc rust=$rust_rc lean-nolidx=$lean_nolidx_rc rust-nolidx=$rust_nolidx_rc); see $OUT/*.log and $OUT/*.err"
   elif [ "$n_lean" -eq 0 ] || [ "$n_rust" -eq 0 ]; then
     # Two empty trees compare identical, so the count is what stops items 3 and
     # 4 from passing on nothing.
@@ -159,21 +173,21 @@ compare_trees () {
   fi
 }
 
-say "3/5 with --link-index, the two trees are the same bytes"
+say "3/6 with --link-index, the two trees are the same bytes"
 if [ "$rendered" -eq 1 ]; then
   compare_trees 3 "--link-index" "$OUT/rust" "$OUT/lean"
 else
   fail 3 "nothing was rendered — item 2 did not produce two trees"
 fi
 
-say "4/5 with --no-link-index, the two trees are the same bytes"
+say "4/6 with --no-link-index, the two trees are the same bytes"
 if [ "$rendered" -eq 1 ]; then
   compare_trees 4 "--no-link-index" "$OUT/rust-nolidx" "$OUT/lean-nolidx"
 else
   fail 4 "nothing was rendered — item 2 did not produce two trees"
 fi
 
-say "5/5 a flag render does not implement is refused by name"
+say "5/6 a flag render does not implement is refused by name"
 if [ "$built" -eq 1 ]; then
   only_rc=0
   "$LEAN_EXE" render --ir "$WORK/ir" --pages "$OUT/only" --source-url "$SOURCE_URL" \
@@ -187,6 +201,24 @@ if [ "$built" -eq 1 ]; then
   fi
 else
   fail 5 "no Lean binary to run — item 1 did not build one"
+fi
+
+say "6/6 the two runs report the same counts"
+if [ "$rendered" -eq 1 ]; then
+  summary_of "$OUT/rust.log" >"$OUT/rust.summary"
+  summary_of "$OUT/lean.log" >"$OUT/lean.summary"
+  if [ ! -s "$OUT/rust.summary" ] || [ ! -s "$OUT/lean.summary" ]; then
+    # Two empty slices compare equal, and a run that printed no summary at all is
+    # exactly when that would happen.
+    fail 6 "a run printed no summary block (rust $(wc -l <"$OUT/rust.summary" | tr -d ' ') line(s), lean $(wc -l <"$OUT/lean.summary" | tr -d ' '))"
+  elif ! /usr/bin/diff "$OUT/rust.summary" "$OUT/lean.summary" >"$OUT/summary.diff" 2>&1; then
+    fail 6 "the summaries differ — see $OUT/summary.diff"
+    cat "$OUT/summary.diff" >&2
+  else
+    pass 6 "$(wc -l <"$OUT/lean.summary" | tr -d ' ') identical line(s)"
+  fi
+else
+  fail 6 "nothing was rendered — item 2 did not produce two summaries"
 fi
 
 say "summary"

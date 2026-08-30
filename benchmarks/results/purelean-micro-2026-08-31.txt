@@ -1,0 +1,145 @@
+pure-Lean migration — the sample package, and three defects 422 pages could not see
+===================================================================================
+2026-08-31. The tenth measurement, and the second taken during the migration.
+It closes M2: the Lean `render` and the Rust `render` now agree on **both**
+corpora, and the sample is the one that graded the agreement.
+
+WHY THE SAMPLE AND NOT THE TARGET
+  `purelean-render-gate.sh` compares the two renderers over the measurement
+  target (432 modules of Mathlib-depending Lean) and reported 422 of 422
+  identical pages before any of the work below. It is `manual`: a free runner
+  has no such IR.
+
+  `e2e/micro` is 11 modules and no Mathlib, so it runs on CI — and it is **not a
+  smaller version of the target**. It holds, by construction, the declaration
+  shapes the target does not have (`e2e/README.md`). Every defect below fires on
+  one of those shapes, and every one of them was green over the target's 422
+  pages.
+
+WHAT WAS BUILT
+  `tools/purelean-micro-gate.sh` (`ci`, run by `ci-lake.yml`'s `purelean-micro`
+  job). Five items: the Lean half builds from a consumer's workspace; the
+  sample's IR is extracted here; the two page trees are the same bytes with a
+  link index; **both binaries refuse the same unplaceable name** without one;
+  and the two runs **report the same counts**.
+
+  Like the target gate it runs both binaries in one session rather than
+  comparing against a stored tree, for the reason that file already records: a
+  stored tree carries its own `--source-url` baked into every link. (Stepped on
+  again here, in the small: a hand comparison of a re-render against a tree made
+  with a different `--source-url` reported a whole-tree difference. The gate is
+  built so it cannot happen; a hand check is not.)
+
+WHAT THE FIRST RUN FOUND (measured)
+  ITEM 1 ok    the Lean binary builds
+  ITEM 2 ok    11 module(s)
+  ITEM 3 ok    11 pages identical, 129450 bytes
+  ITEM 4 FAIL  exit codes differ (lean=0 rust=1)
+  ITEM 5 FAIL  the summaries differ: `math spans kept as LaTeX 1` missing
+
+  Item 3 passing on the first run is itself a result. `purelean-render-move-
+  2026-08-31.txt` closed with "**e2e/micro is 10 of 11** — `Example/Math.html`
+  differs by 35 B: MathML4Lean refuses `$c \& d$` where math-core converts it".
+  MathML4Lean v0.1.1 (pinned in `542303e`) closed that, and this is the
+  measurement that says so: `$c \& d$` now renders as
+  `<math><mi>c</mi><mo>&amp;</mo><mi>d</mi></math>` on both sides. The sample's
+  docstring claiming both spans "come out as mathematics rather than as markup"
+  is true again, and it is published copy.
+
+THE THREE DEFECTS
+  1. THE IR WAS READ BY LISTING A DIRECTORY, NOT BY READING THE INDEX.
+     `renderSite` took its modules from `<ir>/modules/*.json` sorted and its
+     dependency maps from `<ir>/deps/*.json` sorted. Rust's `IrTree` iterates
+     `index.json`'s `modules` and `dependencyMaps` arrays and validates each
+     entry. Byte-identical on both corpora — which is why it survived — and
+     four things follow from it, all measured against the Rust binary on a
+     doctored copy of the sample's IR:
+
+       input                              Rust            Lean (before)
+       modules array reversed             order follows   order follows the
+                                          the array       file names
+       an unlisted modules/Stray.json     ignored         rendered: 12 pages
+       "ablations": ["something"]         refused         rendered
+       index schemaVersion 4              refused         rendered
+       an index entry naming another      refused         rendered
+       module than the file declares
+
+     After the fix all five agree, and the three refusals are byte-identical on
+     stderr, e.g.
+       litedoc4: this IR was written with ablations [something] and is
+       incomplete on purpose; it is for the stopwatch only
+
+  2. A NAME IN NO MODULE DID NOT STOP THE RUN.
+     `e2e/micro`'s `Example.Preferred` extends `Inhabited`, whose defining
+     module the sample does not declare. With `--no-link-index` no map knows
+     `Inhabited.default` at all. Rust writes 7 pages and refuses; the Lean half
+     wrote all 11 and said nothing.
+
+     The two failures `decl_name_to_link` distinguishes had been collapsed into
+     one: "no module at all knows the name" (doc-gen4's panic) and "the module is
+     known and has no page here" (render it unlinked). Now both binaries exit 1
+     after the same 7 pages, byte-identical, with one line on stderr:
+       litedoc4: rendering Example.Shapes: declNameToLink: no defining module
+       for Inhabited.default (doc-gen4 would panic here)
+
+     The target never produces the shape. This is the regression `batteries`
+     found on 2026-08-17, and it is in the sample because of it.
+
+  3. A SILENT FALLBACK WENT UNREPORTED.
+     Rust's summary ends `math spans kept as LaTeX N`, printed even at zero
+     because the thing it reports is invisible: a span the converter refuses is
+     written back as `$…$`, which is a legal page. The Lean half printed the
+     first two lines only.
+
+     **The target could not have caught this.** Its count is 0 on 422 pages, on
+     both arms; the sample's is 1, the deliberate `\colim` in
+     `Example.Math.fallbackStays`. A gate that compares pages is blind to it by
+     construction, which is why `purelean-render-gate.sh` gained a sixth item
+     comparing the summaries (made to fail once first: mangling one digit of the
+     Lean summary reports `math spans kept as LaTeX 0` against `… 7`).
+
+THE RESULT (measured) — both binaries run in one session, 2026-08-31
+
+  e2e/micro, 11 modules, `tools/purelean-micro-gate.sh` 5 of 5 ok
+    --link-index      11/11 pages   129,450 bytes    0 differing
+    --no-link-index   both exit 1 after 7 pages, stderr byte-identical (121 B)
+    summary           3 lines, identical:
+      modules 11/11  declarations 56/97 (42 suppressed)  module docs 11  bytes 129450
+      known 118  link index 34066  known modules 612
+      math spans kept as LaTeX 1
+
+  the measurement target, 422 modules, `tools/purelean-render-gate.sh` 6 of 6 ok
+    --link-index      422/422 pages   24,546,639 bytes   0 differing
+    --no-link-index   422/422 pages   24,547,048 bytes   0 differing
+    summary           3 lines, identical on both arms; `math spans kept as
+                      LaTeX 0`, `known modules` 6011 with the map and 675
+                      without
+
+  The two byte totals are the same ones `purelean-render-move-2026-08-31.txt`
+  reports, unchanged by any of the three fixes.
+
+  Conditions: Apple M1, 16 GiB, macOS 26.6.1, arm64, Lean v4.31.0, warm page
+  cache. Rust oracle: `target/release/litedoc4` built 2026-08-30 from `129ea01`,
+  rustc 1.97.1 --release — `git diff 129ea01 HEAD -- Cargo.toml crates/` is
+  empty, so it is HEAD's Rust. Target IR as in the five study files: 422 modules
+  / 15,233,730 B IR / 4,584 declarations / 10,448,225 B link index. These are
+  identities, not durations, so one run settles them.
+
+TWO THINGS A LATER GATE MUST NOT ASSUME
+  - **`FilePath./` doubles a separator where Rust's `Path::join` does not**
+    (measured). With `--ir …/tree/` the Lean refusal said `tree//modules/X.json`
+    and Rust said `tree/modules/X.json`. The path is quoted verbatim in three
+    refusals, so the reader joins with its own `irPath`. Anything else in the
+    Lean tree that builds a user-visible path with `/` has the same hole.
+  - **Lean's `IO` errors and JSON failures cannot be made to match Rust's**
+    (measured). A missing `index.json`:
+      rust: reading empty/index.json: No such file or directory (os error 2)
+      lean: reading empty/index.json: no such file or directory (error code: 4294967294)
+    The code is −2 as a `UInt32`, not an errno, so a hand-written table would not
+    close it. `src/Litedoc4/Json.lean` is worse: it `panic!`s on malformed JSON
+    where Rust returns a diagnosable error. **A gate that compares stderr must
+    not feed either binary a missing or malformed file** until that is ported.
+
+HOW TO REPRODUCE
+  tools/purelean-micro-gate.sh          # elan, e2e/micro, e2e/consumer, a Rust litedoc4
+  tools/purelean-render-gate.sh         # and the target's IR under PURELEAN_WORK

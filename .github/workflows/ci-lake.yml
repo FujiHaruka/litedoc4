@@ -20,10 +20,14 @@ on:
       - "csrc/**"
       - "vendor/**"
       - "e2e/consumer/**"
+      - "e2e/micro/**"
       - "Cargo.toml"
       - "tools/lake-package-gate.sh"
       - "tools/lake-download-gate.sh"
       - "tools/purelean-gate.sh"
+      - "tools/purelean-micro-gate.sh"
+      - "tools/render-compare.sh"
+      - "tools/lib/common.sh"
       - "tools/libc-shim-gate.sh"
       - ".github/workflows/ci-lake.yml"
   pull_request:
@@ -35,10 +39,14 @@ on:
       - "csrc/**"
       - "vendor/**"
       - "e2e/consumer/**"
+      - "e2e/micro/**"
       - "Cargo.toml"
       - "tools/lake-package-gate.sh"
       - "tools/lake-download-gate.sh"
       - "tools/purelean-gate.sh"
+      - "tools/purelean-micro-gate.sh"
+      - "tools/render-compare.sh"
+      - "tools/lib/common.sh"
       - "tools/libc-shim-gate.sh"
       - ".github/workflows/ci-lake.yml"
   workflow_dispatch:
@@ -112,6 +120,32 @@ jobs:
 
       - name: Gate
         run: tools/purelean-gate.sh
+
+  # The same question `purelean-render-gate.sh` asks over the measurement target,
+  # asked over the sample instead — which is what makes it runnable here at all,
+  # and is *not* a weaker version of it: e2e/micro holds the declaration shapes
+  # the target does not have, and one of them (a class extending one whose
+  # defining module the sample does not declare) is the only input either
+  # renderer has ever had to refuse.
+  purelean-micro:
+    name: the two renderers agree on the sample package
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-node
+
+      - uses: ./.github/actions/setup-elan
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The oracle, and what extracts the sample's IR.
+      - name: Build litedoc4
+        run: cargo build --bin litedoc4
+
+      - name: Gate
+        run: tools/purelean-micro-gate.sh
 
   # The channel a user actually goes through: a generated consumer says
   # `require «litedoc4» from git … @ "<this commit>"`, so Lake clones this

@@ -36,6 +36,7 @@ pinned-dep-gate.sh           ci      elan, e2e/micro and e2e/micro-dep as a git 
 provenance-gate.sh           ci      nothing; reads the tree
 public-surface-gate.sh       ci      nothing; reads the tree
 purelean-gate.sh             ci      elan, e2e/consumer, and a built Rust litedoc4 to compare --version with
+purelean-micro-gate.sh       ci      elan, e2e/micro and e2e/consumer, and a built Rust litedoc4 as the oracle
 purelean-render-gate.sh      manual  the target's IR and .lidx, elan, and a built Rust litedoc4 as the oracle
 release-notes-gate.sh        ci      nothing; reads the tracked files
 site-gate.sh                 ci      a built site
