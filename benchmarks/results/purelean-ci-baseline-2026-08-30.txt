@@ -1,0 +1,70 @@
+pure-Lean replacement study — what the Rust half costs in CI today
+=================================================================
+2026-08-30
+
+WHAT THIS MEASURES
+  The other half of the question. Replacing Rust with Lean removes a binary
+  download and adds a Lean compile, and only CI can say which is bigger. This
+  file records what the Rust arrangement costs today, on the real target, so a
+  pure-Lean run has something to be measured against.
+
+  Nothing here is about a pure-Lean build: it does not exist yet. These are
+  baseline numbers (measured), read out of a run that already happened.
+
+SOURCE
+  FujiHaruka/information-theory, workflow `docs.yml`, run 33255806841
+  (2026-08-29, ubuntu-latest, conclusion success). Read with `gh run view --log`;
+  the per-step seconds are GitHub's own, the internals are timestamp deltas in
+  the step's log.
+
+THE WHOLE JOB — 182 s (measured)
+     3.0 s  Set up job
+     2.0 s  actions/checkout@v5
+   109.0 s  leanprover/lean-action@v1        `lake build` of InformationTheory,
+                                             with its own .lake cache hit
+    44.0 s  FujiHaruka/litedoc4@v1.2.0       <-- everything litedoc4 costs
+     2.0 s  actions/upload-pages-artifact@v3
+     6.0 s  actions/deploy-pages@v4
+     5.0 s  Post Run FujiHaruka/litedoc4     (cache saves)
+
+INSIDE THE 44 s — every litedoc4 cache MISSED on this run (measured)
+     1.2 s  three actions/cache lookups, all three "Cache not found":
+              litedoc4-cargo-Linux-ff50a74d1a6c8e73      (the Rust build)
+              litedoc4-extractor-Linux-a722f6026c193ad2  (the Lean extractor)
+              litedoc4-state-...                         (incremental state)
+     2.9 s  the litedoc4 binary                <-- THE RUST COST IN CI
+            A release asset for x86_64-unknown-linux-musl, downloaded and its
+            SHA-256 checked against checksums.txt. No `cargo build` ran: the
+            cargo cache missing did not matter, because a release matched.
+    20.2 s  building the extractor            `extractor 20.217 built`
+            Extract.lean, 3,174 lines of Lean, against the caller's toolchain
+    17.5 s  extraction                        `extract 422 module(s) in 17.5061 s`
+     1.4 s  render + global + site            `render 422 / math-fallback 0`
+    ~13  s  cache saves (state 1.8 s, extractor 3.1 s, and the 8.5 s of site
+            writing and packing before them; partly counted in the 5 s Post step)
+
+WHAT THIS SETTLES
+  **The Rust half costs 2.9 s of CI wall clock on a cache-cold run** — one
+  download of a static musl binary, plus a checksum. It is not the cargo build:
+  that path exists (`cargo build --release`, no release asset for the platform)
+  but did not run here, and does not run on any of the three released triples.
+
+  **A pure-Lean renderer would replace that 2.9 s with a Lean compile.** The only
+  Lean compile in this run is the extractor: 3,174 lines in 20.2 s on this
+  runner (measured). At that rate the Rust half's ~10,500 lines of renderer and
+  incremental logic (7,004 + 3,443, excluding tests) is (extrapolated) about
+  60 s, and the extrapolation is weak in both directions — Lean compile time is
+  not linear in lines, and a renderer is not shaped like an extractor. **It has
+  to be measured on the real thing.**
+
+  Both sides are cached on (toolchain + sources), so this cost is paid when the
+  litedoc4 version moves, when the toolchain moves, or when the cache expires
+  (GitHub evicts after 7 days of no reads). `docs.yml` runs on tag pushes, and
+  the six runs before this one are 144-182 s apart from two cold ones at 941 s
+  and 1,142 s — so on this repository the cache is missed more often than hit.
+
+WHAT THIS DOES NOT SETTLE
+  - the pure-Lean compile time (nothing to compile yet);
+  - whether the renderer's Lean sources can share the extractor's cache entry
+    (they can be in the same lake package, which would make it one build);
+  - the `lake build` path for a consumer who is not using the action.
