@@ -248,30 +248,45 @@ structure IrTree where
   root : FilePath
   index : Index
 
-def openIrTree (root : FilePath) : IO IrTree := do
+/-- `IrTree::open_unvalidated`: only the index is read, and neither refusal is
+made. The stages that ask a question *about* a tree rather than rendering it —
+`ownership` and `merge` — take this one, because a tree too old to render is
+still one they have to be able to answer about. -/
+def openIrTreeUnvalidated (root : FilePath) : IO IrTree := do
   recordIrRead .index
   let path := irPath root "index.json"
   let text ← readIrFile path
-  let index ← match parseJson text with
-    | .error why => throw (IO.userError s!"{path}: {why}")
-    | .ok j => pure (toIndex j)
-  if index.schemaVersion < minSchemaVersion then
-    throw (IO.userError (schemaRefusal "index.json" index.schemaVersion))
-  if !index.ablations.isEmpty then
-    throw (IO.userError (ablatedRefusal index.ablations))
-  return { root, index }
+  match parseJson text with
+  | .error why => throw (IO.userError s!"{path}: {why}")
+  | .ok j => return { root, index := toIndex j }
 
-/-- The `schemaVersion` is checked here too: an incremental tree is a merge of
-files from several extractor runs, so the index's version does not vouch for the
-modules'. -/
-def IrTree.module (t : IrTree) (e : IndexEntry) : IO Module := do
+def openIrTree (root : FilePath) : IO IrTree := do
+  let tree ← openIrTreeUnvalidated root
+  if tree.index.schemaVersion < minSchemaVersion then
+    throw (IO.userError (schemaRefusal "index.json" tree.index.schemaVersion))
+  if !tree.index.ablations.isEmpty then
+    throw (IO.userError (ablatedRefusal tree.index.ablations))
+  return tree
+
+/-- The way in for the one caller that has no index to check the file against:
+the **merger** reads the tree it is in the middle of writing, whose `index.json`
+is written last.
+
+The `schemaVersion` is checked here rather than only on the index: an
+incremental tree is a merge of files from several extractor runs, so the index's
+version does not vouch for the modules'. -/
+def readModuleFile (path : FilePath) : IO Module := do
   recordIrRead .module
-  let path := irPath t.root e.file
   let m ← match parseModule (← readIrFile path) with
     | .error why => throw (IO.userError s!"{path}: {why}")
     | .ok m => pure m
   if m.schemaVersion < minSchemaVersion then
     throw (IO.userError (schemaRefusal path.toString m.schemaVersion))
+  return m
+
+def IrTree.module (t : IrTree) (e : IndexEntry) : IO Module := do
+  let path := irPath t.root e.file
+  let m ← readModuleFile path
   if m.name != e.module then
     throw (IO.userError (mismatchRefusal path e.module m.name))
   return m

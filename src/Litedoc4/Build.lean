@@ -27,6 +27,7 @@ checks rather than instead of them, and no run of this command deletes a
 directory whose marker it has not read. -/
 import Litedoc4.Assets
 import Litedoc4.Config
+import Litedoc4.Duration
 import Litedoc4.Global
 import Litedoc4.Ledger
 import Litedoc4.Modules
@@ -36,18 +37,6 @@ import Litedoc4.Render.Site
 open System
 
 namespace Litedoc4
-
-/-- `format!("{n:.digits$}")` for a non-negative rational, rounded half up.
-Lean's `Float.toString` takes no width, and every duration this command prints
-is written to a fixed number of places. -/
-def fixed (num den digits : Nat) : String :=
-  if den == 0 then "n/a" else
-  let scale := 10 ^ digits
-  let scaled := (2 * num * scale + den) / (2 * den)
-  let frac := toString (scaled % scale)
-  s!"{scaled / scale}." ++ String.ofList (List.replicate (digits - frac.length) '0') ++ frac
-
-def seconds (nanos : Nat) (digits : Nat) : String := fixed nanos 1000000000 digits
 
 /-- The exit code a refusal carries, beside what to say. 2 is a usage error and
 prints the usage text; 3 is "the world and the files disagree"; 4 is the

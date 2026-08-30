@@ -12,6 +12,7 @@ written after the render.** A ledger written first would claim modules are up to
 date whose IR a failed run never produced. -/
 import Litedoc4.External
 import Litedoc4.Fs
+import Litedoc4.Incr.Ordered
 import Litedoc4.Ir.Utf16
 import Litedoc4.Json
 import Litedoc4.JsonWrite
@@ -289,17 +290,11 @@ def readModuleList (path : System.FilePath) : IO (Array String) := do
     if !line.isEmpty && !line.startsWith "#" then out := out.push line
   return out
 
-/-- On a repeated key the first position is kept and the last value taken, which
-is what assigning to a JavaScript object property does — it is what lets a
-hand-edited file with a duplicated key round-trip. -/
 def keySetInsert (kv : Array (String × String)) (key value : String) :
-    Array (String × String) :=
-  match kv.findIdx? (·.1 == key) with
-  | some i => kv.set! i (key, value)
-  | none => kv.push (key, value)
+    Array (String × String) := orderedInsert kv key value
 
 def keySetGet (kv : Array (String × String)) (key : String) : Option String :=
-  (kv.find? (·.1 == key)).map (·.2)
+  orderedGet? kv key
 
 /-- The names of the keys **present in either set** whose values differ, in
 `cmpUtf16` order.

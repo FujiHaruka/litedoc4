@@ -429,8 +429,8 @@ Lean 側の記録が同じバイトを出すには**同じ `--pages` が要る**
 | U2 | ledger **リーダ** + `KeySet.diff` + `checkLedger` + 3 つの出力ファイル | `incr/detect.rs`, `ledger.rs` | **済み 2026-08-31** |
 | U3 | `ledger touch` | `incr/detect.rs:409` | **済み 2026-08-31** |
 | U4 | `impact`（4 つの mode） | `incr/impact.rs` | プロトタイプあり |
-| U5 | `ownership` — **`watching` ガードを保つ** | `incr/ownership.rs` | プロトタイプあり |
-| U6 | `merge` + `--verify` | `incr/merge.rs` (773) | **`merge-reference.sh` は対象リポジトリ不要 = 一番安く立つ** |
+| U5 | `ownership` — **`watching` ガードを保つ** | `incr/ownership.rs` | **済み 2026-08-31** |
+| U6 | `merge` + `--verify` | `incr/merge.rs` (773) | **済み 2026-08-31** |
 | U7 | `prune` | `incr/prune.rs` (518) | **ゼロから** |
 | U8 | `ModuleSet` + `--only` / `--only-from` | `render/site.rs` | ゼロから。**`purelean-render-gate.sh` 項目 5 が「`--only` を拒否する」を主張しているので同じ変更で直す** |
 | U9 | global の delta（`--before` / `--print-set` / `--delta-json`） | `global/delta.rs` | `tokens` はある |
@@ -476,6 +476,37 @@ timings 19 本が持続時間を除いて一致、`.txt` 38 本がバイト一�
   差の全部が SHA-256 で、**これは M4 で既に決着している**
   （→ `purelean-sha256-2026-08-31.txt`: 112 MB/s、60 s 予算に対し 2 s、C は
   帰属義務ゆえに取らない）。**スレッドプールも C も 2.1 s では licence されない**
+
+#### U5 / U6 で分かったこと（2026-08-31）
+
+`merge-compare.sh` が **3,961/3,961 一致（`IDENTICAL`）**、9 シナリオ + `--verify` 3 本。
+比較器は 1 文字の摂動で `DIFFERENT` になることを先に確認した。
+
+**bimodality は保たれている**（実測、Rust と Lean が同値）:
+
+| シナリオ | `scannedBaseModules` | モード |
+|---|---|---|
+| `rerun` / `modified` | **0** | base の IR を 1 つも読まない |
+| `moved` | 417 | 全部読む（exclude 3 を除く） |
+| `gained` / `added` / `removed` / `restored-1` | 421 | 全部読む |
+| `copyout` / `restored-2` | 420 | 全部読む |
+
+- **重複キーは深さを問わず畳む**。`serde_json` の `preserve_order` はパースの時点で
+  重複キーを畳む（最初の位置・最後の値）ので、`modules[]` の生オブジェクトの中で
+  両方残す実装は**手編集された index を Rust が落とすキーごと往復させてしまう**。
+  `jvalCollapse` が入り口で再帰的に同じ規則を当てる（`"bytes":999999,"bytes":N` で
+  両バイナリがバイト一致することを確認）
+- **「最初の位置・最後の値」の綴りを 1 つにした** — `Incr/Ordered.lean` の
+  `orderedInsert` / `orderedGet?` に台帳・マージ後 index・`moduleMap`・`depMapping` が
+  全部乗る
+- **`openUnvalidated` は U1 ではなく Ir.lean の分岐**。`ownership` / `merge` は
+  「木について答える」ので、レンダできないほど古い木にも答えられる必要がある
+
+**2 つのオラクルはパッケージの大きさについて食い違う**（気づき、U11 に効く）:
+`it-modules.txt` は 432 で凍っていて ledger のシナリオは 432 モジュールをハッシュするが、
+M5 のオラクルを記録した base IR は **422 モジュール**（merge のシナリオは `into 422`/`423`
+と出る）。**台帳と IR index を突き合わせる段（U11）は、この 10 の差を「既知のドリフト」
+ではなく diff として踏む**。U11 に入る前に、どちらの母数で回すかを決めること。
 
 #### M5 に入る前に塞ぐもの: `Json.lean` は整数しか読まない → **2026-08-31 に塞いだ**
 

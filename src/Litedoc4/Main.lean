@@ -33,6 +33,11 @@ def usage : String :=
                              [--removed-out <file>] [--render-all-out <file>]
                              [--timings <file>]
        litedoc4 ledger touch --ledger <ledger.json> --module <Module> [--out <file>]
+       litedoc4 ownership --base <ir> (--inc <ir> | --removed <file>)
+                          [--exclude <file>] [--print-set <file>] [--json <file>]
+       litedoc4 merge --base <ir> (--inc <ir> | --remove <file>) [--out <ir>]
+                      [--modules <file>] [--changed-out <file>] [--timings <file>]
+       litedoc4 merge --verify <ir> --against <ir>
        litedoc4 --version
        litedoc4 --help"
 
@@ -674,6 +679,188 @@ def build (args : List String) : IO UInt32 := do
       IO.eprintln s!"litedoc4: {e}"
       pure (1 : UInt32)
 
+structure OwnershipArgs where
+  base : Option String := none
+  inc : Option String := none
+  removed : Option String := none
+  exclude : Option String := none
+  printSet : Option String := none
+  json : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+partial def parseOwnership : List String → OwnershipArgs → Except String OwnershipArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} wants a value"
+    if flag == "--base" then do
+      let (v, more) ← value; parseOwnership more { acc with base := some v }
+    else if flag == "--inc" then do
+      let (v, more) ← value; parseOwnership more { acc with inc := some v }
+    else if flag == "--removed" then do
+      let (v, more) ← value; parseOwnership more { acc with removed := some v }
+    else if flag == "--exclude" then do
+      let (v, more) ← value; parseOwnership more { acc with exclude := some v }
+    else if flag == "--print-set" then do
+      let (v, more) ← value; parseOwnership more { acc with printSet := some v }
+    else if flag == "--json" then do
+      let (v, more) ← value; parseOwnership more { acc with json := some v }
+    else if flag == "--help" || flag == "-h" then
+      parseOwnership rest { acc with help := true }
+    else
+      .error s!"unknown argument `{flag}`"
+
+/-- The rule name in a fixed column, `format!("{:<15}")`. The two rules are 9 and
+14 characters, so a column that moved with them would break the module names out
+of alignment on the only line a reader scans down. -/
+def padTo (width : Nat) (s : String) : String :=
+  s ++ String.ofList (List.replicate (width - s.length) ' ')
+
+def ownershipRun (a : OwnershipArgs) (base : String) : IO UInt32 := do
+  let summary ← runOwnership
+    { base := ⟨base⟩, inc := a.inc.map (⟨·⟩), removed := a.removed.map (⟨·⟩)
+      exclude := a.exclude.map (⟨·⟩), printSet := a.printSet.map (⟨·⟩)
+      json := a.json.map (⟨·⟩) }
+  IO.println s!"ownership: {summary.lostNames} name(s) lost, {summary.gainedNames} gained \
+    across {summary.incModules} re-extracted module(s) -> {summary.staleModules.size} \
+    module(s) need re-extraction — {seconds summary.totalNanos 4} s"
+  for w in summary.witnesses.extract 0 witnessesInLog do
+    IO.println s!"  {padTo 15 w.rule} {w.module}  (ref {w.refModule} :: {w.refName})"
+  return 0
+
+/-- Which modules point at a name that has moved.
+
+Runs **before** `merge` in a round, and the reason is not a preference: merge
+overwrites the base IR's idea of who owns each name. -/
+def ownershipCmd (args : List String) : IO UInt32 := do
+  match parseOwnership args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    -- Without a tree to diff against and without a deletion list there is no
+    -- question to answer.
+    let missing := "ownership needs --base <ir> and at least one of --inc <ir> / --removed <file>"
+    let some base := a.base | refuse missing
+    if a.inc.isNone && a.removed.isNone then return ← refuse missing
+    try
+      ownershipRun a base
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      pure (1 : UInt32)
+
+structure MergeArgs where
+  base : Option String := none
+  inc : Option String := none
+  out : Option String := none
+  modules : Option String := none
+  remove : Option String := none
+  changedOut : Option String := none
+  timings : Option String := none
+  verify : Option String := none
+  against : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+partial def parseMerge : List String → MergeArgs → Except String MergeArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} wants a value"
+    if flag == "--base" then do
+      let (v, more) ← value; parseMerge more { acc with base := some v }
+    else if flag == "--inc" then do
+      let (v, more) ← value; parseMerge more { acc with inc := some v }
+    else if flag == "--out" then do
+      let (v, more) ← value; parseMerge more { acc with out := some v }
+    else if flag == "--modules" then do
+      let (v, more) ← value; parseMerge more { acc with modules := some v }
+    else if flag == "--remove" then do
+      let (v, more) ← value; parseMerge more { acc with remove := some v }
+    else if flag == "--changed-out" then do
+      let (v, more) ← value; parseMerge more { acc with changedOut := some v }
+    else if flag == "--timings" then do
+      let (v, more) ← value; parseMerge more { acc with timings := some v }
+    else if flag == "--verify" then do
+      let (v, more) ← value; parseMerge more { acc with verify := some v }
+    else if flag == "--against" then do
+      let (v, more) ← value; parseMerge more { acc with against := some v }
+    else if flag == "--help" || flag == "-h" then
+      parseMerge rest { acc with help := true }
+    else
+      .error s!"unknown argument `{flag}`"
+
+def removedNote (removed : Nat) : String :=
+  if removed > 0 then s!", removed {removed}" else ""
+
+def irChangedNote (names : Array String) : String :=
+  if names.isEmpty then "" else ": " ++ ", ".intercalate names.toList
+
+def mergeVerifyRun (tree against : String) : IO UInt32 := do
+  match ← verify ⟨tree⟩ ⟨against⟩ with
+  | .error (code, message) => refusedWith code message
+  | .ok report =>
+    IO.print report.toText
+    -- The answer is already on stdout, so nothing goes to stderr: a caller that
+    -- printed this as an error message would be reporting a working comparison
+    -- as a broken one.
+    return (if report.problems == 0 then 0 else 1)
+
+def mergeFoldRun (a : MergeArgs) (base : String) : IO UInt32 := do
+  -- The base tree is never written to unless the caller asks for it by name.
+  let out := a.out.getD (base ++ ".merged")
+  let removed ← match a.remove with
+    | some path => readModuleList ⟨path⟩
+    | none => pure (#[] : Array String)
+  let listed ← match a.modules with
+    | some path => do pure (some (← readModuleList ⟨path⟩))
+    | none => pure none
+  match ← merge { base := ⟨base⟩, inc := a.inc.map (⟨·⟩), out := ⟨out⟩, removed
+                  modules := listed, changedOut := a.changedOut.map (⟨·⟩)
+                  timings := a.timings.map (⟨·⟩) } with
+  | .error (code, message) => refusedWith code message
+  | .ok summary =>
+    IO.println s!"merged {summary.updated.size} module(s){removedNote summary.removed} into \
+      {summary.modules}: modules {seconds summary.copyNanos 4} s, deps+index \
+      {seconds summary.depsNanos 4} s, total {seconds summary.totalNanos 4} s -> {out}"
+    IO.println s!"IR content hash moved for {summary.irChanged.size} of {summary.updated.size} \
+      re-extracted module(s){irChangedNote summary.irChanged}"
+    return 0
+
+/-- Folds a partial extraction back into the package IR; `--verify` instead
+compares two trees.
+
+**`--modules` is what makes the merged `index.json`'s module order a from-scratch
+extraction's**, which is the order of the list the extractor is handed. Left out,
+the order is the base index's with new modules appended, for callers that have no
+list. -/
+def mergeCmd (args : List String) : IO UInt32 := do
+  match parseMerge args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    try
+      match a.verify with
+      | some tree =>
+        let some against := a.against | refuse "merge --verify <ir> needs --against <ir>"
+        mergeVerifyRun tree against
+      | none =>
+        let missing := "merge needs --base <ir> and at least one of --inc <ir> / --remove <file>"
+        let some base := a.base | refuse missing
+        if a.inc.isNone && a.remove.isNone then return ← refuse missing
+        mergeFoldRun a base
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      return 1
+
 def ledger (args : List String) : IO UInt32 := do
   match args with
   | [] => refuse "ledger needs a subcommand: build, check or touch"
@@ -711,6 +898,8 @@ def main (args : List String) : IO UInt32 := do
   | "render" :: rest => Litedoc4.render rest
   | "ledger" :: rest => Litedoc4.ledger rest
   | "site" :: rest => Litedoc4.site rest
+  | "ownership" :: rest => Litedoc4.ownershipCmd rest
+  | "merge" :: rest => Litedoc4.mergeCmd rest
   | [] | "--help" :: _ | "-h" :: _ =>
     IO.println Litedoc4.usage
     return 0
