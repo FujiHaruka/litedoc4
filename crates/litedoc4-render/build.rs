@@ -53,7 +53,12 @@ fn main() {
 /// cargo's directive channel, and npm's progress lines are not directives.
 fn npm(args: &[&str], out_dir: &str) {
     let shown = args.join(" ");
-    let result = Command::new("npm")
+    // `npm.cmd` on Windows, because `Command` there is `CreateProcessW`, which
+    // appends `.exe` and nothing else: the extensionless `npm` shipped next to
+    // it is a shell script, so the plain name is "program not found" even with
+    // node on PATH (measured 2026-08-30). The panic below then names the one
+    // cause that is not it.
+    let result = Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" })
         .args(args)
         .current_dir("web")
         // `web/vite.config.ts` reads this; absent it writes to `web/dist`
