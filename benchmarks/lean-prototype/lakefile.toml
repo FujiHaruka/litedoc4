@@ -13,3 +13,7 @@ root = "Render"
 name = "MD4Lean"
 git = "https://github.com/acmepjz/md4lean"
 rev = "31907cc18f48a95384f99cee5582c00fb39e0f67"
+
+[[lean_exe]]
+name = "incr"
+root = "Incr"

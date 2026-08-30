@@ -1,0 +1,214 @@
+pure-Lean replacement study — the incremental path (impact / ownership / merge)
+==============================================================================
+2026-08-30. The fifth measurement. The first four are the floor
+(`purelean-microbench-2026-08-30.txt`), the floor written properly
+(`purelean-microbench-optimised-2026-08-30.txt`), the renderer
+(`purelean-renderer-2026-08-30.txt`) and the renderer with Markdown
+(`purelean-markdown-2026-08-30.txt`). This one is the *other* half of the Rust
+tree: the three commands that carry the IR full reads
+(`docs/approach-pillars.md` §5.6 names the full read as the rate limiter).
+
+WHAT WAS BUILT
+  `benchmarks/lean-prototype/Incr.lean`, 1,079 lines of Lean, no dependencies
+  outside Lean core (not even MD4Lean). The JSON scanner, the typed IR and the
+  byte helpers are copied from `Render.lean`, for the reason its own header
+  gives. It does what `litedoc4 impact`, `litedoc4 ownership` and
+  `litedoc4 merge` do:
+
+    impact     both closures — IMPORTERS (reverse transitive import closure cut
+               to the package's own modules) and REFERRERS (direct and
+               transitive over the `refs` edges) — the census columns, the
+               `--print-set` in UTF-16 order and the summary JSON.
+    ownership  the re-extracted-vs-base name diff, and the base-side sweep for
+               `(defining module, name)` pairs that no longer hold, with both
+               rules (`lostOwner` / `movedElsewhere`) and the witnesses.
+    merge      module-file carry, `contentHash` comparison, the dependency slice
+               recomputed from the merged module files, stale `deps/*.json`
+               removal, and the merged `index.json` with the base file's key
+               order and the weakest `schemaVersion`.
+
+CONDITIONS
+  Apple M1, 8 cores (4P+4E), 16 GiB, macOS 26.6.1, Lean v4.31.0 `lake build`,
+  rustc 1.97.1 --release (binary built 2026-08-29 13:02), warm, n=6, run 1
+  discarded, medians of 5, **all rows interleaved in one loop** so no two come
+  from different cache states. Wall from `time.monotonic`, CPU and RSS from
+  `wait4`'s rusage — the same fields `/usr/bin/time -l` reads, at finer
+  resolution; a separate `/usr/bin/time -l` pass agrees to its 0.01 s grid.
+  Target: the same 422-module / 15,233,730 B IR as the four earlier files.
+
+THE INPUT, AND WHY IT IS NOT THE ONE ON DISK
+  `ownership` and `merge` need a partial ("inc") tree. The one the reference
+  incremental run left behind
+  (`purelean/incr.work/self-one/work/inc-ir-1`) is a **`ledger touch`**: the
+  olean is untouched, so **not one name moves**, `watching` is false, and
+  ownership never reads the base at all. That is exactly the simulation §5.6
+  says gives 3.00 full reads and is wrong.
+  So a second inc tree was built (`purelean-incr/inc`): the base's
+  `InformationTheory.Shannon.ChannelCoding.Basic` with its most-referenced
+  declaration renamed (`…ChannelCoding.jointSequence` ->
+  `…jointSequenceRenamed`, 34 modules name it). 1 name lost, 1 gained, so the
+  base-side sweep runs. **Both implementations were given the same tree.**
+  Both trees are measured below.
+
+THE SAME ANSWER — compared, not asserted
+  impact  --print-set   422 lines, **identical** (`diff`), sequential and at
+                        4 workers and in the `--slim` variant alike.
+          --json        **identical** byte for byte, all 11 fields.
+  ownership --print-set 34 lines, **identical**, sequential and at 4 workers.
+          --json        identical except the three `*Seconds` diagnostics, which
+                        this prototype does not emit (they are wall clock and no
+                        test may assert on them).
+          ledger touch  both write a 0-byte file (`write_text`'s empty-set rule).
+  merge   `diff -r`     **426 files, no differences** — 422 module files, 3
+                        `deps/*.json` and `index.json` — sequential and at 4
+                        workers. `--changed-out` identical.
+  Corroborating, from the same session: the renderer row still comes out
+  2 differing pages of 422, the two with LaTeX, as
+  `purelean-markdown-2026-08-30.txt` recorded.
+
+TIME
+                          wall     CPU(u+s)   RSS      vs Rust
+  impact     Rust         0.0734   0.0710     56.2 MB
+             Lean seq     0.1907   0.1887     10.4 MB  **2.60x**
+             Lean 4w      0.0649   0.2116     21.5 MB  0.88x wall / 2.98x CPU
+             Lean seq --slim 0.1726 0.1715     9.8 MB  2.35x  (see ABLATION)
+             Lean 4w --slim  0.0595 0.1931    20.5 MB
+  ownership  Rust         0.0669   0.0658      5.3 MB
+             Lean seq     0.1884   0.1873      9.7 MB  **2.82x**
+             Lean 4w      0.0633   0.2037     19.4 MB  0.95x wall / 3.10x CPU
+  merge      Rust         0.1828   0.1289      8.4 MB
+             Lean seq     0.2443   0.2430     10.5 MB  **1.34x**
+             Lean 4w      0.0969   0.2903     22.4 MB  0.53x wall / 2.25x CPU
+  render     Rust         0.4054   0.3934    129.4 MB
+             Lean seq     1.1050   1.0791    173.1 MB  2.73x
+             Lean 4w      0.4828   1.1945    184.8 MB  1.19x wall / 3.04x CPU
+
+  The render row is `Render.lean --md` re-measured **in this same interleaved
+  loop**, not quoted from the earlier file: 0.4054 / 1.1050 / 0.4828 against
+  that file's 0.39 / 1.07 / 0.52. It is here so the sum below is one
+  measurement rather than a composition of two sessions.
+
+  **Rust is single-threaded in all four**, so every 4-worker row is what Lean
+  buys with cores, not a like-for-like comparison. Nobody has measured a
+  threaded Rust.
+
+  Spreads over the 5 kept runs were 0.3% or tighter on every row except
+  `merge/rust`, whose one outlier (0.56 s against a 0.181 s median) is why the
+  medians and not the means are quoted.
+
+WHAT EACH COMMAND ACTUALLY READS — counted in the implementation
+  Counted the way `litedoc4_ir::metrics` counts (files opened and parsed;
+  `fs::copy` of a module file is not a read on either side).
+
+                              index  module  full passes
+    impact                    1      422     1.0000
+    ownership (a name moved)  2      423     1.0024
+    ownership (ledger touch)  2      2       0.0047
+    merge                     2      422     1.0000
+    render                    —      422     1.0000   (from the code, both
+                                                       sides; not counted here)
+
+  **That decomposes §5.6's "4.00 full reads for a one-module edit" exactly**,
+  and it decomposes the discrepancy §5.6 records too: `ownership`'s 423 reads
+  collapse to 2 when nothing enters or leaves the global map, which is the whole
+  of the 4.00 -> 3.00 the `ledger touch` simulation shows. The four commands
+  account for 1,689 module reads; the pipeline was measured at 1,690 / 422
+  (2026-08-17), the odd one belonging to a stage not measured here.
+  `ownership`'s 423 is 1 inc module + 1 base module for the diff + 421 for the
+  sweep (422 base modules minus the 1 excluded as freshly extracted).
+
+  Ledger touch, measured separately (n=6, run 1 discarded, medians of 5, warm,
+  same session but its own loop): Rust 0.0030 s wall / 0.0023 CPU,
+  Lean 0.0045 / 0.0038. Both write the same 0-byte print set.
+
+ONE-MODULE EDIT, SUMMED OVER THE FOUR COMMANDS THAT CARRY A FULL READ
+                     wall      CPU
+    Rust             0.729 s   0.659 s
+    Lean sequential  1.728 s   1.698 s   **2.37x**
+    Lean 4 workers   0.708 s   1.900 s   **0.97x wall, 2.88x CPU**
+
+  This is a sum of four separately measured process wall clocks, so it carries
+  four process starts and no pipeline overhead — it is what the four commands
+  cost, not what `litedoc4 build --incremental` costs. §6.5 puts "the outside"
+  at 73% of an incremental build; the extraction that makes up the rest is Lean
+  on both sides.
+
+ABLATION — is the gap the typed conversion or the scan?
+  `impact` needs only `module`, `imports`, each declaration's `name` and its
+  `refs`. Rust has no choice: `serde` deserialises the whole `ModuleFile`,
+  spans, members, equations and all. `--slim` gives the Lean side the same
+  licence a real implementation would take.
+
+    Lean, full `toModule` (like for like)   0.1907 s   2.60x
+    Lean, `--slim`                          0.1726 s   2.35x
+    difference                              0.0181 s   9.5% of the command
+
+  **The typed conversion is not where the gap lives.** Dropping every field the
+  stage does not read buys 9.5%, and the remaining 2.35x is the JSON scan over
+  15.2 MB — the same ~10 cycles per byte the optimised floor file identified and
+  the renderer file confirmed. `--slim`'s output is identical to Rust's.
+
+WHY `merge` IS THE CHEAP ONE (1.34x, against 2.6-2.8x for the other two)
+  `merge` is not one read: it is one read plus 422 module-file copies and 4
+  files written. Rust's wall (0.1828) is well above its CPU (0.1289) — 0.054 s
+  of it is I/O the CPU is not doing — and that part costs the same in either
+  language. Its own instrumentation splits it
+  `modules 0.050 s / deps+index 0.129 s`; the Lean split is
+  `modules.copy 0.055 s / deps.scan 0.182 s` with the ~0.006 s of `deps` and
+  `index.json` writing outside both phases. So the copy half is **1.10x** and
+  the full-read half **1.41-1.45x** — and the copy half is Lean's worst case for
+  the comparison, because `fs::copy` on macOS is a kernel-side copy while this
+  prototype does `readBinFile` + `writeBinFile` through user space, and it still
+  loses only 10%.
+  **The more a stage does that is not parsing, the smaller the Lean penalty.**
+
+THE PHASE SUMS AGAINST THE PROCESS WALL CLOCK — checked, as required
+  Lean is call-by-value, so the three lazy-timer shapes the earlier files
+  recorded cannot hide work here; it was checked anyway, on run 5 of the
+  `/usr/bin/time -l` pass:
+    impact seq   0.0006 + 0.1810 + 0.0026 = 0.1842   process 0.18
+    impact 4w    0.0006 + 0.0557 + 0.0026 = 0.0589   process 0.06
+    ownership seq 0.0006 + 0.0020 + 0.1807 = 0.1833  process 0.18
+    ownership 4w  0.0006 + 0.0020 + 0.0553 = 0.0579  process 0.06
+    merge seq     0.0006 + 0.0551 + 0.1823 = 0.2380  process 0.24
+    merge 4w      0.0006 + 0.0256 + 0.0563 = 0.0825  process 0.09
+  Every sum lands within one 0.01 s grid step of the process, so no phase is
+  charged to nothing.
+
+MEMORY — the one place Lean wins outright
+  `impact` Rust 56.2 MB, Lean 10.4 MB. Rust's `impact` materialises every
+  `ModuleFile` into a `Vec` and holds them all; Lean's reference counting frees
+  each module the instant its four fields have been extracted. This is
+  retention, **not** work — the Lean side parses exactly the same 422 files —
+  and Rust could do the same by extracting as it goes.
+
+`lake build incr` — the number the CI axis needs
+  4.23 s real / 4.33 user from clean (Incr only; the package's other targets and
+  MD4Lean untouched), 1,079 lines, no dependencies. Compare the renderer's
+  4.52 s for 1,612 lines. Nothing new is downloaded: `Incr.lean` imports only
+  `Std.Data.HashMap` / `Std.Data.HashSet`, so unlike the renderer it adds **no**
+  git dependency and none of the +6.1 s the MD4Lean checkout costs.
+
+WHAT IS NOT IN THIS
+  - `--census`, `--changed-file`, `--exclude`, `--removed`, `--remove`,
+    `--modules`, `--timings`, `merge --verify` and the `Unrecognised` mode:
+    parsed by the Rust CLI, not implemented here. `impact`'s census *columns*
+    are computed (the closures are), the TSV is not written.
+  - The refusals. Rust refuses an unknown mode, a changed module that is not in
+    the package, a module list that does not describe the tree, a schema too
+    old, and an `--out` that resolves to `--base` via `..`. This prototype
+    refuses only the second. **A stage's error paths are most of its 365 / 330 /
+    773 lines**, and they are not in the 1,079.
+  - `detect`, `ledger` and `prune`, the other three stages of the incremental
+    path. They read `index.json` and the ledger, not the module files, so they
+    carry no full pass — which is why they are outside the question this file
+    was measuring.
+
+READ THIS AS
+  **2.60x / 2.82x / 1.34x sequentially, for output that is identical — a 422-line
+  set, a 34-line set and a 426-file IR tree, compared with `diff` and `diff -r`.**
+  The incremental path is **not** worse for Lean than the renderer was: it is the
+  same 2.6-2.8x wherever it is parsing and better wherever it is not, and at four
+  workers all three land at or under Rust's single-threaded wall clock. The
+  reason the ratio never moves is the reason the renderer file gave: the cost is
+  bytes touched, not the kind of work done on them.

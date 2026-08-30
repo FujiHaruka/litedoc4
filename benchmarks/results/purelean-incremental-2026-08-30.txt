@@ -1,0 +1,87 @@
+pure-Lean replacement study — the incremental path
+==================================================
+2026-08-30. The fifth and last measurement. The renderer is in
+`purelean-renderer-2026-08-30.txt` and `purelean-markdown-2026-08-30.txt`;
+this is the other half of the Rust code, and `docs/approach-performance.md`
+section 6.5 says "the outside" is 73% of an incremental build.
+
+WHAT WAS BUILT
+  `benchmarks/lean-prototype/Incr.lean`, 1,079 lines of Lean, **no dependencies
+  outside Lean core** — not even MD4Lean. It implements the three commands that
+  carry the IR full reads:
+    impact      reverse transitive import closure (IMPORTERS) + the refs-based
+                REFERRERS set                     (Rust: impact.rs, 365 lines)
+    ownership   the name -> module total map      (Rust: ownership.rs, 330)
+    merge       base IR + partial IR -> merged IR (Rust: merge.rs, 773)
+
+SAME ANSWER, CHECKED
+  impact      `--print-set` 422 lines, **identical**; `--json` byte-identical
+  ownership   `--print-set` 34 lines, **identical**; JSON identical apart from
+              three wall-clock diagnostics
+  merge       `diff -r` over the output trees: **426 files, 0 differences**;
+              `--changed-out` identical
+  Byte-identical merge output needed three things that are easy to get wrong:
+  the base index's key order preserved (`Ordered::insert`'s rule), `deps/*.json`
+  sorted by code point (not UTF-16), and serde-compatible compact JSON.
+
+TIME — interleaved in one session, n=6, run 1 discarded, medians of 5, warm
+  Apple M1, 8 cores, 16 GiB, macOS 26.6.1. Rust is single-threaded in all three,
+  so every 4-worker row is what Lean buys with cores, not like-for-like.
+
+                Rust      Lean seq        Lean 4 workers
+  impact        0.07 s    0.18 s (2.6x)   0.06 s  (0.86x wall, 3.2x CPU)
+  ownership     0.06 s    0.18 s (3.0x)   0.06 s  (1.00x wall, 3.4x CPU)
+  merge         0.18 s    0.24 s (1.3x)   0.08 s  (0.44x wall, 1.6x CPU)
+  ---------------------------------------------------------------------
+  sum           0.31 s    0.60 s (1.9x)   0.20 s  (0.65x wall)
+
+  **At four workers the Lean incremental core is faster in wall clock than the
+  Rust one**, because Rust does not thread and these files are independent.
+
+IR FULL READS, COUNTED IN THE IMPLEMENTATION
+                              index reads  module reads  full passes
+  impact                      1            422           1.0000
+  ownership (a name moved)    2            423           1.0024
+  ownership (a `ledger touch`) 2           2             0.0047
+  merge                       2            422           1.0000
+  render                      —            422           1.0000
+
+  This **decomposes section 5.6's 4.00 full reads for a one-module edit exactly**,
+  and it decomposes the 4.00-vs-3.00 discrepancy that file records: `ownership`'s
+  423 module reads collapse to 2 when no declaration name enters or leaves the
+  global map. The four commands account for 1,689 of the pipeline's measured
+  1,690 module reads.
+
+  **The incremental path's cost is bimodal, not a distribution.** Those two
+  `ownership` numbers differ by 421x and the only thing selecting between them is
+  whether a name moved — which no caller can know before the extraction runs.
+  Anyone quoting an average incremental build time is averaging two modes.
+
+THE INCREMENTAL PATH IS BETTER FOR LEAN THAN THE RENDERER IS
+  - Where a stage **parses**, it is the same 2.6-3.0x the renderer showed, and
+    nothing structural moves it. An ablation that parses only
+    `module`/`imports`/`name`/`refs` — output still identical — buys **9.5%**,
+    leaving 2.35x. The typed conversion is not the gap; the scan over 15.2 MB is,
+    at the same ~10 cycles per byte.
+  - Where a stage **does not parse**, Lean nearly closes. `merge`'s copy half is
+    **1.10x** even though `fs::copy` is a kernel-side copy on macOS and this
+    prototype copies through user space. Its read half is 1.41-1.45x.
+  - **Memory goes the other way.** `impact` peaks at **10.4 MB against Rust's
+    56.2 MB** — Rust materialises every `ModuleFile` into a `Vec`; Lean's
+    refcounting frees each one after four fields are read.
+  - Build cost is better: **4.23 s from clean for 1,079 lines**, and no new git
+    dependency, against the renderer's +6.1 s for MD4Lean on a fresh checkout.
+
+WHAT IS NOT IN THE 1,079 LINES
+  The answers, not the refusals. Not implemented: `--census`, `--changed-file`,
+  `--exclude`, `--removed`, `--modules`, `--timings`, `merge --verify`, and every
+  refusal except "changed module is not in the package". **A real port is
+  meaningfully larger than 1,079 / 1,468 suggests.**
+
+THE INPUT
+  The partial ("inc") IR on disk from `tools/incremental-reference.sh` is a
+  `ledger touch`: no name moves, so `ownership` never reads the base and the
+  measurement would have been the 0.0047 mode. A second one was built —
+  `…ChannelCoding.Basic` with its most-referenced declaration renamed — at
+  `/private/tmp/lean-doc-relay/purelean-incr/inc`. **Both trees were measured
+  and both implementations agree on both.** The table above is the renamed one.
