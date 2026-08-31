@@ -128,20 +128,31 @@ inductive Extractor where
   | oneShot (o : OneShot)
   | resident (r : Resident)
 
-/-- One extraction round.
+/-- One round's command line for a `--extractor` program.
 
 ```text
 <program> [<extractor-arg>…] --modules <round-in> --ir-dir <dir> --timings <file>
 ```
 
 `--events` is not passed: an extraction program defaults it to
-`<timings>-events.jsonl`, and the resident path reproduces that exactly so that
-two records of the same round stay comparable. -/
+`<timings>-events.jsonl` (`eventsBeside`), and the resident path derives it from
+the same expression so that two records of the same round stay comparable.
+
+Split out of the spawn for `Serve.startArgv`'s reason: which flags a round hands
+its extractor is a decision about the three paths, and inside `IO.Process.spawn`
+it could only be asked by running a program. It takes `--extractor-arg`'s array
+rather than the `OneShot` holding it, because the rest of that structure is an
+`IO.Ref` and a value carrying one cannot be written down in a `#guard`. -/
+def oneShotArgv (extractorArgs : Array String) (modules irDir timings : FilePath) :
+    Array String :=
+  extractorArgs ++ #["--modules", modules.toString, "--ir-dir", irDir.toString,
+    "--timings", timings.toString]
+
+/-- One extraction round. -/
 def Extractor.run : Extractor → FilePath → FilePath → FilePath → BuildM Unit
   | .resident r, modules, irDir, timings => do discard <| r.extract modules irDir timings
   | .oneShot o, modules, irDir, timings => do
-    let args := o.args ++ #["--modules", modules.toString, "--ir-dir", irDir.toString,
-      "--timings", timings.toString]
+    let args := oneShotArgv o.args modules irDir timings
     let child ← match ← (IO.Process.spawn { cmd := o.program, args }).toBaseIO with
       | .error e => throw (4, s!"--extractor {o.program}: {e}")
       | .ok child => pure child
@@ -375,6 +386,43 @@ def renderTimingsJson (s : Summary) (nanos : Nat) : String :=
     ++ ",\"mathFallbacks\":" ++ toString s.mathFailures
     ++ ",\"renderSeconds\":" ++ seconds nanos 9 ++ "}\n"
 
+/-- Whether the round loop runs again.
+
+The second clause is the one that would be silent: **a run whose only work is a
+deletion has nothing to re-extract**, and without it the loop never starts, the
+merge that drops the module from `index.json` never happens, and the page stays
+on the site for ever with every count in the marker reading zero. It is `rounds
+== 0` and not "there are deletions" because the deletions are folded into the
+first round's merge and passing them again would be a no-op. -/
+def anotherRound (roundIn : Array String) (roundsSoFar : Nat) (removed : Array String) : Bool :=
+  !roundIn.isEmpty || (roundsSoFar == 0 && !removed.isEmpty)
+
+/-- A moved render key, or a dependency map this run rewrote, **replaces**
+`--mode` rather than widening it.
+
+`detect` compared the map as it stood at the head of the run and the extractor
+writes it, so the map the renderer is about to read may not be the one `detect`
+saw. Doing it only in `detect` would be worse than not doing it: the ledger would
+record the *new* map, the next run would compare new against new and find
+nothing, and the staleness would be permanent and silent. -/
+def renderModeOf (renderAll mapMoved : Bool) (asked : ImpactMode) : ImpactMode :=
+  if renderAll || mapMoved then .all else asked
+
+/-- The render set: the pages the changed modules reach, **union** the pages the
+whole-package map's delta names.
+
+Neither half is a superset of the other, and either alone reads as a working
+pipeline. A round that dropped the global half re-renders nothing when a
+declaration moved between modules whose own IR did not change; a round that
+dropped the impact half re-renders nothing when the map is unmoved and a module
+was re-extracted. -/
+def renderSetOf (fromImpact globalAffected : Array String) : Std.HashSet String := Id.run do
+  let mut set : Std.HashSet String :=
+    Std.HashSet.emptyWithCapacity (fromImpact.size + globalAffected.size + 8)
+  for module in fromImpact do set := set.insert module
+  for module in globalAffected do set := set.insert module
+  return set
+
 /-- `prune` over a deletion list, and **nothing else**.
 
 The signature is the guard. `PruneInputs.ir` turns on the orphan rule, which
@@ -446,9 +494,7 @@ def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun :=
   let mut ownershipNanos := 0
   let mut mergeNanos := 0
 
-  -- The loop runs at least once when something was deleted, even with nothing to
-  -- re-extract: the deletion is folded into the first round's merge.
-  while !roundIn.isEmpty || (rounds == 0 && !check.removed.isEmpty) do
+  while anotherRound roundIn rounds check.removed do
     rounds := rounds + 1
     let roundInFile := o.work / s!"round-in-{rounds}.txt"
     writeLines roundInFile roundIn
@@ -536,32 +582,22 @@ def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun :=
   let globalDone ← IO.monoNanosNow
   printGlobalSummary "global  " derived
 
-  -- A moved render key overrides `--mode` rather than widening it, and **so does
-  -- a dependency map this run rewrote**: `detect` compared the map as it stood at
-  -- the head of the run, and the extractor writes it, so the map the renderer is
-  -- about to read may not be the one `detect` saw. Doing it only in `detect`
-  -- would be worse than not doing it: the ledger would record the *new* map, the
-  -- next run would compare new against new and find nothing, and the staleness
-  -- would be permanent and silent.
   let mapAfter ← linkIndexDigest (some o.linkIndex)
   let mapMoved := mapAfter != mapBefore
   if mapMoved then
     IO.eprintln s!"  render-all linkIndex: the dependency map moved during this run \
       ({digestOrNone mapBefore} -> {digestOrNone mapAfter})"
-  let mode ← if check.renderAll || mapMoved then do
-      for reason in check.renderKeyChanged do
-        IO.eprintln s!"  render-all renderKey:{reason}"
-      pure ImpactMode.all
-    else pure o.mode
+  -- Unconditional: `renderAll` *is* "this list is not empty", so the list is the
+  -- condition and a second spelling of it could disagree with `renderModeOf`.
+  for reason in check.renderKeyChanged do
+    IO.eprintln s!"  render-all renderKey:{reason}"
+  let mode := renderModeOf check.renderAll mapMoved o.mode
 
   let selected ← runImpact
     { ir := o.ir, changed := seen, mode, census := none
       printSet := some (o.work / "impact-set.txt"), json := none }
   let fromImpact := (selected.summary.map (·.selected)).getD #[]
-  let mut renderSet : Std.HashSet String :=
-    Std.HashSet.emptyWithCapacity (fromImpact.size + globalAffected.size + 8)
-  for module in fromImpact do renderSet := renderSet.insert module
-  for module in globalAffected do renderSet := renderSet.insert module
+  let renderSet := renderSetOf fromImpact globalAffected
   -- UTF-16 code unit order, which every other module list in this project is in.
   -- Nothing generated depends on it — the renderer is handed a set — so the order
   -- reaches `render-set.txt`, a diagnostic, and stops there.
@@ -630,10 +666,9 @@ read them.
 `serve` is written on both paths and `jobs` only on the resident one: behind
 `--extractor` the job count is inside somebody else's argument list and this
 command does not know it, and a number it cannot see is left out rather than
-guessed at. The nested records are read from fixed paths rather than from a glob,
-so a directory listing's order cannot reach the record. -/
-def writeTimings (path work : FilePath) (s : IncrSummary) (t : IncrTimings) (ran : Ran) :
-    IO Unit := do
+guessed at. -/
+def incrTimingsLine (s : IncrSummary) (t : IncrTimings) (ran : Ran)
+    (nested : Array (String × Array JVal)) : String := Id.run do
   let mut o := jsonStr "{\"mode\":" s.mode
   o := o ++ ",\"serve\":" ++ (match ran with | .oneShot => "false" | .resident .. => "true")
   if let .resident jobs generation := ran then
@@ -649,20 +684,29 @@ def writeTimings (path work : FilePath) (s : IncrSummary) (t : IncrTimings) (ran
       ("globalStale", s.globalStale), ("pagesRendered", s.pagesRendered),
       ("mathFallbacks", s.mathFallbacks)] do
     o := jsonStr (o.push ',') name ++ ":" ++ toString value
+  -- A stage that wrote no record is left out rather than written as `null`: the
+  -- aggregations read the key's presence, and `prune` legitimately does not run.
+  for (name, records) in nested do
+    if records.size == 1 then
+      o := jsonStr (o.push ',') name ++ ":" ++ jvalJson records[0]!
+    else if records.size > 1 then
+      o := jsonStr (o.push ',') name ++ ":" ++ jvalJson (.arr records)
+  return o.push '}'
+
+/-- The nested records are read from fixed paths rather than from a glob, so a
+directory listing's order cannot reach the record. -/
+def writeTimings (path work : FilePath) (s : IncrSummary) (t : IncrTimings) (ran : Ran) :
+    IO Unit := do
   let perRound (stem : String) : IO (Array JVal) := do
     let mut out : Array JVal := #[]
     for round in [1 : s.rounds + 1] do
       if let some record ← readRecord (work / s!"{stem}-{round}.json") then out := out.push record
     return out
-  for (name, records) in [("extract", ← perRound "extract-timings"),
+  let line := incrTimingsLine s t ran
+    #[("extract", ← perRound "extract-timings"),
       ("merge", ← perRound "merge-timings"),
       ("global", (← readRecord (work / "global-timings.json")).toArray),
-      ("render", (← readRecord (work / "render-timings.json")).toArray)] do
-    if records.size == 1 then
-      o := jsonStr (o.push ',') name ++ ":" ++ jvalJson records[0]!
-    else if records.size > 1 then
-      o := jsonStr (o.push ',') name ++ ":" ++ jvalJson (.arr records)
-  let line := o.push '}'
+      ("render", (← readRecord (work / "render-timings.json")).toArray)]
   IO.println line
   writeFile path (line ++ "\n")
 

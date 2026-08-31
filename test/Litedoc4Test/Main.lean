@@ -21,6 +21,8 @@ def main : IO UInt32 :=
     Litedoc4Test.neitherHalfOfPruneTakesAFileThatIsNotAModulePage,
     Litedoc4Test.pruneOnlyEverUnlinksInsideTheRootAndNeverThroughASymlink,
     Litedoc4Test.anInPlaceMergeSpelledAnotherWayStillMergesInPlace,
+    Litedoc4Test.aFoldIntoAFreshOutLeavesTheBaseAloneAndVerifyTellsTheTwoTreesApart,
+    Litedoc4Test.ownershipNamesTheReferrerAndNeverTheModuleThatWentAway,
     Litedoc4Test.aRepeatedIndexEntryIsOneModuleAndTwoReads,
     Litedoc4Test.theLedgerAnswersEveryScenarioOnASyntheticPackage,
     Litedoc4Test.aDeclarationIsHeadAttributesSignatureDocAndExtra,

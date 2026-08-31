@@ -87,6 +87,33 @@
    scaffolding", those should be Lean tests, not gate cases — so the answer changes the shape
    of the work, and doing it now would be building the wrong thing.
 
+## Bucket I is complete — 316 of 316
+
+Seven tranches, all committed and green on Linux:
+`litedoc4-ir` 32 · `litedoc4-md` 28 · `litedoc4-global` 41 · `litedoc4-incr` 16 ·
+`litedoc4-render` 110 (two halves) · `crates/litedoc4/src/` 38 · `crates/litedoc4/tests/` 51.
+
+**The number is now pinned rather than bounded.** The earlier note put I between 331 and 369
+because the classification's detail rows did not reconcile with its totals; the tranche tally
+settles it: **316 real product invariants + `litedoc4-testutil`'s 37 self-tests = 353**, which is
+what the classification said. The 37 have no subject once `crates/` goes — the Rust harness
+testing itself.
+
+`tools/lean-test-gate.sh`: **222 compile-time `#guard`s, 30 run-time `Invariant`s.**
+
+**Six product defects were found by doing this, all in the first five tranches, none by a gate:**
+a quoted-directory source path linking nowhere · a missing `.lidx` resolution branch ·
+overlapping whitespace widths shifting every later offset · a fourth `.lidx` field dropping the
+range on **every** entry (a whole site's `#L…` anchors, silently) · `Array.qsort` not being
+stable, so a docs table naming one declaration twice resolved to the **first** entry ·
+`stripDocLink` stripping a prefix once where Rust strips all.
+**`purelean-micro-gate.sh` was green through all six** — `e2e/micro` lacks the shapes. A green
+byte oracle is not evidence.
+
+The last two tranches found none, and the reason is worth keeping: the first five were *text
+transformation*, where a transcription slips silently; the last two were *decision* code and
+end-to-end behaviour, where the oracle's byte comparison had already got there.
+
 ## What M10 deletes — counted, not guessed
 
 `cargo test --workspace` is CLAUDE.md's definition of green. Every `#[test]` under `crates/`

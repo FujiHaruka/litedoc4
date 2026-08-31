@@ -147,8 +147,8 @@ one has been told the wrong thing about its history. And a changed extract key
 re-extracts *everything present*, in list order, rather than the sorted union
 that an unchanged key produces. -/
 def theLedgerAnswersEveryScenarioOnASyntheticPackage : Invariant where
-  name := "build, touch and check agree about a synthetic package's oleans, \
-    its two keys and what a drifting module list means"
+  name := "build, touch and check agree about a synthetic package's oleans, its two keys, \
+    what a drifting module list means and what the re-extraction set is"
   check := do
     let work ← incrWorkDir "ledger"
     let package := work / "package"
@@ -198,13 +198,22 @@ def theLedgerAnswersEveryScenarioOnASyntheticPackage : Invariant where
     let (depCheck, depCheckRefusal) ←
       checkSaying { ledger := work / "ledger-dep.json", modules := some depModules
                     ir := some ir, sourceUrl }
+
+    -- A module the package has gained, beside the two that were touched: the one
+    -- shape where `changed` and `added` are both non-empty, and therefore the
+    -- only one that can tell the re-extraction set from the `changed` line.
+    let newBody := "the olean bytes of Pkg.E.olean"
+    writeUnder package ".lake/build/lib/lean/Pkg/E.olean" newBody
+    writeUnder package ".lake/build/lib/lean/Pkg/E.olean.hash" s!"{newBody.hash}\n"
+    let (grown, grownRefusal) ←
+      scenario touchedPath (some (modules.push "Pkg.E")) (some ir) sourceUrl
     removeDir work
     let irKeys := #["irGenerator", "irSchemaVersion"]
     return first [
       shaRefusal, lakeRefusal, minusAbRefusal, noIrRefusal, depRefusal,
       touchA, touchB,
       cleanRefusal, touchedRefusal, driftRefusal, noIrCheckRefusal, intoIrRefusal,
-      otherRevRefusal, slashRefusal, fromLedgerRefusal, depCheckRefusal,
+      otherRevRefusal, slashRefusal, fromLedgerRefusal, depCheckRefusal, grownRefusal,
       eq (sha.modules.size, fileCountOf sha.modules) (4, 4),
       eq (hashedBytesOf lake.modules) 0,
       eq (fileCountOf dep.modules) 6,
@@ -224,6 +233,12 @@ def theLedgerAnswersEveryScenarioOnASyntheticPackage : Invariant where
       eq otherRev.renderKeyChanged #["sourceUrl"],
       eq otherRev.reExtract #[],
       eq slash.renderKeyChanged #[],
-      eq (fromLedger.fromList, fromLedger.modules) (false, 4)]
+      eq (fromLedger.fromList, fromLedger.modules) (false, 4),
+      -- **The re-extraction set is `changed ∪ added`, not the `changed` line.** A
+      -- caller handed the changed set alone leaves the added module with no IR at
+      -- all, and every later check calls it added again: the page never appears
+      -- and no count says so.
+      eq (grown.changed, grown.added, grown.removed) (#["Pkg.A", "Pkg.B"], #["Pkg.E"], #[]),
+      eq grown.reExtract #["Pkg.A", "Pkg.B", "Pkg.E"]]
 
 end Litedoc4Test

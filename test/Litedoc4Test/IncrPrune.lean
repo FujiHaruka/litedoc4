@@ -74,9 +74,15 @@ def pruneSaying (i : PruneInputs) : IO (PruneSummary × Option String) := do
 call and the path the empty-directory pass runs on, and the orphan rule, which is
 the half that walks the whole tree. Stated together because the rule they share
 is one — "a file that is not a module page stays" — and either half alone reads
-as held while the other takes the site's stylesheet. -/
+as held while the other takes the site's stylesheet.
+
+`--dry-run` is asked first, over the tree the real run is about to change: it has
+to compute **the same answer** and write nothing, or "what would this remove" is
+a question nobody can afford to ask of a tree they are unwilling to lose. Asking
+it of a different tree would let a dry run that silently answered nothing pass. -/
 def neitherHalfOfPruneTakesAFileThatIsNotAModulePage : Invariant where
-  name := "prune deletes module pages and orphaned .html and leaves every other file alone"
+  name := "prune deletes module pages and orphaned .html, leaves every other file alone, \
+    and --dry-run gives the same answer having deleted nothing"
   check := do
     let work ← incrWorkDir "prune-assets"
     let pages := work / "site"
@@ -85,6 +91,13 @@ def neitherHalfOfPruneTakesAFileThatIsNotAModulePage : Invariant where
 
     writeSiteWithAssets pages
     IO.FS.writeFile (work / "removed.txt") "Pkg.B\n"
+    -- One page and one module that never had one: a module deleted before it was
+    -- ever rendered is not an error, and `1/2 requested` is where that shows.
+    IO.FS.writeFile (work / "dry.txt") "Pkg.B\nPkg.Never\n"
+    let (dry, dryRefusal) ←
+      pruneSaying { pages, remove := some (work / "dry.txt"), dryRun := true }
+    let survivedTheDryRun ← (pages / "Pkg" / "B.html").pathExists
+    let dirSurvived ← (pages / "Pkg").pathExists
     let (removed, removeRefusal) ← pruneSaying { pages, remove := some (work / "removed.txt") }
     let afterRemove ← assetsIntact pages
     let bStillThere ← (pages / "Pkg" / "B.html").pathExists
@@ -98,7 +111,14 @@ def neitherHalfOfPruneTakesAFileThatIsNotAModulePage : Invariant where
     let frontPageGone ← (pages / "index.html").pathExists
     removeDir work
     return first [
-      removeRefusal, orphanRefusal,
+      dryRefusal, removeRefusal, orphanRefusal,
+      -- **`emptied` is empty and that is the honest answer**, not a simulation
+      -- of one: nothing was unlinked, so no directory became empty. A dry run
+      -- that predicted it would be reporting a second implementation of the
+      -- deletion rather than the one the real run uses.
+      eq (dry.dryRun, dry.deleted, dry.emptied) (true, #["Pkg.B"], #[]),
+      eq (dry.requested, dry.alreadyAbsent) (2, #["Pkg.Never"]),
+      eq (survivedTheDryRun, dirSurvived) (true, true),
       eq removed.deleted #["Pkg.B"],
       eq removed.emptied #["Pkg"],
       eq bStillThere false,

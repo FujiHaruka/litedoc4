@@ -117,6 +117,28 @@ structure ImpactRun where
   summary : Option ImpactSummary
   deriving Inhabited
 
+/-- What `--mode` means: which of the four sets is the answer.
+
+**A changed module is in every selection but `all`'s by a different route**, and
+that union is the clause a reading of the flag names would leave out: `referrers`
+and `importers` are sets of *other* modules, so without it `--mode importers`
+re-renders everything that mentions the edited module and not the edited module's
+own page. `all` is the one that does not consult the changed set at all.
+
+Split out of `impact` because the four arms are the whole meaning of a flag on
+the 1.x surface and inside the read they could only be asked of a tree on disk.
+The four sets are passed in rather than derived here: they are the summary's own
+counts, and a second derivation is how the reported number and the selected set
+start disagreeing. -/
+def modeSelection (mode : ImpactMode) (selfSet referrersDirect importers own : Std.HashSet String) :
+    Except ImpactRefusal (Std.HashSet String) :=
+  match mode with
+  | .selfOnly => .ok selfSet
+  | .referrers => .ok (referrersDirect.insertMany selfSet.toArray)
+  | .importers => .ok (importers.insertMany selfSet.toArray)
+  | .all => .ok own
+  | .unrecognised text => .error (2, s!"unknown --mode {text}")
+
 /-- Everything reachable from `seeds` along `edges`.
 
 **The seeds are not in the result unless something leads back to them** — the
@@ -222,12 +244,9 @@ def impact (i : ImpactInputs) : IO (Except ImpactRefusal ImpactRun) := do
     for referrer in referredBy.getD module #[] do
       referrersDirect := referrersDirect.insert referrer
 
-  let selected : Std.HashSet String ← match i.mode with
-    | .selfOnly => pure selfSet
-    | .referrers => pure (referrersDirect.insertMany selfSet.toArray)
-    | .importers => pure (importers.insertMany selfSet.toArray)
-    | .all => pure own
-    | .unrecognised text => return .error (2, s!"unknown --mode {text}")
+  let selected ← match modeSelection i.mode selfSet referrersDirect importers own with
+    | .error refusal => return .error refusal
+    | .ok selected => pure selected
 
   -- UTF-16 code unit order; this list decides `--print-set`'s.
   let list := sortUtf16 selected.toArray

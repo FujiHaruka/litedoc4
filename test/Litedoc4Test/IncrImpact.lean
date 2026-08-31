@@ -38,6 +38,32 @@ def anEmptySelectionIsOneBlankLineAndAnEmptySetIsNoLineAtAll : Bool :=
 
 #guard anEmptySelectionIsOneBlankLineAndAnEmptySetIsNoLineAtAll
 
+def setOf (names : List String) : Std.HashSet String :=
+  names.foldl (·.insert ·) (Std.HashSet.emptyWithCapacity 8)
+
+def chosen (mode : ImpactMode) : Option (Array String) :=
+  (modeSelection mode (setOf ["Pkg.A"]) (setOf ["Pkg.B"]) (setOf ["Pkg.B", "Pkg.C"])
+    (setOf ["Pkg", "Pkg.A", "Pkg.B", "Pkg.C"])).toOption.map (sortUtf16 ·.toArray)
+
+/-- `--mode` is not a preference: `self` is what an olean-hash ledger already
+knows, `referrers` adds the pages that *name* the changed declaration, and
+`importers` is the sound transitive bound.
+
+**The changed module is in every selection.** `referrers` and `importers` are
+sets of other modules, so without the union the edited module's own page is the
+one page a re-extraction does not re-render — a site stale in exactly the page
+the author is looking at. `all` is the one that does not consult the changed set,
+which is why it is the answer when the renderer's input moved rather than any
+module's. -/
+def everyModeButAllSelectsTheChangedModuleTooAndAllIgnoresIt : Bool :=
+  chosen .selfOnly == some #["Pkg.A"]
+    && chosen .referrers == some #["Pkg.A", "Pkg.B"]
+    && chosen .importers == some #["Pkg.A", "Pkg.B", "Pkg.C"]
+    && chosen .all == some #["Pkg", "Pkg.A", "Pkg.B", "Pkg.C"]
+    && chosen (.unrecognised "sideways") == none
+
+#guard everyModeButAllSelectsTheChangedModuleTooAndAllIgnoresIt
+
 def impactSaying (i : ImpactInputs) : IO (ImpactRun × Option String) := do
   match ← runImpact i with
   | .error (code, why) => return (default, some s!"impact refused with {code}: {why}")

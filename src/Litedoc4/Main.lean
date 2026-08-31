@@ -1525,9 +1525,15 @@ def mergeVerifyRun (tree against : String) : IO UInt32 := do
     -- as a broken one.
     return (if report.problems == 0 then 0 else 1)
 
+/-- **`<base>.merged`, never the base.** A merge folds a partial extraction into
+a tree it is reading, so a default of `--base` would destroy the only copy of it;
+rewriting the base has to be asked for by name, which the round loop does. What
+would falsify the suffix: a merge that wrote to a temporary tree and renamed. -/
+def mergeOut (given : Option String) (base : String) : String :=
+  given.getD (base ++ ".merged")
+
 def mergeFoldRun (a : MergeArgs) (base : String) : IO UInt32 := do
-  -- The base tree is never written to unless the caller asks for it by name.
-  let out := a.out.getD (base ++ ".merged")
+  let out := mergeOut a.out base
   let removed ← match a.remove with
     | some path => readModuleList ⟨path⟩
     | none => pure (#[] : Array String)
@@ -2149,22 +2155,22 @@ def extractRun (a : ExtractArgs) : BuildM Unit := do
   -- file from an earlier round would be folded into this round's timings.
   discard <| (IO.FS.removeFile events).toBaseIO
   IO.FS.createDirAll irDir
-  let mut args := #["env", bin.toString, modulesPath.toString, events.toString]
-  args := args ++ fixedFlags
-  args := args ++ #["--jobs", toString a.jobs, "--ir-dir", irDir.toString]
-  if let some path := a.linkIndex then
-    let path ← absolutePath ⟨path⟩
-    if let some dir := path.parent then
-      if !dir.toString.isEmpty then IO.FS.createDirAll dir
-    args := args.push "--link-index" |>.push path.toString
-    -- Made absolute for the reason above, but **not** guarded against being
-    -- inside the target: the difference is the direction of the I/O. The map is
-    -- written; this one is read, and a module list that lives inside the package
-    -- being documented is an odd place to keep it, not a write into it.
-    if let some omitList := a.linkIndexOmit then
-      args := args.push "--link-index-omit" |>.push (← absolutePath ⟨omitList⟩).toString
-    if let some key := a.linkIndexKey then
-      args := args.push "--link-index-key" |>.push key
+  let linkIndexPath ← match a.linkIndex with
+    | none => pure none
+    | some path => do
+      let path ← absolutePath ⟨path⟩
+      if let some dir := path.parent then
+        if !dir.toString.isEmpty then IO.FS.createDirAll dir
+      pure (some path)
+  -- Made absolute for the reason above, but **not** guarded against being inside
+  -- the target: the difference is the direction of the I/O. The map is written;
+  -- this one is read, and a module list that lives inside the package being
+  -- documented is an odd place to keep it, not a write into it.
+  let omitPath ← match a.linkIndexOmit with
+    | none => pure none
+    | some path => pure (some (← absolutePath ⟨path⟩))
+  let args := extractArgv bin modulesPath events irDir a.jobs
+    linkIndexPath omitPath a.linkIndexKey
   -- The extractor's stdout is a human-readable phase report; the
   -- machine-readable copy of the same numbers is the events file, which is what
   -- the timings are folded from. stderr is inherited, so a Lean error still

@@ -127,4 +127,88 @@ def anInPlaceMergeSpelledAnotherWayStillMergesInPlace : Invariant where
       eq schema "=5",
       eq (depSlice.splitOn "\"schemaVersion\":5").length 2]
 
+/-- The other spelling of `out`, and the comparison a caller uses to check it.
+
+A fold into a **fresh** `--out` has to leave the base tree byte for byte as it
+was: `merge` is the one stage that reads a tree and writes one, and the default
+`--out` is `<base>.merged` precisely so that a caller who forgets the flag keeps
+the tree they were reading. The claim is over the base's own bytes rather than
+over the summary, which would say the same thing for a run that had overwritten
+them.
+
+`--verify` is asked of **two directories written separately**, never of one path
+twice: a comparison pointed at a single tree passes for a comparator that only
+looked at its argument. And it is asked in both directions — yes for two trees
+holding the same world, no for two that differ by one module's IR — because
+either answer alone is what a comparator that always says the same thing gives.
+
+The two trees here are both written from scratch. A *merged* tree is not the
+comparison to make against a synthetic from-scratch one: `merge` recomputes
+`dependencyMaps` from the module files it merged, while this fixture writes the
+array empty, so the two would differ over the fixture rather than over the
+merge. -/
+def aFoldIntoAFreshOutLeavesTheBaseAloneAndVerifyTellsTheTwoTreesApart : Invariant where
+  name := "merge into a fresh --out leaves every byte of the base, a deletion needs no \
+    partial tree, and --verify says yes for two trees written separately and no for two \
+    that differ"
+  check := do
+    let work ← incrWorkDir "merge-verify"
+    let base := work / "base"
+    let inc := work / "inc"
+    let out := work / "out"
+    let refs : SynthRefs := #[("Dep.M", "Dep.x")]
+    let after : Array SynthIrModule :=
+      #[{ name := "Pkg.A", decls := #[("Pkg.A.a", refs)], contentHash := "a1" },
+        { name := "Pkg.B", decls := #[("Pkg.B.b", refs)], contentHash := "b0" }]
+    writeIrTree base 5
+      #[{ name := "Pkg.A", decls := #[("Pkg.A.a", refs)], contentHash := "a0" },
+        { name := "Pkg.B", decls := #[("Pkg.B.b", refs)], contentHash := "b0" }]
+    writeIrTree inc 5 #[after[0]!]
+    let baseIndexBefore ← IO.FS.readFile (base / "index.json")
+    let baseModuleBefore ← IO.FS.readFile (base / "modules" / "Pkg.A.json")
+
+    let (summary, refusal) ← mergeSaying
+      { base, inc := some inc, out, modules := some #["Pkg.A", "Pkg.B"] }
+    let baseIndexAfter ← IO.FS.readFile (base / "index.json")
+    let baseModuleAfter ← IO.FS.readFile (base / "modules" / "Pkg.A.json")
+
+    -- **A deletion needs no partial extraction.** It is the shape a pure-deletion
+    -- round takes — `inc` is `none` when nothing went stale — and a merge that
+    -- required a tree could not express the commonest deletion at all.
+    let dropped := work / "dropped"
+    let (deletion, deletionRefusal) ←
+      mergeSaying { base, out := dropped, removed := #["Pkg.B"] }
+    let droppedIndex ← IO.FS.readFile (dropped / "index.json")
+    let droppedFile ← (dropped / "modules" / "Pkg.B.json").pathExists
+
+    -- The same world written into two directories, neither of them `out`: two
+    -- trees a comparator has to call equal without having any byte of one in the
+    -- other.
+    let one := work / "one"
+    let two := work / "two"
+    writeIrTree one 5 after
+    writeIrTree two 5 after
+    let same ← verify one two
+    -- One module's IR moved on: two trees a round apart, which is what `--verify`
+    -- is run to find.
+    let other := work / "other"
+    writeIrTree other 5 #[after[0]!, { name := "Pkg.B", decls := #[("Pkg.B.b", refs)],
+                                       contentHash := "b1" }]
+    let differ ← verify one other
+    removeDir work
+
+    let problemsOf (r : Except MergeRefusal VerifyReport) : Option Nat :=
+      match r with | .ok report => some report.problems | .error _ => none
+    return first [
+      refusal, deletionRefusal,
+      eq summary.updated #["Pkg.A"],
+      eq summary.irChanged #["Pkg.A"],
+      eq baseIndexAfter baseIndexBefore,
+      eq baseModuleAfter baseModuleBefore,
+      eq (deletion.updated, deletion.removed, deletion.modules) (#[], 1, 1),
+      eq (droppedIndex.splitOn "\"Pkg.B\"").length 1,
+      eq droppedFile false,
+      eq (problemsOf same) (some 0),
+      eq ((problemsOf differ).map (· != 0)) (some true)]
+
 end Litedoc4Test

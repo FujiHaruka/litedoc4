@@ -1,6 +1,6 @@
 /- `crates/litedoc4/src/resident.rs`: **one Lean environment, many extractions**,
-and `crates/litedoc4/src/extract.rs`'s `foldTimings` / `eventsBeside` / the
-containment guard, which both extraction paths share.
+and `crates/litedoc4/src/extract.rs`'s `extractArgv` / `foldTimings` / `eventsBeside`
+/ the containment guard, which both extraction paths share.
 
 ```text
 lake env <extract> <modules.txt> <events.jsonl> --equations --refs
@@ -187,6 +187,36 @@ def eventsBeside (timings : FilePath) : FilePath :=
   let text := timings.toString
   ⟨(if text.endsWith ".json" then (text.dropEnd 5).toString else text) ++ "-events.jsonl"⟩
 
+/-- The whole command line an extraction is started with, after `lake env`.
+
+**One spelling for both extraction paths.** `litedoc4 extract` runs it once and
+`Serve.startArgv` appends `--serve` to it; written twice, one path's flag order
+or one path's `--link-index-omit` could move while the other stood still, and the
+two records of the same run would stop being comparable — which is the whole
+reason `eventsBeside` is shared too.
+
+`--link-index-omit` and `--link-index-key` are nested inside `--link-index`
+because neither names anything without a map to write: the two commands refuse
+that combination, and this is where the refusal stops being needed.
+
+Split out of the spawn for the reason `Serve.startArgv` was: which flags an
+extraction is given is a decision about its inputs, and inside `IO.Process.spawn`
+it could only be asked by running Lean against a real package. What would falsify
+the split: a flag whose value has to be read off disk here. -/
+def extractArgv (bin modules events irDir : FilePath) (jobs : Nat)
+    (linkIndex linkIndexOmit : Option FilePath) (linkIndexKey : Option String) :
+    Array String := Id.run do
+  let mut args := #["env", bin.toString, modules.toString, events.toString]
+  args := args ++ fixedFlags
+  args := args ++ #["--jobs", toString jobs, "--ir-dir", irDir.toString]
+  if let some map := linkIndex then
+    args := args.push "--link-index" |>.push map.toString
+    if let some omitList := linkIndexOmit then
+      args := args.push "--link-index-omit" |>.push omitList.toString
+    if let some key := linkIndexKey then
+      args := args.push "--link-index-key" |>.push key
+  return args
+
 /-- The modules an extraction was asked for. Blank once trimmed, or *starting*
 with `#` untrimmed — the asymmetry is deliberate, because this count is compared
 across records of the same run. -/
@@ -215,8 +245,7 @@ structure Folded where
   jobs : Nat
   out : FilePath
 
-/-- Folds the extractor's events into one timings record, and returns the module
-count it also writes as `targetModules`.
+/-- The extractor's events as one timings record.
 
 ```text
 {"phase":"stage4b.importModules","pid":83359,"us":2498376,"directImports":432}
@@ -228,18 +257,25 @@ the phase's own name, so every duration in this project's records is in one unit
 every other key except `pid` becomes `<phase>:<key>` **with its JSON value
 carried through untouched**, because the extractor emits a mixture of numbers,
 booleans and strings there and re-typing any of them would make two records of
-the same run disagree over the same measurement. -/
-def foldTimings (f : Folded) : IO Nat := do
-  let text ← IO.FS.readFile f.events
+the same run disagree over the same measurement.
+
+Split out of `foldTimings` for `Serve.startArgv`'s reason: this is text in and a
+record out, and inside the two `readFile`s it could only be asked of a file on
+disk. `label` is the events path, which reaches the refusals and nothing else.
+What would falsify the split: a phase whose value has to be looked up somewhere
+other than its own line. -/
+def foldEvents (label text : String) (counted jobs : Nat) :
+    Except String (Array (String × JVal)) := do
   let mut record : Array (String × JVal) := #[]
   for line in text.splitOn "\n" do
     let line := trimWs line
     if line.isEmpty then continue
     let event ← match parseJson line with
-      | .error why => throw (IO.userError s!"{f.events}: {why}")
-      | .ok j => pure j
-    let .obj fields := event
-      | throw (IO.userError s!"{f.events}: an event that is not a JSON object")
+      | .error why => .error s!"{label}: {why}"
+      | .ok j => .ok j
+    let fields ← match event with
+      | .obj fields => .ok fields
+      | _ => .error s!"{label}: an event that is not a JSON object"
     let phase := match jvalGet? event "phase" with
       | some (.str name) => name.replace "stage4b." ""
       | _ => ""
@@ -248,20 +284,29 @@ def foldTimings (f : Folded) : IO Nat := do
     -- format moved, and a phase silently reported as instantaneous is the shape
     -- nobody would look at twice. Absent stays zero, which is a real event shape.
     let us ← match jvalGet? event "us" with
-      | none => pure none
-      | some (.num n) => pure (some n)
-      | some _ => throw (IO.userError s!"{f.events}: `us` is not an integer for phase `{phase}`")
+      | none => .ok none
+      | some (.num n) => .ok (some n)
+      | some _ => .error s!"{label}: `us` is not an integer for phase `{phase}`"
     record := orderedInsert record phase (.real (microSeconds us))
     for (key, value) in fields do
       if key != "phase" && key != "pid" && key != "us" then
         record := orderedInsert record s!"{phase}:{key}" value
-  let counted := countModuleLines (← IO.FS.readFile f.modules)
   record := orderedInsert record "targetModules" (.num (Int.ofNat counted))
-  record := orderedInsert record "jobsRequested" (.num (Int.ofNat f.jobs))
-  -- No trailing newline: nothing reads this file as bytes — `analyze.ts` and
-  -- `writeTimings` both parse it.
-  writeFile f.out (jvalJson (.obj record))
-  return counted
+  record := orderedInsert record "jobsRequested" (.num (Int.ofNat jobs))
+  return record
+
+/-- Writes the fold, and returns the module count it also writes as
+`targetModules`. -/
+def foldTimings (f : Folded) : IO Nat := do
+  let text ← IO.FS.readFile f.events
+  let counted := countModuleLines (← IO.FS.readFile f.modules)
+  match foldEvents f.events.toString text counted f.jobs with
+  | .error why => throw (IO.userError why)
+  | .ok record =>
+    -- No trailing newline: nothing reads this file as bytes — `analyze.ts` and
+    -- `writeTimings` both parse it.
+    writeFile f.out (jvalJson (.obj record))
+    return counted
 
 /-! ## The server -/
 
@@ -328,27 +373,20 @@ still a path under `work` rather than a word like `unused`, because the extracto
 would create whatever it was handed. -/
 def Serve.unusedIrPath (s : Serve) : FilePath := s.work / "serve-ir-unused"
 
-/-- The whole start-up command line. Split out of `Server.start` because it
-reads nothing: which flags a resident server is started with is a decision about
-`Serve`, and inside the spawn it could only be asked by running Lean against a
-real package. What would falsify the split: a flag whose value has to be read off
-disk at start-up. -/
-def Serve.startArgv (s : Serve) : Array String := Id.run do
-  let mut args := #["env", s.bin.toString, s.modulesFile.toString, s.eventsPath.toString]
-  args := args ++ fixedFlags
-  args := args ++ #["--jobs", toString s.jobs, "--ir-dir", s.unusedIrPath.toString]
-  if let some map := s.linkIndex then
-    args := args.push "--link-index" |>.push map.toString
-    -- The map leaves out the groups of the modules named here, and
-    -- **`modulesFile` is the right list precisely because it is the start-up
-    -- one, fixed for the life of the server**. A request's own list is a
-    -- *subset* — the round loop extracts what went stale — so deriving the omit
-    -- set from the request would make the map's bytes depend on which round
-    -- happened to write it, and the map's SHA-256 is in `renderKey`.
-    args := args.push "--link-index-omit" |>.push s.modulesFile.toString
-    if let some key := s.linkIndexKey then
-      args := args.push "--link-index-key" |>.push key
-  return args.push "--serve"
+/-- The whole start-up command line: `extractArgv` with `--serve` after it.
+
+The map leaves out the groups of the modules named by the omit list, and
+**`modulesFile` is the right list precisely because it is the start-up one, fixed
+for the life of the server**. A request's own list is a *subset* — the round loop
+extracts what went stale — so deriving the omit set from the request would make
+the map's bytes depend on which round happened to write it, and the map's SHA-256
+is in `renderKey`.
+
+`--serve` is last because everything before it is configuration; a flag appended
+after it would be read as the serve loop's argument. -/
+def Serve.startArgv (s : Serve) : Array String :=
+  (extractArgv s.bin s.modulesFile s.eventsPath s.unusedIrPath s.jobs
+    s.linkIndex (some s.modulesFile) s.linkIndexKey).push "--serve"
 
 def Server.start (s : Serve) : BuildM Server := do
   IO.FS.createDirAll s.work

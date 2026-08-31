@@ -64,4 +64,16 @@ def aRootWithNoBaseGetsNoUrlInEitherColumn : Bool :=
 
 #guard aRootWithNoBaseGetsNoUrlInEitherColumn
 
+/-- `merge`'s output tree defaults to `<base>.merged` and **never to the base**:
+a merge folds a partial extraction into a tree it is reading, so a default of
+`--base` would destroy the only copy of it. Rewriting the base has to be asked
+for by name, which is what the round loop does and what nobody does by
+accident. -/
+def aMergeNeverDefaultsToTheTreeItIsReading : Bool :=
+  mergeOut none "/work/ir" == "/work/ir.merged"
+    && mergeOut (some "/work/out") "/work/ir" == "/work/out"
+    && mergeOut (some "/work/ir") "/work/ir" == "/work/ir"
+
+#guard aMergeNeverDefaultsToTheTreeItIsReading
+
 end Litedoc4Test
