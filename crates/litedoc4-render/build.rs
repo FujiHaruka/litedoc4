@@ -1,13 +1,16 @@
 //! Build the site's `app.js` from the TypeScript in `web/`.
 //!
-//! No bundle is committed: `web/src` is the only copy, and the build output
-//! lives in cargo's `OUT_DIR`, so it cannot be a version behind its sources.
-//! The cost is that node is a build dependency of this crate, paid by whoever
-//! builds from source.
+//! What this crate compiles in comes from `web/src` and nowhere else: the
+//! output lands in cargo's `OUT_DIR`, so `include_str!` cannot pick up a
+//! version behind its sources. The cost is that node is a build dependency of
+//! this crate, paid by whoever builds from source.
 //!
-//! There is deliberately no fallback to a checked-in bundle. Two ways of
+//! There is deliberately no fallback to a checked-in bundle *here*. Two ways of
 //! answering "where does app.js come from" is the shape where only one of them
-//! ever gets fixed.
+//! ever gets fixed. The committed bundles under `assets/` are not that second
+//! way: the Lean half cannot `include_str!`, so it reads them through
+//! `tools/gen-assets.py`, and the last stage of `tools/assets-gate.sh` is what
+//! holds them to what these sources build.
 
 use std::env;
 use std::path::Path;
@@ -16,12 +19,12 @@ use std::process::Command;
 fn main() {
     // A directory is walked recursively, so this covers every module under it.
     for input in [
-        "web/src",
-        "web/package.json",
-        "web/package-lock.json",
-        "web/tsconfig.json",
-        "web/vite.config.ts",
-        "web/vite.boot.config.ts",
+        "../../web/src",
+        "../../web/package.json",
+        "../../web/package-lock.json",
+        "../../web/tsconfig.json",
+        "../../web/vite.config.ts",
+        "../../web/vite.boot.config.ts",
     ] {
         println!("cargo:rerun-if-changed={input}");
     }
@@ -59,7 +62,7 @@ fn npm(args: &[&str], out_dir: &str) {
     // cause that is not it.
     let result = Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" })
         .args(args)
-        .current_dir("web")
+        .current_dir("../../web")
         // `web/vite.config.ts` reads this; absent it writes to `web/dist`
         // instead, so a hand-run `npm run build` never contends for this file.
         .env("LITEDOC4_ASSET_OUT_DIR", out_dir)
@@ -68,7 +71,7 @@ fn npm(args: &[&str], out_dir: &str) {
     let output = match result {
         Ok(output) => output,
         Err(e) => panic!(
-            "could not run `npm {shown}` in crates/litedoc4-render/web: {e}\n\
+            "could not run `npm {shown}` in web: {e}\n\
              \n\
              This crate builds the site's app.js from TypeScript, so node is \
              required to build it from source. The version this tree is \
@@ -79,7 +82,7 @@ fn npm(args: &[&str], out_dir: &str) {
 
     assert!(
         output.status.success(),
-        "`npm {shown}` failed in crates/litedoc4-render/web ({})\n\
+        "`npm {shown}` failed in web ({})\n\
          \n\
          --- stdout ---\n{}\n--- stderr ---\n{}",
         output.status,

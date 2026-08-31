@@ -1,5 +1,5 @@
 //! The `search-index.bin` the TypeScript decoder in
-//! `crates/litedoc4-render/web/test/` is tested against.
+//! `web/test/` is tested against.
 //!
 //! **The right answer comes from this encoder**, not from a second encoder
 //! written in TypeScript: two implementations of one design make the same
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use litedoc4_global::search_index::{Entry, RESTART, encode};
 
 /// Where the TypeScript tests look, relative to this crate.
-const FIXTURE_DIR: &str = "../litedoc4-render/web/test/fixtures";
+const FIXTURE_DIR: &str = "../../web/test/fixtures";
 
 /// The kind vocabulary, in the order the labels table carries it.
 const KINDS: [&str; 4] = ["def", "theorem", "structure", "instance"];

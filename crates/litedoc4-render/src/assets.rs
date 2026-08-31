@@ -172,22 +172,22 @@ mod tests {
         // that is `tools/assets-gate.sh`, which reconciles this list against
         // the files that actually assign one.
         let scripted = [
-            ("web/src/tree.ts", include_str!("../web/src/tree.ts")),
+            ("web/src/tree.ts", include_str!("../../../web/src/tree.ts")),
             (
                 "web/src/result-item.ts",
-                include_str!("../web/src/result-item.ts"),
+                include_str!("../../../web/src/result-item.ts"),
             ),
             (
                 "web/src/instances.ts",
-                include_str!("../web/src/instances.ts"),
+                include_str!("../../../web/src/instances.ts"),
             ),
             (
                 "web/src/search-box.ts",
-                include_str!("../web/src/search-box.ts"),
+                include_str!("../../../web/src/search-box.ts"),
             ),
             (
                 "web/src/imported-by.ts",
-                include_str!("../web/src/imported-by.ts"),
+                include_str!("../../../web/src/imported-by.ts"),
             ),
         ];
         let mut seen = 0;
@@ -332,7 +332,7 @@ mod tests {
                 "assets/{name} is not the bundle vite just built \
                  ({} B committed, {} B bundled, first difference at byte {}). \
                  Rebuild and re-embed:\n  \
-                 cd crates/litedoc4-render/web && npm run build\n  \
+                 cd web && npm run build\n  \
                  cp dist/{name} ../../../assets/{name}\n  \
                  tools/gen-assets.py",
                 committed.len(),

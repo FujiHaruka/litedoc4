@@ -157,7 +157,7 @@ function nameAt(idx: ReturnType<typeof encodeV2>, want: number) {
   return decoder.decode(buf.subarray(0, end));
 }
 
-// Copied verbatim from the shipped scorer (`crates/litedoc4-render/web/src/
+// Copied verbatim from the shipped scorer (`web/src/
 // score.ts`) — it is the oracle, so it must not be rewritten here.
 function shippedScore(name: string, query: string) {
   const lower = name.toLowerCase();

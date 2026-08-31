@@ -21,7 +21,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WEB="$(cd "$HERE/../crates/litedoc4-render/web" && pwd)"
+WEB="$(cd "$HERE/../web" && pwd)"
 JSON=""
 
 while [ $# -gt 0 ]; do
