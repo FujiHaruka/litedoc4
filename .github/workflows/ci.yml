@@ -219,6 +219,27 @@ jobs:
       - name: Type-check benchmarks/tools
         run: tools/benchmarks-ts-gate.sh
 
+  # The one enumerated Unicode table in src/ that still has a live oracle: V8's
+  # own `\p{Z}\p{C}`, which deno answers with nothing else installed.
+  v8-gc-table:
+    name: "the V8 Z|C table (re-derived)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      # Exact, where the job above floats on v2.x. The table *is* this runtime's
+      # answer and the generated header records which runtime gave it, so a
+      # floating deno turns the gate into an alarm about deno's release
+      # cadence instead of about the table. Bump this line in the same commit
+      # that regenerates the table with a newer deno.
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.7.14
+
+      - name: Re-derive src/Litedoc4/Global/V8GcTable.lean
+        run: tools/v8-gc-table-gate.sh
+
   # The only job that runs a real Lean environment. Every test in the job above
   # fakes the extractor, so nothing there checks the contract between
   # `extractor/Extract.lean` and the Rust side: change what the extractor writes

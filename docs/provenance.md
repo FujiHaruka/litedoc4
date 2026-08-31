@@ -247,9 +247,10 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | `src/Litedoc4/Md.lean` `benchmarks/lean-prototype/Md.lean` | 同上 (`parse.rs` の Lean 転写、二次の派生) |
 | `benchmarks/lean-prototype/Render.lean` | 同上。**ファイル単位**の告知で、`html.rs` `escape.rs` `code.rs` `whitespace.rs` `autolink.rs` `math.rs` の転写がまだ passage 単位に割れていないため安全側に倒した |
 | `src/Litedoc4/Md/{Escape,Html}.lean` `src/Litedoc4/Render/{Autolink,Code,Whitespace}.lean` | The product-side transcription of the same work, split along the boundaries of the Rust files it transcribes, so each module's notice names the one file it came from and the modules that transcribe nothing of doc-gen4's carry none. **`math.rs` has no module here**: it is math-core's work rather than doc-gen4's, and the Lean side converts through MathML4Lean instead of transcribing it — what `Md/Html.lean` carries is `math_into`, which is `html.rs` |
-| `src/Litedoc4/Md/Gc.lean` | 同上 (`gc.rs` の Lean 転写、UnicodeBasic + Unicode®) |
+| `src/Litedoc4/Md/Gc.lean` `src/Litedoc4/Md/GcTable.lean` | 同上 (`gc.rs` の Lean 転写、UnicodeBasic + Unicode®)。The ranges live in `GcTable.lean`, which the generator writes whole, so that notice is emitted rather than kept by hand |
+| `src/Litedoc4/Global/V8Gc.lean` `src/Litedoc4/Global/V8GcTable.lean` | 同上 (`v8_gc.rs` の Lean 版、V8)。Same split: the ranges are in `V8GcTable.lean`, which the generator writes whole |
 | `benchmarks/doc-gen4-instrumentation.patch` | diff の前に前書き。**`git apply` は前書きを読み飛ばす** — `apply-instrumentation.sh --check` が `APPLIED` を返すことと、diff 本体が 1 バイトも変わっていないことを確認済【実測】 |
-| `tools/oracle/gen-gc-table.ts` / `gen-v8-gc-table.ts` | **生成器側**に書いた。`gc.rs` / `v8_gc.rs` は `--check` が生成器の出力と突き合わせるので、生成物を直接編集すると赤くなる |
+| `tools/oracle/gen-gc-table.ts` / `gen-v8-gc-table.ts` | **生成器側**に書いた。The files they write are `src/Litedoc4/Md/GcTable.lean` and `src/Litedoc4/Global/V8GcTable.lean`; `--check` compares each against the generator's output, so editing one directly turns its gate red — `tools/v8-gc-table-gate.sh` in CI, `tools/gc-table-gate.sh` manual |
 
 ---
 
@@ -264,9 +265,9 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | `src/Litedoc4/Md.lean` (上の Lean 転写、二次の派生) | 同上 | 474 行 | **無し** |
 | `crates/litedoc4-md/src/ffi.rs` (`md4c.h` の転写) | md4c = MIT | 342 行 | 無し (vendor の PROVENANCE が間接的に覆う) |
 | `crates/litedoc4-md/src/gc.rs` (UnicodeBasic の出力を列挙したデータ) | UnicodeBasic = Apache 2.0 | 1,691 行 | 無し (冒頭に rev `a2e430a4…` の記録のみ) |
-| `src/Litedoc4/Md/Gc.lean` (上の Lean 転写、二次の派生) | 同上 | 55 行 (ranges as one string literal) | 無し |
+| `src/Litedoc4/Md/GcTable.lean` (上の Lean 転写、二次の派生) | 同上 | 32 行 (each set as one string literal) | 無し (冒頭に rev `a2e430a4…` の記録のみ) |
 | `crates/litedoc4-global/src/v8_gc.rs` (V8 を総当たりした出力データ) | V8 = BSD-3 | 818 行 | 無し (deno 2.7.14 / V8 rev の記録のみ) |
-| `src/Litedoc4/Lower.lean` (Rust の `str::to_lowercase` を総当たりした出力データ) | Rust std = MIT OR Apache-2.0、元データは Unicode | 161 行 (2 tables as string literals) | 無し (冒頭の記録のみ) |
+| `src/Litedoc4/Lower.lean` (Rust の `str::to_lowercase` を総当たりした出力データ) | Rust std = MIT OR Apache-2.0、元データは Unicode | 180 行 (2 tables as string literals) | 無し (冒頭の記録のみ) |
 
 **md4c is the only work in this table that carries its own attribution files, and
 it is in the tree three times** (2026-08-30). The three are byte-identical

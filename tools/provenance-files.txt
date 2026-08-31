@@ -95,6 +95,13 @@ crates/litedoc4-md/src/gc.rs : Unicode
 src/Litedoc4/Md/Gc.lean : Dorais
 src/Litedoc4/Md/Gc.lean : Unicode
 crates/litedoc4-global/src/v8_gc.rs : V8
+# The two generated modules that hold the ranges themselves. Rows of their own
+# and not covered by the files above: `tools/oracle/gen-*.ts` writes these whole
+# on every regeneration, so their notices are the ones a wording change in a
+# generator can drop without anybody typing in the file it lands in.
+src/Litedoc4/Md/GcTable.lean : Dorais
+src/Litedoc4/Md/GcTable.lean : Unicode
+src/Litedoc4/Global/V8GcTable.lean : V8
 # The same shape one language over: `str::to_lowercase`'s answers, enumerated.
 # Two claims, because two works are behind the table — Rust's mapping and
 # Unicode's data — and a row for only one of them would go on passing after the

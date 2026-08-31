@@ -87,12 +87,23 @@ def uncommented(path):
 
 
 scripts = {p.name: uncommented(p) for p in sorted((root / "tools").glob("*.sh"))}
-reached = {name for name in scripts if any(name in body for body in workflows.values())}
+
+
+# A basename is a call only where it starts: `gc-table-gate.sh` is a substring of
+# `v8-gc-table-gate.sh`, so a plain `in` marks the manual gate as reached the
+# moment the CI one is wired in — the label is then read as a lie and the wiring
+# as missing, both wrong (measured 2026-09-01). Same failure the NODE pattern
+# above already guards against.
+def calls(name, body):
+    return re.search(r"(?<![A-Za-z0-9_.-])" + re.escape(name) + r"(?![A-Za-z0-9_-])", body)
+
+
+reached = {name for name in scripts if any(calls(name, body) for body in workflows.values())}
 while True:
     grown = {
         name
         for name in scripts
-        if name not in reached and any(name in scripts[seed] for seed in reached)
+        if name not in reached and any(calls(name, scripts[seed]) for seed in reached)
     }
     if not grown:
         break

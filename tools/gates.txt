@@ -29,6 +29,7 @@ corpus-gate.sh               ci      nothing for --verify-list; the corpus for t
 deps-docs-gate.sh            manual  a package whose dependency docs are published
 docs-gate.sh                 ci      nothing; reads the tracked files
 flag-tie-gate.sh             ci      a built litedoc4 to hand every documented flag to; elan builds the Lean one
+gc-table-gate.sh             manual  deno for the emitter arm; UnicodeBasic in the target for the arm that re-asks the ranges, and it arrives only with doc-gen4
 lake-package-gate.sh         ci      elan and e2e/consumer
 lean-test-gate.sh            ci      elan and a Lean package to borrow a toolchain from
 lean-versions-gate.sh        ci      one IR tree per toolchain in lean-toolchains.txt
@@ -44,5 +45,6 @@ refusal-gate.sh              ci      elan for the Lean half; the Rust litedoc4 t
 site-gate.sh                 ci      a built site
 target2-gate.sh              manual  a second synthetic package on the target's Mathlib revision
 usedby-gate.sh               ci      a built site (e2e-micro calls it)
+v8-gc-table-gate.sh          ci      deno, pinned to the version the generated table records; nothing else
 watch-gate.sh                ci      elan and e2e/micro
 workflow-gate.sh             ci      nothing; reads the tree
