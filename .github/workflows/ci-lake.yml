@@ -22,6 +22,7 @@ on:
       - "vendor/**"
       - "e2e/consumer/**"
       - "e2e/micro/**"
+      - "e2e/micro-expected/**"
       - "Cargo.toml"
       - "tools/build-lean-exe.sh"
       - "tools/flag-tie-gate.sh"
@@ -48,6 +49,7 @@ on:
       - "vendor/**"
       - "e2e/consumer/**"
       - "e2e/micro/**"
+      - "e2e/micro-expected/**"
       - "Cargo.toml"
       - "tools/build-lean-exe.sh"
       - "tools/flag-tie-gate.sh"
@@ -164,8 +166,13 @@ jobs:
   # renderer has ever had to refuse.
   #
   # It covers `site` as well as `render`, so the nine whole-package artifacts are
-  # in it — and the last three items also ask whether the Lean site closes over
-  # itself, which two byte-identical trees can both fail to do.
+  # in it — and four of its items ask whether the Lean site closes over itself
+  # and reads its own configuration, which a tree that matches the frozen bytes
+  # can still fail to do.
+  #
+  # What it compares against is `e2e/micro-expected/`, frozen from the Rust half
+  # while there is still one. The cargo build below is for the arm that checks
+  # the fixture has not rotted, and goes away with `crates/`.
   purelean-micro:
     name: the two implementations agree on the sample package
     runs-on: ubuntu-latest
@@ -179,7 +186,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # The oracle, and what extracts the sample's IR.
+      # The arm that expires at M10: is the frozen fixture still what this
+      # binary writes? The sample's IR is extracted by the Lean half.
       - name: Build litedoc4
         run: cargo build --bin litedoc4
 

@@ -185,6 +185,27 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 
 宣言の形は網羅していない — **それは `micro/` の担当**で、ここに増やす理由は無い。
 
+## `micro-expected/` — what the Rust half wrote
+
+`micro-expected/` is the frozen output of the **Rust** `litedoc4` over `micro/`:
+49 files, 508 KB — the rendered pages, the whole-package artifacts, the four
+transcripts, the ledger and the build marker. `tools/purelean-micro-gate.sh`
+holds the Lean half to those bytes, and it is the only thing that reads them.
+
+It is here rather than in `crates/` because it has to outlive `crates/`: the
+Rust binary is the port's oracle, M10 deletes it, and anything minted afterwards
+would record what the Lean half does today rather than what the answer is. It is
+here rather than in `tools/` because what invalidates it is an edit to `micro/`
+— a docstring changed there changes the frozen pages, and the expectation
+belongs where whoever changes it will see it.
+
+Re-mint with `tools/purelean-micro-gate.sh --mint` **while a Rust litedoc4
+exists**. It refuses unless both halves extract the same IR and build the same
+link index, and it reports how many files changed. After M10 there is nothing to
+mint from, and a `--mint` from the Lean half is a rebaseline rather than an
+answer — sound only for a sample edit, from a tree that was green immediately
+before it.
+
 ## ゲート
 
 `tools/e2e-micro.sh` が順に見るもの:

@@ -1,0 +1,8 @@
+external  no package named (--root), so links into a dependency stay relative to pages this site does not write
+render  modules 11/11  declarations 56/97 (42 suppressed)  module docs 11  bytes 129450
+render  known 118  link index 34066  known modules 612
+render  math spans kept as LaTeX 1
+global  modules 11  declarations 97 + 21 dependency names  instance classes 4  instance types 3  tactic docs 0
+global  name map 4351 B  module index 626 B  search index 1215 B
+global  module descriptions 10 of 11 (0 repeat the module name)
+global  cache 0 hit / 11 miss  state 0 B

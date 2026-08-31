@@ -38,7 +38,7 @@ pinned-dep-gate.sh           ci      elan, e2e/micro and e2e/micro-dep as a git 
 provenance-gate.sh           ci      nothing; reads the tree
 public-surface-gate.sh       ci      nothing; reads the tree
 purelean-gate.sh             ci      elan, e2e/consumer, and a built Rust litedoc4 to compare --version with
-purelean-micro-gate.sh       ci      elan, e2e/micro and e2e/consumer, and a built Rust litedoc4 as the oracle
+purelean-micro-gate.sh       ci      elan, e2e/micro, e2e/consumer, and e2e/micro-expected as the frozen oracle; a Rust litedoc4 only for the arm that expires
 purelean-render-gate.sh      manual  the target's IR and .lidx, elan, and a built Rust litedoc4 as the oracle
 refusal-gate.sh              ci      elan for the Lean half; the Rust litedoc4 too, while there still is one
 site-gate.sh                 ci      a built site

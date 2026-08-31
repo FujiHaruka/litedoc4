@@ -1,0 +1,4 @@
+external  no package named (--root), so links into a dependency stay relative to pages this site does not write
+modules 11/11  declarations 56/97 (42 suppressed)  module docs 11  bytes 129450
+known 118  link index 34066  known modules 612
+math spans kept as LaTeX 1

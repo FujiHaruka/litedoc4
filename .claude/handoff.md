@@ -75,6 +75,14 @@
    from minting while Rust still runs** — a fixture taken afterwards says "unchanged", not
    "correct". Nothing else on this list is time-critical; this is.
 
+   **A2. `purelean-render-gate.sh` has the same expiry and no fixture.** It is the `manual`
+   sibling asking the same question over the **measurement target**, and it is the only place
+   the 432-module shapes are compared at all — its `gates.txt` row still reads "a built Rust
+   litedoc4 as the oracle". Freezing its output is not the same problem: the target's site is
+   ~60 MB, too large to commit. **A manifest of `path → sha256` is ~422 lines and keeps the
+   claim**, losing only which bytes differ — and `render-compare.sh` can still name the file.
+   Its oracle window closes on the same day as the micro gate's.
+
    **B. Decide the F bucket (83) and the frozen fixtures together.** They are one question:
    `crates/*/tests/data/**` (28 files, 3.4 MB) is what F compares against, and A wants the same
    kind of thing. Move it out of `crates/` (the `web/` move again), embed it, or lose it to the
