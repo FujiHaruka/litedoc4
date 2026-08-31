@@ -187,6 +187,18 @@ def eventsBeside (timings : FilePath) : FilePath :=
   let text := timings.toString
   ⟨(if text.endsWith ".json" then (text.dropEnd 5).toString else text) ++ "-events.jsonl"⟩
 
+/-- Removed rather than truncated on open, because the extractor **appends**: a
+file an earlier round left behind is folded into this round's timings, and every
+number derived from them is then wrong with nothing failing.
+
+One spelling for the same reason `eventsBeside` is one — the three extraction
+paths (`Server.start`, `Resident.extract`, `litedoc4 extract`) each had their
+own copy, and a judgement in three places is one that gets fixed in one.
+Discarded rather than checked: the file not being there is the outcome wanted,
+so its absence is not an error. -/
+def clearEvents (events : FilePath) : IO Unit :=
+  discard <| (IO.FS.removeFile events).toBaseIO
+
 /-- The whole command line an extraction is started with, after `lake env`.
 
 **One spelling for both extraction paths.** `litedoc4 extract` runs it once and
@@ -390,7 +402,7 @@ def Serve.startArgv (s : Serve) : Array String :=
 
 def Server.start (s : Serve) : BuildM Server := do
   IO.FS.createDirAll s.work
-  discard <| (IO.FS.removeFile s.eventsPath).toBaseIO
+  clearEvents s.eventsPath
   let log ← IO.FS.Handle.mk (s.work / "serve.out") .write
   let args := s.startArgv
   let child ← match ← (IO.Process.spawn
@@ -475,9 +487,7 @@ def Resident.server (r : Resident) : BuildM Server := do
 module list in, an IR tree and a timings record out. -/
 def Resident.extract (r : Resident) (modules irDir timings : FilePath) : BuildM Nat := do
   let events := eventsBeside timings
-  -- The extractor appends, so a file an earlier round left behind would be
-  -- folded into this round's timings.
-  discard <| (IO.FS.removeFile events).toBaseIO
+  clearEvents events
   IO.FS.createDirAll irDir
   refuseInside r.serve.target "the target" irDir "the round's --ir-dir" ""
   let line ← requestLine #[modules, events, irDir]

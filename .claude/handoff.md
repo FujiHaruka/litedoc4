@@ -64,11 +64,33 @@
    `benchmarks/results/lean-test-scaffolding-2026-08-31.txt`. Read that before choosing a
    mechanism; it will save rediscovering that `by decide` is unusable here.
 
-**1a. The triage is the remaining work, and it is per-crate.** `litedoc4-ir` (32) is the
-   pilot. Still to do: `litedoc4-render` (110 I, and the most md4c-downstream),
-   `litedoc4` (89), `litedoc4-global` (41), `litedoc4-md` (28), `litedoc4-incr` (16).
-   `litedoc4-testutil` (37) is skipped — it tests the Rust test helpers.
-   **Then** the F bucket, **then** the fixture-requiring refusals, **then** the deletion.
+**1a. ~~The triage~~ — done. Bucket I is 316 of 316** (see below). What is left, in the order
+   it has to happen, because two of these can only be done while the Rust binary exists:
+
+   **A. Mint the oracle, before anything is deleted.** `purelean-micro-gate.sh` has 16 items and
+   **15 of them compare against the Rust binary**; only item 16 (an incremental site equals a
+   full build's) is oracle-free and says so. The answer is the one this repository already used
+   for the prototype: **freeze the oracle's outputs as committed fixtures now**, and reformulate
+   into item-16 shape whatever can be. ~2.1 MB / ~98 files, measured this leg. **Authority comes
+   from minting while Rust still runs** — a fixture taken afterwards says "unchanged", not
+   "correct". Nothing else on this list is time-critical; this is.
+
+   **B. Decide the F bucket (83) and the frozen fixtures together.** They are one question:
+   `crates/*/tests/data/**` (28 files, 3.4 MB) is what F compares against, and A wants the same
+   kind of thing. Move it out of `crates/` (the `web/` move again), embed it, or lose it to the
+   tag.
+
+   **C. The fixture-requiring refusals** — the R rows needing a crafted IR tree, `litedoc4.toml`,
+   ledger or blocking file. `tools/refusals.txt` covers argv only, by its own scope line.
+
+   **D. Repoint the gates.** Four read a file inside `crates/`; more default `LITEDOC4` to
+   `target/{debug,release}/litedoc4` and must take `.lake/build/bin/litedoc4` instead, or they
+   fail on a missing binary rather than on a defect.
+
+   **E. Retire the provenance rows** (16 in `tools/provenance-files.txt`, 16 in `NOTICE`) and
+   place the two homeless target-IR tests.
+
+   **F. Then delete `crates/`, tag `rust-frozen`, and delete `.claude/purelean-plan.md`.**
 
 **2. Decision-independent work that is already done** — do not redo it:
    - `web/` is out of `crates/` and every reference moved with it.

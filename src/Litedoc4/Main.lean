@@ -2151,9 +2151,7 @@ def extractRun (a : ExtractArgs) : BuildM Unit := do
   let modulesPath ← absolutePath ⟨modules⟩
   let events ← absolutePath
     ((a.events.map (⟨·⟩ : String → System.FilePath)).getD (eventsBeside ⟨timings⟩))
-  -- Removed rather than truncated on open: the extractor appends, so a stale
-  -- file from an earlier round would be folded into this round's timings.
-  discard <| (IO.FS.removeFile events).toBaseIO
+  clearEvents events
   IO.FS.createDirAll irDir
   let linkIndexPath ← match a.linkIndex with
     | none => pure none
