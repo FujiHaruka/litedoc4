@@ -543,6 +543,38 @@ CLI 入口の拒否 24 probe で **exit code の不一致 0 件**、stderr も 2
 **ただし 24 probe は 556 tests ではない**。`litedoc4.toml` パーサには 1 probe も届いていない
 （そこは `config-gate.sh` が micro-gate item 12 で両半分について見ている）。
 
+#### 584 tests の内訳（leg 8、全件を「何を assert しているか」で分類）
+
+名前による近似（146/556）は**破棄**した。実際に読んで分類した結果:
+
+| bucket | 数 | M10 でどうなるか |
+|---|---|---|
+| **G** 生き残るゲートが見ている | 55 | 損失なし |
+| **R** 入口の拒否、CLI から再現できる | 93 | **オラクル無しで保存できる**（期待値を今 Rust から採れば） |
+| **F** 凍結 fixture とのバイト比較 | 83 | `tests/data/*-expected.json` ごと去る。**再生成器はプロトタイプと共に既に無い** |
+| **I** 内部不変条件、CLI 経路なし | 353 | **素直に失われる**。Lean 側に足場が無い |
+| 計 | **584**（うち 21 が `#[ignore]`） | |
+
+- **R の 93 件は library-only が 0 件**。`main.rs` は 14 サブコマンドを配るので、
+  **全部が実行ファイル経路を持つ** → 66 が `build`/`site`/`render`/`global`/`watch`/`extract`、
+  27 がそれ以外のサブコマンド経由
+- **足場は本当に何も無い**: `lakefile.lean` は `lean_exe extract` / `lean_lib Litedoc4` /
+  `lean_exe litedoc4` / `script docs` の 4 つだけ。`src/` 53 モジュールに
+  `#guard` も `#eval` も `example :` も 0。**assertion の語彙から作ることになる**
+
+#### 数以外に見つかった 2 つの劣化（こちらの方が効くかもしれない）
+
+1. **`public-surface-gate.sh` の主張が弱くなる。** 1.x が約束したフラグと、
+   それを実際に受け付けるパーサを結んでいるのは
+   `crates/litedoc4/src/lib.rs` の `every_documented_flag_is_parsed` 1 本。
+   これが去ると、surface gate は「約束したフラグが**受理される**」から
+   「約束したフラグが**文字列として綴られている**」に落ちる。
+   **これは 1.x の約束そのものの担保が薄くなる話**で、テスト数の問題ではない
+2. **`tools/gates.txt` の needs 列が 3 行だけ嘘になる。** `purelean-gate` /
+   `purelean-micro-gate` / `purelean-render-gate` の needs は
+   「a built Rust litedoc4 as the oracle」。`crates/` が消えた瞬間に
+   **片腕のゲートになるが、`workflow-gate.sh` は ci/manual 列しか見ていないので何も落ちない**
+
 #### 決める前に効く観察（leg 8）
 
 - **拒否テストはオラクルを要らない**。「不正入力を与えて exit != 0 と文言を assert する」
