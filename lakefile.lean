@@ -4,13 +4,13 @@
 A consumer requires this package and gets a `docs` script:
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.2.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.3.0"
 ```
 
-Pin `v1.0.1` or later: 1.x does not move the names your own files contain,
-and it is the first release whose source links work for a package below its
-repository root. The oldest tag Lake can resolve at all is `v0.1.4`.
-`@ "main"` also works and moves.
+Pin `v1.3.0` or later: it is the first tag a machine with only elan on it can
+use, and 1.x does not move the names your own files contain. If your package
+sits below its repository root, `v1.0.1` is the oldest whose source links point
+at it. `@ "main"` also works and moves.
 
 ```
 lake run docs -- --out ../mypkg-docs

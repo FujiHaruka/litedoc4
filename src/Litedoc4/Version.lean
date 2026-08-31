@@ -8,6 +8,6 @@ that is either committed and stale or missing and unbuildable.
 -/
 namespace Litedoc4
 
-def version : String := "1.2.0"
+def version : String := "1.3.0"
 
 end Litedoc4

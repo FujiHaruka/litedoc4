@@ -1,0 +1,85 @@
+M9 — a consumer that requires litedoc4 over git, with no Rust, no node and no cargo
+====================================================================================
+2026-08-31
+
+What this answers
+-----------------
+M9's completion judgement: "`e2e/consumer` puts out a site from `require` alone. No C
+compiler, no Rust and no node." The check below is stricter than that sentence in two
+ways on purpose — it goes through a **git** require rather than the path require the
+fixture uses (a path require is not the channel a user takes), and it runs with a PATH
+that physically cannot reach cargo, rustc, node or npm.
+
+Conditions
+----------
+  machine        Apple M1, macOS 25.6.0, 16 GB
+  toolchain      Lake 5.0.0-src+68218e8 (Lean 4.31.0), from elan
+  litedoc4       11735e9 (main), required as `from git "file:///…/lean-doc" @ "main"`
+  MathML4Lean    v0.1.1 -> 2ce27a80855d517a8ce47c0c5b0a29c49815e435
+  PATH           /usr/bin:/bin:/usr/sbin:/sbin:$HOME/.elan/bin — and nothing else.
+                 `cargo`, `rustc`, `node` and `npm` are not reachable from it
+  package        a one-declaration `lean_lib Widget`, written for this run, in
+                 /private/tmp/lean-doc-relay/m9-gitreq
+  page cache     warm (the tree had been built earlier in the same session)
+
+1. It works
+-----------
+  lake update    exit 0. Cloned litedoc4 and MathML4Lean; toolchain not rewritten
+                 ("toolchain not updated; already up-to-date" — litedoc4 carries no
+                 `lean-toolchain`, which is the whole point of not having one)
+  lake build     exit 0
+  lake run docs  exit 0, site written
+
+Both executables come out of the required tree:
+
+  .lake/packages/litedoc4/.lake/build/bin/extract     171,650,464 B
+  .lake/packages/litedoc4/.lake/build/bin/litedoc4      5,781,776 B
+
+and the script's own first line names them, so this is not an inference:
+
+  litedoc4: /private/tmp/lean-doc-relay/m9-gitreq/.lake/packages/litedoc4/.lake/build/bin/litedoc4
+    build --root … --extractor-bin …/.lake/build/bin/extract --lake …/v4.31.0/bin/lake --lib Widget
+
+The first attempt exited **3**, and that is not a defect: the fixture is not a git
+checkout, so `--source-url` could not be derived and the run refused rather than
+linking pages at a revision it had guessed. With `--source-url` passed it exits 0 and
+writes the site (23 files under `site/`, `index.html` among them).
+
+2. What the consumer pays for the two executables
+-------------------------------------------------
+Three runs, each with `.lake/build` of litedoc4 **and** of MathML4Lean removed first,
+so every run compiles both packages from scratch. `/usr/bin/time -l`.
+
+  lake build litedoc4/litedoc4        real     user      sys    peak RSS
+    run 1                            17.67 s  60.55 s   9.93 s    706 MB
+    run 2                            18.22 s  60.46 s  10.12 s    702 MB
+    run 3                            18.11 s  60.80 s  10.00 s    704 MB
+                            median   18.11 s
+
+  lake build litedoc4/extract         real     user      sys    peak RSS
+    run 1                            25.84 s  23.41 s   1.15 s   1.53 GB
+    run 2                            25.65 s  23.44 s   1.14 s   1.54 GB
+    run 3                            25.00 s  23.54 s   1.05 s   1.56 GB
+                            median   25.65 s
+
+  both, with nothing to do           0.57 s   0.21 s    0.23 s    673 MB
+
+The spread is under 3 % on both, so this is not a page-cache number: user+sys already
+exceeds wall clock on the `litedoc4` build (60.5 s of CPU in 18 s of wall clock — Lake
+compiles 125 jobs in parallel), and the extractor's wall clock is within 10 % of its
+own user time because it is 4 jobs, one of them large.
+
+**The extractor is the expensive half and always was** — it is 171 MB because it
+`import Lean`, and that cost is the same one it had before this milestone. What M9
+added to a consumer's bill is the 18.1 s `litedoc4` column, and what it removed is a
+release download, a SHA-256 verification, a cargo fallback and node.
+
+3. What this does not measure
+-----------------------------
+  - **Linux and Windows.** This is macOS/arm64 only. `.github/workflows/ci-lake.yml`
+    runs the same shapes on `ubuntu-latest`; Windows is not run at all.
+  - **A cold page cache.** Every run above had the sources and the toolchain resident.
+    A first-ever checkout also pays elan's toolchain download and two git clones.
+  - **The GitHub runner.** The action caches `$GITHUB_ACTION_PATH/.lake`, so its first
+    run pays something like the 18.1 + 25.7 above on slower cores and later runs pay
+    the 0.57 s row. That number belongs to a runner and has not been taken yet.

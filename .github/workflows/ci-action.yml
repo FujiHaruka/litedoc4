@@ -119,6 +119,18 @@ jobs:
           jobs: "2"
       - run: test -f "${{ steps.docs.outputs.site }}/index.html"
 
+      # `binary-source` is a constant, so this is not asking which path ran — it
+      # is asking that a name 1.x promised still arrives. An output whose `value:`
+      # names a step that no longer exists comes back as the empty string with no
+      # error anywhere, which is the shape a caller's own `test` would swallow.
+      - name: The promised output arrives
+        run: |
+          SRC="${{ steps.docs.outputs.binary-source }}"
+          echo "binary-source = $SRC"
+          test "$SRC" = "lake" || {
+            echo "::error::binary-source was '$SRC', not 'lake' — the output is not wired up"
+            exit 1; }
+
   refused:
     name: a package that does not exist fails
     runs-on: ubuntu-latest
@@ -161,35 +173,3 @@ jobs:
           jobs: "2"
 
       - run: test -f "${{ steps.docs.outputs.site }}/index.html"
-
-  # The one path the jobs above never take: `@main` has no release, so they all
-  # fall back to cargo. This pins a tag so the download actually happens, and
-  # asserts on `binary-source` rather than on the log — "it worked" is not
-  # evidence that it worked *that way*. On demand only, and the pin goes stale
-  # by design: move it (and README's) when a release is cut.
-  released:
-    name: uses:@v1.2.0 — the released binary, not a cargo build
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    if: github.event_name == 'workflow_dispatch'
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: ./.github/actions/setup-node
-
-      - uses: ./.github/actions/setup-elan
-
-      - id: docs
-        uses: FujiHaruka/litedoc4@v1.2.0
-        with:
-          root: e2e/micro
-          jobs: "2"
-
-      - name: It came from the release
-        run: |
-          SRC="${{ steps.docs.outputs.binary-source }}"
-          echo "binary-source = $SRC"
-          test "$SRC" = "release" || {
-            echo "::error::expected the released binary, got '$SRC' — the download path did not run"
-            exit 1; }
-          test -f "${{ steps.docs.outputs.site }}/index.html"

@@ -26,8 +26,8 @@ math, hyperlinked signatures, `sorry` markers, and a dark theme.
   end, and they are listed in [`tools/lean-toolchains.txt`](tools/lean-toolchains.txt). The
   extractor is compiled against your toolchain, so a version it cannot handle surfaces as a build
   failure, not as bad output
-- **you are on Windows or Intel macOS** — releases carry Linux (x86-64 and arm64) and Apple
-  Silicon; anything else builds from source, which needs Rust and a C compiler
+- **you are on Windows** — litedoc4 is compiled on your own machine by Lake, using the toolchain
+  elan already installed for you and nothing else; Linux and macOS are what that has been run on
 
 A `lakefile.lean` package is fine — the live example is one. The CLI will not guess library names
 out of Lean code, so pass `--lib` by hand; used as a Lake dependency (below) it is read for you.
@@ -145,8 +145,8 @@ CPU time, which extrapolates to ~9 h of CPU for the closure), so there is no wal
 put next to 24.5 s.
 
 On a 4-core GitHub runner `litedoc4 build` took **11.5–20.7 s** for 422 modules. A first run also
-builds the tools (~16 s extractor, ~24 s cargo, cached afterwards); the rest of the job is your
-usual `lake exe cache get` + `lake build`. Peak resident memory ≈4.0 GB (3.88–4.03 GB across 50
+builds the two executables (the extractor took ~16 s there; both are cached afterwards); the rest
+of the job is your usual `lake exe cache get` + `lake build`. Peak resident memory ≈4.0 GB (3.88–4.03 GB across 50
 runs). Raw logs: [`benchmarks/`](benchmarks/).
 
 ## Documentation on GitHub Pages
@@ -164,7 +164,7 @@ jobs:
     environment: { name: github-pages }
     steps:
       - uses: actions/checkout@v7
-      - uses: FujiHaruka/litedoc4@v1.2.0
+      - uses: FujiHaruka/litedoc4@v1.3.0
         id: docs
         with:
           cache-get: true             # `lake exe cache get` — drop it if you have no Mathlib
@@ -175,37 +175,38 @@ jobs:
 
 That is the whole thing: the action installs elan if it is missing, runs `lake build` and the
 docs **in one job** (split across jobs the oleans fall out of the page cache and it runs 5–12×
-slower), and keeps four caches for you — Mathlib's oleans, the Lean extractor, the Rust build,
-and last run's state, which is what makes the second run incremental.
+slower), and keeps four caches for you — Mathlib's oleans, the Lean extractor, the litedoc4
+build, and last run's state, which is what makes the second run incremental.
 
 Inputs you may need: `root` if your package is not at the repository root, `lib` if you use
 `lakefile.lean`, `lake-build: false` if you already built the package **earlier in the same
 job** (from another job the page cache is cold), `full: true` to ignore previous state.
-Outputs: `site`, `out`, `timings`, and `binary-source` — where the `litedoc4` binary came from
-(`release`, `cached` or `cargo`), so a caller can assert on it.
+Outputs: `site`, `out`, `timings`, and `binary-source`, which is always `lake` — the action
+builds litedoc4 from the ref you pinned, against your toolchain.
 
 To archive instead of publish, swap the last two steps for `actions/upload-artifact` and drop
 the `permissions` / `environment` lines.
 
 ## Running it locally
 
-You need `elan`/`lake` and a package that `lake build` passes. The `litedoc4` binary can be
-downloaded; the Lean extractor is always built here, because it is compiled against **your**
-toolchain.
+You need `elan`/`lake` and a package that `lake build` passes. Nothing else: both executables are
+compiled from source here, by Lake, with the toolchain elan installed for your package. No Rust,
+no node, and no C compiler of your own — the C that the Markdown parser needs is compiled by the
+Lean toolchain's own clang against headers this package carries.
 
 ### As a Lake dependency
 
 Add it to your `lakefile.lean` (or the `[[require]]` equivalent in `lakefile.toml`):
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.2.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.3.0"
 ```
 
 ```sh
 lake run docs -- --out ../mypkg-docs
 ```
 
-Lake builds the extractor against your toolchain and the script fills in `--root`,
+Lake builds both executables against your toolchain and the script fills in `--root`,
 `--extractor-bin` and `--lib` for you — including for a `lakefile.lean` package, where `--lib`
 otherwise has to be written by hand.
 
@@ -213,27 +214,15 @@ otherwise has to be written by hand.
 relative path resolves against the package directory, so `../mypkg-docs` is the shortest spelling
 that works.
 
-The `litedoc4` binary itself is fetched for you. The script looks, in order, at `$LITEDOC4_BIN`,
-`${XDG_CACHE_HOME:-~/.cache}/litedoc4/v<version>/<target>/litedoc4`, the GitHub release matching
-the version in the revision you required, `litedoc4` on `PATH`, and finally `cargo build`. When
-none of them answers, it says what it looked for and where. A download announces its URL before
-the first request and is used only if its SHA-256 matches the `checksums.txt` published beside it
-— a mismatch, or no way to compute a SHA-256 at all, is a refusal rather than a warning, and
-leaves the cache empty.
+Nothing is downloaded and there is no version to keep in step: the `require` above is the whole
+installation, and the executables Lake builds come from exactly the revision you pinned. The
+first `lake run docs` pays for both of them — **18.1 s for `litedoc4` and 25.7 s for the
+extractor** (medians of 3, measured 2026-08-31, Apple M1, cold build directory, warm page cache →
+[`benchmarks/results/purelean-require-only-2026-08-31.txt`](benchmarks/results/purelean-require-only-2026-08-31.txt))
+— and every run after that is Lake answering that there is nothing to do.
 
-Releases carry `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` and
-`aarch64-apple-darwin`. On anything else — Windows, Intel macOS — the script says there is no
-asset for your target and falls through to `PATH` and `cargo build`; that is a normal path, not a
-failure. **That last fallback needs node**,
-because building from source builds the site's JavaScript too; a release binary needs nothing but
-itself.
-
-```sh
-LITEDOC4_NO_DOWNLOAD=1 lake run docs -- --out ../mypkg-docs   # never reach the network
-```
-
-`LITEDOC4_NO_DOWNLOAD` set to anything non-empty takes the same path, and still uses a binary
-that is already in the cache — turning downloads off does not throw away one you already have.
+For `watch`, or for the flags `docs` does not pass through, run the executable directly: Lake
+leaves it at `.lake/packages/litedoc4/.lake/build/bin/litedoc4`, and the extractor beside it.
 
 There is deliberately no `lean-toolchain` in this package: one that named a *higher* version
 would make your `lake update` rewrite **your** `lean-toolchain`, and a *lower* one would be
@@ -245,33 +234,24 @@ Without the file, Lake builds the extractor with your toolchain and says nothing
 ```sh
 git clone https://github.com/FujiHaruka/litedoc4 && cd litedoc4
 
-# the extractor — always built here, against your package's toolchain (~16 s)
-TARGET_REPO=/path/to/your-package extractor/build.sh     # -> extractor/build/extract
-
-# the binary — download it (Linux/x86-64 shown; aarch64-unknown-linux-musl and
-# aarch64-apple-darwin are the others), which unpacks to
-# litedoc4-<version>-<target>/litedoc4 …
-curl -sSfL https://github.com/FujiHaruka/litedoc4/releases/latest/download/litedoc4-x86_64-unknown-linux-musl.tar.gz \
-  | tar xz
-# … or build it, which needs Rust (via rustup), a C compiler and node.
-# node builds the site's JavaScript from the TypeScript in
-# crates/litedoc4-render/web; mise.toml pins the version.
-cargo build --release                                    # -> target/release/litedoc4
-
-# then, with whichever of the two you have:
-./target/release/litedoc4 build --root /path/to/your-package --out /path/to/docs \
-  --extractor-bin ./extractor/build/extract --jobs 4
+# builds both executables against your package's toolchain, then documents it
+tools/ci-build.sh --root /path/to/your-package --out /path/to/docs --jobs 4
 ```
 
+`lake` cannot run beside this repository's own `lakefile.lean` — there is deliberately no
+`lean-toolchain` there — so the script writes a one-line package under `.lake/host` that requires
+this checkout, copies your package's `lean-toolchain` into it, and builds from there. It leaves
+`litedoc4` in `.lake/build/bin/` and the extractor in `extractor/build/`, and running the script
+again reuses both.
+
 The site is `<out>/site`; `--out` itself must live outside `--root`. Running the same command is
-incremental, so keep `<out>` between runs; `--full` starts over. The extractor is built against
-your package's toolchain — rebuild it (~15 s) when that changes.
+incremental, so keep `<out>` between runs; `--full` starts over.
 
 ### While you are working on the package
 
 ```sh
-./target/release/litedoc4 watch --root /path/to/your-package --out /path/to/docs \
-  --extractor-bin ./extractor/build/extract --jobs 4
+.lake/build/bin/litedoc4 watch --root /path/to/your-package --out /path/to/docs \
+  --extractor-bin extractor/build/extract --jobs 4
 ```
 
 `watch` serves the site on `http://127.0.0.1:8484/` (`--port`) and rebuilds it whenever your
@@ -302,12 +282,12 @@ not GitHub (another host is refused rather than guessed).
 
 ## Status
 
-`v1.2.0` — the action and the released binaries. Tested on macOS (Apple Silicon),
-`ubuntu-latest` and `ubuntu-24.04-arm` with Lean/Mathlib v4.31.0, and the browser side also on
+`v1.3.0` — nothing is downloaded; Lake builds litedoc4 from the ref you pinned. Tested on macOS
+(Apple Silicon) and `ubuntu-latest` with Lean/Mathlib v4.31.0, and the browser side also on
 `windows-latest`.
-Pin the action and the `require` to a tag — `v1.0.1` or later, since the names below are what
-1.x keeps and the releases before it kept nothing. If your package is not at the top of its
-repository, `v1.0.1` is the first release whose source links point at it. `@main` moves.
+Pin the action and the `require` to a tag — `v1.3.0` or later, since that is the first one a
+machine with only elan on it can use. If your package is not at the top of its repository,
+`v1.0.1` is the first release whose source links point at it. `@main` moves.
 
 **Every Lean version above is run end to end on every change to the extractor or the sample**,
 and their output is compared: v4.31.0, v4.32.2, v4.33.0 and v4.33.1 produce byte-identical IR
@@ -325,13 +305,15 @@ anchors. The list is [`tools/public-surface.txt`](tools/public-surface.txt), and
 of them goes missing.
 
 The IR schema, the ledger and `.lidx` are internal, and you never pin them yourself: the action
-and the Lake script resolve the binary by the version in the ref you pinned, so the extractor and
-the binary always come from the same tree.
+and the Lake script build both executables out of the ref you pinned, so they always come from
+the same tree.
 
-The extractor is not distributed as a binary. It **could** be — it is decided by the toolchain
-alone, it is portable, and against the wrong toolchain it fails loudly rather than writing a
-wrong IR (all three measured, `benchmarks/results/extractor-uniqueness-2026-08-18.txt`). It is
-not shipped because at 226 MB it is not worth replacing a 16 s build that CI caches anyway.
+Neither executable is distributed as a binary. The extractor **could** be — it is decided by the
+toolchain alone, it is portable, and against the wrong toolchain it fails loudly rather than
+writing a wrong IR (all three measured,
+[`benchmarks/results/extractor-uniqueness-2026-08-18.txt`](benchmarks/results/extractor-uniqueness-2026-08-18.txt)).
+Neither is shipped because a prebuilt binary is a second thing to keep in step with the ref you
+pinned, and the build it would replace is under a minute and cached by CI and by Lake alike.
 
 ## License
 

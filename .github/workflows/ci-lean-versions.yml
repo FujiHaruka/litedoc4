@@ -16,8 +16,13 @@ on:
     branches: [main]
     paths:
       - "extractor/**"
+      - "src/**"
+      - "csrc/**"
+      - "vendor/**"
+      - "lakefile.lean"
       - "e2e/micro/**"
       - "e2e/micro-dep/**"
+      - "tools/build-lean-exe.sh"
       - "tools/e2e-micro.sh"
       - "tools/lean-toolchains.txt"
       - "tools/lean-versions-gate.sh"
@@ -25,8 +30,13 @@ on:
   pull_request:
     paths:
       - "extractor/**"
+      - "src/**"
+      - "csrc/**"
+      - "vendor/**"
+      - "lakefile.lean"
       - "e2e/micro/**"
       - "e2e/micro-dep/**"
+      - "tools/build-lean-exe.sh"
       - "tools/e2e-micro.sh"
       - "tools/lean-toolchains.txt"
       - "tools/lean-versions-gate.sh"
@@ -112,6 +122,15 @@ jobs:
           # make every assertion below about a version nobody selected.
           lean --version | grep -q "$(sed 's|.*:v||' e2e/micro/lean-toolchain)" \
             || { echo "::error::lean is not ${{ matrix.toolchain }}"; exit 1; }
+
+      # **A consumer's own Lean compiles `src/`**, so every toolchain in the file
+      # has to be able to. Nothing else here would notice: `e2e-micro.sh` drives
+      # the Rust binary, which cargo builds with a compiler of its own, and the
+      # extractor is the only Lean the matrix used to touch. That is the shape
+      # that cost a milestone once — the extractor did not build on v4.33.0 and
+      # nothing said so until somebody asked (2026-08-18).
+      - name: litedoc4 builds on this toolchain
+        run: tools/build-lean-exe.sh --toolchain-from e2e/micro
 
       - name: Build the CLI
         run: cargo build --bin litedoc4

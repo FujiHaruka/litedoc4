@@ -74,7 +74,7 @@ promises, each with a gate. **Do not read v1 as "finished" any more than v0.1 me
   **The rule that decides membership is "can it appear in a file someone else maintains".**
   `tools/public-surface-gate.sh` (run by `ci.yml`) fails when a promised name goes missing.
   **The IR schema, the ledger and `.lidx` are internal** — a consumer pins one ref and the action
-  and the Lake script resolve the binary by the version in *that* ref, so the two halves always
+  and the Lake script build both executables out of *that* ref, so the two halves always
   come from the same tree. Checks are **one-directional on purpose** (adding breaks nobody;
   removing and renaming do); `action.yml` is checked both ways because it is plain data.
 - **The Lean versions are `tools/lean-toolchains.txt`**, and that file is also the matrix
@@ -83,18 +83,22 @@ promises, each with a gate. **Do not read v1 as "finished" any more than v0.1 me
   reducibility status). **A toolchain with no row fails by name**; a row marked `UNMEASURED`
   fails *carrying the value to write down*. **Do not branch on the version** — the extractor
   delegates enumeration to Lean's own `toAttrString`, and this file records the consequence.
-- **Releases carry three triples**, and four places decide whether a machine has an asset:
-  `release.yml`'s matrix, `lakefile.lean`'s `releaseTargets`, `action.yml`'s
-  `RUNNER_OS-$(uname -m)` case, and `tools/lake-download-gate.sh`'s. Adding one means all four.
-  `ci.yml` also builds and tests on **aarch64 Linux** — not for the binary but because `c_char` is
+- **Nothing is distributed as a binary** (2026-08-31, M9 of the pure-Lean port). A consumer
+  `require`s the package and **Lake builds both executables** from the ref they pinned; the action
+  does the same out of `$GITHUB_ACTION_PATH`, through the one-line workspace `tools/ci-build.sh`
+  writes under `.lake/host` (Lake cannot run beside the root `lakefile.lean` — there is no
+  `lean-toolchain` there, deliberately). What left with the binaries: `release.yml`, the
+  three-triple matrix, `lakefile.lean`'s 330-line `resolveLitedoc4`, `.github/release-notes.md`,
+  `tools/lake-download-gate.sh`, `tools/release-notes-gate.sh`, and the dependency-closure half of
+  `tools/provenance-gate.sh` (**its subject was Object-form distribution** → `docs/provenance.md`).
+  **`binary-source` was kept and is now the constant `lake`** — a removed action output comes back
+  as the empty string with no error, so removing a promised name turns a caller's assertion into a
+  silent pass. The cost a consumer pays instead is **18.1 s + 25.7 s, once** (measured 2026-08-31,
+  Apple M1, medians of 3 → `benchmarks/results/purelean-require-only-2026-08-31.txt`).
+  `ci.yml` still builds and tests on **aarch64 Linux** — because `c_char` is
   unsigned there and signed everywhere else the tree had been compiled, and because that is the
   architecture nothing had ever run. **Both defects it found the first time were waiting**
   (measured 2026-08-29 → `benchmarks/results/arm64-linux-runner-2026-08-29.txt`).
-- **The release notes are `.github/release-notes.md`**, published by `release.yml` with `@VERSION@`
-  substituted. **Do not edit the notes on the Releases page** — the next release republishes the
-  file, and a hand edit is a change nobody reviewed. `tools/release-notes-gate.sh` reconciles the
-  archives they list against the ones the publish job asserts and their Lean versions against
-  `tools/lean-toolchains.txt`, in both directions.
 - **Two live sites, and both are a maintenance obligation.**
   `https://fujiharuka.github.io/litedoc4/` is `e2e/micro` rebuilt from `main` on every push
   (`pages.yml`, downstream of `tools/e2e-micro.sh`, so a site that failed its gates is never
@@ -136,9 +140,9 @@ Lean-side builds borrow the environment of the measurement target repository via
 (decided 2026-08-19, user's call) — because the site's JS became
 TypeScript and `crates/litedoc4-render/build.rs` came to run vite and bake `app.js` into
 `OUT_DIR`. **The artefact is not in the repository.**
-**Users do not pay for node** — the workspace is `publish = false`, and distribution is the musl
-binaries that `release.yml` bakes. The ones who pay are those who build from source, i.e.
-developers and CI (which is why every workflow that runs cargo, and the cargo path in
+**Users do not pay for node** — the workspace is `publish = false`, and since 2026-08-31 nothing
+cargo builds is distributed at all (→ "Nothing is distributed as a binary" above). The ones who
+pay are those who build the Rust half, i.e. developers and CI (which is why every workflow that runs cargo, and the cargo path in
 `action.yml`, has `setup-node` — **`tools/workflow-gate.sh` checks that rule rather than a count**;
 the count was written down as 8, corrected to 7 and made 9 by two new workflows on the same day).
 **There is no fallback.** If node is absent, `build.rs` fails — "build it if it is there, use the
@@ -465,8 +469,8 @@ What CI holds besides lints: **rustdoc links**
   Before running a gate that starts a long-lived process, look at `pgrep -f 'litedoc4 watch'`.
   General form: **a long-lived process sharing a work area makes its failures look like the work area's fault.**
 - **To take a measured CI value without turning main red: push a branch + `gh workflow run <wf> --ref <branch>`**
-  — **a branch push starts nothing**: every `push:` trigger in the tree is limited to `main`, and
-  `release.yml`'s to `v*` tags (measured 2026-08-29). **`pull_request:` does not filter**, so opening a PR does start `ci.yml`,
+  — **a branch push starts nothing**: every `push:` trigger in the tree is limited to `main`
+  (measured 2026-08-29). **`pull_request:` does not filter**, so opening a PR does start `ci.yml`,
   `ci-action.yml`, `ci-lake.yml` and `ci-lean-versions.yml` (each behind its own `paths:`); the
   other nine are `workflow_dispatch` only. **`workflow_dispatch` needs the workflow to exist on the
   default branch** — a new one on a branch cannot be dispatched by name at all, and the way to run
