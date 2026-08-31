@@ -163,6 +163,9 @@ def parseConfig (text : String) : Except String ConfigKeys := Id.run do
   -- reading the file and deciding what it said are not two answers.
   return .ok { title := title.filter (fun t => !(trimWs t).isEmpty), index }
 
+def unreadable (path : FilePath) (e : IO.Error) : IO.Error :=
+  IO.userError s!"{path}: {e}"
+
 /-- `<root>/litedoc4.toml`, or the empty configuration when `root` is `none` or
 holds no such file. -/
 def readSiteConfig (root : Option FilePath) : IO SiteConfig := do
@@ -172,13 +175,18 @@ def readSiteConfig (root : Option FilePath) : IO SiteConfig := do
       pure (some (← IO.FS.readFile path))
     catch
       | .noFileOrDirectory .. => pure none
-      | e => throw e
+      | e => throw (unreadable path e)
   let some text := text | return {}
   let keys ← match parseConfig text with
     | .ok keys => pure keys
     | .error message => throw (IO.userError s!"{path}: {message}")
   let indexMarkdown ← match keys.index with
-    | some relative => pure (some (← IO.FS.readFile (root / relative)))
+    | some relative =>
+      let resolved := root / relative
+      let markdown ← try
+          IO.FS.readFile resolved
+        catch e => throw (unreadable resolved e)
+      pure (some markdown)
     | none => pure none
   return { title := keys.title, indexMarkdown }
 

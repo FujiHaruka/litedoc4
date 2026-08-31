@@ -70,17 +70,13 @@ exit 3
 | litedoc4: root/lakefile.toml: no [[lean_lib]] block. A package with no library has no modules to document; if it has one under another spelling, pass --lib <Name>
 |
 
-# The line number is the one difference in the seven, and it is a defect on the
-# Lean side: for a block that runs to the end of a file terminated by a newline,
-# Lean's splitter yields an empty final line and counts it.
 @case lakefile-lean-lib-no-name
-rust-differs Rust says "ending at line 2" — it does not count the empty line a trailing newline leaves behind
 file root/lakefile.toml
 > [[lean_lib]]
 > leanOptions = {}
 argv modules --root root
 exit 3
-| litedoc4: root/lakefile.toml: the [[lean_lib]] block ending at line 3 has no `name` key. Lake fills that in from the package, and inventing the value here would glob a module root nobody wrote down. Pass --lib <Name>
+| litedoc4: root/lakefile.toml: the [[lean_lib]] block ending at line 2 has no `name` key. Lake fills that in from the package, and inventing the value here would glob a module root nobody wrote down. Pass --lib <Name>
 |
 
 @case lakefile-lean-lib-extra
@@ -160,18 +156,17 @@ exit 1
 | litedoc4: root/litedoc4.toml: line 2: `title` is given twice
 |
 
-# Not the OS tail alone: Rust prints one line, `litedoc4: <path>: <strerror>`,
-# and Lean prints the whole of its `IO.Error`, which puts the path on a second
-# line and drops the framing. `<varies>` cannot span a line break. The number
-# inside it is the one part that is the OS's, so that much is a wildcard; the
-# words around it are Lean's own constant.
+# Both halves name the file in the same framing; what is left is the OS text and
+# the line count, because Lean's `IO.Error` renders the file again on a second
+# line of its own. `<varies>` cannot span a line break, so the wildcard is the
+# error number and the words around it are Lean's own constant.
 @case config-index-not-there
-rust-differs Rust says one line: litedoc4: root/docs/nope.md: No such file or directory (os error 2)
+rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: root/docs/nope.md: No such file or directory (os error 2)
 file root/litedoc4.toml
 > index = "docs/nope.md"
 argv global --ir does-not-exist --out o --root root
 exit 1
-| litedoc4: no such file or directory (error code: <varies>)
+| litedoc4: root/docs/nope.md: no such file or directory (error code: <varies>)
 |   file: root/docs/nope.md
 |
 
@@ -216,16 +211,16 @@ exit 3
 | litedoc4: map.json: no `roots` array
 |
 
-# Both halves refuse this body; they disagree about which missing key to name
-# first. Rust answers `root`, Lean answers `requestedNames`.
+# This row and the next one are the *order* the keys are answered in: `{}` is
+# missing all of them and has to name `root`, and a root that has `root` and
+# `base` has to name `requestedNames`. One row cannot ask that.
 @case deps-map-root-empty
-rust-differs Rust says: a root with no `root` string — Lean answers requestedNames first; the reorder in src/Litedoc4/DepsDocs.lean is pending
 file map.json
 > {"version":1,"roots":[{}]}
 stdout-not-frozen render reports how the external links resolved before it opens the map
 argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
 exit 3
-| litedoc4: map.json: a root with no `requestedNames` number
+| litedoc4: map.json: a root with no `root` string
 |
 
 @case deps-map-root-no-requested-names

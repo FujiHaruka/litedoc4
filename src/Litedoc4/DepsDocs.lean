@@ -482,14 +482,17 @@ def parseDepsDocsMap (path : FilePath) (text : String) :
         | .str link => out := out.push (key, link)
         | _ => return .error (3, s!"{path}: `{name}.{key}` is not a string")
       return .ok out
-    let some (.num requested) := jvalGet? site "requestedNames"
-      | return refuse "a root with no `requestedNames` number"
+    let number (name : String) : Except (UInt32 × String) Nat :=
+      match jvalGet? site name with
+      | some (.num v) => .ok v.toNat
+      | _ => .error (3, s!"{path}: a root with no `{name}` number")
     let entry : Except (UInt32 × String) ResolvedSite := do
       let root ← field "root"
       let base ← field "base"
+      let requested ← number "requestedNames"
       let declarations ← entries "declarations"
       let modules ← entries "modules"
-      return { root, requestedNames := requested.toNat
+      return { root, requestedNames := requested
                docs := mkDepDocs base declarations modules }
     match entry with
     | .error e => return .error e

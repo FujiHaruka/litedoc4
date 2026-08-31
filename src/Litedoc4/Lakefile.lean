@@ -94,7 +94,7 @@ def leanLibs (text : String) (path : FilePath) : Except String (Array String) :=
   if (text.splitOn "'''").length > 1 then
     return .error s!"{path}: multi-line strings are not read — inside one, a line can be \
       anything, and this recogniser reads a leading `[` as a table header. Pass --lib <Name>"
-  let lines := text.splitOn "\n"
+  let lines := linesOf text
   let mut names : Array String := #[]
   let mut open_ : Option (Option String) := none
   let mut number := 0
@@ -127,7 +127,7 @@ def leanLibs (text : String) (path : FilePath) : Except String (Array String) :=
       return .error s!"{path}:{number}: a second `name` in one [[lean_lib]] block. \
         Pass --lib <Name>"
     open_ := some (some name)
-  match close path lines.length open_ names with
+  match close path lines.size open_ names with
   | .error message => return .error message
   | .ok updated => names := updated
   if names.isEmpty then

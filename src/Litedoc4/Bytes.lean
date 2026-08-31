@@ -23,6 +23,22 @@ namespace Litedoc4
       ||| (((byteAt s (i + 2)).toUInt32 &&& 0x3F) <<< 6)
       ||| ((byteAt s (i + 3)).toUInt32 &&& 0x3F), 4)
 
+/-- Rust's `str::lines`: split on `\n`, drop one `\r` before it, and no empty
+final line for a text that ends in a newline. -/
+def linesOf (s : String) : Array String := Id.run do
+  let n := s.utf8ByteSize
+  let mut out : Array String := #[]
+  let mut a := 0
+  let mut i := 0
+  while i < n do
+    if byteAt s i == 10 then
+      let e := if i > a && byteAt s (i - 1) == 13 then i - 1 else i
+      out := out.push (byteSub s a e)
+      a := i + 1
+    i := i + 1
+  if a < n then out := out.push (byteSub s a n)
+  return out
+
 /-- `String.lt` is code-point order, and UTF-8 byte order coincides with it. -/
 def byteLt (a b : String) : Bool := Id.run do
   let na := a.utf8ByteSize
