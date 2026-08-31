@@ -32,6 +32,9 @@
 
 set -uo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ARTEFACTS="$HERE/site-artefacts.txt"
+
 SHOW=10
 REF=""
 CAND=""
@@ -48,6 +51,7 @@ done
 [ -n "$REF" ] && [ -n "$CAND" ] || { echo "usage: $0 REFERENCE_DIR CANDIDATE_DIR [--show N]" >&2; exit 2; }
 [ -d "$REF" ] || { echo "no such directory: $REF" >&2; exit 1; }
 [ -d "$CAND" ] || { echo "no such directory: $CAND" >&2; exit 1; }
+[ -s "$ARTEFACTS" ] || { echo "no whole-package inventory at $ARTEFACTS" >&2; exit 2; }
 
 # Every file: an extension filter would report a full site while comparing three
 # quarters of one.
@@ -80,24 +84,30 @@ n_same=$(( n_common - n_differ ))
 # Counted apart as well as together: the denominator is dominated by module
 # pages, so the whole-package artifacts can fail inside it without moving the
 # percentage that gets quoted.
-ARTIFACTS=(
-  ./declarations/declaration-data.bmp
-  ./declarations/name-map.json
-  ./navbar.html
-  ./tactics.html
-  ./references.bib
-  ./references.html
-)
-artifacts_bad=0
-artifacts_seen=0
-for f in "${ARTIFACTS[@]}"; do
+#
+# The names come from tools/site-artefacts.txt rather than a list here, because
+# a list here is what rotted: the six doc-gen4-era names this file used to carry
+# are the same six clone-gate.sh carried, five of which litedoc4 deliberately
+# does not write, so the line reported `-4/6` on two identical litedoc4 sites
+# (measured 2026-08-31). Absent and present are counted apart: a reference from
+# another generator legitimately has none of them, and that is not the same
+# answer as having them and disagreeing.
+n_artefacts=0
+artefacts_same=0
+artefacts_bad=0
+artefacts_absent=0
+while IFS= read -r f; do
+  n_artefacts=$(( n_artefacts + 1 ))
   if [ -f "$REF/$f" ] && [ -f "$CAND/$f" ]; then
-    artifacts_seen=$(( artifacts_seen + 1 ))
-    cmp -s "$REF/$f" "$CAND/$f" || artifacts_bad=$(( artifacts_bad + 1 ))
+    if cmp -s "$REF/$f" "$CAND/$f"; then
+      artefacts_same=$(( artefacts_same + 1 ))
+    else
+      artefacts_bad=$(( artefacts_bad + 1 ))
+    fi
   else
-    artifacts_bad=$(( artifacts_bad + 1 ))
+    artefacts_absent=$(( artefacts_absent + 1 ))
   fi
-done
+done < <(grep -v '^[[:space:]]*#' "$ARTEFACTS" | grep .)
 
 echo "reference : $n_ref files ($REF)"
 echo "candidate : $n_cand files ($CAND)"
@@ -105,7 +115,7 @@ echo "identical : $n_same"
 echo "differing : $n_differ"
 echo "missing   : $n_missing (in reference, not in candidate)"
 echo "extra     : $n_extra (in candidate, not in reference)"
-echo "artifacts : $(( artifacts_seen - artifacts_bad ))/6 of the whole-package six identical"
+echo "artifacts : $artefacts_same/$n_artefacts named in tools/site-artefacts.txt identical, $artefacts_bad differing, $artefacts_absent absent from one side or both"
 
 show_list() {
   local title="$1" file="$2"

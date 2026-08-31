@@ -185,6 +185,33 @@ M6 以降に効く残りだけ:
 3 回の run を互いに比べる）。M9 に入る前に、比較器が持っていた問いのどれを
 オラクル無しの形に移すかを決めること。
 
+#### M5's evidence was narrower than it said (found 2026-08-31, list fixed the same day)
+
+`tools/incremental-reference.sh` carried **a fifth copy of the doc-gen4 six-name
+artefact list**, and `copy_globals` wrote an `.absent` marker for every name a run
+did not produce. Five of the six are names litedoc4 never writes, so each
+scenario's `<s>-global/` held **one real file and five absences that agreed with
+themselves on both sides** — the shape `tools/site-artefacts.txt`'s own header
+records for `clone-gate.sh` in 2026-08-29. The eight artefacts litedoc4 *does*
+derive were compared by nothing.
+
+The list now comes from `site-artefacts.txt`, and `copy_globals` writes
+`<s>-global.count.txt` so the denominator is in the record: **9 compared, 3
+absent** where it used to be 1 compared, 5 absent (the three are `build`'s
+assets, legitimately absent from a `global` derivation).
+
+**The 3,145/3,145 stands for what it compared**, and what it compared was
+smaller than the header claimed. **The incremental recordings have to be retaken
+on both halves with the corrected list before M5's evidence covers what it says**
+— that is the first thing to do after this, and both recordings are gone from
+`/private/tmp` (the reproduction table above says how).
+
+**The general form nobody applied**: when the first two copies of that list were
+collected into `site-artefacts.txt` on 2026-08-29, the fix was not raised to
+"where else is this judgement made". Four more copies have been found since, one
+per place that compares a site. CLAUDE.md's "Fixing defects" rule is the one that
+would have caught them.
+
 #### M5 が残した、次に効く事実
 
 - **`ownership` は bimodal**。`lostOwners` と `gainedOwners` がどちらも空なら base の IR を
@@ -361,8 +388,54 @@ M6 以降に効く残りだけ:
   **`conditions.txt` が無いだけの、一見それらしいディレクトリ**を残した（実測 2026-08-31）
 
 ### M8 対象リポジトリ全体で一致
-- **完了判定**: 432 モジュールで **422/422 バイト一致**、
-  `build-gate.sh` / `corpus-gate.sh` / `lean-versions-gate.sh` が Lean 実装で緑
+
+The criterion below replaces the one this section carried
+("432 モジュールで 422/422 バイト一致、`build-gate.sh` / `corpus-gate.sh` /
+`lean-versions-gate.sh` が Lean 実装で緑"). Two of its three gate clauses were
+not statements about the Lean half at all, and its denominator was the 432 that
+left the sources:
+
+- **`corpus-gate.sh` cannot be green "with the Lean implementation", and no flag
+  can make it so.** Its 21 inventory entries are `#[ignore]`d **Rust tests** that
+  call `litedoc4_render::…`, `litedoc4_ir::…` and friends **in process**; there
+  is no `litedoc4` executable in it to select. Turning it into a claim about the
+  Lean half means rewriting fourteen in-process comparisons as subprocess ones,
+  i.e. writing a different gate. It stays a Rust-half gate and goes with
+  `crates/` at M10. **What must not happen is ticking this clause by running the
+  Rust gate** — and it also needs `cargo`, which `target/debug` no longer has.
+- **`lean-versions-gate.sh` is about the extractor, which was Lean before M1.**
+  It compares one IR tree per toolchain, and the IR is written by
+  `extractor/Extract.lean`. Driving `tools/e2e-micro.sh` with the Lean CLI
+  instead of the Rust one would re-measure the extractor's toolchain
+  independence with a different (irrelevant) driver — the "gate that agrees with
+  itself" shape. **The real gap it sits next to is a different one**: the Lean
+  half has never been *compiled* on any toolchain but v4.31.0 (`ci-lake.yml`
+  runs the `purelean-*` gates at `e2e/consumer/lean-toolchain`;
+  `ci-lean-versions.yml` builds the **Rust** binary), and
+  `tools/lean-toolchains.txt` promises four. That is a `ci-lean-versions.yml`
+  change and belongs with M9's rewrite of it.
+
+- **完了判定**: one `litedoc4 build` over the whole target from each half writes
+  `--out` trees that are **867 of 871 files identical** (site 434/434, ir 426/426,
+  `ledger.json` / `link-index.lidx`(+`.key`) / `litedoc4-build.json` / `state/` /
+  `work/modules.txt` / `work/ledger-detect.json`, with `work.irReads`
+  `{index:3, module:844, depMap:6, total:853}` on both), **stdout 21 of 22 lines
+  byte-identical** (the 22nd is `--timings`' summary JSON, where 4 of 25 keys
+  differ and all four are `*Seconds`), **stderr empty on both**, and
+  `build-gate.sh` green **driving each half**.
+  → **The first half is done** (2026-08-31 →
+  `benchmarks/results/purelean-target-build-2026-08-31.txt`). All four files that
+  differ are under `work/`: three are written by the **same extractor binary** and
+  carry wall clock, the fourth is `work/ledger-timings.json`, which only Rust
+  writes — its four values are durations and its fifth is `concurrency` (Rust 8,
+  Lean 1 because the Lean ledger hashes sequentially), so writing it could not
+  make the tree identical. M9 decides whether it is written at all.
+  **`build-gate.sh` has no verdict yet**: rebuilding the clone's own oleans drove
+  swap up 2 GiB in 90 s on this 16 GB machine and 3.8 GiB free will not carry it
+  to the end (measured — the log's "Why build-gate has no verdict here"). The
+  `LITEDOC4` variable is in and was **made to fail before being believed** (a stub
+  proved the call site's argv and `conditions()`). **What is left of M8 is
+  `build-gate.sh all` for both halves on a machine with disk.**
 
 ### M9 切替 — 配布モデルを変える（**ここから不可逆**）
 - `action.yml` の binary 解決を廃止 / `lakefile.lean` の `resolveLitedoc4` 250 行削除 /

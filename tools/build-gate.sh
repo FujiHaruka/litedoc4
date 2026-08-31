@@ -6,6 +6,12 @@
 #                            [--jobs N] [--move-module <Module>] [--lib <Name>]
 #   phases: gate1 | gate2 | gate3 | gate4 | reset | all
 #
+#   LITEDOC4  the binary under test (default target/release/litedoc4), same
+#             spelling as tools/*-reference.sh and tools/watch-gate.sh. Every
+#             phase but `gate1` reads the tree an earlier phase left in $OUT, so
+#             a second half needs its own `--out`: pointed at the first half's,
+#             `gate2` would judge one binary's rerun against the other's site.
+#
 # What a failing phase means:
 #   1  the IR `build` derived on its own (module list, source URL, resident
 #      extractor) is no longer byte-identical to the independently extracted
@@ -34,7 +40,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$REPO/tools/lib/target.sh" || exit 1
 # shellcheck source=lib/common.sh
 . "$REPO/tools/lib/common.sh" || exit 1
-RUST_BIN="$REPO/target/release/litedoc4"
+LITEDOC4="${LITEDOC4:-$REPO/target/release/litedoc4}"
 EXTRACT_BIN="${EXTRACT_BIN:-$REPO/extractor/build/extract}"
 SETUP_CLONE="$REPO/tools/setup-clone.sh"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
@@ -85,8 +91,8 @@ esac
 [ -d "$CLONE" ] || { echo "missing clone: $CLONE" >&2; exit 1; }
 [ -f "$LIDX" ] || { echo "missing link index: $LIDX" >&2; exit 1; }
 [ -x "$EXTRACT_BIN" ] || { echo "missing extractor: $EXTRACT_BIN" >&2; exit 1; }
-[ -x "$RUST_BIN" ] || {
-  echo "missing: $RUST_BIN — run: cargo build --release -p litedoc4" >&2; exit 1; }
+[ -x "$LITEDOC4" ] || {
+  echo "missing: $LITEDOC4 — run: cargo build --release -p litedoc4, or set LITEDOC4" >&2; exit 1; }
 
 WORK="$OUT/work"
 mkdir -p "$OUT" "$WORK"
@@ -203,7 +209,7 @@ require_baseline () { # require_baseline <tag>
 # is what this gate had never got past (measured 2026-08-29).
 build () { # build <out dir> <log> [extra args…]
   local out="$1" log="$2" code=0; shift 2
-  "$RUST_BIN" build --root "$CLONE" --out "$out" --lib "$LIB" --link-index "$LIDX" \
+  "$LITEDOC4" build --root "$CLONE" --out "$out" --lib "$LIB" --link-index "$LIDX" \
     --extractor-bin "$EXTRACT_BIN" --jobs "$JOBS" \
     --timings "$out.timings.json" "$@" > "$log" 2>&1 || code=$?
   # Without this the run ends on `set -e` with the refusal still inside the log
@@ -385,6 +391,8 @@ conditions () {
     printf 'jobs              %s\n' "$JOBS"
     printf 'link index        %s (%s B)\n' "$LIDX" "$(wc -c < "$LIDX" | tr -d ' ')"
     printf 'reference IR      %s\n' "$REF_IR"
+    printf 'litedoc4          %s (%s)\n' \
+      "$LITEDOC4" "$("$LITEDOC4" --version 2>/dev/null || echo '?')"
     printf 'rustc             %s\n' "$(rustc --version 2>/dev/null || echo '?')"
   } > "$OUT/conditions-$PHASE.txt"
   cat "$OUT/conditions-$PHASE.txt"

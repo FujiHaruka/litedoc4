@@ -1,0 +1,264 @@
+M8 — one `litedoc4 build` over the whole measurement target, from both halves
+============================================================================
+
+2026-08-31. `purelean-render-gate.sh` already compares `render` on this target
+(422/422 pages). This is the pipeline **around** it, which had only ever been
+compared on the eleven-module sample: the module glob, the lakefile reading, the
+source URL, the resident extractor, the ledger, the assets, the whole-package
+artifacts and the marker.
+
+Conditions
+----------
+  hardware        Apple M1 / 16 GB / Darwin 25.6.0 arm64
+  target          /Users/haruka/dev/lean-projects @ 16ff7a4010e2fedee028a2014c927a479590c288
+                  **read only** — the only `git status` line before and after is
+                  its own untracked `docs/doc-gen-bench/`
+  modules         422 (not the 432 the frozen `it-modules.txt` still carries →
+                  `target-drift-2026-08-31.txt`)
+  toolchain       leanprover/lean4:v4.31.0; mathlib fabf563a7c95 (v4.31.0)
+  extractor       `extractor/build/extract`, 171,378,992 B — **one binary for
+                  both runs**, driven `--serve` (one request each)
+  Rust half       `target/release/litedoc4` 1.2.0, rustc 1.97.1 (8bab26f4f)
+  Lean half       `.lake/build/bin/litedoc4` 1.2.0, 5,781,776 B, built by
+                  `cd e2e/consumer && lake build litedoc4/litedoc4`
+  jobs            4
+  source URL      one fixed literal, the same string to both halves:
+                  `https://github.com/FujiHaruka/lean-projects/blob/16ff7a4010e2fedee028a2014c927a479590c288`
+                  40 lower-case hex after `/blob/`, which `build` requires and
+                  `render` / `site` do not. **Deliberately not derived** — the
+                  derivation reads git and HEAD moves under a comparison
+                  (measured, M4). It is not the string `derive_source_url` would
+                  produce here (the remote is `FujiHaruka/information-theory`);
+                  nothing below depends on which string it is, only on both
+                  halves getting the same one.
+  warmth          warm — the target had already been extracted in this session
+                  before either run
+  command         litedoc4 build --root <target> --out <out> --lib InformationTheory
+                    --source-url <url> --extractor-bin <extract> --jobs 4
+                    --timings <out>.timings.json
+                  `--lib` because the target's package is a `lakefile.lean` one
+                  and `build` refuses by design to read `lean_lib` out of Lean.
+
+The denominator
+---------------
+  Rust  871 files      Lean  870 files
+    site/                        434   422 module pages + 4 landing pages
+                                       (index / 404 / search / foundational_types)
+                                       + 8 non-HTML whole-package files
+                                       (modules.json, search-index.bin,
+                                       instances.json, declarations/name-map.json,
+                                       declarations/used-by.json, style.css,
+                                       app.js, favicon.svg)
+    ir/                          426   422 module files + index.json + deps/ ×3
+    state/                         1   global-state.json
+    work/                          6   Rust; 5 Lean (see below)
+    ledger.json                    1
+    link-index.lidx (+ .key)       2
+    litedoc4-build.json            1
+
+The result (measured)
+---------------------
+`/usr/bin/diff -r -q` over the two whole `--out` trees: **867 of 871 identical**,
+and every one of the four exceptions is under `work/`.
+
+  site/               434 / 434 identical   (tools/site-compare.sh: IDENTICAL,
+                      12/12 of tools/site-artefacts.txt identical)
+  ir/                 426 / 426 identical   (tools/render-compare.sh --all)
+  ledger.json         identical             139,185 B
+  link-index.lidx     identical
+  link-index.lidx.key identical
+  litedoc4-build.json identical             `work.irReads` included
+  state/              identical             global-state.json, 1,337,956 B
+  work/modules.txt    identical             422 lines
+  work/ledger-detect.json identical
+
+  work/extract-timings-1.json        differs — 18 of its 107 keys, every one a
+                                     duration (`analyze`, `linkIndex`, `total`,
+                                     `*Us`)
+  work/extract-timings-1-events.jsonl differs — 11 records, same key set, the
+                                     keys that ever differ are `us`, `*Us` and
+                                     `pid`
+  work/serve.out                     differs — the extractor's own log; the
+                                     lines that differ carry seconds
+  work/ledger-timings.json           **Rust writes it, Lean does not** — the
+                                     only file in the tree one half writes and
+                                     the other does not (see below)
+
+The first three are written by the **extractor**, the same binary in both runs,
+so they are not a statement about the two halves at all: they are one program's
+wall clock on two occasions.
+
+work.irReads — the reader's call pattern
+----------------------------------------
+Identical on both halves, and identical again on a repeat run:
+
+    index 3   module 844   depMap 6   total 853      (= 2.00 full passes over 422)
+
+This is a property of how many times each reader opened the IR, not of the
+output, so a Lean reader that took a different number of passes would show up
+here and in no byte of the tree.
+
+stdout
+------
+22 lines each. Under the **three** normalisations `purelean-micro-gate.sh` item
+14 already applies — a duration `N.NN s`, the `serve ready <ns>` figure, and the
+two runs' different `--out` — **21 of the 22 lines are byte-identical**,
+including
+
+    serve   ready <ns> 6011 422 (4 jobs, generation f6e916ab51ac78c6)
+    render  math spans kept as LaTeX 0
+    global  cache 0 hit / 422 miss  state 1337956 B
+    work    extract 422 / render 422 / math-fallback 0 / requests 1 / …
+
+The one line those three rules do not reach is the summary JSON, which
+`--timings` adds and which the micro gate's `build` never prints (it passes no
+`--timings`). Parsed rather than normalised: **25 flattened keys, 4 differ, and
+all four are `*Seconds`** (`extractSeconds`, `renderSeconds`, `globalSeconds`,
+`totalSeconds`). The `--timings` file is the same record — 518 B on both sides,
+the same 25 keys, the same 4 durations differing.
+
+**stderr is byte-identical: both runs wrote nothing to it.** (Both `.err` files
+hold `/usr/bin/time -l`'s report and nothing else — 18 lines, 0 of them from the
+program.)
+
+Reproducibility
+---------------
+A second Lean run into a fresh `--out`, same session, same inputs: identical to
+the first Lean run in every file **including `litedoc4-build.json`**, except the
+same three extractor-written timing files. Re-compared against the Rust run it
+reproduces the result above exactly. So the agreement is a property of the two
+implementations, not of one lucky pair of runs.
+
+Durations — not a performance claim
+-----------------------------------
+Single runs, warm, recorded only so the conditions are complete. Do **not** quote
+these as a comparison; five converging runs is what this repository requires of a
+performance number and these are not that.
+
+                    real     user      sys   peak RSS   extract  render  global
+  Rust half        23.40 s  16.71 s   3.53 s   3.37 GB   22.470   0.502   0.100
+  Lean half        23.83 s  22.33 s   2.99 s   3.34 GB   17.132   2.338   1.768
+
+The wall clocks are dominated by the extractor, which is the same binary; that
+its two runs differ by 5.3 s on the same warm tree is the page-cache spread this
+repository already records, and it is why the stage figures cannot be read
+against each other from one run apiece.
+
+What this found
+---------------
+1. **`work/ledger-timings.json` is written by the Rust `build` and not by the
+   Lean one.** `crates/litedoc4/src/build.rs` hands `build_ledger` a `timings`
+   path unconditionally in `full_generation`; `src/Litedoc4/Build.lean`'s
+   `fullGeneration` discards the `BuildPhases` the same call returns.
+
+   It was **not** fixed here, and the reason is not effort. The file's four
+   values are all durations, so writing it could never make the tree identical —
+   it would only move this line from "missing" to "differs". Its fifth field is
+   `concurrency`, which Rust fills from `hash_concurrency()` (8 here) and Lean
+   would have to fill with 1, because the Lean ledger hashes one module at a
+   time (`sequentialNote`, decided at M4 → `purelean-sha256-2026-08-31.txt`).
+   Writing 8 from the Lean half would be recording a parallelism that did not
+   happen. So the choice is between "absent" and "present and different", and
+   nothing in this repository promises the file: it is a diagnostic in `work/`,
+   it is on no gate's list, and `tools/public-surface.txt` does not name it. It
+   is recorded here so that M9 decides it rather than discovers it.
+
+2. **The `external note:` on a missing `lake-manifest.json` is one line in Rust
+   and two in Lean, with the path repeated.** Both halves build it from the same
+   template (`{path}: {e}. Without it no dependency's revision is known …`); the
+   difference is entirely inside Lean's rendering of `IO.Error`, which is
+   multi-line. That is the **second** consequence of a divergence M7 already
+   decided (Rust `No such file or directory (os error 2)` against Lean
+   `no such file or directory (error code: 4294967294)`); M7 recorded the wording
+   and not the shape. Writing a one-line renderer for `IO.Error` is the same
+   thing M7 refused — transcribing another runtime's error table.
+   Measured on a `--root` that is not a Lake package: both halves exit 3, and
+   **stderr is byte-identical**; only this one stdout line differs.
+
+3. **`tools/site-compare.sh` carried the doc-gen4-era artefact list** — the same
+   six names `tools/site-artefacts.txt`'s header records `clone-gate.sh` having
+   carried, five of which litedoc4 deliberately does not write. On two identical
+   litedoc4 sites it printed
+
+       artifacts : -4/6 of the whole-package six identical
+
+   a negative count nobody could attribute. The fix that had already been made
+   in `clone-gate.sh` on 2026-08-29 had not been raised to its general form: the
+   judgement lived in a third place. It now reads `tools/site-artefacts.txt` and
+   counts absent apart from differing (a reference from another generator has
+   none of these, which is not the same answer as having them and disagreeing).
+   Made to fail twice before being believed: renaming `search-index.bin` in the
+   inventory printed `11/12 … 1 absent`, and hiding the inventory exits 2.
+
+   The line does not decide the verdict, and did not before: what fails a
+   comparison is the whole-tree missing / extra / differing count.
+
+4. **`tools/build-gate.sh` hardcoded `RUST_BIN=$REPO/target/release/litedoc4`** —
+   the same defect the four `*-reference.sh` had at M5. It now reads `LITEDOC4`,
+   the spelling `tools/*-reference.sh` and `tools/watch-gate.sh` use, and
+   `conditions()` records the binary that produced the numbers
+   (`litedoc4  <path> (<--version>)`) beside `rustc`. Nothing else in the gate
+   assumed the Rust half: the stdout lines `counts()` greps and the
+   `plan    incremental` / `0 to re-extract` strings gates 2 and 3 look for are
+   written by both halves from the same spellings, and `--full`, `--lib`,
+   `--jobs`, `--link-index`, `--extractor-bin` and `--timings` are all
+   implemented on the Lean side since M7.
+
+Why build-gate has no verdict here (measured)
+---------------------------------------------
+The gate needs an APFS clone of the target whose **own oleans were rebuilt at the
+clone's path** (`tools/rebuild-own.sh`), and this machine could not afford it
+today. The clone itself is free — `cp -Rc` of the 12 GB tree took 35.9 s and cost
+about 0.1 GiB — but the rebuild is a from-scratch `lake build` of 422
+Mathlib-dependent modules on 16 GB of RAM, and:
+
+    free on /            5.8 GiB after the clone
+    free on /            3.8 GiB ~90 s into the rebuild, 57 of 422 oleans done
+    /System/Volumes/VM  28 GiB -> 30 GiB over the same interval
+
+The 2 GiB that left the disk went into swapfiles, not into build products, and
+macOS did not give it back when the build was killed (free returned to 3.8 GiB
+after the clone was deleted; the VM volume stayed at 30 GiB). Extrapolating the
+same rate over the remaining 365 modules puts the run past the free space, and
+the failure mode when this disk fills is the one already recorded for
+2026-08-17: the target repository's own state breaks and the means of recovery
+goes with it. The run was stopped and the clone removed; the target was verified
+untouched (705 oleans, one untracked path, the same as before).
+
+So `build-gate.sh` was exercised as far as it can be without a clone:
+
+  * `LITEDOC4=/nope/litedoc4` → `missing: /nope/litedoc4 — run: cargo build
+    --release -p litedoc4, or set LITEDOC4`, exit 1 (the break-once).
+  * `gate4` with `LITEDOC4` pointing at a stub that prints its argv and exits 7 →
+    the gate reported `litedoc4 build FAILED (exit 7)` and the log held the stub's
+    own name and the full argument list, so the call site drives whatever
+    `LITEDOC4` names.
+  * `gate4` driven by each real half over a fake `--root`: both exited 3, the
+    gate reported both identically, and their stderr was byte-identical (this is
+    where finding 2 came from).
+  * `gate4` completed end to end against a stub that writes the shape the gate
+    counts, so `conditions()` really printed
+    `litedoc4  <path> (litedoc4 0.0.0-stub)`.
+
+What is still not measured
+--------------------------
+**The Lean half is built on one toolchain only.** `tools/lean-toolchains.txt`
+promises four rows (v4.31.0 / v4.32.2 / v4.33.0 / v4.33.1); `ci-lake.yml` runs
+the `purelean-*` gates at whatever `e2e/consumer/lean-toolchain` pins, which is
+v4.31.0, and `ci-lean-versions.yml`'s matrix — one job per row of that file —
+drives `tools/e2e-micro.sh` with `cargo build --bin litedoc4`, i.e. the **Rust**
+half.
+So no workflow has ever compiled `src/Litedoc4/` against v4.32.2 or v4.33.0.
+Everything above is v4.31.0 / macOS arm64. Do not read it as "probably fine" —
+that is the shape the extractor's v4.33.0 build failure had (2026-08-18) and the
+shape `ci-lean-versions.yml` exists to stop.
+
+Gates re-run afterwards, all green
+----------------------------------
+  purelean-micro-gate.sh   16 of 16 items reported, failed 0
+  purelean-render-gate.sh   6 of 6 items reported, failed 0
+  public-surface-gate.sh   10 action inputs, 4 outputs, 16 build flags,
+                           13 watch flags, 2 config keys — present in both halves
+  workflow-gate.sh         27 gates inventoried, 22 run by a workflow, 5 manual;
+                           9 workflows run cargo and all install node
+  docs-gate.sh             227 measurement-log citations all resolve

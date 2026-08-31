@@ -76,7 +76,11 @@
 #                        when the changed set is empty and the mode is not `all`,
 #                        and that absence is an answer, not a gap in the recording.
 #   <s>-ir/              the whole IR tree the run left behind, byte for byte
-#   <s>-global/          the six whole-package artifacts, byte for byte
+#   <s>-global/          the whole-package artifacts named by
+#                        tools/site-artefacts.txt, byte for byte, with a
+#                        `<s>-global.count.txt` saying how many of them the run
+#                        actually wrote — the three assets are `build`'s and are
+#                        absent here by construction
 #   <s>-pages.txt        which pages exist; <s>-pages-count.txt
 #   <s>-sitecheck.txt    the within-run page-byte oracle, skipped by the comparator
 
@@ -222,8 +226,21 @@ guard_writable () { # guard_writable <path>
   esac
 }
 
-GLOBAL_ARTIFACTS="declarations/declaration-data.bmp declarations/name-map.json \
-navbar.html tactics.html references.html references.bib"
+# Read from the inventory, never written down here. The six names this line
+# used to carry were doc-gen4's, and **five of them litedoc4 never writes** — so
+# `copy_globals` recorded five `.absent` markers that matched on both sides of
+# every comparison, and the eight artifacts litedoc4 *does* derive were compared
+# by nothing (measured 2026-08-31). It was the fifth copy of that list;
+# `site-artefacts.txt`'s own header records two of the others and
+# `tools/{global,site}-compare.sh` were the third and fourth.
+#
+# The three assets in the inventory (`app.js`, `favicon.svg`, `style.css`) are
+# `build`'s and not a `global` derivation's, so they are legitimately absent
+# here — which is why absence is still recorded rather than skipped, and why
+# the count below says how many were really compared.
+GLOBAL_ARTIFACTS="$(grep -v '^#' "$REPO/tools/site-artefacts.txt" | grep -v '^[[:space:]]*$')"
+[ -n "$GLOBAL_ARTIFACTS" ] || {
+  echo "no whole-package inventory at $REPO/tools/site-artefacts.txt" >&2; exit 1; }
 
 # Files a run does not produce are recorded as absent rather than skipped.
 WORK_FILES="changed.txt removed.txt render-all.txt seen.txt ir-changed.txt \
@@ -277,16 +294,21 @@ copy_work () { # copy_work <name> <work dir>
 }
 
 copy_globals () { # copy_globals <dest dir> <page tree>
-  local dest="$1" pages="$2" f
+  local dest="$1" pages="$2" f present=0 absent=0
   rm -rf "$dest"
   for f in $GLOBAL_ARTIFACTS; do
     mkdir -p "$dest/$(dirname "$f")"
     if [ -f "$pages/$f" ]; then
       cp "$pages/$f" "$dest/$f"
+      present=$((present + 1))
     else
       printf 'absent\n' > "$dest/$f.absent"
+      absent=$((absent + 1))
     fi
   done
+  # The denominator, in the record: "six artifacts" was the claim while five of
+  # them were absent markers, and a count is what stops that being sayable again.
+  printf '%s compared, %s absent\n' "$present" "$absent" > "$dest.count.txt"
 }
 
 page_list () { # page_list <name> <page tree>
