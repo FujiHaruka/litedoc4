@@ -1,0 +1,48 @@
+The 16 branches no real package reaches
+=======================================
+2026-08-31. Transcribed from `crates/litedoc4-incr/tests/impact.rs`
+(`NO_REAL_DATA_REACHES`, line 239) while carrying that crate's invariants into
+the Lean half. **This is a record, not a new measurement** — the list is the
+output of that file's coverage harness, which observed which branches an
+exercise over the real corpus reached and which only the curated fixtures did.
+The harness asserted the set had not changed, so the list was live until today.
+
+WHY IT IS WRITTEN DOWN
+----------------------
+The harness is a Rust `observe()` instrumentation with no Lean counterpart, and
+transcribing it would mean hand-carrying three ~50-name tables whose guards
+could only assert their own self-consistency. It is deliberately **not** carried
+(→ the `litedoc4-incr` tranche). But the list it produced is a fact about the
+**measurement target**, not about Rust: it says which shapes of the incremental
+machinery no real Lean package produces, and therefore which fixtures exist on
+purpose rather than by accident.
+
+Without it, someone tidying a curated fixture has no way to know that deleting
+it removes the only coverage of a branch.
+
+THE 16
+------
+  closureSeedReachesItself          a module in its own transitive closure
+  directoryEmptiedByOrphans         the orphan pass leaving a directory empty
+  impactPrintSetOmittedWithSelection
+  orphanInSubdirectory
+  orphansTruncatedInSummary         more orphans than the summary cap
+  pageIsDanglingSymlink
+  pathEscapeRefused                 a page path climbing out with `..`
+  pathOutsideRootRefused
+  pruneIndexRefusedShape
+  pruneJsonOmitted
+  removeListEmpty
+  removeListRepeated
+  selectedIrBytesRepeatedEntry
+  selectionEmpty                    an empty `--only-from`
+  selectionSortAboveBmp             a name above the BMP in the selection order
+  walkSkipsSymlinkedDirectory
+
+WHAT THIS DOES NOT SAY
+----------------------
+It is the set as of this commit, for `impact` and `prune` only, and it was
+produced by an exercise over one target (`/Users/haruka/dev/lean-projects`).
+A different package could reach some of them. It is evidence that the target
+does not, which is what makes the curated fixtures load-bearing rather than
+redundant.
