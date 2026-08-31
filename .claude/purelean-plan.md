@@ -492,16 +492,67 @@ left the sources:
 - **`pages.yml` も切り替えた**（`02570c9`）。公開サンプルは Lean 半分がビルドしている。
   `tools/e2e-micro.sh` は Lean バイナリで 17/17 通る（実測）ので、
   「配布は Lean、公開サンプルは Rust」という非対称は M10 を待たずに消えた
-- **残りはユーザー判断 2 つ**:
-  1. **`information-theory` のピンを上げる**（`docs.yml` の `@v1.2.0` → `v1.3.0`）—
-     **別リポジトリで、しかも CLAUDE.md が「計測対象にコミットするな」と言っている対象**
-  2. **GitHub Release を今後も出すか**。`release.yml` を消したので `v1.3.0` はタグだけで、
-     Releases ページの最新は `v1.2.0` のまま。ピンにはタグで足りるので、これは発見可能性の話
+- **残り 2 つは実物を見て決着した（2026-08-31、leg 8）。ユーザー判断ではなかった**:
+  1. **`information-theory` のピンを `v1.3.0` に上げた**（`88bc6f75`）。CLAUDE.md の
+     v1.0.0 節が **「リリースごとにこのピンを上げる」と明示している**ので判断事項ではない。
+     「計測対象にコミットするな」は Benchmarks 節の計測衛生（`.lake/packages/doc-gen4`）の話で、
+     ワークフローのピンは計測ワークロードを動かさない。`docs.yml` の trigger は
+     **タグ push と workflow_dispatch** なので、ピンのコミット自体では何も公開されない
+  2. **`v1.3.0` の GitHub Release を作った**。「今後も出すか」以前に、
+     **Releases ページの Latest が `v1.2.0` のまま = 嘘をついている状態**だった。
+     リポジトリ内から litedoc4 自身の Releases を指す参照は 0 件（`releases/` の
+     ヒットは全部 elan）なので機能依存は無く、これは発見可能性の修復。
+     なお CLAUDE.md が「実在する名前」として守れと書いている `v0.1.0`–`v0.1.3` の
+     アセット名があるため、**Releases を消す方向の掃除は取れない**
+- **M9 は実スケール・Linux でも通った（実測）** → `benchmarks/results/purelean-runner-2026-08-31.txt`。
+  対象 422 モジュールを Lean 半分がランナー上でドキュメント化し、ライブサイトに deploy された。
+  cold **87.8 s** / warm **6.1 s**、434 ファイル。**消費者が一度だけ払うのは 64.2 s**
+  （extractor 21.6 + litedoc4 42.6）。これまで Lean 半分の e2e は `e2e/micro`（11 ファイル）だけだった
 
 ### M10 Rust 削除
 - `crates/` を HEAD から削除、`rust-frozen` タグで凍結（`experiments-frozen` の前例）
 - この計画ファイルを削除
-- **完了判定**: `cargo` を名指しするワークフローが 0 本
+- **完了判定**: `cargo` を名指しするワークフローが 0 本。
+  **ただしこれを十分条件と読まないこと** — 582 tests が去っても満たせる（下記）
+
+#### M10 で本当に何が去るのか（leg 8 で調べた）
+
+**1. テスト suite。** `cargo test --workspace`（582 passing / 22 ignored）は
+CLAUDE.md の「緑」の定義そのもので、Lean 側は `src/` 53 モジュールに **0 tests**。
+`src/` にも root `lakefile.lean` にもテスト足場は無い。
+
+**2. 差分オラクル 3 本。** `purelean-gate.sh` / `purelean-micro-gate.sh`（16 items）/
+`purelean-render-gate.sh` は Rust バイナリをオラクルにしている。
+micro-gate の item 16 INCR だけが自前で「オラクル不要」と明記されている。
+
+**3. ゲートの書き換え。** `tools/*.sh` で cargo/crates をコメント以外で参照するのは
+**21 本**。ただし内訳が重要で、**大半は `$LITEDOC4` が未設定のときのヒント文字列だけ**
+（`cargo build --bin litedoc4`）で、バイナリは環境変数から取る作りになっている。
+実作業が要るのは 5 本:
+  - `corpus-gate.sh` — `cargo test --workspace --no-run` でテスト target を数える。**crates/ と一緒に死ぬ**
+  - `public-surface-gate.sh` — 1.x の約束を `crates/litedoc4/src/lib.rs` と
+    `crates/litedoc4-render/src/config.rs` から読んでいる。**`src/` に向け直す必要がある**
+  - `purelean-*-gate.sh` 3 本 — オラクルを失う
+
+#### 実測で分かっている良い知らせ
+
+**入口の拒否は既に一致している** → `benchmarks/results/purelean-refusal-diff-2026-08-31.txt`。
+CLI 入口の拒否 24 probe で **exit code の不一致 0 件**、stderr も 21/24 がバイト一致。
+残り 3 件は substrate（Rust の `std::io`/`serde_json` 対 Lean の `IO.Error`/自前 JSON）
+の語彙差で、litedoc4 自身の枠組みと主語と exit code は同じ。
+**ただし 24 probe は 556 tests ではない**。`litedoc4.toml` パーサには 1 probe も届いていない
+（そこは `config-gate.sh` が micro-gate item 12 で両半分について見ている）。
+
+#### 決める前に効く観察（leg 8）
+
+- **拒否テストはオラクルを要らない**。「不正入力を与えて exit != 0 と文言を assert する」
+  形なので、**何を assert すべきかを今 Rust から採れば**、以後は自己完結する。
+  オラクルが要るのはバイト比較の側だけ
+- **バイト比較の側はオラクルの出力を凍結できる**（`experiments-frozen` の前例）。
+  ただし **凍結はオラクルが生きているうちにしか鋳造できない** —
+  削除後に Lean 側から採った fixture は「正しい」ではなく「変わっていない」しか言わない。
+  代価は fixture の再生成コストで、こちらは `crates/*/tests/data` と違い
+  **再生成器（Lean 半分）が HEAD に残る**ので、あの罠はそのままは当てはまらない
 
 ## この計画が壊れる条件
 
