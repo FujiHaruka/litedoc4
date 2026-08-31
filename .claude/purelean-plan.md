@@ -347,7 +347,7 @@ Lean が出すようになったら「Generation landed, so delete the normalisa
 だが「空の `--out`」と「失敗した run が触った `--out`」は**別の状態**で、
 試行のあいだに `rm -rf` するゲートは後者を隠す。
 
-### M5 incremental — ledger / impact / ownership / merge / mode
+### M5 incremental — ledger / impact / ownership / merge / mode 【完了 2026-08-31】
 - ~~最初にやるのは `--state`~~ **2026-08-31 に済んだ**。`planOf` の検査 8 は通る
 - ~~次は `Generation`~~ **2026-08-31 に済んだ**。両バイナリが同じ digest
   （`d78f65c3ecda6961`）を出し、`.hash` sidecar を書き換えると**両方が同じ新しい値**
@@ -370,6 +370,10 @@ Lean が出すようになったら「Generation landed, so delete the normalisa
   `modulesExtracted` / `pagesRendered` を見るゲートなので、測っている対象は incremental
 - **完了判定**: `incremental-compare.sh` / `impact-compare.sh` / `merge-compare.sh` /
   `ledger-compare.sh` / `onemod-gate.sh` が Lean 実装で緑
+  → **2026-08-31 に 5 本とも緑。M5 完了**（U1〜U13）:
+  incremental **3,145/3,145** / impact **3,556/3,556** / merge **3,961/3,961** /
+  ledger **66/66** / `onemod-gate.sh` 緑。**5 本とも先に落としてから通した**。
+  micro ゲートは 14 → **16 項目**（12 の 2 つ目の綴り / 15 `--only-from` / 16 incremental）
 
 #### 完了判定そのものを直す必要がある（実測 2026-08-31）
 
