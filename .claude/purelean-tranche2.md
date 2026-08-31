@@ -510,3 +510,100 @@ that carries the mode.
 
 5. **`build-out-inside-root` and `watch-out-inside-root` are frozen; `extract`'s two are not.**
    The same `refuse_inside` rule has four CLI spellings and tranche 1 took two of them.
+
+---
+
+## 6. Corrections measured while freezing the first 20 rows (leg 10)
+
+Groups D and C are frozen in `tools/refusals-on-disk.txt`. Everything below was measured
+against both binaries on the exact fixture that is now committed, so it overrides §1–§5 where
+they disagree.
+
+**The row count moves 59 → 60, and 20 of them are frozen.** Group D is 8 of 8. Group C is 12,
+but not the twelve §2 lists: a **fourth** `litedoc4.toml` message exists that nothing counted,
+and **C12 is deferred** rather than approximated (below).
+
+1. **§3.1 is wrong: Rust refuses a repeated key too.** `title = "a"` twice gives
+   ``litedoc4: <path>: duplicate key: `title` at line 2 column 1``, exit 1 — it is not accepted.
+   Lean says ``line 2: `title` is given twice``. So the `litedoc4.toml` test carries **four**
+   distinct messages, not three; the fourth is frozen as `config-key-twice`.
+
+2. **C3 diverges, and §3's closing claim is falsified.** "the seven lakefile refusals … match
+   word for word" does not hold: for `[[lean_lib]]\nleanOptions = {}\n` Rust says
+   `the [[lean_lib]] block ending at line 2` and Lean says `line 3`. Narrowed by measurement —
+   they agree when the file has **no** trailing newline and when another table header follows,
+   and diverge whenever the block runs to the end of a newline-terminated file, i.e. the
+   ordinary shape. **Lean's splitter counts the empty final line.** A defect, not a wording
+   choice; the fix belongs in `src/Litedoc4/Lakefile.lean`.
+
+3. **C11 diverges structurally, not just in its OS tail.** Marked `[OS/PARSER TEXT]`, which
+   implies a prefix freeze would do. It would not: Rust prints one line
+   `litedoc4: root/docs/nope.md: No such file or directory (os error 2)`, Lean prints **two** —
+   `litedoc4: no such file or directory (error code: 4294967294)` and `  file: root/docs/nope.md`
+   — **losing the `litedoc4: <path>: ` framing entirely**. That is a user-visible regression in
+   `src/Litedoc4/Config.lean`'s `index` read, and it needs a decision rather than an automatic
+   fix. The row is frozen as Lean answers today.
+
+4. **Do not assume the ten `[OS/PARSER TEXT]` rows share one shape.** D1 and C11 are both "a
+   file that is not there" and Lean renders them differently: D1 keeps litedoc4's own
+   `<path>: <err>` wrapper on one line, C11 surfaces the raw `IO.Error`
+   (`fopenErrorToString` → `…\n  file: <fn>`). A wildcard is **per line** and cannot span that.
+   So "10 rows can be handled by a prefix" has to be **measured row by row**; at least one of
+   the ten cannot.
+
+5. **D2 is a real divergence, not an OS tail.** Rust `expected ident at line 1 column 2`;
+   Lean `a value was expected at 0, and byte 110 begins none`. Two independent JSON readers.
+
+6. **D8's fixture is not `"declarations": []`.** An array is not an object, so that body gives
+   D7's message. The fixture has to be an object holding a non-string value —
+   `{"Dep.a":1}` → ``\`declarations.Dep.a\` is not a string``.
+
+7. **C11's message does not force an absolute path.** §2 says "the test asserts the path is
+   absolute", which is true of the test and not of the message: with a relative `--root`, Rust
+   prints `root/docs/nope.md`. The frozen row uses that, so it stores no absolute path.
+
+### C12 is deferred on purpose, and it decides the shape of E, F, G and H
+
+`litedoc4 build` is the only route to `no modules under <root> for <libs>` — `modules --root`
+with the same fixture exits **0 silently**. `build` prints four lines to stdout first,
+including one naming whatever toolchain elan has, so the line count is the machine's, not the
+program's.
+
+That is the general problem, not C12's: **every route to a group-D refusal already prints
+before it refuses** (`resolve_external_links` reports how the external links resolved, before
+the map is opened), and **groups E, F, G and H are all `build` / `incremental` / `prune`
+shaped**. The gate's answer so far is the per-row `stdout-not-frozen <why>` declaration — the
+row freezes stderr only, an undeclared byte on stdout still fails, and the summary counts the
+declaring rows. **Settle whether that is the policy for the remaining groups before minting
+them**, or each stage will invent its own.
+
+### A door the port lost, which earns rows of its own in group A
+
+`crates/litedoc4-ir/src/model.rs:42-53` — `IndexEntry` requires `module`, `file`, `bytes`,
+`declarations` and `contentHash`; an entry missing one is refused when the tree is opened
+(measured: `litedoc4: parsing ir/index.json: missing field \`bytes\` at line 1 column 114`,
+exit 1). `src/Litedoc4/Ir.lean:247-259` gives **every field a default** and accepts the same
+tree.
+
+It is not cosmetic. `contentHash` absent collapses to `""` on both sides of two comparisons:
+`src/Litedoc4/Global.lean:77` reads that as a **cache hit** and serves stale `ModuleFacts`, and
+`src/Litedoc4/Incr/Merge.lean:314` reads it as **not changed** and renders no page. `bytes`
+absent makes `impact`'s reported cost silently 0. Reachable from any tree a user names —
+`global --ir`, `merge --base`, `impact --ir`, `render --ir`.
+
+`Incr/Merge.lean` already hand-checks ``an index entry has no string `module` `` (rows A9–A12)
+while the reader path does not: one question, two answers, and only one of them was being
+fixed. **Fix the reader before minting group A** — those fixtures are minted from Rust and
+therefore already carry complete entries, so the fix makes the two halves agree at the door.
+
+### Four Lean changes this leaves pending
+
+1. `src/Litedoc4/DepsDocs.lean` — answer `root` before `requestedNames` (D5). Until then
+   `deps-map-root-empty` and `deps-map-root-no-requested-names` freeze **identical bodies**,
+   because Lean answers `requestedNames` for both; the reorder separates them.
+2. `src/Litedoc4/Lakefile.lean` — the off-by-one of correction 2.
+3. `src/Litedoc4/Config.lean` — the lost framing of correction 3 (a decision, not a fix).
+4. `src/Litedoc4/Ir.lean` — the door above.
+
+Each drops a `rust-differs` flag when it lands, and each needs a re-mint **while the Rust
+binary still exists**.
