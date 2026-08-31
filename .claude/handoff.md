@@ -33,8 +33,13 @@
   - r6: M5's evidence retaken (3,201/3,201); M8 complete. `c7790ef` / `daa0d78`
   - r7: M9 complete on the repository side; tag `v1.3.0`. `08efc70`..`ca70fcf`
   - r8 (cont.): the user answered **(b)**. Scaffolding built and green on Linux
-    (`12afbd2`), the rule recorded in CLAUDE.md (`c7c97ab`), `litedoc4-ir`'s 32
-    invariants in triage.
+    (`12afbd2`), the rule recorded in CLAUDE.md (`c7c97ab`). Triage: `litedoc4-ir`
+    32 done (`95285f1`), runner made exception-safe (`8351c56`), `litedoc4-md`
+    28 done (`80988e0`) — **the gate is at 39 compile-time / 8 run-time, green on
+    Linux**. Two real defects found by the pass: a `sorry` value folded into
+    "clean" (fixed here), and the autolinker splitting on bytes where Rust splits
+    on Unicode `Z | C` (fixed). One divergence recorded and deliberately not
+    ported (`benchmarks/results/lean-md-divergence-2026-08-31.txt`).
   - r8: M9 closed out and M10 costed. `fd92965` (the vite → `assets/` link becomes a gate
     stage), `88befc3` (two measurements), `673e551` (M9's leftovers settled),
     `fe8e100` (584 tests classified), `ab0516d` (135 argv refusals frozen + the 17
