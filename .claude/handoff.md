@@ -2,11 +2,10 @@
 
 ## State
 
-- Branch `main`, clean, pushed through `a307cae`. **CI green on `b611510`** — including
-  `browser gate on Windows` and `extractor portability`, both dispatched by hand because
-  they are `workflow_dispatch` only and this leg changed them. CI on `a307cae` was still
-  running at handoff; it touches only `.claude/` and `benchmarks/results/`, so `docs-gate`
-  is the only thing that can fail and it was run locally first.
+- Branch `main`, clean, pushed. **CI green on `c5207e4`, the tip**, and on `b611510` —
+  the latter including `browser gate on Windows` and `extractor portability`, both
+  dispatched by hand because they are `workflow_dispatch` only and this leg changed them.
+  (`a307cae` and `914a321` show *cancelled*: concurrency superseded them, not a failure.)
 - **Lean side green, measured this leg**: `tools/lean-test-gate.sh` → 222 compile-time
   `#guard`, 30 run-time `Invariant`, 0 failed. Nothing this leg touched `src/`.
 - **M10 remaining: C (implement), B2 (implement), E, F.** D is done and verified in CI.
@@ -32,11 +31,6 @@
     (`3b4d45c`) · **the second tranche read and pinned at 59 rows** (`a307cae`)
 
 ## Next step
-
-**0. Confirm CI is green on `914a321` first** (`gh run list`). It and `a307cae` were still
-running at handoff and touch only `.claude/` and `benchmarks/results/`, so `docs-gate` is
-the only thing that can fail and it passed locally — but check rather than assume, and fix
-it before starting anything else if it did not.
 
 **1. Implement C** — the 59 rows are already written down, one per *message a user can be
 shown*, with the on-disk fixture, the command line, the exit code, the quoted message and
