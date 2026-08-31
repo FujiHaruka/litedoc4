@@ -376,6 +376,24 @@ in `tools/corpus-tests.txt`, **an inventory that dies with `crates/`**, so unles
 places them they vanish without anything failing. `purelean-render-gate.sh` already takes the
 target's IR and is the natural host. Found during the `litedoc4-ir` triage; not yet placed.
 
+## Verification: the set that actually covers a Rust change
+
+Learnt by turning main red twice this leg, in two different ways:
+
+- **`cargo fmt --all -- --check` is part of `ci.yml` and is easy to leave out.** The fixture
+  move repointed 13 `include_str!` paths, one line went two characters over, and `cargo test`
+  + `cargo clippy` + five gates were all green. **Run fmt whenever a `.rs` file is touched at
+  all**, including a path string inside one.
+- **A fixture minted on this machine is not evidence about CI.** The micro gate's oracle passed
+  locally and failed on Linux by 18 bytes. There is one macOS here and CI is the only Linux —
+  so for anything frozen, **CI's first run is the measurement**, and the push has to be
+  followed rather than assumed.
+
+The full set for a change touching Rust: `cargo fmt --all -- --check`, `cargo test --workspace`
+(**not `--lib`**), `cargo clippy --workspace --all-targets -- -D warnings`, plus whichever gates
+the change can reach. For a change touching `src/` (Lean): `tools/lean-test-gate.sh`,
+`mise exec -- tools/purelean-micro-gate.sh`, and `watch-gate.sh` if the resident path moved.
+
 ## Load-bearing context
 
 - **`tools/refusal-gate.sh`'s two arms are not symmetric on purpose.** The Lean arm reads
