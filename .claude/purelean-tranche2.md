@@ -737,3 +737,68 @@ deleted. **It is declined**, because it buys the weaker gate:
 says so today), or an `IO.Error` continuation that names something other than the path the
 wrapper already names — the continuation is pure duplication now, which is the only reason
 dropping it was ever attractive.
+
+## 8. Group A, frozen (leg 13) — measured against both binaries
+
+`tools/refusals-on-disk.txt` is **58 rows** (193 with tranche 1). `tools/refusals.txt` is
+byte-identical to before. Gate: `lean 193/193, rust 170/193 (23 differ by design)`,
+`18 row(s) print before refusing`. Everything below overrides §1–§7 where they disagree.
+
+**Group A is 20 rows, not 17.** The 17 messages §2 lists are all real and all reachable; on top
+of them, `merge` refuses an index entry with no string `file` as well as one with no `module`
+(§2 counted only `module`), and the parse door earns two more rows below.
+
+1. **A7 is reachable from a command line, and both binaries say the same thing.** §2 had it
+   reasoned and not witnessed. The fixture is a `structure` with one **inherited** field whose
+   name is in no `refs`, in no module of the tree and in no `.lidx`; a direct field is never
+   looked up, so nothing shorter reaches it. Frozen as `render-no-defining-module`.
+
+2. **A4 was not only a parser tail — the framing was gone, and it is `Ir.lean`'s.**
+   `litedoc4_ir::Error` has two doors, `reading {path}: {source}` and `parsing {path}: {source}`,
+   and it is the only producer in the tree that says `parsing`. Lean had `readIrFile`'s `reading`
+   and **none of the four parse sites had the verb** — all four said `{path}: {why}`, so the two
+   doors were told apart only by the tail, which is the one part of the line that is not this
+   program's. Fixed with `Ir.lean`'s `parseIrFailure`, a sibling of `readIrFile`. **The five
+   already-frozen `ir-index-entry-*` rows are what witnessed it**: they moved to
+   `parsing ir/index.json: …`, and their `rust-differs` reasons narrowed, because Rust's framing
+   was what Lean now says.
+
+3. **`merge` and `prune` were already right, and that is not an inconsistency.**
+   `litedoc4_incr::Error::Json` is `{path}: {source}` with no verb, so their hand-checks say the
+   path alone on purpose. One question, two producers, two answers that are each Rust's.
+
+4. **The reader's new door (leg 11) does not answer first for `merge` or `prune`.** Measured: all
+   eight `IndexShape` messages are still reachable, at exit 3 and unframed, on trees the typed
+   reader would have refused at exit 1. So the two doors are both live and both frozen.
+
+5. **`dependencyMaps` is read by `merge --verify` and by nothing else a merge does.** §2's A10/A11
+   name `merge --base --inc`; measured, that route **exits 0** on all three broken shapes. The
+   rows take `merge --verify a --against b`, which needs no module files at all.
+
+6. **Two more shapes where the two binaries accept differently, which no row can hold.** Rust's
+   serde requires every key of a module file's `Decl` and `Member` (`text`, `code`, `binders`, …)
+   and refuses an unknown key inside a `dependencyMaps` entry; Lean defaults them and ignores
+   unknowns. This is the same class as `declarations` in §6, and it has a practical consequence:
+   **a group-A fixture has to be written to the extractor's full shape**, or only the Lean arm
+   accepts it and the row freezes the wrong refusal. `render-no-defining-module` and
+   `ir-dep-slice-not-json` are written that way for exactly that reason.
+
+7. **The stdout question for group A.** `global`, `merge`, `prune` and `impact` print **nothing**
+   before refusing and declare nothing. `render` prints **one fixed line** (`external  no package
+   named (--root) …`), the same line and for the same reason as `ledger check` in §7.6, so its
+   four rows declare `stdout-not-frozen` and the reason written down is that this gate freezes
+   stderr.
+
+8. **Fixtures smaller than §2 describes.** A13 needs an *empty* base, one module in `--inc` and a
+   one-name list — that is already something to say in both directions. A14/A15 do need the module
+   file and not just the index (`impact` loads the tree before either check), which is what §4
+   said and §2 did not.
+
+### The two rows §2 does not list, and why they are here
+
+`parseIrFailure` has four call sites and the rows are one per site, not one for the door: they are
+four different files, and a row standing in for all of them would go on passing with three left
+unframed. Two were already covered (the index's syntax by `ir-index-truncated`, its structure by
+the entry family); the other two are new — `ir-dep-slice-not-json` (`global`, because the slices
+are loaded there) and `ir-module-truncated` (`render`). Both are `rust-differs`: after the framing
+fix only the parser's own sentence differs.

@@ -359,6 +359,17 @@ def readIrFile (path : FilePath) : IO String := do
   catch e =>
     throw (IO.userError s!"reading {path}: {e}")
 
+/-- The reader's other door: `reading` is the file, `parsing` is what is in it,
+and the verb is the only part of either line this program writes. Spelling the
+sentence at each of the four sites was the straightforward alternative and is not
+taken — four spellings is how all four came to say the path alone, which left the
+two doors apart only by the parser's own tail. What would falsify this: a parse
+failure in this reader that should not say `parsing`. `Incr.Merge` and
+`Incr.Prune` are not that case — they are a different producer, whose Rust half
+frames the same question without a verb. -/
+def parseIrFailure {α : Type} (path : FilePath) (why : String) : IO α :=
+  throw (IO.userError s!"parsing {path}: {why}")
+
 /-- An IR tree on disk: `index.json`, `modules/`, `deps/`. -/
 structure IrTree where
   root : FilePath
@@ -373,9 +384,9 @@ def openIrTreeUnvalidated (root : FilePath) : IO IrTree := do
   let path := irPath root "index.json"
   let text ← readIrFile path
   match parseJson text with
-  | .error why => throw (IO.userError s!"{path}: {why}")
+  | .error why => parseIrFailure path why
   | .ok j => match toIndex j with
-    | .error why => throw (IO.userError s!"{path}: {why}")
+    | .error why => parseIrFailure path why
     | .ok index => return { root, index }
 
 def openIrTree (root : FilePath) : IO IrTree := do
@@ -396,7 +407,7 @@ version does not vouch for the modules'. -/
 def readModuleFile (path : FilePath) : IO Module := do
   recordIrRead .module
   let m ← match parseModule (← readIrFile path) with
-    | .error why => throw (IO.userError s!"{path}: {why}")
+    | .error why => parseIrFailure path why
     | .ok m => pure m
   if m.schemaVersion < minSchemaVersion then
     throw (IO.userError (schemaRefusal path.toString m.schemaVersion))
@@ -425,7 +436,7 @@ def IrTree.depMap (t : IrTree) (e : DepMapEntry) : IO (Array (String × String))
   let path := irPath t.root e.file
   let text ← readIrFile path
   let j ← match parseJson text with
-    | .error why => throw (IO.userError s!"{path}: {why}")
+    | .error why => parseIrFailure path why
     | .ok j => pure j
   let mut ds : Array (String × String) := #[]
   for (k, v) in asObj j do
