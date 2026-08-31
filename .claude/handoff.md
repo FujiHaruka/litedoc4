@@ -2,7 +2,7 @@
 
 ## State
 
-- Branch: `main` @ `ca70fcf`, clean, pushed. **CI green on `004db90`** (all five workflows);
+- Branch: `main` @ `b1ea2c1`, clean, pushed. **CI green on `004db90`** (all five workflows);
   `fa1183c` (a one-line comment) and `ca70fcf` (docs + a measurement log) are on top of it and
   their CI was still in flight — check `gh run list` first.
 - **Tag `v1.3.0` is pushed** (annotated; the tag object is `80e21f3`, the commit `fa1183c`).
@@ -12,8 +12,8 @@
 - Measurement env: target `/Users/haruka/dev/lean-projects` @ `16ff7a40`, read only, untouched.
   It is `FujiHaruka/information-theory` — the repository behind the second live site.
 - **Disk 3.2 GiB free.** No clone was made this leg. Scratch kept:
-  `/private/tmp/lean-doc-relay/{purelean,m5-impact,m5-ledger,m5-incr}` and `m9-tag`
-  — this leg's throwaway consumers were deleted.
+  `/private/tmp/lean-doc-relay/{purelean,m5-impact,m5-ledger,m5-incr}`; this leg's throwaway
+  consumers and site builds were deleted.
 
 ## Relay control
 - Mode: ON
@@ -81,7 +81,7 @@ nothing" shape, at the scale of the whole suite.
 
 ## Files to read first
 
-1. `.claude/purelean-plan.md` §M9 (what was done, and the three leftovers) / §M10
+1. `.claude/purelean-plan.md` §M9 (what was done, and the two leftovers) / §M10
 2. `benchmarks/results/purelean-require-only-2026-08-31.txt` — M9's evidence and its limits
 3. `tools/build-lean-exe.sh` — new, and the one place that knows how to build the Lean half
 4. `tools/assets-embed-gate.sh` header — the three-link chain M10 has to keep whole
