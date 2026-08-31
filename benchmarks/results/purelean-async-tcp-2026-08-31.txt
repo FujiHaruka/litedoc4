@@ -1,0 +1,129 @@
+M6 probe — does Std.Async.TCP meet what `litedoc4 watch` needs?
+===============================================================
+2026-08-31. Investigation only; nothing in the repository was changed.
+
+Conditions
+----------
+  machine     MacBookAir10,1 (Apple M1), 16 GB, Darwin 25.6.0 arm64
+  toolchains  leanprover/lean4:v4.31.0 / v4.32.2 / v4.33.0 (all three from
+              ~/.elan/toolchains, the list in tools/lean-toolchains.txt)
+  probes      scratchpad/tcpprobe{,2,-v4.32.2,-v4.33.0,-leak,-long},
+              scratchpad/bindwhen, scratchpad/bufprobe, scratchpad/sizebase
+              (bare lake packages, no dependency but the toolchain)
+  target      /Users/haruka/dev/lean-projects, read only, 422 modules
+  binaries    target/release/litedoc4 (Rust) and .lake/build/bin/litedoc4
+              (Lean, `litedoc4 1.2.0` on both)
+
+1. Std.Async.TCP exists in all three toolchains, byte identical
+------------------------------------------------------------------
+  diff v4.31.0 v4.32.2 Std/Async/TCP.lean -> exit 0
+  diff v4.32.2 v4.33.0 Std/Async/TCP.lean -> exit 0
+  Std/Async.lean re-exports TCP in all three. No rename between them.
+
+2. A real socket, on all three
+------------------------------
+  A lean_exe that binds 127.0.0.1, listens, accepts, reads the request line and
+  writes an HTTP response built, first try, on each toolchain, and answered curl:
+
+    v4.31.0 / v4.32.2 / v4.33.0, all identical
+      200 head       HTTP/1.1 200 OK | Content-Type: text/html; charset=utf-8
+                     | Content-Length: 18 | Cache-Control: no-store
+                     | Connection: close
+      404            404 (the site's own 404.html, 18 B)
+      traversal      403   (curl --path-as-is /../../../etc/passwd)
+      PUT            405
+      HEAD           200 with Content-Length: 18 and no body
+      dir -> index   served
+      50 sequential  50/50 answered 200
+      6 concurrent   6/6 answered 200, 200,000 B each, sha256 of every body
+                     equal to the source file
+      after kill     no listener left on the port
+
+3. Serving while the loop is busy
+---------------------------------
+  main thread blocked in IO.Process.run (a 6 s and a 70 s subprocess)  -> served
+  main thread in a tight IO loop (6 s of CPU)                          -> served
+  main thread allocating for 70 s (GC running)                         -> served
+  140 s continuous, polled every 5 s: 27/27 alive polls answered 200.
+
+  Memory over 1,000 requests on an idle server (RSS, ps):
+    start 3,440 KB -> 23,184 KB after 250 x 200 KB GETs -> 23,232 KB after 500
+    -> 23,280 KB after a further 500 small GETs.  Plateaus; not a leak.
+
+4. Where "address already in use" appears
+-----------------------------------------
+  bind         never throws, even against a live listener
+  listen       throws `resource busy (error code: 4294967248, address already
+               in use)` -- catchable IO.Error, 4294967248 = -48 = UV_EADDRINUSE
+  getSockName  throws the same after a failed listen
+  accept       does NOT throw after a failed listen (returns a task)
+
+  And the port is not actually held until the first accept is issued:
+    bind only              lsof 0 rows, curl ECONNREFUSED
+    bind + listen          lsof 0 rows, curl ECONNREFUSED
+    bind + listen + accept lsof 1 LISTEN row, connections accepted
+  Two Lean servers that have both done bind+listen and no accept do not
+  conflict: the second one goes on to accept and wins the port.
+  Against a foreign listener (python socket, SO_REUSEADDR) Lean's listen throws.
+
+5. stdout buffering
+-------------------
+  Lean IO.println to a REDIRECTED stdout is fully buffered: nothing reaches the
+  file until the process exits (a 4 s test showed an empty file at t=1.5 s and
+  both lines after exit). An explicit `(<- IO.getStdout).flush` fixes it.
+  IO.eprintln (stderr) is unbuffered.
+  Rust's println! is line buffered to a file: the line was there at t=1.5 s.
+  No buffering-mode setter exists in Lean core (grep of Init/System/IO.lean).
+
+6. File watching
+----------------
+  Nothing in Std or Init: grep -i for fsevent|inotify|ReadDirectoryChanges|
+  uv_fs_event|FSPoll|watchFile|FileWatch over the v4.31.0 Std/ and Init/ trees
+  returns nothing. Std.Async has Timer / Signal / Process / System / Select /
+  DNS / UDP / TCP / IO and no file-system event source.
+  crates/litedoc4/src/watch.rs does not want one ("polling is not the fallback
+  here, it is the path"), so this is not a requirement.
+
+7. What a watch pass costs, both halves, warm, same session
+-----------------------------------------------------------
+  litedoc4 modules --root <target> --lib InformationTheory   (the re-glob)
+    rust  0.02 0.00 0.00 0.00 0.00 s      lean  0.01 x5 s
+    422 modules, the two files byte identical (/usr/bin/diff exit 0)
+
+  litedoc4 ledger check --ledger <432-module sha256 ledger> --modules --ir
+                        --source-url --timings              (hashSeconds)
+    rust  0.3237 | 0.1290 0.1297 0.1289 0.1291   -> warm 0.129 s  rss 13 MB
+    lean  2.0324 | 2.0330 2.0353 2.0332 2.0332   -> warm 2.033 s  rss  9 MB
+                                                    ratio 15.8x
+    (agrees with benchmarks/results/purelean-ledger-check-2026-08-31.txt, which
+     measured 0.135 / 2.115 on the same machine the same day; the whole of the
+     gap is SHA-256, and the C route was already declined -> purelean-sha256)
+
+  So one idle `watch` pass is ~0.14 s in Rust and ~2.04 s in Lean on the
+  measurement target. At the default --interval 1000 ms that is a core busy
+  ~67% of the time instead of ~12%.
+
+8. Binary size
+--------------
+  a hello-world lean_exe                      2,259,744 B
+  + import Std.Async.TCP, Std.Net.Addr        2,549,008 B   (+289,264 B)
+  for scale: .lake/build/bin/litedoc4 is 5,132,640 B and extract 171,650,464 B.
+  No extra link flags, no extra C: the probe lakefile.toml declares nothing but
+  the lean_lib and the lean_exe.
+
+Not measured
+------------
+  - Linux. tools/watch-gate.sh runs on ubuntu-latest in ci.yml, and ci.yml also
+    builds on ubuntu-24.04-arm. Everything above is macOS/arm64.
+  - The size delta on the real `lean_exe litedoc4` (measured on a hello-world).
+  - Whether RSS plateaus for 20 MB bodies (section 9).
+
+9. A large response
+-------------------
+  20,000,000 B file, whole body read into a ByteArray and sent in one `send`:
+    1 request     200, 20,000,000 B, 0.118 s, sha256 equal to the source
+    4 concurrent  4/4 200, all four bodies sha256 equal to the source
+  RSS: 3,440 KB before -> 43,088 KB after one -> 101,840 KB after four
+  sequential ones. The whole file is held in memory per response, which is what
+  the Rust server does too (fs::read into a Vec); whether Lean's RSS plateaus
+  for a 20 MB body the way it does for a 200 KB one (section 3) is UNMEASURED.

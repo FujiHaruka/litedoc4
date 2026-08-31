@@ -231,7 +231,55 @@ M6 以降に効く残りだけ:
 - `--deps-docs-map` は `ledger` と `render` の両方で名指しで拒否している
 
 ### M6 watch と HTTP サーバ（`Std.Async.TCP`）
-- **完了判定**: `watch-gate.sh` が Lean 実装で緑
+- **完了判定**: `watch-gate.sh` が Lean 実装で緑（`LITEDOC4=<lean>` で相手を選べる）
+
+**破断条件は発火しなかった**（実測 2026-08-31 →
+`benchmarks/results/purelean-async-tcp-2026-08-31.txt`）。`Std.Async.TCP` は
+**3 つのツールチェーン（v4.31.0 / v4.32.2 / v4.33.0）でバイト同一**にあり、名前も動いていない。
+`httpd.rs` が提供する HTTP の振る舞いは全部、**curl がソケットから受け取ったバイト**で
+再現できた（200 / 404 は site 自身の `404.html` / 403 traversal / 405 / HEAD /
+ディレクトリ→index、6 本同時、20 MB、140 秒ビルド中の給仕、RSS は 23 MB で頭打ち）。
+`import` の代価は **+289 KB**（hello-world 比、実測）なので `require` だけの配布は揺るがない。
+**ファイル監視は要らない** — `watch.rs` はポーリングを選んでいて、`Std` にも watcher は無い。
+
+**socket が動くかとは別に、代価が 3 つある**（3 つとも実測）:
+
+1. **redirect した stdout は Lean だと完全バッファで、プロセスが生きている間は空に見える。**
+   `tools/watch-gate.sh` は**終了しないプロセス**の log を `grep` する（`^watch   asks the
+   ledger` を 60 秒、`^watch   #1 reload` を 300 秒）ので、**1 行ごとに
+   `(← IO.getStdout).flush` を入れないとバナーで落ちる**。Lean core にバッファモードの
+   設定は無い（`IO.eprintln` は無バッファ）。**M1〜M5 で見えなかったのは、
+   他の全ゲートがプロセス終了後の log を読むから** — 終わった後では
+   完全バッファと行バッファは区別できない
+2. **待機中のポーリングが 15.8 倍高い。** 1 パスは Rust ~0.14 s に対し Lean ~2.04 s
+   （432 モジュールの sha256 台帳、暖機 5 回）。既定の `--interval 1000` だと
+   **コアが 12% ではなく 67% 埋まる**。**ゲートは整数しか見ないので気づかない** —
+   これは落ちる欠陥ではなく誠実性の代価で、`watch.rs` の module doc（「0.13 s warm」）と
+   `--interval` の下限拒否文は**書き写さずに測り直す**こと。
+   2 秒かかるパスに対して 100 ms の下限が妥当かは移植ではなく判断
+3. **`bind` では港を取らない。** Lean は `bind` も `bind`+`listen` も `lsof` に出ず、
+   **`accept` を出して初めて LISTEN になる**。`EADDRINUSE` は `bind` ではなく `listen` が投げ、
+   **`listen` が失敗した socket に `accept` しても例外にならない**ので、
+   素朴に書くと**成功を報告して何も給仕しない**。
+   `httpd::bind` の存在理由（「取られている港は、読み手がまだ見ているうちに言う」）を保つには、
+   **ビルドの前に `accept` を出す**
+
+**移植の単位（U1〜U11）**: U1 listener/accept ループ（`httpd.rs` 1–120）/ U2 routing
+（percent-decode してから検査、`..` `%2f` `%5c` NUL、symlink 脱出は `realPath`）/
+U3 応答（13 項目の MIME 表、200/400/403/404/405/500/503、HEAD の `Content-Length`、
+`no-store`）/ U4 `--port` `--interval` とその拒否文 / U5 `Trigger` と `Reading`（lib と
+source URL は 1 度だけ固定、毎パス re-glob、`checkLedger` は何も書かない）/ U6 `decide` の
+4 分岐 / U7 `runLoop`（各分岐の行、60 秒 heartbeat、5 秒 settle、初回失敗は致命・以降は待つ）/
+U8 CLI 配線（フラグ分割を**両方向**で表明）/ U9 `runBuild` が `Done` を返す /
+U10 **1 行ごとの flush**（Rust に対応物が無い）/ U11 ゲートを走らせる
+（`--inject wrong-module` と `--inject no-touch` で先に落としてから）。
+**前提はすべて Lean 側に揃っている**（`checkLedger` / `sha256Text` / `moduleNames` /
+`readLibraries` / `deriveSourceUrl` / `Layout` / `runBuild` / `ledger touch`）。
+
+**未計測**: **Linux**。上は全部 macOS/arm64 で、`ci.yml` は `watch-gate.sh` を
+`ubuntu-latest` で走らせる。**libuv の遅延 bind と `SO_REUSEADDR` が一番違いそうな場所**で、
+代価 3 はそこに依存している。**「たぶん大丈夫」と読まないこと** — 塞ぐのは PR 1 本
+（`pull_request:` は `ci.yml` を起こす。ブランチ push は何も起こさない）
 
 ### M7 残り — CLI 全フラグ / 設定 / 診断メッセージ / deps-docs / packages / resident
 - **完了判定**: `tools/public-surface.txt` の全名が Lean 実装に存在し、
@@ -258,8 +306,9 @@ M6 以降に効く残りだけ:
 - **M2 で e2e/micro のページが一致しない** → プロトタイプは対象リポジトリでしか
   突き合わせていない。e2e/micro は「対象が持たない宣言形状」を持つので、
   **ここで初めて出る差がある**。差が出たら M2 を分割する
-- **`Std.Async.TCP` が watch の要求を満たさない**（M6）→ 満たさなければ配布モデルの
-  決定に戻る（HTTP サーバだけ別手段、は `require` のみを壊す）
+- ~~**`Std.Async.TCP` が watch の要求を満たさない**（M6）~~ → **2026-08-31 に実測で否定**
+  （→ `benchmarks/results/purelean-async-tcp-2026-08-31.txt`）。配布モデルの決定に戻る必要は無い。
+  **ただし Linux は未計測** — そこが違えば M6 の代価 3（港をいつ取るか）が変わる
 - **ビルド時間が消費者に受け入れられない** → **M3 で計測した。まだ天井は遠い**
   （→ `benchmarks/results/purelean-consumer-build-2026-08-31.txt`）:
   3,887 行 26 モジュールの cold build が **6.2 s に収束**（5 回連続、初回 9.65 s は
