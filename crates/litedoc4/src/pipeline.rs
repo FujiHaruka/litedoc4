@@ -794,8 +794,7 @@ pub fn incremental(args: &[String]) -> Result<(), Failure> {
                      server it does not own is one whose olean generation it cannot vouch for. \
                      Correctness comes from that generation and never from the round number — a \
                      server imported before the edit returns the pre-edit owner of every name that \
-                     moved, and then no round is safe, including round 2 (measured, stage 6a). See \
-                     `crates/litedoc4/src/resident.rs`",
+                     moved, and then no round is safe, including round 2 (measured, stage 6a)",
                 );
             }
             "--serve-from" => {
@@ -921,9 +920,8 @@ pub fn incremental(args: &[String]) -> Result<(), Failure> {
         return usage(
             "one of --extractor <program> and --serve is required, and neither has a default: \
              --extractor is called as `<program> [<extractor-arg>…] --modules <list> --ir-dir \
-             <dir> --timings <file>`, which is `stage7g/extract-once.sh`'s interface and \
-             `litedoc4 extract`'s; --serve starts one resident Lean environment for the whole run \
-             and needs --extractor-bin and --target",
+             <dir> --timings <file>`, which is `litedoc4 extract`'s interface; --serve starts one \
+             resident Lean environment for the whole run and needs --extractor-bin and --target",
         );
     }
     let mode = match mode {

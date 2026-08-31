@@ -111,7 +111,7 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
                 return usage(format!(
                     "{arg} is not a flag here: it is always on. Those four are what \"IR schema \
                      5\" means, and an IR written without one of them parses and renders wrongly \
-                     rather than failing. See this file's heading",
+                     rather than failing",
                 ));
             }
             "--no-attrs" | "--no-inst-index" | "--no-member-extra" => {
@@ -143,9 +143,8 @@ pub fn extract(args: &[String]) -> Result<(), Failure> {
     };
     let Some(ir_dir) = ir_dir else {
         return usage(
-            "--ir-dir <dir> is required and has no default: the extractor's own default was one \
-             session's scratchpad path and is gone. An IR tree written somewhere the caller did \
-             not name is worse than none",
+            "--ir-dir <dir> is required and has no default: an IR tree written somewhere the \
+             caller did not name is worse than none",
         );
     };
     let Some(timings) = timings else {

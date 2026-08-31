@@ -230,7 +230,7 @@ pub fn ledger(args: &[String]) -> Result<(), Failure> {
                 out.display(),
             );
         }
-        other => return usage(format!("unknown ledger subcommand `{other}`")),
+        other => return usage(format!("unknown `ledger` subcommand `{other}`")),
     }
     Ok(())
 }

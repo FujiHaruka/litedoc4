@@ -1,0 +1,295 @@
+litedoc4 — 135 argv-only refusals, and the 17 the two halves word differently
+=============================================================================
+
+2026-08-31. Apple M1 (macOS 25.6.0). Commit fe8e100, working tree clean apart from
+tools/refusal-gate.sh, tools/refusals.txt and this file.
+
+WHY THIS WAS TAKEN
+------------------
+`benchmarks/results/purelean-refusal-diff-2026-08-31.txt` asked the same
+question over **24 hand-picked probes** and answered "the two halves already
+agree": exit codes 0/24 apart, stderr 21/24 byte-identical, the other 3 differing
+only in the substrate's wording (`std::io` / `serde_json` against `IO.Error` and
+Lean's own JSON parser). `.claude/purelean-plan.md` records that as M10's good
+news.
+
+This is the same question over **135 cases**, chosen to cover every subcommand's
+argv refusals rather than to sample them. The answer is different, and the
+difference is not substrate wording.
+
+CONDITIONS
+----------
+  rust   target/release/litedoc4    `cargo build --release --bin litedoc4` at
+                                    this commit; `--version` -> litedoc4 1.3.0
+  lean   .lake/build/bin/litedoc4   `tools/build-lean-exe.sh --toolchain-from
+                                    e2e/micro` was a no-op at this commit, so
+                                    the binary is HEAD's; `--version` -> litedoc4 1.3.0
+  how    tools/refusal-gate.sh over tools/refusals.txt. Both binaries are run
+         with identical argv from the same empty working directory, with
+         EXTRACT_BIN and TARGET_REPO unset (both stand in for a flag, so a
+         machine that exports them answers four cases differently). Exit code
+         taken without a pipe. stderr compared whole, after replacing the work
+         directory with `<dir>` and the `--help-all` block with `<usage>` —
+         one normaliser, used by both arms and by the minting.
+
+  Scope: **command lines only**. 132 of the 135 are refused before anything on
+  disk is opened; the other 3 look at two empty directories and one absent one.
+  Nothing here reaches a crafted IR tree, a ledger or a `litedoc4.toml`, which
+  is why none of the 3 substrate differences the 24-probe run found is in this
+  set — those need a file to fail on.
+
+RESULT (measured)
+-----------------
+  cases                                          135
+  exit codes that differ                           0   (132 exit 2, 3 exit 3)
+  `--help-all` blocks that differ                  0   (253 lines, byte for byte)
+  stderr messages that differ                     17
+  the same 135 with both arms on the Rust binary   135/135 identical
+
+The last row is what says the 17 are the product's and not the comparison's.
+
+WHAT DIFFERS — 17, grouped by what the Lean half did to the Rust wording
+------------------------------------------------------------------------
+None is substrate wording. Every one is litedoc4's own prose.
+
+  drops a pointer at a path M10 deletes — 8
+    build-serve / build-serve-dir / build-serve-from
+      rust  "... started here and released after the last round (see
+             crates/litedoc4/src/resident.rs). There is nothing to switch on ..."
+      lean  "... started here and released after the last round. There is
+             nothing to switch on ..."
+    incremental-serve-dir
+      rust  ends "(measured, stage 6a). See `crates/litedoc4/src/resident.rs`"
+      lean  ends "(measured, stage 6a)"
+    extract-write-ir / extract-tagged-code / extract-equations / extract-refs
+      rust  ends "... rather than failing. See this file's heading"
+      lean  ends "... rather than failing"
+      ("this file" is crates/litedoc4/src/extract.rs.)
+
+  drops a prototype-era path — 1
+    incremental-needs-extractor-or-serve
+      rust  "... which is `stage7g/extract-once.sh`'s interface and
+             `litedoc4 extract`'s; --serve starts ..."
+      lean  "... which is `litedoc4 extract`'s interface; --serve starts ..."
+
+  drops a measured clause — 4
+    site-source-url-required / render-source-url-required /
+    incremental-source-url-required
+      rust  "--source-url is required: doc-gen4 reads it from lake plus git,
+             and it is not in the IR"
+      lean  "--source-url is required"
+    incremental-no-link-index
+      rust  ends "... was not re-rendered at all — without the dependency map
+             150 of the target package's 432 pages change bytes"
+      lean  ends "... was not re-rendered at all"
+
+  drops a fact — 1
+    extract-ir-dir-required
+      rust  "--ir-dir <dir> is required and has no default: the extractor's own
+             default was one session's scratchpad path and is gone. An IR tree
+             written somewhere the caller did not name is worse than none"
+      lean  "--ir-dir <dir> is required and has no default: an IR tree written
+             somewhere the caller did not name is worse than none"
+
+  words it differently — 2
+    ledger-unknown-subcommand / ledger-unknown-subcommand-flag
+      rust  "unknown ledger subcommand `frob`"
+      lean  "unknown `ledger` subcommand `frob`"
+
+  says MORE than Rust — 1
+    watch-interval-below-floor
+      rust  "... a pass reads every olean of the package, so a shorter one
+             spends a core asking a question whose last answer is still current"
+      lean  "... a pass reads every olean of the package, which on the
+             422-module measurement target takes 2.25 s (measured,
+             benchmarks/results/purelean-watch-2026-08-31.txt), so a shorter one
+             spends a core asking a question whose last answer is still current"
+
+WHAT THIS SETTLES
+-----------------
+Settles: on 135 argv refusals the two halves agree on the exit code without
+exception and on `--help-all` byte for byte, and disagree on 17 messages. **The
+24-probe reading — "the refusal class the handoff feared is already matched" —
+does not survive at this sample size.** 8 of the 17 are the Lean half declining
+to name a `crates/` path, which is a decision M10 makes correct; the direction
+of convergence is therefore not the same for every group, and is a product
+judgement rather than a defect to be fixed one way.
+
+Does not settle: 135 argv cases are not the 93 entrance refusals `#[test]`
+holds, and the second tranche — anything needing a crafted IR tree, a ledger, a
+`litedoc4.toml` or an on-disk module list — is untouched here.
+`impact --mode <nonsense>` is deliberately in that tranche: the mode is
+consulted only when there is something to select, so with no IR tree the run
+fails on the tree instead.
+
+THE 17, AS THE GATE PRINTS THEM
+-------------------------------
+=== ledger-unknown-subcommand-flag
+--- frozen
+litedoc4: unknown ledger subcommand `--frobnicate`
+
+<usage>
+--- got
+litedoc4: unknown `ledger` subcommand `--frobnicate`
+
+<usage>
+
+=== site-source-url-required
+--- frozen
+litedoc4: --source-url is required: doc-gen4 reads it from lake plus git, and it is not in the IR
+
+<usage>
+--- got
+litedoc4: --source-url is required
+
+<usage>
+
+=== render-source-url-required
+--- frozen
+litedoc4: --source-url is required: doc-gen4 reads it from lake plus git, and it is not in the IR
+
+<usage>
+--- got
+litedoc4: --source-url is required
+
+<usage>
+
+=== ledger-unknown-subcommand
+--- frozen
+litedoc4: unknown ledger subcommand `frob`
+
+<usage>
+--- got
+litedoc4: unknown `ledger` subcommand `frob`
+
+<usage>
+
+=== incremental-source-url-required
+--- frozen
+litedoc4: --source-url is required: doc-gen4 reads it from lake plus git, and it is not in the IR
+
+<usage>
+--- got
+litedoc4: --source-url is required
+
+<usage>
+
+=== incremental-serve-dir
+--- frozen
+litedoc4: --serve-dir is not offered: `--serve` starts a server this run owns, and a server it does not own is one whose olean generation it cannot vouch for. Correctness comes from that generation and never from the round number — a server imported before the edit returns the pre-edit owner of every name that moved, and then no round is safe, including round 2 (measured, stage 6a). See `crates/litedoc4/src/resident.rs`
+
+<usage>
+--- got
+litedoc4: --serve-dir is not offered: `--serve` starts a server this run owns, and a server it does not own is one whose olean generation it cannot vouch for. Correctness comes from that generation and never from the round number — a server imported before the edit returns the pre-edit owner of every name that moved, and then no round is safe, including round 2 (measured, stage 6a)
+
+<usage>
+
+=== incremental-no-link-index
+--- frozen
+litedoc4: --no-link-index is not an incremental flag: a round re-renders a subset, so a page rendered without the map is indistinguishable from one that was not re-rendered at all — without the dependency map 150 of the target package's 432 pages change bytes
+
+<usage>
+--- got
+litedoc4: --no-link-index is not an incremental flag: a round re-renders a subset, so a page rendered without the map is indistinguishable from one that was not re-rendered at all
+
+<usage>
+
+=== extract-write-ir
+--- frozen
+litedoc4: --write-ir is not a flag here: it is always on. Those four are what "IR schema 5" means, and an IR written without one of them parses and renders wrongly rather than failing. See this file's heading
+
+<usage>
+--- got
+litedoc4: --write-ir is not a flag here: it is always on. Those four are what "IR schema 5" means, and an IR written without one of them parses and renders wrongly rather than failing
+
+<usage>
+
+=== extract-tagged-code
+--- frozen
+litedoc4: --tagged-code is not a flag here: it is always on. Those four are what "IR schema 5" means, and an IR written without one of them parses and renders wrongly rather than failing. See this file's heading
+
+<usage>
+--- got
+litedoc4: --tagged-code is not a flag here: it is always on. Those four are what "IR schema 5" means, and an IR written without one of them parses and renders wrongly rather than failing
+
+<usage>
+
+=== extract-equations
+--- frozen
+litedoc4: --equations is not a flag here: it is always on. Those four are what "IR schema 5" means, and an IR written without one of them parses and renders wrongly rather than failing. See this file's heading
+
+<usage>
+--- got
+litedoc4: --equations is not a flag here: it is always on. Those four are what "IR schema 5" means, and an IR written without one of them parses and renders wrongly rather than failing
+
+<usage>
+
+=== extract-refs
+--- frozen
+litedoc4: --refs is not a flag here: it is always on. Those four are what "IR schema 5" means, and an IR written without one of them parses and renders wrongly rather than failing. See this file's heading
+
+<usage>
+--- got
+litedoc4: --refs is not a flag here: it is always on. Those four are what "IR schema 5" means, and an IR written without one of them parses and renders wrongly rather than failing
+
+<usage>
+
+=== extract-ir-dir-required
+--- frozen
+litedoc4: --ir-dir <dir> is required and has no default: the extractor's own default was one session's scratchpad path and is gone. An IR tree written somewhere the caller did not name is worse than none
+
+<usage>
+--- got
+litedoc4: --ir-dir <dir> is required and has no default: an IR tree written somewhere the caller did not name is worse than none
+
+<usage>
+
+=== build-serve
+--- frozen
+litedoc4: --serve is not a `build` flag: with --extractor-bin this command *is* the resident path — one Lean environment for the whole run, started here and released after the last round (see crates/litedoc4/src/resident.rs). There is nothing to switch on, and a server this run did not start is one whose olean generation it cannot vouch for
+
+<usage>
+--- got
+litedoc4: --serve is not a `build` flag: with --extractor-bin this command *is* the resident path — one Lean environment for the whole run, started here and released after the last round. There is nothing to switch on, and a server this run did not start is one whose olean generation it cannot vouch for
+
+<usage>
+
+=== build-serve-dir
+--- frozen
+litedoc4: --serve-dir is not a `build` flag: with --extractor-bin this command *is* the resident path — one Lean environment for the whole run, started here and released after the last round (see crates/litedoc4/src/resident.rs). There is nothing to switch on, and a server this run did not start is one whose olean generation it cannot vouch for
+
+<usage>
+--- got
+litedoc4: --serve-dir is not a `build` flag: with --extractor-bin this command *is* the resident path — one Lean environment for the whole run, started here and released after the last round. There is nothing to switch on, and a server this run did not start is one whose olean generation it cannot vouch for
+
+<usage>
+
+=== build-serve-from
+--- frozen
+litedoc4: --serve-from is not a `build` flag: with --extractor-bin this command *is* the resident path — one Lean environment for the whole run, started here and released after the last round (see crates/litedoc4/src/resident.rs). There is nothing to switch on, and a server this run did not start is one whose olean generation it cannot vouch for
+
+<usage>
+--- got
+litedoc4: --serve-from is not a `build` flag: with --extractor-bin this command *is* the resident path — one Lean environment for the whole run, started here and released after the last round. There is nothing to switch on, and a server this run did not start is one whose olean generation it cannot vouch for
+
+<usage>
+
+=== watch-interval-below-floor
+--- frozen
+litedoc4: --interval 10 is below 100 ms: a pass reads every olean of the package, so a shorter one spends a core asking a question whose last answer is still current
+
+<usage>
+--- got
+litedoc4: --interval 10 is below 100 ms: a pass reads every olean of the package, which on the 422-module measurement target takes 2.25 s (measured, benchmarks/results/purelean-watch-2026-08-31.txt), so a shorter one spends a core asking a question whose last answer is still current
+
+<usage>
+
+=== incremental-needs-extractor-or-serve
+--- frozen
+litedoc4: one of --extractor <program> and --serve is required, and neither has a default: --extractor is called as `<program> [<extractor-arg>…] --modules <list> --ir-dir <dir> --timings <file>`, which is `stage7g/extract-once.sh`'s interface and `litedoc4 extract`'s; --serve starts one resident Lean environment for the whole run and needs --extractor-bin and --target
+
+<usage>
+--- got
+litedoc4: one of --extractor <program> and --serve is required, and neither has a default: --extractor is called as `<program> [<extractor-arg>…] --modules <list> --ir-dir <dir> --timings <file>`, which is `litedoc4 extract`'s interface; --serve starts one resident Lean environment for the whole run and needs --extractor-bin and --target
+
+<usage>

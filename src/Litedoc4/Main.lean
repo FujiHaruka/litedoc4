@@ -355,7 +355,7 @@ def refusedWith (code : UInt32) (message : String) : IO UInt32 := do
   IO.eprintln s!"litedoc4: {message}"
   return code
 
-/-- **One string, four call sites**, so that they cannot drift apart: the map is
+/-- **One string, five call sites**, so that they cannot drift apart: the map is
 what turns a name in a signature into a link, and it fails silently — a docstring
 name that did not become a link looks exactly like a name that was never
 linkable — so the guard is in the shape of the flags, not in a default. -/
@@ -364,6 +364,12 @@ def linkIndexCost : String :=
 
 def linkIndexRequired : String :=
   s!"pass --link-index <file>, or --no-link-index to say so on purpose: {linkIndexCost}"
+
+/-- **One string, three commands** (`render`, `site`, `incremental`), because it
+is one rule: the URL is configuration no IR carries, and a page written without
+it links every declaration to `/`. -/
+def sourceUrlRequired : String :=
+  "--source-url is required: doc-gen4 reads it from lake plus git, and it is not in the IR"
 
 structure RenderInputs where
   external : ExternalLinks
@@ -434,8 +440,8 @@ def render (args : List String) : IO UInt32 := do
       let only ← resolveOnly a.only a.onlyFrom
       let some ir := a.ir | return ← refuse "--ir is required"
       let some pages := a.pages | return ← refuse "--pages is required"
-      let some sourceUrl := a.sourceUrl | return ← refuse "--source-url is required"
-      if sourceUrl.isEmpty then return ← refuse "--source-url is required"
+      let some sourceUrl := a.sourceUrl | return ← refuse sourceUrlRequired
+      if sourceUrl.isEmpty then return ← refuse sourceUrlRequired
       if a.linkIndex.isSome == a.noLinkIndex then return ← refuse linkIndexRequired
       let inputs ← match ← renderInputs a.root a.lake a.depsDocsMap with
         | .error (code, message) => return ← refusedWith code message
@@ -533,8 +539,8 @@ def site (args : List String) : IO UInt32 := do
       return 0
     let some ir := a.ir | refuse "--ir is required"
     let some out := a.out | refuse "--out is required"
-    let some sourceUrl := a.sourceUrl | refuse "--source-url is required"
-    if sourceUrl.isEmpty then return ← refuse "--source-url is required"
+    let some sourceUrl := a.sourceUrl | refuse sourceUrlRequired
+    if sourceUrl.isEmpty then return ← refuse sourceUrlRequired
     if a.linkIndex.isSome == a.noLinkIndex then return ← refuse linkIndexRequired
     try
       let inputs ← match ← renderInputs a.root a.lake a.depsDocsMap with
@@ -1803,8 +1809,9 @@ def incrementalRefusal (flag : String) : Option String :=
       timings record and is read by nothing. A harness that needs one adds it to the line it \
       appends"
   else if flag == "--no-link-index" then
-    some "--no-link-index is not an incremental flag: a round re-renders a subset, so a page \
-      rendered without the map is indistinguishable from one that was not re-rendered at all"
+    some s!"--no-link-index is not an incremental flag: a round re-renders a subset, so a page \
+      rendered without the map is indistinguishable from one that was not re-rendered at all — \
+      {linkIndexCost}"
   else none
 
 partial def parseIncremental : List String → IncrementalArgs → Except String IncrementalArgs
@@ -1882,9 +1889,9 @@ def incrementalUsage (a : IncrementalArgs) : Option String := Id.run do
     return some "--modules is required: without the current module list `check` re-reads the \
       ledger's own and cannot see a module that appeared or vanished. `litedoc4 modules` writes it"
   match a.sourceUrl with
-  | none => return some "--source-url is required"
+  | none => return some sourceUrlRequired
   | some url =>
-    if url.isEmpty then return some "--source-url is required"
+    if url.isEmpty then return some sourceUrlRequired
     if let some message := checkSourceUrl url then return some message
   if a.linkIndex.isNone then
     return some s!"--link-index <file> is required, and there is no --no-link-index here: \
@@ -1941,7 +1948,7 @@ def incrementalRun (a : IncrementalArgs) : IO UInt32 := do
   let some ledgerPath := a.ledger | return ← refuse "--ledger is required"
   let some work := a.work | return ← refuse "--work is required"
   let some modulesFile := a.modules | return ← refuse "--modules is required"
-  let some sourceUrl := a.sourceUrl | return ← refuse "--source-url is required"
+  let some sourceUrl := a.sourceUrl | return ← refuse sourceUrlRequired
   let some linkIndex := a.linkIndex | return ← refuse "--link-index is required"
   let some state := a.state | return ← refuse "--state is required"
   let moduleList ← readModuleList ⟨modulesFile⟩

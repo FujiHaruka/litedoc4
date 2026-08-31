@@ -292,9 +292,8 @@ pub(crate) fn parse(
                 return usage(format!(
                     "{arg} is not a `build` flag: with --extractor-bin this command *is* the \
                      resident path — one Lean environment for the whole run, started here and \
-                     released after the last round (see crates/litedoc4/src/resident.rs). There is \
-                     nothing to switch on, and a server this run did not start is one whose olean \
-                     generation it cannot vouch for",
+                     released after the last round. There is nothing to switch on, and a server \
+                     this run did not start is one whose olean generation it cannot vouch for",
                 ));
             }
             // **`Answered(0)`, not `Ok(())`**: this function's `Ok` is a request

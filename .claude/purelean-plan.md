@@ -534,14 +534,36 @@ micro-gate の item 16 INCR だけが自前で「オラクル不要」と明記�
     `crates/litedoc4-render/src/config.rs` から読んでいる。**`src/` に向け直す必要がある**
   - `purelean-*-gate.sh` 3 本 — オラクルを失う
 
-#### 実測で分かっている良い知らせ
+#### 入口の拒否について実測で分かっていること
 
-**入口の拒否は既に一致している** → `benchmarks/results/purelean-refusal-diff-2026-08-31.txt`。
+**exit code は一致している。文言は一致していない。**
+まず 24 probe → `benchmarks/results/purelean-refusal-diff-2026-08-31.txt`。
 CLI 入口の拒否 24 probe で **exit code の不一致 0 件**、stderr も 21/24 がバイト一致。
 残り 3 件は substrate（Rust の `std::io`/`serde_json` 対 Lean の `IO.Error`/自前 JSON）
 の語彙差で、litedoc4 自身の枠組みと主語と exit code は同じ。
 **ただし 24 probe は 556 tests ではない**。`litedoc4.toml` パーサには 1 probe も届いていない
 （そこは `config-gate.sh` が micro-gate item 12 で両半分について見ている）。
+
+**Corrected at 135 cases** (measured 2026-08-31 →
+`benchmarks/results/refusal-divergence-2026-08-31.txt`). `tools/refusal-gate.sh`
+asks the same question over every subcommand's argv refusals rather than 24
+hand-picked ones. Exit codes still differ **0 times** and `--help-all` is byte
+for byte the same, but **17 of the 135 messages differ**, and **none of the 17
+is substrate wording** — every one is litedoc4's own prose. The 24-probe run
+had simply not reached any of them: it sampled, this one covers every
+subcommand's argv refusals.
+
+**The direction of convergence is not one direction.** 8 of the 17 are the Lean
+half declining to name `crates/litedoc4/src/resident.rs` or
+`crates/litedoc4/src/extract.rs`, and 1 declining to name
+`stage7g/extract-once.sh` — paths that stop existing at M10, so there the Lean
+wording is the one that survives and the **Rust** side is what should move
+before `tools/refusals.txt` is re-minted. The other 8 are the Lean half saying
+less than Rust (a dropped measured clause, a dropped fact, a re-worded `ledger`
+subcommand refusal) or, once, more (`watch --interval` carries a measured
+number Rust does not). **This has to be settled before M10**: after it there is
+nothing to mint from, and a file minted from the Lean half would only record
+what it does today.
 
 #### 584 tests の内訳（leg 8、全件を「何を assert しているか」で分類）
 

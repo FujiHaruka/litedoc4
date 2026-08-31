@@ -104,8 +104,10 @@ impl Flags {
         let interval = Duration::from_millis(millis);
         if interval < MIN_INTERVAL {
             return usage(format!(
-                "--interval {millis} is below {} ms: a pass reads every olean of the package, so a \
-                 shorter one spends a core asking a question whose last answer is still current",
+                "--interval {millis} is below {} ms: a pass reads every olean of the package, \
+                 which on the 422-module measurement target takes 2.25 s (measured, \
+                 benchmarks/results/purelean-watch-2026-08-31.txt), so a shorter one spends a \
+                 core asking a question whose last answer is still current",
                 MIN_INTERVAL.as_millis(),
             ));
         }

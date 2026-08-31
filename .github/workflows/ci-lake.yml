@@ -25,6 +25,8 @@ on:
       - "tools/lake-package-gate.sh"
       - "tools/purelean-gate.sh"
       - "tools/purelean-micro-gate.sh"
+      - "tools/refusal-gate.sh"
+      - "tools/refusals.txt"
       - "tools/render-compare.sh"
       - "tools/usedby-gate.sh"
       - "benchmarks/tools/check-site-closure.py"
@@ -45,6 +47,8 @@ on:
       - "tools/lake-package-gate.sh"
       - "tools/purelean-gate.sh"
       - "tools/purelean-micro-gate.sh"
+      - "tools/refusal-gate.sh"
+      - "tools/refusals.txt"
       - "tools/render-compare.sh"
       - "tools/usedby-gate.sh"
       - "benchmarks/tools/check-site-closure.py"
@@ -122,6 +126,13 @@ jobs:
 
       - name: Gate
         run: tools/purelean-gate.sh
+
+      # After the gate above, which is what compiles `lean_exe litedoc4` in
+      # this job. Both arms run here while `crates/` exists: the Lean half
+      # against the frozen answers, and the frozen answers against the Rust
+      # binary this job already built.
+      - name: The refusals are still the frozen ones
+        run: tools/refusal-gate.sh
 
   # The same question `purelean-render-gate.sh` asks over the measurement target,
   # asked over the sample instead — which is what makes it runnable here at all,

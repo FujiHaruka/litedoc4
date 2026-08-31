@@ -143,7 +143,7 @@ fn ledger_refuses_no_subcommand_an_unknown_one_and_a_flag_that_belongs_to_anothe
     assert_eq!(code(&unknown), 2);
     assert_eq!(
         message(&unknown),
-        "litedoc4: unknown ledger subcommand `rebuild`",
+        "litedoc4: unknown `ledger` subcommand `rebuild`",
         "a subcommand nobody has is not the same refusal as a flag nobody has",
     );
 
