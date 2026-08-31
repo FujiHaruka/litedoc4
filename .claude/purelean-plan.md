@@ -468,12 +468,33 @@ left the sources:
   **The same judgement had the same mistake in `Watch.lean`** (its trigger watched
   a file that does not exist); both fixed.
 
-### M9 切替 — 配布モデルを変える（**ここから不可逆**）
-- `action.yml` の binary 解決を廃止 / `lakefile.lean` の `resolveLitedoc4` 250 行削除 /
+### M9 切替 — 配布モデルを変える（**ここから不可逆**）【リポジトリ側は完了 2026-08-31】
+- ~~`action.yml` の binary 解決を廃止 / `lakefile.lean` の `resolveLitedoc4` 削除 /
   `release.yml` 削除 / `lake-download-gate.sh`・`release-notes-gate.sh` 廃止 /
-  `public-surface.txt` の更新（`binary-source` の去就）/ ビルド済み JS をリポジトリへ
-- 2 つのライブサイト（`litedoc4` と `information-theory`）を新経路で再デプロイして確認
-- **完了判定**: `e2e/consumer` が `require` だけでサイトを出す。C コンパイラも Rust も node も要らない
+  ビルド済み JS をリポジトリへ~~ 済（`08efc70` / `11735e9` / `9a47cca`）。
+  実際に消えたのは 353 行（250 の見積りより多い）。JS は M2 の時点で `assets/` に
+  コミット済みで `tools/gen-assets.py` が `Assets.lean` を生成しており、新たな作業は無かった
+- **`public-surface.txt` の `binary-source` は残した**（判断、実物を読んで決めた）。
+  1.x が約束した名前で、**GitHub Actions は消えた output を空文字で返しエラーにしない** —
+  消すと利用者の `test "$SRC" = release` が黙って通る。値は定数 `lake` にし、
+  `ci-action.yml` の `standalone` job が「約束した output が届く」ことだけを assert する
+- **新しく増えた義務**: `src/` は `tools/lean-toolchains.txt` の全 toolchain で
+  コンパイルできなければならない（消費者の Lean がコンパイルするから）。
+  `ci-lean-versions.yml` に `tools/build-lean-exe.sh` を走らせる段を足した。
+  **これは M9 以前には存在しなかった要求**で、U5（extractor が v4.33.0 で通らなかった）と同じ形
+- **完了判定は満たした（実測）** — git require の消費者が
+  `cargo`/`rustc`/`node`/`npm` の無い PATH でサイトを出す
+  → `benchmarks/results/purelean-require-only-2026-08-31.txt`。
+  消費者が払うのは初回の **18.1 s（litedoc4）+ 25.7 s（extractor）**、2 回目からは 0.57 s
+- **残り 3 つ**:
+  1. **タグ `v1.3.0` を切る** — README と `lakefile.lean` は既にこれを指している。
+     切るまで README のピン例は存在しないタグを指したまま
+  2. **`information-theory` のピンを上げる**（`docs.yml` の `@v1.2.0`）—
+     **別リポジトリで、しかも CLAUDE.md が「計測対象にコミットするな」と言っている対象**。
+     ユーザー判断
+  3. **`pages.yml` はまだ Rust バイナリでサンプルを建てている**。M10 で切り替わる。
+     M8 で全体一致を取っているのでバイト差は無い（実測）が、
+     「配布は Lean、公開サンプルは Rust」という非対称は M10 まで残る
 
 ### M10 Rust 削除
 - `crates/` を HEAD から削除、`rust-frozen` タグで凍結（`experiments-frozen` の前例）

@@ -19,10 +19,14 @@ on:
   push:
     branches: [main]
     paths:
-      - "crates/**"
+      - "src/**"
+      - "csrc/**"
+      - "vendor/**"
+      - "lakefile.lean"
       - "extractor/**"
       - "e2e/micro/**"
       - "e2e/micro-dep/**"
+      - "tools/build-lean-exe.sh"
       - "tools/e2e-micro.sh"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -38,10 +42,6 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -52,27 +52,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
-
-      - name: Install the toolchain rust-toolchain.toml asks for
-        run: rustup show
-
-      - name: Cache cargo registry and build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: cargo-v2-${{ runner.os }}-pages-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-
       - uses: ./.github/actions/setup-elan
 
-      - name: Build the CLI
-        run: cargo build --bin litedoc4
+      # **The published sample is built by the half that is actually
+      # distributed.** A consumer gets `lean_exe litedoc4` and nothing else, so a
+      # sample built by the Rust binary would be a site nobody can reproduce from
+      # what they installed — and the asymmetry would be invisible, because the
+      # two halves write the same bytes (M8, measured over the whole target).
+      - name: Cache the litedoc4 build
+        uses: actions/cache@v6
+        with:
+          path: .lake
+          key: litedoc4-lean-${{ runner.os }}-pages-${{ hashFiles('lakefile.lean', 'src/**', 'csrc/**', 'vendor/**', 'e2e/micro/lean-toolchain') }}
+          restore-keys: litedoc4-lean-${{ runner.os }}-pages-
+
+      - name: Build litedoc4
+        run: tools/build-lean-exe.sh --toolchain-from e2e/micro
 
       - name: Build the site, through every gate
+        env:
+          LITEDOC4: ${{ github.workspace }}/.lake/build/bin/litedoc4
         run: tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
 
       - uses: actions/upload-pages-artifact@v5
