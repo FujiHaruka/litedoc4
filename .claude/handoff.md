@@ -1,83 +1,81 @@
-# Handoff — 2026-08-31 (relay leg 4 → leg 5)
+# Handoff — 2026-08-31 (relay leg 5 → leg 6)
 
 ## State
 
-**M4 完了。** `litedoc4 build --root e2e/micro` が Lean で **23/23 バイト一致**し、
-`site-gate` / `config-gate` が緑。**M5 も 2 項目済み**（`--state` と `Generation`）。
-計画は `.claude/purelean-plan.md`（このリレーの SoT）。
-
-- litedoc4: main `51d907e`、clean、push 済み。CI は `7b8fee5` まで緑
-  （`51d907e` は docs のみで、push 時点では走行中だった。**leg 5 は最初に `gh run list` で確認すること**）
-- `tools/purelean-micro-gate.sh` **14/14**、`purelean-render-gate.sh` 6/6（422 モジュール）、
-  `cargo test --workspace` 582 passed
-- disk **8.1 GiB**。`/private/tmp/lean-doc-relay/purelean`（398 MB）は
-  `purelean-render-gate.sh` が要る — **消さないこと**。他は掃除済み
-
-## Next step — M5 incremental
-
-**完了判定そのものが直っていない。** 5 つの判定器のうち **4 つは比較器で、Lean を指せない**
-（`*-reference.sh` が `RUST_BIN` をハードコード、実測）。→ 計画の U13。
-
-やる順（計画の U1〜U13 表に対応。**U6 が一番安く立つ** — 対象リポジトリが要らない）:
-
-1. **`Json.lean` を先に直す** — `JScan.digits` は整数しか読まず、`incremental --timings` が
-   読み戻す `work/*-timings*.json` は `"copySeconds":0.000398834` を含む。**U11 の前に必須**
-2. **U2 ledger リーダ + `checkLedger`** — M5 が読む中で**最も鋭い入口**
-   （`--ledger` は任意のバージョンが書いたファイル）
-3. U6 merge（`merge-reference.sh` は base IR だけで走る）→ U4 impact → U5 ownership
-4. U10 Resident の遅延起動 → U11 pipeline → U12 planOf 4〜9
-
-**`benchmarks/lean-prototype/Incr.lean`（1,079 行）が impact/ownership/merge を実装済み**で、
-422 モジュールで Rust とバイト一致を確認済み。ただし**無いものがそのファイルに書いてある**
-（`--census` / `--exclude` / `--removed` / `--modules` / `--timings` / `merge --verify` /
-拒否のほぼ全部）。`Litedoc4.Json` / `Litedoc4.Ir` への載せ替えも要る。
-
-## Files to read first
-
-1. `.claude/purelean-plan.md` — M5 の節に**移植単位の表・実測値・前提を崩す発見**が全部ある。まずここ
-2. `tools/purelean-micro-gate.sh` — leg 5 の採点器（14 項目）。新項目は 1 つずつ落としてから通す
-3. `crates/litedoc4/src/pipeline.rs`（1,534 行）— U11 の仕様
-4. `benchmarks/lean-prototype/Incr.lean` — U4〜U6 の下敷き
-5. `crates/litedoc4/tests/incremental.rs` — 61 分岐の点検表
-
-## Load-bearing context
-
-- **`ownership` の `watching` ガードは最適化ではない。** 名前が動いていなければ base の IR を
-  1 つも読まない / 動いていれば全部読む。**423 読み対 2 読み**（実測）。
-  無条件にループする移植は「正しくて 200 倍遅い」
-- **Rust は最初に抽出するリクエストでサーバを遅延起動する。** Lean は full path しか無いので
-  常に起動している。**incremental を入れるとき遅延も一緒に運ばないと、いちばん多い答え
-  （「stale なものは無い」）がいちばん高くつく**
-- **項目 13 は `litedoc4-build.json` を `work.irReads` ごと比較する。** 実測値は
-  full `{3,22,4,29}` / incremental 変化なし `{5,11,2,18}` / 1 モジュール編集 `{10,46,4,60}`。
-  読む位置がずれるとここにだけ出る
-- **対象は 432 ではなく 422 モジュール**（→ `benchmarks/results/target-drift-2026-08-31.txt`）。
-  過去の 432 era の数字はそのまま正しい。**新しい数字と並べないこと**
-- **壊したのにゲートが落ちないときは、まず「本当に壊れたか」を疑う。** Lean ソースの文字列は
-  `\"` でエスケープされているので、素朴な置換パターンは 0 箇所しか当たらずに成功したように見える
-  （leg 4 で 2 回踏んだ）
-- **`say "…\`x\`…"` はコマンド置換になる。** `workflow-gate.sh` の質問 4 が機械で見るようになった
+- Branch: `main` @ `9b34b48`, clean, pushed. CI green through `c83966d`; `9b34b48` was
+  pushed last and its run should be checked first (`gh run list`).
+- **M5, M6, M7 are complete. M8 is complete except `build-gate.sh`.** M9 is next and is
+  **the first irreversible milestone** — read `.claude/purelean-plan.md` §M9 before touching it.
+- Measurement env: target `/Users/haruka/dev/lean-projects` @ `16ff7a40`, read only, untouched.
+  Oleans warm. **Disk 4.7 GiB free and swap is holding 29 GB** — `df -h /` before every build.
+  `target/debug` was deleted this leg to make room, so **`cargo test --workspace` needs a
+  rebuild first**; no Rust file was changed in M5–M8, so nothing is owed to it yet.
+- Oracles still on disk: `/private/tmp/lean-doc-relay/{purelean,m5-impact,m5-ledger,m5-merge}`.
+  **`m5-incr` was deleted** — the plan's M5 table says how to retake it.
 
 ## Relay control
 - Mode: ON
 - Goal: litedoc4 の Rust 半分を Lean に移植し切る（計画 `.claude/purelean-plan.md` の M1〜M10）
-- Leg: 5 / cap 40
-- Predecessor: purelean-r4
+- Leg: 6 / cap 40
+- Predecessor: none (leg 5 ran in the user's own session)
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger:
-  - r1: 計画 + 4 判断 (1c3d7ce) / M1 骨格 (8294e56) / 帰属表示 (129ea01) /
-    M2 レンダラ移設・分割 422/422 (bd505f4) / docs-gate の穴 184→199 (3ee806d) /
-    MathML4Lean v0.1.1 + pin (542303e)
-  - r2: **M2 完了**。IR 読み込みを index.json 起点へ (b715912) / extractor ビルドを 1 か所へ
-    (d47f9c1) / 不在の名前でレンダを止める (b0e16f7) / math フォールバックを要約に
-    (6a7084a) / CI ゲート purelean-micro 5 項目 + render ゲート項目 6 (91f0c11) /
-    Linux CI も同バイト (b765a2c) / M3-M4 境界を実測で引き直し (5dc900c)
-  - r3: **M3 完了**。境界を再確定 20 ファイル (d91c3d9) / global の JSON 4 種 + 名前分割器の
-    乖離 (53d4f51) / landing page 4 枚 (8f641ce) / search-index.bin + ゲート 5→8 項目
-    (ab32c35) / 消費者ビルド 6.2 s (8b038b0)
-  - r4: **M4 完了 + M5 の 2 項目**。アセット 4 ファイルを `assets/` に一本化 + 新ゲート
-    (c47ee15, d9f4fff) / M4 仕様と handoff の 3 誤り (a53cf57) / レンダラの `--root`
-    4 通りバイト一致 (9c127c2) / resident プロトコル実証 (fc667fc) / SHA-256 + ledger
-    11 通り一致 (efaa12e) / **build 23/23 + ゲート 4 項目** (1ae4c7a) / state cache +
-    source-url の `//` を塞ぐ (b1141e5) / Generation digest 一致 (7b8fee5) /
-    対象 422 + M5 仕様 (51d907e)。ゲートは 8 → 14 項目、増分は全部個別に落としてから通した
+  - r1–r4: M1–M4 (see `git log`; the earlier ledger entries were compacted away with the plan)
+  - r5: **M5 complete** (U1–U13; five judges green, micro gate 14→16 items) /
+    **M6 complete** (`watch` + HTTP on `Std.Async.TCP`, gate 12/12) /
+    **M7 complete** (whole CLI surface, `public-surface-gate` reads both halves) /
+    **M8 all but `build-gate.sh`** (whole-target build 867/871, all 4 under `work/`).
+    21 commits, `1e5f0b5`..`9b34b48`. Five new logs under `benchmarks/results/purelean-*`.
+
+## Next step
+
+**Two things, in this order.**
+
+1. **Retake the incremental recordings on both halves.** `tools/incremental-reference.sh`
+   carried a fifth copy of the doc-gen4 six-name artefact list, so each scenario's
+   `<s>-global/` compared **1 real file and 5 self-agreeing absences**. Fixed this leg (it
+   now reads `tools/site-artefacts.txt` and writes `<s>-global.count.txt`: **9 compared,
+   3 absent**), but **the recordings M5's evidence rests on were taken with the old
+   list, and they are deleted**. Retake Rust then Lean, compare, and only then is M5's evidence what it says.
+   Inputs are in the plan's M5 table. ~45 min per recording; `--ref-site` is now required.
+2. **`build-gate.sh all` for both halves** — the last of M8. It needs a clone whose own
+   oleans are rebuilt at the clone's path, and `tools/rebuild-own.sh` drove swap +2 GiB in
+   90 s and took free disk 5.8 → 3.8 GiB after 57 of 422 modules (measured). **Do not start
+   it under 20 GiB free.** The `LITEDOC4` variable is already wired and was made to fail.
+
+Then M9. It is irreversible and touches two live sites; `.claude/purelean-plan.md` §M9 lists
+what goes.
+
+## Files to read first
+
+1. `.claude/purelean-plan.md` — the SoT for this relay. §M5 "M5's evidence was narrower than
+   it said" and §M8 are the two live items; §M9 is what comes next
+2. `benchmarks/results/purelean-target-build-2026-08-31.txt` — M8's numbers and the section
+   "Why build-gate has no verdict here"
+3. `tools/incremental-reference.sh` — the corrected `GLOBAL_ARTIFACTS` and `copy_globals`
+4. `benchmarks/results/purelean-async-tcp-2026-08-31.txt` — why M6 was not where the plan broke
+
+## Load-bearing context
+
+- **The doc-gen4 six-name artefact list has now been found in five places** (clone-gate and
+  build-gate, collected 2026-08-29; `global-compare.sh` and `site-compare.sh` and
+  `incremental-reference.sh`, this leg). Every one reported *absent on both sides* and so
+  agreed with itself. **Before adding any comparison over a site, check where that list
+  lives** — the inventory is `tools/site-artefacts.txt`.
+- **A gate that skips silently is invisible to a comparator that counts files.**
+  `incremental-reference.sh` wrapped its own within-run oracle in `if [ -d "$REF_SITE" ]`
+  and the default path had rotted, so `base-sitecheck.txt` was never written and
+  `incremental-compare.sh` skips that name by design. Made a hard exit this leg.
+- **CLAUDE.md's Language rule: new text written into `.claude/` is English.** M5–M7's plan
+  sections were added in Japanese this leg by mistake; M8's is English. **Do not translate
+  the old text** (that is the opportunistic translation the rule forbids) — write new text
+  in English.
+- **`"serve": true` in a timings record means "the resident path was selected", not "a
+  process exists".** Reading it as the latter is how the lazy start would pass untested.
+- **Lean moves a pure computation to where its value is first used**, so a `let` between two
+  `IO.monoNanosNow` measures nothing (`Global/Delta.lean` reported 84 ns for a 212-module
+  scan). `timedPure` is the fix; any future Lean stage timing a pure phase has the same hole.
+- **`ExceptT ε IO α` is definitionally `IO (Except ε α)`** — `let x ← f …` already propagates,
+  and `match ← f … with | .error …` fails to elaborate.
+- **Do not rebuild the Lean binary while a `*-reference.sh` is recording** — the recording
+  dies mid-scenario and leaves a directory that looks complete but for `conditions.txt`.
