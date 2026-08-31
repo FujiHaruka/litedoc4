@@ -314,6 +314,45 @@ structure IncrTimings where
   total : Nat
   deriving Inhabited
 
+/-- The clock as a run leaves it: one cumulative mark per phase boundary, plus
+the three totals that are accumulated across rounds rather than read off a single
+mark.
+
+The fields are named so that `IncrTimings.ofMarks` can be the only place a phase
+is paired with the mark it is measured from. Handing the marks over positionally
+would move the mistake this shape exists to prevent — a phase differenced against
+the wrong neighbour — from a function nothing checks into a call nothing
+checks. -/
+structure IncrMarks where
+  started : Nat
+  detectDone : Nat
+  roundsDone : Nat
+  pruneDone : Nat
+  globalDone : Nat
+  impactDone : Nat
+  renderDone : Nat
+  extract : Nat
+  ownership : Nat
+  merge : Nat
+  deriving Inhabited
+
+/-- Each phase is the gap from the mark before it, and a phase that did nothing
+sits on its predecessor's mark and so measures zero.
+
+**No clamp.** `Nat` subtraction already truncates at zero, so a mark that
+precedes its predecessor — a shape the monotonic clock does not produce and the
+type allows — cannot become a duration that ran backwards. What would falsify
+this: marks stored as anything signed. -/
+def IncrTimings.ofMarks (m : IncrMarks) : IncrTimings :=
+  { detect := m.detectDone - m.started
+    extract := m.extract, ownership := m.ownership, merge := m.merge
+    rounds := m.roundsDone - m.detectDone
+    prune := m.pruneDone - m.roundsDone
+    global := m.globalDone - m.pruneDone
+    impact := m.impactDone - m.globalDone
+    render := m.renderDone - m.impactDone
+    total := m.renderDone - m.started }
+
 /-- One run's whole answer: the counts, the clock, and the ledger the run
 *licenses* but does not write. -/
 structure IncrRun where
@@ -561,14 +600,9 @@ def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun :=
         summariesRendered := derived.summariesRendered
         summariesEchoingTheName := derived.summariesEchoingTheName
         mode := mode.name }
-    -- The marks are cumulative and in phase order, so each phase's duration is
-    -- the gap to the one before it.
-    timings :=
-      { detect := detectDone - started, extract := extractNanos
-        ownership := ownershipNanos, merge := mergeNanos
-        rounds := roundsDone - detectDone, prune := pruneDone - roundsDone
-        global := globalDone - pruneDone, impact := impactDone - globalDone
-        render := renderDone - impactDone, total := renderDone - started }
+    timings := IncrTimings.ofMarks
+      { started, detectDone, roundsDone, pruneDone, globalDone, impactDone, renderDone
+        extract := extractNanos, ownership := ownershipNanos, merge := mergeNanos }
     detected := check.fresh }
 
 /-! ## The record the run writes -/

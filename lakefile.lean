@@ -149,7 +149,7 @@ that stops at `Std` (measured 2026-08-30 →
 consumer builds on every checkout. `extract` above pays that cost because it
 reads oleans; nothing here does. -/
 lean_exe litedoc4 where
-  root := `Litedoc4.Main
+  root := `Main
   srcDir := "src"
   moreLinkObjs := #[md4cObj, mdEventsObj]
 

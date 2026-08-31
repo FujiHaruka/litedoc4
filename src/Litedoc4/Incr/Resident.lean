@@ -318,16 +318,25 @@ partial def waitFor (child : ServeChild) (log : IO.FS.Handle) (tag : String) : B
     throw (4, s!"the resident extractor rejected the request: {text}")
   waitFor child log tag
 
-def Server.start (s : Serve) : BuildM Server := do
-  IO.FS.createDirAll s.work
-  let events := s.work / "serve-events.jsonl"
-  discard <| (IO.FS.removeFile events).toBaseIO
-  -- Trap 1 in the heading: named, and never written to.
-  let unusedIr := s.work / "serve-ir-unused"
-  let log ← IO.FS.Handle.mk (s.work / "serve.out") .write
-  let mut args := #["env", s.bin.toString, s.modulesFile.toString, events.toString]
+/-- Where the server appends its events. Every round reads it back under this
+name, so it is derived from `work` rather than passed in. -/
+def Serve.eventsPath (s : Serve) : FilePath := s.work / "serve-events.jsonl"
+
+/-- Trap 1 in the heading: `--ir-dir` is required at start-up and every request
+carries its own, so the value here names a directory nothing ever writes. It is
+still a path under `work` rather than a word like `unused`, because the extractor
+would create whatever it was handed. -/
+def Serve.unusedIrPath (s : Serve) : FilePath := s.work / "serve-ir-unused"
+
+/-- The whole start-up command line. Split out of `Server.start` because it
+reads nothing: which flags a resident server is started with is a decision about
+`Serve`, and inside the spawn it could only be asked by running Lean against a
+real package. What would falsify the split: a flag whose value has to be read off
+disk at start-up. -/
+def Serve.startArgv (s : Serve) : Array String := Id.run do
+  let mut args := #["env", s.bin.toString, s.modulesFile.toString, s.eventsPath.toString]
   args := args ++ fixedFlags
-  args := args ++ #["--jobs", toString s.jobs, "--ir-dir", unusedIr.toString]
+  args := args ++ #["--jobs", toString s.jobs, "--ir-dir", s.unusedIrPath.toString]
   if let some map := s.linkIndex then
     args := args.push "--link-index" |>.push map.toString
     -- The map leaves out the groups of the modules named here, and
@@ -339,7 +348,13 @@ def Server.start (s : Serve) : BuildM Server := do
     args := args.push "--link-index-omit" |>.push s.modulesFile.toString
     if let some key := s.linkIndexKey then
       args := args.push "--link-index-key" |>.push key
-  args := args.push "--serve"
+  return args.push "--serve"
+
+def Server.start (s : Serve) : BuildM Server := do
+  IO.FS.createDirAll s.work
+  discard <| (IO.FS.removeFile s.eventsPath).toBaseIO
+  let log ← IO.FS.Handle.mk (s.work / "serve.out") .write
+  let args := s.startArgv
   let child ← match ← (IO.Process.spawn
       { cmd := s.lake.toString
         cwd := some s.target

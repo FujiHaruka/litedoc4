@@ -449,14 +449,13 @@ def depsDocsMapJson (resolved : Array ResolvedSite) : String := Id.run do
 /-- Every shape that is not this one is refused by name rather than read as far
 as it goes: this file decides where a third of a page's links point, and a
 partial read would move some of them and not others with nothing in the output to
-say which. -/
-def readDepsDocsMap (path : FilePath) : IO (Except (UInt32 × String) (Array ResolvedSite)) := do
+say which.
+
+`path` is carried only to name the file in a refusal; nothing here opens it. -/
+def parseDepsDocsMap (path : FilePath) (text : String) :
+    Except (UInt32 × String) (Array ResolvedSite) := Id.run do
   let refuse (why : String) : Except (UInt32 × String) (Array ResolvedSite) :=
     .error (3, s!"{path}: {why}")
-  let text ← match ← (IO.FS.readFile path).toBaseIO with
-    | .error e =>
-      return refuse s!"{firstLine (toString e)}. `litedoc4 build --deps-docs-url …` writes it"
-    | .ok text => pure text
   let record ← match parseJson text with
     | .error why => return refuse why
     | .ok record => pure record
@@ -496,6 +495,13 @@ def readDepsDocsMap (path : FilePath) : IO (Except (UInt32 × String) (Array Res
     | .error e => return .error e
     | .ok entry => resolved := resolved.push entry
   return .ok resolved
+
+def readDepsDocsMap (path : FilePath) : IO (Except (UInt32 × String) (Array ResolvedSite)) := do
+  match ← (IO.FS.readFile path).toBaseIO with
+  | .error e =>
+    return .error (3, s!"{path}: {firstLine (toString e)}. \
+      `litedoc4 build --deps-docs-url …` writes it")
+  | .ok text => return parseDepsDocsMap path text
 
 /-- A site whose table will not read costs that site and nothing else: the map
 comes back without it, which is a *different digest* from a run that read it, so

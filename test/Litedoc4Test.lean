@@ -1,4 +1,6 @@
+import Litedoc4Test.Cli
 import Litedoc4Test.Config
+import Litedoc4Test.DepsDocs
 import Litedoc4Test.GlobalArtifacts
 import Litedoc4Test.GlobalBuild
 import Litedoc4Test.GlobalDelta
@@ -7,11 +9,14 @@ import Litedoc4Test.GlobalFacts
 import Litedoc4Test.GlobalSearchIndex
 import Litedoc4Test.GlobalState
 import Litedoc4Test.GlobalV8Gc
+import Litedoc4Test.Httpd
 import Litedoc4Test.IncrFixture
 import Litedoc4Test.IncrImpact
 import Litedoc4Test.IncrLedger
 import Litedoc4Test.IncrMerge
+import Litedoc4Test.IncrPipeline
 import Litedoc4Test.IncrPrune
+import Litedoc4Test.IncrResident
 import Litedoc4Test.IrFrag
 import Litedoc4Test.IrMetrics
 import Litedoc4Test.IrModel
@@ -23,6 +28,8 @@ import Litedoc4Test.MdGc
 import Litedoc4Test.MdHtml
 import Litedoc4Test.MdMath
 import Litedoc4Test.MdParse
+import Litedoc4Test.Packages
+import Litedoc4Test.Queries
 import Litedoc4Test.RenderAutolink
 import Litedoc4Test.RenderExternal
 import Litedoc4Test.RenderAssets
@@ -35,3 +42,4 @@ import Litedoc4Test.RenderLinkIndex
 import Litedoc4Test.RenderOrder
 import Litedoc4Test.RenderWhitespace
 import Litedoc4Test.Utf16
+import Litedoc4Test.Watch

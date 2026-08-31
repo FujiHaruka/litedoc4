@@ -221,13 +221,31 @@ def collisionLine (name owner base : String) : String :=
   let claimant := if base.isEmpty then "a package with no version-pinned URL" else base
   s!"module root `{name}` is claimed by package `{owner}` and by {claimant} — keeping the first"
 
-def externalLinks (root lake : FilePath) : IO Packages := do
+/-- One manifest entry, the directory its sources were looked for in, and what
+the scan of that directory said. -/
+structure ScannedPackage where
+  entry : PackageEntry
+  dir : FilePath
+  roots : Except String (Array String)
+  deriving Inhabited
+
+/-- The whole of the map's shape, as a function of the three answers the world
+gives: core's revision, the manifest, and one directory scan per manifest entry.
+
+Split from `externalLinks` rather than left inside it because **every branch here
+is a judgement about text** — which entry contributes roots, which contributes a
+problem line, which of two claimants keeps a root — and none of them reads
+anything. Inside the `IO` shell the same branches need a package tree on disk to
+reach. What would falsify the split: a rule that has to look at a file to decide,
+which would put the read back in the middle. -/
+def assembleLinks (core : Except String String) (manifest : Except String Manifest)
+    (scanned : Array ScannedPackage) : Packages := Id.run do
   let mut problems : Array String := #[]
   let mut collisions : Array String := #[]
   -- Core first: its four roots are the toolchain's and are not a package's to
   -- redefine, and `mkExternalLinks` keeps the first of a repeated root.
   let mut entries : Array (String × String) := #[]
-  match ← coreGithash root lake with
+  match core with
   | .ok hash =>
     for (name, dir) in coreRoots do
       entries := entries.push (name, s!"{coreUrl}/blob/{hash}/{dir}")
@@ -235,19 +253,14 @@ def externalLinks (root lake : FilePath) : IO Packages := do
   let mut declared := 0
   let mut resolved := 0
   let mut unpinnedRoots := 0
-  match ← readManifest (root / "lake-manifest.json") with
+  match manifest with
   | .error problem => problems := problems.push problem
   | .ok manifest =>
-    let packagesDir := root / manifest.packagesDir
     declared := manifest.listed
     problems := problems ++ manifest.problems
-    for package in manifest.packages do
-      let dir := match package.dir with
-        | some relative => root / relative
-        | none => packagesDir / package.name
-      let unpinnable := package.blobBase.isEmpty
-      let scanned ← moduleRoots dir
-      let names := match scanned with
+    for package in scanned do
+      let unpinnable := package.entry.blobBase.isEmpty
+      let names := match package.roots with
         | .ok found => found
         | .error _ => #[]
       if names.isEmpty then
@@ -255,23 +268,40 @@ def externalLinks (root lake : FilePath) : IO Packages := do
         -- reason it cannot be linked, and a second line saying its directory
         -- could not be read would be the same failure counted twice.
         if !unpinnable then
-          match scanned with
+          match package.roots with
           | .error problem => problems := problems.push problem
           | .ok _ =>
-            problems := problems.push s!"{dir}: no top-level .lean file, so no module root \
-              could be resolved for package `{package.name}`"
+            problems := problems.push s!"{package.dir}: no top-level .lean file, so no module \
+              root could be resolved for package `{package.entry.name}`"
         continue
       if !unpinnable then resolved := resolved + 1
       for name in names do
         match claimedBase entries name with
         -- Reported rather than resolved silently: a real collision would be
         -- links pointing into the wrong repository.
-        | some base => collisions := collisions.push (collisionLine name package.name base)
+        | some base => collisions := collisions.push (collisionLine name package.entry.name base)
         | none =>
           if unpinnable then unpinnedRoots := unpinnedRoots + 1
-          entries := entries.push (name, package.blobBase)
+          entries := entries.push (name, package.entry.blobBase)
   return {
     links := mkExternalLinks entries
     resolved, unpinnedRoots, declared, problems, collisions }
+
+/-- Where a manifest entry's sources are: its own `dir` when it carries one,
+`<packagesDir>/<name>` otherwise. -/
+def packageDir (root : FilePath) (packagesDir : String) (entry : PackageEntry) : FilePath :=
+  match entry.dir with
+  | some relative => root / relative
+  | none => root / packagesDir / entry.name
+
+def externalLinks (root lake : FilePath) : IO Packages := do
+  let core ← coreGithash root lake
+  let manifest ← readManifest (root / "lake-manifest.json")
+  let mut scanned : Array ScannedPackage := #[]
+  if let .ok m := manifest then
+    for entry in m.packages do
+      let dir := packageDir root m.packagesDir entry
+      scanned := scanned.push { entry, dir, roots := ← moduleRoots dir }
+  return assembleLinks core manifest scanned
 
 end Litedoc4

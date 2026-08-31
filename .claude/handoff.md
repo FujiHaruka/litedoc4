@@ -176,6 +176,18 @@ valid oracles), **embed** it (what the `litedoc4-md` tranche did with 12 small f
 or **lose it to the `rust-frozen` tag**. **Nothing has been decided and nothing needs to be
 yet** — the deletion is last — but decide it before the F tranche starts, not during.
 
+## Gates written as pre-emptive M10 replacements — swept, and it is two
+
+A tranche suggested that surviving gates may have been built to replace specific Rust tests
+without the classification knowing. **Swept `tools/*-gate.sh` for it: only `refusal-gate.sh` and
+`flag-tie-gate.sh` mention M10, and both were written this leg.** There are no others to find.
+
+What the same tranche found that *is* worth carrying: one of its 31 rows
+(`every_documented_flag_is_parsed`) was already replaced, deliberately and by name, by
+`flag-tie-gate.sh` — and the classification still listed it as work. **Check a row against
+`tools/gates.txt` before porting it**, not only against the note column the classification
+carries.
+
 ## The gates that read a file inside `crates/` — swept, and it is four
 
 The shape to fear is **an inventory in `tools/` whose consumer is in `crates/`**: M10 deletes the
