@@ -19,11 +19,14 @@
   that M10 removes the whole 1.6 GB anyway.
 
 ## Relay control
-- Mode: PAUSED
+- Mode: ON
 - Goal: litedoc4 の Rust 半分を Lean に移植し切る（計画 `.claude/purelean-plan.md` の M1〜M10）
 - Leg: 8 / cap 40
 - Predecessor: purelean-r7 (killed)
-- Stop-on: user-decision — M10 deletes 316 product invariants that have nowhere to go
+- Stop-on: completion | user-decision | no-progress×2 | leg-cap
+- Answered 2026-08-31: **(b)** — build Lean test scaffolding, port selectively, then delete.
+  User's rule: **invariants must be expressed as code; types where a type can say it,
+  tests only where nothing else can.**
 - Progress ledger:
   - r1–r4: M1–M4 (see `git log`)
   - r5: M5–M7 complete, M8 all but `build-gate.sh`. `1e5f0b5`..`9b34b48`
@@ -79,8 +82,15 @@ discarded as unreliable).
 | **I** internal invariant, no CLI path | 353 | **stops running** |
 | | **584** (21 `#[ignore]`d) | |
 
-- **316, not 353**, is the product number: `litedoc4-testutil`'s own 37 tests are tests of
-  the test helpers and are meaningless once the Rust tests go.
+- **The denominator is verified; the I/F split is not.** `584` tests and `21` `#[ignore]`d
+  were checked against the repository directly (`rg -c '#\[(tokio::)?test\]' crates/`, and the
+  per-crate totals match one for one). `G=55` and `R=93` are corroborated by the per-test
+  tables row for row. **`I=353` / `F=83` are not**: the detail tables hold only 331 I and 67 F
+  rows, so **38 of the 436 non-G non-R tests were counted but never tabulated**. Honest
+  bounds: **I is between 331 and 369, F between 67 and 105.** Subtracting
+  `litedoc4-testutil`'s 37 helper-tests gives a product figure of **~294–332, not a crisp
+  316** — the number quoted before this was checked. The triage below re-reads every one of
+  them, so it settles this as a by-product; do not quote a precise figure until it has.
 - **No R behaviour is library-only.** `main.rs` dispatches 14 subcommands, so all 93 have an
   executable path — which is what made the refusal gate possible at all.
 - **There is no Lean test scaffolding of any kind.** `lakefile.lean` declares four things
