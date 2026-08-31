@@ -116,576 +116,119 @@ M3 で分かって**閉じていない**もの、次に触る人向け:
 4. **Lean の `nameToLink` に `module_for_unescaped` の分岐が無い**
    （→ `benchmarks/results/purelean-guillemet-2026-08-31.txt`）。`--root` で露出する
 
-### M4 build — `site` の周りのパイプライン
+### M4 build — `site` の周りのパイプライン 【完了 2026-08-31】
 
-**アセットは 2026-08-31 に済んだ**（`c47ee15`）。未計測だった 1 点は潰れた —
-**Lean の文字列リテラルは 29 KB を運ぶ**（→
-`benchmarks/results/purelean-assets-literal-2026-08-31.txt`）。4 ファイル 45,397 B が
-バイト一致で往復し、モジュール単体の再ビルドは 0.47–0.50 s。**エスケープは `\` と `"` の
-2 つで足りる**（CR も、`\n` `\t` 以外の制御文字も無い）。生成器は**見つけたものを
-エスケープするのではなく、想定外の制御文字を見つけたら止まる** — Lean の `\x` / `\u` は
-未計測で、間違ったエンコードは「CSS が微妙に CSS でないサイト」になるから。
+- **完了判定**: `litedoc4 build --root e2e/micro` が Rust と **23/23 バイト一致**し、
+  `site-gate` / `config-gate` が Lean 実装で緑 → 達成。判定器は
+  `tools/purelean-micro-gate.sh` の項目 10〜14。サイトの外も一致する
+  （`ledger.json` / `link-index.lidx`(+`.key`) / `work/modules.txt` / `ir/` の木、
+  そして `litedoc4-build.json` は `work.irReads` 込みで
+  `{index:3, module:22, depMap:4, total:29}` — **Lean のリーダは Rust と同じ回数 IR を開く**）
 
-**アセットは 3 つではなく 4 つだった**（実測）。`theme-boot.js` は vite の 4 つ目の出力で、
-`frame.rs` が**ファイルに書かず全ページの `<head>` にインライン**する。Lean 側は M2 以来
-`Frame.lean` に**手写しのリテラル**を持っていて、**誰も vite の出力と突き合わせていなかった**
-（今日まで一致していた。だから黙って古くなる形だった）。今は `Assets.lean` の生成値を参照する。
+M6 以降に効く残りだけ:
 
-正本は**リポジトリ直下の `assets/`** で、鎖は 3 リンク・各リンクを 1 か所だけが見る:
+- **アセットの正本はリポジトリ直下の `assets/`** で、鎖は 3 リンク・各リンクを 1 か所だけが見る:
+  vite → `assets/` は `assets.rs` の**テスト**（`build.rs` が既に vite を走らせているので追加費用が無く、
+  **M9 で vite ごと去る**のが正しい）、`assets/` → `Assets.lean` と `assets/` → `assets.rs` は
+  `tools/assets-embed-gate.sh` の項目 2 / 3。後者は**存在ではなく回数**を数える
+  （2 つ目の `include_str!` は存在検査を素通りする）。
+  アセットは 3 つではなく **4 つ** — `theme-boot.js` はファイルに書かれず全ページの
+  `<head>` にインラインされるので、数えるときに落ちやすい
+- **`build` は `--source-url .../blob/HEAD/...` を exit 2 で拒否する** — `/blob/` の後に
+  **40 桁小文字 hex** を要求する（`render` と `site` は要求しない）。
+  **新しいゲートは両バイナリに 40-hex の同一固定文字列を渡すこと。URL を git から導出させない**
+  — 調査中に HEAD が動いて 11 ページ全部が変わった（実測）
+- **`--source-url` の末尾スラッシュで 11/11 ページが乖離していた**（2026-08-31 に塞いだ）。
+  一般形の `trimTrailingSlash` は既にあり、**Rust が剥がす 4 箇所のうち 3 箇所では呼ばれていて
+  `renderSite` の 1 箇所だけが呼び忘れ**だった。**検査は「関数があるか」ではなく
+  「呼ぶべき場所すべてで呼んでいるか」を見る**。ゲートは項目を増やさず
+  **項目 3 を 2 つの綴り**（素 / 末尾スラッシュ付き）で走らせて塞いだ
+- **`write_marker` は `open_extractor` の前に呼ばれる** — `--extractor-bin` が無くて失敗した
+  `build` も `litedoc4-build.json` と `work/modules.txt` を残す（実測）。
+  「空の `--out`」と「失敗した run が触った `--out`」は**別の状態**で、
+  試行のあいだに `rm -rf` するゲートは後者を隠す
+- **`build` が起こすプロセスは 6 つだけ**（`git` ×4 / `lean --githash` ×1 /
+  `lake env <extractor> … --serve` ×1）。モジュール列挙で `lake` は起動されない —
+  ファイルシステムの glob と手書きの `lakefile.toml` 行認識器（説明できない行はすべて exit 3）
 
-| リンク | 見る場所 | なぜそこか |
-|---|---|---|
-| vite → `assets/` | `assets.rs` の `the_committed_bundles_match_what_build_rs_bundled`（**テスト**） | `build.rs` がその時点で既に vite を走らせている。追加コストが無く、`cargo test --workspace` が毎回見る。**M9 で vite ごと去る**のが正しい |
-| `assets/` → `Assets.lean` | `tools/assets-embed-gate.sh` 項目 2（`gen-assets.py --check`） | 木を読むだけ。node も toolchain も要らない |
-| `assets/` → `assets.rs` | 同 項目 3 | 「正本が 2 つに割れた」を数で見る。**存在ではなく回数**を数える（2 つ目の `include_str!` は存在検査を素通りする） |
-
-計画は当初これを 1 つのゲートに畳む形で書いていたが、vite の側をゲートにすると
-**vite が 2 回走り、しかも M9 で消える検査が M9 まで残る**。3 項目とも個別に落としてから通した。
-
-- **完了判定**: `litedoc4 build --root e2e/micro` の出力が Rust 版と **23/23 バイト一致**し、
-  `site-gate` と `config-gate` が Lean 実装で緑
-
-**2026-08-31 に達成。** 判定器は `tools/purelean-micro-gate.sh` の項目 10〜13
-（build の 23 ファイル / site-gate / config-gate / marker。**4 つとも個別に落としてから通した**）。
-サイトの外も一致する: `ledger.json` / `link-index.lidx`(+`.key`) / `work/modules.txt` /
-`ir/` の木すべて、そして **`litedoc4-build.json` は `work.irReads` を含めてバイト一致**
-（`{index:3, module:22, depMap:4, total:29}`。**Lean のリーダは Rust と同じ回数 IR を開く**ので、
-未検証だった項目 13 の除外は要らなかった）。
-
-#### 実測で分かった 3 つの訂正（2026-08-31。leg 3 の handoff は 3 つとも間違っていた）
-
-1. **modules 列挙で `lake` は起動されない。** 実体は**ファイルシステムの glob**
-   （`pipeline::module_names`）と**手書きの `lakefile.toml` 行認識器**（`lakefile.rs`。
-   説明できない行はすべて exit 3）。`build` が起こすプロセスは `git` ×4 /
-   `lean --githash` ×1 / `lake env <extractor> … --serve` ×1 の**計 6 つだけ**
-2. **`build` は `--source-url .../blob/HEAD/...` を exit 2 で拒否する。**
-   `check_source_url` が `/blob/` の後に **40 桁小文字 hex** を要求する
-   （`render` と `site` は要求しない）。**M4 のゲート項目は両方のバイナリに
-   40-hex の同一文字列を渡すこと**
-3. **URL を git から導出させるのはリレーでは罠。** 調査中に HEAD が動き
-   （並行 commit）、11 ページ全部が変わった。**ゲートは固定値を渡す**
-
-#### 移植の単位と順序（Rust の該当箇所つき）
-
-**バイトを動かすものが先**。1〜4 は `--root` をレンダラに通す塊で、
-`site --root e2e/micro` が Rust と 20/20 一致すれば閉じる（`build` を書く前に検証できる）。
-
-| # | 単位 | Rust | 備考 |
-|---|---|---|---|
-| 1 | `SiteConfig`（`title` / `index` の 2 キー） | `litedoc4-render/src/config.rs` | 未知キーは硬いエラー。**`renderSite` と `buildGlobal` の両方**が title を要る |
-| 2 | `ExternalLinks` 型（`baseFor` / `urlFor` / `iter`） | `litedoc4-render/src/external.rs` | 純データ |
-| 3 | `packages::externalLinks`（manifest 読み + root scan + `lean --githash`） | `litedoc4/src/packages.rs` | **すべて degrade する。例外を投げない**。core 4 件は `Init`/`Lean`/`Std` が `…/src`、**`Lake` だけ `…/src/lake`** |
-| 4 | `linkTo` の問い 1 と 2 | `litedoc4-render/src/autolink.rs:361` | **ここが 11/11 ページを動かす**。問い 0（deps-docs）は e2e/micro に届かないので範囲外 |
-| 5 | `escapeModule` / `needsNoEscape` | `litedoc4-ir/src/name.rs:55-102` | 6 が要る。`«Odd-Name»` の合成 IR が判定器 |
-| 6 | `moduleNames`（ソースの glob） | `litedoc4/src/pipeline.rs:1401` | 順序は `read_dir` 順 → `sortUtf16` → dedup。**この 1 本のリストが ledger / extractor / omit すべてに渡る**ので段ごとに derive し直さない |
-| 7 | `lakefile.toml` の `[[lean_lib]]` 認識器 | `litedoc4/src/lakefile.rs` | `--lib` を必須にすれば後回しにできるが、`e2e/consumer` の Lake script は導出側を使う |
-| 8 | `deriveSourceUrl` / `checkSourceUrl` | `build.rs:1101` / `pipeline.rs:1211` | `git` 4 本。remote は github の 4 綴りだけ |
-| 9 | `writeAssets` | `litedoc4-render/src/assets.rs:53` | `Litedoc4.assets` は済。20 → 23 ファイル |
-| 10 | `Layout` / `planOf`（所有検査 1〜3 + 常に full）/ marker の読み書き | `build.rs:82-141, 955-1039, 1235` | marker は compact JSON + 末尾 `\n`、キー順固定、**タイムスタンプ無し** |
-| 11 | ledger（`extractKey` / `renderKey` / `linkIndexDigest` / `buildLedger`） | `litedoc4-incr/src/ledger.rs` | sha256 が要る。**hash は抽出の前、書き出しは描画の後** |
-| 12 | resident extractor ドライバ（spawn / `ready`・request・`ok` / `linkIndexKey`） | `litedoc4/src/resident.rs` | argv は仕様。`Generation` は M5 に送れるが**送るなら明示する** |
-| 13 | `build` の組み立てと CLI と stdout の行 | `build.rs:148-654` | 最後 |
-
-`fold_timings`（events JSONL → `extract-timings-<n>.json`）は **23 ファイルには不要**。
-
-#### 単位 1〜4 は 2026-08-31 に済んだ（レンダラが `--root` を取る）
-
-`render` と `site` が `--root` / `--lake` を取り、`litedoc4.toml`・`ExternalLinks`・
-`linkTo` の問い 1・2 が入った。**4 通りすべて Rust とバイト一致 + stdout 一致**（実測）:
-
-| | Lean vs Rust |
-|---|---|
-| `render` `--root` 無し | 11 ページ 131,862 B 一致 |
-| `render --root e2e/micro` | 11 ページ **146,728 B** 一致（`--root` で +14,866 B、ページごと +137〜+3,945） |
-| `site` `--root` 無し | 20 ファイル 154,240 B 一致 |
-| `site --root e2e/micro` | 20 ファイル **169,887 B** 一致 |
-
-**比較は空虚でない** — `--root` は 11/11 ページと 20 中 15 ファイルを動かす
-（5 つの JSON/バイナリは title もリンクも運ばないので不変）。
-
-ゲート側も強くした: 項目 5/7 は stdout の**先頭を切り落として**比べていた
-（Lean が `external` ブロックを出せなかったから）。その理由が消えたので切り落としをやめ、
-**stdout 全体**を比べる（3/7 行 → 4/8 行）。落としてから通した。
-
-#### 単位 1〜4 で分かって、閉じていないもの
-
-1. **`Json.lean` の `panic!` は止まらない。** `pArr` / `pObj` は説明できない入力で
-   `panic!` を呼ぶが、Lean の `panic!` は既定値を返して**続行する**。
-   壊れた IR 4 通り（index.json の切り詰め / モジュールファイルの切り詰め ×2 /
-   閉じない配列）で **exit code もページ数も Rust と一致した**（実測 2026-08-31、
-   どちらも rc=1・0 ページ）が、**一致は「panic のあとの空の値がたまたま後段の検証を
-   落とす」ことに依存している**。落とさない壊れ方は探していない。
-   Rust は `EOF while parsing a string at line 1 column 200` と言い、Lean は
-   `PANIC at Litedoc4.JScan.pObj … backtrace:` を出す。**入口が増えたのは今日**で、
-   `lake-manifest.json` は**ユーザーが書くファイル**（IR は extractor が書く）。
-   直すなら `Json.lean` に `Except` を通す 10 関数の書き換えで、M7 の診断と一緒が安い
-2. **エラーの文言は Rust と違う**（判定と exit code は一致）。OS エラーとパーサの
-   メッセージを引用する場所すべて。**何もゲートしていない** → M7
-3. **`litedoc4.toml` の読み手は Rust より狭い。** TOML のリテラル文字列（`title = 'x'`）と
-   複数行文字列を Lean は拒否し、Rust（`basic_toml`）は受け入れる。**拒否は安全側**だが
-   差であり、そう綴ったパッケージは壊れる。どのゲートも通っていない
-4. **`--root` は 422 モジュールでは未検証。** `purelean-render-gate.sh` は `--root` を
-   渡さないので、対象規模で確かめたのは `--root` 無しの経路だけ
-
-#### 単位 12 の未計測も潰れた — Lean は resident extractor を駆動できる
-
-2026-08-31 実測（→ `benchmarks/results/purelean-serve-probe-2026-08-31.txt`）。
-core だけを import した Lean のドライバが `lake env <extractor> … --serve` を spawn し、
-`ready` 行を読み、リクエスト行を書き、`ok 0 <ns>` を受け、子は exit 0 で終わった。
-**書かれた IR は Rust が駆動したものとバイト一致**（2 モジュールで確認）。
-別の仕組み（一時ファイル / ラウンドごとに 1 プロセス / ソケット）を発明する必要は無い。
-
-**閉じていない**: **stdin を明示的に閉じる手段が無い**。Rust は `drop(stdin)` で閉じるが、
-Lean のハンドルは GC が解放する。probe では動いた（ドライバが参照をやめた時点で子が終わった）
-が、**本物のドライバはラウンドをまたいで子を構造体に持つ**ので同じにならない可能性があり、
-そのときの症状は**返ってこない build**。
-
-#### 単位 11 も済んだ — SHA-256 と ledger（2026-08-31）
-
-Lean core にも Std にも SHA-256 は無かったので**純 Lean で書いた**（→
-`benchmarks/results/purelean-sha256-2026-08-31.txt`）。しきい値は
-「micro 2 秒 / 対象 60 秒」で、**どちらも大差で通った**:
-
-| | Lean（順次） | Rust `ledger build` |
-|---|---|---|
-| e2e/micro 11 olean / 643,104 B | **0.01 s** | 0.0006–0.0012 s |
-| 対象 422 モジュール / 228,439,544 B | **2.03–2.04 s** | `--concurrency 1` で 0.13 s |
-
-**15.6 倍の差はスレッドではない** — Rust は 1 スレッドでも 1,765 MB/s 出る。
-arm64 の SHA-256 命令を `sha2` が使っているから。Lean は 112 MB/s。
-**C に移すならその命令を狙う必要があり、帰属表示の義務もつく**ので、
-2 秒で足りるうちは Lean のままでよい。peak RSS 7.9 MB（最大 olean は 4.2 MB）なので
-**チャンク読みは書いていない**（実測であって仮定ではない）。
-
-`ledger.json` は **11 通りでバイト一致**（うち 4 通りは自分で再現。
-bare / `--ir` / `--source-url` + `--link-index` / `--root` = 3180 / 3247 / 3435 / 3435 B、
-`externalLinks` が `--root` の有無で `dea95501…` ↔ `8244901f…` と変わるので**空虚ではない**）。
-olean が 1 つも無いモジュールは**両方が exit 3 で同じ行**を出す。
-
-**ゲートを足した**: `purelean-micro-gate.sh` は **9 項目**になり、項目 9 が
-両者の `ledger build` を丸ごとバイト比較する。**キー順は挿入順であってソート順ではない**ので、
-両方をパースして比べる形にするとその性質が見えなくなる。
-`rendererId` を v5 に変えて**単独で落としてから通した**（char 446 で違う、と 1 行で言う）。
-
-**閉じていない**: `--algorithm lake` は未実装（`build` は常に sha256 なので M4 には要らない）/
-ledger を**読み戻す**側（`check` / `touch` / schema 1 の拒否）が無い → M5 /
-`bytes: -1` の番兵は `--algorithm lake` 専用なので Lean 側に存在しない。
-
-#### M4 で足すゲート項目（`purelean-micro-gate.sh`、1 つずつ落としてから通す）
-
-**全部足した。ゲートは 13 項目**（9 = ledger、10 = build の 23 ファイル、
-11 = site-gate、12 = config-gate、13 = marker）。
-
-**11 と 12 は「10 の比較が通ったとき」ではなく「Lean の build が site を書いたとき」に走る。**
-最初は比較に従属させていて、それだと**10 が落ちると 11/12 は自分の理由で落ちられない** —
-項目 8 が `site_ok` に守られていたのと同じ形。緩めたので、アセットを 1 つ落とすと
-10 は「1 missing」、11 は「DEAD internal links: 15 (1 distinct destinations, 15 pages)」と
-**別々の理由**を言う。
-
-**壊したのに落ちなかったら、まず壊れたかを確かめる。** 項目 13 を落とそうとして
-`"litedoc4 build"` を置換したが 0 箇所しか当たらず（Lean ソース中は `\"` でエスケープされている）、
-**ゲートが弱いのではなく変更が入っていなかった**。
-
-#### M4 で閉じなかったもの
-
-1. ~~**`Generation` は移植していない**~~ **2026-08-31 に閉じた**（→ M5 の節）
-2. ~~**`<out>/state/global-state.json` を書かない。**~~ **2026-08-31 に閉じた** —
-   `Global/State.lean` を移植し、`site --state` と `build` に通した。
-   `global-state.json` は cold も warm も **10,499 B でバイト一致**、
-   `global  cache 0 hit / 11 miss` → warm で `11 hit / 0 miss` も一致。
-   **壊れた state 10 通り**（4 つの version キーを 1 つずつ / 切り詰め / 非 JSON /
-   空 / エントリ欠損 / 末尾の `}`）が**両方とも黙って cold に落ちる**ことも確認した
-   （良い state での 11 hit を対照に置いてある）。
-   対象規模でも確認: 422 モジュールの IR で state は **1,337,956 B バイト一致**、
-   サイト 431 ファイルも stdout も一致。
-   `tokens` が一番高くついた — Rust の規則は**意図的に UnicodeBasic と V8 の
-   2 つの GC 表の和**なので、`Global/V8Gc.lean`（737 レンジ）を足して `Md/Gc.lean` と共有させた
-3. **`work/extract-timings-1.json` と `work/ledger-timings.json` を書かない。**
-   前者は `fold_timings` 未移植（events JSONL 自体は書かれる）
-4. **config-gate のオラクルはまだ Rust。** ゲートは `global` サブコマンドを走らせ、
-   Lean の CLI にはまだ無い（`--built` に Lean のサイトを渡す形で検証した）。
-   `LITEDOC4` を Lean にするには `global` が要る → M7
-5. **Lean の `panic!` する JSON リーダに入口が 1 つ増えた** — 壊れた `<ir>/index.json` が
-   `extractKey` に届く。`lake-manifest.json` はテキストとしてハッシュするだけなので
-   そちらは増えていない
-
-#### `--source-url` の末尾スラッシュ（2026-08-31 に見つけて塞いだ）
-
-**Rust は `…/e2e/micro/Example.lean`、Lean は `…/e2e/micro//Example.lean`** を書いていた。
-`render` と `site` は `--source-url` を検査しない（`build` だけが 40-hex を要求する）ので、
-**末尾スラッシュ付きの URL を渡すと 11/11 ページが乖離する**。
-
-**一般形の関数は既にあった。** `trimTrailingSlash` は `External.lean` にあり、
-Rust が剥がす 4 箇所のうち **3 箇所（ledger ×2 / packages / external）では呼ばれていて、
-`renderSite` の 1 箇所だけが呼び忘れ**だった。「一般形に上げ忘れた」ではなく
-「一般形はあったのに 1 箇所で使わなかった」— **検査は「関数があるか」ではなく
-「呼ぶべき場所すべてで呼んでいるか」を見る必要がある**。
-
-ゲートは**項目を増やさずに**塞いだ: **項目 3 を 2 つの綴り**（素、末尾スラッシュ付き）で走らせる。
-同じ主張を別の入力で確かめるだけなので、項目にすると同じ欠陥を 2 回報告することになる。
-落としたとき「with a trailing slash on --source-url: 11 differing」と**どちらの綴りで
-落ちたか**を言う。
-
-#### 項目 14 — build の transcript（2026-08-31）
-
-**項目 10 はファイルしか比べていなかった**ので、`global … state 0 B` と Rust の
-`state 10499 B` の差が**全項目緑のまま**残っていた。`build` が何を言ったかは誰も見ていなかった。
-
-正規化は 3 つ（duration / `ready` のタイムスタンプ / 2 つの run の `--out`）で、
-どれも「移植のせいではない理由で動く値」。**4 つ目の `, generation <hex>` は
-例外リストではなく既知の欠落**として符号化した: 項目は
-**「Rust は出す・Lean は出さない」を主張し、どちらかが崩れた日に落ちる**。
-Lean が出すようになったら「Generation landed, so delete the normalisation」と言う。
-両分岐とも実際に落として確認した。
-
-#### 実測で分かった、もう 1 つの状態
-
-`write_marker` は `open_extractor` の**前**に呼ばれる。つまり
-**`--extractor-bin` が無くて失敗した `build` も `litedoc4-build.json` と
-`work/modules.txt` を残す**（実測）。次の run はそれを所有物と認めて
-`Full("the previous run did not finish")` と答える — 正しい。
-だが「空の `--out`」と「失敗した run が触った `--out`」は**別の状態**で、
-試行のあいだに `rm -rf` するゲートは後者を隠す。
 
 ### M5 incremental — ledger / impact / ownership / merge / mode 【完了 2026-08-31】
-- ~~最初にやるのは `--state`~~ **2026-08-31 に済んだ**。`planOf` の検査 8 は通る
-- ~~次は `Generation`~~ **2026-08-31 に済んだ**。両バイナリが同じ digest
-  （`d78f65c3ecda6961`）を出し、`.hash` sidecar を書き換えると**両方が同じ新しい値**
-  （`13e1737c29490fc3`）に変わる — 実際に Lake の sidecar を読んでいる。
-  `Algorithm` は `.sha256` / `.lake` の 2 択になり、**walk は共有**（`modulePaths` は 1 つ）。
-  予告どおり項目 14 が落ちたので**正規化を消した** — `serve ready` の digest まで
-  比較対象に戻っている。
-  照合が exit 3 で落ちることは **3 つの窓のうち 2 つ**で確認した
-  （spawn 時 / リクエスト後。両バイナリがバイト同一のメッセージ）。
-  **3 つ目（リクエスト前）は構成できていない** — `detect` の最中に世界が動く必要があり、
-  フックが無かった。同じ `checkGeneration` を通るという議論はあるが、**議論であって計測ではない**
 
-- **M5 で持ち越す設計上の注意**: Rust は**最初のリクエストで遅延して**サーバを起動する。
-  何も抽出しない run が 3 GB と import を払わないためで、Lean 側は full path しか無いので
-  常に起動している。**incremental を入れるときに遅延も一緒に持ってこないと、
-  いちばん多い答え（「stale なものは無い」）がいちばん高くつく**
-- プロトタイプの `Incr.lean` が土台。**bimodal な `ownership`（423 読み vs 2 読み）を保つ**
-- `onemod-gate.sh` は**ここ**（旧 M3 から移した）。引数が
-  `<litedoc4-build.json> <serve.out>` で、1 モジュール編集後の
-  `modulesExtracted` / `pagesRendered` を見るゲートなので、測っている対象は incremental
 - **完了判定**: `incremental-compare.sh` / `impact-compare.sh` / `merge-compare.sh` /
   `ledger-compare.sh` / `onemod-gate.sh` が Lean 実装で緑
-  → **2026-08-31 に 5 本とも緑。M5 完了**（U1〜U13）:
-  incremental **3,145/3,145** / impact **3,556/3,556** / merge **3,961/3,961** /
-  ledger **66/66** / `onemod-gate.sh` 緑。**5 本とも先に落としてから通した**。
-  micro ゲートは 14 → **16 項目**（12 の 2 つ目の綴り / 15 `--only-from` / 16 incremental）
+  → **5 本とも緑。U1〜U13 完了**: incremental **3,145/3,145** / impact **3,556/3,556** /
+  merge **3,961/3,961** / ledger **66/66** / `onemod-gate.sh` 緑。
+  **5 本とも先に落としてから通した**。micro ゲートは 14 → **16 項目**
+  （12 の 2 つ目の綴り / 15 `--only-from` / 16 incremental）
+- 移植したもの: ledger リーダ + `checkLedger` + `touch` / `ownership` / `merge`（`--verify` 込み）/
+  `impact` / `prune` / `render --only` `--only-from` / `global` と delta /
+  `extract` / `incremental` / `planOf` の全検査
 
-#### 完了判定そのものを直す必要がある（実測 2026-08-31）
+#### オラクルの記録 — 再現の仕方（M8 と M9 が要る）
 
-**5 つのうち 4 つは「ゲート」ではなく比較器で、Lean を指せない。**
-`incremental` / `impact` / `merge` / `ledger` の `*-reference.sh` は 4 本とも
-`RUST_BIN="$REPO/target/release/litedoc4"` を**ハードコード**していて、フラグも環境変数も無い
-（実測）。`tools/gates.txt` にも 4 本とも載っていない — 載っているのは `onemod-gate.sh` だけ。
-**U13 で `LITEDOC4` 環境変数を足す**（`purelean-*-gate.sh` と同じ綴りにする。
-バイナリを `target/release/litedoc4` に置き換えるのは、Rust のオラクルを壊すので取らない）。
+`*-reference.sh` は**実装の答えを記録する**スクリプトで、`*-compare.sh` が 2 つの記録を比べる。
+`LITEDOC4=<バイナリ>` で相手を選ぶ（2026-08-31 に 4 本へ足した）。**対象リポジトリは読むだけ。**
 
-**`onemod-gate.sh` だけは本物のゲート**で、要求は 3 つ、うち 2 つは**等号ではなく不等号**:
-`modulesExtracted >= 1`（0 は「速いビルド」ではなく「走らなかったビルド」）/
-`1 <= pagesRendered < modules`（上限は `.lidx` が毎回動く退行を捕まえる。
-その digest は `renderKey` の入力なので、1 宣言増えるだけで全ページ再描画になる）/
-`serve.out` に extractor 自身の `linkIndex … reused` 行があること
-（「動いていない」と「書かれていない」はバイトで区別できないので**ファイルではなく extractor に訊く**）。
-
-#### 大きなヘッドスタートが 1 つある
-
-**`benchmarks/lean-prototype/Incr.lean`（1,079 行、43 KB、core だけ）が
-`impact` / `ownership` / `merge` を実装済み**で、422 モジュールの対象で Rust と
-バイト一致を確認済み（→ `benchmarks/results/purelean-incremental-2026-08-30.txt`）。
-**ただし無いものがそのファイル自身に書いてある**: `--census` / `--changed-file` /
-`--exclude` / `--removed` / `--modules` / `--timings` / `merge --verify`、そして
-拒否のほぼ全部。自前の JSON リーダと型も持っているので、`src/` に入れるには
-`Litedoc4.Json` / `Litedoc4.Ir` に載せ替えが要る。**「1,079 行あるから終わり」ではない**。
-
-#### オラクルの記録（2026-08-31 に 3 本取った）
-
-`*-reference.sh` は**実装の答えを記録する**スクリプトで、`*-compare.sh` が 2 つの記録を
-比べる。**Rust 側の記録は取ってある**ので、Lean 側は同じ引数で 2 本目を取るだけでよい。
-`LITEDOC4` を渡す（U13 の前半、`62bab9b`）。**対象リポジトリは読むだけ。**
-
-| 記録 | 入力 | 出力 |
+| 記録 | 入力 | 規模 |
 |---|---|---|
-| ledger | `--ir /private/tmp/lean-doc-relay/purelean/ir`（422 モジュール） | `m5-ledger/rust`（78 ファイル、1.1 MB） |
-| merge / ownership | `--base-ir` 同上 | `m5-merge/rust`（3,961 ファイル、141 MB） |
-| impact / prune | `--base-ir` 同上 / `--pages m5-impact/ref-pages` / `--site m5-impact/ref-site` | `m5-impact/rust`（3,585 ファイル、248 MB 込み） |
+| ledger | `--ir /private/tmp/lean-doc-relay/purelean/ir` | 78 ファイル |
+| merge / ownership | `--base-ir` 同上 | 3,961 ファイル |
+| impact / prune | `--base-ir` 同上 / `--pages m5-impact/ref-pages` / `--site m5-impact/ref-site` | 3,585 |
+| incremental | `--base-ir` 同上 / `--lidx purelean/link-index.json` / `--ref-site m5-impact/ref-site`、`--extractor product\|resident` | 3,168 |
 
-`m5-impact/ref-site` は `target/release/litedoc4 site` で作った 422 ページのサイト（26 MB）。
+`ref-pages` / `ref-site` は `target/release/litedoc4` の `render` / `site` を
+`purelean/ir` に当てて作る。**記録の入力は記録と同じ寿命を持つ場所に置く** —
+一度 `--pages` に他のゲートの残骸を渡して、掃除で消してしまった。
 
-impact の記録は 2026-08-31 に**取り直した**。最初の記録は `--pages` に
-`purelean-render-gate.sh` が残した木を渡していて、その木を掃除で消してしまった —
-`prune` は木を `$OUT` に複製してから消すのでオラクル自体は自己完結していたが、
-Lean 側が同じバイトを出すには**同じ `--pages` が要る**。今は `ref-pages` も `ref-site` も
-`ref-site` と同じ固定 URL で `target/release/litedoc4` から作り直せる（上の表の入力）。
-**一般形: 記録の入力は、記録と同じ寿命を持つ場所に置く。**
-**`it-modules.txt` は 432 のまま動く** — 10 個の stale な olean が残っているので
-`ledger build` は 432 モジュール全部にハッシュを付けられる（実測: `clean` シナリオが
-432 モジュール 0 changed で通る）。
+**この 4 本は M9 で片側が消える。** 比較器は 2 つの記録を比べる道具なので、Rust を削除すると
+**問いごと無くなる**。M5 で唯一 Rust を要らない判定は **micro ゲート項目 16**（Lean 半分の
+3 回の run を互いに比べる）。M9 に入る前に、比較器が持っていた問いのどれを
+オラクル無しの形に移すかを決めること。
 
-#### 移植の単位（U1〜U13）
+#### M5 が残した、次に効く事実
 
-| # | 単位 | Rust | 状態 |
-|---|---|---|---|
-| U1 | `openUnvalidated` / `Ordered α` | `ir/reader.rs`, `incr/ordered.rs` | 小 |
-| U2 | ledger **リーダ** + `KeySet.diff` + `checkLedger` + 3 つの出力ファイル | `incr/detect.rs`, `ledger.rs` | **済み 2026-08-31** |
-| U3 | `ledger touch` | `incr/detect.rs:409` | **済み 2026-08-31** |
-| U4 | `impact`（4 つの mode） | `incr/impact.rs` | **済み 2026-08-31** |
-| U5 | `ownership` — **`watching` ガードを保つ** | `incr/ownership.rs` | **済み 2026-08-31** |
-| U6 | `merge` + `--verify` | `incr/merge.rs` (773) | **済み 2026-08-31** |
-| U7 | `prune` | `incr/prune.rs` (518) | **済み 2026-08-31** |
-| U8 | `ModuleSet` + `--only` / `--only-from` | `render/site.rs` | **済み 2026-08-31** |
-| U9 | global の delta（`--before` / `--print-set` / `--delta-json`） | `global/delta.rs` | **済み 2026-08-31**（`global` サブコマンドごと） |
-| U10 | `Resident`: **遅延起動** / リクエスト数 / 冪等な stop / `foldTimings` | `resident.rs`, `extract.rs` | **済み 2026-08-31**（`litedoc4 extract` ごと） |
-| U11 | `incremental` パイプライン本体 | `pipeline.rs` (1,534) | **済み 2026-08-31** |
-| U12 | `planOf` の検査 4〜9 + `incrementalGeneration` | `build.rs` | **済み 2026-08-31** |
-| U13 | ゲート配線（4 本に `LITEDOC4`、micro ゲートを 14 → 16） | — | **済み 2026-08-31**。4 本に `LITEDOC4`、項目 12 の 2 つ目の綴り、項目 15（`--only-from`）、項目 16（incremental） |
+- **`ownership` は bimodal**。`lostOwners` と `gainedOwners` がどちらも空なら base の IR を
+  **1 つも読まない**、空でなければ exclude を除く全部を読む。実測で **0 対 417〜421**。
+  `watching` ガードは最適化ではなく**その 2 つを分ける唯一のもの**
+- **遅延起動は計測した**（→ `benchmarks/results/purelean-lazy-serve-2026-08-31.txt`）。
+  `nochange` は抽出器プロセス **0 個 / 5.7 s**、`self-one` は **1 個 / 23.4 s**。
+  **両方とも timings に `"serve": true` と出る** — これは「resident の経路を選んだ」であって
+  「プロセスが在る」ではない。**後者と読むと遅延起動が未検証のまま通る**
+- **純粋な段を計る Lean の実装は時計の穴を持つ**。2 つの `IO.monoNanosNow` の間に純粋な
+  `let` を置くと、Lean はその計算を**値が最初に見られる場所まで動かす** —
+  `Global/Delta.lean` の `scanSeconds` が 212 モジュールの走査中に **84 ns** と出ていた（実測）。
+  `timedPure` で塞いだ。**バイト比較には一切映らない**
+- **`ExceptT ε IO α` は `IO (Except ε α)` と定義上同じ**。拒否が `UInt32 × String` の関数は
+  `let x ← f …` がそのまま伝播で、`match ← f … with | .error …` はスクルティニが `α` に
+  解決されて型エラーになる
+- **JSON リーダは誤りの経路を持つ**（`JVal.bad` → `parseJson` だけが見る）。
+  小数は `JVal.real` が**書かれたバイトのまま**持つ（Lean に最短往復の `Float` 印字が無く、
+  `--timings` はこれらを素通しでコピーするだけだから）
+- **`ledger check` が遅いのは移植ではなくハッシュ**（→ `purelean-ledger-check-2026-08-31.txt`）。
+  `--algorithm lake` なら Rust の 1.3 倍、`sha256` で 15.7 倍。差の全部が SHA-256 で、
+  **C を採らない判断は M4 で決着済**（→ `purelean-sha256-2026-08-31.txt`）
+- **`it-modules.txt` は 432 で凍り、base IR は 422**。ledger のシナリオは 432 をハッシュし、
+  merge / incremental は 422 の木を動かす。**同じ記録の中で母数が 2 つある**
 
-**`ownership` の bimodality の正体**（実測）: `lostOwners` も `gainedOwners` も空なら
-**base の IR を 1 つも読まない**。空でなければ **exclude を除く全 base モジュールを読む**。
-e2e/micro で `scannedBaseModules` が **10 と 0**、対象で **423 読み対 2 読み**。
-**`watching` ガードは最適化ではなく、その 2 つを分ける唯一のもの** — 無条件にループする
-移植は「正しくて 200 倍遅い」。
+#### 構成できていない窓（「たぶん大丈夫」と読まないこと）
 
-**`irReads` の実測値**（項目 13 が丸ごと比較するので、ここがずれると出る）:
-full = `{3, 22, 4, 29}` / incremental で何も stale でない = `{5, 11, 2, 18}` /
-1 モジュール編集 = `{10, 46, 4, 60}`。
+- **`--max-rounds` 超過の exit 5** — 7 シナリオが 1 つも stale モジュールを出さないので届かない
+- **`prune` の `allowRemoveDir` の `strictly`（ルート自身）** — 呼ぶ側が `relative` が空のときに
+  止めるので、**Rust にも到達経路が無い**
+- **`Generation` 照合の 3 つ目の窓（リクエスト前）** — `detect` の最中に世界が動く必要があり、
+  フックが無い。他の 2 つ（spawn 時 / リクエスト後）は両バイナリがバイト同一のメッセージで exit 3
+- **`Server.stop` の「signalled」枝は Lean に無い** — Rust が 10 秒ポーリングしてから signal する
+  ところを `wait` で塞いでいる（意図した乖離）
+- **`prune` のガード 3 つは記録が 1 つも通らない**ので、記録の外で Rust と突き合わせた
+  （語彙的な脱出 `«..».Foo` / 物理的な脱出 symlink / symlink を降りない歩き方。3 つとも一致）
 
-#### U2 / U3 で分かったこと（2026-08-31）
+#### M7 へ持ち越す穴
 
-`ledger-compare.sh` が **`IDENTICAL`**（66 ファイル: 台帳 9 本がバイト一致、
-timings 19 本が持続時間を除いて一致、`.txt` 38 本がバイト一致）。
-比較器は先に一度落とした — 台帳の 1 バイト / timings の `modules` / `.txt` の 1 行を
-摂動して 3 つとも `DIFFERS`、持続時間の**値だけ**の摂動は `same counts` のまま。
-
-- **Rust の `LedgerSchema` 拒否は本物の schema-1 ファイルには届かない**（実測）。
-  `check_ledger` は `serde_json::from_str` を**先に**完走させるので、`envKey` しか持たない
-  schema-1 は `missing field `extractKey`` で exit 1 になる。`ledger.rs` のコメントが約束する
-  「schema-1 はパース失敗ではなく schema-1 として名指す」は**その約束のほうが正しい**ので、
-  Lean 側は schema を先に見て exit 3 にした。schema-2 の全フィールドを持ちつつ
-  `ledgerSchema: 1` のファイルでは両者が完全に一致する
-- **`Algorithm` は `Ledger.lean` の外でも使われている** — `Build.lean` の `Generation.take` が
-  `hashModule .lake` を呼ぶ（micro ゲート項目 14 が通る経路）。`grep Algorithm` では出ない
-- 空集合の綴りを 1 か所に寄せた（`Fs.linesFile` / `writeLines`）。`modules --out` が
-  同じ判断を別に持っていた
-- **`--concurrency` は受け取って記録するが、ハッシュは逐次**。stdout は `concurrency 1`
-  （やったこと）を出し、N > 1 なら別行で「逐次でやった」と言う。timings は Rust と同じく
-  **要求値**を記録する。スレッドプールは別単位
-- **`check` が遅いのは移植ではなくハッシュ**（実測 →
-  `benchmarks/results/purelean-ledger-check-2026-08-31.txt`）。`--algorithm lake`
-  （バイトを読まない）で比べると Lean は Rust の **1.3 倍**（0.0120 s 対 0.0093 s、432
-  モジュール、暖機 5 回）で、`sha256` にすると **15.7 倍**（2.115 s 対 0.135 s）になる。
-  差の全部が SHA-256 で、**これは M4 で既に決着している**
-  （→ `purelean-sha256-2026-08-31.txt`: 112 MB/s、60 s 予算に対し 2 s、C は
-  帰属義務ゆえに取らない）。**スレッドプールも C も 2.1 s では licence されない**
-
-#### U5 / U6 で分かったこと（2026-08-31）
-
-`merge-compare.sh` が **3,961/3,961 一致（`IDENTICAL`）**、9 シナリオ + `--verify` 3 本。
-比較器は 1 文字の摂動で `DIFFERENT` になることを先に確認した。
-
-**bimodality は保たれている**（実測、Rust と Lean が同値）:
-
-| シナリオ | `scannedBaseModules` | モード |
-|---|---|---|
-| `rerun` / `modified` | **0** | base の IR を 1 つも読まない |
-| `moved` | 417 | 全部読む（exclude 3 を除く） |
-| `gained` / `added` / `removed` / `restored-1` | 421 | 全部読む |
-| `copyout` / `restored-2` | 420 | 全部読む |
-
-- **重複キーは深さを問わず畳む**。`serde_json` の `preserve_order` はパースの時点で
-  重複キーを畳む（最初の位置・最後の値）ので、`modules[]` の生オブジェクトの中で
-  両方残す実装は**手編集された index を Rust が落とすキーごと往復させてしまう**。
-  `jvalCollapse` が入り口で再帰的に同じ規則を当てる（`"bytes":999999,"bytes":N` で
-  両バイナリがバイト一致することを確認）
-- **「最初の位置・最後の値」の綴りを 1 つにした** — `Incr/Ordered.lean` の
-  `orderedInsert` / `orderedGet?` に台帳・マージ後 index・`moduleMap`・`depMapping` が
-  全部乗る
-- **`openUnvalidated` は U1 ではなく Ir.lean の分岐**。`ownership` / `merge` は
-  「木について答える」ので、レンダできないほど古い木にも答えられる必要がある
-
-**2 つのオラクルはパッケージの大きさについて食い違う**（気づき、U11 に効く）:
-`it-modules.txt` は 432 で凍っていて ledger のシナリオは 432 モジュールをハッシュするが、
-M5 のオラクルを記録した base IR は **422 モジュール**（merge のシナリオは `into 422`/`423`
-と出る）。**台帳と IR index を突き合わせる段（U11）は、この 10 の差を「既知のドリフト」
-ではなく diff として踏む**。U11 に入る前に、どちらの母数で回すかを決めること。
-
-#### U4 / U7 で分かったこと（2026-08-31）
-
-`impact-compare.sh` が **3,556/3,556 一致（`IDENTICAL`）**、18 の `impact` シナリオと
-10 の `prune` シナリオ。比較器は先に 2 回落とした — 生き残ったページの 1 バイト
-（`cascade/pages/InformationTheory/Fano.html` の `search-input` → `searchZinput`）で
-`DIFFERS ... char 1001`、`orphans-only-prune.json` の `"orphans": 4 → 5` で
-`orphans: reference 4, candidate 5`。**`totalSeconds` はマスクされる**ので、
-prune の答えは時計を除いて全部比較されている。
-
-- **共通の綴りを 3 つ寄せた**。`pageUrl` は `Global/Artifacts.lean` にあったが、
-  **書き手（レンダラ）と消し手（prune）と索引が同じ規則でなければならない**ので
-  `Ir/Name.lean` へ（Rust の `litedoc4_ir::page_path` と同じ位置）。`jvalGet?` は
-  `Incr/Merge.lean` から `Json.lean` へ、`readModuleList` は `Ledger.lean` から
-  `Fs.lean` へ（`writeLines` と対になる）
-- **`IndexEntry` に `bytes` を足した**。`selectedIrBytes` は index の列を足すだけで、
-  ファイルを開かずに選択の代価を言う数字。重複した index エントリは 2 回数える
-- **`prune` のガードは 3 つで、記録はそのうち 1 つも通らない**（実測）。
-  記録の外で 2 つを Rust と突き合わせた: 語彙的な脱出（`«..».Foo` →
-  `../Foo.html`）と物理的な脱出（`pages/Esc` が外を指す symlink、`Esc.Foo`）は
-  **両バイナリがバイト同一のメッセージで exit 3**、外のファイルは残る。
-  3 つ目（symlink を降りない歩き方）も外で突き合わせて一致 — symlink のディレクトリは
-  素通り、symlink の `.html` はリンクごと消える、`.HTML` は残る。
-  **`allowRemoveDir` の `strictly`（ルート自身）だけは構成できていない** —
-  呼ぶ側が `relative` が空のときに止めるので、到達経路が無い
-- **census は 422 モジュール分の推移閉包を毎行計算してバイト一致**し、
-  `impact` 1 本の実時間は 0.34 s（422 モジュール、IR 15 MB、暖機済み）。
-  **IR 全部のパースは `ledger check --algorithm sha256` の 2.1 s より 1 桁安い** —
-  U11 で数えるべきは「パーサ」ではなく「IR を何回読むか」
-- **ページ経路の綴りは 2 つ残す**。`Ir/Name.pageUrl`（URL、`/` 区切り）と
-  `Render/Page.pagePath`（`FilePath`、部品ごと）で、Rust も
-  `litedoc4_ir::page_path` と `litedoc4_render::page_path` を分けている。
-  畳むと **Windows で区切りが `\` の経路の中に `/` が入る**。
-  反証条件はリリースの triple から Windows が消えること
-
-#### U8 / U9 で分かったこと（2026-08-31）
-
-`--only` / `--only-from` は 6 通り（1 つ / 2 つ / ファイル 3 名 / 空ファイル /
-IR に無い名前 / 両方併用）で**ページ木・stdout・終了コードとも Rust と一致**。
-`global --ir <422 モジュール> --out` は 9 ファイルがバイト一致し、
-delta は `--before` を 4 通り作って `--print-set` / `--delta-json` /
-木 / stdout とも一致（`--delta-json` の差は 3 つの `*Seconds` だけ）。
-
-- **空の `--only-from` は「何も描かない」で、`--pages` を作りさえしない**（両バイナリ）。
-  IR に無い名前も**黙って空集合**で exit 0 — 綴り間違いは言ってくれない（Rust に忠実）
-- **`Global/Delta.lean` の持続時間が何も測っていなかった**（実測して直した）。
-  2 つの `IO.monoNanosNow` の間に純粋な `let` を置くと、**Lean はその値が最初に見られる
-  場所まで計算を動かす**ので、212 モジュールを走査している間の `scanSeconds` が **84 ns**
-  と出ていた。`timedPure`（`IO.mkRef` は不透明な extern なので仕事が越えられない）を入れて
-  0.0019 s に。**`Ledger.lean` の phase は IO を挟むので本物**だったが、
-  **純粋な段を計る Lean の実装は全部この穴を持つ**
-- **項目 5 は `--deps-docs-map` に付け替えた**（`render` でまだ実装していない唯一のフラグ）。
-  形は変えていない — 黙って無視されるフラグは項目 3 / 4 のバイト比較に映らない。
-  2 通りで落として確認した
-- **`--only` はバイト一致を確認したが、どのゲートも通っていなかった** →
-  **micro ゲートに項目 15 を足した**（2026-08-31）。主張は 2 つで、片方だけでは
-  間違った実装が満たしてしまう: 両半分が**同じ**部分集合を書くこと、かつその大きさが
-  **名指した数**であること（無視される `--only-from` は項目 3 / 4 が既に比べている木を書き、
-  全部落とす実装は何も書かずにやはり一致する）。空集合も隣で見る。
-  名前は**このファイルではなく IR から**読む。3 通り（無視 / 食い違い / 空が書く）で
-  落としてから通した
-- **`tools/global-compare.sh` は doc-gen4 時代の 6 ファイル表の 3 つ目の写しだった**（実測）。
-  2026-08-29 に `clone-gate.sh` と `build-gate.sh` を `tools/site-artefacts.txt` に
-  寄せたときに取り残された 1 本で、**バイト同一の木に `DIFFERENT` を返していた**。
-  `site-artefacts.txt` を読ませるのも同じ腐り方をする（`global` はその部分集合しか書かないので、
-  残りは両側で不在になって「自分と一致する」半分ができる）ので、
-  **表を無くして両木の和集合を比べる形にした**。4 方向（1 バイト差 / 候補だけにある /
-  参照だけにある / 両方空）で落としてから通した
-- **micro ゲート項目 12 は同じ主張を両半分に訊くようにした**（2026-08-31）。
-  Lean に `global` ができたので `config-gate.sh` は Lean 側でも 3 つの木を導出できる。
-  **オラクルを倒すのではなく綴りを 2 つにした** — Rust 側での導出は実装間の照合で、
-  Lean 側での導出は Lean の 3 コマンドが互いに一致するかで、**別の問い**。
-  どちらの半分で落ちたかを名指す。`--blind global` で両方落として確認した。
-  ついでに `LITEDOC4` を明示で渡すようにした — `config-gate.sh` の既定は
-  `target/debug/litedoc4` **だけ**で、release しか無い機械では項目が環境に依存していた
-
-#### M5 に入る前に塞ぐもの: `Json.lean` は整数しか読まない → **2026-08-31 に塞いだ**
-
-`JScan.digits` は小数点も指数も符号も読まなかった（実測）。**`incremental --timings` は
-`work/*-timings*.json` を読み戻し、それらは `"copySeconds":0.000398834` を含む**ので、
-Lean のパーサは `.` で `,` を期待していた。
-
-**症状は「`panic!` で止まる」ではなかった**（実測）。IR の `index.json` に
-`"copySeconds":0.000398834` を 1 つ入れて `render` を走らせると、パーサは
-backtrace を stderr に吐いた**あと `.null` を返して先へ進み**、
-`litedoc4: index.json is schema 0` と**別の原因を名乗って** exit 1 した。
-Lean の `panic!` は abort ではなく既定値を返すので、
-**`pArr` / `pObj` の 2 つの `panic!` はどちらも「止まる」ではなく「黙って木を差し替える」**。
-M5 の入口（`--ledger` / marker / 古い IR）は**名前を言って止まる**必要があるので、
-**パーサに誤りの経路を持たせた**（2026-08-31、次のコミット）:
-`JVal.bad (why)` が `panic!` 2 か所を置き換えて上まで伝わり、`parseJson` だけがそれを見て
-`Except String JVal` を返す。`Except` をスキャナ全体に通さないのは、IR が数十 MB の値で、
-**値ごとに包むと唯一の熱い経路の割り当てが倍になる**ため。
-ついでに寛容さも落とした（`:` の無いキー / `tru` / 数字の無い数 / 末尾のごみ）。
-
-**同じ問いに答える 2 経路目を消した**: `Global/State.lean` は
-`jsonComplete`（「パーサが `panic!` に達するか」を別実装で先読みする 7 関数）を持っていて、
-その doc は「`pVal` より意図的に厳しい — 小数は `none`」と書いてあった。
-**小数を読めるようにした時点でこの記述は嘘になり**、`State.load` だけが直って
-他の読み手が直らない形になっていた。パーサ側に一本化して 7 関数を削除。
-
-直し方は `JVal.real (lexeme : String)` — **値ではなく書かれたバイトを持つ**。
-Lean には最短往復の `Float` 印字が無く、これらの数（抽出器のフェーズ時計）は
-`write_timings` が**素通しでコピーするだけ**なので、変換しないのが往復の唯一の保証になる。
-整数の速い経路は変えていない（桁の直後の 1 バイトを見るだけ）。
-検査は `1.0` / `-0.5` / `1e-7` / `2.5E+10` / `-3.25e2` / 配列内の 3 つを
-`index.json` に入れてページと stdout が**注入前と同一**であること — 走査の終端がずれると
-次のキーが壊れるので、これが終端位置の検査でもある。`purelean-micro-gate.sh` 14/14。
-
-そしてこれは、より大きな話の一部: **M1〜M4 で Lean が読んだ JSON は「同じ run で自分の
-extractor が書いたもの」だけだった。M5 は自分より前から在るファイルを読み始める** —
-`--ledger`（**任意のバージョンが書いた**、手編集もありうる。M5 が読む中で最も鋭い入口）/
-marker（**壊れた run** が残したもの。Lean は既に `.malformed` を持つ）/
-`<out>/ir/**`（**古い litedoc4** が書いた木を CI キャッシュが戻す）/
-`name-map.json` を `--before` として。**どれもファイル名を言って止まる必要があり、
-既定値を返して続けてはいけない**。
-
-#### U10 / U11 / U12 で分かったこと（2026-08-31）
-
-`incremental-compare.sh` が **2 本とも `IDENTICAL`（3,145/3,145、うち 8 は時計と出力ルートを
-マスクしてから一致）**: Lean-product 対 Rust-product、および Lean-product 対 Lean-resident。
-7 シナリオの `<s>-sitecheck.txt` は 8 本とも `identical`（base サイトは `ref-site` と 431 ファイル
-一致、各シナリオの木はその IR を丸ごと描いた木と一致）。比較器は先に落とした —
-`nochange-counts.json` の `pagesRendered` 422→421 と、マージ済みモジュール 1 バイトの反転で
-`DIFFERENT`（2 files differing、両方とも名指し）、戻して `IDENTICAL`。
-`ledger` / `merge` / `impact` の 3 本も取り直して `IDENTICAL`（66 / 3,961 / 3,556）。
-
-- **`litedoc4 extract` が U 表に無いのに要る**（実測）。`incremental-reference.sh --extractor
-  product` は `$LITEDOC4 extract` を `--extractor` に渡すので、**これが無いと Lean 側の
-  product 記録が取れない**。`extract.rs` の共有部（`foldTimings` / `eventsBeside` /
-  `refuseInside` / `fixedFlags`）は `Incr/Resident.lean` に、サブコマンド本体は `Main.lean` に
-  置いた。同じ入力で Rust の `extract` と突き合わせると **IR 木はバイト一致**、timings は
-  **キーの順序も値も一致（違うのは持続時間だけ）**
-- **遅延起動は「ガードがある」ではなく計測した**（→
-  `benchmarks/results/purelean-lazy-serve-2026-08-31.txt`）。`--extractor-bin` に自分の pid を
-  書いてから本物を exec するラッパを渡し、対象リポジトリで数えた:
-  **`nochange` は抽出器プロセス 0 個 / 5.7 s**、**`self-one` は 1 個 / 23.4 s**（うち抽出だけで
-  14.9〜17.4 s）。**両方とも timings に `"serve": true` と出る** — これは
-  「resident の経路を選んだ」であって「プロセスが在る」ではない。**後者と読むと
-  遅延起動が未検証のまま通る**
-- **`irReads` の `{10, 46, 4, 60}` は `ledger touch` の値ではない**（実測）。e2e/micro で
-  touch 経由の 1 モジュール編集は **`{10, 35, 4, 49}`** で、**Rust バイナリを同じ手順で回すと
-  同じ値を出し、marker はバイト一致**する。差の 11 は `ownership` の走査（`watching` が真に
-  なるのは名前が動いたときだけ）と `global` のキャッシュミス 1 件で、**本物のソース編集の値**。
-  full の `{3, 22, 4, 29}` と「何も stale でない」`{5, 11, 2, 18}` は表のまま一致
-- **`--timings` のレコードで Rust と違うのは入れ子の `global` が無いことだけ**。キーの並びも
-  他の値も一致し、比較器が蒸留する 8 キーは同値。Lean の `global` は `--timings` を
-  `globalUnimplemented` に持つ（M7）ので、**ここだけ空いている**
-- **`onemod-gate.sh` は Lean の run で緑**（e2e/micro、`build` を full → `ledger touch` →
-  `build`）: `modules 11 / extracted 1 / rendered 1 / irReads.module 35`、`linkIndex … reused`。
-  先に 2 通り（marker の `pagesRendered` を 11 に / `serve.out` から `linkIndex` 行を落とす）で
-  落としてから通した。**`build` の 1 モジュール編集は `--extractor-bin` が要る**ので、
-  再現するときは `e2e/micro/.lake/e2e-extract/extract` を渡す
-- **構成できていない窓が 2 つ**: `--max-rounds` 超過の exit 5 は、7 シナリオが 1 つも stale
-  モジュールを出さないので届かない（`stale 0` が 7/7）。`Server.stop` は Rust が 10 秒
-  ポーリングしてから signal するところを **`wait` で塞いでいる**ので、
-  「the server had to be signalled」の枝は Lean 側に存在しない
-- **`Incr/` の既存 5 本・`Ledger.lean`・`Global/` は 1 バイトも触っていない**（`git diff` で確認）。
-  移したのは `Build.lean` にあった `printRenderSummary` / `printGlobalSummary` /
-  `checkSourceUrl` / `envOr` と、`Serve` 一式（→ `Incr/Resident.lean`）だけ
-- **`refuseInside` に寄せた**。`--out` ⊂ `--root` / `--ir-dir` ⊂ target / `--link-index` ⊂ target の
-  3 か所が別々に同じ文を持っていた。`--extractor-bin` が「ファイルであること」の検査も
-  `Resident.new` の 1 か所にした（Rust と同じ位置）
-- **`ExceptT ε IO α` は `IO (Except ε α)` と定義上同じ**なので、`checkLedger` / `merge` /
-  `prune` / `impact`（どれも拒否が `UInt32 × String`）は `let x ← f …` がそのまま伝播になる。
-  `match ← f … with | .error …` と書くと**スクルティニが `α` に解決されて型エラー**になる
-- **`incremental` にゲートを付けた**（項目 16、2026-08-31）。**この項目だけオラクルが
-  Rust ではない** — Lean 半分の 3 回の run を互いに比べるので、**M9 で Rust を消しても
-  問いのまま残る**。主張は 2 つ: `onemod-gate.sh`（編集が気づかれた / 書き直したページが
-  モジュール数より少ない / 依存マップが再利用された）と、より強い
-  「incremental のサイトが full build のサイトとバイト一致する」。
-  `ledger touch` は台帳の項目を無効にするだけでサンプルを編集しないので IR は変わらず、
-  **2 つのサイトは一致しなければならない** — 描き足りないラウンドは
-  「誰も開かないページだけが古いサイト」を書き、marker の数字はどれも妥当に見える。
-  3 通り（touch を飛ばす / 2 回目を `--full` に / 隣の full を別 URL で）で落としてから通した
+- **`incremental --timings` のレコードで Rust と違うのは入れ子の `global` が無いことだけ**。
+  Lean の `global` は `--timings` を実装していない
+- **診断メッセージの文言**は一致していない（終了コードと判断は一致する）。
+  Rust は serde のバイトオフセット付き、Lean は自前
+- `--deps-docs-map` は `ledger` と `render` の両方で名指しで拒否している
 
 ### M6 watch と HTTP サーバ（`Std.Async.TCP`）
 - **完了判定**: `watch-gate.sh` が Lean 実装で緑
