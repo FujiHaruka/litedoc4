@@ -11,8 +11,12 @@
   the user has to answer** — it is at the bottom of this file.
 - Measurement env: target `/Users/haruka/dev/lean-projects`, now at `88bc6f75` — **this leg
   committed one line to it** (the litedoc4 pin) and nothing else. Sources untouched.
-- **Disk 3.1 GiB free (99% full).** `target/` alone is 1.4 GB. CLAUDE.md's warning about
-  what happens when this runs out is not hypothetical; watch it before any large run.
+- **Disk 2.9 GiB free (99% full), and it fell ~0.3 GiB over this leg.** CLAUDE.md's warning
+  about what happens when this runs out is not hypothetical — it cost a target olean once.
+  The reclaimable piece is **`target/debug`, 1.2 GB** (`target/release` is 356 MB and is what
+  the gates prefer). It was left alone deliberately: deleting it buys a full `cargo test`
+  rebuild for whoever runs next, and nobody asked. **Take it before any large run**, and note
+  that M10 removes the whole 1.6 GB anyway.
 
 ## Relay control
 - Mode: PAUSED
@@ -174,7 +178,7 @@ Three ways forward:
 not the count — it is that **(a) is not "fewer tests", it is "no unit-level checking, ever"**,
 and this repository's own doctrine is that what is not measured is not fine.
 
-**Two degradations to weigh alongside it, both independent of the count:**
+**Two degradations independent of the count. This leg closed one; the other is still open:**
 
 1. ~~`public-surface-gate.sh` weakens on a 1.x promise.~~ **Closed** (`a3e691e`). The tie was
    one Rust test, `every_documented_flag_is_parsed`; it is now `tools/flag-tie-gate.sh`,
@@ -184,5 +188,10 @@ and this repository's own doctrine is that what is not measured is not fine.
 2. **`tools/gates.txt`'s `needs` column becomes false for three rows.** `purelean-gate`,
    `purelean-micro-gate` and `purelean-render-gate` all say "a built Rust litedoc4 as the
    oracle". They become one-armed the moment `crates/` goes, and `workflow-gate.sh` checks
-   the `ci`/`manual` column, not `needs` — so **nothing fails**. `purelean-micro-gate.sh`
-   item 16 is the only one of its 16 items that is already oracle-free and says so.
+   the `ci`/`manual` column, not `needs` — so **nothing fails**. Of
+   `purelean-micro-gate.sh`'s 16 items, a few already need no Rust (item 16 compares an
+   incremental build against a full one; items 8 and 11 re-run the closure checker and
+   `site-gate.sh` on the Lean-built site). Item 16 is the one whose *question* is unique to
+   this gate, and its header says so. **The rest are byte comparisons against the oracle and
+   have nothing to compare against once it is gone** — that is the shape to decide about,
+   not the row in `gates.txt`.
