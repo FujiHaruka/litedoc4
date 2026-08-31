@@ -77,7 +77,7 @@ discarded as unreliable).
 | bucket | count | fate |
 |---|---|---|
 | **G** a surviving gate already sees it | 55 | no loss |
-| **R** entrance refusal, reachable from the CLI | 93 | **bought back this leg** — `tools/refusal-gate.sh` |
+| **R** entrance refusal, reachable from the CLI | 93 | **partly bought back** — see below |
 | **F** frozen-fixture byte comparison | 83 | data survives in the planned `rust-frozen` tag; stops running |
 | **I** internal invariant, no CLI path | 353 | **stops running** |
 | | **584** (21 `#[ignore]`d) | |
@@ -93,6 +93,15 @@ discarded as unreliable).
   them, so it settles this as a by-product; do not quote a precise figure until it has.
 - **No R behaviour is library-only.** `main.rs` dispatches 14 subcommands, so all 93 have an
   executable path — which is what made the refusal gate possible at all.
+- **"Reachable from the CLI" is not "expressible as argv".** `tools/refusal-gate.sh`'s own
+  scope line says **command lines only** — 132 of its 135 cases are refused before anything on
+  disk is opened. The refusals that need a crafted IR tree, `litedoc4.toml`, ledger or
+  blocking file (the `reading_a_broken_tree.rs` group, `config.rs`, `decl.rs`'s unplaceable
+  name, the `io.rs` filesystem pair) are **the second tranche and are not covered**.
+  **The split between the two is not established** — a keyword pass over the R list's
+  descriptions said 12-of-93 need disk, which contradicts the list's own grouping (the IR
+  group alone is 13 crafted trees), so the approximation is wrong and no figure is quoted
+  here. Establish it by reading, the way the 146/556 name approximation had to be.
 - **There is no Lean test scaffolding of any kind.** `lakefile.lean` declares four things
   (`lean_exe extract`, `lean_lib Litedoc4`, `lean_exe litedoc4`, `script docs`). `src/`'s 53
   modules contain zero `#guard`, `#eval`, `example :` or `theorem`. Porting a test means
