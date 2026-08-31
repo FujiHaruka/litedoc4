@@ -596,7 +596,7 @@ while the reader path does not: one question, two answers, and only one of them 
 fixed. **Fix the reader before minting group A** — those fixtures are minted from Rust and
 therefore already carry complete entries, so the fix makes the two halves agree at the door.
 
-### Four Lean changes this leaves pending
+### Lean changes this leaves pending
 
 1. `src/Litedoc4/DepsDocs.lean` — answer `root` before `requestedNames` (D5). Until then
    `deps-map-root-empty` and `deps-map-root-no-requested-names` freeze **identical bodies**,
@@ -607,3 +607,50 @@ therefore already carry complete entries, so the fix makes the two halves agree 
 
 Each drops a `rust-differs` flag when it lands, and each needs a re-mint **while the Rust
 binary still exists**.
+
+### Where those four stand after the first three landed (leg 10)
+
+1. `src/Litedoc4/DepsDocs.lean` — **done.** `root`, `base`, `requestedNames`, `declarations`,
+   `modules`, which is Rust's order; the two rows no longer freeze the same body. Flag dropped.
+2. `src/Litedoc4/Lakefile.lean` — **done, and it was not a call-site patch.** The tree already
+   held a port of Rust's `str::lines` (`linesOf`); `leanLibs` had reached for `splitOn "\n"`
+   instead, which counts the empty segment a trailing newline leaves. `linesOf` moved to
+   `src/Litedoc4/Bytes.lean` and `leanLibs` uses it. Flag dropped. **The `<toml>:N:` messages
+   inside the loop were already right** — the phantom segment is `trimWs`-empty and `continue`s
+   before any message is formatted, so only the *count* passed to `close` could see it.
+   `Config.lean`'s `line N:` messages are right for the same reason and were left on `splitOn`
+   deliberately (its hand-rolled `\r` strip differs from `linesOf` at end-of-text, a corner with
+   no oracle behind it).
+3. `src/Litedoc4/Config.lean` — **done, and there were two unframed reads, not one**: the
+   `index` file and the fall-through arm of the `litedoc4.toml` read itself. Both go through one
+   `unreadable path e`. Framed `{path}: {e}` and **not** `reading {path}: {e}` — `Ir.lean` says
+   "reading" because *Rust* says it there (row A3), not as house style, and Rust's
+   `config::Error::Io` is `{path}: {source}`. `config-index-not-there` stays `rust-differs`:
+   only the OS tail and the line count differ now.
+4. `src/Litedoc4/Ir.lean` — **still open.** The door above.
+
+### 5. The lost framing is not only C11 — five more sites, and they must be fixed with their rows
+
+Measured against both binaries (leg 10). Lean prints `litedoc4: no such file or directory
+(error code: …)` + `  file: <path>` where Rust prints `litedoc4: <path>: No such file or
+directory (os error 2)`:
+
+| command | producer |
+|---|---|
+| `ledger check --ledger <missing>` (**row B3**) | `src/Litedoc4/Ledger.lean:461` |
+| `ledger touch --ledger <missing> --module M` | `src/Litedoc4/Main.lean:867` |
+| `render … --only-from <missing>` | `src/Litedoc4/Fs.lean:67` (`readModuleList`) |
+| `impact … --changed-file <missing>` | same |
+| `prune --pages p --remove <missing>` (**group F**) | same |
+
+`readModuleList` is behind `--modules`, `--only-from`, `--remove` and `--changed-file`, so one
+fix covers four flags. About 15 bare `IO.FS.readFile` sites exist in `src/`; these five are the
+ones confirmed reachable from a command line.
+
+**Do not fix them ahead of their rows.** No frozen row covers any of them yet, so
+`refusal-gate.sh` cannot witness the change, and this repository's rule is to confirm the gate
+covers the range a change reaches. They belong in the same commit as the minting of **group B**
+and **group F** — and that has to happen **while the Rust binary still exists**, because after
+M10 there is nothing to mint the corrected rows from.
+
+When they land, `unreadable` should stop being `Config.lean`'s private helper.
