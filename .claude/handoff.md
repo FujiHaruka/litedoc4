@@ -2,7 +2,7 @@
 
 ## State
 
-- Branch `main`, clean, pushed. **CI green on `c5207e4`, the tip**, and on `b611510` —
+- Branch `main`, clean, pushed. **CI green on `c5207e4`** — the last commit carrying anything but this handoff file — and on `b611510`,
   the latter including `browser gate on Windows` and `extractor portability`, both
   dispatched by hand because they are `workflow_dispatch` only and this leg changed them.
   (`a307cae` and `914a321` show *cancelled*: concurrency superseded them, not a failure.)
