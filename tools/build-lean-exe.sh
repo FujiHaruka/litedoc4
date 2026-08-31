@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build `lean_exe litedoc4` the way a consumer builds it, and print where it landed.
+# Build one of this package's executables the way a consumer builds `litedoc4`,
+# and print where it landed.
 #
 # Lake cannot run beside this repository's own `lakefile.lean`: there is
 # deliberately no `lean-toolchain` there, because one that named a *higher*
@@ -20,10 +21,13 @@
 # Restoring one without the other makes Lake re-resolve and rebuild everything,
 # which is the cost a cache is there to avoid.
 #
-# usage: build-lean-exe.sh --toolchain-from <lean package> [--lake <path>]
+# usage: build-lean-exe.sh --toolchain-from <lean package> [--exe <name>]
+#                          [--lake <path>]
 #
 #   --toolchain-from <dir>  the package whose `lean-toolchain` compiles this
 #                           (required). Nothing else is read from it.
+#   --exe <name>            which `lean_exe` of litedoc4 to build
+#                           (default: litedoc4). `litedoc4-test` is the tests.
 #   --lake <path>           the lake executable (default: $LAKE, else `lake`)
 #
 # Prints the path to the executable on stdout, and nothing else — the Lake build
@@ -32,11 +36,13 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FROM=""
+EXE="litedoc4"
 LAKE="${LAKE:-lake}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --toolchain-from) FROM="$2"; shift 2 ;;
+    --exe) EXE="$2"; shift 2 ;;
     --lake) LAKE="$2"; shift 2 ;;
     -h|--help) sed -n '/^# usage:/,/^set -euo/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//;$d'; exit 0 ;;
     *) echo "unknown argument: $1 (see --help)" >&2; exit 2 ;;
@@ -69,10 +75,10 @@ name = "«litedoc4»"
 path = "$REPO"
 TOML
 
-(cd "$HOST" && "$LAKE" build litedoc4/litedoc4) >&2
+(cd "$HOST" && "$LAKE" build "litedoc4/$EXE") >&2
 
-BIN="$REPO/.lake/build/bin/litedoc4"
+BIN="$REPO/.lake/build/bin/$EXE"
 # Lake exiting 0 having written nothing is the shape this repository keeps
 # catching, so the filesystem is asked rather than the exit code.
-[ -x "$BIN" ] || { echo "lake build litedoc4/litedoc4 exited 0 but there is no $BIN" >&2; exit 1; }
+[ -x "$BIN" ] || { echo "lake build litedoc4/$EXE exited 0 but there is no $BIN" >&2; exit 1; }
 echo "$BIN"

@@ -153,6 +153,33 @@ lean_exe litedoc4 where
   srcDir := "src"
   moreLinkObjs := #[md4cObj, mdEventsObj]
 
+/-- The tests, and a target a consumer never reaches: `require «litedoc4»`
+builds `lean_lib Litedoc4` and `lean_exe litedoc4`, and nothing under either
+imports `Litedoc4Test`. Building this executable elaborates the `#guard`s in the
+modules it imports and running it answers the invariants that need the linked C,
+so one target is both halves.
+
+Not `@[test_driver]`, which would be inert: `lake test` runs the **root**
+package's driver (`Lake/CLI/Main.lean`, `ws.root.test`) and this package can
+never be a root — there is no `lean-toolchain` beside this file. A workspace that
+requires litedoc4 can name a dependency's driver, but **only the library**:
+`testDriver = "litedoc4/Litedoc4Test"` resolves and `"litedoc4/litedoc4-test"`
+does not, because Lake resolves the part after the slash with `String.toName`,
+and `"litedoc4-test".toName` is `[anonymous]` — a hyphen is not an identifier
+character, so the name is discarded rather than rejected (measured 2026-08-31
+-> benchmarks/results/lean-test-scaffolding-2026-08-31.txt). Naming the library
+would elaborate the `#guard`s and never run the
+executable, which is the other half of the suite, so `tools/lean-test-gate.sh`
+builds and runs the executable instead.
+-/
+lean_lib Litedoc4Test where
+  srcDir := "test"
+
+lean_exe «litedoc4-test» where
+  root := `Litedoc4Test.Main
+  srcDir := "test"
+  moreLinkObjs := #[md4cObj, mdEventsObj]
+
 /-- Everything else `litedoc4 build` offers is deliberately not plumbed through:
 this script fills in the three flags a consumer cannot know. -/
 structure DocsOptions where

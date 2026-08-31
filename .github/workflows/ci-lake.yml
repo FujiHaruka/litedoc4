@@ -17,13 +17,16 @@ on:
       - "lake-manifest.json"
       - "extractor/**"
       - "src/**"
+      - "test/**"
       - "csrc/**"
       - "vendor/**"
       - "e2e/consumer/**"
       - "e2e/micro/**"
       - "Cargo.toml"
+      - "tools/build-lean-exe.sh"
       - "tools/flag-tie-gate.sh"
       - "tools/lake-package-gate.sh"
+      - "tools/lean-test-gate.sh"
       - "tools/purelean-gate.sh"
       - "tools/purelean-micro-gate.sh"
       - "tools/refusal-gate.sh"
@@ -40,13 +43,16 @@ on:
       - "lake-manifest.json"
       - "extractor/**"
       - "src/**"
+      - "test/**"
       - "csrc/**"
       - "vendor/**"
       - "e2e/consumer/**"
       - "e2e/micro/**"
       - "Cargo.toml"
+      - "tools/build-lean-exe.sh"
       - "tools/flag-tie-gate.sh"
       - "tools/lake-package-gate.sh"
+      - "tools/lean-test-gate.sh"
       - "tools/purelean-gate.sh"
       - "tools/purelean-micro-gate.sh"
       - "tools/refusal-gate.sh"
@@ -143,6 +149,12 @@ jobs:
       # `USAGE`, and unlike that test it survives crates/.
       - name: Every documented flag is a flag some parser accepts
         run: tools/flag-tie-gate.sh
+
+      # The Lean half's own invariants, and what `cargo test --workspace` is
+      # being replaced by. Two halves, one target: the `#guard`s are answered by
+      # building it, the `Invariant`s by running it.
+      - name: The Lean half's invariants
+        run: tools/lean-test-gate.sh
 
   # The same question `purelean-render-gate.sh` asks over the measurement target,
   # asked over the sample instead — which is what makes it runnable here at all,

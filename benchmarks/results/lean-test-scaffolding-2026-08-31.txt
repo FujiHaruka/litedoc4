@@ -1,0 +1,133 @@
+Where Lean invariants can live, and what each place costs
+=========================================================
+2026-08-31. Apple M1 (macOS 25.6.0), Lean v4.31.0 via elan, toolchain borrowed
+from `e2e/micro`, built through the host workspace `tools/build-lean-exe.sh`
+writes under `.lake/host`.
+
+WHY THIS WAS TAKEN
+------------------
+M10 deletes `crates/`, and with it `cargo test --workspace` — this project's
+definition of green. The decision (2026-08-31, user's call) is to build Lean
+scaffolding and port invariants selectively, under the rule: **express an
+invariant as a type where a type can say it; as a test only where nothing else
+can.** Before writing any of it, which mechanisms actually work here had to be
+established rather than assumed. Every row below was run.
+
+WHAT WORKS, AND WHAT IT COSTS A CONSUMER
+----------------------------------------
+  mechanism                  works?  consumer cost   how it is checked
+  #guard                     yes     none            elaborating the module
+  example/theorem := by decide  NO   —               —
+  by native_decide           yes     none            adds an axiom (below)
+  #guard_msgs in #eval       yes     none            needs `import Lean` (below)
+  lean_exe with an exit code yes     none            build it, run it
+  lake test / @[test_driver] no      —               (below)
+  lean_lib of test modules   yes     none            building the lib
+
+1. `by decide` IS UNAVAILABLE ACROSS THIS TREE
+----------------------------------------------
+Not for one invariant — for anything in `src/` that goes through the imperative
+style the port used:
+
+  error: Tactic `decide` failed for proposition
+    anAstralNameSortsBelowABmpOneInUtf16 = true
+  because its `Decidable` instance … did not reduce to `isTrue` or `isFalse`.
+
+`cmpUtf16` is `Id.run do` around a `while`; `Loop.forIn` is `partial` and opaque
+to the kernel, so reduction is stuck at the instance. `by native_decide` does
+close it — and adds `probeNative._native.native_decide.ax_1_1` to
+`#print axioms`. That is the same interpreter `#guard` runs, dressed as a proof,
+so `#guard` is the honest spelling.
+
+**Consequence for the rule.** "Express it as a type" here means **changing `src/`
+so the fact cannot be false** — an inductive instead of a `String`, a value only
+one function can construct. It does **not** mean proving a theorem about the code
+as written; that road is closed until the implementations are structural rather
+than imperative. What would falsify this: rewriting those functions structurally,
+which the kernel could then unfold.
+
+2. `lake test` CANNOT REACH THIS PACKAGE'S DRIVER
+--------------------------------------------------
+`Lake/CLI/Main.lean` runs `ws.root.test` — the **root** package's driver only,
+and litedoc4 can never be a root (there is deliberately no `lean-toolchain`
+beside its `lakefile.lean`; → `lake-package-probe-2026-08-18.txt` §1).
+
+A root workspace *can* name a dependency's driver, but only the library:
+
+  testDriver = "litedoc4/Litedoc4Test"    resolves, and builds the test lib
+  testDriver = "litedoc4/litedoc4-test"   unknown script, executable, or library
+
+because Lake resolves the part after the slash with `String.toName`, and
+
+  #eval toString ("litedoc4-test".toName)  =>  "[anonymous]"
+  #eval toString ("Litedoc4Test".toName)   =>  "Litedoc4Test"
+
+**A hyphen is not an identifier character, and the name is discarded rather than
+rejected.** Naming the library would elaborate the `#guard`s and never run the
+executable, which is the other half of the suite. So `@[test_driver]` is
+deliberately not on the target — it would be inert — and `tools/lean-test-gate.sh`
+builds and runs the executable instead.
+
+3. `#guard_msgs` NEEDS `import Lean`, AND THAT IS 35.6x
+--------------------------------------------------------
+`#guard_msgs in #eval` prints a `-expected/+actual` diff, which `#guard` cannot.
+It needs `import Lean` in the test module, and the module is in the executable's
+import closure:
+
+  test executable, without `import Lean`      2,781,616 B
+  test executable, with one `import Lean`    99,144,880 B   (35.6x)
+
+Developers and CI pay this, never consumers. It is worth it only inside a
+compile-only `lean_lib` the executable does not import. Not paid for now.
+
+4. `#guard` CANNOT REACH THE md4c BINDING
+------------------------------------------
+The same invariant that passes at run time fails to elaborate:
+
+  error: Could not find native implementation of external declaration 'Md.events'
+  (symbols 'lp_litedoc4_Md_events___boxed' or 'lp_litedoc4_Md_events').
+
+`Md.events` is `opaque` with an `@[extern "litedoc4_md_events"]` body; the C is
+linked into the executable and nowhere else, so elaboration-time evaluation has
+nothing to call. **The barrier is the call, not the import** —
+`#guard extendLink … == "../b.html"` in a module that imports `Litedoc4.Md.Html`
+elaborates fine; only an expression that actually reaches `Md.events` is out.
+
+This is what decides which side an invariant lands on, and it is structural:
+**16 of `src/`'s 53 modules are downstream of that one `@[extern]`** (`Litedoc4.Md`
+and its 15 dependants, through `Render.*`, `Global.Artifacts`, `Build`, `Watch`,
+`Main`); **37 are not.** Since the barrier is the call, 16/53 is an *upper* bound
+on where `#guard` is blocked. What would falsify it: `precompileModules` on the
+library, which would put the symbol in the interpreter — and cost every consumer
+a shared library.
+
+5. A CONSUMER PAYS NOTHING FOR THE TESTS
+-----------------------------------------
+Measured two ways, from an emptied `.lake/build`.
+
+  a. what a consumer's build does
+       ./tools/build-lean-exe.sh --toolchain-from e2e/micro
+       Build completed successfully (125 jobs), 17.05 s wall / 57.26 s user
+       grep -c -e Litedoc4Test -e litedoc4-test <the full Lake log>   =>  0
+       find .lake/build -name 'Litedoc4Test*' -o -name 'litedoc4-test*'  =>  0
+     106 distinct `Litedoc4*` modules built; none of them a test module.
+     (One run. It is a shape check, not a benchmark.)
+
+  b. the other consumer entry point, `e2e/consumer` with a path require
+       lake build                  ->  4 jobs, 0 mentions
+       lake run docs -- --out …    ->  exit 0, a site built, 0 mentions
+
+  (b) is the stronger one: it elaborates litedoc4's `lakefile.lean` with both new
+  targets in it. Two independent reasons nothing test-shaped is reachable — the
+  `docs` script names `extract` and `litedoc4` explicitly, and a dependency's
+  targets are never default-built (a package with empty `defaultTargets` builds
+  nothing: "warning: no targets specified and no default targets configured").
+
+WHAT THIS DOES NOT SETTLE
+-------------------------
+How many of the remaining invariants fall on the type side of the rule. That is
+not a property of the tests — it is a property of how much of `src/` one is
+willing to restructure, and it is visible only by reading each against the data
+structure it constrains. The expectation is that it is **small**, because the
+port was a transcription of Rust and the types are Rust's types (assumed, not
+measured). The triage settles it as a by-product.
