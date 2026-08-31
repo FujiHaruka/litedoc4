@@ -2,9 +2,9 @@
 
 ## State
 
-- Branch: `main` @ `fa1183c`, clean, pushed. **CI green on `004db90`** (all five workflows);
-  `fa1183c` is a one-line comment on top of it and its CI was still in flight — check
-  `gh run list` first.
+- Branch: `main` @ `ca70fcf`, clean, pushed. **CI green on `004db90`** (all five workflows);
+  `fa1183c` (a one-line comment) and `ca70fcf` (docs + a measurement log) are on top of it and
+  their CI was still in flight — check `gh run list` first.
 - **Tag `v1.3.0` is pushed** (annotated; the tag object is `80e21f3`, the commit `fa1183c`).
   README, `lakefile.lean` and `action.yml`'s example all name it.
 - **M9 is done on the repository side, and measured.** M10 is next and its shape changed —
@@ -13,7 +13,7 @@
   It is `FujiHaruka/information-theory` — the repository behind the second live site.
 - **Disk 3.2 GiB free.** No clone was made this leg. Scratch kept:
   `/private/tmp/lean-doc-relay/{purelean,m5-impact,m5-ledger,m5-incr}` and `m9-tag`
-  (delete `m9-tag*` — it is a throwaway consumer, ~300 MB).
+  — this leg's throwaway consumers were deleted.
 
 ## Relay control
 - Mode: ON
@@ -28,8 +28,9 @@
   - r7: **M9 complete on the repository side** — `08efc70` (the docs script builds with Lake),
     `11735e9` (the release path and its two gates go), `9a47cca` (the action + v1.3.0),
     `02570c9` (the published sample is built by the Lean half), `004db90` (assets-gate's
-    count-of-2 rot), `fa1183c`. **Tag `v1.3.0` pushed.** Evidence:
-    `benchmarks/results/purelean-require-only-2026-08-31.txt`.
+    count-of-2 rot), `fa1183c`, `ca70fcf`. **Tag `v1.3.0` pushed and checked from outside.**
+    Evidence: `benchmarks/results/purelean-require-only-2026-08-31.txt` and
+    `benchmarks/results/purelean-tag-2026-08-31.txt`.
 
 ## Next step
 
