@@ -105,13 +105,32 @@
    *correct*; one minted afterwards says only *unchanged*. Nothing else on this list is
    time-critical.
 
-   **A2. `purelean-render-gate.sh` has the same expiry and no fixture.** It is the `manual`
-   sibling asking the same question over the **measurement target**, and it is the only place
-   the 432-module shapes are compared at all — its `gates.txt` row still reads "a built Rust
-   litedoc4 as the oracle". Freezing its output is not the same problem: the target's site is
-   ~60 MB, too large to commit. **A manifest of `path → sha256` is ~422 lines and keeps the
-   claim**, losing only which bytes differ — and `render-compare.sh` can still name the file.
-   Its oracle window closes on the same day as the micro gate's.
+   **A2. ~~`purelean-render-gate.sh`~~ — DONE (`fd9000b`). The time-critical window is closed.**
+   `tools/purelean-render-expected/` — **8 files, 204 KB, 1,266 `path→sha256` manifest lines in
+   place of 74,325,055 B of pages.** Two arms, `--mint`, M10 simulation demonstrated by moving
+   the Rust binary out of the tree. Minted against target `60439778`, **422 modules**, Lean
+   v4.31.0, Apple M1, warm (→ `benchmarks/results/purelean-render-freeze-2026-08-31.txt`).
+
+   It grew from 6 items to 7. The new **item 2 INPUT** pins the IR digest and the `.lidx`
+   sha256: without it, a target that moved would fail items 4–7 **422 pages at a time** for a
+   reason that is not the port's. And **item 3 re-homes one of the two orphan tests** —
+   `base_ir::reads_every_module_of_the_target_package` now lives as "every flow writes one page
+   per module in `index.json` and no other file", oracle-free and fixture-free.
+   `base_ir::astral_binders_slice_correctly` **still has no home** and is stated as such.
+
+   What it cannot preserve, stated rather than papered over: the fixture is **one snapshot of a
+   repository outside this one**, so when the target's sources move, item 2 fails by name and
+   4–7 with it — and after M10 there is no oracle to re-mint from. **Item 3 is what survives
+   that**, verified rather than assumed (with a 421-module IR against a 422-module fixture,
+   item 2 failed and item 3 still reported ok).
+
+   Two defects were found **in the gate itself**, both of the shape where a gate reports nothing
+   while failing: bash 3.2 mis-parsing a command substitution inside a `${var:-…}` default, and
+   an **em dash taken into a variable name**, so `set -u` aborted on the very line about to
+   report the failure. Both found by making it fail, both fixed.
+
+   **Nothing on the rest of this list is time-critical.** A and A2 were the only two things the
+   Rust binary's existence gated, and both are done.
 
    **B. Decide the F bucket (83) and the frozen fixtures together.** They are one question:
    `crates/*/tests/data/**` (28 files, 3.4 MB) is what F compares against, and A wants the same
