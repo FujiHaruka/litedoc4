@@ -44,6 +44,15 @@ if [ "$CMD" = clone ]; then
     echo "### cloning $SRC -> $CLONE (APFS clonefile)"
     time cp -Rc "$SRC" "$CLONE"
   fi
+  # Both gates decide "is this clone a baseline" with `git status --porcelain`,
+  # which counts untracked paths, and the measurement target carries one that is
+  # no part of the package. Without this the clone is 'unknown' from the moment
+  # it is made and every phase refuses; `reset` does not cure it either, because
+  # its `clean` is scoped to the library. `-fd` and not `-fdx`: `.lake` is
+  # ignored, and taking the build tree out would throw away the oleans the clone
+  # exists to carry. On a target with nothing untracked this removes nothing.
+  echo "### making the clone git-clean (the target's untracked paths are not the package)"
+  git -C "$CLONE" clean -fd
   echo "### verifying the clone is up to date"
   (cd "$CLONE" && "$LAKE" build --no-build 2>&1 | tail -2)
   exit 0

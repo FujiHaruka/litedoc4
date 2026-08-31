@@ -337,7 +337,7 @@ def watchRun (r : BuildRequest) (port : UInt16) (interval : Nat) : BuildM Unit :
 
   let trigger : Trigger :=
     { ledger := request.layout.ledger, ir := request.layout.ir
-      linkIndex := request.layout.linkIndex, sourceUrl
+      linkIndex := request.linkIndex, sourceUrl
       externalLinks := request.external.digest, root := request.root, libs }
   runLoop request trigger interval port { quietSince := ← IO.monoNanosNow }
 

@@ -173,12 +173,18 @@ that re-renders too little the first time the map moves. So is the dependency
 map: an incremental round renders a *subset*, so a missing map produces pages
 whose links are gone, mixed into a tree of pages that still have theirs. A full
 generation writes the map again, which is why a missing one is answered by taking
-that path rather than by refusing. -/
-def Layout.carriesAPreviousRun (l : Layout) : IO Bool := do
+that path rather than by refusing.
+
+`linkIndex` is the request's, not `l.linkIndex`: with `--link-index` the map is
+somebody else's file and this run never writes one under `--out`, so asking for
+the derived path answers "no previous run" on every second run and the build
+silently becomes a full one for ever. The bytes still come out right, which is
+why only a gate counting re-extractions catches it. -/
+def Layout.carriesAPreviousRun (l : Layout) (linkIndex : FilePath) : IO Bool := do
   let ledger ← isRegularFile l.ledger
   let index ← isRegularFile (l.ir / "index.json")
   let state ← isRegularFile (l.state / "global-state.json")
-  let map ← isRegularFile l.linkIndex
+  let map ← isRegularFile linkIndex
   let names ← isRegularFile (l.site / "declarations" / "name-map.json")
   return ledger && index && state && map && names
 
@@ -376,7 +382,7 @@ def planOf (r : BuildRequest) (libs : Array String) : BuildM Plan := do
     -- full run is the correct answer to "the question changed".
     if markerStrings kv "libs" != libs then return .full "the libraries changed"
     if !markerIsTrue kv "complete" then return .full "the previous run did not finish"
-    if !(← layout.carriesAPreviousRun) then
+    if !(← layout.carriesAPreviousRun r.linkIndex) then
       return .full "the previous run's files are not all there"
     -- **The IR under `--out` has to be one this binary can read.** A CI cache
     -- restores the *previous* binary's state, so a schema bump arrives here as a

@@ -1,0 +1,141 @@
+M8 — build-gate green driving both halves, and what running it first found
+==========================================================================
+2026-08-31 (measured)
+
+`tools/build-gate.sh` had never once been run to a verdict. It has one now, for
+both halves. Three things were in the way, and each was a different kind of
+thing: one was a number nobody had re-measured, one was the environment, and one
+was a real defect in the Lean half that only this gate can see.
+
+Conditions
+----------
+    host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB, 8 cores
+    target            /Users/haruka/dev/lean-projects @ 16ff7a40, read only
+    clone             /private/tmp/lean-doc-relay/m8-clone (APFS `cp -Rc`)
+    lean-toolchain    leanprover/lean4:v4.31.0
+    extractor         extractor/build/extract
+    jobs              4
+    link index        /private/tmp/lean-doc-relay/purelean/link-index.json
+    reference IR      /private/tmp/lean-doc-relay/m3d4/shared/base-ir, written by
+                      `clone-gate.sh setup` on this clone (422 modules, 21.33 s)
+    rust half         target/release/litedoc4 (litedoc4 1.2.0, rustc 1.97.1)
+    lean half         .lake/build/bin/litedoc4 (litedoc4 1.2.0)
+    free disk         4.4 GiB at the start; swap already at its ceiling
+                      (28.9 GB of 29.7 GB used, 29 swapfiles + a 1 GiB
+                      `kernelcore` dated December 2021)
+
+1. "Do not start it under 20 GiB free" was off by an order of magnitude
+------------------------------------------------------------------------
+The standing rule came from 2026-08-31's earlier reading: `rebuild-own.sh` took
+2 GiB of free disk in 90 s having produced 57 of 422 oleans, and none of the
+2 GiB was a build product. Re-measured today under a watchdog with a 2.0 GiB
+floor:
+
+    from-scratch rebuild of the clone's own oleans (default parallelism)
+      wall clock            666.29 s
+      cpu                   2842.81 user + 922.41 sys  (~5.7x)
+      peak RSS              3.41 GB (largest single process)
+      concurrent `lean`     8
+      oleans rebuilt        421 (+ the root olean = the 422 modules)
+      free disk             4.42 GiB -> 2.52 GiB   = 1.92 GiB
+      swapfiles             29 -> 30               = 1.00 GiB of that
+      build products        ~0.92 GiB
+
+So the whole operation costs about **2 GiB and 11 minutes**, not 20 GiB. The
+earlier reading is not wrong about what it saw — 2 GiB really did leave that
+disk in 90 s — but it extrapolated a rate that does not hold. (assumed) for the
+cause: today macOS added **one** swapfile over 11 minutes where the earlier run
+appears to have been adding roughly one per 45 s, which is what a machine still
+growing swap toward its ceiling does and what one already at the ceiling does
+not. That is a hypothesis about macOS, not a measurement of it; what is measured
+is the two disk curves.
+
+**Parallelism is not the lever it looked like.** The obvious fix — cap the job
+count — cannot be written: **Lake 5.0.0 (Lean 4.31.0) has no job-count option at
+all**, neither `-j` nor `--jobs`, in `lake` or in `lake build` (`error: unknown
+short option '-j'`). A `--jobs` knob was added to `rebuild-own.sh`, proven to
+reach lake's argv with a stub, and then reverted when lake rejected the flag —
+the stub proved the call site, not the contract.
+
+2. A clone of this target could never reach `baseline`
+------------------------------------------------------
+Both gates decide "is this clone a baseline" with `git status --porcelain`,
+which counts untracked paths. The measurement target carries one that is no part
+of the package (`docs/doc-gen-bench/`), `cp -Rc` copies it, and so a clone was
+`unknown` from the moment it was made:
+
+    the clone is 'unknown', not 'baseline' — run: tools/clone-gate.sh reset
+
+`reset` does not cure it either — its `git clean` is scoped to the library. The
+fix is in `setup-clone.sh clone`, where the baseline is constructed: `git clean
+-fd`, which removes exactly that path and keeps `.lake` (ignored, and the oleans
+are the whole point of the clone). On a target with nothing untracked it removes
+nothing.
+
+3. The Lean half rebuilt the world on every run, and the bytes never said so
+---------------------------------------------------------------------------
+This is what the gate is for, and it is invisible to a byte comparison.
+
+`build`'s plan derivation asks `carriesAPreviousRun` whether `--out` holds what a
+continuation reads. Rust passes it **the link index the request resolved** —
+`--link-index` if given, else the derived `<out>/link-index.lidx`. Lean asked
+`Layout.linkIndex`, which is always the derived path. With `--link-index` the map
+is somebody else's file and no run ever writes one under `--out`, so the answer
+was "no previous run" **every time**, and every second build took the full path:
+
+    rust  plan  incremental (continuing .../base)
+          detect  422 module(s): 0 to re-extract, 0 removed
+    lean  plan  full generation (the previous run's files are not all there)
+          detect  422 module(s) hashed
+          extract 422 module(s) in 6.8353 s
+
+Gate 2 compares bytes **and** counts re-extractions. The bytes matched — it
+printed `GATE 2 PASS — 434 files, not one byte moved` — and then failed on the
+count:
+
+    the second run did not take the incremental path
+
+A full generation of the same sources produces the same site, so nothing that
+compares output can see this. Only the integer can.
+
+**Raised to its general form** (CLAUDE.md "Fixing defects"): the same judgement
+is made in one other place, and it had the same mistake. `Watch.lean`'s trigger
+was built with `linkIndex := request.layout.linkIndex` where Rust's watch uses
+`&request.link_index` — so a `watch` with `--link-index` was watching a file that
+does not exist. Both are fixed; `Layout.linkIndex` survives as what
+`Main.lean` falls back to when the flag is absent, which is its only remaining
+job.
+
+Verdict
+-------
+`tools/build-gate.sh all` on the same clone, each half with its own `--out`:
+
+                                          rust half        lean half
+    gate 1  IR == independent reference    PASS             PASS
+    gate 2  second run moves nothing       PASS             PASS
+    gate 3  real move, ledger write-back   PASS             PASS
+    gate 4  incremental == full            PASS             PASS
+    reset   clone back to baseline         state=baseline   state=baseline
+    resident extractors left               0                0
+
+    gate 1  422 modules, IR identical to `clone-gate.sh setup`'s reference
+    gate 2  434 files, not one byte moved, 0 re-extracted
+    gate 3  5 re-extracted, 25 names moved in or out of the map, 30 pages
+            re-rendered; the run after it reports 0 changed and the site does
+            not move
+    gate 4  427 files each side, 423 modules, identical; ledger identical
+
+The clone was left at `baseline`, HEAD 16ff7a40, `git status` 0 lines. The
+measurement target was untouched throughout (705 oleans before and after, its one
+untracked path still there).
+
+After the fix, the Lean-side gates were re-run: `purelean-gate.sh` exit 0,
+`purelean-micro-gate.sh` **16 of 16 items reported, 0 failed**, `watch-gate.sh`
+**12 checks, 0 failed**.
+
+What this does not settle
+-------------------------
+`corpus-gate.sh` and `lean-versions-gate.sh` are not claims about the Lean half
+and are not ticked here — the M8 section of the plan says why. The Lean half has
+still been compiled on one toolchain only; that gap belongs to M9's rewrite of
+`ci-lean-versions.yml`.

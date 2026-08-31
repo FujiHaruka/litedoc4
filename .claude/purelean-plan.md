@@ -398,7 +398,7 @@ would have caught them.
   実行中に `lake build` でバイナリを置き換えたら、記録は途中で死んで
   **`conditions.txt` が無いだけの、一見それらしいディレクトリ**を残した（実測 2026-08-31）
 
-### M8 対象リポジトリ全体で一致
+### M8 対象リポジトリ全体で一致 【完了 2026-08-31】
 
 The criterion below replaces the one this section carried
 ("432 モジュールで 422/422 バイト一致、`build-gate.sh` / `corpus-gate.sh` /
@@ -441,12 +441,32 @@ left the sources:
   writes — its four values are durations and its fifth is `concurrency` (Rust 8,
   Lean 1 because the Lean ledger hashes sequentially), so writing it could not
   make the tree identical. M9 decides whether it is written at all.
-  **`build-gate.sh` has no verdict yet**: rebuilding the clone's own oleans drove
-  swap up 2 GiB in 90 s on this 16 GB machine and 3.8 GiB free will not carry it
-  to the end (measured — the log's "Why build-gate has no verdict here"). The
-  `LITEDOC4` variable is in and was **made to fail before being believed** (a stub
-  proved the call site's argv and `conditions()`). **What is left of M8 is
-  `build-gate.sh all` for both halves on a machine with disk.**
+  → **`build-gate.sh all` is green driving both halves** (2026-08-31 →
+  `benchmarks/results/purelean-build-gate-2026-08-31.txt`). **M8 is complete.**
+
+  **The "20 GiB free" rule was wrong by an order of magnitude.** The whole
+  operation costs **1.92 GiB and 666 s** (421 oleans, default parallelism, 8
+  concurrent `lean`), of which **1 GiB was one new swapfile** and ~0.92 GiB build
+  products. The earlier 2 GiB-in-90 s reading saw a machine still growing swap
+  toward its ceiling; one already at the ceiling reuses slots (that part is
+  (assumed) — what is measured is the two disk curves). **Capping parallelism is
+  not available**: Lake 5.0.0 has **no job-count option at all**, and a `--jobs`
+  knob proven against a stub was reverted when lake rejected the flag — the stub
+  proved the call site, not the contract.
+
+  **Running it first found two things that were waiting.** (1) A clone of this
+  target could **never** reach `baseline`: both gates read `git status
+  --porcelain`, which counts untracked paths, and the target carries
+  `docs/doc-gen-bench/`; `reset` cannot cure it because its `clean` is scoped to
+  the library. Fixed where the baseline is constructed (`setup-clone.sh clone`,
+  `git clean -fd` — `.lake` is ignored and stays). (2) **A real defect in the Lean
+  half**: `carriesAPreviousRun` asked `Layout.linkIndex`, always the derived
+  `<out>/link-index.lidx`, where Rust asks the **request's** resolved index. With
+  `--link-index` no run writes that file, so every second `build` took the **full**
+  path for ever. **A full generation of the same sources produces the same site**,
+  so no byte comparison can see it — only gate 2's re-extraction count.
+  **The same judgement had the same mistake in `Watch.lean`** (its trigger watched
+  a file that does not exist); both fixed.
 
 ### M9 切替 — 配布モデルを変える（**ここから不可逆**）
 - `action.yml` の binary 解決を廃止 / `lakefile.lean` の `resolveLitedoc4` 250 行削除 /
