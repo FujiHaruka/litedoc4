@@ -145,23 +145,30 @@ def jsString (j : JVal) (key : String) : String := Id.run do
 cosmetic: `--source-url` carries a git revision, so it changes on every commit,
 and under one key every incremental build would pay a full re-extraction for an
 input Lean cannot see. -/
+def extractKeyOf (leanToolchain manifestSha256 : String) (irIndex : Option JVal) :
+    Array (String × String) := Id.run do
+  let mut key : Array (String × String) :=
+    #[("leanToolchain", leanToolchain), ("manifestSha256", manifestSha256),
+      ("extractor", extractorId)]
+  if let some j := irIndex then
+    key := key.push ("irSchemaVersion", jsString j "schemaVersion")
+    key := key.push ("irGenerator", jsString j "generator")
+  return key
+
 def extractKey (target : String) (ir : Option System.FilePath) :
     IO (Array (String × String)) := do
   let root : System.FilePath := ⟨target⟩
-  let mut key : Array (String × String) := #[]
-  key := key.push ("leanToolchain", (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString)
-  key := key.push ("manifestSha256", sha256Text (← IO.FS.readFile (root / "lake-manifest.json")))
-  key := key.push ("extractor", extractorId)
+  let leanToolchain := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
+  let manifest := sha256Text (← IO.FS.readFile (root / "lake-manifest.json"))
+  let mut index : Option JVal := none
   if let some ir := ir then
     recordIrRead .index
     let path := ir / "index.json"
     let text ← IO.FS.readFile path
-    let j ← match parseJson text with
-      | .error why => throw (IO.userError s!"{path}: {why}")
-      | .ok j => pure j
-    key := key.push ("irSchemaVersion", jsString j "schemaVersion")
-    key := key.push ("irGenerator", jsString j "generator")
-  return key
+    match parseJson text with
+    | .error why => throw (IO.userError s!"{path}: {why}")
+    | .ok j => index := some j
+  return extractKeyOf leanToolchain manifest index
 
 /-- What changes the page bytes with the IR held fixed. Changed ⇒ re-extract
 nothing, re-render everything. -/

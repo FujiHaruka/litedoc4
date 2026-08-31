@@ -103,8 +103,13 @@ partial def relativeFiles (root : FilePath) (rel : String) : IO (Array String) :
     else out := out.push name
   return out
 
+/-- The pid is in the name because two `litedoc4-test` processes can share a
+`TMPDIR` — a local run beside a gate's, or two gates on one machine — and a
+fixed name makes each one delete the other's tree mid-run. The failure would
+read as the invariant being false rather than as the work area being shared,
+which is the shape CLAUDE.md records for `litedoc4 watch`. -/
 def workDir : IO FilePath := do
-  return ⟨(← IO.getEnv "TMPDIR").getD "/tmp"⟩ / "litedoc4-lean-test-global"
+  return ⟨(← IO.getEnv "TMPDIR").getD "/tmp"⟩ / s!"litedoc4-lean-test-global-{← IO.Process.getPID}"
 
 /-- Eight builds of one package, seven of them through the cache. The counts are
 deterministic integers on purpose — wall clock moves by 5× with the page cache
@@ -162,12 +167,15 @@ zero bytes is a page that loads and a fetch that parses to nothing. -/
 def theSiteTreeIsExactlyTheWholePackageArtifacts : Invariant where
   name := "a build writes the whole-package artifacts and nothing else, none of them empty"
   check := do
-    let work := (← workDir) / "tree"
-    if ← work.pathExists then IO.FS.removeDirAll work
+    let root ← workDir
+    let work := root / "tree"
+    if ← root.pathExists then IO.FS.removeDirAll root
     IO.FS.createDirAll work
     let (_, _, files) ← buildOnce work baseModules none
     let written ← relativeFiles (work / "site") ""
-    if ← work.pathExists then IO.FS.removeDirAll work
+    -- The root and not `work`: `createDirAll` made both, and removing only the
+    -- leaf leaves one empty directory per run in a shared `TMPDIR`.
+    if ← root.pathExists then IO.FS.removeDirAll root
     return first [
       eq (sortUtf16 written) (sortUtf16 artifactPaths),
       eq (files.filterMap (fun (path, body) => if body.isEmpty then some path else none)) #[]]

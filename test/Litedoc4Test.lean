@@ -6,6 +6,11 @@ import Litedoc4Test.GlobalFacts
 import Litedoc4Test.GlobalSearchIndex
 import Litedoc4Test.GlobalState
 import Litedoc4Test.GlobalV8Gc
+import Litedoc4Test.IncrFixture
+import Litedoc4Test.IncrImpact
+import Litedoc4Test.IncrLedger
+import Litedoc4Test.IncrMerge
+import Litedoc4Test.IncrPrune
 import Litedoc4Test.IrFrag
 import Litedoc4Test.IrMetrics
 import Litedoc4Test.IrModel

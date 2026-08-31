@@ -64,10 +64,15 @@ Lexical, and it runs before the path is used for anything — a missing file mus
 still be a *refusal* when the name was suspect, not an "already absent".
 **Concatenation, not `FilePath./`**, which would discard the root for an absolute
 `relative`. -/
-def PageRoot.resolve (r : PageRoot) (relative : String) : PruneM FilePath := do
-  let escapes := (relative.splitOn "/").any fun part => part == ".." || part.contains '\x00'
-  if escapes then throw (outsidePageRoot r.given relative)
-  return ⟨r.given ++ "/" ++ relative⟩
+def PageRoot.under (r : PageRoot) (relative : String) : Except PruneRefusal FilePath :=
+  if (relative.splitOn "/").any (fun part => part == ".." || part.contains '\x00') then
+    .error (outsidePageRoot r.given relative)
+  else .ok ⟨r.given ++ "/" ++ relative⟩
+
+def PageRoot.resolve (r : PageRoot) (relative : String) : PruneM FilePath :=
+  match r.under relative with
+  | .error refusal => throw refusal
+  | .ok path => pure path
 
 private def PageRoot.contains (r : PageRoot) (path resolve : FilePath) (strictly : Bool) :
     PruneM Unit := do

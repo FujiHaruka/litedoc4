@@ -266,6 +266,15 @@ def impactJson (s : ImpactSummary) : String := Id.run do
   o := o ++ s!",\n  \"selectedIrBytes\": {s.selectedIrBytes}"
   return o ++ "\n}"
 
+/-- What `--print-set` holds.
+
+**Not** `linesFile`: this writes one blank line where that would write an empty
+file. Reaching the difference needs an IR with no modules at all, and
+`--only-from` drops blank lines, so the two spell the same set; the bytes here
+are what the frozen fixtures compare against. -/
+def impactPrintSet (selected : Array String) : String :=
+  "\n".intercalate selected.toList ++ "\n"
+
 def runImpact (i : ImpactInputs) : IO (Except ImpactRefusal ImpactRun) := do
   match ← impact i with
   | .error refusal => return .error refusal
@@ -273,13 +282,7 @@ def runImpact (i : ImpactInputs) : IO (Except ImpactRefusal ImpactRun) := do
     if let some summary := run.summary then
       let body := impactJson summary
       if let some path := i.json then writeFile path (body ++ "\n")
-      if let some path := i.printSet then
-        -- **Not** `writeLines`: this writes one blank line where that would
-        -- write an empty file. Reaching the difference needs an IR with no
-        -- modules at all, and `--only-from` drops blank lines, so the two spell
-        -- the same set; the bytes here are what the frozen fixtures compare
-        -- against.
-        writeFile path ("\n".intercalate summary.selected.toList ++ "\n")
+      if let some path := i.printSet then writeFile path (impactPrintSet summary.selected)
     return .ok run
 
 end Litedoc4

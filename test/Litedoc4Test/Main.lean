@@ -17,4 +17,9 @@ def main : IO UInt32 :=
     Litedoc4Test.theCountsAreWhatTheFilesHold,
     Litedoc4Test.theStateFileOnDiskIsTheBytesItSaysItIs,
     Litedoc4Test.theCacheSequenceAgreesWithAFromScratchBuild,
-    Litedoc4Test.theSiteTreeIsExactlyTheWholePackageArtifacts]
+    Litedoc4Test.theSiteTreeIsExactlyTheWholePackageArtifacts,
+    Litedoc4Test.neitherHalfOfPruneTakesAFileThatIsNotAModulePage,
+    Litedoc4Test.pruneOnlyEverUnlinksInsideTheRootAndNeverThroughASymlink,
+    Litedoc4Test.anInPlaceMergeSpelledAnotherWayStillMergesInPlace,
+    Litedoc4Test.aRepeatedIndexEntryIsOneModuleAndTwoReads,
+    Litedoc4Test.theLedgerAnswersEveryScenarioOnASyntheticPackage]
