@@ -1,6 +1,6 @@
 //! Every expectation in this file was produced by the frozen TypeScript
 //! prototype, not by the Rust code it checks. **The fixture
-//! (`tests/data/global-expected.json`) is a frozen value and HEAD cannot
+//! (`fixtures/global/global-expected.json`) is a frozen value and HEAD cannot
 //! regenerate it** — the generator and the prototype it drove exist only at tag
 //! `experiments-frozen`.
 //!
@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 /// what made it.
 const TEMP: TempDirs = TempDirs::prefixed("litedoc4-global");
 
-const FIXTURE: &str = include_str!("data/global-expected.json");
+const FIXTURE: &str = include_str!("../../../fixtures/global/global-expected.json");
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -139,7 +139,7 @@ impl From<&ModuleFacts> for Facts {
 }
 
 fn expected() -> Expected {
-    serde_json::from_str(FIXTURE).expect("tests/data/global-expected.json is valid")
+    serde_json::from_str(FIXTURE).expect("fixtures/global/global-expected.json is valid")
 }
 
 #[test]

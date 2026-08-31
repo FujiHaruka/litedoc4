@@ -20,12 +20,12 @@
 //
 // usage:
 //   deno run --allow-read --allow-write --allow-run --allow-env \
-//     crates/litedoc4-md/tests/oracle/gen-docgen4-expected.ts
+//     tools/oracle/gen-docgen4-expected.ts
 //   ... --full /tmp/docgen4-full.json   also write every case, not just the
 //                                       committed sample
 //   ... --check                         fail if the committed file is stale
 
-const FIXTURE = new URL("../data/docgen4-expected.json", import.meta.url);
+const FIXTURE = new URL("../../fixtures/md/docgen4-expected.json", import.meta.url);
 const DUMPER = new URL("dump-html.lean", import.meta.url);
 const CURATED_FROM = new URL("gen-md4lean-expected.ts", import.meta.url);
 
@@ -418,7 +418,7 @@ if (dirty.code !== 0) {
   Deno.exit(4);
 }
 const provenance = {
-  generatedBy: "crates/litedoc4-md/tests/oracle/gen-docgen4-expected.ts",
+  generatedBy: "tools/oracle/gen-docgen4-expected.ts",
   oracle: "DocGen4.Output.docStringToHtml, run under lake env lean in the measurement target",
   target,
   leanToolchain: (await Deno.readTextFile(`${target}/lean-toolchain`)).trim(),

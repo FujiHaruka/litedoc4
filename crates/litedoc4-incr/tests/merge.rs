@@ -1,7 +1,7 @@
 //! The `ownership` and `merge` stages, against three oracles, none of which is
 //! this file's own opinion:
 //!
-//! - **A frozen corpus.** `tests/data/merge-expected.json` holds the sizes and
+//! - **A frozen corpus.** `fixtures/incr/merge-expected.json` holds the sizes and
 //!   digests of everything nine rounds and three verifications over the base IR
 //!   produced, and [`the_corpus_matches_the_prototype`] compares against it file
 //!   by file. **HEAD has no way to regenerate it**: the generator was removed
@@ -959,7 +959,7 @@ struct Expected {
 
 fn expected() -> Expected {
     Expected {
-        value: serde_json::from_str(include_str!("data/merge-expected.json"))
+        value: serde_json::from_str(include_str!("../../../fixtures/incr/merge-expected.json"))
             .expect("the fixture is JSON"),
         seen: std::cell::RefCell::new(BTreeSet::new()),
         diverged: std::cell::RefCell::new(BTreeSet::new()),

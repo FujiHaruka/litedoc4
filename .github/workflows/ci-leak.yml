@@ -52,7 +52,7 @@ jobs:
       - name: Seed the corpus from the committed gate corpus
         run: |
           mkdir -p fuzz/corpus/docstring
-          cp crates/litedoc4-md/tests/data/fuzz/*.md fuzz/corpus/docstring/
+          cp fixtures/md/fuzz/*.md fuzz/corpus/docstring/
           echo "corpus entries: $(ls fuzz/corpus/docstring | wc -l)"
 
       # Negative control. `set +e` because a non-zero exit is the pass here, and

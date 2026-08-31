@@ -42,8 +42,8 @@ restructured to write an IR instead of HTML:
 
 Test fixtures produced by running doc-gen4:
 
-    crates/litedoc4-md/tests/data/docgen4-expected.json
-    crates/litedoc4-render/tests/data/docgen4-linked-expected.json
+    fixtures/md/docgen4-expected.json
+    fixtures/render/docgen4-linked-expected.json
 
 A patch against doc-gen4's own sources, quoting them as diff context:
 

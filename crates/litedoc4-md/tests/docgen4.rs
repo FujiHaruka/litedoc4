@@ -1,12 +1,12 @@
-//! `tests/data/docgen4-expected.json` is a frozen recording. It was generated
-//! by `tests/oracle/gen-docgen4-expected.ts`, which runs `docStringToHtml`
+//! `fixtures/md/docgen4-expected.json` is a frozen recording. It was generated
+//! by `tools/oracle/gen-docgen4-expected.ts`, which runs `docStringToHtml`
 //! under `lake env lean` in the measurement target and prints the bytes, over
 //! every docstring in that package's IR plus hand-written cases for the corners
 //! it does not contain. Regenerate the doc-gen4 side with:
 //!
 //! ```text
 //! deno run --allow-read --allow-write --allow-run --allow-env \
-//!   crates/litedoc4-md/tests/oracle/gen-docgen4-expected.ts
+//!   tools/oracle/gen-docgen4-expected.ts
 //! ... --check      # verify the committed file
 //! ... --full PATH  # write every case, for a check by hand (no test reads it)
 //! ```
@@ -37,7 +37,7 @@ use litedoc4_md::{NoLinks, Renderer};
 use litedoc4_testutil::text::{Diff, show_ascii_head};
 use serde::Deserialize;
 
-const FIXTURE: &str = include_str!("data/docgen4-expected.json");
+const FIXTURE: &str = include_str!("../../../fixtures/md/docgen4-expected.json");
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,7 +69,7 @@ struct Crasher {
 }
 
 fn expected() -> Expected {
-    serde_json::from_str(FIXTURE).expect("tests/data/docgen4-expected.json is valid")
+    serde_json::from_str(FIXTURE).expect("fixtures/md/docgen4-expected.json is valid")
 }
 
 /// [`Diff::report_escaped`] and not [`Diff::report`]: this corpus carries
@@ -121,7 +121,7 @@ fn the_fixture_is_doc_gen4s_own_output() {
 /// converted to MathML at build time and doc-gen4 does not do that, so five of
 /// these cases could never agree with it again, and a comparison that is wrong
 /// about five cases by design is one nobody reads twice. So this no longer says
-/// "the dialect did not move" — `tests/oracle/gen-docgen4-expected.ts` still
+/// "the dialect did not move" — `tools/oracle/gen-docgen4-expected.ts` still
 /// produces doc-gen4's answers and that claim can still be re-checked, it is
 /// simply not what `cargo test` asserts.
 #[test]
@@ -162,7 +162,7 @@ fn bless_requested() -> bool {
 /// every future diff is the whole file.
 fn bless(e: &Expected) {
     let path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/docgen4-expected.json");
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/md/docgen4-expected.json");
     let original = std::fs::read_to_string(&path).expect("the fixture is readable");
     let mut document: serde_json::Value =
         serde_json::from_str(&original).expect("the fixture is JSON");

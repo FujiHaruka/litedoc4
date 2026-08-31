@@ -132,7 +132,36 @@
    **Nothing on the rest of this list is time-critical.** A and A2 were the only two things the
    Rust binary's existence gated, and both are done.
 
-   **B. Decide the F bucket (83) and the frozen fixtures together.** They are one question:
+   **B. ~~Decide the F bucket~~ — DECIDED and executed.** The framing was wrong: **the oracle
+   *generators* were themselves inside `crates/`** — `tools/oracle/` now, 8 files / 88 K, the
+   only apparatus in this tree for asking **doc-gen4, MD4Lean, UnicodeBasic and V8** a fresh
+   question. So the choice was never "keep the frozen values"; it was "keep the ability to
+   re-ask". Data and generators moved to `fixtures/{md,render,global,incr}/` and
+   `tools/oracle/`; **no comparison ported** — porting a fixture comparison with no live oracle
+   yields a check that says *unchanged*, not *correct*. Port selectively when a defect asks for
+   it.
+
+   Two fixtures are **still live external oracles**: `fixtures/md/md4lean-expected.json` holds
+   MD4Lean's parse tree (nothing else compares it), and
+   `fixtures/render/docgen4-linked-expected.json` holds doc-gen4's bytes and is the only place
+   the `inLink` rule the prototype gets wrong is caught. `docgen4-expected.json` **switched
+   sides on 2026-08-22** and is now a regression fixture over our own output, which is
+   consistent with byte reproduction having ended at M8.
+
+   **The "re-askable" claim is one line off today, and was before this move.** The fixtures'
+   `generatedBy` still records the pre-rename `crates/lean-doc-md/…`, and `--check` compares
+   the serialised fixture **byte for byte**, so `deno run … gen-md4lean-expected.ts --check`
+   reports a mismatch on that provenance line alone. The frozen bytes were **not** rewritten
+   (category 2 forbids it); the generators now name their true location. Whoever re-asks
+   MD4Lean must expect that one line.
+
+   **34 branches fire on no real data anywhere** (8 in `pages`, 3 in `fragment`, 9 in
+   `page-parts`, 14 in `global`, including every branch UTF-16 order depends on). Both corpus
+   oracles built this leg — 1,266 target digests and 49 sample files — reach exactly what real
+   data reaches, so those 34 are precisely what neither can see. That is the same gap that let
+   six defects through this leg with the byte oracle green.
+
+   **B (superseded). The F bucket and the frozen fixtures are one question:**
    `crates/*/tests/data/**` (28 files, 3.4 MB) is what F compares against, and A wants the same
    kind of thing. Move it out of `crates/` (the `web/` move again), embed it, or lose it to the
    tag.

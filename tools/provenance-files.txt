@@ -117,5 +117,5 @@ crates/litedoc4-md/src/math.rs : math-core
 # These are program output, not copied source, but "the record of provenance is
 # required just the same — losing track of how to regenerate it does more real
 # harm" (provenance.md §7).
-crates/litedoc4-md/tests/data/PROVENANCE.md : doc-gen4
-crates/litedoc4-render/tests/data/PROVENANCE.md : experiments-frozen
+fixtures/md/PROVENANCE.md : doc-gen4
+fixtures/render/PROVENANCE.md : experiments-frozen

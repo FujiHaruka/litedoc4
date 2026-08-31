@@ -28,8 +28,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use litedoc4_md::{NoLinks, Renderer};
 use serde::Deserialize;
 
-const TS: &str = include_str!("data/ts-docstring-expected.json");
-const DOCGEN4: &str = include_str!("data/docgen4-expected.json");
+const TS: &str = include_str!("../../../fixtures/md/ts-docstring-expected.json");
+const DOCGEN4: &str = include_str!("../../../fixtures/md/docgen4-expected.json");
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,12 +75,12 @@ struct DocGen4Case {
 }
 
 fn ts_expected() -> TsExpected {
-    serde_json::from_str(TS).expect("tests/data/ts-docstring-expected.json is valid")
+    serde_json::from_str(TS).expect("fixtures/md/ts-docstring-expected.json is valid")
 }
 
 fn doc_gen4_cases() -> Vec<DocGen4Case> {
     serde_json::from_str::<DocGen4Expected>(DOCGEN4)
-        .expect("tests/data/docgen4-expected.json is valid")
+        .expect("fixtures/md/docgen4-expected.json is valid")
         .cases
 }
 

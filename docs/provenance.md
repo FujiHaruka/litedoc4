@@ -86,7 +86,7 @@ doc-gen4・計測対象リポジトリがすべて Apache-2.0 なので、揃え
 |---|---|---|
 | `extractor/Extract.lean` の 15 箇所 (`isProjFn` `isBlackListed` `tagAttributes` `inlineAttrString` `externEntryString` `externAttrString` `deprecationString` `getTags` `getAllAttributes` `getInstanceTypes` `getInstPriority` `getDefaultInstanceAttr` `getFieldOrigin` `mkTacticOut` / `Core.Context` の 4 options) | **計 約 112 行** (ファイル 3,174 行の 3.5%) | `Process/{DocInfo,Attributes,InstanceInfo,StructureInfo,Analyze}.lean`, `Load.lean:30-42` |
 | `assets/style.css` の `.fn` と `.break_within` | **8 行** | `static/style.css:608-615` / `:664-670` |
-| `crates/litedoc4-md/tests/data/docgen4-expected.json`, `crates/litedoc4-render/tests/data/docgen4-linked-expected.json` | **371,488 B** | doc-gen4 の**出力**。ソースではない |
+| `fixtures/md/docgen4-expected.json`, `fixtures/render/docgen4-linked-expected.json` | **371,488 B** | doc-gen4 の**出力**。ソースではない |
 | `benchmarks/doc-gen4-instrumentation.patch` | 全 441 行のうち **context 187 行が doc-gen4 のソース逐語** (Apache ヘッダ行を含む) | `Load.lean` `Output.lean` `Process/Analyze.lean` `Main.lean` を改変 + `Timing.lean` 新設 |
 
 **Lean → Lean は「移設」ではなく「コピー」。** 同言語なので書き直しの余地が無く、実際に逐字一致する。
@@ -234,7 +234,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | 2 | `LICENSE` (canonical Apache-2.0 201 行) を置き、`[workspace.package]` に `license = "Apache-2.0"`、各 crate に `license.workspace = true` | `LICENSE`, `Cargo.toml`, `crates/*/Cargo.toml` |
 | 3 | `NOTICE` を置いた — doc-gen4 / md4c / MD4Lean / UnicodeBasic + Unicode® / V8 の 5 件 | `NOTICE` |
 | 4 | **§4(b)(c) の履行** — 下表。加えて **§4(b) を著作物レベルでも払った** (README 冒頭 / `NOTICE` 冒頭。→ §1.1) | 各ファイル + README + NOTICE |
-| 5 | **第三者コードの記録** — 生成フィクスチャに `PROVENANCE.md` を足した (`vendor/md4c/PROVENANCE.md` と同じ作法) | `crates/litedoc4-{md,render}/tests/data/PROVENANCE.md` |
+| 5 | **第三者コードの記録** — 生成フィクスチャに `PROVENANCE.md` を足した (`vendor/md4c/PROVENANCE.md` と同じ作法) | `fixtures/{md,render}/PROVENANCE.md` |
 
 §4(b)(c) を書いた場所:
 
@@ -249,7 +249,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | `src/Litedoc4/Md/{Escape,Html}.lean` `src/Litedoc4/Render/{Autolink,Code,Whitespace}.lean` | The product-side transcription of the same work, split along the boundaries of the Rust files it transcribes, so each module's notice names the one file it came from and the modules that transcribe nothing of doc-gen4's carry none. **`math.rs` has no module here**: it is math-core's work rather than doc-gen4's, and the Lean side converts through MathML4Lean instead of transcribing it — what `Md/Html.lean` carries is `math_into`, which is `html.rs` |
 | `src/Litedoc4/Md/Gc.lean` | 同上 (`gc.rs` の Lean 転写、UnicodeBasic + Unicode®) |
 | `benchmarks/doc-gen4-instrumentation.patch` | diff の前に前書き。**`git apply` は前書きを読み飛ばす** — `apply-instrumentation.sh --check` が `APPLIED` を返すことと、diff 本体が 1 バイトも変わっていないことを確認済【実測】 |
-| `tests/oracle/gen-gc-table.ts` / `gen-v8-gc-table.ts` | **生成器側**に書いた。`gc.rs` / `v8_gc.rs` は `--check` が生成器の出力と突き合わせるので、生成物を直接編集すると赤くなる |
+| `tools/oracle/gen-gc-table.ts` / `gen-v8-gc-table.ts` | **生成器側**に書いた。`gc.rs` / `v8_gc.rs` は `--check` が生成器の出力と突き合わせるので、生成物を直接編集すると赤くなる |
 
 ---
 
@@ -344,7 +344,7 @@ NOTICE の導出セクションを**両方向で**突き合わせていた。**�
 ゲートから見れば欠落である (載せる場所を 1 つに決めた結果)。
 
 `gc.rs` / `v8_gc.rs` は**プログラムの出力**であって元のソースではない。
-`tests/data/docgen4-*.json` も同じ性質。ソースの複製とは扱いが違うが、
+`fixtures/{md,render}/docgen4-*.json` も同じ性質。ソースの複製とは扱いが違うが、
 **由来の記録は等しく要る** — 再生成の手順が分からなくなる方が実害が大きい。
 
 ---

@@ -6,9 +6,9 @@ this directory lives here.
 | file | produced by | whose output it is |
 |---|---|---|
 | `docgen4-expected.json` | `LITEDOC4_BLESS=1 cargo test -p litedoc4-md --test docgen4` | **ours**, since 2026-08-22 — it was doc-gen4's until then |
-| `md4lean-expected.json` | `tests/oracle/gen-md4lean-expected.ts` → `tests/oracle/dump-ast.lean` | **MD4Lean's** `MD4Lean.parse` |
+| `md4lean-expected.json` | `tools/oracle/gen-md4lean-expected.ts` → `tools/oracle/dump-ast.lean` | **MD4Lean's** `MD4Lean.parse` |
 | `ts-docstring-expected.json` | `tests/oracle/gen-ts-docstring-expected.ts` (**removed** — see below) | `experiments/stage7d/render.ts` (this repository, frozen) |
-| `fuzz/*.md` | written by hand for `tests/fuzz_corpus.rs` | **ours** — no third party, no oracle |
+| `fuzz/*.md` | written by hand for `crates/litedoc4-md/tests/fuzz_corpus.rs` | **ours** — no third party, no oracle |
 
 `fuzz/` is not a fixture in the sense of the rows above: nothing in it is
 compared against an expected output. Each file is an *input* chosen because it
@@ -20,7 +20,7 @@ edge cases, CR without LF, and the empty string. Adding a file adds a case.
 ## `docgen4-expected.json` changed sides on 2026-08-22
 
 It held **doc-gen4's** `docStringToHtml` output, produced by
-`tests/oracle/gen-docgen4-expected.ts` → `tests/oracle/dump-html.lean`, and 327
+`tools/oracle/gen-docgen4-expected.ts` → `tools/oracle/dump-html.lean`, and 327
 of its cases were compared against it byte for byte. Feature-sweep C-1
 converts `$…$` to MathML while the page is
 written, which doc-gen4 does not do, so **five of the 327 could never agree with
@@ -33,7 +33,7 @@ rather than `…_doc_gen4`.
 The doc-gen4 oracle is still here and still runs:
 
     deno run --allow-read --allow-write --allow-run --allow-env \
-      crates/litedoc4-md/tests/oracle/gen-docgen4-expected.ts
+      tools/oracle/gen-docgen4-expected.ts
 
 so the dialect claim can be re-checked deliberately. It is simply not what a
 push is judged by. The five cases that diverge are the math ones: inline math,

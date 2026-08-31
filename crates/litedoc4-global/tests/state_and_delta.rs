@@ -11,7 +11,7 @@
 //! The second is the frozen prototype's own answers, for the two things a byte
 //! comparison of the artifacts cannot see — the state file (compared directly,
 //! [`the_state_file_is_the_prototypes_bytes`]) and the delta
-//! (`tests/data/delta-expected.json`, **a frozen value**: its generator and the
+//! (`fixtures/global/delta-expected.json`, **a frozen value**: its generator and the
 //! prototype it drove exist only at tag `experiments-frozen`, so HEAD cannot
 //! regenerate it).
 //!
@@ -1901,8 +1901,8 @@ struct ExpectedWitness {
 }
 
 fn delta_fixture() -> DeltaExpected {
-    serde_json::from_str(include_str!("data/delta-expected.json"))
-        .expect("tests/data/delta-expected.json is valid")
+    serde_json::from_str(include_str!("../../../fixtures/global/delta-expected.json"))
+        .expect("fixtures/global/delta-expected.json is valid")
 }
 
 /// The generator chose the mutation to make the scan mean something: three

@@ -7,7 +7,7 @@
 //! control comes back and that ASan stays quiet.
 //!
 //! Crashes found here do not stay here: the input goes into
-//! `crates/litedoc4-md/tests/data/fuzz/`, where the stable-toolchain gate runs
+//! `fixtures/md/fuzz/`, where the stable-toolchain gate runs
 //! it on every push.
 
 #![no_main]

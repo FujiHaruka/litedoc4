@@ -16,7 +16,7 @@
 //
 // V8's answer is taken from this runtime. UnicodeBasic's is read out of
 // `crates/litedoc4-md/src/gc.rs`, which is generated from the build doc-gen4
-// links by `crates/litedoc4-md/tests/oracle/gen-gc-table.ts` — not a second copy
+// links by `tools/oracle/gen-gc-table.ts` — not a second copy
 // of the UCD.
 //
 // npm/node are broken in this environment; this must run under deno.

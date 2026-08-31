@@ -10,7 +10,7 @@
 //!
 //! Two things are checked, and they are different in kind:
 //!
-//! - **The committed corpus** (`tests/data/fuzz/`) is every input shape known
+//! - **The committed corpus** (`fixtures/md/fuzz/`) is every input shape known
 //!   to be dangerous — the two that kill MD4Lean, plus deep nesting,
 //!   unterminated constructs, astral characters, a 200 KB line, entity edge
 //!   cases, CR without LF, and the empty string. **Adding a file to that
@@ -37,7 +37,7 @@ use std::path::{Path, PathBuf};
 use litedoc4_md::{NoLinks, Renderer};
 
 fn corpus_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/fuzz")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/md/fuzz")
 }
 
 /// The return value is deliberately ignored: what is asserted is that control

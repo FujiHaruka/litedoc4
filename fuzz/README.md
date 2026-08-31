@@ -1,6 +1,6 @@
 # fuzz — the exploration behind the corpus gate
 
-`crates/litedoc4-md/tests/data/fuzz/` is the gate: every file in it goes through
+`fixtures/md/fuzz/` is the gate: every file in it goes through
 `parse` and the HTML assembly on every push, on stable, with no extra toolchain.
 **This directory is how entries get into that gate** — libFuzzer plus
 AddressSanitizer, run by hand, out of band.
@@ -19,13 +19,13 @@ export CXXFLAGS="-isystem $(xcrun --show-sdk-path)/usr/include/c++/v1"   # macOS
 export CFLAGS="-fsanitize=address -fsanitize=fuzzer-no-link -mllvm -asan-guard-against-version-mismatch=0 -fno-omit-frame-pointer -g"
 
 mkdir -p fuzz/corpus/docstring
-cp crates/litedoc4-md/tests/data/fuzz/*.md fuzz/corpus/docstring/
+cp fixtures/md/fuzz/*.md fuzz/corpus/docstring/
 cargo +nightly fuzz run docstring -- -max_total_time=600 -max_len=16384
 ```
 
 A crash lands in `fuzz/artifacts/docstring/`. **It does not stay there**: copy
-the input to `crates/litedoc4-md/tests/data/fuzz/` with a name saying what shape
-it is, and raise the `seen >=` floor in `tests/fuzz_corpus.rs` so a corpus that
+the input to `fixtures/md/fuzz/` with a name saying what shape
+it is, and raise the `seen >=` floor in `crates/litedoc4-md/tests/fuzz_corpus.rs` so a corpus that
 silently empties still fails.
 
 ## `CFLAGS` is not optional — it is what puts md4c under the fuzzer

@@ -4,7 +4,7 @@
 //! nothing** (measured 2026-08-23). No product code computes an FNV hash, so this
 //! is not a second spelling of anything the tree ships. The independent side of
 //! every comparison is the prototype that wrote the digest literals in
-//! `litedoc4-{incr,global}/tests/data/*-expected.json`; it left HEAD with tag
+//! `fixtures/{incr,global}/*-expected.json`; it left HEAD with tag
 //! `experiments-frozen` and only its output survives. For those comparisons to
 //! mean anything both sides must run *the same* function, so a per-caller copy
 //! would add no independence and one more thing able to drift.
@@ -35,7 +35,7 @@ mod tests {
     use super::*;
 
     /// The standard vectors, and deliberately not a digest read back out of a
-    /// fixture: every value in `tests/data/*-expected.json` is over a corpus
+    /// fixture: every value in `fixtures/*/*-expected.json` is over a corpus
     /// tree that is not in this repository, so quoting one would only assert
     /// that this function equals itself.
     #[test]

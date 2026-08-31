@@ -17,12 +17,12 @@
 //
 // usage:
 //   deno run --allow-read --allow-write --allow-run --allow-env \
-//     crates/litedoc4-md/tests/oracle/gen-md4lean-expected.ts
+//     tools/oracle/gen-md4lean-expected.ts
 //   ... --full /tmp/md4lean-full.json   also write every case, not just the
 //                                       committed sample
 //   ... --check                         fail if the committed file is stale
 
-const FIXTURE = new URL("../data/md4lean-expected.json", import.meta.url);
+const FIXTURE = new URL("../../fixtures/md/md4lean-expected.json", import.meta.url);
 const DUMPER = new URL("dump-ast.lean", import.meta.url);
 
 const DEFAULT_TARGET = "/Users/haruka/dev/lean-projects";
@@ -502,7 +502,7 @@ for (let i = 0; i < cases.length; i++) {
 const manifest = await readJson(`${target}/lake-manifest.json`);
 const md4lean = (manifest.packages ?? []).find((p: any) => p.name === "MD4Lean");
 const provenance = {
-  generatedBy: "crates/litedoc4-md/tests/oracle/gen-md4lean-expected.ts",
+  generatedBy: "tools/oracle/gen-md4lean-expected.ts",
   oracle: "MD4Lean.parse, run under lake env lean in the measurement target",
   target,
   leanToolchain: (await Deno.readTextFile(`${target}/lean-toolchain`)).trim(),

@@ -1,7 +1,7 @@
 //! The `impact` and `prune` stages, against three oracles, none of which is
 //! this file's own opinion:
 //!
-//! - **A frozen corpus.** `tests/data/impact-expected.json` holds the answers a
+//! - **A frozen corpus.** `fixtures/incr/impact-expected.json` holds the answers a
 //!   run over the base IR, the reference page tree and a whole site produced,
 //!   and [`the_corpus_matches_the_prototype`] compares against it scenario by
 //!   scenario. **HEAD has no way to regenerate it**: the generator was removed
@@ -885,7 +885,7 @@ struct Expected {
 
 fn expected() -> Expected {
     Expected {
-        value: serde_json::from_str(include_str!("data/impact-expected.json"))
+        value: serde_json::from_str(include_str!("../../../fixtures/incr/impact-expected.json"))
             .expect("the fixture is JSON"),
         seen: std::cell::RefCell::new(BTreeSet::new()),
     }

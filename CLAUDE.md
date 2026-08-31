@@ -41,9 +41,14 @@ crates.io / npm / PyPI / GitHub search alike.
 "forgot to delete" and fix them**:
 
 1. **`benchmarks/results/**`** — raw logs. Do not rewrite past measurements
-2. **`crates/*/tests/data/**` (14 files)** — frozen fixtures. The paths at generation time are
-   baked in, and **there is no way to regenerate them in HEAD**. The
-   `git show experiments-frozen:crates/lean-doc-*/…` in `PROVENANCE.md` is **a real path inside the tag**, and renaming makes it stop resolving
+2. **`fixtures/**` (14 files)** — frozen fixtures. The paths at generation time are
+   baked in. The
+   `git show experiments-frozen:crates/lean-doc-*/…` in `PROVENANCE.md` is **a real path inside the tag**, and renaming makes it stop resolving.
+   **Regenerable, or not, in two classes — the distinction is load-bearing**: the ones whose
+   generator is `tools/oracle/` (doc-gen4's and MD4Lean's answers) **can be re-asked in HEAD**,
+   which is why those 8 files were moved out of `crates/` rather than deleted with it; the
+   prototype-derived ones (`ts-*`, `autolink`, `fragment`, `pages`, `global`, `delta`,
+   `impact`, `merge`) **cannot** — their generators exist only at `experiments-frozen`
 3. **The string `lean-doc-relay`** — the gates' work area `/private/tmp/lean-doc-relay/<stage>`.
    It is in the frozen fixtures as the path at generation time, and **the default path of
    `litedoc4_testutil::corpus` has to match it**
@@ -173,8 +178,10 @@ git log experiments-frozen -- experiments/
 - **Every place where docs point at `experiments/...` as the source of a number carries this tag.**
   Do not write `experiments/` without the tag (it would point at a path that is not in HEAD)
 - **What disappeared is the scorer, not the numbers.** The committed fixtures
-  (`crates/*/tests/data/*-expected.json`) remain as frozen values, and `cargo test` is untouched.
-  But **there is no way to regenerate them in HEAD** — to rebuild them, restore the generator from the tag
+  (`fixtures/*/*-expected.json`) remain as frozen values, and `cargo test` is untouched.
+  **To rebuild a prototype-derived one, restore the generator from the tag** — those are the
+  ones this applies to. The doc-gen4 and MD4Lean fixtures are a different case: their
+  generators are in HEAD under `tools/oracle/`
 - **The history is not rewritten.** Since the repository became public (2026-08-16),
   **the 164 files of `experiments/` really can be read via the tag**. This is a knowing decision:
   the reason for the removal is policy, not legal — no additional licensing obligation arises

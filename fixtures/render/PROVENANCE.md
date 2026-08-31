@@ -4,7 +4,7 @@ JSON cannot carry a comment, so the attribution for the generated fixtures in
 this directory lives here.
 
 `docgen4-linked-expected.json` is the output of **doc-gen4's** `docStringToHtml`
-with link resolution, produced by `tests/oracle/dump-html-linked.lean`
+with link resolution, produced by `tools/oracle/dump-html-linked.lean`
 (`import DocGen4.Output.DocString`). doc-gen4 is licensed under the Apache
 License, Version 2.0:
 
@@ -77,7 +77,7 @@ prototype and its generators are at tag `experiments-frozen`:
 
 `docgen4-linked-expected.json` is the one to watch: its expected values come from
 doc-gen4, but *which cases it contains* was decided by the prototype, so its
-generator went too. The doc-gen4 half — `tests/oracle/dump-html-linked.lean` —
+generator went too. The doc-gen4 half — `tools/oracle/dump-html-linked.lean` —
 is still here and still runs on its own.
 
 If a change to the IR schema or to the renderer's contract makes one of these

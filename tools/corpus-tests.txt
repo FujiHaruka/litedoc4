@@ -41,7 +41,7 @@ litedoc4::packages::tests::every_lidx_entry_matches_doc_gen4s_declaration_urls  
 
 ## frozen — no regenerator in HEAD; the generator is at tag `experiments-frozen`
 #
-# `crates/litedoc4-render/tests/data/PROVENANCE.md` states it plainly: "There is
+# `fixtures/render/PROVENANCE.md` states it plainly: "There is
 # no regenerator in this tree any more." Everything below needs something only
 # the removed prototype could write, so running it can only ever panic. They stay
 # in the inventory — they are real tests and they will run again if somebody

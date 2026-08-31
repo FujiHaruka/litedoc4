@@ -4,7 +4,7 @@ actually resolve.
 
 WHY THIS FILE EXISTS
 --------------------
-`crates/litedoc4-md/tests/oracle/dump-html.lean` runs `docStringToHtml` with an
+`tools/oracle/dump-html.lean` runs `docStringToHtml` with an
 empty `AnalyzerResult`, which makes every lookup miss. That was the right oracle
 for M1-c's first two steps -- it matches `NoLinks` -- but it is blind to the
 step that turns the lookups on: with no name resolving, `autoLinkInline` emits
