@@ -151,6 +151,26 @@ All 17 are now closed, in a direction decided per case:
 **The frozen expectations reproduce byte for byte on Linux** — `lean 135/135, rust 135/135`
 in `ci-lake.yml` on `ab0516d`. Nothing platform-specific leaked into them.
 
+## Two things M10's deletion touches that are not code
+
+**1. Provenance.** `tools/provenance-files.txt` has **56 rows, 16 of them under `crates/`**, and
+`NOTICE` carries 16 matching references — doc-gen4 attribution, md4c's MIT, MD4Lean, Unicode.
+Two `PROVENANCE.md` files live *inside* `crates/*/tests/data/`, and md4c is vendored twice
+(`vendor/md4c` and `crates/litedoc4-md/vendor/md4c`). **This is not a blocker**: the Lean side
+already carries **16 mirrored rows** under `src/` plus 2 under `vendor/`, so CLAUDE.md's rule
+that a transcription carries the same notice was honoured during the port. M10 has to retire
+the `crates/` rows and their `NOTICE` entries **deliberately**, and `tools/provenance-gate.sh`
+is what will say whether it was done right. Do not let the deletion take an obligation with it.
+
+**2. The frozen fixtures — one fork, to decide once rather than per crate.**
+`crates/*/tests/data/**` is **28 files, 3.4 MB** (`litedoc4-render` 2.3 MB, `litedoc4-md`
+948 KB), and it is what the whole **F bucket** compares against. CLAUDE.md pins it as
+unregenerable in HEAD. Three ways: **move it out of `crates/`** (the `web/` move again — it
+outlives its readers, and the Lean half is byte-identical so the frozen expected values stay
+valid oracles), **embed** it (what the `litedoc4-md` tranche did with 12 small fuzz inputs),
+or **lose it to the `rust-frozen` tag**. **Nothing has been decided and nothing needs to be
+yet** — the deletion is last — but decide it before the F tranche starts, not during.
+
 ## Two Rust tests have no home after M10
 
 `base_ir::reads_every_module_of_the_target_package` and
