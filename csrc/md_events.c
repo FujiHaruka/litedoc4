@@ -50,6 +50,81 @@
 #define EV_LEAVE_SPAN 0x04
 #define EV_TEXT 0x05
 
+/* THE NUMBERS `src/Litedoc4/Md.lean` DECODES
+ *   The block, span and text codes on the wire are md4c's own enumerators, and
+ *   the flags Lean composes are md4c's own macros — so both are written down
+ *   twice, once in the header and once in Lean. This file is the only place
+ *   that sees both, so the compiler is the thing that can say they agree; the
+ *   Rust half needed a probe executable and a test to ask the same question
+ *   (`crates/litedoc4-md/tests/abi.rs`). One line per name, deliberately: a
+ *   vendored md4c that inserts, drops or reorders an enumerator then stops the
+ *   build naming the one that moved, rather than quietly reshaping every tree
+ *   Lean rebuilds. An enumerator appended at the end is the case this cannot
+ *   see; Lean answers that one with "md4c reported an unknown block type". */
+_Static_assert(MD_BLOCK_DOC == 0, "Md.lean decodes MD_BLOCK_DOC as 0");
+_Static_assert(MD_BLOCK_QUOTE == 1, "Md.lean decodes MD_BLOCK_QUOTE as 1");
+_Static_assert(MD_BLOCK_UL == 2, "Md.lean decodes MD_BLOCK_UL as 2");
+_Static_assert(MD_BLOCK_OL == 3, "Md.lean decodes MD_BLOCK_OL as 3");
+_Static_assert(MD_BLOCK_LI == 4, "Md.lean decodes MD_BLOCK_LI as 4");
+_Static_assert(MD_BLOCK_HR == 5, "Md.lean decodes MD_BLOCK_HR as 5");
+_Static_assert(MD_BLOCK_H == 6, "Md.lean decodes MD_BLOCK_H as 6");
+_Static_assert(MD_BLOCK_CODE == 7, "Md.lean decodes MD_BLOCK_CODE as 7");
+_Static_assert(MD_BLOCK_HTML == 8, "Md.lean decodes MD_BLOCK_HTML as 8");
+_Static_assert(MD_BLOCK_P == 9, "Md.lean decodes MD_BLOCK_P as 9");
+_Static_assert(MD_BLOCK_TABLE == 10, "Md.lean decodes MD_BLOCK_TABLE as 10");
+_Static_assert(MD_BLOCK_THEAD == 11, "Md.lean decodes MD_BLOCK_THEAD as 11");
+_Static_assert(MD_BLOCK_TBODY == 12, "Md.lean decodes MD_BLOCK_TBODY as 12");
+_Static_assert(MD_BLOCK_TR == 13, "Md.lean decodes MD_BLOCK_TR as 13");
+_Static_assert(MD_BLOCK_TH == 14, "Md.lean decodes MD_BLOCK_TH as 14");
+_Static_assert(MD_BLOCK_TD == 15, "Md.lean decodes MD_BLOCK_TD as 15");
+
+_Static_assert(MD_SPAN_EM == 0, "Md.lean decodes MD_SPAN_EM as 0");
+_Static_assert(MD_SPAN_STRONG == 1, "Md.lean decodes MD_SPAN_STRONG as 1");
+_Static_assert(MD_SPAN_A == 2, "Md.lean decodes MD_SPAN_A as 2");
+_Static_assert(MD_SPAN_IMG == 3, "Md.lean decodes MD_SPAN_IMG as 3");
+_Static_assert(MD_SPAN_CODE == 4, "Md.lean decodes MD_SPAN_CODE as 4");
+_Static_assert(MD_SPAN_DEL == 5, "Md.lean decodes MD_SPAN_DEL as 5");
+_Static_assert(MD_SPAN_LATEXMATH == 6, "Md.lean decodes MD_SPAN_LATEXMATH as 6");
+_Static_assert(MD_SPAN_LATEXMATH_DISPLAY == 7,
+               "Md.lean decodes MD_SPAN_LATEXMATH_DISPLAY as 7");
+_Static_assert(MD_SPAN_WIKILINK == 8, "Md.lean decodes MD_SPAN_WIKILINK as 8");
+_Static_assert(MD_SPAN_U == 9, "Md.lean decodes MD_SPAN_U as 9");
+
+_Static_assert(MD_TEXT_NORMAL == 0, "Md.lean decodes MD_TEXT_NORMAL as 0");
+_Static_assert(MD_TEXT_NULLCHAR == 1, "Md.lean decodes MD_TEXT_NULLCHAR as 1");
+_Static_assert(MD_TEXT_BR == 2, "Md.lean decodes MD_TEXT_BR as 2");
+_Static_assert(MD_TEXT_SOFTBR == 3, "Md.lean decodes MD_TEXT_SOFTBR as 3");
+_Static_assert(MD_TEXT_ENTITY == 4, "Md.lean decodes MD_TEXT_ENTITY as 4");
+_Static_assert(MD_TEXT_CODE == 5, "Md.lean decodes MD_TEXT_CODE as 5");
+_Static_assert(MD_TEXT_HTML == 6, "Md.lean decodes MD_TEXT_HTML as 6");
+_Static_assert(MD_TEXT_LATEXMATH == 7, "Md.lean decodes MD_TEXT_LATEXMATH as 7");
+
+_Static_assert(MD_FLAG_PERMISSIVEURLAUTOLINKS == 0x0004,
+               "Md.lean spells MD_FLAG_PERMISSIVEURLAUTOLINKS 0x0004");
+_Static_assert(MD_FLAG_PERMISSIVEEMAILAUTOLINKS == 0x0008,
+               "Md.lean spells MD_FLAG_PERMISSIVEEMAILAUTOLINKS 0x0008");
+_Static_assert(MD_FLAG_NOHTMLBLOCKS == 0x0020,
+               "Md.lean spells MD_FLAG_NOHTMLBLOCKS 0x0020");
+_Static_assert(MD_FLAG_NOHTMLSPANS == 0x0040,
+               "Md.lean spells MD_FLAG_NOHTMLSPANS 0x0040");
+_Static_assert(MD_FLAG_TABLES == 0x0100, "Md.lean spells MD_FLAG_TABLES 0x0100");
+_Static_assert(MD_FLAG_STRIKETHROUGH == 0x0200,
+               "Md.lean spells MD_FLAG_STRIKETHROUGH 0x0200");
+_Static_assert(MD_FLAG_PERMISSIVEWWWAUTOLINKS == 0x0400,
+               "Md.lean spells MD_FLAG_PERMISSIVEWWWAUTOLINKS 0x0400");
+_Static_assert(MD_FLAG_TASKLISTS == 0x0800,
+               "Md.lean spells MD_FLAG_TASKLISTS 0x0800");
+_Static_assert(MD_FLAG_LATEXMATHSPANS == 0x1000,
+               "Md.lean spells MD_FLAG_LATEXMATHSPANS 0x1000");
+_Static_assert(MD_DIALECT_GITHUB ==
+                   (MD_FLAG_PERMISSIVEURLAUTOLINKS |
+                    MD_FLAG_PERMISSIVEEMAILAUTOLINKS |
+                    MD_FLAG_PERMISSIVEWWWAUTOLINKS | MD_FLAG_TABLES |
+                    MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS),
+               "Md.lean builds MD_DIALECT_GITHUB out of those six flags");
+_Static_assert(MD_FLAG_NOHTML == (MD_FLAG_NOHTMLBLOCKS | MD_FLAG_NOHTMLSPANS),
+               "Md.lean builds MD_FLAG_NOHTML out of those two flags");
+
 typedef struct {
     uint8_t *data;
     size_t len;

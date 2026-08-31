@@ -1,0 +1,77 @@
+Where the Lean renderer and the Rust one disagree, in litedoc4-md
+=================================================================
+2026-08-31. Apple M1 (macOS 25.6.0). Rust: `cargo test -p litedoc4-md`, debug,
+rustc 1.97.1, the tree at this commit. Lean: `#eval` at elaboration time, Lean
+v4.31.0 via elan, toolchain borrowed from `e2e/micro`, built through
+`tools/build-lean-exe.sh`. Both probes were temporary files, deleted after the
+run; what they printed is below verbatim.
+
+WHY THIS WAS TAKEN
+------------------
+Carrying `crates/litedoc4-md`'s 28 internal-invariant tests into the Lean half
+means asking each one of the Lean code, not of the Rust code it was written
+about. Two of them turned out to be asking something the Lean half answers
+differently. `tools/purelean-micro-gate.sh` compares the two halves byte for
+byte and is green over `e2e/micro` in both cases, because the sample contains
+neither shape -- so neither is visible from any gate, and the oracle that could
+see them goes away with `crates/` at M10.
+
+1. `autoLinkInline` SPLIT ON BYTES, NOT ON `Z | C`  (FIXED)
+------------------------------------------------------------
+A code span's words are looked up one at a time, and what counts as the boundary
+between two words is UnicodeBasic's `Z | C` -- the table `Litedoc4.Md.Gc`
+already holds and `crates/litedoc4-md/src/gc.rs` holds too. The Lean transcription
+used `c <= 32` on bytes instead, so every separator outside ASCII sat *inside* a
+word.
+
+With a resolver answering for the bare names `a` and `b`, root `../`:
+
+  Rust (crates/litedoc4-md/src/html.rs, `Renderer::docstring`)
+    "`a\u{a0}b`\n"    -> "<p><code><a href=\"../a.html\">a</a>\u{a0}<a href=\"../b.html\">b</a></code></p>"
+    "`a\u{7f}b`\n"    -> "<p><code><a href=\"../a.html\">a</a>\u{7f}<a href=\"../b.html\">b</a></code></p>"
+    "`a\u{3000}b`\n"  -> "<p><code><a href=\"../a.html\">a</a>\u{3000}<a href=\"../b.html\">b</a></code></p>"
+    "`a b`\n"         -> "<p><code><a href=\"../a.html\">a</a> <a href=\"../b.html\">b</a></code></p>"
+
+  Lean before the fix (`autoLinkInline "" r <s>`)
+    "a b"           -> "<a href=\"../a.html\">a</a> <a href=\"../b.html\">b</a>"
+    "a\u00A0b"       -> "a b"                     (NBSP; no link at all)
+    "a\u007Fb"       -> "a\x7fb"                   (DEL; no link at all)
+    "a\u3000b"       -> "a b"                     (ideographic space; no link)
+
+FIX: `Litedoc4.zcRunEnd` walks code points and asks `isZC`, which is the table
+the Rust half asks. `cpAt` moved from `Litedoc4.Ir.Utf16` to `Litedoc4.Bytes` so
+that `Md.Html` can reach it without `Md` depending on `Ir`. The guard
+`aCodeSpanSplitsOnUnicodeZCAndWritesEverySeparatorBackOut`
+(`test/Litedoc4Test/MdHtml.lean`) fails on the old implementation and holds on
+the new one; `purelean-micro-gate.sh` is 16 of 16 after the change.
+
+2. `noLinks` DOES NOT RESOLVE A SOURCE PATH AND `NoLinks` DOES  (NOT FIXED)
+---------------------------------------------------------------------------
+A word ending in `.lean` that contains a `/` is a path to a source file, and
+which page it names goes to the resolver. Rust's `NoLinks` leaves
+`LinkResolver::source_path_to_link` at its trait default, which answers
+`{root}{path}.html`; Lean's `noLinks` answers `none`.
+
+  Rust, `Renderer::new("../", &NoLinks).docstring(...)`
+    "`Foo/Bar.lean`\n"     -> "<p><code><a href=\"../Foo/Bar.html\">Foo/Bar.lean</a></code></p>"
+    "`Nat.succ`\n"         -> "<p><code>Nat.succ</code></p>"
+    "[a](Foo/Bar.lean)\n"  -> "<p><a href=\"../Foo/Bar.lean\">a</a></p>"
+
+  Lean, the same with `noLinks`: the first case is `<p><code>Foo/Bar.lean</code></p>`.
+
+WHERE IT BITES: one caller each. `crates/litedoc4-global/src/entry.rs:120` uses
+`NoLinks`; `src/Litedoc4/Global/Entry.lean:60` uses `noLinks`. So a module
+description on the index or find page that carries a source path in a code span
+becomes a link on a Rust-built site and stays text on a Lean-built one.
+
+NOT FIXED, AND WHY. The Rust half's own documentation of that default says a
+resolver holding a module index should override it and answer `None` rather than
+guess, because a link to the wrong page is worse than no link -- 160 dangling
+links on the measurement target were what taught it (measured 2026-08-16 ->
+benchmarks/results/m8-ui2-dead-links.txt). `entry.rs` holds a module index. So
+the Lean answer is the one that agrees with the stated rule and the Rust one is
+the defect; `check-dead-links` in `tools/site-gate.sh` would fail a site where
+that link pointed at a page nobody wrote. Changing Lean to match would be
+porting a known defect. What would falsify this reading: an entry page that is
+supposed to carry repository-relative source links, in which case both halves
+should resolve and `Litedoc4Test` should say so.

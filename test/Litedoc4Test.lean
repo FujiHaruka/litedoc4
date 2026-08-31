@@ -4,5 +4,9 @@ import Litedoc4Test.IrModel
 import Litedoc4Test.IrName
 import Litedoc4Test.IrSpan
 import Litedoc4Test.IrTree
+import Litedoc4Test.MdEscape
+import Litedoc4Test.MdGc
 import Litedoc4Test.MdHtml
+import Litedoc4Test.MdMath
+import Litedoc4Test.MdParse
 import Litedoc4Test.Utf16

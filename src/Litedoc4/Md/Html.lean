@@ -43,7 +43,21 @@ def resolveLink (c : Renderer) (s : String) : Option String :=
 @[inline] def pushAnchor (out : String) (href text : String) : String :=
   escapeInto (escapeInto (out ++ "<a href=\"") href ++ "\">") text ++ "</a>"
 
-@[inline] def isSep (c : UInt8) : Bool := c <= 32
+/-- Where the run starting at byte `i` ends: separators while `sep` is true, the
+words between them while it is false.
+
+**Code points and not bytes.** `splitAround` splits on `Z | C`, which holds of
+U+007F, U+00A0 and U+3000 among others; a byte test would leave `a<NBSP>b` one
+word and neither name in it would be looked up, where doc-gen4 splits both out
+and links them. What would falsify it: an `isZC` that agreed with `· ≤ 32`
+everywhere, which is what its ASCII half looks like on its own. -/
+def zcRunEnd (s : String) (n i : Nat) (sep : Bool) : Nat := Id.run do
+  let mut j := i
+  while j < n do
+    let (cp, w) := cpAt s j
+    if isZC cp != sep then return j
+    j := j + w
+  return n
 
 /-- `autoLinkInline`. Two lookups per word: the word itself, then whatever
 follows its last `.`, so that `Nat.succ` links `succ` when the qualified name is
@@ -54,10 +68,10 @@ def autoLinkInline (out : String) (c : Renderer) (s : String) : String := Id.run
   let mut i := 0
   while i < n do
     let a := i
-    while i < n && isSep (byteAt s i) do i := i + 1
+    i := zcRunEnd s n i true
     if i > a then acc := escapeSub acc s a i
     let b := i
-    while i < n && !isSep (byteAt s i) do i := i + 1
+    i := zcRunEnd s n i false
     if i > b then
       let piece := byteSub s b i
       match resolveLink c piece with

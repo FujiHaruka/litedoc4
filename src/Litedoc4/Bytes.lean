@@ -9,6 +9,20 @@ namespace Litedoc4
 @[inline] def byteSub (s : String) (a b : Nat) : String :=
   String.Pos.Raw.extract s ⟨a⟩ ⟨b⟩
 
+/-- The code point at byte offset `i`, with its width in bytes. -/
+@[inline] def cpAt (s : String) (i : Nat) : UInt32 × Nat :=
+  let b := (byteAt s i).toUInt32
+  if b < 0x80 then (b, 1)
+  else if b < 0xE0 then
+    (((b &&& 0x1F) <<< 6) ||| ((byteAt s (i + 1)).toUInt32 &&& 0x3F), 2)
+  else if b < 0xF0 then
+    (((b &&& 0x0F) <<< 12) ||| (((byteAt s (i + 1)).toUInt32 &&& 0x3F) <<< 6)
+      ||| ((byteAt s (i + 2)).toUInt32 &&& 0x3F), 3)
+  else
+    (((b &&& 0x07) <<< 18) ||| (((byteAt s (i + 1)).toUInt32 &&& 0x3F) <<< 12)
+      ||| (((byteAt s (i + 2)).toUInt32 &&& 0x3F) <<< 6)
+      ||| ((byteAt s (i + 3)).toUInt32 &&& 0x3F), 4)
+
 /-- `String.lt` is code-point order, and UTF-8 byte order coincides with it. -/
 def byteLt (a b : String) : Bool := Id.run do
   let na := a.utf8ByteSize
