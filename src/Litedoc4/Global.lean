@@ -87,7 +87,7 @@ def factsFor (tree : IrTree) (cached : State) : IO FactsRun := do
 believes in, and a delta computed against an unreadable map would report every
 name in the package as changed. -/
 def readNameMap (path : FilePath) : IO (Std.HashMap String String) := do
-  let text ← IO.FS.readFile path
+  let text ← readTextFile path
   let bad (why : String) : IO (Std.HashMap String String) :=
     throw (IO.userError s!"{path}: {why}")
   match parseJson text with

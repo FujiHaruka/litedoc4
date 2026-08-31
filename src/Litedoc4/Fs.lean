@@ -60,11 +60,32 @@ def writeFile (path : FilePath) (body : String) : IO Unit := do
     if !dir.toString.isEmpty then IO.FS.createDirAll dir
   IO.FS.writeFile path body
 
+/-- The message a file that would not read is refused with, in one place because
+every flag that names a file asks the same question of it.
+
+Not `reading {path}: {e}`, which `Ir.lean` says: that wording is Rust's at that
+one door (`ir::Error::Io`) and this one is Rust's here (`config::Error::Io`), so
+the two sentences are two answers to two questions rather than one house style.
+What would falsify the split: the Rust half is gone at M10, and after that a
+later reader may fold them into one sentence with nothing left to disagree
+with. -/
+def unreadable (path : FilePath) (e : IO.Error) : IO.Error :=
+  IO.userError s!"{path}: {e}"
+
+/-- `IO.FS.readFile` with the path in the message. Lean's own `IO.Error` names
+the file on a **second** line and says nothing before it about which of a
+command's several files it was. -/
+def readTextFile (path : FilePath) : IO String := do
+  try
+    IO.FS.readFile path
+  catch e =>
+    throw (unreadable path e)
+
 /-- One name per line; blank lines and `#` comments are dropped. The reading
 side of `writeLines` below, and in the same module for that reason: the two
 decide together what an empty set looks like on disk. -/
 def readModuleList (path : FilePath) : IO (Array String) := do
-  let text ← IO.FS.readFile path
+  let text ← readTextFile path
   let mut out : Array String := #[]
   for line in text.splitOn "\n" do
     let line := line.trimAscii.toString

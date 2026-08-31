@@ -158,13 +158,13 @@ def extractKeyOf (leanToolchain manifestSha256 : String) (irIndex : Option JVal)
 def extractKey (target : String) (ir : Option System.FilePath) :
     IO (Array (String × String)) := do
   let root : System.FilePath := ⟨target⟩
-  let leanToolchain := (← IO.FS.readFile (root / "lean-toolchain")).trimAscii.toString
-  let manifest := sha256Text (← IO.FS.readFile (root / "lake-manifest.json"))
+  let leanToolchain := (← readTextFile (root / "lean-toolchain")).trimAscii.toString
+  let manifest := sha256Text (← readTextFile (root / "lake-manifest.json"))
   let mut index : Option JVal := none
   if let some ir := ir then
     recordIrRead .index
     let path := ir / "index.json"
-    let text ← IO.FS.readFile path
+    let text ← readTextFile path
     match parseJson text with
     | .error why => throw (IO.userError s!"{path}: {why}")
     | .ok j => index := some j
@@ -228,7 +228,7 @@ def hashModule (algorithm : Algorithm) (target libDir module : String) :
         let bytes ← IO.FS.readBinFile path
         pure { path := relativePath target path, bytes := bytes.size, hash := sha256Hex bytes }
       else do
-        let hash ← IO.FS.readFile (path ++ ".hash")
+        let hash ← readTextFile (path ++ ".hash")
         pure { path := relativePath target path, bytes := -1, hash := hash.trimAscii.toString }
     files := files.push file
   if files.isEmpty then return none
@@ -458,7 +458,7 @@ def CheckSummary.renderAll (s : CheckSummary) : Bool := !s.renderKeyChanged.isEm
 def checkLedger (i : CheckInputs) : IO (Except LedgerRefusal CheckSummary) := do
   let started ← IO.monoNanosNow
   let path := i.ledger.toString
-  let ledger ← match readLedger path (← IO.FS.readFile i.ledger) with
+  let ledger ← match readLedger path (← readTextFile i.ledger) with
     | .error refusal => return .error refusal
     | .ok ledger => pure ledger
   let readDone ← IO.monoNanosNow

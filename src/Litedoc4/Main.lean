@@ -414,7 +414,7 @@ def resolveOnly (names files : Array String) : IO ModuleSet := do
   let mut set : Std.HashSet String := Std.HashSet.emptyWithCapacity (names.size + 64)
   for name in names do set := set.insert name
   for file in files do
-    for name in moduleSetLines (← IO.FS.readFile ⟨file⟩) do set := set.insert name
+    for name in moduleSetLines (← readTextFile ⟨file⟩) do set := set.insert name
   return .these set
 
 def render (args : List String) : IO UInt32 := do
@@ -864,7 +864,7 @@ def ledgerCheckRun (a : LedgerArgs) (path : String) : IO UInt32 := do
     return 0
 
 def ledgerTouchRun (path module out : String) : IO UInt32 := do
-  match readLedger path (← IO.FS.readFile path) >>= touchLedger path module with
+  match readLedger path (← readTextFile path) >>= touchLedger path module with
   | .error (code, message) => refusedWith code message
   | .ok ledger =>
     let body := ledger.toJson
@@ -1349,7 +1349,7 @@ It reads; it writes nothing but `--out`. `lake` runs (core's revision comes from
 def linksRun (a : LinksArgs) (root : String) : IO UInt32 := do
   let index ← match a.linkIndex with
     | none => pure none
-    | some path => pure (some (parseLidx (← IO.FS.readFile ⟨path⟩)))
+    | some path => pure (some (parseLidx (← readTextFile ⟨path⟩)))
   let external ← match ← withDependencyDocs (← resolveExternal (some root) a.lake)
       (a.depsDocsMap.map (⟨·⟩)) with
     | .error (code, message) => return ← refusedWith code message

@@ -667,3 +667,73 @@ and **group F** — and that has to happen **while the Rust binary still exists*
 M10 there is nothing to mint the corrected rows from.
 
 When they land, `unreadable` should stop being `Config.lean`'s private helper.
+
+## 7. Groups B and F, and the framing (leg 12) — measured against both binaries
+
+`tools/refusals-on-disk.txt` is **38 rows** (173 with tranche 1). `tools/refusals.txt` is
+byte-identical to before. Gate: `lean 173/173, rust 154/173 (19 differ by design)`. Everything
+below overrides §1–§6 where they disagree.
+
+**The framing landed and `unreadable` is `Fs.lean`'s**, beside a new `readTextFile` that every
+framed site calls. Nine bare `IO.FS.readFile` sites were reachable from a command line, not the
+five §6.5 lists, and each fixed one carries a frozen row that witnesses **its producer**.
+
+1. **§6.5 mis-attributes `render … --only-from <missing>`.** It is `Main.lean:417`
+   (`resolveOnly` → `moduleSetLines`), not `Fs.lean`'s `readModuleList`. The two readers are
+   **not** one answer spelled twice: `readModuleList` drops `#` comments and `moduleSetLines`
+   does not, mirroring Rust's `read_module_list` vs `ModuleSet::from_lines`. Collapsing them
+   would change what a `#` line means on `--only-from`, which no oracle covers.
+2. **Four more sites lose the same framing**, all reachable, all now framed and frozen:
+   `Ledger.lean:161/162/167` (`extractKey`'s `lean-toolchain`, `lake-manifest.json` and
+   `<ir>/index.json` — one producer, one row), `Ledger.lean:231` (`<olean>.hash`),
+   `Main.lean:1352` (`links --link-index`), `Global.lean:90` (`readNameMap`, `global --before`).
+   **So B6 and B7 were framing rows, not merely `[OS/PARSER TEXT]` rows** — §2 marks them for
+   their tail and the whole prefix was missing.
+3. **The framing fix does not collapse the line count.** Lean's `IO.Error` renders
+   `no such file or directory (error code: N)` **plus** `  file: <path>` on a second line, so
+   `{path}: {e}` is two lines where Rust is one. All eight "not there" rows are therefore
+   `rust-differs`, with `<varies>` over the error number only — §6.4 in its strongest form.
+4. **§2 B1's fixture is under-specified and hides a divergence.** `{"ledgerSchema":1}` alone
+   does **not** give the ledgerSchema message from Rust: serde reads the whole document into its
+   struct first, so Rust says ``missing field `algorithm` at line 1 column 18`` and exits **1**
+   where Lean, which answers the schema before reading any other field, says the ledgerSchema
+   sentence and exits **3**. The two agree only when the rest of the ledger is complete, which is
+   what `ledger-schema-1` freezes. **No row holds the incomplete case**, and it is a real
+   difference in both the message and the exit code.
+5. **§2 F1's message names the list's own name, not a joined path.** `PageRoot.under` refuses
+   before it concatenates: `refusing to delete ../Foo.html — it is not under the page root pages`.
+6. **The stdout question, settled per command.** `ledger touch`, `prune`, `render --only-from`,
+   `links` and `global --before` print **nothing** before refusing and declare nothing.
+   `ledger check` and `ledger build` print **one fixed line** (`external  no package named
+   (--root) …`) — fixed, because with no `--root` nothing names the machine's toolchain the way
+   `build`'s progress does. Their rows still declare `stdout-not-frozen`, and the reason written
+   down is that this gate freezes stderr, **not** that the line count is the machine's. C12, E,
+   G and H still face the `build` shape §6 describes.
+7. **C12 stays deferred** and none of E, G, H were touched.
+
+### Why the two-line `IO.Error` is not collapsed into one (considered and declined, 2026-09-01)
+
+18 of the 19 rows the Rust arm skips are the same shape: Lean frames the path exactly as Rust
+does and then `IO.Error` renders `  file: <path>` on a line of its own, so the line count
+differs and `<varies>` — which matches within one line — cannot span it.
+
+The tempting move is a helper that renders an `IO.Error` on one line. It would make those rows
+match Rust modulo the errno tail and so bring them under **both** arms before the oracle is
+deleted. **It is declined**, because it buys the weaker gate:
+
+- A one-line row would have to be frozen as `litedoc4: <path>: <varies>` — the wildcard covers
+  everything after the colon, since Lean says `no such file or directory (error code:
+  4294967294)` where Rust says `No such file or directory (os error 2)`. That row goes on
+  passing if Lean's message text is replaced wholesale.
+- The `rust-differs` row freezes **Lean's exact sentence**. After M10 the gate's only job is
+  regression detection on Lean, and precision there is worth more than a Rust arm that expires
+  in the same milestone.
+- What the Rust arm would have added is "the transcription is not a typo". The Lean arm already
+  says that: the body is confirmed against the binary on every run. What it cannot say is
+  whether Lean's wording is *right* — and that is a judgement, recorded in each row's reason,
+  not something an oracle settles.
+
+**What would falsify this:** a decision that litedoc4's refusals must each be one line (nothing
+says so today), or an `IO.Error` continuation that names something other than the path the
+wrapper already names — the continuation is pure duplication now, which is the only reason
+dropping it was ever attractive.

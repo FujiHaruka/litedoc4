@@ -21,6 +21,7 @@ failure mode of guessing here is a site with the wrong title on every page,
 which nothing downstream can see. What would falsify this: a package that has to
 write its title in a spelling this refuses, which is a reason to widen the
 recogniser rather than to stop reading it strictly. -/
+import Litedoc4.Fs
 import Litedoc4.Ir.Utf16
 
 open System
@@ -163,9 +164,6 @@ def parseConfig (text : String) : Except String ConfigKeys := Id.run do
   -- reading the file and deciding what it said are not two answers.
   return .ok { title := title.filter (fun t => !(trimWs t).isEmpty), index }
 
-def unreadable (path : FilePath) (e : IO.Error) : IO.Error :=
-  IO.userError s!"{path}: {e}"
-
 /-- `<root>/litedoc4.toml`, or the empty configuration when `root` is `none` or
 holds no such file. -/
 def readSiteConfig (root : Option FilePath) : IO SiteConfig := do
@@ -183,10 +181,7 @@ def readSiteConfig (root : Option FilePath) : IO SiteConfig := do
   let indexMarkdown ← match keys.index with
     | some relative =>
       let resolved := root / relative
-      let markdown ← try
-          IO.FS.readFile resolved
-        catch e => throw (unreadable resolved e)
-      pure (some markdown)
+      pure (some (← readTextFile resolved))
     | none => pure none
   return { title := keys.title, indexMarkdown }
 

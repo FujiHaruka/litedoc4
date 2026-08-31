@@ -118,6 +118,67 @@ exit 1
 | litedoc4: ir/index.json: an index entry has no number `bytes`
 |
 
+# --- B. Ledger JSON and a target's oleans ------------------------------------
+#
+# LEDGER_SCHEMA = 2. `ledger check` and `ledger build` report how the external
+# links resolved before they read anything, so their rows freeze stderr only;
+# `ledger touch` prints nothing until it has written. That one line is **fixed**
+# here — no `--root` is passed, so nothing names the machine's toolchain the way
+# `build`'s progress does — so what the declaration says is that this gate
+# freezes stderr, not that this stdout could not be frozen.
+#
+# The four ledger rows about a file that is **not there** are not here: they are
+# in the framing section at the end, with the four other commands that say the
+# same sentence.
+
+# Refused as schema 1 rather than as a parse failure, so the message can name
+# what is wrong with it. The rest of the ledger is complete on purpose: Rust
+# reads the whole document into its struct first, so a file holding nothing but
+# `ledgerSchema` is refused for the missing `algorithm` and never reaches this.
+@case ledger-schema-1
+stdout-not-frozen ledger check reports how the external links resolved before it opens the ledger
+file ledger.json
+> {"ledgerSchema":1,"algorithm":"sha256","target":"t","libDir":"t/.lake/build/lib/lean","extractKey":{},"modules":[]}
+argv ledger check --ledger ledger.json
+exit 3
+| litedoc4: ledger.json is ledgerSchema 1; this build needs 2 (the single envKey was split into extractKey/renderKey). Rebuild the ledger.
+|
+
+@case ledger-touch-no-such-module
+file ledger.json
+> {"ledgerSchema":2,"algorithm":"sha256","target":"t","libDir":"t/.lake/build/lib/lean","extractKey":{},"modules":[{"module":"Pkg.A","files":[],"hash":"h"}]}
+argv ledger touch --ledger ledger.json --module Pkg.Ghost
+exit 3
+| litedoc4: no such module in the ledger ledger.json: Pkg.Ghost
+|
+
+@case ledger-check-not-json
+rust-differs Rust says: expected ident at line 1 column 2
+stdout-not-frozen ledger check reports how the external links resolved before it opens the ledger
+file ledger.json
+> not json
+argv ledger check --ledger ledger.json
+exit 1
+| litedoc4: ledger.json: a value was expected at 0, and byte 110 begins none
+|
+
+# Exit 3, not 1: the files are all readable and it is the world they describe
+# that is missing. Both names are reported, not the first one.
+@case ledger-build-no-olean
+stdout-not-frozen ledger build reports how the external links resolved before it reads the target
+dir target/.lake/build/lib/lean
+file target/lean-toolchain
+> leanprover/lean4:v4.31.0
+file target/lake-manifest.json
+> {}
+file modules.txt
+> Pkg.A
+> Pkg.B
+argv ledger build --modules modules.txt --target target --out ledger.json
+exit 3
+| litedoc4: no olean under target/.lake/build/lib/lean for: Pkg.A, Pkg.B
+|
+
 # --- C. `--root` package files -----------------------------------------------
 #
 # `litedoc4 modules --root <dir>` is the cheapest reader of a lakefile; `build`
@@ -323,4 +384,126 @@ stdout-not-frozen render reports how the external links resolved before it opens
 argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
 exit 3
 | litedoc4: map.json: `declarations.Dep.a` is not a string
+|
+
+# --- F. A page tree and a removal list ---------------------------------------
+#
+# The name in the message is the one the list gave — `«..»` is the Lean escape
+# for a component spelled `..` — and not the path it would have joined to. The
+# guard is lexical and runs before the file is looked for; that ordering is what
+# `Pkg/A.html` surviving shows, and no frozen row can see a file that is still
+# there, so this one does not claim it.
+@case prune-remove-outside-pages
+file pages/Pkg.html
+> x
+file pages/Pkg/A.html
+> x
+file remove.txt
+> «..».Foo
+> Pkg.A
+argv prune --pages pages --remove remove.txt
+exit 3
+| litedoc4: refusing to delete ../Foo.html — it is not under the page root pages
+|
+
+# --- The path in the message: a file a flag names that is not there ----------
+#
+# One sentence, eight rows, because what regresses here is **a call site**, not
+# a sentence: every one of these was a bare `IO.FS.readFile`, whose `IO.Error`
+# names the file on a second line and says nothing before it about which of a
+# command's several files it was. They all go through `Fs.lean`'s `readTextFile`
+# now, and a row per producer is what tells you which one went back. The three
+# reads inside `Ledger.extractKey` are one producer and share one row, the
+# toolchain's; `impact --changed-file` and `merge --modules` share
+# `prune-remove-not-there`, because `readModuleList` is where all three read.
+#
+# Rust says it on **one** line, so every row here is `rust-differs` rather than
+# a `<varies>` tail: `<varies>` is per line and cannot span a line count.
+# The wildcard inside is the OS error number; the words around it are Lean's own.
+#
+# `ledger check --ledger <missing>` is also the row that shows an exit-1 refusal
+# printing **no** usage block — the body ends where the message ends, and a
+# usage block appearing would be extra lines the gate compares and rejects.
+@case ledger-check-not-there
+rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: nope.json: No such file or directory (os error 2)
+stdout-not-frozen ledger check reports how the external links resolved before it opens the ledger
+argv ledger check --ledger nope.json
+exit 1
+| litedoc4: nope.json: no such file or directory (error code: <varies>)
+|   file: nope.json
+|
+
+@case ledger-touch-not-there
+rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: nope.json: No such file or directory (os error 2)
+argv ledger touch --ledger nope.json --module M
+exit 1
+| litedoc4: nope.json: no such file or directory (error code: <varies>)
+|   file: nope.json
+|
+
+@case ledger-build-toolchain-not-there
+rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: target/lean-toolchain: No such file or directory (os error 2)
+stdout-not-frozen ledger build reports how the external links resolved before it reads the target
+dir target/.lake/build/lib/lean
+file modules.txt
+> Pkg.A
+argv ledger build --modules modules.txt --target target --out ledger.json
+exit 1
+| litedoc4: target/lean-toolchain: no such file or directory (error code: <varies>)
+|   file: target/lean-toolchain
+|
+
+@case ledger-build-lake-hash-not-there
+rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: target/.lake/build/lib/lean/Pkg/A.olean.hash: No such file or directory (os error 2)
+stdout-not-frozen ledger build reports how the external links resolved before it reads the target
+file target/lean-toolchain
+> leanprover/lean4:v4.31.0
+file target/lake-manifest.json
+> {}
+file target/.lake/build/lib/lean/Pkg/A.olean
+> olean
+file modules.txt
+> Pkg.A
+argv ledger build --modules modules.txt --target target --out ledger.json --algorithm lake
+exit 1
+| litedoc4: target/.lake/build/lib/lean/Pkg/A.olean.hash: no such file or directory (error code: <varies>)
+|   file: target/.lake/build/lib/lean/Pkg/A.olean.hash
+|
+
+@case prune-remove-not-there
+rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: nope.txt: No such file or directory (os error 2)
+dir pages
+argv prune --pages pages --remove nope.txt
+exit 1
+| litedoc4: nope.txt: no such file or directory (error code: <varies>)
+|   file: nope.txt
+|
+
+@case render-only-from-not-there
+rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: nope.txt: No such file or directory (os error 2)
+argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --only-from nope.txt
+exit 1
+| litedoc4: nope.txt: no such file or directory (error code: <varies>)
+|   file: nope.txt
+|
+
+@case links-link-index-not-there
+rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: nope.lidx: No such file or directory (os error 2)
+dir root
+argv links --root root --link-index nope.lidx
+exit 1
+| litedoc4: nope.lidx: no such file or directory (error code: <varies>)
+|   file: nope.lidx
+|
+
+@case global-before-not-there
+rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: nope.json: No such file or directory (os error 2)
+file ir/modules/M.json
+> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
+file ir/index.json
+> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
+argv global --ir ir --out site --before nope.json
+exit 1
+| litedoc4: nope.json: no such file or directory (error code: <varies>)
+|   file: nope.json
 |
