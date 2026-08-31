@@ -1,0 +1,163 @@
+M10 — the target's render gate loses its oracle, and what was frozen instead
+============================================================================
+
+2026-08-31. `tools/purelean-render-gate.sh` compared the Lean `render` against
+the **Rust binary** over the measurement target, in one session, both halves run
+side by side. M10 deletes `crates/` and that oracle with it, and this gate is the
+only place the target's 422-module shapes are rendered at all — `e2e/micro` is
+eleven modules holding, by construction, the shapes the target does not have.
+The same conversion `tools/purelean-micro-gate.sh` had two commits earlier, with
+one difference that decides the design: **the target's rendered site is 24 MB per
+flow and there are three flows. It cannot be committed.**
+
+Conditions
+----------
+  hardware        Apple M1 / 16 GB / Darwin 25.6.0 arm64
+  target          /Users/haruka/dev/lean-projects @
+                  60439778cf70f58fffc81d7c445f99ed0ffeee85
+                  **read only** — the only `git status` line before and after is
+                  its own untracked `docs/doc-gen-bench/`
+  modules         422 (not the 432 the frozen `it-modules.txt` still carries ->
+                  `target-drift-2026-08-31.txt`)
+  toolchain       leanprover/lean4:v4.31.0
+  extractor       `extractor/build/extract`, 171,378,992 B, driven `--jobs 4`
+  IR              426 files / 15,346,876 B, extracted here by the **Lean** half
+                  (29.48 s real, 3.26 GB peak RSS, one run — a duration recorded
+                  only so the conditions are complete, not a performance claim)
+  link index      10,448,225 B
+  Rust half       `target/release/litedoc4` 1.3.0 — the oracle, and what `--mint`
+                  read
+  Lean half       `.lake/build/bin/litedoc4` 1.3.0, 5,802,272 B, built by
+                  `cd e2e/consumer && lake build litedoc4/litedoc4`
+  source URL      one fixed literal, frozen into the fixture and handed to both
+                  halves:
+                  `https://github.com/FujiHaruka/lean-projects/blob/60439778cf70f58fffc81d7c445f99ed0ffeee85`
+  warmth          warm — the target had already been extracted in this session
+
+What was frozen, and at what granularity
+----------------------------------------
+`tools/purelean-render-expected/` — **8 files, 204 KB**:
+
+  input.txt         the conditions above, in the two fields the pages depend on:
+                    a digest over the IR tree and the sha256 of the link index
+  deps-docs.json    the resolved documentation map, 31,177 B, as
+                    `tools/lib/deps-docs-fixture.py` derives it from this IR
+  render.sha256     422 `<sha256>  <path>` lines — the `--link-index` flow
+  nolidx.sha256     422 — the `--no-link-index` flow
+  depsdocs.sha256   422 — the `--deps-docs-map` flow
+  render.out        the three transcripts, frozen **verbatim**
+  nolidx.out
+  depsdocs.out
+
+**1,266 manifest lines in place of 74,325,055 B of pages.** The claim kept is
+"the Lean half writes exactly these bytes"; what is lost is *which* bytes differ,
+and the loss is not replaced by a weaker check — a failing item names the path and
+both digests, and leaves the tree in `--out` for `tools/render-compare.sh --all`.
+
+It lives in `tools/` rather than beside the subject, because the subject is a
+repository outside this one; `tools/` is already where a gate's frozen data lives
+(`refusals.txt`, `site-artefacts.txt`, `corpus-tests.txt`, `public-surface.txt`).
+
+The sweep for derived values (measured)
+---------------------------------------
+The micro gate's freeze failed its first CI run on a value *derived* from one it
+normalised: the ledger's olean digests and sizes are architecture-specific, so a
+ledger size a transcript printed was too — 3489 B on macOS, 3507 B on Linux.
+Swept for that shape here before minting.
+
+  `render` prints **no path, no duration and no clock**, on any of the three
+  flows, and nothing at all on stderr. Its numbers are `declarations 4394/4584`,
+  `module docs 1484`, `bytes 24546639`, `known 5124 / link index 255809 / known
+  modules 6011`, the per-root `deps` counts, and `math spans kept as LaTeX 0`.
+  **Every one is derived from an input this fixture pins by digest** — the IR,
+  the `.lidx`, the frozen map — or from the page bytes.
+
+So **no transcript rule was needed, and the transcripts are frozen whole.** The
+one derived value worth naming is `bytes`: it is computed from the pages, and the
+pages are **pinned, not normalised**, so the trap has no instance. If a page byte
+ever did become machine-specific, `bytes` would move with it and the transcript
+item would fail beside the manifest items rather than instead of them.
+
+What the manifest itself normalises is two things, both of which would otherwise
+make a fixture that cannot travel: **paths are relative to the tree** (the run's
+own `--pages` never reaches the digest file) and **the sort is Python's, over
+code points** (the shell's `sort` orders by the caller's locale).
+
+The result (measured) — one session, 2026-08-31
+-----------------------------------------------
+Before the conversion, both binaries run side by side:
+
+  arm                 pages     bytes         differing
+  --link-index        422/422   24,546,639    0
+  --no-link-index     422/422   24,547,048    0
+  --deps-docs-map     422/422   27,231,368    0
+  stdout              3 of 3 transcripts byte-identical between the two halves
+
+After, the Lean half against the fixture — 7 items, 11.0 s wall:
+
+  items reported : 7 of 7
+  frozen files   : 8 of 8 read
+  manifest       : 1266 of 1266 entr(ies) compared
+  rust arm       : 6 of 6 oracle-written file(s) and 1266 of 1266 manifest
+                   entr(ies) match the oracle
+
+M10 simulated by moving `target/release/litedoc4` out of the tree and letting the
+gate's own default resolution find nothing: **all 7 items still ran, 1,266 of
+1,266 entries were still compared, exit 0**, and the arm skipped carrying the
+counts it had not checked.
+
+Made to fail, once per mechanism (measured)
+-------------------------------------------
+  a frozen file no item reads    FAILED — 8 of 9 frozen file(s) were read;
+                                 first one no item reads: leftover.txt
+  one page digest moved          ITEM 4 FAIL 1 differing … first
+                                 InformationTheory/Fano/CondEntropy.html:
+                                 frozen deadad08418213a5, got 8d2dad08418213a5
+  a transcript moved             ITEM 7 FAIL render: < math spans kept as LaTeX 7
+                                 > math spans kept as LaTeX 0
+  the map moved                  ITEM 6 FAIL the map lib/deps-docs-fixture.py
+                                 derives from this IR is no longer the frozen one
+  a map documenting nothing      ITEM 6 FAIL no page links at
+                                 https://example.invalid/dep_docs — the flag was
+                                 accepted and changed nothing
+  the IR moved                   ITEM 2 FAIL … (frozen 422 module(s) /
+                                 15346876 B, got 421 / 15350977), and items 4–7
+                                 attribute to it rather than reporting 422 pages
+  the render covered less        ITEM 3 FAIL render: 421 of 422 module(s) got no
+                                 page, first InformationTheory/Asymptotic.html
+  the fixture rotted             RUST ARM FAIL nolidx.out … — re-mint; 5 of 6
+                                 oracle-written file(s), and with a manifest line
+                                 moved, 844 of 1266 entr(ies)
+  no room to write the trees     exit 2, refusing to start
+  --mint with no Rust binary     exit 2, naming `cargo build --release --bin
+                                 litedoc4`
+
+Two defects in the gate itself were found by making it fail rather than by
+reading it, and both are the shape where a gate reports nothing while failing:
+bash 3.2 mis-parses a command substitution carrying its own quotes inside a
+`${var:-…}` default (`unexpected EOF while looking for matching }`), and `$gist—`
+takes the em dash's first byte as part of the name, so `set -u` aborted the run
+with `unbound variable` **on the line that was about to report the failure**.
+
+What could not be preserved
+---------------------------
+1. **The fixture is one snapshot of a repository outside this one.** The pages
+   are the render of this IR; when the target's Lean sources, its toolchain or
+   its Mathlib move, item 2 fails by name and items 4–7 fail with it, and after
+   M10 there is no oracle left to re-mint from. A fixture minted from the Lean
+   half afterwards records what it does today, which is the question rather than
+   the answer. **Item 3 is what survives** — one page per module in `index.json`
+   and no other file needs no oracle and no fixture, and it goes on being asked
+   of any IR. Verified rather than assumed: with an IR of 421 modules against a
+   fixture minted at 422, item 2 failed and **item 3 still reported ok at 421
+   pages**.
+   Commits to the target that do not touch its Lean sources cost nothing: the
+   source URL is frozen into the fixture rather than derived from the target's
+   HEAD, so the target moving from `88bc6f75` to `60439778` does not rewrite 422
+   expected pages.
+2. **"Which bytes differ" is gone from the fixture.** A manifest says a page's
+   digest moved, not where. `tools/render-compare.sh --all` still says it when
+   two trees exist, and the failing tree is kept in `--out` for exactly that.
+3. **`base_ir::astral_binders_slice_correctly` still has no home.** Its sibling
+   `reads_every_module_of_the_target_package` is item 3 now; this one asks about
+   slicing inside a declaration, which no page-level claim reaches.

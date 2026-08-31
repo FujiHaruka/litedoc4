@@ -1,0 +1,7 @@
+external  no package named (--root), so links into a dependency stay relative to pages this site does not write
+deps    Init: 65/130 name(s) and 9 module(s) -> https://example.invalid/dep_docs, 65 name(s) not in the table -> version-pinned source
+deps    Lean: 1/1 name(s) and 1 module(s) -> https://example.invalid/dep_docs, 0 name(s) not in the table -> version-pinned source
+deps    Mathlib: 198/396 name(s) and 120 module(s) -> https://example.invalid/dep_docs, 198 name(s) not in the table -> version-pinned source
+modules 422/422  declarations 4394/4584 (190 suppressed)  module docs 1484  bytes 27231368
+known 5124  link index 255809  known modules 6011
+math spans kept as LaTeX 0
