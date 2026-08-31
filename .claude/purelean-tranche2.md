@@ -802,3 +802,20 @@ unframed. Two were already covered (the index's syntax by `ir-index-truncated`, 
 the entry family); the other two are new — `ir-dep-slice-not-json` (`global`, because the slices
 are loaded there) and `ir-module-truncated` (`render`). Both are `rust-differs`: after the framing
 fix only the parser's own sentence differs.
+
+### The stdout policy, decided (2026-09-01)
+
+Three stages deferred this; it is settled. **Freeze stderr only, declared per row with
+`stdout-not-frozen <why>`, and let the reason say which of two shapes it is:**
+
+- **one fixed line** — `ledger check`, `ledger build`, `render` (they report how the external
+  links resolved, before they open the thing the refusal is about). Freezable in principle; the
+  declaration says only that this gate does not.
+- **a count that is the machine's** — `build` and `incremental`, whose progress names whatever
+  toolchain elan has. Not freezable at all without turning the gate into a question about this
+  machine.
+
+An undeclared byte on stdout still fails the row, which is what keeps the declaration from
+happening by accident. **Do not add a mechanism that normalises stdout** — that would make the
+gate silent about the difference between the two shapes above, which is the only part worth
+knowing.
