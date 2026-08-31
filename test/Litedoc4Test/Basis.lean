@@ -30,7 +30,11 @@ def run (invariants : List Invariant) : IO UInt32 := do
   let mut failed := 0
   for inv in invariants do
     ran := ran + 1
-    if let some why ← inv.check then
+    -- Caught rather than allowed to propagate: an invariant that writes a tree
+    -- can throw, and an uncaught throw leaves the process saying what failed but
+    -- not *which* invariant was asking — the one thing a failure here has to say.
+    let outcome ← try inv.check catch e => pure (some s!"threw {e}")
+    if let some why := outcome then
       IO.eprintln s!"FAIL {inv.name}: {why}"
       failed := failed + 1
   IO.println s!"litedoc4-test: {ran} invariants ran, {failed} failed"
