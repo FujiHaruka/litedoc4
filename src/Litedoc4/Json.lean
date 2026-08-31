@@ -139,7 +139,13 @@ partial def pVal (s : String) (n i : Nat) : JVal × Nat :=
     let start := i
     let d0 := if neg then i + 1 else i
     let (d, j) := digits s n d0 0
-    if j == d0 then (.bad s!"a value was expected at {i}, and byte {c} begins none", n)
+    if j == d0 then
+      if c == 116 || c == 102 || c == 110 then
+        (.bad s!"a value was expected at {i}, and the word beginning there is not `true`, \
+          `false` or `null`", n)
+      else if neg then
+        (.bad s!"a value was expected at {i}, and the `-` there is followed by no digit", n)
+      else (.bad s!"a value was expected at {i}, and byte {c} begins none", n)
     else if j < n && isRealByte (byteAt s j) then
       let e := realEnd s n j
       (.real (byteSub s start e), e)

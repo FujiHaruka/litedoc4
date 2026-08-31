@@ -819,3 +819,115 @@ An undeclared byte on stdout still fails the row, which is what keeps the declar
 happening by accident. **Do not add a mechanism that normalises stdout** — that would make the
 gate silent about the difference between the two shapes above, which is the only part worth
 knowing.
+
+## 9. Groups C12, E, G, H and I — the tranche is complete (leg 14), measured against both binaries
+
+`tools/refusals-on-disk.txt` is **73 rows** (208 with tranche 1). `tools/refusals.txt` is
+byte-identical to before. Gate: `lean 208/208, rust 183/208 (25 differ by design)`,
+`30 row(s) print before refusing`. **Every group §2 lists is now frozen**, and everything below
+overrides §1–§8 where they disagree.
+
+1. **§2 E4 is a defect, not two parsers, and two of its three differences were `Build.lean`'s.**
+   The framing `{path}: {why}` was gone and the parser's own sentence was **discarded** — the user
+   was told a file "will not parse" and not why — and the trailing clause had drifted to "one that
+   cannot be read". `Marker.broken` now carries the reason and the sentence is Rust's. The row is
+   `rust-differs` over the parser's own sentence alone, exactly like §8.2's four parse doors.
+   **The non-object marker is an accept-difference no row can hold**: Rust reads any JSON value
+   and goes on to compare `root` (with an empty `was`), Lean refuses it. Same class as §6's
+   `declarations` and §8.6.
+
+2. **§2 I1's UNCERTAIN is settled, and the answer is not "the empty set".** With `lake` on `PATH`
+   and no default elan toolchain the resolver returns no roots and the message reads `none — no
+   dependency could be resolved at all`; **on a machine with a default toolchain `lean --githash`
+   succeeds and Lean core's four roots land in the map**, and the sentence names them. So the row
+   pins the resolver instead of relying on this machine: **`--lake nope/lake`**, a path with a
+   slash in it because a bare name is a `PATH` lookup. That is what makes the tail litedoc4's
+   answer rather than the machine's.
+
+3. **§2 G7's fixture is far smaller than the test's — and it costs two baked constants.** No
+   world and no fake extractor: a module that **leaves** the package makes its referrers stale in
+   round 1, and `--max-rounds 1` then has nowhere to put them. `--extractor ./never-run` names a
+   program that is not there, and reaching exit 5 is what says none was started. What the row does
+   cost is `ledger.json`'s **`extractKey` verbatim** (including `EXTRACTOR_ID`, today
+   `litedoc4 extractor v3`) and `Pkg.B`'s **module hash**. Both are forced, not chosen: every
+   module in `--modules` must have an olean or `merge`'s module-list check answers first, so every
+   listed module is `present`, so a changed `extractKey` re-extracts it and round 1 spawns the
+   extractor. Measured: moving one byte of the baked key makes the gate say
+   `incremental-round-bound: exit 4, frozen 5` — one line, which is why the row is worth its
+   fixture.
+
+4. **§2 H2 cannot be frozen as "a `--root` that is not a checkout".** `git rev-parse HEAD` walks
+   **up**, so a work directory that sits inside somebody's checkout answers with that repository's
+   HEAD and the row stops being about anything (measured; an empty `.git/` does not stop the walk
+   either). The frozen row is a checkout with **no `origin`**: the same producer, and git's stderr
+   there is **empty**, so the whole line is litedoc4's and none of it is `<varies>`.
+
+5. **A child named on a command line is resolved against the *child's* working directory.**
+   `extract` runs `lake` inside `--target`, so its fake is `--lake ../fake-lake`; `incremental`
+   changes no directory, so its fake is `--extractor ./fake-extractor`. A bare name would be a
+   `PATH` lookup in both. Measured on the way: **`/bin/false` does not exist on macOS**, and the
+   two binaries disagree about a program that cannot be spawned at all — Rust maps the spawn error
+   to `<lake> env <bin>: <os error>`, Lean's `IO.Process.spawn` **succeeds** and the child reports
+   `could not execute external process` with code 255. A row about a failing extractor therefore
+   has to name a program that exists.
+
+6. **`incremental` merges into `--ir` in place**, so two arms sharing one fixture directory are not
+   answering the same question: the second sees a tree the first already merged. It looked like a
+   Lean defect — `round 1 … stale 0` against Rust's `stale 1` — and was reuse. The gate rebuilds
+   each case directory before each arm, which is the reason its header gives, now with a witness.
+
+7. **The stdout policy in practice, and the two shapes are split by command, not by group.**
+   `build` is the machine's line count (`external note: lean --githash … no default toolchain
+   configured` is a line that exists on this machine and not on one with elan configured) — that is
+   `build-no-modules`, all four E rows, both H rows and I1. `incremental` without `--root` prints
+   the **one fixed line** §7.6 describes, plus `detect`'s and the round's own counts, so its four
+   rows declare the weaker reason. `extract` prints **nothing** and declares nothing.
+
+8. **Fixtures smaller than §2 describes, again.** E needs no `--link-index`, no `--extractor` and
+   no oleans (`plan_of` runs before `open_extractor`): a `lakefile.toml`, one `.lean` file and a
+   `--source-url` are the whole of it. G1/G2 need only an existing `--target` — the modules file is
+   never read. G5 needs `dir target`; G6 needs no target at all, because the `canonicalize` is
+   answered before `Resident::new`. C12's empty glob is a library **directory** with no `.lean` in
+   it, which is the one way past `modules-lib-not-there` to a library that resolves and an empty
+   list.
+
+9. **What was broken once to show the new machinery bites** (the `git` and `exec` fixture ops had
+   no row until this leg): dropping the `git … commit` from `build-source-url-not-github` gives
+   `got "…git rev-parse HEAD in <dir>/root failed: fatal: ambiguous argument 'HE…"`; dropping
+   `exec fake-lake` from `extract-child-failed` gives `Permission denied (os error 13)` on the Rust
+   arm and `could not execute external process` on the Lean one; perturbing
+   `build-marker-not-json`'s body to the **pre-fix** Lean wording is named at the character it
+   diverges. Each failure is one line and says which row.
+
+### 10. A sixth Lean defect, found by reading a frozen body rather than by a failing row
+
+`Json.pVal` answered every unreadable value with **`a value was expected at {i}, and byte {c}
+begins none`**, and for four of the five non-structural value starts that sentence is **false**:
+byte 110 begins `null`, 116 `true`, 102 `false`, and 45 a number. The row that made it visible was
+E4, whose body reads `byte 110 begins none` for the input `not json` — and three earlier rows
+(`ir-dep-slice-not-json`, `ledger-check-not-json`, `deps-map-not-json`) had frozen the same
+sentence in leg 12/13 without it being questioned. **No row failed**: every arm agreed, because
+both arms were reading the same wrong sentence from the same parser.
+
+It also **collapsed two different failures into one**: `nul` (a literal cut off at end of input)
+and `not json` (a word that is no literal) produced the identical message. Rust separates them —
+`EOF while parsing a value at line 1 column 3` against `expected ident at line 1 column 2` — which
+is what showed the Lean sentence was saying less than it claimed, not more.
+
+`pVal` already knows which of the three cases it is at the point it refuses (`c` against the three
+literal heads, and `neg`), so the fix is three branches over facts already computed:
+
+- `t` / `f` / `n` → `the word beginning there is not `true`, `false` or `null``
+- `-` → `` the `-` there is followed by no digit ``
+- otherwise → the original sentence, which for every remaining byte is **true**
+
+The four rows were re-frozen by hand (all four are `rust-differs`, so `--mint` leaves their bodies
+to the Lean arm) and a mint round-trip reported `183 case(s) … 0 changed`. **The gate named exactly
+those four and nothing else**, which is what says the change is scoped to the sentence.
+
+**The general form, and it is the one worth keeping**: a frozen row proves the two halves *agree*,
+not that either is *right*. Where a message comes from a single shared idea — here one parser
+feeding both the framing and every caller — freezing it agrees with itself by construction. The
+only thing that caught this was **reading the frozen text as a claim** and asking whether byte 110
+really begins nothing. **Rust is the oracle for divergence; it is not an oracle for a sentence both
+halves get wrong**, and after `crates/` goes there is no second reader at all.

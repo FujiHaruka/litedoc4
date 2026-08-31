@@ -187,7 +187,7 @@ file ir/index.json
 > {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[{"package":"Dep","file":"deps/Dep.json","entries":0,"bytes":8}]}
 argv global --ir ir --out site
 exit 1
-| litedoc4: parsing ir/deps/Dep.json: a value was expected at 0, and byte 110 begins none
+| litedoc4: parsing ir/deps/Dep.json: a value was expected at 0, and the word beginning there is not `true`, `false` or `null`
 |
 
 @case ir-module-truncated
@@ -431,7 +431,7 @@ file ledger.json
 > not json
 argv ledger check --ledger ledger.json
 exit 1
-| litedoc4: ledger.json: a value was expected at 0, and byte 110 begins none
+| litedoc4: ledger.json: a value was expected at 0, and the word beginning there is not `true`, `false` or `null`
 |
 
 # Exit 3, not 1: the files are all readable and it is the world they describe
@@ -578,6 +578,26 @@ exit 1
 |   file: root/docs/nope.md
 |
 
+# The `--root` refusal `modules` cannot reach: on this same fixture that command
+# globs zero modules and exits **0**, silently, so `build` is the only route.
+# `Pkg/` exists and holds no `.lean` file, which is the one way past
+# `modules-lib-not-there` to a library that resolves and an empty list.
+#
+# `build` reports how the external links resolved and which libraries it found
+# before it globs, and one of those lines names whatever toolchain elan has, so
+# the number of lines is the machine's. This is the shape the header calls
+# unfreezable, as against `ledger check`'s single fixed line.
+@case build-no-modules
+stdout-not-frozen build's progress names whatever toolchain elan has, so its line count is the machine's
+file root/lakefile.toml
+> [[lean_lib]]
+> name = "Pkg"
+dir root/Pkg
+argv build --root root --out out
+exit 3
+| litedoc4: no modules under <dir>/root for Pkg: an empty list would build an empty site and report success
+|
+
 # --- D. The `--deps-docs-map` artifact ---------------------------------------
 #
 # The map is read before the IR tree is opened, so `--ir` can point at nothing
@@ -598,7 +618,7 @@ file map.json
 stdout-not-frozen render reports how the external links resolved before it opens the map
 argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
 exit 3
-| litedoc4: map.json: a value was expected at 0, and byte 110 begins none
+| litedoc4: map.json: a value was expected at 0, and the word beginning there is not `true`, `false` or `null`
 |
 
 @case deps-map-version
@@ -658,6 +678,85 @@ exit 3
 | litedoc4: map.json: `declarations.Dep.a` is not a string
 |
 
+# --- E. The `--out` build directory and its marker ---------------------------
+#
+# `litedoc4-build.json` is the file that says `litedoc4 build` owns `--out`, and
+# these four rows are every answer reading it can give. They share one fixture: a
+# `--root` whose single library resolves to one module, and a `--source-url` on
+# the line, which together get the run past the glob and past the git question to
+# the ownership check with nothing written yet.
+#
+# All four freeze stderr only, and for the reason `build-no-modules` gives.
+#
+# The two shapes reading the marker can *not* answer, because the two binaries
+# **accept** differently and no row can hold that: a marker that is valid JSON
+# but not an object (Rust reads any value and goes on to the `root` comparison
+# with an empty `was`; Lean refuses it), and a marker that will not open at all
+# (both treat it as absent).
+@case build-out-not-ours
+stdout-not-frozen build's progress names whatever toolchain elan has, so its line count is the machine's
+file root/lakefile.toml
+> [[lean_lib]]
+> name = "Pkg"
+file root/Pkg.lean
+> def x := 1
+file out/index.html
+> x
+argv build --root root --out out --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567
+exit 3
+| litedoc4: <dir>/out is not empty and has no litedoc4-build.json: this command deletes and overwrites inside --out, so it will only do that to a directory it can see it wrote. Name an empty directory, or remove this one yourself
+|
+
+# The same message and a separate row on purpose: `--full` is answered **after**
+# the ownership check, and `--full` is the path that deletes `<out>/site` and
+# `<out>/ir`. A `--full` short-circuit would be the one way to make this command
+# remove a directory whose marker it never read, and only a row can see that the
+# order did not change.
+@case build-out-not-ours-full
+stdout-not-frozen build's progress names whatever toolchain elan has, so its line count is the machine's
+file root/lakefile.toml
+> [[lean_lib]]
+> name = "Pkg"
+file root/Pkg.lean
+> def x := 1
+file out/index.html
+> x
+argv build --root root --out out --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --full
+exit 3
+| litedoc4: <dir>/out is not empty and has no litedoc4-build.json: this command deletes and overwrites inside --out, so it will only do that to a directory it can see it wrote. Name an empty directory, or remove this one yourself
+|
+
+# One key of the marker is all this row is about, so the fixture writes that key
+# and nothing else: `root` is read before every other field.
+@case build-out-other-root
+stdout-not-frozen build's progress names whatever toolchain elan has, so its line count is the machine's
+file root/lakefile.toml
+> [[lean_lib]]
+> name = "Pkg"
+file root/Pkg.lean
+> def x := 1
+file out/litedoc4-build.json
+> {"root":"/elsewhere"}
+argv build --root root --out out --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567
+exit 3
+| litedoc4: <dir>/out was built from /elsewhere, not from <dir>/root: the ledger under it stores the target whose oleans it hashed, and continuing here would compare one package's build tree with another package's hashes. Use a different --out
+|
+
+@case build-marker-not-json
+rust-differs Two JSON readers, so only the sentence after the framing differs: Rust says `expected ident at line 1 column 2`
+stdout-not-frozen build's progress names whatever toolchain elan has, so its line count is the machine's
+file root/lakefile.toml
+> [[lean_lib]]
+> name = "Pkg"
+file root/Pkg.lean
+> def x := 1
+file out/litedoc4-build.json
+> not json
+argv build --root root --out out --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567
+exit 3
+| litedoc4: <dir>/out/litedoc4-build.json: a value was expected at 0, and the word beginning there is not `true`, `false` or `null`. This file says which directory `litedoc4 build` owns; one that will not parse is not one to overwrite a site on the strength of
+|
+
 # --- F. A page tree and a removal list ---------------------------------------
 #
 # The name in the message is the one the list gave — `«..»` is the Lean escape
@@ -676,6 +775,198 @@ file remove.txt
 argv prune --pages pages --remove remove.txt
 exit 3
 | litedoc4: refusing to delete ../Foo.html — it is not under the page root pages
+|
+
+# --- G. A `--target` directory and the child that extracts from it -----------
+#
+# `extract` reads nothing before it refuses and prints nothing, so its three rows
+# freeze both streams by freezing one. `incremental` reports how the external
+# links resolved first — **one fixed line**, because no `--root` is passed and so
+# nothing names the machine's toolchain — and then `detect`'s counts, which are
+# the program's; its four rows still freeze stderr only, and that is this gate's
+# choice rather than a line count it could not have frozen.
+@case extract-ir-dir-inside-target
+dir target
+argv extract --modules m.txt --ir-dir target/ir --timings t.json --extractor-bin b --target target
+exit 3
+| litedoc4: --ir-dir <dir>/target/ir is inside --target <dir>/target: the package being documented is opened read-only and nothing is ever written into it
+|
+
+# The same rule, and a second row rather than a second spelling of the first: the
+# two guards are two call sites, and one row would go on passing with the other
+# deleted. `--ir-dir` has to be outside the target here or it answers first.
+@case extract-link-index-inside-target
+dir target
+argv extract --modules m.txt --ir-dir ir --timings t.json --link-index target/link-index.lidx --extractor-bin b --target target
+exit 3
+| litedoc4: --link-index <dir>/target/link-index.lidx is inside --target <dir>/target: the package being documented is opened read-only and nothing is ever written into it
+|
+
+# `lake env <extractor>` is what runs, so a `lake` that exits non-zero is a child
+# that failed and the message is the same one a broken extractor gets. The fake
+# is named **`../fake-lake`**, not `./fake-lake`: the child's working directory is
+# `--target`, and a program named relatively on that command line resolves there.
+@case extract-child-failed
+dir target
+file fake-lake
+> #!/bin/sh
+> exit 1
+exec fake-lake
+file m.txt
+> Pkg.A
+argv extract --modules m.txt --ir-dir ir --timings t.json --extractor-bin b --target target --lake ../fake-lake
+exit 4
+| litedoc4: the extractor exited 1 for <dir>/m.txt; the IR tree at <dir>/ir is incomplete
+|
+
+# The other exit-4 sentence, which is `incremental`'s and names the flag. The
+# fixture is the smallest world a round can start from: a ledger that knows no
+# module, a `--modules` list naming one that has an olean, and the two files plus
+# the index that `extractKey` reads. `detect` calls that module added, round 1
+# starts the extractor, and the extractor fails.
+@case incremental-extractor-failed
+stdout-not-frozen incremental prints the fixed external-links line and detect's counts; this gate freezes stderr
+file fake-extractor
+> #!/bin/sh
+> exit 1
+exec fake-extractor
+file target/lean-toolchain
+> leanprover/lean4:v4.31.0
+file target/lake-manifest.json
+> {}
+file target/.lake/build/lib/lean/Pkg/A.olean
+> olean
+file ir/index.json
+> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":0,"declarationCount":0,"modules":[],"dependencyMaps":[]}
+file ledger.json
+> {"ledgerSchema":2,"algorithm":"sha256","target":"target","libDir":"target/.lake/build/lib/lean","extractKey":{},"modules":[]}
+file modules.txt
+> Pkg.A
+argv incremental --ir ir --pages pages --ledger ledger.json --work work --modules modules.txt --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --link-index link-index.lidx --state state --extractor ./fake-extractor
+exit 4
+| litedoc4: --extractor ./fake-extractor exited 1 for work/round-in-1.txt; the IR was not updated and nothing was rendered
+|
+
+@case incremental-extractor-bin-not-a-file
+stdout-not-frozen incremental reports how the external links resolved before it records the world; one fixed line, and this gate freezes stderr
+dir target
+file modules.txt
+> Pkg.A
+argv incremental --ir ir --pages pages --ledger ledger.json --work work --modules modules.txt --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --link-index link-index.lidx --state state --serve --extractor-bin extractor --target target
+exit 3
+| litedoc4: --extractor-bin <dir>/extractor: not a file. It is `extractor/build.sh`'s output, 171 MB, built against the target's toolchain and therefore not committed
+|
+
+# Answered before the one above, which is why this row has no `target` in its
+# fixture. The path stays as written: it is the `canonicalize` that failed, so
+# there is nothing absolute to print.
+@case incremental-target-not-there
+rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: --target target: No such file or directory (os error 2)
+stdout-not-frozen incremental reports how the external links resolved before it records the world; one fixed line, and this gate freezes stderr
+file modules.txt
+> Pkg.A
+argv incremental --ir ir --pages pages --ledger ledger.json --work work --modules modules.txt --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --link-index link-index.lidx --state state --serve --extractor-bin extractor --target target
+exit 3
+| litedoc4: --target target: no such file or directory (error code: <varies>)
+|   file: target
+|
+
+# **The only exit-5 row in either file**, and the route is a deletion rather than
+# the moved declaration the test uses: a module that leaves the package makes
+# every referrer stale in round 1, and `--max-rounds 1` then has nowhere to put
+# them. Nothing is extracted — `./never-run` is a program that is not there, and
+# the run reaching exit 5 is what says the extractor was never started.
+#
+# Two constants in `ledger.json` are baked and are what this row costs: the
+# `extractKey` must be the one `detect` computes (a changed key re-extracts every
+# present module, and then round 1 spawns the extractor and this is exit 4
+# instead), and `Pkg.B`'s hash must be the one its olean gives (a changed module
+# is re-extracted too). `Pkg.A` is in the ledger and not in `--modules`, which is
+# what makes it the deletion; `--modules` names exactly the merged tree, or
+# `merge` answers with the module-list mismatch first.
+@case incremental-round-bound
+stdout-not-frozen incremental prints the fixed external-links line, detect's counts and the round line; this gate freezes stderr
+file target/lean-toolchain
+> leanprover/lean4:v4.31.0
+file target/lake-manifest.json
+> {}
+file target/.lake/build/lib/lean/Pkg/B.olean
+> olean
+file ir/modules/Pkg.A.json
+> {"schemaVersion":5,"module":"Pkg.A","imports":[],"moduleDocs":[],"tactics":[],"declarations":[{"name":"Pkg.A.moved","kind":"def","type":"Nat","typeCode":[],"binders":[],"binderCode":[],"implicits":[],"line":1,"col":0,"endLine":1,"endCol":10,"index":0,"doc":null,"modifiers":[],"attrs":[],"equations":[],"equationCode":[],"instTypes":[],"members":[],"refs":[]}]}
+file ir/modules/Pkg.B.json
+> {"schemaVersion":5,"module":"Pkg.B","imports":[],"moduleDocs":[],"tactics":[],"declarations":[{"name":"Pkg.B.b","kind":"def","type":"Nat","typeCode":[],"binders":[],"binderCode":[],"implicits":[],"line":1,"col":0,"endLine":1,"endCol":10,"index":0,"doc":null,"modifiers":[],"attrs":[],"equations":[],"equationCode":[],"instTypes":[],"members":[],"refs":[["Pkg.A","Pkg.A.moved"]]}]}
+file ir/index.json
+> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":2,"declarationCount":2,"modules":[{"module":"Pkg.A","file":"modules/Pkg.A.json","bytes":362,"declarations":1,"contentHash":"1111111111111111"},{"module":"Pkg.B","file":"modules/Pkg.B.json","bytes":381,"declarations":1,"contentHash":"2222222222222222"}],"dependencyMaps":[]}
+file ledger.json
+> {"ledgerSchema":2,"algorithm":"sha256","target":"target","libDir":"target/.lake/build/lib/lean","extractKey":{"leanToolchain":"leanprover/lean4:v4.31.0","manifestSha256":"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356","extractor":"litedoc4 extractor v3","irSchemaVersion":"5","irGenerator":"litedoc4-test"},"modules":[{"module":"Pkg.A","files":[],"hash":"aaaa"},{"module":"Pkg.B","files":[{"path":".lake/build/lib/lean/Pkg/B.olean","bytes":6,"hash":"886812312f8ac4cd7c814035211771825a4a1dc658878858b6b90fedde379737"}],"hash":"57b4f9d1028f9886c3bacff3fccba64a064e632ab0565793bffa02649c66e905"}]}
+file modules.txt
+> Pkg.B
+argv incremental --ir ir --pages pages --ledger ledger.json --work work --modules modules.txt --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --link-index link-index.lidx --state state --max-rounds 1 --extractor ./never-run
+exit 5
+| litedoc4: still 1 stale module(s) after 1 round(s): Pkg.B
+|
+
+# --- H. A git checkout -------------------------------------------------------
+#
+# `--source-url` left off the line is a question for git, and these two rows are
+# the two ways asking it ends badly. Both are `build`, so both freeze stderr for
+# the reason `build-no-modules` gives.
+
+# The revision is the checkout's own and this fixture cannot pin it: a commit
+# hash is a function of the tree, the message and two timestamps, and the `git`
+# line here cannot set the committer's. So `<varies>` covers it, which is what
+# `<varies>` is for — it is git's text, not this program's.
+@case build-source-url-not-github
+stdout-not-frozen build's progress names whatever toolchain elan has, so its line count is the machine's
+file root/lakefile.toml
+> [[lean_lib]]
+> name = "Pkg"
+file root/Pkg.lean
+> def x := 1
+git init root
+git -C root -c user.name=t -c user.email=t@example.invalid commit --allow-empty -m one
+git -C root config remote.origin.url https://gitlab.com/owner/repo.git
+argv build --root root --out out
+exit 3
+| litedoc4: cannot derive --source-url from `https://gitlab.com/owner/repo.git`: only github.com remotes have a /blob/<rev>/<path> shape this can be sure of, and a guessed one 404s on every declaration of every page. Pass --source-url https://<host>/<owner>/<repo>/blob/<varies>
+|
+
+# The other half of the same helper: git ran and failed, and its stderr is passed
+# through. The fixture is a checkout with **no `origin`**, where that stderr is
+# empty — so the whole of this line is this program's and none of it is
+# `<varies>`. The obvious fixture, a `--root` that is no checkout at all, is not
+# used: `git rev-parse HEAD` walks up, so a work directory that happens to sit
+# inside somebody's checkout answers with that repository's HEAD and the row
+# stops being about anything. Nothing a fixture can write stops the walk.
+@case build-source-url-git-failed
+stdout-not-frozen build's progress names whatever toolchain elan has, so its line count is the machine's
+file root/lakefile.toml
+> [[lean_lib]]
+> name = "Pkg"
+file root/Pkg.lean
+> def x := 1
+git init root
+git -C root -c user.name=t -c user.email=t@example.invalid commit --allow-empty -m one
+argv build --root root --out out
+exit 3
+| litedoc4: git config --get remote.origin.url in <dir>/root failed: . --source-url is a git question — pass it explicitly if the package is not a checkout
+|
+
+# --- I. `--deps-docs-url` against the dependencies that resolve --------------
+#
+# The tail of this message is the resolver's answer, and the resolver shells out
+# to `lean --githash` beside `lake`. **`--lake nope/lake` is what makes the row a
+# question about litedoc4 rather than about this machine**: without it a machine
+# with a default toolchain resolves Lean core's four roots and the sentence names
+# them, while one without resolves none. The path has a slash in it on purpose —
+# a bare name would be looked up on `PATH`.
+@case build-deps-docs-url-unknown-root
+stdout-not-frozen build's progress names whatever toolchain elan has, so its line count is the machine's
+dir root
+argv build --root root --out out --lake nope/lake --deps-docs-url Mathib=https://example.invalid/mathlib
+exit 3
+| litedoc4: --deps-docs-url Mathib=…: `Mathib` is not a module root of any dependency this package resolves. The roots it does resolve are: none — no dependency could be resolved at all, so there is nothing to link. (`litedoc4 links --root <repo>` prints them with their sources.)
 |
 
 # --- The path in the message: a file a flag names that is not there ----------

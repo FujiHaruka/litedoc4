@@ -271,7 +271,7 @@ def markerJson (root : String) (libs : Array String) (sourceUrl : String) (modul
 
 inductive Marker where
   | absent
-  | broken
+  | broken (why : String)
   | fields (kv : Array (String × JVal))
 
 /-- A marker that will not parse is **not** treated as absent: it was written by
@@ -283,7 +283,8 @@ def readMarker (path : FilePath) : IO Marker := do
   | .ok text =>
     match parseJson text with
     | .ok (.obj kv) => return .fields kv
-    | _ => return .broken
+    | .ok _ => return (.broken "the document is not an object")
+    | .error why => return (.broken why)
 
 def markerString (kv : Array (String × JVal)) (key : String) : String :=
   match orderedGet? kv key with
@@ -366,9 +367,9 @@ def planOf (r : BuildRequest) (libs : Array String) : BuildM Plan := do
     throw (3, s!"{layout.out} is not empty and has no {markerName}: this command deletes and \
       overwrites inside --out, so it will only do that to a directory it can see it wrote. Name \
       an empty directory, or remove this one yourself")
-  | .broken =>
-    throw (3, s!"{layout.marker} will not parse. This file says which directory `litedoc4 build` \
-      owns; one that cannot be read is not one to overwrite a site on the strength of")
+  | .broken why =>
+    throw (3, s!"{layout.marker}: {why}. This file says which directory `litedoc4 build` \
+      owns; one that will not parse is not one to overwrite a site on the strength of")
   | .fields kv =>
     let was := markerString kv "root"
     if was != r.root.toString then
