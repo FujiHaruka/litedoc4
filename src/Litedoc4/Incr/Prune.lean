@@ -209,7 +209,7 @@ private def readIndexModules (ir : FilePath) : PruneM (Array String) := do
     -- An entry with no `module` string is refused rather than skipped, as
     -- `merge` refuses the same shape.
     let some (.str module) := jvalGet? entry "module"
-      | throw (3, s!"{path}: an index entry has no string `module`")
+      | throw (3, s!"{path}: {indexEntryRefusal "string" "module"}")
     out := out.push module
   return out
 

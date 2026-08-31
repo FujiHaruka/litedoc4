@@ -12,6 +12,7 @@ def main : IO UInt32 :=
     Litedoc4Test.renderingIsDeterministicOverTheHostileCorpus,
     Litedoc4Test.theIrReadCountsAreByKindAndReset,
     Litedoc4Test.openUnvalidatedReadsExactlyWhatOpenRefuses,
+    Litedoc4Test.bothIrDoorsRefuseAnIndexEntryMissingAKey,
     Litedoc4Test.aModuleDescriptionIsEscapedLikeEverythingElse,
     Litedoc4Test.everyClassTheEntryPagesEmitIsStyled,
     Litedoc4Test.theCountsAreWhatTheFilesHold,

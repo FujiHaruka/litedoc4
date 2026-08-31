@@ -244,19 +244,26 @@ def toModule (v : JVal) : Module := Id.run do
 
 def parseModule (text : String) : Except String Module := (parseJson text).map toModule
 
+/-- **No field has a default**, so no value of this type stands in for a key the
+file did not have. An absent key would collapse to a value that *compares equal*:
+`""` is a cache hit at `Global.factsFor` and "not changed" at `Incr.Merge`, and
+`0` is a free selection at `Incr.Impact` — a stale page served with no byte moved
+to say so. Defaulting here and checking at those three call sites was the
+straightforward alternative and is not taken: one of the three would get fixed.
+What would falsify this: a writer that omits one of the four on purpose, which
+`extractor/Extract.lean` does not — it writes all four whatever the schema. -/
 structure IndexEntry where
-  module : String := ""
+  module : String
   /-- Relative to the IR root, e.g. `modules/Foo.Bar.json`. -/
-  file : String := ""
+  file : String
   /-- The writer's `String.utf8ByteSize` of that file. Taken from the index and
   never from the file on disk: `impact` quotes it as the cost of a selection
   before it has opened anything, and a repeated index entry is meant to count
   twice. -/
-  bytes : Nat := 0
+  bytes : Nat
   /-- Lean's `String.hash` of the module JSON, in hex. The whole-package cache's
   key, and the only thing that decides a hit. -/
-  contentHash : String := ""
-  deriving Inhabited
+  contentHash : String
 
 structure DepMapEntry where
   file : String := ""
@@ -271,14 +278,28 @@ structure Index where
   dependencyMaps : Array DepMapEntry := #[]
   deriving Inhabited
 
-def toIndexEntry (v : JVal) : IndexEntry := Id.run do
-  let mut e : IndexEntry := {}
-  for (k, x) in asObj v do
-    if k == "module" then e := { e with module := asStr x }
-    else if k == "file" then e := { e with file := asStr x }
-    else if k == "bytes" then e := { e with bytes := asNat x }
-    else if k == "contentHash" then e := { e with contentHash := asStr x }
-  return e
+/-- The one wording for "this index entry cannot be read". `Incr.Merge` and
+`Incr.Prune` ask the same question of the same file and say it with this too;
+their path stays separate because the merged index carries the raw entries back
+out verbatim (`Incr.Merge`'s `MergeIndexEntry`), which a typed entry cannot do,
+but the sentence a caller reads is one sentence. -/
+def indexEntryRefusal (kind key : String) : String :=
+  s!"an index entry has no {kind} `{key}`"
+
+def toIndexEntry (v : JVal) : Except String IndexEntry := do
+  let str (key : String) : Except String String :=
+    match jvalGet? v key with
+    | some (.str s) => .ok s
+    | _ => .error (indexEntryRefusal "string" key)
+  let nat (key : String) : Except String Nat :=
+    match jvalGet? v key with
+    | some (.num n) => if n < 0 then .error (indexEntryRefusal "number" key) else .ok n.toNat
+    | _ => .error (indexEntryRefusal "number" key)
+  let module ← str "module"
+  let file ← str "file"
+  let bytes ← nat "bytes"
+  let contentHash ← str "contentHash"
+  return { module, file, bytes, contentHash }
 
 def toDepMapEntry (v : JVal) : DepMapEntry := Id.run do
   let mut e : DepMapEntry := {}
@@ -286,14 +307,20 @@ def toDepMapEntry (v : JVal) : DepMapEntry := Id.run do
     if k == "file" then e := { e with file := asStr x }
   return e
 
-def toIndex (v : JVal) : Index := Id.run do
+/-- Only `modules` can refuse. The index's own keys keep their defaults because
+`openIrTreeUnvalidated` is the way in for a tree too old to render, and a key
+this version expects being absent is exactly that tree — `Incr.Merge` itself
+writes an index with no `schemaVersion` when its base had none. An entry's four
+keys are not that case: they are in every index the extractor has ever written,
+schema 1 included. -/
+def toIndex (v : JVal) : Except String Index := do
   let mut ix : Index := {}
   for (k, x) in asObj v do
     if k == "schemaVersion" then ix := { ix with schemaVersion := asNat x }
     else if k == "generator" then ix := { ix with generator := asStr x }
     else if k == "leanVersion" then ix := { ix with leanVersion := asStr x }
     else if k == "ablations" then ix := { ix with ablations := toStrings x }
-    else if k == "modules" then ix := { ix with modules := (asArr x).map toIndexEntry }
+    else if k == "modules" then ix := { ix with modules := ← (asArr x).mapM toIndexEntry }
     else if k == "dependencyMaps" then
       ix := { ix with dependencyMaps := (asArr x).map toDepMapEntry }
   return ix
@@ -347,7 +374,9 @@ def openIrTreeUnvalidated (root : FilePath) : IO IrTree := do
   let text ← readIrFile path
   match parseJson text with
   | .error why => throw (IO.userError s!"{path}: {why}")
-  | .ok j => return { root, index := toIndex j }
+  | .ok j => match toIndex j with
+    | .error why => throw (IO.userError s!"{path}: {why}")
+    | .ok index => return { root, index }
 
 def openIrTree (root : FilePath) : IO IrTree := do
   let tree ← openIrTreeUnvalidated root

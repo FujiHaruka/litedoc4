@@ -42,13 +42,88 @@
 # canonicalize them, so that the frozen message carries no absolute path.
 # `<dir>` is the case's own directory, for the rows where it does.
 
+# --- A. A crafted IR tree ----------------------------------------------------
+#
+# `litedoc4 global --ir <tree> --out <dir>` is the cheapest reader of an
+# `index.json`. Each row below is one good tree with one thing wrong with its
+# single index entry; the same tree with nothing wrong is accepted by both
+# binaries, so what a row asks about is the key and not the fixture.
+#
+# The keys a row can be about are exactly the four fields of `IndexEntry`, and
+# the rule is that a key is required if and only if the reader stores it. Absent,
+# each becomes a default that compares *equal* to another default, which is a
+# refusal nobody sees. `declarations` is stored by no reader on either side —
+# `impact` sums declarations from the module files on purpose — so it is not
+# refused here, and it is the one shape where the two binaries accept
+# differently: Rust required it as a side effect of serde.
+
+@case ir-index-entry-no-module
+rust-differs Rust frames it as a parse failure of the whole index: litedoc4: parsing ir/index.json: missing field `module` at line 1 column 248
+file ir/modules/M.json
+> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
+file ir/index.json
+> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
+argv global --ir ir --out site
+exit 1
+| litedoc4: ir/index.json: an index entry has no string `module`
+|
+
+@case ir-index-entry-no-file
+rust-differs Rust frames it as a parse failure of the whole index: litedoc4: parsing ir/index.json: missing field `file` at line 1 column 237
+file ir/modules/M.json
+> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
+file ir/index.json
+> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
+argv global --ir ir --out site
+exit 1
+| litedoc4: ir/index.json: an index entry has no string `file`
+|
+
+# `bytes` absent is the one that used to be silent all the way to the end: it is
+# `impact`'s quoted cost of a selection, so 0 read as free.
+@case ir-index-entry-no-bytes
+rust-differs Rust frames it as a parse failure of the whole index: litedoc4: parsing ir/index.json: missing field `bytes` at line 1 column 250
+file ir/modules/M.json
+> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
+file ir/index.json
+> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
+argv global --ir ir --out site
+exit 1
+| litedoc4: ir/index.json: an index entry has no number `bytes`
+|
+
+# The one that decides a page. Absent on both sides of `Global.factsFor`'s hit
+# test is `"" == ""`, which is every module a cache hit and a stale page served.
+@case ir-index-entry-no-content-hash
+rust-differs Rust frames it as a parse failure of the whole index: litedoc4: parsing ir/index.json: missing field `contentHash` at line 1 column 228
+file ir/modules/M.json
+> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
+file ir/index.json
+> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0}],"dependencyMaps":[]}
+argv global --ir ir --out site
+exit 1
+| litedoc4: ir/index.json: an index entry has no string `contentHash`
+|
+
+# Same message as the absent key, and the same reason: a `bytes` that cannot be
+# a size is not a smaller number, it is no number. Rust's u64 refused it too.
+@case ir-index-entry-negative-bytes
+rust-differs Rust refuses the same input as a range error: litedoc4: parsing ir/index.json: invalid value: integer `-1`, expected u64 at line 1 column 210
+file ir/modules/M.json
+> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
+file ir/index.json
+> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":-1,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
+argv global --ir ir --out site
+exit 1
+| litedoc4: ir/index.json: an index entry has no number `bytes`
+|
+
 # --- C. `--root` package files -----------------------------------------------
 #
 # `litedoc4 modules --root <dir>` is the cheapest reader of a lakefile; `build`
 # reaches the same seven refusals when `--lib` is absent. All of them end in
 # "Pass --lib <Name>". The eighth shape — no lakefile at all — needs no fixture
 # and is `modules-no-lakefile` in tools/refusals.txt.
-
 @case lakefile-lean-is-code
 file root/lakefile.lean
 > import Lake

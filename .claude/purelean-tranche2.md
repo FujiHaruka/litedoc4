@@ -519,9 +519,10 @@ Groups D and C are frozen in `tools/refusals-on-disk.txt`. Everything below was 
 against both binaries on the exact fixture that is now committed, so it overrides §1–§5 where
 they disagree.
 
-**The row count moves 59 → 60, and 20 of them are frozen.** Group D is 8 of 8. Group C is 12,
+**The row count moves 59 → 65, and 25 of them are frozen.** Group D is 8 of 8. Group C is 12,
 but not the twelve §2 lists: a **fourth** `litedoc4.toml` message exists that nothing counted,
-and **C12 is deferred** rather than approximated (below).
+and **C12 is deferred** rather than approximated (below). Group A gained **5 rows that were not
+in the 59** — the door below, one per key it now refuses (leg 11), so §2's A is 17 + 5.
 
 1. **§3.1 is wrong: Rust refuses a repeated key too.** `title = "a"` twice gives
    ``litedoc4: <path>: duplicate key: `title` at line 2 column 1``, exit 1 — it is not accepted.
@@ -627,7 +628,19 @@ binary still exists**.
    "reading" because *Rust* says it there (row A3), not as house style, and Rust's
    `config::Error::Io` is `{path}: {source}`. `config-index-not-there` stays `rust-differs`:
    only the OS tail and the line count differ now.
-4. `src/Litedoc4/Ir.lean` — **still open.** The door above.
+4. `src/Litedoc4/Ir.lean` — **done (leg 11), and it does not drop a flag — it adds five.**
+   `IndexEntry`'s field defaults are gone and `toIndexEntry` returns `Except String IndexEntry`,
+   so an entry missing `module`, `file`, `bytes` or `contentHash` cannot be built and both doors
+   refuse it. The rule: **a key is required if and only if the reader stores it.**
+   `declarations` therefore stays optional — nothing on either side reads the index's
+   declaration column (`impact` sums it from the module files on purpose) — and that is the
+   one shape where the two binaries **accept** differently, which no row can hold. Rust says
+   `parsing <path>: missing field \`k\`` where Lean says ``<path>: an index entry has no string
+   `k` ``, so the five new rows are `rust-differs`: `ir-index-entry-no-module`, `-no-file`,
+   `-no-bytes`, `-no-content-hash`, `-negative-bytes`. The index's **own** keys keep their
+   defaults, measured: `Incr.Merge` writes an index with no `schemaVersion` when its base had
+   none, and `Watch`'s fixture index has no `modules` at all — tightening there would refuse
+   trees litedoc4 itself writes.
 
 ### 5. The lost framing is not only C11 — five more sites, and they must be fixed with their rows
 

@@ -107,9 +107,9 @@ def indexEntries (path : String) (index : Array (String × JVal)) :
   let mut out : Array MergeIndexEntry := Array.mkEmpty modules.size
   for entry in modules do
     let some (.str module) := jvalGet? entry "module"
-      | .error (indexShape path "an index entry has no string `module`")
+      | .error (indexShape path (indexEntryRefusal "string" "module"))
     let some (.str file) := jvalGet? entry "file"
-      | .error (indexShape path "an index entry has no string `file`")
+      | .error (indexShape path (indexEntryRefusal "string" "file"))
     out := out.push { module, file, raw := entry }
   return out
 
