@@ -161,8 +161,8 @@ fn bless_requested() -> bool {
 /// catches the failure where re-serialising moves key order or escaping and
 /// every future diff is the whole file.
 fn bless(e: &Expected) {
-    let path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/md/docgen4-expected.json");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/md/docgen4-expected.json");
     let original = std::fs::read_to_string(&path).expect("the fixture is readable");
     let mut document: serde_json::Value =
         serde_json::from_str(&original).expect("the fixture is JSON");
