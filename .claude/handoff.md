@@ -264,8 +264,9 @@ in `ci-lake.yml` on `ab0516d`. Nothing platform-specific leaked into them.
 
 ## Two things M10's deletion touches that are not code
 
-**1. Provenance.** `tools/provenance-files.txt` has **56 rows, 16 of them under `crates/`**, and
-`NOTICE` carries 16 matching references — doc-gen4 attribution, md4c's MIT, MD4Lean, Unicode.
+**1. Provenance.** `tools/provenance-files.txt` has **56 rows, 14 of them under `crates/`**
+(an earlier draft of this file said 16 — that is the `NOTICE` count, not the inventory's), and
+`NOTICE` carries **16** references — doc-gen4 attribution, md4c's MIT, MD4Lean, Unicode.
 Two `PROVENANCE.md` files live *inside* `crates/*/tests/data/`, and md4c is vendored twice
 (`vendor/md4c` and `crates/litedoc4-md/vendor/md4c`). **This is not a blocker**: the Lean side
 already carries **16 mirrored rows** under `src/` plus 2 under `vendor/`, so CLAUDE.md's rule
