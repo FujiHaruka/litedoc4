@@ -151,6 +151,15 @@ All 17 are now closed, in a direction decided per case:
 **The frozen expectations reproduce byte for byte on Linux** — `lean 135/135, rust 135/135`
 in `ci-lake.yml` on `ab0516d`. Nothing platform-specific leaked into them.
 
+## Two Rust tests have no home after M10
+
+`base_ir::reads_every_module_of_the_target_package` and
+`base_ir::astral_binders_slice_correctly` read the **measurement target's** IR. By this
+repository's own rule that is not a test, and they cannot become `Invariant`s. They are listed
+in `tools/corpus-tests.txt`, **an inventory that dies with `crates/`**, so unless someone
+places them they vanish without anything failing. `purelean-render-gate.sh` already takes the
+target's IR and is the natural host. Found during the `litedoc4-ir` triage; not yet placed.
+
 ## Load-bearing context
 
 - **`tools/refusal-gate.sh`'s two arms are not symmetric on purpose.** The Lean arm reads

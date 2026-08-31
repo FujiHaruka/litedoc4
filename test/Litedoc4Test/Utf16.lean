@@ -35,4 +35,18 @@ def andByteOrderPutsThoseTwoTheOtherWayRound : Bool :=
 
 #guard andByteOrderPutsThoseTwoTheOtherWayRound
 
+/-- `crates/litedoc4-ir/src/utf16.rs::utf16_order_inverts_byte_order_above_the_bmp`,
+the half the two guards above do not reach. Throughout the BMP the two orders
+**agree** — that is what makes the inversion above it the whole of the
+difference, and what stops `cmpUtf16` from being some third order that merely
+happens to put an astral name first.
+
+`sorting_is_by_code_unit` in the same file is this same fact at the array level,
+which `anAstralNameSortsBelowABmpOneInUtf16` already answers. -/
+def utf16OrderAgreesWithByteOrderThroughoutTheBmp : Bool :=
+  [("", "a"), ("a", "b"), ("Nat", "Nat.succ"), ("α", "β"), ("A", "ℕ"), ("∑", "∏")].all
+    fun (a, b) => ltUtf16 a b == byteLt a b && ltUtf16 b a == byteLt b a
+
+#guard utf16OrderAgreesWithByteOrderThroughoutTheBmp
+
 end Litedoc4Test

@@ -129,7 +129,7 @@ end
 def fragment (ix : NameIndex) (refs : Std.HashMap String String) (root : String)
     (text : String) (spans : Array Span) : String × Bool := Id.run do
   let f := mkFrag text spans
-  let units := if f.ascii then text.utf8ByteSize else f.u2b.size - 1
+  let units := f.units
   if spans.isEmpty then
     return (escapeSub "" f.text 0 f.text.utf8ByteSize, false)
   -- the tree: pop while the new span starts at or after the top of the stack

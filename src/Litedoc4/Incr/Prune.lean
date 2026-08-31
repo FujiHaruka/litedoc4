@@ -9,10 +9,11 @@ failure nothing downstream can notice.
 This is the one stage that deletes, so the guards are structural:
 
 1. **Every path is built by the renderer's own rule and checked against the
-   root.** `pageUrl` turns dots into separators, so a name cannot carry a `..`
-   past it — but that is an argument, and `PageRoot` is a check: lexically before
-   the path is used, physically (`realPath`) before anything is unlinked. A path
-   that resolves outside the page root is a refusal, not a deletion.
+   root.** A name really does carry a `..` past that rule — `«..».Foo` comes out
+   of `pageUrl` as `../Foo.html` — so `PageRoot` is a check and not an argument:
+   lexically before the path is used, physically (`realPath`) before anything is
+   unlinked. A path that resolves outside the page root is a refusal, not a
+   deletion.
 2. **Paths are concatenated, never joined with `FilePath./`**, which with an
    absolute right-hand side *discards the left*: a `--remove` line of
    `/etc/passwd` would name `/etc/passwd.html` instead of

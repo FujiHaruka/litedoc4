@@ -19,7 +19,7 @@ def mkFrag (text : String) (spans : Array Span) : Frag := Id.run do
     if s.back > 0 then ranges := ranges.push (s.stop, s.stop + s.back)
   if ranges.isEmpty then return f0
   ranges := ranges.qsort (fun a b => a.1 < b.1)
-  let units := if f0.ascii then text.utf8ByteSize else f0.u2b.size - 1
+  let units := f0.units
   let mut changed := false
   for (a, b) in ranges do
     if b > units then continue

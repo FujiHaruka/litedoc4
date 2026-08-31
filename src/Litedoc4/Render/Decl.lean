@@ -98,28 +98,23 @@ def declHeadHtml (out : String) (d : Decl) (root module sourceUrl : String) : St
   acc := escapeInto acc s!"{sourceUrl}#L{d.line}-L{d.endLine}"
   return acc ++ "\">source</a></header>"
 
-/-- The two facts a signature cannot print: that the declaration is a hole, and
-that an attribute realized it rather than an author writing it.
-
-One guard for both, and it is the module's schema version rather than the key's
-absence: below 5 neither key could exist, so "the extractor said nothing" is not
-"there is no `sorry`" and not "a human wrote this". -/
-def factsSchemaVersion : Nat := 5
-
 @[inline] def pushFlag (out : String) (kind body : String) : String :=
   out ++ "<span class=\"flag\" data-flag=\"" ++ kind ++ "\">" ++ body ++ "</span>"
 
+/-- The two facts a signature cannot print: that the declaration is a hole, and
+that an attribute realized it rather than an author writing it. Both are asked
+of the module rather than read off the declaration, because below schema 5 an
+absent key says nothing and only the module knows the schema. -/
 def flagsHtml (c : DeclRenderer) (m : Module) (d : Decl)
     (refs : Std.HashMap String String) : String := Id.run do
-  if m.schemaVersion < factsSchemaVersion then return ""
   let mut pills := ""
-  if d.sorryTag == "direct" then
-    pills := pushFlag pills "sorry-direct" "uses <code>sorry</code>"
-  else if d.sorryTag == "transitive" then
-    pills := pushFlag pills "sorry-transitive" "depends on <code>sorry</code>"
-  match d.generated with
-  | none => pure ()
-  | some (origin, source) =>
+  match m.sorryOf d with
+  | .direct => pills := pushFlag pills "sorry-direct" "uses <code>sorry</code>"
+  | .transitive => pills := pushFlag pills "sorry-transitive" "depends on <code>sorry</code>"
+  | .unknown | .clean => pure ()
+  match m.generatedBy d with
+  | .unknown | .unclaimed => pure ()
+  | .realizedBy origin source =>
     let body := escapeInto "realized by <code>@[" origin ++ "]</code> from "
     -- An origin that reaches no page goes in as text rather than being dropped:
     -- the name is the fact and the link is a convenience, unlike `declNameToLink`
@@ -238,7 +233,7 @@ def declHtml (out : String) (c : DeclRenderer) (m : Module) (d : Decl) (sourceUr
   acc := declHeadHtml acc d c.root m.name sourceUrl
   acc := acc ++ flagsHtml c m d refs
   if !d.attrs.isEmpty then
-    let texts := d.attrs.map fun (n, v) => if v.isEmpty then n else n ++ " " ++ v
+    let texts := d.attrs.map attrText
     let mut joined := "@["
     for i in [0:texts.size] do
       if i > 0 then joined := joined ++ ", "

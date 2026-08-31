@@ -13,6 +13,19 @@ structure Frag where
 
 @[inline] def Frag.bpos (f : Frag) (i : Nat) : Nat := if f.ascii then i else f.u2b[i]!
 
+/-- How many UTF-16 units `f` addresses.
+
+**A method and not `if f.ascii then text.utf8ByteSize else f.u2b.size - 1` at
+each call site**, which is what it was: the whitespace rewrite preserves the
+unit count and *not* the byte count, so a fragment whose only non-ASCII
+characters sat inside the rewritten runs comes back ASCII and shorter than the
+string it was built from, and a caller holding both wrote the wrong one. It
+emitted the right bytes anyway only because `byteSub` clamps a right edge past
+the end (measured), which is a property of the slicer and not of the caller.
+What would falsify this: a rewrite that returned the same bytes it was given. -/
+@[inline] def Frag.units (f : Frag) : Nat :=
+  if f.ascii then f.text.utf8ByteSize else f.u2b.size - 1
+
 def isAscii (s : String) : Bool := Id.run do
   let n := s.utf8ByteSize
   let mut i := 0

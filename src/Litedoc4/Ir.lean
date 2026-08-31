@@ -16,6 +16,45 @@ structure Span where
   back : Nat := 0
   deriving Inhabited
 
+/-- What the `sorry` key holds on the wire, all four states it can be in.
+
+**`unrecognised` is the constructor that earns this type.** Folding it into
+`absent` would make an unreadable value say *no holes* — the one reading a
+package cannot afford to get wrong — and folding it into `direct` would invent a
+hole. It carries the value so that the reader which will refuse it (Rust does:
+`an_unknown_sorry_value_is_rejected`) has something to name. -/
+inductive SorryWire where
+  | absent
+  | direct
+  | transitive
+  | unrecognised (value : String)
+  deriving BEq, Repr
+
+/-- What a module file says about one declaration's holes.
+
+**Four values, and that is why it is a function of the module rather than a
+field of the declaration**: a schema-5 writer omits the key to mean "no
+`sorry`", and a schema-4 file had no key to omit, so the same absence means
+"nobody was asked". Collapsing the two turns a fact about the extractor's
+version into a claim about the package. -/
+inductive SorryFact where
+  | unknown
+  | clean
+  | direct
+  | transitive
+  deriving BEq, Repr
+
+/-- What a module file says about which attribute realized a declaration.
+
+`unclaimed` is the one worth the third constructor: **"the extractor said
+nothing" is not "the author wrote it"**. Only `@[ext]` is ever named, so
+everything `simps` / `to_additive` / `mk_iff` realized lands here too. -/
+inductive GeneratedFact where
+  | unknown
+  | unclaimed
+  | realizedBy (origin source : String)
+  deriving BEq, Repr
+
 structure Member where
   label : String := ""
   name : String := ""
@@ -50,13 +89,15 @@ structure Decl where
   /-- `[module, name]` on the wire; kept in that order. -/
   refs : Array (String × String) := #[]
   attrs : Array (String × String) := #[]
-  /-- `"direct"` / `"transitive"`, or `""` for a key the writer left out.
-  **Empty is not "no `sorry`" on its own** — below schema 5 the key could not
-  exist, so the module's version decides which silence this is. -/
-  sorryTag : String := ""
+  /-- Private so that `Module.sorryOf` is the only way to ask. A reader holding
+  the field would have to remember that its absence says nothing below schema 5,
+  and forgetting turns a fact about the extractor's version into a claim that
+  the package has no holes. -/
+  private sorryWire : SorryWire := .absent
   /-- `[origin, from]`: the attribute that realized this declaration, and what
-  it took as input one step back. -/
-  generated : Option (String × String) := none
+  it took as input one step back. Private for the same reason as `sorryWire`;
+  `Module.generatedBy` is the way in. -/
+  private generated : Option (String × String) := none
   instTypes : Array String := #[]
   deriving Inhabited
 
@@ -77,6 +118,44 @@ structure Module where
   /-- Only the length of `tactics` is ever read, so the entries are not. -/
   tacticCount : Nat := 0
   deriving Inhabited
+
+/-- The schema at which `sorry` and `generated` became keys the writer can omit
+on purpose. Separate from `minSchemaVersion` even though the numbers are equal:
+that one is what this reader refuses below, this one is what an absent key
+means, and the day they stop being the same number one constant would have to be
+edited in two places. -/
+def factsSchemaVersion : Nat := 5
+
+/-- The only way to ask whether a declaration is a hole. -/
+def Module.sorryOf (m : Module) (d : Decl) : SorryFact :=
+  if m.schemaVersion < factsSchemaVersion then .unknown
+  else match d.sorryWire with
+    | .absent => .clean
+    | .direct => .direct
+    | .transitive => .transitive
+    -- Not `.clean`: a value this reader does not know is not a package without
+    -- holes. It reads as "nobody was asked" until the reader can refuse it,
+    -- which is what Rust does today.
+    | .unrecognised _ => .unknown
+
+/-- The only way to ask which attribute realized a declaration. -/
+def Module.generatedBy (m : Module) (d : Decl) : GeneratedFact :=
+  if m.schemaVersion < factsSchemaVersion then .unknown
+  else match d.generated with
+    | none => .unclaimed
+    | some (origin, source) => .realizedBy origin source
+
+/-- How one attribute prints: the string a schema-4 file carried whole.
+
+**Not `name` and `value` printed apart**, and above all not a split of the
+schema-4 string on its first space: an attribute value holds spaces
+(`deprecated Foo (since := "…")`) and brackets (`specialize #[0, 1]`), so where
+the boundary is is a fact only the extractor has. What would falsify this: a
+consumer that wants to act on a value rather than print it, which would have to
+check `value` is non-empty instead. -/
+def attrText : String × String → String
+  | (name, "") => name
+  | (name, value) => name ++ " " ++ value
 
 def toSpan (v : JVal) : Span := Id.run do
   let a := asArr v
@@ -135,7 +214,11 @@ def toDecl (v : JVal) : Decl := Id.run do
       d := { d with attrs := (asArr x).map fun r =>
         let a := asArr r; (asStr a[0]!, asStr a[1]!) }
     else if k == "instTypes" then d := { d with instTypes := toStrings x }
-    else if k == "sorry" then d := { d with sorryTag := asStr x }
+    else if k == "sorry" then
+      d := { d with sorryWire := match asStr x with
+        | "direct" => .direct
+        | "transitive" => .transitive
+        | other => .unrecognised other }
     else if k == "generated" then
       let a := asArr x
       if a.size == 2 then d := { d with generated := some (asStr a[0]!, asStr a[1]!) }
