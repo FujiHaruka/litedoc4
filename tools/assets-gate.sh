@@ -8,9 +8,14 @@
 #
 # A gate rather than a test because it needs node, which `cargo test --workspace`
 # must not. **Each stage has to be able to fail on its own** — a gate whose stages
-# all fail the same way is one stage wearing four hats — and the counts are
+# all fail the same way is one stage wearing five hats — and the counts are
 # printed rather than assumed, because "vitest ran" and "vitest ran something"
 # are different claims.
+#
+# The last stage answers a different question from the rest: not "is this code
+# sound" but "is `assets/` what it builds". That is the first link of the chain
+# `tools/assets-embed-gate.sh` documents, and it is here because it is the only
+# gate that has already run vite.
 #
 # usage: assets-gate.sh [--json FILE]
 set -euo pipefail
@@ -137,6 +142,30 @@ GZIP="$(gzip -c dist/app.js | wc -c | tr -d ' ')"
 BOOT="$(wc -c < dist/theme-boot.js | tr -d ' ')"
 # theme-boot is per *page*: `frame.rs` inlines it into every `<head>`.
 echo "   dist/app.js $BYTES B, gzip $GZIP B; dist/theme-boot.js $BOOT B (inlined per page)"
+
+echo "== assets/ is this bundle"
+# The first link of the chain `assets-embed-gate.sh` documents: vite -> assets/.
+# `assets/app.js` and `assets/theme-boot.js` are committed, because the Lean half
+# cannot `include_str!` and `tools/gen-assets.py` writes their bytes into
+# `src/Litedoc4/Assets.lean`. A committed build output has no way of announcing
+# that it went stale — the site still loads, with the JS of whatever commit last
+# remembered to rebuild.
+#
+# Compared here and not in `assets-embed-gate.sh`, which reads the tree and must
+# stay free of node; and byte for byte rather than by mtime, because the question
+# is whether these are the same bundle, not which is newer.
+STALE=""
+for f in app.js theme-boot.js; do
+  cmp -s "dist/$f" "$ROOT/assets/$f" || STALE="$STALE  $f"$'\n'
+done
+if [ -n "$STALE" ]; then
+  echo "assets/ is not what these sources build. Stale:" >&2
+  printf '%s' "$STALE" >&2
+  echo "  cd $WEB && LITEDOC4_ASSET_OUT_DIR=$ROOT/assets npm run build" >&2
+  echo "  then re-run tools/gen-assets.py, or Assets.lean keeps the old bytes." >&2
+  exit 1
+fi
+echo "   assets/app.js and assets/theme-boot.js are byte for byte this build"
 
 # `dist/` is the by-hand output path; the one that reaches the binary is cargo's
 # OUT_DIR, written by build.rs from these same sources.

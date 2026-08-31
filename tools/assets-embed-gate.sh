@@ -10,12 +10,14 @@
 #
 # The chain has three links and each is checked exactly once:
 #
-#   vite  ->  assets/         `the_committed_bundles_match_what_build_rs_bundled`
-#                             in crates/litedoc4-render/src/assets.rs. A test and
-#                             not an item here: build.rs has already run vite by
-#                             the time it compiles, so it costs nothing that was
-#                             not paid, and it leaves with the Rust tree — after
-#                             M9 there is one bundle and nothing to reconcile
+#   vite  ->  assets/         the last stage of `tools/assets-gate.sh`, which has
+#                             already built the bundle by then. Not an item here:
+#                             this gate must stay runnable with no node. It was a
+#                             Rust test while `include_str!` was a second reader,
+#                             and moved before that tree could take it along —
+#                             `assets/` is a committed build output, and one that
+#                             goes stale still loads, with the JS of whatever
+#                             commit last remembered to rebuild
 #   assets/ -> Assets.lean    item 2 below
 #   assets/ -> assets.rs      item 3 below
 #
