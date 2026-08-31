@@ -21,8 +21,8 @@
 ## Relay control
 - Mode: ON
 - Goal: litedoc4 の Rust 半分を Lean に移植し切る（計画 `.claude/purelean-plan.md` の M1〜M10）
-- Leg: 8 / cap 40
-- Predecessor: purelean-r7 (killed)
+- Leg: 9 / cap 40
+- Predecessor: purelean-r8
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Answered 2026-08-31: **(b)** — build Lean test scaffolding, port selectively, then delete.
   User's rule: **invariants must be expressed as code; types where a type can say it,
@@ -45,6 +45,16 @@
     `fe8e100` (584 tests classified), `ab0516d` (135 argv refusals frozen + the 17
     divergences they found, closed), `7800296` (`web/` leaves `crates/`),
     `a3e691e` (the Lean half gains the documented-flag/parser tie it never had)
+  - r8 (end): **bucket I complete, 316/316**, and both expiring oracles frozen.
+    `12afbd2`/`c7c97ab` scaffolding + the rule · `95285f1` ir · `80988e0` md ·
+    `aea5d2c` global · `73f2626` incr · `dd914d9` render-text (**4 link defects**) ·
+    `8cf7edb` render-page (**2 more**) · `c10ced7` litedoc4/src · `3943be9` litedoc4/tests ·
+    `14a224a` one spelling for clearing the events file · `742c824`+`3995f13` the micro
+    gate's oracle frozen (**and its cross-platform assumption measured, not assumed**) ·
+    `fd9000b` the target's 1,266 digests · `b63ee83`+`fd66cc8` fixtures and oracle
+    generators leave `crates/`. Gate: **222 `#guard` / 30 `Invariant`**, green on Linux.
+    **Six product defects found, none by any gate.** Main red twice, both caught by CI and
+    fixed within the leg — see "Verification: the set that actually covers a Rust change".
 
 ## Next step
 
