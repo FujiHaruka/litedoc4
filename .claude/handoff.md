@@ -166,6 +166,16 @@
    kind of thing. Move it out of `crates/` (the `web/` move again), embed it, or lose it to the
    tag.
 
+   **B2. The three Unicode tables in `src/` still have a broken regenerator chain.**
+   `src/Litedoc4/Md/Gc.lean` (`pzcTable`, `zcTable`) and `src/Litedoc4/Lower.lean`
+   (`lowerTable`) are transcriptions. Their generators survived the move (`tools/oracle/`) —
+   **but they write Rust**, into `crates/litedoc4-{md,global}/src/`, which M10 deletes. So
+   after M10 the chain is: ask UnicodeBasic/V8 → get a Rust table → nowhere to put it. Either
+   teach them to emit Lean, or accept the tables are frozen and say so where they are defined.
+   `tools/gates.txt` has **no gate that re-derives them**, and `provenance-files.txt` keeps
+   rows asserting both files carry attributions. Three enumerated tables in shipped code, with
+   an obligation, no regenerator, and no check.
+
    **C. The fixture-requiring refusals** — the R rows needing a crafted IR tree, `litedoc4.toml`,
    ledger or blocking file. `tools/refusals.txt` covers argv only, by its own scope line.
 
