@@ -22,6 +22,7 @@ on:
       - "e2e/consumer/**"
       - "e2e/micro/**"
       - "Cargo.toml"
+      - "tools/flag-tie-gate.sh"
       - "tools/lake-package-gate.sh"
       - "tools/purelean-gate.sh"
       - "tools/purelean-micro-gate.sh"
@@ -44,6 +45,7 @@ on:
       - "e2e/consumer/**"
       - "e2e/micro/**"
       - "Cargo.toml"
+      - "tools/flag-tie-gate.sh"
       - "tools/lake-package-gate.sh"
       - "tools/purelean-gate.sh"
       - "tools/purelean-micro-gate.sh"
@@ -133,6 +135,14 @@ jobs:
       # binary this job already built.
       - name: The refusals are still the frozen ones
         run: tools/refusal-gate.sh
+
+      # Same two binaries, the opposite question: refusal-gate.sh asks whether a
+      # bad command line is still refused the way it was, this asks whether a
+      # good one is still accepted. It is where the Lean `usage` gets the tie to
+      # its parsers that `every_documented_flag_is_parsed` gives the Rust
+      # `USAGE`, and unlike that test it survives crates/.
+      - name: Every documented flag is a flag some parser accepts
+        run: tools/flag-tie-gate.sh
 
   # The same question `purelean-render-gate.sh` asks over the measurement target,
   # asked over the sample instead — which is what makes it runnable here at all,

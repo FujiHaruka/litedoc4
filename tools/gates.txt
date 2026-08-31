@@ -28,6 +28,7 @@ config-gate.sh               ci      a built site (e2e-micro calls it)
 corpus-gate.sh               ci      nothing for --verify-list; the corpus for the rest
 deps-docs-gate.sh            manual  a package whose dependency docs are published
 docs-gate.sh                 ci      nothing; reads the tracked files
+flag-tie-gate.sh             ci      a built litedoc4 to hand every documented flag to; elan builds the Lean one
 lake-package-gate.sh         ci      elan and e2e/consumer
 lean-versions-gate.sh        ci      one IR tree per toolchain in lean-toolchains.txt
 libc-shim-gate.sh            ci      the *system* compiler and its real headers; the inverse of the build

@@ -8,13 +8,13 @@
 #
 # WHAT EACH CHECK CAN SEE
 #   action.yml       the YAML itself, both directions. Data against data
-#   build / watch    each half's own synopsis, one direction. The Rust `USAGE`
-#                    is tied to its parsers by litedoc4's own
-#                    `every_documented_flag_is_parsed`, so a flag named here and
-#                    reachable in it is a flag some parser accepts; the Lean
-#                    `usage` has no such tie, so a flag reachable there is only a
-#                    flag the command line *documents*. What neither can see is a
-#                    flag that stopped doing anything while keeping its name
+#   build / watch    each half's own synopsis, one direction. A synopsis is text,
+#                    so on its own a flag reachable here is only a flag the
+#                    command line *documents*. What makes it a flag some parser
+#                    *accepts* is a second gate: `tools/flag-tie-gate.sh` hands
+#                    every documented flag to both binaries and fails on
+#                    `unknown argument`. What neither can see is a flag that
+#                    stopped doing anything while keeping its name
 #   litedoc4.toml    the fields of `struct File` in litedoc4-render's config.rs,
 #                    which serde reads with `deny_unknown_fields`, and the names
 #                    `parseConfig` tests for in src/Litedoc4/Config.lean, which
