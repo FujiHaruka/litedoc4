@@ -3,8 +3,7 @@
 //! No bundle is committed: `web/src` is the only copy, and the build output
 //! lives in cargo's `OUT_DIR`, so it cannot be a version behind its sources.
 //! The cost is that node is a build dependency of this crate, paid by whoever
-//! builds from source; litedoc4 itself ships as the prebuilt archives
-//! `release.yml` produces.
+//! builds from source.
 //!
 //! There is deliberately no fallback to a checked-in bundle. Two ways of
 //! answering "where does app.js come from" is the shape where only one of them

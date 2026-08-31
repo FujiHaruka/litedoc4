@@ -28,7 +28,6 @@ config-gate.sh               ci      a built site (e2e-micro calls it)
 corpus-gate.sh               ci      nothing for --verify-list; the corpus for the rest
 deps-docs-gate.sh            manual  a package whose dependency docs are published
 docs-gate.sh                 ci      nothing; reads the tracked files
-lake-download-gate.sh        ci      the network, and a release carrying this version
 lake-package-gate.sh         ci      elan and e2e/consumer
 lean-versions-gate.sh        ci      one IR tree per toolchain in lean-toolchains.txt
 libc-shim-gate.sh            ci      the *system* compiler and its real headers; the inverse of the build
@@ -39,7 +38,6 @@ public-surface-gate.sh       ci      nothing; reads the tree
 purelean-gate.sh             ci      elan, e2e/consumer, and a built Rust litedoc4 to compare --version with
 purelean-micro-gate.sh       ci      elan, e2e/micro and e2e/consumer, and a built Rust litedoc4 as the oracle
 purelean-render-gate.sh      manual  the target's IR and .lidx, elan, and a built Rust litedoc4 as the oracle
-release-notes-gate.sh        ci      nothing; reads the tracked files
 site-gate.sh                 ci      a built site
 target2-gate.sh              manual  a second synthetic package on the target's Mathlib revision
 usedby-gate.sh               ci      a built site (e2e-micro calls it)

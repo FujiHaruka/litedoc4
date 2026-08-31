@@ -11,17 +11,16 @@ description: >
 #   cache key change with it then.
 #
 # WHY THE ARCHITECTURE IS READ AND NOT WRITTEN
-#   Every caller is Linux, and until 2026-08-29 every one of them was x86_64, so
-#   the tarball name was a literal. `release.yml`'s smoke job now runs on
-#   `ubuntu-24.04-arm`, and a literal would have installed an x86_64 elan on it.
-#   `uname -m` spells the architecture the way elan's assets do, on both
-#   (`x86_64` / `aarch64`), so nothing translates it.
+#   Every caller is Linux, and the tarball name used to be an x86_64 literal.
+#   That is one `runs-on:` away from installing an x86_64 elan on an arm runner,
+#   and the failure lands at the first `lake` and blames Lean. `uname -m` spells
+#   the architecture the way elan's assets do on both (`x86_64` / `aarch64`), so
+#   nothing translates it and adding an arm caller costs nothing.
 #
 # WHY THE CACHE KEY CARRIES THE ARCHITECTURE
-#   `runner.os` is `Linux` on both, and a key that cannot tell them apart hands
-#   the arm job the x86_64 elan it just went to the trouble of not downloading —
-#   a cache hit that installs the wrong binary, which fails at the first `lake`
-#   and blames Lean.
+#   `runner.os` is `Linux` on both, and a key that cannot tell them apart would
+#   hand an arm job the x86_64 elan it just went to the trouble of not
+#   downloading — a cache hit that installs the wrong binary.
 runs:
   using: composite
   steps:

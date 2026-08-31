@@ -13,7 +13,7 @@ cargo build --bin litedoc4
 tools/e2e-micro.sh          # micro/  — 宣言の形
 tools/pinned-dep-gate.sh    # micro/ + micro-dep/ — 版固定できる依存 (git require に差し替える)
 tools/lake-package-gate.sh  # consumer/ — Lake の配線
-tools/lake-download-gate.sh # consumer/ — Release からバイナリを取る経路 (要ネットワーク)
+tools/purelean-gate.sh      # consumer/ — `lean_exe litedoc4` が消費者側でビルドできる
 ```
 
 `micro/` is also **the published sample**: `.github/workflows/pages.yml` serves the
@@ -156,7 +156,7 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 | | 担当 | 走らせるもの |
 |---|---|---|
 | `micro/` (+ `micro-dep/`) | **宣言の形** — 対象が持たない 9 分岐と版固定できない依存 | `tools/e2e-micro.sh` |
-| `consumer/` | **Lake の配線** — litedoc4 を `require` した利用者の経路 | `tools/lake-package-gate.sh` / `tools/lake-download-gate.sh` |
+| `consumer/` | **Lake の配線** — litedoc4 を `require` した利用者の経路 | `tools/lake-package-gate.sh` / `tools/purelean-gate.sh` / `tools/purelean-micro-gate.sh` |
 
 `consumer/` は litedoc4 を **path で `require`** する最小パッケージで、
 `lake run docs -- --out <dir>` が動くかだけを見る。

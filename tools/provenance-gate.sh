@@ -12,6 +12,16 @@
 #
 # The inventory is `tools/provenance-files.txt`: a reviewed list, not derived.
 #
+# **There is no dependency-closure half any more.** There was one, and it existed
+# for a distribution that has gone: a compiled `litedoc4` shipped as a release
+# archive is Object form, it carries the Rust closure inside it, and `strum` /
+# `phf` / `zmij` had shipped with no notice for exactly the reason a reviewed
+# list cannot be trusted here — the closure moves without anyone editing this
+# repository (provenance.md §7-8). Nothing is shipped in Object form now: a
+# consumer requires this package and Lake builds it, so what is distributed is
+# source, and the clauses that apply to source are the ones this script checks.
+# If a binary is ever published again, that half comes back with it.
+#
 # usage: provenance-gate.sh [--list]
 set -euo pipefail
 
@@ -59,90 +69,5 @@ if [ "$failed" -ne 0 ]; then
 fi
 echo "  files: ok ($checked claims)"
 
-# NOTICE against the dependency closure — **the half that must not be curated**.
-# Which crates are in the closure changes without anyone editing this repository,
-# so a reviewed list goes stale silently: `strum` / `phf` / `zmij` shipped in the
-# binary with no notice for that reason (measured, docs/provenance.md §7-8).
-#
-# No exception list. A crate needs its own notice iff its licence expression is
-# **not satisfiable by Apache-2.0 alone** — either it does not offer Apache-2.0,
-# or it ANDs something onto it. `MIT OR Apache-2.0` is covered by LICENSE and
-# NOTICE; `MIT` is not; `(MIT OR Apache-2.0) AND Unicode-3.0` is not.
-#
-# The targets come from release.yml rather than a copy: the closure is
-# platform-dependent, and checking one target while shipping two is the same
-# silent narrowing as checking one direction of a two-way diff.
-#
-# The `|| true` on the two pipelines below is load-bearing: `grep` exits 1 when
-# it matches nothing, and under `set -e` a command substitution ending in one
-# kills this script **with no message**. Emptiness is the answer here, not an error.
-
-command -v cargo >/dev/null 2>&1 || {
-  echo "PROVENANCE GATE: cargo is not on PATH, and the NOTICE half needs it" >&2
-  echo "  (this gate does not skip: see CLAUDE.md, never return green by skipping)" >&2
-  exit 2
-}
-
-RELEASE_WORKFLOW="$ROOT/.github/workflows/release.yml"
-targets=$(grep -oE '^ +- target: [A-Za-z0-9_.-]+' "$RELEASE_WORKFLOW" | sed 's/.*: //' | sort -u)
-[ -n "$targets" ] || {
-  echo "PROVENANCE GATE: no '- target:' lines in $RELEASE_WORKFLOW" >&2
-  echo "  The release matrix moved; this gate was reading it to know what ships." >&2
-  exit 2
-}
-
-closure=""
-for target in $targets; do
-  tree=$(cd "$ROOT" && cargo tree -p litedoc4 -e normal --target "$target" \
-           --prefix none --locked -f '{p}|{l}' 2>/dev/null) || {
-    echo "PROVENANCE GATE: cargo tree failed for $target" >&2
-    exit 2
-  }
-  closure="$closure
-$tree"
-done
-
-# `{p}` is "name version [(path or proc-macro)]"; `{l}` is the SPDX expression,
-# empty for a crate that declares none — itself a failure, nobody has read it.
-uncovered=$(printf '%s\n' "$closure" \
-  | sed 's/ (\*)$//' \
-  | grep -F '|' \
-  | awk -F'|' '
-      {
-        name = $1
-        sub(/ .*/, "", name)
-        licence = $2
-        if (licence == "") { print name; next }
-        if (licence ~ /Apache-2\.0/ && licence !~ / AND /) next
-        print name
-      }' \
-  | sort -u) || true
-
-listed=$(sed -n '/^Rust crates whose licence does not offer Apache-2.0$/,/^All of the above are licensed under the MIT License:$/p' \
-           "$ROOT/NOTICE" \
-         | grep -oE '^    [a-z0-9_-]+ ' | tr -d ' ' | sort -u) || true
-
-missing=$(comm -23 <(printf '%s\n' "$uncovered") <(printf '%s\n' "$listed"))
-stale=$(comm -13 <(printf '%s\n' "$uncovered") <(printf '%s\n' "$listed"))
-
-if [ -n "$missing" ] || [ -n "$stale" ]; then
-  echo >&2
-  echo "PROVENANCE GATE: NOTICE and the dependency closure disagree" >&2
-  echo >&2
-  for crate in $missing; do
-    echo "  NO NOTICE     $crate is in the closure and cannot be taken under Apache-2.0" >&2
-  done
-  for crate in $stale; do
-    echo "  STALE ENTRY   $crate is listed in NOTICE but is not in the closure" >&2
-  done
-  echo >&2
-  echo "  Add the crate's copyright line to NOTICE's derived section (or remove the" >&2
-  echo "  stale one). Do not widen deny.toml instead: that permits the licence, it" >&2
-  echo "  does not reproduce the notice the licence asks for." >&2
-  exit 1
-fi
-
-count=$(printf '%s\n' "$listed" | grep -c . || true)
-echo "  NOTICE: ok ($count crates over $(printf '%s ' $targets | sed 's/ $//'))"
 echo
 echo "PROVENANCE GATE: ok"

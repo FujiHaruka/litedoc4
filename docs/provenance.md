@@ -184,7 +184,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 |---|---|---|
 | **litedoc4 リポジトリ** | **public = 配布中** (2026-08-16 に private から変更) | A の 20 箇所すべて。**§4 は発動した。義務は発動前に払ってあるので、新たな履行は無い** — (a) `LICENSE`・(b)(c) 各ファイルの帰属表示と README / NOTICE 冒頭の告知はすべて §6 で置いた (2026-08-16)、(d) は不発動 |
 | **生成サイト** (<https://fujiharuka.github.io/information-theory/>) | **public = 配布中** | **`style.css` の 8 行のみ**。HTML の class 名と URL 形は C (インタフェース)。ホスト先の `FujiHaruka/information-theory` は**既に Apache-2.0**【実測: `gh api`】 |
-| **Release のバイナリ** (`litedoc4`, `.tar.gz`) | **配布している** (`release.yml`) | **Object form**。§4 は "in Source **or Object** form" なので発動する。(a) **`LICENSE` を書庫に入れる**。(b) 著作物レベルの告知は `NOTICE` が持つ。**(c) は "in the Source form of any Derivative Works" と限定されているので Object 単体では不発動**。(d) 不発動。**新しく効くのは Apache ではなく MIT** — 下の枠 |
+| **Release のバイナリ** (`litedoc4`, `.tar.gz`) | **配布していない**【2026-08-31 に廃止】。消費者は `require` して Lake がビルドするので、**配る形はソースだけ**になった。既に公開済みの `v0.1.0`–`v1.2.0` の書庫は残るので、**その配布に対する義務は履行済のまま生き続ける** | **Object form**。§4 は "in Source **or Object** form" なので、配っていた間は発動していた。(a) **`LICENSE` を書庫に入れる**。(b) 著作物レベルの告知は `NOTICE` が持つ。**(c) は "in the Source form of any Derivative Works" と限定されているので Object 単体では不発動**。(d) 不発動。**新しく効いたのは Apache ではなく MIT** — 下の枠 |
 
 > **配布形態が増えたとき、参照で済ませていた義務は崩れる**【2026-08-18】。
 > `NOTICE` は md4c について「全文は `vendor/md4c/LICENSE.md` にある」と**指していただけ**だった。
@@ -322,10 +322,16 @@ dropping either would leave the record pointing at a table nobody can retrace.
    `(MIT OR Apache-2.0) AND Unicode-3.0` (`unicode-ident`) が居て、
    どちらも「MIT 単独」ではないが **LICENSE と NOTICE だけでは払えない**。
 
-**この判定は `tools/provenance-gate.sh` の後半が持つ**【2026-08-22】。
+**この判定は `tools/provenance-gate.sh` の後半が持っていた**【2026-08-22】。
 `release.yml` の matrix から対象を読み、`cargo tree -e normal` の closure と
-NOTICE の導出セクションを**両方向で**突き合わせる。**例外リストは持たない** —
+NOTICE の導出セクションを**両方向で**突き合わせていた。**例外リストは持たなかった** —
 持てば 2 件目の乖離を黙って飲む (CLAUDE.md)。
+
+**この後半は 2026-08-31 に消えた。基準が緩んだのではなく、対象が消えた** —
+バイナリ配布の廃止 (上の表) で closure が入る配布物が無くなり、`release.yml` も
+無くなったので、ゲートが対象を読んでいた場所ごと去った。**残っているのはソース形式の
+義務**で、それは前半 (`tools/provenance-files.txt`) が持つ。**バイナリをまた配るなら、
+この後半も一緒に戻る** — 対象が戻るからで、それ以外の理由では戻らない。
 
 **起票時に実際に抜けていたのは 13 件**【実測 2026-08-22 →
 `benchmarks/results/residual-sweep-2026-08-22.txt` §2】: `generic-array` /

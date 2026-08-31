@@ -140,12 +140,6 @@ jobs:
       - name: One answer to what the assets are
         run: tools/assets-embed-gate.sh
 
-      # The release notes are a tracked file that release.yml publishes, so the
-      # platforms and Lean versions they promise are checked here rather than
-      # read for the first time on the Releases page.
-      - name: The release notes still describe the release
-        run: tools/release-notes-gate.sh
-
       - name: Verify the corpus gate's inventory
         run: tools/corpus-gate.sh --verify-list
 
@@ -154,8 +148,8 @@ jobs:
       - name: Provenance
         run: tools/provenance-gate.sh
 
-  # Releases carry an aarch64 Linux binary, and until 2026-08-29 no job had ever
-  # compiled this tree on that architecture. Two things were waiting there
+  # Until 2026-08-29 no job had ever compiled this tree on aarch64, and two
+  # things were waiting there
   # (measured → benchmarks/results/arm64-linux-runner-2026-08-29.txt): three
   # clippy findings at one line, because `c_char` is unsigned here and signed on
   # every machine that had run clippy; and three unit tests that read the

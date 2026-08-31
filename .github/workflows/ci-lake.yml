@@ -23,7 +23,6 @@ on:
       - "e2e/micro/**"
       - "Cargo.toml"
       - "tools/lake-package-gate.sh"
-      - "tools/lake-download-gate.sh"
       - "tools/purelean-gate.sh"
       - "tools/purelean-micro-gate.sh"
       - "tools/render-compare.sh"
@@ -44,7 +43,6 @@ on:
       - "e2e/micro/**"
       - "Cargo.toml"
       - "tools/lake-package-gate.sh"
-      - "tools/lake-download-gate.sh"
       - "tools/purelean-gate.sh"
       - "tools/purelean-micro-gate.sh"
       - "tools/render-compare.sh"
@@ -178,14 +176,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
-
       - uses: ./.github/actions/setup-elan
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build litedoc4
-        run: cargo build --bin litedoc4
 
       # Written outside the checkout so that nothing here can accidentally
       # resolve to the working tree instead of the clone Lake makes.
@@ -248,8 +239,6 @@ jobs:
 
       - name: lake run docs
         working-directory: ${{ env.CONSUMER }}
-        env:
-          LITEDOC4_BIN: ${{ github.workspace }}/target/debug/litedoc4
         run: |
           set -euo pipefail
           lake run docs -- --out "$RUNNER_TEMP/widget-docs" | tee "$RUNNER_TEMP/docs.log"
@@ -274,14 +263,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
-
       - uses: ./.github/actions/setup-elan
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build litedoc4
-        run: cargo build --bin litedoc4
 
       - name: A package with no lean_lib is refused, by name
         run: |
@@ -300,8 +282,7 @@ jobs:
           cd "$CONSUMER"
           lake update
           set +e
-          LITEDOC4_BIN="${{ github.workspace }}/target/debug/litedoc4" \
-            lake run docs -- --out "$RUNNER_TEMP/empty-docs" >out.log 2>&1
+          lake run docs -- --out "$RUNNER_TEMP/empty-docs" >out.log 2>&1
           CODE=$?
           set -e
           cat out.log
@@ -314,34 +295,3 @@ jobs:
             || { echo "::error::exit 3 but the message does not name the reason"; exit 1; }
           test ! -e "$RUNNER_TEMP/empty-docs" \
             || { echo "::error::it refused and still created --out"; exit 1; }
-
-  # The release-fetch half of `resolveLitedoc4`, and not a duplicate of the
-  # local run: the target triple is computed from `System.Platform`, and on
-  # Linux Lean answers `-gnu` while the release carries `-musl`, so the
-  # remapping is an inference everywhere except here. It also runs the musl
-  # binary, which the macOS box cannot execute.
-  #
-  # What it grades depends on the ref — the release is looked up by the version
-  # in `Cargo.toml`, so a `main` ahead of every release has no asset and the
-  # gate grades the fall-through instead, printing `download path : NOT
-  # EXERCISED`. Read the verdict line, not the green tick.
-  download:
-    name: the release path, or its fall-through when no release carries this version
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: ./.github/actions/setup-node
-
-      - uses: ./.github/actions/setup-elan
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build litedoc4
-        run: cargo build --bin litedoc4
-
-      # No LITEDOC4_BIN here, and the gate strips one it inherits: source 1
-      # short-circuits the two sources this job exists to run.
-      - name: Gate
-        run: tools/lake-download-gate.sh
