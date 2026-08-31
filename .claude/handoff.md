@@ -10,7 +10,14 @@ update**: `tmutil listlocalsnapshots /` lists `com.apple.os.update-MSUPrepareUpd
 `com.apple.os.update-*` siblings, and the container's 228Gi − 156Gi used − 159Mi free is the
 purgeable difference.
 
-**Freeing it is the user's call and was left to them** (installing or cancelling the staged
+**Everything this project left behind has already been swept** (2026-09-01, ~640 MB and 3.9M
+inodes recovered): 288 loose files under `/private/tmp`, 38 dead session scratchpads, the
+`lean-doc-relay` work area, **50 leaked `mktemp -d` gate work areas** (59 MB — see the defect
+below), and deno's 294 MB module cache. **It did not help for long.** Free space went
+159 MiB → 511 MiB → **280 MiB within minutes**, with nothing of ours running: the staged update
+consumes faster than the tree can be cleaned. **Do not try to clean your way out of this.**
+
+**Freeing the snapshots is the user's call and was left to them** (installing or cancelling the staged
 update, or `tmutil deletelocalsnapshots`). Deleting a staged system update is outward-facing and
 irreversible, so no leg should do it unasked.
 
@@ -19,9 +26,21 @@ not merely fail a measurement — it broke the target repository's oleans and th
 took the means of recovery with it. `tools/purelean-*-gate.sh` and anything building a `build` /
 `incremental` world need work areas measured in hundreds of MB.
 
+### A defect the sweep found: gates leak their work area on failure
+
+`tools/refusal-gate.sh` takes `OUT="$(mktemp -d)"` and removes it at the very end — but the
+failure path above it (`REFUSAL GATE: FAILED — see $OUT`) exits **first**, deliberately, to leave
+the evidence. **Nothing ever sweeps those.** 50 of them had accumulated at ~6 MB each. Keeping the
+evidence on failure is right; **having no owner for it afterwards is the exact shape CLAUDE.md
+records as the cause of the 24 GB pile-up** ("Delete the work directory when a measurement
+finishes. Decide who does the cleaning up"). The fix is an owner, not a `rm` on the failure path:
+have the next run sweep the previous ones, or name the directory so a sweeper can find it. **Check
+the other `mktemp -d` gates for the same shape before fixing just this one** — the general form is
+the point.
+
 ## State
 
-- Branch `main`, **clean, pushed** at `9899f32`. Nothing is uncommitted; the disk emergency cost
+- Branch `main`, **clean, pushed**. `9899f32` is the last code commit. Nothing is uncommitted; the disk emergency cost
   no work.
 - **CI is green on `6acb414`** (all four: CI / lake package / sample site / Lean versions).
   **`9899f32` was still `in_progress` when this was written — confirm it first.** It is the one
