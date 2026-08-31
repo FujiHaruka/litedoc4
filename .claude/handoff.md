@@ -33,6 +33,11 @@
 
 ## Next step
 
+**0. Confirm CI is green on `914a321` first** (`gh run list`). It and `a307cae` were still
+running at handoff and touch only `.claude/` and `benchmarks/results/`, so `docs-gate` is
+the only thing that can fail and it passed locally — but check rather than assume, and fix
+it before starting anything else if it did not.
+
 **1. Implement C** — the 59 rows are already written down, one per *message a user can be
 shown*, with the on-disk fixture, the command line, the exit code, the quoted message and
 the Lean counterpart for each. Read `.claude/purelean-tranche2.md` first; do not re-derive
