@@ -227,7 +227,7 @@ leaves it at `.lake/packages/litedoc4/.lake/build/bin/litedoc4`, and the extract
 There is deliberately no `lean-toolchain` in this package: one that named a *higher* version
 would make your `lake update` rewrite **your** `lean-toolchain`, and a *lower* one would be
 ignored without a warning (both measured, `benchmarks/results/lake-package-probe-2026-08-18.txt`).
-Without the file, Lake builds the extractor with your toolchain and says nothing.
+Without the file, Lake builds both executables with your toolchain and says nothing.
 
 ### From a checkout
 

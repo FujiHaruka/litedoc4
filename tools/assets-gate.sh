@@ -51,12 +51,27 @@ if [ -n "$WRITTEN" ]; then
   echo "$WRITTEN" >&2
   exit 1
 fi
-READERS="$(grep -rl 'mise.toml' "$ROOT/.github/actions" "$ROOT/action.yml" | wc -l | tr -d ' ')"
-[ "$READERS" -ge 2 ] || {
-  echo "the composite action and action.yml should both read mise.toml; $READERS do" >&2
+# Derived, not counted: **whatever installs node has to read the version from
+# mise.toml**, and which files those are is not this gate's business to know. A
+# count was the earlier shape and it said "2" — which went stale the moment
+# `action.yml` stopped installing node at all (2026-08-31), failing on a file
+# that had become right.
+INSTALLERS="$(grep -rl 'actions/setup-node@' "$ROOT/.github" "$ROOT/action.yml" || true)"
+[ -n "$INSTALLERS" ] || {
+  echo "nothing in the tree installs node — this check would pass having read nothing" >&2
   exit 1; }
-USES="$(grep -rc 'actions/setup-node' "$ROOT/.github" "$ROOT/action.yml" | awk -F: '{n+=$2} END{print n}')"
-echo "== node $PINNED, written once in mise.toml, read by $READERS action(s), used at $USES site(s)"
+BLIND=""
+for f in $INSTALLERS; do
+  grep -qF 'mise.toml' "$f" || BLIND="$BLIND$f"$'\n'
+done
+if [ -n "$BLIND" ]; then
+  echo "mise.toml pins node $PINNED; these install node without reading it:" >&2
+  printf '%s' "$BLIND" >&2
+  exit 1
+fi
+READERS="$(printf '%s\n' "$INSTALLERS" | grep -c . )"
+USES="$(grep -rc './.github/actions/setup-node' "$ROOT/.github" "$ROOT/action.yml" | awk -F: '{n+=$2} END{print n}')"
+echo "== node $PINNED, written once in mise.toml, read by $READERS installer(s), used at $USES site(s)"
 
 # `assets.rs` checks that every class the scripts assign is styled, and it names
 # the scripts one by one because `include_str!` takes a literal. A sixth file
