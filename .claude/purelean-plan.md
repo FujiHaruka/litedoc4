@@ -156,7 +156,7 @@ M6 以降に効く残りだけ:
 
 - **完了判定**: `incremental-compare.sh` / `impact-compare.sh` / `merge-compare.sh` /
   `ledger-compare.sh` / `onemod-gate.sh` が Lean 実装で緑
-  → **5 本とも緑。U1〜U13 完了**: incremental **3,145/3,145** / impact **3,556/3,556** /
+  → **5 本とも緑。U1〜U13 完了**: incremental **3,201/3,201** / impact **3,556/3,556** /
   merge **3,961/3,961** / ledger **66/66** / `onemod-gate.sh` 緑。
   **5 本とも先に落としてから通した**。micro ゲートは 14 → **16 項目**
   （12 の 2 つ目の綴り / 15 `--only-from` / 16 incremental）
@@ -200,11 +200,22 @@ The list now comes from `site-artefacts.txt`, and `copy_globals` writes
 absent** where it used to be 1 compared, 5 absent (the three are `build`'s
 assets, legitimately absent from a `global` derivation).
 
-**The 3,145/3,145 stands for what it compared**, and what it compared was
-smaller than the header claimed. **The incremental recordings have to be retaken
-on both halves with the corrected list before M5's evidence covers what it says**
-— that is the first thing to do after this, and both recordings are gone from
-`/private/tmp` (the reproduction table above says how).
+**The 3,145/3,145 stood for what it compared**, and what it compared was smaller
+than the header claimed. **Both recordings were retaken with the corrected list**
+(2026-08-31 → `benchmarks/results/purelean-incremental-retake-2026-08-31.txt`):
+**3,201/3,201 identical**, every record `9 compared, 3 absent`. The 56 new files
+are 8 records × (6 further artefact entries + the `.count.txt`), and the eight
+artefacts that had never been compared —
+`404.html` / `foundational_types.html` / `index.html` / `search.html` /
+`declarations/used-by.json` / `instances.json` / `modules.json` /
+`search-index.bin` — agree byte for byte on both halves.
+
+**`--ref-site` was the second half of the same defect.** `base-sitecheck.txt` is
+the one oracle inside the recording that says the base site equals a site
+somebody already accepted, and the guard around it was an `if` whose default path
+had rotted, so it was never written and `incremental-compare.sh` skips
+`*-sitecheck.txt` by design. It is a hard exit now, and all 16 within-run oracles
+(8 per half) report **431 files, identical**.
 
 **The general form nobody applied**: when the first two copies of that list were
 collected into `site-artefacts.txt` on 2026-08-29, the fix was not raised to

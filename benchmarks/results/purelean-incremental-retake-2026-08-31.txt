@@ -1,0 +1,111 @@
+M5 incremental — both recordings retaken with the corrected artefact list
+=========================================================================
+2026-08-31 (measured)
+
+Why this run exists
+-------------------
+`tools/incremental-reference.sh` carried a fifth copy of doc-gen4's six-name
+whole-package artefact list:
+
+    declarations/declaration-data.bmp  declarations/name-map.json
+    navbar.html  tactics.html  references.html  references.bib
+
+`copy_globals` writes an `.absent` marker for a name the run did not produce, so
+five of those six were absences that agreed with themselves on both sides of
+every comparison. **One file per scenario was really compared** —
+`declarations/name-map.json` — and the eight whole-package artefacts litedoc4
+does derive were compared by nothing.
+
+The list now comes from `tools/site-artefacts.txt` (12 names) and `copy_globals`
+writes `<s>-global.count.txt`, so the denominator is inside the record. The
+recordings the 3,145/3,145 figure rested on were taken with the old list and had
+been deleted; both halves were retaken here.
+
+Conditions
+----------
+    host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+    target            /Users/haruka/dev/lean-projects @ 16ff7a40, read only
+                      (422 modules; the module list the run checks is 432 —
+                      `it-modules.txt` is frozen there and stale oleans keep it
+                      resolving)
+    lean-toolchain    leanprover/lean4:v4.31.0
+    extractor         product; binary extractor/build/extract (IR schema 5)
+    jobs              4
+    base IR           /private/tmp/lean-doc-relay/purelean/ir (426 files)
+    link index        /private/tmp/lean-doc-relay/purelean/link-index.json
+    reference site    /private/tmp/lean-doc-relay/m5-impact/ref-site (431 files)
+    rust half         target/release/litedoc4 (rustc 1.97.1)
+    lean half         .lake/build/bin/litedoc4
+    oleans            warm
+
+Both recordings ran back to back in the same session, in the same warm state.
+No `*Seconds` value is compared — a duration is not an answer — so page-cache
+state does not enter the verdict.
+
+What each half recorded
+-----------------------
+    scenario        exit  pages in tree   (both halves)
+    nochange          0        431
+    self-one          0        431
+    importers-hub     0        431
+    referrers-two     0        431
+    renderall         0        431
+    removed-one       0        430
+    added-one         0        431
+
+    files written    3224 each (was 3168 under the old list)
+    global count     "9 compared, 3 absent" in all 8 records on both halves
+                     (was 1 compared, 5 absent)
+
+The three absent are `app.js`, `favicon.svg` and `style.css` — `build`'s assets,
+which a `global` derivation legitimately does not write. Absence is recorded
+rather than skipped so the count can say so.
+
+Verdict
+-------
+    tools/incremental-compare.sh <rust> <lean>
+
+    files compared:  3201
+      identical:     3201  (of which 8 only after masking the clock and the
+                            output root)
+      reordered:     0
+      array-reord.:  0
+      differing:     0
+      missing:       0
+      not compared:  23  (*-stderr.txt, *-stdout.txt, *-sitecheck.txt,
+                          conditions.txt)
+    IDENTICAL                                                    exit 0
+
+The denominator moved 3145 -> 3201. The 56 are 8 records x (6 further artefact
+entries + the `.count.txt`). The eight artefacts that had never been compared —
+`404.html`, `foundational_types.html`, `index.html`, `search.html`,
+`declarations/used-by.json`, `instances.json`, `modules.json`,
+`search-index.bin` — are byte-identical between the halves in all 8 records.
+
+The oracle that had never run
+-----------------------------
+`base-sitecheck.txt` is written by a `[ -d "$REF_SITE" ]` guard that used to be
+`if` and is now a hard exit; the default `--ref-site` path had rotted, so the
+file was never written, and `incremental-compare.sh` skips `*-sitecheck.txt` by
+design. Nothing anywhere reported it. With `--ref-site` supplied, all 16
+within-run oracles (8 per half) report:
+
+    reference site    /private/tmp/lean-doc-relay/m5-impact/ref-site
+    reference files   431
+    base files        431
+    diff              identical
+
+These are read by hand, not by the comparator: they answer "did the round leave
+the tree a full run would have written", which is a within-run question and not
+a between-halves one.
+
+What this does and does not settle
+----------------------------------
+It settles that the two halves agree on 3,201 recorded answers under the
+corrected denominator, and that each half's incremental rounds leave a page tree
+a from-scratch site build would have written.
+
+It does not widen the windows M5 records as unconstructed (`--max-rounds`
+exit 5, `prune`'s `strictly` guard, the third `Generation` window, `Server.stop`'s
+signalled branch). Those are unreachable from these seven scenarios and stay
+unreached.
