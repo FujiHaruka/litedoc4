@@ -159,15 +159,10 @@ pin is there. -/
   match ix.external.docsUrlFor module anchor with
   | some url => some url
   | none =>
-  match ix.external.baseFor (moduleComponents module)[0]! with
-  -- Membership and not `urlFor`'s answer: a root the map holds with no
-  -- version-pinned URL gets no link at all rather than the page link below,
-  -- which is a page this site never writes — and `urlFor` answers `none` to
-  -- that root and to a module of this package alike. What would falsify this: a
-  -- map that never holds a root with an empty base, which `e2e/micro`'s `path`
-  -- require is.
-  | some _ => ix.external.urlFor module (anchor.bind ix.lidx.rangeOf)
-  | none =>
+  match ix.external.sourceFor (moduleComponents module)[0]! with
+  | .pinned base => some (sourceUrlAt base module (anchor.bind ix.lidx.rangeOf))
+  | .unpinned => none
+  | .absent =>
     if !ix.pages.contains module then none
     else match anchor with
       | some a => some (moduleLink root module ++ "#" ++ a)

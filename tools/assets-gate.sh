@@ -94,6 +94,34 @@ if [ "$LISTED" != "$ASSIGNING" ]; then
 fi
 echo "== $(printf '%s\n' "$LISTED" | wc -l | tr -d ' ') script(s) assign a class, and assets.rs scans exactly those"
 
+# …and every class those scripts assign has a rule in `style.css`. The failure is
+# silent: a class renamed in `web/src` still renders and simply has no styling.
+#
+# Here and not beside the renderer's own version of this check, which is
+# `Litedoc4Test.RenderAssets` read off built pages: Lean has no `include_str!`
+# and `Litedoc4.Assets` carries the *bundle*, not the sources, so nothing on that
+# side can see a `.className =` at all.
+#
+# Only the "assigned but not styled" direction. A class that stops being assigned
+# leaves an unused rule and breaks nothing, and recording the names to catch it
+# would put a second hand-written list beside the one above.
+STYLE="$ROOT/assets/style.css"
+SCRIPTED="$(grep -ho '\.className = "[^"]*"' "$WEB"/src/*.ts \
+  | sed 's/^\.className = "//; s/"$//' | tr ' ' '\n' | grep . | LC_ALL=C sort -u)"
+[ -n "$SCRIPTED" ] || { echo "no class assignment found — the scan broke" >&2; exit 1; }
+UNSTYLED=""
+while IFS= read -r cls; do
+  grep -qF ".$cls" "$STYLE" || UNSTYLED="$UNSTYLED  .$cls"$'\n'
+done <<EOF
+$SCRIPTED
+EOF
+if [ -n "$UNSTYLED" ]; then
+  echo "the site's scripts assign classes style.css says nothing about:" >&2
+  printf '%s' "$UNSTYLED" >&2
+  exit 1
+fi
+echo "== $(printf '%s\n' "$SCRIPTED" | wc -l | tr -d ' ') class(es) the scripts assign, all styled"
+
 
 # `npm ci` and not `npm install`: the lockfile is the version everything here was
 # tested against.

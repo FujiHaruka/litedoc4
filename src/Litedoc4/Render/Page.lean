@@ -9,7 +9,7 @@ namespace Litedoc4
 /-- Every name that is some declaration's member, over the **whole site**: a
 structure declared in `A` can have its projections attributed to `B`, and a
 per-module set leaves those on `B`'s page. -/
-def suppressedOf (mods : Array Module) : IO (Std.HashSet String) := do
+def suppressedOf (mods : Array Module) : Std.HashSet String := Id.run do
   let mut s : Std.HashSet String := Std.HashSet.emptyWithCapacity 512
   for m in mods do
     for d in m.decls do

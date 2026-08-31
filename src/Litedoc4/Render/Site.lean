@@ -91,7 +91,7 @@ def renderSite (o : Options) : IO Summary := do
     | some p => do pure (parseLidx (← readIrFile p))
     | none => pure emptyLidx
   let ix := buildIndex deps mods lidx o.external
-  let sup ← suppressedOf mods
+  let sup := suppressedOf mods
   -- Over **every** module of the IR, not the subset being rendered: an
   -- incremental round that re-renders one page must not retitle the site.
   let title := o.title.getD (siteTitle (mods.map (·.name)))

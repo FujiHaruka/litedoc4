@@ -1,3 +1,4 @@
+import Litedoc4Test.Config
 import Litedoc4Test.GlobalArtifacts
 import Litedoc4Test.GlobalBuild
 import Litedoc4Test.GlobalDelta
@@ -23,7 +24,13 @@ import Litedoc4Test.MdHtml
 import Litedoc4Test.MdMath
 import Litedoc4Test.MdParse
 import Litedoc4Test.RenderAutolink
+import Litedoc4Test.RenderExternal
+import Litedoc4Test.RenderAssets
+import Litedoc4Test.RenderFrame
+import Litedoc4Test.RenderPage
+import Litedoc4Test.RenderSite
 import Litedoc4Test.RenderCode
+import Litedoc4Test.RenderDecl
 import Litedoc4Test.RenderLinkIndex
 import Litedoc4Test.RenderOrder
 import Litedoc4Test.RenderWhitespace

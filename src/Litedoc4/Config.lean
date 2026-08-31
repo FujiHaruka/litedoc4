@@ -125,10 +125,20 @@ def line (text : String) : Except String (Option (String × String)) := do
 
 end Toml
 
+/-- The two keys as the file spells them, with `index` still a path.
+
+Separate from `SiteConfig`, which carries the index file's **contents**: this is
+what reading the text alone can answer, and `readSiteConfig` is what turns the
+path into the Markdown behind it. -/
+structure ConfigKeys where
+  title : Option String := none
+  index : Option String := none
+  deriving BEq, Repr, Inhabited
+
 /-- `title` and `index`, and an unknown key is a hard error rather than an
 ignored line: a misspelled key that is silently dropped is a package whose
 configuration does nothing and says nothing. -/
-def parseConfig (text : String) : Except String (Option String × Option String) := Id.run do
+def parseConfig (text : String) : Except String ConfigKeys := Id.run do
   let mut title : Option String := none
   let mut index : Option String := none
   let mut number := 0
@@ -148,7 +158,10 @@ def parseConfig (text : String) : Except String (Option String × Option String)
         index := some value
       else
         return .error s!"line {number}: unknown key `{key}`"
-  return .ok (title, index)
+  -- An empty title is not a title: `title = ""` would otherwise put a blank
+  -- where every page names the site. Here rather than at the one caller so that
+  -- reading the file and deciding what it said are not two answers.
+  return .ok { title := title.filter (fun t => !(trimWs t).isEmpty), index }
 
 /-- `<root>/litedoc4.toml`, or the empty configuration when `root` is `none` or
 holds no such file. -/
@@ -161,16 +174,12 @@ def readSiteConfig (root : Option FilePath) : IO SiteConfig := do
       | .noFileOrDirectory .. => pure none
       | e => throw e
   let some text := text | return {}
-  let (title, index) ← match parseConfig text with
-    | .ok pair => pure pair
+  let keys ← match parseConfig text with
+    | .ok keys => pure keys
     | .error message => throw (IO.userError s!"{path}: {message}")
-  let indexMarkdown ← match index with
+  let indexMarkdown ← match keys.index with
     | some relative => pure (some (← IO.FS.readFile (root / relative)))
     | none => pure none
-  return {
-    -- An empty title is not a title: `title = ""` would otherwise put a blank
-    -- where every page names the site.
-    title := title.filter (fun t => !(trimWs t).isEmpty)
-    indexMarkdown }
+  return { title := keys.title, indexMarkdown }
 
 end Litedoc4

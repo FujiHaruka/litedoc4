@@ -138,7 +138,7 @@ prints. -/
 def checkDocsRoots (sites : Array DocsSite) (links : ExternalLinks) :
     Except (UInt32 × String) Unit := Id.run do
   for site in sites do
-    if (links.baseFor site.root).isSome then continue
+    if links.sourceFor site.root != .absent then continue
     let known := links.roots.toList.map (·.name)
     return .error (3, s!"--deps-docs-url {site.root}=…: `{site.root}` is not a module root of any \
       dependency this package resolves. The roots it does resolve are: \

@@ -1,8 +1,8 @@
 /- `crates/litedoc4-render/src/external.rs`: where a dependency's source lives.
 
-An empty `base` is a value and not a missing entry: it says "this root belongs to
-a dependency and there is no version-pinned URL for it", which `linkTo` turns
-into no link rather than into a relative one to a page this site never writes. -/
+A root the map holds with no version-pinned URL is a state of its own and not a
+missing entry — `RootSource.unpinned` — which `linkTo` turns into no link rather
+than into a relative one to a page this site never writes. -/
 import Litedoc4.Ir.Name
 import Litedoc4.Sha256
 
@@ -17,23 +17,36 @@ def trimTrailingSlash (s : String) : String := Id.run do
 /-- A `docLink` as the table writes it — `./Mathlib/Order/Basic.html#Foo.bar` —
 with the leading `./` removed so that it can be joined onto a base. A leading `/`
 goes too: joined onto `https://host/mathlib4_docs` it would otherwise resolve at
-the host's root, which is a different site. -/
-def stripDocLink (link : String) : String :=
-  let link := if link.startsWith "./" then (link.drop 2).toString else link
-  if link.startsWith "/" then (link.drop 1).toString else link
+the host's root, which is a different site.
+
+**Each prefix goes as often as it is there**, not once: stripping one leaves a
+result that can still start with the byte this exists to remove. What would
+falsify the loop: a table whose links are known to carry at most one of each. -/
+def stripDocLink (link : String) : String := Id.run do
+  let mut out := link
+  while out.startsWith "./" do out := byteSub out 2 out.utf8ByteSize
+  while out.startsWith "/" do out := byteSub out 1 out.utf8ByteSize
+  return out
 
 /-- Sorted by name, byte order, with a repeated name keeping the **last** — the
 reading `BTreeMap` gives, so that a table that names one declaration twice
-resolves the same way on both sides. -/
+resolves the same way on both sides.
+
+The insertion index rides along so that the comparison is a total order and no
+two entries tie. **`Array.qsort` is not stable**, so "the last of a run of equal
+keys" is not a question the sorted array can be asked: which of them ends up
+last is the partition's choice. What would falsify carrying the index: a sort
+with a stability guarantee. -/
 def sortedPairs (raw : Array (String × String)) : Array (String × String) := Id.run do
-  let sorted := raw.qsort (fun a b => byteLt a.1 b.1)
+  let sorted := (raw.mapIdx (fun i (name, link) => (name, link, i))).qsort
+    fun a b => if a.1 == b.1 then a.2.2 < b.2.2 else byteLt a.1 b.1
   let mut out : Array (String × String) := Array.mkEmpty sorted.size
-  for pair in sorted do
+  for (name, link, _) in sorted do
     if let some last := out.back? then
-      if last.1 == pair.1 then
-        out := out.pop.push pair
+      if last.1 == name then
+        out := out.pop.push (name, link)
         continue
-    out := out.push pair
+    out := out.push (name, link)
   return out
 
 /-- Binary search over `sortedPairs`' order. -/
@@ -118,13 +131,26 @@ def mkExternalLinks (entries : Array (String × String)) : ExternalLinks := Id.r
     roots := roots.push { name, base := trimTrailingSlash base }
   return { roots }
 
-/-- `some ""` is a third state: a root known to be a dependency's with no prefix
-for it. `urlFor` folds it into `none`; `linkTo` is the one caller that has to
-tell it from this package's own module, and asks this. -/
-def ExternalLinks.baseFor (m : ExternalLinks) (root : String) : Option String := Id.run do
+/-- What a module's root component is, as far as a link into its source goes.
+
+**Three constructors and not `Option String`.** `pinned` carries a base that is
+not empty by construction, so nothing downstream can hand `moduleSourceUrl` the
+empty prefix — which would produce `/Dep/M.lean`, an absolute path on whatever
+host serves *this* site. `unpinned` is the root a resolver knew to be a
+dependency's and could not version-pin; `absent` is every module of the package
+being documented. What would falsify the split: a resolver that records only the
+roots it could pin, after which `unpinned` and `absent` would be one state. -/
+inductive RootSource where
+  | absent
+  | unpinned
+  | pinned (base : String)
+  deriving BEq, Repr, Inhabited
+
+def ExternalLinks.sourceFor (m : ExternalLinks) (root : String) : RootSource := Id.run do
   for r in m.roots do
-    if r.name == root then return some r.base
-  return none
+    if r.name == root then
+      return if r.base.isEmpty then .unpinned else .pinned r.base
+  return .absent
 
 /-- `getSourceUrl` for a module: a prefix, the module's components as
 directories, and `.lean`. The prefix is configuration — `--source-url` for this
@@ -136,6 +162,17 @@ def moduleSourceUrl (base module : String) : String := Id.run do
   for part in moduleComponents module do
     out := out ++ "/" ++ part
   return out ++ ".lean"
+
+/-- `moduleSourceUrl` with the declaration's line range on the end.
+
+**The range is optional and its absence is not a failure**: a declaration the
+`.lidx` has no range for gets the file's URL, which is the shape doc-gen4's own
+source links already have. -/
+def sourceUrlAt (base module : String) (lines : Option (Nat × Nat)) : String :=
+  let url := moduleSourceUrl base module
+  match lines with
+  | some (a, b) => url ++ "#L" ++ toString a ++ "-L" ++ toString b
+  | none => url
 
 /-- The bytes the digest is taken over: a marker line, then one `<root>\t<base>\n`
 per entry sorted by root — and then, only when some root publishes
@@ -197,16 +234,14 @@ def ExternalLinks.docsUrlFor (m : ExternalLinks) (module : String) (anchor : Opt
     | some name => docs.urlForName name
     | none => docs.urlForModule module
 
+/-- `none` for a module whose first component is not in the map — which is every
+module of the package being documented — **and** for one whose root is in the map
+with nothing to build a URL from. The two are the same answer here and different
+answers to `linkTo`, which is why that one asks `sourceFor` instead. -/
 def ExternalLinks.urlFor (m : ExternalLinks) (module : String) (lines : Option (Nat × Nat)) :
     Option String :=
-  match m.baseFor (moduleComponents module)[0]! with
-  | none => none
-  | some base =>
-    if base.isEmpty then none
-    else
-      let url := moduleSourceUrl base module
-      match lines with
-      | some (a, b) => some (url ++ "#L" ++ toString a ++ "-L" ++ toString b)
-      | none => some url
+  match m.sourceFor (moduleComponents module)[0]! with
+  | .pinned base => some (sourceUrlAt base module lines)
+  | .unpinned | .absent => none
 
 end Litedoc4

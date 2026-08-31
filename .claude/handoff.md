@@ -176,6 +176,25 @@ valid oracles), **embed** it (what the `litedoc4-md` tranche did with 12 small f
 or **lose it to the `rust-frozen` tag**. **Nothing has been decided and nothing needs to be
 yet** — the deletion is last — but decide it before the F tranche starts, not during.
 
+## The gates that read a file inside `crates/` — swept, and it is four
+
+The shape to fear is **an inventory in `tools/` whose consumer is in `crates/`**: M10 deletes the
+check and leaves the list behind, green. One real instance was found and fixed during the
+`litedoc4-render` page pass — `assets.rs` was the only Rust file outside `tools/` reading
+`web/src/*.ts`, and the *styled-class check* that used the list was a Rust test while the list
+itself was reconciled by `assets-gate.sh`. That check now lives in `assets-gate.sh`.
+
+Swept for the rest. **Exactly four gates depend on something inside `crates/`, and no more:**
+
+- `tools/assets-gate.sh:86` — `ASSETS_RS`, the scan reconciling which scripts assign a class
+- `tools/assets-embed-gate.sh:74-75` — item 3, the two `include_str!` reader counts
+- `tools/public-surface-gate.sh:132,159` — reads `crates/litedoc4/src/lib.rs` and
+  `crates/litedoc4-render/src/config.rs` for the promised 1.x surface. **Repoint at `src/`**
+- `tools/corpus-gate.sh` — enumerates `cargo test --workspace --no-run` targets; dies wholesale
+
+That is the whole M10 gate bill. Everything else in `tools/` takes its binary from `$LITEDOC4`
+and names cargo only in hint text.
+
 ## A measured gap in `e2e/micro`, and what it cost
 
 **`e2e/micro` has no module with a quoted component** (`Example.«Odd-Name»`). CLAUDE.md says the
