@@ -611,6 +611,28 @@ what it does today.
    「a built Rust litedoc4 as the oracle」。`crates/` が消えた瞬間に
    **片腕のゲートになるが、`workflow-gate.sh` は ci/manual 列しか見ていないので何も落ちない**
 
+#### 第 2 tranche は読んで確定した（leg 9）→ `.claude/purelean-tranche2.md`
+
+**59 行**。fixture を要する拒否を、テスト名や keyword ではなく**本体を読んで**確定した
+（名前による 146/556、keyword による 12-of-93、それを覆した「IR 群だけで 13 crafted trees」の
+3 つはいずれも誤りだった。実ファイルは 7 tests / 6 行）。数え方は
+**「利用者に見える 1 メッセージ = 1 行」**であってテスト 1 件ではない。
+
+- **候補ファイル一覧は両端で外れていた** — `page_parts.rs` / `pages.rs` / `incr/tests/impact.rs` /
+  `incr/src/prune.rs` / `tests/site.rs` は **0 行**、`decl.rs` は 21 tests で 1 行。逆に一覧に
+  無い `tests/queries.rs` / `tests/extract.rs` / `tests/ledger.rs` / `tests/cli_surface.rs` が
+  行を持つ。**テストではなく producer（152 箇所の `Failure::*`）を掃いたのが効いた**
+- **11 行はテストが 1 件も無い**（producer 側にしか無い）。**10 行は OS の `strerror` か
+  JSON パーサの文言を含みバイト凍結できない**。**5 行が Rust↔Lean で実際に食い違う**
+  （`litedoc4.toml` の手書きリーダ 2 件、`--deps-docs-map` のフィールド順、marker の文言）
+- **`impact --mode <nonsense>` は handoff の記述どおり** — `changed` が空だと mode の
+  match より前で早期 return し、**exit 0 で何もせず終わる**。観測には index が実際に名前を
+  持つ IR が要る。そして**これは tranche 2 で唯一 `Refused{code:2}` として出る exit-2 行**で、
+  `<usage>` を付けない。**tranche 1 の `<usage>` 置換を流用すると誤って鋳造される**
+- **tranche 1 側の穴が 2 つ見つかった**（tranche 2 ではない）: `site … --source-url` の値無しが
+  凍結されていない／`--serve` の env 依存 4 件は **`refusals.txt` に `env` 列が無いため
+  どこにも凍結されていない**
+
 #### 決める前に効く観察（leg 8）
 
 - **拒否テストはオラクルを要らない**。「不正入力を与えて exit != 0 と文言を assert する」
