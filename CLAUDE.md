@@ -334,6 +334,40 @@ redefined. What was put in its place is **3 kinds that need no external oracle**
   inconsistent" but "**the character sets being compared differ**".
   It was actually just not unescaping the `id` attribute (measured 2026-08-17)
 
+## Lean invariants
+
+**An invariant is expressed as code, and the order is fixed** (decided 2026-08-31, user's call):
+
+1. **Can a type or a constructor make it false-impossible?** Then change `src/` and write no
+   check at all. This is the best outcome and the one to reach for first.
+2. **Otherwise, is the answer closed and does the expression avoid `Md.events`?** Then a named
+   `def <theInvariant> : Bool` and a `#guard` beside it. **The def's name is the statement** —
+   `#guard` prints the name and nothing else, so a name that does not say what broke leaves a
+   failure that says nothing.
+3. **Otherwise a run-time `Invariant`** in `test/`, listed in `test/Litedoc4Test/Main.lean`.
+
+**Step 1 does not mean proving a theorem.** `by decide` is unusable across this tree — the port
+is imperative, `Id.run do` around a `while` whose `Loop.forIn` is `partial` and opaque to the
+kernel, so reduction gets stuck at the `Decidable` instance. `by native_decide` closes it by
+adding an `ofReduceBool` axiom: that is the interpreter `#guard` already runs, dressed as a
+proof. What would falsify this: implementations written structurally rather than imperatively.
+
+**What forces step 3 is one thing, and it is structural.** `#guard` evaluates in the
+interpreter, which has no `Md.events` — that symbol is `@[extern]` C linked into the executable
+and nowhere else. **The barrier is the call, not the import**: a `#guard` in a module that
+imports `Litedoc4.Md.Html` elaborates fine unless the expression actually reaches it. 16 of
+`src/`'s 53 modules are downstream of that binding; 37 are not.
+
+**Tests live under `test/`, never in `src/`.** A consumer `require`s `lean_lib Litedoc4` and
+must not compile, build or run any of this — measured both ways
+(→ `benchmarks/results/lean-test-scaffolding-2026-08-31.txt`, which also carries the two traps:
+`lake test` reaches only the **root** package's driver, and a hyphenated target is unnameable
+because `"litedoc4-test".toName` is `[anonymous]`).
+
+The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to stay that size.
+`tools/lean-test-gate.sh` is the gate; it reconciles `Invariant`s **defined** against
+`Invariant`s **run**, because one written and never listed is otherwise silent.
+
 ## Rust lints
 
 **The SoT for lint configuration is `[workspace.lints]` in the root `Cargo.toml`.** CI's
