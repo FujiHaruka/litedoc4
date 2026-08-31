@@ -1,0 +1,81 @@
+purelean — what the pure-Lean action costs on a GitHub runner
+=============================================================
+2026-08-31. `ubuntu-latest`, GitHub-hosted.
+
+WHY THIS WAS TAKEN
+------------------
+`benchmarks/results/purelean-require-only-2026-08-31.txt` measured the consumer's
+first-build cost on an Apple M1 and said, in as many words, that the runner
+figure "belongs to a runner and has not been taken yet". This is that figure.
+
+It is also the first time the Lean half has documented the real-scale target on
+Linux. Every previous end-to-end run of the Lean half was `e2e/micro` (11 source
+files); `pages.yml` publishes that. The target is 422 modules depending on all of
+Mathlib.
+
+CONDITIONS
+----------
+  repository   FujiHaruka/information-theory @ 88bc6f75, workflow `docs.yml`
+  action       FujiHaruka/litedoc4@v1.3.0   (nothing distributed as a binary;
+               Lake builds both executables from the pinned ref)
+  inputs       lib: InformationTheory, lake-build: false
+  toolchain    leanprover/lean4:v4.31.0
+  runner       ubuntu-latest, GitHub-hosted (4 vCPU / 16 GB at time of writing)
+  Mathlib      built by `leanprover/lean-action@v1` in the same job, cache hit
+               (94 s cold / 84 s warm; not part of the figures below)
+
+Two dispatches of the same workflow on the same commit. The first found no
+litedoc4 caches; the second reused the caches the first saved. Wall clock on a
+shared runner, **one run each** — see LIMITS.
+
+RESULT
+------
+                          cold (run 33360481190)   warm (run 33360762635)
+  extractor                    21.614 s built           0.001 s cached
+  litedoc4 (Lean)              42.600 s built           0.491 s built
+  docs (extract + render)      23.561 s ran             5.588 s ran
+  ------------------------------------------------------------------------
+  total                        87.846 s                 6.142 s
+
+Both runs wrote a 434-file site and deployed it. The build's own summary:
+
+  cold   path "full"         extracted 422  pagesRendered 422  rounds 1
+         extractSeconds 15.743  renderSeconds 2.369  globalSeconds 1.812
+         irReads {index 3, module 844, depMap 6, total 853}
+         globalCacheHits 0 / misses 422
+
+  warm   path "incremental"  extracted 0    pagesRendered 0    rounds 0
+         extractSeconds 0  renderSeconds 0.000044  globalSeconds 1.501
+         irReads {index 5, module 422, depMap 3, total 430}
+         globalCacheHits 422 / misses 0
+
+  both   modules 422, declarations 4584 + 527 dependency names,
+         pagesInSite 434, ledgerModules 422, ledgerBytes 139238
+
+`ledgerBytes` is identical across the two paths, which is the property the
+incremental path exists to have: a round that re-extracted nothing produced the
+same ledger as one that extracted everything.
+
+WHAT IT COSTS A CONSUMER
+------------------------
+**64.2 s, once** — the two build phases (21.6 + 42.6) that the binary
+distribution used to skip. From the second run on, the caches make it 0.5 s.
+The documenting itself (23.6 s cold, 5.6 s warm) is not new; it was paid before.
+
+Beside the M1 figures in `purelean-require-only-2026-08-31.txt` (18.1 s litedoc4
++ 25.7 s extractor, medians of 3): the runner is ~2.4x slower building the Lean
+half and slightly faster building the extractor. **Do not read that pair as a
+like-for-like ratio** — the M1 run built through a consumer's `require`, this one
+through `$GITHUB_ACTION_PATH`, and the machines differ in every axis.
+
+LIMITS
+------
+- **One run per side.** This repository's own rule is 5 or more, and a shared
+  runner is exactly where wall clock wanders. Treat 87.8 and 6.1 as single
+  observations, not converged medians.
+- **No like-for-like v1.2.0 baseline was taken.** The earlier `docs.yml` runs
+  that look comparable (33286861275, 33286423780) ran on the `purelean-ci-bench`
+  branch with a modified workflow — one of them documents nothing in 4 s. Putting
+  87.8 s next to that 4 s would be the "do not mix conditions" mistake, so no
+  before/after ratio is claimed here.
+- The Mathlib build is excluded and dominates the job either way.

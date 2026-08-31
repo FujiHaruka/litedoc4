@@ -1,0 +1,79 @@
+purelean — do the two halves refuse the same way?
+=================================================
+2026-08-31. Apple M1 (macOS 25.6.0), litedoc4 1.3.0 on both sides.
+
+WHY THIS WAS TAKEN
+------------------
+M10 deletes `crates/`, and with it `cargo test --workspace` (582 passing, 22
+ignored) — this project's definition of green. The Lean half has no tests. The
+worry recorded in the leg-7 handoff is a specific class: **entrance refusals**,
+which no end-to-end gate reaches because gates feed well-formed input.
+
+The Rust binary is the oracle and it disappears at M10, so the question had to be
+asked while both halves still exist. This is that measurement.
+
+CONDITIONS
+----------
+  rust   target/release/litedoc4       built at HEAD (fd92965), `--version` 1.3.0
+  lean   .lake/build/bin/litedoc4      `--version` 1.3.0
+Both invoked with identical argv from the same working directory, stdout and
+stderr captured separately, exit code taken WITHOUT a pipe (a pipe would report
+the last command's code — the trap this repository has stepped on twice).
+Compared: exit code, and stderr byte for byte.
+
+RESULT — 24 probes
+------------------
+  identical (exit code AND stderr, byte for byte)     21
+  same exit code, different message                    3
+  different exit code                                  0
+
+The three message differences, in full:
+
+  --root <missing>
+    rust   litedoc4: --root ./nope: No such file or directory (os error 2)
+    lean   litedoc4: --root ./nope: no such file or directory (error code: 2)
+             file: ./nope
+
+  ledger touch --ledger <malformed json>
+    rust   litedoc4: ./bad-ledger.json: key must be a string at line 1 column 3
+    lean   litedoc4: ./bad-ledger.json: an object wanted a key at 2, and found byte 98
+
+  ledger touch --ledger <missing>
+    rust   litedoc4: ./nope.json: No such file or directory (os error 2)
+    lean   litedoc4: ./nope.json: no such file or directory (error code: 2)
+             file: ./nope.json
+
+All three are the **substrate's** wording — Rust's `std::io::Error` and
+`serde_json` against Lean's `IO.Error` and its own JSON parser. litedoc4's own
+framing (`litedoc4: <subject>: <reason>`) and the subject named are the same in
+each, and the exit code is the same. None is a difference in what the program
+decided; each is a difference in what the platform calls the reason.
+
+PROBES THAT DO NOT TEST WHAT THEIR NAME SAYS — 4 of the 24
+-----------------------------------------------------------
+Recorded rather than quietly dropped, because the count above includes them and
+a reader would otherwise take them for more coverage than they are.
+
+  toml-unknown-key / toml-malformed / toml-wrong-type
+    Intended: the `litedoc4.toml` parser's refusals. Actually reached: module
+    discovery ("no E.lean and no E/ under …"), and after a module was added,
+    `git rev-parse HEAD` — `build` derives the revision before it reads the
+    config. Three spellings of two other refusals.
+  lib-missing
+    Intended: a missing `--lib`. Actually reached: "--out is inside --root".
+
+**No probe here reaches the `litedoc4.toml` parser.** That surface is covered
+instead by `tools/config-gate.sh`, which `purelean-micro-gate.sh` item 12 runs
+twice over one built site — once with each half deriving.
+
+WHAT THIS DOES AND DOES NOT SETTLE
+----------------------------------
+Settles: on 24 CLI-entrance refusals the two halves agree on the exit code
+without exception, and on the message except where the platform supplies the
+words. The refusal class the handoff feared is, so far as these probes reach,
+already matched.
+
+Does not settle: this is 24 probes chosen by hand, not the 556 `#[test]`s. It
+reaches only refusals expressible as one command line with one bad input — not
+the internal invariants, and not any refusal that needs a built Lean environment
+to provoke. Do not read it as "the test suite can go".
