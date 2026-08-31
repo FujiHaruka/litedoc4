@@ -32,6 +32,9 @@
   - r5: M5–M7 complete, M8 all but `build-gate.sh`. `1e5f0b5`..`9b34b48`
   - r6: M5's evidence retaken (3,201/3,201); M8 complete. `c7790ef` / `daa0d78`
   - r7: M9 complete on the repository side; tag `v1.3.0`. `08efc70`..`ca70fcf`
+  - r8 (cont.): the user answered **(b)**. Scaffolding built and green on Linux
+    (`12afbd2`), the rule recorded in CLAUDE.md (`c7c97ab`), `litedoc4-ir`'s 32
+    invariants in triage.
   - r8: M9 closed out and M10 costed. `fd92965` (the vite → `assets/` link becomes a gate
     stage), `88befc3` (two measurements), `673e551` (M9's leftovers settled),
     `fe8e100` (584 tests classified), `ab0516d` (135 argv refusals frozen + the 17
@@ -49,7 +52,18 @@
      `releases/` hit is elan's), so this is discoverability. **Releases cannot be retired by
      deletion**: CLAUDE.md keeps the `v0.1.0`–`v0.1.3` asset names as real external names.
 
-**1. Answer the question at the bottom.** M10 cannot be finished without it.
+**1. ~~Answer the question at the bottom.~~ Answered: (b).** The scaffolding exists and is
+   green on Linux (`tools/lean-test-gate.sh`, 4 items, each shown to fail on its own). The
+   rule is in CLAUDE.md under "Lean invariants" — **type first, `#guard` next, test last** —
+   and the mechanism constraints behind it are measured in
+   `benchmarks/results/lean-test-scaffolding-2026-08-31.txt`. Read that before choosing a
+   mechanism; it will save rediscovering that `by decide` is unusable here.
+
+**1a. The triage is the remaining work, and it is per-crate.** `litedoc4-ir` (32) is the
+   pilot. Still to do: `litedoc4-render` (110 I, and the most md4c-downstream),
+   `litedoc4` (89), `litedoc4-global` (41), `litedoc4-md` (28), `litedoc4-incr` (16).
+   `litedoc4-testutil` (37) is skipped — it tests the Rust test helpers.
+   **Then** the F bucket, **then** the fixture-requiring refusals, **then** the deletion.
 
 **2. Decision-independent work that is already done** — do not redo it:
    - `web/` is out of `crates/` and every reference moved with it.
