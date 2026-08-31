@@ -47,6 +47,19 @@ def usage : String :=
                        [--print-set <file>] [--json <file>]
        litedoc4 prune --pages <dir> [--remove <file>] [--ir <dir>] [--dry-run]
                       [--json <file>]
+       litedoc4 extract --modules <file> --ir-dir <dir> --timings <file>
+                        [--extractor-bin <path>] [--target <repo>] [--lake <path>]
+                        [--events <file>] [--jobs <n>]
+                        [--link-index <file> [--link-index-omit <file>]
+                         [--link-index-key <token>]]
+       litedoc4 incremental --ir <dir> --pages <dir> --ledger <file> --work <dir>
+                            --modules <file> --source-url <url> --link-index <file>
+                            --state <dir>
+                            (--extractor <program> [--extractor-arg <arg>]...
+                             | --serve --extractor-bin <path> --target <repo>
+                               [--lake <path>] [--jobs <n>] [--make-link-index])
+                            [--mode self|referrers|importers|all] [--max-rounds <n>]
+                            [--root <dir>] [--timings <file>]
        litedoc4 --version
        litedoc4 --help"
 
@@ -748,12 +761,11 @@ def buildRun (a : BuildArgs) (root out : String) : IO UInt32 := do
     | .error e => return ← refusedWith 3 s!"--root {root}: {e}"
     | .ok path => pure path
   let outPath ← absolutePath ⟨out⟩
-  let resolved ← resolvePath outPath
-  if isInside rootPath resolved then
-    return ← refusedWith 3 s!"--out {resolved} is inside --root {rootPath}: the package being \
-      documented is opened read-only and nothing is ever written into it — `litedoc4 extract` \
-      refuses an --ir-dir there for the same reason. Copy <out>/site into the repository \
-      afterwards if that is where the pages belong"
+  match ← (refuseInside rootPath "--root" outPath "--out" " — `litedoc4 extract` refuses an \
+      --ir-dir there for the same reason. Copy <out>/site into the repository afterwards if that \
+      is where the pages belong").run with
+  | .error (code, message) => return ← refusedWith code message
+  | .ok () => pure ()
   -- Before anything is written, and once: `lake env lean --githash` starts a
   -- process inside the target, and the digest it feeds has to be the same one on
   -- both sides of this run.
@@ -1138,6 +1150,459 @@ def ledger (args : List String) : IO UInt32 := do
           IO.eprintln s!"litedoc4: {e}"
           pure (1 : UInt32)
 
+structure IncrementalArgs where
+  ir : Option String := none
+  pages : Option String := none
+  ledger : Option String := none
+  work : Option String := none
+  modules : Option String := none
+  sourceUrl : Option String := none
+  linkIndex : Option String := none
+  makeLinkIndex : Bool := false
+  state : Option String := none
+  extractor : Option String := none
+  extractorArgs : Array String := #[]
+  mode : Option String := none
+  maxRounds : Nat := defaultMaxRounds
+  timings : Option String := none
+  serve : Bool := false
+  jobs : Nat := 1
+  jobsGiven : Bool := false
+  extractorBin : Option String := none
+  target : Option String := none
+  lake : Option String := none
+  root : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+/-- Flags the Rust `incremental` refuses by name. Every one is a real flag of
+something — an ablation, a measurement tool, a prototype's label — so what a
+caller needs to hear is why it is not offered, not that it was misspelled. -/
+def incrementalRefusal (flag : String) : Option String :=
+  if flag == "--l3-1" then
+    some "--l3-1 is not a pipeline flag: `off` was the ablation that measured L3-1's contribution \
+      and it produces a wrong site (a referring module keeps an IR naming the module a declaration \
+      used to live in). Ownership always runs"
+  else if flag == "--global" then
+    some "--global is not a pipeline flag: `old` was stage 5's two-process derivation, kept only \
+      as the control of stage 7h's A/B. The product is always the cached one, which is why \
+      --state is required"
+  else if flag == "--serve-dir" then
+    some "--serve-dir is not offered: `--serve` starts a server this run owns, and a server it \
+      does not own is one whose olean generation it cannot vouch for. Correctness comes from that \
+      generation and never from the round number — a server imported before the edit returns the \
+      pre-edit owner of every name that moved, and then no round is safe, including round 2 \
+      (measured, stage 6a)"
+  else if flag == "--serve-from" then
+    some "--serve-from is not offered: it chose which rounds a server the caller owns was allowed \
+      to answer, and stage 6a measured that the round number is not what makes a round safe. With \
+      `--serve` the server is started inside this run, so every round is served and every round \
+      is checked against the same olean generation"
+  else if flag == "--count-reads" then
+    some "--count-reads is a measurement tool, not a product flag: it wraps every stage to count \
+      IR reads and makes the timings meaningless"
+  else if flag == "--module" then
+    some "--module is not a pipeline flag: the prototype's is a label that goes straight into the \
+      timings record and is read by nothing. A harness that needs one adds it to the line it \
+      appends"
+  else if flag == "--no-link-index" then
+    some "--no-link-index is not an incremental flag: a round re-renders a subset, so a page \
+      rendered without the map is indistinguishable from one that was not re-rendered at all"
+  else none
+
+/-- Flags the Rust `incremental` takes and this one does not, refused by name for
+the reason `renderUnimplemented` is. -/
+def incrementalUnimplemented : List String :=
+  ["--deps-docs-map"]
+
+partial def parseIncremental : List String → IncrementalArgs → Except String IncrementalArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} wants a value"
+    match incrementalRefusal flag with
+    | some message => .error message
+    | none =>
+    if flag == "--ir" then do
+      let (v, more) ← value; parseIncremental more { acc with ir := some v }
+    else if flag == "--pages" then do
+      let (v, more) ← value; parseIncremental more { acc with pages := some v }
+    else if flag == "--ledger" then do
+      let (v, more) ← value; parseIncremental more { acc with ledger := some v }
+    else if flag == "--work" then do
+      let (v, more) ← value; parseIncremental more { acc with work := some v }
+    else if flag == "--modules" then do
+      let (v, more) ← value; parseIncremental more { acc with modules := some v }
+    else if flag == "--source-url" then do
+      let (v, more) ← value; parseIncremental more { acc with sourceUrl := some v }
+    else if flag == "--link-index" then do
+      let (v, more) ← value; parseIncremental more { acc with linkIndex := some v }
+    else if flag == "--make-link-index" then
+      parseIncremental rest { acc with makeLinkIndex := true }
+    else if flag == "--state" then do
+      let (v, more) ← value; parseIncremental more { acc with state := some v }
+    else if flag == "--extractor" then do
+      let (v, more) ← value; parseIncremental more { acc with extractor := some v }
+    else if flag == "--extractor-arg" then do
+      let (v, more) ← value
+      parseIncremental more { acc with extractorArgs := acc.extractorArgs.push v }
+    else if flag == "--mode" then do
+      let (v, more) ← value; parseIncremental more { acc with mode := some v }
+    else if flag == "--max-rounds" then do
+      let (v, more) ← value
+      match v.toNat? with
+      | some n => parseIncremental more { acc with maxRounds := n }
+      | none => .error s!"--max-rounds takes a number, not `{v}`"
+    else if flag == "--timings" then do
+      let (v, more) ← value; parseIncremental more { acc with timings := some v }
+    else if flag == "--serve" then
+      parseIncremental rest { acc with serve := true }
+    else if flag == "--extractor-bin" then do
+      let (v, more) ← value; parseIncremental more { acc with extractorBin := some v }
+    else if flag == "--target" then do
+      let (v, more) ← value; parseIncremental more { acc with target := some v }
+    else if flag == "--lake" then do
+      let (v, more) ← value; parseIncremental more { acc with lake := some v }
+    else if flag == "--root" then do
+      let (v, more) ← value; parseIncremental more { acc with root := some v }
+    else if flag == "--jobs" then do
+      let (v, more) ← value
+      match v.toNat? with
+      | some n => parseIncremental more { acc with jobs := n, jobsGiven := true }
+      | none => .error s!"--jobs takes a number, not `{v}`"
+    else if flag == "--help" || flag == "-h" then
+      parseIncremental rest { acc with help := true }
+    else if incrementalUnimplemented.contains flag then
+      .error s!"{flag} is an `incremental` flag this build does not implement"
+    else
+      .error s!"unknown argument `{flag}`"
+
+/-- The command line's own answers, in the order a caller meets them: what is
+missing, then what cannot be combined, then what belongs to the other extraction
+path. -/
+def incrementalUsage (a : IncrementalArgs) : Option String := Id.run do
+  for (flag, given) in [("--ir", a.ir.isSome), ("--pages", a.pages.isSome),
+      ("--ledger", a.ledger.isSome), ("--work", a.work.isSome)] do
+    if !given then return some s!"{flag} is required"
+  if a.modules.isNone then
+    return some "--modules is required: without the current module list `check` re-reads the \
+      ledger's own and cannot see a module that appeared or vanished. `litedoc4 modules` writes it"
+  match a.sourceUrl with
+  | none => return some "--source-url is required"
+  | some url =>
+    if url.isEmpty then return some "--source-url is required"
+    if let some message := checkSourceUrl url then return some message
+  if a.linkIndex.isNone then
+    return some s!"--link-index <file> is required, and there is no --no-link-index here: \
+      {linkIndexRequired}"
+  if a.state.isNone then
+    return some "--state <dir> is required: the whole-package derivation is always the cached one, \
+      and the map delta it feeds the renderer needs a cache to compare against. The previous run \
+      — full generation with `litedoc4 site --state`, or the last incremental round — is what \
+      leaves it behind"
+  if a.serve && a.extractor.isSome then
+    return some "--serve and --extractor are exclusive: one names a program to run once per \
+      round, the other says this run owns a Lean environment for all of them. `--serve` is the \
+      resident path and it uses --extractor-bin, not a wrapper"
+  if a.makeLinkIndex && !a.serve then
+    return some "--make-link-index is a flag of --serve: the dependency map is written by the \
+      Lean extractor out of the environment it imported for the extraction, and --serve is the \
+      path where this command spells that command line. Behind --extractor, the program is the \
+      one that decides — `litedoc4 extract --link-index <file>` writes it — and --link-index here \
+      names the file it wrote"
+  if !a.serve then
+    -- A list and not a chain of `if`s on the name with a fallthrough: adding a
+    -- fourth flag and forgetting the arm makes the fallthrough answer for it, so
+    -- the refusal names the new flag while the check behind it reads `--lake`.
+    for (flag, given) in [("--extractor-bin", a.extractorBin.isSome),
+        ("--target", a.target.isSome), ("--lake", a.lake.isSome)] do
+      if given then
+        return some s!"{flag} is a flag of --serve: without it the extraction is whatever \
+          --extractor names, and how that program finds its binary is its own business \
+          (`litedoc4 extract` takes {flag} through --extractor-arg)"
+    if a.jobs != 1 then
+      return some "--jobs is a flag of --serve: parallelism is the extractor's, and a resident \
+        one fixes it at start-up. Behind --extractor, pass it through with `--extractor-arg \
+        --jobs --extractor-arg <n>`"
+  if a.jobs == 0 then return some "--jobs must be at least 1"
+  if !a.serve && a.extractor.isNone then
+    return some "one of --extractor <program> and --serve is required, and neither has a default: \
+      --extractor is called as `<program> [<extractor-arg>…] --modules <list> --ir-dir <dir> \
+      --timings <file>`, which is `litedoc4 extract`'s interface; --serve starts one resident \
+      Lean environment for the whole run and needs --extractor-bin and --target"
+  -- Refused here rather than carried into `impact`, which only looks at the mode
+  -- when there is something to select: a misspelled mode with an empty changed
+  -- set would otherwise exit 0 having rendered nothing.
+  if let some text := a.mode then
+    if ImpactMode.parse text matches .unrecognised _ then
+      return some s!"--mode takes self|referrers|importers|all, not `{text}`"
+  if a.maxRounds == 0 then
+    return some "--max-rounds must be at least 1: round 1 is where deletions are folded in"
+  return none
+
+def incrementalRun (a : IncrementalArgs) : IO UInt32 := do
+  if let some message := incrementalUsage a then return ← refuse message
+  let some ir := a.ir | return ← refuse "--ir is required"
+  let some pages := a.pages | return ← refuse "--pages is required"
+  let some ledgerPath := a.ledger | return ← refuse "--ledger is required"
+  let some work := a.work | return ← refuse "--work is required"
+  let some modulesFile := a.modules | return ← refuse "--modules is required"
+  let some sourceUrl := a.sourceUrl | return ← refuse "--source-url is required"
+  let some linkIndex := a.linkIndex | return ← refuse "--link-index is required"
+  let some state := a.state | return ← refuse "--state is required"
+  let moduleList ← readModuleList ⟨modulesFile⟩
+  -- Once, before anything else runs: the same value `detect` hashes into the
+  -- render key and the render step draws with.
+  let external ← resolveExternal a.root a.lake
+  -- **Built before the run starts, so the generation is the world `detect` is
+  -- about to look at.** `Resident.new` starts nothing; it records the oleans, and
+  -- every later check is against this one reading.
+  let opened ← (show BuildM Extractor from do
+    match a.extractor with
+    | some program =>
+      pure (Extractor.oneShot
+        { program, args := a.extractorArgs, requestCount := ← IO.mkRef 0 })
+    | none =>
+      pure (Extractor.resident (← Resident.new (← serveOptions
+        { bin := a.extractorBin.map (⟨·⟩), target := a.target.map (⟨·⟩)
+          lake := a.lake.map (⟨·⟩), jobs := a.jobs, modulesFile := ⟨modulesFile⟩
+          modules := moduleList, work := ⟨work⟩
+          linkIndex := if a.makeLinkIndex then some ⟨linkIndex⟩ else none })))).run
+  let extractor ← match opened with
+    | .error (code, message) => return ← (if code == 2 then refuse message
+                                          else refusedWith code message)
+    | .ok extractor => pure extractor
+  let config ← readSiteConfig (a.root.map (⟨·⟩))
+  let outcome ← (runIncremental
+    { config, ir := ⟨ir⟩, pages := ⟨pages⟩, ledger := ⟨ledgerPath⟩, work := ⟨work⟩
+      modules := moduleList, sourceUrl, linkIndex := ⟨linkIndex⟩, external, state := ⟨state⟩
+      mode := (a.mode.map ImpactMode.parse).getD defaultMode
+      maxRounds := a.maxRounds } extractor).run
+  -- Not a `←` on the call above: the release has to happen on the failing path
+  -- too, and doing it here is what puts the stop **before** the error reaches the
+  -- caller rather than after.
+  extractor.release
+  match outcome with
+  | .error (code, message) => if code == 2 then refuse message else refusedWith code message
+  | .ok run =>
+    if let some path := a.timings then
+      let ran := match extractor with
+        | .resident r => Ran.resident a.jobs r.generation.digest
+        | .oneShot _ => Ran.oneShot
+      writeTimings ⟨path⟩ ⟨work⟩ run.summary run.timings ran
+    return 0
+
+/-- The pipeline: a ledger in, a re-rendered subset of the site out.
+
+**It does not rewrite the ledger** — a stage that answers a question must not
+move the state its answer was about. A chain of bare `incremental` runs therefore
+needs `litedoc4 ledger build` between them, or the second run re-extracts the
+first run's changed set again: wasteful, not wrong. -/
+def incremental (args : List String) : IO UInt32 := do
+  match parseIncremental args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    try
+      incrementalRun a
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      pure (1 : UInt32)
+
+structure ExtractArgs where
+  modules : Option String := none
+  irDir : Option String := none
+  timings : Option String := none
+  events : Option String := none
+  linkIndex : Option String := none
+  linkIndexOmit : Option String := none
+  linkIndexKey : Option String := none
+  jobs : Nat := 1
+  bin : Option String := none
+  target : Option String := none
+  lake : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+/-- Flags of the program behind this one, refused by name rather than as "unknown
+argument": each is real, so what a caller needs to hear is why it is not offered
+here. -/
+def extractRefusal (flag : String) : Option String :=
+  if flag == "--serve" || flag == "--serve-dir" || flag == "--serve-from" then
+    some s!"{flag} is not an `extract` flag: residency is `litedoc4 incremental --serve`. A server \
+      that answers one request and stops is this command with a protocol in front of it — the \
+      environment is still imported once per extraction — so the only caller it can pay off for \
+      is the round loop, which owns the server for the whole run. `--serve-dir` is not offered \
+      anywhere: a server this process did not start is one whose olean generation it cannot vouch \
+      for, and that is where correctness comes from (measured)"
+  else if fixedFlags.contains flag then
+    some s!"{flag} is not a flag here: it is always on. Those four are what \"IR schema 5\" means, \
+      and an IR written without one of them parses and renders wrongly rather than failing"
+  else if ["--no-attrs", "--no-inst-index", "--no-member-extra"].contains flag then
+    some s!"{flag} is an ablation, not a product flag: it subtracts one of three extractor \
+      additions so its cost can be measured, and the resulting index.json carries an `ablations` \
+      list precisely because the tree is not renderable"
+  else if ["--decl-profile", "--pp-breakdown", "--dump", "--dump-modules", "--dump-refs",
+      "--dump-tactics", "--only", "--open", "--tag", "--skip-analyze", "--tactics-emulate",
+      "--tactics-probe"].contains flag then
+    some s!"{flag} is a measurement or inspection flag of the extractor, not a product one. Run \
+      `extractor/build/extract` directly for it — the command line is in `Extract.lean`'s header"
+  else none
+
+partial def parseExtract : List String → ExtractArgs → Except String ExtractArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} wants a value"
+    match extractRefusal flag with
+    | some message => .error message
+    | none =>
+    if flag == "--modules" then do
+      let (v, more) ← value; parseExtract more { acc with modules := some v }
+    else if flag == "--ir-dir" then do
+      let (v, more) ← value; parseExtract more { acc with irDir := some v }
+    else if flag == "--timings" then do
+      let (v, more) ← value; parseExtract more { acc with timings := some v }
+    else if flag == "--events" then do
+      let (v, more) ← value; parseExtract more { acc with events := some v }
+    else if flag == "--link-index" then do
+      let (v, more) ← value; parseExtract more { acc with linkIndex := some v }
+    else if flag == "--link-index-omit" then do
+      let (v, more) ← value; parseExtract more { acc with linkIndexOmit := some v }
+    else if flag == "--link-index-key" then do
+      let (v, more) ← value; parseExtract more { acc with linkIndexKey := some v }
+    else if flag == "--extractor-bin" then do
+      let (v, more) ← value; parseExtract more { acc with bin := some v }
+    else if flag == "--target" then do
+      let (v, more) ← value; parseExtract more { acc with target := some v }
+    else if flag == "--lake" then do
+      let (v, more) ← value; parseExtract more { acc with lake := some v }
+    else if flag == "--jobs" then do
+      let (v, more) ← value
+      match v.toNat? with
+      | some n => parseExtract more { acc with jobs := n }
+      | none => .error s!"--jobs takes a number, not `{v}`"
+    else if flag == "--help" || flag == "-h" then
+      parseExtract rest { acc with help := true }
+    else
+      .error s!"unknown argument `{flag}`"
+
+/-- One extractor process over a module list, and its phase timers folded into
+one JSON object.
+
+**A subcommand and not a library call**, unlike every other stage: `litedoc4
+incremental --extractor` already names a *program*, whose contract is `<program>
+[<extractor-arg>…] --modules <list> --ir-dir <dir> --timings <file>`, and this
+lets the product be its own extractor without closing that seam. The Lean
+extractor cannot be linked in either: it is 171 MB, built against the *target's*
+toolchain, and it has to run with that target as its working directory, so a
+process boundary exists whatever this command does. -/
+def extractRun (a : ExtractArgs) : BuildM Unit := do
+  let some modules := a.modules
+    | throw (2, "--modules <file> is required: the module list to extract, one name per line")
+  let some irDir := a.irDir
+    | throw (2, "--ir-dir <dir> is required and has no default: an IR tree written somewhere the \
+        caller did not name is worse than none")
+  let some timings := a.timings
+    | throw (2, "--timings <file> is required: it is the extractor's phase timers folded into one \
+        JSON object, and `litedoc4 incremental` merges it into the run's record")
+  if a.jobs == 0 then throw (2, "--jobs must be at least 1")
+  -- Refused rather than ignored, although the extractor itself tolerates the
+  -- combination: a flag that does nothing is the shape of bug this project keeps
+  -- finding — the run looks right and the artefact is not the one that was asked
+  -- for.
+  if a.linkIndexOmit.isSome && a.linkIndex.isNone then
+    throw (2, "--link-index-omit without --link-index does nothing: it names the modules whose \
+      declaration groups are left out of the map, and no map is being written")
+  if a.linkIndexKey.isSome && a.linkIndex.isNone then
+    throw (2, "--link-index-key without --link-index does nothing: it is the token that lets the \
+      extractor leave an already-correct map alone, and no map is being written or read")
+  let some bin ← envOr (a.bin.map (⟨·⟩)) "EXTRACT_BIN"
+    | throw (2, "--extractor-bin <path> is required (or EXTRACT_BIN): the Lean extractor built by \
+        `extractor/build.sh`, which is 171 MB and is therefore not committed. There is no \
+        default — the binary is built against the target's toolchain, so a path baked in here \
+        would be right on exactly one machine")
+  let some target ← envOr (a.target.map (⟨·⟩)) "TARGET_REPO"
+    | throw (2, "--target <repo> is required (or TARGET_REPO): the Lean package being documented. \
+        `lake env` runs inside it, which is how the extractor gets the oleans and the search path \
+        without litedoc4 owning a toolchain")
+  -- `lake` does get a default because it is a name looked up on PATH, not a
+  -- path: elan installs a shim under that name, and the shim is what picks the
+  -- toolchain the target pins.
+  let lake := (← envOr (a.lake.map (⟨·⟩)) "LAKE").getD ⟨"lake"⟩
+  let target ← match ← (IO.FS.realPath target).toBaseIO with
+    | .error e => throw (3, s!"--target {target}: {e}")
+    | .ok path => pure path
+  let bin ← absolutePath bin
+  refuseInside target "--target" ⟨irDir⟩ "--ir-dir" ""
+  if let some path := a.linkIndex then
+    refuseInside target "--target" ⟨path⟩ "--link-index" ""
+  -- **Every path handed to the child is made absolute first, and the guard above
+  -- is why** (measured 2026-08-15). `lake env` runs inside the target, so a
+  -- relative path on that command line resolves against the package being
+  -- documented: the guard passes (the path resolves against *this* process's
+  -- directory) and the extractor then writes the IR tree inside the target.
+  let irDir ← absolutePath ⟨irDir⟩
+  let modulesPath ← absolutePath ⟨modules⟩
+  let events ← absolutePath
+    ((a.events.map (⟨·⟩ : String → System.FilePath)).getD (eventsBeside ⟨timings⟩))
+  -- Removed rather than truncated on open: the extractor appends, so a stale
+  -- file from an earlier round would be folded into this round's timings.
+  discard <| (IO.FS.removeFile events).toBaseIO
+  IO.FS.createDirAll irDir
+  let mut args := #["env", bin.toString, modulesPath.toString, events.toString]
+  args := args ++ fixedFlags
+  args := args ++ #["--jobs", toString a.jobs, "--ir-dir", irDir.toString]
+  if let some path := a.linkIndex then
+    let path ← absolutePath ⟨path⟩
+    if let some dir := path.parent then
+      if !dir.toString.isEmpty then IO.FS.createDirAll dir
+    args := args.push "--link-index" |>.push path.toString
+    -- Made absolute for the reason above, but **not** guarded against being
+    -- inside the target: the difference is the direction of the I/O. The map is
+    -- written; this one is read, and a module list that lives inside the package
+    -- being documented is an odd place to keep it, not a write into it.
+    if let some omitList := a.linkIndexOmit then
+      args := args.push "--link-index-omit" |>.push (← absolutePath ⟨omitList⟩).toString
+    if let some key := a.linkIndexKey then
+      args := args.push "--link-index-key" |>.push key
+  -- The extractor's stdout is a human-readable phase report; the
+  -- machine-readable copy of the same numbers is the events file, which is what
+  -- the timings are folded from. stderr is inherited, so a Lean error still
+  -- reaches the caller.
+  let child ← match ← (IO.Process.spawn
+      { cmd := lake.toString, cwd := some target, args
+        stdin := .inherit, stdout := .null, stderr := .inherit }).toBaseIO with
+    | .error e => throw (4, s!"{lake} env {bin}: {e}")
+    | .ok child => pure child
+  let code ← child.wait
+  if code != 0 then
+    throw (4, s!"the extractor exited {code} for {modulesPath}; the IR tree at {irDir} is \
+      incomplete")
+  let counted ← foldTimings { events, modules := modulesPath, jobs := a.jobs, out := ⟨timings⟩ }
+  IO.println s!"extract {counted} module(s) -> {irDir} (timings {timings})"
+
+def extract (args : List String) : IO UInt32 := do
+  match parseExtract args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    try
+      match ← (extractRun a).run with
+      | .ok () => pure (0 : UInt32)
+      | .error (code, message) => if code == 2 then refuse message else refusedWith code message
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      pure (1 : UInt32)
+
 end Litedoc4
 
 def main (args : List String) : IO UInt32 := do
@@ -1155,6 +1620,8 @@ def main (args : List String) : IO UInt32 := do
   | "merge" :: rest => Litedoc4.mergeCmd rest
   | "impact" :: rest => Litedoc4.impactCmd rest
   | "prune" :: rest => Litedoc4.pruneCmd rest
+  | "incremental" :: rest => Litedoc4.incremental rest
+  | "extract" :: rest => Litedoc4.extract rest
   | [] | "--help" :: _ | "-h" :: _ =>
     IO.println Litedoc4.usage
     return 0

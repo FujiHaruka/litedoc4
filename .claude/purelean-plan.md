@@ -434,9 +434,9 @@ Lean 側が同じバイトを出すには**同じ `--pages` が要る**。今は
 | U7 | `prune` | `incr/prune.rs` (518) | **済み 2026-08-31** |
 | U8 | `ModuleSet` + `--only` / `--only-from` | `render/site.rs` | **済み 2026-08-31** |
 | U9 | global の delta（`--before` / `--print-set` / `--delta-json`） | `global/delta.rs` | **済み 2026-08-31**（`global` サブコマンドごと） |
-| U10 | `Resident`: **遅延起動** / リクエスト数 / 冪等な stop / `foldTimings` | `resident.rs`, `extract.rs` | 今は単発 |
-| U11 | `incremental` パイプライン本体 | `pipeline.rs` (1,534) | **ゼロから**。`tests/incremental.rs` の 61 分岐が点検表 |
-| U12 | `planOf` の検査 4〜9 + `incrementalGeneration` | `build.rs` | U11 の後なら小 |
+| U10 | `Resident`: **遅延起動** / リクエスト数 / 冪等な stop / `foldTimings` | `resident.rs`, `extract.rs` | **済み 2026-08-31**（`litedoc4 extract` ごと） |
+| U11 | `incremental` パイプライン本体 | `pipeline.rs` (1,534) | **済み 2026-08-31** |
+| U12 | `planOf` の検査 4〜9 + `incrementalGeneration` | `build.rs` | **済み 2026-08-31** |
 | U13 | ゲート配線（4 本に `LITEDOC4`、micro ゲートを 14 → 16） | — | **4 本は済み**（`62bab9b`）。**項目 15（`--only-from`）と項目 12 の 2 つ目の綴りも済み 2026-08-31** |
 
 **`ownership` の bimodality の正体**（実測）: `lostOwners` も `gainedOwners` も空なら
@@ -623,6 +623,58 @@ marker（**壊れた run** が残したもの。Lean は既に `.malformed` を�
 `<out>/ir/**`（**古い litedoc4** が書いた木を CI キャッシュが戻す）/
 `name-map.json` を `--before` として。**どれもファイル名を言って止まる必要があり、
 既定値を返して続けてはいけない**。
+
+#### U10 / U11 / U12 で分かったこと（2026-08-31）
+
+`incremental-compare.sh` が **2 本とも `IDENTICAL`（3,145/3,145、うち 8 は時計と出力ルートを
+マスクしてから一致）**: Lean-product 対 Rust-product、および Lean-product 対 Lean-resident。
+7 シナリオの `<s>-sitecheck.txt` は 8 本とも `identical`（base サイトは `ref-site` と 431 ファイル
+一致、各シナリオの木はその IR を丸ごと描いた木と一致）。比較器は先に落とした —
+`nochange-counts.json` の `pagesRendered` 422→421 と、マージ済みモジュール 1 バイトの反転で
+`DIFFERENT`（2 files differing、両方とも名指し）、戻して `IDENTICAL`。
+`ledger` / `merge` / `impact` の 3 本も取り直して `IDENTICAL`（66 / 3,961 / 3,556）。
+
+- **`litedoc4 extract` が U 表に無いのに要る**（実測）。`incremental-reference.sh --extractor
+  product` は `$LITEDOC4 extract` を `--extractor` に渡すので、**これが無いと Lean 側の
+  product 記録が取れない**。`extract.rs` の共有部（`foldTimings` / `eventsBeside` /
+  `refuseInside` / `fixedFlags`）は `Incr/Resident.lean` に、サブコマンド本体は `Main.lean` に
+  置いた。同じ入力で Rust の `extract` と突き合わせると **IR 木はバイト一致**、timings は
+  **キーの順序も値も一致（違うのは持続時間だけ）**
+- **遅延起動は「ガードがある」ではなく計測した**（→
+  `benchmarks/results/purelean-lazy-serve-2026-08-31.txt`）。`--extractor-bin` に自分の pid を
+  書いてから本物を exec するラッパを渡し、対象リポジトリで数えた:
+  **`nochange` は抽出器プロセス 0 個 / 5.7 s**、**`self-one` は 1 個 / 23.4 s**（うち抽出だけで
+  14.9〜17.4 s）。**両方とも timings に `"serve": true` と出る** — これは
+  「resident の経路を選んだ」であって「プロセスが在る」ではない。**後者と読むと
+  遅延起動が未検証のまま通る**
+- **`irReads` の `{10, 46, 4, 60}` は `ledger touch` の値ではない**（実測）。e2e/micro で
+  touch 経由の 1 モジュール編集は **`{10, 35, 4, 49}`** で、**Rust バイナリを同じ手順で回すと
+  同じ値を出し、marker はバイト一致**する。差の 11 は `ownership` の走査（`watching` が真に
+  なるのは名前が動いたときだけ）と `global` のキャッシュミス 1 件で、**本物のソース編集の値**。
+  full の `{3, 22, 4, 29}` と「何も stale でない」`{5, 11, 2, 18}` は表のまま一致
+- **`--timings` のレコードで Rust と違うのは入れ子の `global` が無いことだけ**。キーの並びも
+  他の値も一致し、比較器が蒸留する 8 キーは同値。Lean の `global` は `--timings` を
+  `globalUnimplemented` に持つ（M7）ので、**ここだけ空いている**
+- **`onemod-gate.sh` は Lean の run で緑**（e2e/micro、`build` を full → `ledger touch` →
+  `build`）: `modules 11 / extracted 1 / rendered 1 / irReads.module 35`、`linkIndex … reused`。
+  先に 2 通り（marker の `pagesRendered` を 11 に / `serve.out` から `linkIndex` 行を落とす）で
+  落としてから通した。**`build` の 1 モジュール編集は `--extractor-bin` が要る**ので、
+  再現するときは `e2e/micro/.lake/e2e-extract/extract` を渡す
+- **構成できていない窓が 2 つ**: `--max-rounds` 超過の exit 5 は、7 シナリオが 1 つも stale
+  モジュールを出さないので届かない（`stale 0` が 7/7）。`Server.stop` は Rust が 10 秒
+  ポーリングしてから signal するところを **`wait` で塞いでいる**ので、
+  「the server had to be signalled」の枝は Lean 側に存在しない
+- **`Incr/` の既存 5 本・`Ledger.lean`・`Global/` は 1 バイトも触っていない**（`git diff` で確認）。
+  移したのは `Build.lean` にあった `printRenderSummary` / `printGlobalSummary` /
+  `checkSourceUrl` / `envOr` と、`Serve` 一式（→ `Incr/Resident.lean`）だけ
+- **`refuseInside` に寄せた**。`--out` ⊂ `--root` / `--ir-dir` ⊂ target / `--link-index` ⊂ target の
+  3 か所が別々に同じ文を持っていた。`--extractor-bin` が「ファイルであること」の検査も
+  `Resident.new` の 1 か所にした（Rust と同じ位置）
+- **`ExceptT ε IO α` は `IO (Except ε α)` と定義上同じ**なので、`checkLedger` / `merge` /
+  `prune` / `impact`（どれも拒否が `UInt32 × String`）は `let x ← f …` がそのまま伝播になる。
+  `match ← f … with | .error …` と書くと**スクルティニが `α` に解決されて型エラー**になる
+- **`incremental` にはまだゲートが無い**（U13 の残り）。緑を保っているのは比較器 2 本と
+  手で回す `onemod-gate.sh` だけで、**M9 で Rust オラクルが消えると比較器の側が消える**
 
 ### M6 watch と HTTP サーバ（`Std.Async.TCP`）
 - **完了判定**: `watch-gate.sh` が Lean 実装で緑

@@ -1,0 +1,52 @@
+purelean M5 — does the Lean incremental path start a Lean environment it does not need?
+=======================================================================================
+2026-08-31. The answer an incremental build gives most often is "nothing is
+stale". The Rust half starts its resident extractor at the **first extraction
+request** rather than at the start of the run, so that answer costs no import;
+the Lean half had only a full path and always started one. This is the
+measurement that says the port carried the laziness, rather than the argument
+that it has a guard.
+
+Conditions
+----------
+  machine     MacBookAir10,1 (Apple M1), 16 GB, Darwin 25.6.0
+  Lean        leanprover/lean4:v4.31.0, `lean_exe litedoc4` built from `src/`
+              through `cd e2e/consumer && lake build litedoc4/litedoc4`
+  target      /Users/haruka/dev/lean-projects at 16ff7a40, 422 modules in the
+              IR, 432 in the frozen module list (-> target-drift-2026-08-31.txt)
+  extractor   extractor/build/extract, behind a wrapper that appends its own pid
+              to a log and then `exec`s the real one
+  command     litedoc4 incremental --serve --extractor-bin <wrapper>
+                --target <target> --jobs 4 --mode self  (plus --ir --pages
+                --ledger --work --state --modules --source-url --link-index)
+  fixtures    the two scenarios `tools/incremental-reference.sh` builds:
+              `nochange` (a re-run with nothing invalidated) and `self-one`
+              (one module invalidated with `ledger touch`, the honest fake —
+              the target itself is never written to)
+
+Results
+-------
+  scenario     extractor processes started   extractSeconds   totalSeconds
+  nochange                    0                    0.000            5.7
+  self-one                    1                   14.9–17.4         23.4
+
+The process count is the answer; the durations are shown because they are the
+consequence and because they rule out the reading "it started one and was fast".
+`self-one`'s extraction alone is longer than the whole of `nochange`, and
+`nochange`'s 5.7 s is accounted for by detect (2.3 s, hashing 432 oleans),
+global (1.4 s), impact (0.4 s) and render (1.5 s) with no room for an import of
+6,011 modules.
+
+Both runs report `"serve": true` in their timings record, and **that is not the
+same claim**: it says the resident path was selected, not that a process exists.
+Reading it as the latter is what makes a lazy start look untested.
+
+Corroboration from the recordings
+---------------------------------
+`tools/incremental-reference.sh --extractor resident` over all seven scenarios:
+three of them (`nochange`, `renderall`, `removed-one`) leave no extraction round
+at all, and those are exactly the three whose round loop never asks for a module.
+
+What would falsify the conclusion: a run that finds nothing stale and still
+pays an import — visible as a non-zero process count here, and as a `nochange`
+whose total approaches `self-one`'s.
