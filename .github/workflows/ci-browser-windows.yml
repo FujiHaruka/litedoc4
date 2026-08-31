@@ -55,6 +55,9 @@ jobs:
       - name: Build the CLI
         run: cargo build --bin litedoc4
 
+      - name: Build the Lean CLI
+        run: tools/build-lean-exe.sh --toolchain-from e2e/micro
+
       - name: End to end
         run: tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
 
