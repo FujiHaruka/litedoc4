@@ -10,3 +10,4 @@ import Litedoc4.Packages
 import Litedoc4.Render.Site
 import Litedoc4.Sha256
 import Litedoc4.Version
+import Litedoc4.Watch

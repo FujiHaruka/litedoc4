@@ -15,6 +15,9 @@ def usage : String :=
 "usage: litedoc4 build --root <repo> --out <dir> --extractor-bin <path>
                       [--lib <Name>] [--source-url <url>] [--lake <path>]
                       [--jobs <n>] [--full]
+       litedoc4 watch --root <repo> --out <dir> --extractor-bin <path>
+                      [--lib <Name>] [--source-url <url>] [--lake <path>]
+                      [--jobs <n>] [--port <n>] [--interval <ms>]
        litedoc4 modules --root <repo> [--lib <Name>] [--out <file>]
        litedoc4 render --ir <dir> --pages <dir> --source-url <url>
                        (--link-index <file> | --no-link-index)
@@ -707,6 +710,11 @@ structure BuildArgs where
   lake : Option String := none
   jobs : Nat := 1
   full : Bool := false
+  /-- `watch`'s own two, as text, so that the refusal for `--port banana` is
+  written next to what a port means. Never filled in for `build`, which refuses
+  them by name. -/
+  port : Option String := none
+  interval : Option String := none
   help : Bool := false
   deriving Inhabited
 
@@ -720,7 +728,16 @@ def buildUnimplemented : List String :=
   ["--mode", "--max-rounds", "--timings", "--extractor", "--extractor-arg",
    "--deps-docs-url", "--deps-docs-index", "--link-index"]
 
-partial def parseBuild : List String → BuildArgs → Except String BuildArgs
+/-- The command line of `build` — **and of `watch`**, which is the same request
+asked over and over.
+
+One parser, not two: a second would be a second place for `--out` to mean
+something, and the first thing to drift would be one of the by-name refusals
+below, which are the part a caller reads only when they are already confused.
+`watching` decides which of the three flags that belong to exactly one of the two
+commands is the one being refused. -/
+partial def parseBuild (watching : Bool) :
+    List String → BuildArgs → Except String BuildArgs
   | [], acc => .ok acc
   | flag :: rest, acc =>
     let value : Except String (String × List String) :=
@@ -728,73 +745,123 @@ partial def parseBuild : List String → BuildArgs → Except String BuildArgs
       | v :: more => .ok (v, more)
       | [] => .error s!"{flag} wants a value"
     if flag == "--root" then do
-      let (v, more) ← value; parseBuild more { acc with root := some v }
+      let (v, more) ← value; parseBuild watching more { acc with root := some v }
     else if flag == "--out" then do
-      let (v, more) ← value; parseBuild more { acc with out := some v }
+      let (v, more) ← value; parseBuild watching more { acc with out := some v }
     else if flag == "--lib" then do
-      let (v, more) ← value; parseBuild more { acc with libs := acc.libs.push v }
+      let (v, more) ← value; parseBuild watching more { acc with libs := acc.libs.push v }
     else if flag == "--source-url" then do
-      let (v, more) ← value; parseBuild more { acc with sourceUrl := some v }
+      let (v, more) ← value; parseBuild watching more { acc with sourceUrl := some v }
     else if flag == "--extractor-bin" then do
-      let (v, more) ← value; parseBuild more { acc with extractorBin := some v }
+      let (v, more) ← value; parseBuild watching more { acc with extractorBin := some v }
     else if flag == "--lake" then do
-      let (v, more) ← value; parseBuild more { acc with lake := some v }
+      let (v, more) ← value; parseBuild watching more { acc with lake := some v }
     else if flag == "--jobs" then do
       let (v, more) ← value
       match v.toNat? with
       | some n => if n == 0 then .error "--jobs must be at least 1"
-                  else parseBuild more { acc with jobs := n }
+                  else parseBuild watching more { acc with jobs := n }
       | none => .error s!"--jobs takes a number, not `{v}`"
+    else if flag == "--port" then do
+      let (v, more) ← value
+      if watching then parseBuild watching more { acc with port := some v }
+      else .error "--port is a `watch` flag: `build` writes a site and exits, so there is nothing \
+        left running to serve it. `litedoc4 watch --root … --out … --port <n>` is the one that \
+        serves"
+    else if flag == "--interval" then do
+      let (v, more) ← value
+      if watching then parseBuild watching more { acc with interval := some v }
+      else .error "--interval is a `watch` flag: it is how often the loop asks the ledger, and \
+        `build` asks once"
     else if flag == "--full" then
-      parseBuild rest { acc with full := true }
+      if watching then
+        .error "--full is not a `watch` flag: it means \"regenerate everything, ignoring what is \
+          under --out\", and a loop that did that every pass would never do anything else. Run \
+          `litedoc4 build --full` once, then start watching"
+      else parseBuild watching rest { acc with full := true }
     else if flag == "--help" || flag == "-h" then
-      parseBuild rest { acc with help := true }
+      parseBuild watching rest { acc with help := true }
     else if buildUnimplemented.contains flag then
-      .error s!"{flag} is a `build` flag this build does not implement"
+      .error s!"{flag} is a `{if watching then "watch" else "build"}` flag this build does not \
+        implement"
     else
       .error s!"unknown argument `{flag}`"
 
-def buildRun (a : BuildArgs) (root out : String) : IO UInt32 := do
+/-- One request, for the two commands that ask it: `build` once and `watch` over
+and over. Resolved in one place because the two would otherwise be two places for
+`--out` to be canonicalised and for the external-link digest to be taken. -/
+def buildRequestOf (a : BuildArgs) (root out : String) : BuildM BuildRequest := do
   -- Canonicalised **before** anything is compared against it: `--out` under a
   -- symlinked `--root` is still under `--root`.
   let rootPath ← match ← (IO.FS.realPath ⟨root⟩).toBaseIO with
-    | .error e => return ← refusedWith 3 s!"--root {root}: {e}"
+    | .error e => throw (3, s!"--root {root}: {e}")
     | .ok path => pure path
   let outPath ← absolutePath ⟨out⟩
-  match ← (refuseInside rootPath "--root" outPath "--out" " — `litedoc4 extract` refuses an \
-      --ir-dir there for the same reason. Copy <out>/site into the repository afterwards if that \
-      is where the pages belong").run with
-  | .error (code, message) => return ← refusedWith code message
-  | .ok () => pure ()
+  refuseInside rootPath "--root" outPath "--out" " — `litedoc4 extract` refuses an --ir-dir there \
+    for the same reason. Copy <out>/site into the repository afterwards if that is where the \
+    pages belong"
   -- Before anything is written, and once: `lake env lean --githash` starts a
   -- process inside the target, and the digest it feeds has to be the same one on
   -- both sides of this run.
   let external ← resolveExternal (some rootPath.toString) a.lake
-  let request : BuildRequest :=
-    { root := rootPath, layout := layoutOf outPath, libs := a.libs, external
-      sourceUrl := a.sourceUrl, extractorBin := a.extractorBin.map (⟨·⟩)
-      lake := a.lake.map (⟨·⟩), jobs := a.jobs, full := a.full }
-  match ← (runBuild request).run with
+  return { root := rootPath, layout := layoutOf outPath, libs := a.libs, external
+           sourceUrl := a.sourceUrl, extractorBin := a.extractorBin.map (⟨·⟩)
+           lake := a.lake.map (⟨·⟩), jobs := a.jobs, full := a.full }
+
+def answered (code : UInt32) (message : String) : IO UInt32 :=
+  if code == 2 then refuse message else refusedWith code message
+
+def buildRun (a : BuildArgs) (root out : String) : IO UInt32 := do
+  match ← (do discard <| runBuild (← buildRequestOf a root out)).run with
   | .ok () => return 0
-  | .error (code, message) =>
-    if code == 2 then refuse message
-    else refusedWith code message
+  | .error (code, message) => answered code message
+
+def rootRequired : String := "--root <repo> is required: the Lean package to document"
+
+def outRequired : String :=
+  "--out <dir> is required and has no default: it is where the site, the IR, the cache and the \
+    ledger go. The obvious default would be <root>/.lake/build/doc, which is doc-gen4's own \
+    output tree — a default that overwrites another tool's output is a data-loss bug with a \
+    friendly face"
 
 def build (args : List String) : IO UInt32 := do
-  match parseBuild args {} with
+  match parseBuild false args {} with
   | .error message => refuse message
   | .ok a =>
     if a.help then
       IO.println usage
       return 0
-    let some root := a.root | refuse "--root <repo> is required: the Lean package to document"
-    let some out := a.out
-      | refuse "--out <dir> is required and has no default: it is where the site, the IR, the \
-          cache and the ledger go. The obvious default would be <root>/.lake/build/doc, which is \
-          doc-gen4's own output tree — a default that overwrites another tool's output is a \
-          data-loss bug with a friendly face"
+    let some root := a.root | refuse rootRequired
+    let some out := a.out | refuse outRequired
     try
       buildRun a root out
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      pure (1 : UInt32)
+
+/-- The same request as `build`, asked every `--interval` ms, with a file server
+on `--port` for what it writes. -/
+def watch (args : List String) : IO UInt32 := do
+  match parseBuild true args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    let some root := a.root | refuse rootRequired
+    let some out := a.out | refuse outRequired
+    -- Both refusals before the first `lake`: a usage error that arrives after a
+    -- subprocess has run is one the caller waited for.
+    let port ← match parsePort a.port with
+      | .error message => return ← refuse message
+      | .ok port => pure port
+    let interval ← match parseInterval a.interval with
+      | .error message => return ← refuse message
+      | .ok interval => pure interval
+    try
+      match ← (do watchRun (← buildRequestOf a root out) port interval).run with
+      | .ok () => return 0
+      | .error (code, message) => answered code message
     catch e =>
       IO.eprintln s!"litedoc4: {e}"
       pure (1 : UInt32)
@@ -1611,6 +1678,7 @@ def main (args : List String) : IO UInt32 := do
     IO.println s!"litedoc4 {Litedoc4.version}"
     return 0
   | "build" :: rest => Litedoc4.build rest
+  | "watch" :: rest => Litedoc4.watch rest
   | "modules" :: rest => Litedoc4.modules rest
   | "render" :: rest => Litedoc4.render rest
   | "ledger" :: rest => Litedoc4.ledger rest

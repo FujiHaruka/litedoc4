@@ -375,6 +375,16 @@ def planOf (r : BuildRequest) (libs : Array String) : BuildM Plan := do
       return .full "the IR under --out is not one this version reads"
     return .incremental
 
+/-- What one call to `runBuild` did, for a caller that makes many of them
+(`watch`). The clock is the one field a gate may not assert on — this workload's
+wall clock moves 5× with the page cache. -/
+structure BuildRan where
+  what : String
+  modulesExtracted : Nat
+  pagesRendered : Nat
+  extractorRequests : Nat
+  nanos : Nat
+
 /-- What one path left behind, for the half of the run both paths share. -/
 structure Done where
   what : String
@@ -469,7 +479,7 @@ def incrementalGeneration (r : BuildRequest) (config : SiteConfig) (modules : Ar
            summariesEchoingTheName := run.summary.summariesEchoingTheName
            detected := run.detected }
 
-def runBuild (r : BuildRequest) : BuildM Unit := do
+def runBuild (r : BuildRequest) : BuildM BuildRan := do
   let started ← IO.monoNanosNow
   -- The counters are the *process's*, and this command is one run per process —
   -- so this changes nothing today and says what `work.irReads` means tomorrow.
@@ -562,7 +572,10 @@ def runBuild (r : BuildRequest) : BuildM Unit := do
       irReads := ← irReads }
   IO.println (work.line modules.size)
   writeFile layout.marker (markerJson r.root.toString libs sourceUrl modules.size (some work))
-  IO.println s!"build   {done.what} in {seconds ((← IO.monoNanosNow) - started) 4} s -> \
-    {layout.site}"
+  let total := (← IO.monoNanosNow) - started
+  IO.println s!"build   {done.what} in {seconds total 4} s -> {layout.site}"
+  return { what := done.what, modulesExtracted := work.modulesExtracted
+           pagesRendered := work.pagesRendered, extractorRequests := work.extractorRequests
+           nanos := total }
 
 end Litedoc4

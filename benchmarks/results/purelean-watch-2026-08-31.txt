@@ -1,0 +1,156 @@
+M6 — what one `litedoc4 watch` pass costs, both halves
+======================================================
+2026-08-31. The Lean half of `watch` and `httpd` (src/Litedoc4/Watch.lean,
+src/Litedoc4/Httpd.lean) against crates/litedoc4/src/{watch,httpd}.rs.
+
+Conditions
+----------
+  machine     MacBookAir10,1 (Apple M1), 16 GB, Darwin 25.6.0 arm64
+  toolchain   leanprover/lean4:v4.31.0 (the target's own)
+  target      /Users/haruka/dev/lean-projects, read only, 422 modules,
+              lib InformationTheory
+  tree        /private/tmp/lean-doc-relay/m6-lean/build, written by
+              tools/watch-gate.sh's own `litedoc4 build` (the Lean binary)
+  binaries    .lake/build/bin/litedoc4 (Lean) and target/release/litedoc4
+              (Rust), both `litedoc4 1.2.0`
+  warm        yes -- the gate run above had just read every olean; both halves
+              were measured back to back in the same session on the same tree
+  parallelism `--jobs 4` for the build; the poll itself is Rust's
+              `hash_concurrency()` against Lean's sequential loop
+
+1. tools/watch-gate.sh, both halves
+-----------------------------------
+  Rust  WATCH GATE: ok -- 12 check(s), 0 failed   (build 30.1161 s, pass 14.824 s)
+  Lean  WATCH GATE: ok -- 12 check(s), 0 failed   (build 33.2214 s, pass 14.629 s)
+
+  Assertion for assertion the two runs are the same, including the byte count:
+
+    the marker says the run finished
+    work.modulesExtracted is 1
+    work.pagesRendered is 1
+    work.extractorRequests is 1
+    the render set is InformationTheory.Shannon.ArithmeticCoding
+    impact (mode self) selected 1 page(s) and the renderer wrote 1
+    work.pagesRendered is 1 of 422 module(s)
+    the server answers / with 200 before anything changed
+    GET /InformationTheory/Shannon/ArithmeticCoding.html -> 200 (37357 B)
+    GET /no/such/page.html -> 404
+    GET /../../../etc/passwd -> 403
+    no resident extractor is left behind
+
+  Made to fail first, against the Lean binary:
+    --inject wrong-module  the three counts stay 1 / 1 / 1 and the *name* check
+                           is the only one that fails -- "the render set is
+                           InformationTheory.Shannon.BroadcastChannel.Basic,
+                           expected ...ArithmeticCoding". exit 1
+    --inject no-touch      "30s passed and the first rebuild never happened".
+                           exit 1
+
+2. The idle pass, five heartbeats each
+--------------------------------------
+  `watch --interval 1000` on the tree above with nothing stale. The number is
+  the loop's own ("N.NNN s to ask"), which times `Trigger::ask` and not the
+  sleep. One heartbeat a minute; the run was 340 s.
+
+    lean  2.235  2.253  2.263  2.243  2.251 s   -> 2.249 s, 19 passes/minute
+    rust  0.063  0.062  0.066  0.065  0.057 s   -> 0.063 s, 56 passes/minute
+
+  So a pass is 2.25 s in Lean against 0.063 s in Rust on this tree: **35.7x**.
+  At the default --interval 1000 one pass takes 3.2 s in Lean and 1.06 s in
+  Rust, so the core is busy 69% of the time instead of 6%.
+
+  What is being hashed, from `ledger check --timings` on the same ledger:
+    modules 422, files 422, hashedBytes 228,439,544
+  which puts the Lean loop at 101 MB/s and the Rust loop at 3.6 GB/s. The whole
+  of the gap is SHA-256 and none of it is the port: single-threaded Rust hashes
+  the same 228 MB in 0.2877 s (794 MB/s, `concurrency 1` above), so ~4.5x of
+  the 35.7 is Rust hashing on every core and ~7.9x is the SHA-256 itself. The
+  decision not to take C for it was settled in M4
+  (-> purelean-sha256-2026-08-31.txt).
+
+  This does not fail anything -- tools/watch-gate.sh asserts on integers and on
+  no duration at all. It is quoted in two places instead, and both were measured
+  here rather than copied from the Rust source, which says 0.13 s:
+  `src/Litedoc4/Watch.lean`'s module doc and its `--interval` floor refusal.
+  **The floor stays at 100 ms**: `--interval` is a name tools/public-surface.txt
+  promises, and moving what it accepts breaks a file somebody else maintains.
+
+  Comparison with purelean-async-tcp-2026-08-31.txt §7, which measured 0.129 s
+  and 2.033 s for the same question: that one timed a whole `litedoc4 ledger
+  check` **process** over the 432-module ledger, this one times the loop's call
+  over the 422-module tree the gate builds. Two denominators and two shapes; do
+  not put the four numbers in one row.
+
+3. Which of the three costs the investigation named actually bit
+---------------------------------------------------------------
+  Numbered as .claude/purelean-plan.md numbers them.
+
+  cost 1, buffered stdout       BIT. Without a flush the gate hangs at the
+                                banner for its full 60 s. Closed by replacing
+                                the command's stdout with an `IO.FS.Stream`
+                                whose `write`/`putStr` flush -- the lines a
+                                reader waits on during a pass are `runBuild`'s,
+                                not the loop's, and a helper the loop printed
+                                through would not have reached them.
+  cost 2, the poll              CONFIRMED and re-measured (section 2). Nothing
+                                fails; two texts changed.
+  cost 3, the port at `accept`  NOT OBSERVED as a failure, and the shape it
+                                warns about is avoided by construction:
+                                `Httpd.bind` issues the accept loop itself, so
+                                nothing prints between `listen` and `accept`.
+
+4. Size
+-------
+  The delta the investigation left UNMEASURED (its section 8 measured a
+  hello-world at +289,264 B):
+
+    .lake/build/bin/litedoc4 before  5,132,640 B
+    .lake/build/bin/litedoc4 after   5,550,096 B   (+417,456 B)
+
+  which is Std.Async.TCP + Std.Net.Addr *and* the 560 lines of Watch.lean and
+  Httpd.lean. Against `extract`'s 171,650,464 B the distribution decision
+  (`require` only, no binaries) does not move.
+
+5. The two Step branches the gate cannot reach
+----------------------------------------------
+  tools/watch-gate.sh drives `idle` and `rebuild`. `settling` and `skip` need a
+  world that moves between passes, so they were driven by hand on a copy of
+  e2e/micro. One `ledger touch`, so that the loop has acted once -- the first
+  rebuild of a session is fatal by design -- and then one source file with no
+  olean (`Example/Ghost.lean`), which is the shape `skip` exists for: reported
+  stale by every pass until `lake build` runs, and a rebuild that cannot
+  succeed. Verbatim:
+
+    watch   1 module(s) to re-extract - waiting one quiet interval in case
+            something is still writing oleans                       settling
+    watch   #1 the ledger reports 1 module(s) to re-extract          rebuild
+    watch   #1 incremental - re-extracted 1 module(s), re-rendered 1 page(s),
+            started Lean 1 time(s) in 0.321 s
+    watch   #1 reload http://127.0.0.1:8488/
+    watch   1 removed - waiting one quiet interval in case something is still
+            writing oleans                                          settling
+    watch   #2 the ledger reports 1 removed                          rebuild
+    watch   #2 the rebuild stopped: --modules and the merged IR name different
+            modules: 1 in the list with nothing behind them (Example.Ghost) ...
+            (exit 3)
+    watch   #2 not retrying until the oleans move again - a failing extraction
+            restarted every 1000 ms would import 3 GB every 1000 ms
+    watch   waiting - 1 removed, unchanged since the last pass acted on it, so
+            there is nothing new to do (0.049 s to ask)                  skip
+
+  The last line is the 60 s heartbeat: `skip` prints nothing per pass, so the
+  heartbeat is the only positive evidence that the loop reached it rather than
+  retrying. Between #2 and it, 80 s of polling produced no further line, which
+  is the "not retrying" claim in the shape a reader can check.
+
+  Nothing was written under e2e/micro: the copy was
+  /private/tmp/lean-doc-relay/m6-steps, deleted afterwards.
+
+Not measured
+------------
+  - Linux. Everything here is macOS/arm64, and ci.yml runs tools/watch-gate.sh
+    on ubuntu-latest. libuv's deferred bind and SO_REUSEADDR are where the two
+    are most likely to differ, and cost 2 above depends on exactly that.
+  - The `settling` branch's five-second "still not quiet" report: reaching it
+    needs an answer that keeps moving for more than five seconds, which means a
+    real `lake build` in flight against the measurement target.
