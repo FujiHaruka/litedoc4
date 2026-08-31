@@ -26,6 +26,7 @@ the IR tree that now exists, because they describe *the tree on disk*. Writing
 back `detect`'s copy would leave a ledger claiming the IR was written by whatever
 wrote the old one, and every later run would re-extract everything for ever. -/
 import Litedoc4.Assets
+import Litedoc4.DepsDocs
 import Litedoc4.Incr.Pipeline
 import Litedoc4.Lakefile
 import Litedoc4.Modules
@@ -148,6 +149,10 @@ structure Layout where
   ledger : FilePath
   marker : FilePath
   linkIndex : FilePath
+  /-- The resolved documentation map, which `litedoc4 site --deps-docs-map` and
+  `litedoc4 render --deps-docs-map` read back. Written only when
+  `--deps-docs-url` was passed. -/
+  depsDocsMap : FilePath
 
 def layoutOf (out : FilePath) : Layout :=
   { out
@@ -157,7 +162,8 @@ def layoutOf (out : FilePath) : Layout :=
     work := out / "work"
     ledger := out / "ledger.json"
     marker := out / markerName
-    linkIndex := out / "link-index.lidx" }
+    linkIndex := out / "link-index.lidx"
+    depsDocsMap := out / "work" / "deps-docs-map.json" }
 
 /-- Whether every file a continuation reads is there.
 
@@ -313,10 +319,24 @@ structure BuildRequest where
   disagree, and a disagreement there re-renders every page on every run for
   ever. -/
   external : ExternalLinks
+  /-- The documentation sites `--deps-docs-url` named, unresolved: the resolution
+  needs an IR tree, which does not exist yet on the full path. -/
+  depsDocs : Array DocsSite
   sourceUrl : Option String
+  extractor : Option String
+  extractorArgs : Array String
   extractorBin : Option FilePath
   lake : Option FilePath
   jobs : Nat
+  /-- Absolute. Left out on the command line it is `<out>/link-index.lidx`, the
+  map this run's own extractor writes; given, it names a file somebody else made
+  and this run only reads. -/
+  linkIndex : FilePath
+  /-- Whether this run *writes* that file or only reads it. -/
+  derivedLinkIndex : Bool
+  mode : ImpactMode
+  maxRounds : Nat
+  timings : Option FilePath
   full : Bool
 
 inductive Plan where
@@ -390,6 +410,10 @@ structure Done where
   what : String
   /-- Modules handed to the extractor, summed over the rounds. -/
   extracted : Nat
+  rounds : Nat
+  extractNanos : Nat
+  renderNanos : Nat
+  globalNanos : Nat
   pagesRendered : Nat
   mathFallbacks : Nat
   ledgerModules : Nat
@@ -400,6 +424,14 @@ structure Done where
   /-- The ledger this run licensed, with the hashes read **before** the
   extraction. -/
   detected : Ledger
+  /-- **The map the pages were rendered with.**
+
+  It comes out of the path rather than in on `BuildRequest` because the two paths
+  resolve it at different moments, both "as soon as there is an IR tree to read":
+  a full generation has none until it has extracted, and an incremental round has
+  to know its render key before `detect` compares it with the ledger's. Carrying
+  it back here is what makes the ledger record the map the pages actually got. -/
+  external : ExternalLinks
   deriving Inhabited
 
 /-- The extractor, in the shape `litedoc4 incremental --serve` uses: a Lean
@@ -407,12 +439,25 @@ environment this run owns, started at the first request and released after the
 last round. -/
 def openExtractor (r : BuildRequest) (modulesFile : FilePath) (modules : Array String) :
     BuildM Extractor := do
+  if let some program := r.extractor then
+    return .oneShot { program, args := r.extractorArgs, requestCount := ← IO.mkRef 0 }
   let serve ← serveOptions
     { bin := r.extractorBin, target := some r.root, lake := r.lake, jobs := r.jobs
       modulesFile, modules, work := r.layout.work
-      -- The resident extractor writes the map: this command owns it.
-      linkIndex := some r.layout.linkIndex }
+      -- The resident extractor writes the map when this command owns it. With
+      -- `--link-index` it is somebody else's file and is not overwritten.
+      linkIndex := if r.derivedLinkIndex then some r.linkIndex else none }
   return .resident (← Resident.new serve)
+
+/-- `--root`'s source map with every configured documentation site verified
+against `ir` and attached.
+
+**One function, two call sites, and they are the same rule**: resolve as soon as
+there is an IR tree whose render key this run is about to record. Without
+`--deps-docs-url` it is the identity — no fetch, no artifact, no line. -/
+def resolveDocsFor (r : BuildRequest) (ir : FilePath) : BuildM ExternalLinks := do
+  let resolved : Array ResolvedSite ← resolveDocs r.depsDocs ir (some r.layout.depsDocsMap)
+  attachDocs r.external resolved
 
 /-- The first run: hash, extract everything, render everything. -/
 def fullGeneration (r : BuildRequest) (config : SiteConfig) (modules : Array String)
@@ -422,7 +467,7 @@ def fullGeneration (r : BuildRequest) (config : SiteConfig) (modules : Array Str
   -- diagnostic; the file that counts is written at the end of the run.
   let detected ← match ← buildLedger
       { modules, target := r.root.toString, ir := none, sourceUrl
-        linkIndex := some layout.linkIndex, externalLinks := some r.external.digest } with
+        linkIndex := some r.linkIndex, externalLinks := some r.external.digest } with
     | .error message => throw (3, message)
     | .ok (ledger, _) => pure ledger
   writeFile (layout.work / "ledger-detect.json") detected.toJson
@@ -444,40 +489,87 @@ def fullGeneration (r : BuildRequest) (config : SiteConfig) (modules : Array Str
   extractor.release
   IO.println s!"extract {modules.size} module(s) in {seconds elapsed 4} s"
 
+  -- **The documentation map, now that there is an IR to ask about.** Not before
+  -- the extraction: on this path the tree does not exist yet, and the set of
+  -- dependency names to verify is exactly what it holds.
+  let external ← resolveDocsFor r layout.ir
+
+  let siteStarted ← IO.monoNanosNow
   let rendered ← renderSite
     { ir := layout.ir, pages := layout.site, sourceUrl
-      linkIndex := some layout.linkIndex, external := r.external, title := config.title }
+      linkIndex := some r.linkIndex, external, title := config.title }
+  let renderDone ← IO.monoNanosNow
   let derived ← buildGlobal
     { ir := layout.ir, out := layout.site, state := some layout.state
       indexMarkdown := config.indexMarkdown, title := config.title }
+  let globalDone ← IO.monoNanosNow
   printRenderSummary "render  " rendered
   printGlobalSummary "global  " derived
-  return { what := "full", extracted := modules.size
+  return { what := "full", extracted := modules.size, rounds := 1
+           extractNanos := elapsed, renderNanos := renderDone - siteStarted
+           globalNanos := globalDone - renderDone
            pagesRendered := rendered.pagesWritten, mathFallbacks := rendered.mathFailures
            ledgerModules := detected.modules.size
            cacheHits := derived.cacheHits, cacheMisses := derived.cacheMisses
            summariesRendered := derived.summariesRendered
            summariesEchoingTheName := derived.summariesEchoingTheName
-           detected }
+           detected, external }
 
 /-- Every later run: the pipeline, over the tree the last one left. -/
 def incrementalGeneration (r : BuildRequest) (config : SiteConfig) (modules : Array String)
     (sourceUrl : String) (extractor : Extractor) : BuildM Done := do
   let layout := r.layout
+  -- **Before the round, from the tree the round starts on.** `detect` is about to
+  -- compare this map's digest with the ledger's, and the render uses the same
+  -- value, so it has to be resolved once and here.
+  let external ← resolveDocsFor r layout.ir
   let run ← runIncremental
     { config, ir := layout.ir, pages := layout.site, ledger := layout.ledger
-      work := layout.work, modules, sourceUrl, linkIndex := layout.linkIndex
-      external := r.external, state := layout.state
-      mode := defaultMode, maxRounds := defaultMaxRounds } extractor
+      work := layout.work, modules, sourceUrl, linkIndex := r.linkIndex
+      external, state := layout.state
+      mode := r.mode, maxRounds := r.maxRounds } extractor
   return { what := "incremental"
            extracted := run.summary.changed + run.summary.staleFound
+           rounds := run.summary.rounds
+           extractNanos := run.timings.extract, renderNanos := run.timings.render
+           globalNanos := run.timings.global
            pagesRendered := run.summary.pagesRendered
            mathFallbacks := run.summary.mathFallbacks
            ledgerModules := run.detected.modules.size
            cacheHits := run.summary.cacheHits, cacheMisses := run.summary.cacheMisses
            summariesRendered := run.summary.summariesRendered
            summariesEchoingTheName := run.summary.summariesEchoingTheName
-           detected := run.detected }
+           detected := run.detected, external }
+
+/-- Every file under `root`, at every depth. Counted rather than derived from the
+stages' own numbers: `pagesInSite` is a denominator this project quotes (432
+pages + 9 artifacts + 4 assets on the measurement target), and the point of it is
+that it is what the tree holds and not what the run believes it wrote. -/
+partial def countFiles (root : FilePath) : IO Nat := do
+  let rec go (dir : FilePath) (acc : Nat) : IO Nat := do
+    match ← (dir.readDir : IO (Array IO.FS.DirEntry)).toBaseIO with
+    | .error _ => return acc
+    | .ok listing => do
+      let mut acc := acc
+      for entry in listing do
+        if ← entry.path.isDir then acc ← go entry.path acc else acc := acc + 1
+      return acc
+  go root 0
+
+/-- `BuildTimings` in `crates/litedoc4/src/build.rs`, in that record's key
+order. -/
+def buildRecordJson (path : String) (modules extracted rounds : Nat) (work : WorkCounts)
+    (pagesRendered pagesInSite ledgerModules ledgerBytes : Nat)
+    (extractNanos renderNanos globalNanos totalNanos : Nat) : String :=
+  let o := jsonStr "{\"command\":\"build\",\"path\":" path
+  o ++ s!",\"modules\":{modules},\"extracted\":{extracted},\"rounds\":{rounds}"
+    ++ ",\"work\":" ++ work.toJson
+    ++ s!",\"pagesRendered\":{pagesRendered},\"pagesInSite\":{pagesInSite}"
+    ++ s!",\"ledgerModules\":{ledgerModules},\"ledgerBytes\":{ledgerBytes}"
+    ++ s!",\"extractSeconds\":{seconds extractNanos 9}"
+    ++ s!",\"renderSeconds\":{seconds renderNanos 9}"
+    ++ s!",\"globalSeconds\":{seconds globalNanos 9}"
+    ++ s!",\"totalSeconds\":{seconds totalNanos 9}" ++ "}"
 
 def runBuild (r : BuildRequest) : BuildM BuildRan := do
   let started ← IO.monoNanosNow
@@ -541,6 +633,9 @@ def runBuild (r : BuildRequest) : BuildM BuildRan := do
   -- whose claim is about a *finished* tree.
   writeAssets layout.site
   IO.println s!"assets  {assets.size} file(s) -> {layout.site}"
+  -- Counted here rather than in the two paths: this is the first point at which
+  -- the site holds everything a run puts in it.
+  let pagesInSite ← countFiles layout.site
 
   -- The ledger last: everything that could have failed has now succeeded, so the
   -- claim "the IR was built from these oleans and the pages from that IR" is
@@ -550,8 +645,8 @@ def runBuild (r : BuildRequest) : BuildM BuildRan := do
   -- everything against, for ever.
   let ledger := { done.detected with
     extractKey := ← extractKey done.detected.target (some layout.ir)
-    renderKey := some (renderKey sourceUrl (← linkIndexDigest (some layout.linkIndex))
-      (some r.external.digest)) }
+    renderKey := some (renderKey sourceUrl (← linkIndexDigest (some r.linkIndex))
+      (some done.external.digest)) }
   let body := ledger.toJson
   writeFile layout.ledger body
   IO.println s!"ledger  {done.ledgerModules} module(s) -> {layout.ledger} \
@@ -574,6 +669,12 @@ def runBuild (r : BuildRequest) : BuildM BuildRan := do
   writeFile layout.marker (markerJson r.root.toString libs sourceUrl modules.size (some work))
   let total := (← IO.monoNanosNow) - started
   IO.println s!"build   {done.what} in {seconds total 4} s -> {layout.site}"
+  if let some path := r.timings then
+    let line := buildRecordJson done.what modules.size done.extracted done.rounds work
+      done.pagesRendered pagesInSite done.ledgerModules body.utf8ByteSize
+      done.extractNanos done.renderNanos done.globalNanos total
+    writeFile path (line ++ "\n")
+    IO.println line
   return { what := done.what, modulesExtracted := work.modulesExtracted
            pagesRendered := work.pagesRendered, extractorRequests := work.extractorRequests
            nanos := total }

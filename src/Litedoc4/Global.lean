@@ -24,6 +24,9 @@ structure GlobalOptions where
   printSet : Option FilePath := none
   /-- The delta's diagnostic summary. Ignored without `before`. -/
   deltaJson : Option FilePath := none
+  /-- One JSON line of counts and durations. What is read back out of it is
+  `cacheHits` and `cacheMisses`; the durations are diagnostics. -/
+  timings : Option FilePath := none
   /-- `litedoc4.toml`'s two keys, resolved by whoever read the file — `--root`
   names the package this stage is never told about, and the index path is
   relative to it. -/
@@ -98,10 +101,41 @@ def readNameMap (path : FilePath) : IO (Std.HashMap String String) := do
     return map
   | .ok _ => bad "the name map is not a JSON object"
 
+/-- `TimingsRecord` in `crates/litedoc4-global/src/site.rs`, in that record's key
+order. The two used-by counts come **after** `delta` rather than with the counts
+they belong with, so that everything before them is still the prototype's key
+order and two records can be read against each other key by key. -/
+def globalTimingsJson (s : GlobalSummary) (stateOn : Bool)
+    (stateLoadNanos readNanos writeNanos deltaNanos stateSaveNanos totalNanos : Nat)
+    (diffNanos scanNanos : Nat) : String :=
+  let o := "{\"command\":\"build\",\"state\":" ++ (if stateOn then "\"on\"" else "\"off\"")
+  let o := o ++ s!",\"cacheHits\":{s.cacheHits},\"cacheMisses\":{s.cacheMisses}"
+    ++ s!",\"stateBytes\":{s.stateBytes},\"modules\":{s.modules}"
+    ++ s!",\"declarations\":{s.declarations},\"dependencyNames\":{s.dependencyNames}"
+    ++ s!",\"instanceClasses\":{s.instanceClasses},\"instanceTypes\":{s.instanceTypes}"
+    ++ s!",\"tacticDocs\":{s.tacticDocs},\"nameMapBytes\":{s.nameMapBytes}"
+    ++ s!",\"modulesJsonBytes\":{s.modulesJsonBytes}"
+    ++ s!",\"searchIndexBytes\":{s.searchIndexBytes}"
+    ++ s!",\"stateLoadSeconds\":{seconds stateLoadNanos 9}"
+    ++ s!",\"readSeconds\":{seconds readNanos 9}"
+    ++ s!",\"writeSeconds\":{seconds writeNanos 9}"
+    ++ s!",\"deltaSeconds\":{seconds deltaNanos 9}"
+    ++ s!",\"stateSaveSeconds\":{seconds stateSaveNanos 9}"
+    ++ s!",\"totalSeconds\":{seconds totalNanos 9},\"delta\":"
+  let o := match s.delta with
+    | none => o ++ "null"
+    | some d =>
+      o ++ s!"\{\"changedNames\":{d.changed.size},\"affected\":{d.affected.size}"
+        ++ s!",\"diffSeconds\":{seconds diffNanos 9},\"scanSeconds\":{seconds scanNanos 9}}"
+  o ++ s!",\"usedByTargets\":{s.usedByTargets},\"usedByEdges\":{s.usedByEdges}" ++ "}\n"
+
 def buildGlobal (o : GlobalOptions) : IO GlobalSummary := do
+  let started ← IO.monoNanosNow
   let tree ← openIrTree o.ir
   let cached ← State.load o.state tree.index
+  let stateLoaded ← IO.monoNanosNow
   let run ← factsFor tree cached
+  let read ← IO.monoNanosNow
   let facts := run.facts
   let depMaps ← tree.loadDepMaps
   let artifacts :=
@@ -113,19 +147,25 @@ def buildGlobal (o : GlobalOptions) : IO GlobalSummary := do
     | none => pure ()
     IO.FS.writeBinFile path body
   let written ← IO.monoNanosNow
+  let mut diffNanos := 0
+  let mut scanNanos := 0
   let delta ← match o.before with
     | none => pure none
     | some path => do
       let before ← readNameMap path
       let (changed, diffed) ← timedPure (deltaChanged before artifacts.nameMap)
       let (delta, scanned) ← timedPure (deltaScan before.size artifacts.nameMap.size changed facts)
+      diffNanos := diffed - written
+      scanNanos := scanned - diffed
       if let some path := o.printSet then writeFile path (deltaPrintSet delta)
       if let some path := o.deltaJson then
         writeFile path (deltaJson delta (diffed - written) (scanned - diffed) (scanned - written))
       pure (some delta)
+  let deltaDone ← IO.monoNanosNow
   let stateBytes ← State.save o.state tree.index facts
+  let total ← IO.monoNanosNow
   let counts := artifacts.counts
-  return {
+  let summary : GlobalSummary := {
     modules := facts.size
     declarations := counts.declarations
     dependencyNames := counts.dependencyNames
@@ -143,5 +183,12 @@ def buildGlobal (o : GlobalOptions) : IO GlobalSummary := do
     cacheMisses := run.cacheMisses
     stateBytes
     delta }
+  if let some path := o.timings then
+    -- `readSeconds` covers the state load *and* the modules that missed:
+    -- together they are what a from-scratch run spends reading all of them.
+    writeFile path (globalTimingsJson summary o.state.isSome (stateLoaded - started)
+      (read - started) (written - read) (deltaDone - written) (total - deltaDone)
+      (total - started) diffNanos scanNanos)
+  return summary
 
 end Litedoc4

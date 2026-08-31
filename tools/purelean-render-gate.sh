@@ -20,16 +20,17 @@
 #   4 NOLIDX    they differ with `--no-link-index`. A separate item because the
 #               map decides most of the links: agreeing with it and disagreeing
 #               without it is a different defect from the reverse.
-#   5 REFUSED   `render` accepted a flag it does not implement. The flag is
-#               `--deps-docs-map`, which folds where each dependency's
-#               documentation is published into the links a page draws: items 3
-#               and 4 never pass it, so a half that took it and ignored it
-#               writes exactly the bytes they compare. This is the one failure
-#               the byte comparison cannot see. **When the Lean half implements
-#               it, this item does not go away** — it moves to whatever `render`
-#               flag is still missing, and if none is, it becomes the positive
-#               check: both binaries take the flag, both write the same bytes,
-#               and the result is not what a run without it writes.
+#   5 DEPSDOCS  `--deps-docs-map` folds where each dependency's documentation is
+#               published into the links a page draws, and items 3 and 4 never
+#               pass it — so a half that took it and ignored it writes exactly
+#               the bytes they compare. That is the one failure the byte
+#               comparison cannot see, and this item is the positive form of it:
+#               both binaries are handed the same resolved map, the two trees
+#               have to be the same bytes, **and those bytes have to differ from
+#               item 3's** — a tree identical to the run without the flag is a
+#               flag that parsed and did nothing. The map is written here out of
+#               the target's own `deps/*.json`, so this needs no network and no
+#               real documentation site.
 #   6 SUMMARY   the two runs' stdout differs. The other failure the byte
 #               comparison cannot see, from the other end: `math spans kept as
 #               LaTeX` reports a fallback that renders a *valid* page, so a half
@@ -186,22 +187,39 @@ else
   fail 4 "nothing was rendered — item 2 did not produce two trees"
 fi
 
-say "5/6 a flag render does not implement is refused by name"
-UNIMPLEMENTED=--deps-docs-map
-if [ "$built" -eq 1 ]; then
-  refused_rc=0
-  "$LEAN_EXE" render --ir "$WORK/ir" --pages "$OUT/refused" --source-url "$SOURCE_URL" \
-    --no-link-index "$UNIMPLEMENTED" "$OUT/deps-docs.json" \
-    >"$OUT/refused.out" 2>"$OUT/refused.err" || refused_rc=$?
-  if [ "$refused_rc" -eq 0 ]; then
-    fail 5 "render accepted $UNIMPLEMENTED and exited 0 — a flag that is ignored writes the bytes items 3 and 4 already compare, so nothing else here can see it"
-  elif ! grep -qF -- "$UNIMPLEMENTED" "$OUT/refused.err"; then
-    fail 5 "render refused $UNIMPLEMENTED with exit $refused_rc but the message does not name it — see $OUT/refused.err"
+say "5/6 --deps-docs-map moves the same links on both halves"
+DOCS_BASE=https://example.invalid/dep_docs
+if [ "$rendered" -eq 1 ]; then
+  # A resolved map of the shape `litedoc4 build --deps-docs-url` writes, built
+  # from names the target's IR really refers to so that the links it moves are
+  # links these pages really draw.
+  python3 "$HERE/lib/deps-docs-fixture.py" "$WORK/ir" "$OUT/deps-docs.json" "$DOCS_BASE" \
+    >"$OUT/deps-docs.log" 2>&1
+  docs_rc=0
+  render "$LITEDOC4" "$OUT/rust-docs" "$OUT/rust-docs.log" \
+    --link-index "$WORK/link-index.json" --deps-docs-map "$OUT/deps-docs.json" || docs_rc=$?
+  lean_docs_rc=0
+  render "$LEAN_EXE" "$OUT/lean-docs" "$OUT/lean-docs.log" \
+    --link-index "$WORK/link-index.json" --deps-docs-map "$OUT/deps-docs.json" || lean_docs_rc=$?
+  # `|| true` inside the substitution, not after it: `grep` finding nothing exits
+  # 1, and under `pipefail` that kills the script — which is the state this item
+  # exists to *report*, so without it the one failure it is for is the one it
+  # cannot say (measured: the first run of this item against a Lean half with the
+  # documentation link disabled printed nothing at all).
+  hrefs="$( { grep -rl -- "$DOCS_BASE" "$OUT/lean-docs" 2>/dev/null || true; } | wc -l | tr -d ' ')"
+  if [ "$docs_rc" -ne 0 ] || [ "$lean_docs_rc" -ne 0 ]; then
+    fail 5 "a --deps-docs-map render exited non-zero (rust=$docs_rc lean=$lean_docs_rc) — see $OUT/{rust,lean}-docs.err"
+  elif ! /usr/bin/diff -r "$OUT/rust-docs" "$OUT/lean-docs" >"$OUT/compare-5.txt" 2>&1; then
+    fail 5 "the two --deps-docs-map trees differ: $(head -1 "$OUT/compare-5.txt")"
+  elif [ "$hrefs" -eq 0 ]; then
+    fail 5 "no page links at $DOCS_BASE — the flag was accepted and changed nothing"
+  elif /usr/bin/diff -r "$OUT/lean" "$OUT/lean-docs" >/dev/null 2>&1; then
+    fail 5 "the --deps-docs-map tree is byte-identical to item 3's — the map was read and not used"
   else
-    pass 5 "exit $refused_rc, naming $UNIMPLEMENTED"
+    pass 5 "$(cat "$OUT/deps-docs.log"); $hrefs page(s) link at $DOCS_BASE, and the two trees are identical"
   fi
 else
-  fail 5 "no Lean binary to run — item 1 did not build one"
+  fail 5 "nothing was rendered — item 2 did not produce two trees"
 fi
 
 say "6/6 the two runs print the same stdout"

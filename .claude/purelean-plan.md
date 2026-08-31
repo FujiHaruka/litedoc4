@@ -299,9 +299,66 @@ M6 以降に効く残りだけ:
 **M9 に効く**: `watch-gate.sh` は `LITEDOC4` で相手を選べるので、
 **M5 の 4 本の比較器と違い Rust が消えても問いごと消えない**。
 
-### M7 残り — CLI 全フラグ / 設定 / 診断メッセージ / deps-docs / packages / resident
+### M7 残り — CLI 全フラグ / 設定 / 診断メッセージ / deps-docs 【完了 2026-08-31】
+
 - **完了判定**: `tools/public-surface.txt` の全名が Lean 実装に存在し、
-  `public-surface-gate.sh` が Lean 側を見て緑
+  `public-surface-gate.sh` が Lean 側を見て緑 → **達成**。
+  `public-surface-gate.sh` は **両半分を読む**（Rust の `USAGE` と Lean の `usage`、
+  `config.rs` の `File` と `Config.lean` の `parseConfig`）。片方だけを読むと、
+  「消費者が今どちらを使っているか」は**インストール経路で決まる**のに、検査は片方の
+  半分にしか効かない。M9 で Rust が消えたら Rust 側の半分も一緒に消え、問いは残る。
+  **5 通りに落としてから通した**（Lean の watch 概要から `--max-rounds` を抜く /
+  `parseConfig` が `index` を名指さない / `parseConfig` の unknown key 拒否を外す /
+  `def usage` のマーカーを動かす / Rust の `USAGE` から `--timings` を抜く）
+- 埋めたもの: `build`/`watch` の `--extractor` `--extractor-arg` `--mode` `--max-rounds`
+  `--timings` `--link-index` / `global --timings` / `site --timings` / `links` /
+  `--deps-docs-url` `--deps-docs-index`（curl + 66 MB のテーブルを値に組み立てず走査する
+  `src/Litedoc4/DepsDocs.lean`）/ `--deps-docs-map`（`render` `site` `incremental`
+  `ledger` `links`）/ `--help` `--help-all`（`usage` と `summary` は Rust の 2 つの定数と
+  **バイト同一**にした）
+- **`purelean-render-gate.sh` の項目 5 は反転した**。「未実装フラグを名指しで拒否するか」
+  から「**両方が同じ地図で同じバイトを書き、かつ項目 3 と違うバイトになるか**」へ。
+  ヘッダが「実装したらこの項目は消えず、肯定形になる」と書いてあったとおり。
+  **先に落とした** — `linkTo` の docs 分岐を殺すと 422 ページ中の 1 つ目で落ちる。
+  そのとき**この項目自身の欠陥も出た**: `grep` が 0 件で終了 1 を返し `pipefail` で
+  スクリプトごと死に、**報告すべき唯一の状態を報告できなかった**
+- **`deps-docs-gate.sh` を Lean 実装で走らせた（実測 2026-08-31）**: Mathlib 396/396、
+  Init 127/130 で Rust 側の記録と同数、mathlib4_docs から 443 ページ取得・503 アンカー照合、
+  dead 0 / leaked 0、フォールバック枝も 3 件で発火
+
+#### M5 / M6 から持ち越した穴は全部閉じた
+
+- `incremental --timings` に入れ子の `global` が入り、**2026-08-31 のオラクルと同じ 27 キー**
+- `--deps-docs-map` は `ledger` でも `render` でも実装済み
+- 診断文言は **22 個の拒否のうち 21 個が stderr 丸ごとバイト一致**（`usage` 込み）。
+  `wants a value` → `needs a value`、`takes a number, not \`x\`` → `wants a number, not x`、
+  `linkIndexRequired` の代価文、`ledger build` の桁区切り、unknown subcommand の空行も揃えた
+
+#### M7 が残した、次に効く事実
+
+- **意図的に残した乖離が 2 種類ある**。(1) `build --serve` の拒否文は Rust だけが
+  `(see crates/litedoc4/src/resident.rs)` を持つ — M10 で消えるファイルを Lean のバイナリが
+  指すのは腐るポインタなので足さなかった。(2) **OS エラーの文言**:
+  Rust は `No such file or directory (os error 2)`、Lean は
+  `no such file or directory (error code: 4294967294)`。後者の数字は errno ではなく Lean の
+  番兵で、Rust の文字列を書き写すのは別処理系のエラー表を捏造すること
+- **`--deps-docs-url` のテーブルは Lean 側では一度メモリに載る**。Rust は curl の
+  stdout をストリームで食う。66 MB ぶんピーク RSS が違う（未計測）
+- **`incremental-reference.sh` は run 内オラクルを黙って飛ばしていた**（実測 2026-08-31、
+  同日に塞いだ）。`--ref-site` の既定は既に存在しないパスで、`if [ -d "$REF_SITE" ]` で
+  囲われていたので**ファイルが書かれないだけ**だった。`incremental-compare.sh` は
+  `*-sitecheck.txt` を設計上飛ばすので、**どこも報告しない**。
+  他の 3 入力と同じハード終了に寄せた。**「入力が無いと黙って項目が消える」は
+  比較器が数を数えていても捕まらない** — 数えているのは書かれたファイルの側だから
+- **`IO.Process.output` で curl を待つと終了コードを先に見られる** ので、Rust が
+  「パーサのエラーより curl のエラーを優先する」ためにやっている順序制御は要らない
+- **`skipVal` はオブジェクトと配列を同じループで飛ばせない**。キーを飛ばした直後は `:` が
+  来るので、`,` か `}` を期待すると 1244 バイト目で落ちる（実測）。
+  **落ちるのは静かではない**（テーブルが読めない扱いになり全部ソースへ落ちる）が、
+  症状は「そのサイトのリンクが 1 つも出ない」で、出力は正しく見える
+- **`git checkout` ではなくバイナリを差し替える実験にも同じ罠がある**。記録スクリプトの
+  実行中に `lake build` でバイナリを置き換えたら、記録は途中で死んで
+  **`conditions.txt` が無いだけの、一見それらしいディレクトリ**を残した（実測 2026-08-31）
 
 ### M8 対象リポジトリ全体で一致
 - **完了判定**: 432 モジュールで **422/422 バイト一致**、

@@ -487,6 +487,7 @@ def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun :=
       before := if haveBefore then some mapBeforeFile else none
       printSet := if haveBefore then some globalSetFile else none
       deltaJson := if haveBefore then some (o.work / "global-delta.json") else none
+      timings := some (o.work / "global-timings.json")
       -- The same value the render half gets. Without it the incremental round
       -- rewrites `index.html`, `search.html` and `foundational_types.html` with
       -- the *derived* title while the full generation used the configured one

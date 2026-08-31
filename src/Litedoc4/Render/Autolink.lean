@@ -122,12 +122,17 @@ builds a link to another module goes through here.
 later branch**: a resolved name that happens to be unlinkable must not be
 re-resolved to some other declaration that happens to have a page.
 
-The dependency-documentation question `crates/litedoc4-render/src/autolink.rs`
-asks ahead of these is deliberately absent: it is answered from a resolved
-`--deps-docs-map`, which is not a flag this build takes. What would falsify
-this: that flag arriving here. -/
+**The documentation question is asked first, and it is a different question, not
+a preference between two links.** It asks whether the dependency's own
+documentation site was **verified to document this name**; a `no` falls through
+to the version-pinned source. There is in particular no "try the docs site and
+see": a 404 is not visible from here, and avoiding one is the whole reason the
+pin is there. -/
 @[inline] def linkTo (ix : NameIndex) (root module : String) (anchor : Option String) :
     Option String :=
+  match ix.external.docsUrlFor module anchor with
+  | some url => some url
+  | none =>
   match ix.external.baseFor (moduleComponents module)[0]! with
   -- Membership and not `urlFor`'s answer: a root the map holds with no
   -- version-pinned URL gets no link at all rather than the page link below,

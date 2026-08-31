@@ -12,59 +12,286 @@ import Litedoc4
 namespace Litedoc4
 
 def usage : String :=
-"usage: litedoc4 build --root <repo> --out <dir> --extractor-bin <path>
-                      [--lib <Name>] [--source-url <url>] [--lake <path>]
-                      [--jobs <n>] [--full]
-       litedoc4 watch --root <repo> --out <dir> --extractor-bin <path>
-                      [--lib <Name>] [--source-url <url>] [--lake <path>]
-                      [--jobs <n>] [--port <n>] [--interval <ms>]
-       litedoc4 modules --root <repo> [--lib <Name>] [--out <file>]
+"usage: litedoc4 build  --root <repo> --out <dir> [--link-index <file>]
+                       [--lib <Name>]... [--source-url <url>] [--full]
+                       [--deps-docs-url <Root>=<url>]...
+                       [--deps-docs-index <Root>=<url|path>]...
+                       (--extractor-bin <path> [--lake <path>] [--jobs <n>]
+                        | --extractor <program> [--extractor-arg <arg>]...)
+                       [--mode self|referrers|importers|all] [--max-rounds <n>]
+                       [--timings <file>]
+       litedoc4 incremental --ir <dir> --pages <dir> --ledger <file> --work <dir>
+                       --modules <file> --source-url <url> --link-index <file>
+                       --state <dir> [--make-link-index] [--root <repo>]
+                       [--deps-docs-map <file>]
+                       (--extractor <program> [--extractor-arg <arg>]...
+                        | --serve --extractor-bin <path> --target <repo>
+                          [--lake <path>] [--jobs <n>])
+                       [--mode self|referrers|importers|all] [--max-rounds <n>]
+                       [--timings <file>]
+       litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
+                       [--lib <Name>]... [--source-url <url>]
+                       (--extractor-bin <path> [--lake <path>] [--jobs <n>]
+                        | --extractor <program> [--extractor-arg <arg>]...)
+                       [--mode self|referrers|importers|all] [--max-rounds <n>]
+       litedoc4 modules --root <repo> [--lib <Name>]... [--out <file>]
+       litedoc4 extract --modules <file> --ir-dir <dir> --timings <file>
+                       [--extractor-bin <path>] [--target <repo>] [--lake <path>]
+                       [--events <file>] [--jobs <n>]
+                       [--link-index <file> [--link-index-omit <file>]
+                        [--link-index-key <token>]]
+       litedoc4 site   --ir <dir> --out <dir> --source-url <url>
+                       (--link-index <file> | --no-link-index)
+                       [--root <repo>] [--lake <path>] [--deps-docs-map <file>]
+                       [--state <dir>] [--timings <file>]
        litedoc4 render --ir <dir> --pages <dir> --source-url <url>
                        (--link-index <file> | --no-link-index)
-                       [--root <dir>] [--lake <path>]
-                       [--only <Module>]... [--only-from <file>]...
-       litedoc4 site --ir <dir> --out <dir> --source-url <url>
-                     (--link-index <file> | --no-link-index)
-                     [--state <dir>] [--root <dir>] [--lake <path>]
-       litedoc4 global --ir <dir> --out <dir> [--root <dir>] [--state <dir>]
-                       [--before <name-map.json>] [--print-set <file>]
-                       [--delta-json <file>]
+                       [--root <repo>] [--lake <path>] [--deps-docs-map <file>]
+                       [--only <Module>]... [--only-from <file>]
+       litedoc4 global --ir <dir> --out <dir> [--state <dir>] [--root <repo>]
+                       [--before <map.json>] [--print-set <file>]
+                       [--delta-json <file>] [--timings <file>]
        litedoc4 ledger build --modules <file> --target <repo> --out <ledger.json>
-                             [--ir <dir>] [--source-url <url>] [--link-index <file>]
-                             [--root <dir>] [--lake <path>] [--algorithm <name>]
-                             [--concurrency <n>] [--timings <file>]
-       litedoc4 ledger check --ledger <ledger.json> [--modules <file>] [--ir <dir>]
-                             [--source-url <url>] [--link-index <file>]
-                             [--root <dir>] [--lake <path>] [--algorithm <name>]
-                             [--concurrency <n>] [--changed-out <file>]
-                             [--removed-out <file>] [--render-all-out <file>]
-                             [--timings <file>]
+                       [--algorithm sha256|lake] [--concurrency <n>]
+                       [--ir <dir>] [--source-url <url>] [--link-index <file>]
+                       [--root <repo>] [--lake <path>] [--deps-docs-map <file>]
+                       [--timings <file>]
+       litedoc4 ledger check --ledger <ledger.json> [--modules <file>]
+                       [--algorithm sha256|lake] [--concurrency <n>] [--ir <dir>]
+                       [--source-url <url>] [--link-index <file>]
+                       [--root <repo>] [--lake <path>] [--deps-docs-map <file>]
+                       [--changed-out <file>]
+                       [--removed-out <file>] [--render-all-out <file>]
+                       [--timings <file>]
        litedoc4 ledger touch --ledger <ledger.json> --module <Module> [--out <file>]
-       litedoc4 ownership --base <ir> (--inc <ir> | --removed <file>)
-                          [--exclude <file>] [--print-set <file>] [--json <file>]
-       litedoc4 merge --base <ir> (--inc <ir> | --remove <file>) [--out <ir>]
-                      [--modules <file>] [--changed-out <file>] [--timings <file>]
+       litedoc4 ownership --base <ir> [--inc <ir>] [--removed <file>]
+                       [--exclude <file>] [--print-set <file>] [--json <file>]
+       litedoc4 merge --base <ir> [--inc <ir>] [--out <ir>] [--remove <file>]
+                       [--modules <file>] [--changed-out <file>] [--timings <file>]
        litedoc4 merge --verify <ir> --against <ir>
        litedoc4 impact --ir <dir> [--changed <Module>]... [--changed-file <file>]
                        [--mode self|referrers|importers|all] [--census <file>]
                        [--print-set <file>] [--json <file>]
        litedoc4 prune --pages <dir> [--remove <file>] [--ir <dir>] [--dry-run]
-                      [--json <file>]
-       litedoc4 extract --modules <file> --ir-dir <dir> --timings <file>
-                        [--extractor-bin <path>] [--target <repo>] [--lake <path>]
-                        [--events <file>] [--jobs <n>]
-                        [--link-index <file> [--link-index-omit <file>]
-                         [--link-index-key <token>]]
-       litedoc4 incremental --ir <dir> --pages <dir> --ledger <file> --work <dir>
-                            --modules <file> --source-url <url> --link-index <file>
-                            --state <dir>
-                            (--extractor <program> [--extractor-arg <arg>]...
-                             | --serve --extractor-bin <path> --target <repo>
-                               [--lake <path>] [--jobs <n>] [--make-link-index])
-                            [--mode self|referrers|importers|all] [--max-rounds <n>]
-                            [--root <dir>] [--timings <file>]
-       litedoc4 --version
-       litedoc4 --help"
+                       [--json <file>]
+       litedoc4 links  --root <repo> [--lake <path>] [--link-index <file>]
+                       [--deps-docs-map <file>] [--out <file>]
+
+  --root         (`build`, `modules`) the Lean package: the sources are globbed
+                 under it, its oleans are hashed, `lake env` runs inside it, and
+                 for `build` its git HEAD is where --source-url comes from.
+                 (`site`, `render`, `global`, `incremental`, `ledger`)
+                 optional, and for two things. One is the dependency link map:
+                 with it, every link into a dependency is that package's
+                 version-pinned GitHub blob URL, read out of its
+                 lake-manifest.json plus `lean --githash`; without it
+                 those links stay relative to pages this site does not write.
+                 The other is <root>/litedoc4.toml, which sets the site's title
+                 and the Markdown on its index page — the same file for every
+                 command, so the four that write HTML cannot disagree about
+                 what the package is called. It is **not** --target: that names the
+                 tree whose oleans are hashed. A ledger and the run it licenses
+                 have to agree about this flag, or the render key moves and
+                 every page is re-rendered. `build` has one by construction, so
+                 its sites always carry the links.
+  --out          (`build`) the directory this command owns: <out>/site is the
+                 site, <out>/{ir,state,work} the caches, <out>/ledger.json the
+                 ledger. Required, with no default — <root>/.lake/build/doc is
+                 doc-gen4's own output tree — and it may not be inside --root
+  --port         (`watch`) the port the site is served on (default 8484). A
+                 port that is taken is refused by name, never moved to the next
+                 free one: an address that changes between runs leaves the tab
+                 you already have open pointing at nothing.
+  --interval     (`watch`) how often the loop asks the ledger, in milliseconds
+                 (default 1000, minimum 100). `watch` **does not run `lake
+                 build`** — run that in another window and it notices the oleans
+                 it writes. It acts only after one quiet interval, so a build
+                 still writing oleans is never extracted mid-flight, and it says
+                 so while it waits.
+  --full         (`build`) regenerate everything, ignoring what is under --out.
+                 The escape hatch for an input no ledger key covers. The
+                 dependency map is not one: its bytes are in renderKey, so a
+                 map that moved re-renders on its own.
+  --ir           an IR tree written by the extractor (schema 5)
+  --ir-dir       (`extract`) where the extractor writes that tree. Required,
+                 with no default
+  --pages        where the pages go; directories are created
+  --source-url   https://host/owner/repo/blob/<40-hex-rev>. `incremental`
+                 checks the 40 hex digits; `render` and `site` do not.
+  --link-index   the dependency closure's name -> module map (.lidx). Its
+                 SHA-256 is part of renderKey: a map that moved re-renders every
+                 page (150 of the target's 432 change bytes).
+                 For `build` it is optional — left out, the map is this
+                 command's own <out>/link-index.lidx, written by the extractor
+                 from the environment it imported anyway. Given, it is an
+                 input and is never written to. For `extract` it asks the
+                 extractor to write one.
+  --deps-docs-url  (`build`) <Root>=<url>: link that dependency's declarations
+                 at the documentation site it already publishes, e.g.
+                 Mathlib=https://leanprover-community.github.io/mathlib4_docs.
+                 Repeatable, off by default, and **verified**: a name that site's
+                 declaration table holds gets the docs page, one it does not
+                 keeps the version-pinned source, and a table that will not read
+                 sends the whole root to the source. There is no fallback on a
+                 404 — a build cannot see one. A <Root> that is not a dependency
+                 of --root is exit 3.
+  --deps-docs-index  (`build`) <Root>=<url|path>: where that site's declaration
+                 table is. Default <url>/declarations/declaration-data.bmp. A
+                 local path is read as a file, which is how a run with no
+                 outbound network uses this.
+  --deps-docs-map  (`site`, `render`, `incremental`, `ledger`, `links`) the
+                 resolved map `build` wrote under <out>/work. It carries the base
+                 URL and the verified names, so the commands that render cannot
+                 disagree about the links (the reason there is no --title).
+                 Nothing here reads a table or the network.
+                 It is an input to renderKey, so `ledger build` and `ledger
+                 check` need it for the same reason --root and --link-index are
+                 theirs: without it they compute a different key from the one the
+                 run that wrote the pages recorded, and then report a changed or
+                 unchanged key for a reason that is not true.
+  --link-index-omit  (`extract`, with --link-index) the modules whose own
+                 declaration groups are left out of that map, one name per
+                 line — normally the package's own module list. The renderer
+                 answers those names out of the IR before it reads the map, so
+                 the site is byte-identical; what changes is that the map stops
+                 moving when the package is edited, and with it renderKey.
+                 Module names still appear in the map's `@` section.
+                 `incremental --serve` passes its own --modules here.
+  --link-index-key  (`extract`, with --link-index) an opaque token standing for
+                 everything about that map the extractor cannot see: the oleans
+                 behind the imported modules, and the omit list's bytes. With
+                 it, a map whose sidecar <file>.key holds the same token and
+                 whose `@` section still matches the environment is left
+                 untouched — no scan, no write (1.20-1.81 s of a 6.2 s one-module
+                 incremental build on the measurement target). Anything less than
+                 a full match rewrites both. `build` and `incremental --serve`
+                 compute their own; here it is passed through verbatim.
+  --make-link-index  (`incremental --serve`) the resident extractor writes
+                 --link-index instead of reading it
+  --work         (`incremental`) the round's scratch directory. Everything in
+                 it is a diagnostic: the pipeline writes it and reads none of
+                 it back.
+  --extractor    (`incremental`) the extraction program, called as
+                 `<program> [<extractor-arg>...] --modules <list>
+                 --ir-dir <dir> --timings <file>`. No default, and the seam is
+                 what lets the pipeline be tested without Lean. Exclusive with
+                 --serve.
+  --extractor-arg  one argument for it, before those three; repeatable
+  --serve        (`incremental`) one resident Lean environment for the whole
+                 run instead of one process per round: imported at the first
+                 round that extracts, released on the way out of the loop.
+                 There is no --serve-dir — a server this run did not start is
+                 one whose olean generation it cannot vouch for.
+  --max-rounds   how many extract/ownership/merge rounds may run (default 5).
+                 Reaching it with modules still stale is exit 5.
+  --root         (`modules`) the repository the sources are globbed under
+  --lib          (`build`, `modules`) a library root: <Name>.lean and <Name>/;
+                 repeatable. Left out, the names come from <root>/lakefile.toml's
+                 [[lean_lib]] blocks; a lakefile.lean is refused by name, because
+                 reading it honestly means elaborating it with Lake
+  --extractor-bin  (`extract`, `incremental --serve`) the Lean extractor built
+                 by extractor/build.sh, or $EXTRACT_BIN. No default: it is built
+                 against the target's toolchain, so a baked-in path would be
+                 right on one machine
+  --target       (`extract`, `incremental --serve`) the Lean package to run
+                 inside, or $TARGET_REPO. It is opened read-only: an --ir-dir
+                 under it is refused, and its oleans are the generation every
+                 resident request is checked against
+  --lake         (`extract`, `incremental --serve`) the lake executable, or
+                 $LAKE (default: `lake`). Also (`build`, `site`, `render`,
+                 `ledger`) where the `lean` that answers `--githash` is looked
+                 for: its **sibling**, so `--lake ~/.elan/bin/lake` means
+                 `~/.elan/bin/lean`. That revision is Lean core's, the one
+                 dependency the manifest does not pin
+  --events       (`extract`) the extractor's phase events JSONL. Defaults to
+                 <timings without .json>-events.jsonl, which is what
+                 `incremental` relies on: it passes only --timings
+  --jobs         (`extract`, `incremental --serve`) extractor threads
+                 (default 1). It is the resident server's start-up
+                 configuration, so there is no per-request job count
+  --only         render only this module; repeatable
+  --only-from    render only the modules named in this file, one per line.
+                 An empty file renders nothing.
+  --out          the site root the six whole-package artifacts go under — for
+                 `site` the module pages go under it too — or the ledger file
+                 `ledger build` writes
+  --state        directory holding the contentHash cache (global-state.json).
+                 Without it every module is read: the from-scratch build.
+  --before       a previous declarations/name-map.json. Turns the delta on.
+  --print-set    the modules to re-render, one per line. An affected set that
+                 came out empty is an empty file, not a blank line.
+  --delta-json   the delta's diagnostic summary
+  --timings      one JSON line of counts and durations
+  --modules      the module list, one name per line; # comments are skipped.
+                 `ledger check` without it re-reads the ledger's own list and
+                 cannot see a module that appeared or vanished since `build`.
+                 For `merge` it is the order the merged index.json's modules
+                 come out in — a from-scratch extraction's, which is the order
+                 the extractor was handed the list in. A list that names other
+                 modules than the merged tree holds is exit 3, not a guess.
+  --target       the repository whose .lake/build/lib/lean holds the oleans.
+                 **Not** where the dependency link map comes from — that is
+                 --root, even for `ledger`, where on a real package the two name
+                 the same directory but on a hashed tree with no package behind
+                 it only one of them exists
+  --ledger       a ledger.json written by `ledger build`. `incremental` reads
+                 it and never rewrites it; `build` writes it back, after the
+                 last step that could fail.
+  --algorithm  sha256 hashes the olean bytes; lake reads the <file>.hash Lake
+                 already wrote. Defaults to sha256, and for `check` to the
+                 ledger's own.
+  --concurrency  olean reads in flight (default 1). The ledger's bytes do not
+                 depend on it.
+  --changed-out  the modules to re-extract, one per line
+  --removed-out  the modules that no longer have an olean, one per line
+  --render-all-out  why every page has to be re-rendered, one reason per line.
+                 Empty means the render set follows from the IR diff as usual.
+  --module       the module `ledger touch` invalidates
+  --base         the IR as it was before this round
+  --inc          the partial extraction's IR tree. Absent is a real case: a pure
+                 deletion re-extracts nothing.
+  --removed      modules that no longer exist, one per line (`ownership`)
+  --remove       the same list, spelled as the prototype spells it for `merge`
+  --exclude      modules already scheduled for re-extraction, one per line.
+                 They are fresh by definition and are never reported.
+  --verify       compare two IR trees; --against names the second
+  --changed      a module that changed; repeatable (`impact`)
+  --changed-file the same list in a file, one name per line
+  --mode         which modules the change reaches: self, referrers (direct),
+                 importers (the sound transitive bound, the default), or all —
+                 which is valid with an empty changed set and is what a moved
+                 render key selects
+  --census       a per-module TSV of |IMPORTERS| / |REFERRERS| / declarations
+  --pages        (`prune`) the page tree; nothing outside it is ever deleted
+  --dry-run      report what would be deleted and delete nothing
+"
+
+/-- What `litedoc4` with no arguments prints. `usage` is behind `--help-all` and
+behind every subcommand's own `--help`, because a reader who has already typed
+`site` is past the front door.
+
+Two commands rather than fourteen: the other twelve are invoked by
+`tools/*-gate.sh` and by `build` itself, and by nothing a consumer runs —
+`action.yml` and `lakefile.lean`'s `docs` script call `build` and nothing else
+(measured 2026-08-29). Listing all fourteen as equals said the opposite. -/
+def summary : String :=
+"usage: litedoc4 build  --root <repo> --out <dir> --extractor-bin <path>
+                       [--lib <Name>]... [--jobs <n>] [--source-url <url>]
+                       [--full]
+       litedoc4 watch  --root <repo> --out <dir> --extractor-bin <path>
+                       [--lib <Name>]... [--jobs <n>] [--port <n>]
+
+  `build` writes the site once. `watch` rebuilds it whenever the package's
+  oleans change and serves it, without ever running `lake build` itself.
+
+  Twelve more subcommands exist — extract, modules, links, incremental, site,
+  render, global, ledger, ownership, merge, impact, prune. They are the stages
+  `build` runs and the queries the gates ask of them, not a second way to use
+  this tool, and each answers its own --help.
+
+  litedoc4 --help-all    every command line and every flag
+  litedoc4 --version
+"
 
 structure RenderArgs where
   ir : Option String := none
@@ -74,6 +301,7 @@ structure RenderArgs where
   noLinkIndex : Bool := false
   root : Option String := none
   lake : Option String := none
+  depsDocsMap : Option String := none
   /-- The `--only` names, and the `--only-from` paths, kept apart because one of
   the two costs a file read. Both empty is "no subset asked for"; either
   non-empty is a subset, and `--only-from` naming an empty file is the subset
@@ -83,19 +311,13 @@ structure RenderArgs where
   help : Bool := false
   deriving Inhabited
 
-/-- Flags the Rust `render` takes and this one does not. They are refused by
-name rather than ignored: a run that silently dropped one would write the same
-pages as a run that honoured it, and the output would look like a match. -/
-def renderUnimplemented : List String :=
-  ["--deps-docs-map"]
-
 partial def parseRender : List String → RenderArgs → Except String RenderArgs
   | [], acc => .ok acc
   | flag :: rest, acc =>
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     if flag == "--ir" then do
       let (v, more) ← value; parseRender more { acc with ir := some v }
     else if flag == "--pages" then do
@@ -110,14 +332,14 @@ partial def parseRender : List String → RenderArgs → Except String RenderArg
       let (v, more) ← value; parseRender more { acc with root := some v }
     else if flag == "--lake" then do
       let (v, more) ← value; parseRender more { acc with lake := some v }
+    else if flag == "--deps-docs-map" then do
+      let (v, more) ← value; parseRender more { acc with depsDocsMap := some v }
     else if flag == "--only" then do
       let (v, more) ← value; parseRender more { acc with only := acc.only.push v }
     else if flag == "--only-from" then do
       let (v, more) ← value; parseRender more { acc with onlyFrom := acc.onlyFrom.push v }
     else if flag == "--help" || flag == "-h" then
       parseRender rest { acc with help := true }
-    else if renderUnimplemented.contains flag then
-      .error s!"{flag} is a `render` flag this build does not implement"
     else
       .error s!"unknown argument `{flag}`"
 
@@ -133,10 +355,15 @@ def refusedWith (code : UInt32) (message : String) : IO UInt32 := do
   IO.eprintln s!"litedoc4: {message}"
   return code
 
-/-- The cost is why the choice is not a default: the map is what turns a name in
-a signature into a link, and a site built without one is a site of dead names. -/
+/-- **One string, four call sites**, so that they cannot drift apart: the map is
+what turns a name in a signature into a link, and it fails silently — a docstring
+name that did not become a link looks exactly like a name that was never
+linkable — so the guard is in the shape of the flags, not in a default. -/
+def linkIndexCost : String :=
+  "without the dependency map 150 of the target package's 432 pages change bytes"
+
 def linkIndexRequired : String :=
-  "pass --link-index <file>, or --no-link-index to say so on purpose"
+  s!"pass --link-index <file>, or --no-link-index to say so on purpose: {linkIndexCost}"
 
 structure RenderInputs where
   external : ExternalLinks
@@ -176,8 +403,13 @@ def resolveExternal (root lake : Option String) : IO ExternalLinks := do
       IO.println s!"external  note: {line}"
     return resolved.links
 
-def renderInputs (root lake : Option String) : IO RenderInputs := do
-  return { external := ← resolveExternal root lake, config := ← readSiteConfig (root.map (⟨·⟩)) }
+/-- `--deps-docs-map` is folded in here and nowhere else, so that `render` and
+`site` cannot disagree about what a dependency's names link to. -/
+def renderInputs (root lake depsDocsMap : Option String) :
+    IO (Except (UInt32 × String) RenderInputs) := do
+  match ← withDependencyDocs (← resolveExternal root lake) (depsDocsMap.map (⟨·⟩)) with
+  | .error e => return .error e
+  | .ok external => return .ok { external, config := ← readSiteConfig (root.map (⟨·⟩)) }
 
 /-- The two spellings fold into one set, and both empty stays `all`. -/
 def resolveOnly (names files : Array String) : IO ModuleSet := do
@@ -205,7 +437,9 @@ def render (args : List String) : IO UInt32 := do
       let some sourceUrl := a.sourceUrl | return ← refuse "--source-url is required"
       if sourceUrl.isEmpty then return ← refuse "--source-url is required"
       if a.linkIndex.isSome == a.noLinkIndex then return ← refuse linkIndexRequired
-      let inputs ← renderInputs a.root a.lake
+      let inputs ← match ← renderInputs a.root a.lake a.depsDocsMap with
+        | .error (code, message) => return ← refusedWith code message
+        | .ok inputs => pure inputs
       let summary ← renderSite
         { ir := ir, pages := pages, sourceUrl := sourceUrl
           linkIndex := a.linkIndex.map (⟨·⟩)
@@ -216,6 +450,19 @@ def render (args : List String) : IO UInt32 := do
       IO.eprintln s!"litedoc4: {e}"
       return 1
 
+/-- The `site --timings` record. `renderSeconds` / `globalSeconds` /
+`totalSeconds` are the incremental round's names for the same two phases, so the
+two records subtract. -/
+def siteTimingsJson (r : Summary) (g : GlobalSummary) (renderNanos globalNanos : Nat) : String :=
+  "{\"command\":\"site\",\"pagesWritten\":" ++ toString r.pagesWritten
+    ++ ",\"modulesInIr\":" ++ toString r.modulesInIr
+    ++ ",\"pageBytes\":" ++ toString r.bytes
+    ++ ",\"cacheHits\":" ++ toString g.cacheHits
+    ++ ",\"cacheMisses\":" ++ toString g.cacheMisses
+    ++ ",\"renderSeconds\":" ++ seconds renderNanos 9
+    ++ ",\"globalSeconds\":" ++ seconds globalNanos 9
+    ++ ",\"totalSeconds\":" ++ seconds (renderNanos + globalNanos) 9 ++ "}\n"
+
 structure SiteArgs where
   ir : Option String := none
   out : Option String := none
@@ -225,13 +472,10 @@ structure SiteArgs where
   state : Option String := none
   root : Option String := none
   lake : Option String := none
+  depsDocsMap : Option String := none
+  timings : Option String := none
   help : Bool := false
   deriving Inhabited
-
-/-- Flags the Rust `site` takes and this one does not, refused by name for the
-reason `renderUnimplemented` is. -/
-def siteUnimplemented : List String :=
-  ["--deps-docs-map", "--timings"]
 
 /-- Flags the Rust `site` refuses by name because they belong to a subcommand it
 calls: a caller needs *why it is not here*, not that it was misspelled. -/
@@ -253,7 +497,7 @@ partial def parseSite : List String → SiteArgs → Except String SiteArgs
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     if flag == "--ir" then do
       let (v, more) ← value; parseSite more { acc with ir := some v }
     else if flag == "--out" then do
@@ -270,15 +514,15 @@ partial def parseSite : List String → SiteArgs → Except String SiteArgs
       let (v, more) ← value; parseSite more { acc with root := some v }
     else if flag == "--lake" then do
       let (v, more) ← value; parseSite more { acc with lake := some v }
+    else if flag == "--deps-docs-map" then do
+      let (v, more) ← value; parseSite more { acc with depsDocsMap := some v }
+    else if flag == "--timings" then do
+      let (v, more) ← value; parseSite more { acc with timings := some v }
     else if flag == "--help" || flag == "-h" then
       parseSite rest { acc with help := true }
     else match siteRefusal flag with
       | some message => .error message
-      | none =>
-        if siteUnimplemented.contains flag then
-          .error s!"{flag} is a `site` flag this build does not implement"
-        else
-          .error s!"unknown argument `{flag}`"
+      | none => .error s!"unknown argument `{flag}`"
 
 def site (args : List String) : IO UInt32 := do
   match parseSite args {} with
@@ -293,19 +537,29 @@ def site (args : List String) : IO UInt32 := do
     if sourceUrl.isEmpty then return ← refuse "--source-url is required"
     if a.linkIndex.isSome == a.noLinkIndex then return ← refuse linkIndexRequired
     try
-      let inputs ← renderInputs a.root a.lake
+      let inputs ← match ← renderInputs a.root a.lake a.depsDocsMap with
+        | .error (code, message) => return ← refusedWith code message
+        | .ok inputs => pure inputs
+      let started ← IO.monoNanosNow
       let rendered ← renderSite
         { ir := ir, pages := out, sourceUrl := sourceUrl
           linkIndex := a.linkIndex.map (⟨·⟩)
           external := inputs.external, title := inputs.config.title }
+      let renderDone ← IO.monoNanosNow
       let derived ← buildGlobal
         { ir := ir, out := out, state := a.state.map (⟨·⟩)
           indexMarkdown := inputs.config.indexMarkdown, title := inputs.config.title }
+      let globalDone ← IO.monoNanosNow
       -- Labelled per stage: one merged line would lose which half of the tree a
       -- number is about, and the two count different things under the same word
       -- ("modules").
       printRenderSummary "render  " rendered
       printGlobalSummary "global  " derived
+      if let some path := a.timings then
+        -- `renderSeconds` / `globalSeconds` / `totalSeconds` are the incremental
+        -- round's names for the same two phases, so the two records subtract.
+        writeFile ⟨path⟩ (siteTimingsJson rendered derived (renderDone - started)
+          (globalDone - renderDone))
       return 0
     catch e =>
       IO.eprintln s!"litedoc4: {e}"
@@ -319,13 +573,9 @@ structure GlobalArgs where
   before : Option String := none
   printSet : Option String := none
   deltaJson : Option String := none
+  timings : Option String := none
   help : Bool := false
   deriving Inhabited
-
-/-- Flags the Rust `global` takes and this one does not, refused by name for the
-reason `renderUnimplemented` is. -/
-def globalUnimplemented : List String :=
-  ["--timings"]
 
 partial def parseGlobal : List String → GlobalArgs → Except String GlobalArgs
   | [], acc => .ok acc
@@ -333,7 +583,7 @@ partial def parseGlobal : List String → GlobalArgs → Except String GlobalArg
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     if flag == "--ir" then do
       let (v, more) ← value; parseGlobal more { acc with ir := some v }
     else if flag == "--out" then do
@@ -348,10 +598,10 @@ partial def parseGlobal : List String → GlobalArgs → Except String GlobalArg
       let (v, more) ← value; parseGlobal more { acc with printSet := some v }
     else if flag == "--delta-json" then do
       let (v, more) ← value; parseGlobal more { acc with deltaJson := some v }
+    else if flag == "--timings" then do
+      let (v, more) ← value; parseGlobal more { acc with timings := some v }
     else if flag == "--help" || flag == "-h" then
       parseGlobal rest { acc with help := true }
-    else if globalUnimplemented.contains flag then
-      .error s!"{flag} is a `global` flag this build does not implement"
     else
       .error s!"unknown argument `{flag}`"
 
@@ -378,7 +628,7 @@ def globalCmd (args : List String) : IO UInt32 := do
       let summary ← buildGlobal
         { ir := ir, out := out, state := a.state.map (⟨·⟩)
           before := a.before.map (⟨·⟩), printSet := a.printSet.map (⟨·⟩)
-          deltaJson := a.deltaJson.map (⟨·⟩)
+          deltaJson := a.deltaJson.map (⟨·⟩), timings := a.timings.map (⟨·⟩)
           indexMarkdown := config.indexMarkdown, title := config.title }
       printGlobalSummary "" summary
       return 0
@@ -396,6 +646,7 @@ structure LedgerArgs where
   linkIndex : Option String := none
   root : Option String := none
   lake : Option String := none
+  depsDocsMap : Option String := none
   algorithm : Option String := none
   concurrency : Nat := 1
   module : Option String := none
@@ -432,13 +683,6 @@ def ledgerFlags : List (String × List String) :=
    ("--render-all-out", ["check"]),
    ("--timings", ["build", "check"])]
 
-/-- Flags the Rust `ledger` takes and this one does not, refused by name rather
-than ignored for the reason `renderUnimplemented` is. `--deps-docs-map` folds a
-map of where a dependency's documentation is published into the render key, and a
-run that dropped it would compute a key `build` never recorded. -/
-def ledgerUnimplemented : List String :=
-  ["--deps-docs-map"]
-
 def ledgerFlagRefusal (command flag : String) : Option String :=
   match ledgerFlags.find? (·.1 == flag) with
   | some (_, accepted) =>
@@ -454,7 +698,7 @@ partial def parseLedger (command : String) :
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     match ledgerFlagRefusal command flag with
     | some message => .error message
     | none =>
@@ -476,13 +720,15 @@ partial def parseLedger (command : String) :
       let (v, more) ← value; parseLedger command more { acc with root := some v }
     else if flag == "--lake" then do
       let (v, more) ← value; parseLedger command more { acc with lake := some v }
+    else if flag == "--deps-docs-map" then do
+      let (v, more) ← value; parseLedger command more { acc with depsDocsMap := some v }
     else if flag == "--algorithm" then do
       let (v, more) ← value; parseLedger command more { acc with algorithm := some v }
     else if flag == "--concurrency" then do
       let (v, more) ← value
       match v.toNat? with
       | some n => parseLedger command more { acc with concurrency := n }
-      | none => .error s!"--concurrency takes a number, not `{v}`"
+      | none => .error s!"--concurrency wants a number, not {v}"
     else if flag == "--module" then do
       let (v, more) ← value; parseLedger command more { acc with module := some v }
     else if flag == "--changed-out" then do
@@ -495,8 +741,6 @@ partial def parseLedger (command : String) :
       let (v, more) ← value; parseLedger command more { acc with timings := some v }
     else if flag == "--help" || flag == "-h" then
       parseLedger command rest { acc with help := true }
-    else if ledgerUnimplemented.contains flag then
-      .error s!"{flag} is a `ledger {command}` flag this build does not implement"
     else
       .error s!"unknown argument `{flag}`"
 
@@ -550,9 +794,18 @@ def checkTimingsJson (concurrency : Nat) (s : CheckSummary) (totalNanos : Nat) :
     ++ s!",\"compareSeconds\":{seconds (p.compareDone - p.hashDone) 9}"
     ++ s!",\"totalSeconds\":{seconds totalNanos 9}" ++ "}\n"
 
+/-- `--root`'s map with `--deps-docs-map` folded in. It is an input to
+`renderKey`, so `ledger build` and `ledger check` need it for the same reason
+`--root` and `--link-index` are theirs: without it they compute a different key
+from the one the run that wrote the pages recorded. -/
+def ledgerExternal (a : LedgerArgs) : IO (Except (UInt32 × String) ExternalLinks) := do
+  withDependencyDocs (← resolveExternal a.root a.lake) (a.depsDocsMap.map (⟨·⟩))
+
 def ledgerBuildRun (a : LedgerArgs) (modules target out : String) : IO UInt32 := do
   let names ← readModuleList ⟨modules⟩
-  let external ← resolveExternal a.root a.lake
+  let external ← match ← ledgerExternal a with
+    | .error (code, message) => return ← refusedWith code message
+    | .ok external => pure external
   let algorithm : Algorithm := match a.algorithm with
     | some name => { name }
     | none => Algorithm.sha256
@@ -572,7 +825,8 @@ def ledgerBuildRun (a : LedgerArgs) (modules target out : String) : IO UInt32 :=
         hashed (phases.keyDone - phases.started) (phases.hashDone - phases.keyDone)
         (total - phases.hashDone) (total - phases.started))
     sequentialNote a.concurrency
-    IO.println s!"build {ledger.modules.size} modules, {files} olean file(s), {hashed} B hashed \
+    IO.println s!"build {ledger.modules.size} modules, {files} olean file(s), \
+      {grouped hashed} B hashed \
       in {seconds (phases.hashDone - phases.keyDone) 4} s -> {out} ({body.utf8ByteSize} B)"
     return 0
 
@@ -580,7 +834,9 @@ def ledgerCheckRun (a : LedgerArgs) (path : String) : IO UInt32 := do
   let names ← match a.modules with
     | some list => pure (some (← readModuleList ⟨list⟩))
     | none => pure none
-  let external ← resolveExternal a.root a.lake
+  let external ← match ← ledgerExternal a with
+    | .error (code, message) => return ← refusedWith code message
+    | .ok external => pure external
   let result ← checkLedger
     { ledger := ⟨path⟩, algorithm := a.algorithm.map ({ name := · }), modules := names
       ir := a.ir.map (⟨·⟩), sourceUrl := a.sourceUrl, linkIndex := a.linkIndex.map (⟨·⟩)
@@ -649,7 +905,7 @@ partial def parseModules : List String → ModulesArgs → Except String Modules
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     if flag == "--root" then do
       let (v, more) ← value; parseModules more { acc with root := some v }
     else if flag == "--lib" then do
@@ -706,9 +962,17 @@ structure BuildArgs where
   out : Option String := none
   libs : Array String := #[]
   sourceUrl : Option String := none
+  linkIndex : Option String := none
+  extractor : Option String := none
+  extractorArgs : Array String := #[]
   extractorBin : Option String := none
   lake : Option String := none
   jobs : Nat := 1
+  mode : Option String := none
+  maxRounds : Nat := defaultMaxRounds
+  timings : Option String := none
+  depsDocsUrls : Array String := #[]
+  depsDocsIndexes : Array String := #[]
   full : Bool := false
   /-- `watch`'s own two, as text, so that the refusal for `--port banana` is
   written next to what a port means. Never filled in for `build`, which refuses
@@ -718,15 +982,47 @@ structure BuildArgs where
   help : Bool := false
   deriving Inhabited
 
-/-- Flags the Rust `build` takes and this one does not. Refused by name rather
-than ignored, because every one of them changes what a run *did* rather than
-whether it ran: a build that took `--mode importers` and re-rendered everything,
-or `--timings` and wrote no record, would look from the outside like the run that
-was asked for. `--link-index` is here for the opposite reason — it names a map
-somebody else made, and this build always writes its own. -/
-def buildUnimplemented : List String :=
-  ["--mode", "--max-rounds", "--timings", "--extractor", "--extractor-arg",
-   "--deps-docs-url", "--deps-docs-index", "--link-index"]
+/-- Why `watch` does not resolve a dependency's documentation site, stated once
+because two flags say it. -/
+def depsDocsInWatch : String :=
+  "it resolves a dependency's declaration table over the network, once, against \
+    the IR tree of that run. A loop would either re-fetch 5.7 MB on every rebuild or serve pages \
+    resolved against an IR tree that has moved since. Use `litedoc4 build` for a site with \
+    documentation links"
+
+/-- Flags `build` and `watch` refuse by name because each is a real flag of a
+subcommand this one drives: what a caller needs to hear is which decision this
+command has taken over, not that they misspelled something. -/
+def buildRefusal (watching : Bool) (flag : String) : Option String :=
+  let command := if watching then "watch" else "build"
+  if ["--ir", "--pages", "--ledger", "--work", "--state"].contains flag then
+    some s!"{flag} is not a `{command}` flag: this command owns the layout under --out \
+      (<out>/ir, <out>/site, <out>/state, <out>/work, <out>/ledger.json) so that a second run can \
+      find what the first one left. Name the pieces yourself with `litedoc4 incremental`"
+  else if flag == "--modules" then
+    some s!"--modules is not a `{command}` flag: the list is the source glob over the libraries \
+      (`litedoc4 modules`), and the same list has to reach detect, the extractor and merge or the \
+      merged index.json comes out in an order a from-scratch run would not have written. Choose \
+      the libraries with --lib"
+  else if flag == "--target" then
+    some s!"--target is not a `{command}` flag: the package being documented is --root, and it is \
+      the same repository the sources are globbed from, the oleans are hashed in and `lake env` \
+      runs inside"
+  else if flag == "--no-link-index" then
+    some s!"--no-link-index is not a `{command}` flag: {linkIndexCost}, and a build command whose \
+      ordinary output is silently wrong on a third of its pages is not worth having. `litedoc4 \
+      render --no-link-index` still says it on purpose"
+  else if ["--serve", "--serve-dir", "--serve-from"].contains flag then
+    some s!"{flag} is not a `{command}` flag: with --extractor-bin this command *is* the resident \
+      path — one Lean environment for the whole run, started here and released after the last \
+      round. There is nothing to switch on, and a server this run did not start is one whose \
+      olean generation it cannot vouch for"
+  else if flag == "--deps-docs-map" then
+    some s!"--deps-docs-map is not a `{command}` flag: this command resolves the documentation map \
+      itself, from --deps-docs-url, and writes it under <out>/work for `litedoc4 site` and \
+      `litedoc4 render` to read. A build that rendered against somebody else's resolved map would \
+      record its own map's digest in the ledger"
+  else none
 
 /-- The command line of `build` — **and of `watch`**, which is the same request
 asked over and over.
@@ -743,7 +1039,7 @@ partial def parseBuild (watching : Bool) :
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     if flag == "--root" then do
       let (v, more) ← value; parseBuild watching more { acc with root := some v }
     else if flag == "--out" then do
@@ -752,6 +1048,13 @@ partial def parseBuild (watching : Bool) :
       let (v, more) ← value; parseBuild watching more { acc with libs := acc.libs.push v }
     else if flag == "--source-url" then do
       let (v, more) ← value; parseBuild watching more { acc with sourceUrl := some v }
+    else if flag == "--link-index" then do
+      let (v, more) ← value; parseBuild watching more { acc with linkIndex := some v }
+    else if flag == "--extractor" then do
+      let (v, more) ← value; parseBuild watching more { acc with extractor := some v }
+    else if flag == "--extractor-arg" then do
+      let (v, more) ← value
+      parseBuild watching more { acc with extractorArgs := acc.extractorArgs.push v }
     else if flag == "--extractor-bin" then do
       let (v, more) ← value; parseBuild watching more { acc with extractorBin := some v }
     else if flag == "--lake" then do
@@ -759,9 +1062,17 @@ partial def parseBuild (watching : Bool) :
     else if flag == "--jobs" then do
       let (v, more) ← value
       match v.toNat? with
-      | some n => if n == 0 then .error "--jobs must be at least 1"
-                  else parseBuild watching more { acc with jobs := n }
-      | none => .error s!"--jobs takes a number, not `{v}`"
+      | some n => parseBuild watching more { acc with jobs := n }
+      | none => .error s!"--jobs wants a number, not {v}"
+    else if flag == "--mode" then do
+      let (v, more) ← value; parseBuild watching more { acc with mode := some v }
+    else if flag == "--max-rounds" then do
+      let (v, more) ← value
+      match v.toNat? with
+      | some n => parseBuild watching more { acc with maxRounds := n }
+      | none => .error s!"--max-rounds wants a number, not {v}"
+    else if flag == "--timings" then do
+      let (v, more) ← value; parseBuild watching more { acc with timings := some v }
     else if flag == "--port" then do
       let (v, more) ← value
       if watching then parseBuild watching more { acc with port := some v }
@@ -779,13 +1090,53 @@ partial def parseBuild (watching : Bool) :
           under --out\", and a loop that did that every pass would never do anything else. Run \
           `litedoc4 build --full` once, then start watching"
       else parseBuild watching rest { acc with full := true }
+    else if flag == "--deps-docs-url" || flag == "--deps-docs-index" then do
+      let (v, more) ← value
+      if watching then .error s!"{flag} is not a `watch` flag: {depsDocsInWatch}"
+      else if flag == "--deps-docs-url" then
+        parseBuild watching more { acc with depsDocsUrls := acc.depsDocsUrls.push v }
+      else
+        parseBuild watching more { acc with depsDocsIndexes := acc.depsDocsIndexes.push v }
     else if flag == "--help" || flag == "-h" then
       parseBuild watching rest { acc with help := true }
-    else if buildUnimplemented.contains flag then
-      .error s!"{flag} is a `{if watching then "watch" else "build"}` flag this build does not \
-        implement"
-    else
-      .error s!"unknown argument `{flag}`"
+    else match buildRefusal watching flag with
+      | some message => .error message
+      | none => .error s!"unknown argument `{flag}`"
+
+/-- What the command line says once every flag has been read: the checks that are
+about a **pair** of flags, in the order a caller meets them.
+
+After the loop and not in it, because each is about something that may still be
+coming: `--extractor` before `--link-index` and `--link-index` before
+`--extractor` have to be answered the same way. -/
+def buildChecks (a : BuildArgs) : Option String := Id.run do
+  -- Left out, the map is this command's own artefact, written by the resident
+  -- extractor out of the environment it imported. The one shape that cannot work
+  -- is `--extractor <program>` without it: that program's contract is three
+  -- flags, so nothing here can make it write a map.
+  if a.linkIndex.isNone && a.extractor.isSome then
+    return some s!"--extractor <program> needs --link-index <file>: the dependency map is written \
+      by the Lean extractor out of the environment it imports, and --extractor names a program \
+      whose interface is `--modules --ir-dir --timings` and nothing else. Either pass a map \
+      (`litedoc4 extract --link-index <file>` writes one) or use --extractor-bin, where this \
+      command owns the extractor and derives the map itself. {linkIndexCost}"
+  if a.maxRounds == 0 then
+    return some "--max-rounds must be at least 1: round 1 is where deletions are folded in"
+  if a.jobs == 0 then return some "--jobs must be at least 1"
+  if a.extractor.isSome then
+    for (flag, given) in [("--extractor-bin", a.extractorBin.isSome), ("--lake", a.lake.isSome)] do
+      if given then
+        return some s!"{flag} and --extractor are exclusive: one names the Lean extractor this run \
+          keeps resident, the other names a program to call once per round. How that program finds \
+          its own binary is its own business"
+    if a.jobs != 1 then
+      return some "--jobs is a flag of the resident path: a resident extractor fixes its job count \
+        at start-up. Behind --extractor, pass it through with `--extractor-arg --jobs \
+        --extractor-arg <n>`"
+  if let some text := a.mode then
+    if ImpactMode.parse text matches .unrecognised _ then
+      return some s!"--mode takes self|referrers|importers|all, not `{text}`"
+  return none
 
 /-- One request, for the two commands that ask it: `build` once and `watch` over
 and over. Resolved in one place because the two would otherwise be two places for
@@ -804,9 +1155,26 @@ def buildRequestOf (a : BuildArgs) (root out : String) : BuildM BuildRequest := 
   -- process inside the target, and the digest it feeds has to be the same one on
   -- both sides of this run.
   let external ← resolveExternal (some rootPath.toString) a.lake
-  return { root := rootPath, layout := layoutOf outPath, libs := a.libs, external
-           sourceUrl := a.sourceUrl, extractorBin := a.extractorBin.map (⟨·⟩)
-           lake := a.lake.map (⟨·⟩), jobs := a.jobs, full := a.full }
+  -- **Before the marker, before the work directory, before Lean**: the two
+  -- answers this can give — "that root is not a dependency" and "that flag is not
+  -- a pair" — are both things to say while nothing has been written.
+  let depsDocs ← match parseDocsSites a.depsDocsUrls a.depsDocsIndexes with
+    | .error e => throw e
+    | .ok sites => pure sites
+  match checkDocsRoots depsDocs external with
+  | .error e => throw e
+  | .ok () => pure ()
+  let layout := layoutOf outPath
+  let derived := a.linkIndex.isNone
+  let linkIndex ← absolutePath
+    ((a.linkIndex.map (⟨·⟩ : String → System.FilePath)).getD layout.linkIndex)
+  return { root := rootPath, layout, libs := a.libs, external, depsDocs
+           sourceUrl := a.sourceUrl, extractor := a.extractor, extractorArgs := a.extractorArgs
+           extractorBin := a.extractorBin.map (⟨·⟩)
+           lake := a.lake.map (⟨·⟩), jobs := a.jobs
+           linkIndex, derivedLinkIndex := derived
+           mode := (a.mode.map ImpactMode.parse).getD defaultMode
+           maxRounds := a.maxRounds, timings := a.timings.map (⟨·⟩), full := a.full }
 
 def answered (code : UInt32) (message : String) : IO UInt32 :=
   if code == 2 then refuse message else refusedWith code message
@@ -833,6 +1201,7 @@ def build (args : List String) : IO UInt32 := do
       return 0
     let some root := a.root | refuse rootRequired
     let some out := a.out | refuse outRequired
+    if let some message := buildChecks a then return ← refuse message
     try
       buildRun a root out
     catch e =>
@@ -850,6 +1219,7 @@ def watch (args : List String) : IO UInt32 := do
       return 0
     let some root := a.root | refuse rootRequired
     let some out := a.out | refuse outRequired
+    if let some message := buildChecks a then return ← refuse message
     -- Both refusals before the first `lake`: a usage error that arrives after a
     -- subprocess has run is one the caller waited for.
     let port ← match parsePort a.port with
@@ -862,6 +1232,165 @@ def watch (args : List String) : IO UInt32 := do
       match ← (do watchRun (← buildRequestOf a root out) port interval).run with
       | .ok () => return 0
       | .error (code, message) => answered code message
+    catch e =>
+      IO.eprintln s!"litedoc4: {e}"
+      pure (1 : UInt32)
+
+structure LinksArgs where
+  root : Option String := none
+  lake : Option String := none
+  out : Option String := none
+  linkIndex : Option String := none
+  depsDocsMap : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+partial def parseLinks : List String → LinksArgs → Except String LinksArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} needs a value"
+    if flag == "--root" then do
+      let (v, more) ← value; parseLinks more { acc with root := some v }
+    else if flag == "--lake" then do
+      let (v, more) ← value; parseLinks more { acc with lake := some v }
+    else if flag == "--out" then do
+      let (v, more) ← value; parseLinks more { acc with out := some v }
+    else if flag == "--link-index" then do
+      let (v, more) ← value; parseLinks more { acc with linkIndex := some v }
+    else if flag == "--deps-docs-map" then do
+      let (v, more) ← value; parseLinks more { acc with depsDocsMap := some v }
+    else if flag == "--help" || flag == "-h" then
+      parseLinks rest { acc with help := true }
+    else
+      .error s!"unknown argument `{flag}`"
+
+/-- One row of `links`.
+
+**The deep sample is what judges the path building.** A root module is a single
+component, so `Mathlib` -> `Mathlib.lean` exercises no dot, no nesting and no
+guillemet; `Mathlib.Order.Basic` -> `Mathlib/Order/Basic.lean` does. Every URL
+here comes from the renderer's own `ExternalLinks.urlFor` rather than from
+joining strings, because a checker that built the URL its own way would agree
+with a renderer that built it wrongly. -/
+structure LinkRow where
+  root : String
+  base : String
+  url : Option String
+  docsUrl : Option String
+  deep : Option (String × String)
+  deepDocsUrl : Option String
+
+/-- The lexicographically first module of `root` below the root itself — first
+rather than longest, so that the sample does not move when the index gains a
+module. -/
+def sampleModule (index : Lidx) (root : String) : Option String := Id.run do
+  let below := root ++ "."
+  let mut best : Option String := none
+  for module in index.modules do
+    if module.startsWith below then
+      match best with
+      | none => best := some module
+      | some seen => if byteLt module seen then best := some module
+  return best
+
+def linkRows (links : ExternalLinks) (index : Option Lidx) : Array LinkRow := Id.run do
+  let mut rows : Array LinkRow := Array.mkEmpty links.roots.size
+  for entry in links.roots do
+    let sample := index.bind (sampleModule · entry.name)
+    let deep := sample.bind fun module => (links.urlFor module none).map (module, ·)
+    rows := rows.push
+      -- A root is a top-level `Foo.lean`, so the root module's own file is the
+      -- one file every resolved root is known to have.
+      { root := entry.name, base := entry.base, url := links.urlFor entry.name none
+        docsUrl := links.docsUrlFor entry.name none, deep
+        deepDocsUrl := sample.bind (links.docsUrlFor · none) }
+  return rows
+
+def orDash : Option String → String
+  | none => "-"
+  | some s => s
+
+def jsonOrNull (out : String) : Option String → String
+  | none => out ++ "null"
+  | some s => jsonStr out s
+
+/-- `serde_json::to_string_pretty`: two spaces a level, and no space before a
+`:`. -/
+def linksJson (root : String) (rows : Array LinkRow) (pinned sampled documented : Nat) :
+    String := Id.run do
+  let mut o := jsonStr "{\n  \"root\": " root
+  o := o ++ s!",\n  \"roots\": {rows.size},\n  \"pinned\": {pinned}"
+    ++ s!",\n  \"sampled\": {sampled},\n  \"documented\": {documented},\n  \"rows\": "
+  if rows.isEmpty then return o ++ "[]\n}\n"
+  o := o ++ "["
+  let mut first := true
+  for row in rows do
+    if !first then o := o.push ','
+    first := false
+    o := jsonStr (o ++ "\n    {\n      \"root\": ") row.root
+    o := jsonStr (o ++ ",\n      \"base\": ") row.base
+    o := jsonOrNull (o ++ ",\n      \"url\": ") row.url
+    o := jsonOrNull (o ++ ",\n      \"docsUrl\": ") row.docsUrl
+    o := jsonOrNull (o ++ ",\n      \"module\": ") (row.deep.map (·.1))
+    o := jsonOrNull (o ++ ",\n      \"moduleUrl\": ") (row.deep.map (·.2))
+    o := jsonOrNull (o ++ ",\n      \"moduleDocsUrl\": ") row.deepDocsUrl
+    o := o ++ "\n    }"
+  return o ++ "\n  ]\n}\n"
+
+/-- The dependency link map, as the renderer will see it.
+
+doc-gen4's reference tree documents only the target's import closure, so most
+roots have no oracle — **12 of 39 had one, 27 did not** (measured 2026-08-16).
+The other 27 are URLs a server will answer for, so this prints the rows for
+something to check.
+
+It reads; it writes nothing but `--out`. `lake` runs (core's revision comes from
+`lake env lean --githash`), so this needs the target's toolchain. -/
+def linksRun (a : LinksArgs) (root : String) : IO UInt32 := do
+  let index ← match a.linkIndex with
+    | none => pure none
+    | some path => pure (some (← parseLidx (← IO.FS.readFile ⟨path⟩)))
+  let external ← match ← withDependencyDocs (← resolveExternal (some root) a.lake)
+      (a.depsDocsMap.map (⟨·⟩)) with
+    | .error (code, message) => return ← refusedWith code message
+    | .ok external => pure external
+  let rows := linkRows external index
+  let count (p : LinkRow → Bool) : Nat := rows.foldl (fun n row => if p row then n + 1 else n) 0
+  let pinned := count (·.url.isSome)
+  let sampled := count (·.deep.isSome)
+  let documented := count (·.docsUrl.isSome)
+  for row in rows do
+    -- Tab-separated, `-` for "nothing here" — the shape `cut` and `awk` read
+    -- without a parser. Only rows go to stdout here; the counts are below.
+    let (module, deep) := match row.deep with
+      | none => ("-", "-")
+      | some (module, url) => (module, url)
+    IO.println s!"{row.root}\t{if row.base.isEmpty then "-" else row.base}\t\
+      {orDash row.url}\t{module}\t{deep}\t{orDash row.docsUrl}\t{orDash row.deepDocsUrl}"
+  if index.isSome then
+    IO.println s!"external  {sampled}/{rows.size} root(s) with a deeper module"
+  -- Printed only with a map, because without one the answer is 0 for every root
+  -- and a zero nobody asked for reads like a failure.
+  if a.depsDocsMap.isSome then
+    IO.println s!"external  {documented}/{rows.size} root(s) whose own documentation site answers \
+      for their root module"
+  if let some path := a.out then
+    writeFile ⟨path⟩ (linksJson root rows pinned sampled documented)
+  return 0
+
+def linksCmd (args : List String) : IO UInt32 := do
+  match parseLinks args {} with
+  | .error message => refuse message
+  | .ok a =>
+    if a.help then
+      IO.println usage
+      return 0
+    let some root := a.root | refuse "--root <repo> is required"
+    try
+      linksRun a root
     catch e =>
       IO.eprintln s!"litedoc4: {e}"
       pure (1 : UInt32)
@@ -882,7 +1411,7 @@ partial def parseOwnership : List String → OwnershipArgs → Except String Own
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     if flag == "--base" then do
       let (v, more) ← value; parseOwnership more { acc with base := some v }
     else if flag == "--inc" then do
@@ -959,7 +1488,7 @@ partial def parseMerge : List String → MergeArgs → Except String MergeArgs
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     if flag == "--base" then do
       let (v, more) ← value; parseMerge more { acc with base := some v }
     else if flag == "--inc" then do
@@ -1066,7 +1595,7 @@ partial def parseImpact : List String → ImpactArgs → Except String ImpactArg
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     if flag == "--ir" then do
       let (v, more) ← value; parseImpact more { acc with ir := some v }
     else if flag == "--changed" then do
@@ -1140,7 +1669,7 @@ partial def parsePrune : List String → PruneArgs → Except String PruneArgs
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     if flag == "--pages" then do
       let (v, more) ← value; parsePrune more { acc with pages := some v }
     else if flag == "--remove" then do
@@ -1239,6 +1768,7 @@ structure IncrementalArgs where
   target : Option String := none
   lake : Option String := none
   root : Option String := none
+  depsDocsMap : Option String := none
   help : Bool := false
   deriving Inhabited
 
@@ -1277,18 +1807,13 @@ def incrementalRefusal (flag : String) : Option String :=
       rendered without the map is indistinguishable from one that was not re-rendered at all"
   else none
 
-/-- Flags the Rust `incremental` takes and this one does not, refused by name for
-the reason `renderUnimplemented` is. -/
-def incrementalUnimplemented : List String :=
-  ["--deps-docs-map"]
-
 partial def parseIncremental : List String → IncrementalArgs → Except String IncrementalArgs
   | [], acc => .ok acc
   | flag :: rest, acc =>
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     match incrementalRefusal flag with
     | some message => .error message
     | none =>
@@ -1321,7 +1846,7 @@ partial def parseIncremental : List String → IncrementalArgs → Except String
       let (v, more) ← value
       match v.toNat? with
       | some n => parseIncremental more { acc with maxRounds := n }
-      | none => .error s!"--max-rounds takes a number, not `{v}`"
+      | none => .error s!"--max-rounds wants a number, not {v}"
     else if flag == "--timings" then do
       let (v, more) ← value; parseIncremental more { acc with timings := some v }
     else if flag == "--serve" then
@@ -1334,15 +1859,15 @@ partial def parseIncremental : List String → IncrementalArgs → Except String
       let (v, more) ← value; parseIncremental more { acc with lake := some v }
     else if flag == "--root" then do
       let (v, more) ← value; parseIncremental more { acc with root := some v }
+    else if flag == "--deps-docs-map" then do
+      let (v, more) ← value; parseIncremental more { acc with depsDocsMap := some v }
     else if flag == "--jobs" then do
       let (v, more) ← value
       match v.toNat? with
       | some n => parseIncremental more { acc with jobs := n, jobsGiven := true }
-      | none => .error s!"--jobs takes a number, not `{v}`"
+      | none => .error s!"--jobs wants a number, not {v}"
     else if flag == "--help" || flag == "-h" then
       parseIncremental rest { acc with help := true }
-    else if incrementalUnimplemented.contains flag then
-      .error s!"{flag} is an `incremental` flag this build does not implement"
     else
       .error s!"unknown argument `{flag}`"
 
@@ -1363,7 +1888,7 @@ def incrementalUsage (a : IncrementalArgs) : Option String := Id.run do
     if let some message := checkSourceUrl url then return some message
   if a.linkIndex.isNone then
     return some s!"--link-index <file> is required, and there is no --no-link-index here: \
-      {linkIndexRequired}"
+      {linkIndexCost}"
   if a.state.isNone then
     return some "--state <dir> is required: the whole-package derivation is always the cached one, \
       and the map delta it feeds the renderer needs a cache to compare against. The previous run \
@@ -1422,7 +1947,10 @@ def incrementalRun (a : IncrementalArgs) : IO UInt32 := do
   let moduleList ← readModuleList ⟨modulesFile⟩
   -- Once, before anything else runs: the same value `detect` hashes into the
   -- render key and the render step draws with.
-  let external ← resolveExternal a.root a.lake
+  let external ← match ← withDependencyDocs (← resolveExternal a.root a.lake)
+      (a.depsDocsMap.map (⟨·⟩)) with
+    | .error (code, message) => return ← refusedWith code message
+    | .ok external => pure external
   -- **Built before the run starts, so the generation is the world `detect` is
   -- about to look at.** `Resident.new` starts nothing; it records the oleans, and
   -- every later check is against this one reading.
@@ -1526,7 +2054,7 @@ partial def parseExtract : List String → ExtractArgs → Except String Extract
     let value : Except String (String × List String) :=
       match rest with
       | v :: more => .ok (v, more)
-      | [] => .error s!"{flag} wants a value"
+      | [] => .error s!"{flag} needs a value"
     match extractRefusal flag with
     | some message => .error message
     | none =>
@@ -1554,7 +2082,7 @@ partial def parseExtract : List String → ExtractArgs → Except String Extract
       let (v, more) ← value
       match v.toNat? with
       | some n => parseExtract more { acc with jobs := n }
-      | none => .error s!"--jobs takes a number, not `{v}`"
+      | none => .error s!"--jobs wants a number, not {v}"
     else if flag == "--help" || flag == "-h" then
       parseExtract rest { acc with help := true }
     else
@@ -1688,12 +2216,13 @@ def main (args : List String) : IO UInt32 := do
   | "merge" :: rest => Litedoc4.mergeCmd rest
   | "impact" :: rest => Litedoc4.impactCmd rest
   | "prune" :: rest => Litedoc4.pruneCmd rest
+  | "links" :: rest => Litedoc4.linksCmd rest
   | "incremental" :: rest => Litedoc4.incremental rest
   | "extract" :: rest => Litedoc4.extract rest
   | [] | "--help" :: _ | "-h" :: _ =>
+    IO.println Litedoc4.summary
+    return 0
+  | "--help-all" :: _ =>
     IO.println Litedoc4.usage
     return 0
-  | arg :: _ =>
-    IO.eprintln s!"litedoc4: unknown subcommand `{arg}`"
-    IO.eprintln Litedoc4.usage
-    return 2
+  | arg :: _ => Litedoc4.refuse s!"unknown subcommand `{arg}`"

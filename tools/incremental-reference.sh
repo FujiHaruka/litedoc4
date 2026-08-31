@@ -153,6 +153,16 @@ esac
 [ -d "$TARGET" ] || { echo "missing target repository: $TARGET" >&2; exit 1; }
 [ -d "$BASE_IR_SRC" ] || { echo "missing base IR: $BASE_IR_SRC" >&2; exit 1; }
 [ -f "$LIDX" ] || { echo "missing link index: $LIDX" >&2; exit 1; }
+# Hard, like the three above it, and not `if [ -d ]` around the check itself:
+# `base-sitecheck.txt` is the one oracle inside this recording that says the base
+# site equals a site somebody already accepted, and `incremental-compare.sh`
+# skips `*-sitecheck.txt` by design — so a missing reference site used to mean
+# the file was never written and **nothing anywhere reported it** (measured
+# 2026-08-31; the default below had rotted and no run since had one).
+[ -d "$REF_SITE" ] || {
+  echo "missing reference site: $REF_SITE — pass --ref-site, or make one with" >&2
+  echo "  litedoc4 site --ir <base ir> --out <dir> --source-url <url> --link-index <lidx>" >&2
+  exit 1; }
 [ -x "$EXTRACTOR" ] || { echo "missing extractor: $EXTRACTOR" >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 # Needed by both spellings: the module-list check below is stated against
@@ -353,20 +363,18 @@ ledger_build "$OUT/modules-431.txt" "$FIX/base-ir" "$FIX/base-ledger-431.json" \
 
 # The base every scenario starts from, checked against the reference site the
 # gate already accepted. Recorded, and skipped by the comparator.
-if [ -d "$REF_SITE" ]; then
-  {
-    printf 'reference site    %s\n' "$REF_SITE"
-    printf 'reference files   %s\n' "$(find "$REF_SITE" -type f | wc -l | tr -d ' ')"
-    printf 'base files        %s\n' "$(find "$FIX/base-site" -type f | wc -l | tr -d ' ')"
-    if /usr/bin/diff -r -q "$REF_SITE" "$FIX/base-site" > "$WORKROOT/base-sitecheck.diff" 2>&1; then
-      printf 'diff              identical\n'
-    else
-      printf 'diff              %s line(s)\n' \
-        "$(grep -c . "$WORKROOT/base-sitecheck.diff" || true)"
-      sed 's/^/  /' "$WORKROOT/base-sitecheck.diff"
-    fi
-  } > "$OUT/base-sitecheck.txt"
-fi
+{
+  printf 'reference site    %s\n' "$REF_SITE"
+  printf 'reference files   %s\n' "$(find "$REF_SITE" -type f | wc -l | tr -d ' ')"
+  printf 'base files        %s\n' "$(find "$FIX/base-site" -type f | wc -l | tr -d ' ')"
+  if /usr/bin/diff -r -q "$REF_SITE" "$FIX/base-site" > "$WORKROOT/base-sitecheck.diff" 2>&1; then
+    printf 'diff              identical\n'
+  else
+    printf 'diff              %s line(s)\n' \
+      "$(grep -c . "$WORKROOT/base-sitecheck.diff" || true)"
+    sed 's/^/  /' "$WORKROOT/base-sitecheck.diff"
+  fi
+} > "$OUT/base-sitecheck.txt"
 
 setup_live () { # setup_live <name> <ir src> <pages src> <ledger src> <state src>
   local d="$WORKROOT/$1"
