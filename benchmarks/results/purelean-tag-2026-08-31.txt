@@ -1,0 +1,60 @@
+v1.3.0, taken from outside: the published tag, over the public URL, with only elan
+==================================================================================
+2026-08-31
+
+Why this is separate from purelean-require-only-2026-08-31.txt
+--------------------------------------------------------------
+That one required a `file://` clone of the working tree, which proves the mechanism and
+not the artefact. This one pins the tag a reader of README would pin, over
+`https://github.com/FujiHaruka/litedoc4`, after it was pushed. **The distribution model
+is the thing under test, so the channel has to be the real one.**
+
+Conditions
+----------
+  machine        Apple M1, macOS 25.6.0, 16 GB
+  toolchain      Lake 5.0.0-src+68218e8 (Lean 4.31.0), from elan
+  ref            @ "v1.3.0" -> tag object 80e21f3 -> commit fa1183c
+  MathML4Lean    v0.1.1 -> 2ce27a80855d517a8ce47c0c5b0a29c49815e435
+  PATH           /usr/bin:/bin:/usr/sbin:/sbin:$HOME/.elan/bin
+  package        a one-declaration `lean_lib Widget`, written for this run
+  page cache     warm for the toolchain; both clones were fresh
+
+What was reachable, asked rather than assumed
+---------------------------------------------
+  cargo   not on PATH
+  rustc   not on PATH
+  node    not on PATH
+  npm     not on PATH
+  cc      /usr/bin/cc          <- present, and NOT what compiles the vendored C
+  clang   /usr/bin/clang       <- likewise
+
+The last two cannot be removed from a macOS PATH without breaking the shell, so "no C
+compiler of your own is needed" is **not** shown by their absence here. What shows it is
+`tools/purelean-gate.sh` item 4, which reads `lake build -v` and asserts both objects were
+compiled by the *toolchain's* clang
+(`~/.elan/toolchains/leanprover--lean4---v4.31.0/bin/clang`) — a green build proves nothing
+about which compiler ran, which is why that item exists.
+
+Result
+------
+  lake update    exit 0. Cloned litedoc4 at the tag and MathML4Lean.
+                 "toolchain not updated; already up-to-date" — the consumer's
+                 `lean-toolchain` was not rewritten, which is what having no
+                 `lean-toolchain` in this package buys.
+  lake build     exit 0
+  lake run docs  exit 0 with `--source-url` given; full generation in 2.7875 s,
+                 site written (404.html, app.js, declarations/, favicon.svg,
+                 foundational_types.html, index.html, …)
+  --version      litedoc4 1.3.0, from
+                 .lake/packages/litedoc4/.lake/build/bin/litedoc4
+
+`--source-url` had to be passed because the fixture is not a git checkout; without it the
+run **refuses with exit 3** rather than linking pages at a revision it guessed. That is the
+designed behaviour, not a failure of this check.
+
+What this does not measure
+--------------------------
+  - Linux and Windows. macOS/arm64 only; `ci-lake.yml`'s `git-require` job is the Linux
+    equivalent and runs against a branch SHA rather than a tag.
+  - A machine with no elan. Installing the toolchain is still the consumer's first step,
+    and it is the only one.

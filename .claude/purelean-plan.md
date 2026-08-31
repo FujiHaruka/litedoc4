@@ -486,15 +486,17 @@ left the sources:
   `cargo`/`rustc`/`node`/`npm` の無い PATH でサイトを出す
   → `benchmarks/results/purelean-require-only-2026-08-31.txt`。
   消費者が払うのは初回の **18.1 s（litedoc4）+ 25.7 s（extractor）**、2 回目からは 0.57 s
-- **残り 3 つ**:
-  1. **タグ `v1.3.0` を切る** — README と `lakefile.lean` は既にこれを指している。
-     切るまで README のピン例は存在しないタグを指したまま
-  2. **`information-theory` のピンを上げる**（`docs.yml` の `@v1.2.0`）—
-     **別リポジトリで、しかも CLAUDE.md が「計測対象にコミットするな」と言っている対象**。
-     ユーザー判断
-  3. **`pages.yml` はまだ Rust バイナリでサンプルを建てている**。M10 で切り替わる。
-     M8 で全体一致を取っているのでバイト差は無い（実測）が、
-     「配布は Lean、公開サンプルは Rust」という非対称は M10 まで残る
+- **タグ `v1.3.0` を切った**（`fa1183c`）。**公開 URL + タグで外から実測済** —
+  `cargo`/`rustc`/`node`/`npm` の無い PATH でサイトが出る
+  → `benchmarks/results/purelean-tag-2026-08-31.txt`
+- **`pages.yml` も切り替えた**（`02570c9`）。公開サンプルは Lean 半分がビルドしている。
+  `tools/e2e-micro.sh` は Lean バイナリで 17/17 通る（実測）ので、
+  「配布は Lean、公開サンプルは Rust」という非対称は M10 を待たずに消えた
+- **残りはユーザー判断 2 つ**:
+  1. **`information-theory` のピンを上げる**（`docs.yml` の `@v1.2.0` → `v1.3.0`）—
+     **別リポジトリで、しかも CLAUDE.md が「計測対象にコミットするな」と言っている対象**
+  2. **GitHub Release を今後も出すか**。`release.yml` を消したので `v1.3.0` はタグだけで、
+     Releases ページの最新は `v1.2.0` のまま。ピンにはタグで足りるので、これは発見可能性の話
 
 ### M10 Rust 削除
 - `crates/` を HEAD から削除、`rust-frozen` タグで凍結（`experiments-frozen` の前例）
