@@ -93,6 +93,18 @@
 #               render nothing, which is what the pipeline hands it when a round
 #               finds no page stale. The names come out of the IR, not out of
 #               this file, so a growing sample cannot leave a stale spelling here.
+#  16 INCR      the incremental path. Three runs of the **Lean** half and no
+#               Rust anywhere: a build, `ledger touch` on one module, a second
+#               build, and a full build beside it. Two claims — `onemod-gate.sh`
+#               (the edit was noticed, fewer pages than modules were rewritten,
+#               the dependency map was reused) and, the stronger one, that the
+#               incremental site is byte for byte a full build's. `touch`
+#               invalidates a ledger entry rather than editing the sample, so
+#               the IR is unchanged and the two sites must agree; a round that
+#               re-rendered too little writes a site stale in exactly the pages
+#               nobody opens, with every count in the marker still plausible.
+#               It is deliberately oracle-free: it is the one item here that is
+#               still a question once the Rust half is deleted.
 #   8 CLOSURE   the Lean site does not close over itself. `check-site-closure.py`
 #               asks whether the index, the search index and the pages agree
 #               about which declarations exist **in both directions**, and
@@ -167,7 +179,7 @@ else
   TEMPORARY=0
 fi
 
-ITEMS=15
+ITEMS=16
 ran=0
 failed=0
 
@@ -197,7 +209,7 @@ site_run () {
   echo "$rc"
 }
 
-say "1/15 the Lean half builds from a consumer's workspace"
+say "1/16 the Lean half builds from a consumer's workspace"
 built=0
 build_rc=0
 (cd "$FIXTURE" && "$LAKE" build litedoc4/litedoc4) >"$OUT/build.log" 2>&1 || build_rc=$?
@@ -211,7 +223,7 @@ else
   tail -20 "$OUT/build.log" >&2
 fi
 
-say "2/15 the sample's IR, extracted here"
+say "2/16 the sample's IR, extracted here"
 extracted=0
 (cd "$MICRO" && "$LAKE" build) >"$OUT/micro-build.log" 2>&1
 EXTRACTOR="$(micro_extractor "$ROOT" "$MICRO" "$LAKE" "$OUT/extractor-build.log")"
@@ -235,7 +247,7 @@ else
   fi
 fi
 
-say "3/15 with --link-index, the two trees are the same bytes"
+say "3/16 with --link-index, the two trees are the same bytes"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean" "$OUT/rust" "$OUT/lean-slash" "$OUT/rust-slash"
   lean_rc="$(render "$LEAN_EXE" "$OUT/lean" lean --link-index "$OUT/build/link-index.lidx")"
@@ -269,7 +281,7 @@ else
   fail 3 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "4/15 with --no-link-index, both refuse the same unplaceable name"
+say "4/16 with --no-link-index, both refuse the same unplaceable name"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/lean-nolidx" "$OUT/rust-nolidx"
   lean_n_rc="$(render "$LEAN_EXE" "$OUT/lean-nolidx" lean-nolidx --no-link-index)"
@@ -291,7 +303,7 @@ else
   fail 4 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "5/15 the two runs print the same stdout"
+say "5/16 the two runs print the same stdout"
 # The whole of stdout and not a slice of it: both halves take `--root`, so the
 # `external ` block one prints is the other's too, and a comparison that began
 # at the first counts line would swallow a difference in the dependency map the
@@ -308,7 +320,7 @@ else
   fail 5 "item 3 did not leave two runs' stdout to compare"
 fi
 
-say "6/15 \`site\` writes the same 20 files, bytes and all"
+say "6/16 \`site\` writes the same 20 files, bytes and all"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/site-lean" "$OUT/site-rust"
   lean_s_rc="$(site_run "$LEAN_EXE" "$OUT/site-lean" site-lean)"
@@ -332,7 +344,7 @@ else
   fail 6 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-say "7/15 the two \`site\` runs print the same stdout"
+say "7/16 the two \`site\` runs print the same stdout"
 if [ -s "$OUT/site-lean.out" ] && [ -s "$OUT/site-rust.out" ]; then
   if ! $DIFF_CMD "$OUT/site-rust.out" "$OUT/site-lean.out" >"$OUT/site-summary.diff" 2>&1; then
     fail 7 "stdout differs — see $OUT/site-summary.diff"
@@ -350,7 +362,7 @@ fi
 # own. This is the only oracle-free question asked of the Lean tree, and it is
 # the one that outlives the oracle: after the Rust half is deleted, item 6 has
 # nothing to compare against and this is what is left.
-say "8/15 the Lean site closes over itself"
+say "8/16 the Lean site closes over itself"
 if [ "$(find "$OUT/site-lean" -type f 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]; then
   closure_rc=0
   "$PYTHON" "$ROOT/benchmarks/tools/check-site-closure.py" "$OUT/site-lean" \
@@ -373,7 +385,7 @@ else
   fail 8 "the Lean site is empty or was not written — item 6 says why"
 fi
 
-say "9/15 the two \`ledger build\` runs write the same bytes"
+say "9/16 the two \`ledger build\` runs write the same bytes"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   mod_rc=0
   "$LITEDOC4" modules --root "$MICRO" --lib Example --out "$OUT/ledger-modules.txt" \
@@ -414,7 +426,7 @@ fi
 # 11 pages between two runs while this was being written (measured 2026-08-31).
 BUILD_URL="https://github.com/FujiHaruka/litedoc4/blob/0000000000000000000000000000000000000000/e2e/micro"
 
-say "10/15 \`build\` writes the same 23 files, bytes and all"
+say "10/16 \`build\` writes the same 23 files, bytes and all"
 lean_built_site=""
 if [ "$built" -eq 1 ] && [ -x "$EXTRACTOR" ]; then
   rm -rf "$OUT/b-lean" "$OUT/b-rust"
@@ -454,7 +466,7 @@ else
   fail 10 "no binary or no extractor — item 1 or 2 did not produce one"
 fi
 
-say "11/15 the Lean-built site passes site-gate"
+say "11/16 the Lean-built site passes site-gate"
 if [ -n "$lean_built_site" ]; then
   sg_rc=0
   "$HERE/site-gate.sh" "$lean_built_site" >"$OUT/site-gate.txt" 2>&1 || sg_rc=$?
@@ -472,7 +484,7 @@ else
   fail 11 "the Lean build wrote no site — item 10 says why"
 fi
 
-say "12/15 the Lean-built site passes config-gate, with either half deriving"
+say "12/16 the Lean-built site passes config-gate, with either half deriving"
 # Run twice over the same Lean-built site. `config-gate.sh` re-derives the three
 # trees that write HTML and asks whether the configured title reaches all of
 # them, so which binary derives them is a second question the same claim can be
@@ -505,7 +517,7 @@ else
   fail 12 "the Lean build wrote no site — item 10 says why"
 fi
 
-say "13/15 the two builds leave the same litedoc4-build.json"
+say "13/16 the two builds leave the same litedoc4-build.json"
 if [ -n "$lean_built_site" ]; then
   if [ ! -s "$OUT/b-rust/litedoc4-build.json" ]; then
     fail 13 "the Rust build left no marker"
@@ -518,7 +530,7 @@ else
   fail 13 "the Lean build wrote no site, so there is no marker — item 10 says why"
 fi
 
-say "14/15 the two \`build\` runs print the same transcript"
+say "14/16 the two \`build\` runs print the same transcript"
 if [ -n "$lean_built_site" ] && [ -s "$OUT/b-rust.out" ]; then
   # One sed each, so a rule that stops matching shows up as a difference rather
   # than as silence.
@@ -538,7 +550,7 @@ else
   fail 14 "the Lean build wrote no site — item 10 says why"
 fi
 
-say "15/15 --only-from renders that set on both halves, and no more"
+say "15/16 --only-from renders that set on both halves, and no more"
 # The one failure a byte comparison of two whole renders cannot see: a
 # `--only-from` that is accepted and ignored writes exactly the tree items 3 and
 # 4 already compare. So the claim here is an inequality as well as an equality —
@@ -578,6 +590,57 @@ ONLY
   fi
 else
   fail 15 "item 3 did not leave a whole render of more than one page to compare a subset against"
+fi
+
+say "16/16 an incremental build leaves what a full one would have"
+# The only item that asks about the incremental path, and **the only one here
+# whose oracle is not the Rust binary**: it compares two runs of the Lean half
+# against each other, so it is still a question when the Rust half is gone.
+#
+# `ledger touch` is the honest fake — it invalidates one module's ledger entry
+# rather than editing the sample, so the IR a full build would produce is
+# unchanged and the two sites have to be the same bytes. Under-rendering is the
+# silent failure this catches: a round that re-rendered nothing writes a site
+# that is stale in exactly the pages nobody looks at, and every count in the
+# marker still looks reasonable.
+if [ "$built" -eq 1 ]; then
+  rm -rf "$OUT/i-incr" "$OUT/i-full"
+  i_rc=0
+  "$LEAN_EXE" build --root "$MICRO" --lib Example --out "$OUT/i-incr" \
+    --extractor-bin "$EXTRACTOR" --source-url "$BUILD_URL" \
+    >"$OUT/i-first.out" 2>"$OUT/i-first.err" || i_rc=$?
+  i_touched=""
+  if [ "$i_rc" -eq 0 ]; then
+    i_touched="$("$PYTHON" -c "import json,sys;print(json.load(open(sys.argv[1]))['modules'][0]['module'])" "$OUT/i-incr/ir/index.json")"
+    "$LEAN_EXE" ledger touch --ledger "$OUT/i-incr/ledger.json" --module "$i_touched" \
+      >"$OUT/i-touch.out" 2>&1 || i_rc=$?
+  fi
+  if [ "$i_rc" -eq 0 ]; then
+    "$LEAN_EXE" build --root "$MICRO" --lib Example --out "$OUT/i-incr" \
+      --extractor-bin "$EXTRACTOR" --source-url "$BUILD_URL" \
+      >"$OUT/i-second.out" 2>"$OUT/i-second.err" || i_rc=$?
+  fi
+  if [ "$i_rc" -eq 0 ]; then
+    "$LEAN_EXE" build --root "$MICRO" --lib Example --out "$OUT/i-full" \
+      --extractor-bin "$EXTRACTOR" --source-url "$BUILD_URL" \
+      >"$OUT/i-fullrun.out" 2>"$OUT/i-fullrun.err" || i_rc=$?
+  fi
+  om_rc=0
+  if [ "$i_rc" -eq 0 ]; then
+    "$HERE/onemod-gate.sh" "$OUT/i-incr/litedoc4-build.json" "$OUT/i-incr/work/serve.out" \
+      >"$OUT/i-onemod.txt" 2>&1 || om_rc=$?
+  fi
+  if [ "$i_rc" -ne 0 ]; then
+    fail 16 "a build in the sequence exited $i_rc — see $OUT/i-{first,second,fullrun}.err"
+  elif [ "$om_rc" -ne 0 ]; then
+    fail 16 "$(grep FAIL "$OUT/i-onemod.txt" | head -1 | sed 's/^onemod-gate *FAIL *//') — see $OUT/i-onemod.txt"
+  elif ! $DIFF_CMD -r "$OUT/i-full/site" "$OUT/i-incr/site" >"$OUT/i-site.diff" 2>&1; then
+    fail 16 "the incremental site differs from a full one over the same sources: $(head -1 "$OUT/i-site.diff")"
+  else
+    pass 16 "touched $i_touched; $(grep -v FAIL "$OUT/i-onemod.txt" | head -1 | sed 's/^onemod-gate *//'); the site equals a full build's"
+  fi
+else
+  fail 16 "no Lean binary — item 1 did not produce one"
 fi
 
 say "summary"

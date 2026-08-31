@@ -437,7 +437,7 @@ Lean 側が同じバイトを出すには**同じ `--pages` が要る**。今は
 | U10 | `Resident`: **遅延起動** / リクエスト数 / 冪等な stop / `foldTimings` | `resident.rs`, `extract.rs` | **済み 2026-08-31**（`litedoc4 extract` ごと） |
 | U11 | `incremental` パイプライン本体 | `pipeline.rs` (1,534) | **済み 2026-08-31** |
 | U12 | `planOf` の検査 4〜9 + `incrementalGeneration` | `build.rs` | **済み 2026-08-31** |
-| U13 | ゲート配線（4 本に `LITEDOC4`、micro ゲートを 14 → 16） | — | **4 本は済み**（`62bab9b`）。**項目 15（`--only-from`）と項目 12 の 2 つ目の綴りも済み 2026-08-31** |
+| U13 | ゲート配線（4 本に `LITEDOC4`、micro ゲートを 14 → 16） | — | **済み 2026-08-31**。4 本に `LITEDOC4`、項目 12 の 2 つ目の綴り、項目 15（`--only-from`）、項目 16（incremental） |
 
 **`ownership` の bimodality の正体**（実測）: `lostOwners` も `gainedOwners` も空なら
 **base の IR を 1 つも読まない**。空でなければ **exclude を除く全 base モジュールを読む**。
@@ -673,8 +673,15 @@ marker（**壊れた run** が残したもの。Lean は既に `.malformed` を�
 - **`ExceptT ε IO α` は `IO (Except ε α)` と定義上同じ**なので、`checkLedger` / `merge` /
   `prune` / `impact`（どれも拒否が `UInt32 × String`）は `let x ← f …` がそのまま伝播になる。
   `match ← f … with | .error …` と書くと**スクルティニが `α` に解決されて型エラー**になる
-- **`incremental` にはまだゲートが無い**（U13 の残り）。緑を保っているのは比較器 2 本と
-  手で回す `onemod-gate.sh` だけで、**M9 で Rust オラクルが消えると比較器の側が消える**
+- **`incremental` にゲートを付けた**（項目 16、2026-08-31）。**この項目だけオラクルが
+  Rust ではない** — Lean 半分の 3 回の run を互いに比べるので、**M9 で Rust を消しても
+  問いのまま残る**。主張は 2 つ: `onemod-gate.sh`（編集が気づかれた / 書き直したページが
+  モジュール数より少ない / 依存マップが再利用された）と、より強い
+  「incremental のサイトが full build のサイトとバイト一致する」。
+  `ledger touch` は台帳の項目を無効にするだけでサンプルを編集しないので IR は変わらず、
+  **2 つのサイトは一致しなければならない** — 描き足りないラウンドは
+  「誰も開かないページだけが古いサイト」を書き、marker の数字はどれも妥当に見える。
+  3 通り（touch を飛ばす / 2 回目を `--full` に / 隣の full を別 URL で）で落としてから通した
 
 ### M6 watch と HTTP サーバ（`Std.Async.TCP`）
 - **完了判定**: `watch-gate.sh` が Lean 実装で緑
