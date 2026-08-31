@@ -1358,7 +1358,7 @@ It reads; it writes nothing but `--out`. `lake` runs (core's revision comes from
 def linksRun (a : LinksArgs) (root : String) : IO UInt32 := do
   let index ← match a.linkIndex with
     | none => pure none
-    | some path => pure (some (← parseLidx (← IO.FS.readFile ⟨path⟩)))
+    | some path => pure (some (parseLidx (← IO.FS.readFile ⟨path⟩)))
   let external ← match ← withDependencyDocs (← resolveExternal (some root) a.lake)
       (a.depsDocsMap.map (⟨·⟩)) with
     | .error (code, message) => return ← refusedWith code message

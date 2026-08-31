@@ -176,6 +176,20 @@ valid oracles), **embed** it (what the `litedoc4-md` tranche did with 12 small f
 or **lose it to the `rust-frozen` tag**. **Nothing has been decided and nothing needs to be
 yet** — the deletion is last — but decide it before the F tranche starts, not during.
 
+## A measured gap in `e2e/micro`, and what it cost
+
+**`e2e/micro` has no module with a quoted component** (`Example.«Odd-Name»`). CLAUDE.md says the
+sample exists to hold "the declaration shapes the target does not have" — this is one it does
+not hold, and the cost is measured: **two of the four defects the `litedoc4-render` text pass
+found survived a byte-for-byte Lean-vs-Rust oracle** because the sample cannot produce the
+shape. A source path naming a quoted directory linked to nothing, and the `.lidx` spelling of a
+quoted module had **no resolution branch at all**.
+
+The four are now caught by `#guard`s, so the specific holes are closed. Adding the shape to the
+sample would close the *class* end to end and is squarely the sample's purpose. **Not done**:
+`e2e/micro` is published at `https://fujiharuka.github.io/litedoc4/` and its docstrings are
+user-facing copy, so it is a deliberate change to make, not a side effect of a triage pass.
+
 ## Two Rust tests have no home after M10
 
 `base_ir::reads_every_module_of_the_target_package` and

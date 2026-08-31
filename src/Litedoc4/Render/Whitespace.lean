@@ -20,9 +20,22 @@ def mkFrag (text : String) (spans : Array Span) : Frag := Id.run do
   if ranges.isEmpty then return f0
   ranges := ranges.qsort (fun a b => a.1 < b.1)
   let units := f0.units
-  let mut changed := false
+  -- **Not a rejection**, which is what `crates/litedoc4-render/src/whitespace.rs`
+  -- does with the same two shapes: a run reaching past the end or into the one
+  -- before it is an IR disagreeing with its own text, and dropping it costs that
+  -- run its rewrite while every offset still addresses the result. Keeping it
+  -- would not — two runs claiming the same units emit that many spaces twice and
+  -- the fragment comes back longer than the spans were stated over. What would
+  -- falsify the choice: a `mkFrag` that could answer "no", which needs a caller
+  -- able to hear it.
+  let mut runs : Array (Nat × Nat) := #[]
+  let mut taken := 0
   for (a, b) in ranges do
-    if b > units then continue
+    if a ≥ taken && b ≤ units then
+      runs := runs.push (a, b)
+      taken := b
+  let mut changed := false
+  for (a, b) in runs do
     let mut i := f0.bpos a
     let e := f0.bpos b
     while i < e do
@@ -31,8 +44,7 @@ def mkFrag (text : String) (spans : Array Span) : Frag := Id.run do
   if !changed then return f0
   let mut out := ""
   let mut pos := 0
-  for (a, b) in ranges do
-    if b > units then continue
+  for (a, b) in runs do
     out := out ++ byteSub text (f0.bpos pos) (f0.bpos a)
     for _ in [a:b] do out := out.push ' '
     pos := b

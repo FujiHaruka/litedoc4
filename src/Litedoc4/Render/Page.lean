@@ -52,9 +52,7 @@ def pageHtml (ix : NameIndex) (m : Module) (sup : Std.HashSet String)
     (sourceUrl title : String) : RenderM String := do
   let root := pageRoot m.name
   let moduleUrl := moduleSourceUrl sourceUrl m.name
-  let declNames := moduleDeclNames m
-  let c : PageCtx :=
-    { ix, root, declNames, declComps := declNames.map components }
+  let c := mkPageCtx ix root m
   let md := pageRenderer c
   let dr : DeclRenderer := { ix, root, md }
   let mut main := ""

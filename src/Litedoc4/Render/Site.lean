@@ -88,9 +88,9 @@ def renderSite (o : Options) : IO Summary := do
   let deps ← tree.loadDepMaps
   let mods ← tree.loadModules
   let lidx ← match o.linkIndex with
-    | some p => do parseLidx (← readIrFile p)
+    | some p => do pure (parseLidx (← readIrFile p))
     | none => pure emptyLidx
-  let ix ← buildIndex deps mods lidx o.external
+  let ix := buildIndex deps mods lidx o.external
   let sup ← suppressedOf mods
   -- Over **every** module of the IR, not the subset being rendered: an
   -- incremental round that re-renders one page must not retitle the site.

@@ -22,4 +22,9 @@ import Litedoc4Test.MdGc
 import Litedoc4Test.MdHtml
 import Litedoc4Test.MdMath
 import Litedoc4Test.MdParse
+import Litedoc4Test.RenderAutolink
+import Litedoc4Test.RenderCode
+import Litedoc4Test.RenderLinkIndex
+import Litedoc4Test.RenderOrder
+import Litedoc4Test.RenderWhitespace
 import Litedoc4Test.Utf16
