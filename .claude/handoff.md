@@ -2,7 +2,7 @@
 
 ## State
 
-- Branch: `main` @ `b1ea2c1`, clean, pushed. **CI green on `004db90`** (all five workflows);
+- Branch: `main`, clean, pushed. The last work commit is `ca70fcf`; the handoff commits sit on top of it. **CI green on `004db90`** (all five workflows);
   `fa1183c` (a one-line comment) and `ca70fcf` (docs + a measurement log) are on top of it and
   their CI was still in flight — check `gh run list` first.
 - **Tag `v1.3.0` is pushed** (annotated; the tag object is `80e21f3`, the commit `fa1183c`).
