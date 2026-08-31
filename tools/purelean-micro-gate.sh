@@ -39,7 +39,16 @@
 #   <ns>    the `serve ready` monotonic clock reading
 #   <gen>   the `serve ready` generation digest
 #   <sha>   every sha256 the ledger records
-#   <n>     the size the ledger records for each olean
+#   <n>     the size the ledger records for each olean, and the ledger's own size
+#           where a transcript prints it. The second follows from the first and
+#           was learnt the hard way: the digests and olean sizes above are
+#           architecture-specific, so the *number of digits* in them is too, and
+#           a ledger of the same 11 modules is 3489 B on macOS and 3507 B on
+#           Linux (measured 2026-08-31, CI run on `742c824`). Normalising the
+#           contents but not a size derived from them leaves a fixture that
+#           cannot travel. No other byte count on a transcript is normalised —
+#           the rendered site's are identical on both platforms, and item 6
+#           proves it on every run.
 #
 # The last three go together, and the reason is not that they are noisy: **all
 # three are taken over the target's build products**, not over anything this
@@ -336,6 +345,7 @@ normalise () {
       -e 's/"linkIndex":"[0-9a-f]\{64\}"/"linkIndex":"<sha>"/g' \
       -e 's/"externalLinks":"[0-9a-f]\{64\}"/"externalLinks":"<sha>"/g' \
       -e 's/"bytes":-\{0,1\}[0-9][0-9]*/"bytes":<n>/g' \
+      -e 's/ledger\.json ([0-9][0-9]* B)/ledger.json (<n> B)/' \
       "$1"
 }
 

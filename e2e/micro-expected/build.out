@@ -18,6 +18,6 @@ global  name map 4351 B  module index 626 B  search index 1215 B
 global  module descriptions 10 of 11 (0 repeat the module name)
 global  cache 0 hit / 11 miss  state 10499 B
 assets  3 file(s) -> <out>/site
-ledger  11 module(s) -> <out>/ledger.json (3489 B)
+ledger  11 module(s) -> <out>/ledger.json (<n> B)
 work    extract 11 / render 11 / math-fallback 1 / requests 1 / cache 0 hit 11 miss / summary 10 (0 name-only) / ir 29 file(s) (22 module read(s) = 2.00 full pass(es))
 build   full in <t> -> <out>/site

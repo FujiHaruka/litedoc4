@@ -67,13 +67,43 @@
 **1a. ~~The triage~~ — done. Bucket I is 316 of 316** (see below). What is left, in the order
    it has to happen, because two of these can only be done while the Rust binary exists:
 
-   **A. Mint the oracle, before anything is deleted.** `purelean-micro-gate.sh` has 16 items and
-   **15 of them compare against the Rust binary**; only item 16 (an incremental site equals a
-   full build's) is oracle-free and says so. The answer is the one this repository already used
-   for the prototype: **freeze the oracle's outputs as committed fixtures now**, and reformulate
-   into item-16 shape whatever can be. ~2.1 MB / ~98 files, measured this leg. **Authority comes
-   from minting while Rust still runs** — a fixture taken afterwards says "unchanged", not
-   "correct". Nothing else on this list is time-critical; this is.
+   **A. ~~Mint the oracle~~ — DONE (`742c824`), pending CI's cross-platform confirmation.**
+   `e2e/micro-expected/` — **49 files, 508 K** — and the gate now runs both arms. Verified
+   locally by **simulation**, not assertion: with `LITEDOC4=/nonexistent`, all 16 items still
+   run and 49/49 frozen files still compare, exit 0. The Rust arm skips with its count printed.
+
+   Two corrections to the framing this handoff carried before:
+   - **12 items touched the Rust binary, not 15.** Items 1, 8 and 11 were already oracle-free.
+   - **Item 2 used Rust as a *driver*, not an oracle** — it extracted the IR every other item
+     consumes. That was the harder M10 dependency: with no Rust binary there would have been no
+     IR at all, and items 3–15 would have failed on missing input rather than on the port. The
+     Lean half extracts it now.
+
+   Five items were **reformulated** rather than frozen (3, 6, 9, 14, 15) — the preferred
+   mechanism, since a Lean-vs-Lean invariant keeps asking a real question. Item 9 recomputes all
+   24 ledger digests from the bytes they name rather than trusting them.
+
+   **Three claims could not be preserved and are stated, not faked**: that two independent
+   readers agree on the `generation` digest (with one reader nothing can disagree — replaced by
+   "two builds in this run agree", which does *not* falsify a digest taken over the wrong
+   files); that the two halves derive `litedoc4.toml` alike; and `renderKey.externalLinks`,
+   whose input is not a file on disk.
+
+   **That risk fired on the first CI run, and is closed** (measured 2026-08-31, run on
+   `742c824`). **15 of the 16 items passed on Linux**; item 14 failed by 18 bytes —
+   `ledger.json (3489 B)` on macOS against `(3507 B)` on Linux. The cause is worth carrying:
+   the gate normalised the ledger's **contents** (`<sha>`, `<n>`) because oleans are
+   architecture-specific, but the transcript prints a **size derived from those contents**, and
+   the number of digits in an architecture-specific value is architecture-specific too.
+   Normalising a value but not a number computed from it leaves a fixture that cannot travel.
+   Fixed with one narrow rule and a re-mint (1 file changed). **No other byte count on a
+   transcript is normalised** — the rendered site's are identical on both platforms, and item 6
+   proves that on every run.
+
+   The reasoning that drove it, worth keeping because A2 rests on the same thing: **the
+   authority to freeze expires with the Rust binary.** A fixture minted while Rust runs says
+   *correct*; one minted afterwards says only *unchanged*. Nothing else on this list is
+   time-critical.
 
    **A2. `purelean-render-gate.sh` has the same expiry and no fixture.** It is the `manual`
    sibling asking the same question over the **measurement target**, and it is the only place
