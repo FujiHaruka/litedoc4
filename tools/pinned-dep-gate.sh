@@ -29,7 +29,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
-LITEDOC4="${LITEDOC4:-$ROOT/target/debug/litedoc4}"
+LITEDOC4="${LITEDOC4:-$ROOT/.lake/build/bin/litedoc4}"
 
 # `.invalid` is reserved (RFC 2606), so nothing can ever resolve these. The gate
 # never fetches them, it compares them.
@@ -48,7 +48,8 @@ while [ $# -gt 0 ]; do
 done
 
 command -v "$LAKE" >/dev/null 2>&1 || { echo "no lake at $LAKE — set LAKE" >&2; exit 2; }
-[ -x "$LITEDOC4" ] || { echo "no litedoc4 at $LITEDOC4 — cargo build --bin litedoc4" >&2; exit 2; }
+[ -x "$LITEDOC4" ] || {
+  echo "no litedoc4 at $LITEDOC4 — tools/build-lean-exe.sh --toolchain-from e2e/micro" >&2; exit 2; }
 command -v git >/dev/null 2>&1 || { echo "no git" >&2; exit 2; }
 
 if [ -z "$OUT" ]; then

@@ -30,7 +30,7 @@
 #   --out   working directory (default: a temporary one, removed on success)
 #   --keep  do not remove a temporary --out
 #
-#   LITEDOC4  the `litedoc4` executable under test (default: target/debug/litedoc4)
+#   LITEDOC4  the `litedoc4` executable under test (default: .lake/build/bin/litedoc4)
 #   LAKE      the lake executable (default: ~/.elan/bin/lake)
 set -euo pipefail
 
@@ -41,7 +41,7 @@ source "$HERE/lib/common.sh" || exit 1
 FIXTURE="$ROOT/e2e/consumer"
 MICRO="$ROOT/e2e/micro"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
-LITEDOC4="${LITEDOC4:-$ROOT/target/debug/litedoc4}"
+LITEDOC4="${LITEDOC4:-$ROOT/.lake/build/bin/litedoc4}"
 # `diff` is aliased to a colordiff that is not installed here, and its exit 127
 # reads as "differences found".
 DIFF=/usr/bin/diff
@@ -60,7 +60,8 @@ done
 # A hard exit rather than a skip: a missing input that prints and returns 0 does
 # not reach the exit code, which is how a gate goes green with nothing to check.
 [ -x "$LAKE" ] || { echo "no lake at $LAKE — set LAKE" >&2; exit 2; }
-[ -x "$LITEDOC4" ] || { echo "no litedoc4 at $LITEDOC4 — cargo build --bin litedoc4" >&2; exit 2; }
+[ -x "$LITEDOC4" ] || {
+  echo "no litedoc4 at $LITEDOC4 — tools/build-lean-exe.sh --toolchain-from e2e/micro" >&2; exit 2; }
 [ -f "$ROOT/lakefile.lean" ] || { echo "no $ROOT/lakefile.lean — this gate has nothing to check" >&2; exit 2; }
 [ -f "$FIXTURE/lakefile.toml" ] || { echo "no consumer fixture at $FIXTURE" >&2; exit 2; }
 [ -f "$MICRO/lakefile.toml" ] || { echo "no sample package at $MICRO" >&2; exit 2; }

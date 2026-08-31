@@ -3,7 +3,7 @@
 #
 # usage: tools/merge-compare.sh REFERENCE_DIR CANDIDATE_DIR
 #
-#   cargo build --release -p litedoc4
+#   tools/build-lean-exe.sh --toolchain-from e2e/micro
 #   tools/merge-reference.sh --out /private/tmp/lean-doc-relay/m3b/before
 #   ...change something...
 #   tools/merge-reference.sh --out /private/tmp/lean-doc-relay/m3b/after

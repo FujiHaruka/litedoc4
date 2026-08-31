@@ -4,7 +4,7 @@
 #
 # usage: tools/incremental-compare.sh REFERENCE_DIR CANDIDATE_DIR
 #
-#   cargo build --release -p litedoc4
+#   tools/build-lean-exe.sh --toolchain-from e2e/micro
 #   tools/incremental-reference.sh --extractor product  --out .../m3d3/product
 #   tools/incremental-reference.sh --extractor resident --out .../m3d3/resident
 #   tools/incremental-compare.sh /private/tmp/lean-doc-relay/m3d3/product \

@@ -10,9 +10,10 @@
 # REFERENCE_DIR at whatever tree you want to hold the candidate to — and say which
 # one it was.
 #
-#   ./target/release/litedoc4 global --ir <ir> --out /tmp/rust-global
-#   .lake/build/bin/litedoc4  global --ir <ir> --out /tmp/lean-global
-#   tools/global-compare.sh /tmp/rust-global /tmp/lean-global
+#   ./.lake/build/bin/litedoc4 global --ir <ir> --out /tmp/global-before
+#   ...change something...
+#   ./.lake/build/bin/litedoc4 global --ir <ir> --out /tmp/global-after
+#   tools/global-compare.sh /tmp/global-before /tmp/global-after
 #
 # `cargo test -p litedoc4-global --test global` makes the same comparison in
 # process against a committed fixture.

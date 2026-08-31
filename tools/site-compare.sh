@@ -18,12 +18,11 @@
 #
 # The candidate comes from `litedoc4 site`:
 #   URL=https://github.com/FujiHaruka/information-theory/blob/573793b243fb1343636088eb62d1789ab2b14cec
-#   cargo build --release -p litedoc4
-#   ./target/release/litedoc4 site \
-#     --ir /private/tmp/lean-doc-relay/w7h/base-ir --out /tmp/rust-site \
+#   ./.lake/build/bin/litedoc4 site \
+#     --ir /private/tmp/lean-doc-relay/w7h/base-ir --out /tmp/lean-site \
 #     --source-url $URL \
 #     --link-index /private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx
-#   tools/site-compare.sh /private/tmp/lean-doc-relay/m2/gate/ref-site /tmp/rust-site
+#   tools/site-compare.sh /private/tmp/lean-doc-relay/m2/gate/ref-site /tmp/lean-site
 # Pass $URL unquoted: a `"..."` that keeps its quotes reaches the renderer as part
 # of the URL and every page then differs.
 #

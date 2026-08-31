@@ -89,7 +89,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/common.sh
 . "$REPO/tools/lib/common.sh" || exit 1
 SETUP_CLONE="$REPO/tools/setup-clone.sh"
-RUST_BIN="$REPO/target/release/litedoc4"
+LITEDOC4="${LITEDOC4:-$REPO/.lake/build/bin/litedoc4}"
 # The Lean extractor (IR schema 5), built by extractor/build.sh. Its own CLI is
 # `extract <modules> <events> [flags]`; `litedoc4 extract` is what turns that into
 # the `--modules --ir-dir --timings` contract the pipeline's `--extractor` speaks.
@@ -145,8 +145,8 @@ esac
 [ -f "$LIDX" ] || { echo "missing link index: $LIDX" >&2; exit 1; }
 [ -x "$EXTRACT_BIN" ] || {
   echo "missing extractor binary: $EXTRACT_BIN — run: extractor/build.sh" >&2; exit 1; }
-[ -x "$RUST_BIN" ] || {
-  echo "missing: $RUST_BIN — run: cargo build --release -p litedoc4" >&2; exit 1; }
+[ -x "$LITEDOC4" ] || {
+  echo "missing: $LITEDOC4 — run: tools/build-lean-exe.sh --toolchain-from e2e/micro" >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 
 # `litedoc4 extract` runs the Lean binary through `lake env` inside $TARGET_REPO.
@@ -196,15 +196,15 @@ global-delta.json prune.json"
 mkdir -p "$OUT" "$WORKROOT" "$FIX" "$SHARED"
 
 ledger_build () { # ledger_build <modules> <ir> <out>
-  "$RUST_BIN" ledger build --modules "$1" --target "$CLONE" --ir "$2" \
+  "$LITEDOC4" ledger build --modules "$1" --target "$CLONE" --ir "$2" \
     --source-url "$URL" --out "$3"
 }
 ledger_check () { # ledger_check <ledger> <ir> <modules> <changed> <removed> <renderall>
-  "$RUST_BIN" ledger check --ledger "$1" --ir "$2" --source-url "$URL" \
+  "$LITEDOC4" ledger check --ledger "$1" --ir "$2" --source-url "$URL" \
     --modules "$3" --changed-out "$4" --removed-out "$5" --render-all-out "$6"
 }
 base_site () { # one command: `site` writes the pages, the six artifacts and the cache
-  "$RUST_BIN" site --ir "$1" --out "$2" --source-url "$URL" \
+  "$LITEDOC4" site --ir "$1" --out "$2" --source-url "$URL" \
     --link-index "$LIDX" --state "$3"
 }
 # `--extractor-arg` values are in the order the program sees them, before the
@@ -212,10 +212,10 @@ base_site () { # one command: `site` writes the pages, the six artifacts and the
 # spelling tools/incremental-reference.sh's `--extractor product` uses, so the two
 # harnesses drive the extraction identically.
 pipeline () {
-  "$RUST_BIN" incremental --ir "$1" --pages "$2" --ledger "$3" --work "$4" \
+  "$LITEDOC4" incremental --ir "$1" --pages "$2" --ledger "$3" --work "$4" \
     --state "$5" --modules "$6" --mode "$7" --source-url "$URL" \
     --link-index "$LIDX" --timings "$8" \
-    --extractor "$RUST_BIN" \
+    --extractor "$LITEDOC4" \
     --extractor-arg extract \
     --extractor-arg --extractor-bin --extractor-arg "$EXTRACT_BIN" \
     --extractor-arg --target --extractor-arg "$CLONE" \
@@ -239,7 +239,7 @@ modlist () { # modlist <out file>
   guard_writable "$1"
   ( cd "$CLONE" && LC_ALL=C find "$ROOT_LEAN" "$LIB" -name '*.lean' | LC_ALL=C sort ) \
     | sed 's/\.lean$//; s#/#.#g' > "$1"
-  "$RUST_BIN" modules --root "$CLONE" --lib "$LIB" > "$1.from-cli"
+  "$LITEDOC4" modules --root "$CLONE" --lib "$LIB" > "$1.from-cli"
   if ! "$DIFF" -q "$1" "$1.from-cli" > /dev/null; then
     echo "the LC_ALL=C source glob and \`litedoc4 modules\` disagree — the run would" >&2
     echo "compare two different module orders, which makes two different ledgers and" >&2
@@ -274,7 +274,7 @@ PY
   fi
   rm -rf "$2"
   echo "  extracting $(nlines "$1") modules -> $2"
-  "$RUST_BIN" extract --modules "$1" --ir-dir "$2" --jobs "$JOBS" \
+  "$LITEDOC4" extract --modules "$1" --ir-dir "$2" --jobs "$JOBS" \
     --extractor-bin "$EXTRACT_BIN" --target "$CLONE" \
     --timings "$3.json" > "$3.log"
   python3 -c "
@@ -518,7 +518,7 @@ print('  rounds %s, changed %s, staleFound %s, globalStale %s, irChanged %s, pag
          r.get('irChanged'), r.get('pagesRendered')))" || true
 
   rm -rf "$d/scratch-site" "$d/scratch-state"
-  "$RUST_BIN" site --ir "$fir" --out "$d/scratch-site" --source-url "$URL" \
+  "$LITEDOC4" site --ir "$fir" --out "$d/scratch-site" --source-url "$URL" \
     --link-index "$LIDX" --state "$d/scratch-state" > "$d/scratch-site.log" 2>&1
   gate1 "$name" "$d" "$fir" "$d/scratch-site" "$expect"
 }
@@ -620,7 +620,7 @@ conditions () {
     printf 'move module       %s -> %s\n' "$A_MOD" "$X_MOD"
     printf 'delete module     %s\n' "$DEL_MOD"
     printf 'lean-toolchain    %s\n' "$(tr -d '\n' < "$CLONE/lean-toolchain" 2>/dev/null || echo '?')"
-    printf 'extractor         %s extract -> %s (IR schema 5)\n' "$RUST_BIN" "$EXTRACT_BIN"
+    printf 'extractor         %s extract -> %s (IR schema 5)\n' "$LITEDOC4" "$EXTRACT_BIN"
     printf 'jobs              %s\n' "$JOBS"
     printf 'link index        %s (%s B)\n' "$LIDX" "$(wc -c < "$LIDX" | tr -d ' ')"
     printf 'shared            %s\n' "$SHARED"

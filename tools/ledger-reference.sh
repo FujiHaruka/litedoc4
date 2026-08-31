@@ -7,14 +7,14 @@
 #
 # usage: tools/ledger-reference.sh [--out DIR] [--target REPO] [--ir DIR]
 #
-#   LITEDOC4  the binary to record (default target/release/litedoc4). The
+#   LITEDOC4  the binary to record (default .lake/build/bin/litedoc4). The
 #             recording is the implementation's answer, so a second one taken
 #             with another binary is what tools/ledger-compare.sh compares.
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LITEDOC4="${LITEDOC4:-$REPO/target/release/litedoc4}"
+LITEDOC4="${LITEDOC4:-$REPO/.lake/build/bin/litedoc4}"
 # shellcheck source=lib/target.sh
 . "$REPO/tools/lib/target.sh" || exit 1
 
@@ -58,7 +58,7 @@ for p in "$TARGET" "$IR" "$MODULES" "$MATHLIB_TARGET"; do
 done
 
 [ -x "$LITEDOC4" ] || {
-  echo "missing: $LITEDOC4 — run: cargo build --release -p litedoc4, or set LITEDOC4" >&2; exit 1;
+  echo "missing: $LITEDOC4 — run: tools/build-lean-exe.sh --toolchain-from e2e/micro, or set LITEDOC4" >&2; exit 1;
 }
 ledger () { "$LITEDOC4" ledger "$@"; }
 

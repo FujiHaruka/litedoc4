@@ -21,9 +21,10 @@
 # REFERENCE_DIR at whatever tree you want to hold the candidate to — and say
 # which one it was.
 #
-# The candidate comes from the Rust renderer:
-#   cargo build --release -p litedoc4 && ./target/release/litedoc4 render \
-#     --ir /private/tmp/lean-doc-relay/w7h/base-ir --pages /tmp/rust-pages \
+# The candidate comes from `litedoc4 render`:
+#   tools/build-lean-exe.sh --toolchain-from e2e/micro && \
+#   ./.lake/build/bin/litedoc4 render \
+#     --ir /private/tmp/lean-doc-relay/w7h/base-ir --pages /tmp/lean-pages \
 #     --source-url "$URL" --link-index /private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx
 #
 # `cargo test -p litedoc4-render --test pages` makes the same comparison in

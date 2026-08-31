@@ -31,7 +31,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
-LITEDOC4="${LITEDOC4:-$REPO/target/debug/litedoc4}"
+LITEDOC4="${LITEDOC4:-$REPO/.lake/build/bin/litedoc4}"
 
 ROOT=""; IR=""; BUILT=""; OUT=""; BLIND=""; LIDX=""
 while [ $# -gt 0 ]; do
@@ -48,7 +48,8 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$ROOT" ] && [ -n "$IR" ] && [ -n "$BUILT" ] || {
   echo "usage: config-gate.sh --root <pkg> --ir <dir> --built <site>" >&2; exit 2; }
-[ -x "$LITEDOC4" ] || { echo "no litedoc4 at $LITEDOC4" >&2; exit 2; }
+[ -x "$LITEDOC4" ] || {
+  echo "no litedoc4 at $LITEDOC4 — tools/build-lean-exe.sh --toolchain-from e2e/micro" >&2; exit 2; }
 [ -f "$ROOT/litedoc4.toml" ] || {
   echo "$ROOT has no litedoc4.toml — this gate needs a package that configures something" >&2
   exit 2; }

@@ -14,14 +14,14 @@
 #
 # usage: tools/merge-reference.sh [--out DIR] [--base-ir DIR]
 #
-#   LITEDOC4  the binary to record (default target/release/litedoc4). The
+#   LITEDOC4  the binary to record (default .lake/build/bin/litedoc4). The
 #             recording is the implementation's answer, so a second one taken
 #             with another binary is what the matching *-compare.sh compares.
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LITEDOC4="${LITEDOC4:-$REPO/target/release/litedoc4}"
+LITEDOC4="${LITEDOC4:-$REPO/.lake/build/bin/litedoc4}"
 
 OUT=
 BASE_IR=/private/tmp/lean-doc-relay/w7h/base-ir
@@ -40,7 +40,7 @@ OUT="${OUT:-/private/tmp/lean-doc-relay/m3b/rust}"
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 
 [ -x "$LITEDOC4" ] || {
-  echo "missing: $LITEDOC4 — run: cargo build --release -p litedoc4, or set LITEDOC4" >&2; exit 1;
+  echo "missing: $LITEDOC4 — run: tools/build-lean-exe.sh --toolchain-from e2e/micro, or set LITEDOC4" >&2; exit 1;
 }
 ownership () { "$LITEDOC4" ownership "$@"; }
 merge ()     { "$LITEDOC4" merge "$@"; }

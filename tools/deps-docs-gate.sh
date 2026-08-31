@@ -91,7 +91,7 @@ ROOTS_GIVEN=0
 INJECT=
 KEEP=0
 REUSE=0
-LITEDOC4="${LITEDOC4:-$REPO/target/release/litedoc4}"
+LITEDOC4="${LITEDOC4:-$REPO/.lake/build/bin/litedoc4}"
 EXTRACT_BIN="${EXTRACT_BIN:-$REPO/extractor/build/extract}"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 
@@ -121,7 +121,7 @@ esac
 [ "${#ROOTS[@]}" -gt 0 ] || { echo "--root-name named no root" >&2; exit 2; }
 
 [ -x "$LITEDOC4" ] || {
-  echo "no litedoc4 at $LITEDOC4 — mise exec -- cargo build --release -p litedoc4" >&2; exit 2; }
+  echo "no litedoc4 at $LITEDOC4 — tools/build-lean-exe.sh --toolchain-from e2e/micro" >&2; exit 2; }
 [ -x "$EXTRACT_BIN" ] || {
   echo "no extractor at $EXTRACT_BIN — extractor/build.sh" >&2; exit 2; }
 command -v "$LAKE" >/dev/null 2>&1 || { echo "no lake at $LAKE — set LAKE" >&2; exit 2; }

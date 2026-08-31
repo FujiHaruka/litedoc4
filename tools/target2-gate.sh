@@ -30,7 +30,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$REPO/tools/lib/target.sh" || exit 1
 # shellcheck source=lib/common.sh
 . "$REPO/tools/lib/common.sh" || exit 1
-RUST_BIN="$REPO/target/release/litedoc4"
+LITEDOC4="${LITEDOC4:-$REPO/.lake/build/bin/litedoc4}"
 EXTRACT_BIN="${EXTRACT_BIN:-$REPO/extractor/build/extract}"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 # `diff` is aliased to a colordiff that is not installed here, and its exit 127
@@ -66,8 +66,8 @@ case "$OUT" in
 esac
 [ -d "$TARGET2" ] || { echo "missing target 2: $TARGET2 — run tools/make-target2.sh" >&2; exit 1; }
 [ -x "$EXTRACT_BIN" ] || { echo "missing extractor: $EXTRACT_BIN" >&2; exit 1; }
-[ -x "$RUST_BIN" ] || {
-  echo "missing: $RUST_BIN — run: cargo build --release -p litedoc4" >&2; exit 1; }
+[ -x "$LITEDOC4" ] || {
+  echo "missing: $LITEDOC4 — run: tools/build-lean-exe.sh --toolchain-from e2e/micro" >&2; exit 1; }
 
 WORK="$OUT/work"
 mkdir -p "$OUT" "$WORK"
@@ -114,7 +114,7 @@ require_up_to_date () { # require_up_to_date <tag>
 # HEAD and the origin remote), no `--link-index` (this run writes it).
 build () { # build <out dir> <log> [extra args…]
   local out="$1" log="$2"; shift 2
-  "$RUST_BIN" build --root "$TARGET2" --out "$out" \
+  "$LITEDOC4" build --root "$TARGET2" --out "$out" \
     --extractor-bin "$EXTRACT_BIN" --jobs "$JOBS" \
     --timings "$out.timings.json" "$@" > "$log" 2>&1
 }
@@ -180,7 +180,7 @@ phase_gate1 () {
   url="$(sed -n 's|^source  \(https://.*\)$|\1|p' "$OUT/base.log" | head -1)"
   [ -n "$url" ] || { echo "no source url in $OUT/base.log" >&2; exit 3; }
   echo "  reference site from $OUT/base/ir (source url $url)"
-  "$RUST_BIN" site --ir "$OUT/base/ir" --out "$OUT/ref-site" --source-url "$url" \
+  "$LITEDOC4" site --ir "$OUT/base/ir" --out "$OUT/ref-site" --source-url "$url" \
     --link-index "$OUT/base/link-index.lidx" --state "$OUT/ref-state" \
     --root "$TARGET2" > "$OUT/ref-site.log" 2>&1
 

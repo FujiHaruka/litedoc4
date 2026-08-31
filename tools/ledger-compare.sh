@@ -3,7 +3,7 @@
 #
 # usage: tools/ledger-compare.sh REFERENCE_DIR CANDIDATE_DIR
 #
-#   cargo build --release -p litedoc4
+#   tools/build-lean-exe.sh --toolchain-from e2e/micro
 #   tools/ledger-reference.sh --out /private/tmp/lean-doc-relay/m3/before
 #   ...change something...
 #   tools/ledger-reference.sh --out /private/tmp/lean-doc-relay/m3/after
@@ -44,11 +44,11 @@ CAND="${2-}"
 
 # Read out of the source, so this script cannot drift from it.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LEDGER_RS="$REPO/crates/litedoc4-incr/src/ledger.rs"
-NEW_EXTRACTOR=$(sed -n 's/^pub const EXTRACTOR_ID: &str = "\(.*\)";$/\1/p' "$LEDGER_RS")
-NEW_RENDERER=$(sed -n 's/^pub const RENDERER_ID: &str = "\(.*\)";$/\1/p' "$LEDGER_RS")
+LEDGER_LEAN="$REPO/src/Litedoc4/Ledger.lean"
+NEW_EXTRACTOR=$(sed -n 's/^def extractorId : String := "\(.*\)"$/\1/p' "$LEDGER_LEAN")
+NEW_RENDERER=$(sed -n 's/^def rendererId : String := "\(.*\)"$/\1/p' "$LEDGER_LEAN")
 [ -n "$NEW_EXTRACTOR" ] && [ -n "$NEW_RENDERER" ] || {
-  echo "could not read EXTRACTOR_ID / RENDERER_ID from $LEDGER_RS" >&2; exit 1;
+  echo "could not read extractorId / rendererId from $LEDGER_LEAN" >&2; exit 1;
 }
 
 status=0

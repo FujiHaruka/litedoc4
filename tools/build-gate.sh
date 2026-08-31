@@ -6,7 +6,7 @@
 #                            [--jobs N] [--move-module <Module>] [--lib <Name>]
 #   phases: gate1 | gate2 | gate3 | gate4 | reset | all
 #
-#   LITEDOC4  the binary under test (default target/release/litedoc4), same
+#   LITEDOC4  the binary under test (default .lake/build/bin/litedoc4), same
 #             spelling as tools/*-reference.sh and tools/watch-gate.sh. Every
 #             phase but `gate1` reads the tree an earlier phase left in $OUT, so
 #             a second half needs its own `--out`: pointed at the first half's,
@@ -40,7 +40,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$REPO/tools/lib/target.sh" || exit 1
 # shellcheck source=lib/common.sh
 . "$REPO/tools/lib/common.sh" || exit 1
-LITEDOC4="${LITEDOC4:-$REPO/target/release/litedoc4}"
+LITEDOC4="${LITEDOC4:-$REPO/.lake/build/bin/litedoc4}"
 EXTRACT_BIN="${EXTRACT_BIN:-$REPO/extractor/build/extract}"
 SETUP_CLONE="$REPO/tools/setup-clone.sh"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
@@ -92,7 +92,7 @@ esac
 [ -f "$LIDX" ] || { echo "missing link index: $LIDX" >&2; exit 1; }
 [ -x "$EXTRACT_BIN" ] || { echo "missing extractor: $EXTRACT_BIN" >&2; exit 1; }
 [ -x "$LITEDOC4" ] || {
-  echo "missing: $LITEDOC4 — run: cargo build --release -p litedoc4, or set LITEDOC4" >&2; exit 1; }
+  echo "missing: $LITEDOC4 — run: tools/build-lean-exe.sh --toolchain-from e2e/micro, or set LITEDOC4" >&2; exit 1; }
 
 WORK="$OUT/work"
 mkdir -p "$OUT" "$WORK"

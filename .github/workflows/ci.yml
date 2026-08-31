@@ -252,8 +252,11 @@ jobs:
       # this job to minutes instead of the gigabytes Mathlib would cost.
       - uses: ./.github/actions/setup-elan
 
-      - name: Build the CLI
+      - name: Build the Rust CLI
         run: cargo build --bin litedoc4
+
+      - name: Build the Lean CLI
+        run: tools/build-lean-exe.sh --toolchain-from e2e/micro
 
       - name: End to end
         run: tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
@@ -276,7 +279,7 @@ jobs:
             --target "$GITHUB_WORKSPACE/e2e/micro" --lib Example \
             --module Example.Unicode --other Example.Notation
         env:
-          LITEDOC4: ${{ github.workspace }}/target/debug/litedoc4
+          LITEDOC4: ${{ github.workspace }}/.lake/build/bin/litedoc4
           EXTRACT_BIN: ${{ github.workspace }}/e2e/micro/.lake/e2e-extract/extract
 
       # The other half of the same input: `e2e/micro-dep` required by *git*

@@ -41,7 +41,7 @@ ROOT="$(cd "$HERE/.." && pwd)"
 source "$HERE/lib/common.sh" || exit 1
 SAMPLE="$ROOT/e2e/micro"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
-LITEDOC4="${LITEDOC4:-$ROOT/target/debug/litedoc4}"
+LITEDOC4="${LITEDOC4:-$ROOT/.lake/build/bin/litedoc4}"
 
 OUT=""
 EXTRACTOR=""
@@ -57,7 +57,8 @@ while [ $# -gt 0 ]; do
 done
 
 command -v "$LAKE" >/dev/null 2>&1 || { echo "no lake at $LAKE — set LAKE" >&2; exit 2; }
-[ -x "$LITEDOC4" ] || { echo "no litedoc4 at $LITEDOC4 — cargo build --bin litedoc4" >&2; exit 2; }
+[ -x "$LITEDOC4" ] || {
+  echo "no litedoc4 at $LITEDOC4 — tools/build-lean-exe.sh --toolchain-from e2e/micro" >&2; exit 2; }
 
 if [ -z "$OUT" ]; then
   OUT="$(mktemp -d)"
