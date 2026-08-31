@@ -97,13 +97,14 @@ else
 fi
 
 say "2/5 lake run docs writes a site"
-# **No `--lib` and no `--extractor-bin`**: the script has to get both out of
-# Lake. `LITEDOC4_BIN` pins which Rust binary is under test — without it the gate
-# would grade whatever happens to be on PATH.
+# **No `--lib`, no `--extractor-bin` and nothing naming the executable**: the
+# script has to get all three out of Lake. There is no environment variable left
+# that could point it at another binary, so what this grades is what a consumer
+# gets from `require` alone.
 SITE_OUT="$OUT/docs"
 rm -rf "$SITE_OUT"
 site_ok=0
-if (cd "$FIXTURE" && LITEDOC4_BIN="$LITEDOC4" "$LAKE" run docs -- --out "$SITE_OUT") \
+if (cd "$FIXTURE" && "$LAKE" run docs -- --out "$SITE_OUT") \
     >"$OUT/docs.log" 2>&1; then
   if [ -f "$SITE_OUT/site/index.html" ] && [ -f "$SITE_OUT/site/modules.json" ]; then
     pass 2 "$(wc -l <"$OUT/docs.log" | tr -d ' ') line(s) of log, site at $SITE_OUT/site"
