@@ -1,0 +1,72 @@
+Two things in litedoc4-global's neighbourhood whose oracle M10 removes
+======================================================================
+2026-08-31. Apple M1 (macOS 25.6.0). Lean: v4.31.0 via elan, toolchain borrowed
+from `e2e/micro`, built through `tools/build-lean-exe.sh`; the probes were
+temporary `#eval`s in `test/Litedoc4Test/GlobalSearchIndex.lean`, deleted after
+the run. Rust: `rustc -O` on a standalone std-only program (rustc 1.97.1); no
+crate of this workspace is involved, because in both cases the Rust side is
+`std` rather than product code.
+
+WHY THIS WAS TAKEN
+------------------
+Carrying `crates/litedoc4-global`'s internal-invariant tests into the Lean half
+turned up two things that no test on either side asks and that stop being
+askable once `crates/` is gone. Neither is a defect: both were measured and both
+agree. They are written down because the comparison is available today and not
+after M10.
+
+1. `web/test/fixtures/search-index.bin` HAS NO WRITER AFTER M10
+----------------------------------------------------------------
+`web/test/` moved out of `crates/` on 2026-08-31 (`7800296`) so that the site's
+TypeScript outlives the Rust tree. **Its fixture did not.** `web/test/fixture.ts`
+still says the corpus is "as `crates/litedoc4-global/tests/web_fixture.rs` wrote
+it", and the test that keeps the committed bytes in step with the encoder --
+`web_fixture.rs::the_committed_fixture_is_what_the_encoder_writes` -- is in the
+tree M10 deletes. After M10 the site's decoder is tested against a file nothing
+regenerates and nothing checks, while the encoder that has to agree with it is
+`Litedoc4.searchIndex`.
+
+The corpus was transcribed into Lean from `web_fixture.rs`'s `CASES` (29 entries
+plus the 404-byte name it appends) and encoded by the Lean half:
+
+  Lean   `searchIndex searchCorpus searchKinds`      761 B
+  Rust   web/test/fixtures/search-index.bin          761 B
+  cmp                                                IDENTICAL
+
+So the Lean encoder can take the fixture over as it stands.
+
+What this does not settle: where the check should live. It is a byte comparison
+against a committed file, which is the bucket M10's classification has not
+decided; and the obvious spelling -- an `Invariant` reading
+`web/test/fixtures/search-index.bin` -- makes the test executable depend on its
+working directory, which `tools/lean-test-gate.sh` supplies (`cd "$ROOT"`) and a
+bare run of the binary does not. A test that reads the environment moves the
+definition of green, so this was left out of the Lean suite rather than added
+quietly. What is not in question is that the file has a live consumer
+(`web/test/index-format.test.ts`, through `web/test/fixture.ts`) and, after M10,
+no writer.
+
+2. `Litedoc4.Lower` IS A TRANSCRIPTION NOTHING HAS EVER CHECKED
+---------------------------------------------------------------
+`search-index.bin`'s fold section carries the names for which "add 32 to A-Z" is
+not what `toLowerCase()` does, so the site's search matches them. Rust asks
+`str::to_lowercase`, which is `std`; the Lean half cannot, so
+`src/Litedoc4/Lower.lean` holds Rust's answers as a 185-run table plus the two
+context rules. **There was no test on the Rust side** -- there was nothing to
+test, it was `std` -- and so none was carried over, and the table's only
+exercise anywhere is the one Greek name in the corpus above.
+
+Enumerated instead, both halves, over the whole space:
+
+  every non-surrogate code point, 0..=0x10FFFF, single-character input
+    code points whose lowercase differs from themselves   1,488
+    lines differing between the two halves                    0
+
+  the context-dependent rules, 15 strings (final sigma at the end of a word,
+  before a period, an apostrophe, a space, a digit, a combining mark, and not
+  at the end; U+0130 alone and in a word)
+    lines differing between the two halves                    0
+
+So the transcription reproduces `str::to_lowercase` exactly, today. What would
+falsify it: a Unicode revision that moves a lowercase mapping, which reaches Rust
+through a `std` upgrade and reaches this table through nobody.

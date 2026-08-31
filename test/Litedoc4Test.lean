@@ -1,3 +1,11 @@
+import Litedoc4Test.GlobalArtifacts
+import Litedoc4Test.GlobalBuild
+import Litedoc4Test.GlobalDelta
+import Litedoc4Test.GlobalEntry
+import Litedoc4Test.GlobalFacts
+import Litedoc4Test.GlobalSearchIndex
+import Litedoc4Test.GlobalState
+import Litedoc4Test.GlobalV8Gc
 import Litedoc4Test.IrFrag
 import Litedoc4Test.IrMetrics
 import Litedoc4Test.IrModel

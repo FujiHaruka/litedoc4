@@ -87,12 +87,13 @@ structure State where
   modules : Std.HashMap String ModuleFacts := Std.HashMap.emptyWithCapacity 0
 
 /-- The four version keys are checked against `index` here rather than at the hit
-test, so a foreign state costs one parse and not one comparison per module. -/
-def State.load (dir : Option FilePath) (index : Index) : IO State := do
-  let some dir := dir | return {}
-  let text ← match ← (IO.FS.readFile (dir / stateFile)).toBaseIO with
-    | .error _ => return {}
-    | .ok text => pure text
+test, so a foreign state costs one parse and not one comparison per module.
+
+Split from `State.load` because everything that decides whether a file is this
+run's cache is in the text: with the read folded in, the only way to ask is to
+write a file first, and the four rejections are then answered by a disk rather
+than by the rule. -/
+def stateOf (text : String) (index : Index) : State := Id.run do
   let .ok j := parseJson text | return {}
   let fields := asObj j
   if asNat (stateField fields "stateVersion") != stateVersion then return {}
@@ -106,6 +107,12 @@ def State.load (dir : Option FilePath) (index : Index) : IO State := do
     let some facts := toModuleFacts entry | return {}
     modules := modules.insert name facts
   return { modules }
+
+def State.load (dir : Option FilePath) (index : Index) : IO State := do
+  let some dir := dir | return {}
+  match ← (IO.FS.readFile (dir / stateFile)).toBaseIO with
+  | .error _ => return {}
+  | .ok text => return stateOf text index
 
 /-! ## Writing it back -/
 
@@ -162,18 +169,19 @@ def jsonFacts (out : String) (f : ModuleFacts) : String := Id.run do
     | some text => jsonStr o text
   return o.push '}'
 
-/-- Writes `<dir>/global-state.json` and returns its size in bytes, or 0 when
-there is no state directory.
+/-- `<dir>/global-state.json`'s bytes.
 
 **Only modules the index still lists are written, in index order.** An entry for
 a module that has left the package has to disappear with it: keeping it would
 leave a name in `name-map.json` and a module in `importedBy` that no IR file
 backs, and a cache that only ever grows passes every other test. Index order
 rather than hash order so that two runs over the same module set write the same
-bytes. -/
-def State.save (dir : Option FilePath) (index : Index) (facts : Array ModuleFacts) : IO Nat := do
-  let some dir := dir | return 0
-  IO.FS.createDirAll dir
+bytes.
+
+Split from `State.save` for the reason `stateOf` is split from `State.load`: what
+is written is decided by the index and the facts, and folding the write in would
+make a directory the only way to ask what the rule is. -/
+def stateJson (index : Index) (facts : Array ModuleFacts) : String := Id.run do
   -- Keying on the facts' own module name is keying on the index entry's:
   -- `IrTree.module` refuses a file that disagrees with the index about which
   -- module it holds.
@@ -193,8 +201,15 @@ def State.save (dir : Option FilePath) (index : Index) (facts : Array ModuleFact
       if !first then o := o.push ','
       first := false
       o := jsonFacts ((jsonStr o f.module).push ':') f
-  o := o ++ "}}"
-  IO.FS.writeFile (dir / stateFile) o
-  return o.utf8ByteSize
+  return o ++ "}}"
+
+/-- Writes the file and returns its size in bytes, or 0 when there is no state
+directory. -/
+def State.save (dir : Option FilePath) (index : Index) (facts : Array ModuleFacts) : IO Nat := do
+  let some dir := dir | return 0
+  IO.FS.createDirAll dir
+  let body := stateJson index facts
+  IO.FS.writeFile (dir / stateFile) body
+  return body.utf8ByteSize
 
 end Litedoc4
