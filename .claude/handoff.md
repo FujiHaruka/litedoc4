@@ -1,30 +1,23 @@
 # Handoff — 2026-09-01 (relay leg 11 → PAUSED)
 
-## THE BLOCKER — read this before running anything
+## The disk emergency that paused leg 11 has cleared (2026-09-02)
 
-**The disk is full: 159 MiB free on `/System/Volumes/Data`, 100% capacity.** Inodes fell from
-21M free to 1.6M during this leg. **This is not the project's doing** — the working tree is
-unchanged in size (`.lake` 276 MB, `target` 19 MB, scratchpads a few hundred MB) and every gate
-cleaned up after itself. The cause is **~70 GiB held by APFS local snapshots from a staged macOS
-update**: `tmutil listlocalsnapshots /` lists `com.apple.os.update-MSUPrepareUpdate` and two
-`com.apple.os.update-*` siblings, and the container's 228Gi − 156Gi used − 159Mi free is the
-purgeable difference.
+**29 GiB free**, up from 227 MiB. The cause was identified correctly — **stale swap**, not the
+snapshots the first diagnosis blamed — but the fix cost nothing: `uptime` is unbroken at 6 days,
+and macOS drained the VM volume from **37 swapfiles (36 GB) to 1 (2.0 GB)** on its own once memory
+pressure fell. **No reboot was needed and none was performed.**
 
-**Everything this project left behind has already been swept** (2026-09-01, ~640 MB and 3.9M
-inodes recovered): 288 loose files under `/private/tmp`, 38 dead session scratchpads, the
-`lean-doc-relay` work area, **50 leaked `mktemp -d` gate work areas** (59 MB — see the defect
-below), and deno's 294 MB module cache. **It did not help for long.** Free space went
-159 MiB → 511 MiB → **280 MiB within minutes**, with nothing of ours running: the staged update
-consumes faster than the tree can be cleaned. **Do not try to clean your way out of this.**
+Untouched and still there, because 29 GiB made them unnecessary to fight: the staged macOS update
+(**43 GB** in `Preboot`), the three `com.apple.os.update-*` snapshots on `disk3s1` (all
+`Purgeable: No`), and `/System/Volumes/VM/kernelcore`, a **1 GB kernel panic dump from December
+2021**. `sudo` needs a password no session can supply, so none of these is a leg's to remove.
 
-**Freeing the snapshots is the user's call and was left to them** (installing or cancelling the staged
-update, or `tmutil deletelocalsnapshots`). Deleting a staged system update is outward-facing and
-irreversible, so no leg should do it unasked.
-
-**Do not run gates until this is fixed.** CLAUDE.md's own record is that a full disk here does
-not merely fail a measurement — it broke the target repository's oleans and the shell itself, and
-took the means of recovery with it. `tools/purelean-*-gate.sh` and anything building a `build` /
-`incremental` world need work areas measured in hundreds of MB.
+**The lesson worth keeping is the first diagnosis, not the recovery.** "~70 GiB is held by
+snapshots" came from subtracting `df` columns without opening the container, and it was wrong:
+`diskutil apfs list` showed the space was in **VM (36 GB) and Preboot (43 GB)**, and the snapshots
+were never the prize. Deciding the culprit early hid the actual holder. **`df` arithmetic is not a
+diagnosis** — CLAUDE.md's "doubt a number most when it comes out in your own favour" applies to
+diagnoses exactly as it does to measurements.
 
 ### A defect the sweep found: gates leak their work area on failure
 
@@ -61,14 +54,12 @@ the point.
   `tools/refusals.txt` is byte-identical to where it has been for three legs and must stay so.
 
 ## Relay control
-- Mode: PAUSED
+- Mode: ON
 - Goal: litedoc4 の Rust 半分を Lean に移植し切る（計画 `.claude/purelean-plan.md` の M1〜M10）
 - Leg: 11 / cap 40
 - Predecessor: purelean-r10 (killed)
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
-- Paused because: **the machine has 159 MiB of disk. The remaining work (M10 steps E and F)
-  cannot be verified without work areas, and the fix — removing a staged macOS update's local
-  snapshots — is the user's decision, not a leg's.**
+- Resumed 2026-09-02: the disk blocker cleared on its own (above). Step E is dispatched.
 - Progress ledger:
   - r1–r7: M1–M9, tag `v1.3.0` (see `git log`)
   - r8: bucket I complete 316/316; both expiring oracle windows closed; 135 argv refusals frozen
@@ -114,7 +105,7 @@ reason at the definition in `Lower.lean`.
 `/private/tmp/claude-502/-Users-haruka-dev-lean-doc/1d48be68-eb52-445e-802c-e91ccc9528b5/scratchpad/brief-m10-e.md`
 (scratchpads are readable across sessions; leg 9's and leg 10's briefs were found the same way).
 Dispatch it to an Opus subagent with the tree state in the launch message, then verify and commit
-here. **Only once the disk is fixed.**
+here.
 
 Step E is the reversible half — provenance rows repointed or retired, the homeless corpus tests
 placed as gates, `public-surface-gate.sh` repointed at `src/`, `corpus-gate.sh`'s fate decided.
