@@ -20,6 +20,7 @@
 # script                     who     needs
 assets-embed-gate.sh         ci      nothing; reads the tree
 assets-gate.sh               ci      node, via mise; the site's TypeScript
+base-ir-gate.sh              manual  the target's IR at $PURELEAN_WORK, the same tree purelean-render-gate.sh reads; elan for the Lean litedoc4
 benchmarks-ts-gate.sh        ci      deno; type-checks benchmarks/tools
 browser-gate.sh              ci      a headless Chrome and a built site
 build-gate.sh                manual  the target, an APFS clone of it, a reference IR and a .lidx

@@ -1,13 +1,18 @@
 # md4c — where these files came from
 
-Copied on 2026-08-30 from this repository's own first copy:
+md4c **0.5.2**, MIT © 2016-2024 Martin Mitáš. Keep `LICENSE.md` next to the
+sources when redistributing.
 
-    crates/litedoc4-md/vendor/md4c/{md4c.c,md4c.h,LICENSE.md}
+The chain is written out here rather than cited, because the file it used to be
+cited from leaves the tree:
 
-and **byte-identical to it** (`/usr/bin/diff -q`, all three files). That copy's
-own `PROVENANCE.md` records the rest of the chain: it came from MD4Lean as the
-measurement target pins it, and it is md4c **0.5.2**, MIT © 2016-2024 Martin
-Mitáš. Keep `LICENSE.md` next to the sources when redistributing.
+- copied into this repository on 2026-08-11 from the MD4Lean package as the
+  measurement target `lean-projects` pins it,
+  `.lake/packages/MD4Lean/md4c/{md4c.c,md4c.h,LICENSE.md,CHANGELOG.md}`, at
+  MD4Lean rev `6a3fb240133bcb7e1a066fdc784b3fdc304e3fc5` (`lake-manifest.json`);
+  the version is md4c's own `CHANGELOG.md`;
+- copied into this directory on 2026-08-30 from that first copy, and
+  **byte-identical to it** (`/usr/bin/diff -q`, all three files).
 
 Being the same bytes is the point. doc-gen4 parses docstrings with this md4c,
 `crates/litedoc4-md` parses them with this md4c, and the Lean half compiled from

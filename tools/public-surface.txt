@@ -74,5 +74,10 @@ index
 
 # Page paths and declaration anchors keep doc-gen4's shape — `Foo/Bar.html` and
 # `#Foo.bar` — so links into an existing site survive. That one is not a list of
-# names: it is `page_path`'s own tests (crates/litedoc4-render/src/page.rs) and
-# the anchors asserted in crates/litedoc4-render/tests/pages.rs.
+# names, so nothing above can carry it: it is held by the 49 frozen files of
+# `e2e/micro-expected`, which `tools/purelean-micro-gate.sh` compares byte for
+# byte. The shape is in the tree layout (`build/Example/Basic.html`) and in the
+# `id=` attributes of the pages (`id="Example.double"`), so a renamed page path or
+# a re-spelled anchor is a diff there rather than a silent break in somebody's
+# link. `tools/site-gate.sh` then asks that the index and the pages agree about
+# those anchors in both directions.

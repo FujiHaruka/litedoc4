@@ -10,8 +10,10 @@
 # `--full` recordings.
 #
 # The name is `<cargo test target>::<test>`, because two names are each carried
-# by more than one test: `the_corpus_matches_the_prototype` (ledger, impact,
-# merge) and `the_whole_corpus_matches_the_prototype` (autolink, fragment).
+# by two tests: `the_corpus_matches_the_prototype` (impact, merge) and
+# `the_whole_corpus_matches_the_prototype` (autolink, fragment). This used to say
+# `ledger, impact, merge`, and there has never been a `ledger` one — the
+# arithmetic in the next line only ever worked with two (measured 2026-09-02).
 # Bare names collapse the inventory from 21 entries to 19 (measured 2026-08-23).
 # A trailing `# …` says what the test needs.
 #

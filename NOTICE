@@ -29,16 +29,25 @@ litedoc4 is not doc-gen4, is not endorsed by its authors, and its output is not
 compatible with doc-gen4's as of milestone M7.
 
 The files below are where the reproduction is closest — some transcribed
-verbatim, some rewritten in Rust to preserve the output byte for byte, some
-restructured to write an IR instead of HTML:
+verbatim, some rewritten to preserve the output byte for byte, some restructured
+to write an IR instead of HTML:
 
     extractor/Extract.lean
+    src/Litedoc4/Md/Html.lean
+    src/Litedoc4/Md/Escape.lean
+    src/Litedoc4/Render/Code.lean
+    src/Litedoc4/Render/Whitespace.lean
+    src/Litedoc4/Render/Autolink.lean
+    assets/style.css   (the `.fn` and `.break_within` rules)
+
+The Rust half the five Lean files above were transcribed from. It is a second
+copy of the same reproduction, listed while it is in the tree:
+
     crates/litedoc4-md/src/html.rs
     crates/litedoc4-md/src/escape.rs
     crates/litedoc4-render/src/code.rs
     crates/litedoc4-render/src/whitespace.rs
     crates/litedoc4-render/src/autolink.rs
-    assets/style.css   (the `.fn` and `.break_within` rules)
 
 Test fixtures produced by running doc-gen4:
 
@@ -78,15 +87,23 @@ md4c — https://github.com/mity/md4c
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
 
-The text above is reproduced from crates/litedoc4-md/vendor/md4c/LICENSE.md,
-where the same licence sits next to the sources; crates/litedoc4-md/vendor/
-md4c/PROVENANCE.md records where the copy came from.
+The text above is reproduced from vendor/md4c/LICENSE.md, where the same licence
+sits next to the sources; vendor/md4c/PROVENANCE.md records where the copy came
+from. The tree holds more than one byte-identical copy of these sources, and the
+permission notice is owed per copy rather than per work.
 
 **Why the full text is here and not only in vendor/**: md4c's terms ask for the
 permission notice in "all copies or substantial portions of the Software", and a
-compiled `litedoc4` contains md4c. A binary release ships this NOTICE and not the
-vendored tree, so a pointer to a file that is not in the archive would not carry
-the obligation. MD4Lean below has been in this form from the start.
+compiled `litedoc4` contains md4c. Anyone who redistributes a built litedoc4 is
+distributing md4c with it, and the notice has to travel in something that goes
+with the binary rather than in a file beside sources the binary left behind.
+MD4Lean below has been in this form from the start.
+
+    vendor/md4c/{md4c.c,md4c.h}   verbatim, unmodified
+    csrc/md_events.c              links md4c and asserts its enumerators
+    src/Litedoc4/Md.lean          holds md4c's flag names and values
+
+The Rust half's copy of the same, listed while it is in the tree:
 
     crates/litedoc4-md/vendor/md4c/{md4c.c,md4c.h}   verbatim, unmodified
     crates/litedoc4-md/src/ffi.rs                    transcribed from md4c.h
@@ -116,8 +133,12 @@ MD4Lean — https://github.com/acmepjz/md4lean
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
 
-Derived from MD4Lean's `wrapper/wrapper.c` and its AST, changed (transliterated
-into Rust):
+Derived from MD4Lean's `wrapper/wrapper.c` and its AST, changed:
+
+    src/Litedoc4/Md.lean
+
+and the Rust transliteration it was in turn transcribed from, listed while it is
+in the tree:
 
     crates/litedoc4-md/src/parse.rs
     crates/litedoc4-md/src/ast.rs
@@ -148,15 +169,16 @@ math-core — https://github.com/tmke8/math-core
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
 
-Linked, not vendored: `litedoc4-md` depends on the crates.io release, and
-`crates/litedoc4-md/src/math.rs` is the whole of the call. The full text is here
-for the same reason md4c's is — a compiled `litedoc4` contains this code, and a
-binary release ships this NOTICE rather than a checkout.
+Two uses, and only the second one is in the Lean half. The first is a link, not
+a copy: `litedoc4-md` depends on the crates.io release and
+`crates/litedoc4-md/src/math.rs` is the whole of the call. Nothing outside
+`crates/` links math-core — the Lean renderer converts through MathML4Lean — so
+that use ends with the Rust half.
 
-Its stylesheet is a different kind of use. The MathML it writes needs CSS the
-browser will not supply, so that CSS is reproduced here, reformatted, without
-the webfont rules and without the rule for an element this configuration cannot
-emit:
+The second is a copy of the source, and it stays. The MathML math-core writes
+needs CSS the browser will not supply, so that CSS is reproduced here,
+reformatted, without the webfont rules and without the rule for an element this
+configuration cannot emit:
 
     assets/style.css   (§15b)
 
@@ -173,10 +195,12 @@ answers from is derived from Unicode's `UnicodeData.txt` / `PropList.txt`:
     Distributed under the Unicode® Copyright and Terms of Use,
     https://www.unicode.org/copyright.html
 
-The following file holds that library's answers, enumerated code point by code
+The following files hold that library's answers, enumerated code point by code
 point rather than copied from its sources:
 
-    crates/litedoc4-md/src/gc.rs
+    src/Litedoc4/Md/GcTable.lean   the ranges
+    src/Litedoc4/Md/Gc.lean        what reads them
+    crates/litedoc4-md/src/gc.rs     the same in the Rust half, while it is here
 
 ================================================================================
 V8 — https://v8.dev
@@ -185,10 +209,12 @@ V8 — https://v8.dev
     Copyright 2006-2011, the V8 project authors. All rights reserved.
     Licensed under the BSD 3-Clause License.
 
-The following file holds V8's `\p{Z}\p{C}` answers, enumerated code point by
+The following files hold V8's `\p{Z}\p{C}` answers, enumerated code point by
 code point rather than copied from its sources:
 
-    crates/litedoc4-global/src/v8_gc.rs
+    src/Litedoc4/Global/V8GcTable.lean   the ranges
+    src/Litedoc4/Global/V8Gc.lean        what reads them
+    crates/litedoc4-global/src/v8_gc.rs  the same in the Rust half, while here
 
 ================================================================================
 The Rust Project — https://www.rust-lang.org
@@ -216,10 +242,14 @@ litedoc4 is Apache-2.0, and most of its dependency closure is dual-licensed
 LICENSE and this file already carry, which is why they are not listed here. The
 crates below offer no such choice, so their own notices are reproduced.
 
-This list is derived rather than curated. `tools/provenance-gate.sh` rebuilds it
-from `cargo tree` over every target `release.yml` ships and fails if this section
-and that closure disagree in either direction, so a new dependency cannot arrive
-without its notice and a dropped one cannot leave a stale entry behind.
+This list covers the Rust dependency closure, and it is here because a compiled
+`litedoc4` used to be published as a release archive: an archive is Object form
+and carries that closure inside it. **Nothing is distributed in Object form any
+more** — a consumer requires this package and Lake builds it from source — so the
+half of `tools/provenance-gate.sh` that rebuilt this section from `cargo tree`
+went with the release workflow it existed for (`docs/provenance.md` §7-8). While
+`crates/` is in the tree this section is a reviewed list like the rest of the
+file. If a binary is ever published again, the derived check comes back with it.
 
 It covers the whole normal dependency closure, including crates that only run at
 compile time. A proc-macro's own code is not linked into the binary, but the code

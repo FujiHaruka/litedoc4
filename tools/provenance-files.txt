@@ -38,6 +38,16 @@ extractor/Extract.lean : Böving
 extractor/Extract.lean : Apache
 assets/style.css : Böving
 assets/style.css : Apache 2.0
+# LEAVES WITH crates/. Each of the five was transcribed into the Lean file named
+# beside it below, and every one of those already has rows of its own — so these
+# retire with the tree rather than moving. Delete them in the commit that deletes
+# `crates/`, not before: the files are still here and still carry the notice.
+#
+#   html.rs       -> src/Litedoc4/Md/Html.lean
+#   escape.rs     -> src/Litedoc4/Md/Escape.lean
+#   code.rs       -> src/Litedoc4/Render/Code.lean
+#   whitespace.rs -> src/Litedoc4/Render/Whitespace.lean
+#   autolink.rs   -> src/Litedoc4/Render/Autolink.lean
 crates/litedoc4-md/src/html.rs : doc-gen4
 crates/litedoc4-md/src/escape.rs : doc-gen4
 crates/litedoc4-render/src/code.rs : doc-gen4
@@ -72,12 +82,17 @@ src/Litedoc4/Render/Whitespace.lean : Apache-2.0
 # md4c is in the tree three times, byte-identical (provenance.md §7). Each copy
 # is redistributed on its own — Lake builds `vendor/md4c/` from the package
 # directory and never reaches into `crates/` — so each carries the MIT notice.
-crates/litedoc4-md/vendor/md4c/LICENSE.md : MIT
-crates/litedoc4-md/vendor/md4c/PROVENANCE.md : md4c
 vendor/md4c/LICENSE.md : MIT
 vendor/md4c/PROVENANCE.md : md4c
+# LEAVES WITH crates/, and this pair genuinely retires rather than moving: the
+# obligation is per copy, and `vendor/md4c/` is the copy that stays. What did
+# have to move is the origin chain — `vendor/md4c/PROVENANCE.md` used to cite the
+# file below for the half it did not repeat, and now states it whole (2026-09-02).
+crates/litedoc4-md/vendor/md4c/LICENSE.md : MIT
+crates/litedoc4-md/vendor/md4c/PROVENANCE.md : md4c
 benchmarks/lean-prototype/vendor/md4c/LICENSE.md : MIT
 benchmarks/lean-prototype/vendor/md4c/PROVENANCE.md : md4c
+# LEAVES WITH crates/ -> src/Litedoc4/Md.lean, whose two rows are just below.
 crates/litedoc4-md/src/parse.rs : MD4Lean
 # The Lean transcription of that transliteration. Both claims, and neither is
 # the word "MD4Lean": the file names MD4Lean a dozen times while arguing why it
@@ -87,13 +102,24 @@ src/Litedoc4/Md.lean : Jz Pan
 src/Litedoc4/Md.lean : MIT
 benchmarks/lean-prototype/Md.lean : Jz Pan
 benchmarks/lean-prototype/Md.lean : MIT
+# `ffi.rs` transcribed `md4c.h` into Rust, and the Lean half splits that job in
+# two: `csrc/md_events.c` is the only place that sees md4c's header and the wire
+# format at once, and `src/Litedoc4/Md.lean` holds the flag names and values.
+# **The C carried no attribution at all until 2026-09-02** — following the row
+# below to its successor is what found it, and the row is the successor's.
+# `Martin Mitáš` and not `md4c`: that file says `md4c` in a dozen sentences about
+# what it does, so a row matching the bare word is satisfied by any of them.
+csrc/md_events.c : Martin Mitáš
+# LEAVES WITH crates/ -> csrc/md_events.c above, and src/Litedoc4/Md.lean.
 crates/litedoc4-md/src/ffi.rs : md4c
+# LEAVES WITH crates/ -> src/Litedoc4/Md/Gc.lean and Md/GcTable.lean, rows below.
 crates/litedoc4-md/src/gc.rs : Unicode
 # The Lean transcription of that table. `Dorais` and not `Unicode`, for the
 # reason the two lines above this file's `MD4Lean` rows give: the word Unicode
 # appears wherever the table is discussed.
 src/Litedoc4/Md/Gc.lean : Dorais
 src/Litedoc4/Md/Gc.lean : Unicode
+# LEAVES WITH crates/ -> src/Litedoc4/Global/V8Gc.lean and V8GcTable.lean, below.
 crates/litedoc4-global/src/v8_gc.rs : V8
 # The two generated modules that hold the ranges themselves. Rows of their own
 # and not covered by the files above: `tools/oracle/gen-*.ts` writes these whole
@@ -102,6 +128,12 @@ crates/litedoc4-global/src/v8_gc.rs : V8
 src/Litedoc4/Md/GcTable.lean : Dorais
 src/Litedoc4/Md/GcTable.lean : Unicode
 src/Litedoc4/Global/V8GcTable.lean : V8
+# Two claims here and one row beside the table, for the reason `Md/Gc.lean` has
+# rows and not only `Md/GcTable.lean`: the reader carries the same notice, and a
+# notice nothing checks is one a refactor deletes for free. `Copyright 2006-2011`
+# and not `V8`, which both files say in ordinary prose about what the table holds.
+src/Litedoc4/Global/V8GcTable.lean : Copyright 2006-2011
+src/Litedoc4/Global/V8Gc.lean : Copyright 2006-2011
 # The same shape one language over: `str::to_lowercase`'s answers, enumerated.
 # Two claims, because two works are behind the table — Rust's mapping and
 # Unicode's data — and a row for only one of them would go on passing after the
@@ -118,6 +150,10 @@ NOTICE : str::to_lowercase
 # only looked for "MIT" would be satisfied by the wrong paragraph.
 assets/style.css : math-core
 assets/style.css : Charles Edward Gagnon
+# LEAVES WITH crates/, and this one genuinely retires: math-core is *linked* by
+# the Rust half and by nothing else — the Lean renderer converts through
+# MathML4Lean, so the linked use ends with the tree. math-core's *copied* half is
+# `assets/style.css` §15b, whose two rows are above and stay.
 crates/litedoc4-md/src/math.rs : math-core
 
 # --- generated fixtures whose origin has to stay recoverable --------------

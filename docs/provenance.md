@@ -372,3 +372,54 @@ NOTICE の導出セクションを**両方向で**突き合わせていた。**�
   `grep` が 0 件を返して `set -e` に殺され、**何も印字せずに非ゼロ終了**していた
   (CLAUDE.md「落ちたときに何が壊れたか 1 行で言えないゲートは足さない」の、
   ゲート自身が該当していた版)
+
+---
+
+## 9. Where each obligation lands when the Rust half leaves (2026-09-02)
+
+`tools/provenance-files.txt` had **12 rows naming `crates/`** and `NOTICE` named it
+on **13 lines**. Every one was followed to the file that answers the same question
+in the surviving tree; **the rows are annotated in place rather than deleted**,
+because the files are still here and still carry the notice — deleting a row while
+its file exists stops a check that is still meaningful, and M10's deletion commit
+is where the row and the file leave together.
+
+| row | verdict | where the obligation is now |
+|---|---|---|
+| `crates/litedoc4-md/src/html.rs` | repointed | `src/Litedoc4/Md/Html.lean` (rows exist) |
+| `crates/litedoc4-md/src/escape.rs` | repointed | `src/Litedoc4/Md/Escape.lean` (rows exist) |
+| `crates/litedoc4-render/src/code.rs` | repointed | `src/Litedoc4/Render/Code.lean` (rows exist) |
+| `crates/litedoc4-render/src/whitespace.rs` | repointed | `src/Litedoc4/Render/Whitespace.lean` (rows exist) |
+| `crates/litedoc4-render/src/autolink.rs` | repointed | `src/Litedoc4/Render/Autolink.lean` (rows exist) |
+| `crates/litedoc4-md/src/parse.rs` | repointed | `src/Litedoc4/Md.lean` (rows exist) |
+| `crates/litedoc4-md/src/gc.rs` | repointed | `src/Litedoc4/Md/Gc.lean` + `Md/GcTable.lean` (rows exist) |
+| `crates/litedoc4-global/src/v8_gc.rs` | repointed | `src/Litedoc4/Global/V8Gc.lean` + `V8GcTable.lean` — **the reader had no row until now** |
+| `crates/litedoc4-md/src/ffi.rs` | repointed | `csrc/md_events.c` + `src/Litedoc4/Md.lean` — **the C had no attribution at all until now** |
+| `crates/litedoc4-md/vendor/md4c/LICENSE.md` | retired | per copy; `vendor/md4c/LICENSE.md` is the copy that stays |
+| `crates/litedoc4-md/vendor/md4c/PROVENANCE.md` | retired | ditto — but see the chain below |
+| `crates/litedoc4-md/src/math.rs` | retired | math-core is *linked* by the Rust half and by nothing else; the Lean renderer converts through MathML4Lean. math-core's *copied* half is `assets/style.css` §15b and stays |
+
+**Three things were owed and had nothing to hang on. They were paid on 2026-09-02**,
+which is the whole reason this pass is worth more than a rename:
+
+1. **`csrc/md_events.c` carried no attribution.** It is the file that `#include`s
+   `md4c.h`, and its `_Static_assert`s are md4c's own enumerators — the same
+   derivation `ffi.rs` was named for. Every other transcription in the tree carries
+   a notice; this one did not, and no row asked for it.
+2. **`vendor/md4c/PROVENANCE.md` stated its origin by citing the copy that leaves.**
+   It said the other `PROVENANCE.md` "records the rest of the chain". It now states
+   the chain itself: MD4Lean rev `6a3fb240133bcb7e1a066fdc784b3fdc304e3fc5` as
+   `lean-projects` pins it, md4c 0.5.2, MIT © 2016-2024 Martin Mitáš.
+3. **`src/Litedoc4/Global/V8Gc.lean` had no row**, while its counterpart
+   `src/Litedoc4/Md/Gc.lean` had two. A notice nothing checks is one a refactor
+   deletes for free.
+
+**`NOTICE` named only the Rust files** for doc-gen4's five, for md4c, for MD4Lean
+and for the two enumerated tables — not the Lean files that reproduce them. It now
+names both, the surviving half first. That was not a consequence of M10: the file
+had been incomplete since the transcriptions were written.
+
+**Match words.** Every row added here is a proper noun the file says once, in the
+notice: `Martin Mitáš`, `Copyright 2006-2011`. Not `md4c` and not `V8` — both files
+say those words in ordinary prose about what they hold, so a row matching them
+would be satisfied by the wrong sentence (§7, and the same trap `style.css` carries).

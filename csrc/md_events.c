@@ -1,3 +1,9 @@
+/* Links md4c (MIT, Copyright © 2016-2024 Martin Mitáš) and asserts its
+ * enumerators against the numbers Lean decodes; the parser itself is
+ * `vendor/md4c/md4c.c`, unmodified. See this repository's NOTICE and
+ * `vendor/md4c/PROVENANCE.md`.
+ */
+
 /* md4c's callback stream, flattened into one byte buffer.
  *
  * WHY A BYTE STREAM AND NOT LEAN OBJECTS

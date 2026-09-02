@@ -5452,6 +5452,63 @@ regex も無い)。**この木では 2.2 GB を復元するより全部建て直
 
 ---
 
+### M10 step E — what leaves unasked when `crates/` goes (2026-09-02)
+
+The 21 `#[ignore]`d tests of `tools/corpus-tests.txt` all live under `crates/`. Every one was
+read and matched against the checks that survive. **7 have no surviving home, not the 2 an
+earlier leg recorded** (measured 2026-09-02, by reading the 21 bodies; the earlier number came
+from reading two of them). The other 14 lose nothing: **10 die with an input** that only the
+removed prototype could write (`tag experiments-frozen`, or a `/private/tmp` tree the sweeps
+emptied), and **4 are asked again** — by `purelean-render-gate.sh` items 2/4/7, by
+`build-gate.sh`'s `gate1`/`gate4`, and by two Lean tests
+(`Litedoc4Test.theCacheSequenceAgreesWithAFromScratchBuild`,
+`Litedoc4Test.theTwoUrlsThePlanQuotesComeOutOfTheMap`).
+
+**Two were placed.** `base_ir::reads_every_module_of_the_target_package` and
+`base_ir::astral_binders_slice_correctly` are now `tools/base-ir-gate.sh` (`manual`). Its
+expectations are not frozen: the extractor's index is compared against the extractor's own module
+files, and `litedoc4 global` is compared against that enumeration — the constraint the Rust
+header carried, that the expected values must never come from the reader. 1,674,710 checks over
+the 422-module target, 3.7 s (measured 2026-09-02).
+
+**The Rust exact counts were already dead when they were carried across.** They sat behind a
+guard that fired only for a tree with `moduleCount` 432 and `declarationCount` 4,750; the target
+has been 422 modules since 2026-08-31, so both tests had been running their structural half alone
+and `astral_binders_slice_correctly` had been asserting nothing at all.
+
+**Five were not placed, and they are a list of defects not yet known rather than work remaining:**
+
+| what it asks | what it needs | how fragile |
+|---|---|---|
+| `pages::pages_carry_the_doc_gen4_trees_declarations` — the rendered pages carry doc-gen4's own anchor set, order, module docstrings and source files | the target's `.lake/build/doc` (6,080 pages, present 2026-09-02) + an IR | **doc-gen4 is not in the target's manifest** (10 packages, none of them doc-gen4), so `lake update` there destroys the oracle for good |
+| `packages::every_root_matches_doc_gen4s_own_blob_urls` — every resolved root's URL is the one doc-gen4 wrote | same tree + `lake --githash` | same. `Lake`'s `src/lake` prefix is checked by nothing else in the tree |
+| `packages::every_lidx_entry_matches_doc_gen4s_declaration_urls` — every `.lidx` name's source URL is doc-gen4's | same tree + a `.lidx` + a ~41 MB TSV from `benchmarks/tools/extract-decl-source-urls.sh` | same |
+| `global::corpus_facts_match_the_prototype` — the facts serialise to the prototype's bytes | an IR only; **the expectation is committed** (`fixtures/global/global-expected.json`) | not fragile — rebuildable whenever |
+| `merge::the_corpus_matches_the_prototype` — 9 merge rounds over the real base IR | a base IR + `tools/merge-reference.sh`, which survives; **expectation committed** (`fixtures/incr/merge-expected.json`) | not fragile |
+
+**These three doc-gen4 comparisons are the only checks in the tree that hold litedoc4 against an
+implementation nobody here wrote.** Everything else is self-consistency, an invariant, or a
+fixture minted from this repository's own output.
+
+**`tools/corpus-gate.sh` cannot survive its subject.** With the 21 rows deleted it **exits 1
+printing nothing** — `entries`' `grep -v` finds no line and `set -e` kills the command
+substitution (measured 2026-09-02, by stubbing `listed` to answer as cargo would with no test
+targets); with the rows kept it prints 21 `in the inventory but not ignored` lines and is red for
+ever. There is no third arrangement in which it asks a question, so it goes with `crates/`,
+together with `tools/corpus-tests.txt` and its `ci.yml` step.
+
+**And it already has the shape it would end in.** On this machine `--verify-list` **exits 101
+printing nothing at all** (measured 2026-09-02): `listed()` runs `cargo test --workspace --no-run`
+with `2>/dev/null`, and that command dies in `crates/litedoc4-render`'s `build.rs`, which runs
+npm — `node` on PATH here is a 2023 build the kernel SIGKILLs. CI is green because the job has
+`setup-node`. So the one gate that would be left holding an empty inventory is already a gate
+whose output and exit code disagree, which is the shape this repository keeps being bitten by.
+
+**`fixtures/render/**`, `fixtures/global/**` and `fixtures/incr/**` lose their last reader**;
+only `fixtures/md/fuzz/` keeps one (`fuzz/fuzz_targets/docstring.rs`). Two of them are the
+committed expectations of the two rebuildable questions above, so they are not decoration yet —
+but they are data with no consumer until something asks again.
+
 ## 書き方
 
 段階ごとに 1 節を足す。各節に必ず入れるもの:

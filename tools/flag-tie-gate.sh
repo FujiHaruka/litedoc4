@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 # Is every flag the command line *documents* a flag some parser *accepts*?
 #
-# `tools/public-surface-gate.sh` reads each half's synopsis and says which
-# promised name went missing. On the Rust side that reading means something
-# stronger than a string search, because `every_documented_flag_is_parsed` in
-# `crates/litedoc4/src/lib.rs` ties `USAGE` to the `match` arms; on the Lean side
-# nothing ties them, so a flag reachable there is only a flag the help text
-# spells. M10 deletes `crates/`, and with it the only tie either half has. This
-# gate is that tie, rebuilt out of the one oracle that survives: the binary's own
-# answer to being handed the flag.
+# `tools/public-surface-gate.sh` reads the synopsis in `src/Litedoc4/Main.lean` and
+# says which promised name went missing. That is a string search: on its own it
+# says the promised flag is *spelled*, not that any parser *accepts* it. The tie
+# used to exist once, in Rust, as `every_documented_flag_is_parsed`; M10 deletes
+# `crates/` and with it that tie. This gate is the tie rebuilt out of the one
+# oracle that survives: the binary's own answer to being handed the flag.
+#
+# THE JOINT BETWEEN THE TWO GATES IS CHECKED, NOT ASSUMED
+#   Two gates compose into promised -> documented -> accepted only if every name
+#   `tools/public-surface.txt` promises is one this gate actually hands over. The
+#   two read the synopsis with different code — surface-gate takes a command's
+#   block and searches it, this one splits words out of the synopsis lines — so
+#   "they obviously cover the same flags" is exactly the assumption that goes
+#   quietly wrong. So the promise is read here too and every `[build]` / `[watch]`
+#   name must appear among the pairs below. A promised flag this gate does not ask
+#   about is reported as a hole in the composition, not silently left unasked.
 #
 # THE METHOD
 #   For each `(command, flag)` the usage names, run `litedoc4 <command> <flag>`
@@ -49,6 +57,8 @@
 #          while `crates/` exists.
 #
 # usage: flag-tie-gate.sh [--lean PATH] [--rust PATH]
+#   PROMISED  tools/public-surface.txt, whose [build] and [watch] names must all
+#             turn up among the pairs taken from the synopsis
 #   --lean  the Lean litedoc4 (default: .lake/build/bin/litedoc4, built with
 #           tools/build-lean-exe.sh if it is not there)
 #   --rust  the Rust litedoc4 (default: target/release, else target/debug;
@@ -109,13 +119,14 @@ WORK="$(mktemp -d)"
 on_exit 'rm -rf "$WORK"'
 
 rc=0
-python3 - "$WORK" "$LEAN" "$RUST" <<'PY' || rc=$?
+python3 - "$WORK" "$LEAN" "$RUST" "$ROOT" <<'PY' || rc=$?
 import os
+import pathlib
 import re
 import subprocess
 import sys
 
-work, lean, rust = sys.argv[1], sys.argv[2], sys.argv[3]
+work, lean, rust, root = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 
 # A flag no synopsis names and no parser can have: handed to every command to
 # prove the unknown-argument detector below still fires.
@@ -249,6 +260,38 @@ for command in [c for c in commands if c not in paired]:
     problems.append(f"`litedoc4 {command}` is a synopsis line this reading took no flag "
                     "from — every command has at least one")
 
+# The promise, read here so the composition with public-surface-gate is a checked
+# property rather than a sentence in two headers.
+promised: dict[str, list[str]] = {}
+section = None
+for line in (pathlib.Path(root) / "tools/public-surface.txt").read_text(
+    encoding="utf-8"
+).splitlines():
+    line = line.split("#", 1)[0].strip()
+    if not line:
+        continue
+    if line.startswith("[") and line.endswith("]"):
+        section = line[1:-1]
+        promised[section] = []
+    elif section is not None:
+        promised[section].append(line)
+
+promised_pairs = [
+    (command, flag)
+    for command in ("build", "watch")
+    for flag in promised.get(command, [])
+]
+if not promised_pairs:
+    sys.exit("flag-tie-gate: tools/public-surface.txt promises no build or watch flag — "
+             "the composition check below would check nothing")
+for command, flag in promised_pairs:
+    if (command, flag) not in pairs:
+        problems.append(
+            f"1.x promises `litedoc4 {command} {flag}` and this gate never hands it over — "
+            "the synopsis reading here and public-surface-gate's disagree, so nothing "
+            "checks that the promised flag is accepted rather than merely spelled"
+        )
+
 flags = {flag for _, flag in pairs}
 for flag in sorted(described - flags):
     problems.append(f"{flag} is described in `--help-all` and named in no synopsis line, "
@@ -296,7 +339,8 @@ print("FLAG TIE GATE: "
       + ", ".join(f"{label} {len(reported)}/{len(pairs)} pair(s), {controls} control(s)"
                   for label, reported, _, controls in counts)
       + f"; {len(commands)} command(s), {len(flags)} distinct flag(s), "
-      + f"{len(described)} described")
+      + f"{len(described)} described; {len(promised_pairs)} promised flag(s) "
+      + "are among the pairs, so 1.x promises what a parser accepts")
 PY
 
 if [ "$rc" -ne 0 ]; then
