@@ -1,10 +1,12 @@
 # litedoc4 project rules
 
 A fast documentation generation platform for Lean packages that depend on Mathlib.
-**All verification stages are complete** (`approach.md` §7, 1–8, plus the CI axis). **The migration
-is complete too** — moving from the throwaway prototype (TS + shell) to the Rust product tree
-`crates/` finished in M1–M8, and the prototype was **removed from HEAD on 2026-08-16**
-(→ "The removed prototype" below).
+**All verification stages are complete** (`approach.md` §7, 1–8, plus the CI axis).
+**The product is one Lean tree, `src/`. There is no Rust in this repository.** Two earlier trees
+left HEAD and each is readable from a tag: the throwaway prototype (TS + shell) on 2026-08-16, and
+the Rust half `crates/` on 2026-09-02 (→ "The removed trees" below). **A citation naming
+`crates/`, `Cargo.toml`, `fuzz/`, `deny.toml` or a `.rs` file is history** — read it from the tag,
+do not try to run it.
 **v0.1 was closed on 2026-08-17** — tag **`v0.1.0`**. The basis for closing it was only the
 settlement of gates A / B, and **unverified items came down 18 → 13 → 3**.
 **The substance is how they went down, not the count**:
@@ -50,10 +52,12 @@ crates.io / npm / PyPI / GitHub search alike.
    prototype-derived ones (`ts-*`, `autolink`, `fragment`, `pages`, `global`, `delta`,
    `impact`, `merge`) **cannot** — their generators exist only at `experiments-frozen`
 3. **The string `lean-doc-relay`** — the gates' work area `/private/tmp/lean-doc-relay/<stage>`.
-   It is in the frozen fixtures as the path at generation time, and **the default path of
-   `litedoc4_testutil::corpus` has to match it**
+   It is baked into the frozen fixtures as the path at generation time
+   (`/private/tmp/lean-doc-relay/w7h/base-ir`), so **anything compared against one of them has to
+   sit at that same path** — which is why the gates spell it out as their default
+   (`base-ir-gate.sh`, `build-gate.sh`, `clone-gate.sh`, `deps-docs-gate.sh`)
 4. **`lean-doc/experiments/stage4b` / `stage4c` (6 files)** — **real identifiers** that the
-   prototype wrote into the IR's `generator`. The `assert_ne!` in `ledger.rs` checks that "the
+   prototype wrote into the IR's `generator`. `test/Litedoc4Test/IncrLedger.lean` checks that "the
    current ID differs from these", and rewriting it makes it **a meaningless check against a
    string that does not exist**.
    `extractor/Extract.lean` still writes this value. **It was once replaced by mistake and restored**
@@ -120,7 +124,7 @@ promises, each with a gate. **Do not read v1 as "finished" any more than v0.1 me
 reason is to run GitHub Actions on the free tier). The measurement target `lean-projects` is public
 too.
 **Treat everything you write as published** — including docs, commit messages, and handoffs.
-**The history and the tags are public too** (→ "The removed prototype" below).
+**The history and the tags are public too** (→ "The removed trees" below).
 
 ## Repository layout
 
@@ -160,7 +164,7 @@ and uses the root's toolchain.** The price is that "`lake` does not run in lited
 directory", so `lake-manifest.json` is hand-written and builds always come from the user's
 workspace side.
 
-### The removed prototype — tag `experiments-frozen`
+### The removed trees — tags `experiments-frozen` and `rust-frozen`
 
 The throwaway prototype for verification stages 1–8 (`experiments/`, 27 directories / 164 files)
 was **deleted from HEAD on 2026-08-16** (decided, user's call). **It remains in the history** —
@@ -175,7 +179,9 @@ git log experiments-frozen -- experiments/
 - **Every place where docs point at `experiments/...` as the source of a number carries this tag.**
   Do not write `experiments/` without the tag (it would point at a path that is not in HEAD)
 - **What disappeared is the scorer, not the numbers.** The committed fixtures
-  (`fixtures/*/*-expected.json`) remain as frozen values, and `cargo test` is untouched.
+  (`fixtures/*/*-expected.json`) remain as frozen values. Those under `fixtures/render/`,
+  `fixtures/global/` and `fixtures/incr/` lost their last reader when `crates/` left — the values
+  stay and nothing re-asks them.
   **To rebuild a prototype-derived one, restore the generator from the tag** — those are the
   ones this applies to. The doc-gen4 and MD4Lean fixtures are a different case: their
   generators are in HEAD under `tools/oracle/`
@@ -184,12 +190,39 @@ git log experiments-frozen -- experiments/
   the reason for the removal is policy, not legal — no additional licensing obligation arises
   (`docs/provenance.md` §8). Operate on the fact that **"not showing it" is not satisfied**
 
-**The extractor is Lean; everything outside it (IR consumption, rendering, incremental, search
-index) is Rust** (decided 2026-08-11 → plan §5.6). **The reason for the choice is not speed** —
-the speed difference on the outside is decided not by the language but by **the number of full IR
-reads** (verification log). **Do not write "it is fast because it is Rust".** The multipliers in
-§6.4 come from "stopping work that did not need doing", and tying language and speed together
-causally is overstatement.
+The Rust half (`crates/`, `fuzz/`, `Cargo.toml`, `Cargo.lock`, `deny.toml`, `rust-toolchain.toml`,
+`tools/corpus-gate.sh`, `tools/corpus-tests.txt`) left HEAD on **2026-09-02** at the end of the
+pure-Lean port (M10 step F2). The last commit where it was complete is tagged **`rust-frozen`**:
+
+```
+git show rust-frozen:crates/litedoc4-render/src/lib.rs
+git log rust-frozen -- crates/
+```
+
+- **The same rule as above: a citation naming a path under `crates/` carries the tag.** Without it
+  the path is not in HEAD
+- **What left with it was the oracle, in four gates.** `refusal-gate.sh`, `flag-tie-gate.sh`,
+  `purelean-micro-gate.sh` and `purelean-render-gate.sh` each ran two arms, one of which asked the
+  Rust binary; `purelean-gate.sh` went from 5 items to 3 the same way. **Every one of them now
+  names the retirement in its own summary line**, because a one-armed run that said nothing about
+  it would read as the whole gate. Their frozen answers were minted from the Rust binary and
+  **must not be re-minted from the Lean half** — that would replace the answer with the thing
+  being checked
+- **5 questions left unasked, and they are written down.** The 21 corpus tests were read one by
+  one before the tree went: 14 lose nothing, 2 became `tools/base-ir-gate.sh`, and **5 have no
+  surviving home** (`docs/verification-log.md`, "M10 step E"). Three of those five are the only
+  checks in the tree that hold litedoc4 against an implementation nobody here wrote — doc-gen4's
+  own pages and URLs — and **their oracle dies the moment `lake update` runs in the target**,
+  because doc-gen4 is not in its manifest. **They are a list of defects not yet known, not a list
+  of work remaining**
+
+**Everything is Lean** — the extractor, IR consumption, rendering, incremental and the search
+index. The 2026-08-11 split that put everything outside the extractor in Rust (plan §5.6) was
+undone by the pure-Lean port, and **the speed was never the reason for either side of it**: the
+difference on the outside is decided not by the language but by **the number of full IR reads**
+(verification log). **Do not write "it is fast because it is Rust" — and do not write the Lean
+version of that sentence either.** The multipliers in §6.4 come from "stopping work that did not
+need doing", and tying language and speed together causally is overstatement.
 
 ## Benchmarks
 
@@ -227,8 +260,8 @@ If you want to measure a different target, **add** it rather than replacing, and
 - Run long measurements in the background (do not use a foreground `sleep`).
 - **Delete the work directory when a measurement finishes. Decide who does the cleaning up.**
   Gates use `/private/tmp/lean-doc-relay/<stage>` as their work area (**this path keeps the old name even after the rename** —
-  it is baked into the frozen fixtures as the path at generation time, and the default path of
-  `litedoc4_testutil::corpus` has to match it → "the 6 categories where the old name is kept"
+  it is baked into the frozen fixtures as the path at generation time, so anything compared against
+  one of them has to sit there → "the 6 categories where the old name is kept"
   above). All of them are written on the assumption that they "can be regenerated", but
   **nobody deletes them, so they pile up**. On 2026-08-17, 5 generations' worth piled up to
   **24 GB**, the disk filled, and **an interrupted `lake build` left one of the target's oleans
@@ -267,8 +300,10 @@ itself**. Every number written in docs carries one of the following 4 labels:
   monospace font (`windows-latest` has both Consolas and Chrome) and LeakSanitizer (which runs on
   `ubuntu-latest`). Q8 recorded the same failure on Linux on 2026-08-17. **The CI runners of a
   public repository are hardware for 3 OSes**, and "not here" is only "not on this machine".
-- **The "not yet" in docs rots.** On the same day, `cargo-deny` was green in CI while still marked
-  "not yet" (measured). Before killing an item, **first check the current state** — the work may already be done.
+- **The "not yet" in docs rots.** On the same day, the dependency-audit check was green in CI while
+  still marked "not yet" (measured). Before killing an item, **first check the current state** — the
+  work may already be done. (The check was `cargo-deny` and it left with `crates/`; what the
+  instance recorded is a failure of the docs, not of the tool.)
 
 ## Quality gates
 
@@ -277,54 +312,74 @@ redefined. What was put in its place is **3 kinds that need no external oracle**
 **self-consistency** (whether the output closes over itself) /
 **invariants** (whether a different path gives the same answer) / **Lean itself**.
 **These 3 are the definition of "green"**, and their substance is
-`cargo test --workspace`, `tools/*-gate.sh`, and `.github/workflows/`.
+`tools/lean-test-gate.sh`, the rest of `tools/*-gate.sh`, and `.github/workflows/`.
 
 - **Separate "tests" from "gates". Make the boundary coincide with CI's boundary.**
-  A test **holds its own input and depends on zero hardware**, and `cargo test --workspace` is the
-  definition of green.
+  A test **holds its own input and depends on zero hardware**; the tests are the Lean invariants
+  under `test/`, and **`tools/lean-test-gate.sh` is what says green for all of them** — it builds
+  the test executable, which is what checks every compile-time `#guard`, then runs every run-time
+  `Invariant` and **reconciles the ones defined against the ones run**.
   A gate requires hardware, the target, or a toolchain, and lives in `tools/*-gate.sh`.
   **The gates have an inventory of their own** — `tools/gates.txt`, checked in both directions by
   `tools/workflow-gate.sh`, which also verifies that a row marked `ci` is really reached from a
   workflow and one marked `manual` is really not. Without it, `build-gate.sh` sat for months as a
   gate nobody had ever run (measured 2026-08-29)
   **Anything that reads the target repository is not a test** — anything that breaks when the target moves is by definition not a test
-- **Never return green by skipping.** A test with no input is made `#[ignore]` and listed in
-  `tools/corpus-tests.txt` (CI looks at the difference in both directions with `--verify-list`).
-  **`eprintln!("skipping: …") + return` does not show up in the exit code** —
-  this actually made **7 of them "green while the fixture was gone"** (measured 2026-08-16)
-- **Gates count "how many ran".** The general form of the above, and **3 more variants turned up on the same day** (measured):
-  the gate stripped the module path from the test name so `--exact` matched 0 (**cargo exits 0 even at 0 matches**) /
-  there was no `--no-fail-fast` so a red one hid the rest with the same name / the same name spanned frozen and runnable.
+- **Never return green by skipping.** A check that could not run has to be **visible as not run**,
+  never as a pass. **Printing "skipping: …" and returning does not show up in the exit code** —
+  that actually made **7 tests "green while the fixture was gone"** (measured 2026-08-16, in the
+  Rust test runner that has since left the tree). The shape that replaces it is **a count
+  reconciled against an inventory**: `lean-test-gate.sh` fails when an `Invariant` is defined and
+  never listed in `Main.lean`, and the item-based gates fail when fewer items reported a result
+  than the gate declares
+- **Gates count "how many ran".** The general form of the above, and **3 more variants turned up on the same day**
+  (measured 2026-08-16, all three in how a gate drove the Rust test runner):
+  a name filter that matched nothing and still exited 0 /
+  no `--no-fail-fast`, so one red hid the rest sharing its name / one name spanning both a frozen
+  case and a runnable one.
   **In all of them the output looks "correct".** The only thing that caught them was
-  **reconciling the count in the inventory against the count that actually reported a result**
-- **A bare program name in a test is `PATH`, not a path.** Three unit tests passed
-  `Path::new("lake-that-does-not-exist")` to mean "no Lean core"; the sibling `lean` derived from
-  it has no directory in it, so `Command::new` resolved it on `PATH` and the tests read whichever
-  toolchain the machine had. Green on every machine where elan has no **default** toolchain, red
-  on one that has (measured 2026-08-29). `cargo test --workspace` is the definition of green, so a
-  test that reads the environment moves the definition. The helper that gets this right is
-  `litedoc4_testutil::toolchain::lake_that_is_not_there`
+  **reconciling the count in the inventory against the count that actually reported a result** —
+  which is why the gates that have items print `<ran> of <declared>` and fail when the two differ
+- **A bare program name is `PATH`, not a path.** Three unit tests named
+  `lake-that-does-not-exist` to mean "no Lean core"; the sibling `lean` derived from it had no
+  directory in it, so the spawn resolved it on `PATH` and the tests read whichever toolchain the
+  machine had. Green on every machine where elan has no **default** toolchain, red on one that has
+  (measured 2026-08-29, in the Rust tests that left with `crates/`). **The general form outlives
+  them**: a name with no `/` in it is a `PATH` lookup, so **anything meant to be absent has to be
+  spelled as a path that cannot exist**, and a check that reads the machine's environment moves the
+  definition of green instead of answering it
 - **Do not judge input identity by "path".** A design of "check up to the denominator if it is the
   default path, structure only for another file" **silently changes the strength of the claim the
-  moment something else is put at the default path** (measured 2026-08-16,
-  `link_index_fixture`). If you claim identity, **judge it by content** (digest / generation conditions)
+  moment something else is put at the default path** (measured 2026-08-16, in the Rust
+  `link_index_fixture` test). If you claim identity, **judge it by content** (digest / generation conditions)
 - **Do not gate performance on wall clock.** It moves by 5× with the page cache.
   What gates use is **deterministic integers** (re-extraction count / rendered page count / IR read count / process spawn count)
 - **Do not rewrite an oracle in the same language with the same design** (it creates a path where
   both make the same mistake). This is why the site check is still Python
 - **Never build a comparator with an exception list.** It silently swallows the second divergence
-- **Do not add a gate that cannot say in one line what broke when it fails.** Do not make the count a goal
+- **Do not adopt a whole group of checks and then allow half of them.** It is the same failure as
+  a comparator with an exception list — the allow list is where the next real hit goes to be
+  ignored. Switch them on one at a time, and **keep the reason a rejected one was rejected**
+  beside the configuration, so the same investigation is not redone at every reconsideration
+- **Do not add a check that cannot say in one line what broke when it fails** — a gate, a lint, or
+  anything else you are deciding whether to switch on. If you cannot say it, do not take it.
+  Do not make the count a goal
 - **A gate does not check itself.** A new gate is **always made to fail once** before it is allowed to pass
   (on the day they were made, 2 "gates that pass no matter what" were built (measured))
 - **Confirm a gate's checked scope with a number.** "Ran it" and "watching it" are different.
-  `cargo-fuzz`'s `-Zsanitizer=address` goes through `RUSTFLAGS`, so **it only reaches Rust and the
-  C that `build.rs` bakes goes straight through** — passing `CFLAGS` moved cov **1023 → 2487** under identical conditions
-  (measured 2026-08-17). **Whether the number moves with and without instrumentation** is the only means of confirmation
+  **Instrumentation switched on through one language's flags does not reach the C compiled beside
+  it**: the fuzzer's `-Zsanitizer=address` went through `RUSTFLAGS`, the C the build baked went
+  straight through, and adding `CFLAGS` moved coverage **1023 → 2487** under identical conditions
+  (measured 2026-08-17, with the fuzz targets that left with `crates/`). **The premise is still
+  live** — Lake compiles `vendor/md4c/md4c.c` and `csrc/md_events.c` into the executable, so
+  anything aimed at Lean alone misses them the same way.
+  **Whether the number moves with and without instrumentation** is the only means of confirmation
 - **Do not use a subset of the gates as the judgement for a commit.** (measured 2026-08-24, turned main red twice)
-  When the "fast 5 stages" (without `cargo test`) were used as the judgement during comment
-  reduction, nobody saw that the reduction had stepped into **string literals the product prints**.
-  Dropping `(coverage.ts:512)` from a rejection message made **2 asserts in another crate's `tests/`** fail.
-  Verification instructions given to subagents are also **`cargo test -p <crate>`** — **`--lib` does not look at `tests/`**.
+  When a fast subset that left the tests out was used as the judgement during comment reduction,
+  nobody saw that the reduction had stepped into **string literals the product prints**.
+  Dropping `(coverage.ts:512)` from a rejection message made two assertions elsewhere in the tree fail.
+  The same trap is in **the verification instruction you hand a subagent**: naming a command that
+  looks at less than the change can reach buys a green that means nothing.
   General form: **first confirm that the gate used for the judgement covers the whole range the change can reach.**
 - **Before "measured", confirm "is it in a state where it can be measured".** The same failure
   turned up in 2 more shapes (measured 2026-08-18): (1) the incremental gate **looked for
@@ -360,7 +415,8 @@ proof. What would falsify this: implementations written structurally rather than
 interpreter, which has no `Md.events` — that symbol is `@[extern]` C linked into the executable
 and nowhere else. **The barrier is the call, not the import**: a `#guard` in a module that
 imports `Litedoc4.Md.Html` elaborates fine unless the expression actually reaches it. 16 of
-`src/`'s 53 modules are downstream of that binding; 37 are not.
+`src/`'s 56 modules are downstream of that binding; 40 are not (measured 2026-09-02; it was
+16 of 53 on 2026-08-31, so **every module added since has been on the `#guard`-able side**).
 
 **Tests live under `test/`, never in `src/`.** A consumer `require`s `lean_lib Litedoc4` and
 must not compile, build or run any of this — measured both ways
@@ -371,45 +427,6 @@ because `"litedoc4-test".toName` is `[anonymous]`).
 The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to stay that size.
 `tools/lean-test-gate.sh` is the gate; it reconciles `Invariant`s **defined** against
 `Invariant`s **run**, because one written and never listed is otherwise silent.
-
-## Rust lints
-
-**The SoT for lint configuration is `[workspace.lints]` in the root `Cargo.toml`.** CI's
-`cargo clippy -- -D warnings` **only promotes** — which lints are enabled is decided by
-Cargo.toml. This is deliberate, so that **the local `cargo check` and CI
-say the same thing**. Do not add `-W` to CI's command line
-(it becomes a gate invisible from local).
-
-- **Do not take a whole group.** `clippy::pedantic` + `nursery` produce
-  **about 1,800 hits** in this tree (measured 2026-08-17), but most of them are doc lints for
-  crates that are not published (`missing_errors_doc`, `must_use_candidate`) and matters of taste
-  (`option_if_let_else`, `too_many_lines`). **35 were adopted** (6 of them deny).
-  Taking the group and allowing 400 is the same failure as "a comparator with an exception list"
-- **The criterion is "if it fires, can you say in one line what broke".** If you cannot, do not take it.
-  In fact `missing_debug_implementations` / `trivially_copy_pass_by_ref` /
-  `unreadable_literal` / `assigning_clones` / `unused_self` /
-  `iter_on_single_items` were **taken and then dropped again** —
-  every hit was an FFI type, `&self`, Unicode's `0x10FFFF`, or a `to_owned()` in a test,
-  and "broken" could not be said. **The reasons for dropping them are kept in Cargo.toml**
-  (so the same investigation is not redone at every reconsideration)
-- **Do not write `#[allow]`. Write `#[expect(..., reason = "...")]`.**
-  `allow_attributes` / `allow_attributes_without_reason` enforce it mechanically
-  (both warn → error in CI. **Confirmed that a single `#[allow]` without a reason makes it fail**).
-  The point of `#[expect]` is that **it warns when the lint stops firing** —
-  this is exactly how `#![allow(non_camel_case_types)]` in `litedoc4-md/src/ffi.rs` turned out to be
-  **no longer needed** and was deleted (measured 2026-08-17). `#[allow]` rots silently
-- **Re-wrapping a doc comment makes `clippy::doc_lazy_continuation` fail** (measured 2026-08-24) —
-  a continuation line whose head becomes `+` / `-` is read as a list item. **It does not show up in
-  `cargo check`**, so when you touch comments, run `cargo clippy --workspace --all-targets`.
-- **Do not trust the result of `cargo clippy --fix` without reading it.** The auto-fix
-  dropped a `needless_collect` and **broke the diagnostics on failure** (a path present in
-  both maps is listed twice) (measured 2026-08-17). The tests pass —
-  **that branch only runs when a test fails**
-
-What CI holds besides lints: **rustdoc links**
-(`cargo doc` + `RUSTDOCFLAGS=-D warnings`. **15** were broken the first time, and
-2 pointed at renamed types (measured)) and **unused dependencies** (`cargo machete`.
-`litedoc4` was declaring `litedoc4-md` without using it (measured)).
 
 ## Fixing defects
 
@@ -531,12 +548,13 @@ What CI holds besides lints: **rustdoc links**
 - **`node` / `npm` on PATH are dead.** `/usr/local/bin/node` is a 2023 pkg build whose
   signature is invalid, so it **dies instantly with SIGKILL (exit 137)** (measured 2026-08-19). And
   `command -v node` succeeds while `node -v` fails **printing nothing**, so through a pipe it looks
-  like "empty output". `cargo build` calls npm from build.rs, so **it hits this**.
-  For the same reason **`tools/assets-gate.sh` is called through `mise exec --`** (measured 2026-08-21) —
-  it hits `npx biome` directly inside, so calling it bare gives **exit 137 (SIGKILL)** and
-  the output says nothing about assets. CI is green because the job has `setup-node`.
-  Use the mise side: **`mise exec -- cargo build`** / `mise exec -- npm …`
-  (`mise.toml` pins node). `mise` is a shell function and does not rewrite
+  like "empty output".
+  **`tools/assets-gate.sh` is the one thing left in the tree that hits it** — npm, `npx biome`,
+  tsc, vitest and vite all run directly inside it, so calling it bare gives **exit 137 (SIGKILL)**
+  and the output says nothing about assets. Call it as
+  **`mise exec -- tools/assets-gate.sh`** (measured 2026-08-21), and the same for any bare
+  `npm …` / `npx …` (`mise.toml` pins node to 24.19.0). CI is green because the job has
+  `setup-node`. `mise` is a shell function and does not rewrite
   PATH in a non-interactive shell — which is why `mise exec` is stated explicitly.
 - **Editing a shell script while it is running breaks that run** (measured 2026-08-24) —
   bash reads the script forward by byte offset, so editing the file while it is executing makes it
@@ -558,10 +576,13 @@ What CI holds besides lints: **rustdoc links**
 - Everything is English: docs, commit messages, and code surface (identifiers, comments,
   docstrings, script usage).
 - The four honesty labels are written `(measured)` / `(extrapolated)` / `(assumed)` /
-  `(theoretical)`, in **round parentheses**. Square brackets are not used: in a Rust doc comment
-  rustdoc parses `[measured]` as an intra-doc link, fails to resolve it, and CI runs
-  `RUSTDOCFLAGS=-D warnings cargo doc`, so it would turn CI red. Decisions attributed to the user
-  are written `(decided <date>, user's call)`.
+  `(theoretical)`, in **round parentheses**. Square brackets are not used.
+  **The constraint that forced this is gone** — it was rustdoc reading `[measured]` as an
+  unresolvable intra-doc link under `-D warnings`, and there is no rustdoc in this tree any more.
+  **The convention stays, and it is now only a convention**: every doc, every gate's output and
+  every frozen log is already written this way, and `benchmarks/results/**` is never rewritten, so
+  a second spelling could never be anything but a second spelling.
+  Decisions attributed to the user are written `(decided <date>, user's call)`.
 - These are still Japanese and were deliberately left that way: `docs/`, `benchmarks/README.md`,
   `benchmarks/doc-gen4-report.md` and `.html`, `benchmarks/tools/`, `e2e/README.md`,
   `extractor/README.md`, and `.claude/`. **Do not translate them opportunistically**; new text
