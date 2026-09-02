@@ -13,17 +13,17 @@ repository's `main` on every push: the shapes a page can take rather than the sc
 
 ## Is this for you?
 
-**Yes**, if doc-gen4 is too slow for your CI and your package lives on GitHub and is on Lean
-4.31.0, 4.32.2, 4.33.0 or 4.33.1. Any Lean 4 package works — the payoff just scales with how
-large your dependencies are next to your own code, and Mathlib is as large as that gets. You get
-a module tree, search, instance lists, "Imported by", "Used by" (within your package), typeset
-math, hyperlinked signatures, `sorry` markers, and a dark theme.
+**Yes**, if doc-gen4 is too slow for your CI and your package lives on GitHub. Any Lean 4 package
+works — the payoff just scales with how large your dependencies are next to your own code, and
+Mathlib is as large as that gets. You get a module tree, search, instance lists, "Imported by",
+"Used by" (within your package), typeset math, hyperlinked signatures, `sorry` markers, and a dark
+theme.
 
 **No**, if:
 
 - **you want to search dependency declarations** — search covers your package only
-- **you are on a Lean newer than 4.33.1** — the four versions above are the ones CI runs end to
-  end, and they are listed in [`tools/lean-toolchains.txt`](tools/lean-toolchains.txt). The
+- **you are on a Lean newer than 4.33.1** — 4.31.0, 4.32.2, 4.33.0 and 4.33.1 are the ones CI runs
+  end to end, and they are listed in [`tools/lean-toolchains.txt`](tools/lean-toolchains.txt). The
   extractor is compiled against your toolchain, so a version it cannot handle surfaces as a build
   failure, not as bad output
 - **you are on Windows** — litedoc4 is compiled on your own machine by Lake, using the toolchain
