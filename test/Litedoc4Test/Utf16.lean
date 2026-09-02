@@ -1,9 +1,5 @@
-/- `crates/litedoc4-global/src/artifacts.rs::the_new_files_sort_in_utf16_order_too`.
-
-The invariant, not the Rust test's shape: what that test reaches through
-`Artifacts::derive` and two grepped bodies is one fact about the order the name
-lists are in. Stated directly it is closed, so the compiler answers it and there
-is nothing to run.
+/- The order the whole-package name lists are in. Stated directly it is closed,
+so the compiler answers it and there is nothing to run.
 
 `#guard` and not a `theorem`: `by decide` cannot reduce any of this — `cmpUtf16`
 is `Id.run do` around a `while`, whose `Loop.forIn` is `partial` and opaque to
@@ -35,14 +31,10 @@ def andByteOrderPutsThoseTwoTheOtherWayRound : Bool :=
 
 #guard andByteOrderPutsThoseTwoTheOtherWayRound
 
-/-- `crates/litedoc4-ir/src/utf16.rs::utf16_order_inverts_byte_order_above_the_bmp`,
-the half the two guards above do not reach. Throughout the BMP the two orders
+/-- The half the two guards above do not reach. Throughout the BMP the two orders
 **agree** — that is what makes the inversion above it the whole of the
 difference, and what stops `cmpUtf16` from being some third order that merely
-happens to put an astral name first.
-
-`sorting_is_by_code_unit` in the same file is this same fact at the array level,
-which `anAstralNameSortsBelowABmpOneInUtf16` already answers. -/
+happens to put an astral name first. -/
 def utf16OrderAgreesWithByteOrderThroughoutTheBmp : Bool :=
   [("", "a"), ("a", "b"), ("Nat", "Nat.succ"), ("α", "β"), ("A", "ℕ"), ("∑", "∏")].all
     fun (a, b) => ltUtf16 a b == byteLt a b && ltUtf16 b a == byteLt b a

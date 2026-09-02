@@ -146,7 +146,8 @@ MANUAL_EXTRACT="$(micro_extractor "$ROOT" "$MICRO" "$LAKE" "$OUT/manual-build.lo
 # The extractor needs the sample's own oleans.
 (cd "$MICRO" && "$LAKE" build) >"$OUT/micro-build.log" 2>&1
 
-# The same six flags `crates/litedoc4/src/extract.rs` fixes, in the same order:
+# The same six flags `src/Litedoc4/Incr/Resident.lean`'s `extractArgv` fixes, in
+# the same order:
 #   <bin> <modules> <events> --equations --refs --write-ir --tagged-code
 #         --jobs 1 --ir-dir <dir> --link-index <file>
 run_extractor () { # $1 binary  $2 label

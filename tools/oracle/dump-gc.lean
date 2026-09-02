@@ -17,7 +17,7 @@ doc-gen4 asks `UnicodeBasic`, which carries its own copy of the Unicode
 character database. A Rust crate would carry a *different* copy: V8's tables and
 this one disagree on 4,802 code points (measured 2026-08-11), nearly all of them
 assignments one version has and the other does not. So the tables in
-`crates/litedoc4-md/src/gc.rs` are dumped from the same `UnicodeBasic` build
+`src/Litedoc4/Md/GcTable.lean` are dumped from the same `UnicodeBasic` build
 doc-gen4 links, by this script.
 
 Surrogates are reported as members without asking: `Char.ofNat` cannot

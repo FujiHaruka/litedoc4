@@ -1,6 +1,6 @@
-/- `crates/litedoc4/tests/extract.rs`: the part of `litedoc4 extract` that is not
-the extraction — the command line it builds, where the events file goes, and the
-fold from the events JSONL into one timings record.
+/- The part of `litedoc4 extract` that is not the extraction — the command line
+it builds, where the events file goes, and the fold from the events JSONL into
+one timings record.
 
 The three shapes below are all "values in, a string or an array out", and that is
 the port's doing: `extractArgv`, `oneShotArgv` and `foldEvents` were split out of

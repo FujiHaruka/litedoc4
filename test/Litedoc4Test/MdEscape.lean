@@ -1,5 +1,4 @@
-/- `crates/litedoc4-md/src/escape.rs`: the only escape doc-gen4 applies to HTML
-text and attributes.
+/- The only escape doc-gen4 applies to HTML text and attributes.
 
 `escape_borrows_when_it_can` has no invariant here. It asks whether the Rust
 `Cow` borrowed, and a `String` has no borrowed form to observe — the untouched

@@ -1,4 +1,4 @@
-/- `crates/litedoc4-global/src/artifacts.rs`: the whole-package artifacts.
+/- The whole-package artifacts.
 
 **Every sort here goes through `cmpUtf16`**, including in the files nothing
 compares against anything: byte order agrees with UTF-16 throughout the BMP and

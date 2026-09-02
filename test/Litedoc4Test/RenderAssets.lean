@@ -1,6 +1,6 @@
-/- `crates/litedoc4-render/src/assets.rs`: the static files a page needs to look
-like a page, carried in the executable rather than shipped beside it so that they
-cannot be a version behind the renderer that names their classes.
+/- The static files a page needs to look like a page, carried in the executable
+rather than shipped beside it so that they cannot be a version behind the
+renderer that names their classes.
 
 The two that are about the table itself are closed. The two that are about what
 happens to the files — whether every class a page emits is styled, and whether

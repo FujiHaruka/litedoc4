@@ -1,6 +1,5 @@
-/- `crates/litedoc4-render/src/link_index.rs`: the dependency closure's `.lidx`,
-which is where a name this run never extracted gets its defining module and its
-source line range.
+/- The dependency closure's `.lidx`, which is where a name this run never
+extracted gets its defining module and its source line range.
 
 Line-oriented, first byte decides, **no error path** — the file is written by
 this same toolchain, so a garbled one has to cost a link its `#L…-L…` anchor and

@@ -1,5 +1,4 @@
-/- `crates/litedoc4-global/tests/state_and_delta.rs` and `tests/global.rs`: the
-whole stage, over an IR tree written here.
+/- The whole stage, over an IR tree written here.
 
 Rust runs the same sequence a second time over the measurement target and
 `#[ignore]`s it; that one is a gate's question and not a test's, and it is not

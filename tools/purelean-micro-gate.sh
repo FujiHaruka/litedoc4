@@ -764,9 +764,8 @@ else:
                 problems.append(f"{module['module']}: bytes {entry['bytes']} is not the size of {entry['path']}")
             else:
                 checked += 1
-        # `crates/litedoc4-incr/src/ledger.rs` and `src/Litedoc4/Ledger.lean`
-        # both compose it this way; redone here in a third language rather than
-        # compared against one of them.
+        # `src/Litedoc4/Ledger.lean` composes it this way; redone here in a
+        # second language rather than compared against it.
         combined = "\n".join(f"{f['path']} {f['hash']}" for f in module["files"])
         if hashlib.sha256(combined.encode("utf-8")).hexdigest() != module["hash"]:
             problems.append(f"{module['module']}: its hash is not sha256 of its files' `<path> <hash>` lines")

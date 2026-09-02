@@ -8,7 +8,7 @@ this directory lives here.
 | `docgen4-expected.json` | `LITEDOC4_BLESS=1 cargo test -p litedoc4-md --test docgen4` | **ours**, since 2026-08-22 — it was doc-gen4's until then |
 | `md4lean-expected.json` | `tools/oracle/gen-md4lean-expected.ts` → `tools/oracle/dump-ast.lean` | **MD4Lean's** `MD4Lean.parse` |
 | `ts-docstring-expected.json` | `tests/oracle/gen-ts-docstring-expected.ts` (**removed** — see below) | `experiments/stage7d/render.ts` (this repository, frozen) |
-| `fuzz/*.md` | written by hand for `crates/litedoc4-md/tests/fuzz_corpus.rs` | **ours** — no third party, no oracle |
+| `fuzz/*.md` | written by hand for `git show rust-frozen:crates/litedoc4-md/tests/fuzz_corpus.rs` (in that tag, not in HEAD) | **ours** — no third party, no oracle |
 
 `fuzz/` is not a fixture in the sense of the rows above: nothing in it is
 compared against an expected output. Each file is an *input* chosen because it

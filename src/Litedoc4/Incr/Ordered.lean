@@ -1,5 +1,4 @@
-/- `crates/litedoc4-incr/src/ordered.rs`: a `name -> value` map that remembers
-the order its keys arrived in.
+/- A `name -> value` map that remembers the order its keys arrived in.
 
 Two files this build writes are JSON objects whose **key order is part of the
 bytes**: the ledger's `extractKey` / `renderKey` and the merged `index.json`.

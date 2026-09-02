@@ -1,5 +1,4 @@
-/- `crates/litedoc4-incr/src/ledger.rs`: what a module's inputs hash to, and the
-two global keys.
+/- What a module's inputs hash to, and the two global keys.
 
 What is hashed is the `.olean`, because that is the extractor's only view of a
 module. The `.lean` source is one step too early — it carries changes the olean

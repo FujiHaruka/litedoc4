@@ -1,5 +1,4 @@
-/- `crates/litedoc4-global/src/entry.rs`: the four pages a reader arrives at
-rather than navigates to.
+/- The four pages a reader arrives at rather than navigates to.
 
 Split by what a page is made of, not by which page it is. Everything a module row
 carries but its *description* is string building, so it is a `#guard`; a

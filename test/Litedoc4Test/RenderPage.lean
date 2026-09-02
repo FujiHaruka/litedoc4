@@ -1,5 +1,5 @@
-/- `crates/litedoc4-render/src/page.rs`: which declarations get an entry, in what
-order they and the module docstrings appear, and the frame around them.
+/- Which declarations get an entry, in what order they and the module
+docstrings appear, and the frame around them.
 
 The first two are closed now that `suppressedOf` is not in `IO` — it reads no
 file and opened none, and while it was an `IO` action the set it computes could

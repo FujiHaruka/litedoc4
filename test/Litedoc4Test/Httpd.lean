@@ -1,6 +1,5 @@
-/- `crates/litedoc4/src/httpd.rs`: `litedoc4 watch`'s file server, reduced to the
-two questions that are not about a socket — which file a request target names,
-and what to call its bytes.
+/- `litedoc4 watch`'s file server, reduced to the two questions that are not
+about a socket — which file a request target names, and what to call its bytes.
 
 The refusals (`..` in every spelling, an escaped separator, a symlink out of the
 site, a site that is not there yet) are reachable with one `curl` against

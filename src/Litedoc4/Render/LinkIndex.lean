@@ -1,4 +1,4 @@
-/- `crates/litedoc4-render/src/link_index.rs`: the dependency closure's `.lidx`. -/
+/- The dependency closure's `.lidx`. -/
 import Std.Data.HashMap
 import Std.Data.HashSet
 import Litedoc4.Bytes
@@ -37,8 +37,7 @@ half with no error path. -/
 
 /-- The `.lidx` reader: line-oriented, first byte decides, no error path. The
 byte scan `purelean-microbench-optimised-2026-08-30.txt` measured at 0.0877 s,
-split so that the `@` module set and the declaration map stay apart the way
-`crates/litedoc4-render/src/link_index.rs` keeps them. -/
+split so that the `@` module set and the declaration map stay apart. -/
 def parseLidx (text : String) : Lidx := Id.run do
   let n := text.utf8ByteSize
   let mut names : Std.HashMap String LidxEntry := Std.HashMap.emptyWithCapacity 524288
@@ -87,8 +86,7 @@ def parseLidx (text : String) : Lidx := Id.run do
 /-- `none` covers two different things on purpose — a name the map does not
 hold, and a name it holds with no range — because the caller does the same thing
 with both: build the URL without an anchor if the module resolves at all. A `0`
-start line is the second case; the `.lidx` counts lines from 1, which is what
-`crates/litedoc4-render/src/link_index.rs` spells with `NonZeroU32`. -/
+start line is the second case; the `.lidx` counts lines from 1. -/
 def Lidx.rangeOf (l : Lidx) (name : String) : Option (Nat × Nat) :=
   match l.names.get? name with
   | some e => if e.startLine == 0 then none else some (e.startLine, e.endLine)

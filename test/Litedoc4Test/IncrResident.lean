@@ -1,5 +1,4 @@
-/- `crates/litedoc4/src/resident.rs`: the command line one resident extractor is
-started with.
+/- The command line one resident extractor is started with.
 
 The server itself — one Lean environment for a whole run, a request per round,
 the olean-generation guard — needs the target's toolchain and a 3 GB import;

@@ -1,5 +1,4 @@
-/- `crates/litedoc4-incr/src/impact.rs`: a changed module set in, the set of
-pages that have to be rewritten out.
+/- A changed module set in, the set of pages that have to be rewritten out.
 
 Two closures, because they answer different questions.
 

@@ -1,7 +1,8 @@
 /-
 Derived from doc-gen4 (Apache-2.0, Copyright (c) 2021 Henrik Böving) by way of
-`crates/litedoc4-render/src/autolink.rs`, and changed; see this repository's NOTICE
-and `docs/provenance.md`.
+`git show rust-frozen:crates/litedoc4-render/src/autolink.rs` — in that tag,
+not in this tree — and changed; see this repository's NOTICE and
+`docs/provenance.md`.
 -/
 import Litedoc4.External
 import Litedoc4.Ir
@@ -62,9 +63,15 @@ def isNameLit (s : String) : Bool := Id.run do
 `known` is the IR's own map (dependency slices, then every declaration, then
 every reference that fills a gap); `pages` is the set of modules this run writes
 a file for; `knownModules` is the union of the `.lidx`'s `@` section with the
-modules `known` names. The three answer different questions and
-`crates/litedoc4-render/src/autolink.rs` explains why collapsing them is a dead
-link. -/
+modules `known` names.
+
+**"A name that is a module" and "a module this run wrote a page for" are
+different questions**, and collapsing them is a dead link: a `lakefile.toml` may
+declare more than one `[[lean_lib]]` (`batteries` declares three), so `--lib`
+extracts one of them while the `.lidx` holds the whole environment, and a known
+module with no page is then linked to a page this run never writes (measured
+2026-08-17). `pages` is frozen **before** the union that widens `knownModules`
+for that reason. -/
 
 structure NameIndex where
   known : Std.HashMap String String
@@ -194,14 +201,12 @@ structure PageCtx where
   /-- `nameToLink?`'s last resort walks these, in declaration-range order.
 
   **Each carries the module it is placed in, and not a name to look up.** The
-  straightforward shape is a list of names, which is what
-  `crates/litedoc4-render/src/autolink.rs` takes — and then the branch holds a
-  lookup that can answer `none` for a declaration of this page the index cannot
-  place, which is not a question the branch can do anything with; Rust refuses
-  such a list where it is handed over (`PageLinks::new`) so that a broken wiring
-  names itself instead. Resolving once in `mkPageCtx`, the only way in, leaves no
-  such state to answer for. What would falsify this: a caller whose names did not
-  come from a module the index was built from. -/
+  straightforward shape is a list of names — and then the branch holds a lookup
+  that can answer `none` for a declaration of this page the index cannot place,
+  which is not a question the branch can do anything with. Resolving once in
+  `mkPageCtx`, the only way in, leaves no such state to answer for. What would
+  falsify this: a caller whose names did not come from a module the index was
+  built from. -/
   decls : Array PageDecl
   deriving Inhabited
 

@@ -1,5 +1,5 @@
-/- `crates/litedoc4-render/src/autolink.rs`: which page a name a docstring
-mentions belongs to, and which of the four kinds of link that page gets.
+/- Which page a name a docstring mentions belongs to, and which of the four
+kinds of link that page gets.
 
 All closed. `autoLinkInline` walks a code span's own characters and reaches no
 markdown parser, so even the guards that assert bytes elaborate — the barrier is

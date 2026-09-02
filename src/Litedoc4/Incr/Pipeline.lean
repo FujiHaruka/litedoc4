@@ -1,5 +1,4 @@
-/- `crates/litedoc4/src/pipeline.rs`: `litedoc4 incremental` — the pipeline that
-sequences the stages.
+/- `litedoc4 incremental` — the pipeline that sequences the stages.
 
 ```text
  1 detect     checkLedger        changed / removed / render-all

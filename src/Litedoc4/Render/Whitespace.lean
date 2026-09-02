@@ -1,7 +1,8 @@
 /-
 Derived from doc-gen4 (Apache-2.0, Copyright (c) 2021 Henrik Böving) by way of
-`crates/litedoc4-render/src/whitespace.rs`, and changed; see this repository's NOTICE
-and `docs/provenance.md`.
+`git show rust-frozen:crates/litedoc4-render/src/whitespace.rs` — in that tag,
+not in this tree — and changed; see this repository's NOTICE and
+`docs/provenance.md`.
 -/
 import Litedoc4.Ir
 import Litedoc4.Ir.Utf16
@@ -20,9 +21,8 @@ def mkFrag (text : String) (spans : Array Span) : Frag := Id.run do
   if ranges.isEmpty then return f0
   ranges := ranges.qsort (fun a b => a.1 < b.1)
   let units := f0.units
-  -- **Not a rejection**, which is what `crates/litedoc4-render/src/whitespace.rs`
-  -- does with the same two shapes: a run reaching past the end or into the one
-  -- before it is an IR disagreeing with its own text, and dropping it costs that
+  -- **Not a rejection**: a run reaching past the end or into the one before it
+  -- is an IR disagreeing with its own text, and dropping it costs that
   -- run its rewrite while every offset still addresses the result. Keeping it
   -- would not — two runs claiming the same units emit that many spaces twice and
   -- the fragment comes back longer than the spans were stated over. What would

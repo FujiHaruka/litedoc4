@@ -1,6 +1,5 @@
-/- `crates/litedoc4-render/src/code.rs`: one printed code fragment — a
-declaration's result type, a binder, an equation, a member's text — turned into
-HTML from its flat pre-order span list.
+/- One printed code fragment — a declaration's result type, a binder, an
+equation, a member's text — turned into HTML from its flat pre-order span list.
 
 All closed. The fragment walk reads printed Lean and its tag positions and never
 asks md4c anything, so `Md.events` is not on any path here.
@@ -157,16 +156,12 @@ def aPrivateNameFallsBackToItsModuleAndIsNotLookedUpDirectly : Bool :=
 /-- Lazy: the *first* `.<digits>.` after the prefix ends the module part, so a
 second one does not end it earlier.
 
-The three line-break cases are where this port and
-`crates/litedoc4-render/src/code.rs` answer differently, and they are asserted
-rather than left unsaid. Rust reproduces two JavaScript regexes: `.` does not
-match a line terminator, and `privateToUserName`'s trailing `$` is end of input,
-so a break in the tail makes that match fail while `moduleFromPrivatePrefix`'s
-still succeeds. This split walks the name's structure instead, so `A\nB` is a
-module part and `f\ng` is a user name. A declaration whose name carries a line
-terminator can only come out of a `«…»` component and neither half has ever seen
-one; what would falsify the choice is such a name reaching a page, where the two
-halves would then disagree about where its link points. -/
+The three line-break cases are asserted rather than left unsaid. This split
+walks the name's structure, so `A\nB` is a module part and `f\ng` is a user
+name, where a regex-shaped reading ends the match at the terminator instead. A
+declaration whose name carries a line terminator can only come out of a `«…»`
+component and none has ever been seen; what would falsify the choice is such a
+name reaching a page. -/
 def privateNamesSplitLazilyAtTheFirstNumericComponent : Bool :=
   splitPrivate "_private.A.B.0.f" == some ("A.B", "f")
     && privateToUserName "_private.A.B.0.f" == "f"

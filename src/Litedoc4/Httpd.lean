@@ -269,14 +269,14 @@ private partial def acceptLoop (server : TCP.Socket.Server) (root : FilePath) : 
 /-- A listening socket that is already answering, or the refusal for a port
 somebody else has.
 
-**The accept loop is started here and not by the caller**, which is where this
-differs from `crates/litedoc4/src/httpd.rs`: in Lean a socket that has only been
-`bind`+`listen`ed does not hold the port — two servers that both stop there do not
-conflict, and the second one to issue `accept` wins it (measured 2026-08-31 →
-`benchmarks/results/purelean-async-tcp-2026-08-31.txt` §4). Splitting this in two
-so that the caller may print a banner in between would put that window between the
-check and the claim it licenses. What would falsify it: a libuv that binds
-eagerly, which is what the same section measured it does not do. -/
+**The accept loop is started here and not by the caller**: in Lean a socket
+that has only been `bind`+`listen`ed does not hold the port — two servers that
+both stop there do not conflict, and the second one to issue `accept` wins it
+(measured 2026-08-31 → `benchmarks/results/purelean-async-tcp-2026-08-31.txt`
+§4). Splitting this in two so that the caller may print a banner in between
+would put that window between the check and the claim it licenses. What would
+falsify it: a libuv that binds eagerly, which is what the same section measured
+it does not do. -/
 def bind (port : UInt16) (root : FilePath) : IO (Except String TCP.Socket.Server) := do
   let server ← TCP.Socket.Server.mk
   let address : SocketAddress := .v4 { addr := IPv4Addr.ofParts 127 0 0 1, port }

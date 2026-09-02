@@ -1,6 +1,6 @@
 /**
  * `search-index.bin`, read in place: the page holds the file, not a parsed copy
- * of it. The layout is `crates/litedoc4-global/src/search_index.rs`, and the
+ * of it. The layout is `src/Litedoc4/Global/SearchIndex.lean`, and the
  * JSON this replaces cost 860 KiB of JS heap for a 405,402 B file
  * (measured → `benchmarks/results/search-design-2026-08-19.txt`).
  *

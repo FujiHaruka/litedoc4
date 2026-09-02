@@ -1,5 +1,4 @@
-/- `crates/litedoc4-incr/src/ownership.rs`: which modules point at a name that
-has moved.
+/- Which modules point at a name that has moved.
 
 The IR stores every reference as a `(defining module, name)` pair, because the
 printed token and the constant it links to often have no textual relation (`ℕ` ->

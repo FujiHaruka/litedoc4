@@ -1,4 +1,4 @@
-/- `crates/litedoc4-render/src/decl.rs`: one `<section class="decl">`. -/
+/- One `<section class="decl">`. -/
 import Litedoc4.Render.Code
 
 namespace Litedoc4

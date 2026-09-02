@@ -1,6 +1,5 @@
-/- `crates/litedoc4-render/src/frame.rs`: `<head>`, the top bar, the sidebar,
-the module heading and the import block — everything on a page that is not the
-module's own content.
+/- `<head>`, the top bar, the sidebar, the module heading and the import block
+— everything on a page that is not the module's own content.
 
 All closed. None of these builders touches a docstring, so nothing here reaches
 `Md.events` and every one is a `#guard`.

@@ -1,5 +1,4 @@
-/- `crates/litedoc4-ir/src/{model,reader}.rs`: the IR as typed values, and the
-tree on disk they are read from. -/
+/- The IR as typed values, and the tree on disk they are read from. -/
 import Litedoc4.Json
 import Litedoc4.Metrics
 

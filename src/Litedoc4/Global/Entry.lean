@@ -1,7 +1,7 @@
-/- `crates/litedoc4-global/src/entry.rs`: the four pages a reader arrives at
-rather than navigates to — the front door, the one GitHub Pages serves for
-anything missing, the one the top bar's form submits to, and the one every
-`Sort` / `Type` / `Prop` span in every signature links to.
+/- The four pages a reader arrives at rather than navigates to — the front
+door, the one GitHub Pages serves for anything missing, the one the top bar's
+form submits to, and the one every `Sort` / `Type` / `Prop` span in every
+signature links to.
 
 WHY THE MARKUP IS BUILT HERE AND NOT IN `Render`
   What decides a page's *shape* is `Render.Frame`, and all four take theirs from

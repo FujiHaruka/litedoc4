@@ -1,6 +1,5 @@
-/- `crates/litedoc4/src/deps_docs.rs`: reading a dependency's own doc-gen4
-declaration table, and the resolved map `build` writes for the commands that
-render without one.
+/- Reading a dependency's own doc-gen4 declaration table, and the resolved map
+`build` writes for the commands that render without one.
 
 The table scan and the map are both text in and a value out, so what is left in
 `IO` is one `readFile` each — `parseDepsDocsMap` was split out of

@@ -1,5 +1,4 @@
-/- `crates/litedoc4-global/src/state.rs`: the `contentHash` cache.
-`--state <dir>` keeps `<dir>/global-state.json`.
+/- The `contentHash` cache. `--state <dir>` keeps `<dir>/global-state.json`.
 
 A hit is decided on the IR's own hash, never on the caller's idea of what
 changed, so a driver that passes a wrong changed-set cannot corrupt this cache.
@@ -30,11 +29,9 @@ def stateVersion : Nat := 1
 miss, which is correct and slow, where keeping entries built by an older rule is
 fast and wrong.
 
-The value is `crates/litedoc4-global/src/state.rs`'s, character for character,
-and that is the point: a state file written by either half has to be readable by
-the other, or the two are not comparable. It is deliberately **not** the frozen
-prototype's `"stage7h/global.ts facts v1"` — that string names an
-implementation with a different tokeniser, so its entries have to miss here. -/
+The value is deliberately **not** the frozen prototype's `"stage7h/global.ts
+facts v1"` — that string names an implementation with a different tokeniser, so
+its entries have to miss here. -/
 def stateDerivation : String := "litedoc4-global facts v4"
 
 /-! ## Reading a file nobody in this tree wrote -/

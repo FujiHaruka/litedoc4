@@ -1,5 +1,5 @@
-/- `crates/litedoc4/src/watch.rs`: the loop's judgement, the question it asks the
-ledger, and the one line it prints when something goes wrong.
+/- The loop's judgement, the question it asks the ledger, and the one line it
+prints when something goes wrong.
 
 `decide` is a pure function of three values on purpose — the loop around it needs
 a package, a toolchain and an extractor, and none of the four states it chooses

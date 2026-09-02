@@ -1,5 +1,4 @@
-/- `crates/litedoc4-global/src/facts.rs`: everything the whole-package
-artifacts need from one module. -/
+/- Everything the whole-package artifacts need from one module. -/
 import Std.Data.HashMap
 import Std.Data.HashSet
 import Litedoc4.Global.V8Gc
@@ -188,9 +187,7 @@ def autolinkTokens (doc : String) : Array String := Id.run do
     out := pushToken out target
   return out
 
-/-- `crates/litedoc4-global/src/facts.rs`'s `ModuleFacts`.
-
-**The field order is the state file's bytes.** -/
+/-- **The field order is the state file's bytes.** -/
 structure ModuleFacts where
   module : String := ""
   /-- Lean's `String.hash` of the module JSON, carried from `index.json`. The

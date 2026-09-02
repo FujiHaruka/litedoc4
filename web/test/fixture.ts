@@ -1,5 +1,6 @@
 /**
- * The corpus, as `crates/litedoc4-global/tests/web_fixture.rs` wrote it.
+ * The committed corpus, whose writer is
+ * `test/Litedoc4Test/GlobalSearchIndex.lean`'s `searchCases`.
  * **Nothing here encodes anything**: a second encoder would agree with the
  * first about their shared mistakes and the tests would pass anyway.
  */

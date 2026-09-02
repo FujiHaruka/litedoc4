@@ -1,8 +1,8 @@
-/- `crates/litedoc4/src/packages.rs`: which GitHub blob prefix each dependency's
-module root belongs to, offline, from three inputs and no socket — a
-dependency's `url` and 40-hex `rev` out of the target's `lake-manifest.json`,
-which module roots it provides out of a scan of its directory, and **Lean core's
-revision out of `lean --githash`**, because core is not in the manifest.
+/- Which GitHub blob prefix each dependency's module root belongs to, offline,
+from three inputs and no socket — a dependency's `url` and 40-hex `rev` out of
+the target's `lake-manifest.json`, which module roots it provides out of a scan
+of its directory, and **Lean core's revision out of `lean --githash`**, because
+core is not in the manifest.
 
 **Everything degrades; nothing throws.** A missing manifest, a package with no
 directory, a `lake` that will not run — each costs the roots it would have

@@ -2,8 +2,7 @@
 
 The site's static files, carried in the binary rather than shipped beside
 it, so they cannot be a version behind the renderer that names their
-classes. `crates/litedoc4-render/src/assets.rs` is the same three files
-reached with `include_str!`. -/
+classes. -/
 
 namespace Litedoc4
 

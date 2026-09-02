@@ -1,4 +1,4 @@
-/- `crates/litedoc4/src/deps_docs.rs`: linking a dependency's declarations at
+/- Linking a dependency's declarations at
 **its own documentation site**, for the names that site was verified to document.
 
 Everything that touches the network is here, and nothing downstream of this file

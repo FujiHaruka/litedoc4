@@ -1,4 +1,3 @@
-/- `crates/litedoc4-render/src/order.rs`. -/
 import Litedoc4.Bytes
 import Litedoc4.Ir.Name
 

@@ -1,5 +1,5 @@
-/- `crates/litedoc4-render/src/external.rs`: where a dependency's source lives,
-and where its already-rendered documentation lives.
+/- Where a dependency's source lives, and where its already-rendered
+documentation lives.
 
 All closed. Nothing here parses Markdown, so even the digest guards elaborate —
 `sha256Text` is Lean all the way down.

@@ -195,7 +195,7 @@ The renderer resolves a docstring autolink the way doc-gen4's
 `Output/DocString.lean:nameToLink?` does: it looks the token up in a global
 `name -> module` map. doc-gen4 holds the whole environment and reads
 `env.name2ModIdx`; the renderer holds none of it, so for it the map is an input
-file — the `.lidx` read by `crates/litedoc4-render/src/link_index.rs`.
+file — the `.lidx` read by `src/Litedoc4/Render/LinkIndex.lean`.
 
 **What goes in is doc-gen4's choice, which is three predicates, not one:**
 
@@ -240,10 +240,10 @@ Both counts are reported so that "no range" stays a number rather than a silence
 ### The package's own groups can be left out (`--link-index-omit`)
 
 **The renderer never reads them.** A docstring token is resolved by
-`NameIndex::module_of` (`crates/litedoc4-render/src/autolink.rs`), which asks the
+`NameIndex.moduleOf` (`src/Litedoc4/Render/Autolink.lean`), which asks the
 IR-derived index *first* and only falls back to the `.lidx`; and the line range
-this file carries is spent only where `ExternalLinks::url_for` has a root for the
-module (`crates/litedoc4-render/src/external.rs`) — that is, only for a
+this file carries is spent only where the external-link map has a root for the
+module (`src/Litedoc4/External.lean`) — that is, only for a
 **dependency**. Measured rather than believed: with all of the package's own
 groups removed from the map, the rendered site is **byte-identical — 0 of 429
 files differ**; the positive control, which removes the *dependency* half

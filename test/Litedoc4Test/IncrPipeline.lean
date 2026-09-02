@@ -1,5 +1,4 @@
-/- `crates/litedoc4/src/pipeline.rs` and `crates/litedoc4/tests/incremental.rs`:
-the four decisions one round makes, and the record it writes.
+/- The four decisions one round makes, and the record it writes.
 
 The stages themselves are answered where they live (`IncrLedger`, `IncrMerge`,
 `IncrImpact`, `IncrPrune`, `GlobalBuild`, `RenderSite`); what only exists here is

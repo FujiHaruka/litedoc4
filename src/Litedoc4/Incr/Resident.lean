@@ -1,6 +1,5 @@
-/- `crates/litedoc4/src/resident.rs`: **one Lean environment, many extractions**,
-and `crates/litedoc4/src/extract.rs`'s `extractArgv` / `foldTimings` / `eventsBeside`
-/ the containment guard, which both extraction paths share.
+/- **One Lean environment, many extractions**, and the argv, the timing fold,
+the events file and the containment guard both extraction paths share.
 
 ```text
 lake env <extract> <modules.txt> <events.jsonl> --equations --refs

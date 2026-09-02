@@ -1,7 +1,6 @@
-/- `crates/litedoc4-md/tests/md4lean.rs`, `tests/docgen4.rs` and
-`tests/fuzz_corpus.rs`: what the parser does with the shapes that are undefined
-behaviour on MD4Lean's side, and the claim this half could not otherwise make —
-that nothing takes the process down.
+/- What the parser does with the shapes that are undefined behaviour on
+MD4Lean's side, and the claim this half could not otherwise make — that nothing
+takes the process down.
 
 All of it runs. Every one of these calls `Md.events`, which is `@[extern]` C
 linked only into the executable, so there is nothing here a `#guard` could ask.

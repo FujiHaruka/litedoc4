@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # End to end, on a machine that has never seen the measurement target.
 #
-# Every test under `crates/litedoc4/tests/` fakes the extractor with a `/bin/sh`
-# script that copies a baked IR tree — deliberately, because needing a Lean
-# toolchain would mean those tests were never run. The cost is that **the contract
-# between the extractor and the Rust side is checked by nothing**: change what
-# `Extract.lean` writes and every one of them stays green. This is the one place
+# The unit tests hold their own inputs and never run a Lean toolchain —
+# deliberately, because needing one would mean they were never run. The cost is
+# that **the contract between the extractor and the rest of the pipeline is
+# checked by nothing**: change what `Extract.lean` writes and every one of them
+# stays green. This is the one place
 # where a real Lean environment produces a real IR and the real pipeline turns it
 # into a real site.
 #
@@ -16,7 +16,8 @@
 # inductive`, a non-`mk` constructor, an inherited field, an implicit binder on a
 # field, an astral identifier (U+1D49C), scoped notation. Nine of the renderer's
 # 41 branches never fire over the real package
-# (crates/litedoc4-render/tests/page_parts.rs), and one of them was silently
+# (git show rust-frozen:crates/litedoc4-render/tests/page_parts.rs, in that tag
+# and not in this tree), and one of them was silently
 # rendering nothing — an inductive's constructors missing from their page while
 # the search index still linked to them (measured).
 #
@@ -175,9 +176,10 @@ problems = []
 def load(path):
     with open(path) as handle:
         marker = json.load(handle)
-    # `complete: false` writes `work: null` on purpose (crates/litedoc4/src/
-    # build.rs): a half-finished run's zeros are indistinguishable from a
-    # successful incremental run's, so the marker refuses to look like one.
+    # `complete: false` writes `work: null` on purpose
+    # (src/Litedoc4/Build.lean): a half-finished run's zeros are
+    # indistinguishable from a successful incremental run's, so the marker
+    # refuses to look like one.
     if marker.get("complete") is not True:
         sys.exit(f"{path}: complete is {marker.get('complete')!r}, not true")
     work = marker.get("work")

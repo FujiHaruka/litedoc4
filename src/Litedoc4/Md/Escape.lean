@@ -1,7 +1,7 @@
 /-
 Derived from doc-gen4 (Apache-2.0, Copyright (c) 2021 Henrik Böving) by way of
-`crates/litedoc4-md/src/escape.rs`, and changed; see this repository's NOTICE
-and `docs/provenance.md`.
+`git show rust-frozen:crates/litedoc4-md/src/escape.rs` — in that tag, not in
+this tree — and changed; see this repository's NOTICE and `docs/provenance.md`.
 -/
 import Litedoc4.Bytes
 

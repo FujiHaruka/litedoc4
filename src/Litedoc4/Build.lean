@@ -1,7 +1,7 @@
-/- `crates/litedoc4/src/build.rs`: a Lean package in, a documentation site out,
-in one command — the libraries, the module list, the source URL, the choice
-between the full path and the incremental one, and the layout under `--out` that
-lets a second run find what the first one left.
+/- A Lean package in, a documentation site out, in one command — the libraries,
+the module list, the source URL, the choice between the full path and the
+incremental one, and the layout under `--out` that lets a second run find what
+the first one left.
 
 # When the ledger is written — the one ordering that has a silent failure
 
@@ -563,8 +563,7 @@ partial def countFiles (root : FilePath) : IO Nat := do
       return acc
   go root 0
 
-/-- `BuildTimings` in `crates/litedoc4/src/build.rs`, in that record's key
-order. -/
+/-- The `build` record, in a key order that is part of the bytes. -/
 def buildRecordJson (path : String) (modules extracted rounds : Nat) (work : WorkCounts)
     (pagesRendered pagesInSite ledgerModules ledgerBytes : Nat)
     (extractNanos renderNanos globalNanos totalNanos : Nat) : String :=

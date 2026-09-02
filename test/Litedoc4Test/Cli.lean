@@ -1,5 +1,4 @@
-/- `crates/litedoc4/src/cli.rs` and `crates/litedoc4/tests/cli_surface.rs`: taking
-a value off the command line, and the front door.
+/- Taking a value off the command line, and the front door.
 
 `every_way_of_asking_for_the_usage_prints_the_same_bytes` has no check and needs
 none. `src/Main.lean`'s dispatch answers `[]`, `--help` and `-h` in **one** arm

@@ -1,5 +1,4 @@
-/- `crates/litedoc4-incr/src/prune.rs`: deleting the pages of modules that are
-gone.
+/- Deleting the pages of modules that are gone.
 
 The renderer only ever writes: `render --only` writes the pages it was asked for
 and never looks at what else is in the tree. So without this a deleted module's

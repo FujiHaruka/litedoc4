@@ -1,4 +1,3 @@
-/- `crates/litedoc4-render/src/frame.rs`. -/
 import Litedoc4.Assets
 import Litedoc4.Render.Code
 import Litedoc4.Render.Order

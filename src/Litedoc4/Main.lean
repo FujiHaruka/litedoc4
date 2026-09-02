@@ -757,9 +757,8 @@ def jsonNames (out : String) (names : Array String) : String := Id.run do
     o := jsonStr o name
   return o.push ']'
 
-/-- `BuildTimings` in `crates/litedoc4-incr/src/detect.rs`. The key order is that
-record's field order, and every value but the durations is compared against a
-recording of it. -/
+/-- The `build` timing record. **The key order is part of the bytes**, and
+every value but the durations is compared against a recording of it. -/
 def buildTimingsJson (algorithm : String) (concurrency modules files hashedBytes : Nat)
     (keyNanos hashNanos writeNanos totalNanos : Nat) : String :=
   jsonStr "{\"command\":\"build\",\"algorithm\":" algorithm

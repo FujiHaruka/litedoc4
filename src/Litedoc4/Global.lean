@@ -1,5 +1,4 @@
-/- `crates/litedoc4-global/src/site.rs`: an IR tree in, the whole-package
-artifacts out. -/
+/- An IR tree in, the whole-package artifacts out. -/
 import Litedoc4.Global.Artifacts
 import Litedoc4.Global.Delta
 import Litedoc4.Global.State
@@ -101,10 +100,10 @@ def readNameMap (path : FilePath) : IO (Std.HashMap String String) := do
     return map
   | .ok _ => bad "the name map is not a JSON object"
 
-/-- `TimingsRecord` in `crates/litedoc4-global/src/site.rs`, in that record's key
-order. The two used-by counts come **after** `delta` rather than with the counts
-they belong with, so that everything before them is still the prototype's key
-order and two records can be read against each other key by key. -/
+/-- The `global` timing record. The two used-by counts come **after** `delta`
+rather than with the counts they belong with, so that everything before them is
+still the prototype's key order and two records can be read against each other
+key by key. -/
 def globalTimingsJson (s : GlobalSummary) (stateOn : Bool)
     (stateLoadNanos readNanos writeNanos deltaNanos stateSaveNanos totalNanos : Nat)
     (diffNanos scanNanos : Nat) : String :=

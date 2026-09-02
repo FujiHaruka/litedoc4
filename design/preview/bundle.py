@@ -8,8 +8,7 @@ page) serve a single file with no siblings.
 
 All three files are in `assets/`, so this needs no build. `app.js` is committed
 there for the Lean half, which cannot run vite; that it is the bundle vite
-produces is checked by `the_committed_bundles_match_what_build_rs_bundled` in
-`crates/litedoc4-render/src/assets.rs`.
+produces is checked by `tools/assets-gate.sh`.
 
     python3 bundle.py [out.html] [page.html]
 """

@@ -1,4 +1,4 @@
-/- `crates/litedoc4-global/src/state.rs`: the `contentHash` cache.
+/- The `contentHash` cache.
 
 What decides whether a file is this run's cache is entirely in the file's text,
 and what goes into it is entirely in the index and the facts, so `stateOf` and

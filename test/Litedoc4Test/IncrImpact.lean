@@ -1,5 +1,4 @@
-/- `crates/litedoc4-incr/src/impact.rs`: the closure, and the one file in this
-tree whose empty form is a blank line.
+/- The closure, and the one file in this tree whose empty form is a blank line.
 
 The selection's UTF-16 order is `sortUtf16`'s and is stated where that lives; the
 two things below are the ones no other module's guards reach. -/

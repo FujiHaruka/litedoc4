@@ -1,4 +1,3 @@
-/- `crates/litedoc4-ir/src/metrics.rs::counts_by_kind_and_resets`. -/
 import Litedoc4.Metrics
 import Litedoc4Test.Basis
 

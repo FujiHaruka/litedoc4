@@ -16,6 +16,12 @@
 > **例外**: `.gitignore` されていた成果物 (`experiments/stage*/build/` の Lean バイナリ) は
 > **tag にも入っていない**。それを出所とする数字は、いま再現する手段が無い。
 
+> **Every `crates/...` in this document points inside tag `rust-frozen`.**
+> The Rust half was removed from HEAD in M10; read it with
+> `git show rust-frozen:crates/litedoc4-render/src/autolink.rs`. **The body is not
+> rewritten** — the numbers, and the paths written down as where they came from,
+> stay as they were measured.
+
 ## 状態
 
 | # | 検証すること | 判断基準 | 状態 |

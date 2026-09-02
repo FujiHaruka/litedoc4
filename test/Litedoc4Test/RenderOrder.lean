@@ -1,5 +1,4 @@
-/- `crates/litedoc4-render/src/order.rs`: `String.lt` and `Name.lt`, the order a
-page's import list is sorted in.
+/- `String.lt` and `Name.lt`, the order a page's import list is sorted in.
 
 All closed and none of it reaches `Md.events`, so the compiler answers them and
 there is nothing to run. -/

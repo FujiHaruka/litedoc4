@@ -1,5 +1,4 @@
-/- `crates/litedoc4-ir/tests/base_ir.rs`: what a module file says, and what it
-does not say.
+/- What a module file says, and what it does not say.
 
 `selectionRange` has no invariant here because nothing reads it: the key exists
 on the wire and neither half ever asked it a question — `naming_of` had no

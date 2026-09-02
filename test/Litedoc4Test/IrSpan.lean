@@ -1,4 +1,4 @@
-/- `crates/litedoc4-ir/src/span.rs`: the three wire forms of a tag span.
+/- The three wire forms of a tag span.
 
 Two of that file's assertions are not here because the field types already say
 them: `kind` is a `Nat`, so a code the extractor starts writing arrives as

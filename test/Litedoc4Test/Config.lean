@@ -1,5 +1,4 @@
-/- `crates/litedoc4-render/src/config.rs`: `litedoc4.toml`, what a package says
-about its own site.
+/- `litedoc4.toml`, what a package says about its own site.
 
 The two keys and what a blank one means are closed, because `parseConfig` now
 answers them: the "an empty title is not a title" rule used to sit in the `IO`

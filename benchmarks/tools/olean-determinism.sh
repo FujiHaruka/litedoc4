@@ -2,7 +2,7 @@
 # Is a rebuilt `.olean` byte-identical to the one it replaced?
 #
 # The incremental ledger keys a module on the SHA-256 of its `.olean`
-# (`crates/litedoc4-incr/src/ledger.rs`). Every cache that crosses a machine, a
+# (`src/Litedoc4/Ledger.lean`). Every cache that crosses a machine, a
 # CI run or a clean checkout therefore hits only if `lake build` reproduces the
 # same bytes from the same source. That is an empirical property of Lean's
 # serialisation, not something the ledger can assume, so this measures it.

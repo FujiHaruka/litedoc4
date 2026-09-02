@@ -1,5 +1,4 @@
-/- `crates/litedoc4-render/src/config.rs`: `litedoc4.toml`, what a package says
-about its own site.
+/- `litedoc4.toml`, what a package says about its own site.
 
 ```toml
 title = "MyPkg"          # the top bar, and the second half of every <title>
@@ -14,8 +13,8 @@ naming a file that is not there: carrying on with the derived title would be a
 site that silently ignores what the package asked for.
 
 The recogniser below is not a TOML parser and refuses every line it cannot
-account for, the way `crates/litedoc4/src/lakefile.rs` refuses a lakefile line it
-cannot account for. A general parser would accept spellings this reader would
+account for, the way `Litedoc4.Lakefile` refuses a lakefile line it cannot
+account for. A general parser would accept spellings this reader would
 then have to interpret — a table header, an array, a literal string — and the
 failure mode of guessing here is a site with the wrong title on every page,
 which nothing downstream can see. What would falsify this: a package that has to

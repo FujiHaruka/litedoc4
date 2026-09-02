@@ -1,5 +1,5 @@
-/- `crates/litedoc4-md/src/math.rs`: what a `$…$` span becomes, and what it
-becomes when the LaTeX cannot be read.
+/- What a `$…$` span becomes, and what it becomes when the LaTeX cannot be
+read.
 
 Stated through `mdMath` rather than through `MathML4Lean.toMathML`, which is
 where the conversion lives: the fallback counter is litedoc4's, and it is the

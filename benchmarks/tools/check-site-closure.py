@@ -62,7 +62,7 @@ def read_search_index(site, problems):
     """`search-index.bin`, decoded — a third implementation on purpose.
 
     The site's own reader is `assets/app.js` and the writer is
-    `crates/litedoc4-global/src/search_index.rs`. A checker that imported
+    `src/Litedoc4/Global/SearchIndex.lean`. A checker that imported
     either would agree with it about a format both had got wrong, so this
     reads the bytes itself. The layout is documented in the writer.
     """
@@ -174,8 +174,6 @@ def main():
         # **two** false failures per direction on `batteries`【実測 2026-08-17】,
         # in both directions at once, which is the signature of a comparison
         # done in the wrong alphabet rather than of a site that is inconsistent.
-        # `crates/litedoc4/src/packages.rs`'s oracle undoes the same escape for
-        # the same reason.
         decl_anchors[page] = {html.unescape(a) for a in DECL_ANCHOR.findall(text)}
         all_anchors[page] = {html.unescape(a) for a in ANY_ANCHOR.findall(text)}
         for url in RESOURCE.findall(text):

@@ -1,4 +1,4 @@
-/- `crates/litedoc4-render/src/decl.rs`: one `<section class="decl">`.
+/- One `<section class="decl">`.
 
 Split by whether a docstring is in it. A declaration with none reaches no
 Markdown parser, so head, signature, flags, equations, fields, constructors and

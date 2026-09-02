@@ -1,6 +1,6 @@
-/- `crates/litedoc4/src/queries.rs`: the rows `litedoc4 links` prints — one per
-resolved dependency root, with a deeper module sampled out of the `.lidx` so that
-the path building is exercised on something that has a dot in it.
+/- The rows `litedoc4 links` prints — one per resolved dependency root, with a
+deeper module sampled out of the `.lidx` so that the path building is exercised
+on something that has a dot in it.
 
 Both halves are pure here, so the whole of this file is compile time. What is not
 carried is the printing: the tab-separated line and the JSON record are the

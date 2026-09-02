@@ -1,5 +1,4 @@
-/- `crates/litedoc4/src/packages.rs`: which GitHub blob prefix each dependency's
-module root belongs to.
+/- Which GitHub blob prefix each dependency's module root belongs to.
 
 `externalLinks` was three answers from the world with the whole rule in between;
 the rule is now `assembleLinks`, a function of those three answers, so what is

@@ -1,5 +1,4 @@
-/- `crates/litedoc4-global/src/search_index.rs`: `search-index.bin`, every
-declaration the package documents, as bytes.
+/- `search-index.bin`, every declaration the package documents, as bytes.
 
 The decoder is here and not in `src/`: the real reader is the site's own
 TypeScript, and a second one in the product would be a second thing to keep in
@@ -84,10 +83,10 @@ def decodeSearchIndex (b : ByteArray) : Option DecodedIndex := Id.run do
 Every entry is here for something a reader can get wrong; which ones is
 `theCorpusTheseGuardsUseReachesEveryShapeTheFormatHas` below.
 
-Transcribed from `crates/litedoc4-global/tests/web_fixture.rs`, and what this
-encoder makes of it **is** the committed fixture — 761 B, identical (measured
-2026-08-31 → `benchmarks/results/lean-global-oracles-2026-08-31.txt`). That test
-is the fixture's only writer and it goes with `crates/`. -/
+What this encoder makes of it **is** `web/test/fixtures/search-index.bin` — 761
+B, identical (measured 2026-08-31 →
+`benchmarks/results/lean-global-oracles-2026-08-31.txt`) — so the encoder and
+the site's decoder are checked against one corpus and not two. -/
 def searchCases : Array (String × Nat × Nat) := #[
   ("NoDot", 0, 0),
   ("Pkg.a", 0, 1),

@@ -1,4 +1,4 @@
-/- `crates/litedoc4-render/src/site.rs`: the whole of `litedoc4 render`.
+/- The whole of `litedoc4 render`.
 
 Only one invariant is left to state, and half of it is already a type: `ModuleSet`
 is an inductive, so "the caller computed a set and it came out empty" cannot be

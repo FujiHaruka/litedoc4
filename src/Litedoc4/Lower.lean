@@ -27,7 +27,7 @@ array elements are elaborated one by one and a string is one token.
 **Frozen: this table and `sigmaTable` have no generator and no oracle.** The
 obvious move — a `tools/oracle/` script that re-derives them the way
 `Litedoc4.Global.V8GcTable` is re-derived — has nothing to ask. What enumerated
-them was Rust's `str::to_lowercase`, which leaves the tree with `crates/`, and V8
+them was Rust's `str::to_lowercase`, which is not in this tree, and V8
 is not a stand-in for it: asked for every code point, V8 and this table disagree
 on 28, all in the same direction (U+A7CE, U+A7D2, U+A7D4, and U+16EA0..U+16EB9),
 this table lowercasing what V8 leaves alone, because Rust's character data

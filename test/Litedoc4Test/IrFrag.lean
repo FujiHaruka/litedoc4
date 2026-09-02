@@ -1,5 +1,5 @@
-/- `crates/litedoc4-ir/src/utf16.rs`: a fragment's text with the UTF-16 index the
-IR's spans are stated in. The ordering half of that file is in `Utf16.lean`. -/
+/- A fragment's text with the UTF-16 index the IR's spans are stated in. The
+ordering half of that file is in `Utf16.lean`. -/
 import Litedoc4.Ir.Utf16
 import Litedoc4.Render.Whitespace
 

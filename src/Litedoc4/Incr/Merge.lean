@@ -1,5 +1,4 @@
-/- `crates/litedoc4-incr/src/merge.rs`: folding a partial extraction back into
-the package IR.
+/- Folding a partial extraction back into the package IR.
 
 The extractor writes a *complete* IR tree for whatever module list it was given,
 so a one-module run produces a one-module tree. Two things therefore have to be

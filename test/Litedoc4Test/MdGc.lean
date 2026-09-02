@@ -1,6 +1,6 @@
-/- `crates/litedoc4-md/src/gc.rs`: the two Unicode category tables, which are
-UnicodeBasic's answers and therefore Lean's own — `isPZC` decides where a
-heading id breaks and `isZC` decides where `autoLinkInline` splits a code span.
+/- The two Unicode category tables, which are UnicodeBasic's answers and
+therefore Lean's own — `isPZC` decides where a heading id breaks and `isZC`
+decides where `autoLinkInline` splits a code span.
 
 Not a table of code points but a table of ranges, so the guards below are stated
 about ranges. -/

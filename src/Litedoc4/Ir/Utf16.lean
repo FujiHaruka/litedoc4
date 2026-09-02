@@ -1,5 +1,4 @@
-/- `crates/litedoc4-ir/src/utf16.rs`: a fragment's text with the UTF-16 index
-the IR's spans are stated in. -/
+/- A fragment's text with the UTF-16 index the IR's spans are stated in. -/
 import Litedoc4.Bytes
 
 namespace Litedoc4
@@ -96,13 +95,12 @@ def trimEndWs (s : String) : String := byteSub s 0 (wsEnd s)
 @[inline] def leadUnit (cp : UInt32) : UInt32 :=
   if cp ≥ 0x10000 then (0xD800 : UInt32) + ((cp - 0x10000) >>> 10) else cp
 
-/-- `crates/litedoc4-ir/src/utf16.rs`'s `cmp_utf16`.
-
-Not `byteLt`, which is what every other order in this tree uses: UTF-8 byte order
-is code point order, and UTF-16 puts an astral character *below* U+E000..U+FFFF
-because it leads with a high surrogate — `𝒜` (U+1D49C) sorts under `ﬀ` (U+FB00)
-here and over it there. What would falsify this: a package with no name outside
-the BMP, which `e2e/micro`'s `Example.script𝒜` already is not. -/
+/-- Not `byteLt`, which is what every other order in this tree uses: UTF-8 byte
+order is code point order, and UTF-16 puts an astral character *below*
+U+E000..U+FFFF because it leads with a high surrogate — `𝒜` (U+1D49C) sorts
+under `ﬀ` (U+FB00) here and over it there. What would falsify this: a package
+with no name outside the BMP, which `e2e/micro`'s `Example.script𝒜` already is
+not. -/
 def cmpUtf16 (a b : String) : Ordering := Id.run do
   let na := a.utf8ByteSize
   let nb := b.utf8ByteSize

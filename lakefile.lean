@@ -22,10 +22,10 @@ being a dependency rather than a checkout:
 * the **extractor** (`extractor/Extract.lean`, 171 MB when built) is built by
   Lake against the *root* package's toolchain, so it cannot be built against the
   wrong Lean and nobody has to pass `--extractor-bin`;
-* **`--lib`** is read out of the elaborated workspace.
-  `crates/litedoc4/src/lakefile.rs` refuses a `lakefile.lean` by name — reading
-  one honestly means elaborating it with Lake — and this script *is* that
-  elaboration. Mathlib and doc-gen4 are both `lakefile.lean` packages.
+* **`--lib`** is read out of the elaborated workspace. `litedoc4` refuses a
+  `lakefile.lean` by name — reading one honestly means elaborating it with Lake
+  — and this script *is* that elaboration. Mathlib and doc-gen4 are both
+  `lakefile.lean` packages.
 
 Everything a consumer runs is built by Lake from this tree: `lean_exe extract`
 against the root package's toolchain, and `lean_exe litedoc4` from `src/`, linked
@@ -242,8 +242,8 @@ script docs (args) do
     return 0
   let some outRaw := opts.out
     | IO.eprintln "lake run docs: --out <dir> is required and has no default: `litedoc4 build` \
-        refuses an --out inside the package it documents (crates/litedoc4/src/build.rs), so no \
-        path inside this workspace would be right."
+        refuses an --out inside the package it documents, so no path inside this \
+        workspace would be right."
       IO.eprintln docsUsage
       return 2
 

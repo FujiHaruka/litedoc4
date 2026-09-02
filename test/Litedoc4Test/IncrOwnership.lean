@@ -1,5 +1,4 @@
-/- `crates/litedoc4-incr/src/ownership.rs`, asked through
-`crates/litedoc4/tests/queries.rs`: which modules point at a name that has moved.
+/- Which modules point at a name that has moved.
 
 **The stage the ledger cannot see.** Moving a declaration from `Pkg.A` to
 somewhere else leaves the referring module's olean byte identical (measured), so

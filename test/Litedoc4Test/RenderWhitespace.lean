@@ -1,6 +1,5 @@
-/- `crates/litedoc4-render/src/whitespace.rs`: doc-gen4's `splitWhitespaces`
-replayed from the schema-3 widths, which is why a `\n` immediately outside a
-tagged sub-expression comes out as a space.
+/- doc-gen4's `splitWhitespaces` replayed from the schema-3 widths, which is
+why a `\n` immediately outside a tagged sub-expression comes out as a space.
 
 The rewrite is **length-preserving in UTF-16 units**, and that is the whole
 point: the spans keep addressing the result. Every guard here asserts the unit
@@ -58,11 +57,10 @@ def severalRunsAreSortedBeforeUse : Bool :=
 
 #guard severalRunsAreSortedBeforeUse
 
-/-- Two widths claiming the same units, and a width reaching past the end: the
-two shapes `crates/litedoc4-render/src/whitespace.rs` panics on. Here each costs
-its own run the rewrite and nothing else — the unit count is the one thing that
-may not move, and a second run over units the first already emitted is what
-would move it. -/
+/-- Two widths claiming the same units, and a width reaching past the end. Each
+costs its own run the rewrite and nothing else — the unit count is the one
+thing that may not move, and a second run over units the first already emitted
+is what would move it. -/
 def aWidthTheIrCannotMeanCostsItsOwnRunAndNoOffset : Bool :=
   let overlapping := mkFrag "a\tb\tc" #[wsSpan 2 3 1 1, wsSpan 2 3 1 1]
   let pastTheEnd := mkFrag "a\t" #[wsSpan 0 1 0 3]

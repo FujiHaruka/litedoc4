@@ -1,4 +1,4 @@
-/- `crates/litedoc4-incr/tests/ledger.rs`: the two cache keys.
+/- The two cache keys.
 
 `extractKey` reads three files and `extractKeyOf` decides what they mean, so the
 key's own shape is a guard and only the seam needs a package on disk. -/

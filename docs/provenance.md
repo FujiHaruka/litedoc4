@@ -6,6 +6,12 @@ litedoc4 のコードのうち **第三者の著作物に由来するもの**の
 法的助言ではなく**エンジニアリング判断**。判断の根拠を全部書いてあるので、覆したければ
 根拠のどれが違うかを指摘すればよい。
 
+> **Every `crates/...` in this document points inside tag `rust-frozen`.**
+> The Rust half was removed from HEAD in M10; read it with
+> `git show rust-frozen:crates/litedoc4-md/src/html.rs`. The determinations below
+> were made while it was in the tree and are not rewritten; §9 records where each
+> obligation landed when it left.
+
 ---
 
 ## 1. 結論

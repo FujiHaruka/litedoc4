@@ -1,5 +1,4 @@
-/- `crates/litedoc4-md/src/html.rs`: doc-gen4's `DocGen4/Output/DocString.lean`,
-transcribed twice.
+/- doc-gen4's `DocGen4/Output/DocString.lean`, transcribed twice.
 
 Split by what can answer them. Everything reached from a `Md.Text` or a
 `Md.Block` already in hand is closed and is a `#guard`; everything that has to

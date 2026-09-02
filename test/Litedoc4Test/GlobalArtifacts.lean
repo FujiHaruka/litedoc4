@@ -1,4 +1,4 @@
-/- `crates/litedoc4-global/src/artifacts.rs`: the whole-package artifacts.
+/- The whole-package artifacts.
 
 Rust reconciles `Artifacts::files()` against a second constant `ARTIFACT_PATHS`;
 here there is one list and that reconciliation has nothing to compare, so what is

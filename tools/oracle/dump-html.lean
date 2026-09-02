@@ -3,7 +3,7 @@ dump-html.lean -- print *doc-gen4's own* HTML for a corpus of docstrings.
 
 WHY THIS FILE EXISTS
 --------------------
-`crates/litedoc4-md/src/html.rs` claims to be `DocGen4/Output/DocString.lean`
+`src/Litedoc4/Md/Html.lean` claims to be `DocGen4/Output/DocString.lean`
 transcribed. An expected value written by reading that file would prove nothing:
 the reading and the port would share whatever mistake was made. So the expected
 HTML comes from doc-gen4 itself — this script calls `docStringToHtml`, the same

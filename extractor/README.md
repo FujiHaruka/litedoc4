@@ -35,7 +35,7 @@ litedoc4 側に toolchain も lakefile も Mathlib も置かない (CLAUDE.md)�
   欠けていたら**引数解析の時点で** exit 1 (`parseArgs`) — 抽出の最後まで走ってからでは、
   20 秒払った後に usage エラーが届く
 - **`--serve` は常駐経路**。使うのは `litedoc4 incremental --serve` で、
-  `litedoc4 extract` は `--serve*` を名指しで断る (`crates/litedoc4/src/extract.rs`)
+  `litedoc4 extract` は `--serve*` を名指しで断る (`src/Litedoc4/Main.lean`)
 - **`leanc -rdynamic` は load-bearing**。`importModules (loadExts := true)` が
   Lean インタプリタでモジュール初期化子を走らせ、実行中の実行ファイルからシンボルを解決する
   (Lake の `supportInterpreter := true`)。外すと
@@ -73,7 +73,7 @@ cd /path/to/lean-project && lake env /path/to/litedoc4/extractor/build/extract \
 | `--link-index-key <token>` | 地図の隣に `<path>.key` を置き、次回**トークン一致 + `#lidx2` マーカー一致 + `@` 節が現環境と一致**なら**走査ごと飛ばす**。トークンは呼び手が作る不透明文字列で、抽出器から見えないもの (依存 olean の同一性 = `extractKey`、omit 一覧の中身) を担う |
 
 製品側 (`litedoc4 build` / `incremental --serve`) は**両方を自動で渡す**ので、
-利用者がこのフラグを意識することはない (`crates/litedoc4/src/resident.rs`)。
+利用者がこのフラグを意識することはない (`src/Litedoc4/Incr/Resident.lean`)。
 手で叩くときだけ意味がある。
 
 ### `.lidx` の 1 行にはソース行範囲が乗る (`#lidx2`)
@@ -84,7 +84,7 @@ cd /path/to/lean-project && lake env /path/to/litedoc4/extractor/build/extract \
 
 **行範囲が取れない宣言は 1 フィールドのまま残す** — 落とすとリンクごと消えるが、
 範囲が無いだけならアンカーが落ちるだけ (doc-gen4 の `gh_nav_link` と同じ形)。
-読む側 (`crates/litedoc4-render/src/link_index.rs`) は旧マーカー `#lidx1` も読み続ける。
+読む側 (`src/Litedoc4/Render/LinkIndex.lean`) は旧マーカー `#lidx1` も読み続ける。
 
 行範囲を乗せる代償【実測 2026-08-16、n=5 ずつ → `benchmarks/results/m7a-summary.txt`】:
 

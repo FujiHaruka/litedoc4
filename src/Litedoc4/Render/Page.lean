@@ -1,4 +1,3 @@
-/- `crates/litedoc4-render/src/page.rs`. -/
 import Litedoc4.Render.Decl
 import Litedoc4.Render.Frame
 

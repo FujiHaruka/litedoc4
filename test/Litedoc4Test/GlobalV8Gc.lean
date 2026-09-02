@@ -1,6 +1,5 @@
-/- `crates/litedoc4-global/src/v8_gc.rs`: V8's `\p{Z}\p{C}`, the table the
-frozen prototype tokenised code spans on and half of what `isTokenSeparator`
-is.
+/- V8's `\p{Z}\p{C}`, the table the frozen prototype tokenised code spans on
+and half of what `isTokenSeparator` is.
 
 The sortedness guard is `MdGc.lean`'s helper, reused rather than restated:
 `inGcRanges` binary-searches whichever table it is handed, so a third table needs

@@ -1,5 +1,4 @@
-/- `crates/litedoc4/src/lakefile.rs`: where `--lib` comes from when it is not
-passed.
+/- Where `--lib` comes from when it is not passed.
 
 A Lake package declares its libraries in one of two files, and they are not the
 same kind of thing:

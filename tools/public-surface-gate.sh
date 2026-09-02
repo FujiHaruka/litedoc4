@@ -24,12 +24,10 @@
 #                    set
 #
 # ONE HALF, BECAUSE THERE IS ONE PRODUCT
-#   This used to ask the same questions of `crates/litedoc4/src/lib.rs` and
-#   `crates/litedoc4-render/src/config.rs` too, because a release published a Rust
-#   binary and `action.yml` resolved it. Nothing is distributed in Object form any
-#   more: a consumer writes `require «litedoc4»` and Lake builds `lean_exe
-#   litedoc4` out of the ref they pinned, and the action does the same. So the
-#   promise has exactly one implementation, and it is the one read here.
+#   Nothing is distributed in Object form: a consumer writes `require «litedoc4»`
+#   and Lake builds `lean_exe litedoc4` out of the ref they pinned, and the action
+#   does the same. So the promise has exactly one implementation, and it is the
+#   one read here.
 #
 # Needs no binary, no toolchain and no target: every input is a file in the tree.
 #

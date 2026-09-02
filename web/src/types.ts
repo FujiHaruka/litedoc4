@@ -44,7 +44,7 @@ export interface Narrow {
 /**
  * `search-index.bin`, read in place: the header and the two small tables are
  * decoded once, **the names stay in the buffer** and are decoded per query.
- * The layout is `crates/litedoc4-global/src/search_index.rs`.
+ * The layout is `src/Litedoc4/Global/SearchIndex.lean`.
  */
 export interface SearchIndex {
   readonly bytes: Uint8Array;

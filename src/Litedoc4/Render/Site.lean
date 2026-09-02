@@ -1,4 +1,4 @@
-/- `crates/litedoc4-render/src/site.rs`: the whole of `litedoc4 render`.
+/- The whole of `litedoc4 render`.
 
 Every module file is read even when only one page is being rendered. The name
 map and the suppressed set are site-wide, and a page rendered against a partial

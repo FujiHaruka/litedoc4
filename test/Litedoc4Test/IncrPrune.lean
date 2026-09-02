@@ -1,4 +1,4 @@
-/- `crates/litedoc4-incr/src/prune.rs`: the one stage that deletes.
+/- The one stage that deletes.
 
 `PageRoot.under` is the lexical guard, split from `PageRoot.resolve` so that what
 it decides can be asked of a `String`; everything below it needs a real tree,

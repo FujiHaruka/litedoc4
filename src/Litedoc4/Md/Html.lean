@@ -1,7 +1,7 @@
 /-
 Derived from doc-gen4 (Apache-2.0, Copyright (c) 2021 Henrik Böving) by way of
-`crates/litedoc4-md/src/html.rs`, and changed; see this repository's NOTICE
-and `docs/provenance.md`.
+`git show rust-frozen:crates/litedoc4-md/src/html.rs` — in that tag, not in
+this tree — and changed; see this repository's NOTICE and `docs/provenance.md`.
 -/
 import Litedoc4.Bytes
 import Litedoc4.Md
@@ -93,11 +93,8 @@ def autoLinkInline (out : String) (c : Renderer) (s : String) : String := Id.run
 
 /-! ## Markdown
 
-`crates/litedoc4-md/src/html.rs`, transcribed — which is itself
 `DocGen4/Output/DocString.lean`, transcribed. The parser is `Md`, which runs
-`vendor/md4c/md4c.c` — byte for byte the file the Rust side vendors — so what
-differs between the two sides is the language the renderer is written in and
-nothing about the dialect.
+`vendor/md4c/md4c.c`, so the dialect a docstring is read in is md4c's.
 
 Math is `MathML4Lean`; a span it refuses falls back to the dollars and the
 escaped source, which is what doc-gen4 emits when its own LaTeX parser refuses
@@ -165,11 +162,11 @@ def extendLink (c : Renderer) (s : String) : String :=
   else if s.startsWith "#" || s.startsWith "http" then s
   else c.root ++ s
 
-/-- `math_into` in `crates/litedoc4-md/src/html.rs`. The MathML goes in as
-markup — escaping it would print it — and a span the converter refuses falls
-back to the dollars and the escaped source, which is what doc-gen4 emits for
-every span, so such a page is no worse than a doc-gen4 page. Refusal is a
-contract and not a rare branch: 6 of Mathlib's 2,113 spans take it.
+/-- The MathML goes in as markup — escaping it would print it — and a span the
+converter refuses falls back to the dollars and the escaped source, which is
+what doc-gen4 emits for every span, so such a page is no worse than a doc-gen4
+page. Refusal is a contract and not a rare branch: 6 of Mathlib's 2,113 spans
+take it.
 
 The state counts the spans that took the fallback. It is threaded through the
 renderer rather than recounted afterwards because a second walk over the parsed

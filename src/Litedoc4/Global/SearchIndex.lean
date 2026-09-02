@@ -1,5 +1,4 @@
-/- `crates/litedoc4-global/src/search_index.rs`: `search-index.bin`, every
-declaration the package documents, as bytes.
+/- `search-index.bin`, every declaration the package documents, as bytes.
 
   0   magic "LD4S"        4 bytes
   4   version             u32 = 2

@@ -1,5 +1,5 @@
-/- `crates/litedoc4-global/src/facts.rs`: everything the whole-package artifacts
-need from one module, and the tokeniser the map delta is made of.
+/- Everything the whole-package artifacts need from one module, and the
+tokeniser the map delta is made of.
 
 All closed and none of it reaches `Md.events` — this file's subject is exactly
 the part of a docstring that is read *without* parsing Markdown. -/

@@ -1,5 +1,4 @@
-/- `crates/litedoc4-ir/src/metrics.rs`: how much of the IR one process read — a
-counter, not a clock.
+/- How much of the IR one process read — a counter, not a clock.
 
 A wall clock decides nothing here: the oleans are `mmap`ed, so the same run's
 environment load moves by 5× with the page cache (2.5 s ↔ 13 s (measured)). File

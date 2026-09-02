@@ -1,5 +1,4 @@
-/- `crates/litedoc4/src/pipeline.rs`'s `module_names`: every module of every
-named library, in UTF-16 order.
+/- Every module of every named library, in UTF-16 order.
 
 **One list, and it is handed to every stage that takes one** — the ledger, the
 extractor, and the map's omit list — because its order is the ledger's `modules`

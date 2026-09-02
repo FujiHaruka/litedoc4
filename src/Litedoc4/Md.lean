@@ -1,14 +1,14 @@
 /-!
 Derived from MD4Lean's `wrapper/wrapper.c` (MIT, Copyright (c) 2024 Jz Pan)
-by way of `crates/litedoc4-md/src/parse.rs`, and changed; see this repository's
-NOTICE and `docs/provenance.md`.
+by way of `git show rust-frozen:crates/litedoc4-md/src/parse.rs` — in that tag,
+not in this tree — and changed; see this repository's NOTICE and
+`docs/provenance.md`.
 
 # Markdown, straight from the vendored md4c
 
 `csrc/md_events.c` runs md4c and writes its callback stream into one buffer;
 this file rebuilds the tree from those bytes. Together they replace the
-`MD4Lean` dependency, and the C they run is `vendor/md4c/md4c.c`, byte for byte
-the file `crates/litedoc4-md/vendor/md4c/` already holds.
+`MD4Lean` dependency, and the C they run is `vendor/md4c/md4c.c`.
 
 WHY NOT MD4LEAN, WHICH DOES THIS ALREADY
   Not speed and not correctness — it works. Four things it brings that this does
@@ -23,10 +23,10 @@ WHY NOT MD4LEAN, WHICH DOES THIS ALREADY
   tags releases and drops the experimental flag, the glue below is the thing to
   delete.
 
-The tree shape is not a free choice. `crates/litedoc4-md/src/parse.rs` builds
-the same tree from the same callbacks, and its output is the reference these
-pages have to reproduce, so this is a transcription of that builder and its
-decisions are cited to it rather than re-argued.
+The tree shape is not a free choice: it is the tree MD4Lean's `wrapper.c`
+builds from the same callbacks, which is what these pages have to reproduce, so
+this is a transcription of that builder and its decisions are cited to it rather
+than re-argued.
 -/
 
 namespace Md
@@ -166,7 +166,7 @@ private def readAttr (c : Cursor) : Except String (Array AttrText × Cursor) := 
 
 /-! ## The builder
 
-A transcription of `Builder` in `crates/litedoc4-md/src/parse.rs`. -/
+A transcription of MD4Lean's `wrapper.c` builder. -/
 
 private inductive Tag where
   | block

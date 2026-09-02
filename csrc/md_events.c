@@ -34,9 +34,8 @@
  *   ends, and the two are not interchangeable: a list item's task fields and a
  *   code block's info string are the ones given at `leave`, and every span's
  *   are too, while UL / OL / H must be read at `enter` because by `leave` the
- *   detail no longer describes the block that is closing. The Rust half
- *   (`crates/litedoc4-md/src/parse.rs`) settles this the same way, and its
- *   output is the reference these bytes have to reproduce.
+ *   detail no longer describes the block that is closing. `src/Litedoc4/Md.lean`
+ *   rebuilds the tree from these bytes and reads each detail where it is put.
  *
  *   An attribute is <u32 count> then count * (<u8 texttype> <u32 len> <bytes>).
  *   An empty buffer means md4c refused the input; a parse that succeeds always
@@ -60,13 +59,12 @@
  *   The block, span and text codes on the wire are md4c's own enumerators, and
  *   the flags Lean composes are md4c's own macros — so both are written down
  *   twice, once in the header and once in Lean. This file is the only place
- *   that sees both, so the compiler is the thing that can say they agree; the
- *   Rust half needed a probe executable and a test to ask the same question
- *   (`crates/litedoc4-md/tests/abi.rs`). One line per name, deliberately: a
- *   vendored md4c that inserts, drops or reorders an enumerator then stops the
- *   build naming the one that moved, rather than quietly reshaping every tree
- *   Lean rebuilds. An enumerator appended at the end is the case this cannot
- *   see; Lean answers that one with "md4c reported an unknown block type". */
+ *   that sees both, so the compiler is the thing that can say they agree. One
+ *   line per name, deliberately: a vendored md4c that inserts, drops or reorders
+ *   an enumerator then stops the build naming the one that moved, rather than
+ *   quietly reshaping every tree Lean rebuilds. An enumerator appended at the
+ *   end is the case this cannot see; Lean answers that one with "md4c reported
+ *   an unknown block type". */
 _Static_assert(MD_BLOCK_DOC == 0, "Md.lean decodes MD_BLOCK_DOC as 0");
 _Static_assert(MD_BLOCK_QUOTE == 1, "Md.lean decodes MD_BLOCK_QUOTE as 1");
 _Static_assert(MD_BLOCK_UL == 2, "Md.lean decodes MD_BLOCK_UL as 2");

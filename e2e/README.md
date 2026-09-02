@@ -1,9 +1,9 @@
 # e2e — 本物の Lean から本物のサイトまでを 1 本通す
 
-`crates/litedoc4/tests/` の統合テストは**抽出器を `/bin/sh` の偽物に差し替えている**。
+単体テストは**抽出器を偽物に差し替えるか、手で書いた IR から始めるか**のどちらかである。
 これは正しい判断で (Lean toolchain を要求したら誰も走らせない)、代償も 1 つだけ:
-**抽出器と Rust の間の契約を検査するものが 1 つも無くなる**。`Extract.lean` が書く形を変えても
-`cargo test` は全部緑のまま通る。ここはその穴を塞ぐ唯一の場所。
+**抽出器とその下流の間の契約を検査するものが 1 つも無くなる**。`Extract.lean` が書く形を
+変えても単体テストは全部緑のまま通る。ここはその穴を塞ぐ唯一の場所。
 
 走らせるのは `tools/e2e-micro.sh`。**入力は 2 つあり、担当が違う**
 (→ 下の「`consumer/` — なぜ micro と別なのか」)。
@@ -33,7 +33,8 @@ So it wears two hats, and the second one decides how it is written — see
 
 ## サンプルが持っているもの — 「対象が持たない形」
 
-`crates/litedoc4-render/tests/page_parts.rs` が記録している事実:
+`git show rust-frozen:crates/litedoc4-render/tests/page_parts.rs` (tag の中にあり、HEAD には無い)
+が記録している事実:
 
 > **41 分岐のうち 9 つは、432 モジュール全部を通しても一度も発火しない** —
 > `class` も `inductive` も `class_inductive` も無い、constructor が `mk` でない structure も、
@@ -69,8 +70,8 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 「全件バイト一致は分岐被覆の証明ではない」の一段強い形:
 **オラクルの入力に無い形は、何バイト一致しても見えない。**
 
-回帰は `crates/litedoc4-render/src/decl.rs` の
-`an_inductives_constructors_are_rendered_with_their_own_anchors` が持つ。
+回帰は `e2e/micro-expected/render/Example/Shapes.html` の `id="Example.Decision.no"` /
+`id="Example.Decision.yes"` が持つ (`tools/purelean-micro-gate.sh` が凍結バイトとして見ている)。
 
 ## path 依存を足して出たもの【実測 2026-08-17】
 
@@ -164,7 +165,7 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 
 - **`--extractor-bin`** — 抽出器を Lake が建てる (root の toolchain に対して建つので、
   版がずれようがない)
-- **`--lib`** — `crates/litedoc4/src/lakefile.rs` は `lakefile.lean` を**名前で拒否する**
+- **`--lib`** — `src/Litedoc4/Lakefile.lean` は `lakefile.lean` を**名前で拒否する**
   (正直に読むには Lake で elaborate するしかないため)。`script docs` は
   **その elaborate の後に走る**ので Lake に聞ける
 
@@ -178,7 +179,7 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 ゲートの 5 項目目 (`--lib` が Lake から来ているか) を**推測ではなく失敗**にするためにある:
 
 - **2 つある**ので、最初の `lean_lib` だけを渡す実装・パッケージ名を渡す実装は
-  **短いサイトを書いて成功を報告する** (`lakefile.rs` が名指ししている失敗の形)
+  **短いサイトを書いて成功を報告する** (`Lakefile.lean` が名指ししている失敗の形)
 - **`ConsumerExtra` が `defaultTargets` に無い**ので、`lake build` だけに頼った実装は
   olean の無いモジュールに当たって**大きな音で落ちる**。`script docs` が
   `defaultTargets` ではなく root パッケージの `lean_lib` を全部建てるのはこのため

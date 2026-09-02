@@ -1,5 +1,4 @@
-/- `crates/litedoc4-global/src/delta.rs`: the whole-package map delta — which
-pages a moved name makes stale.
+/- The whole-package map delta — which pages a moved name makes stale.
 
 `--print-set` is the input to the incremental impact analysis. A module missing
 from it keeps a page that links a name to the module it used to live in, and

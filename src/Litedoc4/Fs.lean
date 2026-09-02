@@ -1,6 +1,5 @@
 /- Filesystem questions Lean core does not answer, in one place because two of
-them decide whether a directory is deleted (`crates/litedoc4/src/extract.rs`'s
-`absolute` and `resolve`, and `crates/litedoc4/src/build.rs`'s `is_empty_dir`). -/
+them decide whether a directory is deleted. -/
 
 open System
 

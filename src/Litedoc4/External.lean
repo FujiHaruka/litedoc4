@@ -1,4 +1,4 @@
-/- `crates/litedoc4-render/src/external.rs`: where a dependency's source lives.
+/- Where a dependency's source lives.
 
 A root the map holds with no version-pinned URL is a state of its own and not a
 missing entry — `RootSource.unpinned` — which `linkTo` turns into no link rather

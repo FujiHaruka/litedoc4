@@ -1,4 +1,4 @@
-/- `crates/litedoc4-global/src/delta.rs`: which pages a moved name makes stale.
+/- Which pages a moved name makes stale.
 
 Rust's `Delta::compute` is two functions here — `deltaChanged` and `deltaScan`,
 split so the pipeline can time the halves separately — so the guards compose them

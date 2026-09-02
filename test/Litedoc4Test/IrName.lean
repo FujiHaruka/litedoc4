@@ -1,5 +1,5 @@
-/- `crates/litedoc4-ir/src/name.rs`: the two spellings of a Lean module name, and
-the one rule that turns either of them into a page.
+/- The two spellings of a Lean module name, and the one rule that turns either
+of them into a page.
 
 All closed, so the compiler answers them and there is nothing to run. -/
 import Litedoc4.Ir.Name

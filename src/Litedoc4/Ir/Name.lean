@@ -1,4 +1,3 @@
-/- `crates/litedoc4-ir/src/name.rs`. -/
 import Litedoc4.Bytes
 
 namespace Litedoc4

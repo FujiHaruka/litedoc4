@@ -1,5 +1,5 @@
-/- `crates/litedoc4-incr/src/error.rs` and `src/merge.rs`: the refusal's name
-list, the schema a merged tree may claim, and the order `--modules` imposes.
+/- The refusal's name list, the schema a merged tree may claim, and the order
+`--modules` imposes.
 
 Nothing here states that a nested JSON object keeps its key order. Rust needs a
 test for it because `preserve_order` is a cargo feature a build can lose; here

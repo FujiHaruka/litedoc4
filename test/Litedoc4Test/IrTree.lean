@@ -1,4 +1,3 @@
-/- `crates/litedoc4-ir/tests/reading_a_broken_tree.rs::open_unvalidated_reads_exactly_what_open_refuses`. -/
 import Litedoc4.Ir
 import Litedoc4Test.Basis
 
