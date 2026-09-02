@@ -1,0 +1,37 @@
+# Every place litedoc4's own version is written, and what each one means.
+#
+# `src/Litedoc4/Version.lean` is the one place the version is *decided*. Nothing
+# reconciled it against anything after `Cargo.toml` left the tree — the module's
+# own comment says so — and a release then moves a literal that no gate reads.
+# This file is what reads it.
+#
+# COLUMN 2 -- the whole point of the file, because the two kinds look identical
+# to a bulk replace:
+#
+#   tracks   names the current release. A release moves it, and it is stale the
+#            moment `Version.lean` moves without it.
+#   frozen   a claim about *which tag first had a property*, or a record of what
+#            some artefact was minted by. Moving it makes it false. `v1.3.0 or
+#            later` is not "the current version" — it is "the first tag a machine
+#            with only elan on it can use", and that stays v1.3.0 for ever.
+#   other    a version that is not litedoc4's at all, listed because it collides
+#            with one of this repository's tag names and would otherwise look
+#            like a site somebody forgot.
+#
+# COLUMN 3 -- a substring of the line, enough to find it. Not a line number:
+# those rot on the first edit above them.
+#
+# file                            kind    anchor
+src/Litedoc4/Version.lean         tracks  def version : String := "
+README.md                         tracks  - uses: FujiHaruka/litedoc4@
+README.md                         tracks  require «litedoc4» from git
+README.md                         tracks  — nothing is downloaded; Lake builds litedoc4
+README.md                         other   benchmarks/results/v0.2.0-numbers-
+README.md                         frozen  or later, since that is the first one a
+README.md                         frozen  is the first release whose source links point at it
+action.yml                        tracks  #       - uses: FujiHaruka/litedoc4@
+lakefile.lean                     tracks  require «litedoc4» from git
+lakefile.lean                     frozen  or later: it is the first tag a machine
+lakefile.lean                     frozen  is the oldest whose source links point
+lakefile.lean                     other   https://github.com/FujiHaruka/MathML4Lean
+.github/ISSUE_TEMPLATE/bug.yml    tracks  placeholder: "litedoc4

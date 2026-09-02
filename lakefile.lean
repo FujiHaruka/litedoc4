@@ -4,7 +4,7 @@
 A consumer requires this package and gets a `docs` script:
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.3.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.4.0"
 ```
 
 Pin `v1.3.0` or later: it is the first tag a machine with only elan on it can

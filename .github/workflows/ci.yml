@@ -65,6 +65,13 @@ jobs:
       - name: The Markdown oracles are still what the invariants read
         run: tools/md-oracle-gate.sh
 
+      # A release moves one literal in Version.lean; six other files repeat it,
+      # and until this gate nothing read either side. Item 3 is the one that
+      # cannot be answered by reading the tree alone: it asks the tags whether
+      # this version has already been published somewhere else.
+      - name: Every place that names the version names the same one
+        run: tools/version-gate.sh
+
       # This repository is public, so Apache-2.0 §4 is live: what this stops is
       # a refactor deleting an attribution that is legally load-bearing.
       - name: Provenance

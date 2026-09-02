@@ -45,5 +45,6 @@ site-gate.sh                 ci      a built site
 target2-gate.sh              manual  a second synthetic package on the target's Mathlib revision
 usedby-gate.sh               ci      a built site (e2e-micro calls it)
 v8-gc-table-gate.sh          ci      deno, pinned to the version the generated table records; nothing else
+version-gate.sh              ci      nothing; reads the tracked files and this repository's tags
 watch-gate.sh                ci      elan and e2e/micro
 workflow-gate.sh             ci      nothing; reads the tree

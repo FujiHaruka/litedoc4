@@ -164,7 +164,7 @@ jobs:
     environment: { name: github-pages }
     steps:
       - uses: actions/checkout@v7
-      - uses: FujiHaruka/litedoc4@v1.3.0
+      - uses: FujiHaruka/litedoc4@v1.4.0
         id: docs
         with:
           cache-get: true             # `lake exe cache get` — drop it if you have no Mathlib
@@ -199,7 +199,7 @@ Lean toolchain's own clang against headers this package carries.
 Add it to your `lakefile.lean` (or the `[[require]]` equivalent in `lakefile.toml`):
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.3.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.4.0"
 ```
 
 ```sh
@@ -282,7 +282,7 @@ not GitHub (another host is refused rather than guessed).
 
 ## Status
 
-`v1.3.0` — nothing is downloaded; Lake builds litedoc4 from the ref you pinned. Tested on macOS
+`v1.4.0` — nothing is downloaded; Lake builds litedoc4 from the ref you pinned. Tested on macOS
 (Apple Silicon) and `ubuntu-latest` with Lean/Mathlib v4.31.0, and the browser side also on
 `windows-latest`.
 Pin the action and the `require` to a tag — `v1.3.0` or later, since that is the first one a
