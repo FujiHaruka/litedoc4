@@ -4,14 +4,19 @@
 # Three questions, all of them about the distance between a claim and the YAML:
 #
 #   1  every tools/*-gate.sh is in tools/gates.txt, and every row names a script
-#      that exists — the shape tools/corpus-gate.sh --verify-list already gives
-#      the `#[ignore]`d tests, for the same reason
+#      that exists — a gate in no row is one nobody knows to run, and a row with
+#      no script is a claim about a check nobody wrote
 #   2  a row marked `ci` is really invoked by a workflow, and a row marked
 #      `manual` is really not. A label nobody checks is worse than no label:
 #      `build-gate.sh` sat there for months as a gate nobody ran
-#   3  every workflow that runs `cargo` installs node. `crates/litedoc4-render`'s
-#      build.rs runs vite, so a job without it fails inside a build script — and
-#      on the development machine the failure is exit 137 with no output at all
+#   3  every workflow that reaches something needing node installs node. The
+#      subject used to be `cargo`, because a build script ran vite; that left
+#      with `crates/`, and what needs node now is `tools/assets-gate.sh` — npm,
+#      npx biome, tsc, vitest and vite. A job without node fails inside one of
+#      those, and on the development machine the failure is exit 137 with no
+#      output at all. Reached transitively, so a workflow that calls a script
+#      that calls the gate counts; and if nothing in the tree needs node the gate
+#      stops rather than reporting a rule with no subject as satisfied
 #   4  no gate prints a heading that the shell will eat. A backtick inside double
 #      quotes is command substitution: `say "6/8 `site` writes ..."` ran `site`,
 #      printed `command not found` to stderr, and put an empty string where the
@@ -39,7 +44,13 @@ problems = []
 
 # A backslash cannot live inside an f-string on the Python this machine runs, and
 # this pattern is used in two places besides.
-CARGO = r"\bcargo \w"
+#
+# A *command position* — the start of a line or just after `|`, `&&`, `;` or `(`
+# — and not a bare word anywhere. A bare word matches this file's own prose and
+# its own pattern, so the gate would count itself as needing node and demand it
+# of every workflow that runs it. Whatever spelling a future script uses has to
+# be added here, which is the cost of the rule being a grep rather than a run.
+NEEDS_NODE = r"(?m)(?:^|[|&;(])[ \t]*(?:npm|npx|node)[ \t]"
 # The path prefix varies: ci-placement.yml checks litedoc4 out into a
 # subdirectory, so it says `./litedoc4/.github/actions/setup-node`. Anchor on the
 # tail, and on `@` for the upstream action, so that `setup-nodeX` still fails.
@@ -122,18 +133,52 @@ for name, who in sorted(rows.items()):
             "the label is wrong, not the workflow"
         )
 
-# `cargo` anywhere in a job means the render crate's build.rs may run vite.
-missing_node = []
+# Which scripts need node, and which workflows reach one. `NODE` itself names
+# the action, so a workflow is not counted as needing node merely for installing
+# it.
+node_scripts = {name for name, body in scripts.items() if re.search(NEEDS_NODE, body)}
+if not node_scripts:
+    sys.exit(
+        "workflow-gate: no script under tools/ runs npm, npx or node — question 3 "
+        "has no subject left, and a rule that cannot fail is worse than no rule"
+    )
+
+
+def reaches(body):
+    seen = {name for name in scripts if calls(name, body)}
+    while True:
+        grown = {
+            name
+            for name in scripts
+            if name not in seen and any(calls(name, scripts[seed]) for seed in seen)
+        }
+        if not grown:
+            return seen
+        seen |= grown
+
+
+needs_node = {}
 for path, body in workflows.items():
     if path.parent.name != "workflows":
         continue
+    wanted = sorted(reaches(body) & node_scripts)
+    if re.search(NEEDS_NODE, re.sub(NODE, "", body)):
+        wanted.append(path.name)
+    if wanted:
+        needs_node[path.name] = wanted
+for name, wanted in sorted(needs_node.items()):
     # The reference, not the substring: `setup-nodeX` contains `setup-node`, and
     # a check that accepts it accepts a typo that installs nothing (found while
     # trying to make this very check fail, 2026-08-29).
-    if re.search(CARGO, body) and not re.search(NODE, body):
-        missing_node.append(path.name)
-for name in sorted(missing_node):
-    problems.append(f"{name} runs cargo and never installs node — build.rs runs vite")
+    if not re.search(NODE, workflows[[p for p in workflows if p.name == name][0]]):
+        problems.append(
+            f"{name} reaches {', '.join(wanted)}, which needs node, and never installs it"
+        )
+if not needs_node:
+    sys.exit(
+        "workflow-gate: no workflow reaches anything needing node — question 3 would "
+        "report a rule it never applied"
+    )
 
 # Question 4. Deliberately narrow: only the lines that *print* — `say`, `echo`,
 # `printf`, and the `fail`/`pass`/`die` helpers — and only the span between the
@@ -179,14 +224,10 @@ if problems:
     sys.exit(1)
 
 ci = sum(1 for w in rows.values() if w == "ci")
-cargo_jobs = sum(
-    1
-    for path, body in workflows.items()
-    if path.parent.name == "workflows" and re.search(CARGO, body)
-)
 print(
     f"WORKFLOW GATE: {len(rows)} gate(s) inventoried, {ci} run by a workflow, "
-    f"{len(rows) - ci} manual; {cargo_jobs} workflow(s) run cargo and all install node; "
+    f"{len(rows) - ci} manual; {len(needs_node)} workflow(s) reach node "
+    f"({len(node_scripts)} script(s) need it) and all install it; "
     f"{len(scripts)} script(s) print no backtick the shell would eat"
 )
 PY

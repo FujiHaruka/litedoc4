@@ -100,9 +100,9 @@ promises, each with a gate. **Do not read v1 as "finished" any more than v0.1 me
   as the empty string with no error, so removing a promised name turns a caller's assertion into a
   silent pass. The cost a consumer pays instead is **18.1 s + 25.7 s, once** (measured 2026-08-31,
   Apple M1, medians of 3 → `benchmarks/results/purelean-require-only-2026-08-31.txt`).
-  `ci.yml` still builds and tests on **aarch64 Linux** — because `c_char` is
-  unsigned there and signed everywhere else the tree had been compiled, and because that is the
-  architecture nothing had ever run. **Both defects it found the first time were waiting**
+  `ci.yml` still runs the Lean invariants on **aarch64 Linux** — because `char` is
+  unsigned there and signed everywhere else the tree had been compiled, and that is where the C
+  in `vendor/md4c` and `csrc/` is built too. **Both defects it found the first time were waiting**
   (measured 2026-08-29 → `benchmarks/results/arm64-linux-runner-2026-08-29.txt`).
 - **Two live sites, and both are a maintenance obligation.**
   `https://fujiharuka.github.io/litedoc4/` is `e2e/micro` rebuilt from `main` on every push
@@ -132,26 +132,23 @@ too.
 | `docs/verification-log.md` | **Results of the verification stages (approach.md §7, 1–8)**. **If they disagree with the prediction, this is the SoT** |
 | `docs/provenance.md` | Provenance determination for doc-gen4 / third-party code and the resulting licensing obligations. **The SoT for provenance determination** |
 | `benchmarks/` | Measurement reports, instrumentation patch, tools, raw logs. **Where the numbers come from** |
-| `crates/` | **Product code (Rust). The SoT for the implementation.** Comments are only the non-obvious why not |
+| `src/` | **Product code (Lean). The SoT for the implementation.** Comments are only the non-obvious why not. `test/` holds its invariants; `tools/lean-test-gate.sh` is what runs them |
 | `e2e/micro/` | **The sample package** — a Lean package that does not depend on Mathlib, published at `https://fujiharuka.github.io/litedoc4/` and run by the gates. It holds, by construction, **the declaration shapes the target does not have** (→ `e2e/README.md`). **Its docstrings are published copy**; keep the gates' reasons in `/- … -/` comments |
-| `tools/*-gate.sh` | **Gates** = judgements that require hardware, the target, or a toolchain. `cargo test` holds only what depends on zero hardware |
+| `tools/*-gate.sh` | **Gates** = judgements that require hardware, the target, or a toolchain. `test/` holds only what depends on zero hardware |
 | `.claude/handoff.md` | Handoff between sessions (tracked, committed) |
 
 Lean-side builds borrow the environment of the measurement target repository via `lake env` —
 **no toolchain and no Mathlib live on the litedoc4 side**.
 
-**The Rust side builds with `cargo build` + node** (Rust 1.97.1 / rustup; node is pinned to
-24.19.0 by `mise.toml`). **Until 2026-08-19 it was "complete with `cargo build` alone"**
-(decided 2026-08-19, user's call) — because the site's JS became
-TypeScript and `crates/litedoc4-render/build.rs` came to run vite and bake `app.js` into
-`OUT_DIR`. **The artefact is not in the repository.**
-**Users do not pay for node** — the workspace is `publish = false`, and since 2026-08-31 nothing
-cargo builds is distributed at all (→ "Nothing is distributed as a binary" above). The ones who
-pay are those who build the Rust half, i.e. developers and CI (which is why every workflow that runs cargo, and the cargo path in
-`action.yml`, has `setup-node` — **`tools/workflow-gate.sh` checks that rule rather than a count**;
-the count was written down as 8, corrected to 7 and made 9 by two new workflows on the same day).
-**There is no fallback.** If node is absent, `build.rs` fails — "build it if it is there, use the
-committed one if not" makes 2 paths, so it is not taken.
+**The site's JavaScript is TypeScript, and node builds it** (pinned to 24.19.0 by `mise.toml`).
+`web/src` is bundled to `assets/app.js` and `assets/theme-boot.js`, which are **committed**, and
+`tools/gen-assets.py` writes their bytes into `src/Litedoc4/Assets.lean`. **Users do not pay for
+node**: a consumer builds `lean_exe litedoc4` and gets the committed bundle. The ones who pay are
+whoever edits `web/src` — `tools/assets-gate.sh` is the only thing in the tree that type-checks,
+tests, lints and rebuilds it, and it is the only place a committed bundle can be caught stale.
+**Every workflow that reaches something needing node has to install it**, and
+**`tools/workflow-gate.sh` checks that rule rather than a count** — the count was written down as
+8, corrected to 7 and made 9 by two new workflows on the same day.
 
 **`lakefile.lean` is kept** (2026-08-18) — so that users can use it with
 `require «litedoc4»`. **`lean-toolchain` is not kept, and this got stronger**:

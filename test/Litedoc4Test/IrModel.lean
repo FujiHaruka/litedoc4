@@ -47,10 +47,11 @@ def aSchema4ModuleSaysUnknownWhereASchema5OneSaysClean : Bool :=
 
 /-- The value this reader does not know is the one that must not read as
 `clean`: `clean` is a claim that the package has no holes, and an unreadable
-`sorry` is no evidence for it. Rust refuses the file outright
-(`base_ir.rs::an_unknown_sorry_value_is_rejected`); until this reader can refuse
-too, `unknown` is the honest answer and the wire value is kept so the refusal
-has something to name. What would falsify the choice: the reader gaining an
+`sorry` is no evidence for it. The Rust reader refused the file outright
+(`an_unknown_sorry_value_is_rejected` in
+`git show rust-frozen:crates/litedoc4-ir/tests/base_ir.rs`, in that tag and not
+in HEAD); until this reader can refuse too, `unknown` is the honest answer and
+the wire value is kept so the refusal has something to name. What would falsify the choice: the reader gaining an
 error path, at which point this becomes a refusal and moves to the R tranche. -/
 def anUnreadableSorryValueIsNotACleanOne : Bool :=
   let m := moduleOf 5 [declJson "Pkg.M.odd" ",\"sorry\":\"maybe\""]

@@ -8,9 +8,9 @@
 # does not carry, or the name whose fallback did not happen.
 #
 # A gate and not a test because it needs the measurement target, its toolchain,
-# the Lean extractor **and the network**, none of which `cargo test --workspace`
-# may reach. `deps_docs.rs`'s own tests read a declaration table from disk; what
-# they cannot ask is whether the other side's server agrees.
+# the Lean extractor **and the network**, none of which the test suite may reach.
+# `Litedoc4Test.DepsDocs` reads a declaration table from disk; what it cannot ask
+# is whether the other side's server agrees.
 #
 # **Both branches of the rule are checked**, because a gate that only checks the
 # first checks the half that is easy to get right.

@@ -10,9 +10,9 @@
 #   tools/impact-compare.sh /private/tmp/lean-doc-relay/m3c/before \
 #                           /private/tmp/lean-doc-relay/m3c/after
 #
-# `cargo test -p litedoc4-incr --test impact` makes the same comparison in
-# process, but not from HEAD: its corpus test reads the reference pages, and
-# `tools/corpus-tests.txt` lists that tree under `frozen`.
+# This is the only thing that makes this comparison. A Rust corpus test made it
+# in process and left with `crates/`; it read the same reference pages, so what
+# went is the in-process path, not the question.
 #
 # Four classes of file, compared four ways — **by suffix, never by name**:
 #

@@ -194,8 +194,8 @@ base_site () { # one command: `site` writes the pages, the six artifacts and the
     --link-index "$LIDX" --state "$3"
 }
 # `product` is `--extractor <program>` with `--extractor-arg` values in the order
-# the program sees them, before the three flags `pipeline.rs` appends (`--modules
-# --ir-dir --timings`). `resident` is not a program at all: `--serve` makes the
+# the program sees them, before the three flags `Litedoc4.Incr.Pipeline` appends
+# (`--modules --ir-dir --timings`). `resident` is not a program at all: `--serve` makes the
 # pipeline own one resident Lean environment for the whole run, so the binary,
 # the target and the job count are its own flags.
 case "$EXTRACTOR_IMPL" in

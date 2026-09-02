@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Do the Lean half's invariants hold?
 #
-# `cargo test --workspace` is what this replaces. There are two halves and one
-# target, because a `#guard` is checked by *elaborating* the module and an
-# `Invariant` is checked by *running* the executable:
+# This is the definition of green. There are two halves and one target, because a
+# `#guard` is checked by *elaborating* the module and an `Invariant` is checked
+# by *running* the executable:
 #
 #   compile time   `#guard <name>` in test/**. A broken one fails the build, so
 #                  the build succeeding is the whole check. They cost a consumer

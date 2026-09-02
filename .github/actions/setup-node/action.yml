@@ -1,13 +1,12 @@
 name: Set up node
 description: >
-  Install the node version `mise.toml` pins, so that cargo can run
-  `crates/litedoc4-render/build.rs`.
+  Install the node version `mise.toml` pins, for the jobs that run
+  `tools/assets-gate.sh`.
 
 # WHY THE VERSION IS READ AND NOT WRITTEN
-#   `crates/litedoc4-render/build.rs` bundles the site's TypeScript into
-#   `app.js`, so cargo cannot build this workspace without node — and thirteen
-#   jobs used to say so with their own copy of the version. One pin that
-#   everything reads cannot drift. Copies plus a gate reconciling them works
+#   `tools/assets-gate.sh` type-checks, tests and bundles the site's TypeScript,
+#   and thirteen jobs used to name the node version with their own copy. One pin
+#   that everything reads cannot drift. Copies plus a gate reconciling them works
 #   only while whoever adds the fourteenth copy remembers the gate exists, and
 #   `tools/assets-gate.sh` now fails on a literal version anywhere but
 #   `mise.toml` instead.

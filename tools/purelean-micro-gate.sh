@@ -8,20 +8,17 @@
 # Mathlib-depending Lean never produce. A comparison over the target alone is
 # green over every one of them.
 #
-# **The oracle was the Rust binary, and M10 deletes it.** What it wrote is frozen
-# under `e2e/micro-expected/`, minted from it while it was still there. Two arms,
-# and they are not the same claim:
+# **The oracle was the Rust binary, and it left with `crates/`.** What it wrote
+# is frozen under `e2e/micro-expected/`, minted from it while it was still there
+# — `git show rust-frozen:crates/litedoc4/src/main.rs` and the tree around it, in
+# that tag and not in HEAD. The 16 items read `e2e/micro-expected/` and the tree
+# and nothing else, so every one of them goes on being a question.
 #
-#   ITEMS     the Lean half writes the frozen bytes, and its own two paths agree
-#             wherever a second implementation was never needed to ask. This is
-#             the gate. It reads `e2e/micro-expected/` and the tree and nothing
-#             else, so all 16 items go on being questions once `crates/` is gone.
-#   RUST ARM  the frozen bytes are still what the Rust binary says, and the two
-#             halves still agree on the two things nothing can be frozen from.
-#             This one **expires at M10** — it is the check that the fixture did
-#             not rot while the oracle was still there to ask. A missing Rust
-#             binary is a skip **with the count it did not check**, never a pass:
-#             while `crates/` exists, `cargo build --bin litedoc4` is all it takes.
+# **One arm, and it used to be two.** The second asked whether the fixture was
+# still what the oracle said, and whether the two halves agreed on the two things
+# nothing can be frozen from. It is retired; the summary line says so by name,
+# because a one-armed run that printed nothing about it would read as the whole
+# gate.
 #
 # **Counted in both directions.** The items reconcile against 16 as they always
 # did, and the frozen files compared reconcile against the files in the fixture.
@@ -29,7 +26,7 @@
 # from two ends, and the second is the one a data-driven gate keeps being bitten
 # by: a comparison of two empty trees is `IDENTICAL`.
 #
-# **One normaliser — `normalise` — used by both arms and by `--mint`.** Only the
+# **One normaliser — `normalise`.** Only the
 # six text artefacts go through it; the trees are compared byte for byte. What it
 # replaces, and why each moves for a reason that is not the port's:
 #
@@ -195,25 +192,16 @@
 #               in the marker still plausible. It never had an oracle and does
 #               not have one now.
 #
-# Re-minting is `--mint`, and it takes the binary to mint from. **Mint from the
-# Rust half.** After M10 there is nothing to mint from, and minting from the Lean
-# half records whatever it does today, which is the question rather than the
-# answer — the one case where that is still the right move is an edit to
-# `e2e/micro` itself, and then only from a tree that was green immediately
-# before the edit. `--mint` refuses unless the two halves extract the same IR
-# and build the same link index, so a fixture is never minted on top of an input
-# only one of them agrees with.
+# **There is no `--mint`, and that is the point.** The fixture was minted from
+# the Rust half; re-minting it from the Lean half would record whatever the thing
+# under test does today, which is the question rather than the answer. An edit to
+# `e2e/micro` that legitimately moves the expected bytes is therefore an edit
+# somebody makes deliberately, from a tree that was green immediately before it.
 #
 # usage: purelean-micro-gate.sh [--out DIR] [--keep]
-#        purelean-micro-gate.sh --mint [--from PATH] [--out DIR] [--keep]
 #   --out   working directory (default: a temporary one, removed on success)
 #   --keep  do not remove a temporary --out
-#   --mint  rewrite e2e/micro-expected/ from --from
-#   --from  the binary --mint reads (default: the same as LITEDOC4)
 #
-#   LITEDOC4  the Rust litedoc4: the arm that expires, and what --mint reads
-#             (default target/release/litedoc4, else target/debug/litedoc4;
-#             absent is a skip, not a failure)
 #   LAKE      the lake executable (default: ~/.elan/bin/lake)
 #   PYTHON    the python3 items 8, 9 and 15 run their checks with (default python3)
 set -euo pipefail
@@ -233,22 +221,10 @@ LEAN_EXE="$ROOT/.lake/build/bin/litedoc4"
 DIFF_CMD=/usr/bin/diff
 
 # The five whole-package artifacts `build` and `site` write identically, and the
-# three assets only `build` writes. Named once: `stage_oracle` checks each one
-# really is a copy before leaving it out of the fixture, and item 10 puts it
-# back. A name that stops being a copy fails at both ends rather than being
-# frozen twice.
+# three assets only `build` writes. Named once: the mint checked each one really
+# was a copy before leaving it out of the fixture, and item 10 puts it back.
 BUILD_SHARED="declarations/name-map.json declarations/used-by.json instances.json modules.json search-index.bin"
 BUILD_ASSETS="app.js style.css favicon.svg"
-
-if [ -z "${LITEDOC4:-}" ]; then
-  if [ -x "$ROOT/target/release/litedoc4" ]; then
-    LITEDOC4="$ROOT/target/release/litedoc4"
-  elif [ -x "$ROOT/target/debug/litedoc4" ]; then
-    LITEDOC4="$ROOT/target/debug/litedoc4"
-  else
-    LITEDOC4=""
-  fi
-fi
 
 # Fixed, not derived from git: the URL is baked into every `source` link, and a
 # fixture whose expected bytes move with HEAD compares two checkouts as well as
@@ -262,14 +238,10 @@ BUILD_URL="https://github.com/FujiHaruka/litedoc4/blob/0000000000000000000000000
 
 OUT=""
 KEEP=0
-MINT=0
-FROM=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
-    --mint) MINT=1; shift ;;
-    --from) FROM="$2"; shift 2 ;;
     -h|--help) sed -n '/^# usage:/,/^set -/p' "$0" | sed 's/^# \{0,1\}//;$d'; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -282,30 +254,18 @@ done
 [ -f "$FIXTURE/lakefile.toml" ] || { echo "no consumer fixture at $FIXTURE" >&2; exit 2; }
 [ -d "$FROZEN" ] || { echo "no frozen output at $FROZEN — the items have nothing to compare against" >&2; exit 2; }
 
-if [ "$MINT" -eq 1 ]; then
-  mkdir -p "$FROZEN"
-else
   # A missing part of the fixture is an exit, not a failing item: `cp` of a
   # directory that is not there would abort the script somewhere further down,
   # under whichever item happened to reach it first.
   for part in render nolidx site build; do
     [ -d "$FROZEN/$part" ] ||
-      { echo "no $FROZEN/$part — the fixture is incomplete; re-mint it with --mint while a Rust litedoc4 exists" >&2; exit 2; }
+      { echo "no $FROZEN/$part — the fixture is incomplete; it is complete at tag rust-frozen" >&2; exit 2; }
   done
   # An empty fixture reconciles 0 against 0 and compares empty trees against
   # empty trees. Several items would still fail on their own counts, but this is
   # the shape itself, said once.
   [ "$( ( cd "$FROZEN" && find . -type f ! -name 'README.md' ) | wc -l | tr -d ' ')" -gt 0 ] ||
     { echo "$FROZEN holds no frozen file — every item below would compare against nothing" >&2; exit 2; }
-fi
-
-if [ "$MINT" -eq 1 ]; then
-  [ -n "$FROM" ] || FROM="$LITEDOC4"
-  if [ -z "$FROM" ] || [ ! -x "$FROM" ]; then
-    echo "purelean-micro-gate: --mint needs a Rust litedoc4 to mint from (--from <path>, or cargo build --bin litedoc4)" >&2
-    exit 2
-  fi
-fi
 
 if [ -z "$OUT" ]; then
   OUT="$(mktemp -d)"
@@ -437,80 +397,6 @@ else
   fi
 fi
 
-# Run the Rust binary through every flow the fixture holds and lay the results
-# out exactly as `e2e/micro-expected/` is laid out. `--mint` copies the result
-# in; the arm compares it. One body, so the two cannot drift — a rule the arm
-# applies and the mint does not is a fixture that can never match.
-stage_oracle () { # <dest> <work> <binary>
-  local dest="$1" work="$2" exe="$3" rc=0 f=""
-  rm -rf "$dest" "$work"
-  mkdir -p "$dest/render" "$dest/nolidx" "$dest/site" "$dest/build" "$work"
-
-  "$exe" render --ir "$IR" --pages "$dest/render" --source-url "$SOURCE_URL" \
-    --link-index "$LIDX" >"$work/render.out" 2>"$work/render.err" || rc=$?
-  [ "$rc" -eq 0 ] || { echo "oracle: render exited $rc — see $work/render.err" >&2; return 1; }
-  [ "$(html_count "$dest/render")" -gt 0 ] || { echo "oracle: render wrote no page" >&2; return 1; }
-  normalise "$work/render.out" "$dest/render" >"$dest/render.out"
-
-  rc=0
-  "$exe" render --ir "$IR" --pages "$dest/nolidx" --source-url "$SOURCE_URL" \
-    --no-link-index >"$work/nolidx.out" 2>"$work/nolidx.err" || rc=$?
-  [ "$rc" -ne 0 ] || { echo "oracle: --no-link-index exited 0 — e2e/micro no longer carries a name in no module, and there is no refusal to freeze" >&2; return 1; }
-  printf '%s\n' "$rc" >"$dest/nolidx.exit"
-  normalise "$work/nolidx.err" "$dest/nolidx" >"$dest/nolidx.err"
-
-  rc=0
-  "$exe" site --ir "$IR" --out "$work/site" --source-url "$SOURCE_URL" \
-    --link-index "$LIDX" >"$work/site.out" 2>"$work/site.err" || rc=$?
-  [ "$rc" -eq 0 ] || { echo "oracle: site exited $rc — see $work/site.err" >&2; return 1; }
-  normalise "$work/site.out" "$work/site" >"$dest/site.out"
-  # The pages are render's, and the fixture holds them once. Checked rather than
-  # assumed: if `site` ever writes a page `render` does not, leaving it out here
-  # would freeze a site that is missing it.
-  ( cd "$work/site" && find . -type f | sort ) >"$work/site-list.txt"
-  while IFS= read -r f; do
-    if [ -f "$dest/render/$f" ]; then
-      cmp -s "$work/site/$f" "$dest/render/$f" ||
-        { echo "oracle: site's $f is no longer render's — the fixture cannot hold the pages once" >&2; return 1; }
-    else
-      mkdir -p "$(dirname "$dest/site/$f")"
-      cp "$work/site/$f" "$dest/site/$f"
-    fi
-  done <"$work/site-list.txt"
-
-  rc=0
-  "$exe" build --root "$MICRO" --lib Example --out "$work/b" \
-    --extractor-bin "$EXTRACTOR" --source-url "$BUILD_URL" \
-    >"$work/build.out" 2>"$work/build.err" || rc=$?
-  [ "$rc" -eq 0 ] || { echo "oracle: build exited $rc — see $work/build.err" >&2; return 1; }
-  normalise "$work/build.out" "$work/b" >"$dest/build.out"
-  normalise "$work/b/litedoc4-build.json" "$work/b" >"$dest/marker.json"
-  for f in $BUILD_SHARED; do
-    cmp -s "$work/b/site/$f" "$dest/site/$f" ||
-      { echo "oracle: build's $f is no longer site's — take it out of BUILD_SHARED" >&2; return 1; }
-  done
-  for f in $BUILD_ASSETS; do
-    cmp -s "$work/b/site/$f" "$ROOT/assets/$f" ||
-      { echo "oracle: build's $f is no longer assets/$f — take it out of BUILD_ASSETS" >&2; return 1; }
-  done
-  ( cd "$work/b/site" && find . -type f | sort ) >"$work/build-list.txt"
-  while IFS= read -r f; do
-    case " $BUILD_SHARED $BUILD_ASSETS " in
-      *" ${f#./} "*) continue ;;
-    esac
-    mkdir -p "$(dirname "$dest/build/$f")"
-    cp "$work/b/site/$f" "$dest/build/$f"
-  done <"$work/build-list.txt"
-
-  rc=0
-  "$exe" ledger build --modules "$OUT/ledger-modules.txt" --target "$MICRO" \
-    --out "$work/ledger.json" --ir "$IR" --source-url "$SOURCE_URL" \
-    --link-index "$LIDX" --root "$MICRO" >"$work/ledger.out" 2>"$work/ledger.err" || rc=$?
-  [ "$rc" -eq 0 ] || { echo "oracle: ledger build exited $rc — see $work/ledger.err" >&2; return 1; }
-  normalise "$work/ledger.json" "$work/ledger.json" >"$dest/ledger.json"
-  return 0
-}
-
 # The module list both halves' `ledger build` is handed. Produced by the Lean
 # half for the same reason item 2 is: after M10 there is no other producer, and
 # two ledgers built over two different lists would differ for a reason that is
@@ -521,62 +407,6 @@ if [ "$extracted" -eq 1 ]; then
   "$LEAN_EXE" modules --root "$MICRO" --lib Example --out "$OUT/ledger-modules.txt" \
     >"$OUT/ledger-modules.log" 2>&1 || mod_rc=$?
   [ "$mod_rc" -eq 0 ] && [ -s "$OUT/ledger-modules.txt" ] && modules_ok=1
-fi
-
-if [ "$MINT" -eq 1 ]; then
-  say "mint"
-  if [ "$extracted" -ne 1 ] || [ "$modules_ok" -ne 1 ]; then
-    echo "purelean-micro-gate: --mint needs the sample's IR and module list; items 1 and 2 above say why" >&2
-    exit 1
-  fi
-  # The IR the fixture is minted over is the Lean half's, because that is the
-  # one the items will use. Minting on top of an extraction only one half agrees
-  # with would freeze the Rust renderer's answer to the wrong question.
-  rust_ir_rc=0
-  rm -rf "$OUT/mint-ir"
-  "$FROM" build --root "$MICRO" --lib Example --out "$OUT/mint-ir" \
-    --extractor-bin "$EXTRACTOR" --source-url "$BUILD_URL" >"$OUT/mint-ir.log" 2>&1 || rust_ir_rc=$?
-  if [ "$rust_ir_rc" -ne 0 ]; then
-    echo "purelean-micro-gate: --mint could not extract with $FROM (exit $rust_ir_rc) — see $OUT/mint-ir.log" >&2
-    exit 1
-  fi
-  if ! $DIFF_CMD -r "$OUT/mint-ir/ir" "$IR" >"$OUT/mint-ir.diff" 2>&1; then
-    echo "purelean-micro-gate: --mint refuses — the two halves extract different IR: $(head -1 "$OUT/mint-ir.diff")" >&2
-    exit 1
-  fi
-  if ! cmp -s "$OUT/mint-ir/link-index.lidx" "$LIDX"; then
-    echo "purelean-micro-gate: --mint refuses — the two halves build different link indexes: $(cmp "$OUT/mint-ir/link-index.lidx" "$LIDX" 2>&1 | head -1)" >&2
-    exit 1
-  fi
-  if ! stage_oracle "$OUT/mint" "$OUT/mint-work" "$FROM"; then
-    echo "purelean-micro-gate: --mint produced nothing; nothing was written" >&2
-    exit 1
-  fi
-  ( cd "$OUT/mint" && find . -type f | sed 's|^\./||' | sort ) >"$OUT/mint-list.txt"
-  ( cd "$FROZEN" && find . -type f ! -name 'README.md' | sed 's|^\./||' | sort ) >"$OUT/frozen-list.txt"
-  n_minted="$(wc -l <"$OUT/mint-list.txt" | tr -d ' ')"
-  [ "$n_minted" -gt 0 ] || { echo "purelean-micro-gate: --mint staged 0 files; nothing was written" >&2; exit 1; }
-  changed=0; added=0
-  while IFS= read -r f; do
-    if [ -f "$FROZEN/$f" ]; then
-      cmp -s "$OUT/mint/$f" "$FROZEN/$f" || changed=$((changed + 1))
-    else
-      added=$((added + 1))
-    fi
-  done <"$OUT/mint-list.txt"
-  /usr/bin/comm -23 "$OUT/frozen-list.txt" "$OUT/mint-list.txt" >"$OUT/mint-removed.txt"
-  removed="$(wc -l <"$OUT/mint-removed.txt" | tr -d ' ')"
-  find "$FROZEN" -mindepth 1 ! -name 'README.md' -delete
-  cp -R "$OUT/mint/." "$FROZEN/"
-  printf 'PURELEAN MICRO GATE: minted %s file(s) from %s — %s changed, %s added, %s removed\n' \
-    "$n_minted" "$FROM" "$changed" "$added" "$removed"
-  if [ "$removed" -gt 0 ]; then
-    sed 's/^/  removed /' "$OUT/mint-removed.txt"
-  fi
-  if [ "$TEMPORARY" -eq 1 ] && [ "$KEEP" -eq 0 ]; then
-    rm -rf "$OUT"
-  fi
-  exit 0
 fi
 
 say "3/16 the pages are the frozen bytes, and a trailing slash writes them again"
@@ -890,8 +720,8 @@ fi
 say "12/16 the Lean-built site passes config-gate, with the Lean half deriving"
 # `config-gate.sh` re-derives the three trees that write HTML and asks whether
 # the configured title reaches all of them. `LITEDOC4` is passed rather than left
-# to the gate's own default, which is `target/debug/litedoc4` — the binary that
-# is about to stop existing.
+# to the gate's own default, so that the binary under test here is the one this
+# gate built rather than whatever is at `.lake/build/bin`.
 if [ -n "$lean_built_site" ]; then
   cg_rc=0
   LITEDOC4="$LEAN_EXE" "$HERE/config-gate.sh" --root "$MICRO" --ir "$OUT/b-lean/ir" \
@@ -1039,81 +869,16 @@ else
   fail 16 "no binary or no IR — item 1 or 2 did not produce one"
 fi
 
-# The arm that expires at M10. Absent is a skip **with the number it did not
-# check** — a line that says nothing is how "green having checked nothing" reads
-# to whoever runs this next.
-say "rust arm — the fixture is still what the oracle says"
+# The arm that expired with `crates/`. It ran the oracle through the same
+# flows and compared its output against the fixture; there is nothing to run
+# it against now, and the line below says so rather than leaving a one-armed
+# run to read as the whole gate.
+say "oracle arm — retired with crates/"
 frozen_total="$( ( cd "$FROZEN" && find . -type f ! -name 'README.md' ) | wc -l | tr -d ' ')"
-rust_checked=0
-rust_live=0
-rust_problems=0
-rust_ran=0
-if [ -n "$LITEDOC4" ] && [ -x "$LITEDOC4" ] && [ "$extracted" -eq 1 ] && [ "$modules_ok" -eq 1 ]; then
-  rust_ran=1
-  if ! stage_oracle "$OUT/oracle" "$OUT/oracle-work" "$LITEDOC4"; then
-    echo "RUST ARM FAIL  the oracle could not be run through the flows the fixture holds" >&2
-    rust_problems=$((rust_problems + 1))
-  else
-    ( cd "$OUT/oracle" && find . -type f | sed 's|^\./||' | sort ) >"$OUT/oracle-list.txt"
-    while IFS= read -r f; do
-      if [ ! -f "$FROZEN/$f" ]; then
-        echo "RUST ARM FAIL  the oracle writes $f and the fixture does not hold it — re-mint" >&2
-        rust_problems=$((rust_problems + 1))
-      elif ! cmp -s "$OUT/oracle/$f" "$FROZEN/$f"; then
-        echo "RUST ARM FAIL  $f: the fixture is no longer what the oracle writes ($(cmp "$OUT/oracle/$f" "$FROZEN/$f" 2>&1 | head -1)) — re-mint" >&2
-        rust_problems=$((rust_problems + 1))
-      else
-        rust_checked=$((rust_checked + 1))
-      fi
-    done <"$OUT/oracle-list.txt"
-    if [ "$rust_checked" -ne "$frozen_total" ]; then
-      echo "RUST ARM FAIL  the oracle accounted for $rust_checked of the fixture's $frozen_total file(s)" >&2
-      rust_problems=$((rust_problems + 1))
-    fi
-  fi
-  # The two claims nothing can be frozen from, asked while there is still
-  # something to ask them of.
-  rm -rf "$OUT/rust-ir"
-  ir_rust_rc=0
-  "$LITEDOC4" build --root "$MICRO" --lib Example --out "$OUT/rust-ir" \
-    --extractor-bin "$EXTRACTOR" --source-url "$BUILD_URL" >"$OUT/rust-ir.log" 2>&1 || ir_rust_rc=$?
-  if [ "$ir_rust_rc" -ne 0 ]; then
-    echo "RUST ARM FAIL  the oracle's build exited $ir_rust_rc — see $OUT/rust-ir.log" >&2
-    rust_problems=$((rust_problems + 1))
-  elif ! $DIFF_CMD -r "$OUT/rust-ir/ir" "$IR" >"$OUT/rust-ir.diff" 2>&1; then
-    echo "RUST ARM FAIL  the two halves extract different IR: $(head -1 "$OUT/rust-ir.diff")" >&2
-    rust_problems=$((rust_problems + 1))
-  elif ! cmp -s "$OUT/rust-ir/link-index.lidx" "$LIDX"; then
-    # An input to every frozen page, and not under ir/: a link index the two
-    # halves disagree on renders two different sites out of one IR.
-    echo "RUST ARM FAIL  the two halves build different link indexes: $(cmp "$OUT/rust-ir/link-index.lidx" "$LIDX" 2>&1 | head -1)" >&2
-    rust_problems=$((rust_problems + 1))
-  else
-    rust_live=$((rust_live + 1))
-  fi
-  if [ -n "$lean_built_site" ]; then
-    cgr_rc=0
-    LITEDOC4="$LITEDOC4" "$HERE/config-gate.sh" --root "$MICRO" --ir "$OUT/b-lean/ir" \
-      --built "$lean_built_site" --link-index "$OUT/b-lean/link-index.lidx" \
-      --out "$OUT/config-rust" >"$OUT/config-gate-rust.txt" 2>&1 || cgr_rc=$?
-    if [ "$cgr_rc" -ne 0 ]; then
-      echo "RUST ARM FAIL  config-gate with the Rust half deriving: $(tail -1 "$OUT/config-gate-rust.txt" | cut -c1-120)" >&2
-      rust_problems=$((rust_problems + 1))
-    else
-      rust_live=$((rust_live + 1))
-    fi
-  else
-    echo "RUST ARM FAIL  there is no built site to run config-gate over — item 10 says why" >&2
-    rust_problems=$((rust_problems + 1))
-  fi
-fi
-if [ "$rust_ran" -eq 1 ]; then
-  printf 'rust arm       : %s of %s frozen file(s) match the oracle, %s of 2 live cross-check(s)\n' \
-    "$rust_checked" "$frozen_total" "$rust_live"
-else
-  printf 'rust arm       : did not run — %s frozen file(s) and 2 live cross-check(s) unchecked against the oracle.\n' "$frozen_total"
-  printf '                 Expected once crates/ is gone; before that, cargo build --bin litedoc4\n'
-fi
+printf 'oracle arm     : retired — the %s frozen file(s) were minted from the Rust litedoc4\n' "$frozen_total"
+printf '                 at tag rust-frozen, and nothing re-asks it. 2 live cross-checks\n'
+printf '                 (the two halves extract the same IR, and config-gate with the\n'
+printf '                 Rust half deriving) left with it.\n'
 
 say "summary"
 frozen_used="$(sort -u "$OUT/frozen-used.txt" | wc -l | tr -d ' ')"
@@ -1128,10 +893,6 @@ if [ "$ran" -ne "$ITEMS" ]; then
 fi
 if [ "$failed" -ne 0 ]; then
   echo "PURELEAN MICRO GATE: FAILED ($failed of $ITEMS)" >&2
-  exit 1
-fi
-if [ "$rust_problems" -ne 0 ]; then
-  echo "PURELEAN MICRO GATE: FAILED — $rust_problems problem(s) in the rust arm" >&2
   exit 1
 fi
 # Both directions: a frozen file no item reads is a fixture nobody is held to,
@@ -1150,4 +911,4 @@ if [ "$TEMPORARY" -eq 1 ] && [ "$KEEP" -eq 0 ]; then
   rm -rf "$OUT"
 fi
 echo
-echo "PURELEAN MICRO GATE: ok"
+echo "PURELEAN MICRO GATE: ok ($ran/$ITEMS items, $frozen_used/$frozen_total frozen files; the oracle arm is retired)"

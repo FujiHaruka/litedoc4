@@ -286,7 +286,7 @@ index = json.loads((root / "index.json").read_text(encoding="utf-8"))
 # `sorry` absent means "no sorry" **because the file says schema 5**. In a
 # schema-4 file the key could not exist at all, so the same absence would mean
 # "nobody was asked" — reading one as the other is the whole reason
-# litedoc4-ir's MIN_SCHEMA_VERSION moved with the writer.
+# `Litedoc4.Ir`'s minimum schema version moved with the writer.
 if index.get("schemaVersion") != 5:
     sys.exit(f"{root}/index.json: schemaVersion is {index.get('schemaVersion')!r}, not 5")
 
@@ -958,8 +958,8 @@ say "15/17 GATE 6 — one edited module does not re-render the package"
 #
 # Three assertions, and the first is the sharp one. **The map does not move**:
 # `link-index.lidx` is byte-identical across the edit, and it is the *cause* —
-# its SHA-256 is a `render_key` input (`litedoc4-incr/src/ledger.rs`) and a moved
-# render key overrides --mode to `all` (`litedoc4-incr/src/impact.rs`), so this
+# its SHA-256 is a `renderKey` input (`Litedoc4.Ledger`) and a moved render key
+# overrides --mode to `all` (`Litedoc4.Incr.Impact`), so this
 # fails on any extractor that writes the package's own declarations into the map.
 # **Fewer pages than modules** is the *effect*, an inequality rather than a
 # number, because the sample's import graph is allowed to grow. **The tree is a

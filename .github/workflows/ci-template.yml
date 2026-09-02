@@ -101,18 +101,7 @@ jobs:
             extractor-${{ hashFiles('package/lean-toolchain',
             'litedoc4/extractor/Extract.lean') }}
 
-      # Key prefixed per workflow so no other workflow's `restore-keys` can
-      # reach into it.
-      - name: cache the Rust build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            litedoc4/target
-          key: cargo-v2-${{ runner.os }}-template-${{ hashFiles('litedoc4/Cargo.lock') }}
-
-      # The template's fourth cache; `id:` is the one addition. The run has to
+      # The template's third cache; `id:` is the one addition. The run has to
       # be able to say whether it restored anything, because "extract was fast"
       # and "extract was skipped" are different claims that a timing alone cannot
       # tell apart.

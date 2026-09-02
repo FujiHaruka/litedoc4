@@ -13,7 +13,7 @@
 # week without anyone noticing: nothing ran it (§2 of the same log). A generator
 # with a --check nobody runs is a generator whose output has no oracle.
 #
-# A gate rather than a test because it needs deno, which `cargo test --workspace`
+# A gate rather than a test because it needs deno, which `tools/lean-test-gate.sh`
 # must not.
 #
 # usage: v8-gc-table-gate.sh

@@ -6,9 +6,9 @@ body:
     attributes:
       value: |
         Four of the fields below are things litedoc4 already prints. Pasting them
-        is faster than describing them, and they decide which half of the tool the
-        problem is in: the Lean extractor is compiled against **your** toolchain,
-        the rest is a binary that may have come from a release, a cache or cargo.
+        is faster than describing them, and they say which build you are running:
+        both the extractor and litedoc4 itself are compiled by Lake against
+        **your** toolchain, from the ref you pinned.
 
   - type: textarea
     id: what
@@ -22,9 +22,8 @@ body:
     attributes:
       label: litedoc4 --version
       description: >
-        Or, if you use the action, the tag you pinned — and the `binary-source`
-        output, which says whether the binary came from `release`, `cached` or `cargo`.
-      placeholder: "litedoc4 0.2.0 / binary-source=release"
+        Or, if you use the action, the tag you pinned.
+      placeholder: "litedoc4 1.3.0"
     validations:
       required: true
 

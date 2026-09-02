@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Is the site's TypeScript sound? — the half of `app.js` that `cargo` cannot see.
+# Is the site's TypeScript sound?
 #
-# `crates/litedoc4-render/build.rs` bundles `web/src` into cargo's `OUT_DIR` on
-# every build, so a **syntax** error already fails `cargo build`. Everything else
-# about that code is invisible to Rust: types, lint, format, and the tests over
-# the index reader, the ranking and the theme.
+# **Nothing else in the tree compiles `web/src` at all.** The executable carries
+# the *bundle* (`assets/app.js`, read into `src/Litedoc4/Assets.lean` by
+# `tools/gen-assets.py`), never the sources, so a syntax error in `web/src`
+# reaches nobody until a reader loads a page whose script does not run. This gate
+# is where that code is type-checked, linted, tested and bundled — all of it, or
+# none of it.
 #
-# A gate rather than a test because it needs node, which `cargo test --workspace`
-# must not. **Each stage has to be able to fail on its own** — a gate whose stages
-# all fail the same way is one stage wearing five hats — and the counts are
-# printed rather than assumed, because "vitest ran" and "vitest ran something"
-# are different claims.
+# A gate rather than part of the Lean test suite because it needs node, and
+# `tools/lean-test-gate.sh` must not. **Each stage has to be able to fail on its
+# own** — a gate whose stages all fail the same way is one stage wearing five
+# hats — and the counts are printed rather than assumed, because "vitest ran" and
+# "vitest ran something" are different claims.
 #
 # The last stage answers a different question from the rest: not "is this code
 # sound" but "is `assets/` what it builds". That is the first link of the chain
@@ -78,33 +80,21 @@ READERS="$(printf '%s\n' "$INSTALLERS" | grep -c . )"
 USES="$(grep -rc './.github/actions/setup-node' "$ROOT/.github" "$ROOT/action.yml" | awk -F: '{n+=$2} END{print n}')"
 echo "== node $PINNED, written once in mise.toml, read by $READERS installer(s), used at $USES site(s)"
 
-# `assets.rs` checks that every class the scripts assign is styled, and it names
-# the scripts one by one because `include_str!` takes a literal. A sixth file
-# that assigns a class would be scanned by nobody and the test would stay green.
-# Checked here rather than there for the same reason: Rust cannot glob at test
-# time. Drop this if that list ever stops being hand-written.
-ASSETS_RS="$ROOT/crates/litedoc4-render/src/assets.rs"
-LISTED="$(grep -o '"web/src/[a-z0-9-]*\.ts"' "$ASSETS_RS" | tr -d '"' | sed 's|web/src/||' | LC_ALL=C sort -u)"
-ASSIGNING="$(grep -l '\.className = "' "$WEB"/src/*.ts | xargs -n1 basename | LC_ALL=C sort -u)"
-if [ "$LISTED" != "$ASSIGNING" ]; then
-  echo "assets.rs scans a different set of scripts than the ones that assign a class:" >&2
-  echo "  < listed in assets.rs   > assigning a class" >&2
-  /usr/bin/diff <(printf '%s\n' "$LISTED") <(printf '%s\n' "$ASSIGNING") >&2 || true
-  exit 1
-fi
-echo "== $(printf '%s\n' "$LISTED" | wc -l | tr -d ' ') script(s) assign a class, and assets.rs scans exactly those"
-
-# …and every class those scripts assign has a rule in `style.css`. The failure is
+# Every class the scripts assign has a rule in `style.css`. The failure is
 # silent: a class renamed in `web/src` still renders and simply has no styling.
 #
 # Here and not beside the renderer's own version of this check, which is
-# `Litedoc4Test.RenderAssets` read off built pages: Lean has no `include_str!`
-# and `Litedoc4.Assets` carries the *bundle*, not the sources, so nothing on that
-# side can see a `.className =` at all.
+# `Litedoc4Test.RenderAssets` read off built pages: `Litedoc4.Assets` carries the
+# *bundle*, not the sources, so nothing on that side can see a `.className =` at
+# all.
+#
+# The scripts are **globbed**, not listed. A hand-written list of the files that
+# assign a class was the earlier shape and it needed a second check to reconcile
+# it; a glob cannot go stale when a sixth file arrives.
 #
 # Only the "assigned but not styled" direction. A class that stops being assigned
 # leaves an unused rule and breaks nothing, and recording the names to catch it
-# would put a second hand-written list beside the one above.
+# would put a hand-written list back.
 STYLE="$ROOT/assets/style.css"
 SCRIPTED="$(grep -ho '\.className = "[^"]*"' "$WEB"/src/*.ts \
   | sed 's/^\.className = "//; s/"$//' | tr ' ' '\n' | grep . | LC_ALL=C sort -u)"
@@ -168,7 +158,7 @@ npm run build >/dev/null
 BYTES="$(wc -c < dist/app.js | tr -d ' ')"
 GZIP="$(gzip -c dist/app.js | wc -c | tr -d ' ')"
 BOOT="$(wc -c < dist/theme-boot.js | tr -d ' ')"
-# theme-boot is per *page*: `frame.rs` inlines it into every `<head>`.
+# theme-boot is per *page*: `Litedoc4.Render.Frame` inlines it into every `<head>`.
 echo "   dist/app.js $BYTES B, gzip $GZIP B; dist/theme-boot.js $BOOT B (inlined per page)"
 
 echo "== assets/ is this bundle"
@@ -195,8 +185,8 @@ if [ -n "$STALE" ]; then
 fi
 echo "   assets/app.js and assets/theme-boot.js are byte for byte this build"
 
-# `dist/` is the by-hand output path; the one that reaches the binary is cargo's
-# OUT_DIR, written by build.rs from these same sources.
+# `dist/` is scratch: what reaches the executable is `assets/`, compared against
+# it just above.
 rm -rf dist
 
 if [ -n "$JSON" ]; then

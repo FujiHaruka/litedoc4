@@ -3,13 +3,13 @@
 # The companion of `tools/refusals.txt`, read by the same `tools/refusal-gate.sh`:
 # one normaliser, one usage block, one count reconciliation across both files.
 # A row here carries the fixture it is run against; the fixture is rebuilt in a
-# directory of its own before every run of that row, by both arms and by
-# `--mint`.
+# directory of its own before every run of that row.
 #
-# **Written by `tools/refusal-gate.sh --mint --from <rust litedoc4>`**, except
-# for the `@case`, fixture and `argv` lines, which are written by hand, and
-# except for the `rust-differs` rows, whose bodies are written by hand from the
-# Lean binary and which minting leaves alone.
+# **Minted from the Rust `litedoc4` at tag `rust-frozen`**, except for the
+# `@case`, fixture and `argv` lines, which were written by hand, and except for
+# the `rust-differs` rows, whose bodies were written by hand from the Lean binary
+# and which the mint left alone. **There is no minter any more** — see
+# `tools/refusals.txt`.
 #
 # FORMAT — everything `tools/refusals.txt` has, plus these, all optional and all
 # written before `argv`:
@@ -20,12 +20,13 @@
 #                       file ends with a newline
 #   exec <relpath>      chmod +x a file this case already wrote
 #   git <args...>       run git inside the case directory
-#   rust-differs <why>  the Rust half words this refusal differently and the two
-#                       cannot be made to agree — two independent parsers, or a
-#                       defect on one side that is not fixed yet. The **lean**
-#                       arm checks the row as normal; the rust arm skips it and
-#                       names it in its summary; `--mint` leaves it alone. <why>
-#                       is what Rust says instead, and it is required
+#   rust-differs <why>  the retired Rust oracle worded this refusal differently
+#                       and the two could not be made to agree — two independent
+#                       parsers, or a defect on one side. The row is checked as
+#                       normal; the gate counts these in its summary so the
+#                       record of where the two parted stays a field something
+#                       reads. <why> is what Rust said instead, and it is
+#                       required
 #   stdout-not-frozen <why>
 #                       this run reports progress before it refuses, so the row
 #                       freezes stderr only. Required for any row that writes to
@@ -34,9 +35,9 @@
 #
 # `<varies>` inside a body line matches any text, possibly empty, at that point.
 # It is for text that is not this program's — an OS `strerror`, a third-party
-# parser's message — and it is written **by hand**: `--mint` keeps it and checks
-# that the segments around it still match, and fails rather than replace it with
-# today's text.
+# parser's message — and it is written **by hand**. The mint kept it and checked
+# that the segments around it still matched rather than replacing it with the
+# day's text; anything that rewrites a body owes the same.
 #
 # The argv of a row names its files relatively wherever the product does not
 # canonicalize them, so that the frozen message carries no absolute path.

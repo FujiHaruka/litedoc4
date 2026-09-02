@@ -1,10 +1,10 @@
 /- The refusal's name list, the schema a merged tree may claim, and the order
 `--modules` imposes.
 
-Nothing here states that a nested JSON object keeps its key order. Rust needs a
-test for it because `preserve_order` is a cargo feature a build can lose; here
-`JVal.obj` is an `Array (String × JVal)` and `MergeIndexEntry.raw` is the parsed
-value itself, so the order is the type's and there is nothing left to check. -/
+Nothing here states that a nested JSON object keeps its key order: `JVal.obj` is
+an `Array (String × JVal)` and `MergeIndexEntry.raw` is the parsed value itself,
+so the order is the type's and there is nothing left to check. A reader whose
+map type does not order keys needs a test for it instead. -/
 import Litedoc4.Incr.Merge
 import Litedoc4Test.IncrFixture
 

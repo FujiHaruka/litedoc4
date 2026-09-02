@@ -27,9 +27,10 @@
 #     --ir /private/tmp/lean-doc-relay/w7h/base-ir --pages /tmp/lean-pages \
 #     --source-url "$URL" --link-index /private/tmp/lean-doc-relay/w7c/linkindex/link-index.lidx
 #
-# `cargo test -p litedoc4-render --test pages` makes the same comparison in
-# process against a committed fixture, and pins the one page where md4c disagrees
-# so that a second divergence fails.
+# This is the only thing that makes this comparison. A Rust corpus test made it
+# in process against `fixtures/render/pages-expected.json`, pinning the one page
+# where md4c disagrees so that a second divergence failed; it left with
+# `crates/`, and that fixture now has no reader.
 
 set -uo pipefail
 

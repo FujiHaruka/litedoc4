@@ -7,15 +7,14 @@ happens to the files — whether every class a page emits is styled, and whether
 writing them twice leaves the same bytes — run: the first renders pages, which
 means Markdown, and the second writes a tree.
 
-**The scripted half of `every_class_the_renderer_emits_is_styled` is not here.**
-That test also read `web/src/*.ts` for `x.className = "…"`, and Lean has no
-`include_str!` — `Litedoc4.Assets` carries the *bundle*, not the sources.
-`tools/assets-gate.sh` already reconciles which scripts assign a class; it is
-where the "and every one of them is styled" half has to go when `crates/` leaves.
+**The scripted half is not here, and cannot be.** Every class `web/src/*.ts`
+assigns must be styled too, and Lean has no `include_str!` — `Litedoc4.Assets`
+carries the *bundle*, not the sources. `tools/assets-gate.sh` holds that half:
+it globs the scripts and checks each class it finds against `style.css`.
 
-`the_frame_only_names_assets_that_are_written` and
-`the_committed_bundles_match_what_build_rs_bundled` are the site gate's and
-`tools/assets-gate.sh`'s. -/
+Two more questions are elsewhere on purpose: whether the frame only names assets
+something writes is the site gate's, and whether `assets/` is what `web/src`
+bundles to is `tools/assets-gate.sh`'s. -/
 import Litedoc4.Build
 import Litedoc4Test.Basis
 import Litedoc4Test.RenderPage
@@ -106,7 +105,7 @@ is where a class on only one branch shows up — which is why the fixture carrie
 an inherited field, a named constructor and a `sorry` flag.
 
 The docstrings are plain prose on purpose. A heading or a fenced block makes
-`litedoc4-md` emit classes of its own (`markdown-heading`, `hover-link`,
+`Litedoc4.Md` emit classes of its own (`markdown-heading`, `hover-link`,
 `language-…`), and those are that half's to style, not this one's. What would
 falsify the choice: the stylesheet taking those names over. -/
 def everyClassTheRendererEmitsIsStyled : Invariant where

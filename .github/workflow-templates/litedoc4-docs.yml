@@ -14,11 +14,13 @@
 #   verbatim and points them at a package generated in the job, because litedoc4
 #   has no Lean package of its own and creating one elsewhere was ruled out.
 #
-#   Covered there, which is exactly the list this note used to call unverified:
-#   the actions' versions and inputs, all three cache keys, the elan install,
-#   `lake exe cache get`, and the single `ci-build.sh` call — 13 modules, 23
-#   files, `docs` 2.510 s inside a 52.647 s job (`cache-get` 5.312, `lake build`
-#   4.945, extractor built 15.882, cargo built 23.932).
+#   Covered there: the actions' versions and inputs, the cache keys, the elan
+#   install, `lake exe cache get`, and the single `ci-build.sh` call — 13
+#   modules, 23 files, `docs` 2.510 s inside a 52.647 s job (`cache-get` 5.312,
+#   `lake build` 4.945, extractor built 15.882, cargo built 23.932). That run
+#   still built a Rust half, which is where its `cargo built 23.932` comes from;
+#   nothing in this template builds one now, and the other numbers are unchanged
+#   by that (measured 2026-08-16).
 #
 #   Still not run **in this shape**: the `push:` trigger, and the first checkout
 #   — in a user's repository that is the caller's own repo, while the validation
@@ -51,7 +53,7 @@
 #   working set. One job does not have to ask that question.
 #
 # ============================================================================
-# THE FOUR CACHES, AND WHAT EACH IS KEYED ON
+# THE THREE CACHES, AND WHAT EACH IS KEYED ON
 # ============================================================================
 #   ~/.cache/mathlib   what `lake exe cache get` downloads. Keyed on
 #                      lake-manifest.json: the manifest pins the revisions, so
@@ -63,7 +65,6 @@
 #                      so it survives every ordinary commit. Building it costs
 #                      14.90 s on an M1 with a warm cache (measured); the reason to
 #                      cache it is that it never changes, not that it is slow.
-#   cargo + target     the Rust side. Keyed on Cargo.lock, which pins it.
 #   docs-out           **the documentation state** — the IR, the ledger and the
 #                      site of the previous run. This is the one that makes the
 #                      incremental path reachable at all: without it every run
@@ -72,7 +73,7 @@
 #                      commit with a rolling prefix, so a run restores the most
 #                      recent state it can find and writes its own.
 #
-#   The first three are not required for correctness and each is restored into
+#   The first two are not required for correctness and each is restored into
 #   the job that uses it; the one that decides the job's order of magnitude is
 #   Mathlib's, since without it the package builds Mathlib from source.
 #
@@ -159,15 +160,6 @@ jobs:
             extractor-${{ hashFiles('package/lean-toolchain',
             'litedoc4/extractor/Extract.lean') }}
 
-      - name: cache the Rust build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            litedoc4/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('litedoc4/Cargo.lock') }}
-
       # The previous run's documentation state. `key` is unique per commit so
       # every run writes its own entry; `restore-keys` is the prefix, so a run
       # restores the newest state that exists rather than only an exact match.
@@ -189,7 +181,7 @@ jobs:
           restore-keys: |
             litedoc4-docs-
 
-      # ONE step: dependencies, `lake build`, the extractor, the Rust binary and
+      # ONE step: dependencies, `lake build`, the extractor, litedoc4 itself and
       # the site, in that order and in this job. Everything the command needs
       # beyond these two paths it derives itself — the libraries from the
       # lakefile, the modules from the source glob, the source URL from git, and

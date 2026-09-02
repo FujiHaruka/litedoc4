@@ -3,8 +3,8 @@ dump-ast.lean -- print MD4Lean's own AST for a corpus of docstrings.
 
 WHY THIS FILE EXISTS
 --------------------
-`tests/md4lean.rs` checks that this crate's parser builds the same tree as
-`MD4Lean.parse`, which is the tree doc-gen4 renders. An expected value derived
+`fixtures/md/md4lean-expected.json` records the tree `MD4Lean.parse` builds,
+which is the tree doc-gen4 renders. An expected value derived
 from reading `wrapper.c` would prove nothing: both sides would share whatever
 mistake the reading made. So the expected values are produced here, by running
 MD4Lean itself under Lean, against the flags doc-gen4 uses.

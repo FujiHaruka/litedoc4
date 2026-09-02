@@ -1,6 +1,6 @@
 # Everything here runs on a machine that has never seen the measurement target.
 # Anything needing Mathlib stays a manual gate (tools/target2-gate.sh,
-# tools/corpus-gate.sh): a check that cannot run on a fresh runner is a gate,
+# tools/base-ir-gate.sh): a check that cannot run on a fresh runner is a gate,
 # not a test.
 name: CI
 
@@ -16,18 +16,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  CARGO_TERM_COLOR: always
-  # CI builds once from a restored cache and throws the machine away, so the
-  # incremental state is only ever written, cached and restored, never read
-  # back. Locally it was 3.5 GB of a 7.2 GB `target/`, and the cargo cache is
-  # what pushed this repository to 98.8% of the 10 GiB limit.
-  CARGO_INCREMENTAL: 0
-  RUST_BACKTRACE: 1
-
 jobs:
   test:
-    name: test (no corpus, no Lean)
+    name: the tree checks itself (no target, no Lean)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -35,83 +26,11 @@ jobs:
 
       - uses: ./.github/actions/setup-node
 
-      # Before the Rust half: thirty seconds against cargo's ten minutes, and
-      # `cargo build` cannot even start if the TypeScript does not bundle.
+      # The only thing in the tree that compiles `web/src` at all: the executable
+      # carries the bundle, never the sources.
       - name: Assets gate (the site's TypeScript)
         run: tools/assets-gate.sh --json "$RUNNER_TEMP/assets.json"
 
-      # `rustup show` is what makes rustup act on rust-toolchain.toml.
-      - name: Install the toolchain rust-toolchain.toml asks for
-        run: |
-          rustup show
-          rustc --version
-          cargo --version
-
-      # No `restore-keys`, and the key names the job. A `cargo-<os>-` fallback
-      # makes the entry a ratchet: a new Cargo.lock restores the previous
-      # generation's `target/`, builds on top of it and saves the union, so the
-      # entry grows every time the lockfile moves — 72 MB → 2177 MB over three
-      # days, 8.47 GiB of the repository's 10 GiB cache limit, 63 s to restore
-      # in a job whose build was 14 s. Cutting the fallback means a lockfile
-      # change builds cold, which is cheap at 34 packages. A key not naming the
-      # job is shared with `e2e-micro` (one binary) and ci-template.yml (whose
-      # `target/` is at another path), so whichever job saved last decided what
-      # the others got back. `rust-toolchain.toml` joins the hash because a
-      # channel bump invalidates every artifact in `target/` anyway.
-      #
-      # What the cache buys is not measurable: warm and cold, n=4 each on
-      # identical sources, put this job at the same 61.0 s mean. It stays
-      # because it is cheap and correct, not because it was shown to pay
-      # (measured → benchmarks/results/ci-cache-2026-08-19.txt).
-      - name: Cache cargo registry and build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: cargo-v2-${{ runner.os }}-ci-test-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-
-      - name: Format
-        run: cargo fmt --all --check
-
-      # Which lints are on is `[workspace.lints]` in the root Cargo.toml, not
-      # this line, so a local `cargo check` says the same thing this job says;
-      # all that happens here is the promotion to an error. Do not add `-W` here
-      # — it would be a gate invisible from the working tree.
-      #
-      # `--all-targets` so that tests and benches are linted too: most of this
-      # workspace's code by line count is tests.
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      # An unresolved `[`Foo`]` is a doc comment still naming code that moved.
-      # Comments are rare here and carry why-not, so a broken link is a stale
-      # pointer, not a formatting slip — this is the one kind of comment rot a
-      # machine can catch.
-      #
-      # `--document-private-items` because nothing outside this repository
-      # consumes these crates, so most of what a link can name is private;
-      # `private_intra_doc_links` is allowed for the same reason.
-      - name: Rustdoc links
-        run: cargo doc --workspace --no-deps --document-private-items
-        env:
-          RUSTDOCFLAGS: -D warnings -A rustdoc::private_intra_doc_links
-
-      # A dependency nobody imports is still a crate to compile and still an
-      # entry in what `cargo deny` has to vouch for.
-      - uses: taiki-e/install-action@cargo-machete
-      - name: Unused dependencies
-        run: cargo machete
-
-      # `--no-fail-fast`: one red crate must not hide the state of the others.
-      - name: Test
-        run: cargo test --workspace --no-fail-fast
-
-      # The corpus tests are `#[ignore]`d rather than run here; this asserts the
-      # set of them is exactly the set the gate knows about, so neither side can
-      # drift and a test cannot quietly stop running.
       # Reads files, nothing else: no binary, no toolchain, no target. The names
       # it checks are the ones a consumer's own workflow, `litedoc4.toml` or
       # script can contain, so a rename here is a broken file in someone else's
@@ -119,10 +38,9 @@ jobs:
       - name: The 1.x surface is all still there
         run: tools/public-surface-gate.sh
 
-      # Three claims about the workflows themselves: the gate inventory covers
-      # every gate, the ci/manual labels are true, and nothing runs cargo without
-      # node. The last one replaces a count that lived in prose and was wrong
-      # twice in one day.
+      # Four claims about the workflows themselves: the gate inventory covers
+      # every gate, the ci/manual labels are true, nothing that needs node runs
+      # without installing it, and no gate prints a heading the shell would eat.
       - name: The workflows do what the tree says they do
         run: tools/workflow-gate.sh
 
@@ -131,77 +49,39 @@ jobs:
       - name: Citations resolve
         run: tools/docs-gate.sh
 
-      # The site's static files live in `assets/` and are read twice: by Rust
-      # with `include_str!`, and by the generated `src/Litedoc4/Assets.lean`
-      # that carries them as Lean string literals. Two copies of a stylesheet is
-      # the shape where only one of them is ever fixed. The vite half of the
-      # chain is checked by a unit test instead, because build.rs has already
-      # run vite by then.
+      # The site's static files live in `assets/` and the generated
+      # `src/Litedoc4/Assets.lean` carries them as Lean string literals. Two
+      # copies of a stylesheet is the shape where only one of them is ever
+      # fixed. The vite half of the chain is the assets gate's, above, because
+      # it is the only job that has already run vite.
       - name: One answer to what the assets are
         run: tools/assets-embed-gate.sh
-
-      - name: Verify the corpus gate's inventory
-        run: tools/corpus-gate.sh --verify-list
 
       # This repository is public, so Apache-2.0 §4 is live: what this stops is
       # a refactor deleting an attribution that is legally load-bearing.
       - name: Provenance
         run: tools/provenance-gate.sh
 
-  # Until 2026-08-29 no job had ever compiled this tree on aarch64, and two
-  # things were waiting there
-  # (measured → benchmarks/results/arm64-linux-runner-2026-08-29.txt): three
-  # clippy findings at one line, because `c_char` is unsigned here and signed on
-  # every machine that had run clippy; and three unit tests that read the
-  # machine's Lean toolchain off `PATH`, which is green wherever elan has no
-  # default toolchain and red where it has one.
+  # aarch64, because that is where `char` is unsigned and every other machine
+  # this tree is compiled on has it signed. The C is `vendor/md4c/md4c.c` and
+  # `csrc/md_events.c`, which Lake compiles into the executable, so the question
+  # is live: when this job was first added it found two defects on its first run
+  # (measured 2026-08-29 -> benchmarks/results/arm64-linux-runner-2026-08-29.txt).
   #
-  # **Lints and tests only.** The gates, the licences and the TypeScript are
+  # **The invariants only.** The gates, the licences and the TypeScript are
   # architecture-blind, and running them twice would buy a slower CI and the
-  # same answer. What this job is for is the code that is allowed to differ.
+  # same answer.
   test-arm64:
-    name: aarch64 (lints and tests)
+    name: aarch64 (the Lean invariants)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
+      - uses: ./.github/actions/setup-elan
 
-      - name: Install the toolchain rust-toolchain.toml asks for
-        run: |
-          rustup show
-          rustc --version
-
-      # `runner.arch` and not just `runner.os`: `Linux` names both runners, and a
-      # key that cannot tell them apart hands this job the x86_64 job's `target/`.
-      - name: Cache cargo registry and build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: cargo-v2-${{ runner.os }}-${{ runner.arch }}-ci-test-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: Test
-        run: cargo test --workspace --no-fail-fast
-
-  # The tree we pull in, as opposed to the attributions we wrote (which the test
-  # job checks). Policy is deny.toml.
-  supply-chain:
-    name: supply chain (licences, advisories)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check
+      - name: The Lean half's invariants
+        run: tools/lean-test-gate.sh
 
   # `deno run` strips types rather than checking them, so nothing else in CI
   # looks at the measurement tooling's TypeScript at all.
@@ -240,10 +120,9 @@ jobs:
       - name: Re-derive src/Litedoc4/Global/V8GcTable.lean
         run: tools/v8-gc-table-gate.sh
 
-  # The only job that runs a real Lean environment. Every test in the job above
-  # fakes the extractor, so nothing there checks the contract between
-  # `extractor/Extract.lean` and the Rust side: change what the extractor writes
-  # and the whole test job stays green.
+  # The only job here that runs a real Lean environment. The job above reads the
+  # tree and never runs the extractor, so nothing there checks the contract
+  # between `extractor/Extract.lean` and what consumes its IR.
   e2e-micro:
     name: e2e (real extractor, no Mathlib)
     runs-on: ubuntu-latest
@@ -251,32 +130,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
-
-      - name: Install the toolchain rust-toolchain.toml asks for
-        run: rustup show
-
-      # Keyed per job and without `restore-keys` — see the note in `test`. This
-      # job builds one binary; `test` builds --all-targets, so a shared key
-      # would have them overwriting each other's entry.
-      - name: Cache cargo registry and build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: cargo-v2-${{ runner.os }}-ci-e2e-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-
       # Lean core only. The sample depends on nothing else, which is what keeps
       # this job to minutes instead of the gigabytes Mathlib would cost.
       - uses: ./.github/actions/setup-elan
 
-      - name: Build the Rust CLI
-        run: cargo build --bin litedoc4
-
-      - name: Build the Lean CLI
+      - name: Build the CLI
         run: tools/build-lean-exe.sh --toolchain-from e2e/micro
 
       - name: End to end

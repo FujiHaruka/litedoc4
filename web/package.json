@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The TypeScript behind the generated site's app.js. Built by build.rs; never published.",
+  "description": "The TypeScript behind the generated site's app.js. Bundled into assets/app.js; never published.",
   "scripts": {
     "build": "vite build && vite build --config vite.boot.config.ts",
     "test": "vitest run",

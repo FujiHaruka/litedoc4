@@ -208,7 +208,7 @@ base_site () { # one command: `site` writes the pages, the six artifacts and the
     --link-index "$LIDX" --state "$3"
 }
 # `--extractor-arg` values are in the order the program sees them, before the
-# three flags `pipeline.rs` appends (`--modules --ir-dir --timings`) — the same
+# three flags `Litedoc4.Incr.Pipeline` appends (`--modules --ir-dir --timings`) — the same
 # spelling tools/incremental-reference.sh's `--extractor product` uses, so the two
 # harnesses drive the extraction identically.
 pipeline () {

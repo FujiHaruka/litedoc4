@@ -3,6 +3,9 @@
  * `test/Litedoc4Test/GlobalSearchIndex.lean`'s `searchCases`.
  * **Nothing here encodes anything**: a second encoder would agree with the
  * first about their shared mistakes and the tests would pass anyway.
+ *
+ * Nothing regenerates these bytes either. A change to `searchCases` has to be
+ * carried in by hand, and the tests below are what fail if it is not.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

@@ -1,12 +1,10 @@
 # Every tools/*-gate.sh, and who runs it.
 #
-# `tools/corpus-gate.sh --verify-list` does this for `#[ignore]`d tests, for the
-# reason that applies here too: a check nobody runs and a list naming a check
-# nobody wrote are the same bug from two ends. There was no equivalent for the
-# gates themselves, and it cost — `build-gate.sh` had never once been run over
-# the target (measured 2026-08-28, fixed 2026-08-29), and `clone-gate.sh` still
-# carried the module count and the whole-package artefact names of a tree from
-# before the UI was rewritten.
+# A check nobody runs and a list naming a check nobody wrote are the same bug
+# from two ends. There was no inventory for the gates themselves, and it cost —
+# `build-gate.sh` had never once been run over the target (measured 2026-08-28,
+# fixed 2026-08-29), and `clone-gate.sh` still carried the module count and the
+# whole-package artefact names of a tree from before the UI was rewritten.
 #
 # COLUMN 2 — `ci` means a workflow invokes it, and `tools/workflow-gate.sh`
 # checks that it really does. `manual` means it needs the measurement target, a
@@ -26,10 +24,9 @@ browser-gate.sh              ci      a headless Chrome and a built site
 build-gate.sh                manual  the target, an APFS clone of it, a reference IR and a .lidx
 clone-gate.sh                manual  the same clone; produces build-gate's reference
 config-gate.sh               ci      a built site (e2e-micro calls it)
-corpus-gate.sh               ci      nothing for --verify-list; the corpus for the rest
 deps-docs-gate.sh            manual  a package whose dependency docs are published
 docs-gate.sh                 ci      nothing; reads the tracked files
-flag-tie-gate.sh             ci      a built litedoc4 to hand every documented flag to; elan builds the Lean one
+flag-tie-gate.sh             ci      elan, which builds the litedoc4 every documented flag is handed to
 gc-table-gate.sh             manual  deno for the emitter arm; UnicodeBasic in the target for the arm that re-asks the ranges, and it arrives only with doc-gen4
 lake-package-gate.sh         ci      elan and e2e/consumer
 lean-test-gate.sh            ci      elan and a Lean package to borrow a toolchain from
@@ -39,10 +36,10 @@ onemod-gate.sh               ci      a built site (e2e-micro calls it)
 pinned-dep-gate.sh           ci      elan, e2e/micro and e2e/micro-dep as a git require
 provenance-gate.sh           ci      nothing; reads the tree
 public-surface-gate.sh       ci      nothing; reads the tree
-purelean-gate.sh             ci      elan, e2e/consumer, and a built Rust litedoc4 to compare --version with
-purelean-micro-gate.sh       ci      elan, e2e/micro, e2e/consumer, and e2e/micro-expected as the frozen oracle; a Rust litedoc4 only for the arm that expires
-purelean-render-gate.sh      manual  the target's IR and .lidx, elan, and tools/purelean-render-expected as the frozen oracle; a Rust litedoc4 only for the arm that expires
-refusal-gate.sh              ci      elan for the Lean half; the Rust litedoc4 too, while there still is one
+purelean-gate.sh             ci      elan and e2e/consumer
+purelean-micro-gate.sh       ci      elan, e2e/micro, e2e/consumer, and e2e/micro-expected as the frozen oracle
+purelean-render-gate.sh      manual  the target's IR and .lidx, elan, and tools/purelean-render-expected as the frozen oracle
+refusal-gate.sh              ci      elan; the two frozen data files are the oracle
 site-gate.sh                 ci      a built site
 target2-gate.sh              manual  a second synthetic package on the target's Mathlib revision
 usedby-gate.sh               ci      a built site (e2e-micro calls it)

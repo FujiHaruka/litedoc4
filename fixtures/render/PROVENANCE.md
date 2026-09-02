@@ -3,6 +3,15 @@
 JSON cannot carry a comment, so the attribution for the generated fixtures in
 this directory lives here.
 
+> **Nothing reads these files.** Their readers were Rust tests and left with
+> `crates/` on 2026-09-02 (`git show rust-frozen:crates/litedoc4-render/tests/`,
+> in that tag and not in HEAD). They are kept because
+> `docgen4-linked-expected.json` is an attribution subject — `NOTICE` names it as
+> doc-gen4's output — and because the four prototype-derived ones cannot be
+> regenerated in HEAD at all. **Read them as a record, not as something being
+> checked**, and see `docs/verification-log.md`, "M10 step E", for what still
+> asks the same questions.
+
 `docgen4-linked-expected.json` is the output of **doc-gen4's** `docStringToHtml`
 with link resolution, produced by `tools/oracle/dump-html-linked.lean`
 (`import DocGen4.Output.DocString`). doc-gen4 is licensed under the Apache
@@ -57,12 +66,11 @@ ones.** One probe is gone rather than reworded: "an attribute block ending in a
 newline" stood for the prototype's single unflattened element, and this renderer
 flattens everything.
 
-**Regenerate rather than edit**, with the printout as the review:
-
-    LITEDOC4_BLESS=1 cargo test -p litedoc4-render --test page_parts
-
-It refuses to run if re-serialising the file does not reproduce it byte for byte,
-so a regeneration cannot become a whole-file rewrite nobody can read.
+Its regenerator was a `LITEDOC4_BLESS=1` run of the Rust test that read it, and
+it left with the rest. It refused to run if re-serialising the
+file did not reproduce it byte for byte, so a regeneration could not become a
+whole-file rewrite nobody can read; anything that regenerates this file again
+owes the same property.
 
 ## The prototype's regenerators are gone — `page-parts` has one of its own
 

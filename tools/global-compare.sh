@@ -15,8 +15,9 @@
 #   ./.lake/build/bin/litedoc4 global --ir <ir> --out /tmp/global-after
 #   tools/global-compare.sh /tmp/global-before /tmp/global-after
 #
-# `cargo test -p litedoc4-global --test global` makes the same comparison in
-# process against a committed fixture.
+# This is the only thing that makes this comparison. A Rust corpus test made it
+# in process against `fixtures/global/`, and left with `crates/`; that fixture is
+# still committed and now has no reader.
 #
 # **The union of both trees, never a list of names.** Until 2026-08-31 this
 # script carried its own list of six artifacts, five of which were doc-gen4's

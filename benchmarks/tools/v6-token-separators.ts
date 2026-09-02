@@ -15,9 +15,8 @@
 // code span** in the target package's declaration docstrings.
 //
 // V8's answer is taken from this runtime. UnicodeBasic's is read out of
-// `crates/litedoc4-md/src/gc.rs`, which is generated from the build doc-gen4
-// links by `tools/oracle/gen-gc-table.ts` — not a second copy
-// of the UCD.
+// `src/Litedoc4/Md/GcTable.lean`, which `tools/oracle/gen-gc-table.ts` generates
+// from the build doc-gen4 links — not a second copy of the UCD.
 //
 // npm/node are broken in this environment; this must run under deno.
 //
@@ -29,7 +28,7 @@
 const REPO = new URL("../..", import.meta.url).pathname;
 const DEFAULT_IR = "/private/tmp/lean-doc-relay/w7h/base-ir";
 const DEFAULT_OUT = `${REPO}benchmarks/results/m2b-v6-token-separators.json`;
-const GC_RS = `${REPO}crates/litedoc4-md/src/gc.rs`;
+const GC_TABLE = `${REPO}src/Litedoc4/Md/GcTable.lean`;
 
 const args = Deno.args;
 const flag = (name: string, fallback: string) => {
@@ -39,24 +38,38 @@ const flag = (name: string, fallback: string) => {
 const irRoot = flag("--ir", DEFAULT_IR);
 const outPath = flag("--out", DEFAULT_OUT);
 
+// The generated table is `lo-hi` hex pairs in one comma-separated string, and
+// the count is in the docstring above it. Both are read, and the second is what
+// makes a partial parse fail loudly rather than quietly answering about fewer
+// ranges than the file holds.
 function readUnicodeBasicZC(source: string): (cp: number) => boolean {
-  const at = source.indexOf("static Z_C:");
-  if (at < 0) throw new Error("gc.rs has no Z_C table");
-  const body = source.slice(at, source.indexOf("];", at));
+  const at = source.indexOf("def zcTable : String :=");
+  if (at < 0) throw new Error("GcTable.lean has no zcTable");
+  const open = source.indexOf('"', at);
+  const close = source.indexOf('"', open + 1);
+  if (open < 0 || close < 0) throw new Error("zcTable is not a string literal");
   const ranges: [number, number][] = [];
-  for (const m of body.matchAll(/\(0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+)\)/g)) {
-    ranges.push([parseInt(m[1], 16), parseInt(m[2], 16)]);
+  for (const pair of source.slice(open + 1, close).split(",")) {
+    const [lo, hi] = pair.split("-");
+    ranges.push([parseInt(lo, 16), parseInt(hi, 16)]);
   }
-  const declared = body.match(/\[\(u32, u32\); (\d+)\]/);
+  // The **last** count before `def zcTable`, not the first: `pzcTable`'s
+  // docstring is worded identically and comes earlier in the file, so a
+  // non-global match would reconcile 742 ranges against 839 and fail on a file
+  // that is right.
+  const counts = [...source.slice(0, at).matchAll(/(\d+) inclusive `lo-hi` hex pairs/g)];
+  const declared = counts.at(-1);
   if (!declared || Number(declared[1]) !== ranges.length) {
-    throw new Error(`gc.rs declares ${declared?.[1]} Z_C ranges, parsed ${ranges.length}`);
+    throw new Error(
+      `GcTable.lean declares ${declared?.[1]} zcTable ranges, parsed ${ranges.length}`,
+    );
   }
   const member = new Uint8Array(0x110000);
   for (const [lo, hi] of ranges) for (let cp = lo; cp <= hi; cp++) member[cp] = 1;
   return (cp: number) => member[cp] === 1;
 }
 
-const gcSource = await Deno.readTextFile(GC_RS);
+const gcSource = await Deno.readTextFile(GC_TABLE);
 const isUnicodeBasicZC = readUnicodeBasicZC(gcSource);
 
 const V8_ZC = /[\p{Z}\p{C}]/u;
@@ -135,7 +148,7 @@ const record = {
   date: new Date().toISOString().slice(0, 10),
   label: "実測",
   runtime: { deno: Deno.version.deno, v8: Deno.version.v8 },
-  unicodeBasicFrom: "crates/litedoc4-md/src/gc.rs (generated from the build doc-gen4 links)",
+  unicodeBasicFrom: "src/Litedoc4/Md/GcTable.lean (generated from the build doc-gen4 links)",
   sets: {
     v8Members: v8Total,
     unicodeBasicMembers: unicodeBasicTotal,

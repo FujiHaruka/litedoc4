@@ -182,7 +182,8 @@ t="$(now)"
 # the same rule the extractor takes above and it is not tidiness: a cache key
 # that does not move when the sources do restores a binary built from another
 # commit, and the run then measures code nobody has written yet (measured
-# 2026-08-17, runs 31963079828 / 31963305864, when the key was Cargo.lock). Lake
+# 2026-08-17, runs 31963079828 / 31963305864, when the key named a lockfile that
+# the sources could move without). Lake
 # knows whether the binary matches the sources; a shell `-x` test does not.
 #
 # **The workspace it builds from is written by `tools/build-lean-exe.sh`**, which

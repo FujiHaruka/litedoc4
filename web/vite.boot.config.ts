@@ -1,5 +1,6 @@
 /**
- * The second bundle: the theme boot script `frame.rs` inlines into `<head>`.
+ * The second bundle: the theme boot script `Litedoc4.Render.Frame` inlines into
+ * `<head>`.
  *
  * A separate config rather than a second entry in `vite.config.ts`, because it
  * has to be a classic script (`iife` — a module in `<head>` is deferred and

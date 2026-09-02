@@ -9,7 +9,7 @@
 (→ 下の「`consumer/` — なぜ micro と別なのか」)。
 
 ```
-cargo build --bin litedoc4
+tools/build-lean-exe.sh --toolchain-from e2e/micro
 tools/e2e-micro.sh          # micro/  — 宣言の形
 tools/pinned-dep-gate.sh    # micro/ + micro-dep/ — 版固定できる依存 (git require に差し替える)
 tools/lake-package-gate.sh  # consumer/ — Lake の配線
@@ -62,7 +62,8 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 このサンプルを最初に通した時点で、**レンダラの実欠陥が 1 件出た**。
 
 `inductive` と `class_inductive` の **constructor がページに 1 つも描かれていなかった**
-(`decl.rs` の分岐が body を空のまま返していた)。search 索引には載っているので、
+(当時のレンダラ `git show rust-frozen:crates/litedoc4-render/src/decl.rs` の分岐が
+body を空のまま返していた。tag の中にあり、HEAD には無い)。search 索引には載っているので、
 **検索で選ぶとページ先頭に着地する**という壊れ方をする。
 
 **既存の 355 本のテストは 1 本も反応しなかった**し、**byte 再現ゲートでも原理的に出なかった** —
@@ -91,14 +92,14 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 | 署名・equation 中の定数リンク | 同じ href |
 
 **直した方針は「版固定できない依存にはリンクを張らない」** (名前はテキストで残す)。根拠は
-このリポジトリが既に書いている原則 — `autolink.rs` の `module_for_source_path`:
-「A link to the wrong page is worse than no link」。404 する相対リンクは、リンクが無い状態より
-厳密に悪い。実装は `ExternalLinks` が **空 base の root** を持てるようにし、`href` を
-`Option<String>` にしたもの。**自パッケージのリンクと、解決できた依存リンクはバイト不動。**
+このリポジトリが既に書いている原則 — `Litedoc4.Render.Autolink` の
+`moduleForSourcePath`:「A link to the wrong page is worse than no link」。404 する相対リンクは、
+リンクが無い状態より厳密に悪い。実装は外部リンクの root が **空 base** を持てるようにし、`href` を
+省略できるようにしたもの。**自パッケージのリンクと、解決できた依存リンクはバイト不動。**
 
-**単体テストでは出なかった。** `packages.rs` には「40 桁 hex でない rev は落ちる」テストが
-以前からあり、それは**通っていた** — 落ちること自体は正しく、**落ちた後に何が描かれるか**を
-見るものが 1 つも無かった。ページまで作らないと出ない形だった、というのがこの段の収穫。
+**単体テストでは出なかった。** 「40 桁 hex でない rev は落ちる」テストは以前からあり
+(今は `Litedoc4Test.Packages`)、それは**通っていた** — 落ちること自体は正しく、
+**落ちた後に何が描かれるか**を見るものが 1 つも無かった。ページまで作らないと出ない形だった、というのがこの段の収穫。
 
 ### ギュメ付きモジュール名 — `.lidx` の綴り差は実在した【実測 2026-08-17】
 
@@ -188,14 +189,15 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 
 ## `micro-expected/` — what the Rust half wrote
 
-`micro-expected/` is the frozen output of the **Rust** `litedoc4` over `micro/`:
-49 files, 508 KB — the rendered pages, the whole-package artifacts, the four
-transcripts, the ledger and the build marker. `tools/purelean-micro-gate.sh`
-holds the Lean half to those bytes, and it is the only thing that reads them.
+`micro-expected/` is the frozen output of the **Rust** `litedoc4` over `micro/`,
+minted while that binary existed: 49 files, 508 KB — the rendered pages, the
+whole-package artifacts, the four transcripts, the ledger and the build marker.
+`tools/purelean-micro-gate.sh` holds the Lean half to those bytes, and it is the
+only thing that reads them.
 
-It is here rather than in `crates/` because it has to outlive `crates/`: the
-Rust binary is the port's oracle, M10 deletes it, and anything minted afterwards
-would record what the Lean half does today rather than what the answer is. It is
+It outlived `crates/` on purpose: the Rust binary was the port's oracle, and
+anything minted after it left would record what the Lean half does today rather
+than what the answer is. It is
 here rather than in `tools/` because what invalidates it is an edit to `micro/`
 — a docstring changed there changes the frozen pages, and the expectation
 belongs where whoever changes it will see it.
@@ -259,8 +261,8 @@ before it.
 壊れていた**から:
 
 - e2e の**ゲート 2 が、2 回目のサイトを自分自身にコピーして比較していた** — 何をしても通る
-- corpus ゲートのテスト一覧が **`cargo test` の stdout と stderr の混ざり順に依存**していて、
-  CI (非 TTY) では全部 `::name` に潰れた。**捕まえたのは CI を実際に回したこと**
+- corpus ゲート (当時) のテスト一覧が **テストランナーの stdout と stderr の混ざり順に依存**
+  していて、CI (非 TTY) では全部 `::name` に潰れた。**捕まえたのは CI を実際に回したこと**
 
 **ゲートは自分では自分を検査しない。**
 

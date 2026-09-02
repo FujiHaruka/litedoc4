@@ -6,7 +6,7 @@
 # months with nobody type-checking them, and `check-site-browser.ts` was
 # carrying a real one (measured 2026-08-28).
 #
-# A gate rather than a test because it needs deno, which `cargo test --workspace`
+# A gate rather than a test because it needs deno, which `tools/lean-test-gate.sh`
 # must not.
 #
 # usage: benchmarks-ts-gate.sh

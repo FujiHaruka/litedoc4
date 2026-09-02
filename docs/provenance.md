@@ -20,7 +20,7 @@ litedoc4 のコードのうち **第三者の著作物に由来するもの**の
 |---|---|---|
 | litedoc4 は doc-gen4 の派生物か | **全体が派生物**として扱う。クリーンルームではなく、byte 一致を受け入れオラクルにして書いた | §1.1 |
 | どのファイルが特に濃いか | 逐字コピーが 20 箇所、転写が 10 ファイル | §2 |
-| litedoc4 自身のライセンスは | **Apache-2.0** (2026-08-16 決定)。`LICENSE` + `Cargo.toml` の `license` を設置済み | §4 (a) |
+| litedoc4 自身のライセンスは | **Apache-2.0** (2026-08-16 決定)。`LICENSE` を設置済み | §4 (a) |
 | `NOTICE` ファイルが要るか | **Apache 2.0 の義務としては不要** — doc-gen4 に NOTICE が無いから。ただし置いた (MIT の義務の置き場所として一箇所にまとまる) | §4 (d) |
 | 生成サイトのフッタに表記が要るか | **不要**。配布している doc-gen4 由来物は CSS 8 行だけで、その元ファイルには著作権表示が無い | §5 |
 | 抽出器 (`extractor/`) はどうか | **ここが一番濃い**。§4(b)(c) を履行済み | §2 A 表・§4 |
@@ -237,7 +237,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | # | やったこと | 置いた場所 |
 |---|---|---|
 | 1 | **ライセンスを Apache-2.0 に決めた** | §1 |
-| 2 | `LICENSE` (canonical Apache-2.0 201 行) を置き、`[workspace.package]` に `license = "Apache-2.0"`、各 crate に `license.workspace = true` | `LICENSE`, `Cargo.toml`, `crates/*/Cargo.toml` |
+| 2 | `LICENSE` (canonical Apache-2.0 201 行) を置いた。当時は `Cargo.toml` の `license` フィールドも設置したが、それは `crates/` と共に去った (§9) | `LICENSE` |
 | 3 | `NOTICE` を置いた — doc-gen4 / md4c / MD4Lean / UnicodeBasic + Unicode® / V8 の 5 件 | `NOTICE` |
 | 4 | **§4(b)(c) の履行** — 下表。加えて **§4(b) を著作物レベルでも払った** (README 冒頭 / `NOTICE` 冒頭。→ §1.1) | 各ファイル + README + NOTICE |
 | 5 | **第三者コードの記録** — 生成フィクスチャに `PROVENANCE.md` を足した (`vendor/md4c/PROVENANCE.md` と同じ作法) | `fixtures/{md,render}/PROVENANCE.md` |
@@ -276,7 +276,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | `src/Litedoc4/Lower.lean` (Rust の `str::to_lowercase` を総当たりした出力データ) | Rust std = MIT OR Apache-2.0、元データは Unicode | 180 行 (2 tables as string literals) | 無し (冒頭の記録のみ) |
 
 **md4c is the only work in this table that carries its own attribution files, and
-it is in the tree three times** (2026-08-30). The three are byte-identical
+it was in the tree three times** (2026-08-30; two since 2026-09-02). The three were byte-identical
 (`/usr/bin/diff -q`, all three files) and each is redistributed on its own: Lake
 builds a package from the package directory, so `vendor/md4c/` — the copy
 `lean_exe litedoc4` links — cannot reach into `crates/`, and a symlink would not
@@ -284,8 +284,8 @@ survive a checkout on every platform. The MIT permission notice is therefore an
 obligation **per copy**: one copy losing its `LICENSE.md` is unpaid whatever the
 other two carry, which is why `tools/provenance-files.txt` has a line for each
 rather than one line for the work. `benchmarks/lean-prototype/vendor/md4c/` is a
-frozen measurement artefact and stays; `crates/litedoc4-md/vendor/md4c/` goes
-when the Rust half does, and `vendor/md4c/` is the copy that remains.
+frozen measurement artefact and stays; the third copy left with the Rust half on
+2026-09-02, and `vendor/md4c/` is the copy the Lake package builds.
 
 **One more on 2026-08-31** — `src/Litedoc4/Lower.lean`. It is the same shape as
 the two rows above it and is listed for the same reason: **enumerating another
@@ -381,14 +381,20 @@ NOTICE の導出セクションを**両方向で**突き合わせていた。**�
 
 ---
 
-## 9. Where each obligation lands when the Rust half leaves (2026-09-02)
+## 9. Where each obligation landed when the Rust half left (2026-09-02)
 
 `tools/provenance-files.txt` had **12 rows naming `crates/`** and `NOTICE` named it
-on **13 lines**. Every one was followed to the file that answers the same question
-in the surviving tree; **the rows are annotated in place rather than deleted**,
-because the files are still here and still carry the notice — deleting a row while
-its file exists stops a check that is still meaningful, and M10's deletion commit
-is where the row and the file leave together.
+on **14 lines**. Every one was followed to the file that answers the same question
+in the surviving tree, and the rows and the files left in the same commit —
+deleting a row while its file exists stops a check that is still meaningful, so
+the two had to go together.
+
+**One whole section of `NOTICE` went with them**: "Rust crates whose licence does
+not offer Apache-2.0", the reviewed list of the Rust dependency closure. Its
+subject was Object-form distribution, which ended on 2026-08-31 (§7), and with
+`crates/` and `Cargo.toml` gone there is no closure in this repository at all.
+The derived check that used to rebuild it left with `release.yml`; if a binary is
+ever published again, the section and the check come back together.
 
 | row | verdict | where the obligation is now |
 |---|---|---|

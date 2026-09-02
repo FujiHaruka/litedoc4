@@ -86,22 +86,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
-
-      - name: Install the toolchain rust-toolchain.toml asks for
-        run: rustup show
-
-      # Keyed per job and without `restore-keys` — see the long note in ci.yml.
-      - name: Cache cargo registry and build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: cargo-v2-${{ runner.os }}-portability-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-
       - uses: ./.github/actions/setup-elan
 
       - uses: actions/download-artifact@v8
@@ -120,9 +104,6 @@ jobs:
           sha256sum "$RUNNER_TEMP/downloaded/extract"
 
       - name: Build the CLI
-        run: cargo build --bin litedoc4
-
-      - name: Build the Lean CLI
         run: tools/build-lean-exe.sh --toolchain-from e2e/micro
 
       - name: End to end, with a binary this runner never built
@@ -197,8 +178,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
-
       - name: elan in a non-default location
         run: |
           export ELAN_HOME="$RUNNER_TEMP/alt/elan"
@@ -232,16 +211,11 @@ jobs:
 
       # Running is half of it; the IR it writes there also has to be the IR the
       # e2e gates expect, so the whole sample is generated below.
-      - name: Install the toolchain rust-toolchain.toml asks for
-        run: rustup show
-
-      - name: Build the CLI
-        run: cargo build --bin litedoc4
-
+      #
       # `LAKE` is explicit because e2e-micro.sh and tools/build-lean-exe.sh both
       # default to ~/.elan/bin/lake, and the whole point of this job is that
       # there is nothing in ~/.elan.
-      - name: Build the Lean CLI
+      - name: Build the CLI
         run: tools/build-lean-exe.sh --toolchain-from e2e/micro
         env:
           LAKE: ${{ runner.temp }}/alt/elan/bin/lake

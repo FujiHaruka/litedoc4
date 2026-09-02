@@ -18,8 +18,8 @@
 #   `_`. Those are globs, `<label>` templates, and paths a comment wrapped across
 #   two lines — all three exist in this tree. Rule 2 looks only at this
 #   repository's planning documents, not at every `docs/*.md` string: the
-#   `litedoc4.toml` example names `docs/index.md` in the *user's* package, and
-#   config.rs's tests name `docs/nope.md` precisely because it is not there.
+#   `litedoc4.toml` example names `docs/index.md` in the *user's* package, which
+#   is not a file this repository has or should have.
 #   The first cut of this gate reported 39 findings and every one of them was its
 #   own fault. A gate that noisy is one people learn to skip, which is worse than
 #   not having it.

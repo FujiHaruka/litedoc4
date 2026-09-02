@@ -11,7 +11,8 @@
 # CLAUDE.md draws between a test and a gate.
 #
 # WHERE THE EXPECTED VALUES COME FROM, WHICH IS THE WHOLE POINT
-#   `base_ir.rs` recorded it in its header: every count it asserted was taken from
+#   `git show rust-frozen:crates/litedoc4-ir/tests/base_ir.rs` (in that tag, not in
+#   HEAD) recorded it in its header: every count it asserted was taken from
 #   the fixture by enumerating the JSON, never from a previous run of the reader,
 #   because the claim is that **the reader agrees with the writer**. A gate that
 #   re-derived its expectations from the Lean reader would assert nothing at all.

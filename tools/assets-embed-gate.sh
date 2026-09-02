@@ -1,36 +1,39 @@
 #!/usr/bin/env bash
 # Is there one answer to "what is the site's stylesheet"?
 #
-# For as long as both halves exist there are two consumers of `assets/`: Rust
-# reaches it with `include_str!`, and Lean cannot, so `tools/gen-assets.py`
-# writes the bytes into `src/Litedoc4/Assets.lean` as string literals (measured
-# 2026-08-31 → `benchmarks/results/purelean-assets-literal-2026-08-31.txt`).
-# Two copies of a file is the shape where only one of them ever gets fixed, and
-# this is the named place that says they agree.
+# `assets/` holds the site's static files and Lean has no `include_str!`, so
+# `tools/gen-assets.py` writes their bytes into `src/Litedoc4/Assets.lean` as
+# string literals (measured 2026-08-31 →
+# `benchmarks/results/purelean-assets-literal-2026-08-31.txt`). A generated copy
+# is a second answer to "what is the stylesheet" for as long as nobody checks it,
+# and this is the named place that says the two agree.
 #
 # The chain has three links and each is checked exactly once:
 #
 #   vite  ->  assets/         the last stage of `tools/assets-gate.sh`, which has
 #                             already built the bundle by then. Not an item here:
-#                             this gate must stay runnable with no node. It was a
-#                             Rust test while `include_str!` was a second reader,
-#                             and moved before that tree could take it along —
+#                             this gate must stay runnable with no node.
 #                             `assets/` is a committed build output, and one that
 #                             goes stale still loads, with the JS of whatever
 #                             commit last remembered to rebuild
 #   assets/ -> Assets.lean    item 2 below
-#   assets/ -> assets.rs      item 3 below
+#   Assets.lean -> the pages  item 3 below
 #
 # What a failing item means:
 #   1 SOURCES   `assets/` does not hold the four files, or one of them is empty.
 #               An empty stylesheet is a site that loads and has no styling.
 #   2 GENERATED `src/Litedoc4/Assets.lean` is not what `assets/` generates. Run
 #               `tools/gen-assets.py`.
-#   3 READERS   something stopped reading `assets/`: the Rust `include_str!`
-#               paths, or the one place in the Lean renderer that uses the
-#               generated theme-boot script. A second copy of any of these is
-#               the failure this gate exists for, and it does not announce
-#               itself — the pages still render.
+#   3 READERS   the renderer stopped going through the generated module: either
+#               the one place that uses the theme-boot script no longer does, or
+#               a module under `src/` carries asset bytes of its own again. A
+#               second copy is the failure this gate exists for, and it does not
+#               announce itself — the pages still render.
+#
+# **Item 3 lost its other half.** It counted the Rust `include_str!` paths too,
+# and they left with `crates/` — `git show
+# rust-frozen:crates/litedoc4-render/src/assets.rs` is where they were, in that
+# tag and not in HEAD. The item is one-sided now and its pass line says so.
 #
 # Reads the tree. No binary, no toolchain, no node, no target.
 #
@@ -67,26 +70,26 @@ else
 fi
 
 echo
-echo "=== 3/3 both halves still read assets/, and each from one place"
-# Counted rather than grepped for presence: a second `include_str!` of a
-# stylesheet somewhere else is exactly the divergence this gate is about, and it
-# would satisfy a check that only asked whether the first one is still there.
-css="$(grep -c 'include_str!("../../../assets/style.css")' crates/litedoc4-render/src/assets.rs || true)"
-svg="$(grep -c 'include_str!("../../../assets/favicon.svg")' crates/litedoc4-render/src/assets.rs || true)"
-strays="$(grep -rn 'include_str!("[^"]*assets/' crates --include='*.rs' \
-  | grep -v '"\.\./\.\./\.\./assets/' || true)"
-boot="$(grep -c 'themeBootJs' src/Litedoc4/Render/Frame.lean || true)"
-literal="$(grep -c 'localStorage.getItem' src/Litedoc4/Render/Frame.lean || true)"
+echo "=== 3/3 the renderer goes through the generated module, and from one place"
+# One-sided since `crates/` left: the `include_str!` counts that were the other
+# half of this item are in `git show rust-frozen:crates/litedoc4-render/src/assets.rs`.
+#
+# Every module under `src/` except the generated one. Frame.lean is where a
+# theme-boot literal was once actually written, and the same copy one file over
+# would be the same defect, so the scan is the directory rather than that file.
+# The two needles are bytes only an asset has: `localStorage.getItem` is the boot
+# script's and `color-scheme:` is the stylesheet's, and the renderer emits
+# neither.
+boot="$(grep -cw 'themeBootJs' src/Litedoc4/Render/Frame.lean || true)"
+strays="$(grep -rl 'localStorage.getItem\|color-scheme:' src --include='*.lean' \
+  | grep -v '^src/Litedoc4/Assets.lean$' || true)"
 problems=""
-[ "$css" -eq 1 ] || problems="$problems; assets.rs reads assets/style.css $css time(s), not once"
-[ "$svg" -eq 1 ] || problems="$problems; assets.rs reads assets/favicon.svg $svg time(s), not once"
-[ -z "$strays" ] || problems="$problems; another include_str! of an assets/ path: $(printf '%s' "$strays" | head -1)"
 [ "$boot" -eq 1 ] || problems="$problems; Frame.lean names themeBootJs $boot time(s), not once"
-[ "$literal" -eq 0 ] || problems="$problems; Frame.lean carries a theme-boot literal again ($literal line(s))"
+[ -z "$strays" ] || problems="$problems; asset bytes outside the generated module: $(printf '%s' "$strays" | tr '\n' ' ')"
 if [ -n "$problems" ]; then
   fail 3 "${problems#; }"
 else
-  pass 3 "assets.rs reads 2 files from assets/, Frame.lean uses the generated theme-boot"
+  pass 3 "Frame.lean uses the generated theme-boot, no other module under src/ carries asset bytes; the include_str! half left with crates/"
 fi
 
 echo

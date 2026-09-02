@@ -98,21 +98,6 @@ jobs:
           # compare job rebuilds this name from.
           echo "version=${{ matrix.toolchain }}" | sed 's|=.*:v|=v|' >> "$GITHUB_OUTPUT"
 
-      - uses: ./.github/actions/setup-node
-
-      - name: Install the toolchain rust-toolchain.toml asks for
-        run: rustup show
-
-      - name: Cache cargo registry and build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: cargo-v2-${{ runner.os }}-lean-versions-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-
       - uses: ./.github/actions/setup-elan
 
       - name: The toolchain that is actually installed
@@ -124,16 +109,11 @@ jobs:
             || { echo "::error::lean is not ${{ matrix.toolchain }}"; exit 1; }
 
       # **A consumer's own Lean compiles `src/`**, so every toolchain in the file
-      # has to be able to. Nothing else here would notice: `e2e-micro.sh` drives
-      # the Rust binary, which cargo builds with a compiler of its own, and the
-      # extractor is the only Lean the matrix used to touch. That is the shape
-      # that cost a milestone once — the extractor did not build on v4.33.0 and
-      # nothing said so until somebody asked (2026-08-18).
+      # has to be able to. The shape that cost a milestone once was the matrix
+      # touching only the extractor: it did not build on v4.33.0 and nothing said
+      # so until somebody asked (2026-08-18).
       - name: litedoc4 builds on this toolchain
         run: tools/build-lean-exe.sh --toolchain-from e2e/micro
-
-      - name: Build the CLI
-        run: cargo build --bin litedoc4
 
       - name: End to end
         run: tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep

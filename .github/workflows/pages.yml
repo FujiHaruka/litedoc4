@@ -54,11 +54,9 @@ jobs:
 
       - uses: ./.github/actions/setup-elan
 
-      # **The published sample is built by the half that is actually
-      # distributed.** A consumer gets `lean_exe litedoc4` and nothing else, so a
-      # sample built by the Rust binary would be a site nobody can reproduce from
-      # what they installed — and the asymmetry would be invisible, because the
-      # two halves write the same bytes (M8, measured over the whole target).
+      # **The published sample is built by what a consumer actually gets**:
+      # `lean_exe litedoc4`, compiled from this tree. A sample built any other
+      # way would be a site nobody can reproduce from what they installed.
       - name: Cache the litedoc4 build
         uses: actions/cache@v6
         with:

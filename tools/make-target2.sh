@@ -213,7 +213,7 @@ namespace Alpha.NulCode
 before@@NUL@@after
 ```
 
-MD4Lean dies on this input with SIGSEGV (`wrapper.c:558`); `litedoc4-md`
+MD4Lean dies on this input with SIGSEGV (`wrapper.c:558`); `Litedoc4.Md`
 substitutes U+FFFD for the byte and keeps going. See `Alpha.Basic.alphaConst`.
 -/
 def nulInCode : Nat := 1
@@ -233,7 +233,7 @@ namespace Alpha.EmptyTable
 |------|-------|
 
 MD4Lean dies on this input with SIGABRT (`wrapper.c:389`, an assert);
-`litedoc4-md` emits an empty `<tbody>` and keeps going.
+`Litedoc4.Md` emits an empty `<tbody>` and keeps going.
 -/
 def emptyTable : Nat := 2
 
@@ -353,8 +353,8 @@ LEAN
 # U+088F ARABIC HALF MADDA OVER MADDA: the first of the 4,803 code points V8
 # splits tokens on and UnicodeBasic does not (measured →
 # benchmarks/results/m2b-v6-token-separators.json). It is inside a code span
-# because that is the only place `ModuleFacts::tokens` looks
-# (`litedoc4-global/src/facts.rs`).
+# because that is the only place the token scan looks
+# (`moduleFacts` in `Litedoc4.Global.Facts`).
 cat > "$OUT/Beta/TokenSep.lean" <<'LEAN'
 import Alpha.Basic
 

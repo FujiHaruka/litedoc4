@@ -153,7 +153,7 @@ snapshot () { # snapshot <name> <pages>
   local name="$1" pages="$2"
   if [ -d "$pages" ]; then
     # LC_ALL=C: byte order, so the listing is the same on any machine and is
-    # the order `cargo test`'s BTreeSet reproduces.
+    # the order a sorted map reproduces.
     ( cd "$pages" && find . -type f | sed 's|^\./||' | LC_ALL=C sort ) > "$OUT/$name-files.txt"
     ( cd "$pages" && find . -type d | sed 's|^\./||' | LC_ALL=C sort ) > "$OUT/$name-dirs.txt"
     printf '%s\n%s\n' \

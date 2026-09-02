@@ -56,9 +56,8 @@ def theWhitespaceRewriteIsLengthPreservingInUnitsAndNotInBytes : Bool :=
 #guard theWhitespaceRewriteIsLengthPreservingInUnitsAndNotInBytes
 
 /-- A width whose run ends past the fragment is dropped, and the rest of the
-rewrite still happens. This is where `span.rs`'s "a trailing width that runs off
-the end is not a range" lands: `Nat` has no end to run off, but a fragment
-does. -/
+rewrite still happens. A width is a `Nat` and has no end to run off; a fragment
+does, so the fragment is where the run has to be refused. -/
 def aWhitespaceRunPastTheEndOfTheFragmentIsSkipped : Bool :=
   let text := "a\tb"
   let f := mkFrag text #[{ start := 2, stop := 3, kind := 1, name := "b", front := 1 },

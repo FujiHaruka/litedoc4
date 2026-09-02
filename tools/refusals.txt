@@ -3,11 +3,14 @@
 # Every row is one command line the program must refuse, the exit code it must
 # refuse with, and the whole of what it must say. `tools/refusal-gate.sh` reads
 # this file and nothing else, which is what lets it go on asking the question
-# after `crates/` is deleted and the Rust oracle with it.
+# now that `crates/` and the Rust oracle are gone.
 #
-# **Written by `tools/refusal-gate.sh --mint --from <rust litedoc4>`**, except
-# for the `@case` and `argv` lines, which are written by hand — minting fills in
-# `exit` and the body and can therefore never invent a case or quietly drop one.
+# **Minted from the Rust `litedoc4` at tag `rust-frozen`**, except for the
+# `@case` and `argv` lines, which were written by hand — the mint filled in
+# `exit` and the body and could therefore never invent a case or quietly drop
+# one. **There is no minter any more**: a row that has to change is changed by
+# hand, by someone who has read why it moved, because re-minting from the thing
+# under test would replace the answer with the question.
 #
 # FORMAT
 #   @usage         the `--help-all` block, stored once. Every exit-2 refusal

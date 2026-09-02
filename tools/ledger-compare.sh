@@ -10,10 +10,9 @@
 #   tools/ledger-compare.sh /private/tmp/lean-doc-relay/m3/before \
 #                           /private/tmp/lean-doc-relay/m3/after
 #
-# `cargo test -p litedoc4-incr --test ledger` does **not** make this comparison.
-# What survives in process is
-# `the_harness_scenarios_are_measured_on_a_synthetic_package`, which replays the
-# twelve scenarios on a `FakeRepo`, so it needs no target repository and runs on CI.
+# This is the only thing that makes this comparison, and it always was: the Rust
+# suite replayed the twelve scenarios on a fake repository instead, which needed
+# no target. That half left with `crates/` and has no successor.
 #
 # Three classes of file, compared three ways:
 #

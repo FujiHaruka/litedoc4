@@ -19,9 +19,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "src" / "Litedoc4" / "Assets.lean"
 
-# `themeBootJs` is last and deliberately outside `assets` below: `frame.rs`
-# inlines it into every page's `<head>` rather than writing it as a file, so it
-# is an asset of the binary and not of the site.
+# `themeBootJs` is last and deliberately outside `assets` below:
+# `Litedoc4.Render.Frame` inlines it into every page's `<head>` rather than
+# writing it as a file, so it is an asset of the executable and not of the site.
 SOURCES = [
     ("styleCss", "style.css", True),
     ("appJs", "app.js", True),

@@ -5511,9 +5511,29 @@ npm — `node` on PATH here is a 2023 build the kernel SIGKILLs. CI is green bec
 whose output and exit code disagree, which is the shape this repository keeps being bitten by.
 
 **`fixtures/render/**`, `fixtures/global/**` and `fixtures/incr/**` lose their last reader**;
-only `fixtures/md/fuzz/` keeps one (`fuzz/fuzz_targets/docstring.rs`). Two of them are the
-committed expectations of the two rebuildable questions above, so they are not decoration yet —
-but they are data with no consumer until something asks again.
+only `fixtures/md/fuzz/` keeps one (`fuzz/fuzz_targets/docstring.rs`), and that leaves with
+`fuzz/`. Two of them are the committed expectations of the two rebuildable questions above, so
+they are not decoration yet — but they are data with no consumer until something asks again.
+
+**None of them was deleted at step F2** (decided 2026-09-02). Three reasons, and only the first
+is about caution: `fixtures/md/PROVENANCE.md` and `fixtures/render/PROVENANCE.md` are rows in
+`tools/provenance-files.txt`, and `fixtures/md/docgen4-expected.json` and
+`fixtures/render/docgen4-linked-expected.json` are named in `NOTICE` as doc-gen4's output, so
+deleting them deletes what an attribution points at; the prototype-derived ones cannot be
+regenerated in HEAD at all (their generators are at `experiments-frozen`); and the two doc-gen4
+ones can still be re-asked, because `tools/oracle/gen-*.ts` is in HEAD. **What was done instead
+is to say so in the two `PROVENANCE.md` files**, so that nobody reads a fixture with no reader as
+one that is being checked. `fixtures/md/fuzz/`'s twelve shapes are all carried as literals by
+`hostileInputs` in `test/Litedoc4Test/MdParse.lean`, which is the successor question; the
+directory itself is a record.
+
+**`web/test/fixtures/search-index.bin` (761 B) and `expected.json` keep their reader and lose
+their writer.** The reader is `web/test/fixture.ts` under `tools/assets-gate.sh`; the writer was
+a Rust test, and the successor writer is `searchCases` in
+`test/Litedoc4Test/GlobalSearchIndex.lean`, which produces those 761 B exactly (measured
+2026-08-31 → `benchmarks/results/lean-global-oracles-2026-08-31.txt`). **Nothing automates the
+regeneration** — a change to `searchCases` has to be carried into the committed bytes by hand,
+and the site's decoder tests are what fail if it is not.
 
 ## 書き方
 

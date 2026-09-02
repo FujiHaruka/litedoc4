@@ -3,8 +3,8 @@
   Hand-written preview of the module page the renderer is being rewritten to
   emit (M8-b). The declaration bodies are real output of the frozen doc-gen4
   tree — `span.fn`, `span.name` and the `<a>` links inside a signature are
-  produced by `code.rs`, which M8 does not touch — so only the frame around
-  them is new. Links point nowhere useful here; this file exists to style
+  produced by `Litedoc4.Render.Code`, which M8 does not touch — so only the
+  frame around them is new. Links point nowhere useful here; this file exists to style
   against, not to browse.
 
   Keep this in step with `src/Litedoc4/Render/{Frame,Page,Decl}.lean`.
@@ -18,7 +18,8 @@
 <link rel="icon" href="../../assets/favicon.svg">
 <script>
   // Theme boot: runs before first paint so the page never flashes the wrong
-  // palette. The same three lines are inlined into every page by `frame.rs`.
+  // palette. The same three lines are inlined into every page by
+  // `Litedoc4.Render.Frame`.
   try {
     var t = localStorage.getItem("litedoc4-theme");
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;

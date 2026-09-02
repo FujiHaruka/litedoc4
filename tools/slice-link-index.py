@@ -10,9 +10,10 @@ modes
 
 The point of the first two is to answer, without writing any Lean, whether the
 own-package half of the map reaches the rendered bytes at all: the renderer
-resolves an own-package name through the IR-derived index (`known`) before it
-ever asks the map (`autolink.rs:258`), and a range it does get back is dropped
-unless the link resolved into a *dependency* package (`external.rs:146-162`).
+resolves an own-package name through the IR-derived index (`known`, built in
+`Litedoc4.Render.Autolink`) before it ever asks the map, and a range it does get
+back is dropped unless the link resolved into a *dependency* package
+(`Litedoc4.External`).
 If that reading is right, `deps` renders byte-identically to the full map.
 """
 import sys

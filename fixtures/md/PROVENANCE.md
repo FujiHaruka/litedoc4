@@ -3,9 +3,16 @@
 JSON cannot carry a comment, so the attribution for the generated fixtures in
 this directory lives here.
 
+> **Nothing reads these files.** Their readers were Rust tests and left with
+> `crates/` on 2026-09-02. `docgen4-expected.json` and `md4lean-expected.json`
+> still have their generators in HEAD (`tools/oracle/gen-*.ts`, whose `--check`
+> asks whether the committed file is what the oracle says today); nothing grades
+> a parser against them. **Read them as a record, not as something being
+> checked.**
+
 | file | produced by | whose output it is |
 |---|---|---|
-| `docgen4-expected.json` | `LITEDOC4_BLESS=1 cargo test -p litedoc4-md --test docgen4` | **ours**, since 2026-08-22 — it was doc-gen4's until then |
+| `docgen4-expected.json` | `git show rust-frozen:crates/litedoc4-md/tests/docgen4.rs` under `LITEDOC4_BLESS=1` (in that tag, not in HEAD) | **ours**, since 2026-08-22 — it was doc-gen4's until then |
 | `md4lean-expected.json` | `tools/oracle/gen-md4lean-expected.ts` → `tools/oracle/dump-ast.lean` | **MD4Lean's** `MD4Lean.parse` |
 | `ts-docstring-expected.json` | `tests/oracle/gen-ts-docstring-expected.ts` (**removed** — see below) | `experiments/stage7d/render.ts` (this repository, frozen) |
 | `fuzz/*.md` | written by hand for `git show rust-frozen:crates/litedoc4-md/tests/fuzz_corpus.rs` (in that tag, not in HEAD) | **ours** — no third party, no oracle |
@@ -15,7 +22,13 @@ compared against an expected output. Each file is an *input* chosen because it
 is known or suspected to be dangerous — the NUL-in-a-fenced-block and the
 body-less GFM table that kill MD4Lean, plus
 deep nesting, unterminated constructs, astral characters, a 200 KB line, entity
-edge cases, CR without LF, and the empty string. Adding a file adds a case.
+edge cases, CR without LF, and the empty string.
+
+**Adding a file here adds nothing.** Both readers — a Rust test and a
+`cargo-fuzz` target — left with `crates/` on 2026-09-02. The successor carries
+the same twelve shapes as *literals*: `hostileInputs` in
+`test/Litedoc4Test/MdParse.lean`, where a case that goes missing is a diff rather
+than a directory that silently emptied. A new dangerous shape belongs there.
 
 ## `docgen4-expected.json` changed sides on 2026-08-22
 
@@ -28,9 +41,10 @@ it again**. The role of the file was switched once, deliberately: it is now **th
 output**, and the test that reads it is named `every_case_matches_the_frozen_output`
 rather than `…_doc_gen4`.
 
-**What that costs is stated rather than hidden.** `cargo test` no longer says
-"the CommonMark dialect did not move" — it says "the output did not move".
-The doc-gen4 oracle is still here and still runs:
+**What that costs is stated rather than hidden.** The test that read this file no
+longer said "the CommonMark dialect did not move" — it said "the output did not
+move" — and it has since left with `crates/` altogether. The doc-gen4 oracle is
+still here and still runs:
 
     deno run --allow-read --allow-write --allow-run --allow-env \
       tools/oracle/gen-docgen4-expected.ts

@@ -1,8 +1,8 @@
-# ci.yml answers "is the code green"; this answers "is the distribution channel
-# green". The lakefile can be broken while every test passes — a script Lake
-# never registers, a `--lib` lookup that reads the wrong field, an extractor
-# target that does not build — and no Rust is involved in any of it, so neither
-# `cargo test` nor `cargo clippy` sees it.
+# ci.yml answers "does the tree check out"; this answers "is the distribution
+# channel green". The lakefile can be broken while every invariant holds — a
+# script Lake never registers, a `--lib` lookup that reads the wrong field, an
+# extractor target that does not build — and nothing that reads the tree sees
+# any of it.
 #
 # The consumers are generated here rather than committed: `e2e/consumer/`
 # requires by path and is the local fixture, and a second committed copy that
@@ -88,32 +88,24 @@ jobs:
   # macOS/arm64 and `leanc`'s defaults differ per platform. This requires by
   # path, which is not the channel a user goes through — that is `git-require`.
   gate:
-    name: the five gate items, on Linux
+    name: the lake package gate, on Linux
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
-
       - uses: ./.github/actions/setup-elan
 
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build litedoc4
-        run: cargo build --bin litedoc4
-
-      - name: Build the Lean CLI
+      - name: Build the CLI
         run: tools/build-lean-exe.sh --toolchain-from e2e/micro
 
       - name: Gate
         run: tools/lake-package-gate.sh
 
-  # The Lean half: `lean_exe litedoc4`, built the way a consumer builds it.
-  # Nothing in ci.yml reaches it — it is Lean and C, and neither `cargo test` nor
-  # `cargo clippy` has a view of either — and `lake` cannot run beside the root
-  # lakefile (there is deliberately no `lean-toolchain` there), so this job and
-  # the development machine are the only two places it is ever compiled.
+  # `lean_exe litedoc4`, built the way a consumer builds it. `lake` cannot run
+  # beside the root lakefile (there is deliberately no `lean-toolchain` there),
+  # so this job and the development machine are the only two places the whole of
+  # it is ever compiled from a consumer's side.
   purelean:
     name: the Lean half builds and runs from a consumer
     runs-on: ubuntu-latest
@@ -121,11 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
-
       - uses: ./.github/actions/setup-elan
-
-      - uses: Swatinem/rust-cache@v2
 
       # The one check that wants the machine's compiler rather than the
       # toolchain's, and the reason it is worth running here as well: a
@@ -135,31 +123,23 @@ jobs:
       - name: csrc/libc agrees with the platform's libc
         run: tools/libc-shim-gate.sh
 
-      # `purelean-gate.sh` compares the two halves' `--version`, so it needs one.
-      - name: Build litedoc4
-        run: cargo build --bin litedoc4
-
       - name: Gate
         run: tools/purelean-gate.sh
 
-      # After the gate above, which is what compiles `lean_exe litedoc4` in
-      # this job. Both arms run here while `crates/` exists: the Lean half
-      # against the frozen answers, and the frozen answers against the Rust
-      # binary this job already built.
+      # After the gate above, which is what compiles `lean_exe litedoc4` in this
+      # job. The frozen answers were minted from the Rust half before it left, so
+      # this is the whole of the question now.
       - name: The refusals are still the frozen ones
         run: tools/refusal-gate.sh
 
-      # Same two binaries, the opposite question: refusal-gate.sh asks whether a
-      # bad command line is still refused the way it was, this asks whether a
-      # good one is still accepted. It is where the Lean `usage` gets the tie to
-      # its parsers that `every_documented_flag_is_parsed` gives the Rust
-      # `USAGE`, and unlike that test it survives crates/.
+      # The opposite question: refusal-gate.sh asks whether a bad command line is
+      # still refused the way it was, this asks whether a good one is still
+      # accepted — the tie between the synopsis and the parsers.
       - name: Every documented flag is a flag some parser accepts
         run: tools/flag-tie-gate.sh
 
-      # The Lean half's own invariants, and what `cargo test --workspace` is
-      # being replaced by. Two halves, one target: the `#guard`s are answered by
-      # building it, the `Invariant`s by running it.
+      # The definition of green. Two halves, one target: the `#guard`s are
+      # answered by building it, the `Invariant`s by running it.
       - name: The Lean half's invariants
         run: tools/lean-test-gate.sh
 
@@ -175,26 +155,16 @@ jobs:
   # and reads its own configuration, which a tree that matches the frozen bytes
   # can still fail to do.
   #
-  # What it compares against is `e2e/micro-expected/`, frozen from the Rust half
-  # while there is still one. The cargo build below is for the arm that checks
-  # the fixture has not rotted, and goes away with `crates/`.
+  # What it compares against is `e2e/micro-expected/`, minted from the Rust half
+  # before that left the tree.
   purelean-micro:
-    name: the two implementations agree on the sample package
+    name: the sample package is rendered to the frozen bytes
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
-
       - uses: ./.github/actions/setup-elan
-
-      - uses: Swatinem/rust-cache@v2
-
-      # The arm that expires at M10: is the frozen fixture still what this
-      # binary writes? The sample's IR is extracted by the Lean half.
-      - name: Build litedoc4
-        run: cargo build --bin litedoc4
 
       - name: Gate
         run: tools/purelean-micro-gate.sh

@@ -46,9 +46,9 @@ files. The Rust side read a directory and had to count what it found, because a
 corpus that silently emptied would have left the test passing having checked
 nothing; here the corpus is this array, so a case that goes missing is a diff.
 
-The last three are the ones `fuzz_corpus.rs` duplicates out of the corpus on
-purpose. That duplication is what disappears: there is no directory to delete
-them from. -/
+The last three are duplicates of shapes the committed corpus also holds, kept
+because a case that only exists as a file is one a reader has to remember to
+load. -/
 def hostileInputs : Array String := #[
   "",
   "Astral: 𝒜 😀 and a combining mark: e\u0301\n\n# 𝒜 heading\n\n`𝒜`\n",

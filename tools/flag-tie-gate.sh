@@ -4,9 +4,9 @@
 # `tools/public-surface-gate.sh` reads the synopsis in `src/Litedoc4/Main.lean` and
 # says which promised name went missing. That is a string search: on its own it
 # says the promised flag is *spelled*, not that any parser *accepts* it. The tie
-# used to exist once, in Rust, as `every_documented_flag_is_parsed`; M10 deletes
-# `crates/` and with it that tie. This gate is the tie rebuilt out of the one
-# oracle that survives: the binary's own answer to being handed the flag.
+# existed once as a Rust unit test, `every_documented_flag_is_parsed`, and left
+# with `crates/`. This gate is the tie rebuilt out of the one oracle that needs
+# nothing external: the binary's own answer to being handed the flag.
 #
 # THE JOINT BETWEEN THE TWO GATES IS CHECKED, NOT ASSUMED
 #   Two gates compose into promised -> documented -> accepted only if every name
@@ -48,21 +48,18 @@
 #   command whose control does not fire is reported as a broken detector rather
 #   than as a clean run.
 #
-# TWO ARMS, AND THEY ARE NOT THE SAME CLAIM
-#   LEAN   the gate. It reads `--help-all` and the binary, so it goes on being a
-#          question after `crates/` is gone.
-#   RUST   the same inventory against the oracle, while there still is one. A
-#          missing Rust binary is a skip carrying the count it did not check,
-#          never a pass: `cargo build --release --bin litedoc4` is all it takes
-#          while `crates/` exists.
+# ONE ARM, AND IT USED TO BE TWO
+#   The second ran the same inventory against the Rust oracle. It retired with
+#   `crates/`, and the summary line says so rather than leaving a one-armed run
+#   to read as the whole gate. Nothing is lost that this arm was answering: the
+#   question is "does *this* binary accept the flag it documents", and only the
+#   binary under test can answer it.
 #
-# usage: flag-tie-gate.sh [--lean PATH] [--rust PATH]
+# usage: flag-tie-gate.sh [--lean PATH]
 #   PROMISED  tools/public-surface.txt, whose [build] and [watch] names must all
 #             turn up among the pairs taken from the synopsis
 #   --lean  the Lean litedoc4 (default: .lake/build/bin/litedoc4, built with
 #           tools/build-lean-exe.sh if it is not there)
-#   --rust  the Rust litedoc4 (default: target/release, else target/debug;
-#           absent is a skip)
 #
 #   LAKE    the lake executable tools/build-lean-exe.sh uses (default: lake)
 set -euo pipefail
@@ -73,12 +70,10 @@ ROOT="$(cd "$HERE/.." && pwd)"
 . "$HERE/lib/common.sh" || exit 1
 
 LEAN="${LEAN_LITEDOC4:-}"
-RUST="${LITEDOC4:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --lean) LEAN="$2"; shift 2 ;;
-    --rust) RUST="$2"; shift 2 ;;
     -h|--help) sed -n '/^# usage:/,/^set -/p' "$0" | sed 's/^# \{0,1\}//;$d'; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -93,15 +88,6 @@ absolute () {
   esac
 }
 LEAN="$(absolute "$LEAN")"
-RUST="$(absolute "$RUST")"
-
-if [ -z "$RUST" ]; then
-  if [ -x "$ROOT/target/release/litedoc4" ]; then
-    RUST="$ROOT/target/release/litedoc4"
-  elif [ -x "$ROOT/target/debug/litedoc4" ]; then
-    RUST="$ROOT/target/debug/litedoc4"
-  fi
-fi
 
 if [ -z "$LEAN" ]; then
   LEAN="$ROOT/.lake/build/bin/litedoc4"
@@ -119,14 +105,14 @@ WORK="$(mktemp -d)"
 on_exit 'rm -rf "$WORK"'
 
 rc=0
-python3 - "$WORK" "$LEAN" "$RUST" "$ROOT" <<'PY' || rc=$?
+python3 - "$WORK" "$LEAN" "$ROOT" <<'PY' || rc=$?
 import os
 import pathlib
 import re
 import subprocess
 import sys
 
-work, lean, rust, root = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+work, lean, root = sys.argv[1], sys.argv[2], sys.argv[3]
 
 # A flag no synopsis names and no parser can have: handed to every command to
 # prove the unknown-argument detector below still fires.
@@ -297,30 +283,15 @@ for flag in sorted(described - flags):
     problems.append(f"{flag} is described in `--help-all` and named in no synopsis line, "
                     "so it cannot be paired with a command and goes unasked")
 
-counts = []
-lean_reported, lean_by_name, lean_controls, lean_problems = arm("lean", lean, pairs, commands)
+reported, by_name, controls, lean_problems = arm("lean", lean, pairs, commands)
 problems += lean_problems
-counts.append(("lean", lean_reported, lean_by_name, lean_controls))
 
-# The arm that expires at M10. Absent is a skip **with the number it did not
-# check** — a line that says nothing is how "green having checked nothing" reads
-# to whoever runs this next.
-if rust and os.access(rust, os.X_OK):
-    rust_reported, rust_by_name, rust_controls, rust_problems = arm("rust", rust, pairs, commands)
-    problems += rust_problems
-    counts.append(("rust", rust_reported, rust_by_name, rust_controls))
-else:
-    print(f"FLAG TIE GATE: the rust arm did not run — {len(pairs)} pair(s) unchecked "
-          "against the oracle. Expected once crates/ is gone; before that, "
-          "cargo build --release --bin litedoc4")
-
-for label, reported, _, controls in counts:
-    if len(reported) != len(pairs):
-        problems.insert(0, f"{label} arm reported {len(reported)} result(s) for "
-                            f"{len(pairs)} pair(s) taken from the usage")
-    if controls != len(commands):
-        problems.insert(0, f"{label} arm's control fired for {controls} of "
-                            f"{len(commands)} command(s)")
+if len(reported) != len(pairs):
+    problems.insert(0, f"lean arm reported {len(reported)} result(s) for "
+                        f"{len(pairs)} pair(s) taken from the usage")
+if controls != len(commands):
+    problems.insert(0, f"lean arm's control fired for {controls} of "
+                        f"{len(commands)} command(s)")
 
 shown = problems[:8]
 for problem in shown:
@@ -330,14 +301,12 @@ if len(problems) > len(shown):
 if problems:
     sys.exit(1)
 
-for label, _, by_name, _ in counts:
-    for case in by_name:
-        print(f"FLAG TIE GATE: {label} `{case}` is refused by name rather than accepted — "
-              "the parser knows the flag, so this is not a failure here")
+for case in by_name:
+    print(f"FLAG TIE GATE: lean `{case}` is refused by name rather than accepted — "
+          "the parser knows the flag, so this is not a failure here")
 
-print("FLAG TIE GATE: "
-      + ", ".join(f"{label} {len(reported)}/{len(pairs)} pair(s), {controls} control(s)"
-                  for label, reported, _, controls in counts)
+print(f"FLAG TIE GATE: lean {len(reported)}/{len(pairs)} pair(s), {controls} control(s)"
+      + "; the oracle arm is retired with crates/, so one binary answers"
       + f"; {len(commands)} command(s), {len(flags)} distinct flag(s), "
       + f"{len(described)} described; {len(promised_pairs)} promised flag(s) "
       + "are among the pairs, so 1.x promises what a parser accepts")

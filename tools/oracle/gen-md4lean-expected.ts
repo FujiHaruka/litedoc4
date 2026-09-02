@@ -1,12 +1,15 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write --allow-run --allow-env
-// gen-md4lean-expected.ts -- produce the expected trees for `tests/md4lean.rs`
-// by running *MD4Lean itself*.
+// gen-md4lean-expected.ts -- produce `fixtures/md/md4lean-expected.json` by
+// running *MD4Lean itself*.
 //
 // An expected value written by reading `MD4Lean/wrapper/wrapper.c` would prove
 // nothing -- the reading and the port would share whatever mistake was made. So
 // the trees come from Lean: `dump-ast.lean` runs `MD4Lean.parse` in the
-// measurement target's own environment and prints the tree in the encoding
-// `tests/md4lean.rs` rebuilds.
+// measurement target's own environment and prints the tree in the encoding the
+// fixture records. **The fixture's reader left with `crates/`** -- it was
+// `git show rust-frozen:crates/litedoc4-md/tests/md4lean.rs`, in that tag and
+// not in HEAD -- so what `--check` still answers is whether the committed file
+// is what MD4Lean says today, not whether a parser agrees with it.
 //
 // The corpus is every docstring in that package's IR, deduplicated, with the
 // hand-written cases prepended rather than substituted -- those are answered by
@@ -117,7 +120,8 @@ const CURATED: [string, string][] = [
 ];
 
 // `MD_FLAG_*`, transcribed here only to build the dialect cases below. The
-// authority is `vendor/md4c/md4c.h`; `tests/abi.rs` is what checks it.
+// authority is `vendor/md4c/md4c.h`, and `csrc/md_events.c` includes it, so the
+// C compiler is what holds the two together.
 const F = {
   COLLAPSEWHITESPACE: 0x0001,
   PERMISSIVEATXHEADERS: 0x0002,
@@ -158,8 +162,9 @@ const DIALECTS: [string, number, string][] = [
 ];
 
 /**
- * Recorded, never expected: `tests/md4lean.rs` asserts only that this crate
- * survives them. The third is not reachable from the docstring dialect --
+ * Recorded, never expected: what a consumer of this fixture may assert about
+ * them is survival, not output. The third is not reachable from the docstring
+ * dialect --
  * inline raw HTML puts a bare `String` where `Block.p` expects an `Array Text`
  * -- and is listed because this crate must still produce something for it.
  */

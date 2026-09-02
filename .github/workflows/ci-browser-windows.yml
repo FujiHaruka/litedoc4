@@ -34,28 +34,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-node
-
-      - name: Install the toolchain rust-toolchain.toml asks for
-        run: rustup show
-
-      # Keyed per job and without `restore-keys` — see the long note in ci.yml.
-      - name: Cache cargo registry and build
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: cargo-v2-${{ runner.os }}-browser-site-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-
       - uses: ./.github/actions/setup-elan
 
       - name: Build the CLI
-        run: cargo build --bin litedoc4
-
-      - name: Build the Lean CLI
         run: tools/build-lean-exe.sh --toolchain-from e2e/micro
 
       - name: End to end

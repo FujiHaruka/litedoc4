@@ -38,22 +38,17 @@ extractor/Extract.lean : Böving
 extractor/Extract.lean : Apache
 assets/style.css : Böving
 assets/style.css : Apache 2.0
-# LEAVES WITH crates/. Each of the five was transcribed into the Lean file named
-# beside it below, and every one of those already has rows of its own — so these
-# retire with the tree rather than moving. Delete them in the commit that deletes
-# `crates/`, not before: the files are still here and still carry the notice.
+# Five Rust files carried this notice too and left with `crates/`; each was
+# transcribed into the Lean file named beside it, and every one of those has rows
+# of its own further down, so nothing had to move:
 #
 #   html.rs       -> src/Litedoc4/Md/Html.lean
 #   escape.rs     -> src/Litedoc4/Md/Escape.lean
 #   code.rs       -> src/Litedoc4/Render/Code.lean
 #   whitespace.rs -> src/Litedoc4/Render/Whitespace.lean
 #   autolink.rs   -> src/Litedoc4/Render/Autolink.lean
-crates/litedoc4-md/src/html.rs : doc-gen4
-crates/litedoc4-md/src/escape.rs : doc-gen4
-crates/litedoc4-render/src/code.rs : doc-gen4
-crates/litedoc4-render/src/whitespace.rs : doc-gen4
-crates/litedoc4-render/src/autolink.rs : doc-gen4
-# The prototype renderer transcribes the five files above into Lean. The notice
+#
+# The prototype renderer transcribes the same five into Lean. The notice
 # is on the whole file rather than per passage because the transcription is not
 # split along their boundaries; `Böving` and not `doc-gen4`, because the file
 # argues about doc-gen4's output throughout and the bare word would be matched by
@@ -63,10 +58,6 @@ benchmarks/lean-prototype/Render.lean : Apache-2.0
 # The product-side transcription of the same five, split along their boundaries,
 # so each module names the one Rust file it transcribes. `Böving` for the same
 # reason as above: these files discuss doc-gen4 throughout.
-#
-# There is no row for `crates/litedoc4-md/src/math.rs`: it is math-core's work
-# and not doc-gen4's, and the Lean side converts through MathML4Lean rather than
-# transcribing it. What `Md/Html.lean` carries is `math_into`, which is html.rs.
 src/Litedoc4/Md/Escape.lean : Böving
 src/Litedoc4/Md/Escape.lean : Apache-2.0
 src/Litedoc4/Md/Html.lean : Böving
@@ -79,22 +70,16 @@ src/Litedoc4/Render/Whitespace.lean : Böving
 src/Litedoc4/Render/Whitespace.lean : Apache-2.0
 
 # --- the other third-party works (provenance.md §7) -----------------------
-# md4c is in the tree three times, byte-identical (provenance.md §7). Each copy
-# is redistributed on its own — Lake builds `vendor/md4c/` from the package
-# directory and never reaches into `crates/` — so each carries the MIT notice.
+# md4c is in the tree twice, byte-identical (provenance.md §7). Each copy is
+# redistributed on its own — Lake builds `vendor/md4c/` from the package
+# directory — so each carries the MIT notice. A third copy left with `crates/`;
+# the obligation is per copy, so it retired rather than moving.
 vendor/md4c/LICENSE.md : MIT
 vendor/md4c/PROVENANCE.md : md4c
-# LEAVES WITH crates/, and this pair genuinely retires rather than moving: the
-# obligation is per copy, and `vendor/md4c/` is the copy that stays. What did
-# have to move is the origin chain — `vendor/md4c/PROVENANCE.md` used to cite the
-# file below for the half it did not repeat, and now states it whole (2026-09-02).
-crates/litedoc4-md/vendor/md4c/LICENSE.md : MIT
-crates/litedoc4-md/vendor/md4c/PROVENANCE.md : md4c
 benchmarks/lean-prototype/vendor/md4c/LICENSE.md : MIT
 benchmarks/lean-prototype/vendor/md4c/PROVENANCE.md : md4c
-# LEAVES WITH crates/ -> src/Litedoc4/Md.lean, whose two rows are just below.
-crates/litedoc4-md/src/parse.rs : MD4Lean
-# The Lean transcription of that transliteration. Both claims, and neither is
+# The Lean transcription of MD4Lean's `wrapper.c` transliteration, which the Rust
+# half held before it left. Both claims, and neither is
 # the word "MD4Lean": the file names MD4Lean a dozen times while arguing why it
 # is not a dependency, so a gate looking for that word would be satisfied by the
 # wrong sentence — the same trap `style.css` carries below.
@@ -102,25 +87,17 @@ src/Litedoc4/Md.lean : Jz Pan
 src/Litedoc4/Md.lean : MIT
 benchmarks/lean-prototype/Md.lean : Jz Pan
 benchmarks/lean-prototype/Md.lean : MIT
-# `ffi.rs` transcribed `md4c.h` into Rust, and the Lean half splits that job in
-# two: `csrc/md_events.c` is the only place that sees md4c's header and the wire
-# format at once, and `src/Litedoc4/Md.lean` holds the flag names and values.
-# **The C carried no attribution at all until 2026-09-02** — following the row
-# below to its successor is what found it, and the row is the successor's.
+# `csrc/md_events.c` is the only place that sees md4c's header and the wire
+# format at once, and `src/Litedoc4/Md.lean` holds the flag names and values;
+# between them they are what a Rust FFI module used to be.
 # `Martin Mitáš` and not `md4c`: that file says `md4c` in a dozen sentences about
 # what it does, so a row matching the bare word is satisfied by any of them.
 csrc/md_events.c : Martin Mitáš
-# LEAVES WITH crates/ -> csrc/md_events.c above, and src/Litedoc4/Md.lean.
-crates/litedoc4-md/src/ffi.rs : md4c
-# LEAVES WITH crates/ -> src/Litedoc4/Md/Gc.lean and Md/GcTable.lean, rows below.
-crates/litedoc4-md/src/gc.rs : Unicode
-# The Lean transcription of that table. `Dorais` and not `Unicode`, for the
+# The Lean transcription of UnicodeBasic's table. `Dorais` and not `Unicode`, for the
 # reason the two lines above this file's `MD4Lean` rows give: the word Unicode
 # appears wherever the table is discussed.
 src/Litedoc4/Md/Gc.lean : Dorais
 src/Litedoc4/Md/Gc.lean : Unicode
-# LEAVES WITH crates/ -> src/Litedoc4/Global/V8Gc.lean and V8GcTable.lean, below.
-crates/litedoc4-global/src/v8_gc.rs : V8
 # The two generated modules that hold the ranges themselves. Rows of their own
 # and not covered by the files above: `tools/oracle/gen-*.ts` writes these whole
 # on every regeneration, so their notices are the ones a wording change in a
@@ -150,11 +127,9 @@ NOTICE : str::to_lowercase
 # only looked for "MIT" would be satisfied by the wrong paragraph.
 assets/style.css : math-core
 assets/style.css : Charles Edward Gagnon
-# LEAVES WITH crates/, and this one genuinely retires: math-core is *linked* by
-# the Rust half and by nothing else — the Lean renderer converts through
-# MathML4Lean, so the linked use ends with the tree. math-core's *copied* half is
-# `assets/style.css` §15b, whose two rows are above and stay.
-crates/litedoc4-md/src/math.rs : math-core
+# math-core is *not* linked any more: the only thing that linked it was the Rust
+# half, and the Lean renderer converts through MathML4Lean instead. What is left
+# is math-core's *copied* half, `assets/style.css` §15b, whose two rows are above.
 
 # --- generated fixtures whose origin has to stay recoverable --------------
 # These are program output, not copied source, but "the record of provenance is

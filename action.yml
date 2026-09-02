@@ -76,7 +76,7 @@ inputs:
     description: "install elan if `lake` is not already on PATH"
     default: "true"
   cache:
-    description: "use actions/cache for the extractor, the Rust build, Mathlib's oleans and the incremental state"
+    description: "use actions/cache for the extractor, the litedoc4 build, Mathlib's oleans and the incremental state"
     default: "true"
 
 outputs:

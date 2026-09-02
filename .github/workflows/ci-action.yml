@@ -1,7 +1,8 @@
 # ci.yml answers "is the code green"; this answers "is the distribution channel
 # green". The action can be broken while every test passes — a bad cache key, a
 # `hashFiles()` that cannot see outside the workspace, an input that never
-# reaches the script — and none of that is visible to `cargo test`.
+# reaches the script — and none of that is visible to anything that reads the
+# tree.
 #
 # The sample package stands in for a user's package: e2e/micro depends on Lean
 # core only, so this costs an elan download and seconds of Lean, not Mathlib.

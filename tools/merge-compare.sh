@@ -10,8 +10,8 @@
 #   tools/merge-compare.sh /private/tmp/lean-doc-relay/m3b/before \
 #                          /private/tmp/lean-doc-relay/m3b/after
 #
-# `cargo test -p litedoc4-incr --test merge` makes the same comparison in process
-# when the base IR is on the machine.
+# This is the only thing that makes this comparison. A Rust corpus test made it
+# in process when the base IR was on the machine, and left with `crates/`.
 #
 # Four classes of file, compared four ways:
 #

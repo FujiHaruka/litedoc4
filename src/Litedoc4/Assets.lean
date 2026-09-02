@@ -653,7 +653,7 @@ body.plain .modhead h1 { font-size: clamp(1.75rem, 1.1rem + 2.6vw, 2.75rem); }
 
 /* -- 15b. mathematics ---------------------------------------------------- */
 
-/* `litedoc4-md` writes MathML into docstrings at build time, so there is no
+/* `Litedoc4.Md` writes MathML into docstrings at build time, so there is no
    MathJax and no KaTeX here — the browser lays this out itself. What it still needs is the CSS `math-core`'s output assumes.
 
    Taken from `math-core`'s own `css/mathmlfixes.css` (MIT, Copyright 2024

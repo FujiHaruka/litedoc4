@@ -88,8 +88,6 @@ jobs:
         with:
           path: litedoc4
 
-      - uses: ./litedoc4/.github/actions/setup-node
-
       - name: Check out the measurement target (public), pinned
         uses: actions/checkout@v7
         with:
@@ -106,12 +104,6 @@ jobs:
             | tar xz
           ./elan-init -y --default-toolchain "$(cat target/lean-toolchain)"
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-
-      - name: Install the Rust toolchain rust-toolchain.toml asks for
-        working-directory: litedoc4
-        run: |
-          rustup show
-          cargo build --release -p litedoc4
 
       - name: lake exe cache get
         working-directory: target
@@ -201,8 +193,6 @@ jobs:
         with:
           path: litedoc4
 
-      - uses: ./litedoc4/.github/actions/setup-node
-
       - name: Check out the measurement target (public), pinned
         uses: actions/checkout@v7
         with:
@@ -219,12 +209,6 @@ jobs:
             | tar xz
           ./elan-init -y --default-toolchain "$(cat target/lean-toolchain)"
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-
-      - name: Install the Rust toolchain rust-toolchain.toml asks for
-        working-directory: litedoc4
-        run: |
-          rustup show
-          cargo build --release -p litedoc4
 
       # The dependencies' oleans, exactly as the same-job arm got them.
       - name: lake exe cache get

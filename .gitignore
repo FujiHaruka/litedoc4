@@ -1,9 +1,6 @@
 .DS_Store
 node_modules/
 
-# Rust build output (Cargo.lock is committed — this ships as a binary)
-/target/
-
 # the extractor's native binary and the C it is compiled from (171 MB + 2.7 MB,
 # regenerable with extractor/build.sh; Extract.lean is the source and is committed)
 /extractor/build/
@@ -19,12 +16,6 @@ node_modules/
 # objects — regenerable by `lake build litedoc4/extract` and
 # `lake build litedoc4/litedoc4` from the consumer's workspace.
 /.lake/
-
-# cargo-mutants working output. Mutation is an exploration, not a gate
-# (docs/plans/quality-gates.md Q10) — what it finds becomes a test, and the run
-# directory itself is disposable.
-/mutants.out/
-/mutants.out.old/
 
 # session-local scratch
 .claude/.resume-pending

@@ -1,10 +1,11 @@
 #!/usr/bin/env -S deno run --allow-read --allow-write --allow-run --allow-env
-// gen-docgen4-expected.ts -- produce the expected HTML for `tests/docgen4.rs`
-// by running *doc-gen4 itself*.
+// gen-docgen4-expected.ts -- produce `fixtures/md/docgen4-expected.json` by
+// running *doc-gen4 itself*.
 //
-// `src/html.rs` is a transcription of `DocGen4/Output/DocString.lean`. Expected
-// values derived from reading that file would prove nothing -- the reading and
-// the port would share whatever mistake was made. So they come from doc-gen4:
+// `src/Litedoc4/Md/Html.lean` is a transcription of
+// `DocGen4/Output/DocString.lean`. Expected values derived from reading that
+// file would prove nothing -- the reading and the port would share whatever
+// mistake was made. So they come from doc-gen4:
 // `dump-html.lean` calls `docStringToHtml` in the measurement target's own
 // environment and prints the bytes.
 //
@@ -115,8 +116,8 @@ const HTML_CURATED: [string, string][] = [
 /**
  * Real docstrings the sample must keep whatever the coverage search picks. The
  * one entry is the *only* docstring in the package on which the frozen
- * prototype and doc-gen4 disagree (measured: 1 of 4,858); without it
- * `tests/ts_docstring.rs` would have nothing real to stand on.
+ * prototype and doc-gen4 disagree (measured: 1 of 4,858); it is what
+ * `fixtures/md/ts-docstring-expected.json` stands on.
  */
 const MUST_INCLUDE = new Set([
   "InformationTheory.Shannon.TimeBandLimiting.Count module doc 1",

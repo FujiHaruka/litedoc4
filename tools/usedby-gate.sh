@@ -14,10 +14,10 @@
 # `benchmarks/tools/check-site-closure.py` does that for the other maps, and two
 # gates checking one property is how the second stops being read.
 #
-# The expected side is built here from `refs` in the module IR by code that shares
-# nothing with `litedoc4-global` — a Python dict of sets against a Rust
-# `HashMap<&str, Vec<&str>>` filled from a per-module `BTreeMap`. An oracle
-# written in the same language with the same design makes the same mistake.
+# The expected side is built here from `refs` in the module IR by code that
+# shares nothing with `Litedoc4.Global` — a Python dict of sets against a Lean
+# hash map filled per module. An oracle written in the same language with the
+# same design makes the same mistake.
 #
 # usage: usedby-gate.sh --ir <dir> --site <dir> [--drop <name>]
 #          --drop  remove one entry from the artifact before comparing, to see
