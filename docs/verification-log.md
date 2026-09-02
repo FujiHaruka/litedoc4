@@ -5694,6 +5694,38 @@ calls `answer` and then dies before exiting — `answer` sets the flag and exits
 window is one function call wide, but it is not zero.
 
 
+### The memory gate was watching a level nothing ships (2026-09-02)
+
+C1's own header recorded the gap and left it open: Lake compiles `vendor/md4c/md4c.c` and
+`csrc/md_events.c` with **no `-O` flag at all**, and `tools/md-memory-gate.sh` compiled them at a
+written-down `-O1`. So all six of its items were statements about a near neighbour of the bytes
+that ship. Evidence → `benchmarks/results/md-memory-opt-2026-09-02.txt`.
+
+**The premise was checked against the command Lake runs, not against the lakefile.** With
+`.lake/build/md4c.o` deleted so the job could not be replayed, `lake build -v` in the one-line
+workspace under `.lake/host` prints `clang -c -o … md4c.c -I … -fPIC
+-Werror=implicit-function-declaration -I … -I csrc/libc` — no `-O`, so clang's `-O0`.
+
+**The fix is not `-O0` written down in the gate.** That would leave the same hole to reopen the
+day `ccFlags` gains a level, silently. The gate reads `PRODUCT_OPT` out of `lakefile.lean`'s
+`ccFlags`, the way it already reads the md4c flag word out of `src/Litedoc4/Md/Html.lean`, so
+there is one place and no second list to drift. It **refuses rather than guessing**, and both
+refusals were made to fail once: `ccFlags` renamed away, and `ccFlags` naming two levels (which
+one reaches `md4c.c` would depend on a branch the reader does not follow). A single level is
+taken, checked with `-O2`.
+
+**`-O1` was not kept as a second arm** — every item is a statement about what Lake links in, and a
+second level would answer about a neighbour of it. What would falsify that: `ccFlags` growing a
+branch that gives `md4c.c` and `md_events.c` different levels, at which point the gate refuses and
+says so rather than picking one.
+
+**All six answer the same at the product's level** — 6 of 6 on ubuntu-latest, cc 13.3.0
+(run `33629849774`). That is the first time any of them has been about the shipped bytes.
+**The seconds are not a comparison and are written down as such**: 3.09 s here, 5.38 s at `-O1` in
+the run immediately before, 6.6 s at `-O1` in C1's log — three single runs on three runner
+instances, and the 5.38 / 6.6 spread is the same code at the same level, so it is the noise floor.
+
+
 ## 書き方
 
 段階ごとに 1 節を足す。各節に必ず入れるもの:

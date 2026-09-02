@@ -35,7 +35,8 @@
 #   lakefile.lean's `ccFlags` below, so the gate compiles at whatever the product
 #   compiles at and a change to one moves the other. It used to be a written-down
 #   `-O1` against a product built with no `-O` at all, which is a level nothing
-#   ships (measured 2026-09-02). `-O1` was not kept as a
+#   ships (measured 2026-09-02 ->
+#   `benchmarks/results/md-memory-opt-2026-09-02.txt`). `-O1` was not kept as a
 #   second arm: every item here is a statement about the bytes Lake links in, and
 #   a second level would answer about a neighbour of them.
 #
@@ -124,8 +125,8 @@ on_exit 'rm -rf "$WORK"'
 # reason the md4c flag word below is: a gate compiled at a level the product does
 # not ship would be watching code nobody runs. It watched -O1 against a product
 # built with no `-O` at all until this was read from the file (measured
-# 2026-09-02), and writing the level down here again would only move the day the
-# two drift.
+# 2026-09-02 -> benchmarks/results/md-memory-opt-2026-09-02.txt), and writing the
+# level down here again would only move the day the two drift.
 #
 # `-g` is not part of this and is added on top: it emits debug info and changes
 # no code, and without it a report names no line.
