@@ -1,0 +1,70 @@
+date              2026-09-02T12:28:04Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+subject           tools/md-memory-gate.sh, the optimisation level it compiles at
+
+=== 1  WHAT LAKE ACTUALLY PASSES
+
+Not read off lakefile.lean but off the command Lake ran, with `lake build -v` in
+the one-line workspace tools/build-lean-exe.sh writes under .lake/host, after
+deleting .lake/build/md4c.o so the job could not be replayed.
+
+  clang -c -o .lake/build/md4c.o vendor/md4c/md4c.c \
+    -I <toolchain>/include -I vendor/md4c -fPIC \
+    -Werror=implicit-function-declaration \
+    -I <toolchain>/include/clang -I csrc/libc
+
+  (the same for csrc/md_events.c -> md_events.o)
+
+  No -O of any kind. clang's default is -O0, so that is the level every byte of
+  md4c and md_events that ships is compiled at. The gate compiled at -O1.
+
+=== 2  THE READER, AND ITS TWO REFUSALS
+
+`PRODUCT_OPT` comes out of lakefile.lean's `ccFlags`. Each case is a copy of the
+tree with only lakefile.lean replaced; everything else is the working tree.
+
+  ccFlags renamed away               exit 2   md-memory-gate: lakefile.lean no longer defines ccFlags -- that function is what the product's C
+  ccFlags naming two levels          exit 2   md-memory-gate: ccFlags names 2 optimisation levels (-O2, -O1) -- which one reaches md4c.c depen
+  ccFlags naming exactly one         exit 2   taken: -O2
+  the tree as it stands              exit 2   taken: (none)
+
+  The last two rows are the same exit 2 for a different reason: on this machine a
+  program built with -fsanitize=address never reaches its own main, so the gate
+  refuses after reading the level. The message on line 1 is what separates them.
+
+=== 3  THE ANSWER, FROM ubuntu-latest
+
+This machine cannot say: a program built with -fsanitize=address never reaches
+its own main here. The run is
+https://github.com/FujiHaruka/litedoc4/actions/runs/33629849774/job/100246323547
+on ubuntu-latest, cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, flag word 0x1F6C.
+
+  MD MEMORY GATE
+    compiler   cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+    flags      0x1F6C (docstringFlags, out of src/Litedoc4/Md/Html.lean)
+
+    1 of 6  ok    a read past the input, made inside md4c.c, is reported
+    2 of 6  ok    the same read is invisible with md4c.c built without the flag
+    3 of 6  ok    a write past the event buffer, made inside md_events.c, is reported
+    4 of 6  ok    the same write is invisible with md_events.c built without the flag
+    5 of 6  ok    a buffer md_events.c never frees is reported
+    6 of 6  ok    the 12 committed corpus entries are quiet, leaks included
+
+  MD MEMORY GATE: ok (6 of 6)
+
+  All six answer the same at the product's level as they did at -O1. **That is a
+  result and not a formality**: it is the first time any of them has been a
+  statement about the bytes Lake links in.
+
+=== 4  THE SECONDS, AND WHY THEY ARE NOT A COMPARISON
+
+The step took 3.09 s here (12:25:56.525 -> 12:25:59.612). The same gate at -O1
+took 5.38 s in the run immediately before it (job 100243391400, 12:16:11.013 ->
+12:16:16.391) and 6.6 s in benchmarks/results/md-memory-gate-2026-09-02.txt.
+
+**Three single runs on three runner instances.** 5.38 and 6.6 are the same code
+at the same level, so the spread between them is the noise floor, and 3.09 sits
+inside a range that noise alone reaches. Do not read it as a speedup: nothing
+here was measured under controlled conditions, and the change was not made for
+time. What is being recorded is that the gate did not get slower enough to
+matter -- eight compiles at -O0 rather than -O1, six links, six runs.

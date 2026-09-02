@@ -387,8 +387,12 @@ redefined. What was put in its place is **3 kinds that need no external oracle**
   **`tools/md-memory-gate.sh` is what watches that C now** (2026-09-02, `ci`): six items, and
   **four of them exist only so the other two mean something** — each of the two files gets a
   defect injected into a copy of itself and is run twice, the second time with *that one file*
-  built without `-fsanitize=address`. 6 of 6 on ubuntu-latest in 6.6 s (measured →
-  `benchmarks/results/md-memory-gate-2026-09-02.txt`). **It answers 0 of 6 and exits 2 on this
+  built without `-fsanitize=address`. 6 of 6 on ubuntu-latest (measured →
+  `benchmarks/results/md-memory-gate-2026-09-02.txt`). **It compiles at the level the product
+  compiles at, and takes it from `lakefile.lean`'s `ccFlags`** rather than writing one down — it
+  spent its first day at `-O1` against a product Lake builds with no `-O` at all, so all six
+  items were about a level nothing ships (measured →
+  `benchmarks/results/md-memory-opt-2026-09-02.txt`). **It answers 0 of 6 and exits 2 on this
   machine** — a program built with `-fsanitize=address` never reaches its own `main` here — so
   never read a local run of it as a pass
 - **Do not use a subset of the gates as the judgement for a commit.** (measured 2026-08-24, turned main red twice)
