@@ -57,6 +57,14 @@ jobs:
       - name: One answer to what the assets are
         run: tools/assets-embed-gate.sh
 
+      # The two corpora minted outside this tree are carried into a generated
+      # Lean module, and the invariants that read them run in the aarch64 job
+      # below. This is the half that needs no toolchain: the module is what the
+      # fixtures generate, and the case counts the invariants assert are the
+      # counts the fixtures hold.
+      - name: The Markdown oracles are still what the invariants read
+        run: tools/md-oracle-gate.sh
+
       # This repository is public, so Apache-2.0 §4 is live: what this stops is
       # a refactor deleting an attribution that is legally load-bearing.
       - name: Provenance

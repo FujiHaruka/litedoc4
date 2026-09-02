@@ -29,6 +29,7 @@ import Litedoc4Test.MdEscape
 import Litedoc4Test.MdGc
 import Litedoc4Test.MdHtml
 import Litedoc4Test.MdMath
+import Litedoc4Test.MdOracle
 import Litedoc4Test.MdParse
 import Litedoc4Test.Packages
 import Litedoc4Test.Queries

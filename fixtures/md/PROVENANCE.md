@@ -3,12 +3,21 @@
 JSON cannot carry a comment, so the attribution for the generated fixtures in
 this directory lives here.
 
-> **Nothing reads these files.** Their readers were Rust tests and left with
-> `crates/` on 2026-09-02. `docgen4-expected.json` and `md4lean-expected.json`
-> still have their generators in HEAD (`tools/oracle/gen-*.ts`, whose `--check`
-> asks whether the committed file is what the oracle says today); nothing grades
-> a parser against them. **Read them as a record, not as something being
-> checked.**
+> **Two of these are read again; the rest are a record.** The Rust tests that
+> read all of them left with `crates/` on 2026-09-02, and
+> `docgen4-expected.json` and `md4lean-expected.json` got a Lean reader the same
+> day: `tools/gen-md-oracle-cases.py` carries their cases into
+> `test/Litedoc4Test/MdOracleCases.lean` (Lean has no `include_str!`, so a test
+> that holds its own input has to be generated), the two `Invariant`s in
+> `test/Litedoc4Test/MdOracle.lean` ask them, and `tools/md-oracle-gate.sh` is
+> what says the generated module is still what the fixtures generate.
+> `ts-docstring-expected.json` and `fuzz/` have no reader — read those as a
+> record. **The generators are in HEAD and cannot run**: `tools/oracle/gen-*.ts`
+> reach their oracle through `lake env lean` in the measurement target, and
+> neither `doc-gen4` nor `MD4Lean` is in that target any more — 9 packages in
+> `lake-manifest.json`, neither of them among the 10 under `.lake/packages/`
+> (measured 2026-09-02). So `--check` cannot ask whether these files are what
+> the oracle says today, and the frozen answers are all there is.
 
 | file | produced by | whose output it is |
 |---|---|---|
@@ -43,14 +52,18 @@ rather than `…_doc_gen4`.
 
 **What that costs is stated rather than hidden.** The test that read this file no
 longer said "the CommonMark dialect did not move" — it said "the output did not
-move" — and it has since left with `crates/` altogether. The doc-gen4 oracle is
-still here and still runs:
+move" — and it has since left with `crates/` altogether. Its Lean successor is
+`Litedoc4Test.theDocGen4CorpusDiffersFromItsRecordedHtmlOnlyWhereMathML4LeanSaysSo`,
+and it says the same narrower thing.
+
+**The dialect claim can no longer be re-checked.** It used to be one command:
 
     deno run --allow-read --allow-write --allow-run --allow-env \
       tools/oracle/gen-docgen4-expected.ts
 
-so the dialect claim can be re-checked deliberately. It is simply not what a
-push is judged by. The five cases that diverge are the math ones: inline math,
+That reaches doc-gen4 through `lake env lean` in the measurement target, and
+doc-gen4 left that target's manifest (measured 2026-09-02). Re-asking it means
+putting doc-gen4 back there first. The five cases that diverge are the math ones: inline math,
 display math, math with markdown inside, escapes in math, and a table whose cell
 holds math.
 

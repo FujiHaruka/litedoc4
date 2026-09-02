@@ -57,7 +57,18 @@ echo "=== 2/4 every Invariant defined is one the runner runs"
 # against what the binary says it ran.
 # `|| true` because grep exits 1 when nothing matched and `pipefail` is on, which
 # would abort here instead of letting item 2 report the zero.
-DEFINED="$(grep -rEc ': Invariant (where|:=)' "$ROOT/test" 2>/dev/null | awk -F: '{s+=$2} END {print s+0}' || true)"
+#
+# Newlines are squeezed out before counting, and not because the source is
+# prettier that way: a signature long enough to wrap puts `Invariant where` on
+# the line after the `:`, and a line-based count then misses it. That direction
+# is the dangerous one — an unwrapped definition missing from `Main.lean` makes
+# defined exceed run and fails, but a *wrapped* one missing from it lowers both
+# numbers together and item 2 goes green over an invariant nobody ran (measured
+# 2026-09-02, on the definition this comment was added with).
+# `structure Invariant where` in Basis.lean does not match: the colon is required.
+# `find` and not a glob: `test/**/*.lean` needs `globstar`, and without it the
+# pattern quietly means one directory deep.
+DEFINED="$(find "$ROOT/test" -name '*.lean' -exec cat {} + 2>/dev/null | tr '\n' ' ' | grep -oE ': +Invariant +(where|:=)' | wc -l | tr -d ' ' || true)"
 OUT="$(mktemp "${TMPDIR:-/tmp}/lean-test-run.XXXXXX")"
 # No pipe: the exit code has to be the executable's.
 set +e

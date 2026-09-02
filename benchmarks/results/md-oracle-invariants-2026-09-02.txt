@@ -1,0 +1,166 @@
+A Lean reader for the two committed Markdown oracles (measured 2026-09-02)
+
+WHAT WAS ADDED
+  tools/gen-md-oracle-cases.py  -> test/Litedoc4Test/MdOracleCases.lean
+  test/Litedoc4Test/MdOracle.lean  two Invariants over 327 + 533 cases
+  tools/md-oracle-gate.sh          the generated module's freshness (3 items)
+
+CONDITIONS
+  hardware     Apple M1, macOS 26.6.2, arm64; warm page cache (wall << user+sys
+               on the build, which is Lake running jobs in parallel)
+  Lean         leanprover/lean4:v4.31.0 (the toolchain e2e/micro pins)
+  MathML4Lean  v0.1.1 (lakefile.lean)
+  build        tools/build-lean-exe.sh --toolchain-from e2e/micro --exe litedoc4-test
+  A/B          the same session, the same warm state; the `before` arm is the
+               same tree with the two modules moved out and their two import /
+               registration lines removed
+
+
+1. WHAT IT COSTS
+
+  generated module            737,711 B, 860 cases (327 + 533)
+
+  warm no-op build (5 runs, seconds of wall)
+    before  0.53  0.46  0.46  0.47  0.47
+    after   0.47  0.47  0.49  0.48  0.47
+    Lake compares content, not mtimes, so an untouched tree costs the same.
+
+  rebuild of the whole test target after wiping its artifacts (3 runs)
+    before  real 7.66  7.64  7.80   user 29.60  29.94  29.96   sys 10.09  10.45  10.67
+    after   real 8.50  8.04  8.19   user 34.54  34.39  34.13   sys 11.18  10.80  10.97
+    median  7.66 -> 8.19 s wall (+0.53 s), 29.94 -> 34.39 s CPU (+4.45 s)
+
+  running the suite (5 runs, warm)
+    before  0.26  0.27 s wall, 31 invariants
+    after   0.28 s wall (user 0.19, sys 0.08), 33 invariants
+    860 cases rendered or parsed cost about 0.02 s.
+
+
+2. WHAT IT FOUND
+
+2a. `Litedoc4.noLinks` is not the Rust half's `NoLinks` (9 of 327 cases)
+
+  The Rust `NoLinks` kept doc-gen4's default `source_path_to_link`, which is
+  `Some(format!("{root}{path}.html"))` and needs no index:
+
+    git show rust-frozen:crates/litedoc4-md/src/html.rs   (lines 34-72)
+
+  and its own comment says that is "the configuration that reproduces doc-gen4
+  with an empty AnalyzerResult, which is what tests/docgen4.rs compares
+  against". The Lean `noLinks` answers `none` to a source path as well as to a
+  name, so a docstring writing `` `Mathlib/Order/Basic.lean` `` renders as
+  plain <code> where doc-gen4 renders an anchor. Nine of the 327 cases show it,
+  for example:
+
+    InformationTheory.Shannon.EPI.Conv.Density module doc 0, root ".././"
+      got       <code>Mathlib/Analysis/Calculus/ParametricIntegral.lean</code>
+      expected  <code><a href=".././Mathlib/Analysis/Calculus/ParametricIntegral.html">
+                Mathlib/Analysis/Calculus/ParametricIntegral.lean</a></code>
+
+  The invariant is configured the way the oracle was configured
+  (`MdOracle.docGen4EmptyAnalyzer`), which is what the nine turn on. The
+  divergence itself is in src/ and is NOT fixed here: `noLinks` is live product
+  code, used by `src/Litedoc4/Global/Entry.lean`'s `entryRenderer`, and
+  restoring doc-gen4's answer there would put back the guess that produced 160
+  dangling links on the measurement target (measured 2026-08-16 ->
+  benchmarks/results/m8-ui2-dead-links.txt). Whether the entry pages should
+  link a source path at all is a product question, not a port defect to be
+  patched in passing.
+
+2b. MathML4Lean vs math-core (1 of 327 cases) -- still failing
+
+    curated: math with markdown inside, root ".././", input "$a_*b*_c$\n"
+      got       ...<msub><mo lspace="0" rspace="0">*</mo><mi>c</mi></msub>...
+      expected  ...<msub><mo lspace="0.2222em" rspace="0.2222em">*</mo><mi>c</mi></msub>...
+      (the * above is U+2217)
+
+  Asked of MathML4Lean directly, with no litedoc4 in the way:
+
+    MathML4Lean.toMathML "a_*b*_c" .inline
+      = some <math><msub><mi>a</mi><mo>*</mo></msub><mi>b</mi>
+             <msub><mo lspace="0" rspace="0">*</mo><mi>c</mi></msub></math>
+
+  so the difference is MathML4Lean's and not the renderer's. The expected value
+  is math-core's, by way of the Rust half, blessed into the fixture on
+  2026-08-22 (fixtures/md/PROVENANCE.md). benchmarks/purelean-report.md records
+  the decision that put MathML4Lean in its place: it "differs on 107 only where
+  a named rule says so" and "a target that reaches the 107 will not match the
+  Rust half page for page, by design" (decided 2026-08-30, user's call). This
+  is one of the 107. The other four math cases in the fixture agree.
+
+  It is left failing rather than excluded, relaxed, or re-blessed: the fixture
+  is the last answer in this tree that something else minted, and re-minting
+  one of its cases from the implementation being checked is the move that turns
+  an oracle into a mirror.
+
+
+3. WHAT IT DOES NOT FIND, AND WHY THE HEADLINE IS NARROWER THAN IT LOOKS
+
+  `docgen4-expected.json` is doc-gen4's answer on 322 of its 327 cases only.
+  The file was re-blessed from the Rust half on 2026-08-22 when feature-sweep
+  C-1 made five math cases unable to agree with doc-gen4 ever again
+  (fixtures/md/PROVENANCE.md), so on those five it is this repository's own
+  former output. `md4lean-expected.json` is MD4Lean's throughout.
+
+  `md4lean-expected.json`'s cases do not all carry the docstring flags.
+  Litedoc4.docstringFlags = 8044 (printed from Lean), and 525 of the 533 cases
+  use it; the other 8 are 0, 7948, 8045, 8046, 8060, 16236, 24428 and 40812 --
+  the corners the docstring dialect cannot reach (plain CommonMark, raw HTML,
+  collapse-whitespace, permissive ATX headers, no indented code, wiki links,
+  underline, hard soft breaks), answered by MD4Lean rather than by hand. The
+  invariant uses each case's own flags; one that hardcoded 8044 would compare
+  eight cases against a tree built from different flags.
+
+
+4. RESULT
+
+  md4lean corpus   533 of 533 agree
+  docgen4 corpus   326 of 327 agree; the one is 2b above
+  tools/lean-test-gate.sh   items 1, 2 and 4 pass (33 defined, 33 ran;
+                            223 #guards); item 3 fails on that one case
+
+
+5. HOW THE ONE DISAGREEMENT WAS SETTLED, AND A HOLE FOUND WHILE SETTLING IT
+
+  2b is not a defect and not a new decision. `benchmarks/purelean-report.md`
+  already records it: MathML4Lean "differs on 107 only where a named rule says
+  so", and "a target that reaches the 107 will not match the Rust half page for
+  page, by design ... Adopting it is a decision about output, not a gap to be
+  closed" (decided 2026-08-30, user's call). The five math cases hold math-core's
+  MathML, which is the Rust half's converter and is gone; this is one of the 107.
+
+  Not excluded and not re-blessed. The invariant names the *set* of cases that
+  differ and compares it -- the idiom the frozen Rust half used for the same
+  problem (`git show rust-frozen:crates/litedoc4-render/tests/pages.rs`:
+  `assert_eq!(differing, [...], "the set of pages that differ from the prototype
+  changed")`). Dropping the case would be the exception list that swallows the
+  next real divergence; re-minting its expected value from this tree would
+  replace the answer with the thing being checked.
+
+  Both directions were made to fail before the set was allowed to pass
+  (measured 2026-09-02):
+    set emptied              -> "newly differing #[curated: math with markdown
+                                inside]", plus the byte offset, got and expected
+    a name added that agrees -> "no longer differing #[curated: a case that
+                                agrees]"
+
+  A HOLE IN tools/lean-test-gate.sh ITEM 2, found by tripping it. The item
+  counted `: Invariant (where|:=)` line by line. A signature long enough to wrap
+  puts `Invariant where` on the next line and the count misses it:
+
+    definition on one line   old count 33   new count 33
+    same definition wrapped  old count 32   new count 33
+
+  Wrapped-and-listed fails loudly (defined 32, ran 33), which is how it was
+  found. Wrapped-and-*not*-listed is the dangerous one: both numbers fall to 32
+  together and item 2 goes green over an invariant nobody ran -- the exact
+  silence the item exists to break. The count now squeezes newlines first and
+  walks `test/` with `find` rather than a glob that needs `globstar`.
+
+
+6. RESULT, AFTER 5
+
+  md4lean corpus   533 of 533 agree
+  docgen4 corpus   326 of 327 agree; the 327th is the recorded MathML4Lean
+                   divergence, asserted as a set rather than skipped
+  tools/lean-test-gate.sh   ok -- 223 compile-time, 33 run-time

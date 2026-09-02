@@ -8,6 +8,8 @@ def main : IO UInt32 :=
     Litedoc4Test.aParagraphIsWrappedAndATightItemIsNot,
     Litedoc4Test.inlineIsOneParagraphOrElseTheAuthorsOwnCharacters,
     Litedoc4Test.theShapesThatKillMd4LeanParseAndRenderHere,
+    Litedoc4Test.theDocGen4CorpusDiffersFromItsRecordedHtmlOnlyWhereMathML4LeanSaysSo,
+    Litedoc4Test.theMd4LeanCorpusParsesToTheTreeItRecords,
     Litedoc4Test.noHostileOrGeneratedInputCrashesTheRenderer,
     Litedoc4Test.renderingIsDeterministicOverTheHostileCorpus,
     Litedoc4Test.theIrReadCountsAreByKindAndReset,

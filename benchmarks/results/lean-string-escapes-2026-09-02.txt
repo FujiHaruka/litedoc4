@@ -1,0 +1,85 @@
+How Lean 4 spells the characters `fixtures/md/*-expected.json` contains
+(measured 2026-09-02)
+
+WHY
+  `tools/gen-md-oracle-cases.py` writes those two corpora into
+  `test/Litedoc4Test/MdOracleCases.lean` as Lean string literals. The corpora
+  hold NUL, TAB, CR, LF and astral characters (U+1D49C, U+1F600), and
+  `tools/gen-assets.py` -- the precedent -- deliberately refuses everything but
+  \ and " , saying "Lean's \x and \u escapes have not been measured here".
+  This is that measurement.
+
+CONDITIONS
+  hardware        Apple M1, macOS 26.6.2, arm64
+  Lean            leanprover/lean4:v4.31.0 (the toolchain `e2e/micro` pins)
+                  Lean (version 4.31.0, arm64-apple-darwin24.6.0,
+                  commit 68218e876d2a38b1985b8590fff244a83c321783, Release)
+  how             one `.lean` file per spelling, run with `lake env lean --run`
+                  from `.lake/host`, printing `(String.toUTF8 <literal>).toList`
+  python          3.9.6 (the side that writes the literals)
+
+
+1. ONE SPELLING AT A TIME
+
+OK  backslash              want=[92]                   got=[92]               
+OK  dquote                 want=[34]                   got=[34]               
+OK  newline \n             want=[10]                   got=[10]               
+OK  tab \t                 want=[9]                    got=[9]                
+OK  CR \r                  want=[13]                   got=[13]               
+OK  NUL \x00               want=[0]                    got=[0]                
+OK  CR \x0d                want=[13]                   got=[13]               
+OK  DEL \x7f               want=[127]                  got=[127]              
+OK  ESC \x1b               want=[27]                   got=[27]               
+OK  NUL \u0000             want=[0]                    got=[0]                
+OK  e-acute \u00e9         want=[195, 169]             got=[195, 169]         
+OK  e-acute literal        want=[195, 169]             got=[195, 169]         
+OK  BMP \u2211             want=[226, 136, 145]        got=[226, 136, 145]    
+OK  BMP literal            want=[226, 136, 145]        got=[226, 136, 145]    
+OK  astral literal         want=[240, 159, 152, 128]   got=[240, 159, 152, 128] 
+NO  astral \u{1F600}       want=[240, 159, 152, 128]                          rc=1  error: invalid hexadecimal numeral
+NO  astral \U0001F600      want=[240, 159, 152, 128]                          rc=1  error: invalid escape sequence
+NO  astral surrogates      want=[240, 159, 152, 128]   got=[0, 0]             rc=0  compiles, and is wrong
+OK  script-A literal       want=[240, 157, 146, 156]   got=[240, 157, 146, 156] 
+OK  raw CR byte            want=[13]                   got=[13]               
+OK  raw NUL byte           want=[0]                    got=[0]                
+OK  raw tab byte           want=[9]                    got=[9]                
+
+  "astral surrogates" is `"\ud83d\ude00"`, the way JSON spells U+1F600. It is
+  the one line here that matters more than the rest: Lean **accepts** it,
+  exits 0, and hands back two NUL bytes. A generator that reached for the JSON
+  spelling would produce a corpus that is silently not the corpus, with nothing
+  in the build saying so. `gen-md-oracle-cases.py` refuses a surrogate for this
+  reason and writes astral characters out raw, which is the row above it.
+
+
+2. IS \xHH GREEDY? (it is not -- exactly two digits)
+
+OK  x00 then b     "a\x00b"         want=[97, 0, 98]          got=[97, 0, 98]
+OK  x0d then abc   "\x0dabc"        want=[13, 97, 98, 99]     got=[13, 97, 98, 99]
+OK  x09            "\x09"           want=[9]                  got=[9]
+OK  x0a            "\x0a"           want=[10]                 got=[10]
+OK  x0A upper      "\x0A"           want=[10]                 got=[10]
+OK  u0000 then b   "a\u0000b"       want=[97, 0, 98]          got=[97, 0, 98]
+OK  n then digits  "\n0d"           want=[10, 48, 100]        got=[10, 48, 100]
+OK  r then n       "a\r\nb"         want=[97, 13, 10, 98]     got=[97, 13, 10, 98]
+
+  `b` and `abc` after the escape are hex digits and were not eaten, so the
+  corpus's `a<NUL>b` and `<CR>abc` can be written with `\xHH` and nothing else.
+
+
+3. THE WHOLE CORPUS, BYTE FOR BYTE
+
+  Not a sample of spellings but every string the generated module carries:
+  each case's `what`, `root`, `md`, `html` from `docgen4-expected.json`, and
+  each case's `what`, `md` and canonically re-serialised `ast` from
+  `md4lean-expected.json` -- encoded by `gen-md-oracle-cases.py`'s own
+  `literal()`, compiled, concatenated by Lean and written back out as UTF-8.
+
+  probe module: 731108 B, 2907 strings
+  lean rc = 0   2907 strings, 664341 bytes
+  python: 664341 bytes, lean: 664341 bytes
+  ROUND TRIP: identical
+
+  Distinct code points in the two corpora: 201 and 228, from U+0000 to U+1F600;
+  control characters present: U+0000, U+0009, U+000A, U+000D; lone surrogates
+  and noncharacters: none.
