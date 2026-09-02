@@ -11,9 +11,8 @@
 - tag **`v1.4.0`** at `3cc0d6e`, release published, and
   `FujiHaruka/information-theory` bumped to `@v1.4.0` (`95a7a76`). Its `docs.yml` fires on a
   tag push, so a pin bump alone would leave the live site built by v1.3.0; it was dispatched
-  by hand — **run 33618936007, and leg 1 did not see it finish.** Confirm it, and that
-  `https://fujiharuka.github.io/information-theory/` came back, before treating B1 as closed:
-    gh run view 33618936007 --repo FujiHaruka/information-theory
+  by hand (run 33618936007), finished green, and
+  `https://fujiharuka.github.io/information-theory/` answers 200. **B1 is closed.**
 
 Gates after this leg: `LEAN TEST GATE: ok — 223 compile-time, 33 run-time` ·
 `MD ORACLE GATE: ok` · `VERSION GATE: ok — 1.4.0` ·
@@ -31,7 +30,7 @@ Gates after this leg: `LEAN TEST GATE: ok — 223 compile-time, 33 run-time` ·
 - Stop-on: completion
 - Progress ledger:
   - r1: **C2 done** (`3dd37e3`) · **B2 + 1.4.0** (`abaf743`, `3cc0d6e`) · **v1.4.0 tagged
-    and released** · information-theory pin bumped, its rebuild dispatched but unconfirmed ·
+    and released** · information-theory pin bumped and its site rebuilt green ·
     two silent-green holes closed on the way
 
 ## Next step — A1, and it is cheaper than leg 1 assumed
