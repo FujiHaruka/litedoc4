@@ -157,14 +157,61 @@ else
   [ ${#stale[@]} -eq 0 ] || printf '  %s\n' "${stale[@]}" >&2
 fi
 
-# --- item 3: the version is not one already published
-echo "=== 3/3 v$VERSION is unpublished, or is this very commit"
-if ! git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
-  pass 3 "v$VERSION is not tagged yet"
-elif [ "$(git rev-parse "v$VERSION^{commit}")" = "$(git rev-parse HEAD)" ]; then
-  pass 3 "v$VERSION is this commit"
+# --- item 3: no published version is shipped twice
+#
+# **The question is about the tags, not about HEAD.** This item used to ask
+# whether Version.lean named a tag that is not this commit, and fail if it did —
+# which is the state main is in from the moment a release is tagged until the
+# next one, because every `tracks` site is a *pin instruction* a user follows
+# (`uses: FujiHaruka/litedoc4@v1.4.0`). Bumping the literal to clear it would
+# make README tell people to pin a tag that does not exist. So the old item asked
+# for the one thing that must not be done, and it turned main red on every
+# ordinary commit after a release (measured 2026-09-02: CI on `9bc8c8f` failed
+# for exactly this, and `3a62874` before it).
+#
+# What is always true, and catches the double-ship where it actually happens:
+#
+#   a  every published tag whose commit carries Version.lean names its own
+#      version. Tagging v1.5.0 without moving the literal fails here on the next
+#      run, naming both — which is "you shipped 1.4.0 twice" said at the moment
+#      it becomes true.
+#   b  HEAD's literal is not *below* the greatest published tag. Equal is the
+#      normal state between releases; below is a downgrade.
+#
+# Tags older than the literal are counted rather than skipped in silence: the
+# file arrived at v1.3.0, so ten of the twelve tags cannot answer (a) at all.
+echo "=== 3/3 no published version is shipped twice"
+tagged=0
+untagged=0
+mismatched=()
+for tag in $TAGS; do
+  # `|| true` because a tag older than the file makes `git show` exit 128, and
+  # under `pipefail` that becomes the assignment's status, which `set -e` reads
+  # as the script failing. The empty answer *is* the answer here.
+  at_tag="$(git show "${tag}:src/Litedoc4/Version.lean" 2>/dev/null \
+    | sed -n 's/^def version : String := "\(.*\)"$/\1/p' || true)"
+  if [ -z "$at_tag" ]; then
+    untagged=$((untagged + 1))
+  else
+    tagged=$((tagged + 1))
+    [ "v$at_tag" = "$tag" ] || mismatched+=("$tag names $at_tag")
+  fi
+done
+newest="$(printf '%s\n' $TAGS | head -1)"
+behind=""
+if [ "v$VERSION" != "$newest" ]; then
+  # `sort -V` puts the greater last, so the literal is below the newest tag
+  # exactly when the newest tag sorts after it.
+  [ "$(printf '%s\nv%s\n' "$newest" "$VERSION" | sort -V | tail -1)" = "$newest" ] \
+    && behind="v$VERSION is below the newest published tag $newest"
+fi
+if [ ${#mismatched[@]} -eq 0 ] && [ -z "$behind" ]; then
+  pass 3 "$tagged of $((tagged + untagged)) tag(s) carry Version.lean and each names its own version; \
+v$VERSION is $([ "v$VERSION" = "$newest" ] && echo "the newest tag" || echo "above $newest")"
 else
-  fail 3 "v$VERSION already points at $(git rev-parse --short "v$VERSION^{commit}") — bump Version.lean or you ship it twice"
+  fail 3 "a published version would be shipped twice"
+  [ ${#mismatched[@]} -eq 0 ] || printf '  %s\n' "${mismatched[@]}" >&2
+  [ -z "$behind" ] || printf '  %s\n' "$behind" >&2
 fi
 
 echo
