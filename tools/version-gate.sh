@@ -39,8 +39,17 @@ echo "Litedoc4.version = $VERSION"
 
 # Every tag this repository has ever published, longest first so that a line
 # holding v1.0.1 is not matched by a v1.0 prefix.
-TAGS="$(git tag | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV)"
-[ -n "$TAGS" ] || { echo "no v* tags to reconcile against" >&2; exit 1; }
+# On stdout as well as stderr: this is a refusal before any item runs, and a log
+# that shows only the exit code is the shape where the output and the exit code
+# disagree. A checkout with no tags is the way it happens (`actions/checkout`
+# fetches none by default).
+TAGS="$(git tag | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -rV || true)"
+if [ -z "$TAGS" ]; then
+  msg="no v* tags here, so nothing can be reconciled against them — fetch tags (actions/checkout wants fetch-tags: true)"
+  echo "$msg"; echo "$msg" >&2
+  echo "VERSION GATE: FAILED" >&2
+  exit 1
+fi
 
 # --- item 1: the inventory and the tree agree about where the versions are
 echo "=== 1/3 every site the inventory names is there, and nothing else names a tag"

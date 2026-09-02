@@ -22,7 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # `fetch-tags` because `tools/version-gate.sh` reconciles the version
+      # against the tags this repository has published, and a checkout without
+      # them cannot answer either "is this version already out" or "which of
+      # these strings is one of our tags". It refuses rather than passing, so
+      # without this line the job is red and says nothing about the version.
       - uses: actions/checkout@v7
+        with:
+          fetch-tags: true
 
       - uses: ./.github/actions/setup-node
 
