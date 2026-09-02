@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Two rules CLAUDE.md states and nothing enforced.
+# Three rules CLAUDE.md states and nothing enforced.
 #
 #   1  "**(measured)** — there is a log | the path to the log must be followable".
 #      Every benchmarks/results/<file> named anywhere outside that directory has
@@ -13,6 +13,14 @@
 #      on purpose — but only when the line says so, so that a reader is sent to
 #      git instead of to a 404.
 #
+#   3  "read from the file, so two lists cannot drift". The Lean toolchains this
+#      repository claims live in tools/lean-toolchains.txt, and every reader of
+#      that list reads the file — except README, which spells the versions out for
+#      a reader who is deciding whether to adopt and cannot be sent to a text file
+#      to find out. So the two are reconciled here, in both directions: adding a
+#      row is how a new toolchain gets claimed, and a README still naming the old
+#      set states a claim nobody made.
+#
 # WHAT IS SKIPPED, AND WHY IT HAD TO BE
 #   Rule 1 skips a citation containing `*`, `{` or `<`, and one ending in `-` or
 #   `_`. Those are globs, `<label>` templates, and paths a comment wrapped across
@@ -23,6 +31,11 @@
 #   The first cut of this gate reported 39 findings and every one of them was its
 #   own fault. A gate that noisy is one people learn to skip, which is worse than
 #   not having it.
+#   Rule 3 reads a three-part version as Lean's only when it starts `4.`, because
+#   this repository's own release tags have the same shape and are not Lean
+#   versions. What falsifies it: a Lean 5, or litedoc4 reaching a major 4. Either
+#   way the reverse direction — every row has to be named — still fails, and that
+#   is what sends a reader here.
 #
 # Reads the tree. No binary, no toolchain, no target.
 #
@@ -104,10 +117,48 @@ for path in files:
 if logs_seen == 0:
     sys.exit("docs-gate: no benchmarks/results citation found at all — rule 1 checked nothing")
 
+TOOLCHAIN = re.compile(r"^leanprover/lean4:v(\d+\.\d+\.\d+)$")
+inventory_path = root / "tools" / "lean-toolchains.txt"
+inventory = {}
+for line_no, line in enumerate(inventory_path.read_text(encoding="utf-8").splitlines(), 1):
+    row = line.split("#", 1)[0].strip()
+    if not row:
+        continue
+    toolchain = row.split()[0]
+    named = TOOLCHAIN.match(toolchain)
+    if not named:
+        problems.append(
+            f"tools/lean-toolchains.txt:{line_no} names {toolchain}, whose version rule 3 "
+            "cannot read — teach it that shape rather than leaving the row unchecked"
+        )
+        continue
+    inventory[named.group(1)] = toolchain
+
+if not inventory:
+    sys.exit(f"docs-gate: {inventory_path} has no toolchain row — rule 3 checked nothing")
+
+LEAN_VERSION = re.compile(r"(?<![\d.])v?(4\.\d+\.\d+)")
+readme_versions = {}
+for line_no, line in enumerate((root / "README.md").read_text(encoding="utf-8").splitlines(), 1):
+    for version in LEAN_VERSION.findall(line):
+        readme_versions.setdefault(version, line_no)
+
+for version, line_no in sorted(readme_versions.items()):
+    if version not in inventory:
+        problems.append(
+            f"README.md:{line_no} names Lean {version}, which has no row in tools/lean-toolchains.txt"
+        )
+for version, toolchain in sorted(inventory.items()):
+    if version not in readme_versions:
+        problems.append(f"tools/lean-toolchains.txt claims {toolchain} and README.md never names it")
+
 if problems:
     for problem in problems:
         print(f"DOCS GATE FAIL  {problem}", file=sys.stderr)
     sys.exit(1)
 
-print(f"DOCS GATE: {logs_seen} measurement-log citation(s) all resolve; no dead document pointer")
+print(
+    f"DOCS GATE: {logs_seen} measurement-log citation(s) all resolve; no dead document pointer; "
+    f"README and tools/lean-toolchains.txt agree on {len(inventory)} Lean toolchain(s)"
+)
 PY

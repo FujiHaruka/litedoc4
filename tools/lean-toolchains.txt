@@ -1,13 +1,15 @@
 # The Lean toolchains litedoc4 claims to work on, and the one thing that moves
 # between them.
 #
-# This file is the single place that list lives. Three readers:
+# This file is the single place that list lives. Its readers:
 #   - tools/e2e-micro.sh          reads the row for e2e/micro/lean-toolchain
 #   - tools/lean-versions-gate.sh normalises the second column before comparing
 #   - .github/workflows/ci-lean-versions.yml  runs one job per row, and fails if
 #     its matrix and this file disagree in either direction
-# README's "Is this for you?" quotes it. A version that is not here is a version
-# nothing ran.
+#   - tools/docs-gate.sh          rule 3. README spells the versions out instead
+#     of linking here, because a reader deciding whether to adopt should not be
+#     sent to a text file; the gate fails when the two disagree in either direction
+# A version that is not here is a version nothing ran.
 #
 # COLUMN 2 — what Lean spells the reducibility status of a reducible instance.
 # Lean renamed it, and the extractor does not branch on the version: it delegates

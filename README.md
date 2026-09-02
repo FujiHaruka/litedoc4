@@ -289,8 +289,8 @@ Pin the action and the `require` to a tag — `v1.3.0` or later, since that is t
 machine with only elan on it can use. If your package is not at the top of its repository,
 `v1.0.1` is the first release whose source links point at it. `@main` moves.
 
-**Every Lean version above is run end to end on every change to the extractor or the sample**,
-and their output is compared: v4.31.0, v4.32.2, v4.33.0 and v4.33.1 produce byte-identical IR
+**Every Lean version litedoc4 claims is run end to end on every change to the extractor or the
+sample**, and their output is compared: v4.31.0, v4.32.2, v4.33.0 and v4.33.1 produce byte-identical IR
 once one rename is applied — Lean's own reclassification of a reducible instance
 (`implicit_reducible` → `instance_reducible`, from v4.33.0). That rename is the only recorded
 difference between them, in
