@@ -79,6 +79,7 @@ REPO="$(cd "$HERE/.." && pwd)"
 source "$HERE/lib/target.sh" || exit 1
 # shellcheck source=lib/common.sh
 source "$HERE/lib/common.sh" || exit 1
+answer_required
 
 OUT=/private/tmp/lean-doc-relay/depsdocs
 TARGET="$TARGET_REPO"
@@ -109,7 +110,7 @@ while [ $# -gt 0 ]; do
     --inject) INJECT="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
     --reuse) REUSE=1; shift ;;
-    -h|--help) sed -n '1,/^set -/p' "$0" | sed '$d'; exit 0 ;;
+    -h|--help) sed -n '1,/^set -/p' "$0" | sed '$d'; answer 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done
@@ -656,3 +657,4 @@ if grep -q '^leaked fallbacks   0 name' "$OUT/report-real.txt" &&
 else
   echo "DEPS DOCS GATE: ok"
 fi
+answer 0

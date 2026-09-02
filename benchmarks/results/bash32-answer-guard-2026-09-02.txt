@@ -1,0 +1,88 @@
+date              2026-09-02T12:07:53Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+bash (system)     GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+bash (homebrew)   GNU bash, version 5.3.9(1)-release (aarch64-apple-darwin24.6.0)
+subject           tools/lib/common.sh answer_required / answer, and
+                  tools/workflow-gate.sh question 5
+
+=== 1  THE HOLE, AND HOW WIDE IT IS
+
+A script that dies on an unbound variable is asked what it answers. The only
+variable is the `set` line and whether an EXIT trap is installed.
+
+  #!/bin/bash
+  set <LINE>
+  <trap 'true' EXIT, or nothing>
+  echo "value: $NOPE"
+  echo "should not reach"
+
+  set line             trap         bash 3.2   bash 5.3.9
+  set -euo pipefail    yes          exit 0     exit 1
+  set -euo pipefail    no           exit 1     exit 1
+  set -uo pipefail     yes          exit 1     exit 1
+  set -uo pipefail     no           exit 1     exit 1
+
+  `set -e` is what makes it a hole. Under `set -uo pipefail` the abort is
+  reported as 1 whether or not a trap is installed; under `set -euo pipefail`
+  with a trap, bash 3.2 answers 0 for a script that died. bash 5 never does.
+
+  Nothing inside the trap can tell that apart from a clean fall-off:
+
+  -- died on an unbound variable
+  /var/folders/n2/1dbjyx3s0y7g8yk_v3stw9bw0000gp/T/tmp.PhmxvLOy7p/c.sh: line 4: NOPE: unbound variable
+    trap sees rc=0 BASH_COMMAND=[echo "value: $NOPE"]
+  -- fell off the end
+    falls off the end
+    trap sees rc=0 BASH_COMMAND=[echo "  falls off the end"]
+
+=== 2  THE GUARD
+
+`answer_required` up front, `answer <status>` on every path that exits 0, and
+an EXIT trap that turns a 0 no path claimed into 70. `exit 70` and not
+`return 70`: under `set -uo pipefail` a trap's return value is discarded.
+
+  set line             path                 bash 3.2   bash 5.3.9
+  set -euo pipefail    set -u abort         exit 70    exit 1
+  set -uo pipefail     set -u abort         exit 1     exit 1
+  set -euo pipefail    answer 0             exit 0     exit 0
+  set -uo pipefail     answer 0             exit 0     exit 0
+  set -euo pipefail    answer 1             exit 1     exit 1
+  set -euo pipefail    unclaimed fall-off   exit 70    exit 70
+  set -uo pipefail     unclaimed fall-off   exit 70    exit 70
+  set -euo pipefail    set -e abort         exit 1     exit 1
+
+=== 3  THE SAME INJECTION THROUGH A REAL GATE
+
+tools/md-oracle-gate.sh, copied and given one unbound variable immediately
+after its EXIT trap is installed. It reads only the tree, so nothing else about
+the run changes.
+
+  unmodified                                     exit 0
+  one unbound variable, guard on                 exit 70
+  one unbound variable, guard off                exit 0
+
+  The middle row is the whole point: the gate says nothing about markdown, and
+  says so in its status. The bottom row is what every one of these scripts did
+  before this change.
+
+=== 4  THE SUBJECTS
+
+Every tools/**/*.sh that installs an EXIT trap, by `set` line.
+
+  tools/base-ir-gate.sh              set -euo   manual   claims
+  tools/deps-docs-gate.sh            set -euo   manual   claims
+  tools/e2e-micro.sh                 set -euo   -        claims
+  tools/extractor-mismatch.sh        set -euo   -        claims
+  tools/extractor-uniqueness.sh      set -euo   -        claims
+  tools/flag-tie-gate.sh             set -euo   ci       claims
+  tools/libc-shim-gate.sh            set -euo   ci       claims
+  tools/md-memory-gate.sh            set -euo   ci       claims
+  tools/md-oracle-gate.sh            set -euo   ci       claims
+  tools/publish-pages.sh             set -euo   -        claims
+  tools/render-compare.sh            set -uo    -        not exposed
+  tools/site-compare.sh              set -uo    -        not exposed
+  tools/watch-gate.sh                set -uo    ci       not exposed
+
+  13 script(s) install an EXIT trap of their own (lib/common.sh, which defines the
+  mechanism, is not one of its own subjects): 10 combine it with `set -e` and
+  claim, 3 are `set -uo pipefail` and are not exposed

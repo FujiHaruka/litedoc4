@@ -39,13 +39,17 @@
 # abort from `set -u` reaches the EXIT trap with `$?` already **0**, so `rc` is 0
 # and `return "$rc"` faithfully answers 0 for a script that died on an unbound
 # variable (measured 2026-09-02; bash 5 exits 1 either way, so CI never shows
-# it). Nothing inside this function can tell that apart from falling off the end,
-# because the two arrive identically. A script that wants to be sure has to say
-# so itself: set a flag on every path that is a real answer and have the cleanup
-# refuse a 0 that no path claimed -- `tools/md-memory-gate.sh`'s `finished` is
-# the shape. 13 scripts here combine `set -u` with a trap; the 5 that are `ci`
-# rows are covered by CI's bash, and `base-ir-gate.sh` and `deps-docs-gate.sh`
-# are `manual`, which is where the hole is open.
+# it). Nothing inside this function can tell that apart from falling off the end
+# -- `$?`, `BASH_COMMAND` and the trap's own view are identical in the two
+# (measured 2026-09-02), which is why `answer_required` below is a flag rather
+# than something cleverer.
+#
+# **`set -e` is what makes it a hole**, and that is narrower than it was first
+# written down: under `set -uo pipefail` the same abort exits 1 with the trap
+# installed (measured 2026-09-02 -> benchmarks/results/bash32-answer-guard-2026-09-02.txt).
+# 13 scripts here combine `set -u` with a trap; the 3 that are `set -uo pipefail`
+# -- render-compare.sh, site-compare.sh and watch-gate.sh -- are not exposed and
+# do not claim anything, and the other 10 all call `answer_required`.
 on_exit () {
   # shellcheck disable=SC2064  # $1 is quoted into the trap on purpose: see above
   trap "__on_exit_run $(printf '%q' "$1")" EXIT
@@ -56,8 +60,37 @@ __on_exit_run () {
   if ! ( set +e; eval "$1" ); then
     echo "cleanup failed (the exit status is still $rc): $1" >&2
   fi
+  if [ "$rc" -eq 0 ] && [ "$__ANSWER_REQUIRED" -eq 1 ] && [ "$__ANSWER_GIVEN" -eq 0 ]; then
+    echo "$__ANSWER_WHO: stopped before any of its own endings, so this 0 is not an answer -- read the error above" >&2
+    exit 70
+  fi
   return "$rc"
 }
+
+# Say that a 0 out of this script only counts if a path claimed it, and claim
+# one. Together they close the hole above: `answer_required` up front (before
+# anything can exit), `answer <status>` on **every path that exits 0**, and a 0
+# nobody claimed comes out as 70 instead. A non-zero status is left alone -- the
+# aborts this defends against all arrive as 0.
+#
+# **`exit 70`, not `return 70`**: under `set -uo pipefail` a trap's return value
+# is discarded and the pending status stands, so a `return` here would be a guard
+# that does nothing at all the first time a `set -uo pipefail` script opts in --
+# silently, since the two spellings agree on every other path (measured
+# 2026-09-02, both bash 3.2.57 and 5.3.9).
+#
+# `answer` inside `$(...)`, a pipeline or any other subshell exits the subshell
+# and claims nothing, the same way `exit` would. It is called from the top level.
+#
+# tools/workflow-gate.sh question 5 is what keeps the pairing honest: a script
+# here that combines `set -e` with an EXIT trap and never says `answer_required`
+# fails it by name, because the next such script is otherwise written silently.
+__ANSWER_REQUIRED=0
+__ANSWER_GIVEN=0
+__ANSWER_WHO="${0##*/}"
+
+answer_required () { __ANSWER_REQUIRED=1; }
+answer () { __ANSWER_GIVEN=1; exit "${1:-0}"; }
 
 # The host and the RAM by name, because this workload is memory-bound and a
 # number without them cannot be read.

@@ -19,6 +19,9 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$HERE/lib/common.sh" || exit 1
+answer_required
 
 CC="${CC:-cc}"
 command -v "$CC" >/dev/null 2>&1 || {
@@ -27,14 +30,7 @@ command -v "$CC" >/dev/null 2>&1 || {
 }
 
 OUT="$(mktemp -d)"
-cleanup () {
-  # `if`, not `&&`: the exit code of the last command in an EXIT trap becomes
-  # the script's, and `[ -d ... ] && rm` returns 1 when the directory is gone.
-  if [ -d "$OUT" ]; then
-    rm -rf "$OUT"
-  fi
-}
-trap cleanup EXIT
+on_exit 'rm -rf "$OUT"'
 
 # _FORTIFY_SOURCE rewrites mem* into macros on macOS, and a macro cannot be
 # compared against a declaration. Turning it off is what makes the redeclaration
@@ -47,3 +43,4 @@ if ! "$CC" -D_FORTIFY_SOURCE=0 -c -o "$OUT/conformance.o" \
 fi
 
 echo "libc-shim-gate: ok — csrc/libc agrees with $($CC --version | head -1)"
+answer 0

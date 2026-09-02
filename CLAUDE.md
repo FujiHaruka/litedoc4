@@ -530,11 +530,17 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
   EXIT trap — `trap "true" EXIT` is enough — and a script that dies on an unbound variable
   **exits 0**; without the trap the same script exits 1 (measured 2026-09-02). The trap sees
   `$?` already 0, so `tools/lib/common.sh`'s `on_exit`, which returns the status it captured,
-  cannot recover it either. A plain `set -e` command failure is **not** affected, and bash 5
-  is not affected, so **CI never shows this** — it is `/bin/bash` on this machine. The defence
-  is a flag the script sets on every path that is a real answer, with the cleanup refusing a 0
-  that no path claimed (`tools/md-memory-gate.sh`'s `finished`). This is another instance of
-  "the output and the exit code disagree".
+  cannot recover it either — and **nothing it could read would**: an abort and a clean fall-off
+  arrive with the same `$?` and the same `BASH_COMMAND`. **`-e` is what makes it a hole**; under
+  `set -uo pipefail` the same abort exits 1. A plain `set -e` command failure is **not** affected,
+  and bash 5 is not affected, so **CI never shows this** — it is `/bin/bash` on this machine.
+  **The defence is in the tree**: `answer_required` up front and `answer <status>` on every path
+  that exits 0, and `on_exit` turns a 0 no path claimed into **70**
+  (→ `benchmarks/results/bash32-answer-guard-2026-09-02.txt`). All 10 exposed scripts claim,
+  and **`tools/workflow-gate.sh` question 5 fails a new one that does not** — including one that
+  claims and then falls off the end, which is how `publish-pages.sh` was caught. So: **a script
+  here that combines `set -e` with a trap has to end by saying its answer.**
+  This is another instance of "the output and the exit code disagree".
 - **zsh applies history modifiers to a bare `$var:` — even inside double quotes.**
   `git show "$tag:src/Litedoc4/Version.lean"` reads as `$tag` with the `:s` *substitute*
   modifier and `rc/Litedoc4/Version.lean` as its delimiters, so it expands to the bare tag name
