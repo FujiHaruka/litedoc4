@@ -5659,8 +5659,9 @@ that it does not change what the other scripts sourcing that file answer. `answe
 front, `answer <status>` on every path that exits 0, and `__on_exit_run` turns **a 0 no path
 claimed into 70**. A non-zero status is left alone: every abort this defends against arrives as 0.
 **`exit 70` and not `return 70`** — under `set -uo pipefail` a trap's return value is discarded
-and the pending status stands, so a `return` would have been a guard that silently did nothing in
-three of the scripts.
+and the pending status stands, so a `return` would have been a guard that does nothing at all the
+first time a `set -uo pipefail` script opts in, and silently, because the two spellings agree on
+every other path.
 
 | | |
 |---|---|
@@ -5677,6 +5678,15 @@ staged one: `publish-pages.sh` ends on the push, so its success path fell off th
 have come out as 70. **Reading the ten tails one by one is what found it, not the gate** — the
 gate was written afterwards, and it names that file the moment the line is removed again, which is
 the whole reason it is a check rather than a paragraph.
+
+**How far the ten were actually run**, because a static check and a run are different claims:
+`md-oracle`, `libc-shim`, `flag-tie` and `e2e-micro` (17/17) ran green here; `md-memory` answers
+0 of 6 and exits 2 here by design and **6 of 6 on ubuntu-latest with the new exit accounting**;
+`base-ir` was run with both of its arms stubbed to succeed, which exercises nothing but the tail,
+and `publish-pages` through its dry run. **`deps-docs`, `extractor-mismatch` and
+`extractor-uniqueness` were not run** — the first would rebuild the target's site, and
+`.lake/build/doc` there is A1's oracle, which `lake update` destroys. For those three the claim is
+`bash -n`, the entry paths, and question 5.
 
 **What would falsify this**: a bash whose EXIT trap can see the difference between an abort and a
 fall-off, which would make the opt-in pairing unnecessary. **What it does not cover**: a path that
