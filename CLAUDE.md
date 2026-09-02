@@ -521,7 +521,7 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
 - **`diff` is aliased to `colordiff`, which does not exist. Use `/usr/bin/diff`.**
 - **zsh applies history modifiers to a bare `$var:` — even inside double quotes.**
   `git show "$tag:src/Litedoc4/Version.lean"` reads as `$tag` with the `:s` *substitute*
-  modifier and `rc/Litedoc4/Version.lean` as its delimiters, so it expands to just `v1.4.0`
+  modifier and `rc/Litedoc4/Version.lean` as its delimiters, so it expands to the bare tag name
   and `git show` answers about the commit (measured 2026-09-02). **There is no error**: the
   command succeeds, and the answer to the question you did not ask looked like "no tag carries
   this file" for all twelve tags. Write `"${tag}:path"`. `tools/*.sh` is bash and is not

@@ -183,8 +183,20 @@ fi
 echo "=== 3/3 no published version is shipped twice"
 tagged=0
 untagged=0
+unreadable=()
 mismatched=()
 for tag in $TAGS; do
+  # A tag whose tree is not in this clone answers nothing, and the empty answer
+  # below is indistinguishable from "this tag predates the file". Told apart
+  # here, because otherwise a checkout that stopped fetching the trees would
+  # report `0 of 12 … and each names its own version` and pass. Measured
+  # 2026-09-02: `actions/checkout@v7` with `fetch-tags: true` and the default
+  # depth does bring them, and the job answered `2 of 12` — so this refuses on a
+  # state that is not the current one, which is the point of writing it down.
+  if ! git cat-file -e "${tag}^{tree}" 2>/dev/null; then
+    unreadable+=("$tag")
+    continue
+  fi
   # `|| true` because a tag older than the file makes `git show` exit 128, and
   # under `pipefail` that becomes the assignment's status, which `set -e` reads
   # as the script failing. The empty answer *is* the answer here.
@@ -205,11 +217,16 @@ if [ "v$VERSION" != "$newest" ]; then
   [ "$(printf '%s\nv%s\n' "$newest" "$VERSION" | sort -V | tail -1)" = "$newest" ] \
     && behind="v$VERSION is below the newest published tag $newest"
 fi
-if [ ${#mismatched[@]} -eq 0 ] && [ -z "$behind" ]; then
+if [ ${#mismatched[@]} -eq 0 ] && [ -z "$behind" ] && [ ${#unreadable[@]} -eq 0 ]; then
   pass 3 "$tagged of $((tagged + untagged)) tag(s) carry Version.lean and each names its own version; \
 v$VERSION is $([ "v$VERSION" = "$newest" ] && echo "the newest tag" || echo "above $newest")"
 else
-  fail 3 "a published version would be shipped twice"
+  if [ ${#unreadable[@]} -ne 0 ]; then
+    fail 3 "${#unreadable[@]} tag(s) have no tree in this clone, so this item could not be asked of them"
+    printf '  %s\n' "${unreadable[@]}" >&2
+  else
+    fail 3 "a published version would be shipped twice"
+  fi
   [ ${#mismatched[@]} -eq 0 ] || printf '  %s\n' "${mismatched[@]}" >&2
   [ -z "$behind" ] || printf '  %s\n' "$behind" >&2
 fi
