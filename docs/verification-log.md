@@ -5672,9 +5672,11 @@ three of the scripts.
 re-opens by simply not knowing about it. Three parts: a script combining `set -e` with an EXIT
 trap says `answer_required`; a claiming script has no bare `exit 0` left in it; and a claiming
 script **ends by saying its answer** rather than falling off the end. **Made to fail once in each
-of the three** before it was allowed to pass, and the third part caught a real one on the way in —
-`publish-pages.sh` ends on the push, so its success path fell off the end and would have come out
-as 70.
+of the three** before it was allowed to pass. The third part has a real subject and not only a
+staged one: `publish-pages.sh` ends on the push, so its success path fell off the end and would
+have come out as 70. **Reading the ten tails one by one is what found it, not the gate** — the
+gate was written afterwards, and it names that file the moment the line is removed again, which is
+the whole reason it is a check rather than a paragraph.
 
 **What would falsify this**: a bash whose EXIT trap can see the difference between an abort and a
 fall-off, which would make the opt-in pairing unnecessary. **What it does not cover**: a path that
