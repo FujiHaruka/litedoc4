@@ -25,6 +25,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/common.sh
 . "$REPO/tools/lib/common.sh" || exit 1
+answer_required
 LAKE="${LAKE:-lake}"
 
 PKGS=()
@@ -34,7 +35,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --keep-binary) KEEP_BINARY="$2"; shift 2 ;;
     --json) JSON="$2"; shift 2 ;;
-    -h|--help) sed -n '/^# usage:/,/^set -euo/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//;$d'; exit 0 ;;
+    -h|--help) sed -n '/^# usage:/,/^set -euo/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//;$d'; answer 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) PKGS+=("$1"); shift ;;
   esac
@@ -151,7 +152,7 @@ fi
 if [ "$IDENTICAL" = 1 ]; then
   echo
   echo "IDENTICAL: ${#PKGS[@]} packages, one toolchain, one binary."
-  exit 0
+  answer 0
 fi
 echo
 echo "NOT IDENTICAL — the extractor depends on more than the toolchain." >&2

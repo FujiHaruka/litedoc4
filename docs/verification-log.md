@@ -5627,13 +5627,59 @@ program built with `-fsanitize=address` never reaches its own `main` on this mac
 LeakSanitizer does not run on Darwin at all. A check that could not run has to be visible as not
 run.
 
-**Found on the way, and it is a machine fact rather than a gate fact**: on bash 3.2 any EXIT trap
+**Found on the way, and it is a machine fact rather than a gate fact**: on bash 3.2 an EXIT trap
 turns a `set -u` abort into **exit 0**, and `tools/lib/common.sh`'s `on_exit` cannot recover it
-because the trap sees `$?` already 0. Thirteen scripts under `tools/` combine the two; five are
-`ci` rows and are covered by CI's bash 5, and `base-ir-gate.sh` and `deps-docs-gate.sh` are
-`manual`, which is where the hole is open. The new gate defends itself with a flag set on every
-path that is a real answer; **the other twelve were not changed**, so this is a known gap and not
-a fixed one.
+because the trap sees `$?` already 0. Thirteen scripts under `tools/` combine the two. The new
+gate defends itself with a flag set on every path that is a real answer; **the other twelve were
+not changed**, so this is a known gap and not a fixed one. → closed the same day by the section
+below, which also corrects the reach written here: it takes `set -e`, so three of the thirteen
+were never exposed.
+
+
+### The bash 3.2 answer guard — the hole C1 recorded is closed, and it was narrower than written (2026-09-02)
+
+C1 left `tools/` with a shape where **a gate could print nothing and exit 0**: on bash 3.2 a
+script under `set -euo pipefail` with an EXIT trap installed reports an abort from `set -u` as
+**exit 0**, and only `tools/md-memory-gate.sh` defended itself. Evidence for everything below →
+`benchmarks/results/bash32-answer-guard-2026-09-02.txt` (Darwin 25.6.0 arm64 / Apple M1 / 16 GB,
+GNU bash 3.2.57 as `/bin/bash` and 5.3.9 from Homebrew).
+
+**The reach is `set -e`, and C1 wrote it too wide.** With no `-e` the same abort exits 1 whether
+or not a trap is installed (measured, both bashes). So of the thirteen scripts that combine
+`set -u` with a trap, **ten are exposed and three are not** — `render-compare.sh`,
+`site-compare.sh` and `watch-gate.sh` are `set -uo pipefail`. C1 counted `watch-gate.sh` among
+the five `ci` rows it called covered; it was never exposed in the first place.
+
+**There is no automatic fix, and that is measured rather than assumed.** Inside the trap, a
+`set -u` abort and a clean fall-off arrive identically — same `$?`, same `BASH_COMMAND` — so
+nothing `on_exit` can read tells them apart. The script has to say so itself.
+
+**The mechanism is `answer_required` / `answer` in `tools/lib/common.sh`**, and it is opt-in so
+that it does not change what the other scripts sourcing that file answer. `answer_required` up
+front, `answer <status>` on every path that exits 0, and `__on_exit_run` turns **a 0 no path
+claimed into 70**. A non-zero status is left alone: every abort this defends against arrives as 0.
+**`exit 70` and not `return 70`** — under `set -uo pipefail` a trap's return value is discarded
+and the pending status stands, so a `return` would have been a guard that silently did nothing in
+three of the scripts.
+
+| | |
+|---|---|
+| the ten exposed scripts | all claim; the six that are gate rows are 2 `manual` + 4 `ci` |
+| `md-memory-gate.sh`'s private `finished` | replaced by the shared pair, so one mechanism answers |
+| the same injection through `md-oracle-gate.sh` | **exit 0** with the guard off, **exit 70** with it on |
+
+**`tools/workflow-gate.sh` question 5 is what keeps it**, because the pairing is one a new script
+re-opens by simply not knowing about it. Three parts: a script combining `set -e` with an EXIT
+trap says `answer_required`; a claiming script has no bare `exit 0` left in it; and a claiming
+script **ends by saying its answer** rather than falling off the end. **Made to fail once in each
+of the three** before it was allowed to pass, and the third part caught a real one on the way in —
+`publish-pages.sh` ends on the push, so its success path fell off the end and would have come out
+as 70.
+
+**What would falsify this**: a bash whose EXIT trap can see the difference between an abort and a
+fall-off, which would make the opt-in pairing unnecessary. **What it does not cover**: a path that
+calls `answer` and then dies before exiting — `answer` sets the flag and exits in one step, so the
+window is one function call wide, but it is not zero.
 
 
 ## 書き方

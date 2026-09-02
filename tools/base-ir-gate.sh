@@ -70,6 +70,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=lib/common.sh
 source "$HERE/lib/common.sh" || exit 1
+answer_required
 
 WORK="${PURELEAN_WORK:-/private/tmp/lean-doc-relay/purelean}"
 IR=""
@@ -80,7 +81,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --ir) IR="$2"; shift 2 ;;
     --lean) LEAN="$2"; shift 2 ;;
-    -h|--help) sed -n '/^# usage:/,/^set -/p' "$0" | sed 's/^# \{0,1\}//;$d'; exit 0 ;;
+    -h|--help) sed -n '/^# usage:/,/^set -/p' "$0" | sed 's/^# \{0,1\}//;$d'; answer 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done
@@ -396,3 +397,4 @@ if problems:
     sys.exit(1)
 print(f"BASE IR GATE: ok ({checks} checks)")
 PY
+answer 0

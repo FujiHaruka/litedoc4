@@ -35,6 +35,9 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$HERE/lib/common.sh" || exit 1
+answer_required
 cd "$ROOT"
 
 failed=0
@@ -42,7 +45,7 @@ pass() { printf 'ITEM %s ok    %s\n' "$1" "$2"; }
 fail() { printf 'ITEM %s FAIL  %s\n' "$1" "$2" >&2; failed=$((failed + 1)); }
 
 COUNTS="$(mktemp "${TMPDIR:-/tmp}/md-oracle-counts.XXXXXX")"
-trap 'rm -f "$COUNTS"' EXIT
+on_exit 'rm -f "$COUNTS"' 
 
 echo "=== 1/3 both oracle fixtures are there and hold cases"
 # Redirected to a file rather than read through `$( … )` with a trailing
@@ -100,3 +103,4 @@ if [ "$failed" -ne 0 ]; then
 fi
 echo
 echo "MD ORACLE GATE: ok"
+answer 0

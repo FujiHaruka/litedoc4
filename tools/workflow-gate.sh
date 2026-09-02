@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Do the workflows do what this repository says they do?
 #
-# Three questions, all of them about the distance between a claim and the YAML:
+# Five questions. The first three are about the distance between a claim and the
+# YAML; the last two are about a shell trap that makes a script lie:
 #
 #   1  every tools/*-gate.sh is in tools/gates.txt, and every row names a script
 #      that exists — a gate in no row is one nobody knows to run, and a row with
@@ -22,6 +23,13 @@
 #      printed `command not found` to stderr, and put an empty string where the
 #      word should have been — while the gate itself stayed green and correct
 #      (measured 2026-08-31, two headings in purelean-micro-gate.sh)
+#   5  every script that combines `set -e` with an EXIT trap says
+#      `answer_required`, and then says its answer rather than falling off the
+#      end. On bash 3.2 that combination reports a `set -u` abort as **exit 0**
+#      (measured 2026-09-02 → benchmarks/results/bash32-answer-guard-2026-09-02.txt),
+#      so the pairing in tools/lib/common.sh is the only thing between an unbound
+#      variable and a green gate. It is a pairing a new script re-opens by simply
+#      not knowing about it, which is why it is checked and not documented
 #
 # Question 3 replaces a sentence in CLAUDE.md that counted the workflows. The
 # count was wrong twice in one day (8 -> 7 -> 9, measured 2026-08-29): a number in
@@ -218,6 +226,66 @@ for path in scripts:
                 "quotes — the shell runs what is between them and drops the word"
             )
 
+# Question 5. The subject is "has an EXIT trap installed and `set -e` on", which
+# is the exact shape of the hole: under `set -uo pipefail` the same abort exits 1,
+# so the three scripts written that way are not asked to claim anything. The
+# `[^(\s]` is what keeps a *definition* of an on_exit-shaped wrapper from reading
+# as a call to one; lib/common.sh, which defines this one, is named below instead
+# of being left to that.
+SET_E = re.compile(r"(?m)^set -[a-z]*e[a-z]*(?:\s|$)")
+INSTALLS_TRAP = re.compile(r"(?m)^[ \t]*(?:on_exit[ \t]+[^(\s]|trap[ \t].*\bEXIT\b)")
+REQUIRED = re.compile(r"(?m)^[ \t]*answer_required[ \t]*$")
+EXIT_ZERO = re.compile(r"(?:^|[;&|(][ \t]*)exit 0(?:[ \t]*(?:;|$))")
+
+claiming = 0
+for path in scripts:
+    body = path.read_text(encoding="utf-8")
+    name = path.relative_to(root)
+    # The mechanism is not one of its own subjects: lib/common.sh installs the
+    # trap *inside* `on_exit`, so it matches, and it has no `set` line of its own
+    # only because it is sourced. Named rather than left to that accident.
+    if str(name) == "tools/lib/common.sh":
+        continue
+    if not (SET_E.search(body) and INSTALLS_TRAP.search(body)):
+        continue
+    if not REQUIRED.search(body):
+        problems.append(
+            f"{name} combines `set -e` with an EXIT trap and never says "
+            "answer_required, so on bash 3.2 an unbound variable in it exits 0"
+        )
+        continue
+    claiming += 1
+
+    # The last thing a claiming script runs has to be its answer: falling off the
+    # end is the case the guard cannot tell from a `set -u` abort, so it is the
+    # one that comes out as 70.
+    executable = []
+    inside = None
+    for number, line in enumerate(body.splitlines(), 1):
+        if inside is not None:
+            if line.strip() == inside:
+                inside = None
+            continue
+        opened = HEREDOC.search(line)
+        if opened:
+            inside = opened.group(1)
+            executable.append((number, line))
+            continue
+        if line.strip() and not line.lstrip().startswith("#"):
+            executable.append((number, line))
+        if EXIT_ZERO.search(line) and not line.lstrip().startswith("#"):
+            problems.append(
+                f"{name}:{number} says answer_required and still exits 0 directly — "
+                "that 0 is claimed by no path and comes out as 70"
+            )
+    if executable:
+        number, line = executable[-1]
+        if not re.match(r"^[ \t]*(answer\b|exit [1-9])", line):
+            problems.append(
+                f"{name} ends at line {number} with `{line.strip()}` rather than an "
+                "answer, so a run that succeeds falls off the end and comes out as 70"
+            )
+
 if problems:
     for problem in problems:
         print(f"WORKFLOW GATE FAIL  {problem}", file=sys.stderr)
@@ -228,6 +296,7 @@ print(
     f"WORKFLOW GATE: {len(rows)} gate(s) inventoried, {ci} run by a workflow, "
     f"{len(rows) - ci} manual; {len(needs_node)} workflow(s) reach node "
     f"({len(node_scripts)} script(s) need it) and all install it; "
-    f"{len(scripts)} script(s) print no backtick the shell would eat"
+    f"{len(scripts)} script(s) print no backtick the shell would eat; "
+    f"{claiming} script(s) trap under `set -e` and every one claims its answer"
 )
 PY

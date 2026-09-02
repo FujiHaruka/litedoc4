@@ -68,13 +68,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=lib/common.sh
 . "$HERE/lib/common.sh" || exit 1
+answer_required
 
 LEAN="${LEAN_LITEDOC4:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --lean) LEAN="$2"; shift 2 ;;
-    -h|--help) sed -n '/^# usage:/,/^set -/p' "$0" | sed 's/^# \{0,1\}//;$d'; exit 0 ;;
+    -h|--help) sed -n '/^# usage:/,/^set -/p' "$0" | sed 's/^# \{0,1\}//;$d'; answer 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done
@@ -318,3 +319,4 @@ if [ "$rc" -ne 0 ]; then
 fi
 
 echo "FLAG TIE GATE: ok"
+answer 0

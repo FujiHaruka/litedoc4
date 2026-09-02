@@ -27,6 +27,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 . "$HERE/lib/common.sh" || exit 1
+answer_required
 
 LAKE="${LAKE:-lake}"
 EXTRACTOR=""
@@ -42,7 +43,7 @@ while [ $# -gt 0 ]; do
     --built-for) BUILT_FOR="$2"; shift 2 ;;
     --expect) EXPECT="$2"; shift 2 ;;
     --json) JSON="$2"; shift 2 ;;
-    -h|--help) sed -n '/^# usage:/,/^set -euo/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//;$d'; exit 0 ;;
+    -h|--help) sed -n '/^# usage:/,/^set -euo/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//;$d'; answer 0 ;;
     *) echo "unknown argument: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -118,13 +119,13 @@ fi
 
 if [ "$CODE" -ne 0 ]; then
   echo "REFUSED: the mismatch is visible to the user as a failure, not as bad output."
-  exit 0
+  answer 0
 fi
 
 if [ "$EXPECT" = "any" ]; then
   echo "RAN CLEAN against a foreign toolchain (--expect any, so not a failure here)."
   echo "Whether the IR is correct is a separate question this script does not answer."
-  exit 0
+  answer 0
 fi
 
 echo "QUIETLY SUCCEEDED against a foreign toolchain — and wrote $BYTES bytes." >&2

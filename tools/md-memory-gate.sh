@@ -76,6 +76,9 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$HERE/lib/common.sh" || exit 1
+answer_required
 
 CC="${CC:-cc}"
 DECLARED=6
@@ -87,15 +90,6 @@ CORPUS_LIMIT="${MD_MEMORY_CORPUS_LIMIT:-600}"
 
 say () { printf '%s\n' "$*"; }
 
-# Every intentional way out goes through this. An EXIT trap makes bash 3.2
-# report a `set -u` failure as exit 0 -- `trap "true" EXIT` is enough to do it,
-# and the cleanup below is not optional -- so without a flag saying the script
-# reached one of its own endings, an unbound variable would print an error and
-# come out green (measured 2026-09-02, GNU bash 3.2.57 on macOS; bash 5 does
-# not do this, which is why CI would never have shown it).
-finished=0
-stop () { finished=1; exit "$1"; }
-
 ran=0
 failed=0
 
@@ -105,35 +99,19 @@ gone () {                                           say "  $1 of $DECLARED  ----
 
 command -v "$CC" >/dev/null 2>&1 || {
   say "md-memory-gate: no C compiler ($CC) -- this check has nothing to build with" >&2
-  finished=1
-  exit 2
+  answer 2
 }
 command -v python3 >/dev/null 2>&1 || {
   say "md-memory-gate: no python3 -- the md4c flag word is read out of the Lean sources with it" >&2
-  finished=1
-  exit 2
+  answer 2
 }
 [ -d "$CORPUS_DIR" ] || {
   say "md-memory-gate: $CORPUS_DIR is gone -- the corpus is the input, so there is nothing to run" >&2
-  finished=1
-  exit 2
+  answer 2
 }
 
 WORK="$(mktemp -d)"
-cleanup () {
-  rc=$?
-  # `if`, not `&&`: the exit code of the last command in an EXIT trap becomes
-  # the script's, and `[ -d ... ] && rm` returns 1 when the directory is gone.
-  if [ -d "$WORK" ]; then
-    rm -rf "$WORK"
-  fi
-  if [ "$finished" -eq 0 ] && [ "$rc" -eq 0 ]; then
-    say "md-memory-gate: stopped before any of its own endings -- read the error above" >&2
-    exit 70
-  fi
-  exit "$rc"
-}
-trap cleanup EXIT
+on_exit 'rm -rf "$WORK"'
 
 CFLAGS_COMMON=(-g -O1 -Werror=implicit-function-declaration
                -I "$ROOT/csrc/memcheck" -I "$ROOT/vendor/md4c")
@@ -314,7 +292,7 @@ if [ "$probe_rc" -ne 0 ]; then
   say "  The AddressSanitizer runtime does not start on this platform, so nothing"
   say "  below would be watching the C. This is not a pass: the memory question is"
   say "  answered by the CI job on ubuntu-latest, which has a runtime that starts."
-  stop 2
+  answer 2
 fi
 
 # -------------------------------------------------------------------- builds --
@@ -338,7 +316,7 @@ link "$WORK/bin-real"            "$WORK/md4c.o"              "$WORK/ev.o"       
 CANARY_INPUT="$CORPUS_DIR/entities.md"
 [ -f "$CANARY_INPUT" ] || {
   say "md-memory-gate: $CANARY_INPUT is gone -- the canaries need one small real input" >&2
-  stop 2
+  answer 2
 }
 
 say "MD MEMORY GATE"
@@ -424,7 +402,7 @@ while IFS= read -r entry; do
 done < <(find "$CORPUS_DIR" -name '*.md' | sort)
 if [ "${#CORPUS[@]}" -eq 0 ]; then
   say "md-memory-gate: $CORPUS_DIR holds no .md file -- item 6 would run nothing and say ok" >&2
-  stop 2
+  answer 2
 fi
 
 leaks_here=0
@@ -450,15 +428,15 @@ fi
 say
 if [ "$failed" -ne 0 ]; then
   say "MD MEMORY GATE: $failed of $ran answered items failed" >&2
-  stop 1
+  answer 1
 fi
 if [ "$ran" -ne "$DECLARED" ]; then
   say "MD MEMORY GATE: $ran of $DECLARED items answered"
   say
   say "  The rest could not be asked on this platform. That is not a pass -- the CI"
   say "  job on ubuntu-latest is where all $DECLARED are answered."
-  stop 2
+  answer 2
 fi
 say "MD MEMORY GATE: ok ($ran of $DECLARED) -- the committed corpus, not an exploration:"
 say "  new entries came from libFuzzer runs that left the tree with fuzz/ on 2026-09-02."
-stop 0
+answer 0

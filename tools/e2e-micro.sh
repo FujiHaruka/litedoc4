@@ -40,6 +40,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=lib/common.sh
 source "$HERE/lib/common.sh" || exit 1
+answer_required
 SAMPLE="$ROOT/e2e/micro"
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 LITEDOC4="${LITEDOC4:-$ROOT/.lake/build/bin/litedoc4}"
@@ -52,7 +53,7 @@ while [ $# -gt 0 ]; do
     --out) OUT="$2"; shift 2 ;;
     --extractor) EXTRACTOR="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
-    -h|--help) sed -n '1,/^set -/p' "$0" | sed '$d'; exit 0 ;;
+    -h|--help) sed -n '1,/^set -/p' "$0" | sed '$d'; answer 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
 done
@@ -1077,3 +1078,4 @@ if [ "$TEMPORARY" -eq 1 ] && [ "$KEEP" -eq 0 ]; then
 fi
 echo
 echo "E2E MICRO: ok"
+answer 0
