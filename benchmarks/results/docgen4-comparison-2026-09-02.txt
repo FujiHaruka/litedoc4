@@ -1,0 +1,164 @@
+A1 — the three doc-gen4 comparisons, run once against the oracle before it dies
+================================================================================
+date        2026-09-02
+host        Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+litedoc4    1.4.0, built from 9bc8c8f by tools/build-lean-exe.sh
+comparator  benchmarks/tools/docgen4-compare.py (Python 3.9.6)
+target      /Users/haruka/dev/lean-projects @ 60439778cf70f58fffc81d7c445f99ed0ffeee85
+            422 modules, 4,584 declarations (IR 15 MB, .lidx 10,448,225 B)
+oracle      <target>/.lake/build/doc — doc-gen4's own tree, 6,080 html pages, 736 MB,
+            page mtimes 2026-08-09T17:40 (measured)
+            benchmarks/tools/extract-decl-source-urls.sh mined it into a 41,006,908 B TSV:
+            241,553 declaration URLs, and 241,553 of 241,553 `decl` divs carried one
+
+WHY ONCE AND NOT AS A GATE
+  doc-gen4 is not in the target's manifest (10 packages under .lake/packages, none of them
+  doc-gen4), so `lake update` there or a `.lake` wipe destroys this oracle for good and
+  nothing in this repository can re-mint it. A standing comparator over a dying oracle would
+  have to grow an exception list. These three questions were `#[ignore]`d Rust tests until
+  `crates/` left HEAD on 2026-09-02; they are the five that step E of M10 recorded as having
+  no surviving home, minus the two whose expectations are committed.
+
+  What they are for: `tools/public-surface.txt` promises that page paths and declaration
+  anchors keep doc-gen4's shape. Today that promise is held only by `e2e/micro-expected`,
+  49 files minted from litedoc4's own output, which cannot say whose shape it was to begin
+  with. This answers that at 422 modules of Mathlib-depending Lean.
+
+INPUTS, AND WHAT PRODUCED THEM (all measured on this host, this session)
+  litedoc4 modules --root <target> --lib InformationTheory          422 modules
+  litedoc4 extract --jobs 4 --link-index …           22.70 s real, 3.48 GB peak RSS
+  litedoc4 site --link-index --root <target>          4.02 s real, 154 MB peak RSS
+                                                      426 pages, 36 MB
+  litedoc4 links --root <target> --link-index …        21 roots, 21 pinned, 11 sampled
+  benchmarks/tools/docgen4-compare.py                  1.26 s real
+
+  The .lidx came out at 10,448,225 B, byte for byte the `lidxBytes` of
+  tools/purelean-render-expected/input.txt, which was minted 2026-08-31 from the Rust binary
+  over the same target revision — so this run's inputs are that fixture's inputs.
+
+Q1 — pages_carry_the_doc_gen4_trees_declarations
+--------------------------------------------------------------------------------
+  341 shared page(s), 3,385 anchor(s), 1,212 module docstring(s)
+   81 module(s) doc-gen4 has no page for (added to the package after its tree was built)
+
+  anchors            every shared page carries doc-gen4's anchor set, with two exceptions,
+                     and both are names that are not in today's IR at all:
+                       InformationTheory.Shannon.BroadcastChannel.condMutualInfo_add_condMutualInfo_swap
+                       InformationTheory.Shannon.ChannelCodingConverseGeneral.isMarkovChain_weakUnion_left_to_conditioner
+                     Neither occurs as a declaration in the target's sources today (measured
+                     by grep over the tracked .lean files); the second survives only as a
+                     name inside a module docstring. 0 anchors litedoc4 renders that
+                     doc-gen4 does not, and 0 that moved to another module.
+  order              the same two pages the Rust test named on 2026-08-16, and no others:
+                       InformationTheory.Polymatroid.Basic
+                       InformationTheory.Shannon.EntropyPower.Ext
+                     doc-gen4's Process.Module.members ends in a non-stable qsort, so the
+                     assertion is that both orders visit the same source positions in the
+                     same order. They do.
+  source link paths  every shared page agrees. Paths only: the tree is older than the IR, so
+                     a `#L…-L…` range that moved is source drift, not a renderer difference.
+  module docstrings  1,060 of 1,212 identical
+                       150 the target's text moved after the tree was built
+                         2 doc-gen4 ships the docstring's LaTeX for the browser to typeset
+                           and litedoc4 renders MathML server-side:
+                             InformationTheory.Shannon.BrascampLieb
+                             InformationTheory.Shannon.LoomisWhitney
+                         0 unexplained
+
+                     The classification is not an exception list: it is a question about a
+                     third party. The IR's own moduleDocs is what the extractor read out of
+                     the target's sources today, so a word litedoc4 shows that neither
+                     doc-gen4 nor the source has is invented, and a word doc-gen4 shows that
+                     the source still has and litedoc4 does not is dropped. Both fail. What
+                     is left over — text only doc-gen4 has, which the source no longer has —
+                     is the tree being older. What the rule gives up is order: two texts made
+                     of the same words in a different arrangement are not told apart, and
+                     nothing observed does that.
+
+Q2 — every_root_matches_doc_gen4s_own_blob_urls
+--------------------------------------------------------------------------------
+  12 of 21 root(s) checked against the tree, 0 disagreements:
+    Aesop Batteries ImportGraph Init Lake Lean LeanSearchClient Mathlib Plausible
+    ProofWidgets Qq Std
+   9 root(s) the tree has no page for, counted rather than passed over:
+    Archive Counterexamples docs PlausibleTest LeanSearchClientTest ImportGraphTest
+    MainGraph MainUnusedTransitiveImports Cli
+
+  All three prefix shapes are among the twelve: a package (Mathlib), core's /src (Init), and
+  core's /src/lake, which is not /src (Lake). The URLs compared are ExternalLinks.urlFor's
+  own output, printed by `litedoc4 links`.
+
+  The tree has no Mathlib.html — doc-gen4 documents the target's import closure, and the
+  Mathlib root module is not in it — so Mathlib is checked through a deeper module
+  (Mathlib.Algebra.Algebra.Basic) and Init through both.
+
+Q3 — every_lidx_entry_matches_doc_gen4s_declaration_urls
+--------------------------------------------------------------------------------
+  .lidx entries                        : 255,809   (255,809 of them carry a line range)
+    under a root the map resolves      : 251,225
+      matched                          : 235,185
+      mismatched                       :       0
+      not in the oracle                :  16,040   (16,038 have a parent that is — a
+                                                    structure field or constructor, which
+                                                    doc-gen4 renders inside its parent's div)
+    under a root the map does not hold :   4,584   (= the target's own declarations, exactly
+                                                    the IR's declarationCount)
+  oracle entries                       : 241,553   (241,553 lines, 0 collisions after
+                                                    undoing doc-gen4's HTML escape)
+    not in the .lidx at all            :   2,985   by first component: Lake 2,890,
+                                                   InformationTheory 94, Opaque 1
+    in the .lidx, root not in the map  :   3,383
+
+  Only the mismatch bucket is a failure: the two populations are not the same set — the .lidx
+  is the environment this extraction loaded, the oracle is whatever pages that doc-gen4 build
+  happened to write — so every bucket is printed with its denominator.
+
+  WHICH HALF OF THIS ANSWER IS LITEDOC4'S. No command prints a URL per name, so the
+  comparator composes them from litedoc4's resolved bases and litedoc4's own .lidx. What that
+  leaves to the comparator is two lines of string building; what stays litedoc4's is
+  everything that can be wrong — which revision each root is pinned to, which module a name
+  belongs to, and the line range the extractor recorded. The composition is not taken on
+  trust: it was run against all 32 url/moduleUrl answers `litedoc4 links` produced from
+  ExternalLinks.urlFor itself, and agreed with 32 of 32.
+
+FALSIFICATION — a gate does not check itself
+--------------------------------------------------------------------------------
+Each arm was made to fail once before its green was allowed to mean anything
+(benchmarks/tools/docgen4-compare-falsify.py). Baseline green; every perturbation red:
+
+  RED  Q1 anchor: one declaration id changed
+       → litedoc4 rendered ['…modelCode_x'], which doc-gen4 has no anchor for
+       → doc-gen4 has an anchor for …modelCode, which is in today's IR for this module
+  RED  Q1 order: two declarations swapped
+       → the page order differs somewhere other than a tie
+  RED  Q1 docstring: a word invented
+  RED  Q1 docstring: the long words dropped
+       → a module docstring differs and neither the tree's age nor MathML explains it
+  RED  Q1 source links: one file path changed
+       → the source links name different files
+  RED  Q2 roots: Mathlib deep module pointed elsewhere
+  RED  Q2 roots: Init pinned to another revision
+       → want …/blob/68218e…/src/Init.lean
+  RED  Q3 declaration URLs: 40 line ranges shifted
+       → 25 of 251,225 resolvable .lidx entries disagree with doc-gen4
+
+Two things the falsification itself turned up, and both are the reason it was run:
+
+  1. The first attempt was GREEN on a changed anchor id. The perturbation had not landed —
+     the page it was applied to had almost no declarations, so the replace matched nothing.
+     The script now refuses to run a case whose perturbation did not change the input.
+  2. The first Q2 perturbation was GREEN. It moved Mathlib's root-module URL, and the tree
+     has no page for the Mathlib root module, so that field is never compared. Perturbing the
+     field that is compared turns it red.
+
+  Of the 40 shifted .lidx ranges, 25 were detected: the other 15 are names the oracle does
+  not carry (fields and constructors), which is the same 16,040-entry bucket Q3 reports.
+
+WHAT THIS RUN DOES NOT SAY
+  - It is not a byte-reproduction result. doc-gen4 compatibility ended at M8 and is not
+    redefined; what is compared is anchor identity and order, module docstring text, source
+    link file paths, and source URLs.
+  - The `#L…-L…` half of every source link is not compared on the page arm. The tree is
+    older than the sources.
+  - 81 of the target's 422 modules have no page in the tree and are not compared at all.
+  - The oracle cannot be re-asked once the target's .lake is wiped or updated.

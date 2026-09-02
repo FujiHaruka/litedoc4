@@ -215,6 +215,16 @@ git log rust-frozen -- crates/
   own pages and URLs — and **their oracle dies the moment `lake update` runs in the target**,
   because doc-gen4 is not in its manifest. **They are a list of defects not yet known, not a list
   of work remaining**
+- **Those three were asked once, on 2026-09-02, and all three agree** (measured →
+  `benchmarks/results/docgen4-comparison-2026-09-02.txt`; the section is "A1"). 341 shared pages
+  carry doc-gen4's anchors in doc-gen4's order, 12 of 21 roots produce the URL doc-gen4 wrote,
+  and 235,185 of 251,225 resolvable `.lidx` names produce doc-gen4's declaration URL with **0
+  mismatches**. The comparator is `benchmarks/tools/docgen4-compare.py` (Python, because
+  CLAUDE.md forbids rewriting an oracle in the same language with the same design) and
+  `benchmarks/tools/docgen4-compare-falsify.py` is what made each arm fail once first.
+  **A run, not a gate** (decided 2026-09-02, user's call): a standing comparator over an oracle
+  that cannot be re-minted would have to grow an exception list. **The answer has a date on it
+  and the three keep their place in step E's table** — do not read "answered once" as "covered"
 
 **Everything is Lean** — the extractor, IR consumption, rendering, incremental and the search
 index. The 2026-08-11 split that put everything outside the extractor in Rust (plan §5.6) was
@@ -509,6 +519,13 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
   git push https://github.com/FujiHaruka/litedoc4.git main:main
   ```
 - **`diff` is aliased to `colordiff`, which does not exist. Use `/usr/bin/diff`.**
+- **zsh applies history modifiers to a bare `$var:` — even inside double quotes.**
+  `git show "$tag:src/Litedoc4/Version.lean"` reads as `$tag` with the `:s` *substitute*
+  modifier and `rc/Litedoc4/Version.lean` as its delimiters, so it expands to just `v1.4.0`
+  and `git show` answers about the commit (measured 2026-09-02). **There is no error**: the
+  command succeeds, and the answer to the question you did not ask looked like "no tag carries
+  this file" for all twelve tags. Write `"${tag}:path"`. `tools/*.sh` is bash and is not
+  affected — this is the session shell.
 - **`rg`'s `-r` is `--replace`. Do not bundle it as `-rn`** (the following flag gets eaten as the replacement string).
 - **Python 3.9's f-string cannot contain a backslash or a nested quote of the same kind.**
 - **Do not use `git checkout <file>` for a disable experiment.** It has a track record of blowing away a subagent's implementation.

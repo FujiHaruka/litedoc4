@@ -5494,7 +5494,9 @@ and `astral_binders_slice_correctly` had been asserting nothing at all.
 
 **These three doc-gen4 comparisons are the only checks in the tree that hold litedoc4 against an
 implementation nobody here wrote.** Everything else is self-consistency, an invariant, or a
-fixture minted from this repository's own output.
+fixture minted from this repository's own output. **All three were asked once, on 2026-09-02,
+and all three agree** — "A1", below. They stay in this table: an answer with a date on it is not
+a home.
 
 **`tools/corpus-gate.sh` cannot survive its subject.** With the 21 rows deleted it **exits 1
 printing nothing** — `entries`' `grep -v` finds no line and `set -e` kills the command
@@ -5534,6 +5536,53 @@ a Rust test, and the successor writer is `searchCases` in
 2026-08-31 → `benchmarks/results/lean-global-oracles-2026-08-31.txt`). **Nothing automates the
 regeneration** — a change to `searchCases` has to be carried into the committed bytes by hand,
 and the site's decoder tests are what fail if it is not.
+
+### A1 — the three doc-gen4 comparisons, asked once (2026-09-02)
+
+**The three questions step E left unplaced were run against the live oracle, and all three
+agree** (measured 2026-09-02 → `benchmarks/results/docgen4-comparison-2026-09-02.txt`).
+Conditions: Apple M1 / 16 GB, litedoc4 1.4.0 built from `9bc8c8f`, the target at
+`60439778cf70f58fffc81d7c445f99ed0ffeee85` (422 modules, 4,584 declarations), and doc-gen4's
+own tree at `<target>/.lake/build/doc` — 6,080 pages, 736 MB, built 2026-08-09.
+
+**A run, not a gate** (decided 2026-09-02, user's call). doc-gen4 is not in the target's
+manifest, so `lake update` there destroys the oracle for good and nothing here can re-mint it;
+a standing comparator over a dying oracle would have to grow an exception list. What the run is
+for is the one live 1.x promise the retirement of byte reproduction left behind —
+`tools/public-surface.txt`'s "page paths and declaration anchors keep doc-gen4's shape" — which
+until now was held only by `e2e/micro-expected`, 49 files minted from litedoc4's own output and
+therefore unable to say whose shape it was to begin with.
+
+| | result |
+|---|---|
+| pages carry doc-gen4's declarations | 341 shared pages, 3,385 anchors, 1,212 module docstrings. Anchor sets agree but for 2 names, and neither is in today's IR at all. Order agrees but for the same 2 pages the Rust test named on 2026-08-16, and both visit the same source positions in the same order. Every shared page's source links name the same files. Docstrings: 1,060 identical, 150 where the target's text moved after the tree was built, 2 where doc-gen4 ships LaTeX and litedoc4 ships MathML, **0 unexplained** |
+| every root matches doc-gen4's blob URLs | 12 of 21 roots checked, **0 disagreements**, all three prefix shapes among them (a package, core's `/src`, core's `/src/lake`). The other 9 have no page in the tree and are counted |
+| every `.lidx` entry matches doc-gen4's declaration URLs | 235,185 of 251,225 resolvable entries matched, **0 mismatched**. The 16,040 the oracle does not carry are fields and constructors, which doc-gen4 renders inside a parent's div — 16,038 of them have a parent it does carry |
+
+**The comparator is `benchmarks/tools/docgen4-compare.py`, and it is Python** — CLAUDE.md: do
+not rewrite an oracle in the same language with the same design. **Every arm was made to fail
+once first** (`benchmarks/tools/docgen4-compare-falsify.py`, 8 perturbations, all red, baseline
+green), and that is not a formality: the first attempt printed **GREEN for a changed anchor id**
+because the perturbation had not landed, and a second printed GREEN because it moved a field the
+tree has no oracle for. The script now refuses a case whose perturbation changed no bytes.
+
+**Where the docstring classification could have become an exception list, and why it is not.**
+139 pages disagree about a module docstring, and reporting that as 139 failures says nothing
+while tolerating them says less. The rule asks a third party instead — the IR's own
+`moduleDocs`, which the extractor read out of the target's *current* sources: a word litedoc4
+shows that neither doc-gen4 nor the source has is **invented**, and a word doc-gen4 shows that
+the source still has and litedoc4 does not is **dropped**. Both fail. What is left is the tree
+being older than the sources, which is the same reason the `#L…-L…` ranges are not compared at
+all. **What the rule gives up is order**: two texts made of the same words in a different
+arrangement are not told apart, and nothing observed does that.
+
+**What would falsify the reading**: a docstring disagreement whose litedoc4 side carries a word
+the target's sources do not have. There were none.
+
+**This does not re-open byte reproduction**, and it does not turn the three into standing
+checks — they stay in step E's table as questions with no home. What changed is that they now
+have an answer with a date on it, so a future session need not treat them as unknown.
+
 
 ## 書き方
 
