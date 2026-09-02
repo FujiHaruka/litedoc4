@@ -23,15 +23,21 @@
 #   appear. `md_events.c` calls no other part of the runtime and holds no Lean
 #   object across a call, so there is nowhere for one to sit.
 #
-# THIS IS NOT THE PRODUCT BUILD, AND THE DIFFERENCE IS DELIBERATE
+# THIS IS NOT THE PRODUCT BUILD, AND WHAT IS LEFT OF THE DIFFERENCE IS DELIBERATE
 #   Lake compiles this C with elan's own clang against `csrc/libc`'s shim
-#   headers and with no `-O` flag; this gate compiles it with the machine's `cc`
-#   against the real libc headers at `-O1`, which is what AddressSanitizer is
-#   documented to want. `LITEDOC4_SYSTEM_CC=1` is the tree's existing control arm
-#   for the first half of that difference and `tools/libc-shim-gate.sh` is what
-#   holds the shim to the real headers, so the compiler swap is already a
-#   compared quantity. The `-O` difference is not: a defect that only appears at
-#   the product's optimisation level would not show here.
+#   headers; this gate compiles it with the machine's `cc` against the real libc
+#   headers, because AddressSanitizer needs a runtime elan's toolchain does not
+#   ship. `LITEDOC4_SYSTEM_CC=1` is the tree's existing control arm for that swap
+#   and `tools/libc-shim-gate.sh` is what holds the shim to the real headers, so
+#   it is a compared quantity.
+#
+#   **The optimisation level is not a difference any more.** It is read out of
+#   lakefile.lean's `ccFlags` below, so the gate compiles at whatever the product
+#   compiles at and a change to one moves the other. It used to be a written-down
+#   `-O1` against a product built with no `-O` at all, which is a level nothing
+#   ships (measured 2026-09-02). `-O1` was not kept as a
+#   second arm: every item here is a statement about the bytes Lake links in, and
+#   a second level would answer about a neighbour of them.
 #
 # SIX ITEMS, AND FOUR OF THEM EXIST TO MAKE THE OTHER TWO MEAN SOMETHING
 #   A sanitizer that reports nothing looks identical whether the subject is
@@ -113,8 +119,43 @@ command -v python3 >/dev/null 2>&1 || {
 WORK="$(mktemp -d)"
 on_exit 'rm -rf "$WORK"'
 
-CFLAGS_COMMON=(-g -O1 -Werror=implicit-function-declaration
+# --------------------------------------------------------- optimisation level --
+# Taken from lakefile.lean's `ccFlags`, not written down here, for the same
+# reason the md4c flag word below is: a gate compiled at a level the product does
+# not ship would be watching code nobody runs. It watched -O1 against a product
+# built with no `-O` at all until this was read from the file (measured
+# 2026-09-02), and writing the level down here again would only move the day the
+# two drift.
+#
+# `-g` is not part of this and is added on top: it emits debug info and changes
+# no code, and without it a report names no line.
+PRODUCT_OPT="$(python3 - "$ROOT" <<'LAKEOPT'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+text = (root / "lakefile.lean").read_text(encoding="utf-8")
+
+body = re.search(r"(?ms)^def ccFlags\b.*?(?=^(?:def |/--|@\[|end )|\Z)", text)
+if not body:
+    sys.exit(
+        "md-memory-gate: lakefile.lean no longer defines ccFlags -- that function is "
+        "what the product's C is compiled with, and this gate cannot guess the level"
+    )
+levels = re.findall(r'"(-O[^"]*)"', body.group(0))
+if len(levels) > 1:
+    sys.exit(
+        "md-memory-gate: ccFlags names %d optimisation levels (%s) -- which one reaches "
+        "md4c.c depends on a branch this gate does not read" % (len(levels), ", ".join(levels))
+    )
+sys.stdout.write(levels[0] if levels else "")
+LAKEOPT
+)" || answer 2
+
+CFLAGS_COMMON=(-g -Werror=implicit-function-declaration
                -I "$ROOT/csrc/memcheck" -I "$ROOT/vendor/md4c")
+[ -z "$PRODUCT_OPT" ] || CFLAGS_COMMON+=("$PRODUCT_OPT")
 ASAN=(-fsanitize=address -fno-omit-frame-pointer)
 
 compile () {  # compile <out.o> <src.c> asan|plain
