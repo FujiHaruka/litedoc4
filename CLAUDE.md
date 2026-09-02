@@ -519,6 +519,15 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
   git push https://github.com/FujiHaruka/litedoc4.git main:main
   ```
 - **`diff` is aliased to `colordiff`, which does not exist. Use `/usr/bin/diff`.**
+- **On bash 3.2 an EXIT trap turns a `set -u` abort into exit 0.** `set -euo pipefail` plus any
+  EXIT trap — `trap "true" EXIT` is enough — and a script that dies on an unbound variable
+  **exits 0**; without the trap the same script exits 1 (measured 2026-09-02). The trap sees
+  `$?` already 0, so `tools/lib/common.sh`'s `on_exit`, which returns the status it captured,
+  cannot recover it either. A plain `set -e` command failure is **not** affected, and bash 5
+  is not affected, so **CI never shows this** — it is `/bin/bash` on this machine. The defence
+  is a flag the script sets on every path that is a real answer, with the cleanup refusing a 0
+  that no path claimed (`tools/md-memory-gate.sh`'s `finished`). This is another instance of
+  "the output and the exit code disagree".
 - **zsh applies history modifiers to a bare `$var:` — even inside double quotes.**
   `git show "$tag:src/Litedoc4/Version.lean"` reads as `$tag` with the `:s` *substitute*
   modifier and `rc/Litedoc4/Version.lean` as its delimiters, so it expands to the bare tag name

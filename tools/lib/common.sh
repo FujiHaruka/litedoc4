@@ -34,6 +34,18 @@
 # `$1` is expanded when the trap runs, not when it is installed (measured), so
 # `on_exit 'rm -rf "$WORK"'` sees the `$WORK` of the moment it fires. Calling
 # `on_exit` twice replaces the action, as a second `trap` would.
+#
+# **What `rc` cannot recover, and it is a macOS-only hole.** On bash 3.2 an
+# abort from `set -u` reaches the EXIT trap with `$?` already **0**, so `rc` is 0
+# and `return "$rc"` faithfully answers 0 for a script that died on an unbound
+# variable (measured 2026-09-02; bash 5 exits 1 either way, so CI never shows
+# it). Nothing inside this function can tell that apart from falling off the end,
+# because the two arrive identically. A script that wants to be sure has to say
+# so itself: set a flag on every path that is a real answer and have the cleanup
+# refuse a 0 that no path claimed -- `tools/md-memory-gate.sh`'s `finished` is
+# the shape. 13 scripts here combine `set -u` with a trap; the 5 that are `ci`
+# rows are covered by CI's bash, and `base-ir-gate.sh` and `deps-docs-gate.sh`
+# are `manual`, which is where the hole is open.
 on_exit () {
   # shellcheck disable=SC2064  # $1 is quoted into the trap on purpose: see above
   trap "__on_exit_run $(printf '%q' "$1")" EXIT

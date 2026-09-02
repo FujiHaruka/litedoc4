@@ -72,6 +72,13 @@ jobs:
       - name: The Markdown oracles are still what the invariants read
         run: tools/md-oracle-gate.sh
 
+      # Nothing else in the tree looks for a memory-safety or a leak defect in
+      # the C Lake links into both executables. Two of the six items exist only
+      # to show the sanitizer is watching that C and not the harness around it:
+      # a clean subject and an uninstrumented one print the same nothing.
+      - name: The vendored C is memory-safe over the fuzz corpus
+        run: tools/md-memory-gate.sh
+
       # A release moves one literal in Version.lean; six other files repeat it,
       # and until this gate nothing read either side. Item 3 is the one that
       # cannot be answered by reading the tree alone: it asks the tags whether
