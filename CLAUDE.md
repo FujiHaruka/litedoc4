@@ -383,7 +383,14 @@ redefined. What was put in its place is **3 kinds that need no external oracle**
   (measured 2026-08-17, with the fuzz targets that left with `crates/`). **The premise is still
   live** — Lake compiles `vendor/md4c/md4c.c` and `csrc/md_events.c` into the executable, so
   anything aimed at Lean alone misses them the same way.
-  **Whether the number moves with and without instrumentation** is the only means of confirmation
+  **Whether the number moves with and without instrumentation** is the only means of confirmation.
+  **`tools/md-memory-gate.sh` is what watches that C now** (2026-09-02, `ci`): six items, and
+  **four of them exist only so the other two mean something** — each of the two files gets a
+  defect injected into a copy of itself and is run twice, the second time with *that one file*
+  built without `-fsanitize=address`. 6 of 6 on ubuntu-latest in 6.6 s (measured →
+  `benchmarks/results/md-memory-gate-2026-09-02.txt`). **It answers 0 of 6 and exits 2 on this
+  machine** — a program built with `-fsanitize=address` never reaches its own `main` here — so
+  never read a local run of it as a pass
 - **Do not use a subset of the gates as the judgement for a commit.** (measured 2026-08-24, turned main red twice)
   When a fast subset that left the tests out was used as the judgement during comment reduction,
   nobody saw that the reduction had stepped into **string literals the product prints**.

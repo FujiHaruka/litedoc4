@@ -5584,6 +5584,58 @@ checks — they stay in step E's table as questions with no home. What changed i
 have an answer with a date on it, so a future session need not treat them as unknown.
 
 
+### C1 — the C that Lake links in gets a memory gate (2026-09-02)
+
+**`tools/md-memory-gate.sh`, `ci`, 6 of 6 on ubuntu-latest in 6.6 s** (measured 2026-09-02 →
+`benchmarks/results/md-memory-gate-2026-09-02.txt`). The subject is `vendor/md4c/md4c.c` and
+`csrc/md_events.c`, which Lake compiles into both executables and which nothing in the tree was
+watching: `fuzz/` left with `crates/`, and what survived it — `hostileInputs` in
+`test/Litedoc4Test/MdParse.lean` — asserts that control comes back, not that no byte was read or
+written outside a buffer.
+
+**A standalone harness, and the alternative is named.** `csrc/memcheck/harness.c` stands in for
+the four Lean runtime functions `md_events.c` calls, so the only allocations in the process are
+md4c's, `md_events.c`'s and the harness's and a report has one possible author. Pushing
+`-fsanitize=address` through `leanc` and `compileO` instead would put LeakSanitizer in front of
+Lean's own allocator, whose arenas are alive at exit by design, and every report would need
+triage rather than reading. **What would falsify the choice**: a defect that needs Lean's
+allocator to appear. `md_events.c` calls no other part of the runtime and holds no Lean object
+across a call, so there is nowhere for one to sit.
+
+**Four of the six items exist so that the other two mean something.** A sanitizer that reports
+nothing looks the same whether the subject is clean or nothing was watching it — the exact
+failure this replaces, where `-Zsanitizer=address` went through `RUSTFLAGS` and the C was
+compiled beside it (coverage 1023 → 2487 when `CFLAGS` was added, 2026-08-17). So each file gets
+a defect injected into a copy of itself and each is run twice, the second time with **that one
+file** built without the flag:
+
+| | |
+|---|---|
+| 1 / 2 | a read past the input inside `md4c.c` **is reported** / **is invisible** without the flag on that file |
+| 3 / 4 | a write past the event buffer inside `md_events.c` **is reported** / **is invisible** without it |
+| 5 | a buffer `md_events.c` never frees **is reported** by LeakSanitizer |
+| 6 | the twelve committed `fixtures/md/fuzz/` entries are **quiet**, leaks included |
+
+**Item 1's first injection was wrong and the pair is what caught it.** Lengthening the input does
+make md4c read past the end, but md4c hands those bytes to the text callback and `md_events.c`
+copies them out with `memcpy` — which ASan intercepts in *every* translation unit, uninstrumented
+ones included. Item 2 would have been red with nothing wrong. The injection is now a `volatile`
+load whose value reaches nothing.
+
+**It answers 0 of 6 and exits 2 on the development machine**, and that is the deliberate half: a
+program built with `-fsanitize=address` never reaches its own `main` on this macOS, and
+LeakSanitizer does not run on Darwin at all. A check that could not run has to be visible as not
+run.
+
+**Found on the way, and it is a machine fact rather than a gate fact**: on bash 3.2 any EXIT trap
+turns a `set -u` abort into **exit 0**, and `tools/lib/common.sh`'s `on_exit` cannot recover it
+because the trap sees `$?` already 0. Thirteen scripts under `tools/` combine the two; five are
+`ci` rows and are covered by CI's bash 5, and `base-ir-gate.sh` and `deps-docs-gate.sh` are
+`manual`, which is where the hole is open. The new gate defends itself with a flag set on every
+path that is a real answer; **the other twelve were not changed**, so this is a known gap and not
+a fixed one.
+
+
 ## 書き方
 
 段階ごとに 1 節を足す。各節に必ず入れるもの:

@@ -65,6 +65,12 @@
 #   hypothetical, and reading a hang or a crash there as "no defect found" is
 #   the shape this gate exists to refuse.
 #
+# THE RUN THAT ANSWERED ALL SIX, AND WHAT IT COST
+#   `benchmarks/results/md-memory-gate-2026-09-02.txt` -- ubuntu-latest, gcc
+#   13.3.0, 6 of 6 in 6.6 s for 8 compiles, 6 links and 6 runs. That file is also
+#   where the evidence lives that items 2 and 4 are not decoration, and what the
+#   first, wrong shape of item 1's injection was.
+#
 # usage: md-memory-gate.sh
 set -euo pipefail
 

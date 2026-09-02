@@ -1,0 +1,96 @@
+C1 — the C Lake links in gets a memory gate, and the gate is shown to be watching it
+================================================================================
+date        2026-09-02
+subject     vendor/md4c/md4c.c and csrc/md_events.c, both compiled into
+            `lean_exe litedoc4` and `lean_exe litedoc4-test` by lakefile.lean
+gate        tools/md-memory-gate.sh, harness csrc/memcheck/harness.c
+corpus      fixtures/md/fuzz/ — the twelve entries the retired libFuzzer runs kept
+flag word   0x1F6C, derived by the gate from `docstringFlags` in
+            src/Litedoc4/Md/Html.lean, not written down
+            (MD_DIALECT_GITHUB ||| MD_FLAG_LATEXMATHSPANS ||| MD_FLAG_NOHTML;
+            computed by hand from src/Litedoc4/Md.lean's constants: 0xF0C | 0x1000
+            | 0x60 = 0x1F6C, and the gate's derivation agrees)
+
+WHAT HAD NO SUCCESSOR
+  `fuzz/` left HEAD with `crates/` on 2026-09-02. `test/Litedoc4Test/MdParse.lean`
+  carries the same twelve shapes as `hostileInputs` and asserts that control comes
+  back, so the *behavioural* question survived. The memory question did not: nothing
+  in the tree was watching the allocations, and `ci.yml` had no sanitizer job at all.
+
+THE ANSWER, FROM CI (measured)
+  runner    ubuntu-latest, cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+  job       actions/runs/33625218411/job/100231252475 (PR #4, commit 3ba890f)
+  wall      6.6 s for the whole step — 8 compiles, 6 links and 6 runs
+            (11:33:45.9 -> 11:33:52.4)
+
+    1 of 6  ok    a read past the input, made inside md4c.c, is reported
+    2 of 6  ok    the same read is invisible with md4c.c built without the flag
+    3 of 6  ok    a write past the event buffer, made inside md_events.c, is reported
+    4 of 6  ok    the same write is invisible with md_events.c built without the flag
+    5 of 6  ok    a buffer md_events.c never frees is reported
+    6 of 6  ok    the 12 committed corpus entries are quiet, leaks included
+
+  MD MEMORY GATE: ok (6 of 6)
+
+WHY ITEMS 2 AND 4 ARE THE POINT
+  A sanitizer that reports nothing looks identical whether the subject is clean or
+  the instrumentation never reached it. That is not hypothetical: the fuzzing this
+  replaces spent its first run watching none of md4c, because `-Zsanitizer=address`
+  went through RUSTFLAGS while the C was compiled beside it — coverage 1023 -> 2487
+  when CFLAGS was added (measured 2026-08-17, recorded in CLAUDE.md). Lake compiles
+  this same C into the executable today, so the premise is live.
+
+  So each file gets a defect injected into a copy of itself and each injected defect
+  is run twice, the second time with **that one file** built without
+  `-fsanitize=address` and everything else unchanged. Items 1 and 3 firing while 2
+  and 4 stay silent is the evidence that the instrumentation is attributed to the
+  file named and not to the harness or the runtime around it. Item 6 is the actual
+  question; items 1-5 are what make its silence mean something.
+
+  Item 1's injection is a `volatile` load and not a longer input. A longer input does
+  make md4c read past the end, but md4c hands those bytes to the text callback and
+  `md_events.c` copies them out with `memcpy` — and ASan intercepts `memcpy` in every
+  translation unit including uninstrumented ones, so item 2 would have been red with
+  nothing wrong and item 1 would have proved nothing about md4c.c.
+
+WHAT THE GATE SAYS ON THIS MACHINE, AND WHY THAT IS NOT A PASS
+  Apple M1 / macOS 26.6.2 (Darwin 25.6.0) / Apple clang 17.0.0 (clang-1700.0.13.5):
+
+    MD MEMORY GATE: 0 of 6 items answered
+      A three-line program built with -fsanitize=address did not reach its own
+      main within 30s ...
+      The AddressSanitizer runtime does not start on this platform ...
+      This is not a pass: the memory question is answered by the CI job on
+      ubuntu-latest, which has a runtime that starts.
+    exit 2
+
+  Verified independently of the gate: `int main(void){return 0;}` built with
+  `-fsanitize=address` links fine and then never reaches `main` — it had to be
+  killed after 12 s. LeakSanitizer does not run on Darwin at all, so on a platform
+  where ASan does start but LSan does not the gate answers 5 of 6 and still exits 2.
+
+FOUND WHILE BUILDING IT — bash 3.2 turns a `set -u` abort into exit 0
+  With `set -euo pipefail` and **any** EXIT trap — `trap "true" EXIT` is enough — a
+  script that dies on an unbound variable exits 0; without the trap the same script
+  exits 1 (measured 2026-09-02, GNU bash 3.2.57 on macOS). The trap sees `$?` already
+  0, so `tools/lib/common.sh`'s `on_exit`, which captures the status and returns it,
+  cannot recover it either. A plain `set -e` command failure is not affected, and
+  bash 5 is not affected, so CI never shows it.
+
+  13 scripts under `tools/` combine `set -u` with an EXIT trap. Five are `ci` rows
+  and are covered by CI's bash; `base-ir-gate.sh` and `deps-docs-gate.sh` are
+  `manual`, which is where the hole is open. The new gate defends itself with a flag
+  set on every path that is a real answer, and a cleanup that refuses a 0 no path
+  claimed. The other twelve were not changed.
+
+WHAT THIS DOES NOT ANSWER
+  - It is not the product build. Lake compiles this C with elan's clang against
+    `csrc/libc`'s shim headers and no `-O` flag; the gate uses the machine's `cc`
+    against real headers at `-O1`. The compiler half is already a compared quantity
+    (`LITEDOC4_SYSTEM_CC=1`, `tools/libc-shim-gate.sh`); the `-O` half is not, so a
+    defect that appears only at the product's optimisation level would not show here.
+  - The corpus is twelve committed files, not an exploration. New entries came from
+    libFuzzer runs that no longer exist in HEAD.
+  - Nothing here asserts the event stream is *right*. That is
+    `test/Litedoc4Test/MdParse.lean`'s subject, and the rendered HTML is
+    `test/Litedoc4Test/MdOracle.lean`'s.
