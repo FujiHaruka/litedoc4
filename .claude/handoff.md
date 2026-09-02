@@ -1,86 +1,78 @@
-# Handoff — 2026-09-02 (relay leg 2, closed)
+# Handoff — 2026-09-02 (both open candidates closed)
 
 ## State
 
-**All four follow-ups after the pure-Lean port are done.** `main` is at `3ecaa2e`, clean.
-Leg 1 closed C2 and B1+B2; this leg closed **A1** and **C1**, and fixed a version gate that
-had been turning `main` red on every commit after a release.
+**`main` is at `9b7b7df`, clean, and the two candidates the previous handoff left are done.**
+Both went through a PR because their evidence is a CI run: the memory gate cannot answer on
+this machine at all.
 
-- `d58cbb6` **A1** — the three doc-gen4 comparisons, asked once against the live oracle
-- `abd5922` + `ff9bf9c` — the version gate's item 3 asked HEAD a question only a release
-  can answer; `main` had been red since `3a62874` for exactly that
-- `3ba890f` + `3ecaa2e` **C1** — `tools/md-memory-gate.sh`, merged through PR #4 so that
-  its six items were proved on Linux before they reached `main`
+- `6d5b877` (PR #5) — **the bash 3.2 answer guard**. A script under `set -euo pipefail` with an
+  EXIT trap reported a `set -u` abort as **exit 0**; ten scripts under `tools/` were in that
+  shape and only `md-memory-gate.sh` defended itself
+- `9b7b7df` (PR #6) — **the memory gate's optimisation level**. It compiled the C at a
+  written-down `-O1` against a product Lake builds with **no `-O` at all**
 
-Gates after this leg: `DOCS GATE: 211 citations` · `WORKFLOW GATE: 33 gates, 26 from a
-workflow, 7 manual` · `VERSION GATE: ok — 1.4.0` · `PROVENANCE GATE: ok` ·
-`PUBLIC SURFACE` 10/4/16/13/2 · `MD MEMORY GATE: ok (6 of 6)` on ubuntu-latest, **0 of 6 and
-exit 2 on macOS**.
+Gates on `main`: `DOCS GATE: 220 citations` · `WORKFLOW GATE: 33 gates, 26 ci, 7 manual` and
+`10 script(s) trap under set -e and every one claims its answer` · `VERSION GATE: ok — 1.4.0` ·
+`PROVENANCE`, `PUBLIC SURFACE`, `MD ORACLE`, `libc-shim` ok · `MD MEMORY GATE: ok (6 of 6)` on
+ubuntu-latest, **0 of 6 and exit 2 on macOS**.
 
 ## Relay control
 - Mode: DONE
-- Goal: the four follow-ups after the pure-Lean port — C2, B1+B2, A1, C1
-- Leg: 2 / cap 8
-- Predecessor: none (leg 1 was the user's own session)
+- Goal: the two candidates left by leg 2 — the bash 3.2 hole, and the memory gate's `-O`
+- Leg: 3 / cap 8
+- Predecessor: leg 2 (`cada28c`)
 - Stop-on: completion
 - Progress ledger:
-  - r1: **C2** (`3dd37e3`) · **B2 + 1.4.0** (`abaf743`, `3cc0d6e`) · **v1.4.0 released** ·
-    information-theory pin bumped and its site rebuilt green · two silent-green holes closed
-  - r2: **A1** (`d58cbb6`) — 3 doc-gen4 comparisons run once, all three agree, 0 unexplained
-    disagreements · **version gate fixed** (`abd5922`, `ff9bf9c`) — `main` was red and is
-    green again · **C1** (`3ba890f`, `3ecaa2e`) — the C memory gate, 6 of 6 in CI
+  - r3: **answer guard** (PR #5, `6d5b877`) · **md-memory takes the product's `-O`**
+    (PR #6, `9b7b7df`) · both merged, `main` green
 
-## What this leg established, and where it is written down
+## What this leg established
 
-- **A1** → `benchmarks/results/docgen4-comparison-2026-09-02.txt`,
-  `docs/verification-log.md` "A1". 341 shared pages carry doc-gen4's anchors in doc-gen4's
-  order; 12 of 21 roots produce the URL doc-gen4 wrote; 235,185 of 251,225 resolvable `.lidx`
-  names produce doc-gen4's declaration URL with **0 mismatches**. The comparator is
-  `benchmarks/tools/docgen4-compare.py` and `…-falsify.py` is what made each arm fail once.
-  **The three keep their place in step E's table** — an answer with a date on it is not a home.
-- **C1** → `benchmarks/results/md-memory-gate-2026-09-02.txt`,
-  `docs/verification-log.md` "C1". Six items, four of which exist so the other two mean
-  something.
+- **`tools/lib/common.sh` has `answer_required` / `answer`.** Opt-in, so the scripts that source
+  it and do not ask keep answering exactly what they did. A 0 no path claimed becomes **70**.
+  `exit 70` and not `return 70` — under `set -uo pipefail` a trap's return value is discarded
+- **The reach was written down too wide.** `set -e` is what makes it a hole: under
+  `set -uo pipefail` the same abort exits 1. Of the thirteen scripts combining `set -u` with a
+  trap, **ten are exposed and three are not** (`render-compare.sh`, `site-compare.sh`,
+  `watch-gate.sh` — C1 had counted the last of those as covered by CI's bash 5)
+- **`tools/workflow-gate.sh` question 5** keeps the pairing: `answer_required` present, no bare
+  `exit 0` left, and the last executable line is an answer. Made to fail once in each part
+- **`md-memory-gate.sh` reads `PRODUCT_OPT` out of `lakefile.lean`'s `ccFlags`**, the way it
+  already reads the md4c flag word out of the Lean sources. It refuses (exit 2) if `ccFlags` is
+  gone or names two levels; both refusals were made to fail once
+- → `benchmarks/results/bash32-answer-guard-2026-09-02.txt`,
+  `benchmarks/results/md-memory-opt-2026-09-02.txt`, and the last two sections of
+  `docs/verification-log.md` before 書き方
 
-## Candidates for a next session, in the order I would take them
+## Candidates for a next session
 
-1. **The bash 3.2 hole is recorded and not fixed.** Any EXIT trap turns a `set -u` abort into
-   exit 0, and `tools/lib/common.sh`'s `on_exit` cannot recover it (the trap sees `$?` already
-   0). 13 scripts under `tools/` combine the two. Five are `ci` and covered by CI's bash 5;
-   **`base-ir-gate.sh` and `deps-docs-gate.sh` are `manual`, which is where it is open.** The
-   defence that works is a flag set on every path that is a real answer, with the cleanup
-   refusing a 0 no path claimed — `tools/md-memory-gate.sh`'s `finished`. Doing it in
-   `on_exit` itself would change the contract for all 13 at once, which is why it was not done
-   blind.
-2. **`-O` is the one half of the md-memory gate's compilation that nothing compares.** Lake
-   builds that C with elan's clang and no `-O`; the gate uses the machine's `cc` at `-O1`. The
-   compiler half is already a compared quantity (`LITEDOC4_SYSTEM_CC=1`,
-   `tools/libc-shim-gate.sh`); the optimisation half is not.
-3. **The A1 oracle is still alive and still cannot be rebuilt.**
-   `/Users/haruka/dev/lean-projects/.lake/build/doc` — `lake update` or a `.lake` wipe there
-   destroys it. If a question about doc-gen4's shape ever comes up again, ask it before
-   touching the target.
+Nothing is open that a previous session named. If a next one is wanted:
+
+1. **Three of the ten never ran end to end** — `deps-docs-gate.sh`, `extractor-mismatch.sh`,
+   `extractor-uniqueness.sh`. Their claim is `bash -n`, the entry paths and question 5, and the
+   verification log says so. `deps-docs` was **deliberately not run**: it rebuilds the target's
+   site, and `/Users/haruka/dev/lean-projects/.lake/build/doc` there is A1's oracle
+2. **The A1 oracle is still alive and still cannot be rebuilt.** `lake update` or a `.lake` wipe
+   in the target destroys it. Ask any doc-gen4-shaped question before touching the target
+3. **`answer` has a one-call-wide window** — a path that claims and then dies before `exit`
+   would still answer 0. Closing it would need the claim to be the exit, which it already
+   nearly is
 
 ## What a future session must not misread
 
-- **`tools/md-memory-gate.sh` answers 0 of 6 and exits 2 on this machine.** A program built
-  with `-fsanitize=address` never reaches its own `main` on this macOS (verified independently
-  of the gate, with a three-line program). **That is not a pass and not a broken gate** — the
-  question is answered by the CI job on ubuntu-latest.
-- **The version gate's item 3 is about the tags, not about HEAD.** Sitting at the released
-  version between releases is the normal state; every `tracks` site in
-  `tools/version-sites.txt` is a **pin instruction a user follows**, so bumping the literal to
-  clear a red gate would tell people to pin a tag that does not exist.
-- **`docgen4-compare.py`'s docstring classification is not an exception list.** It asks the
-  IR's own `moduleDocs` — today's sources — so a word litedoc4 shows that neither doc-gen4 nor
-  the source has is invented, and a word doc-gen4 shows that the source still has and litedoc4
-  does not is dropped. Both fail. **What it gives up is order.**
-- **Neither comparator is a gate and neither can become one.** doc-gen4 is not in the target's
-  manifest.
+- **`tools/md-memory-gate.sh` answers 0 of 6 and exits 2 on this machine.** A program built with
+  `-fsanitize=address` never reaches its own `main` on this macOS. **That is not a pass and not
+  a broken gate** — ubuntu-latest is where the six are answered
+- **A gate here that combines `set -e` with an EXIT trap must end by saying its answer.**
+  Question 5 fails a new one that does not, and the symptom of forgetting is **exit 70 on a run
+  that printed "ok"** — which is how `publish-pages.sh` was caught on the way in
+- **The seconds in `md-memory-opt-2026-09-02.txt` are not a comparison.** 3.09 s at the product's
+  level, 5.38 s and 6.6 s at `-O1` — three single runs on three runner instances, and the
+  5.38 / 6.6 spread is the same code at the same level
 
 ## Files to read first
 
-1. `docs/verification-log.md` — "A1" and "C1" are the last two sections before 書き方
-2. `tools/md-memory-gate.sh`'s header — six items and why four of them exist
-3. `tools/version-gate.sh`'s item 3 — the comment says what the old question was and why it
-   was the wrong one
+1. `tools/lib/common.sh` — `on_exit`, then the `answer_required` / `answer` block below it
+2. `tools/workflow-gate.sh` question 5 (header, and the block near the end)
+3. `docs/verification-log.md` — the last two sections before 書き方
