@@ -11,6 +11,15 @@ Live example: <https://fujiharuka.github.io/information-theory/> — 422 modules
 **24.5 s**. A sample, <https://fujiharuka.github.io/litedoc4/>, is eleven modules rebuilt from this
 repository's `main` on every push: the shapes a page can take rather than the scale.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/site-dark.png">
+  <img src="docs/images/site-light.png" alt="A module page from the live example: the module docstring, a theorem with its full signature, a module tree, and a search box.">
+</picture>
+
+A module page from the live example. Every `Real.binEntropy`, `Fintype` and `Set.Icc` in that
+signature is a link into Mathlib's source at the revision this package is built against — none of
+those pages were generated here.
+
 ## What you get
 
 - a front page listing every module of your package with a one-line description, and a module tree
