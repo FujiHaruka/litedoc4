@@ -5743,16 +5743,19 @@ global step was one call — the declaration-kind list (311,415 entries, 8 disti
 `Array.qsort`, which is quadratic in a run of equal keys. `sortUtf16` now uses `List.mergeSort`:
 the full-size sort takes 0.56–0.59 s in a standalone copy, against 22.6 s for qsort at n = 19,996
 and 90.9 s at 39,995 (measured → `benchmarks/results/sortutf16-mergesort-2026-10-03.txt`).
-A Mathlib build with the fix is **about 480 s (extrapolated)** — the scratch-patched `global`
-took 38.2 s (measured, single run, the same log as above); a patched `build` was not run.
+With the fix the whole build takes **449.9 s, global 30.4 s** (measured, single run, `ba2bd30`
+→ `benchmarks/results/mathlib-render-fixed-2026-10-03.txt`).
 
 **Not green**: `tools/site-gate.sh` fails on 51 dead internal links out of 3,387,940 — all
 relative targets in Mathlib's own docstrings, 19 of the 24 destinations being bibliography keys
 (`[Geck](Geck2017)`) with no references page to land on. The render line's 298,656 rendered +
-12,862 suppressed = 311,518 is 103 more than the 311,415 declarations in the IR (unverified).
+12,862 suppressed = 311,518 is 103 more than the 311,415 declarations in the IR — a counting
+artefact: "suppressed" is the size of the site-wide member-name set, and 103 member names are
+not IR declarations (51 inherited fields defined in Lean core / Batteries, 52 private Mathlib
+constructors and fields) (measured, same log).
 
 **Judgement**: one Mathlib commit can be documented end to end on this machine. Open:
-the references page, the 103, and a re-run of the whole build with the fix.
+the dead docstring links (issue #7) and a "suppressed" count that adds up.
 
 ## 書き方
 

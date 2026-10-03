@@ -1,0 +1,192 @@
+Mathlib itself as the documented package, after the sortUtf16 fix — and the 103
+====================================================================================
+2026-10-03
+
+What this answers
+-----------------
+1. How long does one `litedoc4 build --lib Mathlib` take now that `sortUtf16`
+   merge-sorts (ba2bd30)? mathlib-render-2026-10-03.txt measured 4,995.7 s with the
+   quadratic sort and extrapolated ≈ 483 s without it.
+2. That file's render line read `declarations 298656/311415 (12862 suppressed)`, and
+   298,656 + 12,862 = 311,518 is 103 more than the 311,415 declarations in the IR.
+   Why?
+
+Answers:
+1. 449.9 s (measured, single run), of which the global step is 30.4 s.
+2. A counting artefact, not a rendering defect. "suppressed" is the size of the
+   site-wide set of *member names* (constructors, fields, parent projections listed
+   under some structure or inductive), not a count of IR declarations. 103 of those
+   member names are not IR declarations at all: 51 inherited fields whose projection
+   lives in a dependency (50 in Lean core, 1 in Batteries), and 52 private
+   constructors or fields of Mathlib structures, which the extractor drops as
+   internal names. No declaration is rendered twice and no page carries a name it
+   should not.
+
+Conditions
+----------
+  machine        Apple M1, 16 GB, macOS 26.6.2 (25G83)
+  toolchain      Lake 5.0.0-src+68218e8 (Lean 4.31.0), from elan
+  mathlib        fabf563a7c95a166b8d7b6efca11c8b4dc9d911f (lean-toolchain v4.31.0), a
+                 `git clone --no-checkout` of lean-projects' .lake/packages/mathlib,
+                 detached at that rev; oleans from `lake exe cache get` ("Decompressed
+                 8538 already-cached file(s)", 39.6 s real), finished about 30 s
+                 before the build started; `lake build --no-build Mathlib` → "All
+                 targets up-to-date (8557 jobs)"
+  litedoc4       ba2bd306d1e6b12a7ad5d1d2dc2643e48cda1916 (main, clean), the executable
+                 from tools/build-lean-exe.sh --toolchain-from e2e/micro (131 jobs)
+  extractor      built for this run from HEAD extractor/Extract.lean (sha256
+                 73e33b6e…a0e — the same file as the earlier run) with
+                 extractor/build.sh's two commands, run inside the mathlib clone
+  flags          identical to mathlib-render-2026-10-03.txt: build --lib Mathlib
+                 --jobs 4 --lake ~/.elan/bin/lake --source-url
+                 https://github.com/leanprover-community/mathlib4/blob/<rev>
+  page cache     not controlled. The oleans had just been decompressed and `detect`
+                 hashes every olean before extraction, so extraction started partly
+                 warm. Thermal state not controlled
+  runs           ONE. Every number below is (measured, single run) unless labelled
+  work dir       /private/tmp/lean-doc-relay/wmathlib   (NOT preserved)
+
+1. Output: the same site as before
+----------------------------------
+  exit code        0
+  render line      modules 8170/8170  declarations 298656/311415 (12862 suppressed)
+                   module docs 12449  bytes 1074382825 — identical to the earlier run
+  global line      declarations 311415 + 3414 dependency names; name map 24,335,490 B,
+                   module index 1,006,720 B, search index 5,128,001 B, state
+                   40,860,448 B — each identical to the earlier run's sizes
+  work record      extract 8170 / render 8170 / math-fallback 16 / requests 1 /
+                   cache 0 hit 8170 miss / summary 7867 (52 name-only) / ir 16363
+                   file(s) (16340 module reads = 2.00 full passes); pagesInSite 8,182
+  extractor        analyze 195.8 s, considered 557,366, produced 311,415, blacklisted
+                   245,951, failed 0; equations 58,426 (71 failed); linkIndex 13.2 s;
+                   writeIR 27.1 s serialize
+  tools/site-gate.sh  FAILED (exit 1) for the same reason as before: 51 DEAD internal
+                   links (24 distinct destinations, 33 pages), all from relative
+                   links in Mathlib's own docstrings. Closure, every check ok:
+                   search-index → pages 311,415; pages → search-index 298,656;
+                   search-index == name-map 311,415; instances 29,409; instancesFor
+                   28,199; external resources 8,174
+  Only sizes and counts were compared with the earlier run, not bytes: that run's
+  output was deleted.
+
+2. Time and memory
+------------------
+  stage        wall (s)   source
+  detect+misc     61.4    total minus the three below
+  extract        296.5    extractSeconds
+  render          61.5    renderSeconds
+  global          30.4    globalSeconds   (was 4,551.1 s with the quadratic sort)
+  total          449.9    totalSeconds; /usr/bin/time: 449.95 real, 1002.96 user,
+                          34.73 sys, maximum resident set size 5,073,698,816 B,
+                          peak memory footprint 2,792,479,232 B, page faults 678,171
+
+  The earlier file's ≈ 483 s for an unchanged build was (extrapolated) from a
+  separate patched `global` process (38.2 s). This run is the measured figure for
+  that build: 449.9 s. Do not read the 33 s difference as a speed-up of anything:
+  extract and detect depend on page-cache warmth, which neither run controlled, and
+  both are single runs. The one stage that is CPU-bound and comparable is global:
+  30.4 s inside `build` here, 38.2 s as a separate `global` process there (which
+  also reads the IR itself).
+  Maximum RSS (5.07 GB) is higher than the earlier 4.01 GB; /usr/bin/time reports
+  the maximum over the process tree, and no poller ran to attribute it. Peak memory
+  footprint of litedoc4's own process is the same to within 0.01% (2,792,479,232 B vs
+  2,792,348,160 B).
+  Free disk (15 s df poller) never fell below 25.6 GiB.
+
+3. The 103
+----------
+What the render line counts (src/Litedoc4/Render/Site.lean, renderSite; Page.lean,
+suppressedOf):
+  declarationsInIr       Σ over modules of the module's declarations      311,415
+  declarationsSuppressed |S|, S = every member name of every declaration     12,862
+  declarationsRendered   declarations whose name is not in S                298,656
+So rendered + suppressed − in-IR = |S \ names of IR declarations|, provided no name
+is declared twice in the IR. Measured on the IR of this run:
+  declarations in IR 311,415, distinct names 311,415, duplicated names 0
+  S ∩ IR names 12,759 (= 311,415 − 298,656), S \ IR names 103
+
+The 103, classified by the member entries that name them (751 + 51 + 1 = 803):
+  51 names   label field, isDirect false (inherited), 751 entries in Mathlib
+             structures. Each one's defining module, from this run's link index:
+             50 in Lean core (Init.*), 1 in Batteries (RatCast.ratCast,
+             Batteries.Classes.RatCast). Examples: Zero.zero (87 owners), Mul.mul
+             (85), Add.add (81), One.one (66), Setoid.iseqv and Setoid.r (8 each),
+             Std.Refl.refl (4), Lean.Meta.Rewrite.Config.occs (1,
+             Mathlib.Tactic.GRewrite.Config)
+  52 names   `_private.Mathlib.<module>.0.…` — 51 private constructors (label ctor:
+             `structure … where private mk ::`; 50 end in `.mk`, mostly
+             `<Cat>.Hom.mk` / `<Cat>.mk`, and 1 is TopModuleCat.Hom.ofHom'. By
+             module area: Algebra.Category 28 names, Order.Category 13,
+             RepresentationTheory 4, Topology 3, CategoryTheory 2,
+             Algebra.Module 2 (the ctor and field below)) and 1 private field
+             (Module.IsStablyFree.exist_free_prod', label field, direct). Each is a
+             member of exactly one structure, in the module its private prefix
+             names
+  0 names    a public Mathlib declaration the extractor dropped
+
+Why the 52 private names are not IR declarations: extractor/Extract.lean's
+isBlackListed drops `Name.isInternal` names (doc-gen4's rule), and a `_private.…`
+name is internal. Its isProjFn exception does not rescue the private field, because
+the field's prefix `_private.….0.Module.IsStablyFree` is not a structure. A probe in
+the clone's environment confirmed, for exist_free_prod', IsStablyFree.mk and
+GrpCat.Hom.mk: present in the module's constNames, `env.find?` some, isInternal true;
+exist_free_prod' is a projection function, the two constructors are not.
+
+What the site does with the 103 (a scan of the `id="…"` attributes of all 8,174
+html files, plus declarations/name-map.json):
+  - the 51 inherited dependency fields: 0 appear as an id anywhere. They are
+    rendered as `<li class="field inherited">` linking to the dependency, as
+    e2e/micro's Example.Preferred does with Inhabited.default. 24 of them are keys
+    in name-map.json — as dependency names (3,414 such entries), which is how they
+    are linked; the search index does not carry them
+  - the 52 private names: each appears as an id exactly once, on its owner's page,
+    and nowhere else. For a constructor it is the id of the structure's
+    `<ul class="fields">` (the anchor every structure's constructor gets), for the
+    private field the field's `<li>`. None is a name-map key or in the search index
+site-gate checked 311,415 search-index entries and the IR holds exactly 311,415
+declarations, so the index is the IR's declarations and none of the 103 is in it.
+"search-index → pages 311,415" says every one of them resolves to an anchor: 298,656
+as a declaration block ("pages → search-index"), the other 12,759 as member anchors
+on their owners' pages.
+
+Reproduced cheaply first: tools/e2e-micro.sh prints
+`declarations 56/97 (42 suppressed)`, 56 + 42 = 98, a gap of 1, and that one name is
+Inhabited.default, the field Example.Preferred inherits from Lean core (measured,
+same analysis, HEAD ba2bd30).
+
+Verdict: a counting artefact. The 12,862 is not "declarations suppressed" but
+"distinct member names", and 103 of those were never declarations of this IR. If the
+three numbers are meant to reconcile, the one-line change is to report suppressed
+as the IR declarations whose name is in S — equivalently in-IR minus rendered
+(12,759 here) — instead of |S|. Not applied.
+
+4. Sizes (du, before cleanup)
+-----------------------------
+  work dir total   9.1 G   (mathlib clone 6.7 G, of which .lake 6.6 G; out 1.7 G:
+                            ir 550 M, site 1.1 G; extractor build 176 M)
+
+Commands
+--------
+  W=/private/tmp/lean-doc-relay/wmathlib
+  git clone --no-checkout /Users/haruka/dev/lean-projects/.lake/packages/mathlib $W/mathlib
+  git -C $W/mathlib checkout --detach fabf563a7c95a166b8d7b6efca11c8b4dc9d911f
+  (cd $W/mathlib && lake exe cache get)
+  (cd $W/mathlib && lake build --no-build Mathlib)
+  (cd $W/mathlib && lake env lean --root=<repo>/extractor -o $W/ext/Extract.olean \
+       -c $W/ext/Extract.c <repo>/extractor/Extract.lean \
+     && lake env leanc -rdynamic -o $W/ext/extract $W/ext/Extract.c)
+  LAKE=~/.elan/bin/lake tools/build-lean-exe.sh --toolchain-from e2e/micro
+  /usr/bin/time -l .lake/build/bin/litedoc4 build --root $W/mathlib --out $W/out \
+    --lib Mathlib --extractor-bin $W/ext/extract --lake ~/.elan/bin/lake --jobs 4 \
+    --source-url https://github.com/leanprover-community/mathlib4/blob/fabf563a7c95a166b8d7b6efca11c8b4dc9d911f \
+    --timings $W/out.timings.json > $W/logs/build.log 2>&1
+  tools/site-gate.sh $W/out/site > $W/logs/site-gate.log 2>&1
+  tools/e2e-micro.sh --out <scratch>/micro --keep
+  The analysis of the 103 was a throwaway Python script over $W/out/ir (not
+  committed): read index.json and every modules/*.json, collect declaration names
+  and every `members[].name` with its owner, label and isDirect; report duplicates,
+  |S|, rendered, S \ names; resolve each outside name's module from
+  $W/out/link-index.lidx; scan every html file's id attributes and
+  declarations/name-map.json for the 103. The environment probe was a `lake env lean
+  --run` script in the clone importing Mathlib.Algebra.Module.StablyFree.Basic and
+  Mathlib.Algebra.Category.Grp.Basic.
