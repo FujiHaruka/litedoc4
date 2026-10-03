@@ -68,6 +68,19 @@ dependency names a higher version (`benchmarks/results/lake-package-probe-2026-0
 require «MathML4Lean» from git
   "https://github.com/FujiHaruka/MathML4Lean" @ "v0.1.1"
 
+/-- The BibTeX reader and formatter behind `references.html` and the tags a
+citation shows. A dependency and not a reimplementation: it is the library
+doc-gen4 formats a bibliography with, so its tags and entry text are doc-gen4's.
+
+Pinned to the commit doc-gen4 pins. Its own `lean-toolchain` names a higher
+version than any toolchain litedoc4 supports, and it does not reach a consumer's
+`lean-toolchain` anyway: `lake update` compares only the root's *direct*
+dependencies, and a consumer reaches this one through litedoc4, which has no
+`lean-toolchain` at all. It builds on v4.31.0, v4.32.2 and v4.33.1 and imports no
+`Lean` (`benchmarks/results/bibtexquery-dependency-probe-2026-10-04.txt`). -/
+require «BibtexQuery» from git
+  "https://github.com/dupuisf/BibtexQuery" @ "fdcc88de7c4c5a11e3239c9416615f34c226d47d"
+
 /--
 `supportInterpreter := true` is how Lake spells the `-rdynamic` that
 `extractor/build.sh` passes to `leanc`: `importModules (loadExts := true)` runs

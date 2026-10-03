@@ -280,6 +280,25 @@ A declaration Lean realized from `@[ext]` is marked **realized by `@[ext]` from 
 linking the declaration it came from: its own source link points at the attribute, which is where
 Lean puts it.
 
+### Citations
+
+Put a BibTeX file at `docs/references.bib` in your package and cite its entries from any
+docstring. `[Key]` becomes a link showing the entry's tag; `[text][Key]` keeps your text:
+
+```lean
+/-- The entropy bound of [CoverThomas2006], proved as in [chapter 2][CoverThomas2006]. -/
+```
+
+Both link to `references.html`, which lists every entry with an anchor `#ref_Key`, and the link's
+tooltip is the formatted entry. The tags and the entry text come from BibtexQuery, the library
+doc-gen4 formats its bibliography with, so they are the ones a doc-gen4 site shows. A bracket
+that is not a key in the file stays as you wrote it. `references.html` is written whether or not
+the file exists; without one it lists nothing.
+
+BibtexQuery cannot read `@string`, `@comment` or `@preamble`, nor a stray `@` in a note, and
+stops at the first one. The entries before it are kept and the build **prints a warning** naming
+the file and the line, because that entry and every one after it are left out.
+
 ## Configuring the site
 
 `litedoc4.toml` next to your `lakefile`, both keys optional:

@@ -32,7 +32,7 @@ def theIdentityStringsAreNotTheFrozenPrototypes : Bool :=
     && rendererId != "lean-doc/experiments/stage4c"
     && keySetGet key "extractor" == some extractorId
     && keySetGet key "irGenerator" == some "lean-doc/experiments/stage4b"
-    && keySetGet (renderKey sourceUrl none none) "renderer" == some rendererId
+    && keySetGet (renderKey sourceUrl none none none) "renderer" == some rendererId
     && key.map (·.1) == #["leanToolchain", "manifestSha256", "extractor",
                           "irSchemaVersion", "irGenerator"]
     && (extractKeyOf "leanprover/lean4:v4.31.0" "0011" none).map (·.1)
@@ -47,10 +47,10 @@ ledger's bytes is its insertion order, and all three of appearing, vanishing and
 moving count as a change. The last two clauses are why it is a fourth key rather
 than folded into the `.lidx`'s: either digest can move without the other. -/
 def theExternalLinksDigestIsARenderKeyOfItsOwn : Bool :=
-  let without := renderKey sourceUrl none none
-  let with_ := renderKey sourceUrl none (some "d1")
-  let moved := renderKey sourceUrl none (some "d2")
-  let both := renderKey sourceUrl (some "lidx") (some "d1")
+  let without := renderKey sourceUrl none none none
+  let with_ := renderKey sourceUrl none (some "d1") none
+  let moved := renderKey sourceUrl none (some "d2") none
+  let both := renderKey sourceUrl (some "lidx") (some "d1") none
   keySetGet without "externalLinks" == none
     && keySetGet with_ "externalLinks" == some "d1"
     && with_.map (·.1) == #["renderer", "sourceUrl", "externalLinks"]
@@ -60,18 +60,36 @@ def theExternalLinksDigestIsARenderKeyOfItsOwn : Bool :=
     && keySetDiff with_ with_ == #[]
     && both == #[("renderer", rendererId), ("sourceUrl", sourceUrl),
                  ("linkIndex", "lidx"), ("externalLinks", "d1")]
-    && keySetDiff both (renderKey sourceUrl (some "lidx") none) == #["externalLinks"]
+    && keySetDiff both (renderKey sourceUrl (some "lidx") none none) == #["externalLinks"]
 
 #guard theExternalLinksDigestIsARenderKeyOfItsOwn
+
+/-- An edited `docs/references.bib` changes the title and the text of every
+citation, with the IR held fixed, so its digest is a render key of its own. No
+bibliography is no key at all rather than a key with an empty value, which is
+what leaves the ledger of a package without one exactly as it was. -/
+def theBibliographyDigestIsARenderKeyAndNoneLeavesTheKeyAsItWas : Bool :=
+  let without := renderKey sourceUrl (some "lidx") (some "d1") none
+  let with_ := renderKey sourceUrl (some "lidx") (some "d1") (some "b1")
+  without == #[("renderer", rendererId), ("sourceUrl", sourceUrl),
+               ("linkIndex", "lidx"), ("externalLinks", "d1")]
+    && with_ == without.push ("bibliography", "b1")
+    && keySetDiff without with_ == #["bibliography"]
+    && keySetDiff with_ (renderKey sourceUrl (some "lidx") (some "d1") (some "b2"))
+      == #["bibliography"]
+
+#guard theBibliographyDigestIsARenderKeyAndNoneLeavesTheKeyAsItWas
 
 /-- A trailing slash is not a different source URL. Without this every consumer
 whose configured URL ends in `/` re-renders every page of the site on the round
 after the one that wrote the ledger, for ever. -/
 def aTrailingSlashIsNotADifferentSourceUrl : Bool :=
-  keySetDiff (renderKey sourceUrl none none) (renderKey (sourceUrl ++ "/") none none) == #[]
-    && keySetDiff (renderKey sourceUrl none none) (renderKey sourceUrl2 none none)
+  keySetDiff (renderKey sourceUrl none none none)
+      (renderKey (sourceUrl ++ "/") none none none) == #[]
+    && keySetDiff (renderKey sourceUrl none none none) (renderKey sourceUrl2 none none none)
       == #["sourceUrl"]
-    && keySetDiff (renderKey sourceUrl none none) (renderKey "" none none) == #["sourceUrl"]
+    && keySetDiff (renderKey sourceUrl none none none) (renderKey "" none none none)
+      == #["sourceUrl"]
 
 #guard aTrailingSlashIsNotADifferentSourceUrl
 

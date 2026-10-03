@@ -54,6 +54,7 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 | `Example/Dep.lean` + `../micro-dep/` | **版固定できない依存** — path require なので manifest entry に `url` も `rev` も無い。モジュール名は **`«Dep-Aux»`** (ギュメが要る形)。**版固定できない依存へのリンク**と**`.lidx` の綴り差**がここを通る (下記) |
 | `Example/Gen.lean` | **`@[ext]` が実現する宣言と、しない宣言** — inline の `@[ext]` / 後から来る `attribute [ext] Trip` / **1 つの位置に 2 つの親の子が 4 つ** (`attribute [ext] Quad Quint`) / `extends` の親射影 / そして**手書きの `@[ext] theorem`**。最後のものが要点で、**拡張に居ることは「生成された」を意味しない**ことをここだけが示す |
 | `litedoc4.toml` + `docs/index.md` | **サイト設定** (feature-sweep C-3) — `title` と `index`。**何も設定していないパッケージでは 4 経路が自明に一致する**ので、`tools/config-gate.sh` が比較するものを持たせるために置いてある |
+| `docs/references.bib` | **The bibliography** — `references.html`, and three citations into it: `[deMoura2021]` in `Example`'s module docstring (the bare-key form, whose link text becomes the entry's tag), `[Theorem Proving in Lean 4][TPIL4]` in `Example.Basic`'s (the form that keeps its own text) and `[Graham1994]` in `Example.Math.displaySpan`'s. `tools/config-gate.sh` compares them across the commands that write HTML |
 | `Example/Math.lean` | **docstring の数式** (feature-sweep C-1) — インライン `$…$` / ブロック `$$…$$` / HTML が気にする文字を含む式 / **変換できない `\colim`**。最後のものが要点で、**失敗が `$…$` のまま残り、その件数が `work.mathFallbacks` に出る**ことをここだけが示す。対象は 5,079 docstring 中 3 span しか数式を持たないので、**対象では一度も通らない経路** |
 | `Example/Sorry.lean` | **`sorry` の 3 形** (doc-gen4 #270) — 直接 `sorry` を書いた定理 / それに依存するだけの定理 / どちらでもない定理。**`sorry` は elaborate 済みの項の性質**なので、手書き IR では「抽出器が正しい値を入れたか」を検査できない。ここが唯一の経路 |
 
@@ -190,10 +191,20 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 ## `micro-expected/` — what the Rust half wrote
 
 `micro-expected/` is the frozen output of the **Rust** `litedoc4` over `micro/`,
-minted while that binary existed: 49 files, 508 KB — the rendered pages, the
+minted while that binary existed: 51 files, 520 KB — the rendered pages, the
 whole-package artifacts, the four transcripts, the ledger and the build marker.
 `tools/purelean-micro-gate.sh` holds the Lean half to those bytes, and it is the
 only thing that reads them.
+
+**Not every byte in it is the Rust half's.** `site/references.html` and
+`build/references.html` were written by the Lean half on 2026-10-04: the page did
+not exist while the Rust binary did. So were the citation anchors in
+`Example.html`, `Example/Basic.html` and `Example/Math.html` under `render/`,
+`nolidx/` and `build/`, which came with `micro/docs/references.bib`; the rest of
+those pages' change is the sentences that carry the citations and a one-line
+`#L` shift in the source links below them. What read those bytes independently
+is BibtexQuery's own command line (`bibtex-query l`), whose tags and entry text
+were compared with `references.html` before they were frozen.
 
 It outlived `crates/` on purpose: the Rust binary was the port's oracle, and
 anything minted after it left would record what the Lean half does today rather

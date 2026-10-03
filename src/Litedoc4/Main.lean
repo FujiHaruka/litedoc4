@@ -440,7 +440,8 @@ def render (args : List String) : IO UInt32 := do
       let summary ← renderSite
         { ir := ir, pages := pages, sourceUrl := sourceUrl
           linkIndex := a.linkIndex.map (⟨·⟩)
-          external := inputs.external, title := inputs.config.title, only }
+          external := inputs.external, title := inputs.config.title
+          bibliography := inputs.config.bibliography, only }
       printRenderSummary "" summary
       return 0
     catch e =>
@@ -541,11 +542,13 @@ def site (args : List String) : IO UInt32 := do
       let rendered ← renderSite
         { ir := ir, pages := out, sourceUrl := sourceUrl
           linkIndex := a.linkIndex.map (⟨·⟩)
-          external := inputs.external, title := inputs.config.title }
+          external := inputs.external, title := inputs.config.title
+          bibliography := inputs.config.bibliography }
       let renderDone ← IO.monoNanosNow
       let derived ← buildGlobal
         { ir := ir, out := out, state := a.state.map (⟨·⟩)
-          indexMarkdown := inputs.config.indexMarkdown, title := inputs.config.title }
+          indexMarkdown := inputs.config.indexMarkdown, title := inputs.config.title
+          references := inputs.config.bibliography.items }
       let globalDone ← IO.monoNanosNow
       -- Labelled per stage: one merged line would lose which half of the tree a
       -- number is about, and the two count different things under the same word
@@ -606,8 +609,9 @@ partial def parseGlobal : List String → GlobalArgs → Except String GlobalArg
 
 No `--only`: the derivation is over the whole package by construction, and the
 cache makes it cheap rather than partial. No `--source-url` either — none of the
-nine artifacts carries a source link. `--root` is here for one reason: this
-command writes `index.html`, and `litedoc4.toml` decides what is on it.
+ten artifacts carries a source link. `--root` is here because this command writes
+`index.html` and `references.html`, and the package's `litedoc4.toml` and
+`docs/references.bib` decide what is on them.
 
 `--print-set` / `--delta-json` do nothing without `--before`: the delta is off
 unless there is a map to compare against. -/
@@ -626,7 +630,8 @@ def globalCmd (args : List String) : IO UInt32 := do
         { ir := ir, out := out, state := a.state.map (⟨·⟩)
           before := a.before.map (⟨·⟩), printSet := a.printSet.map (⟨·⟩)
           deltaJson := a.deltaJson.map (⟨·⟩), timings := a.timings.map (⟨·⟩)
-          indexMarkdown := config.indexMarkdown, title := config.title }
+          indexMarkdown := config.indexMarkdown, title := config.title
+          references := config.bibliography.items }
       printGlobalSummary "" summary
       return 0
     catch e =>
@@ -797,6 +802,12 @@ from the one the run that wrote the pages recorded. -/
 def ledgerExternal (a : LedgerArgs) : IO (Except (UInt32 × String) ExternalLinks) := do
   withDependencyDocs (← resolveExternal a.root a.lake) (a.depsDocsMap.map (⟨·⟩))
 
+/-- `--root`'s bibliography digest, for the same reason as `ledgerExternal`. -/
+def ledgerBibliography (a : LedgerArgs) : IO (Option String) := do
+  match a.root with
+  | some root => return (← readBibliography ⟨root⟩).digest
+  | none => return none
+
 def ledgerBuildRun (a : LedgerArgs) (modules target out : String) : IO UInt32 := do
   let names ← readModuleList ⟨modules⟩
   let external ← match ← ledgerExternal a with
@@ -807,7 +818,8 @@ def ledgerBuildRun (a : LedgerArgs) (modules target out : String) : IO UInt32 :=
     | none => Algorithm.sha256
   let result ← buildLedger
     { modules := names, target := target, ir := a.ir.map (⟨·⟩), sourceUrl := a.sourceUrl
-      linkIndex := a.linkIndex.map (⟨·⟩), externalLinks := some external.digest, algorithm }
+      linkIndex := a.linkIndex.map (⟨·⟩), externalLinks := some external.digest
+      bibliography := ← ledgerBibliography a, algorithm }
   match result with
   | .error message => refusedWith 3 message
   | .ok (ledger, phases) =>
@@ -837,6 +849,7 @@ def ledgerCheckRun (a : LedgerArgs) (path : String) : IO UInt32 := do
     { ledger := ⟨path⟩, algorithm := a.algorithm.map ({ name := · }), modules := names
       ir := a.ir.map (⟨·⟩), sourceUrl := a.sourceUrl, linkIndex := a.linkIndex.map (⟨·⟩)
       externalLinks := some external.digest
+      bibliography := ← ledgerBibliography a
       changedOut := a.changedOut.map (⟨·⟩), removedOut := a.removedOut.map (⟨·⟩)
       renderAllOut := a.renderAllOut.map (⟨·⟩) }
   match result with

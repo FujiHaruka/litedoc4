@@ -435,3 +435,23 @@ had been incomplete since the transcriptions were written.
 notice: `Martin Mitáš`, `Copyright 2006-2011`. Not `md4c` and not `V8` — both files
 say those words in ordinary prose about what they hold, so a row matching them
 would be satisfied by the wrong sentence (§7, and the same trap `style.css` carries).
+
+## 10. The bibliography (2026-10-04)
+
+| file | class | what | doc-gen4 side |
+|---|---|---|---|
+| `src/Litedoc4/Bibtex.lean` | **A** — Lean to Lean, so a copy under §2's rule, changed | `process'` and the four XML walks that turn BibtexQuery's output into escaped HTML and plain text, about 40 lines; changed to accumulate into one string, and to report where BibtexQuery stops reading a file half-way | `Output/Bibtex.lean` at `84a46571f3` |
+
+The notice is the same two lines the other transcriptions carry, naming that file directly: there
+was never a Rust half of it. `NOTICE` lists it with the others and `tools/provenance-files.txt`
+checks the notice is still there.
+
+`src/Litedoc4/Bib.lean` follows doc-gen4's *behaviour* — the `[key]` scan of `findAllReferences`,
+the `[key]: references.html#ref_key` lines `docStringToHtml` appends, the `references.html#ref_`
+prefix of `findBibitem?` — and is written independently of its code, so it is **C**. The `<li>`
+shape of `references.html` (`refItem`) is in `src/Litedoc4/Global/Entry.lean`, also **C**.
+
+**BibtexQuery** (Apache-2.0, Frédéric Dupuis) is a Lake dependency, required from
+`lakefile.lean` and pinned to the commit doc-gen4 pins. Nothing of it is reproduced in this tree,
+and nothing is distributed in Object form (§9), so it carries no `NOTICE` section — the same
+standing as MathML4Lean.

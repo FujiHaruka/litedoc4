@@ -174,7 +174,7 @@ def aModuleOfThisPackageWithNoPageIsNotALink : Bool :=
   let ix := buildIndex #[] #[pkgTwo]
     (parseLidx "@Pkg.Recycling\nPkg.Recycling\n\tPkg.Recycling.helper\t3\t4\n")
     (mkExternalLinks #[])
-  let page := pageRenderer (mkPageCtx ix "../" pkgTwo)
+  let page := pageRenderer (mkPageCtx ix "../" pkgTwo) {}
   ix.knownModules.contains "Pkg.Recycling" && !ix.pages.contains "Pkg.Recycling"
     && ix.pages.contains "Pkg.Two"
     && alResolve ix pkgTwo "Pkg.Recycling.helper" == none
@@ -213,7 +213,7 @@ answers nothing either. -/
 def anUnresolvedSourcePathStaysACodeSpan : Bool :=
   let ix := alIndex [] ["Pkg.Deep.Sub.Thing", "Dep.Sub.Thing", "Other.X.Amb", "P.X.Amb"]
     "" [("Dep", "https://host/o/dep/blob/abc")]
-  let page := pageRenderer (mkPageCtx ix "../" {})
+  let page := pageRenderer (mkPageCtx ix "../" {}) {}
   autoLinkInline "" page "Deep/Sub/Thing.lean"
       == "<a href=\"../Pkg/Deep/Sub/Thing.html\">Deep/Sub/Thing.lean</a>"
     && autoLinkInline "" page "Dep/Sub/Thing.lean"

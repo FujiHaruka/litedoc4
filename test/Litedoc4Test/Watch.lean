@@ -117,7 +117,8 @@ changed modules: two passes during one `lake build` can report the same list
 while the bytes underneath are still moving. -/
 def theTriggerAnswersNothingYetAStableDigestAMovedOleanAndABrokenLedger : Invariant where
   name := "Trigger.ask: no ledger is `nothing yet`, an unmoved world gives the same digest \
-    twice, a moved olean moves it, and a ledger that will not parse names the file"
+    twice, an edited bibliography moves the render key, a moved olean moves the digest, and \
+    a ledger that will not parse names the file"
   check := do
     let work ← incrWorkDir "watch-trigger"
     let repo := work / "repo"
@@ -142,6 +143,9 @@ def theTriggerAnswersNothingYetAStableDigestAMovedOleanAndABrokenLedger : Invari
     if let .ok (l, _) := built then IO.FS.writeFile ledger l.toJson
     let quiet ← trigger.ask
     let again ← trigger.ask
+    writeUnder repo "docs/references.bib" "@misc{K, title={T}}\n"
+    let cited ← trigger.ask
+    IO.FS.removeFile (repo / "docs" / "references.bib")
     writeUnder repo ".lake/build/lib/lean/Pkg/A.olean" "the olean bytes of Pkg.A, moved"
     let moved ← trigger.ask
     IO.FS.writeFile ledger "{ half-written"
@@ -161,6 +165,8 @@ def theTriggerAnswersNothingYetAStableDigestAMovedOleanAndABrokenLedger : Invari
       eq ((reading quiet).map (fun r => (r.modules, r.work, r.what)))
         (some (2, false, "nothing stale")),
       eq ((reading again).map (·.digest)) ((reading quiet).map (·.digest)),
+      eq ((reading cited).map (fun r => (r.reExtract, r.renderAll)))
+        (some (0, #["bibliography"])),
       eq (((reading moved).map (·.digest)) != ((reading quiet).map (·.digest))) true,
       eq ((reading moved).map (fun r => (r.work, r.reExtract, r.what)))
         (some (true, 1, "1 module(s) to re-extract")),

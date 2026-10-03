@@ -62,6 +62,10 @@ src/Litedoc4/Md/Escape.lean : Böving
 src/Litedoc4/Md/Escape.lean : Apache-2.0
 src/Litedoc4/Md/Html.lean : Böving
 src/Litedoc4/Md/Html.lean : Apache-2.0
+# Transcribed straight from doc-gen4's `DocGen4/Output/Bibtex.lean` — there was
+# never a Rust half of it — and the notice names that file.
+src/Litedoc4/Bibtex.lean : Böving
+src/Litedoc4/Bibtex.lean : Apache-2.0
 src/Litedoc4/Render/Autolink.lean : Böving
 src/Litedoc4/Render/Autolink.lean : Apache-2.0
 src/Litedoc4/Render/Code.lean : Böving

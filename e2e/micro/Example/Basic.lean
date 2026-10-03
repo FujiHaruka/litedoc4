@@ -3,7 +3,8 @@
 
 One of each, with a docstring apiece: `def`, `theorem`, `structure`, `instance`,
 `abbrev` and `inductive`. Every page on this site is laid out the same way, so
-this is the one to read first.
+this is the one to read first. [Theorem Proving in Lean 4][TPIL4] introduces
+each of these kinds.
 
 This module imports nothing of its own, so the only entry in its import list is
 the `Init` every Lean module gets.

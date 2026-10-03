@@ -36,8 +36,8 @@ def depIndex (slice : List (String × String)) (pages : List String) (lidx : Str
 def declRoot : String := pageRoot "Pkg.M"
 
 def declOut (ix : NameIndex) (m : Module) (d : Decl) : Except String String :=
-  let dr : DeclRenderer := { ix, root := pageRoot m.name, md := pageRenderer (mkPageCtx ix
-    (pageRoot m.name) m) }
+  let dr : DeclRenderer :=
+    { ix, root := pageRoot m.name, md := pageRenderer (mkPageCtx ix (pageRoot m.name) m) {} }
   ((declHtml "" dr m d "https://x/M.lean").run 0).map (·.1)
 
 /-- The markup, or the empty string when the page was refused — which fails every

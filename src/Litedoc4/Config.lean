@@ -19,9 +19,17 @@ then have to interpret — a table header, an array, a literal string — and th
 failure mode of guessing here is a site with the wrong title on every page,
 which nothing downstream can see. What would falsify this: a package that has to
 write its title in a spelling this refuses, which is a reason to widen the
-recogniser rather than to stop reading it strictly. -/
+recogniser rather than to stop reading it strictly.
+
+`docs/references.bib` is read by convention rather than named by a key: it is
+the file doc-gen4 reads a bibliography from, so a package documented by both
+keeps one. A file that is there and does not parse is an error, like `index`; one
+BibtexQuery stops reading part of the way is a warning, and the entries before
+that point are kept. -/
+import Litedoc4.Bibtex
 import Litedoc4.Fs
 import Litedoc4.Ir.Utf16
+import Litedoc4.Sha256
 
 open System
 
@@ -33,6 +41,7 @@ structure SiteConfig where
   relative to the package root, and resolving it anywhere else would be a second
   place that knows what it is relative to. -/
   indexMarkdown : Option String := none
+  bibliography : Bibliography := {}
   deriving Inhabited
 
 def configFile : String := "litedoc4.toml"
@@ -163,25 +172,44 @@ def parseConfig (text : String) : Except String ConfigKeys := Id.run do
   -- reading the file and deciding what it said are not two answers.
   return .ok { title := title.filter (fun t => !(trimWs t).isEmpty), index }
 
-/-- `<root>/litedoc4.toml`, or the empty configuration when `root` is `none` or
-holds no such file. -/
+def readIfPresent (path : FilePath) : IO (Option String) := do
+  try
+    pure (some (← IO.FS.readFile path))
+  catch
+    | .noFileOrDirectory .. => pure none
+    | e => throw (unreadable path e)
+
+/-- `<root>/docs/references.bib`. Absent and blank are the same answer as a
+package with no bibliography, and neither moves the render key. -/
+def readBibliography (root : FilePath) : IO Bibliography := do
+  let path := root / "docs" / "references.bib"
+  let some text ← readIfPresent path | return {}
+  if text.trimAscii.isEmpty then return {}
+  match processBibtex text with
+  | .ok read =>
+    let warning := read.unread.map fun u =>
+      s!"{path}: line {u.line}: BibtexQuery cannot read the entry that starts here, so it \
+        and everything after it ({u.ats} `@` in all) are left out of the bibliography"
+    return { Bibliography.of read.items (some (sha256Text text)) with warning }
+  | .error message => throw (IO.userError s!"{path}: {message}")
+
+/-- `<root>/litedoc4.toml` and `<root>/docs/references.bib`, or the empty
+configuration when `root` is `none` or holds neither file. -/
 def readSiteConfig (root : Option FilePath) : IO SiteConfig := do
   let some root := root | return {}
   let path := root / configFile
-  let text ← try
-      pure (some (← IO.FS.readFile path))
-    catch
-      | .noFileOrDirectory .. => pure none
-      | e => throw (unreadable path e)
-  let some text := text | return {}
-  let keys ← match parseConfig text with
-    | .ok keys => pure keys
-    | .error message => throw (IO.userError s!"{path}: {message}")
+  let keys ← match ← readIfPresent path with
+    | none => pure {}
+    | some text => match parseConfig text with
+      | .ok keys => pure keys
+      | .error message => throw (IO.userError s!"{path}: {message}")
   let indexMarkdown ← match keys.index with
     | some relative =>
       let resolved := root / relative
       pure (some (← readTextFile resolved))
     | none => pure none
-  return { title := keys.title, indexMarkdown }
+  let bibliography ← readBibliography root
+  if let some warning := bibliography.warning then IO.eprintln s!"warning: {warning}"
+  return { title := keys.title, indexMarkdown, bibliography }
 
 end Litedoc4

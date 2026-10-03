@@ -1,10 +1,10 @@
-/- The four pages a reader arrives at rather than navigates to — the front
+/- The five pages a reader arrives at rather than navigates to — the front
 door, the one GitHub Pages serves for anything missing, the one the top bar's
-form submits to, and the one every `Sort` / `Type` / `Prop` span in every
-signature links to.
+form submits to, the one every `Sort` / `Type` / `Prop` span in every
+signature links to, and the one every citation in a docstring links to.
 
 WHY THE MARKUP IS BUILT HERE AND NOT IN `Render`
-  What decides a page's *shape* is `Render.Frame`, and all four take theirs from
+  What decides a page's *shape* is `Render.Frame`, and all five take theirs from
   there unchanged. What decides a page's *content* is a fact about the whole
   package — how many modules, which ones, how many declarations — and the whole
   package is what this namespace is about; building them in the renderer would
@@ -19,7 +19,7 @@ import Litedoc4.Render.Frame
 
 namespace Litedoc4
 
-/-- All four pages sit at the site root, so every asset is one hop away. -/
+/-- All five pages sit at the site root, so every asset is one hop away. -/
 def entryRoot : String := "./"
 
 structure ModuleRow where
@@ -51,13 +51,13 @@ def grouped (n : Nat) : String := Id.run do
     i := i + 1
   return out
 
-/-- `NoLinks`, so a declaration name in a heading stays a code span: the row
-already has one destination, and hundreds of rows of prose each carrying their
-own would be a list nobody can scan. The same holds for the configured intro,
+/-- `NoLinks` and no bibliography, so a declaration name or a citation in a
+heading stays text: the row already has one destination, and hundreds of rows of
+prose each carrying their own would be a list nobody can scan. The same holds for the configured intro,
 where the answer to "does this name have a page" needs a map this stage does not
 have — a code span that stays a code span is right, a link to a page nobody wrote
 is not. -/
-def entryRenderer : Renderer := { root := entryRoot, links := noLinks }
+def entryRenderer : Renderer := { root := entryRoot, links := noLinks, bib := {} }
 
 /-- The math spans that fell back here are **not** added to the run's count: the
 same span is rendered again on the module's own page, where it is already
@@ -169,5 +169,20 @@ def foundationalTypesHtml (title : String) : String :=
     argument the elaborator is expected to supply.</p><p>For the rules behind any of this, see \
     Lean's own documentation — this page only names the things a signature on this site can \
     link to.</p></div>"
+
+/-- doc-gen4's `refItem`, without the back-references. -/
+def referenceItemHtml (out : String) (item : BibItem) : String :=
+  let anchor := referenceAnchor item.citekey
+  let acc := escapeInto (out ++ "<li id=\"") anchor ++ "\"><a href=\"#"
+  escapeInto (escapeInto acc anchor ++ "\">") item.tag ++ "</a> " ++ item.html ++ "</li>"
+
+/-- doc-gen4's `references`: written whether or not the package has a
+bibliography, as doc-gen4 writes it, so an empty one is a page with an empty
+list. -/
+def referencesHtml (title : String) (items : Array BibItem) : String :=
+  plainPage "References" title
+    (items.foldl referenceItemHtml
+      "<div class=\"modhead\"><h1>References</h1></div><div class=\"doc\"><ul>"
+      ++ "</ul></div>")
 
 end Litedoc4

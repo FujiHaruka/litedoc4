@@ -152,8 +152,11 @@ each other the key had moved and the loop would re-render the whole site on ever
 pass, for ever. So they are resolved once, in `watchRun`, and both sides read the
 same values.
 
-The module list is the exception: it is re-globbed every pass, because a source
-file that appeared or vanished is one of the things this loop exists to notice. -/
+The module list and the bibliography are the exceptions: both are read again every
+pass, because a source file that appeared or vanished and an edited
+`docs/references.bib` are things this loop exists to notice. The run a pass
+triggers reads the bibliography through the same `readBibliography`, so the two
+cannot disagree about its digest. -/
 structure Trigger where
   ledger : FilePath
   ir : FilePath
@@ -169,13 +172,15 @@ def Trigger.ask (t : Trigger) : IO (Except (UInt32 × String) (Option Reading)) 
   let modules ← match ← moduleNames t.root t.libs with
     | .error message => return .error (3, message)
     | .ok names => pure names
+  let bibliography ← readBibliography t.root
   match ← checkLedger
       { ledger := t.ledger
         -- The ledger's own, never an override: two algorithms produce
         -- incomparable hashes and every module would read as changed.
         algorithm := none
         modules := some modules, ir := some t.ir, sourceUrl := t.sourceUrl
-        linkIndex := some t.linkIndex, externalLinks := some t.externalLinks } with
+        linkIndex := some t.linkIndex, externalLinks := some t.externalLinks
+        bibliography := bibliography.digest } with
   | .error refusal => return .error refusal
   | .ok check => return .ok (some (Reading.of check))
 

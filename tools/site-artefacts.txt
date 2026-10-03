@@ -12,6 +12,7 @@
 404.html
 foundational_types.html
 index.html
+references.html
 search.html
 app.js
 declarations/name-map.json

@@ -1,4 +1,4 @@
-/- The four pages a reader arrives at rather than navigates to.
+/- The five pages a reader arrives at rather than navigates to.
 
 Split by what a page is made of, not by which page it is. Everything a module row
 carries but its *description* is string building, so it is a `#guard`; a
@@ -65,6 +65,21 @@ def theFoundationalPageCoversTheFourThingsASignatureLinksTo : Bool :=
 
 #guard theFoundationalPageCoversTheFourThingsASignatureLinksTo
 
+/-- doc-gen4's `refItem`: the anchor a citation's fragment names, a link to
+itself showing the tag, then the entry. The tag is text and escaped; the entry is
+markup BibtexQuery already escaped and goes in as it is. -/
+def aReferenceIsItsAnchorItsTagAndItsEntry : Bool :=
+  let item : BibItem := { citekey := "K", tag := "[A&B12]", html := "<i>T</i> &amp; U."
+                          plaintext := "T & U." }
+  referenceItemHtml "" item
+      == "<li id=\"ref_K\"><a href=\"#ref_K\">[A&amp;B12]</a> <i>T</i> &amp; U.</li>"
+    && has (referencesHtml "T" #[item, { item with citekey := "L" }])
+      "<h1>References</h1></div><div class=\"doc\"><ul><li id=\"ref_K\">"
+    && has (referencesHtml "T" #[]) "<ul></ul>"
+    && countOf (referencesHtml "T" #[item, { item with citekey := "L" }]) "<li id=" == 2
+
+#guard aReferenceIsItsAnchorItsTagAndItsEntry
+
 def described (name page summary : String) : ModuleRow :=
   { name, page, summary := some summary }
 
@@ -91,13 +106,15 @@ is styled by nobody and nothing says so. Read off the built pages rather than of
 the literals, because that is where a class on only one branch shows up, which is
 why one row carries a description and the other does not. -/
 def everyClassTheEntryPagesEmitIsStyled : Invariant where
-  name := "every class the four entry pages emit has a rule in style.css"
+  name := "every class the five entry pages emit has a rule in style.css"
   check := do
     let modules := #[described "Pkg" "Pkg.html" "Described", row "Pkg.B" "Pkg/B.html"]
+    let reference : BibItem :=
+      { citekey := "K", tag := "[K]", html := "<i>T</i>.", plaintext := "T." }
     let mut seen := 0
     let mut missing : Array String := #[]
     for page in [indexHtml "T" none modules 1 "4.31.0", notFoundHtml "T", searchHtml "T",
-        foundationalTypesHtml "T"] do
+        foundationalTypesHtml "T", referencesHtml "T" #[reference]] do
       for cls in classNames page do
         seen := seen + 1
         if !has styleCss ("." ++ cls) then missing := missing.push cls

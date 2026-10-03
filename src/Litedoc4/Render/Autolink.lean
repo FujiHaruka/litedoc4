@@ -295,7 +295,7 @@ def pageResolver (c : PageCtx) : LinkResolver :=
 /-- Both halves take the same `root`: it reaches the output through the
 renderer's own `extendLink` as well as through this resolver, and handing them
 different values produces links that are half right. -/
-def pageRenderer (c : PageCtx) : Renderer :=
-  { root := c.root, links := pageResolver c }
+def pageRenderer (c : PageCtx) (bib : Bibliography) : Renderer :=
+  { root := c.root, links := pageResolver c, bib }
 
 end Litedoc4

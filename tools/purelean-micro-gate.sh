@@ -69,7 +69,7 @@
 #     second spelling). It is in the Rust arm and expires with it.
 #   - that **the two halves compute `renderKey.externalLinks` the same way**. It
 #     is the one ledger digest whose input is not a file on disk, so item 9
-#     normalises it and recomputes the twenty-four beside it.
+#     normalises it and recomputes the twenty-five beside it.
 #
 # What a failing item means:
 #   1 BUILDS    `lake build litedoc4/litedoc4` in e2e/consumer produced no
@@ -101,7 +101,7 @@
 #               kept as LaTeX` is exactly such a line — so the bytes are not the
 #               whole answer. Frozen whole, not from the first counts line: the
 #               dependency link map is reported above them and nowhere else.
-#   6 SITE      `litedoc4 site` writes the pages *and* the nine whole-package
+#   6 SITE      `litedoc4 site` writes the pages *and* the ten whole-package
 #               artifacts, and the tree differs from `render/` + `site/`. The
 #               fixture holds the pages once: `site`'s copies are compared
 #               against the same frozen bytes item 3 uses, so a page defect is
@@ -133,13 +133,13 @@
 #               this is what M5's incremental path reads to decide what is
 #               stale, so a digest over the wrong bytes is a build that later
 #               re-extracts everything or, worse, nothing.
-#  10 BUILD     `build` writes 23 files and one of them differs. This is the
+#  10 BUILD     `build` writes 24 files and one of them differs. This is the
 #               whole pipeline rather than `site` again: it globs the sources,
 #               reads `lakefile.toml`, derives the external link map from the
 #               manifest (`site` above is given no `--root` and derives none),
 #               drives the resident extractor, writes the assets and the ledger,
-#               and leaves a marker. The 23 are assembled from three places, and
-#               two of them are claims: 15 files are frozen; 5 whole-package
+#               and leaves a marker. The 24 are assembled from three places, and
+#               two of them are claims: 16 files are frozen; 5 whole-package
 #               artifacts are taken from the frozen `site/`, so the tree says
 #               `build` and `site` write them identically; and the 3 assets are
 #               taken from `assets/`, because a second frozen copy of `app.js`
@@ -304,6 +304,7 @@ normalise () {
       -e 's/"manifestSha256":"[0-9a-f]\{64\}"/"manifestSha256":"<sha>"/g' \
       -e 's/"linkIndex":"[0-9a-f]\{64\}"/"linkIndex":"<sha>"/g' \
       -e 's/"externalLinks":"[0-9a-f]\{64\}"/"externalLinks":"<sha>"/g' \
+      -e 's/"bibliography":"[0-9a-f]\{64\}"/"bibliography":"<sha>"/g' \
       -e 's/"bytes":-\{0,1\}[0-9][0-9]*/"bytes":<n>/g' \
       -e 's/ledger\.json ([0-9][0-9]* B)/ledger.json (<n> B)/' \
       "$1"
@@ -482,7 +483,7 @@ else
   fail 5 "item 3 left no stdout to compare, or the fixture has no render.out"
 fi
 
-say "6/16 \`site\` writes the frozen 20 files, bytes and all"
+say "6/16 \`site\` writes the frozen 21 files, bytes and all"
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/site-lean" "$OUT/expect-site"
   site_rc=0
@@ -605,6 +606,8 @@ else:
 pairs = [
     ("extractKey.manifestSha256", ledger["extractKey"]["manifestSha256"], target / "lake-manifest.json"),
     ("renderKey.linkIndex", ledger["renderKey"]["linkIndex"], lidx),
+    ("renderKey.bibliography", ledger["renderKey"].get("bibliography"),
+     target / "docs" / "references.bib"),
 ]
 for name, recorded, path in pairs:
     if not path.exists():
@@ -646,7 +649,7 @@ else
   fail 9 "no binary, no IR or no module list — item 1 or 2 says why"
 fi
 
-say "10/16 \`build\` writes the frozen 23 files, bytes and all"
+say "10/16 \`build\` writes the frozen 24 files, bytes and all"
 lean_built_site=""
 if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
   rm -rf "$OUT/b-lean" "$OUT/expect-build"
@@ -685,11 +688,11 @@ if [ "$built" -eq 1 ] && [ "$extracted" -eq 1 ]; then
     fail 10 "build exited $lean_b_rc — see $OUT/b-lean.err"
   elif [ -n "$missing_part" ]; then
     fail 10 "the expected tree cannot be assembled:$missing_part is not there"
-  elif [ "$n_expect_build" -ne 23 ]; then
-    # Not a style check: 23 is the count this project quotes, and a fixture that
+  elif [ "$n_expect_build" -ne 24 ]; then
+    # Not a style check: 24 is the count this project quotes, and a fixture that
     # grew or lost a file silently would still compare identical to a build that
     # did the same.
-    fail 10 "the expected tree has $n_expect_build files, not 23 — the site's shape moved"
+    fail 10 "the expected tree has $n_expect_build files, not 24 — the site's shape moved"
   elif [ "$cmp10_rc" -ne 0 ]; then
     fail 10 "$(first_difference "$OUT/compare-10.txt")first is $(first_name "$OUT/compare-10.txt") — see $OUT/compare-10.txt"
   else

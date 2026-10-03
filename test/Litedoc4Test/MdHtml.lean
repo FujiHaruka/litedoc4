@@ -8,6 +8,7 @@ The barrier is the call and not the import, which is why the guards below
 elaborate in a module that imports `Litedoc4.Md.Html`. -/
 import Litedoc4.Md.Html
 import Litedoc4Test.Basis
+import Litedoc4Test.Bib
 
 namespace Litedoc4Test
 open Litedoc4
@@ -21,13 +22,13 @@ def linkWords : LinkResolver :=
       then some ("../" ++ n ++ ".html") else none,
     sourcePathToLink := fun _ => none }
 
-def wordCtx : Renderer := { root := "../", links := linkWords }
+def wordCtx : Renderer := { root := "../", links := linkWords, bib := {} }
 
 def render (md : String) : String :=
-  (docstring "" { root := "../", links := noLinks } md).run' 0
+  (docstring "" { root := "../", links := noLinks, bib := {} } md).run' 0
 
 def inline (md : String) : String :=
-  (inlineMd "" { root := "../", links := noLinks } md).run' 0
+  (inlineMd "" { root := "../", links := noLinks, bib := {} } md).run' 0
 
 def linked (s : String) : String := autoLinkInline "" wordCtx s
 
@@ -160,5 +161,54 @@ def inlineIsOneParagraphOrElseTheAuthorsOwnCharacters : Invariant where
     eq (inline "- a\n- b") "- a\n- b",
     eq (inline "# H") "# H",
     eq (inline "a\n\nb") "a\n\nb"]
+
+def citing (bib : Bibliography) : Renderer := { root := "../", links := noLinks, bib }
+
+def citeWith (bib : Bibliography) (md : String) : String := (docstring "" (citing bib) md).run' 0
+
+def cite (md : String) : String := citeWith twoKeys md
+
+/-- doc-gen4's citation, which is a link reference definition appended per cited
+key and a link the renderer recognises by its destination. The bare key is the
+only form whose text is replaced, and the entry's own text is the title whatever
+title the author gave the link. -/
+def aCitationLinksToItsReferenceShowingTheTagOrTheAuthorsText : Invariant where
+  name := "[Key] links to references.html showing the tag, [text][Key] keeps its text, \
+    the title is the entry's and a bracket that is no key stays text"
+  check := do
+    let quoting := Bibliography.of #[bibItem "Q" "[Q1]" "A \"quoted\" & <b>"] none
+    return first [
+      eq (cite "See [Doe12].")
+        "<p>See <a href=\"../references.html#ref_Doe12\" title=\"Doe.\">[DJ12]</a>.</p>",
+      eq (cite "See [the book][Doe12].")
+        "<p>See <a href=\"../references.html#ref_Doe12\" title=\"Doe.\">the book</a>.</p>",
+      eq (cite "See [x](references.html#ref_Roe13 \"own\").")
+        "<p>See <a href=\"../references.html#ref_Roe13\" title=\"Roe.\">x</a>.</p>",
+      eq (cite "See [Nobody] and [x](references.html#ref_Nobody).")
+        "<p>See [Nobody] and <a href=\"../references.html#ref_Nobody\">x</a>.</p>",
+      eq (citeWith quoting "[Q]")
+        "<p><a href=\"../references.html#ref_Q\" title=\"A &quot;quoted&quot; &amp; &lt;b&gt;\">\
+          [Q1]</a></p>",
+      eq (Id.run ((inlineMd "" (citing twoKeys) "See [Doe12]").run' 0))
+        "See <a href=\"../references.html#ref_Doe12\" title=\"Doe.\">[DJ12]</a>"]
+
+/-- What md4c is handed when nothing is cited is the docstring and a blank line,
+which is what every docstring was handed before there were citations — so a
+package with no bibliography, and a docstring citing nothing in one that has a
+bibliography, render the bytes they always did. Compared against that input
+parsed directly, not against frozen output; the unclosed fence is what shows the
+blank line, because it keeps whatever follows it. -/
+def nothingCitedRendersWhatTheDocstringAndABlankLineRender : Invariant where
+  name := "a docstring that cites nothing renders exactly what it and a blank line render"
+  check := do
+    let plain (text : String) : String :=
+      match Md.parse (text ++ "\n\n") docstringFlags with
+      | some doc => (mdBlocks "" (citing {}) doc.blocks false).run' 0
+      | none => "<refused>"
+    let differs (bib : Bibliography) (text : String) : Bool := citeWith bib text != plain text
+    return first [
+      eq (["[Doe12] and [the book][Doe12]", "a `[Doe12]` b", "- a\n- [Roe13", "```\nopen",
+        ""].filter (differs {})) [],
+      eq (["[Nobody] and [x]", "```\nopen [x]", "[x]: y\n\n[x]"].filter (differs twoKeys)) []]
 
 end Litedoc4Test

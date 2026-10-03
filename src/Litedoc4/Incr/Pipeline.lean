@@ -474,6 +474,7 @@ def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun :=
         -- rewrite — is the check after the rounds.
         linkIndex := some o.linkIndex
         externalLinks := some o.external.digest
+        bibliography := o.config.bibliography.digest
         changedOut := some changedFile, removedOut := some removedFile
         renderAllOut := some (o.work / "render-all.txt") }
   let detectDone ← IO.monoNanosNow
@@ -576,7 +577,8 @@ def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun :=
       -- rewrites `index.html`, `search.html` and `foundational_types.html` with
       -- the *derived* title while the full generation used the configured one
       -- (measured 2026-08-22).
-      indexMarkdown := o.config.indexMarkdown, title := o.config.title }
+      indexMarkdown := o.config.indexMarkdown, title := o.config.title
+      references := o.config.bibliography.items }
   let globalAffected := (derived.delta.map (·.affected)).getD #[]
   let globalDone ← IO.monoNanosNow
   printGlobalSummary "global  " derived
@@ -618,6 +620,7 @@ def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun :=
     let rendered ← renderSite
       { ir := o.ir, pages := o.pages, sourceUrl := o.sourceUrl
         linkIndex := some o.linkIndex, external := o.external, title := o.config.title
+        bibliography := o.config.bibliography
         only := .these renderSet }
     let elapsed := (← IO.monoNanosNow) - renderStarted
     pagesRendered := rendered.pagesWritten

@@ -35,6 +35,7 @@ to write an IR instead of HTML:
     extractor/Extract.lean
     src/Litedoc4/Md/Html.lean
     src/Litedoc4/Md/Escape.lean
+    src/Litedoc4/Bibtex.lean
     src/Litedoc4/Render/Code.lean
     src/Litedoc4/Render/Whitespace.lean
     src/Litedoc4/Render/Autolink.lean

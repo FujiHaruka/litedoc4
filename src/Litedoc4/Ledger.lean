@@ -171,7 +171,7 @@ def extractKey (target : String) (ir : Option System.FilePath) :
 
 /-- What changes the page bytes with the IR held fixed. Changed ⇒ re-extract
 nothing, re-render everything. -/
-def renderKey (sourceUrl : String) (linkIndex externalLinks : Option String) :
+def renderKey (sourceUrl : String) (linkIndex externalLinks bibliography : Option String) :
     Array (String × String) := Id.run do
   let mut key : Array (String × String) := #[("renderer", rendererId)]
   if !sourceUrl.isEmpty then
@@ -180,6 +180,8 @@ def renderKey (sourceUrl : String) (linkIndex externalLinks : Option String) :
     key := key.push ("linkIndex", digest)
   if let some digest := externalLinks then
     key := key.push ("externalLinks", digest)
+  if let some digest := bibliography then
+    key := key.push ("bibliography", digest)
   return key
 
 /-- `none` when the file is not there, which is a real state and not an error: a
@@ -261,6 +263,7 @@ structure LedgerInputs where
   sourceUrl : String := ""
   linkIndex : Option System.FilePath := none
   externalLinks : Option String := none
+  bibliography : Option String := none
   algorithm : Algorithm := Algorithm.sha256
 
 /-- `.error` is the refusal that exits 3: at `build` time the module list and
@@ -273,6 +276,7 @@ def buildLedger (i : LedgerInputs) : IO (Except String (Ledger × BuildPhases)) 
   let libDir := s!"{target}/.lake/build/lib/lean"
   let extract ← extractKey target i.ir
   let render := renderKey i.sourceUrl (← linkIndexDigest i.linkIndex) i.externalLinks
+    i.bibliography
   let keyDone ← IO.monoNanosNow
   let mut modules : Array LedgerModule := #[]
   let mut missing : Array String := #[]
@@ -407,6 +411,7 @@ structure CheckInputs where
   sourceUrl : String := ""
   linkIndex : Option System.FilePath := none
   externalLinks : Option String := none
+  bibliography : Option String := none
   changedOut : Option System.FilePath := none
   removedOut : Option System.FilePath := none
   renderAllOut : Option System.FilePath := none
@@ -465,6 +470,7 @@ def checkLedger (i : CheckInputs) : IO (Except LedgerRefusal CheckSummary) := do
 
   let extract ← extractKey ledger.target i.ir
   let render := renderKey i.sourceUrl (← linkIndexDigest i.linkIndex) i.externalLinks
+    i.bibliography
   let keyDone ← IO.monoNanosNow
 
   -- One key invalidates the IR, the other only the pages rendered from it.

@@ -25,14 +25,16 @@ def theArtifactPathsAreDistinctAndStayUnderTheSite : Bool :=
 
 #guard theArtifactPathsAreDistinctAndStayUnderTheSite
 
-/-- The five files that existed only for doc-gen4's JavaScript, named rather than
-counted: "nine files came out" would still hold if `navbar.html` came back and
-something else went. `declarations/name-map.json` is named for the same reason
-from the other side — it is the map delta's `--before` file. -/
+/-- The four files that existed only for doc-gen4's JavaScript or for download,
+named rather than counted: "ten files came out" would still hold if `navbar.html`
+came back and something else went. `declarations/name-map.json` is named for the
+same reason from the other side — it is the map delta's `--before` file — and so
+is `references.html`, the one doc-gen4 page every citation links to. -/
 def theDocGen4OnlyArtifactsAreGone : Bool :=
-  ["declarations/declaration-data.bmp", "navbar.html", "tactics.html", "references.bib",
-    "references.html"].all (fun dropped => !artifactPaths.contains dropped)
+  ["declarations/declaration-data.bmp", "navbar.html", "tactics.html", "references.bib"].all
+      (fun dropped => !artifactPaths.contains dropped)
     && artifactPaths.contains "declarations/name-map.json"
+    && artifactPaths.contains referencesPage
 
 #guard theDocGen4OnlyArtifactsAreGone
 
@@ -73,7 +75,7 @@ def chain (described : Bool) : Array ModuleFacts :=
         refs := refsOf [("Pkg.a", [1]), ("Pkg.B.inst", [0]), ("Dep.outside", [0])] }
   #[root, middle, leaf]
 
-def chainArtifacts : Artifacts := derive (chain false) #[] none none "4.31.0"
+def chainArtifacts : Artifacts := derive (chain false) #[] none none #[] "4.31.0"
 
 def parsedObj (json : String) : Array (String × JVal) :=
   match parseJson json with
@@ -100,7 +102,7 @@ once, a declaration of this package beats a dependency slice of the same name,
 and two modules declaring one name leave the **later** one in the map. -/
 def aNameDeclaredHereBeatsADependencySliceAndIsWrittenOnce : Bool :=
   let a := derive (chain false)
-    #[#[("Dep.one", "Dep.Home"), ("Pkg.a", "Dep.Elsewhere")]] none none "4.31.0"
+    #[#[("Dep.one", "Dep.Home"), ("Pkg.a", "Dep.Elsewhere")]] none none #[] "4.31.0"
   a.nameMapJson ==
       "{\"Dep.one\":\"Dep.Home\",\"Pkg.B.inst\":\"Pkg.B\",\"Pkg.C.t\":\"Pkg.C\",\
         \"Pkg.a\":\"Pkg\",\"Pkg.dup\":\"Pkg.C\"}"
@@ -122,7 +124,7 @@ asked, because they carry the order twice — `modules.json` as rows and
 `search-index.bin` as the array those rows are indexed by. -/
 def theNewFilesSortInUtf16OrderToo : Bool :=
   let a := derive #[declaringOne "Pkg.ﬀ" "Pkg.ﬀ.a", declaringOne "Pkg.𝒜" "Pkg.𝒜.a"]
-    #[] none none "4.31.0"
+    #[] none none #[] "4.31.0"
   a.modulesJson ==
       "{\"modules\":[{\"n\":\"Pkg.𝒜\",\"p\":\"Pkg/𝒜.html\",\"i\":[]},\
         {\"n\":\"Pkg.ﬀ\",\"p\":\"Pkg/ﬀ.html\",\"i\":[]}]}"
@@ -174,7 +176,7 @@ descriptions, and reading one means parsing Markdown. -/
 def theCountsAreWhatTheFilesHold : Invariant where
   name := "every count is the number of things the file it describes holds"
   check := do
-    let a := derive (chain true) #[] none none "4.31.0"
+    let a := derive (chain true) #[] none none #[] "4.31.0"
     let ⟨declarations, dependencyNames, instanceClasses, instanceTypes, usedByTargets,
       usedByEdges, summariesRendered, summariesEchoingTheName⟩ := a.counts
     let instances := parsedObj a.instancesJson

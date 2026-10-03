@@ -474,7 +474,8 @@ def fullGeneration (r : BuildRequest) (config : SiteConfig) (modules : Array Str
   -- diagnostic; the file that counts is written at the end of the run.
   let detected ← match ← buildLedger
       { modules, target := r.root.toString, ir := none, sourceUrl
-        linkIndex := some r.linkIndex, externalLinks := some r.external.digest } with
+        linkIndex := some r.linkIndex, externalLinks := some r.external.digest
+        bibliography := config.bibliography.digest } with
     | .error message => throw (3, message)
     | .ok (ledger, _) => pure ledger
   writeFile (layout.work / "ledger-detect.json") detected.toJson
@@ -504,11 +505,13 @@ def fullGeneration (r : BuildRequest) (config : SiteConfig) (modules : Array Str
   let siteStarted ← IO.monoNanosNow
   let rendered ← renderSite
     { ir := layout.ir, pages := layout.site, sourceUrl
-      linkIndex := some r.linkIndex, external, title := config.title }
+      linkIndex := some r.linkIndex, external, title := config.title
+      bibliography := config.bibliography }
   let renderDone ← IO.monoNanosNow
   let derived ← buildGlobal
     { ir := layout.ir, out := layout.site, state := some layout.state
-      indexMarkdown := config.indexMarkdown, title := config.title }
+      indexMarkdown := config.indexMarkdown, title := config.title
+      references := config.bibliography.items }
   let globalDone ← IO.monoNanosNow
   printRenderSummary "render  " rendered
   printGlobalSummary "global  " derived
@@ -652,7 +655,7 @@ def runBuild (r : BuildRequest) : BuildM BuildRan := do
   let ledger := { done.detected with
     extractKey := ← extractKey done.detected.target (some layout.ir)
     renderKey := some (renderKey sourceUrl (← linkIndexDigest (some r.linkIndex))
-      (some done.external.digest)) }
+      (some done.external.digest) config.bibliography.digest) }
   let body := ledger.toJson
   writeFile layout.ledger body
   IO.println s!"ledger  {done.ledgerModules} module(s) -> {layout.ledger} \

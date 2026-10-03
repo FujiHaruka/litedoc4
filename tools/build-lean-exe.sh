@@ -75,6 +75,11 @@ name = "«litedoc4»"
 path = "$REPO"
 TOML
 
+# Not kept unconditionally: one restored from an older litedoc4's cache lacks newer dependencies, which Lake refuses.
+if [ "$REPO/lakefile.lean" -nt "$HOST/lake-manifest.json" ]; then
+  rm -f "$HOST/lake-manifest.json"
+fi
+
 (cd "$HOST" && "$LAKE" build "litedoc4/$EXE") >&2
 
 BIN="$REPO/.lake/build/bin/$EXE"

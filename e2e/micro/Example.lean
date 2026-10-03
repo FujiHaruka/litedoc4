@@ -24,4 +24,15 @@ source it links to; that is what the sample is for.
 
 This root module imports every other one, so `lake build` over the default
 target builds all of them.
+
+A citation such as [deMoura2021], which describes Lean 4 itself, links to the
+site's list of references, read from `docs/references.bib`.
+-/
+
+/-
+`[deMoura2021]` here, `[TPIL4]` in `Example.Basic` and `[Graham1994]` in
+`Example.Math` are the citations `tools/config-gate.sh` finds linked on the pages
+every command writes. Removing all three leaves it nothing to compare. The first
+is the bare-key form, whose link text becomes the entry's tag; the second keeps
+its own text.
 -/

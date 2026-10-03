@@ -156,6 +156,7 @@ async function main() {
     "404.html",
     "search.html",
     "foundational_types.html",
+    "references.html",
     ...modulePages,
   ];
   counts["pages visited"] = pages.length;

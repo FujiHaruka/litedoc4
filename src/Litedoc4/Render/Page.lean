@@ -47,12 +47,12 @@ def pageItems (m : Module) (sup : Std.HashSet String) : Array Item := Id.run do
       { line := d.line, col := d.col, seq := seq + d.index, isDoc := false, idx := i }
   return items.qsort itemLt
 
-def pageHtml (ix : NameIndex) (m : Module) (sup : Std.HashSet String)
+def pageHtml (ix : NameIndex) (bib : Bibliography) (m : Module) (sup : Std.HashSet String)
     (sourceUrl title : String) : RenderM String := do
   let root := pageRoot m.name
   let moduleUrl := moduleSourceUrl sourceUrl m.name
   let c := mkPageCtx ix root m
-  let md := pageRenderer c
+  let md := pageRenderer c bib
   let dr : DeclRenderer := { ix, root, md }
   let mut main := ""
   let mut memberNames : Array String := #[]

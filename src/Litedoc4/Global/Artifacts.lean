@@ -51,6 +51,7 @@ structure Artifacts where
   notFoundHtml : String := ""
   searchHtml : String := ""
   foundationalTypesHtml : String := ""
+  referencesHtml : String := ""
   modulesJson : String := ""
   /-- What `app.js` searches, fetched on the first keystroke and never before.
   Carries the declarations and the kind vocabulary and nothing else — module
@@ -95,8 +96,8 @@ leave the later one in the map, and a module's importer list is built in it
 (before being sorted). Passing the facts in any other order is a different
 answer. -/
 def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String)))
-    (titleOverride : Option String) (intro : Option String) (leanVersion : String) :
-    Artifacts := Id.run do
+    (titleOverride : Option String) (intro : Option String) (references : Array BibItem)
+    (leanVersion : String) : Artifacts := Id.run do
   let mut nameMap : Std.HashMap String (String × String) := Std.HashMap.emptyWithCapacity 4096
   let mut instances : Std.HashMap String (Array String) := Std.HashMap.emptyWithCapacity 256
   let mut instancesFor : Std.HashMap String (Array String) := Std.HashMap.emptyWithCapacity 256
@@ -235,6 +236,7 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
     notFoundHtml := notFoundHtml title
     searchHtml := searchHtml title
     foundationalTypesHtml := foundationalTypesHtml title
+    referencesHtml := referencesHtml title references
     modulesJson
     searchIndexBin
     instancesJson :=
@@ -256,13 +258,14 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
 
 /-- Paired with the paths they go to, in `ARTIFACT_PATHS` order.
 
-Bytes and not `String`, for the one of the nine that is not text. -/
+Bytes and not `String`, for the one of the ten that is not text. -/
 def artifactFiles (a : Artifacts) : Array (String × ByteArray) :=
   #[("declarations/name-map.json", a.nameMapJson.toUTF8),
     ("index.html", a.indexHtml.toUTF8),
     ("404.html", a.notFoundHtml.toUTF8),
     ("search.html", a.searchHtml.toUTF8),
     ("foundational_types.html", a.foundationalTypesHtml.toUTF8),
+    ("references.html", a.referencesHtml.toUTF8),
     ("modules.json", a.modulesJson.toUTF8),
     ("search-index.bin", a.searchIndexBin),
     ("instances.json", a.instancesJson.toUTF8),

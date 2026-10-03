@@ -61,6 +61,7 @@ structure Options where
   /-- `litedoc4.toml`'s `title`; `none` takes the one `siteTitle` derives from
   the module names. -/
   title : Option String := none
+  bibliography : Bibliography
   only : ModuleSet := .all
   deriving Inhabited
 
@@ -103,7 +104,7 @@ def renderSite (o : Options) : IO Summary := do
   let mut mathFailures := 0
   for m in mods do
     if !o.only.contains m.name then continue
-    let (html, pageMathFailures) ← match (pageHtml ix m sup sourceUrl title).run 0 with
+    let (html, pageMathFailures) ← match (pageHtml ix o.bibliography m sup sourceUrl title).run 0 with
       | .ok r => pure r
       | .error message => throw (IO.userError s!"rendering {m.name}: {message}")
     mathFailures := mathFailures + pageMathFailures

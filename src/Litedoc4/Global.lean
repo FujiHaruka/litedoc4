@@ -26,11 +26,12 @@ structure GlobalOptions where
   /-- One JSON line of counts and durations. What is read back out of it is
   `cacheHits` and `cacheMisses`; the durations are diagnostics. -/
   timings : Option FilePath := none
-  /-- `litedoc4.toml`'s two keys, resolved by whoever read the file — `--root`
-  names the package this stage is never told about, and the index path is
-  relative to it. -/
+  /-- `litedoc4.toml`'s two keys and the bibliography, resolved by whoever read
+  the files — `--root` names the package this stage is never told about, and
+  both paths are relative to it. -/
   indexMarkdown : Option String := none
   title : Option String := none
+  references : Array BibItem := #[]
   deriving Inhabited
 
 structure GlobalSummary where
@@ -138,7 +139,8 @@ def buildGlobal (o : GlobalOptions) : IO GlobalSummary := do
   let facts := run.facts
   let depMaps ← tree.loadDepMaps
   let artifacts :=
-    derive facts depMaps o.title (o.indexMarkdown.map introHtml) tree.index.leanVersion
+    derive facts depMaps o.title (o.indexMarkdown.map introHtml) o.references
+      tree.index.leanVersion
   for (relative, body) in artifactFiles artifacts do
     let path := irPath o.out relative
     match path.parent with

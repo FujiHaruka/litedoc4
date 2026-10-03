@@ -34,7 +34,8 @@ def inlineSpan (n : Nat) : Nat := n * n + 1
 
 $$\sum_{i = 0}^{n} i = \frac{n(n+1)}{2}$$
 
-and the prose continues after it. -/
+and the prose continues after it. Sums like this one are the subject of chapter 2
+of [Graham1994]. -/
 def displaySpan (n : Nat) : Nat := n * (n + 1) / 2
 
 /-- Escaping still applies to whatever is *not* converted, and the conversion has

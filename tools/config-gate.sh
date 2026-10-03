@@ -10,13 +10,19 @@
 #     trees that write module pages
 #   - index.html's <title>, its <h1> and the rendered `index` Markdown are
 #     byte-identical in all three trees that write index.html
+#   - `docs/references.bib` the same way: references.html is byte-identical in
+#     the three trees that write it and lists one entry per `@` entry the file
+#     holds, and the citations the module pages link are the same in all three
+#     trees that write those pages
 #
 # The comparison is over the *rendered* bytes, not over "did the command read the
 # file": a command that read it and then dropped the value would pass that
 # question and fail this one.
 #
 # The counts are asserted too, because a package with no `litedoc4.toml` and a run
-# that produced no pages both make every command agree trivially.
+# that produced no pages both make every command agree trivially. A package with
+# no bibliography is still compared: three empty lists of references and no
+# citation anywhere is an agreement, and a bibliography that links nothing is not.
 #
 # usage: config-gate.sh --root <pkg> --ir <dir> --built <site> [--out <dir>]
 #                       [--link-index <file>] [--blind site|render|global]
@@ -165,6 +171,39 @@ elif indexes:
         if "#" in got_intro.split("<")[0]:
             problems.append("the index prose reached the page unrendered")
 
+bib = os.path.join(root, "docs", "references.bib")
+want_entries = 0
+if os.path.exists(bib):
+    want_entries = len(re.findall(r"^\s*@\w+\s*\{", open(bib, encoding="utf-8").read(), re.M))
+references = {}
+for which in index_writers:
+    text = trees[which].get("references.html")
+    if text is None:
+        problems.append(f"{which} did not write references.html")
+    else:
+        references[which] = text
+got_entries = 0
+if len(set(references.values())) > 1:
+    problems.append(f"references.html differs between {index_writers}")
+elif references:
+    got_entries = next(iter(references.values())).count('<li id="ref_')
+    if got_entries != want_entries:
+        problems.append(f"references.html lists {got_entries} entr(ies); "
+                        f"docs/references.bib holds {want_entries}")
+
+CITATION = re.compile(r'<a href="[^"]*references\.html#ref_([^"]*)"')
+citations = {
+    which: tuple((page, key) for page in module_pages
+                 for key in CITATION.findall(trees[which].get(page, "")))
+    for which in ("build", "site", "render")
+}
+if len(set(citations.values())) > 1:
+    counts = {which: len(found) for which, found in citations.items()}
+    problems.append(f"the commands disagree about which citations are links: {counts}")
+elif want_entries and not citations["build"]:
+    problems.append("docs/references.bib has entries and no module page links a citation "
+                    "— nothing was compared")
+
 if problems:
     for problem in problems:
         print(f"CONFIG GATE FAIL  {problem}", file=sys.stderr)
@@ -172,7 +211,9 @@ if problems:
 
 print(
     f"config       title {title!r} on {checked_titles} module page(s) x 3 commands; "
-    f"index.html identical across {len(index_writers)} commands"
+    f"index.html identical across {len(index_writers)} commands; references.html "
+    f"identical with {got_entries} entr(ies), {len(citations['build'])} citation link(s) "
+    f"identical x 3 commands"
 )
 PY
 status=$?

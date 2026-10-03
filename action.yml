@@ -145,7 +145,8 @@ runs:
           # Hashed here rather than with hashFiles(): see the header. The
           # `litedoc4` key covers every file Lake compiles into the executable —
           # the Lean sources, the vendored C, and the lakefile that names the
-          # MathML4Lean revision — plus the toolchain that compiles them.
+          # revisions of MathML4Lean and BibtexQuery — plus the toolchain that
+          # compiles them.
           echo "extractor=$(cat "$A/extractor/Extract.lean" "$ROOT/lean-toolchain" 2>/dev/null | sha256sum | cut -c1-16)"
           echo "litedoc4=$( { cat "$A/lakefile.lean" "$ROOT/lean-toolchain" 2>/dev/null
                              find "$A/src" "$A/csrc" "$A/vendor" -type f | LC_ALL=C sort |
@@ -164,8 +165,8 @@ runs:
         # relative path here would resolve against the workspace.
         #
         # One path, holding both the build output and the generated workspace
-        # `tools/ci-build.sh` builds from (`.lake/host`, with MathML4Lean cloned
-        # under it). Restoring one without the other makes Lake re-resolve and
+        # `tools/ci-build.sh` builds from (`.lake/host`, with the Lake
+        # dependencies cloned under it). Restoring one without the other makes Lake re-resolve and
         # rebuild, which is the cost this cache exists to avoid.
         path: ${{ github.action_path }}/.lake
         key: litedoc4-lean-${{ runner.os }}-${{ steps.keys.outputs.litedoc4 }}

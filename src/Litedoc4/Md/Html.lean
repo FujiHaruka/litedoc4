@@ -3,6 +3,7 @@ Derived from doc-gen4 (Apache-2.0, Copyright (c) 2021 Henrik Böving) by way of
 `git show rust-frozen:crates/litedoc4-md/src/html.rs` — in that tag, not in
 this tree — and changed; see this repository's NOTICE and `docs/provenance.md`.
 -/
+import Litedoc4.Bib
 import Litedoc4.Bytes
 import Litedoc4.Md
 import Litedoc4.Md.Escape
@@ -33,6 +34,7 @@ so it is part of the bytes. -/
 structure Renderer where
   root : String
   links : LinkResolver
+  bib : Bibliography
   deriving Inhabited
 
 def resolveLink (c : Renderer) (s : String) : Option String :=
@@ -207,11 +209,21 @@ partial def mdText (out : String) (c : Renderer) (t : Md.Text)
   | .u ts => mdWrap out c "u" ts inLink
   | .del ts => mdWrap out c "del" ts inLink
   | .a href title _ ts => do
-    let ttl := attrToString title
-    let acc := escapeInto (out ++ "<a href=\"") (extendLink c (attrToString href)) ++ "\""
-    let acc := if ttl.isEmpty then acc else escapeInto (acc ++ " title=\"") ttl ++ "\""
-    let acc ← mdTexts (acc ++ ">") c ts true
-    return acc ++ "</a>"
+    let target := attrToString href
+    let acc := escapeInto (out ++ "<a href=\"") (extendLink c target) ++ "\""
+    match c.bib.cited? target with
+    | some item =>
+      let acc := escapeInto (acc ++ " title=\"") item.plaintext ++ "\">"
+      let acc ← match ts with
+        | #[.normal s] => if s == item.citekey then pure (escapeInto acc item.tag)
+                          else mdTexts acc c ts true
+        | _ => mdTexts acc c ts true
+      return acc ++ "</a>"
+    | none =>
+      let ttl := attrToString title
+      let acc := if ttl.isEmpty then acc else escapeInto (acc ++ " title=\"") ttl ++ "\""
+      let acc ← mdTexts (acc ++ ">") c ts true
+      return acc ++ "</a>"
   | .img src title alt =>
     let ttl := attrToString title
     let acc := escapeInto (out ++ "<img src=\"") (attrToString src) ++ "\" alt=\""
@@ -298,11 +310,9 @@ partial def mdBlock (out : String) (c : Renderer) (b : Md.Block)
 
 end
 
-/-- `docStringToHtml`. The trailing `"\n\n"` is doc-gen4's `refsMarkdown` with an
-empty bibliography, and it is not cosmetic — it terminates whatever block the
-docstring ended in the middle of. -/
+/-- `docStringToHtml`. -/
 def docstring (out : String) (c : Renderer) (text : String) : StateM Nat String :=
-  match Md.parse (text ++ "\n\n") docstringFlags with
+  match Md.parse (text ++ referenceDefinitions (citedKeys c.bib text)) docstringFlags with
   | some doc => mdBlocks out c doc.blocks false
   | none =>
     pure (escapeInto
@@ -317,7 +327,7 @@ it parses as one. Anything else is escaped, so a caller that hands this a list o
 a table gets the author's characters rather than markup it did not ask for. What
 would falsify this: a caller that owns the whole element it puts the result in. -/
 def inlineMd (out : String) (c : Renderer) (text : String) : StateM Nat String :=
-  match Md.parse (text ++ "\n\n") docstringFlags with
+  match Md.parse (text ++ referenceDefinitions (citedKeys c.bib text)) docstringFlags with
   | some doc =>
     match doc.blocks.toList with
     | [.p texts] => mdTexts out c texts false
