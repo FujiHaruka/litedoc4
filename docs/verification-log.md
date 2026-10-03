@@ -5754,8 +5754,9 @@ artefact: "suppressed" is the size of the site-wide member-name set, and 103 mem
 not IR declarations (51 inherited fields defined in Lean core / Batteries, 52 private Mathlib
 constructors and fields) (measured, same log).
 
-**Judgement**: one Mathlib commit can be documented end to end on this machine. Open:
-the dead docstring links (issue #7) and a "suppressed" count that adds up.
+**Judgement**: one Mathlib commit can be documented end to end on this machine. The render line now counts suppressed
+declarations rather than member names, so the two add up (`8ea0eff`). Open: the dead docstring
+links (issue #7).
 
 ## 書き方
 
