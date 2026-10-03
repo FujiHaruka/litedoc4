@@ -5726,6 +5726,34 @@ the run immediately before, 6.6 s at `-O1` in C1's log — three single runs on 
 instances, and the 5.38 / 6.6 spread is the same code at the same level, so it is the noise floor.
 
 
+### Mathlib itself as the documented package — every page, one sort was 91% of it (2026-10-03)
+
+Apple M1 / 16 GB, Lean 4.31.0, mathlib `fabf563a7c`, litedoc4 `54d2d52`, one `litedoc4 build
+--lib Mathlib --jobs 4`, page cache partly warm, thermal state not controlled, **one run**
+(→ `benchmarks/results/mathlib-render-2026-10-03.txt`).
+
+**It completes**: exit 0, **8,170 of 8,170 module pages** matched by name against the module
+list (measured). The denominator is 8,170, not the 8,169 of 2026-08-11 — the root module
+`Mathlib` was outside that file's source glob. The 2026-08-11 stop (`Setoid.iseqv`, 767 pages)
+is gone: the name resolves through the link index to Lean core at the toolchain's revision.
+Memory was not the wall: extractor 3.73 GB, litedoc4 2.44 GiB peak (measured).
+
+Wall clock 4,995.7 s: extract 320.9 s, render 62.0 s, **global 4,551.1 s** (measured). The
+global step was one call — the declaration-kind list (311,415 entries, 8 distinct) sorted with
+`Array.qsort`, which is quadratic in a run of equal keys. `sortUtf16` now uses `List.mergeSort`:
+the full-size sort takes 0.56–0.59 s in a standalone copy, against 22.6 s for qsort at n = 19,996
+and 90.9 s at 39,995 (measured → `benchmarks/results/sortutf16-mergesort-2026-10-03.txt`).
+A Mathlib build with the fix is **about 480 s (extrapolated)** — the scratch-patched `global`
+took 38.2 s (measured, single run, the same log as above); a patched `build` was not run.
+
+**Not green**: `tools/site-gate.sh` fails on 51 dead internal links out of 3,387,940 — all
+relative targets in Mathlib's own docstrings, 19 of the 24 destinations being bibliography keys
+(`[Geck](Geck2017)`) with no references page to land on. The render line's 298,656 rendered +
+12,862 suppressed = 311,518 is 103 more than the 311,415 declarations in the IR (unverified).
+
+**Judgement**: one Mathlib commit can be documented end to end on this machine. Open:
+the references page, the 103, and a re-run of the whole build with the fix.
+
 ## 書き方
 
 段階ごとに 1 節を足す。各節に必ず入れるもの:

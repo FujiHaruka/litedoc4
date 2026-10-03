@@ -122,7 +122,10 @@ def cmpUtf16 (a b : String) : Ordering := Id.run do
   | .lt => true
   | _ => false
 
-def sortUtf16 (xs : Array String) : Array String := xs.qsort ltUtf16
+-- Not `Array.qsort`: its partition is quadratic in a run of equal keys, which made Mathlib's
+-- 311,415 declaration kinds (8 distinct) take 4,551 s; fine again if every caller dedups first.
+def sortUtf16 (xs : Array String) : Array String :=
+  (xs.toList.mergeSort fun a b => cmpUtf16 a b != .gt).toArray
 
 /-- Adjacent duplicates dropped, which on a sorted array is every duplicate. -/
 def dedupSorted (xs : Array String) : Array String := Id.run do

@@ -1,0 +1,41 @@
+sortUtf16: Array.qsort -> List.mergeSort
+========================================
+2026-10-03
+
+Why: mathlib-render-2026-10-03.txt section 3. The global step's
+`dedupSorted (sortUtf16 kindList)` over Mathlib's 311,415 declaration kinds
+(8 distinct values) took 4,551.1 s of a 4,995.7 s build, because Lean core's
+Array.qsort is quadratic in a run of equal keys.
+
+Change: sortUtf16 sorts with List.mergeSort (le := cmpUtf16 a b != .gt). Its
+output is unchanged for every input: cmpUtf16 is a total order on strings
+in which .eq means byte-identical, so the sorted array is unique and
+stability cannot show.
+
+Conditions
+  machine     Apple M1, 16 GB, macOS 26.6.2
+  toolchain   Lean 4.31.0 (lake env from e2e/micro)
+  program     a standalone copy of src/Litedoc4/Bytes.lean + Ir/Utf16.lean (with
+              the change) plus a driver, `lean -c` then `leanc -O3`. This is NOT
+              the product binary, which Lake compiles
+  input       the kind distribution from mathlib-render-2026-10-03.txt, scaled
+              to n: theorem 230,936 / def 42,375 / instance 29,409 / ctor 4,519 /
+              class 1,958 / structure 1,586 / inductive 317 / opaque 315
+  timed       dedupSorted (sort xs), IO.monoMsNow around it
+
+Results (measured, one session)
+  sort        n         ms
+  mergeSort   311,415     593
+  mergeSort   311,415     563
+  mergeSort   311,415     561
+  qsort        19,996  22,629
+  qsort        39,995  90,888   (x2 n -> x4 time)
+
+The full-size qsort was not run here; mathlib-render-2026-10-03.txt has the
+product's 4,551.1 s for it. That full-scale figure is not re-measured with the
+change: the Mathlib work dir was deleted, so the effect on a Mathlib build is
+(extrapolated) from these numbers and that log's patched `global` run (38.2 s,
+which deduplicated through a HashSet instead).
+
+Gates after the change: tools/lean-test-gate.sh ok (223 compile-time, 33
+run-time), tools/e2e-micro.sh ok.
