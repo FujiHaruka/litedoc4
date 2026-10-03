@@ -1,0 +1,35 @@
+BibtexQuery as a litedoc4 dependency: does it build on the supported toolchains, and does it
+move a consumer's lean-toolchain?
+Measured 2026-10-03/04 on Apple M1, macOS Darwin 25.6, elan 4.2.1.
+
+Candidate: https://github.com/dupuisf/BibtexQuery @ fdcc88de7c4c5a11e3239c9416615f34c226d47d
+(the rev doc-gen4 84a46571f3 pins). Apache-2.0. Its lean-toolchain: leanprover/lean4:v4.35.0-rc3.
+Imports: Std.Data.HashMap, Std.Data.TreeMap.Basic, Std.Internal.Parsec{,.Basic,.String},
+UnicodeBasic — no `Lean`. Requires UnicodeBasic (fgdorais/lean4-unicode-basic, inputRev main),
+pinned by its own manifest to a0470ae2c2b2c2dabd42f87b8880c9e81ad8172b
+(lean-toolchain v4.35.0-rc3).
+
+1. Builds (scratch clone, lean-toolchain overwritten, `lake build BibtexQuery`, 29 jobs)
+-------------------------------------------------------------------------------------
+  v4.31.0   exit 0   11.13 user + 3.46 sys, 13.965 s wall (cold: .lake empty)
+  v4.32.2   exit 0   (.lake/build of both packages removed before; time not taken)
+  v4.33.1   exit 0   (same)
+  v4.33.0 not run here (CI's matrix carries it).
+
+2. Toolchain rewrite on `lake update` (root lean-toolchain v4.31.0)
+-----------------------------------------------------------------
+  arm          shape                                             root lean-toolchain after
+  transitive   root → path pkg "mid" (no lean-toolchain, no      v4.31.0 (unchanged)
+               manifest) → BibtexQuery @ fdcc88                  "toolchain not updated; already up-to-date"
+  direct       root → BibtexQuery @ fdcc88                       v4.35.0-rc3 (REWRITTEN)
+                                                                 "updating toolchain to 'leanprover/lean4:v4.35.0-rc3'"
+  The transitive arm resolved UnicodeBasic to a0470ae (from BibtexQuery's manifest).
+  The direct arm is the control: it shows the comparison is live for this version string, so
+  the transitive arm's "unchanged" is the rule (only direct dependencies are candidates) and not
+  an incomparable version.
+
+  litedoc4 has no lean-toolchain and a consumer requires litedoc4, so BibtexQuery reaches a
+  consumer through the transitive shape.
+
+  The direct arm installed v4.35.0-rc3 through elan; it was uninstalled afterwards. Work dirs
+  deleted.
