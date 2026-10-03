@@ -1,0 +1,246 @@
+Mathlib itself as the documented package — one `litedoc4 build`, end to end
+============================================================================
+2026-10-03
+
+What this answers
+-----------------
+Can HEAD litedoc4 produce a complete site for the `Mathlib` library, meaning one page
+per module, reconciled by name against the module list? The last attempt (prototype
+era, 2026-08-11 → mathlib-scale-summary.txt §4) stopped at 767 / 8,169 pages on
+`declNameToLink: no defining module for Setoid.iseqv`. Render at Mathlib scale had
+never run in the pure-Lean tree.
+
+Answer: yes. The run exits 0 with 8,170 of 8,170 module pages, and every one is
+matched by name. The whole run took 4,995.7 s (83 min). 4,551.1 s of that (91%) is one
+quadratic sort in the global step. A one-line patch, run separately and labelled
+below, brings the global step to 38.2 s and writes byte-identical output.
+
+Conditions
+----------
+  machine        Apple M1, 16 GB, macOS 26.6.2 (25G83)
+  toolchain      Lake 5.0.0-src+68218e8 (Lean 4.31.0), from elan
+  mathlib        fabf563a7c95a166b8d7b6efca11c8b4dc9d911f (lean-toolchain v4.31.0), a
+                 `git clone --no-checkout` of lean-projects' .lake/packages/mathlib,
+                 detached at that rev; oleans from `lake exe cache get` (8,538
+                 files decompressed, 44.6 s); `lake build --no-build Mathlib` →
+                 "All targets up-to-date (8557 jobs)" before measuring
+  litedoc4       54d2d522dda2a82f9fe2288f26194a1024cc3313 (main, clean), the executable
+                 from tools/build-lean-exe.sh --toolchain-from e2e/micro (Lake: up to
+                 date, 131 jobs)
+  extractor      built for this run from HEAD extractor/Extract.lean (sha256
+                 73e33b6e…a0e) with extractor/build.sh's two commands (`lake env lean
+                 --root=extractor -c`, `lake env leanc -rdynamic`) run inside the
+                 mathlib clone, output to the work dir. The repository's
+                 extractor/build/extract was not used: it predates Extract.lean's
+                 last change
+  flags          build --lib Mathlib --jobs 4 --lake ~/.elan/bin/lake
+                 --source-url https://github.com/leanprover-community/mathlib4/blob/<rev>
+                 (no trailing slash, the form deriveSourceUrl produces). The clone's
+                 remote is a local path, so the URL cannot be derived and has to be
+                 passed. No --link-index: build writes its own from the environment
+                 it imports. No --deps-docs-url
+  stages         one `litedoc4 build` (not split); the per-stage split below comes from
+                 the run's own timings record plus a 3 s `ps` poller
+  page cache     not controlled. The oleans had been decompressed about 2 minutes
+                 earlier, and `detect` hashes every olean before extraction, so
+                 extraction started partly warm. Thermal state not controlled
+  runs           ONE. Every number below is (measured, single run)
+  work dir       /private/tmp/lean-doc-relay/wmathlib   (NOT preserved)
+
+Denominator: 8,170, not 8,169
+-----------------------------
+`litedoc4 modules --lib Mathlib` lists 8,170 names, and so does the run. The extra
+name is the root module `Mathlib` (Mathlib.lean → Mathlib.html). The 2026-08-11 file's
+8,169 counted "from the source glob", which evidently left the root out. Both counts
+are of the same tree; only the counting rule differs.
+
+1. Completion
+-------------
+  exit code                 0
+  litedoc4-build.json       complete: true, modules 8170
+  pages, by name            8,170 of 8,170 names in the module list have
+                            <Name with . → />.html; 0 missing
+  html files in the site    8,174 = 8,170 module pages + 404, foundational_types,
+                            index, search
+  files in the site         8,182 = 8,170 + the 12 names in tools/site-artefacts.txt,
+                            each present and non-empty; the run's own pagesInSite
+                            is also 8,182
+  work record               extract 8170 / render 8170 / math-fallback 16 /
+                            requests 1 / cache 0 hit 8170 miss / summary 7867
+                            (52 name-only) / ir 16363 file(s) (16340 module reads =
+                            2.00 full passes)
+  render line               declarations 298656/311415 (12862 suppressed),
+                            module docs 12449, bytes 1,074,382,825.
+                            298,656 + 12,862 = 311,518, which is 103 more than 311,415.
+                            Not investigated (unverified)
+  dependency roots          "external  17 root(s) from 8/8 package(s) + core"
+  render name resolution    known 321,184, link index 91,425, known modules 10,583
+
+The 2026-08-11 blocker: Setoid.iseqv. Mathlib.GroupTheory.Congruence.Defs refers to it
+as an inherited field. On its page the field links to
+https://github.com/leanprover/lean4/blob/68218e876d2a38b1985b8590fff244a83c321783/src/Init/Core.lean#L1558-L1558 .
+68218e8… is what `lean --githash` prints for this toolchain, and line 1558 of the
+toolchain's Init/Core.lean is `iseqv : Equivalence r`. It now resolves through the
+link index, the tier that holds the dependency closure.
+
+Spot checks
+  Mathlib/Data/Nat/Basic.html    18 declaration blocks, 0 empty hrefs. Links: 98 to
+                                 leanprover/lean4, 19 to mathlib4 source, 40 relative,
+                                 26 fragment
+  Mathlib/Order/Basic.html       283 declaration blocks, 0 empty hrefs. Links: 1,250 to
+                                 lean4, 284 to mathlib4, 1,127 relative, 303 fragment
+  Data/, Order/, Tactic/ pages   links to GitHub repos: lean4 172,505, mathlib4 49,229,
+                                 batteries 1,096, ProofWidgets4 78, aesop 34, quote4 28,
+                                 import-graph 7, plausible 1. Batteries links carry
+                                 fa08db58…, the rev the manifest pins
+
+2. Time and memory per stage
+----------------------------
+  stage        wall (s)     source                     peak RSS / footprint
+  detect+misc     61.7      total minus the three below
+  extract        320.9      extractSeconds             extractor process: 3.70 GiB RSS
+                                                       (ps poll, max 3,876,768 KB at
+                                                       18:40:22), CPU 885 s at --jobs 4
+  render          62.0      renderSeconds              litedoc4 process: 2.44 GiB RSS
+                                                       (ps poll, max 2,562,960 KB at
+                                                       18:46:04)
+  global        4551.1      globalSeconds              litedoc4 process, same peak;
+                                                       single-threaded, ~100% CPU
+                                                       throughout
+  total         4995.7      totalSeconds; /usr/bin/time: 4995.86 real, 5501.43 user,
+                            45.55 sys, maximum resident set size 4,008,083,456 B,
+                            peak memory footprint 2,792,348,160 B, page faults 976,583
+
+  The two RSS sources disagree. /usr/bin/time reports 4,008,083,456 B (3.73 GiB) as
+  the maximum over the process tree; the poller saw at most 3.70 GiB for the
+  extractor. The poller samples every 3 s and misses short peaks, so read the time
+  figure as the higher, truer bound, and assume it belongs to the extractor.
+  "Peak memory footprint" (2.79 GB) is litedoc4's own process.
+
+  The extractor's own record (work/serve.out): analyze 195.4 s, linkIndex 14.5 s
+  (91,425 declarations in 2,136 modules), writeIR 26.3 s, 311,415 declarations
+  produced from 557,366 considered, 0 failed; equations 58,426 (71 failed).
+
+  Memory was not the wall. Swap peaked at 494 MB of 1,024 MB, and the smallest free
+  disk the poller saw was 25.5 GiB. Partway through the global step macOS compressed
+  most of litedoc4's heap: ps RSS fell to about 48 MB while `footprint` still
+  reported 2,514 MB, 2,469 MB of it compressed. So the ps RSS column understates the
+  process from 18:57 on. The peaks above were taken before that.
+
+3. What the 4,551 s are: one O(m²) sort
+---------------------------------------
+Two stack samples, at about +23 min and +54 min into the global step, both show the
+same frames:
+  fullGeneration → buildGlobal → derive (+3420) → Array.qsort.sort (sortUtf16) →
+  qpartition loop → cmpUtf16.
+derive+3420 is the return address of the `bl sortUtf16` at 0x100099ee4, and the next
+call is dedupSorted. That makes it src/Litedoc4/Global/Artifacts.lean:197:
+
+  let kinds := dedupSorted (sortUtf16 kindList)
+
+kindList holds one cssKind string per declaration: 311,415 entries but only 8
+distinct values (theorem 230,936, def 42,375, instance 29,409, ctor 4,519, class
+1,958 (class 1,952 plus class_inductive 6), structure 1,586, inductive 317, opaque
+315). Lean core's Array.qsort (v4.31.0, Init/Data/Array/QSort/Basic.lean) uses a
+Lomuto partition. Elements equal to the pivot never go left, so a run of m equal keys
+costs m²/2 comparisons and peels one element per partition (the samples show one
+`sort` frame and no recursion depth, which fits). Σ m²/2 over the kinds ≈ 2.80e10
+comparisons, dominated by theorem's 2.67e10.
+A standalone copy of cmpUtf16 + sortUtf16 (leanc -O3, same machine) sorting n
+copies of "theorem":
+  n =  5,000    2.79 s   223 ns/comparison
+  n = 10,000   10.82 s   216 ns/comparison
+  n = 20,000   44.66 s   223 ns/comparison
+  n = 40,000  182.05 s   227 ns/comparison      (×2 n → ×4 time)
+This ran concurrently with the build, on a different core. These rates are an upper
+bound, not the run's rate: 2.80e10 × ~220 ns ≈ 6,200 s, which is more than the whole
+4,551 s global step. If the comparison count is right, the real run averaged no more
+than ~160 ns per comparison (inferred, not measured). The standalone copy is not the
+product binary, which Lake compiles.
+
+At InformationTheory's scale this sort is too small to notice. At Mathlib's it is
+91% of the run.
+
+PATCHED (a scratch copy of 54d2d52, not src/; one line changed):
+
+  let kinds := sortUtf16 (kindList.foldl (fun acc k => acc.insert k)
+                 (Std.HashSet.emptyWithCapacity 16 : Std.HashSet String)).toArray
+
+`litedoc4 global --ir <the run's IR> --out … --state … --root <clone>`, once:
+  38.18 s real, 35.91 user, 0.53 sys, maximum RSS 639,827,968 B
+  all 9 files it writes (404/foundational_types/index/search.html, instances.json,
+  modules.json, search-index.bin, declarations/name-map.json,
+  declarations/used-by.json) and global-state.json byte-identical (cmp) to the
+  unpatched build's
+With the patch, an unchanged build would take ≈ 4,995.7 − 4,551.1 + 38.2 ≈ 483 s
+(extrapolated: the global figure comes from a separate `global` process, not a
+patched `build`).
+
+The patch fixes one call site. The general form is that sortUtf16 (and the
+`keys.qsort byteLt` in Global/State.lean) is quadratic in the length of any run of
+equal keys. Every `dedupSorted (sortUtf16 …)` site is therefore exposed in
+proportion to its duplication. The other one in derive (instances per class, line 74)
+is small here.
+
+4. Site self-consistency: tools/site-gate.sh → FAILED (exit 1), 38 s
+-------------------------------------------------------------------
+  closure      every check ok: modules.json → pages 8,170; search-index → pages
+               311,415; pages → search-index 298,656; search-index == name-map
+               311,415; instances 29,409; instancesFor 28,199; external
+               resources 8,174
+  dead links   3,387,940 internal links, 51 DEAD (24 distinct destinations, 33 pages)
+               All 51 come from relative link targets in Mathlib's own docstrings,
+               rebased to the site root:
+               - 19 destinations are keys in mathlib's docs/references.bib, written
+                 `[Geck](Geck2017)` (e.g. Mathlib/Algebra/Lie/Basis.lean:221 →
+                 href "../../.././Geck2017"). The site has no references page for them
+               - 5 are relative paths the docstring author wrote:
+                 ../../LinearAlgebra/Prod, ../Hom/NonUnitalAlg, fderiv.html, defs,
+                 Mathlib/Algebra/FiniteSupport/Basic.lean
+               What doc-gen4 does with these was not checked (unverified)
+
+5. Sizes (du, before cleanup)
+-----------------------------
+  mathlib clone .lake          6.6 G   (.lake/build 6.2 G oleans, .lake/packages 384 M)
+  IR                           550 M   (559,605,399 B written: 8,170 modules + 10 dep
+                                        maps + index)
+  site                         1.1 G   (8,182 files; module pages 1,074,382,825 B per the
+                                        render line)
+    declarations/used-by.json  78,162,880 B
+    declarations/name-map.json 24,335,490 B
+    search-index.bin            5,128,001 B
+    instances.json              2,626,517 B
+    index.html                  2,361,400 B
+    modules.json                1,006,720 B
+  link-index.lidx              4,166,520 B
+  ledger.json                  5,333,068 B
+  state/global-state.json     40,860,448 B
+  extractor build (work dir)   176 M
+  work dir total               8.9 G (clone 7.3 G, out 1.7 G, patched copy + its
+                               global output 243 M). Deleted after the run; df / then
+                               showed 34 Gi available (35 Gi before the run)
+
+Not comparable with mathlib-scale-summary.txt: that file used a different extractor
+(prototype, IR schema 4), different flags, n=4 non-converging runs, and a module
+count without the root.
+
+Commands
+--------
+  W=/private/tmp/lean-doc-relay/wmathlib
+  git clone --no-checkout /Users/haruka/dev/lean-projects/.lake/packages/mathlib $W/mathlib
+  git -C $W/mathlib checkout --detach fabf563a7c95a166b8d7b6efca11c8b4dc9d911f
+  (cd $W/mathlib && lake exe cache get)
+  (cd $W/mathlib && lake build --no-build Mathlib)
+  (cd $W/mathlib && lake env lean --root=<repo>/extractor -o $W/ext/Extract.olean \
+       -c $W/ext/Extract.c <repo>/extractor/Extract.lean \
+     && lake env leanc -rdynamic -o $W/ext/extract $W/ext/Extract.c)
+  LAKE=~/.elan/bin/lake tools/build-lean-exe.sh --toolchain-from e2e/micro
+  litedoc4 modules --root $W/mathlib --lib Mathlib --out $W/logs/modules.txt
+  /usr/bin/time -l .lake/build/bin/litedoc4 build --root $W/mathlib --out $W/out \
+    --lib Mathlib --extractor-bin $W/ext/extract --lake ~/.elan/bin/lake --jobs 4 \
+    --source-url https://github.com/leanprover-community/mathlib4/blob/fabf563a7c95a166b8d7b6efca11c8b4dc9d911f \
+    --timings $W/out.timings.json > $W/logs/build.log 2>&1
+  tools/site-gate.sh $W/out/site
+  # patched, scratch copy only:
+  <scratch>/.lake/build/bin/litedoc4 global --ir $W/out/ir --out $W/pg/site \
+    --state $W/pg/state --root $W/mathlib --timings $W/pg/timings.json
