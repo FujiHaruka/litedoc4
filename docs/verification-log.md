@@ -5758,6 +5758,15 @@ constructors and fields) (measured, same log).
 declarations rather than member names, so the two add up (`8ea0eff`). Open: the dead docstring
 links (issue #7).
 
+**The 51 dead links are doc-gen4's too** (checked 2026-10-03 against doc-gen4 `84a4657`'s source
+and the live Mathlib docs, measured → `benchmarks/results/docgen4-docstring-links-2026-10-03.txt`).
+doc-gen4 rebases `[Geck](Geck2017)` and `../Hom/NonUnitalAlg` exactly as litedoc4 does, both
+answer 404 there, and it warns about neither: they are mistakes in Mathlib's docstrings. What
+litedoc4 lacks is different — doc-gen4 turns `[Key]` and `[text][Key]` citations into links to a
+`references.html` it builds from `docs/references.bib`, and Mathlib has 1,271 such bracketed keys
+(425 distinct). litedoc4 has no references page, so these stay literal text (assumed, from
+CommonMark's undefined-reference rule; not rendered). The target has no bibliography.
+
 ## 書き方
 
 段階ごとに 1 節を足す。各節に必ず入れるもの:

@@ -1,0 +1,72 @@
+doc-gen4 on the docstring links that are dead in litedoc4's Mathlib site (issue #7)
+Checked 2026-10-03 from macOS Darwin 25.6, Apple M1, /usr/bin/curl 8.7.1.
+
+Question: mathlib-render-2026-10-03.txt §4 found 51 dead internal links (24 distinct
+destinations) in litedoc4's site for Mathlib fabf563a7c. What does doc-gen4 emit for the
+same docstrings?
+
+Sources
+-------
+  doc-gen4 source  DocGen4/Output/DocString.lean at leanprover/doc-gen4 main
+                   84a46571f397c5622a899d49f40b9580a95a2fba (2026-09-30)
+  live site        https://leanprover-community.github.io/mathlib4_docs/
+                   (Basis/Basic.html last-modified Sat, 03 Oct 2026 08:50:26 GMT; built from
+                   mathlib4 master, which was 302343bb9a at the time of checking — not
+                   fabf563a7c. The docstrings below are present at both.)
+
+1. What the source says
+-----------------------
+  extendLink: "##" → name lookup; "#" or "http" prefix → unchanged; anything else →
+  root ++ s. Same rule as litedoc4's extendLink.
+  A link destination is a bibliography item only when it is written
+  "references.html#ref_<key>" (findBibitem? href "references.html#ref_").
+  A bare key as destination, "[Geck](Geck2017)", is not looked up: it is rebased.
+  Citations are found by findAllReferences, which scans for "[<key>]" and appends
+  "[<key>]: references.html#ref_<key>" definitions to the Markdown before parsing, so
+  "[Key]" and "[text][Key]" become links to references.html. No warning is emitted on
+  any path.
+
+2. What the live site emits (curl + rg)
+---------------------------------------
+  Mathlib/Algebra/Lie/Basis/Basic.html            3 × <a href="../../../.././Geck2017">Geck</a>
+  Mathlib/LinearAlgebra/RootSystem/GeckConstruction/Basic.html
+                                                  1 × <a href="../../../.././Geck2017">Geck</a>
+  …/mathlib4_docs/Geck2017                        HTTP 404
+  Mathlib/Algebra/Star/StarAlgHom.html            <a href="../../.././../Hom/NonUnitalAlg"
+  https://leanprover-community.github.io/Hom/NonUnitalAlg   HTTP 404
+  Mathlib/Topology/Algebra/FilterBasis.html       <a href="../../.././references.html#ref_bourbaki1966"
+                                                  title="Nicolas Bourbaki. …   (from
+                                                  "[N. Bourbaki, *General Topology*][bourbaki1966]")
+  references.html                                 HTTP 200, 508 occurrences of id="ref_
+
+  So the bibliography-key destinations and the bad relative paths are dead links on
+  doc-gen4's site as well, with the same rebasing. (Basis.lean moved to Basis/Basic.lean
+  between the two Mathlib commits, hence one more "../".)
+
+3. Citation forms in Mathlib fabf563a7c (rg over Mathlib/, keys from docs/references.bib)
+-----------------------------------------------------------------------------------------
+  bibliography entries                       475
+  "[Key]" occurrences whose Key is an entry  1,271  (425 distinct keys)
+    (any bracketed word matched against the key list, so this includes "[Key]" inside
+    "[text][Key]" and anything else bracketed that happens to equal a key)
+  "](Key)" occurrences whose Key is an entry 46     (19 distinct keys; Geck2017 15 of them)
+
+  litedoc4 writes no references page and appends no definitions, so a "[text][Key]"
+  citation stays literal text "[text][Key]" (assumed from CommonMark's undefined-reference
+  rule, not rendered here: the Mathlib IR was deleted after the run). Not a dead link —
+  a missing one, in up to 1,271 places.
+
+  lean-projects (the measurement target) has no docs/references.bib.
+
+Commands
+--------
+  gh api repos/leanprover/doc-gen4/contents/DocGen4/Output/DocString.lean \
+    -H 'Accept: application/vnd.github.raw'
+  B=https://leanprover-community.github.io/mathlib4_docs
+  curl -s $B/<module>.html | rg -o '<a [^>]*>[^<]*Geck[^<]*</a>'
+  curl -s -o /dev/null -w '%{http_code}\n' <url>
+  rg -o '^@\w+\{\s*([^,]+),' --replace '$1' docs/references.bib | sort -u > bibkeys.txt
+  rg -o --no-filename '\[[A-Za-z][A-Za-z0-9_:+.-]*\]' Mathlib | tr -d '[]' \
+    | rg -x -F -f bibkeys.txt -c
+  rg -o --no-filename '\]\(([A-Za-z][A-Za-z0-9_:+.-]*)\)' --replace '$1' Mathlib \
+    | rg -x -F -f bibkeys.txt | sort | uniq -c
