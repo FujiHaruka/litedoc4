@@ -97,6 +97,7 @@ def renderSite (o : Options) : IO Summary := do
   let title := o.title.getD (siteTitle (mods.map (·.name)))
   let mut pagesWritten := 0
   let mut declarationsRendered := 0
+  let mut declarationsSuppressed := 0
   let mut moduleDocs := 0
   let mut bytes := 0
   let mut mathFailures := 0
@@ -110,14 +111,15 @@ def renderSite (o : Options) : IO Summary := do
     pagesWritten := pagesWritten + 1
     bytes := bytes + html.utf8ByteSize
     moduleDocs := moduleDocs + m.moduleDocs.size
-    declarationsRendered :=
-      declarationsRendered + (m.decls.filter (fun d => !sup.contains d.name)).size
+    let (suppressed, rendered) := m.decls.partition (sup.contains ·.name)
+    declarationsRendered := declarationsRendered + rendered.size
+    declarationsSuppressed := declarationsSuppressed + suppressed.size
   return {
     pagesWritten
     modulesInIr := mods.size
     declarationsRendered
     declarationsInIr := mods.foldl (fun a m => a + m.decls.size) 0
-    declarationsSuppressed := sup.size
+    declarationsSuppressed
     moduleDocs
     bytes
     known := ix.known.size
