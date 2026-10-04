@@ -1,0 +1,323 @@
+# Multi-version Mathlib documentation — milestone plan
+
+Started 2026-10-04. Branch `multi-version`. This file holds the goal, the open questions and the
+decisions of the milestone; results land in `docs/verification-log.md` as usual, and the logs in
+`benchmarks/results/`.
+
+## Goal
+
+**One build produces one site in which a reader can pick any public Mathlib version and read its
+documentation**, and switch versions on the page they are reading.
+
+- **"Public Mathlib version"** = a release on the Mathlib Releases page
+  (`github.com/leanprover-community/mathlib4/releases`) that is not marked prerelease
+  (decided 2026-10-04, user's call).
+- **"Realistic"** is two budgets that this plan has to turn into numbers (→ D2): the wall clock of
+  the one build, and the size and file count of what is hosted.
+- Anything may be given up to meet the budgets — a feature, a page shape, no-JS reading of old
+  versions — as long as what is given up is written down (→ "Features that could be given up").
+
+## Context — what is known on 2026-10-04
+
+### The version set today
+
+11 releases (measured 2026-10-04, GitHub API; Lean read from each tag's `lean-toolchain`):
+
+| Release | Date | Commit | Lean | Extractor builds on this Lean |
+|---|---|---|---|---|
+| v4.34.1 | 2026-09-24 | `d13f23b723` | v4.34.1 | unmeasured |
+| v4.34.0 | 2026-09-15 | `5ed2965256` | v4.34.0 | unmeasured |
+| v4.33.1 | 2026-08-21 | `0df444a360` | v4.33.1 | yes |
+| v4.33.0 | 2026-08-10 | `db584cd6d4` | v4.33.0 | yes |
+| v4.32.2 | 2026-07-28 | `905b95818e` | v4.32.2 | yes |
+| v4.32.1 | 2026-07-23 | `520045ab14` | v4.32.1 | unmeasured |
+| v4.32.0 | 2026-07-13 | `81a5d257c8` | v4.32.0 | unmeasured |
+| v4.31.0 | 2026-06-15 | `fabf563a7c` | v4.31.0 | yes |
+| v4.30.0 | 2026-05-26 | `c5ea00351c` | v4.30.0 | unmeasured |
+| v4.29.1 | 2026-04-17 | `5e932f97dd` | v4.29.1 | unmeasured |
+| v4.29.0 | 2026-03-30 | `8a178386ff` | v4.29.0 | unmeasured |
+
+- **4 of 11 are on a toolchain the extractor is known to build on** (`tools/lean-toolchains.txt`).
+  The other 7 are the first wall (→ U1).
+- **v4.31.0 is `fabf563a7c` — the commit already documented end to end** on 2026-10-03.
+- **The set grows**: 11 releases in the 6 months from 2026-03-30 to 2026-09-24, and 5 of the 11 are
+  patch releases (`x.y.1`, `x.y.2`). A new one arrives roughly every two to three weeks, so
+  "one build" happens again for each release (→ D7).
+- **The Releases page starts at v4.29.0-rc2 (2026-02-25).** Mathlib has 47 stable `v4.x.y` tags
+  going back to v4.0.0, but those have no Releases page entry, so they are outside D1's definition.
+
+### One version, as measured
+
+From one `litedoc4 build --lib Mathlib` of `fabf563a7c` on Apple M1 / 16 GB, Lean 4.31.0, 4 jobs,
+page cache partly warm, single run (measured → `benchmarks/results/mathlib-render-fixed-2026-10-03.txt`):
+
+| | |
+|---|---|
+| Wall clock | 449.9 s: extract 296.5, render 61.5, global 30.4, detect and the rest 61.4 |
+| Pages | 8,170 module pages, 311,415 declarations |
+| Module page HTML | 1,074,382,825 B — the site is 1.1 GB and almost all of it is these pages |
+| Global files | name map 24.3 MB, search index 5.1 MB, module index 1.0 MB |
+| IR | 550 MB |
+| Mathlib checkout with oleans | 6.7 GB, of which `.lake` 6.6 GB |
+| Peak memory | extractor 3.73 GB (measured → `benchmarks/results/mathlib-render-2026-10-03.txt`); litedoc4 2.79 GB footprint |
+
+### What simply multiplying gives
+
+11 independent builds and 11 independent sites (extrapolated, × 11 from the single run above):
+
+| | One version | × 11 |
+|---|---|---|
+| Wall clock | 449.9 s | ≈ 82 min, plus olean download per version |
+| Hosted bytes | 1.1 GB | ≈ 12 GB |
+| HTML files | ≈ 8,174 | ≈ 90,000 |
+
+### Hosting ceilings
+
+Read from the vendors' documentation on 2026-10-04:
+
+- **GitHub Pages**: published site at most 1 GB; deployment times out after 10 minutes; soft limit
+  of 100 GB bandwidth per month and 10 builds per hour.
+- **Cloudflare Pages**: at most 20,000 files per site (free) or 100,000 (paid); at most 25 MiB per
+  file; no stated total size limit.
+
+**One Mathlib version (1.1 GB) already does not fit on GitHub Pages**, and 11 versions as they are
+today are ≈ 4.5× Cloudflare Pages' free file limit. So the size question is not "how do we fit
+11 copies" but "how do we fit one, then make the other ten nearly free".
+
+### What incremental extraction will not buy
+
+A study on 2026-10-03 counted, for 1,050 consecutive Mathlib commits, how many modules a safe
+incremental build would re-extract (the changed modules and everything downstream). Batched a week
+at a time (≈ 210 commits) the median was 8,167 modules — essentially all of them — and a day at a
+time (≈ 30 commits) already 7,761 (measured, 2026-10-03; the log was not committed, so U3
+re-measures what this plan relies on). Consecutive releases are 5 to 39 days apart. **Between two releases, incremental extraction
+re-extracts everything**, so extraction cost is linear in the number of versions; savings have to
+come from the output side.
+
+## Approach
+
+**Extract each version separately and in sequence; render all versions together into one store
+where identical content is written once.**
+
+1. **Extraction stays per version and stays as it is.** For each release: fetch its oleans, build
+   the extractor against its Lean, extract its IR, keep the IR, delete the checkout before the next
+   one. Sequential with deletion is a hard constraint, not an optimisation: one checkout is 6.6 GB,
+   and disk exhaustion has already damaged the target once (CLAUDE.md, 2026-08-17). Cost: ≈ 11 ×
+   5 min of extraction (extrapolated), which is acceptable on its own.
+2. **Rendering becomes multi-version.** One pass reads every version's IR and writes:
+   - a **version-independent layer**: each declaration's rendered content (signature, docstring,
+     equations, attributes) stored once per distinct content, addressed by a hash of the content;
+   - a **per-version layer**: what really differs per version — which declarations each module
+     has, in which order, and the globally collected parts (Used by, instances, search index,
+     source links).
+3. **Pages are assembled from the two layers.** Whether assembly happens at build time (static
+   HTML per version, deduplicated only in storage) or in the browser (thin HTML plus data) is the
+   central representation decision (→ D4), and it decides whether the hosted size scales with the
+   number of versions or with the number of distinct declarations.
+4. **Every feature is priced** against the budgets. A feature whose output differs per version for
+   most declarations (a source link carrying the commit SHA is the obvious one) either moves into
+   the per-version layer in a form that does not touch the shared content, or is limited to the
+   latest version, or goes.
+
+The order is: **first find out whether the version set and one version are feasible at all**
+(U1, U4, U6), then **measure how much content really is shared between releases** (U3), and only
+then choose the representation (D4) and the feature cuts (D8). Choosing the representation before
+U3 would decide the design on an unmeasured sharing ratio.
+
+**The hypothesis this plan rests on**: between two consecutive releases, most declarations'
+rendered content is byte-identical once version-specific parts (source links, Used by, instances)
+are moved out of it. **It is falsified** if U3 finds that a large share of declarations that did
+not change in source still change in rendered content — for example because signatures link to
+modules that moved, or pretty-printing changed with the Lean version. Then the shared layer saves
+little, and the remaining levers are cutting features or cutting versions.
+
+## Unknowns to measure
+
+Each item says what is expected and what would show the expectation wrong.
+
+### U1 — Does the extractor build on the 7 unmeasured toolchains?
+
+v4.29.0, v4.29.1, v4.30.0, v4.32.0, v4.32.1, v4.34.0, v4.34.1.
+
+- **Expected**: patch releases inside a series behave like their neighbours (v4.32.0 / v4.32.1
+  like v4.32.2); v4.34.x needs at most a small fix, as v4.33.0 did; v4.29 / v4.30 are the
+  uncertain ones.
+- **Wrong if**: any of them fails to build. v4.34.x then has to be fixed regardless — it is the
+  newest and every future release continues from it. v4.29 / v4.30 can be fixed or dropped (→ D1).
+- **Constraint**: the extractor does not branch on the Lean version. If a fix cannot be written
+  without branching, that is a finding to bring back, not a licence to branch.
+- This cost recurs: every new Lean release may break the extractor. The plan has to say who pays
+  it and when (→ D7).
+
+### U2 — Are the oleans of the 11 release commits all fetchable?
+
+The 2026-10-03 study checked 5 arbitrary dates, not these 11 commits.
+
+- **Expected**: all fetchable from `cache.mathlib.org`.
+- **Wrong if**: any file is missing. Building one version from source takes hours (assumed), which
+  would break the build-time budget for that version.
+
+### U3 — How much rendered content do consecutive releases share?
+
+The experiment proposed on 2026-10-04, retargeted from adjacent commits to adjacent releases.
+Two pairs can run today, before U1, because both sides are on supported toolchains:
+
+- a **patch pair**: v4.33.0 → v4.33.1;
+- a **minor pair**: v4.32.2 → v4.33.0.
+
+For each pair, classify every declaration as: unchanged / changed in source / changed only in
+rendered content / added / removed. Then split "changed only in rendered content" by cause:
+signature links, pretty-printing, docstring link resolution, Used by, instances, source link.
+Count source links both ways — pinned to the commit SHA, and as a constant prefix.
+
+- **Expected**: excluding source links, Used by and instances, ≥ 90% of declarations are
+  byte-identical between a patch pair (assumed); less for a minor pair.
+- **Wrong if**: the share of declarations that did not change in source but changed in rendered
+  content is large. That falsifies the Approach's hypothesis.
+- Also check one pair for **non-determinism**: render the same IR twice and compare. Any difference
+  there is a defect, and it would also destroy deduplication.
+
+### U4 — What is the 1.1 GB of one version made of?
+
+Break one version's site down by part: declaration signatures (and how much of that is link
+markup), docstrings, equations, Used by, instances, page chrome repeated on every page, inlined
+assets. This decides which representation change pays (→ D4) and which feature cuts matter (→ D8).
+
+- **Expected**: link markup and per-page chrome are a large share, and the deduplicable part is
+  most of the rest.
+- **Wrong if**: one part that cannot be shared dominates — then sharing does not get one version
+  under the hosting limit, and the representation itself has to shrink.
+
+### U5 — Can the build host carry it?
+
+Per version: 6.6 GB of checkout, 550 MB of IR, up to 3.73 GB of extractor memory, all measured on
+an M1. The one build needs all IRs at once at render time (≈ 6 GB for 11, extrapolated) unless the
+renderer streams them.
+
+- Measure on the host the build will actually run on (a CI runner or this machine, → D3). Do not
+  write a runner's memory or disk size from memory — read it from the runner image's documentation
+  and record the date.
+- **Wrong if**: memory or disk does not fit; then the render pass has to stream versions rather
+  than load them all.
+
+### U6 — Where can it be hosted, with numbers?
+
+GitHub Pages is out for even one version as things stand (1 GB). Candidates: Cloudflare Pages
+(file count), object storage behind a CDN (Cloudflare R2, S3), a GitHub Pages site per version
+(one repository each), Netlify / Vercel. For each: size limit, file count limit, per-file limit,
+cost per month at the expected traffic, and how a CI deploy reaches it.
+
+- **Wrong if**: no option fits a realistic representation within a cost the user accepts. Then
+  version count or features are what gives.
+
+### U7 — What does a data-driven page cost the reader?
+
+If pages become thin HTML plus data rendered in the browser (one D4 option): time to first content
+for the largest Mathlib module page, behaviour with JavaScript off, behaviour of in-page anchors
+and of links from outside (search engines, Zulip, papers), memory in the browser.
+
+## Decisions to make
+
+### D1 — The version set (decided 2026-10-04, user's call — with one open part)
+
+Non-prerelease releases on the Releases page: 11 today. **Open**: what to do with a release U1
+cannot build for — fix the extractor, or drop that version and say so on the site.
+
+### D2 — The budgets
+
+Proposal (assumed, to be confirmed by the user):
+
+- **Build**: all versions from nothing in ≤ 2 h on one machine; adding one new release in ≤ 15 min.
+- **Hosting**: whatever U6's chosen host allows, with headroom for 2 years of releases (≈ 40 more
+  versions at the current rate (extrapolated)). The budget has to hold for the growth, not only for
+  today's 11.
+
+### D3 — Build host and hosting target
+
+Where the one build runs (this machine, a GitHub runner, something else) and where the site is
+served. Bound by U5 and U6. **A deploy that cannot finish inside the host's limits (GitHub Pages:
+10 minutes) is a failure even if the build succeeds.**
+
+### D4 — Page representation
+
+| Option | Hosted size grows with | Gives up |
+|---|---|---|
+| Static HTML per version, deduplicated only in the build's storage | versions × pages | nothing for readers; does not fit hosting (≈ 12 GB) |
+| Static HTML for the latest version, data + client render for older ones | 1 version + distinct content | no-JS reading of older versions |
+| Thin HTML for all versions, content as shared data, client render | distinct content | no-JS reading of everything; first-paint time (U7) |
+
+Bound by U3 (how much is shared), U4 (what the bytes are) and U7 (what the reader pays). Page
+paths and anchors are part of the 1.x public surface (`tools/public-surface.txt`): adding version
+paths is allowed, changing or removing the existing ones is not.
+
+### D5 — Unit and address of sharing
+
+Per declaration, per module, or per fragment within a declaration; content-addressed by hash or
+by (name, version range). Bound by U3: if most change is in a small part of a declaration (one
+link), a finer unit pays; otherwise per declaration.
+
+### D6 — URL scheme and the version switcher
+
+For example `/<release>/Mathlib/Foo/Bar.html` plus an alias for the latest. What switching does on
+a page that does not exist in the other version (module renamed, split, deleted), and on an anchor
+whose declaration does not exist there.
+
+### D7 — How a new release gets in
+
+The goal says one build. Releases arrive every two to three weeks. Either rebuild everything each
+time (simple, cost grows with the version count), or keep each version's IR or its layers and add
+one version at a time (needs a store that persists between runs, and a way to know it is not
+stale). Also: who fixes the extractor when a new Lean breaks it (U1), and what the site shows until
+then.
+
+### D8 — Which features to give up, and for which versions
+
+From the table below, after U3 and U4 have put numbers on each line.
+
+### D9 — Product feature or Mathlib-only pipeline
+
+Whether multi-version is a `litedoc4` capability (a flag or `litedoc4.toml` key — public surface,
+so it is promised for 1.x) or a separate pipeline specific to Mathlib built on top of the existing
+commands. A product feature serves other packages; a pipeline can be cut down further and changed
+freely.
+
+## Features that could be given up
+
+Each line is a candidate, not a decision. The cost column is the reason it is expensive across
+versions; U3 and U4 put a number on each.
+
+| Feature | Why it costs across versions | Options |
+|---|---|---|
+| Source link with line range, pinned to the commit | different in every version for every declaration; line ranges move whenever anything above the declaration moves | per-version prefix stored once and joined in the page; file-level link only; latest only |
+| Used by | collected from all of Mathlib; a new use anywhere changes the page of the used declaration | latest only; per-version reverse index loaded on demand |
+| Instances / instances for | same shape as Used by | latest only; on demand |
+| Search | one index per version (5.1 MB each) | latest only; per-version index loaded when that version is selected |
+| Docstring link resolution | depends on the whole name set of the version | resolve against latest; keep per version |
+| Equations | large, rarely read (58,426 per version) | latest only; on demand |
+| Static HTML that reads without JavaScript | the main reason hosted size scales with the number of versions | latest only (D4) |
+| Bibliography page | per version, small | keep |
+
+## Out of scope
+
+- Every Mathlib commit (the 35,178-commit history). This milestone is the releases only.
+- Prereleases (`-rc` releases on the Releases page).
+- Stable tags that have no Releases page entry (v4.0.0 – v4.28.x).
+- Byte compatibility with doc-gen4.
+
+## Phases
+
+1. **Feasibility of the parts.** U2 (oleans of the 11), U4 (what one version's bytes are), U6
+   (hosting numbers), U5 (the build host). All cheap; none needs a new extractor.
+2. **Sharing.** U3 on the two supported pairs, with the non-determinism check.
+3. **The version set.** U1 on the 7 toolchains. v4.34.x is required; v4.29 / v4.30 decide D1's
+   open part.
+4. **Decide.** D2 – D9, with the numbers from phases 1 – 3. Record each in this file.
+5. **Prototype on 3 versions.** The multi-version render on v4.32.2 / v4.33.0 / v4.33.1; measure
+   build time, hosted size and file count against D2.
+6. **All versions.** The full set, deployed to the chosen host, with the way a new release gets in
+   (D7) running in CI.
+
+**Done** means: one command builds every version in the set within D2's build budget; the result
+is hosted within D2's hosting budget; a reader can switch version on any page; and a gate checks
+that every version in the set was built and served — reporting `<built> of <declared>` and failing
+when they differ, and made to fail once before it is trusted.
