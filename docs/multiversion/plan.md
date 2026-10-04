@@ -305,18 +305,18 @@ browser (U4). Still open: which of the three rows, after U3 and U7.
 1. **Content is stored compressed and decompressed in the browser.** Pages compressed one by one
    are 19.6× smaller (measured → `benchmarks/results/mathlib-signature-shape-2026-10-04.txt`).
 2. **Signatures are carried as data, not as HTML.** Text, one reference into a name table per link,
-   one marker per binder kind and per subterm; the browser builds the links and the markup. A link
-   costs a few bytes instead of a full URL: one signature measured at 1,065 B of HTML for 58 B of
-   text spends 378 B on three links to Lean core source and 360 B on fifteen subterm wrappers
+   one marker per binder kind; the browser builds the links and the markup. A link costs a few
+   bytes instead of a full URL: one signature measured at 1,065 B of HTML for 58 B of text spends
+   378 B on three links to Lean core source and 360 B on fifteen subterm wrappers
    (measured → `benchmarks/results/mathlib-signature-example-2026-10-04.txt`).
-
-**The subterm wrappers are layout, not a hover effect.** Their one CSS rule makes a long signature
-wrap whole subterms with a hanging indent; nothing else reads them. The browser cannot rebuild them
-from the text — the subterm tree is the pretty printer's, and recovering it would mean parsing
-Lean's notation. But 5,461,099 of the 10,285,239 (53.1%) wrap a single token, where an
-inline-block changes nothing (measured → `benchmarks/results/mathlib-subterm-wrappers-2026-10-04.txt`;
-"changes nothing" assumed, not rendered). Open: drop those and carry the rest as markers, or drop
-the wrapping layout altogether (→ "Features that could be given up").
+3. **Subterm wrapping is given up: no subterm structure is carried at all** (decided 2026-10-04,
+   user's call). The wrappers are layout only — their one CSS rule makes a long signature wrap
+   whole subterms with a hanging indent, and nothing else reads them. The browser cannot rebuild
+   them from the text (the subterm tree is the pretty printer's). What the reader loses: a long
+   signature wraps at any space, like prose, which reads worst on a narrow screen. 5,461,099 of
+   the 10,285,239 wrappers (53.1%) wrapped a single token and did nothing anyway (measured →
+   `benchmarks/results/mathlib-subterm-wrappers-2026-10-04.txt`). Open with D9: whether the
+   single-version output drops them too.
 
 ### D5 — Unit and address of sharing
 
@@ -363,7 +363,7 @@ versions; U3 and U4 put a number on each.
 | Docstring link resolution | depends on the whole name set of the version | resolve against latest; keep per version |
 | Equations | large, rarely read (58,426 per version) | latest only; on demand |
 | Static HTML that reads without JavaScript | the main reason hosted size scales with the number of versions | latest only (D4) |
-| Wrapping a long signature by subterm, with a hanging indent | 10.3 M wrappers on module pages (signatures, equations, fields) — the structure a signature carries beyond its text and links; 53.1% wrap one token and do nothing | drop the single-token ones only; drop the layout altogether (wraps like plain text) |
+| Wrapping a long signature by subterm, with a hanging indent | 10.3 M wrappers on module pages (signatures, equations, fields) — the structure a signature carries beyond its text and links; 53.1% wrap one token and do nothing | **dropped, every version** (decided 2026-10-04, user's call) |
 | Bibliography page | per version, small | keep |
 
 ## Out of scope
