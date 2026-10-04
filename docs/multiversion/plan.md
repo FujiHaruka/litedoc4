@@ -468,6 +468,14 @@ pairs v4.29.0 → v4.34.1, reflection on the 5 installed toolchains, v4.29/v4.30
   docstrings of 90,663 declaration and 12,887 module docstrings, and so does every other package
   it imports except core. Core's custom elements are core's own five types, each with a
   non-empty fallback text (0 empty of 1,766). Older Mathlib versions are not measured.
+  **Verso docstrings are supported all the same** (decided 2026-10-04, user's call): Mathlib is
+  in a compatibility phase and replacement is likely. The reader decodes the document types
+  (core's, versioned like any other), renders a custom element with the newest handler, and
+  falls back to its `content` when the newest version has no handler for its type or the type
+  changed — counted, never silent. **Today's single-version output already misses Verso module
+  docs**: declaration docstrings go through `findDocString?`, which renders Verso, but module docs
+  are read with `getModuleDoc?` alone, which returns Markdown ones only (read in the code, not
+  reproduced on a package).
 
 **The cost of the approximation is small too** (extrapolated: 5,000 of 311,415 Mathlib v4.31.0
 declarations, 1.61%, seeded; each type printed by v4.31.0 and, rebuilt verbatim, by v4.34.1 with
