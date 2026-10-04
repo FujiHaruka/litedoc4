@@ -197,6 +197,26 @@ Count source links both ways — pinned to the commit SHA, and as a constant pre
 - Also check one pair for **non-determinism**: render the same IR twice and compare. Any difference
   there is a defect, and it would also destroy deduplication.
 
+**Answered 2026-10-04** (measured → `benchmarks/results/mathlib-release-sharing-2026-10-04.txt`;
+each version extracted by its own Lean with today's extractor):
+
+- **The hypothesis holds, once links into dependencies are taken out of shared content.** Share of
+  declarations byte-identical, patch pair / minor pair: 11.48% / 7.04% as rendered; **99.9994% /
+  97.89%** with the dependency revision, the dependency line ranges, the declaration's own source
+  position and the reducibility rename taken out.
+- **The "expected" above was wrong on what is version-specific.** Not only source links, Used by
+  and instances: 77.8% of declarations have a signature link into Lean core, whose revision moves on
+  every release, and between minor releases 20.7% of the referenced dependency declarations moved
+  lines. **D5 has to keep both the revision and the line range of a dependency link out of shared
+  content**; removing the revision alone leaves the minor pair at 43.21%.
+- **Falsifier**: in the minor pair, 603 of 93,533 declarations in byte-identical source files
+  (0.64%) still changed — 539 of them from one upstream rename (`setOf` → `Set.ofPred`: same text,
+  link to a different constant). The patch pair (v4.33.0 → v4.33.1 is a single toolchain-bump
+  commit) changed 2 declarations, both from Lean itself.
+- **No non-determinism**: two extractions of v4.33.1 gave byte-identical IR, link index and site.
+- Printing per version here, not with one printer as D10 decides; printer drift is 0 in the patch
+  pair and at most 255 declarations in the minor pair.
+
 ### U4 — What is the 1.1 GB of one version made of?
 
 Break one version's site down by part: declaration signatures (and how much of that is link
