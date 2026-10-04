@@ -315,8 +315,8 @@ browser (U4). Still open: which of the three rows, after U3 and U7.
    them from the text (the subterm tree is the pretty printer's). What the reader loses: a long
    signature wraps at any space, like prose, which reads worst on a narrow screen. 5,461,099 of
    the 10,285,239 wrappers (53.1%) wrapped a single token and did nothing anyway (measured →
-   `benchmarks/results/mathlib-subterm-wrappers-2026-10-04.txt`). Open with D9: whether the
-   single-version output drops them too.
+   `benchmarks/results/mathlib-subterm-wrappers-2026-10-04.txt`). Single-version sites drop them
+   too (D9: one rendering path).
 
 ### D5 — Unit and address of sharing
 
@@ -344,10 +344,17 @@ From the table below, after U3 and U4 have put numbers on each line.
 
 ### D9 — Product feature or Mathlib-only pipeline
 
-Whether multi-version is a `litedoc4` capability (a flag or `litedoc4.toml` key — public surface,
-so it is promised for 1.x) or a separate pipeline specific to Mathlib built on top of the existing
-commands. A product feature serves other packages; a pipeline can be cut down further and changed
-freely.
+**A product feature** (decided 2026-10-04, user's call), and **one rendering path**: the reason is
+fewer branches, so a single-version site is the one-version case of the same output, not a second
+format. Consequences for every litedoc4 site, the single-version ones included:
+
+- pages need JavaScript to read (D4);
+- content is stored compressed, signatures are carried as data (D4, "How one version shrinks");
+- long signatures wrap like prose — no subterm wrapping.
+
+Still open: the public surface it adds (a flag or `litedoc4.toml` key for the version set, and the
+version paths of D6). Page paths and anchors of a single-version site must stay as they are
+(`tools/public-surface.txt`).
 
 ## Features that could be given up
 
