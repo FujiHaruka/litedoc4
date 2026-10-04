@@ -164,6 +164,9 @@ v4.29.0, v4.29.1, v4.30.0, v4.32.0, v4.32.1, v4.34.0, v4.34.1.
 
 The 2026-10-03 study checked 5 arbitrary dates, not these 11 commits.
 
+**Not measured, by choice** (decided 2026-10-04, user's call): expected to hold, and a missing
+file shows on the first full build.
+
 - **Expected**: all fetchable from `cache.mathlib.org`.
 - **Wrong if**: any file is missing. Building one version from source takes hours (assumed), which
   would break the build-time budget for that version.
@@ -275,6 +278,35 @@ instance extension. Each falls in one of three kinds:
 - **Expected**: every answer falls in the first two kinds except equations.
 - **Wrong if**: something on every page needs elaboration of old declarations in the newest
   environment. Then that feature is latest-only or goes (→ D8).
+
+**Answered 2026-10-04** (desk reading of the extractor against Lean v4.34.1, plus one measurement):
+
+- **The expectation holds**: of the extractor's outputs, 27 are stored data, 3 are computed by Lean
+  code (plus printing on 6 of the stored ones), and only equations need elaboration.
+- **But "computed from stored data" was mislabelled for every call that takes a name.** In an
+  environment holding the newest Mathlib, asking for a declaration *by name* — its type, its
+  structure fields, its docstring, its module, its equations — answers about the newest
+  declaration of that name, with no error. That is 99.22% of names (the drift log), and 18.66% of
+  declarations have a different type there. About 30 such lookups exist; each must read the
+  decoded old data instead, or run against an old environment (U9). Only calls that take an
+  *expression* — printing, telescopes, the class test — can go to the newest Lean, and they look
+  names up inside, which is where the approximation lives.
+- **Equations** (measured, all 57,892 eligible definitions of Mathlib v4.34.1, one version →
+  `benchmarks/results/mathlib-equation-sources-2026-10-04.txt`): 22.86% have their equation lemmas
+  already stored in the oleans; 72.00% have nothing to split, so the one equation `f xs = body` can
+  be built from the decoded value (equivalence with Lean's own output inferred, not compared);
+  **5.14% need real generation** (matcher, if-then-else, recursion). Adding the old definition to
+  the newest environment does not work — the name already exists there for 99.22%.
+- **Each version's Lean core library has to be read too** — core names are in every signature, and
+  Mathlib's classes extend core's. It ships with that version's toolchain, not Mathlib's cache:
+  1,749,779,168 B in 7,556 files for v4.34.1 (measured, same log).
+- **A declaration that fails today vanishes from the IR** — the failure is printed, not recorded —
+  and a failed equation reads as "no equations". Both are silent on the page; a multi-version
+  build hits them more often (a missing constant in the newest version raises inside the printer).
+- Smaller items: the Lean version on the index page is the running binary's; the reader must
+  apply the global-only filter Lean applies to instance, simp and ext entries; the 282 Mathlib
+  tactics are all data (`ParserDescr`), so their names are readable without running parser code;
+  reducibility before v4.33.0 is printed as that version wrote it.
 
 ### U9 — How fast is the reader, and does printing fit the build budget?
 
