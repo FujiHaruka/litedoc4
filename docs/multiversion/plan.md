@@ -398,7 +398,7 @@ version-free. The options:
 |---|---|---|
 | Extractor per Lean version (today), kept as thin as possible | yes, one per version | nothing; a port when a Lean release breaks it (U1) |
 | doc-gen4 as the per-version extractor (its maintainers port it) | yes | speed; a second extraction path |
-| Own `.olean` reader in one Lean | no | the object layout and data types change per version, so it branches per version anyway; types print without Mathlib's notation |
+| Own `.olean` reader in one Lean | no | a per-version branch wherever a decoded type changed (below); old versions print with the newest notation |
 | Source as written, plus `.ilean` for links | no | below |
 
 **What "as written" loses on Mathlib** (measured, heuristic →
@@ -443,9 +443,44 @@ no error. The mechanisms, none of them written yet:
    every type is well-formed in the newest Lean; the declaration list and ranges agree with the
    `.ilean` that the same Lean wrote beside each `.olean`.
 
-Next: how often the layouts changed between v4.29 and v4.34 (Lean's history — the cost of the
-reader), and how far the newest printer drifts from each version's own printing (the cost of the
-approximation).
+**The cost of the reader is small** (measured →
+`benchmarks/results/lean-olean-layout-history-2026-10-04.txt`; source diffs on all 10 adjacent
+pairs v4.29.0 → v4.34.1, reflection on the 5 installed toolchains, v4.29/v4.30 by source only):
+
+- **0 changes in 10 pairs** to the `.olean` header and object encoding, `ModuleData` and the
+  three-file split, and `Name` / `Level` / `Expr` / every `ConstantInfo` (computed fields and
+  hashes included).
+- **3 of 10 pairs** changed something the reader interprets, **2** of them the shape of a decoded
+  object (simp theorems gained a field in v4.31.0; in v4.33.0 the reducibility status gained a
+  value and Verso docstring parts were restructured). The rest is extensions added or renamed.
+  All 5 patch pairs changed nothing.
+- **1 of 10 pairs changed a meaning without changing a shape** — v4.33.0's reducibility status,
+  the value `tools/lean-toolchains.txt` already records. This is the silent-misread kind
+  mechanism 2 exists for.
+- **Verso docstrings cannot be read by any reader.** They carry `Dynamic` payloads, and since
+  v4.33.0 turning one into Markdown runs handler code registered by the package. Core has 767;
+  Mathlib's count is not measured.
+
+**The cost of the approximation is small too** (extrapolated: 5,000 of 311,415 Mathlib v4.31.0
+declarations, 1.61%, seeded; each type printed by v4.31.0 and, rebuilt verbatim, by v4.34.1 with
+plain `ppExpr` and a perfect reader assumed →
+`benchmarks/results/mathlib-printer-drift-2026-10-04.txt`):
+
+- **97.56% print the same text** (95% interval 97.09–97.95). 2.22% differ, led by one rename (45
+  of 111: `setOf` became an alias of `Set.ofPred`, so `{x | p}` prints as `setOf fun x => p`),
+  then fully explicit `@` applications (28) and a notation v4.31.0 did not have (16).
+- **0.22% fail to print, and the failure is silent**: `ppExpr` returns the text "failed to pretty
+  print expression" as if it were the type. All 11 mention a constant v4.34.1 removed. A
+  publisher that does not check for it ships that text as the signature.
+- **7.76% mention at least one constant the newest version does not have**, and 91% of those still
+  print the same (mostly instances the printer hides). So mechanism 3's "every constant a type
+  mentions exists" cannot be checked against the newest environment as written — it must hold
+  within the version being read, and a missing constant in the newest one is a printing input,
+  not a misread.
+- **18.66% of declarations have the same name with a different type in v4.34.1**, and 0.78% have
+  no such name. The lookup clause above is not a corner case.
+- Only the pair v4.31.0 → v4.34.1 (3 minor releases apart) is measured. Drift for v4.29 / v4.30
+  (5 apart) is unmeasured and is not extrapolated from this.
 
 ## Features that could be given up
 
