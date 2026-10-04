@@ -293,8 +293,9 @@ served. Bound by U5 and U6. **A deploy that cannot finish inside the host's limi
 | Thin HTML for all versions, content as shared data, client render | distinct content | no-JS reading of everything; first-paint time (U7) |
 
 Bound by U3 (how much is shared), U4 (what the bytes are) and U7 (what the reader pays). Page
-paths and anchors are part of the 1.x public surface (`tools/public-surface.txt`): adding version
-paths is allowed, changing or removing the existing ones is not.
+paths and anchors are part of the 1.x public surface (`tools/public-surface.txt`), but **this
+milestone may be v2.0.0** (decided 2026-10-04, user's call): the design aims at what it should be,
+and breaks the 1.x promise where that requires it.
 
 **Reading without JavaScript may be given up, for every version** (decided 2026-10-04, user's
 call). That leaves the third row open, and lets a page carry its signatures as data drawn in the
@@ -326,9 +327,21 @@ link), a finer unit pays; otherwise per declaration.
 
 ### D6 — URL scheme and the version switcher
 
-For example `/<release>/Mathlib/Foo/Bar.html` plus an alias for the latest. What switching does on
-a page that does not exist in the other version (module renamed, split, deleted), and on an anchor
-whose declaration does not exist there.
+**Every page's own URL carries its version** — `/<version>/Mathlib/Foo/Bar.html#Foo.bar` — so a
+link means the same thing forever; "latest" is only a moving alias next to it (decided
+2026-10-04, user's call). The two kinds of link people write are served apart: a citation of a
+statement wants the fixed one, "the docs of X" wants the alias.
+
+Open:
+
+- the alias's spelling: the site root, `/latest/`, or both;
+- a site with no fixed version (built from a branch on every push): there nothing is immutable —
+  a commit label gives a fixed URL whose content is not kept, and a branch label is the alias
+  under another name;
+- links into today's sites (`/Mathlib/Foo/Bar.html`): sent to the latest version — by the page
+  itself, since a static host serves no redirects;
+- what switching does on a page that does not exist in the other version (module renamed, split,
+  deleted), and on an anchor whose declaration does not exist there.
 
 ### D7 — How a new release gets in
 
@@ -352,9 +365,23 @@ format. Consequences for every litedoc4 site, the single-version ones included:
 - content is stored compressed, signatures are carried as data (D4, "How one version shrinks");
 - long signatures wrap like prose — no subterm wrapping.
 
-Still open: the public surface it adds (a flag or `litedoc4.toml` key for the version set, and the
-version paths of D6). Page paths and anchors of a single-version site must stay as they are
-(`tools/public-surface.txt`).
+The surface it adds:
+
+- **The version set can be given both ways** (decided 2026-10-04, user's call): as an explicit
+  list, and as a rule (for Mathlib: the releases that are not prereleases).
+- **How versions are passed — leaning to one command, not decided.** One `build` given the version
+  set checks out each version, prepares its Lean and dependencies, builds the extractor against
+  that Lean, extracts, and renders the whole site. The alternative is extraction per version as
+  today plus one step that assembles N extractions into a site. One command is what a user wants
+  to type; its cost is that the product takes over toolchain installs and dependency fetching per
+  version, which for a package without Mathlib's cache means building from source.
+- **The check behind the page-path promise has to be replaced, not updated.** Today it is the 51
+  frozen pages of `e2e/micro-expected`, compared byte for byte. Data drawn in the browser changes
+  every byte, and those answers were minted by an implementation that left the tree, so they must
+  not be re-minted from the new output (CLAUDE.md, "The removed trees"). What replaces it checks
+  paths and anchors as a reader meets them: the list of page paths, and every anchor reached
+  after the browser has drawn the page — including a `#name` link arriving from outside, which
+  has to scroll once the content exists.
 
 ## Features that could be given up
 
