@@ -167,7 +167,11 @@ Two pairs can run today, before U1, because both sides are on supported toolchai
 
 For each pair, classify every declaration as: unchanged / changed in source / changed only in
 rendered content / added / removed. Then split "changed only in rendered content" by cause:
-signature links, pretty-printing, docstring link resolution, Used by, instances, source link.
+signature links, pretty-printing, docstring link resolution, Used by, instances, source link, and
+the attribute string of reducible instances — Lean renamed it between v4.32.2
+(`implicit_reducible`) and v4.33.0 (`instance_reducible`) (`tools/lean-toolchains.txt`, column 2),
+so the minor pair carries churn that no Mathlib source change caused. The patch pair, on one Lean
+series, is the cleaner measurement of the hypothesis.
 Count source links both ways — pinned to the commit SHA, and as a constant prefix.
 
 - **Expected**: excluding source links, Used by and instances, ≥ 90% of declarations are
@@ -222,6 +226,13 @@ and of links from outside (search engines, Zulip, papers), memory in the browser
 
 Non-prerelease releases on the Releases page: 11 today. **Open**: what to do with a release U1
 cannot build for — fix the extractor, or drop that version and say so on the site.
+
+### D1b — Dependency documentation
+
+Every number above is `--lib Mathlib` only. Mathlib's own published documentation also serves Lean
+core, Batteries, Aesop and its other dependencies, and each release pins different versions of
+them. In this milestone or not: if in, the hosting budget is set against a larger number than
+1.1 GB per version, and U4 has to measure that number too.
 
 ### D2 — The budgets
 
