@@ -80,9 +80,14 @@ Read from the vendors' documentation on 2026-10-04:
 - **Cloudflare Pages**: at most 20,000 files per site (free) or 100,000 (paid); at most 25 MiB per
   file; no stated total size limit.
 
-**One Mathlib version (1.1 GB) already does not fit on GitHub Pages**, and 11 versions as they are
-today are ≈ 4.5× Cloudflare Pages' free file limit. So the size question is not "how do we fit
-11 copies" but "how do we fit one, then make the other ten nearly free".
+**One Mathlib version (1.1 GB) is already over GitHub Pages' documented limit**, and 11 versions as
+they are today are ≈ 4.5× Cloudflare Pages' free file limit. So the size question is not "how do
+we fit 11 copies" but "how do we fit one, then make the other ten nearly free".
+
+**The documented 1 GB is not what GitHub enforces at this size**: doc-gen4's own Mathlib site is
+2,555,490,819 B and its GitHub Pages deploy succeeds (measured 2026-10-04 →
+`benchmarks/results/mathlib-site-bytes-2026-10-04.txt`). That is an observation about one
+repository on one day, not a promise; the plan does not rely on it.
 
 ### What incremental extraction will not buy
 
@@ -193,6 +198,24 @@ assets. This decides which representation change pays (→ D4) and which feature
   most of the rest.
 - **Wrong if**: one part that cannot be shared dominates — then sharing does not get one version
   under the hosting limit, and the representation itself has to shrink.
+
+**Answered 2026-10-04** (measured → `benchmarks/results/mathlib-site-bytes-2026-10-04.txt`):
+
+- **The size is the format, not litedoc4.** doc-gen4's Mathlib module pages are 1,069,790,161 B
+  against litedoc4's 1,074,699,047 B; on the 5,877 modules with the same content litedoc4 is
+  1.051×.
+- **Signatures are 63.92% of page bytes, and markup is 89.88%.** Text is 9.99%. Links are 37.92%
+  of bytes.
+- **Per-page chrome is small**: 1,612 B of fixed boilerplate per page, 1.36% in total. The
+  "expected" above was wrong on this half.
+- **Levers, as upper bounds that overlap**: the `<span class="fn">` wrappers in signatures
+  (≈ 247 MB, the same density in doc-gen4); links to Lean core source on GitHub (835,214 links,
+  ≈ 100 MB, only 1,733 distinct URLs — litedoc4 only); same-page links spelled as full paths
+  (≈ 47 MB); `../` prefixes (≈ 40 MB); the Used by placeholder (≈ 40 MB, litedoc4 only).
+- **What this means for D4**: the bytes are link and span markup around a small amount of text,
+  so a representation that carries signatures as data (a name table plus token references) and
+  draws the markup in the browser would shrink one version by much more than deduplicating
+  versions does — but it gives up no-JS reading. That is not measured yet.
 
 ### U5 — Can the build host carry it?
 
