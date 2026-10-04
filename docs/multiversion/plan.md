@@ -457,9 +457,13 @@ pairs v4.29.0 → v4.34.1, reflection on the 5 installed toolchains, v4.29/v4.30
 - **1 of 10 pairs changed a meaning without changing a shape** — v4.33.0's reducibility status,
   the value `tools/lean-toolchains.txt` already records. This is the silent-misread kind
   mechanism 2 exists for.
-- **Verso docstrings cannot be read by any reader.** They carry `Dynamic` payloads, and since
-  v4.33.0 turning one into Markdown runs handler code registered by the package. Core has 767;
-  Mathlib's count is not measured.
+- **A Verso docstring's custom blocks need a package's code to become text.** Their values are
+  `Dynamic` (a value of a type the package defines), and since v4.33.0 turning one into Markdown
+  runs a handler the package registered. The reader can walk the value but not render it alone.
+  The way consistent with this direction is the newest version's handler, fed the old value
+  rebuilt as the newest Lean's object of the same type (theoretical, unverified) — the old
+  `.olean` carries that type's definition, so a changed type is detected rather than misread.
+  Core has 767 Verso docstrings; Mathlib's count, and how many use custom blocks, is not measured.
 
 **The cost of the approximation is small too** (extrapolated: 5,000 of 311,415 Mathlib v4.31.0
 declarations, 1.61%, seeded; each type printed by v4.31.0 and, rebuilt verbatim, by v4.34.1 with
