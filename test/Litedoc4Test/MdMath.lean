@@ -16,7 +16,8 @@ namespace Litedoc4Test
 open Litedoc4
 
 def mathOf (latex : String) (display : Bool) : String × Nat :=
-  (mdMath "" latex display).run 0
+  let (out, state) := (mdMath "" latex display).run {}
+  (out, state.mathFallbacks)
 
 def holds (s sub : String) : Bool := (s.splitOn sub).length > 1
 

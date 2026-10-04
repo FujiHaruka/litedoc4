@@ -548,7 +548,7 @@ def site (args : List String) : IO UInt32 := do
       let derived ← buildGlobal
         { ir := ir, out := out, state := a.state.map (⟨·⟩)
           indexMarkdown := inputs.config.indexMarkdown, title := inputs.config.title
-          references := inputs.config.bibliography.items }
+          bibliography := inputs.config.bibliography }
       let globalDone ← IO.monoNanosNow
       -- Labelled per stage: one merged line would lose which half of the tree a
       -- number is about, and the two count different things under the same word
@@ -631,7 +631,7 @@ def globalCmd (args : List String) : IO UInt32 := do
           before := a.before.map (⟨·⟩), printSet := a.printSet.map (⟨·⟩)
           deltaJson := a.deltaJson.map (⟨·⟩), timings := a.timings.map (⟨·⟩)
           indexMarkdown := config.indexMarkdown, title := config.title
-          references := config.bibliography.items }
+          bibliography := config.bibliography }
       printGlobalSummary "" summary
       return 0
     catch e =>

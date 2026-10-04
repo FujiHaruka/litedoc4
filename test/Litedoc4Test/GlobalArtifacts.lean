@@ -77,6 +77,28 @@ def chain (described : Bool) : Array ModuleFacts :=
 
 def chainArtifacts : Artifacts := derive (chain false) #[] none none #[] "4.31.0"
 
+def cites (owner citekey funName : String) : PageCitation :=
+  { owner, citation := { citekey, funName } }
+
+/-- The modules in the order `index.html` lists them rather than the order the
+facts arrive in, and a module's anchors numbered **after** the declarations
+another module suppresses are dropped — the renderer numbers the page it writes,
+and that page does not carry them. -/
+def backReferencesFollowTheModuleListAndSkipWhatAnotherModuleSuppresses : Bool :=
+  let late : ModuleFacts :=
+    { moduleFacts "Pkg.B" [] [] with
+        citations := #[cites "" "K" "", cites "Pkg.B.y" "K" "Pkg.B.y", cites "Pkg.B.z" "L" "Pkg.B.w"] }
+  let early : ModuleFacts :=
+    { moduleFacts "Pkg" [] [] with
+        citations := #[cites "" "L" ""], foreignMembers := #["Pkg.B.y"] }
+  backrefsOf #[late, early] ==
+    #[{ module := "Pkg", index := 0, citation := { citekey := "L", funName := "" } },
+      { module := "Pkg.B", index := 0, citation := { citekey := "K", funName := "" } },
+      { module := "Pkg.B", index := 1, citation := { citekey := "L", funName := "Pkg.B.w" } }]
+    && (backrefsOf #[late]).size == 3
+
+#guard backReferencesFollowTheModuleListAndSkipWhatAnotherModuleSuppresses
+
 def parsedObj (json : String) : Array (String × JVal) :=
   match parseJson json with
   | .ok v => asObj v

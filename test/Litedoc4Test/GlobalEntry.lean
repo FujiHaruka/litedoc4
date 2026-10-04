@@ -71,14 +71,33 @@ markup BibtexQuery already escaped and goes in as it is. -/
 def aReferenceIsItsAnchorItsTagAndItsEntry : Bool :=
   let item : BibItem := { citekey := "K", tag := "[A&B12]", html := "<i>T</i> &amp; U."
                           plaintext := "T & U." }
-  referenceItemHtml "" item
+  referenceItemHtml {} "" item
       == "<li id=\"ref_K\"><a href=\"#ref_K\">[A&amp;B12]</a> <i>T</i> &amp; U.</li>"
-    && has (referencesHtml "T" #[item, { item with citekey := "L" }])
+    && has (referencesHtml "T" #[item, { item with citekey := "L" }] #[])
       "<h1>References</h1></div><div class=\"doc\"><ul><li id=\"ref_K\">"
-    && has (referencesHtml "T" #[]) "<ul></ul>"
-    && countOf (referencesHtml "T" #[item, { item with citekey := "L" }]) "<li id=" == 2
+    && has (referencesHtml "T" #[] #[]) "<ul></ul>"
+    && countOf (referencesHtml "T" #[item, { item with citekey := "L" }] #[]) "<li id=" == 2
 
 #guard aReferenceIsItsAnchorItsTagAndItsEntry
+
+/-- doc-gen4's `refItem` after the entry: each citation of the key, numbered from
+one in the order given, linking to the anchor on the citing page and titled with
+the module and — outside a module docstring — the declaration. The newline in the
+title is a raw newline, as doc-gen4's `Html.escape` leaves it. -/
+def aReferenceListsItsBackReferencesAfterTheEntry : Bool :=
+  let item : BibItem := { citekey := "K", tag := "[K]", html := "E.", plaintext := "E." }
+  let backrefs : Array Backref :=
+    #[{ module := "Pkg", index := 0, citation := { citekey := "K", funName := "" } },
+      { module := "Pkg.A", index := 3, citation := { citekey := "L", funName := "Pkg.A.f" } },
+      { module := "Pkg.A", index := 4, citation := { citekey := "K", funName := "Pkg.A.<&>" } }]
+  has (referencesHtml "T" #[item] backrefs)
+    ("<li id=\"ref_K\"><a href=\"#ref_K\">[K]</a> E.<small>"
+      ++ " <a href=\"./Pkg.html#_backref_0\" title=\"File: Pkg\">[1]</a>"
+      ++ " <a href=\"./Pkg/A.html#_backref_4\" title=\"File: Pkg.A\nLocation: Pkg.A.&lt;&amp;&gt;\">[2]</a>"
+      ++ "</small></li>")
+    && !has (referencesHtml "T" #[item] backrefs) "_backref_3"
+
+#guard aReferenceListsItsBackReferencesAfterTheEntry
 
 def described (name page summary : String) : ModuleRow :=
   { name, page, summary := some summary }
@@ -114,7 +133,8 @@ def everyClassTheEntryPagesEmitIsStyled : Invariant where
     let mut seen := 0
     let mut missing : Array String := #[]
     for page in [indexHtml "T" none modules 1 "4.31.0", notFoundHtml "T", searchHtml "T",
-        foundationalTypesHtml "T", referencesHtml "T" #[reference]] do
+        foundationalTypesHtml "T", referencesHtml "T" #[reference]
+          #[{ module := "Pkg", index := 0, citation := { citekey := "K", funName := "Pkg.f" } }]] do
       for cls in classNames page do
         seen := seen + 1
         if !has styleCss ("." ++ cls) then missing := missing.push cls

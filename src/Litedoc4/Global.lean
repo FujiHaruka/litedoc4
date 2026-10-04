@@ -31,7 +31,7 @@ structure GlobalOptions where
   both paths are relative to it. -/
   indexMarkdown : Option String := none
   title : Option String := none
-  references : Array BibItem := #[]
+  bibliography : Bibliography := {}
   deriving Inhabited
 
 structure GlobalSummary where
@@ -70,7 +70,7 @@ incidental: `derive` resolves a duplicated declaration name in favour of the
 later module. The hit test is `cached.contentHash == entry.contentHash` and
 nothing else — the hash is the extractor's `String.hash` of the module JSON, so
 equal hash is equal bytes is equal facts. -/
-def factsFor (tree : IrTree) (cached : State) : IO FactsRun := do
+def factsFor (tree : IrTree) (cached : State) (bib : Bibliography) : IO FactsRun := do
   let mut run : FactsRun := { facts := Array.mkEmpty tree.index.modules.size }
   for entry in tree.index.modules do
     let hit := match cached.modules.get? entry.module with
@@ -79,7 +79,7 @@ def factsFor (tree : IrTree) (cached : State) : IO FactsRun := do
     match hit with
     | some f => run := { run with facts := run.facts.push f, cacheHits := run.cacheHits + 1 }
     | none =>
-      let derived := factsOf (← tree.module entry) entry.contentHash
+      let derived := factsOf (← tree.module entry) entry.contentHash bib
       run := { run with facts := run.facts.push derived, cacheMisses := run.cacheMisses + 1 }
   return run
 
@@ -132,14 +132,14 @@ def globalTimingsJson (s : GlobalSummary) (stateOn : Bool)
 def buildGlobal (o : GlobalOptions) : IO GlobalSummary := do
   let started ← IO.monoNanosNow
   let tree ← openIrTree o.ir
-  let cached ← State.load o.state tree.index
+  let cached ← State.load o.state tree.index o.bibliography.digest
   let stateLoaded ← IO.monoNanosNow
-  let run ← factsFor tree cached
+  let run ← factsFor tree cached o.bibliography
   let read ← IO.monoNanosNow
   let facts := run.facts
   let depMaps ← tree.loadDepMaps
   let artifacts :=
-    derive facts depMaps o.title (o.indexMarkdown.map introHtml) o.references
+    derive facts depMaps o.title (o.indexMarkdown.map introHtml) o.bibliography.items
       tree.index.leanVersion
   for (relative, body) in artifactFiles artifacts do
     let path := irPath o.out relative
@@ -163,7 +163,7 @@ def buildGlobal (o : GlobalOptions) : IO GlobalSummary := do
         writeFile path (deltaJson delta (diffed - written) (scanned - diffed) (scanned - written))
       pure (some delta)
   let deltaDone ← IO.monoNanosNow
-  let stateBytes ← State.save o.state tree.index facts
+  let stateBytes ← State.save o.state tree.index facts o.bibliography.digest
   let total ← IO.monoNanosNow
   let counts := artifacts.counts
   let summary : GlobalSummary := {

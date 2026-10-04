@@ -198,13 +198,19 @@ only thing that reads them.
 
 **Not every byte in it is the Rust half's.** `site/references.html` and
 `build/references.html` were written by the Lean half on 2026-10-04: the page did
-not exist while the Rust binary did. So were the citation anchors in
+not exist while the Rust binary did. So were the citations in
 `Example.html`, `Example/Basic.html` and `Example/Math.html` under `render/`,
-`nolidx/` and `build/`, which came with `micro/docs/references.bib`; the rest of
-those pages' change is the sentences that carry the citations and a one-line
-`#L` shift in the source links below them. What read those bytes independently
+`nolidx/` and `build/`, which came with `micro/docs/references.bib` — links under
+`build/` and the author's text under the other two — and so was the one-line `#L`
+shift in the source links below them. What read those bytes independently
 is BibtexQuery's own command line (`bibtex-query l`), whose tags and entry text
-were compared with `references.html` before they were frozen.
+were compared with `references.html` before they were frozen. The back-references
+were added to the same files by hand later that day, and only where they land: the
+`id="_backref_0"` on each of the three citations under `build/`, the three
+`<small>` lists in `build/references.html`, `renderKey.renderer` in `ledger.json`,
+and the render and state byte counts in `build.out`. `render/`, `nolidx/` and
+`site/` are rendered without `--root`, so no bibliography reaches them and they did
+not move.
 
 It outlived `crates/` on purpose: the Rust binary was the port's oracle, and
 anything minted after it left would record what the Lean half does today rather

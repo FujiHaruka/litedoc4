@@ -30,7 +30,7 @@ def extractorId : String := "litedoc4 extractor v3"
 /-- Which implementation will run when the key says "re-render everything".
 Bump it whenever the renderer's output bytes can change with the IR held
 fixed. -/
-def rendererId : String := "litedoc4 renderer v4"
+def rendererId : String := "litedoc4 renderer v5"
 
 /-- In the order they are hashed. -/
 def oleanSuffixes : Array String := #[".olean", ".olean.server", ".olean.private"]

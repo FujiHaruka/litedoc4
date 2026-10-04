@@ -164,40 +164,50 @@ def extendLink (c : Renderer) (s : String) : String :=
   else if s.startsWith "#" || s.startsWith "http" then s
   else c.root ++ s
 
+/-- What a walk over one page's docstrings carries from one to the next.
+
+`mathFallbacks` counts the spans that fell back to their source. It is threaded
+through the renderer rather than recounted afterwards because a second walk over
+the parsed document would answer the same question along a second path: a span
+one walk reaches and the other does not is a wrong count on a right page. What
+would falsify that: a span whose fallback is decidable without rendering it.
+
+`cited` is threaded for the same reason: a citation anchor's `id` is its position
+among the page's citations, and the list a page is checked against is read off
+this same walk. -/
+structure MdState where
+  mathFallbacks : Nat := 0
+  cited : Array String := #[]
+  deriving Inhabited
+
 /-- The MathML goes in as markup — escaping it would print it — and a span the
 converter refuses falls back to the dollars and the escaped source, which is
 what doc-gen4 emits for every span, so such a page is no worse than a doc-gen4
 page. Refusal is a contract and not a rare branch: 6 of Mathlib's 2,113 spans
-take it.
-
-The state counts the spans that took the fallback. It is threaded through the
-renderer rather than recounted afterwards because a second walk over the parsed
-document would answer the same question along a second path: a span one walk
-reaches and the other does not is a wrong count on a right page. What would
-falsify that: a span whose fallback is decidable without rendering it. -/
-def mdMath (out : String) (latex : String) (display : Bool) : StateM Nat String :=
+take it. -/
+def mdMath (out : String) (latex : String) (display : Bool) : StateM MdState String :=
   match MathML4Lean.toMathML latex (if display then .block else .inline) with
   | some mathml => pure (out ++ mathml)
   | none => do
-    modify (· + 1)
+    modify fun s => { s with mathFallbacks := s.mathFallbacks + 1 }
     let d := if display then "$$" else "$"
     return escapeInto (out ++ d) latex ++ d
 
 mutual
 
 partial def mdTexts (out : String) (c : Renderer) (ts : Array Md.Text)
-    (inLink : Bool) : StateM Nat String :=
+    (inLink : Bool) : StateM MdState String :=
   ts.foldlM (fun acc t => mdText acc c t inLink) out
 
 partial def mdWrap (out : String) (c : Renderer) (tag : String)
-    (ts : Array Md.Text) (inLink : Bool) : StateM Nat String := do
+    (ts : Array Md.Text) (inLink : Bool) : StateM MdState String := do
   let acc ← mdTexts (out ++ "<" ++ tag ++ ">") c ts inLink
   return acc ++ "</" ++ tag ++ ">"
 
 /-- `renderText`. `inLink` suppresses auto-linking inside an `<a>`, which is what
 stops the output from nesting anchors. -/
 partial def mdText (out : String) (c : Renderer) (t : Md.Text)
-    (inLink : Bool) : StateM Nat String :=
+    (inLink : Bool) : StateM MdState String :=
   match t with
   | .normal s => pure (escapeInto out s)
   | .nullchar => pure (out ++ "�")
@@ -213,7 +223,9 @@ partial def mdText (out : String) (c : Renderer) (t : Md.Text)
     let acc := escapeInto (out ++ "<a href=\"") (extendLink c target) ++ "\""
     match c.bib.cited? target with
     | some item =>
-      let acc := escapeInto (acc ++ " title=\"") item.plaintext ++ "\">"
+      let index ← modifyGet fun s => (s.cited.size, { s with cited := s.cited.push item.citekey })
+      let acc := escapeInto (acc ++ " title=\"") item.plaintext ++ "\" id=\""
+      let acc := acc ++ backrefAnchor index ++ "\">"
       let acc ← match ts with
         | #[.normal s] => if s == item.citekey then pure (escapeInto acc item.tag)
                           else mdTexts acc c ts true
@@ -243,12 +255,12 @@ partial def mdText (out : String) (c : Renderer) (t : Md.Text)
     return acc ++ "</x-wikilink>"
 
 partial def mdBlocks (out : String) (c : Renderer) (bs : Array Md.Block)
-    (tight : Bool) : StateM Nat String :=
+    (tight : Bool) : StateM MdState String :=
   bs.foldlM (fun acc b => mdBlock acc c b tight) out
 
 /-- `renderLi`. -/
 partial def mdLi (out : String) (c : Renderer) (li : Md.Li Md.Block)
-    (tight : Bool) : StateM Nat String := do
+    (tight : Bool) : StateM MdState String := do
   let acc := out ++ "<li>"
   let acc := if li.isTask then
       acc ++ (if li.taskChar == some 'x' || li.taskChar == some 'X'
@@ -260,7 +272,7 @@ partial def mdLi (out : String) (c : Renderer) (li : Md.Li Md.Block)
 
 /-- `renderBlock`. `tight` reaches only `.p`. -/
 partial def mdBlock (out : String) (c : Renderer) (b : Md.Block)
-    (tight : Bool) : StateM Nat String :=
+    (tight : Bool) : StateM MdState String :=
   match b with
   | .p ts =>
     if tight then mdTexts out c ts false
@@ -311,7 +323,7 @@ partial def mdBlock (out : String) (c : Renderer) (b : Md.Block)
 end
 
 /-- `docStringToHtml`. -/
-def docstring (out : String) (c : Renderer) (text : String) : StateM Nat String :=
+def docstring (out : String) (c : Renderer) (text : String) : StateM MdState String :=
   match Md.parse (text ++ referenceDefinitions (citedKeys c.bib text)) docstringFlags with
   | some doc => mdBlocks out c doc.blocks false
   | none =>
@@ -326,7 +338,7 @@ wrapper from a `<p>` the author wrote, and the input is only one paragraph when
 it parses as one. Anything else is escaped, so a caller that hands this a list or
 a table gets the author's characters rather than markup it did not ask for. What
 would falsify this: a caller that owns the whole element it puts the result in. -/
-def inlineMd (out : String) (c : Renderer) (text : String) : StateM Nat String :=
+def inlineMd (out : String) (c : Renderer) (text : String) : StateM MdState String :=
   match Md.parse (text ++ referenceDefinitions (citedKeys c.bib text)) docstringFlags with
   | some doc =>
     match doc.blocks.toList with

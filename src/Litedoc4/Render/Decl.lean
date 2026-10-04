@@ -3,31 +3,46 @@ import Litedoc4.Render.Code
 
 namespace Litedoc4
 
-/-- What a page builder returns: the markup and the running count of math spans
-that fell back to their LaTeX source, or the message the run stops with.
+/-- What a page builder returns: the markup and what the walk over the page's
+docstrings carried, or the message the run stops with.
 
 Named rather than spelled out at each signature because both results run along
 this same chain from the innermost builder up to `renderSite`, and a layer added
 here reaches all of them at once. What would falsify the alias: an out-of-band
 result that travels only part of the chain, which would want its own type rather
 than this one widened. -/
-abbrev RenderM := StateT Nat (Except String)
-
-/-- The markup renderer counts its fallbacks in a state of its own; this is where
-the two meet. A caller adding the returned number itself would work, and is not
-done because there are three call sites and forgetting one undercounts silently.
-What would falsify the join: `Md.Html` carrying `RenderM` directly, which would
-put the IR's failure mode inside a Markdown renderer. -/
-def renderDocstring (out : String) (c : Renderer) (text : String) : RenderM String :=
-  modifyGet fun n => (docstring out c text).run n
+abbrev RenderM := StateT MdState (Except String)
 
 /-- Per page rather than per run: the root, the source URL and the docstring
 renderer (whose resolver scans *this* module's declarations) all change from
-page to page. -/
+page to page, and so do the citations the page has to carry. -/
 structure DeclRenderer where
   ix : NameIndex
   root : String
   md : Renderer
+  citations : Array Citation := #[]
+
+/-- Where the Markdown renderer's state meets the page's. Each citation anchor
+the docstring wrote is held against the one the page was told to carry at the
+same position — after the docstring rather than at the anchor, because the
+Markdown renderer cannot fail and putting the IR's failure mode inside it is
+what keeping `RenderM` out of `Md.Html` avoids. -/
+def renderDocstring (out : String) (c : DeclRenderer) (funName text : String) :
+    RenderM String := do
+  let before := (← get).cited.size
+  let html ← modifyGet fun s => (docstring out c.md text).run s
+  let cited := (← get).cited
+  for i in [before:cited.size] do
+    let wrote : Citation := { citekey := cited[i]!, funName }
+    match c.citations[i]? with
+    | none =>
+      throw s!"citation {i} ({wrote.citekey} in `{funName}`) is not one the page was \
+        expected to carry; it was expected to carry {c.citations.size}"
+    | some want =>
+      if want != wrote then
+        throw s!"citation {i} is {wrote.citekey} in `{funName}`, where the page was \
+          expected to carry {want.citekey} in `{want.funName}`"
+  return html
 
 /-- `declNameToLink`: the declaration's own references first, then the IR's map,
 then the dependency closure's `.lidx`.
@@ -162,12 +177,12 @@ def containedNames (m : Module) (parent : Decl) : Std.HashSet String := Id.run d
     if startsInside && endsInside then out := out.insert d.name
   return out
 
-def memberBody (out : String) (c : DeclRenderer) (short args body : String) (doc : String) :
+def memberBody (out : String) (c : DeclRenderer) (name short args body : String) (doc : String) :
     RenderM String := do
   let mut acc := escapeInto (out ++ "<div class=\"field-sig\"><span class=\"field-name\">") short
   acc := acc ++ "</span>" ++ args ++ "<span class=\"colon\"> : </span>" ++ body ++ "</div>"
   if !doc.isEmpty then
-    acc ← renderDocstring (acc ++ "<div class=\"field-doc\">") c.md doc
+    acc ← renderDocstring (acc ++ "<div class=\"field-doc\">") c name doc
     acc := acc ++ "</div>"
   return acc ++ "</li>"
 
@@ -201,7 +216,7 @@ def structureHtml (out : String) (c : DeclRenderer) (m : Module) (d : Decl)
       lis := lis ++ args ++ "<span class=\"colon\"> : </span>" ++ body ++ "</div></li>"
     else
       lis := escapeInto (lis ++ "<li id=\"") f.name ++ "\" class=\"field\">"
-      lis ← memberBody lis c short args body f.doc
+      lis ← memberBody lis c f.name short args body f.doc
   let ctorName := match d.members.find? (·.label == "ctor") with
     | some ctor => ctor.name
     | none => d.name ++ ".mk"
@@ -221,7 +236,7 @@ def constructorsHtml (out : String) (c : DeclRenderer) (d : Decl)
     let args := pushArgs "" c.ix refs c.root ctor.binders ctor.binderCode ctor.implicits
     let (body, _) := fragment c.ix refs c.root ctor.text ctor.code
     lis := escapeInto (lis ++ "<li id=\"") ctor.name ++ "\" class=\"ctor\">"
-    lis ← memberBody lis c short args body ctor.doc
+    lis ← memberBody lis c ctor.name short args body ctor.doc
   if lis.isEmpty then return out
   return out ++ "<ul class=\"ctors\">" ++ lis ++ "</ul>"
 
@@ -241,7 +256,7 @@ def declHtml (out : String) (c : DeclRenderer) (m : Module) (d : Decl) (sourceUr
     acc := escapeInto (acc ++ "<div class=\"attrs\">") (joined ++ "]") ++ "</div>"
   acc := signatureHtml acc c.ix refs c.root d
   if !d.doc.isEmpty then
-    acc ← renderDocstring (acc ++ "<div class=\"doc\">") c.md d.doc
+    acc ← renderDocstring (acc ++ "<div class=\"doc\">") c d.name d.doc
     acc := acc ++ "</div>"
   let mut extra := ""
   if d.kind == "structure" || d.kind == "class" then

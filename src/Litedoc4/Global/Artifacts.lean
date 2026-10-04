@@ -91,6 +91,23 @@ def nameListsJson (pairs : Array (String × Array String)) : String := Id.run do
     out := out.push ']'
   return out.push '}'
 
+/-- Every module's citation anchors, the modules in the UTF-16 order of their
+names — the order `index.html` lists them in — and each module's in page order. A
+module's facts were taken under its own suppressed set; what the other modules
+add to it is applied here. -/
+def backrefsOf (facts : Array ModuleFacts) : Array Backref := Id.run do
+  let mut foreign : Std.HashSet String := {}
+  let mut byModule : Std.HashMap String ModuleFacts := Std.HashMap.emptyWithCapacity facts.size
+  for f in facts do
+    byModule := byModule.insert f.module f
+    for name in f.foreignMembers do foreign := foreign.insert name
+  let mut out : Array Backref := #[]
+  for module in sortUtf16 (facts.map (·.module)) do
+    let cs := dropSuppressed (byModule.getD module {}).citations foreign
+    for i in [0:cs.size] do
+      out := out.push { module, index := i, citation := cs[i]!.citation }
+  return out
+
 /-- **Index order is behaviour, twice.** Two modules declaring the same name
 leave the later one in the map, and a module's importer list is built in it
 (before being sorted). Passing the facts in any other order is a different
@@ -236,7 +253,7 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
     notFoundHtml := notFoundHtml title
     searchHtml := searchHtml title
     foundationalTypesHtml := foundationalTypesHtml title
-    referencesHtml := referencesHtml title references
+    referencesHtml := referencesHtml title references (backrefsOf facts)
     modulesJson
     searchIndexBin
     instancesJson :=

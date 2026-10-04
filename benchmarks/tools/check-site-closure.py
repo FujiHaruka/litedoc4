@@ -5,7 +5,7 @@ The UI is ours, so no third party knows what these bytes should be. What
 survives the loss of an external oracle is what the tree can be asked about
 *itself*. Nothing here needs the network, doc-gen4, or the corpus.
 
-Seven questions, each printed with its 母数 so that a passing run says how much
+Eight questions, each printed with its 母数 so that a passing run says how much
 it looked at rather than only that it was happy:
 
   1. modules.json      every module names a page that exists
@@ -16,12 +16,18 @@ it looked at rather than only that it was happy:
   5. instances         every instance name is a declaration the index knows
   6. instancesFor      every key and every value is a declaration
   7. resources         no <script src> / <link href> points at another host
+  8. references.html   every back-reference is an anchor on the page it names
+  8b. pages            every citation anchor is a back-reference on references.html
 
 (3) and (4) are deliberately the two directions of the same statement. One of
 them alone is satisfied by an index that is a subset of the pages, or by pages
 that are a subset of the index — and both of those are exactly how a renderer
 and an index generator drift apart: the search box stops finding a declaration
 that is on the page, or finds one that is not.
+
+(8) and (8b) are the same pair for citations. The anchors are numbered by the
+renderer and listed by the whole-package step, which in an incremental build runs
+first, so the two are written apart and can only be held together here.
 
 (7)'s subject is not `<a href>`: a link into a dependency's source is a
 version-pinned GitHub blob URL by design, and clicking it is not the page
@@ -51,6 +57,9 @@ RESOURCE = re.compile(
     r'<(?:script\b[^>]*\bsrc|link\b[^>]*\bhref)="([^"]*)"', re.IGNORECASE
 )
 EXTERNAL = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:)?//")
+BACKREF_PREFIX = "_backref_"
+BACKREF_LINK = re.compile(r'<a href="([^"]*)#(' + BACKREF_PREFIX + r'[^"]*)"')
+REFERENCES = "references.html"
 
 
 def read(path):
@@ -289,6 +298,36 @@ def main():
         pairs = [(key, name) for key, group in instances_for.items() for name in group]
         bad = {f"{key} -> {name}" for key, name in pairs if name not in names}
         fail("instancesFor -> declarations", bad, len(pairs))
+
+    # 8 / 8b — citations, both directions. The listed side is every
+    # `page#_backref_N` link on references.html, resolved against its directory.
+    if REFERENCES not in all_anchors:
+        problems.append(f"{REFERENCES}: missing — the site is not complete")
+    else:
+        listed = set()
+        for href, fragment in BACKREF_LINK.findall(read(os.path.join(site, REFERENCES))):
+            target = posixpath.normpath(
+                posixpath.join(posixpath.dirname(REFERENCES), html.unescape(href))
+            )
+            listed.add((target, html.unescape(fragment)))
+        fail(
+            "references.html -> citation anchors",
+            {f"{page}#{anchor}" for page, anchor in listed
+             if anchor not in all_anchors.get(page, ())},
+            len(listed),
+        )
+        cited = {
+            (page, anchor)
+            for page, anchors in all_anchors.items()
+            if page != REFERENCES
+            for anchor in anchors
+            if anchor.startswith(BACKREF_PREFIX)
+        }
+        fail(
+            "citation anchors -> references.html",
+            {f"{page}#{anchor}" for page, anchor in cited if (page, anchor) not in listed},
+            len(cited),
+        )
 
     # 7 — no external hosts.
     counts["external resources"] = {"checked": len(pages), "failed": len(resources)}

@@ -449,7 +449,11 @@ checks the notice is still there.
 `src/Litedoc4/Bib.lean` follows doc-gen4's *behaviour* — the `[key]` scan of `findAllReferences`,
 the `[key]: references.html#ref_key` lines `docStringToHtml` appends, the `references.html#ref_`
 prefix of `findBibitem?` — and is written independently of its code, so it is **C**. The `<li>`
-shape of `references.html` (`refItem`) is in `src/Litedoc4/Global/Entry.lean`, also **C**.
+shape of `references.html` (`refItem`) is in `src/Litedoc4/Global/Entry.lean`, also **C**. So is the
+list of back-references after each entry, which follows `refItem`'s markup and `BackrefItem`'s
+fields, and `src/Litedoc4/Render/PageDocs.lean`, which decides which `_backref_<n>` anchors a page
+carries. The anchor itself is written in `src/Litedoc4/Md/Html.lean`'s citation branch, a file
+already under the notice above.
 
 **BibtexQuery** (Apache-2.0, Frédéric Dupuis) is a Lake dependency, required from
 `lakefile.lean` and pinned to the commit doc-gen4 pins. Nothing of it is reproduced in this tree,

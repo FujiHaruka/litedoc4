@@ -20,7 +20,10 @@ def sampleFacts : ModuleFacts :=
     tokens := #["Pkg", "Pkg.A"]
     instancesFor := #[("Pkg.T", "Pkg.A.inst")]
     refs := refsOf [("Pkg.a", [0, 1]), ("Pkg.b", [1])]
-    summary := some "A \"quoted\" heading" }
+    summary := some "A \"quoted\" heading"
+    citations := #[{ owner := "", citation := { citekey := "K", funName := "" } },
+      { owner := "Pkg.A.S", citation := { citekey := "L", funName := "Pkg.A.S.x" } }]
+    foreignMembers := #["Pkg.B.y"] }
 
 def indexEntryFor (module : String) : IndexEntry :=
   { module, file := s!"modules/{module}.json", bytes := 1, contentHash := "1111111111111111" }
@@ -29,7 +32,7 @@ def sampleIndex : Index :=
   { schemaVersion := 5, generator := "litedoc4-test", leanVersion := "4.31.0"
     modules := #[indexEntryFor "Pkg.A"] }
 
-def goodState : String := stateJson sampleIndex #[sampleFacts]
+def goodState : String := stateJson sampleIndex #[sampleFacts] none
 
 /-- The writer's keys and the reader's required keys are two hand-written lists
 in one file, and they decide opposite things. A field added to `jsonFacts` and
@@ -47,14 +50,15 @@ def sameFacts (a b : ModuleFacts) : Bool :=
   a.module == b.module && a.contentHash == b.contentHash && a.imports == b.imports
     && a.tactics == b.tactics && a.decls == b.decls && a.instances == b.instances
     && a.tokens == b.tokens && a.instancesFor == b.instancesFor && a.summary == b.summary
+    && a.citations == b.citations && a.foreignMembers == b.foreignMembers
     && a.refs.size == b.refs.size
     && a.refs.toList.all fun (name, users) => b.refs.getD name #[] == users
 
 /-- Both directions of the same key list: an entry this writer wrote comes back
-whole, and an entry missing any one of the ten does not come back at all. The
+whole, and an entry missing any one of its keys does not come back at all. The
 second is stated over `factKeys` rather than over a chosen key, because a
-required-key check that is right for nine of them and wrong for the tenth reads
-the same from the outside. -/
+required-key check that is right for all of them but one reads the same from the
+outside. -/
 def aStateEntryRoundTripsAndOneMissingKeyIsAMiss : Bool :=
   match parseJson (jsonFacts "" sampleFacts) with
   | .error _ => false
@@ -76,23 +80,28 @@ def onlyTheIndexSurvivesIntoTheFile : Bool :=
   let body := stateJson index
     #[{ sampleFacts with module := "Pkg.B" },
       { sampleFacts with module := "Pkg.Gone" },
-      { sampleFacts with module := "Pkg.A" }]
+      { sampleFacts with module := "Pkg.A" }] none
   (asObj (fieldOf (parsedObj body) "modules")).map (·.1) == #["Pkg.A", "Pkg.B"]
 
 #guard onlyTheIndexSurvivesIntoTheFile
 
-/-- Everything that can go wrong loads as "empty", and each of the six is a
-different way for a file to belong to another run. A cold cache is the normal
+/-- Everything that can go wrong loads as "empty", and each of the eight is a
+different way for a file to belong to another run — the last two a bibliography
+other than this run's, through which the facts' citations were read. A cold cache is the normal
 first run and rebuilding is the only correct response; trusting a foreign entry
 costs a wrong artifact that nobody reports. -/
 def aStateFromAnotherRunLoadsAsEmpty : Bool :=
-  (stateOf goodState sampleIndex).modules.size == 1
-    && [goodState.replace "\"stateVersion\":1" "\"stateVersion\":2",
+  let withDigest := stateJson sampleIndex #[sampleFacts] (some "abc")
+  (stateOf goodState sampleIndex none).modules.size == 1
+    && (stateOf withDigest sampleIndex (some "abc")).modules.size == 1
+    && [goodState.replace s!"\"stateVersion\":{stateVersion}" "\"stateVersion\":0",
         goodState.replace stateDerivation "some older rule",
         goodState.replace "\"schemaVersion\":5" "\"schemaVersion\":4",
         goodState.replace "litedoc4-test" "doc-gen4",
         goodState.replace "\"module\":\"Pkg.A\"," "",
-        "not json at all"].all fun text => (stateOf text sampleIndex).modules.isEmpty
+        "not json at all"].all fun text => (stateOf text sampleIndex none).modules.isEmpty
+    && (stateOf goodState sampleIndex (some "abc")).modules.isEmpty
+    && (stateOf withDigest sampleIndex none).modules.isEmpty
 
 #guard aStateFromAnotherRunLoadsAsEmpty
 
@@ -105,11 +114,11 @@ def theStateFileOnDiskIsTheBytesItSaysItIs : Invariant where
     let base : FilePath := ⟨(← IO.getEnv "TMPDIR").getD "/tmp"⟩
     let dir := base / "litedoc4-lean-test-state"
     if ← dir.pathExists then IO.FS.removeDirAll dir
-    let bytes ← State.save (some dir) sampleIndex #[sampleFacts]
+    let bytes ← State.save (some dir) sampleIndex #[sampleFacts] none
     let body ← IO.FS.readFile (dir / stateFile)
-    let loaded ← State.load (some dir) sampleIndex
-    let nothing ← State.save none sampleIndex #[sampleFacts]
-    let empty ← State.load none sampleIndex
+    let loaded ← State.load (some dir) sampleIndex none
+    let nothing ← State.save none sampleIndex #[sampleFacts] none
+    let empty ← State.load none sampleIndex none
     if ← dir.pathExists then IO.FS.removeDirAll dir
     return first [
       eq body goodState,

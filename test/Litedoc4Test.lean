@@ -1,4 +1,5 @@
 import Litedoc4Test.Bib
+import Litedoc4Test.Citations
 import Litedoc4Test.Cli
 import Litedoc4Test.Config
 import Litedoc4Test.DepsDocs

@@ -511,7 +511,7 @@ def fullGeneration (r : BuildRequest) (config : SiteConfig) (modules : Array Str
   let derived ← buildGlobal
     { ir := layout.ir, out := layout.site, state := some layout.state
       indexMarkdown := config.indexMarkdown, title := config.title
-      references := config.bibliography.items }
+      bibliography := config.bibliography }
   let globalDone ← IO.monoNanosNow
   printRenderSummary "render  " rendered
   printGlobalSummary "global  " derived

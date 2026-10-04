@@ -64,11 +64,11 @@ same span is rendered again on the module's own page, where it is already
 counted, and the number means "spans in this package the converter could not
 read", not "renderings that fell back". -/
 def summaryHtml (out : String) (summary : String) : String :=
-  (Id.run ((inlineMd out entryRenderer summary).run 0)).1
+  (Id.run ((inlineMd out entryRenderer summary).run {})).1
 
 /-- The rendered `litedoc4.toml` `index`, for the one page that carries it. -/
 def introHtml (markdown : String) : String :=
-  (Id.run ((docstring "" entryRenderer markdown).run 0)).1
+  (Id.run ((docstring "" entryRenderer markdown).run {})).1
 
 /-- The front page. **The module list is the whole list, spelled out in the
 HTML** — the sidebar is a JSON fetch, and this is the page its `<noscript>` sends
@@ -170,18 +170,41 @@ def foundationalTypesHtml (title : String) : String :=
     Lean's own documentation — this page only names the things a signature on this site can \
     link to.</p></div>"
 
-/-- doc-gen4's `refItem`, without the back-references. -/
-def referenceItemHtml (out : String) (item : BibItem) : String :=
+/-- doc-gen4's `BackrefItem`: the `index`-th citation anchor on `module`'s page. -/
+structure Backref where
+  module : String
+  index : Nat
+  citation : Citation
+  deriving BEq, Repr, Inhabited
+
+def backrefHtml (out : String) (number : Nat) (b : Backref) : String :=
+  let location := if b.citation.funName.isEmpty then "" else "\nLocation: " ++ b.citation.funName
+  let href := entryRoot ++ pageUrl b.module ++ "#" ++ backrefAnchor b.index
+  let acc := escapeInto (out ++ " <a href=\"") href ++ "\" title=\""
+  escapeInto acc ("File: " ++ b.module ++ location) ++ "\">[" ++ toString number ++ "]</a>"
+
+/-- doc-gen4's `refItem`. -/
+def referenceItemHtml (backrefs : Std.HashMap String (Array Backref)) (out : String)
+    (item : BibItem) : String := Id.run do
   let anchor := referenceAnchor item.citekey
   let acc := escapeInto (out ++ "<li id=\"") anchor ++ "\"><a href=\"#"
-  escapeInto (escapeInto acc anchor ++ "\">") item.tag ++ "</a> " ++ item.html ++ "</li>"
+  let mut acc := escapeInto (escapeInto acc anchor ++ "\">") item.tag ++ "</a> " ++ item.html
+  let mine := backrefs.getD item.citekey #[]
+  if !mine.isEmpty then
+    acc := acc ++ "<small>"
+    for i in [0:mine.size] do acc := backrefHtml acc (i + 1) mine[i]!
+    acc := acc ++ "</small>"
+  return acc ++ "</li>"
 
 /-- doc-gen4's `references`: written whether or not the package has a
 bibliography, as doc-gen4 writes it, so an empty one is a page with an empty
-list. -/
-def referencesHtml (title : String) (items : Array BibItem) : String :=
+list. An entry's back-references are listed in the order `backrefs` holds them. -/
+def referencesHtml (title : String) (items : Array BibItem) (backrefs : Array Backref) :
+    String :=
+  let byKey := backrefs.foldl (init := ({} : Std.HashMap String (Array Backref))) fun m b =>
+    m.insert b.citation.citekey ((m.getD b.citation.citekey #[]).push b)
   plainPage "References" title
-    (items.foldl referenceItemHtml
+    (items.foldl (referenceItemHtml byKey)
       "<div class=\"modhead\"><h1>References</h1></div><div class=\"doc\"><ul>"
       ++ "</ul></div>")
 

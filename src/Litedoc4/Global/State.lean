@@ -5,7 +5,7 @@ changed, so a driver that passes a wrong changed-set cannot corrupt this cache.
 
 **Everything that can go wrong loads as "empty", silently** — a missing file, a
 file that does not parse, an entry missing a field, any of the four version keys
-disagreeing with the index. A cold cache is the normal first run, and a `--state`
+disagreeing with the index, a bibliography other than this run's. A cold cache is the normal first run, and a `--state`
 directory left behind by another tool is not an error the caller can act on: the
 only correct response is to rebuild, which is what happens. Being wrong this way
 costs time, where trusting a foreign entry costs a wrong artifact that nobody
@@ -22,7 +22,7 @@ def stateFile : String := "global-state.json"
 /-- Bumped when the *file format* changes. Kept apart from `stateDerivation`,
 which is bumped when the *facts* change, because the two rot for different
 reasons. -/
-def stateVersion : Nat := 1
+def stateVersion : Nat := 2
 
 /-- Which rule built the facts in the file. **Bump it whenever a field of
 `ModuleFacts` or the way one is derived changes**: bumping makes every entry a
@@ -32,7 +32,7 @@ fast and wrong.
 The value is deliberately **not** the frozen prototype's `"stage7h/global.ts
 facts v1"` — that string names an implementation with a different tokeniser, so
 its entries have to miss here. -/
-def stateDerivation : String := "litedoc4-global facts v4"
+def stateDerivation : String := "litedoc4-global facts v5"
 
 /-! ## Reading a file nobody in this tree wrote -/
 
@@ -41,12 +41,12 @@ def stateField (fields : Array (String × JVal)) (key : String) : JVal := Id.run
     if k == key then return v
   return .null
 
-/-- The ten keys an entry has to carry. A missing one is a file written by
+/-- The twelve keys an entry has to carry. A missing one is a file written by
 something that derived its facts differently, and reading it as a default would
 serve an artifact derived from a fact that is silently absent. -/
 def factKeys : Array String :=
   #["module", "contentHash", "imports", "tactics", "decls", "instances", "tokens",
-    "instancesFor", "refs", "summary"]
+    "instancesFor", "refs", "summary", "citations", "foreignMembers"]
 
 def toNamePairs (v : JVal) : Array (String × String) :=
   (asArr v).map fun p =>
@@ -76,6 +76,12 @@ def toModuleFacts (v : JVal) : Option ModuleFacts := Id.run do
       f := { f with refs }
     else if k == "summary" then
       f := { f with summary := (match x with | .str text => some text | _ => none) }
+    else if k == "citations" then
+      f := { f with citations := (asArr x).map fun c =>
+        let a := asArr c
+        { owner := asStr (a.getD 0 .null)
+          citation := { citekey := asStr (a.getD 1 .null), funName := asStr (a.getD 2 .null) } } }
+    else if k == "foreignMembers" then f := { f with foreignMembers := toStrings x }
   return some f
 
 /-- The facts a previous run left behind, already checked against this run's
@@ -84,19 +90,25 @@ structure State where
   modules : Std.HashMap String ModuleFacts := Std.HashMap.emptyWithCapacity 0
 
 /-- The four version keys are checked against `index` here rather than at the hit
-test, so a foreign state costs one parse and not one comparison per module.
+test, so a foreign state costs one parse and not one comparison per module. The
+bibliography's digest is checked the same way: the citations in the facts were
+read through it.
 
 Split from `State.load` because everything that decides whether a file is this
 run's cache is in the text: with the read folded in, the only way to ask is to
 write a file first, and the four rejections are then answered by a disk rather
 than by the rule. -/
-def stateOf (text : String) (index : Index) : State := Id.run do
+def stateOf (text : String) (index : Index) (bibliography : Option String) : State := Id.run do
   let .ok j := parseJson text | return {}
   let fields := asObj j
   if asNat (stateField fields "stateVersion") != stateVersion then return {}
   if asStr (stateField fields "derivation") != stateDerivation then return {}
   if asNat (stateField fields "schemaVersion") != index.schemaVersion then return {}
   if asStr (stateField fields "generator") != index.generator then return {}
+  let digest := match stateField fields "bibliography" with
+    | .str d => some d
+    | _ => none
+  if digest != bibliography then return {}
   let entries := asObj (stateField fields "modules")
   let mut modules : Std.HashMap String ModuleFacts :=
     Std.HashMap.emptyWithCapacity entries.size
@@ -105,11 +117,12 @@ def stateOf (text : String) (index : Index) : State := Id.run do
     modules := modules.insert name facts
   return { modules }
 
-def State.load (dir : Option FilePath) (index : Index) : IO State := do
+def State.load (dir : Option FilePath) (index : Index) (bibliography : Option String) :
+    IO State := do
   let some dir := dir | return {}
   match ← (IO.FS.readFile (dir / stateFile)).toBaseIO with
   | .error _ => return {}
-  | .ok text => return stateOf text index
+  | .ok text => return stateOf text index bibliography
 
 /-! ## Writing it back -/
 
@@ -164,6 +177,15 @@ def jsonFacts (out : String) (f : ModuleFacts) : String := Id.run do
   o := match f.summary with
     | none => o ++ "null"
     | some text => jsonStr o text
+  o := o ++ ",\"citations\":["
+  let mut first := true
+  for c in f.citations do
+    if !first then o := o.push ','
+    first := false
+    o := (jsonStr (o.push '[') c.owner).push ','
+    o := (jsonStr o c.citation.citekey).push ','
+    o := (jsonStr o c.citation.funName).push ']'
+  o := jsonStrArray (o ++ "],\"foreignMembers\":") f.foreignMembers
   return o.push '}'
 
 /-- `<dir>/global-state.json`'s bytes.
@@ -178,7 +200,8 @@ bytes.
 Split from `State.save` for the reason `stateOf` is split from `State.load`: what
 is written is decided by the index and the facts, and folding the write in would
 make a directory the only way to ask what the rule is. -/
-def stateJson (index : Index) (facts : Array ModuleFacts) : String := Id.run do
+def stateJson (index : Index) (facts : Array ModuleFacts) (bibliography : Option String) :
+    String := Id.run do
   -- Keying on the facts' own module name is keying on the index entry's:
   -- `IrTree.module` refuses a file that disagrees with the index about which
   -- module it holds.
@@ -189,6 +212,9 @@ def stateJson (index : Index) (facts : Array ModuleFacts) : String := Id.run do
   o := jsonStr (o ++ ",\"derivation\":") stateDerivation
   o := o ++ ",\"schemaVersion\":" ++ toString index.schemaVersion
   o := jsonStr (o ++ ",\"generator\":") index.generator
+  o := match bibliography with
+    | none => o ++ ",\"bibliography\":null"
+    | some digest => jsonStr (o ++ ",\"bibliography\":") digest
   o := o ++ ",\"modules\":{"
   let mut first := true
   for entry in index.modules do
@@ -202,10 +228,11 @@ def stateJson (index : Index) (facts : Array ModuleFacts) : String := Id.run do
 
 /-- Writes the file and returns its size in bytes, or 0 when there is no state
 directory. -/
-def State.save (dir : Option FilePath) (index : Index) (facts : Array ModuleFacts) : IO Nat := do
+def State.save (dir : Option FilePath) (index : Index) (facts : Array ModuleFacts)
+    (bibliography : Option String) : IO Nat := do
   let some dir := dir | return 0
   IO.FS.createDirAll dir
-  let body := stateJson index facts
+  let body := stateJson index facts bibliography
   IO.FS.writeFile (dir / stateFile) body
   return body.utf8ByteSize
 

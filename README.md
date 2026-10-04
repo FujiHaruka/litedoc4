@@ -290,7 +290,9 @@ docstring. `[Key]` becomes a link showing the entry's tag; `[text][Key]` keeps y
 ```
 
 Both link to `references.html`, which lists every entry with an anchor `#ref_Key`, and the link's
-tooltip is the formatted entry. The tags and the entry text come from BibtexQuery, the library
+tooltip is the formatted entry. Each entry ends with numbered links back to every citation of it,
+as doc-gen4's does — the modules in the order the front page lists them, and the citations on a
+page in the order they appear — each titled with the module and, outside a module docstring, the declaration. The tags and the entry text come from BibtexQuery, the library
 doc-gen4 formats its bibliography with, so they are the ones a doc-gen4 site shows. A bracket
 that is not a key in the file stays as you wrote it. `references.html` is written whether or not
 the file exists; without one it lists nothing.

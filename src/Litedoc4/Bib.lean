@@ -42,6 +42,17 @@ def referenceHrefPrefix : String := referencesPage ++ "#" ++ referenceAnchor ""
 
 def referenceHref (citekey : String) : String := referenceHrefPrefix ++ citekey
 
+/-- doc-gen4's `BackrefItem` without what a page already knows: its module, and
+its index, which is its position in the page's array of them. -/
+structure Citation where
+  citekey : String
+  /-- The declaration or member whose docstring cites, and empty in a module
+  docstring. -/
+  funName : String
+  deriving BEq, Repr, Inhabited
+
+def backrefAnchor (index : Nat) : String := "_backref_" ++ toString index
+
 /-- doc-gen4's `findBibitem?`: the item a link destination cites, if it is one. -/
 def Bibliography.cited? (b : Bibliography) (href : String) : Option BibItem :=
   if href.startsWith referenceHrefPrefix then

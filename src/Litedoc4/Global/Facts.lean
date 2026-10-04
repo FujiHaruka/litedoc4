@@ -4,6 +4,7 @@ import Std.Data.HashSet
 import Litedoc4.Global.V8Gc
 import Litedoc4.Ir
 import Litedoc4.Ir.Utf16
+import Litedoc4.Render.PageDocs
 
 namespace Litedoc4
 
@@ -208,9 +209,13 @@ structure ModuleFacts where
   /-- Constant name -> subscripts into `decls`, ascending and deduplicated. -/
   refs : Std.HashMap String (Array Nat) := Std.HashMap.emptyWithCapacity 0
   summary : Option String := none
+  /-- The page's citations with only this module's own suppression applied;
+  `derive` applies the rest, which `foreignMembers` of the other modules carry. -/
+  citations : Array PageCitation := #[]
+  foreignMembers : Array String := #[]
 
 /-- `contentHash` comes from the index entry, not from the file. -/
-def factsOf (m : Module) (contentHash : String) : ModuleFacts := Id.run do
+def factsOf (m : Module) (contentHash : String) (bib : Bibliography) : ModuleFacts := Id.run do
   let mut decls : Array (String × String) := Array.mkEmpty m.decls.size
   let mut instances : Array (String × String) := #[]
   let mut instancesFor : Array (String × String) := #[]
@@ -245,6 +250,8 @@ def factsOf (m : Module) (contentHash : String) : ModuleFacts := Id.run do
     tactics := m.tacticCount
     decls, instances, instancesFor, refs
     tokens := sortUtf16 tokenList
-    summary := leadingHeading m.moduleDocs }
+    summary := leadingHeading m.moduleDocs
+    citations := pageCitations bib m (suppressedOf #[m])
+    foreignMembers := if bib.items.isEmpty then #[] else foreignMembers m }
 
 end Litedoc4

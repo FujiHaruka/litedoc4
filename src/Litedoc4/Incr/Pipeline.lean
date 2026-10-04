@@ -578,7 +578,7 @@ def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun :=
       -- the *derived* title while the full generation used the configured one
       -- (measured 2026-08-22).
       indexMarkdown := o.config.indexMarkdown, title := o.config.title
-      references := o.config.bibliography.items }
+      bibliography := o.config.bibliography }
   let globalAffected := (derived.delta.map (·.affected)).getD #[]
   let globalDone ← IO.monoNanosNow
   printGlobalSummary "global  " derived

@@ -89,7 +89,7 @@ def thePageWrapsMainInTheFrame : Invariant where
     let ix := declIndex [] pkgTwoPage
     let sup := suppressedOf #[pkgTwoPage]
     let title := siteTitle #[pkgTwoPage.name]
-    match (pageHtml ix {} pkgTwoPage sup "https://h/o/r/blob/dead" title).run 0 with
+    match (pageHtml ix {} #[] pkgTwoPage sup "https://h/o/r/blob/dead" title).run {} with
     | .error message => return some s!"the page was refused: {message}"
     | .ok (html, _) =>
       let toc := (html.splitOn "<main").headD ""

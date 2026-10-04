@@ -104,10 +104,12 @@ def renderSite (o : Options) : IO Summary := do
   let mut mathFailures := 0
   for m in mods do
     if !o.only.contains m.name then continue
-    let (html, pageMathFailures) ← match (pageHtml ix o.bibliography m sup sourceUrl title).run 0 with
+    let citations := (pageCitations o.bibliography m sup).map (·.citation)
+    let page := pageHtml ix o.bibliography citations m sup sourceUrl title
+    let (html, state) ← match page.run {} with
       | .ok r => pure r
       | .error message => throw (IO.userError s!"rendering {m.name}: {message}")
-    mathFailures := mathFailures + pageMathFailures
+    mathFailures := mathFailures + state.mathFallbacks
     writePage o.pages m.name html
     pagesWritten := pagesWritten + 1
     bytes := bytes + html.utf8ByteSize

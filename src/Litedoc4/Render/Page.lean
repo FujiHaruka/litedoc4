@@ -1,69 +1,34 @@
 import Litedoc4.Render.Decl
 import Litedoc4.Render.Frame
+import Litedoc4.Render.PageDocs
 
 open System
 
 namespace Litedoc4
 
-/-- Every name that is some declaration's member, over the **whole site**: a
-structure declared in `A` can have its projections attributed to `B`, and a
-per-module set leaves those on `B`'s page. -/
-def suppressedOf (mods : Array Module) : Std.HashSet String := Id.run do
-  let mut s : Std.HashSet String := Std.HashSet.emptyWithCapacity 512
-  for m in mods do
-    for d in m.decls do
-      for mem in d.members do
-        s := s.insert mem.name
-  return s
-
-/-! ## Page order
-
-A stable sort on `(line, col)` plus a running sequence number: the module
-docstrings take `0..k` and a declaration takes `k + index`, which is what keeps
-a docstring ahead of a declaration at the same position. -/
-
-structure Item where
-  line : Nat
-  col : Nat
-  seq : Nat
-  isDoc : Bool
-  idx : Nat
-  deriving Inhabited
-
-def itemLt (a b : Item) : Bool :=
-  a.line < b.line || (a.line == b.line &&
-    (a.col < b.col || (a.col == b.col && a.seq < b.seq)))
-
-def pageItems (m : Module) (sup : Std.HashSet String) : Array Item := Id.run do
-  let mut items : Array Item := Array.mkEmpty (m.moduleDocs.size + m.decls.size)
-  let mut seq := 0
-  for md in m.moduleDocs do
-    items := items.push { line := md.line, col := md.col, seq, isDoc := true, idx := seq }
-    seq := seq + 1
-  for i in [0:m.decls.size] do
-    let d := m.decls[i]!
-    if sup.contains d.name then continue
-    items := items.push
-      { line := d.line, col := d.col, seq := seq + d.index, isDoc := false, idx := i }
-  return items.qsort itemLt
-
-def pageHtml (ix : NameIndex) (bib : Bibliography) (m : Module) (sup : Std.HashSet String)
-    (sourceUrl title : String) : RenderM String := do
+/-- `citations` is what `pageCitations` answers for this page, and the page is
+refused unless its anchors are exactly those. -/
+def pageHtml (ix : NameIndex) (bib : Bibliography) (citations : Array Citation) (m : Module)
+    (sup : Std.HashSet String) (sourceUrl title : String) : RenderM String := do
   let root := pageRoot m.name
   let moduleUrl := moduleSourceUrl sourceUrl m.name
   let c := mkPageCtx ix root m
   let md := pageRenderer c bib
-  let dr : DeclRenderer := { ix, root, md }
+  let dr : DeclRenderer := { ix, root, md, citations }
   let mut main := ""
   let mut memberNames : Array String := #[]
   for it in pageItems m sup do
     if it.isDoc then
-      main ← renderDocstring (main ++ "<div class=\"moddoc\">") md m.moduleDocs[it.idx]!.text
+      main ← renderDocstring (main ++ "<div class=\"moddoc\">") dr "" m.moduleDocs[it.idx]!.text
       main := main ++ "</div>"
     else
       let d := m.decls[it.idx]!
       memberNames := memberNames.push d.name
       main ← declHtml main dr m d moduleUrl
+  let written := (← get).cited.size
+  if written < citations.size then
+    throw s!"{citations.size - written} citation(s) of {citations.size} the page was \
+      expected to carry were not written, the first citing {citations[written]!.citekey}"
   let mut out := "<!DOCTYPE html><html lang=\"en\">"
   out := headHtml out m.name root title
   out := escapeInto (out ++ "<body data-root=\"") root

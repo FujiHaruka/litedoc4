@@ -12,8 +12,11 @@
 #     byte-identical in all three trees that write index.html
 #   - `docs/references.bib` the same way: references.html is byte-identical in
 #     the three trees that write it and lists one entry per `@` entry the file
-#     holds, and the citations the module pages link are the same in all three
-#     trees that write those pages
+#     holds, and the citations the module pages link — with the back-reference
+#     anchor each carries — are the same in all three trees that write those
+#     pages. The back-references references.html lists are exactly those anchors,
+#     so `global`, which writes references.html without writing a page, is held
+#     to what the pages say
 #
 # The comparison is over the *rendered* bytes, not over "did the command read the
 # file": a command that read it and then dropped the value would pass that
@@ -191,18 +194,44 @@ elif references:
         problems.append(f"references.html lists {got_entries} entr(ies); "
                         f"docs/references.bib holds {want_entries}")
 
-CITATION = re.compile(r'<a href="[^"]*references\.html#ref_([^"]*)"')
+CITATION = re.compile(r'<a href="[^"]*references\.html#ref_([^"]*)"([^>]*)>')
+BACKREF_ID = re.compile(r'\bid="(_backref_[^"]*)"')
+ENTRY = re.compile(r'<li id="ref_([^"]*)">(.*?)</li>', re.S)
+BACKREF_LINK = re.compile(r'<a href="\./([^"#]*)#(_backref_[^"]*)"')
+
+
+def citations_on(text):
+    for key, rest in CITATION.findall(text):
+        found = BACKREF_ID.search(rest)
+        yield key, found.group(1) if found else None
+
+
 citations = {
-    which: tuple((page, key) for page in module_pages
-                 for key in CITATION.findall(trees[which].get(page, "")))
+    which: tuple((page, key, anchor) for page in module_pages
+                 for key, anchor in citations_on(trees[which].get(page, "")))
     for which in ("build", "site", "render")
 }
+listed = set()
 if len(set(citations.values())) > 1:
     counts = {which: len(found) for which, found in citations.items()}
     problems.append(f"the commands disagree about which citations are links: {counts}")
 elif want_entries and not citations["build"]:
     problems.append("docs/references.bib has entries and no module page links a citation "
                     "— nothing was compared")
+else:
+    anchorless = [(page, key) for page, key, anchor in citations["build"] if anchor is None]
+    if anchorless:
+        problems.append(f"{len(anchorless)} citation link(s) carry no back-reference anchor, "
+                        f"the first {anchorless[0]}")
+    for key, body in ENTRY.findall(references.get("build", "")):
+        for page, anchor in BACKREF_LINK.findall(body):
+            listed.add((html.unescape(page), key, html.unescape(anchor)))
+    anchored = set(citations["build"])
+    if listed != anchored:
+        problems.append(
+            "references.html's back-references are not the pages' citation anchors: "
+            f"{sorted(listed - anchored)[:3]} listed and not on a page, "
+            f"{sorted(anchored - listed)[:3]} on a page and not listed")
 
 if problems:
     for problem in problems:
@@ -213,7 +242,7 @@ print(
     f"config       title {title!r} on {checked_titles} module page(s) x 3 commands; "
     f"index.html identical across {len(index_writers)} commands; references.html "
     f"identical with {got_entries} entr(ies), {len(citations['build'])} citation link(s) "
-    f"identical x 3 commands"
+    f"identical x 3 commands and listed as {len(listed)} back-reference(s)"
 )
 PY
 status=$?

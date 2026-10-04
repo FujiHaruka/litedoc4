@@ -96,7 +96,7 @@ def flaggedModule : Module :=
 
 def renderPageOf (m : Module) : Except String String :=
   let ix := declIndex [("P.y", "Pkg.Parent"), ("Pkg.M.S", "Pkg.M")] m
-  ((pageHtml ix {} m (suppressedOf #[m]) "https://h/o/r/blob/dead" "Pkg").run 0).map (·.1)
+  ((pageHtml ix {} #[] m (suppressedOf #[m]) "https://h/o/r/blob/dead" "Pkg").run {}).map (·.1)
 
 /-- `Litedoc4Test.GlobalEntry`'s version of this reads the four entry pages and
 cannot see the renderer; this one reads a module page and cannot see those. The

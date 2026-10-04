@@ -38,7 +38,7 @@ def declRoot : String := pageRoot "Pkg.M"
 def declOut (ix : NameIndex) (m : Module) (d : Decl) : Except String String :=
   let dr : DeclRenderer :=
     { ix, root := pageRoot m.name, md := pageRenderer (mkPageCtx ix (pageRoot m.name) m) {} }
-  ((declHtml "" dr m d "https://x/M.lean").run 0).map (·.1)
+  ((declHtml "" dr m d "https://x/M.lean").run {}).map (·.1)
 
 /-- The markup, or the empty string when the page was refused — which fails every
 assertion below, and is the honest reading: a refused page has no bytes. -/
@@ -51,7 +51,7 @@ def declAt (entries : List (String × String)) (m : Module) (at_ : Nat) : String
   declBytes (declIndex entries m) m m.decls[at_]!
 
 def linkOf (ix : NameIndex) (root name : String) : Except String (Option String) :=
-  ((declNameToLink ix (Std.HashMap.emptyWithCapacity 0) root name).run 0).map (·.1)
+  ((declNameToLink ix (Std.HashMap.emptyWithCapacity 0) root name).run {}).map (·.1)
 
 def linkIs (ix : NameIndex) (root name : String) (expected : Option String) : Bool :=
   match linkOf ix root name with

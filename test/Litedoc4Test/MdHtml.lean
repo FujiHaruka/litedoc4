@@ -25,16 +25,16 @@ def linkWords : LinkResolver :=
 def wordCtx : Renderer := { root := "../", links := linkWords, bib := {} }
 
 def render (md : String) : String :=
-  (docstring "" { root := "../", links := noLinks, bib := {} } md).run' 0
+  (docstring "" { root := "../", links := noLinks, bib := {} } md).run' {}
 
 def inline (md : String) : String :=
-  (inlineMd "" { root := "../", links := noLinks, bib := {} } md).run' 0
+  (inlineMd "" { root := "../", links := noLinks, bib := {} } md).run' {}
 
 def linked (s : String) : String := autoLinkInline "" wordCtx s
 
-def textOf (t : Md.Text) (inLink : Bool) : String := (mdText "" wordCtx t inLink).run' 0
+def textOf (t : Md.Text) (inLink : Bool) : String := (mdText "" wordCtx t inLink).run' {}
 
-def blockOf (b : Md.Block) : String := (mdBlock "" wordCtx b false).run' 0
+def blockOf (b : Md.Block) : String := (mdBlock "" wordCtx b false).run' {}
 
 /-- `splitAround` keeps every separator as a piece of its own, so the words
 written back out reassemble the input exactly, and what it splits on is Unicode
@@ -164,7 +164,7 @@ def inlineIsOneParagraphOrElseTheAuthorsOwnCharacters : Invariant where
 
 def citing (bib : Bibliography) : Renderer := { root := "../", links := noLinks, bib }
 
-def citeWith (bib : Bibliography) (md : String) : String := (docstring "" (citing bib) md).run' 0
+def citeWith (bib : Bibliography) (md : String) : String := (docstring "" (citing bib) md).run' {}
 
 def cite (md : String) : String := citeWith twoKeys md
 
@@ -179,18 +179,18 @@ def aCitationLinksToItsReferenceShowingTheTagOrTheAuthorsText : Invariant where
     let quoting := Bibliography.of #[bibItem "Q" "[Q1]" "A \"quoted\" & <b>"] none
     return first [
       eq (cite "See [Doe12].")
-        "<p>See <a href=\"../references.html#ref_Doe12\" title=\"Doe.\">[DJ12]</a>.</p>",
+        "<p>See <a href=\"../references.html#ref_Doe12\" title=\"Doe.\" id=\"_backref_0\">[DJ12]</a>.</p>",
       eq (cite "See [the book][Doe12].")
-        "<p>See <a href=\"../references.html#ref_Doe12\" title=\"Doe.\">the book</a>.</p>",
+        "<p>See <a href=\"../references.html#ref_Doe12\" title=\"Doe.\" id=\"_backref_0\">the book</a>.</p>",
       eq (cite "See [x](references.html#ref_Roe13 \"own\").")
-        "<p>See <a href=\"../references.html#ref_Roe13\" title=\"Roe.\">x</a>.</p>",
+        "<p>See <a href=\"../references.html#ref_Roe13\" title=\"Roe.\" id=\"_backref_0\">x</a>.</p>",
       eq (cite "See [Nobody] and [x](references.html#ref_Nobody).")
         "<p>See [Nobody] and <a href=\"../references.html#ref_Nobody\">x</a>.</p>",
       eq (citeWith quoting "[Q]")
-        "<p><a href=\"../references.html#ref_Q\" title=\"A &quot;quoted&quot; &amp; &lt;b&gt;\">\
+        "<p><a href=\"../references.html#ref_Q\" title=\"A &quot;quoted&quot; &amp; &lt;b&gt;\" id=\"_backref_0\">\
           [Q1]</a></p>",
-      eq (Id.run ((inlineMd "" (citing twoKeys) "See [Doe12]").run' 0))
-        "See <a href=\"../references.html#ref_Doe12\" title=\"Doe.\">[DJ12]</a>"]
+      eq (Id.run ((inlineMd "" (citing twoKeys) "See [Doe12]").run' {}))
+        "See <a href=\"../references.html#ref_Doe12\" title=\"Doe.\" id=\"_backref_0\">[DJ12]</a>"]
 
 /-- What md4c is handed when nothing is cited is the docstring and a blank line,
 which is what every docstring was handed before there were citations — so a
@@ -203,7 +203,7 @@ def nothingCitedRendersWhatTheDocstringAndABlankLineRender : Invariant where
   check := do
     let plain (text : String) : String :=
       match Md.parse (text ++ "\n\n") docstringFlags with
-      | some doc => (mdBlocks "" (citing {}) doc.blocks false).run' 0
+      | some doc => (mdBlocks "" (citing {}) doc.blocks false).run' {}
       | none => "<refused>"
     let differs (bib : Bibliography) (text : String) : Bool := citeWith bib text != plain text
     return first [
