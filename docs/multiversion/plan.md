@@ -327,19 +327,22 @@ link), a finer unit pays; otherwise per declaration.
 
 ### D6 — URL scheme and the version switcher
 
-**Every page's own URL carries its version** — `/<version>/Mathlib/Foo/Bar.html#Foo.bar` — so a
-link means the same thing forever; "latest" is only a moving alias next to it (decided
-2026-10-04, user's call). The two kinds of link people write are served apart: a citation of a
-statement wants the fixed one, "the docs of X" wants the alias.
+**Every page's URL carries its version** — `/<version>/Mathlib/Foo/Bar.html#Foo.bar` — so a link
+means the same thing forever, and **"latest" is not a URL at all** (decided 2026-10-04, user's
+call). There is no `/latest/` tree. The site root is the one entry that resolves to the newest
+version when opened; inside the site, a page of an older version says that a newer one exists and
+switches to it.
+
+**A site with no releases or tags uses commits as its versions** (decided 2026-10-04, user's call):
+the version in the URL is the commit the site was built from.
 
 Open:
 
-- the alias's spelling: the site root, `/latest/`, or both;
-- a site with no fixed version (built from a branch on every push): there nothing is immutable —
-  a commit label gives a fixed URL whose content is not kept, and a branch label is the alias
-  under another name;
-- links into today's sites (`/Mathlib/Foo/Bar.html`): sent to the latest version — by the page
-  itself, since a static host serves no redirects;
+- how many commits such a site keeps: a commit URL is fixed only for as long as its content is
+  hosted, and a site rebuilt on every push adds a version per push;
+- links into today's sites (`/Mathlib/Foo/Bar.html`): sent to the newest version — by the page
+  itself, since a static host serves no redirects — or left to break under v2;
+- which URL search engines are told is the page (one page exists once per version);
 - what switching does on a page that does not exist in the other version (module renamed, split,
   deleted), and on an anchor whose declaration does not exist there.
 
