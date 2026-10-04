@@ -414,7 +414,38 @@ version-free. The options:
   the problem; missing declarations and missing binders are.
 
 So "as written" is not a trimmed version of today's pages but a different product — a source
-browser with links. Open: which row.
+browser with links.
+
+**Direction: an own `.olean` reader in one Lean, printing every version with the newest Lean and
+Mathlib** (decided 2026-10-04, user's call). The reader's two jobs differ:
+
+- **Reading** works, at the price of knowing each version's data layout (the object graph is
+  stable; which field means what is not, and the module system has already split one `.olean`
+  into `.olean` / `.olean.server` / `.olean.private`). The porting moves from API calls to binary
+  layouts.
+- **Printing faithfully cannot be done in one Lean**: Mathlib's notation is Lean code
+  (`@[app_delab Finset.sum]` and 21 more written by hand, plus those `notation` generates),
+  compiled against its own Lean's internals. Printing an old version with the newest printer is
+  **an approximation, and it is accepted** (same call): right where notation and the constant's
+  meaning did not change, off where they did. A declaration whose name exists in both versions
+  with different types can only be looked up as the newest one.
+
+**A misread must never be silent** — a layout change read as the old layout gives wrong data with
+no error. The mechanisms, none of them written yet:
+
+1. **Refuse an unknown version by name.** The `.olean` header carries the Lean version; a version
+   with no known layout fails the build, as `tools/lean-toolchains.txt` already does for the
+   extractor.
+2. **Hold the reader against Lean's own answer, once per Lean version.** A small program run by
+   that version's Lean dumps what it reads (names, kinds, a digest of each type); the reader's
+   answer must equal it. This needs the toolchain only once per Lean release, not per build.
+3. **Invariants on every build that a misread breaks**: every constant a type mentions exists;
+   every type is well-formed in the newest Lean; the declaration list and ranges agree with the
+   `.ilean` that the same Lean wrote beside each `.olean`.
+
+Next: how often the layouts changed between v4.29 and v4.34 (Lean's history — the cost of the
+reader), and how far the newest printer drifts from each version's own printing (the cost of the
+approximation).
 
 ## Features that could be given up
 
