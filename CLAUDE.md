@@ -268,6 +268,13 @@ If you want to measure a different target, **add** it rather than replacing, and
   session in the same warm state. Putting an old number next to a new one is allowed only when the
   conditions have been confirmed to match.
 - Run long measurements in the background (do not use a foreground `sleep`).
+- **An analysis script runs on a sample before it runs on the full input** (2026-10-04, three
+  failures in one task). Give every throwaway script a limit argument, run it on about 20 inputs in
+  the foreground — seconds — and only then on everything, in the background, output redirected to
+  a file. Two of the three (a recursive process spawn and a bytes/str `TypeError`) would have
+  shown on the sample in seconds; the second surfaced only after a full run of minutes over 8,170
+  Mathlib pages. **The same applies to the instructions you hand a subagent** — say "sample first"
+  in the prompt, because it will not infer it.
 - **Delete the work directory when a measurement finishes. Decide who does the cleaning up.**
   Gates use `/private/tmp/lean-doc-relay/<stage>` as their work area (**this path keeps the old name even after the rename** —
   it is baked into the frozen fixtures as the path at generation time, so anything compared against
@@ -554,6 +561,14 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
   affected — this is the session shell.
 - **`rg`'s `-r` is `--replace`. Do not bundle it as `-rn`** (the following flag gets eaten as the replacement string).
 - **Python 3.9's f-string cannot contain a backslash or a nested quote of the same kind.**
+- **`multiprocessing` here starts children with `spawn`, and each child re-runs the script's top
+  level.** A `Pool` not under `if __name__ == "__main__":` therefore starts a pool in every child,
+  recursively (measured 2026-10-04: 64 MB of tracebacks, the run killed with exit 144). **Default
+  for a throwaway script: no `multiprocessing` at all** — one process reads a whole Mathlib site
+  (1.07 GB of pages) in minutes. If it is really needed, the guard goes in before the first run.
+- **Never read a long run's output file whole.** The run above wrote 64 MB, and one `cat` of it
+  sent all of it into the session. Read with `head -c 4000` / `tail -c 4000`, and redirect stderr
+  to a separate file so a traceback storm cannot bury the answer.
 - **Do not use `git checkout <file>` for a disable experiment.** It has a track record of blowing away a subagent's implementation.
   Use a scratch copy or `git stash`.
 - **After the browser gate, puppeteer sometimes stays holding port 8899** —
@@ -581,6 +596,10 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
   `PIPESTATUS`** (in zsh it is `$pipestatus[1]`, 1-based) (measured 2026-08-19).
   Getting the spelling wrong makes **an empty string behave like `0`**, so removing the pipe is the sure thing. This is the version of "a shape where the output and the exit code disagree makes a gate a lie" above
   where the observing side is the one that gets it wrong.
+- **A gate whose exit code is the judgement runs as its own command, never at the end of an `&&`
+  chain.** `sed … && rg … && tools/docs-gate.sh > log; echo exit=$?` printed `exit=1` when `rg`
+  matched nothing — **the gate had not run at all**, and the 1 was `rg`'s (measured 2026-10-04).
+  Same family as the pipe above: the `$?` you read belongs to whichever command ran last.
 - **The exit code of the last command in `trap … EXIT` becomes the script's exit code.**
   `cleanup() { [ -f "$F" ] && cp …; }` **returns 1** when `$F` is absent.
   `tools/e2e-micro.sh` actually **printed "E2E MICRO: ok" and exited 1**
