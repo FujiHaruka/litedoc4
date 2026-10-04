@@ -212,10 +212,16 @@ assets. This decides which representation change pays (→ D4) and which feature
   (≈ 247 MB, the same density in doc-gen4); links to Lean core source on GitHub (835,214 links,
   ≈ 100 MB, only 1,733 distinct URLs — litedoc4 only); same-page links spelled as full paths
   (≈ 47 MB); `../` prefixes (≈ 40 MB); the Used by placeholder (≈ 40 MB, litedoc4 only).
-- **What this means for D4**: the bytes are link and span markup around a small amount of text,
-  so a representation that carries signatures as data (a name table plus token references) and
-  draws the markup in the browser would shrink one version by much more than deduplicating
-  versions does — but it gives up no-JS reading. That is not measured yet.
+- **The readable text of all 298,656 signatures is 54,717,246 B — 7.97% of their HTML.** The rest
+  is 12.0 M spans (≈ 40 per signature) and 3.45 M links (measured →
+  `benchmarks/results/mathlib-signature-shape-2026-10-04.txt`).
+- **Every module page compressed on its own with gzip totals 54,843,686 B**, 19.6× smaller than
+  the pages (measured, same log). Data that the browser decompresses is stored at roughly that
+  size; a host compressing on the fly does not change the stored size.
+- **What this means for D4**: the bytes are markup around a small amount of text. A signature as
+  tokens (text, a reference into a name table per link, a marker per span) is ≈ 89 MB before
+  compression (theoretical, same log), and compression on top of any data format is the larger
+  lever. Both shrink one version by more than deduplicating versions does.
 
 ### U5 — Can the build host carry it?
 
@@ -289,6 +295,10 @@ served. Bound by U5 and U6. **A deploy that cannot finish inside the host's limi
 Bound by U3 (how much is shared), U4 (what the bytes are) and U7 (what the reader pays). Page
 paths and anchors are part of the 1.x public surface (`tools/public-surface.txt`): adding version
 paths is allowed, changing or removing the existing ones is not.
+
+**Reading without JavaScript may be given up, for every version** (decided 2026-10-04, user's
+call). That leaves the third row open, and lets a page carry its signatures as data drawn in the
+browser (U4). Still open: which of the three rows, after U3 and U7.
 
 ### D5 — Unit and address of sharing
 
