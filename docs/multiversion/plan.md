@@ -274,11 +274,49 @@ cost per month at the expected traffic, and how a CI deploy reaches it.
 - **Wrong if**: no option fits a realistic representation within a cost the user accepts. Then
   version count or features are what gives.
 
+**Answered 2026-10-05** (vendor limits read from their documentation that day; sizes extrapolated
+from one version → `benchmarks/results/hosting-and-client-render-2026-10-05.txt`):
+
+| D4 row | 11 versions | 51 versions |
+|---|---|---|
+| Static HTML as served | 13.1 GB, 90k files | 60.6 GB, 417k files |
+| Static HTML, stored precompressed | 0.77 GB, 90k files | 3.6 GB, 417k files |
+| Thin HTML + shared data | 0.32 GB, ≈122k files | 1.38 GB, ≈544k files |
+| Thin + data, one shell page answering every path | ≈33k files | ≈133k files |
+
+- **Fits every row: Cloudflare R2 behind a Cloudflare domain** (≈ $0–1 a month plus a domain) and
+  **S3 + CloudFront** ($0, or ≈ $15 a month at an assumed 200 GB and 3 M requests). Only these
+  two keep static HTML for all 51 versions — reading without JavaScript included.
+- Cloudflare Pages / Workers: thin + data fits 11 versions only on the $5 plan with a rewrite; 51
+  need coarser data files. GitHub Pages: 11 versions of thin + data, not 51. Netlify: over its $20
+  plan at the assumed traffic. Vercel: does not fit.
+- **D6 fixes the file count at one page per module per version in every row**, unless the host
+  answers any path with one shell page and status 200 — GitHub Pages cannot (it returns 404).
+- **Used by is 10.3 of the 15.3 MB each version carries compressed**, and its one file is 74.5 MiB
+  raw, over Cloudflare's 25 MiB per-file limit — today's single-version site does not fit there
+  unchanged. Making Used by latest-only (D8) is now a hosting lever.
+
 ### U7 — What does a data-driven page cost the reader?
 
 If pages become thin HTML plus data rendered in the browser (one D4 option): time to first content
 for the largest Mathlib module page, behaviour with JavaScript off, behaviour of in-page anchors
 and of links from outside (search engines, Zulip, papers), memory in the browser.
+
+**Answered 2026-10-05** (measured, same log; the largest Mathlib module page, 387 declarations,
+headless Chrome 154 on loopback, medians of 5; network time not measured):
+
+- **Bytes: data saves only 1.9× after compression.** All 8,169 module pages gzip to 54.7 MB as
+  HTML and to 28.6 MB as data (23.9 MB with brotli). The ≈ 89 MB "signatures as data" figure in U4
+  was before compression; against compressed HTML the gain is far smaller than it suggested.
+- **Time: the data-driven page settles in 153 ms against 361 ms for the page as published**, but
+  most of that is element count, not format: the static page without CSS/JS and without subterm
+  wrappers settles in 189 ms. Layout (≈ 120 ms) tracks element count in every variant.
+- **A `#name` link from outside does not scroll on a page drawn by script**; re-assigning the
+  location after drawing fixes both the scroll and `:target`.
+- Chrome 154 cannot decompress brotli in script, so data stored as brotli works only if the host
+  sends it encoded; gzip works either way.
+- Google treats an instant meta refresh as a permanent redirect — relevant to the root page that
+  resolves to the newest version (D6).
 
 ### U8 — Which of the extractor's answers can one reader plus the newest Lean give?
 
