@@ -77,6 +77,7 @@ structure NameIndex where
   known : Std.HashMap String String
   lidx : Lidx
   pages : Std.HashSet String
+  siteFiles : Std.HashSet String
   knownModules : Std.HashSet String
   /-- The same set as an array, because the source-path branch scans it. -/
   knownModuleArray : Array String
@@ -91,7 +92,8 @@ structure NameIndex where
   deriving Inhabited
 
 def buildIndex (deps : Array (Array (String × String))) (mods : Array Module)
-    (lidx : Lidx) (external : ExternalLinks) : NameIndex := Id.run do
+    (lidx : Lidx) (external : ExternalLinks) (nonModuleFiles : Array String := #[]) :
+    NameIndex := Id.run do
   let mut known : Std.HashMap String String := Std.HashMap.emptyWithCapacity 16384
   for dep in deps do
     for (name, module) in dep do
@@ -103,8 +105,10 @@ def buildIndex (deps : Array (Array (String × String))) (mods : Array Module)
         if !known.contains rname then
           known := known.insert rname rmod
   let mut pages : Std.HashSet String := Std.HashSet.emptyWithCapacity 1024
+  let mut siteFiles : Std.HashSet String := Std.HashSet.ofArray nonModuleFiles
   for m in mods do
     pages := pages.insert m.name
+    siteFiles := siteFiles.insert (pageUrl m.name)
   let mut knownModules := lidx.modules
   for (_, module) in known.toArray do
     knownModules := knownModules.insert module
@@ -129,7 +133,8 @@ def buildIndex (deps : Array (Array (String × String))) (mods : Array Module)
   for (spelling, module) in claimed.toArray do
     if let some module := module then
       unescapedModules := unescapedModules.insert spelling module
-  return { known, lidx, pages, knownModules, knownModuleArray, unescapedModules, external }
+  return { known, lidx, pages, siteFiles, knownModules, knownModuleArray, unescapedModules,
+           external }
 
 def privatePrefix : String := "_private."
 
@@ -290,7 +295,8 @@ def sourcePathToLink (c : PageCtx) (path : String) : Option String :=
   (moduleForSourcePath c.ix path).bind fun m => linkTo c.ix c.root m none
 
 def pageResolver (c : PageCtx) : LinkResolver :=
-  { nameToLink := nameToLink c, sourcePathToLink := sourcePathToLink c }
+  { nameToLink := nameToLink c, sourcePathToLink := sourcePathToLink c
+    isSiteFile := c.ix.siteFiles.contains }
 
 /-- Both halves take the same `root`: it reaches the output through the
 renderer's own `extendLink` as well as through this resolver, and handing them

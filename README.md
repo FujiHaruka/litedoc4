@@ -297,6 +297,11 @@ doc-gen4 formats its bibliography with, so they are the ones a doc-gen4 site sho
 that is not a key in the file stays as you wrote it. `references.html` is written whether or not
 the file exists; without one it lists nothing.
 
+A docstring link to a relative path that is not a file of the site — `[Key](Key)` where
+`[text][Key]` was meant, or a page that does not exist — is kept as written, and the build prints a
+`warning:` naming the module, the declaration and the line, with the citation form when the
+destination is a bibliography key.
+
 BibtexQuery cannot read `@string`, `@comment` or `@preamble`, nor a stray `@` in a note, and
 stops at the first one. The entries before it are kept and the build **prints a warning** naming
 the file and the line, because that entry and every one after it are left out.

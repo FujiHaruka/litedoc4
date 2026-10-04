@@ -12,6 +12,8 @@ def main : IO UInt32 :=
     Litedoc4Test.citationAnchorsAreNumberedInPageOrderAndListedOnReferences,
     Litedoc4Test.aPageWhoseAnchorsAreNotItsListIsRefused,
     Litedoc4Test.aCitationAnotherModuleSuppressesIsNeitherAnchoredNorListed,
+    Litedoc4Test.aDeadLinkIsWarnedWithItsModuleItsDocstringAndALine,
+    Litedoc4Test.renderPrintsEachDeadLinkOnceAndNothingElse,
     Litedoc4Test.theShapesThatKillMd4LeanParseAndRenderHere,
     Litedoc4Test.theDocGen4CorpusDiffersFromItsRecordedHtmlOnlyWhereMathML4LeanSaysSo,
     Litedoc4Test.theMd4LeanCorpusParsesToTheTreeItRecords,

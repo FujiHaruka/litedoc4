@@ -27,10 +27,11 @@ the docstring wrote is held against the one the page was told to carry at the
 same position — after the docstring rather than at the anchor, because the
 Markdown renderer cannot fail and putting the IR's failure mode inside it is
 what keeping `RenderM` out of `Md.Html` avoids. -/
-def renderDocstring (out : String) (c : DeclRenderer) (funName text : String) :
+def renderDocstring (out : String) (c : DeclRenderer) (site : DocSite) (text : String) :
     RenderM String := do
+  let funName := site.funName
   let before := (← get).cited.size
-  let html ← modifyGet fun s => (docstring out c.md text).run s
+  let html ← modifyGet fun s => (docstring out { c.md with site } text).run s
   let cited := (← get).cited
   for i in [before:cited.size] do
     let wrote : Citation := { citekey := cited[i]!, funName }
@@ -177,12 +178,15 @@ def containedNames (m : Module) (parent : Decl) : Std.HashSet String := Id.run d
     if startsInside && endsInside then out := out.insert d.name
   return out
 
-def memberBody (out : String) (c : DeclRenderer) (name short args body : String) (doc : String) :
-    RenderM String := do
+def memberSite (kind : String) (d : Decl) (m : Member) : DocSite :=
+  { line := d.line, owner := .member kind m.name d.name }
+
+def memberBody (out : String) (c : DeclRenderer) (site : DocSite) (short args body : String)
+    (doc : String) : RenderM String := do
   let mut acc := escapeInto (out ++ "<div class=\"field-sig\"><span class=\"field-name\">") short
   acc := acc ++ "</span>" ++ args ++ "<span class=\"colon\"> : </span>" ++ body ++ "</div>"
   if !doc.isEmpty then
-    acc ← renderDocstring (acc ++ "<div class=\"field-doc\">") c name doc
+    acc ← renderDocstring (acc ++ "<div class=\"field-doc\">") c site doc
     acc := acc ++ "</div>"
   return acc ++ "</li>"
 
@@ -216,7 +220,7 @@ def structureHtml (out : String) (c : DeclRenderer) (m : Module) (d : Decl)
       lis := lis ++ args ++ "<span class=\"colon\"> : </span>" ++ body ++ "</div></li>"
     else
       lis := escapeInto (lis ++ "<li id=\"") f.name ++ "\" class=\"field\">"
-      lis ← memberBody lis c f.name short args body f.doc
+      lis ← memberBody lis c (memberSite "field" d f) short args body f.doc
   let ctorName := match d.members.find? (·.label == "ctor") with
     | some ctor => ctor.name
     | none => d.name ++ ".mk"
@@ -236,7 +240,7 @@ def constructorsHtml (out : String) (c : DeclRenderer) (d : Decl)
     let args := pushArgs "" c.ix refs c.root ctor.binders ctor.binderCode ctor.implicits
     let (body, _) := fragment c.ix refs c.root ctor.text ctor.code
     lis := escapeInto (lis ++ "<li id=\"") ctor.name ++ "\" class=\"ctor\">"
-    lis ← memberBody lis c ctor.name short args body ctor.doc
+    lis ← memberBody lis c (memberSite "constructor" d ctor) short args body ctor.doc
   if lis.isEmpty then return out
   return out ++ "<ul class=\"ctors\">" ++ lis ++ "</ul>"
 
@@ -256,7 +260,8 @@ def declHtml (out : String) (c : DeclRenderer) (m : Module) (d : Decl) (sourceUr
     acc := escapeInto (acc ++ "<div class=\"attrs\">") (joined ++ "]") ++ "</div>"
   acc := signatureHtml acc c.ix refs c.root d
   if !d.doc.isEmpty then
-    acc ← renderDocstring (acc ++ "<div class=\"doc\">") c d.name d.doc
+    let site := { line := d.line, owner := .decl d.name }
+    acc ← renderDocstring (acc ++ "<div class=\"doc\">") c site d.doc
     acc := acc ++ "</div>"
   let mut extra := ""
   if d.kind == "structure" || d.kind == "class" then

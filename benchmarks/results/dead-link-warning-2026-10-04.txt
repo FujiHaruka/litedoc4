@@ -1,0 +1,18 @@
+The build-time warning for docstring links whose relative destination is not a site file,
+checked against the site checker (tools/site-gate.sh) on the measurement target.
+Measured 2026-10-04, Apple M1, `litedoc4 build --jobs 4`, full build 27.4 s, peak RSS 3.5 GB.
+Transcribed from the implementing run's report; the work directory was deleted afterwards.
+
+1. lean-projects as it is (419 modules — not 422: the target drifted again)
+   warnings 0; site-gate: 0 dead of 31,236 internal links.
+   Rules out false positives; exercises nothing else.
+
+2. A copy of that IR with links injected into three docstrings (a module docstring, a
+   declaration, a structure field), rendered with `litedoc4 site`
+   warnings 6; site checker 856 dead, accounted for as:
+     848  style.css and favicon.svg on each of 424 pages — `site` writes no assets
+          (`build` does); not docstring links
+       2  mailto: (extendLink rebases it) and an unresolved ##Name (becomes find/) —
+          deliberately not checked by the warning
+       6  one to one with the 6 warnings (fderiv.html twice, two separate links)
+   No disagreement left unexplained.

@@ -288,4 +288,10 @@ def artifactFiles (a : Artifacts) : Array (String × ByteArray) :=
     ("instances.json", a.instancesJson.toUTF8),
     ("declarations/used-by.json", a.usedByJson.toUTF8)]
 
+def artifactPaths : Array String := (artifactFiles default).map (·.1)
+
+/-- Every file a site holds besides its module pages, read off the two lists the
+files are written from. -/
+def nonModuleFiles : Array String := artifactPaths ++ assets.map (·.1)
+
 end Litedoc4

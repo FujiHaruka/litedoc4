@@ -14,8 +14,6 @@ import Litedoc4Test.GlobalSearchIndex
 namespace Litedoc4Test
 open Litedoc4
 
-def artifactPaths : Array String := (artifactFiles default).map (·.1)
-
 /-- Every path is written under the site root by `buildGlobal`, so one that
 starts at `/` or climbs out of it writes somewhere nobody asked for, and two that
 are equal make the second silently the only one. -/

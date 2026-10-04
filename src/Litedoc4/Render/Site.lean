@@ -4,6 +4,7 @@ Every module file is read even when only one page is being rendered. The name
 map and the suppressed set are site-wide, and a page rendered against a partial
 map differs in the links it draws rather than failing — a byte difference no
 error message announces. That is why `ModuleSet` filters *pages*, not *reads*. -/
+import Litedoc4.Global.Artifacts
 import Litedoc4.Render.Page
 
 open System
@@ -79,6 +80,17 @@ structure Summary where
   mathFailures : Nat := 0
   deriving Inhabited
 
+def deadLinkWarning (module : String) (l : DeadLink) : String :=
+  let whose := match l.site.owner with
+    | .module => "the module docstring"
+    | .decl name => s!"the docstring of {name}"
+    | .member kind name owner =>
+      s!"the docstring of {name}, a {kind} of {owner} (the line is {owner}'s),"
+  let hint := if l.isBibliographyKey
+    then s!"; `{l.dest}` is a bibliography key: cite it as [text][{l.dest}]" else ""
+  s!"warning: {module}:{l.site.line}: {whose} links to `{l.dest}`, \
+    which is not a file on this site{hint}"
+
 def renderSite (o : Options) : IO Summary := do
   -- `render` and `site` accept any non-empty `--source-url`, so a caller may
   -- hand one a trailing slash and every page would carry `…/e2e/micro//Mod.lean`
@@ -91,7 +103,7 @@ def renderSite (o : Options) : IO Summary := do
   let lidx ← match o.linkIndex with
     | some p => do pure (parseLidx (← readIrFile p))
     | none => pure emptyLidx
-  let ix := buildIndex deps mods lidx o.external
+  let ix := buildIndex deps mods lidx o.external nonModuleFiles
   let sup := suppressedOf mods
   -- Over **every** module of the IR, not the subset being rendered: an
   -- incremental round that re-renders one page must not retitle the site.
@@ -110,6 +122,7 @@ def renderSite (o : Options) : IO Summary := do
       | .ok r => pure r
       | .error message => throw (IO.userError s!"rendering {m.name}: {message}")
     mathFailures := mathFailures + state.mathFallbacks
+    for l in state.deadLinks do IO.eprintln (deadLinkWarning m.name l)
     writePage o.pages m.name html
     pagesWritten := pagesWritten + 1
     bytes := bytes + html.utf8ByteSize

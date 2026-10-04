@@ -22,11 +22,34 @@ all. -/
 structure LinkResolver where
   nameToLink : String → Option String
   sourcePathToLink : String → Option String
+  isSiteFile : String → Bool := fun _ => true
   deriving Inhabited
 
-/-- `NoLinks`: every name stays what the author wrote. -/
+/-- `NoLinks`: every name stays what the author wrote, and every file a link
+names is taken to be there. -/
 def noLinks : LinkResolver :=
   { nameToLink := fun _ => none, sourcePathToLink := fun _ => none }
+
+/-- Whose docstring is being rendered. A member has no position of its own, so
+its line is the declaration's that holds it. -/
+inductive DocOwner where
+  | module
+  | decl (name : String)
+  | member (kind name owner : String)
+  deriving Inhabited, BEq, Repr
+
+structure DocSite where
+  line : Nat := 0
+  owner : DocOwner := .module
+  deriving Inhabited, BEq, Repr
+
+/-- The declaration or member whose docstring it is, and empty in a module
+docstring — the spelling a `Citation` carries. -/
+def DocSite.funName (s : DocSite) : String :=
+  match s.owner with
+  | .module => ""
+  | .decl name => name
+  | .member _ name _ => name
 
 /-- `root` is the relative path from the page being written back to the site
 root (`"./"`, `"../"`, `"../.././"`, …). It is prepended to every relative link,
@@ -35,6 +58,7 @@ structure Renderer where
   root : String
   links : LinkResolver
   bib : Bibliography
+  site : DocSite := {}
   deriving Inhabited
 
 def resolveLink (c : Renderer) (s : String) : Option String :=
@@ -164,6 +188,67 @@ def extendLink (c : Renderer) (s : String) : String :=
   else if s.startsWith "#" || s.startsWith "http" then s
   else c.root ++ s
 
+/-- What a link destination names among the files of the site being built.
+A destination that starts with `http` is `notAFile` by its spelling, the one
+`extendLink` tests, and not by a scheme check. -/
+inductive LinkTarget where
+  | notAFile
+  | aboveRoot
+  | file (path : String)
+  deriving BEq, Repr
+
+def hasScheme (s : String) : Bool := Id.run do
+  let n := s.utf8ByteSize
+  if n == 0 then return false
+  let isAlpha (b : UInt8) := (b ≥ 65 && b ≤ 90) || (b ≥ 97 && b ≤ 122)
+  if !isAlpha (byteAt s 0) then return false
+  let mut i := 1
+  while i < n do
+    let b := byteAt s i
+    if b == 58 then return true
+    if !(isAlpha b || (b ≥ 48 && b ≤ 57) || b == 43 || b == 45 || b == 46) then return false
+    i := i + 1
+  return false
+
+/-- The site-relative path `root ++ dest` reaches: the query and fragment cut
+off, `.` and `..` taken the way a browser takes them, and a directory read as
+its `index.html`, which is what a static host serves for one. -/
+def linkTarget (dest : String) : LinkTarget := Id.run do
+  if dest.startsWith "#" || dest.startsWith "http" || hasScheme dest then return .notAFile
+  let n := dest.utf8ByteSize
+  let mut cut := n
+  let mut i := 0
+  while i < n do
+    let b := byteAt dest i
+    if b == 63 || b == 35 then
+      cut := i
+      break
+    i := i + 1
+  let segments := (byteSub dest 0 cut).splitOn "/"
+  let mut kept : Array String := #[]
+  for seg in segments do
+    if seg == "." then continue
+    if seg == ".." then
+      if kept.isEmpty then return .aboveRoot
+      kept := kept.pop
+    else kept := kept.push seg
+  let last := segments.getLastD ""
+  if last.isEmpty || last == "." || last == ".." then
+    kept := (if last.isEmpty then kept.pop else kept).push "index.html"
+  return .file ("/".intercalate kept.toList)
+
+def isDeadLink (isSiteFile : String → Bool) (dest : String) : Bool :=
+  match linkTarget dest with
+  | .notAFile => false
+  | .aboveRoot => true
+  | .file path => !isSiteFile path
+
+structure DeadLink where
+  dest : String
+  site : DocSite
+  isBibliographyKey : Bool
+  deriving Inhabited, BEq, Repr
+
 /-- What a walk over one page's docstrings carries from one to the next.
 
 `mathFallbacks` counts the spans that fell back to their source. It is threaded
@@ -178,6 +263,7 @@ this same walk. -/
 structure MdState where
   mathFallbacks : Nat := 0
   cited : Array String := #[]
+  deadLinks : Array DeadLink := #[]
   deriving Inhabited
 
 /-- The MathML goes in as markup — escaping it would print it — and a span the
@@ -220,6 +306,10 @@ partial def mdText (out : String) (c : Renderer) (t : Md.Text)
   | .del ts => mdWrap out c "del" ts inLink
   | .a href title _ ts => do
     let target := attrToString href
+    if isDeadLink c.links.isSiteFile target then
+      let dead := { dest := target, site := c.site,
+                    isBibliographyKey := c.bib.byKey.contains target }
+      modify fun s => { s with deadLinks := s.deadLinks.push dead }
     let acc := escapeInto (out ++ "<a href=\"") (extendLink c target) ++ "\""
     match c.bib.cited? target with
     | some item =>

@@ -2,6 +2,7 @@ import Litedoc4Test.Bib
 import Litedoc4Test.Citations
 import Litedoc4Test.Cli
 import Litedoc4Test.Config
+import Litedoc4Test.DeadLinks
 import Litedoc4Test.DepsDocs
 import Litedoc4Test.Extract
 import Litedoc4Test.GlobalArtifacts

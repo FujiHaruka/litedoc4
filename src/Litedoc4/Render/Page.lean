@@ -19,7 +19,8 @@ def pageHtml (ix : NameIndex) (bib : Bibliography) (citations : Array Citation) 
   let mut memberNames : Array String := #[]
   for it in pageItems m sup do
     if it.isDoc then
-      main ← renderDocstring (main ++ "<div class=\"moddoc\">") dr "" m.moduleDocs[it.idx]!.text
+      let doc := m.moduleDocs[it.idx]!
+      main ← renderDocstring (main ++ "<div class=\"moddoc\">") dr { line := doc.line } doc.text
       main := main ++ "</div>"
     else
       let d := m.decls[it.idx]!
