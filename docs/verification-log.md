@@ -5767,6 +5767,22 @@ litedoc4 lacks is different — doc-gen4 turns `[Key]` and `[text][Key]` citatio
 (425 distinct). litedoc4 has no references page, so these stay literal text (assumed, from
 CommonMark's undefined-reference rule; not rendered). The target has no bibliography.
 
+**Since then both are in** (2026-10-04). The bibliography is doc-gen4's:
+- It goes through BibtexQuery at the rev doc-gen4 pins. That library builds on v4.31.0 / v4.32.2 /
+  v4.33.1. Because it reaches a consumer through litedoc4, it leaves the consumer's `lean-toolchain`
+  alone; a direct require would rewrite it to v4.35.0-rc3 (measured →
+  `benchmarks/results/bibtexquery-dependency-probe-2026-10-04.txt`).
+- `references.html` is always written. It carries back-references to every citation anchor, and
+  one list answers both the anchors and the back-references.
+- One deliberate difference from doc-gen4: back-references are numbered in page order, not
+  members first.
+
+A relative docstring link that is not a site file is now a build `warning:` with its location.
+The output is unchanged. On the target there are 0 warnings and the site checker finds 0 dead links
+among 31,236. On a copy of the target with links injected, the 6 warnings match the checker's 6
+dead docstring links one to one (measured → `benchmarks/results/dead-link-warning-2026-10-04.txt`).
+Not yet re-run on Mathlib.
+
 ## 書き方
 
 段階ごとに 1 節を足す。各節に必ず入れるもの:
