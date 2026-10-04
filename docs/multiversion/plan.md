@@ -463,7 +463,11 @@ pairs v4.29.0 → v4.34.1, reflection on the 5 installed toolchains, v4.29/v4.30
   The way consistent with this direction is the newest version's handler, fed the old value
   rebuilt as the newest Lean's object of the same type (theoretical, unverified) — the old
   `.olean` carries that type's definition, so a changed type is detected rather than misread.
-  Core has 767 Verso docstrings; Mathlib's count, and how many use custom blocks, is not measured.
+  **On the documented package it does not arise today** (measured →
+  `benchmarks/results/mathlib-verso-docstrings-2026-10-04.txt`): Mathlib v4.34.1 has 0 Verso
+  docstrings of 90,663 declaration and 12,887 module docstrings, and so does every other package
+  it imports except core. Core's custom elements are core's own five types, each with a
+  non-empty fallback text (0 empty of 1,766). Older Mathlib versions are not measured.
 
 **The cost of the approximation is small too** (extrapolated: 5,000 of 311,415 Mathlib v4.31.0
 declarations, 1.61%, seeded; each type printed by v4.31.0 and, rebuilt verbatim, by v4.34.1 with
