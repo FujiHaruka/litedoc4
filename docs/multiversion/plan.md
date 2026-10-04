@@ -310,8 +310,13 @@ browser (U4). Still open: which of the three rows, after U3 and U7.
    text spends 378 B on three links to Lean core source and 360 B on fifteen subterm wrappers
    (measured → `benchmarks/results/mathlib-signature-example-2026-10-04.txt`).
 
-Not decided: giving up subterm highlighting on hover, which would drop the subterm markers
-altogether (→ "Features that could be given up").
+**The subterm wrappers are layout, not a hover effect.** Their one CSS rule makes a long signature
+wrap whole subterms with a hanging indent; nothing else reads them. The browser cannot rebuild them
+from the text — the subterm tree is the pretty printer's, and recovering it would mean parsing
+Lean's notation. But 5,461,099 of the 10,285,239 (53.1%) wrap a single token, where an
+inline-block changes nothing (measured → `benchmarks/results/mathlib-subterm-wrappers-2026-10-04.txt`;
+"changes nothing" assumed, not rendered). Open: drop those and carry the rest as markers, or drop
+the wrapping layout altogether (→ "Features that could be given up").
 
 ### D5 — Unit and address of sharing
 
@@ -358,7 +363,7 @@ versions; U3 and U4 put a number on each.
 | Docstring link resolution | depends on the whole name set of the version | resolve against latest; keep per version |
 | Equations | large, rarely read (58,426 per version) | latest only; on demand |
 | Static HTML that reads without JavaScript | the main reason hosted size scales with the number of versions | latest only (D4) |
-| Subterm highlighting on hover in signatures | 12.0 M wrappers, ≈ 40 per signature — the structure a signature carries beyond its text and links | drop; keep for the latest only |
+| Wrapping a long signature by subterm, with a hanging indent | 10.3 M wrappers on module pages (signatures, equations, fields) — the structure a signature carries beyond its text and links; 53.1% wrap one token and do nothing | drop the single-token ones only; drop the layout altogether (wraps like plain text) |
 | Bibliography page | per version, small | keep |
 
 ## Out of scope
