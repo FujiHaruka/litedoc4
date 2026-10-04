@@ -1,0 +1,1886 @@
+An own .olean reader in the newest Lean: reading Mathlib v4.31.0 in Lean v4.34.1, and a hybrid environment for printing
+==================================================================================================================
+Date: 2026-10-04. Context: docs/multiversion/plan.md D10 (an own .olean reader in one Lean), U8 ("Answered": every
+name-keyed lookup asked of an environment holding the newest Mathlib answers about the newest declaration) and U9
+(how fast is the reader, does printing fit the build budget). A prototype, not product code: it lives in a scratch
+Lake project and nothing in src/ was changed.
+
+QUESTIONS
+---------
+(a) Can an own .olean reader running in Lean v4.34.1 read Mathlib v4.31.0 (all its packages and Lean core v4.31.0),
+    correctly, and how fast? Correct = byte-identical to v4.31.0's own serialization of the drift log's seeded 5,000
+    declaration types (benchmarks/results/mathlib-printer-drift-2026-10-04.txt, its script 1, old side).
+(b) Can the decoded v4.31.0 data be assembled into an Environment of v4.34.1, so that name-keyed lookups answer about
+    v4.31.0, and printed with the newest Mathlib's printer (delaborators, unexpanders, notation) while constant
+    lookups resolve against the old constants? Step 1: assembly and lookups. Step 2: the 5,000 prints, compared with
+    v4.31.0's own print exactly as the drift log compares them (97.56% identical there).
+
+HEADLINE
+--------
+(a) Oracle: identical 5000 of 5000 (measured). Not found 0, different 0.
+    Reading the whole closure (10,583 modules, 6,998,484,208 bytes in 3 files per module, 767,828 constants, every
+    Name / Level / Expr decoded and checked) takes 48.3 s wall median (0.80 min) with proofs decoded, 24.6 s
+    (0.41 min) with theorem proofs skipped (measured, 5 and 3 runs). Peak RSS 206 MB / 104 MB: one module is held at a
+    time. Runs made after reading ~20 GB of unrelated files to evict the closure take the same time (48.7 s median,
+    3 runs) - see CONDITIONS for what that does and does not show.
+    -> Reading is ~0.4-0.8 min of the ~10 min per version that 11 versions in 2 h allow. It is not the bottleneck;
+       printing is (~6.7 min per version, extrapolated; TIMING). No fallback to C is needed for reading at this
+       speed; the place C would go is csrc/, which the tree already builds, and it is not built here.
+(b) Assembly works. In the hybrid (newest import, old constants replaced in place, old data-extension entries, newest
+    code), 4930 of 5000 print the same text as v4.31.0 printed: 98.60% [98.24%, 98.89%] against the drift log's
+    97.56% (measured, same 5,000, same comparison, the drift log's agg.py run verbatim).
+      - the explicit-@ class (F4, 28 of 111 in the drift log) is 0;
+      - the 11 "failed to pretty print" are 0, and so are C (2) and E (2);
+      - what is left is notation the newest Mathlib prints differently for the same term: set-builder via the
+        setOf -> Set.ofPred rename 45 (unchanged), the new ↧ notation 16 (unchanged), 2 `Finset.HasAntidiagonal.`
+        qualifications, 7 other (4 manifold notations, 1 binder notation, 1 match not reconstructed, 1 other).
+    The 16 name-keyed lookups (type, kind, universe params, structure fields flattened, declaration ranges,
+    isInstance, isClass, isStructure, reducibility, projection info, coercion info, protected, stored equations
+    `f.eq_N`, `f.eq_def`, module) on all 5,000 sampled declarations:
+      - in the old environment assembled alone in v4.34.1: 80,000 of 80,000 answers equal v4.31.0's own (measured);
+      - in the hybrid: 14 lookups equal on all 5,000; `module` differs on 136 (the hybrid answers the newest module)
+        and the stored equations on 6 (a `f.eq_1` the newest Mathlib stored and v4.31.0 did not is visible).
+    -> The design this points to is the hybrid, not ~30 lookups re-implemented over decoded data: the running Lean's
+       own lookup code answered every lookup correctly once the data was the old data. Two rules make it work, and
+       both were found by failing first (WHAT FAILED): newest code needs the newest data about the newest code's own
+       vocabulary, and anything asked about "does this name exist / where does it live" must be answered from the
+       decoded old data, not the hybrid environment.
+
+CONDITIONS
+----------
+- Hardware: Apple M1 (machdep.cpu.brand_string), hw.memsize 17179869184 (16 GiB), macOS 26.6.2. One heavy process at a
+  time throughout.
+- Old side: Lean 4.31.0 (68218e876d2a38b1985b8590fff244a83c321783), Mathlib v4.31.0
+  (fabf563a7c95a166b8d7b6efca11c8b4dc9d911f), workspace <old-workspace> (the measurement target, read-only), all its
+  packages (aesop, batteries, Cli, importGraph, LeanSearchClient, loogle, mathlib, plausible, proofwidgets, Qq) and
+  Lean core from <toolchain v4.31.0>/lib/lean. Every .olean header read says "4.31.0" and that githash.
+- New side: Lean 4.34.1 (5045d0056413), Mathlib v4.34.1 (d13f23b723b8a846827a245b89c10fc7d3f11612), workspace
+  <new-workspace> (Mathlib oleans from the cache). The prototype is a compiled executable (lean_exe, -O3,
+  supportInterpreter) built by Lean v4.34.1 in <scratch>; it imports only `Lean`. For (b) it runs under
+  `lake env` of <new-workspace> so the newest Mathlib is on the search path.
+- Which files: all three parts of every module (.olean, .olean.server, .olean.private; 6 Mathlib modules and the
+  non-`module` packages have a single .olean, read alone). Reading .olean only does not answer (b): declaration
+  ranges have no entries in .olean (layout log), the private-level constants the sampled types reference (the
+  `_proof_N` auxiliaries) exist only in .olean.private, and v4.31.0's importer takes a module's constants from the
+  private part - whose pointers reach into the other two parts, so it cannot be read without them. The reader
+  decodes the private part's ModuleData and resolves each pointer by the base address in each part's header.
+- The reader is single-threaded: one module after another on one core (user ~36 s of the 48 s wall).
+- The reader reads files with IO.FS.readBinFile (one module's three parts into memory, then dropped) and walks the
+  bytes in Lean; it does not mmap.
+- Warm / cold: `purge` is refused without root on this machine ("Operation not permitted"). Eviction was attempted by
+  reading ~20 GB of unrelated files (the newest workspace's packages, another workspace, four other toolchains' lib
+  directories; script evict.sh below) before each "after eviction" run. Those runs take the same time as the
+  back-to-back runs (48.7 vs 48.3 s median). In every run, back-to-back or not, wall exceeds user+sys by ~8 s, and
+  the reader's own "file reads" phase takes 8.2-9.3 s for 7.0 GB in every run. So by this repository's criterion
+  (warm if wall ~= user+sys) none of the runs is warm, and the eviction did not produce a measurably different state.
+  Whether a true cold cache (after reboot) is slower is NOT measured; the reading phase is at most ~9 s of the 48 s
+  in the runs measured here.
+- Run counts: (a) timing 1 priming run + 5 back-to-back runs, 3 runs each after an eviction, all with proofs decoded;
+  1 run after eviction + 3 back-to-back runs with proofs skipped. Oracle and lookups are deterministic answers: one
+  run each, after a 20-record (or 20-module / 300-module) sample run.
+- Sampling: every program ran on a sample first (20 oracle records; 20, then 1,500 modules for the reader; 300
+  modules for the old-environment assembly; 20 records for the hybrid) before the full run, as CLAUDE.md requires.
+
+THE ORACLE (a)
+--------------
+The drift log's script 1 (Drift.lean), unchanged, old side, regenerated in <old-workspace>:
+  lake env lean --run Drift.lean old old.jsonl 20261004 5000
+  -> N = 311,415 (the drift log's N), sampled 5,000, seed 20261004; 92.03 s wall, 15.46 user, 11.48 sys, peak RSS
+     3,832,266,752 B; import 58.1 s, enumerate 14.8 s, ppExpr total 5.7 s. Its first 20 records equal the 20-record
+     sample run's (timing field aside).
+The reader, in v4.34.1, reads the whole closure, takes the decoded `ConstantInfo` of each of the 5,000 names (first
+module in import order that lists it, as the importer does), serializes its type with the same serializer (copied
+verbatim from Drift.lean) and compares the compressed JSON string with the record's `type`:
+  oracle: identical 5000 of 5000; not found 0; different 0                                   (measured)
+Beyond the 5,000, every object the reader decodes is checked against what v4.31.0 stored beside it:
+  Name hashes recomputed by v4.34.1 and compared with the stored hash        11,436,168 of 11,436,168 equal
+  Level data words recomputed and compared                                       280,258 of    280,258 equal
+  Expr data words (hash, loose bvar range, depth, flags) recomputed and compared
+                                                                             131,149,368 of 131,149,368 equal
+  (counts are per module - a Name shared by two modules is decoded and checked in each; any mismatch is a hard
+  error naming the address, and the run completed.) Every constructor object's tag, object-field count and byte
+  size is checked against the layout the reader expects; every name in `constNames` equals the name of the
+  `ConstantInfo` beside it (767,828 of 767,828).
+Reducibility meaning table (layout log, v4.32.2 -> v4.33.0): v4.31.0 writes 0 reducible, 1 semireducible,
+2 irreducible, 3 "unfolded at .instances or above"; the reader maps 3 to v4.34.1's `instanceReducible` (4). Values
+read as 3: 9,105 in core modules of the closure, 21,332 in the rest. The layout log counts 9,726 [implicit_reducible]
+entries over v4.31.0's whole `import Lean` environment (8,163 + 1,524 + 39); the closure here holds core modules
+reached from Mathlib, a subset, so 9,105 <= 9,726 is consistent but is not an equality check. The lookup comparison
+below is the check: 258 of the 5,000 are [implicit_reducible] in v4.31.0 and all 258 come out instanceReducible.
+
+TIMING (a)
+----------
+Whole closure: 10,583 modules, 6,998,484,208 bytes (.olean + .olean.server + .olean.private), 169,715,820 objects
+visited, 767,828 constants, 648,479 extension entries decoded, 4,722,857 entries in 212 extensions not decoded.
+(measured; /usr/bin/time -l)
+  run                      wall      user     sys    peak RSS        reader's split (file reads / decoding)
+  priming                  48.93 s   36.57    3.52   206,356,480 B   8.8 s / 32.0 s
+  back-to-back 1           47.40     36.30    3.36   206,192,640     8.6 / 31.8
+  back-to-back 2           47.99     36.55    3.38   206,372,864     8.8 / 32.1
+  back-to-back 3           48.25     36.45    3.47   206,356,480     9.0 / 31.9
+  back-to-back 4           48.73     36.78    3.47   205,848,576     9.2 / 32.2
+  back-to-back 5           48.76     36.81    3.56   206,209,024     9.0 / 32.3
+  after eviction 1         48.71     36.50    3.65   204,259,328     8.6 / 32.0
+  after eviction 2         50.23     37.57    3.73   199,344,128     9.2 / 32.9
+  after eviction 3         48.76     36.53    3.71   203,112,448     9.3 / 32.1
+  proofs skipped, after eviction
+                           25.09     13.99    3.11   100,663,296     8.3 / 12.1
+  proofs skipped 1-3       24.44 / 24.63 / 24.59   (user 14.01-14.04, sys 2.95-3.03, RSS ~104 MB; 8.2-8.3 / 12.1-12.2)
+  medians: proofs decoded 48.25 s back-to-back, 48.76 s after eviction; proofs skipped 24.59 s.
+The closure walk (imports of every module, read from each .olean) is ~2.3-3.8 s of the wall time.
+"Proofs skipped" still reads all three files of every module and decodes everything except the value of each
+theorem; it is what the hybrid needs (a theorem's proof is never printed or looked up).
+
+Per version, end to end (theoretical, premises listed, unverified as a whole): assembling the hybrid ~2.1 min
+(measured once, below: 68.1 s reading + decoding the closure while keeping everything but proofs - this includes the
+reading measured above - plus ~60 s for the newest import, the rewrite and finalizeImport) + printing every
+declaration's type ~6.7 min (extrapolated from 6,458 ms for 5,000 types, 1.29 ms per type, to 311,415 declarations;
+plain ppExpr, not the extractor's signature printer, which does more per declaration) = ~8.8 min. That is under the
+~10 min per version that 11 versions in 2 h allow, with little margin, and the dominant term is printing, not
+reading. Not measured: the extractor's full per-declaration work in the hybrid.
+
+ASSEMBLY AND LOOKUPS (b, step 1)
+--------------------------------
+How: `ImportState`, its `ImportedModule`s and `CompactedRegion` have private fields; the prototype mirrors their
+layouts field for field and casts (unsafeCast). Each decoded module becomes an `ImportedModule` with one part
+(`isModule := false`, so the importer takes part 0), a region that nothing points into, no IR parts; then
+`finalizeImport ... (loadExts := true)` of v4.34.1 builds the environment. Checked: moduleNameMap.size ==
+moduleNames.size. The decoded extensions (11, listed below with entry counts) get their old entries; every other
+extension gets none. Theorem proofs are replaced by a constant no environment defines, so a use fails by name.
+  old environment alone: decode 67.2 s (proofs skipped, everything kept), finalizeImport 2.1 s, 766,828 constants
+  (767,828 listed; 1,000 duplicates across modules merged by the importer's rule), 70.52 s wall, peak RSS
+  2,844,000,256 B (measured, 1 run).
+The lookups (script below, the same Lean code compiled by each side): asked natively in v4.31.0 in <old-workspace>
+(importModules Mathlib, 59.6 s wall, RSS 4,050,403,328 B), and in v4.34.1 of each assembled environment, for all 5,000
+sampled names (not just 20; the sample holds 65 structures, 42 classes, 501 instances, 143 projections, 166
+declarations with stored `eq_N` lemmas, 3 coercions, 180 protected, 373 not semireducible):
+  lookup         old env alone   hybrid (data exts old)   hybrid (constants only)   non-empty in v4.31.0
+  found              5000            5000                     5000                     5000
+  kind               5000            5000                     5000                     5000
+  levelParams        5000            5000                     5000                     4506
+  type               5000            5000                     5000                     5000
+  isStructure        5000            5000                     5000                       65
+  isClass            5000            5000                     5000                       42
+  isInstance         5000            5000                     4994                      501
+  fields             5000            5000                     4995                       65
+  ranges             5000            5000                     1898                     5000
+  reducibility       5000            5000                     4989                      373
+  projInfo           5000            5000                     4995                      143
+  coe                5000            5000                     5000                        3
+  protected          5000            5000                     4996                      180
+  eqns               5000            4994                     4994                      166
+  eqDef              5000            5000                     5000                        1
+  module             5000            4864                     4864                     5000
+  (number of the 5,000 whose answer equals v4.31.0's; reducibility compared through the meaning table)
+- `module` in the hybrid: the importer gives a name the module index of the first newest module listing it, so the
+  newest module is answered (e.g. ENNReal.iInter_Ioi_coe_nat: v4.31.0 Mathlib.Data.ENNReal.Basic, hybrid
+  Mathlib.Basic.ENNReal.Basic). The decoded data has the right answer; this lookup must come from it.
+- `eqns` in the hybrid: 6 definitions (ordinaryHypergeometric, normalize, sigmaSigmaIso, semilinearMapAddEquiv,
+  uniqueToTerminal, WithTop.instCommSemiring) have no stored `f.eq_1` in v4.31.0 but the newest Mathlib stored one;
+  the hybrid keeps newest-only constants (the newest code needs them), so probing a name the old version lacks finds
+  the newest one. Any "does this name exist" question must be asked of the decoded old name set.
+- "constants only" is the hybrid with every extension state the newest one: declaration ranges are the newest
+  (3,102 differ), and so are structure, instance, projection, reducibility and protected answers for the declarations
+  that changed. It is shown to measure what the old data extensions buy.
+
+PRINTING (b, step 2)
+--------------------
+Construction ("hybrid"): run v4.34.1's own `importModulesCore` for Mathlib in <new-workspace>; before
+`finalizeImport`, rewrite each newest module's private-level ModuleData:
+  - every constant the old version also has is replaced in place by the decoded old ConstantInfo (same module
+    index, so the newest IR, parser descriptions and delaborator code stay addressable through const2ModIdx):
+    739,744 replaced; 993 later duplicates of a replaced name dropped (the importer would reject a definition listed
+    twice with different bodies); 27,084 old-only constants go into one extra module appended at the end;
+  - for the 11 decoded extensions, an entry of the newest Mathlib is dropped when its key (the declaration name it is
+    about) is a name the old version has or has an entry for (641,685 dropped), and kept otherwise (36,101 kept);
+    the old entries are added, regrouped by the module index their key gets, and sorted by Name.quickLt (the
+    per-module binary searches of MapDeclarationExtension, TagDeclarationExtension, structureExt and reducibility
+    need it);
+  - every other extension (delaborators, unexpanders, parser tables, formatters, IR, initializers, Mathlib's own
+    extensions) keeps the newest entries. finalizeImport then runs the newest initializers and attribute handlers as
+    a normal import does.
+Printing: the drift log's new side (Drift.lean `newSide`, unchanged apart from taking the environment as an argument):
+the old Expr rebuilt from the oracle record, `Meta.ppExpr`, width 1,000,000, maxHeartbeats 5,000,000, then the drift
+log's agg.py verbatim.
+  hybrid, data extensions old: decode 68.1 s, newest import + rewrite + finalize 60.5 s, lookups 1.9 s, print 6.5 s
+  (ppExpr 4.8 s); 139.45 s wall, 70.95 user, 16.24 sys, peak RSS 5,074,173,952 B (measured, 1 run).
+  hybrid, constants only: 134.55 s wall, peak RSS 5,497,929,728 B.
+
+                                   drift log        hybrid, data exts old     hybrid, constants only
+                                   (v4.34.1 env)    (measured)                (measured)
+  identical                        4878  97.56%     4930  98.60% [98.24, 98.89]   4909  98.18% [97.77, 98.52]
+  different                         111   2.22%       70   1.40% [1.11, 1.76]       83   1.66%
+  print failed (text returned)       11   0.22%        0                              8   0.16%
+  exception                           0                0                              0
+  classes of "different" (drift log's rules, in order):
+    C  @ marker only                  2                0                              0
+    D  namespace qualification only   5                2                             12
+    E  identifier spelling only       2                0                              1
+    F1 set-builder via setOf         45               45                             45
+    F2 new ↧ notation                16               16                             16
+    F4 more explicit @-applications  28                0                              0
+    F5 rest                          13                7                              9
+  dangling (>= 1 referenced constant absent from the printing environment): 388 in the drift log, 0 here (every old
+  constant is present). Own name in the printing environment, same type: 3,655 in the drift log, 5,000 here.
+  Wilson intervals as in the drift log. Read as a statement about all 311,415 declarations: (extrapolated) from 1.61%.
+- F4 vanishes: those 28 were old applications of constants whose signature or instance arguments changed by v4.34.1;
+  with the old constants the printer elides the arguments again.
+- The 11 print failures vanish: all 11 referenced constants v4.34.1 removed (OpenPartialHomeomorph.toPartialEquiv,
+  categoryOfElements); they exist here.
+- D: 3 of the drift log's 5 were private proof auxiliaries absent from v4.34.1; the 2 left print
+  `Finset.HasAntidiagonal.antidiagonal` for `Finset.antidiagonal` (the old constant is the same; the newest name
+  resolution prints a longer qualification).
+- What remains is the approximation D10 accepted: the newest printer's notation for unchanged terms. F1 is the
+  newest Mathlib's set-builder unexpander, keyed on Set.ofPred, not firing on the old `setOf` (still 45); F2 is the
+  newest ↧ notation applied to old `X.of` terms (still 16); F5's 7: 4 manifold notations of the newest Mathlib
+  (mfderiv[...], HasMFDerivAt%), 1 binder notation (∏ x > a for ∏ x ∈ Finset.Ioi a), 1 `match` printed as its
+  matcher application (the matcher extension is not among the decoded ones, so the old matcher has no MatcherInfo -
+  a reader gap, not a printer one), 1 other.
+
+WHAT FAILED, AND WHY
+--------------------
+1. First hybrid attempt, old entries only for the decoded extensions (newest entries of those 11 extensions removed
+   wholesale): 7 of the first 20 records printed "failed to pretty print". The diagnosis (delab, then ppTerm, errors
+   caught separately) was the same for all 7: "type class instance expected  UsesSetNotationForOrder X". That class
+   exists only in v4.34.1 Mathlib; its delaborator for ≤ / ⊆ synthesizes it; removing the newest class entries made it
+   not a class. Fix: keep newest entries whose key the old version does not have (rule 1 in the headline). After it,
+   20 of 20 identical.
+2. `withImporting` resets the initializer-execution flag in its `finally`; calling `importModulesCore` inside one
+   `withImporting` and `finalizeImport` inside another failed with "`enableInitializersExecution` must be run before
+   calling `importModules (loadExts := true)`". Fix: enable again before the second.
+3. Constants-only hybrid: 8 print failures, all "`AddMonoidAlgebra` is not an inductive type" (also MonoidAlgebra,
+   PolynomialModule): in v4.34.1 those are structures, in v4.31.0 definitions; the newest structure info about a name
+   whose old constant is a definition. This is the U8 failure inside the printer, and the reason the data
+   extensions have to be old.
+4. The reader itself: no layout check fired on the closure. Single-field structures (KVMap, String.Pos.Raw, FVarId)
+   are represented as their field, as the compiler's trivial-structure rule says, and are decoded that way; a wrong
+   guess there would have stopped the run at the first such object with the type's name.
+5. The checks were made to fail once (measured): three copies of Init.Prelude's three parts in <scratch>, each with
+   one change in .olean.private, put first on the reader's search path (never given to Lean's importer; the v4.31.0
+   files were not touched). Each run stopped with exit 1 at the changed object, naming it:
+     one bit of a stored Name hash   -> "olean reader: Name at 0x31fc9d8a0060: stored hash differs from the
+                                         recomputed one for _private.Init.Prelude.0.Lean.extractMainModule._sunfold"
+     one bit of an Expr data word    -> "olean reader: Expr at 0x31fc9d8d0ee0: stored data differs from the
+                                         recomputed one (tag 5)"
+     a Name object's tag set to 7    -> "olean reader: Name at 0x31fc9d8a0060: tag 7 objs 2 size 32"
+Nothing was skipped silently: an extension outside the decoded set is not read, and is listed with its entry count.
+
+WHAT IS NOT MEASURED
+--------------------
+- One old version (v4.31.0) against one new (v4.34.1). The reader knows exactly v4.31.0's header (version string and
+  githash) and refuses every other by name; v4.29 / v4.30 / v4.32 / v4.33 layouts are not implemented here.
+- True cold cache (after reboot): purge needs root; see CONDITIONS.
+- The extractor's own signature printer, docstrings, Verso, equations generation, instances lists, structure-field
+  printing, and the per-page work in the hybrid: only `ppExpr` of the type and 16 lookups were asked. Printing all
+  311,415 declarations was not run; the per-version total above is theoretical.
+- 212 extensions are not decoded (list below), among them the matcher extension (one print differs because of it),
+  docstrings, simp, the parser extension and IR. A product reader needs a decoder for each one the extractor reads.
+- D10 mechanism 3 (.ilean agreement, "every constant a type mentions exists") was not implemented; mechanism 2 was
+  done as the oracle plus the computed-field checks above.
+- Memory of the hybrid at the extractor's full workload; the 5.07 GB peak here is newest import + old constants
+  without proofs.
+- The duplicate rule (later occurrences of a replaced name dropped) and the 27,084 old-only constants in one extra
+  module change which module a name reports; correctness of anything module-keyed in the hybrid is not established
+  beyond the `module` lookup above (which is wrong in the hybrid by construction).
+
+EXTENSIONS
+----------
+Decoded (registered name, entries over the closure):
+    Lean.Meta.coeExt 276
+    Lean.Meta.instanceExtension 43185
+    Lean.aliasExtension 641
+    Lean.classExtension 2418
+    Lean.declRangeExt 427517
+    Lean.projectionFnInfoExt 15251
+    Lean.protectedExt 41171
+    _private.Lean.Namespace.0.Lean.namespacesExt 26815
+    _private.Lean.Structure.0.Lean.structureExt 5809
+    reducibilityCore 85391
+    reducibilityExtra 5
+Not decoded (registered name, entries over the closure), all 212:
+    Lean.Compiler.LCNF.impureSigExt 675122
+    _private.Lean.ExtraModUses.0.Lean.extraModUses 658417
+    _private.Lean.Util.CollectAxioms.0.Lean.exportedAxiomsExt 637971
+    Lean.Compiler.LCNF.monoExt 530752
+    _private.Lean.OriginalConstKind.0.Lean.privateConstKindsExt 452484
+    Lean.IR.declMapExt 363729
+    Lean.Compiler.LCNF.UnreachableBranches.functionSummariesExt 241583
+    _private.Lean.Compiler.MetaAttr.0.Lean.declMetaExt 198171
+    Lean.Compiler.LCNF.baseExt 139151
+    Lean.Parser.parserExtension 109867
+    Lean.docStringExt 106838
+    Lean.Meta.simpExtension 98331
+    Lean.backwardDefeqAttr 60138
+    Lean.Compiler.inlineAttrs 46169
+    _private.Lean.Compiler.LCNF.Specialize.0.Lean.Compiler.LCNF.Specialize.specCacheExt 41881
+    Lean.Compiler.LCNF.specExtension 32938
+    Lean.defeqAttr 28343
+    Lean.Meta.Match.Extension.extension 27954
+    Mathlib.Tactic.ToAdditive.translations 24872
+    _private.Lean.Compiler.MetaAttr.0.Lean.metaExt 18747
+    Lean.auxRecExt 17586
+    Lean.noncomputableExt 15571
+    _private.Lean.DocString.Extension.0.Lean.moduleDocExt 14773
+    Lean.Meta.Grind.grindExt 13396
+    Lean.Meta.completionBlackListExt 13246
+    Lean.deprecatedModuleExt 10583
+    sineQueNon 10583
+    symbolFrequency 10583
+    _private.Lean.Compiler.ModPkgExt.0.Lean.modPkgExt 10583
+    Lean.noConfusionExt 9983
+    Mathlib.Tactic.ToDual.translations 9385
+    simpsAttr 8418
+    _private.Lean.AuxRecursor.0.Lean.sparseCasesOnExt 7303
+    Lean.Meta.congrKindsExt 5976
+    Batteries.Tactic.Alias.aliasExt 5708
+    Lean.Linter.deprecatedAttr 5697
+    recExt 4739
+    _private.Lean.Meta.Constructions.SparseCasesOn.0.Lean.Meta.sparseCasesOnInfoExt 4620
+    Lean.builtinInitAttr 4520
+    Lean.Meta.eqnOptionsExt 3569
+    Batteries.machineApplicableDeprecated 3406
+    Lean.Elab.Term.elabAsElim 3335
+    _private.Lean.DocString.Extension.0.Lean.inheritDocStringExt 2361
+    Lean.Meta.NormCast.pushCastExt 2068
+    Mathlib.Meta.FunProp.functionTheoremsExt 2048
+    Lean.Meta.NormCast.normCastExt.down 2036
+    Lean.Meta.NormCast.normCastExt.up 1954
+    Lean.Elab.Structural.eqnInfoExt 1918
+    Lean.Elab.macroAttribute 1729
+    Lean.Meta.Ext.extExtension 1446
+    Lean.Elab.Command.assertExistsExt 1435
+    Simps.structureExt 1021
+    Mathlib.Tactic.GCongr.gcongrExt 1002
+    Lean.PrettyPrinter.Delaborator.appUnexpanderAttribute 947
+    Lean.externAttr 843
+    Lean.Meta.NormCast.normCastExt.squash 821
+    Lean.indirectModUseExt 815
+    Mathlib.CrossRef.tagExt 668
+    Lean.PrettyPrinter.mkCombinatorFormatterAttribute 644
+    Lean.PrettyPrinter.mkCombinatorParenthesizerAttribute 642
+    Lean.versoDocStringExt 575
+    Lean.Compiler.specializeAttr 475
+    Batteries.Tactic.Lint.nolintAttr 456
+    Lean.regularInitAttr 432
+    Lean.Elab.WF.eqnInfoExt 415
+    Lean.Compiler.implementedByAttr 343
+    Continuous 339
+    ext._@.Mathlib.Tactic.Attr.Register.479538640._hygCtx._hyg.3 332
+    mono 323
+    Lean.Elab.Tactic.BVDecide.Frontend.intToBitVecExt 320
+    Lean.PrettyPrinter.Delaborator.delabAttribute 299
+    _private.Lean.Meta.MethodSpecs.0.Lean.methodSpecsAttr 272
+    Lean.exportAttr 235
+    Lean.Elab.Tactic.BVDecide.Frontend.bvNormalizeExt 234
+    Lean.Elab.Tactic.tacticElabAttribute 220
+    Lean.Parser.Term.Doc.recommendedSpellingByNameExt 202
+    Mathlib.Tactic.Push.pushExt 202
+    Lean.Compiler.CSimp.ext 196
+    Lean.Meta.funIndInfoExt 186
+    Mathlib.Meta.FunProp.lambdaTheoremsExt 182
+    Lean.auxParentProjInfoExt 179
+    Bound 176
+    Lean.Meta.Symm.symmExt 170
+    cbvEvalExt 167
+    Lean.Meta.Rfl.reflExt 158
+    Batteries.Tactic.transExt 157
+    Mathlib.Meta.FunProp.transitionTheoremsExt 154
+    ext._@.Mathlib.Tactic.Attr.Register.2133673922._hygCtx._hyg.3 153
+    specMap 150
+    Lean.matchPatternAttr 147
+    Mathlib.Meta.FunProp.morTheoremsExt 141
+    Lean.Meta.customEliminatorExt 138
+    default 138
+    Mathlib.Tactic.Push.pullExt 125
+    eqnsAttribute 123
+    Lean.Parser.Term.Doc.recommendedSpellingExt 116
+    Mathlib.Meta.Positivity.positivityExt 112
+    ext._@.Mathlib.Tactic.Attr.Register.2899626838._hygCtx._hyg.3 109
+    Lean.Meta.Grind.normExt 108
+    Lean.Meta.congrExtension 104
+    Lean.Elab.Command.commandElabAttribute 102
+    Lean.Parser.Tactic.Doc.tacticAlternativeExt 96
+    _private.Lean.ExtraModUses.0.Lean.isExtraRevModUseExt 92
+    Mathlib.Meta.NormNum.normNumExt 85
+    Measurable 80
+    SetLike 78
+    Lean.Elab.Term.termElabAttribute 77
+    ext._@.Mathlib.Tactic.Attr.Register.85691930._hygCtx._hyg.3 71
+    Lean.Meta.Monotonicity.monotoneExt 68
+    Lean.ppNoDotAttr 67
+    treeTacExt 67
+    ext._@.Mathlib.Tactic.Attr.Register.3059584346._hygCtx._hyg.3 56
+    Lean.Elab.Tactic.Do.SpecAttr.mvcgenSimpExt 52
+    cbvOpaqueExt 50
+    Lean.Elab.WF.wfPreprocessSimpExtension 50
+    Mathlib.Meta.FunProp.funPropDeclsExt 49
+    finsetNonempty 47
+    Lean.identifierSuggestForAttr.incorrectToExisting 43
+    ext._@.Mathlib.Tactic.Attr.Register.2336186397._hygCtx._hyg.3 42
+    finiteness 41
+    Lean.attributeExtension 41
+    Lean.Meta.defaultInstanceExtension 41
+    Batteries.Util.LibraryNote.libraryNoteExt 38
+    Simps.notationClassAttr 38
+    Lean.Elab.Tactic.Omega.bitvec_to_nat 36
+    Lean.identifierSuggestForAttr.existingToIncorrect 36
+    ext._@.Mathlib.Tactic.Attr.Register.1086225606._hygCtx._hyg.3 32
+    Matroid 31
+    builtin 30
+    Lean.Meta.Simp.simprocDeclExt 30
+    _private.Lean.DocString.Extension.0.Lean.versoModuleDocExt 29
+    Lean.Meta.unificationHintExtension 28
+    Mathlib.Tactic.Hint.hintExtension 24
+    Mathlib.Tactic.UnfoldBoundary.registerUnfoldBoundaryExt 23
+    Lean.PrettyPrinter.parenthesizerAttribute 23
+    Lean.PrettyPrinter.formatterAttribute 23
+    Lean.IR.UnboxResult.unboxAttr 22
+    CategoryTheory 21
+    Tactic.higherOrderAttr 20
+    _private.Lean.Widget.UserWidget.0.Lean.Widget.moduleRegistry 19
+    Mathlib.TacticAnalysis.tacticAnalysisExt 19
+    Batteries.Tactic.Lint.batteriesLinterExt 19
+    IsMultiplicative 17
+    Lean.Attr.algebraizeAttr 17
+    ext._@.Mathlib.Tactic.Attr.Register.1568842782._hygCtx._hyg.3 16
+    _private.Lean.Meta.MethodSpecs.0.Lean.methodSpecsSimpExtension 16
+    CStarAlgebra 16
+    _private.Lean.Meta.Tactic.Grind.EMatchTheorem.0.Lean.Meta.Grind.symbolPrioExt 15
+    ext._@.Mathlib.Tactic.Attr.Register.2016062075._hygCtx._hyg.3 14
+    Lean.Server.userRpcProcedures 14
+    Lean.Meta.coeDeclAttr 14
+    Lean.errorExplanationExt 14
+    _private.Lean.Elab.Tactic.Grind.Lint.0.Lean.Elab.Tactic.Grind.skipExt 13
+    Restrict 12
+    ext._@.Mathlib.Tactic.Attr.Register.3849875863._hygCtx._hyg.3 12
+    Mathlib.Tactic.ToAdditive.doTranslateAttr 11
+    Lean.neverExtractAttr 11
+    Lean.Elab.Tactic.Try.trySuggestionExtension 11
+    _private.Lean.Compiler.LCNF.ToImpure.0.Lean.Compiler.LCNF.taggedReturnAttr 11
+    Lean.Meta.matcherLikeExt 10
+    ext._@.Mathlib.Tactic.Attr.Register.612238087._hygCtx._hyg.3 9
+    Lean.Elab.Term.elabWithoutExpectedTypeAttr 9
+    ext._@.Mathlib.Tactic.Attr.Register.668879677._hygCtx._hyg.3 9
+    extProc._@.Mathlib.Tactic.Attr.Register.85691930._hygCtx._hyg.3 8
+    reduceModCharExt 8
+    ext._@.Mathlib.Tactic.Attr.Register.3215534580._hygCtx._hyg.3 8
+    ext._@.Mathlib.Tactic.Attr.Register.1503578496._hygCtx._hyg.3 8
+    Mathlib.Tactic.ToDual.doTranslateAttr 7
+    ext._@.Mathlib.Tactic.Attr.Register.3369699945._hygCtx._hyg.3 7
+    Mathlib.Linter.UnusedTactic.allowedUnusedTacticExt 7
+    Lean.ppUsingAnonymousConstructorAttr 6
+    Lean.Elab.Tactic.Do.SpecAttr.specInvariantAttr 5
+    ext._@.Mathlib.Tactic.Attr.Register.3021440532._hygCtx._hyg.3 5
+    Mathlib.Tactic.GCongr.forwardExt 5
+    bool_to_prop 5
+    ext._@.Mathlib.Tactic.Attr.Register.2552594532._hygCtx._hyg.3 5
+    Lean.Meta.Simp.simprocExtension 4
+    ext._@.Mathlib.Tactic.Attr.Register.1988518680._hygCtx._hyg.3 4
+    ext._@.Mathlib.Tactic.Attr.Register.1133190711._hygCtx._hyg.3 4
+    Batteries.CodeAction.tacticCodeActionExt 4
+    Sym2 4
+    Lean.Compiler.nospecializeAttr 4
+    aesop_default 4
+    Lean.Elab.ComputedFields.computedFieldAttr 4
+    Lean.Parser.Tactic.Doc.tacticDocExtExt 4
+    Lean.Linter.linterSetsExt 3
+    Lean.CodeAction.holeCodeActionExt 3
+    Mathlib.Command.Variable.variableAliasAttr 3
+    SimpleGraph 3
+    Mathlib.Tactic.ToAdditive.ignoreArgsAttr 3
+    ProofWidgets.exprPresenters 3
+    fieldSimpExt 3
+    is_poly 2
+    aesop_Sym2 2
+    aesop_SimpleGraph 2
+    Lean.Server.codeActionProviderExt 2
+    SetLike! 2
+    ext._@.Mathlib.Tactic.Attr.Register.1131139975._hygCtx._hyg.3 2
+    Lean.Elab.PartialFixpoint.eqnInfoExt 2
+    Lean.Compiler.weakSpecializeAttr 1
+    Mathlib.Tactic.ToDual.ignoreArgsAttr 1
+    _private.Lean.Elab.Tactic.Grind.Lint.0.Lean.Elab.Tactic.Grind.skipSuffixExt 1
+    Lean.LibrarySuggestions.librarySuggestionsExt 1
+    Lean.Parser.Tactic.Doc.tacticNameExt 1
+    Lean.LibrarySuggestions.librarySuggestionsAttr 1
+    Batteries.CodeAction.tacticSeqCodeActionExt 1
+    Lean.Meta.recursorAttribute 1
+    _private.Lean.Elab.Tactic.Grind.Annotated.0.Lean.Elab.Tactic.Grind.grindAnnotatedExt 1
+    Lean.CodeAction.cmdCodeActionExt 1
+    aesop_builtin 1
+    Lean.Elab.Term.Quotation.precheckAttribute 1
+    Lean.Linter.unusedVariablesIgnoreFnsExt 1
+
+AGGREGATION OUTPUT, hybrid with old data extensions (agg.py verbatim; examples follow)
+--------------------------------------------------------------------------------
+records: 5000
+headline (95% Wilson score intervals):
+  identical                                              4930 / 5000     98.60%   [98.24%, 98.89%]
+  different                                                70 / 5000      1.40%   [1.11%, 1.76%]
+  print failed                                              0 / 5000      0.00%   [0.00%, 0.08%]
+  exception                                                 0 / 5000      0.00%   [0.00%, 0.08%]
+  dangling: >=1 referenced constant absent in new env       0 / 5000      0.00%   [0.00%, 0.08%]
+  universe arity mismatch (>=1 constant)                    0 / 5000      0.00%   [0.00%, 0.08%]
+cross-tab category x dangling:
+  identical    dangling=yes     0   dangling=no  4930
+  different    dangling=yes     0   dangling=no    70
+  print failed dangling=yes     0   dangling=no     0
+  exception    dangling=yes     0   dangling=no     0
+own name in new env:
+  absent                                                    0 / 5000      0.00%   [0.00%, 0.08%]
+  same                                                   5000 / 5000    100.00%   [99.92%, 100.00%]
+  same_alpha                                                0 / 5000      0.00%   [0.00%, 0.08%]
+  same_levelrename                                          0 / 5000      0.00%   [0.00%, 0.08%]
+  same_levelrename_alpha                                    0 / 5000      0.00%   [0.00%, 0.08%]
+  different                                                 0 / 5000      0.00%   [0.00%, 0.08%]
+  of those not 'same'/'absent', whether the new declaration's own type prints identically to the old print:
+serialization sanity: round-trip mismatches 0, records with mvars 0, fvars 0, level mvars 0, records with mdata dropped 14 (nodes dropped 25)
+dangling examples: 
+classification of 'different' (rules applied in order, cumulative normalisation):
+  D namespace qualification only                           2   (dangling yes 0, no 2)
+  F other / F1 set-builder {x | p} printed as setOf fun x => p    45   (dangling yes 0, no 45)
+  F other / F2 new ↧ notation replaces an X.of application    16   (dangling yes 0, no 16)
+  F other / F5 rest                                        7   (dangling yes 0, no 7)
+post-hoc split of F other (rules written after reading F, applied in order):
+  F1 set-builder {x | p} printed as setOf fun x => p                                  45   (dangling yes 0, no 45)
+  F2 new ↧ notation replaces an X.of application                                      16   (dangling yes 0, no 16)
+  F5 rest                                                                              7   (dangling yes 0, no 7)
+print failed: records
+kinds in sample: {'theorem': 3740, 'definition': 640, 'instance': 481, 'constructor': 67, 'class': 42, 'structure': 23, 'opaque': 5, 'inductive': 2}
+kinds among 'different': {'theorem': 60, 'definition': 9, 'instance': 1}
+examples (45 of 70), up to 45, taken round-robin over classes:
+--- #1 D theorem LieAlgebra.ad_pow_lie
+  old: ∀ (R : Type u) {L : Type v} [inst : CommRing R] [inst_1 : LieRing L] [inst_2 : LieAlgebra R L] (x y z : L) (n : ℕ), ((LieAlgebra.ad R L) x ^ n) ⁅y, z⁆ = ∑ ij ∈ Finset.antidiagonal n, n.choose ij.1 • ⁅((LieAlgebra.ad R L) x ^ ij.1) y, ((LieAlgebra.ad R L) x ^ ij.2) z⁆
+  new: ∀ (R : Type u) {L : Type v} [inst : CommRing R] [inst_1 : LieRing L] [inst_2 : LieAlgebra R L] (x y z : L) (n : ℕ), ((LieAlgebra.ad R L) x ^ n) ⁅y, z⁆ = ∑ ij ∈ Finset.HasAntidiagonal.antidiagonal n, n.choose ij.1 • ⁅((LieAlgebra.ad R L) x ^ ij.1) y, ((LieAlgebra.ad R L) x ^ ij.2) z⁆
+--- #2 F1 theorem LinearMap.trace_eq_sum_trace_restrict'
+  old: ∀ {ι : Type u_1} {R : Type u_2} {M : Type u_3} [inst : CommRing R] [inst_1 : AddCommGroup M] [inst_2 : Module R M] {N : ι → Submodule R M} [inst_3 : DecidableEq ι] [∀ (i : ι), Module.Finite R ↥(N i)] [∀ (i : ι), Module.Free R ↥(N i)], DirectSum.IsInternal N → ∀ (hN : {i | N i ≠ ⊥}.Finite) {f : M →ₗ[R] M} (hf : ∀ (i : ι), Set.MapsTo ⇑f ↑(N i) ↑(N i)), (LinearMap.trace R M) f = ∑ i ∈ hN.toFinset, (LinearMap.trace R ↥(N i)) (f.restrict ⋯)
+  new: ∀ {ι : Type u_1} {R : Type u_2} {M : Type u_3} [inst : CommRing R] [inst_1 : AddCommGroup M] [inst_2 : Module R M] {N : ι → Submodule R M} [inst_3 : DecidableEq ι] [∀ (i : ι), Module.Finite R ↥(N i)] [∀ (i : ι), Module.Free R ↥(N i)], DirectSum.IsInternal N → ∀ (hN : (setOf fun i => N i ≠ ⊥).Finite) {f : M →ₗ[R] M} (hf : ∀ (i : ι), Set.MapsTo ⇑f ↑(N i) ↑(N i)), (LinearMap.trace R M) f = ∑ i ∈ hN.toFinset, (LinearMap.trace R ↥(N i)) (f.restrict ⋯)
+--- #3 F2 theorem groupHomology.eq_d₁₀_comp_inv_apply
+  old: ∀ {k G : Type u} [inst : CommRing k] [inst_1 : Group G] (A : Rep.{u, u, u} k G) (x : G →₀ ↑A), (CategoryTheory.ConcreteCategory.hom (ChainComplex.of.d (fun n => ModuleCat.of k ((Fin n → G) →₀ ↑A)) (fun n => groupHomology.inhomogeneousChains.d A n) 1 0)) ((CategoryTheory.ConcreteCategory.hom (groupHomology.chainsIso₁ A).inv) x) = (CategoryTheory.ConcreteCategory.hom (groupHomology.chainsIso₀ A).inv) ((CategoryTheory.ConcreteCategory.hom (groupHomology.d₁₀ A)) x)
+  new: ∀ {k G : Type u} [inst : CommRing k] [inst_1 : Group G] (A : Rep.{u, u, u} k G) (x : G →₀ ↑A), (CategoryTheory.ConcreteCategory.hom (ChainComplex.of.d (fun n => ↧((Fin n → G) →₀ ↑A)) (fun n => groupHomology.inhomogeneousChains.d A n) 1 0)) ((CategoryTheory.ConcreteCategory.hom (groupHomology.chainsIso₁ A).inv) x) = (CategoryTheory.ConcreteCategory.hom (groupHomology.chainsIso₀ A).inv) ((CategoryTheory.ConcreteCategory.hom (groupHomology.d₁₀ A)) x)
+--- #4 F5 theorem mfderivWithin_extChartAt_symm_comp_mfderiv_extChartAt'
+  old: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {H : Type u_3} [inst_3 : TopologicalSpace H] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] [IsManifold I 1 M] {x y : M}, y ∈ (extChartAt I x).source → mfderivWithin (modelWithCornersSelf 𝕜 E) I (↑(extChartAt I x).symm) (Set.range ↑I) (↑(extChartAt I x) y) ∘SL mfderiv% ↑(extChartAt I x) y = ContinuousLinearMap.id 𝕜 (TangentSpace I y)
+  new: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {H : Type u_3} [inst_3 : TopologicalSpace H] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] [IsManifold I 1 M] {x y : M}, y ∈ (extChartAt I x).source → mfderiv[Set.range ↑I] ↑(extChartAt I x).symm (↑(extChartAt I x) y) ∘SL mfderiv% ↑(extChartAt I x) y = ContinuousLinearMap.id 𝕜 (TangentSpace I y)
+--- #5 D theorem bernoulli'_spec'
+  old: ∀ (n : ℕ), ∑ k ∈ Finset.antidiagonal n, ↑((k.1 + k.2).choose k.2) / (↑k.2 + 1) * bernoulli' k.1 = 1
+  new: ∀ (n : ℕ), ∑ k ∈ Finset.HasAntidiagonal.antidiagonal n, ↑((k.1 + k.2).choose k.2) / (↑k.2 + 1) * bernoulli' k.1 = 1
+--- #6 F1 theorem Complex.volume_sum_rpow_le
+  old: ∀ (ι : Type u_1) [inst : Fintype ι] [Nonempty ι] {p : ℝ}, 1 ≤ p → ∀ (r : ℝ), MeasureTheory.volume {x | (∑ i, ‖x i‖ ^ p) ^ (1 / p) ≤ r} = ENNReal.ofReal r ^ (2 * Fintype.card ι) * ENNReal.ofReal ((Real.pi * Real.Gamma (2 / p + 1)) ^ Fintype.card ι / Real.Gamma (2 * ↑(Fintype.card ι) / p + 1))
+  new: ∀ (ι : Type u_1) [inst : Fintype ι] [Nonempty ι] {p : ℝ}, 1 ≤ p → ∀ (r : ℝ), MeasureTheory.volume (setOf fun x => (∑ i, ‖x i‖ ^ p) ^ (1 / p) ≤ r) = ENNReal.ofReal r ^ (2 * Fintype.card ι) * ENNReal.ofReal ((Real.pi * Real.Gamma (2 / p + 1)) ^ Fintype.card ι / Real.Gamma (2 * ↑(Fintype.card ι) / p + 1))
+--- #7 F2 theorem TopCat.coe_of
+  old: ∀ (X : Type u) [inst : TopologicalSpace X], ↑(TopCat.of X) = X
+  new: ∀ (X : Type u) [inst : TopologicalSpace X], ↑↧X = X
+--- #8 F5 theorem CategoryTheory.NatTrans.mapElements_map
+  old: ∀ {C : Type u} [inst : CategoryTheory.Category.{v, u} C] {F G : CategoryTheory.Functor C (Type w)} (φ : F ⟶ G) {p q : F.Elements} (x : p ⟶ q), (CategoryTheory.NatTrans.mapElements φ).map x = match x with | ⟨f, h⟩ => ⟨f, ⋯⟩
+  new: ∀ {C : Type u} [inst : CategoryTheory.Category.{v, u} C] {F G : CategoryTheory.Functor C (Type w)} (φ : F ⟶ G) {p q : F.Elements} (x : p ⟶ q), (CategoryTheory.NatTrans.mapElements φ).map x = CategoryTheory.NatTrans.mapElements.match_3 (fun x => (CategoryTheory.NatTrans.mapElements.match_1 (fun x => G.Elements) p fun X x => ⟨X, (CategoryTheory.ConcreteCategory.hom (φ.app X)) x⟩) ⟶ CategoryTheory.NatTrans.mapElements.match_1 (fun x => G.Elements) q fun X x => ⟨X, (CategoryTheory.ConcreteCategory.hom (φ.app X)) x⟩) x fun f h => ⟨f, ⋯⟩
+--- #9 F1 theorem TopologicalSpace.NonemptyCompacts.isOpen_inter_nonempty_of_isOpen
+  old: ∀ {α : Type u_1} [inst : TopologicalSpace α] {U : Set α}, IsOpen U → IsOpen {K | (↑K ∩ U).Nonempty}
+  new: ∀ {α : Type u_1} [inst : TopologicalSpace α] {U : Set α}, IsOpen U → IsOpen (setOf fun K => (↑K ∩ U).Nonempty)
+--- #10 F2 definition CommAlgCat.ofHom
+  old: {R : Type u} → [inst : CommRing R] → {X Y : Type v} → [inst_1 : CommRing X] → [inst_2 : Algebra R X] → [inst_3 : CommRing Y] → [inst_4 : Algebra R Y] → (X →ₐ[R] Y) → (CommAlgCat.of R X ⟶ CommAlgCat.of R Y)
+  new: {R : Type u} → [inst : CommRing R] → {X Y : Type v} → [inst_1 : CommRing X] → [inst_2 : Algebra R X] → [inst_3 : CommRing Y] → [inst_4 : Algebra R Y] → (X →ₐ[R] Y) → (↧X ⟶ ↧Y)
+--- #11 F5 definition CategoryTheory.MonoidalCategory.Arrow.PushoutProduct.whiskerRightIso
+  old: {C : Type u} → [inst : CategoryTheory.Category.{v, u} C] → [inst_1 : CategoryTheory.Limits.HasPushouts C] → [inst_2 : CategoryTheory.MonoidalCategory C] → (X₁ X₂ : CategoryTheory.Arrow C) → {W : C} → [CategoryTheory.Limits.PreservesColimit (CategoryTheory.Limits.span (CategoryTheory.MonoidalCategoryStruct.whiskerRight X₁.hom X₂.left) (CategoryTheory.MonoidalCategoryStruct.whiskerLeft X₁.left X₂.hom)) (CategoryTheory.MonoidalCategory.tensorRight W)] → CategoryTheory.Arrow.mk (CategoryTheory.MonoidalCategoryStruct.whiskerRight (X₁ □ X₂).hom W) ≅ X₁ □ CategoryTheory.Arrow.mk (CategoryTheory.MonoidalCategoryStruct.whiskerRight X₂.hom W)
+  new: {C : Type u} → [inst : CategoryTheory.Category.{v, u} C] → [inst_1 : CategoryTheory.Limits.HasPushouts C] → [inst_2 : CategoryTheory.MonoidalCategory C] → (X₁ X₂ : CategoryTheory.Arrow C) → {W : C} → [CategoryTheory.Limits.PreservesColimit (CategoryTheory.Limits.span (CategoryTheory.MonoidalCategoryStruct.whiskerRight X₁.hom X₂.left) (CategoryTheory.MonoidalCategoryStruct.whiskerLeft X₁.left X₂.hom)) (CategoryTheory.MonoidalCategory.tensorRight W)] → CategoryTheory.Arrow.mk (CategoryTheory.MonoidalCategoryStruct.whiskerRight ((CategoryTheory.MonoidalCategory.Arrow.pushoutProduct.obj X₁).obj X₂).hom W) ≅ (CategoryTheory.MonoidalCategory.Arrow.pushoutProduct.obj X₁).obj (CategoryTheory.Arrow.mk (CategoryTheory.MonoidalCategoryStruct.whiskerRight X₂.hom W))
+--- #12 F1 theorem MeasureTheory.comap_eval_le_generateFrom_squareCylinders_singleton
+  old: ∀ {ι : Type u_2} (α : ι → Type u_1) [m : (i : ι) → MeasurableSpace (α i)] (i : ι), MeasurableSpace.comap (Function.eval i) (m i) ≤ MeasurableSpace.generateFrom ((fun t => {i}.pi t) '' Set.univ.pi fun i => {s | MeasurableSet s})
+  new: ∀ {ι : Type u_2} (α : ι → Type u_1) [m : (i : ι) → MeasurableSpace (α i)] (i : ι), MeasurableSpace.comap (Function.eval i) (m i) ≤ MeasurableSpace.generateFrom ((fun t => {i}.pi t) '' Set.univ.pi fun i => setOf fun s => MeasurableSet s)
+--- #13 F2 theorem CategoryTheory.IsGrothendieckAbelian.GabrielPopescuAux.kernel_ι_d_comp_d
+  old: ∀ {C : Type u} [inst : CategoryTheory.Category.{v, u} C] [inst_1 : CategoryTheory.Abelian C] [inst_2 : CategoryTheory.IsGrothendieckAbelian.{v, v, u} C] {G : C}, CategoryTheory.IsSeparator G → ∀ {A B : C} {M : ModuleCat (CategoryTheory.End G)ᵐᵒᵖ} (g : M ⟶ ModuleCat.of (CategoryTheory.End G)ᵐᵒᵖ (G ⟶ A)), CategoryTheory.Mono g → ∀ (f : M ⟶ ModuleCat.of (CategoryTheory.End G)ᵐᵒᵖ (G ⟶ B)), CategoryTheory.CategoryStruct.comp (CategoryTheory.Limits.kernel.ι (CategoryTheory.IsGrothendieckAbelian.GabrielPopescuAux.d g)) (CategoryTheory.IsGrothendieckAbelian.GabrielPopescuAux.d f) = 0
+  new: ∀ {C : Type u} [inst : CategoryTheory.Category.{v, u} C] [inst_1 : CategoryTheory.Abelian C] [inst_2 : CategoryTheory.IsGrothendieckAbelian.{v, v, u} C] {G : C}, CategoryTheory.IsSeparator G → ∀ {A B : C} {M : ModuleCat (CategoryTheory.End G)ᵐᵒᵖ} (g : M ⟶ ↧(G ⟶ A)), CategoryTheory.Mono g → ∀ (f : M ⟶ ↧(G ⟶ B)), CategoryTheory.CategoryStruct.comp (CategoryTheory.Limits.kernel.ι (CategoryTheory.IsGrothendieckAbelian.GabrielPopescuAux.d g)) (CategoryTheory.IsGrothendieckAbelian.GabrielPopescuAux.d f) = 0
+--- #14 F5 theorem hasMFDerivAt_unique
+  old: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {H : Type u_3} [inst_3 : TopologicalSpace H] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] {E' : Type u_5} [inst_6 : NormedAddCommGroup E'] [inst_7 : NormedSpace 𝕜 E'] {H' : Type u_6} [inst_8 : TopologicalSpace H'] {I' : ModelWithCorners 𝕜 E' H'} {M' : Type u_7} [inst_9 : TopologicalSpace M'] [inst_10 : ChartedSpace H' M'] {f : M → M'} {x : M} {f₀' f₁' : TangentSpace I x →L[𝕜] TangentSpace I' (f x)}, HasMFDerivAt I I' f x f₀' → HasMFDerivAt I I' f x f₁' → f₀' = f₁'
+  new: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {H : Type u_3} [inst_3 : TopologicalSpace H] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] {E' : Type u_5} [inst_6 : NormedAddCommGroup E'] [inst_7 : NormedSpace 𝕜 E'] {H' : Type u_6} [inst_8 : TopologicalSpace H'] {I' : ModelWithCorners 𝕜 E' H'} {M' : Type u_7} [inst_9 : TopologicalSpace M'] [inst_10 : ChartedSpace H' M'] {f : M → M'} {x : M} {f₀' f₁' : TangentSpace I x →L[𝕜] TangentSpace I' (f x)}, HasMFDerivAt% f x f₀' → HasMFDerivAt% f x f₁' → f₀' = f₁'
+--- #15 F1 theorem loc_compact_Haus_tot_disc_of_zero_dim
+  old: ∀ {H : Type u_3} [inst : TopologicalSpace H] [LocallyCompactSpace H] [T2Space H] [TotallyDisconnectedSpace H], TopologicalSpace.IsTopologicalBasis {s | IsClopen s}
+  new: ∀ {H : Type u_3} [inst : TopologicalSpace H] [LocallyCompactSpace H] [T2Space H] [TotallyDisconnectedSpace H], TopologicalSpace.IsTopologicalBasis (setOf fun s => IsClopen s)
+--- #16 F2 theorem groupHomology.eq_d₁₀_comp_inv_assoc
+  old: ∀ {k G : Type u} [inst : CommRing k] [inst_1 : Group G] (A : Rep.{u, u, u} k G) {Z : ModuleCat k} (h : ModuleCat.of k ((Fin 0 → G) →₀ ↑A) ⟶ Z), CategoryTheory.CategoryStruct.comp (groupHomology.chainsIso₁ A).inv (CategoryTheory.CategoryStruct.comp (ChainComplex.of.d (fun n => ModuleCat.of k ((Fin n → G) →₀ ↑A)) (fun n => groupHomology.inhomogeneousChains.d A n) 1 0) h) = CategoryTheory.CategoryStruct.comp (groupHomology.d₁₀ A) (CategoryTheory.CategoryStruct.comp (groupHomology.chainsIso₀ A).inv h)
+  new: ∀ {k G : Type u} [inst : CommRing k] [inst_1 : Group G] (A : Rep.{u, u, u} k G) {Z : ModuleCat k} (h : ↧((Fin 0 → G) →₀ ↑A) ⟶ Z), CategoryTheory.CategoryStruct.comp (groupHomology.chainsIso₁ A).inv (CategoryTheory.CategoryStruct.comp (ChainComplex.of.d (fun n => ↧((Fin n → G) →₀ ↑A)) (fun n => groupHomology.inhomogeneousChains.d A n) 1 0) h) = CategoryTheory.CategoryStruct.comp (groupHomology.d₁₀ A) (CategoryTheory.CategoryStruct.comp (groupHomology.chainsIso₀ A).inv h)
+--- #17 F5 theorem Finset.prod_Ioi_mul_eq_prod_Ici
+  old: ∀ {α : Type u_1} {M : Type u_2} [inst : CommMonoid M] {f : α → M} [inst_1 : PartialOrder α] [inst_2 : LocallyFiniteOrderTop α] (a : α), (∏ x ∈ Finset.Ioi a, f x) * f a = ∏ x ∈ Finset.Ici a, f x
+  new: ∀ {α : Type u_1} {M : Type u_2} [inst : CommMonoid M] {f : α → M} [inst_1 : PartialOrder α] [inst_2 : LocallyFiniteOrderTop α] (a : α), (∏ x > a, f x) * f a = ∏ x ≥ a, f x
+--- #18 F1 theorem Subtype.range_coe_subtype
+  old: ∀ {α : Type u_1} {p : α → Prop}, Set.range Subtype.val = {x | p x}
+  new: ∀ {α : Type u_1} {p : α → Prop}, Set.range Subtype.val = setOf fun x => p x
+--- #19 F2 definition AlgebraicGeometry.ValuativeCommSq.i₁
+  old: {X Y : AlgebraicGeometry.Scheme} → {f : X ⟶ Y} → (self : AlgebraicGeometry.ValuativeCommSq f) → AlgebraicGeometry.Spec (CommRingCat.of self.K) ⟶ X
+  new: {X Y : AlgebraicGeometry.Scheme} → {f : X ⟶ Y} → (self : AlgebraicGeometry.ValuativeCommSq f) → AlgebraicGeometry.Spec ↧self.K ⟶ X
+--- #20 F5 theorem HasMFDerivWithinAt.insert
+  old: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {H : Type u_3} [inst_3 : TopologicalSpace H] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] {E' : Type u_5} [inst_6 : NormedAddCommGroup E'] [inst_7 : NormedSpace 𝕜 E'] {H' : Type u_6} [inst_8 : TopologicalSpace H'] {I' : ModelWithCorners 𝕜 E' H'} {M' : Type u_7} [inst_9 : TopologicalSpace M'] [inst_10 : ChartedSpace H' M'] {f : M → M'} {x : M} {s : Set M} {f' : TangentSpace I x →L[𝕜] TangentSpace I' (f x)}, HasMFDerivWithinAt I I' f s x f' → HasMFDerivWithinAt I I' f (insert x s) x f'
+  new: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {H : Type u_3} [inst_3 : TopologicalSpace H] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] {E' : Type u_5} [inst_6 : NormedAddCommGroup E'] [inst_7 : NormedSpace 𝕜 E'] {H' : Type u_6} [inst_8 : TopologicalSpace H'] {I' : ModelWithCorners 𝕜 E' H'} {M' : Type u_7} [inst_9 : TopologicalSpace M'] [inst_10 : ChartedSpace H' M'] {f : M → M'} {x : M} {s : Set M} {f' : TangentSpace I x →L[𝕜] TangentSpace I' (f x)}, HasMFDerivAt[s] f x f' → HasMFDerivAt[insert x s] f x f'
+--- #21 F1 theorem Subgroup.mem_lowerCentralSeries_succ_iff
+  old: ∀ {G : Type u_1} [inst : Group G] (S : Subgroup G) (n : ℕ) (q : G), q ∈ S.lowerCentralSeries (n + 1) ↔ q ∈ Subgroup.closure {x | ∃ p ∈ S.lowerCentralSeries n, ∃ q ∈ S, ⁅p, q⁆ = x}
+  new: ∀ {G : Type u_1} [inst : Group G] (S : Subgroup G) (n : ℕ) (q : G), q ∈ S.lowerCentralSeries (n + 1) ↔ q ∈ Subgroup.closure (setOf fun x => ∃ p ∈ S.lowerCentralSeries n, ∃ q ∈ S, ⁅p, q⁆ = x)
+--- #22 F2 theorem AddCommMonCat.equivalence_counitIso
+  old: AddCommMonCat.equivalence.counitIso = CategoryTheory.Iso.refl ({ obj := fun X => AddCommMonCat.of (Additive ↑X), map := fun {X Y} f => AddCommMonCat.ofHom (MonoidHom.toAdditive (CommMonCat.Hom.hom f)), map_id := AddCommMonCat.equivalence._proof_3, map_comp := @AddCommMonCat.equivalence._proof_4 }.comp { obj := fun X => CommMonCat.of (Multiplicative ↑X), map := fun {X Y} f => CommMonCat.ofHom (AddMonoidHom.toMultiplicative (AddCommMonCat.Hom.hom f)), map_id := AddCommMonCat.equivalence._proof_1, map_comp := @AddCommMonCat.equivalence._proof_2 })
+  new: AddCommMonCat.equivalence.counitIso = CategoryTheory.Iso.refl ({ obj := fun X => ↧(Additive ↑X), map := fun {X Y} f => AddCommMonCat.ofHom (MonoidHom.toAdditive (CommMonCat.Hom.hom f)), map_id := AddCommMonCat.equivalence._proof_3, map_comp := @AddCommMonCat.equivalence._proof_4 }.comp { obj := fun X => ↧(Multiplicative ↑X), map := fun {X Y} f => CommMonCat.ofHom (AddMonoidHom.toMultiplicative (AddCommMonCat.Hom.hom f)), map_id := AddCommMonCat.equivalence._proof_1, map_comp := @AddCommMonCat.equivalence._proof_2 })
+--- #23 F5 theorem VectorField.mlieBracket_add_left
+  old: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {H : Type u_2} [inst_1 : TopologicalSpace H] {E : Type u_3} [inst_2 : NormedAddCommGroup E] [inst_3 : NormedSpace 𝕜 E] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] {x : M} {V W V₁ : (x : M) → TangentSpace I x} [inst_6 : IsManifold I 2 M] [CompleteSpace E], MDiffAt (T% V) x → MDiffAt (T% V₁) x → VectorField.mlieBracket I (V + V₁) W x = VectorField.mlieBracket I V W x + VectorField.mlieBracket I V₁ W x
+  new: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {H : Type u_2} [inst_1 : TopologicalSpace H] {E : Type u_3} [inst_2 : NormedAddCommGroup E] [inst_3 : NormedSpace 𝕜 E] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] {x : M} {V W V₁ : (x : M) → TangentSpace I x} [inst_6 : IsManifold I 2 M] [CompleteSpace E], (MDiffAt fun x => ⟨x, V x⟩) x → (MDiffAt fun x => ⟨x, V₁ x⟩) x → VectorField.mlieBracket I (V + V₁) W x = VectorField.mlieBracket I V W x + VectorField.mlieBracket I V₁ W x
+--- #24 F1 theorem measurableSet_tendsto
+  old: ∀ {β : Type u_2} {γ : Type u_3} {δ : Type u_4} {x : MeasurableSpace β} [inst : MeasurableSpace γ] [Countable δ] {l : Filter δ} [l.IsCountablyGenerated] (l' : Filter γ) [l'.IsCountablyGenerated] [hl' : l'.IsMeasurablyGenerated] {f : δ → β → γ}, (∀ (i : δ), Measurable (f i)) → MeasurableSet {x | Filter.Tendsto (fun n => f n x) l l'}
+  new: ∀ {β : Type u_2} {γ : Type u_3} {δ : Type u_4} {x : MeasurableSpace β} [inst : MeasurableSpace γ] [Countable δ] {l : Filter δ} [l.IsCountablyGenerated] (l' : Filter γ) [l'.IsCountablyGenerated] [hl' : l'.IsMeasurablyGenerated] {f : δ → β → γ}, (∀ (i : δ), Measurable (f i)) → MeasurableSet (setOf fun x => Filter.Tendsto (fun n => f n x) l l')
+--- #25 F2 definition AddGrpCat.ofHom
+  old: {X Y : Type u} → [inst : AddGroup X] → [inst_1 : AddGroup Y] → (X →+ Y) → (AddGrpCat.of X ⟶ AddGrpCat.of Y)
+  new: {X Y : Type u} → [inst : AddGroup X] → [inst_1 : AddGroup Y] → (X →+ Y) → (↧X ⟶ ↧Y)
+--- #26 F1 theorem IsLocalHomeomorph.isTopologicalBasis
+  old: ∀ {X : Type u_1} {Y : Type u_2} [inst : TopologicalSpace X] [inst_1 : TopologicalSpace Y] {f : X → Y}, IsLocalHomeomorph f → TopologicalSpace.IsTopologicalBasis {U | ∃ V, IsOpen V ∧ ∃ s, f ∘ ⇑s = Subtype.val ∧ Set.range ⇑s = U}
+  new: ∀ {X : Type u_1} {Y : Type u_2} [inst : TopologicalSpace X] [inst_1 : TopologicalSpace Y] {f : X → Y}, IsLocalHomeomorph f → TopologicalSpace.IsTopologicalBasis (setOf fun U => ∃ V, IsOpen V ∧ ∃ s, f ∘ ⇑s = Subtype.val ∧ Set.range ⇑s = U)
+--- #27 F2 definition CommRingCat.HomTopology.mvPolynomialHomeomorph
+  old: (σ : Type v) → (R A : CommRingCat) → [inst : TopologicalSpace ↑R] → [IsTopologicalRing ↑R] → (CommRingCat.of (MvPolynomial σ ↑A) ⟶ R) ≃ₜ (A ⟶ R) × (σ → ↑R)
+  new: (σ : Type v) → (R A : CommRingCat) → [inst : TopologicalSpace ↑R] → [IsTopologicalRing ↑R] → (↧(MvPolynomial σ ↑A) ⟶ R) ≃ₜ (A ⟶ R) × (σ → ↑R)
+--- #28 F1 theorem orderTopology_of_nhds_abs
+  old: ∀ {α : Type u_4} [inst : TopologicalSpace α] [inst_1 : AddCommGroup α] [inst_2 : LinearOrder α] [IsOrderedAddMonoid α], (∀ (a : α), nhds a = ⨅ r, ⨅ (_ : r > 0), Filter.principal {b | |a - b| < r}) → OrderTopology α
+  new: ∀ {α : Type u_4} [inst : TopologicalSpace α] [inst_1 : AddCommGroup α] [inst_2 : LinearOrder α] [IsOrderedAddMonoid α], (∀ (a : α), nhds a = ⨅ r, ⨅ (_ : r > 0), Filter.principal (setOf fun b => |a - b| < r)) → OrderTopology α
+--- #29 F2 definition groupCohomology.mapCocycles₁
+  old: {k G H : Type u} → [inst : CommRing k] → [inst_1 : Group G] → [inst_2 : Group H] → {A : Rep.{max u u_1, u, u} k H} → {B : Rep.{max u u_1, u, u} k G} → (f : G →* H) → (Rep.res f A ⟶ B) → (ModuleCat.of k ↥(groupCohomology.cocycles₁ A) ⟶ ModuleCat.of k ↥(groupCohomology.cocycles₁ B))
+  new: {k G H : Type u} → [inst : CommRing k] → [inst_1 : Group G] → [inst_2 : Group H] → {A : Rep.{max u u_1, u, u} k H} → {B : Rep.{max u u_1, u, u} k G} → (f : G →* H) → (Rep.res f A ⟶ B) → (↧↥(groupCohomology.cocycles₁ A) ⟶ ↧↥(groupCohomology.cocycles₁ B))
+--- #30 F1 theorem MeasureTheory.Measure.ae_compProd_of_ae_fst
+  old: ∀ {α : Type u_1} {β : Type u_2} {mα : MeasurableSpace α} {mβ : MeasurableSpace β} {μ : MeasureTheory.Measure α} (κ : ProbabilityTheory.Kernel α β) {p : α → Prop}, MeasurableSet {x | p x} → (∀ᵐ (a : α) ∂μ, p a) → ∀ᵐ (x : α × β) ∂μ.compProd κ, p x.1
+  new: ∀ {α : Type u_1} {β : Type u_2} {mα : MeasurableSpace α} {mβ : MeasurableSpace β} {μ : MeasureTheory.Measure α} (κ : ProbabilityTheory.Kernel α β) {p : α → Prop}, MeasurableSet (setOf fun x => p x) → (∀ᵐ (a : α) ∂μ, p a) → ∀ᵐ (x : α × β) ∂μ.compProd κ, p x.1
+--- #31 F2 theorem CommRingCat.ofHom_id
+  old: ∀ {R : Type u} [inst : CommRing R], CommRingCat.ofHom (RingHom.id R) = CategoryTheory.CategoryStruct.id (CommRingCat.of R)
+  new: ∀ {R : Type u} [inst : CommRing R], CommRingCat.ofHom (RingHom.id R) = CategoryTheory.CategoryStruct.id ↧R
+--- #32 F1 instance SetRel.instIsTransSetOfProdMatch_1PropOfIsTrans
+  old: ∀ {α : Type u_1} {R : α → α → Prop} [IsTrans α R], SetRel.IsTrans {(a, b) | R a b}
+  new: ∀ {α : Type u_1} {R : α → α → Prop} [IsTrans α R], SetRel.IsTrans (setOf fun x => match x with | (a, b) => R a b)
+--- #33 F2 theorem ModuleCat.CoextendScalars.smul_apply'
+  old: ∀ {R : Type u₁} {S : Type u₂} [inst : Ring R] [inst_1 : Ring S] (f : R →+* S) (M : Type v) [inst_2 : AddCommMonoid M] [inst_3 : Module R M] (s : S) (g : ↑((ModuleCat.restrictScalars f).obj (ModuleCat.of S S)) →ₗ[R] M) (s' : S), (s • g) s' = g (s' * s)
+  new: ∀ {R : Type u₁} {S : Type u₂} [inst : Ring R] [inst_1 : Ring S] (f : R →+* S) (M : Type v) [inst_2 : AddCommMonoid M] [inst_3 : Module R M] (s : S) (g : ↑((ModuleCat.restrictScalars f).obj ↧S) →ₗ[R] M) (s' : S), (s • g) s' = g (s' * s)
+--- #34 F1 theorem SymbolicDynamics.FullShift.finite_setOf_pattern_support_eq
+  old: ∀ {A : Type u_3} {G : Type u_4} [Finite A] [inst : Inhabited A] (U : Finset G), {p | p.support = U}.Finite
+  new: ∀ {A : Type u_3} {G : Type u_4} [Finite A] [inst : Inhabited A] (U : Finset G), (setOf fun p => p.support = U).Finite
+--- #35 F2 definition CompHausLike.LocallyConstant.counit
+  old: (P : TopCat → Prop) → [∀ (S : CompHausLike P) (p : ↑S.toTop → Prop), CompHausLike.HasProp P (Subtype p)] → [inst : CompHausLike.HasProp P PUnit.{u + 1}] → [inst_1 : CompHausLike.HasExplicitFiniteCoproducts P] → [inst_2 : CompHausLike.HasExplicitPullbacks P] → (hs : ∀ ⦃X Y : CompHausLike P⦄ (f : X ⟶ Y), CategoryTheory.EffectiveEpi f → Function.Surjective ⇑(CategoryTheory.ConcreteCategory.hom f)) → [CompHausLike.HasExplicitFiniteCoproducts P] → ((CategoryTheory.sheafSections (CategoryTheory.coherentTopology (CompHausLike P)) (Type (max u w))).obj (Opposite.op (CompHausLike.of P PUnit.{u + 1}))).comp (CompHausLike.LocallyConstant.functor P hs) ⟶ CategoryTheory.Functor.id (CategoryTheory.Sheaf (CategoryTheory.coherentTopology (CompHausLike P)) (Type (max u w)))
+  new: (P : TopCat → Prop) → [∀ (S : CompHausLike P) (p : ↑S.toTop → Prop), CompHausLike.HasProp P (Subtype p)] → [inst : CompHausLike.HasProp P PUnit.{u + 1}] → [inst_1 : CompHausLike.HasExplicitFiniteCoproducts P] → [inst_2 : CompHausLike.HasExplicitPullbacks P] → (hs : ∀ ⦃X Y : CompHausLike P⦄ (f : X ⟶ Y), CategoryTheory.EffectiveEpi f → Function.Surjective ⇑(CategoryTheory.ConcreteCategory.hom f)) → [CompHausLike.HasExplicitFiniteCoproducts P] → ((CategoryTheory.sheafSections (CategoryTheory.coherentTopology (CompHausLike P)) (Type (max u w))).obj (Opposite.op ↧PUnit.{u + 1})).comp (CompHausLike.LocallyConstant.functor P hs) ⟶ CategoryTheory.Functor.id (CategoryTheory.Sheaf (CategoryTheory.coherentTopology (CompHausLike P)) (Type (max u w)))
+--- #36 F1 theorem MeasureTheory.lintegral_rpow_eq_lintegral_meas_le_mul
+  old: ∀ {α : Type u_1} [inst : MeasurableSpace α] (μ : MeasureTheory.Measure α) {f : α → ℝ}, 0 ≤ᵐ[μ] f → AEMeasurable f μ → ∀ {p : ℝ}, 0 < p → ∫⁻ (ω : α), ENNReal.ofReal (f ω ^ p) ∂μ = ENNReal.ofReal p * ∫⁻ (t : ℝ) in Set.Ioi 0, μ {a | t ≤ f a} * ENNReal.ofReal (t ^ (p - 1))
+  new: ∀ {α : Type u_1} [inst : MeasurableSpace α] (μ : MeasureTheory.Measure α) {f : α → ℝ}, 0 ≤ᵐ[μ] f → AEMeasurable f μ → ∀ {p : ℝ}, 0 < p → ∫⁻ (ω : α), ENNReal.ofReal (f ω ^ p) ∂μ = ENNReal.ofReal p * ∫⁻ (t : ℝ) in Set.Ioi 0, μ (setOf fun a => t ≤ f a) * ENNReal.ofReal (t ^ (p - 1))
+--- #37 F2 theorem CompHausLike.sigmaComparison_eq_comp_isos
+  old: ∀ {P : TopCat → Prop} [inst : CompHausLike.HasExplicitFiniteCoproducts P] (X : CategoryTheory.Functor (CompHausLike P)ᵒᵖ (Type (max u w))) [inst_1 : CategoryTheory.Limits.PreservesFiniteProducts X] {α : Type u} [inst_2 : Finite α] (σ : α → Type u) [inst_3 : (a : α) → TopologicalSpace (σ a)] [inst_4 : ∀ (a : α), CompactSpace (σ a)] [inst_5 : ∀ (a : α), T2Space (σ a)] [inst_6 : ∀ (a : α), CompHausLike.HasProp P (σ a)], CompHausLike.sigmaComparison X σ = CategoryTheory.CategoryStruct.comp (X.mapIso (CategoryTheory.Limits.opCoproductIsoProduct' (CompHausLike.finiteCoproduct.isColimit fun a => CompHausLike.of P (σ a)) (CategoryTheory.Limits.productIsProduct fun x => Opposite.op (CompHausLike.of P (σ x))))).hom (CategoryTheory.CategoryStruct.comp (CategoryTheory.Limits.PreservesProduct.iso X fun a => Opposite.op (CompHausLike.of P (σ a))).hom (CategoryTheory.Limits.Types.productIso fun a => X.obj (Opposite.op (CompHausLike.of P (σ a)))).hom)
+  new: ∀ {P : TopCat → Prop} [inst : CompHausLike.HasExplicitFiniteCoproducts P] (X : CategoryTheory.Functor (CompHausLike P)ᵒᵖ (Type (max u w))) [inst_1 : CategoryTheory.Limits.PreservesFiniteProducts X] {α : Type u} [inst_2 : Finite α] (σ : α → Type u) [inst_3 : (a : α) → TopologicalSpace (σ a)] [inst_4 : ∀ (a : α), CompactSpace (σ a)] [inst_5 : ∀ (a : α), T2Space (σ a)] [inst_6 : ∀ (a : α), CompHausLike.HasProp P (σ a)], CompHausLike.sigmaComparison X σ = CategoryTheory.CategoryStruct.comp (X.mapIso (CategoryTheory.Limits.opCoproductIsoProduct' (CompHausLike.finiteCoproduct.isColimit fun a => ↧(σ a)) (CategoryTheory.Limits.productIsProduct fun x => Opposite.op ↧(σ x)))).hom (CategoryTheory.CategoryStruct.comp (CategoryTheory.Limits.PreservesProduct.iso X fun a => Opposite.op ↧(σ a)).hom (CategoryTheory.Limits.Types.productIso fun a => X.obj (Opposite.op ↧(σ a))).hom)
+--- #38 F1 theorem isCompactSystem_isCompact
+  old: ∀ (α : Type u_2) [inst : TopologicalSpace α] [T2Space α], IsCompactSystem {s | IsCompact s}
+  new: ∀ (α : Type u_2) [inst : TopologicalSpace α] [T2Space α], IsCompactSystem (setOf fun s => IsCompact s)
+--- #39 F2 definition groupCohomology.cochainsMap₁
+  old: {k G H : Type u} → [inst : CommRing k] → [inst_1 : Group G] → [inst_2 : Group H] → {A : Rep.{u_1, u, u} k H} → {B : Rep.{u_1, u, u} k G} → (f : G →* H) → (Rep.res f A ⟶ B) → (ModuleCat.of k (H → ↑A) ⟶ ModuleCat.of k (G → ↑B))
+  new: {k G H : Type u} → [inst : CommRing k] → [inst_1 : Group G] → [inst_2 : Group H] → {A : Rep.{u_1, u, u} k H} → {B : Rep.{u_1, u, u} k G} → (f : G →* H) → (Rep.res f A ⟶ B) → (↧(H → ↑A) ⟶ ↧(G → ↑B))
+--- #40 F1 theorem convexOn_of_convex_epigraph
+  old: ∀ {𝕜 : Type u_1} {E : Type u_2} {β : Type u_5} [inst : Semiring 𝕜] [inst_1 : PartialOrder 𝕜] [inst_2 : AddCommMonoid E] [inst_3 : AddCommMonoid β] [inst_4 : PartialOrder β] [inst_5 : SMul 𝕜 E] [inst_6 : Module 𝕜 β] {s : Set E} {f : E → β}, Convex 𝕜 {p | p.1 ∈ s ∧ f p.1 ≤ p.2} → ConvexOn 𝕜 s f
+  new: ∀ {𝕜 : Type u_1} {E : Type u_2} {β : Type u_5} [inst : Semiring 𝕜] [inst_1 : PartialOrder 𝕜] [inst_2 : AddCommMonoid E] [inst_3 : AddCommMonoid β] [inst_4 : PartialOrder β] [inst_5 : SMul 𝕜 E] [inst_6 : Module 𝕜 β] {s : Set E} {f : E → β}, Convex 𝕜 (setOf fun p => p.1 ∈ s ∧ f p.1 ≤ p.2) → ConvexOn 𝕜 s f
+--- #41 F2 theorem StructureGroupoid.LocalInvariantProp.section_spec
+  old: ∀ {H : Type u_1} [inst : TopologicalSpace H] {H' : Type u_2} [inst_1 : TopologicalSpace H'] {G : StructureGroupoid H} {G' : StructureGroupoid H'} {P : (H → H') → Set H → H → Prop} (M : Type u) [inst_2 : TopologicalSpace M] [inst_3 : ChartedSpace H M] (M' : Type u) [inst_4 : TopologicalSpace M'] [inst_5 : ChartedSpace H' M'] (hG : G.LocalInvariantProp G' P) (U : (TopologicalSpace.Opens ↑(TopCat.of M))ᵒᵖ) (f : (StructureGroupoid.LocalInvariantProp.sheaf M M' hG).obj.obj U), ChartedSpace.LiftProp P ↑f
+  new: ∀ {H : Type u_1} [inst : TopologicalSpace H] {H' : Type u_2} [inst_1 : TopologicalSpace H'] {G : StructureGroupoid H} {G' : StructureGroupoid H'} {P : (H → H') → Set H → H → Prop} (M : Type u) [inst_2 : TopologicalSpace M] [inst_3 : ChartedSpace H M] (M' : Type u) [inst_4 : TopologicalSpace M'] [inst_5 : ChartedSpace H' M'] (hG : G.LocalInvariantProp G' P) (U : (TopologicalSpace.Opens ↑↧M)ᵒᵖ) (f : (StructureGroupoid.LocalInvariantProp.sheaf M M' hG).obj.obj U), ChartedSpace.LiftProp P ↑f
+--- #42 F1 theorem Int.isGreatest_coe_greatestOfBdd
+  old: ∀ {P : ℤ → Prop} [inst : DecidablePred P] (b : ℤ) (Hb : ∀ (z : ℤ), P z → z ≤ b) (Hinh : ∃ z, P z), IsGreatest {z | P z} ↑(b.greatestOfBdd Hb Hinh)
+  new: ∀ {P : ℤ → Prop} [inst : DecidablePred P] (b : ℤ) (Hb : ∀ (z : ℤ), P z → z ≤ b) (Hinh : ∃ z, P z), IsGreatest (setOf fun z => P z) ↑(b.greatestOfBdd Hb Hinh)
+--- #43 F1 theorem Valued.isClosed_closedBall
+  old: ∀ (R : Type u) [inst : Ring R] {Γ₀ : Type v} [inst_1 : LinearOrderedCommGroupWithZero Γ₀] [_i : Valued R Γ₀] (r : (MonoidWithZeroHom.ofClass Valued.v).ValueGroup₀), IsClosed {x | Valued.v.restrict x ≤ r}
+  new: ∀ (R : Type u) [inst : Ring R] {Γ₀ : Type v} [inst_1 : LinearOrderedCommGroupWithZero Γ₀] [_i : Valued R Γ₀] (r : (MonoidWithZeroHom.ofClass Valued.v).ValueGroup₀), IsClosed (setOf fun x => Valued.v.restrict x ≤ r)
+--- #44 F1 theorem ProbabilityTheory.HasLaw.measure_eq
+  old: ∀ {Ω : Type u_1} {𝓧 : Type u_2} {mΩ : MeasurableSpace Ω} {m𝓧 : MeasurableSpace 𝓧} {X : Ω → 𝓧} {μ : MeasureTheory.Measure 𝓧} {P : MeasureTheory.Measure Ω}, ProbabilityTheory.HasLaw X μ P → ∀ {p : 𝓧 → Prop}, MeasurableSet {x | p x} → P {ω | p (X ω)} = μ {x | p x}
+  new: ∀ {Ω : Type u_1} {𝓧 : Type u_2} {mΩ : MeasurableSpace Ω} {m𝓧 : MeasurableSpace 𝓧} {X : Ω → 𝓧} {μ : MeasureTheory.Measure 𝓧} {P : MeasureTheory.Measure Ω}, ProbabilityTheory.HasLaw X μ P → ∀ {p : 𝓧 → Prop}, MeasurableSet (setOf fun x => p x) → P (setOf fun ω => p (X ω)) = μ (setOf fun x => p x)
+--- #45 F1 theorem Ring.HasFiniteQuotients.finite_setOf_mem
+  old: ∀ {R : Type u_1} [inst : CommRing R] [Ring.HasFiniteQuotients R] (x : R), x ≠ 0 → {I | x ∈ I}.Finite
+  new: ∀ {R : Type u_1} [inst : CommRing R] [Ring.HasFiniteQuotients R] (x : R), x ≠ 0 → (setOf fun I => x ∈ I).Finite
+
+HOW IT WAS RUN
+--------------
+  cd <old-workspace> && /usr/bin/time -l lake env lean --run <scratch>/Drift.lean old <scratch>/old.jsonl 20261004 5000
+  cd <old-workspace> && /usr/bin/time -l lake env lean --run <scratch>/Lookups.lean <scratch>/old.jsonl <scratch>/native.jsonl
+  cd <scratch> && lake build                      # lean-toolchain: leanprover/lean4:v4.34.1
+  <scratch>/.lake/build/bin/u9 read sp-old.txt all 0 old.jsonl -      # oracle + stats (timing.sh for the series)
+  <scratch>/.lake/build/bin/u9 old-env sp-old.txt old.jsonl oldenv.jsonl
+  cd <new-workspace> && lake env <scratch>/.lake/build/bin/u9 hybrid <scratch>/sp-old.txt 1 old.jsonl hyb-lookups.jsonl hyb-print.jsonl 5000
+  cd <new-workspace> && lake env <scratch>/.lake/build/bin/u9 hybrid <scratch>/sp-old.txt 0 old.jsonl h1-lookups.jsonl h1-print.jsonl 5000
+  python3 cmp.py native.jsonl <lookups.jsonl>;  python3 agg.py <print.jsonl> 5000 45
+sp-old.txt lists, one per line: <toolchain v4.31.0>/lib/lean, then <old-workspace>/.lake/packages/<pkg>/.lake/build/lib/lean
+for the 10 packages. stdout and stderr went to separate files; intermediate JSONL files, the build and the scratch
+directory were deleted after this file was written.
+
+CODE
+----
+=== lakefile.lean
+import Lake
+open Lake DSL
+
+package u9 where
+  moreLeancArgs := #["-O3"]
+
+lean_lib OleanReader
+lean_lib Assemble
+
+@[default_target]
+lean_exe u9 where
+  root := `Main
+  supportInterpreter := true
+
+=== OleanReader.lean (the decoding core)
+import Lean
+open Lean
+
+/-!
+An `.olean` reader that walks the bytes of a module written by Lean v4.31.0 and rebuilds its
+`ModuleData` as values of the Lean that runs it. It knows exactly one writer version; anything
+else is refused by name. Every object it meets is checked against the layout it expects (tag,
+object-field count, byte size) and every computed field it can recompute (Name hash, Level and
+Expr data) is compared with the stored one; a mismatch is an error, never a skip.
+-/
+
+namespace OleanReader
+
+def knownLeanVersion := "4.31.0"
+def knownGithash := "68218e876d2a38b1985b8590fff244a83c321783"
+def headerSize : Nat := 88
+
+structure Part where
+  path  : System.FilePath
+  bytes : ByteArray
+  base  : UInt64
+  root  : UInt64
+
+instance : Inhabited Part := ⟨⟨"", .empty, 0, 0⟩⟩
+
+@[inline] def u8 (b : ByteArray) (o : Nat) : UInt8 := b.get! o
+@[inline] def u16 (b : ByteArray) (o : Nat) : UInt16 :=
+  (b.get! o).toUInt16 ||| ((b.get! (o+1)).toUInt16 <<< 8)
+@[inline] def u32 (b : ByteArray) (o : Nat) : UInt32 :=
+  (b.get! o).toUInt32 ||| ((b.get! (o+1)).toUInt32 <<< 8) |||
+  ((b.get! (o+2)).toUInt32 <<< 16) ||| ((b.get! (o+3)).toUInt32 <<< 24)
+@[inline] def u64 (b : ByteArray) (o : Nat) : UInt64 :=
+  (u32 b o).toUInt64 ||| ((u32 b (o+4)).toUInt64 <<< 32)
+
+def cstr (b : ByteArray) (o n : Nat) : String := Id.run do
+  let mut s := ""
+  for i in [0:n] do
+    let c := b.get! (o+i)
+    if c == 0 then break
+    s := s.push (Char.ofNat c.toNat)
+  return s
+
+def loadPart (path : System.FilePath) : IO Part := do
+  let bytes ← IO.FS.readBinFile path
+  if bytes.size < headerSize + 8 then throw <| IO.userError s!"{path}: shorter than an .olean header"
+  unless cstr bytes 0 5 == "olean" do throw <| IO.userError s!"{path}: no olean marker"
+  let version := u8 bytes 5
+  let flags := u8 bytes 6
+  let lv := cstr bytes 7 33
+  let gh := cstr bytes 40 40
+  unless version == 2 && flags == 1 do
+    throw <| IO.userError s!"{path}: header version {version} flags {flags}, known: 2 / 1"
+  unless lv == knownLeanVersion && gh == knownGithash do
+    throw <| IO.userError s!"{path}: written by Lean {lv} ({gh}); this reader knows only {knownLeanVersion} ({knownGithash})"
+  let base := u64 bytes 80
+  let root := u64 bytes headerSize
+  return { path, bytes, base, root }
+
+structure DState where
+  names   : Std.HashMap UInt64 Name := {}
+  levels  : Std.HashMap UInt64 Level := {}
+  exprs   : Std.HashMap UInt64 Expr := {}
+  objects : Nat := 0
+
+abbrev DM := ReaderT (Array Part) (StateRefT DState IO)
+
+def fail (what : String) (addr : UInt64) (msg : String) : DM α :=
+  throw <| IO.userError s!"olean reader: {what} at 0x{String.ofList (Nat.toDigits 16 addr.toNat)}: {msg}"
+
+@[inline] def isScalar (v : UInt64) : Bool := v &&& 1 == 1
+@[inline] def unbox (v : UInt64) : Nat := (v >>> 1).toNat
+
+structure Obj where
+  b     : ByteArray
+  o     : Nat
+  tag   : Nat
+  other : Nat
+  csSz  : Nat
+
+@[inline] def obj (what : String) (addr : UInt64) : DM Obj := do
+  if isScalar addr then fail what addr "expected an object, found a scalar"
+  let ps ← read
+  for p in ps do
+    if addr ≥ p.base && addr < p.base + p.bytes.size.toUInt64 then
+      let o := (addr - p.base).toNat
+      modify fun s => { s with objects := s.objects + 1 }
+      return { b := p.bytes, o, tag := (u8 p.bytes (o+7)).toNat, other := (u8 p.bytes (o+6)).toNat,
+               csSz := (u16 p.bytes (o+4)).toNat }
+  fail what addr "address outside every part of this module"
+
+@[inline] def align8 (n : Nat) : Nat := (n + 7) / 8 * 8
+
+/-- A constructor object with the expected tag, object-field count and scalar size. -/
+@[inline] def ctor (what : String) (addr : UInt64) (tag objs ssz : Nat) : DM Obj := do
+  let x ← obj what addr
+  unless x.tag == tag && x.other == objs && x.csSz == align8 (8 + 8*objs + ssz) do
+    fail what addr s!"expected ctor tag {tag} objs {objs} size {align8 (8 + 8*objs + ssz)}, found tag {x.tag} objs {x.other} size {x.csSz}"
+  return x
+
+@[inline] def Obj.field (x : Obj) (i : Nat) : UInt64 := u64 x.b (x.o + 8 + 8*i)
+@[inline] def Obj.sc8 (x : Obj) (off : Nat) : UInt8 := u8 x.b (x.o + 8 + 8*x.other + off)
+@[inline] def Obj.sc32 (x : Obj) (off : Nat) : UInt32 := u32 x.b (x.o + 8 + 8*x.other + off)
+@[inline] def Obj.sc64 (x : Obj) (off : Nat) : UInt64 := u64 x.b (x.o + 8 + 8*x.other + off)
+
+def decBool (what : String) (addr : UInt64) (v : UInt8) : DM Bool :=
+  match v with
+  | 0 => pure false
+  | 1 => pure true
+  | _ => fail what addr s!"Bool byte {v}"
+
+def decBoxedBool (v : UInt64) : DM Bool := do
+  unless isScalar v && unbox v ≤ 1 do fail "Bool" v "expected a boxed Bool"
+  return unbox v == 1
+
+/-- `Nat`: a boxed scalar or a GMP bignum (header flag bit 0 = 1 was checked). -/
+def decNat (v : UInt64) : DM Nat := do
+  if isScalar v then return unbox v
+  let x ← obj "Nat" v
+  unless x.tag == 250 do fail "Nat" v s!"expected an MPZ object (tag 250), found tag {x.tag}"
+  let sz := (u32 x.b (x.o + 12)).toNat
+  if sz ≥ 2^31 then fail "Nat" v "negative bignum"
+  let limbs := u64 x.b (x.o + 16)
+  unless limbs == v + 24 do fail "Nat" v "limb pointer does not follow the object"
+  let mut n := 0
+  for i in [0:sz] do
+    n := n + (u64 x.b (x.o + 24 + 8*i)).toNat * 2^(64*i)
+  return n
+
+def decInt (v : UInt64) : DM Int := do
+  if isScalar v then
+    let w := (v >>> 1).toUInt32
+    return if w ≥ 0x80000000 then Int.negSucc (0xFFFFFFFF - w).toNat else Int.ofNat w.toNat
+  let x ← obj "Int" v
+  unless x.tag == 250 do fail "Int" v s!"expected an MPZ object, found tag {x.tag}"
+  let szRaw := u32 x.b (x.o + 12)
+  let neg := szRaw ≥ 0x80000000
+  let sz := if neg then (0 - szRaw).toNat else szRaw.toNat
+  let mut n := 0
+  for i in [0:sz] do
+    n := n + (u64 x.b (x.o + 24 + 8*i)).toNat * 2^(64*i)
+  return if neg then -(n : Int) else n
+
+def decString (v : UInt64) : DM String := do
+  let x ← obj "String" v
+  unless x.tag == 249 do fail "String" v s!"expected a String object (tag 249), found tag {x.tag}"
+  let size := (u64 x.b (x.o + 8)).toNat
+  if size == 0 then fail "String" v "size 0 (no terminator)"
+  let bs := x.b.extract (x.o + 32) (x.o + 32 + size - 1)
+  match String.fromUTF8? bs with
+  | some s =>
+    unless s.length == (u64 x.b (x.o + 24)).toNat do fail "String" v "stored length differs"
+    return s
+  | none => fail "String" v "invalid UTF-8"
+
+@[specialize] def decArray (what : String) (v : UInt64) (f : UInt64 → DM α) : DM (Array α) := do
+  let x ← obj what v
+  unless x.tag == 246 do fail what v s!"expected an Array object (tag 246), found tag {x.tag}"
+  let n := (u64 x.b (x.o + 8)).toNat
+  let mut out := Array.mkEmpty n
+  for i in [0:n] do
+    out := out.push (← f (u64 x.b (x.o + 24 + 8*i)))
+  return out
+
+def decNatArray (v : UInt64) : DM (Array Nat) := decArray "Array Nat" v decNat
+
+@[specialize] def decList (what : String) (v : UInt64) (f : UInt64 → DM α) : DM (List α) := do
+  let mut acc : Array α := #[]
+  let mut cur := v
+  while true do
+    if isScalar cur then
+      unless unbox cur == 0 do fail what cur s!"List: scalar {unbox cur}"
+      break
+    let x ← ctor what cur 1 2 0
+    acc := acc.push (← f (x.field 0))
+    cur := x.field 1
+  return acc.toList
+
+@[specialize] def decOption (what : String) (v : UInt64) (f : UInt64 → DM α) : DM (Option α) := do
+  if isScalar v then
+    unless unbox v == 0 do fail what v s!"Option: scalar {unbox v}"
+    return none
+  let x ← ctor what v 1 1 0
+  return some (← f (x.field 0))
+
+@[specialize] def decPair (what : String) (v : UInt64) (f : UInt64 → DM α) (g : UInt64 → DM β) : DM (α × β) := do
+  let x ← ctor what v 0 2 0
+  return (← f (x.field 0), ← g (x.field 1))
+
+partial def decName (v : UInt64) : DM Name := do
+  if isScalar v then
+    unless unbox v == 0 do fail "Name" v s!"scalar {unbox v}"
+    return .anonymous
+  if let some n := (← get).names[v]? then return n
+  let x ← obj "Name" v
+  unless x.other == 2 && x.csSz == 32 && (x.tag == 1 || x.tag == 2) do
+    fail "Name" v s!"tag {x.tag} objs {x.other} size {x.csSz}"
+  let pre ← decName (x.field 0)
+  let n ← if x.tag == 1 then pure (Name.str pre (← decString (x.field 1)))
+    else pure (Name.num pre (← decNat (x.field 1)))
+  unless n.hash == x.sc64 0 do fail "Name" v s!"stored hash differs from the recomputed one for {n}"
+  modify fun s => { s with names := s.names.insert v n }
+  return n
+
+partial def decLevel (v : UInt64) : DM Level := do
+  if isScalar v then
+    unless unbox v == 0 do fail "Level" v s!"scalar {unbox v}"
+    return .zero
+  if let some l := (← get).levels[v]? then return l
+  let x ← obj "Level" v
+  let l ← match x.tag, x.other with
+    | 1, 1 => pure (Level.succ (← decLevel (x.field 0)))
+    | 2, 2 => pure (Level.max (← decLevel (x.field 0)) (← decLevel (x.field 1)))
+    | 3, 2 => pure (Level.imax (← decLevel (x.field 0)) (← decLevel (x.field 1)))
+    | 4, 1 => pure (Level.param (← decName (x.field 0)))
+    | 5, 1 => pure (Level.mvar ⟨← decName (x.field 0)⟩)
+    | t, k => fail "Level" v s!"unknown ctor tag {t} objs {k}"
+  unless x.csSz == align8 (8 + 8*x.other + 8) do fail "Level" v s!"size {x.csSz}"
+  unless (l.data : UInt64) == x.sc64 0 do fail "Level" v "stored data differs from the recomputed one"
+  modify fun s => { s with levels := s.levels.insert v l }
+  return l
+
+def decBinderInfo (addr : UInt64) (b : UInt8) : DM BinderInfo :=
+  match b with
+  | 0 => pure .default | 1 => pure .implicit | 2 => pure .strictImplicit | 3 => pure .instImplicit
+  | _ => fail "BinderInfo" addr s!"value {b}"
+
+def decLiteral (v : UInt64) : DM Literal := do
+  let x ← obj "Literal" v
+  match x.tag with
+  | 0 => let _ ← ctor "Literal.natVal" v 0 1 0; return .natVal (← decNat (x.field 0))
+  | 1 => let _ ← ctor "Literal.strVal" v 1 1 0; return .strVal (← decString (x.field 0))
+  | t => fail "Literal" v s!"tag {t}"
+
+/-- `String.Pos.Raw` is a single-field structure and is represented as its `Nat`. -/
+def decPos (v : UInt64) : DM String.Pos.Raw := return ⟨← decNat v⟩
+
+def decSubstring (v : UInt64) : DM Substring.Raw := do
+  let x ← ctor "Substring.Raw" v 0 3 0
+  return ⟨← decString (x.field 0), ← decPos (x.field 1), ← decPos (x.field 2)⟩
+
+def decSourceInfo (v : UInt64) : DM SourceInfo := do
+  if isScalar v then
+    unless unbox v == 2 do fail "SourceInfo" v s!"scalar {unbox v}"
+    return .none
+  let x ← obj "SourceInfo" v
+  match x.tag with
+  | 0 =>
+    let x ← ctor "SourceInfo.original" v 0 4 0
+    return .original (← decSubstring (x.field 0)) (← decPos (x.field 1)) (← decSubstring (x.field 2)) (← decPos (x.field 3))
+  | 1 =>
+    let x ← ctor "SourceInfo.synthetic" v 1 2 1
+    return .synthetic (← decPos (x.field 0)) (← decPos (x.field 1)) (← decBool "SourceInfo.canonical" v (x.sc8 0))
+  | t => fail "SourceInfo" v s!"tag {t}"
+
+def decPreresolved (v : UInt64) : DM Syntax.Preresolved := do
+  let x ← obj "Syntax.Preresolved" v
+  match x.tag with
+  | 0 => let x ← ctor "Preresolved.namespace" v 0 1 0; return .namespace (← decName (x.field 0))
+  | 1 =>
+    let x ← ctor "Preresolved.decl" v 1 2 0
+    return .decl (← decName (x.field 0)) (← decList "List String" (x.field 1) decString)
+  | t => fail "Syntax.Preresolved" v s!"tag {t}"
+
+partial def decSyntax (v : UInt64) : DM Syntax := do
+  if isScalar v then
+    unless unbox v == 0 do fail "Syntax" v s!"scalar {unbox v}"
+    return .missing
+  let x ← obj "Syntax" v
+  match x.tag with
+  | 1 =>
+    let x ← ctor "Syntax.node" v 1 3 0
+    return .node (← decSourceInfo (x.field 0)) (← decName (x.field 1)) (← decArray "Array Syntax" (x.field 2) decSyntax)
+  | 2 =>
+    let x ← ctor "Syntax.atom" v 2 2 0
+    return .atom (← decSourceInfo (x.field 0)) (← decString (x.field 1))
+  | 3 =>
+    let x ← ctor "Syntax.ident" v 3 4 0
+    return .ident (← decSourceInfo (x.field 0)) (← decSubstring (x.field 1)) (← decName (x.field 2))
+      (← decList "List Preresolved" (x.field 3) decPreresolved)
+  | t => fail "Syntax" v s!"tag {t}"
+
+def decDataValue (v : UInt64) : DM DataValue := do
+  let x ← obj "DataValue" v
+  match x.tag with
+  | 0 => let x ← ctor "DataValue.ofString" v 0 1 0; return .ofString (← decString (x.field 0))
+  | 1 => let x ← ctor "DataValue.ofBool" v 1 0 1; return .ofBool (← decBool "DataValue.ofBool" v (x.sc8 0))
+  | 2 => let x ← ctor "DataValue.ofName" v 2 1 0; return .ofName (← decName (x.field 0))
+  | 3 => let x ← ctor "DataValue.ofNat" v 3 1 0; return .ofNat (← decNat (x.field 0))
+  | 4 => let x ← ctor "DataValue.ofInt" v 4 1 0; return .ofInt (← decInt (x.field 0))
+  | 5 => let x ← ctor "DataValue.ofSyntax" v 5 1 0; return .ofSyntax (← decSyntax (x.field 0))
+  | t => fail "DataValue" v s!"tag {t}"
+
+/-- `KVMap` is a single-field structure and is represented as its `List`. -/
+def decMData (v : UInt64) : DM MData := do
+  return ⟨← decList "KVMap" v (decPair "Name × DataValue" · decName decDataValue)⟩
+
+partial def decExpr (v : UInt64) : DM Expr := do
+  if let some e := (← get).exprs[v]? then return e
+  let x ← obj "Expr" v
+  let e ← match x.tag, x.other with
+    | 0, 1 => pure (Expr.bvar (← decNat (x.field 0)))
+    | 1, 1 => pure (Expr.fvar ⟨← decName (x.field 0)⟩)
+    | 2, 1 => pure (Expr.mvar ⟨← decName (x.field 0)⟩)
+    | 3, 1 => pure (Expr.sort (← decLevel (x.field 0)))
+    | 4, 2 => pure (Expr.const (← decName (x.field 0)) (← decList "List Level" (x.field 1) decLevel))
+    | 5, 2 => pure (Expr.app (← decExpr (x.field 0)) (← decExpr (x.field 1)))
+    | 6, 3 => pure (Expr.lam (← decName (x.field 0)) (← decExpr (x.field 1)) (← decExpr (x.field 2)) (← decBinderInfo v (x.sc8 8)))
+    | 7, 3 => pure (Expr.forallE (← decName (x.field 0)) (← decExpr (x.field 1)) (← decExpr (x.field 2)) (← decBinderInfo v (x.sc8 8)))
+    | 8, 4 => pure (Expr.letE (← decName (x.field 0)) (← decExpr (x.field 1)) (← decExpr (x.field 2)) (← decExpr (x.field 3)) (← decBool "Expr.letE.nondep" v (x.sc8 8)))
+    | 9, 1 => pure (Expr.lit (← decLiteral (x.field 0)))
+    | 10, 2 => pure (Expr.mdata (← decMData (x.field 0)) (← decExpr (x.field 1)))
+    | 11, 3 => pure (Expr.proj (← decName (x.field 0)) (← decNat (x.field 1)) (← decExpr (x.field 2)))
+    | t, k => fail "Expr" v s!"unknown ctor tag {t} objs {k}"
+  let ssz := if x.tag == 6 || x.tag == 7 || x.tag == 8 then 9 else 8
+  unless x.csSz == align8 (8 + 8*x.other + ssz) do fail "Expr" v s!"size {x.csSz} for tag {x.tag}"
+  unless (e.data : UInt64) == x.sc64 0 do fail "Expr" v s!"stored data differs from the recomputed one (tag {x.tag})"
+  modify fun s => { s with exprs := s.exprs.insert v e }
+  return e
+
+def decNameList (v : UInt64) : DM (List Name) := decList "List Name" v decName
+
+def decConstantVal (v : UInt64) : DM ConstantVal := do
+  let x ← ctor "ConstantVal" v 0 3 0
+  return { name := ← decName (x.field 0), levelParams := ← decNameList (x.field 1), type := ← decExpr (x.field 2) }
+
+def decHints (v : UInt64) : DM ReducibilityHints := do
+  if isScalar v then
+    match unbox v with
+    | 0 => return .opaque
+    | 1 => return .abbrev
+    | k => fail "ReducibilityHints" v s!"scalar {k}"
+  let x ← ctor "ReducibilityHints.regular" v 2 0 4
+  return .regular (x.sc32 0)
+
+def decSafety (addr : UInt64) (b : UInt8) : DM DefinitionSafety :=
+  match b with
+  | 0 => pure .unsafe | 1 => pure .safe | 2 => pure .partial
+  | _ => fail "DefinitionSafety" addr s!"value {b}"
+
+def decQuotKind (addr : UInt64) (b : UInt8) : DM QuotKind :=
+  match b with
+  | 0 => pure .type | 1 => pure .ctor | 2 => pure .lift | 3 => pure .ind
+  | _ => fail "QuotKind" addr s!"value {b}"
+
+/-- What the reader keeps of a theorem's proof. `omitProofs` replaces it by a constant that no
+environment defines, so a use of it fails by name instead of answering. -/
+def omittedProof : Expr := .const `_olean_reader.proofOmitted []
+
+def decRule (v : UInt64) : DM RecursorRule := do
+  let x ← ctor "RecursorRule" v 0 3 0
+  return { ctor := ← decName (x.field 0), nfields := ← decNat (x.field 1), rhs := ← decExpr (x.field 2) }
+
+def decConstantInfo (omitProofs : Bool) (v : UInt64) : DM ConstantInfo := do
+  let x ← obj "ConstantInfo" v
+  unless x.other == 1 && x.csSz == 16 do fail "ConstantInfo" v s!"tag {x.tag} objs {x.other} size {x.csSz}"
+  let w := x.field 0
+  match x.tag with
+  | 0 =>
+    let y ← ctor "AxiomVal" w 0 1 1
+    return .axiomInfo { toConstantVal := ← decConstantVal (y.field 0), isUnsafe := ← decBool "AxiomVal.isUnsafe" w (y.sc8 0) }
+  | 1 =>
+    let y ← ctor "DefinitionVal" w 0 4 1
+    return .defnInfo {
+      toConstantVal := ← decConstantVal (y.field 0), value := ← decExpr (y.field 1),
+      hints := ← decHints (y.field 2), safety := ← decSafety w (y.sc8 0), all := ← decNameList (y.field 3) }
+  | 2 =>
+    let y ← ctor "TheoremVal" w 0 3 0
+    let cv ← decConstantVal (y.field 0)
+    let value ← if omitProofs then pure omittedProof else decExpr (y.field 1)
+    return .thmInfo { toConstantVal := cv, value, all := ← decNameList (y.field 2) }
+  | 3 =>
+    let y ← ctor "OpaqueVal" w 0 3 1
+    return .opaqueInfo {
+      toConstantVal := ← decConstantVal (y.field 0), value := ← decExpr (y.field 1),
+      isUnsafe := ← decBool "OpaqueVal.isUnsafe" w (y.sc8 0), all := ← decNameList (y.field 2) }
+  | 4 =>
+    let y ← ctor "QuotVal" w 0 1 1
+    return .quotInfo { toConstantVal := ← decConstantVal (y.field 0), kind := ← decQuotKind w (y.sc8 0) }
+  | 5 =>
+    let y ← ctor "InductiveVal" w 0 6 3
+    return .inductInfo {
+      toConstantVal := ← decConstantVal (y.field 0), numParams := ← decNat (y.field 1),
+      numIndices := ← decNat (y.field 2), all := ← decNameList (y.field 3), ctors := ← decNameList (y.field 4),
+      numNested := ← decNat (y.field 5), isRec := ← decBool "InductiveVal.isRec" w (y.sc8 0),
+      isUnsafe := ← decBool "InductiveVal.isUnsafe" w (y.sc8 1), isReflexive := ← decBool "InductiveVal.isReflexive" w (y.sc8 2) }
+  | 6 =>
+    let y ← ctor "ConstructorVal" w 0 5 1
+    return .ctorInfo {
+      toConstantVal := ← decConstantVal (y.field 0), induct := ← decName (y.field 1),
+      cidx := ← decNat (y.field 2), numParams := ← decNat (y.field 3), numFields := ← decNat (y.field 4),
+      isUnsafe := ← decBool "ConstructorVal.isUnsafe" w (y.sc8 0) }
+  | 7 =>
+    let y ← ctor "RecursorVal" w 0 7 2
+    return .recInfo {
+      toConstantVal := ← decConstantVal (y.field 0), all := ← decNameList (y.field 1),
+      numParams := ← decNat (y.field 2), numIndices := ← decNat (y.field 3), numMotives := ← decNat (y.field 4),
+      numMinors := ← decNat (y.field 5), rules := ← decList "List RecursorRule" (y.field 6) decRule,
+      k := ← decBool "RecursorVal.k" w (y.sc8 0), isUnsafe := ← decBool "RecursorVal.isUnsafe" w (y.sc8 1) }
+  | t => fail "ConstantInfo" v s!"unknown tag {t}"
+
+def decImport (v : UInt64) : DM Import := do
+  let x ← ctor "Import" v 0 1 3
+  return { module := ← decName (x.field 0), importAll := ← decBool "Import.importAll" v (x.sc8 0),
+           isExported := ← decBool "Import.isExported" v (x.sc8 1), isMeta := ← decBool "Import.isMeta" v (x.sc8 2) }
+
+/-! Extension entries. Each decoder rebuilds the entry as the running Lean's value of the same
+type; `unsafeCast` to `EnvExtensionEntry` is how Lean itself stores them. -/
+
+def decEntry {α} (x : α) : EnvExtensionEntry := unsafe unsafeCast x
+
+def decScopedEntry (what : String) (v : UInt64) (f : UInt64 → DM α) : DM (ScopedEnvExtension.Entry α) := do
+  let x ← obj what v
+  match x.tag with
+  | 0 => let x ← ctor what v 0 1 0; return .global (← f (x.field 0))
+  | 1 => let x ← ctor what v 1 2 0; return .scoped (← decName (x.field 0)) (← f (x.field 1))
+  | t => fail what v s!"ScopedEnvExtension.Entry tag {t}"
+
+def decStructureFieldInfo (v : UInt64) : DM StructureFieldInfo := do
+  let x ← ctor "StructureFieldInfo" v 0 4 1
+  return { fieldName := ← decName (x.field 0), projFn := ← decName (x.field 1),
+           subobject? := ← decOption "Option Name" (x.field 2) decName,
+           binderInfo := ← decBinderInfo v (x.sc8 0), autoParam? := ← decOption "Option Expr" (x.field 3) decExpr }
+
+def decStructureParentInfo (v : UInt64) : DM StructureParentInfo := do
+  let x ← ctor "StructureParentInfo" v 0 2 1
+  return { structName := ← decName (x.field 0), subobject := ← decBool "StructureParentInfo.subobject" v (x.sc8 0),
+           projFn := ← decName (x.field 1) }
+
+def decStructureInfo (v : UInt64) : DM StructureInfo := do
+  let x ← ctor "StructureInfo" v 0 4 0
+  return { structName := ← decName (x.field 0), fieldNames := ← decArray "Array Name" (x.field 1) decName,
+           fieldInfo := ← decArray "Array StructureFieldInfo" (x.field 2) decStructureFieldInfo,
+           parentInfo := ← decArray "Array StructureParentInfo" (x.field 3) decStructureParentInfo }
+
+def decPosition (v : UInt64) : DM Position := do
+  let x ← ctor "Position" v 0 2 0
+  return ⟨← decNat (x.field 0), ← decNat (x.field 1)⟩
+
+def decDeclRange (v : UInt64) : DM DeclarationRange := do
+  let x ← ctor "DeclarationRange" v 0 4 0
+  return { pos := ← decPosition (x.field 0), charUtf16 := ← decNat (x.field 1),
+           endPos := ← decPosition (x.field 2), endCharUtf16 := ← decNat (x.field 3) }
+
+def decDeclRanges (v : UInt64) : DM DeclarationRanges := do
+  let x ← ctor "DeclarationRanges" v 0 2 0
+  return ⟨← decDeclRange (x.field 0), ← decDeclRange (x.field 1)⟩
+
+def decProjInfo (v : UInt64) : DM ProjectionFunctionInfo := do
+  let x ← ctor "ProjectionFunctionInfo" v 0 3 1
+  return { ctorName := ← decName (x.field 0), numParams := ← decNat (x.field 1), i := ← decNat (x.field 2),
+           fromClass := ← decBool "ProjectionFunctionInfo.fromClass" v (x.sc8 0) }
+
+def decKey (v : UInt64) : DM Meta.DiscrTree.Key := do
+  if isScalar v then
+    match unbox v with
+    | 0 => return .star | 1 => return .other | 5 => return .arrow
+    | k => fail "DiscrTree.Key" v s!"scalar {k}"
+  let x ← obj "DiscrTree.Key" v
+  match x.tag with
+  | 2 => let x ← ctor "Key.lit" v 2 1 0; return .lit (← decLiteral (x.field 0))
+  | 3 => let x ← ctor "Key.fvar" v 3 2 0; return .fvar ⟨← decName (x.field 0)⟩ (← decNat (x.field 1))
+  | 4 => let x ← ctor "Key.const" v 4 2 0; return .const (← decName (x.field 0)) (← decNat (x.field 1))
+  | 6 => let x ← ctor "Key.proj" v 6 3 0; return .proj (← decName (x.field 0)) (← decNat (x.field 1)) (← decNat (x.field 2))
+  | t => fail "DiscrTree.Key" v s!"tag {t}"
+
+def decAttrKind (addr : UInt64) (b : UInt8) : DM AttributeKind :=
+  match b with
+  | 0 => pure .global | 1 => pure .local | 2 => pure .scoped
+  | _ => fail "AttributeKind" addr s!"value {b}"
+
+def decInstanceEntry (v : UInt64) : DM Meta.InstanceEntry := do
+  let x ← ctor "InstanceEntry" v 0 5 1
+  return { keys := ← decArray "Array Key" (x.field 0) decKey, val := ← decExpr (x.field 1),
+           priority := ← decNat (x.field 2), globalName? := ← decOption "Option Name" (x.field 3) decName,
+           synthOrder := ← decNatArray (x.field 4), attrKind := ← decAttrKind v (x.sc8 0) }
+
+def decClassEntry (v : UInt64) : DM ClassEntry := do
+  let x ← ctor "ClassEntry" v 0 3 0
+  return { name := ← decName (x.field 0), outParams := ← decNatArray (x.field 1),
+           outLevelParams := ← decNatArray (x.field 2) }
+
+def decCoeFnInfo (v : UInt64) : DM Meta.CoeFnInfo := do
+  let x ← ctor "CoeFnInfo" v 0 2 1
+  let type ← match x.sc8 0 with
+    | 0 => pure .coe | 1 => pure .coeFun | 2 => pure .coeSort
+    | b => fail "CoeFnType" v s!"value {b}"
+  return { numArgs := ← decNat (x.field 0), coercee := ← decNat (x.field 1), type }
+
+/-- v4.31.0 writes 0 reducible, 1 semireducible, 2 irreducible, 3 "unfolded at .instances or
+above" (what the `instance` command wrote). From v4.33.0 that meaning is constructor 4,
+`instanceReducible`, and 3 means something else (layout log, v4.32.2 -> v4.33.0). -/
+def decReducibility (v : UInt64) : DM ReducibilityStatus := do
+  unless isScalar v do fail "ReducibilityStatus" v "expected a boxed enum"
+  match unbox v with
+  | 0 => return .reducible | 1 => return .semireducible | 2 => return .irreducible
+  | 3 => return .instanceReducible
+  | k => fail "ReducibilityStatus" v s!"value {k} unknown to v4.31.0"
+
+/-- An extension entry with the declaration name it is about (used to regroup entries by module). -/
+abbrev Keyed := Name × EnvExtensionEntry
+
+def keyed {α} (k : α → Name) (x : α) : Keyed := (k x, decEntry x)
+
+def scopedKey {α} (k : α → Name) : ScopedEnvExtension.Entry α → Name
+  | .global a => k a
+  | .scoped _ a => k a
+
+/-- The extensions whose entries the reader decodes, by registered name, with the entry decoder.
+Every other extension's entries are counted and not decoded. -/
+def entryDecoders : List (Name × (UInt64 → DM Keyed)) := [
+  (Name.mkNum `_private.Lean.Structure 0 ++ `Lean.structureExt,
+    fun v => keyed (·.structName) <$> decStructureInfo v),
+  (`Lean.declRangeExt, fun v => keyed (·.1) <$> decPair "Name × DeclarationRanges" v decName decDeclRanges),
+  (`Lean.projectionFnInfoExt, fun v => keyed (·.1) <$> decPair "Name × ProjectionFunctionInfo" v decName decProjInfo),
+  (`Lean.Meta.instanceExtension,
+    fun v => keyed (scopedKey (·.globalName?.getD .anonymous)) <$> decScopedEntry "instance entry" v decInstanceEntry),
+  (`Lean.classExtension, fun v => keyed (·.name) <$> decClassEntry v),
+  (`Lean.Meta.coeExt,
+    fun v => keyed (scopedKey (·.1)) <$> decScopedEntry "coe entry" v (decPair "Name × CoeFnInfo" · decName decCoeFnInfo)),
+  (`Lean.protectedExt, fun v => keyed id <$> decName v),
+  (`Lean.aliasExtension, fun v => keyed (·.1) <$> decPair "AliasEntry" v decName decName),
+  (`reducibilityCore, fun v => keyed (·.1) <$> decPair "Name × ReducibilityStatus" v decName decReducibility),
+  (`reducibilityExtra,
+    fun v => keyed (scopedKey (·.1)) <$> decScopedEntry "reducibilityExtra entry" v (decPair "Name × ReducibilityStatus" · decName decReducibility)),
+  (Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt, fun v => keyed id <$> decName v)
+]
+
+def decoderFor (extName : Name) : Option (UInt64 → DM Keyed) :=
+  (entryDecoders.find? (·.1 == extName)).map (·.2)
+
+structure ReadStats where
+  constants : Nat := 0
+  entriesDecoded : Nat := 0
+  entriesSkipped : Nat := 0
+  skippedExts : Std.HashMap Name Nat := {}
+  decodedExts : Std.HashMap Name Nat := {}
+  names : Nat := 0
+  levels : Nat := 0
+  exprs : Nat := 0
+
+/-- Decodes a module's `ModuleData` from the root of its last part, and the decoded entries
+with their keys. -/
+def decModuleData (omitProofs decodeEntries : Bool) (v : UInt64) (stats : IO.Ref ReadStats) :
+    DM (ModuleData × Array (Name × Array Keyed)) := do
+  let x ← ctor "ModuleData" v 0 5 1
+  let isModule ← decBool "ModuleData.isModule" v (x.sc8 0)
+  let imports ← decArray "Array Import" (x.field 0) decImport
+  let constNames ← decArray "Array Name" (x.field 1) decName
+  let constants ← decArray "Array ConstantInfo" (x.field 2) (decConstantInfo omitProofs)
+  let extraConstNames ← decArray "Array Name" (x.field 3) decName
+  let entriesObj ← obj "Array (Name × Array EnvExtensionEntry)" (x.field 4)
+  unless entriesObj.tag == 246 do fail "ModuleData.entries" (x.field 4) "expected an Array"
+  let n := (u64 entriesObj.b (entriesObj.o + 8)).toNat
+  let mut keyedEntries := #[]
+  for i in [0:n] do
+    let pv := u64 entriesObj.b (entriesObj.o + 24 + 8*i)
+    let p ← ctor "Name × Array EnvExtensionEntry" pv 0 2 0
+    let extName ← decName (p.field 0)
+    let arr ← obj "Array EnvExtensionEntry" (p.field 1)
+    unless arr.tag == 246 do fail "entries" (p.field 1) "expected an Array"
+    let k := (u64 arr.b (arr.o + 8)).toNat
+    match decodeEntries, decoderFor extName with
+    | true, some f =>
+      let es ← decArray "Array EnvExtensionEntry" (p.field 1) f
+      keyedEntries := keyedEntries.push (extName, es)
+      stats.modify fun s => { s with
+        entriesDecoded := s.entriesDecoded + k
+        decodedExts := s.decodedExts.insert extName (s.decodedExts.getD extName 0 + k) }
+    | _, _ =>
+      stats.modify fun s => { s with
+        entriesSkipped := s.entriesSkipped + k
+        skippedExts := s.skippedExts.insert extName (s.skippedExts.getD extName 0 + k) }
+  let entries := keyedEntries.map fun (e, es) => (e, es.map (·.2))
+  unless constNames.size == constants.size do fail "ModuleData" v "constNames and constants differ in size"
+  for n in constNames, c in constants do
+    unless n == c.name do fail "ModuleData" v s!"constNames[i] = {n} but constants[i].name = {c.name}"
+  let st ← get
+  stats.modify fun s => { s with
+    constants := s.constants + constants.size
+    names := s.names + st.names.size
+    levels := s.levels + st.levels.size
+    exprs := s.exprs + st.exprs.size }
+  return ({ isModule, imports, constNames, constants, extraConstNames, entries }, keyedEntries)
+
+/-- Where a module's files are: the first search-path directory holding `<dir>/A/B.olean`. -/
+def findOlean (sp : Array System.FilePath) (m : Name) : IO System.FilePath := do
+  let rel := System.mkFilePath (m.components.map (·.toString (escape := false)))
+  for d in sp do
+    let p := (d / rel).addExtension "olean"
+    if ← p.pathExists then return p
+  throw <| IO.userError s!"olean reader: no .olean for module {m} on the search path"
+
+/-- Loads all parts of a module that exist: `.olean`, then `.olean.server` and `.olean.private`. -/
+def loadModule (sp : Array System.FilePath) (m : Name) : IO (Array Part) := do
+  let f ← findOlean sp m
+  let main ← loadPart f
+  let s := f.addExtension "server"
+  let p := f.addExtension "private"
+  if (← s.pathExists) && (← p.pathExists) then
+    return #[main, ← loadPart s, ← loadPart p]
+  else if (← s.pathExists) || (← p.pathExists) then
+    throw <| IO.userError s!"olean reader: {m} has only one of .olean.server / .olean.private"
+  else
+    return #[main]
+
+def runDM (parts : Array Part) (x : DM α) : IO (α × DState) :=
+  (x.run parts).run {}
+
+/-- The imports of a module, read from its `.olean` alone. -/
+def readImports (sp : Array System.FilePath) (m : Name) : IO (Array Import) := do
+  let main ← loadPart (← findOlean sp m)
+  let (is, _) ← runDM #[main] do
+    let x ← ctor "ModuleData" main.root 0 5 1
+    decArray "Array Import" (x.field 0) decImport
+  return is
+
+/-- The import closure in the order `importModulesCore` visits it (imports before importers). -/
+partial def closure (sp : Array System.FilePath) (roots : Array Name) : IO (Array Name) := do
+  let seen ← IO.mkRef ({} : NameSet)
+  let out ← IO.mkRef (#[] : Array Name)
+  let rec go (m : Name) : IO Unit := do
+    if (← seen.get).contains m then return
+    seen.modify (·.insert m)
+    for i in ← readImports sp m do go i.module
+    out.modify (·.push m)
+  for r in roots do go r
+  out.get
+
+end OleanReader
+
+=== Assemble.lean (old-environment and hybrid assembly)
+import OleanReader
+open Lean OleanReader
+
+/-! Assembling an `Environment` in the running Lean from decoded `ModuleData`.
+`ImportState`, `ImportedModule` and `CompactedRegion` keep their fields private; the structures
+below mirror their layouts field for field and are cast with `unsafeCast`. -/
+
+namespace Assemble
+
+structure MRegion where
+  filePath       : System.FilePath
+  size           : USize
+  isMemoryMapped : Bool
+  baseAddr       : USize
+  bufferOffset   : USize
+  root           : NonScalar
+
+structure MImportedModule extends EffectiveImport where
+  parts        : Array (ModuleData × CompactedRegion)
+  irParts      : Array (ModuleData × CompactedRegion)
+  needsIRTrans : Bool
+
+structure MImportState where
+  moduleNameMap : Std.HashMap Name MImportedModule := {}
+  moduleNames   : Array Name := #[]
+
+/-- A region nothing points into; `Environment.freeRegions` is never called on these
+environments. -/
+unsafe def fakeRegion : CompactedRegion :=
+  unsafeCast ({
+    filePath := "<olean-reader>", size := 0, isMemoryMapped := false, baseAddr := 0
+    bufferOffset := 0, root := unsafeCast (#[] : Array Nat) } : MRegion)
+
+unsafe instance : Inhabited CompactedRegion := ⟨fakeRegion⟩
+
+unsafe def decodedModule (m : Name) (md : ModuleData) : MImportedModule :=
+  { module := m, importAll := true, isExported := false, isMeta := false, irPhases := .all
+    hasData := true, parts := #[({ md with isModule := false }, fakeRegion)], irParts := #[]
+    needsIRTrans := false }
+
+unsafe instance : Inhabited MImportedModule := ⟨decodedModule .anonymous default⟩
+
+structure Decoded where
+  mods    : Array (Name × ModuleData)
+  keyed   : Array (Name × Array Keyed)   -- extension name, keyed entries, over all modules
+  stats   : ReadStats
+
+/-- Decodes every module of the closure, one at a time, proofs omitted. -/
+def decodeAll (sp : Array System.FilePath) (mods : Array Name) : IO Decoded := do
+  let stats ← IO.mkRef ({} : ReadStats)
+  let mut out := #[]
+  let mut keyed : Std.HashMap Name (Array Keyed) := {}
+  for m in mods do
+    let parts ← loadModule sp m
+    let ((md, ks), _) ← runDM parts (decModuleData true true parts.back!.root stats)
+    out := out.push (m, md)
+    for (e, es) in ks do
+      keyed := keyed.insert e (keyed.getD e #[] ++ es)
+  return { mods := out, keyed := keyed.toArray, stats := ← stats.get }
+
+def checkMirror (s : MImportState) : IO Unit := do
+  unless s.moduleNameMap.size == s.moduleNames.size do
+    throw <| IO.userError s!"import state mirror: {s.moduleNameMap.size} map entries, {s.moduleNames.size} names"
+  for n in s.moduleNames do
+    unless s.moduleNameMap.contains n do throw <| IO.userError s!"import state mirror: {n} not in the map"
+
+/-- The old environment alone: every module's decoded data, extension entries only for the
+extensions the reader decodes. -/
+unsafe def assembleOld (d : Decoded) : IO Environment := do
+  let mut st : MImportState := {}
+  for (m, md) in d.mods do
+    st := { moduleNameMap := st.moduleNameMap.insert m (decodedModule m md), moduleNames := st.moduleNames.push m }
+  checkMirror st
+  enableInitializersExecution
+  withImporting do
+    finalizeImport (unsafeCast st) #[{ module := `Mathlib }] {} (leakEnv := true) (loadExts := true)
+
+def whitelisted : NameSet := entryDecoders.foldl (fun s (n, _) => s.insert n) {}
+
+/-- The key of a newest (natively imported) entry of a decoded extension, read at that
+extension's entry type. -/
+unsafe def newestKey (ext : Name) (e : EnvExtensionEntry) : Name :=
+  let scp {α} (k : α → Name) : Name := scopedKey k (unsafeCast e : ScopedEnvExtension.Entry α)
+  if ext == Name.mkNum `_private.Lean.Structure 0 ++ `Lean.structureExt then (unsafeCast e : StructureInfo).structName
+  else if ext == `Lean.Meta.instanceExtension then scp (fun (i : Meta.InstanceEntry) => i.globalName?.getD .anonymous)
+  else if ext == `Lean.classExtension then (unsafeCast e : ClassEntry).name
+  else if ext == `Lean.Meta.coeExt || ext == `reducibilityExtra then scp (fun (p : Name × NonScalar) => p.1)
+  else if ext == `Lean.protectedExt || ext == Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt then
+    (unsafeCast e : Name)
+  else (unsafeCast e : Name × NonScalar).1
+
+/-- The newest import, with every constant that the old version also has replaced by the old
+`ConstantInfo` in place (same module index, so the newest IR and code stay addressable), old-only
+constants in one extra module at the end, and — if `dataExts` — the decoded extensions' entries
+replaced by the old ones, regrouped by the module index each key gets and sorted. -/
+unsafe def assembleHybrid (d : Decoded) (dataExts : Bool) : IO (Environment × String) := do
+  initSearchPath (← findSysroot)
+  enableInitializersExecution
+  let imports : Array Import := #[{ module := `Mathlib }]
+  let (_, s) ← withImporting (importModulesCore imports |>.run)
+  let ms : MImportState := unsafeCast s
+  checkMirror ms
+  let mut oldConsts : Std.HashMap Name ConstantInfo := {}
+  let mut oldOrder : Array Name := #[]
+  for (_, md) in d.mods do
+    for n in md.constNames, c in md.constants do
+      unless oldConsts.contains n do
+        oldConsts := oldConsts.insert n c
+        oldOrder := oldOrder.push n
+  let mainPart (im : MImportedModule) : Nat :=
+    if (im.parts[0]!.1).isModule then 2 else 0
+  -- module index each name gets: first newest module listing it
+  let mut idxOf : Std.HashMap Name Nat := {}
+  for i in [0:ms.moduleNames.size] do
+    let im := ms.moduleNameMap[ms.moduleNames[i]!]!
+    if im.parts.isEmpty then continue
+    for n in (im.parts[mainPart im]!.1).constNames do
+      unless idxOf.contains n do idxOf := idxOf.insert n i
+  let extraIdx := ms.moduleNames.size
+  -- old entries per module index
+  let mut perMod : Std.HashMap Nat (Std.HashMap Name (Array Keyed)) := {}
+  if dataExts then
+    for (e, es) in d.keyed do
+      for k in es do
+        let i := idxOf.getD k.1 extraIdx
+        let m := perMod.getD i {}
+        perMod := perMod.insert i (m.insert e (m.getD e #[] |>.push k))
+  let mut oldKeys : Std.HashMap Name NameSet := {}
+  for (e, es) in d.keyed do
+    oldKeys := oldKeys.insert e (es.foldl (fun s k => s.insert k.1) {})
+  let sortKeyed (ks : Array Keyed) : Array EnvExtensionEntry :=
+    (ks.qsort (fun a b => Name.quickLt a.1 b.1)).map (·.2)
+  let sortedEntries (i : Nat) : Array (Name × Array EnvExtensionEntry) :=
+    (perMod.getD i {}).toArray.map fun (e, ks) => (e, sortKeyed ks)
+  let mut keptNewest := 0
+  let mut droppedNewest := 0
+  let mut replaced : NameSet := {}
+  let mut out := ms
+  let mut nReplaced := 0
+  let mut nDropped := 0
+  for i in [0:ms.moduleNames.size] do
+    let name := ms.moduleNames[i]!
+    let im := ms.moduleNameMap[name]!
+    if im.parts.isEmpty then continue
+    let pi := mainPart im
+    let (md, region) := im.parts[pi]!
+    let mut cn := #[]
+    let mut cs := #[]
+    for n in md.constNames, c in md.constants do
+      match oldConsts[n]? with
+      | some oc =>
+        if replaced.contains n then
+          nDropped := nDropped + 1
+        else
+          replaced := replaced.insert n
+          nReplaced := nReplaced + 1
+          cn := cn.push n; cs := cs.push oc
+      | none => cn := cn.push n; cs := cs.push c
+    let mut entries := md.entries
+    if dataExts then
+      let olds := perMod.getD i {}
+      let mut merged : Array (Name × Array EnvExtensionEntry) := #[]
+      let mut seenExt : NameSet := {}
+      for (e, es) in md.entries do
+        if whitelisted.contains e then
+          let ok := oldKeys.getD e {}
+          let kept := es.filterMap fun x =>
+            let k := newestKey e x
+            if oldConsts.contains k || ok.contains k then none else some (k, x)
+          keptNewest := keptNewest + kept.size
+          droppedNewest := droppedNewest + (es.size - kept.size)
+          merged := merged.push (e, sortKeyed (kept ++ olds.getD e #[]))
+          seenExt := seenExt.insert e
+        else
+          merged := merged.push (e, es)
+      for (e, ks) in olds.toArray do
+        unless seenExt.contains e do merged := merged.push (e, sortKeyed ks)
+      entries := merged
+    let md' := { md with constNames := cn, constants := cs, entries }
+    out := { out with moduleNameMap := out.moduleNameMap.insert name { im with parts := im.parts.set! pi (md', region) } }
+  let mut xn := #[]
+  let mut xc := #[]
+  for n in oldOrder do
+    unless replaced.contains n do
+      xn := xn.push n; xc := xc.push oldConsts[n]!
+  let extraName := `_olean_reader.OldOnly
+  let extra : ModuleData := {
+    isModule := false, imports := #[], constNames := xn, constants := xc,
+    extraConstNames := #[], entries := if dataExts then sortedEntries extraIdx else #[] }
+  out := {
+    moduleNameMap := out.moduleNameMap.insert extraName (decodedModule extraName extra)
+    moduleNames := out.moduleNames.push extraName }
+  checkMirror out
+  enableInitializersExecution
+  let env ← withImporting do
+    finalizeImport (unsafeCast out) imports {} (leakEnv := true) (loadExts := true)
+  let msg := s!"hybrid: newest modules {ms.moduleNames.size}, old constants {oldConsts.size}, replaced in place {nReplaced}, later duplicates dropped {nDropped}, old-only {xn.size} (extra module), data extensions old: {dataExts} (newest entries kept for keys the old version lacks {keptNewest}, replaced {droppedNewest})"
+  return (env, msg)
+
+end Assemble
+
+=== Main.lean (modes; verbatim copies of the drift log's code omitted as marked)
+import OleanReader
+import Assemble
+open Lean Meta OleanReader
+
+/-! The serialization of the drift log's `Drift.lean`, verbatim, so the reader's answer can be
+compared byte for byte with what v4.31.0 itself serialized. -/
+
+-- [omitted here: verbatim copies from the drift log's SCRIPT 1 (Drift.lean): StrictE, SState, nameToJson,
+--  biCode, serL, serE, serialize, jsonToName, codeBi, rebuild, ppWidth, ppSafe, coreCtx, runMeta, ppIO, and newSide
+--  (its first four lines - loadMathlib and the import timing - removed and `env` taken as a parameter);
+--  then the lookup code shown under "LOOKUPS" below, included verbatim.]
+
+def readSearchPath (f : System.FilePath) : IO (Array System.FilePath) := do
+  return (← IO.FS.lines f).filter (!·.isEmpty) |>.map System.FilePath.mk
+
+def nowMs : IO Nat := IO.monoMsNow
+
+/-- `read <searchpath-file> <limit|all> <omit-proofs:0|1> <oracle.jsonl|-> <out-types.jsonl|->`:
+reads every module of `Mathlib`'s closure once, one module at a time. -/
+def readMode (spFile limitS omitS oracle outTypes : String) : IO UInt32 := do
+  let sp ← readSearchPath spFile
+  let omitP := omitS == "1"
+  let t0 ← nowMs
+  let mods ← closure sp #[`Mathlib]
+  let t1 ← nowMs
+  let mods := if limitS == "all" then mods else mods.extract 0 limitS.toNat!
+  IO.eprintln s!"closure {mods.size} modules in {t1 - t0} ms"
+  let mut wanted : Std.HashMap Name Unit := {}
+  let mut oracleRecs : Array (Name × String) := #[]
+  if oracle != "-" then
+    for line in ← IO.FS.lines oracle do
+      if line.isEmpty then continue
+      let j ← IO.ofExcept (Json.parse line)
+      let nameS ← IO.ofExcept (j.getObjValAs? String "nameStr")
+      let ty ← IO.ofExcept (j.getObjVal? "type")
+      let nj ← IO.ofExcept (j.getObjVal? "name")
+      let n := (← IO.ofExcept nj.getArr?).foldl (init := Name.anonymous) fun acc c =>
+        match c with
+        | .str s => Name.mkStr acc s
+        | .num k => Name.mkNum acc k.mantissa.toNat
+        | _ => acc
+      unless n.toString == nameS do throw <| IO.userError s!"name decode mismatch {n} vs {nameS}"
+      wanted := wanted.insert n ()
+      oracleRecs := oracleRecs.push (n, ty.compress)
+  let stats ← IO.mkRef ({} : ReadStats)
+  let mut found : Std.HashMap Name String := {}
+  let mut ioMs := 0
+  let mut decMs := 0
+  let mut bytes := 0
+  let mut objects := 0
+  let mut red3Core := 0
+  let mut red3Other := 0
+  for m in mods do
+    let a ← nowMs
+    let parts ← loadModule sp m
+    let b ← nowMs
+    let root := parts.back!.root
+    let ((md, ks), st) ← runDM parts (decModuleData omitP true root stats)
+    let isCore := [`Init, `Std, `Lean, `Lake].contains m.getRoot
+    for (e, es) in ks do
+      if e == `reducibilityCore then
+        for (_, x) in es do
+          let p : Name × ReducibilityStatus := unsafe unsafeCast x
+          if p.2 == .instanceReducible then
+            if isCore then red3Core := red3Core + 1 else red3Other := red3Other + 1
+    let c ← nowMs
+    ioMs := ioMs + (b - a)
+    decMs := decMs + (c - b)
+    bytes := bytes + parts.foldl (· + ·.bytes.size) 0
+    objects := objects + st.objects
+    if !wanted.isEmpty then
+      for ci in md.constants do
+        if wanted.contains ci.name && !found.contains ci.name then
+          found := found.insert ci.name (serialize ci.type).1.compress
+  let s ← stats.get
+  IO.eprintln s!"modules {mods.size}, bytes {bytes}, objects visited {objects}, constants {s.constants}, entries decoded {s.entriesDecoded}, entries not decoded {s.entriesSkipped} in {s.skippedExts.size} extensions"
+  IO.eprintln s!"time: file reads {ioMs} ms, decoding {decMs} ms"
+  IO.eprintln s!"reducibility value 3 read as instanceReducible: core modules {red3Core}, other modules {red3Other}"
+  IO.eprintln s!"checked against the stored computed field: Name hashes {s.names}, Level data {s.levels}, Expr data {s.exprs}"
+  for (e, k) in s.decodedExts.toArray.qsort (fun a b => a.1.toString < b.1.toString) do
+    IO.eprintln s!"  decoded ext {e} {k}"
+  for (e, k) in s.skippedExts.toArray.qsort (fun a b => a.2 > b.2) do
+    IO.eprintln s!"  not decoded ext {e} {k}"
+  if oracle != "-" then
+    let mut same := 0
+    let mut missing := 0
+    let mut diff := #[]
+    for (n, ty) in oracleRecs do
+      match found[n]? with
+      | none => missing := missing + 1
+      | some t => if t == ty then same := same + 1 else diff := diff.push n
+    IO.println s!"oracle: identical {same} of {oracleRecs.size}; not found {missing}; different {diff.size}"
+    for n in diff.extract 0 10 do IO.println s!"  different: {n}"
+  if outTypes != "-" then
+    let h ← IO.FS.Handle.mk outTypes .write
+    for (n, _) in oracleRecs do
+      if let some t := found[n]? then h.putStrLn t
+  return 0
+
+
+def rssNote : IO String := do
+  return ""
+
+
+def diagnoseOne (e : Expr) : MetaM String := do
+  let stage (what : String) (x : MetaM String) : MetaM String :=
+    tryCatchRuntimeEx x (fun ex => do return s!"{what} failed: {← ex.toMessageData.toString}")
+  stage "delab" do
+    let stx ← PrettyPrinter.delab e
+    stage "ppTerm" do
+      let f ← PrettyPrinter.ppTerm stx
+      return s!"ok: {f.pretty ppWidth}"
+
+def diagnose (env : Environment) (printOut : String) (k : Nat) : IO Unit := do
+  let mut n := 0
+  for line in ← IO.FS.lines printOut do
+    if n ≥ k then break
+    let j ← IO.ofExcept (Json.parse line)
+    let pp := (j.getObjValAs? String "newPp").toOption.getD ""
+    unless (pp.splitOn "failed to pretty print").length > 1 do continue
+    n := n + 1
+    let nameS ← IO.ofExcept (j.getObjValAs? String "nameStr")
+    let some ci := env.find? nameS.toName | IO.eprintln s!"diag {nameS}: not found"; continue
+    let msg ← try runMeta env (diagnoseOne ci.type) catch ex => pure s!"io: {ex}"
+    IO.eprintln s!"diag {nameS}: {msg.take 600}"
+
+/-- `old-env <sp> <oracle.jsonl> <lookups-out>`: decode the closure (proofs omitted), assemble
+the old environment alone, ask the lookups. -/
+unsafe def oldEnvMode (spFile oracle out : String) : IO UInt32 := do
+  let sp ← readSearchPath spFile
+  let t0 ← nowMs
+  let mods ← closure sp #[`Mathlib]
+  let mods := match (← IO.getEnv "U9_LIMIT").bind String.toNat? with
+    | some k => mods.extract 0 k
+    | none => mods
+  let d ← Assemble.decodeAll sp mods
+  let t1 ← nowMs
+  IO.eprintln s!"decoded {d.mods.size} modules in {t1 - t0} ms; entries decoded {d.stats.entriesDecoded}"
+  for (e, ks) in d.keyed do IO.eprintln s!"  keyed {e} {ks.size}"
+  let env ← Assemble.assembleOld d
+  let t2 ← nowMs
+  IO.eprintln s!"assembled in {t2 - t1} ms; constants {env.constants.map₁.size}"
+  lookupAll env oracle out
+  let t3 ← nowMs
+  IO.eprintln s!"lookups {t3 - t2} ms"
+  return 0
+
+/-- `hybrid <sp> <data-exts 0|1> <oracle.jsonl> <lookups-out> <print-out> <limit>` -/
+unsafe def hybridMode (spFile dataS oracle lout pout limitS : String) : IO UInt32 := do
+  let sp ← readSearchPath spFile
+  let t0 ← nowMs
+  let mods ← closure sp #[`Mathlib]
+  let mods := match (← IO.getEnv "U9_LIMIT").bind String.toNat? with
+    | some k => mods.extract 0 k
+    | none => mods
+  let d ← Assemble.decodeAll sp mods
+  let t1 ← nowMs
+  IO.eprintln s!"decoded {d.mods.size} modules in {t1 - t0} ms"
+  let (env, msg) ← Assemble.assembleHybrid d (dataS == "1")
+  let t2 ← nowMs
+  IO.eprintln s!"{msg}; assembled in {t2 - t1} ms"
+  for (e, _) in Assemble.whitelisted.toList.map (·, ()) do
+    pure ()
+  lookupAll env oracle lout
+  let t3 ← nowMs
+  IO.eprintln s!"lookups {t3 - t2} ms"
+  let r ← newSide env oracle pout limitS.toNat!
+  let t4 ← nowMs
+  IO.eprintln s!"print {t4 - t3} ms"
+  diagnose env pout 12
+  return r
+
+unsafe def main (args : List String) : IO UInt32 := do
+  match args with
+  | ["read", sp, limit, om, oracle, out] => readMode sp limit om oracle out
+  | ["old-env", sp, oracle, out] => oldEnvMode sp oracle out
+  | ["hybrid", sp, de, oracle, lout, pout, limit] => hybridMode sp de oracle lout pout limit
+  | _ =>
+    IO.eprintln "usage: read <searchpath-file> <limit|all> <omit-proofs 0|1> <oracle.jsonl|-> <out|->"
+    return 2
+
+=== LOOKUPS: the lookup code, compiled into Main.lean and into Lookups.lean (v4.31.0 side) alike
+
+def rangeJ (r : DeclarationRange) : Json :=
+  Json.arr #[toJson r.pos.line, toJson r.pos.column, toJson r.charUtf16,
+             toJson r.endPos.line, toJson r.endPos.column, toJson r.endCharUtf16]
+
+def kindStr : ConstantInfo → String
+  | .axiomInfo _ => "axiom" | .defnInfo _ => "defn" | .thmInfo _ => "thm" | .opaqueInfo _ => "opaque"
+  | .quotInfo _ => "quot" | .inductInfo _ => "induct" | .ctorInfo _ => "ctor" | .recInfo _ => "rec"
+
+def lookupCore (n : Name) : CoreM Json := do
+  let env ← getEnv
+  match env.find? n with
+  | none => return Json.mkObj [("name", Json.str n.toString), ("found", toJson false)]
+  | some ci =>
+    let isStruct := isStructure env n
+    let fields := if isStruct then (getStructureFieldsFlattened env n (includeSubobjectFields := false)).map (Json.str ·.toString) else #[]
+    let ranges ← findDeclarationRanges? n
+    let rangesJ := match ranges with
+      | none => Json.null
+      | some r => Json.arr #[rangeJ r.range, rangeJ r.selectionRange]
+    let red ← getReducibilityStatus n
+    let proj := match env.getProjectionFnInfo? n with
+      | none => Json.null
+      | some p => Json.arr #[Json.str p.ctorName.toString, toJson p.numParams, toJson p.i, toJson p.fromClass]
+    let coe ← Meta.getCoeFnInfo? n
+    let coeJ := match coe with
+      | none => Json.null
+      | some c => Json.arr #[toJson c.numArgs, toJson c.coercee, Json.str (reprStr c.type)]
+    let mut eqns : Array Json := #[]
+    let mut k := 1
+    while true do
+      match env.find? (Name.str n s!"eq_{k}") with
+      | some e => eqns := eqns.push (Json.str (serialize e.type).1.compress); k := k + 1
+      | none => break
+    let eqDef := (env.find? (Name.str n "eq_def")).map fun e => (serialize e.type).1.compress
+    let modName := match env.getModuleIdxFor? n with
+      | some i => Json.str (env.header.moduleNames[i.toNat]!).toString
+      | none => Json.null
+    return Json.mkObj [
+      ("name", Json.str n.toString), ("found", toJson true), ("kind", Json.str (kindStr ci)),
+      ("levelParams", Json.arr (ci.levelParams.toArray.map (Json.str ·.toString))),
+      ("type", Json.str (serialize ci.type).1.compress),
+      ("isStructure", toJson isStruct), ("isClass", toJson (isClass env n)),
+      ("isInstance", toJson (Meta.isInstanceCore env n)), ("fields", Json.arr fields),
+      ("ranges", rangesJ), ("reducibility", Json.str (reprStr red)), ("projInfo", proj), ("coe", coeJ),
+      ("protected", toJson (isProtected env n)), ("eqns", Json.arr eqns),
+      ("eqDef", match eqDef with | some s => Json.str s | none => Json.null),
+      ("module", modName)]
+
+def lookupCtx : Core.Context := {
+  fileName := "<lookups>"
+  fileMap := default
+  options := Options.empty
+  maxHeartbeats := 5000000
+}
+
+def lookupAll (env : Environment) (oracle out : String) : IO Unit := do
+  let h ← IO.FS.Handle.mk out .write
+  for line in ← IO.FS.lines oracle do
+    if line.isEmpty then continue
+    let j ← IO.ofExcept (Json.parse line)
+    let nj ← IO.ofExcept (j.getObjVal? "name")
+    let n := (← IO.ofExcept nj.getArr?).foldl (init := Name.anonymous) fun acc c =>
+      match c with
+      | .str s => Name.mkStr acc s
+      | .num k => Name.mkNum acc k.mantissa.toNat
+      | _ => acc
+    let (r, _) ← (lookupCore n).toIO lookupCtx { env := env }
+    h.putStrLn r.compress
+
+=== Lookups.lean (v4.31.0 side) = "import Lean / open Lean Meta" + the drift log's serialization block + the
+=== lookup code above + this main:
+def main (args : List String) : IO UInt32 := do
+  match args with
+  | [oracle, out] =>
+    let t0 ← IO.monoMsNow
+    initSearchPath (← findSysroot)
+    unsafe Lean.enableInitializersExecution
+    let env ← importModules #[{ module := `Mathlib }] Options.empty (leakEnv := true) (loadExts := true)
+    let t1 ← IO.monoMsNow
+    lookupAll env oracle out
+    let t2 ← IO.monoMsNow
+    IO.eprintln s!"import {t1 - t0} ms, lookups {t2 - t1} ms"
+    return 0
+  | _ => IO.eprintln "usage: <oracle.jsonl> <out.jsonl>"; return 2
+
+=== cmp.py (lookup comparison)
+import json, sys
+from collections import Counter
+nat = [json.loads(l) for l in open(sys.argv[1])]
+mine = [json.loads(l) for l in open(sys.argv[2])]
+limit = int(sys.argv[3]) if len(sys.argv) > 3 else len(nat)
+nat, mine = nat[:limit], mine[:limit]
+assert len(nat) == len(mine), (len(nat), len(mine))
+RED = {"Lean.ReducibilityStatus.implicitReducible": "Lean.ReducibilityStatus.instanceReducible"}
+fields = ["found", "kind", "levelParams", "type", "isStructure", "isClass", "isInstance", "fields",
+          "ranges", "reducibility", "projInfo", "coe", "protected", "eqns", "eqDef", "module"]
+eq = Counter(); ne = Counter(); ex = {}
+relevant = Counter()
+for a, b in zip(nat, mine):
+    assert a["name"] == b["name"]
+    for f in fields:
+        va, vb = a.get(f), b.get(f)
+        if f == "reducibility" and va in RED: va = RED[va]
+        nontrivial = va not in (None, False, [], "Lean.ReducibilityStatus.semireducible")
+        if nontrivial: relevant[f] += 1
+        if va == vb: eq[f] += 1
+        else:
+            ne[f] += 1
+            ex.setdefault(f, []).append((a["name"], str(va)[:150], str(vb)[:150]))
+print(f"records {len(nat)}")
+print(f"{'lookup':<14} {'same':>6} {'differs':>8} {'non-empty in v4.31.0':>22}")
+for f in fields:
+    print(f"{f:<14} {eq[f]:>6} {ne[f]:>8} {relevant[f]:>22}")
+for f, xs in ex.items():
+    print(f"examples for {f} ({len(xs)}):")
+    for n, va, vb in xs[:4]:
+        print(f"  {n}\n    v4.31.0: {va}\n    here:    {vb}")
+
+=== timing.sh
+#!/bin/bash
+# Timing runs of the reader over the whole closure. One process at a time.
+set -uo pipefail
+U=<scratch>
+cd "$U"
+run() { # label omit
+  local f="runs/t-$1"
+  /usr/bin/time -l .lake/build/bin/u9 read sp-old.txt all "$2" - - > "$f.out" 2> "$f.err"
+  local rc=$?
+  local t; t=$(grep -E " real " "$f.err" | head -1)
+  local r; r=$(grep -E "maximum resident" "$f.err" | awk '{print $1}')
+  local d; d=$(grep -E "^time:" "$f.err")
+  echo "$1 omit=$2 rc=$rc |$t| rss=$r | $d" >> runs/timing-summary.txt
+}
+: > runs/timing-summary.txt
+run warm0-prime 0
+for i in 1 2 3 4 5; do run "warm$i" 0; done
+for i in 1 2 3; do ./evict.sh > /dev/null; run "cold$i" 0; done
+./evict.sh > /dev/null; run "cold-omit1" 1
+for i in 1 2 3; do run "warm-omit$i" 1; done
+echo done >> runs/timing-summary.txt
+
+=== evict.sh
+#!/bin/bash
+# Reads ~20 GB of files unrelated to the measured closure, to push it out of the page cache.
+set -uo pipefail
+for d in <new-workspace>/.lake/packages <another-workspace> \
+         "<toolchain v4.32.2/lib>" "<toolchain v4.33.0/lib>" \
+         "<toolchain v4.33.1/lib>" "<toolchain v4.34.1/lib>"; do
+  find "$d" -type f -print0 | xargs -0 cat > /dev/null
+done
+echo evicted

@@ -323,6 +323,34 @@ for 311,415 (extrapolated).
   and reading only what a page needs (constants and a few extensions, not every object) becomes
   a requirement.
 
+**Answered 2026-10-04** (measured → `benchmarks/results/olean-reader-prototype-2026-10-04.txt`; a
+prototype in a scratch project, Lean v4.34.1 reading Mathlib v4.31.0 with all its packages and
+Lean core v4.31.0):
+
+- **The reader reads correctly**: 5,000 of 5,000 sampled types serialize byte-identically to what
+  v4.31.0 itself wrote, and every stored hash it decoded recomputes (11.4 M name hashes, 131 M
+  expression data words); a corrupted copy stops the run naming the object.
+- **Reading is not the cost**: the whole closure (10,583 modules, 7.0 GB, all three files per
+  module) in 0.80 min median (0.41 min with proofs skipped), one module held at a time (206 MB
+  peak). Cold and warm could not be separated on this machine; a cold start after reboot is not
+  measured.
+- **The hybrid works, and it is the design**: the decoded old data is assembled into an
+  environment of the newest Lean, with the newest Mathlib's code (delaborators, notation) on top.
+  - Alone, the old environment answered all 16 name-keyed lookups U8 flagged as v4.31.0 does, on
+    all 5,000 declarations — so the ~30 lookups need no re-implementation.
+  - Printing in the hybrid: **98.60% identical** to v4.31.0's own print (95% interval
+    98.24–98.89), against 97.56% with lookups going to the newest constants. Fully explicit `@`
+    applications 28 → 0; "failed to pretty print" 11 → 0. What remains is notation the newest
+    Mathlib prints differently for the same term (`setOf` 45, `↧` 16, 9 others).
+  - Two rules, both found by failing first: the newest code needs the newest data about its own
+    vocabulary (dropping the newest class entries made 7 of 20 types unprintable); "does this name
+    exist" and "which module" are answered from the decoded old data (in the hybrid, 136 module
+    answers and 6 stored-equation lookups came back as the newest version's). Merging extension
+    data must be by name, not by replacing constants alone.
+- **Per version end to end ≈ 8.8 min** (theoretical: ≈ 2.1 min to read and assemble, measured;
+  ≈ 6.7 min to print 311,415 types at 1.29 ms each, extrapolated). Under the ≈ 10 min line, but
+  printing is what fills it — 11 versions ≈ 97 min of the 2 h budget, single-threaded.
+
 ## Decisions to make
 
 ### D1 — The version set (decided 2026-10-04, user's call — with one open part)
