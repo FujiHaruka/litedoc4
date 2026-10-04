@@ -136,4 +136,21 @@ def aCitationAnotherModuleSuppressesIsNeitherAnchoredNorListed : Invariant where
       eq alone.size 1,
       eq together.size 0]
 
+/-- doc-gen4 takes a link written straight to an entry as a citation too, and
+such a docstring names no key in brackets for the scan to find. -/
+def aLinkWrittenStraightToAnEntryIsACitation : Invariant where
+  name := "a link written straight to references.html#ref_<key> is a citation"
+  check := do
+    let page : Module := { citingPage with
+      moduleDocs := #[], decls := #[{ citingPage.decls[0]! with
+        doc := "See [the book](references.html#ref_Roe13)." }] }
+    let citations := (pageCitations twoKeys page {}).map (·.citation)
+    let html := pageHtml (declIndex [] page) twoKeys citations page {}
+      "https://h/o/r/blob/dead" "Pkg"
+    match (html.run {}).map (·.1) with
+    | .error message => return some s!"the page was refused: {message}"
+    | .ok html => return first [
+        eq citations #[cited "Roe13" "Pkg.Cite.f"],
+        eq (renderedIds html) #["0"]]
+
 end Litedoc4Test

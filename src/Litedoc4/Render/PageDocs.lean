@@ -77,9 +77,10 @@ def declDocs (d : Decl) : Array (String × String) := Id.run do
 
 **That walk and not a second one over the parsed document**, so which links are
 citations and in what order cannot be answered twice. Only a docstring that
-names a key is parsed — none is in a package with no bibliography. -/
+names a key or the references page is parsed — none is in a package with no
+bibliography. -/
 def citationsIn (bib : Bibliography) (funName text : String) : Array Citation :=
-  if (citedKeys bib text).isEmpty then #[]
+  if (citedKeys bib text).isEmpty && (text.splitOn referencesPage).length == 1 then #[]
   else
     let walk := docstring "" { root := "", links := noLinks, bib } text
     (walk.run {}).2.cited.map ({ citekey := ·, funName })
