@@ -1,0 +1,27 @@
+One Mathlib signature, byte by byte
+===================================
+2026-10-04
+
+The site of mathlib-signature-shape-2026-10-04.txt (Mathlib fabf563a7c, litedoc4 eacf8c9), page
+Mathlib/Order/Basic.html: the first signature whose HTML is 250–1,100 B and whose text is 40–90 B.
+
+  HTML                                   1,065 B
+  readable text                             58 B
+  3 links to Lean core source (<a …> only)   378 B   (LE, ≤, ≥ — each a full GitHub URL)
+  15 subterm wrappers (open + close)        360 B   (<span class="fn"></span>, 24 B each)
+  the rest                               ≈ 270 B   (binder-kind wrappers, the Type link, the
+                                                    colon, the type's div, newlines)
+(measured)
+
+Text, then HTML, as printed:
+1065 58
+{α : Type u_2}
+[LE α]
+{a b : α}
+(h : a ≤ b)
+ :b ≥ a
+<div class="sig"><span class="binder implicit"><span class="fn">{<span class="fn">α</span> : <a href="../.././foundational_types.html">Type</a> u_2}</span></span>
+<span class="binder implicit"><span class="fn">[<span class="fn"><a href="https://github.com/leanprover/lean4/blob/68218e876d2a38b1985b8590fff244a83c321783/src/Init/Prelude.lean#L1277-L1280">LE</a> <span class="fn">α</span></span>]</span></span>
+<span class="binder implicit"><span class="fn">{<span class="fn">a </span><span class="fn">b</span> : <span class="fn">α</span>}</span></span>
+<span class="binder"><span class="fn">(<span class="fn">h</span> : <span class="fn">a</span> <a href="https://github.com/leanprover/lean4/blob/68218e876d2a38b1985b8590fff244a83c321783/src/Init/Prelude.lean#L1280-L1280">≤</a> <span class="fn">b</span>)</span></span>
+<span class="colon"> :</span><div class="sig-type"><span class="fn">b</span> <a href="https://github.com/leanprover/lean4/blob/68218e876d2a38b1985b8590fff244a83c321783/src/Init/Prelude.lean#L1287-L1288">≥</a> <span class="fn">a</span></div>

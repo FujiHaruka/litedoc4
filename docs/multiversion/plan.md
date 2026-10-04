@@ -300,6 +300,19 @@ paths is allowed, changing or removing the existing ones is not.
 call). That leaves the third row open, and lets a page carry its signatures as data drawn in the
 browser (U4). Still open: which of the three rows, after U3 and U7.
 
+**How one version shrinks** (decided 2026-10-04, user's call), both from U4's measurements:
+
+1. **Content is stored compressed and decompressed in the browser.** Pages compressed one by one
+   are 19.6× smaller (measured → `benchmarks/results/mathlib-signature-shape-2026-10-04.txt`).
+2. **Signatures are carried as data, not as HTML.** Text, one reference into a name table per link,
+   one marker per binder kind and per subterm; the browser builds the links and the markup. A link
+   costs a few bytes instead of a full URL: one signature measured at 1,065 B of HTML for 58 B of
+   text spends 378 B on three links to Lean core source and 360 B on fifteen subterm wrappers
+   (measured → `benchmarks/results/mathlib-signature-example-2026-10-04.txt`).
+
+Not decided: giving up subterm highlighting on hover, which would drop the subterm markers
+altogether (→ "Features that could be given up").
+
 ### D5 — Unit and address of sharing
 
 Per declaration, per module, or per fragment within a declaration; content-addressed by hash or
@@ -345,6 +358,7 @@ versions; U3 and U4 put a number on each.
 | Docstring link resolution | depends on the whole name set of the version | resolve against latest; keep per version |
 | Equations | large, rarely read (58,426 per version) | latest only; on demand |
 | Static HTML that reads without JavaScript | the main reason hosted size scales with the number of versions | latest only (D4) |
+| Subterm highlighting on hover in signatures | 12.0 M wrappers, ≈ 40 per signature — the structure a signature carries beyond its text and links | drop; keep for the latest only |
 | Bibliography page | per version, small | keep |
 
 ## Out of scope
