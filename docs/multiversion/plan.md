@@ -167,7 +167,9 @@ Two pairs can run today, before U1, because both sides are on supported toolchai
 
 For each pair, classify every declaration as: unchanged / changed in source / changed only in
 rendered content / added / removed. Then split "changed only in rendered content" by cause:
-signature links, pretty-printing, docstring link resolution, Used by, instances, source link, and
+signature links to Mathlib modules, signature links to dependencies (their pinned revision moves —
+Lean core's on every release, D1b), pretty-printing, docstring link resolution, Used by, instances,
+source link, and
 the attribute string of reducible instances — Lean renamed it between v4.32.2
 (`implicit_reducible`) and v4.33.0 (`instance_reducible`) (`tools/lean-toolchains.txt`, column 2),
 so the minor pair carries churn that no Mathlib source change caused. The patch pair, on one Lean
@@ -227,16 +229,20 @@ and of links from outside (search engines, Zulip, papers), memory in the browser
 Non-prerelease releases on the Releases page: 11 today. **Open**: what to do with a release U1
 cannot build for — fix the extractor, or drop that version and say so on the site.
 
-### D1b — Dependency documentation
+### D1b — Dependency documentation: out (decided 2026-10-04, user's call)
 
-Every number above is `--lib Mathlib` only. Mathlib's own published documentation also serves Lean
-core, Batteries, Aesop and its other dependencies, and each release pins different versions of
-them. In this milestone or not: if in, the hosting budget is set against a larger number than
-1.1 GB per version, and U4 has to measure that number too.
+Mathlib only, as for every litedoc4 site: Lean core, Batteries, Aesop and the rest are not
+documented, and a reference to them links to that dependency's version-pinned source. Every number
+above is already `--lib Mathlib` only.
 
-### D2 — The budgets
+The consequence is a design item, not a further decision: **those links carry the dependency's
+revision, and every release moves Lean core's**, so a signature that mentions `Nat` or `Eq` changes
+between releases even when nothing in Mathlib did. U3 counts it; D5 has to keep the revision out of
+the shared content. Links to a dependency's documentation site instead of its source do not avoid
+this — that site is built from one revision only, so for older versions it would answer for the
+wrong one.
 
-Proposal (assumed, to be confirmed by the user):
+### D2 — The budgets (decided 2026-10-04, user's call)
 
 - **Build**: all versions from nothing in ≤ 2 h on one machine; adding one new release in ≤ 15 min.
 - **Hosting**: whatever U6's chosen host allows, with headroom for 2 years of releases (≈ 40 more
