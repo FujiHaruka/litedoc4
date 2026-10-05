@@ -470,6 +470,18 @@ Lean core v4.31.0):
   fixed, and the 3-apart counts are unchanged. **A patch by module saves little**: only 30.71% of
   Mathlib's modules have all constants equal (11.19% equal in everything), while 78.87% of the
   constants inside the changed modules are unchanged — a patch has to work per constant.
+- **Patching the hybrid from one version to the next works, and saves 15–20%** (measured, M1,
+  v4.31.0 ⇄ v4.32.0, five rounds in one process →
+  `benchmarks/results/mathlib-environment-patch-2026-10-05.txt`). The patched IR equals the
+  from-scratch IR in every file once the key covers the declaration's own record (291 reuses lost).
+  Memory stays bounded (peak 10.08 GB) only after emptying the map where Lean caches equation lemmas
+  realized for imported definitions — without it every round kept the previous environment alive
+  (+1.8 GB per round). Extension states are rebuilt from the patched entries, not patched by delta.
+  The second version costs ≈ 4.6–5.2 min against ≈ 6.2 min from scratch: decode 25.7 s (4
+  threads), patch 19.1 s, finalize 11.7 s, **key pass 97.1 s** (recomputed in full — an
+  incremental key is unsound, because name resolution depends on names that did not exist), and
+  extraction 111.1 s for the 17.5% reprinted. Composed (theoretical): 51 versions from nothing ≈
+  4.3 h on the M1, ≈ 8.5 h on the runner.
 - **Per version end to end ≈ 6.5 min wall, ≈ 19 min CPU** (measured, 4 jobs, two runs 389 /
   394 s; native v4.31.0 extraction 217 / 243 s with the same 4 jobs). Peak RSS 6.3 GB, memory
   footprint 8.7–9.1 GB on 16 GiB, with swap in use mid-run (≈ 3.5 GB, no baseline). 11 versions ≈
