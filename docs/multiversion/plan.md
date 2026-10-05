@@ -414,9 +414,33 @@ Lean core v4.31.0):
   them stopping the read (none appeared), and the same reducibility meaning as v4.31.0. Each
   refusal (another version, one githash byte changed, mixed core and packages, a wrong "absent"
   entry) was made to fail once. The hybrid's peak RSS was 6.08 GB (5.07 GB at v4.31.0).
-- **Per version end to end ≈ 8.8 min** (theoretical: ≈ 2.1 min to read and assemble, measured;
-  ≈ 6.7 min to print 311,415 types at 1.29 ms each, extrapolated). Under the ≈ 10 min line, but
-  printing is what fills it — 11 versions ≈ 97 min of the 2 h budget, single-threaded.
+- **The real extractor runs in the hybrid, on all of v4.31.0** (measured →
+  `benchmarks/results/mathlib-hybrid-full-extraction-2026-10-05.txt`; the same extractor source,
+  with one seam, run natively in v4.31.0 as the reference, compared field by field):
+  - The extractor builds on v4.34.1 unchanged, and the seamed source on both Lean versions with no
+    branch; natively it reproduces the existing v4.31.0 extraction byte for byte.
+  - 311,345 of 311,415 declarations produced. Modules, imports, module docs, names, kinds,
+    modifiers, ranges, structure fields and constructors, instances, the link index and the
+    dependency maps are equal on every value. Printed text differs on 6,075 (1.95%), all of it
+    newest-Mathlib notation on an old term (`setOf` 2,507, `↧` 734, manifold notation 196, …);
+    equations differ in count on 17. Reducibility attributes come out in the running Lean's
+    spelling (16,136 `implicit_reducible` written `instance_reducible`, same meaning). No
+    difference is unexplained.
+  - **Two outputs are not reached from old data**: the tactic list (215, read from the running
+    code's parser tables — stopped and counted), and the tactic text of `(h : p := by tac)`
+    binders, which the printer gets by running the stored syntax through the interpreter. Old-only
+    tactics fail (the 70 missing declarations); where the name exists in the newest version its
+    text is printed silently (2 visible differences, 2,702 equal by coincidence of content). The
+    fix is reading that syntax from the old constant's value, not decoding more extensions.
+  - What made it work, beyond the prototype: every "which modules / which names / where does this
+    name live / module docs / docstrings" question goes through one record built from the decoded
+    old data; 57 extension types decoded and merged by name, 35 kept from the newest code for its
+    own vocabulary, 159 emptied so a read shows up as a difference rather than a newest answer.
+- **Per version end to end ≈ 6.5 min wall, ≈ 19 min CPU** (measured, 4 jobs, two runs 389 /
+  394 s; native v4.31.0 extraction 217 / 243 s with the same 4 jobs). Peak RSS 6.3 GB, memory
+  footprint 8.7–9.1 GB on 16 GiB, with swap in use mid-run (≈ 3.5 GB, no baseline). 11 versions ≈
+  72 min of the 2 h budget (extrapolated from one version), and only with ≈ 4-way parallelism:
+  single-threaded it would be ≈ 3.5 h (theoretical: CPU time × 11).
 
 ### U10 — How small can the per-version part be?
 

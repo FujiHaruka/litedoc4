@@ -1,0 +1,2436 @@
+The real extractor in the hybrid: all of Mathlib v4.31.0 extracted in Lean v4.34.1, field by field against the native extraction
+===================================================================================================================================
+Date: 2026-10-05. Context: docs/multiversion/plan.md D10 (one own .olean reader in the newest Lean; printing every
+version with the newest Lean and Mathlib), U8 (every name-keyed lookup asked of an environment holding the newest
+Mathlib answers about the newest declaration) and U9 (the reader and the hybrid; "Per version end to end ~8.8 min
+(theoretical)"). The reader and the hybrid assembly are the prototype of
+benchmarks/results/olean-reader-prototype-2026-10-04.txt, rebuilt from its CODE section and extended; the extractor is
+extractor/Extract.lean with one seam added. A measurement in scratch Lake projects; nothing in src/ or extractor/ was
+changed.
+
+QUESTIONS
+---------
+(0) Gate 0: does the extractor build on Lean v4.34.1 (not in tools/lean-toolchains.txt), without branching on the
+    version?
+(1) Does the real extractor, run in the hybrid (newest Lean v4.34.1 + newest Mathlib v4.34.1 imported for its printing
+    code, the decoded Mathlib v4.31.0 constants and extension data in place), produce the same IR as the same extractor
+    run natively in Lean v4.31.0 over Mathlib v4.31.0 — field by field, every output kind the pages need?
+(2) How long does it take and how much memory does it use, per arm?
+
+HEADLINE
+--------
+(0) The unmodified extractor builds on v4.34.1: 0 changes, 0 warnings (measured, Lake build). The adapted source (one
+    seam, `World`, below) builds unchanged on v4.31.0 and v4.34.1, and the native arm reproduces the IR the existing
+    v4.31.0 run wrote byte for byte: 8,170 of 8,170 module files, 10 of 10 dependency maps, index.json and the link
+    index identical (`diff -r` and `cmp`, measured). No branch on the version was needed.
+(1) Declarations: 311,345 of 311,415 produced (measured). The 70 missing all fail in the hybrid with "(interpreter)
+    unknown declaration '<...>._autoParam' / '_auto_<n>'": printing a binder `(h : p := by tac)` evaluates the stored
+    tactic Syntax constant with the interpreter, and the old constant has no IR in the newest environment. Of the
+    311,345 produced:
+      identical in every field                                        287,089   92.21%   (measured)
+      identical except the reducibility-attribute spelling (R1)
+        and the in-module position shifted by the 70 (I)                304,289   97.73%
+      a printed-text difference (type / binders / equations / members)  6,075   1.95%
+    Every non-equal value is explained by one of the causes below; there is no unexplained class.
+    Equal on all compared values (measured; `equal / compared`):
+      modules 8,170 / 8,170 both ways; imports 8,170 / 8,170; module docs 12,449 / 12,449 items;
+      declaration names, kinds, modifiers, implicits, line / col / endLine / endCol / selectionRange 311,345 / 311,345;
+      structure fields and constructors (members) 19,086 / 19,086 present both ways, labels, names, field docstrings,
+      field binders' implicitness, isDirect 13,129 / 13,129; instClass and instTypes 29,409 / 29,409; generated (ext
+      origin) 1,175 / 1,175;
+      the link index (module of each name for docstring links): `@` section 10,583 / 10,583 in order, 2,136 groups,
+      91,425 / 91,425 names and line ranges; dependency maps (module of each referenced dependency name) 3,414 / 3,414;
+      `sorry`: absent on both sides for every declaration (0 direct, 0 transitive natively).
+    Not equal, with causes (measured counts; classes by the rules in classify.py, applied in order):
+      type        307,657 / 311,345 (98.82%)   F1 set-builder via setOf 2,507; F2 ↧ 734; F5a manifold notation 196;
+                                                D `Finset.HasAntidiagonal.antidiagonal` etc. 101; F5b binder-predicate
+                                                big operators 71; F3 ≤/< on sets as ⊆/⊂ 52; F5c □/⋔ 23; F5d =ᵇ 4
+      binders     310,319 / 311,345 (99.67%)   F1 430; F2 310; F5a 219; F3 40; D 19; F5b 4; A2 autoParam tactic text
+                                                from the newest IR 2; F5d 1; F6 struct-instance defaults 1
+                                                (of the equal ones, 2,702 declarations' `:= by ...` text was read from
+                                                the newest IR, A2: equal, but not from old data)
+      equations   309,770 / 311,345 (99.49%)   F1 857; F2 645; F3 33; G equation generation, count differs 14;
+      (58,411 items: 56,806 equal)             F5a 12; D 8; G2 not split 3; F5c 2; F5b 1
+      members     311,286 / 311,345            F1 51; F2 2; F5a 2; D 2 (one with a line break); S 2
+      attrs        84,507 / 100,643            R1 16,136: v4.31.0's `implicit_reducible`, spelled `instance_reducible`
+                                                by the running Lean's toAttrString (same meaning; the IR stores the
+                                                running Lean's word)
+      doc         311,344 / 311,345            M 1: a manual link carries the running Lean's version (4.31.0 -> 4.34.1)
+      typeCode / binderCode / equationCode (link spans): every difference follows a printed-text difference of the same
+                  declaration, except S 1,077: the newest Mathlib's `=ᵐ[μ]` / `≤ᵐ[μ]` delaborator gives the token no
+                  constant tag (same text, one link to Filter.EventuallyEq / EventuallyLE fewer)
+      refs        308,226 / 311,345            follows the text 2,139; S 978; E 2 (an equation attempt that fails on
+                                                both sides, at different points, leaves different references behind)
+      index       309,905 / 311,345            I 1,440: shifted by the 70 missing declarations (checked one by one)
+      tactics     0 / 215                      T: HARD STOP — the tactic list is not answered from old data (148
+                                                modules carry tactics natively; none in the hybrid)
+    The print classes are the drift logs' (setOf 2,507 and ↧ 734 lead, as F1 45 and F2 16 led in the 5,000 sample);
+    new here: F3 (the newest Mathlib prints `≤`/`<` between sets as `⊆`/`⊂`), F5a-d (notations of the newest Mathlib
+    applied to, or missing for, old terms), S, A2, G/G2, R1 and M. Everything caused by a removed or changed constant
+    is gone, as in the prototype; what is left is the newest code applied to old data.
+(2) Time and memory, extraction process end to end, --jobs 4 in both arms (measured, 2 runs each):
+                   wall      user      sys     peak RSS         page faults   peak memory footprint
+      native 1   217.41 s   791.03    25.38   5,671,075,840 B   262,937        4,479,020,224 B
+      native 2   243.19 s   849.75    25.36   6,104,825,856 B   386,168        4,462,734,464 B
+      hybrid 2   388.96 s  1076.19    73.02   6,094,405,632 B   336,077        9,116,657,856 B
+      hybrid 3   393.54 s  1098.86    64.30   6,322,634,752 B   334,912        8,700,814,336 B
+      (hybrid 1  500.96 s  1247.29    86.58   6,085,967,872 B   354,768        8,962,516,800 B — the earlier assembly of
+       WHAT FAILED 1-4: 523 panics, quadratic decoding; not a timing of the final code)
+    Hybrid split (run 2 / run 3): import closure 3.7 / 2.7 s, decoding the 10,583 old modules 87.9 / 88.7 s, newest
+    import + assembly 56.6 / 56.0 s, extraction 239.8 / 241.9 s. Native: import 13.9 / 30.3 s, extraction 203.5 / 212.9 s.
+    -> Per version end to end: 6.5 min wall with 4 jobs (measured, 2 runs), against the 8.8 min theoretical
+       single-threaded estimate. The CPU is 19 min (user+sys): at 1 job that is ~19 min per version and ~3.5 h for
+       11 versions (theoretical: assumes the 4 jobs' CPU serialises without loss) — the 2 h budget holds only with
+       ~4-way parallelism, 11 x 6.5 min = 72 min (extrapolated from this one version, same machine, 4 jobs). The
+       hybrid costs ~160 s more than native: 147 s to read and assemble in place of a 14-30 s import, and ~33 s
+       (+16%) more in the extraction itself.
+       Memory: peak RSS 6.1-6.3 GB in both arms. The hybrid's peak footprint (8.7-9.1 GB) exceeds its RSS and the
+       native's (4.5 GB) is below it; that the difference is compressed memory and anonymous allocations rather than
+       the natively mmapped oleans is (assumed). Swap was not ruled out: `vm.swapusage` read 3.5 GB used during hybrid
+       run 1 with no baseline taken before it, /usr/bin/time's `swaps` field is 0 on this macOS in every run and is no
+       evidence either way. What does argue against paging: wall < user+sys in every run, and page faults 335k in the
+       hybrid runs against 263k-386k in the native ones.
+
+CONDITIONS
+----------
+- Hardware: Apple M1 (machdep.cpu.brand_string), 8 cores, hw.memsize 17179869184 (16 GiB), macOS 26.6.2. One heavy
+  process at a time throughout; other desktop applications were running (not controlled).
+- Old: Lean 4.31.0 (68218e876d2a), Mathlib v4.31.0 (fabf563a7c95a166b8d7b6efca11c8b4dc9d911f) in <old-workspace>
+  (the measurement target, read-only) with its 10 packages; Lean core from <toolchain v4.31.0>/lib/lean.
+- New: Lean 4.34.1 (5045d0056413), Mathlib v4.34.1 (d13f23b723b8a846827a245b89c10fc7d3f11612) in <new-workspace>
+  (cache oleans, read-only).
+- Module set and flags: the 8,170 modules of `--lib Mathlib` in the order of the existing v4.31.0 run's modules.txt
+  (its build record: `litedoc4 build --lib Mathlib`, resident extractor, "serve ready ... 10583 8170 (4 jobs)",
+  "extract 8170 module(s) in 337.0819 s"), and the flags that run's resident server was started with:
+  `--equations --refs --write-ir --tagged-code --jobs 4 --ir-dir <dir> --link-index <file> --link-index-omit
+  <modules.txt>`, minus `--link-index-key` (it only decides whether an existing map may be reused; here the map is
+  written in every run). That 337 s was 4 jobs; both arms here are
+  4 jobs. The existing run's IR (wmathlib/out) was written by the identical extractor source (extractor/Extract.lean
+  last changed 2026-09-02, the run is 2026-10-04) and the native arm reproduces it byte for byte, so it served as the
+  native arm's check, not as the comparator; the comparator reads the native arm's own run 1.
+- Each arm runs one extractor process directly under /usr/bin/time -l with the variables `lake env` sets in its
+  workspace (runx.sh), so the timing is the extractor's and not lake's.
+- Theorem proofs: the reader's "proofs skipped" mode — every theorem's value is replaced by the constant
+  `_olean_reader.proofOmitted`; definition, opaque and instance values are kept (equations are built from them).
+- Warm / cold: not separated. The two arms read different 7 GB sets of oleans (the hybrid reads both, ~14 GB), more
+  than the page cache holds next to a 6 GB process; native run 2 (right after a hybrid run) imported in 30.3 s against
+  13.9 s in run 1. Order of the timed runs: native 1, hybrid 2, native 2, hybrid 3 (hybrid 1 was the first full run of
+  an earlier assembly, see WHAT FAILED).
+- Sampling: every program ran on 20 modules first (native: the first 20 of the list, `Mathlib` included, so the whole
+  closure; hybrid: entries 2-21, a 3,172-module closure; both arms compared on those 20) before any full run, and the
+  comparator ran on the sample before the full comparison.
+- Determinism: native run 2 == native run 1 and hybrid run 3 == hybrid run 2, byte for byte (`diff -r` of the IR,
+  `cmp` of the link index; measured). The comparison below is native run 1 against hybrid run 3.
+
+GATE 0
+------
+- extractor/Extract.lean, unmodified, in a Lake project with lean-toolchain leanprover/lean4:v4.34.1 (lean_exe,
+  supportInterpreter): built, 0 errors, 0 warnings.
+- The adapted source (the diff in CODE) builds unchanged with v4.31.0 and v4.34.1; the native arm (v4.31.0 build) wrote
+  IR identical to the existing v4.31.0 run's. The change is not a version branch: it moves every "which modules / which
+  names / where does a name live / which docs does a module have" question behind one record built where
+  `importModules` is called. `World.ofEnv env` answers it exactly as the original calls did; the hybrid builds it from
+  the decoded old data instead.
+- The only other source change: `main` moved to ExtractMain.lean (`def main := extractMain`), so the hybrid's own
+  executable can import the extractor as a library.
+
+THE ONE SUBSTITUTION, AND EVERY REDIRECT TO OLD DATA
+----------------------------------------------------
+The hybrid arm runs `Litedoc4.run` of the same Extract.lean with `(env, world)` given, where the native arm imports. The
+`World` fields and the extractor sites that now read them (native answer -> hybrid answer):
+  moduleNames        header.moduleNames -> the old closure in importModulesCore's order (DFS post-order over the
+                     8,170 roots in list order, from the decoded .olean imports): link-index `@` section and group
+                     order, `loaded modules`.
+  moduleIndex?       env.getModuleIdx? -> old index: candidate enumeration, module docs.
+  constNames i       header.moduleData[i].constNames -> decoded old ModuleData (the private part, as v4.31.0's
+                     finalizeImport takes it): the candidate list and the first-module `seen` rule, the link index walk.
+  imports i          moduleData[i].imports -> decoded old imports.
+  moduleOf?          env.getModuleIdxFor? -> old const2ModIdx rebuilt by v4.31.0's finalizeImport rule: modules in
+                     order, each module's constNames, then the extraConstNames of its interpreter data (the `.ir` file
+                     for a `module`, else the module's own), first module wins (1,344,766 names). Readers: refs ->
+                     defining module (refs, deps/*.json), link-index ownership, tactic bucketing.
+  contains           env.contains / env.find?.isSome -> old constant set (766,828): extOriginOf (`P.ext` for
+                     `P.ext_iff`), declModifiers (`f._unsafe_rec` -> `partial`).
+  moduleDocs         getModuleDoc? -> decoded old moduleDocExt entries per old module (8,981 modules of the closure
+                     have any; 12,449 docs in the 8,035 target modules that do).
+  docString?         findDocString? -> the same function in the hybrid when the old data holds the docstring (resolved
+                     through the old inherit_doc map and the tactic-alternative map); a HARD STOP (counted, the text
+                     `<hard stop: ...>` written instead) when the old data holds it only as Verso or not at all while
+                     the running Lean's builtin table answers. Fired 0 times in this run.
+  tactics            allTacticDocs -> HARD STOP: none, counted, printed as "NOT ANSWERED"; the tactic list comes from
+                     the parser tables, which in the hybrid are the newest code's.
+Sites not redirected, and why: `env.find? n` for a candidate or a link-index name n (n comes from the old lists and every
+old constant is in the hybrid, replaced in place); `getEnv` for printing, telescopes, instances, attributes (they read
+the merged extensions below); the diagnostics `--tactics-emulate`, `--tactics-probe`, `--dump-tactics` (not run; they
+still read the environment's own tables).
+
+THE HYBRID ENVIRONMENT
+----------------------
+Built as the prototype builds it (v4.34.1's importModulesCore for `Mathlib` in <new-workspace>, ModuleData rewritten
+before finalizeImport): 739,744 newest constants replaced in place by the old ConstantInfo, 993 later duplicates
+dropped, 27,084 old-only constants in one extra module at the end (measured). Changes to the prototype:
+- `const2ModIdx` placement is computed by v4.34.1's own rule (constNames, then the `.ir` part's extraConstNames,
+  first wins) and checked after finalizeImport: 1,358,902 names, 0 placed where the environment does not put them.
+- Newest-only realizations of old declarations dropped (1,009): a newest constant whose name is an old declaration
+  plus eq_<n> 767, splitter 116, congr_simp 89, eq_def 20, hcongr_<n> 12, congr_eq_<n> 5. Otherwise `getEqnsFor?`'s
+  "already generated" test (`env.contains f.eq_1`) and the reserved-name realizers find the newest version's lemmas
+  for an old definition (the prototype's 6 stored-equation lookups: ordinaryHypergeometric, normalize, sigmaSigmaIso,
+  semilinearMapAddEquiv, uniqueToTerminal, WithTop.instCommSemiring — none of the 6 has an equation difference here;
+  2 of them differ only by R1).
+- Every persistent extension is in exactly one of three classes; nothing is unclassified:
+  (a) decoded, 57 extensions: old entries in, newest entries kept only for keys the old version has neither as a
+      constant nor as a key (the prototype's rule 1: the newest code needs its own vocabulary). Placement by how the
+      extension is read: `byKey` (binary search in the module owning the key: MapDeclaration/TagDeclaration/
+      Parametric/Enum attributes, structureExt, reducibilityCore, exportedAxiomsExt, ...) into the module the
+      hybrid's const2ModIdx gives the key, sorted; `state` (state built from all modules, order can matter: instances,
+      classes, coercions, simp, matchers, ...) into the extra module in old import order; `allModules` (binary search
+      in every module, results concatenated: tacticDocExtExt, recommendedSpellingByNameExt) one old module per
+      hybrid module, in order; module docs served by the world; Verso docstrings keys only (575 old keys, all core).
+      An old byKey entry stored outside the module that owns its key is unreachable in v4.31.0 too and is not added
+      (exportedAxiomsExt 983, privateConstKindsExt 984, congrKindsExt 634, declRangeExt 87, protectedExt 5).
+      Old entries added / newest dropped / newest kept per extension are listed under EXTENSIONS.
+  (b) kept newest, 35 extensions, 2,368,230 entries: the newest code's vocabulary and what the interpreter needs to run
+      it — parser tables, macro/elab/delab/unexpander/formatter/parenthesizer attributes, the attribute registry, IR
+      and LCNF data, init attributes, meta marks, module packages.
+  (c) emptied, 159 extensions, 952,150 entries: everything else (simp-like rule sets of tactics, linters, grind,
+      to_additive translations, aesop, ...). An emptied extension cannot answer with newest data: a read of it that
+      matters shows up as a native/hybrid difference. The first full run found one that way (congrKindsExt, WHAT
+      FAILED 1); the final run shows no difference attributable to an emptied extension.
+- builtinDeclRanges (the running binary's table of builtin declarations' ranges, 541 entries of v4.34.1) cleared, so a
+  range cannot come from it; the builtin docstring table is private and is guarded by the docString? hard stop.
+- Every decoded type was diffed between the v4.31.0 and v4.34.1 sources before its decoder was written (ConstantKind,
+  in Environment.lean, by its constructor list); all 57 are layout-identical (MatcherInfo, SimpTheorem, EqnInfo x3, FixedParamPerms, DeprecationEntry, ExternAttrData, ModuleDoc,
+  NoConfusionInfo, CongrArgKind, SimpCongrTheorem, ...). Every decoded object is still checked against the expected
+  tag / field count / size, and Name / Level / Expr computed fields are recomputed and compared, as in the prototype.
+
+THE COMPARISON
+--------------
+compare.py (Python, not Lean) reconciles both trees in both directions and compares every key either side writes;
+a key absent on one side compares as `<absent>`; a key absent on both sides is not counted (that is how `sorry`,
+`attrs`, `generated`, `instClass` are written). Declarations are paired by name within their module, members by
+(label, name), refs as (module, name) pairs, dependency entries by name, link-index lines by (module group, name).
+No exception list. Made to fail once first (measured): a copy of the native IR with one type changed by one character,
+one declaration deleted, one module file deleted and one link-index range changed reported exactly those four
+(decl.type 1, declaration.presence 1 native-only, module.presence 1 native-only, lidx.range 1) and nothing else.
+Full report (native run 1 vs hybrid run 3; `equal / compared`, measured):
+  field                                            equal / compared   not equal
+  decl.attrs                                       84507 / 100643         16136
+  decl.binderCode                                 309930 / 311345          1415
+  decl.binders                                    310319 / 311345          1026
+  decl.col                                        311345 / 311345             0
+  decl.doc                                        311344 / 311345             1
+  decl.endCol                                     311345 / 311345             0
+  decl.endLine                                    311345 / 311345             0
+  decl.equationCode                               309760 / 311345          1585
+  decl.equations                                  309770 / 311345          1575
+  decl.generated                                    1175 / 1175               0
+  decl.implicits                                  311345 / 311345             0
+  decl.index                                      309905 / 311345          1440
+  decl.instClass                                   29409 / 29409              0
+  decl.instTypes                                   29409 / 29409              0
+  decl.kind                                       311345 / 311345             0
+  decl.line                                       311345 / 311345             0
+  decl.members                                    311286 / 311345            59
+  decl.modifiers                                  311345 / 311345             0
+  decl.name                                       311345 / 311345             0
+  decl.refs                                       308226 / 311345          3119
+  decl.selectionRange                             311345 / 311345             0
+  decl.type                                       307657 / 311345          3688
+  decl.typeCode                                   306967 / 311345          4378
+  declaration.presence                            311345 / 311415            70
+  depEntry.module                                   3414 / 3414               0
+  depEntry.presence                                 3414 / 3414               0
+  depFile.package                                     10 / 10                 0
+  depFile.presence                                    10 / 10                 0
+  depFile.schemaVersion                               10 / 10                 0
+  equation(item)                                   56806 / 58411           1605
+  index.declarationCount                               0 / 1                  1
+  index.dependencyMap.bytes                           10 / 10                 0
+  index.dependencyMap.entries                         10 / 10                 0
+  index.dependencyMap.file                            10 / 10                 0
+  index.dependencyMap.package                         10 / 10                 0
+  index.dependencyMap.presence                        10 / 10                 0
+  index.generator                                      1 / 1                  0
+  index.hashAlgorithm                                  1 / 1                  0
+  index.leanVersion                                    0 / 1                  1
+  index.module.bytes                                6414 / 8170            1756
+  index.module.contentHash                          4507 / 8170            3663
+  index.module.declarations                         8154 / 8170              16
+  index.module.file                                 8170 / 8170               0
+  index.module.module                               8170 / 8170               0
+  index.module.presence                             8170 / 8170               0
+  index.moduleCount                                    1 / 1                  0
+  index.moduleOrder                                    1 / 1                  0
+  index.schemaVersion                                  1 / 1                  0
+  lidx.@module.presence                            10583 / 10583              0
+  lidx.@section(whole, in order)                       1 / 1                  0
+  lidx.declaration.presence                        91425 / 91425              0
+  lidx.group.presence                               2136 / 2136               0
+  lidx.groupOrder                                      1 / 1                  0
+  lidx.marker                                          1 / 1                  0
+  lidx.range                                       91425 / 91425              0
+  member.binderCode                                13127 / 13129              2
+  member.binders                                   13127 / 13129              2
+  member.code                                      18996 / 19086             90
+  member.doc                                       13129 / 13129              0
+  member.implicits                                 13129 / 13129              0
+  member.isDirect                                  13129 / 13129              0
+  member.label                                     19086 / 19086              0
+  member.name                                      19086 / 19086              0
+  member.presence                                  19086 / 19086              0
+  member.text                                      18998 / 19086             88
+  module.imports                                    8170 / 8170               0
+  module.module                                     8170 / 8170               0
+  module.moduleDocs                                 8170 / 8170               0
+  module.presence                                   8170 / 8170               0
+  module.schemaVersion                              8170 / 8170               0
+  module.tactics                                    8022 / 8170             148
+  moduleDoc(item)                                  12449 / 12449              0
+  ref(pair).presence                             2542365 / 2545967         3602
+  tactic.presence                                      0 / 215              215
+  present on one side only:
+    hybrid-only ref(pair): 82
+    native-only declaration: 70
+    native-only ref(pair): 3520
+    native-only tactic: 215
+Derived fields, checked (checks.py, measured): contentHash equal in 4,507 of 8,170 modules, exactly the 4,507 whose
+module file is byte-identical (0 disagreements; String.hash did not move between the two Leans); index.module.bytes
+and .declarations follow the bodies (16 modules hold the 70 missing declarations); index.declarationCount 311,415 vs
+311,345; index.leanVersion "4.31.0" vs "4.34.1" by construction; all 1,440 decl.index differences equal the number of
+missing declarations earlier in the same module.
+
+CAUSES (every non-equal value; examples are the first of each class)
+----------------------------------------------------------------------
+A   (70 declarations) the declaration fails in the hybrid: "(interpreter) unknown declaration
+    'PresheafOfModules.Derivation.Universal.fac._autoParam'", '_private.Mathlib....0._auto_31', ... Printing a binder
+    `(h : p := by tac)` evaluates the stored tactic Syntax constant with the interpreter, which needs that constant's
+    IR; an old-only constant has none in the newest environment. 66 of the 70 have such a binder in the native IR, the
+    other 4 are structures whose fields have one. Natively 2,795 declarations print an autoParam binder: 2,702 print the
+    same text in the hybrid, 27 differ for another cause, 66 are missing — and see A2.
+A2  (2 binders) the autoParam text comes from the newest IR: Finset.ciInf_eq_min'_image
+      native: (h' : (image f s).Nonempty := by classical exact image_nonempty.mpr (h.imp fun _ ↦ And.left))
+      hybrid: (h' : (image f s).Nonempty := by exact image_nonempty.mpr (h.imp fun _ ↦ And.left))
+    When the newest environment has a syntax constant of the same name, the interpreter evaluates the newest one. So
+    the 2,702 equal autoParam texts are equal, but their tactic part is the newest version's data: this channel is not
+    closed by decoding extensions; it needs the Syntax value evaluated from the old constant's Expr.
+R1  (16,136 attrs) v4.31.0 status "unfolded at .instances" is v4.34.1's instanceReducible (the reader's meaning table);
+    the extractor writes `toAttrString` of the running Lean: `implicit_reducible` natively, `instance_reducible` in
+    the hybrid. Same meaning, different word on the page (U8 already notes reducibility before v4.33.0).
+M   (1 doc) Mathlib.Tactic.GCongr.tacticGcongr_discharger: findDocString? rewrites manual links with the running
+    Lean's version: .../doc/reference/4.31.0/... natively, .../4.34.1/... in the hybrid.
+F1  set-builder: {p : M | Irreducible p} ⊆ S   ->   (setOf fun (p : M) => Irreducible p) ⊆ S
+F2  ↧: TypeCat.ofHom fun (i : AlgCat.of R X ≅ AlgCat.of R Y) => ...   ->   TypeCat.ofHom fun (i : ↧X ≅ ↧Y) => ...
+F3  Subalgebra.range_le: Set.range ⇑(algebraMap R A) ≤ ↑S   ->   ... ⊆ ↑S  (the newest Mathlib prints the order on
+    sets as ⊆ / ⊂; 52 types, 40 binders, 33 equations)
+F5a manifold notation of the newest Mathlib on old terms: mfderivWithin I I' f s x -> mfderiv[s] f x;
+    HasMFDerivWithinAt I I' f s x f' -> HasMFDerivAt[s] f x f'; UniqueMDiffOn I s -> UniqueMDiff[s]; and the other
+    way, v4.31.0's `T% V` printed as `fun x => ⟨x, V x⟩`
+F5b binder-predicate big operators: ∑ i ∈ Finset.Iio (castLE h a), f i -> ∑ i < castLE h a, f i
+F5c v4.31.0's `□` / `⋔` notation not printed: Arrow.mk S.ι □ Arrow.mk T.ι -> (pushoutProduct.obj (Arrow.mk S.ι)).obj ...
+F5d closure s =ᶠ[residual α] s -> closure s =ᵇ s
+D   qualification: ∏ ij ∈ antidiagonal n, ... -> ∏ ij ∈ HasAntidiagonal.antidiagonal n, ... (96 of 101 types are
+    antidiagonal, as in the prototype; also isoMk, yoneda.obj, _root_.IsSolvable); 2 members and 2 binders wrap onto a
+    second line because the name is longer
+F6  (1 binder) Convert.elabCheapConfig: `(init : CheapConfig := { })` -> `{ preTransparency := ..., sameFun := false }`:
+    the printer omits fields equal to the structure's defaults, which it reads from the newest structure
+S   (1,077 spans, 978 refs, 2 member spans) =ᵐ[μ] / ≤ᵐ[μ]: v4.31.0 Mathlib defines it with notation3, v4.34.1 with
+    plain notation plus an app_delab, whose token carries no constant tag; same text, the link on `=ᵐ` is gone
+G   (14 declarations, 42 equation items) the newest equation generator on old definitions gives a different list:
+    9 where native has equations and the hybrid none (Mathlib.Meta.NormNum.Result.sub, ...ofRawRat, FieldSimp
+    qNF.mkMulProof, ...: meta code over Qq), 4 where the hybrid falls back to the unsplit `f xs = match ...`
+    (Mathlib.Meta.Positivity.orElse, Strictness.toNonneg, ...), 1 where the hybrid has an equation and native none
+    (Bicategory.instMkEvalWhiskerRightBicategoryM). Natively 58,426 lemmas, 71 failures; hybrid 58,374, 79.
+G2  (3 declarations) same count, but an equation keeps the definition's `match` instead of being split
+    (PFunctor.Approx.children', TypeVec.prod.map, TypeVec.dropRepeat)
+E   (2 declarations) Mathlib.Meta.NormNum.Result.add / .mul: 0 equations on both sides, but the references collected
+    before the equation attempt failed differ (21 / 31 natively, 5 / 5 in the hybrid)
+I   (1,440) position in the module shifted by the missing declarations of A
+T   (215 tactics in 148 modules) the hard stop
+"follows": every remaining span / ref / equation-span difference belongs to a declaration whose printed text differs.
+
+WHAT FAILED, AND WHY
+--------------------
+1. First full hybrid run (an earlier assembly): 523 "PANIC at Lean.Meta.mkCongrSimpForConst? ... unreachable code",
+   inside the equation generator's simpMatch: `f.congr_simp` is an old constant, but congrKindsExt was emptied, so the
+   kinds of its arguments were missing. Emptying did what it is for — the read became visible. Fix: decode
+   congrKindsExt and congrExtension (the simp congruence lemmas simpMatch uses). After it, 0 panics. The equation
+   counts did not move (58,374 / 79 in both runs).
+2. Same run: 5 docstrings lost their "Extensions:" paragraph (ring1 and the ring1_nf family). getTacticExtensions
+   binary-searches every module's entries; the old entries had been put, unsorted, in one module. Fix: placement
+   `allModules`.
+3. Same run: CategoryTheory.Limits.colimit.ι_desc_apply had line 179 instead of 21. Its name has declRangeExt entries
+   in two old modules; v4.31.0 reads the one in the module owning the name, the regrouped hybrid module held both and
+   the binary search found the other. Fix: an old byKey entry goes in only from the module that owns its key (the
+   others are unreachable in v4.31.0 too; counted under EXTENSIONS). After it, every range equal.
+4. Decoding took 161.8 s in that run, against 68.1 s for the prototype's 11 extensions: the per-extension entry arrays
+   were appended with `getD ... ++`, copying the accumulated array once per module. Fix: chunks, joined once:
+   87.9 / 88.7 s.
+5. Not fixed, a finding: A and A2 (autoParam syntax needs the old version's code, or an evaluator of the Syntax Expr).
+6. The comparator: first version passed the injected-difference test (THE COMPARISON). On the 20-module sample the
+   index / link index / dependency maps differ by construction (different closure); on the full run they reconcile.
+
+WHAT IS NOT MEASURED
+--------------------
+- Tactics (215, a page of their own): a hard stop, not compared. Answering them needs the old parser extension's
+  `tactic` kinds and each tactic's first tokens, which v4.34.1 computes by running the parser objects; for an old
+  tactic the newest code has no parser object. Reading the first token from the old ParserDescr value (data) is
+  possible and not done.
+- The autoParam tactic text (A2): 2,702 equal texts are not evidence of an old-data path; their source is the newest IR.
+- The docstring hard stops (Verso held only as Verso, builtin-table-only) fired 0 times and were not made to fire once.
+  575 Verso docstring keys exist in the old data; none was reached by a docstring the extraction asked for.
+- Equation generation is the newest generator on old definitions by design; 17 declarations differ (G, G2) and the
+  failure counts differ (71 / 79). Which equations the native run *generated* versus found stored was not separated.
+- The `sorry` pass: 98 produced declarations (79 definitions, 19 theorems) have no stored axiom list in the old data,
+  so collectAxioms walks their value; for the 19 theorems that value is the omitted proof. Natively 0 direct and 0
+  transitive; the hybrid also 0; a `sorry` inside one of those 19 proofs would be missed.
+- Printing approximations are D10's accepted cost and are counted, not judged.
+- One old version (v4.31.0) against one new (v4.34.1); render and global (the same in both designs) not run; cold
+  cache after reboot not measured; peak memory with other applications closed not measured.
+- D10 mechanism 3 (.ilean agreement, "every constant a type mentions exists") not implemented.
+
+EXTENSIONS (hybrid run 3; entries)
+----------------------------------
+  (a) old entries added: 53 extensions
+    Lean.Compiler.CSimp.ext 196, Lean.Compiler.implementedByAttr 343, Lean.Compiler.inlineAttrs 46169,
+    Lean.Compiler.specializeAttr 475, Lean.Elab.PartialFixpoint.eqnInfoExt 2, Lean.Elab.Structural.eqnInfoExt 1918,
+    Lean.Elab.Term.elabWithoutExpectedTypeAttr 9, Lean.Elab.WF.eqnInfoExt 415, Lean.IR.UnboxResult.unboxAttr 22,
+    Lean.Linter.deprecatedAttr 5697, Lean.Meta.Ext.extExtension 1446, Lean.Meta.Match.Extension.extension 27954,
+    Lean.Meta.coeDeclAttr 14, Lean.Meta.coeExt 276, Lean.Meta.congrExtension 104, Lean.Meta.congrKindsExt 5342,
+    Lean.Meta.defaultInstanceExtension 41, Lean.Meta.eqnOptionsExt 3569, Lean.Meta.instanceExtension 43185,
+    Lean.Meta.matcherLikeExt 10, Lean.Meta.simpExtension 98331, Lean.Meta.unificationHintExtension 28,
+    Lean.Parser.Tactic.Doc.tacticAlternativeExt 96, Lean.Parser.Tactic.Doc.tacticDocExtExt 4,
+    Lean.Parser.Tactic.Doc.tacticNameExt 1, Lean.Parser.Term.Doc.recommendedSpellingByNameExt 202,
+    Lean.aliasExtension 641, Lean.auxParentProjInfoExt 179, Lean.auxRecExt 17586, Lean.classExtension 2418,
+    Lean.declRangeExt 427430, Lean.docStringExt 106838, Lean.exportAttr 235, Lean.externAttr 843,
+    Lean.matchPatternAttr 147, Lean.neverExtractAttr 11, Lean.noConfusionExt 9983, Lean.noncomputableExt 15571,
+    Lean.ppNoDotAttr 67, Lean.ppUsingAnonymousConstructorAttr 6, Lean.projectionFnInfoExt 15251,
+    Lean.protectedExt 41166, _private.Lean.AuxRecursor.0.Lean.sparseCasesOnExt 7303,
+    _private.Lean.DocString.Extension.0.Lean.inheritDocStringExt 2361,
+    _private.Lean.Meta.Constructions.SparseCasesOn.0.Lean.Meta.sparseCasesOnInfoExt 4620,
+    _private.Lean.Namespace.0.Lean.namespacesExt 26815,
+    _private.Lean.OriginalConstKind.0.Lean.privateConstKindsExt 451500,
+    _private.Lean.Structure.0.Lean.structureExt 5809,
+    _private.Lean.Util.CollectAxioms.0.Lean.exportedAxiomsExt 636988, eqnsAttribute 123, recExt 4739,
+    reducibilityCore 85391, reducibilityExtra 5
+  (a) old entries not added: stored outside the module owning the key (unreachable in v4.31.0): 5 extensions
+    Lean.Meta.congrKindsExt 634, Lean.declRangeExt 87, Lean.protectedExt 5,
+    _private.Lean.OriginalConstKind.0.Lean.privateConstKindsExt 984,
+    _private.Lean.Util.CollectAxioms.0.Lean.exportedAxiomsExt 983
+  (a) newest entries dropped (key is an old name or has an old entry): 53 extensions
+    Lean.Compiler.CSimp.ext 162, Lean.Compiler.implementedByAttr 322, Lean.Compiler.inlineAttrs 42381,
+    Lean.Compiler.specializeAttr 462, Lean.Elab.PartialFixpoint.eqnInfoExt 2, Lean.Elab.Structural.eqnInfoExt 1738,
+    Lean.Elab.Term.elabWithoutExpectedTypeAttr 9, Lean.Elab.WF.eqnInfoExt 400, Lean.IR.UnboxResult.unboxAttr 22,
+    Lean.Linter.deprecatedAttr 5390, Lean.Meta.Ext.extExtension 1444, Lean.Meta.Match.Extension.extension 25009,
+    Lean.Meta.coeDeclAttr 14, Lean.Meta.coeExt 263, Lean.Meta.congrExtension 106, Lean.Meta.congrKindsExt 5906,
+    Lean.Meta.defaultInstanceExtension 40, Lean.Meta.eqnOptionsExt 3081, Lean.Meta.instanceExtension 42201,
+    Lean.Meta.matcherLikeExt 1, Lean.Meta.simpExtension 96821, Lean.Meta.unificationHintExtension 23,
+    Lean.Parser.Tactic.Doc.tacticAlternativeExt 97, Lean.Parser.Tactic.Doc.tacticDocExtExt 8,
+    Lean.Parser.Tactic.Doc.tacticNameExt 1, Lean.Parser.Term.Doc.recommendedSpellingByNameExt 206,
+    Lean.aliasExtension 632, Lean.auxParentProjInfoExt 179, Lean.auxRecExt 16938, Lean.classExtension 2393,
+    Lean.declRangeExt 418566, Lean.docStringExt 105265, Lean.exportAttr 201, Lean.externAttr 843,
+    Lean.matchPatternAttr 137, Lean.neverExtractAttr 11, Lean.noConfusionExt 9506, Lean.noncomputableExt 15214,
+    Lean.ppNoDotAttr 66, Lean.ppUsingAnonymousConstructorAttr 6, Lean.projectionFnInfoExt 14688,
+    Lean.protectedExt 39843, _private.Lean.AuxRecursor.0.Lean.sparseCasesOnExt 6420,
+    _private.Lean.DocString.Extension.0.Lean.inheritDocStringExt 2333,
+    _private.Lean.Meta.Constructions.SparseCasesOn.0.Lean.Meta.sparseCasesOnInfoExt 3884,
+    _private.Lean.Namespace.0.Lean.namespacesExt 33022,
+    _private.Lean.OriginalConstKind.0.Lean.privateConstKindsExt 443434,
+    _private.Lean.Structure.0.Lean.structureExt 5655,
+    _private.Lean.Util.CollectAxioms.0.Lean.exportedAxiomsExt 622428, eqnsAttribute 113, recExt 4481,
+    reducibilityCore 84421, reducibilityExtra 1
+  (a) newest entries kept (key unknown to the old version): 43 extensions
+    Lean.Compiler.CSimp.ext 53, Lean.Compiler.implementedByAttr 26, Lean.Compiler.inlineAttrs 3376,
+    Lean.Compiler.specializeAttr 10, Lean.Elab.Structural.eqnInfoExt 79, Lean.Elab.WF.eqnInfoExt 10,
+    Lean.Linter.deprecatedAttr 109, Lean.Meta.Ext.extExtension 36, Lean.Meta.Match.Extension.extension 2195,
+    Lean.Meta.coeExt 12, Lean.Meta.congrExtension 5, Lean.Meta.congrKindsExt 309,
+    Lean.Meta.defaultInstanceExtension 1, Lean.Meta.eqnOptionsExt 69, Lean.Meta.instanceExtension 1996,
+    Lean.Meta.matcherLikeExt 9, Lean.Meta.simpExtension 4087, Lean.Meta.unificationHintExtension 5,
+    Lean.Parser.Tactic.Doc.tacticAlternativeExt 7, Lean.aliasExtension 12, Lean.auxParentProjInfoExt 1,
+    Lean.auxRecExt 622, Lean.classExtension 62, Lean.declRangeExt 19563, Lean.docStringExt 5761, Lean.exportAttr 1,
+    Lean.externAttr 7, Lean.matchPatternAttr 3, Lean.noConfusionExt 401, Lean.noncomputableExt 1071,
+    Lean.ppNoDotAttr 2, Lean.projectionFnInfoExt 556, Lean.protectedExt 1447,
+    _private.Lean.AuxRecursor.0.Lean.sparseCasesOnExt 499,
+    _private.Lean.DocString.Extension.0.Lean.inheritDocStringExt 42,
+    _private.Lean.Meta.Constructions.SparseCasesOn.0.Lean.Meta.sparseCasesOnInfoExt 398,
+    _private.Lean.Namespace.0.Lean.namespacesExt 8228,
+    _private.Lean.OriginalConstKind.0.Lean.privateConstKindsExt 22466,
+    _private.Lean.Structure.0.Lean.structureExt 190,
+    _private.Lean.Util.CollectAxioms.0.Lean.exportedAxiomsExt 30671, eqnsAttribute 11, recExt 179,
+    reducibilityCore 4035
+  (b) kept newest: 35 extensions
+    Lean.Compiler.LCNF.UnreachableBranches.functionSummariesExt 232302, Lean.Compiler.LCNF.baseExt 133687,
+    Lean.Compiler.LCNF.impureSigExt 645106, Lean.Compiler.LCNF.monoExt 508944,
+    Lean.Compiler.LCNF.monoTypeExt 16252, Lean.Compiler.LCNF.specExtension 33036, Lean.Compiler.nospecializeAttr 4,
+    Lean.Compiler.weakSpecializeAttr 1, Lean.Elab.Command.commandElabAttribute 103,
+    Lean.Elab.Tactic.tacticElabAttribute 230, Lean.Elab.Term.Quotation.precheckAttribute 3,
+    Lean.Elab.Term.termElabAttribute 82, Lean.Elab.macroAttribute 1754, Lean.IR.declMapExt 368876,
+    Lean.Parser.parserExtension 118812, Lean.PrettyPrinter.Delaborator.appUnexpanderAttribute 964,
+    Lean.PrettyPrinter.Delaborator.delabAttribute 390, Lean.PrettyPrinter.formatterAttribute 23,
+    Lean.PrettyPrinter.mkCombinatorFormatterAttribute 661,
+    Lean.PrettyPrinter.mkCombinatorParenthesizerAttribute 659, Lean.PrettyPrinter.parenthesizerAttribute 23,
+    Lean.attributeExtension 42, Lean.builtinInitAttr 3991, Lean.regularInitAttr 458,
+    _private.Lean.Compiler.LCNF.MonoTypes.0.Lean.Compiler.LCNF.trivialStructureInfoExt 6770,
+    _private.Lean.Compiler.LCNF.Specialize.0.Lean.Compiler.LCNF.Specialize.specCacheExt 38086,
+    _private.Lean.Compiler.LCNF.ToImpure.0.Lean.Compiler.LCNF.taggedReturnAttr 11,
+    _private.Lean.Compiler.LCNF.ToImpureType.0.Lean.Compiler.LCNF.ctorLayoutExt 9213,
+    _private.Lean.Compiler.LCNF.ToImpureType.0.Lean.Compiler.LCNF.impureTrivialStructureInfoExt 6770,
+    _private.Lean.Compiler.LCNF.ToImpureType.0.Lean.Compiler.LCNF.impureTypeExt 6762,
+    _private.Lean.Compiler.MetaAttr.0.Lean.declMetaExt 203787,
+    _private.Lean.Compiler.MetaAttr.0.Lean.metaExt 19372, _private.Lean.Compiler.ModPkgExt.0.Lean.modPkgExt 10744,
+    internalSpecMap 161, specMap 151
+  (c) emptied: 159 extensions
+    Batteries.CodeAction.tacticCodeActionExt 4, Batteries.CodeAction.tacticSeqCodeActionExt 1,
+    Batteries.Tactic.Alias.aliasExt 6223, Batteries.Tactic.Lint.batteriesLinterExt 17,
+    Batteries.Tactic.Lint.nolintAttr 449, Batteries.Tactic.transExt 163,
+    Batteries.Util.LibraryNote.libraryNoteExt 39, Batteries.machineApplicableDeprecated 3442, Bound 177,
+    CStarAlgebra 17, CategoryTheory 21, Continuous 353,
+    Inclusion.IntervalDyadicReal.intervalDyadicRealFamily.hypothesisExt 12,
+    Inclusion.IntervalDyadicReal.intervalDyadicRealFamily.inclusionExt 21, Inclusion.coreFamily.hypothesisExt 4,
+    Inclusion.coreFamily.inclusionExt 3, Inclusion.inclusionParamExt 2, IsMultiplicative 17,
+    Lean.Attr.algebraizeAttr 17, Lean.CodeAction.cmdCodeActionExt 1, Lean.CodeAction.holeCodeActionExt 3,
+    Lean.Doc.deferredCheckExt 79, Lean.Elab.Command.assertExistsExt 1475,
+    Lean.Elab.ComputedFields.computedFieldAttr 4, Lean.Elab.Tactic.Do.SpecAttr.mvcgenSimpExt 52,
+    Lean.Elab.Tactic.Do.SpecAttr.specInvariantAttr 10, Lean.Elab.Tactic.Omega.bitvec_to_nat 36,
+    Lean.Elab.Tactic.Try.trySuggestionExtension 11, Lean.Elab.Term.elabAsElim 3311,
+    Lean.Elab.WF.wfPreprocessSimpExtension 50, Lean.Elab.deprecatedArgExt 1, Lean.Elab.deprecatedSyntaxExt 3,
+    Lean.LibrarySuggestions.librarySuggestionsAttr 1, Lean.LibrarySuggestions.librarySuggestionsExt 1,
+    Lean.Linter.linterSetsExt 3, Lean.Linter.unusedVariablesIgnoreFnsExt 1, Lean.Meta.Grind.grindExt 13542,
+    Lean.Meta.Grind.homoExt 357, Lean.Meta.Grind.homoPredExt 4, Lean.Meta.Grind.homoSourceTypesExt 15,
+    Lean.Meta.Grind.liaExt 4, Lean.Meta.Grind.normExt 109, Lean.Meta.Monotonicity.monotoneExt 68,
+    Lean.Meta.NormCast.normCastExt.down 2045, Lean.Meta.NormCast.normCastExt.squash 818,
+    Lean.Meta.NormCast.normCastExt.up 1983, Lean.Meta.NormCast.pushCastExt 2077, Lean.Meta.Rfl.reflExt 168,
+    Lean.Meta.Simp.simprocDeclExt 33, Lean.Meta.Simp.simprocExtension 5, Lean.Meta.Symm.symmExt 177,
+    Lean.Meta.Tactic.BVDecide.bvNormalizeExt 228, Lean.Meta.Tactic.BVDecide.metaIntToBitVecExt 377,
+    Lean.Meta.Tactic.BVDecide.symIntToBitVecExt 377, Lean.Meta.completionBlackListExt 12879,
+    Lean.Meta.customEliminatorExt 161, Lean.Meta.funIndInfoExt 192, Lean.Meta.recursorAttribute 1,
+    Lean.Parser.Term.Doc.recommendedSpellingExt 118, Lean.Server.codeActionProviderExt 3,
+    Lean.Server.userRpcProcedures 14, Lean.backwardDefeqAttr 62312, Lean.bool_to_prop 5, Lean.defeqAttr 30545,
+    Lean.deprecatedModuleExt 10744, Lean.errorExplanationExt 14,
+    Lean.identifierSuggestForAttr.existingToIncorrect 40, Lean.identifierSuggestForAttr.incorrectToExisting 51,
+    Lean.indirectModUseExt 1249, Lean.versoDocStringExt 577, Mathlib.Command.Variable.variableAliasAttr 3,
+    Mathlib.CrossRef.tagExt 765, Mathlib.Linter.UnusedTactic.allowedUnusedTacticExt 10,
+    Mathlib.Meta.FunProp.funPropDeclsExt 59, Mathlib.Meta.FunProp.functionTheoremsExt 2430,
+    Mathlib.Meta.FunProp.lambdaTheoremsExt 198, Mathlib.Meta.FunProp.morTheoremsExt 150,
+    Mathlib.Meta.FunProp.transitionTheoremsExt 176, Mathlib.Meta.NormNum.normNumExt 85,
+    Mathlib.Meta.Positivity.positivityExt 117, Mathlib.Tactic.Echelon.bareissExt 1,
+    Mathlib.Tactic.GCongr.forwardExt 4, Mathlib.Tactic.GCongr.gcongrExt 1069, Mathlib.Tactic.Hint.hintExtension 25,
+    Mathlib.Tactic.Polynomial.polynomialExt 2, Mathlib.Tactic.Polynomial.polynomialPostExt 4,
+    Mathlib.Tactic.Polynomial.polynomialPreExt 11, Mathlib.Tactic.Push.pullExt 132,
+    Mathlib.Tactic.Push.pushExt 211, Mathlib.Tactic.ToAdditive.doTranslateAttr 11,
+    Mathlib.Tactic.ToAdditive.ignoreArgsAttr 3, Mathlib.Tactic.ToAdditive.translations 25856,
+    Mathlib.Tactic.ToDual.doTranslateAttr 8, Mathlib.Tactic.ToDual.ignoreArgsAttr 1,
+    Mathlib.Tactic.ToDual.translations 14619, Mathlib.Tactic.UnfoldBoundary.registerUnfoldBoundaryExt 22,
+    Mathlib.Tactic.higherOrderAttr 20, Mathlib.TacticAnalysis.tacticAnalysisExt 20, Matroid 31, Measurable 80,
+    ProofWidgets.exprPresenters 3, Restrict 12, SetLike 78, SetLike! 2, SimpleGraph 3, Simps.notationClassAttr 46,
+    Simps.structureExt 1114, Std.Internal.treeTacExt 67, Sym2 4,
+    _private.Batteries.Util.ProofWanted.0.wantedArityExt 1,
+    _private.Lean.DocString.Extension.0.Lean.moduleDocExt 15177,
+    _private.Lean.DocString.Extension.0.Lean.versoModuleDocExt 29,
+    _private.Lean.Elab.Tactic.Grind.Annotated.0.Lean.Elab.Tactic.Grind.grindAnnotatedExt 1,
+    _private.Lean.ExtraModUses.0.Lean.extraModUses 699741,
+    _private.Lean.ExtraModUses.0.Lean.isExtraRevModUseExt 96,
+    _private.Lean.Meta.MethodSpecs.0.Lean.methodSpecsAttr 271,
+    _private.Lean.Meta.MethodSpecs.0.Lean.methodSpecsSimpExtension 16,
+    _private.Lean.Meta.Tactic.Grind.EMatchTheorem.0.Lean.Meta.Grind.symbolPrioExt 15,
+    _private.Lean.Widget.UserWidget.0.Lean.Widget.moduleRegistry 19, aesop_SimpleGraph 2, aesop_Sym2 2,
+    aesop_builtin 1, aesop_default 4, builtin 32, cbvEvalExt 181, cbvOpaqueExt 50, default 138,
+    ext._@.Mathlib.Tactic.Attr.Register.1086225606._hygCtx._hyg.3 32,
+    ext._@.Mathlib.Tactic.Attr.Register.1131139975._hygCtx._hyg.3 2,
+    ext._@.Mathlib.Tactic.Attr.Register.1133190711._hygCtx._hyg.3 4,
+    ext._@.Mathlib.Tactic.Attr.Register.1503578496._hygCtx._hyg.3 8,
+    ext._@.Mathlib.Tactic.Attr.Register.1568842782._hygCtx._hyg.3 16,
+    ext._@.Mathlib.Tactic.Attr.Register.1988518680._hygCtx._hyg.3 4,
+    ext._@.Mathlib.Tactic.Attr.Register.2016062075._hygCtx._hyg.3 14,
+    ext._@.Mathlib.Tactic.Attr.Register.2133673922._hygCtx._hyg.3 163,
+    ext._@.Mathlib.Tactic.Attr.Register.2336186397._hygCtx._hyg.3 42,
+    ext._@.Mathlib.Tactic.Attr.Register.2552594532._hygCtx._hyg.3 5,
+    ext._@.Mathlib.Tactic.Attr.Register.2899626838._hygCtx._hyg.3 109,
+    ext._@.Mathlib.Tactic.Attr.Register.3021440532._hygCtx._hyg.3 5,
+    ext._@.Mathlib.Tactic.Attr.Register.3059584346._hygCtx._hyg.3 56,
+    ext._@.Mathlib.Tactic.Attr.Register.3215534580._hygCtx._hyg.3 10,
+    ext._@.Mathlib.Tactic.Attr.Register.3369699945._hygCtx._hyg.3 7,
+    ext._@.Mathlib.Tactic.Attr.Register.3849875863._hygCtx._hyg.3 12,
+    ext._@.Mathlib.Tactic.Attr.Register.479538640._hygCtx._hyg.3 334,
+    ext._@.Mathlib.Tactic.Attr.Register.612238087._hygCtx._hyg.3 9,
+    ext._@.Mathlib.Tactic.Attr.Register.668879677._hygCtx._hyg.3 9,
+    ext._@.Mathlib.Tactic.Attr.Register.85691930._hygCtx._hyg.3 71,
+    ext._@.Mathlib.Tactic.GrindAttrs.2614774725._hygCtx._hyg.3 27,
+    ext._@.Mathlib.Tactic.GrindAttrs.943899233._hygCtx._hyg.3 23,
+    extProc._@.Mathlib.Tactic.Attr.Register.85691930._hygCtx._hyg.3 8, fieldSimpExt 3, finiteness 41,
+    finsetNonempty 48, is_poly 2, mono 320, reduceModCharExt 8, simpsAttr 8726, sineQueNon 10744,
+    symbolFrequency 10744
+  (a) also decoded, not merged: _private.Lean.DocString.Extension.0.Lean.moduleDocExt (served per old module by the
+      world; its newest entries emptied), Lean.versoDocStringExt (keys only, 575; newest entries emptied); and
+      Lean.Parser.Tactic.Doc.tacticTagExt, Lean.Parser.Tactic.Doc.knownTacticTagExt (decoders present, 0 entries in
+      either version).
+
+HOW IT WAS RUN
+--------------
+  # gate 0 and builds: <scratch> (lean-toolchain leanprover/lean4:v4.34.1), <scratch>/native (leanprover/lean4:v4.31.0)
+  cd <scratch> && lake build                       # extract (ExtractMain) and hybrid (HybridMain)
+  cd <scratch>/native && lake build                # extract, same Extract.lean (`diff -q`: identical)
+  cd <old-workspace> && lake env printenv > lakeenv-old.txt
+  cd <new-workspace> && lake env printenv > lakeenv-new.txt
+  # native arm (run 1, run 2), from <old-workspace>
+  runx.sh lakeenv-old.txt <old-workspace> native <scratch>/native/.lake/build/bin/extract modules-all.txt events.jsonl \
+    --equations --refs --write-ir --tagged-code --jobs 4 --ir-dir ir --link-index link-index.lidx \
+    --link-index-omit modules-all.txt
+  # hybrid arm (run 2, run 3), from <new-workspace>; sp-old.txt = <toolchain v4.31.0>/lib/lean, then
+  # <old-workspace>/.lake/packages/<pkg>/.lake/build/lib/lean for the 10 packages
+  runx.sh lakeenv-new.txt <new-workspace> hybrid <scratch>/.lake/build/bin/hybrid sp-old.txt modules-all.txt events.jsonl \
+    <the same extractor flags>
+  python3 compare.py <native run 1> <hybrid run 3> details.jsonl > report.txt
+  python3 classify.py details.jsonl 2 > classes.txt;  python3 checks.py <native run 1> <hybrid run 3> details.jsonl
+modules-all.txt is the existing v4.31.0 run's modules.txt (8,170 lines). stdout and stderr went to separate files.
+The scratch directories, both IR trees and all intermediate files were deleted after this file was written.
+
+CODE
+----
+=== lakefile.lean (the hybrid project; the native project has the same file without OleanReader, Assemble and `hybrid`)
+import Lake
+open Lake DSL
+
+package u12 where
+  moreLeancArgs := #["-O3"]
+
+lean_lib Extract
+lean_lib OleanReader
+lean_lib Assemble
+
+@[default_target]
+lean_exe extract where
+  root := `ExtractMain
+  supportInterpreter := true
+
+@[default_target]
+lean_exe hybrid where
+  root := `HybridMain
+  supportInterpreter := true
+
+=== ExtractMain.lean (both projects)
+import Extract
+
+def main (args : List String) : IO UInt32 := extractMain args
+
+=== Extract.lean: diff against extractor/Extract.lean of the repository (unchanged since 2026-09-02). The native project's Extract.lean is byte-identical to the hybrid project's
+--- extractor/Extract.lean (repository)	2026-09-02 16:25:11
++++ <scratch>/Extract.lean	2026-10-05 17:31:56
+@@ -140,6 +140,34 @@
+   jobs : Nat := 1
+   deriving Inhabited
+ 
++/-- Every question the extraction asks about which modules and names exist, where a name
++lives, and the three sources that are keyed by module or by a table outside the environment's
++constants. Built once, beside the environment. -/
++structure World where
++  moduleNames : Array Name
++  moduleIndex? : Name → Option Nat
++  constNames : Nat → Array Name
++  imports : Nat → Array Name
++  moduleOf? : Name → Option Name
++  contains : Name → Bool
++  moduleDocs : Name → Array ModuleDoc
++  docString? : Name → IO (Option String)
++  /-- `none`: the world cannot answer, and the run says so. -/
++  tactics : MetaM (Option (Array TacticDoc))
++
++def World.ofEnv (env : Environment) : World :=
++  let header := env.header
++  let modNames := header.moduleNames
++  { moduleNames := modNames
++    moduleIndex? := fun m => (env.getModuleIdx? m).map (·.toNat)
++    constNames := fun i => header.moduleData[i]!.constNames
++    imports := fun i => header.moduleData[i]!.imports.map Import.module
++    moduleOf? := fun n => (env.getModuleIdxFor? n).map (modNames[·]!)
++    contains := env.contains
++    moduleDocs := fun m => (getModuleDoc? env m).getD #[]
++    docString? := fun n => findDocString? env n
++    tactics := some <$> allTacticDocs }
++
+ def Cfg.wantAttrs (c : Cfg) : Bool := c.taggedCode && !c.noAttrs
+ def Cfg.wantInstIndex (c : Cfg) : Bool := c.taggedCode && !c.noInstIndex
+ def Cfg.wantMemberExtra (c : Cfg) : Bool := c.taggedCode && !c.noMemberExtra
+@@ -424,13 +452,10 @@
+ A module in `omitModules` contributes its name to the `@` section like any other
+ and contributes **no declaration group**. (Spelled out rather than `omit`, which
+ Lean 4 reserves for the `variable`-section instance elision.) -/
+-def writeLinkIndex (path : FilePath) (omitModules : Std.HashSet Name) :
++def writeLinkIndex (world : World) (path : FilePath) (omitModules : Std.HashSet Name) :
+     MetaM LinkIndexStats := do
+   let env ← getEnv
+-  let header := env.header
+-  -- `EnvironmentHeader.moduleNames` is a `def`, not a field: every call
+-  -- allocates a fresh array of one name per loaded module. Hoist it.
+-  let modNames := header.moduleNames
++  let modNames := world.moduleNames
+   let h ← IO.FS.Handle.mk path .write
+   let mut stats : LinkIndexStats := { moduleNames := modNames.size }
+   -- Written in chunks: one `putStr` per line would be 750k calls, one string
+@@ -445,12 +470,12 @@
+   for i in [0:modNames.size] do
+     let m := modNames[i]!
+     let mut kept : Array Name := #[]
+-    for n in header.moduleData[i]!.constNames do
++    for n in world.constNames i do
+       stats := { stats with scanned := stats.scanned + 1 }
+       -- The owning module is `const2ModIdx`'s, not the list this name came out
+       -- of; a name owned elsewhere is written when that module's turn comes.
+-      let some idx := env.getModuleIdxFor? n | continue
+-      if modNames[idx]! != m then continue
++      let some owner := world.moduleOf? n | continue
++      if owner != m then continue
+       if isPrivateName n then continue
+       match env.find? n with
+       | some (.recInfo _) | none => continue
+@@ -1337,7 +1362,7 @@
+ macro-defined declarations, and it does *not* fire on the `to_additive` twins
+ whose additive name the author wrote out. It is a necessary condition here,
+ joined to a name the environment can confirm. -/
+-def extOriginOf (name : Name) (sameRange : Bool) : CoreM (Option Name) := do
++def extOriginOf (world : World) (name : Name) (sameRange : Bool) : CoreM (Option Name) := do
+   unless sameRange do return none
+   match name with
+   | .str parent "ext" =>
+@@ -1347,20 +1372,20 @@
+       return none
+   | .str parent "ext_iff" =>
+     let extName := Name.str parent "ext"
+-    if (← getEnv).contains extName && (← Lean.Meta.Ext.isExtTheorem extName) then
++    if world.contains extName && (← Lean.Meta.Ext.isExtTheorem extName) then
+       return some extName
+     else
+       return none
+   | _ => return none
+ 
+ /-- doc-gen4's `Info.ofConstantVal` + `NameInfo.ofTypedName` for one name. -/
+-def baseInfo (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (kind : String)
++def baseInfo (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (module : Name) (kind : String)
+     (cv : ConstantVal) : AnalyzeM DeclOut := do
+   let e := Expr.const cv.name (cv.levelParams.map mkLevelParam)
+   let t ← inferType e
+   let sig ← timedPp (ppSignature probe cfg.tagCode refs cv.name t)
+   let tDoc0 ← IO.monoNanosNow
+-  let doc ← Lean.findDocString? (← getEnv) cv.name
++  let doc ← world.docString? cv.name
+   let tDoc1 ← IO.monoNanosNow
+   modify fun c => { c with docNanos := c.docNanos + (tDoc1 - tDoc0) }
+   let some ranges ← findDeclarationRanges? cv.name
+@@ -1380,7 +1405,7 @@
+       && ranges.range.pos.column == ranges.selectionRange.pos.column
+       && ranges.range.endPos.line == ranges.selectionRange.endPos.line
+       && ranges.range.endPos.column == ranges.selectionRange.endPos.column
+-  let extOrigin ← extOriginOf cv.name sameRange
++  let extOrigin ← extOriginOf world cv.name sameRange
+   return {
+     name := cv.name, module, kind, sig, doc, attrs, extOrigin,
+     line := ranges.range.pos.line, col := ranges.range.pos.column,
+@@ -1444,7 +1469,7 @@
+ away — the output path reads the field's attributes from the projection
+ function's own `name_info` row. The projection function is a declaration this
+ extractor already visits, so its attributes are already in the IR. -/
+-def structureMembers (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : InductiveVal) :
++def structureMembers (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (v : InductiveVal) :
+     AnalyzeM (Array Member) := do
+   let env ← getEnv
+   let structName := v.name
+@@ -1479,7 +1504,7 @@
+             if !isDirect then inherited := inherited + 1
+             let sig ← ppSignature probe cfg.tagCode refs projFn ty
+             let t2 ← IO.monoNanosNow
+-            let doc ← Lean.findDocString? env projFn
++            let doc ← world.docString? projFn
+             let t3 ← IO.monoNanosNow
+             extra := extra + (t3 - t2)
+             acc := acc.push {
+@@ -1526,12 +1551,12 @@
+ `structure` / `class` / `class inductive`, whose `getKindDescription` branches
+ ignore `isUnsafe`.
+ -/
+-def declModifiers (ci : ConstantInfo) (kind : String) : MetaM (Array String) := do
++def declModifiers (world : World) (ci : ConstantInfo) (kind : String) : MetaM (Array String) := do
+   let env ← getEnv
+   match ci with
+   | .axiomInfo i => return if i.isUnsafe then #["unsafe"] else #[]
+   | .opaqueInfo i =>
+-    if (env.find? (Compiler.mkUnsafeRecName i.name)).isSome then return #["partial"]
++    if world.contains (Compiler.mkUnsafeRecName i.name) then return #["partial"]
+     else if i.isUnsafe then return #["unsafe"]
+     else return #[]
+   | .defnInfo i =>
+@@ -1565,7 +1590,7 @@
+   return { d with attrs, instClass := some className, instTypes := typeNames }
+ 
+ /-- doc-gen4's `DocInfo.ofConstant`. -/
+-def analyzeCore (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (name : Name)
++def analyzeCore (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (module : Name) (name : Name)
+     (ci : ConstantInfo) : AnalyzeM (Option DeclOut) := do
+   let b0 ← probe.now
+   let bl ← isBlackListed name
+@@ -1575,17 +1600,17 @@
+   if bl then
+     return none
+   match ci with
+-  | .axiomInfo i => return some (← baseInfo cfg probe refs module "axiom" i.toConstantVal)
++  | .axiomInfo i => return some (← baseInfo cfg world probe refs module "axiom" i.toConstantVal)
+   | .thmInfo i =>
+     let isInst ← if ← isProjFn i.name then pure false else isInstanceDecl i.name
+     let kind := if isInst then "instance" else "theorem"
+-    let d ← baseInfo cfg probe refs module kind i.toConstantVal
++    let d ← baseInfo cfg world probe refs module kind i.toConstantVal
+     if isInst then return some (← withInstanceIndex cfg i.type d) else return some d
+-  | .opaqueInfo i => return some (← baseInfo cfg probe refs module "opaque" i.toConstantVal)
++  | .opaqueInfo i => return some (← baseInfo cfg world probe refs module "opaque" i.toConstantVal)
+   | .defnInfo i =>
+     let isInst ← if ← isProjFn i.name then pure false else isInstanceDecl i.name
+     let kind := if isInst then "instance" else "definition"
+-    let d ← baseInfo cfg probe refs module kind i.toConstantVal
++    let d ← baseInfo cfg world probe refs module kind i.toConstantVal
+     let d ← if isInst then withInstanceIndex cfg i.type d else pure d
+     return some (← withEquations cfg probe refs i d)
+   | .inductInfo i =>
+@@ -1595,15 +1620,15 @@
+     let kind :=
+       if isStruct then (if isCls then "class" else "structure")
+       else (if isCls then "class_inductive" else "inductive")
+-    let d ← baseInfo cfg probe refs module kind i.toConstantVal
+-    let members ← if isStruct then structureMembers cfg probe refs i
++    let d ← baseInfo cfg world probe refs module kind i.toConstantVal
++    let members ← if isStruct then structureMembers cfg world probe refs i
+                   else inductiveMembers cfg probe refs i
+     return some { d with members }
+-  | .ctorInfo i => return some (← baseInfo cfg probe refs module "constructor" i.toConstantVal)
+-  | .quotInfo i => return some (← baseInfo cfg probe refs module "opaque" i.toConstantVal)
++  | .ctorInfo i => return some (← baseInfo cfg world probe refs module "constructor" i.toConstantVal)
++  | .quotInfo i => return some (← baseInfo cfg world probe refs module "opaque" i.toConstantVal)
+   | .recInfo _ => return none
+ 
+-def analyze (cfg : Cfg) (module : Name) (name : Name) (ci : ConstantInfo) :
++def analyze (cfg : Cfg) (world : World) (module : Name) (name : Name) (ci : ConstantInfo) :
+     AnalyzeM (Option DeclOut) := do
+   let refs : RefSink ←
+     if cfg.collectRefs || cfg.taggedCode then
+@@ -1613,7 +1638,7 @@
+       pure none
+   let probe : PpProbe ←
+     if cfg.ppBreakdown then do let r ← IO.mkRef ({} : PpAcc); pure (some r) else pure none
+-  let d? ← analyzeCore cfg probe refs module name ci
++  let d? ← analyzeCore cfg world probe refs module name ci
+   let acc ← match refs with
+     | some s => s.ref.get
+     | none => pure {}
+@@ -1627,7 +1652,7 @@
+   | some d =>
+     let d := { d with refs := acc.names }
+     if cfg.taggedCode then
+-      return some { d with modifiers := ← declModifiers ci d.kind }
++      return some { d with modifiers := ← declModifiers world ci d.kind }
+     else
+       return some d
+ 
+@@ -1747,19 +1772,17 @@
+       ("\n\n".intercalate doc.extensionDocs.toList)
+     definingModule }
+ 
+-def collectModuleDocs (targets : Array Name) : MetaM (Array ModuleOut) := do
+-  let env ← getEnv
+-  let header := env.header
++def collectModuleDocs (world : World) (targets : Array Name) : MetaM (Array ModuleOut) := do
+   let mut out : Array ModuleOut := Array.emptyWithCapacity targets.size
+   for m in targets do
+-    let some modIdx := env.getModuleIdx? m
++    let some modIdx := world.moduleIndex? m
+       | throwError "module not present in the environment: {m}"
+-    let docs := (getModuleDoc? env m |>.getD #[]).map fun d =>
++    let docs := (world.moduleDocs m).map fun d =>
+       { line := d.declarationRange.pos.line, col := d.declarationRange.pos.column,
+         text := d.doc : ModDocOut }
+     out := out.push {
+       name := m
+-      imports := header.moduleData[modIdx]!.imports.map Import.module
++      imports := world.imports modIdx
+       docs
+       tactics := #[]
+     }
+@@ -1768,25 +1791,20 @@
+ /-- One enumeration of the tactic table for the whole environment, bucketed by
+ defining module. Returns the updated modules, the total number of tactics in the
+ environment, and how many of them landed in a target module. -/
+-def collectTacticsOnce (mods : Array ModuleOut) : MetaM (Array ModuleOut × Nat × Nat) := do
+-  let env ← getEnv
+-  let header := env.header
++def collectTacticsOnce (world : World) (mods : Array ModuleOut) :
++    MetaM (Option (Array ModuleOut × Nat × Nat)) := do
+   let mut idxOf : Std.HashMap Name Nat := Std.HashMap.emptyWithCapacity mods.size
+   for h : i in [0 : mods.size] do
+     idxOf := idxOf.insert mods[i].name i
+-  -- `EnvironmentHeader.moduleNames` is a *function*, not a field: a fresh array
+-  -- per call. doc-gen4 calls it inside its per-tactic loop; hoisting removes 12.98 s.
+-  let modNames := header.moduleNames
+-  let allDocs ← allTacticDocs
++  let some allDocs ← world.tactics | return none
+   let mut mods := mods
+   let mut assigned := 0
+   for doc in allDocs do
+-    let some modIdx := env.getModuleIdxFor? doc.internalName | continue
+-    let definingModule := modNames[modIdx]!
++    let some definingModule := world.moduleOf? doc.internalName | continue
+     let some i := idxOf[definingModule]? | continue
+     mods := mods.modify i fun m => { m with tactics := m.tactics.push (mkTacticOut doc definingModule) }
+     assigned := assigned + 1
+-  return (mods, allDocs.size, assigned)
++  return some (mods, allDocs.size, assigned)
+ 
+ /-- Every tactic in the environment with its defining module, regardless of the
+ target list: a module list on which the bucketing can be checked against doc-gen4. -/
+@@ -2240,15 +2258,13 @@
+   writeNanos : Nat := 0
+   deriving Inhabited
+ 
+-def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env : Environment)
++def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (world : World)
+     (targets : Array Name) (mods : Array ModuleOut) (results : Array DeclOut) : IO IrStats := do
+   let modulesDir := dir / "modules"
+   let depsDir := dir / "deps"
+   IO.FS.createDirAll modulesDir
+   IO.FS.createDirAll depsDir
+ 
+-  -- `moduleNames` is a `def`, not a field: a fresh array per call. Hoist it.
+-  let modNames := env.header.moduleNames
+   let targetSet : Std.HashSet Name :=
+     Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
+ 
+@@ -2273,7 +2289,7 @@
+       for n in d.refs do
+         if seen.contains n then continue
+         seen := seen.insert n
+-        match (env.getModuleIdxFor? n).map (modNames[·]!) with
++        match world.moduleOf? n with
+         | some defMod =>
+           pairs := pairs.push (defMod, n)
+           unless targetSet.contains defMod do
+@@ -2445,7 +2461,7 @@
+ The environment is *not* threaded back out — each request derives its own
+ (`--open` activation returns a new one) and drops it, which is what makes reuse
+ sound rather than merely fast. -/
+-def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
++def run (cfg : Cfg) (pre : Option (Environment × World) := none) : IO UInt32 := do
+   let sink ← Sink.create cfg.outPath
+   let tTotal0 ← IO.monoNanosNow
+ 
+@@ -2460,25 +2476,25 @@
+     | none => pure none
+ 
+   let tSp0 ← IO.monoNanosNow
+-  if preEnv.isNone then
++  if pre.isNone then
+     initSearchPath (← findSysroot)
+   let tSp1 ← IO.monoNanosNow
+   sink.emit "stage4b.initSearchPath" (tSp1 - tSp0)
+ 
+   let tImp0 ← IO.monoNanosNow
+-  let env ← match preEnv with
+-    | some e => pure e
++  let (env, world) ← match pre with
++    | some p => pure p
+     | none => do
+       unsafe Lean.enableInitializersExecution
+-      importModules (targets.map (Import.mk · false true false)) Options.empty
++      let env ← importModules (targets.map (Import.mk · false true false)) Options.empty
+         (leakEnv := true) (loadExts := true)
++      pure (env, World.ofEnv env)
+   let tImp1 ← IO.monoNanosNow
+   sink.emit "stage4b.importModules" (tImp1 - tImp0)
+     [("directImports", toString targets.size),
+-     ("resident", if preEnv.isSome then "1" else "0")]
++     ("resident", if pre.isSome then "1" else "0")]
+ 
+-  let header := env.header
+-  sink.emit "stage4b.envStats" 0 [("loadedModules", toString header.moduleNames.size)]
++  sink.emit "stage4b.envStats" 0 [("loadedModules", toString world.moduleNames.size)]
+ 
+   -- `--open` probe. Scoped notation lives in `ScopedEnvExtension`s, which an
+   -- imported environment has *not* activated; `Core.Context.openDecls` alone is
+@@ -2500,9 +2516,9 @@
+   let mut candidates : Array (Name × Name) := #[]
+   let mut enumerated := 0
+   for m in targets do
+-    let some modIdx := env.getModuleIdx? m
++    let some modIdx := world.moduleIndex? m
+       | throw <| IO.userError s!"module not present in the environment: {m}"
+-    for n in header.moduleData[modIdx]!.constNames do
++    for n in world.constNames modIdx do
+       enumerated := enumerated + 1
+       if seen.contains n then
+         continue
+@@ -2552,7 +2568,7 @@
+     -- when it got cheap would look like one that stopped writing the map at all.
+     let s ← match cfg.linkIndexKey with
+       | some key =>
+-        if ← linkIndexIsCurrent p key header.moduleNames then
++        if ← linkIndexIsCurrent p key world.moduleNames then
+           pure { reused := true }
+         else do
+           -- Down before the map, up after it: the sidecar this rewrite replaces
+@@ -2561,11 +2577,11 @@
+           -- past the `@` section is exactly what `linkIndexIsCurrent` cannot see.
+           let keyPath := linkIndexKeyPath p
+           if ← keyPath.pathExists then IO.FS.removeFile keyPath
+-          let s ← runMeta (writeLinkIndex p omitModules)
++          let s ← runMeta (writeLinkIndex world p omitModules)
+           IO.FS.writeFile keyPath (key ++ "\n")
+           pure s
+       | none => do
+-        let s ← runMeta (writeLinkIndex p omitModules)
++        let s ← runMeta (writeLinkIndex world p omitModules)
+         -- A sidecar an earlier run left behind describes a map that no longer
+         -- exists, and a later run *with* a token would believe it.
+         let keyPath := linkIndexKeyPath p
+@@ -2590,7 +2606,7 @@
+   -- doc-gen4's `getAllModuleDocs`, split so the per-module part (docstrings +
+   -- imports) and the part doc-gen4 repeats per module (tactics) can be told apart.
+   let tMd0 ← IO.monoNanosNow
+-  let mods ← runMeta (collectModuleDocs targets)
++  let mods ← runMeta (collectModuleDocs world targets)
+   let tMd1 ← IO.monoNanosNow
+   let modDocCount := mods.foldl (init := 0) fun a m => a + m.docs.size
+   let modsWithDocs := mods.foldl (init := 0) fun a m => a + (if m.docs.isEmpty then 0 else 1)
+@@ -2600,10 +2616,14 @@
+      ("modulesWithDocs", toString modsWithDocs), ("imports", toString importCount)]
+ 
+   let tTac0 ← IO.monoNanosNow
+-  let (mods, tacticsInEnv, tacticsAssigned) ← runMeta (collectTacticsOnce mods)
++  let (mods, tacticsInEnv, tacticsAssigned, tacticsAnswered) ←
++    match ← runMeta (collectTacticsOnce world mods) with
++    | some (m, n, a) => pure (m, n, a, true)
++    | none => pure (mods, 0, 0, false)
+   let tTac1 ← IO.monoNanosNow
+   sink.emit "stage4b.tactics" (tTac1 - tTac0)
+-    [("tacticsInEnv", toString tacticsInEnv), ("tacticsAssigned", toString tacticsAssigned)]
++    [("tacticsInEnv", toString tacticsInEnv), ("tacticsAssigned", toString tacticsAssigned),
++     ("answered", if tacticsAnswered then "true" else "false")]
+ 
+   -- Diagnosis only: the same collection done doc-gen4's way.
+   let mut tEmu := 0
+@@ -2676,7 +2696,7 @@
+     let t0 ← if cfg.ppBreakdown then IO.monoNanosNow else pure 0
+     let job : MetaM (Except String (Option DeclOut) × Counters) :=
+       tryCatchRuntimeEx
+-        (do let (r, c) ← (analyze cfg module name ci).run {}; return (Except.ok r, c))
++        (do let (r, c) ← (analyze cfg world module name ci).run {}; return (Except.ok r, c))
+         (fun e => do return (Except.error (← e.toMessageData.toString), {}))
+     let ((outcome, c), _, _) ← job.toIO coreCtx { env := env } {} {}
+     let t1 ← if cfg.ppBreakdown then IO.monoNanosNow else pure 0
+@@ -2845,7 +2865,7 @@
+     let dir ← getIrDir cfg
+     irDirUsed := some dir
+     let t0 ← IO.monoNanosNow
+-    irStats ← writeIRTree cfg.taggedCode cfg.ablations dir env targets mods results
++    irStats ← writeIRTree cfg.taggedCode cfg.ablations dir world targets mods results
+     let t1 ← IO.monoNanosNow
+     sink.emit "stage4b.writeIR" (t1 - t0)
+       [("taggedCode", if cfg.taggedCode then "true" else "false"),
+@@ -2896,8 +2916,6 @@
+     if !cfg.collectRefs then
+       IO.eprintln "WARNING: --dump-refs without --refs; nothing was collected"
+     let tD0 ← IO.monoNanosNow
+-    -- `moduleNames` is a `def`, not a field: a fresh array per call. Hoist it.
+-    let modNames := header.moduleNames
+     let targetSet : Std.HashSet Name :=
+       Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
+     let mut counts : Std.HashMap Name Nat := Std.HashMap.emptyWithCapacity 4096
+@@ -2911,7 +2929,7 @@
+         | none => counts := counts.insert n 1; order := order.push n
+     let h ← IO.FS.Handle.mk dumpPath .write
+     for n in order do
+-      let module? := (env.getModuleIdxFor? n).map (modNames[·]!)
++      let module? := world.moduleOf? n
+       let own := match module? with
+         | some m => targetSet.contains m
+         | none => false
+@@ -2939,7 +2957,7 @@
+     byKind := byKind.insert d.kind ((byKind.getD d.kind 0) + 1)
+ 
+   IO.println s!"target modules       {targets.size}"
+-  IO.println s!"loaded modules       {header.moduleNames.size}"
++  IO.println s!"loaded modules       {world.moduleNames.size}"
+   IO.println s!"importModules        {fmtDur (tImp1 - tImp0)}"
+   IO.println s!"indexLookup          {fmtDur (tIdx1 - tIdx0)}  enumerated {enumerated}, unique {candidates.size}"
+   IO.println s!"moduleDocs           {fmtDur (tMd1 - tMd0)}  {modDocCount} docs in {modsWithDocs} modules, {importCount} imports"
+@@ -2961,7 +2979,10 @@
+       if s.omitted != 0 || s.omittedDeclarations != 0 then
+         IO.println s!"  omitted            {s.omittedDeclarations} declarations in {s.omitted} modules \
+           (--link-index-omit; their names are still in the @ section)"
+-  IO.println s!"tactics              {fmtDur (tTac1 - tTac0)}  {tacticsInEnv} in env, {tacticsAssigned} in target modules"
++  if tacticsAnswered then
++    IO.println s!"tactics              {fmtDur (tTac1 - tTac0)}  {tacticsInEnv} in env, {tacticsAssigned} in target modules"
++  else
++    IO.println s!"tactics              NOT ANSWERED: this world has no tactic table, so no module carries tactics"
+   if cfg.tacticsEmulate then
+     IO.println s!"tacticsPerModule     {fmtDur tEmu}  (doc-gen4's shape: {targets.size} × allTacticDocs)"
+     IO.println s!"  of which allTactic {fmtDur emuAll}"
+@@ -3076,8 +3097,9 @@
+     return 1
+   let env ← importModules (targets.map (Import.mk · false true false)) Options.empty
+     (leakEnv := true) (loadExts := true)
++  let world := World.ofEnv env
+   let t1 ← IO.monoNanosNow
+-  IO.println s!"ready {t1 - t0} {env.header.moduleNames.size} {targets.size}"
++  IO.println s!"ready {t1 - t0} {world.moduleNames.size} {targets.size}"
+   (← IO.getStdout).flush
+   let stdin ← IO.getStdin
+   let rec loop : IO UInt32 := do
+@@ -3096,7 +3118,7 @@
+         modulesPath := ⟨modules⟩, outPath := ⟨out⟩,
+         irDir := match rest with | dir :: _ => some ⟨dir⟩ | [] => cfg.irDir }
+       let r0 ← IO.monoNanosNow
+-      let code ← run reqCfg (some env)
++      let code ← run reqCfg (some (env, world))
+       let r1 ← IO.monoNanosNow
+       IO.println s!"ok {code} {r1 - r0}"
+       (← IO.getStdout).flush
+@@ -3168,7 +3190,7 @@
+     go { cfg with openNamespaces := (ns.splitOn ",").toArray.map (·.trimAscii.toString.toName) } rest
+   | a :: _ => .error s!"unknown argument: {a}"
+ 
+-def main (args : List String) : IO UInt32 := do
++def extractMain (args : List String) : IO UInt32 := do
+   match parseArgs args with
+   | .ok cfg => if cfg.serve then Litedoc4.serve cfg else Litedoc4.run cfg
+   | .error msg => IO.eprintln msg; return 1
+
+=== OleanReader.lean: diff against the reader log's OleanReader.lean (benchmarks/results/olean-reader-prototype-2026-10-04.txt, CODE)
+--- <scratch>/orig/OleanReader.lean	2026-10-05 17:25:30
++++ <scratch>/OleanReader.lean	2026-10-05 17:56:35
+@@ -505,29 +505,332 @@
+   | .global a => k a
+   | .scoped _ a => k a
+ 
+-/-- The extensions whose entries the reader decodes, by registered name, with the entry decoder.
+-Every other extension's entries are counted and not decoded. -/
+-def entryDecoders : List (Name × (UInt64 → DM Keyed)) := [
+-  (Name.mkNum `_private.Lean.Structure 0 ++ `Lean.structureExt,
+-    fun v => keyed (·.structName) <$> decStructureInfo v),
+-  (`Lean.declRangeExt, fun v => keyed (·.1) <$> decPair "Name × DeclarationRanges" v decName decDeclRanges),
+-  (`Lean.projectionFnInfoExt, fun v => keyed (·.1) <$> decPair "Name × ProjectionFunctionInfo" v decName decProjInfo),
+-  (`Lean.Meta.instanceExtension,
+-    fun v => keyed (scopedKey (·.globalName?.getD .anonymous)) <$> decScopedEntry "instance entry" v decInstanceEntry),
+-  (`Lean.classExtension, fun v => keyed (·.name) <$> decClassEntry v),
+-  (`Lean.Meta.coeExt,
+-    fun v => keyed (scopedKey (·.1)) <$> decScopedEntry "coe entry" v (decPair "Name × CoeFnInfo" · decName decCoeFnInfo)),
+-  (`Lean.protectedExt, fun v => keyed id <$> decName v),
+-  (`Lean.aliasExtension, fun v => keyed (·.1) <$> decPair "AliasEntry" v decName decName),
+-  (`reducibilityCore, fun v => keyed (·.1) <$> decPair "Name × ReducibilityStatus" v decName decReducibility),
++/-! Entry decoders added for the extractor (u12). Each type was diffed between the v4.31.0 and
++v4.34.1 sources before its decoder was written; all are layout-identical. -/
++
++def decPairEntry (what : String) (f : UInt64 → DM α) (v : UInt64) : DM Keyed :=
++  keyed (·.1) <$> decPair what v decName f
++
++def decTagEntry (v : UInt64) : DM Keyed := keyed id <$> decName v
++
++/-- A boxed enum value below `n`. -/
++def decEnum (what : String) (n : Nat) (v : UInt64) : DM Nat := do
++  unless isScalar v && unbox v < n do fail what v s!"expected a boxed enum value below {n}"
++  return unbox v
++
++def decInlineKind (v : UInt64) : DM Compiler.InlineAttributeKind := do
++  match ← decEnum "InlineAttributeKind" 5 v with
++  | 0 => return .inline | 1 => return .noinline | 2 => return .macroInline
++  | 3 => return .inlineIfReduce | _ => return .alwaysInline
++
++def decExternEntry (v : UInt64) : DM ExternEntry := do
++  if isScalar v then
++    unless unbox v == 3 do fail "ExternEntry" v s!"scalar {unbox v}"
++    return .opaque
++  let x ← obj "ExternEntry" v
++  match x.tag with
++  | 0 => let x ← ctor "ExternEntry.adhoc" v 0 1 0; return .adhoc (← decName (x.field 0))
++  | 1 => let x ← ctor "ExternEntry.inline" v 1 2 0; return .inline (← decName (x.field 0)) (← decString (x.field 1))
++  | 2 => let x ← ctor "ExternEntry.standard" v 2 2 0; return .standard (← decName (x.field 0)) (← decString (x.field 1))
++  | t => fail "ExternEntry" v s!"tag {t}"
++
++/-- `ExternAttrData` has one field and is represented as its `List`. -/
++def decExternAttrData (v : UInt64) : DM ExternAttrData :=
++  return { entries := ← decList "List ExternEntry" v decExternEntry }
++
++def decOptString (v : UInt64) : DM (Option String) := decOption "Option String" v decString
++def decOptName (v : UInt64) : DM (Option Name) := decOption "Option Name" v decName
++
++def decDeprecationEntry (v : UInt64) : DM Linter.DeprecationEntry := do
++  let x ← ctor "DeprecationEntry" v 0 3 0
++  return { newName? := ← decOptName (x.field 0), text? := ← decOptString (x.field 1),
++           since? := ← decOptString (x.field 2) }
++
++def decModuleDoc (v : UInt64) : DM ModuleDoc := do
++  let x ← ctor "ModuleDoc" v 0 2 0
++  return { doc := ← decString (x.field 0), declarationRange := ← decDeclRange (x.field 1) }
++
++def decAltParamInfo (v : UInt64) : DM Meta.Match.AltParamInfo := do
++  let x ← ctor "AltParamInfo" v 0 2 1
++  return { numFields := ← decNat (x.field 0), numOverlaps := ← decNat (x.field 1),
++           hasUnitThunk := ← decBool "AltParamInfo.hasUnitThunk" v (x.sc8 0) }
++
++/-- `Std.TreeSet Nat` is represented as its `DTreeMap.Internal.Impl Nat (fun _ => Unit)`:
++`inner size k v l r` (tag 0) or `leaf` (box 1). The keys are collected in order and inserted
++into a set of the running Lean. -/
++partial def decTreeSetNatKeys (v : UInt64) (acc : Array Nat) : DM (Array Nat) := do
++  if isScalar v then
++    unless unbox v == 1 do fail "TreeSet.Impl" v s!"scalar {unbox v}"
++    return acc
++  let x ← ctor "TreeSet.Impl.inner" v 0 5 0
++  let _ ← decNat (x.field 0)
++  let k ← decNat (x.field 1)
++  unless isScalar (x.field 2) && unbox (x.field 2) == 0 do fail "TreeSet.Impl" v "value is not ()"
++  let acc ← decTreeSetNatKeys (x.field 3) acc
++  decTreeSetNatKeys (x.field 4) (acc.push k)
++
++def decTreeSetNat (v : UInt64) : DM (Std.TreeSet Nat) := do
++  let ks ← decTreeSetNatKeys v #[]
++  for i in [1:ks.size] do
++    unless ks[i-1]! < ks[i]! do fail "TreeSet Nat" v "keys not strictly increasing"
++  return ks.foldl (fun s k => s.insert k) {}
++
++/-- `Overlaps` has one field, a `Std.HashMap Nat (Std.TreeSet Nat)`, represented as its
++`DHashMap.Raw`: `size` and an array of association lists (`nil` = box 0, `cons k v tail` = tag 1). -/
++partial def decOverlaps (v : UInt64) : DM Meta.Match.Overlaps := do
++  let x ← ctor "HashMap.Raw" v 0 2 0
++  let size ← decNat (x.field 0)
++  let mut pairs : Array (Nat × Std.TreeSet Nat) := #[]
++  let bo ← obj "HashMap buckets" (x.field 1)
++  unless bo.tag == 246 do fail "HashMap buckets" (x.field 1) "expected an Array"
++  let nb := (u64 bo.b (bo.o + 8)).toNat
++  for i in [0:nb] do
++    let mut cur := u64 bo.b (bo.o + 24 + 8*i)
++    while true do
++      if isScalar cur then
++        unless unbox cur == 0 do fail "AssocList" cur s!"scalar {unbox cur}"
++        break
++      let c ← ctor "AssocList.cons" cur 1 3 0
++      pairs := pairs.push (← decNat (c.field 0), ← decTreeSetNat (c.field 1))
++      cur := c.field 2
++  unless pairs.size == size do fail "HashMap.Raw" v s!"size {size} but {pairs.size} entries"
++  return { map := pairs.foldl (fun m (k, s) => m.insert k s) {} }
++
++def decMatcherInfo (v : UInt64) : DM Meta.Match.MatcherInfo := do
++  let x ← ctor "MatcherInfo" v 0 6 0
++  return { numParams := ← decNat (x.field 0), numDiscrs := ← decNat (x.field 1),
++           altInfos := ← decArray "Array AltParamInfo" (x.field 2) decAltParamInfo,
++           uElimPos? := ← decOption "Option Nat" (x.field 3) decNat,
++           discrInfos := ← decArray "Array DiscrInfo" (x.field 4) (fun w => do return { hName? := ← decOptName w }),
++           overlaps := ← decOverlaps (x.field 5) }
++
++def decMatcherEntry (v : UInt64) : DM Meta.Match.Extension.Entry := do
++  let x ← ctor "Match.Extension.Entry" v 0 2 0
++  return { name := ← decName (x.field 0), info := ← decMatcherInfo (x.field 1) }
++
++def decNoConfusionInfo (v : UInt64) : DM NoConfusionInfo := do
++  let x ← obj "NoConfusionInfo" v
++  match x.tag with
++  | 0 => let x ← ctor "NoConfusionInfo.regular" v 0 3 0; return .regular (← decNat (x.field 0)) (← decNat (x.field 1)) (← decNat (x.field 2))
++  | 1 => let x ← ctor "NoConfusionInfo.perCtor" v 1 2 0; return .perCtor (← decNat (x.field 0)) (← decNat (x.field 1))
++  | t => fail "NoConfusionInfo" v s!"tag {t}"
++
++def decFixedParamPerms (v : UInt64) : DM Elab.FixedParamPerms := do
++  let x ← ctor "FixedParamPerms" v 0 3 0
++  return { numFixed := ← decNat (x.field 0),
++           perms := ← decArray "Array FixedParamPerm" (x.field 1) (decArray "FixedParamPerm" · (decOption "Option Nat" · decNat)),
++           revDeps := ← decArray "revDeps" (x.field 2) (decArray "revDeps[i]" · (decArray "revDeps[i][j]" · decNat)) }
++
++def decStructuralEqnInfo (v : UInt64) : DM Elab.Structural.EqnInfo := do
++  let x ← ctor "Structural.EqnInfo" v 0 7 0
++  return { declName := ← decName (x.field 0), levelParams := ← decNameList (x.field 1),
++           type := ← decExpr (x.field 2), value := ← decExpr (x.field 3), recArgPos := ← decNat (x.field 4),
++           declNames := ← decArray "Array Name" (x.field 5) decName, fixedParamPerms := ← decFixedParamPerms (x.field 6) }
++
++def decWFEqnInfo (v : UInt64) : DM Elab.WF.EqnInfo := do
++  let x ← ctor "WF.EqnInfo" v 0 8 0
++  return { declName := ← decName (x.field 0), levelParams := ← decNameList (x.field 1),
++           type := ← decExpr (x.field 2), value := ← decExpr (x.field 3),
++           declNames := ← decArray "Array Name" (x.field 4) decName, declNameNonRec := ← decName (x.field 5),
++           argsPacker := { varNamess := ← decArray "varNamess" (x.field 6) (decArray "Array Name" · decName) },
++           fixedParamPerms := ← decFixedParamPerms (x.field 7) }
++
++def decPartialFixpointType (v : UInt64) : DM Elab.PartialFixpointType := do
++  match ← decEnum "PartialFixpointType" 3 v with
++  | 0 => return .partialFixpoint | 1 => return .coinductiveFixpoint | _ => return .inductiveFixpoint
++
++def decPFEqnInfo (v : UInt64) : DM Elab.PartialFixpoint.EqnInfo := do
++  let x ← ctor "PartialFixpoint.EqnInfo" v 0 8 0
++  return { declName := ← decName (x.field 0), levelParams := ← decNameList (x.field 1),
++           type := ← decExpr (x.field 2), value := ← decExpr (x.field 3),
++           declNames := ← decArray "Array Name" (x.field 4) decName, declNameNonRec := ← decName (x.field 5),
++           fixedParamPerms := ← decFixedParamPerms (x.field 6),
++           fixpointType := ← decArray "Array PartialFixpointType" (x.field 7) decPartialFixpointType }
++
++def decSparseCasesOnInfo (v : UInt64) : DM Meta.SparseCasesOnInfo := do
++  let x ← ctor "SparseCasesOnInfo" v 0 4 0
++  return { indName := ← decName (x.field 0), majorPos := ← decNat (x.field 1), arity := ← decNat (x.field 2),
++           insterestingCtors := ← decArray "Array Name" (x.field 3) decName }
++
++def decAuxParentProjInfo (v : UInt64) : DM AuxParentProjectionInfo := do
++  let x ← ctor "AuxParentProjectionInfo" v 0 1 1
++  return { numParams := ← decNat (x.field 0), fromClass := ← decBool "fromClass" v (x.sc8 0) }
++
++def decConstantKind (v : UInt64) : DM ConstantKind := do
++  match ← decEnum "ConstantKind" 8 v with
++  | 0 => return .defn | 1 => return .thm | 2 => return .axiom | 3 => return .opaque
++  | 4 => return .quot | 5 => return .induct | 6 => return .ctor | _ => return .recursor
++
++def decOrigin (v : UInt64) : DM Meta.Origin := do
++  let x ← obj "Origin" v
++  match x.tag with
++  | 0 => let x ← ctor "Origin.decl" v 0 1 2
++         return .decl (← decName (x.field 0)) (← decBool "Origin.post" v (x.sc8 0)) (← decBool "Origin.inv" v (x.sc8 1))
++  | 1 => let x ← ctor "Origin.fvar" v 1 1 0; return .fvar ⟨← decName (x.field 0)⟩
++  | 2 => let x ← ctor "Origin.stx" v 2 2 0; return .stx (← decName (x.field 0)) (← decSyntax (x.field 1))
++  | 3 => let x ← ctor "Origin.other" v 3 1 0; return .other (← decName (x.field 0))
++  | t => fail "Origin" v s!"tag {t}"
++
++def decSimpTheorem (v : UInt64) : DM Meta.SimpTheorem := do
++  let x ← ctor "SimpTheorem" v 0 5 4
++  return { keys := ← decArray "Array Key" (x.field 0) decKey, levelParams := ← decArray "Array Name" (x.field 1) decName,
++           proof := ← decExpr (x.field 2), priority := ← decNat (x.field 3), origin := ← decOrigin (x.field 4),
++           post := ← decBool "SimpTheorem.post" v (x.sc8 0), perm := ← decBool "SimpTheorem.perm" v (x.sc8 1),
++           rfl := ← decBool "SimpTheorem.rfl" v (x.sc8 2), backwardRfl := ← decBool "SimpTheorem.backwardRfl" v (x.sc8 3) }
++
++def decSimpEntry (v : UInt64) : DM Meta.SimpEntry := do
++  let x ← obj "SimpEntry" v
++  match x.tag with
++  | 0 => let x ← ctor "SimpEntry.thm" v 0 1 0; return .thm (← decSimpTheorem (x.field 0))
++  | 1 => let x ← ctor "SimpEntry.toUnfold" v 1 1 0; return .toUnfold (← decName (x.field 0))
++  | 2 => let x ← ctor "SimpEntry.toUnfoldThms" v 2 2 0
++         return .toUnfoldThms (← decName (x.field 0)) (← decArray "Array Name" (x.field 1) decName)
++  | t => fail "SimpEntry" v s!"tag {t}"
++
++def simpEntryKey : Meta.SimpEntry → Name
++  | .thm t => t.origin.key
++  | .toUnfold n => n
++  | .toUnfoldThms n _ => n
++
++def decCSimpEntry (v : UInt64) : DM Compiler.CSimp.Entry := do
++  let x ← ctor "CSimp.Entry" v 0 3 0
++  return { fromDeclName := ← decName (x.field 0), toDeclName := ← decName (x.field 1), thmName := ← decName (x.field 2) }
++
++def decExtTheorem (v : UInt64) : DM Meta.Ext.ExtTheorem := do
++  let x ← ctor "ExtTheorem" v 0 3 0
++  return { declName := ← decName (x.field 0), priority := ← decNat (x.field 1), keys := ← decArray "Array Key" (x.field 2) decKey }
++
++def decUnifHint (v : UInt64) : DM Meta.UnificationHintEntry := do
++  let x ← ctor "UnificationHintEntry" v 0 2 0
++  return { keys := ← decArray "Array Key" (x.field 0) decKey, val := ← decName (x.field 1) }
++
++def decDefaultInstance (v : UInt64) : DM Meta.DefaultInstanceEntry := do
++  let x ← ctor "DefaultInstanceEntry" v 0 3 0
++  return { className := ← decName (x.field 0), instanceName := ← decName (x.field 1), priority := ← decNat (x.field 2) }
++
++def decCongrArgKind (v : UInt64) : DM Meta.CongrArgKind := do
++  match ← decEnum "CongrArgKind" 6 v with
++  | 0 => return .fixed | 1 => return .fixedNoParam | 2 => return .eq | 3 => return .cast
++  | 4 => return .heq | _ => return .subsingletonInst
++
++def decSimpCongrTheorem (v : UInt64) : DM Meta.SimpCongrTheorem := do
++  let x ← ctor "SimpCongrTheorem" v 0 4 0
++  return { theoremName := ← decName (x.field 0), funName := ← decName (x.field 1),
++           hypothesesPos := ← decNatArray (x.field 2), priority := ← decNat (x.field 3) }
++
++def decRecommendedSpelling (v : UInt64) : DM Parser.Term.Doc.RecommendedSpelling := do
++  let x ← ctor "RecommendedSpelling" v 0 3 0
++  return { «notation» := ← decString (x.field 0), recommendedSpelling := ← decString (x.field 1),
++           additionalInformation? := ← decOptString (x.field 2) }
++
++/-- Where the old entries of a decoded extension go in the hybrid.
++`byKey`: into the module the hybrid's `const2ModIdx` gives the key, sorted by `Name.quickLt` — the
++extension answers a name by binary search in that one module's entries.
++`state`: all into one module, in the old version's import order — the extension builds its state
++from every module's entries and the order can matter (instance priority ties).
++`perModule`: keyed by module, not by name; served from the decoded data per old module and
++emptied in the hybrid. -/
++inductive Placement where
++  | byKey | state | perModule
++  /-- Only the key is decoded. Nothing of it enters the hybrid; the keys tell the world which
++  names the old version answers from this extension, so a lookup that needs it stops visibly. -/
++  | keysOnly
++  /-- Looked up by binary search in every module's entries, results concatenated in module
++  order (`getTacticExtensions`, `getRecommendedSpellingsForName`): each old module's entries go
++  to a module of their own, in the old order. -/
++  | allModules
++  deriving BEq, Repr
++
++def privName (mod : Name) (n : Name) : Name := Name.mkNum (`_private ++ mod) 0 ++ n
++
++/-- The extensions whose entries the reader decodes, by registered name, with the entry decoder
++and the placement of the old entries. Every other extension's entries are counted and not decoded. -/
++def entryDecoders : List (Name × (UInt64 → DM Keyed) × Placement) := [
++  (Name.mkNum `_private.Lean.Structure 0 ++ `Lean.structureExt,
++    fun v => keyed (·.structName) <$> decStructureInfo v, .byKey),
++  (`Lean.declRangeExt, decPairEntry "Name × DeclarationRanges" decDeclRanges, .byKey),
++  (`Lean.projectionFnInfoExt, decPairEntry "Name × ProjectionFunctionInfo" decProjInfo, .byKey),
++  (`Lean.Meta.instanceExtension,
++    fun v => keyed (scopedKey (·.globalName?.getD .anonymous)) <$> decScopedEntry "instance entry" v decInstanceEntry, .state),
++  (`Lean.classExtension, fun v => keyed (·.name) <$> decClassEntry v, .state),
++  (`Lean.Meta.coeExt,
++    fun v => keyed (scopedKey (·.1)) <$> decScopedEntry "coe entry" v (decPair "Name × CoeFnInfo" · decName decCoeFnInfo), .state),
++  (`Lean.protectedExt, decTagEntry, .byKey),
++  (`Lean.aliasExtension, decPairEntry "AliasEntry" decName, .state),
++  (`reducibilityCore, decPairEntry "Name × ReducibilityStatus" decReducibility, .byKey),
+   (`reducibilityExtra,
+-    fun v => keyed (scopedKey (·.1)) <$> decScopedEntry "reducibilityExtra entry" v (decPair "Name × ReducibilityStatus" · decName decReducibility)),
+-  (Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt, fun v => keyed id <$> decName v)
++    fun v => keyed (scopedKey (·.1)) <$> decScopedEntry "reducibilityExtra entry" v (decPair "Name × ReducibilityStatus" · decName decReducibility), .state),
++  (Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt, decTagEntry, .state),
++  -- docstrings
++  (`Lean.docStringExt, decPairEntry "Name × String" decString, .byKey),
++  (privName `Lean.DocString.Extension `Lean.inheritDocStringExt, decPairEntry "Name × Name" decName, .byKey),
++  (privName `Lean.DocString.Extension `Lean.moduleDocExt, fun v => keyed (fun _ => .anonymous) <$> decModuleDoc v, .perModule),
++  (`Lean.Parser.Term.Doc.recommendedSpellingByNameExt,
++    decPairEntry "Name × Array RecommendedSpelling" (decArray "Array RecommendedSpelling" · decRecommendedSpelling), .allModules),
++  (`Lean.Parser.Tactic.Doc.tacticAlternativeExt, decPairEntry "Name × Name" decName, .byKey),
++  (`Lean.Parser.Tactic.Doc.tacticDocExtExt, decPairEntry "Name × Array String" (decArray "Array String" · decString), .allModules),
++  (`Lean.Parser.Tactic.Doc.tacticNameExt, decPairEntry "Name × String" decString, .byKey),
++  (`Lean.Parser.Tactic.Doc.tacticTagExt, decPairEntry "Name × Name" decName, .state),
++  (`Lean.Parser.Tactic.Doc.knownTacticTagExt,
++    decPairEntry "Name × String × Option String" (decPair "String × Option String" · decString decOptString), .byKey),
++  -- the blacklist and kinds
++  (`Lean.Meta.Match.Extension.extension, fun v => keyed (·.name) <$> decMatcherEntry v, .state),
++  (`Lean.auxRecExt, decTagEntry, .byKey),
++  (`Lean.noConfusionExt, decPairEntry "Name × NoConfusionInfo" decNoConfusionInfo, .byKey),
++  (`recExt, decTagEntry, .byKey),
++  (`Lean.Meta.matcherLikeExt, decTagEntry, .byKey),
++  (privName `Lean.AuxRecursor `Lean.sparseCasesOnExt, decTagEntry, .byKey),
++  (privName `Lean.Meta.Constructions.SparseCasesOn `Lean.Meta.sparseCasesOnInfoExt,
++    decPairEntry "Name × SparseCasesOnInfo" decSparseCasesOnInfo, .byKey),
++  (`Lean.auxParentProjInfoExt, decPairEntry "Name × AuxParentProjectionInfo" decAuxParentProjInfo, .byKey),
++  (privName `Lean.OriginalConstKind `Lean.privateConstKindsExt, decPairEntry "Name × ConstantKind" decConstantKind, .byKey),
++  (`Lean.noncomputableExt, decTagEntry, .byKey),
++  -- attributes the extractor prints
++  (`Lean.Compiler.inlineAttrs, decPairEntry "Name × InlineAttributeKind" decInlineKind, .byKey),
++  (`Lean.externAttr, decPairEntry "Name × ExternAttrData" decExternAttrData, .byKey),
++  (`Lean.Compiler.implementedByAttr, decPairEntry "Name × Name" decName, .byKey),
++  (`Lean.exportAttr, decPairEntry "Name × Name" decName, .byKey),
++  (`Lean.Compiler.specializeAttr, decPairEntry "Name × Array Nat" decNatArray, .byKey),
++  (`Lean.Linter.deprecatedAttr, decPairEntry "Name × DeprecationEntry" decDeprecationEntry, .byKey),
++  (`Lean.IR.UnboxResult.unboxAttr, decTagEntry, .byKey),
++  (`Lean.neverExtractAttr, decTagEntry, .byKey),
++  (`Lean.Elab.Term.elabWithoutExpectedTypeAttr, decTagEntry, .byKey),
++  (`Lean.matchPatternAttr, decTagEntry, .byKey),
++  (`Lean.ppNoDotAttr, decTagEntry, .byKey),
++  (`Lean.ppUsingAnonymousConstructorAttr, decTagEntry, .byKey),
++  (`Lean.Meta.coeDeclAttr, decTagEntry, .byKey),
++  (`Lean.Compiler.CSimp.ext,
++    fun v => keyed (scopedKey (·.thmName)) <$> decScopedEntry "csimp entry" v decCSimpEntry, .state),
++  (`Lean.Meta.simpExtension,
++    fun v => keyed (scopedKey simpEntryKey) <$> decScopedEntry "simp entry" v decSimpEntry, .state),
++  (`Lean.Meta.defaultInstanceExtension, fun v => keyed (·.instanceName) <$> decDefaultInstance v, .state),
++  (`Lean.Meta.Ext.extExtension,
++    fun v => keyed (scopedKey (·.declName)) <$> decScopedEntry "ext entry" v decExtTheorem, .state),
++  (`Lean.Meta.unificationHintExtension,
++    fun v => keyed (scopedKey (·.val)) <$> decScopedEntry "unification hint entry" v decUnifHint, .state),
++  -- the sorry pass
++  (privName `Lean.Util.CollectAxioms `Lean.exportedAxiomsExt, decPairEntry "Name × Array Name" (decArray "Array Name" · decName), .byKey),
++  -- equations
++  (`Lean.Meta.eqnOptionsExt,
++    decPairEntry "Name × Array (Name × DataValue)" (decArray "Array (Name × DataValue)" · (decPair "Name × DataValue" · decName decDataValue)), .byKey),
++  (`Lean.Elab.Structural.eqnInfoExt, decPairEntry "Name × Structural.EqnInfo" decStructuralEqnInfo, .byKey),
++  (`Lean.Elab.WF.eqnInfoExt, decPairEntry "Name × WF.EqnInfo" decWFEqnInfo, .byKey),
++  (`Lean.Elab.PartialFixpoint.eqnInfoExt, decPairEntry "Name × PartialFixpoint.EqnInfo" decPFEqnInfo, .byKey),
++  (`eqnsAttribute, decPairEntry "Name × Array Name" (decArray "Array Name" · decName), .state),
++  (`Lean.Meta.congrKindsExt, decPairEntry "Name × Array CongrArgKind" (decArray "Array CongrArgKind" · decCongrArgKind), .byKey),
++  (`Lean.Meta.congrExtension,
++    fun v => keyed (scopedKey (·.theoremName)) <$> decScopedEntry "simp congr entry" v decSimpCongrTheorem, .state),
++  (`Lean.versoDocStringExt, fun v => do
++      let x ← ctor "Name × VersoDocString" v 0 2 0
++      return (← decName (x.field 0), decEntry ()), .keysOnly)
+ ]
+ 
+ def decoderFor (extName : Name) : Option (UInt64 → DM Keyed) :=
+-  (entryDecoders.find? (·.1 == extName)).map (·.2)
++  (entryDecoders.find? (·.1 == extName)).map (·.2.1)
+ 
++def placementOf (extName : Name) : Option Placement :=
++  (entryDecoders.find? (·.1 == extName)).map (·.2.2)
++
+ structure ReadStats where
+   constants : Nat := 0
+   entriesDecoded : Nat := 0
+@@ -606,6 +909,17 @@
+ def runDM (parts : Array Part) (x : DM α) : IO (α × DState) :=
+   (x.run parts).run {}
+ 
++/-- `extraConstNames` of a module's `.ir` part: what `finalizeImport` adds to `const2ModIdx` after
++the module's constants when the module is a `module` (the `.ir` is its interpreter data). -/
++def readIRExtraConstNames (sp : Array System.FilePath) (m : Name) : IO (Array Name) := do
++  let irf := (← findOlean sp m).withExtension "ir"
++  unless ← irf.pathExists do throw <| IO.userError s!"olean reader: {m} is a module but has no .ir"
++  let p ← loadPart irf
++  let (ns, _) ← runDM #[p] do
++    let x ← ctor "ModuleData" p.root 0 5 1
++    decArray "Array Name" (x.field 3) decName
++  return ns
++
+ /-- The imports of a module, read from its `.olean` alone. -/
+ def readImports (sp : Array System.FilePath) (m : Name) : IO (Array Import) := do
+   let main ← loadPart (← findOlean sp m)
+
+=== Assemble.lean: diff against the reader log's Assemble.lean
+--- <scratch>/orig/Assemble.lean	2026-10-05 17:25:30
++++ <scratch>/Assemble.lean	2026-10-05 17:56:35
+@@ -40,23 +40,82 @@
+ 
+ unsafe instance : Inhabited MImportedModule := ⟨decodedModule .anonymous default⟩
+ 
++/-- The old version as the extraction sees it, read from the decoded data alone. -/
++structure OldWorld where
++  moduleNames : Array Name
++  index       : Std.HashMap Name Nat
++  constNames  : Array (Array Name)
++  imports     : Array (Array Name)
++  /-- `const2ModIdx` by v4.31.0's `finalizeImport` rule: modules in import order, each module's
++  `constNames`, then the `extraConstNames` of its interpreter data, first module wins. -/
++  modOf       : Std.HashMap Name Name
++  consts      : Std.HashSet Name
++  modDocs     : Std.HashMap Name (Array ModuleDoc)
++  docKeys     : Std.HashSet Name
++  versoKeys   : Std.HashSet Name
++  inherit     : Std.HashMap Name Name
++  /-- Names whose axioms the old data stores (the `sorry` pass reads them). -/
++  axiomKeys   : Std.HashSet Name
++
+ structure Decoded where
+   mods    : Array (Name × ModuleData)
+-  keyed   : Array (Name × Array Keyed)   -- extension name, keyed entries, over all modules
++  /-- Per decoded extension, its entries over all modules in import order, each with the index
++  of the old module it was stored in. -/
++  keyed   : Array (Name × Array (Nat × Keyed))
+   stats   : ReadStats
++  old     : OldWorld
+ 
+ /-- Decodes every module of the closure, one at a time, proofs omitted. -/
+-def decodeAll (sp : Array System.FilePath) (mods : Array Name) : IO Decoded := do
++unsafe def decodeAll (sp : Array System.FilePath) (mods : Array Name) : IO Decoded := do
+   let stats ← IO.mkRef ({} : ReadStats)
+   let mut out := #[]
+-  let mut keyed : Std.HashMap Name (Array Keyed) := {}
++  let mut chunks : Array (Name × Nat × Array Keyed) := #[]
++  let mut modDocs : Std.HashMap Name (Array ModuleDoc) := {}
++  let mut modOf : Std.HashMap Name Name := {}
++  let mut consts : Std.HashSet Name := {}
++  let mut index : Std.HashMap Name Nat := {}
++  let mut constNames := #[]
++  let mut imports := #[]
+   for m in mods do
+     let parts ← loadModule sp m
+     let ((md, ks), _) ← runDM parts (decModuleData true true parts.back!.root stats)
+     out := out.push (m, md)
++    index := index.insert m index.size
++    constNames := constNames.push md.constNames
++    imports := imports.push (md.imports.map (·.module))
+     for (e, es) in ks do
+-      keyed := keyed.insert e (keyed.getD e #[] ++ es)
+-  return { mods := out, keyed := keyed.toArray, stats := ← stats.get }
++      if placementOf e == some .perModule then
++        modDocs := modDocs.insert m (es.map fun k => (unsafeCast k.2 : ModuleDoc))
++      else
++        chunks := chunks.push (e, index[m]!, es)
++    for n in md.constNames do
++      consts := consts.insert n
++      unless modOf.contains n do modOf := modOf.insert n m
++    let extra ← if md.isModule then readIRExtraConstNames sp m else pure md.extraConstNames
++    for n in extra do
++      unless modOf.contains n do modOf := modOf.insert n m
++  let mut extOrder : Array Name := #[]
++  let mut grouped : Std.HashMap Name (Array (Nat × Keyed)) := {}
++  for (e, i, es) in chunks do
++    unless grouped.contains e do extOrder := extOrder.push e
++    let mut acc := grouped.getD e #[]
++    grouped := grouped.erase e
++    for k in es do acc := acc.push (i, k)
++    grouped := grouped.insert e acc
++  let keyed := grouped
++  -- an entry the old version can reach: stored in the module that owns its key
++  let reachable (e : Name) : Array (Nat × Keyed) :=
++    (keyed.getD e #[]).filter fun (i, k) => modOf[k.1]? == some mods[i]!
++  let keysOf (es : Array (Nat × Keyed)) : Std.HashSet Name :=
++    es.foldl (fun s (_, k) => s.insert k.1) {}
++  let mut inherit : Std.HashMap Name Name := {}
++  for (_, k) in reachable (privName `Lean.DocString.Extension `Lean.inheritDocStringExt) do
++    inherit := inherit.insert k.1 (unsafeCast k.2 : Name × Name).2
++  let old : OldWorld := {
++    moduleNames := mods, index, constNames, imports, modOf, consts, modDocs
++    docKeys := keysOf (reachable `Lean.docStringExt), versoKeys := keysOf (reachable `Lean.versoDocStringExt), inherit
++    axiomKeys := keysOf (reachable (privName `Lean.Util.CollectAxioms `Lean.exportedAxiomsExt)) }
++  return { mods := out, keyed := extOrder.map (fun e => (e, keyed.getD e #[])), stats := ← stats.get, old }
+ 
+ def checkMirror (s : MImportState) : IO Unit := do
+   unless s.moduleNameMap.size == s.moduleNames.size do
+@@ -64,36 +123,100 @@
+   for n in s.moduleNames do
+     unless s.moduleNameMap.contains n do throw <| IO.userError s!"import state mirror: {n} not in the map"
+ 
+-/-- The old environment alone: every module's decoded data, extension entries only for the
+-extensions the reader decodes. -/
+-unsafe def assembleOld (d : Decoded) : IO Environment := do
+-  let mut st : MImportState := {}
+-  for (m, md) in d.mods do
+-    st := { moduleNameMap := st.moduleNameMap.insert m (decodedModule m md), moduleNames := st.moduleNames.push m }
+-  checkMirror st
+-  enableInitializersExecution
+-  withImporting do
+-    finalizeImport (unsafeCast st) #[{ module := `Mathlib }] {} (leakEnv := true) (loadExts := true)
++unsafe def kName (e : EnvExtensionEntry) : Name := unsafeCast e
++unsafe def kFst (e : EnvExtensionEntry) : Name := (unsafeCast e : Name × NonScalar).1
++unsafe def kAs {α : Type} (k : α → Name) (e : EnvExtensionEntry) : Name := k (unsafeCast e)
++unsafe def kScoped {α : Type} (k : α → Name) (e : EnvExtensionEntry) : Name :=
++  scopedKey k (unsafeCast e : ScopedEnvExtension.Entry α)
+ 
+-def whitelisted : NameSet := entryDecoders.foldl (fun s (n, _) => s.insert n) {}
++/-- The key of an entry of a decoded extension, read at that extension's entry type. The same
++function reads the newest entries, whose type is layout-identical. -/
++unsafe def rawKeys : List (Name × (EnvExtensionEntry → Name)) := [
++  (Name.mkNum `_private.Lean.Structure 0 ++ `Lean.structureExt, kAs StructureInfo.structName),
++  (`Lean.declRangeExt, kFst), (`Lean.projectionFnInfoExt, kFst),
++  (`Lean.Meta.instanceExtension, kScoped (fun (i : Meta.InstanceEntry) => i.globalName?.getD .anonymous)),
++  (`Lean.classExtension, kAs ClassEntry.name),
++  (`Lean.Meta.coeExt, kScoped (fun (p : Name × NonScalar) => p.1)),
++  (`Lean.protectedExt, kName), (`Lean.aliasExtension, kFst), (`reducibilityCore, kFst),
++  (`reducibilityExtra, kScoped (fun (p : Name × NonScalar) => p.1)),
++  (Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt, kName),
++  (`Lean.docStringExt, kFst), (privName `Lean.DocString.Extension `Lean.inheritDocStringExt, kFst),
++  (`Lean.Parser.Term.Doc.recommendedSpellingByNameExt, kFst),
++  (`Lean.Parser.Tactic.Doc.tacticAlternativeExt, kFst), (`Lean.Parser.Tactic.Doc.tacticDocExtExt, kFst),
++  (`Lean.Parser.Tactic.Doc.tacticNameExt, kFst), (`Lean.Parser.Tactic.Doc.tacticTagExt, kFst),
++  (`Lean.Parser.Tactic.Doc.knownTacticTagExt, kFst),
++  (`Lean.Meta.Match.Extension.extension, kAs Meta.Match.Extension.Entry.name),
++  (`Lean.auxRecExt, kName), (`Lean.noConfusionExt, kFst), (`recExt, kName), (`Lean.Meta.matcherLikeExt, kName),
++  (privName `Lean.AuxRecursor `Lean.sparseCasesOnExt, kName),
++  (privName `Lean.Meta.Constructions.SparseCasesOn `Lean.Meta.sparseCasesOnInfoExt, kFst),
++  (`Lean.auxParentProjInfoExt, kFst), (privName `Lean.OriginalConstKind `Lean.privateConstKindsExt, kFst),
++  (`Lean.noncomputableExt, kName),
++  (`Lean.Compiler.inlineAttrs, kFst), (`Lean.externAttr, kFst), (`Lean.Compiler.implementedByAttr, kFst),
++  (`Lean.exportAttr, kFst), (`Lean.Compiler.specializeAttr, kFst), (`Lean.Linter.deprecatedAttr, kFst),
++  (`Lean.IR.UnboxResult.unboxAttr, kName), (`Lean.neverExtractAttr, kName),
++  (`Lean.Elab.Term.elabWithoutExpectedTypeAttr, kName), (`Lean.matchPatternAttr, kName),
++  (`Lean.ppNoDotAttr, kName), (`Lean.ppUsingAnonymousConstructorAttr, kName), (`Lean.Meta.coeDeclAttr, kName),
++  (`Lean.Compiler.CSimp.ext, kScoped Compiler.CSimp.Entry.thmName),
++  (`Lean.Meta.simpExtension, kScoped simpEntryKey),
++  (`Lean.Meta.defaultInstanceExtension, kAs Meta.DefaultInstanceEntry.instanceName),
++  (`Lean.Meta.Ext.extExtension, kScoped Meta.Ext.ExtTheorem.declName),
++  (`Lean.Meta.unificationHintExtension, kScoped Meta.UnificationHintEntry.val),
++  (privName `Lean.Util.CollectAxioms `Lean.exportedAxiomsExt, kFst),
++  (`Lean.Meta.eqnOptionsExt, kFst), (`Lean.Elab.Structural.eqnInfoExt, kFst), (`Lean.Elab.WF.eqnInfoExt, kFst),
++  (`Lean.Elab.PartialFixpoint.eqnInfoExt, kFst), (`eqnsAttribute, kFst),
++  (`Lean.Meta.congrKindsExt, kFst), (`Lean.Meta.congrExtension, kScoped Meta.SimpCongrTheorem.theoremName)
++]
+ 
+-/-- The key of a newest (natively imported) entry of a decoded extension, read at that
+-extension's entry type. -/
+-unsafe def newestKey (ext : Name) (e : EnvExtensionEntry) : Name :=
+-  let scp {α} (k : α → Name) : Name := scopedKey k (unsafeCast e : ScopedEnvExtension.Entry α)
+-  if ext == Name.mkNum `_private.Lean.Structure 0 ++ `Lean.structureExt then (unsafeCast e : StructureInfo).structName
+-  else if ext == `Lean.Meta.instanceExtension then scp (fun (i : Meta.InstanceEntry) => i.globalName?.getD .anonymous)
+-  else if ext == `Lean.classExtension then (unsafeCast e : ClassEntry).name
+-  else if ext == `Lean.Meta.coeExt || ext == `reducibilityExtra then scp (fun (p : Name × NonScalar) => p.1)
+-  else if ext == `Lean.protectedExt || ext == Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt then
+-    (unsafeCast e : Name)
+-  else (unsafeCast e : Name × NonScalar).1
++/-- Extensions whose newest entries stay as they are: the newest code's own vocabulary
++(parsers, elaborators, delaborators, formatters, the attribute registry) and everything the
++interpreter needs to run that code (IR, compiler data, initializers, `meta` marks, packages). -/
++def keepNewest (e : Name) : Bool :=
++  let s := e.toString
++  let pre (p : String) := s.startsWith p
++  pre "Lean.Parser.parserExtension" || pre "Lean.PrettyPrinter." || pre "Lean.Elab.macroAttribute" ||
++  pre "Lean.Elab.Term.termElabAttribute" || pre "Lean.Elab.Command.commandElabAttribute" ||
++  pre "Lean.Elab.Tactic.tacticElabAttribute" || pre "Lean.Elab.Term.Quotation.precheckAttribute" ||
++  pre "Lean.Elab.Do." || pre "Lean.Elab.Command.inductiveElabAttr" || pre "Lean.Elab.incrementalAttr" ||
++  pre "Lean.Elab.Tactic.Try.tryTacticElabAttribute" || pre "Lean.Elab.Tactic.Grind.symSimprocElabAttribute" ||
++  pre "Lean.Elab.Tactic.Grind.symDSimprocElabAttribute" || pre "Lean.Elab.Tactic.Grind.symDischargerElabAttribute" ||
++  pre "Lean.Elab.Tactic.Grind.grindTacElabAttribute" || pre "Lean.Elab.Tactic.noFallbackAttr" ||
++  pre "Lean.Doc.doc" || pre "Lean.Doc.DeferredCheck.handlerExt" || pre "Lean.Doc.code" ||
++  pre "Lean.IR." || pre "Lean.Compiler.LCNF." || pre "_private.Lean.Compiler." ||
++  pre "Lean.Compiler.nospecializeAttr" || pre "Lean.Compiler.weakSpecializeAttr" ||
++  s == "specMap" || s == "internalSpecMap" || pre "Lean.builtinInitAttr" || pre "Lean.regularInitAttr" ||
++  pre "Lean.attributeExtension"
+ 
++structure Counts where
++  replaced : Nat := 0
++  dupDropped : Nat := 0
++  reservedDropped : Std.HashMap String Nat := {}
++  keptNewest : Std.HashMap Name Nat := {}
++  unreachableOld : Std.HashMap Name Nat := {}
++  droppedNewest : Std.HashMap Name Nat := {}
++  emptied : Std.HashMap Name Nat := {}
++  kept : Std.HashMap Name Nat := {}
++  oldAdded : Std.HashMap Name Nat := {}
++
++def bump (m : Std.HashMap Name Nat) (k : Name) (n : Nat) : Std.HashMap Name Nat :=
++  if n == 0 then m else m.insert k (m.getD k 0 + n)
++
++/-- The suffix class of a realizable name — an equation, unfolding, splitter, congruence,
++injectivity or induction theorem Lean derives on demand from another declaration — or `none`. -/
++def reservedSuffix? (s : String) : Option String :=
++  let isNatAfter (p : String) := s.startsWith p && (s.drop p.length).toString.isNat
++  if isNatAfter "eq_" then some "eq_<n>"
++  else if s == "eq_def" || s == "eq_unfold" || s == "splitter" || s == "congr_simp" || s == "hinj" then some s
++  else if isNatAfter "congr_eq_" then some "congr_eq_<n>"
++  else if isNatAfter "hcongr_" then some "hcongr_<n>"
++  else if s.endsWith "induct" then some "*induct"
++  else none
++
+ /-- The newest import, with every constant that the old version also has replaced by the old
+ `ConstantInfo` in place (same module index, so the newest IR and code stay addressable), old-only
+-constants in one extra module at the end, and — if `dataExts` — the decoded extensions' entries
+-replaced by the old ones, regrouped by the module index each key gets and sorted. -/
+-unsafe def assembleHybrid (d : Decoded) (dataExts : Bool) : IO (Environment × String) := do
++constants in one extra module at the end, newest-only realizations of old declarations dropped,
++and every extension in one of three classes: decoded (old entries, newest kept only for keys the
++old version does not have), kept newest (`keepNewest`), or emptied. -/
++unsafe def assembleHybrid (d : Decoded) : IO (Environment × String) := do
+   initSearchPath (← findSysroot)
+   enableInitializersExecution
+   let imports : Array Import := #[{ module := `Mathlib }]
+@@ -107,37 +230,19 @@
+       unless oldConsts.contains n do
+         oldConsts := oldConsts.insert n c
+         oldOrder := oldOrder.push n
+-  let mainPart (im : MImportedModule) : Nat :=
+-    if (im.parts[0]!.1).isModule then 2 else 0
+-  -- module index each name gets: first newest module listing it
+-  let mut idxOf : Std.HashMap Name Nat := {}
+-  for i in [0:ms.moduleNames.size] do
+-    let im := ms.moduleNameMap[ms.moduleNames[i]!]!
+-    if im.parts.isEmpty then continue
+-    for n in (im.parts[mainPart im]!.1).constNames do
+-      unless idxOf.contains n do idxOf := idxOf.insert n i
+-  let extraIdx := ms.moduleNames.size
+-  -- old entries per module index
+-  let mut perMod : Std.HashMap Nat (Std.HashMap Name (Array Keyed)) := {}
+-  if dataExts then
+-    for (e, es) in d.keyed do
+-      for k in es do
+-        let i := idxOf.getD k.1 extraIdx
+-        let m := perMod.getD i {}
+-        perMod := perMod.insert i (m.insert e (m.getD e #[] |>.push k))
+-  let mut oldKeys : Std.HashMap Name NameSet := {}
+-  for (e, es) in d.keyed do
+-    oldKeys := oldKeys.insert e (es.foldl (fun s k => s.insert k.1) {})
+-  let sortKeyed (ks : Array Keyed) : Array EnvExtensionEntry :=
+-    (ks.qsort (fun a b => Name.quickLt a.1 b.1)).map (·.2)
+-  let sortedEntries (i : Nat) : Array (Name × Array EnvExtensionEntry) :=
+-    (perMod.getD i {}).toArray.map fun (e, ks) => (e, sortKeyed ks)
+-  let mut keptNewest := 0
+-  let mut droppedNewest := 0
++  let isModuleSys (im : MImportedModule) : Bool := (im.parts[0]!.1).isModule
++  let mainPart (im : MImportedModule) : Nat := if isModuleSys im then 2 else 0
++  let mut c : Counts := {}
++  let isReservedNewest (n : Name) : Option String :=
++    match privateToUserName n with
++    | .str p sfx =>
++      match reservedSuffix? sfx with
++      | some cls => if oldConsts.contains p || oldConsts.contains (privateToUserName p) then some cls else none
++      | none => none
++    | _ => none
++  -- constants first: the rewritten constant lists decide `const2ModIdx`
+   let mut replaced : NameSet := {}
+   let mut out := ms
+-  let mut nReplaced := 0
+-  let mut nDropped := 0
+   for i in [0:ms.moduleNames.size] do
+     let name := ms.moduleNames[i]!
+     let im := ms.moduleNameMap[name]!
+@@ -146,47 +251,114 @@
+     let (md, region) := im.parts[pi]!
+     let mut cn := #[]
+     let mut cs := #[]
+-    for n in md.constNames, c in md.constants do
++    for n in md.constNames, ci in md.constants do
+       match oldConsts[n]? with
+       | some oc =>
+         if replaced.contains n then
+-          nDropped := nDropped + 1
++          c := { c with dupDropped := c.dupDropped + 1 }
+         else
+           replaced := replaced.insert n
+-          nReplaced := nReplaced + 1
++          c := { c with replaced := c.replaced + 1 }
+           cn := cn.push n; cs := cs.push oc
+-      | none => cn := cn.push n; cs := cs.push c
+-    let mut entries := md.entries
+-    if dataExts then
+-      let olds := perMod.getD i {}
+-      let mut merged : Array (Name × Array EnvExtensionEntry) := #[]
+-      let mut seenExt : NameSet := {}
+-      for (e, es) in md.entries do
+-        if whitelisted.contains e then
+-          let ok := oldKeys.getD e {}
+-          let kept := es.filterMap fun x =>
+-            let k := newestKey e x
+-            if oldConsts.contains k || ok.contains k then none else some (k, x)
+-          keptNewest := keptNewest + kept.size
+-          droppedNewest := droppedNewest + (es.size - kept.size)
+-          merged := merged.push (e, sortKeyed (kept ++ olds.getD e #[]))
+-          seenExt := seenExt.insert e
+-        else
+-          merged := merged.push (e, es)
+-      for (e, ks) in olds.toArray do
+-        unless seenExt.contains e do merged := merged.push (e, sortKeyed ks)
+-      entries := merged
+-    let md' := { md with constNames := cn, constants := cs, entries }
+-    out := { out with moduleNameMap := out.moduleNameMap.insert name { im with parts := im.parts.set! pi (md', region) } }
++      | none =>
++        match isReservedNewest n with
++        | some cls => c := { c with reservedDropped := c.reservedDropped.insert cls (c.reservedDropped.getD cls 0 + 1) }
++        | none => cn := cn.push n; cs := cs.push ci
++    out := { out with moduleNameMap := out.moduleNameMap.insert name { im with parts := im.parts.set! pi ({ md with constNames := cn, constants := cs }, region) } }
+   let mut xn := #[]
+   let mut xc := #[]
+   for n in oldOrder do
+     unless replaced.contains n do
+       xn := xn.push n; xc := xc.push oldConsts[n]!
++  -- `const2ModIdx` exactly as v4.34.1's `finalizeImport` will build it
++  let extraIdx := ms.moduleNames.size
++  let mut idxOf : Std.HashMap Name Nat := {}
++  for i in [0:ms.moduleNames.size] do
++    let im := out.moduleNameMap[ms.moduleNames[i]!]!
++    if im.parts.isEmpty then continue
++    for n in (im.parts[mainPart im]!.1).constNames do
++      unless idxOf.contains n do idxOf := idxOf.insert n i
++    let irData := if im.irParts.isEmpty || !isModuleSys im then im.parts[mainPart im]!.1 else im.irParts.back!.1
++    for n in irData.extraConstNames do
++      unless idxOf.contains n do idxOf := idxOf.insert n i
++  for n in xn do
++    unless idxOf.contains n do idxOf := idxOf.insert n extraIdx
++  -- old entries: by key into the module the key belongs to, or in order into the extra module
++  let keyOf := rawKeys
++  let mut perMod : Std.HashMap Nat (Std.HashMap Name (Array Keyed)) := {}
++  let mut stateOld : Array (Name × Array EnvExtensionEntry) := #[]
++  let mut oldKeys : Std.HashMap Name NameSet := {}
++  for (e, es) in d.keyed do
++    oldKeys := oldKeys.insert e (es.foldl (fun s (_, k) => s.insert k.1) {})
++    match placementOf e with
++    | some .byKey =>
++      let mut added := 0
++      for (src, k) in es do
++        -- what the old version answers for a key is the entry in the module owning the key
++        if d.old.modOf[k.1]? == some d.old.moduleNames[src]! then
++          let i := idxOf.getD k.1 extraIdx
++          let m := perMod.getD i {}
++          perMod := perMod.insert i (m.insert e (m.getD e #[] |>.push k))
++          added := added + 1
++      c := { c with oldAdded := bump c.oldAdded e added, unreachableOld := bump c.unreachableOld e (es.size - added) }
++    | some .allModules =>
++      let mut rank : Std.HashMap Nat Nat := {}
++      for (src, k) in es do
++        let r ← match rank[src]? with
++          | some r => pure r
++          | none => do let r := rank.size; rank := rank.insert src r; pure r
++        let m := perMod.getD r {}
++        perMod := perMod.insert r (m.insert e (m.getD e #[] |>.push k))
++      c := { c with oldAdded := bump c.oldAdded e es.size }
++    | some .state =>
++      stateOld := stateOld.push (e, es.map (·.2.2))
++      c := { c with oldAdded := bump c.oldAdded e es.size }
++    | _ => pure ()
++  let sortKeyed (ks : Array Keyed) : Array EnvExtensionEntry :=
++    (ks.qsort (fun a b => Name.quickLt a.1 b.1)).map (·.2)
++  for i in [0:ms.moduleNames.size] do
++    let name := ms.moduleNames[i]!
++    let im := out.moduleNameMap[name]!
++    if im.parts.isEmpty then continue
++    let pi := mainPart im
++    let (md, region) := im.parts[pi]!
++    let olds := perMod.getD i {}
++    let mut merged : Array (Name × Array EnvExtensionEntry) := #[]
++    let mut seenExt : NameSet := {}
++    for (e, es) in md.entries do
++      match placementOf e with
++      | some pl =>
++        if pl == .perModule || pl == .keysOnly then
++          c := { c with emptied := bump c.emptied e es.size }
++          continue
++        let some kf := keyOf.lookup e
++          | throw <| IO.userError s!"hybrid: no key function for decoded extension {e}"
++        let ok := oldKeys.getD e {}
++        let kept := es.filterMap fun x =>
++          let k := kf x
++          if oldConsts.contains k || ok.contains k then none else some (k, x)
++        c := { c with keptNewest := bump c.keptNewest e kept.size, droppedNewest := bump c.droppedNewest e (es.size - kept.size) }
++        let entries := if pl == .byKey then sortKeyed (kept ++ olds.getD e #[]) else kept.map (·.2)
++        merged := merged.push (e, entries)
++        seenExt := seenExt.insert e
++      | none =>
++        if keepNewest e then
++          c := { c with kept := bump c.kept e es.size }
++          merged := merged.push (e, es)
++        else
++          c := { c with emptied := bump c.emptied e es.size }
++    for (e, ks) in olds.toArray do
++      unless seenExt.contains e do merged := merged.push (e, sortKeyed ks)
++    out := { out with moduleNameMap := out.moduleNameMap.insert name { im with parts := im.parts.set! pi ({ md with entries := merged }, region) } }
+   let extraName := `_olean_reader.OldOnly
++  let mut extraEntries := ((perMod.getD extraIdx {}).toArray.map fun (e, ks) => (e, sortKeyed ks))
++  for (e, es) in stateOld do
++    match extraEntries.findIdx? (·.1 == e) with
++    | some j => extraEntries := extraEntries.modify j fun (e, xs) => (e, xs ++ es)
++    | none => extraEntries := extraEntries.push (e, es)
+   let extra : ModuleData := {
+     isModule := false, imports := #[], constNames := xn, constants := xc,
+-    extraConstNames := #[], entries := if dataExts then sortedEntries extraIdx else #[] }
++    extraConstNames := #[], entries := extraEntries }
+   out := {
+     moduleNameMap := out.moduleNameMap.insert extraName (decodedModule extraName extra)
+     moduleNames := out.moduleNames.push extraName }
+@@ -194,7 +366,24 @@
+   enableInitializersExecution
+   let env ← withImporting do
+     finalizeImport (unsafeCast out) imports {} (leakEnv := true) (loadExts := true)
+-  let msg := s!"hybrid: newest modules {ms.moduleNames.size}, old constants {oldConsts.size}, replaced in place {nReplaced}, later duplicates dropped {nDropped}, old-only {xn.size} (extra module), data extensions old: {dataExts} (newest entries kept for keys the old version lacks {keptNewest}, replaced {droppedNewest})"
++  -- `idxOf` is what the extensions were placed by; it must be what the environment answers
++  let mut idxMismatch := 0
++  for (n, i) in idxOf.toList do
++    if (env.getModuleIdxFor? n).map (·.toNat) != some i then idxMismatch := idxMismatch + 1
++  if idxMismatch != 0 then
++    throw <| IO.userError s!"hybrid: {idxMismatch} names placed by a module index the environment does not give them"
++  let fmt (m : Std.HashMap Name Nat) : String :=
++    String.intercalate "\n" <| (m.toArray.qsort (fun a b => a.1.toString < b.1.toString)).toList.map fun (e, k) => s!"    {e} {k}"
++  let fmtS (m : Std.HashMap String Nat) : String :=
++    String.intercalate ", " <| (m.toArray.qsort (fun a b => a.1 < b.1)).toList.map fun (e, k) => s!"{e} {k}"
++  let msg := s!"hybrid: newest modules {ms.moduleNames.size}, old constants {oldConsts.size}, replaced in place {c.replaced}, later duplicates dropped {c.dupDropped}, old-only {xn.size} (extra module), names checked against const2ModIdx {idxOf.size}
++  newest-only realizations of old declarations dropped: {fmtS c.reservedDropped}
++  decoded extensions, old entries added:\n{fmt c.oldAdded}
++  decoded extensions, old entries the old version cannot reach (stored outside the module owning the key), not added:\n{fmt c.unreachableOld}
++  decoded extensions, newest entries dropped (key is an old name or has an old entry):\n{fmt c.droppedNewest}
++  decoded extensions, newest entries kept (key unknown to the old version):\n{fmt c.keptNewest}
++  kept newest (code vocabulary), entries:\n{fmt c.kept}
++  emptied (entries dropped, nothing added):\n{fmt c.emptied}"
+   return (env, msg)
+ 
+ end Assemble
+
+=== HybridMain.lean (the hybrid executable: the one substitution)
+import OleanReader
+import Assemble
+import Extract
+open Lean OleanReader Litedoc4
+
+/-! The extractor of `Extract.lean`, unchanged, run in the hybrid: where the native run calls
+`importModules`, this builds the hybrid environment and the old version's `World` instead. -/
+
+def readSearchPath (f : System.FilePath) : IO (Array System.FilePath) := do
+  return (← IO.FS.lines f).filter (!·.isEmpty) |>.map System.FilePath.mk
+
+structure HardStops where
+  verso : IO.Ref (Array Name)
+  builtinDoc : IO.Ref (Array Name)
+
+/-- The old version's `World`: every answer from the decoded data. A docstring the old data
+holds only as Verso, or does not hold at all while the running Lean's builtin table has one, is
+not answered: the text says so, and the run counts it. -/
+def hybridWorld (env : Environment) (o : Assemble.OldWorld) (hs : HardStops) : World :=
+  { moduleNames := o.moduleNames
+    moduleIndex? := fun m => o.index[m]?
+    constNames := fun i => o.constNames[i]!
+    imports := fun i => o.imports[i]!
+    moduleOf? := fun n => o.modOf[n]?
+    contains := fun n => o.consts.contains n
+    moduleDocs := fun m => o.modDocs.getD m #[]
+    docString? := fun n => do
+      let start := (Parser.Tactic.Doc.alternativeOfTactic env n).getD n
+      let mut t := start
+      let mut steps := 0
+      while steps < 64 do
+        match o.inherit[t]? with
+        | some u => t := u; steps := steps + 1
+        | none => break
+      if o.docKeys.contains t then
+        findDocString? env n
+      else if o.versoKeys.contains t then
+        hs.verso.modify (·.push n)
+        return some s!"<hard stop: the docstring of {t} is Verso and was not decoded>"
+      else
+        match ← findDocString? env n with
+        | none => return none
+        | some _ =>
+          hs.builtinDoc.modify (·.push n)
+          return some s!"<hard stop: the docstring of {t} came from v{Lean.versionString}'s builtin table>"
+    tactics := pure none }
+
+unsafe def hybridMain (args : List String) : IO UInt32 := do
+  match args with
+  | spFile :: modules :: events :: rest =>
+    let some cfg := (parseArgs (modules :: events :: rest)).toOption
+      | IO.eprintln "hybrid: bad extractor arguments"; return 2
+    let sp ← readSearchPath spFile
+    let targets := (← IO.FS.lines modules).filter (!·.isEmpty) |>.map String.toName
+    let t0 ← IO.monoMsNow
+    let mods ← closure sp targets
+    let t1 ← IO.monoMsNow
+    IO.eprintln s!"closure {mods.size} modules from {targets.size} roots in {t1 - t0} ms"
+    let d ← Assemble.decodeAll sp mods
+    let t2 ← IO.monoMsNow
+    IO.eprintln s!"decoded {d.mods.size} modules in {t2 - t1} ms; constants {d.stats.constants}, entries decoded {d.stats.entriesDecoded}, entries not decoded {d.stats.entriesSkipped} in {d.stats.skippedExts.size} extensions"
+    for (e, k) in d.stats.decodedExts.toArray.qsort (fun a b => a.1.toString < b.1.toString) do
+      IO.eprintln s!"  decoded ext {e} {k}"
+    for (e, k) in d.stats.skippedExts.toArray.qsort (fun a b => a.2 > b.2) do
+      IO.eprintln s!"  not decoded ext {e} {k}"
+    IO.eprintln s!"old world: modules {d.old.moduleNames.size}, constants {d.old.consts.size}, const2ModIdx {d.old.modOf.size}, modules with module docs {d.old.modDocs.size}, docstring keys {d.old.docKeys.size}, Verso docstring keys {d.old.versoKeys.size}, inherit_doc {d.old.inherit.size}, stored axiom lists {d.old.axiomKeys.size}"
+    let (env, msg) ← Assemble.assembleHybrid d
+    let t3 ← IO.monoMsNow
+    IO.eprintln s!"{msg}\nassembled in {t3 - t2} ms"
+    let builtinRanges := (← builtinDeclRanges.get).size
+    builtinDeclRanges.set {}
+    IO.eprintln s!"builtinDeclRanges of v{Lean.versionString} cleared: {builtinRanges} entries"
+    let mut noAxioms := 0
+    let mut targetConsts := 0
+    let mut walked : Array String := #[]
+    for m in targets do
+      for n in d.old.constNames[d.old.index[m]!]! do
+        targetConsts := targetConsts + 1
+        unless d.old.axiomKeys.contains n do
+          noAxioms := noAxioms + 1
+          walked := walked.push n.toString
+    if let some p := (← IO.getEnv "HYBRID_NO_AXIOM_LIST") then
+      IO.FS.writeFile p ("\n".intercalate walked.toList ++ "\n")
+    IO.eprintln s!"target-module constants without a stored axiom list (collectAxioms walks the value there): {noAxioms} of {targetConsts}"
+    let hs : HardStops := { verso := ← IO.mkRef #[], builtinDoc := ← IO.mkRef #[] }
+    let world := hybridWorld env d.old hs
+    let code ← Litedoc4.run cfg (some (env, world))
+    let t4 ← IO.monoMsNow
+    let v ← hs.verso.get
+    let b ← hs.builtinDoc.get
+    IO.eprintln s!"extraction {t4 - t3} ms; total {t4 - t0} ms"
+    IO.eprintln s!"HARD STOPS: Verso docstrings not decoded {v.size}, docstrings only in the builtin table {b.size}, tactic table 1 (no module carries tactics)"
+    for n in v.toList.take 20 do IO.eprintln s!"  verso: {n}"
+    for n in b.toList.take 20 do IO.eprintln s!"  builtin: {n}"
+    return code
+  | _ =>
+    IO.eprintln "usage: hybrid <searchpath-file> <modules.txt> <events.jsonl> [extractor options]"
+    return 2
+
+unsafe def main (args : List String) : IO UInt32 := hybridMain args
+
+=== compare.py (the comparator)
+"""Field-by-field comparison of two extractor outputs (IR tree + link index).
+
+usage: compare.py <native-run-dir> <hybrid-run-dir> <details.jsonl> [--modules <list>]
+Each run dir holds ir/ (index.json, modules/, deps/) and link-index.lidx.
+Every module, declaration, member, dependency entry and link-index line is reconciled in both
+directions: present on one side only is counted, never skipped. There is no exception list:
+every key either side writes is compared. Differences go to <details.jsonl>, one per line.
+"""
+import json, os, sys
+from collections import Counter
+
+nat_dir, hyb_dir, details_path = sys.argv[1], sys.argv[2], sys.argv[3]
+only = None
+if '--modules' in sys.argv:
+    only = [l.strip() for l in open(sys.argv[sys.argv.index('--modules') + 1]) if l.strip()]
+
+eq, tot = Counter(), Counter()
+side = Counter()
+details = open(details_path, 'w')
+
+
+def note(field, where, a, b):
+    details.write(json.dumps({'field': field, 'where': where, 'native': a, 'hybrid': b},
+                             ensure_ascii=False) + '\n')
+
+
+def cmp(field, where, a, b):
+    tot[field] += 1
+    if a == b:
+        eq[field] += 1
+    else:
+        note(field, where, a, b)
+
+
+def reconcile(what, a_keys, b_keys, where):
+    """Counts keys present on one side only; returns the keys present on both, in a's order."""
+    sa, sb = set(a_keys), set(b_keys)
+    for k in a_keys:
+        if k not in sb:
+            side['native-only ' + what] += 1
+            note(what + '.presence', where, k, None)
+    for k in b_keys:
+        if k not in sa:
+            side['hybrid-only ' + what] += 1
+            note(what + '.presence', where, None, k)
+    both = [k for k in a_keys if k in sb]
+    tot[what + '.presence'] += len(sa | sb)
+    eq[what + '.presence'] += len(both)
+    return both
+
+
+def compare_obj(prefix, where, a, b, skip=()):
+    for k in sorted(set(a) | set(b)):
+        if k in skip:
+            continue
+        cmp(prefix + k, where, a.get(k, '<absent>'), b.get(k, '<absent>'))
+
+
+def unique_keys(items, key):
+    """Pairs items by key; a key repeated within one side is suffixed by its occurrence count."""
+    seen, out = Counter(), []
+    for it in items:
+        k = key(it)
+        seen[k] += 1
+        out.append((k if seen[k] == 1 else f'{k}#{seen[k]}', it))
+    return out
+
+
+ia = json.load(open(os.path.join(nat_dir, 'ir', 'index.json')))
+ib = json.load(open(os.path.join(hyb_dir, 'ir', 'index.json')))
+compare_obj('index.', 'index.json', ia, ib, skip=('modules', 'dependencyMaps'))
+ma = {m['module']: m for m in ia['modules']}
+mb = {m['module']: m for m in ib['modules']}
+for m in reconcile('index.module', [m['module'] for m in ia['modules']], [m['module'] for m in ib['modules']], 'index.json'):
+    compare_obj('index.module.', m, ma[m], mb[m])
+cmp('index.moduleOrder', 'index.json', [m['module'] for m in ia['modules']], [m['module'] for m in ib['modules']])
+da_ = {d['package']: d for d in ia['dependencyMaps']}
+db_ = {d['package']: d for d in ib['dependencyMaps']}
+for p in reconcile('index.dependencyMap', list(da_), list(db_), 'index.json'):
+    compare_obj('index.dependencyMap.', p, da_[p], db_[p])
+
+mods_a = sorted(f[:-5] for f in os.listdir(os.path.join(nat_dir, 'ir', 'modules')))
+mods_b = sorted(f[:-5] for f in os.listdir(os.path.join(hyb_dir, 'ir', 'modules')))
+if only is not None:
+    keep = set(only)
+    mods_a = [m for m in mods_a if m in keep]
+    mods_b = [m for m in mods_b if m in keep]
+for m in reconcile('module', mods_a, mods_b, 'modules/'):
+    A = json.load(open(os.path.join(nat_dir, 'ir', 'modules', m + '.json')))
+    B = json.load(open(os.path.join(hyb_dir, 'ir', 'modules', m + '.json')))
+    compare_obj('module.', m, A, B, skip=('declarations',))
+    for i in range(max(len(A.get('moduleDocs', [])), len(B.get('moduleDocs', [])))):
+        x = A['moduleDocs'][i] if i < len(A.get('moduleDocs', [])) else '<absent>'
+        y = B['moduleDocs'][i] if i < len(B.get('moduleDocs', [])) else '<absent>'
+        cmp('moduleDoc(item)', f'{m}#{i}', x, y)
+    ta = unique_keys(A.get('tactics', []), lambda t: t['internalName'])
+    tb = unique_keys(B.get('tactics', []), lambda t: t['internalName'])
+    tda, tdb = dict(ta), dict(tb)
+    for t in reconcile('tactic', [k for k, _ in ta], [k for k, _ in tb], m):
+        compare_obj('tactic.', f'{m}:{t}', tda[t], tdb[t])
+    pa = unique_keys(A['declarations'], lambda d: d['name'])
+    pb = unique_keys(B['declarations'], lambda d: d['name'])
+    dA, dB = dict(pa), dict(pb)
+    for n in reconcile('declaration', [k for k, _ in pa], [k for k, _ in pb], m):
+        x, y = dA[n], dB[n]
+        where = f'{m}:{n}'
+        compare_obj('decl.', where, x, y)
+        xa, ya = x.get('members', []), y.get('members', [])
+        ua = unique_keys(xa, lambda t: (t.get('label'), t.get('name')))
+        ub = unique_keys(ya, lambda t: (t.get('label'), t.get('name')))
+        uA, uB = dict(ua), dict(ub)
+        for k in reconcile('member', [k for k, _ in ua], [k for k, _ in ub], where):
+            compare_obj('member.', f'{where}:{k}', uA[k], uB[k])
+        ea, eb = x.get('equations', []), y.get('equations', [])
+        for i in range(max(len(ea), len(eb))):
+            cmp('equation(item)', f'{where}#{i}', ea[i] if i < len(ea) else '<absent>', eb[i] if i < len(eb) else '<absent>')
+        ra = [tuple(r) for r in x.get('refs', [])]
+        rb = [tuple(r) for r in y.get('refs', [])]
+        for r in reconcile('ref(pair)', ra, rb, where):
+            pass
+
+deps_a = sorted(os.listdir(os.path.join(nat_dir, 'ir', 'deps')))
+deps_b = sorted(os.listdir(os.path.join(hyb_dir, 'ir', 'deps')))
+for f in reconcile('depFile', deps_a, deps_b, 'deps/'):
+    A = json.load(open(os.path.join(nat_dir, 'ir', 'deps', f)))
+    B = json.load(open(os.path.join(hyb_dir, 'ir', 'deps', f)))
+    compare_obj('depFile.', f, A, B, skip=('declarations',))
+    for n in reconcile('depEntry', list(A['declarations']), list(B['declarations']), f):
+        cmp('depEntry.module', f'{f}:{n}', A['declarations'][n], B['declarations'][n])
+
+
+def read_lidx(p):
+    marker, at, groups, order = None, [], {}, []
+    cur = None
+    for line in open(p, encoding='utf-8'):
+        line = line.rstrip('\n')
+        if marker is None:
+            marker = line
+            continue
+        if line.startswith('@'):
+            at.append(line[1:])
+        elif line.startswith('\t'):
+            parts = line[1:].split('\t')
+            groups[cur].append((parts[0], tuple(parts[1:])))
+        else:
+            cur = line
+            order.append(cur)
+            groups[cur] = []
+    return marker, at, groups, order
+
+
+la, lb = read_lidx(os.path.join(nat_dir, 'link-index.lidx')), read_lidx(os.path.join(hyb_dir, 'link-index.lidx'))
+cmp('lidx.marker', 'lidx', la[0], lb[0])
+cmp('lidx.@section(whole, in order)', 'lidx', la[1], lb[1])
+for n in reconcile('lidx.@module', la[1], lb[1], 'lidx'):
+    pass
+cmp('lidx.groupOrder', 'lidx', la[3], lb[3])
+for g in reconcile('lidx.group', la[3], lb[3], 'lidx'):
+    ga = unique_keys(la[2][g], lambda t: t[0])
+    gb = unique_keys(lb[2][g], lambda t: t[0])
+    gA, gB = dict(ga), dict(gb)
+    for n in reconcile('lidx.declaration', [k for k, _ in ga], [k for k, _ in gb], g):
+        cmp('lidx.range', f'{g}:{n}', list(gA[n][1]), list(gB[n][1]))
+
+details.close()
+print(f"{'field':44} {'equal':>9} / {'compared':<9}  {'not equal':>9}")
+for k in sorted(tot):
+    print(f"{k:44} {eq[k]:>9} / {tot[k]:<9}  {tot[k] - eq[k]:>9}")
+print('present on one side only:')
+for k in sorted(side):
+    print(f'  {k}: {side[k]}')
+if not side:
+    print('  none')
+
+=== classify.py (cause classes)
+"""Classifies the differences compare.py wrote, field by field.
+
+usage: classify.py <details.jsonl> <examples-per-class>
+Rules are applied in order; the first that holds names the cause. Code-span and reference
+fields are attributed to the printed text of the same declaration when that text differs too.
+"""
+import json, re, sys
+from collections import Counter, defaultdict
+
+path, k = sys.argv[1], int(sys.argv[2])
+recs = [json.loads(l) for l in open(path)]
+by_field = defaultdict(list)
+for r in recs:
+    by_field[r['field']].append(r)
+
+TEXT = ('decl.type', 'decl.binders', 'decl.equations', 'decl.members')
+text_diff_decls = defaultdict(set)
+for f in TEXT:
+    for r in by_field.get(f, []):
+        text_diff_decls[r['where']].add(f)
+member_text_diff = {r['where'] for r in by_field.get('member.text', [])} | \
+                   {r['where'] for r in by_field.get('member.binders', [])}
+eq_count_diff = {r['where'] for r in by_field.get('decl.equations', []) if len(r['native']) != len(r['hybrid'])}
+
+
+def s(x):
+    if isinstance(x, str):
+        return x
+    if isinstance(x, list) and all(isinstance(y, str) for y in x):
+        return '\x1f'.join(x)
+    return json.dumps(x, ensure_ascii=False)
+
+
+def count(sub, x):
+    return s(x).count(sub)
+
+
+BINDER_PRED = re.compile(r"[∑∏⋃⋂⨆⨅] \S+ [<>≤≥] ")
+MANIFOLD = re.compile(r"(mfderiv|MDiff|MFDeriv|mvfderiv|mlieBracket|ContMDiff)\w*(\[|%)")
+
+
+def print_class(a, b):
+    a, b = s(a), s(b)
+    if '<hard stop' in b:
+        return 'H  hard stop (value not produced from old data)'
+    if count('setOf fun', b) > count('setOf fun', a):
+        return 'F1 set-builder {x | p} printed as setOf fun x => p'
+    if count('↧', b) > count('↧', a):
+        return 'F2 new ↧ notation replaces an X.of application'
+    if count('⊆', b) > count('⊆', a) and count('≤', b) < count('≤', a):
+        return 'F3 ≤ on sets printed as ⊆'
+    if count('⊂', b) > count('⊂', a) and count('<', b) < count('<', a):
+        return 'F3 < on sets printed as ⊂'
+    if count('@', b) > count('@', a):
+        return 'F4 more explicit @-applications'
+    if MANIFOLD.search(b) or count('T%', a) > count('T%', b):
+        return 'F5a manifold notation of the newest Mathlib (mfderiv[s], HasMFDerivAt%, UniqueMDiff[s]; T% not printed)'
+    if BINDER_PRED.search(b) and not BINDER_PRED.search(a):
+        return 'F5b big-operator binder predicate (∑ j ∈ Finset.Ioi i printed as ∑ j > i)'
+    if count('□', a) > count('□', b) or count('⋔', a) > count('⋔', b):
+        return 'F5c category notation □ / ⋔ printed by v4.31.0 only'
+    if count('=ᵇ', b) > count('=ᵇ', a):
+        return 'F5d =ᶠ[residual α] printed as =ᵇ'
+    if ':= by' in a and ':= by' in b and a.split(':= by')[0] == b.split(':= by')[0]:
+        return 'A2 autoParam tactic text read from the newest IR (same-named syntax constant)'
+    if count('match', b) > count('match', a):
+        return 'G2 equation not split: the newest generator kept the match of the definition'
+    ta, tb = re.findall(r"[\w.'₀-₉]+", a), re.findall(r"[\w.'₀-₉]+", b)
+    if len(ta) == len(tb) and all(x == y or x.endswith('.' + y) or y.endswith('.' + x) or
+                                  x.split('.')[-1] == y.split('.')[-1] for x, y in zip(ta, tb)):
+        return 'D  namespace qualification only'
+    return 'F6 rest'
+
+
+def tagged_consts(sp):
+    out = Counter()
+
+    def walk(x):
+        if isinstance(x, list):
+            if len(x) >= 4 and isinstance(x[0], int) and x[2] == 1 and isinstance(x[3], str):
+                out[x[3]] += 1
+            else:
+                for y in x:
+                    walk(y)
+    walk(sp)
+    return out
+
+
+def span_only(a, b):
+    lost = tagged_consts(a) - tagged_consts(b)
+    gained = tagged_consts(b) - tagged_consts(a)
+    if not gained and lost and set(lost) <= {'Filter.EventuallyEq', 'Filter.EventuallyLE'}:
+        return 'S  =ᵐ[μ] / ≤ᵐ[μ] token carries no constant tag in the newest Mathlib (same text, one link fewer)'
+    return 'S? span difference with the printed text equal'
+
+
+def classify(field, r):
+    a, b, w = r['native'], r['hybrid'], r['where']
+    if field == 'decl.attrs':
+        if s(a).replace('implicit_reducible', 'instance_reducible') == s(b):
+            return 'R1 reducibility attribute: v4.31.0 spells it implicit_reducible, the running v4.34.1 instance_reducible'
+        return 'R? other attribute difference'
+    if field in ('decl.typeCode', 'decl.binderCode', 'decl.equationCode'):
+        if text_diff_decls.get(w):
+            return 'follows a printed-text difference of the same declaration'
+        return span_only(a, b)
+    if field in ('decl.refs', 'ref(pair).presence'):
+        if text_diff_decls.get(w):
+            return 'follows a printed-text difference of the same declaration'
+        name = (a or b)[1] if field == 'ref(pair).presence' else None
+        if field == 'ref(pair).presence' and name in ('Filter.EventuallyEq', 'Filter.EventuallyLE'):
+            return 'S  =ᵐ[μ] / ≤ᵐ[μ] token carries no constant tag in the newest Mathlib (same text, one link fewer)'
+        if field == 'decl.refs':
+            gone = Counter(map(tuple, a)) - Counter(map(tuple, b))
+            if not (Counter(map(tuple, b)) - Counter(map(tuple, a))) and {x[1] for x in gone} <= {'Filter.EventuallyEq', 'Filter.EventuallyLE'}:
+                return 'S  =ᵐ[μ] / ≤ᵐ[μ] token carries no constant tag in the newest Mathlib (same text, one link fewer)'
+        return 'E  references collected by an equation attempt that failed on both sides at different points'
+    if field in ('member.code', 'member.binderCode'):
+        return 'follows a printed-text difference of the same member' if w in member_text_diff else span_only(a, b)
+    if field == 'decl.equations' and len(a) != len(b):
+        return 'G  equation generation differs (newest generator on old definitions): number of equations differs'
+    if field == 'equation(item)' and '<absent>' in (s(a), s(b)):
+        return 'G  equation generation differs (newest generator on old definitions): number of equations differs'
+    if field == 'equation(item)' and w.rsplit('#', 1)[0] in eq_count_diff:
+        return 'G  equation generation differs (newest generator on old definitions): number of equations differs'
+    if field == 'decl.members':
+        ta, tb = [m.get('text') for m in a], [m.get('text') for m in b]
+        ba, bb = [m.get('binders') for m in a], [m.get('binders') for m in b]
+        if ta == tb and ba == bb:
+            return span_only([m.get('code') for m in a] + [m.get('binderCode') for m in a],
+                             [m.get('code') for m in b] + [m.get('binderCode') for m in b])
+        return print_class(json.dumps([ta, ba], ensure_ascii=False), json.dumps([tb, bb], ensure_ascii=False))
+    if field in ('decl.type', 'decl.binders', 'decl.equations', 'equation(item)', 'member.text',
+                 'member.binders'):
+        return print_class(a, b)
+    if field in ('decl.doc', 'member.doc'):
+        if '<hard stop' in s(b):
+            return 'H  hard stop (value not produced from old data)'
+        if s(a).replace('/doc/reference/4.31.0/', '/doc/reference/4.34.1/') == s(b):
+            return 'M  manual link rewritten with the running Lean version (4.31.0 -> 4.34.1)'
+        return 'docstring text differs'
+    if field == 'declaration.presence':
+        return 'A  declaration failed in the hybrid: an autoParam syntax constant has no IR in the newest environment'
+    if field == 'decl.index':
+        return 'I  position shifted by declarations missing earlier in the same module'
+    if field in ('module.tactics', 'tactic.presence'):
+        return 'T  hard stop: the tactic table is not answered from old data'
+    return 'unclassified'
+
+
+for field in sorted(by_field):
+    rs = by_field[field]
+    cls = Counter()
+    ex = defaultdict(list)
+    for r in rs:
+        c = classify(field, r)
+        cls[c] += 1
+        ex[c].append(r)
+    print(f'== {field}: {len(rs)} not equal')
+    for c, n in cls.most_common():
+        print(f'   {n:>7}  {c}')
+    for c, n in cls.most_common():
+        for r in ex[c][:k]:
+            print(f'     [{c[:3]}] {r["where"]}')
+            print(f'        native: {s(r["native"])[:400]}')
+            print(f'        hybrid: {s(r["hybrid"])[:400]}')
+
+=== checks.py (derived index fields and the declaration index)
+"""Consistency checks behind three derived index fields and the declaration index.
+usage: checks.py <native-run-dir> <hybrid-run-dir> <details.jsonl>"""
+import json, os, sys, filecmp
+from collections import Counter, defaultdict
+na, hy, det = sys.argv[1:4]
+ia = {m['module']: m for m in json.load(open(os.path.join(na, 'ir/index.json')))['modules']}
+ib = {m['module']: m for m in json.load(open(os.path.join(hy, 'ir/index.json')))['modules']}
+same_bytes = same_hash = 0
+bad = []
+for m in ia:
+    fa, fb = os.path.join(na, 'ir/modules', m + '.json'), os.path.join(hy, 'ir/modules', m + '.json')
+    identical = filecmp.cmp(fa, fb, shallow=False)
+    heq = ia[m]['contentHash'] == ib[m]['contentHash']
+    same_bytes += identical
+    same_hash += heq
+    if identical != heq:
+        bad.append(m)
+print(f'module files byte-identical {same_bytes} of {len(ia)}; contentHash equal {same_hash}; hash equality disagrees with file equality: {len(bad)}')
+missing = defaultdict(list)
+idx_diff = []
+for l in open(det):
+    r = json.loads(l)
+    if r['field'] == 'declaration.presence' and r['hybrid'] is None:
+        missing[r['where']].append(r['native'])
+    if r['field'] == 'decl.index':
+        idx_diff.append(r)
+explained = 0
+cache = {}
+for r in idx_diff:
+    m, n = r['where'].split(':', 1)
+    if m not in cache:
+        A = json.load(open(os.path.join(na, 'ir/modules', m + '.json')))
+        cache = {m: {d['name']: d['index'] for d in A['declarations']}}
+    pos = cache[m]
+    shift = sum(1 for x in missing.get(m, []) if pos[x] < r['native'])
+    if r['native'] - r['hybrid'] == shift and shift > 0:
+        explained += 1
+print(f'decl.index differences: {len(idx_diff)}; equal to the number of earlier declarations missing on the hybrid side: {explained}')
+print(f'modules with a missing declaration: {len(missing)}')
+
+=== runx.sh (runs one program under /usr/bin/time -l with a workspace's `lake env` variables)
+#!/bin/bash
+# usage: runx.sh <lake-env-file> <cwd> <out-prefix> <program> [args...]
+# Runs <program> under /usr/bin/time -l with the variables `lake env` set in <cwd>, so the
+# timing wraps the program and not lake. stdout -> <out-prefix>.out, stderr -> <out-prefix>.err
+set -uo pipefail
+envf=$1; cwd=$2; out=$3; shift 3
+for v in LEAN_PATH LEAN_SYSROOT LEAN_SRC_PATH LEAN_GITHASH PATH ELAN_TOOLCHAIN LEAN LAKE LAKE_HOME; do
+  val=$(grep "^$v=" "$envf" | head -1 | cut -d= -f2-)
+  export "$v=$val"
+done
+cd "$cwd" || exit 9
+/usr/bin/time -l "$@" > "$out.out" 2> "$out.err"
+rc=$?
+echo "exit $rc" >> "$out.err"
+exit $rc
+
+=== full.sh, native arm
+#!/bin/bash
+# usage: full.sh <run-dir-name>
+set -uo pipefail
+N=<scratch>/native
+R=$N/run/$1
+rm -rf "$R" && mkdir -p "$R"
+$N/runx.sh $N/run/lakeenv.txt <old-workspace> $R/native $N/.lake/build/bin/extract \
+  $N/run/modules-all.txt $R/events.jsonl --equations --refs --write-ir --tagged-code --jobs 4 \
+  --ir-dir $R/ir --link-index $R/link-index.lidx --link-index-omit $N/run/modules-all.txt
+echo "full.sh exit $?"
+
+=== full.sh, hybrid arm
+#!/bin/bash
+# usage: full.sh <run-dir-name>
+set -uo pipefail
+H=<scratch>
+M=<scratch>/native/run/modules-all.txt
+R=$H/run/$1
+rm -rf "$R" && mkdir -p "$R"
+<scratch>/native/runx.sh $H/run/lakeenv-new.txt <new-workspace> $R/hybrid \
+  $H/.lake/build/bin/hybrid $H/run/sp-old.txt $M $R/events.jsonl \
+  --equations --refs --write-ir --tagged-code --jobs 4 \
+  --ir-dir $R/ir --link-index $R/link-index.lidx --link-index-omit $M
+echo "full.sh exit $?"
