@@ -668,6 +668,18 @@ older versions kept ≈ 10.6 min plus the multi-version render (unmeasured). Wit
 "all versions from nothing in 2 h" holds for neither 11 versions on the runner nor 51 versions on
 the M1 (≈ 5.2 h there); "one release in 15 min" holds only if older versions are kept.
 
+**Rebuilding from nothing is made differential (decided 2026-10-06, user's call).** D2's budget
+stays as written — all versions from nothing in ≤ 2 h on one machine — and the way to meet it is
+to process the versions in order in one process and do only the difference from the previous
+version (environment patch + print reuse, U9). Not chosen: one runner per version in parallel
+(≈ 40 min for 51 versions on the free tier's 20 concurrent jobs (theoretical), but it changes D2's
+"one machine"), and leaving a rebuild from nothing at ≈ 8–10 h.
+
+Target this sets (theoretical): 51 versions in 2 h on the runner leaves ≈ 2.2 min per extra
+version there, ≈ 1.2 min on the M1 at the measured 1.8× ratio — against 4.6–5.2 min measured for
+the patch path today. The two large items are the key pass (97 s, recomputed in full) and
+reprinting (111 s for 17.5% of declarations).
+
 ### D8 — Which features to give up, and for which versions
 
 From the table below, after U3 and U4 have put numbers on each line.
