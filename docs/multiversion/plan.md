@@ -409,6 +409,21 @@ Lean core v4.31.0):
   ≈ 6.7 min to print 311,415 types at 1.29 ms each, extrapolated). Under the ≈ 10 min line, but
   printing is what fills it — 11 versions ≈ 97 min of the 2 h budget, single-threaded.
 
+### U10 — How small can the per-version part be?
+
+Once declaration content is shared (U3), the per-version part is what grows with versions: the
+manifest, own positions, dependency link targets, and the global files (Used by, name map, search
+index, instances). The U6 sizing stored each of them whole per version, and Used by alone was 10.3
+of the 15.3 MB. A theoretical lower bound (2026-10-05) put 11 versions at ≈ 54 MB and 51 at
+≈ 92 MB, assuming each per-version part changes in proportion to the declarations that changed
+(≈ 3% per minor release) — unmeasured for Used by and the global files.
+
+- Measure on one minor pair (v4.32.2 → v4.33.0) and one patch pair (v4.33.0 → v4.33.1): the size of
+  each per-version part whole and as a delta against the previous version, and the content-addressed
+  store's growth, with and without Used by.
+- **Wrong if**: Used by or the manifest changes far more than the declarations do — then storing
+  them as deltas does not pay, and dropping Used by becomes the lever.
+
 ## Decisions to make
 
 ### D1 — The version set (decided 2026-10-04, user's call — with one open part)
@@ -483,6 +498,14 @@ Per declaration, per module, or per fragment within a declaration; content-addre
 by (name, version range). Bound by U3: if most change is in a small part of a declaration (one
 link), a finer unit pays; otherwise per declaration.
 
+**Content-addressed** (decided 2026-10-05, user's call): a declaration's content is stored once and
+found by a hash of the content itself, never by a chain of deltas between versions. What each
+version holds is its manifest — which declarations each module has, in which order, with which
+content hash — and its version-specific data (own positions, dependency revisions and line
+ranges, Used by and the other global files). Still open: the unit (U3 points at the declaration,
+with dependency links outside the hashed content) and how manifests and global files are stored
+across versions (U10).
+
 ### D6 — URL scheme and the version switcher
 
 **Every page's URL carries its version** — `/<version>/Mathlib/Foo/Bar.html#Foo.bar` — so a link
@@ -493,6 +516,16 @@ switches to it.
 
 **A site with no releases or tags uses commits as its versions** (decided 2026-10-04, user's call):
 the version in the URL is the commit the site was built from.
+
+**A build option for hash URLs** (decided 2026-10-05, user's call): `/#/<version>/Mathlib/Foo/Bar`,
+served by one HTML file, for hosts that cannot answer every path with one page (GitHub Pages
+returns 404, U6). It removes the per-page files — the file count that dominates every D4 row.
+The cost is search: Google's guidance is "don't use fragments to load different page content"
+and "use the History API" for client-side routing, because "Googlebot can't reliably resolve the
+URLs" (JavaScript SEO basics, last updated 2026-03-04, read 2026-10-05), so under hash URLs only
+the root page is reliably indexed. Path URLs stay the default where the host can rewrite. In hash
+mode the fragment is the route, so a declaration anchor lives inside it and the page scrolls to it
+itself (U7 already requires that of a script-drawn page).
 
 Open:
 
@@ -664,7 +697,7 @@ versions; U3 and U4 put a number on each.
 | Feature | Why it costs across versions | Options |
 |---|---|---|
 | Source link with line range, pinned to the commit | different in every version for every declaration; line ranges move whenever anything above the declaration moves | per-version prefix stored once and joined in the page; file-level link only; latest only |
-| Used by | collected from all of Mathlib; a new use anywhere changes the page of the used declaration | latest only; per-version reverse index loaded on demand |
+| Used by | collected from all of Mathlib; a new use anywhere changes the page of the used declaration; 10.3 of the 15.3 MB each version carries compressed (U6) | latest only; per-version reverse index loaded on demand; **dropped entirely** (a candidate, user's 2026-10-05) |
 | Instances / instances for | same shape as Used by | latest only; on demand |
 | Search | one index per version (5.1 MB each) | latest only; per-version index loaded when that version is selected |
 | Docstring link resolution | depends on the whole name set of the version | resolve against latest; keep per version |
