@@ -588,8 +588,9 @@ Input from the drift measurements (2026-10-05, measured → D10): rebuilding eve
 newest printer reprints every old version with a newer Mathlib each time. At 3 and 5 minor releases
 apart the hybrid prints 98.60% and 97.78% the same as the version itself; plain printing without
 the reader 97.56% and 94.42%. Keeping each version's output as printed when it was added (by its
-own release, the newest at the time) has no approximation at all, and the reader then only has to
-read a release once; its cost is the persistent store above.
+own release, the newest at the time) has no approximation at all: the release's own Lean prints it,
+and the reader is needed only to rebuild everything from nothing (D2's 2 h line). Its cost is the
+persistent store above.
 
 ### D8 — Which features to give up, and for which versions
 
