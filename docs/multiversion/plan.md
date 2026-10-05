@@ -424,6 +424,31 @@ of the 15.3 MB. A theoretical lower bound (2026-10-05) put 11 versions at ≈ 54
 - **Wrong if**: Used by or the manifest changes far more than the declarations do — then storing
   them as deltas does not pay, and dropping Used by becomes the lever.
 
+**Answered 2026-10-05** (measured on both pairs; totals extrapolated from one minor and one patch
+pair, 5 + 5 transitions for 11 versions and 25 + 25 for 51 →
+`benchmarks/results/mathlib-per-version-part-2026-10-05.txt`):
+
+| Shape, 11 / 51 versions | With Used by | Without Used by |
+|---|---|---|
+| (i) minimum: one version whole, then per-release deltas | 52.1 / 96.9 MB | 47.3 / 89.3 MB |
+| (ii) every version's part stored whole (gzip), content shared | 293 / 1,155 MB | 177 / 617 MB |
+
+- **The lower bound holds**: (i) lands on the 2026-10-05 estimate (≈ 54 / 92 MB). There the shared
+  content dominates (35.8 of 52.1 MB).
+- **Used by changes as the declarations do**: 3.37% of its compressed bytes and 1.82% of its
+  (used, user) pairs per minor release; identical across the patch pair. The assumption held.
+- **Two parts break it**: the search index changes ≈ 32% and the module list ≈ 33% per minor
+  release. At 51 versions in (i), search-index deltas (12.7 MB) cost more than all of Used by.
+- **In (ii), Used by is 40–47% of the total**, then the other global files, then the manifest: its
+  content hashes are 2.7 MB per version of incompressible bytes, 145 MB at 51 versions — more than
+  the shared content itself (140 MB). Referring to content by something shorter than a full hash
+  (an index into the store) is the lever there.
+- Smaller findings: positions stored relative to the previous declaration change 4.2% per minor
+  release, absolute ones 31%; an unchanged file is recorded as "same as before", not patched; the
+  content measured here is the extractor's format, ≈ 2× the compact page-data format of U7, and
+  compressing each declaration alone is 3.5× worse than compressing per module.
+- File count for (ii) with hash URLs: 18,212 / 57,932.
+
 ## Decisions to make
 
 ### D1 — The version set (decided 2026-10-04, user's call — with one open part)
