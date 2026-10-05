@@ -264,6 +264,21 @@ renderer streams them.
 - **Wrong if**: memory or disk does not fit; then the render pass has to stream versions rather
   than load them all.
 
+**Answered for extraction (2026-10-05)** on a GitHub-hosted `ubuntu-latest` runner (4 vCPU = 2
+cores, 16 GB, 3 GB swap, 86 GB free; measured →
+`benchmarks/results/mathlib-build-host-runner-2026-10-05.txt`; where memory goes and which levers
+exist → `benchmarks/results/mathlib-build-host-levers-2026-10-05.txt`):
+
+- **Memory and disk fit.** The hybrid on all of v4.31.0 peaks at 7.34 GiB anonymous memory plus
+  5.77 GiB of mapped oleans the kernel can drop; MemAvailable stays above 6.19 GiB and nothing is
+  swapped. Per version on disk: toolchain ≈ 3 GB, workspace ≈ 7.5 GB, cache archives ≈ 0.45 GB.
+- **CPU is the limit.** Hybrid 11.0 min (4 jobs; 1.8× the M1), native extraction 8.0 min. 2 jobs
+  is only 8% slower than 4; 1 job is 1.8× slower. Setup per version ≈ 2.5 min (toolchain, `lake
+  update`, cache fetch, build).
+- **The output is the same on both machines**: every IR file, native and hybrid, hashes identically
+  on Linux x86_64 and on the M1.
+- The render pass on the runner is not measured.
+
 ### U6 — Where can it be hosted, with numbers?
 
 GitHub Pages is out for even one version as things stand (1 GB). Candidates: Cloudflare Pages
@@ -436,6 +451,15 @@ Lean core v4.31.0):
     name live / module docs / docstrings" question goes through one record built from the decoded
     old data; 57 extension types decoded and merged by name, 35 kept from the newest code for its
     own vocabulary, 159 emptied so a read shows up as a difference rather than a newest answer.
+- **Print reuse across versions** (measured on the M1 →
+  `benchmarks/results/mathlib-build-host-levers-2026-10-05.txt`): a key over a declaration's
+  content and the printing-relevant data of the constants it mentions is equal for 71.89% of the
+  308,089 declarations shared by v4.31.0 and v4.34.1, with 6 holes (equal key, different output:
+  instance synthesis inside notation 2, parent-projection path 2, equation generation 2). It saves
+  CPU, not wall clock — decode and assembly (≈ 2.4 min) do not shrink — and the key pass panics 182
+  times (`getStructureInfo` on a non-structure), whose effect on the key is not established. Doing
+  the newest import once for several versions does not work: the first round's memory is not freed
+  (14.8 GB at two versions).
 - **Per version end to end ≈ 6.5 min wall, ≈ 19 min CPU** (measured, 4 jobs, two runs 389 /
   394 s; native v4.31.0 extraction 217 / 243 s with the same 4 jobs). Peak RSS 6.3 GB, memory
   footprint 8.7–9.1 GB on 16 GiB, with swap in use mid-run (≈ 3.5 GB, no baseline). 11 versions ≈
@@ -615,6 +639,12 @@ the reader 97.56% and 94.42%. Keeping each version's output as printed when it w
 own release, the newest at the time) has no approximation at all: the release's own Lean prints it,
 and the reader is needed only to rebuild everything from nothing (D2's 2 h line). Its cost is the
 persistent store above.
+
+Budget arithmetic on the runner (2026-10-05, extrapolated from one version → U5): rebuilding all 11
+versions from nothing ≈ 2.2 h (over D2's 2 h), 51 versions ≈ 10.6 h; adding one release with the
+older versions kept ≈ 10.6 min plus the multi-version render (unmeasured). With this design D2's
+"all versions from nothing in 2 h" holds for neither 11 versions on the runner nor 51 versions on
+the M1 (≈ 5.2 h there); "one release in 15 min" holds only if older versions are kept.
 
 ### D8 — Which features to give up, and for which versions
 

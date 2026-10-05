@@ -1,0 +1,457 @@
+The hybrid and the native extractor on a GitHub-hosted ubuntu-latest runner: all of Mathlib v4.31.0
+====================================================================================================
+Date: 2026-10-05. Context: docs/multiversion/plan.md U5 (can the build host carry it), D2 (budgets), D3 (build host),
+D7 (how a new release gets in). The programs are the ones of benchmarks/results/mathlib-build-host-levers-2026-10-05.txt
+(the hybrid, the seamed extractor built natively, the print-key pass), run unchanged on the runner. One job, one run of
+each arm. The job ran from a throwaway branch (probe/build-host, commit 40fa1636a038e1a73a3f2c34230ee354bebb51de,
+run 37305593365), deleted afterwards; the workflow and the driver script are reproduced under CODE.
+
+QUESTIONS
+---------
+(1) Does the hybrid fit in a standard GitHub-hosted runner's memory (16 GB, no memory compression, 3 GB swap)?
+(2) How long does each arm take on 4 vCPUs that are 2 physical cores?
+(3) Does the output on Linux x86_64 equal the output on the M1?
+(4) What does the per-version setup (toolchain, workspace, cache fetch, build) cost there?
+
+HEADLINE
+--------
+(1) Yes, without swapping (measured). Peak anonymous memory 7.34 GiB (4 jobs), file-backed 5.77 GiB of mapped oleans;
+    MemAvailable never fell below 6.19 GiB; the process's VmSwap was 0 in every 5-s sample of every arm; system-wide
+    swap-out during the 4-job hybrid was 7,582 pages (~30 MiB). GNU time's "maximum resident set size" (11.76 GiB)
+    counts the file-backed pages, which Linux can drop, so it is not the number to hold against 16 GB.
+(2) (measured, one run each; wall / user+sys / peak anon / peak RSS incl. file pages)
+      arm                                      wall        CPU (user+sys)   anon peak   RSS peak (time -v)
+      (a) native v4.31.0 extraction, 4 jobs    482.3 s     1,697.8 s        3.38 GiB    9.16 GiB
+      (b) hybrid v4.31.0, 4 jobs               658.3 s     1,953.2 s        7.34 GiB    11.76 GiB
+      (c) hybrid v4.31.0, 2 jobs               714.8 s     1,522.2 s        7.10 GiB    12.69 GiB
+      (d) hybrid v4.31.0, 1 job              1,159.2 s     1,382.3 s        6.75 GiB    12.16 GiB
+      (e) hybrid decode + assembly + key pass  305.7 s       287.7 s        3.58 GiB    9.25 GiB
+    The hybrid's phases (program's own lines):
+      arm   decode 10,583 old modules   assembly   extraction
+      (b)   121.8 s                     47.0 s     484.9 s
+      (c)   110.7 s                     32.8 s     563.0 s
+      (d)    99.9 s                     32.0 s   1,019.1 s
+      (e)   106.5 s                     31.1 s     (key pass instead; ~160 s by subtraction from wall, theoretical)
+    Against the M1 (levers log, measured there): hybrid 4 jobs 368.8 s -> 658.3 s here (1.8x); native 4 jobs 217-243 s
+    -> 482.3 s (2.0-2.2x). 4 jobs over 2 jobs buys 8% on 2 physical cores; 1 job is 1.8x slower than 4.
+(3) Yes (measured): every IR file of (a) and of (b) hashes identically to the M1 runs (expected-*-ir.sha256, 8,170
+    module files + dependency maps + index + link index), and the key file of (e) hashes identically to the M1's.
+    The field-by-field comparison (a) vs (b) on the runner is the M1 table, row for row (compare-report below).
+(4) (measured) elan 0.6 s; toolchain v4.31.0 11.3 s, v4.34.1 12.0 s (2.8 GB / 3.0 GB installed); per Mathlib
+    workspace: `lake update` 46.8 s / 45.7 s, `lake exe cache get` 42.7 s / 47.8 s (8,542 / 8,908 files; archives
+    430 MB / 448 MB), `.lake` 7.3 GB / 7.7 GB; building the hybrid 49.5 s, the native extractor 47.5 s.
+    Disk: 86 GB available at the start.
+
+WHAT THIS MEANS FOR THE BUDGETS (D2) (extrapolated from this one version unless marked)
+-----------------------------------------------------------------------------------------
+- One old version through the hybrid on the runner: ~11.0 min, plus ~1.5 min of workspace setup (lake update + cache get)
+  = ~12.5 min.
+- All 11 versions from nothing: 10 x ~12.5 min + the newest natively (~8.0 + ~2.5 min setup and build) = ~2.2 h. Over
+  the 2 h line on this runner. 51 versions: ~10.6 h.
+- Adding one release, when the older versions are kept as they were printed (plan D7): toolchain 0.2 + lake update 0.8
+  + cache get 0.8 + build 0.8 + native extraction 8.0 = ~10.6 min (sum of measured parts), plus the multi-version
+  render, which is not measured anywhere (one version's render + global took 1.6 min on the M1). Within 15 min if the
+  render stays near that (theoretical).
+- Memory is not what limits the runner; CPU is (2 physical cores).
+
+A CORRECTION TO THE LEVERS LOG
+------------------------------
+benchmarks/results/mathlib-build-host-levers-2026-10-05.txt says (its WHAT FAILED, item 1) that after the first key pass
+"every later pass had 0 panics". The final key pass panics 182 times, on the M1 and on the runner alike:
+"PANIC at Lean.getStructureInfo Lean.Structure:139:4: structure expected" (counted in the M1 runs' own stderr: the two
+last key passes 182 each, the two earliest 0 - what changed between them is not established; runner arm (e): 182).
+A Lean panic returns a default value and continues, so the keys of the declarations involved were computed with a
+default where structure info was expected. Which declarations, and whether that hides or adds holes in the 6 reported
+there, is not established: the 71.89% reusable share and the 6 holes carry this caveat until it is.
+
+CONDITIONS
+----------
+- Runner: GitHub-hosted ubuntu-latest, image ubuntu24 20260927.320.1, kernel 6.17.0-1022-azure x86_64; 4 vCPU = AMD
+  EPYC 7763, 2 cores x 2 threads; MemTotal 16,373,452 kB; swap 3,145,724 kB; 145 GB root, 86 GB available.
+  Recorded by the job at 2026-10-05T11:51:21Z (machine-start.txt). Public repository, free tier.
+- Old side: Lean v4.31.0, Mathlib v4.31.0 fabf563a7c95a166b8d7b6efca11c8b4dc9d911f (a fresh workspace requiring the
+  tag, cache oleans). New side: Lean v4.34.1, Mathlib v4.34.1 d13f23b723b8a846827a245b89c10fc7d3f11612.
+- All 8,170 modules of Mathlib v4.31.0's `Mathlib` library; extractor flags --equations --refs --write-ir
+  --tagged-code, as on the M1.
+- Warm / cold: each arm ran once, in sequence, on a runner whose oleans had just been written by `cache get`; no
+  eviction. Wall vs CPU is not a warmth test here because the arms are parallel; major faults per arm 44k-58k.
+- Memory columns: "anon" is the maximum of RssAnon over 5-s samples of /proc/<pid>/status (a peak between samples can
+  be missed); "RSS peak" is GNU time's maximum resident set size (VmHWM), file pages included.
+- One run per arm: these are single measurements, not converged series.
+
+WHAT IS NOT MEASURED
+--------------------
+- Repeat runs; variation between runners.
+- Any other old version on the runner; the 11-version and 51-version figures above are one version times N.
+- The multi-version render and the global pass on the runner.
+- The 182 panics' effect on the print key (above).
+- Larger (paid) runners.
+
+HOW IT WAS RUN
+--------------
+  git worktree add -b probe/build-host <worktree> origin/main
+  copy <scratch>/probe/build-host-probe.yml -> .github/workflows/, <scratch>/probe/build-host -> probe/build-host
+  commit, push the branch (the workflow's `push:` names only that branch); one job ran
+  gh run download 37305593365 --name build-host-probe
+  the numbers above are read from the artifact's timings.txt, phases.txt, <arm>.err (GNU time -v and the program's
+  own phase lines), <arm>-sampler.tsv (aggregated: max of RssAnon / RssFile / VmSwap, min of MemAvailable / SwapFree,
+  last - first of pswpout / pswpin / pgmajfault), compare-report.txt; the branch was deleted afterwards.
+The probe directory also held the Lean sources of the hybrid and the native extractor (as in the levers log's CODE),
+compare.py / classify.py / modlist.py, and the M1 hash lists it checks against.
+
+COMPARE REPORT (runner, (a) native vs (b) hybrid; verbatim)
+------------------------------------------------------------
+field                                            equal / compared   not equal
+decl.attrs                                       84507 / 100643         16136
+decl.binderCode                                 309930 / 311345          1415
+decl.binders                                    310319 / 311345          1026
+decl.col                                        311345 / 311345             0
+decl.doc                                        311344 / 311345             1
+decl.endCol                                     311345 / 311345             0
+decl.endLine                                    311345 / 311345             0
+decl.equationCode                               309760 / 311345          1585
+decl.equations                                  309770 / 311345          1575
+decl.generated                                    1175 / 1175               0
+decl.implicits                                  311345 / 311345             0
+decl.index                                      309905 / 311345          1440
+decl.instClass                                   29409 / 29409              0
+decl.instTypes                                   29409 / 29409              0
+decl.kind                                       311345 / 311345             0
+decl.line                                       311345 / 311345             0
+decl.members                                    311286 / 311345            59
+decl.modifiers                                  311345 / 311345             0
+decl.name                                       311345 / 311345             0
+decl.refs                                       308226 / 311345          3119
+decl.selectionRange                             311345 / 311345             0
+decl.type                                       307657 / 311345          3688
+decl.typeCode                                   306967 / 311345          4378
+declaration.presence                            311345 / 311415            70
+depEntry.module                                   3414 / 3414               0
+depEntry.presence                                 3414 / 3414               0
+depFile.package                                     10 / 10                 0
+depFile.presence                                    10 / 10                 0
+depFile.schemaVersion                               10 / 10                 0
+equation(item)                                   56806 / 58411           1605
+index.declarationCount                               0 / 1                  1
+index.dependencyMap.bytes                           10 / 10                 0
+index.dependencyMap.entries                         10 / 10                 0
+index.dependencyMap.file                            10 / 10                 0
+index.dependencyMap.package                         10 / 10                 0
+index.dependencyMap.presence                        10 / 10                 0
+index.generator                                      1 / 1                  0
+index.hashAlgorithm                                  1 / 1                  0
+index.leanVersion                                    0 / 1                  1
+index.module.bytes                                6414 / 8170            1756
+index.module.contentHash                          4507 / 8170            3663
+index.module.declarations                         8154 / 8170              16
+index.module.file                                 8170 / 8170               0
+index.module.module                               8170 / 8170               0
+index.module.presence                             8170 / 8170               0
+index.moduleCount                                    1 / 1                  0
+index.moduleOrder                                    1 / 1                  0
+index.schemaVersion                                  1 / 1                  0
+lidx.@module.presence                            10583 / 10583              0
+lidx.@section(whole, in order)                       1 / 1                  0
+lidx.declaration.presence                        91425 / 91425              0
+lidx.group.presence                               2136 / 2136               0
+lidx.groupOrder                                      1 / 1                  0
+lidx.marker                                          1 / 1                  0
+lidx.range                                       91425 / 91425              0
+member.binderCode                                13127 / 13129              2
+member.binders                                   13127 / 13129              2
+member.code                                      18996 / 19086             90
+member.doc                                       13129 / 13129              0
+member.implicits                                 13129 / 13129              0
+member.isDirect                                  13129 / 13129              0
+member.label                                     19086 / 19086              0
+member.name                                      19086 / 19086              0
+member.presence                                  19086 / 19086              0
+member.text                                      18998 / 19086             88
+module.imports                                    8170 / 8170               0
+module.module                                     8170 / 8170               0
+module.moduleDocs                                 8170 / 8170               0
+module.presence                                   8170 / 8170               0
+module.schemaVersion                              8170 / 8170               0
+module.tactics                                    8022 / 8170             148
+moduleDoc(item)                                  12449 / 12449              0
+ref(pair).presence                             2542365 / 2545967         3602
+tactic.presence                                      0 / 215              215
+present on one side only:
+  hybrid-only ref(pair): 82
+  native-only declaration: 70
+  native-only ref(pair): 3520
+  native-only tactic: 215
+
+CODE
+----
+=== .github/workflows/build-host-probe.yml
+name: build-host probe
+
+on:
+  push:
+    branches: [probe/build-host]
+  workflow_dispatch:
+    inputs:
+      modules:
+        description: "first N modules of Mathlib v4.31.0's library to extract (0 = all 8,170)"
+        default: "0"
+      arm_c_jobs:
+        description: "jobs for arm (c), the hybrid again (0 = skip it)"
+        default: "2"
+      arm_d_jobs:
+        description: "jobs for arm (d), the hybrid again (0 = skip it)"
+        default: "1"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      PROBE_WORK: /home/runner/probe-work
+      LOGS: /home/runner/probe-work/logs
+      MODULES: ${{ github.event.inputs.modules || '0' }}
+      ARM_C_JOBS: ${{ github.event.inputs.arm_c_jobs || '2' }}
+      ARM_D_JOBS: ${{ github.event.inputs.arm_d_jobs || '1' }}
+      ARM_TIMEOUT: "7200"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: GNU time
+        run: sudo apt-get install -y time
+
+      - name: record the machine
+        run: probe/build-host/probe.sh record start
+
+      - name: elan and the two toolchains
+        run: probe/build-host/probe.sh toolchains
+
+      - name: Mathlib v4.31.0 workspace (lake update, cache get)
+        run: probe/build-host/probe.sh ws old
+
+      - name: Mathlib v4.34.1 workspace (lake update, cache get)
+        run: probe/build-host/probe.sh ws new
+
+      - name: build the hybrid and the native extractor
+        run: probe/build-host/probe.sh build
+
+      - name: module list and search path
+        run: probe/build-host/probe.sh lists "$MODULES"
+
+      - name: (a) native v4.31.0 extraction, 4 jobs
+        run: probe/build-host/probe.sh arm native 4
+
+      - name: (b) hybrid v4.31.0 extraction, 4 jobs
+        if: always()
+        run: probe/build-host/probe.sh arm hybrid 4
+
+      - name: (c) hybrid again, 2 jobs (one per physical core)
+        if: always() && env.ARM_C_JOBS != '0'
+        run: probe/build-host/probe.sh arm hybrid-c "$ARM_C_JOBS"
+
+      - name: (d) hybrid again, 1 job (the under-8-GB lever on M1)
+        if: always() && env.ARM_D_JOBS != '0'
+        run: probe/build-host/probe.sh arm hybrid-d "$ARM_D_JOBS"
+
+      - name: (e) hybrid decode, assembly and key pass only
+        if: always()
+        run: probe/build-host/probe.sh arm hybrid-keys 4
+
+      - name: compare and hash
+        if: always()
+        run: probe/build-host/probe.sh compare
+
+      - name: record the machine at the end
+        if: always()
+        run: probe/build-host/probe.sh record end
+
+      - name: upload the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-host-probe
+          path: /home/runner/probe-work/logs
+
+=== probe/build-host/probe.sh
+#!/bin/bash
+# The build-host probe, one subcommand per workflow step. Everything it writes goes to $LOGS.
+#   probe.sh record <label>        machine, memory, swap, disk
+#   probe.sh toolchains            elan + the two Lean toolchains, timed
+#   probe.sh ws <old|new>          a workspace requiring Mathlib, `lake update` and `cache get` timed
+#   probe.sh build                 the hybrid (v4.34.1) and native (v4.31.0) projects, timed
+#   probe.sh lists <N>             module lists (first N of the v4.31.0 `Mathlib` library; 0 = all)
+#   probe.sh arm <name> <jobs>     name: native | hybrid | hybrid-c | hybrid-d | hybrid-keys (decode, assemble, key pass)
+#   probe.sh compare               native vs hybrid IR, IR hash lists, the expected-hash checks
+set -euo pipefail
+P=$(cd "$(dirname "$0")" && pwd)
+W=${PROBE_WORK:-$HOME/probe-work}
+LOGS=${LOGS:-$W/logs}
+mkdir -p "$W" "$LOGS"
+answered=0
+on_exit() { local s=$?; if [ $s -eq 0 ] && [ $answered -eq 0 ]; then echo "probe.sh: fell off without an answer" >&2; exit 70; fi; }
+trap on_exit EXIT
+answer() { answered=1; exit "$1"; }
+stamp() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" | tee -a "$LOGS/phases.txt"; }
+timed() { local label=$1; shift; local t0 t1 rc; t0=$(date +%s.%N); if "$@"; then rc=0; else rc=$?; fi; t1=$(date +%s.%N)
+  echo "$label $(awk "BEGIN{printf \"%.1f\", $t1 - $t0}") s exit $rc" | tee -a "$LOGS/timings.txt"; return $rc; }
+
+record() {
+  local f="$LOGS/machine-$1.txt"
+  {
+    echo "## date"; date -u +%Y-%m-%dT%H:%M:%SZ
+    echo "## image"; echo "ImageOS=${ImageOS:-?} ImageVersion=${ImageVersion:-?} RUNNER_OS=${RUNNER_OS:-?}"
+    echo "## kernel"; uname -a
+    echo "## nproc"; nproc
+    echo "## lscpu"; lscpu
+    echo "## meminfo"; cat /proc/meminfo
+    echo "## swap"; swapon --show || true; free -b
+    echo "## df"; df -h
+    echo "## vm sysctl"; sysctl vm.swappiness vm.overcommit_memory 2>/dev/null || true
+  } > "$f" 2>&1
+}
+
+toolchains() {
+  timed elan-install bash -c 'curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none'
+  export PATH="$HOME/.elan/bin:$PATH"
+  timed toolchain-v4.31.0 elan toolchain install leanprover/lean4:v4.31.0
+  timed toolchain-v4.34.1 elan toolchain install leanprover/lean4:v4.34.1
+  du -sh "$HOME/.elan/toolchains/"* | tee -a "$LOGS/timings.txt"
+}
+
+ws() {
+  export PATH="$HOME/.elan/bin:$PATH"
+  local v=$1 d="$W/ws-$1"
+  rm -rf "$d"; cp -r "$P/ws-$v" "$d"
+  cd "$d"
+  MATHLIB_NO_CACHE_ON_UPDATE=1 timed "ws-$v-lake-update" lake update > "$LOGS/ws-$v-update.log" 2>&1
+  git -C .lake/packages/mathlib rev-parse HEAD | tee "$LOGS/ws-$v-mathlib-rev.txt"
+  timed "ws-$v-cache-get" lake exe cache get > "$LOGS/ws-$v-cache.log" 2>&1
+  tail -5 "$LOGS/ws-$v-cache.log"
+  timed "ws-$v-build-check" lake build --no-build Mathlib > "$LOGS/ws-$v-nobuild.log" 2>&1 || echo "ws-$v no-build check failed (not fatal)" | tee -a "$LOGS/timings.txt"
+  lake env printenv > "$W/lakeenv-$v.txt"
+  du -sh .lake | tee -a "$LOGS/timings.txt"
+  du -sh "${XDG_CACHE_HOME:-$HOME/.cache}/mathlib" 2>/dev/null | tee -a "$LOGS/timings.txt" || true
+}
+
+build() {
+  export PATH="$HOME/.elan/bin:$PATH"
+  rm -rf "$W/hybrid" "$W/native"; cp -r "$P/hybrid" "$W/hybrid"; cp -r "$P/native" "$W/native"
+  (cd "$W/hybrid" && timed build-hybrid lake build > "$LOGS/build-hybrid.log" 2>&1)
+  (cd "$W/native" && timed build-native lake build > "$LOGS/build-native.log" 2>&1)
+}
+
+lists() {
+  local n=$1
+  python3 "$P/modlist.py" "$W/ws-old/.lake/packages/mathlib" "$W/modules-old-all.txt"
+  if [ "$n" -gt 0 ]; then head -n "$n" "$W/modules-old-all.txt" > "$W/modules.txt"; else cp "$W/modules-old-all.txt" "$W/modules.txt"; fi
+  wc -l "$W/modules.txt" | tee -a "$LOGS/timings.txt"
+  {
+    echo "$HOME/.elan/toolchains/leanprover--lean4---v4.31.0/lib/lean"
+    python3 -c "import json,sys; print('\n'.join(p['name'] for p in json.load(open(sys.argv[1]))['packages']))" \
+      "$W/ws-old/lake-manifest.json" | while read -r p; do echo "$W/ws-old/.lake/packages/$p/.lake/build/lib/lean"; done
+  } > "$W/sp-old.txt"
+  cp "$W/modules.txt" "$W/sp-old.txt" "$LOGS/"
+}
+
+sampler() {
+  local pid=$1 out=$2
+  echo -e "t\tVmRSS\tRssAnon\tRssFile\tVmSwap\tMemAvailable\tCached\tSwapFree\tpswpin\tpswpout\tpgmajfault" > "$out"
+  while kill -0 "$pid" 2>/dev/null; do
+    local st mi vs
+    st=$(awk '/^(VmRSS|RssAnon|RssFile|VmSwap):/{printf "%s\t", $2}' "/proc/$pid/status" 2>/dev/null || true)
+    mi=$(awk '/^(MemAvailable|Cached|SwapFree):/{printf "%s\t", $2}' /proc/meminfo)
+    vs=$(awk '/^(pswpin|pswpout|pgmajfault) /{printf "%s\t", $2}' /proc/vmstat)
+    echo -e "$(date +%s)\t${st}${mi}${vs}" >> "$out"
+    sleep 5
+  done
+}
+
+arm() {
+  local name=$1 jobs=$2 R="$W/run-$1"
+  rm -rf "$R"; mkdir -p "$R"
+  local envf ws bin pre=()
+  case "$name" in
+    native) envf="$W/lakeenv-old.txt"; ws="$W/ws-old"; bin="$W/native/.lake/build/bin/extract" ;;
+    hybrid|hybrid-c|hybrid-d|hybrid-keys) envf="$W/lakeenv-new.txt"; ws="$W/ws-new"; bin="$W/hybrid/.lake/build/bin/hybrid"; pre=("$W/sp-old.txt") ;;
+    *) echo "unknown arm $name" >&2; return 2 ;;
+  esac
+  for v in LEAN_PATH LEAN_SYSROOT LEAN_SRC_PATH LEAN_GITHASH PATH ELAN_TOOLCHAIN LEAN LAKE LAKE_HOME; do
+    local val; val=$(grep "^$v=" "$envf" | head -1 | cut -d= -f2- || true)
+    export "$v=$val"
+  done
+  export SNAPDIR="$R" HYBRID_SNAPSHOT="$P/snapshot-linux.sh"
+  if [ "$name" = hybrid-keys ]; then export HYBRID_KEYS="$R/keys.tsv" HYBRID_STOP_AFTER=keys-only; fi
+  record "before-$name"
+  stamp "arm $name start (jobs $jobs)"
+  cd "$ws"
+  set +e
+  timeout "${ARM_TIMEOUT:-7200}" /usr/bin/time -v "$bin" "${pre[@]}" "$W/modules.txt" "$R/events.jsonl" \
+    --equations --refs --write-ir --tagged-code --jobs "$jobs" \
+    --ir-dir "$R/ir" --link-index "$R/link-index.lidx" --link-index-omit "$W/modules.txt" \
+    > "$LOGS/$name.out" 2> "$LOGS/$name.err" &
+  local tp=$!
+  sleep 2
+  local pid; pid=$(pgrep -P "$(pgrep -P $tp | head -1)" | head -1 || true)
+  if [ -n "$pid" ]; then sampler "$pid" "$LOGS/$name-sampler.tsv" & fi
+  wait $tp
+  local rc=$?
+  set -e
+  stamp "arm $name exit $rc"
+  record "after-$name"
+  for f in "$R"/snap-*.txt; do
+    if [ -f "$f" ]; then cp "$f" "$LOGS/$name-$(basename "$f")"; fi
+  done
+  if [ -f "$R/events.jsonl" ]; then cp "$R/events.jsonl" "$LOGS/$name-events.jsonl"; fi
+  if [ -f "$R/keys.tsv" ]; then (cd "$R" && sha256sum keys.tsv && wc -l < keys.tsv) > "$LOGS/$name-keys.sha256"; fi
+  if [ -d "$R/ir" ]; then (cd "$R/ir" && find . -type f | LC_ALL=C sort | xargs sha256sum) > "$LOGS/$name-ir.sha256"; fi
+  if [ -f "$R/link-index.lidx" ]; then (cd "$R" && sha256sum link-index.lidx) >> "$LOGS/$name-ir.sha256"; fi
+  return $rc
+}
+
+compare() {
+  local n="$W/run-native" h="$W/run-hybrid"
+  if [ -d "$n/ir" ] && [ -d "$h/ir" ]; then
+    python3 "$P/compare.py" "$n" "$h" "$W/details.jsonl" > "$LOGS/compare-report.txt" 2> "$LOGS/compare.err" || echo "compare exit $?" >> "$LOGS/compare.err"
+    python3 "$P/classify.py" "$W/details.jsonl" 2 > "$LOGS/compare-classes.txt" 2>&1 || true
+  fi
+  if [ -f "$LOGS/hybrid-keys-keys.sha256" ]; then
+    if diff <(awk '{$1=$1};1' "$P/expected-hybrid-keys.sha256") <(awk '{$1=$1};1' "$LOGS/hybrid-keys-keys.sha256") > /dev/null; then
+      echo "hybrid keys: identical to the M1 run" | tee -a "$LOGS/timings.txt"
+    else
+      echo "hybrid keys: differ from the M1 run" | tee -a "$LOGS/timings.txt"
+    fi
+  fi
+  for a in native hybrid; do
+    local e="$P/expected-$a-ir.sha256"
+    if [ -f "$LOGS/$a-ir.sha256" ] && [ -f "$e" ]; then
+      if diff <(sed 's#  \./#  #' "$e") <(sed 's#  \./#  #' "$LOGS/$a-ir.sha256") > "$LOGS/$a-ir-vs-m1.diff"; then
+        echo "$a IR: identical to the M1 run" | tee -a "$LOGS/timings.txt"
+      else
+        echo "$a IR: $(grep -c '^[<>]' "$LOGS/$a-ir-vs-m1.diff") differing lines against the M1 run" | tee -a "$LOGS/timings.txt"
+      fi
+    fi
+  done
+}
+
+case "${1:-}" in
+  record) record "$2" ;;
+  toolchains) toolchains ;;
+  ws) ws "$2" ;;
+  build) build ;;
+  lists) lists "$2" ;;
+  arm) arm "$2" "$3" || { echo "arm $2 failed" >&2; answer 1; } ;;
+  compare) compare ;;
+  *) echo "usage: probe.sh record|toolchains|ws|build|lists|arm|compare ..." >&2; answer 2 ;;
+esac
+answer 0
+
+=== probe/build-host/snapshot-linux.sh
+#!/bin/bash
+# usage: snapshot-linux.sh <pid> <label>   (writes $SNAPDIR/snap-<label>.txt; called by the paused process)
+pid=$1; label=$2; d=${SNAPDIR:-.}
+{
+  echo "== $label $(date +%s)"
+  grep -E '^(VmRSS|VmHWM|RssAnon|RssFile|RssShmem|VmSwap):' "/proc/$pid/status"
+  echo "-- smaps_rollup"; cat "/proc/$pid/smaps_rollup"
+  echo "-- meminfo"; grep -E '^(MemTotal|MemFree|MemAvailable|Cached|AnonPages|Mapped|SwapTotal|SwapFree):' /proc/meminfo
+} > "$d/snap-$label.txt" 2>&1
+exit 0
