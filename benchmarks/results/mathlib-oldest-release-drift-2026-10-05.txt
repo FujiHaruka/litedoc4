@@ -1,0 +1,1190 @@
+Mathlib's oldest release in the window printed by the newest Lean + Mathlib: v4.29.0 -> v4.34.1, plain and through the reader
+===========================================================================================================================
+Date: 2026-10-05. Context: docs/multiversion/plan.md D10 (an old version is printed by the newest Lean + Mathlib, an
+accepted approximation). The two earlier points were measured 3 minor releases apart (v4.31.0 -> v4.34.1):
+benchmarks/results/mathlib-printer-drift-2026-10-04.txt (plain drift) and
+benchmarks/results/olean-reader-prototype-2026-10-04.txt (own .olean reader + hybrid environment). This run takes the
+widest distance in the current set, 5 minor releases apart, with the same two methods.
+
+QUESTIONS
+---------
+(A) Plain drift: the old version's declaration type (the Expr obtained by Lean v4.29.0 itself and transported through
+    the drift log's JSON serialization) printed by Lean v4.34.1 + Mathlib v4.34.1 against v4.29.0's own print.
+(B) Reader + hybrid: does the own .olean reader survive v4.29.0's layout, does it decode the 5,000 sampled types
+    byte-identically to v4.29.0's own serialization (the gate), and how does the hybrid (newest import, v4.29.0
+    constants and data-extension entries in place) print the same 5,000?
+
+HEADLINE
+--------
+                                         v4.31.0 -> v4.34.1 (3 apart)        v4.29.0 -> v4.34.1 (5 apart, this run)
+(A) plain drift, identical               4878 / 5000  97.56% [97.09, 97.95]  4721 / 5000  94.42% [93.75, 95.02]   (measured)
+    different                             111          2.22% [1.85, 2.67]     264          5.28% [4.69, 5.93]
+    print failed (text returned)           11          0.22% [0.12, 0.39]      15          0.30% [0.18, 0.49]
+    exception                               0                                   0
+    -> not identical, all causes          122          2.44% [2.05, 2.91]     279          5.58% [4.98, 6.25]
+    >=1 referenced constant dangling      388          7.76% [7.05, 8.53]     539         10.78% [9.95, 11.67]
+    own name present, different type      933         18.66%                 1601         32.02% [30.74, 33.33]
+(B) reader oracle (types byte-identical)  5000 / 5000                         5000 / 5000                          (measured)
+    hybrid, identical                     4930 / 5000  98.60% [98.24, 98.89]  4889 / 5000  97.78% [97.33, 98.15]   (measured)
+    hybrid, different                       70          1.40%                  111          2.22% [1.85, 2.67]
+    hybrid, print failed / exception      0 / 0                               0 / 0
+Read as statements about all declarations of Mathlib v4.29.0 (N = 298,114), the percentages are (extrapolated) from
+5,000 of them (1.68%): not identical (A) ~16,600 declarations (95% roughly 14,800-18,600), (B) ~6,600 (5,500-7,900).
+
+The two columns are NOT the same 5,000 declarations: the sampler and seed are the same, but N differs (311,415 vs
+298,114), so the same seed draws a different sample. Same method, different declarations. And two points (3 and 5
+releases apart) do not make a slope: nothing here says how drift grows per release. What the per-cause breakdown
+below says is what the loss is made of.
+
+Causes of "different", plain drift (A), 264 records (drift log's classes, post-hoc reading of F4/F5 added here):
+  F4 more explicit @-applications       126  (v4.31.0 point: 28). 66 distinct newly explicit heads; one cause
+                                             dominates: `algebraMap` 47 records (`algebraMap` is absent from v4.34.1,
+                                             dangling in 50 records of the sample), then Polynomial.coeff 11,
+                                             MvPolynomial.coeff 5, LinearPMap 5 (+ LinearPMap.domain/toFun' 3 each;
+                                             LinearPMap's universe arity went 3 -> 4), MeasureTheory.eLpNorm 4, a tail
+                                             of 1-3 each. 78 of the 126 reference a dangling constant.
+  F1 set-builder via setOf               61  (45). The same single rename, setOf -> Set.ofPred.
+  F5 rest                                48  (13). Two groups (post-hoc, by reading all 48):
+                                             - 26 are newest-Mathlib notation applied to an unchanged term, and all 26
+                                               are still different in the hybrid (listed under (B));
+                                             - 22 are changed signatures or constants, all gone in the hybrid:
+                                               `SimplexCategory.mk n` printed `{ len := n }` 6, argument explicitness
+                                               changed (BoundedVariationOn 2, lowerCentralSeries 2, LieAlgebra.Basis 2),
+                                               and 1 each: Seminorm.restrictScalars, ComputeAsymptotics, Hyperreal.Infinite,
+                                               AddMonoidAlgebra.support, AlgHomClass coercion, PairReduction.pairSet,
+                                               Ring.ExtractCoeff, SkewPolynomial.monomial, Sieve.overEquiv,
+                                               ComposableArrows.opcyclesToCycles.
+  F2 new ↧ notation                      17  (16).
+  E identifier spelling only              7  (2).
+  D namespace qualification only          3  (5).
+  F3 private name printed in full         2  (0).
+  print failed                           15  (11): 8 x OpenPartialHomeomorph.toPartialEquiv (as at the v4.31.0 point),
+                                             SimplicialObject.Splitting 2, and 1 each: CliffordAlgebra instances +
+                                             algebraMap, EuclideanSpace.measurableEquiv, coyonedaCompLimIsoCones,
+                                             OrderIso.toCompleteLatticeHom; and 1 with no dangling constant
+                                             (Module.Baer.chain_linearPMap_of_chain_extensionOf: LinearPMap's universe
+                                             arity changed, 3 -> 4).
+So at 5 apart the loss is part concentrated (algebraMap 47+, setOf 61, ↧ 17 = 125 of 264), part diffuse (a tail of
+~65 constants in F4, ~20 causes in F5). The concentrated part that comes from removed or changed constants (algebraMap,
+the F4 tail, the 22 changed signatures, 15 print failures) is what the reader removes; the renames the newest notation
+keys on (setOf) and the newest notations are what it cannot.
+
+Causes of "different" in the hybrid (B), 111 records (classes as above; F5 post-hoc, by reading all 28):
+  F1 set-builder via setOf               61  (v4.31.0 hybrid: 45)
+  F2 new ↧ notation                      15  (16)
+  F5 rest                                28  (7): ∘SL for ContinuousLinearMap.comp 7; multilinear map notation
+                                             `E [×n]→L[𝕜] F` 4; manifold notations (HasMFDerivAt%, UniqueMDiff[s],
+                                             MDiff[u] with the old T% section notation lost) 4; ⁻¹' / '' parenthesisation
+                                             3; L1 simple-function notation `α →₁ₛ[μ] E` 2; Tropical.untrop as dot
+                                             notation 2; and 1 each: ⟪f, g⟫_[𝕜, w], `α ≤i β`, `line[ℝ, p, t]`,
+                                             `∏ j > i` binder, `⊆` for `≤` on simplex faces, spacing in `P⁻[X | mΩ]`.
+  E identifier spelling only              5  (0): all LinearPMap, `E →ₗ.[R] F` printed `E →ₛₗ.[R] F`.
+  A hygiene names only                    2  (0): private proof auxiliaries, `_proof_441✝¹` vs `_proof_441✝`.
+  C / D / F3 / F4 / print failed       0 / 0 / 0 / 0 / 0  (D was 2 at the v4.31.0 point)
+  dangling 0, own name with same type 5000 of 5000.
+Every remaining difference is newest notation (or the newest printer's precedence) applied to an old term whose
+constants are all present - the approximation D10 accepts. At 5 apart: the setOf rename, ↧, and 28 F5 records over
+~13 distinct notations (+ 5 LinearPMap, 2 hygiene); at 3 apart: setOf, ↧, 7 F5 records and 2 qualifications.
+
+The reader at v4.29.0 (B): it survives. Oracle 5000 of 5000 identical, 0 not found, 0 different, before any hybrid
+run (the gate). Every Name hash (11,093,084), Level data word (266,212) and Expr data word (125,014,912) decoded over
+the closure equals the one v4.29.0 stored. What v4.29.0 needed, one record per writer selected by version string AND
+githash (the layout log's differences, each handled explicitly):
+  - header / compactor / ModuleData / Import / kernel objects (Name, Level, Expr, ConstantInfo, every *Val):
+    unchanged (layout log: 0 changes in the window); the same decoders run. Header verified on the files: magic
+    "olean", version byte 2, flags 1, "4.29.0", githash 98dc76e3c0a9b856c9b98726b713fb04fab16740 (= `lean --version`
+    of <toolchain v4.29.0> and the layout log's tag SHA), base address at offset 80.
+  - namespacesExt (v4.29.1 -> v4.30.0, #12840): v4.29.0 registers it as `Lean.namespacesExt` (public), v4.34.1 as
+    `_private.Lean.Namespace.0.Lean.namespacesExt`. The reader decodes v4.29.0's entries under the v4.29.0 name and
+    emits them under v4.34.1's (31,296 entries), and refuses data that carries the private name. Same entry type
+    (Name) on both sides (read from both toolchains' source). v4.29.0 did not export them sorted (3,000 modules'
+    entries out of Name.quickLt order); the reader sorts them, as v4.34.1's writer does. v4.34.1's importer folds them
+    into a HashMap, so the order is a convention here, not a correctness requirement.
+  - exportedAxiomsExt (new in v4.30.0) and eqnOptionsExt (new in v4.31.0): absent in v4.29.0. They are 2 of 76
+    extensions that v4.34.1 + Mathlib v4.34.1 register and v4.29.0 + Mathlib v4.29.0 do not (registered-name diff,
+    measured, list below). The v4.29.0 record names all 76; an entry under any of them stops the read (made to fail
+    once, HOW IT WAS RUN). None of the 76 is among the 11 decoded extensions; in the hybrid they keep the newest
+    entries like every non-decoded extension, in the old environment alone they are empty.
+  - placement (v4.29.1 -> v4.30.0 #13142, OLeanEntries / computeExtEntries from v4.30.0): v4.29.0's writer dropped
+    private declarations' entries from .olean/.olean.server; .olean.private holds everything in both versions. The
+    reader takes ModuleData from the last part (.olean.private), so nothing changes. Mathlib v4.29.0 is 3-part like
+    v4.31.0: of the 10,448 .olean files on the search path, 10,438 have .olean.server + .olean.private.
+  - ReducibilityStatus: v4.29.0 has the 4-constructor enum with 3 = "unfolded at .instances or above" (added in
+    v4.28.0 -> v4.29.0), the same meaning as v4.31.0; the v4.29.0 record maps 3 -> v4.34.1's instanceReducible.
+    26,409 values read as 3 over the closure (7,883 core, 18,526 other); all 245 [implicit_reducible] declarations of
+    the 5,000 come out instanceReducible (lookups below).
+  - ClassEntry.outLevelParams (added v4.28.0 -> v4.29.0): present in v4.29.0; the v4.31.0 decoder applies unchanged.
+  - Refusal: a v4.33.1 core library is refused by name, a v4.29.0 file with one githash byte changed is refused, and a
+    closure mixing v4.31.0 core with v4.29.0 packages is refused at the first mismatching file (HOW IT WAS RUN).
+  - Not in v4.29.0 at all, so nothing to handle: SimpTheorem.backwardRfl (v4.31.0), the v4.33.0 ReducibilityStatus /
+    Verso changes - and the reader decodes neither simp nor Verso entries.
+
+Reader time and memory, whole closure, v4.29.0 (measured, /usr/bin/time -l, Apple M1):
+  10,281 modules, 6,780,262,648 bytes (3 parts per module where present), 162,091,024 objects visited, 737,536
+  constants (736,618 after the importer's duplicate rule - equal to v4.29.0's own `importModules Mathlib` count),
+  627,889 extension entries decoded in 11 extensions, 3,991,093 entries in 200 extensions not decoded.
+    run                       wall      user     sys    peak RSS        reader's split (file reads / decoding)
+    with oracle (first run)   47.15 s   36.41    3.47   235,880,448 B   8.4 s / 31.1 s
+    1                         46.05     35.24    3.40   203,767,808     8.3 / 31.0
+    2                         45.99     35.16    3.42   203,948,032     8.5 / 30.7
+    3                         45.95     35.08    3.40   203,767,808     8.4 / 30.8
+    proofs skipped            23.99     13.63    3.05   111,722,496     8.0 / 11.8
+  median 45.99 s with proofs decoded (v4.31.0 closure: 48.25 s, 10,583 modules, 7.00 GB); 24.0 s with proofs skipped
+  (24.59 s). Same order of size, so same order of time; not a comparison of the reader across versions.
+Hybrid (B), one run, /usr/bin/time -l: decode 66.3 s (proofs skipped, everything kept), newest import + rewrite +
+finalizeImport 49.3 s, lookups 1.9 s, print 6.6 s (ppExpr 4.9 s); 126.77 s wall, 70.11 user, 13.53 sys, peak RSS
+6,079,643,648 B (v4.31.0 point: 5,074,173,952 B). 682,009 constants replaced in place, 966 later duplicates dropped,
+54,609 old-only constants in the extra module (v4.31.0 point: 27,084); 601,593 newest entries of the decoded
+extensions replaced, 76,193 kept (keys v4.29.0 does not have).
+
+Lookups (secondary; the 16 name-keyed lookups of the reader log, on all 5,000):
+                 old env alone   hybrid    non-empty in v4.29.0
+  found              5000          5000       5000
+  kind               5000          5000       5000
+  levelParams        5000          5000       4516
+  type               5000          5000       5000
+  isStructure        5000          5000         74
+  isClass            5000          5000         36
+  isInstance         5000          5000        465
+  fields             5000          5000         74
+  ranges             5000          5000       5000
+  reducibility       5000          5000        352
+  projInfo           5000          5000        131
+  coe                5000          5000          4
+  protected          5000          5000        208
+  eqns               5000          4991        182
+  eqDef              5000          5000          5
+  module             5000          4707       5000
+  (number of the 5,000 whose answer equals v4.29.0's own; reducibility through the meaning table)
+  - old environment alone in v4.34.1: 80,000 of 80,000 equal (measured).
+  - hybrid: `module` differs on 293 (the hybrid answers the newest module, or the extra module for old-only
+    constants - wrong by construction, as at the v4.31.0 point, 136 there) and `eqns` on 9 (a `f.eq_1` the newest
+    Mathlib stored and v4.29.0 did not - same cause as the 6 at the v4.31.0 point).
+
+CONDITIONS
+----------
+- Hardware: Apple M1, hw.memsize 17179869184 (16 GiB), macOS 26.6.2. One heavy process at a time throughout.
+- Old side: Lean 4.29.0 (98dc76e3c0a9b856c9b98726b713fb04fab16740), Mathlib v4.29.0
+  (8a178386ffc0f5fef0b77738bb5449d50efeea95), workspace <old-workspace>: lakefile requiring mathlib @ "v4.29.0",
+  lean-toolchain leanprover/lean4:v4.29.0, `lake update` (whose Mathlib post-update hook downloaded and decompressed
+  the cache: 8,232 files), Mathlib oleans from the cache. `lake build --no-build Probe` reported only the probe file
+  itself out of date ([8248/8249]), i.e. nothing of Mathlib needed a rebuild. Packages: aesop, batteries, Cli (no
+  oleans, not in Mathlib's closure), importGraph, LeanSearchClient, mathlib, plausible, proofwidgets, Qq. Every .olean
+  the reader opened says "4.29.0" and that githash (a mismatch is an error).
+- New side: Lean 4.34.1 (5045d0056413266e57c625dcd7c365b10e377c52), Mathlib v4.34.1
+  (d13f23b723b8a846827a245b89c10fc7d3f11612), workspace <new-workspace> (Mathlib oleans from the cache), the same one
+  as both earlier logs.
+- (A) exactly as the drift log: Drift.lean compiled by each Lean (`lake env lean --run`), `importModules Mathlib` with
+  initializers enabled, `Meta.ppExpr` of the full type, width 1,000,000, maxHeartbeats 5,000,000, whitespace-collapsed
+  string equality, agg.py verbatim. Drift.lean compiled and ran on Lean v4.29.0 unchanged (0 changes); the 20-record
+  sample showed Mathlib's delaborators active on the old side (ℕ, ⨅, ⊤, ⇑, `fun₀`).
+- (B) exactly as the reader log: the prototype rebuilt from the reader log's CODE section (Main.lean's omitted parts
+  taken verbatim from the drift log's Drift.lean), lean_exe -O3 built by Lean v4.34.1 in <scratch>, run under
+  `lake env` of <new-workspace> for the hybrid and lookups. Changes to the reader: CODE below (OleanReader.lean and 7
+  lines of read-mode reporting in Main.lean); Assemble.lean, the serialization and newSide are unchanged.
+- Runs and warmth. Each program ran on a sample first (20 records for both drift sides, the lookups and the hybrid;
+  20 modules for the reader; 300 modules for the old-environment assembly), then in full; every full run's first 20
+  records equal the 20-record run's (timing fields aside). Wall time exceeded user+sys in every run (e.g. reader
+  46.0 s vs 38.6 s; drift old 53.4 s vs 21.6 s, new 73.6 s vs 31.5 s), so by this repository's criterion none was
+  warm. The subject of (A) and (B) is printed text, which does not depend on warmth; timings are context.
+  - drift old side, 5,000: 53.43 s wall, 14.38 user, 7.18 sys, peak RSS 5,361,025,024 B; import 33.2 s, enumerate
+    3.7 s, ppExpr total 5.0 s. 20-record run: 43.21 s wall.
+  - drift new side, 5,000: 73.63 s wall, 23.00 user, 8.53 sys, peak RSS 5,155,291,136 B; import 43.7 s, ppExpr
+    total 5.4 s. 20-record run: 55.14 s wall.
+  - native lookups on v4.29.0 (Lookups.lean, unchanged, compiled by v4.29.0): 36.64 s wall, peak RSS 5,642,928,128 B.
+  - old environment alone in v4.34.1: decode 62.6 s, finalizeImport 1.7 s, 736,618 constants, 65.61 s wall, peak RSS
+    2,760,261,632 B.
+  The peak RSS of the drift sides (5.2-5.4 GB) is higher than the drift log's (3.9-4.1 GB) for the same script; not
+  investigated (maximum resident set size includes the mapped .olean pages, which depend on page-cache state).
+
+POPULATION AND SAMPLE
+---------------------
+- N = 298,114 documented declarations of Mathlib v4.29.0 (measured), by the drift log's definition unchanged (modules
+  named `Mathlib.*` in import order, first module wins, recursors and doc-gen4's isBlackListed dropped). v4.31.0 had
+  311,415.
+- Sample: 5,000 without replacement (1.68% of N), partial Fisher-Yates driven by splitmix64, seed 20261004. Kinds:
+  theorem 3,735, definition 653, instance 451, constructor 77, structure 38, class 36, inductive 8, opaque 2.
+- Every percentage is of the 5,000 (measured); the bracket is a 95% Wilson score interval (finite-population
+  correction, 1.7%, ignored); as a statement about all 298,114 it is (extrapolated) from 1.68% of them.
+
+PLAIN DRIFT DETAILS (A)
+-----------------------
+Referenced constants (old Expr, new environment):
+  >=1 dangling                                           539 / 5000  10.78% [9.95, 11.67]   (v4.31.0 point 388)
+     of which print identical 412, different 113, print failed 14
+  >=1 constant used with a different universe arity       31 / 5000   0.62% [0.44, 0.88]    (8)
+     most frequent: LinearPMap 3->4 (7 records), ContinuousLinearMap.addCommGroup._proof_6 1->4 (6),
+     LinearPMap.domain 3->4 (4)
+  131 distinct dangling names, 668 occurrences (v4.31.0 point: 67, 436); by name: 47 inst*, 20 proof auxiliaries
+  (`..._proof_N`), 64 other. 262 of the 539 records reference only inst*/proof-auxiliary dangling names.
+  Most frequent: Monoid.toPow 113, Set.instHasSubset 97, algebraMap 50, instAddCommMonoidWithOneENNReal 37,
+  instZeroENNReal 36, instTopENNReal 31, UniformContinuousConstSMul.to_continuousConstSMul 30.
+The declaration's own name in the new environment:
+  absent 92 (1.84%), same 2,931 (58.62%), same up to binder names 271 (5.42%), same after renaming universe
+  parameters 105 (2.10%), different type 1,601 (32.02% [30.74, 33.33]; v4.31.0 point 18.66%). Of the 1,601, the new
+  declaration's own type prints identically to the old print in 1,303 and differently in 298.
+Serialization sanity: 5,000 of 5,000 re-serialize identically; 0 mvars / fvars / level mvars; 9 records had mdata
+(11 nodes) dropped before the new-side print, all 9 print identically.
+
+EXTENSIONS: v4.34.1-registered, absent from v4.29.0 (measured)
+-------------------------------------------------------------
+Method: `persistentEnvExtensionsRef` after `importModules Mathlib` with initializers enabled, on each side (Exts.lean
+below): 287 names on v4.29.0, 343 on v4.34.1; 76 only on v4.34.1, 20 only on v4.29.0. Pairing by last name component
+(names only; entry types not compared except for namespacesExt):
+  18 renamed: 12 made private (namespacesExt, extraModUses, isExtraRevModUseExt, Specialize.specCacheExt,
+     taggedReturnAttr, grindAnnotatedExt, Grind muteExt / skipExt / skipSuffixExt, SineQuaNon.triggerDenyListExt,
+     methodSpecsAttr, methodSpecsSimpExtension) and 6 moved namespace (bool_to_prop -> Lean.bool_to_prop,
+     BVDecide.Frontend.bvNormalizeExt -> Lean.Meta.Tactic.BVDecide.bvNormalizeExt, Mathlib.Linter.deprecatedModuleExt
+     -> Lean.deprecatedModuleExt, Mathlib.StacksTag.tagExt -> Mathlib.CrossRef.tagExt, Tactic.higherOrderAttr ->
+     Mathlib.Tactic.higherOrderAttr, treeTacExt -> Std.Internal.treeTacExt);
+  58 v4.34.1-only without a v4.29.0 counterpart by name, among them exportedAxiomsExt, eqnOptionsExt,
+     backwardDefeqAttr, matcherLikeExt, the four Verso-Markdown / deferred-check extensions, Batteries' ProofWanted
+     extensions and Mathlib's Polynomial / Inclusion / Echelon tactic extensions (full list in the CODE diff, the v4.29.0
+     record's `absentExts`);
+  2 v4.29.0-only without a v4.34.1 counterpart by name: BVDecide.Frontend.bvNormalizeSimprocExt, intToBitVecExt.
+Of the 11 extensions the reader decodes, only namespacesExt is among these. The 76 are named in the reader's v4.29.0
+record and the read stops on an entry under any of them; 0 such entries were met over the closure.
+Not decoded over the closure (registered name, entries), all 200:
+    Lean.Compiler.LCNF.impureSigExt 681413
+    Lean.extraModUses 649358
+    Lean.Compiler.LCNF.monoExt 537670
+    _private.Lean.OriginalConstKind.0.Lean.privateConstKindsExt 433292
+    Lean.IR.declMapExt 358365
+    Lean.Compiler.LCNF.UnreachableBranches.functionSummariesExt 243380
+    _private.Lean.Compiler.MetaAttr.0.Lean.declMetaExt 188768
+    Lean.Compiler.LCNF.baseExt 140874
+    Lean.Parser.parserExtension 102602
+    Lean.docStringExt 101035
+    Lean.Meta.simpExtension 94811
+    Lean.defeqAttr 63000
+    Lean.Compiler.inlineAttrs 45957
+    Lean.Compiler.LCNF.Specialize.specCacheExt 45169
+    Lean.Compiler.LCNF.specExtension 31792
+    Lean.Meta.Match.Extension.extension 28797
+    Mathlib.Tactic.ToAdditive.translations 22905
+    Lean.auxRecExt 17268
+    _private.Lean.Compiler.MetaAttr.0.Lean.metaExt 17105
+    Lean.noncomputableExt 14803
+    _private.Lean.DocString.Extension.0.Lean.moduleDocExt 14301
+    Lean.Meta.completionBlackListExt 13146
+    Lean.Meta.Grind.grindExt 13009
+    _private.Lean.Compiler.ModPkgExt.0.Lean.modPkgExt 10281
+    symbolFrequency 10281
+    sineQueNon 10281
+    Lean.noConfusionExt 9989
+    simpsAttr 7987
+    _private.Lean.AuxRecursor.0.Lean.sparseCasesOnExt 7381
+    Mathlib.Tactic.ToDual.translations 6789
+    Lean.Meta.congrKindsExt 5720
+    _private.Lean.Meta.Constructions.SparseCasesOn.0.Lean.Meta.sparseCasesOnInfoExt 4841
+    Batteries.Tactic.Alias.aliasExt 4723
+    recExt 4690
+    Lean.builtinInitAttr 4623
+    Lean.Linter.deprecatedAttr 4352
+    Lean.Elab.Term.elabAsElim 3229
+    Batteries.machineApplicableDeprecated 2620
+    _private.Lean.DocString.Extension.0.Lean.inheritDocStringExt 2342
+    Lean.Meta.NormCast.pushCastExt 2032
+    Lean.Meta.NormCast.normCastExt.down 2000
+    Mathlib.Meta.FunProp.functionTheoremsExt 1958
+    Lean.Meta.NormCast.normCastExt.up 1929
+    Lean.Elab.Structural.eqnInfoExt 1928
+    Lean.Elab.macroAttribute 1675
+    Lean.Elab.Command.assertExistsExt 1435
+    Lean.Meta.Ext.extExtension 1383
+    Simps.structureExt 964
+    Lean.externAttr 950
+    Lean.PrettyPrinter.Delaborator.appUnexpanderAttribute 923
+    Lean.Meta.NormCast.normCastExt.squash 806
+    Mathlib.Tactic.GCongr.gcongrExt 804
+    Lean.indirectModUseExt 769
+    Lean.PrettyPrinter.mkCombinatorFormatterAttribute 622
+    Lean.PrettyPrinter.mkCombinatorParenthesizerAttribute 620
+    Lean.versoDocStringExt 524
+    Mathlib.StacksTag.tagExt 472
+    Lean.Compiler.specializeAttr 471
+    Batteries.Tactic.Lint.nolintAttr 424
+    Lean.regularInitAttr 411
+    Lean.Elab.WF.eqnInfoExt 410
+    Lean.Compiler.implementedByAttr 383
+    Continuous 335
+    ext._@.Mathlib.Tactic.Attr.Register.479538640._hygCtx._hyg.3 329
+    Lean.Elab.Tactic.BVDecide.Frontend.intToBitVecExt 320
+    mono 318
+    Lean.PrettyPrinter.Delaborator.delabAttribute 256
+    Lean.methodSpecsAttr 246
+    Lean.exportAttr 242
+    Lean.Elab.Tactic.BVDecide.Frontend.bvNormalizeExt 234
+    Lean.Elab.Tactic.tacticElabAttribute 225
+    Lean.Parser.Term.Doc.recommendedSpellingByNameExt 200
+    Lean.Compiler.CSimp.ext 194
+    Mathlib.Tactic.Push.pushExt 180
+    Bound 176
+    Lean.auxParentProjInfoExt 174
+    Lean.Meta.funIndInfoExt 169
+    Mathlib.Meta.FunProp.lambdaTheoremsExt 166
+    Lean.Meta.Symm.symmExt 165
+    Mathlib.Meta.FunProp.transitionTheoremsExt 159
+    Batteries.Tactic.transExt 155
+    Lean.Meta.Rfl.reflExt 151
+    specMap 148
+    Lean.matchPatternAttr 146
+    ext._@.Mathlib.Tactic.Attr.Register.2133673922._hygCtx._hyg.3 145
+    Mathlib.Meta.FunProp.morTheoremsExt 131
+    default 131
+    Lean.Meta.customEliminatorExt 131
+    eqnsAttribute 126
+    Mathlib.Linter.deprecatedModuleExt 118
+    Lean.Parser.Term.Doc.recommendedSpellingExt 115
+    Mathlib.Meta.Positivity.positivityExt 111
+    Lean.Meta.Grind.normExt 108
+    Mathlib.Tactic.Push.pullExt 107
+    ext._@.Mathlib.Tactic.Attr.Register.2899626838._hygCtx._hyg.3 104
+    Lean.Elab.Command.commandElabAttribute 100
+    Lean.Meta.congrExtension 100
+    Lean.isExtraRevModUseExt 92
+    Lean.Parser.Tactic.Doc.tacticAlternativeExt 85
+    Mathlib.Meta.NormNum.normNumExt 83
+    Measurable 80
+    SetLike 78
+    Lean.Elab.Term.termElabAttribute 67
+    treeTacExt 67
+    Lean.Meta.Monotonicity.monotoneExt 67
+    Lean.ppNoDotAttr 56
+    ext._@.Mathlib.Tactic.Attr.Register.3059584346._hygCtx._hyg.3 56
+    Lean.Elab.Tactic.Do.SpecAttr.mvcgenSimpExt 52
+    Lean.Elab.WF.wfPreprocessSimpExtension 50
+    finsetNonempty 47
+    Mathlib.Meta.FunProp.funPropDeclsExt 44
+    Lean.identifierSuggestForAttr.incorrectToExisting 43
+    ext._@.Mathlib.Tactic.Attr.Register.2336186397._hygCtx._hyg.3 42
+    finiteness 41
+    Lean.Meta.defaultInstanceExtension 41
+    Simps.notationClassAttr 38
+    Lean.identifierSuggestForAttr.existingToIncorrect 36
+    Lean.Elab.Tactic.Omega.bitvec_to_nat 36
+    Lean.attributeExtension 36
+    Batteries.Util.LibraryNote.libraryNoteExt 36
+    ext._@.Mathlib.Tactic.Attr.Register.1086225606._hygCtx._hyg.3 32
+    Matroid 31
+    builtin 30
+    _private.Lean.DocString.Extension.0.Lean.versoModuleDocExt 29
+    Mathlib.Tactic.Hint.hintExtension 24
+    Lean.IR.UnboxResult.unboxAttr 22
+    Mathlib.Tactic.UnfoldBoundary.registerUnfoldBoundaryExt 22
+    Lean.Elab.Tactic.Grind.skipExt 21
+    CategoryTheory 21
+    Lean.PrettyPrinter.parenthesizerAttribute 20
+    Lean.Meta.Simp.simprocDeclExt 20
+    Lean.PrettyPrinter.formatterAttribute 20
+    Tactic.higherOrderAttr 20
+    Batteries.Tactic.Lint.batteriesLinterExt 18
+    Mathlib.TacticAnalysis.tacticAnalysisExt 18
+    _private.Lean.Widget.UserWidget.0.Lean.Widget.moduleRegistry 18
+    Lean.Attr.algebraizeAttr 16
+    Lean.methodSpecsSimpExtension 16
+    IsMultiplicative 16
+    ext._@.Mathlib.Tactic.Attr.Register.1568842782._hygCtx._hyg.3 16
+    _private.Lean.Meta.Tactic.Grind.EMatchTheorem.0.Lean.Meta.Grind.symbolPrioExt 15
+    CStarAlgebra 14
+    Lean.errorExplanationExt 14
+    ext._@.Mathlib.Tactic.Attr.Register.2016062075._hygCtx._hyg.3 14
+    Lean.Meta.coeDeclAttr 14
+    Lean.Meta.unificationHintExtension 13
+    Restrict 12
+    Lean.Server.userRpcProcedures 12
+    Lean.Elab.Tactic.Try.trySuggestionExtension 11
+    Lean.Compiler.LCNF.taggedReturnAttr 11
+    Lean.neverExtractAttr 11
+    Mathlib.Tactic.ToAdditive.doTranslateAttr 10
+    ext._@.Mathlib.Tactic.Attr.Register.668879677._hygCtx._hyg.3 9
+    Lean.Elab.Term.elabWithoutExpectedTypeAttr 9
+    ext._@.Mathlib.Tactic.Attr.Register.612238087._hygCtx._hyg.3 9
+    reduceModCharExt 8
+    ext._@.Mathlib.Tactic.Attr.Register.3215534580._hygCtx._hyg.3 8
+    ext._@.Mathlib.Tactic.Attr.Register.1503578496._hygCtx._hyg.3 8
+    Mathlib.Tactic.GCongr.forwardExt 7
+    Mathlib.Linter.UnusedTactic.allowedUnusedTacticExt 7
+    ext._@.Mathlib.Tactic.Attr.Register.3369699945._hygCtx._hyg.3 7
+    Mathlib.Tactic.ToDual.doTranslateAttr 6
+    ext._@.Mathlib.Tactic.Attr.Register.3849875863._hygCtx._hyg.3 6
+    Lean.ppUsingAnonymousConstructorAttr 6
+    Lean.Compiler.nospecializeAttr 5
+    SimpleGraph 5
+    ext._@.Mathlib.Tactic.Attr.Register.3021440532._hygCtx._hyg.3 5
+    bool_to_prop 5
+    ext._@.Mathlib.Tactic.Attr.Register.2552594532._hygCtx._hyg.3 5
+    Lean.Elab.incrementalAttr 4
+    aesop_default 4
+    Lean.Meta.Simp.simprocExtension 4
+    Sym2 4
+    Lean.Elab.ComputedFields.computedFieldAttr 4
+    Batteries.CodeAction.tacticCodeActionExt 4
+    Mathlib.Tactic.ToAdditive.ignoreArgsAttr 3
+    Lean.Linter.linterSetsExt 3
+    ProofWidgets.exprPresenters 3
+    Mathlib.Command.Variable.variableAliasAttr 3
+    Lean.CodeAction.holeCodeActionExt 3
+    fieldSimpExt 3
+    is_poly 2
+    Lean.Server.codeActionProviderExt 2
+    aesop_Sym2 2
+    Lean.Parser.Tactic.Doc.tacticDocExtExt 2
+    ext._@.Mathlib.Tactic.Attr.Register.1131139975._hygCtx._hyg.3 2
+    SetLike! 2
+    Lean.Linter.unusedVariablesIgnoreFnsExt 1
+    Mathlib.Tactic.ToDual.ignoreArgsAttr 1
+    aesop_builtin 1
+    Lean.LibrarySuggestions.librarySuggestionsExt 1
+    Lean.Parser.Tactic.Doc.tacticNameExt 1
+    Lean.LibrarySuggestions.librarySuggestionsAttr 1
+    Lean.CodeAction.cmdCodeActionExt 1
+    Lean.Elab.Tactic.Grind.grindAnnotatedExt 1
+    Lean.Elab.Tactic.Grind.skipSuffixExt 1
+    Batteries.CodeAction.tacticSeqCodeActionExt 1
+    Lean.Elab.Term.Quotation.precheckAttribute 1
+    Lean.Elab.PartialFixpoint.eqnInfoExt 1
+    Lean.Meta.recursorAttribute 1
+
+WHAT IS NOT MEASURED
+--------------------
+- A slope. Two points (3 and 5 releases apart, each a different sample of a different N) do not say how drift grows
+  per release; v4.30.0 (4 apart) and v4.32.x / v4.33.x are unmeasured. The causes are individual renames, removals
+  and new notations; they accumulate per release and are not linear.
+- The same declarations at both distances: the samples differ. A paired comparison (the declarations present in both
+  v4.29.0 and v4.31.0) was not made.
+- The reader's v4.31.0 record was carried over unchanged and was not re-run here; it has no `absentExts` list (its
+  absence check is empty), so only the v4.29.0 record makes that check.
+- The extractor's signature printer, docstrings, equations, structure fields, instances: only `ppExpr` of the type
+  and 16 lookups (as in both earlier logs).
+- 200 extensions are not decoded (list above), among them the matcher extension, docstrings, simp and the parser
+  extension. In the hybrid every non-decoded extension, including the 58 v4.34.1-only ones (exportedAxiomsExt among
+  them), keeps the newest entries about newest names: an answer from them about an old declaration is wrong by
+  construction; nothing here asks them.
+- Memory of the hybrid at the extractor's workload; the 6.08 GB here is newest import + old constants without proofs.
+- True cold cache (purge needs root).
+- The 22 F5 records of (A) that the hybrid fixes and the F5 groupings in both columns are post-hoc readings (written
+  after looking at the records), counted, not rules; the drift log's pre-registered classes and post-hoc F1-F5 rules
+  are applied unchanged by agg.py.
+
+HOW IT WAS RUN
+--------------
+  # old workspace (installs <toolchain v4.29.0>; the Mathlib post-update hook fetched the cache)
+  cd <old-workspace> && lake update && lake build --no-build Probe
+  # (A)
+  cd <old-workspace> && /usr/bin/time -l lake env lean --run <scratch>/Drift.lean old <scratch>/old.jsonl 20261004 5000
+  cd <new-workspace> && /usr/bin/time -l lake env lean --run <scratch>/Drift.lean new <scratch>/old.jsonl <scratch>/new.jsonl 5000
+  python3 <scratch>/agg.py <scratch>/new.jsonl 5000 45
+  python3 <scratch>/posthoc.py <scratch>/new.jsonl 5000
+  # extension names, each side
+  cd <old-workspace> && lake env lean --run <scratch>/Exts.lean mathlib ;  cd <new-workspace> && (same)
+  # (B)
+  cd <scratch> && lake build                                    # lean-toolchain leanprover/lean4:v4.34.1
+  <scratch>/.lake/build/bin/u9 read sp-old.txt all 0 old.jsonl reader-types.jsonl     # the oracle (gate)
+  <scratch>/.lake/build/bin/u9 read sp-old.txt all 0 - -        # x3, /usr/bin/time -l; then once with 1 (proofs skipped)
+  cd <new-workspace> && /usr/bin/time -l lake env <scratch>/.lake/build/bin/u9 hybrid <scratch>/sp-old.txt 1 old.jsonl hyb-lookups.jsonl hyb-print.jsonl 5000
+  python3 <scratch>/agg.py hyb-print.jsonl 5000 45 ;  python3 <scratch>/posthoc.py hyb-print.jsonl 5000
+  # lookups
+  cd <old-workspace> && /usr/bin/time -l lake env lean --run <scratch>/Lookups.lean old.jsonl native.jsonl
+  <scratch>/.lake/build/bin/u9 old-env sp-old.txt old.jsonl oldenv.jsonl
+  python3 cmp.py native.jsonl oldenv.jsonl ;  python3 cmp.py native.jsonl hyb-lookups.jsonl
+sp-old.txt lists <toolchain v4.29.0>/lib/lean, then <old-workspace>/.lake/packages/<pkg>/.lake/build/lib/lean for
+aesop, batteries, importGraph, LeanSearchClient, mathlib, plausible, proofwidgets, Qq.
+Samples: the drift sides, Lookups.lean and the hybrid with 20 records (`20` for 5000; for Lookups.lean an oracle file
+of the first 20 records); the reader with `20` for `all`; old-env with U9_LIMIT=300.
+The checks were made to fail once (measured, each exit 1, naming the cause):
+  - search path with <toolchain v4.33.1>/lib/lean first: "Init.olean: written by Lean 4.33.1 (819816b2e0a3...); this
+    reader knows only 4.31.0 (68218e876d2a...), 4.29.0 (98dc76e3c0a9...)";
+  - a copy of v4.29.0's Init/Prelude.olean with githash byte 0 changed '9' -> '0', put first on the search path:
+    "written by Lean 4.29.0 (08dc76e3c0a9...); this reader knows only ...";
+  - <toolchain v4.31.0>/lib/lean with the v4.29.0 packages: "Init.olean: written by Lean 4.31.0, but this closure was
+    read as written by 4.29.0";
+  - a copy of the reader with "Lean.docStringExt" added to the v4.29.0 `absentExts`, 20 modules: "olean reader:
+    ModuleData.entries at 0x31fc9d878570: extension Lean.docStringExt does not exist in v4.29.0, yet it has entries".
+The copies were deleted afterwards. stdout and stderr went to separate files throughout. The workspace <old-workspace>,
+<scratch>, the intermediate JSONL files and the 8,232 cache archives the fetch added (413,240 KiB) were deleted after
+this file was written; <toolchain v4.29.0> and the leantar 0.1.17 binary the fetch installed (2,936 KiB) were left.
+
+CODE
+----
+=== OleanReader.lean: diff against the reader log's OleanReader.lean
+--- <scratch>/orig/OleanReader.lean	2026-10-05 16:37:40
++++ <scratch>/OleanReader.lean	2026-10-05 16:49:52
+@@ -11,17 +11,51 @@
+ 
+ namespace OleanReader
+ 
+-def knownLeanVersion := "4.31.0"
+-def knownGithash := "68218e876d2a38b1985b8590fff244a83c321783"
+ def headerSize : Nat := 88
+ 
++def namespacesExtV434 : Name := Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt
++
++/-- Everything the reader knows about one writer, selected by the header's version string and
++githash together. -/
++structure WriterVersion where
++  leanVersion       : String
++  githash           : String
++  /-- The registered name of `namespacesExt` in this writer; its entries are emitted under the
++  running Lean's (v4.34.1's) name. -/
++  namespacesExtName : Name
++  /-- Whether this writer exported `namespacesExt` entries unsorted (sorted by the reader). -/
++  sortNamespaces    : Bool
++  /-- Extensions the running Lean registers that this writer does not have. Seeing one of them
++  in this writer's data is an error. -/
++  absentExts        : List String
++  /-- What each stored `ReducibilityStatus` constructor index means, as the running Lean's value. -/
++  reducibility      : Array ReducibilityStatus
++
++instance : Inhabited WriterVersion :=
++  ⟨⟨"", "", .anonymous, false, [], #[]⟩⟩
++
++def v4_31_0 : WriterVersion := {
++  leanVersion := "4.31.0", githash := "68218e876d2a38b1985b8590fff244a83c321783"
++  namespacesExtName := namespacesExtV434, sortNamespaces := false
++  absentExts := []
++  reducibility := #[.reducible, .semireducible, .irreducible, .instanceReducible] }
++
++def v4_29_0 : WriterVersion := {
++  leanVersion := "4.29.0", githash := "98dc76e3c0a9b856c9b98726b713fb04fab16740"
++  namespacesExtName := `Lean.namespacesExt, sortNamespaces := true
++  absentExts := ["_private.Batteries.Util.ProofWanted.0.wantedArityExt", "_private.Batteries.Util.ProofWanted.0.wantedInstancesExt", "_private.Lean.Compiler.LCNF.MonoTypes.0.Lean.Compiler.LCNF.trivialStructureInfoExt", "_private.Lean.Compiler.LCNF.Specialize.0.Lean.Compiler.LCNF.Specialize.specCacheExt", "_private.Lean.Compiler.LCNF.ToImpure.0.Lean.Compiler.LCNF.taggedReturnAttr", "_private.Lean.Compiler.LCNF.ToImpureType.0.Lean.Compiler.LCNF.ctorLayoutExt", "_private.Lean.Compiler.LCNF.ToImpureType.0.Lean.Compiler.LCNF.impureTrivialStructureInfoExt", "_private.Lean.Compiler.LCNF.ToImpureType.0.Lean.Compiler.LCNF.impureTypeExt", "_private.Lean.Elab.Tactic.Grind.Annotated.0.Lean.Elab.Tactic.Grind.grindAnnotatedExt", "_private.Lean.Elab.Tactic.Grind.Lint.0.Lean.Elab.Tactic.Grind.muteExt", "_private.Lean.Elab.Tactic.Grind.Lint.0.Lean.Elab.Tactic.Grind.skipExt", "_private.Lean.Elab.Tactic.Grind.Lint.0.Lean.Elab.Tactic.Grind.skipSuffixExt", "_private.Lean.ExtraModUses.0.Lean.extraModUses", "_private.Lean.ExtraModUses.0.Lean.isExtraRevModUseExt", "_private.Lean.LibrarySuggestions.SineQuaNon.0.Lean.LibrarySuggestions.SineQuaNon.triggerDenyListExt", "_private.Lean.Meta.MethodSpecs.0.Lean.methodSpecsAttr", "_private.Lean.Meta.MethodSpecs.0.Lean.methodSpecsSimpExtension", "_private.Lean.Namespace.0.Lean.namespacesExt", "_private.Lean.Util.CollectAxioms.0.Lean.exportedAxiomsExt", "cbvSimprocExt", "envLinterSnapshotExt", "ext._@.Mathlib.Tactic.Attr.Register.1133190711._hygCtx._hyg.3", "ext._@.Mathlib.Tactic.Attr.Register.1988518680._hygCtx._hyg.3", "ext._@.Mathlib.Tactic.Attr.Register.85691930._hygCtx._hyg.3", "ext._@.Mathlib.Tactic.GrindAttrs.2614774725._hygCtx._hyg.3", "ext._@.Mathlib.Tactic.GrindAttrs.943899233._hygCtx._hyg.3", "extProc._@.Mathlib.Tactic.Attr.Register.1133190711._hygCtx._hyg.3", "extProc._@.Mathlib.Tactic.Attr.Register.1988518680._hygCtx._hyg.3", "extProc._@.Mathlib.Tactic.Attr.Register.85691930._hygCtx._hyg.3", "Inclusion.coreFamily.hypothesisExt", "Inclusion.coreFamily.inclusionExt", "Inclusion.inclusionParamExt", "Inclusion.IntervalDyadicReal.intervalDyadicRealFamily.hypothesisExt", "Inclusion.IntervalDyadicReal.intervalDyadicRealFamily.inclusionExt", "internalSpecMap", "Lean.backwardDefeqAttr", "Lean.bool_to_prop", "Lean.Compiler.LCNF.monoTypeExt", "Lean.Compiler.LCNF.postponedCompileDeclsExt", "Lean.Compiler.weakSpecializeAttr", "Lean.deprecatedModuleExt", "Lean.Doc.DeferredCheck.handlerExt", "Lean.Doc.deferredCheckExt", "Lean.Doc.docBlockMdExt", "Lean.Doc.docInlineMdExt", "Lean.Elab.deprecatedArgExt", "Lean.Elab.deprecatedSyntaxExt", "Lean.Elab.Tactic.Do.Internal.VCGen.frameProcExt", "Lean.Elab.Tactic.Do.SpecAttr.specInvariantAttr", "Lean.Elab.Tactic.Grind.symDischargerElabAttribute", "Lean.Elab.Tactic.Grind.symDSimprocElabAttribute", "Lean.Elab.Tactic.Grind.symSimprocElabAttribute", "Lean.Elab.Tactic.noFallbackAttr", "Lean.Linter.CodeQuality.packageCheckExt", "Lean.Linter.EnvLinter.envLinterExt", "Lean.Linter.lintLogExt", "Lean.Meta.eqnOptionsExt", "Lean.Meta.Grind.homoExt", "Lean.Meta.Grind.homoPredExt", "Lean.Meta.Grind.homoSourceTypesExt", "Lean.Meta.Grind.liaExt", "Lean.Meta.matcherLikeExt", "Lean.Meta.Sym.Simp.symSimpExtension", "Lean.Meta.Tactic.BVDecide.bvNormalizeExt", "Lean.Meta.Tactic.BVDecide.metaIntToBitVecExt", "Lean.Meta.Tactic.BVDecide.symIntToBitVecExt", "Lean.Meta.Tactic.Cbv.cbvSimprocDeclExt", "Mathlib.CrossRef.tagExt", "Mathlib.Tactic.Echelon.bareissExt", "Mathlib.Tactic.higherOrderAttr", "Mathlib.Tactic.Polynomial.polynomialExt", "Mathlib.Tactic.Polynomial.polynomialPostExt", "Mathlib.Tactic.Polynomial.polynomialPreExt", "Std.Internal.treeTacExt", "symDSimpVariantExtension", "symSimpVariantExtension"]
++  reducibility := #[.reducible, .semireducible, .irreducible, .instanceReducible] }
++
++def knownWriters : List WriterVersion := [v4_31_0, v4_29_0]
++
+ structure Part where
+   path  : System.FilePath
+   bytes : ByteArray
+   base  : UInt64
+   root  : UInt64
++  ver   : WriterVersion
+ 
+-instance : Inhabited Part := ⟨⟨"", .empty, 0, 0⟩⟩
++instance : Inhabited Part := ⟨⟨"", .empty, 0, 0, default⟩⟩
+ 
+ @[inline] def u8 (b : ByteArray) (o : Nat) : UInt8 := b.get! o
+ @[inline] def u16 (b : ByteArray) (o : Nat) : UInt16 :=
+@@ -40,6 +74,8 @@
+     s := s.push (Char.ofNat c.toNat)
+   return s
+ 
++initialize writerOfClosure : IO.Ref String ← IO.mkRef ""
++
+ def loadPart (path : System.FilePath) : IO Part := do
+   let bytes ← IO.FS.readBinFile path
+   if bytes.size < headerSize + 8 then throw <| IO.userError s!"{path}: shorter than an .olean header"
+@@ -50,11 +86,14 @@
+   let gh := cstr bytes 40 40
+   unless version == 2 && flags == 1 do
+     throw <| IO.userError s!"{path}: header version {version} flags {flags}, known: 2 / 1"
+-  unless lv == knownLeanVersion && gh == knownGithash do
+-    throw <| IO.userError s!"{path}: written by Lean {lv} ({gh}); this reader knows only {knownLeanVersion} ({knownGithash})"
++  let some ver := knownWriters.find? (fun w => w.leanVersion == lv && w.githash == gh)
++    | throw <| IO.userError s!"{path}: written by Lean {lv} ({gh}); this reader knows only {", ".intercalate (knownWriters.map fun w => s!"{w.leanVersion} ({w.githash})")}"
++  let first ← writerOfClosure.modifyGet fun w => (w, if w.isEmpty then lv else w)
++  unless first.isEmpty || first == lv do
++    throw <| IO.userError s!"{path}: written by Lean {lv}, but this closure was read as written by {first}"
+   let base := u64 bytes 80
+   let root := u64 bytes headerSize
+-  return { path, bytes, base, root }
++  return { path, bytes, base, root, ver }
+ 
+ structure DState where
+   names   : Std.HashMap UInt64 Name := {}
+@@ -486,15 +525,15 @@
+     | b => fail "CoeFnType" v s!"value {b}"
+   return { numArgs := ← decNat (x.field 0), coercee := ← decNat (x.field 1), type }
+ 
+-/-- v4.31.0 writes 0 reducible, 1 semireducible, 2 irreducible, 3 "unfolded at .instances or
+-above" (what the `instance` command wrote). From v4.33.0 that meaning is constructor 4,
+-`instanceReducible`, and 3 means something else (layout log, v4.32.2 -> v4.33.0). -/
++/-- v4.29.0 and v4.31.0 write 0 reducible, 1 semireducible, 2 irreducible, 3 "unfolded at
++.instances or above" (what the `instance` command wrote). From v4.33.0 that meaning is
++constructor 4, `instanceReducible`, and 3 means something else (layout log, v4.32.2 -> v4.33.0). -/
+ def decReducibility (v : UInt64) : DM ReducibilityStatus := do
+   unless isScalar v do fail "ReducibilityStatus" v "expected a boxed enum"
+-  match unbox v with
+-  | 0 => return .reducible | 1 => return .semireducible | 2 => return .irreducible
+-  | 3 => return .instanceReducible
+-  | k => fail "ReducibilityStatus" v s!"value {k} unknown to v4.31.0"
++  let ver := (← read)[0]!.ver
++  match ver.reducibility[unbox v]? with
++  | some s => return s
++  | none => fail "ReducibilityStatus" v s!"value {unbox v} unknown to v{ver.leanVersion}"
+ 
+ /-- An extension entry with the declaration name it is about (used to regroup entries by module). -/
+ abbrev Keyed := Name × EnvExtensionEntry
+@@ -534,6 +573,8 @@
+   entriesSkipped : Nat := 0
+   skippedExts : Std.HashMap Name Nat := {}
+   decodedExts : Std.HashMap Name Nat := {}
++  unsortedMods : Std.HashMap Name Nat := {}
++  renamedEntries : Nat := 0
+   names : Nat := 0
+   levels : Nat := 0
+   exprs : Nat := 0
+@@ -552,20 +593,35 @@
+   unless entriesObj.tag == 246 do fail "ModuleData.entries" (x.field 4) "expected an Array"
+   let n := (u64 entriesObj.b (entriesObj.o + 8)).toNat
+   let mut keyedEntries := #[]
++  let ver := (← read)[0]!.ver
+   for i in [0:n] do
+     let pv := u64 entriesObj.b (entriesObj.o + 24 + 8*i)
+     let p ← ctor "Name × Array EnvExtensionEntry" pv 0 2 0
+-    let extName ← decName (p.field 0)
++    let writerExtName ← decName (p.field 0)
++    if ver.absentExts.contains writerExtName.toString then
++      fail "ModuleData.entries" pv s!"extension {writerExtName} does not exist in v{ver.leanVersion}, yet it has entries"
++    if writerExtName == namespacesExtV434 && ver.namespacesExtName != namespacesExtV434 then
++      fail "ModuleData.entries" pv s!"{writerExtName} is not v{ver.leanVersion}'s name for namespacesExt"
++    let extName := if writerExtName == ver.namespacesExtName then namespacesExtV434 else writerExtName
+     let arr ← obj "Array EnvExtensionEntry" (p.field 1)
+     unless arr.tag == 246 do fail "entries" (p.field 1) "expected an Array"
+     let k := (u64 arr.b (arr.o + 8)).toNat
+     match decodeEntries, decoderFor extName with
+     | true, some f =>
+       let es ← decArray "Array EnvExtensionEntry" (p.field 1) f
++      let sorted := Id.run do
++        let mut ok := true
++        for j in [1:es.size] do
++          if let (some a, some b) := (es[j-1]?, es[j]?) then
++            if Name.quickLt b.1 a.1 then ok := false
++        return ok
++      let es := if extName == namespacesExtV434 && ver.sortNamespaces then es.qsort (fun a b => Name.quickLt a.1 b.1) else es
+       keyedEntries := keyedEntries.push (extName, es)
+       stats.modify fun s => { s with
+         entriesDecoded := s.entriesDecoded + k
+-        decodedExts := s.decodedExts.insert extName (s.decodedExts.getD extName 0 + k) }
++        decodedExts := s.decodedExts.insert extName (s.decodedExts.getD extName 0 + k)
++        unsortedMods := if sorted then s.unsortedMods else s.unsortedMods.insert extName (s.unsortedMods.getD extName 0 + 1)
++        renamedEntries := s.renamedEntries + (if writerExtName != extName then k else 0) }
+     | _, _ =>
+       stats.modify fun s => { s with
+         entriesSkipped := s.entriesSkipped + k
+=== Main.lean: diff against the reader log's Main.lean (with its omitted parts filled in verbatim from the drift log)
+--- <scratch>/Main-assembled-orig.lean	2026-10-05 17:03:29
++++ <scratch>/Main.lean	2026-10-05 16:46:51
+@@ -374,6 +374,13 @@
+   IO.eprintln s!"time: file reads {ioMs} ms, decoding {decMs} ms"
+   IO.eprintln s!"reducibility value 3 read as instanceReducible: core modules {red3Core}, other modules {red3Other}"
+   IO.eprintln s!"checked against the stored computed field: Name hashes {s.names}, Level data {s.levels}, Expr data {s.exprs}"
++  let w ← writerOfClosure.get
++  let some ver := knownWriters.find? (·.leanVersion == w) | throw <| IO.userError "no writer recorded"
++  IO.eprintln s!"writer: Lean {ver.leanVersion} ({ver.githash}); namespacesExt registered as {ver.namespacesExtName}, entries emitted under {namespacesExtV434}: {s.renamedEntries}; namespacesExt sorted by the reader: {ver.sortNamespaces}"
++  IO.eprintln s!"named absent in this writer (an entry for any of them would have stopped the run): {ver.absentExts.length}"
++  for e in ver.absentExts do IO.eprintln s!"  absent ext {e}"
++  for (e, k) in s.unsortedMods.toArray.qsort (fun a b => a.1.toString < b.1.toString) do
++    IO.eprintln s!"  modules whose stored entries are not in Name.quickLt key order: {e} {k}"
+   for (e, k) in s.decodedExts.toArray.qsort (fun a b => a.1.toString < b.1.toString) do
+     IO.eprintln s!"  decoded ext {e} {k}"
+   for (e, k) in s.skippedExts.toArray.qsort (fun a b => a.2 > b.2) do
+=== Assemble.lean, Drift.lean, Lookups.lean: unchanged (byte-identical to the logged code).
+=== cmp.py: the reader log's, with the label "v4.31.0" replaced by "v4.29.0" in its two print lines (output only).
+=== Exts.lean (registered persistent extension names after an import)
+import Lean
+open Lean
+
+def main (args : List String) : IO UInt32 := do
+  initSearchPath (← findSysroot)
+  unsafe Lean.enableInitializersExecution
+  let root : Name := if args == ["mathlib"] then `Mathlib else `Lean
+  let env ← importModules #[{ module := root }] Options.empty (leakEnv := true) (loadExts := true)
+  let exts ← persistentEnvExtensionsRef.get
+  for e in exts do IO.println e.name
+  IO.eprintln s!"{exts.size} persistent extensions registered after import {root}; constants {env.constants.map₁.size}"
+  return 0
+=== posthoc.py (post-hoc breakdown: dangling names by kind, newly explicit @-heads in F4, F5 records listed whole;
+=== imports the classification functions from agg.py unchanged)
+import json, re, sys
+from collections import Counter
+sys.path.insert(0, '<scratch>/orig')
+path, limit = sys.argv[1], int(sys.argv[2])
+def ws(s): return re.sub(r"\s+", " ", s).strip() if s is not None else None
+src = open('<scratch>/orig/agg.py').read()
+ns = {}
+exec(src.split("recs = []")[0].replace("path = sys.argv[1]\nlimit = int(sys.argv[2])\nnex = int(sys.argv[3])", ""), ns)
+classify, subclassify, FAILTXT = ns['classify'], ns['subclassify'], ns['FAILTXT']
+recs = [json.loads(l) for i, l in enumerate(open(path)) if i < limit]
+AT = re.compile(r"@([^\W\d][\w'!?.]*)")
+dn = Counter(); only_inst_proof = 0; dang_recs = 0
+def kind(n):
+    last = n.split('.')[-1]
+    if re.search(r"_proof_\d+$", n): return 'proof'
+    if last.startswith('inst'): return 'inst'
+    return 'other'
+f4heads = Counter(); f4recs = []; f5 = []
+for r in recs:
+    if r['dangling']:
+        dang_recs += 1
+        for x in r['dangling']: dn[x] += 1
+        if all(kind(x) != 'other' for x in r['dangling']): only_inst_proof += 1
+    if r["oldPpErr"] is not None or r["newPpErr"] is not None: continue
+    if FAILTXT in r["oldPp"] or FAILTXT in r["newPp"]: continue
+    o, n = ws(r['oldPp']), ws(r['newPp'])
+    if o == n: continue
+    cl = classify(o, n)
+    if cl != 'F other': continue
+    sc = subclassify(o, n)
+    if sc.startswith('F4'):
+        heads = Counter(AT.findall(n)) - Counter(AT.findall(o))
+        for h in heads: f4heads[h] += 1
+        f4recs.append((r['nameStr'], sorted(heads), r['dangling'][:3]))
+    elif sc.startswith('F5'):
+        f5.append((r['nameStr'], o, n, r['dangling'][:3]))
+kinds = Counter(kind(x) for x in dn)
+occ = Counter()
+for x, k in dn.items(): occ[kind(x)] += k
+print(f"records with >=1 dangling {dang_recs}; distinct dangling names {len(dn)}, occurrences {sum(dn.values())}; by kind (distinct) {dict(kinds)}; records whose dangling names are all inst*/proof-aux {only_inst_proof}")
+print("most frequent dangling names:", ", ".join(f"{x} {k}" for x, k in dn.most_common(25)))
+print(f"F4: {len(f4recs)} records; distinct new @-heads {len(f4heads)}; heads by number of records:")
+for h, k in f4heads.most_common(40): print(f"  {k:4d}  {h}")
+dangF4 = sum(1 for _, _, d in f4recs if d)
+print(f"F4 records with a dangling constant: {dangF4}")
+print(f"F5: {len(f5)} records")
+for name, o, n, d in f5:
+    print(f"=== {name}" + (f"  dangling: {', '.join(d)}" if d else ""))
+    print("  old: " + o[:600]); print("  new: " + n[:600])
+
+AGGREGATION OUTPUT (A), plain drift (agg.py, verbatim)
+------------------------------------------------------
+records: 5000
+headline (95% Wilson score intervals):
+  identical                                              4721 / 5000     94.42%   [93.75%, 95.02%]
+  different                                               264 / 5000      5.28%   [4.69%, 5.93%]
+  print failed                                             15 / 5000      0.30%   [0.18%, 0.49%]
+  exception                                                 0 / 5000      0.00%   [0.00%, 0.08%]
+  dangling: >=1 referenced constant absent in new env     539 / 5000     10.78%   [9.95%, 11.67%]
+  universe arity mismatch (>=1 constant)                   31 / 5000      0.62%   [0.44%, 0.88%]
+cross-tab category x dangling:
+  identical    dangling=yes   412   dangling=no  4309
+  different    dangling=yes   113   dangling=no   151
+  print failed dangling=yes    14   dangling=no     1
+  exception    dangling=yes     0   dangling=no     0
+own name in new env:
+  absent                                                   92 / 5000      1.84%   [1.50%, 2.25%]
+  same                                                   2931 / 5000     58.62%   [57.25%, 59.98%]
+  same_alpha                                              271 / 5000      5.42%   [4.83%, 6.08%]
+  same_levelrename                                         17 / 5000      0.34%   [0.21%, 0.54%]
+  same_levelrename_alpha                                   88 / 5000      1.76%   [1.43%, 2.16%]
+  different                                              1601 / 5000     32.02%   [30.74%, 33.33%]
+  of those not 'same'/'absent', whether the new declaration's own type prints identically to the old print:
+    different                prints identically=False   298
+    different                prints identically=True   1303
+    same_alpha               prints identically=False    10
+    same_alpha               prints identically=True    261
+    same_levelrename         prints identically=False    15
+    same_levelrename         prints identically=True      2
+    same_levelrename_alpha   prints identically=False    88
+serialization sanity: round-trip mismatches 0, records with mvars 0, fvars 0, level mvars 0, records with mdata dropped 9 (nodes dropped 11)
+dangling examples: Set.instHasSubset, instTopENNReal, Monoid.toPow, Finset.instHasSubset, UniformContinuousConstSMul.to_continuousConstSMul, algebraMap, Quaternion.instRing, Add.toVAdd, SubNegMonoid.zsmul, CategoryTheory.CosimplicialObject.instCategory, CompleteLattice.instOmegaCompletePartialOrder, instCategoryCondensed, instAddCommMonoidWithOneENNReal, IsDedekindDomain.HeightOneSpectrum.valuation._proof_1, instZeroENNReal, MonoidAlgebra.addCommMonoid, MonoidAlgebra.module, instAddCommGroupPolynomialModule, ComputeAsymptotics.Basis, ComputeAsymptotics.MultiseriesExpansion.Multiseries
+classification of 'different' (rules applied in order, cumulative normalisation):
+  D namespace qualification only                           3   (dangling yes 2, no 1)
+  E identifier spelling only (same token skeleton)         7   (dangling yes 1, no 6)
+  F other / F1 set-builder {x | p} printed as setOf fun x => p    61   (dangling yes 13, no 48)
+  F other / F2 new ↧ notation replaces an X.of application    17   (dangling yes 2, no 15)
+  F other / F3 private auxiliary name printed in full instead of name✝     2   (dangling yes 2, no 0)
+  F other / F4 more explicit @-applications (arguments no longer elided)   126   (dangling yes 78, no 48)
+  F other / F5 rest                                       48   (dangling yes 15, no 33)
+post-hoc split of F other (rules written after reading F, applied in order):
+  F1 set-builder {x | p} printed as setOf fun x => p                                  61   (dangling yes 13, no 48)
+  F2 new ↧ notation replaces an X.of application                                      17   (dangling yes 2, no 15)
+  F3 private auxiliary name printed in full instead of name✝                           2   (dangling yes 2, no 0)
+  F4 more explicit @-applications (arguments no longer elided)                       126   (dangling yes 78, no 48)
+  F5 rest                                                                             48   (dangling yes 15, no 33)
+print failed: records
+  OpenPartialHomeomorph.isBigOWith_congr  side=new  dangling: OpenPartialHomeomorph.toPartialEquiv
+  ExteriorAlgebra.algebraMap_leftInverse  side=new  dangling: instRingCliffordAlgebra, instAlgebraCliffordAlgebra, algebraMap
+  OpenPartialHomeomorph.isOpen_image_source_inter  side=new  dangling: OpenPartialHomeomorph.toPartialEquiv
+  EuclideanSpace.measurableEquiv_toEquiv  side=new  dangling: instAddCommMonoidWithOneENNReal, EuclideanSpace.measurableEquiv
+  Module.Baer.chain_linearPMap_of_chain_extensionOf  side=new  dangling: 
+  CategoryTheory.Limits.coyonedaCompLimIsoCones_hom_app_app  side=new  dangling: CategoryTheory.Limits.coyonedaCompLimIsoCones._proof_1, CategoryTheory.Limits.coyonedaCompLimIsoCones
+  mem_chart_target  side=new  dangling: OpenPartialHomeomorph.toPartialEquiv
+  Bundle.Trivialization.target_eq  side=new  dangling: OpenPartialHomeomorph.toPartialEquiv
+  lintegral_comp_pi_polarCoord_symm  side=new  dangling: OpenPartialHomeomorph.toPartialEquiv
+  AlgebraicTopology.DoldKan.Γ₂_obj_p_app  side=new  dangling: SimplicialObject.Splitting.desc, SimplicialObject.Splitting.IndexSet, SimplicialObject.Splitting.N, SimplicialObject.Splitting.summand
+  OrderIso.toCompleteLatticeHom_toFun  side=new  dangling: OrderIso.toCompleteLatticeHom
+  SimplicialObject.Splitting.cofan_inj_eq  side=new  dangling: SimplicialObject.Splitting, SimplicialObject.Splitting.IndexSet, SimplicialObject.Splitting.summand, SimplicialObject.Splitting.N
+  NumberField.mixedEmbedding.polarCoordReal_symm_target_ae_eq_univ  side=new  dangling: OpenPartialHomeomorph.toPartialEquiv
+  Bundle.Trivialization.mk  side=new  dangling: OpenPartialHomeomorph.toPartialEquiv
+  OpenPartialHomeomorph.hasFDerivAt_symm  side=new  dangling: OpenPartialHomeomorph.toPartialEquiv
+kinds in sample: {'theorem': 3735, 'definition': 653, 'instance': 451, 'constructor': 77, 'structure': 38, 'class': 36, 'inductive': 8, 'opaque': 2}
+kinds among 'different': {'theorem': 236, 'definition': 21, 'instance': 5, 'constructor': 2}
+examples (45 of 264), up to 45, taken round-robin over classes:
+--- #1 D theorem CategoryTheory.ComposableArrows.isoMk₅_hom  dangling: _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_442, _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_443, _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_444, _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_445, _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_446
+  old: ∀ {C : Type u_1} [inst : CategoryTheory.Category.{v_1, u_1} C] {f g : CategoryTheory.ComposableArrows C 5} (app₀ : f.obj' 0 _proof_441✝ ≅ g.obj' 0 _proof_441✝¹) (app₁ : f.obj' 1 _proof_442✝ ≅ g.obj' 1 _proof_442✝¹) (app₂ : f.obj' 2 _proof_443✝ ≅ g.obj' 2 _proof_443✝¹) (app₃ : f.obj' 3 _proof_444✝ ≅ g.obj' 3 _proof_444✝¹) (app₄ : f.obj' 4 _proof_445✝ ≅ g.obj' 4 _proof_445✝¹) (app₅ : f.obj' 5 _proof_446✝ ≅ g.obj' 5 _proof_446✝¹) (w₀ : CategoryTheory.CategoryStruct.comp (f.map' 0 1 CategoryTheory.ComposableArrows.homMk₁._proof_4 _proof_442✝²) app₁.hom = CategoryTheory.CategoryStruct.comp app₀.hom (g.map' 0 1 CategoryTheory.ComposableArrows.homMk₁._proof_4 _proof_442✝³)) (w₁ : CategoryTheory.CategoryStruct.comp (f.map' 1 2 _proof_238✝ _proof_443✝²) app₂.hom = CategoryTheory.CategoryStruct.comp app₁.hom (g.map' 1 2 _proof_238✝¹ _proof_443✝³)) (w₂ : CategoryTheory.CategoryStruct.comp (f.map' 2 3 _proof_291✝ _proof_444✝²) app₃.hom = CategoryTheory.CategoryStruct.comp app₂.hom (g.map' 2 3 _proof_291✝¹ _proof_444✝³)) (w₃ : CategoryTheory.CategoryStruct.comp (f.map' 3 4 _proof_356✝ _proof_445✝²) app₄.hom = CategoryTheory.CategoryStruct.comp app₃.hom (g.map' 3 4 _proof_356✝¹ _proof_445✝³)) (w₄ : CategoryTheory.CategoryStruct.comp (f.map' 4 5 _proof_445✝⁴ _proof_446✝²) app₅.hom = CategoryTheory.CategoryStruct.comp app₄.hom (g.map' 4 5 _proof_445✝⁵ _proof_446✝³)), (CategoryTheory.ComposableArrows.isoMk₅ app₀ app₁ app₂ app₃ app₄ app₅ w₀ w₁ w₂ w₃ w₄).hom = CategoryTheory.ComposableArrows.homMk₅ app₀.hom app₁.hom app₂.hom app₃.hom app₄.hom app₅.hom w₀ w₁ w₂ w₃ w₄
+  new: ∀ {C : Type u_1} [inst : CategoryTheory.Category.{v_1, u_1} C] {f g : CategoryTheory.ComposableArrows C 5} (app₀ : f.obj' 0 _proof_441✝ ≅ g.obj' 0 _proof_441✝) (app₁ : f.obj' 1 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_442 ≅ g.obj' 1 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_442) (app₂ : f.obj' 2 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_443 ≅ g.obj' 2 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_443) (app₃ : f.obj' 3 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_444 ≅ g.obj' 3 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_444) (app₄ : f.obj' 4 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_445 ≅ g.obj' 4 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_445) (app₅ : f.obj' 5 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_446 ≅ g.obj' 5 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_446) (w₀ : CategoryTheory.CategoryStruct.comp (f.map' 0 1 CategoryTheory.ComposableArrows.homMk₁._proof_4 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_442) app₁.hom = CategoryTheory.CategoryStruct.comp app₀.hom (g.map' 0 1 CategoryTheory.ComposableArrows.homMk₁._proof_4 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_442)) (w₁ : CategoryTheory.CategoryStruct.comp (f.map' 1 2 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_238 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_443) app₂.hom = CategoryTheory.CategoryStruct.comp app₁.hom (g.map' 1 2 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_238 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_443)) (w₂ : CategoryTheory.CategoryStruct.comp (f.map' 2 3 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_291 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_444) app₃.hom = CategoryTheory.CategoryStruct.comp app₂.hom (g.map' 2 3 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_291 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_444)) (w₃ : CategoryTheory.CategoryStruct.comp (f.map' 3 4 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_356 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_445) app₄.hom = CategoryTheory.CategoryStruct.comp app₃.hom (g.map' 3 4 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_356 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_445)) (w₄ : CategoryTheory.CategoryStruct.comp (f.map' 4 5 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_445 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_446) app₅.hom = CategoryTheory.CategoryStruct.comp app₄.hom (g.map' 4 5 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_445 _private.Mathlib.CategoryTheory.ComposableArrows.Basic.0._proof_446)), (CategoryTheory.ComposableArrows.isoMk₅ app₀ app₁ app₂ app₃ app₄ app₅ w₀ w₁ w₂ w₃ w₄).hom = CategoryTheory.ComposableArrows.homMk₅ app₀.hom app₁.hom app₂.hom app₃.hom app₄.hom app₅.hom w₀ w₁ w₂ w₃ w₄
+--- #2 E theorem MeasureTheory.VectorMeasure.m_iUnion'  dangling: CompleteLattice.instOmegaCompletePartialOrder
+  old: ∀ {α : Type u_3} [inst : MeasurableSpace α] {M : Type u_4} [inst_1 : AddCommMonoid M] [inst_2 : TopologicalSpace M] (self : MeasureTheory.VectorMeasure α M) ⦃f : ℕ → Set α⦄, (∀ (i : ℕ), MeasurableSet (f i)) → Pairwise (Function.onFun Disjoint f) → HasSum (fun i => ↑self (f i)) (↑self (⋃ i, f i))
+  new: ∀ {α : Type u_3} [inst : MeasurableSpace α] {M : Type u_4} [inst_1 : AddCommMonoid M] [inst_2 : TopologicalSpace M] (self : MeasureTheory.VectorMeasure α M) ⦃f : ℕ → Set α⦄, (∀ (i : ℕ), MeasurableSet (f i)) → Pairwise (Function.onFun Disjoint f) → HasSum (fun i => self.measureOf' (f i)) (self.measureOf' (⋃ i, f i))
+--- #3 F1 theorem UniformConvergenceCLM.nhds_zero_eq
+  old: ∀ {𝕜₁ : Type u_1} {𝕜₂ : Type u_2} [inst : NormedField 𝕜₁] [inst_1 : NormedField 𝕜₂] (σ : 𝕜₁ →+* 𝕜₂) {E : Type u_3} (F : Type u_4) [inst_2 : AddCommGroup E] [inst_3 : Module 𝕜₁ E] [inst_4 : TopologicalSpace E] [inst_5 : AddCommGroup F] [inst_6 : Module 𝕜₂ F] [inst_7 : TopologicalSpace F] [inst_8 : IsTopologicalAddGroup F] (𝔖 : Set (Set E)), nhds 0 = ⨅ s ∈ 𝔖, ⨅ t ∈ nhds 0, Filter.principal {f | Set.MapsTo (⇑f) s t}
+  new: ∀ {𝕜₁ : Type u_1} {𝕜₂ : Type u_2} [inst : NormedField 𝕜₁] [inst_1 : NormedField 𝕜₂] (σ : 𝕜₁ →+* 𝕜₂) {E : Type u_3} (F : Type u_4) [inst_2 : AddCommGroup E] [inst_3 : Module 𝕜₁ E] [inst_4 : TopologicalSpace E] [inst_5 : AddCommGroup F] [inst_6 : Module 𝕜₂ F] [inst_7 : TopologicalSpace F] [inst_8 : IsTopologicalAddGroup F] (𝔖 : Set (Set E)), nhds 0 = ⨅ s ∈ 𝔖, ⨅ t ∈ nhds 0, Filter.principal (setOf fun f => Set.MapsTo (⇑f) s t)
+--- #4 F2 theorem Condensed.underlying_obj  dangling: instCategoryCondensed
+  old: ∀ (C : Type w) [inst : CategoryTheory.Category.{u + 1, w} C] (j : CategoryTheory.Sheaf (CategoryTheory.coherentTopology CompHaus) C), (Condensed.underlying C).obj j = j.obj.obj (Opposite.op (CompHaus.of PUnit.{u + 1}))
+  new: ∀ (C : Type w) [inst : CategoryTheory.Category.{u + 1, w} C] (j : CategoryTheory.Sheaf (CategoryTheory.coherentTopology CompHaus) C), (Condensed.underlying C).obj j = j.obj.obj (Opposite.op ↧PUnit.{u + 1})
+--- #5 F3 definition SSet.Truncated.liftOfStrictSegal.f₂  dangling: _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11
+  old: {X Y : SSet.Truncated 2} → (f₀ : X.obj (Opposite.op { obj := SimplexCategory.mk 0, property := _proof_11✝ }) → Y.obj (Opposite.op { obj := SimplexCategory.mk 0, property := _proof_11✝¹ })) → (f₁ : X.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝ }) → Y.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝¹ })) → (∀ (x : X.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝² })), f₀ (X.map (SimplexCategory.Truncated.δ₂ 1 _proof_11✝² _proof_13✝).op x) = Y.map (SimplexCategory.Truncated.δ₂ 1 _proof_11✝³ _proof_13✝¹).op (f₁ x)) → (∀ (x : X.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝³ })), f₀ (X.map (SimplexCategory.Truncated.δ₂ 0 _proof_11✝⁴ _proof_13✝²).op x) = Y.map (SimplexCategory.Truncated.δ₂ 0 _proof_11✝⁵ _proof_13✝³).op (f₁ x)) → Y.StrictSegal → X.obj (Opposite.op { obj := SimplexCategory.mk 2, property := _proof_14✝ }) → Y.obj (Opposite.op { obj := SimplexCategory.mk 2, property := _proof_14✝¹ })
+  new: {X Y : SSet.Truncated 2} → (f₀ : X.obj (Opposite.op { obj := { len := 0 }, property := _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11 }) → Y.obj (Opposite.op { obj := { len := 0 }, property := _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11 })) → (f₁ : X.obj (Opposite.op { obj := { len := 1 }, property := _proof_12✝ }) → Y.obj (Opposite.op { obj := { len := 1 }, property := _proof_12✝ })) → (∀ (x : X.obj (Opposite.op { obj := { len := 1 }, property := _proof_12✝ })), f₀ (@CategoryTheory.Functor.map (SimplexCategory.Truncated 2)ᵒᵖ CategoryTheory.Category.opposite (Type u) CategoryTheory.types X (Opposite.op { obj := { len := 0 + 1 }, property := _proof_13✝ }) (Opposite.op { obj := { len := 0 }, property := _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11 }) (SimplexCategory.Truncated.δ₂ 1 _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11 _proof_13✝).op x) = @CategoryTheory.Functor.map (SimplexCategory.Truncated 2)ᵒᵖ CategoryTheory.Category.opposite (Type u) CategoryTheory.types Y (Opposite.op { obj := { len := 0 + 1 }, property := _proof_13✝ }) (Opposite.op { obj := { len := 0 }, property := _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11 }) (SimplexCategory.Truncated.δ₂ 1 _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11 _proof_13✝).op (f₁ x)) → (∀ (x : X.obj (Opposite.op { obj := { len := 1 }, property := _proof_12✝ })), f₀ (@CategoryTheory.Functor.map (SimplexCategory.Truncated 2)ᵒᵖ CategoryTheory.Category.opposite (Type u) CategoryTheory.types X (Opposite.op { obj := { len := 0 + 1 }, property := _proof_13✝ }) (Opposite.op { obj := { len := 0 }, property := _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11 }) (SimplexCategory.Truncated.δ₂ 0 _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11 _proof_13✝).op x) = @CategoryTheory.Functor.map (SimplexCategory.Truncated 2)ᵒᵖ CategoryTheory.Category.opposite (Type u) CategoryTheory.types Y (Opposite.op { obj := { len := 0 + 1 }, property := _proof_13✝ }) (Opposite.op { obj := { len := 0 }, property := _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11 }) (SimplexCategory.Truncated.δ₂ 0 _private.Mathlib.AlgebraicTopology.SimplicialSet.NerveAdjunction.0._proof_11 _proof_13✝).op (f₁ x)) → Y.StrictSegal → X.obj (Opposite.op { obj := { len := 2 }, property := _proof_14✝ }) → Y.obj (Opposite.op { obj := { len := 2 }, property := _proof_14✝ })
+--- #6 F4 theorem IsIntegralClosure.mk'_algebraMap  dangling: algebraMap
+  old: ∀ {R : Type u_1} (A : Type u_2) {B : Type u_3} [inst : CommRing R] [inst_1 : CommRing A] [inst_2 : CommRing B] [inst_3 : Algebra R B] [inst_4 : Algebra A B] [inst_5 : IsIntegralClosure A R B] [inst_6 : Algebra R A] [IsScalarTower R A B] (x : R) (h : optParam (IsIntegral R ((algebraMap R B) x)) ⋯), IsIntegralClosure.mk' A ((algebraMap R B) x) h = (algebraMap R A) x
+  new: ∀ {R : Type u_1} (A : Type u_2) {B : Type u_3} [inst : CommRing R] [inst_1 : CommRing A] [inst_2 : CommRing B] [inst_3 : Algebra R B] [inst_4 : Algebra A B] [inst_5 : IsIntegralClosure A R B] [inst_6 : Algebra R A] [IsScalarTower R A B] (x : R) (h : optParam (IsIntegral R ((@algebraMap R B CommRing.toCommSemiring CommRing.toCommSemiring.toSemiring inst_3) x)) ⋯), IsIntegralClosure.mk' A ((@algebraMap R B CommRing.toCommSemiring CommRing.toCommSemiring.toSemiring inst_3) x) h = (@algebraMap R A CommRing.toCommSemiring CommRing.toCommSemiring.toSemiring inst_6) x
+--- #7 F5 theorem Seminorm.restrictScalars_closedBall
+  old: ∀ (𝕜 : Type u_3) {E : Type u_7} {𝕜' : Type u_12} [inst : NormedField 𝕜] [inst_1 : SeminormedRing 𝕜'] [inst_2 : NormedAlgebra 𝕜 𝕜'] [inst_3 : NormOneClass 𝕜'] [inst_4 : AddCommGroup E] [inst_5 : Module 𝕜' E] [inst_6 : SMul 𝕜 E] [inst_7 : IsScalarTower 𝕜 𝕜' E] (p : Seminorm 𝕜' E), (Seminorm.restrictScalars 𝕜 p).closedBall = p.closedBall
+  new: ∀ (𝕜 : Type u_3) {E : Type u_7} {𝕜' : Type u_12} [inst : NormedField 𝕜] [inst_1 : SeminormedRing 𝕜'] [inst_2 : NormedAlgebra 𝕜 𝕜'] [inst_3 : NormOneClass 𝕜'] [inst_4 : AddCommGroup E] [inst_5 : Module 𝕜' E] [inst_6 : SMul 𝕜 E] [inst_7 : IsScalarTower 𝕜 𝕜' E] (p : Seminorm 𝕜' E), Seminorm.closedBall (Seminorm.restrictScalars 𝕜) = p.closedBall
+--- #8 D theorem CategoryTheory.CommGrp.mkIso_inv_hom_hom_hom  dangling: _private.Mathlib.CategoryTheory.Monoidal.CommGrp_.0._auto_123, _private.Mathlib.CategoryTheory.Monoidal.CommGrp_.0._auto_125
+  old: ∀ {C : Type u₁} [inst : CategoryTheory.Category.{v₁, u₁} C] [inst_1 : CategoryTheory.CartesianMonoidalCategory C] [inst_2 : CategoryTheory.BraidedCategory C] {G H : CategoryTheory.CommGrp C} (e : G.X ≅ H.X) (one_f : autoParam (CategoryTheory.CategoryStruct.comp CategoryTheory.MonObj.one e.hom = CategoryTheory.MonObj.one) _auto_123✝) (mul_f : autoParam (CategoryTheory.CategoryStruct.comp CategoryTheory.MonObj.mul e.hom = CategoryTheory.CategoryStruct.comp (CategoryTheory.MonoidalCategoryStruct.tensorHom e.hom e.hom) CategoryTheory.MonObj.mul) _auto_125✝), (CategoryTheory.CommGrp.mkIso e one_f mul_f).inv.hom.hom.hom = e.inv
+  new: ∀ {C : Type u₁} [inst : CategoryTheory.Category.{v₁, u₁} C] [inst_1 : CategoryTheory.CartesianMonoidalCategory C] [inst_2 : CategoryTheory.BraidedCategory C] {G H : CategoryTheory.CommGrp C} (e : G.X ≅ H.X) (one_f : autoParam (CategoryTheory.CategoryStruct.comp CategoryTheory.MonObj.one e.hom = CategoryTheory.MonObj.one) _private.Mathlib.CategoryTheory.Monoidal.CommGrp_.0._auto_123) (mul_f : autoParam (CategoryTheory.CategoryStruct.comp CategoryTheory.MonObj.mul e.hom = CategoryTheory.CategoryStruct.comp (CategoryTheory.MonoidalCategoryStruct.tensorHom e.hom e.hom) CategoryTheory.MonObj.mul) _private.Mathlib.CategoryTheory.Monoidal.CommGrp_.0._auto_125), (CategoryTheory.CommGrp.mkIso e one_f mul_f).inv.hom.hom.hom = e.inv
+--- #9 E theorem CategoryTheory.Functor.commShiftPullback_iso_eq
+  old: ∀ {C : Type u_1} [inst : CategoryTheory.Category.{v_1, u_1} C] {A : Type u_2} {B : Type u_3} [inst_1 : AddMonoid A] [inst_2 : AddMonoid B] (φ : A →+ B) [inst_3 : CategoryTheory.HasShift C B] {D : Type u_4} [inst_4 : CategoryTheory.Category.{v_2, u_4} D] [inst_5 : CategoryTheory.HasShift D B] (F : CategoryTheory.Functor C D) [inst_6 : F.CommShift B] (a : A) (b : B) (h : b = φ a), CategoryTheory.Functor.commShiftIso (CategoryTheory.PullbackShift.functor φ F) a = CategoryTheory.Functor.isoWhiskerRight (CategoryTheory.pullbackShiftIso C φ a b h) F ≪≫ CategoryTheory.Functor.commShiftIso F b ≪≫ F.isoWhiskerLeft (CategoryTheory.pullbackShiftIso D φ a b h).symm
+  new: ∀ {C : Type u_1} [inst : CategoryTheory.Category.{v_1, u_1} C] {A : Type u_2} {B : Type u_3} [inst_1 : AddMonoid A] [inst_2 : AddMonoid B] (φ : A →+ B) [inst_3 : CategoryTheory.HasShift C B] {D : Type u_4} [inst_4 : CategoryTheory.Category.{v_2, u_4} D] [inst_5 : CategoryTheory.HasShift D B] (F : CategoryTheory.Functor C D) [inst_6 : F.CommShift B] (a : A) (b : B) (h : b = φ a), CategoryTheory.Functor.commShiftIso (CategoryTheory.PullbackShift.functor inst_3 F) a = CategoryTheory.Functor.isoWhiskerRight (CategoryTheory.pullbackShiftIso C inst_3 a b h) F ≪≫ CategoryTheory.Functor.commShiftIso F b ≪≫ F.isoWhiskerLeft (CategoryTheory.pullbackShiftIso D inst_5 a b h).symm
+--- #10 F1 theorem IsGδ.setOf_irrational
+  old: IsGδ {x | Irrational x}
+  new: IsGδ (setOf fun x => Irrational x)
+--- #11 F2 theorem ProfiniteGrp.coe_of
+  old: ∀ (G : Type u) [inst : Group G] [inst_1 : TopologicalSpace G] [inst_2 : IsTopologicalGroup G] [inst_3 : CompactSpace G] [inst_4 : TotallyDisconnectedSpace G], ↑(ProfiniteGrp.of G).toProfinite.toTop = G
+  new: ∀ (G : Type u) [inst : Group G] [inst_1 : TopologicalSpace G] [inst_2 : IsTopologicalGroup G] [inst_3 : CompactSpace G] [inst_4 : TotallyDisconnectedSpace G], ↑(↧G).toProfinite.toTop = G
+--- #12 F3 definition SSet.Truncated.HomotopyCategory.mkNatTrans  dangling: _private.Mathlib.AlgebraicTopology.SimplicialSet.HomotopyCat.0._auto_143
+  old: {V : SSet.Truncated 2} → {D : Type u_1} → [inst : CategoryTheory.Category.{v_1, u_1} D] → {F G : CategoryTheory.Functor V.HomotopyCategory D} → (φ : (x : V.obj (Opposite.op { obj := SimplexCategory.mk 0, property := SSet.OneTruncation₂._proof_1 })) → F.obj (SSet.Truncated.HomotopyCategory.mk x) ⟶ G.obj (SSet.Truncated.HomotopyCategory.mk x)) → autoParam (∀ ⦃x y : V.obj (Opposite.op { obj := SimplexCategory.mk 0, property := SSet.OneTruncation₂._proof_1 })⦄ (e : SSet.Truncated.Edge x y), CategoryTheory.CategoryStruct.comp (F.map (SSet.Truncated.HomotopyCategory.homMk e)) (φ y) = CategoryTheory.CategoryStruct.comp (φ x) (G.map (SSet.Truncated.HomotopyCategory.homMk e))) _auto_143✝ → (F ⟶ G)
+  new: {V : SSet.Truncated 2} → {D : Type u_1} → [inst : CategoryTheory.Category.{v_1, u_1} D] → {F G : CategoryTheory.Functor V.HomotopyCategory D} → (φ : (x : V.obj (Opposite.op { obj := { len := 0 }, property := SSet.OneTruncation₂._proof_1 })) → F.obj (SSet.Truncated.HomotopyCategory.mk x) ⟶ G.obj (SSet.Truncated.HomotopyCategory.mk x)) → autoParam (∀ ⦃x y : V.obj (Opposite.op { obj := { len := 0 }, property := SSet.OneTruncation₂._proof_1 })⦄ (e : SSet.Truncated.Edge x y), CategoryTheory.CategoryStruct.comp (F.map (SSet.Truncated.HomotopyCategory.homMk e)) (φ y) = CategoryTheory.CategoryStruct.comp (φ x) (G.map (SSet.Truncated.HomotopyCategory.homMk e))) _private.Mathlib.AlgebraicTopology.SimplicialSet.HomotopyCat.0._auto_143 → (F ⟶ G)
+--- #13 F4 theorem Ideal.Quotient.mk_comp_algebraMap  dangling: algebraMap
+  old: ∀ (R₁ : Type u_1) {A : Type u_3} [inst : CommSemiring R₁] [inst_1 : Ring A] [inst_2 : Algebra R₁ A] (I : Ideal A) [inst_3 : I.IsTwoSided], (Ideal.Quotient.mk I).comp (algebraMap R₁ A) = algebraMap R₁ (A ⧸ I)
+  new: ∀ (R₁ : Type u_1) {A : Type u_3} [inst : CommSemiring R₁] [inst_1 : Ring A] [inst_2 : Algebra R₁ A] (I : Ideal A) [inst_3 : I.IsTwoSided], (Ideal.Quotient.mk I).comp (@algebraMap R₁ A inst inst_1.toSemiring inst_2) = @algebraMap R₁ (A ⧸ I) inst (Ideal.Quotient.ring I).toSemiring (Ideal.Quotient.algebra R₁)
+--- #14 F5 theorem SSet.prodStdSimplex.strictMono_orderHomOfSimplex_iff
+  old: ∀ {p q n : ℕ} (x : (CategoryTheory.MonoidalCategoryStruct.tensorObj (SSet.stdSimplex.obj (SimplexCategory.mk p)) (SSet.stdSimplex.obj (SimplexCategory.mk q))).obj (Opposite.op (SimplexCategory.mk n))) {m : ℕ} (hm : p + q = m), StrictMono ⇑(SSet.prodStdSimplex.orderHomOfSimplex x hm) ↔ StrictMono ⇑(SSet.prodStdSimplex.objEquiv x)
+  new: ∀ {p q n : ℕ} (x : (CategoryTheory.MonoidalCategoryStruct.tensorObj (SSet.stdSimplex.obj { len := p }) (SSet.stdSimplex.obj { len := q })).obj (Opposite.op { len := n })) {m : ℕ} (hm : p + q = m), StrictMono ⇑(SSet.prodStdSimplex.orderHomOfSimplex x hm) ↔ StrictMono ⇑(SSet.prodStdSimplex.objEquiv x)
+--- #15 D definition Coalgebra.Repr.left
+  old: {R : Type u} → {A : Type v} → [inst : CommSemiring R] → [inst_1 : AddCommMonoid A] → [inst_2 : Module R A] → [inst_3 : CoalgebraStruct R A] → {a : A} → (self : Coalgebra.Repr R a) → self.ι → A
+  new: {R : Type u} → {A : Type v} → [inst : CommSemiring R] → [inst_1 : AddCommMonoid A] → [inst_2 : Module R A] → [inst_3 : CoalgebraStruct R A] → {a : A} → (self : Coalgebra.Repr R a) → Coalgebra.Repr.ι → A
+--- #16 E definition CategoryTheory.PullbackShift.adjunction
+  old: {C : Type u_1} → [inst : CategoryTheory.Category.{v_1, u_1} C] → {A : Type u_2} → {B : Type u_3} → [inst_1 : AddMonoid A] → [inst_2 : AddMonoid B] → (φ : A →+ B) → [inst_3 : CategoryTheory.HasShift C B] → {D : Type u_4} → [inst_4 : CategoryTheory.Category.{v_2, u_4} D] → [inst_5 : CategoryTheory.HasShift D B] → {F : CategoryTheory.Functor C D} → {G : CategoryTheory.Functor D C} → (F ⊣ G) → (CategoryTheory.PullbackShift.functor φ F ⊣ CategoryTheory.PullbackShift.functor φ G)
+  new: {C : Type u_1} → [inst : CategoryTheory.Category.{v_1, u_1} C] → {A : Type u_2} → {B : Type u_3} → [inst_1 : AddMonoid A] → [inst_2 : AddMonoid B] → (φ : A →+ B) → [inst_3 : CategoryTheory.HasShift C B] → {D : Type u_4} → [inst_4 : CategoryTheory.Category.{v_2, u_4} D] → [inst_5 : CategoryTheory.HasShift D B] → {F : CategoryTheory.Functor C D} → {G : CategoryTheory.Functor D C} → (F ⊣ G) → (CategoryTheory.PullbackShift.functor inst_3 F ⊣ CategoryTheory.PullbackShift.functor inst_5 G)
+--- #17 F1 theorem ZFSet.coe_sep
+  old: ∀ (a : ZFSet.{u_1}) (p : ZFSet.{u_1} → Prop), ↑(ZFSet.sep p a) = {x | x ∈ a ∧ p x}
+  new: ∀ (a : ZFSet.{u_1}) (p : ZFSet.{u_1} → Prop), ↑(ZFSet.sep p a) = setOf fun x => x ∈ a ∧ p x
+--- #18 F2 theorem groupCohomology.π_comp_H0IsoOfIsTrivial_hom_assoc
+  old: ∀ {k G : Type u} [inst : CommRing k] [inst_1 : Group G] (A : Rep.{u, u, u} k G) [inst_2 : A.IsTrivial] {Z : ModuleCat k} (h : ModuleCat.of k ↑A ⟶ Z), CategoryTheory.CategoryStruct.comp (groupCohomology.π A 0) (CategoryTheory.CategoryStruct.comp (groupCohomology.H0IsoOfIsTrivial A).hom h) = CategoryTheory.CategoryStruct.comp (groupCohomology.iCocycles A 0) (CategoryTheory.CategoryStruct.comp (groupCohomology.cochainsIso₀ A).hom h)
+  new: ∀ {k G : Type u} [inst : CommRing k] [inst_1 : Group G] (A : Rep.{u, u, u} k G) [inst_2 : A.IsTrivial] {Z : ModuleCat k} (h : ↧↑A ⟶ Z), CategoryTheory.CategoryStruct.comp (groupCohomology.π A 0) (CategoryTheory.CategoryStruct.comp (groupCohomology.H0IsoOfIsTrivial A).hom h) = CategoryTheory.CategoryStruct.comp (groupCohomology.iCocycles A 0) (CategoryTheory.CategoryStruct.comp (groupCohomology.cochainsIso₀ A).hom h)
+--- #19 F4 theorem SSet.nonDegenerate_iff_of_isIso
+  old: ∀ {X Y : SSet} (f : X ⟶ Y) [CategoryTheory.IsIso f] {n : ℕ} (x : X.obj (Opposite.op (SimplexCategory.mk n))), f.app (Opposite.op (SimplexCategory.mk n)) x ∈ Y.nonDegenerate n ↔ x ∈ X.nonDegenerate n
+  new: ∀ {X Y : SSet} (f : X ⟶ Y) [CategoryTheory.IsIso f] {n : ℕ} (x : X.obj (Opposite.op { len := n })), @CategoryTheory.NatTrans.app SimplexCategoryᵒᵖ CategoryTheory.Category.opposite (Type u) CategoryTheory.types X Y f (Opposite.op { len := n }) x ∈ Y.nonDegenerate n ↔ x ∈ X.nonDegenerate n
+--- #20 F5 theorem RCLike.wInner_const_right
+  old: ∀ {ι : Type u_1} {𝕜 : Type u_3} [inst : Fintype ι] [inst_1 : RCLike 𝕜] {w : ι → ℝ} (f : ι → 𝕜) (a : 𝕜), RCLike.wInner w f (Function.const ι a) = a * ∑ i, w i • (starRingEnd 𝕜) (f i)
+  new: ∀ {ι : Type u_1} {𝕜 : Type u_3} [inst : Fintype ι] [inst_1 : RCLike 𝕜] {w : ι → ℝ} (f : ι → 𝕜) (a : 𝕜), ⟪f, Function.const ι a⟫_[𝕜, w] = a * ∑ i, w i • (starRingEnd 𝕜) (f i)
+--- #21 E theorem WeakDual.CharacterSpace.compContinuousMap_apply
+  old: ∀ {A : Type u_1} {B : Type u_2} {𝕜 : Type u_4} [inst : NontriviallyNormedField 𝕜] [inst_1 : NormedRing A] [inst_2 : NormedAlgebra 𝕜 A] [inst_3 : CompleteSpace A] [inst_4 : StarRing A] [inst_5 : NormedRing B] [inst_6 : NormedAlgebra 𝕜 B] [inst_7 : CompleteSpace B] [inst_8 : StarRing B] (ψ : A →⋆ₐ[𝕜] B) (φ : ↑(WeakDual.characterSpace 𝕜 B)), (WeakDual.CharacterSpace.compContinuousMap ψ) φ = WeakDual.CharacterSpace.equivAlgHom.symm ((WeakDual.CharacterSpace.equivAlgHom φ).comp ψ.toAlgHom)
+  new: ∀ {A : Type u_1} {B : Type u_2} {𝕜 : Type u_4} [inst : NontriviallyNormedField 𝕜] [inst_1 : NormedRing A] [inst_2 : NormedAlgebra 𝕜 A] [inst_3 : CompleteSpace A] [inst_4 : StarRing A] [inst_5 : NormedRing B] [inst_6 : NormedAlgebra 𝕜 B] [inst_7 : CompleteSpace B] [inst_8 : StarRing B] (ψ : A →⋆ₐ[𝕜] B) (φ : ↑(WeakDual.characterSpace 𝕜 B)), (WeakDual.CharacterSpace.compContinuousMap ψ) φ = WeakDual.CharacterSpace.equivAlgHom.symm ((WeakDual.CharacterSpace.equivAlgHom φ).comp ↑ψ)
+--- #22 F1 theorem ProbabilityTheory.Kernel.HasSubgaussianMGF.measure_ge_le  dangling: Monoid.toPow
+  old: ∀ {Ω : Type u_1} {Ω' : Type u_2} {mΩ : MeasurableSpace Ω} {mΩ' : MeasurableSpace Ω'} {ν : MeasureTheory.Measure Ω'} {κ : ProbabilityTheory.Kernel Ω' Ω} {X : Ω → ℝ} {c : NNReal}, ProbabilityTheory.Kernel.HasSubgaussianMGF X c κ ν → ∀ {ε : ℝ}, 0 ≤ ε → ∀ᵐ (ω' : Ω') ∂ν, (κ ω').real {ω | ε ≤ X ω} ≤ Real.exp (-ε ^ 2 / (2 * ↑c))
+  new: ∀ {Ω : Type u_1} {Ω' : Type u_2} {mΩ : MeasurableSpace Ω} {mΩ' : MeasurableSpace Ω'} {ν : MeasureTheory.Measure Ω'} {κ : ProbabilityTheory.Kernel Ω' Ω} {X : Ω → ℝ} {c : NNReal}, ProbabilityTheory.Kernel.HasSubgaussianMGF X c κ ν → ∀ {ε : ℝ}, 0 ≤ ε → ∀ᵐ (ω' : Ω') ∂ν, (κ ω').real (setOf fun ω => ε ≤ X ω) ≤ Real.exp (-ε ^ 2 / (2 * ↑c))
+--- #23 F2 theorem LightCondensed.isoFinYoneda_inv_app
+  old: ∀ (F : CategoryTheory.Functor LightProfiniteᵒᵖ (Type u)) [inst : CategoryTheory.Limits.PreservesFiniteProducts F] (X : FintypeCatᵒᵖ) (a : (LightCondensed.finYoneda F).obj X), (LightCondensed.isoFinYoneda F).inv.app X a = (LightCondensed.isoFinYonedaComponents F (FintypeCat.toLightProfinite.obj (Opposite.unop X))).inv a
+  new: ∀ (F : CategoryTheory.Functor LightProfiniteᵒᵖ (Type u)) [inst : CategoryTheory.Limits.PreservesFiniteProducts F] (X : FintypeCatᵒᵖ) (a : (LightCondensed.finYoneda F).obj X), @CategoryTheory.NatTrans.app FintypeCatᵒᵖ CategoryTheory.Category.opposite (Type u) CategoryTheory.types (LightCondensed.finYoneda F) (FintypeCat.toLightProfinite.op.comp F) (LightCondensed.isoFinYoneda F).inv X a = @CategoryTheory.Iso.inv (Type u) CategoryTheory.types (F.obj (Opposite.op (FintypeCat.toLightProfinite.obj (Opposite.unop X)))) ((Opposite.unop X).obj → F.obj (Opposite.op (FintypeCat.toLightProfinite.obj ↧PUnit.{u + 1}))) (LightCondensed.isoFinYonedaComponents F (FintypeCat.toLightProfinite.obj (Opposite.unop X))) a
+--- #24 F4 theorem SubNegMonoid.zsmul_succ'  dangling: SubNegMonoid.zsmul
+  old: ∀ {G : Type u} [self : SubNegMonoid G] (n : ℕ) (a : G), SubNegMonoid.zsmul (↑n.succ) a = SubNegMonoid.zsmul (↑n) a + a
+  new: ∀ {G : Type u} [self : SubNegMonoid G] (n : ℕ) (a : G), @SubNegMonoid.zsmul G self (↑n.succ) a = @SubNegMonoid.zsmul G self (↑n) a + a
+--- #25 F5 theorem ComputeAsymptotics.MultiseriesExpansion.mk_toFun  dangling: ComputeAsymptotics.Basis, ComputeAsymptotics.MultiseriesExpansion.Multiseries, ComputeAsymptotics.MultiseriesExpansion.toFun, ComputeAsymptotics.MultiseriesExpansion.mk
+  old: ∀ {basis_hd : ℝ → ℝ} {basis_tl : ComputeAsymptotics.Basis} {s : ComputeAsymptotics.MultiseriesExpansion.Multiseries basis_hd basis_tl} {f : ℝ → ℝ}, (ComputeAsymptotics.MultiseriesExpansion.mk s f).toFun = f
+  new: ∀ {basis_hd : ℝ → ℝ} {basis_tl : ComputeAsymptotics.Basis} {s : ComputeAsymptotics.MultiseriesExpansion.Multiseries basis_hd basis_tl} {f : ℝ → ℝ}, ComputeAsymptotics.MultiseriesExpansion.toFun (basis_hd :: basis_tl) (ComputeAsymptotics.MultiseriesExpansion.mk basis_hd basis_tl s f) = f
+--- #26 E theorem Affine.Simplex.isClosed_closedInterior
+  old: ∀ {𝕜 : Type u_4} {V : Type u_5} {P : Type u_6} [inst : Field 𝕜] [inst_1 : LinearOrder 𝕜] [IsStrictOrderedRing 𝕜] [inst_3 : TopologicalSpace 𝕜] [OrderClosedTopology 𝕜] [CompactIccSpace 𝕜] [ContinuousAdd 𝕜] [inst_7 : AddCommGroup V] [inst_8 : TopologicalSpace V] [IsTopologicalAddGroup V] [inst_10 : Module 𝕜 V] [ContinuousSMul 𝕜 V] [inst_12 : AddTorsor V P] [inst_13 : TopologicalSpace P] [IsTopologicalAddTorsor P] [T2Space P] {n : ℕ} (s : Affine.Simplex 𝕜 P n), IsClosed s.closedInterior
+  new: ∀ {𝕜 : Type u_4} {V : Type u_5} {P : Type u_6} [inst : Field 𝕜] [inst_1 : LinearOrder 𝕜] [IsStrictOrderedRing 𝕜] [inst_3 : TopologicalSpace 𝕜] [OrderClosedTopology 𝕜] [CompactIccSpace 𝕜] [ContinuousAdd 𝕜] [inst_7 : AddCommGroup V] [inst_8 : TopologicalSpace V] [IsTopologicalAddGroup V] [inst_10 : Module 𝕜 V] [ContinuousSMul 𝕜 V] [inst_12 : AddTorsor V P] [inst_13 : TopologicalSpace P] [IsTopologicalAddTorsor inst_8] [T2Space P] {n : ℕ} (s : Affine.Simplex 𝕜 P n), IsClosed s.closedInterior
+--- #27 F1 theorem setOf_minimal_antichain
+  old: ∀ {α : Type u_1} [inst : PartialOrder α] (P : α → Prop), IsAntichain (fun x1 x2 => x1 ≤ x2) {x | Minimal P x}
+  new: ∀ {α : Type u_1} [inst : PartialOrder α] (P : α → Prop), IsAntichain (fun x1 x2 => x1 ≤ x2) (setOf fun x => Minimal P x)
+--- #28 F2 theorem AlgebraicGeometry.Scheme.Modules.pseudofunctor_obj_obj
+  old: ∀ (b : CategoryTheory.LocallyDiscrete AlgebraicGeometry.Schemeᵒᵖ), (AlgebraicGeometry.Scheme.Modules.pseudofunctor.obj b).obj = CategoryTheory.Cat.of (Opposite.unop b.as).Modules
+  new: ∀ (b : CategoryTheory.LocallyDiscrete AlgebraicGeometry.Schemeᵒᵖ), (AlgebraicGeometry.Scheme.Modules.pseudofunctor.obj b).obj = ↧(Opposite.unop b.as).Modules
+--- #29 F4 theorem RatFunc.algEquivOfTranscendental_symm_aeval  dangling: algebraMap
+  old: ∀ {K : Type u_1} {L : Type u_2} [inst : Field K] [inst_1 : Field L] [inst_2 : Algebra K L] (f : L) (h : Transcendental K f) (g : Polynomial K), (RatFunc.algEquivOfTranscendental f h).symm ((Polynomial.aeval (IntermediateField.AdjoinSimple.gen K f)) g) = (algebraMap (Polynomial K) (RatFunc K)) g
+  new: ∀ {K : Type u_1} {L : Type u_2} [inst : Field K] [inst_1 : Field L] [inst_2 : Algebra K L] (f : L) (h : Transcendental K f) (g : Polynomial K), (RatFunc.algEquivOfTranscendental f h).symm ((Polynomial.aeval (IntermediateField.AdjoinSimple.gen K f)) g) = (@algebraMap (Polynomial K) (RatFunc K) Polynomial.commSemiring Field.toSemifield.toDivisionSemiring.toSemiring (RatFunc.instAlgebraOfPolynomial K (Polynomial K))) g
+--- #30 F5 theorem mdifferentiableAt_iff_localFrame_coeff
+  old: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {H : Type u_3} [inst_3 : TopologicalSpace H] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] {F : Type u_5} [inst_6 : NormedAddCommGroup F] [inst_7 : NormedSpace 𝕜 F] {V : M → Type u_6} [inst_8 : TopologicalSpace (Bundle.TotalSpace F V)] [inst_9 : (x : M) → AddCommGroup (V x)] [inst_10 : (x : M) → Module 𝕜 (V x)] [inst_11 : (x : M) → TopologicalSpace (V x)] [inst_12 : FiberBundle F V] [inst_13 : VectorBundle 𝕜 F V] [inst_14 : ContMDiffVectorBundle 1 F V I] {e : Bundle.Trivialization F Bundle.TotalSpace.proj} [inst_15 : MemTrivializationAtlas e] {ι : Type u_7} (b : Module.Basis ι 𝕜 F) {s : (x : M) → V x} {x' : M} [FiniteDimensional 𝕜 F] [CompleteSpace 𝕜], x' ∈ e.baseSet → (MDiffAt (T% s) x' ↔ ∀ (i : ι), MDiffAt ((LinearMap.piApply (Bundle.Trivialization.localFrame_coeff I e b i)) s) x')
+  new: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {H : Type u_3} [inst_3 : TopologicalSpace H] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] {F : Type u_5} [inst_6 : NormedAddCommGroup F] [inst_7 : NormedSpace 𝕜 F] {V : M → Type u_6} [inst_8 : TopologicalSpace (Bundle.TotalSpace F V)] [inst_9 : (x : M) → AddCommGroup (V x)] [inst_10 : (x : M) → Module 𝕜 (V x)] [inst_11 : (x : M) → TopologicalSpace (V x)] [inst_12 : FiberBundle F V] [inst_13 : VectorBundle 𝕜 F V] [inst_14 : ContMDiffVectorBundle 1 F V I] {e : Bundle.Trivialization F Bundle.TotalSpace.proj} [inst_15 : MemTrivializationAtlas e] {ι : Type u_7} (b : Module.Basis ι 𝕜 F) {s : (x : M) → V x} {x' : M} [FiniteDimensional 𝕜 F] [CompleteSpace 𝕜], x' ∈ e.baseSet → ((MDiffAt fun x => ⟨x, s x⟩) x' ↔ ∀ (i : ι), MDiffAt ((LinearMap.piApply (Bundle.Trivialization.localFrame_coeff I e b i)) s) x')
+--- #31 E theorem MeasureTheory.Measure.toSignedMeasure_apply
+  old: ∀ {α : Type u_1} {m : MeasurableSpace α} (μ : MeasureTheory.Measure α) [hμ : MeasureTheory.IsFiniteMeasure μ] (s : Set α), ↑μ.toSignedMeasure s = if MeasurableSet s then μ.real s else 0
+  new: ∀ {α : Type u_1} {m : MeasurableSpace α} (μ : MeasureTheory.Measure α) [hμ : MeasureTheory.IsFiniteMeasure μ] (s : Set α), μ.toSignedMeasure.measureOf' s = if MeasurableSet s then μ.real s else 0
+--- #32 F1 theorem Equiv.Perm.prod_comp  dangling: Set.instHasSubset
+  old: ∀ {ι : Type u_1} {M : Type u_3} [inst : CommMonoid M] (σ : Equiv.Perm ι) (s : Finset ι) (f : ι → M), {a | σ a ≠ a} ⊆ ↑s → ∏ x ∈ s, f (σ x) = ∏ x ∈ s, f x
+  new: ∀ {ι : Type u_1} {M : Type u_3} [inst : CommMonoid M] (σ : Equiv.Perm ι) (s : Finset ι) (f : ι → M), (setOf fun a => σ a ≠ a) ⊆ ↑s → ∏ x ∈ s, f (σ x) = ∏ x ∈ s, f x
+--- #33 F2 definition SemimoduleCat.Hom.hom₂
+  old: {R : Type u_1} → [inst : CommSemiring R] → {M N P : SemimoduleCat R} → (M ⟶ SemimoduleCat.of R (N ⟶ P)) → ↑M →ₗ[R] ↑N →ₗ[R] ↑P
+  new: {R : Type u_1} → [inst : CommSemiring R] → {M N P : SemimoduleCat R} → (M ⟶ ↧(N ⟶ P)) → ↑M →ₗ[R] ↑N →ₗ[R] ↑P
+--- #34 F4 theorem Polynomial.isEisensteinAt_iff  dangling: Monoid.toPow
+  old: ∀ {R : Type u} [inst : CommSemiring R] (f : Polynomial R) (𝓟 : Ideal R), f.IsEisensteinAt 𝓟 ↔ f.leadingCoeff ∉ 𝓟 ∧ (∀ {n : ℕ}, n < f.natDegree → f.coeff n ∈ 𝓟) ∧ f.coeff 0 ∉ 𝓟 ^ 2
+  new: ∀ {R : Type u} [inst : CommSemiring R] (f : Polynomial R) (𝓟 : Ideal R), f.IsEisensteinAt 𝓟 ↔ f.leadingCoeff ∉ 𝓟 ∧ (∀ {n : ℕ}, n < f.natDegree → @Polynomial.coeff R inst.toSemiring f n ∈ 𝓟) ∧ @Polynomial.coeff R inst.toSemiring f 0 ∉ 𝓟 ^ 2
+--- #35 F5 theorem fderiv_continuousAlternatingMapCompContinuousLinearMap  dangling: UniformContinuousConstSMul.to_continuousConstSMul
+  old: ∀ {𝕜 : Type u_1} {ι : Type u_2} {E : Type u_3} {F : Type u_4} {G : Type u_5} {H : Type u_6} [inst : NontriviallyNormedField 𝕜] [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] [inst_3 : NormedAddCommGroup F] [inst_4 : NormedSpace 𝕜 F] [inst_5 : NormedAddCommGroup G] [inst_6 : NormedSpace 𝕜 G] [inst_7 : NormedAddCommGroup H] [inst_8 : NormedSpace 𝕜 H] {f : E → G [⋀^ι]→L[𝕜] H} {g : E → F →L[𝕜] G} {x : E} [inst_9 : Fintype ι] [inst_10 : DecidableEq ι], DifferentiableAt 𝕜 f x → DifferentiableAt 𝕜 g x → fderiv 𝕜 (fun x => (f x).compContinuousLinearMap (g x)) x = (ContinuousAlternatingMap.compContinuousLinearMapCLM (g x)).comp (fderiv 𝕜 f x) + ((f x).fderivCompContinuousLinearMap (g x)).comp (fderiv 𝕜 g x)
+  new: ∀ {𝕜 : Type u_1} {ι : Type u_2} {E : Type u_3} {F : Type u_4} {G : Type u_5} {H : Type u_6} [inst : NontriviallyNormedField 𝕜] [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] [inst_3 : NormedAddCommGroup F] [inst_4 : NormedSpace 𝕜 F] [inst_5 : NormedAddCommGroup G] [inst_6 : NormedSpace 𝕜 G] [inst_7 : NormedAddCommGroup H] [inst_8 : NormedSpace 𝕜 H] {f : E → G [⋀^ι]→L[𝕜] H} {g : E → F →L[𝕜] G} {x : E} [inst_9 : Fintype ι] [inst_10 : DecidableEq ι], DifferentiableAt 𝕜 f x → DifferentiableAt 𝕜 g x → fderiv 𝕜 (fun x => (f x).compContinuousLinearMap (g x)) x = ContinuousAlternatingMap.compContinuousLinearMapCLM (g x) ∘SL fderiv 𝕜 f x + (f x).fderivCompContinuousLinearMap (g x) ∘SL fderiv 𝕜 g x
+--- #36 E theorem ContinuousAffineMap.lineMap_apply'
+  old: ∀ {R : Type u_1} {V : Type u_2} {W : Type u_3} {P : Type u_4} {Q : Type u_5} [inst : Ring R] [inst_1 : AddCommGroup V] [inst_2 : Module R V] [inst_3 : TopologicalSpace P] [inst_4 : AddTorsor V P] [inst_5 : AddCommGroup W] [inst_6 : Module R W] [inst_7 : TopologicalSpace Q] [inst_8 : AddTorsor W Q] [inst_9 : TopologicalSpace W] [inst_10 : IsTopologicalAddGroup W] [inst_11 : IsTopologicalAddTorsor Q] [inst_12 : ContinuousConstSMul R W] [inst_13 : SMulCommClass R R W] (f g : P →ᴬ[R] Q) (c : R) (p : P), ((AffineMap.lineMap f g) c) p = (AffineMap.lineMap (f p) (g p)) c
+  new: ∀ {R : Type u_1} {V : Type u_2} {W : Type u_3} {P : Type u_4} {Q : Type u_5} [inst : Ring R] [inst_1 : AddCommGroup V] [inst_2 : Module R V] [inst_3 : TopologicalSpace P] [inst_4 : AddTorsor V P] [inst_5 : AddCommGroup W] [inst_6 : Module R W] [inst_7 : TopologicalSpace Q] [inst_8 : AddTorsor W Q] [inst_9 : TopologicalSpace W] [inst_10 : IsTopologicalAddGroup W] [inst_11 : IsTopologicalAddTorsor inst_9] [inst_12 : ContinuousConstSMul R W] [inst_13 : SMulCommClass R R W] (f g : P →ᴬ[R] Q) (c : R) (p : P), ((AffineMap.lineMap f g) c) p = (AffineMap.lineMap (f p) (g p)) c
+--- #37 F1 theorem TopologicalSpace.Compacts.isOpen_subsets_of_isOpen  dangling: Set.instHasSubset
+  old: ∀ {α : Type u_1} [inst : TopologicalSpace α] {U : Set α}, IsOpen U → IsOpen {K | ↑K ⊆ U}
+  new: ∀ {α : Type u_1} [inst : TopologicalSpace α] {U : Set α}, IsOpen U → IsOpen (setOf fun K => ↑K ⊆ U)
+--- #38 F2 theorem CategoryTheory.Cat.of_α
+  old: ∀ (C : Type u_1) [inst : CategoryTheory.Category.{v_1, u_1} C], ↑(CategoryTheory.Cat.of C) = C
+  new: ∀ (C : Type u_1) [inst : CategoryTheory.Category.{v_1, u_1} C], ↑↧C = C
+--- #39 F4 theorem AlgebraicGeometry.AffineSpace.reindex_comp_assoc
+  old: ∀ {n₁ n₂ n₃ : Type v} (i : n₁ → n₂) (j : n₂ → n₃) (S : AlgebraicGeometry.Scheme) {Z : AlgebraicGeometry.Scheme} (h : AlgebraicGeometry.AffineSpace n₁ S ⟶ Z), CategoryTheory.CategoryStruct.comp (AlgebraicGeometry.AffineSpace.reindex (j ∘ i) S) h = CategoryTheory.CategoryStruct.comp (AlgebraicGeometry.AffineSpace.reindex j S) (CategoryTheory.CategoryStruct.comp (AlgebraicGeometry.AffineSpace.reindex i S) h)
+  new: ∀ {n₁ n₂ n₃ : Type v} (i : n₁ → n₂) (j : n₂ → n₃) (S : AlgebraicGeometry.Scheme) {Z : AlgebraicGeometry.Scheme} (h : @AlgebraicGeometry.AffineSpace n₁ S ⟶ Z), CategoryTheory.CategoryStruct.comp (@AlgebraicGeometry.AffineSpace.reindex n₃ n₁ (j ∘ i) S) h = CategoryTheory.CategoryStruct.comp (@AlgebraicGeometry.AffineSpace.reindex n₃ n₂ j S) (CategoryTheory.CategoryStruct.comp (@AlgebraicGeometry.AffineSpace.reindex n₂ n₁ i S) h)
+--- #40 F5 theorem Topology.WithGeneratedByTopology.isClosed_iff
+  old: ∀ {ι : Type t} {X : ι → Type u} [inst : (i : ι) → TopologicalSpace (X i)] {Y : Type v} [tY : TopologicalSpace Y] {U : Set (Topology.WithGeneratedByTopology X Y)}, IsClosed U ↔ ∀ ⦃i : ι⦄ (f : C(X i, Y)), IsClosed (⇑f ⁻¹' (⇑Topology.WithGeneratedByTopology.equiv.symm ⁻¹' U))
+  new: ∀ {ι : Type t} {X : ι → Type u} [inst : (i : ι) → TopologicalSpace (X i)] {Y : Type v} [tY : TopologicalSpace Y] {U : Set (Topology.WithGeneratedByTopology X Y)}, IsClosed U ↔ ∀ ⦃i : ι⦄ (f : C(X i, Y)), IsClosed (⇑f ⁻¹' ⇑Topology.WithGeneratedByTopology.equiv.symm ⁻¹' U)
+--- #41 F1 theorem Set.unbounded_inter_ge
+  old: ∀ {α : Type u_1} {s : Set α} [inst : LinearOrder α] (a : α), Set.Unbounded (fun x1 x2 => x1 > x2) (s ∩ {b | b ≤ a}) ↔ Set.Unbounded (fun x1 x2 => x1 > x2) s
+  new: ∀ {α : Type u_1} {s : Set α} [inst : LinearOrder α] (a : α), Set.Unbounded (fun x1 x2 => x1 > x2) (s ∩ setOf fun b => b ≤ a) ↔ Set.Unbounded (fun x1 x2 => x1 > x2) s
+--- #42 F2 definition AlgebraicGeometry.ValuativeCommSq.i₁
+  old: {X Y : AlgebraicGeometry.Scheme} → {f : X ⟶ Y} → (self : AlgebraicGeometry.ValuativeCommSq f) → AlgebraicGeometry.Spec (CommRingCat.of self.K) ⟶ X
+  new: {X Y : AlgebraicGeometry.Scheme} → {f : X ⟶ Y} → (self : AlgebraicGeometry.ValuativeCommSq f) → AlgebraicGeometry.Spec ↧self.K ⟶ X
+--- #43 F4 theorem NumberField.Ideal.inertiaDeg_primesOverSpanEquivMonicFactorsMod_symm_apply'
+  old: ∀ {K : Type u_1} [inst : Field K] {θ : NumberField.RingOfIntegers K} {p : ℕ} [inst_1 : Fact (Nat.Prime p)] [inst_2 : NumberField K] (hp : ¬p ∣ RingOfIntegers.exponent θ) {Q : Polynomial (ZMod p)} (hQ : Q ∈ RingOfIntegers.monicFactorsMod θ p), (Ideal.span {↑p}).inertiaDeg ↑((NumberField.Ideal.primesOverSpanEquivMonicFactorsMod hp).symm ⟨Q, hQ⟩) = Q.natDegree
+  new: ∀ {K : Type u_1} [inst : Field K] {θ : NumberField.RingOfIntegers K} {p : ℕ} [inst_1 : Fact (Nat.Prime p)] [inst_2 : NumberField K] (hp : ¬p ∣ RingOfIntegers.exponent θ) {Q : Polynomial (ZMod p)} (hQ : Q ∈ RingOfIntegers.monicFactorsMod θ p), @Ideal.inertiaDeg ℤ Int.instCommRing (NumberField.RingOfIntegers K) (NumberField.instCommRingRingOfIntegers K) (Ring.toIntAlgebra (NumberField.RingOfIntegers K)) (Ideal.span {↑p}) ↑((NumberField.Ideal.primesOverSpanEquivMonicFactorsMod hp).symm ⟨Q, hQ⟩) = Q.natDegree
+--- #44 F5 theorem ContinuousLinearMap.snd_comp_prod
+  old: ∀ {R : Type u_1} [inst : Semiring R] {M₁ : Type u_2} [inst_1 : TopologicalSpace M₁] [inst_2 : AddCommMonoid M₁] [inst_3 : Module R M₁] {M₂ : Type u_3} [inst_4 : TopologicalSpace M₂] [inst_5 : AddCommMonoid M₂] [inst_6 : Module R M₂] {M₃ : Type u_4} [inst_7 : TopologicalSpace M₃] [inst_8 : AddCommMonoid M₃] [inst_9 : Module R M₃] (f : M₁ →L[R] M₂) (g : M₁ →L[R] M₃), (ContinuousLinearMap.snd R M₂ M₃).comp (f.prod g) = g
+  new: ∀ {R : Type u_1} [inst : Semiring R] {M₁ : Type u_2} [inst_1 : TopologicalSpace M₁] [inst_2 : AddCommMonoid M₁] [inst_3 : Module R M₁] {M₂ : Type u_3} [inst_4 : TopologicalSpace M₂] [inst_5 : AddCommMonoid M₂] [inst_6 : Module R M₂] {M₃ : Type u_4} [inst_7 : TopologicalSpace M₃] [inst_8 : AddCommMonoid M₃] [inst_9 : Module R M₃] (f : M₁ →L[R] M₂) (g : M₁ →L[R] M₃), ContinuousLinearMap.snd R M₂ M₃ ∘SL f.prod g = g
+--- #45 F1 theorem Ergodic.iff_mem_extremePoints_measure_univ_eq
+  old: ∀ {X : Type u_1} {m : MeasurableSpace X} {μ : MeasureTheory.Measure X} {f : X → X} [MeasureTheory.IsFiniteMeasure μ], Ergodic f μ ↔ μ ∈ Set.extremePoints ENNReal {ν | MeasureTheory.MeasurePreserving f ν ν ∧ ν Set.univ = μ Set.univ}
+  new: ∀ {X : Type u_1} {m : MeasurableSpace X} {μ : MeasureTheory.Measure X} {f : X → X} [MeasureTheory.IsFiniteMeasure μ], Ergodic f μ ↔ μ ∈ Set.extremePoints ENNReal (setOf fun ν => MeasureTheory.MeasurePreserving f ν ν ∧ ν Set.univ = μ Set.univ)
+
+AGGREGATION OUTPUT (B), hybrid with old data extensions (agg.py, verbatim)
+--------------------------------------------------------------------------
+records: 5000
+headline (95% Wilson score intervals):
+  identical                                              4889 / 5000     97.78%   [97.33%, 98.15%]
+  different                                               111 / 5000      2.22%   [1.85%, 2.67%]
+  print failed                                              0 / 5000      0.00%   [0.00%, 0.08%]
+  exception                                                 0 / 5000      0.00%   [0.00%, 0.08%]
+  dangling: >=1 referenced constant absent in new env       0 / 5000      0.00%   [0.00%, 0.08%]
+  universe arity mismatch (>=1 constant)                    0 / 5000      0.00%   [0.00%, 0.08%]
+cross-tab category x dangling:
+  identical    dangling=yes     0   dangling=no  4889
+  different    dangling=yes     0   dangling=no   111
+  print failed dangling=yes     0   dangling=no     0
+  exception    dangling=yes     0   dangling=no     0
+own name in new env:
+  absent                                                    0 / 5000      0.00%   [0.00%, 0.08%]
+  same                                                   5000 / 5000    100.00%   [99.92%, 100.00%]
+  same_alpha                                                0 / 5000      0.00%   [0.00%, 0.08%]
+  same_levelrename                                          0 / 5000      0.00%   [0.00%, 0.08%]
+  same_levelrename_alpha                                    0 / 5000      0.00%   [0.00%, 0.08%]
+  different                                                 0 / 5000      0.00%   [0.00%, 0.08%]
+  of those not 'same'/'absent', whether the new declaration's own type prints identically to the old print:
+serialization sanity: round-trip mismatches 0, records with mvars 0, fvars 0, level mvars 0, records with mdata dropped 9 (nodes dropped 11)
+dangling examples: 
+classification of 'different' (rules applied in order, cumulative normalisation):
+  A hygiene names only (✝ suffixes, inst_N)                2   (dangling yes 0, no 2)
+  E identifier spelling only (same token skeleton)         5   (dangling yes 0, no 5)
+  F other / F1 set-builder {x | p} printed as setOf fun x => p    61   (dangling yes 0, no 61)
+  F other / F2 new ↧ notation replaces an X.of application    15   (dangling yes 0, no 15)
+  F other / F5 rest                                       28   (dangling yes 0, no 28)
+post-hoc split of F other (rules written after reading F, applied in order):
+  F1 set-builder {x | p} printed as setOf fun x => p                                  61   (dangling yes 0, no 61)
+  F2 new ↧ notation replaces an X.of application                                      15   (dangling yes 0, no 15)
+  F5 rest                                                                             28   (dangling yes 0, no 28)
+print failed: records
+kinds in sample: {'theorem': 3735, 'definition': 653, 'instance': 451, 'constructor': 77, 'structure': 38, 'class': 36, 'inductive': 8, 'opaque': 2}
+kinds among 'different': {'theorem': 100, 'definition': 9, 'constructor': 1, 'instance': 1}
+examples (45 of 111), up to 45, taken round-robin over classes:
+--- #1 A theorem CategoryTheory.ComposableArrows.isoMk₅_hom
+  old: ∀ {C : Type u_1} [inst : CategoryTheory.Category.{v_1, u_1} C] {f g : CategoryTheory.ComposableArrows C 5} (app₀ : f.obj' 0 _proof_441✝ ≅ g.obj' 0 _proof_441✝¹) (app₁ : f.obj' 1 _proof_442✝ ≅ g.obj' 1 _proof_442✝¹) (app₂ : f.obj' 2 _proof_443✝ ≅ g.obj' 2 _proof_443✝¹) (app₃ : f.obj' 3 _proof_444✝ ≅ g.obj' 3 _proof_444✝¹) (app₄ : f.obj' 4 _proof_445✝ ≅ g.obj' 4 _proof_445✝¹) (app₅ : f.obj' 5 _proof_446✝ ≅ g.obj' 5 _proof_446✝¹) (w₀ : CategoryTheory.CategoryStruct.comp (f.map' 0 1 CategoryTheory.ComposableArrows.homMk₁._proof_4 _proof_442✝²) app₁.hom = CategoryTheory.CategoryStruct.comp app₀.hom (g.map' 0 1 CategoryTheory.ComposableArrows.homMk₁._proof_4 _proof_442✝³)) (w₁ : CategoryTheory.CategoryStruct.comp (f.map' 1 2 _proof_238✝ _proof_443✝²) app₂.hom = CategoryTheory.CategoryStruct.comp app₁.hom (g.map' 1 2 _proof_238✝¹ _proof_443✝³)) (w₂ : CategoryTheory.CategoryStruct.comp (f.map' 2 3 _proof_291✝ _proof_444✝²) app₃.hom = CategoryTheory.CategoryStruct.comp app₂.hom (g.map' 2 3 _proof_291✝¹ _proof_444✝³)) (w₃ : CategoryTheory.CategoryStruct.comp (f.map' 3 4 _proof_356✝ _proof_445✝²) app₄.hom = CategoryTheory.CategoryStruct.comp app₃.hom (g.map' 3 4 _proof_356✝¹ _proof_445✝³)) (w₄ : CategoryTheory.CategoryStruct.comp (f.map' 4 5 _proof_445✝⁴ _proof_446✝²) app₅.hom = CategoryTheory.CategoryStruct.comp app₄.hom (g.map' 4 5 _proof_445✝⁵ _proof_446✝³)), (CategoryTheory.ComposableArrows.isoMk₅ app₀ app₁ app₂ app₃ app₄ app₅ w₀ w₁ w₂ w₃ w₄).hom = CategoryTheory.ComposableArrows.homMk₅ app₀.hom app₁.hom app₂.hom app₃.hom app₄.hom app₅.hom w₀ w₁ w₂ w₃ w₄
+  new: ∀ {C : Type u_1} [inst : CategoryTheory.Category.{v_1, u_1} C] {f g : CategoryTheory.ComposableArrows C 5} (app₀ : f.obj' 0 _proof_441✝ ≅ g.obj' 0 _proof_441✝) (app₁ : f.obj' 1 _proof_442✝ ≅ g.obj' 1 _proof_442✝) (app₂ : f.obj' 2 _proof_443✝ ≅ g.obj' 2 _proof_443✝) (app₃ : f.obj' 3 _proof_444✝ ≅ g.obj' 3 _proof_444✝) (app₄ : f.obj' 4 _proof_445✝ ≅ g.obj' 4 _proof_445✝) (app₅ : f.obj' 5 _proof_446✝ ≅ g.obj' 5 _proof_446✝) (w₀ : CategoryTheory.CategoryStruct.comp (f.map' 0 1 CategoryTheory.ComposableArrows.homMk₁._proof_4 _proof_442✝) app₁.hom = CategoryTheory.CategoryStruct.comp app₀.hom (g.map' 0 1 CategoryTheory.ComposableArrows.homMk₁._proof_4 _proof_442✝)) (w₁ : CategoryTheory.CategoryStruct.comp (f.map' 1 2 _proof_238✝ _proof_443✝) app₂.hom = CategoryTheory.CategoryStruct.comp app₁.hom (g.map' 1 2 _proof_238✝ _proof_443✝)) (w₂ : CategoryTheory.CategoryStruct.comp (f.map' 2 3 _proof_291✝ _proof_444✝) app₃.hom = CategoryTheory.CategoryStruct.comp app₂.hom (g.map' 2 3 _proof_291✝ _proof_444✝)) (w₃ : CategoryTheory.CategoryStruct.comp (f.map' 3 4 _proof_356✝ _proof_445✝) app₄.hom = CategoryTheory.CategoryStruct.comp app₃.hom (g.map' 3 4 _proof_356✝ _proof_445✝)) (w₄ : CategoryTheory.CategoryStruct.comp (f.map' 4 5 _proof_445✝ _proof_446✝) app₅.hom = CategoryTheory.CategoryStruct.comp app₄.hom (g.map' 4 5 _proof_445✝ _proof_446✝)), (CategoryTheory.ComposableArrows.isoMk₅ app₀ app₁ app₂ app₃ app₄ app₅ w₀ w₁ w₂ w₃ w₄).hom = CategoryTheory.ComposableArrows.homMk₅ app₀.hom app₁.hom app₂.hom app₃.hom app₄.hom app₅.hom w₀ w₁ w₂ w₃ w₄
+--- #2 E theorem LinearPMap.coe_smul
+  old: ∀ {R : Type u_1} [inst : Ring R] {E : Type u_2} [inst_1 : AddCommGroup E] [inst_2 : Module R E] {F : Type u_3} [inst_3 : AddCommGroup F] [inst_4 : Module R F] {M : Type u_5} [inst_5 : Monoid M] [inst_6 : DistribMulAction M F] [inst_7 : SMulCommClass R M F] (a : M) (f : E →ₗ.[R] F), ↑(a • f) = a • ↑f
+  new: ∀ {R : Type u_1} [inst : Ring R] {E : Type u_2} [inst_1 : AddCommGroup E] [inst_2 : Module R E] {F : Type u_3} [inst_3 : AddCommGroup F] [inst_4 : Module R F] {M : Type u_5} [inst_5 : Monoid M] [inst_6 : DistribMulAction M F] [inst_7 : SMulCommClass R M F] (a : M) (f : E →ₛₗ.[R] F), ↑(a • f) = a • ↑f
+--- #3 F1 theorem UniformConvergenceCLM.nhds_zero_eq
+  old: ∀ {𝕜₁ : Type u_1} {𝕜₂ : Type u_2} [inst : NormedField 𝕜₁] [inst_1 : NormedField 𝕜₂] (σ : 𝕜₁ →+* 𝕜₂) {E : Type u_3} (F : Type u_4) [inst_2 : AddCommGroup E] [inst_3 : Module 𝕜₁ E] [inst_4 : TopologicalSpace E] [inst_5 : AddCommGroup F] [inst_6 : Module 𝕜₂ F] [inst_7 : TopologicalSpace F] [inst_8 : IsTopologicalAddGroup F] (𝔖 : Set (Set E)), nhds 0 = ⨅ s ∈ 𝔖, ⨅ t ∈ nhds 0, Filter.principal {f | Set.MapsTo (⇑f) s t}
+  new: ∀ {𝕜₁ : Type u_1} {𝕜₂ : Type u_2} [inst : NormedField 𝕜₁] [inst_1 : NormedField 𝕜₂] (σ : 𝕜₁ →+* 𝕜₂) {E : Type u_3} (F : Type u_4) [inst_2 : AddCommGroup E] [inst_3 : Module 𝕜₁ E] [inst_4 : TopologicalSpace E] [inst_5 : AddCommGroup F] [inst_6 : Module 𝕜₂ F] [inst_7 : TopologicalSpace F] [inst_8 : IsTopologicalAddGroup F] (𝔖 : Set (Set E)), nhds 0 = ⨅ s ∈ 𝔖, ⨅ t ∈ nhds 0, Filter.principal (setOf fun f => Set.MapsTo (⇑f) s t)
+--- #4 F2 theorem Condensed.underlying_obj
+  old: ∀ (C : Type w) [inst : CategoryTheory.Category.{u + 1, w} C] (j : CategoryTheory.Sheaf (CategoryTheory.coherentTopology CompHaus) C), (Condensed.underlying C).obj j = j.obj.obj (Opposite.op (CompHaus.of PUnit.{u + 1}))
+  new: ∀ (C : Type w) [inst : CategoryTheory.Category.{u + 1, w} C] (j : CategoryTheory.Sheaf (CategoryTheory.coherentTopology CompHaus) C), (Condensed.underlying C).obj j = j.obj.obj (Opposite.op ↧PUnit.{u + 1})
+--- #5 F5 theorem RCLike.wInner_const_right
+  old: ∀ {ι : Type u_1} {𝕜 : Type u_3} [inst : Fintype ι] [inst_1 : RCLike 𝕜] {w : ι → ℝ} (f : ι → 𝕜) (a : 𝕜), RCLike.wInner w f (Function.const ι a) = a * ∑ i, w i • (starRingEnd 𝕜) (f i)
+  new: ∀ {ι : Type u_1} {𝕜 : Type u_3} [inst : Fintype ι] [inst_1 : RCLike 𝕜] {w : ι → ℝ} (f : ι → 𝕜) (a : 𝕜), ⟪f, Function.const ι a⟫_[𝕜, w] = a * ∑ i, w i • (starRingEnd 𝕜) (f i)
+--- #6 A definition SSet.Truncated.liftOfStrictSegal.f₂
+  old: {X Y : SSet.Truncated 2} → (f₀ : X.obj (Opposite.op { obj := SimplexCategory.mk 0, property := _proof_11✝ }) → Y.obj (Opposite.op { obj := SimplexCategory.mk 0, property := _proof_11✝¹ })) → (f₁ : X.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝ }) → Y.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝¹ })) → (∀ (x : X.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝² })), f₀ (X.map (SimplexCategory.Truncated.δ₂ 1 _proof_11✝² _proof_13✝).op x) = Y.map (SimplexCategory.Truncated.δ₂ 1 _proof_11✝³ _proof_13✝¹).op (f₁ x)) → (∀ (x : X.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝³ })), f₀ (X.map (SimplexCategory.Truncated.δ₂ 0 _proof_11✝⁴ _proof_13✝²).op x) = Y.map (SimplexCategory.Truncated.δ₂ 0 _proof_11✝⁵ _proof_13✝³).op (f₁ x)) → Y.StrictSegal → X.obj (Opposite.op { obj := SimplexCategory.mk 2, property := _proof_14✝ }) → Y.obj (Opposite.op { obj := SimplexCategory.mk 2, property := _proof_14✝¹ })
+  new: {X Y : SSet.Truncated 2} → (f₀ : X.obj (Opposite.op { obj := SimplexCategory.mk 0, property := _proof_11✝ }) → Y.obj (Opposite.op { obj := SimplexCategory.mk 0, property := _proof_11✝ })) → (f₁ : X.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝ }) → Y.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝ })) → (∀ (x : X.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝ })), f₀ (X.map (SimplexCategory.Truncated.δ₂ 1 _proof_11✝ _proof_13✝).op x) = Y.map (SimplexCategory.Truncated.δ₂ 1 _proof_11✝ _proof_13✝).op (f₁ x)) → (∀ (x : X.obj (Opposite.op { obj := SimplexCategory.mk 1, property := _proof_12✝ })), f₀ (X.map (SimplexCategory.Truncated.δ₂ 0 _proof_11✝ _proof_13✝).op x) = Y.map (SimplexCategory.Truncated.δ₂ 0 _proof_11✝ _proof_13✝).op (f₁ x)) → Y.StrictSegal → X.obj (Opposite.op { obj := SimplexCategory.mk 2, property := _proof_14✝ }) → Y.obj (Opposite.op { obj := SimplexCategory.mk 2, property := _proof_14✝ })
+--- #7 E theorem LinearPMap.add_apply
+  old: ∀ {R : Type u_1} [inst : Ring R] {E : Type u_2} [inst_1 : AddCommGroup E] [inst_2 : Module R E] {F : Type u_3} [inst_3 : AddCommGroup F] [inst_4 : Module R F] (f g : E →ₗ.[R] F) (x : ↥(f.domain ⊓ g.domain)), ↑(f + g) x = ↑f ⟨↑x, ⋯⟩ + ↑g ⟨↑x, ⋯⟩
+  new: ∀ {R : Type u_1} [inst : Ring R] {E : Type u_2} [inst_1 : AddCommGroup E] [inst_2 : Module R E] {F : Type u_3} [inst_3 : AddCommGroup F] [inst_4 : Module R F] (f g : E →ₛₗ.[R] F) (x : ↥(f.domain ⊓ g.domain)), ↑(f + g) x = ↑f ⟨↑x, ⋯⟩ + ↑g ⟨↑x, ⋯⟩
+--- #8 F1 theorem IsGδ.setOf_irrational
+  old: IsGδ {x | Irrational x}
+  new: IsGδ (setOf fun x => Irrational x)
+--- #9 F2 theorem ProfiniteGrp.coe_of
+  old: ∀ (G : Type u) [inst : Group G] [inst_1 : TopologicalSpace G] [inst_2 : IsTopologicalGroup G] [inst_3 : CompactSpace G] [inst_4 : TotallyDisconnectedSpace G], ↑(ProfiniteGrp.of G).toProfinite.toTop = G
+  new: ∀ (G : Type u) [inst : Group G] [inst_1 : TopologicalSpace G] [inst_2 : IsTopologicalGroup G] [inst_3 : CompactSpace G] [inst_4 : TotallyDisconnectedSpace G], ↑(↧G).toProfinite.toTop = G
+--- #10 F5 theorem mdifferentiableAt_iff_localFrame_coeff
+  old: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {H : Type u_3} [inst_3 : TopologicalSpace H] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] {F : Type u_5} [inst_6 : NormedAddCommGroup F] [inst_7 : NormedSpace 𝕜 F] {V : M → Type u_6} [inst_8 : TopologicalSpace (Bundle.TotalSpace F V)] [inst_9 : (x : M) → AddCommGroup (V x)] [inst_10 : (x : M) → Module 𝕜 (V x)] [inst_11 : (x : M) → TopologicalSpace (V x)] [inst_12 : FiberBundle F V] [inst_13 : VectorBundle 𝕜 F V] [inst_14 : ContMDiffVectorBundle 1 F V I] {e : Bundle.Trivialization F Bundle.TotalSpace.proj} [inst_15 : MemTrivializationAtlas e] {ι : Type u_7} (b : Module.Basis ι 𝕜 F) {s : (x : M) → V x} {x' : M} [FiniteDimensional 𝕜 F] [CompleteSpace 𝕜], x' ∈ e.baseSet → (MDiffAt (T% s) x' ↔ ∀ (i : ι), MDiffAt ((LinearMap.piApply (Bundle.Trivialization.localFrame_coeff I e b i)) s) x')
+  new: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {H : Type u_3} [inst_3 : TopologicalSpace H] {I : ModelWithCorners 𝕜 E H} {M : Type u_4} [inst_4 : TopologicalSpace M] [inst_5 : ChartedSpace H M] {F : Type u_5} [inst_6 : NormedAddCommGroup F] [inst_7 : NormedSpace 𝕜 F] {V : M → Type u_6} [inst_8 : TopologicalSpace (Bundle.TotalSpace F V)] [inst_9 : (x : M) → AddCommGroup (V x)] [inst_10 : (x : M) → Module 𝕜 (V x)] [inst_11 : (x : M) → TopologicalSpace (V x)] [inst_12 : FiberBundle F V] [inst_13 : VectorBundle 𝕜 F V] [inst_14 : ContMDiffVectorBundle 1 F V I] {e : Bundle.Trivialization F Bundle.TotalSpace.proj} [inst_15 : MemTrivializationAtlas e] {ι : Type u_7} (b : Module.Basis ι 𝕜 F) {s : (x : M) → V x} {x' : M} [FiniteDimensional 𝕜 F] [CompleteSpace 𝕜], x' ∈ e.baseSet → ((MDiffAt fun x => ⟨x, s x⟩) x' ↔ ∀ (i : ι), MDiffAt ((LinearMap.piApply (Bundle.Trivialization.localFrame_coeff I e b i)) s) x')
+--- #11 E definition LinearPMap.adjoint
+  old: {𝕜 : Type u_1} → {E : Type u_2} → {F : Type u_3} → [inst : RCLike 𝕜] → [inst_1 : NormedAddCommGroup E] → [inst_2 : InnerProductSpace 𝕜 E] → [inst_3 : NormedAddCommGroup F] → [inst_4 : InnerProductSpace 𝕜 F] → (E →ₗ.[𝕜] F) → [CompleteSpace E] → F →ₗ.[𝕜] E
+  new: {𝕜 : Type u_1} → {E : Type u_2} → {F : Type u_3} → [inst : RCLike 𝕜] → [inst_1 : NormedAddCommGroup E] → [inst_2 : InnerProductSpace 𝕜 E] → [inst_3 : NormedAddCommGroup F] → [inst_4 : InnerProductSpace 𝕜 F] → (E →ₛₗ.[𝕜] F) → [CompleteSpace E] → F →ₛₗ.[𝕜] E
+--- #12 F1 theorem ZFSet.coe_sep
+  old: ∀ (a : ZFSet.{u_1}) (p : ZFSet.{u_1} → Prop), ↑(ZFSet.sep p a) = {x | x ∈ a ∧ p x}
+  new: ∀ (a : ZFSet.{u_1}) (p : ZFSet.{u_1} → Prop), ↑(ZFSet.sep p a) = setOf fun x => x ∈ a ∧ p x
+--- #13 F2 theorem groupCohomology.π_comp_H0IsoOfIsTrivial_hom_assoc
+  old: ∀ {k G : Type u} [inst : CommRing k] [inst_1 : Group G] (A : Rep.{u, u, u} k G) [inst_2 : A.IsTrivial] {Z : ModuleCat k} (h : ModuleCat.of k ↑A ⟶ Z), CategoryTheory.CategoryStruct.comp (groupCohomology.π A 0) (CategoryTheory.CategoryStruct.comp (groupCohomology.H0IsoOfIsTrivial A).hom h) = CategoryTheory.CategoryStruct.comp (groupCohomology.iCocycles A 0) (CategoryTheory.CategoryStruct.comp (groupCohomology.cochainsIso₀ A).hom h)
+  new: ∀ {k G : Type u} [inst : CommRing k] [inst_1 : Group G] (A : Rep.{u, u, u} k G) [inst_2 : A.IsTrivial] {Z : ModuleCat k} (h : ↧↑A ⟶ Z), CategoryTheory.CategoryStruct.comp (groupCohomology.π A 0) (CategoryTheory.CategoryStruct.comp (groupCohomology.H0IsoOfIsTrivial A).hom h) = CategoryTheory.CategoryStruct.comp (groupCohomology.iCocycles A 0) (CategoryTheory.CategoryStruct.comp (groupCohomology.cochainsIso₀ A).hom h)
+--- #14 F5 theorem fderiv_continuousAlternatingMapCompContinuousLinearMap
+  old: ∀ {𝕜 : Type u_1} {ι : Type u_2} {E : Type u_3} {F : Type u_4} {G : Type u_5} {H : Type u_6} [inst : NontriviallyNormedField 𝕜] [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] [inst_3 : NormedAddCommGroup F] [inst_4 : NormedSpace 𝕜 F] [inst_5 : NormedAddCommGroup G] [inst_6 : NormedSpace 𝕜 G] [inst_7 : NormedAddCommGroup H] [inst_8 : NormedSpace 𝕜 H] {f : E → G [⋀^ι]→L[𝕜] H} {g : E → F →L[𝕜] G} {x : E} [inst_9 : Fintype ι] [inst_10 : DecidableEq ι], DifferentiableAt 𝕜 f x → DifferentiableAt 𝕜 g x → fderiv 𝕜 (fun x => (f x).compContinuousLinearMap (g x)) x = (ContinuousAlternatingMap.compContinuousLinearMapCLM (g x)).comp (fderiv 𝕜 f x) + ((f x).fderivCompContinuousLinearMap (g x)).comp (fderiv 𝕜 g x)
+  new: ∀ {𝕜 : Type u_1} {ι : Type u_2} {E : Type u_3} {F : Type u_4} {G : Type u_5} {H : Type u_6} [inst : NontriviallyNormedField 𝕜] [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] [inst_3 : NormedAddCommGroup F] [inst_4 : NormedSpace 𝕜 F] [inst_5 : NormedAddCommGroup G] [inst_6 : NormedSpace 𝕜 G] [inst_7 : NormedAddCommGroup H] [inst_8 : NormedSpace 𝕜 H] {f : E → G [⋀^ι]→L[𝕜] H} {g : E → F →L[𝕜] G} {x : E} [inst_9 : Fintype ι] [inst_10 : DecidableEq ι], DifferentiableAt 𝕜 f x → DifferentiableAt 𝕜 g x → fderiv 𝕜 (fun x => (f x).compContinuousLinearMap (g x)) x = ContinuousAlternatingMap.compContinuousLinearMapCLM (g x) ∘SL fderiv 𝕜 f x + (f x).fderivCompContinuousLinearMap (g x) ∘SL fderiv 𝕜 g x
+--- #15 E theorem LinearPMap.IsClosable.graph_closure_eq_closure_graph
+  old: ∀ {R : Type u_1} {E : Type u_2} {F : Type u_3} [inst : CommRing R] [inst_1 : AddCommGroup E] [inst_2 : AddCommGroup F] [inst_3 : Module R E] [inst_4 : Module R F] [inst_5 : TopologicalSpace E] [inst_6 : TopologicalSpace F] [inst_7 : ContinuousAdd E] [inst_8 : ContinuousAdd F] [inst_9 : TopologicalSpace R] [inst_10 : ContinuousSMul R E] [inst_11 : ContinuousSMul R F] {f : E →ₗ.[R] F}, f.IsClosable → f.graph.topologicalClosure = f.closure.graph
+  new: ∀ {R : Type u_1} {E : Type u_2} {F : Type u_3} [inst : CommRing R] [inst_1 : AddCommGroup E] [inst_2 : AddCommGroup F] [inst_3 : Module R E] [inst_4 : Module R F] [inst_5 : TopologicalSpace E] [inst_6 : TopologicalSpace F] [inst_7 : ContinuousAdd E] [inst_8 : ContinuousAdd F] [inst_9 : TopologicalSpace R] [inst_10 : ContinuousSMul R E] [inst_11 : ContinuousSMul R F] {f : E →ₛₗ.[R] F}, f.IsClosable → f.graph.topologicalClosure = f.closure.graph
+--- #16 F1 theorem ProbabilityTheory.Kernel.HasSubgaussianMGF.measure_ge_le
+  old: ∀ {Ω : Type u_1} {Ω' : Type u_2} {mΩ : MeasurableSpace Ω} {mΩ' : MeasurableSpace Ω'} {ν : MeasureTheory.Measure Ω'} {κ : ProbabilityTheory.Kernel Ω' Ω} {X : Ω → ℝ} {c : NNReal}, ProbabilityTheory.Kernel.HasSubgaussianMGF X c κ ν → ∀ {ε : ℝ}, 0 ≤ ε → ∀ᵐ (ω' : Ω') ∂ν, (κ ω').real {ω | ε ≤ X ω} ≤ Real.exp (-ε ^ 2 / (2 * ↑c))
+  new: ∀ {Ω : Type u_1} {Ω' : Type u_2} {mΩ : MeasurableSpace Ω} {mΩ' : MeasurableSpace Ω'} {ν : MeasureTheory.Measure Ω'} {κ : ProbabilityTheory.Kernel Ω' Ω} {X : Ω → ℝ} {c : NNReal}, ProbabilityTheory.Kernel.HasSubgaussianMGF X c κ ν → ∀ {ε : ℝ}, 0 ≤ ε → ∀ᵐ (ω' : Ω') ∂ν, (κ ω').real (setOf fun ω => ε ≤ X ω) ≤ Real.exp (-ε ^ 2 / (2 * ↑c))
+--- #17 F2 theorem AlgebraicGeometry.Scheme.Modules.pseudofunctor_obj_obj
+  old: ∀ (b : CategoryTheory.LocallyDiscrete AlgebraicGeometry.Schemeᵒᵖ), (AlgebraicGeometry.Scheme.Modules.pseudofunctor.obj b).obj = CategoryTheory.Cat.of (Opposite.unop b.as).Modules
+  new: ∀ (b : CategoryTheory.LocallyDiscrete AlgebraicGeometry.Schemeᵒᵖ), (AlgebraicGeometry.Scheme.Modules.pseudofunctor.obj b).obj = ↧(Opposite.unop b.as).Modules
+--- #18 F5 theorem Topology.WithGeneratedByTopology.isClosed_iff
+  old: ∀ {ι : Type t} {X : ι → Type u} [inst : (i : ι) → TopologicalSpace (X i)] {Y : Type v} [tY : TopologicalSpace Y] {U : Set (Topology.WithGeneratedByTopology X Y)}, IsClosed U ↔ ∀ ⦃i : ι⦄ (f : C(X i, Y)), IsClosed (⇑f ⁻¹' (⇑Topology.WithGeneratedByTopology.equiv.symm ⁻¹' U))
+  new: ∀ {ι : Type t} {X : ι → Type u} [inst : (i : ι) → TopologicalSpace (X i)] {Y : Type v} [tY : TopologicalSpace Y] {U : Set (Topology.WithGeneratedByTopology X Y)}, IsClosed U ↔ ∀ ⦃i : ι⦄ (f : C(X i, Y)), IsClosed (⇑f ⁻¹' ⇑Topology.WithGeneratedByTopology.equiv.symm ⁻¹' U)
+--- #19 E theorem LinearPMap.vadd_domain
+  old: ∀ {R : Type u_1} [inst : Ring R] {E : Type u_2} [inst_1 : AddCommGroup E] [inst_2 : Module R E] {F : Type u_3} [inst_3 : AddCommGroup F] [inst_4 : Module R F] (f : E →ₗ[R] F) (g : E →ₗ.[R] F), (f +ᵥ g).domain = g.domain
+  new: ∀ {R : Type u_1} [inst : Ring R] {E : Type u_2} [inst_1 : AddCommGroup E] [inst_2 : Module R E] {F : Type u_3} [inst_3 : AddCommGroup F] [inst_4 : Module R F] (f : E →ₗ[R] F) (g : E →ₛₗ.[R] F), (f +ᵥ g).domain = g.domain
+--- #20 F1 theorem setOf_minimal_antichain
+  old: ∀ {α : Type u_1} [inst : PartialOrder α] (P : α → Prop), IsAntichain (fun x1 x2 => x1 ≤ x2) {x | Minimal P x}
+  new: ∀ {α : Type u_1} [inst : PartialOrder α] (P : α → Prop), IsAntichain (fun x1 x2 => x1 ≤ x2) (setOf fun x => Minimal P x)
+--- #21 F2 definition SemimoduleCat.Hom.hom₂
+  old: {R : Type u_1} → [inst : CommSemiring R] → {M N P : SemimoduleCat R} → (M ⟶ SemimoduleCat.of R (N ⟶ P)) → ↑M →ₗ[R] ↑N →ₗ[R] ↑P
+  new: {R : Type u_1} → [inst : CommSemiring R] → {M N P : SemimoduleCat R} → (M ⟶ ↧(N ⟶ P)) → ↑M →ₗ[R] ↑N →ₗ[R] ↑P
+--- #22 F5 theorem ContinuousLinearMap.snd_comp_prod
+  old: ∀ {R : Type u_1} [inst : Semiring R] {M₁ : Type u_2} [inst_1 : TopologicalSpace M₁] [inst_2 : AddCommMonoid M₁] [inst_3 : Module R M₁] {M₂ : Type u_3} [inst_4 : TopologicalSpace M₂] [inst_5 : AddCommMonoid M₂] [inst_6 : Module R M₂] {M₃ : Type u_4} [inst_7 : TopologicalSpace M₃] [inst_8 : AddCommMonoid M₃] [inst_9 : Module R M₃] (f : M₁ →L[R] M₂) (g : M₁ →L[R] M₃), (ContinuousLinearMap.snd R M₂ M₃).comp (f.prod g) = g
+  new: ∀ {R : Type u_1} [inst : Semiring R] {M₁ : Type u_2} [inst_1 : TopologicalSpace M₁] [inst_2 : AddCommMonoid M₁] [inst_3 : Module R M₁] {M₂ : Type u_3} [inst_4 : TopologicalSpace M₂] [inst_5 : AddCommMonoid M₂] [inst_6 : Module R M₂] {M₃ : Type u_4} [inst_7 : TopologicalSpace M₃] [inst_8 : AddCommMonoid M₃] [inst_9 : Module R M₃] (f : M₁ →L[R] M₂) (g : M₁ →L[R] M₃), ContinuousLinearMap.snd R M₂ M₃ ∘SL f.prod g = g
+--- #23 F1 theorem Equiv.Perm.prod_comp
+  old: ∀ {ι : Type u_1} {M : Type u_3} [inst : CommMonoid M] (σ : Equiv.Perm ι) (s : Finset ι) (f : ι → M), {a | σ a ≠ a} ⊆ ↑s → ∏ x ∈ s, f (σ x) = ∏ x ∈ s, f x
+  new: ∀ {ι : Type u_1} {M : Type u_3} [inst : CommMonoid M] (σ : Equiv.Perm ι) (s : Finset ι) (f : ι → M), (setOf fun a => σ a ≠ a) ⊆ ↑s → ∏ x ∈ s, f (σ x) = ∏ x ∈ s, f x
+--- #24 F2 theorem CategoryTheory.Cat.of_α
+  old: ∀ (C : Type u_1) [inst : CategoryTheory.Category.{v_1, u_1} C], ↑(CategoryTheory.Cat.of C) = C
+  new: ∀ (C : Type u_1) [inst : CategoryTheory.Category.{v_1, u_1} C], ↑↧C = C
+--- #25 F5 theorem MeasureTheory.L1.SimpleFunc.posPart_toSimpleFunc
+  old: ∀ {α : Type u_1} {m : MeasurableSpace α} {μ : MeasureTheory.Measure α} (f : ↥(MeasureTheory.Lp.simpleFunc ℝ 1 μ)), ⇑(MeasureTheory.Lp.simpleFunc.toSimpleFunc (MeasureTheory.L1.SimpleFunc.posPart f)) =ᵐ[μ] ⇑(MeasureTheory.Lp.simpleFunc.toSimpleFunc f).posPart
+  new: ∀ {α : Type u_1} {m : MeasurableSpace α} {μ : MeasureTheory.Measure α} (f : ↥(α →₁ₛ[μ] ℝ)), ⇑(MeasureTheory.Lp.simpleFunc.toSimpleFunc (MeasureTheory.L1.SimpleFunc.posPart f)) =ᵐ[μ] ⇑(MeasureTheory.Lp.simpleFunc.toSimpleFunc f).posPart
+--- #26 F1 theorem TopologicalSpace.Compacts.isOpen_subsets_of_isOpen
+  old: ∀ {α : Type u_1} [inst : TopologicalSpace α] {U : Set α}, IsOpen U → IsOpen {K | ↑K ⊆ U}
+  new: ∀ {α : Type u_1} [inst : TopologicalSpace α] {U : Set α}, IsOpen U → IsOpen (setOf fun K => ↑K ⊆ U)
+--- #27 F2 definition AlgebraicGeometry.ValuativeCommSq.i₁
+  old: {X Y : AlgebraicGeometry.Scheme} → {f : X ⟶ Y} → (self : AlgebraicGeometry.ValuativeCommSq f) → AlgebraicGeometry.Spec (CommRingCat.of self.K) ⟶ X
+  new: {X Y : AlgebraicGeometry.Scheme} → {f : X ⟶ Y} → (self : AlgebraicGeometry.ValuativeCommSq f) → AlgebraicGeometry.Spec ↧self.K ⟶ X
+--- #28 F5 theorem ContinuousLinearMap.hasMFDerivAt
+  old: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {E' : Type u_5} [inst_3 : NormedAddCommGroup E'] [inst_4 : NormedSpace 𝕜 E'] (f : E →L[𝕜] E') {x : E}, HasMFDerivAt (modelWithCornersSelf 𝕜 E) (modelWithCornersSelf 𝕜 E') (⇑f) x f
+  new: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {E' : Type u_5} [inst_3 : NormedAddCommGroup E'] [inst_4 : NormedSpace 𝕜 E'] (f : E →L[𝕜] E') {x : E}, HasMFDerivAt% (⇑f) x f
+--- #29 F1 theorem Set.unbounded_inter_ge
+  old: ∀ {α : Type u_1} {s : Set α} [inst : LinearOrder α] (a : α), Set.Unbounded (fun x1 x2 => x1 > x2) (s ∩ {b | b ≤ a}) ↔ Set.Unbounded (fun x1 x2 => x1 > x2) s
+  new: ∀ {α : Type u_1} {s : Set α} [inst : LinearOrder α] (a : α), Set.Unbounded (fun x1 x2 => x1 > x2) (s ∩ setOf fun b => b ≤ a) ↔ Set.Unbounded (fun x1 x2 => x1 > x2) s
+--- #30 F2 theorem CategoryTheory.Under.mapFunctor_obj
+  old: ∀ (T : Type u₁) [inst : CategoryTheory.Category.{v₁, u₁} T] (X : Tᵒᵖ), (CategoryTheory.Under.mapFunctor T).obj X = CategoryTheory.Cat.of (CategoryTheory.Under (Opposite.unop X))
+  new: ∀ (T : Type u₁) [inst : CategoryTheory.Category.{v₁, u₁} T] (X : Tᵒᵖ), (CategoryTheory.Under.mapFunctor T).obj X = ↧(CategoryTheory.Under (Opposite.unop X))
+--- #31 F5 theorem HasStrictFDerivAt.comp
+  old: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {F : Type u_3} [inst_3 : NormedAddCommGroup F] [inst_4 : NormedSpace 𝕜 F] {G : Type u_4} [inst_5 : NormedAddCommGroup G] [inst_6 : NormedSpace 𝕜 G] {f : E → F} {f' : E →L[𝕜] F} (x : E) {g : F → G} {g' : F →L[𝕜] G}, HasStrictFDerivAt g g' (f x) → HasStrictFDerivAt f f' x → HasStrictFDerivAt (fun x => g (f x)) (g'.comp f') x
+  new: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {F : Type u_3} [inst_3 : NormedAddCommGroup F] [inst_4 : NormedSpace 𝕜 F] {G : Type u_4} [inst_5 : NormedAddCommGroup G] [inst_6 : NormedSpace 𝕜 G] {f : E → F} {f' : E →L[𝕜] F} (x : E) {g : F → G} {g' : F →L[𝕜] G}, HasStrictFDerivAt g g' (f x) → HasStrictFDerivAt f f' x → HasStrictFDerivAt (fun x => g (f x)) (g' ∘SL f') x
+--- #32 F1 theorem Ergodic.iff_mem_extremePoints_measure_univ_eq
+  old: ∀ {X : Type u_1} {m : MeasurableSpace X} {μ : MeasureTheory.Measure X} {f : X → X} [MeasureTheory.IsFiniteMeasure μ], Ergodic f μ ↔ μ ∈ Set.extremePoints ENNReal {ν | MeasureTheory.MeasurePreserving f ν ν ∧ ν Set.univ = μ Set.univ}
+  new: ∀ {X : Type u_1} {m : MeasurableSpace X} {μ : MeasureTheory.Measure X} {f : X → X} [MeasureTheory.IsFiniteMeasure μ], Ergodic f μ ↔ μ ∈ Set.extremePoints ENNReal (setOf fun ν => MeasureTheory.MeasurePreserving f ν ν ∧ ν Set.univ = μ Set.univ)
+--- #33 F2 theorem AlgebraicGeometry.geometrically_iff_of_commRing_of_isClosedUnderIsomorphisms
+  old: ∀ {X : AlgebraicGeometry.Scheme} {P : CategoryTheory.ObjectProperty AlgebraicGeometry.Scheme} {R : Type u} [inst : CommRing R] {f : X ⟶ AlgebraicGeometry.Spec (CommRingCat.of R)} [P.IsClosedUnderIsomorphisms], AlgebraicGeometry.geometrically P f ↔ ∀ (K : Type u) [inst_2 : Field K] [inst_3 : Algebra R K], P (CategoryTheory.Limits.pullback f (AlgebraicGeometry.Spec.map (CommRingCat.ofHom (algebraMap R K))))
+  new: ∀ {X : AlgebraicGeometry.Scheme} {P : CategoryTheory.ObjectProperty AlgebraicGeometry.Scheme} {R : Type u} [inst : CommRing R] {f : X ⟶ AlgebraicGeometry.Spec ↧R} [P.IsClosedUnderIsomorphisms], AlgebraicGeometry.geometrically P f ↔ ∀ (K : Type u) [inst_2 : Field K] [inst_3 : Algebra R K], P (CategoryTheory.Limits.pullback f (AlgebraicGeometry.Spec.map (CommRingCat.ofHom (algebraMap R K))))
+--- #34 F5 theorem Tropical.untrop_sup
+  old: ∀ {R : Type u} [inst : LinearOrder R] (x y : Tropical R), Tropical.untrop (max x y) = max (Tropical.untrop x) (Tropical.untrop y)
+  new: ∀ {R : Type u} [inst : LinearOrder R] (x y : Tropical R), (max x y).untrop = max x.untrop y.untrop
+--- #35 F1 theorem ContinuousMultilinearMap.bounds_nonempty
+  old: ∀ {𝕜 : Type u} {ι : Type v} {E : ι → Type wE} {G : Type wG} [inst : NontriviallyNormedField 𝕜] [inst_1 : (i : ι) → SeminormedAddCommGroup (E i)] [inst_2 : (i : ι) → NormedSpace 𝕜 (E i)] [inst_3 : SeminormedAddCommGroup G] [inst_4 : NormedSpace 𝕜 G] [inst_5 : Fintype ι] {f : ContinuousMultilinearMap 𝕜 E G}, ∃ c, c ∈ {c | 0 ≤ c ∧ ∀ (m : (i : ι) → E i), ‖f m‖ ≤ c * ∏ i, ‖m i‖}
+  new: ∀ {𝕜 : Type u} {ι : Type v} {E : ι → Type wE} {G : Type wG} [inst : NontriviallyNormedField 𝕜] [inst_1 : (i : ι) → SeminormedAddCommGroup (E i)] [inst_2 : (i : ι) → NormedSpace 𝕜 (E i)] [inst_3 : SeminormedAddCommGroup G] [inst_4 : NormedSpace 𝕜 G] [inst_5 : Fintype ι] {f : ContinuousMultilinearMap 𝕜 E G}, ∃ c, c ∈ setOf fun c => 0 ≤ c ∧ ∀ (m : (i : ι) → E i), ‖f m‖ ≤ c * ∏ i, ‖m i‖
+--- #36 F2 theorem linearEquivIsoModuleIso_inv
+  old: ∀ {R : Type u} [inst : Ring R] {X Y : Type u} [inst_1 : AddCommGroup X] [inst_2 : AddCommGroup Y] [inst_3 : Module R X] [inst_4 : Module R Y] (i : ModuleCat.of R X ≅ ModuleCat.of R Y), linearEquivIsoModuleIso.inv i = i.toLinearEquiv
+  new: ∀ {R : Type u} [inst : Ring R] {X Y : Type u} [inst_1 : AddCommGroup X] [inst_2 : AddCommGroup Y] [inst_3 : Module R X] [inst_4 : Module R Y] (i : ↧X ≅ ↧Y), linearEquivIsoModuleIso.inv i = i.toLinearEquiv
+--- #37 F5 theorem MulAction.quotient_preimage_image_eq_union_mul
+  old: ∀ {G : Type u_1} {α : Type u_2} [inst : Group G] [inst_1 : MulAction G α] (U : Set α), Quotient.mk' ⁻¹' (Quotient.mk' '' U) = ⋃ g, (fun x => g • x) '' U
+  new: ∀ {G : Type u_1} {α : Type u_2} [inst : Group G] [inst_1 : MulAction G α] (U : Set α), Quotient.mk' ⁻¹' Quotient.mk' '' U = ⋃ g, (fun x => g • x) '' U
+--- #38 F1 theorem NormedAddCommGroup.nhds_basis_norm_lt
+  old: ∀ {E : Type u_5} [inst : SeminormedAddCommGroup E] (x : E), (nhds x).HasBasis (fun ε => 0 < ε) fun ε => {y | ‖y - x‖ < ε}
+  new: ∀ {E : Type u_5} [inst : SeminormedAddCommGroup E] (x : E), (nhds x).HasBasis (fun ε => 0 < ε) fun ε => setOf fun y => ‖y - x‖ < ε
+--- #39 F2 theorem IsProjective.iff_projective
+  old: ∀ {R : Type u} [inst : Ring R] [Small.{v, u} R] (P : Type v) [inst_2 : AddCommGroup P] [inst_3 : Module R P], Module.Projective R P ↔ CategoryTheory.Projective (ModuleCat.of R P)
+  new: ∀ {R : Type u} [inst : Ring R] [Small.{v, u} R] (P : Type v) [inst_2 : AddCommGroup P] [inst_3 : Module R P], Module.Projective R P ↔ CategoryTheory.Projective ↧P
+--- #40 F5 theorem OrderedFinpartition.applyOrderedFinpartition_update_right
+  old: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {F : Type u_3} [inst_3 : NormedAddCommGroup F] [inst_4 : NormedSpace 𝕜 F] {n : ℕ} (c : OrderedFinpartition n) (p : (i : Fin c.length) → ContinuousMultilinearMap 𝕜 (fun i => E) F) (j : Fin n) (v : Fin n → E) (z : E), c.applyOrderedFinpartition p (Function.update v j z) = Function.update (c.applyOrderedFinpartition p v) (c.index j) ((p (c.index j)) (Function.update (v ∘ c.emb (c.index j)) (c.invEmbedding j) z))
+  new: ∀ {𝕜 : Type u_1} [inst : NontriviallyNormedField 𝕜] {E : Type u_2} [inst_1 : NormedAddCommGroup E] [inst_2 : NormedSpace 𝕜 E] {F : Type u_3} [inst_3 : NormedAddCommGroup F] [inst_4 : NormedSpace 𝕜 F] {n : ℕ} (c : OrderedFinpartition n) (p : (i : Fin c.length) → E [×c.partSize i]→L[𝕜] F) (j : Fin n) (v : Fin n → E) (z : E), c.applyOrderedFinpartition p (Function.update v j z) = Function.update (c.applyOrderedFinpartition p v) (c.index j) ((p (c.index j)) (Function.update (v ∘ c.emb (c.index j)) (c.invEmbedding j) z))
+--- #41 F1 theorem convex_halfSpace_re_gt
+  old: ∀ (r : ℝ), Convex ℝ {c | r < c.re}
+  new: ∀ (r : ℝ), Convex ℝ (setOf fun c => r < c.re)
+--- #42 F2 theorem LightCondensed.finYoneda_obj
+  old: ∀ (F : CategoryTheory.Functor LightProfiniteᵒᵖ (Type u)) (X : FintypeCatᵒᵖ), (LightCondensed.finYoneda F).obj X = ((Opposite.unop X).obj → F.obj (FintypeCat.toLightProfinite.op.obj (Opposite.op (FintypeCat.of PUnit.{u + 1}))))
+  new: ∀ (F : CategoryTheory.Functor LightProfiniteᵒᵖ (Type u)) (X : FintypeCatᵒᵖ), (LightCondensed.finYoneda F).obj X = ((Opposite.unop X).obj → F.obj (FintypeCat.toLightProfinite.op.obj (Opposite.op ↧PUnit.{u + 1})))
+--- #43 F5 theorem PointwiseConvergenceCLM.postcomp_apply
+  old: ∀ {𝕜₁ : Type u_4} {𝕜₂ : Type u_5} {𝕜₃ : Type u_6} [inst : NormedField 𝕜₁] [inst_1 : NormedField 𝕜₂] [inst_2 : NormedField 𝕜₃] {σ : 𝕜₁ →+* 𝕜₂} {τ : 𝕜₂ →+* 𝕜₃} {ρ : 𝕜₁ →+* 𝕜₃} [inst_3 : RingHomCompTriple σ τ ρ] (E : Type u_7) {F : Type u_8} {G : Type u_10} [inst_4 : AddCommGroup E] [inst_5 : TopologicalSpace E] [inst_6 : AddCommGroup F] [inst_7 : TopologicalSpace F] [inst_8 : IsTopologicalAddGroup F] [inst_9 : AddCommGroup G] [inst_10 : TopologicalSpace G] [inst_11 : IsTopologicalAddGroup G] [inst_12 : Module 𝕜₁ E] [inst_13 : Module 𝕜₂ F] [inst_14 : Module 𝕜₃ G] [inst_15 : ContinuousConstSMul 𝕜₂ F] [inst_16 : ContinuousConstSMul 𝕜₃ G] (L : F →SL[τ] G) (f : E →SLₚₜ[σ] F), (PointwiseConvergenceCLM.postcomp E L) f = L.comp f
+  new: ∀ {𝕜₁ : Type u_4} {𝕜₂ : Type u_5} {𝕜₃ : Type u_6} [inst : NormedField 𝕜₁] [inst_1 : NormedField 𝕜₂] [inst_2 : NormedField 𝕜₃] {σ : 𝕜₁ →+* 𝕜₂} {τ : 𝕜₂ →+* 𝕜₃} {ρ : 𝕜₁ →+* 𝕜₃} [inst_3 : RingHomCompTriple σ τ ρ] (E : Type u_7) {F : Type u_8} {G : Type u_10} [inst_4 : AddCommGroup E] [inst_5 : TopologicalSpace E] [inst_6 : AddCommGroup F] [inst_7 : TopologicalSpace F] [inst_8 : IsTopologicalAddGroup F] [inst_9 : AddCommGroup G] [inst_10 : TopologicalSpace G] [inst_11 : IsTopologicalAddGroup G] [inst_12 : Module 𝕜₁ E] [inst_13 : Module 𝕜₂ F] [inst_14 : Module 𝕜₃ G] [inst_15 : ContinuousConstSMul 𝕜₂ F] [inst_16 : ContinuousConstSMul 𝕜₃ G] (L : F →SL[τ] G) (f : E →SLₚₜ[σ] F), (PointwiseConvergenceCLM.postcomp E L) f = L ∘SL f
+--- #44 F1 theorem PhragmenLindelof.eqOn_quadrant_III
+  old: ∀ {E : Type u_1} [inst : NormedAddCommGroup E] [inst_1 : NormedSpace ℂ E] {f g : ℂ → E}, DiffContOnCl ℂ f (Set.Iio 0 ×ℂ Set.Iio 0) → (∃ c < 2, ∃ B, f =O[Bornology.cobounded ℂ ⊓ Filter.principal (Set.Iio 0 ×ℂ Set.Iio 0)] fun z => Real.exp (B * ‖z‖ ^ c)) → DiffContOnCl ℂ g (Set.Iio 0 ×ℂ Set.Iio 0) → (∃ c < 2, ∃ B, g =O[Bornology.cobounded ℂ ⊓ Filter.principal (Set.Iio 0 ×ℂ Set.Iio 0)] fun z => Real.exp (B * ‖z‖ ^ c)) → (∀ x ≤ 0, f ↑x = g ↑x) → (∀ x ≤ 0, f (↑x * Complex.I) = g (↑x * Complex.I)) → Set.EqOn f g {z | z.re ≤ 0 ∧ z.im ≤ 0}
+  new: ∀ {E : Type u_1} [inst : NormedAddCommGroup E] [inst_1 : NormedSpace ℂ E] {f g : ℂ → E}, DiffContOnCl ℂ f (Set.Iio 0 ×ℂ Set.Iio 0) → (∃ c < 2, ∃ B, f =O[Bornology.cobounded ℂ ⊓ Filter.principal (Set.Iio 0 ×ℂ Set.Iio 0)] fun z => Real.exp (B * ‖z‖ ^ c)) → DiffContOnCl ℂ g (Set.Iio 0 ×ℂ Set.Iio 0) → (∃ c < 2, ∃ B, g =O[Bornology.cobounded ℂ ⊓ Filter.principal (Set.Iio 0 ×ℂ Set.Iio 0)] fun z => Real.exp (B * ‖z‖ ^ c)) → (∀ x ≤ 0, f ↑x = g ↑x) → (∀ x ≤ 0, f (↑x * Complex.I) = g (↑x * Complex.I)) → Set.EqOn f g (setOf fun z => z.re ≤ 0 ∧ z.im ≤ 0)
+--- #45 F2 definition CategoryTheory.Bicategory.leftUnitorNatIsoCat
+  old: {B : Type u} → [inst : CategoryTheory.Bicategory B] → (a b : B) → (CategoryTheory.Bicategory.precomposingCat a a b).obj (CategoryTheory.CategoryStruct.id a) ≅ CategoryTheory.CategoryStruct.id (CategoryTheory.Cat.of (a ⟶ b))
+  new: {B : Type u} → [inst : CategoryTheory.Bicategory B] → (a b : B) → (CategoryTheory.Bicategory.precomposingCat a a b).obj (CategoryTheory.CategoryStruct.id a) ≅ CategoryTheory.CategoryStruct.id ↧(a ⟶ b)
+
+LOOKUP COMPARISONS (cmp.py, verbatim)
+-------------------------------------
+old environment alone:
+records 5000
+lookup           same  differs   non-empty in v4.29.0
+found            5000        0                   5000
+kind             5000        0                   5000
+levelParams      5000        0                   4516
+type             5000        0                   5000
+isStructure      5000        0                     74
+isClass          5000        0                     36
+isInstance       5000        0                    465
+fields           5000        0                     74
+ranges           5000        0                   5000
+reducibility     5000        0                    352
+projInfo         5000        0                    131
+coe              5000        0                      4
+protected        5000        0                    208
+eqns             5000        0                    182
+eqDef            5000        0                      5
+module           5000        0                   5000
+hybrid:
+records 5000
+lookup           same  differs   non-empty in v4.29.0
+found            5000        0                   5000
+kind             5000        0                   5000
+levelParams      5000        0                   4516
+type             5000        0                   5000
+isStructure      5000        0                     74
+isClass          5000        0                     36
+isInstance       5000        0                    465
+fields           5000        0                     74
+ranges           5000        0                   5000
+reducibility     5000        0                    352
+projInfo         5000        0                    131
+coe              5000        0                      4
+protected        5000        0                    208
+eqns             4991        9                    182
+eqDef            5000        0                      5
+module           4707      293                   5000
+examples for module (293):
+  Seminorm.restrictScalars_closedBall
+    v4.29.0: Mathlib.Analysis.Seminorm
+    here:    Mathlib.Analysis.Normed.Module.Seminorm.Basic
+  LowerSemicontinuousAt.comp_continuousAt_of_eq
+    v4.29.0: Mathlib.Topology.Semicontinuity.Basic
+    here:    _olean_reader.OldOnly
+  Complex.instNatCast
+    v4.29.0: Mathlib.Data.Complex.Basic
+    here:    Mathlib.Basic.Complex.Basic
+  ENNReal.smulCommClass_left
+    v4.29.0: Mathlib.Data.ENNReal.Action
+    here:    Mathlib.Basic.ENNReal.Action
+examples for eqns (9):
+  CategoryTheory.Limits.PreservesFiniteLimitsOfIsFilteredCostructuredArrowYonedaAux.flipFunctorToInterchange
+    v4.29.0: []
+    here:    ['{"levels":[["p",["u"]],["s",0],["z"],["s",2]],"nodes":[["S",1],["C",["CategoryTheory","SmallCategory"],[0]],["b",0],["A",1,2],["C",["CategoryTheory"
+  CategoryTheory.Limits.coproductUniqueIso
+    v4.29.0: []
+    here:    ['{"levels":[["p",["w"]],["s",0],["p",["u"]],["s",2],["p",["v"]],["s",4]],"nodes":[["S",1],["S",3],["C",["CategoryTheory","Category"],[4,2]],["b",0],[
+  Set.instFintypeIco
+    v4.29.0: []
+    here:    ['{"levels":[["p",["u_1"]],["s",0]],"nodes":[["S",1],["C",["Preorder"],[0]],["b",0],["A",1,2],["C",["LocallyFiniteOrder"],[0]],["b",1],["A",4,5],["A",
+  Function.locallyFinsuppWithin.support
+    v4.29.0: []
+    here:    ['{"levels":[["p",["u_1"]],["s",0],["p",["u_2"]],["s",2],["m",1,3]],"nodes":[["S",1],["C",["TopologicalSpace"],[0]],["b",0],["A",1,2],["C",["Set"],[0]

@@ -405,6 +405,15 @@ Lean core v4.31.0):
     exist" and "which module" are answered from the decoded old data (in the hybrid, 136 module
     answers and 6 stored-equation lookups came back as the newest version's). Merging extension
     data must be by name, not by replacing constants alone.
+- **v4.29.0, the oldest release, reads too** (measured →
+  `benchmarks/results/mathlib-oldest-release-drift-2026-10-05.txt`): oracle 5,000 of 5,000, whole
+  closure (10,281 modules, 6.78 GB) in 46.0 s median, 204 MB peak; the 16 lookups 80,000 of 80,000
+  in the old environment alone. Its layout needed one versioned record, selected by version string
+  and githash: one extension under a different registered name (decoded under v4.29.0's, emitted
+  under v4.34.1's), 76 extensions that exist only in v4.34.1 listed by name with any entry under
+  them stopping the read (none appeared), and the same reducibility meaning as v4.31.0. Each
+  refusal (another version, one githash byte changed, mixed core and packages, a wrong "absent"
+  entry) was made to fail once. The hybrid's peak RSS was 6.08 GB (5.07 GB at v4.31.0).
 - **Per version end to end ≈ 8.8 min** (theoretical: ≈ 2.1 min to read and assemble, measured;
   ≈ 6.7 min to print 311,415 types at 1.29 ms each, extrapolated). Under the ≈ 10 min line, but
   printing is what fills it — 11 versions ≈ 97 min of the 2 h budget, single-threaded.
@@ -455,6 +464,11 @@ pair, 5 + 5 transitions for 11 versions and 25 + 25 for 51 →
 
 Non-prerelease releases on the Releases page: 11 today. **Open**: what to do with a release U1
 cannot build for — fix the extractor, or drop that version and say so on the site.
+
+Evidence for the open part (2026-10-05): with the reader of D10 the question became "a release the
+reader cannot read". The oldest, v4.29.0, reads and prints at 97.78% (U9); v4.29.0 → v4.29.1 has no
+layout change and v4.31.0 is measured, so v4.30.0 is the one release in the set whose layout is
+known by source only (layout log).
 
 ### D1b — Dependency documentation: out (decided 2026-10-04, user's call)
 
@@ -569,6 +583,13 @@ time (simple, cost grows with the version count), or keep each version's IR or i
 one version at a time (needs a store that persists between runs, and a way to know it is not
 stale). Also: who fixes the extractor when a new Lean breaks it (U1), and what the site shows until
 then.
+
+Input from the drift measurements (2026-10-05, measured → D10): rebuilding everything with the
+newest printer reprints every old version with a newer Mathlib each time. At 3 and 5 minor releases
+apart the hybrid prints 98.60% and 97.78% the same as the version itself; plain printing without
+the reader 97.56% and 94.42%. Keeping each version's output as printed when it was added (by its
+own release, the newest at the time) has no approximation at all, and the reader then only has to
+read a release once; its cost is the persistent store above.
 
 ### D8 — Which features to give up, and for which versions
 
@@ -711,8 +732,18 @@ plain `ppExpr` and a perfect reader assumed →
   not a misread.
 - **18.66% of declarations have the same name with a different type in v4.34.1**, and 0.78% have
   no such name. The lookup clause above is not a corner case.
-- Only the pair v4.31.0 → v4.34.1 (3 minor releases apart) is measured. Drift for v4.29 / v4.30
-  (5 apart) is unmeasured and is not extrapolated from this.
+- **At 5 minor releases apart (v4.29.0 → v4.34.1) the plain drift doubles**: 94.42% print the
+  same text (95% interval 93.75–95.02; 5,000 of 298,114 declarations, 1.68%, same sampler and
+  seed, so a different sample), 10.78% mention a constant the newest version does not have, and
+  32.02% have the same name with a different type (measured →
+  `benchmarks/results/mathlib-oldest-release-drift-2026-10-05.txt`). Explicit `@` applications
+  went 28 → 126, 47 of them from one removed constant (`algebraMap`); the rest of the loss is
+  `setOf` 61, `↧` 17 and a tail of about 85 causes.
+- **Through the reader and the hybrid (U9) it stays small**: 97.78% (97.33–98.15) against 98.60%
+  at 3 apart, 0 print failures, 0 dangling. Every difference left is newest-Mathlib notation on an
+  old term (`setOf` 61, `↧` 15, ∘SL 7 and about 13 others); everything caused by a removed or
+  changed constant is gone. Two points do not make a slope — nothing here says how the hybrid's
+  loss grows per release, only what it is made of.
 
 ## Features that could be given up
 
