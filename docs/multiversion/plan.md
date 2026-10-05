@@ -460,6 +460,16 @@ Lean core v4.31.0):
   times (`getStructureInfo` on a non-structure), whose effect on the key is not established. Doing
   the newest import once for several versions does not work: the first round's memory is not freed
   (14.8 GB at two versions).
+- **Between consecutive releases the key reuses 83.90%** (measured, v4.31.0 → v4.32.0, 310,899
+  shared declarations → `benchmarks/results/mathlib-consecutive-release-reuse-2026-10-05.txt`),
+  with 1 hole (a declaration's own `[coe]` removed; the key covers coercion data only of the
+  constants it refers to). The ceiling is printed output equal, 95.99%; 74.6% of the lost reuse is
+  one component, the field data of referenced structures (one refactor made `npow` and friends
+  parent classes of 32 structures, Ring alone 8,730 declarations); dropping it reaches 94.17% with
+  7 holes. The 182 panics were a wrong structure lookup for private and macro-scoped constructors;
+  fixed, and the 3-apart counts are unchanged. **A patch by module saves little**: only 30.71% of
+  Mathlib's modules have all constants equal (11.19% equal in everything), while 78.87% of the
+  constants inside the changed modules are unchanged — a patch has to work per constant.
 - **Per version end to end ≈ 6.5 min wall, ≈ 19 min CPU** (measured, 4 jobs, two runs 389 /
   394 s; native v4.31.0 extraction 217 / 243 s with the same 4 jobs). Peak RSS 6.3 GB, memory
   footprint 8.7–9.1 GB on 16 GiB, with swap in use mid-run (≈ 3.5 GB, no baseline). 11 versions ≈
