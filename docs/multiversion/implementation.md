@@ -197,15 +197,24 @@ into every manifest entry). Open before M can decide:
 
 `tools/mv-s-gate.sh` runs the S loop from nothing (29 items, `ci`). `benchmarks/tools/mv-m-run.sh`
 runs M; its smoke on an 87-module slice (measured once →
-`benchmarks/results/mv-m-smoke-2026-10-07.txt`) says three things M has to account for:
+`benchmarks/results/mv-m-smoke-2026-10-07.txt`) found that **version-pinned URLs make content new
+on every release**: the one new item in v4.33.1 is a docstring whose only change is a Lean
+reference-manual link carrying the Lean version.
 
-- **A patch release with one changed item still adds ≈ 100 KB and 179 files** under every
-  candidate (v4.33.1 against v4.33.0): the per-version files, not the shared content, are the
-  marginal cost of a release on that slice.
-- **Version-pinned URLs make content new on every release**: the one new item in v4.33.1 is a
-  docstring whose only change is a Lean reference-manual link carrying the Lean version.
-- **IR declarations exceed page items by exactly the module count** (2,296 against 2,209 for 87
-  modules); which one M scales by has to be settled before anything is extrapolated.
+M's first run (433 / 438 modules, one run, measured →
+`benchmarks/results/mv-m-2026-10-07.txt`):
+
+- **Page items = IR declarations + module docstrings − declarations shown inside their parent**,
+  exactly, on all three versions and on S. Items are 0.990 of declarations; Mathlib is
+  extrapolated by declarations. (The smoke's "exactly the module count" was a coincidence.)
+- **A store entry is ≈ 4.6 MB compressed** (26.7 MB IR + 3.2 MB link index raw); at M the IR is
+  89% of it, the reverse of S.
+- **The per-version files, not the candidate, are the marginal cost of a release**: the patch
+  release adds 880 per-version files and ≈ 0.84 MB, against one content file. 878 of the 880
+  are byte-identical to a file of the previous version; of the minor release 418, but only 16% of
+  the bytes (the changed manifests are the large ones, and absolute positions move).
+- **The whole per-version link table plus the module list are 90% of the bytes a page view
+  fetches**; content is 7.7%.
 
 Done when: the three versions are in a store; the compressed IR size per version is measured (it
 decides where the CI store lives, step 6); the format is chosen with its numbers in a log.

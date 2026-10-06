@@ -1,0 +1,172 @@
+M, first run: the plan's first candidate slice at the step's three releases
+
+Input: the import closure of Mathlib.Algebra.BigOperators.Group.Finset.Basic +
+Mathlib.Order.Filter.Basic (433 / 438 / 438 Mathlib modules, about 5.1% of v4.34.1's 8,529) at
+v4.32.2, v4.33.0, v4.33.1, run by benchmarks/tools/mv-m-run.sh with --jobs 4 (the extractor
+flags of the full-Mathlib baseline in mathlib-structure-rule-and-meta-equations-2026-10-06.txt).
+litedoc4 built from d23d6d8 (a copy, sha256 1d9c5c40...4b2c6a, so no rebuild could reach the run).
+One run. Byte counts are deterministic; the times below are from one run and are not a result
+(CLAUDE.md: 5 runs before a time is quoted). Oleans from the Mathlib cache, 0 modules compiled.
+Another macOS user's Chrome held 13-15 GB of compressed memory during the run.
+
+(1) The declaration axis (measured, all three versions; the IR read back from the store entries)
+
+  page items = IR declarations + module docstrings - declarations shown inside their parent
+               (a structure's fields, an inductive's constructors: the suppressed set)
+
+            modules  declarations  moduleDocs  suppressed  items
+  v4.32.2       433        21,680         899       1,138  21,441
+  v4.33.0       438        21,928         910       1,131  21,707
+  v4.33.1       438        21,928         910       1,131  21,707
+
+  Exact on every version, and on S (v4: 100 + 11 - 44 = 67). The smoke's "IR declarations exceed
+  page items by exactly the module count" (2,296 - 2,209 = 87 = modules) was suppressed minus
+  module docstrings landing on 87 by coincidence: here the gap is 221 against 438 modules. Items
+  are 0.990 of declarations on all three versions; extrapolation to Mathlib goes by declarations,
+  the count the full-Mathlib logs carry.
+  Items exceed distinct addresses by 73 / 72 / 72: identical content under two positions in one
+  version (shared once).
+
+(2) The store entry per version (measured)
+
+            IR raw       link index   packed       compressed (gzip, the store entry)
+  v4.32.2   26,446,300   3,198,751    29,667,111   4,546,392
+  v4.33.0   26,660,719   3,229,237    29,912,283   4,580,836
+  v4.33.1   26,660,719   3,229,237    29,912,283   4,580,836
+
+  At M the IR is 89% of an entry's raw bytes and the link index 11%; on S it was the reverse
+  (link index 93%), because the link index is the dependency closure, fixed per Lean, and the IR
+  grows with the slice.
+
+(3) The per-version files, by kind, stored bytes (gzip) per version
+
+  candidate a  m (438)  used-by (438)  links.json  modules.json  search-index.bin  instances.json
+  v4.32.2      390,762  272,116        32,978      6,955         113,027           17,330
+  v4.33.0      395,356  274,628        33,054      7,043         114,047           17,401
+  v4.33.1      395,357  274,628        33,054      7,043         114,047           17,401
+  (b and c differ only in m: b 454,272 / c 540,417 at v4.33.0, the locators of their segments)
+
+  These, not the candidate, are the marginal cost of the patch release: v4.33.1 adds 881 files
+  and 849,977 / 900,801 / 986,950 stored bytes under a / b / c, of which one file is content.
+
+(4) Per-version files byte-identical to a file of the previous version (stored bytes compared)
+
+  candidate a, v4.32.2 -> v4.33.0 (minor)    candidate a, v4.33.0 -> v4.33.1 (patch)
+  kind              files  same    bytes    same     files same    bytes    same
+  m                 438    233     395,356  97,946   438   437     395,357  394,441
+  used-by           438    185     274,628  34,334   438   438     274,628  274,628
+  links.json        1      0       33,054   0        1     0       33,054   0
+  modules.json      1      0       7,043    0        1     1       7,043    7,043
+  search-index.bin  1      0       114,047  0        1     1       114,047  114,047
+  instances.json    1      0       17,401   0        1     1       17,401   17,401
+  all               880    418     841,529  132,280  880   878     841,530  807,560
+  (candidate b: minor 143,678 of 900,445 same; patch 866,346 of 900,457 same)
+
+  Shared by content, the per-version files of the patch release would cost 2 files and 33,970 B
+  instead of 880 and 841,530 B. Of the minor release 16% of the bytes would be saved: the
+  manifests that change are the large ones, and the absolute positions they carry move when any
+  line above moves (U10: 31% of absolute positions change per minor release, 4.2% relative).
+
+(5) What a page view fetches (candidate a, v4.33.0; stored bytes, no browser cache assumed)
+
+  fetches 1,750 over 438 pages (max 4): manifest, links.json, modules.json, content.
+  bytes 19,463,521 in all, of which content 1,505,679 (7.7%); links.json + modules.json are
+  438 x 40,097 = 17,562,486 (90.2%). The per-version link table names every name any page of the
+  version references (4,553 here); at Mathlib it grows with the whole library, so it has to be
+  split before fetches-per-view can choose a candidate.
+
+(6) store measure time (one run; hashing and gzip of all three versions, one process)
+  a 8.49 s wall / 8.45 s CPU, b 7.86 / 7.84, c 7.82 / 7.81; peak RSS 280 MiB.
+
+The run's own summary follows.
+
+run of d23d6d881b40278beab9df8fe26632c98a5bc7b0 (0 uncommitted path(s))
+date              2026-10-06T17:19:43Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+roots    Mathlib.Algebra.BigOperators.Group.Finset.Basic,Mathlib.Order.Filter.Basic
+versions v4.32.2,v4.33.0,v4.33.1
+jobs     4
+
+=== v4.32.2
+v4.32.2 905b95818eb32af7874a58b427f50c1711a5e96c leanprover/lean4:v4.32.2
+closure  433 Mathlib module(s) from the import lines
+cache    433 Mathlib olean(s), equal to the closure; 687 file(s) decompressed
+lake     0 module(s) compiled
+build    433 module(s), 21680 declaration(s); Lean's environment holds exactly the closure
+store    put and read back byte-identical
+
+=== v4.33.0
+v4.33.0 db584cd6d46c92f209a44c0f1c829460d327499d leanprover/lean4:v4.33.0
+closure  438 Mathlib module(s) from the import lines
+cache    438 Mathlib olean(s), equal to the closure; 692 file(s) decompressed
+lake     0 module(s) compiled
+build    438 module(s), 21928 declaration(s); Lean's environment holds exactly the closure
+store    put and read back byte-identical
+
+=== v4.33.1
+v4.33.1 0df444a360eaa60ab8c11dca51a86af692955474 leanprover/lean4:v4.33.1
+closure  438 Mathlib module(s) from the import lines
+cache    438 Mathlib olean(s), equal to the closure; 692 file(s) decompressed
+lake     0 module(s) compiled
+build    438 module(s), 21928 declaration(s); Lean's environment holds exactly the closure
+store    put and read back byte-identical
+
+=== store measure over v4.32.2,v4.33.0,v4.33.1
+
+=== summary
+per phase (wall/cpu s, peak RSS MiB, page faults, work dir after GiB, free after GiB):
+ v4.32.2  fetch         9.64    2.42      37     68   0.14  11.87  sourceFiles=8972 toolchain=leanprover/lean4:v4.32.2
+ v4.32.2  toolchain        -       -       -      -   0.14  11.87  installed=already toolchain=leanprover/lean4:v4.32.2
+ v4.32.2  closure          -       -       -      -   0.14  11.87  modules=433
+ v4.32.2  deps         22.45    5.25     697  33548   0.20  11.82  packages=8
+ v4.32.2  cache        23.44   23.26     745  26681   1.08  11.12  attempted=687 cacheKiB=71112 decompressed=687 lakeKiB=914984 mathlibOleans=433
+ v4.32.2  lake          1.36    1.08     660    954   1.08  11.12  compiled=0 noBuild=ok
+ v4.32.2  extractor     20.5   14.04    1477  61704   1.25  10.94  binaryBytes=171849280
+ v4.32.2  prune            -       -       -      -   1.15  11.04  deleted=7832 left=433
+ v4.32.2  build        23.92   34.58    1488  17264   1.24  10.96  closureNotInEnv=0 declarations=21680 extractSeconds=15.355981125 globalSeconds=1.142775 irBytes=26446300 irFiles=441 linkIndexBytes=3198751 linkIndexGroups=1535 linkIndexModules=2114 mathlibGroupsInLinkIndex=0 mathlibInEnvNotInClosure=0 modules=433 pagesRendered=433 renderSeconds=2.738866917 siteBytes=58117639 siteFiles=446 totalSeconds=23.30710925
+ v4.32.2  put           1.12    1.11      79     25   1.24  10.95  compressedBytes=4546392 files=441 linkIndexBytes=3198751 packedBytes=29667111 rawBytes=26446300
+ v4.32.2  read          0.33     0.3      72     11   1.27  10.92  identical=yes
+ v4.33.0  fetch        10.77    2.35      37    141   0.14  12.05  sourceFiles=9032 toolchain=leanprover/lean4:v4.33.0
+ v4.33.0  toolchain        -       -       -      -   0.14  12.05  installed=already toolchain=leanprover/lean4:v4.33.0
+ v4.33.0  closure          -       -       -      -   0.15  12.05  modules=438
+ v4.33.0  deps         19.43    4.99     721  33841   0.20  11.99  packages=8
+ v4.33.0  cache        18.45   22.52     771  26188   1.09  11.10  attempted=692 cacheKiB=62392 decompressed=692 lakeKiB=928308 mathlibOleans=438
+ v4.33.0  lake          1.09    1.18     686    783   1.09  11.10  compiled=0 noBuild=ok
+ v4.33.0  extractor    14.62    9.49    1497  61509   1.27  10.92  binaryBytes=174265968
+ v4.33.0  prune            -       -       -      -   1.16  11.03  deleted=7874 left=438
+ v4.33.0  build        24.83   35.13    1543  20865   1.25  10.94  closureNotInEnv=0 declarations=21928 extractSeconds=16.494127125 globalSeconds=1.152798625 irBytes=26660719 irFiles=446 linkIndexBytes=3229237 linkIndexGroups=1564 linkIndexModules=2156 mathlibGroupsInLinkIndex=0 mathlibInEnvNotInClosure=0 modules=438 pagesRendered=438 renderSeconds=2.80104425 siteBytes=58669593 siteFiles=451 totalSeconds=24.715874208
+ v4.33.0  put           1.14    1.12      80    165   1.25  10.93  compressedBytes=4580836 files=446 linkIndexBytes=3229237 packedBytes=29912283 rawBytes=26660719
+ v4.33.0  read          0.33    0.32      73     11   1.28  10.90  identical=yes
+ v4.33.1  fetch        11.04    2.42      37     70   0.15  12.04  sourceFiles=9032 toolchain=leanprover/lean4:v4.33.1
+ v4.33.1  toolchain        -       -       -      -   0.15  12.04  installed=already toolchain=leanprover/lean4:v4.33.1
+ v4.33.1  closure          -       -       -      -   0.15  12.04  modules=438
+ v4.33.1  deps         19.27    4.83     724  33852   0.20  11.98  packages=8
+ v4.33.1  cache        19.63   22.47     773  26531   1.10  11.09  attempted=692 cacheKiB=62448 decompressed=692 lakeKiB=930756 mathlibOleans=438
+ v4.33.1  lake          0.98    1.09     685    131   1.10  11.09  compiled=0 noBuild=ok
+ v4.33.1  extractor    15.03    9.43    1508  61927   1.27  10.91  binaryBytes=177577968
+ v4.33.1  prune            -       -       -      -   1.17  11.01  deleted=7874 left=438
+ v4.33.1  build        24.78   34.68    1538  21236   1.26  10.93  closureNotInEnv=0 declarations=21928 extractSeconds=16.513471042 globalSeconds=1.149540584 irBytes=26660719 irFiles=446 linkIndexBytes=3229237 linkIndexGroups=1564 linkIndexModules=2156 mathlibGroupsInLinkIndex=0 mathlibInEnvNotInClosure=0 modules=438 pagesRendered=438 renderSeconds=2.781197375 siteBytes=58669593 siteFiles=451 totalSeconds=24.664456667
+ v4.33.1  put           1.14    1.12      80    171   1.26  10.93  compressedBytes=4580836 files=446 linkIndexBytes=3229237 packedBytes=29912283 rawBytes=26660719
+ v4.33.1  read          0.33    0.32      73     11   1.29  10.90  identical=yes
+ measure  a             8.49    8.45     280     11   0.03  12.17  
+ measure  b             7.86    7.84     280     11   0.04  12.15  
+ measure  c             7.82    7.81     280     12   0.05  12.14  
+peak work dir during v4.32.2: 1.27 GiB
+peak work dir during v4.33.0: 1.28 GiB
+peak work dir during v4.33.1: 1.29 GiB
+candidate a: hosted files=3253 raw=25939889 stored=5070307
+ ver      pages  items   addr    new  links | +files     +raw  +stored +cfiles +citems | fetch tot/max     bytes tot/max
+ v4.32.2    433  21441  21368  21368   4550 |   1302 12595179  2323585     432   21441 |   1731/4       19172168/70756  
+ v4.33.0    438  21707  21635   1866   4553 |   1070 10330657  1896745     190   16913 |   1750/4       19463521/70910  
+ v4.33.1    438  21707  21635      1   4553 |    881  3014053   849977       1      46 |   1750/4       19463522/70910  
+candidate b: hosted files=3251 raw=19979258 stored=4366672
+ ver      pages  items   addr    new  links | +files     +raw  +stored +cfiles +citems | fetch tot/max     bytes tot/max
+ v4.32.2    433  21441  21368  21368   4550 |   1302 12754567  2378615     432   21440 |   1731/4       19227198/71717  
+ v4.33.0    438  21707  21635   1866   4553 |   1068  4073640  1087256     188    1866 |   1934/5       19693982/74929  
+ v4.33.1    438  21707  21635      1   4553 |    881  3151051   900801       1       1 |   1935/6       19694338/74929  
+candidate c: hosted files=2633 raw=20452342 stored=4805286 chunkBytes=16384
+ ver      pages  items   addr    new  links | +files     +raw  +stored +cfiles +citems | fetch tot/max     bytes tot/max
+ v4.32.2    433  21441  21368  21368   4550 |    871 12891946  2659252       1   21368 |   1779/8       21299239/85302  
+ v4.33.0    438  21707  21635   1866   4553 |    881  4240461  1159084       1    1866 |   1981/9       22341604/94618  
+ v4.33.1    438  21707  21635      1   4553 |    881  3319935   986950       1       1 |   1982/9       22341964/94618  
+total 324 s; logs in /private/tmp/lean-doc-relay/mv-m-r1/logs
