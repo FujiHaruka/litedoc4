@@ -157,6 +157,11 @@ structure Dependency where
   rev : Option String
   deriving BEq, Repr
 
+inductive SourceMap where
+  | notRecorded
+  | recorded (roots : Array (String × Option String))
+  deriving BEq, Repr
+
 structure Record where
   version : VersionName
   commit : String
@@ -165,6 +170,7 @@ structure Record where
   fill : Fill
   sourceUrl : String
   dependencies : Array Dependency
+  sources : SourceMap
   extractorIdentity : ExtractorIdentity
   packSha256 : String
   packBytes : Nat
@@ -173,13 +179,32 @@ structure Record where
   linkIndexBytes : Nat
   deriving BEq, Repr
 
-def recordSchema : Nat := 2
+def recordSchema : Nat := 3
+
+def recordSchemaWithoutSources : Nat := 2
 
 def stale (r : Record) (current : ExtractorIdentity) : Bool :=
   r.extractorIdentity != current
 
+def needsReputRefusal (v : VersionName) : String :=
+  s!"its record (schema {recordSchemaWithoutSources}) holds no dependency source map, and pages \
+    rendered from it would link into no dependency: put it again with `litedoc4 store put \
+    --version {v.text} --from <its build directory>`, which fills the map without re-extracting"
+
+def sourceMapOf (m : ExternalLinks) : SourceMap :=
+  .recorded <| (m.roots.map fun r =>
+    (r.name, match m.sourceFor r.name with
+      | .pinned base => some base
+      | .unpinned | .absent => none)).qsort (fun a b => byteLt a.1 b.1)
+
+def linksOf (roots : Array (String × Option String)) : ExternalLinks :=
+  mkExternalLinks (roots.map fun (root, base) => (root, base.getD ""))
+
 def Record.toJson (r : Record) : String := Id.run do
-  let mut o := s!"\{\"recordSchema\":{recordSchema},\"version\":"
+  let schema := match r.sources with
+    | .notRecorded => recordSchemaWithoutSources
+    | .recorded _ => recordSchema
+  let mut o := s!"\{\"recordSchema\":{schema},\"version\":"
   o := jsonStr o r.version.text
   o := jsonStr (o ++ ",\"commit\":") r.commit
   o := jsonStr (o ++ ",\"leanVersion\":") r.leanVersion
@@ -196,7 +221,18 @@ def Record.toJson (r : Record) : String := Id.run do
       | some rev => jsonStr o rev
       | none => o ++ "null"
     o := o.push '}'
-  o := jsonStr (o ++ "],\"extractorIdentity\":") r.extractorIdentity.text
+  o := o.push ']'
+  if let .recorded roots := r.sources then
+    o := o ++ ",\"sources\":["
+    for i in [0:roots.size] do
+      let (root, base) := roots[i]!
+      if i > 0 then o := o.push ','
+      o := jsonStr (o.push '[') root |>.push ','
+      o := (match base with
+        | some b => jsonStr o b
+        | none => o ++ "null").push ']'
+    o := o.push ']'
+  o := jsonStr (o ++ ",\"extractorIdentity\":") r.extractorIdentity.text
   o := jsonStr (o ++ ",\"pack\":{\"sha256\":") r.packSha256
   o := o ++ s!",\"bytes\":{r.packBytes}},\"ir\":\{\"files\":{r.irFiles},\"bytes\":{r.irBytes}},\"linkIndex\":\{\"bytes\":{r.linkIndexBytes}}}\n"
   return o
@@ -216,8 +252,9 @@ def Record.parse (text : String) : Except String Record := do
     | .num n => if n < 0 then .error s!"`{key}` is negative" else .ok n.toNat
     | _ => .error s!"`{key}` is not a whole number"
   let schema ← nat j "recordSchema"
-  if schema != recordSchema then
-    throw s!"record schema {schema}; this reader reads schema {recordSchema}"
+  if schema != recordSchema && schema != recordSchemaWithoutSources then
+    throw s!"record schema {schema}; this reader reads schemas {recordSchemaWithoutSources} and \
+      {recordSchema}"
   let version ← VersionName.parse (← str j "version")
   let fillName ← str j "fill"
   let some fill := Fill.parse? fillName | throw s!"`fill` is `{fillName}`, not `own` or `reader`"
@@ -232,12 +269,29 @@ def Record.parse (text : String) : Except String Record := do
         | _ => throw s!"dependency `{name}`: `rev` is neither a string nor null"
       pure { name, rev : Dependency }
     | _ => throw "`dependencies` is not an array"
+  let sources ← if schema == recordSchemaWithoutSources then pure SourceMap.notRecorded else
+    match ← field j "sources" with
+    | .arr items => do
+      let mut roots : Array (String × Option String) := #[]
+      for item in items do
+        let (root, base) ← match item with
+          | .arr #[.str root, .str base] =>
+            if base.isEmpty then throw s!"source root `{root}`: its base is empty, not null"
+            else pure (root, some base)
+          | .arr #[.str root, .null] => pure (root, none)
+          | _ => throw "a `sources` entry is not [root, base or null]"
+        if let some (before, _) := roots.back? then
+          if !byteLt before root then
+            throw s!"source root `{root}` follows `{before}`: not in strictly ascending byte order"
+        roots := roots.push (root, base)
+      pure (SourceMap.recorded roots)
+    | _ => throw "`sources` is not an array"
   let pack ← field j "pack"
   let ir ← field j "ir"
   let linkIndex ← field j "linkIndex"
   return { version, commit := ← str j "commit", leanVersion := ← str j "leanVersion"
            leanGithash := ← str j "leanGithash", fill, sourceUrl := ← str j "sourceUrl"
-           dependencies, extractorIdentity
+           dependencies, sources, extractorIdentity
            packSha256 := ← str pack "sha256", packBytes := ← nat pack "bytes"
            irFiles := ← nat ir "files", irBytes := ← nat ir "bytes"
            linkIndexBytes := ← nat linkIndex "bytes" }
@@ -299,6 +353,7 @@ structure Origin where
   leanGithash : String
   sourceUrl : String
   dependencies : Array Dependency
+  sources : ExternalLinks
   fill : Fill := .own
 
 structure PutSummary where
@@ -347,7 +402,8 @@ def put (store : FilePath) (v : VersionName) (origin : Origin) (ir linkIndex : F
   let record : Record :=
     { version := v, commit := origin.commit, leanVersion := tree.index.leanVersion
       leanGithash := origin.leanGithash, fill := origin.fill, sourceUrl := origin.sourceUrl
-      dependencies := origin.dependencies, extractorIdentity
+      dependencies := origin.dependencies, sources := sourceMapOf origin.sources
+      extractorIdentity
       packSha256 := digest, packBytes := compressed.size
       irFiles := parts.irFiles, irBytes := parts.irBytes, linkIndexBytes := parts.linkIndexBytes }
   let writeStarted ← IO.monoNanosNow

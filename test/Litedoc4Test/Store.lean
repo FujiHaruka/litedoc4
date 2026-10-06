@@ -1,4 +1,5 @@
 import Litedoc4.Build
+import Litedoc4.Data.FromStore
 import Litedoc4.Ledger
 import Litedoc4.Store
 import Litedoc4Test.Basis
@@ -91,6 +92,10 @@ def sampleRecordOf (v : VersionName) (identity : ExtractorIdentity) : Record :=
     fill := .own, sourceUrl := "https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567"
     dependencies := #[{ name := "batteries", rev := some "fedcba9876543210fedcba9876543210fedcba98" },
                       { name := "micro-dep", rev := none }]
+    sources := .recorded #[
+      ("Batteries", some "https://github.com/leanprover-community/batteries/blob/fedcba9876543210fedcba9876543210fedcba98"),
+      ("Dep-Aux", none),
+      ("Init", some "https://github.com/leanprover/lean4/blob/89abcdef0123456789abcdef0123456789abcdef/src")]
     extractorIdentity := identity, packSha256 := "ab", packBytes := 12, irFiles := 3, irBytes := 40
     linkIndexBytes := 7 }
 
@@ -113,7 +118,7 @@ def recordWith (r : Record) (key : String) (value : JVal) : String :=
 
 def recordKeys : List String :=
   ["recordSchema", "version", "commit", "leanVersion", "leanGithash", "fill", "sourceUrl",
-   "dependencies", "extractorIdentity", "pack", "ir", "linkIndex"]
+   "dependencies", "sources", "extractorIdentity", "pack", "ir", "linkIndex"]
 
 def aRecordRoundTripsThroughItsJsonAndAMissingOrWrongKeyIsRefused : Bool :=
   withSample fun r _ _ =>
@@ -122,10 +127,61 @@ def aRecordRoundTripsThroughItsJsonAndAMissingOrWrongKeyIsRefused : Bool :=
       && [recordWith r "recordSchema" (.num 1), recordWith r "fill" (.str "copied"),
           recordWith r "extractorIdentity" (.str ""), recordWith r "version" (.str "../v1"),
           recordWith r "pack" (.obj #[("sha256", .str "ab")]),
-          recordWith r "dependencies" (.arr #[.obj #[("name", .str "x"), ("rev", .num 1)]])].all
+          recordWith r "dependencies" (.arr #[.obj #[("name", .str "x"), ("rev", .num 1)]]),
+          recordWith r "sources" (.arr #[.arr #[.str "Init", .str ""]]),
+          recordWith r "sources" (.arr #[.arr #[.str "Init", .num 1]]),
+          recordWith r "sources" (.arr #[.arr #[.str "Init"]]),
+          recordWith r "sources" (.arr #[.arr #[.str "Init", .null], .arr #[.str "Init", .null]]),
+          recordWith r "sources" (.arr #[.arr #[.str "Lean", .null], .arr #[.str "Init", .null]]),
+          recordWith r "sources" (.obj #[])].all
         (isError ∘ Record.parse)
 
 #guard aRecordRoundTripsThroughItsJsonAndAMissingOrWrongKeyIsRefused
+
+def schemaTwoOf (r : Record) : String :=
+  recordEdited r fun kv => (kv.filter (·.1 != "sources")).map fun (k, v) =>
+    if k == "recordSchema" then (k, .num 2) else (k, v)
+
+def aSchemaTwoRecordReadsAsOneWithNoSourceMapAndWritesBackAsItWas : Bool :=
+  withSample fun r _ _ =>
+    let old := { r with sources := .notRecorded }
+    (Record.parse (schemaTwoOf r)).toOption == some old
+      && (Record.parse old.toJson).toOption == some old
+      && (old.toJson.splitOn "\"sources\"").length == 1
+      && isError (Record.parse (recordWith r "recordSchema" (.num 4)))
+
+#guard aSchemaTwoRecordReadsAsOneWithNoSourceMapAndWritesBackAsItWas
+
+def refusalOf : Except String α → String
+  | .error why => why
+  | .ok _ => ""
+
+def anEntryWithNoSourceMapIsRefusedAsInputNamingStorePutAndOneWithAMapIsNot : Bool :=
+  withSample fun r _ _ =>
+    let refused := refusalOf (Data.inputOf { r with sources := .notRecorded } #[])
+    let read := refusalOf (Data.inputOf r #[])
+    (refused.splitOn "litedoc4 store put --version v4.32.2").length ≥ 2
+      && (read.splitOn "store put").length == 1 && (read.splitOn "index.json").length ≥ 2
+
+#guard anEntryWithNoSourceMapIsRefusedAsInputNamingStorePutAndOneWithAMapIsNot
+
+def coreRevision : String := "89abcdef0123456789abcdef0123456789abcdef"
+
+def theRecordedMapIsTheLinkMapsRootsInByteOrderWithoutDocsAndCoreAsItWasLinkedBefore : Bool :=
+  let links := (assembleLinks (.ok coreRevision) (.error "no manifest") #[]).links
+  let withDeps := (mkExternalLinks (links.roots.map (fun r => (r.name, r.base))
+      ++ #[("Batteries", "https://b/blob/r/"), ("Dep-Aux", "")])).withDocs
+    #[("Mathlib", mkDepDocs "https://docs" #[("Mathlib.x", "./Mathlib.html#x")] #[]),
+      ("Batteries", mkDepDocs "https://bdocs" #[] #[])]
+  let core := s!"https://github.com/leanprover/lean4/blob/{coreRevision}"
+  let expected := #[("Batteries", some "https://b/blob/r"), ("Dep-Aux", none),
+    ("Init", some s!"{core}/src"), ("Lake", some s!"{core}/src/lake"), ("Lean", some s!"{core}/src"),
+    ("Mathlib", none), ("Std", some s!"{core}/src")]
+  sourceMapOf withDeps == .recorded expected
+    && expected.all fun (root, base) =>
+      (linksOf expected).sourceFor root == match base with
+        | some b => .pinned b
+        | none => .unpinned
 
 def staleIsTheRecordedIdentityDifferingFromTheCurrentOneByContent : Bool :=
   withSample fun r a b =>
@@ -133,6 +189,8 @@ def staleIsTheRecordedIdentityDifferingFromTheCurrentOneByContent : Bool :=
       && ExtractorIdentity.of? "" == none && ExtractorIdentity.of? "a\nb" == none
 
 #guard staleIsTheRecordedIdentityDifferingFromTheCurrentOneByContent
+
+#guard theRecordedMapIsTheLinkMapsRootsInByteOrderWithoutDocsAndCoreAsItWasLinkedBefore
 
 def theIdentityIsAskedForWithTheFlagsAnExtractionStartsWith : Bool :=
   [#[], #["Example.Tactic", "Example.Meta"]].all fun ns =>
@@ -195,7 +253,8 @@ def testOrigin : Origin :=
   { commit := "0123456789abcdef0123456789abcdef01234567"
     leanGithash := "89abcdef0123456789abcdef0123456789abcdef"
     sourceUrl := "https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567"
-    dependencies := #[{ name := "micro-dep", rev := none }] }
+    dependencies := #[{ name := "micro-dep", rev := none }]
+    sources := mkExternalLinks #[("Init", "https://core/blob/r/src"), ("Dep-Aux", "")] }
 
 def putOut (store : FilePath) (v : VersionName) (out : FilePath) : IO PutSummary :=
   put store v testOrigin (out / "ir") (out / "link-index.lidx")
@@ -241,6 +300,7 @@ def anEntryReadsBackByteForByteAndItsRecordCountsWhatTheIrHolds : Invariant wher
       eq (r.irFiles, r.irBytes, r.linkIndexBytes)
         (ir.size, ir.foldl (fun n f => n + f.2.size) 0, lidxBytes.size),
       eq (r.extractorIdentity.text, r.leanVersion, r.commit) (identityAText, "4.31.0", testOrigin.commit),
+      eq r.sources (.recorded #[("Dep-Aux", none), ("Init", some "https://core/blob/r/src")]),
       eq (back.record == r) true]
     IO.FS.removeDirAll dir
     return answer

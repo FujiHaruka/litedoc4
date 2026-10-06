@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The S loop of the multi-version plan (docs/multiversion/implementation.md,
 # "Measurement loop") from nothing: tools/mv-s/ generated as four versions, each
-# built and put into a store, then read back, judged fresh or stale, and laid out
-# by the three storage candidates — answered by counters and names against
+# built and put into a store, then read back, judged fresh, stale or needing a
+# re-put, and laid out by the three storage candidates — answered by counters and names against
 # tools/mv-s/expected.txt, never by a duration.
 #
 # Each check prints `ok|FAIL <item>: <what>`; every declared item has to report
@@ -111,7 +111,7 @@ PAIRS=()
 for i in $(seq 1 $((${#VERSIONS[@]} - 1))); do
   PAIRS+=("${VERSIONS[$((i - 1))]}..${VERSIONS[$i]}")
 done
-DECLARED=(oracle-v1 oracle-rows fresh stale agree second-run)
+DECLARED=(oracle-v1 oracle-rows source-map fresh stale needs-re-put agree second-run)
 for v in "${VERSIONS[@]}"; do DECLARED+=("round-trip-$v" "re-put-$v"); done
 for c in "${CANDIDATES[@]}"; do DECLARED+=("measure-repeat-$c" "new-addresses-$c"); done
 for p in "${PAIRS[@]}"; do DECLARED+=("new-items-$p" "a-files-$p" "b-segments-$p"); done
@@ -173,6 +173,29 @@ for v in "${VERSIONS[@]}"; do
   fi
 done
 
+sources="$(python3 - "$R1/store" "${VERSIONS[@]}" 2>&1 <<'PY'
+import json
+import pathlib
+import sys
+
+store = pathlib.Path(sys.argv[1])
+bad = []
+for v in sys.argv[2:]:
+    r = json.loads((store / v / "record.json").read_text(encoding="utf-8"))
+    core = "https://github.com/leanprover/lean4/blob/%s/" % r["leanGithash"]
+    want = [["Dep-Aux", None], ["Init", core + "src"], ["Lake", core + "src/lake"],
+            ["Lean", core + "src"], ["Std", core + "src"]]
+    if r.get("recordSchema") != 3 or r.get("sources") != want:
+        bad.append("%s: schema %s, sources %s" % (v, r.get("recordSchema"), r.get("sources")))
+print("; ".join(bad) if bad else "ok")
+PY
+)" || true
+if [ "$sources" = ok ]; then
+  item ok source-map "all ${#VERSIONS[@]} records (schema 3) map core's four roots to lean4 at their leanGithash and micro-dep's Dep-Aux to no URL"
+else
+  item FAIL source-map "${sources:-the record check printed nothing}"
+fi
+
 N=${#VERSIONS[@]}
 stale_summary () {
   local root="$1" log="$2"
@@ -184,7 +207,7 @@ stale_summary () {
   sed -n 's/^\(check-stale .*\) (.*)$/\1/p' "$log"
 }
 summary="$(stale_summary "$R1/repo" "$LOGS/fresh.log")"
-if [ "$summary" = "check-stale $N entries: $N fresh, 0 stale, 0 unreadable" ]; then
+if [ "$summary" = "check-stale $N entries: $N fresh, 0 stale, 0 needs re-put, 0 unreadable" ]; then
   item ok fresh "$summary, with the configuration the entries were built under"
 else
   item FAIL fresh "with the configuration the entries were built under: ${summary:-no summary line}"
@@ -193,10 +216,56 @@ mkdir -p "$R1/config-changed"
 cp "$R1/repo/litedoc4.toml" "$R1/config-changed/litedoc4.toml"
 printf 'no_equations_under = ["Example"]\n' >>"$R1/config-changed/litedoc4.toml"
 summary="$(stale_summary "$R1/config-changed" "$LOGS/stale.log")"
-if [ "$summary" = "check-stale $N entries: 0 fresh, $N stale, 0 unreadable" ]; then
+if [ "$summary" = "check-stale $N entries: 0 fresh, $N stale, 0 needs re-put, 0 unreadable" ]; then
   item ok stale "$summary, with no_equations_under added to a copy of the configuration"
 else
   item FAIL stale "with no_equations_under added to a copy of the configuration: ${summary:-no summary line}"
+fi
+
+OLD="$R1/store-schema2"
+cp -R "$R1/store" "$OLD"
+python3 - "$OLD/v2/record.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    record = json.load(f)
+del record["sources"]
+record["recordSchema"] = 2
+with open(path, "w", encoding="utf-8") as f:
+    f.write(json.dumps(record) + "\n")
+PY
+check_old () {
+  local log="$1" rc=0
+  "$LITEDOC4" store check-stale --store "$OLD" --extractor-bin "$EXTRACTOR" --root "$R1/repo" \
+    >"$log" 2>"$log.err" || rc=$?
+  echo "$rc $(sed -n 's/^\(check-stale .*\) (.*)$/\1/p' "$log")"
+}
+old_said="$(check_old "$LOGS/needs-re-put.log")"
+measure_rc=0
+"$LITEDOC4" store measure --store "$OLD" --versions v1,v2 --candidate a \
+  >"$LOGS/needs-re-put-measure.log" 2>&1 || measure_rc=$?
+put_rc=0
+git -C "$R1/repo" -c advice.detachedHead=false checkout -q v2
+"$LITEDOC4" store put --store "$OLD" --version v2 --from "$R1/build/v2" \
+  >"$LOGS/needs-re-put-put.log" 2>&1 || put_rc=$?
+git -C "$R1/repo" -c advice.detachedHead=false checkout -q "${VERSIONS[$((N - 1))]}"
+reput_said="$(check_old "$LOGS/needs-re-put-after.log")"
+if [ "$old_said" != "3 check-stale $N entries: $((N - 1)) fresh, 0 stale, 1 needs re-put, 0 unreadable" ]; then
+  item FAIL needs-re-put "with v2's record downgraded to schema 2, check-stale answered (exit, summary): $old_said"
+elif ! grep -q '^v2 needs re-put: .*litedoc4 store put --version v2' "$LOGS/needs-re-put.log"; then
+  item FAIL needs-re-put "check-stale counted v2 as needing a re-put and no line for v2 names store put"
+elif [ "$measure_rc" -ne 3 ] || ! grep -q 'store entry v2: .*litedoc4 store put' "$LOGS/needs-re-put-measure.log"; then
+  item FAIL needs-re-put "store measure over the schema-2 entry exited $measure_rc without refusing it by name ($LOGS/needs-re-put-measure.log)"
+elif [ "$put_rc" -ne 0 ]; then
+  item FAIL needs-re-put "re-putting v2 from its build exited $put_rc ($LOGS/needs-re-put-put.log)"
+elif ! cmp -s "$OLD/v2/record.json" "$R1/store/v2/record.json" || ! cmp -s "$OLD/v2/entry.pack.gz" "$R1/store/v2/entry.pack.gz"; then
+  item FAIL needs-re-put "re-putting v2 from its build did not give back the entry it was first put as"
+elif [ "$reput_said" != "0 check-stale $N entries: $N fresh, 0 stale, 0 needs re-put, 0 unreadable" ]; then
+  item FAIL needs-re-put "after the re-put, check-stale answered (exit, summary): $reput_said"
+else
+  item ok needs-re-put "a schema-2 record is counted apart and exits 3, measure refuses it naming store put, and a re-put from its build restores the entry byte for byte"
 fi
 
 say "4/6 the data format: three candidates, each laid out twice"

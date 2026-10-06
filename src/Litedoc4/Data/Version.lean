@@ -1,6 +1,7 @@
 /- One version's own data: what its pages hold in which order, where each name
 its content spells resolves in this version, and the whole-package files. -/
 import Litedoc4.Data.Content
+import Litedoc4.External
 import Litedoc4.Global.Artifacts
 import Litedoc4.Render.Frame
 import Litedoc4.Render.LinkIndex
@@ -13,7 +14,7 @@ structure Input where
   modules : Array Module
   depMaps : Array (Array (String × String))
   lidx : Lidx
-  sources : Array (String × String)
+  sources : ExternalLinks
 
 structure Item where
   private mk ::
@@ -70,7 +71,7 @@ structure LinkTable where
   names : Array (String × Resolved)
 
 def linkTable (ix : NameIndex) (moduleAt : Std.HashMap String Nat)
-    (sources : Array (String × String)) (spanNames memberNames : Array String) : LinkTable :=
+    (sources : ExternalLinks) (spanNames memberNames : Array String) : LinkTable :=
   Id.run do
     let members : Std.HashSet String := Std.HashSet.ofArray memberNames
     let all := dedupSorted (sortUtf16 (spanNames ++ memberNames))
@@ -90,7 +91,9 @@ def linkTable (ix : NameIndex) (moduleAt : Std.HashMap String Nat)
       | some k => (name, Resolved.own k anchor)
       | none => (name, Resolved.dependency module (rootAt.getD (rootOf module) 0)
           (anchor.bind ix.lidx.rangeOf))
-    let base := fun root => (sources.find? (·.1 == root)).map (·.2)
+    let base := fun root => match sources.sourceFor root with
+      | .pinned b => some b
+      | .unpinned | .absent => none
     return { sources := sorted.map fun root => (root, base root), names }
 
 def LinkTable.json (t : LinkTable) : String := Id.run do

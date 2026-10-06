@@ -1,15 +1,12 @@
 /- A store entry, as the data format's input, read in memory. -/
 import Litedoc4.Data.Version
-import Litedoc4.Packages
 import Litedoc4.Store
 
 namespace Litedoc4
 namespace Data
 
-def coreSources (leanGithash : String) : Array (String × String) :=
-  coreRoots.map fun (root, dir) => (root, s!"{coreUrl}/blob/{leanGithash}/{dir}")
-
 def inputOf (r : Store.Record) (files : Array (String × ByteArray)) : Except String Input := do
+  let .recorded sources := r.sources | throw (Store.needsReputRefusal r.version)
   let mut byPath : Std.HashMap String ByteArray := {}
   for (path, bytes) in files do byPath := byPath.insert path bytes
   let text := fun (path : String) => do
@@ -37,7 +34,7 @@ def inputOf (r : Store.Record) (files : Array (String × ByteArray)) : Except St
     depMaps := depMaps.push (depMapOf (← parse (Store.irPrefix ++ e.file)))
   return { name := r.version.text, modules, depMaps
            lidx := parseLidx (← text Store.linkIndexEntry)
-           sources := coreSources r.leanGithash }
+           sources := Store.linksOf sources }
 
 end Data
 end Litedoc4

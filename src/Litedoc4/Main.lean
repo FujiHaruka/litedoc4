@@ -267,22 +267,27 @@ def usage : String :=
   --store        (`store`) the kept versions, one directory per version:
                  <store>/<name>/entry.pack.gz (the IR tree and the dependency
                  link index, packed and gzipped) and record.json (commit, Lean,
-                 dependencies, the extractor identity the IR was written
-                 under, and the pack's SHA-256, which `read` checks before it
-                 decompresses anything)
+                 dependencies, each dependency module root's version-pinned
+                 source URL or that it has none, the extractor identity the IR
+                 was written under, and the pack's SHA-256, which `read`
+                 checks before it decompresses anything)
   --version      (`store`) the entry's name: letters, digits, `.`, `_`, `+`
                  and `-`, starting with a letter or a digit, without `..`
   --from         (`store put`) a directory `build --out` finished. Its ir/ and
                  link-index.lidx are stored, and a build that wrote no link
-                 index is refused; the commit, the dependencies and Lean
-                 core's revision come from the checkout its marker names,
-                 which has to still be at the commit the pages link to.
+                 index is refused; the commit, the dependencies, their source
+                 URLs and Lean core's revision come from the checkout its
+                 marker names, which has to still be at the commit the pages
+                 link to. Putting the same directory again rewrites the
+                 record without re-extracting anything.
                  `store read --out` unpacks an entry into an empty directory
                  laid out as `build --out` lays out those two; without it the
                  entry is only verified. `store check-stale` asks
                  --extractor-bin for its identity with the flags `build`
-                 passes, which --root's litedoc4.toml decides, and says fresh
-                 or stale per entry
+                 passes, which --root's litedoc4.toml decides, and says fresh,
+                 stale, or needs re-put (a record with no source map, which
+                 `store measure` refuses) per entry; it exits 3 when an entry
+                 needs re-put or is unreadable
   --versions     (`store measure`) the entries to lay out, comma-separated, in
                  the order a site would have added them
   --candidate    (`store measure`) how declaration content is stored: a, one
@@ -2368,7 +2373,12 @@ def storePutOrigin (from_ : System.FilePath) (lake : System.FilePath) :
     let dependencies ← match ← Store.dependencyRevisions root with
       | .error why => return .error why
       | .ok deps => pure deps
-    return .ok { commit, leanGithash, sourceUrl, dependencies }
+    let sources ← resolveExternal (some root.toString) (some lake.toString)
+    if let some (core, _) := coreRoots.find? fun (core, _) =>
+        !(sources.sourceFor core matches .pinned _) then
+      return .error s!"{root}: Lean core's root `{core}` has no version-pinned source URL, so \
+        pages rendered from this entry would not link into it"
+    return .ok { commit, leanGithash, sourceUrl, dependencies, sources }
 
 def versionOf (a : StoreArgs) (command : String) : Except String Store.VersionName :=
   match a.version with
@@ -2413,9 +2423,12 @@ def storeList (store : System.FilePath) : IO UInt32 := do
   for (v, record) in listing.entries do
     match record with
     | .ok r =>
+      let reput := match r.sources with
+        | .notRecorded => " (needs re-put)"
+        | .recorded _ => ""
       IO.println s!"{v.text} {r.commit} lean {r.leanVersion} {r.fill.name} \
         {r.irFiles} IR file(s) {r.irBytes} B + link index {r.linkIndexBytes} B -> \
-        {r.packBytes} B"
+        {r.packBytes} B{reput}"
     | .error why => IO.println s!"{v.text} unreadable: {why}"
   for name in listing.strays do
     IO.eprintln s!"litedoc4: {store / name} is not a version name and is not read"
@@ -2432,23 +2445,32 @@ def storeCheckStale (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
   let listing ← Store.list store
   let mut fresh := 0
   let mut stale := 0
+  let mut needsReput := 0
   let mut unreadable := 0
   for (v, record) in listing.entries do
     match record with
     | .ok r =>
-      if Store.stale r current then
-        stale := stale + 1
-        IO.println s!"{v.text} stale"
-      else
-        fresh := fresh + 1
-        IO.println s!"{v.text} fresh"
+      let isStale := Store.stale r current
+      match r.sources with
+      | .notRecorded =>
+        needsReput := needsReput + 1
+        let also := if isStale then "; it is stale as well, and a build with the current extractor \
+          followed by a put repairs both" else ""
+        IO.println s!"{v.text} needs re-put: {Store.needsReputRefusal v}{also}"
+      | .recorded _ =>
+        if isStale then
+          stale := stale + 1
+          IO.println s!"{v.text} stale"
+        else
+          fresh := fresh + 1
+          IO.println s!"{v.text} fresh"
     | .error why =>
       unreadable := unreadable + 1
       IO.println s!"{v.text} unreadable: {why}"
   IO.println s!"check-stale {listing.entries.size} entr\
     {if listing.entries.size == 1 then "y" else "ies"}: {fresh} fresh, {stale} stale, \
-    {unreadable} unreadable ({current.text})"
-  return if unreadable == 0 then 0 else 3
+    {needsReput} needs re-put, {unreadable} unreadable ({current.text})"
+  return if needsReput == 0 && unreadable == 0 then 0 else 3
 
 def measureVersions (list : String) : Except String (Array Store.VersionName) := do
   let mut out : Array Store.VersionName := #[]

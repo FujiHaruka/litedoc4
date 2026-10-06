@@ -46,7 +46,7 @@ def dataVersion (name : String) (a : Array Decl) (depStart : Nat := 10)
   Data.versionData
     { name, modules := #[moduleA a, moduleB b]
       depMaps := #[#[("Dep.x", "Dep.Core"), ("Nat", "Init.Prelude"), ("Eq", "Init.Prelude")]]
-      lidx := dataLidx depStart, sources := #[("Init", "https://core/src")] }
+      lidx := dataLidx depStart, sources := mkExternalLinks #[("Init", "https://core/src")] }
 
 def base : Data.VersionData := dataVersion "v1" #[fDecl, gDecl]
 def moved : Data.VersionData :=
@@ -81,7 +81,7 @@ def fileAt (v : Data.VersionData) (path : String) : Option ByteArray :=
 def aManifestListsEachImportOnceInNameOrder : Bool :=
   let v := Data.versionData
     { name := "imports", modules := #[{ moduleA #[fDecl] with imports := #["P.B", "Init", "Init"] }]
-      depMaps := #[], lidx := dataLidx 10, sources := #[] }
+      depMaps := #[], lidx := dataLidx 10, sources := {} }
   ((pageAt v "P.A").map (·.imports)) == some #["Init", "P.B"]
 
 #guard aManifestListsEachImportOnceInNameOrder
@@ -142,6 +142,16 @@ def theLinkTableResolvesOwnNamesToAModuleAndDependencyNamesToASourceAndARange : 
     \"Nat\":[\"Init.Prelude\",1,5,9],\"P.A.f\":[0]}}"
 
 #guard theLinkTableResolvesOwnNamesToAModuleAndDependencyNamesToASourceAndARange
+
+def anUnpinnedRootGetsNoLinkInTheLinkTable : Bool :=
+  let v := Data.versionData
+    { name := "unpinned", modules := #[moduleA #[fDecl, gDecl], moduleB #[hDecl]]
+      depMaps := #[#[("Dep.x", "Dep.Core"), ("Nat", "Init.Prelude"), ("Eq", "Init.Prelude")]]
+      lidx := dataLidx 10, sources := mkExternalLinks #[("Init", "https://core/src"), ("Dep", "")] }
+  linkTableText v == linkTableText base
+    && (linkTableText v).startsWith "{\"sources\":[[\"Dep\",null],"
+
+#guard anUnpinnedRootGetsNoLinkInTheLinkTable
 
 def aSubtermWrapperIsDroppedAndASortAndANameAreKept : Bool :=
   let t := Data.textOf "{α : Type}" #[dataSpan 1 2 0, dataSpan 5 9 2, dataSpan 0 10 1 "X"]

@@ -180,7 +180,7 @@ format with all three candidates (`litedoc4 store measure`) exist and agree with
 docstring as today's page shows it, encoded as JSON with links as `[start, stop, name]`, addressed
 by the first 64 bits of its SHA-256; **the name is part of the content**, so a rename is a removal
 plus an addition (leaving it out would put a name into every manifest entry).
-`tools/mv-s-gate.sh` runs the S loop from nothing (29 items, `ci`); `benchmarks/tools/mv-m-run.sh`
+`tools/mv-s-gate.sh` runs the S loop from nothing (31 items, `ci`); `benchmarks/tools/mv-m-run.sh`
 runs M.
 
 What M says (438 modules, 5.1% of Mathlib; two runs, byte-identical in every store entry and
