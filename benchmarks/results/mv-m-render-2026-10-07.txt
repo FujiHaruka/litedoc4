@@ -1,0 +1,180 @@
+M, step 2: the store renderer over the three releases
+
+Input: the M store as benchmarks/tools/mv-m-run.sh filled it at 7a1da0a (record schema 4; the
+closure of Mathlib.Algebra.BigOperators.Group.Finset.Basic + Mathlib.Order.Filter.Basic,
+433 / 438 / 438 Mathlib modules at v4.32.2 / v4.33.0 / v4.33.1; --jobs 1; 352 s; every entry put
+and read back byte-identical). Rendered by benchmarks/tools/mv-m-render.sh (the one uncommitted
+path of the run is that script) with litedoc4 built from 7a1da0a: all three versions 5 times,
+each version alone once. Apple M1, 16 GB; warm (wall = user + sys within 0.06 s on every run);
+4 GB swap with 2.8 GB used, another macOS user's Chrome holding compressed memory, so CPU time
+and counters are read first. Mathlib's litedoc4.toml in the run names no front page.
+
+The step-1 log (mv-m-2026-10-07.txt) laid out the candidates over the extractor's earlier page
+data; docstrings are HTML now and the page file carries per-page link tables, so its content and
+per-version byte counts are not this format's. Where an old number sits beside a new one below,
+that is the comparison, and it is between formats.
+
+(1) "Done when" (measured)
+  - render twice: all-2 .. all-5 byte-identical to all-1 (diff -r, and the JSON counts line).
+  - each version alone: its <version>/ shells byte-identical to the three-version run's, and every
+    data file it wrote (1,193 / 1,207 / 1,207) is in the three-version run's d/ byte for byte.
+  - the renderer's own counts reconciled with the tree by a separate reader: shells per version,
+    data files referenced and added per version, and every file in d/ referenced by some version.
+
+(2) Hosted bytes and files, all three versions (measured)
+  3,196 files, 4,877,142 B stored (27,883,987 B raw)
+    shells   1,315 files    580,133 B (HTML, not compressed; 441 B each)
+    data     1,879 files  4,296,597 B stored, gzip (27,303,442 B raw)
+    root         2 files        412 B (versions.json, index.html)
+
+  Per version, data files by kind: referenced / added (stored B; "added" = not written by an
+  earlier version)
+                  v4.32.2            v4.33.0 (minor)              v4.33.1 (patch)
+  content      432  1,582,300     436/190  1,598,535/1,106,877    436/1   1,598,535/9,450
+  page         433    359,459     438/419    362,938/358,295      438/1     362,937/1,140
+  usedBy       323    303,085     328/69     305,789/208,287      328/0     305,789/0
+  modules        1      6,955       1/1        7,043/7,043          1/0       7,043/0
+  search         1    113,027       1/1      114,047/114,047        1/0     114,047/0
+  instances      1     17,330       1/1       17,401/17,401         1/0      17,401/0
+  references     1     44,980       1/1       45,472/45,472         1/0      45,472/0
+  version        1        483       1/1          483/483            1/1         483/483
+  total      1,193  2,427,619   1,207/683  2,451,708/1,857,905   1,207/3   2,451,707/11,073
+  shells       435    191,875       440        194,129               440       194,129
+
+  usedBy is fewer files than pages: modules with the same Used-by bytes (most often none) share
+  one file.
+
+(3) What a release adds (measured), against step 1's candidate a (other format, see above)
+  patch (v4.33.1):  3 data files, 11,073 B  + 440 shells, 194,129 B
+                    step 1: 880 per-version files (878 byte-identical to v4.33.0's), 823,339 B
+  minor (v4.33.0):  683 data files, 1,857,905 B + 440 shells, 194,129 B
+                    step 1: 1,069 files, 1,920,767 B
+  Sharing by content takes a patch release from 880 files to 3; the shells are now what a patch
+  release adds. A minor release saves little, because:
+
+(4) Why 419 of 438 page files change in a minor release (measured, v4.32.2 -> v4.33.0)
+  228 modules keep their content file and still get a new page file. In 211 of them the only
+  difference is dependency line ranges: same name, same root, same module, other lines (1,714
+  entries under Init, 144 under Lean, 3 under Batteries; e.g. `Add`: Init.Prelude 1514-1517 ->
+  1517-1520). Lean core moves in every Mathlib minor release, and every page that names a core
+  declaration carries its lines. Of the other 17, 14 also change their own `lines` (one of
+  them its imports too) and 3 which names they carry (2 entries added or removed, 1 moved to
+  another core module).
+  The lever: dependency line ranges in one per-version table, a page naming only the declaration.
+  It moves bytes from every page into one file every page fetches; step 3 weighs that, since it
+  decides what a page view fetches. At Mathlib it is up to the page files' 5.2 MB per minor
+  release in (6) (extrapolated).
+
+(5) A module page view (measured; version file + page file + Used-by file + content file, stored)
+             pages  total B    max B   median B   (+ module list, if a page fetches it)
+  v4.32.2     433  2,456,733  55,423    3,550     +6,955
+  v4.33.0     438  2,481,566  55,499    3,524     +7,043
+  v4.33.1     438  2,481,565  55,499    3,524     +7,043
+  step 1, a, v4.33.0 (link table + module list + manifest + content): 5,050,229 total, 36,704 max.
+  The per-version link table no longer rides on every view; the largest page is larger now
+  (HTML docstrings and per-page tables in one module's files).
+
+(6) Extrapolated to Mathlib (extrapolated: 5.1% of modules measured, one minor and one patch
+  pair; scaled by declarations 317,834 / 21,928 = 14.49; references and the version file not
+  scaled — the bibliography is Mathlib's whole one at any slice; Mathlib's minor churn 1,958 of
+  8,312 changed modules from mathlib-per-version-part-2026-10-05.txt; 11 versions = first + 5
+  minor + 5 patch, 51 = first + 25 + 25)
+  - first version, data: 34.6 MB (content 22.9 MB)
+  - minor release, content: M re-stored 69.2% of its content bytes when 43.6% of its modules
+    changed (ratio 1.59), applied to 1,958 / 8,312: 8.58 MB (an assumption: the ratio is M's)
+  - minor release, the rest: 10.27 MB (page files 5.19, Used by 3.02, search 1.65) — M's added
+    bytes x 14.49, which assumes Mathlib's pages and Used-by files change in M's proportion
+    (96% / 21% of files). U10 measured Used by's delta at 3.37% of its bytes per minor release:
+    whole files per module change far more than that, here.
+  - patch release: 11 KB of data (assumed: the same handful of items as at M)
+  - shells: 8,314 per version (8,312 modules + index + references) x 441 B = 3.67 MB, every
+    version
+                  data      shells    total     (step 1, candidate a)
+    11 versions   129 MB    40 MB     169 MB    198 MB
+    51 versions   506 MB   187 MB     693 MB    854 MB      (target: 51 versions <= 1.5 GB)
+  - files per release: 8,314 shells + data: ~3 (patch); 1,958 content + ~7,951 page + ~1,309
+    Used-by (assumed: in proportion to modules) + 5 (minor). The shells are the files every
+    release uploads.
+
+(7) Render time and memory (measured, 5 runs of all three versions; one run per version alone)
+  all three: wall 9.37 / 9.47 / 9.43 / 9.43 / 9.48 s; cpu 9.36 / 9.42 / 9.41 / 9.42 / 9.42 s;
+             peak RSS 253 MiB; page faults 11-22
+  alone:     v4.32.2 3.19 s wall / 3.18 cpu / 219 MiB; v4.33.0 3.28 / 3.23 / 221 MiB;
+             v4.33.1 3.24 / 3.23 / 221 MiB
+  The renderer holds one version at a time, so time adds per version and memory does not.
+  Per Mathlib version, scaled by declarations: ~47 s CPU, ~3.1 GB peak RSS (extrapolated; the
+  RSS scaling assumes the whole of a version's memory grows with its declarations, so it is an
+  upper side). The renderer reports no per-phase time yet.
+
+The script's own summary follows.
+
+run of 7a1da0a236f44e21a16a5a82a08b3b02b26ae337 (1 uncommitted path(s))
+date              2026-10-06T19:29:18Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+swap              total = 4096.00M  used = 2828.31M  free = 1267.69M  (encrypted)
+store             /private/tmp/lean-doc-relay/mv-m/store
+versions          v4.32.2,v4.33.0,v4.33.1
+runs              5
+all-2 identical to all-1: yes
+all-3 identical to all-1: yes
+all-4 identical to all-1: yes
+all-5 identical to all-1: yes
+alone-v4.32.2: shells identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1193
+alone-v4.33.0: shells identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1207
+alone-v4.33.1: shells identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1207
+hosted (all 3 versions): 3196 files, 4877142 B stored (27883987 B raw)
+  shells 1315 files 580133 B; data 1879 files 4296597 B stored (27303442 B raw); root 2 files 412 B
+reconciled with the renderer's counts: shells, data referenced and added per version, every d/ file referenced
+
+v4.32.2: 435 shells (191875 B)
+  kind        referenced files/stored         added files/raw/stored
+  content          432       1582300      432   10418901    1582300
+  page             433        359459      433    1268847     359459
+  usedBy           323        303085      323    3030298     303085
+  modules            1          6955        1      39533       6955
+  search             1        113027        1     308207     113027
+  instances          1         17330        1      94761      17330
+  references         1         44980        1     157595      44980
+  front              0             0        0          0          0
+  version            1           483        1       1102        483
+  total           1193       2427619     1193   15319244    2427619
+
+v4.33.0: 440 shells (194129 B)
+  kind        referenced files/stored         added files/raw/stored
+  content          436       1598535      190    7822181    1106877
+  page             438        362938      419    1275532     358295
+  usedBy           328        305789       69    2230927     208287
+  modules            1          7043        1      40027       7043
+  search             1        114047        1     312045     114047
+  instances          1         17401        1      95007      17401
+  references         1         45472        1     159333      45472
+  front              0             0        0          0          0
+  version            1           483        1       1102        483
+  total           1207       2451708      683   11936154    1857905
+
+v4.33.1: 440 shells (194129 B)
+  kind        referenced files/stored         added files/raw/stored
+  content          436       1598535        1      42841       9450
+  page             438        362937        1       4101       1140
+  usedBy           328        305789        0          0          0
+  modules            1          7043        0          0          0
+  search             1        114047        0          0          0
+  instances          1         17401        0          0          0
+  references         1         45472        0          0          0
+  front              0             0        0          0          0
+  version            1           483        1       1102        483
+  total           1207       2451707        3      48044      11073
+
+v4.32.2: a module page fetches its version, page, Used-by and content files: 433 pages, 2456733 B in all, max 55423, median 3550 (the module list, if a page also fetches it: +6955 B each)
+v4.33.0: a module page fetches its version, page, Used-by and content files: 438 pages, 2481566 B in all, max 55499, median 3524 (the module list, if a page also fetches it: +7043 B each)
+v4.33.1: a module page fetches its version, page, Used-by and content files: 438 pages, 2481565 B in all, max 55499, median 3524 (the module list, if a page also fetches it: +7043 B each)
+
+all-1            wall   9.37 s  cpu   9.36 s  peak RSS    253 MiB  page faults 11
+all-2            wall   9.47 s  cpu   9.42 s  peak RSS    253 MiB  page faults 11
+all-3            wall   9.43 s  cpu   9.41 s  peak RSS    253 MiB  page faults 22
+all-4            wall   9.43 s  cpu   9.42 s  peak RSS    253 MiB  page faults 11
+all-5            wall   9.48 s  cpu   9.42 s  peak RSS    253 MiB  page faults 11
+alone-v4.32.2    wall   3.19 s  cpu   3.18 s  peak RSS    219 MiB  page faults 11
+alone-v4.33.0    wall   3.28 s  cpu   3.23 s  peak RSS    221 MiB  page faults 11
+alone-v4.33.1    wall   3.24 s  cpu   3.23 s  peak RSS    221 MiB  page faults 11
+all versions, 5 runs: median wall 9.43 s, median cpu 9.42 s, max peak RSS 253 MiB
