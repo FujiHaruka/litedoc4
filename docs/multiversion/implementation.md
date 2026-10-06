@@ -195,6 +195,18 @@ into every manifest entry). Open before M can decide:
 - **Docstring autolinks are not in the link table yet** (today's per-page rule).
 - **The SHA-256 is pure Lean**; its speed over a Mathlib version's content is unmeasured.
 
+`tools/mv-s-gate.sh` runs the S loop from nothing (29 items, `ci`). `benchmarks/tools/mv-m-run.sh`
+runs M; its smoke on an 87-module slice (measured once →
+`benchmarks/results/mv-m-smoke-2026-10-07.txt`) says three things M has to account for:
+
+- **A patch release with one changed item still adds ≈ 100 KB and 179 files** under every
+  candidate (v4.33.1 against v4.33.0): the per-version files, not the shared content, are the
+  marginal cost of a release on that slice.
+- **Version-pinned URLs make content new on every release**: the one new item in v4.33.1 is a
+  docstring whose only change is a Lean reference-manual link carrying the Lean version.
+- **IR declarations exceed page items by exactly the module count** (2,296 against 2,209 for 87
+  modules); which one M scales by has to be settled before anything is extrapolated.
+
 Done when: the three versions are in a store; the compressed IR size per version is measured (it
 decides where the CI store lives, step 6); the format is chosen with its numbers in a log.
 
