@@ -108,13 +108,23 @@ def backrefsOf (facts : Array ModuleFacts) : Array Backref := Id.run do
       out := out.push { module, index := i, citation := cs[i]!.citation }
   return out
 
-/-- **Index order is behaviour, twice.** Two modules declaring the same name
-leave the later one in the map, and a module's importer list is built in it
-(before being sorted). Passing the facts in any other order is a different
-answer. -/
-def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String)))
-    (titleOverride : Option String) (intro : Option String) (references : Array BibItem)
-    (leanVersion : String) : Artifacts := Id.run do
+structure Derived where
+  nameMapJson : String
+  nameMap : Std.HashMap String String
+  modules : Array String
+  pages : Array ModuleRow
+  declarations : Nat
+  dependencyNames : Nat
+  modulesJson : String
+  searchIndexBin : ByteArray
+  instancesJson : String
+  instanceClasses : Nat
+  instanceTypes : Nat
+  usedByPairs : Array (String × Array String)
+  usedByTargets : Nat
+
+def deriveData (facts : Array ModuleFacts) (depMaps : Array (Array (String × String))) :
+    Derived := Id.run do
   let mut nameMap : Std.HashMap String (String × String) := Std.HashMap.emptyWithCapacity 4096
   let mut instances : Std.HashMap String (Array String) := Std.HashMap.emptyWithCapacity 256
   let mut instancesFor : Std.HashMap String (Array String) := Std.HashMap.emptyWithCapacity 256
@@ -244,34 +254,56 @@ def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String
         if user < f.decls.size then entry := entry.push f.decls[user]!.1
       usedBy := usedBy.insert target entry
 
-  let usedByPairs := nameListPairs usedBy
-  let title := titleOverride.getD (siteTitle ownSorted)
   return {
     nameMapJson
     nameMap := flatMap
-    indexHtml := indexHtml title intro pages sortedNames.size leanVersion
-    notFoundHtml := notFoundHtml title
-    searchHtml := searchHtml title
-    foundationalTypesHtml := foundationalTypesHtml title
-    referencesHtml := referencesHtml title references (backrefsOf facts)
+    modules := ownSorted
+    pages
+    declarations := sortedNames.size
+    dependencyNames := depNames.size
     modulesJson
     searchIndexBin
     instancesJson :=
       "{\"instances\":" ++ nameListsJson (nameListPairs instances)
         ++ ",\"instancesFor\":" ++ nameListsJson (nameListPairs instancesFor) ++ "}"
-    usedByJson := nameListsJson usedByPairs
+    instanceClasses := instances.size
+    instanceTypes := instancesFor.size
+    usedByPairs := nameListPairs usedBy
+    usedByTargets := usedBy.size }
+
+/-- **Index order is behaviour, twice.** Two modules declaring the same name
+leave the later one in the map, and a module's importer list is built in it
+(before being sorted). Passing the facts in any other order is a different
+answer. -/
+def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String)))
+    (titleOverride : Option String) (intro : Option String) (references : Array BibItem)
+    (leanVersion : String) : Artifacts :=
+  let d := deriveData facts depMaps
+  let title := titleOverride.getD (siteTitle d.modules)
+  {
+    nameMapJson := d.nameMapJson
+    nameMap := d.nameMap
+    indexHtml := indexHtml title intro d.pages d.declarations leanVersion
+    notFoundHtml := notFoundHtml title
+    searchHtml := searchHtml title
+    foundationalTypesHtml := foundationalTypesHtml title
+    referencesHtml := referencesHtml title references (backrefsOf facts)
+    modulesJson := d.modulesJson
+    searchIndexBin := d.searchIndexBin
+    instancesJson := d.instancesJson
+    usedByJson := nameListsJson d.usedByPairs
     counts := {
-      declarations := sortedNames.size
-      dependencyNames := depNames.size
-      instanceClasses := instances.size
-      instanceTypes := instancesFor.size
-      usedByTargets := usedBy.size
+      declarations := d.declarations
+      dependencyNames := d.dependencyNames
+      instanceClasses := d.instanceClasses
+      instanceTypes := d.instanceTypes
+      usedByTargets := d.usedByTargets
       -- Counted the way the file spells it — after the per-key dedup, not
       -- before. Two declarations of one module that mention the same name are
       -- one user.
-      usedByEdges := usedByPairs.foldl (fun acc p => acc + p.2.size) 0
-      summariesRendered := (pages.filter (·.summary.isSome)).size
-      summariesEchoingTheName := (pages.filter echoesTheName).size } }
+      usedByEdges := d.usedByPairs.foldl (fun acc p => acc + p.2.size) 0
+      summariesRendered := (d.pages.filter (·.summary.isSome)).size
+      summariesEchoingTheName := (d.pages.filter echoesTheName).size } }
 
 /-- Paired with the paths they go to, in `ARTIFACT_PATHS` order.
 

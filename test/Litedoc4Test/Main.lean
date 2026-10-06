@@ -28,6 +28,7 @@ def main : IO UInt32 :=
     Litedoc4Test.everyProperPrefixAndAnyTrailingByteIsRefused,
     Litedoc4Test.noSingleBitFlipDecodesToOtherBytes,
     Litedoc4Test.eachRefusalNamesWhatItFound,
+    Litedoc4Test.DataFormat.everyHostedFileDecompressesToItsRawCountAndEveryPackRangeToItsItems,
     Litedoc4Test.anEntryReadsBackByteForByteAndItsRecordCountsWhatTheIrHolds,
     Litedoc4Test.replacingAnEntryLeavesOnlyTheNewEntryAndNoStagingDirectory,
     Litedoc4Test.aTamperedPackIsRefusedByItsDigestOrItsLengthNamingTheEntry,

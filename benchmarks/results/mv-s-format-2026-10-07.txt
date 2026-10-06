@@ -1,0 +1,54 @@
+The three storage candidates of the data format on the S input (four versions of the sample package)
+
+Date: 2026-10-07
+Machine: Apple M1, macOS 26 (Darwin 25.6.0), warm; single runs (byte counts are deterministic:
+a repeated run with --out gave byte-identical files for every candidate)
+Input: the store of benchmarks/results/mv-s-store-2026-10-07.txt (versions v1..v4 of tools/mv-s/)
+Command: litedoc4 store measure --store <store> --versions v1,v2,v3,v4 --candidate a|b|c
+         [--chunk-bytes N for c; default 16384]
+Compression: miniz 3.1.2 level 6, one gzip member per stored file (per chunk for c)
+Candidates: (a) one content file per module per version, deduplicated when byte-identical;
+            (b) per-module segments, each version appending its new items;
+            (c) per-version packs of items not in an earlier pack, compressed per chunk, read by range
+Content address: first 64 bits of SHA-256 over the canonical JSON of an item (name included).
+
+S is far too small to choose a candidate: one 16 KiB chunk holds nearly a whole version, so (c)
+over-reads here. These rows check the mechanics, not the decision (that is M's).
+
+New addresses per pair, against tools/mv-s/expected.txt: v1..v2 4, v2..v3 4, v3..v4 1 (all three
+candidates agree).
+
+Columns: pages items addr new | added files, raw B, stored B, content files, content items |
+per view: fetches total/max, bytes total/max | content fetches total/max, content bytes total/max,
+items fetched
+
+candidate a: hosted files=120 raw=97978 stored=39886
+ ver pages items addr new | +files +raw +stored +cfiles +citems | fetch tot/max  bytes tot/max | cfetch tot/max cbytes tot/max itemsFetched
+ v1  11  67  67  67 |  37  43629  17014 11  67 |  44/4  24006/ 3221 |  11/1  11252/ 1930 67
+ v2  10  65  65   4 |  27  19170   8022  3  13 |  40/4  22188/ 3181 |  10/1  10936/ 1930 65
+ v3  11  67  67   4 |  29  18667   7932  3  11 |  44/4  24069/ 3228 |  11/1  11243/ 1930 67
+ v4  11  67  67   1 |  27  16512   6918  1   5 |  44/4  24082/ 3228 |  11/1  11256/ 1930 67
+candidate b: hosted files=119 raw=91076 stored=36897
+ ver pages items addr new | +files +raw +stored +cfiles +citems | fetch tot/max  bytes tot/max | cfetch tot/max cbytes tot/max itemsFetched
+ v1  11  67  67  67 |  37  44192  17263 11  67 |  44/4  24255/ 3269 |  11/1  11252/ 1930 67
+ v2  10  65  65   4 |  27  15634   6538  3   4 |  43/5  23174/ 3229 |  13/2  11634/ 1930 68
+ v3  11  67  67   4 |  28  15977   6750  2   4 |  48/6  25439/ 3276 |  15/3  12301/ 1930 72
+ v4  11  67  67   1 |  27  15273   6346  1   1 |  49/7  25702/ 3276 |  16/4  12553/ 1963 73
+candidate c: hosted files=106 raw=93804 stored=36318 chunkBytes=16384
+ ver pages items addr new | +files +raw +stored +cfiles +citems | fetch tot/max  bytes tot/max | cfetch tot/max cbytes tot/max itemsFetched
+ v1  11  67  67  67 |  27  44797  15771  1  67 |  44/4  69081/10783 |  11/1  55689/ 9371 399
+ v2  10  65  65   4 |  25  16312   6736  1   4 |  43/5  65104/10743 |  13/2  53183/ 9371 379
+ v3  11  67  67   4 |  27  16692   7062  1   4 |  48/6  67872/10790 |  15/3  54327/ 9371 387
+ v4  11  67  67   1 |  27  16003   6749  1   1 |  49/7  68131/10790 |  16/4  54578/ 9371 388
+candidate c1: hosted files=106 raw=94518 stored=45956 chunkBytes=1
+ ver pages items addr new | +files +raw +stored +cfiles +citems | fetch tot/max  bytes tot/max | cfetch tot/max cbytes tot/max itemsFetched
+ v1  11  67  67  67 |  27  44960  24685  1  67 |  44/4  31677/ 5649 |  11/1  18203/ 4213 67
+ v2  10  65  65   4 |  25  16512   7081  1   4 |  44/6  29840/ 5609 |  14/3  17838/ 4213 65
+ v3  11  67  67   4 |  27  16845   7363  1   4 |  48/6  31749/ 5656 |  15/3  18133/ 4213 67
+ v4  11  67  67   1 |  27  16201   6827  1   1 |  50/8  31776/ 5656 |  17/5  18145/ 4213 67
+candidate c65536: hosted files=106 raw=93792 stored=35439 chunkBytes=65536
+ ver pages items addr new | +files +raw +stored +cfiles +citems | fetch tot/max  bytes tot/max | cfetch tot/max cbytes tot/max itemsFetched
+ v1  11  67  67  67 |  27  44796  14960  1  67 |  44/4 107762/ 9991 |  11/1  94391/ 8581 737
+ v2  10  65  65   4 |  25  16310   6717  1   4 |  43/5  99623/10392 |  13/2  87721/ 9218 682
+ v3  11  67  67   4 |  27  16688   7037  1   4 |  48/6 102385/11032 |  15/3  88865/ 9790 690
+ v4  11  67  67   1 |  27  15998   6725  1   1 |  49/7 102645/11292 |  16/4  89116/10041 691

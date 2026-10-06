@@ -12,9 +12,9 @@
 # hand, by someone who has read why it moved, because re-minting from the thing
 # under test would replace the answer with the question.
 #
-# **Except the `store` command** (2026-10-07): its seven synopsis lines and
-# nineteen description lines in `@usage` and its six `store-*` rows had no Rust
-# counterpart. They were written by hand against the Lean binary, which is the
+# **Except the `store` command** (2026-10-07): its nine synopsis lines and
+# twenty-nine description lines in `@usage` and its nine `store-*` rows had no
+# Rust counterpart. They were written by hand against the Lean binary, which is the
 # only oracle a command newer than `rust-frozen` has.
 #
 # FORMAT
@@ -105,6 +105,8 @@
 |        litedoc4 store remove --store <dir> --version <name>
 |        litedoc4 store check-stale --store <dir> --extractor-bin <path>
 |                        --root <repo>
+|        litedoc4 store measure --store <dir> --versions <name>,<name>...
+|                        --candidate a|b|c [--chunk-bytes <n>] [--out <dir>]
 |
 |   --root         (`build`, `modules`) the Lean package: the sources are globbed
 |                  under it, its oleans are hashed, `lake env` runs inside it, and
@@ -312,6 +314,16 @@
 |                  --extractor-bin for its identity with the flags `build`
 |                  passes, which --root's litedoc4.toml decides, and says fresh
 |                  or stale per entry
+|   --versions     (`store measure`) the entries to lay out, comma-separated, in
+|                  the order a site would have added them
+|   --candidate    (`store measure`) how declaration content is stored: a, one
+|                  file per module per version; b, per-module segments appended
+|                  by each version; c, packs read by byte range. It prints one
+|                  JSON line of counters (hosted bytes and files, bytes and files
+|                  each version adds, fetches and bytes per module page view);
+|                  --out writes the hosted files into an empty directory
+|   --chunk-bytes  (`store measure --candidate c`) the raw bytes after which a
+|                  pack's compressed chunk is cut (default 16384)
 |
 |
 
@@ -1262,7 +1274,7 @@ exit 2
 @case store-needs-a-subcommand
 argv store
 exit 2
-| litedoc4: store needs a subcommand: put, list, read, remove, check-stale
+| litedoc4: store needs a subcommand: put, list, read, remove, check-stale, measure
 |
 | <usage>
 
@@ -1298,5 +1310,26 @@ exit 2
 argv store put --store s --version ../x
 exit 2
 | litedoc4: `../x` is not a version name: it does not start with a letter or a digit
+|
+| <usage>
+
+@case store-measure-repeated-version
+argv store measure --store s --versions v1,v1 --candidate a
+exit 2
+| litedoc4: --versions names `v1` twice
+|
+| <usage>
+
+@case store-measure-unknown-candidate
+argv store measure --store s --versions v1 --candidate d
+exit 2
+| litedoc4: --candidate is `d`, not a, b or c
+|
+| <usage>
+
+@case store-measure-chunk-bytes-outside-c
+argv store measure --store s --versions v1 --candidate a --chunk-bytes 10
+exit 2
+| litedoc4: --chunk-bytes is a flag of --candidate c
 |
 | <usage>

@@ -74,6 +74,8 @@ def usage : String :=
        litedoc4 store remove --store <dir> --version <name>
        litedoc4 store check-stale --store <dir> --extractor-bin <path>
                        --root <repo>
+       litedoc4 store measure --store <dir> --versions <name>,<name>...
+                       --candidate a|b|c [--chunk-bytes <n>] [--out <dir>]
 
   --root         (`build`, `modules`) the Lean package: the sources are globbed
                  under it, its oleans are hashed, `lake env` runs inside it, and
@@ -281,6 +283,16 @@ def usage : String :=
                  --extractor-bin for its identity with the flags `build`
                  passes, which --root's litedoc4.toml decides, and says fresh
                  or stale per entry
+  --versions     (`store measure`) the entries to lay out, comma-separated, in
+                 the order a site would have added them
+  --candidate    (`store measure`) how declaration content is stored: a, one
+                 file per module per version; b, per-module segments appended
+                 by each version; c, packs read by byte range. It prints one
+                 JSON line of counters (hosted bytes and files, bytes and files
+                 each version adds, fetches and bytes per module page view);
+                 --out writes the hosted files into an empty directory
+  --chunk-bytes  (`store measure --candidate c`) the raw bytes after which a
+                 pack's compressed chunk is cut (default 16384)
 "
 
 /-- What `litedoc4` with no arguments prints. `usage` is behind `--help-all` and
@@ -2246,10 +2258,13 @@ structure StoreArgs where
   extractorBin : Option String := none
   root : Option String := none
   lake : Option String := none
+  versions : Option String := none
+  candidate : Option String := none
+  chunkBytes : Option String := none
   help : Bool := false
   deriving Inhabited
 
-def storeCommands : List String := ["put", "list", "read", "remove", "check-stale"]
+def storeCommands : List String := ["put", "list", "read", "remove", "check-stale", "measure"]
 
 /-- Per subcommand for `ledgerFlags`' reason: a flag one of them takes and
 ignores is a run that looks right. -/
@@ -2258,9 +2273,12 @@ def storeFlags : List (String × List String) :=
    ("--version", ["put", "read", "remove"]),
    ("--from", ["put"]),
    ("--lake", ["put"]),
-   ("--out", ["read"]),
+   ("--out", ["read", "measure"]),
    ("--extractor-bin", ["check-stale"]),
-   ("--root", ["check-stale"])]
+   ("--root", ["check-stale"]),
+   ("--versions", ["measure"]),
+   ("--candidate", ["measure"]),
+   ("--chunk-bytes", ["measure"])]
 
 def storeFlagRefusal (command flag : String) : Option String :=
   match storeFlags.find? (·.1 == flag) with
@@ -2294,6 +2312,12 @@ partial def parseStore (command : String) : List String → StoreArgs → Except
       let (v, more) ← value; parseStore command more { acc with root := some v }
     else if flag == "--lake" then do
       let (v, more) ← value; parseStore command more { acc with lake := some v }
+    else if flag == "--versions" then do
+      let (v, more) ← value; parseStore command more { acc with versions := some v }
+    else if flag == "--candidate" then do
+      let (v, more) ← value; parseStore command more { acc with candidate := some v }
+    else if flag == "--chunk-bytes" then do
+      let (v, more) ← value; parseStore command more { acc with chunkBytes := some v }
     else if flag == "--help" || flag == "-h" then
       parseStore command rest { acc with help := true }
     else
@@ -2426,10 +2450,61 @@ def storeCheckStale (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
     {unreadable} unreadable ({current.text})"
   return if unreadable == 0 then 0 else 3
 
+def measureVersions (list : String) : Except String (Array Store.VersionName) := do
+  let mut out : Array Store.VersionName := #[]
+  for name in list.splitOn "," do
+    let v ← Store.VersionName.parse name
+    if out.contains v then throw s!"--versions names `{name}` twice"
+    out := out.push v
+  return out
+
+def measureLayout (candidate : String) (chunkBytes : Nat) (vs : Array Data.VersionData) :
+    Except String Data.Layout :=
+  let compress := Gzip.compress 6
+  if candidate == "a" then Data.CandidateA.layout compress vs
+  else if candidate == "b" then Data.CandidateB.layout compress vs
+  else Data.CandidateC.layout compress chunkBytes vs
+
+def storeMeasure (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
+  let some list := a.versions | refuse "store measure needs --versions <name>,<name>..."
+  let names ← match measureVersions list with
+    | .error message => return ← refuse message
+    | .ok names => pure names
+  let some candidate := a.candidate | refuse "store measure needs --candidate a|b|c"
+  if !["a", "b", "c"].contains candidate then
+    return ← refuse s!"--candidate is `{candidate}`, not a, b or c"
+  let chunkBytes ← match a.chunkBytes, candidate with
+    | none, _ => pure Data.CandidateC.defaultChunkBytes
+    | some _, "a" | some _, "b" => return ← refuse "--chunk-bytes is a flag of --candidate c"
+    | some n, _ => match n.toNat? with
+      | some k => if k == 0 then return ← refuse "--chunk-bytes is 0" else pure k
+      | none => return ← refuse s!"--chunk-bytes is `{n}`, not a whole number"
+  if let some out := a.out then
+    if (← System.FilePath.pathExists ⟨out⟩) && !(← isEmptyDir ⟨out⟩) then
+      return ← refusedWith 3 s!"{out} is not an empty directory"
+  let mut vs : Array Data.VersionData := #[]
+  for v in names do
+    let s ← Store.read store v
+    match Data.inputOf s.record s.files with
+    | .error why => return ← refusedWith 3 s!"store entry {v.text}: {why}"
+    | .ok input => vs := vs.push (Data.versionData input)
+  let layout ← match measureLayout candidate chunkBytes vs with
+    | .error why => return ← refusedWith 3 why
+    | .ok layout => pure layout
+  if let some out := a.out then
+    for f in layout.files do
+      let target := System.FilePath.mk out / f.path
+      if let some parent := target.parent then IO.FS.createDirAll parent
+      IO.FS.writeBinFile target f.stored
+  IO.println ((Data.counts vs layout).json candidate
+    (if candidate == "c" then some chunkBytes else none))
+  return 0
+
 def storeRun (command : String) (a : StoreArgs) : IO UInt32 := do
   let some store := a.store | refuse s!"store {command} needs --store <dir>"
   let store : System.FilePath := ⟨store⟩
   if command == "put" then storePut a store
+  else if command == "measure" then storeMeasure a store
   else if command == "read" then storeRead a store
   else if command == "list" then storeList store
   else if command == "check-stale" then storeCheckStale a store

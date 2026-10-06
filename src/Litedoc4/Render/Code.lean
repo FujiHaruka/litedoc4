@@ -55,25 +55,23 @@ def findLinkableParent (ix : NameIndex) (name : String) : Option String := Id.ru
   return none
 
 /-- `renderedCodeToHtmlAux`'s `.const` resolution. -/
-def constLink (ix : NameIndex) (refs : Std.HashMap String String) (root name : String) :
-    Option String :=
+def constTarget (ix : NameIndex) (refs : Std.HashMap String String) (name : String) :
+    Option (String × Option String) :=
   let isPriv := name.startsWith privatePrefix
   let direct := if isPriv then none else (refs.get? name).orElse fun _ => ix.known.get? name
   match direct with
-  | some module => linkTo ix root module (some name)
+  | some module => some (module, some name)
   | none =>
     let search := if isPriv then privateToUserName name else name
     match findLinkableParent ix search with
-    | some parent =>
-      match ix.known.get? parent with
-      | some module => linkTo ix root module (some parent)
-      | none => none
+    | some parent => (ix.known.get? parent).map (·, some parent)
     | none =>
-      if isPriv then
-        match splitPrivate name with
-        | some (module, _) => linkTo ix root module none
-        | none => none
+      if isPriv then (splitPrivate name).map fun (module, _) => (module, none)
       else none
+
+def constLink (ix : NameIndex) (refs : Std.HashMap String String) (root name : String) :
+    Option String :=
+  (constTarget ix refs name).bind fun (module, anchor) => linkTo ix root module anchor
 
 /-! ## One code fragment
 

@@ -147,14 +147,17 @@ def fillBlock (out : String) (name fill summary : String) : String :=
   escapeInto (escapeInto (out ++ "<details class=\"extra\" data-fill=\"") fill
     ++ "\" data-name=\"") name ++ "\"><summary>" ++ summary ++ "</summary><ul></ul></details>"
 
-/-- An equation whose printed text reaches 200 **code points** is replaced by a
-notice; bytes and UTF-16 units both give a different answer on this package. -/
+def equationLimit : Nat := 200
+
+/-- An equation whose printed text reaches `equationLimit` **code points** is
+replaced by a notice; bytes and UTF-16 units both give a different answer on this
+package. -/
 def equationsHtml (out : String) (ix : NameIndex) (refs : Std.HashMap String String)
     (root : String) (d : Decl) : String := Id.run do
   let mut keep : Array Nat := #[]
   let mut omitted := false
   for i in [0:d.equations.size] do
-    if d.equations[i]!.length < 200 then keep := keep.push i else omitted := true
+    if d.equations[i]!.length < equationLimit then keep := keep.push i else omitted := true
   if keep.isEmpty && !omitted then return out
   let mut acc := out ++
     "<details class=\"extra\"><summary>Equations</summary><ul class=\"equations\">"

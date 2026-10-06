@@ -1,5 +1,10 @@
 import Litedoc4.Build
 import Litedoc4.Config
+import Litedoc4.Data.CandidateA
+import Litedoc4.Data.CandidateB
+import Litedoc4.Data.CandidateC
+import Litedoc4.Data.FromStore
+import Litedoc4.Data.Measure
 import Litedoc4.DepsDocs
 import Litedoc4.Global
 import Litedoc4.Gzip

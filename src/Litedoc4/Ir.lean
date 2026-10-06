@@ -432,19 +432,21 @@ def IrTree.loadModules (t : IrTree) : IO (Array Module) := do
     out := out.push (← t.module e)
   return out
 
-def IrTree.depMap (t : IrTree) (e : DepMapEntry) : IO (Array (String × String)) := do
-  recordIrRead .depMap
-  let path := irPath t.root e.file
-  let text ← readIrFile path
-  let j ← match parseJson text with
-    | .error why => parseIrFailure path why
-    | .ok j => pure j
+def depMapOf (j : JVal) : Array (String × String) := Id.run do
   let mut ds : Array (String × String) := #[]
   for (k, v) in asObj j do
     if k == "declarations" then
       for (name, m) in asObj v do
         ds := ds.push (name, asStr m)
   return ds
+
+def IrTree.depMap (t : IrTree) (e : DepMapEntry) : IO (Array (String × String)) := do
+  recordIrRead .depMap
+  let path := irPath t.root e.file
+  let text ← readIrFile path
+  match parseJson text with
+  | .error why => parseIrFailure path why
+  | .ok j => return depMapOf j
 
 def IrTree.loadDepMaps (t : IrTree) : IO (Array (Array (String × String))) := do
   let mut out : Array (Array (String × String)) :=
