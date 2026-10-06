@@ -200,6 +200,10 @@ so its absence is not an error. -/
 def clearEvents (events : FilePath) : IO Unit :=
   discard <| (IO.FS.removeFile events).toBaseIO
 
+def outputFlags (noEquationsUnder : Array String) : Array String :=
+  if noEquationsUnder.isEmpty then fixedFlags
+  else fixedFlags ++ #["--no-equations-under", ",".intercalate noEquationsUnder.toList]
+
 /-- The whole command line an extraction is started with, after `lake env`.
 
 **One spelling for both extraction paths.** `litedoc4 extract` runs it once and
@@ -221,9 +225,7 @@ def extractArgv (bin modules events irDir : FilePath) (jobs : Nat)
     (linkIndex linkIndexOmit : Option FilePath) (linkIndexKey : Option String) :
     Array String := Id.run do
   let mut args := #["env", bin.toString, modules.toString, events.toString]
-  args := args ++ fixedFlags
-  if !noEquationsUnder.isEmpty then
-    args := args.push "--no-equations-under" |>.push (",".intercalate noEquationsUnder.toList)
+  args := args ++ outputFlags noEquationsUnder
   args := args ++ #["--jobs", toString jobs, "--ir-dir", irDir.toString]
   if let some map := linkIndex then
     args := args.push "--link-index" |>.push map.toString

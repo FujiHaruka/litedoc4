@@ -14,7 +14,7 @@ reachable from the command line and belong to `tools/refusal-gate.sh`, which
 holds `unknown-subcommand` and a `*-unknown-flag` row per command.
 
 There is no `Args` type here to test. The Rust half shares one cursor between
-fourteen `match`es; the Lean half is fourteen `List String` recursions, and
+fourteen `match`es; the Lean half is fifteen `List String` recursions, and
 "the value is the argument after the flag and it is consumed" is the list
 pattern `flag :: v :: more` — so what is left to ask is that a real parser
 answers with the value it was handed and reads the *next* flag from `more`.
@@ -57,13 +57,13 @@ def aNumberFlagIsTheValueItTook : Bool :=
 added there and not here is one nobody checked. -/
 def subcommands : Array String :=
   #["build", "watch", "incremental", "modules", "links", "extract", "site", "render",
-    "global", "ledger", "ownership", "merge", "impact", "prune"]
+    "global", "ledger", "ownership", "merge", "impact", "prune", "store"]
 
 /-- A subcommand the front door does not name is one nobody finds. Being named at
 all, beside the sentence that says where its command line is, is the whole
-obligation — `summary` gives two of the fourteen a synopsis on purpose.
+obligation — `summary` gives two of the fifteen a synopsis on purpose.
 
-The last clause is the way back: without `--help-all` the twelve are hidden with
+The last clause is the way back: without `--help-all` the thirteen are hidden with
 nothing pointing at them. -/
 def theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines : Bool :=
   subcommands.all (fun name => (summary.splitOn name).length ≥ 2)
@@ -73,8 +73,8 @@ def theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines : Bool :=
 #guard theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines
 
 /-- Both spellings through every parser, because they are two patterns in each of
-the thirteen flag loops: one that lost `-h` passes a check that only asks
-`--help`. Thirteen and not fourteen — `parseBuild` serves `build` and `watch`,
+the fourteen flag loops: one that lost `-h` passes a check that only asks
+`--help`. Fourteen and not fifteen — `parseBuild` serves `build` and `watch`,
 and the `Bool` is which.
 
 `--help` is in no synopsis line, so `tools/flag-tie-gate.sh` never hands it to a
@@ -95,6 +95,7 @@ def everyParserTakesBothSpellingsOfHelp : Bool :=
       && (parseMerge [h] {}).toOption.map (·.help) == some true
       && (parseImpact [h] {}).toOption.map (·.help) == some true
       && (parsePrune [h] {}).toOption.map (·.help) == some true
+      && (parseStore "put" [h] {}).toOption.map (·.help) == some true
 
 #guard everyParserTakesBothSpellingsOfHelp
 

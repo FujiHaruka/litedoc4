@@ -12,6 +12,11 @@
 # hand, by someone who has read why it moved, because re-minting from the thing
 # under test would replace the answer with the question.
 #
+# **Except the `store` command** (2026-10-07): its seven synopsis lines and
+# fifteen description lines in `@usage` and its six `store-*` rows had no Rust
+# counterpart. They were written by hand against the Lean binary, which is the
+# only oracle a command newer than `rust-frozen` has.
+#
 # FORMAT
 #   @usage         the `--help-all` block, stored once. Every exit-2 refusal
 #                  ends with it, so the bodies below say `<usage>` in its place
@@ -93,6 +98,13 @@
 |                        [--json <file>]
 |        litedoc4 links  --root <repo> [--lake <path>] [--link-index <file>]
 |                        [--deps-docs-map <file>] [--out <file>]
+|        litedoc4 store put --store <dir> --version <name> --from <dir>
+|                        [--lake <path>]
+|        litedoc4 store read --store <dir> --version <name> [--out <dir>]
+|        litedoc4 store list --store <dir>
+|        litedoc4 store remove --store <dir> --version <name>
+|        litedoc4 store check-stale --store <dir> --extractor-bin <path>
+|                        --root <repo>
 |
 |   --root         (`build`, `modules`) the Lean package: the sources are globbed
 |                  under it, its oleans are hashed, `lake env` runs inside it, and
@@ -281,6 +293,21 @@
 |   --census       a per-module TSV of |IMPORTERS| / |REFERRERS| / declarations
 |   --pages        (`prune`) the page tree; nothing outside it is ever deleted
 |   --dry-run      report what would be deleted and delete nothing
+|   --store        (`store`) the kept versions, one directory per version:
+|                  <store>/<name>/ir.pack.gz (the IR tree, packed and gzipped)
+|                  and record.json (commit, Lean, dependencies, the extractor
+|                  identity the IR was written under, and the pack's SHA-256,
+|                  which `read` checks before it decompresses anything)
+|   --version      (`store`) the entry's name: letters, digits, `.`, `_`, `+`
+|                  and `-`, starting with a letter or a digit, without `..`
+|   --from         (`store put`) a directory `build --out` finished. Its ir/ is
+|                  stored; the commit, the dependencies and Lean core's revision
+|                  come from the checkout its marker names, which has to still
+|                  be at the commit the pages link to. `store read --out` unpacks
+|                  an entry into an empty directory; without it the entry is
+|                  only verified. `store check-stale` asks --extractor-bin for its
+|                  identity with the flags `build` passes, which --root's
+|                  litedoc4.toml decides, and says fresh or stale per entry
 |
 |
 
@@ -1225,5 +1252,47 @@ exit 2
 argv ledger touch --ledger L --module M --target T
 exit 2
 | litedoc4: --target is not a flag of `ledger touch`: it belongs to `ledger build`
+|
+| <usage>
+
+@case store-needs-a-subcommand
+argv store
+exit 2
+| litedoc4: store needs a subcommand: put, list, read, remove, check-stale
+|
+| <usage>
+
+@case store-unknown-subcommand
+argv store frob
+exit 2
+| litedoc4: unknown `store` subcommand `frob`
+|
+| <usage>
+
+@case store-unknown-subcommand-flag
+argv store --frobnicate
+exit 2
+| litedoc4: unknown `store` subcommand `--frobnicate`
+|
+| <usage>
+
+@case store-put-unknown-flag
+argv store put --frobnicate
+exit 2
+| litedoc4: unknown argument `--frobnicate`
+|
+| <usage>
+
+@case store-list-foreign-flag
+argv store list --version v1
+exit 2
+| litedoc4: --version is not a flag of `store list`: it belongs to `store put` / `store read` / `store remove`
+|
+| <usage>
+
+@case store-put-not-a-version-name
+argv store put --store s --version ../x
+exit 2
+| litedoc4: `../x` is not a version name: it does not start with a letter or a digit
 |
 | <usage>

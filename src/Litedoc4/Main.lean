@@ -67,6 +67,13 @@ def usage : String :=
                        [--json <file>]
        litedoc4 links  --root <repo> [--lake <path>] [--link-index <file>]
                        [--deps-docs-map <file>] [--out <file>]
+       litedoc4 store put --store <dir> --version <name> --from <dir>
+                       [--lake <path>]
+       litedoc4 store read --store <dir> --version <name> [--out <dir>]
+       litedoc4 store list --store <dir>
+       litedoc4 store remove --store <dir> --version <name>
+       litedoc4 store check-stale --store <dir> --extractor-bin <path>
+                       --root <repo>
 
   --root         (`build`, `modules`) the Lean package: the sources are globbed
                  under it, its oleans are hashed, `lake env` runs inside it, and
@@ -255,16 +262,31 @@ def usage : String :=
   --census       a per-module TSV of |IMPORTERS| / |REFERRERS| / declarations
   --pages        (`prune`) the page tree; nothing outside it is ever deleted
   --dry-run      report what would be deleted and delete nothing
+  --store        (`store`) the kept versions, one directory per version:
+                 <store>/<name>/ir.pack.gz (the IR tree, packed and gzipped)
+                 and record.json (commit, Lean, dependencies, the extractor
+                 identity the IR was written under, and the pack's SHA-256,
+                 which `read` checks before it decompresses anything)
+  --version      (`store`) the entry's name: letters, digits, `.`, `_`, `+`
+                 and `-`, starting with a letter or a digit, without `..`
+  --from         (`store put`) a directory `build --out` finished. Its ir/ is
+                 stored; the commit, the dependencies and Lean core's revision
+                 come from the checkout its marker names, which has to still
+                 be at the commit the pages link to. `store read --out` unpacks
+                 an entry into an empty directory; without it the entry is
+                 only verified. `store check-stale` asks --extractor-bin for its
+                 identity with the flags `build` passes, which --root's
+                 litedoc4.toml decides, and says fresh or stale per entry
 "
 
 /-- What `litedoc4` with no arguments prints. `usage` is behind `--help-all` and
 behind every subcommand's own `--help`, because a reader who has already typed
 `site` is past the front door.
 
-Two commands rather than fourteen: the other twelve are invoked by
+Two commands rather than fifteen: the other thirteen are invoked by
 `tools/*-gate.sh` and by `build` itself, and by nothing a consumer runs —
 `action.yml` and `lakefile.lean`'s `docs` script call `build` and nothing else
-(measured 2026-08-29). Listing all fourteen as equals said the opposite. -/
+(measured 2026-08-29). Listing all fifteen as equals said the opposite. -/
 def summary : String :=
 "usage: litedoc4 build  --root <repo> --out <dir> --extractor-bin <path>
                        [--lib <Name>]... [--jobs <n>] [--source-url <url>]
@@ -275,10 +297,10 @@ def summary : String :=
   `build` writes the site once. `watch` rebuilds it whenever the package's
   oleans change and serves it, without ever running `lake build` itself.
 
-  Twelve more subcommands exist — extract, modules, links, incremental, site,
-  render, global, ledger, ownership, merge, impact, prune. They are the stages
-  `build` runs and the queries the gates ask of them, not a second way to use
-  this tool, and each answers its own --help.
+  Thirteen more subcommands exist — extract, modules, links, incremental, site,
+  render, global, ledger, ownership, merge, impact, prune, store. They are the
+  stages `build` runs and the queries the gates ask of them, not a second way to
+  use this tool, and each answers its own --help.
 
   litedoc4 --help-all    every command line and every flag
   litedoc4 --version
@@ -2211,5 +2233,225 @@ def extract (args : List String) : IO UInt32 := do
     catch e =>
       IO.eprintln s!"litedoc4: {e}"
       pure (1 : UInt32)
+
+structure StoreArgs where
+  store : Option String := none
+  version : Option String := none
+  from_ : Option String := none
+  out : Option String := none
+  extractorBin : Option String := none
+  root : Option String := none
+  lake : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+def storeCommands : List String := ["put", "list", "read", "remove", "check-stale"]
+
+/-- Per subcommand for `ledgerFlags`' reason: a flag one of them takes and
+ignores is a run that looks right. -/
+def storeFlags : List (String × List String) :=
+  [("--store", storeCommands),
+   ("--version", ["put", "read", "remove"]),
+   ("--from", ["put"]),
+   ("--lake", ["put"]),
+   ("--out", ["read"]),
+   ("--extractor-bin", ["check-stale"]),
+   ("--root", ["check-stale"])]
+
+def storeFlagRefusal (command flag : String) : Option String :=
+  match storeFlags.find? (·.1 == flag) with
+  | some (_, accepted) =>
+    if accepted.contains command then none
+    else some s!"{flag} is not a flag of `store {command}`: it belongs to \
+      {" / ".intercalate (accepted.map (s!"`store {·}`"))}"
+  | none => none
+
+partial def parseStore (command : String) : List String → StoreArgs → Except String StoreArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} needs a value"
+    match storeFlagRefusal command flag with
+    | some message => .error message
+    | none =>
+    if flag == "--store" then do
+      let (v, more) ← value; parseStore command more { acc with store := some v }
+    else if flag == "--version" then do
+      let (v, more) ← value; parseStore command more { acc with version := some v }
+    else if flag == "--from" then do
+      let (v, more) ← value; parseStore command more { acc with from_ := some v }
+    else if flag == "--out" then do
+      let (v, more) ← value; parseStore command more { acc with out := some v }
+    else if flag == "--extractor-bin" then do
+      let (v, more) ← value; parseStore command more { acc with extractorBin := some v }
+    else if flag == "--root" then do
+      let (v, more) ← value; parseStore command more { acc with root := some v }
+    else if flag == "--lake" then do
+      let (v, more) ← value; parseStore command more { acc with lake := some v }
+    else if flag == "--help" || flag == "-h" then
+      parseStore command rest { acc with help := true }
+    else
+      .error s!"unknown argument `{flag}`"
+
+def storePutJson (s : Store.PutSummary) : String :=
+  let r := s.record
+  jsonStr "{\"command\":\"store put\",\"version\":" r.version.text
+    ++ s!",\"files\":{r.irFiles},\"rawBytes\":{r.irBytes},\"packedBytes\":{s.packedBytes}"
+    ++ s!",\"compressedBytes\":{r.packBytes},\"readSeconds\":{seconds s.readNanos 9}"
+    ++ s!",\"packSeconds\":{seconds s.packNanos 9}"
+    ++ s!",\"compressSeconds\":{seconds s.compressNanos 9}"
+    ++ s!",\"digestSeconds\":{seconds s.digestNanos 9}"
+    ++ s!",\"writeSeconds\":{seconds s.writeNanos 9}" ++ "}"
+
+def storeReadJson (s : Store.ReadSummary) (writeNanos : Nat) : String :=
+  let r := s.record
+  jsonStr "{\"command\":\"store read\",\"version\":" r.version.text
+    ++ s!",\"files\":{r.irFiles},\"rawBytes\":{r.irBytes},\"packedBytes\":{s.packedBytes}"
+    ++ s!",\"compressedBytes\":{r.packBytes},\"readSeconds\":{seconds s.readNanos 9}"
+    ++ s!",\"verifySeconds\":{seconds s.verifyNanos 9}"
+    ++ s!",\"decompressSeconds\":{seconds s.decompressNanos 9}"
+    ++ s!",\"unpackSeconds\":{seconds s.unpackNanos 9}"
+    ++ s!",\"writeSeconds\":{seconds writeNanos 9}" ++ "}"
+
+def storePutOrigin (from_ : System.FilePath) (lake : System.FilePath) :
+    IO (Except String Store.Origin) := do
+  match ← readMarker (from_ / markerName) with
+  | .absent => return .error s!"{from_} has no {markerName}: `store put --from` takes a \
+      directory `litedoc4 build --out` wrote"
+  | .broken why => return .error s!"{from_ / markerName}: {why}"
+  | .fields kv =>
+    if !markerIsTrue kv "complete" then
+      return .error s!"{from_}: the build there did not finish"
+    let root : System.FilePath := ⟨markerString kv "root"⟩
+    let sourceUrl := markerString kv "sourceUrl"
+    let commit ← match ← (git root #["rev-parse", "HEAD"]).run with
+      | .error why => return .error why
+      | .ok commit => pure commit
+    if (sourceUrl.splitOn s!"/blob/{commit}").length < 2 then
+      return .error s!"{root} is at {commit} and the build in {from_} linked to {sourceUrl}: \
+        the checkout moved since the build, or --source-url named another revision"
+    let leanGithash ← match ← coreGithash root lake with
+      | .error why => return .error why
+      | .ok hash => pure hash
+    let dependencies ← match ← Store.dependencyRevisions root with
+      | .error why => return .error why
+      | .ok deps => pure deps
+    return .ok { commit, leanGithash, sourceUrl, dependencies }
+
+def versionOf (a : StoreArgs) (command : String) : Except String Store.VersionName :=
+  match a.version with
+  | none => .error s!"store {command} needs --version <name>"
+  | some name => Store.VersionName.parse name
+
+def storePut (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
+  let v ← match versionOf a "put" with
+    | .error message => return ← refuse message
+    | .ok v => pure v
+  let some from_ := a.from_ | refuse "store put needs --from <dir>: a directory `litedoc4 build \
+      --out` finished"
+  let lake := (← envOr (a.lake.map (⟨·⟩)) "LAKE").getD ⟨"lake"⟩
+  let origin ← match ← storePutOrigin ⟨from_⟩ lake with
+    | .error message => return ← refusedWith 3 message
+    | .ok origin => pure origin
+  let s ← Store.put store v origin (System.FilePath.mk from_ / "ir")
+  IO.println s!"put     {v.text}: {s.record.irFiles} file(s), {s.record.irBytes} B -> \
+    {s.record.packBytes} B ({s.record.extractorIdentity.text})"
+  IO.println (storePutJson s)
+  return 0
+
+def storeRead (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
+  let v ← match versionOf a "read" with
+    | .error message => return ← refuse message
+    | .ok v => pure v
+  let s ← Store.read store v
+  let started ← IO.monoNanosNow
+  if let some out := a.out then Store.unpackTo ⟨out⟩ s.files
+  let writeNanos := (← IO.monoNanosNow) - started
+  let where_ := match a.out with
+    | some out => s!" -> {out}"
+    | none => " (verified, not written)"
+  IO.println s!"read    {v.text}: {s.record.packBytes} B -> {s.record.irFiles} file(s), \
+    {s.record.irBytes} B{where_}"
+  IO.println (storeReadJson s writeNanos)
+  return 0
+
+def storeList (store : System.FilePath) : IO UInt32 := do
+  let listing ← Store.list store
+  for (v, record) in listing.entries do
+    match record with
+    | .ok r =>
+      IO.println s!"{v.text} {r.commit} lean {r.leanVersion} {r.fill.name} \
+        {r.irFiles} file(s) {r.irBytes} B -> {r.packBytes} B"
+    | .error why => IO.println s!"{v.text} unreadable: {why}"
+  for name in listing.strays do
+    IO.eprintln s!"litedoc4: {store / name} is not a version name and is not read"
+  IO.println s!"list    {listing.entries.size} entr{if listing.entries.size == 1 then "y" else "ies"}"
+  return 0
+
+def storeCheckStale (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
+  let some bin := a.extractorBin | refuse "store check-stale needs --extractor-bin <path>: the \
+      extractor whose identity every entry is compared with"
+  let some root := a.root | refuse "store check-stale needs --root <repo>: its litedoc4.toml \
+      sets the extractor flags `build` passes, and so the identity"
+  let bin ← absolutePath ⟨bin⟩
+  let current ← Store.currentIdentity bin (← readConfigKeys ⟨root⟩).noEquationsUnder
+  let listing ← Store.list store
+  let mut fresh := 0
+  let mut stale := 0
+  let mut unreadable := 0
+  for (v, record) in listing.entries do
+    match record with
+    | .ok r =>
+      if Store.stale r current then
+        stale := stale + 1
+        IO.println s!"{v.text} stale"
+      else
+        fresh := fresh + 1
+        IO.println s!"{v.text} fresh"
+    | .error why =>
+      unreadable := unreadable + 1
+      IO.println s!"{v.text} unreadable: {why}"
+  IO.println s!"check-stale {listing.entries.size} entr\
+    {if listing.entries.size == 1 then "y" else "ies"}: {fresh} fresh, {stale} stale, \
+    {unreadable} unreadable ({current.text})"
+  return if unreadable == 0 then 0 else 3
+
+def storeRun (command : String) (a : StoreArgs) : IO UInt32 := do
+  let some store := a.store | refuse s!"store {command} needs --store <dir>"
+  let store : System.FilePath := ⟨store⟩
+  if command == "put" then storePut a store
+  else if command == "read" then storeRead a store
+  else if command == "list" then storeList store
+  else if command == "check-stale" then storeCheckStale a store
+  else
+    let v ← match versionOf a "remove" with
+      | .error message => return ← refuse message
+      | .ok v => pure v
+    Store.remove store v
+    IO.println s!"remove  {v.text}"
+    return 0
+
+def storeCmd (args : List String) : IO UInt32 := do
+  match args with
+  | [] => refuse s!"store needs a subcommand: {", ".intercalate storeCommands}"
+  | command :: rest =>
+    if command == "--help" || command == "-h" then do
+      IO.println usage
+      return 0
+    else if !storeCommands.contains command then
+      refuse s!"unknown `store` subcommand `{command}`"
+    else match parseStore command rest {} with
+      | .error message => refuse message
+      | .ok a =>
+        if a.help then
+          IO.println usage
+          return 0
+        try
+          storeRun command a
+        catch e =>
+          IO.eprintln s!"litedoc4: {e}"
+          pure (1 : UInt32)
 
 end Litedoc4
