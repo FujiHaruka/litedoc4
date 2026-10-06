@@ -1,0 +1,82 @@
+diff --git a/Example.lean b/Example.lean
+index 294d075..3560271 100644
+--- a/Example.lean
++++ b/Example.lean
+@@ -2,6 +2,7 @@ import Example.Attrs
+ import Example.Basic
+ import Example.Dep
+ import Example.Gen
++import Example.Interval
+ import Example.Math
+ import Example.Shapes
+ import Example.Sorry
+diff --git a/Example/Interval.lean b/Example/Interval.lean
+new file mode 100644
+index 0000000..1804187
+--- /dev/null
++++ b/Example/Interval.lean
+@@ -0,0 +1,19 @@
++/-!
++# A closed interval of natural numbers
++
++A module that the previous version did not have.
++-/
++
++namespace Example
++
++/-- A closed interval `[lo, hi]`. -/
++structure Interval where
++  /-- The lower end. -/
++  lo : Nat
++  /-- The upper end. -/
++  hi : Nat
++
++/-- How far apart the two ends are. -/
++def Interval.width (i : Interval) : Nat := i.hi - i.lo
++
++end Example
+diff --git a/Example/Math.lean b/Example/Math.lean
+index decb59c..d2b104d 100644
+--- a/Example/Math.lean
++++ b/Example/Math.lean
+@@ -27,9 +27,6 @@ from one that converted nothing.
+ 
+ namespace Example.Math
+ 
+-/-- An inline span: $x^2 + 1$ sits in the run of text around it. -/
+-def inlineSpan (n : Nat) : Nat := n * n + 1
+-
+ /-- A displayed span, which is its own block:
+ 
+ $$\sum_{i = 0}^{n} i = \frac{n(n+1)}{2}$$
+@@ -38,6 +35,9 @@ and the prose continues after it. Sums like this one are the subject of chapter
+ of [Graham1994]. -/
+ def displaySpan (n : Nat) : Nat := n * (n + 1) / 2
+ 
++/-- An inline span: $x^2 + 1$ sits in the run of text around it. -/
++def inlineSpan (n : Nat) : Nat := n * n + 1
++
+ /-- Escaping still applies to whatever is *not* converted, and the conversion has
+ to survive characters HTML cares about: $a < b$ and $c \& d$ are both legal
+ LaTeX and both come out as mathematics rather than as markup. -/
+@@ -46,6 +46,6 @@ def escapes {α : Type} (a : α) : α := a
+ /-- **The fallback.** `\colim` is not a command the converter implements, so this
+ span stays $\colim_k F(k)$ — dollars, source and escaping, exactly what the page
+ held before MathML. -/
+-theorem fallbackStays (n : Nat) : Example.double n = n + n := rfl
++theorem fallbackKept (n : Nat) : Example.double n = n + n := rfl
+ 
+ end Example.Math
+diff --git a/Example/Sorry.lean b/Example/Sorry.lean
+index 388187e..9798a31 100644
+--- a/Example/Sorry.lean
++++ b/Example/Sorry.lean
+@@ -41,8 +41,4 @@ of the two claims, and the reason there are two. -/
+ theorem usesHole (n : Nat) : Example.double n = 2 * n := by
+   rw [sorryHole, Nat.two_mul]
+ 
+-/-- A theorem that depends on neither, and is marked neither. -/
+-theorem noHole (n : Nat) : Example.double n + 0 = Example.double n :=
+-  Nat.add_zero _
+-
+ end Example.Sorry

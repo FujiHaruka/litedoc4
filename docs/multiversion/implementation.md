@@ -61,7 +61,7 @@ the full one at checkpoints:
 
 | Size | Input | Time per run | What it can say |
 |---|---|---|---|
-| S | this repository's own history: `src/` at a series of `main` commits since the pure-Lean port, as versions (D6: a site without releases uses commits) | seconds to a minute, local | store, data format, renderer, browser, the command, staleness — exactly, by counters; nothing about Mathlib's time |
+| S | the sample package as a four-commit repository with designed churn (`tools/mv-s/`: `generate.sh`, one patch per version, `expected.txt`), as versions (D6: a site without releases uses commits) | seconds to a minute, local | store, data format, renderer, browser, the command, staleness — exactly, by counters; nothing about Mathlib's time, nothing about dependency revisions (the sample depends on Lean core and a path package only; M covers it) |
 | M | a slice of Mathlib at the real release commits: the import closure of a few roots, 5–10% of Mathlib's modules, chosen to include the notation behind the largest drift (`Finset.sum`, set-builder) | minutes, local or runner | everything S says, plus the reader across Lean versions, the patch path and print reuse on Mathlib's real churn; Mathlib's time by the scaling below |
 | L | all of Mathlib, the real releases, on the runner | ≈ 11 min first version, minutes per further one | the targets themselves |
 
@@ -103,13 +103,18 @@ Building S and M is the first item of step 1. Read on 2026-10-06 (from the sourc
   set-builder (`Data.Set.Defs`, whose target changed from `setOf` to `Set.ofPred` between these
   releases), and each loses and gains modules across the pair (11–15 / 25–28) — the churn M exists
   to exercise.
-- **S is thinner than expected**: 8 commits change `src/` after `rust-frozen`, 51 since the Lean
-  tree began (2026-08-30, 4 → 59 modules); the requires changed twice (MathML4Lean, then
-  BibtexQuery), so each commit needs its own manifest; and how the extractor is run over `src/`
-  as the documented package (no `lean-toolchain` here) is not settled. A from-scratch build of
-  `src/` is 18.1 s (measured → `benchmarks/results/purelean-require-only-2026-08-31.txt`).
-  Deciding S's input — litedoc4's own commits, or a small synthetic package with versions — is
-  the first item of the step.
+- **S is the sample package with designed churn, not this repository's commits** (decided
+  2026-10-06). S has to answer by counters, which needs the right count known before the run;
+  designed edits give it (`tools/mv-s/expected.txt`, derived by reading the patches and checked
+  against the IR of all three pairs, 0 disagreements), and a commit of `src/` would need a second
+  oracle to say what the count should be. `src/` was also thin: 8 commits change it after
+  `rust-frozen`, its requires changed twice, and no settled way runs the extractor over it. The
+  generated repository still exercises the commit-as-version path (a GitHub-shaped `origin`, one
+  commit per version). Its cost: v1 is `e2e/micro` as it is, so an edit to the sample can stop a
+  patch applying or change the counts; `expected.txt` names the v1 it was derived against.
+- **Two facts from S's IR the format has to respect**: a module's declarations sit in the IR in the olean's order,
+  not the source's, so a reorder is visible only through positions; and a `def`'s own name appears
+  in its equations, so a renamed definition never shares content with its old name.
 - **The compressed IR size cannot be read yet**: no full Mathlib IR is on disk. It is measured on
   the first full extraction of step 1.
 

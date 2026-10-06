@@ -1,0 +1,13 @@
+diff --git a/Example/Math.lean b/Example/Math.lean
+index d2b104d..66e94b6 100644
+--- a/Example/Math.lean
++++ b/Example/Math.lean
+@@ -36,7 +36,7 @@ of [Graham1994]. -/
+ def displaySpan (n : Nat) : Nat := n * (n + 1) / 2
+ 
+ /-- An inline span: $x^2 + 1$ sits in the run of text around it. -/
+-def inlineSpan (n : Nat) : Nat := n * n + 1
++def inlineSpan (n : Nat) : Nat := n * n + n + 1
+ 
+ /-- Escaping still applies to whatever is *not* converted, and the conversion has
+ to survive characters HTML cares about: $a < b$ and $c \& d$ are both legal

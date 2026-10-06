@@ -1,0 +1,68 @@
+# Declaration churn of the S input (tools/mv-s/generate.sh), per consecutive
+# pair, derived by reading v2.patch, v3.patch and v4.patch.
+# Derived against v1 = 5d16fb2b43744a5161f3d0feff4f34d769f60669 (e2e/micro as it
+# was then). v1 is e2e/micro as it is, so a different v1 in versions.txt means
+# the sample changed and the rows below are unchecked against it.
+#
+# Position:  line, col, endLine, endCol, selectionRange, index.
+# Content:   every other field of an IR declaration (name, kind, modifiers,
+#            binders, implicits, binderCode, type, typeCode, doc, equations,
+#            equationCode, refs, attrs, members, sorry, generated, instTypes).
+#
+# `index` is the declaration's slot in its module file's array. That array follows
+# the order the module's olean lists its constants (filtered ones dropped), not
+# the source's, so `index` shifts when another declaration of the module comes or
+# goes (Example.Sorry.usesHole, v2..v3) and says nothing about reordering.
+# Source position is the other five fields.
+#
+# A declaration in both versions under the same name and not listed below has
+# identical content and identical source position.
+#
+# class      same content?  meaning
+# changed    no             same name, content differs (the last column says which part)
+# added      -              name only in the later version
+# removed    -              name only in the earlier version
+# renamed    yes, but name  old name removed, new name added; content equal once
+#                           `name` is left out (a theorem, so no equation carries it)
+# moved      yes            same name, same content, position differs
+# reordered  yes            moved, and the two declarations swapped places in the source
+#
+# Module rows are module-level and carry no declaration: they change the root
+# module Example (imports, which has 0 declarations) and the module count.
+# dep-map rows are names entering or leaving a dependency's link table (ir/deps):
+# a name leaves when the last declaration referring to it goes, and enters with
+# the first one.
+
+# pair    class           declaration                         detail
+v1..v2    changed         Example.Untitled.Coin.flip          doc
+v1..v2    changed         Example.Math.escapes                binders, implicits, binderCode, type, typeCode, refs (signature); equations unchanged
+v1..v2    changed         Example.Untitled.Coin.flip_flip     attrs (+simp)
+v1..v2    added           Example.documentedTwice             in Example.Unicode
+v1..v2    removed         Example.useNotation                 with its module
+v1..v2    removed         Example.«term⟦_⟧»                   with its module
+v1..v2    moved           Example.Sorry.sorryHole             +2 lines (a comment above grew)
+v1..v2    moved           Example.Sorry.usesHole              +2 lines
+v1..v2    moved           Example.Sorry.noHole                +2 lines
+v1..v2    module-removed  Example.Notation
+v1..v2    module-imports  Example                             - Example.Notation
+v1..v2    dep-map         Init                                - Lean.ParserDescr Lean.ParserDescr.binary Lean.ParserDescr.cat Lean.ParserDescr.node Lean.ParserDescr.symbol (only «term⟦_⟧» referred to them)
+
+v2..v3    removed         Example.Sorry.noHole
+v2..v3    renamed         Example.Math.fallbackStays          -> Example.Math.fallbackKept
+v2..v3    reordered       Example.Math.displaySpan            now above inlineSpan
+v2..v3    reordered       Example.Math.inlineSpan             now below displaySpan
+v2..v3    added           Example.Interval                    structure, in new module Example.Interval
+v2..v3    added           Example.Interval.mk                 its constructor
+v2..v3    added           Example.Interval.lo                 its field projection
+v2..v3    added           Example.Interval.hi                 its field projection
+v2..v3    added           Example.Interval.width
+v2..v3    module-added    Example.Interval
+v2..v3    module-imports  Example                             + Example.Interval
+v2..v3    dep-map         Init                                + HSub.hSub (Interval.width's `-`)
+
+v3..v4    changed         Example.Math.inlineSpan             equations (body n * n + 1 -> n * n + n + 1)
+
+# same-name: names in both versions; same-content counts the moved and reordered ones.
+v1..v2    totals          modules=11->10 declarations=97->96 same-name=95 same-content=92 changed=3 added=1 removed=2 renamed=0 moved=3 reordered=0
+v2..v3    totals          modules=10->11 declarations=96->100 same-name=94 same-content=94 changed=0 added=5 removed=1 renamed=1 moved=0 reordered=2
+v3..v4    totals          modules=11->11 declarations=100->100 same-name=100 same-content=99 changed=1 added=0 removed=0 renamed=0 moved=0 reordered=0
