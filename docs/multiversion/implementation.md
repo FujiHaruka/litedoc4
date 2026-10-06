@@ -178,6 +178,23 @@ Done when: the directory is committed and `git grep` finds no absolute path unde
   byte range. Chosen by hosted bytes, file count and fetches per page view on the three versions,
   extrapolated to 11 and 51 against "v2 targets".
 
+State on 2026-10-07 (S only; measured → `benchmarks/results/mv-s-store-2026-10-07.txt`,
+`benchmarks/results/mv-s-format-2026-10-07.txt`): the store (`litedoc4 store`, internal), the
+extractor identity and `no_equations_under`, and the format with all three candidates
+(`litedoc4 store measure`) exist and agree with `tools/mv-s/expected.txt` on every pair. A
+content item is a declaration or a module docstring as today's page shows it, encoded as JSON
+with links as `[start, stop, name]`, addressed by the first 64 bits of its SHA-256; **the name is
+part of the content**, so a rename is a removal plus an addition (leaving it out would put a name
+into every manifest entry). Open before M can decide:
+
+- **The link table is per version and whole**: every page fetches it, and at Mathlib it names
+  every own declaration, so it would dominate the bytes of a page view. It needs splitting (per
+  module, or folded into each manifest).
+- **The store record cannot give source links for dependencies other than Lean core**: it keeps
+  each dependency's revision but not its repository URL or module roots.
+- **Docstring autolinks are not in the link table yet** (today's per-page rule).
+- **The SHA-256 is pure Lean**; its speed over a Mathlib version's content is unmeasured.
+
 Done when: the three versions are in a store; the compressed IR size per version is measured (it
 decides where the CI store lives, step 6); the format is chosen with its numbers in a log.
 
