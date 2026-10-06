@@ -2,7 +2,8 @@
 # The S loop of the multi-version plan (docs/multiversion/implementation.md,
 # "Measurement loop") from nothing: tools/mv-s/ generated as four versions, each
 # built and put into a store, then read back, judged fresh, stale or needing a
-# re-put, and laid out by the three storage candidates — answered by counters and names against
+# re-put, laid out by the three storage candidates, and rendered as a site by
+# `store render` — answered by counters, names and bytes against
 # tools/mv-s/expected.txt, never by a duration.
 #
 # Each check prints `ok|FAIL <item>: <what>`; every declared item has to report
@@ -115,6 +116,8 @@ DECLARED=(oracle-v1 oracle-rows source-map fresh stale needs-re-put agree second
 for v in "${VERSIONS[@]}"; do DECLARED+=("round-trip-$v" "re-put-$v"); done
 for c in "${CANDIDATES[@]}"; do DECLARED+=("measure-repeat-$c" "new-addresses-$c"); done
 for p in "${PAIRS[@]}"; do DECLARED+=("new-items-$p" "a-files-$p" "b-segments-$p"); done
+DECLARED+=(render-twice render-sharing render-counts)
+for v in "${VERSIONS[@]}"; do DECLARED+=("render-alone-$v"); done
 
 RAN=()
 FAILED=0
@@ -124,18 +127,18 @@ item () {
   if [ "$1" != ok ]; then FAILED=$((FAILED + 1)); fi
 }
 
-say "1/6 the extractor (built once, in e2e/micro's environment)"
+say "1/7 the extractor (built once, in e2e/micro's environment)"
 if [ -z "$EXTRACTOR" ]; then
   EXTRACTOR="$(micro_extractor "$ROOT" "$ROOT/e2e/micro" "$LAKE" "$LOGS/extractor-build.log")"
 fi
 [ -x "$EXTRACTOR" ] || { echo "no extractor at $EXTRACTOR" >&2; exit 1; }
 echo "$EXTRACTOR"
 
-say "2/6 run 1: generate S, then build and put each version (twice)"
+say "2/7 run 1: generate S, then build and put each version (twice)"
 flow run1 "$R1" 1
 "$LITEDOC4" store list --store "$R1/store"
 
-say "3/6 the store: oracle, read-back, re-put, staleness"
+say "3/7 the store: oracle, read-back, re-put, staleness"
 want_v1="$(sed -n 's/.*Derived against v1 = \([0-9a-f]\{40\}\).*/\1/p' "$EXPECTED")"
 have_v1="$(git -C "$R1/repo" rev-parse v1)"
 if [ -z "$want_v1" ]; then
@@ -246,6 +249,9 @@ old_said="$(check_old "$LOGS/needs-re-put.log")"
 measure_rc=0
 "$LITEDOC4" store measure --store "$OLD" --versions v1,v2 --candidate a \
   >"$LOGS/needs-re-put-measure.log" 2>&1 || measure_rc=$?
+render_rc=0
+"$LITEDOC4" store render --store "$OLD" --versions v1,v2 --out "$R1/render-schema2" \
+  >"$LOGS/needs-re-put-render.log" 2>&1 || render_rc=$?
 put_rc=0
 git -C "$R1/repo" -c advice.detachedHead=false checkout -q v2
 "$LITEDOC4" store put --store "$OLD" --version v2 --from "$R1/build/v2" \
@@ -258,6 +264,10 @@ elif ! grep -q '^v2 needs re-put: .*litedoc4 store put --version v2' "$LOGS/need
   item FAIL needs-re-put "check-stale counted v2 as needing a re-put and no line for v2 names store put"
 elif [ "$measure_rc" -ne 3 ] || ! grep -q 'store entry v2: .*litedoc4 store put' "$LOGS/needs-re-put-measure.log"; then
   item FAIL needs-re-put "store measure over the schema-2 entry exited $measure_rc without refusing it by name ($LOGS/needs-re-put-measure.log)"
+elif [ "$render_rc" -ne 3 ] || ! grep -q 'store entry v2: .*litedoc4 store put' "$LOGS/needs-re-put-render.log"; then
+  item FAIL needs-re-put "store render over the schema-2 entry exited $render_rc without refusing it by name ($LOGS/needs-re-put-render.log)"
+elif [ -e "$R1/render-schema2" ] && [ -n "$(ls -A "$R1/render-schema2")" ]; then
+  item FAIL needs-re-put "store render refused the schema-2 entry v2 after writing into its --out (v1 comes first): $(find "$R1/render-schema2" -type f | wc -l | tr -d ' ') files"
 elif [ "$put_rc" -ne 0 ]; then
   item FAIL needs-re-put "re-putting v2 from its build exited $put_rc ($LOGS/needs-re-put-put.log)"
 elif ! cmp -s "$OLD/v2/record.json" "$R1/store/v2/record.json" || ! cmp -s "$OLD/v2/entry.pack.gz" "$R1/store/v2/entry.pack.gz"; then
@@ -265,10 +275,10 @@ elif ! cmp -s "$OLD/v2/record.json" "$R1/store/v2/record.json" || ! cmp -s "$OLD
 elif [ "$reput_said" != "0 check-stale $N entries: $N fresh, 0 stale, 0 needs re-put, 0 unreadable" ]; then
   item FAIL needs-re-put "after the re-put, check-stale answered (exit, summary): $reput_said"
 else
-  item ok needs-re-put "a schema-2 record is counted apart and exits 3, measure refuses it naming store put, and a re-put from its build restores the entry byte for byte"
+  item ok needs-re-put "a schema-2 record is counted apart and exits 3, measure and render refuse it naming store put (render before writing anything), and a re-put from its build restores the entry byte for byte"
 fi
 
-say "4/6 the data format: three candidates, each laid out twice"
+say "4/7 the data format: three candidates, each laid out twice"
 LIST="$(IFS=,; echo "${VERSIONS[*]}")"
 mkdir -p "$R1/measure"
 for c in "${CANDIDATES[@]}"; do
@@ -563,7 +573,184 @@ if [ "$FORMAT_RC" -ne 0 ]; then
   tail -n 15 "$LOGS/format-items.err" >&2
 fi
 
-say "5/6 run 2: the whole flow again, in another directory"
+say "5/7 the site: store render, twice, each version alone, and all but the newest"
+RD="$R1/render"
+mkdir -p "$RD"
+render () {
+  timed "render $1" "$RD/$1.json" "$LITEDOC4" store render --store "$R1/store" --versions "$2" --out "$RD/$1"
+}
+ALL_OK=1
+for k in 1 2; do render "all-$k" "$LIST" || ALL_OK=0; done
+if [ "$ALL_OK" -eq 0 ]; then
+  item FAIL render-twice "store render refused ($RD/all-*.json.err)"
+elif ! /usr/bin/diff -r "$RD/all-1" "$RD/all-2" >"$LOGS/render-twice.diff" 2>&1 ||
+     ! cmp -s "$RD/all-1.json" "$RD/all-2.json"; then
+  item FAIL render-twice "two renders of the same store differ ($LOGS/render-twice.diff: $(head -n 1 "$LOGS/render-twice.diff"))"
+else
+  item ok render-twice "two renders of all ${#VERSIONS[@]} versions gave byte-identical trees ($(find "$RD/all-1" -type f | wc -l | tr -d ' ') files) and counts"
+fi
+
+for v in "${VERSIONS[@]}"; do
+  alone="$RD/alone-$v"
+  if ! render "alone-$v" "$v"; then
+    item FAIL "render-alone-$v" "store render of $v alone refused ($RD/alone-$v.json.err)"
+    continue
+  fi
+  if ! /usr/bin/diff -r "$alone/$v" "$RD/all-1/$v" >"$LOGS/render-alone-$v.diff" 2>&1; then
+    item FAIL "render-alone-$v" "$v/ rendered alone differs from $v/ rendered with the others ($LOGS/render-alone-$v.diff: $(head -n 1 "$LOGS/render-alone-$v.diff"))"
+    continue
+  fi
+  n=0
+  differs=""
+  for f in "$alone"/d/*; do
+    n=$((n + 1))
+    if ! cmp -s "$f" "$RD/all-1/d/$(basename "$f")"; then differs="$differs $(basename "$f")"; fi
+  done
+  if [ -n "$differs" ]; then
+    item FAIL "render-alone-$v" "of $n data files $v alone wrote, these are absent or other bytes in the four-version d/:$differs"
+  else
+    item ok "render-alone-$v" "$v/ ($(find "$alone/$v" -type f | wc -l | tr -d ' ') shells) byte-identical to the four-version run's, and all $n data files it wrote are in that run's d/ byte for byte"
+  fi
+done
+
+FIRST="$(IFS=,; echo "${VERSIONS[*]:0:$((N - 1))}")"
+render first "$FIRST" || true
+
+set +e
+python3 - "$EXPECTED" "$RD" "${VERSIONS[$((N - 2))]}" "${VERSIONS[$((N - 1))]}" >"$WORK/render-items.txt" 2>"$LOGS/render-items.err" <<'PY'
+import gzip
+import json
+import pathlib
+import re
+import sys
+
+expected_path, rd, older, newest = sys.argv[1:5]
+rd = pathlib.Path(rd)
+pair = "%s..%s" % (older, newest)
+
+
+def say(ok, name, what):
+    print("%s %s: %s" % ("ok" if ok else "FAIL", name, what))
+
+
+def check(name, body):
+    try:
+        ok, what = body()
+    except Exception as e:
+        ok, what = False, "could not be asked: %r" % (e,)
+    say(ok, name, what)
+
+
+def attr(html, key):
+    m = re.search(r' data-%s="([0-9a-f]+)"' % key, html)
+    if not m:
+        raise RuntimeError("no data-%s" % key)
+    return m.group(1)
+
+
+def sharing():
+    rows = []
+    for line in pathlib.Path(expected_path).read_text(encoding="utf-8").splitlines():
+        f = line.split()
+        if f and not f[0].startswith("#") and f[0] == pair:
+            rows.append(f)
+    if not rows:
+        return False, "expected.txt has no row for %s" % pair
+    for f in rows:
+        fields = []
+        for word in f[3:]:
+            if word.startswith("("):
+                break
+            fields.append(word.rstrip(","))
+        if f[1] == "changed" and fields and set(fields) <= {"equations", "doc"}:
+            continue
+        if f[1] in ("page", "totals"):
+            continue
+        return False, "the derivation covers a pair of equation and docstring changes only; %s has `%s`" % (pair, " ".join(f))
+    modules = [f[2] for f in rows if f[1] == "page" and f[3] == "new"]
+    want_n = 1 + 2 * len(modules)
+    all_d = {p.name for p in (rd / "all-1" / "d").iterdir()}
+    first_d = {p.name for p in (rd / "first" / "d").iterdir()}
+    new = all_d - first_d
+    counts = json.loads((rd / "all-1.json").read_text(encoding="utf-8"))
+    counted = counts["versions"][-1]["dataAdded"]["files"]
+    versions = json.loads((rd / "all-1" / "versions.json").read_text(encoding="utf-8"))
+    want = {versions[-1]["data"] + ".json.gz": "the version file of %s" % newest}
+    for m in modules:
+        shell = (rd / "all-1" / newest / (m.replace(".", "/") + ".html")).read_text(encoding="utf-8")
+        page = attr(shell, "page")
+        want[page + ".json.gz"] = "the page file of %s" % m
+        content = json.loads(gzip.decompress((rd / "all-1" / "d" / (page + ".json.gz")).read_bytes()))["content"]
+        want[content + ".json.gz"] = "the content file of %s" % m
+    if len(new) != want_n or counted != want_n or new != set(want):
+        return False, "%s adds %d data files over %s (counter %d: %s), expected %d: %s" % (
+            newest, len(new), older, counted, " ".join(sorted(new)), want_n,
+            "; ".join("%s %s" % (v, k) for k, v in sorted(want.items())))
+    return True, "%s adds %d data files over %s, as derived from %s's rows (1 version file + 2 per changed page: %s), and the counter agrees: %s" % (
+        newest, want_n, older, pair, " ".join(modules), "; ".join(v for _, v in sorted(want.items())))
+
+
+def tree(root):
+    files = [p for p in sorted(root.rglob("*")) if p.is_file()]
+    shells = [p for p in files if p.parent != root and p.relative_to(root).parts[0] != "d"]
+    data = [p for p in files if p.relative_to(root).parts[0] == "d"]
+    top = [p for p in files if p.parent == root]
+    return files, shells, data, top
+
+
+def reconcile():
+    root = rd / "all-1"
+    counts = json.loads((rd / "all-1.json").read_text(encoding="utf-8"))
+    files, shells, data, top = tree(root)
+    if len(shells) + len(data) + len(top) != len(files):
+        raise RuntimeError("a file is in none or two of shells, d/ and the root")
+
+    def tally(ps, raw):
+        return {"files": len(ps), "rawBytes": sum(raw(p) for p in ps),
+                "storedBytes": sum(p.stat().st_size for p in ps)}
+
+    size = lambda p: p.stat().st_size
+    unzipped = lambda p: len(gzip.decompress(p.read_bytes()))
+    on_disk = {"shells": tally(shells, size), "data": tally(data, unzipped), "root": tally(top, size)}
+    total = {k: sum(on_disk[part][k] for part in on_disk) for k in ("files", "rawBytes", "storedBytes")}
+    printed = counts["total"]
+    bad = []
+    for k in total:
+        if printed[k] != total[k]:
+            bad.append("total %s printed %d, on disk %d" % (k, printed[k], total[k]))
+    for part, t in on_disk.items():
+        if printed[part] != t:
+            bad.append("%s printed %s, on disk %s" % (part, printed[part], t))
+    for v in counts["versions"]:
+        n = sum(1 for p in shells if p.relative_to(root).parts[0] == v["version"])
+        if v["shells"]["files"] != n:
+            bad.append("%s: %d shells printed, %d on disk" % (v["version"], v["shells"]["files"], n))
+    if bad:
+        return False, "; ".join(bad)
+    return True, "printed totals = the tree on disk: %d files, %d raw bytes, %d stored (shells %d, data %d, root %d), and each version's shell count" % (
+        total["files"], total["rawBytes"], total["storedBytes"], on_disk["shells"]["files"],
+        on_disk["data"]["files"], on_disk["root"]["files"])
+
+
+check("render-sharing", sharing)
+check("render-counts", reconcile)
+PY
+RENDER_RC=$?
+set -e
+while IFS= read -r line; do
+  status="${line%% *}"
+  rest="${line#* }"
+  item "$status" "${rest%%: *}" "${rest#*: }"
+done <"$WORK/render-items.txt"
+if [ "$RENDER_RC" -ne 0 ]; then
+  echo "the render checks stopped (exit $RENDER_RC):" >&2
+  tail -n 15 "$LOGS/render-items.err" >&2
+fi
+echo "counts (store render, all ${#VERSIONS[@]} versions):"
+cat "$RD/all-1.json" 2>/dev/null || true
+echo
+
+say "6/7 run 2: the whole flow again, in another directory"
 flow run2 "$R2" 0
 if /usr/bin/diff -r "$R1/store" "$R2/store" >"$LOGS/second-run.diff" 2>&1; then
   item ok second-run "both runs put byte-identical entries for all ${#VERSIONS[@]} versions"
@@ -571,7 +758,7 @@ else
   item FAIL second-run "the second run's store differs from the first's ($LOGS/second-run.diff: $(head -n 1 "$LOGS/second-run.diff"))"
 fi
 
-say "6/6 report"
+say "7/7 report"
 echo "counters per version (store measure, run 1):"
 if [ -f "$WORK/table.txt" ]; then cat "$WORK/table.txt"; fi
 echo

@@ -7,6 +7,7 @@ import Litedoc4.Data.CandidateA
 import Litedoc4.Data.CandidateB
 import Litedoc4.Data.CandidateC
 import Litedoc4.Data.Measure
+import Litedoc4.Data.Site
 import Litedoc4.Gzip
 import Litedoc4Test.Basis
 
@@ -391,6 +392,79 @@ def everyHostedFileDecompressesToItsRawCountAndEveryPackRangeToItsItems : Invari
           problems := problems ++
             [eq (packSlices { l with files := pages } vs gzipMembers) (some (pageAddresses vs))]
     return first problems
+
+/-! ## The rendered site -/
+
+def siteMeta : Data.Site.VersionMeta :=
+  { commit := "c0ffee", lean := "4.31.0", source := "https://h/o/r/blob/c0ffee" }
+
+def renderedOf (v : Data.VersionData) : Option Data.Site.Rendered := (Data.Site.render siteMeta v).toOption
+
+def dataNamed (r : Data.Site.Rendered) (what : String) : Option Data.Site.DataFile :=
+  r.data.find? (·.what == what)
+
+def aShellClimbsOutOfItsModuleDirectoriesAndItsVersionDirectory : Bool :=
+  let f := Data.Site.DataFile.of "json" "" "{}".toUTF8
+  Data.Site.moduleShell "v1" "A.B.C" f f f ==
+    s!"<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
+      <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+      <title>A.B.C</title>\n<script src=\"../../../assets/site.js\" defer></script>\n</head>\n\
+      <body data-root=\"../../../\" data-version=\"v1\" data-module=\"A.B.C\" \
+      data-data=\"{f.address}\" data-page=\"{f.address}\" data-used-by=\"{f.address}\">\
+      </body>\n</html>\n"
+    && (Data.Site.versionIndexShell "v1" f).contains "data-root=\"../\""
+    && (Data.Site.siteIndexShell "v1" f.address).contains "<script src=\"./assets/site.js\""
+    && Data.Site.shellPath "v1" "A.B.C" == "v1/A/B/C.html"
+
+#guard aShellClimbsOutOfItsModuleDirectoriesAndItsVersionDirectory
+
+/-- No docstring anywhere, so `#guard` reaches it without md4c. -/
+def undocumented (modules : Array Module) : Data.VersionData :=
+  Data.versionData { name := "u", modules, depMaps := dataDepMaps, lidx := dataLidx 10, sources := pinned }
+
+def theVersionFileListsExactlyTheRootsItsPagesNameWithTheBaseTheyResolvedUnder : Bool :=
+  let onlyB := undocumented #[moduleB #[hDecl]]
+  let both := undocumented #[moduleB #[hDecl], { name := "P.C", schemaVersion := 5, decls := #[gDecl] }]
+  let f := Data.Site.DataFile.of "json" "" "[]".toUTF8
+  Data.versionRoots onlyB.pages == #[("Init", "https://core/src")]
+    && Data.versionRoots both.pages == #[("Dep", "https://dep/src"), ("Init", "https://core/src")]
+    && Data.Site.versionFileJson "u" siteMeta (Data.versionRoots both.pages) f f f ==
+      s!"\{\"version\":\"u\",\"commit\":\"c0ffee\",\"lean\":\"4.31.0\",\
+        \"source\":\"https://h/o/r/blob/c0ffee\",\"roots\":\{\"Dep\":\"https://dep/src\",\
+        \"Init\":\"https://core/src\"},\"modules\":\"{f.address}\",\"search\":\"{f.address}\",\
+        \"instances\":\"{f.address}\"}"
+
+#guard theVersionFileListsExactlyTheRootsItsPagesNameWithTheBaseTheyResolvedUnder
+
+def aPageFileNamesItsContentByAddressAndAnEmptyPageNamesNone : Invariant where
+  name := "a page file names its content file by the address of that file's bytes, its shell \
+    names the page file by its address, and a page with no items names no content and has none"
+  check := pure <|
+    match renderedOf (dataVersion "v1" #[fDecl, gDecl] (others := #[{ name := "P.E", schemaVersion := 5 }])) with
+    | none => some "render refused"
+    | some r =>
+      let text := fun (f : Data.Site.DataFile) => (String.fromUTF8? f.raw).getD ""
+      match dataNamed r "v1's content of P.A", dataNamed r "v1's page file of P.A",
+          dataNamed r "v1's page file of P.E", pageAt base "P.A" with
+      | some content, some page, some empty, some p =>
+        first [eq content.raw.toList (Data.arrayOf (p.items.map (·.content))).toList,
+          eq ((text page).splitOn s!"\"content\":\"{content.address}\"").length 2,
+          eq content.address (Data.hexAddressOf content.raw),
+          eq ((r.shells.find? (·.1 == "v1/P/A.html")).map (·.2.splitOn s!"data-page=\"{page.address}\"" |>.length)) (some 2),
+          eq ((text empty).splitOn "\"content\":null").length 2,
+          eq (dataNamed r "v1's content of P.E").isSome false]
+      | _, _, _, _ => some "a content or page file is missing"
+
+def aChangedDocstringAddsOnlyItsContentItsPageFileAndTheVersionFile : Invariant where
+  name := "a version whose only change is one docstring shares every data file with the one \
+    before except that page's content and page files and its own version file"
+  check := pure <|
+    match renderedOf base, renderedOf docChanged with
+    | some before, some after =>
+      let had : Std.HashSet String := Std.HashSet.ofArray (before.data.map (·.path))
+      let added := (after.data.filter fun f => !had.contains f.path).map (·.what)
+      eq (sortUtf16 added) #["doc's content of P.A", "doc's page file of P.A", "doc's version file"]
+    | _, _ => some "render refused"
 
 end DataFormat
 end Litedoc4Test

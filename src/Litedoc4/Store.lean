@@ -191,6 +191,11 @@ def needsReputRefusal (v : VersionName) : String :=
     rendered from it would link into no dependency: put it again with `litedoc4 store put \
     --version {v.text} --from <its build directory>`, which fills the map without re-extracting"
 
+def sourcesOf (r : Record) : Except String (Array (String × Option String)) :=
+  match r.sources with
+  | .recorded roots => .ok roots
+  | .notRecorded => .error (needsReputRefusal r.version)
+
 def sourceMapOf (m : ExternalLinks) : SourceMap :=
   .recorded <| (m.roots.map fun r =>
     (r.name, match m.sourceFor r.name with

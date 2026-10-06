@@ -27,12 +27,12 @@ def Item.of (content : Content) (lines : Option (Nat × Nat)) : Item :=
 
 inductive Resolved where
   | own (module : String) (anchor : Option String)
-  | dependency (root module : String) (lines : Option (Nat × Nat))
+  | dependency (root base module : String) (lines : Option (Nat × Nat))
   deriving BEq, Repr
 
 def resolvedOf : LinkDest → Option Resolved
   | .page module anchor => some (.own module anchor)
-  | .source root _ module lines => some (.dependency root module lines)
+  | .source root base module lines => some (.dependency root base module lines)
   /- Not reached: `versionData`'s index carries no documentation site (plan D1b). -/
   | .docs _ => none
 
@@ -49,12 +49,19 @@ structure Page where
 structure VersionData where
   name : String
   pages : Array Page
-  /-- Not the page files: those carry each candidate's own locator. -/
-  files : Array (String × ByteArray)
+  modules : ByteArray
+  search : ByteArray
+  instances : ByteArray
+  usedBy : Array (String × ByteArray)
   linkNames : Nat
   docTokens : Nat
 
 def modulePath (module : String) : String := "/".intercalate (moduleComponents module).toList
+
+/-- Not the page files: those carry each candidate's own locator. -/
+def VersionData.files (v : VersionData) : Array (String × ByteArray) :=
+  #[("modules.json", v.modules), ("search-index.bin", v.search), ("instances.json", v.instances)]
+    ++ v.usedBy.map fun (module, body) => (s!"used-by/{modulePath module}.json", body)
 
 def namesTable (ix : NameIndex) (spanNames memberNames : Array String) :
     Array (String × Resolved) := Id.run do
@@ -107,7 +114,7 @@ def usedByFiles (d : Derived) : Array (String × ByteArray) := Id.run do
         o := pushEach (jsonStr o target |>.push ':') users fun out user =>
           jsonStr (jsonStr (out.push '[') user |>.push ',') (d.nameMap.getD user "") |>.push ']'
       return o.push '}'
-    (s!"used-by/{modulePath module}.json", body.toUTF8)
+    (module, body.toUTF8)
 
 def versionData (v : Input) : VersionData := Id.run do
   let facts := v.modules.map (factsOf · "" {})
@@ -120,9 +127,8 @@ def versionData (v : Input) : VersionData := Id.run do
   let mut pages : Array Page := #[]
   for name in d.modules do
     if let some m := byName.get? name then pages := pages.push (pageOf ix m sup)
-  let files := #[("modules.json", d.modulesJson.toUTF8), ("search-index.bin", d.searchIndexBin),
-    ("instances.json", d.instancesJson.toUTF8)] ++ usedByFiles d
-  return { name := v.name, pages, files
+  return { name := v.name, pages, modules := d.modulesJson.toUTF8, search := d.searchIndexBin
+           instances := d.instancesJson.toUTF8, usedBy := usedByFiles d
            linkNames := pages.foldl (fun n p => n + p.names.size + p.words.size) 0
            docTokens := (dedupSorted (sortUtf16 (facts.flatMap (·.tokens)))).size }
 
@@ -131,7 +137,7 @@ def pushResolved (out : String) (rootAt : String → Nat) (key : String) : Resol
   | .own module (some anchor) =>
     if anchor == key then jsonStr (out.push '[') module |>.push ']'
     else jsonStr (jsonStr (out.push '[') module |>.push ',') anchor |>.push ']'
-  | .dependency root module lines =>
+  | .dependency root _ module lines =>
     let o := jsonStr (out ++ s!"[{rootAt root},") module
     (match lines with
       | some (a, b) => o ++ s!",{a},{b}"
@@ -149,8 +155,15 @@ def pushTable (out : String) (rootAt : String → Nat) (t : Array (String × Res
 
 def pageRoots (p : Page) : Array String :=
   dedupSorted (sortUtf16 ((p.names ++ p.words).filterMap fun (_, r) => match r with
-    | .dependency root _ _ => some root
+    | .dependency root .. => some root
     | .own .. => none))
+
+def versionRoots (pages : Array Page) : Array (String × String) := Id.run do
+  let mut bases : Std.HashMap String String := {}
+  for p in pages do
+    for (_, r) in p.names ++ p.words do
+      if let .dependency root base _ _ := r then bases := bases.insert root base
+  return (sortUtf16 (bases.toArray.map (·.1))).map fun root => (root, bases.getD root "")
 
 def pageJson (p : Page) (locator : String) : String := Id.run do
   let roots := pageRoots p

@@ -61,14 +61,18 @@ def arrayOf (items : Array Content) : ByteArray := Id.run do
   return out.push 93
 
 /-- Refused rather than keeping either: the same path with other bytes is two
-contents under one address. -/
+contents under one address. `true` when nothing is there yet. -/
+def isNewAt (path : String) (before : Option ByteArray) (bytes : ByteArray) : Except String Bool :=
+  match before with
+  | none => .ok true
+  | some b => if b == bytes then .ok false
+    else .error s!"{path}: two different contents hash to one address"
+
 def addOnce (files : Array Hosted) (seen : Std.HashMap String ByteArray) (file : Hosted)
-    (raw : ByteArray) : Except String (Array Hosted × Std.HashMap String ByteArray) :=
-  match seen.get? file.path with
-  | some before =>
-    if before == raw then .ok (files, seen)
-    else .error s!"{file.path}: two different contents hash to one address"
-  | none => .ok (files.push file, seen.insert file.path raw)
+    (raw : ByteArray) : Except String (Array Hosted × Std.HashMap String ByteArray) := do
+  if ← isNewAt file.path (seen.get? file.path) raw then
+    return (files.push file, seen.insert file.path raw)
+  return (files, seen)
 
 def contentTable (vs : Array VersionData) :
     Except String (Std.HashMap ContentAddress Content) := do

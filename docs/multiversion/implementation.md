@@ -180,7 +180,7 @@ format with all three candidates (`litedoc4 store measure`) exist and agree with
 docstring as today's page shows it, encoded as JSON with links as `[start, stop, name]`, addressed
 by the first 64 bits of its SHA-256; **the name is part of the content**, so a rename is a removal
 plus an addition (leaving it out would put a name into every manifest entry).
-`tools/mv-s-gate.sh` runs the S loop from nothing (31 items, `ci`); `benchmarks/tools/mv-m-run.sh`
+`tools/mv-s-gate.sh` runs the S loop from nothing (38 items, `ci`); `benchmarks/tools/mv-m-run.sh`
 runs M.
 
 What M says (438 modules, 5.1% of Mathlib; two runs, byte-identical in every store entry and
@@ -234,6 +234,48 @@ becomes a reference into the version's link table.
 Done when: rendering the same store twice gives byte-identical output; rendering one version
 alone and the three together give the same bytes for that version's data and its shared content;
 hosted bytes and file count measured for the three versions.
+
+What exists (2026-10-07, leg r1 — implemented and gated on S; nothing measured on M yet):
+
+- **`litedoc4 store render --store --versions --out`** (internal, beside `measure`). It reads one
+  entry at a time and keeps nothing of a version once its files are written. Output: `d/<address>`
+  holds every data file, gzip-compressed and addressed by its raw bytes (content files, page files,
+  module lists, search indexes, instances, one Used-by file per module, one version file per
+  version), so anything unchanged between two versions is one file; `<v>/<module path>.html` and
+  `<v>/index.html` are page shells whose only version-specific bytes are data attributes (version,
+  module, the addresses of the version file, page file and Used-by file, the path to the site
+  root); `versions.json` and the root `index.html` are the only files that depend on the version
+  set. Locators inside files are addresses, not paths.
+- **The page file** holds a page's own link data: line ranges aligned with its items, the roots it
+  names, `names` (signature names, by today's declaration rule) and `words` (docstring words, by
+  today's autolink resolver, word then tail). Targets name modules, never module numbers; the
+  version file carries the pinned source base per root.
+- **Shared content carries no layout**: docstrings are HTML in which every word the autolinker
+  would try is marked, and destinations stay as the author wrote them; the browser rule is written
+  once, on the marker's definition. Today's single-version HTML is unchanged (51/51 frozen pages).
+- **The store record (schema 3) keeps each root's pinned source URL**; a schema-2 entry is "needs
+  re-put" — a re-put, no re-extraction — and `measure` / `render` refuse it.
+- On S (four versions): 113 files, 49.7 KB stored; v4, a one-line patch, adds 3 data files — the
+  module's content file, its page file and the version file — derived from the patch and checked by
+  `tools/mv-s-gate.sh` (38 items), which also checks render-twice identity, each version alone
+  against its slice of all four, and the printed counts against the tree.
+
+**Deviation from "replaced, not kept beside it" (2026-10-07)**: `build` still writes today's HTML.
+Switching it before step 3 exists would publish pages nothing draws and turn every HTML-parsing
+gate red; `build` moves onto the store renderer when step 3's page draws from this data, and the
+gates listed under "Gates to replace" are replaced then.
+
+Not done yet (step 2 remainder, or named here so it is not lost):
+
+- **M measurement** of hosted bytes, file count and render time for the three versions (next leg).
+- **The bibliography is not in the store**: citations in store-rendered content stay as the
+  author's text. The entry has to carry the bibliography file.
+- **The docs-site tier is not carried**: store-rendered links go to pinned sources only (D1b).
+  A single-version site that links to a dependency's documentation today loses that when `build`
+  switches, unless the record carries the tables.
+- **Module numbers remain in two per-version files**: the search index entries and the importer
+  lists of the module list. They do not block sharing today (each is one file per version) but they
+  stop those files from being shared across a release that adds a module.
 
 ### 3. The page in the browser
 

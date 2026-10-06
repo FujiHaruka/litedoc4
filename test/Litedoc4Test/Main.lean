@@ -46,6 +46,8 @@ def main : IO UInt32 :=
     Litedoc4Test.DataFormat.candidateBAddsOneSegmentOfOneItemForOneChangedDeclaration,
     Litedoc4Test.DataFormat.candidateCRangesCoverExactlyEachPagesItems,
     Litedoc4Test.DataFormat.everyCandidateCountsTheSameNewAddresses,
+    Litedoc4Test.DataFormat.aPageFileNamesItsContentByAddressAndAnEmptyPageNamesNone,
+    Litedoc4Test.DataFormat.aChangedDocstringAddsOnlyItsContentItsPageFileAndTheVersionFile,
     Litedoc4Test.anEntryReadsBackByteForByteAndItsRecordCountsWhatTheIrHolds,
     Litedoc4Test.replacingAnEntryLeavesOnlyTheNewEntryAndNoStagingDirectory,
     Litedoc4Test.aTamperedPackIsRefusedByItsDigestOrItsLengthNamingTheEntry,

@@ -12,8 +12,8 @@
 # hand, by someone who has read why it moved, because re-minting from the thing
 # under test would replace the answer with the question.
 #
-# **Except the `store` command** (2026-10-07): its nine synopsis lines and
-# twenty-nine description lines in `@usage` and its nine `store-*` rows had no
+# **Except the `store` command** (2026-10-07): its eleven synopsis lines and
+# forty-two description lines in `@usage` and its eleven `store-*` rows had no
 # Rust counterpart. They were written by hand against the Lean binary, which is the
 # only oracle a command newer than `rust-frozen` has.
 #
@@ -107,6 +107,8 @@
 |                        --root <repo>
 |        litedoc4 store measure --store <dir> --versions <name>,<name>...
 |                        --candidate a|b|c [--chunk-bytes <n>] [--out <dir>]
+|        litedoc4 store render --store <dir> --versions <name>,<name>...
+|                        --out <dir>
 |
 |   --root         (`build`, `modules`) the Lean package: the sources are globbed
 |                  under it, its oleans are hashed, `lake env` runs inside it, and
@@ -317,10 +319,18 @@
 |                  --extractor-bin for its identity with the flags `build`
 |                  passes, which --root's litedoc4.toml decides, and says fresh,
 |                  stale, or needs re-put (a record with no source map, which
-|                  `store measure` refuses) per entry; it exits 3 when an entry
-|                  needs re-put or is unreadable
-|   --versions     (`store measure`) the entries to lay out, comma-separated, in
-|                  the order a site would have added them
+|                  `store measure` and `store render` refuse) per entry; it exits
+|                  3 when an entry needs re-put or is unreadable
+|   --versions     (`store measure`, `store render`) the entries to lay out,
+|                  comma-separated, in the order a site would have added them:
+|                  the last is the newest. `store render` writes the site into
+|                  an empty --out, one version at a time: every data file once
+|                  under d/, gzipped and named by the address of its bytes, so a
+|                  file two versions share is one file; a shell per page under
+|                  <version>/; versions.json and the root index.html. It prints
+|                  one JSON line of counts (per version and in total) and exits 3
+|                  on an entry that needs re-put or two different files under one
+|                  address
 |   --candidate    (`store measure`) how declaration content is stored: a, one
 |                  file per module per version; b, per-module segments appended
 |                  by each version; c, packs read by byte range. It prints one
@@ -1279,7 +1289,7 @@ exit 2
 @case store-needs-a-subcommand
 argv store
 exit 2
-| litedoc4: store needs a subcommand: put, list, read, remove, check-stale, measure
+| litedoc4: store needs a subcommand: put, list, read, remove, check-stale, measure, render
 |
 | <usage>
 
@@ -1336,5 +1346,19 @@ exit 2
 argv store measure --store s --versions v1 --candidate a --chunk-bytes 10
 exit 2
 | litedoc4: --chunk-bytes is a flag of --candidate c
+|
+| <usage>
+
+@case store-render-needs-out
+argv store render --store s --versions v1
+exit 2
+| litedoc4: store render needs --out <dir>
+|
+| <usage>
+
+@case store-render-foreign-flag
+argv store render --store s --versions v1 --out o --candidate a
+exit 2
+| litedoc4: --candidate is not a flag of `store render`: it belongs to `store measure`
 |
 | <usage>

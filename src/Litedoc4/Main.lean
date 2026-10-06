@@ -76,6 +76,8 @@ def usage : String :=
                        --root <repo>
        litedoc4 store measure --store <dir> --versions <name>,<name>...
                        --candidate a|b|c [--chunk-bytes <n>] [--out <dir>]
+       litedoc4 store render --store <dir> --versions <name>,<name>...
+                       --out <dir>
 
   --root         (`build`, `modules`) the Lean package: the sources are globbed
                  under it, its oleans are hashed, `lake env` runs inside it, and
@@ -286,10 +288,18 @@ def usage : String :=
                  --extractor-bin for its identity with the flags `build`
                  passes, which --root's litedoc4.toml decides, and says fresh,
                  stale, or needs re-put (a record with no source map, which
-                 `store measure` refuses) per entry; it exits 3 when an entry
-                 needs re-put or is unreadable
-  --versions     (`store measure`) the entries to lay out, comma-separated, in
-                 the order a site would have added them
+                 `store measure` and `store render` refuse) per entry; it exits
+                 3 when an entry needs re-put or is unreadable
+  --versions     (`store measure`, `store render`) the entries to lay out,
+                 comma-separated, in the order a site would have added them:
+                 the last is the newest. `store render` writes the site into
+                 an empty --out, one version at a time: every data file once
+                 under d/, gzipped and named by the address of its bytes, so a
+                 file two versions share is one file; a shell per page under
+                 <version>/; versions.json and the root index.html. It prints
+                 one JSON line of counts (per version and in total) and exits 3
+                 on an entry that needs re-put or two different files under one
+                 address
   --candidate    (`store measure`) how declaration content is stored: a, one
                  file per module per version; b, per-module segments appended
                  by each version; c, packs read by byte range. It prints one
@@ -2269,7 +2279,8 @@ structure StoreArgs where
   help : Bool := false
   deriving Inhabited
 
-def storeCommands : List String := ["put", "list", "read", "remove", "check-stale", "measure"]
+def storeCommands : List String :=
+  ["put", "list", "read", "remove", "check-stale", "measure", "render"]
 
 /-- Per subcommand for `ledgerFlags`' reason: a flag one of them takes and
 ignores is a run that looks right. -/
@@ -2278,10 +2289,10 @@ def storeFlags : List (String × List String) :=
    ("--version", ["put", "read", "remove"]),
    ("--from", ["put"]),
    ("--lake", ["put"]),
-   ("--out", ["read", "measure"]),
+   ("--out", ["read", "measure", "render"]),
    ("--extractor-bin", ["check-stale"]),
    ("--root", ["check-stale"]),
-   ("--versions", ["measure"]),
+   ("--versions", ["measure", "render"]),
    ("--candidate", ["measure"]),
    ("--chunk-bytes", ["measure"])]
 
@@ -2472,6 +2483,9 @@ def storeCheckStale (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
     {needsReput} needs re-put, {unreadable} unreadable ({current.text})"
   return if needsReput == 0 && unreadable == 0 then 0 else 3
 
+def isAbsentOrEmpty (dir : System.FilePath) : IO Bool := do
+  return !(← dir.pathExists) || (← isEmptyDir dir)
+
 def measureVersions (list : String) : Except String (Array Store.VersionName) := do
   let mut out : Array Store.VersionName := #[]
   for name in list.splitOn "," do
@@ -2502,8 +2516,7 @@ def storeMeasure (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
       | some k => if k == 0 then return ← refuse "--chunk-bytes is 0" else pure k
       | none => return ← refuse s!"--chunk-bytes is `{n}`, not a whole number"
   if let some out := a.out then
-    if (← System.FilePath.pathExists ⟨out⟩) && !(← isEmptyDir ⟨out⟩) then
-      return ← refusedWith 3 s!"{out} is not an empty directory"
+    if !(← isAbsentOrEmpty ⟨out⟩) then return ← refusedWith 3 s!"{out} is not an empty directory"
   let mut vs : Array Data.VersionData := #[]
   for v in names do
     let s ← Store.read store v
@@ -2522,11 +2535,25 @@ def storeMeasure (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
     (if candidate == "c" then some chunkBytes else none))
   return 0
 
+def storeRender (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
+  let some list := a.versions | refuse "store render needs --versions <name>,<name>..."
+  let names ← match measureVersions list with
+    | .error message => return ← refuse message
+    | .ok names => pure names
+  let some out := a.out | refuse "store render needs --out <dir>"
+  if !(← isAbsentOrEmpty ⟨out⟩) then return ← refusedWith 3 s!"{out} is not an empty directory"
+  match ← (Data.Site.renderStore store ⟨out⟩ names).run with
+  | .error why => refusedWith 3 why
+  | .ok counts =>
+    IO.println counts.json
+    return 0
+
 def storeRun (command : String) (a : StoreArgs) : IO UInt32 := do
   let some store := a.store | refuse s!"store {command} needs --store <dir>"
   let store : System.FilePath := ⟨store⟩
   if command == "put" then storePut a store
   else if command == "measure" then storeMeasure a store
+  else if command == "render" then storeRender a store
   else if command == "read" then storeRead a store
   else if command == "list" then storeList store
   else if command == "check-stale" then storeCheckStale a store

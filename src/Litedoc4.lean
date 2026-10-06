@@ -5,6 +5,7 @@ import Litedoc4.Data.CandidateB
 import Litedoc4.Data.CandidateC
 import Litedoc4.Data.FromStore
 import Litedoc4.Data.Measure
+import Litedoc4.Data.Site
 import Litedoc4.DepsDocs
 import Litedoc4.Global
 import Litedoc4.Gzip
