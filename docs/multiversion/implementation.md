@@ -85,8 +85,33 @@ the full one at checkpoints:
 - **L runs are checkpoints, not the loop**: at the end of step 4 (three versions, the everyday
   path), of step 5 (the rebuild from nothing), and in step 6.
 
-Building S and M is the first item of step 1, together with an open check: whether Mathlib's cache
-can be fetched for a slice rather than whole (if not, M costs the full download per version).
+Building S and M is the first item of step 1. Read on 2026-10-06 (from the sources, nothing run):
+
+- **Mathlib's cache fetches a slice**: `lake exe cache get <modules>` downloads only their import
+  closure, other packages included (the cache tool's help text and its root filtering, same in
+  v4.32.0 and v4.34.1). M costs the slice's download per version, not the whole.
+- **M candidates** (closures counted over the `import` lines of v4.34.1 / v4.32.0; Mathlib v4.34.1
+  has 8,529 modules; every root exists in both releases):
+
+  | Roots | Closure v4.34.1 / v4.32.0 |
+  |---|---|
+  | `Algebra.BigOperators.Group.Finset.Basic` + `Order.Filter.Basic` | 447 (5.2%) / 433 |
+  | `Algebra.BigOperators.Ring.Finset` + `Data.Set.Lattice` + `Order.Filter.Basic` | 545 (6.4%) / 529 |
+  | `Data.Real.Basic` + `Algebra.BigOperators.Intervals` | 722 (8.5%) / 709 |
+
+  All three contain the `∑ x ∈ s, f x` notation (`Algebra.BigOperators.Group.Finset.Defs`) and
+  set-builder (`Data.Set.Defs`, whose target changed from `setOf` to `Set.ofPred` between these
+  releases), and each loses and gains modules across the pair (11–15 / 25–28) — the churn M exists
+  to exercise.
+- **S is thinner than expected**: 8 commits change `src/` after `rust-frozen`, 51 since the Lean
+  tree began (2026-08-30, 4 → 59 modules); the requires changed twice (MathML4Lean, then
+  BibtexQuery), so each commit needs its own manifest; and how the extractor is run over `src/`
+  as the documented package (no `lean-toolchain` here) is not settled. A from-scratch build of
+  `src/` is 18.1 s (measured → `benchmarks/results/purelean-require-only-2026-08-31.txt`).
+  Deciding S's input — litedoc4's own commits, or a small synthetic package with versions — is
+  the first item of the step.
+- **The compressed IR size cannot be read yet**: no full Mathlib IR is on disk. It is measured on
+  the first full extraction of step 1.
 
 ## Steps
 
