@@ -1,0 +1,30 @@
+The store on the S input: four versions of the sample package, one entry each
+
+Date: 2026-10-07
+Machine: Apple M1, macOS 26 (Darwin 25.6.0); warm (each version built just before its put)
+Lean: v4.31.0 (the sample's toolchain); litedoc4 at the store commit on branch multi-version
+Input: tools/mv-s/generate.sh, versions v1..v4 (commits 5d16fb2b, eb2d0fde, a61aa621, 5baad558)
+Each version: lake build, litedoc4 build --root <repo> --lib Example --out <dir> --extractor-bin <bin>,
+then litedoc4 store put --store <store> --version v<n> --from <dir>.
+Compression: miniz 3.1.2 level 6 for the pack (one gzip stream); the "alone" column is Python 3.9 zlib
+level 6 over link-index.lidx by itself (zlib on a whole pack is ≈ 1,520 B, 0.5%, larger than miniz).
+Single runs.
+
+ver | link index raw B | link index alone gz B | IR raw B | IR files | whole pack gz B
+v1  | 1,175,494        | 318,813               | 83,022   | 14       | 333,229
+v2  | 1,175,476        | 318,809               | 80,910   | 13       | 332,696
+v3  | 1,175,494        | 318,814               | 84,084   | 14       | 333,228
+v4  | 1,175,494        | 318,814               | 84,146   | 14       | 333,238
+
+Link index share: raw 1,175,494 / (1,175,494 + 84,146) = 93.3% (v4); compressed 318,814 / 333,238 = 95.7% (v4).
+The link index differs between versions only in its @ lines (the version's own module names).
+
+Read-back: store read --out of all four entries gave ir/ identical under diff -r and link-index.lidx
+identical under cmp. litedoc4 site over v4's unpacked entry gave output byte-identical to litedoc4 site
+over the original build directory (21 files).
+
+Timing (single runs, wall): put ≈ 66 ms, dominated by compression; read ≈ 2.9 ms verify + ≈ 9.0 ms
+decompress. Process CPU (/usr/bin/time -l) is mostly startup.
+
+staleness: store check-stale with the extractor that wrote the entries: 4 of 4 fresh; with
+no_equations_under = ["Example"] in the root's litedoc4.toml: 4 of 4 stale.

@@ -1,3 +1,4 @@
+import Litedoc4.Build
 import Litedoc4.Ledger
 import Litedoc4.Store
 import Litedoc4Test.Basis
@@ -60,19 +61,19 @@ def everyProperPrefixOfAPackAndAPackWithAByteAfterItAreRefused : Bool :=
 def packText (s : String) : Except String (Array (String × ByteArray)) := decode s.toUTF8
 
 def aPackWithAnUnsafeUnorderedOrRepeatedPathOrANonCanonicalNumberIsRefused : Bool :=
-  (packText "litedoc4-ir-pack 1\n1\na\n1\nx").toOption.map (·.size) == some 1
-    && ["litedoc4-ir-pack 2\n1\na\n1\nx",
-        "litedoc4-ir-pack 1\n01\na\n1\nx",
-        "litedoc4-ir-pack 1\n1\na\n01\nx",
-        "litedoc4-ir-pack 1\n1\na\n-1\nx",
-        "litedoc4-ir-pack 1\n1\n../a\n1\nx",
-        "litedoc4-ir-pack 1\n1\n/a\n1\nx",
-        "litedoc4-ir-pack 1\n1\na//b\n1\nx",
-        "litedoc4-ir-pack 1\n1\na/./b\n1\nx",
-        "litedoc4-ir-pack 1\n1\n\n1\nx",
-        "litedoc4-ir-pack 1\n2\nb\n1\nxa\n1\nx",
-        "litedoc4-ir-pack 1\n2\na\n1\nxa\n1\nx",
-        "litedoc4-ir-pack 1\n1\na\n2\nx"].all (isError ∘ packText)
+  (packText "litedoc4-pack 1\n1\na\n1\nx").toOption.map (·.size) == some 1
+    && ["litedoc4-pack 2\n1\na\n1\nx",
+        "litedoc4-pack 1\n01\na\n1\nx",
+        "litedoc4-pack 1\n1\na\n01\nx",
+        "litedoc4-pack 1\n1\na\n-1\nx",
+        "litedoc4-pack 1\n1\n../a\n1\nx",
+        "litedoc4-pack 1\n1\n/a\n1\nx",
+        "litedoc4-pack 1\n1\na//b\n1\nx",
+        "litedoc4-pack 1\n1\na/./b\n1\nx",
+        "litedoc4-pack 1\n1\n\n1\nx",
+        "litedoc4-pack 1\n2\nb\n1\nxa\n1\nx",
+        "litedoc4-pack 1\n2\na\n1\nxa\n1\nx",
+        "litedoc4-pack 1\n1\na\n2\nx"].all (isError ∘ packText)
     && [#[("../a", ByteArray.empty)], #[("a\nb", ByteArray.empty)], #[("/a", ByteArray.empty)],
         #[("a", ByteArray.empty), ("a", ByteArray.empty)]].all (isError ∘ encode)
 
@@ -90,7 +91,8 @@ def sampleRecordOf (v : VersionName) (identity : ExtractorIdentity) : Record :=
     fill := .own, sourceUrl := "https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567"
     dependencies := #[{ name := "batteries", rev := some "fedcba9876543210fedcba9876543210fedcba98" },
                       { name := "micro-dep", rev := none }]
-    extractorIdentity := identity, packSha256 := "ab", packBytes := 12, irFiles := 3, irBytes := 40 }
+    extractorIdentity := identity, packSha256 := "ab", packBytes := 12, irFiles := 3, irBytes := 40
+    linkIndexBytes := 7 }
 
 def withSample (f : Record → ExtractorIdentity → ExtractorIdentity → Bool) : Bool :=
   match VersionName.parse "v4.32.2", ExtractorIdentity.of? identityAText,
@@ -111,13 +113,13 @@ def recordWith (r : Record) (key : String) (value : JVal) : String :=
 
 def recordKeys : List String :=
   ["recordSchema", "version", "commit", "leanVersion", "leanGithash", "fill", "sourceUrl",
-   "dependencies", "extractorIdentity", "pack", "ir"]
+   "dependencies", "extractorIdentity", "pack", "ir", "linkIndex"]
 
 def aRecordRoundTripsThroughItsJsonAndAMissingOrWrongKeyIsRefused : Bool :=
   withSample fun r _ _ =>
     (Record.parse r.toJson).toOption == some r
       && recordKeys.all (fun key => isError (Record.parse (recordWithout r key)))
-      && [recordWith r "recordSchema" (.num 2), recordWith r "fill" (.str "copied"),
+      && [recordWith r "recordSchema" (.num 1), recordWith r "fill" (.str "copied"),
           recordWith r "extractorIdentity" (.str ""), recordWith r "version" (.str "../v1"),
           recordWith r "pack" (.obj #[("sha256", .str "ab")]),
           recordWith r "dependencies" (.arr #[.obj #[("name", .str "x"), ("rev", .num 1)]])].all
@@ -142,6 +144,24 @@ def theIdentityIsAskedForWithTheFlagsAnExtractionStartsWith : Bool :=
 
 #guard theIdentityIsAskedForWithTheFlagsAnExtractionStartsWith
 
+def parts (paths : List String) : Except String EntryParts :=
+  entryParts (paths.toArray.map (·, bytesOf "xy"))
+
+def anEntryIsTheIrUnderIrAndOneLinkIndexAndNothingElse : Bool :=
+  (parts ["ir/index.json", "ir/modules/A.json", "link-index.lidx"]).toOption == some ⟨2, 4, 2⟩
+    && [["ir/index.json"], ["link-index.lidx"], ["ir/index.json", "link-index.lidx", "x"],
+        ["index.json", "link-index.lidx"], ["ir/index.json", "ir-link-index.lidx"]].all
+      (isError ∘ parts)
+
+#guard anEntryIsTheIrUnderIrAndOneLinkIndexAndNothingElse
+
+def anUnpackedEntryIsLaidOutAsBuildLaysOutItsOut : Bool :=
+  let out : FilePath := "/o"
+  (layoutOf out).ir == out / (irPrefix.dropEnd 1).toString
+    && (layoutOf out).linkIndex == out / linkIndexEntry
+
+#guard anUnpackedEntryIsLaidOutAsBuildLaysOutItsOut
+
 /-! ## On disk -/
 
 def scratch (name : String) : IO FilePath := do
@@ -165,11 +185,20 @@ def writeIr (dir : FilePath) (identity : Option String) (body : String) : IO Uni
   IO.FS.writeBinFile (dir / "deps" / "nested" / "map.bin") ⟨#[0, 10, 255, 10]⟩
   IO.FS.writeFile (dir / "deps" / "empty.json") ""
 
+def lidxBytes : ByteArray := bytesOf "#lidx2\n@Init\n@Example\nInit.Core\n\tId\t10\t12\n"
+
+def writeOut (out : FilePath) (identity : Option String) (body : String) : IO Unit := do
+  writeIr (out / "ir") identity body
+  IO.FS.writeBinFile (out / "link-index.lidx") lidxBytes
+
 def testOrigin : Origin :=
   { commit := "0123456789abcdef0123456789abcdef01234567"
     leanGithash := "89abcdef0123456789abcdef0123456789abcdef"
     sourceUrl := "https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567"
     dependencies := #[{ name := "micro-dep", rev := none }] }
+
+def putOut (store : FilePath) (v : VersionName) (out : FilePath) : IO PutSummary :=
+  put store v testOrigin (out / "ir") (out / "link-index.lidx")
 
 def versionNamed (s : String) : IO VersionName := do
   match VersionName.parse s with
@@ -194,21 +223,23 @@ def anEntryReadsBackByteForByteAndItsRecordCountsWhatTheIrHolds : Invariant wher
   name := "an entry reads back byte for byte, to memory and to a directory, and its record counts the IR"
   check := do
     let dir ← scratch "round-trip"
-    let ir := dir / "ir"
-    writeIr ir (some identityAText) "{\"module\":\"Example.Basic\"}"
+    let build := dir / "build"
+    writeOut build (some identityAText) "{\"module\":\"Example.Basic\"}"
     let v1 ← versionNamed "v1"
-    let tree ← readTree ir
-    let put ← put (dir / "store") v1 testOrigin ir
+    let tree := (← readTree build).qsort (fun a b => byteLt a.1 b.1)
+    let ir ← readTree (build / "ir")
+    let put ← putOut (dir / "store") v1 build
     let back ← read (dir / "store") v1
     unpackTo (dir / "out") back.files
     let unpacked ← readTree (dir / "out")
-    let sorted := tree.qsort (fun a b => byteLt a.1 b.1)
     let r := put.record
     let answer := first [
-      if samePairs back.files sorted then none else some "read gave other files than the IR holds",
-      if samePairs (unpacked.qsort (fun a b => byteLt a.1 b.1)) sorted then none
-        else some "the unpacked directory holds other files than the IR",
-      eq (r.irFiles, r.irBytes) (tree.size, tree.foldl (fun n f => n + f.2.size) 0),
+      if samePairs back.files tree then none
+        else some "read gave other files than the IR and the link index",
+      if samePairs (unpacked.qsort (fun a b => byteLt a.1 b.1)) tree then none
+        else some "the unpacked directory is not laid out as the build directory was",
+      eq (r.irFiles, r.irBytes, r.linkIndexBytes)
+        (ir.size, ir.foldl (fun n f => n + f.2.size) 0, lidxBytes.size),
       eq (r.extractorIdentity.text, r.leanVersion, r.commit) (identityAText, "4.31.0", testOrigin.commit),
       eq (back.record == r) true]
     IO.FS.removeDirAll dir
@@ -219,15 +250,15 @@ def replacingAnEntryLeavesOnlyTheNewEntryAndNoStagingDirectory : Invariant where
   check := do
     let dir ← scratch "replace"
     let store := dir / "store"
-    writeIr (dir / "old") (some identityAText) "old"
-    writeIr (dir / "new") (some identityBText) "new and longer"
+    writeOut (dir / "old") (some identityAText) "old"
+    writeOut (dir / "new") (some identityBText) "new and longer"
     let v1 ← versionNamed "v1"
-    let _ ← put store v1 testOrigin (dir / "old")
+    let _ ← putOut store v1 (dir / "old")
     IO.FS.createDirAll (stagingDir store v1 / "leftover")
-    let _ ← put store v1 testOrigin (dir / "new")
+    let _ ← putOut store v1 (dir / "new")
     let names ← namesIn store
     let back ← read store v1
-    let body := back.files.find? (·.1 == "modules/Example.Basic.json") |>.map (·.2)
+    let body := back.files.find? (·.1 == "ir/modules/Example.Basic.json") |>.map (·.2)
     let answer := first [
       eq names ["v1"],
       eq back.record.extractorIdentity.text identityBText,
@@ -240,9 +271,9 @@ def aTamperedPackIsRefusedByItsDigestOrItsLengthNamingTheEntry : Invariant where
   check := do
     let dir ← scratch "tamper"
     let store := dir / "store"
-    writeIr (dir / "ir") (some identityAText) "{}"
+    writeOut dir (some identityAText) "{}"
     let v1 ← versionNamed "v1"
-    let _ ← put store v1 testOrigin (dir / "ir")
+    let _ ← putOut store v1 dir
     let pack := entryDir store v1 / packFile
     let original ← IO.FS.readBinFile pack
     let middle := original.size / 2
@@ -267,13 +298,30 @@ def anIrWithNoIdentityIsRefusedAndLeavesNothingInTheStore : Invariant where
     let dir ← scratch "no-identity"
     let store := dir / "store"
     IO.FS.createDirAll store
-    writeIr (dir / "ir") none "{}"
+    writeOut dir none "{}"
     let v1 ← versionNamed "v1"
-    let refused ← messageOf (put store v1 testOrigin (dir / "ir"))
+    let refused ← messageOf (putOut store v1 dir)
     let names ← namesIn store
     let answer := first [
       if says refused ["extractorIdentity"] then none
         else some s!"an IR with no identity was answered {refused}",
+      eq names []]
+    IO.FS.removeDirAll dir
+    return answer
+
+def anOutWithNoLinkIndexIsRefusedNamingItAndLeavesNothingInTheStore : Invariant where
+  name := "a build directory with no link index is refused, naming the file, and leaves nothing in the store"
+  check := do
+    let dir ← scratch "no-link-index"
+    let store := dir / "store"
+    IO.FS.createDirAll store
+    writeIr (dir / "ir") (some identityAText) "{}"
+    let v1 ← versionNamed "v1"
+    let refused ← messageOf (putOut store v1 dir)
+    let names ← namesIn store
+    let answer := first [
+      if says refused [(dir / "link-index.lidx").toString, "no link index"] then none
+        else some s!"a build directory with no link index was answered {refused}",
       eq names []]
     IO.FS.removeDirAll dir
     return answer
@@ -283,9 +331,9 @@ def theListingIsByteOrderAndSkipsStagingAndNamesStrays : Invariant where
   check := do
     let dir ← scratch "list"
     let store := dir / "store"
-    writeIr (dir / "ir") (some identityAText) "{}"
+    writeOut dir (some identityAText) "{}"
     for name in ["v2", "v10", "a"] do
-      let _ ← put store (← versionNamed name) testOrigin (dir / "ir")
+      let _ ← putOut store (← versionNamed name) dir
     IO.FS.createDirAll (store / ".put-v3")
     IO.FS.createDirAll (store / "not a version")
     let listing ← list store

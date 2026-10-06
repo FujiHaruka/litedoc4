@@ -263,20 +263,24 @@ def usage : String :=
   --pages        (`prune`) the page tree; nothing outside it is ever deleted
   --dry-run      report what would be deleted and delete nothing
   --store        (`store`) the kept versions, one directory per version:
-                 <store>/<name>/ir.pack.gz (the IR tree, packed and gzipped)
-                 and record.json (commit, Lean, dependencies, the extractor
-                 identity the IR was written under, and the pack's SHA-256,
-                 which `read` checks before it decompresses anything)
+                 <store>/<name>/entry.pack.gz (the IR tree and the dependency
+                 link index, packed and gzipped) and record.json (commit, Lean,
+                 dependencies, the extractor identity the IR was written
+                 under, and the pack's SHA-256, which `read` checks before it
+                 decompresses anything)
   --version      (`store`) the entry's name: letters, digits, `.`, `_`, `+`
                  and `-`, starting with a letter or a digit, without `..`
-  --from         (`store put`) a directory `build --out` finished. Its ir/ is
-                 stored; the commit, the dependencies and Lean core's revision
-                 come from the checkout its marker names, which has to still
-                 be at the commit the pages link to. `store read --out` unpacks
-                 an entry into an empty directory; without it the entry is
-                 only verified. `store check-stale` asks --extractor-bin for its
-                 identity with the flags `build` passes, which --root's
-                 litedoc4.toml decides, and says fresh or stale per entry
+  --from         (`store put`) a directory `build --out` finished. Its ir/ and
+                 link-index.lidx are stored, and a build that wrote no link
+                 index is refused; the commit, the dependencies and Lean
+                 core's revision come from the checkout its marker names,
+                 which has to still be at the commit the pages link to.
+                 `store read --out` unpacks an entry into an empty directory
+                 laid out as `build --out` lays out those two; without it the
+                 entry is only verified. `store check-stale` asks
+                 --extractor-bin for its identity with the flags `build`
+                 passes, which --root's litedoc4.toml decides, and says fresh
+                 or stale per entry
 "
 
 /-- What `litedoc4` with no arguments prints. `usage` is behind `--help-all` and
@@ -2298,7 +2302,8 @@ partial def parseStore (command : String) : List String → StoreArgs → Except
 def storePutJson (s : Store.PutSummary) : String :=
   let r := s.record
   jsonStr "{\"command\":\"store put\",\"version\":" r.version.text
-    ++ s!",\"files\":{r.irFiles},\"rawBytes\":{r.irBytes},\"packedBytes\":{s.packedBytes}"
+    ++ s!",\"files\":{r.irFiles},\"rawBytes\":{r.irBytes}"
+    ++ s!",\"linkIndexBytes\":{r.linkIndexBytes},\"packedBytes\":{s.packedBytes}"
     ++ s!",\"compressedBytes\":{r.packBytes},\"readSeconds\":{seconds s.readNanos 9}"
     ++ s!",\"packSeconds\":{seconds s.packNanos 9}"
     ++ s!",\"compressSeconds\":{seconds s.compressNanos 9}"
@@ -2308,7 +2313,8 @@ def storePutJson (s : Store.PutSummary) : String :=
 def storeReadJson (s : Store.ReadSummary) (writeNanos : Nat) : String :=
   let r := s.record
   jsonStr "{\"command\":\"store read\",\"version\":" r.version.text
-    ++ s!",\"files\":{r.irFiles},\"rawBytes\":{r.irBytes},\"packedBytes\":{s.packedBytes}"
+    ++ s!",\"files\":{r.irFiles},\"rawBytes\":{r.irBytes}"
+    ++ s!",\"linkIndexBytes\":{r.linkIndexBytes},\"packedBytes\":{s.packedBytes}"
     ++ s!",\"compressedBytes\":{r.packBytes},\"readSeconds\":{seconds s.readNanos 9}"
     ++ s!",\"verifySeconds\":{seconds s.verifyNanos 9}"
     ++ s!",\"decompressSeconds\":{seconds s.decompressNanos 9}"
@@ -2355,9 +2361,10 @@ def storePut (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
   let origin ← match ← storePutOrigin ⟨from_⟩ lake with
     | .error message => return ← refusedWith 3 message
     | .ok origin => pure origin
-  let s ← Store.put store v origin (System.FilePath.mk from_ / "ir")
-  IO.println s!"put     {v.text}: {s.record.irFiles} file(s), {s.record.irBytes} B -> \
-    {s.record.packBytes} B ({s.record.extractorIdentity.text})"
+  let layout := layoutOf ⟨from_⟩
+  let s ← Store.put store v origin layout.ir layout.linkIndex
+  IO.println s!"put     {v.text}: {s.record.irFiles} IR file(s), {s.record.irBytes} B + link \
+    index {s.record.linkIndexBytes} B -> {s.record.packBytes} B ({s.record.extractorIdentity.text})"
   IO.println (storePutJson s)
   return 0
 
@@ -2372,8 +2379,8 @@ def storeRead (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
   let where_ := match a.out with
     | some out => s!" -> {out}"
     | none => " (verified, not written)"
-  IO.println s!"read    {v.text}: {s.record.packBytes} B -> {s.record.irFiles} file(s), \
-    {s.record.irBytes} B{where_}"
+  IO.println s!"read    {v.text}: {s.record.packBytes} B -> {s.record.irFiles} IR file(s), \
+    {s.record.irBytes} B + link index {s.record.linkIndexBytes} B{where_}"
   IO.println (storeReadJson s writeNanos)
   return 0
 
@@ -2383,7 +2390,8 @@ def storeList (store : System.FilePath) : IO UInt32 := do
     match record with
     | .ok r =>
       IO.println s!"{v.text} {r.commit} lean {r.leanVersion} {r.fill.name} \
-        {r.irFiles} file(s) {r.irBytes} B -> {r.packBytes} B"
+        {r.irFiles} IR file(s) {r.irBytes} B + link index {r.linkIndexBytes} B -> \
+        {r.packBytes} B"
     | .error why => IO.println s!"{v.text} unreadable: {why}"
   for name in listing.strays do
     IO.eprintln s!"litedoc4: {store / name} is not a version name and is not read"

@@ -32,6 +32,7 @@ def main : IO UInt32 :=
     Litedoc4Test.replacingAnEntryLeavesOnlyTheNewEntryAndNoStagingDirectory,
     Litedoc4Test.aTamperedPackIsRefusedByItsDigestOrItsLengthNamingTheEntry,
     Litedoc4Test.anIrWithNoIdentityIsRefusedAndLeavesNothingInTheStore,
+    Litedoc4Test.anOutWithNoLinkIndexIsRefusedNamingItAndLeavesNothingInTheStore,
     Litedoc4Test.theListingIsByteOrderAndSkipsStagingAndNamesStrays,
     Litedoc4Test.theIrReadCountsAreByKindAndReset,
     Litedoc4Test.openUnvalidatedReadsExactlyWhatOpenRefuses,

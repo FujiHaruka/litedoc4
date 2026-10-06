@@ -53,6 +53,16 @@ source URL prefix, dependency revisions). **It is falsified** if the renderer ha
 into a version's workspace (oleans, `.ilean`, git) at render time; then the store has to keep more
 than the IR, and its size estimate below is wrong.
 
+**Read on S (2026-10-07): it held only after widening "the IR" to the extractor's whole output.**
+Today's renderer also reads the link index (the dependency closure's name → module and line
+ranges), which the extractor writes beside the IR. A store entry therefore keeps both, and a site
+rendered from an unpacked entry is byte-identical to one rendered from the build directory (S, v4,
+21 files). On S the link index is 93.3% of an entry's raw bytes and 95.7% of its compressed bytes
+(Lean core's 1.18 MB against an 84 KB IR; measured →
+`benchmarks/results/mv-s-store-2026-10-07.txt`), so the per-version cost is the link index's, not the
+IR's. The data format (below) carries only the dependency names a version references; whether the
+store can keep that subset instead of the whole index is measured on M.
+
 ## Measurement loop
 
 A full Mathlib run costs tens of minutes per version on the runner, so it cannot be the loop that

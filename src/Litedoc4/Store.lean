@@ -1,7 +1,7 @@
-/- The store of kept versions: `<store>/<version>/` holds `ir.pack.gz`, the
-version's whole IR tree in one deterministic container compressed once, and
-`record.json`, what the IR does not say about the version and what the pack must
-hash to. -/
+/- The store of kept versions: `<store>/<version>/` holds `entry.pack.gz`, the
+version's whole IR tree and its dependency link index in one deterministic
+container compressed once, and `record.json`, what the IR does not say about the
+version and what the pack must hash to. -/
 import Litedoc4.Bytes
 import Litedoc4.Fs
 import Litedoc4.Gzip
@@ -46,7 +46,7 @@ def VersionName.parse (s : String) : Except String VersionName := Id.run do
 
 /-! ## The container -/
 
-def packMagic : String := "litedoc4-ir-pack 1\n"
+def packMagic : String := "litedoc4-pack 1\n"
 
 def irPathRefusal? (path : String) : Option String :=
   if path.isEmpty then some "a path is empty"
@@ -98,7 +98,7 @@ def canonicalDecimal? (b : ByteArray) (start stop : Nat) : Option Nat := Id.run 
 def decode (b : ByteArray) : Except String (Array (String × ByteArray)) := do
   let magic := packMagic.toUTF8
   if b.size < magic.size || b.extract 0 magic.size != magic then
-    throw "not an IR pack: it does not open with `litedoc4-ir-pack 1`"
+    throw "not a pack: it does not open with `litedoc4-pack 1`"
   let some countEnd := lineEnd? b magic.size | throw "the file count has no line end"
   let some count := canonicalDecimal? b magic.size countEnd
     | throw "the file count is not a decimal number"
@@ -170,9 +170,10 @@ structure Record where
   packBytes : Nat
   irFiles : Nat
   irBytes : Nat
+  linkIndexBytes : Nat
   deriving BEq, Repr
 
-def recordSchema : Nat := 1
+def recordSchema : Nat := 2
 
 def stale (r : Record) (current : ExtractorIdentity) : Bool :=
   r.extractorIdentity != current
@@ -197,7 +198,7 @@ def Record.toJson (r : Record) : String := Id.run do
     o := o.push '}'
   o := jsonStr (o ++ "],\"extractorIdentity\":") r.extractorIdentity.text
   o := jsonStr (o ++ ",\"pack\":{\"sha256\":") r.packSha256
-  o := o ++ s!",\"bytes\":{r.packBytes}},\"ir\":\{\"files\":{r.irFiles},\"bytes\":{r.irBytes}}}\n"
+  o := o ++ s!",\"bytes\":{r.packBytes}},\"ir\":\{\"files\":{r.irFiles},\"bytes\":{r.irBytes}},\"linkIndex\":\{\"bytes\":{r.linkIndexBytes}}}\n"
   return o
 
 def Record.parse (text : String) : Except String Record := do
@@ -233,15 +234,42 @@ def Record.parse (text : String) : Except String Record := do
     | _ => throw "`dependencies` is not an array"
   let pack ← field j "pack"
   let ir ← field j "ir"
+  let linkIndex ← field j "linkIndex"
   return { version, commit := ← str j "commit", leanVersion := ← str j "leanVersion"
            leanGithash := ← str j "leanGithash", fill, sourceUrl := ← str j "sourceUrl"
            dependencies, extractorIdentity
            packSha256 := ← str pack "sha256", packBytes := ← nat pack "bytes"
-           irFiles := ← nat ir "files", irBytes := ← nat ir "bytes" }
+           irFiles := ← nat ir "files", irBytes := ← nat ir "bytes"
+           linkIndexBytes := ← nat linkIndex "bytes" }
+
+/-! ## What an entry holds -/
+
+def irPrefix : String := "ir/"
+def linkIndexEntry : String := "link-index.lidx"
+
+structure EntryParts where
+  irFiles : Nat
+  irBytes : Nat
+  linkIndexBytes : Nat
+  deriving BEq, Repr
+
+def entryParts (files : Array (String × ByteArray)) : Except String EntryParts := do
+  let mut parts : EntryParts := ⟨0, 0, 0⟩
+  let mut sawLinkIndex := false
+  for (path, bytes) in files do
+    if path == linkIndexEntry then
+      sawLinkIndex := true
+      parts := { parts with linkIndexBytes := bytes.size }
+    else if path.startsWith irPrefix then
+      parts := { parts with irFiles := parts.irFiles + 1, irBytes := parts.irBytes + bytes.size }
+    else throw s!"`{path}` is neither under `{irPrefix}` nor `{linkIndexEntry}`"
+  if !sawLinkIndex then throw s!"it holds no `{linkIndexEntry}`"
+  if parts.irFiles == 0 then throw s!"it holds nothing under `{irPrefix}`"
+  return parts
 
 /-! ## The entries on disk -/
 
-def packFile : String := "ir.pack.gz"
+def packFile : String := "entry.pack.gz"
 def recordFile : String := "record.json"
 
 def entryDir (store : FilePath) (v : VersionName) : FilePath := store / v.text
@@ -290,7 +318,7 @@ def install (store : FilePath) (v : VersionName) : IO Unit := do
   IO.FS.rename (stagingDir store v) entry
   if ← retired.pathExists then IO.FS.removeDirAll retired
 
-def put (store : FilePath) (v : VersionName) (origin : Origin) (ir : FilePath) :
+def put (store : FilePath) (v : VersionName) (origin : Origin) (ir linkIndex : FilePath) :
     IO PutSummary := do
   let started ← IO.monoNanosNow
   let tree ← openIrTree ir
@@ -300,7 +328,15 @@ def put (store : FilePath) (v : VersionName) (origin : Origin) (ir : FilePath) :
         writes one")
   if tree.index.leanVersion.isEmpty then
     throw (IO.userError s!"{ir}: its index.json carries no leanVersion")
-  let files ← readTree ir
+  if !(← isRegularFile linkIndex) then
+    throw (IO.userError s!"{linkIndex}: there is no link index. An entry holds the IR and the \
+      dependency link index the renderer reads beside it, and a build given --link-index reads \
+      somebody else's file rather than writing this one")
+  let files := (← readTree ir).map (fun (path, bytes) => (irPrefix ++ path, bytes))
+    |>.push (linkIndexEntry, ← IO.FS.readBinFile linkIndex)
+  let parts ← match entryParts files with
+    | .ok parts => pure parts
+    | .error why => throw (IO.userError s!"{ir}: {why}")
   let read ← IO.monoNanosNow
   let (packed, packNanos) ← timed fun _ => encode files
   let packed ← match packed with
@@ -313,7 +349,7 @@ def put (store : FilePath) (v : VersionName) (origin : Origin) (ir : FilePath) :
       leanGithash := origin.leanGithash, fill := origin.fill, sourceUrl := origin.sourceUrl
       dependencies := origin.dependencies, extractorIdentity
       packSha256 := digest, packBytes := compressed.size
-      irFiles := files.size, irBytes := files.foldl (fun n f => n + f.2.size) 0 }
+      irFiles := parts.irFiles, irBytes := parts.irBytes, linkIndexBytes := parts.linkIndexBytes }
   let writeStarted ← IO.monoNanosNow
   let staging := stagingDir store v
   if ← staging.pathExists then IO.FS.removeDirAll staging
@@ -371,10 +407,14 @@ def read (store : FilePath) (v : VersionName) : IO ReadSummary := do
   let files ← match files with
     | .ok files => pure files
     | .error why => throw (IO.userError s!"{damaged}: {why}")
-  let rawBytes := files.foldl (fun n f => n + f.2.size) 0
-  if files.size != record.irFiles || rawBytes != record.irBytes then
-    throw (IO.userError s!"{damaged} unpacks to {files.size} files of {rawBytes} bytes and its \
-      record says {record.irFiles} of {record.irBytes}")
+  let parts ← match entryParts files with
+    | .ok parts => pure parts
+    | .error why => throw (IO.userError s!"{damaged}: {why}")
+  let recorded : EntryParts := ⟨record.irFiles, record.irBytes, record.linkIndexBytes⟩
+  if parts != recorded then
+    throw (IO.userError s!"{damaged} unpacks to {parts.irFiles} IR files of {parts.irBytes} \
+      bytes and a link index of {parts.linkIndexBytes}, and its record says {recorded.irFiles}, \
+      {recorded.irBytes} and {recorded.linkIndexBytes}")
   return { record, files, packedBytes := packed.size, readNanos := read - started
            verifyNanos, decompressNanos, unpackNanos }
 
