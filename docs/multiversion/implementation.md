@@ -74,8 +74,15 @@ Done when: the directory is committed and `git grep` finds no absolute path unde
   record of commit, Lean version, how it was filled (own Lean / reader), the source URL prefix,
   the dependency revisions, and **the extractor output identity** — a digest of what produced the
   IR (IR schema version + a digest of the extractor's source, embedded when the extractor is
-  built). An entry whose identity differs from the current extractor's is stale and is
-  re-extracted (D7: judged by content, never by path or date).
+  built, plus every configuration value the extractor reads). An entry whose identity differs from
+  the current extractor's is stale and is re-extracted (D7: judged by content, never by path or
+  date).
+- **The meta-code equation rule (D8) is applied by the extractor**, from configuration
+  (`litedoc4.toml`, a list of namespace prefixes; Mathlib's are `Mathlib.Tactic` and
+  `Mathlib.Meta`) instead of the prototype's hard-coded list. Not at render time: the measured
+  saving is equations not generated (extraction 111 → 67 s, measured →
+  `benchmarks/results/mathlib-structure-rule-and-meta-equations-2026-10-06.txt`), and the list
+  is part of the extractor output identity above, so changing it re-extracts.
 - **The data format** the browser reads, decided here by measurement on the three versions:
   - per declaration: the content that U3 found shareable (signature text with link references,
     docstring, equations, attributes, fields), **without** the dependency revision, the dependency
@@ -104,9 +111,6 @@ decides where the CI store lives, step 6); the format is chosen with its numbers
 shared content, the version list. Today's render path is replaced, not kept beside it (D9). Links
 are decided as today (`linkTo`: docs site → pinned source → own page), but a dependency link
 becomes a reference into the version's link table.
-
-The meta-code equation rule (D8) moves from the prototype's hard-coded list to configuration
-(`litedoc4.toml`, a list of namespace prefixes; Mathlib's are `Mathlib.Tactic` and `Mathlib.Meta`).
 
 Done when: rendering the same store twice gives byte-identical output; rendering one version
 alone and the three together give the same bytes for that version's data and its shared content;
@@ -143,6 +147,10 @@ extractor against that Lean, extract, add to the store, delete the checkout befo
 What has to change on the way: the ledger keys, `Generation.take`, `deriveSourceUrl` and the
 `--out` layout assume one root and one commit; `tools/lean-toolchains.txt` stays the list of
 toolchains the native path supports, and a version on a toolchain with no row fails by name.
+
+**This is a cost paid on every release**: adding a release needs the extractor to build on its
+Lean and a row for it (with column 2 measured). v4.34.x has none today. There is no fallback —
+the reader knows no layout for a Lean newer than its writer table either.
 
 Done when: an empty store plus three versions builds the site; the same command with one version
 removed from the store re-extracts exactly that version (counted, not timed); a store entry with a

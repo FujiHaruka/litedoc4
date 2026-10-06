@@ -28,7 +28,7 @@ This milestone ships as v2.0.0. What it has to meet:
 | Per extra version in a rebuild from nothing | 2.2 min on the runner — **tracked, not a release condition** | ≈ 7 min (theoretical, U9 composed at the runner's 1.8×) |
 | Hosted bytes and cost | 51 versions ≤ 1.5 GB; ≤ $1 a month plus a domain | 0.32 GB for 11, 1.38 GB for 51 (extrapolated, U6) |
 | Reader | the largest module page settles faster than today's published page (361 ms) | 153 ms (measured, loopback, U7) |
-| Exactness | a site built by adding versions equals one built from nothing over the same kept outputs; a release the reader has no layout for fails by name | patch path equal on every file (measured, U9) |
+| Exactness | the same store renders the same bytes every time; a version filled through the reader differs from one filled by its own Lean only where printer drift is counted; a release with no known layout fails by name | patch path equal to the hybrid from scratch on every file (measured, U9); drift 97.78% at 5 releases apart (measured, D10) |
 | Single-version sites | no slower and no larger than v1 (Mathlib: 449.9 s, 1.1 GB on the M1) | unmeasured |
 
 - **The release condition is the everyday path, not the rebuild from nothing** (same call). A
@@ -756,8 +756,8 @@ What this adds:
 - a way to know a stored version is not stale: anything that changes the extractor's output
   invalidates it, judged by content (an identity of the extractor's output format), not by path
   or date;
-- what is kept per version — the IR (550 MB raw per version; compressed size unmeasured) or the
-  rendered layers (≈ 52 MB for 11 versions, U10). Only the IR survives a renderer change without
+- what is kept per version: the IR (550 MB raw per version; compressed size unmeasured), not the
+  rendered layers (≈ 52 MB for 11 versions, U10) — only the IR survives a renderer change without
   re-extraction.
 
 ### D8 — Which features to give up, and for which versions
