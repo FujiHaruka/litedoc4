@@ -680,6 +680,18 @@ ranges, Used by and the other global files). Still open: the unit (U3 points at 
 with dependency links outside the hashed content) and how manifests and global files are stored
 across versions (U10).
 
+**The unit: one content file per module per version, shared only when identical** (candidate (a),
+chosen 2026-10-07 by measurement on M →
+`benchmarks/results/mv-m-2026-10-07.txt`). A page fetches its content in one request, always;
+per-module segments (b) save 143 MB at 51 versions (711 against 854 MB, extrapolated) but a page
+fetches one segment per release in which its module changed — ≈ 7 at Mathlib's average churn
+over 51 versions, up to 26 (theoretical) — and packs read by range (c) lose to both. Both a and b
+are under the 1.5 GB target. **It is falsified** if a full-Mathlib run puts a above the target, or
+the content a module re-stores per minor release is far above the 8.4 MB extrapolated; then (b)
+with compaction is the fallback. Still open, and larger than the candidates' difference: the
+per-version files are 73% of a's 51-version total, and 878 of 880 of them are byte-identical
+across a patch release — sharing them by content is step 2's.
+
 ### D6 — URL scheme and the version switcher
 
 **Every page's URL carries its version** — `/<version>/Mathlib/Foo/Bar.html#Foo.bar` — so a link

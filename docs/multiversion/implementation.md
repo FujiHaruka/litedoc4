@@ -167,55 +167,59 @@ Done when: the directory is committed and `git grep` finds no absolute path unde
     its own position;
   - per version: the dependency link table (name → revision + path + line range), the source URL
     prefix, the module list, the search index, Used by (one file per module), instances.
-- **The open design item is the unit of shared storage** (D5). The browser needs a module's
-  content in few fetches; per-declaration files make the file count explode; one file per module
-  per version stores a module again whenever one declaration in it changes, and only 30.71% of
-  modules have every constant equal across a minor release (measured →
-  `benchmarks/results/mathlib-consecutive-release-reuse-2026-10-05.txt`). Candidates: (a) one
-  content file per module per version, deduplicated only when identical; (b) per-module
-  segments, each version appending only its new or changed declarations, a page fetching the
-  segments its manifest names; (c) per-declaration blobs packed in large shared files read by
-  byte range. Chosen by hosted bytes, file count and fetches per page view on the three versions,
-  extrapolated to 11 and 51 against "v2 targets".
+- **The unit of shared storage** (D5): one content file per module per version, shared only when
+  identical — candidate (a) of three measured (below; the choice and its falsifier are in plan.md
+  D5). The other two were (b) per-module segments, each version appending only its new or changed
+  declarations, and (c) per-declaration blobs packed in large shared files read by byte range.
 
-State on 2026-10-07 (S only; measured → `benchmarks/results/mv-s-store-2026-10-07.txt`,
-`benchmarks/results/mv-s-format-2026-10-07.txt`): the store (`litedoc4 store`, internal), the
-extractor identity and `no_equations_under`, and the format with all three candidates
-(`litedoc4 store measure`) exist and agree with `tools/mv-s/expected.txt` on every pair. A
-content item is a declaration or a module docstring as today's page shows it, encoded as JSON
-with links as `[start, stop, name]`, addressed by the first 64 bits of its SHA-256; **the name is
-part of the content**, so a rename is a removal plus an addition (leaving it out would put a name
-into every manifest entry). Open before M can decide:
+The store (`litedoc4 store`, internal), the extractor identity and `no_equations_under`, and the
+format with all three candidates (`litedoc4 store measure`) exist and agree with
+`tools/mv-s/expected.txt` on every S pair (measured → `benchmarks/results/mv-s-store-2026-10-07.txt`,
+`benchmarks/results/mv-s-format-2026-10-07.txt`). A content item is a declaration or a module
+docstring as today's page shows it, encoded as JSON with links as `[start, stop, name]`, addressed
+by the first 64 bits of its SHA-256; **the name is part of the content**, so a rename is a removal
+plus an addition (leaving it out would put a name into every manifest entry).
+`tools/mv-s-gate.sh` runs the S loop from nothing (29 items, `ci`); `benchmarks/tools/mv-m-run.sh`
+runs M.
 
-- **The link table is per version and whole**: every page fetches it, and at Mathlib it names
-  every own declaration, so it would dominate the bytes of a page view. It needs splitting (per
-  module, or folded into each manifest).
-- **The store record cannot give source links for dependencies other than Lean core**: it keeps
-  each dependency's revision but not its repository URL or module roots.
-- **Docstring autolinks are not in the link table yet** (today's per-page rule).
-- **The SHA-256 is pure Lean**; its speed over a Mathlib version's content is unmeasured.
-
-`tools/mv-s-gate.sh` runs the S loop from nothing (29 items, `ci`). `benchmarks/tools/mv-m-run.sh`
-runs M; its smoke on an 87-module slice (measured once →
-`benchmarks/results/mv-m-smoke-2026-10-07.txt`) found that **version-pinned URLs make content new
-on every release**: the one new item in v4.33.1 is a docstring whose only change is a Lean
-reference-manual link carrying the Lean version.
-
-M's first run (433 / 438 modules, one run, measured →
-`benchmarks/results/mv-m-2026-10-07.txt`):
+What M says (438 modules, 5.1% of Mathlib; two runs, byte-identical in every store entry and
+every measured file; measured → `benchmarks/results/mv-m-2026-10-07.txt`, which also carries the
+extrapolations):
 
 - **Page items = IR declarations + module docstrings − declarations shown inside their parent**,
-  exactly, on all three versions and on S. Items are 0.990 of declarations; Mathlib is
-  extrapolated by declarations. (The smoke's "exactly the module count" was a coincidence.)
-- **A store entry is ≈ 4.6 MB compressed** (26.7 MB IR + 3.2 MB link index raw); at M the IR is
-  89% of it, the reverse of S.
-- **The per-version files, not the candidate, are the marginal cost of a release**: the patch
-  release adds 880 per-version files and ≈ 0.84 MB, against one content file. 878 of the 880
-  are byte-identical to a file of the previous version; of the minor release 418, but only 16% of
-  the bytes (the changed manifests are the large ones, and absolute positions move).
+  exactly. Items are 0.990 of declarations; Mathlib is extrapolated by declarations.
+- **A store entry is ≈ 4.6 MB compressed** at M (26.7 MB IR + 3.2 MB link index raw); ≈ 66–84 MB
+  per Mathlib version, 3.4–4.3 GB for 51 (extrapolated). The CI store goes to an R2 prefix the
+  site does not serve (step 6's default holds).
+- **Hosted bytes at 51 versions: a 854 MB, b 711 MB, c 776 MB** (extrapolated), all under 1.5 GB.
+  A page under a always makes one content fetch; under b one per release in which its module
+  changed (theoretical: ≈ 7 at Mathlib's average churn, up to 26).
+- **The per-version files, not the candidate, are the marginal cost of a release**: 73–94% of
+  every candidate's 51-version total. A patch release adds 880 of them (≈ 0.84 MB at M) for one
+  new content file, and 878 are byte-identical to a file of the previous version; a minor release
+  keeps 418 identical, but only 16% of the bytes.
 - **The whole per-version link table plus the module list are 90% of the bytes a page view
   fetches**; content is 7.7%.
+- **`store measure` takes 8.5 s for three versions** (5 runs, warm), SHA-256 included: ≤ 41 s per
+  Mathlib version (extrapolated).
+- **Version-pinned URLs make content new on every release** (the smoke on 87 modules →
+  `benchmarks/results/mv-m-smoke-2026-10-07.txt`): the one new item of v4.33.1 is a docstring
+  whose only change is a Lean reference-manual link carrying the Lean version.
 
+Carried to step 2, because they change what the renderer writes and not the choice above (each
+adds the same bytes to every candidate):
+
+- **Share the per-version files by content** — the lever larger than the candidates' difference
+  (above). A manifest carries absolute positions, which move with any line above them (U10: 31%
+  per minor release absolute, 4.2% relative).
+- **Split the link table** per page (in or beside the manifest); its module numbers shift when a
+  module is added, so whatever is shared by content cannot carry them.
+- **Dependency source links**: the store record keeps each dependency's revision but not its
+  repository URL or module roots. A record field, filled by a re-put — the IR does not change, so
+  nothing is re-extracted.
+- **Docstring autolinks** are not in the link table yet (today's per-page rule).
+
+**Done 2026-10-07.**
 Done when: the three versions are in a store; the compressed IR size per version is measured (it
 decides where the CI store lives, step 6); the format is chosen with its numbers in a log.
 

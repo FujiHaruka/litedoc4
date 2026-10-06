@@ -78,6 +78,67 @@ Another macOS user's Chrome held 13-15 GB of compressed memory during the run.
 (6) store measure time (one run; hashing and gzip of all three versions, one process)
   a 8.49 s wall / 8.45 s CPU, b 7.86 / 7.84, c 7.82 / 7.81; peak RSS 280 MiB.
 
+(4') Table (4) compares stored (gzip) bytes. The gzip is deterministic (mtime 0; run 2 below
+  reproduces every stored file), so equal stored bytes and equal raw bytes are the same question.
+
+(7) Run 2: byte identity (measured)
+  The same binary copy, a fresh work directory (/private/tmp/lean-doc-relay/mv-m-r2), started
+  2026-10-06T17:29:17Z. Every store entry (entry.pack.gz of all three versions, record.json) and every
+  file `store measure` wrote for a, b and c (9,140 files) has the same sha256 as run 1.
+
+(8) store measure, 5 runs (measured; candidate a over the run-1 store, all three versions, one
+  process: decompress, parse, page data, SHA-256 addresses, gzip, layout)
+  wall 8.50 / 8.52 / 8.50 / 8.49 / 8.49 s; user 8.16-8.18 s, sys 0.30-0.32 s; peak RSS 280 MiB;
+  the output's sha256 equal in all five. Warm (wall = user + sys). The SHA-256 is not timed apart
+  from the rest; the whole command is its upper bound: 2.8 s per version of 21.7k items.
+  Per Mathlib version, scaled by declarations (317,834 / 21,928 = 14.5): <= 41 s (extrapolated,
+  5.1% of modules measured).
+
+(9) Hosted bytes extrapolated to Mathlib (extrapolated: 5.1% of modules measured, one minor and one
+  patch pair; 11 versions = first + 5 minor + 5 patch, 51 = first + 25 + 25; Mathlib v4.33.0's
+  counts and minor churn from mathlib-per-version-part-2026-10-05.txt: 317,834 declarations,
+  8,312 modules, 9,385 new declaration blobs + 172 module docstrings and 1,958 changed module
+  packs per minor release; a patch release adds ~0 content)
+
+  - content, first version: M's stored content bytes per item x Mathlib's items.
+  - content per minor release: (b, c) M's stored bytes per new item x 9,557 new items; (a) whole
+    changed modules are stored again: M re-stored 70.8% of its content bytes when 43.4% of its
+    modules changed (ratio 1.63), applied to Mathlib's 1,958 / 8,312 changed modules (an
+    assumption: unmeasured at Mathlib scale).
+  - per-version files: M's, x 14.5, every version stored whole (as the candidates do today).
+    Cross-check against the Mathlib-scale files of U10: used-by 274,628 x 14.5 = 3.98 MB against
+    4.16-4.89 MB measured whole; search-index 114,047 x 14.5 = 1.65 MB against 1.52 MB.
+
+                    content first  per minor  per-version files   11 versions   51 versions
+  a                 21.8 MB        8.40 MB    12.2 MB each        198 MB        854 MB
+  b                 21.8 MB        0.96 MB    13.1 MB each        170 MB        711 MB
+  c                 24.8 MB        0.88 MB    14.3 MB each        186 MB        776 MB
+  (target: 51 versions <= 1.5 GB)
+
+  At 51 versions the per-version files are 73% (a) to 94% (c) of the total. Shared by content
+  (section 4), a patch release's would cost ~0 instead of 12-14 MB: that lever is larger than the
+  difference between any two candidates.
+
+(10) Fetches per page view, and how they grow
+  measured at M:            a       b       c
+    fetches max, v4.32.2    4       4       8
+    fetches max, v4.33.0    4       5       9
+    fetches max, v4.33.1    4       6       9
+    items fetched / shown   1.000   1.074   (chunks of 16 KiB)
+  (theoretical, unverified) under b a page fetches one segment per release in which its module
+  gained an item still on the page: 1 + 25 x 0.236 = 6.9 segments for a module changing at
+  Mathlib's average rate (1,958 / 8,312 per minor release) over 51 versions, up to 26 for one that
+  changes in every minor release, with the stale items of every segment fetched too. Under a it is
+  1 content fetch, always. c is dominated: more stored bytes than b, more fetches and more bytes
+  per view than a.
+
+(11) The compressed store entry per Mathlib version
+  M: 4,580,836 B compressed for 29,912,283 B packed (15.3%). Scaled by declarations: 66 MB per
+  version (extrapolated; it over-counts the link index, which is the dependency closure and does
+  not grow with Mathlib's modules); with D7's 550 MB raw IR at 15.3%: 84 MB. 11 versions
+  0.7-0.9 GB, 51 versions 3.4-4.3 GB (extrapolated). Above what a 7-day-evicted Actions cache
+  should hold; an R2 prefix the site does not serve stays the default (implementation.md step 6).
+
 The run's own summary follows.
 
 run of d23d6d881b40278beab9df8fe26632c98a5bc7b0 (0 uncommitted path(s))
