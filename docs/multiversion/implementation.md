@@ -331,6 +331,17 @@ ships:
 Done when: the largest module page settles faster than today's published page (361 ms,
 measured the same way as U7); the page-path and anchor check of D9 exists and has failed once.
 
+In progress (2026-10-07):
+
+- **`store render` writes `assets/`** (stylesheet, icon, `site.js`) and the shells link them; a
+  module page, a version's index and `references.html` are drawn from the version file, the page
+  file and the content (three fetches; the module list only when Imports is opened). On S v1 the
+  drawn pages carry exactly the `id`s of the frozen `e2e/micro-expected` pages (13 pages, 0
+  missing, 0 extra) and the same 405 body links; a `#name` link from outside sets `:target`.
+- **Shells grew from ≈ 381 B to ≈ 749 B on S** (the stylesheet and icon links, the theme script
+  inlined, the `<noscript>` line). Step 2's shell figures (441 B on M; 187 of the 693 MB at 51
+  versions) predate this and are ≈ 2× low; they are re-derived when M is re-measured in this step.
+
 ### 4. One command over the version set
 
 `litedoc4 build` takes the version set — an explicit list, or a rule (for Mathlib: the

@@ -26,7 +26,7 @@
 - Predecessor: none
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger
-  - r1: (in progress)
+  - r1 (in progress): assets + module / index / references pages drawn from data `5281a10`
 
 ## Next step (step 3, not started)
 
