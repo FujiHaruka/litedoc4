@@ -20,6 +20,8 @@ that is the comparison, and it is between formats.
     data file it wrote (1,193 / 1,207 / 1,207) is in the three-version run's d/ byte for byte.
   - the renderer's own counts reconciled with the tree by a separate reader: shells per version,
     data files referenced and added per version, and every file in d/ referenced by some version.
+    That reader was made to fail once each way on a copy of all-1: one unreferenced file added
+    to d/, one referenced file removed; exit 1 both times, 0 on the intact tree.
 
 (2) Hosted bytes and files, all three versions (measured)
   3,196 files, 4,877,142 B stored (27,883,987 B raw)
@@ -70,9 +72,16 @@ that is the comparison, and it is between formats.
   v4.32.2     433  2,456,733  55,423    3,550     +6,955
   v4.33.0     438  2,481,566  55,499    3,524     +7,043
   v4.33.1     438  2,481,565  55,499    3,524     +7,043
-  step 1, a, v4.33.0 (link table + module list + manifest + content): 5,050,229 total, 36,704 max.
-  The per-version link table no longer rides on every view; the largest page is larger now
-  (HTML docstrings and per-page tables in one module's files).
+  Step 1's view (mv-m-2026-10-07.txt section 5, candidate a, v4.33.0) fetched the manifest, the
+  whole per-version link table, the module list and the content, and no Used by. The same scope
+  here is version file + page file + content + module list:
+    this format    5,257,861 B over 438 pages, max 37,180
+    step 1, a     19,463,521 B over 438 pages (link table + module list 90.2%)
+  3.7x less: the per-version link table no longer rides on every view. The module list now
+  does most (438 x 7,043 = 3,084,834 B, 59%) if a page fetches it; step 3 decides that. Used by
+  is a fourth fetch step 1 did not count (308,539 B in all) and makes the largest view
+  (Mathlib.Algebra.Group.Defs: content 26,003 + Used by 25,362 + page 3,651 + version 483 B).
+  The page files are 362,938 B of the views (6.9% of the same-scope total).
 
 (6) Extrapolated to Mathlib (extrapolated: 5.1% of modules measured, one minor and one patch
   pair; scaled by declarations 317,834 / 21,928 = 14.49; references and the version file not
