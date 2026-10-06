@@ -14,21 +14,19 @@
   the output out by kind, reconciles with the renderer's counts).
 
 ## Relay control
-- Mode: DONE
-- Goal: step 2 of `docs/multiversion/implementation.md` ("The multi-version renderer") to its
-  "Done when", including the four items step 1 carried to it. Leg plan from the user:
-  implementation and measurement in separate legs.
-- Leg: 2 / cap 8
-- Predecessor: none (r1 killed)
+- Mode: ON
+- Goal: step 3 of `docs/multiversion/implementation.md` ("The page in the browser") to its
+  "Done when". Leg plan from the user: implementation and optimisation in separate legs — r1 =
+  implement (draw path, assets from `store render`, switcher, search, Used by / instances on
+  demand, `#name` scroll, D6 defaults, hash-URL mode) + the D9 path-and-anchor check made to fail
+  once; r2+ = measure settle time on the same page both ways in one session (today's 361 ms page is
+  StructuredArrow/Basic, not in M), optimise, log, record in the plans. D6's four defaults are
+  implemented as proposed; their confirmation goes in the DONE brief.
+- Leg: 1 / cap 8
+- Predecessor: none
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
-- Summary: step 2 done — implemented and gated on S (r1), measured on M (r2). The one
-  optimisation lever found (dependency line ranges out of page files) trades hosted bytes against
-  per-view bytes, so it was handed to step 3 rather than acted on.
 - Progress ledger
-  - r1: implemented and gated on S — record schema 3 `53dbc61`; per-page links + docstring words
-    `de6bef7`; `store render` `3417628`; site config in the store `3adb63a`
-  - r2: M store regenerated at schema 4; render measured and logged `780e2f9`, `d57a77d`; plans
-    recorded and step 2 marked Done (this commit)
+  - r1: (in progress)
 
 ## Next step (step 3, not started)
 
