@@ -39,9 +39,11 @@ structure VersionMeta where
 def VersionMeta.of (r : Store.Record) : VersionMeta :=
   { commit := r.commit, lean := r.leanVersion, source := r.sourceUrl }
 
-def versionFileJson (version : String) (m : VersionMeta) (roots : Array (String × String))
-    (modules search instances : DataFile) : String := Id.run do
+def versionFileJson (version title : String) (m : VersionMeta) (roots : Array (String × String))
+    (modules search instances references : DataFile) (front : Option DataFile) : String :=
+    Id.run do
   let mut o := jsonStr "{\"version\":" version
+  o := jsonStr (o ++ ",\"title\":") title
   o := jsonStr (o ++ ",\"commit\":") m.commit
   o := jsonStr (o ++ ",\"lean\":") m.lean
   o := jsonStr (o ++ ",\"source\":") m.source
@@ -50,7 +52,8 @@ def versionFileJson (version : String) (m : VersionMeta) (roots : Array (String 
     if i > 0 then o := o.push ','
     o := jsonStr (jsonStr o root |>.push ':') base
   o := o ++ "},\"modules\":" ++ locator modules ++ ",\"search\":" ++ locator search
-    ++ ",\"instances\":" ++ locator instances
+    ++ ",\"instances\":" ++ locator instances ++ ",\"references\":" ++ locator references
+    ++ ",\"front\":" ++ ((front.map locator).getD "null")
   return o.push '}'
 
 def rootAt (depth : Nat) : String :=
@@ -79,6 +82,12 @@ def moduleShell (version module : String) (versionFile page usedBy : DataFile) :
 def versionIndexShell (version : String) (versionFile : DataFile) : String :=
   shell none 1 #[("version", version), ("data", versionFile.address)]
 
+/-- At the path a citation's `references.html#ref_<key>` reaches from the
+version's root (`markWord`). -/
+def referencesShell (version : String) (versionFile references : DataFile) : String :=
+  shell (some "References") 1
+    #[("version", version), ("data", versionFile.address), ("references", references.address)]
+
 /-- The newest version's, so the site root can draw it without `versions.json`. -/
 def siteIndexShell (newest : String) (newestFile : String) : String :=
   shell none 0 #[("version", newest), ("data", newestFile)]
@@ -97,10 +106,15 @@ def render (m : VersionMeta) (v : VersionData) : Except String Rendered := do
   let modules := DataFile.of "json" s!"{v.name}'s module list" v.modules
   let search := DataFile.of "bin" s!"{v.name}'s search index" v.search
   let instances := DataFile.of "json" s!"{v.name}'s instances" v.instances
+  let references := DataFile.of "json" s!"{v.name}'s references" v.references
+  let front := v.front.map fun f =>
+    DataFile.of "json" s!"{v.name}'s front page" (frontPageJson f).toUTF8
   let versionFile := DataFile.of "json" s!"{v.name}'s version file"
-    (versionFileJson v.name m (versionRoots v.pages) modules search instances).toUTF8
-  let mut data := #[modules, search, instances, versionFile]
-  let mut shells := #[(s!"{v.name}/index.html", versionIndexShell v.name versionFile)]
+    (versionFileJson v.name v.title m (versionRoots v.links) modules search instances references
+      front).toUTF8
+  let mut data := #[modules, search, instances, references] ++ front.toArray ++ #[versionFile]
+  let mut shells := #[(s!"{v.name}/index.html", versionIndexShell v.name versionFile),
+    (s!"{v.name}/{referencesPage}", referencesShell v.name versionFile references)]
   for p in v.pages do
     let content := if p.items.isEmpty then none else
       some (DataFile.of "json" s!"{v.name}'s content of {p.module}" (arrayOf (p.items.map (·.content))))
@@ -190,7 +204,7 @@ version is ≈ 8.5k pages and a site has 11 or more. -/
 def renderStore (store out : FilePath) (names : Array Store.VersionName) :
     ExceptT String IO Counts := do
   for v in names do
-    if let .error why := Store.sourcesOf (← Store.readRecord store v) then
+    if let .error why := Store.checkoutOf (← Store.readRecord store v) then
       throw s!"store entry {v.text}: {why}"
   let mut versions : Array VersionCounts := #[]
   let mut entries : Array (String × String) := #[]
@@ -199,6 +213,8 @@ def renderStore (store out : FilePath) (names : Array Store.VersionName) :
     let input ← match inputOf s.record s.files with
       | .ok input => pure input
       | .error why => throw s!"store entry {v.text}: {why}"
+    if let some warning := input.site.bibliography.warning then
+      IO.eprintln s!"warning: store entry {v.text}: {warning}"
     let (counts, versionFile) ← writeVersion out (VersionMeta.of s.record) (versionData input)
     versions := versions.push counts
     entries := entries.push (v.text, versionFile.address)

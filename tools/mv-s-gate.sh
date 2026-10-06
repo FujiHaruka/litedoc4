@@ -116,7 +116,7 @@ DECLARED=(oracle-v1 oracle-rows source-map fresh stale needs-re-put agree second
 for v in "${VERSIONS[@]}"; do DECLARED+=("round-trip-$v" "re-put-$v"); done
 for c in "${CANDIDATES[@]}"; do DECLARED+=("measure-repeat-$c" "new-addresses-$c"); done
 for p in "${PAIRS[@]}"; do DECLARED+=("new-items-$p" "a-files-$p" "b-segments-$p"); done
-DECLARED+=(render-twice render-sharing render-counts)
+DECLARED+=(render-twice render-sharing render-counts render-citation render-front)
 for v in "${VERSIONS[@]}"; do DECLARED+=("render-alone-$v"); done
 
 RAN=()
@@ -188,13 +188,14 @@ for v in sys.argv[2:]:
     core = "https://github.com/leanprover/lean4/blob/%s/" % r["leanGithash"]
     want = [["Dep-Aux", None], ["Init", core + "src"], ["Lake", core + "src/lake"],
             ["Lean", core + "src"], ["Std", core + "src"]]
-    if r.get("recordSchema") != 3 or r.get("sources") != want:
-        bad.append("%s: schema %s, sources %s" % (v, r.get("recordSchema"), r.get("sources")))
+    if r.get("recordSchema") != 4 or r.get("sources") != want or r.get("title") != "litedoc4 sample":
+        bad.append("%s: schema %s, sources %s, title %r" % (
+            v, r.get("recordSchema"), r.get("sources"), r.get("title")))
 print("; ".join(bad) if bad else "ok")
 PY
 )" || true
 if [ "$sources" = ok ]; then
-  item ok source-map "all ${#VERSIONS[@]} records (schema 3) map core's four roots to lean4 at their leanGithash and micro-dep's Dep-Aux to no URL"
+  item ok source-map "all ${#VERSIONS[@]} records (schema 4) map core's four roots to lean4 at their leanGithash and micro-dep's Dep-Aux to no URL, and carry litedoc4.toml's title"
 else
   item FAIL source-map "${sources:-the record check printed nothing}"
 fi
@@ -225,19 +226,21 @@ else
   item FAIL stale "with no_equations_under added to a copy of the configuration: ${summary:-no summary line}"
 fi
 
-OLD="$R1/store-schema2"
+OLD="$R1/store-older"
 cp -R "$R1/store" "$OLD"
-python3 - "$OLD/v2/record.json" <<'PY'
+python3 - "$OLD" <<'PY'
 import json
+import pathlib
 import sys
 
-path = sys.argv[1]
-with open(path, encoding="utf-8") as f:
-    record = json.load(f)
-del record["sources"]
-record["recordSchema"] = 2
-with open(path, "w", encoding="utf-8") as f:
-    f.write(json.dumps(record) + "\n")
+store = pathlib.Path(sys.argv[1])
+for version, schema, dropped in (("v2", 2, ("sources", "title")), ("v3", 3, ("title",))):
+    path = store / version / "record.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    for key in dropped:
+        del record[key]
+    record["recordSchema"] = schema
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
 PY
 check_old () {
   local log="$1" rc=0
@@ -246,36 +249,52 @@ check_old () {
   echo "$rc $(sed -n 's/^\(check-stale .*\) (.*)$/\1/p' "$log")"
 }
 old_said="$(check_old "$LOGS/needs-re-put.log")"
-measure_rc=0
-"$LITEDOC4" store measure --store "$OLD" --versions v1,v2 --candidate a \
-  >"$LOGS/needs-re-put-measure.log" 2>&1 || measure_rc=$?
-render_rc=0
-"$LITEDOC4" store render --store "$OLD" --versions v1,v2 --out "$R1/render-schema2" \
-  >"$LOGS/needs-re-put-render.log" 2>&1 || render_rc=$?
+refused=""
+for v in v2 v3; do
+  rc=0
+  "$LITEDOC4" store measure --store "$OLD" --versions "v1,$v" --candidate a \
+    >"$LOGS/needs-re-put-measure-$v.log" 2>&1 || rc=$?
+  if [ "$rc" -ne 3 ] || ! grep -q "store entry $v: .*litedoc4 store put --version $v" "$LOGS/needs-re-put-measure-$v.log"; then
+    refused="$refused; store measure over $v exited $rc without refusing it by name"
+  fi
+  rc=0
+  "$LITEDOC4" store render --store "$OLD" --versions "v1,$v" --out "$R1/render-older-$v" \
+    >"$LOGS/needs-re-put-render-$v.log" 2>&1 || rc=$?
+  if [ "$rc" -ne 3 ] || ! grep -q "store entry $v: .*litedoc4 store put --version $v" "$LOGS/needs-re-put-render-$v.log"; then
+    refused="$refused; store render over $v exited $rc without refusing it by name"
+  elif [ -e "$R1/render-older-$v" ] && [ -n "$(ls -A "$R1/render-older-$v")" ]; then
+    refused="$refused; store render refused $v after writing into its --out (v1 comes first)"
+  fi
+done
 put_rc=0
-git -C "$R1/repo" -c advice.detachedHead=false checkout -q v2
-"$LITEDOC4" store put --store "$OLD" --version v2 --from "$R1/build/v2" \
-  >"$LOGS/needs-re-put-put.log" 2>&1 || put_rc=$?
+for v in v2 v3; do
+  git -C "$R1/repo" -c advice.detachedHead=false checkout -q "$v"
+  "$LITEDOC4" store put --store "$OLD" --version "$v" --from "$R1/build/$v" \
+    >"$LOGS/needs-re-put-put-$v.log" 2>&1 || put_rc=$?
+done
 git -C "$R1/repo" -c advice.detachedHead=false checkout -q "${VERSIONS[$((N - 1))]}"
 reput_said="$(check_old "$LOGS/needs-re-put-after.log")"
-if [ "$old_said" != "3 check-stale $N entries: $((N - 1)) fresh, 0 stale, 1 needs re-put, 0 unreadable" ]; then
-  item FAIL needs-re-put "with v2's record downgraded to schema 2, check-stale answered (exit, summary): $old_said"
-elif ! grep -q '^v2 needs re-put: .*litedoc4 store put --version v2' "$LOGS/needs-re-put.log"; then
-  item FAIL needs-re-put "check-stale counted v2 as needing a re-put and no line for v2 names store put"
-elif [ "$measure_rc" -ne 3 ] || ! grep -q 'store entry v2: .*litedoc4 store put' "$LOGS/needs-re-put-measure.log"; then
-  item FAIL needs-re-put "store measure over the schema-2 entry exited $measure_rc without refusing it by name ($LOGS/needs-re-put-measure.log)"
-elif [ "$render_rc" -ne 3 ] || ! grep -q 'store entry v2: .*litedoc4 store put' "$LOGS/needs-re-put-render.log"; then
-  item FAIL needs-re-put "store render over the schema-2 entry exited $render_rc without refusing it by name ($LOGS/needs-re-put-render.log)"
-elif [ -e "$R1/render-schema2" ] && [ -n "$(ls -A "$R1/render-schema2")" ]; then
-  item FAIL needs-re-put "store render refused the schema-2 entry v2 after writing into its --out (v1 comes first): $(find "$R1/render-schema2" -type f | wc -l | tr -d ' ') files"
+restored=1
+for v in v2 v3; do
+  if ! cmp -s "$OLD/$v/record.json" "$R1/store/$v/record.json" || ! cmp -s "$OLD/$v/entry.pack.gz" "$R1/store/$v/entry.pack.gz"; then
+    restored=0
+  fi
+done
+if [ "$old_said" != "3 check-stale $N entries: $((N - 2)) fresh, 0 stale, 2 needs re-put, 0 unreadable" ]; then
+  item FAIL needs-re-put "with v2's record downgraded to schema 2 and v3's to schema 3, check-stale answered (exit, summary): $old_said"
+elif ! grep -q '^v2 needs re-put: .*source map.*litedoc4 store put --version v2' "$LOGS/needs-re-put.log" ||
+     ! grep -q '^v3 needs re-put: .*site configuration.*litedoc4 store put --version v3' "$LOGS/needs-re-put.log"; then
+  item FAIL needs-re-put "check-stale counted two entries as needing a re-put and its lines for v2 and v3 do not name what each lacks and store put"
+elif [ -n "$refused" ]; then
+  item FAIL needs-re-put "${refused#; } (logs in $LOGS/needs-re-put-*)"
 elif [ "$put_rc" -ne 0 ]; then
-  item FAIL needs-re-put "re-putting v2 from its build exited $put_rc ($LOGS/needs-re-put-put.log)"
-elif ! cmp -s "$OLD/v2/record.json" "$R1/store/v2/record.json" || ! cmp -s "$OLD/v2/entry.pack.gz" "$R1/store/v2/entry.pack.gz"; then
-  item FAIL needs-re-put "re-putting v2 from its build did not give back the entry it was first put as"
+  item FAIL needs-re-put "re-putting v2 and v3 from their builds exited $put_rc ($LOGS/needs-re-put-put-*.log)"
+elif [ "$restored" -ne 1 ]; then
+  item FAIL needs-re-put "re-putting v2 and v3 from their builds did not give back the entries they were first put as"
 elif [ "$reput_said" != "0 check-stale $N entries: $N fresh, 0 stale, 0 needs re-put, 0 unreadable" ]; then
-  item FAIL needs-re-put "after the re-put, check-stale answered (exit, summary): $reput_said"
+  item FAIL needs-re-put "after the re-puts, check-stale answered (exit, summary): $reput_said"
 else
-  item ok needs-re-put "a schema-2 record is counted apart and exits 3, measure and render refuse it naming store put (render before writing anything), and a re-put from its build restores the entry byte for byte"
+  item ok needs-re-put "a schema-2 record (no source map) and a schema-3 one (no site configuration) are counted apart, each named with what it lacks, and exit 3; measure and render refuse each naming store put (render before writing anything); re-putting both from their builds restores the entries byte for byte"
 fi
 
 say "4/7 the data format: three candidates, each laid out twice"
@@ -617,15 +636,16 @@ FIRST="$(IFS=,; echo "${VERSIONS[*]:0:$((N - 1))}")"
 render first "$FIRST" || true
 
 set +e
-python3 - "$EXPECTED" "$RD" "${VERSIONS[$((N - 2))]}" "${VERSIONS[$((N - 1))]}" >"$WORK/render-items.txt" 2>"$LOGS/render-items.err" <<'PY'
+python3 - "$EXPECTED" "$RD" "${VERSIONS[$((N - 2))]}" "${VERSIONS[$((N - 1))]}" "$ROOT/e2e/micro" >"$WORK/render-items.txt" 2>"$LOGS/render-items.err" <<'PY'
 import gzip
 import json
 import pathlib
 import re
 import sys
 
-expected_path, rd, older, newest = sys.argv[1:5]
+expected_path, rd, older, newest, sample = sys.argv[1:6]
 rd = pathlib.Path(rd)
+sample = pathlib.Path(sample)
 pair = "%s..%s" % (older, newest)
 
 
@@ -732,8 +752,80 @@ def reconcile():
         on_disk["data"]["files"], on_disk["root"]["files"])
 
 
+def data_json(address):
+    return json.loads(gzip.decompress((rd / "all-1" / "d" / (address + ".json.gz")).read_bytes()))
+
+
+def version_file():
+    versions = json.loads((rd / "all-1" / "versions.json").read_text(encoding="utf-8"))
+    return data_json(versions[-1]["data"])
+
+
+def module_docs(module):
+    shell = (rd / "all-1" / newest / (module.replace(".", "/") + ".html")).read_text(encoding="utf-8")
+    content = data_json(attr(shell, "page"))["content"]
+    out = {}
+    for item in data_json(content):
+        out["moddoc" if "moddoc" in item else item["n"]] = item.get("moddoc", item.get("doc", ""))
+    return out
+
+
+CITATIONS = (("deMoura2021", "Example", "moddoc", ""),
+             ("TPIL4", "Example.Basic", "moddoc", ""),
+             ("Graham1994", "Example.Math", "Example.Math.displaySpan", "Example.Math.displaySpan"))
+
+
+def citation():
+    bad = []
+    v = version_file()
+    references = data_json(v["references"])
+    by = {r["key"]: r["by"] for r in references}
+    for key, module, item, fun in CITATIONS:
+        doc = module_docs(module).get(item, "")
+        anchors = re.findall(r'<a href="references\.html#ref_%s" title="[^"]*" data-cite>' % key, doc)
+        if len(anchors) != 1 or doc.count("data-cite") != 1 or "_backref" in doc:
+            bad.append("%s's %s holds %d data-cite anchor(s) to ref_%s and %d in all" % (
+                module, item, len(anchors), key, doc.count("data-cite")))
+        if by.get(key) != [[module, 0, fun]]:
+            bad.append("the references data gives %s the citations %s" % (key, by.get(key)))
+    keys = sorted(by)
+    if keys != sorted(k for k, _, _, _ in CITATIONS):
+        bad.append("the references data holds %s" % keys)
+    shell = (rd / "all-1" / newest / "references.html").read_text(encoding="utf-8")
+    if attr(shell, "references") != v["references"]:
+        bad.append("%s/references.html names %s, the version file %s" % (
+            newest, attr(shell, "references"), v["references"]))
+    if bad:
+        return False, "; ".join(bad)
+    return True, "in %s each of the sample's 3 citations is one data-cite link to references.html#ref_<key> with no root prefix or id, the references data (named by the version file and by %s/references.html) lists exactly those 3 keys, each cited once at index 0 by the module whose docstring cites it" % (
+        newest, newest)
+
+
+def front():
+    v = version_file()
+    toml = (sample / "litedoc4.toml").read_text(encoding="utf-8")
+    title = re.search(r'^title = "([^"]*)"', toml, re.M).group(1)
+    index = re.search(r'^index = "([^"]*)"', toml, re.M).group(1)
+    heading = (sample / index).read_text(encoding="utf-8").splitlines()[0]
+    if not heading.startswith("# "):
+        return False, "%s does not open with a level-1 heading" % index
+    want_id = "-".join(re.findall(r"[A-Za-z0-9]+", heading[2:]))
+    if v.get("title") != title:
+        return False, "the version file's title is %r, litedoc4.toml's %r" % (v.get("title"), title)
+    if not v.get("front"):
+        return False, "the version file names no front page"
+    page = data_json(v["front"])
+    want = '<h1 id="%s" class="markdown-heading">' % want_id
+    if not page.get("html", "").startswith(want):
+        return False, "the front page file %s does not open with %s: %r" % (v["front"], want, page.get("html", "")[:80])
+    return True, "the version file carries litedoc4.toml's title %r and names a front page file that opens with %s's heading as %s" % (
+        title, index, want)
+
+
 check("render-sharing", sharing)
 check("render-counts", reconcile)
+check("render-citation", citation)
+check("render-front", front)
 PY
 RENDER_RC=$?
 set -e

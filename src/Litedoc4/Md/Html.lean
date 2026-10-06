@@ -137,7 +137,8 @@ def autoLinkInline (out : String) (links : LinkResolver) (s : String) : String :
 Content rendered with `Hrefs.deferred` holds no site root and no resolved URL.
 Where `Hrefs.relative` would have written either, it holds one of three shapes,
 and the browser turns each into an href by this rule, against the page's own
-`"words"` table and the site root of the URL mode it is serving:
+`"words"` table and the site root of the URL mode it is serving — in a site of
+several versions, the version's own root:
 
 - `<w>word</w>`, around every word `autoLinkInline` would try. The key is the
   element's text. If `"words"` holds the word, the whole word links to its
@@ -151,6 +152,12 @@ and the browser turns each into an href by this rule, against the page's own
   with `#` is a fragment of this page and one that starts with `http` is left as
   it is (a prefix test, not a scheme check); every other one is relative to the
   site root.
+
+A citation is an `<a … data-cite>` whose href is `references.html#ref_<key>`,
+which the rule above resolves. It carries no `id`, because a citation's anchor is
+its position among the page's citations, which the items around it decide: the
+browser gives the page's k-th `data-cite` anchor, in document order from 0, the
+`id` `_backref_k` that `backrefAnchor` spells and the references data points at.
 
 `"words"` holds only the strings that resolve in that version, so a missing key
 is the answer "no link", never a lookup still to be made. -/
@@ -383,8 +390,10 @@ partial def mdText (out : String) (c : Renderer) (t : Md.Text)
     match c.bib.cited? target with
     | some item =>
       let index ← modifyGet fun s => (s.cited.size, { s with cited := s.cited.push item.citekey })
-      let acc := escapeInto (acc ++ " title=\"") item.plaintext ++ "\" id=\""
-      let acc := acc ++ backrefAnchor index ++ "\">"
+      let acc := escapeInto (acc ++ " title=\"") item.plaintext ++ "\""
+      let acc := match c.hrefs with
+        | .relative .. => acc ++ " id=\"" ++ backrefAnchor index ++ "\">"
+        | .deferred => acc ++ " data-cite>"
       let acc ← match ts with
         | #[.normal s] => if s == item.citekey then pure (escapeInto acc item.tag)
                           else mdTexts acc c ts true

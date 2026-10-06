@@ -35,7 +35,7 @@ def textOf (text : String) (spans : Array Span) : Text :=
       else if s.name.isEmpty then none
       else some { start := s.start, stop := s.stop, target := .name s.name } }
 
-/-- A docstring as content: `Hrefs.deferred`'s HTML, rendered with no
+/-- A docstring as content: `Hrefs.deferred`'s HTML, rendered with the version's
 bibliography, and the strings that HTML leaves the browser to look up. -/
 structure Doc where
   html : String
@@ -44,10 +44,10 @@ structure Doc where
 
 /-- An empty docstring is not rendered, so a declaration without one never
 reaches md4c. -/
-def docOf (text : String) : Doc :=
+def docOf (bib : Bibliography) (text : String) : Doc :=
   if text.isEmpty then { html := "", words := #[] }
   else
-    let (html, s) := (docstring "" { hrefs := .deferred, bib := {} } text).run {}
+    let (html, s) := (docstring "" { hrefs := .deferred, bib } text).run {}
     { html, words := s.words }
 
 structure Binder where
@@ -101,7 +101,7 @@ structure Decl where
 
 def isStructureKind (kind : String) : Bool := kind == "structure" || kind == "class"
 
-def declOf (m : Module) (d : Litedoc4.Decl) : Decl := Id.run do
+def declOf (bib : Bibliography) (m : Module) (d : Litedoc4.Decl) : Decl := Id.run do
   let structural := isStructureKind d.kind
   let shown := d.kind == "definition" || d.kind == "instance"
   let mut equations : Array Text := #[]
@@ -115,13 +115,13 @@ def declOf (m : Module) (d : Litedoc4.Decl) : Decl := Id.run do
   let fields := if !structural then #[] else
     (d.members.filter (·.label == "field")).map fun f =>
       { name := f.name, binders := bindersOf f.binders f.binderCode f.implicits
-        type := textOf f.text f.code, doc := docOf (if f.inherited then "" else f.doc)
+        type := textOf f.text f.code, doc := docOf bib (if f.inherited then "" else f.doc)
         inherited := f.inherited
         anchored := f.inherited && contained.contains (d.name ++ "." ++ lastComponent f.name) }
   let ctors := if d.kind == "inductive" || d.kind == "class_inductive" then
       (d.members.filter (·.label == "ctor")).map fun c =>
         { name := c.name, binders := bindersOf c.binders c.binderCode c.implicits
-          type := textOf c.text c.code, doc := docOf c.doc : Ctor }
+          type := textOf c.text c.code, doc := docOf bib c.doc : Ctor }
     else #[]
   return {
     name := d.name, kind := d.kind, modifiers := d.modifiers, attrs := d.attrs.map attrText
@@ -136,7 +136,7 @@ def declOf (m : Module) (d : Litedoc4.Decl) : Decl := Id.run do
     parents := if !structural then #[] else
       (d.members.filter (·.label == "parent")).map fun p => (p.name, textOf p.text p.code)
     type := textOf d.ty d.typeCode
-    doc := docOf d.doc, equations, equationsOmitted, fields
+    doc := docOf bib d.doc, equations, equationsOmitted, fields
     ctor := if !structural then none else
       some ((d.members.find? (·.label == "ctor")).map (·.name) |>.getD (d.name ++ ".mk"))
     ctors }
@@ -245,7 +245,6 @@ structure Content where
 
 def Decl.content (d : Decl) : Content := ⟨d.json.toUTF8⟩
 
-def declContent (m : Module) (d : Litedoc4.Decl) : Content := (declOf m d).content
 
 def moduleDocContent (doc : Doc) : Content := ⟨(jsonStr "{\"moddoc\":" doc.html |>.push '}').toUTF8⟩
 

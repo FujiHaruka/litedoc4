@@ -92,10 +92,11 @@ def sampleRecordOf (v : VersionName) (identity : ExtractorIdentity) : Record :=
     fill := .own, sourceUrl := "https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567"
     dependencies := #[{ name := "batteries", rev := some "fedcba9876543210fedcba9876543210fedcba98" },
                       { name := "micro-dep", rev := none }]
-    sources := .recorded #[
+    checkout := .read #[
       ("Batteries", some "https://github.com/leanprover-community/batteries/blob/fedcba9876543210fedcba9876543210fedcba98"),
       ("Dep-Aux", none),
       ("Init", some "https://github.com/leanprover/lean4/blob/89abcdef0123456789abcdef0123456789abcdef/src")]
+      (some "Sample")
     extractorIdentity := identity, packSha256 := "ab", packBytes := 12, irFiles := 3, irBytes := 40
     linkIndexBytes := 7 }
 
@@ -118,7 +119,7 @@ def recordWith (r : Record) (key : String) (value : JVal) : String :=
 
 def recordKeys : List String :=
   ["recordSchema", "version", "commit", "leanVersion", "leanGithash", "fill", "sourceUrl",
-   "dependencies", "sources", "extractorIdentity", "pack", "ir", "linkIndex"]
+   "dependencies", "sources", "title", "extractorIdentity", "pack", "ir", "linkIndex"]
 
 def aRecordRoundTripsThroughItsJsonAndAMissingOrWrongKeyIsRefused : Bool :=
   withSample fun r _ _ =>
@@ -133,37 +134,57 @@ def aRecordRoundTripsThroughItsJsonAndAMissingOrWrongKeyIsRefused : Bool :=
           recordWith r "sources" (.arr #[.arr #[.str "Init"]]),
           recordWith r "sources" (.arr #[.arr #[.str "Init", .null], .arr #[.str "Init", .null]]),
           recordWith r "sources" (.arr #[.arr #[.str "Lean", .null], .arr #[.str "Init", .null]]),
-          recordWith r "sources" (.obj #[])].all
+          recordWith r "sources" (.obj #[]),
+          recordWith r "title" (.str ""), recordWith r "title" (.num 1)].all
         (isError ∘ Record.parse)
 
 #guard aRecordRoundTripsThroughItsJsonAndAMissingOrWrongKeyIsRefused
 
-def schemaTwoOf (r : Record) : String :=
-  recordEdited r fun kv => (kv.filter (·.1 != "sources")).map fun (k, v) =>
-    if k == "recordSchema" then (k, .num 2) else (k, v)
+def downgraded (r : Record) (schema : Nat) (dropped : List String) : String :=
+  recordEdited r fun kv => (kv.filter (!dropped.contains ·.1)).map fun (k, v) =>
+    if k == "recordSchema" then (k, .num schema) else (k, v)
 
-def aSchemaTwoRecordReadsAsOneWithNoSourceMapAndWritesBackAsItWas : Bool :=
+def rootsOf (r : Record) : Array (String × Option String) :=
+  match r.checkout with
+  | .read roots _ | .beforeSite roots => roots
+  | .beforeSources => #[]
+
+def keyCount (text key : String) : Nat := (text.splitOn s!"\"{key}\"").length - 1
+
+def anOlderRecordReadsAsWhatItsPutReadAndWritesBackAsItWas : Bool :=
   withSample fun r _ _ =>
-    let old := { r with sources := .notRecorded }
-    (Record.parse (schemaTwoOf r)).toOption == some old
-      && (Record.parse old.toJson).toOption == some old
-      && (old.toJson.splitOn "\"sources\"").length == 1
-      && isError (Record.parse (recordWith r "recordSchema" (.num 4)))
+    let two := { r with checkout := .beforeSources }
+    let three := { r with checkout := .beforeSite (rootsOf r) }
+    (Record.parse (downgraded r 2 ["sources", "title"])).toOption == some two
+      && (Record.parse (downgraded r 3 ["title"])).toOption == some three
+      && [two, three].all (fun old => (Record.parse old.toJson).toOption == some old)
+      && (keyCount two.toJson "sources", keyCount three.toJson "sources") == (0, 1)
+      && [two, three].all (keyCount ·.toJson "title" == 0)
+      && isError (Record.parse (recordWith r "recordSchema" (.num 5)))
+      && isError (Record.parse (recordWith r "recordSchema" (.num 1)))
 
-#guard aSchemaTwoRecordReadsAsOneWithNoSourceMapAndWritesBackAsItWas
+#guard anOlderRecordReadsAsWhatItsPutReadAndWritesBackAsItWas
 
 def refusalOf : Except String α → String
   | .error why => why
   | .ok _ => ""
 
-def anEntryWithNoSourceMapIsRefusedAsInputNamingStorePutAndOneWithAMapIsNot : Bool :=
-  withSample fun r _ _ =>
-    let refused := refusalOf (Data.inputOf { r with sources := .notRecorded } #[])
-    let read := refusalOf (Data.inputOf r #[])
-    (refused.splitOn "litedoc4 store put --version v4.32.2").length ≥ 2
-      && (read.splitOn "store put").length == 1 && (read.splitOn "index.json").length ≥ 2
+def mentions (text part : String) : Bool := (text.splitOn part).length ≥ 2
 
-#guard anEntryWithNoSourceMapIsRefusedAsInputNamingStorePutAndOneWithAMapIsNot
+def anEntryWithoutTheSiteConfigurationOrTheSourceMapNeedsReputAndACurrentOneDoesNot : Bool :=
+  withSample fun r _ _ =>
+    let noSources := { r with checkout := .beforeSources }
+    let noSite := { r with checkout := .beforeSite (rootsOf r) }
+    let refusedAsInput := [noSources, noSite].map (refusalOf <| Data.inputOf · #[])
+    let read := refusalOf (Data.inputOf r #[])
+    refusedAsInput.all (mentions · "litedoc4 store put --version v4.32.2")
+      && refusedAsInput.all (mentions · "site configuration")
+      && mentions refusedAsInput[0]! "source map" && !mentions refusedAsInput[1]! "source map"
+      && [noSources, noSite].all (isError <| checkoutOf ·)
+      && (checkoutOf r).toOption == some { sources := rootsOf r, title := some "Sample" }
+      && !mentions read "store put" && mentions read "index.json"
+
+#guard anEntryWithoutTheSiteConfigurationOrTheSourceMapNeedsReputAndACurrentOneDoesNot
 
 def coreRevision : String := "89abcdef0123456789abcdef0123456789abcdef"
 
@@ -177,7 +198,7 @@ def theRecordedMapIsTheLinkMapsRootsInByteOrderWithoutDocsAndCoreAsItWasLinkedBe
   let expected := #[("Batteries", some "https://b/blob/r"), ("Dep-Aux", none),
     ("Init", some s!"{core}/src"), ("Lake", some s!"{core}/src/lake"), ("Lean", some s!"{core}/src"),
     ("Mathlib", none), ("Std", some s!"{core}/src")]
-  sourceMapOf withDeps == .recorded expected
+  sourceMapOf withDeps == expected
     && expected.all fun (root, base) =>
       (linksOf expected).sourceFor root == match base with
         | some b => .pinned b
@@ -205,13 +226,17 @@ def theIdentityIsAskedForWithTheFlagsAnExtractionStartsWith : Bool :=
 def parts (paths : List String) : Except String EntryParts :=
   entryParts (paths.toArray.map (·, bytesOf "xy"))
 
-def anEntryIsTheIrUnderIrAndOneLinkIndexAndNothingElse : Bool :=
+def anEntryIsTheIrUnderIrOneLinkIndexAndAtMostTheTwoSiteFiles : Bool :=
   (parts ["ir/index.json", "ir/modules/A.json", "link-index.lidx"]).toOption == some ⟨2, 4, 2⟩
+    && (parts ["ir/index.json", "link-index.lidx", "site/index.md", "site/references.bib"]).toOption
+      == some ⟨1, 2, 2⟩
     && [["ir/index.json"], ["link-index.lidx"], ["ir/index.json", "link-index.lidx", "x"],
-        ["index.json", "link-index.lidx"], ["ir/index.json", "ir-link-index.lidx"]].all
+        ["index.json", "link-index.lidx"], ["ir/index.json", "ir-link-index.lidx"],
+        ["ir/index.json", "link-index.lidx", "site/title"],
+        ["ir/index.json", "link-index.lidx", "references.bib"]].all
       (isError ∘ parts)
 
-#guard anEntryIsTheIrUnderIrAndOneLinkIndexAndNothingElse
+#guard anEntryIsTheIrUnderIrOneLinkIndexAndAtMostTheTwoSiteFiles
 
 def anUnpackedEntryIsLaidOutAsBuildLaysOutItsOut : Bool :=
   let out : FilePath := "/o"
@@ -254,7 +279,9 @@ def testOrigin : Origin :=
     leanGithash := "89abcdef0123456789abcdef0123456789abcdef"
     sourceUrl := "https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567"
     dependencies := #[{ name := "micro-dep", rev := none }]
-    sources := mkExternalLinks #[("Init", "https://core/blob/r/src"), ("Dep-Aux", "")] }
+    sources := mkExternalLinks #[("Init", "https://core/blob/r/src"), ("Dep-Aux", "")]
+    site := { title := some "T", indexMarkdown := some "# Front\n"
+              bibliography := some "@misc{K,\n  author = {Ann Author},\n  title = {A Title},\n  year = {2020}\n}\n" } }
 
 def putOut (store : FilePath) (v : VersionName) (out : FilePath) : IO PutSummary :=
   put store v testOrigin (out / "ir") (out / "link-index.lidx")
@@ -279,19 +306,21 @@ def namesIn (dir : FilePath) : IO (List String) := do
   return ((← dir.readDir).map (·.fileName)).qsort byteLt |>.toList
 
 def anEntryReadsBackByteForByteAndItsRecordCountsWhatTheIrHolds : Invariant where
-  name := "an entry reads back byte for byte, to memory and to a directory, and its record counts the IR"
+  name := "an entry reads back byte for byte, to memory and to a directory, its record counts the \
+    IR, and its site configuration reads back as the put read it"
   check := do
     let dir ← scratch "round-trip"
     let build := dir / "build"
     writeOut build (some identityAText) "{\"module\":\"Example.Basic\"}"
     let v1 ← versionNamed "v1"
-    let tree := (← readTree build).qsort (fun a b => byteLt a.1 b.1)
+    let tree := (← readTree build) ++ siteFiles testOrigin.site |>.qsort (fun a b => byteLt a.1 b.1)
     let ir ← readTree (build / "ir")
     let put ← putOut (dir / "store") v1 build
     let back ← read (dir / "store") v1
     unpackTo (dir / "out") back.files
     let unpacked ← readTree (dir / "out")
     let r := put.record
+    let site := (Data.inputOf back.record back.files).toOption.map (·.site)
     let answer := first [
       if samePairs back.files tree then none
         else some "read gave other files than the IR and the link index",
@@ -300,8 +329,11 @@ def anEntryReadsBackByteForByteAndItsRecordCountsWhatTheIrHolds : Invariant wher
       eq (r.irFiles, r.irBytes, r.linkIndexBytes)
         (ir.size, ir.foldl (fun n f => n + f.2.size) 0, lidxBytes.size),
       eq (r.extractorIdentity.text, r.leanVersion, r.commit) (identityAText, "4.31.0", testOrigin.commit),
-      eq r.sources (.recorded #[("Dep-Aux", none), ("Init", some "https://core/blob/r/src")]),
-      eq (back.record == r) true]
+      eq r.checkout (.read #[("Dep-Aux", none), ("Init", some "https://core/blob/r/src")] (some "T")),
+      eq (back.record == r) true,
+      eq ((back.files.map (·.1)).filter (·.startsWith "site/")).toList ["site/index.md", "site/references.bib"],
+      eq (site.map fun c => (c.title, c.indexMarkdown, c.bibliography.items.map (·.citekey)))
+        (some (some "T", some "# Front\n", #["K"]))]
     IO.FS.removeDirAll dir
     return answer
 

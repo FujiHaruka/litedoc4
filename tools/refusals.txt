@@ -13,7 +13,7 @@
 # under test would replace the answer with the question.
 #
 # **Except the `store` command** (2026-10-07): its eleven synopsis lines and
-# forty-two description lines in `@usage` and its eleven `store-*` rows had no
+# forty-six description lines in `@usage` and its eleven `store-*` rows had no
 # Rust counterpart. They were written by hand against the Lean binary, which is the
 # only oracle a command newer than `rust-frozen` has.
 #
@@ -298,28 +298,32 @@
 |   --pages        (`prune`) the page tree; nothing outside it is ever deleted
 |   --dry-run      report what would be deleted and delete nothing
 |   --store        (`store`) the kept versions, one directory per version:
-|                  <store>/<name>/entry.pack.gz (the IR tree and the dependency
-|                  link index, packed and gzipped) and record.json (commit, Lean,
-|                  dependencies, each dependency module root's version-pinned
-|                  source URL or that it has none, the extractor identity the IR
-|                  was written under, and the pack's SHA-256, which `read`
-|                  checks before it decompresses anything)
+|                  <store>/<name>/entry.pack.gz (the IR tree, the dependency link
+|                  index, the bibliography and the index page's Markdown, packed
+|                  and gzipped) and record.json (commit, Lean, dependencies, each
+|                  dependency module root's version-pinned source URL or that it
+|                  has none, the title, the extractor identity the IR was written
+|                  under, and the pack's SHA-256, which `read` checks before it
+|                  decompresses anything)
 |   --version      (`store`) the entry's name: letters, digits, `.`, `_`, `+`
 |                  and `-`, starting with a letter or a digit, without `..`
 |   --from         (`store put`) a directory `build --out` finished. Its ir/ and
 |                  link-index.lidx are stored, and a build that wrote no link
 |                  index is refused; the commit, the dependencies, their source
-|                  URLs and Lean core's revision come from the checkout its
-|                  marker names, which has to still be at the commit the pages
-|                  link to. Putting the same directory again rewrites the
-|                  record without re-extracting anything.
+|                  URLs, Lean core's revision and the site configuration
+|                  (litedoc4.toml's title and index, docs/references.bib) come
+|                  from the checkout its marker names, which has to still be at
+|                  the commit the pages link to. Putting the same directory again
+|                  rewrites the entry without re-extracting anything.
 |                  `store read --out` unpacks an entry into an empty directory
-|                  laid out as `build --out` lays out those two; without it the
-|                  entry is only verified. `store check-stale` asks
+|                  laid out as `build --out` lays out those two, with the site
+|                  configuration under site/; without it the entry is only
+|                  verified. `store check-stale` asks
 |                  --extractor-bin for its identity with the flags `build`
 |                  passes, which --root's litedoc4.toml decides, and says fresh,
-|                  stale, or needs re-put (a record with no source map, which
-|                  `store measure` and `store render` refuse) per entry; it exits
+|                  stale, or needs re-put (a record an older put wrote, without
+|                  the source map or the site configuration, which `store
+|                  measure` and `store render` refuse) per entry; it exits
 |                  3 when an entry needs re-put or is unreadable
 |   --versions     (`store measure`, `store render`) the entries to lay out,
 |                  comma-separated, in the order a site would have added them:

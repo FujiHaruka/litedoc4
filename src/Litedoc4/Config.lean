@@ -225,19 +225,29 @@ def readIfPresent (path : FilePath) : IO (Option String) := do
     | .noFileOrDirectory .. => pure none
     | e => throw (unreadable path e)
 
-/-- `<root>/docs/references.bib`. Absent and blank are the same answer as a
+def bibliographyPath (root : FilePath) : FilePath := root / "docs" / "references.bib"
+
+/-- `<root>/docs/references.bib`'s text. Absent and blank are the same answer as a
 package with no bibliography, and neither moves the render key. -/
+def readBibliographyText (root : FilePath) : IO (Option String) := do
+  let some text ← readIfPresent (bibliographyPath root) | return none
+  return if text.trimAscii.isEmpty then none else some text
+
+def bibliographyOf (source : String) : Option String → Except String Bibliography
+  | none => .ok {}
+  | some text =>
+    match processBibtex text with
+    | .ok read =>
+      let warning := read.unread.map fun u =>
+        s!"{source}: line {u.line}: BibtexQuery cannot read the entry that starts here, so it \
+          and everything after it ({u.ats} `@` in all) are left out of the bibliography"
+      .ok { Bibliography.of read.items (some (sha256Text text)) with warning }
+    | .error message => .error s!"{source}: {message}"
+
 def readBibliography (root : FilePath) : IO Bibliography := do
-  let path := root / "docs" / "references.bib"
-  let some text ← readIfPresent path | return {}
-  if text.trimAscii.isEmpty then return {}
-  match processBibtex text with
-  | .ok read =>
-    let warning := read.unread.map fun u =>
-      s!"{path}: line {u.line}: BibtexQuery cannot read the entry that starts here, so it \
-        and everything after it ({u.ats} `@` in all) are left out of the bibliography"
-    return { Bibliography.of read.items (some (sha256Text text)) with warning }
-  | .error message => throw (IO.userError s!"{path}: {message}")
+  match bibliographyOf (bibliographyPath root).toString (← readBibliographyText root) with
+  | .ok bibliography => return bibliography
+  | .error why => throw (IO.userError why)
 
 /-- `<root>/litedoc4.toml`'s keys, or none when the file is absent. -/
 def readConfigKeys (root : FilePath) : IO ConfigKeys := do
@@ -248,18 +258,36 @@ def readConfigKeys (root : FilePath) : IO ConfigKeys := do
     | .ok keys => pure keys
     | .error message => throw (IO.userError s!"{path}: {message}")
 
-/-- `<root>/litedoc4.toml` and `<root>/docs/references.bib`, or the empty
-configuration when `root` is `none` or holds neither file. -/
-def readSiteConfig (root : Option FilePath) : IO SiteConfig := do
-  let some root := root | return {}
+/-- What `readSiteConfig` reads, before the bibliography is parsed: the text a
+store entry keeps, so a render from the store reads what `build` read. -/
+structure SiteSources where
+  title : Option String := none
+  indexMarkdown : Option String := none
+  bibliography : Option String := none
+  deriving BEq, Repr, Inhabited
+
+def readSiteSources (root : FilePath) : IO SiteSources := do
   let keys ← readConfigKeys root
   let indexMarkdown ← match keys.index with
     | some relative =>
       let resolved := root / relative
       pure (some (← readTextFile resolved))
     | none => pure none
-  let bibliography ← readBibliography root
-  if let some warning := bibliography.warning then IO.eprintln s!"warning: {warning}"
-  return { title := keys.title, indexMarkdown, bibliography }
+  return { title := keys.title, indexMarkdown, bibliography := ← readBibliographyText root }
+
+def SiteSources.config (s : SiteSources) (bibliographySource : String) :
+    Except String SiteConfig := do
+  return { title := s.title, indexMarkdown := s.indexMarkdown
+           bibliography := ← bibliographyOf bibliographySource s.bibliography }
+
+/-- `<root>/litedoc4.toml` and `<root>/docs/references.bib`, or the empty
+configuration when `root` is `none` or holds neither file. -/
+def readSiteConfig (root : Option FilePath) : IO SiteConfig := do
+  let some root := root | return {}
+  match (← readSiteSources root).config (bibliographyPath root).toString with
+  | .error why => throw (IO.userError why)
+  | .ok config =>
+    if let some warning := config.bibliography.warning then IO.eprintln s!"warning: {warning}"
+    return config
 
 end Litedoc4

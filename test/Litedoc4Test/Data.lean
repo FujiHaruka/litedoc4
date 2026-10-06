@@ -248,7 +248,7 @@ def contentCarriesNoRootPrefixAtAnyDepth : Invariant where
 def aCitationWithNoBibliographyIsTheAuthorsText : Invariant where
   name := "with no bibliography in the store, a citation is the author's bracketed text and a \
     link to the references page is a relative link like any other"
-  check := pure <| eq (Data.docOf "As in [Key] and [t](references.html#ref_Key).").html
+  check := pure <| eq (Data.docOf {} "As in [Key] and [t](references.html#ref_Key).").html
     "<p>As in [Key] and <a href=\"references.html#ref_Key\">t</a>.</p>"
 
 def aSubtermWrapperIsDroppedAndASortAndANameAreKept : Bool :=
@@ -426,15 +426,26 @@ def theVersionFileListsExactlyTheRootsItsPagesNameWithTheBaseTheyResolvedUnder :
   let onlyB := undocumented #[moduleB #[hDecl]]
   let both := undocumented #[moduleB #[hDecl], { name := "P.C", schemaVersion := 5, decls := #[gDecl] }]
   let f := Data.Site.DataFile.of "json" "" "[]".toUTF8
-  Data.versionRoots onlyB.pages == #[("Init", "https://core/src")]
-    && Data.versionRoots both.pages == #[("Dep", "https://dep/src"), ("Init", "https://core/src")]
-    && Data.Site.versionFileJson "u" siteMeta (Data.versionRoots both.pages) f f f ==
-      s!"\{\"version\":\"u\",\"commit\":\"c0ffee\",\"lean\":\"4.31.0\",\
+  Data.versionRoots onlyB.links == #[("Init", "https://core/src")]
+    && Data.versionRoots both.links == #[("Dep", "https://dep/src"), ("Init", "https://core/src")]
+    && Data.Site.versionFileJson "u" both.title siteMeta (Data.versionRoots both.links) f f f f
+        none ==
+      s!"\{\"version\":\"u\",\"title\":\"P\",\"commit\":\"c0ffee\",\"lean\":\"4.31.0\",\
         \"source\":\"https://h/o/r/blob/c0ffee\",\"roots\":\{\"Dep\":\"https://dep/src\",\
         \"Init\":\"https://core/src\"},\"modules\":\"{f.address}\",\"search\":\"{f.address}\",\
-        \"instances\":\"{f.address}\"}"
+        \"instances\":\"{f.address}\",\"references\":\"{f.address}\",\"front\":null}"
 
 #guard theVersionFileListsExactlyTheRootsItsPagesNameWithTheBaseTheyResolvedUnder
+
+def theVersionFileNamesItsReferencesAndFrontPageFilesAndCarriesTheTitle : Bool :=
+  let f := Data.Site.DataFile.of "json" "" "[]".toUTF8
+  let g := Data.Site.DataFile.of "json" "" "{}".toUTF8
+  let text := Data.Site.versionFileJson "u" "A \"T\"" siteMeta #[] f f f g (some f)
+  text.startsWith "{\"version\":\"u\",\"title\":\"A \\\"T\\\"\","
+    && text.endsWith s!",\"references\":\"{g.address}\",\"front\":\"{f.address}\"}"
+    && (undocumented #[moduleB #[hDecl]]).references.toList == "[]".toUTF8.toList
+
+#guard theVersionFileNamesItsReferencesAndFrontPageFilesAndCarriesTheTitle
 
 def aPageFileNamesItsContentByAddressAndAnEmptyPageNamesNone : Invariant where
   name := "a page file names its content file by the address of that file's bytes, its shell \
@@ -465,6 +476,90 @@ def aChangedDocstringAddsOnlyItsContentItsPageFileAndTheVersionFile : Invariant 
       let added := (after.data.filter fun f => !had.contains f.path).map (·.what)
       eq (sortUtf16 added) #["doc's content of P.A", "doc's page file of P.A", "doc's version file"]
     | _, _ => some "render refused"
+
+/-! ## The version's site configuration -/
+
+def dataBibText : String :=
+  "@misc{K,\n  author = {Ann Author},\n  title = {A Title},\n  year = {2020}\n}\n"
+
+def dataBib : Bibliography := ((bibliographyOf "test" (some dataBibText)).toOption).getD {}
+
+def citingDecl (name : String) (line : Nat) (doc : String) : Decl :=
+  { name, kind := "theorem", ty := "True", line, endLine := line, index := line, doc }
+
+def deepCiting : Module :=
+  { name := "P.Deep.Er.M", schemaVersion := 5
+    decls := #[citingDecl "P.Deep.Er.M.c" 2 "As in [K]."] }
+
+def siteVersion (name : String) (a : Array Decl) (front : Option String := none) :
+    Data.VersionData :=
+  Data.versionData
+    { name, modules := #[moduleA a, moduleB #[hDecl], deepCiting], depMaps := dataDepMaps
+      lidx := dataLidx 10, sources := pinned
+      site := { title := some "T", indexMarkdown := front, bibliography := dataBib } }
+
+def docHtml (item : String) : String :=
+  match parseJson item with
+  | .ok j => ((jvalGet? j "doc").map asStr).getD ""
+  | .error _ => ""
+
+def citing : Data.VersionData :=
+  siteVersion "cites" #[fDecl, gDecl, citingDecl "P.A.c" 13 "As in [K].",
+    citingDecl "P.A.d" 15 "Also [K]."]
+
+def aCitationInContentLinksToTheReferencesPageWithNoRootPrefixAndNoAnchorId : Invariant where
+  name := "a citation in content resolves against the version's bibliography, its tag and title \
+    the entry's, and links to `references.html` with no root prefix and no anchor id, so the \
+    same docstring at two depths is the same markup"
+  check := pure <|
+    match dataBib.items[0]? with
+    | none => some "the test bibliography has no entry"
+    | some item =>
+      let today := (docstring "" { hrefs := .relative (pageRoot "P.Deep.Er.M") noLinks, bib := dataBib }
+        "As in [K].").run' {}
+      first [eq (docHtml (itemText citing "P.A" 3))
+          (escapeInto (escapeInto "<p>As in <a href=\"references.html#ref_K\" title=\""
+            item.plaintext ++ "\" data-cite>") item.tag ++ "</a>.</p>"),
+        eq (docHtml (itemText citing "P.A" 3)) (docHtml (itemText citing "P.Deep.Er.M" 0)),
+        eq ((today.splitOn "href=\"../../.././references.html#ref_K\"").length,
+            (today.splitOn "id=\"_backref_0\"").length) (2, 2),
+        eq (((itemText citing "P.A" 4).splitOn "_backref").length) 1]
+
+def theReferencesDataListsEachEntryWithItsCitationsInModuleAndPageOrder : Invariant where
+  name := "the references data lists each entry, tag and markup with the citations of it: \
+    modules in name order, each page's numbered from 0 in page order"
+  check := pure <|
+    match dataBib.items[0]? with
+    | none => some "the test bibliography has no entry"
+    | some item =>
+      let head := jsonStr (jsonStr (jsonStr "[{\"key\":\"K\",\"tag\":" item.tag ++ ",\"html\":")
+        item.html ++ ",\"by\":[[\"P.A\",0,") "P.A.c"
+      eq (String.fromUTF8? citing.references)
+        (some (head ++ "],[\"P.A\",1,\"P.A.d\"],[\"P.Deep.Er.M\",0,\"P.Deep.Er.M.c\"]]}]"))
+
+def frontMarkdown : String := "# Front\n\nSee `P.A.f` and [K]."
+
+def theRenderedVersionNamesItsFrontPageAndReferencesFilesAndTheReferencesPageHasAShell :
+    Invariant where
+  name := "a rendered version's file names its references and front page data files by \
+    address, the references page has a shell naming its data, and the front page is the index \
+    Markdown, deferred, with its own words table and no bibliography"
+  check := pure <|
+    match renderedOf (siteVersion "v1" #[fDecl, gDecl] (front := some frontMarkdown)) with
+    | none => some "render refused"
+    | some r =>
+      let text := fun (f : Data.Site.DataFile) => (String.fromUTF8? f.raw).getD ""
+      match dataNamed r "v1's references", dataNamed r "v1's front page" with
+      | some refs, some front =>
+        let html := (docstring "" { hrefs := .deferred, bib := {} } frontMarkdown).run' {}
+        first [
+          eq ((text r.versionFile).splitOn s!"\"references\":\"{refs.address}\",\"front\":\"{front.address}\"}").length 2,
+          eq ((text r.versionFile).splitOn "\"title\":\"T\"").length 2,
+          eq ((r.shells.find? (·.1 == "v1/references.html")).map
+            (·.2.splitOn s!"data-references=\"{refs.address}\"" |>.length)) (some 2),
+          eq (text front) (jsonStr "{\"html\":" html ++ ",\"roots\":[],\"words\":{\"P.A.f\":[\"P.A\"]}}"),
+          eq ((html.splitOn "<w>P.A.f</w>").length, (html.splitOn "[K]").length) (2, 2)]
+      | _, _ => some "the references or front page data file is missing"
 
 end DataFormat
 end Litedoc4Test

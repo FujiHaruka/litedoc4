@@ -1,8 +1,9 @@
 /- The store of kept versions: `<store>/<version>/` holds `entry.pack.gz`, the
-version's whole IR tree and its dependency link index in one deterministic
-container compressed once, and `record.json`, what the IR does not say about the
-version and what the pack must hash to. -/
+version's whole IR tree, its dependency link index and its bibliography and
+front page in one deterministic container compressed once, and `record.json`,
+what the IR does not say about the version and what the pack must hash to. -/
 import Litedoc4.Bytes
+import Litedoc4.Config
 import Litedoc4.Fs
 import Litedoc4.Gzip
 import Litedoc4.Incr.Resident
@@ -157,9 +158,15 @@ structure Dependency where
   rev : Option String
   deriving BEq, Repr
 
-inductive SourceMap where
-  | notRecorded
-  | recorded (roots : Array (String × Option String))
+/-- What a put reads from the build's checkout rather than from its output: each
+dependency root's pinned source and the site configuration (`readSiteSources`),
+whose title is here and whose files are in the pack. A record an older put wrote
+holds less, and putting the same build again reads all of it without
+re-extracting anything. -/
+inductive Checkout where
+  | beforeSources
+  | beforeSite (roots : Array (String × Option String))
+  | read (roots : Array (String × Option String)) (title : Option String)
   deriving BEq, Repr
 
 structure Record where
@@ -170,7 +177,7 @@ structure Record where
   fill : Fill
   sourceUrl : String
   dependencies : Array Dependency
-  sources : SourceMap
+  checkout : Checkout
   extractorIdentity : ExtractorIdentity
   packSha256 : String
   packBytes : Nat
@@ -179,25 +186,40 @@ structure Record where
   linkIndexBytes : Nat
   deriving BEq, Repr
 
-def recordSchema : Nat := 3
+def recordSchema : Nat := 4
 
-def recordSchemaWithoutSources : Nat := 2
+def Checkout.schema : Checkout → Nat
+  | .beforeSources => 2
+  | .beforeSite _ => 3
+  | .read .. => recordSchema
 
 def stale (r : Record) (current : ExtractorIdentity) : Bool :=
   r.extractorIdentity != current
 
-def needsReputRefusal (v : VersionName) : String :=
-  s!"its record (schema {recordSchemaWithoutSources}) holds no dependency source map, and pages \
-    rendered from it would link into no dependency: put it again with `litedoc4 store put \
-    --version {v.text} --from <its build directory>`, which fills the map without re-extracting"
+structure FromCheckout where
+  sources : Array (String × Option String)
+  title : Option String
+  deriving BEq, Repr
 
-def sourcesOf (r : Record) : Except String (Array (String × Option String)) :=
-  match r.sources with
-  | .recorded roots => .ok roots
-  | .notRecorded => .error (needsReputRefusal r.version)
+def needsReputRefusal (v : VersionName) (c : Checkout) : String :=
+  let (holds, consequence) := match c with
+    | .beforeSources => ("no dependency source map and no site configuration",
+        "would link into no dependency and cite nothing")
+    | _ => ("no site configuration (bibliography, front page, title)",
+        "would cite nothing and have no front page")
+  s!"its record (schema {c.schema}) holds {holds}, and pages rendered from it {consequence}: \
+    put it again with `litedoc4 store put --version {v.text} --from <its build directory>`, \
+    which reads them from the build's checkout without re-extracting"
 
-def sourceMapOf (m : ExternalLinks) : SourceMap :=
-  .recorded <| (m.roots.map fun r =>
+/-- **The one judgement of whether an entry can be rendered from**: `list`,
+`check-stale`, `measure` and `render` all ask it. -/
+def checkoutOf (r : Record) : Except String FromCheckout :=
+  match r.checkout with
+  | .read roots title => .ok { sources := roots, title }
+  | c => .error (needsReputRefusal r.version c)
+
+def sourceMapOf (m : ExternalLinks) : Array (String × Option String) :=
+  (m.roots.map fun r =>
     (r.name, match m.sourceFor r.name with
       | .pinned base => some base
       | .unpinned | .absent => none)).qsort (fun a b => byteLt a.1 b.1)
@@ -206,10 +228,7 @@ def linksOf (roots : Array (String × Option String)) : ExternalLinks :=
   mkExternalLinks (roots.map fun (root, base) => (root, base.getD ""))
 
 def Record.toJson (r : Record) : String := Id.run do
-  let schema := match r.sources with
-    | .notRecorded => recordSchemaWithoutSources
-    | .recorded _ => recordSchema
-  let mut o := s!"\{\"recordSchema\":{schema},\"version\":"
+  let mut o := s!"\{\"recordSchema\":{r.checkout.schema},\"version\":"
   o := jsonStr o r.version.text
   o := jsonStr (o ++ ",\"commit\":") r.commit
   o := jsonStr (o ++ ",\"leanVersion\":") r.leanVersion
@@ -227,8 +246,8 @@ def Record.toJson (r : Record) : String := Id.run do
       | none => o ++ "null"
     o := o.push '}'
   o := o.push ']'
-  if let .recorded roots := r.sources then
-    o := o ++ ",\"sources\":["
+  let pushSources (o : String) (roots : Array (String × Option String)) : String := Id.run do
+    let mut o := o ++ ",\"sources\":["
     for i in [0:roots.size] do
       let (root, base) := roots[i]!
       if i > 0 then o := o.push ','
@@ -236,7 +255,15 @@ def Record.toJson (r : Record) : String := Id.run do
       o := (match base with
         | some b => jsonStr o b
         | none => o ++ "null").push ']'
-    o := o.push ']'
+    return o.push ']'
+  match r.checkout with
+  | .beforeSources => pure ()
+  | .beforeSite roots => o := pushSources o roots
+  | .read roots title =>
+    o := pushSources o roots ++ ",\"title\":"
+    o := match title with
+      | some t => jsonStr o t
+      | none => o ++ "null"
   o := jsonStr (o ++ ",\"extractorIdentity\":") r.extractorIdentity.text
   o := jsonStr (o ++ ",\"pack\":{\"sha256\":") r.packSha256
   o := o ++ s!",\"bytes\":{r.packBytes}},\"ir\":\{\"files\":{r.irFiles},\"bytes\":{r.irBytes}},\"linkIndex\":\{\"bytes\":{r.linkIndexBytes}}}\n"
@@ -257,8 +284,8 @@ def Record.parse (text : String) : Except String Record := do
     | .num n => if n < 0 then .error s!"`{key}` is negative" else .ok n.toNat
     | _ => .error s!"`{key}` is not a whole number"
   let schema ← nat j "recordSchema"
-  if schema != recordSchema && schema != recordSchemaWithoutSources then
-    throw s!"record schema {schema}; this reader reads schemas {recordSchemaWithoutSources} and \
+  if schema < Checkout.beforeSources.schema || schema > recordSchema then
+    throw s!"record schema {schema}; this reader reads schemas {Checkout.beforeSources.schema} to \
       {recordSchema}"
   let version ← VersionName.parse (← str j "version")
   let fillName ← str j "fill"
@@ -274,7 +301,7 @@ def Record.parse (text : String) : Except String Record := do
         | _ => throw s!"dependency `{name}`: `rev` is neither a string nor null"
       pure { name, rev : Dependency }
     | _ => throw "`dependencies` is not an array"
-  let sources ← if schema == recordSchemaWithoutSources then pure SourceMap.notRecorded else
+  let sources : Except String (Array (String × Option String)) := do
     match ← field j "sources" with
     | .arr items => do
       let mut roots : Array (String × Option String) := #[]
@@ -289,14 +316,22 @@ def Record.parse (text : String) : Except String Record := do
           if !byteLt before root then
             throw s!"source root `{root}` follows `{before}`: not in strictly ascending byte order"
         roots := roots.push (root, base)
-      pure (SourceMap.recorded roots)
+      pure roots
     | _ => throw "`sources` is not an array"
+  let checkout ← if schema == Checkout.beforeSources.schema then pure Checkout.beforeSources
+    else if schema == (Checkout.beforeSite #[]).schema then pure (Checkout.beforeSite (← sources))
+    else
+      let title ← match ← field j "title" with
+        | .str t => if t.isEmpty then throw "`title` is empty, not null" else pure (some t)
+        | .null => pure none
+        | _ => throw "`title` is neither a string nor null"
+      pure (Checkout.read (← sources) title)
   let pack ← field j "pack"
   let ir ← field j "ir"
   let linkIndex ← field j "linkIndex"
   return { version, commit := ← str j "commit", leanVersion := ← str j "leanVersion"
            leanGithash := ← str j "leanGithash", fill, sourceUrl := ← str j "sourceUrl"
-           dependencies, sources, extractorIdentity
+           dependencies, checkout, extractorIdentity
            packSha256 := ← str pack "sha256", packBytes := ← nat pack "bytes"
            irFiles := ← nat ir "files", irBytes := ← nat ir "bytes"
            linkIndexBytes := ← nat linkIndex "bytes" }
@@ -305,6 +340,8 @@ def Record.parse (text : String) : Except String Record := do
 
 def irPrefix : String := "ir/"
 def linkIndexEntry : String := "link-index.lidx"
+def bibliographyEntry : String := "site/references.bib"
+def frontPageEntry : String := "site/index.md"
 
 structure EntryParts where
   irFiles : Nat
@@ -321,7 +358,9 @@ def entryParts (files : Array (String × ByteArray)) : Except String EntryParts 
       parts := { parts with linkIndexBytes := bytes.size }
     else if path.startsWith irPrefix then
       parts := { parts with irFiles := parts.irFiles + 1, irBytes := parts.irBytes + bytes.size }
-    else throw s!"`{path}` is neither under `{irPrefix}` nor `{linkIndexEntry}`"
+    else if path != bibliographyEntry && path != frontPageEntry then
+      throw s!"`{path}` is neither under `{irPrefix}` nor one of `{linkIndexEntry}`, \
+        `{bibliographyEntry}` and `{frontPageEntry}`"
   if !sawLinkIndex then throw s!"it holds no `{linkIndexEntry}`"
   if parts.irFiles == 0 then throw s!"it holds nothing under `{irPrefix}`"
   return parts
@@ -359,6 +398,7 @@ structure Origin where
   sourceUrl : String
   dependencies : Array Dependency
   sources : ExternalLinks
+  site : SiteSources
   fill : Fill := .own
 
 structure PutSummary where
@@ -378,6 +418,20 @@ def install (store : FilePath) (v : VersionName) : IO Unit := do
   IO.FS.rename (stagingDir store v) entry
   if ← retired.pathExists then IO.FS.removeDirAll retired
 
+def siteFiles (s : SiteSources) : Array (String × ByteArray) :=
+  (s.bibliography.map (bibliographyEntry, ·.toUTF8)).toArray
+    ++ (s.indexMarkdown.map (frontPageEntry, ·.toUTF8)).toArray
+
+def siteSourcesOf (title : Option String) (files : Array (String × ByteArray)) :
+    Except String SiteSources := do
+  let text (path : String) : Except String (Option String) :=
+    match files.find? (·.1 == path) with
+    | none => .ok none
+    | some (_, bytes) => match String.fromUTF8? bytes with
+      | some s => .ok (some s)
+      | none => .error s!"`{path}` is not UTF-8"
+  return { title, indexMarkdown := ← text frontPageEntry, bibliography := ← text bibliographyEntry }
+
 def put (store : FilePath) (v : VersionName) (origin : Origin) (ir linkIndex : FilePath) :
     IO PutSummary := do
   let started ← IO.monoNanosNow
@@ -394,6 +448,7 @@ def put (store : FilePath) (v : VersionName) (origin : Origin) (ir linkIndex : F
       somebody else's file rather than writing this one")
   let files := (← readTree ir).map (fun (path, bytes) => (irPrefix ++ path, bytes))
     |>.push (linkIndexEntry, ← IO.FS.readBinFile linkIndex)
+    |>.append (siteFiles origin.site)
   let parts ← match entryParts files with
     | .ok parts => pure parts
     | .error why => throw (IO.userError s!"{ir}: {why}")
@@ -407,7 +462,8 @@ def put (store : FilePath) (v : VersionName) (origin : Origin) (ir linkIndex : F
   let record : Record :=
     { version := v, commit := origin.commit, leanVersion := tree.index.leanVersion
       leanGithash := origin.leanGithash, fill := origin.fill, sourceUrl := origin.sourceUrl
-      dependencies := origin.dependencies, sources := sourceMapOf origin.sources
+      dependencies := origin.dependencies
+      checkout := .read (sourceMapOf origin.sources) origin.site.title
       extractorIdentity
       packSha256 := digest, packBytes := compressed.size
       irFiles := parts.irFiles, irBytes := parts.irBytes, linkIndexBytes := parts.linkIndexBytes }

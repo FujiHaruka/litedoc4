@@ -1,5 +1,6 @@
 /- One version's own data: what its pages hold in which order, where each name
 its content spells resolves in this version, and the whole-package files. -/
+import Litedoc4.Config
 import Litedoc4.Data.Content
 import Litedoc4.External
 import Litedoc4.Global.Artifacts
@@ -15,6 +16,7 @@ structure Input where
   depMaps : Array (Array (String × String))
   lidx : Lidx
   sources : ExternalLinks
+  site : SiteConfig := {}
 
 structure Item where
   private mk ::
@@ -46,9 +48,19 @@ structure Page where
   /-- What its docstrings link to (`markWord`), by `wordDest`. -/
   words : Array (String × Resolved)
 
+/-- `litedoc4.toml`'s `index`, rendered as a docstring is, against no
+bibliography: a citation there would be a back-reference from a page that has no
+module. -/
+structure FrontPage where
+  html : String
+  words : Array (String × Resolved)
+
 structure VersionData where
   name : String
+  title : String
   pages : Array Page
+  front : Option FrontPage
+  references : ByteArray
   modules : ByteArray
   search : ByteArray
   instances : ByteArray
@@ -78,19 +90,20 @@ def namesTable (ix : NameIndex) (spanNames memberNames : Array String) :
 def wordsTable (c : PageCtx) (words : Array String) : Array (String × Resolved) :=
   (dedupSorted (sortUtf16 words)).filterMap fun w => ((wordDest c w).bind resolvedOf).map (w, ·)
 
-def pageOf (ix : NameIndex) (m : Module) (sup : Std.HashSet String) : Page := Id.run do
+def pageOf (bib : Bibliography) (ix : NameIndex) (m : Module) (sup : Std.HashSet String) :
+    Page := Id.run do
   let mut items : Array Item := #[]
   let mut spanNames : Array String := #[]
   let mut memberNames : Array String := #[]
   let mut words : Array String := #[]
   for it in pageItems m sup do
     if it.isDoc then
-      let doc := docOf m.moduleDocs[it.idx]!.text
+      let doc := docOf bib m.moduleDocs[it.idx]!.text
       items := items.push (Item.of (moduleDocContent doc) none)
       words := words ++ doc.words
     else
       let d := m.decls[it.idx]!
-      let decl := declOf m d
+      let decl := declOf bib m d
       items := items.push (Item.of decl.content (some (d.line, d.endLine)))
       spanNames := spanNames ++ decl.spanNames
       memberNames := memberNames ++ decl.memberNames
@@ -116,8 +129,22 @@ def usedByFiles (d : Derived) : Array (String × ByteArray) := Id.run do
       return o.push '}'
     (module, body.toUTF8)
 
+def frontPageOf (ix : NameIndex) (markdown : String) : FrontPage :=
+  let doc := docOf {} markdown
+  { html := doc.html, words := wordsTable { ix, decls := #[] } doc.words }
+
+def referencesJson (items : Array BibItem) (backrefs : Array Backref) : String :=
+  let byKey := backrefsByKey backrefs
+  pushEach "" items fun o item =>
+    let o := jsonStr (jsonStr (jsonStr (o ++ "{\"key\":") item.citekey ++ ",\"tag\":") item.tag
+      ++ ",\"html\":") item.html
+    pushEach (o ++ ",\"by\":") (byKey.getD item.citekey #[]) (fun out b =>
+      jsonStr (jsonStr (out.push '[') b.module ++ s!",{b.index},") b.citation.funName |>.push ']')
+      |>.push '}'
+
 def versionData (v : Input) : VersionData := Id.run do
-  let facts := v.modules.map (factsOf · "" {})
+  let bib := v.site.bibliography
+  let facts := v.modules.map (factsOf · "" bib)
   let d := deriveData facts v.depMaps
   let sup := suppressedOf v.modules
   let mut byName : Std.HashMap String Module := {}
@@ -126,8 +153,11 @@ def versionData (v : Input) : VersionData := Id.run do
   let ix := buildIndex v.depMaps v.modules v.lidx sources
   let mut pages : Array Page := #[]
   for name in d.modules do
-    if let some m := byName.get? name then pages := pages.push (pageOf ix m sup)
-  return { name := v.name, pages, modules := d.modulesJson.toUTF8, search := d.searchIndexBin
+    if let some m := byName.get? name then pages := pages.push (pageOf bib ix m sup)
+  return { name := v.name, title := v.site.title.getD (siteTitle d.modules), pages
+           front := v.site.indexMarkdown.map (frontPageOf ix)
+           references := (referencesJson bib.items (backrefsOf facts)).toUTF8
+           modules := d.modulesJson.toUTF8, search := d.searchIndexBin
            instances := d.instancesJson.toUTF8, usedBy := usedByFiles d
            linkNames := pages.foldl (fun n p => n + p.names.size + p.words.size) 0
            docTokens := (dedupSorted (sortUtf16 (facts.flatMap (·.tokens)))).size }
@@ -153,16 +183,20 @@ def pushTable (out : String) (rootAt : String → Nat) (t : Array (String × Res
     o := pushResolved (jsonStr o key |>.push ':') rootAt key r
   return o.push '}'
 
-def pageRoots (p : Page) : Array String :=
-  dedupSorted (sortUtf16 ((p.names ++ p.words).filterMap fun (_, r) => match r with
+def rootsOf (links : Array (String × Resolved)) : Array String :=
+  dedupSorted (sortUtf16 (links.filterMap fun (_, r) => match r with
     | .dependency root .. => some root
     | .own .. => none))
 
-def versionRoots (pages : Array Page) : Array (String × String) := Id.run do
+def pageRoots (p : Page) : Array String := rootsOf (p.names ++ p.words)
+
+def VersionData.links (v : VersionData) : Array (String × Resolved) :=
+  v.pages.flatMap (fun p => p.names ++ p.words) ++ (v.front.map (·.words)).getD #[]
+
+def versionRoots (links : Array (String × Resolved)) : Array (String × String) := Id.run do
   let mut bases : Std.HashMap String String := {}
-  for p in pages do
-    for (_, r) in p.names ++ p.words do
-      if let .dependency root base _ _ := r then bases := bases.insert root base
+  for (_, r) in links do
+    if let .dependency root base _ _ := r then bases := bases.insert root base
   return (sortUtf16 (bases.toArray.map (·.1))).map fun root => (root, bases.getD root "")
 
 def pageJson (p : Page) (locator : String) : String := Id.run do
@@ -177,6 +211,12 @@ def pageJson (p : Page) (locator : String) : String := Id.run do
   o := pushTable (o ++ ",\"names\":") rootAt p.names
   o := pushTable (o ++ ",\"words\":") rootAt p.words
   return o.push '}'
+
+def frontPageJson (f : FrontPage) : String :=
+  let roots := rootsOf f.words
+  let rootAt := fun root => (roots.idxOf? root).getD 0
+  let o := pushStrings (jsonStr "{\"html\":" f.html ++ ",\"roots\":") roots
+  pushTable (o ++ ",\"words\":") rootAt f.words |>.push '}'
 
 end Data
 end Litedoc4

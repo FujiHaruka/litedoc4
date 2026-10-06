@@ -267,28 +267,32 @@ def usage : String :=
   --pages        (`prune`) the page tree; nothing outside it is ever deleted
   --dry-run      report what would be deleted and delete nothing
   --store        (`store`) the kept versions, one directory per version:
-                 <store>/<name>/entry.pack.gz (the IR tree and the dependency
-                 link index, packed and gzipped) and record.json (commit, Lean,
-                 dependencies, each dependency module root's version-pinned
-                 source URL or that it has none, the extractor identity the IR
-                 was written under, and the pack's SHA-256, which `read`
-                 checks before it decompresses anything)
+                 <store>/<name>/entry.pack.gz (the IR tree, the dependency link
+                 index, the bibliography and the index page's Markdown, packed
+                 and gzipped) and record.json (commit, Lean, dependencies, each
+                 dependency module root's version-pinned source URL or that it
+                 has none, the title, the extractor identity the IR was written
+                 under, and the pack's SHA-256, which `read` checks before it
+                 decompresses anything)
   --version      (`store`) the entry's name: letters, digits, `.`, `_`, `+`
                  and `-`, starting with a letter or a digit, without `..`
   --from         (`store put`) a directory `build --out` finished. Its ir/ and
                  link-index.lidx are stored, and a build that wrote no link
                  index is refused; the commit, the dependencies, their source
-                 URLs and Lean core's revision come from the checkout its
-                 marker names, which has to still be at the commit the pages
-                 link to. Putting the same directory again rewrites the
-                 record without re-extracting anything.
+                 URLs, Lean core's revision and the site configuration
+                 (litedoc4.toml's title and index, docs/references.bib) come
+                 from the checkout its marker names, which has to still be at
+                 the commit the pages link to. Putting the same directory again
+                 rewrites the entry without re-extracting anything.
                  `store read --out` unpacks an entry into an empty directory
-                 laid out as `build --out` lays out those two; without it the
-                 entry is only verified. `store check-stale` asks
+                 laid out as `build --out` lays out those two, with the site
+                 configuration under site/; without it the entry is only
+                 verified. `store check-stale` asks
                  --extractor-bin for its identity with the flags `build`
                  passes, which --root's litedoc4.toml decides, and says fresh,
-                 stale, or needs re-put (a record with no source map, which
-                 `store measure` and `store render` refuse) per entry; it exits
+                 stale, or needs re-put (a record an older put wrote, without
+                 the source map or the site configuration, which `store
+                 measure` and `store render` refuse) per entry; it exits
                  3 when an entry needs re-put or is unreadable
   --versions     (`store measure`, `store render`) the entries to lay out,
                  comma-separated, in the order a site would have added them:
@@ -2389,7 +2393,9 @@ def storePutOrigin (from_ : System.FilePath) (lake : System.FilePath) :
         !(sources.sourceFor core matches .pinned _) then
       return .error s!"{root}: Lean core's root `{core}` has no version-pinned source URL, so \
         pages rendered from this entry would not link into it"
-    return .ok { commit, leanGithash, sourceUrl, dependencies, sources }
+    let site ← try readSiteSources root catch e => return .error (toString e)
+    if let .error why := site.config (bibliographyPath root).toString then return .error why
+    return .ok { commit, leanGithash, sourceUrl, dependencies, sources, site }
 
 def versionOf (a : StoreArgs) (command : String) : Except String Store.VersionName :=
   match a.version with
@@ -2434,9 +2440,9 @@ def storeList (store : System.FilePath) : IO UInt32 := do
   for (v, record) in listing.entries do
     match record with
     | .ok r =>
-      let reput := match r.sources with
-        | .notRecorded => " (needs re-put)"
-        | .recorded _ => ""
+      let reput := match Store.checkoutOf r with
+        | .error _ => " (needs re-put)"
+        | .ok _ => ""
       IO.println s!"{v.text} {r.commit} lean {r.leanVersion} {r.fill.name} \
         {r.irFiles} IR file(s) {r.irBytes} B + link index {r.linkIndexBytes} B -> \
         {r.packBytes} B{reput}"
@@ -2462,13 +2468,13 @@ def storeCheckStale (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
     match record with
     | .ok r =>
       let isStale := Store.stale r current
-      match r.sources with
-      | .notRecorded =>
+      match Store.checkoutOf r with
+      | .error why =>
         needsReput := needsReput + 1
         let also := if isStale then "; it is stale as well, and a build with the current extractor \
           followed by a put repairs both" else ""
-        IO.println s!"{v.text} needs re-put: {Store.needsReputRefusal v}{also}"
-      | .recorded _ =>
+        IO.println s!"{v.text} needs re-put: {why}{also}"
+      | .ok _ =>
         if isStale then
           stale := stale + 1
           IO.println s!"{v.text} stale"

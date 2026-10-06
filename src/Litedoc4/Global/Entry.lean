@@ -199,12 +199,14 @@ def referenceItemHtml (backrefs : Std.HashMap String (Array Backref)) (out : Str
 /-- doc-gen4's `references`: written whether or not the package has a
 bibliography, as doc-gen4 writes it, so an empty one is a page with an empty
 list. An entry's back-references are listed in the order `backrefs` holds them. -/
+def backrefsByKey (backrefs : Array Backref) : Std.HashMap String (Array Backref) :=
+  backrefs.foldl (init := {}) fun m b =>
+    m.insert b.citation.citekey ((m.getD b.citation.citekey #[]).push b)
+
 def referencesHtml (title : String) (items : Array BibItem) (backrefs : Array Backref) :
     String :=
-  let byKey := backrefs.foldl (init := ({} : Std.HashMap String (Array Backref))) fun m b =>
-    m.insert b.citation.citekey ((m.getD b.citation.citekey #[]).push b)
   plainPage "References" title
-    (items.foldl (referenceItemHtml byKey)
+    (items.foldl (referenceItemHtml (backrefsByKey backrefs))
       "<div class=\"modhead\"><h1>References</h1></div><div class=\"doc\"><ul>"
       ++ "</ul></div>")
 
