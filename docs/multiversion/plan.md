@@ -482,6 +482,21 @@ Lean core v4.31.0):
   incremental key is unsound, because name resolution depends on names that did not exist), and
   extraction 111.1 s for the 17.5% reprinted. Composed (theoretical): 51 versions from nothing ≈
   4.3 h on the M1, ≈ 8.5 h on the runner.
+- **Where the two big items go** (measured, M1 →
+  `benchmarks/results/mathlib-key-and-equation-profile-2026-10-06.txt`):
+  - Key pass: name resolution 52.5%, the declaration's own skeleton 15.1%, its own record 12.9%,
+    the rest memo lookups and records of shown constants. Only 86 resolution values changed between
+    v4.31.0 and v4.32.0. Carrying the memos between versions and recomputing only declarations whose
+    inputs changed (28.4%) would bring it to ≈ 9–20 s (theoretical; tight only if resolution
+    invalidation re-resolves just the pairs it must). Four threads cost 1.6–1.9× a lone thread per
+    unit of work, unexplained.
+  - Reprinting: the reprinted declarations are intrinsically the expensive ones (selection, not
+    lost amortization): 21.7% of the declarations with equation lemmas carry 54.9% of the equation
+    time, and 10 declarations carry 246 of 442 s. Equation time is 55% generation, 43% printing;
+    83 definitions with no lemma take a further 201 s (31%) and fail again every round.
+  - The per-version setup on the runner (≈ 1.7 min: toolchain, `lake update`, cache fetch) is
+    outside the 2.2 min target; at 51 versions it is ≈ 85 min unless it overlaps the previous
+    version's compute.
 - **Per version end to end ≈ 6.5 min wall, ≈ 19 min CPU** (measured, 4 jobs, two runs 389 /
   394 s; native v4.31.0 extraction 217 / 243 s with the same 4 jobs). Peak RSS 6.3 GB, memory
   footprint 8.7–9.1 GB on 16 GiB, with swap in use mid-run (≈ 3.5 GB, no baseline). 11 versions ≈
