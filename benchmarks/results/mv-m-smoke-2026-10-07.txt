@@ -1,0 +1,116 @@
+Smoke of benchmarks/tools/mv-m-run.sh: a small Mathlib slice at the step's three releases
+
+This is the runner's smoke, not M: the root is small (closure 84-87 modules, about 1% of Mathlib)
+and every number is from one run. M is the plan's first candidate (about 450 modules), run 5 times.
+
+Releases (commit = refs/tags/<tag>^{commit}, checked by the runner on every fetch; toolchain read
+from each tag's lean-toolchain):
+  v4.32.2  905b95818eb32af7874a58b427f50c1711a5e96c  leanprover/lean4:v4.32.2
+  v4.33.0  db584cd6d46c92f209a44c0f1c829460d327499d  leanprover/lean4:v4.33.0
+  v4.33.1  0df444a360eaa60ab8c11dca51a86af692955474  leanprover/lean4:v4.33.1
+Extraction is restricted to the closure by deleting every other Mathlib source in the throwaway
+checkout; the closure (import lines) equals the oleans `cache get` unpacked, equals the modules
+`build` reports, and equals the Mathlib modules in the link index (all three checked per version).
+litedoc4.toml: no_equations_under = ["Mathlib.Tactic", "Mathlib.Meta"].
+Toolchains were already installed; oleans from the Mathlib cache, 0 modules compiled.
+
+The new address in v4.33.1 is the docstring of gcongr_discharger, whose only change is a link to
+the Lean reference manual carrying the Lean version (/doc/reference/4.33.1/...).
+
+run of 8a34aac4cc4ae2e1a5cba686a74ac09033813e3d (1 uncommitted path(s))
+date              2026-10-06T17:09:15Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+roots    Mathlib.Order.Basic
+versions v4.32.2,v4.33.0,v4.33.1
+jobs     1
+
+run of 8a34aac4cc4ae2e1a5cba686a74ac09033813e3d (1 uncommitted path(s))
+date              2026-10-06T17:09:15Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+roots    Mathlib.Order.Basic
+versions v4.32.2,v4.33.0,v4.33.1
+jobs     1
+
+=== v4.32.2
+v4.32.2 905b95818eb32af7874a58b427f50c1711a5e96c leanprover/lean4:v4.32.2
+closure  84 Mathlib module(s) from the import lines
+cache    84 Mathlib olean(s), equal to the closure; 140 file(s) decompressed
+lake     0 module(s) compiled
+build    84 module(s), 2277 declaration(s); Lean's environment holds exactly the closure
+store    put and read back byte-identical
+
+=== v4.33.0
+v4.33.0 db584cd6d46c92f209a44c0f1c829460d327499d leanprover/lean4:v4.33.0
+closure  87 Mathlib module(s) from the import lines
+cache    87 Mathlib olean(s), equal to the closure; 143 file(s) decompressed
+lake     0 module(s) compiled
+build    87 module(s), 2296 declaration(s); Lean's environment holds exactly the closure
+store    put and read back byte-identical
+
+=== v4.33.1
+v4.33.1 0df444a360eaa60ab8c11dca51a86af692955474 leanprover/lean4:v4.33.1
+closure  87 Mathlib module(s) from the import lines
+cache    87 Mathlib olean(s), equal to the closure; 143 file(s) decompressed
+lake     0 module(s) compiled
+build    87 module(s), 2296 declaration(s); Lean's environment holds exactly the closure
+store    put and read back byte-identical
+
+=== store measure over v4.32.2,v4.33.0,v4.33.1
+
+=== summary
+per phase (wall/cpu s, peak RSS MiB, page faults, work dir after GiB, free after GiB):
+ v4.32.2  fetch          9.6    2.36      37     66   0.14  11.88  sourceFiles=8972 toolchain=leanprover/lean4:v4.32.2
+ v4.32.2  toolchain        -       -       -      -   0.14  11.88  installed=already toolchain=leanprover/lean4:v4.32.2
+ v4.32.2  closure          -       -       -      -   0.14  11.88  modules=84
+ v4.32.2  deps          19.7    4.84     690  33560   0.19  11.82  packages=8
+ v4.32.2  cache        18.96   17.95     744  25909   0.51  11.51  attempted=140 cacheKiB=19800 decompressed=140 lakeKiB=367096 mathlibOleans=84
+ v4.32.2  lake           0.8    0.69     647    118   0.51  11.51  compiled=0 noBuild=ok
+ v4.32.2  extractor    16.93   13.37    1475  60764   0.68  11.34  binaryBytes=171849280
+ v4.32.2  prune            -       -       -      -   0.58  11.45  deleted=8181 left=84
+ v4.32.2  build          9.6    6.09     829   3579   0.59  11.44  closureNotInEnv=0 declarations=2277 extractSeconds=7.808374916 globalSeconds=0.140169292 irBytes=3506576 irFiles=90 linkIndexBytes=2103477 linkIndexGroups=1085 linkIndexModules=1286 mathlibGroupsInLinkIndex=0 mathlibInEnvNotInClosure=0 modules=84 pagesRendered=84 renderSeconds=0.346012375 siteBytes=6008962 siteFiles=97 totalSeconds=9.493078292
+ v4.32.2  put           0.34    0.33      46     28   0.59  11.44  compressedBytes=1176264 files=90 linkIndexBytes=2103477 packedBytes=5614549 rawBytes=3506576
+ v4.32.2  read          0.12    0.11      25     11   0.59  11.43  identical=yes
+ v4.33.0  fetch         10.0    2.49      37     70   0.14  11.88  sourceFiles=9032 toolchain=leanprover/lean4:v4.33.0
+ v4.33.0  toolchain        -       -       -      -   0.14  11.88  installed=already toolchain=leanprover/lean4:v4.33.0
+ v4.33.0  closure          -       -       -      -   0.14  11.88  modules=87
+ v4.33.0  deps         17.83    4.77     722  33819   0.20  11.83  packages=8
+ v4.33.0  cache        16.72   17.56     770  26148   0.51  11.51  attempted=143 cacheKiB=17600 decompressed=143 lakeKiB=373428 mathlibOleans=87
+ v4.33.0  lake          0.85    0.77     673    118   0.51  11.51  compiled=0 noBuild=ok
+ v4.33.0  extractor    11.65     8.9    1499  50082   0.69  11.33  binaryBytes=174265968
+ v4.33.0  prune            -       -       -      -   0.58  11.44  deleted=8225 left=87
+ v4.33.0  build         9.71    6.21     861   3666   0.60  11.43  closureNotInEnv=0 declarations=2296 extractSeconds=7.869981917 globalSeconds=0.141233459 irBytes=3540057 irFiles=93 linkIndexBytes=2131634 linkIndexGroups=1114 linkIndexModules=1326 mathlibGroupsInLinkIndex=0 mathlibInEnvNotInClosure=0 modules=87 pagesRendered=87 renderSeconds=0.348421833 siteBytes=6064029 siteFiles=100 totalSeconds=9.602102958
+ v4.33.0  put           0.35    0.33      47     28   0.60  11.43  compressedBytes=1188777 files=93 linkIndexBytes=2131634 packedBytes=5676346 rawBytes=3540057
+ v4.33.0  read          0.11    0.11      25     11   0.60  11.43  identical=yes
+ v4.33.1  fetch          9.8    2.29      37     70   0.14  11.88  sourceFiles=9032 toolchain=leanprover/lean4:v4.33.1
+ v4.33.1  toolchain        -       -       -      -   0.14  11.88  installed=already toolchain=leanprover/lean4:v4.33.1
+ v4.33.1  closure          -       -       -      -   0.14  11.88  modules=87
+ v4.33.1  deps         14.85    4.53     722  33874   0.20  11.83  packages=8
+ v4.33.1  cache         17.4   17.57     774  26495   0.52  11.51  attempted=143 cacheKiB=17616 decompressed=143 lakeKiB=375876 mathlibOleans=87
+ v4.33.1  lake          0.84    0.77     674    118   0.52  11.51  compiled=0 noBuild=ok
+ v4.33.1  extractor    11.83    8.91    1507  52914   0.70  11.33  binaryBytes=177577968
+ v4.33.1  prune            -       -       -      -   0.59  11.43  deleted=8225 left=87
+ v4.33.1  build          9.5    6.22     861   3664   0.60  11.42  closureNotInEnv=0 declarations=2296 extractSeconds=7.698829292 globalSeconds=0.141331458 irBytes=3540057 irFiles=93 linkIndexBytes=2131634 linkIndexGroups=1114 linkIndexModules=1326 mathlibGroupsInLinkIndex=0 mathlibInEnvNotInClosure=0 modules=87 pagesRendered=87 renderSeconds=0.352075792 siteBytes=6064029 siteFiles=100 totalSeconds=9.394709375
+ v4.33.1  put           0.35    0.34      47     28   0.60  11.42  compressedBytes=1188779 files=93 linkIndexBytes=2131634 packedBytes=5676346 rawBytes=3540057
+ v4.33.1  read          0.12    0.11      25     11   0.61  11.42  identical=yes
+ measure  a             1.12    1.11      90     11   0.01  12.02  
+ measure  b             1.04    1.03      90     11   0.01  12.02  
+ measure  c             1.03    1.03      90     12   0.01  12.02  
+peak work dir during v4.32.2: 0.68 GiB
+peak work dir during v4.33.0: 0.69 GiB
+peak work dir during v4.33.1: 0.70 GiB
+candidate a: hosted files=643 raw=2615835 stored=652219
+ ver      pages  items   addr    new  links | +files     +raw  +stored +cfiles +citems | fetch tot/max     bytes tot/max
+ v4.32.2     84   2188   2188   2188    953 |    256  1298047   313598      84    2188 |    336/4        1196372/32088  
+ v4.33.0     87   2209   2209    132    962 |    208  1003169   232198      30    1658 |    347/4        1244819/32226  
+ v4.33.1     87   2209   2209      1    962 |    179   314619   106423       1      46 |    347/4        1244820/32226  
+candidate b: hosted files=643 raw=1979980 stored=547891
+ ver      pages  items   addr    new  links | +files     +raw  +stored +cfiles +citems | fetch tot/max     bytes tot/max
+ v4.32.2     84   2188   2188   2188    953 |    256  1314529   319573      84    2188 |    336/4        1202347/32807  
+ v4.33.0     87   2209   2209    132    962 |    208   362782   123484      30     132 |    375/5        1268123/33731  
+ v4.33.1     87   2209   2209      1    962 |    179   302669   104834       1       1 |    376/6        1268479/33731  
+candidate c: hosted files=531 raw=2030794 stored=584782 chunkBytes=16384
+ ver      pages  items   addr    new  links | +files     +raw  +stored +cfiles +citems | fetch tot/max     bytes tot/max
+ v4.32.2     84   2188   2188   2188    953 |    173  1329506   341079       1    2188 |    336/4        1601622/42612  
+ v4.33.0     87   2209   2209    132    962 |    179   380615   129336       1     132 |    375/5        1771733/47820  
+ v4.33.1     87   2209   2209      1    962 |    179   320673   114367       1       1 |    376/6        1772091/47820  
+total 220 s; logs in /private/tmp/lean-doc-relay/mv-m-smoke/logs
