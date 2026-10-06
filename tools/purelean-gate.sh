@@ -2,10 +2,10 @@
 # Does the Lean half build and run from a consumer's workspace?
 #
 # `lean_exe litedoc4` is built from `src/` and linked against the C in
-# `vendor/md4c` and `csrc/`. The development machine cannot run `lake` beside the
-# root `lakefile.lean` (there is deliberately no `lean-toolchain` there), so the
-# only honest way to build it is the way a consumer does: from `e2e/consumer`,
-# through `require`.
+# `vendor/md4c`, `vendor/miniz` and `csrc/`. The development machine cannot run
+# `lake` beside the root `lakefile.lean` (there is deliberately no
+# `lean-toolchain` there), so the only honest way to build it is the way a
+# consumer does: from `e2e/consumer`, through `require`.
 #
 # What a failing item means:
 #   1 BUILDS    `lake build litedoc4/litedoc4` in e2e/consumer did not produce a
@@ -104,7 +104,8 @@ say "2/3 the C was compiled by the toolchain's own clang"
 # clang command from the previous build, so the gate would pass while the
 # configuration under test compiles with `cc` (measured 2026-08-30). The parser
 # below refuses a replayed line for the same reason.
-rm -f "$ROOT/.lake/build/md4c.o" "$ROOT/.lake/build/md_events.o"
+rm -f "$ROOT/.lake/build/md4c.o" "$ROOT/.lake/build/md_events.o" \
+      "$ROOT/.lake/build/miniz.o" "$ROOT/.lake/build/gzip.o"
 prefix_rc=0
 (cd "$FIXTURE" && "$LAKE" env lean --print-prefix) >"$OUT/prefix.txt" 2>"$OUT/prefix.err" || prefix_rc=$?
 if [ "$prefix_rc" -ne 0 ]; then
@@ -112,7 +113,8 @@ if [ "$prefix_rc" -ne 0 ]; then
 else
   PREFIX="$(tr -d '\n' <"$OUT/prefix.txt")"
   EXPECT_CC="${LEAN_CC:-$PREFIX/bin/clang}"
-  if (cd "$FIXTURE" && "$LAKE" build -v litedoc4/md4cObj litedoc4/mdEventsObj) \
+  if (cd "$FIXTURE" && "$LAKE" build -v litedoc4/md4cObj litedoc4/mdEventsObj \
+        litedoc4/minizObj litedoc4/gzipObj) \
       >"$OUT/cc.log" 2>&1; then
     cc_rc=0
     python3 - "$OUT/cc.log" "$EXPECT_CC" >"$OUT/cc.txt" 2>"$OUT/cc.err" <<'PY' || cc_rc=$?
@@ -122,9 +124,10 @@ import sys
 log = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 expected = sys.argv[2]
 
-wanted = {"md4c.o", "md_events.o"}
+wanted = {"md4c.o", "md_events.o", "miniz.o", "gzip.o"}
 replayed = sorted(
-    target for target in ("litedoc4/md4cObj", "litedoc4/mdEventsObj")
+    target for target in ("litedoc4/md4cObj", "litedoc4/mdEventsObj",
+                          "litedoc4/minizObj", "litedoc4/gzipObj")
     if f"Replayed {target}" in log
 )
 if replayed:

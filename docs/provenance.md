@@ -267,6 +267,8 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | `crates/litedoc4-md/vendor/md4c/` (md4c 0.5.2) | MIT © 2016-2024 Martin Mitáš | 6,489 行の C | **有り** — `LICENSE.md` + `PROVENANCE.md` |
 | `vendor/md4c/` (md4c 0.5.2、上と byte 一致) | 同上 | 同上 | **有り** — `LICENSE.md` + `PROVENANCE.md` |
 | `benchmarks/lean-prototype/vendor/md4c/` (md4c 0.5.2、上と byte 一致) | 同上 | 同上 | **有り** — `LICENSE.md` + `PROVENANCE.md` |
+| `vendor/miniz/` (miniz 3.1.2) | MIT © 2013-2014 RAD Game Tools and Valve Software, © 2010-2014 Rich Geldreich and Tenacious Software LLC | the whole library, as two files (`miniz.c` + `miniz.h`) | **Yes** — `LICENSE` + `PROVENANCE.md` (§11) |
+| `csrc/gzip.c` (gzip framing around miniz) | written here; calls miniz | — | notice in the file's first comment (§11) |
 | `crates/litedoc4-md/src/parse.rs` (MD4Lean `wrapper/wrapper.c` の transliteration) | MD4Lean = MIT © Jz Pan | 743 行 | **無し** |
 | `src/Litedoc4/Md.lean` (上の Lean 転写、二次の派生) | 同上 | 474 行 | **無し** |
 | `crates/litedoc4-md/src/ffi.rs` (`md4c.h` の転写) | md4c = MIT | 342 行 | 無し (vendor の PROVENANCE が間接的に覆う) |
@@ -275,8 +277,8 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | `crates/litedoc4-global/src/v8_gc.rs` (V8 を総当たりした出力データ) | V8 = BSD-3 | 818 行 | 無し (deno 2.7.14 / V8 rev の記録のみ) |
 | `src/Litedoc4/Lower.lean` (Rust の `str::to_lowercase` を総当たりした出力データ) | Rust std = MIT OR Apache-2.0、元データは Unicode | 180 行 (2 tables as string literals) | 無し (冒頭の記録のみ) |
 
-**md4c is the only work in this table that carries its own attribution files, and
-it was in the tree three times** (2026-08-30; two since 2026-09-02). The three were byte-identical
+**md4c was the only work in this table that carried its own attribution files until
+miniz (§11), and it was in the tree three times** (2026-08-30; two since 2026-09-02). The three were byte-identical
 (`/usr/bin/diff -q`, all three files) and each is redistributed on its own: Lake
 builds a package from the package directory, so `vendor/md4c/` — the copy
 `lean_exe litedoc4` links — cannot reach into `crates/`, and a symlink would not
@@ -459,3 +461,23 @@ already under the notice above.
 `lakefile.lean` and pinned to the commit doc-gen4 pins. Nothing of it is reproduced in this tree,
 and nothing is distributed in Object form (§9), so it carries no `NOTICE` section — the same
 standing as MathML4Lean.
+
+## 11. miniz (2026-10-06)
+
+| file | what | obligation |
+|---|---|---|
+| `vendor/miniz/miniz.c` `vendor/miniz/miniz.h` | miniz 3.1.2, the release's single-file amalgamation, **verbatim** | MIT permission notice per copy: `vendor/miniz/LICENSE`, and the full text in `NOTICE` |
+| `vendor/miniz/LICENSE` `vendor/miniz/PROVENANCE.md` | upstream's licence, and where the copy came from (URL, release digest, per-file SHA-256, the `-D` configuration and why) | — |
+| `csrc/gzip.c` | the gzip member format (RFC 1952) around miniz's raw deflate; written here, not copied | names miniz and its copyright holders in its first comment, as `csrc/md_events.c` does for md4c |
+
+It is the same shape as md4c and for the same reason (§7): Lake builds `vendor/miniz/miniz.c` into
+both executables, so anyone who redistributes a built `litedoc4` redistributes miniz, and the notice
+has to travel in `NOTICE` rather than only beside the sources. It is in the tree **once**; there is
+no second copy to keep in step.
+
+`csrc/libc` grew by `abort` and an `assert.h` for it. Those are declarations of the platform's own
+functions, not anyone's code, and `tools/libc-shim-gate.sh` compares them against the platform's.
+
+**Match words** in `tools/provenance-files.txt`, by the rule §9 states: `Rich Geldreich`, which
+each file says once in the notice, and not `miniz`, which `csrc/gzip.c` and `NOTICE` say in
+ordinary prose about what they hold.

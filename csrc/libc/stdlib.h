@@ -11,6 +11,7 @@ extern "C" {
 void *malloc(size_t size);
 void *realloc(void *ptr, size_t size);
 void free(void *ptr);
+void abort(void);
 void qsort(void *base, size_t nmemb, size_t size,
            int (*compar)(const void *, const void *));
 void *bsearch(const void *key, const void *base, size_t nmemb, size_t size,

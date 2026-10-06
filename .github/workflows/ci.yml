@@ -92,8 +92,9 @@ jobs:
         run: tools/provenance-gate.sh
 
   # aarch64, because that is where `char` is unsigned and every other machine
-  # this tree is compiled on has it signed. The C is `vendor/md4c/md4c.c` and
-  # `csrc/md_events.c`, which Lake compiles into the executable, so the question
+  # this tree is compiled on has it signed. The C is `vendor/md4c/md4c.c`,
+  # `vendor/miniz/miniz.c` and the two shims in `csrc/`, which Lake compiles into
+  # the executable, so the question
   # is live: when this job was first added it found two defects on its first run
   # (measured 2026-08-29 -> benchmarks/results/arm64-linux-runner-2026-08-29.txt).
   #

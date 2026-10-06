@@ -21,6 +21,8 @@ NOTICE : MD4Lean
 NOTICE : Unicode Basic
 NOTICE : V8
 NOTICE : math-core
+NOTICE : miniz
+NOTICE : Rich Geldreich
 NOTICE : Böving
 # §4(b) at the level of the work, not just the file (provenance.md §1.1).
 #
@@ -91,6 +93,12 @@ src/Litedoc4/Md.lean : Jz Pan
 src/Litedoc4/Md.lean : MIT
 benchmarks/lean-prototype/Md.lean : Jz Pan
 benchmarks/lean-prototype/Md.lean : MIT
+# miniz (MIT) is in the tree once (provenance.md §11). `Rich Geldreich` and not
+# `miniz`, for the reason `Martin Mitáš` is below: `csrc/gzip.c` says `miniz`
+# in prose about what it calls.
+vendor/miniz/LICENSE : Rich Geldreich
+vendor/miniz/PROVENANCE.md : Rich Geldreich
+csrc/gzip.c : Rich Geldreich
 # `csrc/md_events.c` is the only place that sees md4c's header and the wire
 # format at once, and `src/Litedoc4/Md.lean` holds the flag names and values;
 # between them they are what a Rust FFI module used to be.

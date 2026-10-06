@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Does `csrc/libc` agree with the platform's real libc?
 #
-# `csrc/libc` hand-declares the eleven libc functions md4c and `md_events.c`
-# call, so that Lean's own clang — which ships no libc headers — can compile them
-# and no system C toolchain is required of a consumer. A declaration that
+# `csrc/libc` hand-declares the twelve libc functions md4c, miniz and the two
+# shims in `csrc/` call, so that Lean's own clang — which ships no libc headers —
+# can compile them and no system C toolchain is required of a consumer. A declaration that
 # disagrees with the platform's real one is undefined behaviour, and the
 # 422-page output comparison does not find it: a `memset` with its second and
 # third parameters swapped renders every page byte-identically (measured

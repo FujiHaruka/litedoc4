@@ -2,6 +2,7 @@ import Litedoc4.Build
 import Litedoc4.Config
 import Litedoc4.DepsDocs
 import Litedoc4.Global
+import Litedoc4.Gzip
 import Litedoc4.Incr.Impact
 import Litedoc4.Incr.Merge
 import Litedoc4.Incr.Ownership

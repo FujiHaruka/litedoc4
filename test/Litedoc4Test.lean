@@ -13,6 +13,7 @@ import Litedoc4Test.GlobalFacts
 import Litedoc4Test.GlobalSearchIndex
 import Litedoc4Test.GlobalState
 import Litedoc4Test.GlobalV8Gc
+import Litedoc4Test.Gzip
 import Litedoc4Test.Httpd
 import Litedoc4Test.IncrFixture
 import Litedoc4Test.IncrImpact

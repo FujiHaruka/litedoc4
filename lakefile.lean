@@ -29,8 +29,9 @@ being a dependency rather than a checkout:
 
 Everything a consumer runs is built by Lake from this tree: `lean_exe extract`
 against the root package's toolchain, and `lean_exe litedoc4` from `src/`, linked
-against the C in `vendor/md4c` and `csrc/`. There is nothing to download and no
-second toolchain to install — the `require` above is the whole installation.
+against the C in `vendor/md4c`, `vendor/miniz` and `csrc/`. There is nothing to
+download and no second toolchain to install — the `require` above is the whole
+installation.
 
 ## There is deliberately no `lean-toolchain` next to this file
 
@@ -98,6 +99,7 @@ lean_exe extract where
   supportInterpreter := true
 
 def md4cDir : FilePath := "vendor" / "md4c"
+def minizDir : FilePath := "vendor" / "miniz"
 def csrcDir : FilePath := "csrc"
 
 /--
@@ -108,7 +110,7 @@ sysroot and links with its own lld against its own `lib/libc` stubs, so Lean
 itself asks for no system compiler at all (measured 2026-08-30 →
 `benchmarks/results/purelean-md4c-shim-2026-08-30.txt`). What the toolchain does
 not ship is libc *headers* — the link stubs are there, so the symbols resolve;
-only the declarations are missing, and `csrc/libc` supplies them for the eleven
+only the declarations are missing, and `csrc/libc` supplies them for the twelve
 functions this C calls and no more.
 
 `-Werror=implicit-function-declaration` is load-bearing and not tidiness.
@@ -137,11 +139,20 @@ arm for `csrc/libc`, not a fallback, and nothing selects it automatically. -/
 def useSystemCc : IO Bool := do
   return (← IO.getEnv "LITEDOC4_SYSTEM_CC").isSome
 
-def compileC (pkg : Package) (oName srcPath : FilePath) : FetchM (Job FilePath) := do
+/-- What `vendor/miniz/PROVENANCE.md` says miniz is configured with. Both
+`miniz.c` and the shim that includes `miniz.h` take it, so the two agree on what
+the header declares. -/
+def minizFlags (pkg : Package) : Array String :=
+  #["-I", (pkg.dir / minizDir).toString,
+    "-DMINIZ_NO_STDIO", "-DMINIZ_NO_TIME", "-DMINIZ_NO_ARCHIVE_APIS",
+    "-DMINIZ_NO_ZLIB_APIS", "-DMINIZ_USE_UNALIGNED_LOADS_AND_STORES=0"]
+
+def compileC (pkg : Package) (oName srcPath : FilePath) (extra : Array String := #[]) :
+    FetchM (Job FilePath) := do
   let oFile := pkg.buildDir / oName
   let src ← inputTextFile <| pkg.dir / srcPath
   let system ← useSystemCc
-  let flags ← ccFlags pkg (shim := !system)
+  let flags := (← ccFlags pkg (shim := !system)) ++ extra
   let cc : FilePath ← if system then pure ⟨"cc"⟩ else getLeanCc
   buildFileAfterDep oFile src fun srcFile => do
     compileO oFile srcFile flags cc
@@ -151,6 +162,12 @@ target md4cObj pkg : FilePath :=
 
 target mdEventsObj pkg : FilePath :=
   compileC pkg "md_events.o" (csrcDir / "md_events.c")
+
+target minizObj pkg : FilePath :=
+  compileC pkg "miniz.o" (minizDir / "miniz.c") (minizFlags pkg)
+
+target gzipObj pkg : FilePath :=
+  compileC pkg "gzip.o" (csrcDir / "gzip.c") (minizFlags pkg)
 
 lean_lib Litedoc4 where
   srcDir := "src"
@@ -164,7 +181,7 @@ reads oleans; nothing here does. -/
 lean_exe litedoc4 where
   root := `Main
   srcDir := "src"
-  moreLinkObjs := #[md4cObj, mdEventsObj]
+  moreLinkObjs := #[md4cObj, mdEventsObj, minizObj, gzipObj]
 
 /-- The tests, and a target a consumer never reaches: `require «litedoc4»`
 builds `lean_lib Litedoc4` and `lean_exe litedoc4`, and nothing under either
@@ -191,7 +208,7 @@ lean_lib Litedoc4Test where
 lean_exe «litedoc4-test» where
   root := `Litedoc4Test.Main
   srcDir := "test"
-  moreLinkObjs := #[md4cObj, mdEventsObj]
+  moreLinkObjs := #[md4cObj, mdEventsObj, minizObj, gzipObj]
 
 /-- Everything else `litedoc4 build` offers is deliberately not plumbed through:
 this script fills in the three flags a consumer cannot know. -/

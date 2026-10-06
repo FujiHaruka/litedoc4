@@ -5,20 +5,23 @@ Lean's toolchain ships compiler headers (`stddef.h`, `stdint.h`, `limits.h`,
 (`lib/libc/libSystem.tbd`), but no libc **headers**. So `#include <stdlib.h>`
 fails while the symbols it would have declared link fine.
 
-These three headers close that gap for exactly the functions this package's C
+These four headers close that gap for exactly the functions this package's C
 calls, so that Lean's own compiler is enough and **no system C toolchain is
 required of a consumer**. That matters because Lean asks for none either: elan's
 toolchain compiles against its own sysroot and links with its own lld. MD4Lean
 solves the same problem the same way; its shims are reached only on Windows,
 these on every platform.
 
-**The list is the closure of what is called, not a subset of libc.** Eleven
-functions: `malloc` `realloc` `free` `qsort` `bsearch` from `stdlib.h`,
+**The list is the closure of what is called, not a subset of libc.** Twelve
+functions: `malloc` `realloc` `free` `abort` `qsort` `bsearch` from `stdlib.h`,
 `memcpy` `memmove` `memset` `memcmp` `strchr` `strcspn` from `string.h`, and
 nothing from `stdio.h` — md4c includes it but calls nothing from it. Its `exit`
 sits under `#ifdef DEBUG` and its `sprintf` under `#if 0`; `strchr` arrives as
 `#define md_strchr strchr`, which is why reading the source for call sites is
-not enough on its own.
+not enough on its own. `abort` is miniz's, reached only through `assert`, which
+`assert.h` defines as a macro the way the platform's does; miniz is compiled
+with `MINIZ_NO_STDIO` and `MINIZ_NO_TIME`, so it needs nothing from `stdio.h`
+or `time.h` either.
 
 `-Werror=implicit-function-declaration` in `lakefile.lean` is what makes a
 missing one fail rather than compile. It is not decoration: `strcspn` was
