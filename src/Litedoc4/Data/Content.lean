@@ -35,6 +35,21 @@ def textOf (text : String) (spans : Array Span) : Text :=
       else if s.name.isEmpty then none
       else some { start := s.start, stop := s.stop, target := .name s.name } }
 
+/-- A docstring as content: `Hrefs.deferred`'s HTML, rendered with no
+bibliography, and the strings that HTML leaves the browser to look up. -/
+structure Doc where
+  html : String
+  words : Array String
+  deriving BEq, Repr, Inhabited
+
+/-- An empty docstring is not rendered, so a declaration without one never
+reaches md4c. -/
+def docOf (text : String) : Doc :=
+  if text.isEmpty then { html := "", words := #[] }
+  else
+    let (html, s) := (docstring "" { hrefs := .deferred, bib := {} } text).run {}
+    { html, words := s.words }
+
 structure Binder where
   implicit : Bool
   text : Text
@@ -49,7 +64,7 @@ structure Field where
   name : String
   binders : Array Binder
   type : Text
-  doc : String
+  doc : Doc
   inherited : Bool
   anchored : Bool
   deriving BEq, Repr, Inhabited
@@ -58,7 +73,7 @@ structure Ctor where
   name : String
   binders : Array Binder
   type : Text
-  doc : String
+  doc : Doc
   deriving BEq, Repr, Inhabited
 
 inductive Sorry where
@@ -76,7 +91,7 @@ structure Decl where
   binders : Array Binder
   parents : Array (String × Text)
   type : Text
-  doc : String
+  doc : Doc
   equations : Array Text
   equationsOmitted : Bool
   fields : Array Field
@@ -100,13 +115,13 @@ def declOf (m : Module) (d : Litedoc4.Decl) : Decl := Id.run do
   let fields := if !structural then #[] else
     (d.members.filter (·.label == "field")).map fun f =>
       { name := f.name, binders := bindersOf f.binders f.binderCode f.implicits
-        type := textOf f.text f.code, doc := if f.inherited then "" else f.doc
+        type := textOf f.text f.code, doc := docOf (if f.inherited then "" else f.doc)
         inherited := f.inherited
         anchored := f.inherited && contained.contains (d.name ++ "." ++ lastComponent f.name) }
   let ctors := if d.kind == "inductive" || d.kind == "class_inductive" then
       (d.members.filter (·.label == "ctor")).map fun c =>
         { name := c.name, binders := bindersOf c.binders c.binderCode c.implicits
-          type := textOf c.text c.code, doc := c.doc : Ctor }
+          type := textOf c.text c.code, doc := docOf c.doc : Ctor }
     else #[]
   return {
     name := d.name, kind := d.kind, modifiers := d.modifiers, attrs := d.attrs.map attrText
@@ -121,7 +136,7 @@ def declOf (m : Module) (d : Litedoc4.Decl) : Decl := Id.run do
     parents := if !structural then #[] else
       (d.members.filter (·.label == "parent")).map fun p => (p.name, textOf p.text p.code)
     type := textOf d.ty d.typeCode
-    doc := d.doc, equations, equationsOmitted, fields
+    doc := docOf d.doc, equations, equationsOmitted, fields
     ctor := if !structural then none else
       some ((d.members.find? (·.label == "ctor")).map (·.name) |>.getD (d.name ++ ".mk"))
     ctors }
@@ -144,6 +159,9 @@ def Decl.spanNames (d : Decl) : Array String :=
 /-- Apart from `spanNames` because they resolve by `declNameToLink`'s rule. -/
 def Decl.memberNames (d : Decl) : Array String :=
   (d.fields.filter (·.inherited)).map (·.name)
+
+def Decl.docWords (d : Decl) : Array String :=
+  d.doc.words ++ d.fields.flatMap (·.doc.words) ++ d.ctors.flatMap (·.doc.words)
 
 /-! ## The bytes -/
 
@@ -172,8 +190,8 @@ def pushBinders (out : String) (bs : Array Binder) : String := Id.run do
     o := pushText (o ++ (if bs[i]!.implicit then "[1," else "[0,")) bs[i]!.text |>.push ']'
   return o.push ']'
 
-def pushDoc (out : String) (doc : String) : String :=
-  if doc.isEmpty then out else jsonStr (out ++ ",\"doc\":") doc
+def pushDoc (out : String) (doc : Doc) : String :=
+  if doc.html.isEmpty then out else jsonStr (out ++ ",\"doc\":") doc.html
 
 def pushField (out : String) (f : Field) : String := Id.run do
   let mut o := jsonStr (out ++ "{\"n\":") f.name
@@ -229,11 +247,11 @@ def Decl.content (d : Decl) : Content := ⟨d.json.toUTF8⟩
 
 def declContent (m : Module) (d : Litedoc4.Decl) : Content := (declOf m d).content
 
-def moduleDocContent (text : String) : Content := ⟨(jsonStr "{\"moddoc\":" text |>.push '}').toUTF8⟩
+def moduleDocContent (doc : Doc) : Content := ⟨(jsonStr "{\"moddoc\":" doc.html |>.push '}').toUTF8⟩
 
 /-- Not all 64 digits: a 64-bit address collides at 51 Mathlib versions with
 probability ≈ 2e-7, a collision refuses the build (`contentTable`), and every
-manifest pays the digits once per declaration. -/
+page file pays the digits once per content file it names. -/
 def addressHexDigits : Nat := 16
 
 def hexAddressOf (bytes : ByteArray) : String := byteSub (sha256Hex bytes) 0 addressHexDigits

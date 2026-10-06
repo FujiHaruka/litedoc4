@@ -1,8 +1,8 @@
 /- The data format and the three storage candidates, over a hand-written package
 whose versions carry the churn the S input carries: unchanged, moved, reordered,
 changed in docstring, signature, attributes and equations, renamed, and a
-dependency's line range moving. Everything but compression is pure, so the
-candidates run here with no compressor; `Gzip` is exercised at run time. -/
+dependency's line range moving. Content renders docstrings through md4c, which
+`#guard` cannot reach, so everything whose fixture has a docstring runs. -/
 import Litedoc4.Data.CandidateA
 import Litedoc4.Data.CandidateB
 import Litedoc4.Data.CandidateC
@@ -26,7 +26,7 @@ def fDecl : Decl :=
 def gDecl : Decl :=
   { name := "P.A.g", kind := "theorem", ty := "P.A.f 0 = Dep.x"
     typeCode := #[dataSpan 0 15 1 "Eq", dataSpan 0 7 1 "P.A.f", dataSpan 10 15 1 "Dep.x"]
-    line := 6, endLine := 7, index := 1, attrs := #[("simp", "")] }
+    line := 6, endLine := 7, index := 1, attrs := #[("simp", "")], refs := #[("P.A", "P.A.f")] }
 
 def hDecl : Decl :=
   { name := "P.B.h", kind := "definition", ty := "Nat", typeCode := #[dataSpan 0 3 1 "Nat"]
@@ -41,12 +41,17 @@ def moduleB (decls : Array Decl) : Module := { name := "P.B", schemaVersion := 5
 def dataLidx (start : Nat) : Lidx :=
   parseLidx s!"#lidx2\n@Dep.Core\nDep.Core\n\tDep.x\t{start}\t{start + 2}\nInit.Prelude\n\tNat\t5\t9\n\tEq\t20\t30\n"
 
+def dataDepMaps : Array (Array (String × String)) :=
+  #[#[("Dep.x", "Dep.Core"), ("Nat", "Init.Prelude"), ("Eq", "Init.Prelude")]]
+
+def pinned : ExternalLinks := mkExternalLinks #[("Init", "https://core/src"), ("Dep", "https://dep/src")]
+
 def dataVersion (name : String) (a : Array Decl) (depStart : Nat := 10)
-    (b : Array Decl := #[hDecl]) : Data.VersionData :=
+    (b : Array Decl := #[hDecl]) (others : Array Module := #[]) (sources := pinned) :
+    Data.VersionData :=
   Data.versionData
-    { name, modules := #[moduleA a, moduleB b]
-      depMaps := #[#[("Dep.x", "Dep.Core"), ("Nat", "Init.Prelude"), ("Eq", "Init.Prelude")]]
-      lidx := dataLidx depStart, sources := mkExternalLinks #[("Init", "https://core/src")] }
+    { name, modules := #[moduleA a, moduleB b] ++ others, depMaps := dataDepMaps
+      lidx := dataLidx depStart, sources }
 
 def base : Data.VersionData := dataVersion "v1" #[fDecl, gDecl]
 def moved : Data.VersionData :=
@@ -78,80 +83,172 @@ def linesAt (v : Data.VersionData) (module : String) : Array (Option (Nat × Nat
 def fileAt (v : Data.VersionData) (path : String) : Option ByteArray :=
   (v.files.find? (·.1 == path)).map (·.2)
 
-def aManifestListsEachImportOnceInNameOrder : Bool :=
-  let v := Data.versionData
-    { name := "imports", modules := #[{ moduleA #[fDecl] with imports := #["P.B", "Init", "Init"] }]
-      depMaps := #[], lidx := dataLidx 10, sources := {} }
-  ((pageAt v "P.A").map (·.imports)) == some #["Init", "P.B"]
+/-- With no locator, which is the one part a candidate writes. -/
+def pageText (v : Data.VersionData) (module : String) : String :=
+  ((pageAt v module).map (Data.pageJson · "null")).getD ""
 
-#guard aManifestListsEachImportOnceInNameOrder
+def itemText (v : Data.VersionData) (module : String) (i : Nat) : String :=
+  (((pageAt v module).bind (·.items[i]?)).bind (String.fromUTF8? ·.content.bytes)).getD ""
+
+def aPageFileListsEachImportOnceInNameOrder : Bool :=
+  let v := Data.versionData
+    { name := "imports", modules := #[{ moduleB #[hDecl] with imports := #["P.A", "Init", "Init"] }]
+      depMaps := #[], lidx := dataLidx 10, sources := {} }
+  ((pageAt v "P.B").map (·.imports)) == some #["Init", "P.A"]
+
+#guard aPageFileListsEachImportOnceInNameOrder
 
 /-! ## The content address -/
 
-def anUnchangedDeclarationKeepsItsAddressAcrossVersions : Bool :=
-  [moved, reordered, docChanged, signatureChanged, attributeChanged, equationsChanged, renamed,
-    dependencyMoved].all (fun v => addressesAt v "P.B" == addressesAt base "P.B")
-    && (addressesAt slotMoved "P.B").take 1 == addressesAt base "P.B"
+def anUnchangedDeclarationKeepsItsAddressAcrossVersions : Invariant where
+  name := "an unchanged declaration keeps its address in every version, and in a version where \
+    its olean slot moved"
+  check := pure <| first <|
+    [moved, reordered, docChanged, signatureChanged, attributeChanged, equationsChanged, renamed,
+      dependencyMoved].map (fun v => eq (v.name, addressesAt v "P.B") (v.name, addressesAt base "P.B"))
+    ++ [eq ((addressesAt slotMoved "P.B").take 1) (addressesAt base "P.B")]
 
-#guard anUnchangedDeclarationKeepsItsAddressAcrossVersions
+def aMovedDeclarationKeepsItsAddressAndOnlyItsPagePositionMoves : Invariant where
+  name := "a moved declaration keeps its address, and only its line range in the page moves"
+  check := pure <| first [eq (addressesAt moved "P.A") (addressesAt base "P.A"),
+    eq (linesAt base "P.A") #[none, some (3, 4), some (6, 7)],
+    eq (linesAt moved "P.A") #[none, some (5, 6), some (8, 9)]]
 
-def aMovedDeclarationKeepsItsAddressAndOnlyItsManifestPositionMoves : Bool :=
-  addressesAt moved "P.A" == addressesAt base "P.A"
-    && linesAt base "P.A" == #[none, some (3, 4), some (6, 7)]
-    && linesAt moved "P.A" == #[none, some (5, 6), some (8, 9)]
+def aReorderKeepsBothAddressesAndSwapsThemInThePage : Invariant where
+  name := "a reorder keeps both addresses and swaps them in the page"
+  check := pure <|
+    let a := addressesAt base "P.A"
+    first [eq a.size 3, eq (addressesAt reordered "P.A") #[a[0]!, a[2]!, a[1]!],
+      eq (linesAt reordered "P.A") #[none, some (3, 4), some (6, 7)]]
 
-#guard aMovedDeclarationKeepsItsAddressAndOnlyItsManifestPositionMoves
-
-def aReorderKeepsBothAddressesAndSwapsThemInTheManifest : Bool :=
-  let a := addressesAt base "P.A"
-  a.size == 3 && addressesAt reordered "P.A" == #[a[0]!, a[2]!, a[1]!]
-    && linesAt reordered "P.A" == #[none, some (3, 4), some (6, 7)]
-
-#guard aReorderKeepsBothAddressesAndSwapsThemInTheManifest
-
-/-- `f` is the page's second item and `g` its third. -/
-def changesOnly (v : Data.VersionData) (item : Nat) : Bool :=
+/-- `f` is the page's second item and `g` its third: which of the three items
+kept their address. -/
+def keptAgainstBase (v : Data.VersionData) : List Bool :=
   let a := addressesAt base "P.A"
   let b := addressesAt v "P.A"
-  a.size == 3 && b.size == 3 && (List.range 3).all fun i => (a[i]! == b[i]!) == (i != item)
+  (List.range 3).map fun i => a[i]? == b[i]? && a[i]?.isSome
 
-def aDocstringSignatureAttributeOrEquationChangeGivesANewAddress : Bool :=
-  changesOnly docChanged 1 && changesOnly signatureChanged 1 && changesOnly attributeChanged 2
-    && changesOnly equationsChanged 1
+def aDocstringSignatureAttributeOrEquationChangeGivesANewAddress : Invariant where
+  name := "a docstring, signature, attribute or equation change gives that item, and only it, \
+    a new address"
+  check := pure <| first [eq (keptAgainstBase docChanged) [true, false, true],
+    eq (keptAgainstBase signatureChanged) [true, false, true],
+    eq (keptAgainstBase attributeChanged) [true, true, false],
+    eq (keptAgainstBase equationsChanged) [true, false, true]]
 
-#guard aDocstringSignatureAttributeOrEquationChangeGivesANewAddress
+def aRenamedTheoremIsANewAddressBecauseTheNameIsContent : Invariant where
+  name := "a renamed theorem is a new address, because the name is content"
+  check := pure <| eq (keptAgainstBase renamed) [true, true, false]
 
-def aRenamedTheoremIsANewAddressBecauseTheNameIsContent : Bool := changesOnly renamed 2
+/-! ## The page file -/
 
-#guard aRenamedTheoremIsANewAddressBecauseTheNameIsContent
+def thePageFileResolvesOwnNamesToAModuleAndDependencyNamesToARootAndARange : Invariant where
+  name := "the page file resolves own names to a module and dependency names to a page-local \
+    root and a line range"
+  check := pure <| eq (pageText base "P.A")
+    "{\"module\":\"P.A\",\"imports\":[\"P.B\"],\"content\":null,\"lines\":[0,[3,4],[6,7]],\
+    \"roots\":[\"Dep\",\"Init\"],\"names\":{\"Dep.x\":[0,\"Dep.Core\",10,12],\
+    \"Eq\":[1,\"Init.Prelude\",20,30],\"Nat\":[1,\"Init.Prelude\",5,9],\"P.A.f\":[\"P.A\"]},\
+    \"words\":{}}"
 
-def aDependencyLineRangeMovingLeavesEveryAddressAndChangesOnlyTheLinkTable : Bool :=
-  addressesAt dependencyMoved "P.A" == addressesAt base "P.A"
-    && fileAt dependencyMoved "links.json" != fileAt base "links.json"
-    && (base.files.filter (·.1 != "links.json")).map (·.2)
-      == (dependencyMoved.files.filter (·.1 != "links.json")).map (·.2)
+def aPageTableHoldsOnlyTheNamesItsOwnItemsReference : Invariant where
+  name := "a page's tables hold only the names its own items reference, and its roots only \
+    the roots those names are in"
+  check := pure <| eq (pageText base "P.B")
+    "{\"module\":\"P.B\",\"imports\":[],\"content\":null,\"lines\":[[2,2]],\
+    \"roots\":[\"Init\"],\"names\":{\"Nat\":[0,\"Init.Prelude\",5,9]},\"words\":{}}"
 
-#guard aDependencyLineRangeMovingLeavesEveryAddressAndChangesOnlyTheLinkTable
+def anUnpinnedOrUnmappedRootGivesNoEntry : Invariant where
+  name := "a root the source map leaves unpinned, or does not hold, gives its names no entry \
+    and is not among the page's roots"
+  check := pure <|
+    let without := "{\"module\":\"P.A\",\"imports\":[\"P.B\"],\"content\":null,\
+      \"lines\":[0,[3,4],[6,7]],\"roots\":[\"Init\"],\"names\":{\
+      \"Eq\":[0,\"Init.Prelude\",20,30],\"Nat\":[0,\"Init.Prelude\",5,9],\"P.A.f\":[\"P.A\"]},\
+      \"words\":{}}"
+    let unpinned := dataVersion "unpinned" #[fDecl, gDecl]
+      (sources := mkExternalLinks #[("Init", "https://core/src"), ("Dep", "")])
+    let unmapped := dataVersion "unmapped" #[fDecl, gDecl]
+      (sources := mkExternalLinks #[("Init", "https://core/src")])
+    first [eq (pageText unpinned "P.A") without, eq (pageText unmapped "P.A") without]
 
-def linkTableText (v : Data.VersionData) : String :=
-  ((fileAt v "links.json").bind String.fromUTF8?).getD ""
+def aDependencyLineRangeMovingChangesOnlyThePageFilesThatLinkToIt : Invariant where
+  name := "a dependency's line range moving leaves every address and every version file, and \
+    changes only the page files that link to it"
+  check := pure <| first [eq (addressesAt dependencyMoved "P.A") (addressesAt base "P.A"),
+    eq (dependencyMoved.files.map (·.2.toList)) (base.files.map (·.2.toList)),
+    eq (pageText dependencyMoved "P.B") (pageText base "P.B"),
+    eq ((pageText dependencyMoved "P.A").replace "[0,\"Dep.Core\",40,42]" "[0,\"Dep.Core\",10,12]")
+      (pageText base "P.A"),
+    eq (pageText dependencyMoved "P.A" == pageText base "P.A") false]
 
-def theLinkTableResolvesOwnNamesToAModuleAndDependencyNamesToASourceAndARange : Bool :=
-  linkTableText base == "{\"sources\":[[\"Dep\",null],[\"Init\",\"https://core/src\"]],\
-    \"names\":{\"Dep.x\":[\"Dep.Core\",0,10,12],\"Eq\":[\"Init.Prelude\",1,20,30],\
-    \"Nat\":[\"Init.Prelude\",1,5,9],\"P.A.f\":[0]}}"
+/-- `O` sorts before both, so every position in the module order moves. -/
+def earlyModule : Module :=
+  { name := "O", schemaVersion := 5, decls := #[{ hDecl with name := "O.z", line := 1, endLine := 1 }] }
 
-#guard theLinkTableResolvesOwnNamesToAModuleAndDependencyNamesToASourceAndARange
+def aModuleAddedBeforeAnotherLeavesItsPageAndUsedByFilesUnchanged : Invariant where
+  name := "a module added ahead of another in the module order leaves that module's page file \
+    and Used by file byte for byte"
+  check := pure <|
+    let more := dataVersion "more" #[fDecl, gDecl] (others := #[earlyModule])
+    first [eq ((pageAt more "O").isSome, more.pages.map (·.module)) (true, #["O", "P.A", "P.B"]),
+      eq (pageText more "P.A") (pageText base "P.A"),
+      eq (pageText more "P.B") (pageText base "P.B"),
+      eq ((fileAt more "used-by/P/A.json").map (·.toList)) ((fileAt base "used-by/P/A.json").map (·.toList)),
+      eq ((fileAt base "used-by/P/A.json").bind String.fromUTF8?)
+        (some "{\"P.A.f\":[[\"P.A.g\",\"P.A\"]]}")]
 
-def anUnpinnedRootGetsNoLinkInTheLinkTable : Bool :=
-  let v := Data.versionData
-    { name := "unpinned", modules := #[moduleA #[fDecl, gDecl], moduleB #[hDecl]]
-      depMaps := #[#[("Dep.x", "Dep.Core"), ("Nat", "Init.Prelude"), ("Eq", "Init.Prelude")]]
-      lidx := dataLidx 10, sources := mkExternalLinks #[("Init", "https://core/src"), ("Dep", "")] }
-  linkTableText v == linkTableText base
-    && (linkTableText v).startsWith "{\"sources\":[[\"Dep\",null],"
+/-! ## Docstrings in the content -/
 
-#guard anUnpinnedRootGetsNoLinkInTheLinkTable
+def wordsDecl : Decl :=
+  { name := "P.A.w", kind := "definition", ty := "Nat", line := 9, endLine := 9, index := 2
+    doc := "See `P.A.f`, `Foo.g`, `Nat` and `zzz`." }
+
+def aDocstringWordIsMarkedAndResolvedPerPageWordTailOrNotAtAll : Invariant where
+  name := "every word a docstring's code holds is marked in the content, and the page's words \
+    table holds the word when it resolves, its tail when only that does, and neither otherwise"
+  check := pure <|
+    let v := dataVersion "words" #[fDecl, gDecl, wordsDecl]
+    let page := pageText v "P.A"
+    let words := (page.splitOn "\"words\":").getLastD ""
+    first [eq ((itemText v "P.A" 3).splitOn "\"doc\":").length 2,
+      eq (((itemText v "P.A" 3).splitOn "\"doc\":").getLastD "")
+        "\"<p>See <code><w>P.A.f</w></code>, <code><w>Foo.g</w></code>, <code><w>Nat</w></code> \
+        and <code><w>zzz</w></code>.</p>\"}",
+      eq words "{\"Nat\":[1,\"Init.Prelude\",5,9],\"P.A.f\":[\"P.A\"],\"f\":[\"P.A\",\"P.A.f\"],\
+        \"g\":[\"P.A\",\"P.A.g\"]}}"]
+
+def linkDoc : String := "[x](other.html) [y](##P.A.f) [z](#frag) [w](https://h/p)"
+
+def linksDecl : Decl :=
+  { name := "P.A.l", kind := "theorem", ty := "True", line := 11, endLine := 11, index := 3
+    doc := linkDoc }
+
+def deepModule : Module :=
+  { name := "P.Deep.Er.M", schemaVersion := 5
+    decls := #[{ linksDecl with name := "P.A.l", line := 2, endLine := 2, index := 0 }] }
+
+def contentCarriesNoRootPrefixAtAnyDepth : Invariant where
+  name := "a docstring's relative and `##name` links carry no root prefix in the content, so the \
+    same docstring on pages at two depths is the same bytes, where today's renderer differs"
+  check := pure <|
+    let v := dataVersion "links" #[fDecl, gDecl, linksDecl] (others := #[deepModule])
+    let shallow := itemText v "P.A" 3
+    let deep := itemText v "P.Deep.Er.M" 0
+    let relative (root : String) : String :=
+      (docstring "" { hrefs := .relative root noLinks, bib := {} } linkDoc).run' {}
+    first [eq (relative (pageRoot "P.A") == relative (pageRoot "P.Deep.Er.M")) false,
+      eq shallow deep,
+      eq ((shallow.splitOn "\"doc\":").getLastD "")
+        "\"<p><a href=\\\"other.html\\\">x</a> <a href=\\\"##P.A.f\\\">y</a> \
+        <a href=\\\"#frag\\\">z</a> <a href=\\\"https://h/p\\\">w</a></p>\"}",
+      eq (((pageText v "P.A").splitOn "\"words\":").getLastD "") "{\"P.A.f\":[\"P.A\"]}}"]
+
+def aCitationWithNoBibliographyIsTheAuthorsText : Invariant where
+  name := "with no bibliography in the store, a citation is the author's bracketed text and a \
+    link to the references page is a relative link like any other"
+  check := pure <| eq (Data.docOf "As in [Key] and [t](references.html#ref_Key).").html
+    "<p>As in [Key] and <a href=\"references.html#ref_Key\">t</a>.</p>"
 
 def aSubtermWrapperIsDroppedAndASortAndANameAreKept : Bool :=
   let t := Data.textOf "{α : Type}" #[dataSpan 1 2 0, dataSpan 5 9 2, dataSpan 0 10 1 "X"]
@@ -170,34 +267,33 @@ def addedContentFiles (l : Except String Data.Layout) (k : Nat) : List Nat :=
               (l.files.filter (·.firstVersion == k)).foldl (· + ·.items) 0]
   | .error _ => []
 
-def candidateADedupsAModuleFileOnlyWhenItsItemsAreUnchangedAndInOrder : Bool :=
-  let moves := Data.CandidateA.layout identity #[base, moved, docChanged]
-  let reorder := Data.CandidateA.layout identity #[base, reordered]
-  addedContentFiles moves 0 == [2, 4] && addedContentFiles moves 1 == [0, 0]
-    && addedContentFiles moves 2 == [1, 3] && addedContentFiles reorder 1 == [1, 3]
+def candidateADedupsAModuleFileOnlyWhenItsItemsAreUnchangedAndInOrder : Invariant where
+  name := "candidate (a) stores a module file again only when its items changed or moved in order"
+  check := pure <|
+    let moves := Data.CandidateA.layout identity #[base, moved, docChanged]
+    let reorder := Data.CandidateA.layout identity #[base, reordered]
+    eq [addedContentFiles moves 0, addedContentFiles moves 1, addedContentFiles moves 2,
+        addedContentFiles reorder 1] [[2, 4], [0, 0], [1, 3], [1, 3]]
 
-#guard candidateADedupsAModuleFileOnlyWhenItsItemsAreUnchangedAndInOrder
+def candidateBAddsOneSegmentOfOneItemForOneChangedDeclaration : Invariant where
+  name := "candidate (b) adds one segment of one item for one changed declaration"
+  check := pure <|
+    let l := Data.CandidateB.layout identity #[base, moved, docChanged]
+    first [eq [addedContentFiles l 0, addedContentFiles l 1, addedContentFiles l 2]
+        [[2, 4], [0, 0], [1, 1]],
+      eq (match l with
+        | .ok l => (l.views.filter (·.version == 2)).map (·.fetches.filter (·.isContent) |>.size)
+        | .error _ => #[]) #[2, 1]]
 
-def candidateBAddsOneSegmentOfOneItemForOneChangedDeclaration : Bool :=
-  let l := Data.CandidateB.layout identity #[base, moved, docChanged]
-  addedContentFiles l 0 == [2, 4] && addedContentFiles l 1 == [0, 0]
-    && addedContentFiles l 2 == [1, 1]
-    && match l with
-      | .ok l => (l.views.filter (·.version == 2)).map (·.fetches.filter (·.isContent) |>.size)
-          == #[2, 1]
-      | .error _ => false
-
-#guard candidateBAddsOneSegmentOfOneItemForOneChangedDeclaration
-
-/-- Every item of every page view, sliced out of the ranges its manifest names
-in the stored files, by the offset and length the manifest gives. -/
+/-- Every item of every page view, sliced out of the ranges its page file names
+in the stored files, by the offset and length the page file gives. -/
 def packSlices (l : Data.Layout) (vs : Array Data.VersionData)
     (decode : ByteArray → Array Nat → Option ByteArray) : Option (Array (Array String)) := do
   let mut out : Array (Array String) := #[]
   for v in vs do
     for p in v.pages do
-      let manifest ← (l.files.find? (·.path == Data.manifestPath v p)).map (·.stored)
-      let j ← (parseJson (← String.fromUTF8? manifest)).toOption
+      let page ← (l.files.find? (·.path == Data.pagePath v p)).map (·.stored)
+      let j ← (parseJson (← String.fromUTF8? page)).toOption
       let content ← jvalGet? j "content"
       let ranges := asArr (← jvalGet? content "r")
       let mut raws : Array ByteArray := #[]
@@ -218,27 +314,28 @@ def pageAddresses (vs : Array Data.VersionData) : Array (Array String) :=
 
 def uncompressed (bytes : ByteArray) (_ : Array Nat) : Option ByteArray := some bytes
 
-def candidateCRangesCoverExactlyEachPagesItems : Bool :=
-  let vs := #[base, docChanged, renamed]
-  [1, 16384].all fun chunk =>
-    match Data.CandidateC.layout identity chunk vs with
-    | .ok l => packSlices l vs uncompressed == some (pageAddresses vs)
-        && (chunk != 1 || (l.views.filter (·.version == 0)).all fun v => v.itemsFetched == v.items)
-    | .error _ => false
-
-#guard candidateCRangesCoverExactlyEachPagesItems
+def candidateCRangesCoverExactlyEachPagesItems : Invariant where
+  name := "candidate (c)'s ranges cover exactly each page's items, at one item a chunk and at the \
+    default chunk size"
+  check := pure <|
+    let vs := #[base, docChanged, renamed]
+    first <| [1, 16384].map fun chunk =>
+      match Data.CandidateC.layout identity chunk vs with
+      | .ok l => first [eq (packSlices l vs uncompressed) (some (pageAddresses vs)),
+          eq (chunk != 1 || (l.views.filter (·.version == 0)).all fun v => v.itemsFetched == v.items) true]
+      | .error why => some why
 
 def countsOf (l : Except String Data.Layout) (vs : Array Data.VersionData) : List Nat :=
   match l with
   | .ok l => (Data.counts vs l).versions.toList.map (·.newAddresses)
   | .error _ => []
 
-def everyCandidateCountsTheSameNewAddresses : Bool :=
-  let vs := #[base, moved, docChanged, renamed]
-  [Data.CandidateA.layout identity vs, Data.CandidateB.layout identity vs,
-    Data.CandidateC.layout identity 16384 vs].all (countsOf · vs == [4, 0, 1, 1])
-
-#guard everyCandidateCountsTheSameNewAddresses
+def everyCandidateCountsTheSameNewAddresses : Invariant where
+  name := "every candidate counts the same new addresses per version"
+  check := pure <|
+    let vs := #[base, moved, docChanged, renamed]
+    first <| [Data.CandidateA.layout identity vs, Data.CandidateB.layout identity vs,
+      Data.CandidateC.layout identity 16384 vs].map fun l => eq (countsOf l vs) [4, 0, 1, 1]
 
 def aContentFileOfOtherBytesUnderAnAddressAlreadyHostedIsRefused : Bool :=
   let file (b : ByteArray) : Data.Hosted := { path := "content/a/x.json", raw := b.size, stored := b, firstVersion := 0 }
@@ -288,11 +385,11 @@ def everyHostedFileDecompressesToItsRawCountAndEveryPackRangeToItsItems : Invari
               problems := problems ++ [some s!"{name} {f.path}: {raw.size} bytes, counted {f.raw}"]
           | .error why => problems := problems ++ [some s!"{name} {f.path}: {why}"]
         if name == "c" then
-          let manifests := l.files.map fun f =>
+          let pages := l.files.map fun f =>
             if f.path.endsWith ".pack" then f
             else { f with stored := (Gzip.decompress f.stored).toOption.getD .empty }
           problems := problems ++
-            [eq (packSlices { l with files := manifests } vs gzipMembers) (some (pageAddresses vs))]
+            [eq (packSlices { l with files := pages } vs gzipMembers) (some (pageAddresses vs))]
     return first problems
 
 end DataFormat

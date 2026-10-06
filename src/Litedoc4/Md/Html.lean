@@ -51,20 +51,31 @@ def DocSite.funName (s : DocSite) : String :=
   | .decl name => name
   | .member _ name _ => name
 
-/-- `root` is the relative path from the page being written back to the site
-root (`"./"`, `"../"`, `"../.././"`, …). It is prepended to every relative link,
-so it is part of the bytes. -/
+/-- Where the links a docstring writes point. -/
+inductive Hrefs where
+  /-- `root` is the relative path from the page being written back to the site
+  root (`"./"`, `"../"`, `"../.././"`, …). It is prepended to every relative link,
+  so it is part of the bytes. -/
+  | relative (root : String) (links : LinkResolver)
+  /-- Nothing resolved and no root: every place `relative` would prefix the root
+  or ask the resolver carries what `markWord` describes instead. -/
+  | deferred
+  deriving Inhabited
+
 structure Renderer where
-  root : String
-  links : LinkResolver
+  hrefs : Hrefs
   bib : Bibliography
   site : DocSite := {}
   deriving Inhabited
 
-def resolveLink (c : Renderer) (s : String) : Option String :=
-  if s.endsWith ".lean" && s.any (· == '/') then
-    c.links.sourcePathToLink (byteSub s 0 (s.utf8ByteSize - 5))
-  else c.links.nameToLink s
+/-- `resolveLink`'s one dispatch: a word that ends in `.lean` and contains a `/`
+is a source path, handed over without its `.lean`, and anything else a name. -/
+@[inline] def resolveWith (sourcePath name : String → Option α) (s : String) : Option α :=
+  if s.endsWith ".lean" && s.any (· == '/') then sourcePath (byteSub s 0 (s.utf8ByteSize - 5))
+  else name s
+
+def LinkResolver.resolve (l : LinkResolver) (s : String) : Option String :=
+  resolveWith l.sourcePathToLink l.nameToLink s
 
 @[inline] def pushAnchor (out : String) (href text : String) : String :=
   escapeInto (escapeInto (out ++ "<a href=\"") href ++ "\">") text ++ "</a>"
@@ -85,37 +96,75 @@ def zcRunEnd (s : String) (n i : Nat) (sep : Bool) : Nat := Id.run do
     j := j + w
   return n
 
-/-- `autoLinkInline`. Two lookups per word: the word itself, then whatever
-follows its last `.`, so that `Nat.succ` links `succ` when the qualified name is
-unknown. -/
-def autoLinkInline (out : String) (c : Renderer) (s : String) : String := Id.run do
+/-- Where the tail of a word starts: one past its last `.`, or 0 when it has none. -/
+def tailStart (piece : String) : Nat := Id.run do
+  let mut start := 0
+  for k in [0:piece.utf8ByteSize] do
+    if byteAt piece k == 46 then start := k + 1
+  return start
+
+/-- `autoLinkInline`'s split: the separators between the words and the words. -/
+@[inline] def foldWords (s : String) (init : α) (gap : α → Nat → Nat → α)
+    (word : α → String → α) : α := Id.run do
   let n := s.utf8ByteSize
-  let mut acc := out
+  let mut acc := init
   let mut i := 0
   while i < n do
     let a := i
     i := zcRunEnd s n i true
-    if i > a then acc := escapeSub acc s a i
+    if i > a then acc := gap acc a i
     let b := i
     i := zcRunEnd s n i false
-    if i > b then
-      let piece := byteSub s b i
-      match resolveLink c piece with
-      | some l => acc := pushAnchor acc l piece
-      | none =>
-        let pn := piece.utf8ByteSize
-        let mut dot := pn
-        let mut k := 0
-        while k < pn do
-          if byteAt piece k == 46 then dot := k
-          k := k + 1
-        let tail := if dot == pn then piece else byteSub piece (dot + 1) pn
-        match resolveLink c tail with
-        | some l =>
-          if dot != pn then acc := escapeSub acc piece 0 (dot + 1)
-          acc := pushAnchor acc l tail
-        | none => acc := escapeSub acc piece 0 pn
+    if i > b then acc := word acc (byteSub s b i)
   return acc
+
+/-- `autoLinkInline`. Two lookups per word: the word itself, then whatever
+follows its last `.`, so that `Nat.succ` links `succ` when the qualified name is
+unknown. -/
+def autoLinkInline (out : String) (links : LinkResolver) (s : String) : String :=
+  foldWords s out (fun acc a i => escapeSub acc s a i) fun acc piece =>
+    match links.resolve piece with
+    | some l => pushAnchor acc l piece
+    | none =>
+      let start := tailStart piece
+      let pn := piece.utf8ByteSize
+      match links.resolve (byteSub piece start pn) with
+      | some l => pushAnchor (escapeSub acc piece 0 start) l (byteSub piece start pn)
+      | none => escapeSub acc piece 0 pn
+
+/-- **Deferred content: the marker, and the one rule that makes links of it.**
+
+Content rendered with `Hrefs.deferred` holds no site root and no resolved URL.
+Where `Hrefs.relative` would have written either, it holds one of three shapes,
+and the browser turns each into an href by this rule, against the page's own
+`"words"` table and the site root of the URL mode it is serving:
+
+- `<w>word</w>`, around every word `autoLinkInline` would try. The key is the
+  element's text. If `"words"` holds the word, the whole word links to its
+  target. Otherwise, if the word has a `.`, the tail after its last `.` is looked
+  up, and if `"words"` holds it only the tail links: the part up to and including
+  that `.` stays text. Otherwise the word stays text.
+- `href="##name"`, the destination as the author wrote it: `"words"` holds
+  `name` (no tail is tried) → its target; otherwise the site root followed by
+  `find/?pattern=name#doc`.
+- any other `href` is the destination as the author wrote it. One that starts
+  with `#` is a fragment of this page and one that starts with `http` is left as
+  it is (a prefix test, not a scheme check); every other one is relative to the
+  site root.
+
+`"words"` holds only the strings that resolve in that version, so a missing key
+is the answer "no link", never a lookup still to be made. -/
+def markWord (out piece : String) : String := escapeInto (out ++ "<w>") piece ++ "</w>"
+
+/-- `markWord` over every word of `s`, and the strings the browser will look
+up for them: each word, and its tail when it has a `.`. -/
+def markWords (acc : String × Array String) (s : String) : String × Array String :=
+  foldWords s acc (fun (out, words) a i => (escapeSub out s a i, words))
+    fun (out, words) piece =>
+      let start := tailStart piece
+      let words := words.push piece
+      (markWord out piece,
+        if start == 0 then words else words.push (byteSub piece start piece.utf8ByteSize))
 
 /-! ## Markdown
 
@@ -179,14 +228,14 @@ def headingId (texts : Array Md.Text) : String := Id.run do
   return out
 
 /-- `extendLink`. The `http` test is `startsWith "http"`, not a scheme check. -/
-def extendLink (c : Renderer) (s : String) : String :=
+def extendLink (root : String) (links : LinkResolver) (s : String) : String :=
   if s.startsWith "##" then
     let name := byteSub s 2 s.utf8ByteSize
-    match resolveLink c name with
+    match links.resolve name with
     | some l => l
-    | none => c.root ++ "find/?pattern=" ++ name ++ "#doc"
+    | none => root ++ "find/?pattern=" ++ name ++ "#doc"
   else if s.startsWith "#" || s.startsWith "http" then s
-  else c.root ++ s
+  else root ++ s
 
 /-- What a link destination names among the files of the site being built.
 A destination that starts with `http` is `notAFile` by its spelling, the one
@@ -264,6 +313,8 @@ structure MdState where
   mathFallbacks : Nat := 0
   cited : Array String := #[]
   deadLinks : Array DeadLink := #[]
+  /-- What a deferred walk leaves the browser to look up (`markWord`). -/
+  words : Array String := #[]
   deriving Inhabited
 
 /-- The MathML goes in as markup — escaping it would print it — and a span the
@@ -278,6 +329,28 @@ def mdMath (out : String) (latex : String) (display : Bool) : StateM MdState Str
     modify fun s => { s with mathFallbacks := s.mathFallbacks + 1 }
     let d := if display then "$$" else "$"
     return escapeInto (out ++ d) latex ++ d
+
+/-- Where a link destination points, and what the walk records about it: a
+dead link under `relative`, the name of a `##name` under `deferred`. -/
+def destination (c : Renderer) (target : String) : StateM MdState String :=
+  match c.hrefs with
+  | .relative root links => do
+    if isDeadLink links.isSiteFile target then
+      let dead := { dest := target, site := c.site,
+                    isBibliographyKey := c.bib.byKey.contains target }
+      modify fun s => { s with deadLinks := s.deadLinks.push dead }
+    return extendLink root links target
+  | .deferred => do
+    if target.startsWith "##" then
+      modify fun s => { s with words := s.words.push (byteSub target 2 target.utf8ByteSize) }
+    return target
+
+def autoLinkAll (out : String) (c : Renderer) (ps : Array String) : StateM MdState String :=
+  match c.hrefs with
+  | .relative _ links => pure (ps.foldl (fun a p => autoLinkInline a links p) out)
+  | .deferred => modifyGet fun s =>
+    let (html, words) := ps.foldl markWords (out, s.words)
+    (html, { s with words })
 
 mutual
 
@@ -306,11 +379,7 @@ partial def mdText (out : String) (c : Renderer) (t : Md.Text)
   | .del ts => mdWrap out c "del" ts inLink
   | .a href title _ ts => do
     let target := attrToString href
-    if isDeadLink c.links.isSiteFile target then
-      let dead := { dest := target, site := c.site,
-                    isBibliographyKey := c.bib.byKey.contains target }
-      modify fun s => { s with deadLinks := s.deadLinks.push dead }
-    let acc := escapeInto (out ++ "<a href=\"") (extendLink c target) ++ "\""
+    let acc := escapeInto (out ++ "<a href=\"") (← destination c target) ++ "\""
     match c.bib.cited? target with
     | some item =>
       let index ← modifyGet fun s => (s.cited.size, { s with cited := s.cited.push item.citekey })
@@ -332,11 +401,11 @@ partial def mdText (out : String) (c : Renderer) (t : Md.Text)
     let acc := escapeInto acc (alt.foldl textToPlain "") ++ "\""
     let acc := if ttl.isEmpty then acc else escapeInto (acc ++ " title=\"") ttl ++ "\""
     pure (acc ++ ">")
-  | .code ps =>
+  | .code ps => do
     let acc := out ++ "<code>"
-    let acc := if inLink then ps.foldl (fun a p => escapeInto a p) acc
-               else ps.foldl (fun a p => autoLinkInline a c p) acc
-    pure (acc ++ "</code>")
+    let acc ← if inLink then pure (ps.foldl (fun a p => escapeInto a p) acc)
+               else autoLinkAll acc c ps
+    return acc ++ "</code>"
   | .latexMath ps => mdMath out (ps.foldl (· ++ ·) "") false
   | .latexMathDisplay ps => mdMath out (ps.foldl (· ++ ·) "") true
   | .wikiLink tgt ts => do
@@ -384,16 +453,15 @@ partial def mdBlock (out : String) (c : Renderer) (b : Md.Block)
     let acc ← mdTexts (acc ++ "\" class=\"markdown-heading\">") c ts false
     return escapeInto (acc ++ " <a class=\"hover-link\" href=\"#") id
       ++ "\">#</a></h" ++ toString level ++ ">"
-  | .code _ lang _ content =>
+  | .code _ lang _ content => do
     let l := attrToString lang
     let acc := out ++ "<pre><code"
     let acc := if l.isEmpty then acc
                else escapeInto (acc ++ " class=\"language-") l ++ "\""
     let acc := acc ++ ">"
-    let acc := if l.isEmpty || l == "lean"
-               then content.foldl (fun a p => autoLinkInline a c p) acc
-               else content.foldl (fun a p => escapeInto a p) acc
-    pure (acc ++ "</code></pre>")
+    let acc ← if l.isEmpty || l == "lean" then autoLinkAll acc c content
+               else pure (content.foldl (fun a p => escapeInto a p) acc)
+    return acc ++ "</code></pre>"
   | .html content => pure (content.foldl (· ++ ·) out)
   | .blockquote bs => do
     let acc ← mdBlocks (out ++ "<blockquote>") c bs false

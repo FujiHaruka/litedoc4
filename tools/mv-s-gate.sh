@@ -362,9 +362,9 @@ def gunzip_json(path):
     return json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
 
 
-def manifests(tree, version):
+def page_files(tree, version):
     if not (tree / version / "m").is_dir():
-        raise RuntimeError("%s has no manifests for %s" % (tree, version))
+        raise RuntimeError("%s has no page files for %s" % (tree, version))
     out = []
     for path in sorted((tree / version / "m").rglob("*.json")):
         out.append(gunzip_json(path))
@@ -375,6 +375,10 @@ def item_name(item):
     if "moddoc" in item:
         return "moddoc"
     return item["n"]
+
+
+def item_identity(item):
+    return json.dumps(item, sort_keys=True, ensure_ascii=False)
 
 
 counters = {}
@@ -434,29 +438,30 @@ check("agree", agree)
 
 def a_view():
     tree = measure / "a-1"
-    seen_addresses, seen_files = set(), set()
+    seen_items, seen_files = set(), set()
     per_version = []
     for v in versions:
         new_items, new_files = {}, {}
-        addresses, files = set(), set()
-        for m in manifests(tree, v):
+        items, files = set(), set()
+        for m in page_files(tree, v):
             if m["content"] is None:
-                if m["items"]:
+                if m["lines"]:
                     raise RuntimeError("%s %s: items and no content file" % (v, m["module"]))
                 continue
             content = gunzip_json(tree / m["content"])
-            if len(content) != len(m["items"]):
+            if len(content) != len(m["lines"]):
                 raise RuntimeError("%s %s: %d items, %d in the content file"
-                                   % (v, m["module"], len(m["items"]), len(content)))
-            for entry, item in zip(m["items"], content):
-                if entry[0] not in seen_addresses:
+                                   % (v, m["module"], len(m["lines"]), len(content)))
+            for item in content:
+                identity = item_identity(item)
+                if identity not in seen_items:
                     new_items.setdefault(m["module"], set()).add(item_name(item))
-                addresses.add(entry[0])
+                items.add(identity)
             if m["content"] not in seen_files:
                 new_files[m["module"]] = m["content"]
             files.add(m["content"])
         per_version.append((new_items, new_files))
-        seen_addresses |= addresses
+        seen_items |= items
         seen_files |= files
     return per_version
 
@@ -468,7 +473,7 @@ def b_view():
     for v in versions:
         new_segments = {}
         files = set()
-        for m in manifests(tree, v):
+        for m in page_files(tree, v):
             for s in m["content"]["s"]:
                 files.add(s)
                 if s not in seen:

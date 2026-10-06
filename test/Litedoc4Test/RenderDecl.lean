@@ -37,7 +37,7 @@ def declRoot : String := pageRoot "Pkg.M"
 
 def declOut (ix : NameIndex) (m : Module) (d : Decl) : Except String String :=
   let dr : DeclRenderer :=
-    { ix, root := pageRoot m.name, md := pageRenderer (mkPageCtx ix (pageRoot m.name) m) {} }
+    { ix, root := pageRoot m.name, md := pageRenderer (mkPageCtx ix m) (pageRoot m.name) {} }
   ((declHtml "" dr m d "https://x/M.lean").run {}).map (·.1)
 
 /-- The markup, or the empty string when the page was refused — which fails every

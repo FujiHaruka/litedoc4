@@ -212,7 +212,7 @@ def theDocGen4CorpusDiffersFromItsRecordedHtmlOnlyWhereMathML4LeanSaysSo : Invar
     let mut differed : Array String := #[]
     let mut firstOne := ""
     for (what, root, md, html) in docgen4OracleCases do
-      let c : Renderer := { root := root, links := docGen4EmptyAnalyzer root, bib := {} }
+      let c : Renderer := { hrefs := .relative root (docGen4EmptyAnalyzer root), bib := {} }
       let got : String := (docstring "" c md).run' {}
       if got != html then
         if differed.isEmpty then firstOne := report s!"{what} (root {repr root})" md got html

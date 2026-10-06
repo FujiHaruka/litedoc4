@@ -12,8 +12,7 @@ def pageHtml (ix : NameIndex) (bib : Bibliography) (citations : Array Citation) 
     (sup : Std.HashSet String) (sourceUrl title : String) : RenderM String := do
   let root := pageRoot m.name
   let moduleUrl := moduleSourceUrl sourceUrl m.name
-  let c := mkPageCtx ix root m
-  let md := pageRenderer c bib
+  let md := pageRenderer (mkPageCtx ix m) root bib
   let dr : DeclRenderer := { ix, root, md, citations }
   let mut main := ""
   let mut memberNames : Array String := #[]

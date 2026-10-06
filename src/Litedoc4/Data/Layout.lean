@@ -34,7 +34,7 @@ def Fetch.isContent (f : Fetch) : Bool := f.path.startsWith contentPrefix
 
 def versionPath (v : VersionData) (file : String) : String := v.name ++ "/" ++ file
 
-def manifestPath (v : VersionData) (p : Page) : String :=
+def pagePath (v : VersionData) (p : Page) : String :=
   versionPath v s!"m/{modulePath p.module}.json"
 
 def versionLayout (compress : ByteArray → ByteArray) (k : Nat) (v : VersionData)
@@ -45,11 +45,10 @@ def versionLayout (compress : ByteArray → ByteArray) (k : Nat) (v : VersionDat
                           firstVersion := k }
   let mut fetches : Array (Array Fetch) := #[]
   for (p, i) in v.pages.zipIdx do
-    let manifest := (manifestJson p (locators.getD i "null")).toUTF8
-    files := files.push { path := manifestPath v p, raw := manifest.size
-                          stored := compress manifest, firstVersion := k }
-    fetches := fetches.push #[{ path := manifestPath v p }, { path := versionPath v "links.json" },
-      { path := versionPath v "modules.json" }]
+    let page := (pageJson p (locators.getD i "null")).toUTF8
+    files := files.push { path := pagePath v p, raw := page.size
+                          stored := compress page, firstVersion := k }
+    fetches := fetches.push #[{ path := pagePath v p }, { path := versionPath v "modules.json" }]
   return (files, fetches)
 
 def arrayOf (items : Array Content) : ByteArray := Id.run do

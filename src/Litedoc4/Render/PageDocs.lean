@@ -82,7 +82,7 @@ bibliography. -/
 def citationsIn (bib : Bibliography) (funName text : String) : Array Citation :=
   if (citedKeys bib text).isEmpty && (text.splitOn referencesPage).length == 1 then #[]
   else
-    let walk := docstring "" { root := "", links := noLinks, bib } text
+    let walk := docstring "" { hrefs := .relative "" noLinks, bib } text
     (walk.run {}).2.cited.map ({ citekey := ·, funName })
 
 /-- **The one answer to which citation anchors a page carries and in what

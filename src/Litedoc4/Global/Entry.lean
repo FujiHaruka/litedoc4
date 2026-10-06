@@ -57,7 +57,7 @@ prose each carrying their own would be a list nobody can scan. The same holds fo
 where the answer to "does this name have a page" needs a map this stage does not
 have — a code span that stays a code span is right, a link to a page nobody wrote
 is not. -/
-def entryRenderer : Renderer := { root := entryRoot, links := noLinks, bib := {} }
+def entryRenderer : Renderer := { hrefs := .relative entryRoot noLinks, bib := {} }
 
 /-- The math spans that fell back here are **not** added to the run's count: the
 same span is rendered again on the module's own page, where it is already

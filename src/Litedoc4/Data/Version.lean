@@ -25,102 +25,74 @@ structure Item where
 def Item.of (content : Content) (lines : Option (Nat × Nat)) : Item :=
   { content, address := content.address, lines }
 
+inductive Resolved where
+  | own (module : String) (anchor : Option String)
+  | dependency (root module : String) (lines : Option (Nat × Nat))
+  deriving BEq, Repr
+
+def resolvedOf : LinkDest → Option Resolved
+  | .page module anchor => some (.own module anchor)
+  | .source root _ module lines => some (.dependency root module lines)
+  /- Not reached: `versionData`'s index carries no documentation site (plan D1b). -/
+  | .docs _ => none
+
 structure Page where
   module : String
   imports : Array String
   items : Array Item
+  /-- What the page's signatures link to, by `constTarget`'s and
+  `declNameToLink`'s rules. -/
+  names : Array (String × Resolved)
+  /-- What its docstrings link to (`markWord`), by `wordDest`. -/
+  words : Array (String × Resolved)
 
 structure VersionData where
   name : String
   pages : Array Page
-  /-- Not the manifests: those carry each candidate's own locator. -/
+  /-- Not the page files: those carry each candidate's own locator. -/
   files : Array (String × ByteArray)
   linkNames : Nat
   docTokens : Nat
 
 def modulePath (module : String) : String := "/".intercalate (moduleComponents module).toList
 
-structure PageBuild where
-  page : Page
-  spanNames : Array String
-  memberNames : Array String
+def namesTable (ix : NameIndex) (spanNames memberNames : Array String) :
+    Array (String × Resolved) := Id.run do
+  let members : Std.HashSet String := Std.HashSet.ofArray memberNames
+  let mut out : Array (String × Resolved) := #[]
+  for name in dedupSorted (sortUtf16 (spanNames ++ memberNames)) do
+    let target := (constTarget ix {} name).orElse fun _ =>
+      if members.contains name then (moduleOf ix name).map (·, some name) else none
+    if let some (module, anchor) := target then
+      if let some r := (linkDest ix module anchor).bind resolvedOf then
+        out := out.push (name, r)
+  return out
 
-def pageOf (m : Module) (sup : Std.HashSet String) : PageBuild :=
-  Id.run do
-    let mut items : Array Item := #[]
-    let mut spanNames : Array String := #[]
-    let mut memberNames : Array String := #[]
-    for it in pageItems m sup do
-      if it.isDoc then items := items.push (Item.of (moduleDocContent m.moduleDocs[it.idx]!.text) none)
-      else
-        let d := m.decls[it.idx]!
-        let decl := declOf m d
-        items := items.push (Item.of decl.content (some (d.line, d.endLine)))
-        spanNames := spanNames ++ decl.spanNames
-        memberNames := memberNames ++ decl.memberNames
-    return { page := { module := m.name, imports := sortedImports m.imports, items }, spanNames, memberNames }
+def wordsTable (c : PageCtx) (words : Array String) : Array (String × Resolved) :=
+  (dedupSorted (sortUtf16 words)).filterMap fun w => ((wordDest c w).bind resolvedOf).map (w, ·)
 
-inductive Resolved where
-  | own (module : Nat) (anchor : Option String)
-  | dependency (module : String) (source : Nat) (lines : Option (Nat × Nat))
+def pageOf (ix : NameIndex) (m : Module) (sup : Std.HashSet String) : Page := Id.run do
+  let mut items : Array Item := #[]
+  let mut spanNames : Array String := #[]
+  let mut memberNames : Array String := #[]
+  let mut words : Array String := #[]
+  for it in pageItems m sup do
+    if it.isDoc then
+      let doc := docOf m.moduleDocs[it.idx]!.text
+      items := items.push (Item.of (moduleDocContent doc) none)
+      words := words ++ doc.words
+    else
+      let d := m.decls[it.idx]!
+      let decl := declOf m d
+      items := items.push (Item.of decl.content (some (d.line, d.endLine)))
+      spanNames := spanNames ++ decl.spanNames
+      memberNames := memberNames ++ decl.memberNames
+      words := words ++ decl.docWords
+  return { module := m.name, imports := sortedImports m.imports, items
+           names := namesTable ix spanNames memberNames
+           words := wordsTable (mkPageCtx ix m) words }
 
-def rootOf (module : String) : String := (moduleComponents module)[0]!
-
-structure LinkTable where
-  sources : Array (String × Option String)
-  names : Array (String × Resolved)
-
-def linkTable (ix : NameIndex) (moduleAt : Std.HashMap String Nat)
-    (sources : ExternalLinks) (spanNames memberNames : Array String) : LinkTable :=
-  Id.run do
-    let members : Std.HashSet String := Std.HashSet.ofArray memberNames
-    let all := dedupSorted (sortUtf16 (spanNames ++ memberNames))
-    let mut targets : Array (String × (String × Option String)) := #[]
-    let mut roots : Array String := #[]
-    for name in all do
-      let target := (constTarget ix {} name).orElse fun _ =>
-        if members.contains name then (moduleOf ix name).map (·, some name) else none
-      if let some (module, anchor) := target then
-        targets := targets.push (name, (module, anchor))
-        if !moduleAt.contains module then roots := roots.push (rootOf module)
-    let sorted := dedupSorted (sortUtf16 roots)
-    let mut rootAt : Std.HashMap String Nat := {}
-    for i in [0:sorted.size] do rootAt := rootAt.insert sorted[i]! i
-    let names := targets.map fun (name, (module, anchor)) =>
-      match moduleAt.get? module with
-      | some k => (name, Resolved.own k anchor)
-      | none => (name, Resolved.dependency module (rootAt.getD (rootOf module) 0)
-          (anchor.bind ix.lidx.rangeOf))
-    let base := fun root => match sources.sourceFor root with
-      | .pinned b => some b
-      | .unpinned | .absent => none
-    return { sources := sorted.map fun root => (root, base root), names }
-
-def LinkTable.json (t : LinkTable) : String := Id.run do
-  let mut o := pushEach "{\"sources\":" t.sources fun out (root, base) =>
-    let out := jsonStr (out.push '[') root |>.push ','
-    (match base with
-      | some b => jsonStr out b
-      | none => out ++ "null").push ']'
-  o := o ++ ",\"names\":{"
-  let mut first := true
-  for (name, resolved) in t.names do
-    if !first then o := o.push ','
-    first := false
-    o := jsonStr o name |>.push ':'
-    o := match resolved with
-      | .own k none => o ++ s!"[{k},null]"
-      | .own k (some anchor) => if anchor == name then o ++ s!"[{k}]"
-          else jsonStr (o ++ s!"[{k},") anchor |>.push ']'
-      | .dependency module source lines =>
-        let o := jsonStr (o.push '[') module ++ s!",{source}"
-        (match lines with
-          | some (a, b) => o ++ s!",{a},{b}"
-          | none => o).push ']'
-  return o ++ "}}"
-
-def usedByFiles (d : Derived) (moduleAt : Std.HashMap String Nat) :
-    Array (String × ByteArray) := Id.run do
+def usedByFiles (d : Derived) : Array (String × ByteArray) := Id.run do
   let mut byModule : Std.HashMap String (Array (String × Array String)) := {}
   for (target, users) in d.usedByPairs do
     if let some module := d.nameMap.get? target then
@@ -133,44 +105,65 @@ def usedByFiles (d : Derived) (moduleAt : Std.HashMap String Nat) :
         let (target, users) := pairs[i]!
         if i > 0 then o := o.push ','
         o := pushEach (jsonStr o target |>.push ':') users fun out user =>
-          let k := moduleAt.getD (d.nameMap.getD user "") 0
-          jsonStr (out.push '[') user ++ s!",{k}]"
+          jsonStr (jsonStr (out.push '[') user |>.push ',') (d.nameMap.getD user "") |>.push ']'
       return o.push '}'
     (s!"used-by/{modulePath module}.json", body.toUTF8)
 
 def versionData (v : Input) : VersionData := Id.run do
   let facts := v.modules.map (factsOf · "" {})
   let d := deriveData facts v.depMaps
-  let mut moduleAt : Std.HashMap String Nat := {}
-  for i in [0:d.modules.size] do moduleAt := moduleAt.insert d.modules[i]! i
   let sup := suppressedOf v.modules
   let mut byName : Std.HashMap String Module := {}
   for m in v.modules do byName := byName.insert m.name m
+  let sources : ExternalLinks := { roots := v.sources.roots.map ({ · with docs := none }) }
+  let ix := buildIndex v.depMaps v.modules v.lidx sources
   let mut pages : Array Page := #[]
-  let mut spanNames : Array String := #[]
-  let mut memberNames : Array String := #[]
   for name in d.modules do
-    if let some m := byName.get? name then
-      let built := pageOf m sup
-      pages := pages.push built.page
-      spanNames := spanNames ++ built.spanNames
-      memberNames := memberNames ++ built.memberNames
-  let ix := buildIndex v.depMaps v.modules v.lidx {}
-  let links := linkTable ix moduleAt v.sources spanNames memberNames
-  let files := #[("modules.json", d.modulesJson.toUTF8), ("links.json", links.json.toUTF8),
-    ("search-index.bin", d.searchIndexBin), ("instances.json", d.instancesJson.toUTF8)]
-    ++ usedByFiles d moduleAt
-  return { name := v.name, pages, files, linkNames := links.names.size
+    if let some m := byName.get? name then pages := pages.push (pageOf ix m sup)
+  let files := #[("modules.json", d.modulesJson.toUTF8), ("search-index.bin", d.searchIndexBin),
+    ("instances.json", d.instancesJson.toUTF8)] ++ usedByFiles d
+  return { name := v.name, pages, files
+           linkNames := pages.foldl (fun n p => n + p.names.size + p.words.size) 0
            docTokens := (dedupSorted (sortUtf16 (facts.flatMap (·.tokens)))).size }
 
-def manifestJson (p : Page) (locator : String) : String := Id.run do
+def pushResolved (out : String) (rootAt : String → Nat) (key : String) : Resolved → String
+  | .own module none => jsonStr (out.push '[') module ++ ",null]"
+  | .own module (some anchor) =>
+    if anchor == key then jsonStr (out.push '[') module |>.push ']'
+    else jsonStr (jsonStr (out.push '[') module |>.push ',') anchor |>.push ']'
+  | .dependency root module lines =>
+    let o := jsonStr (out ++ s!"[{rootAt root},") module
+    (match lines with
+      | some (a, b) => o ++ s!",{a},{b}"
+      | none => o).push ']'
+
+def pushTable (out : String) (rootAt : String → Nat) (t : Array (String × Resolved)) :
+    String := Id.run do
+  let mut o := out.push '{'
+  let mut first := true
+  for (key, r) in t do
+    if !first then o := o.push ','
+    first := false
+    o := pushResolved (jsonStr o key |>.push ':') rootAt key r
+  return o.push '}'
+
+def pageRoots (p : Page) : Array String :=
+  dedupSorted (sortUtf16 ((p.names ++ p.words).filterMap fun (_, r) => match r with
+    | .dependency root _ _ => some root
+    | .own .. => none))
+
+def pageJson (p : Page) (locator : String) : String := Id.run do
+  let roots := pageRoots p
+  let rootAt := fun root => (roots.idxOf? root).getD 0
   let mut o := pushStrings (jsonStr "{\"module\":" p.module ++ ",\"imports\":") p.imports
-  o := pushEach (o ++ ",\"items\":") p.items fun out it =>
-    let out := jsonStr (out.push '[') it.address.hex
-    (match it.lines with
-      | some (a, b) => out ++ s!",{a},{b}"
-      | none => out).push ']'
-  return o ++ ",\"content\":" ++ locator ++ "}"
+  o := o ++ ",\"content\":" ++ locator
+  o := pushEach (o ++ ",\"lines\":") p.items fun out it => match it.lines with
+    | some (a, b) => out ++ s!"[{a},{b}]"
+    | none => out.push '0'
+  o := pushStrings (o ++ ",\"roots\":") roots
+  o := pushTable (o ++ ",\"names\":") rootAt p.names
+  o := pushTable (o ++ ",\"words\":") rootAt p.words
+  return o.push '}'
 
 end Data
 end Litedoc4

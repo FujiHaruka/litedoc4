@@ -153,6 +153,14 @@ def pageRoot (module : String) : String := Id.run do
   for _ in [0:depth] do out := out ++ "../"
   return out ++ "./"
 
+/-- What a link to another module points at: a page of this site, a dependency's
+version-pinned source, or a dependency's own documentation site. -/
+inductive LinkDest where
+  | page (module : String) (anchor : Option String)
+  | source (root base module : String) (lines : Option (Nat × Nat))
+  | docs (url : String)
+  deriving BEq, Repr, Inhabited
+
 /-- `NameIndex::link_to`, **the only copy of the decision**: every call site that
 builds a link to another module goes through here.
 
@@ -166,19 +174,25 @@ documentation site was **verified to document this name**; a `no` falls through
 to the version-pinned source. There is in particular no "try the docs site and
 see": a 404 is not visible from here, and avoiding one is the whole reason the
 pin is there. -/
+def linkDest (ix : NameIndex) (module : String) (anchor : Option String) : Option LinkDest :=
+  match ix.external.docsUrlFor module anchor with
+  | some url => some (.docs url)
+  | none =>
+  let root := (moduleComponents module)[0]!
+  match ix.external.sourceFor root with
+  | .pinned base => some (.source root base module (anchor.bind ix.lidx.rangeOf))
+  | .unpinned => none
+  | .absent => if ix.pages.contains module then some (.page module anchor) else none
+
+def LinkDest.href (root : String) : LinkDest → String
+  | .page module (some a) => moduleLink root module ++ "#" ++ a
+  | .page module none => moduleLink root module
+  | .source _ base module lines => sourceUrlAt base module lines
+  | .docs url => url
+
 @[inline] def linkTo (ix : NameIndex) (root module : String) (anchor : Option String) :
     Option String :=
-  match ix.external.docsUrlFor module anchor with
-  | some url => some url
-  | none =>
-  match ix.external.sourceFor (moduleComponents module)[0]! with
-  | .pinned base => some (sourceUrlAt base module (anchor.bind ix.lidx.rangeOf))
-  | .unpinned => none
-  | .absent =>
-    if !ix.pages.contains module then none
-    else match anchor with
-      | some a => some (moduleLink root module ++ "#" ++ a)
-      | none => some (moduleLink root module)
+  (linkDest ix module anchor).map (·.href root)
 
 /-! ## What a name on this page can link to -/
 
@@ -202,7 +216,6 @@ structure PageDecl where
 
 structure PageCtx where
   ix : NameIndex
-  root : String
   /-- `nameToLink?`'s last resort walks these, in declaration-range order.
 
   **Each carries the module it is placed in, and not a name to look up.** The
@@ -215,8 +228,8 @@ structure PageCtx where
   decls : Array PageDecl
   deriving Inhabited
 
-def mkPageCtx (ix : NameIndex) (root : String) (m : Module) : PageCtx :=
-  { ix, root
+def mkPageCtx (ix : NameIndex) (m : Module) : PageCtx :=
+  { ix
     decls := (moduleDeclNames m).filterMap fun name =>
       (ix.known.get? name).map fun module =>
         { name, components := components name, module } }
@@ -237,22 +250,22 @@ def tailMatch (want have_ : Array String) : Bool := Id.run do
 /-- `nameToLink?` from its second branch on. A branch that answers returns its
 answer, `none` included: continuing would let the last branch link a name to
 whatever declaration of *this* page ends the same way. -/
-def nameToLink (c : PageCtx) (s : String) : Option String :=
+def nameDest (c : PageCtx) (s : String) : Option LinkDest :=
   if !isNameLit s then
     match c.ix.unescapedModules.get? s with
-    | some m => linkTo c.ix c.root m none
+    | some m => linkDest c.ix m none
     | none => none
   else
     let viaMap := if s.startsWith privatePrefix then none else moduleOf c.ix s
     match viaMap with
-    | some m => linkTo c.ix c.root m (some s)
+    | some m => linkDest c.ix m (some s)
     | none =>
-      if c.ix.knownModules.contains s then linkTo c.ix c.root s none
+      if c.ix.knownModules.contains s then linkDest c.ix s none
       else Id.run do
         let want := components s
         for d in c.decls do
           if tailMatch want d.components then
-            return linkTo c.ix c.root d.module (some d.name)
+            return linkDest c.ix d.module (some d.name)
         return none
 
 /-- Which module a **source path** written in a docstring names: that name
@@ -288,20 +301,29 @@ def moduleForSourcePath (ix : NameIndex) (path : String) : Option String := Id.r
   return found
 
 /-- `nameToLink?`'s first branch: a word that ends in `.lean` and contains a `/`
-is a path to a source file, and the link is that module's — through `linkTo`
+is a path to a source file, and the link is that module's — through `linkDest`
 like every other module link, so a path into a dependency reaches its pinned
 source rather than a page this site never wrote. -/
-def sourcePathToLink (c : PageCtx) (path : String) : Option String :=
-  (moduleForSourcePath c.ix path).bind fun m => linkTo c.ix c.root m none
+def sourcePathDest (c : PageCtx) (path : String) : Option LinkDest :=
+  (moduleForSourcePath c.ix path).bind fun m => linkDest c.ix m none
 
-def pageResolver (c : PageCtx) : LinkResolver :=
-  { nameToLink := nameToLink c, sourcePathToLink := sourcePathToLink c
+/-- What a word a docstring writes links to: `resolveLink`'s dispatch over the
+two resolvers above. -/
+def wordDest (c : PageCtx) (s : String) : Option LinkDest :=
+  resolveWith (sourcePathDest c) (nameDest c) s
+
+def nameToLink (c : PageCtx) (root s : String) : Option String :=
+  (nameDest c s).map (·.href root)
+
+def pageResolver (c : PageCtx) (root : String) : LinkResolver :=
+  { nameToLink := nameToLink c root
+    sourcePathToLink := fun path => (sourcePathDest c path).map (·.href root)
     isSiteFile := c.ix.siteFiles.contains }
 
 /-- Both halves take the same `root`: it reaches the output through the
 renderer's own `extendLink` as well as through this resolver, and handing them
 different values produces links that are half right. -/
-def pageRenderer (c : PageCtx) (bib : Bibliography) : Renderer :=
-  { root := c.root, links := pageResolver c, bib }
+def pageRenderer (c : PageCtx) (root : String) (bib : Bibliography) : Renderer :=
+  { hrefs := .relative root (pageResolver c root), bib }
 
 end Litedoc4
