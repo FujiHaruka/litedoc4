@@ -34,6 +34,7 @@ lean-versions-gate.sh        ci      one IR tree per toolchain in lean-toolchain
 libc-shim-gate.sh            ci      the *system* compiler and its real headers; the inverse of the build
 md-memory-gate.sh            ci      the system compiler with AddressSanitizer over the C Lake links in; the leak half needs a platform LeakSanitizer runs on
 md-oracle-gate.sh            ci      nothing; reads fixtures/md/ and test/
+mv-s-gate.sh                 ci      elan and e2e/micro (the sample's Lean); builds tools/mv-s/ as four versions in its own work directory
 onemod-gate.sh               ci      a built site (e2e-micro calls it)
 pinned-dep-gate.sh           ci      elan, e2e/micro and e2e/micro-dep as a git require
 provenance-gate.sh           ci      nothing; reads the tree

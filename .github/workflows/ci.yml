@@ -170,6 +170,11 @@ jobs:
       - name: End to end
         run: tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
 
+      - name: The multi-version S loop (store and data format, by counters)
+        run: |
+          tools/mv-s-gate.sh --out "$RUNNER_TEMP/mv-s" \
+            --extractor "$GITHUB_WORKSPACE/e2e/micro/.lake/e2e-extract/extract"
+
       # The gate's own header asks for the measurement target, that target's
       # toolchain and the 171 MB Mathlib extractor — but every one of those is
       # an argument: `--target`, `--lib`, `--module` and `EXTRACT_BIN` all name
