@@ -2,6 +2,7 @@
 its content spells resolves in this version, and the whole-package files. -/
 import Litedoc4.Data.Content
 import Litedoc4.Global.Artifacts
+import Litedoc4.Render.Frame
 import Litedoc4.Render.LinkIndex
 
 namespace Litedoc4
@@ -56,7 +57,7 @@ def pageOf (m : Module) (sup : Std.HashSet String) : PageBuild :=
         items := items.push (Item.of decl.content (some (d.line, d.endLine)))
         spanNames := spanNames ++ decl.spanNames
         memberNames := memberNames ++ decl.memberNames
-    return { page := { module := m.name, imports := m.imports, items }, spanNames, memberNames }
+    return { page := { module := m.name, imports := sortedImports m.imports, items }, spanNames, memberNames }
 
 inductive Resolved where
   | own (module : Nat) (anchor : Option String)

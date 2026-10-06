@@ -78,6 +78,14 @@ def linesAt (v : Data.VersionData) (module : String) : Array (Option (Nat × Nat
 def fileAt (v : Data.VersionData) (path : String) : Option ByteArray :=
   (v.files.find? (·.1 == path)).map (·.2)
 
+def aManifestListsEachImportOnceInNameOrder : Bool :=
+  let v := Data.versionData
+    { name := "imports", modules := #[{ moduleA #[fDecl] with imports := #["P.B", "Init", "Init"] }]
+      depMaps := #[], lidx := dataLidx 10, sources := #[] }
+  ((pageAt v "P.A").map (·.imports)) == some #["Init", "P.B"]
+
+#guard aManifestListsEachImportOnceInNameOrder
+
 /-! ## The content address -/
 
 def anUnchangedDeclarationKeepsItsAddressAcrossVersions : Bool :=
