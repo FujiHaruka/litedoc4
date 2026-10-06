@@ -747,15 +747,30 @@ def reconcile():
     for part, t in on_disk.items():
         if printed[part] != t:
             bad.append("%s printed %s, on disk %s" % (part, printed[part], t))
+    listed = {e["name"]: e["data"] for e in json.loads((root / "versions.json").read_text(encoding="utf-8"))}
     for v in counts["versions"]:
-        n = sum(1 for p in shells if p.relative_to(root).parts[0] == v["version"])
-        if v["shells"]["files"] != n:
-            bad.append("%s: %d shells printed, %d on disk" % (v["version"], v["shells"]["files"], n))
+        name = v["version"]
+        mine = {p.relative_to(root / name).as_posix() for p in shells if p.relative_to(root).parts[0] == name}
+        if v["shells"]["files"] != len(mine):
+            bad.append("%s: %d shells printed, %d on disk" % (name, v["shells"]["files"], len(mine)))
+        modules = gzip.decompress((root / "d" / (data_json_at(root, listed[name])["modules"] + ".json.gz")).read_bytes())
+        want = {m["p"] for m in json.loads(modules)["modules"]} | set(VERSION_PAGES)
+        if mine != want or v["modules"] + len(VERSION_PAGES) != len(want):
+            bad.append("%s: shells beyond its module list's pages and the version pages %s, absent %s (modules printed %d)" % (
+                name, sorted(mine - want), sorted(want - mine), v["modules"]))
     if bad:
         return False, "; ".join(bad)
-    return True, "printed totals = the tree on disk: %d files, %d raw bytes, %d stored (shells %d, data %d, assets %d, root %d), and each version's shell count" % (
+    return True, "printed totals = the tree on disk: %d files, %d raw bytes, %d stored (shells %d, data %d, assets %d, root %d), and each version's shells are exactly its module list's pages plus %s" % (
         total["files"], total["rawBytes"], total["storedBytes"], on_disk["shells"]["files"],
-        on_disk["data"]["files"], on_disk["assets"]["files"], on_disk["root"]["files"])
+        on_disk["data"]["files"], on_disk["assets"]["files"], on_disk["root"]["files"],
+        ", ".join(VERSION_PAGES))
+
+
+VERSION_PAGES = ("index.html", "references.html", "search.html", "foundational_types.html")
+
+
+def data_json_at(root, address):
+    return json.loads(gzip.decompress((root / "d" / (address + ".json.gz")).read_bytes()))
 
 
 def data_json(address):

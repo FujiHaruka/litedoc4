@@ -31,7 +31,12 @@ export function nest(list: readonly ModuleEntry[]): TreeNode {
  * link inside a `<summary>` both navigates and toggles — the toggle is the
  * summary's activation behaviour, not something a handler can call off.
  */
-export function treeHtml(node: TreeNode, prefix: string, here: string): HTMLUListElement {
+export function treeHtml(
+  node: TreeNode,
+  prefix: string,
+  here: string,
+  href: (page: string) => string,
+): HTMLUListElement {
   const ul = document.createElement("ul");
   for (const [part, child] of node.children) {
     const full = prefix ? `${prefix}.${part}` : part;
@@ -41,7 +46,7 @@ export function treeHtml(node: TreeNode, prefix: string, here: string): HTMLULis
 
     let sub: HTMLUListElement | null = null;
     if (child.children.size > 0) {
-      sub = treeHtml(child, full, here);
+      sub = treeHtml(child, full, here, href);
       // Open exactly the spine down to the current page; everything else stays
       // folded, or the sidebar is 432 lines long on arrival.
       sub.hidden = !(here === full || here.startsWith(`${full}.`));
@@ -64,7 +69,7 @@ export function treeHtml(node: TreeNode, prefix: string, here: string): HTMLULis
 
     if (child.page) {
       const a = document.createElement("a");
-      a.href = url(child.page.p);
+      a.href = href(child.page.p);
       a.textContent = part;
       if (full === here) a.setAttribute("aria-current", "page");
       row.append(a);
@@ -89,6 +94,6 @@ export async function initTree(): Promise<void> {
   const data = await modules();
   if (!data?.modules?.length) return; // `<noscript>` fallback stays visible
   host.textContent = "";
-  host.append(treeHtml(nest(data.modules), "", MODULE));
+  host.append(treeHtml(nest(data.modules), "", MODULE, url));
   host.querySelector("[aria-current]")?.scrollIntoView({ block: "center" });
 }

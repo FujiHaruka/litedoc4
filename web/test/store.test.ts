@@ -1,11 +1,14 @@
 import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { moduleMain } from "../src/draw-module.js";
+import { indexContent } from "../src/draw-plain.js";
 import { gunzipped, isGzip } from "../src/gzip.js";
 import { type Linker, resolvedHref, tableHref } from "../src/links.js";
 import { moduleComponents, pagePath, sourceUrlAt } from "../src/names.js";
+import { pageIn, type Route, routeOf } from "../src/route.js";
 import { linkSegments } from "../src/spans.js";
 import type { ContentItem, PageFile, Ref, VersionFile } from "../src/store-types.js";
+import { switchTarget } from "../src/versions.js";
 import { destination, docNodes, wordLink } from "../src/words.js";
 
 const linker: Linker = {
@@ -160,7 +163,8 @@ describe("the docstring rule", () => {
   it("resolves a destination as written", () => {
     const at = (p: string) => `R/${p}`;
     expect(destination("##Nat", at, has(["Nat"]))).toBe("#Nat");
-    expect(destination("##Nat.succ", at, has(["succ"]))).toBe("R/find/?pattern=Nat.succ#doc");
+    expect(destination("##Nat.succ", at, has(["succ"]))).toBe("R/search.html?q=Nat.succ");
+    expect(destination("##A.«b c»", at, has([]))).toBe("R/search.html?q=A.%C2%ABb%20c%C2%BB");
     expect(destination("#local", at, has([]))).toBe("#local");
     expect(destination("https://x", at, has([]))).toBe("https://x");
     expect(destination("references.html#ref_K", at, has([]))).toBe("R/references.html#ref_K");
@@ -252,5 +256,86 @@ describe("moduleMain", () => {
     expect(main.querySelector(".field.inherited a.field-name")?.getAttribute("href")).toBe(
       "../../v1/A/B.html#Base.x",
     );
+  });
+});
+
+describe("routeOf", () => {
+  const place = { root: "../", version: "v2", data: "a" };
+
+  it("tells each shell by its attributes and puts each at its path in the version", () => {
+    const shells: [Record<string, string>, string][] = [
+      [{ ...place, page: "p", usedBy: "u", module: "A.«b»" }, "A/b.html"],
+      [{ ...place, references: "r" }, "references.html"],
+      [{ ...place, kind: "search" }, "search.html"],
+      [{ ...place, kind: "foundational" }, "foundational_types.html"],
+      [place, "index.html"],
+    ];
+    for (const [ds, path] of shells) {
+      const r = routeOf(ds);
+      expect(r === null ? null : pageIn(r)).toBe(path);
+    }
+    expect(routeOf({ version: "v2", data: "a" })).toBeNull();
+  });
+});
+
+describe("switchTarget", () => {
+  const module = routeOf({ root: "../../", version: "v1", data: "a", page: "p", module: "A.B" });
+  const here = { search: "?q=x", hash: "#A.B.f" };
+
+  it("goes to the same module and anchor when the other version has the module", () => {
+    expect(switchTarget(module as Route, "v4", here, [{ n: "A.B", p: "A/B.html" }])).toBe(
+      "../../v4/A/B.html#A.B.f",
+    );
+  });
+
+  it("goes to the other version's module list, naming the module, when it has none", () => {
+    expect(switchTarget(module as Route, "v4", here, [{ n: "A.C", p: "A/C.html" }])).toBe(
+      "../../v4/index.html?missing=A.B",
+    );
+  });
+
+  it("keeps the query of a search page and the path of every other page", () => {
+    const search = routeOf({ root: "../", version: "v1", data: "a", kind: "search" }) as Route;
+    expect(switchTarget(search, "v2", here, null)).toBe("../v2/search.html?q=x#A.B.f");
+    const index = routeOf({ root: "./", version: "v1", data: "a" }) as Route;
+    expect(switchTarget(index, "v2", { search: "", hash: "" }, null)).toBe("./v2/index.html");
+  });
+});
+
+describe("indexContent", () => {
+  const version = { title: "T", lean: "4" } as VersionFile;
+
+  it("shows each module's summary and the declaration count when the list carries them", () => {
+    const nodes = indexContent(
+      linker,
+      version,
+      {
+        modules: [
+          { n: "A", p: "A.html", s: "<code>x</code> y" },
+          { n: "B", p: "B.html" },
+        ],
+        declarations: 1234,
+      },
+      null,
+    );
+    const host = document.createElement("div");
+    host.append(...nodes);
+    expect(host.querySelector(".modlist")?.className).toBe("modlist modlist-described");
+    expect([...host.querySelectorAll(".modsummary")].map((e) => e.innerHTML)).toEqual([
+      "<code>x</code> y",
+    ]);
+    expect([...host.querySelectorAll(".stats dt")].map((e) => e.textContent)).toEqual([
+      "Modules",
+      "Declarations",
+      "Lean",
+    ]);
+    expect(host.querySelectorAll(".stats dd")[1]?.textContent).toBe("1,234");
+  });
+
+  it("draws a plain list and no count from a list without them", () => {
+    const host = document.createElement("div");
+    host.append(...indexContent(linker, version, { modules: [{ n: "A", p: "A.html" }] }, null));
+    expect(host.querySelector(".modlist")?.className).toBe("modlist");
+    expect(host.querySelectorAll(".stats dt").length).toBe(2);
   });
 });

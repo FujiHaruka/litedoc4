@@ -7,6 +7,7 @@
  * tree, search, the theme toggle, and the three lists that are facts about the
  * *whole* site rather than about the module being rendered.
  */
+import { siteSource } from "./data.js";
 import { initDrawer } from "./drawer.js";
 import { initImportedBy } from "./imported-by.js";
 import { initInstances } from "./instances.js";
@@ -19,8 +20,8 @@ import { initTree } from "./tree.js";
 
 initTheme();
 initDrawer();
-initSearchPage(); // before `initSearch`: it removes the dropdown on that page
-initSearch();
+initSearchPage(siteSource); // before `initSearch`: it removes the dropdown on that page
+initSearch(siteSource);
 initInstances();
 openForPrint();
 jumpToSource();

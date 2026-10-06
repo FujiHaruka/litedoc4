@@ -62,8 +62,11 @@ def rootAt (depth : Nat) : String :=
 
 def assetsDir : String := "assets/"
 
-def shell (title : Option String) (depth : Nat) (attrs : Array (String × String)) : String :=
-  Id.run do
+def drawnByScript : String :=
+  "<noscript>These pages are drawn by JavaScript, which is off.</noscript>"
+
+def shell (title : Option String) (depth : Nat) (attrs : Array (String × String))
+    (body : String := drawnByScript) : String := Id.run do
   let root := rootAt depth
   let assets := root ++ assetsDir
   let mut o := "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
@@ -77,8 +80,7 @@ def shell (title : Option String) (depth : Nat) (attrs : Array (String × String
   o := escapeInto o root |>.push '"'
   for (key, value) in attrs do
     o := escapeInto (o ++ s!" data-{key}=\"") value |>.push '"'
-  return o ++ "><noscript>These pages are drawn by JavaScript, which is off.</noscript>\
-    </body>\n</html>\n"
+  return o ++ ">" ++ body ++ "</body>\n</html>\n"
 
 def shellPath (version module : String) : String := s!"{version}/{modulePath module}.html"
 
@@ -95,6 +97,21 @@ version's root (`markWord`). -/
 def referencesShell (version : String) (versionFile references : DataFile) : String :=
   shell (some "References") 1
     #[("version", version), ("data", versionFile.address), ("references", references.address)]
+
+/-- Not a data file: the text is every version's, and in the shell it costs no
+fetch and reads without JavaScript. -/
+def searchShell (version : String) (versionFile : DataFile) : String :=
+  shell (some "Search") 1
+    #[("version", version), ("data", versionFile.address), ("kind", "search")] searchBody
+
+def foundationalTypesShell (version : String) (versionFile : DataFile) : String :=
+  shell (some "Foundational types") 1
+    #[("version", version), ("data", versionFile.address), ("kind", "foundational")]
+    foundationalTypesBody
+
+def searchPage : String := "search.html"
+
+def foundationalTypesPage : String := "foundational_types.html"
 
 /-- The newest version's, so the site root can draw it without `versions.json`. -/
 def siteIndexShell (newest : String) (newestFile : String) : String :=
@@ -122,7 +139,9 @@ def render (m : VersionMeta) (v : VersionData) : Except String Rendered := do
       front).toUTF8
   let mut data := #[modules, search, instances, references] ++ front.toArray ++ #[versionFile]
   let mut shells := #[(s!"{v.name}/index.html", versionIndexShell v.name versionFile),
-    (s!"{v.name}/{referencesPage}", referencesShell v.name versionFile references)]
+    (s!"{v.name}/{referencesPage}", referencesShell v.name versionFile references),
+    (s!"{v.name}/{searchPage}", searchShell v.name versionFile),
+    (s!"{v.name}/{foundationalTypesPage}", foundationalTypesShell v.name versionFile)]
   for p in v.pages do
     let content := if p.items.isEmpty then none else
       some (DataFile.of "json" s!"{v.name}'s content of {p.module}" (arrayOf (p.items.map (·.content))))

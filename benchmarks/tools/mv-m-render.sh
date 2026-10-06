@@ -105,6 +105,7 @@ listed = json.load(open(os.path.join(site, "versions.json"), encoding="utf-8"))
 if [e["name"] for e in listed] != versions:
     sys.exit("versions.json lists %s, not %s" % ([e["name"] for e in listed], versions))
 ATTR = re.compile(r' data-([a-z-]+)="([^"]*)"')
+VERSION_PAGES = ("index.html", "references.html", "search.html", "foundational_types.html")
 KINDS = ("content", "page", "usedBy", "modules", "search", "instances", "references", "front", "version")
 seen, out, view_lines = set(), [], []
 for e in listed:
@@ -127,9 +128,11 @@ for e in listed:
         add("front", vj["front"] + ".json.gz")
     shells = shell_bytes = 0
     views = []
+    shell_paths = set()
     for dirpath, _, files in os.walk(os.path.join(site, v)):
         for fn in files:
             p = os.path.join(dirpath, fn)
+            shell_paths.add(os.path.relpath(p, os.path.join(site, v)).replace(os.sep, "/"))
             shells += 1
             shell_bytes += os.path.getsize(p)
             attrs = dict(ATTR.findall(open(p, encoding="utf-8").read()))
@@ -144,6 +147,10 @@ for e in listed:
                     add("content", c + ".json.gz")
                     fetched.append(c + ".json.gz")
                 views.append(sum(on_disk[f] for f in fetched))
+    want = {m["p"] for m in json.loads(load(vj["modules"] + ".json.gz"))["modules"]} | set(VERSION_PAGES)
+    if shell_paths != want:
+        sys.exit("%s: shells beyond its module list's pages and %s: %s; absent: %s" % (
+            v, ", ".join(VERSION_PAGES), sorted(shell_paths - want)[:5], sorted(want - shell_paths)[:5]))
     ref = {k: [0, 0, 0] for k in KINDS}
     new = {k: [0, 0, 0] for k in KINDS}
     for path, kind in kinds.items():
@@ -191,7 +198,7 @@ print("  shells %d files %d B; data %d files %d B stored (%d B raw); assets %d f
     t["shells"]["files"], t["shells"]["storedBytes"], t["data"]["files"], t["data"]["storedBytes"],
     t["data"]["rawBytes"], t["assets"]["files"], t["assets"]["storedBytes"], t["root"]["files"],
     t["root"]["storedBytes"]))
-print("reconciled with the renderer's counts: shells, data referenced and added per version, every d/ file referenced, assets/, every file of the site")
+print("reconciled with the renderer's counts: shells, data referenced and added per version, every d/ file referenced, assets/, every file of the site; each version's shells are its module list's pages plus %s" % ", ".join(VERSION_PAGES))
 for v, shells, shell_bytes, ref, new in out:
     print()
     print("%s: %d shells (%d B)" % (v, shells, shell_bytes))

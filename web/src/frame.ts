@@ -66,9 +66,9 @@ export function moduleFrame(f: FrameText, members: readonly string[], main: HTML
   }
   nav.append(
     el(
-      "section",
+      "details",
       "side",
-      el("h2", "side-title", "Modules"),
+      el("summary", "side-title", "Modules"),
       withId(el("div", "tree"), "module-tree"),
     ),
   );

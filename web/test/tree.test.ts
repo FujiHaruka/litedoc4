@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 import { nest, treeHtml } from "../src/tree.js";
 import type { ModuleEntry } from "../src/types.js";
 
+const at = (page: string): string => `R/${page}`;
+
 const mods = (...names: string[]): ModuleEntry[] =>
   names.map((n) => ({ n, p: `${n.replaceAll(".", "/")}.html` }));
 
@@ -40,35 +42,40 @@ describe("nest", () => {
 
 describe("treeHtml", () => {
   it("gives a page-and-parent node both a link and a disclosure", () => {
-    const ul = treeHtml(nest(mods("A", "A.B")), "", "A");
+    const ul = treeHtml(nest(mods("A", "A.B")), "", "A", at);
     const row = ul.querySelector("li > .row");
     expect(row?.querySelector("button.twisty")).not.toBeNull();
     expect(row?.querySelector("a")?.textContent).toBe("A");
   });
 
   it("renders a name with no page as a span, not a link", () => {
-    const ul = treeHtml(nest(mods("A.B.C")), "", "");
+    const ul = treeHtml(nest(mods("A.B.C")), "", "", at);
     const row = ul.querySelector("li > .row");
     expect(row?.querySelector("a")).toBeNull();
     expect(row?.querySelector("span.node-name")?.textContent).toBe("A");
   });
 
   it("opens exactly the spine down to the current page", () => {
-    const ul = treeHtml(nest(mods("A.B.C", "X.Y")), "", "A.B.C");
+    const ul = treeHtml(nest(mods("A.B.C", "X.Y")), "", "A.B.C", at);
     const [a, x] = [...ul.children] as HTMLLIElement[];
     expect(a?.querySelector("ul")?.hidden).toBe(false);
     expect(x?.querySelector("ul")?.hidden).toBe(true);
   });
 
   it("marks the current page and nothing else", () => {
-    const ul = treeHtml(nest(mods("A", "A.B")), "", "A.B");
+    const ul = treeHtml(nest(mods("A", "A.B")), "", "A.B", at);
     const current = ul.querySelectorAll("[aria-current]");
     expect(current.length).toBe(1);
     expect(current[0]?.textContent).toBe("B");
   });
 
+  it("links each page through the href it is given", () => {
+    const ul = treeHtml(nest(mods("A.B")), "", "", at);
+    expect(ul.querySelector("a")?.getAttribute("href")).toBe("R/A/B.html");
+  });
+
   it("toggles a subtree from its twisty", () => {
-    const ul = treeHtml(nest(mods("A.B")), "", "");
+    const ul = treeHtml(nest(mods("A.B")), "", "", at);
     const twisty = ul.querySelector<HTMLButtonElement>("button.twisty");
     const sub = ul.querySelector("ul");
     expect(sub?.hidden).toBe(true);

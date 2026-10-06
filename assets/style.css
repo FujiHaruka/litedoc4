@@ -158,6 +158,13 @@ code, pre, .sig, .tree, .toc a, .decl-name, kbd { font-family: var(--mono); }
 }
 .home:hover { color: var(--link); }
 
+.versions {
+  flex: none; height: 2.25rem; padding: 0 .4rem;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--bg); color: var(--fg-dim);
+  font-family: var(--mono); font-size: .8rem;
+}
+
 /* -- 5. search ----------------------------------------------------------- */
 
 .search { position: relative; margin-left: auto; flex: 1 1 12rem; max-width: 26rem; }

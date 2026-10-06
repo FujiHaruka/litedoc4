@@ -108,11 +108,30 @@ def backrefsOf (facts : Array ModuleFacts) : Array Backref := Id.run do
       out := out.push { module, index := i, citation := cs[i]!.citation }
   return out
 
+def moduleListJson (pages : Array ModuleRow) (importers : Array (Array Nat))
+    (summary : ModuleRow → Option String) (tail : String) : String := Id.run do
+  let mut o := "{\"modules\":["
+  for i in [0:pages.size] do
+    let row := pages[i]!
+    if i != 0 then o := o.push ','
+    o := jsonStr (o ++ "{\"n\":") row.name
+    o := jsonStr (o ++ ",\"p\":") row.page
+    o := o ++ ",\"i\":["
+    let ks := importers.getD i #[]
+    for j in [0:ks.size] do
+      if j != 0 then o := o.push ','
+      o := o ++ toString ks[j]!
+    o := o.push ']'
+    if let some s := summary row then o := jsonStr (o ++ ",\"s\":") s
+    o := o.push '}'
+  return o ++ "]" ++ tail ++ "}"
+
 structure Derived where
   nameMapJson : String
   nameMap : Std.HashMap String String
   modules : Array String
   pages : Array ModuleRow
+  importers : Array (Array Nat)
   declarations : Nat
   dependencyNames : Nat
   modulesJson : String
@@ -193,29 +212,17 @@ def deriveData (facts : Array ModuleFacts) (depMaps : Array (Array (String × St
     nameMapJson := jsonStr nameMapJson module
   nameMapJson := nameMapJson.push '}'
 
-  let mut modulesJson := "{\"modules\":["
-  for i in [0:pages.size] do
-    let row := pages[i]!
-    if i != 0 then modulesJson := modulesJson.push ','
-    modulesJson := modulesJson ++ "{\"n\":"
-    modulesJson := jsonStr modulesJson row.name
-    modulesJson := modulesJson ++ ",\"p\":"
-    modulesJson := jsonStr modulesJson row.page
-    modulesJson := modulesJson ++ ",\"i\":["
+  let importers := pages.map fun row => Id.run do
     -- Subscripts into this same array, and **the direction is the whole
     -- point**: `i` is who imports *this* module, so a page's "Imported by"
     -- block is a lookup rather than a scan of every module.
-    let mut previousAt : Option Nat := none
-    let mut firstImporter := true
+    let mut out : Array Nat := #[]
     for importer in sortUtf16 (importedBy.getD row.name #[]) do
       let k := indexAt.getD importer 0
-      if previousAt == some k then continue
-      previousAt := some k
-      if !firstImporter then modulesJson := modulesJson.push ','
-      firstImporter := false
-      modulesJson := modulesJson ++ toString k
-    modulesJson := modulesJson ++ "]}"
-  modulesJson := modulesJson ++ "]}"
+      if out.back? == some k then continue
+      out := out.push k
+    return out
+  let modulesJson := moduleListJson pages importers (fun _ => none) ""
 
   -- `cssKind` and not the IR's own spelling: a result whose badge disagrees
   -- with the page it leads to is a badge nobody trusts.
@@ -259,6 +266,7 @@ def deriveData (facts : Array ModuleFacts) (depMaps : Array (Array (String × St
     nameMap := flatMap
     modules := ownSorted
     pages
+    importers
     declarations := sortedNames.size
     dependencyNames := depNames.size
     modulesJson

@@ -422,6 +422,16 @@ def aShellClimbsOutOfItsModuleDirectoriesAndItsVersionDirectory : Bool :=
 
 #guard aShellClimbsOutOfItsModuleDirectoriesAndItsVersionDirectory
 
+def everyVersionHasASearchAndAFoundationalTypesShellCarryingBuildsText : Bool :=
+  let f := Data.Site.DataFile.of "json" "" "{}".toUTF8
+  let search := Data.Site.searchShell "v1" f
+  let types := Data.Site.foundationalTypesShell "v1" f
+  (search.splitOn s!"data-kind=\"search\">{searchBody}</body>").length == 2
+    && (types.splitOn s!"data-kind=\"foundational\">{foundationalTypesBody}</body>").length == 2
+    && (search.splitOn "data-root=\"../\"").length == 2
+
+#guard everyVersionHasASearchAndAFoundationalTypesShellCarryingBuildsText
+
 /-- No docstring anywhere, so `#guard` reaches it without md4c. -/
 def undocumented (modules : Array Module) : Data.VersionData :=
   Data.versionData { name := "u", modules, depMaps := dataDepMaps, lidx := dataLidx 10, sources := pinned }
@@ -469,6 +479,15 @@ def aPageFileNamesItsContentByAddressAndAnEmptyPageNamesNone : Invariant where
           eq ((text empty).splitOn "\"content\":null").length 2,
           eq (dataNamed r "v1's content of P.E").isSome false]
       | _, _, _, _ => some "a content or page file is missing"
+
+def theModuleListIsBuildsWithEachSummaryAsItsIndexRendersItAndTheDeclarationCount :
+    Invariant where
+  name := "a version's module list is build's, each module given its summary as build's index \
+    renders it, the declaration count after the array"
+  check := pure <|
+    eq (String.fromUTF8? base.modules)
+      (some (jsonStr "{\"modules\":[{\"n\":\"P.A\",\"p\":\"P/A.html\",\"i\":[],\"s\":"
+        (summaryHtml "" "A") ++ "},{\"n\":\"P.B\",\"p\":\"P/B.html\",\"i\":[0]}],\"declarations\":3}"))
 
 def aChangedDocstringAddsOnlyItsContentItsPageFileAndTheVersionFile : Invariant where
   name := "a version whose only change is one docstring shares every data file with the one \

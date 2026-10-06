@@ -90,3 +90,10 @@ export interface ReferenceItem {
   readonly html: string;
   readonly by: readonly (readonly [string, number, string])[];
 }
+
+export type UsedByPairs = Readonly<Record<string, readonly (readonly [string, string])[]>>;
+
+export interface VersionEntry {
+  readonly name: string;
+  readonly data: string;
+}

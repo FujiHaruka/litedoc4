@@ -129,6 +129,10 @@ def usedByFiles (d : Derived) : Array (String × ByteArray) := Id.run do
       return o.push '}'
     (module, body.toUTF8)
 
+def moduleListOf (d : Derived) : String :=
+  moduleListJson d.pages d.importers (·.summary.map (summaryHtml ""))
+    s!",\"declarations\":{d.declarations}"
+
 def frontPageOf (ix : NameIndex) (markdown : String) : FrontPage :=
   let doc := docOf {} markdown
   { html := doc.html, words := wordsTable { ix, decls := #[] } doc.words }
@@ -157,7 +161,7 @@ def versionData (v : Input) : VersionData := Id.run do
   return { name := v.name, title := v.site.title.getD (siteTitle d.modules), pages
            front := v.site.indexMarkdown.map (frontPageOf ix)
            references := (referencesJson bib.items (backrefsOf facts)).toUTF8
-           modules := d.modulesJson.toUTF8, search := d.searchIndexBin
+           modules := (moduleListOf d).toUTF8, search := d.searchIndexBin
            instances := d.instancesJson.toUTF8, usedBy := usedByFiles d
            linkNames := pages.foldl (fun n p => n + p.names.size + p.words.size) 0
            docTokens := (dedupSorted (sortUtf16 (facts.flatMap (·.tokens)))).size }

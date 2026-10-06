@@ -47,6 +47,7 @@ def main : IO UInt32 :=
     Litedoc4Test.DataFormat.candidateCRangesCoverExactlyEachPagesItems,
     Litedoc4Test.DataFormat.everyCandidateCountsTheSameNewAddresses,
     Litedoc4Test.DataFormat.aPageFileNamesItsContentByAddressAndAnEmptyPageNamesNone,
+    Litedoc4Test.DataFormat.theModuleListIsBuildsWithEachSummaryAsItsIndexRendersItAndTheDeclarationCount,
     Litedoc4Test.DataFormat.aChangedDocstringAddsOnlyItsContentItsPageFileAndTheVersionFile,
     Litedoc4Test.DataFormat.aCitationInContentLinksToTheReferencesPageWithNoRootPrefixAndNoAnchorId,
     Litedoc4Test.DataFormat.theReferencesDataListsEachEntryWithItsCitationsInModuleAndPageOrder,

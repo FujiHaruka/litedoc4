@@ -6,6 +6,7 @@
 import { searchData } from "./data.js";
 import { resultItem } from "./result-item.js";
 import { search } from "./search.js";
+import { url } from "./site.js";
 
 const MAX_ROWS = 20;
 
@@ -32,6 +33,6 @@ export async function initNotFound(): Promise<void> {
   // the plain scorer is already the right one.
   const hits = search(data.index, query).slice(0, MAX_ROWS);
   if (hits.length === 0) return;
-  for (const id of hits) list.append(resultItem(data, id));
+  for (const id of hits) list.append(resultItem(data, id, url));
   document.getElementById("how-about-heading")?.removeAttribute("hidden");
 }

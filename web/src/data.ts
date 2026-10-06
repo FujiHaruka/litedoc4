@@ -7,7 +7,14 @@
  */
 import { readIndex } from "./index-format.js";
 import { url } from "./site.js";
-import type { InstancesFile, ModulesFile, SearchData, SearchIndex, UsedByFile } from "./types.js";
+import type {
+  InstancesFile,
+  ModulesFile,
+  SearchData,
+  SearchIndex,
+  SearchSource,
+  UsedByFile,
+} from "./types.js";
 
 let modulesPromise: Promise<ModulesFile | null> | null = null;
 let declsPromise: Promise<SearchIndex | null> | null = null;
@@ -51,3 +58,5 @@ export async function searchData(): Promise<SearchData | null> {
   if (!tree?.modules || !index) return null;
   return { modules: tree.modules, index };
 }
+
+export const siteSource: SearchSource = { data: searchData, href: url };

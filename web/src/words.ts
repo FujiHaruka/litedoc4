@@ -27,7 +27,7 @@ export function destination(
 ): string {
   if (dest.startsWith("##")) {
     const name = dest.slice(2);
-    return hrefOf(name) ?? at(`find/?pattern=${name}#doc`);
+    return hrefOf(name) ?? at(`search.html?q=${encodeURIComponent(name)}`);
   }
   if (dest.startsWith("#") || dest.startsWith("http")) return dest;
   return at(dest);

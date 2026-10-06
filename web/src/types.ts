@@ -9,10 +9,12 @@ export interface ModuleEntry {
   readonly n: string;
   readonly p: string;
   readonly i?: readonly number[];
+  readonly s?: string;
 }
 
 export interface ModulesFile {
   readonly modules: readonly ModuleEntry[];
+  readonly declarations?: number;
 }
 
 /** Keyed by declaration name. */
@@ -80,4 +82,9 @@ export interface SearchIndex {
 export interface SearchData {
   readonly modules: readonly ModuleEntry[];
   readonly index: SearchIndex;
+}
+
+export interface SearchSource {
+  readonly data: () => Promise<SearchData | null>;
+  readonly href: (page: string) => string;
 }

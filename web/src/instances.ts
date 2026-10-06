@@ -34,7 +34,7 @@ export function initInstances(): void {
           return;
         }
         const found = data ? findNames(data.index, names) : new Map<string, number>();
-        for (const name of names) ul.append(declItem(data, name, found.get(name)));
+        for (const name of names) ul.append(declItem(data, name, found.get(name), url));
       },
       { once: true },
     );
@@ -57,6 +57,7 @@ export function declItem(
   data: SearchData | null,
   name: string,
   id: number | undefined,
+  href: (page: string) => string,
 ): HTMLLIElement {
   const li = document.createElement("li");
   const a = document.createElement("a");
@@ -64,7 +65,7 @@ export function declItem(
   // A name the index does not have is still worth a link: the page it is on is
   // the page the reader is already looking at.
   const where = data && id !== undefined ? data.modules[moduleAt(data.index, id)] : undefined;
-  a.href = where ? `${url(where.p)}#${name}` : `#${name}`;
+  a.href = where ? `${href(where.p)}#${name}` : `#${name}`;
   li.append(a);
   return li;
 }

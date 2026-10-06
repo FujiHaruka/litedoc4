@@ -2,7 +2,7 @@ import { el, link, markup, nameParts, withId } from "./dom.js";
 import { type Linker, pageHref } from "./links.js";
 import { grouped } from "./names.js";
 import type { FrontPageFile, ReferenceItem, VersionFile } from "./store-types.js";
-import type { ModuleEntry } from "./types.js";
+import type { ModuleEntry, ModulesFile } from "./types.js";
 import { docNodes } from "./words.js";
 
 const LEDE =
@@ -14,26 +14,36 @@ function stat(term: string, value: string): HTMLElement {
   return el("div", "", el("dt", "", term), el("dd", "", value));
 }
 
+function moduleItem(l: Linker, m: ModuleEntry): HTMLLIElement {
+  const li = el("li", "", link("", l.at(m.p), ...nameParts(m.n)));
+  if (m.s !== undefined) li.append(el("span", "modsummary", markup(m.s)));
+  return li;
+}
+
 export function indexContent(
   l: Linker,
   version: VersionFile,
-  modules: readonly ModuleEntry[],
+  list: ModulesFile,
   front: FrontPageFile | null,
 ): Node[] {
+  const modules = list.modules;
   const out: Node[] = [el("div", "modhead", el("h1", "", version.title), el("p", "lede", LEDE))];
   if (front) {
     const frontLinker: Linker = { ...l, roots: front.roots };
     out.push(el("div", "intro doc", docNodes(front.html, front.words, frontLinker)));
   }
   const stats = el("dl", "stats", stat("Modules", grouped(modules.length)));
+  if (list.declarations !== undefined) {
+    stats.append(stat("Declarations", grouped(list.declarations)));
+  }
   if (version.lean) stats.append(stat("Lean", version.lean));
   out.push(
     stats,
     el("h2", "section-title", "Modules"),
     el(
       "ul",
-      "modlist",
-      ...modules.map((m) => el("li", "", link("", l.at(m.p), ...nameParts(m.n)))),
+      modules.some((m) => m.s !== undefined) ? "modlist modlist-described" : "modlist",
+      ...modules.map((m) => moduleItem(l, m)),
     ),
   );
   return out;

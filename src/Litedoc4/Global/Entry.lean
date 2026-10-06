@@ -127,23 +127,23 @@ def notFoundHtml (title : String) : String :=
 `#search-input`, seeds it from `?q=` and renders into `#page-results`; a second
 box on a search page is a question about which one is real. The note is
 `aria-live` because it is the only thing that says how many hits there were. -/
-def searchHtml (title : String) : String :=
-  plainPage "Search" title
-    "<div class=\"modhead\"><h1>Search</h1><p class=\"lede\">Every declaration this package \
+def searchBody : String :=
+  "<div class=\"modhead\"><h1>Search</h1><p class=\"lede\">Every declaration this package \
     documents, by name. Type in the box at the top of the page — a prefix of the last component \
     of a name is matched first, then a prefix of the whole name, then anything containing \
     it.</p></div><p class=\"results-note\" id=\"page-note\" aria-live=\"polite\"></p><ul \
     class=\"results\" id=\"page-results\"></ul><noscript><p class=\"results-note\">Search needs \
     JavaScript. The <a href=\"./index.html\">module index</a> lists every page.</p></noscript>"
 
+def searchHtml (title : String) : String := plainPage "Search" title searchBody
+
 /-- What `Type`, `Prop` and `Sort` mean, for the reader who clicked one in a
 signature. Written here rather than copied from doc-gen4, whose page is another
 project's prose under a different licence, and deliberately short: this is a
 footnote reached from a signature, not a tutorial, and anything longer competes
 with Lean's own documentation, which the last paragraph points at instead. -/
-def foundationalTypesHtml (title : String) : String :=
-  plainPage "Foundational types" title
-    "<div class=\"modhead\"><h1>Foundational types</h1><p class=\"lede\">The sorts and the \
+def foundationalTypesBody : String :=
+  "<div class=\"modhead\"><h1>Foundational types</h1><p class=\"lede\">The sorts and the \
     function type are built into Lean rather than declared in a module, so they have no page of \
     their own to link to. This is that page.</p></div><div class=\"doc\"><h2><code>Sort \
     u</code></h2><p>The type of types, one level at a time. Every type in Lean belongs to some \
@@ -169,6 +169,9 @@ def foundationalTypesHtml (title : String) : String :=
     argument the elaborator is expected to supply.</p><p>For the rules behind any of this, see \
     Lean's own documentation — this page only names the things a signature on this site can \
     link to.</p></div>"
+
+def foundationalTypesHtml (title : String) : String :=
+  plainPage "Foundational types" title foundationalTypesBody
 
 /-- doc-gen4's `BackrefItem`: the `index`-th citation anchor on `module`'s page. -/
 structure Backref where
