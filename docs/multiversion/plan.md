@@ -699,6 +699,18 @@ reprinting (111 s for 17.5% of declarations).
 
 From the table below, after U3 and U4 have put numbers on each line.
 
+**Equations of meta-code definitions: dropped, every version (decided 2026-10-06, user's call).**
+Definitions under `Mathlib.Tactic.*` and `Mathlib.Meta.*` show no equations; their signature,
+docstring and source link stay. What the section held there (read on 25 sampled `Mathlib.Tactic.*`
+definitions of v4.34.1): a tactic's syntax as its internal parser description, an implementation's
+`do` body printed back as an equation (up to 13,481 characters), and trivial projection or
+case-split equations — implementation detail that the source link shows better. ≈ 1,900
+`Mathlib.Tactic.*` definitions carry equations today, 3.4% of the 55,923 with equations; in the
+reprinted set of a patch round they carry ≈ 68% of the equation time, `Mathlib.Meta.*` a further
+≈ 11% (measured → `benchmarks/results/mathlib-key-and-equation-profile-2026-10-06.txt`; ratios
+within one run, absolute times inflated by memory pressure). Open: how the product spells this for
+packages other than Mathlib (a configured list of namespace prefixes is the obvious shape).
+
 ### D9 — Product feature or Mathlib-only pipeline
 
 **A product feature** (decided 2026-10-04, user's call), and **one rendering path**: the reason is
@@ -861,7 +873,7 @@ versions; U3 and U4 put a number on each.
 | Instances / instances for | same shape as Used by | latest only; on demand |
 | Search | one index per version (5.1 MB each) | latest only; per-version index loaded when that version is selected |
 | Docstring link resolution | depends on the whole name set of the version | resolve against latest; keep per version |
-| Equations | large, rarely read (58,426 per version) | latest only; on demand |
+| Equations | large, rarely read (58,426 per version) | latest only; on demand; **meta-code definitions (`Mathlib.Tactic.*`, `Mathlib.Meta.*`): dropped** (decided 2026-10-06, user's call, D8) |
 | Static HTML that reads without JavaScript | the main reason hosted size scales with the number of versions | latest only (D4) |
 | Wrapping a long signature by subterm, with a hanging indent | 10.3 M wrappers on module pages (signatures, equations, fields) — the structure a signature carries beyond its text and links; 53.1% wrap one token and do nothing | **dropped, every version** (decided 2026-10-04, user's call) |
 | Bibliography page | per version, small | keep |
