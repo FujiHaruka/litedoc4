@@ -53,6 +53,41 @@ source URL prefix, dependency revisions). **It is falsified** if the renderer ha
 into a version's workspace (oleans, `.ilean`, git) at render time; then the store has to keep more
 than the IR, and its size estimate below is wrong.
 
+## Measurement loop
+
+A full Mathlib run costs tens of minutes per version on the runner, so it cannot be the loop that
+tells whether a change helped. Three sizes of experiment, the small ones run on every change and
+the full one at checkpoints:
+
+| Size | Input | Time per run | What it can say |
+|---|---|---|---|
+| S | this repository's own history: `src/` at a series of `main` commits since the pure-Lean port, as versions (D6: a site without releases uses commits) | seconds to a minute, local | store, data format, renderer, browser, the command, staleness — exactly, by counters; nothing about Mathlib's time |
+| M | a slice of Mathlib at the real release commits: the import closure of a few roots, 5–10% of Mathlib's modules, chosen to include the notation behind the largest drift (`Finset.sum`, set-builder) | minutes, local or runner | everything S says, plus the reader across Lean versions, the patch path and print reuse on Mathlib's real churn; Mathlib's time by the scaling below |
+| L | all of Mathlib, the real releases, on the runner | ≈ 11 min first version, minutes per further one | the targets themselves |
+
+- **The release tags of this repository cannot be the S input**: of its 13 tags only `v1.4.0`
+  carries the Lean tree (`v1.0.0`–`v1.3.0` are the Rust half). Commits can, and using them
+  exercises the commit-as-version path a non-Mathlib site will use.
+- **Every run reports per phase** (decode, patch, finalize, key pass, extraction, render, write)
+  **its time, its CPU time and the counts that phase scales with** (modules, declarations,
+  reprinted declarations, bytes, files). Deterministic counts — reprinted, reused, bytes, files,
+  fetches per page — are compared exactly between runs, never predicted.
+- **From M to Mathlib, by phase** (theoretical, unverified until the first L run): each phase's
+  cost per unit on M, times Mathlib's count of that unit, plus that phase's fixed cost.
+  Calibrated once against the full-Mathlib phase times already logged (U9), and checked at every
+  L run: a phase predicted more than 25% off is recalibrated, and the miss is written down.
+  **It is falsified** if a phase's cost does not scale with any count M can report — the import
+  of the newest library is the expected suspect, since it is fixed per run and differs in size
+  between M and L.
+- **Improvement is read from CPU time and counts first, wall clock second**, 5 runs per arm
+  (CLAUDE.md). Local timing runs need no other heavy application running; the runner has no such
+  noise but is 1.8× slower.
+- **L runs are checkpoints, not the loop**: at the end of step 4 (three versions, the everyday
+  path), of step 5 (the rebuild from nothing), and in step 6.
+
+Building S and M is the first item of step 1, together with an open check: whether Mathlib's cache
+can be fetched for a slice rather than whole (if not, M costs the full download per version).
+
 ## Steps
 
 Each step ends with something measured or gated. Wall-clock results are recorded in
@@ -61,9 +96,10 @@ Each step ends with something measured or gated. Wall-clock results are recorded
 ### 0. Preserve the prototypes
 
 Copy the prototype sources into the tree as a frozen reference under `prototypes/olean-reader/`
-(Lean sources, lakefile, manifest, toolchain, the design memo; no build logs, no rounds files),
-with the v4.29.0 writer record restored from the log. Not built by any gate and not part of the
-package; step 5 ports from it and then deletes it.
+(Lean sources, lakefile, manifest, toolchain, the oracle sources, the design memo; no build logs,
+no rounds files). The v4.29.0 writer record stays in its log, pointed at from the directory's
+README. Not built by any gate and not part of the package; step 5 ports from it and then deletes
+it. **Done 2026-10-06.**
 
 Done when: the directory is committed and `git grep` finds no absolute path under
 `/Users` in it.
@@ -154,7 +190,9 @@ the reader knows no layout for a Lean newer than its writer table either.
 
 Done when: an empty store plus three versions builds the site; the same command with one version
 removed from the store re-extracts exactly that version (counted, not timed); a store entry with a
-changed extractor identity is re-extracted.
+changed extractor identity is re-extracted. **First L checkpoint**: the three versions on the
+runner, from nothing and by adding the third, every phase against the M prediction — the first
+time the render pass runs on the runner at all.
 
 ### 5. The rebuild from nothing through the reader
 
