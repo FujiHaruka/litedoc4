@@ -17,6 +17,27 @@ documentation**, and switch versions on the page they are reading.
 - Anything may be given up to meet the budgets — a feature, a page shape, no-JS reading of old
   versions — as long as what is given up is written down (→ "Features that could be given up").
 
+### v2 targets (decided 2026-10-06, user's call)
+
+This milestone ships as v2.0.0. What it has to meet:
+
+| | Target | Where it stands on 2026-10-06 |
+|---|---|---|
+| Add one new release to a site whose earlier versions are kept | ≤ 15 min on one GitHub `ubuntu-latest` runner | ≈ 10.6 min plus the multi-version render, unmeasured (extrapolated, D7) |
+| Every version in the set from nothing | ≤ 2 h on one runner, for the set as it is when measured | 11 versions ≈ 81 min plus the render (theoretical, D7) |
+| Per extra version in a rebuild from nothing | 2.2 min on the runner — **tracked, not a release condition** | ≈ 7 min (theoretical, U9 composed at the runner's 1.8×) |
+| Hosted bytes and cost | 51 versions ≤ 1.5 GB; ≤ $1 a month plus a domain | 0.32 GB for 11, 1.38 GB for 51 (extrapolated, U6) |
+| Reader | the largest module page settles faster than today's published page (361 ms) | 153 ms (measured, loopback, U7) |
+| Exactness | a site built by adding versions equals one built from nothing over the same kept outputs; a release the reader has no layout for fails by name | patch path equal on every file (measured, U9) |
+| Single-version sites | no slower and no larger than v1 (Mathlib: 449.9 s, 1.1 GB on the M1) | unmeasured |
+
+- **The release condition is the everyday path, not the rebuild from nothing** (same call). A
+  rebuild from nothing happens when the extractor's output changes; adding a release happens every
+  two to three weeks. So D2's "51 versions from nothing in 2 h" became a tracked target; the
+  condition is the version set that exists when v2 is measured.
+- Wall-clock rows are measured and recorded, never gated (CLAUDE.md, quality gates). What gates is
+  `<built> of <declared>` (Phases, "Done") and equality between the added-to and from-nothing sites.
+
 ## Context — what is known on 2026-10-04
 
 ### The version set today
@@ -592,12 +613,20 @@ wrong one.
 - **Hosting**: whatever U6's chosen host allows, with headroom for 2 years of releases (≈ 40 more
   versions at the current rate (extrapolated)). The budget has to hold for the growth, not only for
   today's 11.
+- **Which of these is a release condition** (decided 2026-10-06, user's call): adding one release
+  over kept versions, and the version set as it is when measured; the 51-version rebuild from
+  nothing is tracked (→ "v2 targets").
 
 ### D3 — Build host and hosting target
 
 Where the one build runs (this machine, a GitHub runner, something else) and where the site is
 served. Bound by U5 and U6. **A deploy that cannot finish inside the host's limits (GitHub Pages:
 10 minutes) is a failure even if the build succeeds.**
+
+**Decided 2026-10-06 (user's call)**: the build runs on a GitHub-hosted `ubuntu-latest` runner;
+Mathlib's site is served from Cloudflare R2 behind a Cloudflare domain (≈ $0–1 a month plus the
+domain, U6). Other packages keep whatever static host they use; hash URLs (D6) are what make a
+host without rewrites work.
 
 ### D4 — Page representation
 
@@ -614,7 +643,10 @@ and breaks the 1.x promise where that requires it.
 
 **Reading without JavaScript may be given up, for every version** (decided 2026-10-04, user's
 call). That leaves the third row open, and lets a page carry its signatures as data drawn in the
-browser (U4). Still open: which of the three rows, after U3 and U7.
+browser (U4).
+
+**The third row, for every version** (decided 2026-10-06, user's call): thin HTML, content as
+shared data, drawn in the browser.
 
 **How one version shrinks** (decided 2026-10-04, user's call), both from U4's measurements:
 
@@ -713,6 +745,21 @@ version there, ≈ 1.2 min on the M1 at the measured 1.8× ratio — against 4.6
 the patch path today. The two large items are the key pass (97 s, recomputed in full) and
 reprinting (111 s for 17.5% of declarations).
 
+**Earlier versions are kept between builds, and adding a release reuses them** (decided
+2026-10-06, user's call; → "v2 targets"). A build is given the version set and a store of what
+earlier builds produced; it extracts only the versions the store does not hold, each new release
+by its own Lean (no approximation), and renders the site from the store. A rebuild from nothing is
+the same command with an empty store, and is the only path that uses the reader for old versions.
+What this adds:
+
+- a store that outlives the runner, which starts empty every time — where it lives is open;
+- a way to know a stored version is not stale: anything that changes the extractor's output
+  invalidates it, judged by content (an identity of the extractor's output format), not by path
+  or date;
+- what is kept per version — the IR (550 MB raw per version; compressed size unmeasured) or the
+  rendered layers (≈ 52 MB for 11 versions, U10). Only the IR survives a renderer change without
+  re-extraction.
+
 ### D8 — Which features to give up, and for which versions
 
 From the table below, after U3 and U4 have put numbers on each line.
@@ -729,6 +776,11 @@ reprinted set of a patch round they carry ≈ 68% of the equation time, `Mathlib
 within one run, absolute times inflated by memory pressure). Open: how the product spells this for
 packages other than Mathlib (a configured list of namespace prefixes is the obvious shape).
 
+**Used by and search: kept, every version** (decided 2026-10-06, user's call). Used by is split
+into one file per module and loaded on demand — whole, its one file is 74.5 MiB raw (U6), and
+stored as deltas it adds ≈ 4.8 MB to 11 versions (U10, 52.1 against 47.3 MB). Each version keeps
+its own search index, loaded when that version is selected.
+
 ### D9 — Product feature or Mathlib-only pipeline
 
 **A product feature** (decided 2026-10-04, user's call), and **one rendering path**: the reason is
@@ -743,12 +795,14 @@ The surface it adds:
 
 - **The version set can be given both ways** (decided 2026-10-04, user's call): as an explicit
   list, and as a rule (for Mathlib: the releases that are not prereleases).
-- **How versions are passed — leaning to one command, not decided.** One `build` given the version
-  set checks out each version, prepares its Lean and dependencies, builds the extractor against
-  that Lean, extracts, and renders the whole site. The alternative is extraction per version as
-  today plus one step that assembles N extractions into a site. One command is what a user wants
-  to type; its cost is that the product takes over toolchain installs and dependency fetching per
-  version, which for a package without Mathlib's cache means building from source.
+- **How versions are passed: one command, over a store of kept versions** (decided 2026-10-06,
+  user's call). One `build` is given the version set and the store (D7); for each version the
+  store does not hold it checks the version out, prepares its Lean and dependencies, extracts,
+  and adds the result to the store; then it renders the whole site from the store. The cost is
+  that the product takes over toolchain installs and dependency fetching per version, which for a
+  package without Mathlib's cache means building from source. Not chosen: extraction per version
+  as today plus a separate step that assembles N extractions — it puts the store's bookkeeping
+  on the user.
 - **The check behind the page-path promise has to be replaced, not updated.** Today it is the 51
   frozen pages of `e2e/micro-expected`, compared byte for byte. Data drawn in the browser changes
   every byte, and those answers were minted by an implementation that left the tree, so they must
@@ -887,9 +941,9 @@ versions; U3 and U4 put a number on each.
 | Feature | Why it costs across versions | Options |
 |---|---|---|
 | Source link with line range, pinned to the commit | different in every version for every declaration; line ranges move whenever anything above the declaration moves | per-version prefix stored once and joined in the page; file-level link only; latest only |
-| Used by | collected from all of Mathlib; a new use anywhere changes the page of the used declaration; 10.3 of the 15.3 MB each version carries compressed (U6) | latest only; per-version reverse index loaded on demand; **dropped entirely** (a candidate, user's 2026-10-05) |
+| Used by | collected from all of Mathlib; a new use anywhere changes the page of the used declaration; 10.3 of the 15.3 MB each version carries compressed (U6) | **kept, every version, one file per module loaded on demand** (decided 2026-10-06, user's call, D8) |
 | Instances / instances for | same shape as Used by | latest only; on demand |
-| Search | one index per version (5.1 MB each) | latest only; per-version index loaded when that version is selected |
+| Search | one index per version (5.1 MB each) | **per-version index loaded when that version is selected** (decided 2026-10-06, user's call, D8) |
 | Docstring link resolution | depends on the whole name set of the version | resolve against latest; keep per version |
 | Equations | large, rarely read (58,426 per version) | latest only; on demand; **meta-code definitions (`Mathlib.Tactic.*`, `Mathlib.Meta.*`): dropped** (decided 2026-10-06, user's call, D8) |
 | Static HTML that reads without JavaScript | the main reason hosted size scales with the number of versions | latest only (D4) |
