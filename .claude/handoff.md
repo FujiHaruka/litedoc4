@@ -1,10 +1,9 @@
-# Handoff — 2026-10-07 (multi-version: step 1 done, step 2 next)
+# Handoff — 2026-10-07 (multi-version: step 2, relay leg 1)
 
 ## State
 
 - Branch `multi-version`, clean, pushed. Not `main`; no PR open. CI (`ci.yml`,
-  `ci-lean-versions.yml`) last dispatched green through `9b11d83`; everything since is docs, logs
-  and the M runner.
+  `ci-lean-versions.yml`) green on the branch; `ci.yml` last dispatched at `a2bc6e2`.
 - SoT: `docs/multiversion/plan.md` (goal, v2 targets, D1–D10; D5 now records the unit) and
   `docs/multiversion/implementation.md` (order; step 1 is **Done 2026-10-07**, with what M says and
   what is carried to step 2).
@@ -12,28 +11,20 @@
   extrapolations to Mathlib at 11 / 51 versions).
 
 ## Relay control
-- Mode: DONE
-- Goal: step 1 of `docs/multiversion/implementation.md` ("The store and the data format") to its
-  "Done when".
-- Summary: candidate (a), one content file per module per version, chosen on M (854 MB at 51
-  versions extrapolated, one content fetch per page); the per-version files, 73–94% of every
-  candidate's total, are carried to step 2.
-- Leg: 3 / cap 8
-- Predecessor: none
+- Mode: ON
+- Goal: step 2 of `docs/multiversion/implementation.md` ("The multi-version renderer") to its
+  "Done when", including the four items step 1 carried to it. Leg plan from the user:
+  **implementation and measurement in separate legs** — r1 = implement and test (no M/L
+  measurement in that leg); r2+ = measure on S/M, optimise, log to `benchmarks/results/`, record
+  in the plans.
+- Leg: 1 / cap 8
+- Predecessor: multiversion-r3 (step 1's last leg; idle, kill it once you are running)
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
-- Progress ledger:
-  - r1: v2 targets and decisions in plan.md (`e432c58`) · implementation plan with the
-    three-size measurement loop (`2bbbcb8`, `16a6b46`, `120c797`) · prototypes preserved
-    (`4665c2f`) · step-1 prep findings: slice cache, M candidates, S input (`e93230b`)
-  - r2: S input (`9414940`) · gzip via vendored miniz (`fc68911`) · extractor identity +
-    `no_equations_under` (`e18ec62`) · store (`256885f`, `b33e428`) · format with candidates a/b/c
-    and `store measure` (`bd2b4d3`, `8a34aac`) · `tools/mv-s-gate.sh` (`9b11d83`) · M runner +
-    smoke (`8d72a45`) · plan updates (`05772a2`, `261e6b2`)
-  - r3: declaration axis settled and M first run logged (`02aa684`) · second run byte-identical,
-    `store measure` ×5, extrapolation, candidate (a) chosen, step 1 done (`107391e`, and the
-    commit after it)
+- Progress ledger (step 1's chain, closed DONE: r1–r3, last `a2bc6e2`; CI green on the branch at
+  `a2bc6e2`, run 37505169853)
+  - (step 2 legs start here)
 
-## Next step (step 2, not started — start it only when the user asks)
+## Next step (step 2, leg r1: implement)
 
 Step 2 of `implementation.md`, "The multi-version renderer", with the four items step 1 carried
 to it: share the per-version files by content (the largest lever: 878 of 880 identical across a
