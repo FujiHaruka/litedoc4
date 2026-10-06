@@ -1,72 +1,57 @@
-# Handoff — 2026-10-07 (multi-version: step 1, measure on M)
+# Handoff — 2026-10-07 (multi-version: step 1 done, step 2 next)
 
 ## State
 
-- Branch `multi-version`, clean, pushed (`261e6b2`). Not `main`; no PR open. CI (`ci.yml`,
-  `ci-lean-versions.yml`) dispatched on the branch and green through `9b11d83`.
-- SoT: `docs/multiversion/plan.md` (goal, v2 targets, D1–D10) and
-  `docs/multiversion/implementation.md` (order; step 1 now has a "State on 2026-10-07" block
-  with the open items and the M smoke findings — read it whole).
-- Step 1's code exists and is tested; what is left of step 1 is **measurement and the choice**.
+- Branch `multi-version`, clean, pushed. Not `main`; no PR open. CI (`ci.yml`,
+  `ci-lean-versions.yml`) last dispatched green through `9b11d83`; everything since is docs, logs
+  and the M runner.
+- SoT: `docs/multiversion/plan.md` (goal, v2 targets, D1–D10; D5 now records the unit) and
+  `docs/multiversion/implementation.md` (order; step 1 is **Done 2026-10-07**, with what M says and
+  what is carried to step 2).
+- Step 1's numbers: `benchmarks/results/mv-m-2026-10-07.txt` (two M runs, byte-identical;
+  extrapolations to Mathlib at 11 / 51 versions).
 
 ## Relay control
-- Mode: ON
+- Mode: DONE
 - Goal: step 1 of `docs/multiversion/implementation.md` ("The store and the data format") to its
-  "Done when". Leg plan from the user: **r2 = implement and test** (done); **r3+ = measure and
-  optimise** (S/M runs, choose the shared-storage unit by numbers, log to `benchmarks/results/`,
-  record the choice in the plans)
+  "Done when".
+- Summary: candidate (a), one content file per module per version, chosen on M (854 MB at 51
+  versions extrapolated, one content fetch per page); the per-version files, 73–94% of every
+  candidate's total, are carried to step 2.
 - Leg: 3 / cap 8
-- Predecessor: none (r2 ran in a Herdr pane, not tmux; it goes idle after the baton lands)
+- Predecessor: none
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger:
   - r1: v2 targets and decisions in plan.md (`e432c58`) · implementation plan with the
     three-size measurement loop (`2bbbcb8`, `16a6b46`, `120c797`) · prototypes preserved
     (`4665c2f`) · step-1 prep findings: slice cache, M candidates, S input (`e93230b`)
-  - r2: S input = sample package ×4 versions with designed churn (`9414940`) · gzip via vendored
-    miniz 3.1.2 (`fc68911`) · extractor output identity + `no_equations_under` (`e18ec62`) ·
-    store (`256885f`, link index in entries `b33e428`) · data format with candidates a/b/c and
-    `store measure` (`bd2b4d3`, imports fix `8a34aac`) · `tools/mv-s-gate.sh` 29 items, ci
-    (`9b11d83`) · M runner `benchmarks/tools/mv-m-run.sh` + smoke log (`8d72a45`) · plan
-    updates (`05772a2`, `261e6b2`)
+  - r2: S input (`9414940`) · gzip via vendored miniz (`fc68911`) · extractor identity +
+    `no_equations_under` (`e18ec62`) · store (`256885f`, `b33e428`) · format with candidates a/b/c
+    and `store measure` (`bd2b4d3`, `8a34aac`) · `tools/mv-s-gate.sh` (`9b11d83`) · M runner +
+    smoke (`8d72a45`) · plan updates (`05772a2`, `261e6b2`)
+  - r3: declaration axis settled and M first run logged (`02aa684`) · second run byte-identical,
+    `store measure` ×5, extrapolation, candidate (a) chosen, step 1 done (`107391e`, and the
+    commit after it)
 
-## Next step
+## Next step (step 2, not started — start it only when the user asks)
 
-1. **Settle the declaration axis** before scaling anything: IR declarations exceed `store
-   measure` page items by exactly the module count (2,296 vs 2,209 at 87 modules) — find which
-   per-module entry one side counts (read `src/Litedoc4/Data/Version.lean` against the IR).
-2. **Run M**: `benchmarks/tools/mv-m-run.sh` with the default roots (plan's first candidate,
-   ≈ 450 modules) into a fresh `--work`, ≈ 2 GiB per version (extrapolated from the smoke);
-   `--jobs` to match the full-Mathlib baseline in `docs/verification-log.md`. Repeat per
-   CLAUDE.md (5 runs for times; byte counts are deterministic — compare them exactly). Log to
-   `benchmarks/results/`.
-3. **Fix the open items that bias the comparison** (implementation.md "State" block): the whole
-   per-version link table every page fetches (split it), dependency source URLs missing from the
-   store record (record schema bump), docstring autolinks. The per-version files are the marginal
-   cost of a release on the smoke slice (≈ 100 KB, 179 files for one changed item) — that, not
-   the candidate, may decide hosted bytes; measure it on M.
-4. **Choose a/b/c** by hosted bytes, file count and fetches per page view, extrapolated to 11 and
-   51 versions against "v2 targets"; write the choice and numbers into implementation.md (and
-   plan.md D5). Measure the compressed IR + link index per version (Done-when: it decides where
-   the CI store lives) — at M, and say how it scales to full Mathlib.
-
-## Files to read first
-
-- `docs/multiversion/implementation.md` — step 1 and its State block
-- `benchmarks/results/mv-m-smoke-2026-10-07.txt`, `mv-s-format-2026-10-07.txt`,
-  `mv-s-store-2026-10-07.txt`
-- `benchmarks/tools/mv-m-run.sh` (usage header), `src/Litedoc4/Data/` (format), `src/Litedoc4/Store.lean`
+Step 2 of `implementation.md`, "The multi-version renderer", with the four items step 1 carried
+to it: share the per-version files by content (the largest lever: 878 of 880 identical across a
+patch release); split the link table per page (module numbers shift on add, so shared files
+cannot carry them); a store-record field for dependency source URLs (re-put, no re-extraction);
+docstring autolinks in the link table.
 
 ## Load-bearing context
 
-- **The everyday path needs no reader**: the three versions extract natively. Do not start step 5.
-- **Disk ≈ 12 GiB free.** `/private/tmp/lean-doc-relay/mv-v4320` and `mv-v4341` (7.7 + 7.6 GB,
-  full Mathlib v4.32.0 / v4.34.1 workspaces) are kept on purpose; the M runner fits beside them.
-  `/private/tmp/lean-doc-relay/mv-s/` (S repo + store, small) is regenerable.
+- **Both M work dirs were deleted.** A store for step 2 is regenerated with
+  `benchmarks/tools/mv-m-run.sh` (≈ 5.5 min, network, ≈ 1.3 GiB peak); the S store is still at
+  `/private/tmp/lean-doc-relay/mv-s/`.
+- **Disk ≈ 12 GiB free.** `/private/tmp/lean-doc-relay/mv-v4320` and `mv-v4341` (7.7 + 7.6 GB, full
+  Mathlib v4.32.0 / v4.34.1 workspaces) are kept on purpose.
 - **Timing noise**: another macOS user's Chrome holds 13–15 GB compressed memory; read CPU time and
-  counters first, wall clock second.
+  counters first.
 - `tools/md-memory-gate.sh` does not cover `vendor/miniz` / `csrc/gzip.c` yet (needs stand-ins in
-  its fake `lean.h`, a harness mode, a canary and blind arm each) — not step 1's, but the C runs
-  in the product now.
+  its fake `lean.h`, a harness mode, a canary and blind arm each) — the C runs in the product now.
 - `tools/purelean-render-gate.sh` was not run for the `constLink`/`derive` refactors in `bd2b4d3`
   (needs the target IR at `/private/tmp/lean-doc-relay/purelean`); `purelean-micro-gate` was 51/51.
 - Communicate with the user in Japanese, brief-me style, no code names in briefs.

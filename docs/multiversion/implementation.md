@@ -125,8 +125,9 @@ Building S and M is the first item of step 1. Read on 2026-10-06 (from the sourc
 - **Two facts from S's IR the format has to respect**: a module's declarations sit in the IR in the olean's order,
   not the source's, so a reorder is visible only through positions; and a `def`'s own name appears
   in its equations, so a renamed definition never shares content with its old name.
-- **The compressed IR size cannot be read yet**: no full Mathlib IR is on disk. It is measured on
-  the first full extraction of step 1.
+- **The compressed IR size** was read at M, not on a full extraction: 15.3% of the packed entry,
+  ≈ 66–84 MB per Mathlib version (extrapolated → `benchmarks/results/mv-m-2026-10-07.txt`). The
+  full-Mathlib number is read at the first L checkpoint (step 4).
 
 ## Steps
 

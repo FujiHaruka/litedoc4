@@ -690,7 +690,9 @@ are under the 1.5 GB target. **It is falsified** if a full-Mathlib run puts a ab
 the content a module re-stores per minor release is far above the 8.4 MB extrapolated; then (b)
 with compaction is the fallback. Still open, and larger than the candidates' difference: the
 per-version files are 73% of a's 51-version total, and 878 of 880 of them are byte-identical
-across a patch release — sharing them by content is step 2's.
+across a patch release — sharing them by content is step 2's. Files: ≈ 16.6k per-version files
+  per Mathlib version as stored today (≈ 850k at 51, extrapolated), against ≈ 8.3k + 1,958 per
+  minor release of a's content files — uploading ≈ 17k files per release is a step 6 input.
 
 ### D6 — URL scheme and the version switcher
 
@@ -768,8 +770,9 @@ What this adds:
 - a way to know a stored version is not stale: anything that changes the extractor's output
   invalidates it, judged by content (an identity of the extractor's output format), not by path
   or date;
-- what is kept per version: the IR (550 MB raw per version; compressed size unmeasured), not the
-  rendered layers (≈ 52 MB for 11 versions, U10) — only the IR survives a renderer change without
+- what is kept per version: the IR (550 MB raw per version; ≈ 66–84 MB compressed, extrapolated
+  from 5.1% of the modules → `benchmarks/results/mv-m-2026-10-07.txt`), not the rendered layers
+  (≈ 52 MB for 11 versions, U10) — only the IR survives a renderer change without
   re-extraction.
 
 ### D8 — Which features to give up, and for which versions
