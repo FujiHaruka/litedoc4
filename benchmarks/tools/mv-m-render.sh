@@ -172,15 +172,26 @@ for (v, shells, shell_bytes, ref, new), c in zip(out, counts["versions"]):
         bad.append("%s dataReferenced %d vs %d" % (v, c["dataReferenced"], sum(t[0] for t in ref.values())))
 if seen != set(on_disk):
     bad.append("d/ holds %d file(s) no version references" % len(set(on_disk) - seen))
+assets_dir = os.path.join(site, "assets")
+assets = [os.path.join(dp, fn) for dp, _, fns in os.walk(assets_dir) for fn in fns]
+assets_bytes = sum(os.path.getsize(p) for p in assets)
+if counts["total"]["assets"]["files"] != len(assets) or counts["total"]["assets"]["storedBytes"] != assets_bytes:
+    bad.append("assets %s vs counted %d/%d" % (counts["total"]["assets"], len(assets), assets_bytes))
+top = sorted(os.listdir(site))
+if top != sorted(["assets", "d", "index.html", "versions.json"] + versions):
+    bad.append("the site root holds %s, not assets/, d/, index.html, versions.json and one directory per version" % top)
+if counts["total"]["files"] != sum(len(fns) for _, _, fns in os.walk(site)):
+    bad.append("total files %d vs %d on disk" % (counts["total"]["files"], sum(len(fns) for _, _, fns in os.walk(site))))
 if bad:
     sys.exit("the renderer's counts and the tree disagree: " + "; ".join(bad))
 
 t = counts["total"]
 print("hosted (all %d versions): %d files, %d B stored (%d B raw)" % (len(versions), t["files"], t["storedBytes"], t["rawBytes"]))
-print("  shells %d files %d B; data %d files %d B stored (%d B raw); root %d files %d B" % (
+print("  shells %d files %d B; data %d files %d B stored (%d B raw); assets %d files %d B; root %d files %d B" % (
     t["shells"]["files"], t["shells"]["storedBytes"], t["data"]["files"], t["data"]["storedBytes"],
-    t["data"]["rawBytes"], t["root"]["files"], t["root"]["storedBytes"]))
-print("reconciled with the renderer's counts: shells, data referenced and added per version, every d/ file referenced")
+    t["data"]["rawBytes"], t["assets"]["files"], t["assets"]["storedBytes"], t["root"]["files"],
+    t["root"]["storedBytes"]))
+print("reconciled with the renderer's counts: shells, data referenced and added per version, every d/ file referenced, assets/, every file of the site")
 for v, shells, shell_bytes, ref, new in out:
     print()
     print("%s: %d shells (%d B)" % (v, shells, shell_bytes))

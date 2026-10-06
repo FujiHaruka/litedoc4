@@ -712,18 +712,23 @@ def sharing():
 
 def tree(root):
     files = [p for p in sorted(root.rglob("*")) if p.is_file()]
-    shells = [p for p in files if p.parent != root and p.relative_to(root).parts[0] != "d"]
-    data = [p for p in files if p.relative_to(root).parts[0] == "d"]
+    first = lambda p: p.relative_to(root).parts[0]
+    shells = [p for p in files if p.parent != root and first(p) not in ("d", "assets")]
+    data = [p for p in files if p.parent != root and first(p) == "d"]
+    assets = [p for p in files if p.parent != root and first(p) == "assets"]
     top = [p for p in files if p.parent == root]
-    return files, shells, data, top
+    return files, shells, data, assets, top
 
 
 def reconcile():
     root = rd / "all-1"
     counts = json.loads((rd / "all-1.json").read_text(encoding="utf-8"))
-    files, shells, data, top = tree(root)
-    if len(shells) + len(data) + len(top) != len(files):
-        raise RuntimeError("a file is in none or two of shells, d/ and the root")
+    files, shells, data, assets, top = tree(root)
+    if len(shells) + len(data) + len(assets) + len(top) != len(files):
+        raise RuntimeError("a file is in none or two of shells, d/, assets/ and the root")
+    named = sorted(p.relative_to(root / "assets").as_posix() for p in assets)
+    if named != ["favicon.svg", "site.js", "style.css"]:
+        raise RuntimeError("assets/ holds %s, not the stylesheet, the icon and site.js" % named)
 
     def tally(ps, raw):
         return {"files": len(ps), "rawBytes": sum(raw(p) for p in ps),
@@ -731,7 +736,8 @@ def reconcile():
 
     size = lambda p: p.stat().st_size
     unzipped = lambda p: len(gzip.decompress(p.read_bytes()))
-    on_disk = {"shells": tally(shells, size), "data": tally(data, unzipped), "root": tally(top, size)}
+    on_disk = {"shells": tally(shells, size), "data": tally(data, unzipped),
+               "assets": tally(assets, size), "root": tally(top, size)}
     total = {k: sum(on_disk[part][k] for part in on_disk) for k in ("files", "rawBytes", "storedBytes")}
     printed = counts["total"]
     bad = []
@@ -747,9 +753,9 @@ def reconcile():
             bad.append("%s: %d shells printed, %d on disk" % (v["version"], v["shells"]["files"], n))
     if bad:
         return False, "; ".join(bad)
-    return True, "printed totals = the tree on disk: %d files, %d raw bytes, %d stored (shells %d, data %d, root %d), and each version's shell count" % (
+    return True, "printed totals = the tree on disk: %d files, %d raw bytes, %d stored (shells %d, data %d, assets %d, root %d), and each version's shell count" % (
         total["files"], total["rawBytes"], total["storedBytes"], on_disk["shells"]["files"],
-        on_disk["data"]["files"], on_disk["root"]["files"])
+        on_disk["data"]["files"], on_disk["assets"]["files"], on_disk["root"]["files"])
 
 
 def data_json(address):

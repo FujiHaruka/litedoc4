@@ -20,7 +20,7 @@
 #   Assets.lean -> the pages  item 3 below
 #
 # What a failing item means:
-#   1 SOURCES   `assets/` does not hold the four files, or one of them is empty.
+#   1 SOURCES   `assets/` does not hold the five files, or one of them is empty.
 #               An empty stylesheet is a site that loads and has no styling.
 #   2 GENERATED `src/Litedoc4/Assets.lean` is not what `assets/` generates. Run
 #               `tools/gen-assets.py`.
@@ -47,9 +47,9 @@ failed=0
 pass() { printf 'ITEM %s ok    %s\n' "$1" "$2"; }
 fail() { printf 'ITEM %s FAIL  %s\n' "$1" "$2" >&2; failed=$((failed + 1)); }
 
-echo "=== 1/3 assets/ holds the four files and none is empty"
+echo "=== 1/3 assets/ holds the five files and none is empty"
 missing=""
-for name in style.css app.js favicon.svg theme-boot.js; do
+for name in style.css app.js favicon.svg theme-boot.js site.js; do
   if [ ! -s "assets/$name" ]; then
     missing="$missing assets/$name"
   fi
@@ -58,7 +58,7 @@ if [ -n "$missing" ]; then
   fail 1 "absent or empty:$missing"
 else
   pass 1 "$(wc -c assets/style.css assets/app.js assets/favicon.svg assets/theme-boot.js \
-    | awk 'END{print $1}') bytes over 4 files"
+    assets/site.js | awk 'END{print $1}') bytes over 5 files"
 fi
 
 echo

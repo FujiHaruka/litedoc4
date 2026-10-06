@@ -96,8 +96,23 @@ echo "== node $PINNED, written once in mise.toml, read by $READERS installer(s),
 # leaves an unused rule and breaks nothing, and recording the names to catch it
 # would put a hand-written list back.
 STYLE="$ROOT/assets/style.css"
-SCRIPTED="$(grep -ho '\.className = "[^"]*"' "$WEB"/src/*.ts \
-  | sed 's/^\.className = "//; s/"$//' | tr ' ' '\n' | grep . | LC_ALL=C sort -u)"
+# Three spellings assign one: `.className = "…"`, and the class argument of
+# `dom.ts`'s `el("<tag>", "…")` and `link("…", href)`, which the store page's
+# drawing code builds every element through. Read with a regex that crosses
+# lines, because the formatter breaks a long call after its opening parenthesis.
+SCRIPTED="$(python3 - "$WEB"/src/*.ts <<'PY'
+import re
+import sys
+
+pattern = re.compile(r'\.className = "([^"]*)"|\bel\(\s*"[a-z0-9]+",\s*"([^"]*)"|\blink\(\s*"([^"]*)"')
+found = set()
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as f:
+        for m in pattern.finditer(f.read()):
+            found.update("".join(g for g in m.groups() if g).split())
+print("\n".join(sorted(found)))
+PY
+)"
 [ -n "$SCRIPTED" ] || { echo "no class assignment found — the scan broke" >&2; exit 1; }
 UNSTYLED=""
 while IFS= read -r cls; do
@@ -155,11 +170,15 @@ rm -rf dist
 npm run build >/dev/null
 [ -f dist/app.js ] || { echo "vite wrote no dist/app.js" >&2; exit 1; }
 [ -f dist/theme-boot.js ] || { echo "vite wrote no dist/theme-boot.js" >&2; exit 1; }
+[ -f dist/site.js ] || { echo "vite wrote no dist/site.js" >&2; exit 1; }
 BYTES="$(wc -c < dist/app.js | tr -d ' ')"
 GZIP="$(gzip -c dist/app.js | wc -c | tr -d ' ')"
 BOOT="$(wc -c < dist/theme-boot.js | tr -d ' ')"
+SITE="$(wc -c < dist/site.js | tr -d ' ')"
+SITE_GZIP="$(gzip -c dist/site.js | wc -c | tr -d ' ')"
 # theme-boot is per *page*: `Litedoc4.Render.Frame` inlines it into every `<head>`.
 echo "   dist/app.js $BYTES B, gzip $GZIP B; dist/theme-boot.js $BOOT B (inlined per page)"
+echo "   dist/site.js $SITE B, gzip $SITE_GZIP B (store render's page script)"
 
 echo "== assets/ is this bundle"
 # The first link of the chain `assets-embed-gate.sh` documents: vite -> assets/.
@@ -173,7 +192,7 @@ echo "== assets/ is this bundle"
 # stay free of node; and byte for byte rather than by mtime, because the question
 # is whether these are the same bundle, not which is newer.
 STALE=""
-for f in app.js theme-boot.js; do
+for f in app.js theme-boot.js site.js; do
   cmp -s "dist/$f" "$ROOT/assets/$f" || STALE="$STALE  $f"$'\n'
 done
 if [ -n "$STALE" ]; then
@@ -183,15 +202,15 @@ if [ -n "$STALE" ]; then
   echo "  then re-run tools/gen-assets.py, or Assets.lean keeps the old bytes." >&2
   exit 1
 fi
-echo "   assets/app.js and assets/theme-boot.js are byte for byte this build"
+echo "   assets/app.js, assets/theme-boot.js and assets/site.js are byte for byte this build"
 
 # `dist/` is scratch: what reaches the executable is `assets/`, compared against
 # it just above.
 rm -rf dist
 
 if [ -n "$JSON" ]; then
-  printf '{"tests":%s,"passed":%s,"failed":%s,"bundleBytes":%s,"bundleGzip":%s,"bootBytes":%s}\n' \
-    "$TOTAL" "$PASSED" "$FAILED" "$BYTES" "$GZIP" "$BOOT" > "$JSON"
+  printf '{"tests":%s,"passed":%s,"failed":%s,"bundleBytes":%s,"bundleGzip":%s,"bootBytes":%s,"siteBytes":%s,"siteGzip":%s}\n' \
+    "$TOTAL" "$PASSED" "$FAILED" "$BYTES" "$GZIP" "$BOOT" "$SITE" "$SITE_GZIP" > "$JSON"
 fi
 
 echo

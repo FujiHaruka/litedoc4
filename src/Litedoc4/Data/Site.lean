@@ -1,6 +1,7 @@
 /- The site `store render` writes from a store: every data file once, under the
 address of its bytes, and per version one shell per page that names the
 addresses its page needs. -/
+import Litedoc4.Assets
 import Litedoc4.Data.FromStore
 import Litedoc4.Data.Layout
 import Litedoc4.Fs
@@ -59,18 +60,25 @@ def versionFileJson (version title : String) (m : VersionMeta) (roots : Array (S
 def rootAt (depth : Nat) : String :=
   if depth == 0 then "./" else String.join (List.replicate depth "../")
 
+def assetsDir : String := "assets/"
+
 def shell (title : Option String) (depth : Nat) (attrs : Array (String × String)) : String :=
   Id.run do
   let root := rootAt depth
+  let assets := root ++ assetsDir
   let mut o := "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
   if let some t := title then o := escapeInto (o ++ "<title>") t ++ "</title>\n"
-  o := escapeInto (o ++ "<script src=\"") (root ++ "assets/site.js") ++ "\" defer></script>\n\
-    </head>\n<body data-root=\""
+  o := escapeInto (o ++ "<link rel=\"stylesheet\" href=\"") (assets ++ "style.css") ++ "\">\n"
+  o := escapeInto (o ++ "<link rel=\"icon\" href=\"") (assets ++ "favicon.svg") ++ "\">\n"
+  o := o ++ "<script>" ++ themeBootJs ++ "</script>\n"
+  o := escapeInto (o ++ "<script type=\"module\" src=\"") (assets ++ "site.js")
+    ++ "\"></script>\n</head>\n<body data-root=\""
   o := escapeInto o root |>.push '"'
   for (key, value) in attrs do
     o := escapeInto (o ++ s!" data-{key}=\"") value |>.push '"'
-  return o ++ "></body>\n</html>\n"
+  return o ++ "><noscript>These pages are drawn by JavaScript, which is off.</noscript>\
+    </body>\n</html>\n"
 
 def shellPath (version module : String) : String := s!"{version}/{modulePath module}.html"
 
@@ -188,16 +196,21 @@ def writeVersion (out : FilePath) (m : VersionMeta) (v : VersionData) :
 
 structure Counts where
   versions : Array VersionCounts
+  assets : Tally
   root : Tally
 
 def Counts.json (c : Counts) : String :=
   let shells := c.versions.foldl (·.plus ·.shells) ({} : Tally)
   let data := c.versions.foldl (·.plus ·.added) ({} : Tally)
-  let total := (shells.plus data).plus c.root
+  let total := ((shells.plus data).plus c.assets).plus c.root
   pushEach "{\"command\":\"store render\",\"versions\":" c.versions (· ++ ·.json)
     ++ s!",\"total\":\{\"files\":{total.files},\"rawBytes\":{total.raw}"
     ++ s!",\"storedBytes\":{total.stored},\"shells\":{shells.json},\"data\":{data.json}"
-    ++ s!",\"root\":{c.root.json}}}"
+    ++ s!",\"assets\":{c.assets.json},\"root\":{c.root.json}}}"
+
+def writeAssets (out : FilePath) : IO Tally :=
+  storeAssets.foldlM (init := {}) fun t (name, body) =>
+    return t.plus (← writeText out (assetsDir ++ name) body)
 
 /-- Not every version's data at once, as `store measure` holds it: a Mathlib
 version is ≈ 8.5k pages and a site has 11 or more. -/
@@ -221,7 +234,7 @@ def renderStore (store out : FilePath) (names : Array Store.VersionName) :
   let some (newest, newestFile) := entries.back? | throw "no version to render"
   let root := (← writeText out "versions.json" (versionsJson entries)).plus
     (← writeText out "index.html" (siteIndexShell newest newestFile))
-  return { versions, root }
+  return { versions, assets := ← writeAssets out, root }
 
 end Site
 end Data

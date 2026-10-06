@@ -408,12 +408,16 @@ def aShellClimbsOutOfItsModuleDirectoriesAndItsVersionDirectory : Bool :=
   Data.Site.moduleShell "v1" "A.B.C" f f f ==
     s!"<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
       <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
-      <title>A.B.C</title>\n<script src=\"../../../assets/site.js\" defer></script>\n</head>\n\
+      <title>A.B.C</title>\n<link rel=\"stylesheet\" href=\"../../../assets/style.css\">\n\
+      <link rel=\"icon\" href=\"../../../assets/favicon.svg\">\n<script>{themeBootJs}</script>\n\
+      <script type=\"module\" src=\"../../../assets/site.js\"></script>\n</head>\n\
       <body data-root=\"../../../\" data-version=\"v1\" data-module=\"A.B.C\" \
       data-data=\"{f.address}\" data-page=\"{f.address}\" data-used-by=\"{f.address}\">\
-      </body>\n</html>\n"
+      <noscript>These pages are drawn by JavaScript, which is off.</noscript></body>\n</html>\n"
     && (Data.Site.versionIndexShell "v1" f).contains "data-root=\"../\""
-    && (Data.Site.siteIndexShell "v1" f.address).contains "<script src=\"./assets/site.js\""
+    && (Data.Site.siteIndexShell "v1" f.address).contains
+      "<script type=\"module\" src=\"./assets/site.js\""
+    && storeAssets.map (·.1) == #["style.css", "favicon.svg", "site.js"]
     && Data.Site.shellPath "v1" "A.B.C" == "v1/A/B/C.html"
 
 #guard aShellClimbsOutOfItsModuleDirectoriesAndItsVersionDirectory
