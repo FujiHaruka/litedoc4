@@ -581,6 +581,10 @@ pair, 5 + 5 transitions for 11 versions and 25 + 25 for 51 →
   content measured here is the extractor's format, ≈ 2× the compact page-data format of U7, and
   compressing each declaration alone is 3.5× worse than compressing per module.
 - File count for (ii) with hash URLs: 18,212 / 57,932.
+- **The same churn on the dependency side** (step 2, measured on M →
+  `benchmarks/results/mv-m-render-2026-10-07.txt`): a page that carries the line ranges of the
+  Lean core declarations it names changes in every minor release, because Lean core moves — 211
+  of 228 unchanged-content pages changed for that alone (D5).
 
 ## Decisions to make
 
@@ -688,11 +692,18 @@ fetches one segment per release in which its module changed — ≈ 7 at Mathlib
 over 51 versions, up to 26 (theoretical) — and packs read by range (c) lose to both. Both a and b
 are under the 1.5 GB target. **It is falsified** if a full-Mathlib run puts a above the target, or
 the content a module re-stores per minor release is far above the 8.4 MB extrapolated; then (b)
-with compaction is the fallback. Still open, and larger than the candidates' difference: the
-per-version files are 73% of a's 51-version total, and 878 of 880 of them are byte-identical
-across a patch release — sharing them by content is step 2's. Files: ≈ 16.6k per-version files
-  per Mathlib version as stored today (≈ 850k at 51, extrapolated), against ≈ 8.3k + 1,958 per
-  minor release of a's content files — uploading ≈ 17k files per release is a step 6 input.
+with compaction is the fallback.
+
+**The per-version files are shared by content too** (step 2, measured on M →
+`benchmarks/results/mv-m-render-2026-10-07.txt`): every data file is addressed by its bytes, so a
+patch release adds 3 data files where it added 880, and the site is ≈ 169 MB at 11 versions and
+≈ 693 MB at 51 (extrapolated; step 1's a: 198 / 854 MB). What every release still adds whole is
+its page shells, ≈ 8.3k files of ≈ 441 B per Mathlib version (187 MB of the 693); a minor release
+also adds ≈ 11k data files, most of them page files (extrapolated) — the upload count is a step 6
+input. A minor release rewrites ≈ 96% of the page files, mostly because they carry Lean core's
+line ranges and Lean core moves every release (U10's absolute positions, on the dependency side);
+moving those into one per-version table is step 3's to weigh against what every page then
+fetches.
 
 ### D6 — URL scheme and the version switcher
 

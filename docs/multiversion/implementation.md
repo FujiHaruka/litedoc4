@@ -235,7 +235,7 @@ Done when: rendering the same store twice gives byte-identical output; rendering
 alone and the three together give the same bytes for that version's data and its shared content;
 hosted bytes and file count measured for the three versions.
 
-What exists (2026-10-07, leg r1 — implemented and gated on S; nothing measured on M yet):
+What exists (2026-10-07):
 
 - **`litedoc4 store render --store --versions --out`** (internal, beside `measure`). It reads one
   entry at a time and keeps nothing of a version once its files are written. Output: `d/<address>`
@@ -271,14 +271,45 @@ Switching it before step 3 exists would publish pages nothing draws and turn eve
 gate red; `build` moves onto the store renderer when step 3's page draws from this data, and the
 gates listed under "Gates to replace" are replaced then.
 
-Not done yet (step 2 remainder, or named here so it is not lost):
+What M says (the three releases, schema-4 entries; measured →
+`benchmarks/results/mv-m-render-2026-10-07.txt`, which also carries the extrapolations):
 
-- **M measurement** of hosted bytes, file count and render time for the three versions (next leg).
+- **The identities hold**: five renders of all three versions are byte-identical; each version
+  rendered alone gives its shells byte for byte and only data files the three-version run holds
+  byte for byte; a separate reader reconciles the renderer's counts with the tree (and was made to
+  fail once each way).
+- **Hosted: 3,196 files, 4.88 MB** — 1,315 shells (0.58 MB, 441 B each, uncompressed), 1,879 data
+  files (4.30 MB gzip), 2 root files.
+- **A patch release adds 3 data files (11 KB)** — its one changed content file, that module's page
+  file, the version file — where step 1's per-version files added 880. Its 440 shells are now
+  what a patch release adds. A minor release adds 683 data files (1.86 MB): 419 of 438 page files
+  change, 211 of them only because Lean core's line ranges moved (below).
+- **Extrapolated to Mathlib: 169 MB at 11 versions, 693 MB at 51** (shells 40 / 187 MB of that),
+  against step 1's 198 / 854 MB for candidate a and the 1.5 GB target. Files per release: 8,314
+  shells, plus ≈ 3 data files per patch and ≈ 11k per minor release.
+- **A page view at step 1's scope** (version file + page file + content + module list) is 5.26 MB
+  over the 438 pages, against step 1's 19.46 MB: the per-version link table is off every view. The
+  module list is now 59% of it, if a page fetches it; Used by is a fourth fetch.
+- **Render: 9.42 s CPU for three versions, 3.2 s per version, 253 MiB peak** (5 runs, warm);
+  ≈ 47 s and ≤ 3.1 GB per Mathlib version (extrapolated). The renderer reports no per-phase time
+  yet.
+
+Carried to step 3, because they change what a page fetches, which step 3 decides:
+
+- **Dependency line ranges ride in every page file.** Lean core moves in every Mathlib minor
+  release, so 211 of the 228 pages whose content did not change get a new page file for that
+  alone; ≈ 5.2 MB of a Mathlib minor release's ≈ 18.9 MB (extrapolated). One per-version table of
+  dependency lines would stop it, at the price of a file every page fetches — the shape step 1
+  moved away from (its whole link table was 90% of a view).
+- **Whether a page fetches the module list** (7 KB at M, every module named; 59% of a view's bytes
+  if it does).
 - **The docs-site tier is not carried**: store-rendered links go to pinned sources only (D1b).
   A single-version site that links to a dependency's documentation today loses that when `build`
   switches, unless the record carries the tables.
 - Module numbers remain inside the search index and the module list, and that is harmless: both
   files list every module, so a release that adds one changes them whatever they number.
+
+**Done 2026-10-07.**
 
 ### 3. The page in the browser
 
