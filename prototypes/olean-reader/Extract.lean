@@ -1,0 +1,3238 @@
+/-
+**Portions of this file are derived from doc-gen4.**
+
+    Copyright (c) 2021 Henrik Böving. All rights reserved.
+    Released under Apache 2.0 license as described in the file LICENSE.
+    Authors: Henrik Böving
+
+Those portions have been **changed** from the original: some were transcribed
+verbatim, others were restructured to write an IR instead of HTML. The blocks
+concerned are marked in place with the doc-gen4 source path they came from —
+`isProjFn` / `isBlackListed`, the attribute stringifiers, `getInstanceTypes`,
+`getInstPriority`, `getDefaultInstanceAttr`, `getFieldOrigin`, `mkTacticOut`,
+the `Core.Context` options, `collectSpans`, the kind/modifier split, and
+`structureMembers`. See `docs/provenance.md` for the full inventory.
+
+litedoc4 as a whole is licensed separately; see this repository's LICENSE.
+This binary does **not** link doc-gen4 — it imports only `Lean`.
+
+Usage: extract <modules.txt> <out.jsonl> [options]
+  --equations         generate equation lemmas (default: off)
+  --write-ir          persist the result as one JSON file per module + an index
+                      + a dependency-side map slice (default: off)
+  --tagged-code       record, per printed fragment, the pre-order list of tag
+                      spans `renderTagged` would produce, and add the declaration
+                      range end / kind modifiers / in-module index to the IR
+                      (default: off; bumps the IR schema version to 4)
+  --no-attrs          ablation: skip the attribute collection
+  --no-inst-index     ablation: skip the instance type index
+  --no-member-extra   ablation: skip the structure members' binders / docstring /
+                      origin
+  --no-sorry          ablation: skip the `sorry` / `sorryAx` classification.
+                      Any ablation marks the IR unrenderable.
+  --ir-dir <path>     where to write it. **Required with `--write-ir`** and it
+                      has no default (see `getIrDir`).
+                      **Never point this inside the measurement target.**
+  --dump <path>       write one JSON object per declaration to <path>
+  --dump-modules <p>  write one JSON object per module (docs / imports / tactics)
+  --only <path>       restrict processing to the declaration names in <path>
+                      (one per line); for inspecting individual signatures
+  --open <ns>[,<ns>]  pretty print with these namespaces opened
+                      (probe for scoped notation; doc-gen4 opens nothing)
+  --tag               additionally run `Widget.tagCodeInfos`, the step doc-gen4
+                      needs to turn a signature into linkable `RenderedCode`
+  --refs              collect the constants doc-gen4 would link from the
+                      signature, the equations and the structure parent types
+  --dump-refs <path>  write the unique set of those constants, one JSON object
+                      per constant, with its defining module (needs --refs)
+  --link-index <p>    also write the dependency closure's `name -> module` map
+                      (`.lidx`) from the imported environment: the file the
+                      renderer resolves docstring autolinks through
+                      (see `writeLinkIndex`)
+  --link-index-omit <p>  modules whose declaration groups are left out of that
+                      map, one name per line. Their names stay in the `@`
+                      section (see `writeLinkIndex`)
+  --link-index-key <t>  an opaque token standing for everything about the map
+                      that this process cannot see — the caller's `extractKey`
+                      and the omit list. With it, a map whose sidecar
+                      `<p>.key` holds the same token and whose `@` section is
+                      still this environment's is left alone: no scan, no
+                      write (see `writeLinkIndex`)
+  --skip-analyze      skip the semantic analysis (module docs / tactics only)
+  --tactics-emulate   additionally run the tactic collection doc-gen4's way
+                      (`allTacticDocs` once per module) for comparison
+  --tactics-probe     additionally break `allTacticDocs` down into its parts
+-/
+import Lean
+
+open Lean System Meta PrettyPrinter
+open Lean.Elab.Tactic.Doc (TacticDoc allTacticDocs firstTacticTokens)
+open Lean.Parser.Tactic.Doc (tacticTagExt alternativeOfTactic getTacticExtensions)
+
+namespace Litedoc4
+
+structure Sink where
+  handle : IO.FS.Handle
+  pid : UInt32
+
+def Sink.create (path : FilePath) : IO Sink := do
+  let handle ← IO.FS.Handle.mk path .append
+  let pid ← IO.Process.getPID
+  return { handle, pid }
+
+def Sink.emit (s : Sink) (phase : String) (nanos : Nat)
+    (extra : List (String × String) := []) : IO Unit := do
+  let extraStr := extra.foldl (init := "") fun acc (k, v) => acc ++ s!",\"{k}\":{v}"
+  s.handle.putStr s!"\{\"phase\":\"{phase}\",\"pid\":{s.pid},\"us\":{nanos / 1000}{extraStr}}\n"
+  s.handle.flush
+
+def fmtDur (nanos : Nat) : String :=
+  let ms := nanos / 1000000
+  let frac := ms % 1000
+  let pad := if frac < 10 then "00" else if frac < 100 then "0" else ""
+  s!"{ms / 1000}.{pad}{frac}s"
+
+structure Cfg where
+  modulesPath : FilePath
+  outPath : FilePath
+  genEquations : Bool := false
+  dumpPath : Option FilePath := none
+  dumpModulesPath : Option FilePath := none
+  onlyPath : Option FilePath := none
+  openNamespaces : Array Name := #[]
+  tagCode : Bool := false
+  collectRefs : Bool := false
+  dumpRefsPath : Option FilePath := none
+  skipAnalyze : Bool := false
+  /-- A by-product of an environment that is imported for the extraction anyway,
+  which is why it lives here rather than in a tool of its own. -/
+  linkIndexPath : Option FilePath := none
+  linkIndexOmitPath : Option FilePath := none
+  /-- An opaque token the caller supplies for everything the map depends on that
+  **this process cannot cheaply see** — the oleans behind the imported modules,
+  and the omit list's contents. The caller promises it moves whenever either
+  does; see `linkIndexIsCurrent`. -/
+  linkIndexKey : Option String := none
+  tacticsEmulate : Bool := false
+  tacticsProbe : Bool := false
+  tacticsDumpPath : Option FilePath := none
+  writeIR : Bool := false
+  /-- `--ir-dir`. `none` is only legal together with `writeIR := false`;
+  `parseArgs` refuses the combination, so `getIrDir` never has to invent one. -/
+  irDir : Option FilePath := none
+  taggedCode : Bool := false
+  /-- **An ablated run writes an incomplete IR.** `index.json` then carries an
+  `ablations` list and the reader refuses it; such an IR is for the stopwatch
+  only. All three only mean anything together with `--tagged-code`. -/
+  noAttrs : Bool := false
+  noInstIndex : Bool := false
+  noMemberExtra : Bool := false
+  noSorry : Bool := false
+  serve : Bool := false
+  /-- **Off by default and gated at every site**, because measuring costs: the
+  probe adds ~10 clock reads per declaration. Whether that moves `total` is
+  checked by running the same configuration with and without the flag. -/
+  ppBreakdown : Bool := false
+  declProfilePath : Option FilePath := none
+  /-- The declaration order of the output is independent of `N`: workers take a
+  stride of the candidate list and the results are merged back by candidate
+  index, which is what makes the IR byte-comparable across `N`. -/
+  jobs : Nat := 1
+  deriving Inhabited
+
+/-- Every question the extraction asks about which modules and names exist, where a name
+lives, and the three sources that are keyed by module or by a table outside the environment's
+constants. Built once, beside the environment. -/
+structure World where
+  moduleNames : Array Name
+  moduleIndex? : Name → Option Nat
+  constNames : Nat → Array Name
+  imports : Nat → Array Name
+  moduleOf? : Name → Option Name
+  contains : Name → Bool
+  moduleDocs : Name → Array ModuleDoc
+  docString? : Name → IO (Option String)
+  /-- `none`: the world cannot answer, and the run says so. -/
+  tactics : MetaM (Option (Array TacticDoc))
+
+def World.ofEnv (env : Environment) : World :=
+  let header := env.header
+  let modNames := header.moduleNames
+  { moduleNames := modNames
+    moduleIndex? := fun m => (env.getModuleIdx? m).map (·.toNat)
+    constNames := fun i => header.moduleData[i]!.constNames
+    imports := fun i => header.moduleData[i]!.imports.map Import.module
+    moduleOf? := fun n => (env.getModuleIdxFor? n).map (modNames[·]!)
+    contains := env.contains
+    moduleDocs := fun m => (getModuleDoc? env m).getD #[]
+    docString? := fun n => findDocString? env n
+    tactics := some <$> allTacticDocs }
+
+def Cfg.wantAttrs (c : Cfg) : Bool := c.taggedCode && !c.noAttrs
+def Cfg.wantInstIndex (c : Cfg) : Bool := c.taggedCode && !c.noInstIndex
+def Cfg.wantMemberExtra (c : Cfg) : Bool := c.taggedCode && !c.noMemberExtra
+
+def Cfg.wantSorry (c : Cfg) : Bool := c.taggedCode && !c.noSorry
+
+def Cfg.ablations (c : Cfg) : Array String :=
+  let a := if c.noAttrs then #["attrs"] else #[]
+  let a := if c.noInstIndex then a.push "instIndex" else a
+  let a := if c.noMemberExtra then a.push "memberExtra" else a
+  if c.noSorry then a.push "sorry" else a
+
+/-! ## doc-gen4's blacklist, transcribed
+
+**Copied verbatim from doc-gen4, changed only by dropping its comments:**
+
+    Copyright (c) 2021 Henrik Böving. All rights reserved.
+    Released under Apache 2.0 license as described in the file LICENSE.
+    Authors: Henrik Böving
+
+`DocGen4/Process/DocInfo.lean:142-165`.
+-/
+
+def isProjFn (declName : Name) : MetaM Bool := do
+  let env ← getEnv
+  match declName with
+  | .str parent name =>
+    let some si := getStructureInfo? env parent | return false
+    return getProjFnForField? env parent (Name.mkSimple name) == declName
+      || (si.parentInfo.any fun pi => pi.projFn == declName)
+  | _ => return false
+
+def isBlackListed (declName : Name) : MetaM Bool := do
+  if ← isProjFn declName then
+    return false
+  match ← findDeclarationRanges? declName with
+  | some _ =>
+    let env ← getEnv
+    pure declName.isInternal
+    <||> (pure <| isAuxRecursor env declName)
+    <||> (pure <| isNoConfusion env declName)
+    <||> (pure declName.isInternalDetail)
+    <||> isRec declName
+    <||> isMatcher declName
+  | none => return true
+
+def isInstanceDecl (declName : Name) : MetaM Bool := do
+  return (instanceExtension.getState (← getEnv)).instanceNames.contains declName
+
+/-! ## The dependency closure's `name -> module` map (`--link-index`)
+
+The renderer resolves a docstring autolink the way doc-gen4's
+`Output/DocString.lean:nameToLink?` does: it looks the token up in a global
+`name -> module` map. doc-gen4 holds the whole environment and reads
+`env.name2ModIdx`; the renderer holds none of it, so for it the map is an input
+file — the `.lidx` read by `src/Litedoc4/Render/LinkIndex.lean`.
+
+**What goes in is doc-gen4's choice, which is three predicates, not one:**
+
+* `Process/Analyze.lean:195` walks `env.constants` and asks `DocInfo.ofConstant`,
+  which drops the blacklisted (`isBlackListed`, transcribed above) and the
+  recursors (`ConstantInfo.recInfo`);
+* `Output/ToJson.lean:136` drops private names on the way into the JSON;
+* the module of a name is `env.const2ModIdx` — that is literally what
+  `Output/Base.lean:231`'s `declNameToLink` reads — and **not** the module whose
+  `constNames` the name was reached through. The two disagree for the names that
+  live in more than one module's olean (25 on the measurement target).
+
+Walking modules instead of `env.constants` costs one extra hash lookup per name
+and buys a deterministic order (`header.moduleNames`, i.e. import order), so two
+runs of this produce byte-identical files.
+
+**Escaping is not uniform, and that is copied rather than fixed**: declaration
+names are `Name.toString` with escaping on, because that is what doc-gen4 writes
+into the `.bmp`, while module names are written unescaped, because doc-gen4
+builds the page path out of `Name.toString (escape := false)` components
+(`Output/Base.lean:188`) and the renderer splits the module on `.` to rebuild
+that path.
+
+The file:
+
+```text
+#lidx2                                  the marker moves with the field count
+Mathlib.Order.Basic                     a group header, unescaped
+\tMathlib.Order.le_refl\t67\t67         name, first line, last line
+\t<a name with no range>                a declaration with no range: one field
+```
+
+The range is `findDeclarationRanges?`'s `range.pos.line` and
+`range.endPos.line`, which is what doc-gen4 builds its `#L<start>-L<end>` anchor
+out of. A name a tab can never appear in is what makes the extra fields
+unambiguous. **A declaration with no range keeps the one-field line**: dropping
+it would lose the link entirely, where the missing range only costs the anchor.
+Both counts are reported so that "no range" stays a number rather than a silence
+— and on the measurement target that number is **0 of 255,975**
+(measured 2026-08-16 → `benchmarks/results/m7a-summary.txt`).
+
+### The package's own groups can be left out (`--link-index-omit`)
+
+**The renderer never reads them.** A docstring token is resolved by
+`NameIndex.moduleOf` (`src/Litedoc4/Render/Autolink.lean`), which asks the
+IR-derived index *first* and only falls back to the `.lidx`; and the line range
+this file carries is spent only where the external-link map has a root for the
+module (`src/Litedoc4/External.lean`) — that is, only for a
+**dependency**. Measured rather than believed: with all of the package's own
+groups removed from the map, the rendered site is **byte-identical — 0 of 429
+files differ**; the positive control, which removes the *dependency* half
+instead, differs in **408 of 429** (measured 2026-08-17 →
+`benchmarks/results/lidx-own-half-2026-08-17.txt`).
+
+**Why leave them out, given that they are only 3.6% of the file.** Because they
+are the only part of it that moves when a module of the package is edited, and
+the map's SHA-256 is part of the renderer's `renderKey`: one added declaration
+moves the map, the key moves with it, and all 422 pages re-render for an edit
+that touched one.
+
+**The `@` section stays complete — omitted modules included.** It answers a
+different question: `module_for_source_path` scans `known_modules` linearly for a
+docstring source path and answers `None` when **two** entries match, so taking an
+entry out can turn a `None` into a `Some` — a link that did not exist before,
+possibly to a page this run did not write.
+
+**What is left out is counted, not merely absent** (`omitted`,
+`omittedDeclarations`). An omitted module is walked exactly as it would be
+otherwise and only its *output* is dropped, which makes both counts exact and
+leaves two invariants a reader can check against a run without the flag:
+`modules + omitted` and `declarations + omittedDeclarations` are that run's
+`modules` and `declarations`, and `scanned` does not move at all. The saving that
+is given up by still walking them is ~3.6% of a 0.9 s phase; a silent omission is
+the failure mode this project keeps catching, and it is not worth 30 ms.
+
+### A map that is already right is not rewritten (`--link-index-key`)
+
+Rewriting on every extraction request is 490,287 constants walked and 10 MB
+written, **1.20-1.81 s** of a 6.2 s one-module incremental build
+(measured 2026-08-17 → `benchmarks/results/g3-stage-c-2026-08-17.txt`). The file
+it produces is a function of exactly three things:
+
+1. **the set of modules in the imported environment** (`env.header.moduleNames`),
+   which decides both the `@` section and which oleans are walked;
+2. **the contents of those modules' oleans**, which decide the names and their
+   line ranges;
+3. **the omit list**, which decides whose groups are dropped.
+
+Only (1) is something this process can read cheaply. (2) would mean hashing the
+dependency closure's oleans, which is most of the cost this is trying to avoid,
+and (3) is the caller's own input. So (2) and (3) are delegated to **one opaque
+token** (`--link-index-key`) that the caller promises moves whenever either of
+them does, and this process checks (1) itself.
+
+**The token goes in a sidecar `<path>.key`, not in a `#` header line of the
+map** — and that is not a style choice. The map's SHA-256 is an input to the
+renderer's `renderKey`, so anything written *into* the file re-renders every page
+when it changes. Folding the caller's key in would tie every toolchain bump to a
+full re-render of a map whose content did not move.
+
+**The `@`-section comparison is not redundant with the token, in either
+direction.** The token cannot see the closure: a package that adds
+`import Mathlib.NewThing` pulls in modules whose declarations belong in the map,
+and neither `lean-toolchain` nor `lake-manifest.json` moves for it — the token
+would still match while the map is short. Conversely the `@` section cannot see
+the oleans: the same module list can be built from a different Mathlib. So
+**both** are required, compared **in order and in count** (a prefix match would
+accept a truncated map, and equal counts with a reordered list would accept a map
+written under a different import order).
+
+**The failure direction is: any doubt rewrites.** No token, no sidecar, an
+unreadable sidecar, a token that differs, a count that differs, one name that
+differs — every one of them falls through to the full walk and a full write.
+Being wrong here means serving a stale map, which is silent; being conservative
+costs 1.2 s. And when no token is supplied at all, a stale `<path>.key` left by an
+earlier run is **deleted**, so a later run with a token cannot match a sidecar
+that describes a map this run has since overwritten. -/
+
+structure LinkIndexStats where
+  scanned : Nat := 0
+  declarations : Nat := 0
+  ranged : Nat := 0
+  /-- `ranged + unranged = declarations`. These are written with one field, and
+  their link loses its anchor rather than the whole URL. -/
+  unranged : Nat := 0
+  /-- Groups written: modules defining at least one of them. -/
+  modules : Nat := 0
+  /-- Groups **not** written because `--link-index-omit` named the module. A
+  module with nothing to write would have had no group either way, so it is in
+  neither number: `modules + omitted` is the `modules` of a run without the flag. -/
+  omitted : Nat := 0
+  /-- `declarations + omittedDeclarations` is the `declarations` of the same run
+  without the flag, and `scanned` is the same in both. -/
+  omittedDeclarations : Nat := 0
+  /-- Every module in the environment, whether or not it defines anything,
+  because a module name is a link target in its own right (doc-gen4 checks
+  `res.moduleNames.contains` before the module-local search).
+  **`--link-index-omit` does not shrink this.** -/
+  moduleNames : Nat := 0
+  bytes : Nat := 0
+  /-- The map on disk was already the right file and was left alone.
+
+  **Every other field of this structure is then 0, and 0 here means "not counted
+  this time" — never "the map is empty".** The map still on disk holds whatever
+  the run that wrote it counted. A reader that sums these fields across runs has
+  to drop the reused ones, which is why this flag is reported unconditionally in
+  the events file rather than only when it is true. -/
+  reused : Bool := false
+  deriving Inhabited
+
+/-- `<the map>.key`, so the two travel together and a `rm` of the map's directory
+takes both. Never a line *of* the map: the map's SHA-256 is an input to the
+renderer's key. -/
+def linkIndexKeyPath (path : FilePath) : FilePath := ⟨path.toString ++ ".key"⟩
+
+/-- The marker `writeLinkIndex` puts on the first line, and the one the reuse
+check requires to be there already.
+
+**One definition for both**: the caller's token covers the oleans and the omit
+list but not this file's own layout, and the number in the marker moves with the
+field count, so a writer that changes the format changes this string in the same
+edit and every map written before it stops being reusable on the next run. -/
+def linkIndexMarker : String := "#lidx2"
+
+/-- Does the `@` section of an existing `.lidx` still describe this environment?
+
+Reads the file **a line at a time and stops at the first line that is neither `#`
+nor `@`**, which is the group header of the first declaration group: the `@`
+section is written first, so this touches the head of a 10 MB file rather than
+the whole of it. `#` lines are skipped because the format marker is one, so a
+future comment line must not be read as the end of the section.
+
+The comparison is **in order and in count**: order matters because the map's
+group order is `modNames`'s order, count matters because a prefix would otherwise
+pass. Module names are compared against `toString (escape := false)`, which is
+how `writeLinkIndex` spells them. -/
+private partial def linkIndexAtSectionMatches
+    (h : IO.FS.Handle) (modNames : Array Name) (i : Nat) : IO Bool := do
+  let raw ← h.getLine
+  -- `getLine` answers "" only at EOF, and a map that is nothing but its `@`
+  -- section is legal, so this is a count check rather than a refusal.
+  if raw.isEmpty then
+    return i == modNames.size
+  let line := raw.trimAscii.toString
+  if line.startsWith "#" then
+    linkIndexAtSectionMatches h modNames i
+  else if line.startsWith "@" then
+    if i ≥ modNames.size then
+      return false
+    else if line.drop 1 == modNames[i]!.toString (escape := false) then
+      linkIndexAtSectionMatches h modNames (i + 1)
+    else
+      return false
+  else
+    -- The first group header: the `@` section is complete iff it named every module.
+    return i == modNames.size
+
+/-- Is the map already on disk the one this run would write?
+
+**Three** things have to hold: the caller's token, which covers the oleans and
+the omit list; the `@` section, which covers the module set (neither implies the
+other); and `linkIndexMarker`, which covers **this file's own format** — the one
+input neither of the other two can see. Everything that is not a clear "yes"
+answers `false`: a missing map, a missing or unreadable sidecar, a token that
+differs by one byte, a section that differs by one name, a marker from an older
+format. Rewriting when it was not needed costs 1.2 s; not rewriting when it was
+needed serves a stale map, silently.
+
+The marker is required on the **first** line rather than looked for among the `#`
+lines: accepting it anywhere would accept a file that has a `#lidx1` first line
+and a `#lidx2` comment. -/
+def linkIndexIsCurrent (path : FilePath) (key : String) (modNames : Array Name) :
+    IO Bool := do
+  unless ← path.pathExists do return false
+  let keyPath := linkIndexKeyPath path
+  unless ← keyPath.pathExists do return false
+  let stored ← IO.FS.readFile keyPath
+  if stored.trimAscii.toString != key then return false
+  let h ← IO.FS.Handle.mk path .read
+  let first ← h.getLine
+  if first.trimAscii.toString != linkIndexMarker then return false
+  linkIndexAtSectionMatches h modNames 0
+
+/-- Writes the map as one `.lidx`. Returns what went into it.
+
+A module in `omitModules` contributes its name to the `@` section like any other
+and contributes **no declaration group**. (Spelled out rather than `omit`, which
+Lean 4 reserves for the `variable`-section instance elision.) -/
+def writeLinkIndex (world : World) (path : FilePath) (omitModules : Std.HashSet Name) :
+    MetaM LinkIndexStats := do
+  let env ← getEnv
+  let modNames := world.moduleNames
+  let h ← IO.FS.Handle.mk path .write
+  let mut stats : LinkIndexStats := { moduleNames := modNames.size }
+  -- Written in chunks: one `putStr` per line would be 750k calls, one string
+  -- for the whole file would be 8 MB of appends.
+  let mut buf := linkIndexMarker ++ "\n"
+  for m in modNames do
+    buf := buf ++ "@" ++ m.toString (escape := false) ++ "\n"
+    if buf.utf8ByteSize ≥ 262144 then
+      stats := { stats with bytes := stats.bytes + buf.utf8ByteSize }
+      h.putStr buf
+      buf := ""
+  for i in [0:modNames.size] do
+    let m := modNames[i]!
+    let mut kept : Array Name := #[]
+    for n in world.constNames i do
+      stats := { stats with scanned := stats.scanned + 1 }
+      -- The owning module is `const2ModIdx`'s, not the list this name came out
+      -- of; a name owned elsewhere is written when that module's turn comes.
+      let some owner := world.moduleOf? n | continue
+      if owner != m then continue
+      if isPrivateName n then continue
+      match env.find? n with
+      | some (.recInfo _) | none => continue
+      | some _ => pure ()
+      if ← isBlackListed n then continue
+      kept := kept.push n
+    if kept.isEmpty then continue
+    -- The walk above is deliberately *not* skipped for an omitted module: its
+    -- cost is 3.6% of this phase and doing it is what makes the counts exact.
+    if omitModules.contains m then
+      stats := { stats with omitted := stats.omitted + 1,
+                            omittedDeclarations := stats.omittedDeclarations + kept.size }
+      continue
+    stats := { stats with modules := stats.modules + 1,
+                          declarations := stats.declarations + kept.size }
+    buf := buf ++ m.toString (escape := false) ++ "\n"
+    for n in kept do
+      buf := buf ++ "\t" ++ n.toString
+      match ← findDeclarationRanges? n with
+      | some r =>
+        buf := buf ++ "\t" ++ toString r.range.pos.line ++ "\t" ++ toString r.range.endPos.line
+        stats := { stats with ranged := stats.ranged + 1 }
+      | none =>
+        stats := { stats with unranged := stats.unranged + 1 }
+      buf := buf ++ "\n"
+    if buf.utf8ByteSize ≥ 262144 then
+      stats := { stats with bytes := stats.bytes + buf.utf8ByteSize }
+      h.putStr buf
+      buf := ""
+  stats := { stats with bytes := stats.bytes + buf.utf8ByteSize }
+  h.putStr buf
+  return stats
+
+/-! ## Attributes — doc-gen4's `getAllAttributes`, transcribed
+
+**Copied verbatim from doc-gen4**, changed only where a `ToString` instance was
+turned into a plain `def`:
+
+    Copyright (c) 2021 Henrik Böving. All rights reserved.
+    Released under Apache 2.0 license as described in the file LICENSE.
+    Authors: Henrik Böving
+
+`DocGen4/Process/Attributes.lean`. doc-gen4 calls it from `Info.ofTypedName` for
+**every** declaration and prints the result as one `div.attributes` line.
+
+Transcribed, not imported: `import Lean` is this extractor's only dependency. The
+four lists and the composition order (`customs ++ tags ++ enums ++ parametric`)
+are doc-gen4's — the order is what the printed string looks like, so it is part
+of the specification, not a detail. doc-gen4 routes the value-carrying attributes
+through a `ValueAttr` type class so that one loop can serve both `EnumAttributes`
+and `ParametricAttribute`; the lists have 1 and 5 entries, so the loop is written
+out instead. What has to stay identical is the strings and their order.
+
+**The name and the value are separate.** doc-gen4 concatenates them —
+`parametricGetValue` returns `<attribute name> <value>` as one string. The split
+happens at **this** end because this is the only end that knows where the
+boundary is: an attribute value can contain spaces (`deprecated`) and brackets
+(`specialize`), so a reader given the concatenation would have to guess, and a
+guess made downstream is a second answer to a question already answered here.
+Every collector below therefore returns `Array (String × String)`; a tag
+attribute has no value and carries `""`.
+-/
+
+def tagAttributes : Array TagAttribute :=
+  #[IR.UnboxResult.unboxAttr, neverExtractAttr,
+    Elab.Term.elabWithoutExpectedTypeAttr, matchPatternAttr]
+
+def inlineAttrString : Compiler.InlineAttributeKind → String
+  | .inline => "inline"
+  | .noinline => "noinline"
+  | .macroInline => "macro_inline"
+  | .inlineIfReduce => "inline_if_reduce"
+  | .alwaysInline => "always_inline"
+
+def externEntryString : ExternEntry → String
+  | .adhoc `all => ""
+  | .adhoc backend => s!"{backend} adhoc"
+  | .standard `all fn => fn
+  | .standard backend fn => s!"{backend} {fn}"
+  | .inline backend pattern => s!"{backend} inline {String.quote pattern}"
+  | .opaque .. => ""
+
+def externAttrString (data : ExternAttrData) : String :=
+  String.intercalate " " (data.entries.map externEntryString)
+
+def deprecationString (entry : Linter.DeprecationEntry) : String := Id.run do
+  let mut string := ""
+  if let some newName := entry.newName? then
+    string := string ++ s!"{newName} "
+  if let some text := entry.text? then
+    string := string ++ s!"\"{text}\" "
+  if let some since := entry.since? then
+    string := string ++ s!"(since := \"{since}\")"
+  string := string.trimAsciiEnd.copy
+  return string
+
+def getTags (decl : Name) : MetaM (Array (String × String)) := do
+  let env ← getEnv
+  return tagAttributes.filter (TagAttribute.hasTag · env decl)
+    |>.map (fun a => (a.attr.name.toString, ""))
+
+/-- doc-gen4's `enumAttributes`: exactly one entry. The enum's own string *is*
+the attribute name, so this is a name with no value. -/
+def getEnumValues (decl : Name) : MetaM (Array (String × String)) := do
+  let env ← getEnv
+  match EnumAttributes.getValue Compiler.inlineAttrs env decl with
+  | some v => return #[(inlineAttrString v, "")]
+  | none => return #[]
+
+/-- doc-gen4's `parametricAttributes`, in doc-gen4's order. -/
+def getParametricValues (decl : Name) : MetaM (Array (String × String)) := do
+  let env ← getEnv
+  let mut res : Array (String × String) := #[]
+  if let some v := ParametricAttribute.getParam? externAttr env decl then
+    res := res.push (externAttr.attr.name.toString, externAttrString v)
+  if let some v := ParametricAttribute.getParam? Compiler.implementedByAttr env decl then
+    res := res.push (Compiler.implementedByAttr.attr.name.toString, toString v)
+  if let some v := ParametricAttribute.getParam? exportAttr env decl then
+    res := res.push (exportAttr.attr.name.toString, toString v)
+  if let some v := ParametricAttribute.getParam? Compiler.specializeAttr env decl then
+    -- `Compiler.specializeAttr : ParametricAttribute (Array Nat)`, so the
+    -- string is core's `ToString (Array α)`, i.e. `#[0, 1]`. doc-gen4 also
+    -- carries a `ToString SpecializeAttributeKind` instance for this entry; it
+    -- is dead code there, and reproducing it would produce the wrong string.
+    res := res.push (Compiler.specializeAttr.attr.name.toString, toString v)
+  if let some v := ParametricAttribute.getParam? Linter.deprecatedAttr env decl then
+    res := res.push (Linter.deprecatedAttr.attr.name.toString, deprecationString v)
+  return res
+
+/-- doc-gen4's `customAttrs` (`hasSimp`, `hasCsimp`, `getReducibility`) in order.
+`semireducible` is the default and is deliberately not printed.
+
+The reducibility name comes from Lean's own `ReducibilityStatus.toAttrString`
+rather than from a constructor-by-constructor `match`, which is where doc-gen4
+spells it out. **Lean v4.33.0 added `instanceReducible` to the inductive**: an
+exhaustive `match` over the four older constructors stops compiling the moment a
+fifth appears, and one carrying `| _ => pure ()` would compile and silently drop
+the new attribute from the IR instead. Deriving the string keeps a single source
+building on v4.31 through v4.33 *and* keeps a constructor nobody here has heard
+of in the output; the strings are unchanged for the four that existed before, so
+the IR does not move — 436 of 436 files byte identical over the measurement
+target, with 75 declarations actually taking this branch
+(→ `benchmarks/results/lean-433-fix-2026-08-18.txt`).
+
+What is not derivable is the bracketing, so that is asserted rather than assumed:
+if `toAttrString` ever stops returning `[name]` this throws instead of writing a
+mangled attribute — which, like every other `throwError` in the analysis loop,
+costs the declaration and lands in the `failures` report rather than failing the
+process. The slicing is spelled `drop`/`dropEnd`/`toString` because that is what
+compiles warning-free on all three toolchains: `String.drop` returns a
+`String.Slice` here, `Slice.dropRight` is deprecated in favour of `dropEnd`, and
+`String.mk` in favour of `ofList`. -/
+def getCustomAttrs (decl : Name) : MetaM (Array (String × String)) := do
+  let mut res : Array (String × String) := #[]
+  let thms ← simpExtension.getTheorems
+  if thms.isLemma (.decl decl) then
+    res := res.push ("simp", "")
+  if Compiler.hasCSimpAttribute (← getEnv) decl then
+    res := res.push ("csimp", "")
+  let status ← getReducibilityStatus decl
+  if status != .semireducible then
+    let bracketed := status.toAttrString
+    unless bracketed.startsWith "[" && bracketed.endsWith "]" do
+      throwError "ReducibilityStatus.toAttrString returned {bracketed}, expected [name]"
+    res := res.push (((bracketed.drop 1).dropEnd 1).toString, "")
+  return res
+
+def getAllAttributes (decl : Name) : MetaM (Array (String × String)) := do
+  let tags ← getTags decl
+  let enums ← getEnumValues decl
+  let parametric ← getParametricValues decl
+  let customs ← getCustomAttrs decl
+  return customs ++ tags ++ enums ++ parametric
+
+/-! ## Instance type index — doc-gen4's `InstanceInfo`, transcribed
+
+**Copied verbatim from doc-gen4**, changed only in `getInstPriority`, where a
+`panic!` became a `throwError`:
+
+    Copyright (c) 2021 Henrik Böving. All rights reserved.
+    Released under Apache 2.0 license as described in the file LICENSE.
+    Authors: Henrik Böving
+
+`DocGen4/Process/InstanceInfo.lean`. Two different things live here:
+
+* two **attributes** that only instances get — `instance <priority>` when the
+  priority is not the default 1000, and `defaultInstance <priority>` — appended
+  *after* `getAllAttributes`, so the order matters for the printed string;
+* the **type index**: the class name and the head symbols of the instance's
+  arguments. Those never reach a module page — the browser fills the "Instances"
+  lists from `declarations/declaration-data.bmp`.
+-/
+
+def getInstanceTypes (typ : Expr) : MetaM (Array Name) := do
+  let (_, _, tail) ← forallMetaTelescopeReducing typ
+  let args := tail.getAppArgs
+  let (_, bis, _) ← forallMetaTelescopeReducing (← inferType tail.getAppFn)
+  let (_, names) ← (bis.zip args).mapM findName |>.run .empty
+  return names
+where
+  findName : BinderInfo × Expr → StateRefT (Array Name) MetaM Unit
+    | (.default, .sort .zero) => modify (·.push `_builtin_prop)
+    | (.default, .sort (.succ _)) => modify (·.push `_builtin_typeu)
+    | (.default, .sort _) => modify (·.push `_builtin_sortu)
+    | (.default, e) =>
+      match e.getAppFn with
+      | .const name .. => modify (·.push name)
+      | _ => return ()
+    | _ => return ()
+
+/-- `some priority` only when it differs from the default 1000, exactly like
+doc-gen4: that is what decides whether the attribute is printed at all. -/
+def getInstPriority (name : Name) : MetaM (Option Nat) := do
+  let instances := instanceExtension.getState (← getEnv)
+  let some instEntry := instances.instanceNames.find? name
+    | throwError "instance not in instance extension: {name}"
+  if instEntry.priority == 1000 then return none else return some instEntry.priority
+
+def getDefaultInstanceAttr (decl : Name) (className : Name) :
+    MetaM (Option (String × String)) := do
+  let insts ← getDefaultInstances className
+  for (inst, prio) in insts do
+    if inst == decl then
+      return some ("defaultInstance", toString prio)
+  return none
+
+/-! ## Referenced constants — the demand side of the link map
+
+doc-gen4 turns a `Format` into linkable `RenderedCode` in two steps:
+`Widget.tagCodeInfos` (Lean core) wraps every tag position in a `SubexprInfo`,
+and doc-gen4's own `renderTagged` (`DocGen4/RenderedCode.lean`) decides which of
+them become `<a href>`. Only the second step names constants.
+-/
+
+structure RefAcc where
+  /-- Every occurrence, not a set: deduplication happens in the driver. -/
+  names : Array Name := #[]
+  nanos : Nat := 0
+  deriving Inhabited
+
+/--
+The names doc-gen4's `renderTagged` tags as `.const`, i.e. exactly the ones that
+become links in its HTML.
+
+`renderTagged` matches `.tag i t` where `i.info.val.info` is
+`Elab.Info.ofTermInfo ti` and `ti.expr.consumeMData` is `.const c _`. The same
+test is done directly against `infos`, skipping `Widget.tagCodeInfos`: the only
+thing that step adds is a `WithRpcRef.mk` per tag (an `IO.Ref` allocation for the
+RPC layer), which cannot change which names come out.
+
+`Elab.Info.ofFieldInfo` and `.ofDelabTermInfo` carry constants too, but
+`renderTagged` only matches `.ofTermInfo`, so those are not links in doc-gen4's
+output and are not collected here either — likely a doc-gen4 oversight,
+reproduced on purpose. `Expr.sort` gets its own (non-constant) tag and every
+other `Expr` head falls through to `.otherExpr`; neither yields a name.
+
+Walking *every* tag is equivalent to `renderTagged`'s recursion: it descends into
+the subtree of a `.const` tag whenever that subtree is not a bare `.text`, and a
+bare `.text` subtree carries no tags at all.
+-/
+partial def collectConsts (infos : SubExpr.PosMap Elab.Info)
+    (tt : Widget.TaggedText (Nat × Nat)) (acc : Array Name) : Array Name :=
+  match tt with
+  | .text _ => acc
+  | .append xs => xs.foldl (init := acc) fun acc x => collectConsts infos x acc
+  | .tag (n, _) t =>
+    let acc :=
+      match infos.get? n with
+      | some (.ofTermInfo ti) =>
+        match ti.expr.consumeMData with
+        | .const c _ => acc.push c
+        | _ => acc
+      | _ => acc
+    collectConsts infos t acc
+
+/-! ### Positional tags — the same walk, keeping the offsets
+
+`collectConsts` above throws the positions away. `collectSpans` below does not:
+it is the same traversal, but every tag that survives into doc-gen4's HTML comes
+out as a half-open interval over the fragment's **plain text**, in pre-order.
+
+Offsets are in **UTF-16 code units**, not characters and not UTF-8 bytes: the
+consumer is a `String`-slicing runtime and this is the unit that makes
+`s.slice(start, stop)` correct there without a conversion pass. Lean's own
+`String.length` is code points, so nothing here may use it.
+-/
+
+@[inline] def charUtf16 (c : Char) : Nat := if c.val < 0x10000 then 1 else 2
+
+def utf16Len (s : String) : Nat :=
+  String.foldl (fun n c => n + charUtf16 c) 0 s
+
+/--
+One tag position over a printed fragment: `[start, stop)` in UTF-16 code units.
+
+`kind` is exactly the three `RenderedCode.Tag`s that reach doc-gen4's HTML as an
+element (`DocGen4/Output/Base.lean:334-389`):
+
+| kind | tag | element |
+|---|---|---|
+| 0 | `.otherExpr` | `<span class="fn">` |
+| 1 | `.const name` | `<a href="…#name">`, or `<span class="fn">` when the name is not linkable |
+| 2 | `.sort _` | `<a href="…foundational_types.html">` |
+
+`.keyword` and `.string` are deliberately absent: `renderedCodeToHtmlAux` renders
+both as plain content, so they produce no element and no bytes.
+-/
+structure Span where
+  start : Nat
+  stop : Nat
+  kind : Nat
+  /-- Only meaningful for `kind = 1`. -/
+  name : Name := .anonymous
+  /-- Width, in UTF-16 code units, of the whitespace `splitWhitespaces` cut off
+  the **front** of this tag's bare text — the units `[start - front, start)`.
+  doc-gen4 re-emits that run as plain spaces, so a consumer that does not know
+  the width cannot tell a rebuilt `' '` from the pretty printer's original
+  `'\n'`. Zero for every span that is not the `kind = 1` bare-text case. -/
+  front : Nat := 0
+  /-- Same for the **back**: the units `[stop, stop + back)`. -/
+  back : Nat := 0
+  deriving Inhabited
+
+/--
+doc-gen4's `splitWhitespaces` (`DocGen4/RenderedCode.lean:150-157`) in offset
+form: a `.const` tag whose body is bare text links only the trimmed token, the
+surrounding whitespace stays outside the `<a>`.
+
+Returns `(leading whitespace, total UTF-16 width, trailing whitespace)`. Both
+whitespace counts are ASCII, so characters and UTF-16 units coincide there. The
+all-whitespace case matches doc-gen4's: `trimAsciiStart` empties the string first,
+so `back` is 0 and the (empty) anchor lands at the end.
+-/
+def wsTrim (s : String) : Nat × Nat × Nat :=
+  let r := String.foldl
+    (fun (acc : Nat × Nat × Nat × Bool) c =>
+      let (front, total, back, leading) := acc
+      if c.isWhitespace then
+        (if leading then front + 1 else front, total + charUtf16 c, back + 1, leading)
+      else
+        (front, total + charUtf16 c, 0, false))
+    (0, 0, 0, true) s
+  let (front, total, back, _) := r
+  (front, total, if front == total then 0 else back)
+
+/-- doc-gen4's sort split (`DocGen4/RenderedCode.lean:258-269`): when a `.sort`
+tag's body is bare text, only the part before the first space (`Type` / `Prop` /
+`Sort`) is inside the link; the universe that follows is not. -/
+def sortPrefixLen (s : String) : Nat :=
+  (String.foldl
+    (fun (acc : Nat × Bool) c =>
+      let (n, done) := acc
+      if done || c == ' ' then (n, true) else (n + charUtf16 c, false))
+    (0, false) s).1
+
+/--
+The pre-order span list of one formatted fragment.
+
+Node for node the same walk as `renderTagged`
+(`DocGen4/RenderedCode.lean:240-274`) composed with `Widget.tagCodeInfos`:
+
+* a tag position that is not in `infos` is **dropped** by `tagCodeInfos`, so
+  `renderTagged` never sees it and no span is emitted — the subtree is still
+  walked;
+* `.ofTermInfo` whose expression is `.const c _` -> kind 1, `.sort _` -> kind 2,
+  anything else -> kind 0; any other `Elab.Info` -> kind 0. This reproduces
+  doc-gen4, including its blind spot for `.ofFieldInfo` / `.ofDelabTermInfo`
+  (see `collectConsts`);
+* the two bare-text special cases (`wsTrim`, `sortPrefixLen`) narrow the span the
+  way `renderTagged` narrows the tag.
+
+**Pre-order, parent before child, outer before inner at equal offsets.** That
+ordering is the whole nesting rule: a consumer replays the list on a stack and
+closes a span when the next one starts beyond its `stop`. The parent's slot is
+therefore reserved *before* its subtree is walked and patched afterwards.
+-/
+partial def collectSpans (infos : SubExpr.PosMap Elab.Info)
+    (tt : Widget.TaggedText (Nat × Nat)) (acc : Array Span) (off : Nat) : Array Span × Nat :=
+  match tt with
+  | .text s => (acc, off + utf16Len s)
+  | .append xs => xs.foldl (init := (acc, off)) fun (acc, off) x => collectSpans infos x acc off
+  | .tag (n, _) t =>
+    match infos.get? n with
+    | none => collectSpans infos t acc off
+    | some info =>
+      let (kind, name) : Nat × Name :=
+        match info with
+        | .ofTermInfo ti =>
+          match ti.expr.consumeMData with
+          | .const c _ => (1, c)
+          | .sort _ => (2, .anonymous)
+          | _ => (0, .anonymous)
+        | _ => (0, .anonymous)
+      match kind, t with
+      | 1, .text s =>
+        let (front, total, back) := wsTrim s
+        (acc.push ⟨off + front, off + total - back, 1, name, front, back⟩, off + total)
+      | 2, .text s =>
+        (acc.push ⟨off, off + sortPrefixLen s, 2, name, 0, 0⟩, off + utf16Len s)
+      | _, _ =>
+        let idx := acc.size
+        let acc := acc.push ⟨off, off, kind, name, 0, 0⟩
+        let (acc, off') := collectSpans infos t acc off
+        (acc.set! idx ⟨off, off', kind, name, 0, 0⟩, off')
+
+/-- The per-declaration code-walk sink. With both flags on there is still only
+one walk: the names are read off the spans. -/
+structure CodeSink where
+  ref : IO.Ref RefAcc
+  tagged : Bool
+  wantNames : Bool
+
+/-- `none` when both `--refs` and `--tagged-code` are off. -/
+abbrev RefSink := Option CodeSink
+
+/-- Walks one formatted fragment. `text` must be `fmt.pretty` of the same `fmt`;
+it is what the spans index. -/
+def RefSink.collect (sink : RefSink) (fmt : Std.Format) (text : String)
+    (infos : SubExpr.PosMap Elab.Info) : MetaM (Array Span) := do
+  let some s := sink | return #[]
+  let r := s.ref
+  let t0 ← IO.monoNanosNow
+  let mut spans : Array Span := #[]
+  if s.tagged then
+    let (sp, width) := collectSpans infos (Widget.TaggedText.prettyTagged fmt) #[] 0
+    -- Not a debug assertion: it is the only thing between a correct offset and a
+    -- silently shifted one, and it also keeps the walk inside the timer (a pure
+    -- `let` whose consumers are below the next clock read gets sunk past it).
+    if width != utf16Len text then
+      throwError "tagged-code width {width} does not match the printed width {utf16Len text}"
+    if s.wantNames then
+      r.modify fun a =>
+        { a with names := sp.foldl (init := a.names) fun ns x =>
+            if x.kind == 1 then ns.push x.name else ns }
+    spans := sp
+  else if s.wantNames then
+    -- The walk is written *inside* `modify` rather than in a `let` above it: a
+    -- pure `let` whose only consumer is the closure below can be sunk into it,
+    -- and then `refUs` measures zero. Appending forces the array.
+    r.modify fun a =>
+      { a with names := a.names ++ collectConsts infos (Widget.TaggedText.prettyTagged fmt) #[] }
+  let t1 ← IO.monoNanosNow
+  r.modify fun a => { a with nanos := a.nanos + (t1 - t0) }
+  return spans
+
+/-! ## Pretty-print breakdown (`--pp-breakdown`)
+
+`ppUs` is everything between the two clock reads in `timedPp`. The split follows
+the steps the Lean pretty printer actually goes through, which are the same ones
+doc-gen4 goes through:
+
+    Expr --delab--> Syntax --sanitize--> Syntax --parenthesize--> Syntax
+         --format--> Format --pretty--> String
+
+`--tagged-code`'s span collection is *not* in here: it already has its own
+counter (`refUs`), and it runs after `pretty` on the same `Format`.
+
+The probe is `none` unless `--pp-breakdown`, and then every site is one `Option`
+test plus two clock reads.
+-/
+structure PpAcc where
+  delabNanos : Nat := 0
+  sanitizeNanos : Nat := 0
+  parenNanos : Nat := 0
+  formatNanos : Nat := 0
+  prettyNanos : Nat := 0
+  /-- `--tag` only. The production configuration's tagging is `--tagged-code`,
+  i.e. `refUs`. -/
+  tagNanos : Nat := 0
+  /-- Everything in `computeEquations` outside `ppEquation`: `getEqnsFor?` (which
+  elaborates the equation lemmas) or `valueToEq`, plus the `inferType` of each
+  lemma. -/
+  eqGenNanos : Nat := 0
+  sigCalls : Nat := 0
+  termCalls : Nat := 0
+  binders : Nat := 0
+  /-- UTF-8 bytes handed back by `Format.pretty`. Also what forces the layout to
+  happen between the two clock reads. -/
+  bytes : Nat := 0
+  deriving Inhabited
+
+def PpAcc.add (a b : PpAcc) : PpAcc :=
+  { delabNanos := a.delabNanos + b.delabNanos,
+    sanitizeNanos := a.sanitizeNanos + b.sanitizeNanos,
+    parenNanos := a.parenNanos + b.parenNanos,
+    formatNanos := a.formatNanos + b.formatNanos,
+    prettyNanos := a.prettyNanos + b.prettyNanos,
+    tagNanos := a.tagNanos + b.tagNanos,
+    eqGenNanos := a.eqGenNanos + b.eqGenNanos,
+    sigCalls := a.sigCalls + b.sigCalls,
+    termCalls := a.termCalls + b.termCalls,
+    binders := a.binders + b.binders,
+    bytes := a.bytes + b.bytes }
+
+def PpAcc.accounted (a : PpAcc) : Nat :=
+  a.delabNanos + a.sanitizeNanos + a.parenNanos + a.formatNanos + a.prettyNanos + a.tagNanos
+
+abbrev PpProbe := Option (IO.Ref PpAcc)
+
+@[inline] def PpProbe.now (p : PpProbe) : BaseIO Nat :=
+  match p with
+  | none => return 0
+  | some _ => IO.monoNanosNow
+
+@[inline] def PpProbe.bump (p : PpProbe) (f : PpAcc → PpAcc) : BaseIO Unit :=
+  match p with
+  | none => return ()
+  | some r => r.modify f
+
+/--
+Consumes a pure value while the clock is running. `@[noinline]` is load-bearing,
+not decoration: Lean's compiler may float a pure `let` down to its use site, and
+an opaque call that reads the value pins the evaluation between the two clock
+reads.
+-/
+@[noinline] def pin (n : Nat) : BaseIO Unit :=
+  if n == 0 then return () else return ()
+
+/-- A pretty printed signature. The `*Spans` fields are empty without
+`--tagged-code`; each one indexes the string next to it. -/
+structure Sig where
+  binders : Array String
+  implicits : Array Bool
+  type : String
+  binderSpans : Array (Array Span) := #[]
+  typeSpans : Array Span := #[]
+  deriving Inhabited
+
+/--
+The same path as doc-gen4's `Info.ofTypedName`, minus the tagging step:
+delaborate the type as a `declSig`, sanitize, parenthesize, then format the
+binders one by one and the result type separately.
+
+`currNamespace := n.getPrefix` mirrors doc-gen4. `openDecls` stays at whatever
+the caller put in the `Core.Context` — doc-gen4 leaves it empty, which is why
+scoped notation never appears in its output.
+-/
+def ppSignature (probe : PpProbe) (tagCode : Bool) (refs : RefSink) (n : Name) (t : Expr) :
+    MetaM Sig := do
+  let s0 ← probe.now
+  let (sigStx, infos) ← withTheReader Core.Context ({ · with currNamespace := n.getPrefix }) <|
+    delabCore t (delab := Delaborator.delabForallParamsWithSignature fun binders type =>
+      `(declSig| $binders* : $type))
+  let s1 ← probe.now
+  let sigStx := (sanitizeSyntax sigStx).run' { options := (← getOptions) }
+  if probe.isSome then pin sigStx.getNumArgs
+  let s2 ← probe.now
+  let sigStx ← parenthesize Parser.Command.declSig.parenthesizer sigStx
+  let s3 ← probe.now
+  probe.bump fun a => { a with
+    delabNanos := a.delabNanos + (s1 - s0),
+    sanitizeNanos := a.sanitizeNanos + (s2 - s1),
+    parenNanos := a.parenNanos + (s3 - s2),
+    sigCalls := a.sigCalls + 1 }
+  let `(declSig| $binders* : $type) := sigStx
+    | throwError "signature pretty printer failure for {n}"
+  let mut bs : Array String := #[]
+  let mut imps : Array Bool := #[]
+  let mut bspans : Array (Array Span) := #[]
+  for binder in binders do
+    let f0 ← probe.now
+    let fmt ← PrettyPrinter.format Parser.Term.bracketedBinder.formatter binder.raw
+    let f1 ← probe.now
+    if tagCode then
+      let _ ← tagIt fmt infos
+    let f2 ← probe.now
+    let txt := fmt.pretty
+    if probe.isSome then pin txt.utf8ByteSize
+    let f3 ← probe.now
+    probe.bump fun a => { a with
+      formatNanos := a.formatNanos + (f1 - f0),
+      tagNanos := a.tagNanos + (f2 - f1),
+      prettyNanos := a.prettyNanos + (f3 - f2),
+      binders := a.binders + 1, bytes := a.bytes + txt.utf8ByteSize }
+    bspans := bspans.push (← refs.collect fmt txt infos)
+    bs := bs.push txt
+    imps := imps.push (!binder.raw.isOfKind ``Parser.Term.explicitBinder)
+  let g0 ← probe.now
+  let fmt ← PrettyPrinter.formatTerm type.raw
+  let g1 ← probe.now
+  if tagCode then
+    let _ ← tagIt fmt infos
+  let g2 ← probe.now
+  let txt := fmt.pretty
+  if probe.isSome then pin txt.utf8ByteSize
+  let g3 ← probe.now
+  probe.bump fun a => { a with
+    formatNanos := a.formatNanos + (g1 - g0),
+    tagNanos := a.tagNanos + (g2 - g1),
+    prettyNanos := a.prettyNanos + (g3 - g2),
+    bytes := a.bytes + txt.utf8ByteSize }
+  let tspans ← refs.collect fmt txt infos
+  return { binders := bs, implicits := imps, type := txt,
+           binderSpans := bspans, typeSpans := tspans }
+where
+  /-- What doc-gen4 additionally does to get linkable code out of a `Format`. -/
+  tagIt (fmt : Std.Format) (infos : SubExpr.PosMap Elab.Info) : MetaM Unit := do
+    let tt := Widget.TaggedText.prettyTagged fmt
+    let ctx : Elab.ContextInfo := {
+      env := ← getEnv
+      mctx := ← getMCtx
+      options := ← getOptions
+      currNamespace := ← getCurrNamespace
+      openDecls := ← getOpenDecls
+      fileMap := default
+      ngen := ← getNGen
+    }
+    let _ ← Widget.tagCodeInfos ctx infos tt
+
+/--
+doc-gen4's `prettyPrintTerm` (`Process/Base.lean`), without the tagging.
+
+With `--refs` off this is `Meta.ppExpr`; with `--refs` on it switches to
+`ppExprWithInfos`, the call doc-gen4 makes, because that is the only way to get
+the `infos` the constants live in. `Meta.ppExpr` is `ppExprWithInfos` with the
+map thrown away, so the printed text is the same either way.
+-/
+def ppTermTagged (probe : PpProbe) (refs : RefSink) (e : Expr) : MetaM (String × Array Span) := do
+  match refs with
+  | none => return ((← Meta.ppExpr e).pretty, #[])
+  | some _ =>
+    match probe with
+    | none =>
+      let ⟨fmt, infos⟩ ← PrettyPrinter.ppExprWithInfos e
+      let txt := fmt.pretty
+      let spans ← refs.collect fmt txt infos
+      return (txt, spans)
+    | some _ =>
+      -- `PrettyPrinter.ppExprWithInfos` (`Lean/PrettyPrinter.lean:49-55`) inlined
+      -- so the four steps can be told apart. `maybePrependExprSizes` is omitted:
+      -- the identity unless `pp.exprSizes` is set, which this extractor never sets.
+      let s0 ← probe.now
+      let lctx := (← getLCtx).sanitizeNames.run' { options := (← getOptions) }
+      if probe.isSome then pin lctx.size
+      let s1 ← probe.now
+      let (fmt, infos, s2, s3, s4) ← Meta.withLCtx' lctx do
+        let (stx, infos) ← delabCore e (delab := Delaborator.delab)
+        let s2 ← probe.now
+        let stx := (sanitizeSyntax stx).run' { options := (← getOptions) }
+        if probe.isSome then pin stx.getNumArgs
+        let s3 ← probe.now
+        let stx ← parenthesizeCategory `term stx
+        let s4 ← probe.now
+        let fmt ← formatCategory `term stx
+        return (fmt, infos, s2, s3, s4)
+      let s5 ← probe.now
+      let txt := fmt.pretty
+      if probe.isSome then pin txt.utf8ByteSize
+      let s6 ← probe.now
+      probe.bump fun a => { a with
+        sanitizeNanos := a.sanitizeNanos + (s1 - s0) + (s3 - s2),
+        delabNanos := a.delabNanos + (s2 - s1),
+        parenNanos := a.parenNanos + (s4 - s3),
+        formatNanos := a.formatNanos + (s5 - s4),
+        prettyNanos := a.prettyNanos + (s6 - s5),
+        termCalls := a.termCalls + 1, bytes := a.bytes + txt.utf8ByteSize }
+      let spans ← refs.collect fmt txt infos
+      return (txt, spans)
+
+def ppTerm (probe : PpProbe) (refs : RefSink) (e : Expr) : MetaM String := do
+  return (← ppTermTagged probe refs e).1
+
+def valueToEq (v : DefinitionVal) : MetaM Expr := withLCtx {} {} do
+  withOptions (Lean.Meta.tactic.hygienic.set · false) do
+    lambdaTelescope v.value fun xs body => do
+      let us := v.levelParams.map mkLevelParam
+      let type ← mkEq (mkAppN (mkConst v.name us) xs) body
+      mkForallFVars xs type
+
+def ppEquation (probe : PpProbe) (refs : RefSink) (e : Expr) : MetaM (String × Array Span) :=
+  forallTelescope e.consumeMData fun _ body => ppTermTagged probe refs body
+
+def computeEquations (probe : PpProbe) (refs : RefSink) (v : DefinitionVal) :
+    MetaM (Array (String × Array Span)) := do
+  -- `getEqnsFor?` *elaborates* the equation lemmas; `ppEquation` only prints.
+  let g0 ← probe.now
+  let eqs? ← getEqnsFor? v.name
+  let g1 ← probe.now
+  probe.bump fun a => { a with eqGenNanos := a.eqGenNanos + (g1 - g0) }
+  match eqs? with
+  | some eqs =>
+    eqs.mapM fun eq => do
+      let h0 ← probe.now
+      let ty ← mkConstWithFreshMVarLevels eq >>= inferType
+      let h1 ← probe.now
+      probe.bump fun a => { a with eqGenNanos := a.eqGenNanos + (h1 - h0) }
+      ppEquation probe refs ty
+  | none =>
+    let h0 ← probe.now
+    let ty ← valueToEq v
+    let h1 ← probe.now
+    probe.bump fun a => { a with eqGenNanos := a.eqGenNanos + (h1 - h0) }
+    return #[← ppEquation probe refs ty]
+
+structure Member where
+  label : String
+  name : Name
+  text : String
+  spans : Array Span := #[]
+  /-- `label = "field"` only: the binders of the field's own signature, which
+  `fieldToHtml` (`Output/Structure.lean:27`) prints as `span.decl_args`. -/
+  binders : Array String := #[]
+  implicits : Array Bool := #[]
+  binderSpans : Array (Array Span) := #[]
+  /-- The field's docstring. doc-gen4 reads it back from the *projection
+  function's* row, which is `findDocString? projFn` — what this stores. -/
+  doc : Option String := none
+  /-- doc-gen4's `getFieldOrigin`. `false` selects the whole other branch of
+  `fieldToHtml`: no docstring, the short name becomes a link, and the `<li>` gets
+  `inherited_field` and usually no `id`. -/
+  isDirect : Bool := true
+
+structure DeclOut where
+  name : Name
+  module : Name
+  kind : String
+  sig : Sig
+  doc : Option String
+  line : Nat
+  col : Nat
+  /-- End of `DeclarationRanges.range`, which doc-gen4 feeds to
+  `mkGithubSourceLinker` as `#L<line>-L<endLine>`. -/
+  endLine : Nat := 0
+  endCol : Nat := 0
+  /-- `DeclarationRanges.selectionRange` — the *other* range
+  `findDeclarationRanges?` returns, which `range` above throws away.
+
+  For a declaration the source names, this is the `declId`
+  (`Lean.Elab.addDeclarationRangesForBuiltin` passes it explicitly), so it is a
+  proper sub-range of `range`. For a declaration nothing in the source names, the
+  elaborator calls `addDeclarationRangesFromSyntax` with one syntax tree and
+  `selectionRange` is **defaulted to `range`**
+  (`Lean/Elab/DeclarationRange.lean:50-55`). The two being equal is therefore a
+  fact about *how the declaration got its position*, which is what telling a
+  generated declaration apart from a hand-written one needs. -/
+  selLine : Nat := 0
+  selCol : Nat := 0
+  selEndLine : Nat := 0
+  selEndCol : Nat := 0
+  equations : Array String
+  eqFailed : Bool := false
+  members : Array Member := #[]
+  /-- Every constant doc-gen4 would link from this declaration's signature,
+  equations and structure parent types, in order of appearance and with
+  duplicates. Empty unless `--refs`. -/
+  refs : Array Name := #[]
+  /-- Spans over `equations`, index for index. Empty without `--tagged-code`. -/
+  equationSpans : Array (Array Span) := #[]
+  /-- The words doc-gen4's `getKindDescription` puts in front of the kind word.
+  Empty without `--tagged-code`; see `declModifiers`. -/
+  modifiers : Array String := #[]
+  /-- `getAllAttributes` plus, for instances, the two attributes
+  `InstanceInfo.ofDefinitionInfo` appends. `value` is `""` for the attributes
+  that do not take one. Empty without `--tagged-code`. -/
+  attrs : Array (String × String) := #[]
+  instClass : Option Name := none
+  /-- Instances only: `getInstanceTypes`. Never printed on a module page — the
+  browser builds those lists from `declaration-data.bmp`. -/
+  instTypes : Array Name := #[]
+  /-- `"direct"`, `"transitive"` or `none`. Filled by a pass of its own after the
+  analysis (`sorryTag`), not by `analyze`, so that `--jobs` cannot reach it. -/
+  sorryTag : Option String := none
+  /-- The declaration `@[ext]` realized this one from; see `extOriginOf`. -/
+  extOrigin : Option Name := none
+
+def DeclOut.toJson (d : DeclOut) : Json :=
+  Json.mkObj [
+    ("name", Json.str d.name.toString),
+    ("module", Json.str d.module.toString),
+    ("kind", Json.str d.kind),
+    ("binders", Json.arr (d.sig.binders.map Json.str)),
+    ("implicits", Json.arr (d.sig.implicits.map (Json.bool ·))),
+    ("type", Json.str d.sig.type),
+    ("doc", match d.doc with | some s => Json.str s | none => Json.null),
+    ("line", Json.num d.line),
+    ("col", Json.num d.col),
+    ("equations", Json.arr (d.equations.map Json.str)),
+    ("eqFailed", Json.bool d.eqFailed),
+    ("members", Json.arr (d.members.map fun m =>
+      Json.mkObj [("label", Json.str m.label), ("name", Json.str m.name.toString),
+                  ("text", Json.str m.text)])),
+    ("refs", Json.arr (d.refs.map (Json.str ·.toString)))
+  ]
+
+structure Counters where
+  ppNanos : Nat := 0
+  eqNanos : Nat := 0
+  docNanos : Nat := 0
+  eqCount : Nat := 0
+  eqFailures : Nat := 0
+  eqSkipped : Nat := 0
+  /-- Runs *inside* the pretty printing it measures, so this is a part of
+  `ppNanos` (and of `eqNanos` for the equations), not an addition to it. -/
+  refNanos : Nat := 0
+  /-- Occurrences, not unique names. -/
+  refCount : Nat := 0
+  /-- `getAllAttributes`. A term of its own, *not* contained in `ppNanos`. -/
+  attrNanos : Nat := 0
+  attrCount : Nat := 0
+  attrDecls : Nat := 0
+  /-- The instance type index. Also its own term. -/
+  instNanos : Nat := 0
+  instCount : Nat := 0
+  instTypeNames : Nat := 0
+  /-- `getFieldOrigin` + the field docstring lookup. This one **is inside
+  `ppNanos`**: it happens in the same telescope as the member pretty printing,
+  which `timedPp` wraps. Subtract it before adding, like `refNanos`. -/
+  memberNanos : Nat := 0
+  memberFields : Nat := 0
+  memberInherited : Nat := 0
+  /-- The split of `ppNanos` + `eqNanos` into the pretty printer's own steps.
+  Zero without `--pp-breakdown`. -/
+  pp : PpAcc := {}
+  eqPp : PpAcc := {}
+  /-- `isBlackListed`, which runs for every *candidate*, including the dropped
+  ones. Timed only with `--pp-breakdown`. -/
+  blNanos : Nat := 0
+  blCalls : Nat := 0
+  deriving Inhabited
+
+def Counters.add (a b : Counters) : Counters :=
+  { ppNanos := a.ppNanos + b.ppNanos,
+    eqNanos := a.eqNanos + b.eqNanos,
+    docNanos := a.docNanos + b.docNanos,
+    eqCount := a.eqCount + b.eqCount,
+    eqFailures := a.eqFailures + b.eqFailures,
+    eqSkipped := a.eqSkipped + b.eqSkipped,
+    refNanos := a.refNanos + b.refNanos,
+    refCount := a.refCount + b.refCount,
+    attrNanos := a.attrNanos + b.attrNanos,
+    attrCount := a.attrCount + b.attrCount,
+    attrDecls := a.attrDecls + b.attrDecls,
+    instNanos := a.instNanos + b.instNanos,
+    instCount := a.instCount + b.instCount,
+    instTypeNames := a.instTypeNames + b.instTypeNames,
+    memberNanos := a.memberNanos + b.memberNanos,
+    memberFields := a.memberFields + b.memberFields,
+    memberInherited := a.memberInherited + b.memberInherited,
+    pp := a.pp.add b.pp,
+    eqPp := a.eqPp.add b.eqPp,
+    blNanos := a.blNanos + b.blNanos,
+    blCalls := a.blCalls + b.blCalls }
+
+abbrev AnalyzeM := StateRefT Counters MetaM
+
+def timedPp (act : MetaM α) : AnalyzeM α := do
+  let t0 ← IO.monoNanosNow
+  let r ← act
+  let t1 ← IO.monoNanosNow
+  modify fun c => { c with ppNanos := c.ppNanos + (t1 - t0) }
+  return r
+
+/-- The declaration `@[ext]` realized `name` *from*, or nothing.
+
+**This is the only origin litedoc4 emits**, and not because the others are
+uninteresting: `simps` / `to_additive` / `mk_iff` / `to_dual` / `alias` keep
+their maps in **Mathlib's** environment extensions, and an extractor that imports
+Mathlib stops building against a Mathlib-free package — which is the one thing
+`e2e/micro` and its CI gate exist to keep working. `extExtension` is in Lean
+core.
+
+Two conditions, and **both are load-bearing**:
+
+* **The name has one of the two shapes core builds, and the environment agrees.**
+  `realizeExtTheorem` names its theorem `structName ++ "ext"` and refuses to run
+  unless `isStructure structName`; `realizeExtIffTheorem` names its theorem
+  `extName ++ "_iff"` (`Lean/Elab/Tactic/Ext.lean:107,142`).
+* **`selectionRange == range`.** Being in the extension is *not* the same as
+  being generated: `@[ext] theorem MulHom.ext` is hand written and is in the
+  extension. A hand-written declaration has a `declId` for the elaborator to
+  record as its selection range, so the two ranges differ; a realized one is
+  positioned by `addDeclarationRangesFromSyntax name (← getRef)` with no
+  selection syntax at all, and `Lean/Elab/DeclarationRange.lean:53` then defaults
+  `selectionRange` to `range`.
+
+What comes back is the declaration the realization **took as input, one step**:
+`P.ext` came from the structure `P`, `P.ext_iff` came from `P.ext`. Collapsing
+`P.ext_iff` onto `P` would make it claim a structure as its origin in the case
+where `P.ext` is hand written, which is precisely the case the second condition
+exists to keep apart.
+
+**`selectionRange == range` on its own is not "generated"** and must not be used
+as if it were (measured 2026-08-21 →
+`benchmarks/results/generated-decls-2026-08-21.txt`): over 2,786 Mathlib
+declarations it also fires on structure and class field projections and on
+macro-defined declarations, and it does *not* fire on the `to_additive` twins
+whose additive name the author wrote out. It is a necessary condition here,
+joined to a name the environment can confirm. -/
+def extOriginOf (world : World) (name : Name) (sameRange : Bool) : CoreM (Option Name) := do
+  unless sameRange do return none
+  match name with
+  | .str parent "ext" =>
+    if isStructure (← getEnv) parent && (← Lean.Meta.Ext.isExtTheorem name) then
+      return some parent
+    else
+      return none
+  | .str parent "ext_iff" =>
+    let extName := Name.str parent "ext"
+    if world.contains extName && (← Lean.Meta.Ext.isExtTheorem extName) then
+      return some extName
+    else
+      return none
+  | _ => return none
+
+/-- doc-gen4's `Info.ofConstantVal` + `NameInfo.ofTypedName` for one name. -/
+def baseInfo (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (module : Name) (kind : String)
+    (cv : ConstantVal) (sig? : Option Sig := none) : AnalyzeM DeclOut := do
+  let sig ← match sig? with
+    | some s => pure s
+    | none => do
+      let e := Expr.const cv.name (cv.levelParams.map mkLevelParam)
+      let t ← inferType e
+      timedPp (ppSignature probe cfg.tagCode refs cv.name t)
+  let tDoc0 ← IO.monoNanosNow
+  let doc ← world.docString? cv.name
+  let tDoc1 ← IO.monoNanosNow
+  modify fun c => { c with docNanos := c.docNanos + (tDoc1 - tDoc0) }
+  let some ranges ← findDeclarationRanges? cv.name
+    | throwError "{cv.name} is a declaration without position"
+  -- doc-gen4 collects the attributes here, inside `Info.ofTypedName`
+  -- (`Process/NameInfo.lean:118-126`), for every declaration it keeps.
+  let mut attrs : Array (String × String) := #[]
+  if cfg.wantAttrs then
+    let t0 ← IO.monoNanosNow
+    attrs ← getAllAttributes cv.name
+    let t1 ← IO.monoNanosNow
+    modify fun c => { c with
+      attrNanos := c.attrNanos + (t1 - t0), attrCount := c.attrCount + 1,
+      attrDecls := c.attrDecls + (if attrs.isEmpty then 0 else 1) }
+  let sameRange :=
+    ranges.range.pos.line == ranges.selectionRange.pos.line
+      && ranges.range.pos.column == ranges.selectionRange.pos.column
+      && ranges.range.endPos.line == ranges.selectionRange.endPos.line
+      && ranges.range.endPos.column == ranges.selectionRange.endPos.column
+  let extOrigin ← extOriginOf world cv.name sameRange
+  return {
+    name := cv.name, module, kind, sig, doc, attrs, extOrigin,
+    line := ranges.range.pos.line, col := ranges.range.pos.column,
+    endLine := ranges.range.endPos.line, endCol := ranges.range.endPos.column,
+    selLine := ranges.selectionRange.pos.line,
+    selCol := ranges.selectionRange.pos.column,
+    selEndLine := ranges.selectionRange.endPos.line,
+    selEndCol := ranges.selectionRange.endPos.column,
+    equations := #[]
+  }
+
+def metaCodePrefixes : Array Name := #[`Mathlib.Tactic, `Mathlib.Meta]
+
+def isMetaCode (n : Name) : Bool :=
+  let u := privateToUserName n
+  metaCodePrefixes.any fun p => p != u && p.isPrefixOf u
+
+def withEquations (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : DefinitionVal)
+    (d : DeclOut) : AnalyzeM DeclOut := do
+  unless cfg.genEquations do return d
+  if isMetaCode v.name then
+    modify fun c => { c with eqSkipped := c.eqSkipped + 1 }
+    return d
+  -- A probe of its own, so the equations' share can be separated; folded into both.
+  let eqProbe : PpProbe ← match probe with
+    | none => pure none
+    | some _ => do let r ← IO.mkRef ({} : PpAcc); pure (some r)
+  let t0 ← IO.monoNanosNow
+  let r ← tryCatchRuntimeEx
+    (do let eqs ← computeEquations eqProbe refs v; return Except.ok eqs)
+    (fun e => do return Except.error (← e.toMessageData.toString))
+  let t1 ← IO.monoNanosNow
+  modify fun c => { c with eqNanos := c.eqNanos + (t1 - t0) }
+  if let some r := eqProbe then
+    let a ← r.get
+    probe.bump (·.add a)
+    modify fun c => { c with eqPp := c.eqPp.add a }
+  match r with
+  | .ok eqs =>
+    modify fun c => { c with eqCount := c.eqCount + eqs.size }
+    if eqs.isEmpty then IO.eprintln s!"EQEMPTY {v.name}\t{(t1 - t0) / 1000000}"
+    return { d with equations := eqs.map (·.1), equationSpans := eqs.map (·.2) }
+  | .error msg =>
+    modify fun c => { c with eqFailures := c.eqFailures + 1 }
+    IO.eprintln s!"EQFAIL {v.name}\t{(t1 - t0) / 1000000}\t{String.mk (((msg.splitOn "\n").headD "").toList.take 200)}"
+    return { d with eqFailed := true }
+
+/-- doc-gen4's `getFieldOrigin` (`Process/StructureInfo.lean:39-47`): whether the
+field was declared in this structure, and which projection function names it.
+For an inherited field the answer is the **parent's** projection function, which
+is the name `fieldToHtml` links to.
+
+**Body copied verbatim from doc-gen4** (only this docstring is new):
+
+    Copyright (c) 2021 Henrik Böving. All rights reserved.
+    Released under Apache 2.0 license as described in the file LICENSE.
+    Authors: Henrik Böving
+-/
+partial def getFieldOrigin (structName field : Name) : MetaM (Bool × Name) := do
+  let env ← getEnv
+  for parent in getStructureParentInfo env structName do
+    if (findField? env parent.structName field).isSome then
+      let (_, projFn) ← getFieldOrigin parent.structName field
+      return (false, projFn)
+  let some fi := getFieldInfo? env structName field
+    | throwError "no such field {field} in {structName}"
+  return (true, fi.projFn)
+
+/-- Fields and parents of a structure, as doc-gen4's `getFieldTypes` computes
+them. Note what is *not* here: doc-gen4 also runs `getAllAttributes` on the
+projection function a second time inside `getFieldTypes` and then throws that
+away — the output path reads the field's attributes from the projection
+function's own `name_info` row. The projection function is a declaration this
+extractor already visits, so its attributes are already in the IR. -/
+def structureMembers (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (v : InductiveVal) :
+    AnalyzeM (Array Member) := do
+  let env ← getEnv
+  let structName := v.name
+  let us := v.levelParams.map mkLevelParam
+  let ctorVal := getStructureCtor env structName
+  let ctorSig ← timedPp (ppSignature probe cfg.tagCode refs ctorVal.name ctorVal.type)
+  let out : Array Member :=
+    #[{ label := "ctor", name := ctorVal.name, text := ctorSig.type, spans := ctorSig.typeSpans }]
+  let wantExtra := cfg.wantMemberExtra
+  -- The extra work is inside the telescope, which `timedPp` bills to `ppNanos`,
+  -- so its duration is carried back out: `AnalyzeM`'s state is not reachable here.
+  let (inner, extraNanos, fields, inherited) ← timedPp <|
+    forallTelescopeReducing v.type fun params _ =>
+      withLocalDeclD `self (mkAppN (mkConst structName us) params) fun s => do
+        let mut acc : Array Member := #[]
+        let mut extra := 0
+        let mut fields := 0
+        let mut inherited := 0
+        for parent in getStructureParentInfo env structName do
+          let proj := mkApp (mkAppN (mkConst parent.projFn us) params) s
+          let (text, spans) ← ppTermTagged probe refs (← inferType proj)
+          acc := acc.push { label := "parent", name := parent.projFn, text, spans }
+        for fieldName in getStructureFieldsFlattened env structName (includeSubobjectFields := false) do
+          let proj ← mkProjection s fieldName
+          let ty ← inferType proj
+          fields := fields + 1
+          if wantExtra then
+            let t0 ← IO.monoNanosNow
+            let (isDirect, projFn) ← getFieldOrigin structName fieldName
+            let t1 ← IO.monoNanosNow
+            extra := extra + (t1 - t0)
+            if !isDirect then inherited := inherited + 1
+            let sig ← ppSignature probe cfg.tagCode refs projFn ty
+            let t2 ← IO.monoNanosNow
+            let doc ← world.docString? projFn
+            let t3 ← IO.monoNanosNow
+            extra := extra + (t3 - t2)
+            acc := acc.push {
+              label := "field", name := projFn, text := sig.type, spans := sig.typeSpans,
+              binders := sig.binders, implicits := sig.implicits,
+              binderSpans := sig.binderSpans, doc, isDirect }
+          else
+            let projFn := (getProjFnForField? env structName fieldName).getD (structName ++ fieldName)
+            let sig ← ppSignature probe cfg.tagCode refs projFn ty
+            acc := acc.push { label := "field", name := projFn, text := sig.type, spans := sig.typeSpans }
+        return (acc, extra, fields, inherited)
+  modify fun c => { c with
+    memberNanos := c.memberNanos + extraNanos,
+    memberFields := c.memberFields + fields,
+    memberInherited := c.memberInherited + inherited }
+  return out ++ inner
+
+def inductiveMembers (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : InductiveVal) :
+    AnalyzeM (Array Member) := do
+  let mut out : Array Member := #[]
+  for ctor in v.ctors do
+    let cv := (← getConstInfoCtor ctor).toConstantVal
+    let e := Expr.const cv.name (cv.levelParams.map mkLevelParam)
+    let sig ← timedPp (ppSignature probe cfg.tagCode refs cv.name (← inferType e))
+    out := out.push { label := "ctor", name := cv.name, text := sig.type, spans := sig.typeSpans }
+  return out
+
+/--
+The words doc-gen4's `getKindDescription`
+(`DocGen4/Process/DocInfo.lean:211-247`) puts in front of the kind word, as
+flags. The composition rule is doc-gen4's, and the consumer has to reapply it:
+
+| `kind` | `span.decl_kind` |
+|---|---|
+| `definition` | `unsafe`? `noncomputable`? then `abbrev` if present else `def` |
+| `instance` | `unsafe`? `noncomputable`? then `instance` |
+| `axiom` | `unsafe`? then `axiom` |
+| `opaque` | `partial def` if `partial`, else `unsafe opaque` if `unsafe`, else `opaque` |
+| `inductive` | `unsafe`? then `inductive` |
+| everything else | the kind word alone |
+
+Nothing is emitted for a theorem, even when it is an instance
+(`InstanceInfo.ofTheoremVal` hard-codes both flags false), and nothing for
+`structure` / `class` / `class inductive`, whose `getKindDescription` branches
+ignore `isUnsafe`.
+-/
+def declModifiers (world : World) (ci : ConstantInfo) (kind : String) : MetaM (Array String) := do
+  let env ← getEnv
+  match ci with
+  | .axiomInfo i => return if i.isUnsafe then #["unsafe"] else #[]
+  | .opaqueInfo i =>
+    if world.contains (Compiler.mkUnsafeRecName i.name) then return #["partial"]
+    else if i.isUnsafe then return #["unsafe"]
+    else return #[]
+  | .defnInfo i =>
+    let mut m : Array String := #[]
+    if i.safety == DefinitionSafety.unsafe then m := m.push "unsafe"
+    if isNoncomputable env i.name then m := m.push "noncomputable"
+    if kind == "definition" && i.hints.isAbbrev then m := m.push "abbrev"
+    return m
+  | .inductInfo i => return if kind == "inductive" && i.isUnsafe then #["unsafe"] else #[]
+  | _ => return #[]
+
+/-- doc-gen4's `InstanceInfo.ofDefinitionInfo` for one declaration `isInstance`
+said yes to: two more attributes and the type index. Runs after `baseInfo`,
+because the two attributes are *appended* to `getAllAttributes`'s result and the
+order is what gets printed. -/
+def withInstanceIndex (cfg : Cfg) (type : Expr) (d : DeclOut) : AnalyzeM DeclOut := do
+  unless cfg.wantInstIndex do return d
+  let t0 ← IO.monoNanosNow
+  let mut attrs := d.attrs
+  if let some priority ← getInstPriority d.name then
+    attrs := attrs.push ("instance", toString priority)
+  let some className ← isClass? type
+    | throwError "isClass? on {d.name} returned none"
+  if let some instAttr ← getDefaultInstanceAttr d.name className then
+    attrs := attrs.push instAttr
+  let typeNames ← getInstanceTypes type
+  let t1 ← IO.monoNanosNow
+  modify fun c => { c with
+    instNanos := c.instNanos + (t1 - t0), instCount := c.instCount + 1,
+    instTypeNames := c.instTypeNames + typeNames.size }
+  return { d with attrs, instClass := some className, instTypes := typeNames }
+
+/-- doc-gen4's `DocInfo.ofConstant`. -/
+def analyzeCore (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (module : Name) (name : Name)
+    (ci : ConstantInfo) (p? : Option DeclOut := none) : AnalyzeM (Option DeclOut) := do
+  let b0 ← probe.now
+  let bl ← isBlackListed name
+  let b1 ← probe.now
+  if probe.isSome then
+    modify fun c => { c with blNanos := c.blNanos + (b1 - b0), blCalls := c.blCalls + 1 }
+  if bl then
+    return none
+  let sig? := p?.map (·.sig)
+  match ci with
+  | .axiomInfo i => return some (← baseInfo cfg world probe refs module "axiom" i.toConstantVal sig?)
+  | .thmInfo i =>
+    let isInst ← if ← isProjFn i.name then pure false else isInstanceDecl i.name
+    let kind := if isInst then "instance" else "theorem"
+    let d ← baseInfo cfg world probe refs module kind i.toConstantVal sig?
+    if isInst then return some (← withInstanceIndex cfg i.type d) else return some d
+  | .opaqueInfo i => return some (← baseInfo cfg world probe refs module "opaque" i.toConstantVal sig?)
+  | .defnInfo i =>
+    let isInst ← if ← isProjFn i.name then pure false else isInstanceDecl i.name
+    let kind := if isInst then "instance" else "definition"
+    let d ← baseInfo cfg world probe refs module kind i.toConstantVal sig?
+    let d ← if isInst then withInstanceIndex cfg i.type d else pure d
+    match p? with
+    | some p =>
+      if cfg.genEquations then
+        return some { d with equations := p.equations, equationSpans := p.equationSpans, eqFailed := p.eqFailed }
+      else return some d
+    | none => return some (← withEquations cfg probe refs i d)
+  | .inductInfo i =>
+    let env ← getEnv
+    let isStruct := isStructure env i.name
+    let isCls := isClass env i.name
+    let kind :=
+      if isStruct then (if isCls then "class" else "structure")
+      else (if isCls then "class_inductive" else "inductive")
+    let d ← baseInfo cfg world probe refs module kind i.toConstantVal sig?
+    let members ← match p? with
+      | some p => p.members.mapM fun m => do
+          if m.label == "field" && cfg.wantMemberExtra then
+            return { m with doc := ← world.docString? m.name }
+          else return m
+      | none =>
+        if isStruct then structureMembers cfg world probe refs i
+        else inductiveMembers cfg probe refs i
+    return some { d with members }
+  | .ctorInfo i => return some (← baseInfo cfg world probe refs module "constructor" i.toConstantVal sig?)
+  | .quotInfo i => return some (← baseInfo cfg world probe refs module "opaque" i.toConstantVal sig?)
+  | .recInfo _ => return none
+
+def analyze (cfg : Cfg) (world : World) (module : Name) (name : Name) (ci : ConstantInfo)
+    (p? : Option DeclOut := none) : AnalyzeM (Option DeclOut) := do
+  let refs : RefSink ←
+    if cfg.collectRefs || cfg.taggedCode then
+      let r ← IO.mkRef {}
+      pure (some { ref := r, tagged := cfg.taggedCode, wantNames := cfg.collectRefs })
+    else
+      pure none
+  let probe : PpProbe ←
+    if cfg.ppBreakdown then do let r ← IO.mkRef ({} : PpAcc); pure (some r) else pure none
+  let d? ← analyzeCore cfg world probe refs module name ci p?
+  let acc ← match refs with
+    | some s => s.ref.get
+    | none => pure {}
+  modify fun c => { c with
+    refNanos := c.refNanos + acc.nanos, refCount := c.refCount + acc.names.size }
+  if let some r := probe then
+    let a ← r.get
+    modify fun c => { c with pp := c.pp.add a }
+  match d? with
+  | none => return none
+  | some d =>
+    let d := { d with refs := match p? with | some p => p.refs | none => acc.names }
+    if cfg.taggedCode then
+      return some { d with modifiers := ← declModifiers world ci d.kind }
+    else
+      return some d
+
+/-! ## `sorry` / `sorryAx` — doc-gen4 issue #270
+
+**Two claims, not one.** "This proof is a hole" and "something underneath this
+proof is a hole" are read differently, so the IR carries `"direct"` or
+`"transitive"` and omits the key when neither holds. It does **not** carry the
+axiom set: every Mathlib-dependent declaration transitively uses
+`Classical.choice` / `propext` / `Quot.sound`, so the full list is a large field
+with almost no information in it.
+
+**`Lean.collectAxioms` is not the closure walk it reads like.** Lean keeps a
+`PersistentEnvExtension` (`Lean/Util/CollectAxioms.lean`, `exportedAxiomsExt`)
+whose per-declaration axiom arrays are computed when a module's olean is
+*written*; for an **imported** constant `collectAxioms` is a binary search in
+that module's entry array and walks no expression at all. Everything this
+extractor analyzes is imported, so the memo a per-declaration closure walk would
+need has already been paid, once, by whoever built the oleans. Byte-identical in
+v4.31.0 / v4.32.2 / v4.33.0.
+
+**The direct half is the part that walks expressions, so it is only asked when
+the answer can be `"direct"`.** A declaration whose axiom array has no `sorryAx`
+cannot be either value and is answered by the binary search alone; the cost of
+the whole feature therefore scales with the number of *tainted* declarations,
+not with the package.
+-/
+
+/-- Does this declaration's **own** statement or proof mention `sorryAx`?
+
+`Expr.foldConsts` rather than `ConstantInfo.getUsedConstantsAsSet`: the question
+is a membership test rather than a set, and that function folds an inductive's
+constructors into its answer — which would make a type whose *constructor* is
+`sorry`'d claim the `sorry` as its own. -/
+def mentionsSorryAx (ci : ConstantInfo) : Bool :=
+  let has (e : Expr) : Bool := e.foldConsts false fun c acc => acc || c == ``sorryAx
+  has ci.type ||
+    match ci.value? (allowOpaque := true) with
+    | some v => has v
+    | none => false
+
+/-- `"direct"`, `"transitive"`, or nothing.
+
+A declaration that is both is `"direct"`: it is the stronger claim and the one a
+reader acts on. The fallthrough for a name the environment cannot find is
+`"transitive"` rather than `"direct"` for the same reason — `collectAxioms` has
+already said `sorryAx` is down there, and claiming the hole is *here* without
+having seen the term would be the stronger claim made on no evidence. -/
+def sorryTag (name : Name) : MetaM (Option String) := do
+  let axioms ← collectAxioms name
+  unless axioms.contains ``sorryAx do
+    return none
+  let some ci := (← getEnv).find? name
+    | return some "transitive"
+  return some (if mentionsSorryAx ci then "direct" else "transitive")
+
+structure SorryStats where
+  asked : Nat := 0
+  direct : Nat := 0
+  transitive : Nat := 0
+  deriving Inhabited
+
+/-! ## Module docs and tactics — doc-gen4's `getAllModuleDocs`, restructured
+
+doc-gen4 (`DocGen4/Process/Analyze.lean`) loops over the relevant modules and
+calls `collectTactics module env` for each one; `collectTactics` calls
+`Elab.Tactic.Doc.allTacticDocs`, which rebuilds the *whole* environment's tactic
+table from the parser tables, and then throws away everything not defined in
+`module`. That is 432 rebuilds of the same table. Here the table is built once
+and bucketed by defining module.
+-/
+
+structure ModDocOut where
+  line : Nat
+  col : Nat
+  text : String
+
+structure TacticOut where
+  internalName : Name
+  userName : String
+  tags : Array Name
+  docString : String
+  definingModule : Name
+
+structure ModuleOut where
+  name : Name
+  imports : Array Name
+  docs : Array ModDocOut
+  tactics : Array TacticOut
+
+def ModuleOut.toJson (m : ModuleOut) : Json :=
+  Json.mkObj [
+    ("module", Json.str m.name.toString),
+    ("imports", Json.arr (m.imports.map (Json.str ·.toString))),
+    ("docs", Json.arr (m.docs.map fun d =>
+      Json.mkObj [("line", Json.num d.line), ("col", Json.num d.col), ("text", Json.str d.text)])),
+    ("tactics", Json.arr (m.tactics.map fun t =>
+      Json.mkObj [("internalName", Json.str t.internalName.toString),
+                  ("userName", Json.str t.userName),
+                  ("tags", Json.arr (t.tags.map (Json.str ·.toString))),
+                  ("docString", Json.str t.docString),
+                  ("definingModule", Json.str t.definingModule.toString)]))
+  ]
+
+/-- doc-gen4's `collectTactics` body for one `TacticDoc`, kept byte-identical
+(`Process/Analyze.lean:142-148`). **Copied verbatim from doc-gen4:**
+
+    Copyright (c) 2021 Henrik Böving. All rights reserved.
+    Released under Apache 2.0 license as described in the file LICENSE.
+    Authors: Henrik Böving
+-/
+def mkTacticOut (doc : TacticDoc) (definingModule : Name) : TacticOut :=
+  { internalName := doc.internalName
+    userName := doc.userName
+    tags := doc.tags.toArray
+    docString := doc.docString.getD "This tactic has no documentation." ++
+      ("\n\n".intercalate doc.extensionDocs.toList)
+    definingModule }
+
+def collectModuleDocs (world : World) (targets : Array Name) : MetaM (Array ModuleOut) := do
+  let mut out : Array ModuleOut := Array.emptyWithCapacity targets.size
+  for m in targets do
+    let some modIdx := world.moduleIndex? m
+      | throwError "module not present in the environment: {m}"
+    let docs := (world.moduleDocs m).map fun d =>
+      { line := d.declarationRange.pos.line, col := d.declarationRange.pos.column,
+        text := d.doc : ModDocOut }
+    out := out.push {
+      name := m
+      imports := world.imports modIdx
+      docs
+      tactics := #[]
+    }
+  return out
+
+/-- One enumeration of the tactic table for the whole environment, bucketed by
+defining module. Returns the updated modules, the total number of tactics in the
+environment, and how many of them landed in a target module. -/
+def collectTacticsOnce (world : World) (mods : Array ModuleOut) :
+    MetaM (Option (Array ModuleOut × Nat × Nat)) := do
+  let mut idxOf : Std.HashMap Name Nat := Std.HashMap.emptyWithCapacity mods.size
+  for h : i in [0 : mods.size] do
+    idxOf := idxOf.insert mods[i].name i
+  let some allDocs ← world.tactics | return none
+  let mut mods := mods
+  let mut assigned := 0
+  for doc in allDocs do
+    let some definingModule := world.moduleOf? doc.internalName | continue
+    let some i := idxOf[definingModule]? | continue
+    mods := mods.modify i fun m => { m with tactics := m.tactics.push (mkTacticOut doc definingModule) }
+    assigned := assigned + 1
+  return some (mods, allDocs.size, assigned)
+
+/-- Every tactic in the environment with its defining module, regardless of the
+target list: a module list on which the bucketing can be checked against doc-gen4. -/
+def dumpAllTactics (path : FilePath) : MetaM Nat := do
+  let env ← getEnv
+  let modNames := env.header.moduleNames
+  let docs ← allTacticDocs
+  let h ← IO.FS.Handle.mk path .write
+  let mut n := 0
+  for doc in docs do
+    let mod := match env.getModuleIdxFor? doc.internalName with
+      | some i => modNames[i]!.toString
+      | none => "<none>"
+    h.putStr s!"{mod}\t{doc.internalName}\n"
+    n := n + 1
+  return n
+
+/-- doc-gen4's shape, for comparison only: `allTacticDocs` once per module.
+Returns the number of assignments, the time inside `allTacticDocs`, and the time in
+doc-gen4's filter loop over its result. Each iteration gets a fresh result array, so
+neither number can be flattered by a memoised thunk from an earlier iteration. -/
+def collectTacticsPerModule (targets : Array Name) : MetaM (Nat × Nat × Nat) := do
+  let env ← getEnv
+  let header := env.header
+  let mut assigned := 0
+  let mut allNanos := 0
+  let mut filterNanos := 0
+  for module in targets do
+    let t0 ← IO.monoNanosNow
+    let docs ← allTacticDocs
+    let t1 ← IO.monoNanosNow
+    allNanos := allNanos + (t1 - t0)
+    for doc in docs do
+      let some modIdx := env.getModuleIdxFor? doc.internalName | continue
+      if module != header.moduleNames[modIdx]! then continue
+      assigned := assigned + 1
+    let t2 ← IO.monoNanosNow
+    filterNanos := filterNanos + (t2 - t1)
+  return (assigned, allNanos, filterNanos)
+
+/-! ### Probe: where does one `allTacticDocs` call spend its time?
+
+A transcription of `Lean.Elab.Tactic.Doc.allTacticDocs` (and of the
+`firstTacticTokens` it calls) with timers between the parts. The sum is printed
+next to a plain `allTacticDocs` call so the transcription can be checked against
+the real thing.
+-/
+
+structure TacticProbe where
+  tagFold : Nat := 0
+  nameExtFold : Nat := 0
+  leadingTable : Nat := 0
+  trailingTable : Nat := 0
+  kindLoop : Nat := 0
+  docString : Nat := 0
+  extensions : Nat := 0
+  kinds : Nat := 0
+  produced : Nat := 0
+  extStrings : Nat := 0
+  tagsSeen : Nat := 0
+  leadingToks : Nat := 0
+  trailingToks : Nat := 0
+  collectKindsCalls : Nat := 0
+  firstTokens : Nat := 0
+  direct5 : Nat := 0
+  bucket5 : Nat := 0
+  forceExt5 : Nat := 0
+  idxOnly5 : Nat := 0
+  hoisted5 : Nat := 0
+  bucket5b : Nat := 0
+  touch5 : Nat := 0
+  lookup5 : Nat := 0
+  full5 : Nat := 0
+  fullHoisted5 : Nat := 0
+  deriving Inhabited
+
+def probeAllTacticDocs : MetaM TacticProbe := do
+  let env ← getEnv
+  let mut p : TacticProbe := {}
+
+  let t0 ← IO.monoNanosNow
+  let allTags :=
+    tacticTagExt.toEnvExtension.getState env |>.importedEntries
+      |>.push ((tacticTagExt.exportEntriesFn env (tacticTagExt.getState env)).exported)
+  let mut tacTags : NameMap NameSet := {}
+  for arr in allTags do
+    for (tac, tag) in arr do
+      tacTags := tacTags.insert tac (tacTags.getD tac {} |>.insert tag)
+  let t1 ← IO.monoNanosNow
+  p := { p with tagFold := t1 - t0 }
+
+  let some tactics := (Lean.Parser.parserExtension.getState env).categories.find? `tactic
+    | return p
+
+  -- `firstTacticTokens`, split into its three parts.
+  let t2 ← IO.monoNanosNow
+  let mut firstTokens : NameMap String :=
+    Lean.Parser.Tactic.Doc.tacticNameExt.toEnvExtension.getState env
+      |>.importedEntries
+      |>.push ((Lean.Parser.Tactic.Doc.tacticNameExt.exportEntriesFn env
+          (Lean.Parser.Tactic.Doc.tacticNameExt.getState env)).exported)
+      |>.foldl (init := {}) fun names inMods =>
+        inMods.foldl (init := names) fun names (k, n) => names.insert k n
+  let t3 ← IO.monoNanosNow
+  p := { p with nameExtFold := t3 - t2 }
+
+  let addFirstTokens table (firsts : NameMap String) : NameMap String × Nat × Nat := Id.run do
+    let mut firsts := firsts
+    let mut toks := 0
+    let mut calls := 0
+    for (tok, ps) in table do
+      if tok == `«$» then continue
+      toks := toks + 1
+      for (pa, _) in ps do
+        calls := calls + 1
+        for (k, ()) in pa.info.collectKinds {} do
+          if tactics.kinds.contains k then
+            let tok := tok.toString (escape := false)
+            firsts := firsts.alter k (·.getD tok)
+    return (firsts, toks, calls)
+
+  let t4 ← IO.monoNanosNow
+  let (ft, lt, lc) := addFirstTokens tactics.tables.leadingTable firstTokens
+  firstTokens := ft
+  let t5 ← IO.monoNanosNow
+  p := { p with leadingTable := t5 - t4, leadingToks := lt, collectKindsCalls := lc }
+
+  let (ft, tt, tc) := addFirstTokens tactics.tables.trailingTable firstTokens
+  firstTokens := ft
+  let t6 ← IO.monoNanosNow
+  p := { p with trailingTable := t6 - t5, trailingToks := tt,
+                collectKindsCalls := p.collectKindsCalls + tc,
+                firstTokens := firstTokens.size }
+
+  -- Every result is folded into a counter: a plain `let _ := ...` is never
+  -- forced, and the probe then measures nothing.
+  let mut docNanos := 0
+  let mut extNanos := 0
+  let mut produced := 0
+  let mut kinds := 0
+  let mut extStrings := 0
+  let mut tagsSeen := 0
+  let mut docsFound := 0
+  let t7 ← IO.monoNanosNow
+  for (tac, _) in tactics.kinds do
+    kinds := kinds + 1
+    if let some _ := alternativeOfTactic env tac then continue
+    let userName : String := (firstTokens.get? tac).getD tac.toString
+    if userName.isEmpty then continue
+    let d0 ← IO.monoNanosNow
+    let doc ← findDocString? env tac
+    let d1 ← IO.monoNanosNow
+    docNanos := docNanos + (d1 - d0)
+    produced := produced + 1
+    docsFound := docsFound + (if doc.isSome then 1 else 0)
+    let e0 ← IO.monoNanosNow
+    extStrings := extStrings + (getTacticExtensions env tac).size
+    let e1 ← IO.monoNanosNow
+    extNanos := extNanos + (e1 - e0)
+    tagsSeen := tagsSeen + (tacTags.getD tac {}).size
+  let t8 ← IO.monoNanosNow
+  if docsFound > kinds then throwError "unreachable"  -- keeps `docsFound` live
+  p := { p with kindLoop := t8 - t7, docString := docNanos, extensions := extNanos,
+                kinds, produced, extStrings, tagsSeen }
+
+  -- The transcription above only accounts for part of one call, so measure the
+  -- real function and doc-gen4's filter loop over its result directly.
+  let header := env.header
+  let mut sink := 0
+  let t9 ← IO.monoNanosNow
+  for _ in [0 : 5] do
+    let ds ← allTacticDocs
+    sink := sink + ds.size
+  let t10 ← IO.monoNanosNow
+  p := { p with direct5 := t10 - t9 }
+
+  let ds ← allTacticDocs
+  let names := ds.map (·.internalName)
+  let t11 ← IO.monoNanosNow
+  for _ in [0 : 5] do
+    for d in ds do
+      if let some modIdx := env.getModuleIdxFor? d.internalName then
+        sink := sink + (if header.moduleNames[modIdx]! == d.internalName then 1 else 0)
+  let t12 ← IO.monoNanosNow
+  p := { p with bucket5 := t12 - t11 }
+  for _ in [0 : 5] do
+    for d in ds do
+      if let some modIdx := env.getModuleIdxFor? d.internalName then
+        sink := sink + (if header.moduleNames[modIdx]! == d.internalName then 1 else 0)
+  let t12c ← IO.monoNanosNow
+  p := { p with bucket5b := t12c - t12 }
+
+  -- Three nested versions of the same loop; the differences name the cost.
+  for _ in [0 : 5] do
+    for d in ds do
+      sink := sink + (if d.internalName.isAnonymous then 1 else 0)
+  let t12d ← IO.monoNanosNow
+  p := { p with touch5 := t12d - t12c }
+  for _ in [0 : 5] do
+    for d in ds do
+      sink := sink + (if (env.getModuleIdxFor? d.internalName).isSome then 1 else 0)
+  let t12e ← IO.monoNanosNow
+  p := { p with lookup5 := t12e - t12d }
+  for _ in [0 : 5] do
+    for d in ds do
+      if let some modIdx := env.getModuleIdxFor? d.internalName then
+        sink := sink + (if header.moduleNames[modIdx]! == d.internalName then 1 else 0)
+  let t12f ← IO.monoNanosNow
+  p := { p with full5 := t12f - t12e }
+  let modNames := header.moduleNames
+  for _ in [0 : 5] do
+    for d in ds do
+      if let some modIdx := env.getModuleIdxFor? d.internalName then
+        sink := sink + (if modNames[modIdx]! == d.internalName then 1 else 0)
+  let t12g ← IO.monoNanosNow
+  p := { p with fullHoisted5 := t12g - t12f }
+
+  -- Bisect the filter loop: the hash lookup itself vs. everything around it.
+  let c2m := env.const2ModIdx
+  let t14 ← IO.monoNanosNow
+  for _ in [0 : 5] do
+    for n in names do
+      sink := sink + (if (env.getModuleIdxFor? n).isSome then 1 else 0)
+  let t15 ← IO.monoNanosNow
+  p := { p with idxOnly5 := t15 - t14 }
+  for _ in [0 : 5] do
+    for n in names do
+      sink := sink + (if c2m[n]?.isSome then 1 else 0)
+  let t16 ← IO.monoNanosNow
+  p := { p with hoisted5 := t16 - t15 }
+
+  let t12b ← IO.monoNanosNow
+  for _ in [0 : 5] do
+    for d in ds do
+      sink := sink + d.extensionDocs.size
+  let t13 ← IO.monoNanosNow
+  p := { p with forceExt5 := t13 - t12b }
+
+  if sink > 1000000000 then throwError "unreachable"
+  return p
+
+/-! ## IR persistence (`--write-ir`)
+
+The granularity is the module, so the layout is
+
+```
+<irDir>/index.json                     package index: module list, hash, path
+<irDir>/modules/<Module.Name>.json     one file per module (the IR proper)
+<irDir>/deps/<Root>.json               dependency-side map slice, one per package
+```
+
+Three properties are deliberate:
+
+* **Absolute identifiers only.** A reference is a `(defining module, name)` pair.
+  No URL — relative or absolute — is stored; relativisation happens at output
+  time.
+* **The dependency slice is two columns** (name -> module) and covers only the
+  constants this package actually refers to.
+* **Every module carries a content hash**, the single source of truth for "what
+  has to be re-extracted / re-rendered".
+-/
+
+/-- Schema version of the on-disk IR. Part of every module file, therefore part
+of every module hash: a schema change invalidates the cache. The flag picks the
+version rather than always bumping it.
+
+Schema 5 adds `sorry`, whose *absent* key means "no sorry" — a meaning a
+schema-4 file cannot carry, since there the key could not exist. The reading side
+keeps the two apart with `ModuleFile::sorry_of`, which answers `Unknown` below
+schema 5. Nothing has to migrate: the extract key carries `irSchemaVersion`, so a
+bump re-extracts.
+
+**Not every change to what is written moves this number.** `attrs` elements
+became `[name, value]` arrays where schema 4 had one concatenated string, and
+`selectionRange` and `generated` were added, all under the same 5;
+`litedoc4-incr`'s `EXTRACTOR_ID` is what carries those, and the reader accepts
+both `attrs` shapes because a schema-4 file is still readable and still says `4`.
+`selectionRange` costs **+0.96%** of the IR on the measurement target
+(measured → `benchmarks/results/generated-decls-2026-08-21.txt`) and is written for
+every declaration of a tagged file on purpose — an omission rule would give its
+absence two meanings. -/
+def irSchemaVersion (tagged : Bool) : Nat := if tagged then 5 else 1
+
+/-- Where `--write-ir` writes: **`--ir-dir` and nothing else**. No default, and
+the `IR_DIR` environment variable is not consulted — both were ways for a
+`--write-ir` run to put several MB into a directory the caller never named and
+report success, and an environment variable left over from another run can
+redirect a command line that looks complete.
+
+`parseArgs` rejects `--write-ir` without `--ir-dir`, so this is total in
+practice; the `throw` is what makes "in practice" checkable rather than
+assumed. -/
+def getIrDir (cfg : Cfg) : IO FilePath := do
+  match cfg.irDir with
+  | some p => return p
+  | none => throw <| IO.userError "--write-ir needs --ir-dir: there is no default"
+
+/-- 16 hex digits of Lean's `String.hash`.
+
+**This is a 64-bit non-cryptographic hash**, not SHA-256: Lean core ships no
+digest, and pulling one in would put an unrelated implementation inside a number
+this is trying to measure. For 432 modules the collision probability is ~5e-15,
+which is fine for change detection; it is *not* fine as a tamper-evident content
+address. `lean_string_hash` is also only stable within a Lean version, which is
+harmless because the Lean version is already in the cache key. -/
+def hashHex (s : String) : String :=
+  let digits := String.ofList (Nat.toDigits 16 (hash s).toNat)
+  "".pushn '0' (16 - digits.length) ++ digits
+
+/-- First component of a module name, standing in for "which package does this
+dependency belong to". A heuristic: Lake package membership is not derivable from
+the environment alone. -/
+def moduleRoot : Name → Name
+  | .str p s => if p.isAnonymous then .str p s else moduleRoot p
+  | .num p n => if p.isAnonymous then .num p n else moduleRoot p
+  | .anonymous => .anonymous
+
+/-- One span as it goes on the wire.
+
+A `kind = 1` span whose tag text had leading or trailing whitespace is written as
+`[start, stop, 1, name, front, back]`. Without those two the consumer cannot
+reproduce `splitWhitespaces`, which **rewrites that whitespace as spaces**
+(`Base.lean:281-288`, `"".pushn ' ' n`) — same width, different characters. The
+pair is emitted only when at least one of the two is non-zero, so the cost falls
+on the fragments that need it rather than on every span. -/
+def spanToJson (s : Span) : Json :=
+  if s.kind == 1 then
+    if s.front == 0 && s.back == 0 then
+      Json.arr #[Json.num s.start, Json.num s.stop, Json.num 1, Json.str s.name.toString]
+    else
+      Json.arr #[Json.num s.start, Json.num s.stop, Json.num 1, Json.str s.name.toString,
+                 Json.num s.front, Json.num s.back]
+  else
+    Json.arr #[Json.num s.start, Json.num s.stop, Json.num s.kind]
+
+def spansToJson (sp : Array Span) : Json := Json.arr (sp.map spanToJson)
+
+structure SpanTally where
+  total : Nat := 0
+  const : Nat := 0
+  sort : Nat := 0
+  other : Nat := 0
+  /-- `kind = 1` spans that carry a non-zero `front`/`back`. -/
+  ws : Nat := 0
+  /-- Total UTF-16 units of whitespace those spans describe. -/
+  wsUnits : Nat := 0
+  deriving Inhabited
+
+def SpanTally.add (t : SpanTally) (sp : Array Span) : SpanTally :=
+  sp.foldl (init := t) fun t s =>
+    match s.kind with
+    | 1 =>
+      let t := { t with total := t.total + 1, const := t.const + 1 }
+      if s.front == 0 && s.back == 0 then t
+      else { t with ws := t.ws + 1, wsUnits := t.wsUnits + s.front + s.back }
+    | 2 => { t with total := t.total + 1, sort := t.sort + 1 }
+    | _ => { t with total := t.total + 1, other := t.other + 1 }
+
+/-- `index` is the declaration's position in the order the extractor enumerated
+its module (`moduleData.constNames`, blacklisted names dropped): two modules on
+the measurement target have declarations whose `(line, col)` tie, so position on
+the page is not recoverable from the range alone. -/
+def declToIrJson (tagged : Bool) (index : Nat) (d : DeclOut) (refs : Array (Name × Name)) : Json :=
+  Json.mkObj (
+    [ ("name", Json.str d.name.toString),
+      ("kind", Json.str d.kind),
+      ("binders", Json.arr (d.sig.binders.map Json.str)),
+      ("implicits", Json.arr (d.sig.implicits.map (Json.bool ·))),
+      ("type", Json.str d.sig.type),
+      ("doc", match d.doc with | some s => Json.str s | none => Json.null),
+      ("line", Json.num d.line),
+      ("col", Json.num d.col),
+      ("equations", Json.arr (d.equations.map Json.str)),
+      ("members", Json.arr (d.members.map fun m =>
+        Json.mkObj (
+          [ ("label", Json.str m.label), ("name", Json.str m.name.toString),
+            ("text", Json.str m.text) ] ++
+          (if tagged then [("code", spansToJson m.spans)] else []) ++
+          -- Only `field` members carry these: `fieldToHtml` is the only
+          -- consumer, and a `ctor` / `parent` member would pay 5 empty keys.
+          (if tagged && m.label == "field" then
+            [ ("binders", Json.arr (m.binders.map Json.str)),
+              ("implicits", Json.arr (m.implicits.map (Json.bool ·))),
+              ("binderCode", Json.arr (m.binderSpans.map spansToJson)),
+              ("doc", match m.doc with | some s => Json.str s | none => Json.null),
+              ("isDirect", Json.bool m.isDirect) ]
+           else [])))),
+      ("refs", Json.arr (refs.map fun (m, n) =>
+        Json.arr #[Json.str m.toString, Json.str n.toString]))
+    ] ++
+    (if tagged then
+      [ ("index", Json.num index),
+        ("endLine", Json.num d.endLine),
+        ("endCol", Json.num d.endCol),
+        -- Always present in a tagged file: an omission rule ("only when it
+        -- differs from `range`") would make the *absent* key mean two things.
+        ("selectionRange", Json.arr #[Json.num d.selLine, Json.num d.selCol,
+                                      Json.num d.selEndLine, Json.num d.selEndCol]),
+        ("modifiers", Json.arr (d.modifiers.map Json.str)),
+        ("binderCode", Json.arr (d.sig.binderSpans.map spansToJson)),
+        ("typeCode", spansToJson d.sig.typeSpans),
+        ("equationCode", Json.arr (d.equationSpans.map spansToJson)) ]
+     else []) ++
+    -- Emitted only when there is something to say: 4,750 declarations with
+    -- `"attrs":[]` would be 52 KB of nothing, and a reader tells "absent" from
+    -- "old schema" by `schemaVersion`, not by the key.
+    (if tagged && !d.attrs.isEmpty then
+       [("attrs", Json.arr (d.attrs.map fun (n, v) => Json.arr #[Json.str n, Json.str v]))]
+     else []) ++
+    -- Same rule. The absent key means "no sorry" **because the file says
+    -- `schemaVersion` 5** — in a schema-4 file it could not exist, so the same
+    -- absence means "nobody was asked". `ModuleFile::sorry_of` collapses the two.
+    (match (if tagged then d.sorryTag else none) with
+     | some tag => [("sorry", Json.str tag)]
+     | none => []) ++
+    -- Same rule again. `[origin, name]` rather than a bare name because the
+    -- origin is the half that decides what the reader may claim; a second origin
+    -- would arrive as a second first element rather than as a second key.
+    (match (if tagged then d.extOrigin else none) with
+     | some origin => [("generated", Json.arr #[Json.str "ext", Json.str origin.toString])]
+     | none => []) ++
+    (if tagged then
+      match d.instClass with
+      | some c =>
+        [ ("instClass", Json.str c.toString),
+          ("instTypes", Json.arr (d.instTypes.map (Json.str ·.toString))) ]
+      | none => []
+     else []))
+
+structure IrStats where
+  moduleFiles : Nat := 0
+  moduleBytes : Nat := 0
+  declarations : Nat := 0
+  /-- Deduplicated `(declaration, reference)` pairs actually written. -/
+  refPairs : Nat := 0
+  /-- References whose defining module the environment could not name. Dropped
+  from the IR. -/
+  refsUnresolved : Nat := 0
+  depFiles : Nat := 0
+  depEntries : Nat := 0
+  depBytes : Nat := 0
+  indexBytes : Nat := 0
+  /-- Fragments (binder / result type / equation / member) carrying a span list.
+  Zero without `--tagged-code`. -/
+  spanFragments : Nat := 0
+  spans : SpanTally := {}
+  serializeNanos : Nat := 0
+  /-- `hashHex` over that string, kept apart from the write because the hash is
+  load-bearing for the cache. -/
+  hashNanos : Nat := 0
+  writeNanos : Nat := 0
+  deriving Inhabited
+
+def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (world : World)
+    (targets : Array Name) (mods : Array ModuleOut) (results : Array DeclOut) : IO IrStats := do
+  let modulesDir := dir / "modules"
+  let depsDir := dir / "deps"
+  IO.FS.createDirAll modulesDir
+  IO.FS.createDirAll depsDir
+
+  let targetSet : Std.HashSet Name :=
+    Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
+
+  let mut byModule : Std.HashMap Name (Array DeclOut) :=
+    Std.HashMap.emptyWithCapacity targets.size
+  for d in results do
+    byModule := byModule.insert d.module ((byModule.getD d.module #[]).push d)
+
+  let mut st : IrStats := {}
+  let mut indexEntries : Array Json := #[]
+  -- Accumulated while the declarations are walked: resolution is paid once.
+  let mut depMap : Std.HashMap Name Name := Std.HashMap.emptyWithCapacity 1024
+
+  for m in mods do
+    let decls := byModule.getD m.name #[]
+    let tSer0 ← IO.monoNanosNow
+    let mut declJson : Array Json := Array.emptyWithCapacity decls.size
+    for hd : i in [0 : decls.size] do
+      let d := decls[i]
+      let mut seen : Std.HashSet Name := Std.HashSet.emptyWithCapacity d.refs.size
+      let mut pairs : Array (Name × Name) := Array.emptyWithCapacity d.refs.size
+      for n in d.refs do
+        if seen.contains n then continue
+        seen := seen.insert n
+        match world.moduleOf? n with
+        | some defMod =>
+          pairs := pairs.push (defMod, n)
+          unless targetSet.contains defMod do
+            depMap := depMap.insert n defMod
+        | none => st := { st with refsUnresolved := st.refsUnresolved + 1 }
+      st := { st with refPairs := st.refPairs + pairs.size }
+      if tagged then
+        let mut tally := st.spans
+        let mut frags := st.spanFragments + 1 + d.sig.binderSpans.size
+                         + d.equationSpans.size + d.members.size
+        for sp in d.sig.binderSpans do
+          tally := tally.add sp
+        tally := tally.add d.sig.typeSpans
+        for sp in d.equationSpans do
+          tally := tally.add sp
+        for mem in d.members do
+          tally := tally.add mem.spans
+          frags := frags + mem.binderSpans.size
+          for sp in mem.binderSpans do
+            tally := tally.add sp
+        st := { st with spans := tally, spanFragments := frags }
+      declJson := declJson.push (declToIrJson tagged i d pairs)
+    let body := Json.mkObj [
+      ("schemaVersion", Json.num (irSchemaVersion tagged)),
+      ("module", Json.str m.name.toString),
+      ("imports", Json.arr (m.imports.map (Json.str ·.toString))),
+      ("moduleDocs", Json.arr (m.docs.map fun d =>
+        Json.mkObj [("line", Json.num d.line), ("col", Json.num d.col),
+                    ("text", Json.str d.text)])),
+      ("tactics", Json.arr (m.tactics.map fun t =>
+        Json.mkObj [("internalName", Json.str t.internalName.toString),
+                    ("userName", Json.str t.userName),
+                    ("tags", Json.arr (t.tags.map (Json.str ·.toString))),
+                    ("docString", Json.str t.docString)])),
+      ("declarations", Json.arr declJson)
+    ]
+    let text := body.compress
+    let bytes := text.utf8ByteSize
+    -- The `throw` branch is what keeps the serialisation inside this timer: a
+    -- plain `let`'s only consumers are below the next clock read and the compiler
+    -- sinks it there. Measured here first as 0 µs for 8.6 MB.
+    if bytes == 0 then throw <| IO.userError s!"empty IR body for {m.name}"
+    let tSer1 ← IO.monoNanosNow
+    let h := hashHex text
+    if h.length != 16 then throw <| IO.userError s!"bad digest width for {m.name}"
+    let tHash ← IO.monoNanosNow
+    let file := s!"modules/{m.name}.json"
+    IO.FS.writeFile (dir / file) text
+    let tWrite ← IO.monoNanosNow
+    st := { st with
+      moduleFiles := st.moduleFiles + 1
+      moduleBytes := st.moduleBytes + bytes
+      declarations := st.declarations + decls.size
+      serializeNanos := st.serializeNanos + (tSer1 - tSer0)
+      hashNanos := st.hashNanos + (tHash - tSer1)
+      writeNanos := st.writeNanos + (tWrite - tHash) }
+    indexEntries := indexEntries.push <| Json.mkObj [
+      ("module", Json.str m.name.toString),
+      ("file", Json.str file),
+      ("bytes", Json.num bytes),
+      ("declarations", Json.num decls.size),
+      ("contentHash", Json.str h)]
+
+  -- Dependency-side map slice, one file per package: two columns, name -> module.
+  let mut byRoot : Std.HashMap Name (Array (Name × Name)) := {}
+  for (n, defMod) in depMap do
+    let r := moduleRoot defMod
+    byRoot := byRoot.insert r ((byRoot.getD r #[]).push (n, defMod))
+  let mut depEntriesJson : Array Json := #[]
+  for (r, entries) in byRoot.toArray.qsort (fun a b => a.1.toString < b.1.toString) do
+    let tSer0 ← IO.monoNanosNow
+    let body := Json.mkObj [
+      ("schemaVersion", Json.num (irSchemaVersion tagged)),
+      ("package", Json.str r.toString),
+      ("declarations", Json.mkObj
+        (entries.toList.map fun (n, defMod) => (n.toString, Json.str defMod.toString)))
+    ]
+    let text := body.compress
+    let bytes := text.utf8ByteSize
+    if bytes == 0 then throw <| IO.userError s!"empty dependency map for {r}"
+    let tSer1 ← IO.monoNanosNow
+    let file := s!"deps/{r}.json"
+    IO.FS.writeFile (dir / file) text
+    let tWrite ← IO.monoNanosNow
+    st := { st with
+      depFiles := st.depFiles + 1
+      depEntries := st.depEntries + entries.size
+      depBytes := st.depBytes + bytes
+      serializeNanos := st.serializeNanos + (tSer1 - tSer0)
+      writeNanos := st.writeNanos + (tWrite - tSer1) }
+    depEntriesJson := depEntriesJson.push <| Json.mkObj [
+      ("package", Json.str r.toString), ("file", Json.str file),
+      ("entries", Json.num entries.size), ("bytes", Json.num bytes)]
+
+  let tIdx0 ← IO.monoNanosNow
+  let index := Json.mkObj ([
+    ("schemaVersion", Json.num (irSchemaVersion tagged)),
+    ("generator", Json.str "lean-doc/experiments/stage4b"),
+    ("leanVersion", Json.str Lean.versionString),
+    ("hashAlgorithm", Json.str "lean-string-hash-64/hex16"),
+    ("moduleCount", Json.num st.moduleFiles),
+    ("declarationCount", Json.num st.declarations)] ++
+    -- Present only for an ablation run, and then it is a refusal marker: this IR
+    -- is missing a part of the schema on purpose and must not be rendered.
+    (if ablations.isEmpty then [] else [("ablations", Json.arr (ablations.map Json.str))]) ++
+    [("modules", Json.arr indexEntries),
+    ("dependencyMaps", Json.arr depEntriesJson)])
+  let text := index.compress
+  let bytes := text.utf8ByteSize
+  if bytes == 0 then throw <| IO.userError "empty index"
+  let tIdx1 ← IO.monoNanosNow
+  IO.FS.writeFile (dir / "index.json") text
+  let tIdx2 ← IO.monoNanosNow
+  return { st with
+    indexBytes := bytes
+    serializeNanos := st.serializeNanos + (tIdx1 - tIdx0)
+    writeNanos := st.writeNanos + (tIdx2 - tIdx1) }
+
+def readNameList (path : FilePath) : IO (Array Name) := do
+  let text ← IO.FS.readFile path
+  let mut out : Array Name := #[]
+  for rawLine in text.splitOn "\n" do
+    let line := rawLine.trimAscii.toString
+    if line.isEmpty || line.startsWith "#" || line.startsWith "--" then
+      continue
+    out := out.push line.toName
+  return out
+
+structure Failure where
+  name : Name
+  message : String
+
+/-- One record per *candidate*, blacklisted ones included. `analyze` bills its
+time to phase counters that are only ever read as a sum; this keeps the
+per-declaration numbers so the distribution can be looked at instead of assumed
+to be uniform. -/
+structure DeclProf where
+  index : Nat
+  name : Name
+  module : Name
+  /-- `""` when the candidate produced no declaration. -/
+  kind : String
+  outcome : String
+  /-- Wall time of the whole `analyze` call, `isBlackListed` included. -/
+  nanos : Nat
+  ppNanos : Nat
+  eqNanos : Nat
+  /-- The part of `eqNanos` in `getEqnsFor?` / `valueToEq` + `inferType`, and the part in the
+  pretty printer's own steps; the rest is the tagged-code walk and the telescope. -/
+  eqGenNanos : Nat
+  eqPpNanos : Nat
+  refNanos : Nat
+  blNanos : Nat
+  eqCount : Nat
+  /-- UTF-8 bytes the layout step produced for this declaration. -/
+  bytes : Nat
+  deriving Inhabited
+
+/-- Nanoseconds, not microseconds: a blacklisted candidate costs single-digit
+microseconds and the question this file answers is exactly whether that is zero. -/
+def DeclProf.line (p : DeclProf) : String :=
+  s!"\{\"i\":{p.index},\"name\":{Json.str p.name.toString |>.compress}," ++
+  s!"\"module\":{Json.str p.module.toString |>.compress}," ++
+  s!"\"kind\":\"{p.kind}\",\"outcome\":\"{p.outcome}\",\"ns\":{p.nanos}," ++
+  s!"\"ppNs\":{p.ppNanos},\"eqNs\":{p.eqNanos},\"eqGenNs\":{p.eqGenNanos},\"eqPpNs\":{p.eqPpNanos}," ++
+  s!"\"refNs\":{p.refNanos},\"blNs\":{p.blNanos}," ++
+  s!"\"eqs\":{p.eqCount},\"bytes\":{p.bytes}}\n"
+
+/-- The reuse seam: the previous version's output of a declaration whose print key is unchanged,
+and where this run's results go. -/
+structure Reuse where
+  prev : Name → Option DeclOut
+  out : IO.Ref (Array DeclOut)
+
+/-- One extraction.
+
+When `preEnv` is given the search path is already initialised and the environment
+already imported, so both are skipped and everything downstream runs unchanged.
+The environment is *not* threaded back out — each request derives its own
+(`--open` activation returns a new one) and drops it, which is what makes reuse
+sound rather than merely fast. -/
+def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Option Reuse := none) : IO UInt32 := do
+  let sink ← Sink.create cfg.outPath
+  let tTotal0 ← IO.monoNanosNow
+
+  let targets ← readNameList cfg.modulesPath
+  if targets.isEmpty then
+    IO.eprintln s!"no module names in {cfg.modulesPath}"
+    return 1
+  let onlyNames ← match cfg.onlyPath with
+    | some p => do
+      let ns ← readNameList p
+      pure (some (Std.HashSet.emptyWithCapacity ns.size |>.insertMany ns))
+    | none => pure none
+
+  let tSp0 ← IO.monoNanosNow
+  if pre.isNone then
+    initSearchPath (← findSysroot)
+  let tSp1 ← IO.monoNanosNow
+  sink.emit "stage4b.initSearchPath" (tSp1 - tSp0)
+
+  let tImp0 ← IO.monoNanosNow
+  let (env, world) ← match pre with
+    | some p => pure p
+    | none => do
+      unsafe Lean.enableInitializersExecution
+      let env ← importModules (targets.map (Import.mk · false true false)) Options.empty
+        (leakEnv := true) (loadExts := true)
+      pure (env, World.ofEnv env)
+  let tImp1 ← IO.monoNanosNow
+  sink.emit "stage4b.importModules" (tImp1 - tImp0)
+    [("directImports", toString targets.size),
+     ("resident", if pre.isSome then "1" else "0")]
+
+  sink.emit "stage4b.envStats" 0 [("loadedModules", toString world.moduleNames.size)]
+
+  -- `--open` probe. Scoped notation lives in `ScopedEnvExtension`s, which an
+  -- imported environment has *not* activated; `Core.Context.openDecls` alone is
+  -- not enough, the extension state has to be activated on the environment
+  -- itself. doc-gen4 does neither, which is why it never uses scoped notation.
+  let env ←
+    if cfg.openNamespaces.isEmpty then
+      pure env
+    else do
+      let act : CoreM Unit := cfg.openNamespaces.forM Lean.activateScoped
+      let (_, st) ← act.toIO { fileName := "<litedoc4/stage4b>", fileMap := default }
+        { env := env }
+      pure st.env
+
+  -- Index route: module -> declarations. The first module in input order owns a
+  -- name that appears in several modules' oleans (25 such names on the target).
+  let tIdx0 ← IO.monoNanosNow
+  let mut seen : Std.HashSet Name := Std.HashSet.emptyWithCapacity (16 * targets.size)
+  let mut candidates : Array (Name × Name) := #[]
+  let mut enumerated := 0
+  for m in targets do
+    let some modIdx := world.moduleIndex? m
+      | throw <| IO.userError s!"module not present in the environment: {m}"
+    for n in world.constNames modIdx do
+      enumerated := enumerated + 1
+      if seen.contains n then
+        continue
+      seen := seen.insert n
+      candidates := candidates.push (n, m)
+  let tIdx1 ← IO.monoNanosNow
+  sink.emit "stage4b.indexLookup" (tIdx1 - tIdx0)
+    [("targetModules", toString targets.size),
+     ("enumerated", toString enumerated),
+     ("candidates", toString candidates.size)]
+
+  -- Options and heartbeat budget copied from doc-gen4 (`DocGen4/Load.lean` for the
+  -- options, `Process/Analyze.lean` for the per-constant `maxHeartbeats`):
+  --   Copyright (c) 2021 Henrik Böving. All rights reserved.
+  --   Released under Apache 2.0 license as described in the file LICENSE.
+  --   Authors: Henrik Böving
+  -- `pp.funBinderTypes` in particular changes the printed text (`fun (n : ℕ) =>`
+  -- instead of `fun n =>`), so without it the two tools are not printing the same
+  -- thing and the times are not comparable either.
+  let coreCtx : Core.Context := {
+    fileName := "<litedoc4/stage4b>"
+    fileMap := default
+    options := Options.empty
+      |>.setBool `pp.tagAppFns true
+      |>.setBool `pp.funBinderTypes true
+      |>.setBool `debug.skipKernelTC true
+      |>.setBool `Elab.async false
+    maxHeartbeats := 5000000
+    openDecls := cfg.openNamespaces.toList.map (OpenDecl.simple · [])
+  }
+  let runMeta {α : Type} (act : MetaM α) : IO α := do
+    let (a, _, _) ← act.toIO coreCtx { env := env } {} {}
+    return a
+
+  let mut linkIndex : Option LinkIndexStats := none
+  let mut tLi := 0
+  if let some p := cfg.linkIndexPath then
+    -- Read here rather than inside `writeLinkIndex`, so the writer takes a set.
+    let omitModules ← match cfg.linkIndexOmitPath with
+      | some q => do
+        let ns ← readNameList q
+        pure (Std.HashSet.emptyWithCapacity ns.size |>.insertMany ns)
+      | none => pure {}
+    let t0 ← IO.monoNanosNow
+    -- The check runs **before anything is scanned**, and the work is inside the
+    -- same phase timer either way: a phase that vanished from the events file
+    -- when it got cheap would look like one that stopped writing the map at all.
+    let s ← match cfg.linkIndexKey with
+      | some key =>
+        if ← linkIndexIsCurrent p key world.moduleNames then
+          pure { reused := true }
+        else do
+          -- Down before the map, up after it: the sidecar this rewrite replaces
+          -- may hold the *same* token, so a rewrite that died halfway would leave
+          -- last run's sidecar vouching for a half-written map — and a truncation
+          -- past the `@` section is exactly what `linkIndexIsCurrent` cannot see.
+          let keyPath := linkIndexKeyPath p
+          if ← keyPath.pathExists then IO.FS.removeFile keyPath
+          let s ← runMeta (writeLinkIndex world p omitModules)
+          IO.FS.writeFile keyPath (key ++ "\n")
+          pure s
+      | none => do
+        let s ← runMeta (writeLinkIndex world p omitModules)
+        -- A sidecar an earlier run left behind describes a map that no longer
+        -- exists, and a later run *with* a token would believe it.
+        let keyPath := linkIndexKeyPath p
+        if ← keyPath.pathExists then IO.FS.removeFile keyPath
+        pure s
+    let t1 ← IO.monoNanosNow
+    tLi := t1 - t0
+    linkIndex := some s
+    sink.emit "stage4b.linkIndex" tLi
+      [("scanned", toString s.scanned), ("declarations", toString s.declarations),
+       ("ranged", toString s.ranged), ("unranged", toString s.unranged),
+       ("modules", toString s.modules), ("moduleNames", toString s.moduleNames),
+       -- Always emitted, including as `0 0` when the flag is absent: a reader has
+       -- to tell "nothing was omitted" from "this run predates the counter".
+       ("omitted", toString s.omitted),
+       ("omittedDeclarations", toString s.omittedDeclarations),
+       ("bytes", toString s.bytes),
+       -- Emitted on **both** paths: every other number here is 0 when it is
+       -- `true`, so without it "nothing counted" and "empty map" look alike.
+       ("reused", if s.reused then "true" else "false")]
+
+  -- doc-gen4's `getAllModuleDocs`, split so the per-module part (docstrings +
+  -- imports) and the part doc-gen4 repeats per module (tactics) can be told apart.
+  let tMd0 ← IO.monoNanosNow
+  let mods ← runMeta (collectModuleDocs world targets)
+  let tMd1 ← IO.monoNanosNow
+  let modDocCount := mods.foldl (init := 0) fun a m => a + m.docs.size
+  let modsWithDocs := mods.foldl (init := 0) fun a m => a + (if m.docs.isEmpty then 0 else 1)
+  let importCount := mods.foldl (init := 0) fun a m => a + m.imports.size
+  sink.emit "stage4b.moduleDocs" (tMd1 - tMd0)
+    [("modules", toString mods.size), ("moduleDocs", toString modDocCount),
+     ("modulesWithDocs", toString modsWithDocs), ("imports", toString importCount)]
+
+  let tTac0 ← IO.monoNanosNow
+  let (mods, tacticsInEnv, tacticsAssigned, tacticsAnswered) ←
+    match ← runMeta (collectTacticsOnce world mods) with
+    | some (m, n, a) => pure (m, n, a, true)
+    | none => pure (mods, 0, 0, false)
+  let tTac1 ← IO.monoNanosNow
+  sink.emit "stage4b.tactics" (tTac1 - tTac0)
+    [("tacticsInEnv", toString tacticsInEnv), ("tacticsAssigned", toString tacticsAssigned),
+     ("answered", if tacticsAnswered then "true" else "false")]
+
+  -- Diagnosis only: the same collection done doc-gen4's way.
+  let mut tEmu := 0
+  let mut emuAll := 0
+  let mut emuFilter := 0
+  if cfg.tacticsEmulate then
+    let t0 ← IO.monoNanosNow
+    let (assigned, allNanos, filterNanos) ← runMeta (collectTacticsPerModule targets)
+    let t1 ← IO.monoNanosNow
+    tEmu := t1 - t0
+    emuAll := allNanos
+    emuFilter := filterNanos
+    sink.emit "stage4b.tacticsPerModule" tEmu
+      [("calls", toString targets.size), ("tacticsAssigned", toString assigned),
+       ("allTacticDocsUs", toString (allNanos / 1000)),
+       ("filterLoopUs", toString (filterNanos / 1000))]
+
+  if let some p := cfg.tacticsDumpPath then
+    let n ← runMeta (dumpAllTactics p)
+    IO.println s!"dumped {n} tactics (all modules) -> {p}"
+
+  let mut probe : Option TacticProbe := none
+  if cfg.tacticsProbe then
+    let t0 ← IO.monoNanosNow
+    let p ← runMeta probeAllTacticDocs
+    let t1 ← IO.monoNanosNow
+    probe := some p
+    sink.emit "stage4b.tacticsProbe" (t1 - t0)
+      [("tagFoldUs", toString (p.tagFold / 1000)),
+       ("nameExtFoldUs", toString (p.nameExtFold / 1000)),
+       ("leadingTableUs", toString (p.leadingTable / 1000)),
+       ("trailingTableUs", toString (p.trailingTable / 1000)),
+       ("kindLoopUs", toString (p.kindLoop / 1000)),
+       ("docStringUs", toString (p.docString / 1000)),
+       ("extensionsUs", toString (p.extensions / 1000)),
+       ("extStrings", toString p.extStrings), ("tagsSeen", toString p.tagsSeen),
+       ("kinds", toString p.kinds), ("produced", toString p.produced),
+       ("leadingToks", toString p.leadingToks), ("trailingToks", toString p.trailingToks),
+       ("collectKindsCalls", toString p.collectKindsCalls),
+       ("firstTokens", toString p.firstTokens),
+       ("direct5Us", toString (p.direct5 / 1000)),
+       ("bucket5Us", toString (p.bucket5 / 1000)),
+       ("forceExt5Us", toString (p.forceExt5 / 1000)),
+       ("idxOnly5Us", toString (p.idxOnly5 / 1000)),
+       ("hoisted5Us", toString (p.hoisted5 / 1000)),
+       ("bucket5bUs", toString (p.bucket5b / 1000)),
+       ("touch5Us", toString (p.touch5 / 1000)),
+       ("lookup5Us", toString (p.lookup5 / 1000)),
+       ("full5Us", toString (p.full5 / 1000)),
+       ("fullHoisted5Us", toString (p.fullHoisted5 / 1000))]
+
+  -- Semantic analysis. One fresh `Core.State` per declaration, exactly like
+  -- doc-gen4's `process` loop, so that neither side accumulates elaborator state.
+  let mut results : Array DeclOut := #[]
+  let mut counters : Counters := {}
+  let mut blacklisted := 0
+  let mut missing := 0
+  let mut considered := 0
+  let mut failures : Array Failure := #[]
+  let mut profile : Array DeclProf := #[]
+  let work := if cfg.skipAnalyze then #[] else candidates
+  let wanted (name : Name) : Bool :=
+    match onlyNames with
+    | some only => only.contains name
+    | none => true
+  -- One candidate. The sequential and the parallel path call *this*, so they can
+  -- only differ in who calls it and in what order the answers are put back.
+  let analyzeOne (module : Name) (name : Name) (ci : ConstantInfo) :
+      IO (Except String (Option DeclOut) × Counters × Nat) := do
+    let t0 ← if cfg.ppBreakdown then IO.monoNanosNow else pure 0
+    let job : MetaM (Except String (Option DeclOut) × Counters) :=
+      tryCatchRuntimeEx
+        (do let (r, c) ← (analyze cfg world module name ci (reuse.bind (·.prev name))).run {}; return (Except.ok r, c))
+        (fun e => do return (Except.error (← e.toMessageData.toString), {}))
+    let ((outcome, c), _, _) ← job.toIO coreCtx { env := env } {} {}
+    let t1 ← if cfg.ppBreakdown then IO.monoNanosNow else pure 0
+    return (outcome, c, t1 - t0)
+  let mkProf (i : Nat) (module name : Name) (outcome : Except String (Option DeclOut))
+      (c : Counters) (dt : Nat) : DeclProf :=
+    let (kind, tag) := match outcome with
+      | .ok (some d) => (d.kind, "ok")
+      | .ok none => ("", "blacklisted")
+      | .error _ => ("", "failed")
+    { index := i, name, module, kind, outcome := tag, nanos := dt,
+      ppNanos := c.ppNanos, eqNanos := c.eqNanos, eqGenNanos := c.eqPp.eqGenNanos,
+      eqPpNanos := c.eqPp.accounted, refNanos := c.refNanos,
+      blNanos := c.blNanos, eqCount := c.eqCount, bytes := c.pp.bytes }
+  let tAn0 ← IO.monoNanosNow
+  if cfg.jobs ≤ 1 then
+    for i in [0 : work.size] do
+      let (name, module) := work[i]!
+      if !wanted name then
+        continue
+      let some ci := env.find? name | missing := missing + 1; continue
+      considered := considered + 1
+      let (outcome, c, dt) ← analyzeOne module name ci
+      counters := counters.add c
+      if cfg.declProfilePath.isSome then
+        profile := profile.push (mkProf i module name outcome c dt)
+      match outcome with
+      | .ok none => blacklisted := blacklisted + 1
+      | .ok (some d) => results := results.push d
+      | .error msg => failures := failures.push ⟨name, msg⟩
+  else
+    -- Worker `k` takes the candidates at indices `k, k+N, k+2N, …` — a stride
+    -- rather than a block, because the cost per declaration is not uniform and
+    -- the candidate list is grouped by module. **The order of the output does not
+    -- depend on N**: every answer carries its candidate index and is written back
+    -- into a slot, which is what makes two `--jobs` values byte-comparable.
+    let jobs := cfg.jobs
+    let prio := if (← IO.getEnv "PATCH_POOL") == some "1" then Task.Priority.default else Task.Priority.dedicated
+    let tasks ← (Array.range jobs).mapM fun k =>
+      IO.asTask (prio := prio) do
+        let mut outs : Array (Nat × Name × Except String (Option DeclOut)) := #[]
+        let mut c : Counters := {}
+        let mut prof : Array DeclProf := #[]
+        let mut miss := 0
+        let mut done := 0
+        let mut i := k
+        while i < work.size do
+          let (name, module) := work[i]!
+          if wanted name then
+            match env.find? name with
+            | none => miss := miss + 1
+            | some ci =>
+              done := done + 1
+              let (outcome, c1, dt) ← analyzeOne module name ci
+              c := c.add c1
+              outs := outs.push (i, name, outcome)
+              if cfg.declProfilePath.isSome then
+                prof := prof.push (mkProf i module name outcome c1 dt)
+          i := i + jobs
+        return (outs, c, prof, miss, done)
+    let mut slots : Array (Option (Name × Except String (Option DeclOut))) :=
+      Array.replicate work.size none
+    for t in tasks do
+      let (outs, c, prof, miss, done) ← IO.ofExcept t.get
+      counters := counters.add c
+      missing := missing + miss
+      considered := considered + done
+      profile := profile ++ prof
+      for (i, name, outcome) in outs do
+        slots := slots.set! i (some (name, outcome))
+    for s in slots do
+      match s with
+      | none => pure ()
+      | some (name, outcome) =>
+        match outcome with
+        | .ok none => blacklisted := blacklisted + 1
+        | .ok (some d) => results := results.push d
+        | .error msg => failures := failures.push ⟨name, msg⟩
+    profile := profile.qsort (fun a b => a.index < b.index)
+  let tAn1 ← IO.monoNanosNow
+  sink.emit "stage4b.analyze" (tAn1 - tAn0)
+    [("considered", toString considered),
+     ("produced", toString results.size),
+     ("blacklisted", toString blacklisted),
+     ("failed", toString failures.size),
+     ("ppUs", toString (counters.ppNanos / 1000)),
+     ("eqUs", toString (counters.eqNanos / 1000)),
+     ("docUs", toString (counters.docNanos / 1000)),
+     ("equations", toString counters.eqCount),
+     ("eqFailures", toString counters.eqFailures),
+     ("eqSkipped", toString counters.eqSkipped),
+     ("genEquations", if cfg.genEquations then "true" else "false"),
+     ("tagCode", if cfg.tagCode then "true" else "false"),
+     -- `refUs` is contained in `ppUs` + `eqUs`, it is not an extra term.
+     ("refUs", toString (counters.refNanos / 1000)),
+     ("refOccurrences", toString counters.refCount),
+     ("collectRefs", if cfg.collectRefs then "true" else "false"),
+     ("taggedCode", if cfg.taggedCode then "true" else "false"),
+     -- `attrUs` and `instUs` are terms of their own; `memberUs` is a slice of
+     -- `ppUs`, like `refUs`.
+     ("attrUs", toString (counters.attrNanos / 1000)),
+     ("attrCalls", toString counters.attrCount),
+     ("attrDecls", toString counters.attrDecls),
+     ("instUs", toString (counters.instNanos / 1000)),
+     ("instances", toString counters.instCount),
+     ("instTypeNames", toString counters.instTypeNames),
+     ("memberUs", toString (counters.memberNanos / 1000)),
+     ("memberFields", toString counters.memberFields),
+     ("memberInherited", toString counters.memberInherited),
+     -- `jobs` > 1 makes every `*Us` above a sum over threads, i.e. CPU time, not
+     -- wall time; `us` (the phase itself) stays wall time.
+     ("jobs", toString cfg.jobs),
+     ("ppBreakdown", if cfg.ppBreakdown then "true" else "false"),
+     ("delabUs", toString (counters.pp.delabNanos / 1000)),
+     ("sanitizeUs", toString (counters.pp.sanitizeNanos / 1000)),
+     ("parenUs", toString (counters.pp.parenNanos / 1000)),
+     ("formatUs", toString (counters.pp.formatNanos / 1000)),
+     ("prettyUs", toString (counters.pp.prettyNanos / 1000)),
+     ("tagCodeInfosUs", toString (counters.pp.tagNanos / 1000)),
+     ("eqGenUs", toString (counters.pp.eqGenNanos / 1000)),
+     ("ppSigCalls", toString counters.pp.sigCalls),
+     ("ppTermCalls", toString counters.pp.termCalls),
+     ("ppBinders", toString counters.pp.binders),
+     ("ppBytes", toString counters.pp.bytes),
+     -- The part of the five above that the equations produced.
+     ("eqDelabUs", toString (counters.eqPp.delabNanos / 1000)),
+     ("eqSanitizeUs", toString (counters.eqPp.sanitizeNanos / 1000)),
+     ("eqParenUs", toString (counters.eqPp.parenNanos / 1000)),
+     ("eqFormatUs", toString (counters.eqPp.formatNanos / 1000)),
+     ("eqPrettyUs", toString (counters.eqPp.prettyNanos / 1000)),
+     ("eqTermCalls", toString counters.eqPp.termCalls),
+     ("blUs", toString (counters.blNanos / 1000)),
+     ("blCalls", toString counters.blCalls),
+     ("ablations", s!"\"{String.intercalate "," cfg.ablations.toList}\"")]
+
+  -- Schema 5's `sorry` key (doc-gen4 #270). A pass of its own, after the analysis
+  -- and **single-threaded**: `--jobs` must not be able to reach it, and a phase
+  -- of its own lets the cost be read off one run.
+  let mut sorryStats : SorryStats := {}
+  let tSy0 ← IO.monoNanosNow
+  if cfg.wantSorry then
+    let tags ← runMeta (results.mapM fun d => sorryTag d.name)
+    let mut tagged : Array DeclOut := Array.emptyWithCapacity results.size
+    let mut direct := 0
+    let mut transitive := 0
+    for h : i in [0 : results.size] do
+      let tag := tags[i]!
+      if tag == some "direct" then direct := direct + 1
+      if tag == some "transitive" then transitive := transitive + 1
+      tagged := tagged.push { results[i] with sorryTag := tag }
+    results := tagged
+    sorryStats := { asked := results.size, direct, transitive }
+  if let some r := reuse then r.out.set results
+  let tSy1 ← IO.monoNanosNow
+  sink.emit "stage4b.sorry" (tSy1 - tSy0)
+    [("wantSorry", if cfg.wantSorry then "true" else "false"),
+     ("sorryAsked", toString sorryStats.asked),
+     ("sorryDirect", toString sorryStats.direct),
+     ("sorryTransitive", toString sorryStats.transitive)]
+
+  if let some p := cfg.declProfilePath then
+    let h ← IO.FS.Handle.mk p .write
+    for r in profile do
+      h.putStr r.line
+    IO.println s!"decl profile         {profile.size} records -> {p}"
+
+  let mut irStats : IrStats := {}
+  let mut irDirUsed : Option FilePath := none
+  if cfg.writeIR then
+    let dir ← getIrDir cfg
+    irDirUsed := some dir
+    let t0 ← IO.monoNanosNow
+    irStats ← writeIRTree cfg.taggedCode cfg.ablations dir world targets mods results
+    let t1 ← IO.monoNanosNow
+    sink.emit "stage4b.writeIR" (t1 - t0)
+      [("taggedCode", if cfg.taggedCode then "true" else "false"),
+       ("schemaVersion", toString (irSchemaVersion cfg.taggedCode)),
+       ("spanFragments", toString irStats.spanFragments),
+       ("spans", toString irStats.spans.total),
+       ("spansConst", toString irStats.spans.const),
+       ("spansSort", toString irStats.spans.sort),
+       ("spansOther", toString irStats.spans.other),
+       ("spansWs", toString irStats.spans.ws),
+       ("spansWsUnits", toString irStats.spans.wsUnits),
+       ("moduleFiles", toString irStats.moduleFiles),
+       ("moduleBytes", toString irStats.moduleBytes),
+       ("declarations", toString irStats.declarations),
+       ("refPairs", toString irStats.refPairs),
+       ("refsUnresolved", toString irStats.refsUnresolved),
+       ("depFiles", toString irStats.depFiles),
+       ("depEntries", toString irStats.depEntries),
+       ("depBytes", toString irStats.depBytes),
+       ("indexBytes", toString irStats.indexBytes),
+       ("serializeUs", toString (irStats.serializeNanos / 1000)),
+       ("hashUs", toString (irStats.hashNanos / 1000)),
+       ("writeUs", toString (irStats.writeNanos / 1000))]
+
+  if let some dumpPath := cfg.dumpPath then
+    let tD0 ← IO.monoNanosNow
+    let h ← IO.FS.Handle.mk dumpPath .write
+    for d in results do
+      h.putStr d.toJson.compress
+      h.putStr "\n"
+    let tD1 ← IO.monoNanosNow
+    sink.emit "stage4b.dump" (tD1 - tD0) [("records", toString results.size)]
+
+  if let some dumpPath := cfg.dumpModulesPath then
+    let tD0 ← IO.monoNanosNow
+    let h ← IO.FS.Handle.mk dumpPath .write
+    for m in mods do
+      h.putStr m.toJson.compress
+      h.putStr "\n"
+    let tD1 ← IO.monoNanosNow
+    sink.emit "stage4b.dumpModules" (tD1 - tD0) [("records", toString mods.size)]
+
+  -- The unique set, in order of first appearance so that two runs diff cleanly.
+  let mut refUnique := 0
+  let mut refOwn := 0
+  let mut refUnresolved := 0
+  if let some dumpPath := cfg.dumpRefsPath then
+    if !cfg.collectRefs then
+      IO.eprintln "WARNING: --dump-refs without --refs; nothing was collected"
+    let tD0 ← IO.monoNanosNow
+    let targetSet : Std.HashSet Name :=
+      Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
+    let mut counts : Std.HashMap Name Nat := Std.HashMap.emptyWithCapacity 4096
+    let mut order : Array Name := #[]
+    let mut occurrences := 0
+    for d in results do
+      for n in d.refs do
+        occurrences := occurrences + 1
+        match counts[n]? with
+        | some k => counts := counts.insert n (k + 1)
+        | none => counts := counts.insert n 1; order := order.push n
+    let h ← IO.FS.Handle.mk dumpPath .write
+    for n in order do
+      let module? := world.moduleOf? n
+      let own := match module? with
+        | some m => targetSet.contains m
+        | none => false
+      if own then refOwn := refOwn + 1
+      if module?.isNone then refUnresolved := refUnresolved + 1
+      h.putStr (Json.mkObj [
+        ("name", Json.str n.toString),
+        ("module", match module? with | some m => Json.str m.toString | none => Json.null),
+        ("occurrences", Json.num (counts.getD n 0)),
+        ("own", Json.bool own)] |>.compress)
+      h.putStr "\n"
+    refUnique := order.size
+    let tD1 ← IO.monoNanosNow
+    sink.emit "stage4b.dumpRefs" (tD1 - tD0)
+      [("records", toString refUnique),
+       ("occurrences", toString occurrences),
+       ("own", toString refOwn),
+       ("unresolved", toString refUnresolved)]
+
+  let tTotal1 ← IO.monoNanosNow
+  sink.emit "stage4b.total" (tTotal1 - tTotal0) [("modules", toString targets.size)]
+
+  let mut byKind : Std.HashMap String Nat := {}
+  for d in results do
+    byKind := byKind.insert d.kind ((byKind.getD d.kind 0) + 1)
+
+  IO.println s!"target modules       {targets.size}"
+  IO.println s!"loaded modules       {world.moduleNames.size}"
+  IO.println s!"importModules        {fmtDur (tImp1 - tImp0)}"
+  IO.println s!"indexLookup          {fmtDur (tIdx1 - tIdx0)}  enumerated {enumerated}, unique {candidates.size}"
+  IO.println s!"moduleDocs           {fmtDur (tMd1 - tMd0)}  {modDocCount} docs in {modsWithDocs} modules, {importCount} imports"
+  if let some s := linkIndex then
+    -- Two shapes: the counting line would be a lie on the reuse path, reporting
+    -- 0 declarations for a map that has a quarter of a million of them.
+    let liPath := (cfg.linkIndexPath.map (·.toString)).getD "?"
+    if s.reused then
+      IO.println s!"linkIndex            {fmtDur tLi}  reused {liPath} \
+        (--link-index-key matched its .key sidecar and the @ section still matches this \
+        environment, so nothing was scanned and nothing was written; the counts are 0 because \
+        nothing was counted this time, not because the map is empty)"
+    else
+      IO.println s!"linkIndex            {fmtDur tLi}  {s.declarations} declarations in {s.modules} modules \
+        ({s.ranged} with a line range, {s.unranged} without, {s.scanned} constants scanned, \
+        {s.moduleNames} module names, {s.bytes} bytes)"
+      -- Printed only when something was actually left out — but then
+      -- unconditionally, because an omission must never be invisible.
+      if s.omitted != 0 || s.omittedDeclarations != 0 then
+        IO.println s!"  omitted            {s.omittedDeclarations} declarations in {s.omitted} modules \
+          (--link-index-omit; their names are still in the @ section)"
+  if tacticsAnswered then
+    IO.println s!"tactics              {fmtDur (tTac1 - tTac0)}  {tacticsInEnv} in env, {tacticsAssigned} in target modules"
+  else
+    IO.println s!"tactics              NOT ANSWERED: this world has no tactic table, so no module carries tactics"
+  if cfg.tacticsEmulate then
+    IO.println s!"tacticsPerModule     {fmtDur tEmu}  (doc-gen4's shape: {targets.size} × allTacticDocs)"
+    IO.println s!"  of which allTactic {fmtDur emuAll}"
+    IO.println s!"  of which filter    {fmtDur emuFilter}"
+  if let some p := probe then
+    IO.println s!"tacticsProbe         one allTacticDocs, broken down:"
+    IO.println s!"  tagFold            {fmtDur p.tagFold}"
+    IO.println s!"  nameExtFold        {fmtDur p.nameExtFold}"
+    IO.println s!"  leadingTable       {fmtDur p.leadingTable}  ({p.leadingToks} tokens)"
+    IO.println s!"  trailingTable      {fmtDur p.trailingTable}  ({p.trailingToks} tokens)"
+    IO.println s!"  kindLoop           {fmtDur p.kindLoop}  ({p.kinds} kinds, {p.produced} produced)"
+    IO.println s!"    of which docstr  {fmtDur p.docString}"
+    IO.println s!"    of which extens  {fmtDur p.extensions}  ({p.extStrings} extension strings, {p.tagsSeen} tags)"
+    IO.println s!"  collectKinds calls {p.collectKindsCalls}, firstTokens {p.firstTokens}"
+    IO.println s!"  5x allTacticDocs   {fmtDur p.direct5}  ({fmtDur (p.direct5 / 5)} each)"
+    IO.println s!"  5x filter loop     {fmtDur p.bucket5}  ({fmtDur (p.bucket5 / 5)} each)"
+    IO.println s!"  5x filter again    {fmtDur p.bucket5b}  ({fmtDur (p.bucket5b / 5)} each)"
+    IO.println s!"  5x touch name      {fmtDur p.touch5}"
+    IO.println s!"  5x + getModuleIdx  {fmtDur p.lookup5}"
+    IO.println s!"  5x + moduleNames[] {fmtDur p.full5}"
+    IO.println s!"  5x moduleNames hoisted {fmtDur p.fullHoisted5}"
+    IO.println s!"  5x force extDocs   {fmtDur p.forceExt5}  ({fmtDur (p.forceExt5 / 5)} each)"
+    IO.println s!"  5x getModuleIdxFor {fmtDur p.idxOnly5}  ({fmtDur (p.idxOnly5 / 5)} each)"
+    IO.println s!"  5x hoisted const2ModIdx {fmtDur p.hoisted5}  ({fmtDur (p.hoisted5 / 5)} each)"
+  IO.println s!"analyze              {fmtDur (tAn1 - tAn0)}  considered {considered}, produced {results.size}, blacklisted {blacklisted}, failed {failures.size}"
+  IO.println s!"  of which signature {fmtDur counters.ppNanos}"
+  IO.println s!"  of which equations {fmtDur counters.eqNanos}  ({counters.eqCount} lemmas, {counters.eqFailures} failed, {counters.eqSkipped} meta-code definitions skipped)"
+  IO.println s!"  of which docstring {fmtDur counters.docNanos}"
+  if cfg.taggedCode then
+    IO.println s!"  attributes         {fmtDur counters.attrNanos}  ({counters.attrCount} calls, {counters.attrDecls} declarations with at least one)"
+    IO.println s!"  instance index     {fmtDur counters.instNanos}  ({counters.instCount} instances, {counters.instTypeNames} type names)"
+    IO.println s!"  member extra       {fmtDur counters.memberNanos}  ({counters.memberFields} fields, {counters.memberInherited} inherited; inside signature)"
+    if !cfg.ablations.isEmpty then
+      IO.println s!"  ABLATED            {cfg.ablations.toList} — the IR of this run is for the stopwatch only"
+  if cfg.ppBreakdown then
+    let a := counters.pp
+    let e := counters.eqPp
+    IO.println s!"  pp breakdown       (of signature + equations; --pp-breakdown)"
+    IO.println s!"    delab            {fmtDur a.delabNanos}   (eq slice {fmtDur e.delabNanos})"
+    IO.println s!"    sanitize         {fmtDur a.sanitizeNanos}   (eq slice {fmtDur e.sanitizeNanos})"
+    IO.println s!"    parenthesize     {fmtDur a.parenNanos}   (eq slice {fmtDur e.parenNanos})"
+    IO.println s!"    format           {fmtDur a.formatNanos}   (eq slice {fmtDur e.formatNanos})"
+    IO.println s!"    pretty (layout)  {fmtDur a.prettyNanos}   (eq slice {fmtDur e.prettyNanos})"
+    IO.println s!"    tagCodeInfos     {fmtDur a.tagNanos}   (--tag only)"
+    IO.println s!"    eq generation    {fmtDur a.eqGenNanos}   (getEqnsFor?/valueToEq + inferType)"
+    IO.println s!"    accounted        {fmtDur (a.accounted + a.eqGenNanos)} of {fmtDur (counters.ppNanos + counters.eqNanos)} (pp+eq); refs {fmtDur counters.refNanos}"
+    IO.println s!"    calls            {a.sigCalls} signatures ({a.binders} binders), {a.termCalls} terms ({e.termCalls} of them equations), {a.bytes} bytes printed"
+    IO.println s!"  blacklist test     {fmtDur counters.blNanos}  ({counters.blCalls} candidates, {blacklisted} dropped)"
+  if cfg.collectRefs then
+    IO.println s!"  of which refs      {fmtDur counters.refNanos}  ({counters.refCount} occurrences; inside the two above)"
+    if cfg.dumpRefsPath.isSome then
+      IO.println s!"refs                 {refUnique} unique, {refOwn} in target modules, {refUnique - refOwn - refUnresolved} in dependencies, {refUnresolved} without a module"
+  if cfg.taggedCode then
+    IO.println s!"sorry                {fmtDur (tSy1 - tSy0)}  ({sorryStats.asked} asked, {sorryStats.direct} direct, {sorryStats.transitive} transitive)"
+  if let some dir := irDirUsed then
+    let total := irStats.moduleBytes + irStats.depBytes + irStats.indexBytes
+    IO.println s!"writeIR              {fmtDur irStats.serializeNanos} serialize + {fmtDur irStats.hashNanos} hash + {fmtDur irStats.writeNanos} write"
+    IO.println s!"  files              {irStats.moduleFiles} modules + {irStats.depFiles} dep maps + 1 index"
+    IO.println s!"  bytes              {total} ({irStats.moduleBytes} modules, {irStats.depBytes} deps, {irStats.indexBytes} index)"
+    IO.println s!"  content            {irStats.declarations} declarations, {irStats.refPairs} ref pairs, {irStats.depEntries} dep map entries, {irStats.refsUnresolved} unresolved refs"
+    IO.println s!"  schema             {irSchemaVersion cfg.taggedCode}  (taggedCode {cfg.taggedCode})"
+    if cfg.taggedCode then
+      IO.println s!"  spans              {irStats.spans.total} in {irStats.spanFragments} fragments — {irStats.spans.const} const, {irStats.spans.sort} sort, {irStats.spans.other} other"
+      IO.println s!"  ws widths          {irStats.spans.ws} const spans carry front/back, {irStats.spans.wsUnits} UTF-16 units total (schema 3)"
+    IO.println s!"  dir                {dir}"
+  IO.println s!"total                {fmtDur (tTotal1 - tTotal0)}"
+  IO.println s!"genEquations         {cfg.genEquations}   tagCode {cfg.tagCode}   refs {cfg.collectRefs}   jobs {cfg.jobs}   open {cfg.openNamespaces.toList}"
+  IO.print "kinds               "
+  for (k, n) in byKind.toArray.qsort (fun a b => a.2 > b.2) do
+    IO.print s!" {k}={n}"
+  IO.println ""
+  if missing > 0 then
+    IO.println s!"WARNING: {missing} enumerated names absent from env.constants"
+  if !failures.isEmpty then
+    IO.println s!"failures ({failures.size}):"
+    for f in failures.toList.take 20 do
+      IO.println s!"  {f.name}: {f.message.take 300}"
+  return 0
+
+/-- One process, many extractions.
+
+The environment load is the extraction's fixed cost (~3.1 s warm) and it is paid
+per *process*, so anything that runs the extractor more than once per edit pays
+it more than once.
+
+The import list is the **superset**: whatever `<modules.txt>` names, typically the
+whole package. Requests then extract subsets of it. That is the right direction
+for soundness — a single-module target list can leave the environment too
+*small* (measured for `--open`), and a resident process's environment is never
+smaller than the one-shot's.
+
+**What this deliberately does not do is reload.** An olean that changed on disk
+after the import is not picked up: Lean has no way to swap one module out of an
+imported environment. So a resident server is only valid for re-extracting
+modules whose *own* olean has not changed — and exactly not the module the user
+just edited. The protocol makes that explicit by refusing nothing and reporting
+everything: the caller decides.
+
+Protocol, one request per line on stdin, tab- or space-separated:
+
+    <modules.txt> <out.jsonl> [<ir-dir>]
+
+and one reply line per request on stdout: `ok <exit code> <nanoseconds>`.
+EOF or an empty line ends the loop. -/
+partial def serve (cfg : Cfg) : IO UInt32 := do
+  let t0 ← IO.monoNanosNow
+  initSearchPath (← findSysroot)
+  unsafe Lean.enableInitializersExecution
+  let targets ← readNameList cfg.modulesPath
+  if targets.isEmpty then
+    IO.eprintln s!"no module names in {cfg.modulesPath}"
+    return 1
+  let env ← importModules (targets.map (Import.mk · false true false)) Options.empty
+    (leakEnv := true) (loadExts := true)
+  let world := World.ofEnv env
+  let t1 ← IO.monoNanosNow
+  IO.println s!"ready {t1 - t0} {world.moduleNames.size} {targets.size}"
+  (← IO.getStdout).flush
+  let stdin ← IO.getStdin
+  let rec loop : IO UInt32 := do
+    let line ← stdin.getLine
+    let line := line.trimAscii.toString
+    if line.isEmpty then return 0
+    let parts := (line.splitOn " ").flatMap (·.splitOn "\t") |>.filter (!·.isEmpty)
+    match parts with
+    | modules :: out :: rest =>
+      -- `linkIndexOmitPath` is deliberately not a fourth field: the request's
+      -- `<modules.txt>` is a *subset* of the start-up list, so deriving the omit
+      -- set from it would make the map's bytes depend on which round wrote it.
+      -- `linkIndexKey` is start-up configuration for a stronger version of the
+      -- same reason: it stands for inputs fixed for the life of this process.
+      let reqCfg := { cfg with
+        modulesPath := ⟨modules⟩, outPath := ⟨out⟩,
+        irDir := match rest with | dir :: _ => some ⟨dir⟩ | [] => cfg.irDir }
+      let r0 ← IO.monoNanosNow
+      let code ← run reqCfg (some (env, world))
+      let r1 ← IO.monoNanosNow
+      IO.println s!"ok {code} {r1 - r0}"
+      (← IO.getStdout).flush
+      loop
+    | _ =>
+      IO.println s!"err bad request: {line}"
+      (← IO.getStdout).flush
+      loop
+  loop
+
+end Litedoc4
+
+open Litedoc4 in
+def parseArgs (args : List String) : Except String Cfg :=
+  match args with
+  | modules :: out :: rest => go { modulesPath := ⟨modules⟩, outPath := ⟨out⟩ } rest >>= check
+  | _ => .error "usage: extract <modules.txt> <out.jsonl> [--equations] [--dump <p>] [--dump-modules <p>] [--only <p>] [--open <ns,..>] [--tag] [--refs] [--dump-refs <p>] [--link-index <p>] [--link-index-omit <p>] [--link-index-key <t>] [--write-ir --ir-dir <p>] [--tagged-code] [--skip-analyze] [--tactics-emulate] [--tactics-probe] [--pp-breakdown] [--decl-profile <p>] [--jobs <n>]"
+where
+  /-- The one cross-flag rule, checked **before anything runs** rather than where
+  the directory is used: the IR is written at the very end of a 20-second
+  extraction, and a run that dies there has already paid for the whole of it. -/
+  check (cfg : Cfg) : Except String Cfg :=
+    if cfg.writeIR && cfg.irDir.isNone then
+      .error "--write-ir needs --ir-dir <path>, which has no default: an IR tree written \
+        somewhere the caller did not name is worse than none"
+    else .ok cfg
+  go (cfg : Cfg) : List String → Except String Cfg
+  | [] => .ok cfg
+  | "--equations" :: rest => go { cfg with genEquations := true } rest
+  | "--write-ir" :: rest => go { cfg with writeIR := true } rest
+  | "--tagged-code" :: rest => go { cfg with taggedCode := true } rest
+  -- Ablations. They subtract one of the additions so its cost can be measured;
+  -- the resulting IR is marked and is not renderable.
+  | "--no-attrs" :: rest => go { cfg with noAttrs := true } rest
+  | "--no-inst-index" :: rest => go { cfg with noInstIndex := true } rest
+  | "--no-member-extra" :: rest => go { cfg with noMemberExtra := true } rest
+  | "--no-sorry" :: rest => go { cfg with noSorry := true } rest
+  | "--serve" :: rest => go { cfg with serve := true } rest
+  -- Deliberately does *not* imply `--write-ir`: the IR stays off unless
+  -- `--write-ir` says otherwise, which keeps one rule instead of two.
+  | "--ir-dir" :: p :: rest => go { cfg with irDir := some ⟨p⟩ } rest
+  | "--tag" :: rest => go { cfg with tagCode := true } rest
+  | "--refs" :: rest => go { cfg with collectRefs := true } rest
+  | "--dump-refs" :: p :: rest => go { cfg with dumpRefsPath := some ⟨p⟩ } rest
+  | "--skip-analyze" :: rest => go { cfg with skipAnalyze := true } rest
+  | "--link-index" :: p :: rest => go { cfg with linkIndexPath := some ⟨p⟩ } rest
+  -- Not an error without `--link-index`: this one writes nothing at all, and a
+  -- caller that passes the omit list unconditionally and the map path only
+  -- sometimes is doing the reasonable thing, not a mistake.
+  | "--link-index-omit" :: p :: rest => go { cfg with linkIndexOmitPath := some ⟨p⟩ } rest
+  -- Opaque here on purpose: this process cannot check what the token claims, only
+  -- whether it is the same string as last time. Tolerated without `--link-index`
+  -- for the same reason as the flag above.
+  | "--link-index-key" :: k :: rest => go { cfg with linkIndexKey := some k } rest
+  | "--pp-breakdown" :: rest => go { cfg with ppBreakdown := true } rest
+  | "--decl-profile" :: p :: rest =>
+    go { cfg with declProfilePath := some ⟨p⟩, ppBreakdown := true } rest
+  | "--jobs" :: n :: rest =>
+    match n.toNat? with
+    | some j => if j == 0 then .error "--jobs must be at least 1" else go { cfg with jobs := j } rest
+    | none => .error s!"--jobs expects a number, got {n}"
+  | "--tactics-emulate" :: rest => go { cfg with tacticsEmulate := true } rest
+  | "--tactics-probe" :: rest => go { cfg with tacticsProbe := true } rest
+  | "--dump" :: p :: rest => go { cfg with dumpPath := some ⟨p⟩ } rest
+  | "--dump-modules" :: p :: rest => go { cfg with dumpModulesPath := some ⟨p⟩ } rest
+  | "--dump-tactics" :: p :: rest => go { cfg with tacticsDumpPath := some ⟨p⟩ } rest
+  | "--only" :: p :: rest => go { cfg with onlyPath := some ⟨p⟩ } rest
+  | "--open" :: ns :: rest =>
+    go { cfg with openNamespaces := (ns.splitOn ",").toArray.map (·.trimAscii.toString.toName) } rest
+  | a :: _ => .error s!"unknown argument: {a}"
+
+def extractMain (args : List String) : IO UInt32 := do
+  match parseArgs args with
+  | .ok cfg => if cfg.serve then Litedoc4.serve cfg else Litedoc4.run cfg
+  | .error msg => IO.eprintln msg; return 1
