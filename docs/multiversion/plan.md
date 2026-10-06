@@ -497,6 +497,24 @@ Lean core v4.31.0):
   - The per-version setup on the runner (≈ 1.7 min: toolchain, `lake update`, cache fetch) is
     outside the 2.2 min target; at 51 versions it is ≈ 85 min unless it overlaps the previous
     version's compute.
+- **Two levers applied, output still exact** (measured, M1, one run each under heavy memory
+  pressure from other applications, so ratios over absolutes →
+  `benchmarks/results/mathlib-structure-rule-and-meta-equations-2026-10-06.txt`):
+  - No equations for meta code (D8): the reprinted set's equation CPU 151.2 → 62.0 s; equation
+    failures 83 declarations / 201 s → 21 / 0.3 s. The 17 failures left are meta code outside the
+    two prefixes (Qq-quoted simprocs and extensions; one sits under `Nat.`), so a prefix list does
+    not catch all meta code.
+  - Structure data in the key only where the printer reads it (constructor shown, the declaration's
+    own members, a projection's structure — the three read sites checked in the Lean and Mathlib
+    v4.34.1 sources): key-equal 83.80% → **92.78%, 0 holes** on v4.31.0 → v4.32.0, against a
+    ceiling of 96.17%. One more read no key covers yet: structure-instance notation omits a field
+    equal to its default, so it reads the default's value (covering it costs 497 reuses and caught
+    nothing on this pair).
+  - R1 with both: reprinted 55,390 → 27,787, extraction 111.1 → 66.8 s; the patched IR equals the
+    from-scratch IR in every file. The round did not get shorter (325 → 303 s): key pass, patch
+    and finalize moved by as much as extraction gained, which one run each cannot separate from
+    the memory pressure. Composed with the patch log's other phases ≈ 234 s per extra version on
+    the M1 (theoretical), of which the key pass is ≈ 41%.
 - **Per version end to end ≈ 6.5 min wall, ≈ 19 min CPU** (measured, 4 jobs, two runs 389 /
   394 s; native v4.31.0 extraction 217 / 243 s with the same 4 jobs). Peak RSS 6.3 GB, memory
   footprint 8.7–9.1 GB on 16 GiB, with swap in use mid-run (≈ 3.5 GB, no baseline). 11 versions ≈
