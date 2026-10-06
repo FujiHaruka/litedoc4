@@ -216,6 +216,11 @@ def weakestSchema : Option JVal → Option JVal → Option JVal
     | _, _ => some b
   | b, _ => b
 
+def mergedIdentity (base inc : Option JVal) (everyModuleFromInc : Bool) : Option JVal :=
+  if everyModuleFromInc then inc
+  else if jvalKey base == jvalKey inc then base
+  else none
+
 def copyFile (source destination : FilePath) : IO Unit := do
   IO.FS.writeBinFile destination (← IO.FS.readBinFile source)
 
@@ -242,11 +247,13 @@ def merge (i : MergeInputs) : IO (Except MergeRefusal MergeSummary) := do
   let baseIndexPath := irPath i.base "index.json"
   let baseIndex ← readJsonObject baseIndexPath .index
   let mut incSchema : Option JVal := none
+  let mut incIdentity : Option JVal := orderedGet? baseIndex "extractorIdentity"
   let mut incModules : Array MergeIndexEntry := #[]
   if let some dir := i.inc then
     let path := irPath dir "index.json"
     let index ← readJsonObject path .index
     incSchema := orderedGet? index "schemaVersion"
+    incIdentity := orderedGet? index "extractorIdentity"
     match indexEntries path.toString index with
     | .error refusal => return .error refusal
     | .ok entries => incModules := entries
@@ -384,6 +391,10 @@ def merge (i : MergeInputs) : IO (Except MergeRefusal MergeSummary) := do
 
   let mut index := baseIndex
   if let some version := schema then index := orderedInsert index "schemaVersion" version
+  index := match mergedIdentity (orderedGet? baseIndex "extractorIdentity") incIdentity
+      (i.inc.isSome && order.all inInc.contains) with
+    | some identity => orderedInsert index "extractorIdentity" identity
+    | none => index.filter (·.1 != "extractorIdentity")
   index := orderedInsert index "moduleCount" (.num (Int.ofNat order.size))
   index := orderedInsert index "declarationCount" (.num (Int.ofNat declarations))
   index := orderedInsert index "modules" (.arr (order.map (fun m => (entries.get! m).raw)))

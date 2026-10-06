@@ -95,7 +95,7 @@ The four fixed flags are what "IR schema 5" means; an IR written without one of
 them parses and renders wrongly rather than failing, which is why `extract`
 refuses them as flags rather than accepting them as no-ops. -/
 def theExtractorIsHandedTheSchema5FlagsInThisOrder : Bool :=
-  extractArgv extractBin "/work/modules.txt" "/work/t-events.jsonl" "/out/ir" 4 none none none
+  extractArgv extractBin "/work/modules.txt" "/work/t-events.jsonl" "/out/ir" 4 #[] none none none
       == #["env", "/bin/extract", "/work/modules.txt", "/work/t-events.jsonl",
            "--equations", "--refs", "--write-ir", "--tagged-code",
            "--jobs", "4", "--ir-dir", "/out/ir"]
@@ -104,9 +104,25 @@ def theExtractorIsHandedTheSchema5FlagsInThisOrder : Bool :=
         { bin := extractBin, lake := "/bin/lake", target := "/pkg", jobs := 4
           modulesFile := "/work/modules.txt", modules := #[], work := "/work" })
       == (extractArgv extractBin "/work/modules.txt" "/work/serve-events.jsonl"
-          "/work/serve-ir-unused" 4 none (some "/work/modules.txt") none).push "--serve"
+          "/work/serve-ir-unused" 4 #[] none (some "/work/modules.txt") none).push "--serve"
 
 #guard theExtractorIsHandedTheSchema5FlagsInThisOrder
+
+def theConfiguredNoEquationNamespacesFollowTheSchemaFlagsOnBothPaths : Bool :=
+  let serve : Serve :=
+    { bin := extractBin, lake := "/bin/lake", target := "/pkg", jobs := 1
+      modulesFile := "/m.txt", modules := #[], work := "/work"
+      noEquationsUnder := #["Mathlib.Tactic", "Mathlib.Meta"] }
+  extractArgv extractBin "/m.txt" "/e.jsonl" "/ir" 1 #["Mathlib.Tactic", "Mathlib.Meta"]
+      none none none
+      == #["env", "/bin/extract", "/m.txt", "/e.jsonl",
+           "--equations", "--refs", "--write-ir", "--tagged-code",
+           "--no-equations-under", "Mathlib.Tactic,Mathlib.Meta",
+           "--jobs", "1", "--ir-dir", "/ir"]
+    && (serve.startArgv.toList.drop 8).take 2 == ["--no-equations-under", "Mathlib.Tactic,Mathlib.Meta"]
+    && !(Serve.startArgv { serve with noEquationsUnder := #[] }).contains "--no-equations-under"
+
+#guard theConfiguredNoEquationNamespacesFollowTheSchemaFlagsOnBothPaths
 
 /-- The map's two companion flags are **inside** `--link-index`, never beside it:
 neither names anything when no map is being written, and a flag that does nothing
@@ -114,16 +130,16 @@ is the shape where the run looks right and the artefact is not the one that was
 asked for. Both commands refuse that combination on the command line; here it
 cannot be spelled. -/
 def theMapsCompanionFlagsCannotBeWrittenWithoutTheMap : Bool :=
-  extractArgv extractBin "/m.txt" "/e.jsonl" "/ir" 1
+  extractArgv extractBin "/m.txt" "/e.jsonl" "/ir" 1 #[]
       (some "/map.lidx") (some "/omit.txt") (some "token")
       == #["env", "/bin/extract", "/m.txt", "/e.jsonl",
            "--equations", "--refs", "--write-ir", "--tagged-code",
            "--jobs", "1", "--ir-dir", "/ir",
            "--link-index", "/map.lidx", "--link-index-omit", "/omit.txt",
            "--link-index-key", "token"]
-    && !(extractArgv extractBin "/m.txt" "/e.jsonl" "/ir" 1 none (some "/omit.txt")
+    && !(extractArgv extractBin "/m.txt" "/e.jsonl" "/ir" 1 #[] none (some "/omit.txt")
           (some "token")).contains "--link-index-omit"
-    && !(extractArgv extractBin "/m.txt" "/e.jsonl" "/ir" 1 none none
+    && !(extractArgv extractBin "/m.txt" "/e.jsonl" "/ir" 1 #[] none none
           (some "token")).contains "--link-index-key"
 
 #guard theMapsCompanionFlagsCannotBeWrittenWithoutTheMap
@@ -139,7 +155,7 @@ def theEventsFileIsDerivedFromTheTimingsPathAndIsOnNeitherCommandLine : Bool :=
   (eventsBeside "/work/timings.json").toString == "/work/timings-events.jsonl"
     && (eventsBeside "/work/timings").toString == "/work/timings-events.jsonl"
     && (eventsBeside "/work/a.json.json").toString == "/work/a.json-events.jsonl"
-    && !(extractArgv extractBin "/m.txt" "/e.jsonl" "/ir" 1 none none none).contains "--events"
+    && !(extractArgv extractBin "/m.txt" "/e.jsonl" "/ir" 1 #[] none none none).contains "--events"
     && !(oneShotArgv #[] "/m.txt" "/ir" "/work/timings.json").contains "--events"
 
 #guard theEventsFileIsDerivedFromTheTimingsPathAndIsOnNeitherCommandLine

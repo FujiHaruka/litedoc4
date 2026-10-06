@@ -272,6 +272,7 @@ structure Index where
   schemaVersion : Nat := 0
   generator : String := ""
   leanVersion : String := ""
+  extractorIdentity : String := ""
   ablations : Array String := #[]
   modules : Array IndexEntry := #[]
   dependencyMaps : Array DepMapEntry := #[]
@@ -318,6 +319,7 @@ def toIndex (v : JVal) : Except String Index := do
     if k == "schemaVersion" then ix := { ix with schemaVersion := asNat x }
     else if k == "generator" then ix := { ix with generator := asStr x }
     else if k == "leanVersion" then ix := { ix with leanVersion := asStr x }
+    else if k == "extractorIdentity" then ix := { ix with extractorIdentity := asStr x }
     else if k == "ablations" then ix := { ix with ablations := toStrings x }
     else if k == "modules" then ix := { ix with modules := ← (asArr x).mapM toIndexEntry }
     else if k == "dependencyMaps" then

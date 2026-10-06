@@ -308,17 +308,24 @@ the file and the line, because that entry and every one after it are left out.
 
 ## Configuring the site
 
-`litedoc4.toml` next to your `lakefile`, both keys optional:
+`litedoc4.toml` next to your `lakefile`, every key optional:
 
 ```toml
 title = "MyPkg"          # the top bar, and the second half of every page's <title>
 index = "docs/index.md"  # Markdown to put at the top of the site's index page
+no_equations_under = ["MyPkg.Tactic", "MyPkg.Meta"]  # definitions shown without equations
 ```
 
 Without it the title is the name your modules share (`Foo.*` → `Foo`), which is what a reader
 types to import your package. It is a file rather than a flag because every stage that writes HTML
 reads it, so there is no way to leave the flag off one of them and end up with a site that
 disagrees with itself about its own name.
+
+`no_equations_under` is for implementation code — tactics, elaborators, metaprograms — whose
+equations would print the code's own body back as a lemma. A definition whose name lies inside one
+of these namespaces (`MyPkg.Tactic.ring_nf`, not `MyPkg.TacticX.foo` and not `MyPkg.Tactic`
+itself) gets no equations: they are not generated at all. Its signature, docstring and source link
+stay. Changing the list re-extracts every module on the next build.
 
 A malformed file, an unknown key, or an `index` naming a file that is not there **stops the
 build**. Carrying on with the derived title would be a site that quietly ignored what you asked

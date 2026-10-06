@@ -9,6 +9,7 @@ extraction this stage exists to skip.
 **Module hashes are taken before the extraction they license, and the file is
 written after the render.** A ledger written first would claim modules are up to
 date whose IR a failed run never produced. -/
+import Litedoc4.Config
 import Litedoc4.External
 import Litedoc4.Fs
 import Litedoc4.Incr.Ordered
@@ -144,11 +145,13 @@ def jsString (j : JVal) (key : String) : String := Id.run do
 cosmetic: `--source-url` carries a git revision, so it changes on every commit,
 and under one key every incremental build would pay a full re-extraction for an
 input Lean cannot see. -/
-def extractKeyOf (leanToolchain manifestSha256 : String) (irIndex : Option JVal) :
-    Array (String × String) := Id.run do
+def extractKeyOf (leanToolchain manifestSha256 : String) (noEquationsUnder : Array String)
+    (irIndex : Option JVal) : Array (String × String) := Id.run do
   let mut key : Array (String × String) :=
     #[("leanToolchain", leanToolchain), ("manifestSha256", manifestSha256),
       ("extractor", extractorId)]
+  if !noEquationsUnder.isEmpty then
+    key := key.push ("noEquationsUnder", ",".intercalate noEquationsUnder.toList)
   if let some j := irIndex then
     key := key.push ("irSchemaVersion", jsString j "schemaVersion")
     key := key.push ("irGenerator", jsString j "generator")
@@ -167,7 +170,7 @@ def extractKey (target : String) (ir : Option System.FilePath) :
     match parseJson text with
     | .error why => throw (IO.userError s!"{path}: {why}")
     | .ok j => index := some j
-  return extractKeyOf leanToolchain manifest index
+  return extractKeyOf leanToolchain manifest (← readConfigKeys root).noEquationsUnder index
 
 /-- What changes the page bytes with the IR held fixed. Changed ⇒ re-extract
 nothing, re-render everything. -/

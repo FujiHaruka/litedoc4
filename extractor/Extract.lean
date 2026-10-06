@@ -17,7 +17,15 @@ litedoc4 as a whole is licensed separately; see this repository's LICENSE.
 This binary does **not** link doc-gen4 — it imports only `Lean`.
 
 Usage: extract <modules.txt> <out.jsonl> [options]
+       extract --identity [options]
+  --identity          print the extractor output identity for these options —
+                      the line `--write-ir` puts in `index.json` as
+                      `extractorIdentity` — and extract nothing
   --equations         generate equation lemmas (default: off)
+  --no-equations-under <ns>[,<ns>]
+                      no equations for a definition whose name lies strictly
+                      inside one of these namespaces; its signature, docstring
+                      and position stay
   --write-ir          persist the result as one JSON file per module + an index
                       + a dependency-side map slice (default: off)
   --tagged-code       record, per printed fragment, the pre-order list of tag
@@ -96,6 +104,8 @@ structure Cfg where
   modulesPath : FilePath
   outPath : FilePath
   genEquations : Bool := false
+  noEquationsUnder : Array Name := #[]
+  identity : Bool := false
   dumpPath : Option FilePath := none
   dumpModulesPath : Option FilePath := none
   onlyPath : Option FilePath := none
@@ -1241,6 +1251,7 @@ structure Counters where
   docNanos : Nat := 0
   eqCount : Nat := 0
   eqFailures : Nat := 0
+  eqSkipped : Nat := 0
   /-- Runs *inside* the pretty printing it measures, so this is a part of
   `ppNanos` (and of `eqNanos` for the equations), not an addition to it. -/
   refNanos : Nat := 0
@@ -1276,6 +1287,7 @@ def Counters.add (a b : Counters) : Counters :=
     docNanos := a.docNanos + b.docNanos,
     eqCount := a.eqCount + b.eqCount,
     eqFailures := a.eqFailures + b.eqFailures,
+    eqSkipped := a.eqSkipped + b.eqSkipped,
     refNanos := a.refNanos + b.refNanos,
     refCount := a.refCount + b.refCount,
     attrNanos := a.attrNanos + b.attrNanos,
@@ -1392,9 +1404,25 @@ def baseInfo (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (kin
     equations := #[]
   }
 
+def isStrictlyInsideAny (namespaces : Array Name) (declName : Name) : Bool :=
+  let userName := privateToUserName declName
+  namespaces.any fun ns => ns != userName && ns.isPrefixOf userName
+
+def namespaceMatchingIsByComponentAndStrict : Bool :=
+  let under := isStrictlyInsideAny #[`Mathlib.Tactic, `Mathlib.Meta]
+  under `Mathlib.Tactic.Ring.foo && under `Mathlib.Meta.bar
+    && under (mkPrivateNameCore `Mathlib.Foo `Mathlib.Tactic.baz)
+    && !under `Mathlib.TacticX.foo && !under `Mathlib.Tactic && !under `Mathlib.Foo.Tactic.x
+    && !isStrictlyInsideAny #[] `Mathlib.Tactic.Ring.foo
+
+#guard namespaceMatchingIsByComponentAndStrict
+
 def withEquations (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : DefinitionVal)
     (d : DeclOut) : AnalyzeM DeclOut := do
   unless cfg.genEquations do return d
+  if isStrictlyInsideAny cfg.noEquationsUnder v.name then
+    modify fun c => { c with eqSkipped := c.eqSkipped + 1 }
+    return d
   -- A probe of its own, so the equations' share can be separated; folded into both.
   let eqProbe : PpProbe ← match probe with
     | none => pure none
@@ -2070,6 +2098,76 @@ every declaration of a tagged file on purpose — an omission rule would give it
 absence two meanings. -/
 def irSchemaVersion (tagged : Bool) : Nat := if tagged then 5 else 1
 
+def fnv1a64 (s : String) : UInt64 :=
+  s.toUTF8.foldl (fun h b => (h ^^^ b.toUInt64) * 0x100000001b3) 0xcbf29ce484222325
+
+def fnv1a64MatchesItsPublishedVectors : Bool :=
+  fnv1a64 "" == 0xcbf29ce484222325 && fnv1a64 "a" == 0xaf63dc4c8601ec8c
+    && fnv1a64 "foobar" == 0x85944171f73967e8
+
+#guard fnv1a64MatchesItsPublishedVectors
+
+-- Not `String.hash` (`hashHex`): Lean's runtime promises it nothing across versions.
+def fnv1a64Hex (s : String) : String :=
+  let digits := String.ofList (Nat.toDigits 16 (fnv1a64 s).toNat)
+  "fnv1a64:" ++ "".pushn '0' (16 - digits.length) ++ digits
+
+def extractorSource : String := include_str "Extract.lean"
+
+def sortedDistinct (xs : Array String) : Array String :=
+  (xs.qsort (· < ·)).foldl (init := #[]) fun acc x =>
+    if acc.back? == some x then acc else acc.push x
+
+def identityLine (sourceDigest leanVersion leanGithash : String) (onlyDigest : Option String)
+    (cfg : Cfg) : String :=
+  let flag (b : Bool) := if b then "1" else "0"
+  let names (ns : Array Name) := ",".intercalate (ns.toList.map toString)
+  let fields := [
+    ("schema", toString (irSchemaVersion cfg.taggedCode)),
+    ("source", sourceDigest),
+    ("lean", leanVersion),
+    ("leanGithash", leanGithash),
+    ("equations", flag cfg.genEquations),
+    ("taggedCode", flag cfg.taggedCode),
+    ("refs", flag cfg.collectRefs),
+    ("skipAnalyze", flag cfg.skipAnalyze),
+    ("ablations", ",".intercalate cfg.ablations.toList),
+    ("open", names cfg.openNamespaces),
+    ("only", onlyDigest.getD ""),
+    ("noEquationsUnder",
+      ",".intercalate (sortedDistinct (cfg.noEquationsUnder.map toString)).toList)]
+  " ".intercalate (fields.map fun (k, v) => k ++ "=" ++ v)
+
+def identityMovesWithEveryOutputAffectingSettingAndNoOther : Bool :=
+  let base : Cfg := { modulesPath := "m.txt", outPath := "o.jsonl" }
+  let line (cfg : Cfg) := identityLine "fnv1a64:0123456789abcdef" "4.31.0" "abc" none cfg
+  let moves : List Cfg := [
+    { base with genEquations := true }, { base with taggedCode := true },
+    { base with collectRefs := true }, { base with skipAnalyze := true },
+    { base with noAttrs := true }, { base with noInstIndex := true },
+    { base with noMemberExtra := true }, { base with noSorry := true },
+    { base with openNamespaces := #[`Foo] }, { base with noEquationsUnder := #[`Foo] }]
+  let stays : List Cfg := [
+    { base with modulesPath := "other.txt", outPath := "other.jsonl", jobs := 4 },
+    { base with tagCode := true, ppBreakdown := true, tacticsEmulate := true },
+    { base with writeIR := true, irDir := some "/ir", linkIndexPath := some "/l.lidx" },
+    { base with dumpPath := some "/d", linkIndexKey := some "k", identity := true }]
+  line base == "schema=1 source=fnv1a64:0123456789abcdef lean=4.31.0 leanGithash=abc \
+      equations=0 taggedCode=0 refs=0 skipAnalyze=0 ablations= open= only= noEquationsUnder="
+    && moves.all (line · != line base)
+    && stays.all (line · == line base)
+    && identityLine "s" "4.31.0" "abc" (some "fnv1a64:1") base != line base
+    && line { base with noEquationsUnder := #[`B, `A, `B] }
+      == line { base with noEquationsUnder := #[`A, `B] }
+    && line { base with noEquationsUnder := #[`A] }
+      != line { base with noEquationsUnder := #[`A, `B] }
+
+#guard identityMovesWithEveryOutputAffectingSettingAndNoOther
+
+def extractorIdentity (cfg : Cfg) : IO String := do
+  let onlyDigest ← cfg.onlyPath.mapM fun path => return fnv1a64Hex (← IO.FS.readFile path)
+  return identityLine (fnv1a64Hex extractorSource) Lean.versionString Lean.githash onlyDigest cfg
+
 /-- Where `--write-ir` writes: **`--ir-dir` and nothing else**. No default, and
 the `IR_DIR` environment variable is not consulted — both were ways for a
 `--write-ir` run to put several MB into a directory the caller never named and
@@ -2240,8 +2338,8 @@ structure IrStats where
   writeNanos : Nat := 0
   deriving Inhabited
 
-def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env : Environment)
-    (targets : Array Name) (mods : Array ModuleOut) (results : Array DeclOut) : IO IrStats := do
+def writeIRTree (tagged : Bool) (ablations : Array String) (identity : String) (dir : FilePath)
+    (env : Environment) (targets : Array Name) (mods : Array ModuleOut) (results : Array DeclOut) : IO IrStats := do
   let modulesDir := dir / "modules"
   let depsDir := dir / "deps"
   IO.FS.createDirAll modulesDir
@@ -2373,6 +2471,7 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env
     ("schemaVersion", Json.num (irSchemaVersion tagged)),
     ("generator", Json.str "lean-doc/experiments/stage4b"),
     ("leanVersion", Json.str Lean.versionString),
+    ("extractorIdentity", Json.str identity),
     ("hashAlgorithm", Json.str "lean-string-hash-64/hex16"),
     ("moduleCount", Json.num st.moduleFiles),
     ("declarationCount", Json.num st.declarations)] ++
@@ -2845,7 +2944,8 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     let dir ← getIrDir cfg
     irDirUsed := some dir
     let t0 ← IO.monoNanosNow
-    irStats ← writeIRTree cfg.taggedCode cfg.ablations dir env targets mods results
+    irStats ← writeIRTree cfg.taggedCode cfg.ablations (← extractorIdentity cfg) dir env targets
+      mods results
     let t1 ← IO.monoNanosNow
     sink.emit "stage4b.writeIR" (t1 - t0)
       [("taggedCode", if cfg.taggedCode then "true" else "false"),
@@ -2988,7 +3088,7 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     IO.println s!"  5x hoisted const2ModIdx {fmtDur p.hoisted5}  ({fmtDur (p.hoisted5 / 5)} each)"
   IO.println s!"analyze              {fmtDur (tAn1 - tAn0)}  considered {considered}, produced {results.size}, blacklisted {blacklisted}, failed {failures.size}"
   IO.println s!"  of which signature {fmtDur counters.ppNanos}"
-  IO.println s!"  of which equations {fmtDur counters.eqNanos}  ({counters.eqCount} lemmas, {counters.eqFailures} failed)"
+  IO.println s!"  of which equations {fmtDur counters.eqNanos}  ({counters.eqCount} lemmas, {counters.eqFailures} failed, {counters.eqSkipped} definitions skipped by --no-equations-under)"
   IO.println s!"  of which docstring {fmtDur counters.docNanos}"
   if cfg.taggedCode then
     IO.println s!"  attributes         {fmtDur counters.attrNanos}  ({counters.attrCount} calls, {counters.attrDecls} declarations with at least one)"
@@ -3112,8 +3212,9 @@ end Litedoc4
 open Litedoc4 in
 def parseArgs (args : List String) : Except String Cfg :=
   match args with
+  | "--identity" :: rest => go { modulesPath := "", outPath := "", identity := true } rest
   | modules :: out :: rest => go { modulesPath := ⟨modules⟩, outPath := ⟨out⟩ } rest >>= check
-  | _ => .error "usage: extract <modules.txt> <out.jsonl> [--equations] [--dump <p>] [--dump-modules <p>] [--only <p>] [--open <ns,..>] [--tag] [--refs] [--dump-refs <p>] [--link-index <p>] [--link-index-omit <p>] [--link-index-key <t>] [--write-ir --ir-dir <p>] [--tagged-code] [--skip-analyze] [--tactics-emulate] [--tactics-probe] [--pp-breakdown] [--decl-profile <p>] [--jobs <n>]"
+  | _ => .error "usage: extract [--identity | <modules.txt> <out.jsonl>] [--equations] [--no-equations-under <ns,..>] [--dump <p>] [--dump-modules <p>] [--only <p>] [--open <ns,..>] [--tag] [--refs] [--dump-refs <p>] [--link-index <p>] [--link-index-omit <p>] [--link-index-key <t>] [--write-ir --ir-dir <p>] [--tagged-code] [--skip-analyze] [--tactics-emulate] [--tactics-probe] [--pp-breakdown] [--decl-profile <p>] [--jobs <n>]"
 where
   /-- The one cross-flag rule, checked **before anything runs** rather than where
   the directory is used: the IR is written at the very end of a 20-second
@@ -3126,6 +3227,12 @@ where
   go (cfg : Cfg) : List String → Except String Cfg
   | [] => .ok cfg
   | "--equations" :: rest => go { cfg with genEquations := true } rest
+  | "--no-equations-under" :: list :: rest => do
+    let names ← (list.splitOn ",").toArray.mapM fun raw =>
+      let text := raw.trimAscii.toString
+      if !text.isEmpty && text.toName.toString == text then .ok text.toName
+      else .error s!"--no-equations-under: `{raw}` is not a namespace"
+    go { cfg with noEquationsUnder := names } rest
   | "--write-ir" :: rest => go { cfg with writeIR := true } rest
   | "--tagged-code" :: rest => go { cfg with taggedCode := true } rest
   -- Ablations. They subtract one of the additions so its cost can be measured;
@@ -3170,5 +3277,9 @@ where
 
 def main (args : List String) : IO UInt32 := do
   match parseArgs args with
-  | .ok cfg => if cfg.serve then Litedoc4.serve cfg else Litedoc4.run cfg
+  | .ok cfg =>
+    if cfg.identity then
+      IO.println (← Litedoc4.extractorIdentity cfg)
+      return 0
+    if cfg.serve then Litedoc4.serve cfg else Litedoc4.run cfg
   | .error msg => IO.eprintln msg; return 1

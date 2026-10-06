@@ -3,10 +3,11 @@
 ```toml
 title = "MyPkg"          # the top bar, and the second half of every <title>
 index = "docs/index.md"  # Markdown to put at the top of the site's index
+no_equations_under = ["MyPkg.Tactic"]  # definitions shown without equations
 ```
 
-Both optional. An absent file, an empty file and a file with neither key are the
-same answer.
+All optional. An absent file, an empty file and a file with none of the keys are
+the same answer.
 
 **A file that is there and does not parse is an error**, and so is an `index`
 naming a file that is not there: carrying on with the derived title would be a
@@ -15,7 +16,7 @@ site that silently ignores what the package asked for.
 The recogniser below is not a TOML parser and refuses every line it cannot
 account for, the way `Litedoc4.Lakefile` refuses a lakefile line it cannot
 account for. A general parser would accept spellings this reader would
-then have to interpret — a table header, an array, a literal string — and the
+then have to interpret — a table header, a multi-line array, a literal string — and the
 failure mode of guessing here is a site with the wrong title on every page,
 which nothing downstream can see. What would falsify this: a package that has to
 write its title in a spelling this refuses, which is a reason to widen the
@@ -110,8 +111,27 @@ partial def basicString (cs : List Char) (acc : String) :
   | '\\' :: [] => .error "a string ends in a backslash"
   | c :: rest => basicString rest (acc.push c)
 
+inductive Value where
+  | string (text : String)
+  | strings (texts : Array String)
+  | neither
+  deriving BEq, Repr
+
+/-- The rest of a one-line array of basic strings, after its `[`. -/
+partial def stringArray (key : String) (cs : List Char) (acc : Array String) :
+    Except String (Array String × List Char) :=
+  match skipSpace cs with
+  | ']' :: rest => .ok (acc, rest)
+  | '"' :: rest => do
+    let (value, rest) ← basicString rest ""
+    match skipSpace rest with
+    | ',' :: rest => stringArray key rest (acc.push value)
+    | ']' :: rest => .ok (acc.push value, rest)
+    | _ => .error s!"`{key}`'s list is not closed with `]` on the same line"
+  | _ => .error s!"`{key}`'s list holds something other than quoted strings"
+
 /-- `none` for a line that says nothing (blank, or a comment). -/
-def line (text : String) : Except String (Option (String × String)) := do
+def line (text : String) : Except String (Option (String × Value)) := do
   let cs := skipSpace text.toList
   match cs with
   | [] => return none
@@ -120,21 +140,25 @@ def line (text : String) : Except String (Option (String × String)) := do
     let (key, rest) := takeKey cs ""
     if key.isEmpty then
       throw "a line that is neither blank, a comment, nor `key = \"value\"`"
-    match skipSpace rest with
-    | '=' :: rest =>
-      match skipSpace rest with
-      | '"' :: rest => do
-        let (value, rest) ← basicString rest ""
+    let (value, rest) ← match skipSpace rest with
+      | '=' :: rest =>
         match skipSpace rest with
-        | [] => return some (key, value)
-        | '#' :: _ => return some (key, value)
-        | _ => throw s!"`{key}` has something after its value"
-      | _ => throw s!"`{key}` is not given a quoted string"
-    | _ => throw s!"`{key}` is not followed by `=`"
+        | '"' :: rest => do
+          let (value, rest) ← basicString rest ""
+          pure (Value.string value, rest)
+        | '[' :: rest => do
+          let (values, rest) ← stringArray key rest #[]
+          pure (Value.strings values, rest)
+        | _ => pure (Value.neither, [])
+      | _ => throw s!"`{key}` is not followed by `=`"
+    match skipSpace rest with
+    | [] => return some (key, value)
+    | '#' :: _ => return some (key, value)
+    | _ => throw s!"`{key}` has something after its value"
 
 end Toml
 
-/-- The two keys as the file spells them, with `index` still a path.
+/-- The keys as the file spells them, with `index` still a path.
 
 Separate from `SiteConfig`, which carries the index file's **contents**: this is
 what reading the text alone can answer, and `readSiteConfig` is what turns the
@@ -142,14 +166,21 @@ path into the Markdown behind it. -/
 structure ConfigKeys where
   title : Option String := none
   index : Option String := none
+  noEquationsUnder : Array String := #[]
   deriving BEq, Repr, Inhabited
 
-/-- `title` and `index`, and an unknown key is a hard error rather than an
-ignored line: a misspelled key that is silently dropped is a package whose
-configuration does nothing and says nothing. -/
+/-- The extractor's own test for `--no-equations-under`, which also refuses the `,`
+that joins the list on its command line. -/
+def isNamespace (text : String) : Bool :=
+  !text.isEmpty && text.toName.toString == text
+
+/-- An unknown key is a hard error rather than an ignored line: a misspelled key
+that is silently dropped is a package whose configuration does nothing and says
+nothing. -/
 def parseConfig (text : String) : Except String ConfigKeys := Id.run do
   let mut title : Option String := none
   let mut index : Option String := none
+  let mut noEquationsUnder : Option (Array String) := none
   let mut number := 0
   for raw in text.splitOn "\n" do
     number := number + 1
@@ -160,17 +191,32 @@ def parseConfig (text : String) : Except String ConfigKeys := Id.run do
     | .ok none => pure ()
     | .ok (some (key, value)) =>
       if key == "title" then
+        let .string value := value
+          | return .error s!"line {number}: `title` is not given a quoted string"
         if title.isSome then return .error s!"line {number}: `title` is given twice"
         title := some value
       else if key == "index" then
+        let .string value := value
+          | return .error s!"line {number}: `index` is not given a quoted string"
         if index.isSome then return .error s!"line {number}: `index` is given twice"
         index := some value
+      else if key == "no_equations_under" then
+        let .strings values := value
+          | return .error s!"line {number}: `no_equations_under` is a list of namespaces, \
+              like `[\"MyPkg.Tactic\"]`"
+        if noEquationsUnder.isSome then
+          return .error s!"line {number}: `no_equations_under` is given twice"
+        if let some bad := values.find? (!isNamespace ·) then
+          return .error s!"line {number}: `no_equations_under` holds `{bad}`, which is not a \
+            namespace"
+        noEquationsUnder := some values
       else
         return .error s!"line {number}: unknown key `{key}`"
   -- An empty title is not a title: `title = ""` would otherwise put a blank
   -- where every page names the site. Here rather than at the one caller so that
   -- reading the file and deciding what it said are not two answers.
-  return .ok { title := title.filter (fun t => !(trimWs t).isEmpty), index }
+  return .ok { title := title.filter (fun t => !(trimWs t).isEmpty), index
+               noEquationsUnder := noEquationsUnder.getD #[] }
 
 def readIfPresent (path : FilePath) : IO (Option String) := do
   try
@@ -193,16 +239,20 @@ def readBibliography (root : FilePath) : IO Bibliography := do
     return { Bibliography.of read.items (some (sha256Text text)) with warning }
   | .error message => throw (IO.userError s!"{path}: {message}")
 
+/-- `<root>/litedoc4.toml`'s keys, or none when the file is absent. -/
+def readConfigKeys (root : FilePath) : IO ConfigKeys := do
+  let path := root / configFile
+  match ← readIfPresent path with
+  | none => pure {}
+  | some text => match parseConfig text with
+    | .ok keys => pure keys
+    | .error message => throw (IO.userError s!"{path}: {message}")
+
 /-- `<root>/litedoc4.toml` and `<root>/docs/references.bib`, or the empty
 configuration when `root` is `none` or holds neither file. -/
 def readSiteConfig (root : Option FilePath) : IO SiteConfig := do
   let some root := root | return {}
-  let path := root / configFile
-  let keys ← match ← readIfPresent path with
-    | none => pure {}
-    | some text => match parseConfig text with
-      | .ok keys => pure keys
-      | .error message => throw (IO.userError s!"{path}: {message}")
+  let keys ← readConfigKeys root
   let indexMarkdown ← match keys.index with
     | some relative =>
       let resolved := root / relative

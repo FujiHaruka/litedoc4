@@ -1,6 +1,6 @@
 /- The two cache keys.
 
-`extractKey` reads three files and `extractKeyOf` decides what they mean, so the
+`extractKey` reads four files and `extractKeyOf` decides what they mean, so the
 key's own shape is a guard and only the seam needs a package on disk. -/
 import Litedoc4.Ledger
 import Litedoc4Test.IncrFixture
@@ -26,7 +26,7 @@ IR's own `generator` is **not** renamed with them — it names what wrote the tr
 on disk, which this port does not claim to be — so it has to come back out of the
 index verbatim. A rename applied to all three at once passes the first two. -/
 def theIdentityStringsAreNotTheFrozenPrototypes : Bool :=
-  let key := extractKeyOf "leanprover/lean4:v4.31.0" "0011"
+  let key := extractKeyOf "leanprover/lean4:v4.31.0" "0011" #[]
     (some (irIndexOf "lean-doc/experiments/stage4b"))
   extractorId != "lean-doc/experiments/stage4b"
     && rendererId != "lean-doc/experiments/stage4c"
@@ -35,10 +35,22 @@ def theIdentityStringsAreNotTheFrozenPrototypes : Bool :=
     && keySetGet (renderKey sourceUrl none none none) "renderer" == some rendererId
     && key.map (·.1) == #["leanToolchain", "manifestSha256", "extractor",
                           "irSchemaVersion", "irGenerator"]
-    && (extractKeyOf "leanprover/lean4:v4.31.0" "0011" none).map (·.1)
+    && (extractKeyOf "leanprover/lean4:v4.31.0" "0011" #[] none).map (·.1)
       == #["leanToolchain", "manifestSha256", "extractor"]
 
 #guard theIdentityStringsAreNotTheFrozenPrototypes
+
+def aNoEquationListIsAnExtractKeyOnlyWhenItIsNotEmpty : Bool :=
+  let keyOf (namespaces : Array String) := extractKeyOf "leanprover/lean4:v4.31.0" "0011"
+    namespaces (some (irIndexOf "g"))
+  let tactic := keyOf #["Mathlib.Tactic"]
+  (keyOf #[]).all (·.1 != "noEquationsUnder")
+    && keySetGet tactic "noEquationsUnder" == some "Mathlib.Tactic"
+    && keySetDiff (keyOf #[]) tactic == #["noEquationsUnder"]
+    && keySetDiff tactic (keyOf #[]) == #["noEquationsUnder"]
+    && keySetDiff tactic (keyOf #["Mathlib.Tactic", "Mathlib.Meta"]) == #["noEquationsUnder"]
+
+#guard aNoEquationListIsAnExtractKeyOnlyWhenItIsNotEmpty
 
 /-- Where each **dependency's** source lives reaches every page that links into
 one, and it moves on exactly the occasion an incremental build runs — a bumped

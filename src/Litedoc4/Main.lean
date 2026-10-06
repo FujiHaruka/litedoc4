@@ -2180,7 +2180,7 @@ def extractRun (a : ExtractArgs) : BuildM Unit := do
     | none => pure none
     | some path => pure (some (← absolutePath ⟨path⟩))
   let args := extractArgv bin modulesPath events irDir a.jobs
-    linkIndexPath omitPath a.linkIndexKey
+    (← readConfigKeys target).noEquationsUnder linkIndexPath omitPath a.linkIndexKey
   -- The extractor's stdout is a human-readable phase report; the
   -- machine-readable copy of the same numbers is the events file, which is what
   -- the timings are folded from. stderr is inherited, so a Lean error still

@@ -25,6 +25,25 @@ def aBlankTitleFallsBackToTheDerivedOne : Bool :=
 
 #guard aBlankTitleFallsBackToTheDerivedOne
 
+def noEquationsUnderIsAOneLineListOfNamespaces : Bool :=
+  keysOf "no_equations_under = [\"Mathlib.Tactic\", \"Mathlib.Meta\"]  # meta code\n"
+      == some { noEquationsUnder := #["Mathlib.Tactic", "Mathlib.Meta"] }
+    && keysOf "no_equations_under = []\n" == some {}
+    && keysOf "no_equations_under = [ \"A\" , ]\ntitle = \"T\"\n"
+      == some { title := some "T", noEquationsUnder := #["A"] }
+    && [ "no_equations_under = \"Mathlib.Tactic\"\n",
+         "no_equations_under = [\"Mathlib.Tactic\"\n",
+         "no_equations_under = [Mathlib.Tactic]\n",
+         "no_equations_under = [\"\"]\n",
+         "no_equations_under = [\"Mathlib..Tactic\"]\n",
+         "no_equations_under = [\"Mathlib Tactic\"]\n",
+         "no_equations_under = [\"A,B\"]\n",
+         "no_equations_under = [\"A\"] x\n",
+         "no_equations_under = [\"A\"]\nno_equations_under = [\"B\"]\n",
+         "title = [\"T\"]\n", "index = [\"docs/index.md\"]\n" ].all (keysOf · == none)
+
+#guard noEquationsUnderIsAOneLineListOfNamespaces
+
 /-- The one claim left in `IO`: no package root and a root holding no
 `litedoc4.toml` are the empty configuration, and an absent file is the ordinary
 case rather than a failure — most packages configure nothing.

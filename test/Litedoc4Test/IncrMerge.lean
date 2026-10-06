@@ -52,6 +52,16 @@ def theMergedIndexClaimsTheWeakestSchemaUnderTheTree : Bool :=
 
 #guard theMergedIndexClaimsTheWeakestSchemaUnderTheTree
 
+def theMergedIndexClaimsAnExtractorIdentityOnlyWhenItDescribesEveryModule : Bool :=
+  let id (text : String) : Option JVal := some (.str text)
+  jvalKey (mergedIdentity (id "a") (id "a") false) == jvalKey (id "a")
+    && jvalKey (mergedIdentity (id "a") (id "b") true) == jvalKey (id "b")
+    && (mergedIdentity (id "a") (id "b") false).isNone
+    && (mergedIdentity none (id "b") false).isNone
+    && (mergedIdentity (id "a") none true).isNone
+
+#guard theMergedIndexClaimsAnExtractorIdentityOnlyWhenItDescribesEveryModule
+
 def entryFor (module : String) : MergeIndexEntry :=
   { module, file := s!"modules/{module}.json", raw := .null }
 

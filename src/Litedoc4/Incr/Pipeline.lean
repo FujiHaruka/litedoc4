@@ -261,7 +261,8 @@ def serveOptions (r : ServeRequest) : BuildM Serve := do
   return { bin := ← absolutePath bin
            lake := (← envOr r.lake "LAKE").getD ⟨"lake"⟩
            target, jobs := r.jobs, modulesFile, modules := r.modules
-           work := ← absolutePath r.work, linkIndex, linkIndexKey }
+           work := ← absolutePath r.work, linkIndex, linkIndexKey
+           noEquationsUnder := (← readConfigKeys target).noEquationsUnder }
 
 /-! ## One run -/
 

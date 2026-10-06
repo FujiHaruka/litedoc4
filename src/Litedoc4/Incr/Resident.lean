@@ -121,6 +121,8 @@ structure Serve where
   too: a token that changed between two requests of one server would describe two
   different maps in one file. -/
   linkIndexKey : Option String := none
+  /-- `<target>/litedoc4.toml`'s `no_equations_under`. -/
+  noEquationsUnder : Array String := #[]
 
 /-- The oleans of one module list, as Lake's own content hashes.
 
@@ -215,10 +217,13 @@ extraction is given is a decision about its inputs, and inside `IO.Process.spawn
 it could only be asked by running Lean against a real package. What would falsify
 the split: a flag whose value has to be read off disk here. -/
 def extractArgv (bin modules events irDir : FilePath) (jobs : Nat)
+    (noEquationsUnder : Array String)
     (linkIndex linkIndexOmit : Option FilePath) (linkIndexKey : Option String) :
     Array String := Id.run do
   let mut args := #["env", bin.toString, modules.toString, events.toString]
   args := args ++ fixedFlags
+  if !noEquationsUnder.isEmpty then
+    args := args.push "--no-equations-under" |>.push (",".intercalate noEquationsUnder.toList)
   args := args ++ #["--jobs", toString jobs, "--ir-dir", irDir.toString]
   if let some map := linkIndex then
     args := args.push "--link-index" |>.push map.toString
@@ -396,7 +401,7 @@ is in `renderKey`.
 `--serve` is last because everything before it is configuration; a flag appended
 after it would be read as the serve loop's argument. -/
 def Serve.startArgv (s : Serve) : Array String :=
-  (extractArgv s.bin s.modulesFile s.eventsPath s.unusedIrPath s.jobs
+  (extractArgv s.bin s.modulesFile s.eventsPath s.unusedIrPath s.jobs s.noEquationsUnder
     s.linkIndex (some s.modulesFile) s.linkIndexKey).push "--serve"
 
 def Server.start (s : Serve) : BuildM Server := do

@@ -26,9 +26,9 @@ structure GlobalOptions where
   /-- One JSON line of counts and durations. What is read back out of it is
   `cacheHits` and `cacheMisses`; the durations are diagnostics. -/
   timings : Option FilePath := none
-  /-- `litedoc4.toml`'s two keys and the bibliography, resolved by whoever read
-  the files — `--root` names the package this stage is never told about, and
-  both paths are relative to it. -/
+  /-- `litedoc4.toml`'s `title` and `index` and the bibliography, resolved by
+  whoever read the files — `--root` names the package this stage is never told
+  about, and both paths are relative to it. -/
   indexMarkdown : Option String := none
   title : Option String := none
   bibliography : Bibliography := {}
