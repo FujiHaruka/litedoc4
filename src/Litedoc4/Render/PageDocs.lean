@@ -1,8 +1,7 @@
 /- The docstrings a module page shows, in the order it shows them, and the
-citations they make. Asked by the renderer, which numbers the anchors, and by the
-whole-package step, which lists them on `references.html` — and in an
-incremental build that step runs before the renderer, so it cannot read the
-numbers off the pages. -/
+citations they make. Asked for a page's items, and by the whole-package step,
+which lists the citations on the references page and cannot read their numbers
+off pages it never sees. -/
 import Std.Data.HashSet
 import Litedoc4.Ir
 import Litedoc4.Md.Html
@@ -61,8 +60,8 @@ structure PageCitation where
   citation : Citation
   deriving BEq, Repr, Inhabited
 
-/-- What `declHtml` renders a docstring for: the declaration's own, then its
-direct fields or its constructors. -/
+/-- What a declaration shows a docstring for: its own, then its direct fields or
+its constructors. -/
 def declDocs (d : Decl) : Array (String × String) := Id.run do
   let mut docs := #[(d.name, d.doc)]
   if d.kind == "structure" || d.kind == "class" then

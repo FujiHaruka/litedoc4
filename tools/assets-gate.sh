@@ -2,8 +2,8 @@
 # Is the site's TypeScript sound?
 #
 # **Nothing else in the tree compiles `web/src` at all.** The executable carries
-# the *bundle* (`assets/app.js`, read into `src/Litedoc4/Assets.lean` by
-# `tools/gen-assets.py`), never the sources, so a syntax error in `web/src`
+# the *bundles* (`assets/site.js` and the two inlined scripts, read into
+# `src/Litedoc4/Assets.lean` by `tools/gen-assets.py`), never the sources, so a syntax error in `web/src`
 # reaches nobody until a reader loads a page whose script does not run. This gate
 # is where that code is type-checked, linted, tested and bundled — all of it, or
 # none of it.
@@ -168,24 +168,21 @@ echo "   $PASSED/$TOTAL passed, $FAILED failed"
 echo "== bundle (vite)"
 rm -rf dist
 npm run build >/dev/null
-[ -f dist/app.js ] || { echo "vite wrote no dist/app.js" >&2; exit 1; }
 [ -f dist/theme-boot.js ] || { echo "vite wrote no dist/theme-boot.js" >&2; exit 1; }
 [ -f dist/site.js ] || { echo "vite wrote no dist/site.js" >&2; exit 1; }
 [ -f dist/redirect.js ] || { echo "vite wrote no dist/redirect.js" >&2; exit 1; }
-BYTES="$(wc -c < dist/app.js | tr -d ' ')"
-GZIP="$(gzip -c dist/app.js | wc -c | tr -d ' ')"
 BOOT="$(wc -c < dist/theme-boot.js | tr -d ' ')"
 SITE="$(wc -c < dist/site.js | tr -d ' ')"
 SITE_GZIP="$(gzip -c dist/site.js | wc -c | tr -d ' ')"
 REDIRECT="$(wc -c < dist/redirect.js | tr -d ' ')"
-# theme-boot is per *page*: `Litedoc4.Render.Frame` inlines it into every `<head>`.
-echo "   dist/app.js $BYTES B, gzip $GZIP B; dist/theme-boot.js $BOOT B (inlined per page)"
-echo "   dist/site.js $SITE B, gzip $SITE_GZIP B (store render's page script)"
-echo "   dist/redirect.js $REDIRECT B (inlined into store render's root and 404 pages)"
+# theme-boot is per *page*: `Litedoc4.Data.Site` inlines it into every `<head>`.
+echo "   dist/site.js $SITE B, gzip $SITE_GZIP B (the page script)"
+echo "   dist/theme-boot.js $BOOT B (inlined per page)"
+echo "   dist/redirect.js $REDIRECT B (inlined into the root and 404 pages)"
 
 echo "== assets/ is this bundle"
 # The first link of the chain `assets-embed-gate.sh` documents: vite -> assets/.
-# `assets/app.js` and `assets/theme-boot.js` are committed, because the Lean half
+# The bundles under `assets/` are committed, because the Lean half
 # cannot `include_str!` and `tools/gen-assets.py` writes their bytes into
 # `src/Litedoc4/Assets.lean`. A committed build output has no way of announcing
 # that it went stale — the site still loads, with the JS of whatever commit last
@@ -195,7 +192,7 @@ echo "== assets/ is this bundle"
 # stay free of node; and byte for byte rather than by mtime, because the question
 # is whether these are the same bundle, not which is newer.
 STALE=""
-for f in app.js theme-boot.js site.js redirect.js; do
+for f in theme-boot.js site.js redirect.js; do
   cmp -s "dist/$f" "$ROOT/assets/$f" || STALE="$STALE  $f"$'\n'
 done
 if [ -n "$STALE" ]; then
@@ -205,15 +202,15 @@ if [ -n "$STALE" ]; then
   echo "  then re-run tools/gen-assets.py, or Assets.lean keeps the old bytes." >&2
   exit 1
 fi
-echo "   assets/app.js, assets/theme-boot.js, assets/site.js and assets/redirect.js are byte for byte this build"
+echo "   assets/theme-boot.js, assets/site.js and assets/redirect.js are byte for byte this build"
 
 # `dist/` is scratch: what reaches the executable is `assets/`, compared against
 # it just above.
 rm -rf dist
 
 if [ -n "$JSON" ]; then
-  printf '{"tests":%s,"passed":%s,"failed":%s,"bundleBytes":%s,"bundleGzip":%s,"bootBytes":%s,"siteBytes":%s,"siteGzip":%s}\n' \
-    "$TOTAL" "$PASSED" "$FAILED" "$BYTES" "$GZIP" "$BOOT" "$SITE" "$SITE_GZIP" > "$JSON"
+  printf '{"tests":%s,"passed":%s,"failed":%s,"bootBytes":%s,"siteBytes":%s,"siteGzip":%s}\n' \
+    "$TOTAL" "$PASSED" "$FAILED" "$BOOT" "$SITE" "$SITE_GZIP" > "$JSON"
 fi
 
 echo

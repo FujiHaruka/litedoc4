@@ -246,7 +246,7 @@ def countModuleLines (listed : String) : Nat :=
 one event shape that carries no clock.
 
 **Not a `Float`**: Lean has no shortest-round-trip printer, and these numbers are
-copied through verbatim by `incremental --timings`, so a value written once and
+copied through verbatim by whatever aggregates the record, so a value written once and
 read back has to come out as the bytes it went in as. Trailing zeros go because
 a fixed six places would print `4.542440` where the number is `4.54244`. What
 would falsify it: a `Float` printer in core that round-trips. -/

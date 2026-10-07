@@ -744,7 +744,7 @@ mtr > mtd:last-child { padding-right: 0; }
   .topbar, .sidebar, .scrim, .skip { display: none; }
   .shell { grid-template-columns: 1fr; }
   .content { max-width: none; padding: 0; }
-  /* CSS cannot open a `<details>`; `app.js` opens them for `beforeprint`. */
+  /* CSS cannot open a `<details>`; `site.js` opens them for `beforeprint`. */
   .extra > summary, .imports > summary { color: var(--fg); }
   a { text-decoration: none; }
 }

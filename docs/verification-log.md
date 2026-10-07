@@ -2645,7 +2645,7 @@ IR の `refs` を問う本節では**移動が原理的に観測できない**�
 台帳はそれを「変更」と報告するので、**編集と無関係な理由で変更集合が汚れる。**
 
 気づけた決め手は「**編集を戻してもう一度 check した**」こと — 移動の結果なら移動を
-取り消せば消えるはずが、消えなかった。→ `rebuild-own.sh` で複製内の自パッケージ
+取り消せば消えるはずが、消えなかった。→ `rebuild-own.sh` (deleted; `git show 72c5993:tools/rebuild-own.sh`) で複製内の自パッケージ
 431 モジュールを一度ビルドし直してからベースを取る。**規則として: 複製上の baseline は、
 再ビルドされうるものを全部複製内で再ビルドしてからでないと有効でない。**
 
@@ -2886,7 +2886,7 @@ peak RSS 3.42 GB、page faults 1,110,490)。**warm** — サーバを立てた�
 
 | | import list | 環境が映すもの | 立てた時点 |
 |---|---|---|---|
-| **P** | 移動前 | 移動**前**の olean | `setup-clone.sh move` の前 |
+| **P** | 移動前 | 移動**前**の olean | `setup-clone.sh move` (deleted; `git show 72c5993:tools/setup-clone.sh`) の前 |
 | **Q** | 移動後 | `lake build` **後**の olean | 移動のビルドの後 |
 
 #### (a) W0 — 常駐サーバは自分が import した olean の書き換えを生き延びる【実測】
@@ -5107,7 +5107,7 @@ M1、`--jobs 4`、対象 `/Users/haruka/dev/lean-projects` (`c4f6af29`)。同一
 ### 依存写像の**自パッケージぶんは描画バイトに 0 効果**【実測 2026-08-17】
 
 生ログ `benchmarks/results/lidx-own-half-2026-08-17.txt`。
-切り分けは `tools/slice-link-index.py`、描画は `litedoc4 site`
+切り分けは `tools/slice-link-index.py` (deleted; `git show 72c5993:tools/slice-link-index.py`)、描画は `litedoc4 site`
 (同一 IR = 422 モジュール 4,584 宣言、同一 `--source-url` / `--root`)。
 
 | `.lidx` | 中身 | サイト 429 ファイルとの byte 比較 |
@@ -5490,7 +5490,7 @@ and `astral_binders_slice_correctly` had been asserting nothing at all.
 | `packages::every_root_matches_doc_gen4s_own_blob_urls` — every resolved root's URL is the one doc-gen4 wrote | same tree + `lake --githash` | same. `Lake`'s `src/lake` prefix is checked by nothing else in the tree |
 | `packages::every_lidx_entry_matches_doc_gen4s_declaration_urls` — every `.lidx` name's source URL is doc-gen4's | same tree + a `.lidx` + a ~41 MB TSV from `benchmarks/tools/extract-decl-source-urls.sh` | same |
 | `global::corpus_facts_match_the_prototype` — the facts serialise to the prototype's bytes | an IR only; **the expectation is committed** (`fixtures/global/global-expected.json`) | not fragile — rebuildable whenever |
-| `merge::the_corpus_matches_the_prototype` — 9 merge rounds over the real base IR | a base IR + `tools/merge-reference.sh`, which survives; **expectation committed** (`fixtures/incr/merge-expected.json`) | not fragile |
+| `merge::the_corpus_matches_the_prototype` — 9 merge rounds over the real base IR | a base IR + `tools/merge-reference.sh` (deleted; `git show 72c5993:tools/merge-reference.sh`); **expectation committed** (`fixtures/incr/merge-expected.json`) | not fragile |
 
 **These three doc-gen4 comparisons are the only checks in the tree that hold litedoc4 against an
 implementation nobody here wrote.** Everything else is self-consistency, an invariant, or a

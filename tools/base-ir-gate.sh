@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Does the target's IR agree with itself, and does the Lean reader agree with it?
+# Does the target's IR agree with itself?
 #
 # The measurement target's IR used to be read by two `#[ignore]`d Rust tests,
 # `base_ir::reads_every_module_of_the_target_package` and
@@ -16,7 +16,7 @@
 #   the fixture by enumerating the JSON, never from a previous run of the reader,
 #   because the claim is that **the reader agrees with the writer**. A gate that
 #   re-derived its expectations from the Lean reader would assert nothing at all.
-#   So neither arm below has a frozen number in it:
+#   So the arm below has no frozen number in it:
 #
 #     WRITER  the extractor's index against the extractor's own module files.
 #             `index.json` says how many modules, how many declarations each has,
@@ -24,9 +24,14 @@
 #             the files say what they actually hold. Python enumerates the files
 #             and the two are compared. Both sides are the writer's, and the
 #             enumeration is a third implementation that shares code with neither.
-#     READER  `litedoc4 global --ir` reads every module of the same tree and
-#             prints what it found. Its numbers are compared against the
-#             enumeration, so the reader is graded by the writer.
+#
+# ONE ARM, AND IT USED TO BE TWO
+#   The second graded the Lean reader by the same enumeration: `litedoc4 global
+#   --ir` read every module of the tree and printed its counts. That command
+#   retired with the single-version static site (`git show
+#   72c5993:src/Litedoc4/Global.lean`), and no surviving command reads a whole
+#   IR tree and prints what it read, so the summary line names the arm as
+#   retired rather than leaving a one-armed run to read as the whole gate.
 #
 #   The Rust test additionally pinned exact counts (432 modules, 4,750
 #   declarations) behind a guard that only fired for one generation of the tree.
@@ -51,10 +56,8 @@
 #   checks below assert that the tree *exercises* UTF-16 translation at all, and
 #   `e2e/micro` is eleven modules chosen for other shapes.
 #
-# usage: base-ir-gate.sh [--ir DIR] [--lean PATH]
+# usage: base-ir-gate.sh [--ir DIR]
 #   --ir    the IR tree (default: $PURELEAN_WORK/ir)
-#   --lean  the Lean litedoc4 (default: .lake/build/bin/litedoc4, built with
-#           tools/build-lean-exe.sh if it is not there)
 #
 #   PURELEAN_WORK  where the target's IR is (default
 #                  /private/tmp/lean-doc-relay/purelean). **Nothing here writes
@@ -67,20 +70,17 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=lib/common.sh
 source "$HERE/lib/common.sh" || exit 1
 answer_required
 
 WORK="${PURELEAN_WORK:-/private/tmp/lean-doc-relay/purelean}"
 IR=""
-LEAN="${LEAN_LITEDOC4:-}"
 PYTHON="${PYTHON:-python3}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --ir) IR="$2"; shift 2 ;;
-    --lean) LEAN="$2"; shift 2 ;;
     -h|--help) sed -n '/^# usage:/,/^set -/p' "$0" | sed 's/^# \{0,1\}//;$d'; answer 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -92,40 +92,13 @@ if [ ! -f "$IR/index.json" ]; then
   exit 2
 fi
 
-if [ -z "$LEAN" ]; then
-  LEAN="$ROOT/.lake/build/bin/litedoc4"
-  # Built rather than demanded: tools/build-lean-exe.sh is the one place that
-  # knows how to build beside a lakefile with no lean-toolchain of its own.
-  if [ ! -x "$LEAN" ]; then
-    "$HERE/build-lean-exe.sh" --toolchain-from "$ROOT/e2e/micro" >/dev/null \
-      || { echo "base-ir-gate: no Lean litedoc4 and tools/build-lean-exe.sh failed — pass --lean <path>" >&2; exit 2; }
-  fi
-fi
-[ -x "$LEAN" ] || { echo "base-ir-gate: no Lean litedoc4 at $LEAN" >&2; exit 2; }
-
-OUT="$(mktemp -d)"
-on_exit 'rm -rf "$OUT"'
-
-# The reader arm, run before the enumeration so that a reader that cannot open
-# the tree at all is reported as that rather than as a disagreement about counts.
-set +e
-"$LEAN" global --ir "$IR" --out "$OUT/global" >"$OUT/global.txt" 2>&1
-GLOBAL_RC=$?
-set -e
-if [ "$GLOBAL_RC" -ne 0 ]; then
-  echo "BASE IR GATE FAIL  the Lean reader exited $GLOBAL_RC over $IR, so it read nothing to agree about:" >&2
-  sed 's/^/  /' "$OUT/global.txt" >&2
-  exit 1
-fi
-
-"$PYTHON" - "$IR" "$OUT/global.txt" <<'PY'
+"$PYTHON" - "$IR" <<'PY'
 import json
 import pathlib
 import re
 import sys
 
 ir = pathlib.Path(sys.argv[1])
-reader_said = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 
 # Unicode White_Space, written out rather than taken from `str.isspace()`: Python
 # and Rust disagree about U+001C-U+001F, and the claim being checked is the one
@@ -352,27 +325,6 @@ check(astral_spans_that_differ > 0,
       f"{fragments_astral} astral fragment(s) and not one span in them slices differently under "
       "UTF-16 than under byte offsets — a byte-indexed reader would pass this tree")
 
-said = {}
-matched = re.search(
-    r"modules (\d+)\s+declarations (\d+) \+ (\d+) dependency names.*?tactic docs (\d+)",
-    reader_said, re.S)
-check(matched is not None,
-      "the Lean reader did not print the line this gate reads its counts from; its output was "
-      + repr(reader_said[:200]))
-if matched:
-    keys = ("modules", "declarations", "deps", "tactics")
-    said = dict(zip(keys, (int(g) for g in matched.groups())))
-    check(said["modules"] == modules,
-          f"the Lean reader read {said['modules']} module(s) and the tree holds {modules}")
-    check(said["declarations"] == declarations,
-          f"the Lean reader read {said['declarations']} declaration(s) and the tree holds "
-          f"{declarations}")
-    check(said["deps"] == dep_declarations,
-          f"the Lean reader read {said['deps']} dependency name(s) and the slices hold "
-          f"{dep_declarations}")
-    check(said["tactics"] == tactics,
-          f"the Lean reader read {said['tactics']} tactic doc(s) and the tree holds {tactics}")
-
 for problem in problems[:8]:
     print(f"BASE IR GATE FAIL  {problem}", file=sys.stderr)
 if len(problems) > 8:
@@ -388,13 +340,10 @@ print(f"  fragments {fragments} ({fragments_non_ascii} non-ASCII, {fragments_ast
 print(f"  spans     by kind {spans_by_kind}, by arity {spans_by_arity}; {spans_offset_shifted} "
       f"at a shifted offset, {astral_spans_that_differ} astral span(s) that a byte-indexed "
       "reader would get wrong")
-if said:
-    print(f"  reader    litedoc4 global read {said['modules']} modules, {said['declarations']} "
-          f"declarations, {said['deps']} dependency names, {said['tactics']} tactic docs")
 
 if problems:
     print(f"BASE IR GATE: {len(problems)} of {checks} check(s) failed", file=sys.stderr)
     sys.exit(1)
-print(f"BASE IR GATE: ok ({checks} checks)")
+print(f"BASE IR GATE: ok ({checks} checks; the reader arm retired with `litedoc4 global`)")
 PY
 answer 0

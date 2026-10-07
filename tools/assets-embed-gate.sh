@@ -20,7 +20,7 @@
 #   Assets.lean -> the pages  item 3 below
 #
 # What a failing item means:
-#   1 SOURCES   `assets/` does not hold the six files, or one of them is empty.
+#   1 SOURCES   `assets/` does not hold the five files, or one of them is empty.
 #               An empty stylesheet is a site that loads and has no styling.
 #   2 GENERATED `src/Litedoc4/Assets.lean` is not what `assets/` generates. Run
 #               `tools/gen-assets.py`.
@@ -47,9 +47,9 @@ failed=0
 pass() { printf 'ITEM %s ok    %s\n' "$1" "$2"; }
 fail() { printf 'ITEM %s FAIL  %s\n' "$1" "$2" >&2; failed=$((failed + 1)); }
 
-echo "=== 1/3 assets/ holds the six files and none is empty"
+echo "=== 1/3 assets/ holds the five files and none is empty"
 missing=""
-for name in style.css app.js favicon.svg theme-boot.js site.js redirect.js; do
+for name in style.css favicon.svg theme-boot.js site.js redirect.js; do
   if [ ! -s "assets/$name" ]; then
     missing="$missing assets/$name"
   fi
@@ -57,8 +57,8 @@ done
 if [ -n "$missing" ]; then
   fail 1 "absent or empty:$missing"
 else
-  pass 1 "$(wc -c assets/style.css assets/app.js assets/favicon.svg assets/theme-boot.js \
-    assets/site.js assets/redirect.js | awk 'END{print $1}') bytes over 6 files"
+  pass 1 "$(wc -c assets/style.css assets/favicon.svg assets/theme-boot.js \
+    assets/site.js assets/redirect.js | awk 'END{print $1}') bytes over 5 files"
 fi
 
 echo
@@ -74,22 +74,23 @@ echo "=== 3/3 the renderer goes through the generated module, and from one place
 # One-sided since `crates/` left: the `include_str!` counts that were the other
 # half of this item are in `git show rust-frozen:crates/litedoc4-render/src/assets.rs`.
 #
-# Every module under `src/` except the generated one. Frame.lean is where a
-# theme-boot literal was once actually written, and the same copy one file over
-# would be the same defect, so the scan is the directory rather than that file.
+# Every module under `src/` except the generated one. A theme-boot literal was
+# once actually written into the module that inlines it, and the same copy one
+# file over would be the same defect, so the scan is the directory rather than
+# that file.
 # The two needles are bytes only an asset has: `localStorage.getItem` is the boot
 # script's and `color-scheme:` is the stylesheet's, and the renderer emits
 # neither.
-boot="$(grep -cw 'themeBootJs' src/Litedoc4/Render/Frame.lean || true)"
+boot="$(grep -cw 'themeBootJs' src/Litedoc4/Data/Site.lean || true)"
 strays="$(grep -rl 'localStorage.getItem\|color-scheme:' src --include='*.lean' \
   | grep -v '^src/Litedoc4/Assets.lean$' || true)"
 problems=""
-[ "$boot" -eq 1 ] || problems="$problems; Frame.lean names themeBootJs $boot time(s), not once"
+[ "$boot" -ge 1 ] || problems="$problems; Data/Site.lean does not name themeBootJs"
 [ -z "$strays" ] || problems="$problems; asset bytes outside the generated module: $(printf '%s' "$strays" | tr '\n' ' ')"
 if [ -n "$problems" ]; then
   fail 3 "${problems#; }"
 else
-  pass 3 "Frame.lean uses the generated theme-boot, no other module under src/ carries asset bytes; the include_str! half left with crates/"
+  pass 3 "Data/Site.lean uses the generated theme-boot, no other module under src/ carries asset bytes; the include_str! half left with crates/"
 fi
 
 echo

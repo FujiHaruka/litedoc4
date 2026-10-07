@@ -11,7 +11,7 @@ The subcommand dispatch is here and everything it dispatches to is in
 `Litedoc4.Main`, which is one module more than the executable needs. The reason
 is the test executable: `Litedoc4Test.Main` declares a `main` of its own, and a
 module that declares `main` cannot import another that does — so a `#guard` over
-`usage` or over any of the fifteen parsers would be unelaboratable if they
+`usage` or over any of the parsers would be unelaboratable if they
 lived beside this. What would falsify it: an entry point Lean does not require
 to be called `main`.
 -/
@@ -25,16 +25,8 @@ def main (args : List String) : IO UInt32 := do
   | "build" :: rest => Litedoc4.build rest
   | "watch" :: rest => Litedoc4.watch rest
   | "modules" :: rest => Litedoc4.modules rest
-  | "render" :: rest => Litedoc4.render rest
   | "ledger" :: rest => Litedoc4.ledger rest
-  | "site" :: rest => Litedoc4.site rest
-  | "global" :: rest => Litedoc4.globalCmd rest
-  | "ownership" :: rest => Litedoc4.ownershipCmd rest
-  | "merge" :: rest => Litedoc4.mergeCmd rest
-  | "impact" :: rest => Litedoc4.impactCmd rest
-  | "prune" :: rest => Litedoc4.pruneCmd rest
   | "links" :: rest => Litedoc4.linksCmd rest
-  | "incremental" :: rest => Litedoc4.incremental rest
   | "extract" :: rest => Litedoc4.extract rest
   | "store" :: rest => Litedoc4.storeCmd rest
   | [] | "--help" :: _ | "-h" :: _ =>

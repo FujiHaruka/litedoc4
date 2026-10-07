@@ -18,7 +18,7 @@
 # script                     who     needs
 assets-embed-gate.sh         ci      nothing; reads the tree
 assets-gate.sh               ci      node, via mise; the site's TypeScript
-base-ir-gate.sh              manual  the target's IR at $PURELEAN_WORK; elan for the Lean litedoc4
+base-ir-gate.sh              manual  the target's IR at $PURELEAN_WORK
 benchmarks-ts-gate.sh        ci      deno; type-checks benchmarks/tools
 docs-gate.sh                 ci      nothing; reads the tracked files
 flag-tie-gate.sh             ci      elan, which builds the litedoc4 every documented flag is handed to

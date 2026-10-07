@@ -3,10 +3,9 @@ of them into a page.
 
 All closed, so the compiler answers them and there is nothing to run. -/
 import Litedoc4.Ir.Name
-import Litedoc4.Render.Page
 
 namespace Litedoc4Test
-open Litedoc4 System
+open Litedoc4
 
 /-- Every module name of the measurement target is plain identifiers, so there
 the two spellings are the identity and the path is the dots turned into
@@ -70,19 +69,5 @@ def anEscapedComponentCanSpellAParentDirectory : Bool :=
   pageUrl "«..».Foo" == "../Foo.html"
 
 #guard anEscapedComponentCanSpellAParentDirectory
-
-/-- The renderer writes the file, `prune` deletes it and the whole-package
-artifacts link to it, so the URL and the path have to name the same thing —
-and they are two expressions, `pageUrl` and `Render.Page.pagePath`, because a
-URL joins with `/` on every platform and a `FilePath` does not. Neither a
-comparison of the written bytes nor one of the emitted `href`s can see them
-disagree. -/
-def thePageUrlAndThePageFilePathAreOneRule : Bool :=
-  let out : FilePath := "out"
-  ["Pkg", "Pkg.A.B", "Alpha.«Odd-Name»", "Alpha.«a.b».C", ""].all fun m =>
-    (pagePath out m).toString
-      == (((pageUrl m).splitOn "/").foldl (fun p c => p / c) out).toString
-
-#guard thePageUrlAndThePageFilePathAreOneRule
 
 end Litedoc4Test

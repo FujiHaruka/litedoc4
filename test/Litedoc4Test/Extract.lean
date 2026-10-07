@@ -3,9 +3,8 @@ it builds, where the events file goes, and the fold from the events JSONL into
 one timings record.
 
 The three shapes below are all "values in, a string or an array out", and that is
-the port's doing: `extractArgv`, `oneShotArgv` and `foldEvents` were split out of
-the three places that spawn or read, so what is left in `IO` is a `spawn` and two
-`readFile`s.
+the port's doing: `extractArgv` and `foldEvents` were split out of the places
+that spawn or read, so what is left in `IO` is a `spawn` and two `readFile`s.
 
 `an_ir_dir_inside_the_target_is_refused`, `a_failing_extractor_is_exit_4`,
 `the_flags_that_are_not_offered_are_refused_by_name` and
@@ -156,19 +155,7 @@ def theEventsFileIsDerivedFromTheTimingsPathAndIsOnNeitherCommandLine : Bool :=
     && (eventsBeside "/work/timings").toString == "/work/timings-events.jsonl"
     && (eventsBeside "/work/a.json.json").toString == "/work/a.json-events.jsonl"
     && !(extractArgv extractBin "/m.txt" "/e.jsonl" "/ir" 1 #[] none none none).contains "--events"
-    && !(oneShotArgv #[] "/m.txt" "/ir" "/work/timings.json").contains "--events"
 
 #guard theEventsFileIsDerivedFromTheTimingsPathAndIsOnNeitherCommandLine
-
-/-- `--extractor-arg`s come **first**, so a wrapper script sees its own
-configuration before the three flags the round adds — a script that took the last
-occurrence of a flag it also configures would otherwise silently win over the
-round. -/
-def aRoundsOwnFlagsComeAfterTheCallersOwn : Bool :=
-  oneShotArgv #["--world", "/w"] "/work/round-in-1.txt" "/work/inc-ir-1" "/work/t.json"
-    == #["--world", "/w", "--modules", "/work/round-in-1.txt",
-         "--ir-dir", "/work/inc-ir-1", "--timings", "/work/t.json"]
-
-#guard aRoundsOwnFlagsComeAfterTheCallersOwn
 
 end Litedoc4Test

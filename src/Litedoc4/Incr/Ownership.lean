@@ -36,8 +36,6 @@ def ruleMovedElsewhere : String := "movedElsewhere"
 
 def witnessesInSummary : Nat := 20
 
-def witnessesInLog : Nat := 10
-
 structure OwnershipInputs where
   /-- The IR as it was before this round. -/
   base : FilePath

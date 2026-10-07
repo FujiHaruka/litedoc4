@@ -1,11 +1,3 @@
-/** `?jump=src#Name` lands on the declaration's source instead of its entry. */
-export function jumpToSource(): void {
-  if (new URLSearchParams(location.search).get("jump") !== "src") return;
-  const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
-  const src = target?.querySelector<HTMLAnchorElement>(".src")?.href;
-  if (src) location.replace(src);
-}
-
 /** A `<details>` that is closed on paper is a paragraph the reader cannot get. */
 export function openForPrint(): void {
   addEventListener("beforeprint", () => {

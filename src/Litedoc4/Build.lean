@@ -105,10 +105,8 @@ def deriveSourceUrl (root : FilePath) : GitM String := do
   -- to what it produced there before.
   return trimTrailingSlash s!"https://github.com/{path}/blob/{rev}/{subdir}"
 
-/-- What `render` and `site` both need before they can render anything, resolved
-in one place because **no gate can see a disagreement between them**: the gates
-compare the trees the two write, so handing both halves the same wrong reading
-produces two identical wrong trees.
+/-- The dependency link map, resolved in one place so that the store entry and the
+ledger's render key cannot read it two ways.
 
 **Problems do not stop the run**: a package missing from disk, a manifest that
 will not parse, a `lake` that will not run — each costs the roots it would have
@@ -151,11 +149,6 @@ def markerName : String := "litedoc4-build.json"
 
 /-- Round 1 is where deletions are folded in, so the bound is at least 1. -/
 def defaultMaxRounds : Nat := 5
-
-/-- What makes `self` enough is that the render set is a **union** with the
-whole-package map delta: a change that reaches another module's page without
-moving a name is a change ownership already re-extracted the other module for. -/
-def defaultMode : ImpactMode := .selfOnly
 
 structure Layout where
   out : FilePath
@@ -383,17 +376,16 @@ def planOf (r : BuildRequest) (libs : Array String) : BuildM Plan := do
       return .full "the IR under --out is not one this version reads"
     return .incremental
 
-/-- The extractor, in the shape `litedoc4 incremental --serve` uses: a Lean
-environment this run owns, started at the first request and released after the
-last round. It writes the dependency map, which a store entry holds beside the
-IR. -/
+/-- The extractor: a Lean environment this run owns, started at the first request
+and released after the last round. It writes the dependency map, which a store
+entry holds beside the IR. -/
 def openExtractor (r : BuildRequest) (bin : FilePath) (modulesFile : FilePath)
-    (modules : Array String) : BuildM Extractor := do
+    (modules : Array String) : BuildM Resident := do
   let serve ← serveOptions
-    { bin := some bin, target := some r.root, lake := r.lake, jobs := r.jobs
+    { bin, target := r.root, lake := r.lake, jobs := r.jobs
       modulesFile, modules, work := r.layout.work, noEquationsUnder := r.noEquationsUnder
       linkIndex := some r.layout.linkIndex }
-  return .resident (← Resident.new serve)
+  Resident.new serve
 
 /-- What one path left behind, for the half of the run both paths share. -/
 structure Done where
@@ -410,7 +402,7 @@ structure Done where
 
 /-- The first run: hash, extract everything. -/
 def fullExtraction (r : BuildRequest) (bibliography : Option String) (modules : Array String)
-    (modulesFile : FilePath) (sourceUrl : String) (extractor : Extractor) : BuildM Done := do
+    (modulesFile : FilePath) (sourceUrl : String) (extractor : Resident) : BuildM Done := do
   let layout := r.layout
   -- The hashes, **before** the extraction they license. Written into `work` as a
   -- diagnostic; the file that counts is written at the end of the run.
@@ -428,16 +420,16 @@ def fullExtraction (r : BuildRequest) (bibliography : Option String) (modules : 
   if ← layout.ir.pathExists then IO.FS.removeDirAll layout.ir
 
   let extractStarted ← IO.monoNanosNow
-  extractor.run modulesFile layout.ir (layout.work / "extract-timings-1.json")
+  discard <| extractor.extract modulesFile layout.ir (layout.work / "extract-timings-1.json")
   let elapsed := (← IO.monoNanosNow) - extractStarted
-  extractor.release
+  extractor.stop
   IO.println s!"extract {modules.size} module(s) in {seconds elapsed 4} s"
   return { what := "full", extracted := modules.size, rounds := 1, extractNanos := elapsed
            ledgerModules := detected.modules.size, detected }
 
 /-- Every later run: the rounds, over the tree the last one left. -/
 def incrementalExtraction (r : BuildRequest) (bibliography : Option String)
-    (modules : Array String) (sourceUrl : String) (extractor : Extractor) : BuildM Done := do
+    (modules : Array String) (sourceUrl : String) (extractor : Resident) : BuildM Done := do
   let layout := r.layout
   let run ← runRounds
     { ir := layout.ir, ledger := layout.ledger, work := layout.work, modules, sourceUrl
@@ -523,7 +515,7 @@ def runExtraction (r : BuildRequest) (bin : BuildM FilePath) : BuildM Extracted 
       | .full _ => fullExtraction r bibliography modules modulesFile sourceUrl extractor
       | .incremental => incrementalExtraction r bibliography modules sourceUrl extractor
     finally
-      extractor.release
+      extractor.stop
 
   -- The two keys are recomputed against the tree that now exists — they describe
   -- *the tree on disk*, and writing back the pre-run values would leave a ledger

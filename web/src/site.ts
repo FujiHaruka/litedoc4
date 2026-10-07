@@ -1,6 +1,6 @@
 export const body = document.body;
 
-/** The site root, relative to this page. `Litedoc4.Render.Page` writes it on
+/** The site root, relative to this page. `Litedoc4.Data.Site` writes it on
  * `<body>`. */
 export const ROOT = body.dataset.root ?? "./";
 

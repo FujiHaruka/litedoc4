@@ -43,354 +43,6 @@
 # canonicalize them, so that the frozen message carries no absolute path.
 # `<dir>` is the case's own directory, for the rows where it does.
 
-# --- A. A crafted IR tree ----------------------------------------------------
-#
-# One tree and four commands, because which command a row runs decides how far
-# into the tree the read gets: `global --ir <tree> --out <dir>` is the cheapest
-# reader of an `index.json` and stops there, `render` is what opens the module
-# files, and `merge` and `prune` read the raw index themselves. Every row names
-# the cheapest route that reaches its message.
-#
-# The entry family — the five rows that follow — is one good tree with one thing
-# wrong with its single index entry; the same tree with nothing wrong is accepted
-# by both binaries, so what those rows ask about is the key and not the fixture.
-#
-# The keys such a row can be about are exactly the four fields of `IndexEntry`, and
-# the rule is that a key is required if and only if the reader stores it. Absent,
-# each becomes a default that compares *equal* to another default, which is a
-# refusal nobody sees. `declarations` is stored by no reader on either side —
-# `impact` sums declarations from the module files on purpose — so it is not
-# refused here, and it is the one shape where the two binaries accept
-# differently: Rust required it as a side effect of serde.
-
-@case ir-index-entry-no-module
-rust-differs Rust names the field serde could not find: litedoc4: parsing ir/index.json: missing field `module` at line 1 column 248
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv global --ir ir --out site
-exit 1
-| litedoc4: parsing ir/index.json: an index entry has no string `module`
-|
-
-@case ir-index-entry-no-file
-rust-differs Rust names the field serde could not find: litedoc4: parsing ir/index.json: missing field `file` at line 1 column 237
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv global --ir ir --out site
-exit 1
-| litedoc4: parsing ir/index.json: an index entry has no string `file`
-|
-
-# `bytes` absent is the one that used to be silent all the way to the end: it is
-# `impact`'s quoted cost of a selection, so 0 read as free.
-@case ir-index-entry-no-bytes
-rust-differs Rust names the field serde could not find: litedoc4: parsing ir/index.json: missing field `bytes` at line 1 column 250
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv global --ir ir --out site
-exit 1
-| litedoc4: parsing ir/index.json: an index entry has no number `bytes`
-|
-
-# The one that decides a page. Absent on both sides of `Global.factsFor`'s hit
-# test is `"" == ""`, which is every module a cache hit and a stale page served.
-@case ir-index-entry-no-content-hash
-rust-differs Rust names the field serde could not find: litedoc4: parsing ir/index.json: missing field `contentHash` at line 1 column 228
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0}],"dependencyMaps":[]}
-argv global --ir ir --out site
-exit 1
-| litedoc4: parsing ir/index.json: an index entry has no string `contentHash`
-|
-
-# Same message as the absent key, and the same reason: a `bytes` that cannot be
-# a size is not a smaller number, it is no number. Rust's u64 refused it too.
-@case ir-index-entry-negative-bytes
-rust-differs Rust refuses the same input as a range error: litedoc4: parsing ir/index.json: invalid value: integer `-1`, expected u64 at line 1 column 210
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":-1,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv global --ir ir --out site
-exit 1
-| litedoc4: parsing ir/index.json: an index entry has no number `bytes`
-|
-
-# The index's own two refusals, which are about the file and not about an entry
-# in it: the entry is whole in both.
-@case ir-index-schema-4
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":4,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv global --ir ir --out site
-exit 1
-| litedoc4: index.json is schema 4; this reader needs schema 5 or newer (re-extract with --tagged-code)
-|
-
-@case ir-index-ablated
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"ablations":["no-docstrings","no-refs"],"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv global --ir ir --out site
-exit 1
-| litedoc4: this IR was written with ablations [no-docstrings, no-refs] and is incomplete on purpose; it is for the stopwatch only
-|
-
-# `reading` and `parsing` are this reader's two doors, and the verb is the only
-# part of either line that this program writes — the rest is the OS's or the
-# parser's. The parse door has four call sites and the rows are one per site
-# rather than one for the door: they are four different files, and a row that
-# stood in for all of them would go on passing with three left unframed. The
-# fourth site is the entry family above, which is why it says `parsing` too.
-# None of these belong with the eight `<path>: <err>` rows at the end of this
-# file: that sentence carries no verb and comes from other producers.
-@case ir-index-not-there
-rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: reading ir/index.json: No such file or directory (os error 2)
-dir ir
-argv global --ir ir --out site
-exit 1
-| litedoc4: reading ir/index.json: no such file or directory (error code: <varies>)
-|   file: ir/index.json
-|
-
-@case ir-index-truncated
-rust-differs Two JSON readers, so only the sentence after the framing differs: litedoc4: parsing ir/index.json: EOF while parsing an object at line 2 column 0
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion"
-argv global --ir ir --out site
-exit 1
-| litedoc4: parsing ir/index.json: the key `leanVersion` wanted `:` at 61, and found byte 0
-|
-
-# The slices are loaded by `global`, so this one needs no renderer; the entry
-# names them the way the extractor writes it, because Rust's reader refuses a
-# key it does not know and a fixture only one arm accepts would freeze the wrong
-# refusal.
-@case ir-dep-slice-not-json
-rust-differs Two JSON readers, so only the sentence after the framing differs: litedoc4: parsing ir/deps/Dep.json: expected ident at line 1 column 2
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/deps/Dep.json
-> not json
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[{"package":"Dep","file":"deps/Dep.json","entries":0,"bytes":8}]}
-argv global --ir ir --out site
-exit 1
-| litedoc4: parsing ir/deps/Dep.json: a value was expected at 0, and the word beginning there is not `true`, `false` or `null`
-|
-
-@case ir-module-truncated
-rust-differs Two JSON readers, so only the sentence after the framing differs: litedoc4: parsing ir/modules/M.json: EOF while parsing an object at line 2 column 0
-stdout-not-frozen render reports how the external links resolved before it reads a module file
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[]
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":44,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv render --ir ir --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index
-exit 1
-| litedoc4: parsing ir/modules/M.json: an object wanted `,` or `}` at 45, and found byte 0
-|
-
-# A module file is read by the renderer and not by whatever opened the tree, so
-# these three rows are `render`. `--no-link-index` and a `--source-url` that
-# parses are what get the command as far as reading one.
-@case ir-module-declares-another-module
-stdout-not-frozen render reports how the external links resolved before it reads a module file
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M.Other","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":98,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv render --ir ir --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index
-exit 1
-| litedoc4: ir/modules/M.json declares module M.Other, but the index files it under M
-|
-
-@case ir-module-schema-4
-stdout-not-frozen render reports how the external links resolved before it reads a module file
-file ir/modules/M.json
-> {"schemaVersion":4,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv render --ir ir --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index
-exit 1
-| litedoc4: ir/modules/M.json is schema 4; this reader needs schema 5 or newer (re-extract with --tagged-code)
-|
-
-# doc-gen4 panics where this refuses the page, which is what the message says.
-# The fixture is a `structure` with one **inherited** field whose name is in no
-# `refs`, in no module of this tree and in no `.lidx`: a direct field is never
-# looked up, so nothing shorter reaches the line. The module file carries every
-# key rather than the few Lean reads — Rust's reader requires them, and a
-# fixture only one arm accepts would freeze the wrong refusal.
-@case render-no-defining-module
-stdout-not-frozen render reports how the external links resolved before it reads a module file
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"tactics":[],"declarations":[{"name":"M.S","kind":"structure","type":"Type","typeCode":[],"binders":[],"binderCode":[],"implicits":[],"line":1,"col":0,"endLine":2,"endCol":0,"index":0,"doc":"","modifiers":[],"refs":[],"attrs":[],"equations":[],"equationCode":[],"instTypes":[],"members":[{"label":"field","name":"P.y","text":"Nat","code":[],"binders":[],"binderCode":[],"implicits":[],"doc":"","isDirect":false}]}]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":1,"modules":[{"module":"M","file":"modules/M.json","bytes":476,"declarations":1,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv render --ir ir --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index
-exit 1
-| litedoc4: rendering M: declNameToLink: no defining module for P.y (doc-gen4 would panic here)
-|
-
-# `merge` and `prune` read `index.json` as raw JSON rather than through the typed
-# reader — the merged index carries its entries back out verbatim, which a typed
-# entry cannot do — so they hand-check what the reader's door would have refused
-# and say it in the same words at exit 3, unframed. That is why these are not
-# `global` rows: they are the other two doors, and a row per door is what says
-# which one went back.
-@case merge-modules-not-an-array
-file base/index.json
-> {"schemaVersion":5,"modules":{},"dependencyMaps":[]}
-file inc/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file inc/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv merge --base base --inc inc --out out
-exit 3
-| litedoc4: base/index.json: modules is not an array
-|
-
-@case merge-index-entry-no-module
-file base/index.json
-> {"schemaVersion":5,"modules":["M"],"dependencyMaps":[]}
-file inc/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file inc/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv merge --base base --inc inc --out out
-exit 3
-| litedoc4: base/index.json: an index entry has no string `module`
-|
-
-# `file` as well as `module`: `merge` needs both to name the file it copies, so
-# it is the one door that asks about two of the four keys.
-@case merge-index-entry-no-file
-file base/index.json
-> {"schemaVersion":5,"modules":[{"module":"M"}],"dependencyMaps":[]}
-file inc/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file inc/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv merge --base base --inc inc --out out
-exit 3
-| litedoc4: base/index.json: an index entry has no string `file`
-|
-
-# `dependencyMaps` is read by `merge --verify` and by nothing else a merge does,
-# so these three rows take that route: with `--base`/`--inc` the same index is
-# accepted and the run exits 0.
-@case merge-verify-dependency-maps-not-an-array
-file a/index.json
-> {"schemaVersion":5,"modules":[],"dependencyMaps":{}}
-file b/index.json
-> {"schemaVersion":5,"modules":[],"dependencyMaps":[]}
-argv merge --verify a --against b
-exit 3
-| litedoc4: a/index.json: dependencyMaps is not an array
-|
-
-@case merge-verify-dependency-maps-entry-no-file
-file a/index.json
-> {"schemaVersion":5,"modules":[],"dependencyMaps":[{}]}
-file b/index.json
-> {"schemaVersion":5,"modules":[],"dependencyMaps":[]}
-argv merge --verify a --against b
-exit 3
-| litedoc4: a/index.json: a dependencyMaps entry has no string `file`
-|
-
-# The one row here whose message names a slice rather than the index: the file
-# that is wrong is the one the entry pointed at.
-@case merge-verify-slice-declarations-not-an-object
-file a/deps/d.json
-> {"declarations":[]}
-file a/index.json
-> {"schemaVersion":5,"modules":[],"dependencyMaps":[{"file":"deps/d.json"}]}
-file b/index.json
-> {"schemaVersion":5,"modules":[],"dependencyMaps":[]}
-argv merge --verify a --against b
-exit 3
-| litedoc4: a/deps/d.json: declarations is not an object
-|
-
-# `prune` reads an index only when `--ir` turns the orphan rule on, so a row
-# about its copy of the check has to pass one.
-@case prune-ir-modules-not-an-array
-dir pages
-file ir/index.json
-> {"schemaVersion":5,"modules":{},"dependencyMaps":[]}
-argv prune --pages pages --ir ir
-exit 3
-| litedoc4: ir/index.json: modules is not an array
-|
-
-@case prune-ir-index-entry-no-module
-dir pages
-file ir/index.json
-> {"schemaVersion":5,"modules":["M"],"dependencyMaps":[]}
-argv prune --pages pages --ir ir
-exit 3
-| litedoc4: ir/index.json: an index entry has no string `module`
-|
-
-# One message reports both directions, so one row asks about both. The base is
-# empty and the list names a module nothing is behind, which is the smallest
-# fixture that has something to say in each direction.
-@case merge-modules-list-mismatch
-file base/index.json
-> {"schemaVersion":5,"modules":[],"dependencyMaps":[]}
-file inc/modules/Pkg.C.json
-> {"schemaVersion":5,"module":"Pkg.C","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file inc/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"Pkg.C","file":"modules/Pkg.C.json","bytes":96,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-file modules.txt
-> Pkg.Ghost
-argv merge --base base --inc inc --out out --modules modules.txt
-exit 3
-| litedoc4: --modules and the merged IR name different modules: 1 in the list with nothing behind them (Pkg.Ghost), 1 in the merged tree the list does not name (Pkg.C). index.json's module order is this list's, so the odd ones out would have to be guessed at — and a wrong guess moves index.json alone, where no page byte follows it
-|
-
-# `impact` loads the module files before it answers either of these, so the tree
-# has to be whole and not just an index.
-@case impact-changed-not-a-module
-file ir/modules/Pkg.A.json
-> {"schemaVersion":5,"module":"Pkg.A","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"Pkg.A","file":"modules/Pkg.A.json","bytes":96,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv impact --ir ir --changed Pkg.A.Ghost
-exit 3
-| litedoc4: not a module of this package: Pkg.A.Ghost
-|
-
-# The one exit-2 refusal in these two files that prints no usage block: it
-# travels as a refusal carrying a code, not as a usage failure, so the body ends
-# where the message does. `--changed` names a module the index really has because
-# the check that it does runs first and would answer instead; and it has to name
-# one at all, because an empty `--changed` returns before the mode is read and
-# exits 0 in silence.
-@case impact-unknown-mode
-file ir/modules/Pkg.A.json
-> {"schemaVersion":5,"module":"Pkg.A","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"Pkg.A","file":"modules/Pkg.A.json","bytes":96,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv impact --ir ir --changed Pkg.A --mode everything
-exit 2
-| litedoc4: unknown --mode everything
-|
-
 # --- B. Ledger JSON and a target's oleans ------------------------------------
 #
 # LEDGER_SCHEMA = 2. `ledger check` and `ledger build` report how the external
@@ -401,8 +53,8 @@ exit 2
 # freezes stderr, not that this stdout could not be frozen.
 #
 # The four ledger rows about a file that is **not there** are not here: they are
-# in the framing section at the end, with the four other commands that say the
-# same sentence.
+# in the framing section at the end, with the other command that says the same
+# sentence.
 
 # Refused as schema 1 rather than as a parse failure, so the message can name
 # what is wrong with it. The rest of the ledger is complete on purpose: Rust
@@ -533,52 +185,6 @@ exit 3
 | litedoc4: no Ghost.lean and no Ghost/ under root: --lib names a library root, and an empty module list would look like a package whose every module was deleted
 |
 
-# `litedoc4.toml` is read by `site_config`, which runs before the IR tree is
-# opened — hence `--ir does-not-exist`. All four of these say something Rust
-# words differently: Rust is `basic_toml` + serde, Lean is a hand-written reader
-# that names the line, and there is no wording both can reach.
-@case config-unknown-key
-rust-differs Rust says: unknown field `titel`, expected `title` or `index` at line 1 column 1
-file root/litedoc4.toml
-> titel = "typo"
-argv global --ir does-not-exist --out o --root root
-exit 1
-| litedoc4: root/litedoc4.toml: line 1: unknown key `titel`
-|
-
-@case config-value-missing
-rust-differs Rust says: expected a value, found a newline at line 1 column 9
-file root/litedoc4.toml
-> title =\s
-argv global --ir does-not-exist --out o --root root
-exit 1
-| litedoc4: root/litedoc4.toml: line 1: `title` is not given a quoted string
-|
-
-@case config-key-twice
-rust-differs Rust says: duplicate key: `title` at line 2 column 1
-file root/litedoc4.toml
-> title = "a"
-> title = "b"
-argv global --ir does-not-exist --out o --root root
-exit 1
-| litedoc4: root/litedoc4.toml: line 2: `title` is given twice
-|
-
-# Both halves name the file in the same framing; what is left is the OS text and
-# the line count, because Lean's `IO.Error` renders the file again on a second
-# line of its own. `<varies>` cannot span a line break, so the wildcard is the
-# error number and the words around it are Lean's own constant.
-@case config-index-not-there
-rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: root/docs/nope.md: No such file or directory (os error 2)
-file root/litedoc4.toml
-> index = "docs/nope.md"
-argv global --ir does-not-exist --out o --root root
-exit 1
-| litedoc4: root/docs/nope.md: no such file or directory (error code: <varies>)
-|   file: root/docs/nope.md
-|
-
 # The `--root` refusal `modules` cannot reach: on this same fixture that command
 # globs zero modules and exits **0**, silently, so `build` is the only route.
 # `Pkg/` exists and holds no `.lean` file, which is the one way past
@@ -597,86 +203,6 @@ dir root/Pkg
 argv build --root root --out out
 exit 3
 | litedoc4: no modules under <dir>/root for Pkg: an empty list would build an empty site and report success
-|
-
-# --- D. The `--deps-docs-map` artifact ---------------------------------------
-#
-# The map is read before the IR tree is opened, so `--ir` can point at nothing
-# and the whole fixture is one JSON file. MAP_VERSION = 1.
-
-# No `file` line: this row is the map that is not there.
-@case deps-map-absent
-stdout-not-frozen render reports how the external links resolved before it opens the map
-argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
-exit 3
-| litedoc4: map.json: <varies>. `litedoc4 build --deps-docs-url …` writes it
-|
-
-@case deps-map-not-json
-rust-differs Rust says: expected ident at line 1 column 2
-file map.json
-> not json
-stdout-not-frozen render reports how the external links resolved before it opens the map
-argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
-exit 3
-| litedoc4: map.json: a value was expected at 0, and the word beginning there is not `true`, `false` or `null`
-|
-
-@case deps-map-version
-file map.json
-> {"version":2,"roots":[]}
-stdout-not-frozen render reports how the external links resolved before it opens the map
-argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
-exit 3
-| litedoc4: map.json: resolved documentation map version 2, and this build reads version 1. Rebuild it with `litedoc4 build --deps-docs-url …`
-|
-
-@case deps-map-no-roots
-file map.json
-> {"version":1}
-stdout-not-frozen render reports how the external links resolved before it opens the map
-argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
-exit 3
-| litedoc4: map.json: no `roots` array
-|
-
-# This row and the next one are the *order* the keys are answered in: `{}` is
-# missing all of them and has to name `root`, and a root that has `root` and
-# `base` has to name `requestedNames`. One row cannot ask that.
-@case deps-map-root-empty
-file map.json
-> {"version":1,"roots":[{}]}
-stdout-not-frozen render reports how the external links resolved before it opens the map
-argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
-exit 3
-| litedoc4: map.json: a root with no `root` string
-|
-
-@case deps-map-root-no-requested-names
-file map.json
-> {"version":1,"roots":[{"root":"Dep","base":"https://x"}]}
-stdout-not-frozen render reports how the external links resolved before it opens the map
-argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
-exit 3
-| litedoc4: map.json: a root with no `requestedNames` number
-|
-
-@case deps-map-root-no-declarations
-file map.json
-> {"version":1,"roots":[{"root":"Dep","base":"https://x","requestedNames":0}]}
-stdout-not-frozen render reports how the external links resolved before it opens the map
-argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
-exit 3
-| litedoc4: map.json: a root with no `declarations` object
-|
-
-@case deps-map-declaration-not-a-string
-file map.json
-> {"version":1,"roots":[{"root":"Dep","base":"https://x","requestedNames":0,"declarations":{"Dep.a":1}}]}
-stdout-not-frozen render reports how the external links resolved before it opens the map
-argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --deps-docs-map map.json
-exit 3
-| litedoc4: map.json: `declarations.Dep.a` is not a string
 |
 
 # --- E. The `--out` build directory and its marker ---------------------------
@@ -758,34 +284,10 @@ exit 3
 | litedoc4: <dir>/out/litedoc4-build.json: a value was expected at 0, and the word beginning there is not `true`, `false` or `null`. This file says which directory `litedoc4 build` owns; one that will not parse is not one to overwrite a site on the strength of
 |
 
-# --- F. A page tree and a removal list ---------------------------------------
-#
-# The name in the message is the one the list gave — `«..»` is the Lean escape
-# for a component spelled `..` — and not the path it would have joined to. The
-# guard is lexical and runs before the file is looked for; that ordering is what
-# `Pkg/A.html` surviving shows, and no frozen row can see a file that is still
-# there, so this one does not claim it.
-@case prune-remove-outside-pages
-file pages/Pkg.html
-> x
-file pages/Pkg/A.html
-> x
-file remove.txt
-> «..».Foo
-> Pkg.A
-argv prune --pages pages --remove remove.txt
-exit 3
-| litedoc4: refusing to delete ../Foo.html — it is not under the page root pages
-|
-
 # --- G. A `--target` directory and the child that extracts from it -----------
 #
 # `extract` reads nothing before it refuses and prints nothing, so its three rows
-# freeze both streams by freezing one. `incremental` reports how the external
-# links resolved first — **one fixed line**, because no `--root` is passed and so
-# nothing names the machine's toolchain — and then `detect`'s counts, which are
-# the program's; its four rows still freeze stderr only, and that is this gate's
-# choice rather than a line count it could not have frozen.
+# freeze both streams by freezing one.
 @case extract-ir-dir-inside-target
 dir target
 argv extract --modules m.txt --ir-dir target/ir --timings t.json --extractor-bin b --target target
@@ -818,94 +320,6 @@ file m.txt
 argv extract --modules m.txt --ir-dir ir --timings t.json --extractor-bin b --target target --lake ../fake-lake
 exit 4
 | litedoc4: the extractor exited 1 for <dir>/m.txt; the IR tree at <dir>/ir is incomplete
-|
-
-# The other exit-4 sentence, which is `incremental`'s and names the flag. The
-# fixture is the smallest world a round can start from: a ledger that knows no
-# module, a `--modules` list naming one that has an olean, and the two files plus
-# the index that `extractKey` reads. `detect` calls that module added, round 1
-# starts the extractor, and the extractor fails.
-@case incremental-extractor-failed
-stdout-not-frozen incremental prints the fixed external-links line and detect's counts; this gate freezes stderr
-file fake-extractor
-> #!/bin/sh
-> exit 1
-exec fake-extractor
-file target/lean-toolchain
-> leanprover/lean4:v4.31.0
-file target/lake-manifest.json
-> {}
-file target/.lake/build/lib/lean/Pkg/A.olean
-> olean
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":0,"declarationCount":0,"modules":[],"dependencyMaps":[]}
-file ledger.json
-> {"ledgerSchema":2,"algorithm":"sha256","target":"target","libDir":"target/.lake/build/lib/lean","extractKey":{},"modules":[]}
-file modules.txt
-> Pkg.A
-argv incremental --ir ir --pages pages --ledger ledger.json --work work --modules modules.txt --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --link-index link-index.lidx --state state --extractor ./fake-extractor
-exit 4
-| litedoc4: --extractor ./fake-extractor exited 1 for work/round-in-1.txt; the IR was not updated and nothing was rendered
-|
-
-@case incremental-extractor-bin-not-a-file
-stdout-not-frozen incremental reports how the external links resolved before it records the world; one fixed line, and this gate freezes stderr
-dir target
-file modules.txt
-> Pkg.A
-argv incremental --ir ir --pages pages --ledger ledger.json --work work --modules modules.txt --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --link-index link-index.lidx --state state --serve --extractor-bin extractor --target target
-exit 3
-| litedoc4: --extractor-bin <dir>/extractor: not a file. It is `extractor/build.sh`'s output, 171 MB, built against the target's toolchain and therefore not committed
-|
-
-# Answered before the one above, which is why this row has no `target` in its
-# fixture. The path stays as written: it is the `canonicalize` that failed, so
-# there is nothing absolute to print.
-@case incremental-target-not-there
-rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: --target target: No such file or directory (os error 2)
-stdout-not-frozen incremental reports how the external links resolved before it records the world; one fixed line, and this gate freezes stderr
-file modules.txt
-> Pkg.A
-argv incremental --ir ir --pages pages --ledger ledger.json --work work --modules modules.txt --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --link-index link-index.lidx --state state --serve --extractor-bin extractor --target target
-exit 3
-| litedoc4: --target target: no such file or directory (error code: <varies>)
-|   file: target
-|
-
-# **The only exit-5 row in either file**, and the route is a deletion rather than
-# the moved declaration the test uses: a module that leaves the package makes
-# every referrer stale in round 1, and `--max-rounds 1` then has nowhere to put
-# them. Nothing is extracted — `./never-run` is a program that is not there, and
-# the run reaching exit 5 is what says the extractor was never started.
-#
-# Two constants in `ledger.json` are baked and are what this row costs: the
-# `extractKey` must be the one `detect` computes (a changed key re-extracts every
-# present module, and then round 1 spawns the extractor and this is exit 4
-# instead), and `Pkg.B`'s hash must be the one its olean gives (a changed module
-# is re-extracted too). `Pkg.A` is in the ledger and not in `--modules`, which is
-# what makes it the deletion; `--modules` names exactly the merged tree, or
-# `merge` answers with the module-list mismatch first.
-@case incremental-round-bound
-stdout-not-frozen incremental prints the fixed external-links line, detect's counts and the round line; this gate freezes stderr
-file target/lean-toolchain
-> leanprover/lean4:v4.31.0
-file target/lake-manifest.json
-> {}
-file target/.lake/build/lib/lean/Pkg/B.olean
-> olean
-file ir/modules/Pkg.A.json
-> {"schemaVersion":5,"module":"Pkg.A","imports":[],"moduleDocs":[],"tactics":[],"declarations":[{"name":"Pkg.A.moved","kind":"def","type":"Nat","typeCode":[],"binders":[],"binderCode":[],"implicits":[],"line":1,"col":0,"endLine":1,"endCol":10,"index":0,"doc":null,"modifiers":[],"attrs":[],"equations":[],"equationCode":[],"instTypes":[],"members":[],"refs":[]}]}
-file ir/modules/Pkg.B.json
-> {"schemaVersion":5,"module":"Pkg.B","imports":[],"moduleDocs":[],"tactics":[],"declarations":[{"name":"Pkg.B.b","kind":"def","type":"Nat","typeCode":[],"binders":[],"binderCode":[],"implicits":[],"line":1,"col":0,"endLine":1,"endCol":10,"index":0,"doc":null,"modifiers":[],"attrs":[],"equations":[],"equationCode":[],"instTypes":[],"members":[],"refs":[["Pkg.A","Pkg.A.moved"]]}]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":2,"declarationCount":2,"modules":[{"module":"Pkg.A","file":"modules/Pkg.A.json","bytes":362,"declarations":1,"contentHash":"1111111111111111"},{"module":"Pkg.B","file":"modules/Pkg.B.json","bytes":381,"declarations":1,"contentHash":"2222222222222222"}],"dependencyMaps":[]}
-file ledger.json
-> {"ledgerSchema":2,"algorithm":"sha256","target":"target","libDir":"target/.lake/build/lib/lean","extractKey":{"leanToolchain":"leanprover/lean4:v4.31.0","manifestSha256":"ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356","extractor":"litedoc4 extractor v3","irSchemaVersion":"5","irGenerator":"litedoc4-test"},"modules":[{"module":"Pkg.A","files":[],"hash":"aaaa"},{"module":"Pkg.B","files":[{"path":".lake/build/lib/lean/Pkg/B.olean","bytes":6,"hash":"886812312f8ac4cd7c814035211771825a4a1dc658878858b6b90fedde379737"}],"hash":"57b4f9d1028f9886c3bacff3fccba64a064e632ab0565793bffa02649c66e905"}]}
-file modules.txt
-> Pkg.B
-argv incremental --ir ir --pages pages --ledger ledger.json --work work --modules modules.txt --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --link-index link-index.lidx --state state --max-rounds 1 --extractor ./never-run
-exit 5
-| litedoc4: still 1 stale module(s) after 1 round(s): Pkg.B
 |
 
 # --- H. A git checkout -------------------------------------------------------
@@ -956,14 +370,13 @@ exit 3
 
 # --- The path in the message: a file a flag names that is not there ----------
 #
-# One sentence, eight rows, because what regresses here is **a call site**, not
+# One sentence, five rows, because what regresses here is **a call site**, not
 # a sentence: every one of these was a bare `IO.FS.readFile`, whose `IO.Error`
 # names the file on a second line and says nothing before it about which of a
 # command's several files it was. They all go through `Fs.lean`'s `readTextFile`
 # now, and a row per producer is what tells you which one went back. The three
 # reads inside `Ledger.extractKey` are one producer and share one row, the
-# toolchain's; `impact --changed-file` and `merge --modules` share
-# `prune-remove-not-there`, because `readModuleList` is where all three read.
+# toolchain's.
 #
 # Rust says it on **one** line, so every row here is `rust-differs` rather than
 # a `<varies>` tail: `<varies>` is per line and cannot span a line count.
@@ -1018,23 +431,6 @@ exit 1
 |   file: target/.lake/build/lib/lean/Pkg/A.olean.hash
 |
 
-@case prune-remove-not-there
-rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: nope.txt: No such file or directory (os error 2)
-dir pages
-argv prune --pages pages --remove nope.txt
-exit 1
-| litedoc4: nope.txt: no such file or directory (error code: <varies>)
-|   file: nope.txt
-|
-
-@case render-only-from-not-there
-rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: nope.txt: No such file or directory (os error 2)
-argv render --ir does-not-exist --pages p --source-url https://example.invalid/o/r/blob/0123456789abcdef0123456789abcdef01234567 --no-link-index --only-from nope.txt
-exit 1
-| litedoc4: nope.txt: no such file or directory (error code: <varies>)
-|   file: nope.txt
-|
-
 @case links-link-index-not-there
 rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: nope.lidx: No such file or directory (os error 2)
 dir root
@@ -1042,16 +438,4 @@ argv links --root root --link-index nope.lidx
 exit 1
 | litedoc4: nope.lidx: no such file or directory (error code: <varies>)
 |   file: nope.lidx
-|
-
-@case global-before-not-there
-rust-differs Rust says the same framing on one line, with its own strerror: litedoc4: nope.json: No such file or directory (os error 2)
-file ir/modules/M.json
-> {"schemaVersion":5,"module":"M","imports":[],"moduleDocs":[],"declarations":[],"tactics":[]}
-file ir/index.json
-> {"schemaVersion":5,"generator":"litedoc4-test","leanVersion":"4.31.0","hashAlgorithm":"lean-string-hash-64/hex16","moduleCount":1,"declarationCount":0,"modules":[{"module":"M","file":"modules/M.json","bytes":92,"declarations":0,"contentHash":"1111111111111111"}],"dependencyMaps":[]}
-argv global --ir ir --out site --before nope.json
-exit 1
-| litedoc4: nope.json: no such file or directory (error code: <varies>)
-|   file: nope.json
 |

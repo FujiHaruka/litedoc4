@@ -14,7 +14,7 @@ reachable from the command line and belong to `tools/refusal-gate.sh`, which
 holds `unknown-subcommand` and a `*-unknown-flag` row per command.
 
 There is no `Args` type here to test. The Rust half shares one cursor between
-fourteen `match`es; the Lean half is fifteen `List String` recursions, and
+fourteen `match`es; the Lean half is six `List String` recursions, and
 "the value is the argument after the flag and it is consumed" is the list
 pattern `flag :: v :: more` — so what is left to ask is that a real parser
 answers with the value it was handed and reads the *next* flag from `more`.
@@ -32,13 +32,13 @@ namespace Litedoc4Test
 open Litedoc4
 
 /-- The value is the next argument and it is **consumed**: the second clause
-hands `--pages` to `--ir` and finds that nothing else was filled in, which is
-the half a parser that peeked instead of taking would fail. -/
+hands `--ir-dir` to `--modules` and finds that nothing else was filled in, which
+is the half a parser that peeked instead of taking would fail. -/
 def aFlagsValueIsTheArgumentAfterItAndIsNotReadAgainAsAFlag : Bool :=
-  (parseRender ["--ir", "site", "--pages", "p"] {}).toOption.map
-      (fun a => (a.ir, a.pages)) == some (some "site", some "p")
-    && (parseRender ["--ir", "--pages"] {}).toOption.map
-      (fun a => (a.ir, a.pages)) == some (some "--pages", none)
+  (parseExtract ["--modules", "m", "--ir-dir", "p"] {}).toOption.map
+      (fun a => (a.modules, a.irDir)) == some (some "m", some "p")
+    && (parseExtract ["--modules", "--ir-dir"] {}).toOption.map
+      (fun a => (a.modules, a.irDir)) == some (some "--ir-dir", none)
 
 #guard aFlagsValueIsTheArgumentAfterItAndIsNotReadAgainAsAFlag
 
@@ -56,14 +56,13 @@ def aNumberFlagIsTheValueItTook : Bool :=
 `match` in `src/Main.lean` would agree with it by construction, and a subcommand
 added there and not here is one nobody checked. -/
 def subcommands : Array String :=
-  #["build", "watch", "incremental", "modules", "links", "extract", "site", "render",
-    "global", "ledger", "ownership", "merge", "impact", "prune", "store"]
+  #["build", "watch", "modules", "links", "extract", "ledger", "store"]
 
 /-- A subcommand the front door does not name is one nobody finds. Being named at
 all, beside the sentence that says where its command line is, is the whole
-obligation — `summary` gives two of the fifteen a synopsis on purpose.
+obligation — `summary` gives two of the seven a synopsis on purpose.
 
-The last clause is the way back: without `--help-all` the thirteen are hidden with
+The last clause is the way back: without `--help-all` the five are hidden with
 nothing pointing at them. -/
 def theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines : Bool :=
   subcommands.all (fun name => (summary.splitOn name).length ≥ 2)
@@ -73,9 +72,9 @@ def theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines : Bool :=
 #guard theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines
 
 /-- Both spellings through every parser, because they are two patterns in each of
-the fourteen flag loops: one that lost `-h` passes a check that only asks
-`--help`. Fourteen and not fifteen — `parseBuild` serves `build` and `watch`,
-and the `Bool` is which.
+the six flag loops: one that lost `-h` passes a check that only asks `--help`.
+Six and not seven — `parseBuild` serves `build` and `watch`, and the `Bool` is
+which.
 
 `--help` is in no synopsis line, so `tools/flag-tie-gate.sh` never hands it to a
 command: this is the only place the pair is asked. -/
@@ -83,18 +82,10 @@ def everyParserTakesBothSpellingsOfHelp : Bool :=
   ["--help", "-h"].all fun h =>
     (parseBuild false [h] {}).toOption.map (·.help) == some true
       && (parseBuild true [h] {}).toOption.map (·.help) == some true
-      && (parseIncremental [h] {}).toOption.map (·.help) == some true
       && (parseModules [h] {}).toOption.map (·.help) == some true
       && (parseLinks [h] {}).toOption.map (·.help) == some true
       && (parseExtract [h] {}).toOption.map (·.help) == some true
-      && (parseSite [h] {}).toOption.map (·.help) == some true
-      && (parseRender [h] {}).toOption.map (·.help) == some true
-      && (parseGlobal [h] {}).toOption.map (·.help) == some true
       && (parseLedger "check" [h] {}).toOption.map (·.help) == some true
-      && (parseOwnership [h] {}).toOption.map (·.help) == some true
-      && (parseMerge [h] {}).toOption.map (·.help) == some true
-      && (parseImpact [h] {}).toOption.map (·.help) == some true
-      && (parsePrune [h] {}).toOption.map (·.help) == some true
       && (parseStore "put" [h] {}).toOption.map (·.help) == some true
 
 #guard everyParserTakesBothSpellingsOfHelp

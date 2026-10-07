@@ -2,6 +2,7 @@ import { initDrawer } from "./drawer.js";
 import { showGuesses } from "./guess.js";
 import { decoded, hashHref, parseHash } from "./hash-route.js";
 import { MISSING } from "./lost.js";
+import { openForPrint } from "./print.js";
 import { draw, hrefIn, type Place, type Route, routeOf, sameView } from "./route.js";
 import { initSearch } from "./search-box.js";
 import { initSearchPage } from "./search-page.js";
@@ -194,6 +195,7 @@ async function hashSite(root: string): Promise<void> {
 }
 
 function start(): void {
+  openForPrint();
   if (body.dataset.mode === "hash") {
     void hashSite(body.dataset.root ?? "./");
     return;

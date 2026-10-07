@@ -1,5 +1,5 @@
-/- The three records a run leaves on disk for something outside this tree to
-read: `litedoc4-build.json`, `build --timings` and `site --timings`.
+/- The records a run leaves on disk for something outside this tree to read:
+`litedoc4-build.json` and `build --timings`.
 
 **Their field names are a wire format, not an output format.**
 `tools/onemod-gate.sh` and `tools/watch-gate.sh` read `work.modulesExtracted`,
@@ -9,7 +9,7 @@ read: `litedoc4-build.json`, `build --timings` and `site --timings`.
 does not fail anything: it makes an aggregation return zero rows, and the gate
 that reads it green having checked nothing.
 
-Each of the four writers is already a pure function of the numbers, so there is
+Each writer is already a pure function of the numbers, so there is
 nothing to split — what was missing was anybody asking them. Stated as whole
 lines: the failure to catch is a key nobody meant to add or drop, and a per-key
 check cannot see one. -/
@@ -77,26 +77,5 @@ def theBuildRecordNamesWhichExtractionRan : Bool :=
       "\"path\":\"incremental\",\"modules\":3,\"extracted\":0").length == 2
 
 #guard theBuildRecordNamesWhichExtractionRan
-
-def sampleRender : Summary := { pagesWritten := 5, modulesInIr := 5, bytes := 1234 }
-
-def sampleGlobal : GlobalSummary := { cacheHits := 0, cacheMisses := 5 }
-
-/-- `renderSeconds`, `globalSeconds` and `totalSeconds` are the **incremental
-round's** names for the same two phases, so a full run's record and an
-incremental one's subtract. A record that called them `siteSeconds` would be
-readable and would stop being comparable, which is the failure nothing else here
-would notice.
-
-`totalSeconds` is the sum of the two rather than a third clock: `site` is
-`render` then `global` over one tree and there is no third stage to hide in the
-difference. -/
-def theSiteRecordUsesTheIncrementalRoundsNamesForBothStages : Bool :=
-  siteTimingsJson sampleRender sampleGlobal 100000000 200000000
-    == "{\"command\":\"site\",\"pagesWritten\":5,\"modulesInIr\":5,\"pageBytes\":1234,\
-        \"cacheHits\":0,\"cacheMisses\":5,\"renderSeconds\":0.100000000,\
-        \"globalSeconds\":0.200000000,\"totalSeconds\":0.300000000}\n"
-
-#guard theSiteRecordUsesTheIncrementalRoundsNamesForBothStages
 
 end Litedoc4Test

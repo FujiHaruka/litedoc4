@@ -1,6 +1,6 @@
 /**
  * The theme toggle. The *boot* half is `theme-boot.ts`, which
- * `Litedoc4.Render.Frame` inlines into `<head>` so that `data-theme` is set
+ * `Litedoc4.Data.Site` inlines into `<head>` so that `data-theme` is set
  * before the first paint;
  * this module is deferred.
  */

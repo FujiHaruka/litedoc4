@@ -1,25 +1,11 @@
-/- The five pages a reader arrives at rather than navigates to — the front
-door, the one GitHub Pages serves for anything missing, the one the top bar's
-form submits to, the one every `Sort` / `Type` / `Prop` span in every
-signature links to, and the one every citation in a docstring links to.
-
-WHY THE MARKUP IS BUILT HERE AND NOT IN `Render`
-  What decides a page's *shape* is `Render.Frame`, and all five take theirs from
-  there unchanged. What decides a page's *content* is a fact about the whole
-  package — how many modules, which ones, how many declarations — and the whole
-  package is what this namespace is about; building them in the renderer would
-  mean handing it the module list a second time, from the other side of the
-  pipeline. What would falsify this: a landing page whose content is a fact about
-  one module.
-
-These pages are one column and carry no repository link. A drawer button that
-opens an empty drawer is worse than no button, and the repository URL is
-`--source-url`, which reaches the renderer and not this stage. -/
-import Litedoc4.Render.Frame
+/- What the pages a reader arrives at rather than navigates to say: the search
+page, the page every `Sort` / `Type` / `Prop` span in a signature links to, a
+module's one-line summary in the module list, and the citation backlinks the
+references page lists. The page around them is the page script's. -/
+import Litedoc4.Render.Code
 
 namespace Litedoc4
 
-/-- All five pages sit at the site root, so every asset is one hop away. -/
 def entryRoot : String := "./"
 
 structure ModuleRow where
@@ -30,16 +16,6 @@ structure ModuleRow where
   module that described itself with a blank line. -/
   summary : Option String := none
   deriving Inhabited
-
-/-- The `data-module` attribute is empty on purpose: `app.js` reads it to decide
-which tree node is current, and none of these pages *is* a module. -/
-def plainPage (pageTitle title body : String) : String := Id.run do
-  let mut out := headHtml "<!DOCTYPE html><html lang=\"en\">" pageTitle entryRoot title
-  out := out ++ "<body class=\"plain\" data-root=\"./\" data-module=\"\">\
-    <a class=\"skip\" href=\"#content\">Skip to content</a>"
-  out := topbarHtml out entryRoot title false
-  out := out ++ "<div class=\"shell\"><main class=\"content\" id=\"content\">" ++ body
-  return out ++ "</main></div></body></html>"
 
 def grouped (n : Nat) : String := Id.run do
   let digits := (toString n).toList
@@ -66,64 +42,7 @@ read", not "renderings that fell back". -/
 def summaryHtml (out : String) (summary : String) : String :=
   (Id.run ((inlineMd out entryRenderer summary).run {})).1
 
-/-- The rendered `litedoc4.toml` `index`, for the one page that carries it. -/
-def introHtml (markdown : String) : String :=
-  (Id.run ((docstring "" entryRenderer markdown).run {})).1
-
-/-- The front page. **The module list is the whole list, spelled out in the
-HTML** — the sidebar is a JSON fetch, and this is the page its `<noscript>` sends
-a reader to, so it is the one page that may not need JavaScript to say anything.
-
-`modules` is expected already sorted, in the UTF-16 order everything else is.
-`leanVersion` is `index.json`'s, which is the toolchain the environment was read
-from rather than the one the reader has; an empty one draws no row, because a
-page saying `Lean ` says less than nothing. -/
-def indexHtml (title : String) (intro : Option String) (modules : Array ModuleRow)
-    (declarations : Nat) (leanVersion : String) : String := Id.run do
-  let mut body := escapeInto "<div class=\"modhead\"><h1>" title
-  body := body ++ "</h1><p class=\"lede\">API documentation for every module of this package, \
-    generated from the compiled environment. Declarations link to their pinned source; an \
-    import of a dependency links to that dependency's source at the revision this package is \
-    built against.</p></div>"
-  -- Between the lede and the counts: it is what the package wants said about
-  -- itself, and the counts are what this tool has to say about it.
-  match intro with
-  | some html => body := body ++ "<div class=\"intro doc\">" ++ html ++ "</div>"
-  | none => pure ()
-  body := body ++ "<dl class=\"stats\"><div><dt>Modules</dt><dd>" ++ grouped modules.size
-    ++ "</dd></div><div><dt>Declarations</dt><dd>" ++ grouped declarations ++ "</dd></div>"
-  if !leanVersion.isEmpty then
-    body := escapeInto (body ++ "<div><dt>Lean</dt><dd>") leanVersion ++ "</dd></div>"
-  body := body ++ "</dl><h2 class=\"section-title\">Modules</h2><ul class=\"modlist"
-  if modules.any (·.summary.isSome) then body := body ++ " modlist-described"
-  body := body ++ "\">"
-  for row in modules do
-    body := escapeInto (body ++ "<li><a href=\"./") row.page ++ "\">"
-    -- The same per-component markup the module headings and the sidebar use, so
-    -- a long name wraps between components rather than mid-word.
-    body := breakWithin body row.name ++ "</a>"
-    match row.summary with
-    | some summary =>
-      body := summaryHtml (body ++ "<span class=\"modsummary\">") summary ++ "</span>"
-    | none => pure ()
-    body := body ++ "</li>"
-  return plainPage title title (body ++ "</ul>")
-
-/-- Static markup with two holes `app.js` fills: `#missing-path` gets the URL
-that was asked for, `#how-about` the nearest declaration names. The heading above
-the list starts `hidden` because "Did you mean" with nothing under it is worse
-than silence, and the paragraph names the module index in prose because with
-JavaScript off both holes stay empty. -/
-def notFoundHtml (title : String) : String :=
-  plainPage "Not found" title
-    "<div class=\"modhead\"><h1>Page not found</h1><p class=\"lede\">Nothing in this \
-    documentation is at <code class=\"missing-path\" id=\"missing-path\"></code>. If a \
-    declaration has moved, the closest matches are below; otherwise the <a \
-    href=\"./index.html\">module index</a> lists every page.</p></div><h2 \
-    class=\"section-title\" id=\"how-about-heading\" hidden>Did you mean</h2><ul \
-    class=\"results\" id=\"how-about\"></ul>"
-
-/-- **There is no input field here.** `app.js` reads the top bar's
+/-- **There is no input field here.** The page script reads the top bar's
 `#search-input`, seeds it from `?q=` and renders into `#page-results`; a second
 box on a search page is a question about which one is real. The note is
 `aria-live` because it is the only thing that says how many hits there were. -/
@@ -134,8 +53,6 @@ def searchBody : String :=
     it.</p></div><p class=\"results-note\" id=\"page-note\" aria-live=\"polite\"></p><ul \
     class=\"results\" id=\"page-results\"></ul><noscript><p class=\"results-note\">Search needs \
     JavaScript. The <a href=\"./index.html\">module index</a> lists every page.</p></noscript>"
-
-def searchHtml (title : String) : String := plainPage "Search" title searchBody
 
 /-- What `Type`, `Prop` and `Sort` mean, for the reader who clicked one in a
 signature. Written here rather than copied from doc-gen4, whose page is another
@@ -170,9 +87,6 @@ def foundationalTypesBody : String :=
     Lean's own documentation — this page only names the things a signature on this site can \
     link to.</p></div>"
 
-def foundationalTypesHtml (title : String) : String :=
-  plainPage "Foundational types" title foundationalTypesBody
-
 /-- doc-gen4's `BackrefItem`: the `index`-th citation anchor on `module`'s page. -/
 structure Backref where
   module : String
@@ -180,37 +94,11 @@ structure Backref where
   citation : Citation
   deriving BEq, Repr, Inhabited
 
-def backrefHtml (out : String) (number : Nat) (b : Backref) : String :=
-  let location := if b.citation.funName.isEmpty then "" else "\nLocation: " ++ b.citation.funName
-  let href := entryRoot ++ pageUrl b.module ++ "#" ++ backrefAnchor b.index
-  let acc := escapeInto (out ++ " <a href=\"") href ++ "\" title=\""
-  escapeInto acc ("File: " ++ b.module ++ location) ++ "\">[" ++ toString number ++ "]</a>"
-
-/-- doc-gen4's `refItem`. -/
-def referenceItemHtml (backrefs : Std.HashMap String (Array Backref)) (out : String)
-    (item : BibItem) : String := Id.run do
-  let anchor := referenceAnchor item.citekey
-  let acc := escapeInto (out ++ "<li id=\"") anchor ++ "\"><a href=\"#"
-  let mut acc := escapeInto (escapeInto acc anchor ++ "\">") item.tag ++ "</a> " ++ item.html
-  let mine := backrefs.getD item.citekey #[]
-  if !mine.isEmpty then
-    acc := acc ++ "<small>"
-    for i in [0:mine.size] do acc := backrefHtml acc (i + 1) mine[i]!
-    acc := acc ++ "</small>"
-  return acc ++ "</li>"
-
 /-- doc-gen4's `references`: written whether or not the package has a
 bibliography, as doc-gen4 writes it, so an empty one is a page with an empty
 list. An entry's back-references are listed in the order `backrefs` holds them. -/
 def backrefsByKey (backrefs : Array Backref) : Std.HashMap String (Array Backref) :=
   backrefs.foldl (init := {}) fun m b =>
     m.insert b.citation.citekey ((m.getD b.citation.citekey #[]).push b)
-
-def referencesHtml (title : String) (items : Array BibItem) (backrefs : Array Backref) :
-    String :=
-  plainPage "References" title
-    (items.foldl (referenceItemHtml (backrefsByKey backrefs))
-      "<div class=\"modhead\"><h1>References</h1></div><div class=\"doc\"><ul>"
-      ++ "</ul></div>")
 
 end Litedoc4

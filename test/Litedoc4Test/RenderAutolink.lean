@@ -9,6 +9,17 @@ import Litedoc4.Render.Autolink
 namespace Litedoc4Test
 open Litedoc4
 
+/-- A link to another module as a page at `root` writes it: `linkDest`'s answer
+spelled by `LinkDest.href`. -/
+def linkTo (ix : NameIndex) (root module : String) (anchor : Option String) : Option String :=
+  (linkDest ix module anchor).map (·.href root)
+
+/-- What a page at `root` resolves a word or a source path in a docstring to. -/
+def pageResolver (c : PageCtx) (root : String) : LinkResolver :=
+  { nameToLink := nameToLink c root
+    sourcePathToLink := fun path => (sourcePathDest c path).map (·.href root)
+    isSiteFile := c.ix.siteFiles.contains }
+
 /-- One module per distinct name-to-module pair, plus modules that have a page
 and declare nothing. **The modules are the page set**, which is what a run has
 for its own package and only for it. -/
@@ -72,7 +83,7 @@ there, a reference only fills a gap, and a private name is in the map — it is
 `nameToLink` that refuses to look one up, not the map that lacks it. -/
 def aReferenceFillsAGapAndADeclarationOverwrites : Bool :=
   let ix := buildIndex #[#[("Dep.shared", "Dep.Other"), ("Pkg.Two.a", "Dep.Stale")]]
-    #[pkgTwo] emptyLidx (mkExternalLinks #[])
+    #[pkgTwo] (parseLidx "") (mkExternalLinks #[])
   ix.known.get? "Pkg.Two.a" == some "Pkg.Two"
     && ix.known.get? "Dep.shared" == some "Dep.Other"
     && ix.known.get? "Pkg.One.a" == some "Pkg.One"

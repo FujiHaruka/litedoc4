@@ -13,55 +13,6 @@ import Litedoc4.Ir.Name
 
 namespace Litedoc4
 
-/-- Case-insensitive, and against the source rather than the rendered text: a
-heading of `` `Math` `` on `Pkg.Math` is not caught, which keeps this a count
-that means one thing and never a claim that it found them all. -/
-def eqIgnoreAsciiCase (a b : String) : Bool := Id.run do
-  let n := a.utf8ByteSize
-  if n != b.utf8ByteSize then return false
-  let lower := fun (c : UInt8) => if c ≥ 65 && c ≤ 90 then c + 32 else c
-  let mut i := 0
-  while i < n do
-    if lower (byteAt a i) != lower (byteAt b i) then return false
-    i := i + 1
-  return true
-
-def echoesTheName (row : ModuleRow) : Bool :=
-  match row.summary with
-  | none => false
-  | some summary => eqIgnoreAsciiCase summary (components row.name).back!
-
-structure Counts where
-  declarations : Nat := 0
-  dependencyNames : Nat := 0
-  instanceClasses : Nat := 0
-  instanceTypes : Nat := 0
-  usedByTargets : Nat := 0
-  usedByEdges : Nat := 0
-  summariesRendered : Nat := 0
-  summariesEchoingTheName : Nat := 0
-  deriving Inhabited
-
-structure Artifacts where
-  nameMapJson : String := ""
-  /-- The delta's `after` side — the same map `nameMapJson` is written from,
-  kept as a map because the delta asks it one name at a time. -/
-  nameMap : Std.HashMap String String := Std.HashMap.emptyWithCapacity 0
-  indexHtml : String := ""
-  notFoundHtml : String := ""
-  searchHtml : String := ""
-  foundationalTypesHtml : String := ""
-  referencesHtml : String := ""
-  modulesJson : String := ""
-  /-- What `app.js` searches, fetched on the first keystroke and never before.
-  Carries the declarations and the kind vocabulary and nothing else — module
-  names come from `modulesJson`, which is already on the page. -/
-  searchIndexBin : ByteArray := ByteArray.empty
-  instancesJson : String := ""
-  usedByJson : String := ""
-  counts : Counts := {}
-  deriving Inhabited
-
 /-- `{ key: [name, …] }` with both levels in UTF-16 order and the names
 deduplicated. The deduplication is doc-gen4's rule: it collects each list into an
 `RBTree`, so an instance whose class application names the same type twice
@@ -242,7 +193,7 @@ def deriveData (facts : Array ModuleFacts) (depMaps : Array (Array (String × St
     entries := entries.push
       { name, kind := kindAt.getD (cssKind kind) 0, module := indexAt.getD module 0 }
   -- Module *subscripts* and not module names: `modules.json` already carries
-  -- the array, in this order, and `app.js` fetches it on every page anyway, so
+  -- the array, in this order, and the page script fetches it anyway, so
   -- a second copy would be 12.8% of the index (measured 2026-08-19: 51,975 of
   -- 405,402 B → `benchmarks/results/search-design-2026-08-19.txt`) and a second
   -- thing to disagree with.
@@ -278,60 +229,5 @@ def deriveData (facts : Array ModuleFacts) (depMaps : Array (Array (String × St
     instanceTypes := instancesFor.size
     usedByPairs := nameListPairs usedBy
     usedByTargets := usedBy.size }
-
-/-- **Index order is behaviour, twice.** Two modules declaring the same name
-leave the later one in the map, and a module's importer list is built in it
-(before being sorted). Passing the facts in any other order is a different
-answer. -/
-def derive (facts : Array ModuleFacts) (depMaps : Array (Array (String × String)))
-    (titleOverride : Option String) (intro : Option String) (references : Array BibItem)
-    (leanVersion : String) : Artifacts :=
-  let d := deriveData facts depMaps
-  let title := titleOverride.getD (siteTitle d.modules)
-  {
-    nameMapJson := d.nameMapJson
-    nameMap := d.nameMap
-    indexHtml := indexHtml title intro d.pages d.declarations leanVersion
-    notFoundHtml := notFoundHtml title
-    searchHtml := searchHtml title
-    foundationalTypesHtml := foundationalTypesHtml title
-    referencesHtml := referencesHtml title references (backrefsOf facts)
-    modulesJson := d.modulesJson
-    searchIndexBin := d.searchIndexBin
-    instancesJson := d.instancesJson
-    usedByJson := nameListsJson d.usedByPairs
-    counts := {
-      declarations := d.declarations
-      dependencyNames := d.dependencyNames
-      instanceClasses := d.instanceClasses
-      instanceTypes := d.instanceTypes
-      usedByTargets := d.usedByTargets
-      -- Counted the way the file spells it — after the per-key dedup, not
-      -- before. Two declarations of one module that mention the same name are
-      -- one user.
-      usedByEdges := d.usedByPairs.foldl (fun acc p => acc + p.2.size) 0
-      summariesRendered := (d.pages.filter (·.summary.isSome)).size
-      summariesEchoingTheName := (d.pages.filter echoesTheName).size } }
-
-/-- Paired with the paths they go to, in `ARTIFACT_PATHS` order.
-
-Bytes and not `String`, for the one of the ten that is not text. -/
-def artifactFiles (a : Artifacts) : Array (String × ByteArray) :=
-  #[("declarations/name-map.json", a.nameMapJson.toUTF8),
-    ("index.html", a.indexHtml.toUTF8),
-    ("404.html", a.notFoundHtml.toUTF8),
-    ("search.html", a.searchHtml.toUTF8),
-    ("foundational_types.html", a.foundationalTypesHtml.toUTF8),
-    ("references.html", a.referencesHtml.toUTF8),
-    ("modules.json", a.modulesJson.toUTF8),
-    ("search-index.bin", a.searchIndexBin),
-    ("instances.json", a.instancesJson.toUTF8),
-    ("declarations/used-by.json", a.usedByJson.toUTF8)]
-
-def artifactPaths : Array String := (artifactFiles default).map (·.1)
-
-/-- Every file a site holds besides its module pages, read off the two lists the
-files are written from. -/
-def nonModuleFiles : Array String := artifactPaths ++ assets.map (·.1)
 
 end Litedoc4

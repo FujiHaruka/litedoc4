@@ -15,6 +15,13 @@ namespace Litedoc4Test
 namespace DataFormat
 open Litedoc4
 
+/-- The relative root a page at `module`'s path would resolve its links against:
+one `../` per component above the page, then `./`. -/
+def pageRoot (module : String) : String := Id.run do
+  let mut out := ""
+  for _ in [0:(moduleComponents module).size - 1] do out := out ++ "../"
+  return out ++ "./"
+
 def dataSpan (start stop kind : Nat) (name : String := "") : Span := { start, stop, kind, name }
 
 def fDecl : Decl :=

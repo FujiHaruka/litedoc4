@@ -245,10 +245,9 @@ def parseModule (text : String) : Except String Module := (parseJson text).map t
 
 /-- **No field has a default**, so no value of this type stands in for a key the
 file did not have. An absent key would collapse to a value that *compares equal*:
-`""` is a cache hit at `Global.factsFor` and "not changed" at `Incr.Merge`, and
-`0` is a free selection at `Incr.Impact` — a stale page served with no byte moved
-to say so. Defaulting here and checking at those three call sites was the
-straightforward alternative and is not taken: one of the three would get fixed.
+`""` is "not changed" at `Incr.Merge` — a stale page served with no byte moved
+to say so. Defaulting here and checking at each call site was the
+straightforward alternative and is not taken: one of them would get missed.
 What would falsify this: a writer that omits one of the four on purpose, which
 `extractor/Extract.lean` does not — it writes all four whatever the schema. -/
 structure IndexEntry where
@@ -256,12 +255,9 @@ structure IndexEntry where
   /-- Relative to the IR root, e.g. `modules/Foo.Bar.json`. -/
   file : String
   /-- The writer's `String.utf8ByteSize` of that file. Taken from the index and
-  never from the file on disk: `impact` quotes it as the cost of a selection
-  before it has opened anything, and a repeated index entry is meant to count
-  twice. -/
+  never from the file on disk. -/
   bytes : Nat
-  /-- Lean's `String.hash` of the module JSON, in hex. The whole-package cache's
-  key, and the only thing that decides a hit. -/
+  /-- Lean's `String.hash` of the module JSON, in hex. -/
   contentHash : String
 
 structure DepMapEntry where
@@ -278,9 +274,9 @@ structure Index where
   dependencyMaps : Array DepMapEntry := #[]
   deriving Inhabited
 
-/-- The one wording for "this index entry cannot be read". `Incr.Merge` and
-`Incr.Prune` ask the same question of the same file and say it with this too;
-their path stays separate because the merged index carries the raw entries back
+/-- The one wording for "this index entry cannot be read". `Incr.Merge` asks the
+same question of the same file and says it with this too; its path stays
+separate because the merged index carries the raw entries back
 out verbatim (`Incr.Merge`'s `MergeIndexEntry`), which a typed entry cannot do,
 but the sentence a caller reads is one sentence. -/
 def indexEntryRefusal (kind key : String) : String :=
@@ -365,9 +361,9 @@ and the verb is the only part of either line this program writes. Spelling the
 sentence at each of the four sites was the straightforward alternative and is not
 taken — four spellings is how all four came to say the path alone, which left the
 two doors apart only by the parser's own tail. What would falsify this: a parse
-failure in this reader that should not say `parsing`. `Incr.Merge` and
-`Incr.Prune` are not that case — they are a different producer, whose Rust half
-frames the same question without a verb. -/
+failure in this reader that should not say `parsing`. `Incr.Merge` is not that
+case — it is a different producer, whose Rust half framed the same question
+without a verb. -/
 def parseIrFailure {α : Type} (path : FilePath) (why : String) : IO α :=
   throw (IO.userError s!"parsing {path}: {why}")
 
@@ -421,17 +417,6 @@ def IrTree.module (t : IrTree) (e : IndexEntry) : IO Module := do
     throw (IO.userError (mismatchRefusal path e.module m.name))
   return m
 
-/-- The index names the modules and their order; a sorted listing of `modules/`
-would answer the same on a tree the extractor just wrote and diverge on any
-other — a stale file left in the directory becomes a page, and a merged tree's
-order becomes the file names' rather than the index's. What would falsify this:
-an index that stopped carrying `modules`. -/
-def IrTree.loadModules (t : IrTree) : IO (Array Module) := do
-  let mut out : Array Module := Array.mkEmpty t.index.modules.size
-  for e in t.index.modules do
-    out := out.push (← t.module e)
-  return out
-
 def depMapOf (j : JVal) : Array (String × String) := Id.run do
   let mut ds : Array (String × String) := #[]
   for (k, v) in asObj j do
@@ -447,12 +432,5 @@ def IrTree.depMap (t : IrTree) (e : DepMapEntry) : IO (Array (String × String))
   match parseJson text with
   | .error why => parseIrFailure path why
   | .ok j => return depMapOf j
-
-def IrTree.loadDepMaps (t : IrTree) : IO (Array (Array (String × String))) := do
-  let mut out : Array (Array (String × String)) :=
-    Array.mkEmpty t.index.dependencyMaps.size
-  for e in t.index.dependencyMaps do
-    out := out.push (← t.depMap e)
-  return out
 
 end Litedoc4

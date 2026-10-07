@@ -147,12 +147,6 @@ def moduleLink (root : String) (module : String) : String := Id.run do
     first := false
   return out ++ ".html"
 
-def pageRoot (module : String) : String := Id.run do
-  let depth := (moduleComponents module).size - 1
-  let mut out := ""
-  for _ in [0:depth] do out := out ++ "../"
-  return out ++ "./"
-
 /-- What a link to another module points at: a page of this site, a dependency's
 version-pinned source, or a dependency's own documentation site. -/
 inductive LinkDest where
@@ -189,10 +183,6 @@ def LinkDest.href (root : String) : LinkDest → String
   | .page module none => moduleLink root module
   | .source _ base module lines => sourceUrlAt base module lines
   | .docs url => url
-
-@[inline] def linkTo (ix : NameIndex) (root module : String) (anchor : Option String) :
-    Option String :=
-  (linkDest ix module anchor).map (·.href root)
 
 /-! ## What a name on this page can link to -/
 
@@ -314,16 +304,5 @@ def wordDest (c : PageCtx) (s : String) : Option LinkDest :=
 
 def nameToLink (c : PageCtx) (root s : String) : Option String :=
   (nameDest c s).map (·.href root)
-
-def pageResolver (c : PageCtx) (root : String) : LinkResolver :=
-  { nameToLink := nameToLink c root
-    sourcePathToLink := fun path => (sourcePathDest c path).map (·.href root)
-    isSiteFile := c.ix.siteFiles.contains }
-
-/-- Both halves take the same `root`: it reaches the output through the
-renderer's own `extendLink` as well as through this resolver, and handing them
-different values produces links that are half right. -/
-def pageRenderer (c : PageCtx) (root : String) (bib : Bibliography) : Renderer :=
-  { hrefs := .relative root (pageResolver c root), bib }
 
 end Litedoc4

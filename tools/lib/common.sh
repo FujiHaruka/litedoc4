@@ -47,9 +47,9 @@
 # **`set -e` is what makes it a hole**, and that is narrower than it was first
 # written down: under `set -uo pipefail` the same abort exits 1 with the trap
 # installed (measured 2026-09-02 -> benchmarks/results/bash32-answer-guard-2026-09-02.txt).
-# 12 scripts here combine `set -u` with a trap; the 2 that are `set -uo pipefail`
-# -- render-compare.sh and watch-gate.sh -- are not exposed and do not claim
-# anything, and the other 10 all call `answer_required`.
+# 11 scripts here combine `set -u` with a trap; the one that is `set -uo pipefail`
+# -- watch-gate.sh -- is not exposed and does not claim anything, and the other
+# 10 all call `answer_required`.
 on_exit () {
   # shellcheck disable=SC2064  # $1 is quoted into the trap on purpose: see above
   trap "__on_exit_run $(printf '%q' "$1")" EXIT

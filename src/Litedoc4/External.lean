@@ -1,7 +1,7 @@
 /- Where a dependency's source lives.
 
 A root the map holds with no version-pinned URL is a state of its own and not a
-missing entry — `RootSource.unpinned` — which `linkTo` turns into no link rather
+missing entry — `RootSource.unpinned` — which `linkDest` turns into no link rather
 than into a relative one to a page this site never writes. -/
 import Litedoc4.Ir.Name
 import Litedoc4.Sha256
@@ -237,7 +237,7 @@ def ExternalLinks.docsUrlFor (m : ExternalLinks) (module : String) (anchor : Opt
 /-- `none` for a module whose first component is not in the map — which is every
 module of the package being documented — **and** for one whose root is in the map
 with nothing to build a URL from. The two are the same answer here and different
-answers to `linkTo`, which is why that one asks `sourceFor` instead. -/
+answers to `linkDest`, which is why that one asks `sourceFor` instead. -/
 def ExternalLinks.urlFor (m : ExternalLinks) (module : String) (lines : Option (Nat × Nat)) :
     Option String :=
   match m.sourceFor (moduleComponents module)[0]! with

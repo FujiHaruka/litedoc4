@@ -4,10 +4,44 @@ import Litedoc4.Config
 import Litedoc4.Data.Content
 import Litedoc4.External
 import Litedoc4.Global.Artifacts
-import Litedoc4.Render.Frame
+import Litedoc4.Render.Code
 import Litedoc4.Render.LinkIndex
 
 namespace Litedoc4
+
+/-- `Name.lt` compares the **parents** first, so `Init` and `Mathlib` both precede
+`Init.Core`; the import list is sorted with it. -/
+partial def nameLtC (a b : Array String) : Bool :=
+  if a.isEmpty then !b.isEmpty
+  else if b.isEmpty then false
+  else
+    let pa := a.pop
+    let pb := b.pop
+    if nameLtC pa pb then true
+    else if pa == pb then byteLt a.back! b.back!
+    else false
+
+def nameLt (a b : String) : Bool := nameLtC (components a) (components b)
+
+def siteTitle (modules : Array String) : String := Id.run do
+  if modules.isEmpty then return "Documentation"
+  let head := (moduleComponents modules[0]!)[0]!
+  for m in modules do
+    if (moduleComponents m)[0]! != head then return "Documentation"
+  return head
+
+/-- Duplicates dropped keeping the first occurrence, then a sort by `Name.lt`.
+Nearly every import of a package like this one is a dependency's module and this
+site has a page for none of them, so most `<li>`s carry no `<a>` at all. -/
+def sortedImports (imports : Array String) : Array String := Id.run do
+  let mut seen : Std.HashSet String := Std.HashSet.emptyWithCapacity 16
+  let mut out : Array String := #[]
+  for im in imports do
+    if !seen.contains im then
+      seen := seen.insert im
+      out := out.push im
+  return out.qsort nameLt
+
 namespace Data
 
 structure Input where

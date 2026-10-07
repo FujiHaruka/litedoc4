@@ -92,7 +92,4 @@ def Lidx.rangeOf (l : Lidx) (name : String) : Option (Nat × Nat) :=
   | some e => if e.startLine == 0 then none else some (e.startLine, e.endLine)
   | none => none
 
-def emptyLidx : Lidx :=
-  { names := Std.HashMap.emptyWithCapacity 0, modules := Std.HashSet.emptyWithCapacity 0 }
-
 end Litedoc4

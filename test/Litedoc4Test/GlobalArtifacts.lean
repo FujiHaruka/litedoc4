@@ -1,40 +1,14 @@
-/- The whole-package artifacts.
+/- The whole-package data: the name map, the module list, the search index, the
+instance maps and who uses what, derived from every module's facts.
 
-Rust reconciles `Artifacts::files()` against a second constant `ARTIFACT_PATHS`;
-here there is one list and that reconciliation has nothing to compare, so what is
-left of it is the shape of the paths themselves.
-
-`chain` takes a flag rather than carrying its descriptions always: a description
-is Markdown, `#guard` cannot call the Markdown parser, and everything below that
-is *not* about descriptions would otherwise have to be an `Invariant` too. -/
+All closed: the derivation reads facts, not docstrings, so nothing here reaches
+`Md.events`. -/
 import Litedoc4.Global.Artifacts
 import Litedoc4Test.GlobalEntry
 import Litedoc4Test.GlobalSearchIndex
 
 namespace Litedoc4Test
 open Litedoc4
-
-/-- Every path is written under the site root by `buildGlobal`, so one that
-starts at `/` or climbs out of it writes somewhere nobody asked for, and two that
-are equal make the second silently the only one. -/
-def theArtifactPathsAreDistinctAndStayUnderTheSite : Bool :=
-  artifactPaths.all (fun p => !p.isEmpty && !p.startsWith "/" && !has p "..")
-    && (dedupSorted (sortUtf16 artifactPaths)).size == artifactPaths.size
-
-#guard theArtifactPathsAreDistinctAndStayUnderTheSite
-
-/-- The four files that existed only for doc-gen4's JavaScript or for download,
-named rather than counted: "ten files came out" would still hold if `navbar.html`
-came back and something else went. `declarations/name-map.json` is named for the
-same reason from the other side — it is the map delta's `--before` file — and so
-is `references.html`, the one doc-gen4 page every citation links to. -/
-def theDocGen4OnlyArtifactsAreGone : Bool :=
-  ["declarations/declaration-data.bmp", "navbar.html", "tactics.html", "references.bib"].all
-      (fun dropped => !artifactPaths.contains dropped)
-    && artifactPaths.contains "declarations/name-map.json"
-    && artifactPaths.contains referencesPage
-
-#guard theDocGen4OnlyArtifactsAreGone
 
 def moduleFacts (module : String) (imports : List String)
     (decls : List (String × String)) : ModuleFacts :=
@@ -56,15 +30,10 @@ a target two declarations mention, a target one does, a reference to a name this
 package does not declare, and `Pkg.dup` declared by **two** modules — the only
 way one target's user list holds the same name twice, and so the only way the
 per-key deduplication shows up in a count. -/
-def chain (described : Bool) : Array ModuleFacts :=
-  let root : ModuleFacts :=
-    { moduleFacts "Pkg" [] [("Pkg.a", "definition")] with
-        summary := if described then some "The `Pkg` root" else none }
+def chain : Array ModuleFacts :=
+  let root : ModuleFacts := moduleFacts "Pkg" [] [("Pkg.a", "definition")]
   let middle : ModuleFacts :=
     { moduleFacts "Pkg.B" ["Pkg"] [("Pkg.B.inst", "instance"), ("Pkg.dup", "theorem")] with
-        -- Says only what the row says, so the two summary counts cannot be
-        -- each other.
-        summary := if described then some "b" else none
         instances := #[("Cls", "Pkg.B.inst")]
         instancesFor := #[("Pkg.a", "Pkg.B.inst"), ("Pkg.a", "Pkg.B.inst")]
         refs := refsOf [("Pkg.a", [0, 1])] }
@@ -73,7 +42,7 @@ def chain (described : Bool) : Array ModuleFacts :=
         refs := refsOf [("Pkg.a", [1]), ("Pkg.B.inst", [0]), ("Dep.outside", [0])] }
   #[root, middle, leaf]
 
-def chainArtifacts : Artifacts := derive (chain false) #[] none none #[] "4.31.0"
+def chainArtifacts : Derived := deriveData chain #[]
 
 def cites (owner citekey funName : String) : PageCitation :=
   { owner, citation := { citekey, funName } }
@@ -121,12 +90,11 @@ def theModuleIndexListsImportersNotImports : Bool :=
 once, a declaration of this package beats a dependency slice of the same name,
 and two modules declaring one name leave the **later** one in the map. -/
 def aNameDeclaredHereBeatsADependencySliceAndIsWrittenOnce : Bool :=
-  let a := derive (chain false)
-    #[#[("Dep.one", "Dep.Home"), ("Pkg.a", "Dep.Elsewhere")]] none none #[] "4.31.0"
+  let a := deriveData chain #[#[("Dep.one", "Dep.Home"), ("Pkg.a", "Dep.Elsewhere")]]
   a.nameMapJson ==
       "{\"Dep.one\":\"Dep.Home\",\"Pkg.B.inst\":\"Pkg.B\",\"Pkg.C.t\":\"Pkg.C\",\
         \"Pkg.a\":\"Pkg\",\"Pkg.dup\":\"Pkg.C\"}"
-    && a.counts.dependencyNames == 2
+    && a.dependencyNames == 2
     -- The map the delta asks one name at a time and the file the next run reads
     -- as `--before` are built in the same loop and have to stay one map; the two
     -- counts do not add up to it, because `Pkg.a` is on both sides and written
@@ -143,8 +111,7 @@ order from byte order: sorted by bytes the astral name comes last. Both files ar
 asked, because they carry the order twice — `modules.json` as rows and
 `search-index.bin` as the array those rows are indexed by. -/
 def theNewFilesSortInUtf16OrderToo : Bool :=
-  let a := derive #[declaringOne "Pkg.ﬀ" "Pkg.ﬀ.a", declaringOne "Pkg.𝒜" "Pkg.𝒜.a"]
-    #[] none none #[] "4.31.0"
+  let a := deriveData #[declaringOne "Pkg.ﬀ" "Pkg.ﬀ.a", declaringOne "Pkg.𝒜" "Pkg.𝒜.a"] #[]
   a.modulesJson ==
       "{\"modules\":[{\"n\":\"Pkg.𝒜\",\"p\":\"Pkg/𝒜.html\",\"i\":[]},\
         {\"n\":\"Pkg.ﬀ\",\"p\":\"Pkg/ﬀ.html\",\"i\":[]}]}"
@@ -187,40 +154,25 @@ def theInstanceMapsDeduplicateTheWayDocGen4Does : Bool :=
 
 #guard theInstanceMapsDeduplicateTheWayDocGen4Does
 
-/-- **Destructured rather than read field by field**, so a count added to
-`Counts` stops this compiling until it is checked here too; a check that named
-the fields it reads would go on holding when one was added.
+/-- Every count is the number of things the file it describes holds. -/
+def theCountsAreWhatTheFilesHold : Bool :=
+  let a := chainArtifacts
+  let instances := parsedObj a.instancesJson
+  let usedBy := parsedObj (nameListsJson a.usedByPairs)
+  let usedByEdges := a.usedByPairs.foldl (fun acc p => acc + p.2.size) 0
+  (decodeSearchIndex a.searchIndexBin).map (·.names.size) == some a.declarations
+    && a.instanceClasses == (asObj (fieldOf instances "instances")).size
+    && a.instanceTypes == (asObj (fieldOf instances "instancesFor")).size
+    && a.dependencyNames == 0
+    && a.nameMap.size == a.declarations + a.dependencyNames
+    -- `>` and not `≥`: a target with two users is what makes the per-key
+    -- deduplication show in a count, and an empty map would let the two below
+    -- hold over nothing.
+    && usedByEdges > a.usedByTargets && a.usedByTargets > 0
+    && a.usedByTargets == usedBy.size
+    && usedByEdges == usedBy.foldl (fun acc (_, users) => acc + (asArr users).size) 0
 
-An `Invariant` and not a `#guard` because two of the eight are about the module
-descriptions, and reading one means parsing Markdown. -/
-def theCountsAreWhatTheFilesHold : Invariant where
-  name := "every count is the number of things the file it describes holds"
-  check := do
-    let a := derive (chain true) #[] none none #[] "4.31.0"
-    let ⟨declarations, dependencyNames, instanceClasses, instanceTypes, usedByTargets,
-      usedByEdges, summariesRendered, summariesEchoingTheName⟩ := a.counts
-    let instances := parsedObj a.instancesJson
-    let usedBy := parsedObj a.usedByJson
-    let indexed := (decodeSearchIndex a.searchIndexBin).map (·.names.size)
-    return first [
-      eq indexed (some declarations),
-      eq instanceClasses (asObj (fieldOf instances "instances")).size,
-      eq instanceTypes (asObj (fieldOf instances "instancesFor")).size,
-      eq dependencyNames 0,
-      eq a.nameMap.size (declarations + dependencyNames),
-      -- The reconciliation e2e-micro's GATE 14 makes over a built site, made
-      -- here over the string this stage produced: a renderer that dropped a row
-      -- and a count derived from anything but the rows both land here.
-      eq summariesRendered (countOf a.indexHtml "class=\"modsummary\""),
-      eq (summariesRendered, summariesEchoingTheName) (2, 1),
-      -- An empty artifact would let the two below hold with the derivation
-      -- counting anything at all; `>` and not `≥` because a target with two
-      -- users is what makes the per-key deduplication show in a count.
-      if usedByEdges > usedByTargets && usedByTargets > 0 then none
-        else some s!"the fixture holds the used-by counts to nothing: \
-          {usedByTargets} target(s), {usedByEdges} edge(s)",
-      eq usedByTargets usedBy.size,
-      eq usedByEdges (usedBy.foldl (fun acc (_, users) => acc + (asArr users).size) 0)]
+#guard theCountsAreWhatTheFilesHold
 
 end Litedoc4Test
 

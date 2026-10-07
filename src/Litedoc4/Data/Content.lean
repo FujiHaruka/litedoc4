@@ -2,11 +2,35 @@
 in canonical bytes, and the address those bytes are found by. -/
 import Litedoc4.Ir
 import Litedoc4.JsonWrite
-import Litedoc4.Render.Decl
+import Litedoc4.Render.Code
 import Litedoc4.Render.Whitespace
 import Litedoc4.Sha256
 
 namespace Litedoc4
+
+def lastComponent (name : String) : String := Id.run do
+  let n := name.utf8ByteSize
+  let mut dot := n
+  let mut i := 0
+  while i < n do
+    if byteAt name i == 46 then dot := i
+    i := i + 1
+  return if dot == n then name else byteSub name (dot + 1) n
+
+def equationLimit : Nat := 200
+
+/-- `containedNames`: which declarations of the same module have their range
+inside `parent`'s. Both comparisons are non-strict on the inner coordinate. -/
+def containedNames (m : Module) (parent : Decl) : Std.HashSet String := Id.run do
+  let mut out : Std.HashSet String := Std.HashSet.emptyWithCapacity 16
+  for d in m.decls do
+    if d.name == parent.name then continue
+    let startsInside := d.line > parent.line || (d.line == parent.line && d.col >= parent.col)
+    let endsInside := d.endLine < parent.endLine
+      || (d.endLine == parent.endLine && d.endCol <= parent.endCol)
+    if startsInside && endsInside then out := out.insert d.name
+  return out
+
 namespace Data
 
 inductive Target where
