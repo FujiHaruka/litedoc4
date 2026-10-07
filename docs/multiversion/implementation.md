@@ -598,6 +598,98 @@ Done when: the three versions filled through the reader give a site that differs
 store only where printer drift says it may, counted; the per-extra-version time is measured on the
 M1 with no other heavy application running, against the tracked 1.2 min.
 
+#### Step 5 plan (2026-10-08)
+
+Read from the sources on 2026-10-08, nothing run: `prototypes/olean-reader/` (7,427 lines of
+Lean), `extractor/Extract.lean`, and how `build --versions` builds the extractor today (the source
+is embedded in `litedoc4`, written out, compiled per toolchain with `lean` + `leanc -rdynamic`).
+
+**Approach.** The reader is the extractor's second front end, not a second extractor. The
+extractor gains one seam — a `World` that answers every "which modules, which names, where does
+this name live, which docstring" question — and today's native run builds it from the imported
+environment exactly as now. The reader builds the same `World`, and the hybrid environment, from
+an old version's decoded `.olean` files instead; everything after the seam, and everything after
+the IR, is shared. Correctness first, speed second: the step reaches its exactness checkpoint with
+one version per process, and only then adds the patch path and print reuse, each held against the
+from-scratch output it replaces.
+
+Three choices this rests on, each the plan's own, with what would undo it:
+
+- **The reader is compiled on one toolchain, the newest row of `tools/lean-toolchains.txt`
+  (v4.34.1 today).** It decodes into the running Lean's types (the prototype mirrors private
+  structures field for field and casts them), so it cannot be branch-free across rows the way
+  `Extract.lean` is; D10 already put printing in one Lean, the newest. The `World` seam goes into
+  `Extract.lean` and compiles on every row, watched by `ci-lean-versions.yml` as now. A version
+  set whose newest version is not on the reader's toolchain cannot be filled through the reader
+  and is refused by name before anything is read. **Undone** if a site's newest release must be
+  read on a Lean the reader is not ported to yet — then porting the running side becomes a cost of
+  every Lean release, like the extractor's row today (D10 accepted it).
+- **A second executable, `reader`, built the way the extractor is**: its sources embedded in
+  `litedoc4`, compiled by `build --versions` under `<out>/extractors` with the reader toolchain
+  only, `Extract.lean` compiled as a module it imports. Not a Lake `lean_exe`: a consumer's
+  single-version build never uses it, and `require «litedoc4»` must not compile 2,800 lines of
+  binary layouts it cannot run on its own toolchain. `extractor/build.sh`, `tools/ci-build.sh` and
+  `tools/lake-package-gate.sh` item 4 stay single-file. **Undone** if the module split makes the
+  extractor's own bytes differ — then the reader includes `Extract.lean` by text instead.
+- **The writer table is data with one list.** Each record is selected by the header's Lean
+  version and githash together, and says which extensions the running Lean has that the writer
+  does not, and what each stored reducibility value means. Plan.md's layout reading (0 changes to
+  the object encoding in 10 pairs; patch pairs change nothing) is **the hypothesis each record is
+  checked against**, never a licence to copy one: every record exists only after mechanism 2 has
+  passed for it.
+
+**Which versions go through the reader** (D7): a rebuild from nothing — a store holding none of the
+set's versions below the newest — fills the newest natively and every older one through the
+reader; adding a release to a store fills it natively as today. `store` records which way an entry
+was filled. An internal flag forces the reader for named versions, because the checkpoint compares
+the two ways on versions that have both.
+
+**Where it is checked**, smallest first:
+
+- **S** — the sample has no Mathlib, so printer drift is near zero: an S version read in the newest
+  Lean must equal its native entry except where the running Lean spells something its own way
+  (reducibility), and each such field is named, not ignored. Needs one more S version on the
+  reader's toolchain (v5 is v4.32.2), added in the reader gate's own work area so
+  `tools/mv-s-gate.sh`'s five versions and 63 items do not move.
+- **M** — the three store versions (v4.32.2 / v4.33.0 / v4.33.1) at the 438-module slice, read in
+  the v4.34.1 slice: every difference against the native M store classified (newest-Mathlib
+  notation, running-Lean spelling, or a defect), counted. This is where "only where printer drift
+  says it may" is answered.
+- **L** — the step's checkpoint on the runner, after the patch path.
+
+**The order, each item ending in something counted or gated:**
+
+1. **The reader and the writer table in the tree** (`extractor/reader/`, from `OleanReader.lean`):
+   records for v4.31.0, v4.32.0 (both prototype), v4.32.2, v4.33.0, v4.33.1 and v4.34.1 (new),
+   v4.29.0 (from its log). **Mechanism 2 as a gate**: per writer toolchain, a small program run by
+   that Lean serializes a seeded sample of what it loads (the prototype's `Drift.lean`
+   serialization), and the reader's decoding of the same files must equal it byte for byte; the
+   input is that toolchain's own core library, so it needs no Mathlib and can run in CI for every
+   installed record. **Mechanism 1**: another version, one githash byte changed, mixed writers, a
+   wrong "absent" entry — each refused by name, each made to fail once.
+2. **The `World` seam in `extractor/Extract.lean`**, ported as a seam, not by copying the
+   prototype's file (which predates `--identity`, `--no-equations-under` and its `#guard`, and
+   carries debugging output). Natively it must reproduce today's IR byte for byte on every row:
+   `tools/mv-s-gate.sh` and the Lean-versions matrix are the judgement.
+3. **The hybrid run** (`Assemble.lean` + `HybridMain.lean`): one old version read into the newest
+   environment, IR written as the native extractor writes it; the hard stops (Verso-only docstrings,
+   tactic text of `(h : p := by tac)` binders read from the old value) counted, never silent; the
+   prototype's environment switches become flags or leave. On S, against the native entries.
+4. **Mechanism 3 on every reader run**: every constant a type mentions exists in the version being
+   read; the declaration list and ranges agree with the `.ilean` the same Lean wrote. A failure
+   stops the version by name.
+5. **`build --versions` fills through the reader** (the rule above), with the store record and
+   stale judgement: a reader-filled entry is stale when the reader's identity or the extractor's
+   changes, and is refilled through the reader. **On M: the exactness checkpoint**.
+6. **The patch path and print reuse** (`Patch.lean`, `PrintKey.lean`): several versions in one
+   process, each patched from the previous; the key carried forward with a check mode that
+   recomputes and compares; the structure-instance default value covered. Each lever held against
+   the from-scratch IR of the same version (equal in every file, as U9 measured). Per-extra-version
+   time on the M1 and the **L checkpoint** on the runner.
+7. **The rest of the set**: records for v4.29.1, v4.30.0, v4.32.1 and v4.34.0, each after its
+   oracle; v4.30.0 is the one release whose layout is known by source only (D1). Then
+   `prototypes/olean-reader/` is deleted.
+
 ### 6. CI, hosting and the full set
 
 - A workflow on `ubuntu-latest` that restores the store, builds, saves the store, and deploys to

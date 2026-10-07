@@ -1,5 +1,14 @@
 # Handoff — 2026-10-08 (multi-version: render memory explained and left to the toolchain)
 
+## Relay control
+- Mode: ON
+- Goal: implementation.md step 5 (the rebuild from nothing through the reader) to its "Done when", following the "Step 5 plan (2026-10-08)" order 1-7
+- Leg: 1 / cap 8
+- Predecessor: none
+- Stop-on: completion | user-decision | no-progress×2 | leg-cap
+- Progress ledger:
+  - r1: step 5 plan written into implementation.md
+
 ## State
 
 - Working directory: /Users/haruka/dev/lean-doc
