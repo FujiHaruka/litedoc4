@@ -54,7 +54,7 @@ jobs:
         run: |
           for phase in full render data input read; do
             rm -rf "$MV_L_WORK/render-exp"
-            /usr/bin/time -v .lake/build/bin/litedoc4 store render --store "$MV_L_WORK/out/store" \
+            LITEDOC4_EXP_PHASE="$phase" /usr/bin/time -v .lake/build/bin/litedoc4 store render --store "$MV_L_WORK/out/store" \
               --versions v4.32.2,v4.33.0,v4.33.1 --out "$MV_L_WORK/render-exp" \
               >"$MV_L_WORK/logs/exp-$phase.out" 2>"$MV_L_WORK/logs/exp-$phase.err" || true
             grep -E '^exp floor|Maximum resident|Elapsed' "$MV_L_WORK/logs/exp-$phase.err"
