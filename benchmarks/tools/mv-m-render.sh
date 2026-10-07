@@ -58,6 +58,7 @@ render () {
   echo "run of $(git -C "$ROOT" rev-parse HEAD) ($(git -C "$ROOT" status --porcelain | wc -l | tr -d ' ') uncommitted path(s))"
   record_host
   echo "swap              $(sysctl -n vm.swapusage 2>/dev/null || echo '?')"
+  echo "load              $(uptime | sed 's/.*load average[s]*: //')"
   echo "store             $STORE"
   echo "versions          $VERSIONS"
   echo "runs              $RUNS"
@@ -79,15 +80,20 @@ for v in "${TAGS[@]}"; do
   render "alone-$v" "$v"
   same=yes
   if [ ${#HASH[@]} -eq 0 ]; then
-    /usr/bin/diff -r "$WORK/alone-$v/$v" "$WORK/all-1/$v" >"$LOGS/alone-$v.diff" 2>&1 || same=no
-  elif [ -e "$WORK/alone-$v/$v" ]; then
-    same=no
+    compared=("$v" 404.html assets)
+  else
+    compared=(index.html 404.html assets)
+    [ ! -e "$WORK/alone-$v/$v" ] || same=no
   fi
+  : >"$LOGS/alone-$v.diff"
+  for p in "${compared[@]}"; do
+    /usr/bin/diff -r "$WORK/alone-$v/$p" "$WORK/all-1/$p" >>"$LOGS/alone-$v.diff" 2>&1 || same=no
+  done
   missing=0
   for f in "$WORK/alone-$v"/d/*; do
     cmp -s "$f" "$WORK/all-1/d/$(basename "$f")" || missing=$((missing + 1))
   done
-  echo "alone-$v: shells identical to all-1's: $same; data files absent or other bytes in all-1/d: $missing of $(find "$WORK/alone-$v/d" -type f | wc -l | tr -d ' ')" |
+  echo "alone-$v: ${compared[*]} identical to all-1's: $same; data files absent or other bytes in all-1/d: $missing of $(find "$WORK/alone-$v/d" -type f | wc -l | tr -d ' ')" |
     tee -a "$LOGS/identity.txt"
   rm -rf "${WORK:?}/alone-$v"
 done
@@ -163,7 +169,7 @@ for e in listed:
         add("page", page)
         add("usedBy", used)
         c = json.loads(load(page))["content"]
-        fetched = [vfile, page, used] + ([e["routes"] + ".json.gz"] if hashed else [])
+        fetched = [vfile, page] + ([e["routes"] + ".json.gz"] if hashed else [])
         if c is not None:
             add("content", c + ".json.gz")
             fetched.append(c + ".json.gz")
@@ -184,7 +190,7 @@ for e in listed:
     seen |= set(kinds)
     out.append((v, shells, shell_bytes, ref, new))
     modules_bytes = on_disk[vj["modules"] + ".json.gz"]
-    view_lines.append("%s: a module page fetches its version, page, Used-by%s and content files: %d pages, %d B in all, max %d, median %.0f (the module list, if a page also fetches it: +%d B each)" % (
+    view_lines.append("%s: before it draws, a module page fetches its version, page%s and content files: %d pages, %d B in all, max %d, median %.0f (on demand: the module list %d B, Used by)" % (
         v, ", routes" if hashed else "", len(views), sum(views), max(views), statistics.median(views), modules_bytes))
 
 counts = json.load(open(os.path.join(logs, "all-1.json"), encoding="utf-8"))
