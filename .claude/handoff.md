@@ -2,9 +2,8 @@
 
 ## State
 
-- Branch `multi-version`, pushed. Not `main`; no PR open. CI dispatched on `9ddc4bf`
-  (`gh workflow run ci.yml --ref multi-version`, run 37554628620) — check it first; the new
-  `mv-pages-gate.sh` step had never run on Linux before it.
+- Branch `multi-version`, pushed. Not `main`; no PR open. `ci.yml` green at `9ddc4bf` (run
+  37554628620), the new page-path and anchor step included.
 - SoT: `docs/multiversion/plan.md` and `docs/multiversion/implementation.md`. Step 3's "What exists"
   block lists what r1 built and ends with "Left to the measurement leg" — that is r2's work list.
 - r1 built the browser half: every page of a `store render` site is drawn from data (path mode and
@@ -22,7 +21,7 @@
   in the plans. D6's four defaults are implemented as proposed; their confirmation goes in the
   DONE brief (not a PAUSE).
 - Leg: 2 / cap 8
-- Predecessor: none (r1 was the user's own session)
+- Predecessor: none (r1 was the user's own session; do not kill it)
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger
   - r1: implemented and gated on S — drawn pages + assets `5281a10`; switcher, search, on-demand
