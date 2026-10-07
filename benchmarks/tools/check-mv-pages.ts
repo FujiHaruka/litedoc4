@@ -10,6 +10,7 @@
  *                     --frozen <frozen site> [--chrome PATH] [--port N]
  */
 
+import { fileURLToPath } from "node:url";
 import puppeteer, { type Browser, type Page } from "npm:puppeteer-core@24";
 
 const CHROME_CANDIDATES = [
@@ -23,7 +24,7 @@ const CHROME_CANDIDATES = [
 ];
 
 const FROZEN_HOST_PAGE = "404.html";
-const INDEX_READER = new URL("./check-store-render.py", import.meta.url).pathname;
+const INDEX_READER = fileURLToPath(new URL("./check-store-render.py", import.meta.url));
 const MONO_CHARSET = new URL("./mono-charset.json", import.meta.url);
 const FROZEN_NO_ID_ARM = "search.html";
 const DRAW_TIMEOUT_MS = 10000;
