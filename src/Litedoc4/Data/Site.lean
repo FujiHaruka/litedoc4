@@ -319,7 +319,27 @@ def renderStore (store out : FilePath) (names : Array Store.VersionName) (hashUr
     ExceptT String IO Counts := do
   checkEntries store names
   let mut written : Array Written := #[]
-  for v in names do written := written.push (← writeEntry store out v hashUrls)
+  let phase := (← IO.getEnv "LITEDOC4_EXP_PHASE").getD "full"
+  for v in names do
+    if phase == "full" then written := written.push (← writeEntry store out v hashUrls)
+    else
+      let s ← Store.read store v
+      if phase == "read" then IO.eprintln s!"exp read {s.files.size}" else
+      let input ← match inputOf s.record s.files with
+        | .ok input => pure input
+        | .error why => throw why
+      if phase == "input" then IO.eprintln s!"exp input {input.modules.size}" else
+      let d := versionData input
+      if phase == "data" then IO.eprintln s!"exp data {d.pages.size}" else
+      let r ← ExceptT.mk (pure (render (VersionMeta.of s.record) d hashUrls))
+      IO.eprintln s!"exp render {r.data.size}"
+    IO.sleep 3000
+    let status ← match ← (IO.FS.readFile "/proc/self/status").toBaseIO with
+      | .ok s => pure s
+      | .error _ => pure ""
+    let vm := (status.splitOn "\n").filter fun l => l.startsWith "VmRSS" || l.startsWith "VmHWM"
+    IO.eprintln s!"exp floor {phase} after {v.text}: {vm}"
+  if phase != "full" then throw "experiment: no site written"
   let root ← writeRoot out (written.map (·.listed)) hashUrls
   return { versions := written.map (·.counts), assets := ← writeAssets out, root }
 
