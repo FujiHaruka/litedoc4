@@ -77,8 +77,9 @@ Pinned to the commit doc-gen4 pins. Its own `lean-toolchain` names a higher
 version than any toolchain litedoc4 supports, and it does not reach a consumer's
 `lean-toolchain` anyway: `lake update` compares only the root's *direct*
 dependencies, and a consumer reaches this one through litedoc4, which has no
-`lean-toolchain` at all. It builds on v4.31.0, v4.32.2 and v4.33.1 and imports no
-`Lean` (`benchmarks/results/bibtexquery-dependency-probe-2026-10-04.txt`). -/
+`lean-toolchain` at all. It builds on v4.31.0, v4.32.2, v4.33.1 and v4.34.1 and imports no
+`Lean` (`benchmarks/results/bibtexquery-dependency-probe-2026-10-04.txt`,
+`benchmarks/results/lean-434-build-2026-10-08.txt`). -/
 require «BibtexQuery» from git
   "https://github.com/dupuisf/BibtexQuery" @ "fdcc88de7c4c5a11e3239c9416615f34c226d47d"
 

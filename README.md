@@ -44,8 +44,8 @@ with how large your dependencies are next to your own code, and Mathlib is as la
 - **you want to search dependency declarations** — search covers your package only
 - **your source is not on GitHub** — source links are GitHub URLs, and another host is refused
   rather than guessed unless you pass `--source-url`
-- **you are on a Lean newer than v4.33.1** — v4.31.0, v4.32.2, v4.33.0 and v4.33.1 are the ones CI
-  runs end to end, and of those **only v4.31.0 has been run over a Mathlib-sized package**. The
+- **you are on a Lean newer than v4.34.1** — v4.31.0, v4.32.2, v4.33.0, v4.33.1 and v4.34.1 are the
+  ones CI runs end to end, and of those **only v4.31.0 has been run over a Mathlib-sized package**. The
   extractor is compiled against your toolchain, so a version it cannot handle surfaces as a build
   failure, not as bad output
 - **you are running it on Windows** — the generator has been run on Linux and macOS only
@@ -339,12 +339,11 @@ machine with only elan on it can use. If your package is not at the top of its r
 `v1.0.1` is the first release whose source links point at it. `@main` moves.
 
 **Every Lean version litedoc4 claims is run end to end on every change to the extractor or the
-sample**, and their output is compared: v4.31.0, v4.32.2, v4.33.0 and v4.33.1 produce byte-identical IR
-once one rename is applied — Lean's own reclassification of a reducible instance
+sample**, and their output is compared: v4.31.0, v4.32.2, v4.33.0, v4.33.1 and v4.34.1 produce
+byte-identical IR once one rename is applied — Lean's own reclassification of a reducible instance
 (`implicit_reducible` → `instance_reducible`, from v4.33.0). That rename is the only recorded
-difference between them, in
-[`tools/lean-toolchains.txt`](tools/lean-toolchains.txt) (measured 2026-08-29). A toolchain that
-is not in that file fails by name.
+difference between them, in [`tools/lean-toolchains.txt`](tools/lean-toolchains.txt) (measured
+2026-08-29; v4.34.1 2026-10-08). A toolchain that is not in that file fails by name.
 
 ### What 1.x keeps
 
