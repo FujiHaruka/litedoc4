@@ -98,10 +98,10 @@ def usage : String :=
                  the store, and the checkout deleted before the next. Then the
                  site is rendered from the store into <out>/site, as `store
                  render` writes it, each version only when the site does not
-                 hold it already (--out above says when it does). The extraction flags come from --root's
-                 litedoc4.toml; the title, front page and bibliography from each
-                 version's own. --lake has to be elan's, which picks each
-                 checkout's toolchain. Prints `versions extracted: <n> of <m>
+                 hold it already (--out above says when it does). The
+                 extraction flags come from --root's litedoc4.toml; the title,
+                 front page and bibliography from each version's own. --lake
+                 has to be elan's, which picks each checkout's toolchain. Prints `versions extracted: <n> of <m>
                  (<names>)` and `versions rendered: <n> of <m> (<names>)`, which
                  <out>/litedoc4-build.json records too
   --full         (`build`) extract every module again, ignoring the IR under
