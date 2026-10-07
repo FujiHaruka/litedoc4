@@ -52,7 +52,7 @@ inputs:
     description: "the Lean package to document, relative to the workspace (or absolute)"
     default: "."
   out:
-    description: "where the documentation state goes; <out>/site is the site, <out>/store the store of versions unless `store` names another. Must be outside root. Default: a directory under RUNNER_TEMP"
+    description: "where the documentation state goes; <out>/site is the site, <out>/store the store of versions unless `store` names another (`store` needs `versions`). Must be outside root. Default: a directory under RUNNER_TEMP"
     default: ""
   cache-get:
     description: "run `lake exe cache get` first — you want this for a Mathlib-dependent package"
@@ -76,7 +76,7 @@ inputs:
     description: "comma-separated tags, branches or commits of root's repository, the last the newest, to build one site of all of them from the store. Left empty, the checked-out working tree is the one version, named by its commit"
     default: ""
   store:
-    description: "the store of built versions, relative to the workspace (or absolute). Default: <out>/store"
+    description: "with `versions`, the store of built versions, relative to the workspace (or absolute). Default: <out>/store. Without `versions` the store is always <out>/store and holds only the version just built, so setting this fails the step"
     default: ""
   hash-urls:
     description: "serve every page from the root index.html with the route in the URL fragment, for hosts that cannot answer every path with one page"
@@ -93,7 +93,7 @@ outputs:
     description: "the generated site — hand this to upload-pages-artifact or upload-artifact"
     value: "${{ steps.build.outputs.site }}"
   out:
-    description: "the state directory (site, store and extraction state). Keep it between runs: the store holds every version already built"
+    description: "the state directory (site, store and extraction state). Keep it between runs: the store holds every version already built (with `versions`), or the one just built"
     value: "${{ steps.build.outputs.out }}"
   timings:
     description: "path to the phase timings JSON"
@@ -118,6 +118,7 @@ runs:
         INPUT_ROOT: ${{ inputs.root }}
         INPUT_OUT: ${{ inputs.out }}
         INPUT_STORE: ${{ inputs.store }}
+        INPUT_VERSIONS: ${{ inputs.versions }}
       run: |
         set -euo pipefail
         A="$GITHUB_ACTION_PATH"
@@ -135,6 +136,10 @@ runs:
         if [ -z "$OUT" ]; then OUT="$RUNNER_TEMP/litedoc4-out"; fi
         case "$OUT" in /*) ;; *) OUT="$GITHUB_WORKSPACE/$OUT" ;; esac
 
+        if [ -n "$INPUT_STORE" ] && [ -z "$INPUT_VERSIONS" ]; then
+          echo "::error::store is set and versions is empty: a site of one version keeps only that version, in <out>/store; store names the store of a site built from versions"
+          exit 1
+        fi
         STORE="$INPUT_STORE"
         if [ -z "$STORE" ]; then STORE="$OUT/store"; fi
         case "$STORE" in /*) ;; *) STORE="$GITHUB_WORKSPACE/$STORE" ;; esac
@@ -158,8 +163,9 @@ runs:
           echo "out=$OUT"
           echo "store=$STORE"
           # What is worth keeping between runs: the store, which holds every
-          # version already built, and the extraction state beside it. Not the
-          # site, which is rendered from the store on every run.
+          # version already built (only the last one without `versions`), and
+          # the extraction state beside it. Not the site, which is rendered
+          # from the store on every run.
           echo "state<<LITEDOC4_STATE"
           echo "$OUT"
           echo "!$OUT/site"
@@ -272,13 +278,13 @@ runs:
 
         # Everything after `--` goes to `litedoc4 build` itself, so `--` has to
         # be one argument and the rest separate ones.
-        PASS=(--store "$STORE")
+        PASS=()
         if [ -n "$IN_LIB" ]; then PASS+=(--lib "$IN_LIB"); fi
         if [ -n "$IN_SOURCE_URL" ]; then PASS+=(--source-url "$IN_SOURCE_URL"); fi
         if [ "$IN_FULL" = "true" ]; then PASS+=(--full); fi
-        if [ -n "$IN_VERSIONS" ]; then PASS+=(--versions "$IN_VERSIONS"); fi
+        if [ -n "$IN_VERSIONS" ]; then PASS+=(--versions "$IN_VERSIONS" --store "$STORE"); fi
         if [ "$IN_HASH_URLS" = "true" ]; then PASS+=(--hash-urls); fi
-        ARGS+=(-- "${PASS[@]}")
+        ARGS+=(-- ${PASS[@]+"${PASS[@]}"})
 
         "$GITHUB_ACTION_PATH/tools/ci-build.sh" \
           --root "$ROOT" --out "$OUT" --jobs "$IN_JOBS" \

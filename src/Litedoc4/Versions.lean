@@ -320,13 +320,15 @@ structure Built where
   nanos : Nat
 
 /-- The working tree at `--root` as one version of a site: its IR brought up to
-date in place, put into the store under the first 12 hex digits of the commit its
-source links name, and the site rendered from the store with that version alone.
+date in place, put into `<out>/store` under the first 12 hex digits of the commit
+its source links name, every other entry removed, and the site rendered from the
+store with that version alone.
 
 The put and the render run on every call, also when nothing was extracted: the
 site configuration (title, front page, bibliography) is read into the entry by
 the put, and none of it is in the ledger's extraction key. -/
-def buildOne (r : BuildRequest) (store : FilePath) (hashUrls : Bool) : BuildM Built := do
+def buildOne (r : BuildRequest) (hashUrls : Bool) : BuildM Built := do
+  let store := r.layout.store
   let lake : FilePath := (← envOr r.lake "LAKE").getD ⟨"lake"⟩
   let given ← envOr r.extractorBin "EXTRACT_BIN"
   let bin : BuildM FilePath := match given with
@@ -347,6 +349,10 @@ def buildOne (r : BuildRequest) (store : FilePath) (hashUrls : Bool) : BuildM Bu
   let putNanos := (← IO.monoNanosNow) - putStarted
   IO.println s!"put     {version.text}: {s.record.irFiles} IR file(s) -> {s.record.packBytes} B \
     ({s.record.extractorIdentity.text})"
+  for (other, _) in (← Store.list store).entries do
+    if other != version then
+      Store.remove store other
+      IO.println s!"removed {other.text}: a one-version site keeps only {version.text}"
   let extracted := if e.work.modulesExtracted > 0 then #[version] else #[]
   IO.println (extractedLine #[version] extracted)
   let site := r.layout.site

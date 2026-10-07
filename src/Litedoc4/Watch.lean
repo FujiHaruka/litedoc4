@@ -212,7 +212,6 @@ structure LoopState where
 
 structure Rebuild where
   request : BuildRequest
-  store : FilePath
   hashUrls : Bool
 
 partial def runLoop (r : Rebuild) (t : Trigger) (interval : Nat) (port : UInt16)
@@ -281,7 +280,7 @@ partial def runLoop (r : Rebuild) (t : Trigger) (interval : Nat) (port : UInt16)
       -- `Except` around it. An exception becomes the same refusal, so that a pass
       -- that cannot write is reported and waited out rather than ending the loop.
       let attempt : IO (Except (UInt32 × String) Versions.Built) :=
-        try (Versions.buildOne r.request r.store r.hashUrls).run
+        try (Versions.buildOne r.request r.hashUrls).run
         catch e => pure (.error (1, toString e))
       let outcome : Except (UInt32 × String) Versions.Built ← attempt
       match outcome with
@@ -318,7 +317,7 @@ private def lineFlushed (s : IO.FS.Stream) : IO.FS.Stream :=
     write := fun bytes => do s.write bytes; s.flush
     putStr := fun text => do s.putStr text; s.flush }
 
-def watchRun (r : BuildRequest) (store : FilePath) (hashUrls : Bool) (port : UInt16)
+def watchRun (r : BuildRequest) (hashUrls : Bool) (port : UInt16)
     (interval : Nat) : BuildM Unit := do
   discard <| IO.setStdout (lineFlushed (← IO.getStdout))
 
@@ -357,6 +356,6 @@ def watchRun (r : BuildRequest) (store : FilePath) (hashUrls : Bool) (port : UIn
     { ledger := request.layout.ledger, ir := request.layout.ir
       linkIndex := request.layout.linkIndex, sourceUrl
       externalLinks := request.external.digest, root := request.root, libs }
-  runLoop { request, store, hashUrls } trigger interval port { quietSince := ← IO.monoNanosNow }
+  runLoop { request, hashUrls } trigger interval port { quietSince := ← IO.monoNanosNow }
 
 end Litedoc4

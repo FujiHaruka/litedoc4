@@ -4,16 +4,15 @@ namespace Litedoc4
 
 def usage : String :=
 "usage: litedoc4 build  --root <repo> --out <dir> [--lib <Name>]...
-                       [--source-url <url>] [--full] [--store <dir>]
-                       [--hash-urls] [--extractor-bin <path>] [--lake <path>]
+                       [--source-url <url>] [--full] [--hash-urls]
+                       [--extractor-bin <path>] [--lake <path>]
                        [--jobs <n>] [--timings <file>]
        litedoc4 build  --root <repo> --out <dir> --versions <ref>,<ref>...
                        [--store <dir>] [--hash-urls] [--lib <Name>]...
                        [--lake <path>] [--jobs <n>]
        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
-                       [--lib <Name>]... [--source-url <url>] [--store <dir>]
-                       [--hash-urls] [--extractor-bin <path>] [--lake <path>]
-                       [--jobs <n>]
+                       [--lib <Name>]... [--source-url <url>] [--hash-urls]
+                       [--extractor-bin <path>] [--lake <path>] [--jobs <n>]
        litedoc4 modules --root <repo> [--lib <Name>]... [--out <file>]
        litedoc4 extract --modules <file> --ir-dir <dir> --timings <file>
                        [--extractor-bin <path>] [--target <repo>] [--lake <path>]
@@ -60,14 +59,16 @@ def usage : String :=
   --out          (`build`) the directory this command owns: <out>/site is the
                  site, rendered from the store; <out>/ir, <out>/link-index.lidx
                  and <out>/work are --root's extraction, <out>/ledger.json its
-                 ledger, and <out>/store the store unless --store names another.
+                 ledger, and <out>/store the store (--store moves it only with
+                 --versions).
                  Required, with no default — <root>/.lake/build/doc is doc-gen4's
                  own output tree — and it may not be inside --root. Without
                  --versions the working tree at --root is one version, named by
                  the first 12 hex digits of the commit its source links name:
                  its IR is brought up to date in place (a module whose olean did
-                 not move is not extracted again), put into the store, and the
-                 site rendered from the store with that version alone. Prints
+                 not move is not extracted again), put into the store, every
+                 other version removed from it, and the site rendered from the
+                 store with that version alone. Prints
                  `versions extracted: <n> of 1 (<name>)`, 1 when a module was
                  extracted, which <out>/litedoc4-build.json records too
   --port         (`watch`) the port the site is served on (default 8484). A
@@ -169,7 +170,7 @@ def usage : String :=
   --render-all-out  why every page has to be re-rendered, one reason per line.
                  Empty means the render set follows from the IR diff as usual.
   --module       the module `ledger touch` invalidates
-  --store        (`store`, and `build` and `watch`, where it defaults to
+  --store        (`store`, and `build --versions`, where it defaults to
                  <out>/store) the kept versions, one directory per version:
                  <store>/<name>/entry.pack.gz (the IR tree, the dependency link
                  index, the bibliography and the index page's Markdown, packed
@@ -610,6 +611,10 @@ structure BuildArgs where
   help : Bool := false
   deriving Inhabited
 
+def storeOfOneVersion : String :=
+  "a site of one version keeps only that version, in <out>/store, which this command owns. A \
+    store of several versions is `litedoc4 build --versions <ref>,<ref>... --store <dir>`"
+
 def versionsInWatch : String :=
   "a site of several versions is built from their store, one checkout at a time, and `watch` \
     rebuilds one working tree. Use `litedoc4 build --versions`"
@@ -699,7 +704,9 @@ partial def parseBuild (watching : Bool) :
       if watching then .error s!"--versions is not a `watch` flag: {versionsInWatch}"
       else parseBuild watching more { acc with versions := some v }
     else if flag == "--store" then do
-      let (v, more) ← value; parseBuild watching more { acc with store := some v }
+      let (v, more) ← value
+      if watching then .error s!"--store is not a `watch` flag: {storeOfOneVersion}"
+      else parseBuild watching more { acc with store := some v }
     else if flag == "--hash-urls" then
       parseBuild watching rest { acc with hashUrls := true }
     else if flag == "--help" || flag == "-h" then
@@ -714,7 +721,10 @@ def buildChecks (a : BuildArgs) : Option String :=
 
 def versionedChecks (a : BuildArgs) : Option String :=
   match a.versions with
-  | none => none
+  | none =>
+    if a.store.isSome then
+      some s!"--store is not a flag of `build` without --versions: {storeOfOneVersion}"
+    else none
   | some _ =>
     let refused : List (String × Bool × String) := [
       ("--source-url", a.sourceUrl.isSome,
@@ -750,12 +760,6 @@ def buildRequestOf (a : BuildArgs) (root out : String) : BuildM BuildRequest := 
            lake := a.lake.map (⟨·⟩), jobs := a.jobs, timings := a.timings.map (⟨·⟩)
            full := a.full }
 
-/-- `--store`, or `<out>/store`, absolute, and never inside the package. -/
-def storeOf (a : BuildArgs) (r : BuildRequest) : BuildM System.FilePath := do
-  let store ← absolutePath ((a.store.map (⟨·⟩)).getD (r.layout.out / "store"))
-  refuseInside r.root "--root" store "--store" ""
-  return store
-
 def storePutOrigin (from_ : System.FilePath) (lake : System.FilePath) :
     IO (Except String Store.Origin) := do
   match ← readMarker (from_ / markerName) with
@@ -782,7 +786,7 @@ def answered (code : UInt32) (message : String) : IO UInt32 :=
 def buildRun (a : BuildArgs) (root out : String) : IO UInt32 := do
   match ← (do
       let request ← buildRequestOf a root out
-      discard <| Versions.buildOne request (← storeOf a request) a.hashUrls).run with
+      discard <| Versions.buildOne request a.hashUrls).run with
   | .ok () => return 0
   | .error (code, message) => answered code message
 
@@ -798,7 +802,7 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
     | .ok repo => pure repo
   let outPath ← absolutePath ⟨out⟩
   refuseInside repo.top "the repository of --root" outPath "--out" ""
-  let store ← absolutePath ((a.store.map (⟨·⟩)).getD (outPath / "store"))
+  let store ← absolutePath ((a.store.map (⟨·⟩)).getD (layoutOf outPath).store)
   refuseInside repo.top "the repository of --root" store "--store" ""
   let planned ← match ← Versions.plan repo names Versions.supportedToolchains with
     | .error message => throw (3, message)
@@ -920,7 +924,7 @@ def watch (args : List String) : IO UInt32 := do
     try
       match ← (do
           let request ← buildRequestOf a root out
-          watchRun request (← storeOf a request) a.hashUrls port interval).run with
+          watchRun request a.hashUrls port interval).run with
       | .ok () => return 0
       | .error (code, message) => answered code message
     catch e =>

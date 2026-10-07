@@ -9,7 +9,7 @@
 # and `litedoc4 build` turns it into a real site of one version, rendered from the
 # store — the site pages.yml publishes. What a page shows once drawn is asked of
 # the store-rendered sample S (tools/mv-s-gate.sh, tools/mv-pages-gate.sh); step
-# 11 names where each question this script used to ask went.
+# 12 names where each question this script used to ask went.
 #
 # The sample package is tiny and Mathlib-free so that `lake build` takes about a
 # second and this runs on a free CI runner; the measurement target pulls in all of
@@ -87,10 +87,10 @@ if [ -z "$REDUCIBLE_ATTR" ]; then
 fi
 echo "toolchain $TOOLCHAIN, reducible-instance attribute $REDUCIBLE_ATTR"
 
-say "1/12 build the sample package (Lean core only)"
+say "1/13 build the sample package (Lean core only)"
 (cd "$SAMPLE" && "$LAKE" build)
 
-say "2/12 build the extractor inside the sample's environment"
+say "2/13 build the extractor inside the sample's environment"
 # The extractor is `import Lean` and nothing else, which is what lets it be built
 # against a package that has no Mathlib.
 if [ -z "$EXTRACTOR" ]; then
@@ -104,7 +104,7 @@ print(json.load(open(sys.argv[1], encoding="utf-8")).get("version") or "")
 PY
 }
 
-say "3/12 GATE 1 — one command writes a site of one version"
+say "3/13 GATE 1 — one command writes a site of one version"
 rm -rf "$OUT/first"
 "$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" >"$OUT/first.log"
@@ -171,7 +171,7 @@ rm -rf "$OUT/first-snapshot"
 cp -R "$OUT/first/site" "$OUT/first-snapshot"
 cp "$OUT/first/litedoc4-build.json" "$OUT/first-build.json"
 
-say "4/12 GATE 2 — the second run changes nothing"
+say "4/13 GATE 2 — the second run changes nothing"
 "$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/first" \
   --extractor-bin "$EXTRACTOR" >"$OUT/second.log"
 # Bytes only; what the run *did* is GATE 5, out of the marker.
@@ -180,7 +180,7 @@ if ! /usr/bin/diff -r "$OUT/first-snapshot" "$OUT/first/site"; then
   exit 1
 fi
 
-say "5/12 GATE 3 — a second build from nothing is byte identical"
+say "5/13 GATE 3 — a second build from nothing is byte identical"
 rm -rf "$OUT/again"
 "$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/again" \
   --extractor-bin "$EXTRACTOR" >"$OUT/again.log"
@@ -194,7 +194,7 @@ if ! /usr/bin/diff -r "$OUT/first/ir" "$OUT/again/ir"; then
   exit 1
 fi
 
-say "6/12 GATE 4 — --jobs does not change the output"
+say "6/13 GATE 4 — --jobs does not change the output"
 # The extractor splits declarations across threads inside one environment, and a
 # parallel step that reorders its output is exactly the kind of thing that shows
 # up as a diff on one machine and not another.
@@ -206,7 +206,7 @@ if ! /usr/bin/diff -r "$OUT/first/ir" "$OUT/jobs4/ir"; then
   exit 1
 fi
 
-say "7/12 GATE 5 — the work, as integers"
+say "7/13 GATE 5 — the work, as integers"
 # Four markers: the first build (snapshotted before the second run overwrote it),
 # the run over an unchanged world, and the two other builds from nothing.
 python3 - \
@@ -288,7 +288,30 @@ if problems:
     sys.exit(1)
 PY
 
-say "8/12 GATE 8 — attributes arrive split into name and value"
+say "8/13 GATE 15 — a one-version build keeps only the version it just built"
+# --source-url names a second commit, so the sample needs no second commit of its own.
+OTHER=e2e0000000000000000000000000000000000015
+store_holds () { # store_holds <label> <store> <version>
+  python3 - "$@" <<'PY'
+import pathlib, sys
+label, store, version = sys.argv[1], pathlib.Path(sys.argv[2]), sys.argv[3]
+held = sorted(p.name for p in store.iterdir() if not p.name.startswith("."))
+if held != [version]:
+    sys.exit(f"GATE 15 FAIL  after the {label} build the store holds {held}, not [{version!r}] alone")
+print(f"store        after the {label} build: {held}")
+PY
+}
+rm -rf "$OUT/prune"
+"$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/prune" \
+  --extractor-bin "$EXTRACTOR" >"$OUT/prune-first.log"
+store_holds first "$OUT/prune/store" "$VERSION"
+"$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/prune" \
+  --extractor-bin "$EXTRACTOR" \
+  --source-url "https://github.com/FujiHaruka/litedoc4/blob/$OTHER/e2e/micro" >"$OUT/prune-second.log"
+store_holds second "$OUT/prune/store" "${OTHER:0:12}"
+rm -rf "$OUT/prune"
+
+say "9/13 GATE 8 — attributes arrive split into name and value"
 # The `[name, value]` split is made in the extractor because that is the only side
 # that knows where the boundary is: `deprecated`'s value contains spaces,
 # parentheses and quotes, `specialize`'s contains brackets, and a reader given the
@@ -458,7 +481,7 @@ print(f"attrs        {checked} declarations compared, {sum(counts.values())} pai
       f"{len(counts)} attribute name(s), {valued} with a value")
 PY
 
-say "9/12 GATE 6 — one edited module is the one module extracted"
+say "10/13 GATE 6 — one edited module is the one module extracted"
 # GATE 2 asks what an *unchanged* world costs; this asks what a one-declaration
 # edit costs, which is the shape a user actually produces.
 #
@@ -521,7 +544,7 @@ if grep -rq e2eGate6Probe_ "$OUT/first/ir"; then
   exit 1
 fi
 
-say "10/12 GATE 13 — every source link names a file that is really in this checkout"
+say "11/13 GATE 13 — every source link names a file that is really in this checkout"
 # The sample is a package **inside** a repository, which the measurement target
 # is not: the target *is* its repository, so the derived source URL needed no path
 # to the package. The published sample site is what showed the gap —
@@ -587,7 +610,7 @@ if missing:
 print(f"source links {len(modules)} module path(s) under {slug}/blob/<rev>/{prefix}, all present in the checkout")
 LINKS
 
-say "11/12 what moved out of this script"
+say "12/13 what moved out of this script"
 cat <<'RETIRED'
 GATE 7  (three sorry shapes)        -> tools/mv-s-gate.sh render-content-ir; tools/mv-pages-gate.sh path-flags
 GATE 9  (origin of a realized decl) -> tools/mv-s-gate.sh render-content-ir; tools/mv-pages-gate.sh path-flags
@@ -597,7 +620,7 @@ GATE 12 (litedoc4.toml)             -> tools/mv-s-gate.sh render-front, render-c
 GATE 14 (module descriptions)       -> tools/mv-s-gate.sh render-summaries
 RETIRED
 
-say "12/12 summary"
+say "13/13 summary"
 printf 'version    : %s\n' "$VERSION"
 printf 'site files : %s\n' "$(find "$OUT/first/site" -type f | wc -l | tr -d ' ')"
 printf 'ir files   : %s\n' "$(find "$OUT/first/ir" -type f | wc -l | tr -d ' ')"

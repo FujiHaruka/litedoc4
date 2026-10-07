@@ -100,19 +100,27 @@ def namesFlag (message : Option String) (flag : String) : Bool :=
   | some m => m.startsWith s!"{flag} is not a flag of `build --versions`"
   | none => false
 
-/-- `--store` and `--hash-urls` are the one-version build's too, since it is the
-same output, and `watch` is that build asked over and over; only `--versions`
-is a site of several checkouts, which `watch` refuses by name. -/
-def theStoreFlagsAreEveryBuildsAndWatchRefusesOnlyVersions : Bool :=
+/-- `--hash-urls` is every build's and `watch`'s, since it is the same output.
+`--store` is `build --versions`'s alone: a site of one version keeps only that
+version in `<out>/store`, so `build` without `--versions` and `watch` refuse it
+by name, and `watch` refuses `--versions` the same way. -/
+def theStoreIsVersionedBuildsAloneAndHashUrlsIsEveryBuilds : Bool :=
   ((parseBuild false ["--versions", "v1,v2", "--store", "s", "--hash-urls"] {}).toOption.map
       fun a => (a.versions, a.store, a.hashUrls)) == some (some "v1,v2", some "s", true)
-    && ((parseBuild true ["--store", "s", "--hash-urls"] {}).toOption.map
-      fun a => (a.store, a.hashUrls)) == some (some "s", true)
+    && versionedRefusal ["--store", "s", "--versions", "v1"] == none
+    && (match versionedRefusal ["--store", "s", "--hash-urls"] with
+      | some m => m.startsWith "--store is not a flag of `build` without --versions"
+      | none => false)
+    && versionedRefusal ["--hash-urls"] == none
+    && ((parseBuild true ["--hash-urls"] {}).toOption.map (·.hashUrls)) == some true
+    && (match parseBuild true ["--store", "s"] {} with
+      | .error m => m.startsWith "--store is not a `watch` flag"
+      | .ok _ => false)
     && (match parseBuild true ["--versions", "v1"] {} with
       | .error m => m.startsWith "--versions is not a `watch` flag"
       | .ok _ => false)
 
-#guard theStoreFlagsAreEveryBuildsAndWatchRefusesOnlyVersions
+#guard theStoreIsVersionedBuildsAloneAndHashUrlsIsEveryBuilds
 
 def everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken : Bool :=
   let v := ["--versions", "v1"]
@@ -121,7 +129,7 @@ def everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken :
       (fun (args, flag) => namesFlag (versionedRefusal (v ++ args)) flag)
     && versionedRefusal (v ++ ["--store", "s", "--hash-urls", "--lib", "L", "--lake", "k",
         "--jobs", "2"]) == none
-    && versionedRefusal ["--store", "s", "--hash-urls", "--source-url", "u", "--full",
+    && versionedRefusal ["--hash-urls", "--source-url", "u", "--full",
         "--extractor-bin", "b", "--timings", "t"] == none
 
 #guard everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken

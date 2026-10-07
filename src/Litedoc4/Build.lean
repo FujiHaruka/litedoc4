@@ -158,6 +158,7 @@ structure Layout where
   ledger : FilePath
   marker : FilePath
   linkIndex : FilePath
+  store : FilePath
 
 def layoutOf (out : FilePath) : Layout :=
   { out
@@ -166,7 +167,8 @@ def layoutOf (out : FilePath) : Layout :=
     work := out / "work"
     ledger := out / "ledger.json"
     marker := out / markerName
-    linkIndex := out / "link-index.lidx" }
+    linkIndex := out / "link-index.lidx"
+    store := out / "store" }
 
 /-- Whether every file a continuation reads is there. A missing one is answered
 by extracting everything rather than by refusing: that path writes all of them

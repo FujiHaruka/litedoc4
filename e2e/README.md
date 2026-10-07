@@ -243,19 +243,21 @@ from the store — and asks, in order:
 5. **Work** — read from `litedoc4-build.json`'s `work` and `versionsExtracted`: the
    first build extracts every module with one Lean start; the second extracts 0,
    starts Lean 0 times and says `0 of 1` versions extracted
-6. **One edited module** — `.lidx` does not move, exactly one module is extracted
+6. **One version kept** — two builds into one `--out`, the second named by another
+   commit through `--source-url`, leave `<out>/store` holding the second version alone
+7. **One edited module** — `.lidx` does not move, exactly one module is extracted
    (`tools/onemod-gate.sh`), and the IR and site left behind equal a build from
    nothing over the edited sources
-7. **Attributes arrive split into name and value** — over the IR, by name and by
+8. **Attributes arrive split into name and value** — over the IR, by name and by
    count per attribute
-8. **Source links** — every module's `<source>/<module path>.lean` is a file in
+9. **Source links** — every module's `<source>/<module path>.lean` is a file in
    this checkout, the version's source carrying the path to `micro/`
 
 What a page shows once drawn — the three `sorry` shapes, generated declarations'
 origins, MathML, Used by, `litedoc4.toml`, module descriptions, search, theme,
 375 px and the monospace glyphs — is asked of the store-rendered sample S, which
 carries the same shapes, by `tools/mv-s-gate.sh` and `tools/mv-pages-gate.sh`;
-the script's step 11 names where each went.
+the script's step 12 names where each went.
 
 **3 stands in for an external oracle** — it catches hash order, timestamps and
 paths leaking into the output without asking anyone what the bytes should be.
