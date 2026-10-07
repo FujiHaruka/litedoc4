@@ -842,20 +842,24 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
   let scratch := outPath / Versions.scratchName
   for p in toExtract do
     IO.println s!"version {p.name.text}: extracting {p.commit} on {p.toolchain}"
-    let bin ← Versions.extractorFor elan extractors p.toolchain
+    let bin ← Versions.timed s!"{p.name.text} extractor"
+      (Versions.extractorFor elan extractors p.toolchain)
     try
-      let (package, libs) ← Versions.prepare repo checkout elan lake a.libs p
+      let (package, libs) ← Versions.prepare repo checkout (scratch / "mathlib-cache") elan lake
+        a.libs p
       if ← scratch.pathExists then IO.FS.removeDirAll scratch
       let args : BuildArgs :=
         { root := some package.toString, out := some scratch.toString, libs
           lake := some lake.toString, jobs := a.jobs }
       let request ← buildRequestOf args package.toString scratch.toString
-      let e ← runExtraction { request with noEquationsUnder := some noEquationsUnder } (pure bin)
+      let e ← Versions.timed s!"{p.name.text} extract"
+        (runExtraction { request with noEquationsUnder := some noEquationsUnder } (pure bin))
       let origin ← match ← Versions.originOf package lake request.external p.commit e.sourceUrl with
         | .error message => throw (3, s!"version {p.name.text}: {message}")
         | .ok origin => pure origin
       let layout := layoutOf scratch
-      let s ← Store.put store p.name origin layout.ir layout.linkIndex
+      let s ← Versions.timed s!"{p.name.text} put"
+        (Store.put store p.name origin layout.ir layout.linkIndex)
       IO.println s!"put     {p.name.text}: {s.record.irFiles} IR file(s) -> {s.record.packBytes} B \
         ({s.record.extractorIdentity.text})"
     finally
@@ -865,7 +869,7 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
   IO.println (Versions.extractedLine names extracted)
   let site := outPath / Versions.siteName
   if ← site.pathExists then IO.FS.removeDirAll site
-  match ← (Data.Site.renderStore store site names a.hashUrls).run with
+  match ← Versions.timed "render" (Data.Site.renderStore store site names a.hashUrls).run with
   | .error why => throw (3, why)
   | .ok counts => IO.println counts.json
   writeFile marker (Versions.versionsMarkerJson rootPath.toString store.toString names

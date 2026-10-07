@@ -56,6 +56,7 @@ structure PackageEntry where
   deriving Inhabited
 
 structure Manifest where
+  name : Option String := none
   packagesDir : String := defaultPackagesDir
   listed : Nat := 0
   packages : Array PackageEntry := #[]
@@ -139,7 +140,8 @@ def parseManifest (path : FilePath) (text : String) : Except String Manifest := 
         | _, _ =>
           problems := problems.push s!"{path}: package `{name}` has no `url` or no `rev`"
           packages := packages.push { name, rev := jStrField entry "rev" }
-  return .ok { packagesDir, listed := listed.size, packages, problems }
+  return .ok { name := jStrField value "name", packagesDir, listed := listed.size, packages,
+               problems }
 
 def readManifest (path : FilePath) : IO (Except String Manifest) := do
   let read ← try

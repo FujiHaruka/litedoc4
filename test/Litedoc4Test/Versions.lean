@@ -16,6 +16,17 @@ def theToolchainsAreTheFirstColumnOfEveryRowAndNoComment : Bool :=
 
 #guard theToolchainsAreTheFirstColumnOfEveryRowAndNoComment
 
+def theMathlibCacheIsFetchedForMathlibAndWhatRequiresItAndForNothingElse : Bool :=
+  let asks (text : String) :=
+    (parseManifest "lake-manifest.json" text).toOption.map fetchesMathlibCache
+  let path (name : String) := s!"\{\"type\":\"path\",\"name\":\"{name}\",\"dir\":\"../{name}\"}"
+  asks s!"\{\"name\":\"mathlib\",\"packages\":[{path "batteries"}]}" == some true
+    && asks s!"\{\"name\":\"probe\",\"packages\":[{path "batteries"},{path "mathlib"}]}" == some true
+    && asks s!"\{\"name\":\"micro\",\"packages\":[{path "«micro-dep»"}]}" == some false
+    && asks s!"\{\"packages\":[{path "mathlib-extras"}]}" == some false
+
+#guard theMathlibCacheIsFetchedForMathlibAndWhatRequiresItAndForNothingElse
+
 def aToolchainWithNoRowIsRefusedNamingTheVersionAndTheToolchain : Bool :=
   let rows := #["leanprover/lean4:v4.31.0"]
   (named #["v6"]).size == 1 && (named #["v6"]).all fun v =>

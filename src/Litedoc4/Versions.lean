@@ -176,11 +176,11 @@ def elanBeside (lake : FilePath) : FilePath :=
   | some dir => if dir.toString.isEmpty then "elan" else dir / "elan"
   | none => "elan"
 
-def spawnInherited (cmd : String) (args : Array String) (cwd : Option FilePath := none) :
-    BuildM Unit := do
+def spawnInherited (cmd : String) (args : Array String) (cwd : Option FilePath := none)
+    (env : Array (String × Option String) := #[]) : BuildM Unit := do
   let spelled := " ".intercalate (cmd :: args.toList)
   let child ← match ← (IO.Process.spawn
-      { cmd, args, cwd, stdin := .null, stdout := .inherit, stderr := .inherit }).toBaseIO with
+      { cmd, args, cwd, env, stdin := .null, stdout := .inherit, stderr := .inherit }).toBaseIO with
     | .error e => throw (1, s!"{spelled}: {e}")
     | .ok child => pure child
   let code ← child.wait
@@ -250,16 +250,39 @@ def addCheckout (top dir : FilePath) (commit : String) : BuildM Unit := do
   | .error why => throw (1, s!"git worktree add {dir} {commit} in {top}: {why}")
   | .ok _ => pure ()
 
-def prepare (repo : Repository) (checkout : FilePath) (elan lake : FilePath) (libs : Array String)
-    (p : Planned) : BuildM (FilePath × Array String) := do
-  addCheckout repo.top checkout p.commit
-  ensureToolchain elan p.toolchain
+def timed (label : String) (act : BuildM α) : BuildM α := do
+  let started ← IO.monoNanosNow
+  let r ← act
+  IO.println s!"phase   {label} {seconds ((← IO.monoNanosNow) - started) 2} s"
+  return r
+
+def fetchesMathlibCache (m : Manifest) : Bool :=
+  m.name == some "mathlib" || m.packages.any (·.name == "mathlib")
+
+def fetchMathlibCache (lake package cacheDir : FilePath) : BuildM Unit := do
+  if ← cacheDir.pathExists then IO.FS.removeDirAll cacheDir
+  IO.FS.createDirAll cacheDir
+  try
+    spawnInherited lake.toString #["exe", "cache", "get"] (some package)
+      #[("MATHLIB_CACHE_DIR", some cacheDir.toString)]
+  finally
+    if ← cacheDir.pathExists then IO.FS.removeDirAll cacheDir
+
+def prepare (repo : Repository) (checkout cacheDir : FilePath) (elan lake : FilePath)
+    (libs : Array String) (p : Planned) : BuildM (FilePath × Array String) := do
+  let v := p.name.text
+  timed s!"{v} checkout" (addCheckout repo.top checkout p.commit)
+  timed s!"{v} toolchain" (ensureToolchain elan p.toolchain)
   let package := repo.packageIn checkout
   let libs ← if !libs.isEmpty then pure libs else
     match ← readLibraries package with
-    | .error message => throw (3, s!"version {p.name.text}: {message}")
+    | .error message => throw (3, s!"version {v}: {message}")
     | .ok declared => pure declared.names
-  spawnInherited lake.toString (#["build"] ++ libs) (some package)
+  match ← readManifest (package / "lake-manifest.json") with
+  | .ok m => if fetchesMathlibCache m then
+      timed s!"{v} cache" (fetchMathlibCache lake package cacheDir)
+  | .error _ => pure ()
+  timed s!"{v} lake" (spawnInherited lake.toString (#["build"] ++ libs) (some package))
   return (package, libs)
 
 /-! ## What a store entry's record reads from a checkout -/
