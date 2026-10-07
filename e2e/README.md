@@ -55,7 +55,7 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 | `Example/Gen.lean` | **`@[ext]` が実現する宣言と、しない宣言** — inline の `@[ext]` / 後から来る `attribute [ext] Trip` / **1 つの位置に 2 つの親の子が 4 つ** (`attribute [ext] Quad Quint`) / `extends` の親射影 / そして**手書きの `@[ext] theorem`**。最後のものが要点で、**拡張に居ることは「生成された」を意味しない**ことをここだけが示す |
 | `litedoc4.toml` + `docs/index.md` | **サイト設定** (feature-sweep C-3) — `title` と `index`。With no file at all every reader agrees trivially, so it is here for `tools/mv-s-gate.sh` (`render-front`) and `tools/mv-pages-gate.sh` (`path-titles`) to have something to compare |
 | `docs/references.bib` | **The bibliography** — `references.html`, and three citations into it: `[deMoura2021]` in `Example`'s module docstring (the bare-key form, whose link text becomes the entry's tag), `[Theorem Proving in Lean 4][TPIL4]` in `Example.Basic`'s (the form that keeps its own text) and `[Graham1994]` in `Example.Math.displaySpan`'s. `tools/mv-s-gate.sh` holds the references data and the citations against each other (`render-references`, `render-citation`) |
-| `Example/Math.lean` | **docstring の数式** (feature-sweep C-1) — インライン `$…$` / ブロック `$$…$$` / HTML が気にする文字を含む式 / **変換できない `\colim`**。最後のものが要点で、**失敗が `$…$` のまま残り、その件数が `work.mathFallbacks` に出る**ことをここだけが示す。対象は 5,079 docstring 中 3 span しか数式を持たないので、**対象では一度も通らない経路** |
+| `Example/Math.lean` | **docstring の数式** (feature-sweep C-1) — インライン `$…$` / ブロック `$$…$$` / HTML が気にする文字を含む式 / **変換できない `\colim`**。最後のものが要点で、**失敗が `$…$` のまま残る**ことをここだけが示す (`tools/mv-s-gate.sh` `render-math` holds it to its source in the content)。対象は 5,079 docstring 中 3 span しか数式を持たないので、**対象では一度も通らない経路** |
 | `Example/Sorry.lean` | **`sorry` の 3 形** (doc-gen4 #270) — 直接 `sorry` を書いた定理 / それに依存するだけの定理 / どちらでもない定理。**`sorry` は elaborate 済みの項の性質**なので、手書き IR では「抽出器が正しい値を入れたか」を検査できない。ここが唯一の経路 |
 
 ## 初回に出たもの【実測 2026-08-16】
@@ -72,7 +72,7 @@ body を空のまま返していた。tag の中にあり、HEAD には無い)�
 「全件バイト一致は分岐被覆の証明ではない」の一段強い形:
 **オラクルの入力に無い形は、何バイト一致しても見えない。**
 
-回帰は `e2e/micro-expected/render/Example/Shapes.html` の `id="Example.Decision.no"` /
+回帰は `e2e/micro-expected/build/Example/Shapes.html` の `id="Example.Decision.no"` /
 `id="Example.Decision.yes"` が持つ (`tools/mv-pages-gate.sh` の frozen arm reads them as ids on the drawn page)。
 
 ## path 依存を足して出たもの【実測 2026-08-17】
@@ -291,7 +291,9 @@ integer.
   (structure を 1 つ足すと射影のぶん `reducible` が増える)
 - **`Example/Gen.lean` の `Example.Gen.Solo.ext` を `@[ext] structure Solo` に「まとめない」。**
   手書きの ext 定理は**環境拡張には入る**ので、拡張だけを見る規則を落とすのはこの 1 形だけ。
-  まとめるとゲート 9 の否定側の期待が消える (Mathlib 標本ではこの形が 20 件ある【実測】)
+  まとめるとその形がサンプルから消える (Mathlib 標本ではこの形が 20 件ある【実測】)。
+  No gate names its expected answer (no origin) any more: `tools/mv-s-gate.sh`'s
+  `render-content-ir` holds the content's origin to the IR's, not to that answer
 - **`Example/Sorry.lean` の `sorry` を「直さない」。** `sorryHole` は**入力**で、
   他の 2 つはそれと違う答えでなければならない。`lake build` の
   ``declaration uses `sorry` `` 警告はこのサンプルの一部

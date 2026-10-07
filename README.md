@@ -8,7 +8,7 @@ reference to them links to that dependency's **version-pinned source on GitHub**
 self-contained static site.
 
 Live example: <https://fujiharuka.github.io/information-theory/> — 422 modules, one command,
-**24.5 s**. A sample, <https://fujiharuka.github.io/litedoc4/>, is eleven modules rebuilt from this
+**24.5 s** (measured with the static-page build of litedoc4 1.4.0 or earlier; see Speed). A sample, <https://fujiharuka.github.io/litedoc4/>, is eleven modules rebuilt from this
 repository's `main` on every push: the shapes a page can take rather than the scale.
 
 <picture>
@@ -66,7 +66,9 @@ require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.4.0
 lake run docs -- --out ../mypkg-docs
 ```
 
-**The site is `../mypkg-docs/site`** — open its `index.html`. Lake builds both executables against
+**The site is `../mypkg-docs/site`** — serve it over HTTP (`python3 -m http.server -d
+../mypkg-docs/site`, or `litedoc4 watch` below) and open the address it prints: its pages are
+drawn by a script, which a browser does not run for a page opened from disk. Lake builds both executables against
 your own toolchain, and the script fills in `--root`, `--extractor-bin` and `--lib` for you,
 including for a `lakefile.lean` package where `--lib` otherwise has to be written by hand.
 
@@ -109,6 +111,11 @@ without a warning (both measured, `benchmarks/results/lake-package-probe-2026-08
 the file, Lake builds both executables with your toolchain and says nothing.
 
 ## Speed
+
+**Every litedoc4 number in this section and in "Watching while you work" was measured with
+litedoc4 1.4.0 or earlier** (2026-08-15 to 2026-08-29), whose `build` wrote every page as static
+HTML. The build
+that renders the site from its store of versions has not been timed on this package yet.
 
 Apple M1 / 16 GB, warm page cache, wall clock. One Mathlib-dependent package throughout, at two
 of its revisions (432 and 422 modules); each row names the one it ran on:
@@ -219,8 +226,8 @@ One edited module reaches its page in **5.5–6.2 s** (median 5.65 s over 15 cyc
 cycle of a session costs 13.7 s). **86–89 % of that is Lean loading its environment**, which a
 rebuild has to redo because Lean cannot swap a module out of an imported one — so that figure is
 a floor, not something tuning the loop moves. It does not include your own `lake build`, which
-runs before any of it. Apple M1, 422 modules, warm page cache; raw logs in
-[`benchmarks/`](benchmarks/).
+runs before any of it. Apple M1, 422 modules, warm page cache, litedoc4's static-page build of
+2026-08-21; log `benchmarks/results/watch-2026-08-21.txt`.
 
 ## What the pages show
 
@@ -244,15 +251,9 @@ this way 7,867 times out of 8,169 (measured 2026-08-29, log
 
 A module whose docstring opens with prose instead is listed by name alone, and a heading that
 merely repeats the module's own name — `# Basic` on `Pkg.Basic` — is written to the page as it
-stands rather than dropped. The build counts both, which is what tells you where a better heading
-is worth writing:
-
-```
-global  module descriptions 390 of 422 (0 repeat the module name)
-```
-
-(the live example's own front page; measured 2026-08-29, log
-`benchmarks/results/module-summary-live-2026-08-29.txt`)
+stands rather than dropped. The live example's front page describes 390 of its 422 modules, and
+none of the 390 repeats the module's name (measured 2026-08-29, log
+`benchmarks/results/module-summary-live-2026-08-29.txt`).
 
 ### Math in docstrings
 
@@ -261,12 +262,7 @@ draw them — no MathJax, no KaTeX, no math web font — because every current b
 out itself.
 
 A formula the converter cannot read is written back as its own source, exactly as doc-gen4 leaves
-every formula, and the build always says how many, zero included:
-
-```
-render  math spans kept as LaTeX 3
-work    extract 422 / render 422 / math-fallback 3 / …
-```
+every formula.
 
 On Mathlib's own docstrings **2,113 of 2,123 formulas convert** (measured 2026-08-22, log
 `benchmarks/results/mathml-2026-08-22.txt`); the ten that do not use commands the converter does
@@ -302,9 +298,7 @@ that is not a key in the file stays as you wrote it. `references.html` is writte
 the file exists; without one it lists nothing.
 
 A docstring link to a relative path that is not a file of the site — `[Key](Key)` where
-`[text][Key]` was meant, or a page that does not exist — is kept as written, and the build prints a
-`warning:` naming the module, the declaration and the line, with the citation form when the
-destination is a bibliography key.
+`[text][Key]` was meant, or a page that does not exist — is kept as written.
 
 BibtexQuery cannot read `@string`, `@comment` or `@preamble`, nor a stray `@` in a note, and
 stops at the first one. The entries before it are kept and the build **prints a warning** naming

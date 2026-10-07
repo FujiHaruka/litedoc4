@@ -5,8 +5,8 @@
 # a `litedoc4.toml` names its keys; a script names `build`'s and `watch`'s flags;
 # a link into the site names a page path and an anchor. Those break other people's
 # files when they move. The IR schema, the ledger and `.lidx` do not: a consumer
-# pins one ref, and the action and the Lake script resolve the binary by the
-# version in *that* ref, so the two halves always come from the same tree.
+# pins one ref, and the action and the Lake script build both executables out
+# of *that* ref, so the two halves always come from the same tree.
 #
 # ONE DIRECTION, ON PURPOSE
 #   Adding an input, a flag or a key does not break anyone. Removing or renaming

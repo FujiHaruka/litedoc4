@@ -71,7 +71,7 @@ the full one at checkpoints:
 
 | Size | Input | Time per run | What it can say |
 |---|---|---|---|
-| S | the sample package as a four-commit repository with designed churn (`tools/mv-s/`: `generate.sh`, one patch per version, `expected.txt`), as versions (D6: a site without releases uses commits) | seconds to a minute, local | store, data format, renderer, browser, the command, staleness — exactly, by counters; nothing about Mathlib's time, nothing about dependency revisions (the sample depends on Lean core and a path package only; M covers it) |
+| S | the sample package as a five-commit repository with designed churn (`tools/mv-s/`: `generate.sh`, one patch per version, `expected.txt`; v5 changes only the toolchain and is in no row of `expected.txt`), as versions (D6: a site without releases uses commits) | seconds to a minute, local | store, data format, renderer, browser, the command, staleness — exactly, by counters; nothing about Mathlib's time, nothing about dependency revisions (the sample depends on Lean core and a path package only; M covers it) |
 | M | a slice of Mathlib at the real release commits: the import closure of a few roots, 5–10% of Mathlib's modules, chosen to include the notation behind the largest drift (`Finset.sum`, set-builder) | minutes, local or runner | everything S says, plus the reader across Lean versions, the patch path and print reuse on Mathlib's real churn; Mathlib's time by the scaling below |
 | L | all of Mathlib, the real releases, on the runner | ≈ 11 min first version, minutes per further one | the targets themselves |
 
@@ -180,8 +180,8 @@ format with all three candidates (`litedoc4 store measure`) exist and agree with
 docstring as today's page shows it, encoded as JSON with links as `[start, stop, name]`, addressed
 by the first 64 bits of its SHA-256; **the name is part of the content**, so a rename is a removal
 plus an addition (leaving it out would put a name into every manifest entry).
-`tools/mv-s-gate.sh` runs the S loop from nothing (40 items, `ci`); `benchmarks/tools/mv-m-run.sh`
-runs M.
+`tools/mv-s-gate.sh` runs the S loop from nothing (`ci`; 40 items at the end of this step);
+`benchmarks/tools/mv-m-run.sh` runs M.
 
 What M says (438 modules, 5.1% of Mathlib; two runs, byte-identical in every store entry and
 every measured file; measured → `benchmarks/results/mv-m-2026-10-07.txt`, which also carries the
@@ -262,14 +262,15 @@ What exists (2026-10-07):
   `measure` / `render` refuse it.
 - On S (four versions): 119 files, 53.1 KB stored; v4, a one-line patch, adds 3 data files — the
   module's content file, its page file and the version file — derived from the patch and checked by
-  `tools/mv-s-gate.sh` (40 items), which also checks render-twice identity, each version alone
+  `tools/mv-s-gate.sh` (40 items at this step), which also checks render-twice identity, each version alone
   against its slice of all four, the printed counts against the tree, and that the sample's three
   citations are links its references data lists and its front page is the configured one.
 
 **Deviation from "replaced, not kept beside it" (2026-10-07)**: `build` still writes today's HTML.
 Switching it before step 3 exists would publish pages nothing draws and turn every HTML-parsing
 gate red; `build` moves onto the store renderer when step 3's page draws from this data, and the
-gates listed under "Gates to replace" are replaced then.
+gates listed under "Gates to replace" are replaced then. **Resolved in step 4**: `build` and
+`watch` render only from the store, and the static path left the tree.
 
 What M says (the three releases, schema-4 entries; measured →
 `benchmarks/results/mv-m-render-2026-10-07.txt`, which also carries the extrapolations):
@@ -358,7 +359,7 @@ What exists (2026-10-07):
   draws, three in a row. The routing table is ≈ 686 KB raw / 246 KB gzip per Mathlib version
   (extrapolated from the target's 8,169 module paths with synthesized addresses, scaled to 8,314).
 - **The D9 check exists and has failed once each way** (`tools/mv-pages-gate.sh`, `ci`, 33 items
-  over `tools/mv-s-gate.sh --keep`'s two renders; measured →
+  at this step, over `tools/mv-s-gate.sh --keep`'s two renders; measured →
   `benchmarks/results/mv-pages-gate-2026-10-07.txt`). The frozen arm is one-directional: every page
   path of `e2e/micro-expected/build/` has a shell under `v1/`, and every frozen `id` is on the
   drawn page (14 pages, 215 ids, 0 missing); the self-consistency arm, all four versions in both
@@ -452,6 +453,61 @@ changed extractor identity is re-extracted. **First L checkpoint**: the three ve
 runner, from nothing and by adding the third, every phase against the M prediction — the first
 time the render pass runs on the runner at all.
 
+What exists (2026-10-07):
+
+- **`litedoc4 build --versions <ref>,<ref>...`**, an explicit list of tags, branches or commits of
+  `--root`'s repository, the last the newest; no rule over releases yet. Each version the store
+  lacks, holds stale or holds at another commit: a `git worktree` at `<out>/checkout`, its
+  toolchain installed by elan (one with no row in `tools/lean-toolchains.txt` is refused before
+  anything runs), `lake build` of its libraries, an extractor built per toolchain under
+  `<out>/extractors`, extract, put, the checkout deleted before the next. Then the site is rendered
+  from the store into `<out>/site`, as `store render` writes it. `--store` defaults to
+  `<out>/store`. **No `lake exe cache get`**: a checkout of a Mathlib-dependent version builds its
+  dependencies with `lake build` alone.
+- **Stale is judged by the extractor identity without its `lean` / `leanGithash` fields**: a
+  commit pins its Lean, so one extractor on any toolchain answers for every entry. A fresh entry
+  is kept and every other is extracted from nothing; `store remove` has one version extracted
+  again. `--full`, `--source-url`, `--extractor-bin` and `--timings` are refused with
+  `--versions`.
+- **The counter**: `versions extracted: <n> of <m> (<names>)` on stdout and in
+  `litedoc4-build.json`.
+- **Plain `build` / `watch`** is the one-version case: the working tree is a version named by the
+  first 12 hex digits of its source commit, its IR brought up to date in place (a module whose
+  olean did not move is not extracted), put into `<out>/store`, which this command owns and which
+  holds that version alone, and the site rendered from the store. `--store` without `--versions`
+  is refused by name. Under `--out`, plain `build` writes `site`, `store`, `ir`,
+  `link-index.lidx`, `work` and `ledger.json` (and `extractors` when no `--extractor-bin` is
+  given); `build --versions` owns `site`, `checkout`, `scratch`, `extractors` and the default
+  `store`.
+- **The static render path left the tree**, with its subcommands, tests and scripts. Public flags
+  removed: `--mode`, `--max-rounds`, `--link-index`, `--extractor`, `--extractor-arg`,
+  `--deps-docs-url`, `--deps-docs-index`. The docs-site tier left with the last two: dependency
+  links go to pinned sources only (D1b).
+- **On S** (five versions; v5 is v4 on Lean v4.32.2, the others on v4.31.0),
+  `tools/mv-s-gate.sh` (59 items) drives `build --versions` over all five and checks
+  the loop against the hand-driven flow of steps 1–3: entries byte-identical
+  (`loop-empty`), the site holding the store render's shells and data files byte for byte
+  (`loop-render-same`), a second run extracting `0 of 5` into a byte-identical site
+  (`loop-again`), both toolchains judged fresh by one cached extractor with nothing built or
+  installed (`loop-toolchain`), a removed entry re-extracted alone and byte-identical
+  (`loop-remove-one`), and identity changes re-extracting exactly what they reach
+  (`loop-identity`). `tools/mv-pages-gate.sh` (46 items) asks of the drawn site what the retired
+  static-output gates asked of the static one; `tools/e2e-micro.sh` builds the sample as one
+  version and gained GATE 15 (two builds into one `--out` leave the second version alone in the
+  store). Every new item was made to fail once.
+- **Two product defects found on the way, both fixed**: the search page showed two result lists
+  when a query was typed while the index loaded; print stopped opening `<details>` when `build`
+  switched.
+
+Done when, on S:
+
+- an empty store plus the versions builds the site — **met** (`loop-empty`, five versions);
+- the same command with one version removed from the store re-extracts exactly that version —
+  **met** (`loop-remove-one`);
+- a store entry with a changed extractor identity is re-extracted — **met** (`loop-identity`).
+
+**The first L checkpoint is not run yet** — it is next.
+
 ### 5. The rebuild from nothing through the reader
 
 Port the prototype into the product as the second way of filling the store:
@@ -487,21 +543,34 @@ M1 with no other heavy application running, against the tracked 1.2 min.
 
 ## Gates to replace, not extend
 
-These check the single-version output and lose their meaning under D4 / D9. Each is replaced in
-the step that breaks it, and the replacement is made to fail once:
+These checked the single-version output and lost their meaning under D4 / D9. All were replaced
+or retired in step 4, when `build` switched to the store renderer; every replacement item was made
+to fail once. Retired scripts are read at `72c5993^`, the commit before the removals began.
 
-- `tools/purelean-micro-gate.sh` and `e2e/micro-expected` (51 frozen pages; the page-path and
-  anchor promise in `tools/public-surface.txt`) — must not be re-minted from the new output
-  (CLAUDE.md, "The removed trees"); replaced by the D9 path-and-anchor check, which exists since
-  step 3 (`tools/mv-pages-gate.sh`). The old gate stays green and in place while `build` writes
-  today's HTML; it and the gates below retire when `build` switches to the store renderer (step 4).
-- `tools/purelean-render-gate.sh` and its expected files — same provenance, same rule.
-- The gates that parse static HTML: `site-gate.sh`, `browser-gate.sh`, `usedby-gate.sh`,
-  `config-gate.sh`, `e2e-micro.sh`, `watch-gate.sh`, `deps-docs-gate.sh`; and
-  `tools/site-artefacts.txt`.
-- `tools/lean-versions-gate.sh` compares each toolchain's own IR; under step 5 the question
-  becomes the reader against each Lean's own answer.
-- `tools/public-surface.txt`: page paths gain the version, and the removed 1.x names are what
+- `tools/purelean-micro-gate.sh` (deleted; `git show 72c5993^:tools/purelean-micro-gate.sh`) —
+  replaced by `tools/mv-pages-gate.sh`, whose frozen arm reads `e2e/micro-expected` (51 frozen
+  pages, kept, never re-minted: CLAUDE.md, "The removed trees") for page paths and element ids,
+  never bytes; that is now the page-path and anchor promise of `tools/public-surface.txt`.
+- `tools/purelean-render-gate.sh` and `tools/purelean-render-expected/` (deleted;
+  `git show 72c5993^:tools/purelean-render-gate.sh`) — retired with no successor: they compared
+  the target's rendered bytes against a frozen answer of a renderer that no longer exists.
+  `tools/base-ir-gate.sh`, which shared its IR tree, stays.
+- The gates that parsed static HTML, `site-gate.sh`, `browser-gate.sh`, `usedby-gate.sh` and
+  `config-gate.sh` (deleted; `git show 72c5993^:tools/site-gate.sh` and so on), and
+  `tools/site-artefacts.txt` — their questions are asked of the store-rendered S by
+  `tools/mv-s-gate.sh` (`render-*`) and `tools/mv-pages-gate.sh` (`path-*`, `search-*`,
+  `theme-toggle`, `contrast`, `no-horizontal-scroll`, `mathml`, `mono-glyphs`); step 12 of
+  `tools/e2e-micro.sh` names where each of its own moved gates went.
+- `tools/deps-docs-gate.sh` (deleted; `git show 72c5993^:tools/deps-docs-gate.sh`) — retired
+  with the docs-site tier.
+- `tools/build-gate.sh`, `tools/clone-gate.sh` and `tools/target2-gate.sh` (deleted;
+  `git show 72c5993^:tools/build-gate.sh` and so on), with the reference and compare scripts
+  around them — retired with the static path they measured on the target.
+- `tools/e2e-micro.sh` and `tools/watch-gate.sh` — kept, rewritten over the one-version store
+  build.
+- `tools/lean-versions-gate.sh` — unchanged; under step 5 the question becomes the reader
+  against each Lean's own answer.
+- `tools/public-surface.txt` — page paths carry the version, and the seven removed flags are what
   makes this v2.0.0.
 
 ## Not in this plan

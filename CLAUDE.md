@@ -54,8 +54,8 @@ crates.io / npm / PyPI / GitHub search alike.
 3. **The string `lean-doc-relay`** — the gates' work area `/private/tmp/lean-doc-relay/<stage>`.
    It is baked into the frozen fixtures as the path at generation time
    (`/private/tmp/lean-doc-relay/w7h/base-ir`), so **anything compared against one of them has to
-   sit at that same path** — which is why the gates spell it out as their default
-   (`base-ir-gate.sh`, `build-gate.sh`, `clone-gate.sh`, `deps-docs-gate.sh`)
+   sit at that same path** — and the gates keep it as their default work area
+   (`base-ir-gate.sh`, `mv-s-gate.sh`, `mv-pages-gate.sh`, `watch-gate.sh`)
 4. **`lean-doc/experiments/stage4b` / `stage4c` (6 files)** — **real identifiers** that the
    prototype wrote into the IR's `generator`. `test/Litedoc4Test/IncrLedger.lean` checks that "the
    current ID differs from these", and rewriting it makes it **a meaningless check against a
@@ -79,7 +79,8 @@ things that really exist outside".
 promises, each with a gate. **Do not read v1 as "finished" any more than v0.1 meant it.**
 
 - **The 1.x surface is `tools/public-surface.txt`** — the action's inputs and outputs,
-  `litedoc4.toml`'s keys, `build`'s and `watch`'s flags, and the site's page paths and anchors.
+  `litedoc4.toml`'s keys, `build`'s and `watch`'s flags, and the site's page paths
+  (`<version>/Foo/Bar.html`) and anchors, which `tools/mv-pages-gate.sh` reads in a browser.
   **The rule that decides membership is "can it appear in a file someone else maintains".**
   `tools/public-surface-gate.sh` (run by `ci.yml`) fails when a promised name goes missing.
   **The IR schema, the ledger and `.lidx` are internal** — a consumer pins one ref and the action
@@ -145,7 +146,8 @@ Lean-side builds borrow the environment of the measurement target repository via
 **no toolchain and no Mathlib live on the litedoc4 side**.
 
 **The site's JavaScript is TypeScript, and node builds it** (pinned to 24.19.0 by `mise.toml`).
-`web/src` is bundled to `assets/app.js` and `assets/theme-boot.js`, which are **committed**, and
+`web/src` is bundled to `assets/site.js`, `assets/theme-boot.js` and `assets/redirect.js`, which
+are **committed**, and
 `tools/gen-assets.py` writes their bytes into `src/Litedoc4/Assets.lean`. **Users do not pay for
 node**: a consumer builds `lean_exe litedoc4` and gets the committed bundle. The ones who pay are
 whoever edits `web/src` — `tools/assets-gate.sh` is the only thing in the tree that type-checks,
@@ -203,11 +205,13 @@ git log rust-frozen -- crates/
   the path is not in HEAD
 - **What left with it was the oracle, in four gates.** `refusal-gate.sh`, `flag-tie-gate.sh`,
   `purelean-micro-gate.sh` and `purelean-render-gate.sh` each ran two arms, one of which asked the
-  Rust binary; `purelean-gate.sh` went from 5 items to 3 the same way. **Every one of them now
-  names the retirement in its own summary line**, because a one-armed run that said nothing about
-  it would read as the whole gate. Their frozen answers were minted from the Rust binary and
-  **must not be re-minted from the Lean half** — that would replace the answer with the thing
-  being checked
+  Rust binary; `purelean-gate.sh` went from 5 items to 3 the same way. **Every one of them still
+  in the tree names the retirement in its own summary line**, because a one-armed run that said
+  nothing about it would read as the whole gate. The two `purelean-*` render gates themselves
+  left on 2026-10-07 with the static render path; `e2e/micro-expected` stayed, as
+  `tools/mv-pages-gate.sh`'s frozen arm (page paths and ids, never bytes). Their frozen answers
+  were minted from the Rust binary and **must not be re-minted from the Lean half** — that would
+  replace the answer with the thing being checked
 - **5 questions left unasked, and they are written down.** The 21 corpus tests were read one by
   one before the tree went: 14 lose nothing, 2 became `tools/base-ir-gate.sh`, and **5 have no
   surviving home** (`docs/verification-log.md`, "M10 step E"). Three of those five are the only
@@ -571,8 +575,10 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
   to a separate file so a traceback storm cannot bury the answer.
 - **Do not use `git checkout <file>` for a disable experiment.** It has a track record of blowing away a subagent's implementation.
   Use a scratch copy or `git stash`.
-- **After the browser gate, puppeteer sometimes stays holding port 8899** —
-  if `AddrInUse` comes up, `pkill -f check-site-browser.ts`.
+- **After the browser gate, puppeteer sometimes stayed holding its port** (stepped on with the
+  retired `check-site-browser.ts`, port 8899). The browser gate is now `tools/mv-pages-gate.sh`,
+  whose `check-mv-pages.ts` serves on 8930 and 8931 — if `AddrInUse` comes up there,
+  `pkill -f check-mv-pages.ts`.
 - **`litedoc4 watch` is long-lived, so it survives the session dying** (measured 2026-08-21).
   A `watch` from an interrupted session kept writing to the same `--out`, and
   `tools/watch-gate.sh` run afterwards **read a half-written IR and failed**
