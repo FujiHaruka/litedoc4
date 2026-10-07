@@ -122,7 +122,8 @@ for c in "${CANDIDATES[@]}"; do DECLARED+=("measure-repeat-$c" "new-addresses-$c
 for p in "${PAIRS[@]}"; do DECLARED+=("new-items-$p" "a-files-$p" "b-segments-$p"); done
 DECLARED+=(render-twice render-sharing render-counts render-citation render-front)
 DECLARED+=(render-hash-twice render-hash-counts)
-DECLARED+=(loop-empty loop-again loop-toolchain loop-remove-one loop-identity)
+DECLARED+=(render-usedby render-closure render-content-ir render-summaries render-math render-references render-sources)
+DECLARED+=(loop-empty loop-render-same loop-again loop-toolchain loop-remove-one loop-identity)
 for v in "${VERSIONS[@]}"; do DECLARED+=("render-alone-$v" "render-hash-alone-$v"); done
 
 RAN=()
@@ -981,6 +982,21 @@ if [ "$RENDER_RC" -ne 0 ]; then
   echo "the render checks stopped (exit $RENDER_RC):" >&2
   tail -n 15 "$LOGS/render-items.err" >&2
 fi
+
+set +e
+python3 -I "$ROOT/benchmarks/tools/check-store-render.py" --site "$RD/all-1" --repo "$R1/repo" \
+  --builds "$R1/build" --versions "$LIST" >"$WORK/store-items.txt" 2>"$LOGS/store-items.err"
+STORE_RC=$?
+set -e
+while IFS= read -r line; do
+  status="${line%% *}"
+  rest="${line#* }"
+  item "$status" "${rest%%: *}" "${rest#*: }"
+done <"$WORK/store-items.txt"
+if [ "$STORE_RC" -ne 0 ]; then
+  echo "the site checks stopped (exit $STORE_RC):" >&2
+  tail -n 15 "$LOGS/store-items.err" >&2
+fi
 echo "counts (store render, all ${#VERSIONS[@]} versions):"
 cat "$RD/all-1.json" 2>/dev/null || true
 echo
@@ -1039,6 +1055,22 @@ else
 fi
 
 cp -R "$LOOP/site" "$WORK/loop-site-1"
+differs=""
+for d in "${VERSIONS[@]}" assets; do
+  if ! /usr/bin/diff -r "$RD/all-1/$d" "$WORK/loop-site-1/$d" >"$LOGS/loop-render-same-$d.diff" 2>&1; then
+    differs="$differs $d/"
+  fi
+done
+n=0
+for f in "$RD/all-1"/d/*; do
+  n=$((n + 1))
+  if ! cmp -s "$f" "$WORK/loop-site-1/d/$(basename "$f")"; then differs="$differs d/$(basename "$f")"; fi
+done
+if [ "$n" -eq 0 ] || [ -n "$differs" ]; then
+  item FAIL loop-render-same "of ${VERSIONS[*]}, assets/ and the $n data files store render wrote, build --versions' site lacks or differs in:${differs:- (no data file to compare)} ($LOGS/loop-render-same-*.diff)"
+else
+  item ok loop-render-same "build --versions' site holds ${VERSIONS[*]}'s shells, assets/ and all $n data files of the store render the site items above read, byte for byte"
+fi
 said="$(loop again)"
 if [ "$said" != "$LOOP_NONE" ]; then
   item FAIL loop-again "the same command again said \`versions extracted: ${said:-<no line>}\`, expected \`$LOOP_NONE\`"

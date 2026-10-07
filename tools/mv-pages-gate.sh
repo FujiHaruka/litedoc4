@@ -41,6 +41,27 @@
 #   path-old-link / hash-old-link  a page path without a version, answered 404
 #                                  by the host, lands on the newest version's
 #                                  page with the declaration targeted
+# What a reader of the path-URL site meets (the questions tools/site-gate.sh and
+# tools/browser-gate.sh ask of a single-version site; index names are decoded by
+# benchmarks/tools/check-store-render.py --print-index, not by the site's reader):
+#   path-index-ids      every name of every version's search index is an id on its
+#                       module's drawn page (members included)
+#   path-decls-indexed  every declaration section drawn is in its version's index
+#                       under its module. With the item above, the two directions
+#                       a renderer and an index generator drift apart in
+#   path-backrefs       every citation anchor drawn is linked from a back-reference
+#                       on its version's references.html (the reverse is path-anchors)
+#   path-titles         every drawn page's title ends in its version file's title
+#   path-flags          the sorry and origin pills drawn are exactly the content's
+#   search-dropdown / search-page   typing a declaration's last component lists it,
+#                       linking its page#id, in the top bar and on search.html
+#   search-ranking      search.html ranks and counts as the frozen string scorer
+#   theme-toggle / contrast   the toggle moves data-theme; named text is >= 4.5:1
+#                       in both themes
+#   no-horizontal-scroll      no newest-version page scrolls sideways at 375 or
+#                       1440 px
+#   mathml / mono-glyphs      the browser lays out the math page's MathML; every
+#                       character of mono-charset.json draws in the signature font
 # Across the run:
 #   console          no console error and no page error, except the browser's
 #                    own line for each old link's 404, which is that answer
