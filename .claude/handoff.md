@@ -1,4 +1,4 @@
-# Handoff — 2026-10-07 (multi-version: step 4 done, first L checkpoint run; relay DONE)
+# Handoff — 2026-10-07 (multi-version: step 4 done; next = why the render's memory grows per version)
 
 ## State
 
@@ -31,6 +31,34 @@
   - r2: Mathlib cache + phase times (6d16aae); L workflow, driver, prediction (e1ec80e); first L
     (acbebf9); render-ledger plan (1a59ef0) and implementation, S 63 items (bc9d4f3); L run with
     memory-by-version and identity (9ce4ed1); usage refrozen (250446c); second L log (8ff6afd).
+
+## Next step (user, 2026-10-07: do the recommended investigation)
+
+**Why does the render's peak memory grow ≈ 0.57 GiB per version within one process?** Measured on
+the runner (`benchmarks/results/mv-l-step4-incremental-2026-10-07.txt` (4)): `store render` of
+1 / 2 / 3 Mathlib versions peaks at 3.67 / 4.23 / 4.82 GiB, though the render loop holds one
+version's data at a time (it keeps only small per-version counts and `versions.json` rows).
+It matters because a full render (every litedoc4 upgrade, since the render key is the executable)
+of 11 versions would peak ≈ 9.4 GiB (extrapolated) and 51 would not fit 16 GB.
+
+1. Reproduce at M locally, not L (disk ≈ 12 GiB): the kept M store
+   `/private/tmp/lean-doc-relay/mv-m/store` is schema 4 and the product reads schema 5, so re-put
+   the three M versions first (or build a store from S's five versions as a second, smaller
+   probe). At M the step-2 log had 221 MiB alone vs 253 MiB for three (+16 MiB/version) —
+   check whether growth per version is ∝ declarations (≈ 0.57 GiB / 14.49 ≈ 40 MiB expected at M)
+   or something else.
+2. Measure peak RSS for 1, 2, 3 versions (`/usr/bin/time -l`, 5 runs each, warm) and, for one
+   version rendered twice (same version listed twice is refused? then render v, v' identical
+   entries) — to tell "per version retained" from "allocator high-water mark".
+3. Suspects, in order: something in the render loop or `writeVersion` that outlives its
+   iteration (a cache, an interned table, the `d/` dedupe set); Lean's allocator not returning
+   freed pages (then RSS grows but live memory does not — distinguish with a run that renders
+   the largest version last vs first); the gzip/content-addressing path.
+4. If it is retained data: fix it so the peak is one version's, gate it with a count (not RSS —
+   CLAUDE.md: no wall-clock/RSS gates; a deterministic proxy, or record only), log to
+   `benchmarks/results/`, update implementation.md's "On L" bullet and the handoff Open list.
+   If it is the allocator: write that down with the evidence; the lever then is one process per
+   version (or per batch) in a full render.
 
 ## Open (not blocking)
 
