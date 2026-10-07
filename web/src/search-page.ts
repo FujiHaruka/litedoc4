@@ -23,14 +23,18 @@ export function initSearchPage(source: SearchSource, query = location.search): v
   const seed = new URLSearchParams(query).get("q");
   if (seed && !input.value) input.value = seed;
 
+  let latest = 0;
   const render = async (): Promise<void> => {
+    const generation = ++latest;
     const query = input.value.trim().toLowerCase();
-    list.textContent = "";
     if (query.length < 2) {
+      list.textContent = "";
       if (note) note.textContent = "Type at least two characters.";
       return;
     }
     const data = await source.data();
+    if (generation !== latest) return;
+    list.textContent = "";
     if (!data) {
       if (note) note.textContent = "The search index could not be loaded.";
       return;

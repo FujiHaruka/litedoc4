@@ -1117,26 +1117,27 @@ function K(e, t = location.search) {
 	document.getElementById(\"search-results\")?.remove();
 	let a = new URLSearchParams(t).get(\"q\");
 	a && !i.value && (i.value = a);
-	let o = async () => {
-		let t = i.value.trim().toLowerCase();
-		if (n.textContent = \"\", t.length < 2) {
-			r && (r.textContent = \"Type at least two characters.\");
+	let o = 0, s = async () => {
+		let t = ++o, a = i.value.trim().toLowerCase();
+		if (a.length < 2) {
+			n.textContent = \"\", r && (r.textContent = \"Type at least two characters.\");
 			return;
 		}
-		let a = await e.data();
-		if (!a) {
+		let s = await e.data();
+		if (t !== o) return;
+		if (n.textContent = \"\", !s) {
 			r && (r.textContent = \"The search index could not be loaded.\");
 			return;
 		}
-		let o = F(a.index, t);
-		for (let t of o.slice(0, G)) n.append(M(a, t, e.href));
-		r && (r.textContent = o.length === 0 ? \"No matching declaration.\" : o.length > G ? `${o.length} matches, showing the first ${G}.` : `${o.length} match${o.length === 1 ? \"\" : \"es\"}.`);
-	}, s = 0;
+		let c = F(s.index, a);
+		for (let t of c.slice(0, G)) n.append(M(s, t, e.href));
+		r && (r.textContent = c.length === 0 ? \"No matching declaration.\" : c.length > G ? `${c.length} matches, showing the first ${G}.` : `${c.length} match${c.length === 1 ? \"\" : \"es\"}.`);
+	}, c = 0;
 	i.addEventListener(\"input\", () => {
-		clearTimeout(s), s = setTimeout(() => void o(), W);
+		clearTimeout(c), c = setTimeout(() => void s(), W);
 	}), i.form?.addEventListener(\"submit\", (e) => {
-		e.preventDefault(), o();
-	}), i.focus(), o();
+		e.preventDefault(), s();
+	}), i.focus(), s();
 }
 //#endregion
 //#region src/sundry.ts
@@ -2005,26 +2006,27 @@ function ft(e, t = location.search) {
 	document.getElementById(\"search-results\")?.remove();
 	let a = new URLSearchParams(t).get(\"q\");
 	a && !i.value && (i.value = a);
-	let o = async () => {
-		let t = i.value.trim().toLowerCase();
-		if (n.textContent = \"\", t.length < 2) {
-			r && (r.textContent = \"Type at least two characters.\");
+	let o = 0, s = async () => {
+		let t = ++o, a = i.value.trim().toLowerCase();
+		if (a.length < 2) {
+			n.textContent = \"\", r && (r.textContent = \"Type at least two characters.\");
 			return;
 		}
-		let a = await e.data();
-		if (!a) {
+		let s = await e.data();
+		if (t !== o) return;
+		if (n.textContent = \"\", !s) {
 			r && (r.textContent = \"The search index could not be loaded.\");
 			return;
 		}
-		let o = S(a.index, t);
-		for (let t of o.slice(0, J)) n.append(x(a, t, e.href));
-		r && (r.textContent = o.length === 0 ? \"No matching declaration.\" : o.length > J ? `${o.length} matches, showing the first ${J}.` : `${o.length} match${o.length === 1 ? \"\" : \"es\"}.`);
-	}, s = 0;
+		let c = S(s.index, a);
+		for (let t of c.slice(0, J)) n.append(x(s, t, e.href));
+		r && (r.textContent = c.length === 0 ? \"No matching declaration.\" : c.length > J ? `${c.length} matches, showing the first ${J}.` : `${c.length} match${c.length === 1 ? \"\" : \"es\"}.`);
+	}, c = 0;
 	i.addEventListener(\"input\", () => {
-		clearTimeout(s), s = setTimeout(() => void o(), dt);
+		clearTimeout(c), c = setTimeout(() => void s(), dt);
 	}), i.form?.addEventListener(\"submit\", (e) => {
-		e.preventDefault(), o();
-	}), i.focus(), o();
+		e.preventDefault(), s();
+	}), i.focus(), s();
 }
 //#endregion
 //#region src/instances.ts
