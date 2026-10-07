@@ -1,52 +1,66 @@
-# Handoff — 2026-10-07 (multi-version: step 2 done)
+# Handoff — 2026-10-07 (multi-version: step 3, implementation done; measurement next)
 
 ## State
 
-- Branch `multi-version`, pushed. Not `main`; no PR open. `ci.yml` green at `3adb63a`
-  (run 37518150463); nothing in `src/` changed since.
-- SoT: `docs/multiversion/plan.md` and `docs/multiversion/implementation.md`. Step 2 is marked
-  **Done 2026-10-07**; its "Carried to step 3" list is what step 3 inherits.
-- Step 2 on M (→ `benchmarks/results/mv-m-render-2026-10-07.txt`): render-twice and
-  each-version-alone identities hold; 3,196 files / 4.88 MB hosted for three versions; a patch
-  release adds 3 data files + 440 shells; ≈ 169 / 693 MB at 11 / 51 Mathlib versions
-  (extrapolated); render 3.2 s CPU and ≈ 220 MiB per M version.
-- New tool: `benchmarks/tools/mv-m-render.sh` (renders a store N times + each version alone, lays
-  the output out by kind, reconciles with the renderer's counts).
+- Branch `multi-version`, pushed. Not `main`; no PR open. CI dispatched on `9ddc4bf`
+  (`gh workflow run ci.yml --ref multi-version`, run 37554628620) — check it first; the new
+  `mv-pages-gate.sh` step had never run on Linux before it.
+- SoT: `docs/multiversion/plan.md` and `docs/multiversion/implementation.md`. Step 3's "What exists"
+  block lists what r1 built and ends with "Left to the measurement leg" — that is r2's work list.
+- r1 built the browser half: every page of a `store render` site is drawn from data (path mode and
+  `--hash-urls`), version switcher, per-version search, tree / Used by / instances on demand, root
+  and `404.html` redirects, canonical by script, the D6 defaults as proposed. The D9 check is
+  `tools/mv-pages-gate.sh` (33 items, `ci`; failed once each way →
+  `benchmarks/results/mv-pages-gate-2026-10-07.txt`). `build` is unchanged and its gates are green
+  (`purelean-micro-gate.sh` 16/16, `e2e-micro.sh`, `browser-gate.sh`).
 
 ## Relay control
 - Mode: ON
 - Goal: step 3 of `docs/multiversion/implementation.md` ("The page in the browser") to its
   "Done when". Leg plan from the user: implementation and optimisation in separate legs — r1 =
-  implement (draw path, assets from `store render`, switcher, search, Used by / instances on
-  demand, `#name` scroll, D6 defaults, hash-URL mode) + the D9 path-and-anchor check made to fail
-  once; r2+ = measure settle time on the same page both ways in one session (today's 361 ms page is
-  StructuredArrow/Basic, not in M), optimise, log, record in the plans. D6's four defaults are
-  implemented as proposed; their confirmation goes in the DONE brief.
-- Leg: 1 / cap 8
-- Predecessor: none
+  implement + the D9 check (done); r2+ = measure, optimise, log to `benchmarks/results/`, record
+  in the plans. D6's four defaults are implemented as proposed; their confirmation goes in the
+  DONE brief (not a PAUSE).
+- Leg: 2 / cap 8
+- Predecessor: none (r1 was the user's own session)
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger
-  - r1 (in progress): assets + module / index / references pages drawn from data `5281a10`
+  - r1: implemented and gated on S — drawn pages + assets `5281a10`; switcher, search, on-demand
+    `c60c898`; root / 404 / canonical / hash-URL mode `a1fec28`; D9 gate failed once `9ddc4bf`;
+    plans recorded (the commit after it)
 
-## Next step (step 3, not started)
+## Next step (r2: measurement and optimisation)
 
-Step 3 ("The page in the browser") of `implementation.md`. Read step 2's "Carried to step 3"
-first: what a page fetches (dependency line table vs per-page lines; the module list; Used by as
-a fourth fetch) is step 3's decision, and the numbers for each side are in the M render log
-sections (4)–(5).
+1. **Settle time, the Done-when number.** Today's 361 ms is
+   `CategoryTheory.Comma.StructuredArrow.Basic` (387 declarations) on Mathlib; M does not contain
+   it. Build a one-version store of a slice whose closure contains it (`benchmarks/tools/mv-m-run.sh`
+   with that root, one version — check its flags), render it, and run both arms — today's static
+   page (`litedoc4 build` output for the same module) and the drawn page — on the same page, same
+   session, 5+ runs, warm. The U7 harness (Deno server + puppeteer runner) is embedded in
+   `benchmarks/results/hosting-and-client-render-2026-10-05.txt` (≈ lines 890–1273); "settled" =
+   two animation frames after the content exists. Read CPU and counts first (another macOS user's
+   Chrome holds swap).
+2. **Re-derive the M numbers** with `benchmarks/tools/mv-m-render.sh` on the kept M store (path
+   mode, then `--hash-urls`): shells (≈ 766 B on S now, +4 per version), the module list (≈ 2.6×
+   on S), the routing table, fetches per view. Step 2's log stays as it is; write a new one.
+3. **Decide by measurement**: the two step-2 carries (dependency line ranges in every page file vs
+   one per-version table; the module-list fetch) and the four levers (inlined theme script 168 B ×
+   every shell; routing-table size; version list inside the hash-mode root; instances pulling the
+   whole search index ≈ 5 MB on Mathlib). Each change keeps `mv-s-gate.sh` and `mv-pages-gate.sh`
+   green.
+4. `mv-m-render.sh --hash-urls` has never been made to fail once.
+5. Record in `implementation.md` step 3 and plan D5/D6, mark step 3 Done, DONE brief with the D6
+   defaults to confirm.
 
 ## Load-bearing context
 
-- **Kept on purpose** (this session made them; the next session owns them):
-  `/private/tmp/lean-doc-relay/mv-m/store` (13 MB, the three M entries at schema 4; regenerating
-  costs ≈ 6 min + network via `benchmarks/tools/mv-m-run.sh`) and
-  `/private/tmp/lean-doc-relay/mv-m-render/all-1` (15 MB, a rendered M site — step 3's browser
-  input). `mv-m/measure` was deleted (re-askable). `mv-v4320` / `mv-v4341` (7.7 + 7.6 GB) are kept
-  as before. Disk ≈ 12 GiB free.
-- The S store at `/private/tmp/lean-doc-relay/mv-s/store` is schema 2 (old); `tools/mv-s-gate.sh`
-  builds its own.
-- Timing noise: another macOS user's Chrome holds compressed memory and 2.8 GB of swap; read CPU
-  time and counters first.
+- **Kept on purpose**: `/private/tmp/lean-doc-relay/mv-m/store` (13 MB, the three M entries at
+  schema 4; regenerating ≈ 6 min + network via `mv-m-run.sh`); `/private/tmp/lean-doc-relay/mv-s-gate`
+  (the S gate's `--keep` output, the input of `mv-pages-gate.sh`; regenerated by
+  `tools/mv-s-gate.sh --keep` after deleting it); `mv-v4320` / `mv-v4341` (7.7 + 7.6 GB).
+  `/private/tmp/lean-doc-relay/mv-m-render/all-1` predates step 3 (no assets); delete it before
+  re-running `mv-m-render.sh` (it refuses a non-empty work dir).
+- The 404 page probes `versions.json` up the path, shortest first; under a `/<repo>/` prefix it
+  logs one 404 for `/versions.json` (the gate serves at `/`).
 - `tools/md-memory-gate.sh` does not cover `vendor/miniz` / `csrc/gzip.c` yet.
-- `tools/purelean-render-gate.sh` needs `/private/tmp/lean-doc-relay/purelean` (absent); not run.
 - Communicate with the user in Japanese, brief-me style, no code names in briefs.

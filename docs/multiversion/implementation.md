@@ -331,16 +331,52 @@ ships:
 Done when: the largest module page settles faster than today's published page (361 ms,
 measured the same way as U7); the page-path and anchor check of D9 exists and has failed once.
 
-In progress (2026-10-07):
+What exists (2026-10-07, implementation leg; nothing timed yet):
 
-- **`store render` writes `assets/`** (stylesheet, icon, `site.js`) and the shells link them; a
-  module page, a version's index and `references.html` are drawn from the version file, the page
-  file and the content (three fetches; the module list only when Imports is opened). On S v1 the
-  drawn pages carry exactly the `id`s of the frozen `e2e/micro-expected` pages (13 pages, 0
-  missing, 0 extra) and the same 405 body links; a `#name` link from outside sets `:target`.
-- **Shells grew from ≈ 381 B to ≈ 749 B on S** (the stylesheet and icon links, the theme script
-  inlined, the `<noscript>` line). Step 2's shell figures (441 B on M; 187 of the 693 MB at 51
-  versions) predate this and are ≈ 2× low; they are re-derived when M is re-measured in this step.
+- **`store render` writes `assets/`** (stylesheet, icon, `site.js`, the redirect script) and every
+  page is drawn from data: module pages, each version's index (with module summaries and the
+  declaration count, now carried in the per-version module list), `references.html`,
+  `search.html` and `foundational_types.html` (both per version, their text in the shell, one
+  fetch). Shells per version are its module pages plus 4.
+- **What a module page fetches**: the version file, the page file and the content before it draws
+  (three, every page of S); `versions.json` after the draw, for the version switcher and the "a
+  newer version exists" line, and on an older version the newest version's module list for the
+  canonical link. The module list, search index, Used by and instances are fetched only when the
+  reader opens what needs them. Nothing a version's shells or data files hold depends on the
+  version set; what does (the switcher, canonical) is filled by script.
+- **D6's four questions are implemented with the proposed defaults** (the table above), not yet
+  confirmed. The root sends the reader to the newest version by script (`location.replace`, query
+  and fragment kept); a root `404.html` sends an unversioned old path to the newest version's page
+  and a module a version lacks to that version's index, finding the site root by probing
+  `versions.json` up the path (so it works under a path prefix). A host with a 200 rewrite points
+  it at `404.html`. Canonical is set by script, which a crawler honours only if it renders the
+  page.
+- **Hash-URL mode** (`store render --hash-urls`): the root `index.html`, `404.html`, `d/`,
+  `assets/` and `versions.json`; routes are `#/<version>/<module path>?id=<declaration>`. It adds
+  one routing table per version (module path → page and Used-by addresses), written only in this
+  mode and listed only in `versions.json`, so every other file is identical between the modes. A
+  module page fetches five files before it draws, four in a row. The routing table is ≈ 686 KB raw
+  / 246 KB gzip per Mathlib version (extrapolated from the target's 8,169 module paths with
+  synthesized addresses, scaled to 8,314).
+- **The D9 check exists and has failed once each way** (`tools/mv-pages-gate.sh`, `ci`, 33 items
+  over `tools/mv-s-gate.sh --keep`'s two renders; measured →
+  `benchmarks/results/mv-pages-gate-2026-10-07.txt`). The frozen arm is one-directional: every page
+  path of `e2e/micro-expected/build/` has a shell under `v1/`, and every frozen `id` is on the
+  drawn page (14 pages, 215 ids, 0 missing); the self-consistency arm, all four versions in both
+  modes, finds every intra-site href (1,159 path / 1,157 hash), every anchor (568 / 567) and every
+  page file name (245) after drawing, and judges `#name` arrival by `:target` / `.targeted`.
+- **Shells grew from ≈ 381 B to ≈ 766 B on S** (the stylesheet and icon links, the theme script
+  inlined, the `<noscript>` line); `search.html` is 1,122 B and `foundational_types.html` 2,867 B.
+  Step 2's shell figures (441 B on M; 187 of the 693 MB at 51 versions) predate this and are ≈ 2×
+  low; the module list grew ≈ 2.6× on S with the summaries. Both are re-derived on M in the
+  measurement leg.
+
+Left to the measurement leg: the settle time on the same page both ways in one session (today's
+361 ms is `CategoryTheory.Comma.StructuredArrow.Basic`, which M does not contain); the two items
+step 2 carried (dependency line ranges in every page file; the module list fetch); and four
+levers found while building — the inlined theme script (168 B in every shell), the routing table
+(split it, or put it beside the page), the version list inside the hash-mode root page (one
+round trip), and instances pulling the whole search index (≈ 5 MB on Mathlib).
 
 ### 4. One command over the version set
 
@@ -404,7 +440,9 @@ the step that breaks it, and the replacement is made to fail once:
 
 - `tools/purelean-micro-gate.sh` and `e2e/micro-expected` (51 frozen pages; the page-path and
   anchor promise in `tools/public-surface.txt`) — must not be re-minted from the new output
-  (CLAUDE.md, "The removed trees"); replaced by the D9 path-and-anchor check (step 3).
+  (CLAUDE.md, "The removed trees"); replaced by the D9 path-and-anchor check, which exists since
+  step 3 (`tools/mv-pages-gate.sh`). The old gate stays green and in place while `build` writes
+  today's HTML; it and the gates below retire when `build` switches to the store renderer (step 4).
 - `tools/purelean-render-gate.sh` and its expected files — same provenance, same rule.
 - The gates that parse static HTML: `site-gate.sh`, `browser-gate.sh`, `usedby-gate.sh`,
   `config-gate.sh`, `e2e-micro.sh`, `watch-gate.sh`, `deps-docs-gate.sh`; and
