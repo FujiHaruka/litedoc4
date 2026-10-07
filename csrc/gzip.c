@@ -202,3 +202,21 @@ lean_obj_res litedoc4_gzip_inflate_member(b_lean_obj_arg input) {
     lean_dec_ref(out);
     return refused(why);
 }
+
+extern void mi_collect(_Bool force);
+extern void mi_process_info(size_t *elapsed_msecs, size_t *user_msecs, size_t *system_msecs,
+                            size_t *current_rss, size_t *peak_rss, size_t *current_commit,
+                            size_t *peak_commit, size_t *page_faults);
+
+lean_obj_res litedoc4_exp_mi_collect(lean_obj_arg w) {
+    (void)w;
+    mi_collect(1);
+    return lean_io_result_mk_ok(lean_box(0));
+}
+
+lean_obj_res litedoc4_exp_commit(lean_obj_arg w) {
+    (void)w;
+    size_t a, b, c, rss, prss, commit, pcommit, pf;
+    mi_process_info(&a, &b, &c, &rss, &prss, &commit, &pcommit, &pf);
+    return lean_io_result_mk_ok(lean_box_usize(commit));
+}

@@ -313,6 +313,9 @@ def writeRoot (out : FilePath) (entries : Array Listed) (hashUrls : Bool) :
     (← writeText out "index.html" (if hashUrls then hashShell listed else siteIndexShell newest.name))
     |>.plus (← writeText out notFoundPage (notFoundShell hashUrls))
 
+@[extern "litedoc4_exp_mi_collect"] opaque expMiCollect : IO Unit
+@[extern "litedoc4_exp_commit"] opaque expCommit : IO USize
+
 /-- Not every version's data at once, as `store measure` holds it: a Mathlib
 version is ≈ 8.5k pages and a site has 11 or more. -/
 def renderStore (store out : FilePath) (names : Array Store.VersionName) (hashUrls : Bool) :
@@ -341,7 +344,10 @@ def renderStore (store out : FilePath) (names : Array Store.VersionName) (hashUr
       if phase == "data" then IO.eprintln s!"exp data {d.pages.size}" else
       let r ← ExceptT.mk (pure (render (VersionMeta.of s.record) d hashUrls))
       IO.eprintln s!"exp render {r.data.size}"
+    let before ← expCommit
+    if (← IO.getEnv "LITEDOC4_EXP_COLLECT") == some "1" then expMiCollect
     IO.sleep 3000
+    IO.eprintln s!"exp commit before {before} after {← expCommit}"
     let status ← match ← (IO.FS.readFile "/proc/self/status").toBaseIO with
       | .ok s => pure s
       | .error _ => pure ""
