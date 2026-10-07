@@ -415,12 +415,35 @@ def aShellClimbsOutOfItsModuleDirectoriesAndItsVersionDirectory : Bool :=
       data-data=\"{f.address}\" data-page=\"{f.address}\" data-used-by=\"{f.address}\">\
       <noscript>These pages are drawn by JavaScript, which is off.</noscript></body>\n</html>\n"
     && (Data.Site.versionIndexShell "v1" f).contains "data-root=\"../\""
-    && (Data.Site.siteIndexShell "v1" f.address).contains
-      "<script type=\"module\" src=\"./assets/site.js\""
     && storeAssets.map (·.1) == #["style.css", "favicon.svg", "site.js"]
     && Data.Site.shellPath "v1" "A.B.C" == "v1/A/B/C.html"
 
 #guard aShellClimbsOutOfItsModuleDirectoriesAndItsVersionDirectory
+
+def theRootSendsTheReaderToTheNewestIndexByScriptAndLinksItForNoScript : Bool :=
+  let root := Data.Site.siteIndexShell "v4"
+  (root.splitOn s!"<script data-newest=\"v4\">{redirectJs}</script>").length == 2
+    && (root.splitOn "<a href=\"v4/index.html\">v4</a>").length == 2
+    && !root.contains "http-equiv" && !root.contains "type=\"module\""
+
+#guard theRootSendsTheReaderToTheNewestIndexByScriptAndLinksItForNoScript
+
+def theNotFoundPageNamesNoRelativeAddressAndSaysWhichUrlsItsSiteUses : Bool :=
+  let path := Data.Site.notFoundShell false
+  let hash := Data.Site.notFoundShell true
+  [path, hash].all (fun p => !p.contains "href=" && !p.contains "src=" && p.contains redirectJs)
+    && !path.contains "data-mode" && hash.contains "<script data-mode=\"hash\">"
+
+#guard theNotFoundPageNamesNoRelativeAddressAndSaysWhichUrlsItsSiteUses
+
+def theHashShellIsTheRootShellCarryingTheSearchAndFoundationalTypesText : Bool :=
+  let shell := Data.Site.hashShell
+  shell.contains "<body data-root=\"./\" data-mode=\"hash\">"
+    && (shell.splitOn s!"<template id=\"search-body\">{searchBody}</template>").length == 2
+    && (shell.splitOn s!"<template id=\"foundational-body\">{foundationalTypesBody}</template>").length == 2
+    && !shell.contains "data-version"
+
+#guard theHashShellIsTheRootShellCarryingTheSearchAndFoundationalTypesText
 
 def everyVersionHasASearchAndAFoundationalTypesShellCarryingBuildsText : Bool :=
   let f := Data.Site.DataFile.of "json" "" "{}".toUTF8
@@ -498,6 +521,25 @@ def aChangedDocstringAddsOnlyItsContentItsPageFileAndTheVersionFile : Invariant 
       let had : Std.HashSet String := Std.HashSet.ofArray (before.data.map (·.path))
       let added := (after.data.filter fun f => !had.contains f.path).map (·.what)
       eq (sortUtf16 added) #["doc's content of P.A", "doc's page file of P.A", "doc's version file"]
+    | _, _ => some "render refused"
+
+def hashUrlsWriteNoShellAndTheSameDataPlusARoutesFileByPagePath : Invariant where
+  name := "with hash URLs a version renders no shell, the same data files as with path URLs, and \
+    one routes file more that maps each page path to the page and Used-by files its shell names"
+  check := pure <|
+    match renderedOf base, (Data.Site.render siteMeta base true).toOption with
+    | some paths, some hashes =>
+      match hashes.routes, dataNamed paths "v1's page file of P.A",
+          dataNamed paths "v1's Used by of P.A", dataNamed paths "v1's page file of P.B",
+          dataNamed paths "v1's Used by of P.B" with
+      | some routes, some pageA, some usedA, some pageB, some usedB =>
+        first [eq hashes.shells.size 0, eq paths.routes.isNone true,
+          eq (hashes.data.map (·.path)) (paths.data.map (·.path) |>.push routes.path),
+          eq hashes.versionFile.address paths.versionFile.address,
+          eq (String.fromUTF8? routes.raw)
+            (some s!"\{\"P/A\":[\"{pageA.address}\",\"{usedA.address}\"],\
+              \"P/B\":[\"{pageB.address}\",\"{usedB.address}\"]}")]
+      | _, _, _, _, _ => some "a routes, page or Used-by file is missing"
     | _, _ => some "render refused"
 
 /-! ## The version's site configuration -/

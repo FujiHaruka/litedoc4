@@ -1,6 +1,7 @@
 import { memberNames, moduleMain, upgradeImports } from "./draw-module.js";
-import { indexContent, referencesContent } from "./draw-plain.js";
+import { indexContent, notFoundContent, referencesContent } from "./draw-plain.js";
 import { moduleFrame, plainFrame } from "./frame.js";
+import { decoded, hashHref } from "./hash-route.js";
 import { FOUNDATIONAL_TYPES, type Linker } from "./links.js";
 import { pagePath } from "./names.js";
 import { dataJson } from "./store-data.js";
@@ -13,10 +14,15 @@ import type {
 } from "./store-types.js";
 import type { ModulesFile } from "./types.js";
 
-interface Place {
+export type Mode = "path" | "hash";
+
+export interface Place {
   readonly root: string;
   readonly version: string;
   readonly data: string;
+  readonly mode: Mode;
+  readonly query: string;
+  readonly anchor: string | null;
 }
 
 export type Route =
@@ -29,12 +35,25 @@ export type Route =
   | (Place & { readonly kind: "index" })
   | (Place & { readonly kind: "references"; readonly references: string })
   | (Place & { readonly kind: "search" })
-  | (Place & { readonly kind: "foundational" });
+  | (Place & { readonly kind: "foundational" })
+  | (Place & { readonly kind: "not-found"; readonly asked: string; readonly guess: string });
 
-export function routeOf(ds: DOMStringMap): Route | null {
+export interface Arrival {
+  readonly search: string;
+  readonly hash: string;
+}
+
+export function routeOf(ds: DOMStringMap, at: Arrival): Route | null {
   const { root, version, data } = ds;
   if (root === undefined || version === undefined || data === undefined) return null;
-  const place: Place = { root, version, data };
+  const place: Place = {
+    root,
+    version,
+    data,
+    mode: "path",
+    query: at.search,
+    anchor: at.hash.length > 1 ? decoded(at.hash.slice(1)) : null,
+  };
   if (ds.page !== undefined) {
     return {
       ...place,
@@ -48,10 +67,11 @@ export function routeOf(ds: DOMStringMap): Route | null {
     return { ...place, kind: "references", references: ds.references };
   if (ds.kind === "search") return { ...place, kind: "search" };
   if (ds.kind === "foundational") return { ...place, kind: "foundational" };
+  if (ds.kind === "not-found") {
+    return { ...place, kind: "not-found", asked: ds.asked ?? "", guess: ds.guess ?? "" };
+  }
   return { ...place, kind: "index" };
 }
-
-export const versionRoot = (r: Route): string => `${r.root}${r.version}/`;
 
 export function pageIn(r: Route): string {
   if (r.kind === "module") return pagePath(r.module);
@@ -61,10 +81,25 @@ export function pageIn(r: Route): string {
   return "index.html";
 }
 
-const linkerOf = (r: Route, version: VersionFile, roots: readonly string[]): Linker => {
-  const base = versionRoot(r);
-  return { at: (path) => base + path, roots, bases: version.roots };
-};
+export const hrefIn = (r: Place, path: string): string =>
+  r.mode === "hash" ? hashHref(r.version, path) : `${r.root}${r.version}/${path}`;
+
+export const pathHere = (r: Route, anchor: string | null): string =>
+  pageIn(r) + (r.kind === "search" ? r.query : "") + (anchor === null ? "" : `#${anchor}`);
+
+export const sameView = (a: Route, b: Route): boolean =>
+  a.kind === b.kind &&
+  a.mode === b.mode &&
+  a.version === b.version &&
+  pathHere(a, null) === pathHere(b, null) &&
+  (a.kind !== "not-found" || b.kind !== "not-found" || a.asked === b.asked);
+
+const linkerOf = (r: Route, version: VersionFile, roots: readonly string[]): Linker => ({
+  at: (path) => hrefIn(r, path),
+  here: (anchor) => (r.mode === "hash" ? hrefIn(r, pathHere(r, anchor)) : `#${anchor}`),
+  roots,
+  bases: version.roots,
+});
 
 const titled = (page: string, title: string): string =>
   title && title !== page ? `${page} · ${title}` : page;
@@ -97,14 +132,14 @@ async function drawModule(r: Extract<Route, { kind: "module" }>): Promise<Drawn>
   );
   return {
     title: titled(page.module, version.title),
-    nodes: moduleFrame({ title: version.title, at: l.at }, memberNames(content), main),
+    nodes: moduleFrame(l, version.title, memberNames(content), main),
     plain: false,
     version,
     linker: l,
   };
 }
 
-async function drawIndex(r: Extract<Route, { kind: "index" }>): Promise<Drawn> {
+async function drawIndex(r: Route): Promise<Drawn> {
   const version = await dataJson<VersionFile>(r.root, r.data);
   const [modules, front] = await Promise.all([
     dataJson<ModulesFile>(r.root, version.modules),
@@ -113,10 +148,7 @@ async function drawIndex(r: Extract<Route, { kind: "index" }>): Promise<Drawn> {
   const l = linkerOf(r, version, []);
   return {
     title: version.title,
-    nodes: plainFrame(
-      { title: version.title, at: l.at },
-      ...indexContent(l, version, modules, front),
-    ),
+    nodes: plainFrame(l, version.title, ...indexContent(l, version, modules, front)),
     plain: true,
     version,
     linker: l,
@@ -131,28 +163,32 @@ async function drawReferences(r: Extract<Route, { kind: "references" }>): Promis
   const l = linkerOf(r, version, []);
   return {
     title: titled("References", version.title),
-    nodes: plainFrame({ title: version.title, at: l.at }, ...referencesContent(l, items)),
+    nodes: plainFrame(l, version.title, ...referencesContent(l, items)),
     plain: true,
     version,
     linker: l,
   };
 }
 
-async function drawOwn(r: Route, name: string, own: readonly Node[]): Promise<Drawn> {
+async function drawOwn(r: Route, name: string, own: (l: Linker) => Node[]): Promise<Drawn> {
   const version = await dataJson<VersionFile>(r.root, r.data);
   const l = linkerOf(r, version, []);
   return {
     title: titled(name, version.title),
-    nodes: plainFrame({ title: version.title, at: l.at }, ...own),
+    nodes: plainFrame(l, version.title, ...own(l)),
     plain: true,
     version,
     linker: l,
   };
 }
 
-export function draw(r: Route, name: string, own: readonly Node[]): Promise<Drawn> {
+export function draw(r: Route, own: readonly Node[]): Promise<Drawn> {
   if (r.kind === "module") return drawModule(r);
   if (r.kind === "references") return drawReferences(r);
-  if (r.kind === "search" || r.kind === "foundational") return drawOwn(r, name, own);
+  if (r.kind === "search") return drawOwn(r, "Search", () => [...own]);
+  if (r.kind === "foundational") return drawOwn(r, "Foundational types", () => [...own]);
+  if (r.kind === "not-found") {
+    return drawOwn(r, "Not found", (l) => notFoundContent(l, r.asked, r.version));
+  }
   return drawIndex(r);
 }

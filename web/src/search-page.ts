@@ -10,7 +10,7 @@ import type { SearchSource } from "./types.js";
 const DEBOUNCE_MS = 90;
 const MAX_ROWS = 200;
 
-export function initSearchPage(source: SearchSource): void {
+export function initSearchPage(source: SearchSource, query = location.search): void {
   const list = document.getElementById("page-results");
   const note = document.getElementById("page-note");
   const input = document.getElementById("search-input") as HTMLInputElement | null;
@@ -20,7 +20,7 @@ export function initSearchPage(source: SearchSource): void {
   // `initSearch` a no-op, which is why this runs first.
   document.getElementById("search-results")?.remove();
 
-  const seed = new URLSearchParams(location.search).get("q");
+  const seed = new URLSearchParams(query).get("q");
   if (seed && !input.value) input.value = seed;
 
   const render = async (): Promise<void> => {

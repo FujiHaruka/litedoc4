@@ -96,4 +96,7 @@ export type UsedByPairs = Readonly<Record<string, readonly (readonly [string, st
 export interface VersionEntry {
   readonly name: string;
   readonly data: string;
+  readonly routes?: string;
 }
+
+export type RoutesFile = Readonly<Record<string, readonly [string, string]>>;

@@ -3,6 +3,7 @@ import type { DependencyTarget, OwnTarget, Resolved, Table } from "./store-types
 
 export interface Linker {
   readonly at: (path: string) => string;
+  readonly here: (anchor: string) => string;
   readonly roots: readonly string[];
   readonly bases: Readonly<Record<string, string>>;
 }

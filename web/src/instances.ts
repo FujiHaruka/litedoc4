@@ -65,7 +65,7 @@ export function declItem(
   // A name the index does not have is still worth a link: the page it is on is
   // the page the reader is already looking at.
   const where = data && id !== undefined ? data.modules[moduleAt(data.index, id)] : undefined;
-  a.href = where ? `${href(where.p)}#${name}` : `#${name}`;
+  a.href = where ? href(`${where.p}#${name}`) : `#${name}`;
   li.append(a);
   return li;
 }

@@ -117,7 +117,8 @@ for v in "${VERSIONS[@]}"; do DECLARED+=("round-trip-$v" "re-put-$v"); done
 for c in "${CANDIDATES[@]}"; do DECLARED+=("measure-repeat-$c" "new-addresses-$c"); done
 for p in "${PAIRS[@]}"; do DECLARED+=("new-items-$p" "a-files-$p" "b-segments-$p"); done
 DECLARED+=(render-twice render-sharing render-counts render-citation render-front)
-for v in "${VERSIONS[@]}"; do DECLARED+=("render-alone-$v"); done
+DECLARED+=(render-hash-twice render-hash-counts)
+for v in "${VERSIONS[@]}"; do DECLARED+=("render-alone-$v" "render-hash-alone-$v"); done
 
 RAN=()
 FAILED=0
@@ -596,7 +597,9 @@ say "5/7 the site: store render, twice, each version alone, and all but the newe
 RD="$R1/render"
 mkdir -p "$RD"
 render () {
-  timed "render $1" "$RD/$1.json" "$LITEDOC4" store render --store "$R1/store" --versions "$2" --out "$RD/$1"
+  local name="$1" list="$2"
+  shift 2
+  timed "render $name" "$RD/$name.json" "$LITEDOC4" store render --store "$R1/store" --versions "$list" --out "$RD/$name" "$@"
 }
 ALL_OK=1
 for k in 1 2; do render "all-$k" "$LIST" || ALL_OK=0; done
@@ -634,6 +637,52 @@ done
 
 FIRST="$(IFS=,; echo "${VERSIONS[*]:0:$((N - 1))}")"
 render first "$FIRST" || true
+
+HASH_OK=1
+for k in 1 2; do render "hash-$k" "$LIST" --hash-urls || HASH_OK=0; done
+if [ "$HASH_OK" -eq 0 ]; then
+  item FAIL render-hash-twice "store render --hash-urls refused ($RD/hash-*.json.err)"
+elif ! /usr/bin/diff -r "$RD/hash-1" "$RD/hash-2" >"$LOGS/render-hash-twice.diff" 2>&1 ||
+     ! cmp -s "$RD/hash-1.json" "$RD/hash-2.json"; then
+  item FAIL render-hash-twice "two hash-URL renders of the same store differ ($LOGS/render-hash-twice.diff: $(head -n 1 "$LOGS/render-hash-twice.diff"))"
+else
+  item ok render-hash-twice "two hash-URL renders of all ${#VERSIONS[@]} versions gave byte-identical trees ($(find "$RD/hash-1" -type f | wc -l | tr -d ' ') files) and counts"
+fi
+
+for v in "${VERSIONS[@]}"; do
+  alone="$RD/hash-alone-$v"
+  if ! render "hash-alone-$v" "$v" --hash-urls; then
+    item FAIL "render-hash-alone-$v" "store render --hash-urls of $v alone refused ($RD/hash-alone-$v.json.err)"
+    continue
+  fi
+  said="$(python3 - "$alone" "$RD/hash-1" "$v" 2>&1 <<'PY'
+import json
+import pathlib
+import sys
+
+alone, full, v = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+mine = json.loads((alone / "versions.json").read_text(encoding="utf-8"))
+theirs = [e for e in json.loads((full / "versions.json").read_text(encoding="utf-8")) if e["name"] == v]
+if mine != theirs or "routes" not in mine[0]:
+    print("versions.json alone lists %s, the four-version run %s" % (mine, theirs))
+    sys.exit()
+dirs = sorted(p.name for p in alone.iterdir() if p.is_dir() and p.name not in ("d", "assets"))
+if dirs:
+    print("a version directory was written: %s" % dirs)
+    sys.exit()
+files = sorted((alone / "d").iterdir())
+bad = [p.name for p in files if not (full / "d" / p.name).is_file() or (full / "d" / p.name).read_bytes() != p.read_bytes()]
+if bad:
+    print("of %d data files, these are absent or other bytes in the four-version d/: %s" % (len(files), " ".join(bad)))
+    sys.exit()
+print("ok %d" % len(files))
+PY
+)" || true
+  case "$said" in
+    "ok "*) item ok "render-hash-alone-$v" "no version directory, the same versions.json entry (routes included) as the four-version run, and all ${said#ok } data files it wrote are in that run's d/ byte for byte" ;;
+    *) item FAIL "render-hash-alone-$v" "${said:-the check printed nothing}" ;;
+  esac
+done
 
 set +e
 python3 - "$EXPECTED" "$RD" "${VERSIONS[$((N - 2))]}" "${VERSIONS[$((N - 1))]}" "$ROOT/e2e/micro" >"$WORK/render-items.txt" 2>"$LOGS/render-items.err" <<'PY'
@@ -747,6 +796,8 @@ def reconcile():
     for part, t in on_disk.items():
         if printed[part] != t:
             bad.append("%s printed %s, on disk %s" % (part, printed[part], t))
+    if sorted(p.name for p in top) != ["404.html", "index.html", "versions.json"]:
+        bad.append("the root holds %s, not 404.html, index.html and versions.json" % sorted(p.name for p in top))
     listed = {e["name"]: e["data"] for e in json.loads((root / "versions.json").read_text(encoding="utf-8"))}
     for v in counts["versions"]:
         name = v["version"]
@@ -760,7 +811,7 @@ def reconcile():
                 name, sorted(mine - want), sorted(want - mine), v["modules"]))
     if bad:
         return False, "; ".join(bad)
-    return True, "printed totals = the tree on disk: %d files, %d raw bytes, %d stored (shells %d, data %d, assets %d, root %d), and each version's shells are exactly its module list's pages plus %s" % (
+    return True, "printed totals = the tree on disk: %d files, %d raw bytes, %d stored (shells %d, data %d, assets %d, root %d: 404.html, index.html, versions.json), and each version's shells are exactly its module list's pages plus %s" % (
         total["files"], total["rawBytes"], total["storedBytes"], on_disk["shells"]["files"],
         on_disk["data"]["files"], on_disk["assets"]["files"], on_disk["root"]["files"],
         ", ".join(VERSION_PAGES))
@@ -843,8 +894,74 @@ def front():
         title, index, want)
 
 
+def reconcile_hash():
+    root = rd / "hash-1"
+    paths = rd / "all-1"
+    counts = json.loads((rd / "hash-1.json").read_text(encoding="utf-8"))
+    files, shells, data, assets, top = tree(root)
+    bad = []
+    if len(shells) + len(data) + len(assets) + len(top) != len(files):
+        raise RuntimeError("a file is in none or two of shells, d/, assets/ and the root")
+    if shells:
+        bad.append("%d shells written: %s" % (len(shells), [p.relative_to(root).as_posix() for p in shells[:3]]))
+    if sorted(p.name for p in top) != ["404.html", "index.html", "versions.json"]:
+        bad.append("the root holds %s" % sorted(p.name for p in top))
+    for name in ("index.html", "404.html"):
+        if "data-mode=\"hash\"" not in (root / name).read_text(encoding="utf-8"):
+            bad.append("%s says nothing of hash URLs" % name)
+    size = lambda p: p.stat().st_size
+    unzipped = lambda p: len(gzip.decompress(p.read_bytes()))
+
+    def tally(ps, raw):
+        return {"files": len(ps), "rawBytes": sum(raw(p) for p in ps), "storedBytes": sum(size(p) for p in ps)}
+
+    on_disk = {"shells": tally(shells, size), "data": tally(data, unzipped), "assets": tally(assets, size), "root": tally(top, size)}
+    for part, t in on_disk.items():
+        if counts["total"][part] != t:
+            bad.append("%s printed %s, on disk %s" % (part, counts["total"][part], t))
+    if counts["total"]["files"] != len(files):
+        bad.append("total files printed %d, on disk %d" % (counts["total"]["files"], len(files)))
+    listed = json.loads((root / "versions.json").read_text(encoding="utf-8"))
+    path_listed = {e["name"]: e["data"] for e in json.loads((paths / "versions.json").read_text(encoding="utf-8"))}
+    routes_files = set()
+    sizes = []
+    path_counts = {v["version"]: v for v in json.loads((rd / "all-1.json").read_text(encoding="utf-8"))["versions"]}
+    for e, v in zip(listed, counts["versions"]):
+        name = e["name"]
+        if e["data"] != path_listed.get(name):
+            bad.append("%s: version file %s, with path URLs %s" % (name, e["data"], path_listed.get(name)))
+        f = root / "d" / (e["routes"] + ".json.gz")
+        routes_files.add(f.name)
+        table = json.loads(gzip.decompress(f.read_bytes()))
+        sizes.append("%s %d B raw, %d B gzip, %d modules" % (name, len(gzip.decompress(f.read_bytes())), size(f), len(table)))
+        modules = json.loads(gzip.decompress((root / "d" / (data_json_at(root, e["data"])["modules"] + ".json.gz")).read_bytes()))["modules"]
+        want = {}
+        for m in modules:
+            shell = (paths / name / m["p"]).read_text(encoding="utf-8")
+            want[m["p"][:-len(".html")]] = [attr(shell, "page"), attr(shell, "used-by")]
+        if table != want:
+            bad.append("%s: the routes table is not the path-URL shells' page and Used-by addresses by page path (%d entries, %d shells)" % (name, len(table), len(want)))
+        p = path_counts[name]
+        if v["shells"]["files"] != 0 or v["dataReferenced"] != p["dataReferenced"] + 1:
+            bad.append("%s: %d shells and %d data files referenced, path URLs %d referenced" % (
+                name, v["shells"]["files"], v["dataReferenced"], p["dataReferenced"]))
+    hash_d = {p.name for p in (root / "d").iterdir()}
+    path_d = {p.name for p in (paths / "d").iterdir()}
+    if hash_d != path_d | routes_files or path_d & routes_files:
+        bad.append("d/ with hash URLs is not d/ with path URLs plus the %d routes files: beyond %s, absent %s" % (
+            len(routes_files), sorted(hash_d - path_d - routes_files)[:3], sorted(path_d - hash_d)[:3]))
+    differ = [n for n in path_d & hash_d if (root / "d" / n).read_bytes() != (paths / "d" / n).read_bytes()]
+    if differ:
+        bad.append("%d data files differ between the two renders: %s" % (len(differ), differ[:3]))
+    if bad:
+        return False, "; ".join(bad)
+    return True, "printed totals = the tree on disk (%d files: no shells, data %d, assets %d, root %d: index.html, 404.html, versions.json); d/ is path-URL d/ byte for byte plus one routes file per version, each the path-URL shells' page and Used-by addresses by page path (%s), and every version file is the path-URL one" % (
+        len(files), on_disk["data"]["files"], on_disk["assets"]["files"], on_disk["root"]["files"], "; ".join(sizes))
+
+
 check("render-sharing", sharing)
 check("render-counts", reconcile)
+check("render-hash-counts", reconcile_hash)
 check("render-citation", citation)
 check("render-front", front)
 PY

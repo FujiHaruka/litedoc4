@@ -113,20 +113,63 @@ def searchPage : String := "search.html"
 
 def foundationalTypesPage : String := "foundational_types.html"
 
-/-- The newest version's, so the site root can draw it without `versions.json`. -/
-def siteIndexShell (newest : String) (newestFile : String) : String :=
-  shell none 0 #[("version", newest), ("data", newestFile)]
+def headOf (title : Option String) : String := Id.run do
+  let mut o := "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+  if let some t := title then o := escapeInto (o ++ "<title>") t ++ "</title>\n"
+  return o ++ "<script>" ++ themeBootJs ++ "</script>\n"
 
-def versionsJson (entries : Array (String × String)) : String :=
-  pushEach "" entries fun o (name, address) =>
-    jsonStr (jsonStr (o ++ "{\"name\":") name ++ ",\"data\":") address |>.push '}'
+/-- Sent on by script and not by `<meta http-equiv="refresh">`, which search
+engines read as a permanent redirect to a version that stops being the newest at
+the next release. -/
+def siteIndexShell (newest : String) : String := Id.run do
+  let mut o := escapeInto (headOf none ++ "<script data-newest=\"") newest ++ "\">" ++ redirectJs
+  o := o ++ "</script>\n<link rel=\"stylesheet\" href=\"" ++ assetsDir ++ "style.css\">\n</head>\n"
+  o := escapeInto (o ++ "<body class=\"plain\"><p class=\"lede\">The newest version is <a href=\"")
+    s!"{newest}/index.html"
+  return escapeInto (o ++ "\">") newest ++ "</a>.</p></body>\n</html>\n"
+
+/-- Served by the host for a path with no file, at that path: nothing in it can
+be relative, so the script finds the site root before it loads anything. -/
+def notFoundShell (hashUrls : Bool) : String :=
+  headOf (some "Not found") ++ "</head>\n<body><p class=\"lede\">Nothing in this documentation \
+    is at this address.</p><script" ++ (if hashUrls then " data-mode=\"hash\"" else "") ++ ">"
+    ++ redirectJs ++ "</script></body>\n</html>\n"
+
+def notFoundPage : String := "404.html"
+
+def hashShell : String :=
+  shell none 0 #[("mode", "hash")]
+    (drawnByScript ++ "<template id=\"search-body\">" ++ searchBody
+      ++ "</template><template id=\"foundational-body\">" ++ foundationalTypesBody ++ "</template>")
+
+structure Listed where
+  name : String
+  data : String
+  routes : Option String
+
+def versionsJson (entries : Array Listed) : String :=
+  pushEach "" entries fun o e =>
+    let o := jsonStr (jsonStr (o ++ "{\"name\":") e.name ++ ",\"data\":") e.data
+    (match e.routes with
+      | some r => jsonStr (o ++ ",\"routes\":") r
+      | none => o).push '}'
+
+def routesJson (rows : Array (String × DataFile × DataFile)) : String :=
+  let o := rows.foldl (init := "{") fun o (module, page, usedBy) =>
+    let o := if o == "{" then o else o.push ','
+    jsonStr (jsonStr (jsonStr o (modulePath module) ++ ":[") page.address |>.push ',') usedBy.address
+      |>.push ']'
+  o.push '}'
 
 structure Rendered where
   versionFile : DataFile
   data : Array DataFile
   shells : Array (String × String)
+  routes : Option DataFile
 
-def render (m : VersionMeta) (v : VersionData) : Except String Rendered := do
+def render (m : VersionMeta) (v : VersionData) (hashUrls : Bool := false) :
+    Except String Rendered := do
   let usedBy : Std.HashMap String ByteArray := Std.HashMap.ofList v.usedBy.toList
   let modules := DataFile.of "json" s!"{v.name}'s module list" v.modules
   let search := DataFile.of "bin" s!"{v.name}'s search index" v.search
@@ -142,6 +185,7 @@ def render (m : VersionMeta) (v : VersionData) : Except String Rendered := do
     (s!"{v.name}/{referencesPage}", referencesShell v.name versionFile references),
     (s!"{v.name}/{searchPage}", searchShell v.name versionFile),
     (s!"{v.name}/{foundationalTypesPage}", foundationalTypesShell v.name versionFile)]
+  let mut routed : Array (String × DataFile × DataFile) := #[]
   for p in v.pages do
     let content := if p.items.isEmpty then none else
       some (DataFile.of "json" s!"{v.name}'s content of {p.module}" (arrayOf (p.items.map (·.content))))
@@ -151,7 +195,10 @@ def render (m : VersionMeta) (v : VersionData) : Except String Rendered := do
     let used := DataFile.of "json" s!"{v.name}'s Used by of {p.module}" body
     data := data ++ content.toArray ++ #[page, used]
     shells := shells.push (shellPath v.name p.module, moduleShell v.name p.module versionFile page used)
-  return { versionFile, data, shells }
+    routed := routed.push (p.module, page, used)
+  if !hashUrls then return { versionFile, data, shells, routes := none }
+  let routes := DataFile.of "json" s!"{v.name}'s routes" (routesJson routed).toUTF8
+  return { versionFile, data := data.push routes, shells := #[], routes := some routes }
 
 /-! ## On disk -/
 
@@ -198,9 +245,9 @@ def writeData (out : FilePath) (f : DataFile) : ExceptT String IO (Option Tally)
     IO.FS.writeBinFile target stored
     return some (Tally.add {} f.raw.size stored.size)
 
-def writeVersion (out : FilePath) (m : VersionMeta) (v : VersionData) :
-    ExceptT String IO (VersionCounts × DataFile) := do
-  let r ← ExceptT.mk (pure (render m v))
+def writeVersion (out : FilePath) (m : VersionMeta) (v : VersionData) (hashUrls : Bool) :
+    ExceptT String IO (VersionCounts × Listed) := do
+  let r ← ExceptT.mk (pure (render m v hashUrls))
   IO.FS.createDirAll (out / "d")
   let mut referenced : Std.HashSet String := {}
   let mut added : Tally := {}
@@ -211,7 +258,7 @@ def writeVersion (out : FilePath) (m : VersionMeta) (v : VersionData) :
   let mut shells : Tally := {}
   for (path, body) in r.shells do shells := shells.plus (← writeText out path body)
   return ({ version := v.name, modules := v.pages.size, shells, referenced := referenced.size
-            added }, r.versionFile)
+            added }, { name := v.name, data := r.versionFile.address, routes := r.routes.map (·.address) })
 
 structure Counts where
   versions : Array VersionCounts
@@ -233,13 +280,13 @@ def writeAssets (out : FilePath) : IO Tally :=
 
 /-- Not every version's data at once, as `store measure` holds it: a Mathlib
 version is ≈ 8.5k pages and a site has 11 or more. -/
-def renderStore (store out : FilePath) (names : Array Store.VersionName) :
+def renderStore (store out : FilePath) (names : Array Store.VersionName) (hashUrls : Bool) :
     ExceptT String IO Counts := do
   for v in names do
     if let .error why := Store.checkoutOf (← Store.readRecord store v) then
       throw s!"store entry {v.text}: {why}"
   let mut versions : Array VersionCounts := #[]
-  let mut entries : Array (String × String) := #[]
+  let mut entries : Array Listed := #[]
   for v in names do
     let s ← Store.read store v
     let input ← match inputOf s.record s.files with
@@ -247,12 +294,13 @@ def renderStore (store out : FilePath) (names : Array Store.VersionName) :
       | .error why => throw s!"store entry {v.text}: {why}"
     if let some warning := input.site.bibliography.warning then
       IO.eprintln s!"warning: store entry {v.text}: {warning}"
-    let (counts, versionFile) ← writeVersion out (VersionMeta.of s.record) (versionData input)
+    let (counts, listed) ← writeVersion out (VersionMeta.of s.record) (versionData input) hashUrls
     versions := versions.push counts
-    entries := entries.push (v.text, versionFile.address)
-  let some (newest, newestFile) := entries.back? | throw "no version to render"
+    entries := entries.push listed
+  let some newest := entries.back? | throw "no version to render"
   let root := (← writeText out "versions.json" (versionsJson entries)).plus
-    (← writeText out "index.html" (siteIndexShell newest newestFile))
+    (← writeText out "index.html" (if hashUrls then hashShell else siteIndexShell newest.name))
+    |>.plus (← writeText out notFoundPage (notFoundShell hashUrls))
   return { versions, assets := ← writeAssets out, root }
 
 end Site

@@ -1,14 +1,10 @@
 import { type Child, el, link, markup, nameParts, withId } from "./dom.js";
+import type { Linker } from "./links.js";
 
 const ICON_MENU =
   '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg>';
 const ICON_THEME =
   '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3a7 7 0 1 0 7 7 5.5 5.5 0 0 1-7-7z"/></svg>';
-
-export interface FrameText {
-  readonly title: string;
-  readonly at: (path: string) => string;
-}
 
 function iconButton(id: string, label: string, icon: string): HTMLButtonElement {
   const b = withId(el("button", "iconbtn", markup(icon)), id);
@@ -16,7 +12,7 @@ function iconButton(id: string, label: string, icon: string): HTMLButtonElement 
   return b;
 }
 
-function topbar(f: FrameText, withNav: boolean): HTMLElement {
+function topbar(l: Linker, title: string, withNav: boolean): HTMLElement {
   const header = el("header", "topbar");
   if (withNav) {
     const toggle = iconButton("nav-toggle", "Modules", ICON_MENU);
@@ -35,23 +31,28 @@ function topbar(f: FrameText, withNav: boolean): HTMLElement {
   results.hidden = true;
   const form = el("form", "search", input, results);
   form.setAttribute("role", "search");
-  form.setAttribute("action", f.at("search.html"));
+  form.setAttribute("action", l.at("search.html"));
   header.append(
-    link("home", f.at("index.html"), f.title),
+    link("home", l.at("index.html"), title),
     form,
     iconButton("theme-toggle", "Theme", ICON_THEME),
   );
   return header;
 }
 
-const skip = (): HTMLAnchorElement => link("skip", "#content", "Skip to content");
+const skip = (l: Linker): HTMLAnchorElement => link("skip", l.here("content"), "Skip to content");
 
-export function plainFrame(f: FrameText, ...content: Child[]): Node[] {
+export function plainFrame(l: Linker, title: string, ...content: Child[]): Node[] {
   const main = withId(el("main", "content", ...content), "content");
-  return [skip(), topbar(f, false), el("div", "shell", main)];
+  return [skip(l), topbar(l, title, false), el("div", "shell", main)];
 }
 
-export function moduleFrame(f: FrameText, members: readonly string[], main: HTMLElement): Node[] {
+export function moduleFrame(
+  l: Linker,
+  title: string,
+  members: readonly string[],
+  main: HTMLElement,
+): Node[] {
   const scrim = withId(el("div", "scrim"), "scrim");
   scrim.hidden = true;
   const nav = withId(el("nav", "sidebar"), "sidebar");
@@ -60,7 +61,7 @@ export function moduleFrame(f: FrameText, members: readonly string[], main: HTML
     const toc = el(
       "ul",
       "toc",
-      ...members.map((name) => el("li", "", link("", `#${name}`, ...nameParts(name)))),
+      ...members.map((name) => el("li", "", link("", l.here(name), ...nameParts(name)))),
     );
     nav.append(el("section", "side", el("h2", "side-title", "On this page"), toc));
   }
@@ -72,5 +73,5 @@ export function moduleFrame(f: FrameText, members: readonly string[], main: HTML
       withId(el("div", "tree"), "module-tree"),
     ),
   );
-  return [skip(), topbar(f, true), el("div", "shell", scrim, nav, withId(main, "content"))];
+  return [skip(l), topbar(l, title, true), el("div", "shell", scrim, nav, withId(main, "content"))];
 }

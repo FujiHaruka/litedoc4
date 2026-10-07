@@ -10,7 +10,7 @@ export function resultItem(
   const a = document.createElement("a");
   const declared = nameAt(data.index, id);
   const where = data.modules[moduleAt(data.index, id)];
-  a.href = where ? `${href(where.p)}#${declared}` : `#${declared}`;
+  a.href = where ? href(`${where.p}#${declared}`) : `#${declared}`;
   const kind = document.createElement("span");
   kind.className = "kind";
   kind.textContent = kindAt(data.index, id);

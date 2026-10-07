@@ -49,6 +49,7 @@ def main : IO UInt32 :=
     Litedoc4Test.DataFormat.aPageFileNamesItsContentByAddressAndAnEmptyPageNamesNone,
     Litedoc4Test.DataFormat.theModuleListIsBuildsWithEachSummaryAsItsIndexRendersItAndTheDeclarationCount,
     Litedoc4Test.DataFormat.aChangedDocstringAddsOnlyItsContentItsPageFileAndTheVersionFile,
+    Litedoc4Test.DataFormat.hashUrlsWriteNoShellAndTheSameDataPlusARoutesFileByPagePath,
     Litedoc4Test.DataFormat.aCitationInContentLinksToTheReferencesPageWithNoRootPrefixAndNoAnchorId,
     Litedoc4Test.DataFormat.theReferencesDataListsEachEntryWithItsCitationsInModuleAndPageOrder,
     Litedoc4Test.DataFormat.theRenderedVersionNamesItsFrontPageAndReferencesFilesAndTheReferencesPageHasAShell,

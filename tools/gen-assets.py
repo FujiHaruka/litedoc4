@@ -22,20 +22,22 @@ OUT = ROOT / "src" / "Litedoc4" / "Assets.lean"
 # The third column is which sites write the file: `build`'s (`assets` below) and
 # `store render`'s (`storeAssets`, under the site's `assets/`). `themeBootJs` is in
 # neither: both inline it into every page's `<head>` rather than writing it as a
-# file, so it is an asset of the executable and not of a site.
+# file, so it is an asset of the executable and not of a site. `redirectJs` is
+# inlined the same way, into `store render`'s root `index.html` and `404.html`.
 SOURCES = [
     ("styleCss", "style.css", ("build", "store")),
     ("appJs", "app.js", ("build",)),
     ("faviconSvg", "favicon.svg", ("build", "store")),
     ("themeBootJs", "theme-boot.js", ()),
     ("siteJs", "site.js", ("store",)),
+    ("redirectJs", "redirect.js", ()),
 ]
 
 
 def escape(name, body):
     """Escape for a Lean string literal.
 
-    Two characters, because that is what these five files need (measured): no
+    Two characters, because that is what these six files need (measured): no
     CR and no control character other than newline and tab. A file that later
     carries one stops the generator rather than being encoded on a guess —
     Lean's `\\x` and `\\u` escapes have not been measured here, and inventing an

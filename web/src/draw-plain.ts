@@ -63,7 +63,7 @@ export function referencesContent(l: Linker, items: readonly ReferenceItem[]): N
   const lis = items.map((item) => {
     const anchor = `ref_${item.key}`;
     const li = withId(
-      el("li", "", link("", `#${anchor}`, item.tag), " ", markup(item.html)),
+      el("li", "", link("", l.here(anchor), item.tag), " ", markup(item.html)),
       anchor,
     );
     if (item.by.length > 0) {
@@ -72,4 +72,27 @@ export function referencesContent(l: Linker, items: readonly ReferenceItem[]): N
     return li;
   });
   return [el("div", "modhead", el("h1", "", "References")), el("div", "doc", el("ul", "", ...lis))];
+}
+
+export function notFoundContent(l: Linker, asked: string, version: string): Node[] {
+  const heading = withId(el("h2", "section-title", "Did you mean"), "how-about-heading");
+  heading.hidden = true;
+  return [
+    el(
+      "div",
+      "modhead",
+      el("h1", "", "Page not found"),
+      el(
+        "p",
+        "lede",
+        "Nothing in this documentation is at ",
+        el("code", "missing-path", asked),
+        `. If a declaration has moved, the closest matches in version ${version} are below; otherwise the `,
+        link("", l.at("index.html"), "module index"),
+        " lists every page.",
+      ),
+    ),
+    heading,
+    withId(el("ul", "results"), "how-about"),
+  ];
 }

@@ -77,7 +77,7 @@ def usage : String :=
        litedoc4 store measure --store <dir> --versions <name>,<name>...
                        --candidate a|b|c [--chunk-bytes <n>] [--out <dir>]
        litedoc4 store render --store <dir> --versions <name>,<name>...
-                       --out <dir>
+                       --out <dir> [--hash-urls]
 
   --root         (`build`, `modules`) the Lean package: the sources are globbed
                  under it, its oleans are hashed, `lake env` runs inside it, and
@@ -300,10 +300,16 @@ def usage : String :=
                  an empty --out, one version at a time: every data file once
                  under d/, gzipped and named by the address of its bytes, so a
                  file two versions share is one file; a shell per page under
-                 <version>/; versions.json and the root index.html. It prints
+                 <version>/; versions.json, the root index.html, which sends the
+                 reader on to the newest version, and 404.html, which sends an
+                 unversioned path on to the newest version's page. It prints
                  one JSON line of counts (per version and in total) and exits 3
                  on an entry that needs re-put or two different files under one
                  address
+  --hash-urls    (`store render`) no shells: the root index.html draws every
+                 page from a route in the fragment, #/<version>/<module path>,
+                 with a declaration as ?id=<name>; each version gets a routes
+                 file in d/, named by versions.json
   --candidate    (`store measure`) how declaration content is stored: a, one
                  file per module per version; b, per-module segments appended
                  by each version; c, packs read by byte range. It prints one
@@ -2280,6 +2286,7 @@ structure StoreArgs where
   versions : Option String := none
   candidate : Option String := none
   chunkBytes : Option String := none
+  hashUrls : Bool := false
   help : Bool := false
   deriving Inhabited
 
@@ -2298,7 +2305,8 @@ def storeFlags : List (String × List String) :=
    ("--root", ["check-stale"]),
    ("--versions", ["measure", "render"]),
    ("--candidate", ["measure"]),
-   ("--chunk-bytes", ["measure"])]
+   ("--chunk-bytes", ["measure"]),
+   ("--hash-urls", ["render"])]
 
 def storeFlagRefusal (command flag : String) : Option String :=
   match storeFlags.find? (·.1 == flag) with
@@ -2338,6 +2346,8 @@ partial def parseStore (command : String) : List String → StoreArgs → Except
       let (v, more) ← value; parseStore command more { acc with candidate := some v }
     else if flag == "--chunk-bytes" then do
       let (v, more) ← value; parseStore command more { acc with chunkBytes := some v }
+    else if flag == "--hash-urls" then
+      parseStore command rest { acc with hashUrls := true }
     else if flag == "--help" || flag == "-h" then
       parseStore command rest { acc with help := true }
     else
@@ -2548,7 +2558,7 @@ def storeRender (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
     | .ok names => pure names
   let some out := a.out | refuse "store render needs --out <dir>"
   if !(← isAbsentOrEmpty ⟨out⟩) then return ← refusedWith 3 s!"{out} is not an empty directory"
-  match ← (Data.Site.renderStore store ⟨out⟩ names).run with
+  match ← (Data.Site.renderStore store ⟨out⟩ names a.hashUrls).run with
   | .error why => refusedWith 3 why
   | .ok counts =>
     IO.println counts.json

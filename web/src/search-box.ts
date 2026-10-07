@@ -6,7 +6,10 @@ const DEBOUNCE_MS = 90;
 /** The dropdown is a peek, not the result list; `search.html` is that. */
 const MAX_ROWS = 30;
 
-export function initSearch(source: SearchSource): void {
+export function initSearch(
+  source: SearchSource,
+  signal: AbortSignal = new AbortController().signal,
+): void {
   const input = document.getElementById("search-input") as HTMLInputElement | null;
   const list = document.getElementById("search-results");
   if (!input || !list) return;
@@ -77,17 +80,25 @@ export function initSearch(source: SearchSource): void {
       items[active]?.querySelector("a")?.click();
     }
   });
-  document.addEventListener("click", (e) => {
-    if (!(e.target as Element | null)?.closest(".search")) close();
-  });
+  document.addEventListener(
+    "click",
+    (e) => {
+      if (!(e.target as Element | null)?.closest(".search")) close();
+    },
+    { signal },
+  );
 
   // `/` focuses search — but not while the reader is typing somewhere else.
-  document.addEventListener("keydown", (e) => {
-    const tag = document.activeElement?.tagName;
-    if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA") {
-      e.preventDefault();
-      input.focus();
-      input.select();
-    }
-  });
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      const tag = document.activeElement?.tagName;
+      if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA") {
+        e.preventDefault();
+        input.focus();
+        input.select();
+      }
+    },
+    { signal },
+  );
 }

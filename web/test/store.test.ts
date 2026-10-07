@@ -2,10 +2,13 @@ import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { moduleMain } from "../src/draw-module.js";
 import { indexContent } from "../src/draw-plain.js";
+import { guessOf } from "../src/guess.js";
 import { gunzipped, isGzip } from "../src/gzip.js";
+import { hashHref, parseHash } from "../src/hash-route.js";
 import { type Linker, resolvedHref, tableHref } from "../src/links.js";
+import { hashTarget, isVersionList, lostAt, moduleOfPage, rootCandidates } from "../src/lost.js";
 import { moduleComponents, pagePath, sourceUrlAt } from "../src/names.js";
-import { pageIn, type Route, routeOf } from "../src/route.js";
+import { hrefIn, pageIn, pathHere, type Route, routeOf } from "../src/route.js";
 import { linkSegments } from "../src/spans.js";
 import type { ContentItem, PageFile, Ref, VersionFile } from "../src/store-types.js";
 import { switchTarget } from "../src/versions.js";
@@ -13,6 +16,7 @@ import { destination, docNodes, wordLink } from "../src/words.js";
 
 const linker: Linker = {
   at: (path) => `../../v1/${path}`,
+  here: (anchor) => `#${anchor}`,
   roots: ["Init", "Std"],
   bases: { Init: "https://core/src" },
 };
@@ -161,11 +165,11 @@ describe("the docstring rule", () => {
   });
 
   it("resolves a destination as written", () => {
-    const at = (p: string) => `R/${p}`;
+    const at = { at: (p: string) => `R/${p}`, here: (a: string) => `H:${a}` };
     expect(destination("##Nat", at, has(["Nat"]))).toBe("#Nat");
     expect(destination("##Nat.succ", at, has(["succ"]))).toBe("R/search.html?q=Nat.succ");
     expect(destination("##A.«b c»", at, has([]))).toBe("R/search.html?q=A.%C2%ABb%20c%C2%BB");
-    expect(destination("#local", at, has([]))).toBe("#local");
+    expect(destination("#local", at, has([]))).toBe("H:local");
     expect(destination("https://x", at, has([]))).toBe("https://x");
     expect(destination("references.html#ref_K", at, has([]))).toBe("R/references.html#ref_K");
   });
@@ -261,6 +265,7 @@ describe("moduleMain", () => {
 
 describe("routeOf", () => {
   const place = { root: "../", version: "v2", data: "a" };
+  const nowhere = { search: "", hash: "" };
 
   it("tells each shell by its attributes and puts each at its path in the version", () => {
     const shells: [Record<string, string>, string][] = [
@@ -271,34 +276,149 @@ describe("routeOf", () => {
       [place, "index.html"],
     ];
     for (const [ds, path] of shells) {
-      const r = routeOf(ds);
+      const r = routeOf(ds, nowhere);
       expect(r === null ? null : pageIn(r)).toBe(path);
     }
-    expect(routeOf({ version: "v2", data: "a" })).toBeNull();
+    expect(routeOf({ version: "v2", data: "a" }, nowhere)).toBeNull();
+  });
+
+  it("takes the query and the decoded anchor from the address it arrived at", () => {
+    const r = routeOf(place, { search: "?missing=A", hash: "#A.%C2%ABb%C2%BB" });
+    expect(r?.query).toBe("?missing=A");
+    expect(r?.anchor).toBe("A.«b»");
+    expect(routeOf(place, { search: "", hash: "#" })?.anchor).toBeNull();
+  });
+
+  it("is the not-found page when the 404 bootstrap says so", () => {
+    const r = routeOf({ ...place, kind: "not-found", asked: "/x.html", guess: "x" }, nowhere);
+    expect(r?.kind).toBe("not-found");
+    expect(r === null ? null : pageIn(r)).toBe("index.html");
+  });
+});
+
+const hashed = (r: Route | null): Route => ({ ...(r as Route), mode: "hash" });
+
+describe("hrefIn", () => {
+  const module = routeOf(
+    { root: "./", version: "v1", data: "a", page: "p", module: "A.B" },
+    { search: "", hash: "" },
+  ) as Route;
+
+  it("climbs to the version root in path mode and builds a hash route in hash mode", () => {
+    expect(hrefIn(module, "A/B.html#A.B.f")).toBe("./v1/A/B.html#A.B.f");
+    expect(hrefIn(hashed(module), "A/B.html#A.B.f")).toBe("#/v1/A/B?id=A.B.f");
+    expect(hrefIn(hashed(module), "index.html")).toBe("#/v1/");
+    expect(hrefIn(hashed(module), "search.html?q=a b")).toBe("#/v1/search?q=a+b");
+  });
+
+  it("keeps an anchor on the page it is on in both modes", () => {
+    expect(pathHere(module, "x")).toBe("A/B.html#x");
+    const search = { ...module, kind: "search", query: "?q=z" } as Route;
+    expect(hrefIn(hashed(search), pathHere(search, "content"))).toBe("#/v1/search?q=z&id=content");
+  });
+});
+
+describe("hash routes", () => {
+  it("parses back what it builds, a name with ? and & included", () => {
+    for (const [path, page, query, anchor] of [
+      ["A/B.html#Option.get?&x", "A/B", "", "Option.get?&x"],
+      ["index.html", "", "", null],
+      ["search.html?q=Nat.succ", "search", "?q=Nat.succ", null],
+      ["references.html#ref_K", "references", "", "ref_K"],
+      ["Dep-Aux/«Odd».html", "Dep-Aux/«Odd»", "", null],
+    ] as const) {
+      expect(parseHash(hashHref("v4.1", path))).toEqual({ version: "v4.1", page, query, anchor });
+    }
+  });
+
+  it("reads a route the browser percent-encoded and refuses what is not a route", () => {
+    expect(parseHash("#/v1/A/%C2%ABb%C2%BB?id=A.%C2%ABb%C2%BB")).toEqual({
+      version: "v1",
+      page: "A/«b»",
+      query: "",
+      anchor: "A.«b»",
+    });
+    expect(parseHash("#/v1")).toEqual({ version: "v1", page: "", query: "", anchor: null });
+    expect(parseHash("#Example.x")).toBeNull();
+    expect(parseHash("")).toBeNull();
+    expect(parseHash("#//A")).toBeNull();
+  });
+});
+
+describe("the 404 page", () => {
+  it("probes every directory above the missing path for the site root, shortest first", () => {
+    expect(rootCandidates("/repo/Mathlib/Foo.html")).toEqual(["/", "/repo/", "/repo/Mathlib/"]);
+    expect(rootCandidates("/x.html")).toEqual(["/"]);
+  });
+
+  it("takes only a list of named versions as a versions file", () => {
+    expect(isVersionList([{ name: "v1", data: "a" }])).toBe(true);
+    expect(isVersionList([])).toBe(false);
+    expect(isVersionList({ name: "v1" })).toBe(false);
+    expect(isVersionList([{ name: "v1" }])).toBe(false);
+  });
+
+  it("tells a versioned path from an unversioned one by the version list", () => {
+    const vs = ["v1", "v2"];
+    expect(lostAt("Example/Basic.html", vs)).toEqual({
+      kind: "unversioned",
+      path: "Example/Basic.html",
+    });
+    expect(lostAt("v2/Example/Interval.html", vs)).toEqual({
+      kind: "versioned",
+      version: "v2",
+      path: "Example/Interval.html",
+    });
+    expect(lostAt("v9/Example/Basic.html", vs).kind).toBe("unversioned");
+    expect(lostAt("", vs)).toEqual({ kind: "nothing" });
+    expect(moduleOfPage("Example/Interval.html")).toBe("Example.Interval");
+    expect(moduleOfPage("garbage")).toBeNull();
+  });
+
+  it("sends a hash-mode site's missing path to the route of the same page", () => {
+    const asked = { search: "", hash: "#Example.Colour.name" };
+    expect(hashTarget("/p/", lostAt("Example/Basic.html", ["v1"]), "v1", asked)).toBe(
+      "/p/#/v1/Example/Basic?id=Example.Colour.name",
+    );
+    expect(
+      hashTarget("/", lostAt("v1/search.html", ["v1", "v2"]), "v2", { search: "?q=x", hash: "" }),
+    ).toBe("/#/v1/search?q=x");
+  });
+
+  it("guesses from the fragment first, then from the path read as a name", () => {
+    expect(guessOf("Example/Basic.html", "Example.%C2%ABx%C2%BB")).toBe("Example.«x»");
+    expect(guessOf("/Example/Basic.html", "")).toBe("Example.Basic");
   });
 });
 
 describe("switchTarget", () => {
-  const module = routeOf({ root: "../../", version: "v1", data: "a", page: "p", module: "A.B" });
-  const here = { search: "?q=x", hash: "#A.B.f" };
+  const module = routeOf(
+    { root: "../../", version: "v1", data: "a", page: "p", module: "A.B" },
+    { search: "?q=x", hash: "#A.B.f" },
+  ) as Route;
 
   it("goes to the same module and anchor when the other version has the module", () => {
-    expect(switchTarget(module as Route, "v4", here, [{ n: "A.B", p: "A/B.html" }])).toBe(
+    expect(switchTarget(module, "v4", [{ n: "A.B", p: "A/B.html" }])).toBe(
       "../../v4/A/B.html#A.B.f",
+    );
+    expect(switchTarget(hashed(module), "v4", [{ n: "A.B", p: "A/B.html" }])).toBe(
+      "#/v4/A/B?id=A.B.f",
     );
   });
 
   it("goes to the other version's module list, naming the module, when it has none", () => {
-    expect(switchTarget(module as Route, "v4", here, [{ n: "A.C", p: "A/C.html" }])).toBe(
+    expect(switchTarget(module, "v4", [{ n: "A.C", p: "A/C.html" }])).toBe(
       "../../v4/index.html?missing=A.B",
     );
+    expect(switchTarget(hashed(module), "v4", [])).toBe("#/v4/?missing=A.B");
   });
 
   it("keeps the query of a search page and the path of every other page", () => {
-    const search = routeOf({ root: "../", version: "v1", data: "a", kind: "search" }) as Route;
-    expect(switchTarget(search, "v2", here, null)).toBe("../v2/search.html?q=x#A.B.f");
-    const index = routeOf({ root: "./", version: "v1", data: "a" }) as Route;
-    expect(switchTarget(index, "v2", { search: "", hash: "" }, null)).toBe("./v2/index.html");
+    const at = { search: "?q=x", hash: "#A.B.f" };
+    const search = routeOf({ root: "../", version: "v1", data: "a", kind: "search" }, at) as Route;
+    expect(switchTarget(search, "v2", null)).toBe("../v2/search.html?q=x#A.B.f");
+    const index = routeOf({ root: "./", version: "v1", data: "a" }, { search: "", hash: "" });
+    expect(switchTarget(index as Route, "v2", null)).toBe("./v2/index.html");
   });
 });
 

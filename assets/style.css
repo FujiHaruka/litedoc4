@@ -307,7 +307,7 @@ code, pre, .sig, .tree, .toc a, .decl-name, kbd { font-family: var(--mono); }
 }
 /* A marker in the gutter says "here" without repainting the block the reader
    came to read. */
-.decl:target::before {
+.decl:target::before, .decl.targeted::before {
   content: ""; position: absolute; left: calc(var(--gutter) - 1.4rem);
   top: 1.6rem; bottom: 1.9rem;
   width: 3px; background: var(--mark); border-radius: 2px;
@@ -632,7 +632,7 @@ body.plain .modhead h1 { font-size: clamp(1.75rem, 1.1rem + 2.6vw, 2.75rem); }
   /* The gutter costs the signature more width than the column is worth here. */
   .decl { padding-left: 0; }
   .decl-head .kind { position: static; width: auto; }
-  .decl:target::before { left: -.6rem; }
+  .decl:target::before, .decl.targeted::before { left: -.6rem; }
 
   .content { padding-top: 1.5rem; }
   .search { flex-basis: 7rem; }

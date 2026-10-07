@@ -1,6 +1,6 @@
 import { body } from "./site.js";
 
-export function initDrawer(): void {
+export function initDrawer(signal: AbortSignal = new AbortController().signal): void {
   const toggle = document.getElementById("nav-toggle");
   const scrim = document.getElementById("scrim");
   if (!toggle) return;
@@ -14,9 +14,13 @@ export function initDrawer(): void {
 
   toggle.addEventListener("click", () => set(body.dataset.nav !== "open"));
   scrim?.addEventListener("click", () => set(false));
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && body.dataset.nav === "open") set(false);
-  });
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key === "Escape" && body.dataset.nav === "open") set(false);
+    },
+    { signal },
+  );
   // A tap on a link navigates; leaving the drawer open would cover the page.
   document.getElementById("sidebar")?.addEventListener("click", (e) => {
     if ((e.target as Element | null)?.closest("a")) set(false);

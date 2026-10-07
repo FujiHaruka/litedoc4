@@ -80,47 +80,47 @@ var h = document.body, g = h.dataset.root ?? "./", _ = h.dataset.module ?? "", v
 function w() {
 	return y ??= C("modules.json"), y;
 }
-function T() {
+function ee() {
 	return b ??= fetch(v("search-index.bin")).then((e) => e.ok ? e.arrayBuffer() : Promise.reject(Error(String(e.status)))).then((e) => l(new Uint8Array(e))).catch(() => null), b;
 }
-function E() {
+function te() {
 	return x ??= C("instances.json"), x;
 }
-function D() {
+function T() {
 	return S ??= C("declarations/used-by.json"), S;
 }
-async function O() {
-	let [e, t] = await Promise.all([w(), T()]);
+async function E() {
+	let [e, t] = await Promise.all([w(), ee()]);
 	return !e?.modules || !t ? null : {
 		modules: e.modules,
 		index: t
 	};
 }
-var k = {
-	data: O,
+var D = {
+	data: E,
 	href: v
 };
 //#endregion
 //#region src/drawer.ts
-function A() {
-	let e = document.getElementById("nav-toggle"), t = document.getElementById("scrim");
-	if (!e) return;
-	let n = (n) => {
-		h.dataset.nav = n ? "open" : "closed", e.setAttribute("aria-expanded", String(n)), t && (t.hidden = !n);
+function O(e = new AbortController().signal) {
+	let t = document.getElementById("nav-toggle"), n = document.getElementById("scrim");
+	if (!t) return;
+	let r = (e) => {
+		h.dataset.nav = e ? "open" : "closed", t.setAttribute("aria-expanded", String(e)), n && (n.hidden = !e);
 	};
-	n(!1), e.addEventListener("click", () => n(h.dataset.nav !== "open")), t?.addEventListener("click", () => n(!1)), document.addEventListener("keydown", (e) => {
-		e.key === "Escape" && h.dataset.nav === "open" && n(!1);
-	}), document.getElementById("sidebar")?.addEventListener("click", (e) => {
-		e.target?.closest("a") && n(!1);
+	r(!1), t.addEventListener("click", () => r(h.dataset.nav !== "open")), n?.addEventListener("click", () => r(!1)), document.addEventListener("keydown", (e) => {
+		e.key === "Escape" && h.dataset.nav === "open" && r(!1);
+	}, { signal: e }), document.getElementById("sidebar")?.addEventListener("click", (e) => {
+		e.target?.closest("a") && r(!1);
 	});
 }
 //#endregion
 //#region src/imported-by.ts
-function j(e) {
+function k(e) {
 	let t = document.createElement("span");
 	return t.className = "count", t.textContent = ` ${e}`, t;
 }
-async function M() {
+async function ne() {
 	let e = document.querySelector("[data-fill=\"imported-by\"]");
 	if (!e) return;
 	let t = await w(), n = (t?.modules?.find((e) => e.n === _)?.i ?? []).map((e) => t?.modules[e]).filter((e) => e !== void 0);
@@ -135,44 +135,53 @@ async function M() {
 			let t = document.createElement("li"), n = document.createElement("a");
 			n.href = v(e.p), n.textContent = e.n, t.append(n), r.append(t);
 		}
-		e.querySelector("summary")?.append(j(n.length));
+		e.querySelector("summary")?.append(k(n.length));
 	}
 }
 //#endregion
 //#region src/instances.ts
-function N() {
+function re() {
 	let e = document.querySelectorAll("[data-fill=\"instances\"], [data-fill=\"instances-for\"], [data-fill=\"used-by\"]");
 	for (let t of e) t.addEventListener("toggle", async () => {
 		let e = t.querySelector("ul");
 		if (!e) return;
-		let n = t.dataset.fill ?? "", r = t.dataset.name ?? "", [i, a] = await Promise.all([P(n), O()]), o = i?.[r] ?? [];
+		let n = t.dataset.fill ?? "", r = t.dataset.name ?? "", [i, a] = await Promise.all([ie(n), E()]), o = i?.[r] ?? [];
 		if (e.textContent = "", o.length === 0) {
 			let t = document.createElement("li");
 			t.className = "search-empty", t.textContent = i ? "None" : "Index unavailable", e.append(t);
 			return;
 		}
 		let s = a ? m(a.index, o) : /* @__PURE__ */ new Map();
-		for (let t of o) e.append(F(a, t, s.get(t), v));
+		for (let t of o) e.append(A(a, t, s.get(t), v));
 	}, { once: !0 });
 }
-async function P(e) {
-	if (e === "used-by") return await D();
-	let t = await E();
+async function ie(e) {
+	if (e === "used-by") return await T();
+	let t = await te();
 	if (!t) return null;
 	let n = e === "instances" ? t.instances : t.instancesFor;
 	return n ? { ...n } : {};
 }
-function F(e, t, n, r) {
+function A(e, t, n, r) {
 	let i = document.createElement("li"), a = document.createElement("a");
 	a.textContent = t;
 	let o = e && n !== void 0 ? e.modules[p(e.index, n)] : void 0;
-	return a.href = o ? `${r(o.p)}#${t}` : `#${t}`, i.append(a), i;
+	return a.href = o ? r(`${o.p}#${t}`) : `#${t}`, i.append(a), i;
 }
 //#endregion
+//#region src/hash-route.ts
+var j = (e) => {
+	try {
+		return decodeURIComponent(e);
+	} catch {
+		return e;
+	}
+};
+//#endregion
 //#region src/result-item.ts
-function I(e, t, n) {
+function M(e, t, n) {
 	let r = document.createElement("li"), i = document.createElement("a"), a = d(e.index, t), o = e.modules[p(e.index, t)];
-	i.href = o ? `${n(o.p)}#${a}` : `#${a}`;
+	i.href = o ? n(`${o.p}#${a}`) : `#${a}`;
 	let s = document.createElement("span");
 	s.className = "kind", s.textContent = f(e.index, t);
 	let c = document.createElement("span");
@@ -182,7 +191,7 @@ function I(e, t, n) {
 }
 //#endregion
 //#region src/score.ts
-function L(e, t, n, r, i) {
+function N(e, t, n, r, i) {
 	if (t - n >= i) {
 		let a = !0;
 		for (let t = 0; t < i; t++) if (e[n + t] !== r[t]) {
@@ -208,15 +217,15 @@ function L(e, t, n, r, i) {
 	}
 	return -1;
 }
-function R(e, t) {
+function P(e, t) {
 	let n = Array.from({ length: t }, (e, t) => t);
 	return n.sort((t, n) => e.score[n] - e.score[t] || e.length[t] - e.length[n] || e.id[t] - e.id[n]), n.map((t) => e.id[t]);
 }
 //#endregion
 //#region src/search.ts
-function z(r, i) {
+function F(r, i) {
 	let a = s.encode(i), o = a.length, l = r.narrow;
-	if (l && i.startsWith(l.query)) return B(r, l, a, o, i);
+	if (l && i.startsWith(l.query)) return I(r, l, a, o, i);
 	let d = r.bytes, f = r.folds.size > 0, p = {
 		names: [],
 		starts: [],
@@ -254,123 +263,127 @@ function z(r, i) {
 				}
 			}
 		}
-		let S = L(y, b, x, a, o);
+		let S = N(y, b, x, a, o);
 		S > 0 && (r.id[h] = i, r.score[h] = S, r.length[h] = u(y, 0, b), h < 512 && (p.names.push(y.slice(0, b)), p.starts.push(x), p.ids.push(i)), h++);
 	}
 	return r.narrow = h <= 512 ? {
 		query: i,
 		...p
-	} : null, R(r, h);
+	} : null, P(r, h);
 }
-function B(e, t, n, r, i) {
+function I(e, t, n, r, i) {
 	let a = {
 		names: [],
 		starts: [],
 		ids: []
 	}, o = 0;
 	for (let i = 0; i < t.ids.length; i++) {
-		let s = t.names[i], c = L(s, s.length, t.starts[i], n, r);
+		let s = t.names[i], c = N(s, s.length, t.starts[i], n, r);
 		c > 0 && (e.id[o] = t.ids[i], e.score[o] = c, e.length[o] = u(s, 0, s.length), a.names.push(s), a.starts.push(t.starts[i]), a.ids.push(t.ids[i]), o++);
 	}
 	return e.narrow = {
 		query: i,
 		...a
-	}, R(e, o);
+	}, P(e, o);
 }
 //#endregion
-//#region src/not-found.ts
-var V = 20;
-async function H() {
-	let e = document.getElementById("how-about"), t = document.getElementById("missing-path");
-	if (t && (t.textContent = location.pathname + location.hash), !e) return;
-	let n = (decodeURIComponent(location.hash.slice(1)) || decodeURIComponent(location.pathname).replace(/\.html$/, "").split("/").filter(Boolean).join(".")).trim().toLowerCase();
-	if (n.length < 2) return;
-	let r = await O();
-	if (!r) return;
-	let i = z(r.index, n).slice(0, V);
-	if (i.length !== 0) {
-		for (let t of i) e.append(I(r, t, v));
+//#region src/guess.ts
+var L = 20, R = (e, t) => j(t) || j(e).replace(/\.html$/, "").split("/").filter(Boolean).join(".");
+async function z(e, t) {
+	let n = document.getElementById("how-about"), r = t.trim().toLowerCase();
+	if (!n || r.length < 2) return;
+	let i = await e.data();
+	if (!i) return;
+	let a = F(i.index, r).slice(0, L);
+	if (a.length !== 0) {
+		for (let t of a) n.append(M(i, t, e.href));
 		document.getElementById("how-about-heading")?.removeAttribute("hidden");
 	}
 }
 //#endregion
+//#region src/not-found.ts
+async function B() {
+	let e = document.getElementById("missing-path");
+	e && (e.textContent = location.pathname + location.hash), await z(D, R(location.pathname, location.hash.slice(1)));
+}
+//#endregion
 //#region src/search-box.ts
-var U = 90, W = 30;
-function G(e) {
-	let t = document.getElementById("search-input"), n = document.getElementById("search-results");
-	if (!t || !n) return;
-	let r = [], i = -1, a = 0, o = () => {
-		n.hidden = !0, n.textContent = "", r = [], i = -1;
-	}, s = async () => {
-		let a = t.value.trim().toLowerCase();
-		if (a.length < 2) return o();
-		let s = await e.data();
-		if (!s) return o();
-		let c = z(s.index, a);
-		if (n.textContent = "", c.length === 0) {
+var V = 90, H = 30;
+function U(e, t = new AbortController().signal) {
+	let n = document.getElementById("search-input"), r = document.getElementById("search-results");
+	if (!n || !r) return;
+	let i = [], a = -1, o = 0, s = () => {
+		r.hidden = !0, r.textContent = "", i = [], a = -1;
+	}, c = async () => {
+		let t = n.value.trim().toLowerCase();
+		if (t.length < 2) return s();
+		let o = await e.data();
+		if (!o) return s();
+		let c = F(o.index, t);
+		if (r.textContent = "", c.length === 0) {
 			let e = document.createElement("li");
-			e.className = "search-empty", e.textContent = "No matching declaration", n.append(e), n.hidden = !1;
+			e.className = "search-empty", e.textContent = "No matching declaration", r.append(e), r.hidden = !1;
 			return;
 		}
-		r = c.slice(0, W).map((t) => {
-			let r = I(s, t, e.href);
-			return n.append(r), r;
-		}), i = -1, n.hidden = !1;
-	}, c = (e) => {
-		if (r.length === 0) return;
-		r[i]?.removeAttribute("aria-selected"), i = (i + e + r.length) % r.length;
-		let t = r[i];
+		i = c.slice(0, H).map((t) => {
+			let n = M(o, t, e.href);
+			return r.append(n), n;
+		}), a = -1, r.hidden = !1;
+	}, l = (e) => {
+		if (i.length === 0) return;
+		i[a]?.removeAttribute("aria-selected"), a = (a + e + i.length) % i.length;
+		let t = i[a];
 		t && (t.setAttribute("aria-selected", "true"), t.scrollIntoView({ block: "nearest" }));
 	};
-	t.addEventListener("input", () => {
-		clearTimeout(a), a = setTimeout(() => void s(), U);
-	}), t.addEventListener("focus", () => void e.data()), t.addEventListener("keydown", (e) => {
-		e.key === "ArrowDown" ? (e.preventDefault(), c(1)) : e.key === "ArrowUp" ? (e.preventDefault(), c(-1)) : e.key === "Escape" ? (o(), t.blur()) : e.key === "Enter" && i >= 0 && (e.preventDefault(), r[i]?.querySelector("a")?.click());
+	n.addEventListener("input", () => {
+		clearTimeout(o), o = setTimeout(() => void c(), V);
+	}), n.addEventListener("focus", () => void e.data()), n.addEventListener("keydown", (e) => {
+		e.key === "ArrowDown" ? (e.preventDefault(), l(1)) : e.key === "ArrowUp" ? (e.preventDefault(), l(-1)) : e.key === "Escape" ? (s(), n.blur()) : e.key === "Enter" && a >= 0 && (e.preventDefault(), i[a]?.querySelector("a")?.click());
 	}), document.addEventListener("click", (e) => {
-		e.target?.closest(".search") || o();
-	}), document.addEventListener("keydown", (e) => {
-		let n = document.activeElement?.tagName;
-		e.key === "/" && n !== "INPUT" && n !== "TEXTAREA" && (e.preventDefault(), t.focus(), t.select());
-	});
+		e.target?.closest(".search") || s();
+	}, { signal: t }), document.addEventListener("keydown", (e) => {
+		let t = document.activeElement?.tagName;
+		e.key === "/" && t !== "INPUT" && t !== "TEXTAREA" && (e.preventDefault(), n.focus(), n.select());
+	}, { signal: t });
 }
 //#endregion
 //#region src/search-page.ts
-var K = 90, q = 200;
-function J(e) {
-	let t = document.getElementById("page-results"), n = document.getElementById("page-note"), r = document.getElementById("search-input");
-	if (!t || !r) return;
+var W = 90, G = 200;
+function K(e, t = location.search) {
+	let n = document.getElementById("page-results"), r = document.getElementById("page-note"), i = document.getElementById("search-input");
+	if (!n || !i) return;
 	document.getElementById("search-results")?.remove();
-	let i = new URLSearchParams(location.search).get("q");
-	i && !r.value && (r.value = i);
-	let a = async () => {
-		let i = r.value.trim().toLowerCase();
-		if (t.textContent = "", i.length < 2) {
-			n && (n.textContent = "Type at least two characters.");
+	let a = new URLSearchParams(t).get("q");
+	a && !i.value && (i.value = a);
+	let o = async () => {
+		let t = i.value.trim().toLowerCase();
+		if (n.textContent = "", t.length < 2) {
+			r && (r.textContent = "Type at least two characters.");
 			return;
 		}
 		let a = await e.data();
 		if (!a) {
-			n && (n.textContent = "The search index could not be loaded.");
+			r && (r.textContent = "The search index could not be loaded.");
 			return;
 		}
-		let o = z(a.index, i);
-		for (let n of o.slice(0, q)) t.append(I(a, n, e.href));
-		n && (n.textContent = o.length === 0 ? "No matching declaration." : o.length > q ? `${o.length} matches, showing the first ${q}.` : `${o.length} match${o.length === 1 ? "" : "es"}.`);
-	}, o = 0;
-	r.addEventListener("input", () => {
-		clearTimeout(o), o = setTimeout(() => void a(), K);
-	}), r.form?.addEventListener("submit", (e) => {
-		e.preventDefault(), a();
-	}), r.focus(), a();
+		let o = F(a.index, t);
+		for (let t of o.slice(0, G)) n.append(M(a, t, e.href));
+		r && (r.textContent = o.length === 0 ? "No matching declaration." : o.length > G ? `${o.length} matches, showing the first ${G}.` : `${o.length} match${o.length === 1 ? "" : "es"}.`);
+	}, s = 0;
+	i.addEventListener("input", () => {
+		clearTimeout(s), s = setTimeout(() => void o(), W);
+	}), i.form?.addEventListener("submit", (e) => {
+		e.preventDefault(), o();
+	}), i.focus(), o();
 }
 //#endregion
 //#region src/sundry.ts
-function ee() {
+function q() {
 	if (new URLSearchParams(location.search).get("jump") !== "src") return;
 	let e = document.getElementById(decodeURIComponent(location.hash.slice(1)))?.querySelector(".src")?.href;
 	e && location.replace(e);
 }
-function te() {
+function J() {
 	addEventListener("beforeprint", () => {
 		for (let e of document.querySelectorAll("details:not([open])")) e.open = !0, e.dataset.printOpened = "1";
 	}), addEventListener("afterprint", () => {
@@ -383,11 +396,11 @@ var Y = "litedoc4-theme", X = [
 	"auto",
 	"light",
 	"dark"
-], ne = (e) => e !== null && X.includes(e);
+], ae = (e) => e !== null && X.includes(e);
 function Z() {
 	try {
 		let e = localStorage.getItem(Y);
-		return ne(e) ? e : "auto";
+		return ae(e) ? e : "auto";
 	} catch {
 		return "auto";
 	}
@@ -397,7 +410,7 @@ function Q(e) {
 	let t = document.getElementById("theme-toggle");
 	t && (t.title = `Theme: ${e}`, t.ariaLabel = t.title);
 }
-function re() {
+function oe() {
 	Q(Z()), document.getElementById("theme-toggle")?.addEventListener("click", () => {
 		let e = X[(X.indexOf(Z()) + 1) % X.length];
 		try {
@@ -408,7 +421,7 @@ function re() {
 }
 //#endregion
 //#region src/tree.ts
-function ie(e) {
+function se(e) {
 	let t = { children: /* @__PURE__ */ new Map() };
 	for (let n of e) {
 		let e = t;
@@ -449,11 +462,11 @@ function $(e, t, n, r) {
 	}
 	return i;
 }
-async function ae() {
+async function ce() {
 	let e = document.getElementById("module-tree");
 	if (!e) return;
 	let t = await w();
-	t?.modules?.length && (e.textContent = "", e.append($(ie(t.modules), "", _, v)), e.querySelector("[aria-current]")?.scrollIntoView({ block: "center" }));
+	t?.modules?.length && (e.textContent = "", e.append($(se(t.modules), "", _, v)), e.querySelector("[aria-current]")?.scrollIntoView({ block: "center" }));
 }
-re(), A(), J(k), G(k), N(), te(), ee(), ae(), M(), H();
+oe(), O(), K(D), U(D), re(), J(), q(), ce(), ne(), B();
 //#endregion

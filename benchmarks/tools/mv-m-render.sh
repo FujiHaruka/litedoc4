@@ -3,11 +3,12 @@
 # every version rendered --runs times, each alone once, the output laid out by kind.
 #
 # usage: benchmarks/tools/mv-m-render.sh --store DIR --versions T,T [--work DIR]
-#          [--runs N]
+#          [--runs N] [--hash-urls]
 #   --store     a store whose entries are at the current record schema
 #   --versions  the entries, oldest first (default: v4.32.2,v4.33.0,v4.33.1)
 #   --work      absent or empty (default: /private/tmp/lean-doc-relay/mv-m-render)
 #   --runs      full renders, timed (default: 5; the first two are the identity)
+#   --hash-urls passed to every store render: no shells, a routes file per version
 #   LITEDOC4    the binary (default: .lake/build/bin/litedoc4)
 set -euo pipefail
 
@@ -22,12 +23,14 @@ STORE=""
 VERSIONS=v4.32.2,v4.33.0,v4.33.1
 WORK=/private/tmp/lean-doc-relay/mv-m-render
 RUNS=5
+HASH=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --store) STORE="$2"; shift 2 ;;
     --versions) VERSIONS="$2"; shift 2 ;;
     --work) WORK="$2"; shift 2 ;;
     --runs) RUNS="$2"; shift 2 ;;
+    --hash-urls) HASH=(--hash-urls); shift ;;
     -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d'; answer 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -47,7 +50,7 @@ fail () { echo "MV-M RENDER: $*" >&2; exit 1; }
 render () {
   local name="$1" list="$2" rc=0
   /usr/bin/time -l -o "$LOGS/$name.time" "$LITEDOC4" store render --store "$STORE" \
-    --versions "$list" --out "$WORK/$name" >"$LOGS/$name.json" 2>"$LOGS/$name.err" || rc=$?
+    --versions "$list" --out "$WORK/$name" ${HASH[@]+"${HASH[@]}"} >"$LOGS/$name.json" 2>"$LOGS/$name.err" || rc=$?
   [ "$rc" -eq 0 ] || fail "store render $name exited $rc: $(tail -c 1000 "$LOGS/$name.err")"
 }
 
@@ -58,6 +61,7 @@ render () {
   echo "store             $STORE"
   echo "versions          $VERSIONS"
   echo "runs              $RUNS"
+  echo "urls              ${HASH[*]:-paths}"
 } | tee "$LOGS/conditions.txt"
 
 for k in $(seq 1 "$RUNS"); do
@@ -74,7 +78,11 @@ done
 for v in "${TAGS[@]}"; do
   render "alone-$v" "$v"
   same=yes
-  /usr/bin/diff -r "$WORK/alone-$v/$v" "$WORK/all-1/$v" >"$LOGS/alone-$v.diff" 2>&1 || same=no
+  if [ ${#HASH[@]} -eq 0 ]; then
+    /usr/bin/diff -r "$WORK/alone-$v/$v" "$WORK/all-1/$v" >"$LOGS/alone-$v.diff" 2>&1 || same=no
+  elif [ -e "$WORK/alone-$v/$v" ]; then
+    same=no
+  fi
   missing=0
   for f in "$WORK/alone-$v"/d/*; do
     cmp -s "$f" "$WORK/all-1/d/$(basename "$f")" || missing=$((missing + 1))
@@ -106,7 +114,10 @@ if [e["name"] for e in listed] != versions:
     sys.exit("versions.json lists %s, not %s" % ([e["name"] for e in listed], versions))
 ATTR = re.compile(r' data-([a-z-]+)="([^"]*)"')
 VERSION_PAGES = ("index.html", "references.html", "search.html", "foundational_types.html")
-KINDS = ("content", "page", "usedBy", "modules", "search", "instances", "references", "front", "version")
+KINDS = ("content", "page", "usedBy", "modules", "search", "instances", "references", "front", "version", "routes")
+hashed = all("routes" in e for e in listed)
+if not hashed and any("routes" in e for e in listed):
+    sys.exit("versions.json names a routes file for some versions and not others")
 seen, out, view_lines = set(), [], []
 for e in listed:
     v = e["name"]
@@ -129,6 +140,7 @@ for e in listed:
     shells = shell_bytes = 0
     views = []
     shell_paths = set()
+    pages = []
     for dirpath, _, files in os.walk(os.path.join(site, v)):
         for fn in files:
             p = os.path.join(dirpath, fn)
@@ -137,16 +149,25 @@ for e in listed:
             shell_bytes += os.path.getsize(p)
             attrs = dict(ATTR.findall(open(p, encoding="utf-8").read()))
             if "page" in attrs:
-                page = attrs["page"] + ".json.gz"
-                used = attrs["used-by"] + ".json.gz"
-                add("page", page)
-                add("usedBy", used)
-                c = json.loads(load(page))["content"]
-                fetched = [vfile, page, used]
-                if c is not None:
-                    add("content", c + ".json.gz")
-                    fetched.append(c + ".json.gz")
-                views.append(sum(on_disk[f] for f in fetched))
+                pages.append((attrs["page"], attrs["used-by"]))
+    if hashed:
+        add("routes", e["routes"] + ".json.gz")
+        routes = json.loads(load(e["routes"] + ".json.gz"))
+        pages = list(routes.values())
+        shell_paths = {path + ".html" for path in routes} | set(VERSION_PAGES)
+        if shells:
+            sys.exit("%s: %d shells written with hash URLs" % (v, shells))
+    for page_address, used_address in pages:
+        page = page_address + ".json.gz"
+        used = used_address + ".json.gz"
+        add("page", page)
+        add("usedBy", used)
+        c = json.loads(load(page))["content"]
+        fetched = [vfile, page, used] + ([e["routes"] + ".json.gz"] if hashed else [])
+        if c is not None:
+            add("content", c + ".json.gz")
+            fetched.append(c + ".json.gz")
+        views.append(sum(on_disk[f] for f in fetched))
     want = {m["p"] for m in json.loads(load(vj["modules"] + ".json.gz"))["modules"]} | set(VERSION_PAGES)
     if shell_paths != want:
         sys.exit("%s: shells beyond its module list's pages and %s: %s; absent: %s" % (
@@ -163,8 +184,8 @@ for e in listed:
     seen |= set(kinds)
     out.append((v, shells, shell_bytes, ref, new))
     modules_bytes = on_disk[vj["modules"] + ".json.gz"]
-    view_lines.append("%s: a module page fetches its version, page, Used-by and content files: %d pages, %d B in all, max %d, median %.0f (the module list, if a page also fetches it: +%d B each)" % (
-        v, len(views), sum(views), max(views), statistics.median(views), modules_bytes))
+    view_lines.append("%s: a module page fetches its version, page, Used-by%s and content files: %d pages, %d B in all, max %d, median %.0f (the module list, if a page also fetches it: +%d B each)" % (
+        v, ", routes" if hashed else "", len(views), sum(views), max(views), statistics.median(views), modules_bytes))
 
 counts = json.load(open(os.path.join(logs, "all-1.json"), encoding="utf-8"))
 bad = []
@@ -185,8 +206,9 @@ assets_bytes = sum(os.path.getsize(p) for p in assets)
 if counts["total"]["assets"]["files"] != len(assets) or counts["total"]["assets"]["storedBytes"] != assets_bytes:
     bad.append("assets %s vs counted %d/%d" % (counts["total"]["assets"], len(assets), assets_bytes))
 top = sorted(os.listdir(site))
-if top != sorted(["assets", "d", "index.html", "versions.json"] + versions):
-    bad.append("the site root holds %s, not assets/, d/, index.html, versions.json and one directory per version" % top)
+want_top = sorted(["404.html", "assets", "d", "index.html", "versions.json"] + ([] if hashed else versions))
+if top != want_top:
+    bad.append("the site root holds %s, not %s" % (top, want_top))
 if counts["total"]["files"] != sum(len(fns) for _, _, fns in os.walk(site)):
     bad.append("total files %d vs %d on disk" % (counts["total"]["files"], sum(len(fns) for _, _, fns in os.walk(site))))
 if bad:
@@ -198,7 +220,8 @@ print("  shells %d files %d B; data %d files %d B stored (%d B raw); assets %d f
     t["shells"]["files"], t["shells"]["storedBytes"], t["data"]["files"], t["data"]["storedBytes"],
     t["data"]["rawBytes"], t["assets"]["files"], t["assets"]["storedBytes"], t["root"]["files"],
     t["root"]["storedBytes"]))
-print("reconciled with the renderer's counts: shells, data referenced and added per version, every d/ file referenced, assets/, every file of the site; each version's shells are its module list's pages plus %s" % ", ".join(VERSION_PAGES))
+print("reconciled with the renderer's counts: shells, data referenced and added per version, every d/ file referenced, assets/, every file of the site; each version's %s its module list's pages plus %s" % (
+    "routes file names exactly" if hashed else "shells are", ", ".join(VERSION_PAGES)))
 for v, shells, shell_bytes, ref, new in out:
     print()
     print("%s: %d shells (%d B)" % (v, shells, shell_bytes))

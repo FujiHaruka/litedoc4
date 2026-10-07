@@ -1,38 +1,49 @@
 import { el } from "./dom.js";
-import { pageIn, type Route } from "./route.js";
+import { decoded, parseHash } from "./hash-route.js";
+import { MISSING } from "./lost.js";
+import { hrefIn, pageIn, pathHere, type Route } from "./route.js";
+import { isShell } from "./shell-probe.js";
 import { dataJson } from "./store-data.js";
 import type { VersionEntry, VersionFile } from "./store-types.js";
 import type { ModuleEntry, ModulesFile } from "./types.js";
 
-export const MISSING = "missing";
-
-export interface Here {
-  readonly search: string;
-  readonly hash: string;
-}
-
-export function switchTarget(
-  r: Route,
-  to: string,
-  here: Here,
-  modules: readonly ModuleEntry[] | null,
-): string {
-  const base = `${r.root}${to}/`;
-  if (r.kind !== "module") {
-    return base + pageIn(r) + (r.kind === "search" ? here.search : "") + here.hash;
-  }
+export function switchTarget(r: Route, to: string, modules: readonly ModuleEntry[] | null): string {
+  const there = { ...r, version: to };
+  if (r.kind !== "module") return hrefIn(there, pathHere(r, r.anchor));
   const entry = modules?.find((m) => m.n === r.module);
   return entry
-    ? base + entry.p + here.hash
-    : `${base}index.html?${MISSING}=${encodeURIComponent(r.module)}`;
+    ? hrefIn(there, entry.p + (r.anchor === null ? "" : `#${r.anchor}`))
+    : hrefIn(there, `index.html?${MISSING}=${encodeURIComponent(r.module)}`);
 }
 
-async function destinationIn(r: Route, to: VersionEntry): Promise<string> {
-  const here: Here = { search: location.search, hash: location.hash };
-  if (r.kind !== "module") return switchTarget(r, to.name, here, null);
+function now(r: Route): Route {
+  if (r.mode === "hash") {
+    const place = parseHash(location.hash);
+    return { ...r, query: place?.query ?? "", anchor: place?.anchor ?? null };
+  }
+  const hash = location.hash.slice(1);
+  return { ...r, query: location.search, anchor: hash ? decoded(hash) : null };
+}
+
+async function destinationIn(arrived: Route, to: VersionEntry): Promise<string> {
+  const r = now(arrived);
+  if (r.kind !== "module") return switchTarget(r, to.name, null);
   const version = await dataJson<VersionFile>(r.root, to.data);
   const list = await dataJson<ModulesFile>(r.root, version.modules);
-  return switchTarget(r, to.name, here, list.modules);
+  return switchTarget(r, to.name, list.modules);
+}
+
+const listed = new Map<string, Promise<VersionEntry[] | null>>();
+
+export function versionsAt(root: string): Promise<VersionEntry[] | null> {
+  let entries = listed.get(root);
+  if (!entries) {
+    entries = fetch(new URL(`${root}versions.json`, location.href))
+      .then((res) => (res.ok ? (res.json() as Promise<VersionEntry[]>) : null))
+      .catch(() => null);
+    listed.set(root, entries);
+  }
+  return entries;
 }
 
 function notice(...children: (Node | string)[]): HTMLElement {
@@ -42,41 +53,42 @@ function notice(...children: (Node | string)[]): HTMLElement {
   return p;
 }
 
-const decoded = (s: string): string => {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-};
+const replaceAddress = (r: Route, path: string): void =>
+  history.replaceState(history.state, "", hrefIn(r, path));
 
 export function arrivalNotices(r: Route): void {
-  const missing = new URLSearchParams(location.search).get(MISSING);
+  const missing = new URLSearchParams(r.query).get(MISSING);
   if (r.kind === "index" && missing !== null) {
     notice(`The module ${missing} does not exist in version ${r.version}.`);
-    history.replaceState(history.state, "", location.pathname + location.hash);
+    replaceAddress(r, pathHere(r, r.anchor));
   }
-  if (r.kind === "module" && location.hash.length > 1) {
-    const anchor = decoded(location.hash.slice(1));
-    if (document.getElementById(anchor) === null) {
-      notice(`The declaration ${anchor} does not exist in version ${r.version} of ${r.module}.`);
-      history.replaceState(history.state, "", location.pathname + location.search);
-    }
+  if (r.kind === "module" && r.anchor !== null && document.getElementById(r.anchor) === null) {
+    notice(`The declaration ${r.anchor} does not exist in version ${r.version} of ${r.module}.`);
+    replaceAddress(r, pathHere(r, null));
   }
 }
 
 async function go(r: Route, to: VersionEntry, select: HTMLSelectElement): Promise<void> {
   try {
-    location.assign(await destinationIn(r, to));
+    location.assign(new URL(await destinationIn(r, to), location.href).href);
   } catch {
     select.value = r.version;
   }
 }
 
+async function canonical(r: Route, newest: string): Promise<void> {
+  document.querySelector('link[rel="canonical"]')?.remove();
+  if (r.mode === "hash" || r.kind === "not-found") return;
+  const href = new URL(hrefIn({ ...r, version: newest }, pageIn(r)), location.href).href;
+  if (r.kind === "module" && r.version !== newest && !(await isShell(href))) return;
+  const link = document.createElement("link");
+  link.rel = "canonical";
+  link.href = href;
+  document.head.append(link);
+}
+
 export async function initVersions(r: Route): Promise<void> {
-  const entries = await fetch(new URL(`${r.root}versions.json`, location.href))
-    .then((res) => (res.ok ? (res.json() as Promise<VersionEntry[]>) : null))
-    .catch(() => null);
+  const entries = await versionsAt(r.root);
   if (!entries || entries.length === 0) return;
   const select = el("select", "versions");
   select.setAttribute("aria-label", "Version");
@@ -92,10 +104,12 @@ export async function initVersions(r: Route): Promise<void> {
   });
   document.querySelector(".topbar .home")?.after(select);
   const newest = entries[entries.length - 1];
-  if (newest && newest.name !== r.version) {
+  if (!newest) return;
+  if (newest.name !== r.version) {
     const button = el("button", "", `Go to ${newest.name}`);
     button.type = "button";
     button.addEventListener("click", () => void go(r, newest, select));
     notice(`This is version ${r.version}; the newest is ${newest.name}. `, button);
   }
+  void canonical(r, newest.name);
 }

@@ -171,14 +171,17 @@ npm run build >/dev/null
 [ -f dist/app.js ] || { echo "vite wrote no dist/app.js" >&2; exit 1; }
 [ -f dist/theme-boot.js ] || { echo "vite wrote no dist/theme-boot.js" >&2; exit 1; }
 [ -f dist/site.js ] || { echo "vite wrote no dist/site.js" >&2; exit 1; }
+[ -f dist/redirect.js ] || { echo "vite wrote no dist/redirect.js" >&2; exit 1; }
 BYTES="$(wc -c < dist/app.js | tr -d ' ')"
 GZIP="$(gzip -c dist/app.js | wc -c | tr -d ' ')"
 BOOT="$(wc -c < dist/theme-boot.js | tr -d ' ')"
 SITE="$(wc -c < dist/site.js | tr -d ' ')"
 SITE_GZIP="$(gzip -c dist/site.js | wc -c | tr -d ' ')"
+REDIRECT="$(wc -c < dist/redirect.js | tr -d ' ')"
 # theme-boot is per *page*: `Litedoc4.Render.Frame` inlines it into every `<head>`.
 echo "   dist/app.js $BYTES B, gzip $GZIP B; dist/theme-boot.js $BOOT B (inlined per page)"
 echo "   dist/site.js $SITE B, gzip $SITE_GZIP B (store render's page script)"
+echo "   dist/redirect.js $REDIRECT B (inlined into store render's root and 404 pages)"
 
 echo "== assets/ is this bundle"
 # The first link of the chain `assets-embed-gate.sh` documents: vite -> assets/.
@@ -192,7 +195,7 @@ echo "== assets/ is this bundle"
 # stay free of node; and byte for byte rather than by mtime, because the question
 # is whether these are the same bundle, not which is newer.
 STALE=""
-for f in app.js theme-boot.js site.js; do
+for f in app.js theme-boot.js site.js redirect.js; do
   cmp -s "dist/$f" "$ROOT/assets/$f" || STALE="$STALE  $f"$'\n'
 done
 if [ -n "$STALE" ]; then
@@ -202,7 +205,7 @@ if [ -n "$STALE" ]; then
   echo "  then re-run tools/gen-assets.py, or Assets.lean keeps the old bytes." >&2
   exit 1
 fi
-echo "   assets/app.js, assets/theme-boot.js and assets/site.js are byte for byte this build"
+echo "   assets/app.js, assets/theme-boot.js, assets/site.js and assets/redirect.js are byte for byte this build"
 
 # `dist/` is scratch: what reaches the executable is `assets/`, compared against
 # it just above.
