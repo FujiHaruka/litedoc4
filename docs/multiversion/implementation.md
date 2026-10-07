@@ -462,8 +462,9 @@ What exists (2026-10-07):
   anything runs), `lake build` of its libraries, an extractor built per toolchain under
   `<out>/extractors`, extract, put, the checkout deleted before the next. Then the site is rendered
   from the store into `<out>/site`, as `store render` writes it. `--store` defaults to
-  `<out>/store`. **No `lake exe cache get`**: a checkout of a Mathlib-dependent version builds its
-  dependencies with `lake build` alone.
+  `<out>/store`. **A checkout that is Mathlib or requires it fetches Mathlib's cache** (`lake exe
+  cache get`, into `<out>/scratch`, deleted before the extraction) before `lake build`. Every phase
+  prints its wall time (`phase <version> <name> <s>`).
 - **Stale is judged by the extractor identity without its `lean` / `leanGithash` fields**: a
   commit pins its Lean, so one extractor on any toolchain answers for every entry. A fresh entry
   is kept and every other is extracted from nothing; `store remove` has one version extracted
@@ -506,7 +507,26 @@ Done when, on S:
   **met** (`loop-remove-one`);
 - a store entry with a changed extractor identity is re-extracted — **met** (`loop-identity`).
 
-**The first L checkpoint is not run yet** — it is next.
+**First L checkpoint — run 2026-10-07** (one run on `ubuntu-latest`, measured →
+`benchmarks/results/mv-l-step4-2026-10-07.txt`; the prediction, committed before it →
+`benchmarks/results/mv-l-prediction-2026-10-07.txt`):
+
+- **Two versions from nothing 25.9 min, the third added 16.6 min, the three again 4.8 min** — all
+  three in their predicted ranges. Counted: `2 of 2`, `1 of 3`, `0 of 3`; the third run's site is
+  the second's byte for byte.
+- **Per version on the runner**: extraction 556–594 s (in range), render 94 s (in range, +1% over
+  the top), put 25–28 s (in range), cache 52–58 s, `lake build` 4–9 s, extractor 21–26 s
+  including its toolchain. **Four misses over 25%, recalibrated**: extractor −60% (one file
+  compiled with `lean` + `leanc`, not a Lake project), cache −40% (no `lake update` before it),
+  `lake build` −88% (a replay of cached oleans), and the render's peak RSS **+55%** (4.84 GiB for
+  three versions against ≤ 3.1 GB) — whether the render's memory grows with the number of versions
+  is not separated, and it is the question to ask before 11.
+- **Adding a version rewrites no page of a kept version**: of 59,819 files, the step from two to
+  three versions changed `index.html` and `versions.json` and added the new version's; every other
+  file came out the same bytes. **The add-one-release target is missed on three versions** (16.6
+  min against ≤ 15), and 188 s of it re-rendered those identical pages. At 11 versions the render
+  alone would be ≈ 17 min (extrapolated, linear in versions); rendering only the added version puts
+  adding a release at ≈ 13 min (theoretical).
 
 ### 5. The rebuild from nothing through the reader
 

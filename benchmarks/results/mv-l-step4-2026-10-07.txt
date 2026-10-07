@@ -1,0 +1,99 @@
+The first L checkpoint (docs/multiversion/implementation.md step 4): all of Mathlib, three releases
+====================================================================================================
+
+Run 37609988078 of .github/workflows/mv-l.yml at e1ec80e7d4fab5c1f10fb7e307dd3338177d3169 (branch
+multi-version), 2026-10-07 10:50-11:39 UTC. Driver: benchmarks/tools/mv-l-run.sh. The prediction was
+committed before the run: benchmarks/results/mv-l-prediction-2026-10-07.txt.
+
+Conditions
+  host     GitHub-hosted ubuntu-latest, image ubuntu24 20261004.327.1, AMD EPYC 7763, 4 vCPU = 2 cores,
+           16 GB (15,989 MiB), 3 GB swap, 74 GiB free at the start; kernel 6.17.0-1022-azure
+  command  litedoc4 build --root <Mathlib clone> --lib Mathlib --out <out> --versions <list> --jobs 4,
+           litedoc4.toml in the clone's working tree: no_equations_under = ["Mathlib.Tactic", "Mathlib.Meta"]
+  versions v4.32.2 905b95818e / v4.33.0 db584cd6d4 / v4.33.1 0df444a360 (Mathlib's tags, each on the Lean
+           of the same name); every toolchain installed by the run itself
+  runs     (a) v4.32.2,v4.33.0 into an empty --out; (b) v4.32.2,v4.33.0,v4.33.1 into the same --out;
+           (c) the same three again. One run each, in sequence on one runner. Warm/cold: oleans written by
+           `cache get` minutes before their extraction, never dropped; not separated.
+  times    the `phase` lines litedoc4 prints (wall, per phase); CPU and peak RSS for the whole command
+           only (GNU time -v), since a phase's children are not timed apart. One run: no time here is
+           a converged figure (CLAUDE.md: 5 runs); the counts are exact.
+
+(1) Counts (measured, exact)
+  versions extracted   (a) 2 of 2 (v4.32.2, v4.33.0)   (b) 1 of 3 (v4.33.1)   (c) 0 of 3
+  IR files per entry   8,276 / 8,323 / 8,323
+  site files           (a) 51,498   (b) 59,819   (c) 59,819
+  shells per version   v4.32.2 8,269, v4.33.0 8,316, v4.33.1 8,316 (predicted 8,316 = 8,312 modules + 4)
+  site (c) = site (b), byte for byte: all 59,819 files' sha256 equal.
+  site (a) -> (b), file by file: changed 2 (index.html, versions.json); added 8,316 (v4.33.1's shells)
+           + 5 (content files under d/); every file of v4.32.2 and v4.33.0 and the other 34,907 files
+           under d/ the same bytes. Adding a version rewrites no page of a kept version.
+
+(2) Per phase against the prediction (wall seconds)
+  phase      v4.32.2   v4.33.0   v4.33.1   predicted        verdict
+  extractor   25.99     21.42     21.46    ~62 (12 + ~50)    miss, -58 to -65%: toolchain install ~10 s +
+                                                             build 11.0-16.0 s; the product compiles one
+                                                             file with `lean` + `leanc`, the basis was a
+                                                             Lake project (47.5 s)
+  checkout     0.75      0.87      0.81    <= 10             in range
+  toolchain    0.00      0.00      0.00    0 when installed  in range (installed inside `extractor`)
+  cache       58.07     54.40     51.96    ~90               miss, -35 to -42%: no `lake update` before it;
+                                                             the manifest's clones are cheaper than the
+                                                             basis's update
+  lake         4.84      8.81      4.07    ~50               miss, -82 to -92%: a replay of cached oleans;
+                                                             the basis's 0.8 min built more than Mathlib
+  extract    559.19    556.35    593.83    480-700           in range (M's declaration scaling: 22 s x 14.49 x
+                                                             2.0 = 638; the runner's native 482)
+  put         25.38     27.55     25.54    30-33             in range (-8 to -17%)
+  render     (a) 187.61 for 2 versions, 93.8 per version;    84-93 per version: in range (+1% over the top)
+             (b) 281.99 for 3, 94.0; (c) 282.51 for 3, 94.2
+
+  Whole commands (GNU time -v)
+           wall       user + sys     peak RSS     MemAvailable min (15-s samples)   free disk min
+  (a)   25:56.88    3,890 + 173 s    9.10 GiB         10,091 MiB                     69 GiB
+  (b)   16:37.85    2,273 +  99 s   10.03 GiB          9,319 MiB                     65 GiB
+  (c)    4:47.39      277 +   8 s    4.84 GiB          8,473 MiB                     73 GiB
+  predicted (a) 25-33 min, (b) 16-20 min, (c) 4.5-5 min: all three in range.
+  Peak RSS of (a)/(b) is the extraction's and counts file-backed olean pages (the runner baseline: anon
+  3.38 GiB of 9.16 GiB at 4 jobs). (c) runs no extraction: its 4.84 GiB is the render's, against
+  <= 3.1 GB predicted (M's 221 MiB per version x 14.49) -- miss, +55%. MemAvailable fell 14.9 -> 11.1 ->
+  9.6 -> 8.5 GiB across the three versions of (c), so the render's memory may grow with the number of
+  versions; whether it does is not separated here (one process, no per-version RSS).
+
+(3) Sizes (measured)
+  store entry, compressed   v4.32.2 66,046,365 B, v4.33.0 66,356,757 B, v4.33.1 66,357,015 B
+                            (predicted 66-84 MB per version: in range, at the bottom)
+  site (du, KiB, block-rounded; not comparable with the predicted bytes)
+                            306,884 in all: d/ 193,156, v4.32.2 37,728, v4.33.0 37,948, v4.33.1 37,948
+
+(4) What it says about the v2 targets (plan.md "v2 targets")
+  Adding one release to a set of 3 took 16.6 min (b), against <= 15 min. Of it, render 282 s re-renders
+  two versions whose every file comes out the same bytes (1). Without that, (b) is ~13.5 min
+  (theoretical: (b) - 188 s).
+  At 11 versions (extrapolated: one release's non-render phases as in (b), 698 s; render 94 s per
+  version, linear as (a)/(b) show): adding one release ~11.6 + 17.2 = ~29 min; rendering only the
+  added version ~13.2 min (theoretical).
+  From nothing natively (not the step-5 path): 11 x (698 + 94) s = ~145 min (extrapolated).
+
+The run's own output (phase lines of (a)) follows.
+
+version v4.32.2: extracting 905b95818eb32af7874a58b427f50c1711a5e96c on leanprover/lean4:v4.32.2
+toolchain leanprover/lean4:v4.32.2: not installed, installing
+extractor leanprover/lean4:v4.32.2: built .../extractors/leanprover-lean4-v4.32.2-762071d163953d84/extract in 16.02 s
+phase   v4.32.2 extractor 25.99 s
+phase   v4.32.2 checkout 0.75 s
+phase   v4.32.2 toolchain 0.00 s
+phase   v4.32.2 cache 58.07 s
+phase   v4.32.2 lake 4.84 s
+phase   v4.32.2 extract 559.19 s
+phase   v4.32.2 put 25.38 s
+version v4.33.0: extracting db584cd6d46c92f209a44c0f1c829460d327499d on leanprover/lean4:v4.33.0
+phase   v4.33.0 extractor 21.42 s
+phase   v4.33.0 checkout 0.87 s
+phase   v4.33.0 toolchain 0.00 s
+phase   v4.33.0 cache 54.40 s
+phase   v4.33.0 lake 8.81 s
+phase   v4.33.0 extract 556.35 s
+phase   v4.33.0 put 27.55 s
+versions extracted: 2 of 2 (v4.32.2, v4.33.0)
+phase   render 187.61 s
