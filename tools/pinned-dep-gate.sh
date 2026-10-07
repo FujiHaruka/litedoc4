@@ -15,10 +15,9 @@
 #
 #   the git remote  Lake clones from the `url` it writes into the manifest, so a
 #                   `file://` remote would put `file://` into every blob URL —
-#                   not the shape under test, and `tools/site-gate.sh` would call
-#                   those links *internal* and report five dead ones. `git`'s
-#                   `insteadOf` keeps the manifest at the https URL while the
-#                   clone still happens offline.
+#                   not the shape under test. `git`'s `insteadOf` keeps the
+#                   manifest at the https URL while the clone still happens
+#                   offline.
 #   the commit      fixed author, committer and dates, so the rev is a function of
 #                   `e2e/micro-dep`'s contents. Nothing pins the hash — the gate
 #                   reads it back out of the manifest and requires *that*.
@@ -151,50 +150,86 @@ rm -rf "$OUT/site"
 "$LITEDOC4" build --root "$OUT/micro" --lib Example --out "$OUT/site" \
   --source-url "$SELF_URL" \
   --extractor-bin "$OUT/micro/.lake/e2e-extract/extract" > "$OUT/build.log"
+VERSION="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"] or "")' \
+  "$OUT/site/litedoc4-build.json")"
+echo "  version $VERSION"
 
 say "5/6 GATE 2 — the guillemets come off on the way into the URL"
-python3 - "$OUT/site/site/Example/Dep.html" "$DEP_URL" "$REV" <<'PY' || FAILED=$((FAILED + 1))
-import pathlib, re, sys
-page, url, rev = sys.argv[1], sys.argv[2], sys.argv[3]
-html = pathlib.Path(page).read_text()
-want = f"{url}/blob/{rev}/Dep-Aux/Basic.lean"
+# The page is drawn in the browser, so what is checked is what it is drawn from:
+# the store entry's source map, the version file's root bases, and the docstring
+# words of Example.Dep's page, each composed into the URL the page script builds
+# (`<base>/<module path>.lean`, web/src/names.ts) by this script's own reading.
+python3 - "$OUT/site" "$VERSION" "$DEP_URL" "$REV" <<'PY' || FAILED=$((FAILED + 1))
+import gzip, json, pathlib, re, sys
 
-def linked(spelling):
-    return re.findall(r'<a href="([^"]+)"[^>]*>' + re.escape(spelling) + r"</a>", html)
-
+out, version, url, rev = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
+site = out / "site"
+base = f"{url}/blob/{rev}"
+want = f"{base}/Dep-Aux/Basic.lean"
 problems = []
-# A `«` anywhere in a path is a link nobody can follow.
-for spelling in ("«Dep-Aux».Basic", "Dep-Aux/Basic.lean"):
-    hrefs = set(linked(spelling))
-    if not hrefs:
-        problems.append(f"{spelling}: no link at all — a pinnable dependency has a blob URL")
-    elif hrefs != {want}:
-        problems.append(f"{spelling}: links to {sorted(hrefs)}, wanted {want}")
-if "«" in html.split("<body")[0] + "".join(re.findall(r'href="([^"]*)"', html)):
-    problems.append("a href still carries a guillemet")
 
+
+def data(address):
+    return json.loads(gzip.decompress((site / "d" / f"{address}.json.gz").read_bytes()))
+
+
+def module_path(module):
+    out_, depth, start = [], 0, 0
+    for i, c in enumerate(module):
+        if c == "«":
+            depth += 1
+        elif c == "»":
+            depth -= 1
+        elif c == "." and depth == 0:
+            out_.append(module[start:i].strip("«»"))
+            start = i + 1
+    out_.append(module[start:].strip("«»"))
+    return "/".join(out_)
+
+
+record = json.loads((out / "store" / version / "record.json").read_text(encoding="utf-8"))
+sources = dict(record.get("sources", []))
+if sources.get("Dep-Aux") != base:
+    problems.append(f"the store entry maps Dep-Aux to {sources.get('Dep-Aux')!r}, wanted {base}")
+
+entry = [e for e in json.loads((site / "versions.json").read_text(encoding="utf-8")) if e["name"] == version]
+if not entry:
+    sys.exit(f"  FAIL  versions.json does not list {version}")
+roots = data(entry[0]["data"])["roots"]
+if roots.get("Dep-Aux") != base:
+    problems.append(f"the version file's roots map Dep-Aux to {roots.get('Dep-Aux')!r}, wanted {base}")
+if any("«" in k or "«" in v for k, v in roots.items()):
+    problems.append("a root or its base still carries a guillemet")
+
+shell = (site / version / "Example" / "Dep.html").read_text(encoding="utf-8")
+page = data(re.search(r'data-page="([0-9a-f]+)"', shell).group(1))
 # The `.lidx` writes module names unescaped and the IR does not, so
-# `Dep-Aux.Basic` is a third way to name the same module — not a Lean name
-# literal, so it resolves through `NameIndex::module_for_unescaped`. All three
-# spellings must agree, not merely resolve (decided 2026-08-22, user's call).
-hrefs = set(linked("Dep-Aux.Basic"))
-if not hrefs:
-    problems.append(
-        "Dep-Aux.Basic: no link. This is the .lidx's spelling of a module a pinnable "
-        "dependency owns, and it resolves via "
-        "NameIndex::module_for_unescaped"
-    )
-elif hrefs != {want}:
-    problems.append(f"Dep-Aux.Basic: links to {sorted(hrefs)}, wanted {want}")
+# `Dep-Aux.Basic` is a third way to name the same module. All three spellings
+# must agree, not merely resolve (decided 2026-08-22, user's call).
+for spelling in ("«Dep-Aux».Basic", "Dep-Aux.Basic", "Dep-Aux/Basic.lean"):
+    target = page["words"].get(spelling)
+    if not isinstance(target, list) or not target or not isinstance(target[0], int):
+        problems.append(f"{spelling}: no link into a dependency at all ({target!r}) — a pinnable dependency has a blob URL")
+        continue
+    root = page["roots"][target[0]]
+    href = f"{roots.get(root, '')}/{module_path(target[1])}.lean"
+    if root != "Dep-Aux" or href != want:
+        problems.append(f"{spelling}: root {root!r} -> {href}, wanted Dep-Aux -> {want}")
 
 for problem in problems:
     print(f"  FAIL  {problem}")
 raise SystemExit(1 if problems else 0)
 PY
-[ "$FAILED" -eq 0 ] && echo "  ok  blob URLs carry no guillemets; all 3 spellings resolve, to the same URL"
+[ "$FAILED" -eq 0 ] && echo "  ok  the entry and the version file map Dep-Aux to $DEP_URL/blob/<rev>; all 3 spellings resolve to the same URL, with no guillemet"
 
 say "6/6 GATE 3 — the site is still closed over itself"
-"$HERE/site-gate.sh" "$OUT/site/site" || FAILED=$((FAILED + 1))
+mkdir -p "$OUT/builds"
+ln -sfn "$OUT/site" "$OUT/builds/$VERSION"
+if python3 -I "$ROOT/benchmarks/tools/check-store-render.py" --site "$OUT/site/site" \
+    --repo "$OUT/micro" --builds "$OUT/builds" --versions "$VERSION" \
+    --only render-closure,render-usedby >"$OUT/closure.txt" 2>&1; then :; fi
+cat "$OUT/closure.txt"
+if [ "$(grep -cE '^ok ' "$OUT/closure.txt")" != 2 ]; then FAILED=$((FAILED + 1)); fi
 
 echo
 if [ "$FAILED" -ne 0 ]; then

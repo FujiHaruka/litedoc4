@@ -10,14 +10,15 @@
 #
 # What it checks:
 #
-#   modulesExtracted >= 1        The edit was noticed at all. A zero is not a fast
-#                                build, it is a build that did not happen, and
-#                                every other number would then be trivially green.
-#   1 <= pagesRendered < modules The upper bound catches a dependency map that
-#                                moves on every edit: its digest is a `renderKey`
-#                                input, so one added declaration re-renders the
-#                                whole package. An inequality, not a number: how
-#                                many pages a *referrer* pulls in is allowed to grow.
+#   modulesExtracted == 1        The one edited module, and nothing else. A zero is
+#                                not a fast build, it is a build that did not
+#                                happen; more than one is an ownership round that
+#                                pulled in modules no name of which moved.
+#   the version was re-put       versionsExtracted is 1 of 1 and names the
+#                                marker's version: what was extracted reached the
+#                                store the site is rendered from. The version is
+#                                rendered whole on every run, so there is no page
+#                                count to bound.
 #   the map was reused           Not moving and not being *written* are different
 #                                claims and the bytes cannot tell them apart: a
 #                                map rewritten to the same content passes a byte
@@ -27,10 +28,10 @@
 # **Nothing here is a duration**: this workload's environment load moves 5x with
 # the page cache, so a second is not a threshold.
 #
-# It does **not** check whether the pages that were rendered are right.
-# Under-rendering is silent here, and the caller has to compare the tree against
-# a whole render of the same IR (`e2e-micro.sh` does). A green here with no such
-# comparison beside it is a count, not a verdict.
+# It does **not** check whether the IR the edit left is right. A merge that went
+# wrong is silent here, and the caller has to compare the tree against a build
+# from nothing of the same sources (`e2e-micro.sh` does). A green here with no
+# such comparison beside it is a count, not a verdict.
 set -uo pipefail
 
 BUILD_JSON="${1-}"
@@ -52,23 +53,23 @@ import sys
 record = json.load(open(sys.argv[1], encoding="utf-8"))
 modules = record["modules"]
 work = record["work"]
-rendered = work["pagesRendered"]
 extracted = work["modulesExtracted"]
+version = record.get("version")
+stored = record.get("versionsExtracted") or {}
 problems = []
 
-if extracted < 1:
+if extracted != 1:
     problems.append(
-        f"work.modulesExtracted is {extracted} — the edited module was not re-extracted, "
-        "so nothing below means anything"
+        f"work.modulesExtracted is {extracted} — expected exactly the one edited module"
     )
-if not 1 <= rendered < modules:
+if not version or stored != {"count": 1, "of": 1, "names": [version]}:
     problems.append(
-        f"work.pagesRendered is {rendered} for {modules} module(s) — expected at least one "
-        "and fewer than all"
+        f"versionsExtracted is {stored} for version {version!r} — the extraction did not "
+        "reach the store the site is rendered from"
     )
 
-print(f"onemod-gate   modules {modules}  extracted {extracted}  rendered {rendered}  "
-      f"irReads.module {work['irReads']['module']}")
+print(f"onemod-gate   modules {modules}  extracted {extracted}  version {version}  "
+      f"versionsExtracted {stored.get('count')} of {stored.get('of')}")
 for problem in problems:
     print(f"onemod-gate FAIL  {problem}", file=sys.stderr)
 sys.exit(1 if problems else 0)

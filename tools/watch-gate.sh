@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# `litedoc4 watch` notices one changed module, rebuilds exactly that much, and
-# serves it.
+# `litedoc4 watch` notices one changed module, extracts exactly that one, renders
+# the version again from the store, and serves it.
 #
 # It fails saying either "the loop rebuilt the wrong amount of work" — with the
 # count it got and the count it expected — or "the loop rebuilt the wrong
@@ -18,21 +18,20 @@
 # **The assertions are integers; not one of them is a duration.** This workload's
 # environment load moves 5x with the page cache (2.5 s <-> 13 s (measured)), so a
 # bound loose enough to pass a cold runner passes a regression too. What one edit
-# costs in *work* does not move: 1 module extracted, 1 page rendered, 1 extractor
-# request — plus the render set **by name**, which is the one the three integers
-# cannot give (one module extracted and one page rendered could be the wrong
-# one). The wall clock is printed and asserted on by nothing.
+# costs in *work* does not move: 1 module extracted, 1 extractor request, the
+# version put again — plus the extracted module **by name**, which is the one the
+# integers cannot give (one module extracted could be the wrong one). The wall
+# clock is printed and asserted on by nothing.
 #
 # The module is made stale with `litedoc4 ledger touch` and not with `touch`:
 # mtime is not what the ledger hashes (sha256 of content), and rewriting the
 # olean would write into the measurement target, which nothing here may do. The
 # ledger written is this run's own `$OUT/build/ledger.json`.
 #
-# Made to fail on purpose (measured 2026-08-19): `--inject wrong-module` leaves the
-# three counts at 1/1/1 — the loop did one module's worth of work — so the name
-# check is the only thing that catches it; `--inject no-touch` must time out
-# rather than report a green run it never saw. Both touch only this script's
-# work area.
+# Made to fail on purpose: `--inject wrong-module` leaves the counts at 1/1 — the
+# loop did one module's worth of work — so the name check is the only thing that
+# catches it; `--inject no-touch` must time out rather than report a green run it
+# never saw. Both touch only this script's work area.
 #
 # usage: tools/watch-gate.sh [--out DIR] [--keep] [--reuse] [--port N]
 #                            [--target DIR] [--lib NAME] [--jobs N]
@@ -57,10 +56,8 @@ TARGET="$TARGET_REPO"
 LIB=InformationTheory
 JOBS=4
 PORT=8485
-# Chosen because its page is its own: `impact --mode self` selects exactly the
-# changed module unless the whole-package map delta adds more, and this one's
-# delta is empty. `tools/build-gate.sh` deliberately moves a module whose name is
-# quoted elsewhere; this gate wants the simplest answer, being an exact number.
+# A module no other module's names depend on, so an ownership round has nothing
+# to pull in: this gate wants the simplest answer, being an exact number.
 MODULE=InformationTheory.Shannon.ArithmeticCoding
 OTHER=InformationTheory.Shannon.BroadcastChannel.Basic
 INJECT=
@@ -277,33 +274,24 @@ if ! wait_for '^watch   #1 reload' "$DEADLINE" "the first rebuild"; then exit 1;
 sed -n '/^watch   #1 the ledger reports/,$p' "$LOG" | sed 's/^/  /'
 
 say "4/5 what the pass cost, as integers"
-python3 - "$BUILD/litedoc4-build.json" "$BUILD/work/render-set.txt" "$MODULE" "$MODULES" "$LOG" \
+python3 - "$BUILD/litedoc4-build.json" "$BUILD/work/round-in-1.txt" "$MODULE" "$MODULES" \
   > "$OUT/counts.txt" 2>&1 <<'PY'
 import json
-import re
 import sys
 
-marker_path, render_set_path, expected, modules, log_path = sys.argv[1:6]
+marker_path, round_in_path, expected, modules = sys.argv[1:5]
 modules = int(modules)
 record = json.load(open(marker_path, encoding="utf-8"))
 work = record["work"] or {}
-rendered = work.get("pagesRendered")
 extracted = work.get("modulesExtracted")
 requests = work.get("extractorRequests")
+version = record.get("version")
+stored = record.get("versionsExtracted")
 
-with open(render_set_path, encoding="utf-8") as handle:
-    render_set = [line.strip() for line in handle if line.strip()]
-
-# A second number for the same claim, produced by `impact` rather than by the
-# renderer: comparing them is the one comparison here that is not the record
-# agreeing with itself.
-affected = None
-mode = None
-with open(log_path, encoding="utf-8") as handle:
-    for line in handle:
-        found = re.match(r"impact\s+mode (\S+) -> (\d+) page\(s\)", line)
-        if found:
-            mode, affected = found.group(1), int(found.group(2))
+# What the pass handed the extractor, by name: the integers above cannot tell
+# one module from another.
+with open(round_in_path, encoding="utf-8") as handle:
+    handed = [line.strip() for line in handle if line.strip()]
 
 results = []
 def check(ok, line):
@@ -312,20 +300,16 @@ def check(ok, line):
 check(record.get("complete") is True, "the marker says the run finished")
 check(extracted == 1,
       f"work.modulesExtracted is {extracted}, expected 1 (one module went stale)")
-check(rendered == 1,
-      f"work.pagesRendered is {rendered}, expected 1 (mode self, empty map delta)")
 check(requests == 1,
       f"work.extractorRequests is {requests}, expected 1 (one Lean import for the pass)")
-check(render_set == [expected],
-      "the render set is "
-      + (", ".join(render_set) if render_set else "(empty)")
+check(handed == [expected],
+      "the extractor was handed " + (", ".join(handed) if handed else "(nothing)")
       + f", expected {expected}")
-check(affected == rendered,
-      f"impact (mode {mode}) selected {affected} page(s) and the renderer wrote {rendered} — "
-      "two derivations of the same set")
-check(rendered is not None and rendered < modules,
-      f"work.pagesRendered is {rendered} of {modules} module(s): one edit did not re-render "
-      "the package")
+check(bool(version) and stored == {"count": 1, "of": 1, "names": [version]},
+      f"versionsExtracted is {stored} for version {version}: the pass put its version again")
+check(extracted is not None and extracted < modules,
+      f"work.modulesExtracted is {extracted} of {modules} module(s): one edit did not "
+      "re-extract the package")
 
 for verdict, line in results:
     print(f"{verdict}  {line}")
@@ -346,7 +330,8 @@ if [ "$status" != 0 ] && [ "${failed:-0}" = 0 ]; then
 fi
 
 say "5/5 the server serves what the rebuild wrote"
-PAGE="/$(printf '%s' "$MODULE" | tr '.' '/').html"
+VERSION="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"] or "")'   "$BUILD/litedoc4-build.json" 2>/dev/null)"
+PAGE="/$VERSION/$(printf '%s' "$MODULE" | tr '.' '/').html"
 code="$(curl -sS -o "$OUT/page.html" -w '%{http_code}' "http://127.0.0.1:$PORT$PAGE" 2>/dev/null)"
 if [ "$code" = 200 ]; then
   check ok "GET $PAGE -> 200 ($(wc -c < "$OUT/page.html" | tr -d ' ') B)"

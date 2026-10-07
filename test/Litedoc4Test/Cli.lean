@@ -109,32 +109,45 @@ def namesFlag (message : Option String) (flag : String) : Bool :=
   | some m => m.startsWith s!"{flag} is not a flag of `build --versions`"
   | none => false
 
-def buildVersionsReadsItsThreeFlagsAndWatchRefusesEachByName : Bool :=
+/-- `--store` and `--hash-urls` are the one-version build's too, since it is the
+same output, and `watch` is that build asked over and over; only `--versions`
+is a site of several checkouts, which `watch` refuses by name. -/
+def theStoreFlagsAreEveryBuildsAndWatchRefusesOnlyVersions : Bool :=
   ((parseBuild false ["--versions", "v1,v2", "--store", "s", "--hash-urls"] {}).toOption.map
       fun a => (a.versions, a.store, a.hashUrls)) == some (some "v1,v2", some "s", true)
-    && [["--versions", "v1"], ["--store", "s"], ["--hash-urls"]].all fun args =>
-      match parseBuild true args {} with
-      | .error m => m.startsWith s!"{args.head!} is not a `watch` flag"
-      | .ok _ => false
+    && ((parseBuild true ["--store", "s", "--hash-urls"] {}).toOption.map
+      fun a => (a.store, a.hashUrls)) == some (some "s", true)
+    && (match parseBuild true ["--versions", "v1"] {} with
+      | .error m => m.startsWith "--versions is not a `watch` flag"
+      | .ok _ => false)
 
-#guard buildVersionsReadsItsThreeFlagsAndWatchRefusesEachByName
+#guard theStoreFlagsAreEveryBuildsAndWatchRefusesOnlyVersions
 
 def everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken : Bool :=
   let v := ["--versions", "v1"]
-  [(["--source-url", "u"], "--source-url"), (["--link-index", "l"], "--link-index"),
-   (["--extractor-bin", "b"], "--extractor-bin"), (["--extractor", "p"], "--extractor"),
-   (["--extractor-arg", "x"], "--extractor-arg"), (["--full"], "--full"),
-   (["--mode", "self"], "--mode"), (["--max-rounds", "5"], "--max-rounds"),
-   (["--timings", "t"], "--timings"), (["--deps-docs-url", "R=u"], "--deps-docs-url"),
-   (["--deps-docs-index", "R=u"], "--deps-docs-index")].all
+  [(["--source-url", "u"], "--source-url"), (["--extractor-bin", "b"], "--extractor-bin"),
+   (["--full"], "--full"), (["--timings", "t"], "--timings")].all
       (fun (args, flag) => namesFlag (versionedRefusal (v ++ args)) flag)
     && versionedRefusal (v ++ ["--store", "s", "--hash-urls", "--lib", "L", "--lake", "k",
         "--jobs", "2"]) == none
-    && (versionedRefusal ["--store", "s"]).any (·.startsWith "--store is a flag of `build --versions`")
-    && (versionedRefusal ["--hash-urls"]).any
-      (·.startsWith "--hash-urls is a flag of `build --versions`")
-    && versionedRefusal ["--max-rounds", "5"] == none
+    && versionedRefusal ["--store", "s", "--hash-urls", "--source-url", "u", "--full",
+        "--extractor-bin", "b", "--timings", "t"] == none
 
 #guard everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken
+
+/-- The flags of the static single-version site are gone from both commands, and
+a caller who still passes one is told it is an unknown argument: each named a
+decision (the dependency map's file, a one-shot extraction program, the render
+set's mode and bound, a dependency's documentation site) that the site rendered
+from the store does not take. -/
+def theStaticSitesFlagsAreUnknownToBuildAndWatch : Bool :=
+  ["--link-index", "--extractor", "--extractor-arg", "--mode", "--max-rounds",
+   "--deps-docs-url", "--deps-docs-index", "--deps-docs-map"].all fun flag =>
+    [false, true].all fun watching =>
+      match parseBuild watching [flag, "x"] {} with
+      | .error m => m == s!"unknown argument `{flag}`"
+      | .ok _ => false
+
+#guard theStaticSitesFlagsAreUnknownToBuildAndWatch
 
 end Litedoc4Test

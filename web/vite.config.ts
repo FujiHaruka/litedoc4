@@ -33,7 +33,7 @@ export default defineConfig({
     reportCompressedSize: true,
   },
   test: {
-    // Not a browser and not pretending to be: `tools/browser-gate.sh` is what
+    // Not a browser and not pretending to be: `tools/mv-pages-gate.sh` is what
     // answers "does the site work".
     environment: "happy-dom",
     include: ["test/**/*.test.ts"],

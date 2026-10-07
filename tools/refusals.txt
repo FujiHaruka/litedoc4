@@ -16,7 +16,10 @@
 # forty-six description lines in `@usage` and its eleven `store-*` rows had no
 # Rust counterpart. They were written by hand against the Lean binary, which is the
 # only oracle a command newer than `rust-frozen` has. The same holds for `build
-# --versions` and `--hash-urls` in `@usage` (2026-10-07).
+# --versions` and `--hash-urls` in `@usage` (2026-10-07), and for `build`'s and
+# `watch`'s synopsis and flag text once both render from the store: the rows of
+# the flags that left with the static site went with them, and the refusals
+# that replace them are `test/Litedoc4Test/Cli.lean`'s (2026-10-07).
 #
 # FORMAT
 #   @usage         the `--help-all` block, stored once. Every exit-2 refusal
@@ -35,14 +38,10 @@
 # the gate makes, and `R` is a name that is deliberately not there.
 
 @usage
-| usage: litedoc4 build  --root <repo> --out <dir> [--link-index <file>]
-|                        [--lib <Name>]... [--source-url <url>] [--full]
-|                        [--deps-docs-url <Root>=<url>]...
-|                        [--deps-docs-index <Root>=<url|path>]...
-|                        (--extractor-bin <path> [--lake <path>] [--jobs <n>]
-|                         | --extractor <program> [--extractor-arg <arg>]...)
-|                        [--mode self|referrers|importers|all] [--max-rounds <n>]
-|                        [--timings <file>]
+| usage: litedoc4 build  --root <repo> --out <dir> [--lib <Name>]...
+|                        [--source-url <url>] [--full] [--store <dir>]
+|                        [--hash-urls] [--extractor-bin <path>] [--lake <path>]
+|                        [--jobs <n>] [--timings <file>]
 |        litedoc4 build  --root <repo> --out <dir> --versions <ref>,<ref>...
 |                        [--store <dir>] [--hash-urls] [--lib <Name>]...
 |                        [--lake <path>] [--jobs <n>]
@@ -56,10 +55,9 @@
 |                        [--mode self|referrers|importers|all] [--max-rounds <n>]
 |                        [--timings <file>]
 |        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
-|                        [--lib <Name>]... [--source-url <url>]
-|                        (--extractor-bin <path> [--lake <path>] [--jobs <n>]
-|                         | --extractor <program> [--extractor-arg <arg>]...)
-|                        [--mode self|referrers|importers|all] [--max-rounds <n>]
+|                        [--lib <Name>]... [--source-url <url>] [--store <dir>]
+|                        [--hash-urls] [--extractor-bin <path>] [--lake <path>]
+|                        [--jobs <n>]
 |        litedoc4 modules --root <repo> [--lib <Name>]... [--out <file>]
 |        litedoc4 extract --modules <file> --ir-dir <dir> --timings <file>
 |                        [--extractor-bin <path>] [--target <repo>] [--lake <path>]
@@ -132,9 +130,18 @@
 |                  every page is re-rendered. `build` has one by construction, so
 |                  its sites always carry the links.
 |   --out          (`build`) the directory this command owns: <out>/site is the
-|                  site, <out>/{ir,state,work} the caches, <out>/ledger.json the
-|                  ledger. Required, with no default — <root>/.lake/build/doc is
-|                  doc-gen4's own output tree — and it may not be inside --root
+|                  site, rendered from the store; <out>/ir, <out>/link-index.lidx
+|                  and <out>/work are --root's extraction, <out>/ledger.json its
+|                  ledger, and <out>/store the store unless --store names another.
+|                  Required, with no default — <root>/.lake/build/doc is doc-gen4's
+|                  own output tree — and it may not be inside --root. Without
+|                  --versions the working tree at --root is one version, named by
+|                  the first 12 hex digits of the commit its source links name:
+|                  its IR is brought up to date in place (a module whose olean did
+|                  not move is not extracted again), put into the store, and the
+|                  site rendered from the store with that version alone. Prints
+|                  `versions extracted: <n> of 1 (<name>)`, 1 when a module was
+|                  extracted, which <out>/litedoc4-build.json records too
 |   --port         (`watch`) the port the site is served on (default 8484). A
 |                  port that is taken is refused by name, never moved to the next
 |                  free one: an address that changes between runs leaves the tab
@@ -160,41 +167,25 @@
 |                  version's own. --lake has to be elan's, which picks each
 |                  checkout's toolchain. Prints `versions extracted: <n> of <m>
 |                  (<names>)`, which <out>/litedoc4-build.json records too
-|   --full         (`build`) regenerate everything, ignoring what is under --out.
-|                  The escape hatch for an input no ledger key covers. The
-|                  dependency map is not one: its bytes are in renderKey, so a
-|                  map that moved re-renders on its own.
+|   --full         (`build`) extract every module again, ignoring the IR under
+|                  --out. The escape hatch for an input no ledger key covers.
 |   --ir           an IR tree written by the extractor (schema 5)
 |   --ir-dir       (`extract`) where the extractor writes that tree. Required,
 |                  with no default
 |   --pages        where the pages go; directories are created
-|   --source-url   https://host/owner/repo/blob/<40-hex-rev>. `incremental`
-|                  checks the 40 hex digits; `render` and `site` do not.
+|   --source-url   https://host/owner/repo/blob/<40-hex-rev>. `build`, `watch` and
+|                  `incremental` check the 40 hex digits; `render` and `site` do
+|                  not. For `build` and `watch` the revision is the version's
+|                  commit; left out, it is derived from --root's HEAD and its
+|                  github.com remote.
 |   --link-index   the dependency closure's name -> module map (.lidx). Its
 |                  SHA-256 is part of renderKey: a map that moved re-renders every
 |                  page (150 of the target's 432 change bytes).
-|                  For `build` it is optional — left out, the map is this
-|                  command's own <out>/link-index.lidx, written by the extractor
-|                  from the environment it imported anyway. Given, it is an
-|                  input and is never written to. For `extract` it asks the
-|                  extractor to write one.
-|   --deps-docs-url  (`build`) <Root>=<url>: link that dependency's declarations
-|                  at the documentation site it already publishes, e.g.
-|                  Mathlib=https://leanprover-community.github.io/mathlib4_docs.
-|                  Repeatable, off by default, and **verified**: a name that site's
-|                  declaration table holds gets the docs page, one it does not
-|                  keeps the version-pinned source, and a table that will not read
-|                  sends the whole root to the source. There is no fallback on a
-|                  404 — a build cannot see one. A <Root> that is not a dependency
-|                  of --root is exit 3.
-|   --deps-docs-index  (`build`) <Root>=<url|path>: where that site's declaration
-|                  table is. Default <url>/declarations/declaration-data.bmp. A
-|                  local path is read as a file, which is how a run with no
-|                  outbound network uses this.
-|   --deps-docs-map  (`site`, `render`, `incremental`, `ledger`, `links`) the
-|                  resolved map `build` wrote under <out>/work. It carries the base
-|                  URL and the verified names, so the commands that render cannot
-|                  disagree about the links (the reason there is no --title).
+|                  For `extract` it asks the extractor to write one.
+|   --deps-docs-map  (`site`, `render`, `incremental`, `ledger`, `links`) a
+|                  resolved documentation map. It carries the base URL and the
+|                  verified names, so the commands that render cannot disagree
+|                  about the links (the reason there is no --title).
 |                  Nothing here reads a table or the network.
 |                  It is an input to renderKey, so `ledger build` and `ledger
 |                  check` need it for the same reason --root and --link-index are
@@ -234,7 +225,8 @@
 |                  round that extracts, released on the way out of the loop.
 |                  There is no --serve-dir — a server this run did not start is
 |                  one whose olean generation it cannot vouch for.
-|   --max-rounds   how many extract/ownership/merge rounds may run (default 5).
+|   --max-rounds   (`incremental`) how many extract/ownership/merge rounds may run
+|                  (default 5; `build` and `watch` use the same bound).
 |                  Reaching it with modules still stale is exit 5.
 |   --root         (`modules`) the repository the sources are globbed under
 |   --lib          (`build`, `modules`) a library root: <Name>.lean and <Name>/;
@@ -244,7 +236,10 @@
 |   --extractor-bin  (`extract`, `incremental --serve`) the Lean extractor built
 |                  by extractor/build.sh, or $EXTRACT_BIN. No default: it is built
 |                  against the target's toolchain, so a baked-in path would be
-|                  right on one machine
+|                  right on one machine. (`build`, `watch`) optional, or
+|                  $EXTRACT_BIN: left out, the extractor is built for the Lean
+|                  --root's lean-toolchain pins, under <out>/extractors, and a
+|                  toolchain with no row in tools/lean-toolchains.txt is refused
 |   --target       (`extract`, `incremental --serve`) the Lean package to run
 |                  inside, or $TARGET_REPO. It is opened read-only: an --ir-dir
 |                  under it is refused, and its oleans are the generation every
@@ -316,7 +311,7 @@
 |   --census       a per-module TSV of |IMPORTERS| / |REFERRERS| / declarations
 |   --pages        (`prune`) the page tree; nothing outside it is ever deleted
 |   --dry-run      report what would be deleted and delete nothing
-|   --store        (`store`, and `build --versions`, where it defaults to
+|   --store        (`store`, and `build` and `watch`, where it defaults to
 |                  <out>/store) the kept versions, one directory per version:
 |                  <store>/<name>/entry.pack.gz (the IR tree, the dependency link
 |                  index, the bibliography and the index page's Markdown, packed
@@ -359,7 +354,7 @@
 |                  one JSON line of counts (per version and in total) and exits 3
 |                  on an entry that needs re-put or two different files under one
 |                  address
-|   --hash-urls    (`store render`, `build --versions`) no shells: the root
+|   --hash-urls    (`store render`, `build`, `watch`) no shells: the root
 |                  index.html draws every page from a route in the fragment,
 |                  #/<version>/<module path>, with a declaration as ?id=<name>;
 |                  each version gets a routes file in d/, named by versions.json
@@ -1006,13 +1001,6 @@ exit 2
 |
 | <usage>
 
-@case build-deps-docs-map
-argv build --root R --out O --deps-docs-map M
-exit 2
-| litedoc4: --deps-docs-map is not a `build` flag: this command resolves the documentation map itself, from --deps-docs-url, and writes it under <out>/work for `litedoc4 site` and `litedoc4 render` to read. A build that rendered against somebody else's resolved map would record its own map's digest in the ledger
-|
-| <usage>
-
 @case build-ir
 argv build --root R --out O --ir I
 exit 2
@@ -1090,59 +1078,10 @@ exit 2
 |
 | <usage>
 
-@case build-max-rounds-zero
-argv build --root R --out O --max-rounds 0
-exit 2
-| litedoc4: --max-rounds must be at least 1: round 1 is where deletions are folded in
-|
-| <usage>
-
 @case build-jobs-zero
 argv build --root R --out O --jobs 0
 exit 2
 | litedoc4: --jobs must be at least 1
-|
-| <usage>
-
-@case build-extractor-needs-link-index
-argv build --root R --out O --extractor P
-exit 2
-| litedoc4: --extractor <program> needs --link-index <file>: the dependency map is written by the Lean extractor out of the environment it imports, and --extractor names a program whose interface is `--modules --ir-dir --timings` and nothing else. Either pass a map (`litedoc4 extract --link-index <file>` writes one) or use --extractor-bin, where this command owns the extractor and derives the map itself. without the dependency map 150 of the target package's 432 pages change bytes
-|
-| <usage>
-
-@case build-extractor-and-extractor-bin
-argv build --root R --out O --extractor P --extractor-bin Q --link-index L
-exit 2
-| litedoc4: --extractor-bin and --extractor are exclusive: one names the Lean extractor this run keeps resident, the other names a program to call once per round. How that program finds its own binary is its own business
-|
-| <usage>
-
-@case build-extractor-and-lake
-argv build --root R --out O --extractor P --lake Q --link-index L
-exit 2
-| litedoc4: --lake and --extractor are exclusive: one names the Lean extractor this run keeps resident, the other names a program to call once per round. How that program finds its own binary is its own business
-|
-| <usage>
-
-@case build-extractor-jobs
-argv build --root R --out O --extractor P --link-index L --jobs 2
-exit 2
-| litedoc4: --jobs is a flag of the resident path: a resident extractor fixes its job count at start-up. Behind --extractor, pass it through with `--extractor-arg --jobs --extractor-arg <n>`
-|
-| <usage>
-
-@case build-bad-mode
-argv build --root R --out O --mode sideways
-exit 2
-| litedoc4: --mode takes self|referrers|importers|all, not `sideways`
-|
-| <usage>
-
-@case build-mode-needs-a-value
-argv build --root R --out O --mode
-exit 2
-| litedoc4: --mode needs a value
 |
 | <usage>
 
@@ -1185,20 +1124,6 @@ exit 2
 argv watch --root root --out out --full
 exit 2
 | litedoc4: --full is not a `watch` flag: it means "regenerate everything, ignoring what is under --out", and a loop that did that every pass would never do anything else. Run `litedoc4 build --full` once, then start watching
-|
-| <usage>
-
-@case watch-deps-docs-url
-argv watch --root root --out out --deps-docs-url Foo=https://example.invalid
-exit 2
-| litedoc4: --deps-docs-url is not a `watch` flag: it resolves a dependency's declaration table over the network, once, against the IR tree of that run. A loop would either re-fetch 5.7 MB on every rebuild or serve pages resolved against an IR tree that has moved since. Use `litedoc4 build` for a site with documentation links
-|
-| <usage>
-
-@case watch-deps-docs-index
-argv watch --root root --out out --deps-docs-index F
-exit 2
-| litedoc4: --deps-docs-index is not a `watch` flag: it resolves a dependency's declaration table over the network, once, against the IR tree of that run. A loop would either re-fetch 5.7 MB on every rebuild or serve pages resolved against an IR tree that has moved since. Use `litedoc4 build` for a site with documentation links
 |
 | <usage>
 

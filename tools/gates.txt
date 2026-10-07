@@ -2,9 +2,9 @@
 #
 # A check nobody runs and a list naming a check nobody wrote are the same bug
 # from two ends. There was no inventory for the gates themselves, and it cost —
-# `build-gate.sh` had never once been run over the target (measured 2026-08-28,
-# fixed 2026-08-29), and `clone-gate.sh` still carried the module count and the
-# whole-package artefact names of a tree from before the UI was rewritten.
+# a gate over the measurement target had never once been run (measured
+# 2026-08-28, fixed 2026-08-29), and another still carried the module count and
+# the whole-package artefact names of a tree from before the UI was rewritten.
 #
 # COLUMN 2 — `ci` means a workflow invokes it, and `tools/workflow-gate.sh`
 # checks that it really does. `manual` means it needs the measurement target, a
@@ -18,13 +18,8 @@
 # script                     who     needs
 assets-embed-gate.sh         ci      nothing; reads the tree
 assets-gate.sh               ci      node, via mise; the site's TypeScript
-base-ir-gate.sh              manual  the target's IR at $PURELEAN_WORK, the same tree purelean-render-gate.sh reads; elan for the Lean litedoc4
+base-ir-gate.sh              manual  the target's IR at $PURELEAN_WORK; elan for the Lean litedoc4
 benchmarks-ts-gate.sh        ci      deno; type-checks benchmarks/tools
-browser-gate.sh              ci      a headless Chrome and a built site
-build-gate.sh                manual  the target, an APFS clone of it, a reference IR and a .lidx
-clone-gate.sh                manual  the same clone; produces build-gate's reference
-config-gate.sh               ci      a built site (e2e-micro calls it)
-deps-docs-gate.sh            manual  a package whose dependency docs are published
 docs-gate.sh                 ci      nothing; reads the tracked files
 flag-tie-gate.sh             ci      elan, which builds the litedoc4 every documented flag is handed to
 gc-table-gate.sh             manual  deno for the emitter arm; UnicodeBasic in the target for the arm that re-asks the ranges, and it arrives only with doc-gen4
@@ -36,17 +31,12 @@ md-memory-gate.sh            ci      the system compiler with AddressSanitizer o
 md-oracle-gate.sh            ci      nothing; reads fixtures/md/ and test/
 mv-s-gate.sh                 ci      elan and e2e/micro (the sample's Lean); builds tools/mv-s/ as five versions in its own work directory (v5 on a second toolchain, which `build --versions` installs through elan)
 mv-pages-gate.sh             ci      deno, a headless Chrome, and the two renders mv-s-gate.sh --keep leaves; e2e/micro-expected/build as the frozen pages; python3 to decode the search indexes
-onemod-gate.sh               ci      a built site (e2e-micro calls it)
+onemod-gate.sh               ci      a build's marker and extractor log (e2e-micro calls it)
 pinned-dep-gate.sh           ci      elan, e2e/micro and e2e/micro-dep as a git require
 provenance-gate.sh           ci      nothing; reads the tree
 public-surface-gate.sh       ci      nothing; reads the tree
 purelean-gate.sh             ci      elan and e2e/consumer
-purelean-micro-gate.sh       ci      elan, e2e/micro, e2e/consumer, and e2e/micro-expected as the frozen oracle
-purelean-render-gate.sh      manual  the target's IR and .lidx, elan, and tools/purelean-render-expected as the frozen oracle
 refusal-gate.sh              ci      elan; the two frozen data files are the oracle
-site-gate.sh                 ci      a built site
-target2-gate.sh              manual  a second synthetic package on the target's Mathlib revision
-usedby-gate.sh               ci      a built site (e2e-micro calls it)
 v8-gc-table-gate.sh          ci      deno, pinned to the version the generated table records; nothing else
 version-gate.sh              ci      nothing; reads the tracked files and this repository's tags
 watch-gate.sh                ci      elan and e2e/micro

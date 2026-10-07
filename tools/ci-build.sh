@@ -31,7 +31,8 @@
 #
 #   --root <dir>            the Lean package to build and document (required)
 #   --out <dir>             where the documentation state goes (required).
-#                           <out>/site is the site; the rest is cache.
+#                           <out>/site is the site, rendered from the store;
+#                           the rest is the store and the extraction state.
 #   --cache-get             run `lake exe cache get` in --root first (network)
 #   --no-lake-build         skip `lake build` — only for a caller that has
 #                           already built the package **in the same job**
@@ -44,7 +45,11 @@
 #   --timings <file>        phase timings as one JSON object
 #                           (default: <out>/ci-timings.json)
 #   -- <args>...            passed through to `litedoc4 build` (e.g. --lib,
-#                           --source-url, --full)
+#                           --source-url, --full, --store, --hash-urls,
+#                           --versions). With --versions, `litedoc4 build`
+#                           builds each version's extractor on the Lean that
+#                           version pins, so step 3 is skipped and neither
+#                           --extractor-bin nor --timings is passed
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -100,6 +105,11 @@ mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 refuse_out_inside_root "$OUT"
 [ -n "$TIMINGS" ] || TIMINGS="$OUT/ci-timings.json"
+
+VERSIONED=0
+for arg in "${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"}"; do
+  if [ "$arg" = --versions ]; then VERSIONED=1; fi
+done
 
 # `date` on BSD has no sub-second format, so the clock is bash 5's
 # $EPOCHREALTIME with a perl fallback.
@@ -163,7 +173,10 @@ t="$(now)"
 # number below would describe an extractor nobody is looking at. So the source
 # decides, not the presence of a file; `-nt` rather than an unconditional
 # rebuild because `extractor/build.sh` is ~16 s.
-if [ -x "$EXTRACTOR_BIN" ] && [ ! "$REPO/extractor/Extract.lean" -nt "$EXTRACTOR_BIN" ]; then
+if [ "$VERSIONED" = 1 ]; then
+  echo "skipped: --versions builds each version's extractor on the Lean it pins"
+  record extractor "$(elapsed "$t" "$(now)")" "skipped (--versions)"
+elif [ -x "$EXTRACTOR_BIN" ] && [ ! "$REPO/extractor/Extract.lean" -nt "$EXTRACTOR_BIN" ]; then
   echo "cached: $EXTRACTOR_BIN"
   record extractor "$(elapsed "$t" "$(now)")" "cached"
 elif [ "$EXTRACTOR_BIN" = "$REPO/extractor/build/extract" ]; then
@@ -209,13 +222,16 @@ fi
 
 step "5/5  litedoc4 build"
 t="$(now)"
+OWN=()
+if [ "$VERSIONED" = 0 ]; then
+  OWN=(--extractor-bin "$EXTRACTOR_BIN" --timings "$OUT/litedoc4-timings.json")
+fi
 "$LITEDOC4_BIN" build \
   --root "$ROOT" \
   --out "$OUT" \
-  --extractor-bin "$EXTRACTOR_BIN" \
   --lake "$LAKE" \
   --jobs "$JOBS" \
-  --timings "$OUT/litedoc4-timings.json" \
+  "${OWN[@]+"${OWN[@]}"}" \
   "${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"}"
 record docs "$(elapsed "$t" "$(now)")" "ran"
 

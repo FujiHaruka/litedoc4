@@ -53,8 +53,8 @@ curated な単体テストは**手で書いた IR** でこれらの分岐に到�
 | `Example/Shapes.lean` | **`class` / `class inductive` / 非 `mk` constructor / `extends` の継承 field / field の implicit binder** |
 | `Example/Dep.lean` + `../micro-dep/` | **版固定できない依存** — path require なので manifest entry に `url` も `rev` も無い。モジュール名は **`«Dep-Aux»`** (ギュメが要る形)。**版固定できない依存へのリンク**と**`.lidx` の綴り差**がここを通る (下記) |
 | `Example/Gen.lean` | **`@[ext]` が実現する宣言と、しない宣言** — inline の `@[ext]` / 後から来る `attribute [ext] Trip` / **1 つの位置に 2 つの親の子が 4 つ** (`attribute [ext] Quad Quint`) / `extends` の親射影 / そして**手書きの `@[ext] theorem`**。最後のものが要点で、**拡張に居ることは「生成された」を意味しない**ことをここだけが示す |
-| `litedoc4.toml` + `docs/index.md` | **サイト設定** (feature-sweep C-3) — `title` と `index`。**何も設定していないパッケージでは 4 経路が自明に一致する**ので、`tools/config-gate.sh` が比較するものを持たせるために置いてある |
-| `docs/references.bib` | **The bibliography** — `references.html`, and three citations into it: `[deMoura2021]` in `Example`'s module docstring (the bare-key form, whose link text becomes the entry's tag), `[Theorem Proving in Lean 4][TPIL4]` in `Example.Basic`'s (the form that keeps its own text) and `[Graham1994]` in `Example.Math.displaySpan`'s. `tools/config-gate.sh` compares them across the commands that write HTML |
+| `litedoc4.toml` + `docs/index.md` | **サイト設定** (feature-sweep C-3) — `title` と `index`。With no file at all every reader agrees trivially, so it is here for `tools/mv-s-gate.sh` (`render-front`) and `tools/mv-pages-gate.sh` (`path-titles`) to have something to compare |
+| `docs/references.bib` | **The bibliography** — `references.html`, and three citations into it: `[deMoura2021]` in `Example`'s module docstring (the bare-key form, whose link text becomes the entry's tag), `[Theorem Proving in Lean 4][TPIL4]` in `Example.Basic`'s (the form that keeps its own text) and `[Graham1994]` in `Example.Math.displaySpan`'s. `tools/mv-s-gate.sh` holds the references data and the citations against each other (`render-references`, `render-citation`) |
 | `Example/Math.lean` | **docstring の数式** (feature-sweep C-1) — インライン `$…$` / ブロック `$$…$$` / HTML が気にする文字を含む式 / **変換できない `\colim`**。最後のものが要点で、**失敗が `$…$` のまま残り、その件数が `work.mathFallbacks` に出る**ことをここだけが示す。対象は 5,079 docstring 中 3 span しか数式を持たないので、**対象では一度も通らない経路** |
 | `Example/Sorry.lean` | **`sorry` の 3 形** (doc-gen4 #270) — 直接 `sorry` を書いた定理 / それに依存するだけの定理 / どちらでもない定理。**`sorry` は elaborate 済みの項の性質**なので、手書き IR では「抽出器が正しい値を入れたか」を検査できない。ここが唯一の経路 |
 
@@ -73,7 +73,7 @@ body を空のまま返していた。tag の中にあり、HEAD には無い)�
 **オラクルの入力に無い形は、何バイト一致しても見えない。**
 
 回帰は `e2e/micro-expected/render/Example/Shapes.html` の `id="Example.Decision.no"` /
-`id="Example.Decision.yes"` が持つ (`tools/purelean-micro-gate.sh` が凍結バイトとして見ている)。
+`id="Example.Decision.yes"` が持つ (`tools/mv-pages-gate.sh` の frozen arm reads them as ids on the drawn page)。
 
 ## path 依存を足して出たもの【実測 2026-08-17】
 
@@ -159,7 +159,7 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 | | 担当 | 走らせるもの |
 |---|---|---|
 | `micro/` (+ `micro-dep/`) | **宣言の形** — 対象が持たない 9 分岐と版固定できない依存 | `tools/e2e-micro.sh` |
-| `consumer/` | **Lake の配線** — litedoc4 を `require` した利用者の経路 | `tools/lake-package-gate.sh` / `tools/purelean-gate.sh` / `tools/purelean-micro-gate.sh` |
+| `consumer/` | **Lake の配線** — litedoc4 を `require` した利用者の経路 | `tools/lake-package-gate.sh` / `tools/purelean-gate.sh` |
 
 `consumer/` は litedoc4 を **path で `require`** する最小パッケージで、
 `lake run docs -- --out <dir>` が動くかだけを見る。
@@ -193,8 +193,11 @@ git の `insteadOf` で remote を書き換える。**manifest には https の 
 `micro-expected/` is the frozen output of the **Rust** `litedoc4` over `micro/`,
 minted while that binary existed: 51 files, 520 KB — the rendered pages, the
 whole-package artifacts, the four transcripts, the ledger and the build marker.
-`tools/purelean-micro-gate.sh` holds the Lean half to those bytes, and it is the
-only thing that reads them.
+`tools/mv-pages-gate.sh`'s frozen arm reads them: every page path of
+`micro-expected/build/` has to have a page at `v1/<same path>` in the store-rendered
+sample S, and every element id of a frozen page has to be on that page once it is
+drawn in a browser. It reads paths and ids, never bytes: a page drawn from data
+changes every byte.
 
 **Not every byte in it is the Rust half's.** `site/references.html` and
 `build/references.html` were written by the Lean half on 2026-10-04: the page did
@@ -219,58 +222,46 @@ here rather than in `tools/` because what invalidates it is an edit to `micro/`
 — a docstring changed there changes the frozen pages, and the expectation
 belongs where whoever changes it will see it.
 
-Re-mint with `tools/purelean-micro-gate.sh --mint` **while a Rust litedoc4
-exists**. It refuses unless both halves extract the same IR and build the same
-link index, and it reports how many files changed. After M10 there is nothing to
-mint from, and a `--mint` from the Lean half is a rebaseline rather than an
-answer — sound only for a sample edit, from a tree that was green immediately
-before it.
+**Nothing re-mints it.** There is nothing left to mint from, and an answer minted
+from the Lean half would record what it does today rather than what the answer is.
+An edit to `micro/` that moves a page path or an id is argued against these files
+by hand.
 
 ## ゲート
 
-`tools/e2e-micro.sh` が順に見るもの:
+`tools/e2e-micro.sh` builds `micro/` with `litedoc4 build` — one version, rendered
+from the store — and asks, in order:
 
-1. **1 コマンド** — `litedoc4 build` がサイトを書き、`tools/site-gate.sh` が
-   **内部リンクの 404 = 0 / 外部リソース = 0 / 索引とページが双方向で一致**を確認する
-2. **冪等** — 同じコマンドをもう一度: **サイトのバイト不動**
-3. **決定性** — 別のディレクトリへのフル生成が **1 回目とバイト一致** (サイトも IR も)
-4. **`--jobs` 不変** — 抽出器の並列度を変えてもサイトも IR もバイト一致
-5. **仕事量** — 2 回目が実際に**何もしなかった**ことを `litedoc4-build.json` の
-   `work` から読む (再抽出 0 / 描画 0 / Lean 起動 0)
-6. **1 モジュール編集** — 編集で `.lidx` が動かないこと、描いたページ数がモジュール数未満、
-   残った木が**自分の IR の全描画と一致**すること
-7. **`sorry` の 3 形** — `Example/Sorry.lean` の 3 宣言が IR で **`"direct"` /
-   `"transitive"` / キー無し**の 3 通りに分かれること。**名前で照合し、比較した本数を数える**
-   (期待値が 1 つも走らなくても「問題なし」に見えるので)。加えて**他の宣言が `sorry` を
-   名乗っていないこと** — 全部に `"transitive"` を返す分類器は前 2 つを通る。
-   **同じ 3 通りをページ側でも照合する** (`data-flag` で見るので、文言を変えても落ちない) —
-   抽出器が正しく答えていて**どのページにも出ない**のは、読者にとって答えが無いのと同じ
-8. **属性が name と value に分かれて届く** — 宣言ごとの `attrs` を丸ごと照合し、
-   IR 全体で**どの要素も 2 要素の文字列配列**であること、**属性名ごとの主張数**も数える
-9. **生成宣言の由来** — `Example/Gen.lean` の 9 宣言が `["ext", <実現の入力>]` を名乗り、
-   **手書きの `Example.Gen.Solo.ext` は名乗らない**こと。名前で照合し、比較した本数と
-   由来を主張した総数を数える。加えて**`selectionRange == range` の 42 件のうち
-   33 件は名乗っていない**ことを数える — この等式を「生成」と読み替えた実装は
-   42 件を名乗ってここで落ちる。**ページ側の pill の集合が IR の 9 件と一致し、
-   各 pill が名乗る `[属性, 由来]` が IR の値と一致すること** — 全宣言に pill を描く
-   実装は 9 件の肯定的期待を全部通る。最後に**由来より前に並ぶ生成宣言が 0 件**であること
-   (B-0 §13.2 の反証条件。3 版ぶんは
-   [`../benchmarks/results/generated-decls-2026-08-21.txt`](../benchmarks/results/generated-decls-2026-08-21.txt))
+1. **One command** — the site lists exactly one version, the first 12 hex digits of
+   HEAD, with a page per module of the IR; `benchmarks/tools/check-store-render.py`
+   finds it closed over itself (index subscripts, instance values, no other host),
+   its Used by files equal to the IR's references both ways, and its `sorry` and
+   origin pills the IR's
+2. **Idempotent** — the same command again leaves the site's bytes where they were
+3. **Deterministic** — a build into another directory is byte-identical, site and IR
+4. **`--jobs` invariant** — the extractor's parallelism does not move the IR
+5. **Work** — read from `litedoc4-build.json`'s `work` and `versionsExtracted`: the
+   first build extracts every module with one Lean start; the second extracts 0,
+   starts Lean 0 times and says `0 of 1` versions extracted
+6. **One edited module** — `.lidx` does not move, exactly one module is extracted
+   (`tools/onemod-gate.sh`), and the IR and site left behind equal a build from
+   nothing over the edited sources
+7. **Attributes arrive split into name and value** — over the IR, by name and by
+   count per attribute
+8. **Source links** — every module's `<source>/<module path>.lean` is a file in
+   this checkout, the version's source carrying the path to `micro/`
 
-**3 が外部オラクルの代わりになる**もの — 「何バイトであるべきか」を誰にも聞かずに、
-ハッシュ順・時刻・パスの混入を落とせる。
-**5 が壁時計の代わりになる**もの — このワークロードは page cache で環境ロードが 5 倍動く
-【実測、CLAUDE.md】ので秒数は閾値にできないが、**やった仕事の量は決定的な整数**で、
-増分設計が主張しているのはまさにその形 (「無変更なら 0 ページ」)。
+What a page shows once drawn — the three `sorry` shapes, generated declarations'
+origins, MathML, Used by, `litedoc4.toml`, module descriptions, search, theme,
+375 px and the monospace glyphs — is asked of the store-rendered sample S, which
+carries the same shapes, by `tools/mv-s-gate.sh` and `tools/mv-pages-gate.sh`;
+the script's step 11 names where each went.
 
-さらにブラウザ側は [`tools/browser-gate.sh`](../tools/browser-gate.sh) が別に見る
-(この出力に対して回す) — 検索・ツリー・instances・テーマ・375 px・JS 無効・**等幅フォントの字形**。
-
-**最後の 1 つだけ入力がここに無い**: 検査 8 は**計測対象由来の非 ASCII 178 種**
-(`benchmarks/tools/mono-charset.json`) を等幅スタックで描いて字形の欠けを見る。
-**このサンプルに出る文字で判定すると意味が無い**からで — micro は意図的に小さいので、
-`ℝ` を描けないフォントでも通ってしまう。**サイトは micro、文字集合は対象**という組み合わせは
-このゲートだけ。
+**3 stands in for an external oracle** — it catches hash order, timestamps and
+paths leaking into the output without asking anyone what the bytes should be.
+**5 stands in for the wall clock** — environment loading moves 5× with the page
+cache, so seconds cannot be a threshold, but the work done is a deterministic
+integer.
 
 ### ゲート自身が壊れていた話【実測 2026-08-16】
 

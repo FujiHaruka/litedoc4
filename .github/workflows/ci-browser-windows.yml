@@ -4,8 +4,9 @@
 # not on this desk: `windows-latest` ships Consolas *and* Chrome.
 #
 # Two jobs, because the site has to be built where Lean runs: ubuntu builds the
-# sample package's site and uploads it, Windows downloads it and drives Chrome. The
-# font check does not read its character set out of the site — it reads
+# sample S's two renders (path and hash URLs) and uploads them, Windows downloads
+# them and drives Chrome through tools/mv-pages-gate.sh. The font check
+# (`mono-glyphs`) does not read its character set out of the site — it reads
 # `benchmarks/tools/mono-charset.json`, the 178 non-ASCII characters of the
 # measurement target — so the tiny sample is enough to judge a font stack.
 #
@@ -28,7 +29,7 @@ env:
 
 jobs:
   site:
-    name: build the sample's site (ubuntu)
+    name: build the sample's renders (ubuntu)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -39,8 +40,8 @@ jobs:
       - name: Build the CLI
         run: tools/build-lean-exe.sh --toolchain-from e2e/micro
 
-      - name: End to end
-        run: tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
+      - name: The S loop, keeping its two renders
+        run: tools/mv-s-gate.sh --out "$RUNNER_TEMP/mv-s" --keep
 
       # The same gate this job could run itself, run here so that a Windows
       # failure downstream is known to be about Windows and not about the site.
@@ -48,24 +49,27 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Browser gate (ubuntu, for comparison)
-        run: tools/browser-gate.sh "$RUNNER_TEMP/e2e/first/site" --json "$RUNNER_TEMP/browser-ubuntu.json"
+      - name: Page gate (ubuntu, for comparison)
+        run: tools/mv-pages-gate.sh --from "$RUNNER_TEMP/mv-s" | tee "$RUNNER_TEMP/pages-ubuntu.txt"
+        shell: bash -o pipefail {0}
         env:
           CHROME_PATH: /usr/bin/google-chrome
 
-      - name: Upload the site for the Windows job
+      - name: Upload the renders for the Windows job
         uses: actions/upload-artifact@v7
         with:
-          name: micro-site
-          path: ${{ runner.temp }}/e2e/first/site
+          name: s-renders
+          path: |
+            ${{ runner.temp }}/mv-s/run1/render/all-1
+            ${{ runner.temp }}/mv-s/run1/render/hash-1
           if-no-files-found: error
 
       - name: Upload the ubuntu report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: browser-ubuntu
-          path: ${{ runner.temp }}/browser-ubuntu.json
+          name: pages-ubuntu
+          path: ${{ runner.temp }}/pages-ubuntu.txt
           if-no-files-found: warn
 
   windows:
@@ -78,8 +82,8 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: micro-site
-          path: site
+          name: s-renders
+          path: renders
 
       - uses: denoland/setup-deno@v2
         with:
@@ -104,16 +108,16 @@ jobs:
             Where-Object { $_.Name -match 'Consolas|Cascadia|Courier|Mono' } |
             ForEach-Object { $_.Name }
 
-      - name: Browser gate
-        shell: bash
+      - name: Page gate
+        shell: bash -o pipefail {0}
         env:
           CHROME_PATH: C:\Program Files\Google\Chrome\Application\chrome.exe
-        run: tools/browser-gate.sh site --json browser-windows.json
+        run: tools/mv-pages-gate.sh --site renders/all-1 --hash renders/hash-1 | tee pages-windows.txt
 
       - name: Upload the Windows report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: browser-windows
-          path: browser-windows.json
+          name: pages-windows
+          path: pages-windows.txt
           if-no-files-found: warn

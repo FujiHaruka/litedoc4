@@ -29,24 +29,24 @@ usage:
     every version's search index as {version: [[name, module], ...]}, for
     benchmarks/tools/check-mv-pages.ts to hold against the drawn pages
 
-The index is decoded by check-site-closure.py's reader, the one reader of the
-format that is neither its writer nor the site's own.
+The index is decoded by `read_search_index` below, the one reader of the format
+that is neither its writer nor the site's own.
+
+  --only <item>,...  ask only these items. A one-version site of a package that
+                     is not the sample (tools/lake-package-gate.sh) has no
+                     formula, no bibliography and no source at the repository
+                     root, so those items have nothing true to say about it
 """
 
 import argparse
 import collections
 import gzip
-import importlib.util
 import json
-import os
 import pathlib
 import re
-import shutil
 import subprocess
 import sys
-import tempfile
 
-HERE = pathlib.Path(__file__).resolve().parent
 RESOURCE = re.compile(r'<(?:script\b[^>]*\bsrc|link\b[^>]*\bhref)="([^"]*)"', re.IGNORECASE)
 EXTERNAL = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:)?//")
 CSS_URL = re.compile(r"(?:url\(\s*['\"]?|@import\s+['\"])([^'\")\s]+)")
@@ -94,11 +94,59 @@ def module_path(module):
     return "/".join(out)
 
 
-def load_closure_reader():
-    spec = importlib.util.spec_from_file_location("check_site_closure", HERE / "check-site-closure.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.read_search_index
+def read_search_index(data, problems):
+    """A version's search index, decoded — a third implementation on purpose.
+
+    The site's own reader is `web/src` and the writer is
+    `src/Litedoc4/Global/SearchIndex.lean`. A checker that imported either
+    would agree with it about a format both had got wrong, so this reads the
+    bytes itself. The layout is documented in the writer.
+    """
+    def u32(at):
+        return int.from_bytes(data[at : at + 4], "little")
+
+    if len(data) < 52 or data[0:4] != b"LD4S" or u32(4) != 2:
+        problems.append("search-index.bin: not a version 2 index")
+        return None
+    count = u32(8)
+    names_off, labels_off = u32(16), u32(28)
+    kind_of_off, module_off = u32(36), u32(40)
+
+    names = []
+    at = names_off
+    previous = b""
+    try:
+        for _ in range(count):
+            shared = data[at]
+            at += 1
+            length = data[at]
+            if length == 255:
+                length = int.from_bytes(data[at + 1 : at + 3], "little")
+                at += 3
+            else:
+                at += 1
+            previous = previous[:shared] + data[at : at + length]
+            at += length
+            names.append(previous.decode("utf-8"))
+        labels = []
+        at = labels_off + 4
+        for _ in range(u32(labels_off)):
+            length = data[at]
+            labels.append(data[at + 1 : at + 1 + length].decode("utf-8"))
+            at += 1 + length
+    except (IndexError, UnicodeDecodeError) as error:
+        problems.append("search-index.bin: truncated or corrupt ({})".format(error))
+        return None
+    if len(names) != count:
+        problems.append("search-index.bin: {} names for a count of {}".format(len(names), count))
+        return None
+
+    kinds = [data[kind_of_off + i] for i in range(count)]
+    modules = [
+        int.from_bytes(data[module_off + i * 2 : module_off + i * 2 + 2], "little")
+        for i in range(count)
+    ]
+    return {"names": names, "labels": labels, "kind_of": kinds, "modules": modules}
 
 
 class Site:
@@ -139,14 +187,8 @@ class Site:
     def index(self, v):
         if v not in self._index:
             raw = self.data(self.version_file(v)["search"], "bin")
-            scratch = tempfile.mkdtemp()
-            try:
-                with open(os.path.join(scratch, "search-index.bin"), "wb") as handle:
-                    handle.write(raw)
-                problems = []
-                decoded = READ_SEARCH_INDEX(scratch, problems)
-            finally:
-                shutil.rmtree(scratch)
+            problems = []
+            decoded = read_search_index(raw, problems)
             if decoded is None:
                 raise RuntimeError("%s's search index: %s" % (v, "; ".join(problems)))
             self._index[v] = decoded
@@ -402,22 +444,31 @@ def main():
     parser.add_argument("--repo")
     parser.add_argument("--builds")
     parser.add_argument("--versions")
+    parser.add_argument("--only", help="a comma-separated subset of the items")
     args = parser.parse_args()
     if args.print_index:
         return print_index(args.site)
     if not (args.repo and args.builds and args.versions):
         parser.error("--repo, --builds and --versions are required unless --print-index")
     site = Site(args.site, args.builds, args.versions.split(","))
-    check("render-usedby", lambda: usedby(site))
-    check("render-closure", lambda: closure(site))
-    check("render-content-ir", lambda: content_ir(site))
-    check("render-summaries", lambda: summaries(site))
-    check("render-math", lambda: math(site))
-    check("render-references", lambda: references(site, args.repo))
-    check("render-sources", lambda: sources(site, args.repo))
-
-
-READ_SEARCH_INDEX = load_closure_reader()
+    items = [
+        ("render-usedby", lambda: usedby(site)),
+        ("render-closure", lambda: closure(site)),
+        ("render-content-ir", lambda: content_ir(site)),
+        ("render-summaries", lambda: summaries(site)),
+        ("render-math", lambda: math(site)),
+        ("render-references", lambda: references(site, args.repo)),
+        ("render-sources", lambda: sources(site, args.repo)),
+    ]
+    asked = [name for name, _ in items]
+    if args.only:
+        asked = args.only.split(",")
+        unknown = [name for name in asked if name not in dict(items)]
+        if unknown:
+            parser.error("--only names no item called %s" % ", ".join(unknown))
+    for name, body in items:
+        if name in asked:
+            check(name, body)
 
 if __name__ == "__main__":
     sys.exit(main())

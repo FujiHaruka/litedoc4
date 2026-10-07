@@ -439,46 +439,49 @@ def pruneRemoved (pages remove json : FilePath) : BuildM PruneSummary :=
   -- propagation.
   prune { pages, remove := some remove, ir := none, dryRun := false, json := some json }
 
-def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun := do
+structure ExtractionInput where
+  ir : FilePath
+  ledger : FilePath
+  work : FilePath
+  modules : Array String
+  sourceUrl : String
+  linkIndex : FilePath
+  externalDigest : String
+  bibliography : Option String
+  maxRounds : Nat
+
+structure Rounds where
+  check : CheckSummary
+  seen : Array String
+  irChanged : Array String
+  rounds : Nat
+  staleFound : Nat
+  extractNanos : Nat
+  ownershipNanos : Nat
+  mergeNanos : Nat
+  started : Nat
+  detectDone : Nat
+  roundsDone : Nat
+
+def runRounds (o : ExtractionInput) (extractor : Extractor) : BuildM Rounds := do
   let started ← IO.monoNanosNow
   IO.FS.createDirAll o.work
   let changedFile := o.work / "changed.txt"
   let removedFile := o.work / "removed.txt"
   let seenFile := o.work / "seen.txt"
-  let mapBeforeFile := o.work / "name-map-before.json"
-  let globalSetFile := o.work / "global-set.txt"
-
-  -- The dependency map's identity **before the rounds**, so that a rewrite one of
-  -- them performs can be seen. The ordinary case is that this run's own
-  -- extraction writes it.
-  let mapBefore ← linkIndexDigest (some o.linkIndex)
-
-  -- Snapshotted rather than recomputed, because the global step overwrites it in
-  -- place: taking it later makes every delta empty.
-  let liveMap := o.pages / "declarations" / "name-map.json"
-  discard <| (IO.FS.removeFile mapBeforeFile).toBaseIO
-  let haveBefore ← isRegularFile liveMap
-  if haveBefore then
-    IO.FS.writeBinFile mapBeforeFile (← IO.FS.readBinFile liveMap)
 
   -- `ir` is not optional: without it the ledger cannot see the IR schema or the
-  -- generator id, and a schema bump would leave every page stale with the ledger
-  -- reporting "0 changed". `sourceUrl` is not optional for the mirror-image
-  -- reason: it reaches the page bytes and it moves every commit, so it is in the
-  -- *render* key and a new revision re-renders without starting Lean once.
+  -- generator id, and a schema bump would leave every module stale with the
+  -- ledger reporting "0 changed".
   let check ← checkLedger
       { ledger := o.ledger
         -- The ledger's own algorithm: two algorithms produce incomparable
         -- hashes, so overriding here would report every module as changed.
         algorithm := none
         modules := some o.modules, ir := some o.ir, sourceUrl := o.sourceUrl
-        -- The half of "did the dependency map move" that can be answered here:
-        -- somebody handed this run a different map than the one the ledger
-        -- records. The other half — the map this run's own extractor is about to
-        -- rewrite — is the check after the rounds.
         linkIndex := some o.linkIndex
-        externalLinks := some o.external.digest
-        bibliography := o.config.bibliography.digest
+        externalLinks := some o.externalDigest
+        bibliography := o.bibliography
         changedOut := some changedFile, removedOut := some removedFile
         renderAllOut := some (o.work / "render-all.txt") }
   let detectDone ← IO.monoNanosNow
@@ -553,12 +556,48 @@ def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun :=
 
   -- **The loop is the only thing that can extract**, so the resident environment
   -- is released here rather than at the end of the run: what follows reads the
-  -- whole IR, and holding 3 GB across it buys nothing. The teardown stays inside
-  -- `totalSeconds` either way.
+  -- whole IR, and holding 3 GB across it buys nothing.
   extractor.release
   writeLines seenFile seen
   writeLines (o.work / "ir-changed.txt") irChanged
   let roundsDone ← IO.monoNanosNow
+  return { check, seen, irChanged, rounds, staleFound, extractNanos, ownershipNanos, mergeNanos
+           started, detectDone, roundsDone }
+
+def runIncremental (o : Incremental) (extractor : Extractor) : BuildM IncrRun := do
+  IO.FS.createDirAll o.work
+  let removedFile := o.work / "removed.txt"
+  let mapBeforeFile := o.work / "name-map-before.json"
+  let globalSetFile := o.work / "global-set.txt"
+
+  -- The dependency map's identity **before the rounds**, so that a rewrite one of
+  -- them performs can be seen. The ordinary case is that this run's own
+  -- extraction writes it.
+  let mapBefore ← linkIndexDigest (some o.linkIndex)
+
+  -- Snapshotted rather than recomputed, because the global step overwrites it in
+  -- place: taking it later makes every delta empty.
+  let liveMap := o.pages / "declarations" / "name-map.json"
+  discard <| (IO.FS.removeFile mapBeforeFile).toBaseIO
+  let haveBefore ← isRegularFile liveMap
+  if haveBefore then
+    IO.FS.writeBinFile mapBeforeFile (← IO.FS.readBinFile liveMap)
+
+  let r ← runRounds
+    { ir := o.ir, ledger := o.ledger, work := o.work, modules := o.modules
+      sourceUrl := o.sourceUrl, linkIndex := o.linkIndex, externalDigest := o.external.digest
+      bibliography := o.config.bibliography.digest, maxRounds := o.maxRounds } extractor
+  let check := r.check
+  let seen := r.seen
+  let irChanged := r.irChanged
+  let rounds := r.rounds
+  let staleFound := r.staleFound
+  let started := r.started
+  let detectDone := r.detectDone
+  let roundsDone := r.roundsDone
+  let extractNanos := r.extractNanos
+  let ownershipNanos := r.ownershipNanos
+  let mergeNanos := r.mergeNanos
 
   -- The renderer only ever writes, so without this a deleted module's page
   -- survives every later run and is indistinguishable from a live one.

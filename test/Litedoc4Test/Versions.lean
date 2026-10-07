@@ -37,11 +37,11 @@ def theExtractedLineCountsAgainstTheVersionListAndNamesWhatRan : Bool :=
 def aMarkerIsCompleteOnlyWithTheVersionsItExtracted : Bool :=
   let all := named #["v1", "v2"]
   versionsMarkerJson "/r" "/s" all none
-      == "{\"tool\":\"litedoc4 build\",\"layout\":1,\"root\":\"/r\",\"store\":\"/s\",\
-        \"versions\":[\"v1\",\"v2\"],\"complete\":false,\"versionsExtracted\":null}\n"
+      == "{\"tool\":\"litedoc4 build\",\"layout\":" ++ toString layoutVersion ++ ",\"root\":\"/r\",\
+        \"store\":\"/s\",\"versions\":[\"v1\",\"v2\"],\"complete\":false,\"versionsExtracted\":null}\n"
     && versionsMarkerJson "/r" "/s" all (some (named #["v2"]))
-      == "{\"tool\":\"litedoc4 build\",\"layout\":1,\"root\":\"/r\",\"store\":\"/s\",\
-        \"versions\":[\"v1\",\"v2\"],\"complete\":true,\
+      == "{\"tool\":\"litedoc4 build\",\"layout\":" ++ toString layoutVersion ++ ",\"root\":\"/r\",\
+        \"store\":\"/s\",\"versions\":[\"v1\",\"v2\"],\"complete\":true,\
         \"versionsExtracted\":{\"count\":1,\"of\":2,\"names\":[\"v2\"]}}\n"
 
 #guard aMarkerIsCompleteOnlyWithTheVersionsItExtracted

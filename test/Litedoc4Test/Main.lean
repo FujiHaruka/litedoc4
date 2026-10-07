@@ -81,7 +81,6 @@ def main : IO UInt32 :=
     Litedoc4Test.noRootAndNoFileAreTheSameAnswer,
     Litedoc4Test.aBibliographyIsReadByConventionAndABadOneNamesTheFile,
     Litedoc4Test.everyClassTheRendererEmitsIsStyled,
-    Litedoc4Test.writingTwiceLeavesTheSameBytes,
     Litedoc4Test.aRootIsATopLevelLeanFileWithOrWithoutADirectory,
     Litedoc4Test.aDirectoryIsItsIndexAFileIsItselfAndNothingThereIsMissing,
     Litedoc4Test.theTriggerAnswersNothingYetAStableDigestAMovedOleanAndABrokenLedger,

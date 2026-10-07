@@ -54,7 +54,7 @@ done
 
 # Publishing a site with no entry point would replace a working branch with a
 # broken one.
-for required in index.html style.css app.js; do
+for required in index.html versions.json assets/style.css assets/site.js; do
   [ -f "$SITE/$required" ] || die "$SITE has no $required — is this a finished build?"
 done
 

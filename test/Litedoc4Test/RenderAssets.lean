@@ -126,33 +126,4 @@ def everyClassTheRendererEmitsIsStyled : Invariant where
       -- set is a subset of anything.
       if seen > 60 then none else some s!"only {seen} class name(s) found — the scan broke"]
 
-/-! ## Writing them -/
-
-/-- **Unconditional and idempotent**: it overwrites whatever is at each path
-rather than asking whether it differs, because a build that skips an asset
-because "it was already there" leaves an *edited* or truncated file in place and
-nothing downstream would notice. The edit between the two runs is what a
-hand-patched deployment leaves.
-
-The work area carries the process id: two runs of `litedoc4-test` sharing a
-directory would delete each other's tree, and the failure would then read as this
-invariant being false. -/
-def writingTwiceLeavesTheSameBytes : Invariant where
-  name := "writing the assets over an edited tree leaves the bytes the executable carries"
-  check := do
-    let base : FilePath := ⟨(← IO.getEnv "TMPDIR").getD "/tmp"⟩
-    let dir := base / s!"litedoc4-lean-test-assets-{← IO.Process.getPID}"
-    if ← dir.pathExists then IO.FS.removeDirAll dir
-    writeAssets dir
-    IO.FS.writeFile (dir / "style.css") "/* hand-edited */"
-    writeAssets dir
-    let mut wrong : Array String := #[]
-    for (name, body) in assets do
-      if (← IO.FS.readFile (dir / name)) != body then wrong := wrong.push name
-    let written := (← dir.readDir).size
-    IO.FS.removeDirAll dir
-    return first [
-      eq wrong #[],
-      eq written assets.size]
-
 end Litedoc4Test

@@ -29,13 +29,10 @@ on:
       - "tools/lake-package-gate.sh"
       - "tools/lean-test-gate.sh"
       - "tools/purelean-gate.sh"
-      - "tools/purelean-micro-gate.sh"
       - "tools/refusal-gate.sh"
       - "tools/refusals.txt"
       - "tools/refusals-on-disk.txt"
-      - "tools/render-compare.sh"
-      - "tools/usedby-gate.sh"
-      - "benchmarks/tools/check-site-closure.py"
+      - "benchmarks/tools/check-store-render.py"
       - "tools/lib/common.sh"
       - "tools/libc-shim-gate.sh"
       - ".github/workflows/ci-lake.yml"
@@ -57,13 +54,10 @@ on:
       - "tools/lake-package-gate.sh"
       - "tools/lean-test-gate.sh"
       - "tools/purelean-gate.sh"
-      - "tools/purelean-micro-gate.sh"
       - "tools/refusal-gate.sh"
       - "tools/refusals.txt"
       - "tools/refusals-on-disk.txt"
-      - "tools/render-compare.sh"
-      - "tools/usedby-gate.sh"
-      - "benchmarks/tools/check-site-closure.py"
+      - "benchmarks/tools/check-store-render.py"
       - "tools/lib/common.sh"
       - "tools/libc-shim-gate.sh"
       - ".github/workflows/ci-lake.yml"
@@ -142,32 +136,6 @@ jobs:
       # answered by building it, the `Invariant`s by running it.
       - name: The Lean half's invariants
         run: tools/lean-test-gate.sh
-
-  # The same question `purelean-render-gate.sh` asks over the measurement target,
-  # asked over the sample instead — which is what makes it runnable here at all,
-  # and is *not* a weaker version of it: e2e/micro holds the declaration shapes
-  # the target does not have, and one of them (a class extending one whose
-  # defining module the sample does not declare) is the only input either
-  # renderer has ever had to refuse.
-  #
-  # It covers `site` as well as `render`, so the nine whole-package artifacts are
-  # in it — and four of its items ask whether the Lean site closes over itself
-  # and reads its own configuration, which a tree that matches the frozen bytes
-  # can still fail to do.
-  #
-  # What it compares against is `e2e/micro-expected/`, minted from the Rust half
-  # before that left the tree.
-  purelean-micro:
-    name: the sample package is rendered to the frozen bytes
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: ./.github/actions/setup-elan
-
-      - name: Gate
-        run: tools/purelean-micro-gate.sh
 
   # The channel a user actually goes through: a generated consumer says
   # `require «litedoc4» from git … @ "<this commit>"`, so Lake clones this
@@ -263,14 +231,27 @@ jobs:
           # catching. Ask the filesystem.
           test -f "$RUNNER_TEMP/widget-docs/site/index.html" \
             || { echo "::error::no site was written"; exit 1; }
-          # And that --lib really came from Lake: nothing above passed one.
-          test -f "$RUNNER_TEMP/widget-docs/site/Widget/Basic.html" \
-            || { echo "::error::Widget.Basic has no page — the --lib lookup missed it"; exit 1; }
+          # And that --lib really came from Lake: nothing above passed one. The
+          # site's one version is the first 12 hex digits of the consumer's
+          # commit.
+          VERSION="$(git rev-parse HEAD | cut -c1-12)"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          test -f "$RUNNER_TEMP/widget-docs/site/$VERSION/Widget/Basic.html" \
+            || { echo "::error::Widget.Basic has no page under $VERSION/ — the --lib lookup missed it"; exit 1; }
           grep -q -- "--lib Widget" "$RUNNER_TEMP/docs.log" \
             || { echo "::error::the script did not derive --lib Widget"; exit 1; }
 
       - name: The site closes over itself
-        run: tools/site-gate.sh "$RUNNER_TEMP/widget-docs/site"
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/builds"
+          ln -sfn "$RUNNER_TEMP/widget-docs" "$RUNNER_TEMP/builds/$VERSION"
+          python3 -I benchmarks/tools/check-store-render.py \
+            --site "$RUNNER_TEMP/widget-docs/site" --repo "$CONSUMER" \
+            --builds "$RUNNER_TEMP/builds" --versions "$VERSION" \
+            --only render-closure,render-content-ir | tee "$RUNNER_TEMP/closure.txt"
+          test "$(grep -c '^ok ' "$RUNNER_TEMP/closure.txt")" = 2 \
+            || { echo "::error::check-store-render.py did not answer ok for both items"; exit 1; }
 
   refused:
     name: a consumer with no lean_lib fails

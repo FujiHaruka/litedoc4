@@ -1,4 +1,5 @@
 import Litedoc4.Build
+import Litedoc4.Data.Site
 import Litedoc4.Store
 import Litedoc4Sources
 
@@ -260,6 +261,115 @@ def prepare (repo : Repository) (checkout : FilePath) (elan lake : FilePath) (li
     | .ok declared => pure declared.names
   spawnInherited lake.toString (#["build"] ++ libs) (some package)
   return (package, libs)
+
+/-! ## What a store entry's record reads from a checkout -/
+
+def commitOf (sourceUrl : String) : Option String :=
+  match splitOnce sourceUrl "/blob/" with
+  | none => none
+  | some (_, rest) =>
+    let rev := (rest.splitOn "/").headD rest
+    if isFortyHex rev then some rev else none
+
+/-- Everything a put records that the IR does not say, read out of the package
+at `root`: Lean core's revision, the manifest's dependencies, each dependency
+root's version-pinned source, and the site configuration. -/
+def originOf (root lake : FilePath) (sources : ExternalLinks) (commit sourceUrl : String) :
+    IO (Except String Store.Origin) := do
+  let leanGithash ← match ← coreGithash root lake with
+    | .error why => return .error why
+    | .ok hash => pure hash
+  let dependencies ← match ← Store.dependencyRevisions root with
+    | .error why => return .error why
+    | .ok deps => pure deps
+  if let some (core, _) := coreRoots.find? fun (core, _) =>
+      !(sources.sourceFor core matches .pinned _) then
+    return .error s!"{root}: Lean core's root `{core}` has no version-pinned source URL, so \
+      pages rendered from this entry would not link into it"
+  let site ← try readSiteSources root catch e => return .error (toString e)
+  if let .error why := site.config (bibliographyPath root).toString then return .error why
+  return .ok { commit, leanGithash, sourceUrl, dependencies, sources, site }
+
+/-! ## One working tree as one version -/
+
+def unlistedRootToolchain (root : FilePath) (toolchain : String) (rows : Array String) :
+    Option String :=
+  if rows.contains toolchain then none
+  else some s!"{root} pins `{toolchain}`, which has no row in tools/lean-toolchains.txt — the \
+    toolchains the extractor this command builds is known to build and run on are \
+    {", ".intercalate rows.toList}. Pass --extractor-bin to use an extractor built some other way"
+
+/-- The extractor for the Lean `root` pins, built under `<out>/extractors` the
+way `--versions` builds one per toolchain. -/
+def extractorForRoot (root out lake : FilePath) : BuildM FilePath := do
+  let file := root / "lean-toolchain"
+  let toolchain ← match ← (IO.FS.readFile file).toBaseIO with
+    | .error _ => throw (3, s!"{root} has no lean-toolchain: the extractor is built on the Lean \
+        the package pins, and this one pins none. Pass --extractor-bin")
+    | .ok text => pure (trimWs text)
+  if let some why := unlistedRootToolchain root toolchain supportedToolchains then throw (3, why)
+  let cache := out / extractorsName
+  pruneExtractors cache
+  extractorFor (elanBeside lake) cache toolchain
+
+structure Built where
+  what : String
+  version : String
+  modulesExtracted : Nat
+  extractorRequests : Nat
+  nanos : Nat
+
+/-- The working tree at `--root` as one version of a site: its IR brought up to
+date in place, put into the store under the first 12 hex digits of the commit its
+source links name, and the site rendered from the store with that version alone.
+
+The put and the render run on every call, also when nothing was extracted: the
+site configuration (title, front page, bibliography) is read into the entry by
+the put, and none of it is in the ledger's extraction key. -/
+def buildOne (r : BuildRequest) (store : FilePath) (hashUrls : Bool) : BuildM Built := do
+  let lake : FilePath := (← envOr r.lake "LAKE").getD ⟨"lake"⟩
+  let given ← envOr r.extractorBin "EXTRACT_BIN"
+  let bin : BuildM FilePath := match given with
+    | some path => pure path
+    | none => extractorForRoot r.root r.layout.out lake
+  let e ← runExtraction r bin
+  let some commit := commitOf e.sourceUrl
+    | throw (2, s!"--source-url {e.sourceUrl} names no 40-hex revision after /blob/")
+  let version ← match Store.VersionName.parse (commit.take 12).toString with
+    | .error why => throw (3, why)
+    | .ok v => pure v
+  let origin ← match ← originOf r.root lake r.external commit e.sourceUrl with
+    | .error why => throw (3, s!"version {version.text}: {why}")
+    | .ok origin => pure origin
+  IO.FS.createDirAll store
+  let putStarted ← IO.monoNanosNow
+  let s ← Store.put store version origin r.layout.ir r.layout.linkIndex
+  let putNanos := (← IO.monoNanosNow) - putStarted
+  IO.println s!"put     {version.text}: {s.record.irFiles} IR file(s) -> {s.record.packBytes} B \
+    ({s.record.extractorIdentity.text})"
+  let extracted := if e.work.modulesExtracted > 0 then #[version] else #[]
+  IO.println (extractedLine #[version] extracted)
+  let site := r.layout.site
+  if ← site.pathExists then IO.FS.removeDirAll site
+  let renderStarted ← IO.monoNanosNow
+  let counts ← match ← (Data.Site.renderStore store site #[version] hashUrls).run with
+    | .error why => throw (3, why)
+    | .ok counts => pure counts
+  let renderNanos := (← IO.monoNanosNow) - renderStarted
+  IO.println counts.json
+  writeFile r.layout.marker (markerJson r.root.toString e.libs e.sourceUrl e.modules.size
+    (some (e.work, { version := version.text, store := store.toString
+                     extracted := !extracted.isEmpty })))
+  let total := (← IO.monoNanosNow) - e.started
+  IO.println s!"build   {e.what} in {seconds total 4} s -> {site}"
+  if let some path := r.timings then
+    let line := buildRecordJson e.what e.modules.size e.work.modulesExtracted e.rounds e.work
+      e.ledgerModules e.ledgerBytes counts.json e.extractNanos putNanos renderNanos total
+    writeFile path (line ++ "\n")
+    IO.println line
+  return { what := e.what, version := version.text
+           modulesExtracted := e.work.modulesExtracted
+           extractorRequests := e.work.extractorRequests, nanos := total }
 
 end Versions
 end Litedoc4

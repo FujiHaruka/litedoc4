@@ -954,22 +954,6 @@ exit 3
 | litedoc4: git config --get remote.origin.url in <dir>/root failed: . --source-url is a git question — pass it explicitly if the package is not a checkout
 |
 
-# --- I. `--deps-docs-url` against the dependencies that resolve --------------
-#
-# The tail of this message is the resolver's answer, and the resolver shells out
-# to `lean --githash` beside `lake`. **`--lake nope/lake` is what makes the row a
-# question about litedoc4 rather than about this machine**: without it a machine
-# with a default toolchain resolves Lean core's four roots and the sentence names
-# them, while one without resolves none. The path has a slash in it on purpose —
-# a bare name would be looked up on `PATH`.
-@case build-deps-docs-url-unknown-root
-stdout-not-frozen build's progress names whatever toolchain elan has, so its line count is the machine's
-dir root
-argv build --root root --out out --lake nope/lake --deps-docs-url Mathib=https://example.invalid/mathlib
-exit 3
-| litedoc4: --deps-docs-url Mathib=…: `Mathib` is not a module root of any dependency this package resolves. The roots it does resolve are: none — no dependency could be resolved at all, so there is nothing to link. (`litedoc4 links --root <repo>` prints them with their sources.)
-|
-
 # --- The path in the message: a file a flag names that is not there ----------
 #
 # One sentence, eight rows, because what regresses here is **a call site**, not

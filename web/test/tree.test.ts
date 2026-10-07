@@ -1,7 +1,7 @@
 /**
  * These run against happy-dom, which is not a browser: it answers "did this
  * build the elements it says it does". Whether the result is *readable* at
- * 375 px is `tools/browser-gate.sh`'s question.
+ * 375 px is `tools/mv-pages-gate.sh`'s question.
  */
 import { describe, expect, it } from "vitest";
 import { nest, treeHtml } from "../src/tree.js";

@@ -28,10 +28,10 @@ open Std Std.Net Std.Async
 
 namespace Litedoc4.Httpd
 
-/-- **Not 8899**, where `tools/check-site-browser.ts` drives puppeteer and
-sometimes leaks the listener; not 3000 / 8000 / 8080 / 5173 / 4173 either, where
-every other development server in a working tree already is. The first thing a
-default port must do is be free. -/
+/-- **Not 8930**, where `tools/mv-pages-gate.sh` serves the sample's renders to
+puppeteer; not 3000 / 8000 / 8080 / 5173 / 4173 either, where every other
+development server in a working tree already is. The first thing a default port
+must do is be free. -/
 def defaultPort : UInt16 := 8484
 
 /-- A request line plus headers; the body is never read, because no method here

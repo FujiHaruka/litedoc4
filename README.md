@@ -30,8 +30,9 @@ those pages were generated here.
   browser to draw it
 - **uses `sorry`** and **depends on `sorry`** markers, kept apart as the different claims they are
 - a dark theme
-- page paths (`Foo/Bar.html`) and declaration anchors (`#Foo.bar`) in doc-gen4's shape, so links
-  into docs you already publish keep working
+- page paths (`<version>/Foo/Bar.html`) and declaration anchors (`#Foo.bar`) in doc-gen4's shape
+  under a version directory; a link in doc-gen4's shape without the version lands on the newest
+  version's page
 
 ## Is this for you?
 
@@ -70,17 +71,19 @@ your own toolchain, and the script fills in `--root`, `--extractor-bin` and `--l
 including for a `lakefile.lean` package where `--lib` otherwise has to be written by hand.
 
 `--out` is required and must be outside the package, and a relative path resolves against the
-package directory, so `../mypkg-docs` is the shortest spelling that works. Running the same command
-again is incremental, so keep it between runs; `--full` starts over.
+package directory, so `../mypkg-docs` is the shortest spelling that works. The site shows one
+version, named by the first 12 hex digits of your commit. Running the same command again extracts
+only the modules whose oleans moved, so keep `--out` between runs; `--full` extracts everything
+again.
 
 Underneath, litedoc4 is two commands, which you reach directly for `watch` and for the flags
 `docs` does not pass through:
 
 ```
-litedoc4 build  --root <repo> --out <dir> --extractor-bin <path>
-                [--lib <Name>]... [--jobs <n>] [--source-url <url>] [--full]
-litedoc4 watch  --root <repo> --out <dir> --extractor-bin <path>
-                [--lib <Name>]... [--jobs <n>] [--port <n>]
+litedoc4 build  --root <repo> --out <dir> [--lib <Name>]...
+                [--jobs <n>] [--source-url <url>] [--full]
+litedoc4 watch  --root <repo> --out <dir> [--lib <Name>]...
+                [--jobs <n>] [--port <n>]
 ```
 
 `litedoc4 --help-all` is every flag. The two you are most likely to need are `--lib <Name>`, when
@@ -164,11 +167,12 @@ jobs:
 That is the whole thing: the action installs elan if it is missing, runs `lake build` and the
 docs **in one job** (split across jobs the oleans fall out of the page cache and it runs 5–12×
 slower), and keeps four caches for you — Mathlib's oleans, the Lean extractor, the litedoc4
-build, and last run's state, which is what makes the second run incremental.
+build, and last run's store and extraction state, which is what lets the second run extract only
+what moved.
 
 Inputs you may need: `root` if your package is not at the repository root, `lib` if you use
 `lakefile.lean`, `lake-build: false` if you already built the package **earlier in the same
-job** (from another job the page cache is cold), `full: true` to ignore previous state.
+job** (from another job the page cache is cold), `full: true` to extract every module again.
 Outputs: `site`, `out` and `timings`.
 
 To archive instead of publish, swap the last two steps for `actions/upload-artifact` and drop
@@ -204,8 +208,8 @@ has: you build the package, litedoc4 reads it.
 It asks the same question `build` asks — which modules the ledger says are stale — once a second
 (`--interval`), and rebuilds only when the answer has stopped moving, so a `lake build` still
 writing oleans is never read half-finished. Every rebuild prints how many modules were
-re-extracted, how many pages were re-rendered and how long it took; a wait says what it is
-waiting for.
+re-extracted and how long it took, and renders the site again; a wait says what it is waiting
+for.
 
 The pages it serves are the bytes it wrote, with no live-reload script injected — what you look
 at is what you will publish — so reload the tab yourself. A port that is already in use is

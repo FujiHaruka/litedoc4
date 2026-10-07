@@ -3,14 +3,10 @@ import Litedoc4
 namespace Litedoc4
 
 def usage : String :=
-"usage: litedoc4 build  --root <repo> --out <dir> [--link-index <file>]
-                       [--lib <Name>]... [--source-url <url>] [--full]
-                       [--deps-docs-url <Root>=<url>]...
-                       [--deps-docs-index <Root>=<url|path>]...
-                       (--extractor-bin <path> [--lake <path>] [--jobs <n>]
-                        | --extractor <program> [--extractor-arg <arg>]...)
-                       [--mode self|referrers|importers|all] [--max-rounds <n>]
-                       [--timings <file>]
+"usage: litedoc4 build  --root <repo> --out <dir> [--lib <Name>]...
+                       [--source-url <url>] [--full] [--store <dir>]
+                       [--hash-urls] [--extractor-bin <path>] [--lake <path>]
+                       [--jobs <n>] [--timings <file>]
        litedoc4 build  --root <repo> --out <dir> --versions <ref>,<ref>...
                        [--store <dir>] [--hash-urls] [--lib <Name>]...
                        [--lake <path>] [--jobs <n>]
@@ -24,10 +20,9 @@ def usage : String :=
                        [--mode self|referrers|importers|all] [--max-rounds <n>]
                        [--timings <file>]
        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
-                       [--lib <Name>]... [--source-url <url>]
-                       (--extractor-bin <path> [--lake <path>] [--jobs <n>]
-                        | --extractor <program> [--extractor-arg <arg>]...)
-                       [--mode self|referrers|importers|all] [--max-rounds <n>]
+                       [--lib <Name>]... [--source-url <url>] [--store <dir>]
+                       [--hash-urls] [--extractor-bin <path>] [--lake <path>]
+                       [--jobs <n>]
        litedoc4 modules --root <repo> [--lib <Name>]... [--out <file>]
        litedoc4 extract --modules <file> --ir-dir <dir> --timings <file>
                        [--extractor-bin <path>] [--target <repo>] [--lake <path>]
@@ -100,9 +95,18 @@ def usage : String :=
                  every page is re-rendered. `build` has one by construction, so
                  its sites always carry the links.
   --out          (`build`) the directory this command owns: <out>/site is the
-                 site, <out>/{ir,state,work} the caches, <out>/ledger.json the
-                 ledger. Required, with no default — <root>/.lake/build/doc is
-                 doc-gen4's own output tree — and it may not be inside --root
+                 site, rendered from the store; <out>/ir, <out>/link-index.lidx
+                 and <out>/work are --root's extraction, <out>/ledger.json its
+                 ledger, and <out>/store the store unless --store names another.
+                 Required, with no default — <root>/.lake/build/doc is doc-gen4's
+                 own output tree — and it may not be inside --root. Without
+                 --versions the working tree at --root is one version, named by
+                 the first 12 hex digits of the commit its source links name:
+                 its IR is brought up to date in place (a module whose olean did
+                 not move is not extracted again), put into the store, and the
+                 site rendered from the store with that version alone. Prints
+                 `versions extracted: <n> of 1 (<name>)`, 1 when a module was
+                 extracted, which <out>/litedoc4-build.json records too
   --port         (`watch`) the port the site is served on (default 8484). A
                  port that is taken is refused by name, never moved to the next
                  free one: an address that changes between runs leaves the tab
@@ -128,41 +132,25 @@ def usage : String :=
                  version's own. --lake has to be elan's, which picks each
                  checkout's toolchain. Prints `versions extracted: <n> of <m>
                  (<names>)`, which <out>/litedoc4-build.json records too
-  --full         (`build`) regenerate everything, ignoring what is under --out.
-                 The escape hatch for an input no ledger key covers. The
-                 dependency map is not one: its bytes are in renderKey, so a
-                 map that moved re-renders on its own.
+  --full         (`build`) extract every module again, ignoring the IR under
+                 --out. The escape hatch for an input no ledger key covers.
   --ir           an IR tree written by the extractor (schema 5)
   --ir-dir       (`extract`) where the extractor writes that tree. Required,
                  with no default
   --pages        where the pages go; directories are created
-  --source-url   https://host/owner/repo/blob/<40-hex-rev>. `incremental`
-                 checks the 40 hex digits; `render` and `site` do not.
+  --source-url   https://host/owner/repo/blob/<40-hex-rev>. `build`, `watch` and
+                 `incremental` check the 40 hex digits; `render` and `site` do
+                 not. For `build` and `watch` the revision is the version's
+                 commit; left out, it is derived from --root's HEAD and its
+                 github.com remote.
   --link-index   the dependency closure's name -> module map (.lidx). Its
                  SHA-256 is part of renderKey: a map that moved re-renders every
                  page (150 of the target's 432 change bytes).
-                 For `build` it is optional — left out, the map is this
-                 command's own <out>/link-index.lidx, written by the extractor
-                 from the environment it imported anyway. Given, it is an
-                 input and is never written to. For `extract` it asks the
-                 extractor to write one.
-  --deps-docs-url  (`build`) <Root>=<url>: link that dependency's declarations
-                 at the documentation site it already publishes, e.g.
-                 Mathlib=https://leanprover-community.github.io/mathlib4_docs.
-                 Repeatable, off by default, and **verified**: a name that site's
-                 declaration table holds gets the docs page, one it does not
-                 keeps the version-pinned source, and a table that will not read
-                 sends the whole root to the source. There is no fallback on a
-                 404 — a build cannot see one. A <Root> that is not a dependency
-                 of --root is exit 3.
-  --deps-docs-index  (`build`) <Root>=<url|path>: where that site's declaration
-                 table is. Default <url>/declarations/declaration-data.bmp. A
-                 local path is read as a file, which is how a run with no
-                 outbound network uses this.
-  --deps-docs-map  (`site`, `render`, `incremental`, `ledger`, `links`) the
-                 resolved map `build` wrote under <out>/work. It carries the base
-                 URL and the verified names, so the commands that render cannot
-                 disagree about the links (the reason there is no --title).
+                 For `extract` it asks the extractor to write one.
+  --deps-docs-map  (`site`, `render`, `incremental`, `ledger`, `links`) a
+                 resolved documentation map. It carries the base URL and the
+                 verified names, so the commands that render cannot disagree
+                 about the links (the reason there is no --title).
                  Nothing here reads a table or the network.
                  It is an input to renderKey, so `ledger build` and `ledger
                  check` need it for the same reason --root and --link-index are
@@ -202,7 +190,8 @@ def usage : String :=
                  round that extracts, released on the way out of the loop.
                  There is no --serve-dir — a server this run did not start is
                  one whose olean generation it cannot vouch for.
-  --max-rounds   how many extract/ownership/merge rounds may run (default 5).
+  --max-rounds   (`incremental`) how many extract/ownership/merge rounds may run
+                 (default 5; `build` and `watch` use the same bound).
                  Reaching it with modules still stale is exit 5.
   --root         (`modules`) the repository the sources are globbed under
   --lib          (`build`, `modules`) a library root: <Name>.lean and <Name>/;
@@ -212,7 +201,10 @@ def usage : String :=
   --extractor-bin  (`extract`, `incremental --serve`) the Lean extractor built
                  by extractor/build.sh, or $EXTRACT_BIN. No default: it is built
                  against the target's toolchain, so a baked-in path would be
-                 right on one machine
+                 right on one machine. (`build`, `watch`) optional, or
+                 $EXTRACT_BIN: left out, the extractor is built for the Lean
+                 --root's lean-toolchain pins, under <out>/extractors, and a
+                 toolchain with no row in tools/lean-toolchains.txt is refused
   --target       (`extract`, `incremental --serve`) the Lean package to run
                  inside, or $TARGET_REPO. It is opened read-only: an --ir-dir
                  under it is refused, and its oleans are the generation every
@@ -284,7 +276,7 @@ def usage : String :=
   --census       a per-module TSV of |IMPORTERS| / |REFERRERS| / declarations
   --pages        (`prune`) the page tree; nothing outside it is ever deleted
   --dry-run      report what would be deleted and delete nothing
-  --store        (`store`, and `build --versions`, where it defaults to
+  --store        (`store`, and `build` and `watch`, where it defaults to
                  <out>/store) the kept versions, one directory per version:
                  <store>/<name>/entry.pack.gz (the IR tree, the dependency link
                  index, the bibliography and the index page's Markdown, packed
@@ -327,7 +319,7 @@ def usage : String :=
                  one JSON line of counts (per version and in total) and exits 3
                  on an entry that needs re-put or two different files under one
                  address
-  --hash-urls    (`store render`, `build --versions`) no shells: the root
+  --hash-urls    (`store render`, `build`, `watch`) no shells: the root
                  index.html draws every page from a route in the fragment,
                  #/<version>/<module path>, with a declaration as ?id=<name>;
                  each version gets a routes file in d/, named by versions.json
@@ -350,11 +342,10 @@ Two commands rather than fifteen: the other thirteen are invoked by
 `action.yml` and `lakefile.lean`'s `docs` script call `build` and nothing else
 (measured 2026-08-29). Listing all fifteen as equals said the opposite. -/
 def summary : String :=
-"usage: litedoc4 build  --root <repo> --out <dir> --extractor-bin <path>
-                       [--lib <Name>]... [--jobs <n>] [--source-url <url>]
-                       [--full]
-       litedoc4 watch  --root <repo> --out <dir> --extractor-bin <path>
-                       [--lib <Name>]... [--jobs <n>] [--port <n>]
+"usage: litedoc4 build  --root <repo> --out <dir> [--lib <Name>]...
+                       [--jobs <n>] [--source-url <url>] [--full]
+       litedoc4 watch  --root <repo> --out <dir> [--lib <Name>]...
+                       [--jobs <n>] [--port <n>]
 
   `build` writes the site once. `watch` rebuilds it whenever the package's
   oleans change and serves it, without ever running `lake build` itself.
@@ -449,40 +440,6 @@ def sourceUrlRequired : String :=
 structure RenderInputs where
   external : ExternalLinks
   config : SiteConfig
-
-/-- What `render` and `site` both need before they can render anything, resolved
-in one place because **no gate can see a disagreement between them**: the gates
-compare the trees the two write, so handing both halves the same wrong reading
-produces two identical wrong trees.
-
-**Problems do not stop the run**: a package missing from disk, a manifest that
-will not parse, a `lake` that will not run — each costs the roots it would have
-contributed and is printed. Refusing would trade a site with some dead links for
-no site at all. `litedoc4.toml` is the opposite and is an error, because there
-the package asked for something by name. -/
-def resolveExternal (root lake : Option String) : IO ExternalLinks := do
-  match root with
-  | none => do
-    IO.println "external  no package named (--root), so links into a dependency stay relative \
-      to pages this site does not write"
-    return {}
-  | some root => do
-    let lake ← match lake with
-      | some path => pure path
-      | none => pure (((← IO.getEnv "LAKE").filter (!·.isEmpty)).getD "lake")
-    let resolved ← externalLinks ⟨root⟩ ⟨lake⟩
-    IO.println s!"external  {resolved.links.roots.size} root(s) from \
-      {resolved.resolved}/{resolved.declared} package(s) + core"
-    -- The roots in that count that carry no URL: they are in the map so that
-    -- the pages stop linking into them, which is the opposite of what the line
-    -- above reads like on its own.
-    if resolved.unpinnedRoots > 0 then
-      IO.println s!"external  note: {resolved.unpinnedRoots} of those root(s) have no \
-        version-pinned URL, so names in them render without a link rather than linking at a \
-        page this site does not write"
-    for line in resolved.collisions ++ resolved.problems do
-      IO.println s!"external  note: {line}"
-    return resolved.links
 
 /-- `--deps-docs-map` is folded in here and nowhere else, so that `render` and
 `site` cannot disagree about what a dependency's names link to. -/
@@ -1055,17 +1012,10 @@ structure BuildArgs where
   out : Option String := none
   libs : Array String := #[]
   sourceUrl : Option String := none
-  linkIndex : Option String := none
-  extractor : Option String := none
-  extractorArgs : Array String := #[]
   extractorBin : Option String := none
   lake : Option String := none
   jobs : Nat := 1
-  mode : Option String := none
-  maxRounds : Option Nat := none
   timings : Option String := none
-  depsDocsUrls : Array String := #[]
-  depsDocsIndexes : Array String := #[]
   full : Bool := false
   versions : Option String := none
   store : Option String := none
@@ -1077,14 +1027,6 @@ structure BuildArgs where
   interval : Option String := none
   help : Bool := false
   deriving Inhabited
-
-/-- Why `watch` does not resolve a dependency's documentation site, stated once
-because two flags say it. -/
-def depsDocsInWatch : String :=
-  "it resolves a dependency's declaration table over the network, once, against \
-    the IR tree of that run. A loop would either re-fetch 5.7 MB on every rebuild or serve pages \
-    resolved against an IR tree that has moved since. Use `litedoc4 build` for a site with \
-    documentation links"
 
 def versionsInWatch : String :=
   "a site of several versions is built from their store, one checkout at a time, and `watch` \
@@ -1117,11 +1059,6 @@ def buildRefusal (watching : Bool) (flag : String) : Option String :=
       path — one Lean environment for the whole run, started here and released after the last \
       round. There is nothing to switch on, and a server this run did not start is one whose \
       olean generation it cannot vouch for"
-  else if flag == "--deps-docs-map" then
-    some s!"--deps-docs-map is not a `{command}` flag: this command resolves the documentation map \
-      itself, from --deps-docs-url, and writes it under <out>/work for `litedoc4 site` and \
-      `litedoc4 render` to read. A build that rendered against somebody else's resolved map would \
-      record its own map's digest in the ledger"
   else none
 
 /-- The command line of `build` — **and of `watch`**, which is the same request
@@ -1130,7 +1067,7 @@ asked over and over.
 One parser, not two: a second would be a second place for `--out` to mean
 something, and the first thing to drift would be one of the by-name refusals
 below, which are the part a caller reads only when they are already confused.
-`watching` decides which of the three flags that belong to exactly one of the two
+`watching` decides which of the flags that belong to exactly one of the two
 commands is the one being refused. -/
 partial def parseBuild (watching : Bool) :
     List String → BuildArgs → Except String BuildArgs
@@ -1148,13 +1085,6 @@ partial def parseBuild (watching : Bool) :
       let (v, more) ← value; parseBuild watching more { acc with libs := acc.libs.push v }
     else if flag == "--source-url" then do
       let (v, more) ← value; parseBuild watching more { acc with sourceUrl := some v }
-    else if flag == "--link-index" then do
-      let (v, more) ← value; parseBuild watching more { acc with linkIndex := some v }
-    else if flag == "--extractor" then do
-      let (v, more) ← value; parseBuild watching more { acc with extractor := some v }
-    else if flag == "--extractor-arg" then do
-      let (v, more) ← value
-      parseBuild watching more { acc with extractorArgs := acc.extractorArgs.push v }
     else if flag == "--extractor-bin" then do
       let (v, more) ← value; parseBuild watching more { acc with extractorBin := some v }
     else if flag == "--lake" then do
@@ -1164,13 +1094,6 @@ partial def parseBuild (watching : Bool) :
       match v.toNat? with
       | some n => parseBuild watching more { acc with jobs := n }
       | none => .error s!"--jobs wants a number, not {v}"
-    else if flag == "--mode" then do
-      let (v, more) ← value; parseBuild watching more { acc with mode := some v }
-    else if flag == "--max-rounds" then do
-      let (v, more) ← value
-      match v.toNat? with
-      | some n => parseBuild watching more { acc with maxRounds := some n }
-      | none => .error s!"--max-rounds wants a number, not {v}"
     else if flag == "--timings" then do
       let (v, more) ← value; parseBuild watching more { acc with timings := some v }
     else if flag == "--port" then do
@@ -1190,95 +1113,37 @@ partial def parseBuild (watching : Bool) :
           under --out\", and a loop that did that every pass would never do anything else. Run \
           `litedoc4 build --full` once, then start watching"
       else parseBuild watching rest { acc with full := true }
-    else if flag == "--deps-docs-url" || flag == "--deps-docs-index" then do
+    else if flag == "--versions" then do
       let (v, more) ← value
-      if watching then .error s!"{flag} is not a `watch` flag: {depsDocsInWatch}"
-      else if flag == "--deps-docs-url" then
-        parseBuild watching more { acc with depsDocsUrls := acc.depsDocsUrls.push v }
-      else
-        parseBuild watching more { acc with depsDocsIndexes := acc.depsDocsIndexes.push v }
-    else if flag == "--versions" || flag == "--store" then do
-      let (v, more) ← value
-      if watching then .error s!"{flag} is not a `watch` flag: {versionsInWatch}"
-      else if flag == "--versions" then parseBuild watching more { acc with versions := some v }
-      else parseBuild watching more { acc with store := some v }
+      if watching then .error s!"--versions is not a `watch` flag: {versionsInWatch}"
+      else parseBuild watching more { acc with versions := some v }
+    else if flag == "--store" then do
+      let (v, more) ← value; parseBuild watching more { acc with store := some v }
     else if flag == "--hash-urls" then
-      if watching then .error s!"--hash-urls is not a `watch` flag: {versionsInWatch}"
-      else parseBuild watching rest { acc with hashUrls := true }
+      parseBuild watching rest { acc with hashUrls := true }
     else if flag == "--help" || flag == "-h" then
       parseBuild watching rest { acc with help := true }
     else match buildRefusal watching flag with
       | some message => .error message
       | none => .error s!"unknown argument `{flag}`"
 
-/-- What the command line says once every flag has been read: the checks that are
-about a **pair** of flags, in the order a caller meets them.
-
-After the loop and not in it, because each is about something that may still be
-coming: `--extractor` before `--link-index` and `--link-index` before
-`--extractor` have to be answered the same way. -/
-def buildChecks (a : BuildArgs) : Option String := Id.run do
-  -- Left out, the map is this command's own artefact, written by the resident
-  -- extractor out of the environment it imported. The one shape that cannot work
-  -- is `--extractor <program>` without it: that program's contract is three
-  -- flags, so nothing here can make it write a map.
-  if a.linkIndex.isNone && a.extractor.isSome then
-    return some s!"--extractor <program> needs --link-index <file>: the dependency map is written \
-      by the Lean extractor out of the environment it imports, and --extractor names a program \
-      whose interface is `--modules --ir-dir --timings` and nothing else. Either pass a map \
-      (`litedoc4 extract --link-index <file>` writes one) or use --extractor-bin, where this \
-      command owns the extractor and derives the map itself. {linkIndexCost}"
-  if a.maxRounds == some 0 then
-    return some "--max-rounds must be at least 1: round 1 is where deletions are folded in"
-  if a.jobs == 0 then return some "--jobs must be at least 1"
-  if a.extractor.isSome then
-    for (flag, given) in [("--extractor-bin", a.extractorBin.isSome), ("--lake", a.lake.isSome)] do
-      if given then
-        return some s!"{flag} and --extractor are exclusive: one names the Lean extractor this run \
-          keeps resident, the other names a program to call once per round. How that program finds \
-          its own binary is its own business"
-    if a.jobs != 1 then
-      return some "--jobs is a flag of the resident path: a resident extractor fixes its job count \
-        at start-up. Behind --extractor, pass it through with `--extractor-arg --jobs \
-        --extractor-arg <n>`"
-  if let some text := a.mode then
-    if ImpactMode.parse text matches .unrecognised _ then
-      return some s!"--mode takes self|referrers|importers|all, not `{text}`"
-  return none
+/-- What the command line says once every flag has been read. -/
+def buildChecks (a : BuildArgs) : Option String :=
+  if a.jobs == 0 then some "--jobs must be at least 1" else none
 
 def versionedChecks (a : BuildArgs) : Option String :=
   match a.versions with
-  | none =>
-    if a.store.isSome then
-      some "--store is a flag of `build --versions`: a build of one working tree keeps its IR \
-        under --out, in no store"
-    else if a.hashUrls then
-      some "--hash-urls is a flag of `build --versions`: a build of one working tree writes \
-        static pages, one file per path"
-    else none
+  | none => none
   | some _ =>
-    let ownExtractor := s!"each version's extractor is built against the Lean its commit pins, \
-      under <out>/{Versions.extractorsName}"
-    let fromNothing := "every version the store lacks or holds stale is extracted from nothing, \
-      so there is no round to bound or scope"
     let refused : List (String × Bool × String) := [
       ("--source-url", a.sourceUrl.isSome,
         "each version links to its own commit, under the checkout's github.com remote"),
-      ("--link-index", a.linkIndex.isSome,
-        "each version's dependency map is written by its own extraction"),
-      ("--extractor-bin", a.extractorBin.isSome, ownExtractor),
-      ("--extractor", a.extractor.isSome, ownExtractor),
-      ("--extractor-arg", !a.extractorArgs.isEmpty, ownExtractor),
+      ("--extractor-bin", a.extractorBin.isSome, s!"each version's extractor is built against \
+        the Lean its commit pins, under <out>/{Versions.extractorsName}"),
       ("--full", a.full, "a version the store holds fresh is kept and every other is extracted \
         from nothing; `litedoc4 store remove` has one extracted again"),
-      ("--mode", a.mode.isSome, fromNothing),
-      ("--max-rounds", a.maxRounds.isSome, fromNothing),
       ("--timings", a.timings.isSome, "it is one build's record; this command prints and marks \
-        which versions it extracted"),
-      ("--deps-docs-url", !a.depsDocsUrls.isEmpty,
-        "a site of several versions links into no dependency's documentation site"),
-      ("--deps-docs-index", !a.depsDocsIndexes.isEmpty,
-        "a site of several versions links into no dependency's documentation site")]
+        which versions it extracted")]
     refused.findSome? fun (flag, given, why) =>
       if given then some s!"{flag} is not a flag of `build --versions`: {why}" else none
 
@@ -1299,27 +1164,16 @@ def buildRequestOf (a : BuildArgs) (root out : String) : BuildM BuildRequest := 
   -- process inside the target, and the digest it feeds has to be the same one on
   -- both sides of this run.
   let external ← resolveExternal (some rootPath.toString) a.lake
-  -- **Before the marker, before the work directory, before Lean**: the two
-  -- answers this can give — "that root is not a dependency" and "that flag is not
-  -- a pair" — are both things to say while nothing has been written.
-  let depsDocs ← match parseDocsSites a.depsDocsUrls a.depsDocsIndexes with
-    | .error e => throw e
-    | .ok sites => pure sites
-  match checkDocsRoots depsDocs external with
-  | .error e => throw e
-  | .ok () => pure ()
-  let layout := layoutOf outPath
-  let derived := a.linkIndex.isNone
-  let linkIndex ← absolutePath
-    ((a.linkIndex.map (⟨·⟩ : String → System.FilePath)).getD layout.linkIndex)
-  return { root := rootPath, layout, libs := a.libs, external, depsDocs
-           sourceUrl := a.sourceUrl, extractor := a.extractor, extractorArgs := a.extractorArgs
-           extractorBin := a.extractorBin.map (⟨·⟩)
-           lake := a.lake.map (⟨·⟩), jobs := a.jobs
-           linkIndex, derivedLinkIndex := derived
-           mode := (a.mode.map ImpactMode.parse).getD defaultMode
-           maxRounds := a.maxRounds.getD defaultMaxRounds, timings := a.timings.map (⟨·⟩)
+  return { root := rootPath, layout := layoutOf outPath, libs := a.libs, external
+           sourceUrl := a.sourceUrl, extractorBin := a.extractorBin.map (⟨·⟩)
+           lake := a.lake.map (⟨·⟩), jobs := a.jobs, timings := a.timings.map (⟨·⟩)
            full := a.full }
+
+/-- `--store`, or `<out>/store`, absolute, and never inside the package. -/
+def storeOf (a : BuildArgs) (r : BuildRequest) : BuildM System.FilePath := do
+  let store ← absolutePath ((a.store.map (⟨·⟩)).getD (r.layout.out / "store"))
+  refuseInside r.root "--root" store "--store" ""
+  return store
 
 def storePutOrigin (from_ : System.FilePath) (lake : System.FilePath) :
     IO (Except String Store.Origin) := do
@@ -1338,26 +1192,16 @@ def storePutOrigin (from_ : System.FilePath) (lake : System.FilePath) :
     if (sourceUrl.splitOn s!"/blob/{commit}").length < 2 then
       return .error s!"{root} is at {commit} and the build in {from_} linked to {sourceUrl}: \
         the checkout moved since the build, or --source-url named another revision"
-    let leanGithash ← match ← coreGithash root lake with
-      | .error why => return .error why
-      | .ok hash => pure hash
-    let dependencies ← match ← Store.dependencyRevisions root with
-      | .error why => return .error why
-      | .ok deps => pure deps
     let sources ← resolveExternal (some root.toString) (some lake.toString)
-    if let some (core, _) := coreRoots.find? fun (core, _) =>
-        !(sources.sourceFor core matches .pinned _) then
-      return .error s!"{root}: Lean core's root `{core}` has no version-pinned source URL, so \
-        pages rendered from this entry would not link into it"
-    let site ← try readSiteSources root catch e => return .error (toString e)
-    if let .error why := site.config (bibliographyPath root).toString then return .error why
-    return .ok { commit, leanGithash, sourceUrl, dependencies, sources, site }
+    Versions.originOf root lake sources commit sourceUrl
 
 def answered (code : UInt32) (message : String) : IO UInt32 :=
   if code == 2 then refuse message else refusedWith code message
 
 def buildRun (a : BuildArgs) (root out : String) : IO UInt32 := do
-  match ← (do discard <| runBuild (← buildRequestOf a root out)).run with
+  match ← (do
+      let request ← buildRequestOf a root out
+      discard <| Versions.buildOne request (← storeOf a request) a.hashUrls).run with
   | .ok () => return 0
   | .error (code, message) => answered code message
 
@@ -1419,10 +1263,10 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
       if ← scratch.pathExists then IO.FS.removeDirAll scratch
       let args : BuildArgs :=
         { root := some package.toString, out := some scratch.toString, libs
-          extractorBin := some bin.toString, lake := some lake.toString, jobs := a.jobs }
+          lake := some lake.toString, jobs := a.jobs }
       let request ← buildRequestOf args package.toString scratch.toString
-      discard <| runBuild { request with noEquationsUnder := some noEquationsUnder }
-      let origin ← match ← storePutOrigin scratch lake with
+      let e ← runExtraction { request with noEquationsUnder := some noEquationsUnder } (pure bin)
+      let origin ← match ← Versions.originOf package lake request.external p.commit e.sourceUrl with
         | .error message => throw (3, s!"version {p.name.text}: {message}")
         | .ok origin => pure origin
       let layout := layoutOf scratch
@@ -1493,7 +1337,9 @@ def watch (args : List String) : IO UInt32 := do
       | .error message => return ← refuse message
       | .ok interval => pure interval
     try
-      match ← (do watchRun (← buildRequestOf a root out) port interval).run with
+      match ← (do
+          let request ← buildRequestOf a root out
+          watchRun request (← storeOf a request) a.hashUrls port interval).run with
       | .ok () => return 0
       | .error (code, message) => answered code message
     catch e =>

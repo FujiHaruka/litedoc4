@@ -47,9 +47,9 @@
 # **`set -e` is what makes it a hole**, and that is narrower than it was first
 # written down: under `set -uo pipefail` the same abort exits 1 with the trap
 # installed (measured 2026-09-02 -> benchmarks/results/bash32-answer-guard-2026-09-02.txt).
-# 13 scripts here combine `set -u` with a trap; the 3 that are `set -uo pipefail`
-# -- render-compare.sh, site-compare.sh and watch-gate.sh -- are not exposed and
-# do not claim anything, and the other 10 all call `answer_required`.
+# 12 scripts here combine `set -u` with a trap; the 2 that are `set -uo pipefail`
+# -- render-compare.sh and watch-gate.sh -- are not exposed and do not claim
+# anything, and the other 10 all call `answer_required`.
 on_exit () {
   # shellcheck disable=SC2064  # $1 is quoted into the trap on purpose: see above
   trap "__on_exit_run $(printf '%q' "$1")" EXIT
@@ -125,7 +125,7 @@ __memory_gb () {
 
 # The extractor, built inside e2e/micro's environment, at the path every caller
 # already agreed on. Three scripts want it — tools/e2e-micro.sh,
-# tools/lake-package-gate.sh and tools/purelean-micro-gate.sh — and the two
+# tools/lake-package-gate.sh and tools/mv-s-gate.sh — and the two
 # decisions it makes are the ones a second copy gets wrong: **where the binary
 # lives** (a gitignored directory inside the sample, so a checkout never carries
 # a stale one) and **when to rebuild it** (when the source is newer, not only

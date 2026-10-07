@@ -183,10 +183,10 @@ jobs:
       # It writes nothing under `--target`: "module M changed" is injected into
       # this run's own copy of the ledger with `litedoc4 ledger touch`.
       #
-      # Falsified both ways before being turned on (measured 2026-08-24):
-      # `--inject wrong-module` comes out red on the render set alone (the three
-      # counts stay 1/1/1, which is why the name check is there), and
-      # `--inject no-touch` times out rather than reporting a run it never saw.
+      # Falsified both ways: `--inject wrong-module` comes out red on the name of
+      # the module handed to the extractor alone (the counts stay 1/1, which is
+      # why the name check is there), and `--inject no-touch` times out rather
+      # than reporting a run it never saw.
       - name: Watch gate (the loop, on the sample package)
         run: |
           tools/watch-gate.sh --out "$RUNNER_TEMP/watch" \
@@ -209,18 +209,12 @@ jobs:
         with:
           deno-version: v2.x
 
-      # Static checks cannot see whether the module tree draws, whether search
-      # returns anything, or whether 375 px still fits. ubuntu-latest ships
-      # Chrome, so nothing is downloaded to drive it.
-      - name: Browser gate
-        run: tools/browser-gate.sh "$RUNNER_TEMP/e2e/first/site" --json "$RUNNER_TEMP/browser.json"
-        env:
-          CHROME_PATH: /usr/bin/google-chrome
-
       # D9's page-path and anchor promise, read in a browser after each page is
       # drawn from data: S v1 against the frozen e2e/micro-expected pages, and
-      # every link and anchor of every version in both URL modes. It reads the
-      # two renders the S loop above kept.
+      # every link and anchor of every version in both URL modes, plus what a
+      # reader meets (search, theme, contrast, 375 px, MathML, glyphs).
+      # ubuntu-latest ships Chrome, so nothing is downloaded to drive it. It
+      # reads the two renders the S loop above kept.
       - name: Page paths and anchors, drawn (multi-version)
         run: tools/mv-pages-gate.sh --from "$RUNNER_TEMP/mv-s"
         env:

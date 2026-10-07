@@ -10,7 +10,9 @@
 #               `litedoc4/docs`: the dependency's lakefile.lean is not loaded.
 #   2 IT RUNS   `lake run docs` wrote no site: the arguments the script
 #               assembles are wrong.
-#   3 IT CLOSES `tools/site-gate.sh` found that site inconsistent.
+#   3 IT CLOSES `benchmarks/tools/check-store-render.py` found that site
+#               inconsistent: an index row, an instance value or a resource load
+#               that does not resolve, or content that is not the IR's.
 #   4 SAME IR   the extractor Lake builds and the one `extractor/build.sh`
 #               builds write different IR over `e2e/micro`.
 #   5 --lib     the run passed no `--lib` and the site does not document every
@@ -107,7 +109,7 @@ rm -rf "$SITE_OUT"
 site_ok=0
 if (cd "$FIXTURE" && "$LAKE" run docs -- --out "$SITE_OUT") \
     >"$OUT/docs.log" 2>&1; then
-  if [ -f "$SITE_OUT/site/index.html" ] && [ -f "$SITE_OUT/site/modules.json" ]; then
+  if [ -f "$SITE_OUT/site/index.html" ] && [ -f "$SITE_OUT/site/versions.json" ]; then
     pass 2 "$(wc -l <"$OUT/docs.log" | tr -d ' ') line(s) of log, site at $SITE_OUT/site"
     site_ok=1
   else
@@ -119,12 +121,21 @@ else
 fi
 
 say "3/5 the site closes over itself"
+# The items of the reader tools/mv-s-gate.sh asks of S that hold for any package:
+# the rest ask about the sample's formulas, bibliography and repository layout.
 if [ "$site_ok" -eq 1 ]; then
-  if "$HERE/site-gate.sh" "$SITE_OUT/site" >"$OUT/site-gate.log" 2>&1; then
-    pass 3 "site-gate.sh: 0 dead links, index and pages agree both ways"
+  VERSION="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"] or "")' \
+    "$SITE_OUT/litedoc4-build.json")"
+  mkdir -p "$OUT/builds"
+  ln -sfn "$SITE_OUT" "$OUT/builds/$VERSION"
+  python3 -I "$ROOT/benchmarks/tools/check-store-render.py" --site "$SITE_OUT/site" \
+    --repo "$FIXTURE" --builds "$OUT/builds" --versions "$VERSION" \
+    --only render-closure,render-content-ir >"$OUT/closure.log" 2>&1 || true
+  if [ "$(grep -cE '^ok ' "$OUT/closure.log")" = 2 ]; then
+    pass 3 "check-store-render.py: render-closure and render-content-ir hold over version $VERSION"
   else
-    fail 3 "site-gate.sh rejected the site lake run docs wrote — see $OUT/site-gate.log"
-    tail -20 "$OUT/site-gate.log" >&2
+    fail 3 "check-store-render.py rejected the site lake run docs wrote — see $OUT/closure.log"
+    tail -20 "$OUT/closure.log" >&2
   fi
 else
   fail 3 "no site to check — item 2 did not write one"
@@ -214,12 +225,17 @@ words = line.split()
 print(" ".join(word for before, word in zip(words, words[1:]) if before == "--lib"))
 PY
 )"
-  got_modules="$(python3 - "$SITE_OUT/site/modules.json" <<'PY'
+  got_modules="$(python3 - "$SITE_OUT/site" <<'PY'
+import gzip
 import json
+import pathlib
 import sys
 
-with open(sys.argv[1], encoding="utf-8") as handle:
-    index = json.load(handle)
+site = pathlib.Path(sys.argv[1])
+def data(address):
+    return json.loads(gzip.decompress((site / "d" / f"{address}.json.gz").read_bytes()))
+listed = json.loads((site / "versions.json").read_text(encoding="utf-8"))
+index = data(data(listed[0]["data"])["modules"])
 print(" ".join(sorted(entry["n"] for entry in index["modules"])))
 PY
 )"

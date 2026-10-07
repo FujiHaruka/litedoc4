@@ -28,6 +28,9 @@ source-url
 full
 install-elan
 cache
+versions
+store
+hash-urls
 
 [action-outputs]
 site
@@ -42,15 +45,8 @@ binary-source
 --source-url
 --full
 --extractor-bin
---extractor
---extractor-arg
 --lake
 --jobs
---link-index
---deps-docs-url
---deps-docs-index
---mode
---max-rounds
 --timings
 --versions
 --store
@@ -64,24 +60,18 @@ binary-source
 --port
 --interval
 --extractor-bin
---extractor
---extractor-arg
 --lake
 --jobs
---mode
---max-rounds
 
 [litedoc4.toml]
 title
 index
 no_equations_under
 
-# Page paths and declaration anchors keep doc-gen4's shape — `Foo/Bar.html` and
-# `#Foo.bar` — so links into an existing site survive. That one is not a list of
-# names, so nothing above can carry it: it is held by the 51 frozen files of
-# `e2e/micro-expected`, which `tools/purelean-micro-gate.sh` compares byte for
-# byte. The shape is in the tree layout (`build/Example/Basic.html`) and in the
-# `id=` attributes of the pages (`id="Example.double"`), so a renamed page path or
-# a re-spelled anchor is a diff there rather than a silent break in somebody's
-# link. `tools/site-gate.sh` then asks that the index and the pages agree about
-# those anchors in both directions.
+# Page paths carry the version and keep doc-gen4's shape below it —
+# `<version>/Foo/Bar.html` — and declaration anchors keep `#Foo.bar`, so a link
+# into one version of a site means the same thing for as long as that version is
+# hosted. That one is not a list of names, so nothing above can carry it: it is
+# held by `tools/mv-pages-gate.sh`, which reads every page path and every anchor
+# as a reader meets them, in a browser after the page is drawn, against the page
+# paths and element ids of the 51 frozen files of `e2e/micro-expected`.

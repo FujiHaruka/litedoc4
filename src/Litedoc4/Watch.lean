@@ -26,6 +26,10 @@ session (measured 2026-08-31 →
 noticed up to `--interval` late, and that the poll is not free: at the default
 1000 ms a pass takes 3.2 s and a core is busy for two thirds of it.
 
+**A pass is `build` without `--versions`**: the IR brought up to date, put into
+the store, and the one version rendered whole into `<out>/site`, which is what is
+served.
+
 **A pass acts only when the ledger's answer is the same as the previous pass's.**
 While `lake build` is writing oleans the answer keeps moving, and extracting into
 that produces a site made of two half-worlds — or is stopped by the resident
@@ -42,8 +46,8 @@ retrying immediately would start a 3 GB import every interval for as long as the
 failure lasted. The first pass is the exception — it fails the command, because
 until it succeeds there is no site to serve and no state to continue from.
 -/
-import Litedoc4.Build
 import Litedoc4.Httpd
+import Litedoc4.Versions
 
 open System
 
@@ -192,9 +196,9 @@ def announce (rebuilds : Nat) (now : Option Reading) : IO Unit := do
   IO.println ""
   match now with
   | none =>
-    IO.println s!"watch   #{rebuilds} nothing has been built under --out yet — generating the \
-      whole site. This imports the package's Lean environment once and extracts every module, \
-      which is the slowest thing this command does; the lines below are that run's own"
+    IO.println s!"watch   #{rebuilds} nothing has been built under --out yet — extracting every \
+      module. This imports the package's Lean environment once, which is the slowest thing this \
+      command does; the lines below are that run's own"
   | some reading => IO.println s!"watch   #{rebuilds} the ledger reports {reading.what}"
 
 structure LoopState where
@@ -206,7 +210,12 @@ structure LoopState where
   said : Option Nat := none
   quietSince : Nat
 
-partial def runLoop (r : BuildRequest) (t : Trigger) (interval : Nat) (port : UInt16)
+structure Rebuild where
+  request : BuildRequest
+  store : FilePath
+  hashUrls : Bool
+
+partial def runLoop (r : Rebuild) (t : Trigger) (interval : Nat) (port : UInt16)
     (s : LoopState) : BuildM Unit := do
   let passes := s.passes + 1
   let askedAt ← IO.monoNanosNow
@@ -267,16 +276,19 @@ partial def runLoop (r : BuildRequest) (t : Trigger) (interval : Nat) (port : UI
       let first := rebuilds == 1 && s.acted.isNone
       announce rebuilds now
       -- Bound with its type written out, and not matched on directly: `BuildM α`
-      -- is by definition `IO (Except (UInt32 × String) α)`, so a bare `← (runBuild
-      -- r).run` in this monad resolves to the `BuildRan` inside rather than to the
-      -- `Except` around it.
-      let outcome : Except (UInt32 × String) BuildRan ← (runBuild r).run
+      -- is by definition `IO (Except (UInt32 × String) α)`, so a bare `← (buildOne
+      -- …).run` in this monad resolves to the `Built` inside rather than to the
+      -- `Except` around it. An exception becomes the same refusal, so that a pass
+      -- that cannot write is reported and waited out rather than ending the loop.
+      let attempt : IO (Except (UInt32 × String) Versions.Built) :=
+        try (Versions.buildOne r.request r.store r.hashUrls).run
+        catch e => pure (.error (1, toString e))
+      let outcome : Except (UInt32 × String) Versions.Built ← attempt
       match outcome with
       | .ok ran =>
         IO.println s!"watch   #{rebuilds} {ran.what} — re-extracted {ran.modulesExtracted} \
-          module(s), re-rendered {ran.pagesRendered} page(s), started Lean \
-          {ran.extractorRequests} time(s) in {seconds ran.nanos 3} s\
-          {if ran.pagesRendered == 0 then " — no page on the site changed" else ""}"
+          module(s), started Lean {ran.extractorRequests} time(s), rendered version \
+          {ran.version} in {seconds ran.nanos 3} s"
         IO.println s!"watch   #{rebuilds} reload http://127.0.0.1:{port}/"
       | .error (code, message) =>
         -- The first one is fatal: with no site to serve and no state to continue
@@ -298,7 +310,7 @@ no way to change the mode, so a process that does not exit — this one — leav
 log empty for as long as it runs (measured 2026-08-31 →
 `benchmarks/results/purelean-async-tcp-2026-08-31.txt` §5). The straightforward
 alternative is a helper the loop prints through, but the lines a reader waits for
-during a pass are the *build's* own, printed by `runBuild` and everything under it;
+during a pass are the *build's* own, printed by `buildOne` and everything under it;
 replacing the stream is what reaches those without a flush at each of them. What
 would falsify it: a buffering-mode setter in core, which would make this one call. -/
 private def lineFlushed (s : IO.FS.Stream) : IO.FS.Stream :=
@@ -306,7 +318,8 @@ private def lineFlushed (s : IO.FS.Stream) : IO.FS.Stream :=
     write := fun bytes => do s.write bytes; s.flush
     putStr := fun text => do s.putStr text; s.flush }
 
-def watchRun (r : BuildRequest) (port : UInt16) (interval : Nat) : BuildM Unit := do
+def watchRun (r : BuildRequest) (store : FilePath) (hashUrls : Bool) (port : UInt16)
+    (interval : Nat) : BuildM Unit := do
   discard <| IO.setStdout (lineFlushed (← IO.getStdout))
 
   -- Pinned here, once, and never derived again — see `Trigger`.
@@ -342,8 +355,8 @@ def watchRun (r : BuildRequest) (port : UInt16) (interval : Nat) : BuildM Unit :
 
   let trigger : Trigger :=
     { ledger := request.layout.ledger, ir := request.layout.ir
-      linkIndex := request.linkIndex, sourceUrl
+      linkIndex := request.layout.linkIndex, sourceUrl
       externalLinks := request.external.digest, root := request.root, libs }
-  runLoop request trigger interval port { quietSince := ← IO.monoNanosNow }
+  runLoop { request, store, hashUrls } trigger interval port { quietSince := ← IO.monoNanosNow }
 
 end Litedoc4

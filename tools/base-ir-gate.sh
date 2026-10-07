@@ -39,10 +39,7 @@
 #   differently under the two. Both are reported as numbers.
 #
 # WHY THESE INVARIANTS HAVE NO OTHER HOME
-#   `tools/purelean-render-gate.sh` item 3 re-homed one half of the first test —
-#   one page per module in `index.json` and no other file — and the rest of that
-#   gate compares rendered bytes against a frozen answer. Both are a different
-#   question from this one: they say the pages have not changed, not that the
+#   The gates over rendered output say the pages have not changed, not that the
 #   index agrees with the files it summarises. **Nothing a renderer does consults
 #   `index.bytes`, a `contentHash`, a dependency slice's entry count or the
 #   parallel-array widths**, so a defect in any of them is invisible to every byte
@@ -55,15 +52,18 @@
 #   `e2e/micro` is eleven modules chosen for other shapes.
 #
 # usage: base-ir-gate.sh [--ir DIR] [--lean PATH]
-#   --ir    the IR tree (default: $PURELEAN_WORK/ir, the tree
-#           tools/purelean-render-gate.sh reads, so one extraction serves both)
+#   --ir    the IR tree (default: $PURELEAN_WORK/ir)
 #   --lean  the Lean litedoc4 (default: .lake/build/bin/litedoc4, built with
 #           tools/build-lean-exe.sh if it is not there)
 #
 #   PURELEAN_WORK  where the target's IR is (default
 #                  /private/tmp/lean-doc-relay/purelean). **Nothing here writes
-#                  into it.** To produce one, see the header of
-#                  tools/purelean-render-gate.sh.
+#                  into it.** To produce one:
+#                    litedoc4 modules --root <target> --lib InformationTheory \
+#                      --out $W/modules.txt
+#                    litedoc4 extract --modules $W/modules.txt --ir-dir $W/ir \
+#                      --timings $W/extract-timings.json --target <target> \
+#                      --extractor-bin extractor/build/extract --jobs 4
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -88,7 +88,7 @@ done
 
 [ -n "$IR" ] || IR="$WORK/ir"
 if [ ! -f "$IR/index.json" ]; then
-  echo "base-ir-gate: no IR tree at $IR — set PURELEAN_WORK or pass --ir; the header of tools/purelean-render-gate.sh has the three commands that produce one" >&2
+  echo "base-ir-gate: no IR tree at $IR — set PURELEAN_WORK or pass --ir; the header of this script has the two commands that produce one" >&2
   exit 2
 fi
 

@@ -160,8 +160,8 @@ async function indexNames(root: string): Promise<IndexNames> {
   return JSON.parse(new TextDecoder().decode(out.stdout)) as IndexNames;
 }
 
-// FROZEN: the string scorer the byte searcher replaced, as benchmarks/tools/check-site-browser.ts
-// holds it. Never edited to agree with a change in the searcher.
+// FROZEN: the string scorer the byte searcher replaced. Never edited to agree with a change in
+// the searcher.
 const frozenScore = (name: string, query: string): number => {
   const lower = name.toLowerCase();
   const last = lower.slice(lower.lastIndexOf(".") + 1);

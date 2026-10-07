@@ -46,11 +46,11 @@ jobs:
       - uses: ./.github/actions/setup-elan
 
       # `full: true` so this job does not depend on what the state cache happens
-      # to hold. Without it the first call can legitimately render 0 pages — a
+      # to hold. Without it the first call can legitimately extract 0 modules — a
       # previous run's state is restored and there is nothing left to do — and
-      # then "the first run rendered nothing" is a property of the cache, not of
-      # the action (measured). It also skips the state restore, so the pair below
-      # is first=everything, second=nothing, every time.
+      # then "the first run extracted nothing" is a property of the cache, not of
+      # the action. It also skips the state restore, so the pair below is
+      # first=everything, second=nothing, every time.
       - id: docs
         uses: ./
         with:
@@ -65,21 +65,23 @@ jobs:
           echo "site = $SITE"
           test -d "$SITE" || { echo "::error::outputs.site is not a directory"; exit 1; }
           test -f "$SITE/index.html" || { echo "::error::no index.html"; exit 1; }
+          test -f "$SITE/versions.json" || { echo "::error::no versions.json"; exit 1; }
           echo "pages: $(find "$SITE" -name '*.html' | wc -l)"
           cat "${{ steps.docs.outputs.timings }}"
-          # A first run that renders nothing would satisfy every check below,
+          # A first run that extracts nothing would satisfy every check below,
           # so it is asserted here rather than assumed.
           python3 - "${{ steps.docs.outputs.out }}/litedoc4-build.json" <<'PY'
           import json, sys
-          w = json.load(open(sys.argv[1]))["work"]
-          if not w.get("pagesRendered"):
-              print(f"::error::the first run rendered no pages: {w}")
+          m = json.load(open(sys.argv[1]))
+          w, v = m["work"], m["versionsExtracted"]
+          if not w.get("modulesExtracted") or v != {"count": 1, "of": 1, "names": [m["version"]]}:
+              print(f"::error::the first run extracted nothing: {w}, versions extracted {v}")
               sys.exit(1)
-          print(f"first run rendered {w['pagesRendered']} pages")
+          print(f"first run extracted {w['modulesExtracted']} modules into version {m['version']}")
           PY
 
       # The second run is the claim the whole tool is built on: same inputs,
-      # same --out, nothing re-rendered.
+      # same --out, nothing extracted again.
       - id: again
         uses: ./
         with:
@@ -96,13 +98,16 @@ jobs:
           cat "$J"
           python3 - "$J" <<'PY'
           import json, sys
-          w = json.load(open(sys.argv[1]))["work"]
-          bad = {k: w.get(k) for k in ("modulesExtracted", "pagesRendered") if w.get(k, -1) != 0}
+          m = json.load(open(sys.argv[1]))
+          w, v = m["work"], m["versionsExtracted"]
+          bad = {k: w.get(k) for k in ("modulesExtracted", "extractorRequests") if w.get(k, -1) != 0}
+          if v != {"count": 0, "of": 1, "names": []}:
+              bad["versionsExtracted"] = v
           if bad:
               print("::error::a rebuild with nothing changed did work: " +
                     ", ".join(f"{k}={v}" for k, v in bad.items()))
               sys.exit(1)
-          print("no-op rebuild: extracted 0, rendered 0")
+          print("no-op rebuild: versions extracted 0 of 1, modules extracted 0")
           PY
 
   standalone:
