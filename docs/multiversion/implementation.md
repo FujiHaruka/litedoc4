@@ -528,6 +528,26 @@ Done when, on S:
   alone would be ≈ 17 min (extrapolated, linear in versions); rendering only the added version puts
   adding a release at ≈ 13 min (theoretical).
 
+**Next: render only the versions the site does not already hold.** `writeVersion` takes one
+version's entry and nothing of the others, so a kept version's pages cannot depend on the set;
+the run above shows it on Mathlib. The build keeps a render ledger beside the site: per version,
+the digest of its entry (`entry.pack.gz` and `record.json`, not the record's fields — a plain
+`build` re-puts one commit name over a changed working tree), whether URLs are hashes, and the
+renderer's identity, which is **the litedoc4 executable's own bytes** (a version string or a
+hand-bumped number can go stale and serve a stale site; a list of renderer sources can miss one).
+**One rule**: reuse only when every version the ledger lists is still in the set under an equal
+key and every file it wrote is present; anything else deletes the site and renders all, so an
+added-to site always equals one rendered from nothing (no orphaned `d/` files). Reported as
+`versions rendered: <n> of <m>`.
+
+- **Premise**: the previously deployed site is at `<out>/site` when the build starts. Locally it
+  is; on the runner step 6 has to bring it down with the store (≈ 300 MB at three versions,
+  ≈ 1 GB at 11, extrapolated from the run above). **Falsified** if bringing it down costs more
+  than the render it saves (94 s per version on the runner).
+- **Premise**: two builds of litedoc4 from one commit are the same bytes. If not, the key never
+  matches across runner jobs and every build renders everything — slower, never wrong. The next
+  L run records the executable's sha256 in two jobs.
+
 ### 5. The rebuild from nothing through the reader
 
 Port the prototype into the product as the second way of filling the store:
