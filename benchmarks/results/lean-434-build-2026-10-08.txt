@@ -1,0 +1,21 @@
+Does litedoc4 build on Lean v4.34.1 (mimalloc 3.4.4)?
+====================================================
+
+Commit 13d7fcb (branch multi-version), a detached worktree of it. Apple M1, 16 GB, macOS 26.6.2.
+leanprover/lean4:v4.34.1, leanGithash 5045d0056413266e57c625dcd7c365b10e377c52.
+
+(1) The litedoc4 executable (measured)
+  tools/build-lean-exe.sh --toolchain-from <a directory holding lean-toolchain = leanprover/lean4:v4.34.1>
+  "Build completed successfully (181 jobs)", 0 warnings, 37.7 s wall (cold for this toolchain).
+
+(2) The tests (measured)
+  tools/lean-test-gate.sh with its --toolchain-from pointed at the same directory (a one-line edit in the
+  worktree's copy): "LEAN TEST GATE: ok -- 221 compile-time, 67 run-time", 4 of 4 items.
+
+(3) The extractor (measured)
+  extractor/Extract.lean compiled the way the build compiles it per toolchain (lean --root -o -c, then
+  leanc -rdynamic): both exit 0. `extract --identity` exits 0 and prints
+  "schema=1 source=fnv1a64:6cc825bf93f26025 lean=4.34.1 leanGithash=5045d005... equations=0 ...".
+
+Not done: an extraction of a real package on v4.34.1, and the column-2 value tools/lean-toolchains.txt
+needs for a v4.34.1 row. Building is not supporting: v4.34.1 stays without a row.

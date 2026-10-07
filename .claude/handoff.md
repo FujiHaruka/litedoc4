@@ -1,11 +1,11 @@
-# Handoff — 2026-10-08 (multi-version: render memory explained; next = one process per version)
+# Handoff — 2026-10-08 (multi-version: render memory explained and left to the toolchain)
 
 ## State
 
 - Working directory: /Users/haruka/dev/lean-doc
 - Branch `multi-version`, pushed, clean. Not `main`; no PR open.
-- Working context: the user chose (2026-10-08) "one process per version" as the fix for the
-  per-version memory growth. Nothing of it is written yet.
+- Working context: the render-memory question is closed. The user decided (2026-10-08) not to
+  work around it: Lean v4.34.1's mimalloc 3.4.4 fixes it, and litedoc4 builds there.
 
 ## Where we are
 
@@ -18,30 +18,15 @@ litedoc4 retains is involved. Full render peak ≈ 3.67 + 0.585 (n−1) GiB on t
 
 ## Next step
 
-Make every per-version step that reads or writes a store entry run in its own child process, so
-the peak stops depending on the version count:
-
-1. **Render**: `Data.SiteLedger.renderSite` (and `Data.Site.renderStore`) call `writeEntry` per
-   version in-process. Spawn the litedoc4 executable itself per version (an internal, undocumented
-   subcommand is fine — `tools/public-surface.txt` is the promise list; keep it off that list and
-   off `--help`, or the `@usage` block in `tools/refusals.txt` must be refrozen). The child returns
-   what the parent needs (`Written`: counts, `Listed`, paths) on stdout as JSON; the root files and
-   ledger stay in the parent.
-2. **build --versions put loop** (`src/Litedoc4/Main.lean` ~850–885): `Store.put` packs + gzips
-   per version in the build process. Growth there is **inferred, not measured** — measure first
-   (S is too small; L only on the runner) or just move put into the child too.
-3. Gate with a count, not RSS: e.g. "render processes spawned = versions rendered" in the
-   counts JSON / S gate (`tools/mv-s-gate.sh`), each new item made to fail once.
-4. Verify on L: re-run `mv-l.yml` (push to `benchmarks/tools/mv-l-run.sh` triggers it, ~60 min);
-   `render-alone default` should give flat ~3.7 GiB for 1/2/3. Byte-identical site vs before is
-   the correctness check (`*-site.sha256` in the run artifact).
+Nothing is left of this thread. Pick the next item of `docs/multiversion/implementation.md`
+(step 5, the rebuild through the reader, or step 6's CI) with the user; the Open items below are
+the known gaps.
 
 ## Files to read first
 
-- `benchmarks/results/mv-l-render-memory-2026-10-08.txt` — the evidence and the numbers to beat
-- `src/Litedoc4/Data/SiteLedger.lean` — `renderSite`, the build's render loop (line ~181)
-- `src/Litedoc4/Data/Site.lean` — `writeEntry` / `writeVersion` / `renderStore`
-- `src/Litedoc4/Main.lean` — `build --versions` loop (~820–890), `storeRender` (~1543)
+- `docs/multiversion/implementation.md` — step 4 "On L" (the decision) and steps 5-6
+- `benchmarks/results/mv-l-render-memory-2026-10-08.txt` — the evidence, if the question returns
+- `benchmarks/results/lean-434-build-2026-10-08.txt` — what building on v4.34.1 did and did not cover
 
 ## Load-bearing context
 
@@ -49,9 +34,8 @@ the peak stops depending on the version count:
   `MIMALLOC_DISALLOW_ARENA_ALLOC=1` (worse), `MIMALLOC_ARENA_EAGER_COMMIT=0`, `mi_collect(true)`.
   macOS footprint/RSS can't separate retained from freed (compressor) — use Linux `/proc` floors.
 - Lean v4.34.1's mimalloc 3.4.4 reuses the block (measured, log section (10)): the growth is
-  2.2.3's, i.e. v4.31.0-v4.33.1. The renderer is built with the consumer's toolchain and v4.34 has
-  no row yet, so the child processes are still needed; they can go once the supported floor is
-  v4.34 or later (write that falsifier beside the code, as its one-line why-not).
+  2.2.3's, i.e. v4.31.0-v4.33.1. litedoc4 + tests + extractor build on v4.34.1; a v4.34.1 row
+  (a real extraction, column 2) is not measured. Process-per-version was rejected (user's call).
 - Experiment code is readable at commit 070e030 (`litedoc4_exp_*` in `csrc/gzip.c`, phases in
   `renderStore`, `.github/workflows/mv-l-render.yml`); removed in ab086f9.
 - Run 37630692670's artifact `mv-l-store` (3 L entries) expires 2026-10-21; a local copy is at
