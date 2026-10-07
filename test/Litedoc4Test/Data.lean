@@ -436,14 +436,18 @@ def theNotFoundPageNamesNoRelativeAddressAndSaysWhichUrlsItsSiteUses : Bool :=
 
 #guard theNotFoundPageNamesNoRelativeAddressAndSaysWhichUrlsItsSiteUses
 
-def theHashShellIsTheRootShellCarryingTheSearchAndFoundationalTypesText : Bool :=
-  let shell := Data.Site.hashShell
-  shell.contains "<body data-root=\"./\" data-mode=\"hash\">"
+def theHashShellIsTheRootShellCarryingTheEscapedVersionListAndTheSearchAndFoundationalTypesText :
+    Bool :=
+  let listed := Data.Site.versionsJson #[{ name := "v<1\"", data := "a", routes := some "r" }]
+  let shell := Data.Site.hashShell listed
+  listed == "[{\"name\":\"v<1\\\"\",\"data\":\"a\",\"routes\":\"r\"}]"
+    && (shell.splitOn ("<body data-root=\"./\" data-mode=\"hash\" data-versions=\"[{&quot;name&quot;:\
+      &quot;v&lt;1\\&quot;&quot;,&quot;data&quot;:&quot;a&quot;,&quot;routes&quot;:&quot;r&quot;}]\">")).length == 2
     && (shell.splitOn s!"<template id=\"search-body\">{searchBody}</template>").length == 2
     && (shell.splitOn s!"<template id=\"foundational-body\">{foundationalTypesBody}</template>").length == 2
-    && !shell.contains "data-version"
+    && !shell.contains "data-version=\""
 
-#guard theHashShellIsTheRootShellCarryingTheSearchAndFoundationalTypesText
+#guard theHashShellIsTheRootShellCarryingTheEscapedVersionListAndTheSearchAndFoundationalTypesText
 
 def everyVersionHasASearchAndAFoundationalTypesShellCarryingBuildsText : Bool :=
   let f := Data.Site.DataFile.of "json" "" "{}".toUTF8

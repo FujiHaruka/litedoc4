@@ -158,9 +158,9 @@ async function hashSite(root: string): Promise<void> {
     search: nodesOf("template#search-body"),
     foundational: nodesOf("template#foundational-body"),
   };
-  const entries = await versionsAt(root);
-  if (!entries || entries.length === 0) {
-    failed(new Error("versions.json"));
+  const entries = await versionsAt(root, "hash");
+  if (!entries) {
+    failed(new Error("the version list"));
     return;
   }
   let current: Route | null = null;

@@ -1,5 +1,5 @@
 import { gzipSync } from "node:zlib";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { moduleMain } from "../src/draw-module.js";
 import { indexContent } from "../src/draw-plain.js";
 import { guessOf } from "../src/guess.js";
@@ -12,7 +12,7 @@ import { moduleComponents, pagePath, sourceUrlAt } from "../src/names.js";
 import { hrefIn, pageIn, pathHere, type Route, routeOf } from "../src/route.js";
 import { linkSegments } from "../src/spans.js";
 import type { ContentItem, PageFile, Ref, VersionFile } from "../src/store-types.js";
-import { switchTarget } from "../src/versions.js";
+import { switchTarget, versionsAt } from "../src/versions.js";
 import { destination, docNodes, wordLink } from "../src/words.js";
 
 const linker: Linker = {
@@ -343,6 +343,45 @@ describe("hash routes", () => {
     expect(parseHash("#Example.x")).toBeNull();
     expect(parseHash("")).toBeNull();
     expect(parseHash("#//A")).toBeNull();
+  });
+});
+
+describe("the version list", () => {
+  const list = [
+    { name: 'v<1"', data: "a", routes: "r" },
+    { name: "v2", data: "b" },
+  ];
+
+  afterEach(() => {
+    delete document.body.dataset.versions;
+    vi.unstubAllGlobals();
+  });
+
+  it("is read with hash URLs from the root page's own attribute, fetching nothing", async () => {
+    const fetched = vi.fn(() => Promise.reject(new Error("fetched")));
+    vi.stubGlobal("fetch", fetched);
+    document.body.dataset.versions = JSON.stringify(list);
+    expect(await versionsAt("carried/", "hash")).toEqual(list);
+    expect(fetched).not.toHaveBeenCalled();
+  });
+
+  it("is read with path URLs from versions.json, never from the attribute", async () => {
+    const fetched = vi.fn(() => Promise.resolve(new Response(JSON.stringify(list))));
+    vi.stubGlobal("fetch", fetched);
+    document.body.dataset.versions = "[]";
+    expect(await versionsAt("fetched/", "path")).toEqual(list);
+    expect(fetched).toHaveBeenCalledTimes(1);
+  });
+
+  it("is absent with hash URLs when the attribute is missing or no version list", async () => {
+    const fetched = vi.fn(() => Promise.resolve(new Response(JSON.stringify(list))));
+    vi.stubGlobal("fetch", fetched);
+    expect(await versionsAt("missing/", "hash")).toBeNull();
+    document.body.dataset.versions = "[{";
+    expect(await versionsAt("malformed/", "hash")).toBeNull();
+    document.body.dataset.versions = "[]";
+    expect(await versionsAt("empty/", "hash")).toBeNull();
+    expect(fetched).not.toHaveBeenCalled();
   });
 });
 

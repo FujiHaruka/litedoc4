@@ -1,8 +1,8 @@
 import { el } from "./dom.js";
 import { decoded, parseHash } from "./hash-route.js";
 import { hasPage, modulesIn } from "./listed.js";
-import { MISSING } from "./lost.js";
-import { hrefIn, pageIn, pathHere, type Route } from "./route.js";
+import { isVersionList, MISSING } from "./lost.js";
+import { hrefIn, type Mode, pageIn, pathHere, type Route } from "./route.js";
 import type { VersionEntry } from "./store-types.js";
 import type { ModuleEntry } from "./types.js";
 
@@ -31,11 +31,17 @@ async function destinationIn(arrived: Route, to: VersionEntry): Promise<string> 
 
 const listed = new Map<string, Promise<VersionEntry[] | null>>();
 
-export function versionsAt(root: string): Promise<VersionEntry[] | null> {
+async function listFrom(root: string, mode: Mode): Promise<unknown> {
+  if (mode === "hash") return JSON.parse(document.body.dataset.versions ?? "null");
+  const res = await fetch(new URL(`${root}versions.json`, location.href));
+  return res.ok ? res.json() : null;
+}
+
+export function versionsAt(root: string, mode: Mode): Promise<VersionEntry[] | null> {
   let entries = listed.get(root);
   if (!entries) {
-    entries = fetch(new URL(`${root}versions.json`, location.href))
-      .then((res) => (res.ok ? (res.json() as Promise<VersionEntry[]>) : null))
+    entries = listFrom(root, mode)
+      .then((list) => (isVersionList(list) ? list : null))
       .catch(() => null);
     listed.set(root, entries);
   }
@@ -86,8 +92,8 @@ async function canonical(r: Route, newest: VersionEntry): Promise<void> {
 }
 
 export async function initVersions(r: Route): Promise<void> {
-  const entries = await versionsAt(r.root);
-  if (!entries || entries.length === 0) return;
+  const entries = await versionsAt(r.root, r.mode);
+  if (!entries) return;
   const select = el("select", "versions");
   select.setAttribute("aria-label", "Version");
   for (const e of [...entries].reverse()) {

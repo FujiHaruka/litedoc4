@@ -248,6 +248,9 @@ async function ae(e, t) {
 //#endregion
 //#region src/lost.ts
 var C = "missing";
+function oe(e) {
+	return Array.isArray(e) && e.length > 0 && e.every((e) => typeof e == "object" && !!e && typeof e.name == "string" && typeof e.data == "string");
+}
 //#endregion
 //#region src/dom.ts
 function w(e, t, ...n) {
@@ -273,17 +276,17 @@ function O(e) {
 }
 //#endregion
 //#region src/names.ts
-var oe = (e) => e.length >= 2 && e.startsWith("«") && e.endsWith("»") ? e.slice(1, -1) : e;
-function se(e) {
+var se = (e) => e.length >= 2 && e.startsWith("«") && e.endsWith("»") ? e.slice(1, -1) : e;
+function ce(e) {
 	let t = [], n = 0, r = 0;
 	for (let i = 0; i < e.length; i++) {
 		let a = e[i];
-		a === "«" ? n++ : a === "»" ? n-- : a === "." && n === 0 && (t.push(oe(e.slice(r, i))), r = i + 1);
+		a === "«" ? n++ : a === "»" ? n-- : a === "." && n === 0 && (t.push(se(e.slice(r, i))), r = i + 1);
 	}
-	return t.push(oe(e.slice(r))), t;
+	return t.push(se(e.slice(r))), t;
 }
-var ce = (e) => se(e).join("/"), le = (e) => `${ce(e)}.html`, k = (e, t) => `${e}/${ce(t)}.lean`, ue = (e, t, n) => k(e, t) + (n ? `#L${n[0]}-L${n[1]}` : ""), A = (e) => e.slice(e.lastIndexOf(".") + 1);
-function de(e, t) {
+var le = (e) => ce(e).join("/"), ue = (e) => `${le(e)}.html`, k = (e, t) => `${e}/${le(t)}.lean`, de = (e, t, n) => k(e, t) + (n ? `#L${n[0]}-L${n[1]}` : ""), A = (e) => e.slice(e.lastIndexOf(".") + 1);
+function fe(e, t) {
 	let n = (e) => t.includes(e);
 	if (e === "definition" || e === "instance") {
 		let t = n("unsafe") ? "unsafe " : "", r = n("noncomputable") ? "noncomputable " : "", i = e === "instance" ? "instance" : n("abbrev") ? "abbrev" : "def";
@@ -291,14 +294,14 @@ function de(e, t) {
 	}
 	return e === "axiom" && n("unsafe") ? "unsafe axiom" : e === "opaque" && n("partial") ? "partial def" : e === "opaque" && n("unsafe") ? "unsafe opaque" : e === "inductive" && n("unsafe") ? "unsafe inductive" : e === "class_inductive" ? "class inductive" : e;
 }
-function fe(e) {
+function pe(e) {
 	return e === "definition" ? "def" : e === "class_inductive" ? "class" : e === "constructor" ? "ctor" : e;
 }
-var pe = (e) => String(e).replace(/\B(?=(\d{3})+$)/g, ","), j = "foundational_types.html", M = (e, t, n) => e.at(le(t) + (n === null ? "" : `#${n}`)), me = (e) => typeof e[0] == "number";
-function he(e, t, n) {
-	if (me(n)) {
+var me = (e) => String(e).replace(/\B(?=(\d{3})+$)/g, ","), j = "foundational_types.html", M = (e, t, n) => e.at(ue(t) + (n === null ? "" : `#${n}`)), he = (e) => typeof e[0] == "number";
+function ge(e, t, n) {
+	if (he(n)) {
 		let t = e.bases[e.roots[n[0]] ?? ""];
-		return t === void 0 ? null : ue(t, n[1], n.length === 4 ? [n[2], n[3]] : null);
+		return t === void 0 ? null : de(t, n[1], n.length === 4 ? [n[2], n[3]] : null);
 	}
 	let r = n;
 	return M(e, r[0], r.length === 1 ? t : r[1]);
@@ -306,12 +309,12 @@ function he(e, t, n) {
 function N(e, t, n) {
 	if (!Object.hasOwn(t, n)) return null;
 	let r = t[n];
-	return r === void 0 ? null : he(e, n, r);
+	return r === void 0 ? null : ge(e, n, r);
 }
 //#endregion
 //#region src/spans.ts
-var ge = (e) => typeof e == "string" ? [e, []] : e;
-function _e(e, t, n) {
+var _e = (e) => typeof e == "string" ? [e, []] : e;
+function ve(e, t, n) {
 	let r = t.map(() => []), i = [], a = [];
 	t.forEach((e, n) => {
 		for (; a.length > 0 && e[0] >= (t[a[a.length - 1] ?? 0]?.[1] ?? 0);) a.pop();
@@ -351,7 +354,7 @@ function _e(e, t, n) {
 }
 //#endregion
 //#region src/words.ts
-function ve(e, t) {
+function ye(e, t) {
 	let n = t(e);
 	if (n !== null) return {
 		before: "",
@@ -373,18 +376,18 @@ function ve(e, t) {
 		href: null
 	};
 }
-function ye(e, t, n) {
+function be(e, t, n) {
 	if (e.startsWith("##")) {
 		let r = e.slice(2);
 		return n(r) ?? t.at(`search.html?q=${encodeURIComponent(r)}`);
 	}
 	return e.startsWith("#") ? t.here(e.slice(1)) : e.startsWith("http") ? e : t.at(e);
 }
-function be(e, t, n) {
+function xe(e, t, n) {
 	let r = (e) => N(n, t, e), i = O(e);
-	for (let e of i.querySelectorAll("a[href]")) e.setAttribute("href", ye(e.getAttribute("href") ?? "", n, r));
+	for (let e of i.querySelectorAll("a[href]")) e.setAttribute("href", be(e.getAttribute("href") ?? "", n, r));
 	for (let e of [...i.querySelectorAll("w")]) {
-		let t = ve(e.textContent ?? "", r), n = [];
+		let t = ye(e.textContent ?? "", r), n = [];
 		t.before && n.push(document.createTextNode(t.before)), t.href !== null && n.push(T("", t.href, t.linked)), e.replaceWith(...n);
 	}
 	return i;
@@ -392,28 +395,28 @@ function be(e, t, n) {
 //#endregion
 //#region src/draw-module.ts
 function P(e, t) {
-	let [n, r] = ge(t);
-	return _e(n, r, (t) => t.length === 2 ? e.l.at(j) : N(e.l, e.page.names, t[2])).map((e) => e.href === null ? document.createTextNode(e.text) : T("", e.href, e.text));
+	let [n, r] = _e(t);
+	return ve(n, r, (t) => t.length === 2 ? e.l.at(j) : N(e.l, e.page.names, t[2])).map((e) => e.href === null ? document.createTextNode(e.text) : T("", e.href, e.text));
 }
-var F = (e, t) => be(t, e.page.words, e.l);
-function xe(e, t) {
+var F = (e, t) => xe(t, e.page.words, e.l);
+function Se(e, t) {
 	return (t ?? []).flatMap(([t, n]) => [w("span", t ? "binder implicit" : "binder", w("span", "fn", ...P(e, n))), document.createTextNode("\n")]);
 }
-function Se(e, t) {
-	let n = w("div", "sig", ...xe(e, t.b));
+function Ce(e, t) {
+	let n = w("div", "sig", ...Se(e, t.b));
 	return (t.k === "structure" || t.k === "class") && t.p && t.p.length > 0 && (n.append(w("span", "extends", "extends"), " "), t.p.forEach(([t, r], i) => {
 		i > 0 && n.append(", "), n.append(E(w("span", "", ...P(e, r)), t));
 	})), n.append(w("span", "colon", " :"), w("div", "sig-type", ...P(e, t.t))), n;
 }
-function Ce(e, t, n) {
+function we(e, t, n) {
 	let r = n ? `#L${n[0]}-L${n[1]}` : "";
-	return w("header", "decl-head", w("span", "kind", de(t.k, t.mods ?? [])), w("h2", "decl-name", T("break_within", M(e.l, e.page.module, t.n), ...D(t.n))), T("src", e.sourceUrl + r, "source"));
+	return w("header", "decl-head", w("span", "kind", fe(t.k, t.mods ?? [])), w("h2", "decl-name", T("break_within", M(e.l, e.page.module, t.n), ...D(t.n))), T("src", e.sourceUrl + r, "source"));
 }
 function I(e, ...t) {
 	let n = w("span", "flag", ...t);
 	return n.dataset.flag = e, n;
 }
-function we(e, t) {
+function Te(e, t) {
 	let n = [];
 	if (t.sorry === "direct" && n.push(I("sorry-direct", "uses ", w("code", "", "sorry"))), t.sorry === "transitive" && n.push(I("sorry-transitive", "depends on ", w("code", "", "sorry"))), t.gen) {
 		let [r, i] = t.gen, a = N(e.l, e.page.names, i), o = w("code", "", i);
@@ -425,7 +428,7 @@ function L(e, t, n) {
 	let r = w("details", "extra", w("summary", "", n), w("ul", ""));
 	return r.dataset.fill = e, r.dataset.name = t, r;
 }
-function Te(e, t) {
+function Ee(e, t) {
 	if (!t.eq && !t.eqOmitted) return null;
 	let n = w("ul", "equations");
 	t.eqOmitted && n.append(w("li", "", "One or more equations did not get rendered due to their size."));
@@ -433,68 +436,68 @@ function Te(e, t) {
 	return w("details", "extra", w("summary", "", "Equations"), n);
 }
 function R(e, t, n) {
-	return w("div", "field-sig", t, ...xe(e, n.b), w("span", "colon", " : "), ...P(e, n.t));
-}
-function Ee(e, t, n) {
-	return n.doc && t.append(w("div", "field-doc", F(e, n.doc))), t;
+	return w("div", "field-sig", t, ...Se(e, n.b), w("span", "colon", " : "), ...P(e, n.t));
 }
 function De(e, t, n) {
+	return n.doc && t.append(w("div", "field-doc", F(e, n.doc))), t;
+}
+function Oe(e, t, n) {
 	let r = A(n.n);
-	if (!n.inh) return Ee(e, E(w("li", "field", R(e, w("span", "field-name", r), n)), n.n), n);
+	if (!n.inh) return De(e, E(w("li", "field", R(e, w("span", "field-name", r), n)), n.n), n);
 	let i = N(e.l, e.page.names, n.n), a = w("li", "field inherited", R(e, i === null ? w("span", "field-name", r) : T("field-name", i, r), n));
 	return n.id && (a.id = `${t.n}.${r}`), a;
 }
-function Oe(e, t) {
-	let n = t.ctor ?? `${t.n}.mk`, r = A(n), i = [];
-	return r !== "mk" && i.push(w("p", "ctor-note", "constructor ", w("code", "", r))), i.push(E(w("ul", "fields", ...(t.f ?? []).map((n) => De(e, t, n))), n)), i;
-}
 function ke(e, t) {
-	let n = t.c ?? [];
-	return n.length === 0 ? [] : [w("ul", "ctors", ...n.map((t) => Ee(e, E(w("li", "ctor", R(e, w("span", "field-name", A(t.n)), t)), t.n), t)))];
+	let n = t.ctor ?? `${t.n}.mk`, r = A(n), i = [];
+	return r !== "mk" && i.push(w("p", "ctor-note", "constructor ", w("code", "", r))), i.push(E(w("ul", "fields", ...(t.f ?? []).map((n) => Oe(e, t, n))), n)), i;
 }
-function Ae(e, t, n) {
+function Ae(e, t) {
+	let n = t.c ?? [];
+	return n.length === 0 ? [] : [w("ul", "ctors", ...n.map((t) => De(e, E(w("li", "ctor", R(e, w("span", "field-name", A(t.n)), t)), t.n), t)))];
+}
+function je(e, t, n) {
 	let r = E(w("section", "decl"), t.n);
-	r.dataset.kind = fe(t.k), r.append(Ce(e, t, n));
-	let i = we(e, t);
-	i && r.append(i), t.attrs && t.attrs.length > 0 && r.append(w("div", "attrs", `@[${t.attrs.join(", ")}]`)), r.append(Se(e, t)), t.doc && r.append(w("div", "doc", F(e, t.doc)));
+	r.dataset.kind = pe(t.k), r.append(we(e, t, n));
+	let i = Te(e, t);
+	i && r.append(i), t.attrs && t.attrs.length > 0 && r.append(w("div", "attrs", `@[${t.attrs.join(", ")}]`)), r.append(Ce(e, t)), t.doc && r.append(w("div", "doc", F(e, t.doc)));
 	let a = [], o = () => {
-		let n = Te(e, t);
+		let n = Ee(e, t);
 		n && a.push(n);
 	};
-	return t.k === "structure" || t.k === "class" ? (r.append(...Oe(e, t)), a.push(t.k === "class" ? L("instances", t.n, "Instances") : L("instances-for", t.n, "Instances For"))) : t.k === "definition" ? (o(), a.push(L("instances-for", t.n, "Instances For"))) : t.k === "instance" ? o() : t.k === "inductive" ? (r.append(...ke(e, t)), a.push(L("instances-for", t.n, "Instances For"))) : t.k === "class_inductive" && (r.append(...ke(e, t)), a.push(L("instances", t.n, "Instances"))), a.push(L("used-by", t.n, "Used by")), r.append(...a), r;
+	return t.k === "structure" || t.k === "class" ? (r.append(...ke(e, t)), a.push(t.k === "class" ? L("instances", t.n, "Instances") : L("instances-for", t.n, "Instances For"))) : t.k === "definition" ? (o(), a.push(L("instances-for", t.n, "Instances For"))) : t.k === "instance" ? o() : t.k === "inductive" ? (r.append(...Ae(e, t)), a.push(L("instances-for", t.n, "Instances For"))) : t.k === "class_inductive" && (r.append(...Ae(e, t)), a.push(L("instances", t.n, "Instances"))), a.push(L("used-by", t.n, "Used by")), r.append(...a), r;
 }
-function je(e, t) {
-	let n = e.l.bases[se(t)[0] ?? ""];
+function Me(e, t) {
+	let n = e.l.bases[ce(t)[0] ?? ""];
 	return w("li", "", n === void 0 ? t : T("", k(n, t), t));
 }
-function Me(e) {
+function Ne(e) {
 	let t = e.page.imports, n = w("summary", "", "Imports");
 	t.length > 0 && n.append(" ", w("span", "count", String(t.length)));
-	let r = w("details", "imports", n, w("ul", "", ...t.map((t) => je(e, t)))), i = w("details", "imports", w("summary", "", "Imported by"), w("ul", ""));
+	let r = w("details", "imports", n, w("ul", "", ...t.map((t) => Me(e, t)))), i = w("details", "imports", w("summary", "", "Imported by"), w("ul", ""));
 	return i.dataset.fill = "imported-by", i.hidden = !0, w("div", "modmeta", r, i);
 }
-var Ne = (e) => "moddoc" in e;
-function Pe(e) {
-	return e.flatMap((e) => Ne(e) ? [] : [e.n]);
-}
+var Pe = (e) => "moddoc" in e;
 function Fe(e) {
+	return e.flatMap((e) => Pe(e) ? [] : [e.n]);
+}
+function Ie(e) {
 	let t = e.page.module, n = k(e.version.source, t), r = {
 		l: e.linker,
 		page: e.page,
 		sourceUrl: n
-	}, i = w("main", "content", w("div", "modhead", w("h1", "", ...D(t)), w("p", "modactions", T("src", n, "source"))), Me(r));
+	}, i = w("main", "content", w("div", "modhead", w("h1", "", ...D(t)), w("p", "modactions", T("src", n, "source"))), Ne(r));
 	return e.content.forEach((t, n) => {
-		if (Ne(t)) {
+		if (Pe(t)) {
 			i.append(w("div", "moddoc", F(r, t.moddoc)));
 			return;
 		}
 		let a = e.page.lines[n];
-		i.append(Ae(r, t, a === 0 || a === void 0 ? null : a));
+		i.append(je(r, t, a === 0 || a === void 0 ? null : a));
 	}), i.querySelectorAll("a[data-cite]").forEach((e, t) => {
 		e.removeAttribute("data-cite"), e.id = `_backref_${t}`;
 	}), i;
 }
-function Ie(e, t, n, r) {
+function Le(e, t, n, r) {
 	let i = new Map(n.map((e) => [e.n, e]));
 	for (let n of e.querySelectorAll(".modmeta .imports:not([data-fill]) li")) {
 		let e = n.querySelector("a") ? void 0 : i.get(n.textContent ?? "");
@@ -505,38 +508,38 @@ function Ie(e, t, n, r) {
 }
 //#endregion
 //#region src/draw-plain.ts
-var Le = "API documentation for every module of this package, generated from the compiled environment. Declarations link to their pinned source; an import of a dependency links to that dependency's source at the revision this package is built against.";
+var Re = "API documentation for every module of this package, generated from the compiled environment. Declarations link to their pinned source; an import of a dependency links to that dependency's source at the revision this package is built against.";
 function z(e, t) {
 	return w("div", "", w("dt", "", e), w("dd", "", t));
 }
-function Re(e, t) {
+function ze(e, t) {
 	let n = w("li", "", T("", e.at(t.p), ...D(t.n)));
 	return t.s !== void 0 && n.append(w("span", "modsummary", O(t.s))), n;
 }
-function ze(e, t, n, r) {
-	let i = n.modules, a = [w("div", "modhead", w("h1", "", t.title), w("p", "lede", Le))];
+function Be(e, t, n, r) {
+	let i = n.modules, a = [w("div", "modhead", w("h1", "", t.title), w("p", "lede", Re))];
 	if (r) {
 		let t = {
 			...e,
 			roots: r.roots
 		};
-		a.push(w("div", "intro doc", be(r.html, r.words, t)));
+		a.push(w("div", "intro doc", xe(r.html, r.words, t)));
 	}
-	let o = w("dl", "stats", z("Modules", pe(i.length)));
-	return n.declarations !== void 0 && o.append(z("Declarations", pe(n.declarations))), t.lean && o.append(z("Lean", t.lean)), a.push(o, w("h2", "section-title", "Modules"), w("ul", i.some((e) => e.s !== void 0) ? "modlist modlist-described" : "modlist", ...i.map((t) => Re(e, t)))), a;
+	let o = w("dl", "stats", z("Modules", me(i.length)));
+	return n.declarations !== void 0 && o.append(z("Declarations", me(n.declarations))), t.lean && o.append(z("Lean", t.lean)), a.push(o, w("h2", "section-title", "Modules"), w("ul", i.some((e) => e.s !== void 0) ? "modlist modlist-described" : "modlist", ...i.map((t) => ze(e, t)))), a;
 }
-function Be(e, t, [n, r, i]) {
+function Ve(e, t, [n, r, i]) {
 	let a = T("", M(e, n, `_backref_${r}`), `[${t}]`);
 	return a.title = `File: ${n}${i ? `\nLocation: ${i}` : ""}`, [document.createTextNode(" "), a];
 }
-function Ve(e, t) {
+function He(e, t) {
 	let n = t.map((t) => {
 		let n = `ref_${t.key}`, r = E(w("li", "", T("", e.here(n), t.tag), " ", O(t.html)), n);
-		return t.by.length > 0 && r.append(w("small", "", ...t.by.flatMap((t, n) => Be(e, n + 1, t)))), r;
+		return t.by.length > 0 && r.append(w("small", "", ...t.by.flatMap((t, n) => Ve(e, n + 1, t)))), r;
 	});
 	return [w("div", "modhead", w("h1", "", "References")), w("div", "doc", w("ul", "", ...n))];
 }
-function He(e, t, n) {
+function Ue(e, t, n) {
 	let r = E(w("h2", "section-title", "Did you mean"), "how-about-heading");
 	return r.hidden = !0, [
 		w("div", "modhead", w("h1", "", "Page not found"), w("p", "lede", "Nothing in this documentation is at ", w("code", "missing-path", t), `. If a declaration has moved, the closest matches in version ${n} are below; otherwise the `, T("", e.at("index.html"), "module index"), " lists every page.")),
@@ -546,15 +549,15 @@ function He(e, t, n) {
 }
 //#endregion
 //#region src/frame.ts
-var Ue = "<svg viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M3 5h14M3 10h14M3 15h14\"/></svg>", We = "<svg viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M10 3a7 7 0 1 0 7 7 5.5 5.5 0 0 1-7-7z\"/></svg>";
-function Ge(e, t, n) {
+var We = "<svg viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M3 5h14M3 10h14M3 15h14\"/></svg>", Ge = "<svg viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M10 3a7 7 0 1 0 7 7 5.5 5.5 0 0 1-7-7z\"/></svg>";
+function Ke(e, t, n) {
 	let r = E(w("button", "iconbtn", O(n)), e);
 	return r.setAttribute("aria-label", t), r;
 }
-function Ke(e, t, n) {
+function qe(e, t, n) {
 	let r = w("header", "topbar");
 	if (n) {
-		let e = Ge("nav-toggle", "Modules", Ue);
+		let e = Ke("nav-toggle", "Modules", We);
 		e.setAttribute("aria-expanded", "false"), e.setAttribute("aria-controls", "sidebar"), r.append(e);
 	}
 	let i = E(w("input", ""), "search-input");
@@ -562,18 +565,18 @@ function Ke(e, t, n) {
 	let a = E(w("ul", "search-results"), "search-results");
 	a.hidden = !0;
 	let o = w("form", "search", i, a);
-	return o.setAttribute("role", "search"), o.setAttribute("action", e.at("search.html")), r.append(T("home", e.at("index.html"), t), o, Ge("theme-toggle", "Theme", We)), r;
+	return o.setAttribute("role", "search"), o.setAttribute("action", e.at("search.html")), r.append(T("home", e.at("index.html"), t), o, Ke("theme-toggle", "Theme", Ge)), r;
 }
-var qe = (e) => T("skip", e.here("content"), "Skip to content");
+var Je = (e) => T("skip", e.here("content"), "Skip to content");
 function B(e, t, ...n) {
 	let r = E(w("main", "content", ...n), "content");
 	return [
-		qe(e),
-		Ke(e, t, !1),
+		Je(e),
+		qe(e, t, !1),
 		w("div", "shell", r)
 	];
 }
-function Je(e, t, n, r) {
+function Ye(e, t, n, r) {
 	let i = E(w("div", "scrim"), "scrim");
 	i.hidden = !0;
 	let a = E(w("nav", "sidebar"), "sidebar");
@@ -582,32 +585,32 @@ function Je(e, t, n, r) {
 		a.append(w("section", "side", w("h2", "side-title", "On this page"), t));
 	}
 	return a.append(w("details", "side", w("summary", "side-title", "Modules"), E(w("div", "tree"), "module-tree"))), [
-		qe(e),
-		Ke(e, t, !0),
+		Je(e),
+		qe(e, t, !0),
 		w("div", "shell", i, a, E(r, "content"))
 	];
 }
 //#endregion
 //#region src/gzip.ts
-var Ye = (e) => e.length >= 2 && e[0] === 31 && e[1] === 139;
-async function Xe(e) {
-	if (!Ye(e)) return e;
+var Xe = (e) => e.length >= 2 && e[0] === 31 && e[1] === 139;
+async function Ze(e) {
+	if (!Xe(e)) return e;
 	let t = new Blob([e]).stream().pipeThrough(new DecompressionStream("gzip"));
 	return new Uint8Array(await new Response(t).arrayBuffer());
 }
 //#endregion
 //#region src/store-data.ts
-var Ze = new TextDecoder(), Qe = /* @__PURE__ */ new Map(), $e = (e, t) => `d/${e}.${t}.gz`;
-function et(e, t, n) {
-	let r = new URL(e + $e(t, n), location.href).href, i = Qe.get(r);
-	return i || (i = fetch(r).then((e) => e.ok ? e.arrayBuffer() : Promise.reject(/* @__PURE__ */ Error(`${e.status} ${r}`))).then((e) => Xe(new Uint8Array(e))), Qe.set(r, i)), i;
+var Qe = new TextDecoder(), $e = /* @__PURE__ */ new Map(), et = (e, t) => `d/${e}.${t}.gz`;
+function tt(e, t, n) {
+	let r = new URL(e + et(t, n), location.href).href, i = $e.get(r);
+	return i || (i = fetch(r).then((e) => e.ok ? e.arrayBuffer() : Promise.reject(/* @__PURE__ */ Error(`${e.status} ${r}`))).then((e) => Ze(new Uint8Array(e))), $e.set(r, i)), i;
 }
 async function V(e, t) {
-	return JSON.parse(Ze.decode(await et(e, t, "json")));
+	return JSON.parse(Qe.decode(await tt(e, t, "json")));
 }
 //#endregion
 //#region src/route.ts
-function tt(e, t) {
+function nt(e, t) {
 	let { root: n, version: i, data: a } = e;
 	if (n === void 0 || i === void 0 || a === void 0) return null;
 	let o = {
@@ -645,46 +648,46 @@ function tt(e, t) {
 	};
 }
 function H(e) {
-	return e.kind === "module" ? le(e.module) : e.kind === "references" ? "references.html" : e.kind === "search" ? "search.html" : e.kind === "foundational" ? j : "index.html";
+	return e.kind === "module" ? ue(e.module) : e.kind === "references" ? "references.html" : e.kind === "search" ? "search.html" : e.kind === "foundational" ? j : "index.html";
 }
-var U = (e, t) => e.mode === "hash" ? a(e.version, t) : `${e.root}${e.version}/${t}`, W = (e, t) => H(e) + (e.kind === "search" ? e.query : "") + (t === null ? "" : `#${t}`), nt = (e, t) => e.kind === t.kind && e.mode === t.mode && e.version === t.version && W(e, null) === W(t, null) && (e.kind !== "not-found" || t.kind !== "not-found" || e.asked === t.asked), G = (e, t, n) => ({
+var U = (e, t) => e.mode === "hash" ? a(e.version, t) : `${e.root}${e.version}/${t}`, W = (e, t) => H(e) + (e.kind === "search" ? e.query : "") + (t === null ? "" : `#${t}`), rt = (e, t) => e.kind === t.kind && e.mode === t.mode && e.version === t.version && W(e, null) === W(t, null) && (e.kind !== "not-found" || t.kind !== "not-found" || e.asked === t.asked), G = (e, t, n) => ({
 	at: (t) => U(e, t),
 	here: (t) => e.mode === "hash" ? U(e, W(e, t)) : `#${t}`,
 	roots: n,
 	bases: t.roots
 }), K = (e, t) => t && t !== e ? `${e} · ${t}` : e;
-async function rt(e) {
-	let [t, n] = await Promise.all([V(e.root, e.data), V(e.root, e.page)]), r = n.content === null ? [] : await V(e.root, n.content), i = G(e, t, n.roots), a = Fe({
+async function it(e) {
+	let [t, n] = await Promise.all([V(e.root, e.data), V(e.root, e.page)]), r = n.content === null ? [] : await V(e.root, n.content), i = G(e, t, n.roots), a = Ie({
 		linker: i,
 		version: t,
 		page: n,
 		content: r
 	});
 	return a.querySelector(".modmeta .imports:not([data-fill])")?.addEventListener("toggle", () => {
-		V(e.root, t.modules).then((e) => Ie(a, i, e.modules, n.module));
+		V(e.root, t.modules).then((e) => Le(a, i, e.modules, n.module));
 	}, { once: !0 }), {
 		title: K(n.module, t.title),
-		nodes: Je(i, t.title, Pe(r), a),
+		nodes: Ye(i, t.title, Fe(r), a),
 		plain: !1,
 		version: t,
 		linker: i
 	};
 }
-async function it(e) {
+async function at(e) {
 	let t = await V(e.root, e.data), [n, r] = await Promise.all([V(e.root, t.modules), t.front === null ? null : V(e.root, t.front)]), i = G(e, t, []);
 	return {
 		title: t.title,
-		nodes: B(i, t.title, ...ze(i, t, n, r)),
+		nodes: B(i, t.title, ...Be(i, t, n, r)),
 		plain: !0,
 		version: t,
 		linker: i
 	};
 }
-async function at(e) {
+async function ot(e) {
 	let [t, n] = await Promise.all([V(e.root, e.data), V(e.root, e.references)]), r = G(e, t, []);
 	return {
 		title: K("References", t.title),
-		nodes: B(r, t.title, ...Ve(r, n)),
+		nodes: B(r, t.title, ...He(r, n)),
 		plain: !0,
 		version: t,
 		linker: r
@@ -700,13 +703,13 @@ async function q(e, t, n) {
 		linker: i
 	};
 }
-function ot(e, t) {
-	return e.kind === "module" ? rt(e) : e.kind === "references" ? at(e) : e.kind === "search" ? q(e, "Search", () => [...t]) : e.kind === "foundational" ? q(e, "Foundational types", () => [...t]) : e.kind === "not-found" ? q(e, "Not found", (t) => He(t, e.asked, e.version)) : it(e);
+function st(e, t) {
+	return e.kind === "module" ? it(e) : e.kind === "references" ? ot(e) : e.kind === "search" ? q(e, "Search", () => [...t]) : e.kind === "foundational" ? q(e, "Foundational types", () => [...t]) : e.kind === "not-found" ? q(e, "Not found", (t) => Ue(t, e.asked, e.version)) : at(e);
 }
 //#endregion
 //#region src/search-box.ts
-var st = 90, ct = 30;
-function lt(e, t = new AbortController().signal) {
+var ct = 90, lt = 30;
+function ut(e, t = new AbortController().signal) {
 	let n = document.getElementById("search-input"), r = document.getElementById("search-results");
 	if (!n || !r) return;
 	let i = [], a = -1, o = 0, s = () => {
@@ -722,7 +725,7 @@ function lt(e, t = new AbortController().signal) {
 			e.className = "search-empty", e.textContent = "No matching declaration", r.append(e), r.hidden = !1;
 			return;
 		}
-		i = c.slice(0, ct).map((t) => {
+		i = c.slice(0, lt).map((t) => {
 			let n = x(o, t, e.href);
 			return r.append(n), n;
 		}), a = -1, r.hidden = !1;
@@ -733,7 +736,7 @@ function lt(e, t = new AbortController().signal) {
 		t && (t.setAttribute("aria-selected", "true"), t.scrollIntoView({ block: "nearest" }));
 	};
 	n.addEventListener("input", () => {
-		clearTimeout(o), o = setTimeout(() => void c(), st);
+		clearTimeout(o), o = setTimeout(() => void c(), ct);
 	}), n.addEventListener("focus", () => void e.data()), n.addEventListener("keydown", (e) => {
 		e.key === "ArrowDown" ? (e.preventDefault(), l(1)) : e.key === "ArrowUp" ? (e.preventDefault(), l(-1)) : e.key === "Escape" ? (s(), n.blur()) : e.key === "Enter" && a >= 0 && (e.preventDefault(), i[a]?.querySelector("a")?.click());
 	}), document.addEventListener("click", (e) => {
@@ -745,8 +748,8 @@ function lt(e, t = new AbortController().signal) {
 }
 //#endregion
 //#region src/search-page.ts
-var ut = 90, J = 200;
-function dt(e, t = location.search) {
+var dt = 90, J = 200;
+function ft(e, t = location.search) {
 	let n = document.getElementById("page-results"), r = document.getElementById("page-note"), i = document.getElementById("search-input");
 	if (!n || !i) return;
 	document.getElementById("search-results")?.remove();
@@ -768,14 +771,14 @@ function dt(e, t = location.search) {
 		r && (r.textContent = o.length === 0 ? "No matching declaration." : o.length > J ? `${o.length} matches, showing the first ${J}.` : `${o.length} match${o.length === 1 ? "" : "es"}.`);
 	}, s = 0;
 	i.addEventListener("input", () => {
-		clearTimeout(s), s = setTimeout(() => void o(), ut);
+		clearTimeout(s), s = setTimeout(() => void o(), dt);
 	}), i.form?.addEventListener("submit", (e) => {
 		e.preventDefault(), o();
 	}), i.focus(), o();
 }
 //#endregion
 //#region src/instances.ts
-function ft(e, t, n, r) {
+function pt(e, t, n, r) {
 	let i = document.createElement("li"), a = document.createElement("a");
 	a.textContent = t;
 	let o = e && n !== void 0 ? e.modules[y(e.index, n)] : void 0;
@@ -783,7 +786,7 @@ function ft(e, t, n, r) {
 }
 //#endregion
 //#region src/tree.ts
-function pt(e) {
+function mt(e) {
 	let t = { children: /* @__PURE__ */ new Map() };
 	for (let n of e) {
 		let e = t;
@@ -795,14 +798,14 @@ function pt(e) {
 	}
 	return t;
 }
-function mt(e, t, n, r) {
+function ht(e, t, n, r) {
 	let i = document.createElement("ul");
 	for (let [a, o] of e.children) {
 		let e = t ? `${t}.${a}` : a, s = document.createElement("li"), c = document.createElement("div");
 		c.className = "row";
 		let l = null;
 		if (o.children.size > 0) {
-			l = mt(o, e, n, r), l.hidden = !(n === e || n.startsWith(`${e}.`));
+			l = ht(o, e, n, r), l.hidden = !(n === e || n.startsWith(`${e}.`));
 			let t = document.createElement("button");
 			t.type = "button", t.className = "twisty", t.setAttribute("aria-expanded", String(!l.hidden)), t.setAttribute("aria-label", e);
 			let i = l;
@@ -826,37 +829,37 @@ function mt(e, t, n, r) {
 }
 //#endregion
 //#region src/store-fill.ts
-var ht = (e) => w("li", "search-empty", e);
-async function gt(e, t, n) {
+var gt = (e) => w("li", "search-empty", e);
+async function _t(e, t, n) {
 	let r = await V(e.root, e.usedBy).catch(() => null), i = r?.[t] ?? [];
 	if (i.length === 0) {
-		n.replaceChildren(ht(r ? "None" : "Index unavailable"));
+		n.replaceChildren(gt(r ? "None" : "Index unavailable"));
 		return;
 	}
 	n.replaceChildren(...i.map(([t, n]) => w("li", "", T("", M(e.linker, n, t), t))));
 }
-async function _t(e, t, n, r) {
+async function vt(e, t, n, r) {
 	let [i, a] = await Promise.all([V(e.root, e.version.instances).catch(() => null), e.source.data()]), o = i?.[t]?.[n] ?? [];
 	if (o.length === 0) {
-		r.replaceChildren(ht(i ? "None" : "Index unavailable"));
+		r.replaceChildren(gt(i ? "None" : "Index unavailable"));
 		return;
 	}
 	let s = a ? b(a.index, o) : /* @__PURE__ */ new Map();
-	r.replaceChildren(...o.map((t) => ft(a, t, s.get(t), e.source.href)));
+	r.replaceChildren(...o.map((t) => pt(a, t, s.get(t), e.source.href)));
 }
-function vt(e, t) {
+function yt(e, t) {
 	for (let n of e.querySelectorAll("details[data-fill]")) {
 		let e = n.dataset.fill, r = n.dataset.name ?? "", i = n.querySelector("ul");
 		!i || e === "imported-by" || n.addEventListener("toggle", () => {
-			e === "used-by" ? gt(t, r, i) : _t(t, e === "instances" ? "instances" : "instancesFor", r, i);
+			e === "used-by" ? _t(t, r, i) : vt(t, e === "instances" ? "instances" : "instancesFor", r, i);
 		}, { once: !0 });
 	}
 }
-function yt(e) {
+function bt(e) {
 	let t = document.getElementById("module-tree"), n = t?.closest("details");
 	!t || !n || (n.addEventListener("toggle", () => {
 		V(e.root, e.version.modules).then((n) => {
-			t.replaceChildren(mt(pt(n.modules), "", e.module, e.linker.at)), t.querySelector("[aria-current]")?.scrollIntoView({ block: "center" });
+			t.replaceChildren(ht(mt(n.modules), "", e.module, e.linker.at)), t.querySelector("[aria-current]")?.scrollIntoView({ block: "center" });
 		});
 	}, { once: !0 }), document.getElementById("nav-toggle")?.addEventListener("click", () => {
 		document.body.dataset.nav === "open" && (n.open = !0);
@@ -864,9 +867,9 @@ function yt(e) {
 }
 //#endregion
 //#region src/store-search.ts
-function bt(e, t, n) {
+function xt(e, t, n) {
 	let r = null, i = async () => {
-		let [n, r] = await Promise.all([V(e, t.modules), et(e, t.search, "bin")]), i = h(r);
+		let [n, r] = await Promise.all([V(e, t.modules), tt(e, t.search, "bin")]), i = h(r);
 		return i ? {
 			modules: n.modules,
 			index: i
@@ -879,55 +882,55 @@ function bt(e, t, n) {
 }
 //#endregion
 //#region src/theme-key.ts
-var xt = "litedoc4-theme", Y = [
+var St = "litedoc4-theme", Y = [
 	"auto",
 	"light",
 	"dark"
-], St = (e) => e !== null && Y.includes(e);
-function Ct() {
+], Ct = (e) => e !== null && Y.includes(e);
+function wt() {
 	try {
-		let e = localStorage.getItem(xt);
-		return St(e) ? e : "auto";
+		let e = localStorage.getItem(St);
+		return Ct(e) ? e : "auto";
 	} catch {
 		return "auto";
 	}
 }
-function wt(e) {
+function Tt(e) {
 	e === "auto" ? delete document.documentElement.dataset.theme : document.documentElement.dataset.theme = e;
 	let t = document.getElementById("theme-toggle");
 	t && (t.title = `Theme: ${e}`, t.ariaLabel = t.title);
 }
-function Tt() {
-	wt(Ct()), document.getElementById("theme-toggle")?.addEventListener("click", () => {
-		let e = Y[(Y.indexOf(Ct()) + 1) % Y.length];
+function Et() {
+	Tt(wt()), document.getElementById("theme-toggle")?.addEventListener("click", () => {
+		let e = Y[(Y.indexOf(wt()) + 1) % Y.length];
 		try {
-			localStorage.setItem(xt, e);
+			localStorage.setItem(St, e);
 		} catch {}
-		wt(e);
+		Tt(e);
 	});
 }
 //#endregion
 //#region src/listed.ts
-var Et = [
+var Dt = [
 	"index.html",
 	"references.html",
 	"search.html",
 	j
 ];
-async function Dt(e, t) {
+async function Ot(e, t) {
 	return (await V(e, (await V(e, t.data)).modules)).modules;
 }
-var Ot = (e, t) => Et.includes(t) || e.some((e) => e.p === t);
+var kt = (e, t) => Dt.includes(t) || e.some((e) => e.p === t);
 //#endregion
 //#region src/versions.ts
-function kt(e, t, n) {
+function At(e, t, n) {
 	let r = {
 		...e,
 		version: t
 	};
-	return e.kind === "module" ? n !== null && Ot(n, H(e)) ? U(r, W(e, e.anchor)) : U(r, `index.html?${C}=${encodeURIComponent(e.module)}`) : U(r, W(e, e.anchor));
+	return e.kind === "module" ? n !== null && kt(n, H(e)) ? U(r, W(e, e.anchor)) : U(r, `index.html?${C}=${encodeURIComponent(e.module)}`) : U(r, W(e, e.anchor));
 }
-function At(e) {
+function jt(e) {
 	if (e.mode === "hash") {
 		let t = o(location.hash);
 		return {
@@ -943,36 +946,41 @@ function At(e) {
 		anchor: t ? r(t) : null
 	};
 }
-async function jt(e, t) {
-	let n = At(e);
-	return n.kind === "module" ? kt(n, t.name, await Dt(n.root, t)) : kt(n, t.name, null);
+async function Mt(e, t) {
+	let n = jt(e);
+	return n.kind === "module" ? At(n, t.name, await Ot(n.root, t)) : At(n, t.name, null);
 }
-var Mt = /* @__PURE__ */ new Map();
-function Nt(e) {
-	let t = Mt.get(e);
-	return t || (t = fetch(new URL(`${e}versions.json`, location.href)).then((e) => e.ok ? e.json() : null).catch(() => null), Mt.set(e, t)), t;
+var Nt = /* @__PURE__ */ new Map();
+async function Pt(e, t) {
+	if (t === "hash") return JSON.parse(document.body.dataset.versions ?? "null");
+	let n = await fetch(new URL(`${e}versions.json`, location.href));
+	return n.ok ? n.json() : null;
+}
+function Ft(e, t) {
+	let n = Nt.get(e);
+	return n || (n = Pt(e, t).then((e) => oe(e) ? e : null).catch(() => null), Nt.set(e, n)), n;
 }
 function X(...e) {
 	let t = w("p", "results-note", ...e);
 	return t.setAttribute("role", "status"), document.getElementById("content")?.prepend(t), t;
 }
-var Pt = (e, t) => history.replaceState(history.state, "", U(e, t));
-function Ft(e) {
+var It = (e, t) => history.replaceState(history.state, "", U(e, t));
+function Lt(e) {
 	let t = new URLSearchParams(e.query).get(C);
-	e.kind === "index" && t !== null && (X(`The module ${t} does not exist in version ${e.version}.`), Pt(e, W(e, e.anchor))), e.kind === "module" && e.anchor !== null && document.getElementById(e.anchor) === null && (X(`The declaration ${e.anchor} does not exist in version ${e.version} of ${e.module}.`), Pt(e, W(e, null)));
+	e.kind === "index" && t !== null && (X(`The module ${t} does not exist in version ${e.version}.`), It(e, W(e, e.anchor))), e.kind === "module" && e.anchor !== null && document.getElementById(e.anchor) === null && (X(`The declaration ${e.anchor} does not exist in version ${e.version} of ${e.module}.`), It(e, W(e, null)));
 }
-async function It(e, t, n) {
+async function Rt(e, t, n) {
 	try {
-		location.assign(new URL(await jt(e, t), location.href).href);
+		location.assign(new URL(await Mt(e, t), location.href).href);
 	} catch {
 		n.value = e.version;
 	}
 }
-async function Lt(e, t) {
+async function zt(e, t) {
 	if (document.querySelector("link[rel=\"canonical\"]")?.remove(), e.mode === "hash" || e.kind === "not-found") return;
 	if (e.kind === "module" && e.version !== t.name) {
-		let n = await Dt(e.root, t).catch(() => null);
-		if (n === null || !Ot(n, H(e))) return;
+		let n = await Ot(e.root, t).catch(() => null);
+		if (n === null || !kt(n, H(e))) return;
 	}
 	let n = document.createElement("link");
 	n.rel = "canonical", n.href = new URL(U({
@@ -980,9 +988,9 @@ async function Lt(e, t) {
 		version: t.name
 	}, H(e)), location.href).href, document.head.append(n);
 }
-async function Rt(e) {
-	let t = await Nt(e.root);
-	if (!t || t.length === 0) return;
+async function Bt(e) {
+	let t = await Ft(e.root, e.mode);
+	if (!t) return;
 	let n = w("select", "versions");
 	n.setAttribute("aria-label", "Version");
 	for (let r of [...t].reverse()) {
@@ -991,15 +999,15 @@ async function Rt(e) {
 	}
 	n.addEventListener("change", () => {
 		let r = t.find((e) => e.name === n.value);
-		r && It(e, r, n);
+		r && Rt(e, r, n);
 	}), document.querySelector(".topbar .home")?.after(n);
 	let r = t[t.length - 1];
 	if (r) {
 		if (r.name !== e.version) {
 			let t = w("button", "", `Go to ${r.name}`);
-			t.type = "button", t.addEventListener("click", () => void It(e, r, n)), X(`This is version ${e.version}; the newest is ${r.name}. `, t);
+			t.type = "button", t.addEventListener("click", () => void Rt(e, r, n)), X(`This is version ${e.version}; the newest is ${r.name}. `, t);
 		}
-		Lt(e, r);
+		zt(e, r);
 	}
 }
 //#endregion
@@ -1018,45 +1026,45 @@ function $(e) {
 	}
 	t.classList.add("targeted"), t.scrollIntoView();
 }
-function zt(e) {
+function Vt(e) {
 	e.mode === "hash" ? $(e) : location.hash && location.replace(location.href);
 }
-function Bt(e, t) {
+function Ht(e, t) {
 	let n = document.getElementById("search-input");
 	n?.form?.addEventListener("submit", (t) => {
 		t.preventDefault(), location.hash = U(e, `search.html?q=${encodeURIComponent(n.value)}`);
 	}, { signal: t });
 }
-async function Vt(e, n, r) {
+async function Ut(e, n, r) {
 	delete Z.dataset.drawn;
 	let i;
 	try {
-		i = await ot(e, n);
+		i = await st(e, n);
 	} catch (e) {
 		Q(e);
 		return;
 	}
 	if (r.aborted) return;
-	document.title = i.title, Z.classList.toggle("plain", i.plain), Z.replaceChildren(...i.nodes), Tt(), t(r);
-	let a = bt(e.root, i.version, i.linker.at);
-	if (e.kind === "search" ? dt(a, e.query) : e.mode === "hash" && Bt(e, r), lt(a, r), e.kind === "module") {
+	document.title = i.title, Z.classList.toggle("plain", i.plain), Z.replaceChildren(...i.nodes), Et(), t(r);
+	let a = xt(e.root, i.version, i.linker.at);
+	if (e.kind === "search" ? ft(a, e.query) : e.mode === "hash" && Ht(e, r), ut(a, r), e.kind === "module") {
 		let t = {
 			...e,
 			version: i.version,
 			linker: i.linker,
 			source: a
 		};
-		vt(Z, t), yt(t);
+		yt(Z, t), bt(t);
 	}
-	e.kind === "not-found" && ae(a, e.guess), Ft(e), Z.dataset.drawn = "1", zt(e), Rt(e).then(() => {
+	e.kind === "not-found" && ae(a, e.guess), Lt(e), Z.dataset.drawn = "1", Vt(e), Bt(e).then(() => {
 		!r.aborted && e.mode === "hash" && e.anchor !== null && $(e);
 	});
 }
-var Ht = (e) => {
+var Wt = (e) => {
 	let t = document.querySelector(e);
 	return t ? [...t.content.childNodes] : [];
 };
-async function Ut(e, t) {
+async function Gt(e, t) {
 	let n = t[t.length - 1], i = o(location.hash);
 	if (i === null) return history.replaceState(history.state, "", a(n.name, "index.html")), {
 		root: e,
@@ -1129,40 +1137,40 @@ async function Ut(e, t) {
 		usedBy: f
 	};
 }
-async function Wt(e) {
+async function Kt(e) {
 	let t = {
-		search: Ht("template#search-body"),
-		foundational: Ht("template#foundational-body")
-	}, n = await Nt(e);
-	if (!n || n.length === 0) {
-		Q(/* @__PURE__ */ Error("versions.json"));
+		search: Wt("template#search-body"),
+		foundational: Wt("template#foundational-body")
+	}, n = await Ft(e, "hash");
+	if (!n) {
+		Q(/* @__PURE__ */ Error("the version list"));
 		return;
 	}
 	let r = null, i = null, a = async () => {
 		let a;
 		try {
-			a = await Ut(e, n);
+			a = await Gt(e, n);
 		} catch (e) {
 			Q(e);
 			return;
 		}
-		if (r !== null && nt(r, a)) {
+		if (r !== null && rt(r, a)) {
 			r = a, $(a);
 			return;
 		}
 		i?.abort(), i = new AbortController(), r = a;
 		let o = a.kind === "search" ? t.search : a.kind === "foundational" ? t.foundational : [];
-		await Vt(a, o.map((e) => e.cloneNode(!0)), i.signal);
+		await Ut(a, o.map((e) => e.cloneNode(!0)), i.signal);
 	};
 	addEventListener("hashchange", () => void a()), await a();
 }
-function Gt() {
+function qt() {
 	if (Z.dataset.mode === "hash") {
-		Wt(Z.dataset.root ?? "./");
+		Kt(Z.dataset.root ?? "./");
 		return;
 	}
-	let e = tt(Z.dataset, location);
-	e && Vt(e, [...Z.childNodes], new AbortController().signal);
+	let e = nt(Z.dataset, location);
+	e && Ut(e, [...Z.childNodes], new AbortController().signal);
 }
-Gt();
+qt();
 //#endregion

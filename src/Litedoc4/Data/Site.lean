@@ -138,11 +138,6 @@ def notFoundShell (hashUrls : Bool) : String :=
 
 def notFoundPage : String := "404.html"
 
-def hashShell : String :=
-  shell none 0 #[("mode", "hash")]
-    (drawnByScript ++ "<template id=\"search-body\">" ++ searchBody
-      ++ "</template><template id=\"foundational-body\">" ++ foundationalTypesBody ++ "</template>")
-
 structure Listed where
   name : String
   data : String
@@ -154,6 +149,11 @@ def versionsJson (entries : Array Listed) : String :=
     (match e.routes with
       | some r => jsonStr (o ++ ",\"routes\":") r
       | none => o).push '}'
+
+def hashShell (versions : String) : String :=
+  shell none 0 #[("mode", "hash"), ("versions", versions)]
+    (drawnByScript ++ "<template id=\"search-body\">" ++ searchBody
+      ++ "</template><template id=\"foundational-body\">" ++ foundationalTypesBody ++ "</template>")
 
 def routesJson (rows : Array (String × DataFile × DataFile)) : String :=
   let o := rows.foldl (init := "{") fun o (module, page, usedBy) =>
@@ -298,8 +298,9 @@ def renderStore (store out : FilePath) (names : Array Store.VersionName) (hashUr
     versions := versions.push counts
     entries := entries.push listed
   let some newest := entries.back? | throw "no version to render"
-  let root := (← writeText out "versions.json" (versionsJson entries)).plus
-    (← writeText out "index.html" (if hashUrls then hashShell else siteIndexShell newest.name))
+  let listed := versionsJson entries
+  let root := (← writeText out "versions.json" listed).plus
+    (← writeText out "index.html" (if hashUrls then hashShell listed else siteIndexShell newest.name))
     |>.plus (← writeText out notFoundPage (notFoundShell hashUrls))
   return { versions, assets := ← writeAssets out, root }
 
