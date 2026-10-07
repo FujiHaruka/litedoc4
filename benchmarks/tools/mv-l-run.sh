@@ -2,6 +2,7 @@
 # usage (all of Mathlib at three releases through `litedoc4 build --versions`):
 #   mv-l-run.sh setup                 build litedoc4, clone Mathlib's three tags
 #   mv-l-run.sh run <label> <versions> one `build --versions` into the shared --out
+#   mv-l-run.sh render-alone          `store render` of the first 1, 2 and 3 versions, timed apart
 #   mv-l-run.sh report                sizes of the store and the site
 #
 # Environment: MV_L_WORK (default $RUNNER_TEMP/mv-l or /private/tmp/lean-doc-relay/mv-l),
@@ -39,6 +40,7 @@ case "${1:-}" in
   setup)
     "$ROOT/tools/build-lean-exe.sh" --toolchain-from "$ROOT/e2e/micro" >"$LOGS/litedoc4-build.log" 2>&1
     [ -x "$LITEDOC4" ] || { echo "no $LITEDOC4" >&2; exit 1; }
+    sha256sum "$LITEDOC4" | tee "$LOGS/litedoc4.sha256"
     rm -rf "$MATHLIB"
     mkdir -p "$MATHLIB"
     git -C "$MATHLIB" init -q
@@ -70,6 +72,21 @@ case "${1:-}" in
     tail -n 25 "$LOGS/$label.err"
     exit "$status"
     ;;
+  render-alone)
+    list=""
+    for tag in "${TAGS[@]}"; do
+      list="${list:+$list,}$tag"
+      n="$(echo "$list" | tr ',' '\n' | wc -l | tr -d ' ')"
+      rm -rf "$WORK/render-$n"
+      status=0
+      # shellcheck disable=SC2046
+      $(time_cmd) "$LITEDOC4" store render --store "$OUT/store" --versions "$list" \
+        --out "$WORK/render-$n" >"$LOGS/render-$n.out" 2>"$LOGS/render-$n.err" || status=$?
+      echo "$n version(s): exit $status; $(grep -E 'Elapsed|Maximum resident' "$LOGS/render-$n.err" | tr -s ' \t' ' ' | tr '\n' ';')"
+      rm -rf "$WORK/render-$n"
+      [ "$status" -eq 0 ] || exit "$status"
+    done
+    ;;
   report)
     {
       echo "store entries (bytes):"
@@ -92,7 +109,7 @@ case "${1:-}" in
     } | tee "$LOGS/report.txt"
     ;;
   *)
-    sed -n '2,8p' "$0" >&2
+    sed -n '2,9p' "$0" >&2
     exit 2
     ;;
 esac

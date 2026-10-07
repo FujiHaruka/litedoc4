@@ -51,6 +51,9 @@ jobs:
       - name: (c) the three again, nothing to extract
         run: benchmarks/tools/mv-l-run.sh run c v4.32.2,v4.33.0,v4.33.1
 
+      - name: (d) store render of 1, 2 and 3 versions, apart
+        run: benchmarks/tools/mv-l-run.sh render-alone
+
       - name: sizes
         if: always()
         run: benchmarks/tools/mv-l-run.sh report
@@ -65,3 +68,20 @@ jobs:
         with:
           name: mv-l
           path: /home/runner/mv-l/logs
+
+  identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: litedoc4 built in a second job
+        run: |
+          tools/build-lean-exe.sh --toolchain-from e2e/micro >/dev/null
+          sha256sum .lake/build/bin/litedoc4
