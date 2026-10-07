@@ -558,7 +558,9 @@ entry re-extracted into the same bytes render `0 of 5`.
   process. Nothing the render keeps across versions is involved — ten lines of C against
   `mi_malloc` reproduce it. A full render of n versions peaks ≈ 3.67 + 0.585 (n − 1) GiB on the
   runner (extrapolated): ≈ 9.5 GiB at 11, past 16 GB at about 20. Under a 4 GiB cgroup cap one
-  version renders and three do not.
+  version renders and three do not. Lean v4.34.1's mimalloc 3.4.4 reuses the block (the same
+  probe, flat); v4.34 has no row in `tools/lean-toolchains.txt` yet, and the renderer is built
+  with the consumer's toolchain, so the supported range keeps the growth.
 - **Premise**: the previously deployed site is at `<out>/site` when the build starts. Locally it
   is; on the runner step 6 has to bring it down with the store (≈ 300 MB at three versions,
   ≈ 1 GB at 11, extrapolated from the run above). **Falsified** if bringing it down costs more
