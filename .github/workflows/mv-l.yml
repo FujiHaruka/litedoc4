@@ -1,0 +1,67 @@
+# A measurement, not a gate: its numbers go to benchmarks/results/.
+name: multi-version L checkpoint
+
+on:
+  push:
+    branches: [multi-version]
+    paths:
+      - ".github/workflows/mv-l.yml"
+      - "benchmarks/tools/mv-l-run.sh"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  l:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      MV_L_WORK: /home/runner/mv-l
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: GNU time
+        run: sudo apt-get install -y time
+
+      - name: install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: record the machine
+        run: |
+          mkdir -p "$MV_L_WORK/logs"
+          benchmarks/tools/record-runner.sh "$MV_L_WORK/logs/runner-start.txt"
+
+      - name: litedoc4 and Mathlib's three tags
+        run: benchmarks/tools/mv-l-run.sh setup
+
+      - name: (a) v4.32.2 and v4.33.0 from nothing
+        run: benchmarks/tools/mv-l-run.sh run a v4.32.2,v4.33.0
+
+      - name: (b) v4.33.1 added
+        run: benchmarks/tools/mv-l-run.sh run b v4.32.2,v4.33.0,v4.33.1
+
+      - name: (c) the three again, nothing to extract
+        run: benchmarks/tools/mv-l-run.sh run c v4.32.2,v4.33.0,v4.33.1
+
+      - name: sizes
+        if: always()
+        run: benchmarks/tools/mv-l-run.sh report
+
+      - name: record the machine at the end
+        if: always()
+        run: df -h > "$MV_L_WORK/logs/df-end.txt"; free -m >> "$MV_L_WORK/logs/df-end.txt"
+
+      - name: upload the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mv-l
+          path: /home/runner/mv-l/logs
