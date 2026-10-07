@@ -151,7 +151,7 @@ type IndexNames = Record<string, [string, string | null][]>;
 
 async function indexNames(root: string): Promise<IndexNames> {
   const out = await new Deno.Command("python3", {
-    args: ["-I", INDEX_READER, "--site", root, "--print-index"],
+    args: ["-I", "-X", "utf8", INDEX_READER, "--site", root, "--print-index"],
     stdout: "piped",
     stderr: "piped",
   }).output();
