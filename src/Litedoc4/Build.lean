@@ -345,6 +345,7 @@ structure BuildRequest where
   maxRounds : Nat
   timings : Option FilePath
   full : Bool
+  noEquationsUnder : Option (Array String) := none
 
 inductive Plan where
   | full (why : String)
@@ -450,7 +451,7 @@ def openExtractor (r : BuildRequest) (modulesFile : FilePath) (modules : Array S
     return .oneShot { program, args := r.extractorArgs, requestCount := ← IO.mkRef 0 }
   let serve ← serveOptions
     { bin := r.extractorBin, target := some r.root, lake := r.lake, jobs := r.jobs
-      modulesFile, modules, work := r.layout.work
+      modulesFile, modules, work := r.layout.work, noEquationsUnder := r.noEquationsUnder
       -- The resident extractor writes the map when this command owns it. With
       -- `--link-index` it is somebody else's file and is not overwritten.
       linkIndex := if r.derivedLinkIndex then some r.linkIndex else none }

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # The S loop of the multi-version plan (docs/multiversion/implementation.md,
-# "Measurement loop") from nothing: tools/mv-s/ generated as four versions, each
-# built and put into a store, then read back, judged fresh, stale or needing a
-# re-put, laid out by the three storage candidates, and rendered as a site by
-# `store render` — answered by counters, names and bytes against
-# tools/mv-s/expected.txt, never by a duration.
+# "Measurement loop") from nothing: tools/mv-s/ generated as five versions, the
+# first four each built and put into a store, then read back, judged fresh, stale
+# or needing a re-put, laid out by the three storage candidates, and rendered as a
+# site by `store render` — answered by counters, names and bytes against
+# tools/mv-s/expected.txt, never by a duration. Then `build --versions` over all
+# five (v5 is v4 on another toolchain) into a store of its own, which has to agree
+# with the hand-driven one and re-extract exactly what is missing or stale.
 #
 # Each check prints `ok|FAIL <item>: <what>`; every declared item has to report
 # exactly once, so one that never ran fails the gate as surely as one that did.
@@ -120,6 +122,7 @@ for c in "${CANDIDATES[@]}"; do DECLARED+=("measure-repeat-$c" "new-addresses-$c
 for p in "${PAIRS[@]}"; do DECLARED+=("new-items-$p" "a-files-$p" "b-segments-$p"); done
 DECLARED+=(render-twice render-sharing render-counts render-citation render-front)
 DECLARED+=(render-hash-twice render-hash-counts)
+DECLARED+=(loop-empty loop-again loop-toolchain loop-remove-one loop-identity)
 for v in "${VERSIONS[@]}"; do DECLARED+=("render-alone-$v" "render-hash-alone-$v"); done
 
 RAN=()
@@ -130,18 +133,18 @@ item () {
   if [ "$1" != ok ]; then FAILED=$((FAILED + 1)); fi
 }
 
-say "1/7 the extractor (built once, in e2e/micro's environment)"
+say "1/8 the extractor (built once, in e2e/micro's environment)"
 if [ -z "$EXTRACTOR" ]; then
   EXTRACTOR="$(micro_extractor "$ROOT" "$ROOT/e2e/micro" "$LAKE" "$LOGS/extractor-build.log")"
 fi
 [ -x "$EXTRACTOR" ] || { echo "no extractor at $EXTRACTOR" >&2; exit 1; }
 echo "$EXTRACTOR"
 
-say "2/7 run 1: generate S, then build and put each version (twice)"
+say "2/8 run 1: generate S, then build and put each version (twice)"
 flow run1 "$R1" 1
 "$LITEDOC4" store list --store "$R1/store"
 
-say "3/7 the store: oracle, read-back, re-put, staleness"
+say "3/8 the store: oracle, read-back, re-put, staleness"
 want_v1="$(sed -n 's/.*Derived against v1 = \([0-9a-f]\{40\}\).*/\1/p' "$EXPECTED")"
 have_v1="$(git -C "$R1/repo" rev-parse v1)"
 if [ -z "$want_v1" ]; then
@@ -300,7 +303,7 @@ else
   item ok needs-re-put "a schema-2 record (no source map) and a schema-3 one (no site configuration) are counted apart, each named with what it lacks, and exit 3; measure and render refuse each naming store put (render before writing anything); re-putting both from their builds restores the entries byte for byte"
 fi
 
-say "4/7 the data format: three candidates, each laid out twice"
+say "4/8 the data format: three candidates, each laid out twice"
 LIST="$(IFS=,; echo "${VERSIONS[*]}")"
 mkdir -p "$R1/measure"
 for c in "${CANDIDATES[@]}"; do
@@ -595,7 +598,7 @@ if [ "$FORMAT_RC" -ne 0 ]; then
   tail -n 15 "$LOGS/format-items.err" >&2
 fi
 
-say "5/7 the site: store render, twice, each version alone, and all but the newest"
+say "5/8 the site: store render, twice, each version alone, and all but the newest"
 RD="$R1/render"
 mkdir -p "$RD"
 render () {
@@ -982,7 +985,7 @@ echo "counts (store render, all ${#VERSIONS[@]} versions):"
 cat "$RD/all-1.json" 2>/dev/null || true
 echo
 
-say "6/7 run 2: the whole flow again, in another directory"
+say "6/8 run 2: the whole flow again, in another directory"
 flow run2 "$R2" 0
 if /usr/bin/diff -r "$R1/store" "$R2/store" >"$LOGS/second-run.diff" 2>&1; then
   item ok second-run "both runs put byte-identical entries for all ${#VERSIONS[@]} versions"
@@ -990,7 +993,112 @@ else
   item FAIL second-run "the second run's store differs from the first's ($LOGS/second-run.diff: $(head -n 1 "$LOGS/second-run.diff"))"
 fi
 
-say "7/7 report"
+say "7/8 the loop: build --versions over v1..v5, again, and with an entry gone or stale"
+LOOP="$WORK/loop"
+LOOP_VERSIONS=(v1 v2 v3 v4 v5)
+LOOP_LIST="$(IFS=,; echo "${LOOP_VERSIONS[*]}")"
+LOOP_ALL="$(printf '%s, ' "${LOOP_VERSIONS[@]}")"
+LOOP_ALL="${#LOOP_VERSIONS[@]} of ${#LOOP_VERSIONS[@]} (${LOOP_ALL%, })"
+LOOP_NONE="0 of ${#LOOP_VERSIONS[@]} ()"
+mkdir -p "$LOOP"
+# The sample requires `../micro-dep`, and the loop checks every version out at <out>/checkout.
+cp -R "$R1/micro-dep" "$LOOP/micro-dep"
+loop () {
+  local name="$1"
+  timed "loop $name" "$LOGS/loop-$name.log" \
+    "$LITEDOC4" build --root "$R1/repo" --out "$LOOP" --versions "$LOOP_LIST" --lake "$LAKE" || true
+  sed -n 's/^versions extracted: //p' "$LOGS/loop-$name.log"
+}
+record_field () {
+  python3 - "$LOOP/store" "$1" "${@:2}" <<'PY'
+import json
+import pathlib
+import sys
+
+store, key = pathlib.Path(sys.argv[1]), sys.argv[2]
+print(" ".join(str(json.loads((store / v / "record.json").read_text(encoding="utf-8"))[key]) for v in sys.argv[3:]))
+PY
+}
+
+said="$(loop empty)"
+differs=""
+for v in "${VERSIONS[@]}"; do
+  for f in record.json entry.pack.gz; do
+    if ! cmp -s "$R1/store/$v/$f" "$LOOP/store/$v/$f"; then differs="$differs $v/$f"; fi
+  done
+done
+marked="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); e=m["versionsExtracted"]; print(m["complete"], e["count"], e["of"])' "$LOOP/litedoc4-build.json" 2>&1 || true)"
+if [ "$said" != "$LOOP_ALL" ]; then
+  item FAIL loop-empty "over an empty store the loop said \`versions extracted: ${said:-<no line>}\`, expected \`$LOOP_ALL\` ($LOGS/loop-empty.log)"
+elif [ -n "$differs" ]; then
+  item FAIL loop-empty "the loop's entries differ from the hand-driven flow's:$differs"
+elif [ "$marked" != "True ${#LOOP_VERSIONS[@]} ${#LOOP_VERSIONS[@]}" ]; then
+  item FAIL loop-empty "the build marker records (complete, count, of) = $marked"
+else
+  item ok loop-empty "over an empty store: versions extracted $said, recorded in the marker too; the ${#VERSIONS[@]} versions the hand-driven flow also built have byte-identical record.json and entry.pack.gz"
+fi
+
+cp -R "$LOOP/site" "$WORK/loop-site-1"
+said="$(loop again)"
+if [ "$said" != "$LOOP_NONE" ]; then
+  item FAIL loop-again "the same command again said \`versions extracted: ${said:-<no line>}\`, expected \`$LOOP_NONE\`"
+elif ! /usr/bin/diff -r "$WORK/loop-site-1" "$LOOP/site" >"$LOGS/loop-again.diff" 2>&1; then
+  item FAIL loop-again "the second site differs from the first ($LOGS/loop-again.diff: $(head -n 1 "$LOGS/loop-again.diff"))"
+else
+  item ok loop-again "the same command again: versions extracted $said, and the site is byte-identical to the first ($(find "$LOOP/site" -type f | wc -l | tr -d ' ') files)"
+fi
+
+leans="$(record_field leanVersion v1 v5 2>&1 || true)"
+if [ "$leans" != "4.31.0 4.32.2" ]; then
+  item FAIL loop-toolchain "the records of v1 and v5 say lean $leans, expected 4.31.0 4.32.2"
+elif ! grep -q '^version v5: fresh$' "$LOGS/loop-again.log" || ! grep -q '^version v1: fresh$' "$LOGS/loop-again.log"; then
+  item FAIL loop-toolchain "the second run did not judge both v1 (lean 4.31.0) and v5 (lean 4.32.2) fresh"
+elif ! grep -q '^identity .* lean=4.32.2 ' "$LOGS/loop-again.log"; then
+  item FAIL loop-toolchain "the second run's identity was not asked of the lean 4.32.2 extractor: $(grep '^identity' "$LOGS/loop-again.log" | cut -c1-120)"
+elif grep -Eq '^extractor .*: built|^toolchain .*: not installed' "$LOGS/loop-again.log"; then
+  item FAIL loop-toolchain "with nothing stale the second run built an extractor or installed a toolchain"
+else
+  item ok loop-toolchain "v5's record says lean 4.32.2 and v1's 4.31.0; the second run asked one cached extractor (lean 4.32.2) for the identity, judged both fresh, and built and installed nothing"
+fi
+
+cp -R "$LOOP/store/v3" "$WORK/loop-v3-before"
+"$LITEDOC4" store remove --store "$LOOP/store" --version v3 >"$LOGS/loop-remove.log" 2>&1 || true
+said="$(loop remove-one)"
+if [ "$said" != "1 of ${#LOOP_VERSIONS[@]} (v3)" ]; then
+  item FAIL loop-remove-one "with v3's entry removed the loop said \`versions extracted: ${said:-<no line>}\`, expected \`1 of ${#LOOP_VERSIONS[@]} (v3)\`"
+elif ! /usr/bin/diff -r "$WORK/loop-v3-before" "$LOOP/store/v3" >"$LOGS/loop-remove-one.diff" 2>&1; then
+  item FAIL loop-remove-one "v3 re-extracted differs from the entry that was removed ($LOGS/loop-remove-one.diff)"
+else
+  item ok loop-remove-one "with v3's entry removed: versions extracted $said, and the new entry is byte-identical to the removed one"
+fi
+
+python3 - "$LOOP/store/v2/record.json" <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+record = json.loads(path.read_text(encoding="utf-8"))
+record["extractorIdentity"] = re.sub(r"\bsource=\S+", "source=fnv1a64:0000000000000000", record["extractorIdentity"])
+path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+PY
+said_source="$(loop identity-source)"
+printf 'no_equations_under = ["Example"]\n' >>"$R1/repo/litedoc4.toml"
+said_config="$(loop identity-config)"
+git -C "$R1/repo" restore litedoc4.toml
+flags="$(record_field extractorIdentity "${LOOP_VERSIONS[@]}" 2>&1 | grep -o 'noEquationsUnder=[^ ]*' | sort -u | tr '\n' ' ' || true)"
+if [ "$said_source" != "1 of ${#LOOP_VERSIONS[@]} (v2)" ]; then
+  item FAIL loop-identity "with v2's recorded source= altered the loop said \`versions extracted: ${said_source:-<no line>}\`, expected \`1 of ${#LOOP_VERSIONS[@]} (v2)\`"
+elif [ "$said_config" != "$LOOP_ALL" ]; then
+  item FAIL loop-identity "with no_equations_under added to the root's litedoc4.toml the loop said \`versions extracted: ${said_config:-<no line>}\`, expected \`$LOOP_ALL\`"
+elif [ "$flags" != "noEquationsUnder=Example " ]; then
+  item FAIL loop-identity "after that run the records carry ${flags:-no noEquationsUnder}: the root's flags did not reach every version's extraction"
+else
+  item ok loop-identity "an altered source= in v2's record re-extracted exactly v2 ($said_source); no_equations_under added to the root's litedoc4.toml re-extracted all ($said_config), and every record now carries noEquationsUnder=Example"
+fi
+
+say "8/8 report"
 echo "counters per version (store measure, run 1):"
 if [ -f "$WORK/table.txt" ]; then cat "$WORK/table.txt"; fi
 echo

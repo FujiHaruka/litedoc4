@@ -11,6 +11,9 @@ def usage : String :=
                         | --extractor <program> [--extractor-arg <arg>]...)
                        [--mode self|referrers|importers|all] [--max-rounds <n>]
                        [--timings <file>]
+       litedoc4 build  --root <repo> --out <dir> --versions <ref>,<ref>...
+                       [--store <dir>] [--hash-urls] [--lib <Name>]...
+                       [--lake <path>] [--jobs <n>]
        litedoc4 incremental --ir <dir> --pages <dir> --ledger <file> --work <dir>
                        --modules <file> --source-url <url> --link-index <file>
                        --state <dir> [--make-link-index] [--root <repo>]
@@ -110,6 +113,21 @@ def usage : String :=
                  it writes. It acts only after one quiet interval, so a build
                  still writing oleans is never extracted mid-flight, and it says
                  so while it waits.
+  --versions     (`build`) the versions of --root's git repository that one site
+                 shows, comma-separated tags, branches or commits, each named as
+                 given, the last the newest. Each version the store lacks, holds
+                 stale or holds at another commit is checked out at
+                 <out>/checkout, its toolchain installed by elan (one with no row
+                 in tools/lean-toolchains.txt is refused before anything runs),
+                 its libraries built by `lake build`, its IR extracted by an
+                 extractor built for its Lean under <out>/extractors and put into
+                 the store, and the checkout deleted before the next. Then the
+                 site is rendered from the store into <out>/site, as `store
+                 render` writes it. The extraction flags come from --root's
+                 litedoc4.toml; the title, front page and bibliography from each
+                 version's own. --lake has to be elan's, which picks each
+                 checkout's toolchain. Prints `versions extracted: <n> of <m>
+                 (<names>)`, which <out>/litedoc4-build.json records too
   --full         (`build`) regenerate everything, ignoring what is under --out.
                  The escape hatch for an input no ledger key covers. The
                  dependency map is not one: its bytes are in renderKey, so a
@@ -266,7 +284,8 @@ def usage : String :=
   --census       a per-module TSV of |IMPORTERS| / |REFERRERS| / declarations
   --pages        (`prune`) the page tree; nothing outside it is ever deleted
   --dry-run      report what would be deleted and delete nothing
-  --store        (`store`) the kept versions, one directory per version:
+  --store        (`store`, and `build --versions`, where it defaults to
+                 <out>/store) the kept versions, one directory per version:
                  <store>/<name>/entry.pack.gz (the IR tree, the dependency link
                  index, the bibliography and the index page's Markdown, packed
                  and gzipped) and record.json (commit, Lean, dependencies, each
@@ -290,10 +309,12 @@ def usage : String :=
                  verified. `store check-stale` asks
                  --extractor-bin for its identity with the flags `build`
                  passes, which --root's litedoc4.toml decides, and says fresh,
-                 stale, or needs re-put (a record an older put wrote, without
-                 the source map or the site configuration, which `store
-                 measure` and `store render` refuse) per entry; it exits
-                 3 when an entry needs re-put or is unreadable
+                 stale (an identity field other than the Lean version and
+                 revision differs, which a version's commit pins), or needs
+                 re-put (a record an older put wrote, without the source map
+                 or the site configuration, which `store measure` and `store
+                 render` refuse) per entry; it exits 3 when an entry needs
+                 re-put or is unreadable
   --versions     (`store measure`, `store render`) the entries to lay out,
                  comma-separated, in the order a site would have added them:
                  the last is the newest. `store render` writes the site into
@@ -306,10 +327,10 @@ def usage : String :=
                  one JSON line of counts (per version and in total) and exits 3
                  on an entry that needs re-put or two different files under one
                  address
-  --hash-urls    (`store render`) no shells: the root index.html draws every
-                 page from a route in the fragment, #/<version>/<module path>,
-                 with a declaration as ?id=<name>; each version gets a routes
-                 file in d/, named by versions.json
+  --hash-urls    (`store render`, `build --versions`) no shells: the root
+                 index.html draws every page from a route in the fragment,
+                 #/<version>/<module path>, with a declaration as ?id=<name>;
+                 each version gets a routes file in d/, named by versions.json
   --candidate    (`store measure`) how declaration content is stored: a, one
                  file per module per version; b, per-module segments appended
                  by each version; c, packs read by byte range. It prints one
@@ -1041,11 +1062,14 @@ structure BuildArgs where
   lake : Option String := none
   jobs : Nat := 1
   mode : Option String := none
-  maxRounds : Nat := defaultMaxRounds
+  maxRounds : Option Nat := none
   timings : Option String := none
   depsDocsUrls : Array String := #[]
   depsDocsIndexes : Array String := #[]
   full : Bool := false
+  versions : Option String := none
+  store : Option String := none
+  hashUrls : Bool := false
   /-- `watch`'s own two, as text, so that the refusal for `--port banana` is
   written next to what a port means. Never filled in for `build`, which refuses
   them by name. -/
@@ -1061,6 +1085,10 @@ def depsDocsInWatch : String :=
     the IR tree of that run. A loop would either re-fetch 5.7 MB on every rebuild or serve pages \
     resolved against an IR tree that has moved since. Use `litedoc4 build` for a site with \
     documentation links"
+
+def versionsInWatch : String :=
+  "a site of several versions is built from their store, one checkout at a time, and `watch` \
+    rebuilds one working tree. Use `litedoc4 build --versions`"
 
 /-- Flags `build` and `watch` refuse by name because each is a real flag of a
 subcommand this one drives: what a caller needs to hear is which decision this
@@ -1141,7 +1169,7 @@ partial def parseBuild (watching : Bool) :
     else if flag == "--max-rounds" then do
       let (v, more) ← value
       match v.toNat? with
-      | some n => parseBuild watching more { acc with maxRounds := n }
+      | some n => parseBuild watching more { acc with maxRounds := some n }
       | none => .error s!"--max-rounds wants a number, not {v}"
     else if flag == "--timings" then do
       let (v, more) ← value; parseBuild watching more { acc with timings := some v }
@@ -1169,6 +1197,14 @@ partial def parseBuild (watching : Bool) :
         parseBuild watching more { acc with depsDocsUrls := acc.depsDocsUrls.push v }
       else
         parseBuild watching more { acc with depsDocsIndexes := acc.depsDocsIndexes.push v }
+    else if flag == "--versions" || flag == "--store" then do
+      let (v, more) ← value
+      if watching then .error s!"{flag} is not a `watch` flag: {versionsInWatch}"
+      else if flag == "--versions" then parseBuild watching more { acc with versions := some v }
+      else parseBuild watching more { acc with store := some v }
+    else if flag == "--hash-urls" then
+      if watching then .error s!"--hash-urls is not a `watch` flag: {versionsInWatch}"
+      else parseBuild watching rest { acc with hashUrls := true }
     else if flag == "--help" || flag == "-h" then
       parseBuild watching rest { acc with help := true }
     else match buildRefusal watching flag with
@@ -1192,7 +1228,7 @@ def buildChecks (a : BuildArgs) : Option String := Id.run do
       whose interface is `--modules --ir-dir --timings` and nothing else. Either pass a map \
       (`litedoc4 extract --link-index <file>` writes one) or use --extractor-bin, where this \
       command owns the extractor and derives the map itself. {linkIndexCost}"
-  if a.maxRounds == 0 then
+  if a.maxRounds == some 0 then
     return some "--max-rounds must be at least 1: round 1 is where deletions are folded in"
   if a.jobs == 0 then return some "--jobs must be at least 1"
   if a.extractor.isSome then
@@ -1209,6 +1245,42 @@ def buildChecks (a : BuildArgs) : Option String := Id.run do
     if ImpactMode.parse text matches .unrecognised _ then
       return some s!"--mode takes self|referrers|importers|all, not `{text}`"
   return none
+
+def versionedChecks (a : BuildArgs) : Option String :=
+  match a.versions with
+  | none =>
+    if a.store.isSome then
+      some "--store is a flag of `build --versions`: a build of one working tree keeps its IR \
+        under --out, in no store"
+    else if a.hashUrls then
+      some "--hash-urls is a flag of `build --versions`: a build of one working tree writes \
+        static pages, one file per path"
+    else none
+  | some _ =>
+    let ownExtractor := s!"each version's extractor is built against the Lean its commit pins, \
+      under <out>/{Versions.extractorsName}"
+    let fromNothing := "every version the store lacks or holds stale is extracted from nothing, \
+      so there is no round to bound or scope"
+    let refused : List (String × Bool × String) := [
+      ("--source-url", a.sourceUrl.isSome,
+        "each version links to its own commit, under the checkout's github.com remote"),
+      ("--link-index", a.linkIndex.isSome,
+        "each version's dependency map is written by its own extraction"),
+      ("--extractor-bin", a.extractorBin.isSome, ownExtractor),
+      ("--extractor", a.extractor.isSome, ownExtractor),
+      ("--extractor-arg", !a.extractorArgs.isEmpty, ownExtractor),
+      ("--full", a.full, "a version the store holds fresh is kept and every other is extracted \
+        from nothing; `litedoc4 store remove` has one extracted again"),
+      ("--mode", a.mode.isSome, fromNothing),
+      ("--max-rounds", a.maxRounds.isSome, fromNothing),
+      ("--timings", a.timings.isSome, "it is one build's record; this command prints and marks \
+        which versions it extracted"),
+      ("--deps-docs-url", !a.depsDocsUrls.isEmpty,
+        "a site of several versions links into no dependency's documentation site"),
+      ("--deps-docs-index", !a.depsDocsIndexes.isEmpty,
+        "a site of several versions links into no dependency's documentation site")]
+    refused.findSome? fun (flag, given, why) =>
+      if given then some s!"{flag} is not a flag of `build --versions`: {why}" else none
 
 /-- One request, for the two commands that ask it: `build` once and `watch` over
 and over. Resolved in one place because the two would otherwise be two places for
@@ -1246,7 +1318,40 @@ def buildRequestOf (a : BuildArgs) (root out : String) : BuildM BuildRequest := 
            lake := a.lake.map (⟨·⟩), jobs := a.jobs
            linkIndex, derivedLinkIndex := derived
            mode := (a.mode.map ImpactMode.parse).getD defaultMode
-           maxRounds := a.maxRounds, timings := a.timings.map (⟨·⟩), full := a.full }
+           maxRounds := a.maxRounds.getD defaultMaxRounds, timings := a.timings.map (⟨·⟩)
+           full := a.full }
+
+def storePutOrigin (from_ : System.FilePath) (lake : System.FilePath) :
+    IO (Except String Store.Origin) := do
+  match ← readMarker (from_ / markerName) with
+  | .absent => return .error s!"{from_} has no {markerName}: `store put --from` takes a \
+      directory `litedoc4 build --out` wrote"
+  | .broken why => return .error s!"{from_ / markerName}: {why}"
+  | .fields kv =>
+    if !markerIsTrue kv "complete" then
+      return .error s!"{from_}: the build there did not finish"
+    let root : System.FilePath := ⟨markerString kv "root"⟩
+    let sourceUrl := markerString kv "sourceUrl"
+    let commit ← match ← (git root #["rev-parse", "HEAD"]).run with
+      | .error why => return .error why
+      | .ok commit => pure commit
+    if (sourceUrl.splitOn s!"/blob/{commit}").length < 2 then
+      return .error s!"{root} is at {commit} and the build in {from_} linked to {sourceUrl}: \
+        the checkout moved since the build, or --source-url named another revision"
+    let leanGithash ← match ← coreGithash root lake with
+      | .error why => return .error why
+      | .ok hash => pure hash
+    let dependencies ← match ← Store.dependencyRevisions root with
+      | .error why => return .error why
+      | .ok deps => pure deps
+    let sources ← resolveExternal (some root.toString) (some lake.toString)
+    if let some (core, _) := coreRoots.find? fun (core, _) =>
+        !(sources.sourceFor core matches .pinned _) then
+      return .error s!"{root}: Lean core's root `{core}` has no version-pinned source URL, so \
+        pages rendered from this entry would not link into it"
+    let site ← try readSiteSources root catch e => return .error (toString e)
+    if let .error why := site.config (bibliographyPath root).toString then return .error why
+    return .ok { commit, leanGithash, sourceUrl, dependencies, sources, site }
 
 def answered (code : UInt32) (message : String) : IO UInt32 :=
   if code == 2 then refuse message else refusedWith code message
@@ -1255,6 +1360,88 @@ def buildRun (a : BuildArgs) (root out : String) : IO UInt32 := do
   match ← (do discard <| runBuild (← buildRequestOf a root out)).run with
   | .ok () => return 0
   | .error (code, message) => answered code message
+
+def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
+  let names ← match Store.versionList list with
+    | .error message => throw (2, message)
+    | .ok names => pure names
+  let rootPath ← match ← (IO.FS.realPath ⟨root⟩).toBaseIO with
+    | .error e => throw (3, s!"--root {root}: {e}")
+    | .ok path => pure path
+  let repo ← match ← Versions.repositoryOf rootPath with
+    | .error message => throw (3, message)
+    | .ok repo => pure repo
+  let outPath ← absolutePath ⟨out⟩
+  refuseInside repo.top "the repository of --root" outPath "--out" ""
+  let store ← absolutePath ((a.store.map (⟨·⟩)).getD (outPath / "store"))
+  refuseInside repo.top "the repository of --root" store "--store" ""
+  let planned ← match ← Versions.plan repo names Versions.supportedToolchains with
+    | .error message => throw (3, message)
+    | .ok planned => pure planned
+  Versions.checkOwnership outPath rootPath
+  let noEquationsUnder := (← readConfigKeys rootPath).noEquationsUnder
+  let lake : System.FilePath := (← envOr (a.lake.map (⟨·⟩)) "LAKE").getD ⟨"lake"⟩
+  let elan := Versions.elanBeside lake
+  let marker := outPath / markerName
+  IO.FS.createDirAll outPath
+  writeFile marker (Versions.versionsMarkerJson rootPath.toString store.toString names none)
+  IO.FS.createDirAll store
+  let extractors := outPath / Versions.extractorsName
+  Versions.pruneExtractors extractors
+  let current ← IO.mkRef (none : Option Store.ExtractorIdentity)
+  let identity : BuildM Store.ExtractorIdentity := do
+    if let some known ← current.get then return known
+    let cached ← planned.reverse.findM? fun p =>
+      isRegularFile (Versions.extractorPath extractors p.toolchain)
+    let some source := cached <|> planned.back? | throw (2, "--versions names no version")
+    let bin ← Versions.extractorFor elan extractors source.toolchain
+    let known ← Store.currentIdentity bin noEquationsUnder
+    IO.println s!"identity {known.text} (asked of the extractor for {source.toolchain})"
+    current.set (some known)
+    return known
+  let mut toExtract : Array Versions.Planned := #[]
+  for p in planned do
+    let judged ← if !(← (Store.entryDir store p.name).isDir) then pure Versions.Judgement.absent
+      else match ← (Store.readRecord store p.name).toBaseIO with
+        | .error e => pure (.unreadable (toString e))
+        | .ok r => match Versions.judgeRecord r p.commit with
+          | some judged => pure judged
+          | none => pure (Versions.judgeIdentity r (← identity))
+    IO.println s!"version {p.name.text}: {judged.text}"
+    if !judged.keeps then toExtract := toExtract.push p
+  let checkout := outPath / Versions.checkoutName
+  let scratch := outPath / Versions.scratchName
+  for p in toExtract do
+    IO.println s!"version {p.name.text}: extracting {p.commit} on {p.toolchain}"
+    let bin ← Versions.extractorFor elan extractors p.toolchain
+    try
+      let (package, libs) ← Versions.prepare repo checkout elan lake a.libs p
+      if ← scratch.pathExists then IO.FS.removeDirAll scratch
+      let args : BuildArgs :=
+        { root := some package.toString, out := some scratch.toString, libs
+          extractorBin := some bin.toString, lake := some lake.toString, jobs := a.jobs }
+      let request ← buildRequestOf args package.toString scratch.toString
+      discard <| runBuild { request with noEquationsUnder := some noEquationsUnder }
+      let origin ← match ← storePutOrigin scratch lake with
+        | .error message => throw (3, s!"version {p.name.text}: {message}")
+        | .ok origin => pure origin
+      let layout := layoutOf scratch
+      let s ← Store.put store p.name origin layout.ir layout.linkIndex
+      IO.println s!"put     {p.name.text}: {s.record.irFiles} IR file(s) -> {s.record.packBytes} B \
+        ({s.record.extractorIdentity.text})"
+    finally
+      if ← scratch.pathExists then IO.FS.removeDirAll scratch
+      Versions.removeCheckout repo.top checkout
+  let extracted := toExtract.map (·.name)
+  IO.println (Versions.extractedLine names extracted)
+  let site := outPath / Versions.siteName
+  if ← site.pathExists then IO.FS.removeDirAll site
+  match ← (Data.Site.renderStore store site names a.hashUrls).run with
+  | .error why => throw (3, why)
+  | .ok counts => IO.println counts.json
+  writeFile marker (Versions.versionsMarkerJson rootPath.toString store.toString names
+    (some extracted))
+  IO.println s!"build   {names.size} version(s) -> {site}"
 
 def rootRequired : String := "--root <repo> is required: the Lean package to document"
 
@@ -1273,9 +1460,14 @@ def build (args : List String) : IO UInt32 := do
       return 0
     let some root := a.root | refuse rootRequired
     let some out := a.out | refuse outRequired
+    if let some message := versionedChecks a then return ← refuse message
     if let some message := buildChecks a then return ← refuse message
     try
-      buildRun a root out
+      match a.versions with
+      | none => buildRun a root out
+      | some list => match ← (versionsRun a root out list).run with
+        | .ok () => pure (0 : UInt32)
+        | .error (code, message) => answered code message
     catch e =>
       IO.eprintln s!"litedoc4: {e}"
       pure (1 : UInt32)
@@ -2375,38 +2567,6 @@ def storeReadJson (s : Store.ReadSummary) (writeNanos : Nat) : String :=
     ++ s!",\"unpackSeconds\":{seconds s.unpackNanos 9}"
     ++ s!",\"writeSeconds\":{seconds writeNanos 9}" ++ "}"
 
-def storePutOrigin (from_ : System.FilePath) (lake : System.FilePath) :
-    IO (Except String Store.Origin) := do
-  match ← readMarker (from_ / markerName) with
-  | .absent => return .error s!"{from_} has no {markerName}: `store put --from` takes a \
-      directory `litedoc4 build --out` wrote"
-  | .broken why => return .error s!"{from_ / markerName}: {why}"
-  | .fields kv =>
-    if !markerIsTrue kv "complete" then
-      return .error s!"{from_}: the build there did not finish"
-    let root : System.FilePath := ⟨markerString kv "root"⟩
-    let sourceUrl := markerString kv "sourceUrl"
-    let commit ← match ← (git root #["rev-parse", "HEAD"]).run with
-      | .error why => return .error why
-      | .ok commit => pure commit
-    if (sourceUrl.splitOn s!"/blob/{commit}").length < 2 then
-      return .error s!"{root} is at {commit} and the build in {from_} linked to {sourceUrl}: \
-        the checkout moved since the build, or --source-url named another revision"
-    let leanGithash ← match ← coreGithash root lake with
-      | .error why => return .error why
-      | .ok hash => pure hash
-    let dependencies ← match ← Store.dependencyRevisions root with
-      | .error why => return .error why
-      | .ok deps => pure deps
-    let sources ← resolveExternal (some root.toString) (some lake.toString)
-    if let some (core, _) := coreRoots.find? fun (core, _) =>
-        !(sources.sourceFor core matches .pinned _) then
-      return .error s!"{root}: Lean core's root `{core}` has no version-pinned source URL, so \
-        pages rendered from this entry would not link into it"
-    let site ← try readSiteSources root catch e => return .error (toString e)
-    if let .error why := site.config (bibliographyPath root).toString then return .error why
-    return .ok { commit, leanGithash, sourceUrl, dependencies, sources, site }
-
 def versionOf (a : StoreArgs) (command : String) : Except String Store.VersionName :=
   match a.version with
   | none => .error s!"store {command} needs --version <name>"
@@ -2502,14 +2662,6 @@ def storeCheckStale (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
 def isAbsentOrEmpty (dir : System.FilePath) : IO Bool := do
   return !(← dir.pathExists) || (← isEmptyDir dir)
 
-def measureVersions (list : String) : Except String (Array Store.VersionName) := do
-  let mut out : Array Store.VersionName := #[]
-  for name in list.splitOn "," do
-    let v ← Store.VersionName.parse name
-    if out.contains v then throw s!"--versions names `{name}` twice"
-    out := out.push v
-  return out
-
 def measureLayout (candidate : String) (chunkBytes : Nat) (vs : Array Data.VersionData) :
     Except String Data.Layout :=
   let compress := Gzip.compress 6
@@ -2519,7 +2671,7 @@ def measureLayout (candidate : String) (chunkBytes : Nat) (vs : Array Data.Versi
 
 def storeMeasure (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
   let some list := a.versions | refuse "store measure needs --versions <name>,<name>..."
-  let names ← match measureVersions list with
+  let names ← match Store.versionList list with
     | .error message => return ← refuse message
     | .ok names => pure names
   let some candidate := a.candidate | refuse "store measure needs --candidate a|b|c"
@@ -2553,7 +2705,7 @@ def storeMeasure (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
 
 def storeRender (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
   let some list := a.versions | refuse "store render needs --versions <name>,<name>..."
-  let names ← match measureVersions list with
+  let names ← match Store.versionList list with
     | .error message => return ← refuse message
     | .ok names => pure names
   let some out := a.out | refuse "store render needs --out <dir>"

@@ -99,4 +99,42 @@ def everyParserTakesBothSpellingsOfHelp : Bool :=
 
 #guard everyParserTakesBothSpellingsOfHelp
 
+def versionedRefusal (args : List String) : Option String :=
+  match parseBuild false args {} with
+  | .ok a => versionedChecks a
+  | .error _ => none
+
+def namesFlag (message : Option String) (flag : String) : Bool :=
+  match message with
+  | some m => m.startsWith s!"{flag} is not a flag of `build --versions`"
+  | none => false
+
+def buildVersionsReadsItsThreeFlagsAndWatchRefusesEachByName : Bool :=
+  ((parseBuild false ["--versions", "v1,v2", "--store", "s", "--hash-urls"] {}).toOption.map
+      fun a => (a.versions, a.store, a.hashUrls)) == some (some "v1,v2", some "s", true)
+    && [["--versions", "v1"], ["--store", "s"], ["--hash-urls"]].all fun args =>
+      match parseBuild true args {} with
+      | .error m => m.startsWith s!"{args.head!} is not a `watch` flag"
+      | .ok _ => false
+
+#guard buildVersionsReadsItsThreeFlagsAndWatchRefusesEachByName
+
+def everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken : Bool :=
+  let v := ["--versions", "v1"]
+  [(["--source-url", "u"], "--source-url"), (["--link-index", "l"], "--link-index"),
+   (["--extractor-bin", "b"], "--extractor-bin"), (["--extractor", "p"], "--extractor"),
+   (["--extractor-arg", "x"], "--extractor-arg"), (["--full"], "--full"),
+   (["--mode", "self"], "--mode"), (["--max-rounds", "5"], "--max-rounds"),
+   (["--timings", "t"], "--timings"), (["--deps-docs-url", "R=u"], "--deps-docs-url"),
+   (["--deps-docs-index", "R=u"], "--deps-docs-index")].all
+      (fun (args, flag) => namesFlag (versionedRefusal (v ++ args)) flag)
+    && versionedRefusal (v ++ ["--store", "s", "--hash-urls", "--lib", "L", "--lake", "k",
+        "--jobs", "2"]) == none
+    && (versionedRefusal ["--store", "s"]).any (·.startsWith "--store is a flag of `build --versions`")
+    && (versionedRefusal ["--hash-urls"]).any
+      (·.startsWith "--hash-urls is a flag of `build --versions`")
+    && versionedRefusal ["--max-rounds", "5"] == none
+
+#guard everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken
+
 end Litedoc4Test

@@ -211,6 +211,44 @@ def staleIsTheRecordedIdentityDifferingFromTheCurrentOneByContent : Bool :=
 
 #guard staleIsTheRecordedIdentityDifferingFromTheCurrentOneByContent
 
+def identityFieldsOf (fields : List (String × String)) : String :=
+  " ".intercalate (fields.map fun (k, v) => s!"{k}={v}")
+
+def extractorFields : List (String × String) :=
+  [("schema", "5"), ("source", "fnv1a64:6cc825bf93f26025"), ("lean", "4.31.0"),
+   ("leanGithash", "89abcdef0123456789abcdef0123456789abcdef"), ("equations", "1"),
+   ("taggedCode", "1"), ("refs", "1"), ("skipAnalyze", "0"), ("ablations", ""), ("open", ""),
+   ("only", ""), ("noEquationsUnder", "")]
+
+def withField (key value : String) : List (String × String) :=
+  extractorFields.map fun (k, v) => if k == key then (k, value) else (k, v)
+
+def staleAgainst (recorded current : List (String × String)) : Option Bool :=
+  match VersionName.parse "v1", ExtractorIdentity.of? (identityFieldsOf recorded),
+      ExtractorIdentity.of? (identityFieldsOf current) with
+  | .ok v, some r, some c => some (stale (sampleRecordOf v r) c)
+  | _, _, _ => none
+
+def identitiesDifferingOnlyInLeanAndLeanGithashAreFreshAndAnyOtherFieldIsStale : Bool :=
+  staleAgainst extractorFields
+      ((withField "lean" "4.32.2").map fun (k, v) =>
+        if k == "leanGithash" then (k, "f3b06c705e6c85f5314019d5d3baab0fec5b580c") else (k, v))
+    == some false
+    && (extractorFields.filter (!toolchainFields.contains ·.1)).all (fun (key, value) =>
+      staleAgainst extractorFields (withField key (value ++ "x")) == some true)
+    && staleAgainst extractorFields (extractorFields.filter (·.1 != "noEquationsUnder"))
+      == some true
+    && staleAgainst extractorFields (withField "noEquationsUnder" "Example") == some true
+
+#guard identitiesDifferingOnlyInLeanAndLeanGithashAreFreshAndAnyOtherFieldIsStale
+
+def anIdentityIsSpaceSeparatedFieldsEachAKeyOnceAndAnEqualsSign : Bool :=
+  ((ExtractorIdentity.of? "a=1 b= c=x=y").map (·.fields))
+      == some #[("a", "1"), ("b", ""), ("c", "x=y")]
+    && ["a", "a=1  b=2", "=1", "a=1 a=2", "a=1 ", " a=1"].all (ExtractorIdentity.of? · == none)
+
+#guard anIdentityIsSpaceSeparatedFieldsEachAKeyOnceAndAnEqualsSign
+
 #guard theRecordedMapIsTheLinkMapsRootsInByteOrderWithoutDocsAndCoreAsItWasLinkedBefore
 
 def theIdentityIsAskedForWithTheFlagsAnExtractionStartsWith : Bool :=

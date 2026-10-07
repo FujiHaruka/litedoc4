@@ -221,6 +221,7 @@ structure ServeRequest where
   work : FilePath
   /-- Where the server writes the dependency map, or `none` to write none. -/
   linkIndex : Option FilePath
+  noEquationsUnder : Option (Array String) := none
 
 /-- **Flag, then environment, then nothing** — no default path for the binary and
 none for the target, because both are absolute paths on somebody's machine.
@@ -258,11 +259,13 @@ def serveOptions (r : ServeRequest) : BuildM Serve := do
   let linkIndexKey ← match linkIndex with
     | none => pure none
     | some _ => pure (some (← linkIndexKeyOf target modulesFile))
+  let noEquationsUnder ← match r.noEquationsUnder with
+    | some given => pure given
+    | none => do pure (← readConfigKeys target).noEquationsUnder
   return { bin := ← absolutePath bin
            lake := (← envOr r.lake "LAKE").getD ⟨"lake"⟩
            target, jobs := r.jobs, modulesFile, modules := r.modules
-           work := ← absolutePath r.work, linkIndex, linkIndexKey
-           noEquationsUnder := (← readConfigKeys target).noEquationsUnder }
+           work := ← absolutePath r.work, linkIndex, linkIndexKey, noEquationsUnder }
 
 /-! ## One run -/
 

@@ -172,6 +172,19 @@ target gzipObj pkg : FilePath :=
 lean_lib Litedoc4 where
   srcDir := "src"
 
+input_file extractorSourceFile where
+  path := "extractor" / "Extract.lean"
+  text := true
+
+input_file leanToolchainsFile where
+  path := "tools" / "lean-toolchains.txt"
+  text := true
+
+-- Not plain `include_str` (Lake misses an included file's edit) nor `needs` on `Litedoc4` (all recompiled).
+lean_lib Litedoc4Sources where
+  srcDir := "src"
+  needs := #[extractorSourceFile, leanToolchainsFile]
+
 /-- Deliberately **not** `supportInterpreter`, and deliberately importing no
 `Lean`: an executable that imports `Lean` measures 226 MB against 5.3 MB for one
 that stops at `Std` (measured 2026-08-30 →

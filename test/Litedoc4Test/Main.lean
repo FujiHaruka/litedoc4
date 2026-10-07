@@ -84,4 +84,5 @@ def main : IO UInt32 :=
     Litedoc4Test.writingTwiceLeavesTheSameBytes,
     Litedoc4Test.aRootIsATopLevelLeanFileWithOrWithoutADirectory,
     Litedoc4Test.aDirectoryIsItsIndexAFileIsItselfAndNothingThereIsMissing,
-    Litedoc4Test.theTriggerAnswersNothingYetAStableDigestAMovedOleanAndABrokenLedger]
+    Litedoc4Test.theTriggerAnswersNothingYetAStableDigestAMovedOleanAndABrokenLedger,
+    Litedoc4Test.VersionsTest.everyVersionIsRefusedByNameBeforeAnythingIsCheckedOut]

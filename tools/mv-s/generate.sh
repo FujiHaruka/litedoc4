@@ -4,6 +4,8 @@
 # (tools/mv-s/expected.txt), so a runner asserts counts instead of predicting them.
 #
 # v1 is e2e/micro as it is; v<n> is v<n-1> with tools/mv-s/v<n>.patch applied.
+# v5 changes only lean-toolchain, to another row of tools/lean-toolchains.txt, and
+# is in no row of expected.txt: it is the toolchain change `build --versions` carries.
 # Author, committer and dates are fixed, so every run yields the same hashes.
 #
 # usage: tools/mv-s/generate.sh [--out DIR]
@@ -16,7 +18,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 OUT="/private/tmp/lean-doc-relay/mv-s/repo"
-VERSIONS=4
+VERSIONS=5
 REMOTE="https://github.com/litedoc4-sample/mv-s.git"
 
 while [ $# -gt 0 ]; do

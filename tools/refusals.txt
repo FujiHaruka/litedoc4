@@ -15,7 +15,8 @@
 # **Except the `store` command** (2026-10-07): its eleven synopsis lines and
 # forty-six description lines in `@usage` and its eleven `store-*` rows had no
 # Rust counterpart. They were written by hand against the Lean binary, which is the
-# only oracle a command newer than `rust-frozen` has.
+# only oracle a command newer than `rust-frozen` has. The same holds for `build
+# --versions` and `--hash-urls` in `@usage` (2026-10-07).
 #
 # FORMAT
 #   @usage         the `--help-all` block, stored once. Every exit-2 refusal
@@ -42,6 +43,9 @@
 |                         | --extractor <program> [--extractor-arg <arg>]...)
 |                        [--mode self|referrers|importers|all] [--max-rounds <n>]
 |                        [--timings <file>]
+|        litedoc4 build  --root <repo> --out <dir> --versions <ref>,<ref>...
+|                        [--store <dir>] [--hash-urls] [--lib <Name>]...
+|                        [--lake <path>] [--jobs <n>]
 |        litedoc4 incremental --ir <dir> --pages <dir> --ledger <file> --work <dir>
 |                        --modules <file> --source-url <url> --link-index <file>
 |                        --state <dir> [--make-link-index] [--root <repo>]
@@ -108,7 +112,7 @@
 |        litedoc4 store measure --store <dir> --versions <name>,<name>...
 |                        --candidate a|b|c [--chunk-bytes <n>] [--out <dir>]
 |        litedoc4 store render --store <dir> --versions <name>,<name>...
-|                        --out <dir>
+|                        --out <dir> [--hash-urls]
 |
 |   --root         (`build`, `modules`) the Lean package: the sources are globbed
 |                  under it, its oleans are hashed, `lake env` runs inside it, and
@@ -141,6 +145,21 @@
 |                  it writes. It acts only after one quiet interval, so a build
 |                  still writing oleans is never extracted mid-flight, and it says
 |                  so while it waits.
+|   --versions     (`build`) the versions of --root's git repository that one site
+|                  shows, comma-separated tags, branches or commits, each named as
+|                  given, the last the newest. Each version the store lacks, holds
+|                  stale or holds at another commit is checked out at
+|                  <out>/checkout, its toolchain installed by elan (one with no row
+|                  in tools/lean-toolchains.txt is refused before anything runs),
+|                  its libraries built by `lake build`, its IR extracted by an
+|                  extractor built for its Lean under <out>/extractors and put into
+|                  the store, and the checkout deleted before the next. Then the
+|                  site is rendered from the store into <out>/site, as `store
+|                  render` writes it. The extraction flags come from --root's
+|                  litedoc4.toml; the title, front page and bibliography from each
+|                  version's own. --lake has to be elan's, which picks each
+|                  checkout's toolchain. Prints `versions extracted: <n> of <m>
+|                  (<names>)`, which <out>/litedoc4-build.json records too
 |   --full         (`build`) regenerate everything, ignoring what is under --out.
 |                  The escape hatch for an input no ledger key covers. The
 |                  dependency map is not one: its bytes are in renderKey, so a
@@ -297,7 +316,8 @@
 |   --census       a per-module TSV of |IMPORTERS| / |REFERRERS| / declarations
 |   --pages        (`prune`) the page tree; nothing outside it is ever deleted
 |   --dry-run      report what would be deleted and delete nothing
-|   --store        (`store`) the kept versions, one directory per version:
+|   --store        (`store`, and `build --versions`, where it defaults to
+|                  <out>/store) the kept versions, one directory per version:
 |                  <store>/<name>/entry.pack.gz (the IR tree, the dependency link
 |                  index, the bibliography and the index page's Markdown, packed
 |                  and gzipped) and record.json (commit, Lean, dependencies, each
@@ -321,20 +341,28 @@
 |                  verified. `store check-stale` asks
 |                  --extractor-bin for its identity with the flags `build`
 |                  passes, which --root's litedoc4.toml decides, and says fresh,
-|                  stale, or needs re-put (a record an older put wrote, without
-|                  the source map or the site configuration, which `store
-|                  measure` and `store render` refuse) per entry; it exits
-|                  3 when an entry needs re-put or is unreadable
+|                  stale (an identity field other than the Lean version and
+|                  revision differs, which a version's commit pins), or needs
+|                  re-put (a record an older put wrote, without the source map
+|                  or the site configuration, which `store measure` and `store
+|                  render` refuse) per entry; it exits 3 when an entry needs
+|                  re-put or is unreadable
 |   --versions     (`store measure`, `store render`) the entries to lay out,
 |                  comma-separated, in the order a site would have added them:
 |                  the last is the newest. `store render` writes the site into
 |                  an empty --out, one version at a time: every data file once
 |                  under d/, gzipped and named by the address of its bytes, so a
 |                  file two versions share is one file; a shell per page under
-|                  <version>/; versions.json and the root index.html. It prints
+|                  <version>/; versions.json, the root index.html, which sends the
+|                  reader on to the newest version, and 404.html, which sends an
+|                  unversioned path on to the newest version's page. It prints
 |                  one JSON line of counts (per version and in total) and exits 3
 |                  on an entry that needs re-put or two different files under one
 |                  address
+|   --hash-urls    (`store render`, `build --versions`) no shells: the root
+|                  index.html draws every page from a route in the fragment,
+|                  #/<version>/<module path>, with a declaration as ?id=<name>;
+|                  each version gets a routes file in d/, named by versions.json
 |   --candidate    (`store measure`) how declaration content is stored: a, one
 |                  file per module per version; b, per-module segments appended
 |                  by each version; c, packs read by byte range. It prints one

@@ -52,6 +52,9 @@ binary-source
 --mode
 --max-rounds
 --timings
+--versions
+--store
+--hash-urls
 
 [watch]
 --root

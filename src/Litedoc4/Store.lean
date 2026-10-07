@@ -146,12 +146,29 @@ def Fill.parse? : String → Option Fill
 structure ExtractorIdentity where
   private mk ::
   text : String
+  fields : Array (String × String)
   deriving BEq, Repr
+
+def identityFields (s : String) : Option (Array (String × String)) := Id.run do
+  let mut fields : Array (String × String) := #[]
+  for token in s.splitOn " " do
+    match token.splitOn "=" with
+    | key :: rest =>
+      if key.isEmpty || rest.isEmpty || fields.any (·.1 == key) then return none
+      fields := fields.push (key, "=".intercalate rest)
+    | [] => return none
+  return some fields
 
 /-- Taken as it is, never trimmed: the identity is judged by content, and two
 spellings of one would be two identities. -/
 def ExtractorIdentity.of? (s : String) : Option ExtractorIdentity :=
-  if s.isEmpty || s.any (· == '\n') then none else some ⟨s⟩
+  if s.isEmpty || s.any (· == '\n') then none
+  else (identityFields s).map (⟨s, ·⟩)
+
+def toolchainFields : List String := ["lean", "leanGithash"]
+
+def ExtractorIdentity.beyondToolchain (i : ExtractorIdentity) : Array (String × String) :=
+  i.fields.filter (!toolchainFields.contains ·.1)
 
 structure Dependency where
   name : String
@@ -193,8 +210,9 @@ def Checkout.schema : Checkout → Nat
   | .beforeSite _ => 3
   | .read .. => recordSchema
 
+-- Not the whole line: a version's commit pins its Lean, so one extractor on any toolchain answers.
 def stale (r : Record) (current : ExtractorIdentity) : Bool :=
-  r.extractorIdentity != current
+  r.extractorIdentity.beyondToolchain != current.beyondToolchain
 
 structure FromCheckout where
   sources : Array (String × Option String)
@@ -291,7 +309,7 @@ def Record.parse (text : String) : Except String Record := do
   let fillName ← str j "fill"
   let some fill := Fill.parse? fillName | throw s!"`fill` is `{fillName}`, not `own` or `reader`"
   let some extractorIdentity := ExtractorIdentity.of? (← str j "extractorIdentity")
-    | throw "`extractorIdentity` is empty or holds a newline"
+    | throw "`extractorIdentity` is empty, holds a newline, or is not `key=value` fields"
   let dependencies ← match ← field j "dependencies" with
     | .arr items => items.mapM fun d => do
       let name ← str d "name"
@@ -592,7 +610,16 @@ def currentIdentity (bin : FilePath) (noEquationsUnder : Array String) :
   let line := if out.stdout.endsWith "\n" then (out.stdout.dropEnd 1).toString else out.stdout
   match ExtractorIdentity.of? line with
   | some identity => return identity
-  | none => throw (IO.userError s!"{bin} {spelled} printed no one-line identity")
+  | none => throw (IO.userError s!"{bin} {spelled} printed no one-line identity of \
+      `key=value` fields")
+
+def versionList (list : String) : Except String (Array VersionName) := do
+  let mut out : Array VersionName := #[]
+  for name in list.splitOn "," do
+    let v ← VersionName.parse name
+    if out.contains v then throw s!"--versions names `{name}` twice"
+    out := out.push v
+  return out
 
 end Store
 end Litedoc4
