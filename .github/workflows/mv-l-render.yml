@@ -48,7 +48,7 @@ jobs:
           run-id: 37630692670
           github-token: ${{ github.token }}
 
-      - name: (k) experiment -- the floor after one huge block: from mimalloc, from the Lean runtime, from Lean code
+      - name: (k) experiment -- the floor after one huge block, from mimalloc, from the Lean runtime, from Lean code
         run: |
           exp() {
             label="$1"; phase="$2"; shift 2
