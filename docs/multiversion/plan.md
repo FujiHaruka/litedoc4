@@ -701,9 +701,15 @@ patch release adds 3 data files where it added 880, and the site is ≈ 169 MB a
 its page shells, ≈ 8.3k files of ≈ 441 B per Mathlib version (187 MB of the 693); a minor release
 also adds ≈ 11k data files, most of them page files (extrapolated) — the upload count is a step 6
 input. A minor release rewrites ≈ 96% of the page files, mostly because they carry Lean core's
-line ranges and Lean core moves every release (U10's absolute positions, on the dependency side);
-moving those into one per-version table is step 3's to weigh against what every page then
-fetches.
+line ranges and Lean core moves every release (U10's absolute positions, on the dependency side).
+
+**Dependency line ranges stay in the page files** (step 3, measured on M →
+`benchmarks/results/mv-m-render-step3-2026-10-07.txt`): one per-version table would save ≈ 1.8–2.0
+MB of a ≈ 19 MB Mathlib minor release (extrapolated) and add a 14 KB gzip fetch before every page
+draws, the median view 5.6× larger. With the step-3 shells (≈ 826 B) the site is ≈ 858 MB at 51
+versions in path mode and ≈ 521 MB with hash URLs (extrapolated), under the 1.5 GB target. **It
+is falsified** if a full-Mathlib run puts the site near the target; then the table is the first
+lever.
 
 ### D6 — URL scheme and the version switcher
 
@@ -726,15 +732,25 @@ the root page is reliably indexed. Path URLs stay the default where the host can
 mode the fragment is the route, so a declaration anchor lives inside it and the page scrolls to it
 itself (U7 already requires that of a script-drawn page).
 
+**The page is drawn in the browser, and settles faster than today's static page** (step 3,
+measured → `benchmarks/results/mv-settle-2026-10-07.txt`): 217 ms against 322 ms on the largest
+module page, same session, loopback; its first paint is 32–48 ms later, and the extra round trips
+of a real network are not in the number (theoretical). In hash mode the root page carries the
+version list, so a page fetches three files in a row before drawing.
+
 Open:
 
 - how many commits such a site keeps: a commit URL is fixed only for as long as its content is
-  hosted, and a site rebuilt on every push adds a version per push;
-- links into today's sites (`/Mathlib/Foo/Bar.html`): sent to the newest version — by the page
-  itself, since a static host serves no redirects — or left to break under v2;
-- which URL search engines are told is the page (one page exists once per version);
-- what switching does on a page that does not exist in the other version (module renamed, split,
-  deleted), and on an anchor whose declaration does not exist there.
+  hosted, and a site rebuilt on every push adds a version per push.
+
+Implemented with proposed defaults (step 3), awaiting the user's confirmation:
+
+- links into today's sites (`/Mathlib/Foo/Bar.html`) are sent to the newest version's page by the
+  site's `404.html`, since a static host serves no redirects;
+- search engines are told the newest version's page (canonical, set by script — honoured only by
+  a crawler that renders the page);
+- switching to a version without the module lands on that version's module list, saying so;
+- switching on an anchor the other version lacks lands at the module page's top, saying so.
 
 ### D7 — How a new release gets in
 

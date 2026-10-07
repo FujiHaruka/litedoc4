@@ -331,7 +331,7 @@ ships:
 Done when: the largest module page settles faster than today's published page (361 ms,
 measured the same way as U7); the page-path and anchor check of D9 exists and has failed once.
 
-What exists (2026-10-07, implementation leg; nothing timed yet):
+What exists (2026-10-07):
 
 - **`store render` writes `assets/`** (stylesheet, icon, `site.js`, the redirect script) and every
   page is drawn from data: module pages, each version's index (with module summaries and the
@@ -354,10 +354,10 @@ What exists (2026-10-07, implementation leg; nothing timed yet):
 - **Hash-URL mode** (`store render --hash-urls`): the root `index.html`, `404.html`, `d/`,
   `assets/` and `versions.json`; routes are `#/<version>/<module path>?id=<declaration>`. It adds
   one routing table per version (module path → page and Used-by addresses), written only in this
-  mode and listed only in `versions.json`, so every other file is identical between the modes. A
-  module page fetches five files before it draws, four in a row. The routing table is ≈ 686 KB raw
-  / 246 KB gzip per Mathlib version (extrapolated from the target's 8,169 module paths with
-  synthesized addresses, scaled to 8,314).
+  mode and listed in `versions.json` and in the root page, which carries the version list, so
+  every other file is identical between the modes. A module page fetches four files before it
+  draws, three in a row. The routing table is ≈ 686 KB raw / 246 KB gzip per Mathlib version
+  (extrapolated from the target's 8,169 module paths with synthesized addresses, scaled to 8,314).
 - **The D9 check exists and has failed once each way** (`tools/mv-pages-gate.sh`, `ci`, 33 items
   over `tools/mv-s-gate.sh --keep`'s two renders; measured →
   `benchmarks/results/mv-pages-gate-2026-10-07.txt`). The frozen arm is one-directional: every page
@@ -368,15 +368,69 @@ What exists (2026-10-07, implementation leg; nothing timed yet):
 - **Shells grew from ≈ 381 B to ≈ 766 B on S** (the stylesheet and icon links, the theme script
   inlined, the `<noscript>` line); `search.html` is 1,122 B and `foundational_types.html` 2,867 B.
   Step 2's shell figures (441 B on M; 187 of the 693 MB at 51 versions) predate this and are ≈ 2×
-  low; the module list grew ≈ 2.6× on S with the summaries. Both are re-derived on M in the
-  measurement leg.
+  low; the module list grew ≈ 2.6× on S with the summaries. Both are re-derived on M below.
 
-Left to the measurement leg: the settle time on the same page both ways in one session (today's
-361 ms is `CategoryTheory.Comma.StructuredArrow.Basic`, which M does not contain); the two items
-step 2 carried (dependency line ranges in every page file; the module list fetch); and four
-levers found while building — the inlined theme script (168 B in every shell), the routing table
-(split it, or put it beside the page), the version list inside the hash-mode root page (one
-round trip), and instances pulling the whole search index (≈ 5 MB on Mathlib).
+**Settle time** (measured → `benchmarks/results/mv-settle-2026-10-07.txt`): on
+`CategoryTheory.Comma.StructuredArrow.Basic` at Mathlib v4.33.1 (400 declarations; one-version
+store of its 379-module import closure), served from loopback by one server, the drawn page
+settles in **217 ms against 322 ms** for `build`'s static page of the same module (medians of 10
+warm runs per arm, arms alternating; 217 / 320 ms with gzip on the wire). "Settled" is U7's: two
+animation frames after the content exists, which for the drawn page also waits for its own
+"drawn" mark — the load event alone fired before drawing finished in 5 of 11 runs. Both arms show
+the same 400 ids, text and 8,756 links; the drawn page has 25,693 elements against 45,380 (the
+wrapper spans D4 drops and the module tree, built on demand). Its first paint is 32–48 ms later
+(it paints nothing until it has drawn), and loopback carries none of its extra round trips: the
+shell, `site.js`, then the version file, page file and content (theoretical: on a real network
+each adds to the drawn arm only). U7's 361 ms was v4.31.0, 387 declarations, and is not compared.
+
+What M says after step 3 (the three releases; measured →
+`benchmarks/results/mv-m-render-step3-2026-10-07.txt`, which carries the extrapolations):
+
+- **Hosted: path mode 3,206 files, 5.48 MB; hash mode 1,888 files, 4.42 MB.** Shells average
+  826 B (step 2: 441 B); the module list is 12.1 KB gzip per version (step 2: 7.0 KB, ×1.71).
+  Extrapolated to Mathlib: path 205 MB at 11 versions and 858 MB at 51 (shells 348 MB of it),
+  hash 132 / 521 MB; the target is 1.5 GB.
+- **A patch release adds 3 data files plus its shells in path mode** (365 KB, 97% shells), 4
+  files and 23 KB in hash mode, where the routing table is rewritten whole for one changed
+  address (≈ 225 KB at Mathlib, extrapolated).
+- **Before it draws, a module page fetches 3,094 B of data at the median** (max 30,137 B; v4.33.0),
+  plus its 821 B shell in path mode. Used by, the module list, search and instances wait for the
+  reader.
+- **Render: no measurable change** — 9.3 s CPU for three versions in path mode and 9.25 s in hash
+  mode at comparable load (2 runs each; step 2: 9.42 s, 5 runs), 253 MiB peak.
+- **`mv-m-render.sh --hash-urls` was made to fail once**, and doing so found that its "each version
+  alone" identity compared no byte in hash mode (and missed `404.html` and `assets/` in path mode).
+  Fixed: it compares the root files in both modes, and ten injected defects each fail it by name.
+
+Decided by those numbers:
+
+- **The version list rides in the hash-mode root** (done): that page already changes with the
+  version set, so it costs ≈ 132 B per version there and takes the fetches in a row before drawing
+  from four to three (with 50 ms added per request, drawn at 288–293 ms against 343–354 ms, 5 runs
+  each; measured with a scratch script, not a gate). `versions.json` is still written for the 404
+  page and path mode, from the same string.
+- **Dependency line ranges stay in the page files.** Moving them into one per-version table saves
+  ≈ 124 KB per minor release on M (35% of page-file bytes; 1.8–2.0 MB of a ≈ 19 MB Mathlib minor
+  release, extrapolated) and costs a 14 KB gzip fetch before every draw — the median view 5.6×
+  larger. Hosting is not the bound (858 MB of 1.5 GB at 51 versions). **It is falsified** if a full
+  run puts the site near the target.
+- **The module list is not fetched before drawing.** One case fetches it after drawing: a path-mode
+  page of an older version fetches the newest version's list (12.5 KB on M, ≈ 229 KB gzip at
+  Mathlib, extrapolated) to decide whether its canonical link exists. Kept: it is exact on a host
+  that answers a missing path with 200 (where a request for the newest page would not be), it does
+  not delay the page, and a browser caches it across the version's pages.
+- **The theme script stays inlined.** 185 B per shell, 22.5% of a module shell, ≈ 78.5 MB at 51
+  versions (extrapolated); an external script would block the first paint of every first view on
+  one more round trip to avoid a flash of the wrong theme.
+- **The routing table stays one file per version.** It is 64% of a median first hash-mode view
+  on M; split, it would add a round trip to every route change. Hash mode is the fallback for
+  hosts without rewrites, and path mode carries no routing table.
+- **Instances keep reading the search index**, as today's single-version page does: opened on
+  demand, ≈ 2.13 MB gzip at Mathlib with the instances file and the module list (extrapolated;
+  the earlier "≈ 5 MB" was the raw index alone).
+
+**Done 2026-10-07.** D6's four defaults (the table above) are implemented and await the user's
+confirmation.
 
 ### 4. One command over the version set
 
