@@ -1,0 +1,521 @@
+Settle time of the largest module page: drawn from data (store render) against static (build)
+(multi-version plan, step 3 "Done when"; measured the same way as U7)
+=============================================================================================
+2026-10-07
+
+Question
+--------
+  Does the largest module page settle faster drawn from data (the `litedoc4 store render` site)
+  than as today's static page (`litedoc4 build` output)? Both arms re-measured in one session, on
+  one module, at one Mathlib tag. U7's 361 ms (hosting-and-client-render-2026-10-05.txt, v4.31.0,
+  387 declarations, Chrome 154.0.8037.93) is context only and is not compared with anything here.
+
+Answer
+------
+  Yes. On Mathlib.CategoryTheory.Comma.StructuredArrow.Basic at v4.33.1 (400 declarations), served
+  from loopback by one server, Chrome 154 headless (measured, 11 runs per arm, arms alternating):
+
+                                     static (build)          drawn (store render)
+    identity (headline)
+      settled, warm median of 10     322 ms                  217 ms
+      settled, first run             350 ms                  217 ms
+      first contentful paint, med.   196 ms                  228 ms
+    Content-Encoding: gzip
+      settled, warm median of 10     320 ms                  217 ms
+      settled, first run             333 ms                  222 ms
+      first contentful paint, med.   180 ms                  228 ms
+
+  The drawn page settles 105 ms earlier (0.67x) with identity serving and 103 ms earlier (0.68x)
+  with gzip (measured). It paints first 32-48 ms LATER than the static page (measured): the static
+  page paints while the parser is still running, the drawn page paints nothing until it has drawn.
+  Every run of both arms had the same 400 declaration ids; the declarations' visible text
+  (130,998 non-space characters) and their links (8,756) are identical between the arms (measured,
+  see "Same page?").
+
+  What the loopback number does not carry: the drawn page needs the shell, then site.js, then three
+  data files before it draws (the version file, the page file and the content), while the static
+  page needs one HTML file. On a real network each extra round trip adds to the drawn arm and not to
+  the static arm. That is not measured here (theoretical, unverified).
+
+Conditions
+----------
+  litedoc4       87957095b9d7910bba1059868c5fc9ba38a125e3 (branch multi-version, clean tree);
+                 .lake/build/bin/litedoc4 rebuilt at this commit before the run
+                 (tools/build-lean-exe.sh --toolchain-from e2e/micro, built 2026-10-07 10:05 JST)
+  machine        Apple M1, 16 GiB (17,179,869,184 B), macOS 26.6.2
+  Mathlib        v4.33.1, commit 0df444a360eaa60ab8c11dca51a86af692955474
+  Lean           4.33.1 (commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6), arm64-apple-darwin
+  slice          the import closure of the one module: 379 Mathlib modules (read from the import
+                 lines; the cache unpacked exactly 379 Mathlib oleans; Lean's environment after
+                 extraction held exactly the closure), 17,189 declarations, 379 pages
+  the module     Mathlib.CategoryTheory.Comma.StructuredArrow.Basic: 400 declarations in the IR at
+                 v4.33.1 (387 at v4.31.0 in U7). It is still the largest module page of this slice
+                 by HTML bytes: 2,054,234 B (57,372 B gzip -6)
+  pipeline       benchmarks/tools/mv-m-run.sh --roots Mathlib.CategoryTheory.Comma.StructuredArrow.Basic
+                   --versions v4.33.1 --work /private/tmp/lean-doc-relay/mv-m-settle --keep-checkouts
+                   --limit-modules 400 --need-gb 6
+                 unedited; exit 0, 120 s total; store put and read back byte-identical; the trailing
+                 store measure ran over the single version without complaint (not needed here).
+                 Then: litedoc4 store render --store <work>/store --versions v4.33.1 --out <work>/drawn
+                 (path mode; 3.21 s wall, 217 MB peak RSS; 1,435 files, 2,583,213 B stored)
+  static arm     <work>/build/v4.33.1/site/Mathlib/CategoryTheory/Comma/StructuredArrow/Basic.html
+                 (the `litedoc4 build` output the pipeline wrote; style.css + app.js, as published)
+  drawn arm      <work>/drawn/v4.33.1/Mathlib/CategoryTheory/Comma/StructuredArrow/Basic.html
+                 (881 B shell; assets/style.css, assets/site.js as a module script)
+  browser        Chrome 154.0.8037.98, headless, driven by puppeteer-core 24 from deno 2.9.7;
+                 viewport 1280 x 800; a new browser context per run; HTTP cache disabled
+  server         one deno HTTP server on 127.0.0.1 for both arms (settle.ts below). Identity pass:
+                 every file as stored. Gzip pass: every file that is not already .gz is sent with
+                 Content-Encoding: gzip, compressed once and kept in memory, so compression time is
+                 not in the runs. The drawn arm's d/*.json.gz files are stored gzip and are
+                 decompressed by the page itself in both passes (that is the design, not a server
+                 difference).
+  runs           identity: 11 runs per arm, arms alternating (static, drawn, static, ...); then the
+                 gzip pass, 11 runs per arm the same way. Run 0 of each arm is the first navigation of
+                 that arm after the browser started and is reported as "first"; the medians are of
+                 runs 1-10. Before them: one sample of 1 run per arm (twice), not used.
+                 Both arms' files were written minutes before and sit in the page cache; "first" is
+                 a cold browser, not a cold disk.
+  machine state  vm.swapusage used 2,716.31 MB of 4,096 MB before, between and after the passes
+                 (unchanged); load average 1.88 before, 3.06 between, 3.37 after; another macOS
+                 user's Chrome (pid 693 and helpers) running throughout; no lake, lean or litedoc4
+                 process during the timing. Identity pass 01:10:38Z-01:11Z, gzip pass to 01:11:22Z.
+
+Definition of "settled" (U7's, applied to both arms)
+------------------------------------------------------
+  U7: "two animation frames after the content exists", clocked from navigation start
+  (performance.now()). For the static page the content exists at the load event, so settled =
+  the second requestAnimationFrame callback after load (U7's variant A, unchanged here).
+  For the drawn page the content exists when the page sets body[data-drawn="1"]. web/src/store-page.ts
+  sets it after body.replaceChildren(drawn nodes) and the initialisers that run in the same task
+  (theme, drawer, search box, fills, tree, arrival notices), so it is a few ms later than U7's "DOM
+  built" mark for its hand-written data page; it is the page's own "done" signal. Settled = the
+  second requestAnimationFrame callback after BOTH that attribute and the load event. In every run
+  load (10-16 ms) came before data-drawn (55-74 ms), so the load term never decided it. Requiring
+  data-drawn is not optional: in 5 of 11 gzip-pass drawn runs, two frames after load came at 11-67 ms,
+  at or before the draw (55-74 ms), which would have timed an empty or half-initialised page.
+  The second rAF callback runs before that frame's paint, so FCP can land a few ms after "settled"
+  (drawn: FCP 228 against settled 217).
+
+Same page? (checked because the drawn page came out faster)
+------------------------------------------------------------
+  Counted after network idle by compare.ts (below), same server, same files:
+                                 static     drawn
+    section.decl                   400        400      (and the id sets are identical in all 44
+                                                         timed runs; checked in settle.ts)
+    visible text in decls      130,998    130,998      non-space characters of innerText
+    links in decls               8,756      8,756
+    signature blocks               800        800
+    docstrings (.doc)               95         95
+    details in decls               565        565
+    elements on the page        45,380     25,693
+      span.fn                   21,991      4,204      (the wrappers D4 rule 3 drops)
+      li                           943        489
+    links outside decls            788        405
+      module tree (div.row)        379          0      static app.js builds the module tree from
+                                                         modules.json; its rows were present when the
+                                                         page was read at settle and at idle. The
+                                                         drawn page builds it only when the reader
+                                                         opens it
+      module meta (div.modmeta)      5          1
+  So the declarations are the same content; the drawn page has 17,787 fewer span.fn wrappers and no
+  module tree until asked. U7 found layout and paint follow the element count; here layout takes
+  137 ms (static) against 77 ms (drawn) of main-thread time (warm medians, identity).
+  Note on scale: this slice's tree is 379 modules. U7's static page on full Mathlib had 80,170
+  elements against 42,200 without CSS and JS; that gap is consistent with app.js building a tree of
+  8,170 modules (assumed; not measured here). The static arm here is therefore lighter than the
+  same page on a full-Mathlib site; the drawn arm fetches nothing before drawing whose size grows
+  with the module count (theoretical: the three files before draw are per version, per page and
+  per content address).
+
+Requests and bytes, up to "settled" (Resource Timing, transferSize = headers + body on the wire)
+-------------------------------------------------------------------------------------------------
+  identity
+    static  4 requests, 2,136,083 B transfer (2,134,883 B bodies): the page, style.css, app.js,
+            modules.json (35,146 B); favicon.svg after settle (5 requests, 2,136,743 B at idle)
+    drawn   8 requests, 112,755 B transfer (110,355 B bodies): the shell (881 B), assets/style.css
+            (29,767 B), assets/site.js (39,776 B), d/f24928f5309e4293.json.gz (482 B, the version
+            file), d/a0412b987792c573.json.gz (2,803 B, the page file), d/b61267608d59c722.json.gz
+            (36,240 B, the content), assets/favicon.svg (360 B), versions.json (46 B, after the
+            draw); nothing more at idle
+  Content-Encoding: gzip
+    static  4 requests, 83,746 B transfer (2,134,883 B decoded); 84,290 B at idle
+    drawn   8 requests, 64,379 B transfer (110,355 B decoded as the server sent it; the three .json.gz
+            are decompressed by the page, not by the browser); same at idle
+  The drawn page moves 0.77x the static page's bytes with gzip on the wire, and 1/19 of them without.
+
+Main-thread time (puppeteer page.metrics(), read right after settle was detected; warm medians)
+------------------------------------------------------------------------------------------------
+                           static identity  drawn identity  static gzip  drawn gzip
+    TaskDuration                  330 ms          218 ms          328 ms       214 ms
+    LayoutDuration                137 ms           77 ms          135 ms        77 ms
+    RecalcStyleDuration            53 ms           36 ms           53 ms        36 ms
+    ScriptDuration                  5 ms            2 ms            5 ms         2 ms
+    JS heap used               1,501 KB        3,761 KB        1,501 KB     3,771 KB
+  (ScriptDuration's 2 ms cannot be the whole draw; read TaskDuration as the main-thread cost, not
+  ScriptDuration. The heap is bimodal in a few runs, 1,255-1,334 KB,
+  which reads as garbage collection timing.)
+
+Raw runs
+--------
+  Every column below lists all 11 runs in order; "first" is run 0, "warm median" is runs 1-10.
+  Times are ms from navigation start. "2 frames after load" is U7's static settle; for the drawn arm
+  it is printed only to show why it is not the drawn settle.
+
+----- identity pass (settle.ts stdout) -----
+browser Chrome/154.0.8037.98 (identity)
+decl id sets identical across every run of both arms: true (400 ids)
+
+static  decls 400  elements 45380  data-drawn null  errors [] []
+  requests at settle 4, transfer 2136083 B, encoded 2134883 B, decoded 2134883 B; after network idle 5 requests, 2136743 B
+  responseEnd            first     5   warm median     4   runs 5 5 4 4 3 4 9 3 4 7 3
+  DCL                    first   278   warm median   263   runs 278 203 265 260 269 272 257 263 262 258 269
+  load                   first   327   warm median   289   runs 327 290 303 286 293 300 287 289 286 286 294
+  FCP                    first   188   warm median   196   runs 188 212 288 180 288 180 176 180 180 284 304
+  2 frames after load    first   350   warm median   322   runs 350 334 335 317 324 333 320 320 317 318 337
+  settled                first   350   warm median   322   runs 350 334 335 317 324 333 320 320 317 318 337
+  main-thread task ms    first   345   warm median   330   runs 345 344 345 324 331 343 325 329 326 323 335
+  script ms              first     5   warm median     5   runs 5 6 5 5 5 6 5 5 5 5 5
+  layout ms              first   150   warm median   137   runs 150 146 145 134 140 139 134 136 134 133 140
+  style ms               first    53   warm median    53   runs 53 53 58 52 54 54 52 53 53 52 54
+  JS heap KB             first  1502   warm median  1501   runs 1502 1256 1501 1501 1334 1501 1501 1501 1501 1501 1502
+
+drawn  decls 400  elements 25693  data-drawn 1  errors [] []
+  requests at settle 8, transfer 112755 B, encoded 110355 B, decoded 110355 B; after network idle 8 requests, 112755 B
+  responseEnd            first     1   warm median     1   runs 1 1 2 1 1 1 1 1 1 1 1
+  DCL                    first    10   warm median    10   runs 10 11 11 11 10 12 10 10 10 10 11
+  load                   first    10   warm median    10   runs 10 11 11 12 10 12 10 10 10 10 11
+  FCP                    first   232   warm median   228   runs 232 224 232 232 224 228 224 228 228 232 228
+  drawn (data-drawn=1)   first    55   warm median    56   runs 55 56 57 57 55 57 55 56 55 58 55
+  2 frames after load    first   217   warm median   217   runs 217 216 220 218 215 218 213 217 216 218 217
+  settled                first   217   warm median   217   runs 217 216 220 218 215 218 213 217 216 218 217
+  main-thread task ms    first   216   warm median   218   runs 216 216 219 217 228 218 224 219 217 217 217
+  script ms              first     2   warm median     2   runs 2 2 2 2 2 2 2 2 2 2 2
+  layout ms              first    76   warm median    77   runs 76 77 77 77 76 77 75 76 76 77 78
+  style ms               first    36   warm median    36   runs 36 36 36 36 36 36 36 36 37 36 36
+  JS heap KB             first  3751   warm median  3761   runs 3751 3730 3764 3747 1255 3800 1258 3759 3792 3786 3811
+exit=0
+
+----- gzip pass (settle.ts stdout) -----
+browser Chrome/154.0.8037.98 (Content-Encoding gzip)
+decl id sets identical across every run of both arms: true (400 ids)
+
+static  decls 400  elements 45380  data-drawn null  errors [] []
+  requests at settle 4, transfer 83746 B, encoded 82546 B, decoded 2134883 B; after network idle 5 requests, 84290 B
+  responseEnd            first    15   warm median     2   runs 15 3 2 2 2 2 2 2 2 4 2
+  DCL                    first    71   warm median   262   runs 71 263 259 262 264 262 260 258 260 265 262
+  load                   first   263   warm median   288   runs 263 316 286 286 289 287 284 306 286 289 289
+  FCP                    first   372   warm median   180   runs 372 180 180 180 180 180 260 176 176 304 180
+  2 frames after load    first   333   warm median   320   runs 333 327 317 317 326 319 315 327 318 335 321
+  settled                first   333   warm median   320   runs 333 327 317 317 326 319 315 327 318 335 321
+  main-thread task ms    first   331   warm median   328   runs 331 332 327 327 330 330 324 326 325 328 333
+  script ms              first     5   warm median     5   runs 5 5 5 5 5 5 5 5 5 5 5
+  layout ms              first   140   warm median   135   runs 140 136 136 134 138 134 133 135 136 134 137
+  style ms               first    48   warm median    53   runs 48 55 52 53 54 53 52 52 52 55 53
+  JS heap KB             first  1256   warm median  1501   runs 1256 1501 1501 1501 1501 1501 1501 1501 1501 1334 1501
+
+drawn  decls 400  elements 25693  data-drawn 1  errors [] []
+  requests at settle 8, transfer 64379 B, encoded 61979 B, decoded 110355 B; after network idle 8 requests, 64379 B
+  responseEnd            first     2   warm median     1   runs 2 1 1 1 1 2 1 2 1 1 2
+  DCL                    first    11   warm median    11   runs 11 12 12 12 10 11 10 10 9 11 13
+  load                   first    11   warm median    11   runs 11 13 12 13 10 11 11 10 10 11 16
+  FCP                    first   232   warm median   228   runs 232 228 232 228 228 228 224 224 212 232 232
+  drawn (data-drawn=1)   first    58   warm median    57   runs 58 69 57 57 55 56 66 66 55 57 74
+  2 frames after load    first   222   warm median   141   runs 222 30 221 218 216 216 67 11 55 221 30
+  settled                first   222   warm median   217   runs 222 217 221 218 216 216 213 214 201 221 223
+  main-thread task ms    first   220   warm median   214   runs 220 205 220 217 216 216 203 204 202 220 212
+  script ms              first     2   warm median     2   runs 2 2 2 2 2 2 2 2 2 2 4
+  layout ms              first    77   warm median    77   runs 77 77 78 77 77 75 77 78 76 78 79
+  style ms               first    37   warm median    36   runs 37 35 37 36 36 37 36 36 36 37 39
+  JS heap KB             first  3837   warm median  3771   runs 3837 3701 3725 3868 3773 3770 3780 3755 3768 3819 3771
+exit=0
+
+----- compare.ts stdout -----
+static {"decls":400,"declTextChars":130998,"declLinks":8756,"sigs":800,"docs":95,"details":565,"allLinks":9544,"elements":45380,"top":[["span.fn",21991],["a",8740],["span.binder",4204],["span.name",2455],["li",943],["ul",568],["summary",566],["details.extra",565],["div.row",454],["a.src",401],["section.decl",400],["header.decl-head",400]],"outside":{"?":1,"header.topbar":1,"ul.toc":400,"div.row":379,"div.modhead":1,"div.modmeta":5,"div.moddoc":1}}
+drawn {"decls":400,"declTextChars":130998,"declLinks":8756,"sigs":800,"docs":95,"details":565,"allLinks":9161,"elements":25693,"top":[["a",8357],["span.binder",4204],["span.fn",4204],["span.name",2455],["summary",567],["details.extra",565],["li",489],["ul",483],["a.src",401],["section.decl",400],["header.decl-head",400],["span.kind",400]],"outside":{"?":1,"header.topbar":1,"ul.toc":400,"div.modhead":1,"div.modmeta":1,"div.moddoc":1}}
+
+----- pipeline summary (mv-m-run.sh stdout) -----
+run of 87957095b9d7910bba1059868c5fc9ba38a125e3 (0 uncommitted path(s))
+date              2026-10-07T01:06:09Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+roots    Mathlib.CategoryTheory.Comma.StructuredArrow.Basic
+versions v4.33.1
+jobs     1
+
+=== v4.33.1
+v4.33.1 0df444a360eaa60ab8c11dca51a86af692955474 leanprover/lean4:v4.33.1
+closure  379 Mathlib module(s) from the import lines
+cache    379 Mathlib olean(s), equal to the closure; 628 file(s) decompressed
+lake     0 module(s) compiled
+build    379 module(s), 17189 declaration(s); Lean's environment holds exactly the closure
+store    put and read back byte-identical
+
+=== store measure over v4.33.1
+
+=== summary
+per phase (wall/cpu s, peak RSS MiB, page faults, work dir after GiB, free after GiB):
+ v4.33.1  fetch         9.22    2.37      37     67   0.14  11.56  sourceFiles=9032 toolchain=leanprover/lean4:v4.33.1
+ v4.33.1  toolchain        -       -       -      -   0.14  11.56  installed=already toolchain=leanprover/lean4:v4.33.1
+ v4.33.1  closure          -       -       -      -   0.14  11.56  modules=379
+ v4.33.1  deps         20.41    5.12     723  29933   0.20  11.50  packages=8
+ v4.33.1  cache        21.33   22.15     774  23044   1.05  10.70  attempted=628 cacheKiB=60220 decompressed=628 lakeKiB=897284 mathlibOleans=379
+ v4.33.1  lake           1.2    1.12     685    964   1.05  10.71  compiled=0 noBuild=ok
+ v4.33.1  extractor    17.98    9.93    1500  62657   1.23  10.54  binaryBytes=177577968
+ v4.33.1  prune            -       -       -      -   1.13  10.64  deleted=7933 left=379
+ v4.33.1  build         35.9   30.62    1493  16520   1.21  10.56  closureNotInEnv=0 declarations=17189 extractSeconds=27.79477475 globalSeconds=1.173911375 irBytes=25609422 irFiles=387 linkIndexBytes=3212646 linkIndexGroups=1559 linkIndexModules=2092 mathlibGroupsInLinkIndex=0 mathlibInEnvNotInClosure=0 modules=379 pagesRendered=379 renderSeconds=2.552525916 siteBytes=51426783 siteFiles=392 totalSeconds=35.294689584
+ v4.33.1  put           1.22    1.19      80     27   1.21  10.56  compressedBytes=4385795 files=387 linkIndexBytes=3212646 packedBytes=29065327 rawBytes=25609422
+ v4.33.1  read          0.34     0.3      72     11   1.24  10.53  identical=yes
+ measure  a             3.19    3.17     207     11   1.22  10.55  
+ measure  b             3.19    3.18     207     11   1.22  10.55  
+ measure  c             3.17    3.15     218     11   1.23  10.54  
+peak work dir during v4.33.1: 1.24 GiB
+candidate a: hosted files=1138 raw=16093223 stored=2148039
+ ver      pages  items   addr    new  links | +files     +raw  +stored +cfiles +citems | fetch tot/max     bytes tot/max
+ v4.33.1    379  16779  16760  16760  15452 |   1138 16093223  2148039     377   16779 |   1135/3        5633807/49494  
+candidate b: hosted files=1138 raw=16218530 stored=2190415
+ ver      pages  items   addr    new  links | +files     +raw  +stored +cfiles +citems | fetch tot/max     bytes tot/max
+ v4.33.1    379  16779  16760  16760  15452 |   1138 16218530  2190415     377   16779 |   1135/3        5676183/50503  
+candidate c: hosted files=762 raw=16327773 stored=2490392 chunkBytes=16384
+ ver      pages  items   addr    new  links | +files     +raw  +stored +cfiles +citems | fetch tot/max     bytes tot/max
+ v4.33.1    379  16779  16760  16760  15452 |    762 16327773  2490392       1   16760 |   1145/6        7346367/74583  
+total 120 s; logs in /private/tmp/lean-doc-relay/mv-m-settle/logs
+exit=0
+
+----- store render stdout -----
+{"command":"store render","versions":[{"version":"v4.33.1","modules":379,"shells":{"files":383,"rawBytes":316615,"storedBytes":316615},"dataReferenced":1046,"dataAdded":{"files":1046,"rawBytes":16247854,"storedBytes":2188271}}],"total":{"files":1435,"rawBytes":16642796,"storedBytes":2583213,"shells":{"files":383,"rawBytes":316615,"storedBytes":316615},"data":{"files":1046,"rawBytes":16247854,"storedBytes":2188271},"assets":{"files":3,"rawBytes":69903,"storedBytes":69903},"root":{"files":3,"rawBytes":8424,"storedBytes":8424}}}
+
+Harness
+-------
+  Re-run: deno run -A settle.ts <work>/build/v4.33.1/site <work>/drawn \
+    Mathlib/CategoryTheory/Comma/StructuredArrow/Basic.html v4.33.1/Mathlib/CategoryTheory/Comma/StructuredArrow/Basic.html 11 out.json [gz]
+  The content check: deno run -A compare.ts <same four arguments>
+
+----- settle.ts -----
+// usage: deno run -A settle.ts <static site dir> <drawn site dir> <static page rel> <drawn page rel> <runs> <out.json> [gz]
+import puppeteer from "npm:puppeteer-core@24";
+
+const [STATIC, DRAWN, SREL, DREL, RUNS_S, OUT, GZ] = Deno.args;
+const RUNS = Number(RUNS_S ?? "5");
+const PORT = 8931;
+const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const ENCODE = GZ === "gz";
+
+const types: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".gz": "application/gzip",
+};
+const typeOf = (p: string) => types[p.slice(p.lastIndexOf("."))] ?? "application/octet-stream";
+const gzCache = new Map<string, Uint8Array>();
+async function gzipOf(file: string, raw: Uint8Array): Promise<Uint8Array> {
+  let gz = gzCache.get(file);
+  if (!gz) {
+    gz = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+    gzCache.set(file, gz);
+  }
+  return gz;
+}
+
+Deno.serve({ port: PORT, hostname: "127.0.0.1", onListen: () => {} }, async (req) => {
+  const path = decodeURIComponent(new URL(req.url).pathname);
+  const root = path.startsWith("/static/") ? STATIC : path.startsWith("/drawn/") ? DRAWN : null;
+  if (root) {
+    const file = root + path.slice(path.indexOf("/", 1));
+    try {
+      const raw = await Deno.readFile(file);
+      if (ENCODE && !file.endsWith(".gz")) {
+        return new Response(await gzipOf(file, raw), {
+          headers: { "content-type": typeOf(file), "content-encoding": "gzip" },
+        });
+      }
+      return new Response(raw, { headers: { "content-type": typeOf(file) } });
+    } catch {
+      // fall through
+    }
+  }
+  return new Response("not found", { status: 404 });
+});
+
+const base = `http://127.0.0.1:${PORT}`;
+const arms: [string, string][] = [
+  ["static", `${base}/static/${SREL}`],
+  ["drawn", `${base}/drawn/${DREL}`],
+];
+
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: true });
+console.log("browser", await browser.version(), ENCODE ? "(Content-Encoding gzip)" : "(identity)");
+
+async function once(url: string) {
+  const ctx = await browser.createBrowserContext();
+  const page = await ctx.newPage();
+  await page.setCacheEnabled(false);
+  await page.setViewport({ width: 1280, height: 800 });
+  await page.evaluateOnNewDocument(() => {
+    const w = window as any;
+    const twoFrames = (k: string) => requestAnimationFrame(() => requestAnimationFrame(() => { w[k] = performance.now(); }));
+    const both = () => {
+      if (w.__loadAt !== undefined && w.__drawnAt !== undefined && w.__bothAt === undefined) {
+        w.__bothAt = performance.now();
+        twoFrames("__drawn2f");
+      }
+    };
+    addEventListener("load", () => {
+      w.__loadAt = performance.now();
+      twoFrames("__load2f");
+      both();
+    });
+    new MutationObserver(() => {
+      if (document.body?.dataset.drawn === "1" && w.__drawnAt === undefined) {
+        w.__drawnAt = performance.now();
+        both();
+      }
+    }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-drawn"] });
+  });
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  const statuses: string[] = [];
+  page.on("response", (r) => { if (r.status() >= 400) statuses.push(`${r.status()} ${r.url()}`); });
+  await page.goto(url, { waitUntil: "load", timeout: 120000 });
+  const drawn = url.includes("/drawn/");
+  await page.waitForFunction(
+    (d: boolean) => d ? (window as any).__drawn2f !== undefined || document.body?.dataset.drawn === "failed" : (window as any).__load2f !== undefined,
+    { timeout: 120000, polling: "raf" },
+    drawn,
+  );
+  const m = await page.metrics();
+  const atSettle = await page.evaluate(() => {
+    const w = window as any;
+    const n = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
+    const settled = (w.__drawn2f ?? w.__load2f) as number;
+    const res = (performance.getEntriesByType("resource") as PerformanceResourceTiming[]).filter((e) => e.responseEnd <= settled);
+    return {
+      responseEnd: n.responseEnd,
+      dcl: n.domContentLoadedEventEnd,
+      load: w.__loadAt,
+      load2f: w.__load2f,
+      drawnAt: w.__drawnAt ?? null,
+      settled,
+      ids: [...document.querySelectorAll("section.decl")].map((e) => e.id).sort().join("\n"),
+      reqs: 1 + res.length,
+      transfer: n.transferSize + res.reduce((s, e) => s + e.transferSize, 0),
+      encoded: n.encodedBodySize + res.reduce((s, e) => s + e.encodedBodySize, 0),
+      decoded: n.decodedBodySize + res.reduce((s, e) => s + e.decodedBodySize, 0),
+      files: [n.name, ...res.map((e) => e.name)].map((u) => u.replace(location.origin, "")),
+      decls: document.querySelectorAll("section.decl").length,
+      elements: document.getElementsByTagName("*").length,
+      drawnFlag: document.body?.dataset.drawn ?? null,
+    };
+  });
+  await page.waitForNetworkIdle({ idleTime: 500, timeout: 30000 }).catch(() => {});
+  const idle = await page.evaluate(() => {
+    const n = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
+    const res = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+    return {
+      fcp: performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? null,
+      reqs: 1 + res.length,
+      transfer: n.transferSize + res.reduce((s, e) => s + e.transferSize, 0),
+      files: res.map((e) => e.name.replace(location.origin, "")),
+    };
+  });
+  await ctx.close();
+  return {
+    ...atSettle,
+    fcp: idle.fcp,
+    idle,
+    taskMs: m.TaskDuration! * 1000,
+    scriptMs: m.ScriptDuration! * 1000,
+    layoutMs: m.LayoutDuration! * 1000,
+    styleMs: m.RecalcStyleDuration! * 1000,
+    heapKB: m.JSHeapUsedSize! / 1024,
+    layouts: m.LayoutCount,
+    errors,
+    statuses,
+  };
+}
+
+const median = (xs: number[]) => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+};
+
+const out: Record<string, any[]> = { static: [], drawn: [] };
+for (let i = 0; i < RUNS; i++) {
+  for (const [name, url] of arms) out[name].push(await once(url));
+}
+await Deno.writeTextFile(OUT, JSON.stringify(out, null, 1));
+
+const idsOf = (r: any) => r.ids as string;
+const sameIds = [...out.static, ...out.drawn].every((r) => idsOf(r) === idsOf(out.static[0]));
+console.log(`decl id sets identical across every run of both arms: ${sameIds} (${idsOf(out.static[0]).split("\n").length} ids)`);
+for (const r of [...out.static, ...out.drawn]) delete r.ids;
+await Deno.writeTextFile(OUT, JSON.stringify(out, null, 1));
+const f = (x: number | null | undefined) => (x == null ? "-" : x.toFixed(0));
+for (const [name] of arms) {
+  const runs = out[name];
+  const warm = runs.slice(1);
+  console.log(`\n${name}  decls ${runs[0].decls}  elements ${runs[0].elements}  data-drawn ${runs[0].drawnFlag}  errors ${JSON.stringify(runs[0].errors)} ${JSON.stringify(runs[0].statuses)}`);
+  console.log(`  requests at settle ${runs[0].reqs}, transfer ${runs[0].transfer} B, encoded ${runs[0].encoded} B, decoded ${runs[0].decoded} B; after network idle ${runs[0].idle.reqs} requests, ${runs[0].idle.transfer} B`);
+  const cols: [string, (r: any) => number | null][] = [
+    ["responseEnd", (r) => r.responseEnd],
+    ["DCL", (r) => r.dcl],
+    ["load", (r) => r.load],
+    ["FCP", (r) => r.fcp],
+    ["drawn (data-drawn=1)", (r) => r.drawnAt],
+    ["2 frames after load", (r) => r.load2f],
+    ["settled", (r) => r.settled],
+    ["main-thread task ms", (r) => r.taskMs],
+    ["script ms", (r) => r.scriptMs],
+    ["layout ms", (r) => r.layoutMs],
+    ["style ms", (r) => r.styleMs],
+    ["JS heap KB", (r) => r.heapKB],
+  ];
+  for (const [label, get] of cols) {
+    const xs = runs.map(get);
+    if (xs.every((x) => x == null)) continue;
+    console.log(`  ${label.padEnd(22)} first ${f(xs[0]).padStart(5)}   warm median ${f(warm.length ? median(warm.map(get) as number[]) : null).padStart(5)}   runs ${xs.map(f).join(" ")}`);
+  }
+}
+await browser.close();
+Deno.exit(0);
+
+----- compare.ts -----
+// usage: deno run -A compare.ts <static site dir> <drawn site dir> <static page rel> <drawn page rel>
+import puppeteer from "npm:puppeteer-core@24";
+const [STATIC, DRAWN, SREL, DREL] = Deno.args;
+Deno.serve({ port: 8933, hostname: "127.0.0.1", onListen: () => {} }, async (req) => {
+  const p = decodeURIComponent(new URL(req.url).pathname);
+  const root = p.startsWith("/static/") ? STATIC : DRAWN;
+  const f = root + p.slice(p.indexOf("/", 1));
+  const t = f.endsWith(".css") ? "text/css" : f.endsWith(".js") ? "text/javascript" : f.endsWith(".html") ? "text/html; charset=utf-8" : "application/octet-stream";
+  try { return new Response(await Deno.readFile(f), { headers: { "content-type": t } }); } catch { return new Response("nf", { status: 404 }); }
+});
+const b = await puppeteer.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
+for (const url of [`http://127.0.0.1:8933/static/${SREL}`, `http://127.0.0.1:8933/drawn/${DREL}`]) {
+  const page = await b.newPage();
+  await page.goto(url, { waitUntil: "networkidle0" });
+  const r = await page.evaluate(() => {
+    const decls = [...document.querySelectorAll("section.decl")];
+    const tags: Record<string, number> = {};
+    for (const e of document.getElementsByTagName("*")) tags[e.tagName.toLowerCase() + (e.className && typeof e.className === "string" ? "." + e.className.split(" ")[0] : "")] = (tags[e.tagName.toLowerCase() + (e.className && typeof e.className === "string" ? "." + e.className.split(" ")[0] : "")] ?? 0) + 1;
+    const top = Object.entries(tags).sort((a, b) => b[1] - a[1]).slice(0, 12);
+    const norm = (s: string) => s.replace(/\s+/g, "");
+    return {
+      decls: decls.length,
+      declTextChars: decls.reduce((s, d) => s + norm((d as HTMLElement).innerText).length, 0),
+      declLinks: decls.reduce((s, d) => s + d.querySelectorAll("a[href]").length, 0),
+      sigs: document.querySelectorAll("section.decl .sig, section.decl .decl-sig, section.decl [class*=sig]").length,
+      docs: document.querySelectorAll("section.decl .doc").length,
+      details: document.querySelectorAll("section.decl details").length,
+      allLinks: document.querySelectorAll("a[href]").length,
+      elements: document.getElementsByTagName("*").length,
+      top,
+      outside: (() => { const o: Record<string, number> = {}; for (const a of document.querySelectorAll("a[href]")) { if (a.closest("section.decl")) continue; const c = a.closest("nav,header,aside,footer,main,div[id],ul[id],ul[class],div[class]"); const k = c ? c.tagName.toLowerCase() + (c.id ? "#" + c.id : "") + (typeof c.className === "string" && c.className ? "." + c.className.split(" ")[0] : "") : "?"; o[k] = (o[k] ?? 0) + 1; } return o; })(),
+    };
+  });
+  console.log(url.includes("/static/") ? "static" : "drawn", JSON.stringify(r));
+  await page.close();
+}
+await b.close(); Deno.exit(0);
