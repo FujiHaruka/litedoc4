@@ -48,7 +48,7 @@ jobs:
           run-id: 37630692670
           github-token: ${{ github.token }}
 
-      - name: (j) experiment -- the floor with mimalloc's mi_collect(true) after each version
+      - name: (k) experiment -- the floor after a huge block from mimalloc, from Lean's allocator, from Lean code
         run: |
           exp() {
             label="$1"; phase="$2"; shift 2
@@ -60,9 +60,12 @@ jobs:
             grep -E '^exp (floor|commit)|Maximum resident|Elapsed' "$MV_L_WORK/logs/exp-$label.err"
           }
           exp bytes bytes
-          exp bytes-collect bytes LITEDOC4_EXP_COLLECT=1
-          exp read-collect read LITEDOC4_EXP_COLLECT=1
-          exp full-collect full LITEDOC4_EXP_COLLECT=1
+          exp mi-66 mi LITEDOC4_EXP_MB=66
+          exp leanalloc-66 leanalloc LITEDOC4_EXP_MB=66
+          exp leanpush-66 leanpush LITEDOC4_EXP_MB=66
+          exp mi-8 mi LITEDOC4_EXP_MB=8
+          exp mi-20 mi LITEDOC4_EXP_MB=20
+          exp mi-40 mi LITEDOC4_EXP_MB=40
 
       - name: upload the logs
         if: always()

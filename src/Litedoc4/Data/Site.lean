@@ -315,6 +315,7 @@ def writeRoot (out : FilePath) (entries : Array Listed) (hashUrls : Bool) :
 
 @[extern "litedoc4_exp_mi_collect"] opaque expMiCollect : IO Unit
 @[extern "litedoc4_exp_commit"] opaque expCommit : IO USize
+@[extern "litedoc4_exp_c_alloc"] opaque expCAlloc (n : USize) (viaLean : UInt8) : IO Unit
 
 /-- Not every version's data at once, as `store measure` holds it: a Mathlib
 version is ≈ 8.5k pages and a site has 11 or more. -/
@@ -325,6 +326,16 @@ def renderStore (store out : FilePath) (names : Array Store.VersionName) (hashUr
   let phase := (← IO.getEnv "LITEDOC4_EXP_PHASE").getD "full"
   for v in names do
     if phase == "full" then written := written.push (← writeEntry store out v hashUrls)
+    else if phase == "mi" || phase == "leanalloc" || phase == "leanpush" then
+      let mb := ((← IO.getEnv "LITEDOC4_EXP_MB").bind String.toNat?).getD 66
+      let n := mb * 1048576
+      if phase == "mi" then expCAlloc n.toUSize 0
+      else if phase == "leanalloc" then expCAlloc n.toUSize 1
+      else
+        let mut b := ByteArray.emptyWithCapacity n
+        for i in [0:n] do b := b.push i.toUInt8
+        IO.eprintln s!"exp leanpush {b.size}"
+      IO.eprintln s!"exp {phase} {mb} MiB"
     else if phase == "bytes" then
       let b ← IO.FS.readBinFile (Store.entryDir store v / Store.packFile)
       IO.eprintln s!"exp bytes {b.size}"

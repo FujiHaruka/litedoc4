@@ -220,3 +220,20 @@ lean_obj_res litedoc4_exp_commit(lean_obj_arg w) {
     mi_process_info(&a, &b, &c, &rss, &prss, &commit, &pcommit, &pf);
     return lean_io_result_mk_ok(lean_box_usize(commit));
 }
+
+extern void *mi_malloc(size_t size);
+extern void mi_free(void *p);
+
+lean_obj_res litedoc4_exp_c_alloc(size_t n, uint8_t viaLean, lean_obj_arg w) {
+    (void)w;
+    if (viaLean) {
+        lean_obj_res o = lean_alloc_sarray(1, n, n);
+        memset(lean_sarray_cptr(o), 7, n);
+        lean_dec_ref(o);
+    } else {
+        void *p = mi_malloc(n);
+        memset(p, 7, n);
+        mi_free(p);
+    }
+    return lean_io_result_mk_ok(lean_box(0));
+}
