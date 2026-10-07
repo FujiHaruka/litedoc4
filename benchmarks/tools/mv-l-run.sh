@@ -2,11 +2,12 @@
 # usage (all of Mathlib at three releases through `litedoc4 build --versions`):
 #   mv-l-run.sh setup                 build litedoc4, clone Mathlib's three tags
 #   mv-l-run.sh run <label> <versions> one `build --versions` into the shared --out
-#   mv-l-run.sh render-alone          `store render` of the first 1, 2 and 3 versions, timed apart
+#   mv-l-run.sh render-alone <label>  `store render` of the first 1, 2 and 3 versions, timed apart,
+#                                     the process's RSS sampled every second (<label>-render-<n>.rss)
 #   mv-l-run.sh report                sizes of the store and the site
 #
 # Environment: MV_L_WORK (default $RUNNER_TEMP/mv-l or /private/tmp/lean-doc-relay/mv-l),
-# MV_L_JOBS (default 4).
+# MV_L_JOBS (default 4), MV_L_TAGS (default v4.32.2,v4.33.0,v4.33.1).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -15,7 +16,7 @@ LOGS="$WORK/logs"
 MATHLIB="$WORK/mathlib"
 OUT="$WORK/out"
 JOBS="${MV_L_JOBS:-4}"
-TAGS=(v4.32.2 v4.33.0 v4.33.1)
+IFS=, read -r -a TAGS <<<"${MV_L_TAGS:-v4.32.2,v4.33.0,v4.33.1}"
 LITEDOC4="$ROOT/.lake/build/bin/litedoc4"
 mkdir -p "$LOGS"
 
@@ -33,6 +34,21 @@ sample() {
       "$(df -k "$WORK" | awk 'NR == 2 { print int($4 / 1048576) "GiB-free" }')" \
       "$( (awk '/MemAvailable/ { print int($2 / 1024) "MiB-avail" }' /proc/meminfo 2>/dev/null) || echo -)"
     sleep 15
+  done
+}
+
+rss_timeline() {
+  local timer="$1" dest="$2" pid="" t0
+  t0="$(date +%s)"
+  while [ -z "$pid" ] && kill -0 "$timer" 2>/dev/null; do
+    pid="$(pgrep -P "$timer" || true)"
+    sleep 0.1
+  done
+  echo "# seconds rss-KiB version-dirs-present"
+  while kill -0 "$pid" 2>/dev/null; do
+    printf '%s %s %s\n' "$(($(date +%s) - t0))" "$(ps -o rss= -p "$pid" | tr -d ' ')" \
+      "$(cd "$dest" 2>/dev/null && ls -d v* 2>/dev/null | tr '\n' ',')"
+    sleep 1
   done
 }
 
@@ -73,17 +89,25 @@ case "${1:-}" in
     exit "$status"
     ;;
   render-alone)
+    label="$2"
     list=""
     for tag in "${TAGS[@]}"; do
       list="${list:+$list,}$tag"
       n="$(echo "$list" | tr ',' '\n' | wc -l | tr -d ' ')"
-      rm -rf "$WORK/render-$n"
+      dest="$WORK/render-$n"
+      rm -rf "$dest"
       status=0
       # shellcheck disable=SC2046
       $(time_cmd) "$LITEDOC4" store render --store "$OUT/store" --versions "$list" \
-        --out "$WORK/render-$n" >"$LOGS/render-$n.out" 2>"$LOGS/render-$n.err" || status=$?
-      echo "$n version(s): exit $status; $(grep -E 'Elapsed|Maximum resident' "$LOGS/render-$n.err" | tr -s ' \t' ' ' | tr '\n' ';')"
-      rm -rf "$WORK/render-$n"
+        --out "$dest" >"$LOGS/$label-render-$n.out" 2>"$LOGS/$label-render-$n.err" &
+      timer=$!
+      rss_timeline "$timer" "$dest" >"$LOGS/$label-render-$n.rss" &
+      sampler=$!
+      wait "$timer" || status=$?
+      kill "$sampler" 2>/dev/null || true
+      wait "$sampler" 2>/dev/null || true
+      echo "$label $n version(s): exit $status; $(grep -E 'Elapsed|Maximum resident' "$LOGS/$label-render-$n.err" | tr -s ' \t' ' ' | tr '\n' ';')"
+      rm -rf "$dest"
       [ "$status" -eq 0 ] || exit "$status"
     done
     ;;

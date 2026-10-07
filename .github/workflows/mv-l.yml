@@ -52,7 +52,19 @@ jobs:
         run: benchmarks/tools/mv-l-run.sh run c v4.32.2,v4.33.0,v4.33.1
 
       - name: (d) store render of 1, 2 and 3 versions, apart
-        run: benchmarks/tools/mv-l-run.sh render-alone
+        run: benchmarks/tools/mv-l-run.sh render-alone default
+
+      - name: (e) the same with glibc's mmap and trim thresholds fixed
+        env:
+          GLIBC_TUNABLES: glibc.malloc.mmap_threshold=131072:glibc.malloc.trim_threshold=131072
+        run: benchmarks/tools/mv-l-run.sh render-alone tuned
+
+      - name: upload the store
+        uses: actions/upload-artifact@v7
+        with:
+          name: mv-l-store
+          path: /home/runner/mv-l/out/store
+          retention-days: 14
 
       - name: sizes
         if: always()
