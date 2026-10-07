@@ -322,6 +322,14 @@ def renderStore (store out : FilePath) (names : Array Store.VersionName) (hashUr
   let phase := (← IO.getEnv "LITEDOC4_EXP_PHASE").getD "full"
   for v in names do
     if phase == "full" then written := written.push (← writeEntry store out v hashUrls)
+    else if phase == "bytes" then
+      let b ← IO.FS.readBinFile (Store.entryDir store v / Store.packFile)
+      IO.eprintln s!"exp bytes {b.size}"
+    else if phase == "inflate" then
+      let b ← IO.FS.readBinFile (Store.entryDir store v / Store.packFile)
+      match Gzip.decompress b with
+      | .ok p => IO.eprintln s!"exp inflate {p.size}"
+      | .error why => throw why
     else
       let s ← Store.read store v
       if phase == "read" then IO.eprintln s!"exp read {s.files.size}" else

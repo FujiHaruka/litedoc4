@@ -48,17 +48,40 @@ jobs:
           run-id: 37630692670
           github-token: ${{ github.token }}
 
-      - name: (g) experiment -- the RSS floor after each version, by how far each version is taken
-        env:
-          MIMALLOC_PURGE_DELAY: "0"
+      - name: (h) experiment -- the floor by phase and by mimalloc option
         run: |
-          for phase in full render data input read; do
+          exp() {
+            label="$1"; phase="$2"; shift 2
             rm -rf "$MV_L_WORK/render-exp"
-            LITEDOC4_EXP_PHASE="$phase" /usr/bin/time -v .lake/build/bin/litedoc4 store render --store "$MV_L_WORK/out/store" \
-              --versions v4.32.2,v4.33.0,v4.33.1 --out "$MV_L_WORK/render-exp" \
-              >"$MV_L_WORK/logs/exp-$phase.out" 2>"$MV_L_WORK/logs/exp-$phase.err" || true
-            grep -E '^exp floor|Maximum resident|Elapsed' "$MV_L_WORK/logs/exp-$phase.err"
-          done
+            env LITEDOC4_EXP_PHASE="$phase" "$@" /usr/bin/time -v .lake/build/bin/litedoc4 store render \
+              --store "$MV_L_WORK/out/store" --versions v4.32.2,v4.33.0,v4.33.1 --out "$MV_L_WORK/render-exp" \
+              >"$MV_L_WORK/logs/exp-$label.out" 2>"$MV_L_WORK/logs/exp-$label.err" || true
+            echo "== $label $*"
+            grep -E '^exp floor|Maximum resident|Elapsed' "$MV_L_WORK/logs/exp-$label.err"
+          }
+          exp bytes bytes
+          exp inflate inflate
+          exp read-default read
+          exp read-purge0 read MIMALLOC_PURGE_DELAY=0
+          exp read-noarena read MIMALLOC_DISALLOW_ARENA_ALLOC=1
+          exp read-noeager read MIMALLOC_ARENA_EAGER_COMMIT=0
+          exp full-noarena full MIMALLOC_DISALLOW_ARENA_ALLOC=1
+
+      - name: (i) experiment -- the full render under a 4 GiB cgroup cap, no swap
+        run: |
+          cap() {
+            label="$1"; versions="$2"
+            rm -rf "$MV_L_WORK/render-exp"
+            status=0
+            sudo systemd-run --scope -q -p MemoryMax=4G -p MemorySwapMax=0 --uid="$(id -u)" --gid="$(id -g)" \
+              /usr/bin/time -v "$PWD/.lake/build/bin/litedoc4" store render --store "$MV_L_WORK/out/store" \
+              --versions "$versions" --out "$MV_L_WORK/render-exp" \
+              >"$MV_L_WORK/logs/cap-$label.out" 2>"$MV_L_WORK/logs/cap-$label.err" || status=$?
+            echo "== $label ($versions): exit $status"
+            grep -E '^exp floor|Maximum resident|Elapsed|signal' "$MV_L_WORK/logs/cap-$label.err" || true
+          }
+          cap one v4.32.2
+          cap three v4.32.2,v4.33.0,v4.33.1
 
       - name: upload the logs
         if: always()
