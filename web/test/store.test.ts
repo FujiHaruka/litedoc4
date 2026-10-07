@@ -6,6 +6,7 @@ import { guessOf } from "../src/guess.js";
 import { gunzipped, isGzip } from "../src/gzip.js";
 import { hashHref, parseHash } from "../src/hash-route.js";
 import { type Linker, resolvedHref, tableHref } from "../src/links.js";
+import { hasPage } from "../src/listed.js";
 import { hashTarget, isVersionList, lostAt, moduleOfPage, rootCandidates } from "../src/lost.js";
 import { moduleComponents, pagePath, sourceUrlAt } from "../src/names.js";
 import { hrefIn, pageIn, pathHere, type Route, routeOf } from "../src/route.js";
@@ -388,6 +389,25 @@ describe("the 404 page", () => {
   it("guesses from the fragment first, then from the path read as a name", () => {
     expect(guessOf("Example/Basic.html", "Example.%C2%ABx%C2%BB")).toBe("Example.«x»");
     expect(guessOf("/Example/Basic.html", "")).toBe("Example.Basic");
+  });
+});
+
+describe("hasPage", () => {
+  const modules = [{ n: "A.B", p: "A/B.html" }];
+
+  it("answers by the version's module list, and every version has its own four pages", () => {
+    expect(hasPage(modules, "A/B.html")).toBe(true);
+    expect(hasPage(modules, "A/C.html")).toBe(false);
+    expect(hasPage([], "A/B.html")).toBe(false);
+    for (const page of [
+      "index.html",
+      "references.html",
+      "search.html",
+      "foundational_types.html",
+    ]) {
+      expect(hasPage([], page)).toBe(true);
+    }
+    expect(hasPage(modules, "A/")).toBe(false);
   });
 });
 

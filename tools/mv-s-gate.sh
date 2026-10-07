@@ -19,7 +19,9 @@
 #                absent, empty, or one this gate made
 #   --extractor  a prebuilt extractor (default: built into e2e/micro/.lake/e2e-extract,
 #                the one tools/e2e-micro.sh builds and reuses)
-#   --keep       keep the work directory after a run that passed
+#   --keep       keep the work directory after a run that passed; its
+#                run1/render/all-1 and run1/render/hash-1 are what
+#                tools/mv-pages-gate.sh --from reads
 #   LITEDOC4 / LAKE  the binaries (default: .lake/build/bin/litedoc4, ~/.elan/bin/lake)
 set -euo pipefail
 

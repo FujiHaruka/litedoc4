@@ -1,18 +1,16 @@
 import { el } from "./dom.js";
 import { decoded, parseHash } from "./hash-route.js";
+import { hasPage, modulesIn } from "./listed.js";
 import { MISSING } from "./lost.js";
 import { hrefIn, pageIn, pathHere, type Route } from "./route.js";
-import { isShell } from "./shell-probe.js";
-import { dataJson } from "./store-data.js";
-import type { VersionEntry, VersionFile } from "./store-types.js";
-import type { ModuleEntry, ModulesFile } from "./types.js";
+import type { VersionEntry } from "./store-types.js";
+import type { ModuleEntry } from "./types.js";
 
 export function switchTarget(r: Route, to: string, modules: readonly ModuleEntry[] | null): string {
   const there = { ...r, version: to };
   if (r.kind !== "module") return hrefIn(there, pathHere(r, r.anchor));
-  const entry = modules?.find((m) => m.n === r.module);
-  return entry
-    ? hrefIn(there, entry.p + (r.anchor === null ? "" : `#${r.anchor}`))
+  return modules !== null && hasPage(modules, pageIn(r))
+    ? hrefIn(there, pathHere(r, r.anchor))
     : hrefIn(there, `index.html?${MISSING}=${encodeURIComponent(r.module)}`);
 }
 
@@ -28,9 +26,7 @@ function now(r: Route): Route {
 async function destinationIn(arrived: Route, to: VersionEntry): Promise<string> {
   const r = now(arrived);
   if (r.kind !== "module") return switchTarget(r, to.name, null);
-  const version = await dataJson<VersionFile>(r.root, to.data);
-  const list = await dataJson<ModulesFile>(r.root, version.modules);
-  return switchTarget(r, to.name, list.modules);
+  return switchTarget(r, to.name, await modulesIn(r.root, to));
 }
 
 const listed = new Map<string, Promise<VersionEntry[] | null>>();
@@ -76,14 +72,16 @@ async function go(r: Route, to: VersionEntry, select: HTMLSelectElement): Promis
   }
 }
 
-async function canonical(r: Route, newest: string): Promise<void> {
+async function canonical(r: Route, newest: VersionEntry): Promise<void> {
   document.querySelector('link[rel="canonical"]')?.remove();
   if (r.mode === "hash" || r.kind === "not-found") return;
-  const href = new URL(hrefIn({ ...r, version: newest }, pageIn(r)), location.href).href;
-  if (r.kind === "module" && r.version !== newest && !(await isShell(href))) return;
+  if (r.kind === "module" && r.version !== newest.name) {
+    const modules = await modulesIn(r.root, newest).catch(() => null);
+    if (modules === null || !hasPage(modules, pageIn(r))) return;
+  }
   const link = document.createElement("link");
   link.rel = "canonical";
-  link.href = href;
+  link.href = new URL(hrefIn({ ...r, version: newest.name }, pageIn(r)), location.href).href;
   document.head.append(link);
 }
 
@@ -111,5 +109,5 @@ export async function initVersions(r: Route): Promise<void> {
     button.addEventListener("click", () => void go(r, newest, select));
     notice(`This is version ${r.version}; the newest is ${newest.name}. `, button);
   }
-  void canonical(r, newest.name);
+  void canonical(r, newest);
 }

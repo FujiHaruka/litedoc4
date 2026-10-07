@@ -1,5 +1,6 @@
 import { guessOf } from "./guess.js";
 import { decoded } from "./hash-route.js";
+import { hasPage, modulesIn } from "./listed.js";
 import {
   hashTarget,
   isVersionList,
@@ -8,7 +9,6 @@ import {
   moduleOfPage,
   rootCandidates,
 } from "./lost.js";
-import { isShell } from "./shell-probe.js";
 import type { VersionEntry } from "./store-types.js";
 
 interface Site {
@@ -24,11 +24,20 @@ async function versionsAt(root: string): Promise<Site | null> {
 }
 
 async function siteOf(pathname: string): Promise<Site | null> {
-  const found = await Promise.all(rootCandidates(pathname).map(versionsAt));
-  return found.find((s) => s !== null) ?? null;
+  // Not Promise.all over the candidates: every wrong root would answer 404 in the reader's console.
+  for (const root of rootCandidates(pathname)) {
+    const site = await versionsAt(root);
+    if (site !== null) return site;
+  }
+  return null;
 }
 
-function drawNotFound(site: Site, newest: VersionEntry, below: string): void {
+function drawNotFound(
+  site: Site,
+  newest: VersionEntry,
+  below: string,
+  icon: HTMLLinkElement,
+): void {
   Object.assign(document.body.dataset, {
     root: site.root,
     version: newest.name,
@@ -44,11 +53,11 @@ function drawNotFound(site: Site, newest: VersionEntry, below: string): void {
     head.append(e);
   };
   add("link", { rel: "stylesheet", href: `${site.root}assets/style.css` });
-  add("link", { rel: "icon", href: `${site.root}assets/favicon.svg` });
+  icon.setAttribute("href", `${site.root}assets/favicon.svg`);
   add("script", { type: "module", src: `${site.root}assets/site.js` });
 }
 
-async function lost(hashMode: boolean): Promise<void> {
+async function lost(hashMode: boolean, icon: HTMLLinkElement): Promise<void> {
   const site = await siteOf(location.pathname);
   const newest = site?.versions[site.versions.length - 1];
   if (!site || !newest) return;
@@ -62,9 +71,9 @@ async function lost(hashMode: boolean): Promise<void> {
     return;
   }
   if (at.kind === "unversioned") {
-    const target = `${site.root}${newest.name}/${at.path}`;
-    if (await isShell(target)) {
-      location.replace(target + location.search + location.hash);
+    const modules = await modulesIn(site.root, newest).catch(() => null);
+    if (modules !== null && hasPage(modules, decoded(at.path))) {
+      location.replace(`${site.root}${newest.name}/${at.path}${location.search}${location.hash}`);
       return;
     }
   }
@@ -75,7 +84,7 @@ async function lost(hashMode: boolean): Promise<void> {
     );
     return;
   }
-  drawNotFound(site, newest, at.kind === "nothing" ? below : at.path);
+  drawNotFound(site, newest, at.kind === "nothing" ? below : at.path, icon);
 }
 
 const script = document.currentScript as HTMLScriptElement | null;
@@ -83,5 +92,10 @@ const toNewest = script?.dataset.newest;
 if (toNewest !== undefined) {
   location.replace(`${toNewest}/index.html${location.search}${location.hash}`);
 } else {
-  void lost(script?.dataset.mode === "hash");
+  // Declared before load, not with the stylesheet: a page with no icon by then makes the browser ask the host for /favicon.ico.
+  const icon = document.createElement("link");
+  icon.setAttribute("rel", "icon");
+  icon.setAttribute("href", "data:,");
+  document.head.append(icon);
+  void lost(script?.dataset.mode === "hash", icon);
 }

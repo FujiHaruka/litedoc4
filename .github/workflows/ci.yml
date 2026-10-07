@@ -172,7 +172,7 @@ jobs:
 
       - name: The multi-version S loop (store and data format, by counters)
         run: |
-          tools/mv-s-gate.sh --out "$RUNNER_TEMP/mv-s" \
+          tools/mv-s-gate.sh --out "$RUNNER_TEMP/mv-s" --keep \
             --extractor "$GITHUB_WORKSPACE/e2e/micro/.lake/e2e-extract/extract"
 
       # The gate's own header asks for the measurement target, that target's
@@ -214,6 +214,15 @@ jobs:
       # Chrome, so nothing is downloaded to drive it.
       - name: Browser gate
         run: tools/browser-gate.sh "$RUNNER_TEMP/e2e/first/site" --json "$RUNNER_TEMP/browser.json"
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+
+      # D9's page-path and anchor promise, read in a browser after each page is
+      # drawn from data: S v1 against the frozen e2e/micro-expected pages, and
+      # every link and anchor of every version in both URL modes. It reads the
+      # two renders the S loop above kept.
+      - name: Page paths and anchors, drawn (multi-version)
+        run: tools/mv-pages-gate.sh --from "$RUNNER_TEMP/mv-s"
         env:
           CHROME_PATH: /usr/bin/google-chrome
 

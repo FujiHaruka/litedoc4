@@ -1848,16 +1848,16 @@ async function Xe(e) {
 //#endregion
 //#region src/store-data.ts
 var Ze = new TextDecoder(), Qe = /* @__PURE__ */ new Map(), $e = (e, t) => `d/${e}.${t}.gz`;
-function V(e, t, n) {
+function et(e, t, n) {
 	let r = new URL(e + $e(t, n), location.href).href, i = Qe.get(r);
 	return i || (i = fetch(r).then((e) => e.ok ? e.arrayBuffer() : Promise.reject(/* @__PURE__ */ Error(`${e.status} ${r}`))).then((e) => Xe(new Uint8Array(e))), Qe.set(r, i)), i;
 }
-async function H(e, t) {
-	return JSON.parse(Ze.decode(await V(e, t, \"json\")));
+async function V(e, t) {
+	return JSON.parse(Ze.decode(await et(e, t, \"json\")));
 }
 //#endregion
 //#region src/route.ts
-function et(e, t) {
+function tt(e, t) {
 	let { root: n, version: i, data: a } = e;
 	if (n === void 0 || i === void 0 || a === void 0) return null;
 	let o = {
@@ -1894,24 +1894,24 @@ function et(e, t) {
 		usedBy: e.usedBy ?? \"\"
 	};
 }
-function tt(e) {
+function H(e) {
 	return e.kind === \"module\" ? le(e.module) : e.kind === \"references\" ? \"references.html\" : e.kind === \"search\" ? \"search.html\" : e.kind === \"foundational\" ? j : \"index.html\";
 }
-var U = (e, t) => e.mode === \"hash\" ? a(e.version, t) : `${e.root}${e.version}/${t}`, W = (e, t) => tt(e) + (e.kind === \"search\" ? e.query : \"\") + (t === null ? \"\" : `#${t}`), nt = (e, t) => e.kind === t.kind && e.mode === t.mode && e.version === t.version && W(e, null) === W(t, null) && (e.kind !== \"not-found\" || t.kind !== \"not-found\" || e.asked === t.asked), G = (e, t, n) => ({
+var U = (e, t) => e.mode === \"hash\" ? a(e.version, t) : `${e.root}${e.version}/${t}`, W = (e, t) => H(e) + (e.kind === \"search\" ? e.query : \"\") + (t === null ? \"\" : `#${t}`), nt = (e, t) => e.kind === t.kind && e.mode === t.mode && e.version === t.version && W(e, null) === W(t, null) && (e.kind !== \"not-found\" || t.kind !== \"not-found\" || e.asked === t.asked), G = (e, t, n) => ({
 	at: (t) => U(e, t),
 	here: (t) => e.mode === \"hash\" ? U(e, W(e, t)) : `#${t}`,
 	roots: n,
 	bases: t.roots
 }), K = (e, t) => t && t !== e ? `${e} · ${t}` : e;
 async function rt(e) {
-	let [t, n] = await Promise.all([H(e.root, e.data), H(e.root, e.page)]), r = n.content === null ? [] : await H(e.root, n.content), i = G(e, t, n.roots), a = Fe({
+	let [t, n] = await Promise.all([V(e.root, e.data), V(e.root, e.page)]), r = n.content === null ? [] : await V(e.root, n.content), i = G(e, t, n.roots), a = Fe({
 		linker: i,
 		version: t,
 		page: n,
 		content: r
 	});
 	return a.querySelector(\".modmeta .imports:not([data-fill])\")?.addEventListener(\"toggle\", () => {
-		H(e.root, t.modules).then((e) => Ie(a, i, e.modules, n.module));
+		V(e.root, t.modules).then((e) => Ie(a, i, e.modules, n.module));
 	}, { once: !0 }), {
 		title: K(n.module, t.title),
 		nodes: Je(i, t.title, Pe(r), a),
@@ -1921,7 +1921,7 @@ async function rt(e) {
 	};
 }
 async function it(e) {
-	let t = await H(e.root, e.data), [n, r] = await Promise.all([H(e.root, t.modules), t.front === null ? null : H(e.root, t.front)]), i = G(e, t, []);
+	let t = await V(e.root, e.data), [n, r] = await Promise.all([V(e.root, t.modules), t.front === null ? null : V(e.root, t.front)]), i = G(e, t, []);
 	return {
 		title: t.title,
 		nodes: B(i, t.title, ...ze(i, t, n, r)),
@@ -1931,7 +1931,7 @@ async function it(e) {
 	};
 }
 async function at(e) {
-	let [t, n] = await Promise.all([H(e.root, e.data), H(e.root, e.references)]), r = G(e, t, []);
+	let [t, n] = await Promise.all([V(e.root, e.data), V(e.root, e.references)]), r = G(e, t, []);
 	return {
 		title: K(\"References\", t.title),
 		nodes: B(r, t.title, ...Ve(r, n)),
@@ -1941,7 +1941,7 @@ async function at(e) {
 	};
 }
 async function q(e, t, n) {
-	let r = await H(e.root, e.data), i = G(e, r, []);
+	let r = await V(e.root, e.data), i = G(e, r, []);
 	return {
 		title: K(t, r.title),
 		nodes: B(i, r.title, ...n(i)),
@@ -2078,7 +2078,7 @@ function mt(e, t, n, r) {
 //#region src/store-fill.ts
 var ht = (e) => w(\"li\", \"search-empty\", e);
 async function gt(e, t, n) {
-	let r = await H(e.root, e.usedBy).catch(() => null), i = r?.[t] ?? [];
+	let r = await V(e.root, e.usedBy).catch(() => null), i = r?.[t] ?? [];
 	if (i.length === 0) {
 		n.replaceChildren(ht(r ? \"None\" : \"Index unavailable\"));
 		return;
@@ -2086,7 +2086,7 @@ async function gt(e, t, n) {
 	n.replaceChildren(...i.map(([t, n]) => w(\"li\", \"\", T(\"\", M(e.linker, n, t), t))));
 }
 async function _t(e, t, n, r) {
-	let [i, a] = await Promise.all([H(e.root, e.version.instances).catch(() => null), e.source.data()]), o = i?.[t]?.[n] ?? [];
+	let [i, a] = await Promise.all([V(e.root, e.version.instances).catch(() => null), e.source.data()]), o = i?.[t]?.[n] ?? [];
 	if (o.length === 0) {
 		r.replaceChildren(ht(i ? \"None\" : \"Index unavailable\"));
 		return;
@@ -2105,7 +2105,7 @@ function vt(e, t) {
 function yt(e) {
 	let t = document.getElementById(\"module-tree\"), n = t?.closest(\"details\");
 	!t || !n || (n.addEventListener(\"toggle\", () => {
-		H(e.root, e.version.modules).then((n) => {
+		V(e.root, e.version.modules).then((n) => {
 			t.replaceChildren(mt(pt(n.modules), \"\", e.module, e.linker.at)), t.querySelector(\"[aria-current]\")?.scrollIntoView({ block: \"center\" });
 		});
 	}, { once: !0 }), document.getElementById(\"nav-toggle\")?.addEventListener(\"click\", () => {
@@ -2116,7 +2116,7 @@ function yt(e) {
 //#region src/store-search.ts
 function bt(e, t, n) {
 	let r = null, i = async () => {
-		let [n, r] = await Promise.all([H(e, t.modules), V(e, t.search, \"bin\")]), i = h(r);
+		let [n, r] = await Promise.all([V(e, t.modules), et(e, t.search, \"bin\")]), i = h(r);
 		return i ? {
 			modules: n.modules,
 			index: i
@@ -2157,25 +2157,27 @@ function Tt() {
 	});
 }
 //#endregion
-//#region src/shell-probe.ts
-async function Et(e) {
-	let t = await fetch(e).catch(() => null);
-	if (!t?.ok) return !1;
-	let n = await t.text().catch(() => \"\");
-	return new DOMParser().parseFromString(n, \"text/html\").body.dataset.version !== void 0;
+//#region src/listed.ts
+var Et = [
+	\"index.html\",
+	\"references.html\",
+	\"search.html\",
+	j
+];
+async function Dt(e, t) {
+	return (await V(e, (await V(e, t.data)).modules)).modules;
 }
+var Ot = (e, t) => Et.includes(t) || e.some((e) => e.p === t);
 //#endregion
 //#region src/versions.ts
-function Dt(e, t, n) {
+function kt(e, t, n) {
 	let r = {
 		...e,
 		version: t
 	};
-	if (e.kind !== \"module\") return U(r, W(e, e.anchor));
-	let i = n?.find((t) => t.n === e.module);
-	return i ? U(r, i.p + (e.anchor === null ? \"\" : `#${e.anchor}`)) : U(r, `index.html?${C}=${encodeURIComponent(e.module)}`);
+	return e.kind === \"module\" ? n !== null && Ot(n, H(e)) ? U(r, W(e, e.anchor)) : U(r, `index.html?${C}=${encodeURIComponent(e.module)}`) : U(r, W(e, e.anchor));
 }
-function Ot(e) {
+function At(e) {
 	if (e.mode === \"hash\") {
 		let t = o(location.hash);
 		return {
@@ -2191,45 +2193,45 @@ function Ot(e) {
 		anchor: t ? r(t) : null
 	};
 }
-async function kt(e, t) {
-	let n = Ot(e);
-	if (n.kind !== \"module\") return Dt(n, t.name, null);
-	let r = await H(n.root, t.data), i = await H(n.root, r.modules);
-	return Dt(n, t.name, i.modules);
+async function jt(e, t) {
+	let n = At(e);
+	return n.kind === \"module\" ? kt(n, t.name, await Dt(n.root, t)) : kt(n, t.name, null);
 }
-var At = /* @__PURE__ */ new Map();
-function jt(e) {
-	let t = At.get(e);
-	return t || (t = fetch(new URL(`${e}versions.json`, location.href)).then((e) => e.ok ? e.json() : null).catch(() => null), At.set(e, t)), t;
+var Mt = /* @__PURE__ */ new Map();
+function Nt(e) {
+	let t = Mt.get(e);
+	return t || (t = fetch(new URL(`${e}versions.json`, location.href)).then((e) => e.ok ? e.json() : null).catch(() => null), Mt.set(e, t)), t;
 }
 function X(...e) {
 	let t = w(\"p\", \"results-note\", ...e);
 	return t.setAttribute(\"role\", \"status\"), document.getElementById(\"content\")?.prepend(t), t;
 }
-var Mt = (e, t) => history.replaceState(history.state, \"\", U(e, t));
-function Nt(e) {
+var Pt = (e, t) => history.replaceState(history.state, \"\", U(e, t));
+function Ft(e) {
 	let t = new URLSearchParams(e.query).get(C);
-	e.kind === \"index\" && t !== null && (X(`The module ${t} does not exist in version ${e.version}.`), Mt(e, W(e, e.anchor))), e.kind === \"module\" && e.anchor !== null && document.getElementById(e.anchor) === null && (X(`The declaration ${e.anchor} does not exist in version ${e.version} of ${e.module}.`), Mt(e, W(e, null)));
+	e.kind === \"index\" && t !== null && (X(`The module ${t} does not exist in version ${e.version}.`), Pt(e, W(e, e.anchor))), e.kind === \"module\" && e.anchor !== null && document.getElementById(e.anchor) === null && (X(`The declaration ${e.anchor} does not exist in version ${e.version} of ${e.module}.`), Pt(e, W(e, null)));
 }
-async function Pt(e, t, n) {
+async function It(e, t, n) {
 	try {
-		location.assign(new URL(await kt(e, t), location.href).href);
+		location.assign(new URL(await jt(e, t), location.href).href);
 	} catch {
 		n.value = e.version;
 	}
 }
-async function Ft(e, t) {
+async function Lt(e, t) {
 	if (document.querySelector(\"link[rel=\\\"canonical\\\"]\")?.remove(), e.mode === \"hash\" || e.kind === \"not-found\") return;
-	let n = new URL(U({
+	if (e.kind === \"module\" && e.version !== t.name) {
+		let n = await Dt(e.root, t).catch(() => null);
+		if (n === null || !Ot(n, H(e))) return;
+	}
+	let n = document.createElement(\"link\");
+	n.rel = \"canonical\", n.href = new URL(U({
 		...e,
-		version: t
-	}, tt(e)), location.href).href;
-	if (e.kind === \"module\" && e.version !== t && !await Et(n)) return;
-	let r = document.createElement(\"link\");
-	r.rel = \"canonical\", r.href = n, document.head.append(r);
+		version: t.name
+	}, H(e)), location.href).href, document.head.append(n);
 }
-async function It(e) {
-	let t = await jt(e.root);
+async function Rt(e) {
+	let t = await Nt(e.root);
 	if (!t || t.length === 0) return;
 	let n = w(\"select\", \"versions\");
 	n.setAttribute(\"aria-label\", \"Version\");
@@ -2239,15 +2241,15 @@ async function It(e) {
 	}
 	n.addEventListener(\"change\", () => {
 		let r = t.find((e) => e.name === n.value);
-		r && Pt(e, r, n);
+		r && It(e, r, n);
 	}), document.querySelector(\".topbar .home\")?.after(n);
 	let r = t[t.length - 1];
 	if (r) {
 		if (r.name !== e.version) {
 			let t = w(\"button\", \"\", `Go to ${r.name}`);
-			t.type = \"button\", t.addEventListener(\"click\", () => void Pt(e, r, n)), X(`This is version ${e.version}; the newest is ${r.name}. `, t);
+			t.type = \"button\", t.addEventListener(\"click\", () => void It(e, r, n)), X(`This is version ${e.version}; the newest is ${r.name}. `, t);
 		}
-		Ft(e, r.name);
+		Lt(e, r);
 	}
 }
 //#endregion
@@ -2266,16 +2268,16 @@ function $(e) {
 	}
 	t.classList.add(\"targeted\"), t.scrollIntoView();
 }
-function Lt(e) {
+function zt(e) {
 	e.mode === \"hash\" ? $(e) : location.hash && location.replace(location.href);
 }
-function Rt(e, t) {
+function Bt(e, t) {
 	let n = document.getElementById(\"search-input\");
 	n?.form?.addEventListener(\"submit\", (t) => {
 		t.preventDefault(), location.hash = U(e, `search.html?q=${encodeURIComponent(n.value)}`);
 	}, { signal: t });
 }
-async function zt(e, n, r) {
+async function Vt(e, n, r) {
 	delete Z.dataset.drawn;
 	let i;
 	try {
@@ -2287,7 +2289,7 @@ async function zt(e, n, r) {
 	if (r.aborted) return;
 	document.title = i.title, Z.classList.toggle(\"plain\", i.plain), Z.replaceChildren(...i.nodes), Tt(), t(r);
 	let a = bt(e.root, i.version, i.linker.at);
-	if (e.kind === \"search\" ? dt(a, e.query) : e.mode === \"hash\" && Rt(e, r), lt(a, r), e.kind === \"module\") {
+	if (e.kind === \"search\" ? dt(a, e.query) : e.mode === \"hash\" && Bt(e, r), lt(a, r), e.kind === \"module\") {
 		let t = {
 			...e,
 			version: i.version,
@@ -2296,15 +2298,15 @@ async function zt(e, n, r) {
 		};
 		vt(Z, t), yt(t);
 	}
-	e.kind === \"not-found\" && ae(a, e.guess), Nt(e), Z.dataset.drawn = \"1\", Lt(e), It(e).then(() => {
+	e.kind === \"not-found\" && ae(a, e.guess), Ft(e), Z.dataset.drawn = \"1\", zt(e), Rt(e).then(() => {
 		!r.aborted && e.mode === \"hash\" && e.anchor !== null && $(e);
 	});
 }
-var Bt = (e) => {
+var Ht = (e) => {
 	let t = document.querySelector(e);
 	return t ? [...t.content.childNodes] : [];
 };
-async function Vt(e, t) {
+async function Ut(e, t) {
 	let n = t[t.length - 1], i = o(location.hash);
 	if (i === null) return history.replaceState(history.state, \"\", a(n.name, \"index.html\")), {
 		root: e,
@@ -2338,7 +2340,7 @@ async function Vt(e, t) {
 		query: i.query,
 		anchor: i.anchor
 	};
-	if (H(e, s.data).catch(() => null), i.page === \"\") return {
+	if (V(e, s.data).catch(() => null), i.page === \"\") return {
 		...c,
 		kind: \"index\"
 	};
@@ -2351,14 +2353,14 @@ async function Vt(e, t) {
 		kind: \"foundational\"
 	};
 	if (i.page === \"references\") {
-		let t = await H(e, s.data);
+		let t = await V(e, s.data);
 		return {
 			...c,
 			kind: \"references\",
 			references: t.references
 		};
 	}
-	let l = s.routes === void 0 ? {} : await H(e, s.routes), u = Object.hasOwn(l, i.page) ? l[i.page] : void 0;
+	let l = s.routes === void 0 ? {} : await V(e, s.routes), u = Object.hasOwn(l, i.page) ? l[i.page] : void 0;
 	if (!u) {
 		let e = i.page.split(\"/\").join(\".\");
 		return {
@@ -2368,7 +2370,7 @@ async function Vt(e, t) {
 			anchor: null
 		};
 	}
-	let [d, f] = u, p = await H(e, d);
+	let [d, f] = u, p = await V(e, d);
 	return {
 		...c,
 		kind: \"module\",
@@ -2377,11 +2379,11 @@ async function Vt(e, t) {
 		usedBy: f
 	};
 }
-async function Ht(e) {
+async function Wt(e) {
 	let t = {
-		search: Bt(\"template#search-body\"),
-		foundational: Bt(\"template#foundational-body\")
-	}, n = await jt(e);
+		search: Ht(\"template#search-body\"),
+		foundational: Ht(\"template#foundational-body\")
+	}, n = await Nt(e);
 	if (!n || n.length === 0) {
 		Q(/* @__PURE__ */ Error(\"versions.json\"));
 		return;
@@ -2389,7 +2391,7 @@ async function Ht(e) {
 	let r = null, i = null, a = async () => {
 		let a;
 		try {
-			a = await Vt(e, n);
+			a = await Ut(e, n);
 		} catch (e) {
 			Q(e);
 			return;
@@ -2400,24 +2402,24 @@ async function Ht(e) {
 		}
 		i?.abort(), i = new AbortController(), r = a;
 		let o = a.kind === \"search\" ? t.search : a.kind === \"foundational\" ? t.foundational : [];
-		await zt(a, o.map((e) => e.cloneNode(!0)), i.signal);
+		await Vt(a, o.map((e) => e.cloneNode(!0)), i.signal);
 	};
 	addEventListener(\"hashchange\", () => void a()), await a();
 }
-function Ut() {
+function Gt() {
 	if (Z.dataset.mode === \"hash\") {
-		Ht(Z.dataset.root ?? \"./\");
+		Wt(Z.dataset.root ?? \"./\");
 		return;
 	}
-	let e = et(Z.dataset, location);
-	e && zt(e, [...Z.childNodes], new AbortController().signal);
+	let e = tt(Z.dataset, location);
+	e && Vt(e, [...Z.childNodes], new AbortController().signal);
 }
-Ut();
+Gt();
 //#endregion
 "
 
 def redirectJs : String :=
-  "(function(){var e=e=>{try{return decodeURIComponent(e)}catch{return e}},t=(e,t)=>{let n=e.indexOf(t);return n<0?[e,null]:[e.slice(0,n),e.slice(n+1)]};function n(e,n){let[r,i]=t(n,`#`),[a,o]=t(r,`?`),s=new URLSearchParams(o??``);i!==null&&s.set(`id`,i);let c=a===`index.html`?``:a.replace(/\\.html$/,``),l=s.toString();return`#/${e}/${c}${l?`?${l}`:``}`}new TextDecoder,new TextEncoder;var r=new Uint8Array(256);for(let e=0;e<256;e++)r[e]=e>=65&&e<=90?e+32:e;var i=(t,n)=>e(n)||e(t).replace(/\\.html$/,``).split(`/`).filter(Boolean).join(`.`),a=`missing`;function o(e){let t=e.split(`/`),n=[];for(let e=1;e<t.length;e++)n.push(`${t.slice(0,e).join(`/`)}/`);return n}function s(e){return Array.isArray(e)&&e.length>0&&e.every(e=>typeof e==`object`&&!!e&&typeof e.name==`string`&&typeof e.data==`string`)}function c(t,n){let r=t.indexOf(`/`),i=e(r<0?t:t.slice(0,r));return n.includes(i)?{kind:`versioned`,version:i,path:r<0?``:t.slice(r+1)}:t===``?{kind:`nothing`}:{kind:`unversioned`,path:t}}var l=t=>t.endsWith(`.html`)&&t.length>5?e(t.slice(0,-5)).split(`/`).join(`.`):null;function u(t,r,i,a){let o=a.hash.length>1?`#${e(a.hash.slice(1))}`:``,[s,c]=r.kind===`versioned`?[r.version,r.path]:[i,r.kind===`unversioned`?r.path:``];return t+n(s,e(c)+a.search+o)}async function d(e){let t=await fetch(e).catch(()=>null);if(!t?.ok)return!1;let n=await t.text().catch(()=>``);return new DOMParser().parseFromString(n,`text/html`).body.dataset.version!==void 0}async function f(e){let t=await fetch(`${e}versions.json`).catch(()=>null);if(!t?.ok)return null;let n=await t.json().catch(()=>null);return s(n)?{root:e,versions:n}:null}async function p(e){return(await Promise.all(o(e).map(f))).find(e=>e!==null)??null}function m(t,n,r){Object.assign(document.body.dataset,{root:t.root,version:n.name,data:n.data,kind:`not-found`,asked:e(location.pathname+location.hash),guess:i(r,location.hash.slice(1))});let a=document.head,o=(e,t)=>{let n=document.createElement(e);for(let[e,r]of Object.entries(t))n.setAttribute(e,r);a.append(n)};o(`link`,{rel:`stylesheet`,href:`${t.root}assets/style.css`}),o(`link`,{rel:`icon`,href:`${t.root}assets/favicon.svg`}),o(`script`,{type:`module`,src:`${t.root}assets/site.js`})}async function h(e){let t=await p(location.pathname),n=t?.versions[t.versions.length-1];if(!t||!n)return;let r=location.pathname.slice(t.root.length),i=c(r,t.versions.map(e=>e.name));if(e){location.replace(u(t.root,i,n.name,location));return}if(i.kind===`unversioned`){let e=`${t.root}${n.name}/${i.path}`;if(await d(e)){location.replace(e+location.search+location.hash);return}}let o=i.kind===`versioned`?l(i.path):null;if(i.kind===`versioned`&&o!==null){location.replace(`${t.root}${i.version}/index.html?${a}=${encodeURIComponent(o)}`);return}m(t,n,i.kind===`nothing`?r:i.path)}var g=document.currentScript,_=g?.dataset.newest;_===void 0?h(g?.dataset.mode===`hash`):location.replace(`${_}/index.html${location.search}${location.hash}`)})();"
+  "(function(){var e=e=>{try{return decodeURIComponent(e)}catch{return e}},t=(e,t)=>{let n=e.indexOf(t);return n<0?[e,null]:[e.slice(0,n),e.slice(n+1)]};function n(e,n){let[r,i]=t(n,`#`),[a,o]=t(r,`?`),s=new URLSearchParams(o??``);i!==null&&s.set(`id`,i);let c=a===`index.html`?``:a.replace(/\\.html$/,``),l=s.toString();return`#/${e}/${c}${l?`?${l}`:``}`}new TextDecoder,new TextEncoder;var r=new Uint8Array(256);for(let e=0;e<256;e++)r[e]=e>=65&&e<=90?e+32:e;var i=(t,n)=>e(n)||e(t).replace(/\\.html$/,``).split(`/`).filter(Boolean).join(`.`),a=`foundational_types.html`,o=e=>e.length>=2&&e[0]===31&&e[1]===139;async function s(e){if(!o(e))return e;let t=new Blob([e]).stream().pipeThrough(new DecompressionStream(`gzip`));return new Uint8Array(await new Response(t).arrayBuffer())}var c=new TextDecoder,l=new Map,u=(e,t)=>`d/${e}.${t}.gz`;function d(e,t,n){let r=new URL(e+u(t,n),location.href).href,i=l.get(r);return i||(i=fetch(r).then(e=>e.ok?e.arrayBuffer():Promise.reject(Error(`${e.status} ${r}`))).then(e=>s(new Uint8Array(e))),l.set(r,i)),i}async function f(e,t){return JSON.parse(c.decode(await d(e,t,`json`)))}var p=[`index.html`,`references.html`,`search.html`,a];async function m(e,t){return(await f(e,(await f(e,t.data)).modules)).modules}var h=(e,t)=>p.includes(t)||e.some(e=>e.p===t),g=`missing`;function _(e){let t=e.split(`/`),n=[];for(let e=1;e<t.length;e++)n.push(`${t.slice(0,e).join(`/`)}/`);return n}function v(e){return Array.isArray(e)&&e.length>0&&e.every(e=>typeof e==`object`&&!!e&&typeof e.name==`string`&&typeof e.data==`string`)}function y(t,n){let r=t.indexOf(`/`),i=e(r<0?t:t.slice(0,r));return n.includes(i)?{kind:`versioned`,version:i,path:r<0?``:t.slice(r+1)}:t===``?{kind:`nothing`}:{kind:`unversioned`,path:t}}var b=t=>t.endsWith(`.html`)&&t.length>5?e(t.slice(0,-5)).split(`/`).join(`.`):null;function x(t,r,i,a){let o=a.hash.length>1?`#${e(a.hash.slice(1))}`:``,[s,c]=r.kind===`versioned`?[r.version,r.path]:[i,r.kind===`unversioned`?r.path:``];return t+n(s,e(c)+a.search+o)}async function S(e){let t=await fetch(`${e}versions.json`).catch(()=>null);if(!t?.ok)return null;let n=await t.json().catch(()=>null);return v(n)?{root:e,versions:n}:null}async function C(e){for(let t of _(e)){let e=await S(t);if(e!==null)return e}return null}function w(t,n,r,a){Object.assign(document.body.dataset,{root:t.root,version:n.name,data:n.data,kind:`not-found`,asked:e(location.pathname+location.hash),guess:i(r,location.hash.slice(1))});let o=document.head,s=(e,t)=>{let n=document.createElement(e);for(let[e,r]of Object.entries(t))n.setAttribute(e,r);o.append(n)};s(`link`,{rel:`stylesheet`,href:`${t.root}assets/style.css`}),a.setAttribute(`href`,`${t.root}assets/favicon.svg`),s(`script`,{type:`module`,src:`${t.root}assets/site.js`})}async function T(t,n){let r=await C(location.pathname),i=r?.versions[r.versions.length-1];if(!r||!i)return;let a=location.pathname.slice(r.root.length),o=y(a,r.versions.map(e=>e.name));if(t){location.replace(x(r.root,o,i.name,location));return}if(o.kind===`unversioned`){let t=await m(r.root,i).catch(()=>null);if(t!==null&&h(t,e(o.path))){location.replace(`${r.root}${i.name}/${o.path}${location.search}${location.hash}`);return}}let s=o.kind===`versioned`?b(o.path):null;if(o.kind===`versioned`&&s!==null){location.replace(`${r.root}${o.version}/index.html?${g}=${encodeURIComponent(s)}`);return}w(r,i,o.kind===`nothing`?a:o.path,n)}var E=document.currentScript,D=E?.dataset.newest;if(D!==void 0)location.replace(`${D}/index.html${location.search}${location.hash}`);else{let e=document.createElement(`link`);e.setAttribute(`rel`,`icon`),e.setAttribute(`href`,`data:,`),document.head.append(e),T(E?.dataset.mode===`hash`,e)}})();"
 
 /-- Each asset's path **under the site root**, paired with its bytes.
 The paths are flat, relative and `/`-separated because they are URLs a
