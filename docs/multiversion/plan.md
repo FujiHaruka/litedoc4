@@ -46,7 +46,7 @@ This milestone ships as v2.0.0. What it has to meet:
 
 | Release | Date | Commit | Lean | Extractor builds on this Lean |
 |---|---|---|---|---|
-| v4.34.1 | 2026-09-24 | `d13f23b723` | v4.34.1 | unmeasured |
+| v4.34.1 | 2026-09-24 | `d13f23b723` | v4.34.1 | yes (2026-10-08) |
 | v4.34.0 | 2026-09-15 | `5ed2965256` | v4.34.0 | unmeasured |
 | v4.33.1 | 2026-08-21 | `0df444a360` | v4.33.1 | yes |
 | v4.33.0 | 2026-08-10 | `db584cd6d4` | v4.33.0 | yes |
@@ -176,6 +176,9 @@ v4.29.0, v4.29.1, v4.30.0, v4.32.0, v4.32.1, v4.34.0, v4.34.1.
   uncertain ones.
 - **Wrong if**: any of them fails to build. v4.34.x then has to be fixed regardless — it is the
   newest and every future release continues from it. v4.29 / v4.30 can be fixed or dropped (→ D1).
+- **Result for v4.34.1** (measured 2026-10-08 →
+  `benchmarks/results/lean-434-build-2026-10-08.txt`): builds and runs with no change; the
+  others are still unmeasured.
 - **Constraint**: the extractor does not branch on the Lean version. If a fix cannot be written
   without branching, that is a finding to bring back, not a licence to branch.
 - This cost recurs: every new Lean release may break the extractor. The plan has to say who pays

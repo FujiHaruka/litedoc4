@@ -444,7 +444,8 @@ What has to change on the way: the ledger keys, `Generation.take`, `deriveSource
 toolchains the native path supports, and a version on a toolchain with no row fails by name.
 
 **This is a cost paid on every release**: adding a release needs the extractor to build on its
-Lean and a row for it (with column 2 measured). v4.34.x has none today. There is no fallback —
+Lean and a row for it (with column 2 measured). v4.34.1 has one since 2026-10-08, with no change
+to the extractor; v4.34.0 has none. There is no fallback —
 the reader knows no layout for a Lean newer than its writer table either.
 
 Done when: an empty store plus three versions builds the site; the same command with one version
@@ -559,12 +560,11 @@ entry re-extracted into the same bytes render `0 of 5`.
   `mi_malloc` reproduce it. A full render of n versions peaks ≈ 3.67 + 0.585 (n − 1) GiB on the
   runner (extrapolated): ≈ 9.5 GiB at 11, past 16 GB at about 20. Under a 4 GiB cgroup cap one
   version renders and three do not. Lean v4.34.1's mimalloc 3.4.4 reuses the block (the same
-  probe, flat); v4.34 has no row in `tools/lean-toolchains.txt` yet, and the renderer is built
-  with the consumer's toolchain, so the supported range keeps the growth. **Not worked around**
+  probe, flat); v4.34.1 is a row of `tools/lean-toolchains.txt` since 2026-10-08, but the
+  renderer is built with the consumer's toolchain, so v4.31.0–v4.33.1 keep the growth. **Not worked around**
   (decided 2026-10-08, user's call): one process per version was the lever, and it is not taken
   because the growth leaves with the toolchain. litedoc4, its tests and the extractor build on
-  v4.34.1 (measured → `benchmarks/results/lean-434-build-2026-10-08.txt`); a v4.34.1 row is not
-  measured. **Falsified** if the set must be fully rendered past ≈ 20 versions on a 16 GB machine
+  v4.34.1 (measured → `benchmarks/results/lean-434-build-2026-10-08.txt`), which is now a row. **Falsified** if the set must be fully rendered past ≈ 20 versions on a 16 GB machine
   while the renderer is still built on v4.33 or older.
 - **Premise**: the previously deployed site is at `<out>/site` when the build starts. Locally it
   is; on the runner step 6 has to bring it down with the store (≈ 300 MB at three versions,

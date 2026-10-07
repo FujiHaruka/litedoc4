@@ -17,5 +17,12 @@ leanprover/lean4:v4.34.1, leanGithash 5045d0056413266e57c625dcd7c365b10e377c52.
   leanc -rdynamic): both exit 0. `extract --identity` exits 0 and prints
   "schema=1 source=fnv1a64:6cc825bf93f26025 lean=4.34.1 leanGithash=5045d005... equations=0 ...".
 
-Not done: an extraction of a real package on v4.34.1, and the column-2 value tools/lean-toolchains.txt
-needs for a v4.34.1 row. Building is not supporting: v4.34.1 stays without a row.
+(4) The row (measured, later the same day)
+  tools/e2e-micro.sh in a worktree with e2e/micro and e2e/micro-dep pinned to v4.34.1 and a row
+  `leanprover/lean4:v4.34.1 UNMEASURED`: GATE 8 stopped with "Lean spelled the reducible-instance
+  attribute ['instance_reducible'] here". With that in column 2: "E2E MICRO: ok", 13 of 13 steps.
+  The row went in at cee62bb. ci-lean-versions.yml dispatched on multi-version at cee62bb, run
+  37697700267: e2e green on all five toolchains, and "LEAN VERSIONS: v4.31.0, v4.32.2, v4.33.0, v4.33.1,
+  v4.34.1 agree over 13 IR files (rename to `implicit_reducible` applied v4.33.0 6, v4.33.1 6, v4.34.1 6
+  time(s), nothing else normalised)". ci.yml at cee62bb, run 37697703477: all five jobs green.
+  Not done: a Mathlib-sized package on v4.34.1.

@@ -5,7 +5,7 @@
 - Working directory: /Users/haruka/dev/lean-doc
 - Branch `multi-version`, pushed, clean. Not `main`; no PR open.
 - Working context: the render-memory question is closed. The user decided (2026-10-08) not to
-  work around it: Lean v4.34.1's mimalloc 3.4.4 fixes it, and litedoc4 builds there.
+  work around it: Lean v4.34.1's mimalloc 3.4.4 fixes it; v4.34.1 is now a supported row.
 
 ## Where we are
 
@@ -34,8 +34,9 @@ the known gaps.
   `MIMALLOC_DISALLOW_ARENA_ALLOC=1` (worse), `MIMALLOC_ARENA_EAGER_COMMIT=0`, `mi_collect(true)`.
   macOS footprint/RSS can't separate retained from freed (compressor) — use Linux `/proc` floors.
 - Lean v4.34.1's mimalloc 3.4.4 reuses the block (measured, log section (10)): the growth is
-  2.2.3's, i.e. v4.31.0-v4.33.1. litedoc4 + tests + extractor build on v4.34.1; a v4.34.1 row
-  (a real extraction, column 2) is not measured. Process-per-version was rejected (user's call).
+  2.2.3's, i.e. v4.31.0-v4.33.1. v4.34.1 is a supported row since cee62bb (instance_reducible;
+  CI run 37697700267 green on all five toolchains, IR agrees). No Mathlib-sized run on v4.34.1
+  yet. Process-per-version was rejected (user's call).
 - Experiment code is readable at commit 070e030 (`litedoc4_exp_*` in `csrc/gzip.c`, phases in
   `renderStore`, `.github/workflows/mv-l-render.yml`); removed in ab086f9.
 - Run 37630692670's artifact `mv-l-store` (3 L entries) expires 2026-10-21; a local copy is at
