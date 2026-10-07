@@ -318,10 +318,9 @@ source links built from the version's prefix; the version switcher; search over 
 version's index; Used by and instances on demand; path URLs and the hash-URL option (D6); a
 `#name` anchor that scrolls once the content exists (U7).
 
-D6 leaves four product questions; these defaults are proposed and confirmed before this step
-ships:
+D6 left four product questions; these defaults are implemented (decided 2026-10-07, user's call):
 
-| Question | Proposed default |
+| Question | Default |
 |---|---|
 | Old links (`/Mathlib/Foo/Bar.html`) | the page sends the reader to the newest version's page |
 | Which URL search engines are told | the newest version's page |
@@ -344,8 +343,8 @@ What exists (2026-10-07):
   canonical link. The module list, search index, Used by and instances are fetched only when the
   reader opens what needs them. Nothing a version's shells or data files hold depends on the
   version set; what does (the switcher, canonical) is filled by script.
-- **D6's four questions are implemented with the proposed defaults** (the table above), not yet
-  confirmed. The root sends the reader to the newest version by script (`location.replace`, query
+- **D6's four questions are implemented with the defaults above.** The root sends the reader to
+  the newest version by script (`location.replace`, query
   and fragment kept); a root `404.html` sends an unversioned old path to the newest version's page
   and a module a version lacks to that version's index, finding the site root by probing
   `versions.json` up the path (so it works under a path prefix). A host with a 200 rewrite points
@@ -429,8 +428,7 @@ Decided by those numbers:
   demand, ≈ 2.13 MB gzip at Mathlib with the instances file and the module list (extrapolated;
   the earlier "≈ 5 MB" was the raw index alone).
 
-**Done 2026-10-07.** D6's four defaults (the table above) are implemented and await the user's
-confirmation.
+**Done 2026-10-07.**
 
 ### 4. One command over the version set
 

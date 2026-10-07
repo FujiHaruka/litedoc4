@@ -743,7 +743,7 @@ Open:
 - how many commits such a site keeps: a commit URL is fixed only for as long as its content is
   hosted, and a site rebuilt on every push adds a version per push.
 
-Implemented with proposed defaults (step 3), awaiting the user's confirmation:
+Implemented in step 3 (decided 2026-10-07, user's call):
 
 - links into today's sites (`/Mathlib/Foo/Bar.html`) are sent to the newest version's page by the
   site's `404.html`, since a static host serves no redirects;

@@ -7,8 +7,9 @@
 - SoT: `docs/multiversion/plan.md` and `docs/multiversion/implementation.md`. Step 3 is marked
   Done; its "What exists" block carries the settle time, the re-derived M numbers and the six
   decisions. Next is step 4 ("One command over the version set").
-- Waiting on the user: confirmation of D6's four defaults (plan.md D6, "Implemented with proposed
-  defaults").
+- D6's four defaults confirmed by the user (2026-10-07). Open with the user before step 4: one
+  render path (step 4 already retires `build`'s static HTML) and whether the page script should
+  use Preact.
 
 ## Relay control
 - Mode: DONE
@@ -19,7 +20,7 @@
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Summary: the drawn largest page settles in 217 ms against 322 ms static (same session); the D9
   check existed from r1. Hash mode now fetches three files in a row before drawing; the other
-  levers were measured and kept. D6 defaults await confirmation.
+  levers were measured and kept. D6 defaults confirmed.
 - Progress ledger
   - r1: implemented and gated on S — drawn pages + assets `5281a10`; switcher, search, on-demand
     `c60c898`; root / 404 / canonical / hash-URL mode `a1fec28`; D9 gate failed once `9ddc4bf`;
