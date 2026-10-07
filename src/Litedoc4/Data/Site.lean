@@ -313,58 +313,13 @@ def writeRoot (out : FilePath) (entries : Array Listed) (hashUrls : Bool) :
     (← writeText out "index.html" (if hashUrls then hashShell listed else siteIndexShell newest.name))
     |>.plus (← writeText out notFoundPage (notFoundShell hashUrls))
 
-@[extern "litedoc4_exp_mi_collect"] opaque expMiCollect : IO Unit
-@[extern "litedoc4_exp_commit"] opaque expCommit : IO USize
-@[extern "litedoc4_exp_c_alloc"] opaque expCAlloc (n : USize) (viaLean : UInt8) : IO Unit
-
 /-- Not every version's data at once, as `store measure` holds it: a Mathlib
 version is ≈ 8.5k pages and a site has 11 or more. -/
 def renderStore (store out : FilePath) (names : Array Store.VersionName) (hashUrls : Bool) :
     ExceptT String IO Counts := do
   checkEntries store names
   let mut written : Array Written := #[]
-  let phase := (← IO.getEnv "LITEDOC4_EXP_PHASE").getD "full"
-  for v in names do
-    if phase == "full" then written := written.push (← writeEntry store out v hashUrls)
-    else if phase == "mi" || phase == "leanalloc" || phase == "leanpush" then
-      let mb := ((← IO.getEnv "LITEDOC4_EXP_MB").bind String.toNat?).getD 66
-      let n := mb * 1048576
-      if phase == "mi" then expCAlloc n.toUSize 0
-      else if phase == "leanalloc" then expCAlloc n.toUSize 1
-      else
-        let mut b := ByteArray.emptyWithCapacity n
-        for i in [0:n] do b := b.push i.toUInt8
-        IO.eprintln s!"exp leanpush {b.size}"
-      IO.eprintln s!"exp {phase} {mb} MiB"
-    else if phase == "bytes" then
-      let b ← IO.FS.readBinFile (Store.entryDir store v / Store.packFile)
-      IO.eprintln s!"exp bytes {b.size}"
-    else if phase == "inflate" then
-      let b ← IO.FS.readBinFile (Store.entryDir store v / Store.packFile)
-      match Gzip.decompress b with
-      | .ok p => IO.eprintln s!"exp inflate {p.size}"
-      | .error why => throw why
-    else
-      let s ← Store.read store v
-      if phase == "read" then IO.eprintln s!"exp read {s.files.size}" else
-      let input ← match inputOf s.record s.files with
-        | .ok input => pure input
-        | .error why => throw why
-      if phase == "input" then IO.eprintln s!"exp input {input.modules.size}" else
-      let d := versionData input
-      if phase == "data" then IO.eprintln s!"exp data {d.pages.size}" else
-      let r ← ExceptT.mk (pure (render (VersionMeta.of s.record) d hashUrls))
-      IO.eprintln s!"exp render {r.data.size}"
-    let before ← expCommit
-    if (← IO.getEnv "LITEDOC4_EXP_COLLECT") == some "1" then expMiCollect
-    IO.sleep 3000
-    IO.eprintln s!"exp commit before {before} after {← expCommit}"
-    let status ← match ← (IO.FS.readFile "/proc/self/status").toBaseIO with
-      | .ok s => pure s
-      | .error _ => pure ""
-    let vm := (status.splitOn "\n").filter fun l => l.startsWith "VmRSS" || l.startsWith "VmHWM"
-    IO.eprintln s!"exp floor {phase} after {v.text}: {vm}"
-  if phase != "full" then throw "experiment: no site written"
+  for v in names do written := written.push (← writeEntry store out v hashUrls)
   let root ← writeRoot out (written.map (·.listed)) hashUrls
   return { versions := written.map (·.counts), assets := ← writeAssets out, root }
 

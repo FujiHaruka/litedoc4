@@ -550,7 +550,15 @@ entry re-extracted into the same bytes render `0 of 5`.
   (extrapolated). **The render's memory grows ≈ 0.57 GiB per version within one process** (1 / 2
   / 3 versions: 3.67 / 4.23 / 4.82 GiB), though it holds one version's data at a time: ≈ 9.4 GiB
   for a full render of 11 (extrapolated) — the case after every litedoc4 upgrade, since the
-  renderer key is the executable. Not yet explained; it is the question before 11 versions.
+  renderer key is the executable. **Explained** (measured →
+  `benchmarks/results/mv-l-render-memory-2026-10-08.txt`): the allocator the Lean runtime links
+  (mimalloc 2.2.3, in every toolchain `tools/lean-toolchains.txt` lists) never gives back a freed
+  block of 66 MiB, and reuses one of 40 MiB; reading an entry allocates two blocks over that line
+  (the 63 MiB compressed entry, the 538 MiB inflated pack), ≈ 0.6 GiB per version read in one
+  process. Nothing the render keeps across versions is involved — ten lines of C against
+  `mi_malloc` reproduce it. A full render of n versions peaks ≈ 3.67 + 0.585 (n − 1) GiB on the
+  runner (extrapolated): ≈ 9.5 GiB at 11, past 16 GB at about 20. Under a 4 GiB cgroup cap one
+  version renders and three do not.
 - **Premise**: the previously deployed site is at `<out>/site` when the build starts. Locally it
   is; on the runner step 6 has to bring it down with the store (≈ 300 MB at three versions,
   ≈ 1 GB at 11, extrapolated from the run above). **Falsified** if bringing it down costs more

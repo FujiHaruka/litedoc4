@@ -1,0 +1,129 @@
+Why the store render's peak memory grows with the number of versions in one process
+==================================================================================
+
+The question (benchmarks/results/mv-l-step4-incremental-2026-10-07.txt (4)): `store render` of 1 / 2 / 3
+Mathlib versions peaked at 3.67 / 4.23 / 4.82 GiB in one process, though the render loop holds one
+version's data at a time.
+
+Store: the three entries v4.32.2 / v4.33.0 / v4.33.1 (66,046,365 / 66,356,757 / 66,357,015 B) that run
+37630692670 of .github/workflows/mv-l.yml built at 4f3a3d3 and uploaded as the artifact `mv-l-store`
+(retention 14 days: gone after 2026-10-21). Every run below reads those same bytes.
+
+Conditions
+  Runner (Linux): ubuntu-latest, image ubuntu24 20260927.320.1, kernel 6.17.0-1022-azure, 4 vCPU, 16 GB
+    (MemTotal 16,377,684 kB). Run 37630692670 (4f3a3d3, AMD EPYC 7763) and run 37643678908 (544b8a7,
+    AMD EPYC 9V45). litedoc4 built in each job from the same sources: sha256 5114972a0c91180c... in both.
+    Peak RSS from GNU time -v; the RSS timeline from `ps -o rss=` once a second
+    (benchmarks/tools/mv-l-run.sh render-alone).
+  M1 (macOS): Apple M1, 16 GB, macOS 26.6.2, litedoc4 built from 250446c's sources (sha256
+    973c8fc5c281e0c2...). /usr/bin/time -l; its "peak memory footprint" counts compressed and
+    freed-but-not-reclaimed pages, its "maximum resident set size" moves with the compressor -- see (4).
+  Allocator: the Lean runtime the toolchain links is mimalloc 2.2.3 (MI_MALLOC_VERSION 223 in
+    leanprover/lean4:v4.31.0's include/lean/mimalloc.h); every Lean object, small or large, goes through it.
+  One run per arm unless stated; peak RSS is not a wall-clock number, but no figure here is converged.
+
+(1) The growth reproduces, on both machines (measured)
+  versions in one process      1          2          3
+  runner, run 37630692670      3.67 GiB   4.23 GiB   4.86 GiB   (peak RSS)
+  runner, run 37643678908      3.67 GiB   4.24 GiB   4.84 GiB   (peak RSS)
+  M1, two runs                 3.93 GB    4.62 GB    5.25 GB    (peak footprint; the two runs agree to 0.01%)
+  ~0.57 GiB per version on the runner, ~0.66 GB per version on the M1.
+
+(2) Not the data: each version alone peaks the same (measured, M1)
+  v4.32.2 alone 3,935,167,104 B; v4.33.0 alone 3,940,164,224 B; v4.33.1 alone 3,939,852,928 B (peak
+  footprint). And v4.32.2 rendered three times in one process (an experiment binary looping over the list
+  three times) peaks at 5,232,585,792 B -- the same as three different versions. The growth is a property
+  of the process, not of which versions it renders.
+
+(3) Not glibc (measured, runner)
+  GLIBC_TUNABLES=glibc.malloc.mmap_threshold=131072:glibc.malloc.trim_threshold=131072 (which also stops
+  glibc raising the mmap threshold): 3.67 / 4.24 / 4.86 GiB against 3.67 / 4.23 / 4.86 GiB without.
+  Expected once the allocator is known: Lean's objects never reach glibc's malloc. The C under csrc/ does
+  (miniz, md4c), and macOS's `heap` sees 229 live malloc blocks, 0.4 MB, in the middle of a render.
+
+(4) Not the purge delay (measured)
+  MIMALLOC_PURGE_DELAY=0 (return freed memory to the OS at once, default 10 ms):
+    runner peak RSS 3.65 / 4.22 / 4.80 GiB -- unchanged.
+    M1 peak RSS 3.93 / 3.94 GB, footprint 3.93 / 5.25 GB (1 / 3 versions) -- RSS flat, footprint unchanged.
+  On the M1 the two metrics disagree, so neither M1 figure separates retained memory from freed memory:
+  footprint did not move when purging was made immediate, and RSS is subject to the compressor. The runner's
+  RSS is the figure that counts.
+  What mimalloc's own statistics printed (MIMALLOC_SHOW_STATS=1), quoted, not relied on -- the same block
+  prints negative "current" values and "purged 1099 GiB", so its accounting is not trustworthy:
+    reserved 4.5 / 7.1 / 9.8 GiB (1 / 2 / 3 versions, runner), committed peak 4.5 GiB in all three.
+  Reserved address space grows ~2.65 GiB per version while RSS grows ~0.6; reserved is not live memory.
+
+(5) The shape over time (measured, runner, run 37643678908, 3 versions, MIMALLOC_PURGE_DELAY=0)
+  Each version reads (the peak), then writes (a plateau, stable for 10 s or more), then the next begins.
+  The write-phase plateau rises with the version: ~2.76 GiB (v4.32.2), ~3.39 GiB (v4.33.0), ~3.9-4.0 GiB
+  (v4.33.1), the same as without the option. Single-second minima at the transitions (0.72, 1.45 GiB) sit
+  on a ramp of ~0.5 GiB/s and are not floors.
+
+(6) The floor after each version, by how far each version is taken (measured, runner)
+  An experiment binary stops each version after a chosen phase, then sleeps 3 s and prints its own VmRSS
+  from /proc/self/status. MIMALLOC_PURGE_DELAY=0 unless stated. The experiment code lived in commits
+  76954af..070e030 on branch multi-version (read it at 070e030: src/Litedoc4/Data/Site.lean `renderStore`,
+  csrc/gzip.c's `litedoc4_exp_*`, .github/workflows/mv-l-render.yml); the commit after them removes it.
+  Run 37651472477 (5c96d07, AMD EPYC 7763, binary c84f1a60af78eb55...):
+    phase taken to         floor after v4.32.2   after v4.33.0   after v4.33.1   peak RSS
+    full (write the site)  662 MiB               1,280 MiB       1,894 MiB       4.81 GiB
+    render (no write)      652                   1,265           1,864           4.82
+    versionData            658                   1,258           1,864           4.82
+    inputOf (parse IR)     643                   1,250           1,860           4.84
+    Store.read             632                   1,238           1,844           2.45
+  Run 37648862364 (76954af, Intel Xeon 6973P-C) ran `full` five times (the phase was not passed): floors
+  656-660 / 1,268-1,276 / 1,879-1,885 MiB in all five.
+  The whole growth, ~606 MiB per version, is there after Store.read alone and nothing after it adds to it.
+
+(7) What Store.read leaves behind (measured, runner, run 37653945170, 89641fa, AMD EPYC 7763, binary
+  dc7f95076306b014...)
+    reading entry.pack.gz alone (IO.FS.readBinFile, 63 MiB, dropped):   86 / 150 / 214 MiB   (+64 MiB/version)
+    reading it and inflating it (+538 MiB, both dropped):               626 / 1,232 / 1,838 MiB (+606)
+    Store.read, default options:                                        1,295 / 1,896 / 2,501 MiB
+    Store.read, MIMALLOC_PURGE_DELAY=0:                                 632 / 1,238 / 1,844 MiB
+    Store.read, MIMALLOC_DISALLOW_ARENA_ALLOC=1:                        1,291 / 2,294 / 3,294 MiB
+    Store.read, MIMALLOC_ARENA_EAGER_COMMIT=0:                          1,291 / 1,893 / 2,499 MiB
+    full render, MIMALLOC_DISALLOW_ARENA_ALLOC=1:                       2,720 / 4,000 / 4,992 MiB, peak 6.23 GiB
+  The growth is exactly the two buffers over mimalloc's huge-object size: the compressed entry (66,046,365 B
+  = 63 MiB) and the inflated pack (564,476,582 B = 538 MiB), 601 MiB together. Each version allocates both
+  anew, drops both, and the next version neither reuses them nor gets them back. No mimalloc option tried
+  removes it; denying arenas makes it worse.
+
+(8) The memory is not reclaimable (measured, runner, run 37653945170)
+  `systemd-run --scope -p MemoryMax=4G -p MemorySwapMax=0`, the full render:
+    one version (peak 3.67 GiB):     exit 0, 1:38.74
+    three versions:                  did not complete -- systemd-run exited 143 (SIGTERM) during the second
+                                     version; its stderr ends after the first version's floor line, and GNU
+                                     time's report is missing (the scope was stopped as a whole)
+  One version fits under the cap and three do not: the memory the first version left behind is not taken
+  back by the kernel when the cgroup runs short.
+
+(9) Which layer keeps the block (measured, runner, run 37659267024, 070e030, AMD EPYC 7763, binary
+  c8b48f45b57afd79...)
+  The same three-iteration loop, each iteration allocating one block, touching every byte, freeing it,
+  then the 3 s sleep and the floor:
+    66 MiB from mimalloc directly (C: mi_malloc, memset, mi_free):     90 / 158 / 226 MiB   (+68/iteration)
+    66 MiB from the Lean runtime (C: lean_alloc_sarray, lean_dec_ref): 90 / 158 / 226 MiB   (+68)
+    66 MiB from Lean code (ByteArray.emptyWithCapacity, 69M pushes):   90 / 158 / 226 MiB   (+68)
+    reading the 63 MiB entry.pack.gz (IO.FS.readBinFile):              86 / 150 / 214 MiB   (+64)
+    8 MiB from mimalloc directly:                                      30 / 30 / 30 MiB     (flat)
+    20 MiB from mimalloc directly:                                     44 / 44 / 44 MiB     (flat)
+    40 MiB from mimalloc directly:                                     64 / 64 / 64 MiB     (flat)
+  And mi_collect(true) after each iteration does not lower it (run 37655581697, e762493, AMD EPYC 9V74:
+  the 63 MiB read 84 / 148 / 212 MiB with it, 86 / 150 / 214 without). Under MIMALLOC_DISALLOW_ARENA_ALLOC=1
+  (7), where mimalloc 2.2.3's _mi_arena_free hands an OS-kind block to _mi_os_free, the floor still grows.
+  The allocator the Lean runtime links keeps a freed block of 66 MiB -- neither reused by the next
+  allocation of the same size nor returned -- and reuses one of 40 MiB. The threshold lies between the two
+  and was not narrowed. No Lean object and no line of litedoc4 is involved: ten lines of C against
+  mi_malloc reproduce it.
+  Toolchains: leanprover/lean4 v4.31.0, v4.32.0, v4.32.2, v4.33.0 and v4.33.1 -- every row of
+  tools/lean-toolchains.txt -- ship mimalloc 2.2.3 (MI_MALLOC_VERSION 223 in include/lean/mimalloc.h);
+  v4.34.1 ships 3.4.4 (30404). Whether 3.4.4 keeps the block is not measured.
+
+Conclusion
+  The render's growth per version is the two blocks Store.read allocates per version over the threshold --
+  the compressed entry (63 MiB) and the inflated pack (538 MiB) -- which the allocator never gives back.
+  Nothing the render keeps from one version to the next is involved. The growth is ~0.6 GiB per version
+  read in one process; the peak of a full render of n versions is ~3.67 + 0.585 (n - 1) GiB on the runner
+  (extrapolated from n = 1..3, linear in every run above): ~9.5 GiB at 11; 16 GB (14.9 GiB) is passed
+  at about 20.
