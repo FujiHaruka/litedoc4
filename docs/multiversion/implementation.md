@@ -543,15 +543,21 @@ version dropped renders `4 of 4`, added back `1 of 5`, `--hash-urls` flipped `5 
 file deleted `5 of 5`, each ending byte-identical to a render from nothing; a second run and an
 entry re-extracted into the same bytes render `0 of 5`.
 
+- **On L** (measured → `benchmarks/results/mv-l-step4-incremental-2026-10-07.txt`, one run):
+  adding the third version took **13.5 min** (16.6 before) and rendered `1 of 3`; the site it
+  produced equals the from-nothing render of the three, all 59,819 files; a build with nothing to
+  do took 3.2 s, the ledger's whole cost. Adding a release at 11 versions ≈ 13.6 min
+  (extrapolated). **The render's memory grows ≈ 0.57 GiB per version within one process** (1 / 2
+  / 3 versions: 3.67 / 4.23 / 4.82 GiB), though it holds one version's data at a time: ≈ 9.4 GiB
+  for a full render of 11 (extrapolated) — the case after every litedoc4 upgrade, since the
+  renderer key is the executable. Not yet explained; it is the question before 11 versions.
 - **Premise**: the previously deployed site is at `<out>/site` when the build starts. Locally it
   is; on the runner step 6 has to bring it down with the store (≈ 300 MB at three versions,
   ≈ 1 GB at 11, extrapolated from the run above). **Falsified** if bringing it down costs more
   than the render it saves (94 s per version on the runner).
 - **Premise**: two builds of litedoc4 from one commit are the same bytes. If not, the key never
-  matches across runner jobs and every build renders everything — slower, never wrong. Two builds
-  on the M1 gave the same bytes; the next L run records the executable's sha256 in two jobs.
-- **Unmeasured at L**: every build hashes each requested version's `entry.pack.gz` (66 MB on
-  Mathlib) and stats every file the ledger lists (≈ 4 per module per version).
+  matches across runner jobs and every build renders everything — slower, never wrong. **Holds**:
+  two builds on the M1, and two runner jobs building from one commit, gave the same bytes.
 
 ### 5. The rebuild from nothing through the reader
 

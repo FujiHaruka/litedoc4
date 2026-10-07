@@ -1,0 +1,62 @@
+The L checkpoint again, with the render ledger: all of Mathlib, three releases
+=============================================================================
+
+Run 37620460857 of .github/workflows/mv-l.yml at 9ce4ed1c3188f36b08f7ccd655337cead6c07b5a (branch
+multi-version), 2026-10-07 12:22-13:13 UTC. Driver: benchmarks/tools/mv-l-run.sh. The same workload as
+benchmarks/results/mv-l-step4-2026-10-07.txt (run 1), whose conditions section applies unchanged
+(ubuntu-latest, image ubuntu24 20261004.327.1, AMD EPYC 7763, 4 vCPU = 2 cores, 16 GB; --jobs 4;
+no_equations_under = ["Mathlib.Tactic", "Mathlib.Meta"]). What changed: `build` renders only the versions
+its site does not already hold (render-ledger.json beside the site), and the run adds (d) and a second
+job. One run each; the counts are exact, no time here is a converged figure.
+
+(1) Counts (measured, exact)
+  versions extracted   (a) 2 of 2   (b) 1 of 3 (v4.33.1)   (c) 0 of 3
+  versions rendered    (a) 2 of 2 ("no render ledger beside the site")   (b) 1 of 3 (v4.33.1)   (c) 0 of 3
+  sites                (b) = (c) byte for byte (59,819 files' sha256).
+  Against run 1: this run's site (a) equals run 1's (a), and this run's (b) -- two versions kept,
+  the third rendered into it -- equals run 1's (b), which rendered all three into an empty site:
+  59,819 of 59,819 files, same sha256. The added-to site is the from-nothing site at L.
+  Store entries: the same bytes counts as run 1 (66,046,365 / 66,356,757 / 66,357,015 B).
+
+(2) The executable's identity (measured)
+  litedoc4 built from 9ce4ed1 in the measuring job and in a second job on another runner:
+  c8df291de76052572bd8f5478bcb0e02c44fb1f857ae3aa33131bb9a3f6289c4 in both. The render ledger's
+  renderer key matches across runner jobs that build from one commit.
+
+(3) Per phase (wall seconds; run 1 in brackets)
+  phase      v4.32.2           v4.33.0           v4.33.1
+  extractor   25.55 [25.99]     20.98 [21.42]     22.47 [21.46]
+  checkout     0.76  [0.75]      0.86  [0.87]      0.85  [0.81]
+  cache       55.76 [58.07]     50.20 [54.40]     53.30 [51.96]
+  lake         4.86  [4.84]      8.31  [8.81]      5.07  [4.07]
+  extract    538.05 [559.19]   553.18 [556.35]   586.53 [593.83]
+  put         25.37 [25.38]     25.53 [27.55]     25.68 [25.54]
+  render     (a) 194.61 for 2 [187.61]; (b) 101.75 for 1 [281.99 for 3]; (c) 3.08 for 0 [282.51 for 3]
+  (c)'s 3.08 s is the whole of what a build that renders nothing pays for the ledger: three entries'
+  sha256 (66 MB each) and a stat of every file the ledger lists.
+
+  Whole commands (GNU time -v)
+           wall       user + sys     peak RSS     MemAvailable min   [run 1 wall]
+  (a)   25:29.79    3,830 + 167 s    9.14 GiB      9,615 MiB          [25:56.88]
+  (b)   13:29.73    2,071 +  92 s   10.15 GiB      9,627 MiB          [16:37.85]
+  (c)    0:03.22        3 +   0 s    0.22 GiB     14,924 MiB          [4:47.39]
+  Adding one release to a set of two: 13.5 min, against the v2 target <= 15 min (plan.md); run 1 took
+  16.6 min for the same work.
+
+(4) The render's memory by version count: `store render` of the first 1, 2, 3 versions, each its own
+  process over this run's store (measured)
+  versions   wall       peak RSS
+  1          1:32.53    3.67 GiB (3,849,904 KiB)
+  2          3:10.87    4.23 GiB (4,432,456 KiB)
+  3          4:53.58    4.82 GiB (5,051,488 KiB)
+  The render's peak grows by ~0.57 GiB per version in one process, though it holds one version's data
+  at a time; run 1's +55% miss is one version's 3.67 GiB against M's 221 MiB x 14.49 = 3.13 GiB (+17%)
+  plus this growth. At 11 versions in one process: ~9.4 GiB (extrapolated, linear from three points);
+  an incremental build renders only the added version, but a full render (the renderer changed, or a
+  version left the set) renders all of them in one process.
+
+(5) What it says about the v2 targets (plan.md "v2 targets")
+  Adding one release: (b) 13.5 min with three versions. At 11 versions (extrapolated: (b)'s wall less its
+  render, 708 s, plus one version's render, ~100 s, plus the ledger's ~1 s per version): ~13.6 min.
+  A build after a litedoc4 upgrade renders every version: 11 x ~95 s = ~17 min of render on top
+  (extrapolated, linear as (a) and (4) show).
