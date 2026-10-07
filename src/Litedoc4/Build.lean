@@ -150,6 +150,8 @@ def markerName : String := "litedoc4-build.json"
 /-- Round 1 is where deletions are folded in, so the bound is at least 1. -/
 def defaultMaxRounds : Nat := 5
 
+def renderLedgerName : String := "render-ledger.json"
+
 structure Layout where
   out : FilePath
   site : FilePath
@@ -159,6 +161,7 @@ structure Layout where
   marker : FilePath
   linkIndex : FilePath
   store : FilePath
+  renderLedger : FilePath
 
 def layoutOf (out : FilePath) : Layout :=
   { out
@@ -168,7 +171,8 @@ def layoutOf (out : FilePath) : Layout :=
     ledger := out / "ledger.json"
     marker := out / markerName
     linkIndex := out / "link-index.lidx"
-    store := out / "store" }
+    store := out / "store"
+    renderLedger := out / renderLedgerName }
 
 /-- Whether every file a continuation reads is there. A missing one is answered
 by extracting everything rather than by refusing: that path writes all of them

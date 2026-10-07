@@ -1,5 +1,5 @@
 import Litedoc4.Build
-import Litedoc4.Data.Site
+import Litedoc4.Data.SiteLedger
 import Litedoc4.Store
 import Litedoc4Sources
 
@@ -115,10 +115,15 @@ def scratchName : String := "scratch"
 def extractorsName : String := "extractors"
 def siteName : String := "site"
 
-def ownedNames : List String := [siteName, checkoutName, scratchName, extractorsName]
+def ownedNames : List String :=
+  [siteName, renderLedgerName, checkoutName, scratchName, extractorsName]
+
+structure Counted where
+  extracted : Array Store.VersionName
+  rendered : Array Store.VersionName
 
 def versionsMarkerJson (root store : String) (names : Array Store.VersionName)
-    (extracted : Option (Array Store.VersionName)) : String := Id.run do
+    (done : Option Counted) : String := Id.run do
   let strings (o : String) (xs : Array String) : String := Id.run do
     let mut o := o.push '['
     for i in [0:xs.size] do
@@ -129,18 +134,23 @@ def versionsMarkerJson (root store : String) (names : Array Store.VersionName)
   o := jsonStr o root
   o := jsonStr (o ++ ",\"store\":") store
   o := strings (o ++ ",\"versions\":") (names.map (·.text))
-  o := o ++ ",\"complete\":" ++ (if extracted.isSome then "true" else "false")
-  o := o ++ ",\"versionsExtracted\":"
-  o := match extracted with
-    | none => o ++ "null"
-    | some done =>
-      strings (o ++ s!"\{\"count\":{done.size},\"of\":{names.size},\"names\":") (done.map (·.text))
-        ++ "}"
+  let counted (o : String) (vs : Array Store.VersionName) : String :=
+    strings (o ++ s!"\{\"count\":{vs.size},\"of\":{names.size},\"names\":") (vs.map (·.text))
+      ++ "}"
+  o := o ++ ",\"complete\":" ++ (if done.isSome then "true" else "false")
+  o := match done with
+    | none => o ++ ",\"versionsExtracted\":null,\"versionsRendered\":null"
+    | some c =>
+      counted (counted (o ++ ",\"versionsExtracted\":") c.extracted ++ ",\"versionsRendered\":")
+        c.rendered
   return o ++ "}\n"
 
-def extractedLine (names extracted : Array Store.VersionName) : String :=
-  s!"versions extracted: {extracted.size} of {names.size} \
-    ({", ".intercalate (extracted.map (·.text)).toList})"
+def countedLine (what : String) (names done : Array Store.VersionName) : String :=
+  s!"versions {what}: {done.size} of {names.size} ({", ".intercalate (done.map (·.text)).toList})"
+
+def extractedLine := countedLine "extracted"
+
+def renderedLine := countedLine "rendered"
 
 -- Not "empty or marked": a restored store or a path dependency's sibling may sit beside these.
 def checkOwnership (out root : FilePath) : BuildM Unit := do
@@ -338,6 +348,7 @@ def extractorForRoot (root out lake : FilePath) : BuildM FilePath := do
 structure Built where
   what : String
   version : String
+  rendered : Bool
   modulesExtracted : Nat
   extractorRequests : Nat
   nanos : Nat
@@ -347,9 +358,9 @@ date in place, put into `<out>/store` under the first 12 hex digits of the commi
 its source links name, every other entry removed, and the site rendered from the
 store with that version alone.
 
-The put and the render run on every call, also when nothing was extracted: the
-site configuration (title, front page, bibliography) is read into the entry by
-the put, and none of it is in the ledger's extraction key. -/
+The put runs on every call, also when nothing was extracted: the site
+configuration (title, front page, bibliography) is read into the entry by the
+put, and none of it is in the ledger's extraction key. -/
 def buildOne (r : BuildRequest) (hashUrls : Bool) : BuildM Built := do
   let store := r.layout.store
   let lake : FilePath := (← envOr r.lake "LAKE").getD ⟨"lake"⟩
@@ -379,12 +390,14 @@ def buildOne (r : BuildRequest) (hashUrls : Bool) : BuildM Built := do
   let extracted := if e.work.modulesExtracted > 0 then #[version] else #[]
   IO.println (extractedLine #[version] extracted)
   let site := r.layout.site
-  if ← site.pathExists then IO.FS.removeDirAll site
   let renderStarted ← IO.monoNanosNow
-  let counts ← match ← (Data.Site.renderStore store site #[version] hashUrls).run with
+  let done ← match ← (Data.SiteLedger.renderSite store site r.layout.renderLedger #[version]
+      hashUrls).run with
     | .error why => throw (3, why)
-    | .ok counts => pure counts
+    | .ok done => pure done
   let renderNanos := (← IO.monoNanosNow) - renderStarted
+  let counts := done.counts
+  IO.println (renderedLine #[version] done.rendered)
   IO.println counts.json
   writeFile r.layout.marker (markerJson r.root.toString e.libs e.sourceUrl e.modules.size
     (some (e.work, { version := version.text, store := store.toString
@@ -396,7 +409,7 @@ def buildOne (r : BuildRequest) (hashUrls : Bool) : BuildM Built := do
       e.ledgerModules e.ledgerBytes counts.json e.extractNanos putNanos renderNanos total
     writeFile path (line ++ "\n")
     IO.println line
-  return { what := e.what, version := version.text
+  return { what := e.what, version := version.text, rendered := !done.rendered.isEmpty
            modulesExtracted := e.work.modulesExtracted
            extractorRequests := e.work.extractorRequests, nanos := total }
 

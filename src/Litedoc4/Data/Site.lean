@@ -245,20 +245,32 @@ def writeData (out : FilePath) (f : DataFile) : ExceptT String IO (Option Tally)
     IO.FS.writeBinFile target stored
     return some (Tally.add {} f.raw.size stored.size)
 
+structure Written where
+  counts : VersionCounts
+  listed : Listed
+  paths : Array String
+
 def writeVersion (out : FilePath) (m : VersionMeta) (v : VersionData) (hashUrls : Bool) :
-    ExceptT String IO (VersionCounts × Listed) := do
+    ExceptT String IO Written := do
   let r ← ExceptT.mk (pure (render m v hashUrls))
   IO.FS.createDirAll (out / "d")
   let mut referenced : Std.HashSet String := {}
+  let mut paths : Array String := #[]
   let mut added : Tally := {}
   for f in r.data do
     if referenced.contains f.path then continue
     referenced := referenced.insert f.path
+    paths := paths.push f.path
     if let some t ← writeData out f then added := added.plus t
   let mut shells : Tally := {}
-  for (path, body) in r.shells do shells := shells.plus (← writeText out path body)
-  return ({ version := v.name, modules := v.pages.size, shells, referenced := referenced.size
-            added }, { name := v.name, data := r.versionFile.address, routes := r.routes.map (·.address) })
+  for (path, body) in r.shells do
+    shells := shells.plus (← writeText out path body)
+    paths := paths.push path
+  return { counts := { version := v.name, modules := v.pages.size, shells
+                       referenced := referenced.size, added }
+           listed := { name := v.name, data := r.versionFile.address
+                       routes := r.routes.map (·.address) }
+           paths }
 
 structure Counts where
   versions : Array VersionCounts
@@ -278,31 +290,38 @@ def writeAssets (out : FilePath) : IO Tally :=
   storeAssets.foldlM (init := {}) fun t (name, body) =>
     return t.plus (← writeText out (assetsDir ++ name) body)
 
+def checkEntries (store : FilePath) (names : Array Store.VersionName) : ExceptT String IO Unit := do
+  for v in names do
+    if let .error why := Store.checkoutOf (← Store.readRecord store v) then
+      throw s!"store entry {v.text}: {why}"
+
+def writeEntry (store out : FilePath) (v : Store.VersionName) (hashUrls : Bool) :
+    ExceptT String IO Written := do
+  let s ← Store.read store v
+  let input ← match inputOf s.record s.files with
+    | .ok input => pure input
+    | .error why => throw s!"store entry {v.text}: {why}"
+  if let some warning := input.site.bibliography.warning then
+    IO.eprintln s!"warning: store entry {v.text}: {warning}"
+  writeVersion out (VersionMeta.of s.record) (versionData input) hashUrls
+
+def writeRoot (out : FilePath) (entries : Array Listed) (hashUrls : Bool) :
+    ExceptT String IO Tally := do
+  let some newest := entries.back? | throw "no version to render"
+  let listed := versionsJson entries
+  return (← writeText out "versions.json" listed).plus
+    (← writeText out "index.html" (if hashUrls then hashShell listed else siteIndexShell newest.name))
+    |>.plus (← writeText out notFoundPage (notFoundShell hashUrls))
+
 /-- Not every version's data at once, as `store measure` holds it: a Mathlib
 version is ≈ 8.5k pages and a site has 11 or more. -/
 def renderStore (store out : FilePath) (names : Array Store.VersionName) (hashUrls : Bool) :
     ExceptT String IO Counts := do
-  for v in names do
-    if let .error why := Store.checkoutOf (← Store.readRecord store v) then
-      throw s!"store entry {v.text}: {why}"
-  let mut versions : Array VersionCounts := #[]
-  let mut entries : Array Listed := #[]
-  for v in names do
-    let s ← Store.read store v
-    let input ← match inputOf s.record s.files with
-      | .ok input => pure input
-      | .error why => throw s!"store entry {v.text}: {why}"
-    if let some warning := input.site.bibliography.warning then
-      IO.eprintln s!"warning: store entry {v.text}: {warning}"
-    let (counts, listed) ← writeVersion out (VersionMeta.of s.record) (versionData input) hashUrls
-    versions := versions.push counts
-    entries := entries.push listed
-  let some newest := entries.back? | throw "no version to render"
-  let listed := versionsJson entries
-  let root := (← writeText out "versions.json" listed).plus
-    (← writeText out "index.html" (if hashUrls then hashShell listed else siteIndexShell newest.name))
-    |>.plus (← writeText out notFoundPage (notFoundShell hashUrls))
-  return { versions, assets := ← writeAssets out, root }
+  checkEntries store names
+  let mut written : Array Written := #[]
+  for v in names do written := written.push (← writeEntry store out v hashUrls)
+  let root ← writeRoot out (written.map (·.listed)) hashUrls
+  return { versions := written.map (·.counts), assets := ← writeAssets out, root }
 
 end Site
 end Data

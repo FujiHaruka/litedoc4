@@ -6,7 +6,8 @@
 # site by `store render` — answered by counters, names and bytes against
 # tools/mv-s/expected.txt, never by a duration. Then `build --versions` over all
 # five (v5 is v4 on another toolchain) into a store of its own, which has to agree
-# with the hand-driven one and re-extract exactly what is missing or stale.
+# with the hand-driven one, re-extract exactly what is missing or stale, and
+# render only the versions its site does not hold, into the site rendered from nothing.
 #
 # Each check prints `ok|FAIL <item>: <what>`; every declared item has to report
 # exactly once, so one that never ran fails the gate as surely as one that did.
@@ -124,6 +125,7 @@ DECLARED+=(render-twice render-sharing render-counts render-citation render-fron
 DECLARED+=(render-hash-twice render-hash-counts)
 DECLARED+=(render-usedby render-closure render-content-ir render-summaries render-math render-references render-sources)
 DECLARED+=(loop-empty loop-render-same loop-again loop-toolchain loop-remove-one loop-identity)
+DECLARED+=(loop-render-drop loop-render-add loop-render-hash loop-render-missing)
 for v in "${VERSIONS[@]}"; do DECLARED+=("render-alone-$v" "render-hash-alone-$v"); done
 
 RAN=()
@@ -1019,12 +1021,14 @@ LOOP_NONE="0 of ${#LOOP_VERSIONS[@]} ()"
 mkdir -p "$LOOP"
 # The sample requires `../micro-dep`, and the loop checks every version out at <out>/checkout.
 cp -R "$R1/micro-dep" "$LOOP/micro-dep"
-loop () {
-  local name="$1"
+loop () { # loop <name> [<version list>] [hash]
+  local name="$1" list="${2:-$LOOP_LIST}"
+  if [ "${3:-}" = hash ]; then set -- --hash-urls; else set --; fi
   timed "loop $name" "$LOGS/loop-$name.log" \
-    "$LITEDOC4" build --root "$R1/repo" --out "$LOOP" --versions "$LOOP_LIST" --lake "$LAKE" || true
+    "$LITEDOC4" build --root "$R1/repo" --out "$LOOP" --versions "$list" --lake "$LAKE" ${1+"$@"} || true
   sed -n 's/^versions extracted: //p' "$LOGS/loop-$name.log"
 }
+rendered () { sed -n 's/^versions rendered: //p' "$LOGS/loop-$1.log"; }
 record_field () {
   python3 - "$LOOP/store" "$1" "${@:2}" <<'PY'
 import json
@@ -1072,12 +1076,15 @@ else
   item ok loop-render-same "build --versions' site holds ${VERSIONS[*]}'s shells, assets/ and all $n data files of the store render the site items above read, byte for byte"
 fi
 said="$(loop again)"
+said_rendered="$(rendered again)"
 if [ "$said" != "$LOOP_NONE" ]; then
   item FAIL loop-again "the same command again said \`versions extracted: ${said:-<no line>}\`, expected \`$LOOP_NONE\`"
+elif [ "$said_rendered" != "$LOOP_NONE" ]; then
+  item FAIL loop-again "the same command again said \`versions rendered: ${said_rendered:-<no line>}\`, expected \`$LOOP_NONE\`"
 elif ! /usr/bin/diff -r "$WORK/loop-site-1" "$LOOP/site" >"$LOGS/loop-again.diff" 2>&1; then
   item FAIL loop-again "the second site differs from the first ($LOGS/loop-again.diff: $(head -n 1 "$LOGS/loop-again.diff"))"
 else
-  item ok loop-again "the same command again: versions extracted $said, and the site is byte-identical to the first ($(find "$LOOP/site" -type f | wc -l | tr -d ' ') files)"
+  item ok loop-again "the same command again: versions extracted $said, rendered $said_rendered, and the site is byte-identical to the first ($(find "$LOOP/site" -type f | wc -l | tr -d ' ') files)"
 fi
 
 leans="$(record_field leanVersion v1 v5 2>&1 || true)"
@@ -1093,15 +1100,79 @@ else
   item ok loop-toolchain "v5's record says lean 4.32.2 and v1's 4.31.0; the second run asked one cached extractor (lean 4.32.2) for the identity, judged both fresh, and built and installed nothing"
 fi
 
+RENDER_LEDGER=render-ledger.json
+FOUR_LIST="$(IFS=,; echo "${VERSIONS[*]}")"
+FOUR_ALL="$(printf '%s, ' "${VERSIONS[@]}")"
+FOUR_ALL="${#VERSIONS[@]} of ${#VERSIONS[@]} (${FOUR_ALL%, })"
+same_site () { # same_site <reference> <item> -> empty, or what differs
+  if [ -e "$LOOP/site/$RENDER_LEDGER" ]; then echo "the render ledger is inside the site"; return; fi
+  if ! /usr/bin/diff -r "$1" "$LOOP/site" >"$LOGS/$2.diff" 2>&1; then
+    echo "the site differs from the one rendered from nothing ($LOGS/$2.diff: $(head -n 1 "$LOGS/$2.diff"))"
+  fi
+}
+
+said="$(loop render-drop "$FOUR_LIST")"
+said_rendered="$(rendered render-drop)"
+differs="$(same_site "$RD/all-1" loop-render-drop)"
+if [ "$said" != "0 of ${#VERSIONS[@]} ()" ] || [ "$said_rendered" != "$FOUR_ALL" ]; then
+  item FAIL loop-render-drop "with v5 dropped from the list the loop said extracted \`${said:-<no line>}\`, rendered \`${said_rendered:-<no line>}\`, expected \`0 of ${#VERSIONS[@]} ()\` and \`$FOUR_ALL\`"
+elif [ -n "$differs" ]; then
+  item FAIL loop-render-drop "with v5 dropped from the list: $differs"
+else
+  item ok loop-render-drop "with v5 dropped from the list: rendered $said_rendered, and the site is byte-identical to store render's of the four ($(find "$LOOP/site" -type f | wc -l | tr -d ' ') files)"
+fi
+
+said="$(loop render-add)"
+said_rendered="$(rendered render-add)"
+differs="$(same_site "$WORK/loop-site-1" loop-render-add)"
+marked="$(python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["versionsRendered"]; print(e["count"], e["of"], ",".join(e["names"]))' "$LOOP/litedoc4-build.json" 2>&1 || true)"
+if [ "$said" != "$LOOP_NONE" ] || [ "$said_rendered" != "1 of ${#LOOP_VERSIONS[@]} (v5)" ]; then
+  item FAIL loop-render-add "with v5 added back the loop said extracted \`${said:-<no line>}\`, rendered \`${said_rendered:-<no line>}\`, expected \`$LOOP_NONE\` and \`1 of ${#LOOP_VERSIONS[@]} (v5)\`"
+elif [ "$marked" != "1 ${#LOOP_VERSIONS[@]} v5" ]; then
+  item FAIL loop-render-add "the build marker's versionsRendered records (count, of, names) = $marked"
+elif [ -n "$differs" ]; then
+  item FAIL loop-render-add "with v5 added to a site of four: $differs"
+else
+  item ok loop-render-add "with v5 added to a site of four: rendered $said_rendered, recorded in the marker too, and the site is byte-identical to the five rendered from nothing"
+fi
+
+said_hash="$(loop render-hash "" hash >/dev/null; rendered render-hash)"
+said_back="$(loop render-hash-back >/dev/null; rendered render-hash-back)"
+differs="$(same_site "$WORK/loop-site-1" loop-render-hash)"
+if [ "$said_hash" != "$LOOP_ALL" ] || [ "$said_back" != "$LOOP_ALL" ]; then
+  item FAIL loop-render-hash "flipping --hash-urls on and off rendered \`${said_hash:-<no line>}\` and \`${said_back:-<no line>}\`, expected \`$LOOP_ALL\` both times"
+elif [ -n "$differs" ]; then
+  item FAIL loop-render-hash "after --hash-urls on and off: $differs"
+else
+  item ok loop-render-hash "flipping --hash-urls on and off rendered $said_hash both times, and the site is byte-identical to the one rendered from nothing"
+fi
+
+gone="$(python3 -c 'import json,sys; l=json.load(open(sys.argv[1])); print(next(p for r in l["versions"] if r["name"] == "v3" for p in r["paths"] if p.startswith("d/")))' "$LOOP/$RENDER_LEDGER" 2>&1 || true)"
+if [ -f "$LOOP/site/$gone" ]; then rm "$LOOP/site/$gone"; fi
+said_rendered="$(loop render-missing >/dev/null; rendered render-missing)"
+differs="$(same_site "$WORK/loop-site-1" loop-render-missing)"
+if [ "${gone#d/}" = "$gone" ]; then
+  item FAIL loop-render-missing "the render ledger named no data file of v3: $gone"
+elif [ "$said_rendered" != "$LOOP_ALL" ]; then
+  item FAIL loop-render-missing "with $gone deleted from the site the loop said rendered \`${said_rendered:-<no line>}\`, expected \`$LOOP_ALL\`"
+elif [ -n "$differs" ]; then
+  item FAIL loop-render-missing "with $gone deleted from the site: $differs"
+else
+  item ok loop-render-missing "with $gone (one of v3's files the render ledger lists) deleted from the site: rendered $said_rendered, and the site is byte-identical to the one rendered from nothing"
+fi
+
 cp -R "$LOOP/store/v3" "$WORK/loop-v3-before"
 "$LITEDOC4" store remove --store "$LOOP/store" --version v3 >"$LOGS/loop-remove.log" 2>&1 || true
 said="$(loop remove-one)"
+said_rendered="$(rendered remove-one)"
 if [ "$said" != "1 of ${#LOOP_VERSIONS[@]} (v3)" ]; then
   item FAIL loop-remove-one "with v3's entry removed the loop said \`versions extracted: ${said:-<no line>}\`, expected \`1 of ${#LOOP_VERSIONS[@]} (v3)\`"
 elif ! /usr/bin/diff -r "$WORK/loop-v3-before" "$LOOP/store/v3" >"$LOGS/loop-remove-one.diff" 2>&1; then
   item FAIL loop-remove-one "v3 re-extracted differs from the entry that was removed ($LOGS/loop-remove-one.diff)"
+elif [ "$said_rendered" != "$LOOP_NONE" ]; then
+  item FAIL loop-remove-one "v3 re-extracted into the same bytes, and the loop said \`versions rendered: ${said_rendered:-<no line>}\`, expected \`$LOOP_NONE\`"
 else
-  item ok loop-remove-one "with v3's entry removed: versions extracted $said, and the new entry is byte-identical to the removed one"
+  item ok loop-remove-one "with v3's entry removed: versions extracted $said, the new entry is byte-identical to the removed one, and rendered $said_rendered"
 fi
 
 python3 - "$LOOP/store/v2/record.json" <<'PY'

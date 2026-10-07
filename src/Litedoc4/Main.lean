@@ -59,8 +59,13 @@ def usage : String :=
   --out          (`build`) the directory this command owns: <out>/site is the
                  site, rendered from the store; <out>/ir, <out>/link-index.lidx
                  and <out>/work are --root's extraction, <out>/ledger.json its
-                 ledger, and <out>/store the store (--store moves it only with
-                 --versions).
+                 ledger, <out>/store the store (--store moves it only with
+                 --versions), and <out>/render-ledger.json what <out>/site holds.
+                 A version the site holds from the same store entry, rendered by
+                 the same executable and --hash-urls, is not rendered again; any
+                 other difference, a version the site holds and the run does not
+                 ask for, or a file it wrote gone from the site, renders every
+                 version into an empty site.
                  Required, with no default — <root>/.lake/build/doc is doc-gen4's
                  own output tree — and it may not be inside --root. Without
                  --versions the working tree at --root is one version, named by
@@ -69,6 +74,7 @@ def usage : String :=
                  not move is not extracted again), put into the store, every
                  other version removed from it, and the site rendered from the
                  store with that version alone. Prints
+                 `versions rendered: <n> of 1 (<name>)` and
                  `versions extracted: <n> of 1 (<name>)`, 1 when a module was
                  extracted, which <out>/litedoc4-build.json records too
   --port         (`watch`) the port the site is served on (default 8484). A
@@ -91,11 +97,13 @@ def usage : String :=
                  extractor built for its Lean under <out>/extractors and put into
                  the store, and the checkout deleted before the next. Then the
                  site is rendered from the store into <out>/site, as `store
-                 render` writes it. The extraction flags come from --root's
+                 render` writes it, each version only when the site does not
+                 hold it already (--out above says when it does). The extraction flags come from --root's
                  litedoc4.toml; the title, front page and bibliography from each
                  version's own. --lake has to be elan's, which picks each
                  checkout's toolchain. Prints `versions extracted: <n> of <m>
-                 (<names>)`, which <out>/litedoc4-build.json records too
+                 (<names>)` and `versions rendered: <n> of <m> (<names>)`, which
+                 <out>/litedoc4-build.json records too
   --full         (`build`) extract every module again, ignoring the IR under
                  --out. The escape hatch for an input no ledger key covers.
   --ir           an IR tree written by the extractor (schema 5)
@@ -868,12 +876,15 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
   let extracted := toExtract.map (·.name)
   IO.println (Versions.extractedLine names extracted)
   let site := outPath / Versions.siteName
-  if ← site.pathExists then IO.FS.removeDirAll site
-  match ← Versions.timed "render" (Data.Site.renderStore store site names a.hashUrls).run with
-  | .error why => throw (3, why)
-  | .ok counts => IO.println counts.json
+  let ledger := outPath / renderLedgerName
+  let done ← match ← Versions.timed "render"
+      (Data.SiteLedger.renderSite store site ledger names a.hashUrls).run with
+    | .error why => throw (3, why)
+    | .ok done => pure done
+  IO.println (Versions.renderedLine names done.rendered)
+  IO.println done.counts.json
   writeFile marker (Versions.versionsMarkerJson rootPath.toString store.toString names
-    (some extracted))
+    (some { extracted, rendered := done.rendered }))
   IO.println s!"build   {names.size} version(s) -> {site}"
 
 def rootRequired : String := "--root <repo> is required: the Lean package to document"

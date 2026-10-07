@@ -470,22 +470,22 @@ What exists (2026-10-07):
   is kept and every other is extracted from nothing; `store remove` has one version extracted
   again. `--full`, `--source-url`, `--extractor-bin` and `--timings` are refused with
   `--versions`.
-- **The counter**: `versions extracted: <n> of <m> (<names>)` on stdout and in
-  `litedoc4-build.json`.
+- **The counters**: `versions extracted: <n> of <m> (<names>)` and `versions rendered: <n> of <m>
+  (<names>)` on stdout and in `litedoc4-build.json`.
 - **Plain `build` / `watch`** is the one-version case: the working tree is a version named by the
   first 12 hex digits of its source commit, its IR brought up to date in place (a module whose
   olean did not move is not extracted), put into `<out>/store`, which this command owns and which
   holds that version alone, and the site rendered from the store. `--store` without `--versions`
   is refused by name. Under `--out`, plain `build` writes `site`, `store`, `ir`,
-  `link-index.lidx`, `work` and `ledger.json` (and `extractors` when no `--extractor-bin` is
-  given); `build --versions` owns `site`, `checkout`, `scratch`, `extractors` and the default
-  `store`.
+  `link-index.lidx`, `work`, `ledger.json` and `render-ledger.json` (and `extractors` when no
+  `--extractor-bin` is given); `build --versions` owns `site`, `render-ledger.json`, `checkout`,
+  `scratch`, `extractors` and the default `store`.
 - **The static render path left the tree**, with its subcommands, tests and scripts. Public flags
   removed: `--mode`, `--max-rounds`, `--link-index`, `--extractor`, `--extractor-arg`,
   `--deps-docs-url`, `--deps-docs-index`. The docs-site tier left with the last two: dependency
   links go to pinned sources only (D1b).
 - **On S** (five versions; v5 is v4 on Lean v4.32.2, the others on v4.31.0),
-  `tools/mv-s-gate.sh` (59 items) drives `build --versions` over all five and checks
+  `tools/mv-s-gate.sh` (63 items) drives `build --versions` over all five and checks
   the loop against the hand-driven flow of steps 1–3: entries byte-identical
   (`loop-empty`), the site holding the store render's shells and data files byte for byte
   (`loop-render-same`), a second run extracting `0 of 5` into a byte-identical site
@@ -528,7 +528,7 @@ Done when, on S:
   alone would be ≈ 17 min (extrapolated, linear in versions); rendering only the added version puts
   adding a release at ≈ 13 min (theoretical).
 
-**Next: render only the versions the site does not already hold.** `writeVersion` takes one
+**Built: render only the versions the site does not already hold.** `writeVersion` takes one
 version's entry and nothing of the others, so a kept version's pages cannot depend on the set;
 the run above shows it on Mathlib. The build keeps a render ledger beside the site: per version,
 the digest of its entry (`entry.pack.gz` and `record.json`, not the record's fields — a plain
@@ -538,15 +538,20 @@ hand-bumped number can go stale and serve a stale site; a list of renderer sourc
 **One rule**: reuse only when every version the ledger lists is still in the set under an equal
 key and every file it wrote is present; anything else deletes the site and renders all, so an
 added-to site always equals one rendered from nothing (no orphaned `d/` files). Reported as
-`versions rendered: <n> of <m>`.
+`versions rendered: <n> of <m>`. On S (`tools/mv-s-gate.sh`, each item made to fail once): a
+version dropped renders `4 of 4`, added back `1 of 5`, `--hash-urls` flipped `5 of 5`, a listed
+file deleted `5 of 5`, each ending byte-identical to a render from nothing; a second run and an
+entry re-extracted into the same bytes render `0 of 5`.
 
 - **Premise**: the previously deployed site is at `<out>/site` when the build starts. Locally it
   is; on the runner step 6 has to bring it down with the store (≈ 300 MB at three versions,
   ≈ 1 GB at 11, extrapolated from the run above). **Falsified** if bringing it down costs more
   than the render it saves (94 s per version on the runner).
 - **Premise**: two builds of litedoc4 from one commit are the same bytes. If not, the key never
-  matches across runner jobs and every build renders everything — slower, never wrong. The next
-  L run records the executable's sha256 in two jobs.
+  matches across runner jobs and every build renders everything — slower, never wrong. Two builds
+  on the M1 gave the same bytes; the next L run records the executable's sha256 in two jobs.
+- **Unmeasured at L**: every build hashes each requested version's `entry.pack.gz` (66 MB on
+  Mathlib) and stats every file the ledger lists (≈ 4 per module per version).
 
 ### 5. The rebuild from nothing through the reader
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# `litedoc4 watch` notices one changed module, extracts exactly that one, renders
-# the version again from the store, and serves it.
+# `litedoc4 watch` notices one changed module, extracts exactly that one, puts
+# the version again into the store, and serves it.
 #
 # It fails saying either "the loop rebuilt the wrong amount of work" — with the
 # count it got and the count it expected — or "the loop rebuilt the wrong

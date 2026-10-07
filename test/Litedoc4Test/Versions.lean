@@ -45,17 +45,32 @@ def theExtractedLineCountsAgainstTheVersionListAndNamesWhatRan : Bool :=
 
 #guard theExtractedLineCountsAgainstTheVersionListAndNamesWhatRan
 
-def aMarkerIsCompleteOnlyWithTheVersionsItExtracted : Bool :=
+def theRenderedLineCountsAgainstTheVersionListAndNamesWhatWasRendered : Bool :=
+  let all := named #["v1", "v2", "v3", "v4", "v5"]
+  renderedLine all (named #["v5"]) == "versions rendered: 1 of 5 (v5)"
+    && renderedLine all #[] == "versions rendered: 0 of 5 ()"
+
+#guard theRenderedLineCountsAgainstTheVersionListAndNamesWhatWasRendered
+
+def aMarkerIsCompleteOnlyWithTheVersionsItExtractedAndRendered : Bool :=
   let all := named #["v1", "v2"]
   versionsMarkerJson "/r" "/s" all none
       == "{\"tool\":\"litedoc4 build\",\"layout\":" ++ toString layoutVersion ++ ",\"root\":\"/r\",\
-        \"store\":\"/s\",\"versions\":[\"v1\",\"v2\"],\"complete\":false,\"versionsExtracted\":null}\n"
-    && versionsMarkerJson "/r" "/s" all (some (named #["v2"]))
+        \"store\":\"/s\",\"versions\":[\"v1\",\"v2\"],\"complete\":false,\"versionsExtracted\":null,\
+        \"versionsRendered\":null}\n"
+    && versionsMarkerJson "/r" "/s" all (some { extracted := named #["v2"], rendered := named #["v1"] })
       == "{\"tool\":\"litedoc4 build\",\"layout\":" ++ toString layoutVersion ++ ",\"root\":\"/r\",\
         \"store\":\"/s\",\"versions\":[\"v1\",\"v2\"],\"complete\":true,\
-        \"versionsExtracted\":{\"count\":1,\"of\":2,\"names\":[\"v2\"]}}\n"
+        \"versionsExtracted\":{\"count\":1,\"of\":2,\"names\":[\"v2\"]},\
+        \"versionsRendered\":{\"count\":1,\"of\":2,\"names\":[\"v1\"]}}\n"
 
-#guard aMarkerIsCompleteOnlyWithTheVersionsItExtracted
+#guard aMarkerIsCompleteOnlyWithTheVersionsItExtractedAndRendered
+
+def theRenderLedgerIsAmongWhatAVersionedBuildOwnsAndOutsideTheSite : Bool :=
+  ownedNames.contains renderLedgerName && renderLedgerName != siteName
+    && (layoutOf "/o").renderLedger == ("/o" : FilePath) / renderLedgerName
+
+#guard theRenderLedgerIsAmongWhatAVersionedBuildOwnsAndOutsideTheSite
 
 def aToolchainBecomesOneDirectoryName : Bool :=
   toolchainDirName "leanprover/lean4:v4.32.2" == "leanprover-lean4-v4.32.2"

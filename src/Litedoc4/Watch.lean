@@ -286,8 +286,8 @@ partial def runLoop (r : Rebuild) (t : Trigger) (interval : Nat) (port : UInt16)
       match outcome with
       | .ok ran =>
         IO.println s!"watch   #{rebuilds} {ran.what} — re-extracted {ran.modulesExtracted} \
-          module(s), started Lean {ran.extractorRequests} time(s), rendered version \
-          {ran.version} in {seconds ran.nanos 3} s"
+          module(s), started Lean {ran.extractorRequests} time(s), \
+          {if ran.rendered then "rendered" else "kept the site of"} version {ran.version} in {seconds ran.nanos 3} s"
         IO.println s!"watch   #{rebuilds} reload http://127.0.0.1:{port}/"
       | .error (code, message) =>
         -- The first one is fatal: with no site to serve and no state to continue

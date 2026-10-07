@@ -42,6 +42,7 @@ import Litedoc4Test.RenderDecl
 import Litedoc4Test.RenderLinkIndex
 import Litedoc4Test.RenderOrder
 import Litedoc4Test.RenderWhitespace
+import Litedoc4Test.SiteLedger
 import Litedoc4Test.Store
 import Litedoc4Test.Utf16
 import Litedoc4Test.Versions

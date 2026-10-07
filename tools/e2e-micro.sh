@@ -262,7 +262,7 @@ want("first", full_marker, "versionsExtracted", {"count": 1, "of": 1, "names": [
 
 # The second run, over a world that did not move, extracts nothing, and
 # `extractorRequests` is the sharpest of the zeros: it says Lean was never
-# started. The version is still put and rendered, which is not extraction.
+# started. The version is still put, which is not extraction.
 want("incremental", incr, "modulesExtracted", 0)
 want("incremental", incr, "extractorRequests", 0)
 want("incremental", incr_marker, "versionsExtracted", {"count": 0, "of": 1, "names": []})

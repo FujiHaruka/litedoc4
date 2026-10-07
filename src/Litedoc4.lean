@@ -6,6 +6,7 @@ import Litedoc4.Data.CandidateC
 import Litedoc4.Data.FromStore
 import Litedoc4.Data.Measure
 import Litedoc4.Data.Site
+import Litedoc4.Data.SiteLedger
 import Litedoc4.Gzip
 import Litedoc4.Incr.Merge
 import Litedoc4.Incr.Ownership
