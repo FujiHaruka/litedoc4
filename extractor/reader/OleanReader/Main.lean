@@ -7,7 +7,8 @@ def usage : String := "\n".intercalate [
   "       reader --registered-extensions",
   "       reader read <search-dir> <module>...",
   "       reader oracle <search-dir> <seed> <count|all>",
-  "       reader extract ... (reader extract --help)"]
+  "       reader extract ... (reader extract --help)",
+  "       reader session ... (reader session --help)"]
 
 def readMain (dir : String) (roots : Array Name) : IO UInt32 := do
   let s ← Session.new #[dir]
@@ -39,6 +40,8 @@ unsafe def main (args : List String) : IO UInt32 := do
       IO.println Hybrid.usage
       return 0
     return ← Hybrid.extractMain rest
+  if let "session" :: rest := args then
+    return ← Hybrid.sessionMain rest
   try
     match args with
     | ["--writers"] =>

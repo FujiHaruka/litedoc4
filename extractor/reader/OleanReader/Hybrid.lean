@@ -1,5 +1,6 @@
 import OleanReader.Check
 import Extract
+import Std.Async.Process
 open Lean OleanReader Litedoc4
 
 namespace OleanReader.Hybrid
@@ -24,8 +25,106 @@ partial def inheritTarget (inherit : Std.HashMap Name Name) (n : Name) (seen : N
   | some u => if seen.contains u then n else inheritTarget inherit u (seen.insert n)
   | none => n
 
-def hybridWorld (env : Environment) (o : Assemble.OldWorld) (writer : WriterVersion) (hs : HardStops) :
-    World :=
+/-! ## Lean reference manual links, rewritten with the version's own root
+
+**Copied from Lean's `src/Lean/DocString/Links.lean` (v4.34.1)**, changed only by dropping its
+comments, taking the root as an argument, and returning the text outside `BaseIO`:
+
+    Copyright (c) 2025 Lean FRO, LLC. All rights reserved.
+    Released under Apache 2.0 license as described in the file LICENSE.
+    Authors: David Thrane Christiansen
+-/
+
+namespace ManualLinks
+
+def domainMap : Std.HashMap String String :=
+  Std.HashMap.ofList [
+    ("section", "Verso.Genre.Manual.section"),
+    ("errorExplanation", errorExplanationManualDomain)
+  ]
+
+def rw (path : String) : Except String String := do
+  match path.split '/' |>.toStringList with
+  | [] | [""] =>
+    throw "Missing documentation type"
+  | kind :: args =>
+    if let some domain := domainMap.get? kind then
+      if let [s] := args then
+        if s.isEmpty then
+          throw s!"Empty {kind} ID"
+        return s!"find/?domain={domain}&name={s}"
+      else
+        throw s!"Expected one item after `{kind}`, but got {args}"
+    else
+      let acceptableKinds := ", ".intercalate <| domainMap.toList.map fun (k, _) => s!"`{k}`"
+      throw s!"Unknown documentation type `{kind}`. Expected one of the following: {acceptableKinds}"
+
+def urlChar (c : Char) : Bool :=
+  c.isAlphanum || c == '-' || c == '.' || c == '_' || c == '~' ||
+  c == ':' || c == '/' || c == '?' || c == '#' || c == '[' || c == ']' || c == '@' ||
+  c == '!' || c == '$' || c == '&' || c == '\'' || c == '*' ||
+  c == '+' || c == ',' || c == ';' || c == '='
+
+def rewriteCore (root s : String) : Id (Array (Lean.Syntax.Range × String) × String) := do
+  let scheme := "lean-manual://"
+  let mut out := ""
+  let mut errors := #[]
+  let mut iter := s.startPos
+  while h : ¬iter.IsAtEnd do
+    let c := iter.get h
+    let pre := iter
+    iter := iter.next h
+
+    match pre.skip? scheme with
+    | none =>
+      out := out.push c
+      continue
+    | some start =>
+      let mut iter' := start
+      while h' : ¬iter'.IsAtEnd do
+        let c' := iter'.get h'
+        let pre' := iter'
+        iter' := iter'.next h'
+        if urlChar c' && ¬iter'.IsAtEnd then
+          continue
+        match rw (s.extract start pre') with
+        | .error err =>
+          errors := errors.push (⟨pre.offset, pre'.offset⟩, err)
+          out := out.push c
+          break
+        | .ok path =>
+          out := out ++ root ++ path
+          out := out.push c'
+          iter := iter'
+          break
+
+  pure (errors, out)
+
+def rewrite (root docString : String) : String := Id.run do
+  let (errs, str) ← rewriteCore root docString
+  if !errs.isEmpty then
+    let errReport :=
+      r#"**❌ Syntax Errors in Lean Language Reference Links**
+
+The `lean-manual` URL scheme is used to link to the version of the Lean reference manual that
+corresponds to this version of Lean. Errors occurred while processing the links in this documentation
+comment:
+"# ++
+      String.join (errs.toList.map (fun (⟨s, e⟩, msg) => s!" * ```{String.Pos.Raw.extract docString s e}```: {msg}\n\n"))
+    return str ++ "\n\n" ++ errReport
+  return str
+
+end ManualLinks
+
+-- Not `findDocString?`: it ends in `rewriteManualLinks`, which reads the running Lean's manual root, fixed at process start.
+def docStringBeforeLinks? (env : Environment) (declName : Name) : IO (Option String) := do
+  let declName := (Parser.Tactic.Doc.alternativeOfTactic env declName).getD declName
+  let exts := Parser.Tactic.Doc.getTacticExtensionString env declName
+  let spellings := Parser.Term.Doc.getRecommendedSpellingString env declName
+  return (← findSimpleDocString? env declName).map (· ++ exts ++ spellings)
+
+def hybridWorld (env : Environment) (o : Assemble.OldWorld) (writer : WriterVersion) (manualRoot : String)
+    (hs : HardStops) : World :=
   { moduleNames := o.moduleNames
     moduleIndex? := fun m => o.index[m]?
     constNames := fun i => o.constNames[i]!
@@ -36,7 +135,7 @@ def hybridWorld (env : Environment) (o : Assemble.OldWorld) (writer : WriterVers
     docString? := fun n => do
       let t := inheritTarget o.inherit ((Parser.Tactic.Doc.alternativeOfTactic env n).getD n)
       if o.docKeys.contains t then
-        findDocString? env n
+        return (← docStringBeforeLinks? env n).map (ManualLinks.rewrite manualRoot)
       else if o.versoKeys.contains t then
         hs.verso.modify (·.push n)
         return some s!"<hard stop: the docstring of {t} is Verso and was not decoded>"
@@ -125,13 +224,27 @@ def invariantLines (cl : Check.ClosureCounts) (il : Check.IleanCounts) : List St
   s!"  ilean-in-theorem   {il.inTheorem} decoded ranges: a parent nested in a theorem's range (let rec, \
     where), elaborated asynchronously; the .ilean writer looks ranges up in the command's environment"]
 
-def manualRootProgram : String :=
-  "import Lean.DocString.Links\n#eval IO.println s!\"{Lean.githash} {Lean.manualRoot}\"\n"
+def manualProbe : String :=
+  "é [a](lean-manual://section/tactic-macro-extension) [b](lean-manual://errorExplanation/lean.unknownIdentifier)\n\
+  ü lean-manual://nope/x (lean-manual://section/) lean-manual:// lean-manual://section/a/b\n\
+  end lean-manual://section/last-one"
+
+def utf8Hex (s : String) : String :=
+  String.join (s.toUTF8.toList.map fun b => hexDigitRepr (b.toNat / 16) ++ hexDigitRepr (b.toNat % 16))
+
+def manualRootProgram : String := "\n".intercalate [
+  "import Lean.DocString.Links",
+  s!"def probe : String := {manualProbe.quote}",
+  "def hex (s : String) : String :=",
+  "  String.join (s.toUTF8.toList.map fun b => hexDigitRepr (b.toNat / 16) ++ hexDigitRepr (b.toNat % 16))",
+  "#eval show IO Unit from do IO.println s!\"{Lean.githash} {Lean.manualRoot} {hex (← Lean.rewriteManualLinks probe)}\"",
+  ""]
 
 structure OldManualRoot where
   lean : System.FilePath
   githash : String
   root : String
+  probeHex : String
   ms : Nat
 
 -- Not the old toolchain's include/lean/version.h: it holds only the pre-configured root, and `manualRoot`'s initializer also reads LEAN_MANUAL_ROOT and falls back to `latest`.
@@ -155,51 +268,53 @@ def askOldManualRoot (s : Session) : IO OldManualRoot := do
   if out.exitCode != 0 then
     return ← fail s!"exited {out.exitCode}: {(out.stdout ++ out.stderr).trimAscii.toString.take 400}"
   match out.stdout.trimAscii.toString.splitOn " " with
-  | [githash, root] => return { lean, githash, root, ms := (← IO.monoMsNow) - t0 }
-  | _ => fail s!"printed {out.stdout.take 400}, not a githash and a root"
+  | [githash, root, probeHex] => return { lean, githash, root, probeHex, ms := (← IO.monoMsNow) - t0 }
+  | _ => fail s!"printed {out.stdout.take 400}, not a githash, a root and the probe's rewrite"
 
-def manualRootLine (r : OldManualRoot) (what : String) : String :=
-  s!"manual root          {r.root} answered by {r.lean} in {r.ms} ms: {what}"
+def checkManualCopy (r : OldManualRoot) (w : WriterVersion) : IO Unit := do
+  let copy := utf8Hex (ManualLinks.rewrite r.root manualProbe)
+  unless copy == r.probeHex do
+    let same := (copy.toList.zip r.probeHex.toList).takeWhile (fun (a, b) => a == b) |>.length
+    throw <| IO.userError s!"manual root: {r.lean} (Lean {w.leanVersion}) rewrites the probe docstring to \
+      {r.probeHex.length / 2} bytes and the reader's copy of rewriteManualLinks, given the same root {r.root}, \
+      to {copy.length / 2}; they differ from byte {same / 2}, so Lean {w.leanVersion}'s docstrings cannot be rewritten \
+      as it would"
 
-unsafe def rerunWithManualRoot (args : List String) (r : OldManualRoot) : IO UInt32 := do
-  if (← IO.getEnv "LEAN_MANUAL_ROOT") == some r.root then
-    throw <| IO.userError s!"manual root: LEAN_MANUAL_ROOT is {r.root}, which {r.lean} answers, and the running \
-      Lean's is still {Lean.manualRoot}"
-  IO.println (manualRootLine r s!"the running Lean's is {Lean.manualRoot}; run again with LEAN_MANUAL_ROOT set to it")
-  (← IO.getStdout).flush
-  let child ← IO.Process.spawn { cmd := (← IO.appPath).toString, args := ("extract" :: args).toArray
-                                 env := #[("LEAN_MANUAL_ROOT", some r.root)] }
-  child.wait
+def manualRootLine (r : OldManualRoot) : String :=
+  s!"manual root          {r.root} answered by {r.lean} in {r.ms} ms; the reader's copy rewrites the probe \
+    docstring as it does ({r.probeHex.length / 2} bytes)"
 
-unsafe def extractMain (args : List String) : IO UInt32 := do
-  let a := parseReaderArgs args {}
+def checkArgs (a : Args) : IO (Except String (Cfg × Array Name)) := do
   let cfg ← match parseArgs a.extractor with
     | .ok cfg => pure cfg
-    | .error msg => IO.eprintln s!"{msg}\n{usage}"; return 2
+    | .error msg => return .error msg
   if let some (flag, why) := refusedFlag? cfg then
-    IO.eprintln s!"reader extract: {flag} is refused: {why}, and the version read is not the running Lean"
-    return 2
-  if cfg.identity then
-    IO.println (← extractorIdentity cfg "" "" readBy)
-    return 0
-  let some newRootsFile := a.newRoots | IO.eprintln s!"reader extract: --new-roots is required\n{usage}"; return 2
-  if a.old.isEmpty || a.new.isEmpty then
-    IO.eprintln s!"reader extract: --old and --new each need at least one search directory\n{usage}"
-    return 2
+    return .error s!"{flag} is refused: {why}, and the version read is not the running Lean"
+  if cfg.identity then return .error "--identity names no version to read"
+  if a.old.isEmpty then return .error "--old needs at least one search directory"
   let targets ← readNameList cfg.modulesPath
-  let newRoots ← readNameList newRootsFile
-  if targets.isEmpty || newRoots.isEmpty then
-    IO.eprintln s!"reader extract: no module names in {if targets.isEmpty then cfg.modulesPath else newRootsFile}"
-    return 2
+  if targets.isEmpty then return .error s!"no module names in {cfg.modulesPath}"
+  return .ok (cfg, targets)
+
+structure Newest where
+  state : Assemble.MImportState
+  imports : Array Import
+
+unsafe def importNewest (search : Array System.FilePath) (roots : Array Name) : IO Newest := do
+  let imports := roots.map ({ module := · })
+  return { state := ← Assemble.importNewest search imports, imports }
+
+unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : IO Newest) (resident : Bool) :
+    IO UInt32 := do
   try
     let s ← Session.new a.old
     let manual ← askOldManualRoot s
-    if manual.root != Lean.manualRoot then return ← rerunWithManualRoot args manual
     let mods ← closure s targets
     let some (writer, _) ← s.firstWriter.get | throw <| IO.userError "olean reader: nothing was read"
     unless writer.githash == manual.githash do
       throw <| IO.userError s!"manual root: {manual.lean} is Lean {manual.githash}, and the version read was \
         written by Lean {writer.leanVersion} ({writer.githash})"
+    checkManualCopy manual writer
     let d ← Assemble.decodeAll s mods
     let cl ← Check.closure d
     let il ← Check.ilean s d
@@ -207,21 +322,26 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
       IO.eprintln s!"reader extract: invariant failed, Lean {d.writer.leanVersion} is not read: {why}"
       return 1
     let uses := autoParamUses d targets
-    let (env, merged) ← Assemble.assembleHybrid d a.new newRoots
-      (uses.foldl (fun acc (_, tac) => acc.insert tac) {})
+    let n ← newest
+    let (env, merged) ← Assemble.assembleHybrid n.state n.imports d
+      (uses.foldl (fun acc (_, tac) => acc.insert tac) {}) (leak := !resident)
     builtinDeclRanges.set {}
     let hs ← HardStops.new
-    let code ← Litedoc4.run cfg (some (env, hybridWorld env d.old d.writer hs))
+    let code ← Litedoc4.run cfg (some (env, hybridWorld env d.old d.writer manual.root hs))
+    let realizations ← if resident then Assemble.clearRealizations env else pure 0
     let autoParams := classifyAutoParams uses merged.sameValue
     let verso ← hs.verso.get
     let builtin ← hs.builtinDoc.get
-    IO.println (manualRootLine manual "the running Lean's")
+    IO.println (manualRootLine manual)
     for l in invariantLines cl il do IO.println l
     IO.println s!"reader               Lean {d.writer.leanVersion} ({d.writer.githash}) read in Lean \
       {Lean.versionString}: {mods.size} modules, {d.stats.constants} constants, \
       {d.stats.entriesDecoded} extension entries decoded, {d.stats.entriesSkipped} not decoded \
       in {d.stats.skippedExts.size} extensions"
     for l in merged.counts.lines do IO.println s!"  {l}"
+    if resident then
+      IO.println s!"realizations         {realizations} realized constants of imported declarations emptied \
+        with the round's environment"
     IO.println s!"hard stops           verso={verso.size} builtin-doc={builtin.size} tactic-table=1 \
       autoparam-old-only={autoParams.oldOnly.size} autoparam-newest={autoParams.newestDiffers.size}"
     IO.println s!"  tactic-table: no module carries tactics; the running Lean's table is not the old version's"
@@ -236,5 +356,95 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
   catch e =>
     IO.eprintln s!"olean reader: refused: {e}"
     return 1
+
+unsafe def extractMain (args : List String) : IO UInt32 := do
+  let a := parseReaderArgs args {}
+  if let .ok cfg := parseArgs a.extractor then
+    if cfg.identity then
+      IO.println (← extractorIdentity cfg "" "" readBy)
+      return 0
+  let some newRootsFile := a.newRoots | IO.eprintln s!"reader extract: --new-roots is required\n{usage}"; return 2
+  if a.new.isEmpty then
+    IO.eprintln s!"reader extract: --old and --new each need at least one search directory\n{usage}"
+    return 2
+  let (cfg, targets) ← match ← checkArgs a with
+    | .ok r => pure r
+    | .error why => IO.eprintln s!"reader extract: {why}\n{usage}"; return 2
+  let newRoots ← readNameList newRootsFile
+  if newRoots.isEmpty then
+    IO.eprintln s!"reader extract: no module names in {newRootsFile}"
+    return 2
+  readVersion a cfg targets (importNewest a.new newRoots) (resident := false)
+
+def sessionUsage : String := "\n".intercalate [
+  "usage: reader session --new <search-dir>... --new-roots <modules.txt>",
+  "  imports the newest version once and prints `ready <nanoseconds> <modules>`; then one request per line",
+  "  on stdin, its fields separated by tabs:",
+  "    --old <search-dir>... <modules.txt> <events.jsonl> [extractor flags]",
+  "  which is reader extract's command line without --new and --new-roots. Each request is read from",
+  "  scratch into a hybrid built from the newest import, then answered with `round <n>`, reader extract's",
+  "  summary, an `rss` line and `ok <exit code> <nanoseconds>`; one that is not run is answered",
+  "  `err <why>`. EOF or an empty line ends the session."]
+
+def residentKb : IO (Option Nat) := do
+  let out ← IO.Process.output { cmd := "ps", args := #["-o", "rss=", "-p", toString (← IO.Process.getPID)] }
+  return if out.exitCode == 0 then out.stdout.trimAscii.toString.toNat? else none
+
+def rssLine (round : Nat) : IO String := do
+  let peak := (← Std.IO.Process.getResourceUsage).peakResidentSetSizeKb.toNat
+  let now := match ← residentKb with
+    | some kb => s!"{kb / 1024} MiB"
+    | none => "unknown"
+  return s!"rss                  round {round}: peak {peak / 1024} MiB (the process's maximum so far: a round \
+    raises it only by needing more than every round before it), resident {now} after the round"
+
+unsafe def sessionMain (args : List String) : IO UInt32 := do
+  if args == ["--help"] then
+    IO.println sessionUsage
+    return 0
+  let a := parseReaderArgs args {}
+  let some newRootsFile := a.newRoots | IO.eprintln s!"reader session: --new-roots is required\n{sessionUsage}"; return 2
+  if a.new.isEmpty || !a.old.isEmpty || !a.extractor.isEmpty then
+    IO.eprintln s!"reader session: the session takes --new and --new-roots only; each request names its version\n\
+      {sessionUsage}"
+    return 2
+  let newRoots ← readNameList newRootsFile
+  if newRoots.isEmpty then
+    IO.eprintln s!"reader session: no module names in {newRootsFile}"
+    return 2
+  let t0 ← IO.monoNanosNow
+  let newest ← match ← (importNewest a.new newRoots).toBaseIO with
+    | .ok n => pure n
+    | .error e =>
+      IO.eprintln s!"olean reader: refused: the newest version was not imported: {e}"
+      return 1
+  IO.println s!"ready {(← IO.monoNanosNow) - t0} {newest.state.moduleNames.size}"
+  let stdout ← IO.getStdout
+  stdout.flush
+  let stdin ← IO.getStdin
+  let mut round := 0
+  repeat
+    let line := (← stdin.getLine).trimAscii.toString
+    if line.isEmpty then break
+    let r := parseReaderArgs ((line.splitOn "\t").filter (!·.isEmpty)) {}
+    let checked : Except String (Cfg × Array Name) ←
+      if !r.new.isEmpty || r.newRoots.isSome then
+        pure (.error "a request names no newest version: the session imported it at its start")
+      else
+        match ← (checkArgs r).toBaseIO with
+        | .ok c => pure c
+        | .error e => pure (.error (toString e))
+    match checked with
+    | .error why => IO.println s!"err {why}"
+    | .ok (cfg, targets) =>
+      round := round + 1
+      IO.println s!"round {round}"
+      let r0 ← IO.monoNanosNow
+      let code ← readVersion r cfg targets (pure newest) (resident := true)
+      let r1 ← IO.monoNanosNow
+      IO.println (← rssLine round)
+      IO.println s!"ok {code} {r1 - r0}"
+    stdout.flush
+  return 0
 
 end OleanReader.Hybrid

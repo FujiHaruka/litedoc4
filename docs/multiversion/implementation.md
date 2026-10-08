@@ -888,6 +888,18 @@ Choices, with what would undo each:
 2. **Session, no patch, no reuse.** `tools/reader-hybrid-gate.sh` gains `session-equals-alone` (the
    older rows in one session, each equal to read-alone) and `session-manual-root` (each row's
    probe link has its own root). It fails once with the root frozen at round 1's. Peak RSS per round.
+   **Done 2026-10-08**: `reader session` imports the newest version once and answers one request
+   per old version, each decoded, checked, merged into a fresh hybrid without leaking its
+   environment, extracted, and its realizations emptied before the next; `reader extract` is the
+   same code with one round. The manual root is no longer a re-exec: `World` takes the docstring
+   before `rewriteManualLinks` and rewrites it with the round's root through a copy of
+   `rewriteManualLinksCore` (Apache-2.0 notice kept), and the old Lean, asked once per version,
+   also rewrites a fixed probe that the copy must reproduce byte for byte or the version is
+   refused. `tools/reader-hybrid-gate.sh` 24 of 24: on the sample, four rounds in one session
+   each equal read-alone in every file and the link index, four distinct roots; it failed with
+   the root frozen at round 1's (both items) and with the per-round reset skipped (rounds 2–4
+   exit 1). Resident 1,148 / 1,211 / 1,243 / 1,220 MiB after each round (measured, one run).
+   `tools/mv-reader-gate.sh` 12 of 12 (`build --versions` still reads alone).
 3. **The patch** (seeded hashes from the writer record, sharing, delta, dirty rewrite, finalize)
    with `--check-patch`, which runs **the tree's** `rewriteMerge` on the same decoded data and
    compares pointer by pointer. On S: 0 modules differ, every IR equals read-alone. It fails once

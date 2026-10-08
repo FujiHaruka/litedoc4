@@ -50,6 +50,15 @@
 #                     binder (c : Cheap := { }) prints `{ }`, the reader's is
 #                     the same, and its merge dropped the newest-only default
 #                     function
+#   session-equals-alone
+#                     every older row read by one `reader session`, oldest
+#                     first, the newest imported once: each round answers
+#                     `ok 0`, and its IR and link index are the bytes of that
+#                     row's read-alone run; each round's peak RSS is printed
+#   session-manual-root
+#                     ... and each round's Example.ReaderProbe docstring is
+#                     its native one, linking that row's own manual root, a
+#                     different root in every round
 #
 # The sample in e2e/micro is not changed: Example.ReaderProbe is written into
 # each row's copy only.
@@ -119,7 +128,7 @@ fi
 NEWEST_I=$(( ${#ROWS[@]} - 1 ))
 NEWEST="${ROWS[$NEWEST_I]##*:v}"
 NEWEST_SPELLING="${SPELLINGS[$NEWEST_I]}"
-declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 ))
+declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 2 ))
 
 record_host
 if ! installed "${ROWS[$NEWEST_I]}"; then
@@ -321,8 +330,10 @@ else
   fi
 fi
 
+# usage: probe <manual|default> <version> [<the reader's output directory>]
 probe () {
-  python3 - "$1" "$2" "$WORK/v$2/native/ir" "$WORK/v$2/read/ir" "$WORK/v$2/read/stdout.txt" <<'PY'
+  local read="${3:-$WORK/v$2/read}"
+  python3 - "$1" "$2" "$WORK/v$2/native/ir" "$read/ir" "$WORK/v$2/read/stdout.txt" <<'PY'
 import json, pathlib, re, sys
 
 kind, v, native, read, stdout = sys.argv[1:]
@@ -344,7 +355,8 @@ if kind == "manual":
         sys.exit(f"v{v}: the native docstring of {name} does not link {own}: {n!r}")
     if r != n:
         sys.exit(f"v{v}: the native docstring links {own}, the reader's is {r!r}")
-    print(f"v{v} links {own}")
+    m = re.search(r"https://lean-lang\.org/doc/reference/[^/]+/", r)
+    print(f"v{v} links {own} {m.group(0)}")
 else:
     name = "Example.ReaderProbe.withDefault"
     n, r = decl(native, name).get("binders") or [], decl(read, name).get("binders") or []
@@ -369,7 +381,12 @@ for item in probe-manual-root probe-structure-default; do
   for i in "${!ROWS[@]}"; do
     v="${ROWS[$i]##*:v}"
     if [ "$i" -eq "$NEWEST_I" ] || [ ! -d "$WORK/v$v/read/ir" ]; then continue; fi
-    if result="$(probe "$kind" "$v" 2>&1)"; then lines+=("$result"); else fails+=("$result"); fi
+    if result="$(probe "$kind" "$v" 2>&1)"; then
+      if [ "$kind" = manual ]; then result="${result% *}"; fi
+      lines+=("$result")
+    else
+      fails+=("$result")
+    fi
   done
   if [ "${#fails[@]}" -ne 0 ]; then
     bad "$item" "$(printf '%s; ' "${fails[@]}")"
@@ -379,6 +396,105 @@ for item in probe-manual-root probe-structure-default; do
     ok "$item" "$(printf '%s; ' "${lines[@]}")"
   fi
 done
+
+say
+say "=== the older rows in one reader session"
+SESSION="$WORK/session"
+mkdir -p "$SESSION"
+SESSION_ROWS=()
+session_missing=()
+for i in "${!ROWS[@]}"; do
+  v="${ROWS[$i]##*:v}"
+  if [ "$i" -eq "$NEWEST_I" ] || [ "${NATIVE_OK[$i]}" = not-installed ]; then continue; fi
+  if [ "${NATIVE_OK[$i]}" = ok ]; then SESSION_ROWS+=("$v"); else session_missing+=("v$v"); fi
+done
+
+request () {
+  local v="$1" a fields=()
+  while IFS= read -r a; do fields+=("$a"); done < <(search_args --old "$v")
+  fields+=("$WORK/v$v/modules.txt" "$SESSION/v$v/events.jsonl" "${FLAGS[@]}"
+           --ir-dir "$SESSION/v$v/ir" --link-index "$SESSION/v$v/links.lidx")
+  local IFS=$'\t'
+  printf '%s\n' "${fields[*]}"
+}
+
+session_rc=none
+if [ "${NATIVE_OK[$NEWEST_I]}" = ok ] && [ "${#SESSION_ROWS[@]}" -gt 0 ]; then
+  for v in "${SESSION_ROWS[@]}"; do mkdir -p "$SESSION/v$v"; request "$v"; done >"$SESSION/requests.txt"
+  new_args=()
+  while IFS= read -r a; do new_args+=("$a"); done < <(search_args --new "$NEWEST")
+  set +e
+  "$READER" session "${new_args[@]}" --new-roots "$WORK/v$NEWEST/modules.txt" \
+    <"$SESSION/requests.txt" >"$SESSION/stdout.txt" 2>"$SESSION/stderr.txt"
+  session_rc=$?
+  set -e
+  sed -n 's/^rss  *//p' "$SESSION/stdout.txt" | sed 's/^/  /'
+fi
+
+item=session-equals-alone
+if [ "${NATIVE_OK[$NEWEST_I]}" != ok ]; then
+  bad "$item" "the newest row's sample did not build, so there is no newest side"
+elif [ "${#session_missing[@]}" -ne 0 ]; then
+  bad "$item" "the native side of ${session_missing[*]} did not build, so the session has no request for it"
+elif [ "${#SESSION_ROWS[@]}" -eq 0 ]; then
+  bad "$item" "no older row is installed, so there is no session to run"
+else
+  replies=()
+  while IFS= read -r l; do replies+=("$l"); done < <(grep -E '^(ok|err) ' "$SESSION/stdout.txt")
+  lines=()
+  fails=()
+  if [ "$session_rc" != 0 ]; then fails+=("reader session exited $session_rc: $(head -c 300 "$SESSION/stderr.txt")"); fi
+  for k in "${!SESSION_ROWS[@]}"; do
+    v="${SESSION_ROWS[$k]}"
+    reply="${replies[$k]:-}"
+    if [ -z "$reply" ]; then
+      fails+=("round $((k + 1)) (v$v) was never answered")
+    elif [ "${reply%% *}" != ok ] || [ "$(printf '%s' "$reply" | cut -d' ' -f2)" != 0 ]; then
+      fails+=("round $((k + 1)) (v$v) answered '$reply'")
+    elif [ ! -d "$WORK/v$v/read/ir" ]; then
+      fails+=("v$v has no read-alone IR to equal")
+    elif ! /usr/bin/diff -r "$WORK/v$v/read/ir" "$SESSION/v$v/ir" >"$SESSION/v$v/ir.diff" 2>&1; then
+      fails+=("v$v: the session's IR differs from read-alone: $(head -c 400 "$SESSION/v$v/ir.diff")")
+    elif ! cmp -s "$WORK/v$v/read/links.lidx" "$SESSION/v$v/links.lidx"; then
+      fails+=("v$v: the session's link index differs from read-alone")
+    else
+      lines+=("v$v $(find "$SESSION/v$v/ir" -type f | wc -l | tr -d ' ') files + link index")
+    fi
+  done
+  if [ "${#replies[@]}" -ne "${#SESSION_ROWS[@]}" ]; then
+    fails+=("${#replies[@]} replies to ${#SESSION_ROWS[@]} requests")
+  fi
+  if [ "${#fails[@]}" -ne 0 ]; then
+    bad "$item" "$(printf '%s; ' "${fails[@]}")"
+  else
+    ok "$item" "${#SESSION_ROWS[@]} rounds in one session, each equal to read-alone: $(printf '%s; ' "${lines[@]}")"
+  fi
+fi
+
+item=session-manual-root
+if [ "${NATIVE_OK[$NEWEST_I]}" != ok ] || [ "${#SESSION_ROWS[@]}" -eq 0 ]; then
+  bad "$item" "no session ran"
+else
+  lines=()
+  fails=()
+  roots=()
+  for v in "${SESSION_ROWS[@]}"; do
+    if [ ! -d "$SESSION/v$v/ir" ]; then fails+=("v$v: the session wrote no IR"); continue; fi
+    if result="$(probe manual "$v" "$SESSION/v$v" 2>&1)"; then
+      lines+=("${result% *}"); roots+=("${result##* }")
+    else
+      fails+=("$result")
+    fi
+  done
+  distinct=$(printf '%s\n' "${roots[@]:-}" | sort -u | grep -c . || true)
+  if [ "${#fails[@]}" -ne 0 ]; then
+    bad "$item" "$(printf '%s; ' "${fails[@]}")"
+  elif [ "$distinct" -ne "${#SESSION_ROWS[@]}" ]; then
+    bad "$item" "${#SESSION_ROWS[@]} rounds link $distinct distinct manual roots: ${roots[*]}"
+  else
+    ok "$item" "$(printf '%s; ' "${lines[@]}")$distinct distinct roots"
+  fi
+fi
 
 say
 say "=== the flags the hybrid refuses"

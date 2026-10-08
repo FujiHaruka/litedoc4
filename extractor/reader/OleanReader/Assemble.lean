@@ -351,11 +351,11 @@ unsafe def rewriteMerge (ms : MImportState) (d : Decoded) (ask : Std.HashSet Nam
   checkMirror out
   return { out, idxOf, counts := c, sameValue }
 
-unsafe def finalizeHybrid (out : MImportState) (imports : Array Import) (idxOf : Std.HashMap Name Nat) :
-    IO Environment := do
+unsafe def finalizeHybrid (out : MImportState) (imports : Array Import) (idxOf : Std.HashMap Name Nat)
+    (leak : Bool) : IO Environment := do
   enableInitializersExecution
   let env ← withImporting do
-    finalizeImport (unsafeCast out) imports {} (leakEnv := true) (loadExts := true)
+    finalizeImport (unsafeCast out) imports {} (leakEnv := leak) (loadExts := true)
   let mut idxMismatch := 0
   for (n, i) in idxOf.toList do
     if (env.getModuleIdxFor? n).map (·.toNat) != some i then idxMismatch := idxMismatch + 1
@@ -363,12 +363,39 @@ unsafe def finalizeHybrid (out : MImportState) (imports : Array Import) (idxOf :
     throw <| IO.userError s!"hybrid: {idxMismatch} names placed by a module index the environment does not give them"
   return env
 
-unsafe def assembleHybrid (d : Decoded) (newSearchPath : Array System.FilePath) (newRoots : Array Name)
-    (ask : Std.HashSet Name) : IO (Environment × Merged) := do
-  let imports := newRoots.map ({ module := · })
-  let ms ← importNewest newSearchPath imports
+unsafe def assembleHybrid (ms : MImportState) (imports : Array Import) (d : Decoded)
+    (ask : Std.HashSet Name) (leak : Bool) : IO (Environment × Merged) := do
   let m ← rewriteMerge ms d ask
-  let env ← finalizeHybrid m.out imports m.idxOf
+  let env ← finalizeHybrid m.out imports m.idxOf leak
   return (env, m)
+
+structure MRealizationContext where
+  env : NonScalar
+  opts : NonScalar
+  realizeMapRef : IO.Ref (NameMap NonScalar)
+
+structure MEnvironment where
+  base : NonScalar
+  serverBaseExts : NonScalar
+  checked : NonScalar
+  asyncConstsMap : NonScalar
+  asyncCtx? : NonScalar
+  importRealizationCtx? : Option MRealizationContext
+  localRealizationCtxMap : NonScalar
+  allRealizations : NonScalar
+  isExporting : Bool
+
+-- Not left to the environment's release: the context holds the environment and its realizations hold the context, a cycle reference counting never frees.
+unsafe def clearRealizations (env : Environment) : IO Nat := do
+  let me : MEnvironment := unsafeCast env
+  let some c := me.importRealizationCtx?
+    | throw <| IO.userError "environment mirror: the hybrid environment has no realization context"
+  unless ptrAddrUnsafe (unsafeCast c.env : MEnvironment).base == ptrAddrUnsafe me.base do
+    throw <| IO.userError "environment mirror: the realization context does not hold the environment it belongs to"
+  let m ← c.realizeMapRef.get
+  let mut n := 0
+  for (_, v) in m.toList do n := n + (unsafeCast v : PersistentHashMap Name NonScalar).foldl (fun k _ _ => k + 1) 0
+  c.realizeMapRef.set {}
+  return n
 
 end OleanReader.Assemble
