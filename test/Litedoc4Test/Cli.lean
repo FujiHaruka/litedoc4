@@ -14,7 +14,7 @@ reachable from the command line and belong to `tools/refusal-gate.sh`, which
 holds `unknown-subcommand` and a `*-unknown-flag` row per command.
 
 There is no `Args` type here to test. The Rust half shares one cursor between
-fourteen `match`es; the Lean half is six `List String` recursions, and
+fourteen `match`es; the Lean half is seven `List String` recursions, and
 "the value is the argument after the flag and it is consumed" is the list
 pattern `flag :: v :: more` — so what is left to ask is that a real parser
 answers with the value it was handed and reads the *next* flag from `more`.
@@ -56,13 +56,13 @@ def aNumberFlagIsTheValueItTook : Bool :=
 `match` in `src/Main.lean` would agree with it by construction, and a subcommand
 added there and not here is one nobody checked. -/
 def subcommands : Array String :=
-  #["build", "watch", "modules", "links", "extract", "ledger", "store"]
+  #["build", "watch", "modules", "links", "extract", "ledger", "store", "reader"]
 
 /-- A subcommand the front door does not name is one nobody finds. Being named at
 all, beside the sentence that says where its command line is, is the whole
-obligation — `summary` gives two of the seven a synopsis on purpose.
+obligation — `summary` gives two of the eight a synopsis on purpose.
 
-The last clause is the way back: without `--help-all` the five are hidden with
+The last clause is the way back: without `--help-all` the six are hidden with
 nothing pointing at them. -/
 def theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines : Bool :=
   subcommands.all (fun name => (summary.splitOn name).length ≥ 2)
@@ -72,8 +72,8 @@ def theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines : Bool :=
 #guard theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines
 
 /-- Both spellings through every parser, because they are two patterns in each of
-the six flag loops: one that lost `-h` passes a check that only asks `--help`.
-Six and not seven — `parseBuild` serves `build` and `watch`, and the `Bool` is
+the seven flag loops: one that lost `-h` passes a check that only asks `--help`.
+Seven and not eight — `parseBuild` serves `build` and `watch`, and the `Bool` is
 which.
 
 `--help` is in no synopsis line, so `tools/flag-tie-gate.sh` never hands it to a
@@ -87,6 +87,7 @@ def everyParserTakesBothSpellingsOfHelp : Bool :=
       && (parseExtract [h] {}).toOption.map (·.help) == some true
       && (parseLedger "check" [h] {}).toOption.map (·.help) == some true
       && (parseStore "put" [h] {}).toOption.map (·.help) == some true
+      && (parseReader [h] {}).toOption.map (·.help) == some true
 
 #guard everyParserTakesBothSpellingsOfHelp
 
@@ -121,6 +122,21 @@ def theStoreIsVersionedBuildsAloneAndHashUrlsIsEveryBuilds : Bool :=
       | .ok _ => false)
 
 #guard theStoreIsVersionedBuildsAloneAndHashUrlsIsEveryBuilds
+
+def theReaderIsForcedOnlyOnAVersionedBuild : Bool :=
+  ((parseBuild false ["--versions", "v1,v2", "--through-reader", "v1"] {}).toOption.map
+      (·.throughReader)) == some (some "v1")
+    && versionedRefusal ["--versions", "v1,v2", "--through-reader", "v1"] == none
+    && (match versionedRefusal ["--through-reader", "v1"] with
+      | some m => m.startsWith "--through-reader is not a flag of `build` without --versions"
+      | none => false)
+    && (match parseBuild true ["--through-reader", "v1"] {} with
+      | .error m => m.startsWith "--through-reader is not a `watch` flag"
+      | .ok _ => false)
+    && (parseReader ["--out", "d", "--lake", "l"] {}).toOption.map (fun a => (a.out, a.lake))
+      == some (some "d", some "l")
+
+#guard theReaderIsForcedOnlyOnAVersionedBuild
 
 def everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken : Bool :=
   let v := ["--versions", "v1"]

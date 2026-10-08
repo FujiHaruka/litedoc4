@@ -736,6 +736,55 @@ the two ways on versions that have both.
 5. **`build --versions` fills through the reader** (the rule above), with the store record and
    stale judgement: a reader-filled entry is stale when the reader's identity or the extractor's
    changes, and is refilled through the reader. **On M: the exactness checkpoint**.
+   **Done 2026-10-08, on S** (the M checkpoint is the next task, not answered here): when the
+   store holds none of the set's versions below the newest and the newest is on the last row of
+   `tools/lean-toolchains.txt`, `build --versions` extracts the newest natively and keeps its
+   checkout; each older version is checked out at `<out>/checkout-read`, built on its own Lean,
+   read by `reader extract` into the newest one's environment, put with `fill: "reader"`, and its
+   checkout deleted before the next; the newest's goes last. Otherwise the native path is
+   unchanged (`tools/mv-s-gate.sh` 63 of 63). An entry the store holds is refilled the way its
+   record says; `--through-reader <names>` forces older versions through the reader and is
+   refused by name off the reader's toolchain, outside the set, or naming the newest. It is in
+   `--help-all` and not in `tools/public-surface.txt`, which is how the tree marks a name 1.x does
+   not keep. A version filled through the reader needs no row of `tools/lean-toolchains.txt` (the
+   writer table answers for it); one filled natively still does. `versions extracted: <n> of <m>
+   (<names>)` gains `, through the reader: <n> (<names>)` only when the reader filled any, the
+   marker gains `versionsThroughReader`, and every phase is followed by a `disk` line with the
+   free space after it.
+   **Staleness has two answerers**: an entry with `fill: "reader"` is judged against `reader
+   extract --identity` of the reader this build built, every other entry against the native
+   extractor; each is built only when an entry needs it.
+   **One builder**: `litedoc4 reader build --out <dir>` (internal, for the two reader gates) and
+   `build --versions` both build the reader out of sources `litedoc4` embeds (`Litedoc4Sources`,
+   one `input_file` per file), on the last row's Lean, from `Extract.lean` with its trailing
+   `def main` cut (refused by name unless exactly one `def main` is the last declaration), cached
+   under `<out>/extractors/reader-<toolchain>-<digest of every source and the cut file>`.
+   `build_reader` left `tools/lib/common.sh`.
+   **Found on the way**: a dependency required by a path out of the repository (S's
+   `../micro-dep`) is every checkout's. The older version's `lake build` rewrote the newest's
+   build of it on v4.31.0, and the reader refused the newest import (`incompatible header`). The
+   newest's search directories outside its checkout and its Lean are now copied to
+   `<out>/newest-search` before the first read. The target copies none: its nine packages are
+   `git` ones under each checkout's `.lake/packages`. Such a dependency is not pinned by the
+   version in the native path either.
+   **`.ilean` from Mathlib's cache**: `Cache/IO.lean`'s `mkBuildPaths` marks `.ilean` and
+   `.ilean.hash` required at v4.31.0, v4.32.2, v4.33.0, v4.34.0-rc1 and v4.34.1, and `packCache`
+   packs a module only when every required file exists, so no archive lacks one (read from the
+   source; no fetch was run).
+   **`tools/mv-reader-gate.sh`** (`manual`: the reader has never run on Linux) generates S as six
+   versions in its own work area (v6 is v5 on v4.34.1; `tools/mv-s-gate.sh` keeps its five) and
+   answers 12 of 12, every item made to fail once (measured →
+   `benchmarks/results/mv-reader-2026-10-08.txt`): a native store as the oracle (`5 of 5`, then
+   v6 alone over it); an empty store filled `6 of 6`, `through the reader: 5`, v6 before each
+   read, v6's entry the native one byte for byte; each of the five reader-filled entries equal to
+   its native one through `tools/lib/reader-compare.py`, the comparator the hybrid gate now
+   shares (the rename applied 6 times per version; `contentHash` and the identity as
+   predicted); a second run
+   `0 of 6`; a removed v3 extracted natively into the native bytes and, forced, back through the
+   reader into the reader's bytes; an altered reader identity refilling exactly the five, an
+   altered extractor identity all six; `--through-reader` with v5 newest refused, exit 3. On the
+   M1 (one run each), the six from nothing took 157 s: the reader built in 20.45 s, each read
+   21.6–26.6 s, free disk 7.00–7.18 GiB throughout.
 6. **The patch path and print reuse** (`Patch.lean`, `PrintKey.lean`): several versions in one
    process, each patched from the previous; the key carried forward with a check mode that
    recomputes and compares; the structure-instance default value covered. Each lever held against

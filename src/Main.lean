@@ -29,6 +29,7 @@ def main (args : List String) : IO UInt32 := do
   | "links" :: rest => Litedoc4.linksCmd rest
   | "extract" :: rest => Litedoc4.extract rest
   | "store" :: rest => Litedoc4.storeCmd rest
+  | "reader" :: rest => Litedoc4.readerCmd rest
   | [] | "--help" :: _ | "-h" :: _ =>
     IO.println Litedoc4.summary
     return 0

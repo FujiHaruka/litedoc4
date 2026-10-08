@@ -181,10 +181,52 @@ input_file leanToolchainsFile where
   path := "tools" / "lean-toolchains.txt"
   text := true
 
+input_file readerWritersFile where
+  path := "extractor" / "reader" / "OleanReader" / "Writers.lean"
+  text := true
+
+input_file readerReadFile where
+  path := "extractor" / "reader" / "OleanReader" / "Read.lean"
+  text := true
+
+input_file readerEntriesFile where
+  path := "extractor" / "reader" / "OleanReader" / "Entries.lean"
+  text := true
+
+input_file readerModuleFile where
+  path := "extractor" / "reader" / "OleanReader" / "Module.lean"
+  text := true
+
+input_file readerSerializeFile where
+  path := "extractor" / "reader" / "OleanReader" / "Serialize.lean"
+  text := true
+
+input_file readerOracleFile where
+  path := "extractor" / "reader" / "OleanReader" / "Oracle.lean"
+  text := true
+
+input_file readerAssembleFile where
+  path := "extractor" / "reader" / "OleanReader" / "Assemble.lean"
+  text := true
+
+input_file readerCheckFile where
+  path := "extractor" / "reader" / "OleanReader" / "Check.lean"
+  text := true
+
+input_file readerHybridFile where
+  path := "extractor" / "reader" / "OleanReader" / "Hybrid.lean"
+  text := true
+
+input_file readerMainFile where
+  path := "extractor" / "reader" / "OleanReader" / "Main.lean"
+  text := true
+
 -- Not plain `include_str` (Lake misses an included file's edit) nor `needs` on `Litedoc4` (all recompiled).
 lean_lib Litedoc4Sources where
   srcDir := "src"
-  needs := #[extractorSourceFile, leanToolchainsFile]
+  needs := #[extractorSourceFile, leanToolchainsFile,
+    readerWritersFile, readerReadFile, readerEntriesFile, readerModuleFile, readerSerializeFile,
+    readerOracleFile, readerAssembleFile, readerCheckFile, readerHybridFile, readerMainFile]
 
 /-- Deliberately **not** `supportInterpreter`, and deliberately importing no
 `Lean`: an executable that imports `Lean` measures 226 MB against 5.3 MB for one

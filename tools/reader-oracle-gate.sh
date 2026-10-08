@@ -23,6 +23,8 @@
 #
 #   READER_ORACLE_WORK  work area (default: /private/tmp/lean-doc-relay/reader-oracle),
 #                       emptied at the start and removed at the end
+#   LITEDOC4 / LAKE     the binaries (default: .lake/build/bin/litedoc4, ~/.elan/bin/lake);
+#                       `litedoc4 reader build` is what builds the reader
 #   ELAN_HOME           where elan keeps toolchains (default: ~/.elan)
 set -euo pipefail
 
@@ -46,6 +48,10 @@ while [ $# -gt 0 ]; do
 done
 
 WORK="${READER_ORACLE_WORK:-/private/tmp/lean-doc-relay/reader-oracle}"
+LAKE="${LAKE:-$HOME/.elan/bin/lake}"
+LITEDOC4="${LITEDOC4:-$ROOT/.lake/build/bin/litedoc4}"
+[ -x "$LITEDOC4" ] || {
+  echo "reader-oracle-gate: no litedoc4 at $LITEDOC4; tools/build-lean-exe.sh --toolchain-from e2e/micro" >&2; exit 2; }
 TOOLCHAINS="${ELAN_HOME:-$HOME/.elan}/toolchains"
 READER_SRC="$ROOT/extractor/reader"
 DUMP_SRC="$ROOT/tools/reader-oracle/Dump.lean"
@@ -84,7 +90,13 @@ fi
 
 record_host
 say "=== the reader, on $READER_TC"
-READER="$(build_reader "$ROOT" "$WORK/reader" "$WORK/reader-build.log")" || exit 1
+if ! "$LITEDOC4" reader build --out "$WORK/reader" --lake "$LAKE" >"$WORK/reader-build.log" 2>&1; then
+  say "reader-oracle-gate: litedoc4 reader build failed:" >&2
+  tail -c 1500 "$WORK/reader-build.log" >&2
+  exit 1
+fi
+READER="$(tail -n 1 "$WORK/reader-build.log")"
+[ -x "$READER" ] || { say "reader-oracle-gate: litedoc4 reader build named no executable: $READER" >&2; exit 1; }
 
 if ! "$READER" --writers >"$WORK/writers.txt" 2>"$WORK/writers.err"; then
   say "reader-oracle-gate: reader --writers failed:" >&2

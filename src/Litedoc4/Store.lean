@@ -600,9 +600,9 @@ def dependencyRevisions (root : FilePath) : IO (Except String (Array Dependency)
 def identityArgv (noEquationsUnder : Array String) : Array String :=
   #["--identity"] ++ outputFlags noEquationsUnder
 
-def currentIdentity (bin : FilePath) (noEquationsUnder : Array String) :
-    IO ExtractorIdentity := do
-  let args := identityArgv noEquationsUnder
+def currentIdentity (bin : FilePath) (noEquationsUnder : Array String)
+    (subcommand : Array String := #[]) : IO ExtractorIdentity := do
+  let args := subcommand ++ identityArgv noEquationsUnder
   let out ← IO.Process.output { cmd := bin.toString, args }
   let spelled := " ".intercalate args.toList
   if out.exitCode != 0 then

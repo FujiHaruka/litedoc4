@@ -19,7 +19,9 @@
 # --versions` and `--hash-urls` in `@usage` (2026-10-07), and for `build`'s and
 # `watch`'s synopsis and flag text once both render from the store: the rows of
 # the flags that left with the static site went with them, and the refusals
-# that replace them are `test/Litedoc4Test/Cli.lean`'s (2026-10-07).
+# that replace them are `test/Litedoc4Test/Cli.lean`'s (2026-10-07). And for the
+# `reader` command and `build --versions --through-reader` (2026-10-08): their
+# synopsis and description lines in `@usage` and the two `reader-*` rows.
 #
 # **The eight subcommands of the static site** — `render`, `site`, `global`,
 # `incremental`, `ownership`, `merge`, `impact`, `prune` — left with it, and so
@@ -56,6 +58,7 @@
 |        litedoc4 build  --root <repo> --out <dir> --versions <ref>,<ref>...
 |                        [--store <dir>] [--hash-urls] [--lib <Name>]...
 |                        [--lake <path>] [--jobs <n>]
+|                        [--through-reader <name>,<name>...]
 |        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
 |                        [--lib <Name>]... [--source-url <url>] [--hash-urls]
 |                        [--extractor-bin <path>] [--lake <path>] [--jobs <n>]
@@ -89,6 +92,7 @@
 |                        --candidate a|b|c [--chunk-bytes <n>] [--out <dir>]
 |        litedoc4 store render --store <dir> --versions <name>,<name>...
 |                        --out <dir> [--hash-urls]
+|        litedoc4 reader build --out <dir> [--lake <path>]
 |
 |   --root         (`build`, `modules`) the Lean package: the sources are globbed
 |                  under it, its oleans are hashed, `lake env` runs inside it, and
@@ -137,19 +141,42 @@
 |                  shows, comma-separated tags, branches or commits, each named as
 |                  given, the last the newest. Each version the store lacks, holds
 |                  stale or holds at another commit is checked out at
-|                  <out>/checkout, its toolchain installed by elan (one with no row
-|                  in tools/lean-toolchains.txt is refused before anything runs),
-|                  its libraries built by `lake build`, its IR extracted by an
-|                  extractor built for its Lean under <out>/extractors and put into
-|                  the store, and the checkout deleted before the next. Then the
-|                  site is rendered from the store into <out>/site, as `store
-|                  render` writes it, each version only when the site does not
-|                  hold it already (--out above says when it does). The
-|                  extraction flags come from --root's litedoc4.toml; the title,
-|                  front page and bibliography from each version's own. --lake
-|                  has to be elan's, which picks each checkout's toolchain. Prints `versions extracted: <n> of <m>
-|                  (<names>)` and `versions rendered: <n> of <m> (<names>)`, which
-|                  <out>/litedoc4-build.json records too
+|                  <out>/checkout, its toolchain installed by elan, its libraries
+|                  built by `lake build`, its IR extracted by an extractor built
+|                  for its Lean under <out>/extractors and put into the store, and
+|                  the checkout deleted before the next. Then the site is rendered
+|                  from the store into <out>/site, as `store render` writes it,
+|                  each version only when the site does not hold it already (--out
+|                  above says when it does). When the store holds none of the
+|                  versions below the newest and the newest is on the last row of
+|                  tools/lean-toolchains.txt, the newest is extracted first and
+|                  kept checked out while every older one, checked out at
+|                  <out>/checkout-read and built the same way, is read by the
+|                  .olean reader into the newest one's environment; the reader is
+|                  built under <out>/extractors on that row's Lean. A search
+|                  directory of the newest outside its checkout, which every
+|                  checkout's `lake build` writes, is read from a copy under
+|                  <out>/newest-search. An entry the reader filled is judged
+|                  against the reader and filled again by it; any other version
+|                  is extracted on its own Lean, and one
+|                  whose toolchain has no row in tools/lean-toolchains.txt is
+|                  refused before anything runs. The extraction flags come from
+|                  --root's litedoc4.toml; the title, front page and bibliography
+|                  from each version's own. --lake has to be elan's, which picks
+|                  each checkout's toolchain. Prints `versions extracted: <n> of
+|                  <m> (<names>)`, followed by `, through the reader: <n>
+|                  (<names>)` when the reader filled any, and `versions rendered:
+|                  <n> of <m> (<names>)`, which <out>/litedoc4-build.json records
+|                  too; every phase prints its wall time and the free disk after it
+|   --through-reader  (`build --versions`) for the gates, and not part of what
+|                  1.x keeps: the versions below the newest to fill through the
+|                  reader whatever the store holds. Refused when the newest
+|                  version is not on the reader's toolchain
+|   --out          (`reader build`) the directory the .olean reader is built
+|                  under, the way `build --versions` builds it under
+|                  <out>/extractors: on the last row of tools/lean-toolchains.txt,
+|                  out of the sources this executable carries, and reused while
+|                  they are the same. The last line printed is its path
 |   --full         (`build`) extract every module again, ignoring the IR under
 |                  --out. The escape hatch for an input no ledger key covers.
 |   --ir           an IR tree written by the extractor (schema 5)
@@ -759,6 +786,20 @@ exit 2
 argv store --frobnicate
 exit 2
 | litedoc4: unknown `store` subcommand `--frobnicate`
+|
+| <usage>
+
+@case reader-unknown-subcommand
+argv reader frob
+exit 2
+| litedoc4: unknown `reader` subcommand `frob`
+|
+| <usage>
+
+@case reader-build-unknown-flag
+argv reader build --frobnicate
+exit 2
+| litedoc4: unknown argument `--frobnicate`
 |
 | <usage>
 

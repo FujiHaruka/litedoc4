@@ -1,0 +1,139 @@
+
+=== 1/9 S as six versions
+v1 5d16fb2b43744a5161f3d0feff4f34d769f60669
+v2 eb2d0fde1ec8ee744e6ab478e752f03151473549
+v3 a61aa62134bad98cba7926fb2119acc7caf34c85
+v4 5baad55841c7ac0e6f2d8c6cb90cc91747d38f44
+v5 d6c5f662daacb19e5b1f12c787ce054b218a5ab7
+v6 24e510c1c1029b3a33d9f8aec5be09768e1d15e5
+
+=== 2/9 native-add: the oracle, filled natively
+ok native-add: v1..v5: 5 of 5 (v1, v2, v3, v4, v5); v1..v6 over that store: 1 of 6 (v6); every record fill=own
+
+=== 3/9 reader-empty: an empty store and v1..v6
+ok reader-empty: versions extracted 6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5); fill reader for v1..v5 and own for v6, in the records and the marker; v6 extracted before each read, a disk line after every read; the newest side's micro-dep read from its copy, no checkout or copy left; v6 is native-add's byte for byte; the site holds all 6
+
+=== 4/9 reader-equals-native: each reader-filled entry against its native one
+ok reader-equals-native-v1: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v2: 13 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v3: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v4: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v5: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+
+=== 5/9 reader-again
+ok reader-again: versions extracted 0 of 6 (), rendered 0 of 6 (); no entry changed
+
+=== 6/9 reader-remove-one
+ok reader-remove-one: with v3 removed: versions extracted 1 of 6 (v3), fill=own, native-add's v3 byte for byte
+
+=== 7/9 reader-force
+ok reader-force: --through-reader v3: versions extracted 1 of 6 (v3), through the reader: 1 (v3), reader-empty's v3 byte for byte
+
+=== 8/9 reader-identity
+ok reader-identity: reader= altered: 5 of 6 (v1, v2, v3, v4, v5), through the reader: 5 (v1, v2, v3, v4, v5), into the same bytes; no_equations_under added: 6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5), and all 6 records carry it
+
+=== 9/9 reader-refuse-newest
+ok reader-refuse-newest: exit 3: litedoc4: --through-reader: the newest version v5 (d6c5f662daacb19e5b1f12c787ce054b218a5ab7) pins `leanprover/lean4:v4.32.2`, and the reader runs on `leanprover/lean4:v4.34.1`, the newest row of tools/lean-toolchains.txt: it reads an older version into the newest one's environment, so the newest has
+
+=== report
+wall time per build (printed, never judged):
+native-five            50 s
+native-six             22 s
+reader-empty           157 s
+reader-again           1 s
+reader-remove-one      24 s
+reader-force           28 s
+reader-identity-reader 120 s
+reader-identity-config 125 s
+the reader-filled run's phases:
+phase   v6 extractor 6.81 s
+disk    v6 extractor 7.18 GiB free
+phase   v6 checkout 0.05 s
+disk    v6 checkout 7.18 GiB free
+phase   v6 toolchain 0.01 s
+disk    v6 toolchain 7.18 GiB free
+phase   v6 lake 1.09 s
+disk    v6 lake 7.17 GiB free
+phase   v6 extract 4.31 s
+disk    v6 extract 7.17 GiB free
+phase   v6 put 0.07 s
+disk    v6 put 7.17 GiB free
+phase   reader 20.45 s
+disk    reader 7.00 GiB free
+phase   v6 search path 0.11 s
+disk    v6 search path 7.00 GiB free
+phase   v1 checkout 0.05 s
+disk    v1 checkout 7.00 GiB free
+phase   v1 toolchain 0.01 s
+disk    v1 toolchain 7.00 GiB free
+phase   v1 lake 2.38 s
+disk    v1 lake 7.00 GiB free
+phase   v1 read 26.59 s
+disk    v1 read 7.00 GiB free
+phase   v1 put 0.07 s
+disk    v1 put 7.00 GiB free
+phase   v2 checkout 0.05 s
+disk    v2 checkout 7.01 GiB free
+phase   v2 toolchain 0.01 s
+disk    v2 toolchain 7.01 GiB free
+phase   v2 lake 0.89 s
+disk    v2 lake 7.01 GiB free
+phase   v2 read 21.80 s
+disk    v2 read 7.00 GiB free
+phase   v2 put 0.07 s
+disk    v2 put 7.00 GiB free
+phase   v3 checkout 0.05 s
+disk    v3 checkout 7.01 GiB free
+phase   v3 toolchain 0.01 s
+disk    v3 toolchain 7.01 GiB free
+phase   v3 lake 0.87 s
+disk    v3 lake 7.00 GiB free
+phase   v3 read 21.62 s
+disk    v3 read 7.00 GiB free
+phase   v3 put 0.07 s
+disk    v3 put 7.00 GiB free
+phase   v4 checkout 0.05 s
+disk    v4 checkout 7.00 GiB free
+phase   v4 toolchain 0.01 s
+disk    v4 toolchain 7.00 GiB free
+phase   v4 lake 0.88 s
+disk    v4 lake 7.00 GiB free
+phase   v4 read 21.58 s
+disk    v4 read 7.00 GiB free
+phase   v4 put 0.07 s
+disk    v4 put 7.00 GiB free
+phase   v5 checkout 0.05 s
+disk    v5 checkout 7.00 GiB free
+phase   v5 toolchain 0.01 s
+disk    v5 toolchain 7.00 GiB free
+phase   v5 lake 2.29 s
+disk    v5 lake 7.00 GiB free
+phase   v5 read 21.94 s
+disk    v5 read 7.00 GiB free
+phase   v5 put 0.07 s
+disk    v5 put 7.00 GiB free
+phase   render 0.37 s
+disk    render 7.00 GiB free
+date              2026-10-08T04:23:47Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+total             530 s
+
+MV READER GATE: ok, 12 of 12 items ran and passed
+
+=== every item made to fail once (2026-10-08, two copies of the gate, each with faults injected; the copies were deleted)
+F1 fault: v1's native entry copied into the empty store before reader-empty (the copy stopped after that item)
+FAIL reader-empty: said `versions extracted: 5 of 6 (v2, v3, v4, v5, v6)`, expected `6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5)` (/private/tmp/lean-doc-relay/mv-reader-f1/logs/reader-empty.log)
+F2 faults: reader-equals-native compared against a neighbouring version's native entry; v2's reader= altered before reader-again;
+  --through-reader v3 added to reader-remove-one; dropped from reader-force; reader= altered in v1..v4 only (not v5) for reader-identity;
+  reader-refuse-newest given v1..v6, whose newest is on the reader's toolchain (the build then stopped at lake: no micro-dep beside that --out, exit 1)
+FAIL reader-equals-native-v1: deps/Init.json differs at byte 321: native b'Nat":"Init.Prelude","String":"Init.Prelude","ToString.toStri' reader b'Lean.ParserDescr":"Init.Prelude","Lean.ParserDescr.binary":"'
+FAIL reader-equals-native-v2: deps/Init.json differs at byte 321: native b'Lean.ParserDescr":"Init.Prelude","Lean.ParserDescr.binary":"' reader b'Nat":"Init.Prelude","String":"Init.Prelude","ToString.toStri'
+FAIL reader-equals-native-v3: deps/Init.json differs at byte 246: native b'Iff":"Init.Core","Inhabited":"Init.Prelude","Inhabited.mk":"' reader b'HSub.hSub":"Init.Prelude","Iff":"Init.Core","Inhabited":"Ini'
+FAIL reader-equals-native-v4: modules/Example.Math.json differs at byte 2734: native b'3,"endLine":39,"equationCode":[[[0,37,1,"Eq"],[0,25,0],[0,23' reader b'7,"endLine":39,"equationCode":[[[0,41,1,"Eq"],[0,25,0],[0,23'
+FAIL reader-equals-native-v5: the link index differs
+FAIL reader-again: the same command again said `versions extracted: 1 of 6 (v2), through the reader: 1 (v2)`, expected `0 of 6 ()`
+FAIL reader-remove-one: with v3 removed the build said `versions extracted: 1 of 6 (v3), through the reader: 1 (v3)`, expected `1 of 6 (v3)`
+FAIL reader-force: --through-reader v3 said `versions extracted: 0 of 6 ()`, expected `1 of 6 (v3), through the reader: 1 (v3)`
+FAIL reader-identity: with reader= altered in v1..v5's records the build said `versions extracted: 4 of 6 (v1, v2, v3, v4), through the reader: 4 (v1, v2, v3, v4)`, expected `5 of 6 (v1, v2, v3, v4, v5), through the reader: 5 (v1, v2, v3, v4, v5)`
+FAIL reader-refuse-newest: exited 1, expected 3: version v1: not in the store, to be filled through the reader
+MV READER GATE FAIL: 10 of 12 failed (12 of 12 ran)

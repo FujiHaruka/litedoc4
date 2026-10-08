@@ -10,6 +10,7 @@ def usage : String :=
        litedoc4 build  --root <repo> --out <dir> --versions <ref>,<ref>...
                        [--store <dir>] [--hash-urls] [--lib <Name>]...
                        [--lake <path>] [--jobs <n>]
+                       [--through-reader <name>,<name>...]
        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
                        [--lib <Name>]... [--source-url <url>] [--hash-urls]
                        [--extractor-bin <path>] [--lake <path>] [--jobs <n>]
@@ -43,6 +44,7 @@ def usage : String :=
                        --candidate a|b|c [--chunk-bytes <n>] [--out <dir>]
        litedoc4 store render --store <dir> --versions <name>,<name>...
                        --out <dir> [--hash-urls]
+       litedoc4 reader build --out <dir> [--lake <path>]
 
   --root         (`build`, `modules`) the Lean package: the sources are globbed
                  under it, its oleans are hashed, `lake env` runs inside it, and
@@ -91,19 +93,42 @@ def usage : String :=
                  shows, comma-separated tags, branches or commits, each named as
                  given, the last the newest. Each version the store lacks, holds
                  stale or holds at another commit is checked out at
-                 <out>/checkout, its toolchain installed by elan (one with no row
-                 in tools/lean-toolchains.txt is refused before anything runs),
-                 its libraries built by `lake build`, its IR extracted by an
-                 extractor built for its Lean under <out>/extractors and put into
-                 the store, and the checkout deleted before the next. Then the
-                 site is rendered from the store into <out>/site, as `store
-                 render` writes it, each version only when the site does not
-                 hold it already (--out above says when it does). The
-                 extraction flags come from --root's litedoc4.toml; the title,
-                 front page and bibliography from each version's own. --lake
-                 has to be elan's, which picks each checkout's toolchain. Prints `versions extracted: <n> of <m>
-                 (<names>)` and `versions rendered: <n> of <m> (<names>)`, which
-                 <out>/litedoc4-build.json records too
+                 <out>/checkout, its toolchain installed by elan, its libraries
+                 built by `lake build`, its IR extracted by an extractor built
+                 for its Lean under <out>/extractors and put into the store, and
+                 the checkout deleted before the next. Then the site is rendered
+                 from the store into <out>/site, as `store render` writes it,
+                 each version only when the site does not hold it already (--out
+                 above says when it does). When the store holds none of the
+                 versions below the newest and the newest is on the last row of
+                 tools/lean-toolchains.txt, the newest is extracted first and
+                 kept checked out while every older one, checked out at
+                 <out>/checkout-read and built the same way, is read by the
+                 .olean reader into the newest one's environment; the reader is
+                 built under <out>/extractors on that row's Lean. A search
+                 directory of the newest outside its checkout, which every
+                 checkout's `lake build` writes, is read from a copy under
+                 <out>/newest-search. An entry the reader filled is judged
+                 against the reader and filled again by it; any other version
+                 is extracted on its own Lean, and one
+                 whose toolchain has no row in tools/lean-toolchains.txt is
+                 refused before anything runs. The extraction flags come from
+                 --root's litedoc4.toml; the title, front page and bibliography
+                 from each version's own. --lake has to be elan's, which picks
+                 each checkout's toolchain. Prints `versions extracted: <n> of
+                 <m> (<names>)`, followed by `, through the reader: <n>
+                 (<names>)` when the reader filled any, and `versions rendered:
+                 <n> of <m> (<names>)`, which <out>/litedoc4-build.json records
+                 too; every phase prints its wall time and the free disk after it
+  --through-reader  (`build --versions`) for the gates, and not part of what
+                 1.x keeps: the versions below the newest to fill through the
+                 reader whatever the store holds. Refused when the newest
+                 version is not on the reader's toolchain
+  --out          (`reader build`) the directory the .olean reader is built
+                 under, the way `build --versions` builds it under
+                 <out>/extractors: on the last row of tools/lean-toolchains.txt,
+                 out of the sources this executable carries, and reused while
+                 they are the same. The last line printed is its path
   --full         (`build`) extract every module again, ignoring the IR under
                  --out. The escape hatch for an input no ledger key covers.
   --ir           an IR tree written by the extractor (schema 5)
@@ -239,10 +264,10 @@ def usage : String :=
 behind every subcommand's own `--help`, because a reader who has already typed
 `store` is past the front door.
 
-Two commands rather than seven: the other five are invoked by
+Two commands rather than eight: the other six are invoked by
 `tools/*-gate.sh` and by nothing a consumer runs — `action.yml` and
 `lakefile.lean`'s `docs` script call `build` and nothing else (measured
-2026-08-29). Listing all seven as equals said the opposite. -/
+2026-08-29). Listing all eight as equals said the opposite. -/
 def summary : String :=
 "usage: litedoc4 build  --root <repo> --out <dir> [--lib <Name>]...
                        [--jobs <n>] [--source-url <url>] [--full]
@@ -252,9 +277,9 @@ def summary : String :=
   `build` writes the site once. `watch` rebuilds it whenever the package's
   oleans change and serves it, without ever running `lake build` itself.
 
-  Five more subcommands exist — extract, modules, links, ledger, store. They are
-  the stages `build` runs and the queries the gates ask of them, not a second way
-  to use this tool, and each answers its own --help.
+  Six more subcommands exist — extract, modules, links, ledger, store, reader.
+  They are the stages `build` runs and the queries the gates ask of them, not a
+  second way to use this tool, and each answers its own --help.
 
   litedoc4 --help-all    every command line and every flag
   litedoc4 --version
@@ -610,6 +635,7 @@ structure BuildArgs where
   full : Bool := false
   versions : Option String := none
   store : Option String := none
+  throughReader : Option String := none
   hashUrls : Bool := false
   /-- `watch`'s own two, as text, so that the refusal for `--port banana` is
   written next to what a port means. Never filled in for `build`, which refuses
@@ -715,6 +741,10 @@ partial def parseBuild (watching : Bool) :
       let (v, more) ← value
       if watching then .error s!"--store is not a `watch` flag: {storeOfOneVersion}"
       else parseBuild watching more { acc with store := some v }
+    else if flag == "--through-reader" then do
+      let (v, more) ← value
+      if watching then .error s!"--through-reader is not a `watch` flag: {versionsInWatch}"
+      else parseBuild watching more { acc with throughReader := some v }
     else if flag == "--hash-urls" then
       parseBuild watching rest { acc with hashUrls := true }
     else if flag == "--help" || flag == "-h" then
@@ -732,6 +762,9 @@ def versionedChecks (a : BuildArgs) : Option String :=
   | none =>
     if a.store.isSome then
       some s!"--store is not a flag of `build` without --versions: {storeOfOneVersion}"
+    else if a.throughReader.isSome then
+      some "--through-reader is not a flag of `build` without --versions: it names versions \
+        below the newest of a set, to be read into the newest one's environment"
     else none
   | some _ =>
     let refused : List (String × Bool × String) := [
@@ -798,10 +831,101 @@ def buildRun (a : BuildArgs) (root out : String) : IO UInt32 := do
   | .ok () => return 0
   | .error (code, message) => answered code message
 
+structure VersionedRun where
+  repo : Versions.Repository
+  out : System.FilePath
+  store : System.FilePath
+  elan : System.FilePath
+  lake : System.FilePath
+  libs : Array String
+  jobs : Nat
+  noEquationsUnder : Array String
+  extractors : System.FilePath
+
+def VersionedRun.scratch (c : VersionedRun) : System.FilePath := c.out / Versions.scratchName
+
+def VersionedRun.put (c : VersionedRun) (p : Versions.Planned) (origin : Store.Origin) :
+    BuildM Unit := do
+  let layout := layoutOf c.scratch
+  let s ← Versions.timed c.out s!"{p.name.text} put"
+    (Store.put c.store p.name origin layout.ir layout.linkIndex)
+  IO.println s!"put     {p.name.text}: {s.record.irFiles} IR file(s) -> {s.record.packBytes} B \
+    ({s.record.extractorIdentity.text})"
+
+def fillNatively (c : VersionedRun) (checkout : System.FilePath) (p : Versions.Planned) :
+    BuildM (System.FilePath × Array String) := do
+  IO.println s!"version {p.name.text}: extracting {p.commit} on {p.toolchain}"
+  let bin ← Versions.timed c.out s!"{p.name.text} extractor"
+    (Versions.extractorFor c.elan c.extractors p.toolchain)
+  let scratch := c.scratch
+  try
+    let (package, libs) ← Versions.prepare c.repo checkout (scratch / "mathlib-cache") c.elan c.lake
+      c.libs p
+    if ← scratch.pathExists then IO.FS.removeDirAll scratch
+    let args : BuildArgs :=
+      { root := some package.toString, out := some scratch.toString, libs
+        lake := some c.lake.toString, jobs := c.jobs }
+    let request ← buildRequestOf args package.toString scratch.toString
+    let e ← Versions.timed c.out s!"{p.name.text} extract"
+      (runExtraction { request with noEquationsUnder := some c.noEquationsUnder } (pure bin))
+    let origin ← match ← Versions.originOf package c.lake request.external p.commit e.sourceUrl with
+      | .error message => throw (3, s!"version {p.name.text}: {message}")
+      | .ok origin => pure origin
+    c.put p origin
+    return (package, libs)
+  finally
+    if ← scratch.pathExists then IO.FS.removeDirAll scratch
+
+def modulesOf (v : Store.VersionName) (package : System.FilePath) (libs : Array String) :
+    BuildM (Array String) := do
+  match ← moduleNames package libs with
+  | .error message => throw (3, s!"version {v.text}: {message}")
+  | .ok names =>
+    if names.isEmpty then
+      throw (3, s!"version {v.text}: no modules under {package} for {", ".intercalate libs.toList}")
+    return names
+
+def fillThroughReader (c : VersionedRun) (reader : System.FilePath) (newSearch : Array String)
+    (newRoots : Array String) (p : Versions.Planned) : BuildM Unit := do
+  let v := p.name.text
+  IO.println s!"version {v}: reading {p.commit} on {p.toolchain} through the reader"
+  let checkout := c.out / Versions.readCheckoutName
+  let scratch := c.scratch
+  try
+    let (package, libs) ← Versions.prepare c.repo checkout (scratch / "mathlib-cache") c.elan c.lake
+      c.libs p
+    if ← scratch.pathExists then IO.FS.removeDirAll scratch
+    let layout := layoutOf scratch
+    IO.FS.createDirAll layout.work
+    let modulesFile := layout.work / "modules.txt"
+    writeLines modulesFile (← modulesOf p.name package libs)
+    let rootsFile := layout.work / "new-roots.txt"
+    writeLines rootsFile newRoots
+    let sourceUrl ← match ← (deriveSourceUrl package).run with
+      | .error message => throw (3, s!"version {v}: {message}")
+      | .ok url => pure url
+    let old ← Versions.searchPathOf c.lake package
+    Versions.timed c.out s!"{v} read" (Versions.spawnInherited reader.toString
+      (Versions.readerArgv old newSearch rootsFile modulesFile (layout.work / "events.jsonl")
+        layout.ir c.jobs c.noEquationsUnder layout.linkIndex))
+    let external ← resolveExternal (some package.toString) (some c.lake.toString)
+    let origin ← match ← Versions.originOf package c.lake external p.commit sourceUrl with
+      | .error message => throw (3, s!"version {v}: {message}")
+      | .ok origin => pure { origin with fill := .reader }
+    c.put p origin
+  finally
+    if ← scratch.pathExists then IO.FS.removeDirAll scratch
+    Versions.removeCheckout c.repo.top checkout
+
 def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
   let names ← match Store.versionList list with
     | .error message => throw (2, message)
     | .ok names => pure names
+  let forced ← match a.throughReader with
+    | none => pure #[]
+    | some given => match Store.versionList given with
+      | .error message => throw (2, s!"--through-reader: {message}")
+      | .ok forced => pure forced
   let rootPath ← match ← (IO.FS.realPath ⟨root⟩).toBaseIO with
     | .error e => throw (3, s!"--root {root}: {e}")
     | .ok path => pure path
@@ -812,9 +936,24 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
   refuseInside repo.top "the repository of --root" outPath "--out" ""
   let store ← absolutePath ((a.store.map (⟨·⟩)).getD (layoutOf outPath).store)
   refuseInside repo.top "the repository of --root" store "--store" ""
-  let planned ← match ← Versions.plan repo names Versions.supportedToolchains with
+  let planned ← match ← Versions.plan repo names with
     | .error message => throw (3, message)
     | .ok planned => pure planned
+  let some newest := planned.back? | throw (2, "--versions names no version")
+  let some readerToolchain := Versions.readerToolchainOf Versions.supportedToolchains
+    | throw (1, "tools/lean-toolchains.txt has no row")
+  if let some refused := Versions.throughReaderRefusal names newest readerToolchain forced then
+    throw refused
+  let stored ← planned.mapM fun p => do
+    if !(← (Store.entryDir store p.name).isDir) then return none
+    return some (← (Store.readRecord store p.name).toBaseIO)
+  let held := stored.map fun
+    | none => Versions.Held.absent
+    | some (.error _) => .unreadable
+    | some (.ok r) => .filled r.fill
+  let fills := Versions.fillsOf names held (newest.toolchain == readerToolchain) forced
+  if let some why := Versions.unlistedNative planned fills Versions.supportedToolchains then
+    throw (3, why)
   Versions.checkOwnership outPath rootPath
   let noEquationsUnder := (← readConfigKeys rootPath).noEquationsUnder
   let lake : System.FilePath := (← envOr (a.lake.map (⟨·⟩)) "LAKE").getD ⟨"lake"⟩
@@ -836,55 +975,68 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
     IO.println s!"identity {known.text} (asked of the extractor for {source.toolchain})"
     current.set (some known)
     return known
-  let mut toExtract : Array Versions.Planned := #[]
-  for p in planned do
-    let judged ← if !(← (Store.entryDir store p.name).isDir) then pure Versions.Judgement.absent
-      else match ← (Store.readRecord store p.name).toBaseIO with
-        | .error e => pure (.unreadable (toString e))
-        | .ok r => match Versions.judgeRecord r p.commit with
-          | some judged => pure judged
-          | none => pure (Versions.judgeIdentity r (← identity))
-    IO.println s!"version {p.name.text}: {judged.text}"
-    if !judged.keeps then toExtract := toExtract.push p
+  let currentRead ← IO.mkRef (none : Option Store.ExtractorIdentity)
+  let readerIdentity : BuildM Store.ExtractorIdentity := do
+    if let some known ← currentRead.get then return known
+    let bin ← Versions.readerFor elan extractors
+    let known ← Store.currentIdentity bin noEquationsUnder #["extract"]
+    IO.println s!"identity {known.text} (asked of the reader on {readerToolchain})"
+    currentRead.set (some known)
+    return known
+  let mut toExtract : Array (Versions.Planned × Store.Fill) := #[]
+  for ((p, fill), held) in (planned.zip fills).zip stored do
+    let judged ← match held with
+      | none => pure Versions.Judgement.absent
+      | some (.error e) => pure (.unreadable (toString e))
+      | some (.ok r) => match Versions.judgeRecord r p.commit fill with
+        | some judged => pure judged
+        | none => pure (Versions.judgeIdentity r
+            (← if r.fill == .reader then readerIdentity else identity))
+    let filling := !judged.keeps && fill == .reader
+    IO.println s!"version {p.name.text}: {judged.text}\
+      {if filling then ", to be filled through the reader" else ""}"
+    if !judged.keeps then toExtract := toExtract.push (p, fill)
+  let viaReader := (toExtract.filter (·.2 == .reader)).map (·.1)
+  let native := (toExtract.filter (·.2 == .own)).map (·.1)
+  if !viaReader.isEmpty && newest.toolchain != readerToolchain then
+    throw (3, Versions.readerUnavailable (viaReader.map (·.name)) newest readerToolchain)
+  let run : VersionedRun :=
+    { repo, out := outPath, store, elan, lake, libs := a.libs, jobs := a.jobs, noEquationsUnder
+      extractors }
   let checkout := outPath / Versions.checkoutName
-  let scratch := outPath / Versions.scratchName
-  for p in toExtract do
-    IO.println s!"version {p.name.text}: extracting {p.commit} on {p.toolchain}"
-    let bin ← Versions.timed s!"{p.name.text} extractor"
-      (Versions.extractorFor elan extractors p.toolchain)
+  for p in native do
+    if viaReader.isEmpty || p.name != newest.name then
+      try discard <| fillNatively run checkout p
+      finally Versions.removeCheckout repo.top checkout
+  if !viaReader.isEmpty then
     try
-      let (package, libs) ← Versions.prepare repo checkout (scratch / "mathlib-cache") elan lake
-        a.libs p
-      if ← scratch.pathExists then IO.FS.removeDirAll scratch
-      let args : BuildArgs :=
-        { root := some package.toString, out := some scratch.toString, libs
-          lake := some lake.toString, jobs := a.jobs }
-      let request ← buildRequestOf args package.toString scratch.toString
-      let e ← Versions.timed s!"{p.name.text} extract"
-        (runExtraction { request with noEquationsUnder := some noEquationsUnder } (pure bin))
-      let origin ← match ← Versions.originOf package lake request.external p.commit e.sourceUrl with
-        | .error message => throw (3, s!"version {p.name.text}: {message}")
-        | .ok origin => pure origin
-      let layout := layoutOf scratch
-      let s ← Versions.timed s!"{p.name.text} put"
-        (Store.put store p.name origin layout.ir layout.linkIndex)
-      IO.println s!"put     {p.name.text}: {s.record.irFiles} IR file(s) -> {s.record.packBytes} B \
-        ({s.record.extractorIdentity.text})"
+      let (package, libs) ← if native.any (·.name == newest.name) then fillNatively run checkout newest
+        else do
+          IO.println s!"version {newest.name.text}: checked out as the newest side of the reader"
+          Versions.prepare repo checkout (run.scratch / "mathlib-cache") elan lake a.libs newest
+      let reader ← Versions.timed outPath "reader" (Versions.readerFor elan extractors)
+      let newSearch ← Versions.timed outPath s!"{newest.name.text} search path"
+        (Versions.newestSearchPath lake package checkout (outPath / Versions.newestCopiesName))
+      let newRoots ← modulesOf newest.name package libs
+      for p in viaReader do fillThroughReader run reader newSearch newRoots p
     finally
-      if ← scratch.pathExists then IO.FS.removeDirAll scratch
+      if ← run.scratch.pathExists then IO.FS.removeDirAll run.scratch
+      if ← (outPath / Versions.newestCopiesName).pathExists then
+        IO.FS.removeDirAll (outPath / Versions.newestCopiesName)
       Versions.removeCheckout repo.top checkout
-  let extracted := toExtract.map (·.name)
-  IO.println (Versions.extractedLine names extracted)
+  let extracted := toExtract.map (·.1.name)
+  let read := viaReader.map (·.name)
+  IO.println (Versions.extractedLine names extracted read)
   let site := outPath / Versions.siteName
   let ledger := outPath / renderLedgerName
-  let done ← match ← Versions.timed "render"
+  let done ← match ← Versions.timed outPath "render"
       (Data.SiteLedger.renderSite store site ledger names a.hashUrls).run with
     | .error why => throw (3, why)
     | .ok done => pure done
   IO.println (Versions.renderedLine names done.rendered)
   IO.println done.counts.json
   writeFile marker (Versions.versionsMarkerJson rootPath.toString store.toString names
-    (some { extracted, rendered := done.rendered }))
+    (some { extracted, rendered := done.rendered, read }))
   IO.println s!"build   {names.size} version(s) -> {site}"
 
 def rootRequired : String := "--root <repo> is required: the Lean package to document"
@@ -1587,6 +1739,64 @@ def storeCmd (args : List String) : IO UInt32 := do
           return 0
         try
           storeRun command a
+        catch e =>
+          IO.eprintln s!"litedoc4: {e}"
+          pure (1 : UInt32)
+
+structure ReaderArgs where
+  out : Option String := none
+  lake : Option String := none
+  help : Bool := false
+  deriving Inhabited
+
+partial def parseReader : List String → ReaderArgs → Except String ReaderArgs
+  | [], acc => .ok acc
+  | flag :: rest, acc =>
+    let value : Except String (String × List String) :=
+      match rest with
+      | v :: more => .ok (v, more)
+      | [] => .error s!"{flag} needs a value"
+    if flag == "--out" then do
+      let (v, more) ← value; parseReader more { acc with out := some v }
+    else if flag == "--lake" then do
+      let (v, more) ← value; parseReader more { acc with lake := some v }
+    else if flag == "--help" || flag == "-h" then
+      parseReader rest { acc with help := true }
+    else .error s!"unknown argument `{flag}`"
+
+def readerCommands : List String := ["build"]
+
+def readerBuildRun (a : ReaderArgs) (out : String) : IO UInt32 := do
+  let lake : System.FilePath := (← envOr (a.lake.map (⟨·⟩)) "LAKE").getD ⟨"lake"⟩
+  let built : BuildM System.FilePath := do
+    let dir ← absolutePath ⟨out⟩
+    IO.FS.createDirAll dir
+    Versions.readerFor (Versions.elanBeside lake) dir
+  match ← built.run with
+  | .ok bin =>
+    IO.println bin.toString
+    return 0
+  | .error (code, message) => answered code message
+
+def readerCmd (args : List String) : IO UInt32 := do
+  match args with
+  | [] => refuse s!"reader needs a subcommand: {", ".intercalate readerCommands}"
+  | command :: rest =>
+    if command == "--help" || command == "-h" then do
+      IO.println usage
+      return 0
+    else if !readerCommands.contains command then
+      refuse s!"unknown `reader` subcommand `{command}`"
+    else match parseReader rest {} with
+      | .error message => refuse message
+      | .ok a =>
+        if a.help then
+          IO.println usage
+          return 0
+        let some out := a.out | refuse "--out <dir> is required: the directory the reader is built \
+          under, which `build --versions` keeps at <out>/extractors"
+        try
+          readerBuildRun a out
         catch e =>
           IO.eprintln s!"litedoc4: {e}"
           pure (1 : UInt32)

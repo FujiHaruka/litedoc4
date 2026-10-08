@@ -6,13 +6,16 @@
 # v1 is e2e/micro as it is; v<n> is v<n-1> with tools/mv-s/v<n>.patch applied.
 # v5 changes only lean-toolchain, to another row of tools/lean-toolchains.txt, and
 # is in no row of expected.txt: it is the toolchain change `build --versions` carries.
+# v6 does the same to the last row, the reader's toolchain; only
+# tools/mv-reader-gate.sh asks for it.
 # Author, committer and dates are fixed, so every run yields the same hashes.
 #
-# usage: tools/mv-s/generate.sh [--out DIR]
+# usage: tools/mv-s/generate.sh [--out DIR] [--versions N]
 #   --out DIR   the repository to recreate (default: /private/tmp/lean-doc-relay/mv-s/repo).
 #               The sample requires `../micro-dep` by path, so e2e/micro-dep is
 #               copied to DIR/../micro-dep as well. The version table is printed
 #               and written to DIR/../versions.txt. Each commit is also tagged v<n>.
+#   --versions N  how many versions, v1..vN (default 5)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,6 +27,7 @@ REMOTE="https://github.com/litedoc4-sample/mv-s.git"
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
+    --versions) VERSIONS="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac

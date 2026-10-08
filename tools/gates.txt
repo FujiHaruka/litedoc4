@@ -29,6 +29,7 @@ lean-versions-gate.sh        ci      one IR tree per toolchain in lean-toolchain
 libc-shim-gate.sh            ci      the *system* compiler and its real headers; the inverse of the build
 md-memory-gate.sh            ci      the system compiler with AddressSanitizer over the C Lake links in; the leak half needs a platform LeakSanitizer runs on
 md-oracle-gate.sh            ci      nothing; reads fixtures/md/ and test/
+mv-reader-gate.sh            manual  elan and e2e/micro; builds tools/mv-s/ as six versions in its own work directory (v6 on the reader's toolchain), filled natively and through the .olean reader, which has never run on Linux, so not ci before one dispatched run there
 mv-s-gate.sh                 ci      elan and e2e/micro (the sample's Lean); builds tools/mv-s/ as five versions in its own work directory (v5 on a second toolchain, which `build --versions` installs through elan)
 mv-pages-gate.sh             ci      deno, a headless Chrome, and the two renders mv-s-gate.sh --keep leaves; e2e/micro-expected/build as the frozen pages; python3 to decode the search indexes
 onemod-gate.sh               ci      a build's marker and extractor log (e2e-micro calls it)
@@ -37,7 +38,7 @@ provenance-gate.sh           ci      nothing; reads the tree
 public-surface-gate.sh       ci      nothing; reads the tree
 purelean-gate.sh             ci      elan and e2e/consumer
 reader-hybrid-gate.sh        manual  elan with every toolchain in lean-toolchains.txt, a built litedoc4, and e2e/micro with e2e/micro-dep, built once per row in its own work area
-reader-oracle-gate.sh        manual  elan with the reader's toolchain and each writer's in its table; reads their own core libraries, no package
+reader-oracle-gate.sh        manual  elan with the reader's toolchain and each writer's in its table, and a built litedoc4, which builds the reader; reads their own core libraries, no package
 refusal-gate.sh              ci      elan; the two frozen data files are the oracle
 v8-gc-table-gate.sh          ci      deno, pinned to the version the generated table records; nothing else
 version-gate.sh              ci      nothing; reads the tracked files and this repository's tags

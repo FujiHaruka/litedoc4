@@ -204,10 +204,11 @@ def outputFlags (noEquationsUnder : Array String) : Array String :=
   if noEquationsUnder.isEmpty then fixedFlags
   else fixedFlags ++ #["--no-equations-under", ",".intercalate noEquationsUnder.toList]
 
-/-- The whole command line an extraction is started with, after `lake env`.
+/-- The extractor's own command line, after the binary.
 
-**One spelling for both extraction paths.** `litedoc4 extract` runs it once and
-`Serve.startArgv` appends `--serve` to it; written twice, one path's flag order
+**One spelling for every extraction path.** `litedoc4 extract` runs it once,
+`Serve.startArgv` appends `--serve` to it, and `build --versions` hands it to
+`reader extract` for a version filled through the reader; written twice, one path's flag order
 or one path's `--link-index-omit` could move while the other stood still, and the
 two records of the same run would stop being comparable — which is the whole
 reason `eventsBeside` is shared too.
@@ -220,11 +221,11 @@ Split out of the spawn for the reason `Serve.startArgv` was: which flags an
 extraction is given is a decision about its inputs, and inside `IO.Process.spawn`
 it could only be asked by running Lean against a real package. What would falsify
 the split: a flag whose value has to be read off disk here. -/
-def extractArgv (bin modules events irDir : FilePath) (jobs : Nat)
+def extractorArgs (modules events irDir : FilePath) (jobs : Nat)
     (noEquationsUnder : Array String)
     (linkIndex linkIndexOmit : Option FilePath) (linkIndexKey : Option String) :
     Array String := Id.run do
-  let mut args := #["env", bin.toString, modules.toString, events.toString]
+  let mut args := #[modules.toString, events.toString]
   args := args ++ outputFlags noEquationsUnder
   args := args ++ #["--jobs", toString jobs, "--ir-dir", irDir.toString]
   if let some map := linkIndex then
@@ -234,6 +235,13 @@ def extractArgv (bin modules events irDir : FilePath) (jobs : Nat)
     if let some key := linkIndexKey then
       args := args.push "--link-index-key" |>.push key
   return args
+
+def extractArgv (bin modules events irDir : FilePath) (jobs : Nat)
+    (noEquationsUnder : Array String)
+    (linkIndex linkIndexOmit : Option FilePath) (linkIndexKey : Option String) :
+    Array String :=
+  #["env", bin.toString] ++
+    extractorArgs modules events irDir jobs noEquationsUnder linkIndex linkIndexOmit linkIndexKey
 
 /-- The modules an extraction was asked for. Blank once trimmed, or *starting*
 with `#` untrimmed — the asymmetry is deliberate, because this count is compared
