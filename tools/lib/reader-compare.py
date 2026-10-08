@@ -185,13 +185,6 @@ def set_builder(a, b):
     return unbracketed(a), unbracketed(set_builder_opened(b))
 
 
-def struct_default(a, b):
-    if "{ }" not in a:
-        return a, b
-    fields = lambda s: re.sub(r"\{ \}|\{ [^{}]*:= [^{}]* \}", "{…}", s)
-    return fields(a), fields(b)
-
-
 def each(f):
     return lambda a, b: (f(a), f(b))
 
@@ -205,8 +198,6 @@ STEPS = [
     ("coercion arrows (`↑ ⇑ ↥`)", each(lambda s: re.sub(r"[↑⇑↥]", "", s))),
     ("explicit `@`", each(lambda s: s.replace("@", ""))),
     ("namespace qualification", each(lambda s: IDENT.sub(lambda m: m.group(0).split(".")[-1], s))),
-    ("structure instance: native `{ }`, the hybrid prints the fields equal to their defaults "
-     "(the default is not recognised in the hybrid environment)", struct_default),
 ]
 
 

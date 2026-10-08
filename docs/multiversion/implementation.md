@@ -785,6 +785,31 @@ the two ways on versions that have both.
    altered extractor identity all six; `--through-reader` with v5 newest refused, exit 3. On the
    M1 (one run each), the six from nothing took 157 s: the reader built in 20.45 s, each read
    21.6–26.6 s, free disk 7.00–7.18 GiB throughout.
+   **On M, done 2026-10-08**: v4.32.2 / v4.33.0 / v4.33.1 at the M slice, each read into the
+   v4.34.1 slice (447 modules) from the checkout its native IR was extracted from, at the same
+   commit (`benchmarks/tools/mv-m-run.sh --through-reader`; a run, not a gate: the full build
+   path would hold two Mathlib trees). `tools/lib/reader-compare.py --classify` compares field by
+   field and prints which fields count as printed; a printed difference matching no named cause is
+   its own bucket. **0 defects and 0 unrecognised in all three** (21,680 / 21,928 / 21,928
+   declarations); the only printer drift is v4.32.2's set-builder notation, 418 fields in 206
+   declarations (newest Mathlib unexpands `Set.ofPred`, not the old `setOf`); the link index is
+   the same bytes. Rendered, 168 of 437 / 0 of 442 / 0 of 442 pages differ, every one traced to a
+   classified IR difference (the set-builder drift or the column-2 rename) (measured →
+   `benchmarks/results/mv-m-reader-fixed-2026-10-08.txt`, one run). Reading one version took
+   99 s wall, 2.7 GiB peak, against 38–42 s for the native build of the slice.
+   **Two defects it found first** (measured → `benchmarks/results/mv-m-reader-2026-10-08.txt`),
+   each now an item of `tools/reader-hybrid-gate.sh` (22 of 22, each made to fail once on a probe
+   module the gate writes into its own copy of the sample): a `lean-manual://` link was resolved
+   with the running Lean's manual root, which a `builtin_initialize` fixes at process start — `reader
+   extract` now asks the old Lean for its own and runs again with `LEAN_MANUAL_ROOT` set (≈ 0.2 s
+   per ask), refusing by name when it cannot; and a field default an old structure did not have
+   came from the newest Mathlib (`_default` is tried before `_inherited_default`), so the
+   newest-only default and autoParam functions of an old structure's fields are dropped and
+   counted (42 / 14 / 14 on M). On the way, the `.ilean` check met Mathlib's `attribute` on a
+   core declaration, which makes that declaration a parent with the range of the module declaring
+   it: accepted only at that exact range (`ilean-imported`, 6 per version), refused otherwise.
+   Still open: a reader-filled version has no tactic list (63 modules of each M version list
+   95–96 tactics natively; the renderer does not read it).
 6. **The patch path and print reuse** (`Patch.lean`, `PrintKey.lean`): several versions in one
    process, each patched from the previous; the key carried forward with a check mode that
    recomputes and compares; the structure-instance default value covered. Each lever held against

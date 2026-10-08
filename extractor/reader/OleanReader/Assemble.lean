@@ -147,6 +147,7 @@ structure Counts where
   dupDropped : Nat := 0
   oldOnly : Nat := 0
   realizationsDropped : Nat := 0
+  fieldFnsDropped : Nat := 0
   oldAdded : Tally := {}
   oldUnreachable : Tally := {}
   newestDropped : Tally := {}
@@ -157,7 +158,8 @@ structure Counts where
 def Counts.lines (c : Counts) : List String := [
   s!"newest import       {c.newestModules} modules; old constants {c.oldConstants}: replaced in place \
     {c.replaced}, old-only {c.oldOnly} (one extra module), later duplicates dropped {c.dupDropped}, \
-    newest-only realizations of old declarations dropped {c.realizationsDropped}",
+    newest-only realizations of old declarations dropped {c.realizationsDropped}, newest-only \
+    default and autoParam functions of old structures' fields dropped {c.fieldFnsDropped}",
   s!"decoded             old entries added: {c.oldAdded.text}; not reachable in the old version, \
     not added: {c.oldUnreachable.text}",
   s!"                    newest entries dropped for an old key: {c.newestDropped.text}; kept for a \
@@ -173,6 +175,12 @@ def reservedSuffix? (s : String) : Option String :=
   else if isNatAfter "hcongr_" then some "hcongr_<n>"
   else if s.endsWith "induct" then some "*induct"
   else none
+
+def structureFieldFnSuffixes : List String :=
+  [mkDefaultFnOfProjFn, mkInheritedDefaultFnOfProjFn, mkAutoParamFnOfProjFn].filterMap fun mk =>
+    match mk .anonymous with
+    | .str .anonymous sfx => some sfx
+    | _ => none
 
 unsafe def importNewest (searchPath : Array System.FilePath) (imports : Array Import) : IO MImportState := do
   searchPathRef.set searchPath.toList
@@ -206,6 +214,11 @@ unsafe def rewriteMerge (ms : MImportState) (d : Decoded) (ask : Std.HashSet Nam
     | .str p sfx =>
       (reservedSuffix? sfx).isSome && (oldConsts.contains p || oldConsts.contains (privateToUserName p))
     | _ => false
+  let isFieldFnNewest (n : Name) : Bool :=
+    match n with
+    | .str (.str s _) sfx =>
+      structureFieldFnSuffixes.contains sfx && (oldConsts.contains s || oldConsts.contains (privateToUserName s))
+    | _ => false
   let mut replaced : NameSet := {}
   let mut sameValue : Std.HashMap Name Bool := {}
   let mut out := ms
@@ -229,6 +242,8 @@ unsafe def rewriteMerge (ms : MImportState) (d : Decoded) (ask : Std.HashSet Nam
       | none =>
         if isReservedNewest n then
           c := { c with realizationsDropped := c.realizationsDropped + 1 }
+        else if isFieldFnNewest n then
+          c := { c with fieldFnsDropped := c.fieldFnsDropped + 1 }
         else
           cn := cn.push n; cs := cs.push ci
     let im' := { im with parts := im.parts.set! pi ({ md with constNames := cn, constants := cs }, region) }

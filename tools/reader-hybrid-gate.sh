@@ -31,6 +31,28 @@
 #   refuse-ilean      the newest row with a copy of Example.Basic's .ilean
 #                     whose first declaration's end line is one more: refused
 #                     by name, with both ranges, before any IR is written
+#   accept-ilean-imported
+#                     the same copy listing core's Nat at the range
+#                     Init/Prelude.ilean gives it: read, ilean-imported 1
+#   refuse-ilean-imported
+#                     ... with Nat's end line one more: refused by name, with
+#                     both ranges, before any IR is written
+#   refuse-ilean-unknown
+#                     ... listing Example.noSuchDeclaration, which no module of
+#                     the closure declares: refused by name
+#   probe-manual-root every older row's copy of the sample has the gate's own
+#                     module Example.ReaderProbe, whose docstring links
+#                     lean-manual://: natively it links that row's own manual,
+#                     and the reader's docstring is the same
+#   probe-structure-default
+#                     ... and a structure Cheap extending Base, whose field
+#                     default the newest row's copy overrides: natively the
+#                     binder (c : Cheap := { }) prints `{ }`, the reader's is
+#                     the same, and its merge dropped the newest-only default
+#                     function
+#
+# The sample in e2e/micro is not changed: Example.ReaderProbe is written into
+# each row's copy only.
 #
 # A row whose toolchain is not installed is not answered (exit 2): `lake`
 # would install it, so the gate checks first.
@@ -97,7 +119,7 @@ fi
 NEWEST_I=$(( ${#ROWS[@]} - 1 ))
 NEWEST="${ROWS[$NEWEST_I]##*:v}"
 NEWEST_SPELLING="${SPELLINGS[$NEWEST_I]}"
-declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 2 ))
+declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 ))
 
 record_host
 if ! installed "${ROWS[$NEWEST_I]}"; then
@@ -115,11 +137,33 @@ READER="$(tail -n 1 "$WORK/reader-build.log")"
 "$READER" extract --identity "${FLAGS[@]}" >"$WORK/reader-identity.txt"
 say "  $(cat "$WORK/reader-identity.txt")"
 
+probe_module () {
+  local override=""
+  if [ "$1" = "$NEWEST" ]; then override=$' where\n  depth := 1'; fi
+  cat <<EOF
+namespace Example.ReaderProbe
+
+/-- The manual's [macro section](lean-manual://section/tactic-macro-extension). -/
+def manualLinked : Nat := 0
+
+structure Base where
+  depth : Nat := 0
+
+structure Cheap extends Base$override
+
+def withDefault (c : Cheap := { }) : Nat := c.depth
+
+end Example.ReaderProbe
+EOF
+}
+
 native () {
   local v="$1" dir="$WORK/v$1" exe
   mkdir -p "$dir/native"
   cp -R "$ROOT/e2e/micro" "$ROOT/e2e/micro-dep" "$dir/"
   rm -rf "$dir/micro/.lake" "$dir/micro-dep/.lake"
+  probe_module "$v" >"$dir/micro/Example/ReaderProbe.lean"
+  { echo "import Example.ReaderProbe"; cat "$ROOT/e2e/micro/Example.lean"; } >"$dir/micro/Example.lean"
   echo "leanprover/lean4:v$v" >"$dir/micro/lean-toolchain"
   echo "leanprover/lean4:v$v" >"$dir/micro-dep/lean-toolchain"
   (cd "$dir/micro" && "$LAKE" build) >"$dir/build.log" 2>&1 || { echo "lake build failed"; return 1; }
@@ -277,6 +321,65 @@ else
   fi
 fi
 
+probe () {
+  python3 - "$1" "$2" "$WORK/v$2/native/ir" "$WORK/v$2/read/ir" "$WORK/v$2/read/stdout.txt" <<'PY'
+import json, pathlib, re, sys
+
+kind, v, native, read, stdout = sys.argv[1:]
+
+def decl(root, name):
+    f = pathlib.Path(root) / "modules" / "Example.ReaderProbe.json"
+    if not f.is_file():
+        sys.exit(f"v{v}: no {f}")
+    for d in json.loads(f.read_text(encoding="utf-8")).get("declarations", []):
+        if d.get("name") == name:
+            return d
+    sys.exit(f"v{v}: {f} has no {name}")
+
+if kind == "manual":
+    name = "Example.ReaderProbe.manualLinked"
+    own = f"https://lean-lang.org/doc/reference/{v}/"
+    n, r = decl(native, name).get("doc") or "", decl(read, name).get("doc") or ""
+    if own not in n:
+        sys.exit(f"v{v}: the native docstring of {name} does not link {own}: {n!r}")
+    if r != n:
+        sys.exit(f"v{v}: the native docstring links {own}, the reader's is {r!r}")
+    print(f"v{v} links {own}")
+else:
+    name = "Example.ReaderProbe.withDefault"
+    n, r = decl(native, name).get("binders") or [], decl(read, name).get("binders") or []
+    if not any(":= { }" in b for b in n):
+        sys.exit(f"v{v}: the native binders of {name} print no `{{ }}`: {n}")
+    if r != n:
+        sys.exit(f"v{v}: native {n}, the reader's {r}")
+    m = re.search(r"default and autoParam functions of old structures' fields dropped (\d+)",
+                  pathlib.Path(stdout).read_text(encoding="utf-8"))
+    if not m or m.group(1) == "0":
+        sys.exit(f"v{v}: the binders are equal, but the merge reports no newest-only default function dropped")
+    print(f"v{v} {' '.join(n)}, {m.group(1)} dropped")
+PY
+}
+
+say
+say "=== the gate's own module, on each older row the reader read"
+for item in probe-manual-root probe-structure-default; do
+  if [ "$item" = probe-manual-root ]; then kind=manual; else kind=default; fi
+  lines=()
+  fails=()
+  for i in "${!ROWS[@]}"; do
+    v="${ROWS[$i]##*:v}"
+    if [ "$i" -eq "$NEWEST_I" ] || [ ! -d "$WORK/v$v/read/ir" ]; then continue; fi
+    if result="$(probe "$kind" "$v" 2>&1)"; then lines+=("$result"); else fails+=("$result"); fi
+  done
+  if [ "${#fails[@]}" -ne 0 ]; then
+    bad "$item" "$(printf '%s; ' "${fails[@]}")"
+  elif [ "${#lines[@]}" -eq 0 ]; then
+    bad "$item" "no older row was read through the reader"
+  else
+    ok "$item" "$(printf '%s; ' "${lines[@]}")"
+  fi
+done
+
 say
 say "=== the flags the hybrid refuses"
 for flag in "${REFUSED[@]}"; do
@@ -300,7 +403,8 @@ for flag in "${REFUSED[@]}"; do
   fi
 done
 
-# usage: corrupt <dangling|ilean> <pristine lib dir> <shadow dir>
+# usage: corrupt <dangling|ilean|ilean-imported|ilean-imported-unequal|ilean-unknown>
+#          <pristine lib dir> <shadow dir> <the newest toolchain's lib/lean>
 #   prints what it changed, then on a line of its own the refusal it predicts
 corrupt () {
   python3 - "$@" <<'PY'
@@ -346,26 +450,48 @@ else:
     j = json.loads((lib / "Example" / "Basic.ilean").read_text(encoding="utf-8"))
     if not j["decls"]:
         sys.exit("Example/Basic.ilean lists no declarations")
-    first = sorted(j["decls"])[0]
-    before = list(j["decls"][first])
-    j["decls"][first][2] += 1
+    if kind == "ilean":
+        first = sorted(j["decls"])[0]
+        before = list(j["decls"][first])
+        j["decls"][first][2] += 1
+        print(f"{first}: {before} -> {j['decls'][first]}")
+        print(f"module Example.Basic: {first}'s range is {j['decls'][first]} in Basic.ilean and {before} decoded from its .olean")
+    elif kind in ("ilean-imported", "ilean-imported-unequal"):
+        if "Nat" in j["decls"]:
+            sys.exit("Example/Basic.ilean already lists Nat")
+        prelude = json.loads((pathlib.Path(sys.argv[4]) / "Init" / "Prelude.ilean").read_text(encoding="utf-8"))
+        nat = list(prelude["decls"]["Nat"])
+        j["decls"]["Nat"] = list(nat)
+        if kind == "ilean-imported":
+            print(f"Nat listed at {nat}, its range in Init/Prelude.ilean")
+            print("ilean-imported 1")
+        else:
+            j["decls"]["Nat"][2] += 1
+            print(f"Nat listed at {j['decls']['Nat']}, Init/Prelude.ilean gives {nat}")
+            print(f"module Example.Basic: Nat's range is {j['decls']['Nat']} in Basic.ilean and {nat} decoded from the .olean that declares it")
+    elif kind == "ilean-unknown":
+        bogus = "Example.noSuchDeclaration"
+        j["decls"][bogus] = list(next(iter(j["decls"].values())))
+        print(f"{bogus} listed at {j['decls'][bogus]}")
+        print(f"module Example.Basic: Basic.ilean lists {bogus}, and no .olean of the closure has a declaration range for {bogus}")
+    else:
+        sys.exit(f"corrupt: no kind {kind}")
     (shadow / "Example" / "Basic.ilean").write_text(json.dumps(j), encoding="utf-8")
-    print(f"{first}: {before} -> {j['decls'][first]}")
-    print(f"module Example.Basic: {first}'s range is {j['decls'][first]} in Basic.ilean and {before} decoded from its .olean")
 PY
 }
 
 say
 say "=== the invariants refusing a corrupted copy"
 LIB="$WORK/v$NEWEST/micro/.lake/build/lib/lean"
-for kind in dangling ilean; do
-  item="refuse-$kind"
+CORE="$TOOLCHAINS/$(printf '%s' "${ROWS[$NEWEST_I]}" | sed 's|/|--|; s|:|---|')/lib/lean"
+for kind in dangling ilean ilean-imported-unequal ilean-unknown; do
+  item="refuse-${kind%-unequal}"
   if [ "${NATIVE_OK[$NEWEST_I]}" != ok ]; then
     bad "$item" "the newest row's sample did not build, so there is nothing to corrupt"
     continue
   fi
   out="$WORK/refuse-$kind"
-  if ! made="$(corrupt "$kind" "$LIB" "$out/shadow" 2>&1)"; then
+  if ! made="$(corrupt "$kind" "$LIB" "$out/shadow" "$CORE" 2>&1)"; then
     bad "$item" "the corrupted copy could not be made: $made"
     continue
   fi
@@ -383,6 +509,26 @@ for kind in dangling ilean; do
     ok "$item" "$made: $(head -c 400 "$out/stderr.txt")"
   fi
 done
+
+item=accept-ilean-imported
+out="$WORK/accept-ilean-imported"
+if [ "${NATIVE_OK[$NEWEST_I]}" != ok ]; then
+  bad "$item" "the newest row's sample did not build, so there is nothing to copy"
+elif ! made="$(corrupt ilean-imported "$LIB" "$out/shadow" "$CORE" 2>&1)"; then
+  bad "$item" "the copy could not be made: $made"
+else
+  want="$(printf '%s\n' "$made" | sed -n 2p)"
+  made="$(printf '%s\n' "$made" | sed -n 1p)"
+  if read_through "$NEWEST" "$out" --shadow "$out/shadow"; then rc=0; else rc=$?; fi
+  seen="$(sed -n 's/^  ilean-imported  *\([0-9][0-9]*\) .*/ilean-imported \1/p' "$out/stdout.txt")"
+  if [ "$rc" -ne 0 ]; then
+    bad "$item" "reader extract exited $rc on the copy ($made): $(head -c 400 "$out/stderr.txt")"
+  elif [ "$seen" != "$want" ]; then
+    bad "$item" "read, but the summary says '${seen:-no ilean-imported line}', not '$want' ($made)"
+  else
+    ok "$item" "$made: read, $seen"
+  fi
+fi
 
 say
 say "=== summary"

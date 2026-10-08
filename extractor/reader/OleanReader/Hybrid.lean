@@ -125,6 +125,52 @@ def invariantLines (cl : Check.ClosureCounts) (il : Check.IleanCounts) : List St
   s!"  ilean-in-theorem   {il.inTheorem} decoded ranges: a parent nested in a theorem's range (let rec, \
     where), elaborated asynchronously; the .ilean writer looks ranges up in the command's environment"]
 
+def manualRootProgram : String :=
+  "import Lean.DocString.Links\n#eval IO.println s!\"{Lean.githash} {Lean.manualRoot}\"\n"
+
+structure OldManualRoot where
+  lean : System.FilePath
+  githash : String
+  root : String
+  ms : Nat
+
+-- Not the old toolchain's include/lean/version.h: it holds only the pre-configured root, and `manualRoot`'s initializer also reads LEAN_MANUAL_ROOT and falls back to `latest`.
+def askOldManualRoot (s : Session) : IO OldManualRoot := do
+  let t0 ← IO.monoMsNow
+  let prelude ← findOlean s `Init.Prelude
+  let some lib := prelude.parent.bind (·.parent)
+    | throw <| IO.userError s!"manual root: {prelude} has no toolchain directory above it"
+  let some top := lib.parent.bind (·.parent)
+    | throw <| IO.userError s!"manual root: {lib} is not a toolchain's lib/lean"
+  let lean := top / "bin" / "lean"
+  unless ← lean.pathExists do
+    throw <| IO.userError s!"manual root: the version read takes Init.Prelude from {lib}, and there is no {lean} \
+      to ask for its manual root"
+  let out ← IO.FS.withTempFile fun h path => do
+    h.putStr manualRootProgram
+    h.flush
+    IO.Process.output { cmd := lean.toString, args := #[path.toString], env := #[("LEAN_PATH", some lib.toString)] }
+  let fail (why : String) : IO OldManualRoot :=
+    throw <| IO.userError s!"manual root: {lean} was asked for Lean.manualRoot and {why}"
+  if out.exitCode != 0 then
+    return ← fail s!"exited {out.exitCode}: {(out.stdout ++ out.stderr).trimAscii.toString.take 400}"
+  match out.stdout.trimAscii.toString.splitOn " " with
+  | [githash, root] => return { lean, githash, root, ms := (← IO.monoMsNow) - t0 }
+  | _ => fail s!"printed {out.stdout.take 400}, not a githash and a root"
+
+def manualRootLine (r : OldManualRoot) (what : String) : String :=
+  s!"manual root          {r.root} answered by {r.lean} in {r.ms} ms: {what}"
+
+unsafe def rerunWithManualRoot (args : List String) (r : OldManualRoot) : IO UInt32 := do
+  if (← IO.getEnv "LEAN_MANUAL_ROOT") == some r.root then
+    throw <| IO.userError s!"manual root: LEAN_MANUAL_ROOT is {r.root}, which {r.lean} answers, and the running \
+      Lean's is still {Lean.manualRoot}"
+  IO.println (manualRootLine r s!"the running Lean's is {Lean.manualRoot}; run again with LEAN_MANUAL_ROOT set to it")
+  (← IO.getStdout).flush
+  let child ← IO.Process.spawn { cmd := (← IO.appPath).toString, args := ("extract" :: args).toArray
+                                 env := #[("LEAN_MANUAL_ROOT", some r.root)] }
+  child.wait
+
 unsafe def extractMain (args : List String) : IO UInt32 := do
   let a := parseReaderArgs args {}
   let cfg ← match parseArgs a.extractor with
@@ -147,7 +193,13 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
     return 2
   try
     let s ← Session.new a.old
+    let manual ← askOldManualRoot s
+    if manual.root != Lean.manualRoot then return ← rerunWithManualRoot args manual
     let mods ← closure s targets
+    let some (writer, _) ← s.firstWriter.get | throw <| IO.userError "olean reader: nothing was read"
+    unless writer.githash == manual.githash do
+      throw <| IO.userError s!"manual root: {manual.lean} is Lean {manual.githash}, and the version read was \
+        written by Lean {writer.leanVersion} ({writer.githash})"
     let d ← Assemble.decodeAll s mods
     let cl ← Check.closure d
     let il ← Check.ilean s d
@@ -163,6 +215,7 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
     let autoParams := classifyAutoParams uses merged.sameValue
     let verso ← hs.verso.get
     let builtin ← hs.builtinDoc.get
+    IO.println (manualRootLine manual "the running Lean's")
     for l in invariantLines cl il do IO.println l
     IO.println s!"reader               Lean {d.writer.leanVersion} ({d.writer.githash}) read in Lean \
       {Lean.versionString}: {mods.size} modules, {d.stats.constants} constants, \
