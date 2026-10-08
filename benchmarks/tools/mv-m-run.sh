@@ -24,12 +24,28 @@
 #   read       litedoc4 store read, compared byte for byte with the build
 # then `store measure` for a, b and c over all versions.
 #
+# With --through-reader, the same slice is also read through the .olean reader
+# into the newest Lean (--newest, a built Mathlib workspace on the last row of
+# tools/lean-toolchains.txt, read and never written), and `store measure` is not
+# run. Before the first version: the newest workspace's search path and its own
+# closure of the roots, the reader built (`reader build`) and its identity. Per
+# version, after `read` and on the same checkout:
+#   old-native the build against the entry --old-store holds for the version,
+#              if any: equal except the identity's source= digest, or said
+#   reader     reader extract with the build's own module list and flags
+#   classify   tools/lib/reader-compare.py --classify against the build
+#   reader-put the reader's IR into <work>/store-reader (fill `own`: `store put`
+#              cannot say `reader`, and the renderer does not read it)
+# then both stores rendered (`store render`) and every page that differs traced
+# to a declaration the classification names (benchmarks/tools/mv-m-site-diff.py).
+#
 # Output: <work>/logs/phases.jsonl (one JSON record per version and phase, plus
 # one for the run's conditions), each phase's raw output beside it, <work>/store,
 # <work>/measure, and a summary on stdout. Nothing is written to benchmarks/results/.
 #
 # usage: benchmarks/tools/mv-m-run.sh [--roots M,M] [--versions T,T] [--work DIR]
 #          [--keep-checkouts] [--limit-modules N] [--need-gb N] [--jobs N]
+#          [--through-reader [--newest DIR] [--old-store DIR]]
 #   --roots           Mathlib modules (default: the plan's first M candidate,
 #                     Mathlib.Algebra.BigOperators.Group.Finset.Basic,Mathlib.Order.Filter.Basic)
 #   --versions        Mathlib release tags, in release order (default: v4.32.2,v4.33.0,v4.33.1)
@@ -39,6 +55,11 @@
 #   --limit-modules   refuse a closure larger than N modules, before any download
 #   --need-gb         free space required before each version (default: 4)
 #   --jobs            litedoc4 build --jobs (default: 1)
+#   --through-reader  also read each version through the .olean reader (above)
+#   --newest          the newest version's built workspace (default:
+#                     /private/tmp/lean-doc-relay/mv-v4341)
+#   --old-store       a store an earlier native run filled (default:
+#                     /private/tmp/lean-doc-relay/mv-m/store); only read
 #   LITEDOC4 / LAKE   the binaries (default: .lake/build/bin/litedoc4, ~/.elan/bin/lake)
 set -euo pipefail
 
@@ -59,6 +80,9 @@ KEEP=0
 LIMIT=0
 NEED_GB=4
 JOBS=1
+THROUGH=0
+NEWEST=/private/tmp/lean-doc-relay/mv-v4341
+OLD_STORE=/private/tmp/lean-doc-relay/mv-m/store
 while [ $# -gt 0 ]; do
   case "$1" in
     --roots) ROOTS="$2"; shift 2 ;;
@@ -68,6 +92,9 @@ while [ $# -gt 0 ]; do
     --limit-modules) LIMIT="$2"; shift 2 ;;
     --need-gb) NEED_GB="$2"; shift 2 ;;
     --jobs) JOBS="$2"; shift 2 ;;
+    --through-reader) THROUGH=1; shift ;;
+    --newest) NEWEST="$2"; shift 2 ;;
+    --old-store) OLD_STORE="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d'; answer 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -337,6 +364,120 @@ PH_RC=0; PH_BEFORE="$(avail_kb)"
 record run conditions "litedoc4Commit=$(git -C "$ROOT" rev-parse HEAD)" "roots=$ROOTS" \
   "versions=$VERSIONS" "jobs=$JOBS" "host=$(uname -srm) / $(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo '?') / $(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 )) GB"
 
+OUTPUT_FLAGS=(--equations --refs --write-ir --tagged-code --no-equations-under Mathlib.Tactic,Mathlib.Meta)
+INVENTORY="$ROOT/tools/lean-toolchains.txt"
+spelling_of () { awk -v tc="$1" '{ sub(/#.*/, "") } NF && $1 == tc { print $2 }' "$INVENTORY"; }
+search_of () { ( cd "$1" && "$LAKE" env printenv LEAN_PATH ) | tr ':' '\n' | sed '/^$/d'; }
+
+if [ "$THROUGH" -eq 1 ]; then
+  echo
+  echo "=== newest: $NEWEST"
+  READER_TC="$(awk '{ sub(/#.*/, "") } NF { tc = $1 } END { print tc }' "$INVENTORY")"
+  [ "$(tr -d '[:space:]' <"$NEWEST/lean-toolchain")" = "$READER_TC" ] ||
+    fail "$NEWEST pins $(cat "$NEWEST/lean-toolchain"), and the reader runs on $READER_TC"
+  RUNNING="$(spelling_of "$READER_TC")"
+  search_of "$NEWEST" >"$LOGS/newest-search.txt"
+  sysroot="$(cd "$NEWEST" && "$LAKE" env printenv LEAN_SYSROOT)"
+  outside="$(awk -v n="$NEWEST/" -v s="$sysroot/" 'index($0 "/", n) != 1 && index($0 "/", s) != 1' "$LOGS/newest-search.txt")"
+  [ -z "$outside" ] || fail "the newest search path leaves $NEWEST: $outside (the product copies such a directory; this run does not)"
+  NEW_ARGS=()
+  while IFS= read -r d; do NEW_ARGS+=(--new "$d"); done <"$LOGS/newest-search.txt"
+  PH_BEFORE="$(avail_kb)"
+  set +e
+  closure_of "$NEWEST/.lake/packages/mathlib" >"$LOGS/newest-closure.txt" 2>"$LOGS/newest-closure.err"
+  PH_RC=$?
+  set -e
+  [ "$PH_RC" -eq 0 ] || fail "the newest closure could not be read: $(tail -n 1 "$LOGS/newest-closure.err")"
+  newest_n="$(wc -l <"$LOGS/newest-closure.txt" | tr -d ' ')"
+  record newest closure "modules=$newest_n" "toolchain=$READER_TC" \
+    "commit=$(git -C "$NEWEST/.lake/packages/mathlib" rev-parse HEAD)" "searchDirs=$(wc -l <"$LOGS/newest-search.txt" | tr -d ' ')"
+  echo "closure  $newest_n Mathlib module(s) in the newest, $(wc -l <"$LOGS/newest-search.txt" | tr -d ' ') search directories"
+
+  phase newest reader-build "$WORK" "$LITEDOC4" reader build --out "$WORK/extractors" --lake "$LAKE"
+  [ "$PH_RC" -eq 0 ] || fail "litedoc4 reader build failed"
+  READER="$(tail -n 1 "$LOGS/newest-reader-build.out")"
+  [ -x "$READER" ] || fail "no reader at $READER"
+  "$READER" extract --identity "${OUTPUT_FLAGS[@]}" >"$LOGS/reader-identity.txt"
+  record newest reader-build "reader=$READER" "identity=$(tr ' ' ',' <"$LOGS/reader-identity.txt")"
+  echo "reader   $READER"
+fi
+
+old_native_same () {
+  python3 - "$1" "$2" <<'PY'
+import json
+import pathlib
+import sys
+
+new, old = (pathlib.Path(p) for p in sys.argv[1:3])
+
+
+def files(r):
+    return {p.relative_to(r).as_posix(): p for p in r.rglob("*") if p.is_file()}
+
+
+n, o = files(new / "ir"), files(old / "ir")
+out = [f"{k} on one side only" for k in sorted(set(n) ^ set(o))]
+out += [f"{k} differs" for k in sorted(set(n) & set(o)) if k != "index.json" and n[k].read_bytes() != o[k].read_bytes()]
+if (new / "link-index.lidx").read_bytes() != (old / "link-index.lidx").read_bytes():
+    out.append("link-index.lidx differs")
+ni, oi = (json.loads((r / "ir" / "index.json").read_text(encoding="utf-8")) for r in (new, old))
+nid, oid = ni.pop("extractorIdentity").split(" "), oi.pop("extractorIdentity").split(" ")
+if ni != oi:
+    out.append("index.json differs beyond the identity")
+moved = sorted(set(nid) ^ set(oid))
+if any(not f.startswith("source=") for f in moved):
+    out.append(f"identity fields other than source= differ: {moved}")
+print("yes" if not out else "no:" + ";".join(out[:6]).replace(" ", "_"))
+PY
+}
+
+reader_pass () {
+  local tag="$1" toolchain="$2" d same rc
+  local RD="$WORK/reader-out/$tag"
+  local OLD_ARGS=()
+  rm -rf "$RD"
+  mkdir -p "$RD"
+
+  if [ -d "$OLD_STORE/$tag" ]; then
+    PH_BEFORE="$(avail_kb)"; PH_RC=0
+    "$LITEDOC4" store read --store "$OLD_STORE" --version "$tag" --out "$WORK/old-$tag" >"$LOGS/$tag-old-native.out" 2>&1
+    same="$(old_native_same "$OUT" "$WORK/old-$tag")"
+    rm -rf "$WORK/old-$tag"
+    record "$tag" old-native "equalExceptSource=$same"
+    echo "old      the build against $OLD_STORE's $tag, equal except the identity's source=: $same"
+  fi
+
+  while IFS= read -r d; do OLD_ARGS+=(--old "$d"); done < <(search_of "$CO")
+  phase "$tag" reader "$WORK" "$READER" extract "${OLD_ARGS[@]}" "${NEW_ARGS[@]}" \
+    --new-roots "$LOGS/newest-closure.txt" "$OUT/work/modules.txt" "$RD/events.jsonl" \
+    "${OUTPUT_FLAGS[@]}" --jobs "$JOBS" --ir-dir "$RD/ir" \
+    --link-index "$RD/link-index.lidx" --link-index-omit "$OUT/work/modules.txt"
+  [ "$PH_RC" -eq 0 ] || fail "$tag: reader extract failed"
+  record "$tag" reader "oldSearchDirs=$((${#OLD_ARGS[@]} / 2))" \
+    "irFiles=$(find "$RD/ir" -type f | wc -l | tr -d ' ')" \
+    "hardStops=$(sed -n 's/^hard stops *//p' "$LOGS/$tag-reader.out" | tr ' ' ',')"
+  echo "reader   $(sed -n 's/^reader  *//p' "$LOGS/$tag-reader.out")"
+
+  PH_BEFORE="$(avail_kb)"
+  set +e
+  python3 "$ROOT/tools/lib/reader-compare.py" --classify "$LOGS/$tag-classify.json" \
+    "$OUT/ir" "$OUT/link-index.lidx" "$RD/ir" "$RD/link-index.lidx" "${toolchain##*:v}" \
+    "$(spelling_of "$toolchain")" "$RUNNING" "$ROOT/extractor/Extract.lean" \
+    "$(dirname "$READER")/Extract.lean" "$LOGS/reader-identity.txt" \
+    >"$LOGS/$tag-classify.txt" 2>"$LOGS/$tag-classify.err"
+  rc=$?
+  set -e
+  PH_RC=$rc
+  [ "$rc" -le 1 ] || fail "$tag: the comparator failed ($LOGS/$tag-classify.err)"
+  record "$tag" classify "defects=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["defects"]))' "$LOGS/$tag-classify.json")"
+  echo "classify $(grep -m 1 '^defects' "$LOGS/$tag-classify.txt") ($LOGS/$tag-classify.txt)"
+
+  cp "$OUT/litedoc4-build.json" "$RD/"
+  phase "$tag" reader-put "$WORK" "$LITEDOC4" store put --store "$WORK/store-reader" --version "$tag" --from "$RD" --lake "$LAKE"
+  [ "$PH_RC" -eq 0 ] || fail "$tag: store put of the reader's IR failed"
+  record "$tag" reader-put
+}
+
 STARTED=$SECONDS
 for tag in "${TAGS[@]}"; do
   echo
@@ -467,14 +608,38 @@ print(" ".join("%s=%s" % (k, d[k]) for k in ("files", "rawBytes", "linkIndexByte
   [ "$same" = yes ] || fail "$tag: what the store gives back differs from the build ($LOGS/$tag-round-trip.diff)"
   echo "store    put and read back byte-identical"
 
+  if [ "$THROUGH" -eq 1 ]; then reader_pass "$tag" "$toolchain"; fi
+
   if [ "$KEEP" -eq 0 ]; then rm -rf "$CO" "$CACHE" "$OUT"; fi
   CURRENT=""
 done
+
+if [ "$THROUGH" -eq 1 ]; then
+  echo
+  echo "=== the two stores rendered over $VERSIONS"
+  for s in native reader; do
+    store="$STORE"
+    if [ "$s" = reader ]; then store="$WORK/store-reader"; fi
+    phase render "$s" "$WORK" "$LITEDOC4" store render --store "$store" --versions "$VERSIONS" --out "$WORK/site-$s"
+    [ "$PH_RC" -eq 0 ] || fail "store render of the $s store failed"
+    record render "$s" "files=$(find "$WORK/site-$s" -type f | wc -l | tr -d ' ')"
+  done
+  PH_BEFORE="$(avail_kb)"
+  set +e
+  python3 "$HERE/mv-m-site-diff.py" "$WORK/site-native" "$WORK/site-reader" "$LOGS" "$VERSIONS" \
+    >"$LOGS/site-diff.txt" 2>"$LOGS/site-diff.err"
+  PH_RC=$?
+  set -e
+  [ "$PH_RC" -le 1 ] || fail "the site diff failed ($LOGS/site-diff.err)"
+  record render diff "untraced=$(sed -n 's/^untraced pages: //p' "$LOGS/site-diff.txt")"
+  head -n 40 "$LOGS/site-diff.txt"
+fi
 
 echo
 echo "=== store measure over $VERSIONS"
 mkdir -p "$WORK/measure"
 for c in a b c; do
+  if [ "$THROUGH" -eq 1 ]; then break; fi
   phase measure "$c" "$WORK" "$LITEDOC4" store measure --store "$STORE" --versions "$VERSIONS" \
     --candidate "$c" --out "$WORK/measure/$c"
   [ "$PH_RC" -eq 0 ] || fail "store measure --candidate $c failed"

@@ -1,0 +1,590 @@
+M exactness checkpoint: the M slice of three Mathlib releases read through the .olean reader
+into the newest Lean, against the native extractor's IR of the same slice
+(docs/multiversion/implementation.md, "Step 5 plan (2026-10-08)", item 5 "On M")
+=============================================================================================
+
+A measurement run, not a gate. One run (2026-10-08), plus the trial runs and the samples it
+names below.
+
+QUESTION
+--------
+Each of v4.32.2 / v4.33.0 / v4.33.1, at the import closure of
+Mathlib.Algebra.BigOperators.Group.Finset.Basic and Mathlib.Order.Filter.Basic, is read by
+`reader extract` into the v4.34.1 environment. How does that IR differ from the native
+extractor's IR of the same slice? A difference in a printed field is printer drift, counted by
+cause; a difference in any other field, or anything on one side only, is a defect (zero
+tolerated). Then: render both stores and trace every differing page to a classified IR
+difference.
+
+CONDITIONS
+----------
+host        Apple M1, 16 GB, Darwin 25.6.0 arm64; free disk 7.64 GiB at the start
+litedoc4    5ff22f7c67e7c0343ec4550e7791720e7e22461e plus 5 uncommitted paths:
+            benchmarks/tools/mv-m-run.sh (--through-reader), benchmarks/tools/mv-m-site-diff.py (new),
+            tools/lib/reader-compare.py (--classify), extractor/reader/OleanReader/Check.lean and
+            Hybrid.lean (the .ilean fix below). litedoc4 was rebuilt from that tree
+            (tools/build-lean-exe.sh --toolchain-from e2e/micro) before the run.
+reader      built by `litedoc4 reader build` on leanprover/lean4:v4.34.1 (the last row of
+            tools/lean-toolchains.txt): extractors/reader-leanprover-lean4-v4.34.1-55ea7dcdfa935abb,
+            identity reader=fnv1a64:bca236af53adcc31 source=fnv1a64:72f05375aa7cbc52
+versions    v4.32.2  mathlib 905b95818eb32af7874a58b427f50c1711a5e96c  leanprover/lean4:v4.32.2  433 modules
+            v4.33.0  mathlib db584cd6d46c92f209a44c0f1c829460d327499d  leanprover/lean4:v4.33.0  438 modules
+            v4.33.1  mathlib 0df444a360eaa60ab8c11dca51a86af692955474  leanprover/lean4:v4.33.1  438 modules
+newest      /private/tmp/lean-doc-relay/mv-v4341 (a built Mathlib v4.34.1 workspace, read only):
+            mathlib d13f23b723b8a846827a245b89c10fc7d3f11612, leanprover/lean4:v4.34.1.
+            --new: its `lake env` LEAN_PATH, 11 directories, all inside the workspace or the
+            toolchain (none needs the product's copy). --new-roots: the v4.34.1 import closure of
+            the same two roots, read the way the closure phase reads it: 447 modules (the old
+            closures are 433 / 438; a different count is the newest Mathlib's own import graph,
+            not a defect).
+flags       both sides: --equations --refs --write-ir --tagged-code
+            --no-equations-under Mathlib.Tactic,Mathlib.Meta --jobs 1 --link-index, with the
+            native build's own module list (<out>/work/modules.txt) as the reader's module list
+            and its --link-index-omit. Confirmed by the identity: the reader's extractorIdentity
+            equals the native one field for field except source= and the appended reader fields
+            ("identity as predicted" in every classification below).
+oracle      the native IR re-minted at this HEAD on the same checkout (not the store at
+            mv-m/store, made at 7a1da0a before the World seam). Sanity: per version the re-minted
+            IR equals mv-m/store's entry byte for byte in every module and dependency map and the
+            link index, and index.json differs only in the identity's source= digest
+            (old-native = yes, 3 of 3).
+warmth      each old version's oleans were unpacked from the Mathlib cache in the same run, a
+            minute before they were read; every phase ran once. Wall exceeds CPU by 6-10 s in
+            `build` and 11-12 s in `reader`, so neither is fully warm. Single runs, not
+            converged: read the times as one sample each.
+denominators  modules and declarations present on both sides, per version (below); pages are
+            every <version>/**/*.html shell of the rendered site.
+
+REPRODUCE
+---------
+  tools/build-lean-exe.sh --toolchain-from e2e/micro
+  benchmarks/tools/mv-m-run.sh --through-reader --need-gb 3 --work /private/tmp/lean-doc-relay/mv-m-reader \
+    > full.out 2> full.err
+  # defaults: --versions v4.32.2,v4.33.0,v4.33.1, --newest /private/tmp/lean-doc-relay/mv-v4341,
+  #           --old-store /private/tmp/lean-doc-relay/mv-m/store (read only)
+Per version the script runs the existing fetch .. read phases, then old-native, reader,
+classify (tools/lib/reader-compare.py --classify), reader-put (into <work>/store-reader);
+after the last version both stores are rendered (`store render`) and
+benchmarks/tools/mv-m-site-diff.py traces the differing pages. Total 665 s.
+
+ANSWER
+------
+                                  v4.32.2        v4.33.0        v4.33.1
+  modules compared                433            438            438
+  declarations compared           21,680         21,928         21,928
+  declarations, printed diff      207            1              1
+  defects                         1              1              1      (the same one: docstring manual link)
+  tactic lists absent (open)      63 modules     63 modules     63 modules   (96 / 95 / 95 tactics natively)
+  cause not recognised            0              0              0
+  reducibility rename (col. 2)    1,351 decls    0              0
+  link index                      byte-identical in all three
+  pages whose own data differ     169 of 437     2 of 442       2 of 442
+  pages untraced                  0              0              0
+  reader extract wall / CPU       98.4 / 86.6 s  99.4 / 87.6 s  99.2 / 87.2 s   (peak RSS 2,747-2,807 MiB)
+  native build wall (extract)     41.8 (31.9) s  38.3 (29.4) s  38.9 (30.0) s   (peak RSS 1,465-1,519 MiB)
+  free disk, lowest after a phase 6.14 GiB (after v4.33.1's extractor phase); 7.64 GiB at the start,
+                                  7.35 GiB at the end; peak work directory 1.51 GiB (v4.33.1)
+
+Printer drift by cause (field occurrences / declarations):
+  v4.32.2  418 / 206  set-builder: an old `setOf` prints `setOf fun x => p` (newest Mathlib
+                      unexpands only `Set.ofPred`), with the parentheses that forces
+             3 /   1  structure instance: native `{ }`, the hybrid prints the fields equal to
+                      their defaults
+  v4.33.0    3 /   1  structure instance (the same declaration)
+  v4.33.1    3 /   1  structure instance (the same declaration)
+(The field occurrences count the text field and the code/refs fields that follow it.)
+
+THE DEFECT (1 per version, the same declaration, non-printed field `doc`)
+  Mathlib.Tactic.GCongr.tacticGcongr_discharger, in Mathlib.Tactic.GCongr.Core. The docstring's
+  `lean-manual://` link is resolved when the docstring is looked up, by the running Lean
+  (Lean/DocString/Links.lean, rewriteManualLinks: "the version of the Lean reference manual that
+  corresponds to this version of Lean"). Natively it reads
+  https://lean-lang.org/doc/reference/4.32.2/find/?domain=Verso.Genre.Manual.section&name=tactic-macro-extension
+  and through the reader .../reference/4.34.1/... — a reader-filled page links to the newest
+  Lean's manual, not its own version's. Its page is the one "on a module with a defect" in each
+  version's site trace. Not fixed here.
+
+THE STRUCTURE-INSTANCE CASE (printed, counted as drift, but caused by the hybrid, not by notation)
+  Convert.elabCheapConfig's binder prints natively `(init : CheapConfig := { })` and through the
+  reader `(init : CheapConfig := { preTransparency := Lean.Meta.TransparencyMode.reducible })`.
+  The default is the same in both Mathlibs (Mathlib/Tactic/CongrExclamation.lean:
+  `preTransparency : TransparencyMode := TransparencyMode.reducible` at v4.32.2 line 119 and
+  v4.34.1 line 120), and Lean names default functions the same way in both
+  (Lean/Structure.lean mkDefaultFnOfProjFn, `_default`). So the newest printer fails to see an
+  old structure's default in the hybrid environment; the cause inside the hybrid was not read.
+  It is the "structure-instance default value" item 6 of the plan names. It also adds the one
+  reference only the reader has (Lean.Meta.TransparencyMode.reducible, Init.MetaTypes) and its
+  dependency-map entry, which renders as a link the native page does not have.
+
+THE OPEN ITEM, COUNTED BESIDE THE DEFECTS
+  `tactics` (a non-printed module field): the reader writes no tactic list (step 5 item 3: the
+  hybrid has no old parser tables), 63 modules natively list 96 / 95 / 95 tactics. These 63
+  modules are exactly the 63 whose contentHash differs on v4.33.0 and on v4.33.1 (checked
+  as sets on both). The renderer reads no tactic
+  list today (src/Litedoc4/Data/ has no reader of it), so no page differs because of it.
+
+WHAT THE SITE TRACE SAYS
+  Pages are shells naming content-addressed blobs; a page differs when its own page, content or
+  used-by blob differs. Every differing declaration entry was matched to a classified IR field
+  it is drawn from (t: type/typeCode, b: binders/binderCode/implicits, eq and eqOmitted:
+  equations, f/ctor: members, attrs, doc, k). v4.32.2's 169 pages are exactly the 169 modules
+  the classification names: 150 hold a declaration whose `attrs` renders the running Lean's
+  reducibility spelling (the column-2 rename), 42 a printed difference or the defect (23 both).
+  On two of them (Mathlib/Logic/Equiv/Set.html, Mathlib/Order/Filter/Defs.html) the set-builder
+  drift also pushes an equation past the renderer's size limit, so it is omitted there and shown
+  natively. v4.33.x's 2 pages: Mathlib/Tactic/Convert.html (structure
+  instance) and Mathlib/Tactic/GCongr/Core.html (the defect). The version-wide blobs (modules,
+  search, instances, references, front) are equal in every version. The two sites hold the same
+  page shells; their d/ blob counts differ (native 3,206 files, reader 3,102) because blobs are
+  shared across versions by content and the reader prints all three in one Lean.
+  `store put` cannot record fill `reader` (it always writes `own`); the renderer never reads
+  `fill` (its only readers are the staleness plan in Versions.lean and Main.lean and
+  `store list`), so the reader-filled store with fill `own` renders what a `reader` record would.
+
+FOUND ON THE WAY: THE .ilean INVARIANT WAS FALSE ON MATHLIB, AND WAS FIXED
+  The first trial (v4.32.2) stopped before writing any IR (wall 78.2 s, exit 1):
+    reader extract: invariant failed, Lean 4.32.2 is not read: module Mathlib.Tactic.ToDual:
+    ToDual.ilean lists ge_iff_le, and the declaration ranges decoded from its .olean have no
+    ge_iff_le (6 disagreement(s) in all)
+  Mathlib/Tactic/ToDual.lean (v4.32.2) line 27 is `attribute [to_dual self] ge_iff_le gt_iff_lt`:
+  the references inside the command have the core declaration as their parent, and the .ilean
+  writer (Lean/Server/References.lean, toLspRefInfo) takes the parent's ranges from
+  `declRangeExt.find? cmdEnv`, the command's environment, imports included. So a listed parent
+  need not be declared in the module. The check now looks such a name up in the decoded ranges
+  of the whole closure and requires all eight numbers equal (new line `ilean-imported`); a name
+  no module of the closure has a range for is refused by name, as is an unequal range.
+  On M: 6 listed parents declared by an imported module in each version, all equal, 0
+  disagreements. Made to fail once, on the
+  sample's newest row with a shadow copy of Example/Basic.ilean (core's Nat, range
+  [1233, 0, 1255, 24, 1241, 10, 1241, 13] from Init/Prelude.ilean, added to its decls):
+    equal range    exit 0, ilean-imported 1
+    end line +1    exit 1: module Example.Basic: Nat's range is [1233, 0, 1256, 24, 1241, 10,
+                   1241, 13] in Basic.ilean and [1233, 0, 1255, 24, 1241, 10, 1241, 13] decoded
+                   from the .olean that declares it (1 disagreement(s) in all)
+    unknown name   exit 1: module Example.Basic: Basic.ilean lists Example.noSuchDeclaration,
+                   and no .olean of the closure has a declaration range for
+                   Example.noSuchDeclaration (1 disagreement(s) in all)
+  tools/reader-hybrid-gate.sh after the fix: 17 of 17 (ilean-imported 0 on every sample row).
+  tools/mv-reader-gate.sh: 12 of 12 on the binary before the fix (the fix touches only the
+  branch the sample never reaches); not re-run after it.
+
+THE COMPARATOR (tools/lib/reader-compare.py --classify)
+  The exact mode (the gates' 10 arguments) is unchanged: on the five S versions it printed the
+  same lines as tools/mv-reader-gate.sh's reader-equals-native items, exit 0.
+  --classify takes the same 10 arguments after `--classify <report.json>`, applies the same
+  rename / contentHash / identity rules, and prints the printed-field list it uses (verbatim
+  in every classification below). Causes are tried in order, cumulatively, on both texts; the
+  first after which they are equal names the bucket. Whitespace, hygiene, coercion arrows, `@`
+  and namespace qualification are the pre-registered rules of
+  benchmarks/results/mathlib-printer-drift-2026-10-04.txt; set-builder and `↧` are its F1 and
+  F2. The structure-instance step was added after the v4.32.2 trial run, from its one unrecognised
+  example, before the full run.
+  The set-builder step was widened after the trial: it first turned `setOf fun x => p` back
+  into `{x | p}` only inside parentheses, which left 65 field occurrences in 32 declarations
+  "not recognised" (every one an old `setOf` whose `fun` forced new parentheses or ended at a
+  `,`); it now rewrites `setOf fun x =>` to `{x |` and compares with every bracket removed,
+  and only when the reader's text has `setOf fun` and the native one does not.
+
+  Sample first (S, tools/mv-reader-gate.sh's five reader-filled versions against their native
+  entries, the work area kept and deleted afterwards): 0 defects in each of v1..v5, 0 printed
+  differences, the rename applied 6 times per version in 6 declarations.
+  Falsified once each, on a copy of S v5's reader IR (run with the comparator before its last
+  three edits: the widened set-builder step, the structure-instance step, and defects recorded
+  per declaration for the site trace; none changes what is a defect or what is not recognised):
+    planted `"line":56` -> 57 in Example.Attrs.zero (non-printed): exit 1,
+      defects 1: Example.Attrs Example.Attrs.zero: `line` native 56 reader 57
+    planted `"type":"Nat"` -> "Nat0" in the same declaration (printed): exit 0, defects 0,
+      cause not recognised 1: Example.Attrs Example.Attrs.zero type, native 'Nat' reader 'Nat0'
+  The site trace failed once before it passed: on S, before the comparator recorded the
+  reducibility rename per declaration, it reported 15 untraced pages (3 per version, the
+  instances whose `attrs` render the running Lean's spelling); on the v4.32.2 trial it reported
+  3 (eqOmitted not mapped to equations; `names` entries tied to refs rather than to the
+  rendered code; the defect's page). Each was then named, not excused: the rename and the
+  defect are recorded per declaration and a page traced to a defect is counted as such.
+
+WHAT THIS DOES NOT MEASURE
+  - One slice of 433 / 438 modules; L (the 422-module target over all of Mathlib) is not this.
+  - Three releases one to two minor versions from the newest; drift grows with distance.
+  - Times are one run each, not converged; the reader's read is not split into decode,
+    assembly and printing beyond the extractor's own `total` line (20.7-21.0 s of the 98-99 s).
+  - The tactic list is not compared (the reader writes none).
+  - Rendering is compared through the renderer's data blobs, not in a browser.
+
+VERBATIM: THE RUN'S STDOUT (benchmarks/tools/mv-m-run.sh --through-reader)
+--------------------------------------------------------------------------
+run of 5ff22f7c67e7c0343ec4550e7791720e7e22461e (5 uncommitted path(s))
+date              2026-10-08T05:48:09Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+roots    Mathlib.Algebra.BigOperators.Group.Finset.Basic,Mathlib.Order.Filter.Basic
+versions v4.32.2,v4.33.0,v4.33.1
+jobs     1
+
+=== newest: /private/tmp/lean-doc-relay/mv-v4341
+closure  447 Mathlib module(s) in the newest, 11 search directories
+reader   /private/tmp/lean-doc-relay/mv-m-reader/extractors/reader-leanprover-lean4-v4.34.1-55ea7dcdfa935abb/reader
+
+=== v4.32.2
+v4.32.2 905b95818eb32af7874a58b427f50c1711a5e96c leanprover/lean4:v4.32.2
+closure  433 Mathlib module(s) from the import lines
+cache    433 Mathlib olean(s), equal to the closure; 687 file(s) decompressed
+lake     0 module(s) compiled
+build    433 module(s), 21680 declaration(s); Lean's environment holds exactly the closure
+store    put and read back byte-identical
+old      the build against /private/tmp/lean-doc-relay/mv-m/store's v4.32.2, equal except the identity's source=: yes
+reader   Lean 4.32.2 (f3b06c705e6c85f5314019d5d3baab0fec5b580c) read in Lean 4.34.1: 2114 modules, 213613 constants, 576312 extension entries decoded, 1279292 not decoded in 125 extensions
+classify defects (non-printed field differing, or present on one side only): 1 (/private/tmp/lean-doc-relay/mv-m-reader/logs/v4.32.2-classify.txt)
+
+=== v4.33.0
+v4.33.0 db584cd6d46c92f209a44c0f1c829460d327499d leanprover/lean4:v4.33.0
+closure  438 Mathlib module(s) from the import lines
+cache    438 Mathlib olean(s), equal to the closure; 692 file(s) decompressed
+lake     0 module(s) compiled
+build    438 module(s), 21928 declaration(s); Lean's environment holds exactly the closure
+store    put and read back byte-identical
+old      the build against /private/tmp/lean-doc-relay/mv-m/store's v4.33.0, equal except the identity's source=: yes
+reader   Lean 4.33.0 (d8b18978322de05a8f3dba51ef03cf5461676c17) read in Lean 4.34.1: 2156 modules, 215587 constants, 592131 extension entries decoded, 1295464 not decoded in 130 extensions
+classify defects (non-printed field differing, or present on one side only): 1 (/private/tmp/lean-doc-relay/mv-m-reader/logs/v4.33.0-classify.txt)
+
+=== v4.33.1
+v4.33.1 0df444a360eaa60ab8c11dca51a86af692955474 leanprover/lean4:v4.33.1
+closure  438 Mathlib module(s) from the import lines
+cache    438 Mathlib olean(s), equal to the closure; 692 file(s) decompressed
+lake     0 module(s) compiled
+build    438 module(s), 21928 declaration(s); Lean's environment holds exactly the closure
+store    put and read back byte-identical
+old      the build against /private/tmp/lean-doc-relay/mv-m/store's v4.33.1, equal except the identity's source=: yes
+reader   Lean 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6) read in Lean 4.34.1: 2156 modules, 215587 constants, 592131 extension entries decoded, 1295464 not decoded in 130 extensions
+classify defects (non-printed field differing, or present on one side only): 1 (/private/tmp/lean-doc-relay/mv-m-reader/logs/v4.33.1-classify.txt)
+
+=== the two stores rendered over v4.32.2,v4.33.0,v4.33.1
+=== v4.32.2: 437 page(s) native, 437 reader
+  pages whose own blobs differ: 169 of 437; traced 169 (1 of them on a module with a defect: Mathlib/Tactic/GCongr/Core.html); untraced 0; declaration entries rendered differently: 1370
+  version blob `commit`: equal
+  version blob `front`: equal
+  version blob `instances`: equal
+  version blob `lean`: equal
+  version blob `modules`: equal
+  version blob `references`: equal
+  version blob `roots`: equal
+  version blob `search`: equal
+  version blob `source`: equal
+  version blob `title`: equal
+  version blob `version`: equal
+=== v4.33.0: 442 page(s) native, 442 reader
+  pages whose own blobs differ: 2 of 442; traced 2 (1 of them on a module with a defect: Mathlib/Tactic/GCongr/Core.html); untraced 0; declaration entries rendered differently: 2
+  version blob `commit`: equal
+  version blob `front`: equal
+  version blob `instances`: equal
+  version blob `lean`: equal
+  version blob `modules`: equal
+  version blob `references`: equal
+  version blob `roots`: equal
+  version blob `search`: equal
+  version blob `source`: equal
+  version blob `title`: equal
+  version blob `version`: equal
+=== v4.33.1: 442 page(s) native, 442 reader
+  pages whose own blobs differ: 2 of 442; traced 2 (1 of them on a module with a defect: Mathlib/Tactic/GCongr/Core.html); untraced 0; declaration entries rendered differently: 2
+  version blob `commit`: equal
+  version blob `front`: equal
+  version blob `instances`: equal
+  version blob `lean`: equal
+  version blob `modules`: equal
+  version blob `references`: equal
+  version blob `roots`: equal
+  version blob `search`: equal
+  version blob `source`: equal
+  version blob `title`: equal
+  version blob `version`: equal
+untraced pages: 0
+
+=== store measure over v4.32.2,v4.33.0,v4.33.1
+
+=== summary
+per phase (wall/cpu s, peak RSS MiB, page faults, work dir after GiB, free after GiB):
+ newest   closure          -       -       -      -   0.00   7.64  modules=447 searchDirs=11 toolchain=leanprover/lean4:v4.34.1
+ newest   reader-build   25.26   22.02    1517  51738   0.17   7.47  identity=schema=5,source=fnv1a64:72f05375aa7cbc52,lean=,leanGithash=,equations=1,taggedCode=1,refs=1,skipAnalyze=0,ablations=,open=,only=,noEquationsUnder=Mathlib.Meta,Mathlib.Tactic,reader=fnv1a64:bca236af53adcc31,readerLean=4.34.1,readerLeanGithash=5045d0056413266e57c625dcd7c365b10e377c52 reader=/private/tmp/lean-doc-relay/mv-m-reader/extractors/reader-leanprover-lean4-v4.34.1-55ea7dcdfa935abb/reader
+ v4.32.2  fetch         9.64    2.56      37    142   0.31   7.33  sourceFiles=8972 toolchain=leanprover/lean4:v4.32.2
+ v4.32.2  toolchain        -       -       -      -   0.31   7.33  installed=already toolchain=leanprover/lean4:v4.32.2
+ v4.32.2  closure          -       -       -      -   0.31   7.33  modules=433
+ v4.32.2  deps          15.0    4.96     697  33603   0.36   7.27  packages=8
+ v4.32.2  cache        23.19    25.3     745  25931   1.24   6.39  attempted=687 cacheKiB=61768 decompressed=687 lakeKiB=914068 mathlibOleans=433
+ v4.32.2  lake          0.97     1.0     660    172   1.24   6.39  compiled=0 noBuild=ok
+ v4.32.2  extractor    22.05    14.6    1436  61580   1.41   6.22  binaryBytes=171851392
+ v4.32.2  prune            -       -       -      -   1.31   6.32  deleted=7832 left=433
+ v4.32.2  build        41.75   32.36    1465  26894   1.35   6.27  closureNotInEnv=0 declarations=21680 extractSeconds=31.860279208 irBytes=26446300 irFiles=441 linkIndexBytes=3198751 linkIndexGroups=1535 linkIndexModules=2114 mathlibGroupsInLinkIndex=0 mathlibInEnvNotInClosure=0 modules=433 renderSeconds=3.276657166 siteBytes=2874845 siteFiles=1636 totalSeconds=41.498876042
+ v4.32.2  put           1.27    1.25      88     24   1.36   6.27  compressedBytes=4603592 files=441 linkIndexBytes=3198751 packedBytes=29888178 rawBytes=26446300
+ v4.32.2  read          0.36    0.33      79     11   1.39   6.24  identical=yes
+ v4.32.2  old-native       -       -       -      -   1.36   6.27  equalExceptSource=yes
+ v4.32.2  reader       98.39   86.62    2750  65701   1.38   6.25  hardStops=verso=0,builtin-doc=0,tactic-table=1,autoparam-old-only=0,autoparam-newest=0 irFiles=441 oldSearchDirs=10
+ v4.32.2  classify         -       -       -      -   1.39   6.25  defects=1
+ v4.32.2  reader-put    1.59    1.31      87   3092   1.39   6.25  
+ v4.33.0  fetch         8.76    2.38      37    185   0.35   7.29  sourceFiles=9032 toolchain=leanprover/lean4:v4.33.0
+ v4.33.0  toolchain        -       -       -      -   0.35   7.29  installed=already toolchain=leanprover/lean4:v4.33.0
+ v4.33.0  closure          -       -       -      -   0.35   7.29  modules=438
+ v4.33.0  deps         13.16    4.88     722  33797   0.40   7.24  packages=8
+ v4.33.0  cache        18.85   24.47     772  26105   1.29   6.34  attempted=692 cacheKiB=62384 decompressed=692 lakeKiB=927948 mathlibOleans=438
+ v4.33.0  lake          0.98    1.11     687    133   1.29   6.34  compiled=0 noBuild=ok
+ v4.33.0  extractor    14.71    9.58    1512  50962   1.47   6.16  binaryBytes=174268128
+ v4.33.0  prune            -       -       -      -   1.37   6.27  deleted=7874 left=438
+ v4.33.0  build        38.25   31.68    1519  17816   1.41   6.22  closureNotInEnv=0 declarations=21928 extractSeconds=29.419180291 irBytes=26660719 irFiles=446 linkIndexBytes=3229237 linkIndexGroups=1564 linkIndexModules=2156 mathlibGroupsInLinkIndex=0 mathlibInEnvNotInClosure=0 modules=438 renderSeconds=3.35101825 siteBytes=2903186 siteFiles=1655 totalSeconds=38.129897709
+ v4.33.0  put           1.27    1.24      88     24   1.41   6.22  compressedBytes=4638787 files=446 linkIndexBytes=3229237 packedBytes=30135799 rawBytes=26660719
+ v4.33.0  read          0.39    0.34      80     11   1.44   6.19  identical=yes
+ v4.33.0  old-native       -       -       -      -   1.41   6.22  equalExceptSource=yes
+ v4.33.0  reader       99.41   87.56    2747  65690   1.44   6.22  hardStops=verso=0,builtin-doc=0,tactic-table=1,autoparam-old-only=0,autoparam-newest=0 irFiles=446 oldSearchDirs=10
+ v4.33.0  classify         -       -       -      -   1.44   6.22  defects=1
+ v4.33.0  reader-put    1.56     1.3      88   3050   1.44   6.21  
+ v4.33.1  fetch         9.34    2.51      37    179   0.38   7.28  sourceFiles=9032 toolchain=leanprover/lean4:v4.33.1
+ v4.33.1  toolchain        -       -       -      -   0.38   7.28  installed=already toolchain=leanprover/lean4:v4.33.1
+ v4.33.1  closure          -       -       -      -   0.38   7.28  modules=438
+ v4.33.1  deps         13.69    4.86     722  33911   0.44   7.22  packages=8
+ v4.33.1  cache        18.98   24.77     774  26540   1.33   6.32  attempted=692 cacheKiB=62392 decompressed=692 lakeKiB=930344 mathlibOleans=438
+ v4.33.1  lake           1.0    1.14     687    133   1.33   6.32  compiled=0 noBuild=ok
+ v4.33.1  extractor    15.35    9.79    1507  61917   1.51   6.14  binaryBytes=177596624
+ v4.33.1  prune            -       -       -      -   1.41   6.25  deleted=7874 left=438
+ v4.33.1  build        38.86   31.71    1514  17793   1.45   6.21  closureNotInEnv=0 declarations=21928 extractSeconds=29.97454525 irBytes=26660719 irFiles=446 linkIndexBytes=3229237 linkIndexGroups=1564 linkIndexModules=2156 mathlibGroupsInLinkIndex=0 mathlibInEnvNotInClosure=0 modules=438 renderSeconds=3.325566875 siteBytes=2903187 siteFiles=1655 totalSeconds=38.74234975
+ v4.33.1  put           1.27    1.24      88     24   1.45   6.20  compressedBytes=4638787 files=446 linkIndexBytes=3229237 packedBytes=30135799 rawBytes=26660719
+ v4.33.1  read          0.37    0.34      80     11   1.48   6.17  identical=yes
+ v4.33.1  old-native       -       -       -      -   1.45   6.20  equalExceptSource=yes
+ v4.33.1  reader       99.15   87.22    2807  65692   1.48   6.17  hardStops=verso=0,builtin-doc=0,tactic-table=1,autoparam-old-only=0,autoparam-newest=0 irFiles=446 oldSearchDirs=10
+ v4.33.1  classify         -       -       -      -   1.48   6.17  defects=1
+ v4.33.1  reader-put    1.59    1.32      89   3153   1.49   6.17  
+ render   native        9.53     9.5     259     34   0.30   7.37  files=3206
+ render   reader         9.5    9.48     258     11   0.31   7.35  files=3102
+ render   diff             -       -       -      -   0.31   7.35  untraced=0
+peak work dir during newest: 0.17 GiB
+peak work dir during v4.32.2: 1.41 GiB
+peak work dir during v4.33.0: 1.47 GiB
+peak work dir during v4.33.1: 1.51 GiB
+peak work dir during render: 0.31 GiB
+total 665 s; logs in /private/tmp/lean-doc-relay/mv-m-reader/logs
+
+VERBATIM: v4.32.2 CLASSIFICATION (tools/lib/reader-compare.py --classify; long strings cut at 400 characters)
+------------------------------------------------------------------------------------------------
+printed fields (a difference here is printer drift, bucketed by cause; anything else is a defect):
+  declaration: type, typeCode, binders, binderCode, implicits, equations, equationCode, refs
+  member:      text, code, binders, binderCode, implicits
+  deps/*.json: an entry on one side only, when only that side's refs name it (the maps follow refs)
+  index.json:  modules[].bytes and dependencyMaps[].bytes/entries (sizes of the files above)
+compared: 433 module(s), 21680 declaration(s) present on both sides; 207 declaration(s) differ in a printed field
+reducibility spelling implicit_reducible -> instance_reducible applied 1351 time(s) to the native side; in 1351 field(s) of 1351 declaration(s); contentHash differs in 222 module(s) exactly where the bytes do; identity as predicted
+link index: byte-identical; dependency-map entries following refs: 1
+defects (non-printed field differing, or present on one side only): 1
+  Mathlib.Tactic.GCongr.Core Mathlib.Tactic.GCongr.tacticGcongr_discharger: `doc` native "`gcongr_discharger` is used by `gcongr` to discharge side goals.\n\nThis is an extensible tactic using [`macro_rules`](https://lean-lang.org/doc/reference/4.32 reader "`gcongr_discharger` is used by `gcongr` to discharge side goals.\n\nThis is an extensible tactic using [`macro_rules`](https://lean-lang.org/d
+non-printed, named open item: tactics: the reader writes no tactic list (step 5 item 3, open): 63 module(s), 96 tactic(s) native, 0 reader
+printer drift by cause (field occurrences / declarations), one example each:
+     418 /   206  set-builder: an old `setOf` prints `setOf fun x => p` (newest Mathlib unexpands only `Set.ofPred`), with the parentheses that forces
+      e.g. Mathlib.Algebra.BigOperators.Group.Finset.Defs Equiv.Perm.prod_comp binders
+        native: '{ι : Type u_1} {M : Type u_3} [CommMonoid M] (σ : Perm ι) (s : Finset ι) (f : ι → M) (hs : {a : ι | σ a ≠ a} ⊆ ↑s)'
+        reader: '{ι : Type u_1} {M : Type u_3} [CommMonoid M] (σ : Perm ι) (s : Finset ι) (f : ι → M) (hs : (setOf fun (a : ι) => σ a ≠ a) ⊆ ↑s)'
+       3 /     1  structure instance: native `{ }`, the hybrid prints the fields equal to their defaults (the default is not recognised in the hybrid environment)
+      e.g. Mathlib.Tactic.Convert Convert.elabCheapConfig binders
+        native: '(cfg : Lean.Syntax) (init : CheapConfig := { }) (logExceptions : Bool := true)'
+        reader: '(cfg : Lean.Syntax) (init : CheapConfig := { preTransparency := Lean.Meta.TransparencyMode.reducible }) (logExceptions : Bool := true)'
+cause not recognised: 0 field occurrence(s) in 0 declaration(s)
+drift by field: binderCode 12, binders 12, equationCode 53, equations 53, refs 1, type 145, typeCode 145
+refs only the reader has: 1, of which 1 name a constant neither the native IR's modules nor its dependency maps declare
+  Mathlib.Tactic.Convert Convert.elabCheapConfig -> Lean.Meta.TransparencyMode.reducible (Init.MetaTypes)
+
+VERBATIM: v4.32.2 READER OUTPUT, mechanism 3 and assembly (logs/v4.32.2-reader.out; per-declaration autoparam lines left out)
+------------------------------------------------------------------------------------------------
+invariants           closure: 213613 constants, 853381 references checked, 0 dangling (248 ms)
+  ilean              2114 modules (74196739 bytes), 87778 declarations listed and equal, 0 disagree (2440 ms)
+  ilean-no-parent    21564 decoded ranges: no reference the module records has the declaration as its parent, and the .ilean lists parents only
+  ilean-imported     6 listed parents declared by an imported module (an `attribute` command on it): equal to that module's decoded range, which the writer looked up in the command's environment
+  ilean-in-theorem   57 decoded ranges: a parent nested in a theorem's range (let rec, where), elaborated asynchronously; the .ilean writer looks ranges up in the command's environment
+reader               Lean 4.32.2 (f3b06c705e6c85f5314019d5d3baab0fec5b580c) read in Lean 4.34.1: 2114 modules, 213613 constants, 576312 extension entries decoded, 1279292 not decoded in 125 extensions
+  newest import       2187 modules; old constants 213424: replaced in place 208326, old-only 5098 (one extra module), later duplicates dropped 189, newest-only realizations of old declarations dropped 54
+  decoded             old entries added: 50 extensions, 572502 entries; not reachable in the old version, not added: 5 extensions, 479 entries
+                      newest entries dropped for an old key: 50 extensions, 568609 entries; kept for a key the old version does not have: 36 extensions, 22846 entries
+  kept newest         35 extensions, 1167003 entries (the newest code's vocabulary)
+  emptied             101 extensions, 142980 entries
+hard stops           verso=0 builtin-doc=0 tactic-table=1 autoparam-old-only=0 autoparam-newest=0
+  tactic-table: no module carries tactics; the running Lean's table is not the old version's
+  autoparam: 218 binder tactic(s) whose newest code has the old value
+
+VERBATIM: v4.33.0 CLASSIFICATION (tools/lib/reader-compare.py --classify; long strings cut at 400 characters)
+------------------------------------------------------------------------------------------------
+printed fields (a difference here is printer drift, bucketed by cause; anything else is a defect):
+  declaration: type, typeCode, binders, binderCode, implicits, equations, equationCode, refs
+  member:      text, code, binders, binderCode, implicits
+  deps/*.json: an entry on one side only, when only that side's refs name it (the maps follow refs)
+  index.json:  modules[].bytes and dependencyMaps[].bytes/entries (sizes of the files above)
+compared: 438 module(s), 21928 declaration(s) present on both sides; 1 declaration(s) differ in a printed field
+reducibility spelling instance_reducible -> instance_reducible applied 0 time(s) to the native side; in 0 field(s) of 0 declaration(s); contentHash differs in 63 module(s) exactly where the bytes do; identity as predicted
+link index: byte-identical; dependency-map entries following refs: 1
+defects (non-printed field differing, or present on one side only): 1
+  Mathlib.Tactic.GCongr.Core Mathlib.Tactic.GCongr.tacticGcongr_discharger: `doc` native "`gcongr_discharger` is used by `gcongr` to discharge side goals.\n\nThis is an extensible tactic using [`macro_rules`](https://lean-lang.org/doc/reference/4.33 reader "`gcongr_discharger` is used by `gcongr` to discharge side goals.\n\nThis is an extensible tactic using [`macro_rules`](https://lean-lang.org/d
+non-printed, named open item: tactics: the reader writes no tactic list (step 5 item 3, open): 63 module(s), 95 tactic(s) native, 0 reader
+printer drift by cause (field occurrences / declarations), one example each:
+       3 /     1  structure instance: native `{ }`, the hybrid prints the fields equal to their defaults (the default is not recognised in the hybrid environment)
+      e.g. Mathlib.Tactic.Convert Convert.elabCheapConfig binders
+        native: '(cfg : Lean.Syntax) (init : CheapConfig := { }) (logExceptions : Bool := true)'
+        reader: '(cfg : Lean.Syntax) (init : CheapConfig := { preTransparency := Lean.Meta.TransparencyMode.reducible }) (logExceptions : Bool := true)'
+cause not recognised: 0 field occurrence(s) in 0 declaration(s)
+drift by field: binderCode 1, binders 1, refs 1
+refs only the reader has: 1, of which 1 name a constant neither the native IR's modules nor its dependency maps declare
+  Mathlib.Tactic.Convert Convert.elabCheapConfig -> Lean.Meta.TransparencyMode.reducible (Init.MetaTypes)
+
+VERBATIM: v4.33.0 READER OUTPUT, mechanism 3 and assembly (logs/v4.33.0-reader.out; per-declaration autoparam lines left out)
+------------------------------------------------------------------------------------------------
+invariants           closure: 215587 constants, 862629 references checked, 0 dangling (211 ms)
+  ilean              2156 modules (75149946 bytes), 88414 declarations listed and equal, 0 disagree (2549 ms)
+  ilean-no-parent    22001 decoded ranges: no reference the module records has the declaration as its parent, and the .ilean lists parents only
+  ilean-imported     6 listed parents declared by an imported module (an `attribute` command on it): equal to that module's decoded range, which the writer looked up in the command's environment
+  ilean-in-theorem   59 decoded ranges: a parent nested in a theorem's range (let rec, where), elaborated asynchronously; the .ilean writer looks ranges up in the command's environment
+reader               Lean 4.33.0 (d8b18978322de05a8f3dba51ef03cf5461676c17) read in Lean 4.34.1: 2156 modules, 215587 constants, 592131 extension entries decoded, 1295464 not decoded in 130 extensions
+  newest import       2187 modules; old constants 215400: replaced in place 212927, old-only 2473 (one extra module), later duplicates dropped 189, newest-only realizations of old declarations dropped 41
+  decoded             old entries added: 50 extensions, 588300 entries; not reachable in the old version, not added: 5 extensions, 476 entries
+                      newest entries dropped for an old key: 50 extensions, 585966 entries; kept for a key the old version does not have: 30 extensions, 5489 entries
+  kept newest         35 extensions, 1167003 entries (the newest code's vocabulary)
+  emptied             101 extensions, 142980 entries
+hard stops           verso=0 builtin-doc=0 tactic-table=1 autoparam-old-only=0 autoparam-newest=0
+  tactic-table: no module carries tactics; the running Lean's table is not the old version's
+  autoparam: 214 binder tactic(s) whose newest code has the old value
+
+VERBATIM: v4.33.1 CLASSIFICATION (tools/lib/reader-compare.py --classify; long strings cut at 400 characters)
+------------------------------------------------------------------------------------------------
+printed fields (a difference here is printer drift, bucketed by cause; anything else is a defect):
+  declaration: type, typeCode, binders, binderCode, implicits, equations, equationCode, refs
+  member:      text, code, binders, binderCode, implicits
+  deps/*.json: an entry on one side only, when only that side's refs name it (the maps follow refs)
+  index.json:  modules[].bytes and dependencyMaps[].bytes/entries (sizes of the files above)
+compared: 438 module(s), 21928 declaration(s) present on both sides; 1 declaration(s) differ in a printed field
+reducibility spelling instance_reducible -> instance_reducible applied 0 time(s) to the native side; in 0 field(s) of 0 declaration(s); contentHash differs in 63 module(s) exactly where the bytes do; identity as predicted
+link index: byte-identical; dependency-map entries following refs: 1
+defects (non-printed field differing, or present on one side only): 1
+  Mathlib.Tactic.GCongr.Core Mathlib.Tactic.GCongr.tacticGcongr_discharger: `doc` native "`gcongr_discharger` is used by `gcongr` to discharge side goals.\n\nThis is an extensible tactic using [`macro_rules`](https://lean-lang.org/doc/reference/4.33 reader "`gcongr_discharger` is used by `gcongr` to discharge side goals.\n\nThis is an extensible tactic using [`macro_rules`](https://lean-lang.org/d
+non-printed, named open item: tactics: the reader writes no tactic list (step 5 item 3, open): 63 module(s), 95 tactic(s) native, 0 reader
+printer drift by cause (field occurrences / declarations), one example each:
+       3 /     1  structure instance: native `{ }`, the hybrid prints the fields equal to their defaults (the default is not recognised in the hybrid environment)
+      e.g. Mathlib.Tactic.Convert Convert.elabCheapConfig binders
+        native: '(cfg : Lean.Syntax) (init : CheapConfig := { }) (logExceptions : Bool := true)'
+        reader: '(cfg : Lean.Syntax) (init : CheapConfig := { preTransparency := Lean.Meta.TransparencyMode.reducible }) (logExceptions : Bool := true)'
+cause not recognised: 0 field occurrence(s) in 0 declaration(s)
+drift by field: binderCode 1, binders 1, refs 1
+refs only the reader has: 1, of which 1 name a constant neither the native IR's modules nor its dependency maps declare
+  Mathlib.Tactic.Convert Convert.elabCheapConfig -> Lean.Meta.TransparencyMode.reducible (Init.MetaTypes)
+
+VERBATIM: v4.33.1 READER OUTPUT, mechanism 3 and assembly (logs/v4.33.1-reader.out; per-declaration autoparam lines left out)
+------------------------------------------------------------------------------------------------
+invariants           closure: 215587 constants, 862629 references checked, 0 dangling (214 ms)
+  ilean              2156 modules (75149946 bytes), 88414 declarations listed and equal, 0 disagree (2537 ms)
+  ilean-no-parent    22001 decoded ranges: no reference the module records has the declaration as its parent, and the .ilean lists parents only
+  ilean-imported     6 listed parents declared by an imported module (an `attribute` command on it): equal to that module's decoded range, which the writer looked up in the command's environment
+  ilean-in-theorem   59 decoded ranges: a parent nested in a theorem's range (let rec, where), elaborated asynchronously; the .ilean writer looks ranges up in the command's environment
+reader               Lean 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6) read in Lean 4.34.1: 2156 modules, 215587 constants, 592131 extension entries decoded, 1295464 not decoded in 130 extensions
+  newest import       2187 modules; old constants 215400: replaced in place 212927, old-only 2473 (one extra module), later duplicates dropped 189, newest-only realizations of old declarations dropped 41
+  decoded             old entries added: 50 extensions, 588300 entries; not reachable in the old version, not added: 5 extensions, 476 entries
+                      newest entries dropped for an old key: 50 extensions, 585966 entries; kept for a key the old version does not have: 30 extensions, 5489 entries
+  kept newest         35 extensions, 1167003 entries (the newest code's vocabulary)
+  emptied             101 extensions, 142980 entries
+hard stops           verso=0 builtin-doc=0 tactic-table=1 autoparam-old-only=0 autoparam-newest=0
+  tactic-table: no module carries tactics; the running Lean's table is not the old version's
+  autoparam: 214 binder tactic(s) whose newest code has the old value
+
+VERBATIM: SITE TRACE (benchmarks/tools/mv-m-site-diff.py)
+---------------------------------------------------------
+=== v4.32.2: 437 page(s) native, 437 reader
+  pages whose own blobs differ: 169 of 437; traced 169 (1 of them on a module with a defect: Mathlib/Tactic/GCongr/Core.html); untraced 0; declaration entries rendered differently: 1370
+  version blob `commit`: equal
+  version blob `front`: equal
+  version blob `instances`: equal
+  version blob `lean`: equal
+  version blob `modules`: equal
+  version blob `references`: equal
+  version blob `roots`: equal
+  version blob `search`: equal
+  version blob `source`: equal
+  version blob `title`: equal
+  version blob `version`: equal
+=== v4.33.0: 442 page(s) native, 442 reader
+  pages whose own blobs differ: 2 of 442; traced 2 (1 of them on a module with a defect: Mathlib/Tactic/GCongr/Core.html); untraced 0; declaration entries rendered differently: 2
+  version blob `commit`: equal
+  version blob `front`: equal
+  version blob `instances`: equal
+  version blob `lean`: equal
+  version blob `modules`: equal
+  version blob `references`: equal
+  version blob `roots`: equal
+  version blob `search`: equal
+  version blob `source`: equal
+  version blob `title`: equal
+  version blob `version`: equal
+=== v4.33.1: 442 page(s) native, 442 reader
+  pages whose own blobs differ: 2 of 442; traced 2 (1 of them on a module with a defect: Mathlib/Tactic/GCongr/Core.html); untraced 0; declaration entries rendered differently: 2
+  version blob `commit`: equal
+  version blob `front`: equal
+  version blob `instances`: equal
+  version blob `lean`: equal
+  version blob `modules`: equal
+  version blob `references`: equal
+  version blob `roots`: equal
+  version blob `search`: equal
+  version blob `source`: equal
+  version blob `title`: equal
+  version blob `version`: equal
+untraced pages: 0
+
+VERBATIM: SAMPLE FIRST, S v1 in full, then v2..v5 summarised
+------------------------------------------------------------
+printed fields (a difference here is printer drift, bucketed by cause; anything else is a defect):
+  declaration: type, typeCode, binders, binderCode, implicits, equations, equationCode, refs
+  member:      text, code, binders, binderCode, implicits
+  deps/*.json: an entry on one side only, when only that side's refs name it (the maps follow refs)
+  index.json:  modules[].bytes and dependencyMaps[].bytes/entries (sizes of the files above)
+compared: 11 module(s), 97 declaration(s) present on both sides; 0 declaration(s) differ in a printed field
+reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s) to the native side; in 6 field(s) of 6 declaration(s); contentHash differs in 3 module(s) exactly where the bytes do; identity as predicted
+link index: byte-identical; dependency-map entries following refs: 0
+defects (non-printed field differing, or present on one side only): 0
+non-printed, named open item: tactics: the reader writes no tactic list (step 5 item 3, open): 0 module(s), 0 tactic(s) native, 0 reader
+printer drift by cause (field occurrences / declarations), one example each:
+cause not recognised: 0 field occurrence(s) in 0 declaration(s)
+drift by field: 
+refs only the reader has: 0, of which 0 name a constant neither the native IR's modules nor its dependency maps declare
+  v2: compared: 10 module(s), 96 declaration(s) present on both sides; 0 declaration(s) differ in a printed field | defects (non-printed field differing, or present on one side only): 0
+  v3: compared: 11 module(s), 100 declaration(s) present on both sides; 0 declaration(s) differ in a printed field | defects (non-printed field differing, or present on one side only): 0
+  v4: compared: 11 module(s), 100 declaration(s) present on both sides; 0 declaration(s) differ in a printed field | defects (non-printed field differing, or present on one side only): 0
+  v5: compared: 11 module(s), 100 declaration(s) present on both sides; 0 declaration(s) differ in a printed field | defects (non-printed field differing, or present on one side only): 0
+
+VERBATIM: FALSIFICATION, non-printed plant
+------------------------------------------
+printed fields (a difference here is printer drift, bucketed by cause; anything else is a defect):
+  declaration: type, typeCode, binders, binderCode, implicits, equations, equationCode, refs
+  member:      text, code, binders, binderCode, implicits
+  deps/*.json: an entry on one side only, when only that side's refs name it (the maps follow refs)
+  index.json:  modules[].bytes and dependencyMaps[].bytes/entries (sizes of the files above)
+compared: 11 module(s), 100 declaration(s) present on both sides; 0 declaration(s) differ in a printed field
+reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s) to the native side; in 6 field(s) of 6 declaration(s); contentHash differs in 3 module(s) exactly where the bytes do; identity as predicted
+link index: byte-identical; dependency-map entries following refs: 0
+defects (non-printed field differing, or present on one side only): 1
+  Example.Attrs Example.Attrs.zero: `line` native 56 reader 57
+non-printed, named open item: tactics: the reader writes no tactic list (step 5 item 3, open): 0 module(s), 0 tactic(s) native, 0 reader
+printer drift by cause (field occurrences / declarations), one example each:
+cause not recognised: 0 field occurrence(s) in 0 declaration(s)
+drift by field: 
+refs only the reader has: 0, of which 0 name a constant neither the native IR's modules nor its dependency maps declare
+
+VERBATIM: FALSIFICATION, printed plant
+--------------------------------------
+printed fields (a difference here is printer drift, bucketed by cause; anything else is a defect):
+  declaration: type, typeCode, binders, binderCode, implicits, equations, equationCode, refs
+  member:      text, code, binders, binderCode, implicits
+  deps/*.json: an entry on one side only, when only that side's refs name it (the maps follow refs)
+  index.json:  modules[].bytes and dependencyMaps[].bytes/entries (sizes of the files above)
+compared: 11 module(s), 100 declaration(s) present on both sides; 1 declaration(s) differ in a printed field
+reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s) to the native side; in 6 field(s) of 6 declaration(s); contentHash differs in 3 module(s) exactly where the bytes do; identity as predicted
+link index: byte-identical; dependency-map entries following refs: 0
+defects (non-printed field differing, or present on one side only): 0
+non-printed, named open item: tactics: the reader writes no tactic list (step 5 item 3, open): 0 module(s), 0 tactic(s) native, 0 reader
+printer drift by cause (field occurrences / declarations), one example each:
+       1 /     1  cause not recognised
+      e.g. Example.Attrs Example.Attrs.zero type
+        native: 'Nat'
+        reader: 'Nat0'
+cause not recognised: 1 field occurrence(s) in 1 declaration(s)
+  Example.Attrs Example.Attrs.zero type
+    native: 'Nat'
+    reader: 'Nat0'
+drift by field: type 1
+refs only the reader has: 0, of which 0 name a constant neither the native IR's modules nor its dependency maps declare

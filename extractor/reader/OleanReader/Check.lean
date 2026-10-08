@@ -62,6 +62,7 @@ structure IleanCounts where
   bytes : Nat := 0
   compared : Nat := 0
   notListed : Nat := 0
+  imported : Nat := 0
   inTheorem : Nat := 0
   problems : Array String := #[]
   ms : Nat := 0
@@ -128,11 +129,13 @@ def nestedInTheorem (theorems : Std.HashMap Name Name)
 unsafe def ilean (s : Session) (d : Assemble.Decoded) : IO IleanCounts := do
   let t0 ← IO.monoMsNow
   let mut byModule : Std.HashMap Nat (Std.HashMap String (Name × DeclarationRanges)) := {}
+  let mut anywhere : Std.HashMap String DeclarationRanges := {}
   for (e, es) in d.keyed do
     unless e == `Lean.declRangeExt do continue
     for (src, k) in es do
       let (n, r) : Name × DeclarationRanges := unsafeCast k.2
       byModule := byModule.alter src fun t? => some ((t?.getD {}).insert n.toString (n, r))
+      anywhere := anywhere.insert n.toString r
   let mut c : IleanCounts := {}
   for (m, md) in d.mods, i in [0:d.mods.size] do
     let path := (← findOlean s m).withExtension "ilean"
@@ -146,8 +149,17 @@ unsafe def ilean (s : Session) (d : Assemble.Decoded) : IO IleanCounts := do
       listed := listed.insert n
       match decoded[n]? with
       | none =>
-        let p := s!"module {m}: {file} lists {n}, and the declaration ranges decoded from its .olean have no {n}"
-        c := { c with problems := c.problems.push p }
+        match anywhere[n]? with
+        | some r =>
+          if infoNats (.ofDeclarationRanges r) == infoNats info then
+            c := { c with imported := c.imported + 1 }
+          else
+            let p := s!"module {m}: {n}'s range is {infoNats info} in {file} and \
+              {infoNats (.ofDeclarationRanges r)} decoded from the .olean that declares it"
+            c := { c with problems := c.problems.push p }
+        | none =>
+          let p := s!"module {m}: {file} lists {n}, and no .olean of the closure has a declaration range for {n}"
+          c := { c with problems := c.problems.push p }
       | some (_, r) =>
         let want := infoNats (.ofDeclarationRanges r)
         if want == infoNats info then

@@ -120,6 +120,8 @@ def invariantLines (cl : Check.ClosureCounts) (il : Check.IleanCounts) : List St
     {il.problems.size} disagree ({il.ms} ms)",
   s!"  ilean-no-parent    {il.notListed} decoded ranges: no reference the module records has the \
     declaration as its parent, and the .ilean lists parents only",
+  s!"  ilean-imported     {il.imported} listed parents declared by an imported module (an `attribute` \
+    command on it): equal to that module's decoded range, which the writer looked up in the command's environment",
   s!"  ilean-in-theorem   {il.inTheorem} decoded ranges: a parent nested in a theorem's range (let rec, \
     where), elaborated asynchronously; the .ilean writer looks ranges up in the command's environment"]
 
