@@ -49,16 +49,30 @@
 #                     default the newest row's copy overrides: natively the
 #                     binder (c : Cheap := { }) prints `{ }`, the reader's is
 #                     the same, and its merge dropped the newest-only default
-#                     function
+#                     function. Base's default is 2 on the last older row and
+#                     0 on every other, so (c : Cheap := { depth := 0 }) of
+#                     Example.ReaderProbe.withValue prints `{ }` on every
+#                     older row but the last, with the same elaborated type
 #   session-equals-alone
 #                     every older row read by one `reader session
 #                     --check-patch`, oldest first, the newest imported once,
 #                     round 1 built whole and every later round patched from
-#                     the one before: each round answers `ok 0`, its IR and
-#                     link index are the bytes of that row's read-alone run,
-#                     and its summary (invariants, merge counts, hard stops)
-#                     is read-alone's but for timings; each round's peak RSS,
-#                     patch and check-patch lines are printed
+#                     the one before, each reusing the printed part of every
+#                     declaration whose print key equals the previous round's:
+#                     each round answers `ok 0`, its IR and link index are the
+#                     bytes of that row's read-alone run, and its summary
+#                     (invariants, merge counts, hard stops, the analysis
+#                     counts) is read-alone's but for timings and the
+#                     printing-work counts a reuse skips (equation lemmas,
+#                     reference occurrences, member fields); each round's peak
+#                     RSS, patch, check-patch and reuse lines are printed
+#   session-reuse     ... and each round's reuse line, which counts a
+#                     declaration reused only when its output holds the
+#                     previous round's signature object: round 1 reused 0,
+#                     every declaration new; every later round reused at least
+#                     one and printed again none whose key was equal; in every
+#                     round reused + reprinted is the analysis's produced
+#                     count, and the reprinted ones' reasons add up
 #   session-check-patch
 #                     ... and each round's patch line says how it was built
 #                     (whole, or from the row before) and its check-patch
@@ -83,6 +97,14 @@
 #                     round naming Example.ReaderProbeField; in the session
 #                     above the same round is 0 and its patch line rewrote a
 #                     module for a field function
+#   reuse-scx         the last two older rows, across Base's default change,
+#                     in a session with --key-without-scx (the print key
+#                     without the field defaults structure-instance notation
+#                     reads): the second round answers ok 0 and its IR
+#                     differs from read-alone in exactly
+#                     Example.ReaderProbe.withValue, reused stale as `{ }`
+#                     where read-alone prints `{ depth := 0 }`; the session
+#                     above, keyed with them, prints `{ depth := 0 }`
 #
 # The sample in e2e/micro is not changed: Example.ReaderProbe and
 # Example.ReaderProbeField are written into each row's copy only.
@@ -152,7 +174,7 @@ fi
 NEWEST_I=$(( ${#ROWS[@]} - 1 ))
 NEWEST="${ROWS[$NEWEST_I]##*:v}"
 NEWEST_SPELLING="${SPELLINGS[$NEWEST_I]}"
-declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 5 ))
+declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 7 ))
 
 record_host
 if ! installed "${ROWS[$NEWEST_I]}"; then
@@ -170,9 +192,11 @@ READER="$(tail -n 1 "$WORK/reader-build.log")"
 "$READER" extract --identity "${FLAGS[@]}" >"$WORK/reader-identity.txt"
 say "  $(cat "$WORK/reader-identity.txt")"
 
+# usage: probe_module <version> <row index>
 probe_module () {
-  local override=""
+  local override="" depth=0
   if [ "$1" = "$NEWEST" ]; then override=$' where\n  depth := 1'; fi
+  if [ "$2" -eq $(( NEWEST_I - 1 )) ]; then depth=2; fi
   cat <<EOF
 namespace Example.ReaderProbe
 
@@ -180,11 +204,13 @@ namespace Example.ReaderProbe
 def manualLinked : Nat := 0
 
 structure Base where
-  depth : Nat := 0
+  depth : Nat := $depth
 
 structure Cheap extends Base$override
 
 def withDefault (c : Cheap := { }) : Nat := c.depth
+
+def withValue (c : Cheap := { depth := 0 }) : Nat := c.depth
 
 end Example.ReaderProbe
 EOF
@@ -207,7 +233,7 @@ native () {
   mkdir -p "$dir/native"
   cp -R "$ROOT/e2e/micro" "$ROOT/e2e/micro-dep" "$dir/"
   rm -rf "$dir/micro/.lake" "$dir/micro-dep/.lake"
-  probe_module "$v" >"$dir/micro/Example/ReaderProbe.lean"
+  probe_module "$v" "$2" >"$dir/micro/Example/ReaderProbe.lean"
   field_probe_module "$2" >"$dir/micro/Example/ReaderProbeField.lean"
   { printf 'import Example.ReaderProbe\nimport Example.ReaderProbeField\n'; cat "$ROOT/e2e/micro/Example.lean"; } \
     >"$dir/micro/Example.lean"
@@ -473,11 +499,12 @@ run_session () {
   set -e
 }
 
-# usage: session_check <alone|check-patch|perturbed|field-fn> <session directory> <version>...
+# usage: session_check <alone|check-patch|reuse|perturbed|field-fn|scx> <session directory> <version>...
 #   field-fn takes <disabled session> <enabled session> <module> <version> <version>
+#   scx takes <session without SCX> <session with it> <version> <version>
 session_check () {
   WORK="$WORK" python3 - "$@" <<'PY'
-import os, pathlib, re, sys
+import json, os, pathlib, re, sys
 
 work = pathlib.Path(os.environ["WORK"])
 mode, args = sys.argv[1], sys.argv[2:]
@@ -510,9 +537,34 @@ def check_lines(r):
     named = [re.match(r"  check-patch-module (\S+):", l).group(1) for l in r["lines"] if l.startswith("  check-patch-module ")]
     return m, named
 
-SESSION_ONLY = re.compile(r"^(patch|patch-perturbed|check-patch|rss|realizations) |^  check-patch-|^  dir ")
+SESSION_ONLY = re.compile(r"^(patch|patch-perturbed|check-patch|reuse|rss|realizations) |^  check-patch-|^  dir ")
+PRINTING_WORK = re.compile(r"^  (of which equations|of which refs|member extra) ")
 def summary(lines):
-    return [re.sub(r"\d+(\.\d+)?s\b|\d+ ms\b", "<t>", l) for l in lines if not SESSION_ONLY.match(l)]
+    out = []
+    for l in lines:
+        if SESSION_ONLY.match(l):
+            continue
+        l = re.sub(r"\d+(\.\d+)?s\b|\d+ ms\b", "<t>", l)
+        if PRINTING_WORK.match(l):
+            l = re.sub(r"\(.*\)", "(<printing work>)", l)
+        out.append(l)
+    return out
+
+REUSE = (r"reuse +(\d+) of (\d+) declarations reused, (\d+) reprinted \(key differs (\d+), key equal (\d+), "
+         r"no previous output (\d+), new (\d+)\); key (.+) of (\d+) candidates in (\d+) ms$")
+
+def module_decls(ir):
+    out = {}
+    for f in sorted((pathlib.Path(ir) / "modules").glob("*.json")):
+        for d in json.loads(f.read_text(encoding="utf-8")).get("declarations", []):
+            out[d.get("name")] = d
+    return out
+
+def differing_files(a, b):
+    a, b = pathlib.Path(a), pathlib.Path(b)
+    fa = {p.relative_to(a) for p in a.rglob("*") if p.is_file()}
+    fb = {p.relative_to(b) for p in b.rglob("*") if p.is_file()}
+    return sorted(str(p) for p in fa | fb if p not in fa or p not in fb or (a / p).read_bytes() != (b / p).read_bytes())
 
 def fail(msg):
     print(msg)
@@ -559,6 +611,66 @@ elif mode == "check-patch":
     if bad:
         fail("; ".join(bad))
     print("; ".join(seen))
+elif mode == "reuse":
+    directory, versions = args[0], args[1:]
+    rs = rounds(directory)
+    if len(rs) != len(versions):
+        fail(f"{len(rs)} rounds answered for {len(versions)} requests")
+    bad, seen = [], []
+    for k, (r, v) in enumerate(zip(rs, versions)):
+        u = grab(r, REUSE)
+        a = grab(r, r"analyze +.* produced (\d+),")
+        if u is None:
+            bad.append(f"v{v}: no reuse line")
+            continue
+        if a is None:
+            bad.append(f"v{v}: no analyze line")
+            continue
+        reused, produced, reprinted, differs, equal, noprev, new = (int(u.group(i)) for i in range(1, 8))
+        analyzed = int(a.group(1))
+        if reused + reprinted != analyzed or produced != analyzed:
+            bad.append(f"v{v}: reused {reused} + reprinted {reprinted} of {produced}, the analysis produced {analyzed}")
+        elif differs + equal + noprev + new != reprinted:
+            bad.append(f"v{v}: reprinted {reprinted}, its reasons add up to {differs + equal + noprev + new}")
+        elif equal != 0:
+            bad.append(f"v{v}: {equal} declaration(s) whose key equals the previous round's were printed again")
+        elif k == 0 and (reused != 0 or new != produced):
+            bad.append(f"v{v}: round 1 reused {reused}, {new} of {produced} new")
+        elif k > 0 and reused == 0:
+            bad.append(f"v{v}: patched from v{versions[k - 1]} and reused nothing ({reprinted} reprinted: key differs "
+                       f"{differs}, no previous output {noprev}, new {new})")
+        else:
+            seen.append(f"v{v} reused {reused} of {produced}, reprinted {reprinted} (key differs {differs}, "
+                        f"no previous output {noprev}, new {new}), key {u.group(10)} ms")
+    if bad:
+        fail("; ".join(bad))
+    print("; ".join(seen))
+elif mode == "scx":
+    without, keyed, va, vb = args
+    decl = "Example.ReaderProbe.withValue"
+    rs = rounds(without)
+    if len(rs) != 2 or [r["code"] for r in rs] != [0, 0]:
+        fail(f"the session without SCX answered {[r['code'] for r in rs]}, expected two rounds ok 0")
+    u = grab(rs[1], REUSE)
+    if u is None or not u.group(8).startswith("N1 + own"):
+        fail(f"the session without SCX printed no reuse line keyed N1 + own for v{vb}")
+    alone = work / f"v{vb}" / "read" / "ir"
+    stale = pathlib.Path(without) / f"v{vb}" / "ir"
+    a, b = module_decls(alone), module_decls(stale)
+    names = sorted(n for n in set(a) | set(b) if a.get(n) != b.get(n))
+    files = differing_files(alone, stale)
+    if names != [decl]:
+        fail(f"without SCX, v{vb} patched from v{va} differs from read-alone in {names or 'no declaration'}, "
+             f"not exactly {decl} (files: {files or 'none'})")
+    sb, ab = b[decl].get("binders") or [], a[decl].get("binders") or []
+    if not any(":= { }" in x for x in sb) or not any(":= { depth := 0 }" in x for x in ab):
+        fail(f"without SCX {decl} prints {sb}, read-alone {ab}: not the stale default")
+    kb = (module_decls(pathlib.Path(keyed) / f"v{vb}" / "ir").get(decl) or {}).get("binders") or []
+    if kb != ab:
+        fail(f"with SCX, v{vb}'s round prints {decl} {kb}, read-alone {ab}")
+    print(f"without SCX v{vb} (patched from v{va}, {u.group(1)} reused) differs from read-alone in {decl} only: "
+          f"{' '.join(sb)} against {' '.join(ab)} ({len(files)} file(s): {' '.join(files)}); "
+          f"with SCX the round prints {' '.join(kb)}")
 elif mode == "perturbed":
     directory = args[0]
     stderr = (pathlib.Path(directory) / "stderr.txt").read_text(encoding="utf-8")
@@ -628,7 +740,8 @@ session_ready () {
 
 if why="$(session_ready)"; then
   run_session "$SESSION" --check-patch -- "${SESSION_ROWS[@]}"
-  sed -n 's/^rss  *//p; s/^\(patch \)  */\1/p; s/^check-patch  */check-patch /p' "$SESSION/stdout.txt" | sed 's/^/  /'
+  sed -n 's/^rss  *//p; s/^\(patch \)  */\1/p; s/^check-patch  */check-patch /p; s/^\(reuse \)  */\1/p' \
+    "$SESSION/stdout.txt" | sed 's/^/  /'
 fi
 
 item=session-equals-alone
@@ -675,6 +788,15 @@ item=session-check-patch
 if ! why="$(session_ready)"; then
   bad "$item" "$why"
 elif result="$(session_check check-patch "$SESSION" "${SESSION_ROWS[@]}" 2>&1)"; then
+  ok "$item" "$result"
+else
+  bad "$item" "$result"
+fi
+
+item=session-reuse
+if ! why="$(session_ready)"; then
+  bad "$item" "$why"
+elif result="$(session_check reuse "$SESSION" "${SESSION_ROWS[@]}" 2>&1)"; then
   ok "$item" "$result"
 else
   bad "$item" "$result"
@@ -736,6 +858,23 @@ elif [ "${#LAST_PAIR[@]}" -ne 2 ]; then
 else
   run_session "$WORK/session-no-field-fn" --check-patch --no-field-fn-index -- "${LAST_PAIR[@]}"
   if result="$(session_check field-fn "$WORK/session-no-field-fn" "$SESSION" Example.ReaderProbeField "${LAST_PAIR[@]}" 2>&1)"; then
+    ok "$item" "$result"
+  else
+    bad "$item" "$result"
+  fi
+fi
+
+say
+say "=== the print key without what structure-instance notation reads of field defaults"
+item=reuse-scx
+if ! why="$(session_ready)"; then
+  bad "$item" "$why"
+elif [ "${#LAST_PAIR[@]}" -ne 2 ]; then
+  bad "$item" "fewer than two older rows, so no round reuses"
+else
+  run_session "$WORK/session-n1" --check-patch --key-without-scx -- "${LAST_PAIR[@]}"
+  sed -n 's/^\(reuse \)  */\1/p' "$WORK/session-n1/stdout.txt" | sed 's/^/  /'
+  if result="$(session_check scx "$WORK/session-n1" "$SESSION" "${LAST_PAIR[@]}" 2>&1)"; then
     ok "$item" "$result"
   else
     bad "$item" "$result"

@@ -14,6 +14,7 @@ def readerSources : Array (String × String) := #[
   ("OleanReader/Assemble.lean", include_str "../extractor/reader/OleanReader/Assemble.lean"),
   ("OleanReader/Check.lean", include_str "../extractor/reader/OleanReader/Check.lean"),
   ("OleanReader/Patch.lean", include_str "../extractor/reader/OleanReader/Patch.lean"),
+  ("OleanReader/PrintKey.lean", include_str "../extractor/reader/OleanReader/PrintKey.lean"),
   ("OleanReader/Hybrid.lean", include_str "../extractor/reader/OleanReader/Hybrid.lean"),
   ("OleanReader/Main.lean", include_str "../extractor/reader/OleanReader/Main.lean")]
 

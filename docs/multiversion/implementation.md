@@ -931,6 +931,28 @@ Choices, with what would undo each:
 4. **Reuse under a recomputed key** (`PrintKey.lean`, N1X + own, env switches gone). The probe
    churns a field default between two older rows while `withDefault (c : Cheap := { })` stays the
    same. Reused and reprinted counted, holes (IR equality) 0; fails once under N1 + own.
+   **Done 2026-10-08**: each session round recomputes the key from its own hybrid environment, and a
+   declaration takes the previous round's printed part only when its key is unchanged; a failed
+   round leaves nothing to reuse from, and `reader extract` reuses nothing. A declaration counts
+   as reused only when its output holds the previous round's printed object (by pointer): the first
+   count, of what the key offered, still passed with reuse switched off. SSTRN follows the
+   prototype (field and parent names of the shown constructor's structure), the version measured at
+   0 holes, not the memo's wider "ancestors' layout"; SCX is the prototype's. The key carries no
+   reducibility, so across the v4.33.0 rename 106 of 106 reuse although the patch shares nothing.
+   **`withDefault (c : Cheap := { })` cannot show the hole**: its elaborated type changes with the
+   default, so N1 + own reprints it. `withValue (c : Cheap := { depth := 0 })` does — the same type
+   on both rows, only `Base.depth._default`'s body changes, and natively it prints `{ }` where the
+   default is 0 and `{ depth := 0 }` where it is 2. `tools/reader-hybrid-gate.sh` 29 of 29
+   (measured → `benchmarks/results/reader-reuse-2026-10-08.txt`, one run): every round equal to
+   read-alone; reused 104 of 109, 106 of 106, 102 of 109 on the three patched rounds, key-equal
+   reprints 0; key pass 60–271 ms for 353–370 candidates. `reuse-scx`: under N1 + own the round
+   across the churn differs from read-alone in `withValue` only, and SCX costs that round 3 reuses
+   (105 → 102). Both new items made to fail once (reuse off; SCX never in the key, which
+   `session-equals-alone` also catches). Open: a reducible constant inside a default (SCX hashes
+   the default's own type and value, the printer compares under reducible unfolding); the key
+   resolves names with no open namespaces while `run` honours `--open` (no gate passes it);
+   Mathlib's equations attribute is read through an unchecked cast, never run here.
+   `tools/mv-reader-gate.sh` 12 of 12, `tools/lean-test-gate.sh` 4 of 4.
 5. **The carried key, with `--check-keys`** (memo 1a–1c, shared uncapped memos). A record goes
    stale when its pointer, a keyed entry, an ancestor's layout or an applied constant's binder infos
    change. A resolution goes stale on a presence flip of a probe name or its prefix, or on an alias

@@ -1,5 +1,6 @@
 import OleanReader.Check
 import OleanReader.Patch
+import OleanReader.PrintKey
 import Extract
 import Std.Async.Process
 open Lean OleanReader Litedoc4
@@ -9,8 +10,8 @@ namespace OleanReader.Hybrid
 def readerSource : String := String.join [
   include_str "Writers.lean", include_str "Read.lean", include_str "Entries.lean",
   include_str "Module.lean", include_str "Serialize.lean", include_str "Oracle.lean",
-  include_str "Assemble.lean", include_str "Check.lean", include_str "Patch.lean", include_str "Hybrid.lean",
-  include_str "Main.lean"]
+  include_str "Assemble.lean", include_str "Check.lean", include_str "Patch.lean", include_str "PrintKey.lean",
+  include_str "Hybrid.lean", include_str "Main.lean"]
 
 def readBy : List (String × String) :=
   [("reader", fnv1a64Hex readerSource), ("readerLean", Lean.versionString),
@@ -306,11 +307,17 @@ unsafe def importNewest (search : Array System.FilePath) (roots : Array Name) : 
   let imports := roots.map ({ module := · })
   return { state := ← Assemble.importNewest search imports, imports }
 
+structure Printed where
+  keys : Std.HashMap Name UInt64
+  out : Std.HashMap Name DeclOut
+
 structure PatchSession where
   check : Bool
   perturb : Bool
+  scx : Bool
   index : Patch.NewestIndex
   last : IO.Ref (Option (Assemble.Prev × Option (Patch.Built × String)))
+  printed : IO.Ref (Option Printed)
 
 def patchLine (from? : Option String) (sh : Assemble.ShareCounts) (st : Patch.Stats) (modules : Nat) : String :=
   let shared := s!"decoded objects replaced by the previous version's: constants {sh.constantsShared} of \
@@ -353,8 +360,54 @@ unsafe def patchRound (p : PatchSession) (ms : Assemble.MImportState) (d : Assem
   p.last.set (some (next, some (b, d.writer.leanVersion)))
   return (m, lines, none)
 
+def reused? (prev : Option Printed) (keys : Std.HashMap Name UInt64) (n : Name) : Option DeclOut := do
+  let p ← prev
+  let k ← keys[n]?
+  guard (p.keys[n]? == some k)
+  p.out[n]?
+
+structure ReuseCounts where
+  reused : Nat := 0
+  keyDiffers : Nat := 0
+  keyEqual : Nat := 0
+  noPrevious : Nat := 0
+  new : Nat := 0
+
+def ReuseCounts.reprinted (c : ReuseCounts) : Nat := c.keyDiffers + c.keyEqual + c.noPrevious + c.new
+
+-- Not `reused?` asked again: that counts what was offered; reused is an output holding the previous round's `Sig` object.
+unsafe def countReuse (prev : Option Printed) (keys : Std.HashMap Name UInt64) (results : Array DeclOut) : ReuseCounts :=
+  results.foldl (init := {}) fun c d =>
+    match prev.map fun p => (p.keys[d.name]?, p.out[d.name]?) with
+    | none | some (none, _) => { c with new := c.new + 1 }
+    | some (some _, none) => { c with noPrevious := c.noPrevious + 1 }
+    | some (some k, some o) =>
+      if ptrAddrUnsafe o.sig == ptrAddrUnsafe d.sig then { c with reused := c.reused + 1 }
+      else if keys[d.name]? == some k then { c with keyEqual := c.keyEqual + 1 }
+      else { c with keyDiffers := c.keyDiffers + 1 }
+
+def reuseLine (scx : Bool) (candidates ms : Nat) (c : ReuseCounts) (produced : Nat) : String :=
+  let key := if scx then "N1X + own" else "N1 + own (--key-without-scx)"
+  s!"reuse                {c.reused} of {produced} declarations reused, {c.reprinted} reprinted (key differs \
+    {c.keyDiffers}, key equal {c.keyEqual}, no previous output {c.noPrevious}, new {c.new}); key {key} of {candidates} candidates in {ms} ms"
+
+unsafe def extractReusing (p : PatchSession) (cfg : Cfg) (env : Environment) (world : World) (targets : Array Name)
+    (prev : Option Printed) : IO (UInt32 × String × Printed) := do
+  let t0 ← IO.monoNanosNow
+  let keys ← PrintKey.keys env world targets cfg.jobs p.scx
+  let t1 ← IO.monoNanosNow
+  let out ← IO.mkRef #[]
+  let code ← Litedoc4.run cfg (some (env, world)) (some { prev := reused? prev keys, out })
+  let results ← out.get
+  let line := reuseLine p.scx keys.size ((t1 - t0) / 1000000) (countReuse prev keys results) results.size
+  let out := results.foldl (fun m d => m.insert d.name d) (Std.HashMap.emptyWithCapacity results.size)
+  return (code, line, { keys, out })
+
 unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : IO Newest) (resident : Bool)
     (patch? : Option PatchSession := none) : IO UInt32 := do
+  let prevPrinted ← match patch? with
+    | some p => p.printed.modifyGet fun s => (s, none)
+    | none => pure none
   try
     let s ← Session.new a.old
     let manual ← askOldManualRoot s
@@ -388,7 +441,12 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
     let env ← Assemble.finalizeHybrid merged.out n.imports merged.idxOf (leak := !resident)
     builtinDeclRanges.set {}
     let hs ← HardStops.new
-    let code ← Litedoc4.run cfg (some (env, hybridWorld env d.old d.writer manual.root hs))
+    let world := hybridWorld env d.old d.writer manual.root hs
+    let (code, reuse?) ← match patch? with
+      | some p => do
+        let (code, line, printed) ← extractReusing p cfg env world targets prevPrinted
+        pure (code, some (line, p, printed))
+      | none => pure (← Litedoc4.run cfg (some (env, world)), none)
     let realizations ← if resident then Assemble.clearRealizations env else pure 0
     let autoParams := classifyAutoParams uses merged.sameValue
     let verso ← hs.verso.get
@@ -401,6 +459,7 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       in {d.stats.skippedExts.size} extensions"
     for l in merged.counts.lines do IO.println s!"  {l}"
     for l in patchLines do IO.println l
+    if let some (line, _, _) := reuse? then IO.println line
     if resident then
       IO.println s!"realizations         {realizations} realized constants of imported declarations emptied \
         with the round's environment"
@@ -414,6 +473,8 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       IO.println s!"  autoparam-old-only {decl} {tac}: no newest code to evaluate, the declaration fails to print"
     for (decl, tac) in autoParams.newestDiffers do
       IO.println s!"  autoparam-newest {decl} {tac}: printed with the newest version's tactic text"
+    if let some (_, p, printed) := reuse? then
+      if code == 0 then p.printed.set (some printed)
     return code
   catch e =>
     IO.eprintln s!"olean reader: refused: {e}"
@@ -440,24 +501,27 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
 
 def sessionUsage : String := "\n".intercalate [
   "usage: reader session --new <search-dir>... --new-roots <modules.txt> [--check-patch]",
-  "                      [--perturb-patch] [--no-field-fn-index]",
+  "                      [--perturb-patch] [--no-field-fn-index] [--key-without-scx]",
   "  imports the newest version once and prints `ready <nanoseconds> <modules>`; then one request per line",
   "  on stdin, its fields separated by tabs:",
   "    --old <search-dir>... <modules.txt> <events.jsonl> [extractor flags]",
   "  which is reader extract's command line without --new and --new-roots. The first request's hybrid",
-  "  is built whole from the newest import, every later one patched from the last one built; each is",
-  "  answered with `round <n>`, reader extract's summary, a `patch` line, an `rss` line and",
-  "  `ok <exit code> <nanoseconds>`; one that is not run is answered `err <why>`. EOF or an empty line",
-  "  ends the session.",
+  "  is built whole from the newest import, every later one patched from the last one built. A",
+  "  declaration whose print key equals its key in the last round answered ok 0 takes that round's",
+  "  printed part; every other one is printed. Each request is answered with `round <n>`, reader",
+  "  extract's summary, a `patch` line, a `reuse` line, an `rss` line and `ok <exit code> <nanoseconds>`;",
+  "  one that is not run is answered `err <why>`. EOF or an empty line ends the session.",
   "  --check-patch        also build each request's hybrid from scratch and compare the two module by",
   "                       module, pointer by pointer; a difference fails the request before anything is",
   "                       written (`check-patch` lines)",
   "  --perturb-patch      leave the last module a changed constant would have rewritten as it was (for",
   "                       the gate)",
   "  --no-field-fn-index  do not rewrite the newest modules holding a structure field's default or",
-  "                       autoParam function when the structure appears or disappears (for the gate)"]
+  "                       autoParam function when the structure appears or disappears (for the gate)",
+  "  --key-without-scx    leave out of the print key what structure-instance notation reads besides",
+  "                       field names: field defaults and the anonymous-constructor attribute (for the gate)"]
 
-def sessionFlags : List String := ["--check-patch", "--perturb-patch", "--no-field-fn-index"]
+def sessionFlags : List String := ["--check-patch", "--perturb-patch", "--no-field-fn-index", "--key-without-scx"]
 
 def residentKb : IO (Option Nat) := do
   let out ← IO.Process.output { cmd := "ps", args := #["-o", "rss=", "-p", toString (← IO.Process.getPID)] }
@@ -494,8 +558,9 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
       return 1
   let patch : PatchSession := {
     check := flags.contains "--check-patch", perturb := flags.contains "--perturb-patch"
+    scx := !flags.contains "--key-without-scx"
     index := Patch.buildNewestIndex newest.state (fieldFnIndex := !flags.contains "--no-field-fn-index")
-    last := ← IO.mkRef none }
+    last := ← IO.mkRef none, printed := ← IO.mkRef none }
   IO.println s!"ready {(← IO.monoNanosNow) - t0} {newest.state.moduleNames.size}"
   let stdout ← IO.getStdout
   stdout.flush
