@@ -52,6 +52,7 @@ structure Decoded where
   writer  : WriterVersion
   mods    : Array (Name × ModuleData)
   keyed   : Array (Name × Array (Nat × Keyed))
+  mentioned : Array (Array Name)
   stats   : ReadStats
   old     : OldWorld
 
@@ -65,10 +66,12 @@ unsafe def decodeAll (s : Session) (mods : Array Name) : IO Decoded := do
   let mut index : Std.HashMap Name Nat := {}
   let mut constNames := #[]
   let mut imports := #[]
+  let mut mentioned := #[]
   for m in mods do
     let parts ← loadModule s m
-    let ((md, ks), _) ← runDM parts (decModuleData false true parts.back!.root stats)
+    let ((md, ks, ms), _) ← runDM parts (decModuleData false true parts.back!.root stats)
     out := out.push (m, md)
+    mentioned := mentioned.push ms
     index := index.insert m index.size
     constNames := constNames.push md.constNames
     imports := imports.push (md.imports.map (·.module))
@@ -104,7 +107,7 @@ unsafe def decodeAll (s : Session) (mods : Array Name) : IO Decoded := do
     docKeys := keysOf (reachable `Lean.docStringExt)
     versoKeys := keysOf (reachable `Lean.versoDocStringExt) }
   return { writer, mods := out, keyed := extOrder.map (fun e => (e, grouped.getD e #[])),
-           stats := ← stats.get, old }
+           mentioned, stats := ← stats.get, old }
 
 def checkMirror (s : MImportState) : IO Unit := do
   unless s.moduleNameMap.size == s.moduleNames.size do

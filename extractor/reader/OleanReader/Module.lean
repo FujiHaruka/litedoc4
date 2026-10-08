@@ -14,12 +14,13 @@ structure ReadStats where
   exprs : Nat := 0
 
 def decModuleData (omitProofs decodeEntries : Bool) (v : UInt64) (stats : IO.Ref ReadStats) :
-    DM (ModuleData × Array (Name × Array Keyed)) := do
+    DM (ModuleData × Array (Name × Array Keyed) × Array Name) := do
   let x ← ctor "ModuleData" v 0 5 1
   let isModule ← decBool "ModuleData.isModule" v (x.sc8 0)
   let imports ← decArray "Array Import" (x.field 0) decImport
   let constNames ← decArray "Array Name" (x.field 1) decName
   let constants ← decArray "Array ConstantInfo" (x.field 2) (decConstantInfo omitProofs)
+  let mentioned := (← get).mentioned
   let extraConstNames ← decArray "Array Name" (x.field 3) decName
   let entriesObj ← obj "Array (Name × Array EnvExtensionEntry)" (x.field 4)
   unless entriesObj.tag == 246 do fail "ModuleData.entries" (x.field 4) "expected an Array"
@@ -56,7 +57,7 @@ def decModuleData (omitProofs decodeEntries : Bool) (v : UInt64) (stats : IO.Ref
     names := s.names + st.names.size
     levels := s.levels + st.levels.size
     exprs := s.exprs + st.exprs.size }
-  return ({ isModule, imports, constNames, constants, extraConstNames, entries }, keyedEntries)
+  return ({ isModule, imports, constNames, constants, extraConstNames, entries }, keyedEntries, mentioned)
 
 def findOlean (s : Session) (m : Name) : IO System.FilePath := do
   let rel := System.mkFilePath (m.components.map (·.toString (escape := false)))

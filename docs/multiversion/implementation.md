@@ -707,6 +707,32 @@ the two ways on versions that have both.
 4. **Mechanism 3 on every reader run**: every constant a type mentions exists in the version being
    read; the declaration list and ranges agree with the `.ilean` the same Lean wrote. A failure
    stops the version by name.
+   **Done 2026-10-08**: `reader extract` runs both checks after decoding and before the newest
+   import, so a failure writes nothing; it exits 1 naming the version, the module, and the
+   constant with its missing name or the declaration with both ranges. **Closure**: every name an
+   `Expr.const` or `Expr.proj` carries in a decoded constant's type or value, and every name a
+   record carries (`all`, `ctors`, `induct`, a recursor rule's constructor), is a constant decoded
+   from the version's own import closure, core included. Values are included: the run reads them
+   (the axiom walk), so a misread there is as much a misread. The decoder records the names as it
+   builds each `Expr`, once per decoded object: 57 ms for the sample's 66,632 constants, where a
+   separate walk of the same objects took 3.3 s (measured, the same 229,243 references either way).
+   **`.ilean`**: all six writers write format 5 (their `Lean/Data/Lsp/Internal.lean` is identical,
+   `Lean/Server/References.lean` differs only in `open` lines), so there is no writer field. The
+   `.ilean` lists only the parent declarations of the references it records, with the range the
+   command's environment gives them. Agree means: every declaration a module's `.ilean` lists has
+   a range decoded from that module's `.olean`, equal in all eight numbers; and a decoded range it
+   does not list is not the parent of any of its references. One rule excludes, with its cause: a
+   parent whose range lies inside a theorem's (a `let rec` or `where`) is elaborated with the
+   theorem, asynchronously, and the writer looks it up in the command's environment, which does
+   not have it yet (45 such in core v4.31.0–v4.33.1, 44 in v4.34.1). On the sample, every row:
+   0 dangling, 0 disagreements, 31,820–32,388 declarations equal; `tools/reader-hybrid-gate.sh`
+   17 of 17, the 7 new items each made to fail once (measured →
+   `benchmarks/results/reader-invariants-2026-10-08.txt`). Without the checks both corrupted copies
+   are read and written as IR, exit 0. **Cost**: the `.ilean` parse is the expensive half,
+   0.62–0.66 s for 20.3–20.9 MB per row; at that rate the Mathlib target's closure, at most
+   350 MiB of `.ilean`, costs about 11 s per version against the 0.80 min read (theoretical: rate measured on core only, size an
+   upper bound summed over every built package and core). The closure check is ≈ 0.7 s there
+   (theoretical: scaled by 768,000 decoded constants, assumes core's references per constant).
 5. **`build --versions` fills through the reader** (the rule above), with the store record and
    stale judgement: a reader-filled entry is stale when the reader's identity or the extractor's
    changes, and is refilled through the reader. **On M: the exactness checkpoint**.

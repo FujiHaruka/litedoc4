@@ -71,6 +71,7 @@ structure DState where
   levels  : Std.HashMap UInt64 Level := {}
   exprs   : Std.HashMap UInt64 Expr := {}
   objects : Nat := 0
+  mentioned : Array Name := #[]
 
 abbrev DM := ReaderT (Array Part) (StateRefT DState IO)
 
@@ -312,14 +313,20 @@ partial def decExpr (v : UInt64) : DM Expr := do
     | 1, 1 => pure (Expr.fvar ⟨← decName (x.field 0)⟩)
     | 2, 1 => pure (Expr.mvar ⟨← decName (x.field 0)⟩)
     | 3, 1 => pure (Expr.sort (← decLevel (x.field 0)))
-    | 4, 2 => pure (Expr.const (← decName (x.field 0)) (← decList "List Level" (x.field 1) decLevel))
+    | 4, 2 =>
+      let n ← decName (x.field 0)
+      modify fun s => { s with mentioned := s.mentioned.push n }
+      pure (Expr.const n (← decList "List Level" (x.field 1) decLevel))
     | 5, 2 => pure (Expr.app (← decExpr (x.field 0)) (← decExpr (x.field 1)))
     | 6, 3 => pure (Expr.lam (← decName (x.field 0)) (← decExpr (x.field 1)) (← decExpr (x.field 2)) (← decBinderInfo v (x.sc8 8)))
     | 7, 3 => pure (Expr.forallE (← decName (x.field 0)) (← decExpr (x.field 1)) (← decExpr (x.field 2)) (← decBinderInfo v (x.sc8 8)))
     | 8, 4 => pure (Expr.letE (← decName (x.field 0)) (← decExpr (x.field 1)) (← decExpr (x.field 2)) (← decExpr (x.field 3)) (← decBool "Expr.letE.nondep" v (x.sc8 8)))
     | 9, 1 => pure (Expr.lit (← decLiteral (x.field 0)))
     | 10, 2 => pure (Expr.mdata (← decMData (x.field 0)) (← decExpr (x.field 1)))
-    | 11, 3 => pure (Expr.proj (← decName (x.field 0)) (← decNat (x.field 1)) (← decExpr (x.field 2)))
+    | 11, 3 =>
+      let n ← decName (x.field 0)
+      modify fun s => { s with mentioned := s.mentioned.push n }
+      pure (Expr.proj n (← decNat (x.field 1)) (← decExpr (x.field 2)))
     | t, k => fail "Expr" v s!"unknown ctor tag {t} objs {k}"
   let ssz := if x.tag == 6 || x.tag == 7 || x.tag == 8 then 9 else 8
   unless x.csSz == align8 (8 + 8*x.other + ssz) do fail "Expr" v s!"size {x.csSz} for tag {x.tag}"

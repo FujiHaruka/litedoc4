@@ -19,11 +19,24 @@
 #                       - `extractorIdentity`: `source=` digests the copy of
 #                         Extract.lean the reader compiles (without `main`),
 #                         and the reader's fields follow; both predicted
+#   invariants-<version>
+#                     the run's mechanism-3 summary: every constant of the
+#                     import closure checked, 0 dangling references; every
+#                     module's .ilean compared, at least one declaration
+#                     listed and equal, 0 disagreements; the decoded ranges
+#                     each exclusion rule leaves out, printed
 #   hard-stops        every reader run reports the sample's hard stops:
 #                     verso=0 builtin-doc=0 tactic-table=1
 #                     autoparam-old-only=0 autoparam-newest=0
 #   refuse-<flag>     --dump-tactics, --tactics-emulate, --tactics-probe and
 #                     --serve are refused by name, before anything is read
+#   refuse-dangling   the newest row with a copy of Example.Dep's .olean whose
+#                     import list no longer names «Dep-Aux».Basic: that module
+#                     leaves the closure, and Example.usesDep's DepAux.marker
+#                     is refused by name before any IR is written
+#   refuse-ilean      the newest row with a copy of Example.Basic's .ilean
+#                     whose first declaration's end line is one more: refused
+#                     by name, with both ranges, before any IR is written
 #
 # A row whose toolchain is not installed is not answered (exit 2): `lake`
 # would install it, so the gate checks first.
@@ -90,7 +103,7 @@ fi
 NEWEST_I=$(( ${#ROWS[@]} - 1 ))
 NEWEST="${ROWS[$NEWEST_I]##*:v}"
 NEWEST_SPELLING="${SPELLINGS[$NEWEST_I]}"
-declared=$(( ${#ROWS[@]} + 1 + ${#REFUSED[@]} ))
+declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 2 ))
 
 record_host
 if ! installed "${ROWS[$NEWEST_I]}"; then
@@ -127,9 +140,12 @@ search_args () {
   done
 }
 
+# usage: read_through <version> <out> [--shadow <dir>] [extractor flags...]
+#   --shadow  a search directory put before the version's own, for a corrupted copy
 read_through () {
   local v="$1" out="$2" args=()
   shift 2
+  if [ "${1:-}" = --shadow ]; then args+=(--old "$2"); shift 2; fi
   while IFS= read -r a; do args+=("$a"); done < <(search_args --old "$v"; search_args --new "$NEWEST")
   mkdir -p "$out"
   set +e
@@ -223,13 +239,58 @@ print(f"{len(n)} IR files and the link index equal; reducibility spelling "
 PY
 }
 
+invariants () {
+  python3 - "$1" <<'PY'
+import re, sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+def grab(pattern):
+    m = re.search(pattern, text, re.M)
+    if not m:
+        print(f"no line matches {pattern!r}")
+        sys.exit(1)
+    return [int(g) for g in m.groups()]
+
+constants, refs, dangling = grab(r"^invariants +closure: (\d+) constants, (\d+) references checked, (\d+) dangling")
+modules, nbytes, equal, disagree = grab(r"^  ilean +(\d+) modules \((\d+) bytes\), (\d+) declarations listed and equal, (\d+) disagree")
+no_parent, = grab(r"^  ilean-no-parent +(\d+) decoded ranges")
+in_theorem, = grab(r"^  ilean-in-theorem +(\d+) decoded ranges")
+read_modules, read_constants = grab(r"^reader +Lean \S+ \(\w+\) read in Lean \S+: (\d+) modules, (\d+) constants")
+problems = []
+if constants != read_constants:
+    problems.append(f"{constants} constants checked of {read_constants} decoded")
+if refs == 0:
+    problems.append("0 references checked")
+if dangling != 0:
+    problems.append(f"{dangling} dangling references")
+if modules != read_modules:
+    problems.append(f"{modules} .ilean files compared of {read_modules} modules read")
+if equal == 0:
+    problems.append("0 declarations listed and equal")
+if disagree != 0:
+    problems.append(f"{disagree} .ilean disagreements")
+if problems:
+    print("; ".join(problems))
+    sys.exit(1)
+print(f"closure {constants} of {read_constants} constants, {refs} references, 0 dangling; "
+      f".ilean {modules} of {read_modules} modules ({nbytes} bytes), {equal} declarations equal, 0 disagree; "
+      f"not listed: no-parent {no_parent}, in-theorem {in_theorem}")
+PY
+}
+
 STOPS_SEEN=()
 item_read () {
   local item="$1" v="$2" out="$WORK/v$2/read" result
   if ! read_through "$v" "$out"; then
     bad "$item" "reader extract exited non-zero"
     excerpt "$out/stderr.txt"
+    bad "invariants-$v" "reader extract exited non-zero, so there is no summary"
     return
+  fi
+  if result="$(invariants "$out/stdout.txt" 2>&1)"; then
+    ok "invariants-$v" "$result"
+  else
+    bad "invariants-$v" "$result"
   fi
   STOPS_SEEN+=("$v $(sed -n 's/^hard stops *//p' "$out/stdout.txt")")
   if result="$(compare "$v" "$3" 2>&1)"; then
@@ -264,10 +325,13 @@ for i in "${!ROWS[@]}"; do
   if [ "$i" -eq "$NEWEST_I" ]; then item="self-$v"; else item="read-$v"; fi
   if [ "${NATIVE_OK[$i]}" = not-installed ]; then
     gone "$item" "${ROWS[$i]} is not installed; this row is not answered"
+    gone "invariants-$v" "${ROWS[$i]} is not installed; this row is not answered"
   elif [ "${NATIVE_OK[$NEWEST_I]}" != ok ]; then
     bad "$item" "the newest row's sample did not build (${NATIVE_OK[$NEWEST_I]}), so there is no newest side"
+    bad "invariants-$v" "the newest row's sample did not build, so nothing was read"
   elif [ "${NATIVE_OK[$i]}" != ok ]; then
     bad "$item" "the native side did not build: ${NATIVE_OK[$i]}"
+    bad "invariants-$v" "the native side did not build, so nothing was read"
   else
     item_read "$item" "$v" "${SPELLINGS[$i]}"
   fi
@@ -309,6 +373,90 @@ for flag in "${REFUSED[@]}"; do
     bad "$item" "refused, but it wrote output first"
   else
     ok "$item" "$(head -c 300 "$out/stderr.txt")"
+  fi
+done
+
+# usage: corrupt <dangling|ilean> <pristine lib dir> <shadow dir>
+#   prints what it changed, then on a line of its own the refusal it predicts
+corrupt () {
+  python3 - "$@" <<'PY'
+import json, pathlib, shutil, struct, sys
+
+kind, lib, shadow = sys.argv[1], pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+(shadow / "Example").mkdir(parents=True, exist_ok=True)
+
+def u64(b, o):
+    return struct.unpack_from("<Q", b, o)[0]
+
+def name(b, base, v):
+    parts = []
+    while v != 1:
+        o = v - base
+        if b[o + 7] != 1:
+            sys.exit(f"a Name component at 0x{v:x} is not a string (tag {b[o + 7]})")
+        s = u64(b, o + 16) - base
+        parts.append(bytes(b[s + 32:s + 32 + u64(b, s + 8) - 1]).decode())
+        v = u64(b, o + 8)
+    return list(reversed(parts))
+
+if kind == "dangling":
+    src, dst = lib / "Example" / "Dep.olean", shadow / "Example" / "Dep.olean"
+    b = bytearray(src.read_bytes())
+    base = u64(b, 80)
+    imports = u64(b, u64(b, 88) - base + 8) - base
+    n = u64(b, imports + 8)
+    names = [name(b, base, u64(b, u64(b, imports + 24 + 8 * i) - base + 8)) for i in range(n)]
+    hits = [i for i, nm in enumerate(names) if nm == ["Dep-Aux", "Basic"]]
+    if len(hits) != 1:
+        sys.exit(f"Example.Dep imports {names}; expected exactly one «Dep-Aux».Basic")
+    i = hits[0]
+    rest = b[imports + 24 + 8 * (i + 1):imports + 24 + 8 * n]
+    b[imports + 24 + 8 * i:imports + 24 + 8 * (n - 1)] = rest
+    struct.pack_into("<Q", b, imports + 8, n - 1)
+    dst.write_bytes(bytes(b))
+    shutil.copyfile(lib / "Example" / "Dep.ilean", shadow / "Example" / "Dep.ilean")
+    print(f"Example.Dep imports {['.'.join(x) for x in names]}; «Dep-Aux».Basic (entry {i}) removed")
+    print("module Example.Dep: Example.usesDep mentions DepAux.marker, which no module of Lean")
+else:
+    shutil.copyfile(lib / "Example" / "Basic.olean", shadow / "Example" / "Basic.olean")
+    j = json.loads((lib / "Example" / "Basic.ilean").read_text(encoding="utf-8"))
+    if not j["decls"]:
+        sys.exit("Example/Basic.ilean lists no declarations")
+    first = sorted(j["decls"])[0]
+    before = list(j["decls"][first])
+    j["decls"][first][2] += 1
+    (shadow / "Example" / "Basic.ilean").write_text(json.dumps(j), encoding="utf-8")
+    print(f"{first}: {before} -> {j['decls'][first]}")
+    print(f"module Example.Basic: {first}'s range is {j['decls'][first]} in Basic.ilean and {before} decoded from its .olean")
+PY
+}
+
+say
+say "=== the invariants refusing a corrupted copy"
+LIB="$WORK/v$NEWEST/micro/.lake/build/lib/lean"
+for kind in dangling ilean; do
+  item="refuse-$kind"
+  if [ "${NATIVE_OK[$NEWEST_I]}" != ok ]; then
+    bad "$item" "the newest row's sample did not build, so there is nothing to corrupt"
+    continue
+  fi
+  out="$WORK/refuse-$kind"
+  if ! made="$(corrupt "$kind" "$LIB" "$out/shadow" 2>&1)"; then
+    bad "$item" "the corrupted copy could not be made: $made"
+    continue
+  fi
+  want="reader extract: invariant failed, Lean $NEWEST is not read: $(printf '%s\n' "$made" | sed -n 2p)"
+  made="$(printf '%s\n' "$made" | sed -n 1p)"
+  if read_through "$NEWEST" "$out" --shadow "$out/shadow"; then rc=0; else rc=$?; fi
+  if [ "$rc" -ne 1 ]; then
+    bad "$item" "reader extract exited $rc on the copy ($made), an invariant refusal exits 1"
+    excerpt "$out/stderr.txt"
+  elif ! grep -qF -- "$want" "$out/stderr.txt"; then
+    bad "$item" "the refusal is not the one expected ($want): $(head -c 400 "$out/stderr.txt")"
+  elif [ -e "$out/ir" ] || [ -e "$out/events.jsonl" ]; then
+    bad "$item" "refused, but it wrote output first"
+  else
+    ok "$item" "$made: $(head -c 400 "$out/stderr.txt")"
   fi
 done
 

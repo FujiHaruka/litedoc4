@@ -191,7 +191,7 @@ PY
   fi
   for m in OleanReader/Writers OleanReader/Read OleanReader/Entries OleanReader/Module \
            OleanReader/Serialize OleanReader/Oracle Extract OleanReader/Assemble \
-           OleanReader/Hybrid OleanReader/Main; do
+           OleanReader/Check OleanReader/Hybrid OleanReader/Main; do
     local base="$src"
     if [ "$m" = Extract ]; then base="$out"; fi
     if ! LEAN_PATH="$out" elan run "$tc" lean --root="$base" -o "$out/$m.olean" -c "$out/$m.c" \

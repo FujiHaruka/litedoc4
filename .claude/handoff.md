@@ -7,7 +7,7 @@
 - Predecessor: none
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger:
-  - r1: step 5 plan written into implementation.md
+  - r1: step 5 plan (caf56ed); item 1 reader + oracle gate 10/10 (9e33548); item 2 World seam (b52d254); item 3 hybrid on S (0bbc24d); item 4 invariants (see git log)
 
 ## State
 

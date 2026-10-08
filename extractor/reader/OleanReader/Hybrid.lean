@@ -1,4 +1,4 @@
-import OleanReader.Assemble
+import OleanReader.Check
 import Extract
 open Lean OleanReader Litedoc4
 
@@ -7,7 +7,7 @@ namespace OleanReader.Hybrid
 def readerSource : String := String.join [
   include_str "Writers.lean", include_str "Read.lean", include_str "Entries.lean",
   include_str "Module.lean", include_str "Serialize.lean", include_str "Oracle.lean",
-  include_str "Assemble.lean", include_str "Hybrid.lean", include_str "Main.lean"]
+  include_str "Assemble.lean", include_str "Check.lean", include_str "Hybrid.lean", include_str "Main.lean"]
 
 def readBy : List (String × String) :=
   [("reader", fnv1a64Hex readerSource), ("readerLean", Lean.versionString),
@@ -105,6 +105,24 @@ def refusedFlag? (cfg : Cfg) : Option (String × String) :=
   else if cfg.serve then some ("--serve", "a resident extractor re-imports natively")
   else none
 
+def invariantFailure (d : Assemble.Decoded) (cl : Check.ClosureCounts) (il : Check.IleanCounts) : Option String :=
+  if let some x := cl.dangling[0]? then
+    some s!"module {x.module}: {x.constant} mentions {x.missing}, which no module of Lean \
+      {d.writer.leanVersion}'s import closure declares ({cl.dangling.size} dangling reference(s) in all)"
+  else if let some p := il.problems[0]? then
+    some s!"{p} ({il.problems.size} disagreement(s) in all)"
+  else none
+
+def invariantLines (cl : Check.ClosureCounts) (il : Check.IleanCounts) : List String := [
+  s!"invariants           closure: {cl.constants} constants, {cl.references} references checked, \
+    {cl.dangling.size} dangling ({cl.ms} ms)",
+  s!"  ilean              {il.modules} modules ({il.bytes} bytes), {il.compared} declarations listed and equal, \
+    {il.problems.size} disagree ({il.ms} ms)",
+  s!"  ilean-no-parent    {il.notListed} decoded ranges: no reference the module records has the \
+    declaration as its parent, and the .ilean lists parents only",
+  s!"  ilean-in-theorem   {il.inTheorem} decoded ranges: a parent nested in a theorem's range (let rec, \
+    where), elaborated asynchronously; the .ilean writer looks ranges up in the command's environment"]
+
 unsafe def extractMain (args : List String) : IO UInt32 := do
   let a := parseReaderArgs args {}
   let cfg ← match parseArgs a.extractor with
@@ -129,6 +147,11 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
     let s ← Session.new a.old
     let mods ← closure s targets
     let d ← Assemble.decodeAll s mods
+    let cl ← Check.closure d
+    let il ← Check.ilean s d
+    if let some why := invariantFailure d cl il then
+      IO.eprintln s!"reader extract: invariant failed, Lean {d.writer.leanVersion} is not read: {why}"
+      return 1
     let uses := autoParamUses d targets
     let (env, merged) ← Assemble.assembleHybrid d a.new newRoots
       (uses.foldl (fun acc (_, tac) => acc.insert tac) {})
@@ -138,6 +161,7 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
     let autoParams := classifyAutoParams uses merged.sameValue
     let verso ← hs.verso.get
     let builtin ← hs.builtinDoc.get
+    for l in invariantLines cl il do IO.println l
     IO.println s!"reader               Lean {d.writer.leanVersion} ({d.writer.githash}) read in Lean \
       {Lean.versionString}: {mods.size} modules, {d.stats.constants} constants, \
       {d.stats.entriesDecoded} extension entries decoded, {d.stats.entriesSkipped} not decoded \
