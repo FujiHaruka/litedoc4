@@ -819,6 +819,128 @@ the two ways on versions that have both.
    oracle; v4.30.0 is the one release whose layout is known by source only (D1). Then
    `prototypes/olean-reader/` is deleted.
 
+##### Item 6 plan: the patch path and print reuse (2026-10-08)
+
+Read 2026-10-08, nothing run. "Memo": `prototypes/olean-reader/differential-design.md` (item 7 deletes it).
+
+**Approach.** One resident reader process per build, a *session*. It imports the newest version
+once and takes the older versions in `--versions` order. Each one is decoded, merged, extracted and
+answered before the next is checked out. Three levers go on top, each only after the one below is
+exact: (1) the session, every version from scratch; (2) the patch, version k+1's merged state built
+from version k's; (3) print reuse, with a recomputed key and then a carried one. Every lever has one
+oracle, `reader extract` alone on the same version, equal in every IR file and the link index (kept
+as an internal flag). **The carry is new code**: the prototype's `keysPar` recomputes every key every
+round, and a carry is sound only if it knows every name the key looked up, absent ones included
+(patch log), so its check mode is a standing falsifier.
+
+Choices, with what would undo each:
+
+- **One session, oldest first, each version patched from the previous old version read.** The
+  first is built whole (the newest is never read). The patch is exact for any pair (R1–R4, both
+  ways, every file equal; measured → `benchmarks/results/mathlib-environment-patch-2026-10-05.txt`),
+  so adjacency costs time, not correctness: a partial refill patches v3 from v1. The protocol is
+  `Extract.lean`'s `--serve` shape (a request per version, `ok <code> <ns>`); `fillThroughReader`
+  becomes prepare, send, wait, put, delete (two trees on disk). **Undone** if memory does not fit
+  the runner: 10.08 GB footprint on the M1 *with* compression (measured, patch log), against 16 GB
+  + 3 GB swap and none there. Fallback: read-alone per version.
+- **Patched and read-alone entries are the same bytes**, record and identity included, as the
+  gate asserts; "patched from" is only in the build output. The new code joins `readerSource`, so
+  every reader entry refills once. **Undone** by a patched ≠ read-alone version that cannot be
+  fixed; then record and identity carry the way.
+- **The environment is not leaked** (`leakEnv := false`; the tree has `true`). The realization map
+  is emptied (`clearRealizations`, a cast checked like `checkMirror` at each reader-toolchain bump)
+  and `builtinDeclRanges` cleared per round. Reference counting cost R0 extraction 241 s against
+  219–228 s, the 4-thread key pass 126–133 s against 74.7 s persistent (measured →
+  `benchmarks/results/mathlib-key-and-equation-profile-2026-10-06.txt`): the carried pass runs **on
+  one thread first** (≈ 23 s CPU, theoretical, same log).
+- **Manual root: rewritten in `World` with the version's root, not the global.** Every release has
+  its own root (measured → `benchmarks/results/mv-m-reader-fixed-2026-10-08.txt`), so grouping by
+  root, or a process per root, leaves no patch path. `docString?` takes `findDocString?`'s text
+  before `rewriteManualLinks` and applies a root-taking copy of `rewriteManualLinksCore`. The old
+  Lean's ask stays (≈ 0.2 s, measured, same log) and also prints its own rewrite of a fixed probe,
+  which the copy must reproduce or the version is refused; the re-exec goes. The global's other
+  readers (`DocString/Add.lean`, `Log.lean:91`) are unreached, and `Extract.lean:1990` is the
+  tactic path the hybrid skips. **Undone** by a reachable reader the copy cannot cover.
+- **Key N1X + own** (G7, SSTR → SSTRN, plus SCX, plus the declaration's own record). SCX covers
+  what `collectStructFields` reads and N1 + own misses: each field's effective default function
+  (type and value, every level) and the anonymous-constructor attribute. On v4.31.0 → v4.32.0:
+  N1 + own 92.78% key-equal, 0 holes; SCX −497 reuses, caught nothing (measured →
+  `benchmarks/results/mathlib-structure-rule-and-meta-equations-2026-10-06.txt`); undone by a new read site.
+- **Today's field-function drop runs every round**, which the prototype's `rewriteConsts` lacks.
+  An old S appearing or disappearing dirties the newest modules holding
+  `S.*.{_default,_inherited_default,_autoParam}` (an index like `reservedOf`). Counts and
+  `sameValue` are computed by name from the patched state, not as rewrite by-products.
+
+**Done when**: S and M patched = read-alone byte for byte, `--check-keys` 0, M1 and L recorded.
+
+**The order, each step ending in something counted or gated:**
+
+1. **The reuse seam in `Extract.lean`** (`Reuse`, `p?` into `analyze`). Natively byte for byte:
+   `tools/mv-s-gate.sh` 63 of 63, the Lean-versions matrix, `tools/lean-test-gate.sh`.
+2. **Session, no patch, no reuse.** `tools/reader-hybrid-gate.sh` gains `session-equals-alone` (the
+   older rows in one session, each equal to read-alone) and `session-manual-root` (each row's
+   probe link has its own root). It fails once with the root frozen at round 1's. Peak RSS per round.
+3. **The patch** (seeded hashes from the writer record, sharing, delta, dirty rewrite, finalize)
+   with `--check-patch`, which runs **the tree's** `rewriteMerge` on the same decoded data and
+   compares pointer by pointer. On S: 0 modules differ, every IR equals read-alone. It fails once
+   two ways, each naming the module: the prototype's perturbation, and the field-function trigger
+   removed (a probe row pair where S flips).
+4. **Reuse under a recomputed key** (`PrintKey.lean`, N1X + own, env switches gone). The probe
+   churns a field default between two older rows while `withDefault (c : Cheap := { })` stays the
+   same. Reused and reprinted counted, holes (IR equality) 0; fails once under N1 + own.
+5. **The carried key, with `--check-keys`** (memo 1a–1c, shared uncapped memos). A record goes
+   stale when its pointer, a keyed entry, an ancestor's layout or an applied constant's binder infos
+   change. A resolution goes stale on a presence flip of a probe name or its prefix, or on an alias
+   change. **Beyond the memo**: SCX's inputs (default functions' presence and pointer, the
+   attribute, ancestors). Only changed declarations are recomputed. Check mode recomputes with
+   fresh memos and names each difference's input class. 0 on S, then on M. It fails once with the
+   presence-flip input dropped.
+6. **`build --versions` over the session.** Read-alone is in `--help-all`, not in
+   `tools/public-surface.txt`. `tools/mv-reader-gate.sh` keeps its 12 items and gains
+   `patched-equals-alone` (5 entries) and `check-keys`, each made to fail once.
+7. **M**: `benchmarks/tools/mv-m-run.sh --through-reader --session`, three versions at the
+   `mv-m-reader-fixed` commits. Read: entry equality, check mode 0, and per round reused,
+   reprinted, rewritten modules and phases. v4.32.2 → v4.33.0 is the seed's first test across the
+   v4.33.0 reducibility rename (memo E8); v4.33.0 → v4.33.1 is the first patch pair timed.
+8. **Linux**: both reader gates once on `ubuntu-latest`, where the reader has never run (item 5);
+   otherwise an L failure cannot be told from a patch defect.
+9. **L**, prediction committed first. `mv-l.yml`: `v4.32.2,v4.33.0,v4.33.1,v4.34.1` from nothing
+   (v4.34.1 natively), (a) the session, then (b) read-alone from a store copy holding only v4.34.1;
+   entries equal, 3 of 3; check mode once on (a), its time stated. ≈ 1.5–2 h with the render
+   (theoretical) against the 240-min timeout. Started by a `push:` on `multi-version`.
+
+**Measurement.**
+
+- **M1, per extra version: one minor-pair round, request to IR written**, without setup, the first
+  version, the newest import or the put (U9's cut). The workload is the U9 pair, the only full pair
+  on this disk: Mathlib v4.31.0 (`lean-projects`, read only) → v4.32.0 (`mv-v4320`), read into
+  v4.34.1 (`mv-v4341`), 8,265 modules. 5 processes of R0 + R1; R1 is read. Each records
+  `/usr/bin/time -l`, `vm_stat` and swap (on 2026-10-06, 13.6–14.7 GB of other memory sat
+  compressed, measured, structure-rule log); nothing else heavy runs. Run 1 is cold, runs 2–5 must
+  converge; one R1 with check mode and one read-alone v4.32.0 give the equality.
+- **Prediction: R1 ≈ 146–160 s** (theoretical): the structure-rule log's ≈ 234 s composition, with
+  the 97.1 s key pass replaced by the carry's ≈ 9–23 s (profile log). That **misses the tracked
+  1.2 min** (D7: 2 h ÷ 51 on the runner ÷ 1.8; theoretical) by about 2×. Item 6 takes none of the
+  memo's other levers (C decode, equations without `addDecl`, manifest IR); only patch pairs are
+  predicted under it (memo §5). The measured baseline is the 303 s round.
+- **M1 disk: 7.4 GiB free** (measured, `df`, 2026-10-08) against 550 MB raw IR a round (plan D7)
+  plus a reference; a `--need-gb` floor. Deleted first: `mv-m-render-*` (under
+  `/private/tmp/lean-doc-relay`); never `mv-l-r3` (the L store copy), `u13-host` or the three
+  workspaces.
+- **L**: per phase and round, peak RSS (predicted from 10.08 GB) and minimum free disk (74 GiB at
+  step 4's start, measured → `benchmarks/results/mv-l-step4-2026-10-07.txt`). Counts exact, one run.
+
+**Risks and falsifiers** beyond the choices:
+
+- The carry's enumeration held for one round on one pair (union 161,006 = 28.4%, 0 key changes
+  outside it, measured, profile log). If check mode keeps finding misses, the recomputed key (97 s,
+  measured) stays.
+- A wrong seed across the v4.33.0 rename, or a 64-bit hash collision (≈ 2e-13 over the set,
+  theoretical), shares a changed object. `--check-patch` runs on shared objects and cannot see it;
+  only the IR oracle can.
+- Recommended: a seeded 1% re-print of reused declarations per round, `<checked> of <declared>`
+  (≈ 3 s, theoretical, memo §8). Production runs no read-alone arm, so a hole is otherwise uncounted.
+
 ### 6. CI, hosting and the full set
 
 - A workflow on `ubuntu-latest` that restores the store, builds, saves the store, and deploys to
