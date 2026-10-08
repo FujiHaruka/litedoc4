@@ -1,4 +1,5 @@
 import OleanReader.Check
+import OleanReader.Patch
 import Extract
 import Std.Async.Process
 open Lean OleanReader Litedoc4
@@ -8,7 +9,8 @@ namespace OleanReader.Hybrid
 def readerSource : String := String.join [
   include_str "Writers.lean", include_str "Read.lean", include_str "Entries.lean",
   include_str "Module.lean", include_str "Serialize.lean", include_str "Oracle.lean",
-  include_str "Assemble.lean", include_str "Check.lean", include_str "Hybrid.lean", include_str "Main.lean"]
+  include_str "Assemble.lean", include_str "Check.lean", include_str "Patch.lean", include_str "Hybrid.lean",
+  include_str "Main.lean"]
 
 def readBy : List (String × String) :=
   [("reader", fnv1a64Hex readerSource), ("readerLean", Lean.versionString),
@@ -304,8 +306,55 @@ unsafe def importNewest (search : Array System.FilePath) (roots : Array Name) : 
   let imports := roots.map ({ module := · })
   return { state := ← Assemble.importNewest search imports, imports }
 
-unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : IO Newest) (resident : Bool) :
-    IO UInt32 := do
+structure PatchSession where
+  check : Bool
+  perturb : Bool
+  index : Patch.NewestIndex
+  last : IO.Ref (Option (Assemble.Prev × Option (Patch.Built × String)))
+
+def patchLine (from? : Option String) (sh : Assemble.ShareCounts) (st : Patch.Stats) (modules : Nat) : String :=
+  let shared := s!"decoded objects replaced by the previous version's: constants {sh.constantsShared} of \
+    {sh.constants}, entries {sh.entriesShared} of {sh.entries}"
+  match from? with
+  | none => s!"patch                built whole: {modules} newest modules rewritten; {shared}"
+  | some v =>
+    s!"patch                from Lean {v}: constants same {st.constSame}, changed {st.constChanged}, added \
+      {st.constAdded}, removed {st.constRemoved}; {shared}; newest modules {modules}, rewritten {st.dirty} \
+      (constants {st.dirtyConst}: by name {st.byName}, realizations {st.byRealization}, field functions \
+      {st.byFieldFn}; entries {st.dirtyEntries}: placed old entries {st.byOlds}, kept-newest filter {st.byFilter})"
+
+def checkLines (c : Patch.Comparison) : Array String :=
+  #[s!"check-patch          {c.modules.size} modules differ from rewriteMerge's state, pointer by pointer; \
+      {c.other.size} other differences"] ++
+    c.modules.map (fun (m, why) => s!"  check-patch-module {m}: {why}") ++
+    c.other.map (s!"  check-patch-other {·}")
+
+def checkFailure (c : Patch.Comparison) : String :=
+  match c.modules[0]?, c.other[0]? with
+  | some (m, why), _ => s!"module {m} differs from rewriteMerge's: {why} ({c.modules.size} module(s) in all)"
+  | none, some why => why
+  | none, none => ""
+
+unsafe def patchRound (p : PatchSession) (ms : Assemble.MImportState) (d : Assemble.Decoded)
+    (sh : Assemble.Prev × Assemble.ShareCounts) (ask : Std.HashSet Name) :
+    IO (Assemble.Merged × Array String × Option String) := do
+  let (next, counts) := sh
+  let from? := (← p.last.get).bind (·.2)
+  let (b, m, st) ← Patch.build p.index d ask (from?.map (·.1)) { perturb := p.perturb }
+  let mut lines := #[patchLine (from?.map (·.2)) counts st p.index.names.size]
+  if let some name := st.perturbed then lines := lines.push s!"patch-perturbed      {name} left unrewritten"
+  if st.perturbedNothing then lines := lines.push "patch-perturbed      nothing: no changed constant made a newest module be rewritten"
+  if p.check then
+    let c := Patch.compare m (← Assemble.rewriteMerge ms d ask)
+    lines := lines ++ checkLines c
+    unless c.clean do
+      p.last.set (some (next, none))
+      return (m, lines, some (checkFailure c))
+  p.last.set (some (next, some (b, d.writer.leanVersion)))
+  return (m, lines, none)
+
+unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : IO Newest) (resident : Bool)
+    (patch? : Option PatchSession := none) : IO UInt32 := do
   try
     let s ← Session.new a.old
     let manual ← askOldManualRoot s
@@ -315,7 +364,10 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       throw <| IO.userError s!"manual root: {manual.lean} is Lean {manual.githash}, and the version read was \
         written by Lean {writer.leanVersion} ({writer.githash})"
     checkManualCopy manual writer
-    let d ← Assemble.decodeAll s mods
+    let prev? ← match patch? with
+      | some p => pure (some (((← p.last.get).map (·.1)).getD {}))
+      | none => pure none
+    let (d, sh?) ← Assemble.decodeAll s mods prev?
     let cl ← Check.closure d
     let il ← Check.ilean s d
     if let some why := invariantFailure d cl il then
@@ -323,8 +375,17 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       return 1
     let uses := autoParamUses d targets
     let n ← newest
-    let (env, merged) ← Assemble.assembleHybrid n.state n.imports d
-      (uses.foldl (fun acc (_, tac) => acc.insert tac) {}) (leak := !resident)
+    let ask := uses.foldl (fun acc (_, tac) => acc.insert tac) {}
+    let (merged, patchLines) ← match patch?, sh? with
+      | some p, some sh =>
+        let (m, lines, failure?) ← patchRound p n.state d sh ask
+        if let some why := failure? then
+          for l in lines do IO.println l
+          IO.eprintln s!"reader session: check-patch failed, Lean {d.writer.leanVersion} is not read: {why}"
+          return 1
+        pure (m, lines)
+      | _, _ => pure (← Assemble.rewriteMerge n.state d ask, #[])
+    let env ← Assemble.finalizeHybrid merged.out n.imports merged.idxOf (leak := !resident)
     builtinDeclRanges.set {}
     let hs ← HardStops.new
     let code ← Litedoc4.run cfg (some (env, hybridWorld env d.old d.writer manual.root hs))
@@ -339,6 +400,7 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       {d.stats.entriesDecoded} extension entries decoded, {d.stats.entriesSkipped} not decoded \
       in {d.stats.skippedExts.size} extensions"
     for l in merged.counts.lines do IO.println s!"  {l}"
+    for l in patchLines do IO.println l
     if resident then
       IO.println s!"realizations         {realizations} realized constants of imported declarations emptied \
         with the round's environment"
@@ -377,14 +439,25 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
   readVersion a cfg targets (importNewest a.new newRoots) (resident := false)
 
 def sessionUsage : String := "\n".intercalate [
-  "usage: reader session --new <search-dir>... --new-roots <modules.txt>",
+  "usage: reader session --new <search-dir>... --new-roots <modules.txt> [--check-patch]",
+  "                      [--perturb-patch] [--no-field-fn-index]",
   "  imports the newest version once and prints `ready <nanoseconds> <modules>`; then one request per line",
   "  on stdin, its fields separated by tabs:",
   "    --old <search-dir>... <modules.txt> <events.jsonl> [extractor flags]",
-  "  which is reader extract's command line without --new and --new-roots. Each request is read from",
-  "  scratch into a hybrid built from the newest import, then answered with `round <n>`, reader extract's",
-  "  summary, an `rss` line and `ok <exit code> <nanoseconds>`; one that is not run is answered",
-  "  `err <why>`. EOF or an empty line ends the session."]
+  "  which is reader extract's command line without --new and --new-roots. The first request's hybrid",
+  "  is built whole from the newest import, every later one patched from the last one built; each is",
+  "  answered with `round <n>`, reader extract's summary, a `patch` line, an `rss` line and",
+  "  `ok <exit code> <nanoseconds>`; one that is not run is answered `err <why>`. EOF or an empty line",
+  "  ends the session.",
+  "  --check-patch        also build each request's hybrid from scratch and compare the two module by",
+  "                       module, pointer by pointer; a difference fails the request before anything is",
+  "                       written (`check-patch` lines)",
+  "  --perturb-patch      leave the last module a changed constant would have rewritten as it was (for",
+  "                       the gate)",
+  "  --no-field-fn-index  do not rewrite the newest modules holding a structure field's default or",
+  "                       autoParam function when the structure appears or disappears (for the gate)"]
+
+def sessionFlags : List String := ["--check-patch", "--perturb-patch", "--no-field-fn-index"]
 
 def residentKb : IO (Option Nat) := do
   let out ← IO.Process.output { cmd := "ps", args := #["-o", "rss=", "-p", toString (← IO.Process.getPID)] }
@@ -402,6 +475,7 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
   if args == ["--help"] then
     IO.println sessionUsage
     return 0
+  let (flags, args) := args.partition sessionFlags.contains
   let a := parseReaderArgs args {}
   let some newRootsFile := a.newRoots | IO.eprintln s!"reader session: --new-roots is required\n{sessionUsage}"; return 2
   if a.new.isEmpty || !a.old.isEmpty || !a.extractor.isEmpty then
@@ -418,6 +492,10 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
     | .error e =>
       IO.eprintln s!"olean reader: refused: the newest version was not imported: {e}"
       return 1
+  let patch : PatchSession := {
+    check := flags.contains "--check-patch", perturb := flags.contains "--perturb-patch"
+    index := Patch.buildNewestIndex newest.state (fieldFnIndex := !flags.contains "--no-field-fn-index")
+    last := ← IO.mkRef none }
   IO.println s!"ready {(← IO.monoNanosNow) - t0} {newest.state.moduleNames.size}"
   let stdout ← IO.getStdout
   stdout.flush
@@ -440,7 +518,7 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
       round := round + 1
       IO.println s!"round {round}"
       let r0 ← IO.monoNanosNow
-      let code ← readVersion r cfg targets (pure newest) (resident := true)
+      let code ← readVersion r cfg targets (pure newest) (resident := true) (some patch)
       let r1 ← IO.monoNanosNow
       IO.println (← rssLine round)
       IO.println s!"ok {code} {r1 - r0}"

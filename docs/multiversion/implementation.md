@@ -905,6 +905,29 @@ Choices, with what would undo each:
    compares pointer by pointer. On S: 0 modules differ, every IR equals read-alone. It fails once
    two ways, each naming the module: the prototype's perturbation, and the field-function trigger
    removed (a probe row pair where S flips).
+   **Done 2026-10-08**: `reader session` builds round 1 whole and patches every later round from
+   the previous one; `reader extract` still runs `rewriteMerge`, which stays the from-scratch path
+   and the oracle. Decoding stays full and sequential; each decoded constant (proof included) and
+   extension entry is hashed from its bytes under a seed made of the writer record's reducibility
+   meanings, and replaced by the previous round's object of the same name (or extension, key and
+   hash) when the hashes are equal. The newest index is built once per session, with a
+   field-function map beside `reservedOf`; counts and `sameValue` are computed by name from the
+   patched state, so a patched round's summary equals read-alone's. `--check-patch`,
+   `--perturb-patch` and `--no-field-fn-index` are session flags in its usage text only.
+   `tools/reader-hybrid-gate.sh` 27 of 27 (measured → `benchmarks/results/reader-patch-2026-10-08.txt`,
+   one run): four rounds on the sample, each equal to read-alone in every IR file, the link index
+   and the summary; `check-patch` 0 modules on every round; shared objects 65,500 of 65,774
+   constants on v4.31.0 → v4.32.2 (107 of 663 newest modules rewritten), **0 across the v4.33.0
+   rename** (556 rewritten), 66,461 of 66,494 on v4.33.0 → v4.33.1 (58 rewritten); about 50 s a
+   round, peak RSS 1,257 → 2,057 MiB over the four. `patch-perturbed` and `patch-field-fn-trigger`
+   each made to fail once. **The field-function map matters only where the newest names a
+   structure privately and the old version publicly** (the gate's probe): with a public structure,
+   per-name dirtying already reaches the module (check-patch 0 with the map disabled, same log).
+   **On S neither oracle sees every defect**: a perturbed round and a share-by-name round (hash
+   ignored, 54 changed core constants reused) both wrote IR and link index equal to read-alone; the
+   first was seen only by `--check-patch`, the second only by mechanism 3, in the round crossing
+   the rename. The sample prints too little of core for the IR oracle to bite; M is where it can.
+   `tools/mv-reader-gate.sh` 12 of 12, `tools/lean-test-gate.sh` 4 of 4.
 4. **Reuse under a recomputed key** (`PrintKey.lean`, N1X + own, env switches gone). The probe
    churns a field default between two older rows while `withDefault (c : Cheap := { })` stays the
    same. Reused and reprinted counted, holes (IR equality) 0; fails once under N1 + own.
