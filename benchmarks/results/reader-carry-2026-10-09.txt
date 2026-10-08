@@ -1,0 +1,234 @@
+# Item 6 step 5: the carried print key with --check-keys, on the sample (S). Apple M1, 16 GB, macOS 25.6.0;
+# reader on Lean v4.34.1, carried pass on 1 thread; one run each. Sections: (1) tools/reader-hybrid-gate.sh 31 of 31;
+# (2) fail-once: SCX memo entries never revalidated and --carry-without-presence made a no-op, 23 of 31;
+# (3) fail-once of the two-list #guard: include_str "Carry.lean" dropped from readerSource.
+
+## (1) tools/reader-hybrid-gate.sh
+date              2026-10-08T23:17:06Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+=== the reader, on leanprover/lean4:v4.34.1
+  schema=5 source=fnv1a64:7bb4d9f8122fd2b8 lean= leanGithash= equations=1 taggedCode=1 refs=1 skipAnalyze=0 ablations= open= only= noEquationsUnder= reader=fnv1a64:e001914609ac097e readerLean=4.34.1 readerLeanGithash=5045d0056413266e57c625dcd7c365b10e377c52
+
+=== the sample, natively, on each row
+  v4.31.0: 13 modules extracted
+  v4.32.2: 13 modules extracted
+  v4.33.0: 13 modules extracted
+  v4.33.1: 13 modules extracted
+  v4.34.1: 13 modules extracted
+
+=== the reader against each native IR
+ITEM invariants-4.31.0 ok    closure 65682 of 65682 constants, 225515 references, 0 dangling; .ilean 613 of 613 modules (20342673 bytes), 31851 declarations equal, 0 disagree; not listed: no-parent 3779, in-theorem 45
+ITEM read-4.31.0 ok    16 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.32.2 ok    closure 65777 of 65777 constants, 226021 references, 0 dangling; .ilean 615 of 615 modules (20368648 bytes), 31828 declarations equal, 0 disagree; not listed: no-parent 3782, in-theorem 45
+ITEM read-4.32.2 ok    16 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.33.0 ok    closure 66481 of 66481 constants, 229335 references, 0 dangling; .ilean 645 of 645 modules (20706648 bytes), 32193 declarations equal, 0 disagree; not listed: no-parent 3824, in-theorem 45
+ITEM read-4.33.0 ok    16 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.33.1 ok    closure 66497 of 66497 constants, 229383 references, 0 dangling; .ilean 645 of 645 modules (20706853 bytes), 32193 declarations equal, 0 disagree; not listed: no-parent 3826, in-theorem 45
+ITEM read-4.33.1 ok    16 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.34.1 ok    closure 66688 of 66688 constants, 230026 references, 0 dangling; .ilean 663 of 663 modules (20876118 bytes), 32396 declarations equal, 0 disagree; not listed: no-parent 3828, in-theorem 44
+ITEM self-4.34.1 ok    16 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+
+=== the hard stops each reader run reported
+ITEM hard-stops ok    5 run(s), each: verso=0 builtin-doc=0 tactic-table=1 autoparam-old-only=0 autoparam-newest=0
+
+=== the gate's own module, on each older row the reader read
+ITEM probe-manual-root ok    v4.31.0 links https://lean-lang.org/doc/reference/4.31.0/; v4.32.2 links https://lean-lang.org/doc/reference/4.32.2/; v4.33.0 links https://lean-lang.org/doc/reference/4.33.0/; v4.33.1 links https://lean-lang.org/doc/reference/4.33.1/; 
+ITEM probe-structure-default ok    v4.31.0 (c : Cheap := { }), 10 dropped; v4.32.2 (c : Cheap := { }), 11 dropped; v4.33.0 (c : Cheap := { }), 1 dropped; v4.33.1 (c : Cheap := { }), 2 dropped; 
+
+=== the older rows in one reader session: round 1 built whole, every later round patched
+  patch built whole: 663 newest modules rewritten; decoded objects replaced by the previous version's: constants 0 of 65682, entries 0 of 174747
+  check-patch 0 modules differ from rewriteMerge's state, pointer by pointer; 0 other differences
+  carry nothing to carry from: every key computed; memos entries/stale/changed: records 0/0/0, resolutions 0/0/0, facts 0/0/0, structure-instance defaults 0/0/0
+  check-keys 0 keys differ from a fresh pass (356 keys, fresh memos, 1 thread(s), 251 ms)
+  reuse 0 of 109 declarations reused, 109 reprinted (key differs 0, key equal 0, no previous output 0, new 109); key N1X + own of 356 candidates: carried 0, recomputed 356 (stale 0, new 356) in 37 ms on one thread
+  round 1: peak 1263 MiB (the process's maximum so far: a round raises it only by needing more than every round before it), resident 1263 MiB after the round
+  patch from Lean 4.31.0: constants same 65388, changed 54, added 204, removed 112; decoded objects replaced by the previous version's: constants 65503 of 65777, entries 167673 of 174755; newest modules 663, rewritten 107 (constants 28: by name 27, realizations 4, field functions 1; entries 105: placed old entries 104, kept-newest filter 19)
+  check-patch 0 modules differ from rewriteMerge's state, pointer by pointer; 0 other differences
+  carry from the previous round: delta constants 371, entries 346, alias names 0; memos entries/stale/changed: records 439/3/3, resolutions 778/3/1, facts 252/2/0, structure-instance defaults 20/0/0
+  check-keys 0 keys differ from a fresh pass (372 keys, fresh memos, 1 thread(s), 72 ms)
+  reuse 105 of 111 declarations reused, 6 reprinted (key differs 3, key equal 0, no previous output 0, new 3); key N1X + own of 372 candidates: carried 350, recomputed 22 (stale 5, new 17) in 46 ms on one thread
+  round 2: peak 1500 MiB (the process's maximum so far: a round raises it only by needing more than every round before it), resident 1500 MiB after the round
+  patch from Lean 4.32.2: constants same 0, changed 64399, added 1952, removed 1247; decoded objects replaced by the previous version's: constants 0 of 66481, entries 0 of 177679; newest modules 663, rewritten 556 (constants 556: by name 555, realizations 9, field functions 2; entries 556: placed old entries 555, kept-newest filter 219)
+  check-patch 0 modules differ from rewriteMerge's state, pointer by pointer; 0 other differences
+  carry from the previous round: delta constants 67599, entries 15862, alias names 0; memos entries/stale/changed: records 456/456/18, resolutions 810/810/15, facts 260/260/8, structure-instance defaults 21/21/1
+  check-keys 0 keys differ from a fresh pass (356 keys, fresh memos, 1 thread(s), 278 ms)
+  reuse 107 of 109 declarations reused, 2 reprinted (key differs 1, key equal 0, no previous output 0, new 1); key N1X + own of 356 candidates: carried 0, recomputed 356 (stale 355, new 1) in 83 ms on one thread
+  round 3: peak 2065 MiB (the process's maximum so far: a round raises it only by needing more than every round before it), resident 2065 MiB after the round
+  patch from Lean 4.33.0: constants same 66347, changed 3, added 17, removed 1; decoded objects replaced by the previous version's: constants 66461 of 66497, entries 177676 of 177719; newest modules 663, rewritten 59 (constants 2: by name 1, realizations 0, field functions 1; entries 58: placed old entries 57, kept-newest filter 1)
+  check-patch 0 modules differ from rewriteMerge's state, pointer by pointer; 0 other differences
+  carry from the previous round: delta constants 22, entries 8, alias names 0; memos entries/stale/changed: records 456/21/18, resolutions 810/32/15, facts 260/8/8, structure-instance defaults 21/3/3
+  check-keys 0 keys differ from a fresh pass (372 keys, fresh memos, 1 thread(s), 62 ms)
+  reuse 103 of 111 declarations reused, 8 reprinted (key differs 5, key equal 0, no previous output 0, new 3); key N1X + own of 372 candidates: carried 332, recomputed 40 (stale 23, new 17) in 47 ms on one thread
+  round 4: peak 2074 MiB (the process's maximum so far: a round raises it only by needing more than every round before it), resident 2074 MiB after the round
+ITEM session-equals-alone ok    4 rounds in one session, each equal to read-alone: v4.31.0 16 files + link index; v4.32.2 16 files + link index; v4.33.0 16 files + link index; v4.33.1 16 files + link index; 4 summaries equal to read-alone's, timings aside
+ITEM session-check-patch ok    v4.31.0 built whole, 663 rewritten, check-patch 0; v4.32.2 from Lean 4.31.0, 107 rewritten, check-patch 0; v4.33.0 from Lean 4.32.2, 556 rewritten, check-patch 0; v4.33.1 from Lean 4.33.0, 59 rewritten, check-patch 0
+ITEM session-reuse ok    v4.31.0 reused 0 of 109, reprinted 109 (key differs 0, no previous output 0, new 109), key carried 0, recomputed 356 in 37 ms; v4.32.2 reused 105 of 111, reprinted 6 (key differs 3, no previous output 0, new 3), key carried 350, recomputed 22 in 46 ms; v4.33.0 reused 107 of 109, reprinted 2 (key differs 1, no previous output 0, new 1), key carried 0, recomputed 356 in 83 ms; v4.33.1 reused 103 of 111, reprinted 8 (key differs 5, no previous output 0, new 3), key carried 332, recomputed 40 in 47 ms
+ITEM session-manual-root ok    v4.31.0 links https://lean-lang.org/doc/reference/4.31.0/; v4.32.2 links https://lean-lang.org/doc/reference/4.32.2/; v4.33.0 links https://lean-lang.org/doc/reference/4.33.0/; v4.33.1 links https://lean-lang.org/doc/reference/4.33.1/; 4 distinct roots
+ITEM session-check-keys ok    v4.31.0 check-keys 0 of 356 (251 ms), carried 0, recomputed 356 (37 ms); v4.32.2 check-keys 0 of 372 (72 ms), carried 350, recomputed 22 (46 ms); v4.33.0 check-keys 0 of 356 (278 ms), carried 0, recomputed 356 (83 ms); v4.33.1 check-keys 0 of 372 (62 ms), carried 332, recomputed 40 (47 ms)
+
+=== the patch made to fail
+ITEM patch-perturbed ok    --perturb-patch: round 2: Example.Untitled left unrewritten, refused naming it
+ITEM patch-field-fn-trigger ok    read-alone drops 1 / 2 field functions (v4.33.0 / v4.33.1); without the index v4.33.1 answered ok 1, check-patch naming Example.ReaderProbeField; with it 0 differ, 1 module(s) rewritten for a field function
+
+=== the print key without what structure-instance notation reads of field defaults
+  reuse 0 of 109 declarations reused, 109 reprinted (key differs 0, key equal 0, no previous output 0, new 109); key N1 + own (--key-without-scx) of 356 candidates: carried 0, recomputed 356 (stale 0, new 356) in 35 ms on one thread
+  reuse 106 of 111 declarations reused, 5 reprinted (key differs 2, key equal 0, no previous output 0, new 3); key N1 + own (--key-without-scx) of 372 candidates: carried 351, recomputed 21 (stale 4, new 17) in 45 ms on one thread
+ITEM reuse-scx ok    without SCX v4.33.1 (patched from v4.33.0, 106 reused) differs from read-alone in Example.ReaderProbe.withValue only: (c : Cheap := { }) against (c : Cheap := { depth := 0 }) (2 file(s): index.json modules/Example.ReaderProbe.json); with SCX the round prints (c : Cheap := { depth := 0 })
+
+=== the carried key made to fail: a name resolution carried past a presence flip
+ITEM carry-presence-flip ok    natively Example.ReaderProbe.shadowed prints `Example.ReaderProbeTarget.val = 0` (v4.31.0) and `ReaderProbeTarget.val = 0` (v4.32.2); without presence flips v4.32.2 answered ok 1, 1 key(s) differ: Example.ReaderProbe.shadowed: presence-flip Example.ReaderProbe.ReaderProbeTarget.val (resolution of Example.ReaderProbeTarget.val in Example.ReaderProbe); parts differ: resolutions
+
+=== the flags the hybrid refuses
+ITEM refuse-dump-tactics ok    reader extract: --dump-tactics is refused: it lists the running Lean's tactic table, and the version read is not the running Lean
+usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>
+                      <modules.txt> <events.jsonl> [extractor flags]
+       re
+ITEM refuse-tactics-emulate ok    reader extract: --tactics-emulate is refused: it runs doc-gen4's tactic collection over the running Lean's tables, and the version read is not the running Lean
+usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>
+                      <modules.txt> <events.json
+ITEM refuse-tactics-probe ok    reader extract: --tactics-probe is refused: it times the running Lean's tactic tables, and the version read is not the running Lean
+usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>
+                      <modules.txt> <events.jsonl> [extractor flags]
+       
+ITEM refuse-serve ok    reader extract: --serve is refused: a resident extractor re-imports natively, and the version read is not the running Lean
+usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>
+                      <modules.txt> <events.jsonl> [extractor flags]
+       reader ex
+
+=== the invariants refusing a corrupted copy
+ITEM refuse-dangling ok    Example.Dep imports ['Init', 'Init', 'Dep-Aux.Basic']; «Dep-Aux».Basic (entry 2) removed: reader extract: invariant failed, Lean 4.34.1 is not read: module Example.Dep: Example.usesDep mentions DepAux.marker, which no module of Lean 4.34.1's import closure declares (1 dangling reference(s) in all)
+ITEM refuse-ilean ok    Example.Colour: [39, 0, 45, 9, 41, 10, 41, 16] -> [39, 0, 46, 9, 41, 10, 41, 16]: reader extract: invariant failed, Lean 4.34.1 is not read: module Example.Basic: Example.Colour's range is [39, 0, 46, 9, 41, 10, 41, 16] in Basic.ilean and [39, 0, 45, 9, 41, 10, 41, 16] decoded from its .olean (1 disagreement(s) in all)
+ITEM refuse-ilean-imported ok    Nat listed at [1233, 0, 1256, 24, 1241, 10, 1241, 13], Init/Prelude.ilean gives [1233, 0, 1255, 24, 1241, 10, 1241, 13]: reader extract: invariant failed, Lean 4.34.1 is not read: module Example.Basic: Nat's range is [1233, 0, 1256, 24, 1241, 10, 1241, 13] in Basic.ilean and [1233, 0, 1255, 24, 1241, 10, 1241, 13] decoded from the .olean that declares it (1 disagreement(s) in all)
+ITEM refuse-ilean-unknown ok    Example.noSuchDeclaration listed at [39, 0, 45, 9, 41, 10, 41, 16]: reader extract: invariant failed, Lean 4.34.1 is not read: module Example.Basic: Basic.ilean lists Example.noSuchDeclaration, and no .olean of the closure has a declaration range for Example.noSuchDeclaration (1 disagreement(s) in all)
+ITEM accept-ilean-imported ok    Nat listed at [1233, 0, 1255, 24, 1241, 10, 1241, 13], its range in Init/Prelude.ilean: read, ilean-imported 1
+
+=== summary
+items reported : 31 of 31
+failed         : 0
+READER HYBRID GATE: ok (31 of 31)
+exit=0
+
+## (2) fail-once
+date              2026-10-08T23:00:28Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+=== the reader, on leanprover/lean4:v4.34.1
+  schema=5 source=fnv1a64:7bb4d9f8122fd2b8 lean= leanGithash= equations=1 taggedCode=1 refs=1 skipAnalyze=0 ablations= open= only= noEquationsUnder= reader=fnv1a64:247b871cf9e07c06 readerLean=4.34.1 readerLeanGithash=5045d0056413266e57c625dcd7c365b10e377c52
+
+=== the sample, natively, on each row
+  v4.31.0: 13 modules extracted
+  v4.32.2: 13 modules extracted
+  v4.33.0: 13 modules extracted
+  v4.33.1: 13 modules extracted
+  v4.34.1: 13 modules extracted
+
+=== the reader against each native IR
+ITEM invariants-4.31.0 ok    closure 65682 of 65682 constants, 225515 references, 0 dangling; .ilean 613 of 613 modules (20342673 bytes), 31851 declarations equal, 0 disagree; not listed: no-parent 3779, in-theorem 45
+ITEM read-4.31.0 ok    16 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.32.2 ok    closure 65777 of 65777 constants, 226021 references, 0 dangling; .ilean 615 of 615 modules (20368648 bytes), 31828 declarations equal, 0 disagree; not listed: no-parent 3782, in-theorem 45
+ITEM read-4.32.2 ok    16 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.33.0 ok    closure 66481 of 66481 constants, 229335 references, 0 dangling; .ilean 645 of 645 modules (20706648 bytes), 32193 declarations equal, 0 disagree; not listed: no-parent 3824, in-theorem 45
+ITEM read-4.33.0 ok    16 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.33.1 ok    closure 66497 of 66497 constants, 229383 references, 0 dangling; .ilean 645 of 645 modules (20706853 bytes), 32193 declarations equal, 0 disagree; not listed: no-parent 3826, in-theorem 45
+ITEM read-4.33.1 ok    16 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.34.1 ok    closure 66688 of 66688 constants, 230026 references, 0 dangling; .ilean 663 of 663 modules (20876118 bytes), 32396 declarations equal, 0 disagree; not listed: no-parent 3828, in-theorem 44
+ITEM self-4.34.1 ok    16 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+
+=== the hard stops each reader run reported
+ITEM hard-stops ok    5 run(s), each: verso=0 builtin-doc=0 tactic-table=1 autoparam-old-only=0 autoparam-newest=0
+
+=== the gate's own module, on each older row the reader read
+ITEM probe-manual-root ok    v4.31.0 links https://lean-lang.org/doc/reference/4.31.0/; v4.32.2 links https://lean-lang.org/doc/reference/4.32.2/; v4.33.0 links https://lean-lang.org/doc/reference/4.33.0/; v4.33.1 links https://lean-lang.org/doc/reference/4.33.1/; 
+ITEM probe-structure-default ok    v4.31.0 (c : Cheap := { }), 10 dropped; v4.32.2 (c : Cheap := { }), 11 dropped; v4.33.0 (c : Cheap := { }), 1 dropped; v4.33.1 (c : Cheap := { }), 2 dropped; 
+
+=== the older rows in one reader session: round 1 built whole, every later round patched
+  patch built whole: 663 newest modules rewritten; decoded objects replaced by the previous version's: constants 0 of 65682, entries 0 of 174747
+  check-patch 0 modules differ from rewriteMerge's state, pointer by pointer; 0 other differences
+  carry nothing to carry from: every key computed; memos entries/stale/changed: records 0/0/0, resolutions 0/0/0, facts 0/0/0, structure-instance defaults 0/0/0
+  check-keys 0 keys differ from a fresh pass (356 keys, fresh memos, 1 thread(s), 251 ms)
+  reuse 0 of 109 declarations reused, 109 reprinted (key differs 0, key equal 0, no previous output 0, new 109); key N1X + own of 356 candidates: carried 0, recomputed 356 (stale 0, new 356) in 36 ms on one thread
+  round 1: peak 1263 MiB (the process's maximum so far: a round raises it only by needing more than every round before it), resident 1263 MiB after the round
+  patch from Lean 4.31.0: constants same 65388, changed 54, added 204, removed 112; decoded objects replaced by the previous version's: constants 65503 of 65777, entries 167673 of 174755; newest modules 663, rewritten 107 (constants 28: by name 27, realizations 4, field functions 1; entries 105: placed old entries 104, kept-newest filter 19)
+  check-patch 0 modules differ from rewriteMerge's state, pointer by pointer; 0 other differences
+  carry from the previous round: delta constants 371, entries 346, alias names 0; memos entries/stale/changed: records 439/3/3, resolutions 778/3/1, facts 252/2/0, structure-instance defaults 20/0/0
+  check-keys 0 keys differ from a fresh pass (372 keys, fresh memos, 1 thread(s), 71 ms)
+  reuse 105 of 111 declarations reused, 6 reprinted (key differs 3, key equal 0, no previous output 0, new 3); key N1X + own of 372 candidates: carried 350, recomputed 22 (stale 5, new 17) in 45 ms on one thread
+  round 2: peak 1493 MiB (the process's maximum so far: a round raises it only by needing more than every round before it), resident 1493 MiB after the round
+  patch from Lean 4.32.2: constants same 0, changed 64399, added 1952, removed 1247; decoded objects replaced by the previous version's: constants 0 of 66481, entries 0 of 177679; newest modules 663, rewritten 556 (constants 556: by name 555, realizations 9, field functions 2; entries 556: placed old entries 555, kept-newest filter 219)
+  check-patch 0 modules differ from rewriteMerge's state, pointer by pointer; 0 other differences
+  carry from the previous round: delta constants 67599, entries 15862, alias names 0; memos entries/stale/changed: records 456/456/18, resolutions 810/810/15, facts 260/260/8, structure-instance defaults 21/0/0
+  check-keys 0 keys differ from a fresh pass (356 keys, fresh memos, 1 thread(s), 280 ms)
+  reuse 107 of 109 declarations reused, 2 reprinted (key differs 1, key equal 0, no previous output 0, new 1); key N1X + own of 356 candidates: carried 0, recomputed 356 (stale 355, new 1) in 57 ms on one thread
+  round 3: peak 2054 MiB (the process's maximum so far: a round raises it only by needing more than every round before it), resident 2054 MiB after the round
+  patch from Lean 4.33.0: constants same 66347, changed 3, added 17, removed 1; decoded objects replaced by the previous version's: constants 66461 of 66497, entries 177676 of 177719; newest modules 663, rewritten 59 (constants 2: by name 1, realizations 0, field functions 1; entries 58: placed old entries 57, kept-newest filter 1)
+  check-patch 0 modules differ from rewriteMerge's state, pointer by pointer; 0 other differences
+  carry from the previous round: delta constants 22, entries 8, alias names 0; memos entries/stale/changed: records 456/21/18, resolutions 810/32/15, facts 260/8/8, structure-instance defaults 21/0/0
+  check-keys 20 keys differ from a fresh pass (372 keys, fresh memos, 1 thread(s), 67 ms)
+  round 4: peak 2063 MiB (the process's maximum so far: a round raises it only by needing more than every round before it), resident 2063 MiB after the round
+ITEM session-equals-alone FAIL  round 4 (v4.33.1) answered 'ok 1 51523493459'; 
+ITEM session-check-patch FAIL  v4.33.1: answered ok 1
+ITEM session-reuse FAIL  v4.33.1: no reuse line
+ITEM session-manual-root FAIL  v4.33.1: the session wrote no IR; 
+ITEM session-check-keys FAIL  v4.33.1: check-keys 20 keys differ: check-keys-differ Example.ReaderProbe.Base: scx-default Example.ReaderProbe.Base.depth._default (structure Example.ReaderProbe.Base); parts differ: structure-instance defaults (SCX); check-keys-differ Example.ReaderProbe.Cheap.casesOn: scx-default Example.ReaderProbe.Cheap.depth._inherited_default (structure Example.ReaderProbe.Cheap); parts differ: structure-instance defaults (SCX); check-keys-differ Example.ReaderProbe.Base.mk.noConfusion: scx-default Example.ReaderProbe.Base.depth._default (structure Example.ReaderProbe.Base); parts differ: structure-instance defaults (SCX); check-keys-diff
+
+=== the patch made to fail
+ITEM patch-perturbed ok    --perturb-patch: round 2: Example.Untitled left unrewritten, refused naming it
+ITEM patch-field-fn-trigger FAIL  with the index, v4.33.1's round answered ok 1, check-patch names []
+
+=== the print key without what structure-instance notation reads of field defaults
+  reuse 0 of 109 declarations reused, 109 reprinted (key differs 0, key equal 0, no previous output 0, new 109); key N1 + own (--key-without-scx) of 356 candidates: carried 0, recomputed 356 (stale 0, new 356) in 34 ms on one thread
+  reuse 106 of 111 declarations reused, 5 reprinted (key differs 2, key equal 0, no previous output 0, new 3); key N1 + own (--key-without-scx) of 372 candidates: carried 351, recomputed 21 (stale 4, new 17) in 45 ms on one thread
+ITEM reuse-scx FAIL  with SCX, v4.33.1's round prints Example.ReaderProbe.withValue [], read-alone ['(c : Cheap := { depth := 0 })']
+
+=== the carried key made to fail: a name resolution carried past a presence flip
+ITEM carry-presence-flip FAIL  without presence flips v4.32.2 answered ok 0, check-keys naming nothing, not Example.ReaderProbe.shadowed with a presence flip of Example.ReaderProbe.ReaderProbeTarget.val
+
+=== the flags the hybrid refuses
+ITEM refuse-dump-tactics ok    reader extract: --dump-tactics is refused: it lists the running Lean's tactic table, and the version read is not the running Lean
+usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>
+                      <modules.txt> <events.jsonl> [extractor flags]
+       re
+ITEM refuse-tactics-emulate ok    reader extract: --tactics-emulate is refused: it runs doc-gen4's tactic collection over the running Lean's tables, and the version read is not the running Lean
+usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>
+                      <modules.txt> <events.json
+ITEM refuse-tactics-probe ok    reader extract: --tactics-probe is refused: it times the running Lean's tactic tables, and the version read is not the running Lean
+usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>
+                      <modules.txt> <events.jsonl> [extractor flags]
+       
+ITEM refuse-serve ok    reader extract: --serve is refused: a resident extractor re-imports natively, and the version read is not the running Lean
+usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>
+                      <modules.txt> <events.jsonl> [extractor flags]
+       reader ex
+
+=== the invariants refusing a corrupted copy
+ITEM refuse-dangling ok    Example.Dep imports ['Init', 'Init', 'Dep-Aux.Basic']; «Dep-Aux».Basic (entry 2) removed: reader extract: invariant failed, Lean 4.34.1 is not read: module Example.Dep: Example.usesDep mentions DepAux.marker, which no module of Lean 4.34.1's import closure declares (1 dangling reference(s) in all)
+ITEM refuse-ilean ok    Example.Colour: [39, 0, 45, 9, 41, 10, 41, 16] -> [39, 0, 46, 9, 41, 10, 41, 16]: reader extract: invariant failed, Lean 4.34.1 is not read: module Example.Basic: Example.Colour's range is [39, 0, 46, 9, 41, 10, 41, 16] in Basic.ilean and [39, 0, 45, 9, 41, 10, 41, 16] decoded from its .olean (1 disagreement(s) in all)
+ITEM refuse-ilean-imported ok    Nat listed at [1233, 0, 1256, 24, 1241, 10, 1241, 13], Init/Prelude.ilean gives [1233, 0, 1255, 24, 1241, 10, 1241, 13]: reader extract: invariant failed, Lean 4.34.1 is not read: module Example.Basic: Nat's range is [1233, 0, 1256, 24, 1241, 10, 1241, 13] in Basic.ilean and [1233, 0, 1255, 24, 1241, 10, 1241, 13] decoded from the .olean that declares it (1 disagreement(s) in all)
+ITEM refuse-ilean-unknown ok    Example.noSuchDeclaration listed at [39, 0, 45, 9, 41, 10, 41, 16]: reader extract: invariant failed, Lean 4.34.1 is not read: module Example.Basic: Basic.ilean lists Example.noSuchDeclaration, and no .olean of the closure has a declaration range for Example.noSuchDeclaration (1 disagreement(s) in all)
+ITEM accept-ilean-imported ok    Nat listed at [1233, 0, 1255, 24, 1241, 10, 1241, 13], its range in Init/Prelude.ilean: read, ilean-imported 1
+
+=== summary
+items reported : 31 of 31
+failed         : 8
+READER HYBRID GATE: FAILED (8 of 31 answered items)
+exit=1
+
+## (3) two-list guard
+✔ [274/298] Built Litedoc4Sources (228ms)
+✔ [275/298] Built Litedoc4Sources:c.o (68ms)
+✔ [276/298] Built Litedoc4.Versions (1.2s)
+✔ [278/298] Built Litedoc4.Watch (656ms)
+✔ [280/298] Built Litedoc4 (367ms)
+✔ [282/298] Built Litedoc4Test.Watch (543ms)
+✖ [284/298] Building Litedoc4Test.Versions (1.7s)
+trace: .> LEAN_PATH=/Users/haruka/dev/lean-doc/.lake/host/.lake/packages/UnicodeBasic/.lake/build/lib/lean:/Users/haruka/dev/lean-doc/.lake/host/.lake/packages/MathML4Lean/.lake/build/lib/lean:/Users/haruka/dev/lean-doc/.lake/host/.lake/packages/BibtexQuery/.lake/build/lib/lean:/Users/haruka/dev/lean-doc/.lake/build/lib/lean:/Users/haruka/dev/lean-doc/.lake/host/.lake/build/lib/lean /Users/haruka/.elan/toolchains/leanprover--lean4---v4.31.0/bin/lean /Users/haruka/dev/lean-doc/test/Litedoc4Test/Versions.lean -o /Users/haruka/dev/lean-doc/.lake/build/lib/lean/Litedoc4Test/Versions.olean -i /Users/haruka/dev/lean-doc/.lake/build/lib/lean/Litedoc4Test/Versions.ilean -c /Users/haruka/dev/lean-doc/.lake/build/ir/Litedoc4Test/Versions.c --setup /Users/haruka/dev/lean-doc/.lake/build/ir/Litedoc4Test/Versions.setup.json --json
+error: test/Litedoc4Test/Versions.lean:157:0: Expression
+  everyEmbeddedReaderFileIsHashedIntoTheReaderIdentityAndNoOtherIs
+did not evaluate to `true`
+error: Lean exited with code 1
+✔ [286/298] Built Litedoc4.Main (2.1s)
+✔ [288/298] Built Litedoc4Test.Queries (475ms)
+✔ [289/298] Built Litedoc4Test.Records (426ms)
+✔ [292/298] Built Litedoc4Test.Cli (551ms)
+Some required targets logged failures:
+- Litedoc4Test.Versions
+error: build failed

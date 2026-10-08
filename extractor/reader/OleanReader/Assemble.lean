@@ -59,6 +59,7 @@ structure Decoded where
 structure Prev where
   consts : Std.HashMap Name (UInt64 × ConstantInfo) := {}
   entries : Std.HashMap (Name × Name × UInt64) Keyed := {}
+  prints : Std.HashMap (Name × Name) UInt64 := {}
 
 structure ShareCounts where
   constants : Nat := 0
@@ -68,6 +69,7 @@ structure ShareCounts where
 
 structure Sharing where
   prev : Prev
+  printed : Std.HashSet Name := {}
   next : Prev := {}
   counts : ShareCounts := {}
 
@@ -101,14 +103,16 @@ def Sharing.module (sh : Sharing) (m : Name) (h : ModuleHashes) (md : ModuleData
         | none => pure k
       es' := es'.push k
       next := { next with entries := next.entries.insertIfNew (e, k.1, he) k }
+      if sh.printed.contains e then
+        next := { next with prints := next.prints.insert (e, k.1) (mixHash (next.prints.getD (e, k.1) 7) (mixHash (hash m) he)) }
     c := { c with entries := c.entries + es'.size }
     ks' := ks'.push (e, es')
   return ({ sh with next, counts := c }, { md with constants := cs, entries := ks'.map fun (e, es) => (e, es.map (·.2)) }, ks')
 
-unsafe def decodeAll (s : Session) (mods : Array Name) (prev? : Option Prev := none) :
+unsafe def decodeAll (s : Session) (mods : Array Name) (prev? : Option Prev := none) (printed : Std.HashSet Name := {}) :
     IO (Decoded × Option (Prev × ShareCounts)) := do
   let stats ← IO.mkRef ({} : ReadStats)
-  let mut sharing := prev?.map ({ prev := · : Sharing })
+  let mut sharing := prev?.map ({ prev := ·, printed : Sharing })
   let mut out := #[]
   let mut chunks : Array (Name × Nat × Array Keyed) := #[]
   let mut modDocs : Std.HashMap Name (Array ModuleDoc) := {}
@@ -287,6 +291,10 @@ inductive NewestConst where
   | realization
   | fieldFn
   | kept
+
+def NewestConst.dropped : NewestConst → Bool
+  | .realization | .fieldFn => true
+  | _ => false
 
 def newestConst (oldConsts : Std.HashMap Name ConstantInfo) (n : Name) : NewestConst :=
   match oldConsts[n]? with

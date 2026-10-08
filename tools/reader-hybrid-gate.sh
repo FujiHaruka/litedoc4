@@ -52,12 +52,21 @@
 #                     function. Base's default is 2 on the last older row and
 #                     0 on every other, so (c : Cheap := { depth := 0 }) of
 #                     Example.ReaderProbe.withValue prints `{ }` on every
-#                     older row but the last, with the same elaborated type
+#                     older row but the last, with the same elaborated type.
+#                     The module also declares Example.ReaderProbeTarget.val,
+#                     which Example.ReaderProbe.shadowed's type names, and on
+#                     every second older row (not the newest)
+#                     Example.ReaderProbe.ReaderProbeTarget.val, which shadows
+#                     it: natively the type prints `ReaderProbeTarget.val`
+#                     where the shadow is absent and the full name where it is
+#                     there
 #   session-equals-alone
 #                     every older row read by one `reader session
-#                     --check-patch`, oldest first, the newest imported once,
-#                     round 1 built whole and every later round patched from
-#                     the one before, each reusing the printed part of every
+#                     --check-patch --check-keys`, oldest first, the newest
+#                     imported once, round 1 built whole and every later round
+#                     patched from the one before, its print keys carried from
+#                     the round before but where an input they read changed,
+#                     each reusing the printed part of every
 #                     declaration whose print key equals the previous round's:
 #                     each round answers `ok 0`, its IR and link index are the
 #                     bytes of that row's read-alone run, and its summary
@@ -82,6 +91,21 @@
 #                     ... and each round's Example.ReaderProbe docstring is
 #                     its native one, linking that row's own manual root, a
 #                     different root in every round
+#   session-check-keys
+#                     ... and each round's check-keys line says 0 of its keys
+#                     differ from a fresh pass with fresh memos; round 1
+#                     carried none, every later round says it carried from
+#                     the round before, carried + recomputed is the
+#                     candidate count, and some round carried at least one
+#   carry-presence-flip
+#                     the first two older rows, across the shadow's
+#                     disappearance, in a session with --check-keys
+#                     --carry-without-presence (a name resolution carried
+#                     past a looked-up name appearing or disappearing):
+#                     natively Example.ReaderProbe.shadowed prints
+#                     differently on the two rows, and the second round fails
+#                     with check-keys naming it and a presence flip of
+#                     Example.ReaderProbe.ReaderProbeTarget.val
 #   patch-perturbed   the first two older rows in a session with
 #                     --perturb-patch, which leaves the last module a changed
 #                     constant dirties unrewritten: check-patch fails the
@@ -174,7 +198,7 @@ fi
 NEWEST_I=$(( ${#ROWS[@]} - 1 ))
 NEWEST="${ROWS[$NEWEST_I]##*:v}"
 NEWEST_SPELLING="${SPELLINGS[$NEWEST_I]}"
-declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 7 ))
+declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 9 ))
 
 record_host
 if ! installed "${ROWS[$NEWEST_I]}"; then
@@ -194,10 +218,19 @@ say "  $(cat "$WORK/reader-identity.txt")"
 
 # usage: probe_module <version> <row index>
 probe_module () {
-  local override="" depth=0
+  local override="" depth=0 shadow=""
   if [ "$1" = "$NEWEST" ]; then override=$' where\n  depth := 1'; fi
   if [ "$2" -eq $(( NEWEST_I - 1 )) ]; then depth=2; fi
+  if [ "$2" -ne "$NEWEST_I" ] && [ $(( $2 % 2 )) -eq 0 ]; then
+    shadow=$'\nnamespace ReaderProbeTarget\n\ndef val : Nat := 1\n\nend ReaderProbeTarget\n'
+  fi
   cat <<EOF
+namespace Example.ReaderProbeTarget
+
+def val : Nat := 0
+
+end Example.ReaderProbeTarget
+
 namespace Example.ReaderProbe
 
 /-- The manual's [macro section](lean-manual://section/tactic-macro-extension). -/
@@ -212,6 +245,8 @@ def withDefault (c : Cheap := { }) : Nat := c.depth
 
 def withValue (c : Cheap := { depth := 0 }) : Nat := c.depth
 
+theorem shadowed : Example.ReaderProbeTarget.val = 0 := rfl
+$shadow
 end Example.ReaderProbe
 EOF
 }
@@ -499,9 +534,11 @@ run_session () {
   set -e
 }
 
-# usage: session_check <alone|check-patch|reuse|perturbed|field-fn|scx> <session directory> <version>...
+# usage: session_check <alone|check-patch|check-keys|reuse|perturbed|field-fn|scx|presence-flip>
+#          <session directory> <version>...
 #   field-fn takes <disabled session> <enabled session> <module> <version> <version>
 #   scx takes <session without SCX> <session with it> <version> <version>
+#   presence-flip takes <session without presence flips> <version> <version>
 session_check () {
   WORK="$WORK" python3 - "$@" <<'PY'
 import json, os, pathlib, re, sys
@@ -537,7 +574,7 @@ def check_lines(r):
     named = [re.match(r"  check-patch-module (\S+):", l).group(1) for l in r["lines"] if l.startswith("  check-patch-module ")]
     return m, named
 
-SESSION_ONLY = re.compile(r"^(patch|patch-perturbed|check-patch|reuse|rss|realizations) |^  check-patch-|^  dir ")
+SESSION_ONLY = re.compile(r"^(patch|patch-perturbed|check-patch|carry|check-keys|reuse|rss|realizations) |^  check-(patch|keys)-|^  dir ")
 PRINTING_WORK = re.compile(r"^  (of which equations|of which refs|member extra) ")
 def summary(lines):
     out = []
@@ -551,7 +588,9 @@ def summary(lines):
     return out
 
 REUSE = (r"reuse +(\d+) of (\d+) declarations reused, (\d+) reprinted \(key differs (\d+), key equal (\d+), "
-         r"no previous output (\d+), new (\d+)\); key (.+) of (\d+) candidates in (\d+) ms$")
+         r"no previous output (\d+), new (\d+)\); key (.+) of (\d+) candidates: carried (\d+), recomputed (\d+) "
+         r"\(stale (\d+), new (\d+)\) in (\d+) ms on one thread$")
+CHECK_KEYS = r"check-keys +(\d+) keys differ from a fresh pass \((\d+) keys, fresh memos, (\d+) thread\(s\), (\d+) ms\)$"
 
 def module_decls(ir):
     out = {}
@@ -641,7 +680,8 @@ elif mode == "reuse":
                        f"{differs}, no previous output {noprev}, new {new})")
         else:
             seen.append(f"v{v} reused {reused} of {produced}, reprinted {reprinted} (key differs {differs}, "
-                        f"no previous output {noprev}, new {new}), key {u.group(10)} ms")
+                        f"no previous output {noprev}, new {new}), key carried {u.group(10)}, recomputed "
+                        f"{u.group(11)} in {u.group(14)} ms")
     if bad:
         fail("; ".join(bad))
     print("; ".join(seen))
@@ -723,6 +763,70 @@ elif mode == "field-fn":
     print(f"read-alone drops {flipped[0]} / {flipped[1]} field functions (v{va} / v{vb}); without the index "
           f"v{vb} answered ok {rs[1]['code']}, check-patch naming {' '.join(named)}; with it 0 differ, "
           f"{p.group(1)} module(s) rewritten for a field function")
+elif mode == "check-keys":
+    directory, versions = args[0], args[1:]
+    rs = rounds(directory)
+    if len(rs) != len(versions):
+        fail(f"{len(rs)} rounds answered for {len(versions)} requests")
+    bad, seen, carried_any = [], [], 0
+    for k, (r, v) in enumerate(zip(rs, versions)):
+        c = grab(r, CHECK_KEYS)
+        u = grab(r, REUSE)
+        f = grab(r, r"carry +(from the previous round|nothing to carry from)")
+        named = [l.strip() for l in r["lines"] if l.startswith("  check-keys-differ ")]
+        if c is None:
+            bad.append(f"v{v}: no check-keys line")
+        elif c.group(1) != "0" or named:
+            bad.append(f"v{v}: check-keys {c.group(1)} keys differ: {'; '.join(named)[:600]}")
+        elif u is None or f is None:
+            bad.append(f"v{v}: no {'reuse' if u is None else 'carry'} line")
+        else:
+            candidates, carried, recomputed = int(u.group(9)), int(u.group(10)), int(u.group(11))
+            from_previous = f.group(1) == "from the previous round"
+            if carried + recomputed != candidates:
+                bad.append(f"v{v}: carried {carried} + recomputed {recomputed} of {candidates} candidates")
+            elif k == 0 and (from_previous or carried != 0):
+                bad.append(f"v{v}: round 1 carried {carried} keys ({f.group(1)})")
+            elif k > 0 and not from_previous:
+                bad.append(f"v{v}: patched from v{versions[k - 1]}, and the carry line says '{f.group(1)}'")
+            elif r["code"] != 0:
+                bad.append(f"v{v}: answered ok {r['code']}")
+            else:
+                carried_any += carried
+                seen.append(f"v{v} check-keys 0 of {c.group(2)} ({c.group(4)} ms), carried {carried}, "
+                            f"recomputed {recomputed} ({u.group(14)} ms)")
+    if not bad and carried_any == 0:
+        bad.append("no round carried a key, so check-keys compared nothing carried")
+    if bad:
+        fail("; ".join(bad))
+    print("; ".join(seen))
+elif mode == "presence-flip":
+    dropped, va, vb = args
+    decl = "Example.ReaderProbe.shadowed"
+    shadow = "Example.ReaderProbe.ReaderProbeTarget.val"
+    def native_type(v):
+        f = work / f"v{v}" / "native" / "ir" / "modules" / "Example.ReaderProbe.json"
+        for d in json.loads(f.read_text(encoding="utf-8")).get("declarations", []):
+            if d.get("name") == decl:
+                return d.get("type")
+        fail(f"v{v}: the native IR has no {decl}")
+    ta, tb = native_type(va), native_type(vb)
+    if ta == tb:
+        fail(f"natively {decl} prints `{ta}` on both v{va} and v{vb}: the shadow changes no print")
+    rs = rounds(dropped)
+    if len(rs) != 2 or rs[0]["code"] != 0:
+        fail(f"the session without presence flips answered {[r['code'] for r in rs]}, expected round 1 ok 0 and round 2")
+    named = [l.strip()[len("check-keys-differ "):] for l in rs[1]["lines"] if l.startswith("  check-keys-differ ")]
+    hit = [l for l in named if l.startswith(f"{decl}: ") and f"presence-flip {shadow} " in l]
+    stderr = (pathlib.Path(dropped) / "stderr.txt").read_text(encoding="utf-8")
+    if rs[1]["code"] == 0 or not hit:
+        fail(f"without presence flips v{vb} answered ok {rs[1]['code']}, check-keys naming "
+             f"{'; '.join(named)[:600] or 'nothing'}, not {decl} with a presence flip of {shadow}")
+    if "check-keys failed" not in stderr or decl not in stderr:
+        fail(f"the refusal does not name {decl}: {stderr[:300]}")
+    print(f"natively {decl} prints `{ta}` (v{va}) and `{tb}` (v{vb}); without presence flips v{vb} answered "
+          f"ok {rs[1]['code']}, {len(named)} key(s) differ: {hit[0]}"
+          + (f"; also {'; '.join(n.split(':')[0] for n in named if n not in hit)}" if len(named) > len(hit) else ""))
 else:
     fail(f"session_check: no mode {mode}")
 PY
@@ -739,9 +843,9 @@ session_ready () {
 }
 
 if why="$(session_ready)"; then
-  run_session "$SESSION" --check-patch -- "${SESSION_ROWS[@]}"
-  sed -n 's/^rss  *//p; s/^\(patch \)  */\1/p; s/^check-patch  */check-patch /p; s/^\(reuse \)  */\1/p' \
-    "$SESSION/stdout.txt" | sed 's/^/  /'
+  run_session "$SESSION" --check-patch --check-keys -- "${SESSION_ROWS[@]}"
+  sed -n 's/^rss  *//p; s/^\(patch \)  */\1/p; s/^check-patch  */check-patch /p; s/^\(carry \)  */\1/p;
+          s/^check-keys  */check-keys /p; s/^\(reuse \)  */\1/p' "$SESSION/stdout.txt" | sed 's/^/  /'
 fi
 
 item=session-equals-alone
@@ -827,6 +931,15 @@ else
   fi
 fi
 
+item=session-check-keys
+if ! why="$(session_ready)"; then
+  bad "$item" "$why"
+elif result="$(session_check check-keys "$SESSION" "${SESSION_ROWS[@]}" 2>&1)"; then
+  ok "$item" "$result"
+else
+  bad "$item" "$result"
+fi
+
 say
 say "=== the patch made to fail"
 FIRST_PAIR=()
@@ -875,6 +988,22 @@ else
   run_session "$WORK/session-n1" --check-patch --key-without-scx -- "${LAST_PAIR[@]}"
   sed -n 's/^\(reuse \)  */\1/p' "$WORK/session-n1/stdout.txt" | sed 's/^/  /'
   if result="$(session_check scx "$WORK/session-n1" "$SESSION" "${LAST_PAIR[@]}" 2>&1)"; then
+    ok "$item" "$result"
+  else
+    bad "$item" "$result"
+  fi
+fi
+
+say
+say "=== the carried key made to fail: a name resolution carried past a presence flip"
+item=carry-presence-flip
+if ! why="$(session_ready)"; then
+  bad "$item" "$why"
+elif [ "${#FIRST_PAIR[@]}" -ne 2 ]; then
+  bad "$item" "fewer than two older rows, so no key is carried"
+else
+  run_session "$WORK/session-no-presence" --check-patch --check-keys --carry-without-presence -- "${FIRST_PAIR[@]}"
+  if result="$(session_check presence-flip "$WORK/session-no-presence" "${FIRST_PAIR[@]}" 2>&1)"; then
     ok "$item" "$result"
   else
     bad "$item" "$result"

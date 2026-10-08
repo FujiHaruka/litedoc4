@@ -960,6 +960,32 @@ Choices, with what would undo each:
    attribute, ancestors). Only changed declarations are recomputed. Check mode recomputes with
    fresh memos and names each difference's input class. 0 on S, then on M. It fails once with the
    presence-flip input dropped.
+   **Done on S 2026-10-09** (M is step 7's): the key records what it reads — constants looked up,
+   absent ones included, and keyed extension entries — and memos for records, resolutions,
+   per-constant facts and SCX are shared across rounds, uncapped, each revalidated every round and
+   passing a change on only when its value differs. Staleness comes from the patch's delta
+   (constants changed or flipped by pointer and presence, and newest realization and
+   field-function names whose dropped status flipped), a per-(extension, key) fingerprint of the
+   old entries' content hashes, and an alias-state diff taken from the environment. **Two places
+   are finer than the memo**: a prefix goes stale on any change, not only a presence flip (the
+   reserved-name predicates read its kind and its matcher entries, two levels up for the
+   constructor-index rule), and an alias change stales only the resolutions it touches.
+   `--check-keys` recomputes every key with fresh memos and fails the round before anything is
+   written. `tools/reader-hybrid-gate.sh` 31 of 31 (measured →
+   `benchmarks/results/reader-carry-2026-10-09.txt`, one run): `check-keys` 0 on all four rounds;
+   carried 350 of 372 and 332 of 372 keys on the two adjacent pairs, 0 across the v4.33.0 rename
+   (no pointer survives it; 107 of 109 still reuse, the recomputed keys being equal); carried pass
+   37–87 ms on one thread against 62–278 ms for the fresh one. `carry-presence-flip`: a shadow
+   declared on two older rows changes how `shadowed` prints (`Example.ReaderProbeTarget.val` /
+   `ReaderProbeTarget.val`); with the presence-flip input dropped, `check-keys` names that
+   declaration and that input, and only it. Both new items made to fail once (SCX entries never
+   revalidated; the flag made a no-op). The reader's two hand-kept file lists — the one hashed into
+   its identity and the one compiled — are held equal by a `#guard` in `test/` (made to fail once;
+   `lakefile.lean`'s `needs` is a third copy it does not reach). Open for M: memo entries are
+   never pruned, every entry is revalidated by iteration (no reverse index), resolution staleness
+   enumerates probe names per entry per round (810 entries on S, unknown on M), and Mathlib's
+   equations attribute and reserved-name predicates are not exercised on S.
+   `tools/mv-reader-gate.sh` 12 of 12, `tools/lean-test-gate.sh` 4 of 4.
 6. **`build --versions` over the session.** Read-alone is in `--help-all`, not in
    `tools/public-surface.txt`. `tools/mv-reader-gate.sh` keeps its 12 items and gains
    `patched-equals-alone` (5 entries) and `check-keys`, each made to fail once.

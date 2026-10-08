@@ -1,6 +1,7 @@
 import OleanReader.Check
 import OleanReader.Patch
 import OleanReader.PrintKey
+import OleanReader.Carry
 import Extract
 import Std.Async.Process
 open Lean OleanReader Litedoc4
@@ -11,7 +12,7 @@ def readerSource : String := String.join [
   include_str "Writers.lean", include_str "Read.lean", include_str "Entries.lean",
   include_str "Module.lean", include_str "Serialize.lean", include_str "Oracle.lean",
   include_str "Assemble.lean", include_str "Check.lean", include_str "Patch.lean", include_str "PrintKey.lean",
-  include_str "Hybrid.lean", include_str "Main.lean"]
+  include_str "Carry.lean", include_str "Hybrid.lean", include_str "Main.lean"]
 
 def readBy : List (String × String) :=
   [("reader", fnv1a64Hex readerSource), ("readerLean", Lean.versionString),
@@ -315,9 +316,12 @@ structure PatchSession where
   check : Bool
   perturb : Bool
   scx : Bool
+  checkKeys : Bool
+  presence : Bool
   index : Patch.NewestIndex
   last : IO.Ref (Option (Assemble.Prev × Option (Patch.Built × String)))
   printed : IO.Ref (Option Printed)
+  carry : IO.Ref (Option Carry.State)
 
 def patchLine (from? : Option String) (sh : Assemble.ShareCounts) (st : Patch.Stats) (modules : Nat) : String :=
   let shared := s!"decoded objects replaced by the previous version's: constants {sh.constantsShared} of \
@@ -344,10 +348,11 @@ def checkFailure (c : Patch.Comparison) : String :=
 
 unsafe def patchRound (p : PatchSession) (ms : Assemble.MImportState) (d : Assemble.Decoded)
     (sh : Assemble.Prev × Assemble.ShareCounts) (ask : Std.HashSet Name) :
-    IO (Assemble.Merged × Array String × Option String) := do
+    IO (Assemble.Merged × Array String × Option String × Option (Carry.State × Patch.Delta)) := do
   let (next, counts) := sh
+  let carried ← p.carry.modifyGet fun c => (c, none)
   let from? := (← p.last.get).bind (·.2)
-  let (b, m, st) ← Patch.build p.index d ask (from?.map (·.1)) { perturb := p.perturb }
+  let (b, m, st, delta) ← Patch.build p.index d ask (from?.map (·.1)) next.prints { perturb := p.perturb }
   let mut lines := #[patchLine (from?.map (·.2)) counts st p.index.names.size]
   if let some name := st.perturbed then lines := lines.push s!"patch-perturbed      {name} left unrewritten"
   if st.perturbedNothing then lines := lines.push "patch-perturbed      nothing: no changed constant made a newest module be rewritten"
@@ -356,9 +361,11 @@ unsafe def patchRound (p : PatchSession) (ms : Assemble.MImportState) (d : Assem
     lines := lines ++ checkLines c
     unless c.clean do
       p.last.set (some (next, none))
-      return (m, lines, some (checkFailure c))
+      return (m, lines, some (checkFailure c), none)
   p.last.set (some (next, some (b, d.writer.leanVersion)))
-  return (m, lines, none)
+  return (m, lines, none, match carried, delta with
+    | some c, some d => some (c, d)
+    | _, _ => none)
 
 def reused? (prev : Option Printed) (keys : Std.HashMap Name UInt64) (n : Name) : Option DeclOut := do
   let p ← prev
@@ -386,22 +393,52 @@ unsafe def countReuse (prev : Option Printed) (keys : Std.HashMap Name UInt64) (
       else if keys[d.name]? == some k then { c with keyEqual := c.keyEqual + 1 }
       else { c with keyDiffers := c.keyDiffers + 1 }
 
-def reuseLine (scx : Bool) (candidates ms : Nat) (c : ReuseCounts) (produced : Nat) : String :=
+def reuseLine (scx : Bool) (st : Carry.Stats) (c : ReuseCounts) (produced : Nat) : String :=
   let key := if scx then "N1X + own" else "N1 + own (--key-without-scx)"
   s!"reuse                {c.reused} of {produced} declarations reused, {c.reprinted} reprinted (key differs \
-    {c.keyDiffers}, key equal {c.keyEqual}, no previous output {c.noPrevious}, new {c.new}); key {key} of {candidates} candidates in {ms} ms"
+    {c.keyDiffers}, key equal {c.keyEqual}, no previous output {c.noPrevious}, new {c.new}); key {key} of \
+    {st.candidates} candidates: carried {st.carried}, recomputed {st.recomputed} (stale {st.stale}, new {st.new}) \
+    in {st.ms} ms on one thread"
+
+def carryLine (presence : Bool) (st : Carry.Stats) : String :=
+  let memos := s!"memos entries/stale/changed: records {st.recs.text}, resolutions {st.res.text}, \
+    facts {st.facts.text}, structure-instance defaults {st.scx.text}"
+  let dropped := if presence then "" else "; presence flips dropped (--carry-without-presence)"
+  if st.fromPrevious then
+    s!"carry                from the previous round: delta constants {st.deltaConsts}, entries \
+      {st.deltaEntries}, alias names {st.aliasKeys}; {memos}{dropped}"
+  else s!"carry                nothing to carry from: every key computed; {memos}{dropped}"
+
+def checkKeysLines (diffs : Array Carry.Difference) (keys jobs ms : Nat) : Array String :=
+  #[s!"check-keys           {diffs.size} keys differ from a fresh pass ({keys} keys, fresh memos, {jobs} \
+      thread(s), {ms} ms)"] ++ diffs.map (s!"  check-keys-differ {·.line}")
+
+structure Reusing where
+  code : UInt32
+  lines : Array String
+  printed : Printed
+  failure : Option String
 
 unsafe def extractReusing (p : PatchSession) (cfg : Cfg) (env : Environment) (world : World) (targets : Array Name)
-    (prev : Option Printed) : IO (UInt32 × String × Printed) := do
-  let t0 ← IO.monoNanosNow
-  let keys ← PrintKey.keys env world targets cfg.jobs p.scx
-  let t1 ← IO.monoNanosNow
+    (prev : Option Printed) (start : Option (Carry.State × Patch.Delta)) : IO Reusing := do
+  let (outs, state, st, d?) ← Carry.run env world targets p.scx start p.presence
+  let keys := outs.fold (fun m n o => m.insert n o.key) (Std.HashMap.emptyWithCapacity outs.size)
+  let mut lines := #[carryLine p.presence st]
+  if p.checkKeys then
+    let t0 ← IO.monoNanosNow
+    let fresh ← PrintKey.keys env world targets cfg.jobs p.scx
+    let diffs ← Carry.compare env p.scx d? state outs fresh
+    lines := lines ++ checkKeysLines diffs fresh.size (max cfg.jobs 1) (((← IO.monoNanosNow) - t0) / 1000000)
+    if let some x := diffs[0]? then
+      return { code := 1, lines, printed := { keys, out := {} },
+               failure := some s!"{x.line} ({diffs.size} key(s) in all)" }
+  p.carry.set (some state)
   let out ← IO.mkRef #[]
   let code ← Litedoc4.run cfg (some (env, world)) (some { prev := reused? prev keys, out })
   let results ← out.get
-  let line := reuseLine p.scx keys.size ((t1 - t0) / 1000000) (countReuse prev keys results) results.size
   let out := results.foldl (fun m d => m.insert d.name d) (Std.HashMap.emptyWithCapacity results.size)
-  return (code, line, { keys, out })
+  return { code, lines := lines.push (reuseLine p.scx st (countReuse prev keys results) results.size),
+           printed := { keys, out }, failure := none }
 
 unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : IO Newest) (resident : Bool)
     (patch? : Option PatchSession := none) : IO UInt32 := do
@@ -420,7 +457,7 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
     let prev? ← match patch? with
       | some p => pure (some (((← p.last.get).map (·.1)).getD {}))
       | none => pure none
-    let (d, sh?) ← Assemble.decodeAll s mods prev?
+    let (d, sh?) ← Assemble.decodeAll s mods prev? (PrintKey.keyExts.foldl (·.insert ·) {})
     let cl ← Check.closure d
     let il ← Check.ilean s d
     if let some why := invariantFailure d cl il then
@@ -429,23 +466,27 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
     let uses := autoParamUses d targets
     let n ← newest
     let ask := uses.foldl (fun acc (_, tac) => acc.insert tac) {}
-    let (merged, patchLines) ← match patch?, sh? with
+    let (merged, patchLines, carried) ← match patch?, sh? with
       | some p, some sh =>
-        let (m, lines, failure?) ← patchRound p n.state d sh ask
+        let (m, lines, failure?, carried) ← patchRound p n.state d sh ask
         if let some why := failure? then
           for l in lines do IO.println l
           IO.eprintln s!"reader session: check-patch failed, Lean {d.writer.leanVersion} is not read: {why}"
           return 1
-        pure (m, lines)
-      | _, _ => pure (← Assemble.rewriteMerge n.state d ask, #[])
+        pure (m, lines, carried)
+      | _, _ => pure (← Assemble.rewriteMerge n.state d ask, #[], none)
     let env ← Assemble.finalizeHybrid merged.out n.imports merged.idxOf (leak := !resident)
     builtinDeclRanges.set {}
     let hs ← HardStops.new
     let world := hybridWorld env d.old d.writer manual.root hs
     let (code, reuse?) ← match patch? with
       | some p => do
-        let (code, line, printed) ← extractReusing p cfg env world targets prevPrinted
-        pure (code, some (line, p, printed))
+        let r ← extractReusing p cfg env world targets prevPrinted carried
+        if let some why := r.failure then
+          for l in patchLines ++ r.lines do IO.println l
+          IO.eprintln s!"reader session: check-keys failed, Lean {d.writer.leanVersion} is not read: {why}"
+          return 1
+        pure (r.code, some (r.lines, p, r.printed))
       | none => pure (← Litedoc4.run cfg (some (env, world)), none)
     let realizations ← if resident then Assemble.clearRealizations env else pure 0
     let autoParams := classifyAutoParams uses merged.sameValue
@@ -459,7 +500,7 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       in {d.stats.skippedExts.size} extensions"
     for l in merged.counts.lines do IO.println s!"  {l}"
     for l in patchLines do IO.println l
-    if let some (line, _, _) := reuse? then IO.println line
+    if let some (ls, _, _) := reuse? then for l in ls do IO.println l
     if resident then
       IO.println s!"realizations         {realizations} realized constants of imported declarations emptied \
         with the round's environment"
@@ -501,16 +542,19 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
 
 def sessionUsage : String := "\n".intercalate [
   "usage: reader session --new <search-dir>... --new-roots <modules.txt> [--check-patch]",
-  "                      [--perturb-patch] [--no-field-fn-index] [--key-without-scx]",
+  "                      [--perturb-patch] [--no-field-fn-index] [--key-without-scx] [--check-keys]",
+  "                      [--carry-without-presence]",
   "  imports the newest version once and prints `ready <nanoseconds> <modules>`; then one request per line",
   "  on stdin, its fields separated by tabs:",
   "    --old <search-dir>... <modules.txt> <events.jsonl> [extractor flags]",
   "  which is reader extract's command line without --new and --new-roots. The first request's hybrid",
-  "  is built whole from the newest import, every later one patched from the last one built. A",
+  "  is built whole from the newest import, every later one patched from the last one built. A print",
+  "  key is carried from the round before unless an input it read changed (`carry` line); a",
   "  declaration whose print key equals its key in the last round answered ok 0 takes that round's",
   "  printed part; every other one is printed. Each request is answered with `round <n>`, reader",
-  "  extract's summary, a `patch` line, a `reuse` line, an `rss` line and `ok <exit code> <nanoseconds>`;",
-  "  one that is not run is answered `err <why>`. EOF or an empty line ends the session.",
+  "  extract's summary, a `patch` line, a `carry` line, a `reuse` line, an `rss` line and",
+  "  `ok <exit code> <nanoseconds>`; one that is not run is answered `err <why>`. EOF or an empty line",
+  "  ends the session.",
   "  --check-patch        also build each request's hybrid from scratch and compare the two module by",
   "                       module, pointer by pointer; a difference fails the request before anything is",
   "                       written (`check-patch` lines)",
@@ -519,9 +563,17 @@ def sessionUsage : String := "\n".intercalate [
   "  --no-field-fn-index  do not rewrite the newest modules holding a structure field's default or",
   "                       autoParam function when the structure appears or disappears (for the gate)",
   "  --key-without-scx    leave out of the print key what structure-instance notation reads besides",
-  "                       field names: field defaults and the anonymous-constructor attribute (for the gate)"]
+  "                       field names: field defaults and the anonymous-constructor attribute (for the gate)",
+  "  --check-keys         also compute every print key afresh and compare it with the carried one; a",
+  "                       difference fails the request before anything is written (`check-keys` lines,",
+  "                       each naming the input that should have made the key stale)",
+  "  --carry-without-presence",
+  "                       carry a name resolution past a name appearing or disappearing among the",
+  "                       names it looked up (for the gate)"]
 
-def sessionFlags : List String := ["--check-patch", "--perturb-patch", "--no-field-fn-index", "--key-without-scx"]
+def sessionFlags : List String :=
+  ["--check-patch", "--perturb-patch", "--no-field-fn-index", "--key-without-scx", "--check-keys",
+   "--carry-without-presence"]
 
 def residentKb : IO (Option Nat) := do
   let out ← IO.Process.output { cmd := "ps", args := #["-o", "rss=", "-p", toString (← IO.Process.getPID)] }
@@ -550,6 +602,10 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
   if newRoots.isEmpty then
     IO.eprintln s!"reader session: no module names in {newRootsFile}"
     return 2
+  if let some e := PrintKey.keyExts.find? (placementOf · |>.isNone) then
+    IO.eprintln s!"olean reader: refused: the print key reads {e}, which the reader does not decode, so a \
+      carried key would never see it change"
+    return 1
   let t0 ← IO.monoNanosNow
   let newest ← match ← (importNewest a.new newRoots).toBaseIO with
     | .ok n => pure n
@@ -559,8 +615,9 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
   let patch : PatchSession := {
     check := flags.contains "--check-patch", perturb := flags.contains "--perturb-patch"
     scx := !flags.contains "--key-without-scx"
+    checkKeys := flags.contains "--check-keys", presence := !flags.contains "--carry-without-presence"
     index := Patch.buildNewestIndex newest.state (fieldFnIndex := !flags.contains "--no-field-fn-index")
-    last := ← IO.mkRef none, printed := ← IO.mkRef none }
+    last := ← IO.mkRef none, printed := ← IO.mkRef none, carry := ← IO.mkRef none }
   IO.println s!"ready {(← IO.monoNanosNow) - t0} {newest.state.moduleNames.size}"
   let stdout ← IO.getStdout
   stdout.flush

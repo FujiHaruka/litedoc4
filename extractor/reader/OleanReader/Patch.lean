@@ -121,7 +121,24 @@ structure Built where
   oldConsts : Std.HashMap Name ConstantInfo
   oldKeys : Std.HashMap Name (Std.HashSet Name)
   perMod : Std.HashMap Nat (Std.HashMap Name (Array Keyed))
+  prints : Std.HashMap (Name × Name) UInt64
   out : MImportState
+
+structure Delta where
+  consts : Std.HashSet Name := {}
+  entries : Std.HashSet (Name × Name) := {}
+
+def entryDelta (prev cur : Std.HashMap (Name × Name) UInt64) : Std.HashSet (Name × Name) :=
+  let changed := cur.fold (fun acc ek h => if prev[ek]? == some h then acc else acc.insert ek) {}
+  prev.fold (fun acc ek _ => if cur.contains ek then acc else acc.insert ek) changed
+
+def droppedFlips (ni : NewestIndex) (prev cur : Std.HashMap Name ConstantInfo) : Array Name := Id.run do
+  let mut out := #[]
+  for names in [ni.realizationNames, ni.fieldFnNames] do
+    for n in names do
+      if prev.contains n || cur.contains n then continue
+      if (newestConst prev n).dropped != (newestConst cur n).dropped then out := out.push n
+  return out
 
 structure Options where
   perturb : Bool := false
@@ -154,7 +171,7 @@ def union (sets : List (Std.HashSet Nat)) : Std.HashSet Nat :=
   sets.foldl (fun acc s => s.fold (·.insert ·) acc) {}
 
 unsafe def build (ni : NewestIndex) (d : Decoded) (ask : Std.HashSet Name) (prev? : Option Built)
-    (o : Options := {}) : IO (Built × Merged × Stats) := do
+    (prints : Std.HashMap (Name × Name) UInt64) (o : Options := {}) : IO (Built × Merged × Stats × Option Delta) := do
   checkKeys d
   let (oldConsts, oldOrder) := oldConstsOf d
   let mut st : Stats := {}
@@ -240,7 +257,14 @@ unsafe def build (ni : NewestIndex) (d : Decoded) (ask : Std.HashSet Name) (prev
     dirty := (union [dirtyC, dirtyE]).size, perturbed := perturbed.map (ni.names[·]!) }
   let merged : Merged := {
     out, idxOf, counts := countsByName ni oldConsts xn.size placed, sameValue := sameValueByName ni oldConsts ask }
-  return ({ oldConsts, oldKeys := placed.oldKeys, perMod := placed.perMod, out }, merged, st)
+  let delta := prev?.map fun pb => Id.run do
+    let mut entries := entryDelta pb.prints prints
+    for n in presence do
+      for e in ni.keyExts do
+        if ni.keyCount.contains (e, n) then entries := entries.insert (e, n)
+    let consts := (changed ++ droppedFlips ni pb.oldConsts oldConsts).foldl (·.insert ·) {}
+    return { consts, entries : Delta }
+  return ({ oldConsts, oldKeys := placed.oldKeys, perMod := placed.perMod, prints, out }, merged, st, delta)
 
 unsafe def moduleDifference? (name : Name) (ia ib : MImportedModule) : Option String := Id.run do
   unless ia.module == ib.module && ia.importAll == ib.importAll && ia.isExported == ib.isExported &&

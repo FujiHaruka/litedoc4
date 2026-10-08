@@ -140,6 +140,22 @@ def theReaderIsBuiltOnTheLastRowOutOfEveryEmbeddedSourceAndTheCutExtractor : Boo
 
 #guard theReaderIsBuiltOnTheLastRowOutOfEveryEmbeddedSourceAndTheCutExtractor
 
+def readerIdentityIncludes (hybrid : String) : Array String :=
+  match hybrid.splitOn "def readerSource : String := String.join [" with
+  | [_, rest] =>
+    (((rest.splitOn "]").headD "").splitOn "include_str \"").drop 1 |>.map (·.splitOn "\"" |>.headD "") |>.toArray
+  | _ => #[]
+
+def everyEmbeddedReaderFileIsHashedIntoTheReaderIdentityAndNoOtherIs : Bool :=
+  match readerSources.find? (·.1 == "OleanReader/Hybrid.lean") with
+  | none => false
+  | some (_, hybrid) =>
+    let included := readerIdentityIncludes hybrid
+    let embedded := readerSources.map fun (path, _) => (path.splitOn "/").getLast!
+    included.size == embedded.size && embedded.all included.contains && included.all embedded.contains
+
+#guard everyEmbeddedReaderFileIsHashedIntoTheReaderIdentityAndNoOtherIs
+
 def theReaderIsHandedTheExtractorsOwnFlagsAfterTheTwoSearchPaths : Bool :=
   readerArgv #["/o1", "/o2"] #["/n"] "/r.txt" "/m.txt" "/e.jsonl" "/ir" 2 #[] "/l.lidx"
     == #["extract", "--old", "/o1", "--old", "/o2", "--new", "/n", "--new-roots", "/r.txt"]
