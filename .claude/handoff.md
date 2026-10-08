@@ -1,58 +1,64 @@
-# Handoff — 2026-10-08 (multi-version: step 5, the reader, relay leg 2)
+# Handoff — 2026-10-08 (multi-version: step 5, the reader, relay leg 3)
 
 ## Relay control
 - Mode: ON
-- Goal: implementation.md step 5 (the rebuild from nothing through the reader) to its "Done when", following the "Step 5 plan (2026-10-08)" order 1-7
-- Leg: 2 / cap 8
-- Predecessor: none
+- Goal: implementation.md step 5 (the rebuild from nothing through the reader) to its "Done when", following the "Step 5 plan (2026-10-08)" order 1-7 and, for item 6, the "Item 6 plan" order 1-9
+- Leg: 3 / cap 8
+- Predecessor: mvstep5-r2
 - Stop-on: completion | user-decision | no-progress×2 | leg-cap
 - Progress ledger:
   - r1: step 5 plan (caf56ed); item 1 reader + oracle gate 10/10 (9e33548); item 2 World seam (b52d254); item 3 hybrid on S (0bbc24d); item 4 invariants (4006603); item 5 build --versions fills through the reader, tools/mv-reader-gate.sh 12/12 (2d2f02f)
+  - r2: M checkpoint run + classifier + .ilean imported-parent rule (c2ed2d4); two defects fixed, M 0 defects, hybrid gate 22/22 (956aab6); item 6 plan (85ea428); item 6 step 1 reuse seam (2723324, CI green both); item 6 step 2 reader session + manual root rewritten per round, hybrid gate 24/24, mv-reader 12/12 (fb5698a)
 
 ## State
 
 - Branch `multi-version`, pushed, clean. Not `main`; no PR open.
-- CI dispatched on 2d2f02f, not yet read: `ci.yml` run 37731622122, `ci-lean-versions.yml` run
-  37731615215. Read them first (`gh run view <id> --repo FujiHaruka/litedoc4`); a red one is the
-  first job of this leg. The reader has never run on Linux (its gates are `manual`).
+- CI on 2723324 (dispatched): `ci.yml` and `ci-lean-versions.yml` both green. fb5698a touches
+  only the reader (manual gates) and docs; no CI dispatched for it.
 
 ## Where we are
 
-`docs/multiversion/implementation.md` "Step 5 plan (2026-10-08)" items 1-5 are done, each with a
-"Done" note. Next, in order:
-1. **The M exactness checkpoint** (item 5's "On M"): three versions v4.32.2 / v4.33.0 / v4.33.1 at
-   the 438-module slice filled through the reader (newest v4.34.1 slice), compared with the native
-   M store at `/private/tmp/lean-doc-relay/mv-m/store` (fill "own"; confirm its configuration,
-   e.g. `no_equations_under`, matches). A classification run in `benchmarks/tools/` with a log in
-   `benchmarks/results/` (conditions recorded), NOT a gate: printed fields (signature text, type
-   code, equations, refs positions) that differ → printer drift, counted by cause (U9: `setOf`,
-   `↧`, …); any other field differing → defect, zero tolerated. Extend `tools/lib/reader-compare.py`
-   rather than writing a second comparator. `benchmarks/tools/mv-m-run.sh` is how M was built
-   natively; `build --versions --through-reader` is the product path. Disk ≈ 8 GiB: two Mathlib
-   slices at once (newest kept while each older is read). Then the "site differs only where
-   printer drift says" half of step 5's Done-when.
-2. Item 6 (patch path + print reuse, carried key with check mode, structure-instance default;
-   per-extra-version time on the M1; L checkpoint on the runner — record disk, two Mathlib trees).
-3. Item 7 (records v4.29.0/v4.29.1/v4.30.0/v4.32.1/v4.34.0 each after its oracle — needs those
-   toolchains, ~1.7 GB each; disk; then delete `prototypes/olean-reader/`).
+`docs/multiversion/implementation.md`: "Step 5 plan" items 1-5 done (item 5 has the M note);
+"Item 6 plan" (subsection right after item 7) steps 1-2 done, each with a "Done" note. Next:
+1. **Item 6 step 3, the patch** (`prototypes/olean-reader/Patch.lean`): version k+1's merged state
+   built from version k's inside `reader session`, with `--check-patch` comparing against the
+   tree's own `rewriteMerge` (which has today's fixes the prototype lacks: the newest-only
+   structure field-function drop, autoParam classification). Fails once two ways (see plan).
+2. Steps 4-9 of the Item 6 plan (reuse under a recomputed key N1X+own; carried key with
+   `--check-keys`; `build --versions` over the session; M with `--session`; reader gates once on
+   Linux; L on the runner via `mv-l.yml`), then the M1 per-extra-version measurement (5 runs,
+   prediction ≈146-160 s vs tracked 1.2 min — a predicted miss; Done-when says "measured
+   against", so record it, don't stop on it).
+3. Item 7 (records v4.29.0/v4.29.1/v4.30.0/v4.32.1/v4.34.0, each after its oracle; then delete
+   `prototypes/olean-reader/` — the Item 6 plan cites its `differential-design.md`, rewrite those
+   pointers to a commit when deleting).
 
 ## Files to read first
 
-- `docs/multiversion/implementation.md` — step 5 and its plan subsection
-- `extractor/reader/OleanReader/`, `tools/reader-*-gate.sh`, `tools/mv-reader-gate.sh`,
-  `tools/lib/reader-compare.py`, `src/Litedoc4/Versions.lean`
+- `docs/multiversion/implementation.md` — "Step 5 plan" and "Item 6 plan"
+- `extractor/reader/OleanReader/{Hybrid,Assemble}.lean`, `tools/reader-hybrid-gate.sh`,
+  `prototypes/olean-reader/{Patch,PatchMain,PrintKey}.lean`
 
 ## Load-bearing context
 
-- Reader builds on v4.34.1 only (`litedoc4 reader build --out <dir>`, internal; cuts
-  `Extract.lean`'s trailing `main`). `build --versions --through-reader <v,...>` is internal. Both reader gates are `manual`. A change to `Extract.lean` needs
-  `tools/build-lean-exe.sh --toolchain-from e2e/micro` before `mv-s-gate` (litedoc4 embeds it).
-- Native M store (v4.32.2/v4.33.0/v4.33.1, fill "own") at `/private/tmp/lean-doc-relay/mv-m/store`.
-  Mathlib workspaces `mv-v4320` (v4.32.0) and `mv-v4341` (v4.34.1) under the same dir — keep.
-  L store copy `mv-l-r3/store` (artifact expires 2026-10-21). Disk ≈ 8 GiB free.
-- `mv-l.yml` still has the glibc-tuned arm (e) and a `push:` trigger on this branch (paths-filtered;
-  make dispatch-only before merging).
-- Open items from before: kept versions' bibliography warning not printed; partial render reports
-  ledger `dataAdded`; step 6 needs the deployed site at `<out>/site`; dead links not reported;
-  version rule not built; README pins v1.4.0; hash-mode not covered by browser items.
+- Reader builds on v4.34.1 only (`litedoc4 reader build --out <dir>`; litedoc4 embeds the reader
+  sources — rebuild litedoc4 with `tools/build-lean-exe.sh --toolchain-from e2e/micro` after any
+  reader or `Extract.lean` edit, before gates). Both reader gates and `mv-reader-gate` are `manual`.
+- M run: `benchmarks/tools/mv-m-run.sh --through-reader --need-gb 3 --work /private/tmp/lean-doc-relay/mv-m-reader`
+  (≈11 min; work dir currently holds only logs — move/delete before rerun). Comparator:
+  `tools/lib/reader-compare.py --classify`. Logs: `benchmarks/results/mv-m-reader{,-fixed}-2026-10-08.txt`.
+- Keep under `/private/tmp/lean-doc-relay`: `mv-v4341` (Mathlib v4.34.1, newest), `mv-v4320`
+  (v4.32.0), `mv-m/store` (old native M), `mv-l-r3` (L store copy, artifact expires 2026-10-21),
+  `u13-host`. Disk ≈ 7.5 GiB free.
+- Subagents sometimes stop without a final report after their background gate finishes — if a
+  notification says "waiting for X" and nothing follows, check the gate logs in the scratchpad
+  and take over.
+- `mv-l.yml` still has the glibc-tuned arm (e) and a `push:` trigger on this branch (make
+  dispatch-only before merging).
+- Open items: `docs/provenance.md` has no row for Lean-core-derived code in
+  `extractor/reader/` (the `rewriteManualLinksCore` copy in `Hybrid.lean`, mirrored private
+  structures); a reader-filled version has no tactic list (63 modules per M version); kept
+  versions' bibliography warning not printed; partial render reports ledger `dataAdded`; step 6
+  needs the deployed site at `<out>/site`; dead links not reported; version rule not built;
+  README pins v1.4.0; hash-mode not covered by browser items.
 - Communicate with the user in Japanese, brief-me style.
