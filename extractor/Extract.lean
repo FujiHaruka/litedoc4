@@ -1395,10 +1395,13 @@ def extOriginOf (world : World) (name : Name) (sameRange : Bool) : CoreM (Option
 
 /-- doc-gen4's `Info.ofConstantVal` + `NameInfo.ofTypedName` for one name. -/
 def baseInfo (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (module : Name)
-    (kind : String) (cv : ConstantVal) : AnalyzeM DeclOut := do
-  let e := Expr.const cv.name (cv.levelParams.map mkLevelParam)
-  let t ← inferType e
-  let sig ← timedPp (ppSignature probe cfg.tagCode refs cv.name t)
+    (kind : String) (cv : ConstantVal) (sig? : Option Sig := none) : AnalyzeM DeclOut := do
+  let sig ← match sig? with
+    | some s => pure s
+    | none => do
+      let e := Expr.const cv.name (cv.levelParams.map mkLevelParam)
+      let t ← inferType e
+      timedPp (ppSignature probe cfg.tagCode refs cv.name t)
   let tDoc0 ← IO.monoNanosNow
   let doc ← world.docString? cv.name
   let tDoc1 ← IO.monoNanosNow
@@ -1622,7 +1625,8 @@ def withInstanceIndex (cfg : Cfg) (type : Expr) (d : DeclOut) : AnalyzeM DeclOut
 
 /-- doc-gen4's `DocInfo.ofConstant`. -/
 def analyzeCore (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (module : Name)
-    (name : Name) (ci : ConstantInfo) : AnalyzeM (Option DeclOut) := do
+    (name : Name) (ci : ConstantInfo) (p? : Option DeclOut := none) :
+    AnalyzeM (Option DeclOut) := do
   let b0 ← probe.now
   let bl ← isBlackListed name
   let b1 ← probe.now
@@ -1630,20 +1634,28 @@ def analyzeCore (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (
     modify fun c => { c with blNanos := c.blNanos + (b1 - b0), blCalls := c.blCalls + 1 }
   if bl then
     return none
+  let base (kind : String) (cv : ConstantVal) :=
+    baseInfo cfg world probe refs module kind cv (p?.map (·.sig))
   match ci with
-  | .axiomInfo i => return some (← baseInfo cfg world probe refs module "axiom" i.toConstantVal)
+  | .axiomInfo i => return some (← base "axiom" i.toConstantVal)
   | .thmInfo i =>
     let isInst ← if ← isProjFn i.name then pure false else isInstanceDecl i.name
     let kind := if isInst then "instance" else "theorem"
-    let d ← baseInfo cfg world probe refs module kind i.toConstantVal
+    let d ← base kind i.toConstantVal
     if isInst then return some (← withInstanceIndex cfg i.type d) else return some d
-  | .opaqueInfo i => return some (← baseInfo cfg world probe refs module "opaque" i.toConstantVal)
+  | .opaqueInfo i => return some (← base "opaque" i.toConstantVal)
   | .defnInfo i =>
     let isInst ← if ← isProjFn i.name then pure false else isInstanceDecl i.name
     let kind := if isInst then "instance" else "definition"
-    let d ← baseInfo cfg world probe refs module kind i.toConstantVal
+    let d ← base kind i.toConstantVal
     let d ← if isInst then withInstanceIndex cfg i.type d else pure d
-    return some (← withEquations cfg probe refs i d)
+    match p? with
+    | some p =>
+      if cfg.genEquations then
+        return some { d with
+          equations := p.equations, equationSpans := p.equationSpans, eqFailed := p.eqFailed }
+      else return some d
+    | none => return some (← withEquations cfg probe refs i d)
   | .inductInfo i =>
     let env ← getEnv
     let isStruct := isStructure env i.name
@@ -1651,16 +1663,22 @@ def analyzeCore (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (
     let kind :=
       if isStruct then (if isCls then "class" else "structure")
       else (if isCls then "class_inductive" else "inductive")
-    let d ← baseInfo cfg world probe refs module kind i.toConstantVal
-    let members ← if isStruct then structureMembers cfg world probe refs i
-                  else inductiveMembers cfg probe refs i
+    let d ← base kind i.toConstantVal
+    let members ← match p? with
+      | some p => p.members.mapM fun m => do
+          if m.label == "field" && cfg.wantMemberExtra then
+            return { m with doc := ← world.docString? m.name }
+          else return m
+      | none =>
+        if isStruct then structureMembers cfg world probe refs i
+        else inductiveMembers cfg probe refs i
     return some { d with members }
-  | .ctorInfo i => return some (← baseInfo cfg world probe refs module "constructor" i.toConstantVal)
-  | .quotInfo i => return some (← baseInfo cfg world probe refs module "opaque" i.toConstantVal)
+  | .ctorInfo i => return some (← base "constructor" i.toConstantVal)
+  | .quotInfo i => return some (← base "opaque" i.toConstantVal)
   | .recInfo _ => return none
 
-def analyze (cfg : Cfg) (world : World) (module : Name) (name : Name) (ci : ConstantInfo) :
-    AnalyzeM (Option DeclOut) := do
+def analyze (cfg : Cfg) (world : World) (module : Name) (name : Name) (ci : ConstantInfo)
+    (p? : Option DeclOut := none) : AnalyzeM (Option DeclOut) := do
   let refs : RefSink ←
     if cfg.collectRefs || cfg.taggedCode then
       let r ← IO.mkRef {}
@@ -1669,7 +1687,7 @@ def analyze (cfg : Cfg) (world : World) (module : Name) (name : Name) (ci : Cons
       pure none
   let probe : PpProbe ←
     if cfg.ppBreakdown then do let r ← IO.mkRef ({} : PpAcc); pure (some r) else pure none
-  let d? ← analyzeCore cfg world probe refs module name ci
+  let d? ← analyzeCore cfg world probe refs module name ci p?
   let acc ← match refs with
     | some s => s.ref.get
     | none => pure {}
@@ -1681,7 +1699,7 @@ def analyze (cfg : Cfg) (world : World) (module : Name) (name : Name) (ci : Cons
   match d? with
   | none => return none
   | some d =>
-    let d := { d with refs := acc.names }
+    let d := { d with refs := match p? with | some p => p.refs | none => acc.names }
     if cfg.taggedCode then
       return some { d with modifiers := ← declModifiers world ci d.kind }
     else
@@ -2560,6 +2578,10 @@ def DeclProf.line (p : DeclProf) : String :=
   s!"\"refNs\":{p.refNanos},\"blNs\":{p.blNanos}," ++
   s!"\"eqs\":{p.eqCount},\"bytes\":{p.bytes}}\n"
 
+structure Reuse where
+  prev : Name → Option DeclOut
+  out : IO.Ref (Array DeclOut)
+
 /-- One extraction.
 
 When `pre` is given the search path is already initialised and the environment
@@ -2567,7 +2589,8 @@ already imported, so both are skipped and everything downstream runs unchanged.
 The environment is *not* threaded back out — each request derives its own
 (`--open` activation returns a new one) and drops it, which is what makes reuse
 sound rather than merely fast. -/
-def run (cfg : Cfg) (pre : Option (Environment × World) := none) : IO UInt32 := do
+def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Option Reuse := none) :
+    IO UInt32 := do
   let sink ← Sink.create cfg.outPath
   let tTotal0 ← IO.monoNanosNow
 
@@ -2802,7 +2825,9 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) : IO UInt32 :=
     let t0 ← if cfg.ppBreakdown then IO.monoNanosNow else pure 0
     let job : MetaM (Except String (Option DeclOut) × Counters) :=
       tryCatchRuntimeEx
-        (do let (r, c) ← (analyze cfg world module name ci).run {}; return (Except.ok r, c))
+        (do
+          let (r, c) ← (analyze cfg world module name ci (reuse.bind (·.prev name))).run {}
+          return (Except.ok r, c))
         (fun e => do return (Except.error (← e.toMessageData.toString), {}))
     let ((outcome, c), _, _) ← job.toIO coreCtx { env := env } {} {}
     let t1 ← if cfg.ppBreakdown then IO.monoNanosNow else pure 0
@@ -2958,6 +2983,8 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) : IO UInt32 :=
      ("sorryAsked", toString sorryStats.asked),
      ("sorryDirect", toString sorryStats.direct),
      ("sorryTransitive", toString sorryStats.transitive)]
+
+  if let some r := reuse then r.out.set results
 
   if let some p := cfg.declProfilePath then
     let h ← IO.FS.Handle.mk p .write

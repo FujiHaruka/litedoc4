@@ -877,6 +877,14 @@ Choices, with what would undo each:
 
 1. **The reuse seam in `Extract.lean`** (`Reuse`, `p?` into `analyze`). Natively byte for byte:
    `tools/mv-s-gate.sh` 63 of 63, the Lean-versions matrix, `tools/lean-test-gate.sh`.
+   **Done 2026-10-08**: `run` takes an optional `Reuse` (the previous version's `DeclOut` by name,
+   and a sink for this run's); given one for a declaration, `analyze` takes its printed part —
+   signature, equations, members, refs — and recomputes every fact of this version's environment
+   (kind, instance index, doc, ranges, attributes, modifiers, sorry; a field's doc is fetched
+   again). The native extractor passes none: on all five rows the sample's IR equals HEAD's but
+   for the identity's `source=` digest, `tools/mv-s-gate.sh` 63 of 63, `tools/lean-test-gate.sh`
+   and `tools/reader-hybrid-gate.sh` 22 of 22. A reused declaration skips `withEquations`, so the
+   equation counters and print time undercount it; the IR does not move.
 2. **Session, no patch, no reuse.** `tools/reader-hybrid-gate.sh` gains `session-equals-alone` (the
    older rows in one session, each equal to read-alone) and `session-manual-root` (each row's
    probe link has its own root). It fails once with the root frozen at round 1's. Peak RSS per round.
