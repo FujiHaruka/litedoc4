@@ -12,7 +12,7 @@ lake env <extract> <modules.txt> <events.jsonl> --equations --refs
 
 # The request channel is a pipe
 
-The server's loop ends on EOF (`Extract.lean:2747`), and the channel is the
+The server's loop ends on EOF (`serve` in `Extract.lean`), and the channel is the
 child's **stdin pipe**, held in a reference cell for as long as the server is
 wanted. Lean has no explicit close for a handle, so emptying the cell drops the
 last reference and the finaliser closes the fd. What that buys:
@@ -47,8 +47,8 @@ and after every request.
 
 1. **`--ir-dir` is required at start-up even though every request overrides it**
    (measured 2026-08-15): the extractor refuses `--write-ir` without one
-   (`Extract.lean:2778-2782`), while a request's third field replaces it
-   (`Extract.lean:2753`). The value passed here names nothing that is written.
+   (`serve` in `Extract.lean`), while a request's third field replaces it
+   (`serve` in `Extract.lean`). The value passed here names nothing that is written.
 2. **stderr is inherited, exactly as the one-shot path inherits it.** A Lean
    error has to reach the caller, and the two extraction paths have to be
    diagnosable the same way. -/
@@ -94,7 +94,7 @@ def refuseInside (container : FilePath) (containerFlag : String) (candidate : Fi
 
 /-- Everything the server is started with. `modulesFile` is the **superset** it
 imports — whatever a request asks for later has to be inside it, because a
-resident environment is never grown (`Extract.lean:2707-2714`). -/
+resident environment is never grown (`serve` in `Extract.lean`). -/
 structure Serve where
   bin : FilePath
   lake : FilePath
@@ -173,7 +173,7 @@ def stale (moved : Array String) (when : String) : UInt32 × String :=
   let more := if rest > 0 then s!" and {rest} more" else ""
   (3, s!"the oleans moved {when}: {moved.size} module(s) — {", ".intercalate named}{more}. The \
     resident extractor imported the world as it was at the head of this run and Lean cannot swap \
-    one module out of an imported environment (`Extract.lean:2716-2721`), so every answer it has \
+    one module out of an imported environment (`serve` in `Extract.lean`), so every answer it has \
     given since is about the old world. Re-run after the build that is in flight has finished")
 
 /-! ## The extraction's shared parts -/
@@ -338,7 +338,7 @@ def trimEol (s : String) : String := Id.run do
 
 /-- One request line, or a refusal naming the path that cannot be sent.
 
-The protocol splits on spaces and tabs (`Extract.lean:2748`), so a path with
+The protocol splits on spaces and tabs (`serve` in `Extract.lean`), so a path with
 whitespace in it does not fail — it arrives as two shorter paths and the server
 writes an IR tree somewhere nobody named. The paths are absolute because the
 server's working directory is the target. -/
@@ -348,7 +348,7 @@ def requestLine (paths : Array FilePath) : BuildM String := do
     let text := (← absolutePath path).toString
     if text.toList.any (fun c => isWhiteSpaceCp c.val) then
       throw (3, s!"the resident extractor's protocol is one space-separated line per request \
-        (`Extract.lean:2748`), so a path with whitespace in it cannot be sent: {text}")
+        (`serve` in `Extract.lean`), so a path with whitespace in it cannot be sent: {text}")
     if !line.isEmpty then line := line.push ' '
     line := line ++ text
   return line.push '\n'

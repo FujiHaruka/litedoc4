@@ -680,6 +680,12 @@ the two ways on versions that have both.
    prototype's file (which predates `--identity`, `--no-equations-under` and its `#guard`, and
    carries debugging output). Natively it must reproduce today's IR byte for byte on every row:
    `tools/mv-s-gate.sh` and the Lean-versions matrix are the judgement.
+   **Done 2026-10-08**: every module, name, owner, docstring, module-doc and tactic question goes
+   through `World`; constants fetched by name, extension data and expression-taking calls stay on
+   the environment (the hybrid replaces or merges those by name, U9). Natively the IR is byte for
+   byte today's on all five rows except `extractorIdentity`'s `source=` digest. What item 3 meets:
+   `Extract.lean` declares `main`, so an importer cannot declare its own; and the identity's
+   `lean=` names the running Lean, which in the hybrid is not the version read.
 3. **The hybrid run** (`Assemble.lean` + `HybridMain.lean`): one old version read into the newest
    environment, IR written as the native extractor writes it; the hard stops (Verso-only docstrings,
    tactic text of `(h : p := by tac)` binders read from the old value) counted, never silent; the
