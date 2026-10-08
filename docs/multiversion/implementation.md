@@ -690,6 +690,20 @@ the two ways on versions that have both.
    environment, IR written as the native extractor writes it; the hard stops (Verso-only docstrings,
    tactic text of `(h : p := by tac)` binders read from the old value) counted, never silent; the
    prototype's environment switches become flags or leave. On S, against the native entries.
+   **Done 2026-10-08**: `reader extract` builds the hybrid and writes the IR through the
+   extractor's own `parseArgs` and `run`; the reader compiles a copy of `Extract.lean` without its
+   trailing `main`. A reader-filled identity names the version read as `lean=` and appends the
+   reader's source digest and toolchain, so the store's staleness rule needs no change.
+   `tools/reader-hybrid-gate.sh` (`manual`, 10 of 10, every item made to fail once; measured →
+   `benchmarks/results/reader-hybrid-2026-10-08.txt`): on the sample, v4.34.1 read through the
+   reader equals its native IR except the identity, and each older row equals its native IR after
+   exactly the reducibility rename `tools/lean-toolchains.txt` records. Found on the way: from
+   v4.33 the `.ir` part is compacted after `.ir.sig`, which the oracle never reads. Still open:
+   a reader-filled version has no tactic list (the hybrid has no old parser tables — counted, not
+   answered), the tactic text of `(h : p := by tac)` binders is the newest version's (counted per
+   declaration; the sample has none), Verso-only docstrings have never fired on real data, and
+   proofs are decoded everywhere (an omitted proof makes Lean's axiom walk skip silently), which
+   costs the read time U9 measured without them.
 4. **Mechanism 3 on every reader run**: every constant a type mentions exists in the version being
    read; the declaration list and ranges agree with the `.ilean` the same Lean wrote. A failure
    stops the version by name.

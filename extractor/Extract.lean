@@ -172,6 +172,9 @@ structure World where
   moduleDocs : Name → Array ModuleDoc
   docString? : Name → IO (Option String)
   tactics : MetaM (Option (Array TacticDoc))
+  leanVersion : String
+  leanGithash : String
+  readBy : List (String × String)
 
 def World.ofEnv (env : Environment) : World :=
   let header := env.header
@@ -185,7 +188,10 @@ def World.ofEnv (env : Environment) : World :=
     contains := env.contains
     moduleDocs := fun m => (getModuleDoc? env m).getD #[]
     docString? := fun n => findDocString? env n
-    tactics := some <$> allTacticDocs }
+    tactics := some <$> allTacticDocs
+    leanVersion := Lean.versionString
+    leanGithash := Lean.githash
+    readBy := [] }
 
 /-! ## doc-gen4's blacklist, transcribed
 
@@ -2135,7 +2141,7 @@ def sortedDistinct (xs : Array String) : Array String :=
     if acc.back? == some x then acc else acc.push x
 
 def identityLine (sourceDigest leanVersion leanGithash : String) (onlyDigest : Option String)
-    (cfg : Cfg) : String :=
+    (cfg : Cfg) (readBy : List (String × String) := []) : String :=
   let flag (b : Bool) := if b then "1" else "0"
   let names (ns : Array Name) := ",".intercalate (ns.toList.map toString)
   let fields := [
@@ -2151,7 +2157,7 @@ def identityLine (sourceDigest leanVersion leanGithash : String) (onlyDigest : O
     ("open", names cfg.openNamespaces),
     ("only", onlyDigest.getD ""),
     ("noEquationsUnder",
-      ",".intercalate (sortedDistinct (cfg.noEquationsUnder.map toString)).toList)]
+      ",".intercalate (sortedDistinct (cfg.noEquationsUnder.map toString)).toList)] ++ readBy
   " ".intercalate (fields.map fun (k, v) => k ++ "=" ++ v)
 
 def identityMovesWithEveryOutputAffectingSettingAndNoOther : Bool :=
@@ -2173,6 +2179,8 @@ def identityMovesWithEveryOutputAffectingSettingAndNoOther : Bool :=
     && moves.all (line · != line base)
     && stays.all (line · == line base)
     && identityLine "s" "4.31.0" "abc" (some "fnv1a64:1") base != line base
+    && identityLine "fnv1a64:0123456789abcdef" "4.31.0" "abc" none base [("reader", "r")]
+      == line base ++ " reader=r"
     && line { base with noEquationsUnder := #[`B, `A, `B] }
       == line { base with noEquationsUnder := #[`A, `B] }
     && line { base with noEquationsUnder := #[`A] }
@@ -2180,9 +2188,10 @@ def identityMovesWithEveryOutputAffectingSettingAndNoOther : Bool :=
 
 #guard identityMovesWithEveryOutputAffectingSettingAndNoOther
 
-def extractorIdentity (cfg : Cfg) : IO String := do
+def extractorIdentity (cfg : Cfg) (leanVersion : String := Lean.versionString)
+    (leanGithash : String := Lean.githash) (readBy : List (String × String) := []) : IO String := do
   let onlyDigest ← cfg.onlyPath.mapM fun path => return fnv1a64Hex (← IO.FS.readFile path)
-  return identityLine (fnv1a64Hex extractorSource) Lean.versionString Lean.githash onlyDigest cfg
+  return identityLine (fnv1a64Hex extractorSource) leanVersion leanGithash onlyDigest cfg readBy
 
 /-- Where `--write-ir` writes: **`--ir-dir` and nothing else**. No default, and
 the `IR_DIR` environment variable is not consulted — both were ways for a
@@ -2484,7 +2493,7 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (identity : String) (
   let index := Json.mkObj ([
     ("schemaVersion", Json.num (irSchemaVersion tagged)),
     ("generator", Json.str "lean-doc/experiments/stage4b"),
-    ("leanVersion", Json.str Lean.versionString),
+    ("leanVersion", Json.str world.leanVersion),
     ("extractorIdentity", Json.str identity),
     ("hashAlgorithm", Json.str "lean-string-hash-64/hex16"),
     ("moduleCount", Json.num st.moduleFiles),
@@ -2962,8 +2971,8 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) : IO UInt32 :=
     let dir ← getIrDir cfg
     irDirUsed := some dir
     let t0 ← IO.monoNanosNow
-    irStats ← writeIRTree cfg.taggedCode cfg.ablations (← extractorIdentity cfg) dir world targets
-      mods results
+    let identity ← extractorIdentity cfg world.leanVersion world.leanGithash world.readBy
+    irStats ← writeIRTree cfg.taggedCode cfg.ablations identity dir world targets mods results
     let t1 ← IO.monoNanosNow
     sink.emit "stage4b.writeIR" (t1 - t0)
       [("taggedCode", if cfg.taggedCode then "true" else "false"),

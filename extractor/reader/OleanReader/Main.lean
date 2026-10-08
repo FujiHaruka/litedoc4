@@ -1,11 +1,13 @@
 import OleanReader.Oracle
+import OleanReader.Hybrid
 open Lean OleanReader
 
 def usage : String := "\n".intercalate [
   "usage: reader --writers",
   "       reader --registered-extensions",
   "       reader read <search-dir> <module>...",
-  "       reader oracle <search-dir> <seed> <count|all>"]
+  "       reader oracle <search-dir> <seed> <count|all>",
+  "       reader extract ... (reader extract --help)"]
 
 def readMain (dir : String) (roots : Array Name) : IO UInt32 := do
   let s ← Session.new #[dir]
@@ -28,10 +30,15 @@ def oracleMain (dir seed count : String) : IO UInt32 := do
     {st.names}, Level data {st.levels}, Expr data {st.exprs}"
   return 0
 
-def main (args : List String) : IO UInt32 := do
+unsafe def main (args : List String) : IO UInt32 := do
   if let .error why := checkWriters (← registeredExts) then
     IO.eprintln s!"olean reader: the writer table is inconsistent: {why}"
     return 3
+  if let "extract" :: rest := args then
+    if rest == ["--help"] then
+      IO.println Hybrid.usage
+      return 0
+    return ← Hybrid.extractMain rest
   try
     match args with
     | ["--writers"] =>

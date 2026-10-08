@@ -85,8 +85,10 @@ def runDM (parts : Array Part) (x : DM α) : IO (α × DState) :=
 def readIRExtraConstNames (s : Session) (m : Name) : IO (Array Name) := do
   let irf := (← findOlean s m).withExtension "ir"
   unless ← irf.pathExists do throw <| IO.userError s!"olean reader: {m} is a module but has no .ir"
+  let sig := irf.addExtension "sig"
+  let sigParts ← if ← sig.pathExists then pure #[← loadPart s sig] else pure #[]
   let p ← loadPart s irf
-  let (ns, _) ← runDM #[p] do
+  let (ns, _) ← runDM (sigParts.push p) do
     let x ← ctor "ModuleData" p.root 0 5 1
     decArray "Array Name" (x.field 3) decName
   return ns

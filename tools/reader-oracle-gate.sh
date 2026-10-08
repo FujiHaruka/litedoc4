@@ -51,7 +51,6 @@ READER_SRC="$ROOT/extractor/reader"
 DUMP_SRC="$ROOT/tools/reader-oracle/Dump.lean"
 REFUSALS=(refuse-version refuse-githash refuse-mixed refuse-absent)
 ABSENT_PROBE=Init.Grind.Homo.Nat
-READER_MODULES=(Writers Read Entries Module Serialize Oracle Main)
 
 rm -rf "$WORK"
 mkdir -p "$WORK"
@@ -85,23 +84,7 @@ fi
 
 record_host
 say "=== the reader, on $READER_TC"
-READER_DIR="$WORK/reader"
-mkdir -p "$READER_DIR/OleanReader"
-for m in "${READER_MODULES[@]}"; do
-  if ! compile "$READER_TC" "$READER_DIR" "$READER_SRC" "OleanReader/$m" \
-       "$READER_SRC/OleanReader/$m.lean" >"$WORK/reader-build.log" 2>&1; then
-    say "reader-oracle-gate: the reader did not build (OleanReader.$m):" >&2
-    excerpt "$WORK/reader-build.log" >&2
-    exit 1
-  fi
-done
-if ! elan run "$READER_TC" leanc -rdynamic -o "$READER_DIR/reader" "$READER_DIR"/OleanReader/*.c \
-     >"$WORK/reader-build.log" 2>&1; then
-  say "reader-oracle-gate: the reader did not link:" >&2
-  excerpt "$WORK/reader-build.log" >&2
-  exit 1
-fi
-READER="$READER_DIR/reader"
+READER="$(build_reader "$ROOT" "$WORK/reader" "$WORK/reader-build.log")" || exit 1
 
 if ! "$READER" --writers >"$WORK/writers.txt" 2>"$WORK/writers.err"; then
   say "reader-oracle-gate: reader --writers failed:" >&2

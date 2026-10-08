@@ -101,11 +101,25 @@ def scopedKey {α} (k : α → Name) : ScopedEnvExtension.Entry α → Name
   | .global a => k a
   | .scoped _ a => k a
 
+unsafe def entryKeyUnsafe {α : Type} (k : α → Name) (e : EnvExtensionEntry) : Name := k (unsafeCast e)
 
-def decPairEntry (what : String) (f : UInt64 → DM α) (v : UInt64) : DM Keyed :=
-  keyed (·.1) <$> decPair what v decName f
+@[implemented_by entryKeyUnsafe]
+opaque entryKey {α : Type} (k : α → Name) (e : EnvExtensionEntry) : Name
 
-def decTagEntry (v : UInt64) : DM Keyed := keyed id <$> decName v
+structure ExtDecoder where
+  decode : UInt64 → DM Keyed
+  keyOf : EnvExtensionEntry → Name
+
+def ExtDecoder.of {α : Type} (k : α → Name) (dec : UInt64 → DM α) : ExtDecoder :=
+  { decode := fun v => keyed k <$> dec v, keyOf := entryKey k }
+
+def pairEntry {β : Type} (what : String) (f : UInt64 → DM β) : ExtDecoder :=
+  ExtDecoder.of (fun (p : Name × β) => p.1) (decPair what · decName f)
+
+def tagEntry : ExtDecoder := ExtDecoder.of id decName
+
+def scopedEntry {α : Type} (what : String) (k : α → Name) (f : UInt64 → DM α) : ExtDecoder :=
+  ExtDecoder.of (scopedKey k) (decScopedEntry what · f)
 
 def decEnum (what : String) (n : Nat) (v : UInt64) : DM Nat := do
   unless isScalar v && unbox v < n do fail what v s!"expected a boxed enum value below {n}"
@@ -338,83 +352,86 @@ def privName (mod : Name) (n : Name) : Name := Name.mkNum (`_private ++ mod) 0 +
 
 /-- The extensions whose entries the reader decodes, by registered name, with the entry decoder
 and the placement of the old entries. Every other extension's entries are counted and not decoded. -/
-def entryDecoders : List (Name × (UInt64 → DM Keyed) × Placement) := [
+def entryDecoders : List (Name × ExtDecoder × Placement) := [
   (Name.mkNum `_private.Lean.Structure 0 ++ `Lean.structureExt,
-    fun v => keyed (·.structName) <$> decStructureInfo v, .byKey),
-  (`Lean.declRangeExt, decPairEntry "Name × DeclarationRanges" decDeclRanges, .byKey),
-  (`Lean.projectionFnInfoExt, decPairEntry "Name × ProjectionFunctionInfo" decProjInfo, .byKey),
+    ExtDecoder.of (·.structName) decStructureInfo, .byKey),
+  (`Lean.declRangeExt, pairEntry "Name × DeclarationRanges" decDeclRanges, .byKey),
+  (`Lean.projectionFnInfoExt, pairEntry "Name × ProjectionFunctionInfo" decProjInfo, .byKey),
   (`Lean.Meta.instanceExtension,
-    fun v => keyed (scopedKey (·.globalName?.getD .anonymous)) <$> decScopedEntry "instance entry" v decInstanceEntry, .state),
-  (`Lean.classExtension, fun v => keyed (·.name) <$> decClassEntry v, .state),
+    scopedEntry "instance entry" (·.globalName?.getD .anonymous) decInstanceEntry, .state),
+  (`Lean.classExtension, ExtDecoder.of (·.name) decClassEntry, .state),
   (`Lean.Meta.coeExt,
-    fun v => keyed (scopedKey (·.1)) <$> decScopedEntry "coe entry" v (decPair "Name × CoeFnInfo" · decName decCoeFnInfo), .state),
-  (`Lean.protectedExt, decTagEntry, .byKey),
-  (`Lean.aliasExtension, decPairEntry "AliasEntry" decName, .state),
-  (`reducibilityCore, decPairEntry "Name × ReducibilityStatus" decReducibility, .byKey),
+    scopedEntry "coe entry" (·.1) (decPair "Name × CoeFnInfo" · decName decCoeFnInfo), .state),
+  (`Lean.protectedExt, tagEntry, .byKey),
+  (`Lean.aliasExtension, pairEntry "AliasEntry" decName, .state),
+  (`reducibilityCore, pairEntry "Name × ReducibilityStatus" decReducibility, .byKey),
   (`reducibilityExtra,
-    fun v => keyed (scopedKey (·.1)) <$> decScopedEntry "reducibilityExtra entry" v (decPair "Name × ReducibilityStatus" · decName decReducibility), .state),
-  (Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt, decTagEntry, .state),
-  (`Lean.docStringExt, decPairEntry "Name × String" decString, .byKey),
-  (privName `Lean.DocString.Extension `Lean.inheritDocStringExt, decPairEntry "Name × Name" decName, .byKey),
-  (privName `Lean.DocString.Extension `Lean.moduleDocExt, fun v => keyed (fun _ => .anonymous) <$> decModuleDoc v, .perModule),
+    scopedEntry "reducibilityExtra entry" (·.1) (decPair "Name × ReducibilityStatus" · decName decReducibility), .state),
+  (Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt, tagEntry, .state),
+  (`Lean.docStringExt, pairEntry "Name × String" decString, .byKey),
+  (privName `Lean.DocString.Extension `Lean.inheritDocStringExt, pairEntry "Name × Name" decName, .byKey),
+  (privName `Lean.DocString.Extension `Lean.moduleDocExt, ExtDecoder.of (fun _ => .anonymous) decModuleDoc, .perModule),
   (`Lean.Parser.Term.Doc.recommendedSpellingByNameExt,
-    decPairEntry "Name × Array RecommendedSpelling" (decArray "Array RecommendedSpelling" · decRecommendedSpelling), .allModules),
-  (`Lean.Parser.Tactic.Doc.tacticAlternativeExt, decPairEntry "Name × Name" decName, .byKey),
-  (`Lean.Parser.Tactic.Doc.tacticDocExtExt, decPairEntry "Name × Array String" (decArray "Array String" · decString), .allModules),
-  (`Lean.Parser.Tactic.Doc.tacticNameExt, decPairEntry "Name × String" decString, .byKey),
-  (`Lean.Parser.Tactic.Doc.tacticTagExt, decPairEntry "Name × Name" decName, .state),
+    pairEntry "Name × Array RecommendedSpelling" (decArray "Array RecommendedSpelling" · decRecommendedSpelling), .allModules),
+  (`Lean.Parser.Tactic.Doc.tacticAlternativeExt, pairEntry "Name × Name" decName, .byKey),
+  (`Lean.Parser.Tactic.Doc.tacticDocExtExt, pairEntry "Name × Array String" (decArray "Array String" · decString), .allModules),
+  (`Lean.Parser.Tactic.Doc.tacticNameExt, pairEntry "Name × String" decString, .byKey),
+  (`Lean.Parser.Tactic.Doc.tacticTagExt, pairEntry "Name × Name" decName, .state),
   (`Lean.Parser.Tactic.Doc.knownTacticTagExt,
-    decPairEntry "Name × String × Option String" (decPair "String × Option String" · decString decOptString), .byKey),
-  (`Lean.Meta.Match.Extension.extension, fun v => keyed (·.name) <$> decMatcherEntry v, .state),
-  (`Lean.auxRecExt, decTagEntry, .byKey),
-  (`Lean.noConfusionExt, decPairEntry "Name × NoConfusionInfo" decNoConfusionInfo, .byKey),
-  (`recExt, decTagEntry, .byKey),
-  (`Lean.Meta.matcherLikeExt, decTagEntry, .byKey),
-  (privName `Lean.AuxRecursor `Lean.sparseCasesOnExt, decTagEntry, .byKey),
+    pairEntry "Name × String × Option String" (decPair "String × Option String" · decString decOptString), .byKey),
+  (`Lean.Meta.Match.Extension.extension, ExtDecoder.of (·.name) decMatcherEntry, .state),
+  (`Lean.auxRecExt, tagEntry, .byKey),
+  (`Lean.noConfusionExt, pairEntry "Name × NoConfusionInfo" decNoConfusionInfo, .byKey),
+  (`recExt, tagEntry, .byKey),
+  (`Lean.Meta.matcherLikeExt, tagEntry, .byKey),
+  (privName `Lean.AuxRecursor `Lean.sparseCasesOnExt, tagEntry, .byKey),
   (privName `Lean.Meta.Constructions.SparseCasesOn `Lean.Meta.sparseCasesOnInfoExt,
-    decPairEntry "Name × SparseCasesOnInfo" decSparseCasesOnInfo, .byKey),
-  (`Lean.auxParentProjInfoExt, decPairEntry "Name × AuxParentProjectionInfo" decAuxParentProjInfo, .byKey),
-  (privName `Lean.OriginalConstKind `Lean.privateConstKindsExt, decPairEntry "Name × ConstantKind" decConstantKind, .byKey),
-  (`Lean.noncomputableExt, decTagEntry, .byKey),
-  (`Lean.Compiler.inlineAttrs, decPairEntry "Name × InlineAttributeKind" decInlineKind, .byKey),
-  (`Lean.externAttr, decPairEntry "Name × ExternAttrData" decExternAttrData, .byKey),
-  (`Lean.Compiler.implementedByAttr, decPairEntry "Name × Name" decName, .byKey),
-  (`Lean.exportAttr, decPairEntry "Name × Name" decName, .byKey),
-  (`Lean.Compiler.specializeAttr, decPairEntry "Name × Array Nat" decNatArray, .byKey),
-  (`Lean.Linter.deprecatedAttr, decPairEntry "Name × DeprecationEntry" decDeprecationEntry, .byKey),
-  (`Lean.IR.UnboxResult.unboxAttr, decTagEntry, .byKey),
-  (`Lean.neverExtractAttr, decTagEntry, .byKey),
-  (`Lean.Elab.Term.elabWithoutExpectedTypeAttr, decTagEntry, .byKey),
-  (`Lean.matchPatternAttr, decTagEntry, .byKey),
-  (`Lean.ppNoDotAttr, decTagEntry, .byKey),
-  (`Lean.ppUsingAnonymousConstructorAttr, decTagEntry, .byKey),
-  (`Lean.Meta.coeDeclAttr, decTagEntry, .byKey),
+    pairEntry "Name × SparseCasesOnInfo" decSparseCasesOnInfo, .byKey),
+  (`Lean.auxParentProjInfoExt, pairEntry "Name × AuxParentProjectionInfo" decAuxParentProjInfo, .byKey),
+  (privName `Lean.OriginalConstKind `Lean.privateConstKindsExt, pairEntry "Name × ConstantKind" decConstantKind, .byKey),
+  (`Lean.noncomputableExt, tagEntry, .byKey),
+  (`Lean.Compiler.inlineAttrs, pairEntry "Name × InlineAttributeKind" decInlineKind, .byKey),
+  (`Lean.externAttr, pairEntry "Name × ExternAttrData" decExternAttrData, .byKey),
+  (`Lean.Compiler.implementedByAttr, pairEntry "Name × Name" decName, .byKey),
+  (`Lean.exportAttr, pairEntry "Name × Name" decName, .byKey),
+  (`Lean.Compiler.specializeAttr, pairEntry "Name × Array Nat" decNatArray, .byKey),
+  (`Lean.Linter.deprecatedAttr, pairEntry "Name × DeprecationEntry" decDeprecationEntry, .byKey),
+  (`Lean.IR.UnboxResult.unboxAttr, tagEntry, .byKey),
+  (`Lean.neverExtractAttr, tagEntry, .byKey),
+  (`Lean.Elab.Term.elabWithoutExpectedTypeAttr, tagEntry, .byKey),
+  (`Lean.matchPatternAttr, tagEntry, .byKey),
+  (`Lean.ppNoDotAttr, tagEntry, .byKey),
+  (`Lean.ppUsingAnonymousConstructorAttr, tagEntry, .byKey),
+  (`Lean.Meta.coeDeclAttr, tagEntry, .byKey),
   (`Lean.Compiler.CSimp.ext,
-    fun v => keyed (scopedKey (·.thmName)) <$> decScopedEntry "csimp entry" v decCSimpEntry, .state),
+    scopedEntry "csimp entry" (·.thmName) decCSimpEntry, .state),
   (`Lean.Meta.simpExtension,
-    fun v => keyed (scopedKey simpEntryKey) <$> decScopedEntry "simp entry" v decSimpEntry, .state),
-  (`Lean.Meta.defaultInstanceExtension, fun v => keyed (·.instanceName) <$> decDefaultInstance v, .state),
+    scopedEntry "simp entry" simpEntryKey decSimpEntry, .state),
+  (`Lean.Meta.defaultInstanceExtension, ExtDecoder.of (·.instanceName) decDefaultInstance, .state),
   (`Lean.Meta.Ext.extExtension,
-    fun v => keyed (scopedKey (·.declName)) <$> decScopedEntry "ext entry" v decExtTheorem, .state),
+    scopedEntry "ext entry" (·.declName) decExtTheorem, .state),
   (`Lean.Meta.unificationHintExtension,
-    fun v => keyed (scopedKey (·.val)) <$> decScopedEntry "unification hint entry" v decUnifHint, .state),
-  (privName `Lean.Util.CollectAxioms `Lean.exportedAxiomsExt, decPairEntry "Name × Array Name" (decArray "Array Name" · decName), .byKey),
+    scopedEntry "unification hint entry" (·.val) decUnifHint, .state),
+  (privName `Lean.Util.CollectAxioms `Lean.exportedAxiomsExt, pairEntry "Name × Array Name" (decArray "Array Name" · decName), .byKey),
   (`Lean.Meta.eqnOptionsExt,
-    decPairEntry "Name × Array (Name × DataValue)" (decArray "Array (Name × DataValue)" · (decPair "Name × DataValue" · decName decDataValue)), .byKey),
-  (`Lean.Elab.Structural.eqnInfoExt, decPairEntry "Name × Structural.EqnInfo" decStructuralEqnInfo, .byKey),
-  (`Lean.Elab.WF.eqnInfoExt, decPairEntry "Name × WF.EqnInfo" decWFEqnInfo, .byKey),
-  (`Lean.Elab.PartialFixpoint.eqnInfoExt, decPairEntry "Name × PartialFixpoint.EqnInfo" decPFEqnInfo, .byKey),
-  (`eqnsAttribute, decPairEntry "Name × Array Name" (decArray "Array Name" · decName), .state),
-  (`Lean.Meta.congrKindsExt, decPairEntry "Name × Array CongrArgKind" (decArray "Array CongrArgKind" · decCongrArgKind), .byKey),
+    pairEntry "Name × Array (Name × DataValue)" (decArray "Array (Name × DataValue)" · (decPair "Name × DataValue" · decName decDataValue)), .byKey),
+  (`Lean.Elab.Structural.eqnInfoExt, pairEntry "Name × Structural.EqnInfo" decStructuralEqnInfo, .byKey),
+  (`Lean.Elab.WF.eqnInfoExt, pairEntry "Name × WF.EqnInfo" decWFEqnInfo, .byKey),
+  (`Lean.Elab.PartialFixpoint.eqnInfoExt, pairEntry "Name × PartialFixpoint.EqnInfo" decPFEqnInfo, .byKey),
+  (`eqnsAttribute, pairEntry "Name × Array Name" (decArray "Array Name" · decName), .state),
+  (`Lean.Meta.congrKindsExt, pairEntry "Name × Array CongrArgKind" (decArray "Array CongrArgKind" · decCongrArgKind), .byKey),
   (`Lean.Meta.congrExtension,
-    fun v => keyed (scopedKey (·.theoremName)) <$> decScopedEntry "simp congr entry" v decSimpCongrTheorem, .state),
-  (`Lean.versoDocStringExt, fun v => do
+    scopedEntry "simp congr entry" (·.theoremName) decSimpCongrTheorem, .state),
+  (`Lean.versoDocStringExt, ExtDecoder.of (fun (p : Name × Unit) => p.1) fun v => do
       let x ← ctor "Name × VersoDocString" v 0 2 0
-      return (← decName (x.field 0), decEntry ()), .keysOnly)
+      return (← decName (x.field 0), ()), .keysOnly)
 ]
 
 def decoderFor (extName : Name) : Option (UInt64 → DM Keyed) :=
-  (entryDecoders.find? (·.1 == extName)).map (·.2.1)
+  (entryDecoders.find? (·.1 == extName)).map (·.2.1.decode)
+
+def entryKeyOf (extName : Name) : Option (EnvExtensionEntry → Name) :=
+  (entryDecoders.find? (·.1 == extName)).map (·.2.1.keyOf)
 
 def placementOf (extName : Name) : Option Placement :=
   (entryDecoders.find? (·.1 == extName)).map (·.2.2)
