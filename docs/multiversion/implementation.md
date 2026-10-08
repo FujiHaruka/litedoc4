@@ -667,6 +667,15 @@ the two ways on versions that have both.
    input is that toolchain's own core library, so it needs no Mathlib and can run in CI for every
    installed record. **Mechanism 1**: another version, one githash byte changed, mixed writers, a
    wrong "absent" entry — each refused by name, each made to fail once.
+   **Done 2026-10-08**: `extractor/reader/` (built on v4.34.1 only) with records for v4.31.0,
+   v4.32.0, v4.32.2, v4.33.0, v4.33.1 and v4.34.1; `tools/reader-oracle-gate.sh` (`manual`)
+   compares every core constant, its type, ranges and docstring, every stored reducibility entry
+   with its unfolding behaviour, instances and structures: 10 of 10, every item made to fail once
+   (measured → `benchmarks/results/reader-oracle-2026-10-08.txt`). The v4.33.0 hypothesis held:
+   stored reducibility 3 changed meaning. Not covered: `implicitReducible` against `semireducible`
+   on v4.33+ (the three unfolding levels cannot tell them apart and v4.31.0 has no finer one),
+   scoped reducibility entries (core has none), Verso docstring parts (only their names are
+   decoded), and extensions a package registers (the absent lists are core's).
 2. **The `World` seam in `extractor/Extract.lean`**, ported as a seam, not by copying the
    prototype's file (which predates `--identity`, `--no-equations-under` and its `#guard`, and
    carries debugging output). Natively it must reproduce today's IR byte for byte on every row:

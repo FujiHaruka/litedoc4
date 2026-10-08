@@ -36,6 +36,7 @@ pinned-dep-gate.sh           ci      elan, e2e/micro and e2e/micro-dep as a git 
 provenance-gate.sh           ci      nothing; reads the tree
 public-surface-gate.sh       ci      nothing; reads the tree
 purelean-gate.sh             ci      elan and e2e/consumer
+reader-oracle-gate.sh        manual  elan with the reader's toolchain and each writer's in its table; reads their own core libraries, no package
 refusal-gate.sh              ci      elan; the two frozen data files are the oracle
 v8-gc-table-gate.sh          ci      deno, pinned to the version the generated table records; nothing else
 version-gate.sh              ci      nothing; reads the tracked files and this repository's tags
