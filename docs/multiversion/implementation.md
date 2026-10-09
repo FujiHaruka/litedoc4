@@ -1111,6 +1111,69 @@ Choices, with what would undo each:
 - Recommended: a seeded 1% re-print of reused declarations per round, `<checked> of <declared>`
   (≈ 3 s, theoretical, memo §8). Production runs no read-alone arm, so a hole is otherwise uncounted.
 
+##### Levers plan: beating read-alone on M (2026-10-10)
+
+Item 6's session is exact but loses to read-alone on M, on the M1 at full scale and on the runner
+(items 7–9 above). The user asked for other levers, measured on M only (Measurement loop: a lever
+that does not win on M is never run on full Mathlib).
+
+**Approach.** On M the session wins exactly one phase, extraction (18.0 → 1.7–2.6 s), and that
+needs only this round's keys and the previous round's printed output. The patch it pays for
+replaces only the merge (≤ 2.8 s on M) and costs the content hash (19–25 s) and a retained
+version. So the first lever keeps print reuse and drops everything the patch brought. Then come
+levers that cut both arms' fixed cost: decoding proofs only where the run reads them, decoding
+modules in parallel, and read-alone's fixed per-version costs. Every lever keeps the oracle it has
+today, read-alone's IR and link index equal in every file. Arithmetic from Fable's reading of the
+phases, 2026-10-10: patch + hash + carry cannot win on M by construction (theoretical), because
+the merge they replace is 1.2–2.8 s there.
+
+**Probes run 2026-10-10** (measured by a Python walker over all three parts of each module; script
+and output kept outside the tree; one run): whole-module bytes identical past the header, Mathlib
+v4.31.0 → v4.32.0, 912 of 8,153 modules (2.30% of bytes); core across a toolchain-only bump,
+2,484 of 2,485 (v4.33.0 → v4.33.1) and 2,432 of 2,433 (v4.32.0 → v4.32.2); bytes reachable only
+through theorem values, 51.9% of Mathlib's (827 modules) and 16.6% of core's; object order, 0
+forward field references in 3,087,414 objects.
+
+**Win on M** means, against read-alone in the same warm state, 5 alternating cycles:
+- exactness: every IR file and the link index equal to read-alone;
+- time: the per-extra-version wall (rounds 2 and 3) below read-alone's by more than both arms'
+  spread;
+- memory: peak RSS not above read-alone's.
+
+A lever that moves both arms equally wins when it lowers read-alone itself on the same criteria,
+and then becomes part of read-alone. A full-Mathlib run happens only after a win, and only for the
+combination that won.
+
+**The order** (cheap kills first):
+
+1. **E1, print reuse without the patch.** A session flag: decode each version whole, merge as
+   read-alone does, recompute every key fresh at `--jobs`, reuse from the previous round's printed
+   output; no retained objects, hash, carry or newest index. Predicted on M: rounds 2–3 ≈ 30–33 s
+   against 40.8–42.0 s; peak RSS about read-alone's, lower if reused declarations skip the
+   realizations that make extraction the peak (theoretical, phases subtracted). Killed if rounds
+   2–3 do not beat read-alone, or if the peak stays above it.
+2. **E2, proofs decoded only where the run reads them**: a theorem's proof is decoded only when it
+   has no stored axiom list or the list contains `sorryAx`; every other one gets an omitted proof.
+   First count, on the M slice, the theorems the axiom walk would visit (minutes). Predicted: M
+   decode 12–14 → ≈ 6–7 s, peak −0.5 to −0.8 GiB (extrapolated from the oracle's full-closure read,
+   49.7 s with proofs and 25.0 s without, and 7.69 → 3.19 GB of decoded data at full scale). Risk:
+   the equation generator's four `TransparencyMode.all` sites could see an omitted proof silently
+   as not unfoldable; the IR oracle is what can catch it. Mechanism 3 then checks what the run
+   reads, which leaves proof references out.
+3. **E3, Mathlib's module identity across a toolchain-only bump** (v4.33.0 → v4.33.1 slices:
+   two cache fetches, then seconds). Only if Mathlib is near core's 99.97% does whole-module reuse by
+   file digest come back. That lever needs a retained version, so it would answer for patch pairs
+   only.
+4. **E4, parallel decode across modules**: N tasks, bookkeeping in closure order, the writer
+   record taken from one module before spawning so mechanism 1 keeps its refusal. Predicted: M
+   decode 12–14 → ≈ 5.5–6.5 s at 4 threads (extrapolated from decode + hash 57.2 → 25.7 s at full
+   scale).
+5. **E5, read-alone's fixed costs**: the manual-root ask (2.0–3.2 s a version) cached by the
+   toolchain's githash, with the probe check still run per version; the `.ilean` check per module
+   in parallel (1.9–2.2 s). About 4 s a version (theoretical).
+
+Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
+
 ### 6. CI, hosting and the full set
 
 - A workflow on `ubuntu-latest` that restores the store, builds, saves the store, and deploys to
