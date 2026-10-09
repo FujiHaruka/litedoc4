@@ -1,0 +1,111 @@
+L through the reader (docs/multiversion/implementation.md, Item 6 plan, step 9), predicted before it ran
+======================================================================================================
+
+Written 2026-10-10, before .github/workflows/mv-l.yml ran this arm. Every figure here is (theoretical)
+unless labelled otherwise: measured parts composed per row, unverified until the run. The run's own log
+is a separate file; this one is not edited after the run.
+
+What runs: ubuntu-latest (4 vCPU = 2 cores, 16 GB + 3 GB swap), benchmarks/tools/mv-l-run.sh. The root
+is a clone of Mathlib at v4.34.1; `litedoc4 build --root <clone> --lib Mathlib --versions
+v4.32.2,v4.33.0,v4.33.1,v4.34.1 --jobs 4`, litedoc4.toml `no_equations_under = ["Mathlib.Tactic",
+"Mathlib.Meta"]`. litedoc4 built on e2e/micro's v4.31.0; the reader on v4.34.1 at -O3; the native
+extractor at -O0 (unchanged since step 4; the reuse seam passes nothing natively).
+  (a) empty --out, --reader-check: v4.34.1 extracted natively, then one reader session reads the
+      three older ones (round 1 built whole, rounds 2 and 3 patched), check-patch and check-keys on.
+  (b) a copy of (a)'s --out, `litedoc4 store remove` of the three older entries, --reader-alone.
+  compare: record.json and entry.pack.gz of the three, (a) against (b), byte for byte.
+
+Sources
+  S4   benchmarks/results/mv-l-step4-2026-10-07.txt (same runner type, native, one run)
+  M    benchmarks/results/mv-m-session-2026-10-10.txt (M1, -O3 reader, --jobs 1, one run)
+  LX   benchmarks/results/reader-linux-2026-10-10.txt (runner, the reader gates on S)
+  RN   benchmarks/results/mathlib-build-host-runner-2026-10-05.txt (runner, prototype hybrid, v4.31.0)
+  PL   benchmarks/results/mathlib-environment-patch-2026-10-05.txt (M1, prototype session, all Mathlib)
+  KP   benchmarks/results/mathlib-key-and-equation-profile-2026-10-06.txt; RM mv-l-render-memory-2026-10-08.txt
+Scale factors (each measured at both ends; the factor itself is the assumption)
+  constants  767,553 decoded (PL, v4.32.0) / 215,587 (M) = 3.56;  modules 10,583 (RN) / 2,156 (M) = 4.91.
+             decode, hash, assembly and check-patch take 3.56-4.91.
+  keys       566,246 candidates (KP, v4.32.0) / 39,888-40,427 (M) = 14.0-14.2: key pass, check-keys.
+  M1->runner 1.2-1.6 for the reader's single-threaded work: a session round under `build` on S, LX
+             12.3-14.8 s against the M1's 9.13-10.38 s (implementation.md step 6). Extraction is not
+             scaled from M (M ran --jobs 1; here --jobs 4): it is RN's 4-job hybrid extraction, 484.9 s,
+             x 0.91 for the D8 equations rule (PL's successor, M1 220.2/241.2 s) = ~440 s, down to
+             M's 17.27 s x 14.49 declarations = 250 s (M1, 1 job) as the low end: 250-450 s.
+             M1 reader numbers before 2026-10-09 are -O0 and are not used.
+  Mathlib    8,311 -> 8,529 `.lean` files under Mathlib/ at v4.33.1 -> v4.34.1 (measured, GitHub trees
+             API, 2026-10-10): +2.6%, applied to v4.34.1's native extraction and render.
+
+(1) Native v4.34.1 in (a), per phase (S4: v4.32.2-v4.33.1, measured)
+  extractor 21-26 s; checkout ~1 s; cache 52-58 s; lake 4-9 s; put 26-29 s (S4 25.4-27.6 x 1.026)
+  extract   540-700 s (S4 556-594 x 1.026 = 571-609; a new Lean underneath, not measured: widened)
+  peak RSS of the extraction 9.1-10.3 GiB incl. file pages (S4 9.10-10.03), anon ~3.4 GiB (RN 3.38)
+  Falsified: extract outside 540-700 s.
+
+(2) Each reader round of (a), on the runner (s; check modes on)
+  phase                 basis (M, M1 ms)              r1 built whole  r2 patched     r3 patched
+                                                      v4.32.2         (the rename)   v4.33.0->v4.33.1
+  decode + hash         30.7 / 33.1 / 39.1 s x3.56-4.91 x1.2-1.6       131-241   141-260   167-307
+  closure, checks, patch, finalize  5.5 / 5.8 / 8.9 s, same factors      23-43     25-45     38-70
+  check-patch           0.93 / 0.96 / 2.31 s, same factors                 4-7       4-8      10-18
+  key pass              5.6 / 8.1 / 2.4 s x14.2 x1.2-1.6                  96-128   138-185     41-55
+  check-keys            5.9 / 7.2 / 6.7 s x14.2 x1.2-1.6                 101-134   123-164   114-152
+  extract               250-450 s; r2 x 0.15-0.38 (M's 2.6/17.3; PL's      250-450    40-170     30-60
+                        84.3/220.2); r3 x 0.10 with RN's writeIR x2.1 as floor
+  round                                                                605-1,003  471-832   400-662
+  Three rounds 1,476-2,497 s (25-42 min). The check modes cost 356-483 s of it (6-8 min, ~20%).
+  Patch counts: r2 0 constants shared (M: no pointer survives the v4.33.0 rename); r3 >= 99.9% of
+  decoded constants shared and every key carried (M: 215,570 of 215,587, 40,427 carried). Reused
+  declarations r2 80-96% (PL's minor pair 82.4%, M 95.9%), r3 ~100%.
+  Falsified per cell when the run's figure is more than 25% outside the range.
+
+(3) Read-alone (b), per version (s): manual root 2.4-5, decode 48-98, closure/checks/merge/finalize
+  19-56, newest import 6-30 (M 1.0-1.2 s x4.9; PL 13.0 + 6.9 s), extract 250-450.
+  Per version 325-634 s (RN's prototype: 658 s, decode 121.8 + assembly 47.0 + extraction 484.9,
+  measured); three 975-1,900 s (16-32 min).
+
+(4) Session against read-alone. r1 is predicted slower than alone by 250-420 s (the hash, the key
+  pass and the checks, less alone's newest import and manual-root ask), as on M. r3 without its
+  check phases is predicted at 276-492 s against alone's 325-634 s for v4.33.1: on L, unlike M, the
+  patch pair is where the session is predicted to break even or win, because reuse saves
+  extraction (x14.5 from M) while the hash grows only x3.6-4.9.
+  This is the prediction most in the plan's favour; it rests on extraction scaling by declarations.
+  Falsified: r3 minus check-patch and check-keys >= alone's `v4.33.1 read` phase.
+
+(5) Memory. Peaks are sequential (the session stops in `finally` before the render), not additive.
+  Naive linear scaling of M's session peak (4,840 MiB M1 RSS) gives 17.2-23.8 GiB, which does not fit.
+  Not taken: M's RSS counts the newest oleans' file pages, and PL ran the same five-round session over
+  all of Mathlib at a peak footprint of 10.08 GB (9.39 GiB) on the M1, without check modes.
+  Session anon peak 9.5-12.5 GiB (RN's one-version hybrid anon 7.34 GiB x the session's 1.3-1.7 over
+  read-alone on M; PL's 9.39 GiB plus the check modes' second state); RSS incl. file pages up to what
+  the machine holds (~13-15 GiB). Predicted to fit 16 GB + 3 GB swap, with 1.5-5 GiB MemAvailable at
+  the minimum: the upper end leaves about 2 GiB. If it does not, the kernel kills the reader, the
+  session's stdout ends, litedoc4 says `the reader session exited <code> while reading version ...`
+  and (a) exits 1; (b) still runs, since v4.34.1 is put before the session starts, and the end step
+  writes the kernel's OOM lines to oom.txt. (a) can also end at its 130-min step limit with the
+  session mid-round; (b) then kills that reader before it starts.
+  Read-alone (b) anon 6-8 GiB (RN 7.34). Render of four versions 5.4 GiB peak (RM: 3.67 + 0.585 x 3,
+  extrapolated; litedoc4 links mimalloc 2.2.3 through v4.31.0).
+  Falsified: session anon peak outside 9.5-12.5 GiB, or any OOM line.
+
+(6) Whole arms and the job (min)
+  setup 3-5 (litedoc4 76 s in LX; four shallow tag fetches, not measured)
+  (a) native 11-14 + reader build 1-2 + newest import 0.1-0.5 + 3 x (toolchain 11-12 s, checkout,
+      cache, lake, put: 93-109 s) 5-5.5 + rounds 25-42 + render 6-7 (S4 94 s/version x 4 x ~1.01)
+      = 47-71 min, under the step's 130-min limit
+  (b) copy and three removals < 0.5 + newest checkout/cache/lake 1 + 3 x (57-68 s + 325-634 s +
+      26-29 s) 20-37 + render ~0.2 (0 of 4: every entry's bytes, hence its ledger key, unchanged)
+      = 22-39 min
+  job 73-118 min (1.2-2.0 h) against the 240-min timeout. Falsified: (a) or (b) > 25% outside.
+  Free disk: minimum 48-58 GiB, from 74 at S4's start (S4's minimum 65 with three toolchains and
+  one workspace; here four toolchains, 2.8-3.0 GB each, and two Mathlib workspaces at once during
+  the session, 7.3-7.7 GB each (RN)). Falsified below 44.
+
+(7) Exact counts (compare fails the step unless all hold, except (a)'s rendered line, printed only)
+  entries equal 3 of 3 (record.json and entry.pack.gz), MV-L COMPARE 6 of 6
+  (a) versions extracted: 4 of 4 (v4.32.2, v4.33.0, v4.33.1, v4.34.1), through the reader: 3
+      (v4.32.2, v4.33.0, v4.33.1); rounds `built whole`, `patched from v4.32.2`, `patched from
+      v4.33.0`; `session stopped after 3 request(s)`; check-patch 0 modules on 3 of 3 rounds;
+      check-keys 0 keys on 3 of 3; versions rendered: 4 of 4
+  (b) versions extracted: 3 of 4 (v4.32.2, v4.33.0, v4.33.1), through the reader: 3 (same);
+      3 versions `through the reader alone`, 0 `session` lines; versions rendered: 0 of 4 ()
+  Any of these failing is a defect, not a miss.
