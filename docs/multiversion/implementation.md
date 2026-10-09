@@ -771,7 +771,7 @@ the two ways on versions that have both.
    `.ilean.hash` required at v4.31.0, v4.32.2, v4.33.0, v4.34.0-rc1 and v4.34.1, and `packCache`
    packs a module only when every required file exists, so no archive lacks one (read from the
    source; no fetch was run).
-   **`tools/mv-reader-gate.sh`** (`manual`: the reader has never run on Linux) generates S as six
+   **`tools/mv-reader-gate.sh`** (`manual`: the reader had never run on Linux; it did on 2026-10-10, item 6 step 8) generates S as six
    versions in its own work area (v6 is v5 on v4.34.1; `tools/mv-s-gate.sh` keeps its five) and
    answers 12 of 12, every item made to fail once (measured →
    `benchmarks/results/mv-reader-2026-10-08.txt`): a native store as the oracle (`5 of 5`, then
@@ -1049,6 +1049,10 @@ Choices, with what would undo each:
    correctness); the patch line's by-name constant counts are 187 short of the decoded ones.
 8. **Linux**: both reader gates once on `ubuntu-latest`, where the reader has never run (item 5);
    otherwise an L failure cannot be told from a patch defect.
+   **Done 2026-10-10** (measured → `benchmarks/results/reader-linux-2026-10-10.txt`, one run on a
+   temporary branch): `reader-oracle` 10 of 10, `reader-hybrid` 31 of 31, `mv-reader` 14 of 14 on
+   ubuntu-latest (x86_64, 4 CPUs, 16 GB), no setup fix and nothing Linux-only; about 30 min with
+   six toolchains. The oracle gate also needs v4.32.0, a writer with a record but no toolchain row.
 9. **L**, prediction committed first. `mv-l.yml`: `v4.32.2,v4.33.0,v4.33.1,v4.34.1` from nothing
    (v4.34.1 natively), (a) the session, then (b) read-alone from a store copy holding only v4.34.1;
    entries equal, 3 of 3; check mode once on (a), its time stated. ≈ 1.5–2 h with the render

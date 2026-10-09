@@ -29,7 +29,7 @@ lean-versions-gate.sh        ci      one IR tree per toolchain in lean-toolchain
 libc-shim-gate.sh            ci      the *system* compiler and its real headers; the inverse of the build
 md-memory-gate.sh            ci      the system compiler with AddressSanitizer over the C Lake links in; the leak half needs a platform LeakSanitizer runs on
 md-oracle-gate.sh            ci      nothing; reads fixtures/md/ and test/
-mv-reader-gate.sh            manual  elan and e2e/micro; builds tools/mv-s/ as six versions in its own work directory (v6 on the reader's toolchain), filled natively and through the .olean reader, which has never run on Linux, so not ci before one dispatched run there
+mv-reader-gate.sh            manual  elan and e2e/micro; builds tools/mv-s/ as six versions in its own work directory (v6 on the reader's toolchain), filled natively and through the .olean reader; ran once on ubuntu-latest (benchmarks/results/reader-linux-2026-10-10.txt) and is wired into no workflow
 mv-s-gate.sh                 ci      elan and e2e/micro (the sample's Lean); builds tools/mv-s/ as five versions in its own work directory (v5 on a second toolchain, which `build --versions` installs through elan)
 mv-pages-gate.sh             ci      deno, a headless Chrome, and the two renders mv-s-gate.sh --keep leaves; e2e/micro-expected/build as the frozen pages; python3 to decode the search indexes
 onemod-gate.sh               ci      a build's marker and extractor log (e2e-micro calls it)

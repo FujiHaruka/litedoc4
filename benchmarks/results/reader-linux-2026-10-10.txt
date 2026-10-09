@@ -1,0 +1,132 @@
+The .olean reader on Linux: the three reader gates once on ubuntu-latest
+=========================================================================
+
+A run, not a standing gate. One run (2026-10-10). Item 6 step 8 of
+docs/multiversion/implementation.md: the reader had never run on Linux, so an L failure could not
+be told from a patch defect.
+
+CONDITIONS
+----------
+run         https://github.com/FujiHaruka/litedoc4/actions/runs/37958755679 (conclusion success),
+            on a temporary branch reader-linux-tmp at 6821891 = multi-version de4a7f4 plus the
+            workflow below; the branch was deleted after the run
+runner      image ubuntu24 20261004.327.1, Linux 6.17.0-1022-azure x86_64, AMD EPYC 7763,
+            4 CPUs, 16 GB (MemTotal 16,373,452 kB); sha256 calibrator (1 GiB) 0.928 / 0.881 /
+            0.946 s; free disk 86 GB at the start, 66 GB at the end
+toolchains  every row of tools/lean-toolchains.txt plus every writer the reader has a record for
+            (Writers.lean): the oracle gate also needs leanprover/lean4:v4.32.0, which is in no
+            other list
+work areas  moved off /private/tmp (READER_ORACLE_WORK, READER_HYBRID_WORK, --out)
+
+ANSWER
+------
+  gate                  items      summary line                                          step wall
+  reader-oracle-gate    10 of 10   READER ORACLE GATE: ok (10 of 10)                     7 min 16 s
+  reader-hybrid-gate    31 of 31   READER HYBRID GATE: ok (31 of 31)                     6 min 49 s
+  mv-reader-gate        14 of 14   MV READER GATE: ok, 14 of 14 items ran and passed     13 min 17 s
+
+- oracle: the reader decodes as Lean does on all 6 writer versions (about 47-50 s each); 4.34.1
+  gave 475,787 lines and 208,210 constants; all 4 refusals refused by name.
+- hybrid: read-4.31.0 / 4.32.2 / 4.33.0 / 4.33.1 and self-4.34.1 equal native in every IR file
+  and the link index; 0 dangling references, 0 .ilean disagreements; check-patch and check-keys
+  0 on every round; the made-to-fail items (perturbed patch, field-function trigger, key without
+  SCX, presence flip) failed as designed; 4 flag refusals and 4 corrupted-copy refusals as expected.
+- mv-reader: reader-equals-native v1-v5 equal; patched-equals-alone and check-keys 5 of 5;
+  wall per build (s): native-five 49, native-six 14, reader-empty 189, reader-alone 151,
+  reader-check 189, reader-again 0, reader-remove-one 20, reader-force 18,
+  reader-identity-reader 81, reader-identity-config 83; each version read 12.3-14.8 s.
+- setup: elan 1 s, toolchains 68 s, litedoc4 76 s; the job about 30 min. No setup fix was needed
+  and nothing failed only on Linux.
+
+THE WORKFLOW (to recreate the run on a branch of that name)
+-----------------------------------------------------------
+name: reader gates on Linux
+
+on:
+  push:
+    branches: [reader-linux-tmp]
+
+permissions:
+  contents: read
+
+jobs:
+  reader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      LOGS: /home/runner/reader-linux/logs
+      LAKE: /home/runner/.elan/bin/lake
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: record the machine
+        run: |
+          mkdir -p "$LOGS"
+          benchmarks/tools/record-runner.sh "$LOGS/runner-start.txt"
+          cat "$LOGS/runner-start.txt"
+          df -h / /mnt 2>/dev/null || df -h /
+          free -m
+
+      - name: every row of lean-toolchains.txt and every writer the reader has a record for
+        run: |
+          set -euo pipefail
+          {
+            awk '{ sub(/#.*/, "") } NF { print $1 }' tools/lean-toolchains.txt
+            sed -n 's/.*leanVersion := "\([0-9.]*\)".*/leanprover\/lean4:v\1/p' extractor/reader/OleanReader/Writers.lean
+          } | sort -u > "$LOGS/toolchains.txt"
+          cat "$LOGS/toolchains.txt"
+          while read -r tc; do elan toolchain install "$tc"; done < "$LOGS/toolchains.txt"
+          ls ~/.elan/toolchains
+          df -h / /mnt 2>/dev/null || df -h /
+
+      - name: litedoc4
+        id: build
+        run: tools/build-lean-exe.sh --toolchain-from e2e/micro
+
+      - name: reader-oracle-gate
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          READER_ORACLE_WORK: /home/runner/reader-linux/reader-oracle
+        run: tools/reader-oracle-gate.sh --keep > "$LOGS/reader-oracle-gate.txt" 2>&1
+
+      - name: reader-hybrid-gate
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          READER_HYBRID_WORK: /home/runner/reader-linux/reader-hybrid
+        run: tools/reader-hybrid-gate.sh --keep > "$LOGS/reader-hybrid-gate.txt" 2>&1
+
+      - name: mv-reader-gate
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: tools/mv-reader-gate.sh --out /home/runner/reader-linux/mv-reader --keep > "$LOGS/mv-reader-gate.txt" 2>&1
+
+      - name: the gates' output
+        if: always()
+        run: |
+          for f in reader-oracle-gate reader-hybrid-gate mv-reader-gate; do
+            echo "##### $f"
+            if [ -f "$LOGS/$f.txt" ]; then cat "$LOGS/$f.txt"; else echo "(no output)"; fi
+          done
+          df -h / /mnt 2>/dev/null || df -h /
+          free -m
+
+      - name: upload the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reader-linux
+          retention-days: 14
+          path: |
+            /home/runner/reader-linux/logs
+            /home/runner/reader-linux/mv-reader/logs
+            /home/runner/reader-linux/mv-reader/times.txt
+            /home/runner/reader-linux/reader-hybrid/**/*.txt
+            /home/runner/reader-linux/reader-hybrid/**/*.log
+            /home/runner/reader-linux/reader-oracle/**/*.log
+            /home/runner/reader-linux/reader-oracle/**/*.err
+            /home/runner/reader-linux/reader-oracle/*.txt
