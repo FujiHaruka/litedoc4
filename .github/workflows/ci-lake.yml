@@ -34,7 +34,6 @@ on:
       - "tools/refusals-on-disk.txt"
       - "benchmarks/tools/check-store-render.py"
       - "tools/lib/common.sh"
-      - "tools/leanc-flags.txt"
       - "tools/libc-shim-gate.sh"
       - ".github/workflows/ci-lake.yml"
   pull_request:
@@ -60,7 +59,6 @@ on:
       - "tools/refusals-on-disk.txt"
       - "benchmarks/tools/check-store-render.py"
       - "tools/lib/common.sh"
-      - "tools/leanc-flags.txt"
       - "tools/libc-shim-gate.sh"
       - ".github/workflows/ci-lake.yml"
   workflow_dispatch:

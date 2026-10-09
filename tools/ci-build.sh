@@ -171,13 +171,12 @@ t="$(now)"
 # "It exists" is not "it is the one this checkout describes": run by hand,
 # nothing hashes `Extract.lean` into the path, and the failure is silent — every
 # number below would describe an extractor nobody is looking at. So the source
-# and the flags it is compiled with decide, not the presence of a file; `-nt`
-# rather than an unconditional rebuild because `extractor/build.sh` is ~16 s.
+# decides, not the presence of a file; `-nt` rather than an unconditional
+# rebuild because `extractor/build.sh` is ~16 s.
 if [ "$VERSIONED" = 1 ]; then
   echo "skipped: --versions builds each version's extractor on the Lean it pins"
   record extractor "$(elapsed "$t" "$(now)")" "skipped (--versions)"
-elif [ -x "$EXTRACTOR_BIN" ] && [ ! "$REPO/extractor/Extract.lean" -nt "$EXTRACTOR_BIN" ] &&
-     [ ! "$REPO/tools/leanc-flags.txt" -nt "$EXTRACTOR_BIN" ]; then
+elif [ -x "$EXTRACTOR_BIN" ] && [ ! "$REPO/extractor/Extract.lean" -nt "$EXTRACTOR_BIN" ]; then
   echo "cached: $EXTRACTOR_BIN"
   record extractor "$(elapsed "$t" "$(now)")" "cached"
 elif [ "$EXTRACTOR_BIN" = "$REPO/extractor/build/extract" ]; then

@@ -1,0 +1,624 @@
+# Native extractor -O0 (leanc -rdynamic) vs -O3 -DNDEBUG (tools/leanc-flags.txt): full extraction of the target
+# /Users/haruka/dev/lean-projects @ 651dc574 (InformationTheory, --lib InformationTheory = 419 modules, 6008 loaded), Lean v4.31.0, Mathlib v4.31.0.
+# litedoc4 7b3c4f2. Apple M1 16 GB, macOS 26.6.2 (25G83). Commands: see o3full-compile.sh / o3full-series.sh below.
+
+## 1. extractor build (o3full-compile.sh)
+2026年 10月10日 土曜日 00時00分27秒 JST
+Darwin 25.6.0 arm64
+ProductName:		macOS ProductVersion:		26.6.2 BuildVersion:		25G83 
+Apple M1
+17179869184
+leanprover/lean4:v4.31.0
+litedoc4 HEAD 7b3c4f243a695164b0d7b9415d5b75edd0e072d7
+5b7b99746fcc96e36ea097b268d176fcbd75367ca416d804cb1f84f1659bfbdc  /Users/haruka/dev/lean-doc/extractor/Extract.lean
+flags file: -O3 -DNDEBUG
+-I /Users/haruka/.elan/toolchains/leanprover--lean4---v4.31.0/include -fstack-clash-protection -fdata-sections -ffunction-sections -fvisibility=hidden
+=== lean -c run 1
+       13.47 real        10.48 user         1.09 sys
+          1546665984  maximum resident set size
+               27588  page faults
+=== lean -c run 2
+       10.51 real        10.39 user         0.86 sys
+          1535311872  maximum resident set size
+                 158  page faults
+=== lean -c run 3
+       10.45 real        10.37 user         0.84 sys
+          1539391488  maximum resident set size
+                 126  page faults
+=== leanc O0 run 1
+        3.15 real         1.85 user         0.64 sys
+           906985472  maximum resident set size
+               28142  page faults
+=== leanc O3 run 1
+       15.00 real        14.53 user         0.62 sys
+           905068544  maximum resident set size
+               11158  page faults
+=== leanc O0 run 2
+        2.39 real         1.89 user         0.56 sys
+           906919936  maximum resident set size
+               10602  page faults
+=== leanc O3 run 2
+       14.96 real        14.58 user         0.61 sys
+           906592256  maximum resident set size
+               10612  page faults
+=== leanc O0 run 3
+        2.17 real         1.86 user         0.56 sys
+           905084928  maximum resident set size
+               10601  page faults
+=== leanc O3 run 3
+       15.10 real        14.69 user         0.61 sys
+           907214848  maximum resident set size
+               10613  page faults
+-rwxr-xr-x@ 1 haruka  wheel  171600496 10月 10 00:01 /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/extract-O0
+-rwxr-xr-x@ 1 haruka  wheel  171737664 10月 10 00:01 /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/extract-O3
+0199e2839e5eef11be1dbdc14ef3ef6db895b642307d3278d6682381e5b64fb2  /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/extract-O0
+740d670ea6a0df2e7027f652b66d9a1b67f442025dcdad41742b8bbe52c176ff  /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/extract-O3
+
+## 2. first runs of the session, before the series (partly cold; out dirs deleted)
+=== sample O0 (jobs 4)
+serve   ready 11670908458 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 18.1174 s
+build   full in 26.0423 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/sample-O0/site
+       26.14 real        21.44 user         3.01 sys
+          3514695680  maximum resident set size
+              105097  page faults
+=== sample O3 (jobs 4)
+serve   ready 3879754833 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 8.6943 s
+build   full in 17.8384 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/sample-O3/site
+       17.94 real        19.65 user         2.19 sys
+          3525263360  maximum resident set size
+               17843  page faults
+=== sample-series pair (jobs 4, warm; script check)
+=== run j4-O0-1
+serve   ready 2287967000 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 8.1067 s
+linkIndex            1.217s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              3.211s  considered 8496, produced 4580, blacklisted 3916, failed 0
+total                5.013s
+       14.21 real        21.56 user         2.05 sys
+                 534  page faults
+=== run j4-O3-1
+serve   ready 2288366625 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 6.9299 s
+linkIndex            0.712s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              2.773s  considered 8496, produced 4580, blacklisted 3916, failed 0
+total                3.833s
+       13.16 real        19.46 user         1.99 sys
+                2027  page faults
+pair j4-1: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+
+## 3. series (o3full-series.sh 6 "4 1"): runs alternate ABBA within each jobs setting
+## conditions
+2026年 10月10日 土曜日 00時05分47秒 JST
+Darwin 25.6.0 arm64
+ProductName:		macOS ProductVersion:		26.6.2 BuildVersion:		25G83 
+Apple M1
+17179869184
+8
+target 651dc5744259771c9d4f0f02088987fd5a140df7 leanprover/lean4:v4.31.0
+?? docs/doc-gen-bench/
+litedoc4 7b3c4f243a695164b0d7b9415d5b75edd0e072d7 bin 3afa13f7ca266806
+0199e2839e5eef11be1dbdc14ef3ef6db895b642307d3278d6682381e5b64fb2  /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/extract-O0
+740d670ea6a0df2e7027f652b66d9a1b67f442025dcdad41742b8bbe52c176ff  /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/extract-O3
+/dev/disk3s5   228Gi   172Gi    32Gi    85%    2.7M  337M    1%   /System/Volumes/Data
+Processes: 1159 total, 3 running, 1156 sleeping, 4554 threads 
+2026/10/10 00:05:49
+Load Avg: 2.04, 2.05, 2.22 
+CPU usage: 19.15% user, 12.39% sys, 68.45% idle 
+SharedLibs: 679M resident, 133M data, 93M linkedit.
+MemRegions: 457557 total, 2743M resident, 191M private, 910M shared.
+PhysMem: 15G used (2045M wired, 4108M compressor), 724M unused.
+VM: 500T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.
+Networks: packets: 4760473/3592M in, 1355142/598M out.
+Disks: 37024526/663G read, 5194475/117G written.
+
+PID    COMMAND          %CPU TIME     #TH   #WQ #PORTS MEM   PURG  CMPRS PGRP  PPID  STATE    BOOSTS      %CPU_ME %CPU_OTHRS UID FAULTS   COW    MSGSENT   MSGRECV   SYSBSD    SYSMACH   CSW       PAGEINS IDLEW    POWER INSTRS CYCLES JETPRI USER                  #MREGS RPRVT VPRVT VSIZE KPRVT KSHRD
+651    Numbers          0.0  03:35.80 6     4   656    571M  0B    566M  651   1     sleeping  0[3869]    0.00000 0.00000    501 1065950  723    1181306   184486    2621013   2308375   986643    21612   834      0.0   0      0      100    seikahida             N/A    N/A   N/A   N/A   N/A   N/A  
+435    WindowServer     0.0  64:27.68 14    3   8988   536M  0B    251M  435   1     sleeping *0[1]       0.00000 0.00000    88  5941378  6076   48608105  28702334  62608880  148727836 34255788  5470    159100   0.0   0      0      170    _windowserver         N/A    N/A   N/A   N/A   N/A   N/A  
+1063   Google Chrome He 0.0  11:54.30 21    1   184    448M  0B    244M  1011  1011  sleeping *0[316542]  0.00000 0.00000    501 13641761 5849   1875196   1468164   3951559   5352638   2501622   171     3095     0.0   0      0      180    seikahida             N/A    N/A   N/A   N/A   N/A   N/A  
+procs before:
+=== run j4-O0-1
+rc=0
+serve   ready 2252571292 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 7.9367 s
+build   full in 13.8934 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O0-1/site
+linkIndex            1.205s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              3.085s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.522s serialize + 0.003s hash + 0.043s write
+total                4.883s
+       13.99 real        21.32 user         1.96 sys
+          3525984256  maximum resident set size
+                 557  page faults
+=== run j4-O3-1
+rc=0
+serve   ready 2294066625 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 6.9593 s
+build   full in 12.9812 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O3-1/site
+linkIndex            0.699s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              2.806s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.280s serialize + 0.003s hash + 0.042s write
+total                3.849s
+       13.08 real        19.49 user         2.01 sys
+          3526246400  maximum resident set size
+                1037  page faults
+pair j4-1: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j4-O3-2
+rc=0
+serve   ready 2295558916 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 7.0583 s
+build   full in 13.1121 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O3-2/site
+linkIndex            0.721s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              2.898s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.281s serialize + 0.003s hash + 0.042s write
+total                3.962s
+       13.21 real        19.87 user         1.98 sys
+          3525050368  maximum resident set size
+                 565  page faults
+=== run j4-O0-2
+rc=0
+serve   ready 2307914500 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 8.0392 s
+build   full in 14.2150 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O0-2/site
+linkIndex            1.225s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              3.106s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.520s serialize + 0.003s hash + 0.042s write
+total                4.926s
+       14.32 real        21.17 user         2.18 sys
+          3528048640  maximum resident set size
+                3929  page faults
+pair j4-2: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j4-O0-3
+rc=0
+serve   ready 2312517750 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 8.1018 s
+build   full in 14.1754 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O0-3/site
+linkIndex            1.233s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              3.121s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.518s serialize + 0.003s hash + 0.038s write
+total                4.939s
+       14.28 real        21.28 user         2.16 sys
+          3525132288  maximum resident set size
+                 728  page faults
+=== run j4-O3-3
+rc=0
+serve   ready 2324835250 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 7.1343 s
+build   full in 13.3240 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O3-3/site
+linkIndex            0.716s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              2.933s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.283s serialize + 0.003s hash + 0.041s write
+total                3.995s
+       13.42 real        19.73 user         2.24 sys
+          3528310784  maximum resident set size
+                3933  page faults
+pair j4-3: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j4-O3-4
+rc=0
+serve   ready 2279668125 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 6.9890 s
+build   full in 13.0032 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O3-4/site
+linkIndex            0.707s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              2.850s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.282s serialize + 0.003s hash + 0.041s write
+total                3.901s
+       13.10 real        19.65 user         1.99 sys
+          3526230016  maximum resident set size
+                 750  page faults
+=== run j4-O0-4
+rc=0
+serve   ready 2315442584 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 7.9750 s
+build   full in 14.1625 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O0-4/site
+linkIndex            1.228s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              3.031s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.519s serialize + 0.003s hash + 0.041s write
+total                4.851s
+       14.26 real        21.14 user         2.04 sys
+          3526656000  maximum resident set size
+                3906  page faults
+pair j4-4: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j4-O0-5
+rc=0
+serve   ready 2276345459 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 8.0887 s
+build   full in 14.0743 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O0-5/site
+linkIndex            1.238s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              3.180s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.517s serialize + 0.003s hash + 0.038s write
+total                5.003s
+       14.18 real        21.42 user         2.14 sys
+          3525263360  maximum resident set size
+                 733  page faults
+=== run j4-O3-5
+rc=0
+serve   ready 2307039583 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 7.0700 s
+build   full in 13.2645 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O3-5/site
+linkIndex            0.713s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              2.882s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.282s serialize + 0.003s hash + 0.041s write
+total                3.941s
+       13.36 real        19.53 user         2.20 sys
+          3529490432  maximum resident set size
+                3946  page faults
+pair j4-5: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j4-O3-6
+rc=0
+serve   ready 2297123875 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 6.9475 s
+build   full in 12.9739 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O3-6/site
+linkIndex            0.715s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              2.783s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.281s serialize + 0.003s hash + 0.045s write
+total                3.844s
+       13.07 real        19.49 user         1.98 sys
+          3525754880  maximum resident set size
+                 747  page faults
+=== run j4-O0-6
+rc=0
+serve   ready 2304690958 6008 419 (4 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 7.9523 s
+build   full in 14.1366 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j4-O0-6/site
+linkIndex            1.237s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              3.015s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.519s serialize + 0.003s hash + 0.040s write
+total                4.842s
+       14.24 real        21.10 user         2.02 sys
+          3528015872  maximum resident set size
+                3929  page faults
+pair j4-6: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j1-O0-1
+rc=0
+serve   ready 2277675208 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 14.9254 s
+build   full in 20.9111 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O0-1/site
+linkIndex            1.226s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              10.031s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.514s serialize + 0.003s hash + 0.038s write
+total                11.838s
+       21.01 real        19.27 user         1.89 sys
+          3516579840  maximum resident set size
+                 658  page faults
+=== run j1-O3-1
+rc=0
+serve   ready 2336308959 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 13.3581 s
+build   full in 19.5543 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O3-1/site
+linkIndex            0.706s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              9.120s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.280s serialize + 0.003s hash + 0.045s write
+total                10.177s
+       19.65 real        17.57 user         1.97 sys
+          3516006400  maximum resident set size
+                4275  page faults
+pair j1-1: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j1-O3-2
+rc=0
+serve   ready 2343457958 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 13.3341 s
+build   full in 19.3399 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O3-2/site
+linkIndex            0.712s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              9.080s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.279s serialize + 0.003s hash + 0.040s write
+total                10.133s
+       19.44 real        17.59 user         1.94 sys
+          3516039168  maximum resident set size
+                 941  page faults
+=== run j1-O0-2
+rc=0
+serve   ready 2295660708 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 14.9886 s
+build   full in 21.1554 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O0-2/site
+linkIndex            1.236s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              10.059s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.514s serialize + 0.003s hash + 0.043s write
+total                11.886s
+       21.26 real        19.27 user         1.95 sys
+          3515662336  maximum resident set size
+                3915  page faults
+pair j1-2: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j1-O0-3
+rc=0
+serve   ready 2307557666 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 14.8723 s
+build   full in 20.8713 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O0-3/site
+linkIndex            1.227s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              9.945s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.515s serialize + 0.003s hash + 0.040s write
+total                11.756s
+       20.98 real        19.20 user         1.93 sys
+          3516153856  maximum resident set size
+                 723  page faults
+=== run j1-O3-3
+rc=0
+serve   ready 2284410708 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 13.2289 s
+build   full in 19.3102 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O3-3/site
+linkIndex            0.706s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              9.093s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.279s serialize + 0.003s hash + 0.042s write
+total                10.141s
+       19.41 real        17.56 user         1.94 sys
+          3515957248  maximum resident set size
+                2015  page faults
+pair j1-3: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j1-O3-4
+rc=0
+serve   ready 2282016250 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 13.2510 s
+build   full in 19.2294 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O3-4/site
+linkIndex            0.713s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              9.113s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.277s serialize + 0.003s hash + 0.039s write
+total                10.162s
+       19.33 real        17.59 user         1.90 sys
+          3516350464  maximum resident set size
+                 546  page faults
+=== run j1-O0-4
+rc=0
+serve   ready 2287469167 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 14.9336 s
+build   full in 20.9962 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O0-4/site
+linkIndex            1.225s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              10.025s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.515s serialize + 0.003s hash + 0.045s write
+total                11.839s
+       21.10 real        19.25 user         1.94 sys
+          3516022784  maximum resident set size
+                2031  page faults
+pair j1-4: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j1-O0-5
+rc=0
+serve   ready 2280004541 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 14.9640 s
+build   full in 20.9594 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O0-5/site
+linkIndex            1.305s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              9.981s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.517s serialize + 0.003s hash + 0.044s write
+total                11.876s
+       21.08 real        19.23 user         1.95 sys
+          3515990016  maximum resident set size
+                 723  page faults
+=== run j1-O3-5
+rc=0
+serve   ready 2366767417 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 13.3293 s
+build   full in 19.3764 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O3-5/site
+linkIndex            0.702s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              9.117s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.277s serialize + 0.003s hash + 0.039s write
+total                10.156s
+       19.48 real        17.59 user         1.94 sys
+          3515564032  maximum resident set size
+                1638  page faults
+pair j1-5: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+=== run j1-O3-6
+rc=0
+serve   ready 2310500250 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 13.2304 s
+build   full in 19.2612 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O3-6/site
+linkIndex            0.721s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              9.052s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.278s serialize + 0.003s hash + 0.041s write
+total                10.113s
+       19.36 real        17.56 user         1.95 sys
+          3515875328  maximum resident set size
+                 542  page faults
+=== run j1-O0-6
+rc=0
+serve   ready 2326706042 6008 419 (1 jobs, generation 1ab03281ad640d9e)
+extract 419 module(s) in 14.9230 s
+build   full in 20.9180 s -> /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full/out-j1-O0-6/site
+linkIndex            1.238s  251225 declarations in 5287 modules (251225 with a line range, 0 without, 490281 constants scanned, 6008 module names, 10098596 bytes)
+analyze              9.968s  considered 8496, produced 4580, blacklisted 3916, failed 0
+writeIR              0.515s serialize + 0.003s hash + 0.044s write
+total                11.794s
+       21.02 real        19.23 user         1.95 sys
+          3515908096  maximum resident set size
+                 717  page faults
+pair j1-6: ir/ (423 files) identical; link-index.lidx (10098596 B) identical; site/ (1510 files) identical
+across jobs (keep-j1-O0 vs keep-j4-O0): ir/ + lidx identical
+## after
+/dev/disk3s5   228Gi   172Gi    32Gi    85%    2.7M  337M    1%   /System/Volumes/Data
+Processes: 1158 total, 2 running, 1156 sleeping, 4512 threads 
+2026/10/10 00:12:44
+Load Avg: 2.13, 2.24, 2.25 
+CPU usage: 5.12% user, 13.20% sys, 81.67% idle 
+SharedLibs: 677M resident, 127M data, 92M linkedit.
+MemRegions: 469085 total, 3154M resident, 230M private, 907M shared.
+PhysMem: 15G used (2018M wired, 3875M compressor), 631M unused.
+VM: 501T vsize, 6144M framework vsize, 0(0) swapins, 0(0) swapouts.
+Networks: packets: 4771493/3596M in, 1360144/601M out.
+Disks: 37089231/664G read, 5266859/119G written.
+
+PID    COMMAND          %CPU TIME     #TH   #WQ #PORTS MEM   PURG  CMPRS PGRP  PPID  STATE    BOOSTS      %CPU_ME %CPU_OTHRS UID FAULTS   COW    MSGSENT   MSGRECV   SYSBSD    SYSMACH   CSW       PAGEINS IDLEW    POWER INSTRS CYCLES JETPRI USER                  #MREGS RPRVT VPRVT VSIZE KPRVT KSHRD
+651    Numbers          0.0  03:35.80 6     4   656    571M  0B    566M  651   1     sleeping  0[3869]    0.00000 0.00000    501 1065977  723    1181308   184488    2621475   2308381   986982    21612   834      0.0   0      0      100    seikahida             N/A    N/A   N/A   N/A   N/A   N/A  
+435    WindowServer     0.0  64:30.56 16    4   9025   536M  0B    251M  435   1     sleeping *0[1]       0.00000 0.00000    88  5944895  6076   48632671  28727030  62689577  148928778 34305768  5470    159110   0.0   0      0      170    _windowserver         N/A    N/A   N/A   N/A   N/A   N/A  
+1063   Google Chrome He 0.0  11:57.37 21    1   191    447M  0B    152M  1011  1011  sleeping *0[318062]  0.00000 0.00000    501 13710993 5870   1883530   1474610   3968761   5376397   2511743   172     3095     0.0   0      0      180    seikahida             N/A    N/A   N/A   N/A   N/A   N/A  
+procs after:
+2026年 10月10日 土曜日 00時12分45秒 JST
+series done
+exit=0
+
+## 4. table (o3full-table.py)
+jobs lvl run | extract-phase envload request analyze linkIndex | build-full wall user+sys peakRSS(GB) faults
+   4 O0   1 |   7.937   2.253   4.883   3.085   1.205 |  13.893  13.99  23.28  3.526     557
+   4 O3   1 |   6.959   2.294   3.849   2.806   0.699 |  12.981  13.08  21.50  3.526    1037
+   4 O0   2 |   8.039   2.308   4.926   3.106   1.225 |  14.215  14.32  23.35  3.528    3929
+   4 O3   2 |   7.058   2.296   3.962   2.898   0.721 |  13.112  13.21  21.85  3.525     565
+   4 O0   3 |   8.102   2.313   4.939   3.121   1.233 |  14.175  14.28  23.44  3.525     728
+   4 O3   3 |   7.134   2.325   3.995   2.933   0.716 |  13.324  13.42  21.97  3.528    3933
+   4 O0   4 |   7.975   2.315   4.851   3.031   1.228 |  14.162  14.26  23.18  3.527    3906
+   4 O3   4 |   6.989   2.280   3.901   2.850   0.707 |  13.003  13.10  21.64  3.526     750
+   4 O0   5 |   8.089   2.276   5.003   3.180   1.238 |  14.074  14.18  23.56  3.525     733
+   4 O3   5 |   7.070   2.307   3.941   2.882   0.713 |  13.264  13.36  21.73  3.529    3946
+   4 O0   6 |   7.952   2.305   4.842   3.015   1.237 |  14.137  14.24  23.12  3.528    3929
+   4 O3   6 |   6.947   2.297   3.844   2.783   0.715 |  12.974  13.07  21.47  3.526     747
+   1 O0   1 |  14.925   2.278  11.838  10.031   1.226 |  20.911  21.01  21.16  3.517     658
+   1 O3   1 |  13.358   2.336  10.177   9.120   0.706 |  19.554  19.65  19.54  3.516    4275
+   1 O0   2 |  14.989   2.296  11.886  10.059   1.236 |  21.155  21.26  21.22  3.516    3915
+   1 O3   2 |  13.334   2.343  10.133   9.080   0.712 |  19.340  19.44  19.53  3.516     941
+   1 O0   3 |  14.872   2.308  11.756   9.945   1.227 |  20.871  20.98  21.13  3.516     723
+   1 O3   3 |  13.229   2.284  10.141   9.093   0.706 |  19.310  19.41  19.50  3.516    2015
+   1 O0   4 |  14.934   2.287  11.839  10.025   1.225 |  20.996  21.10  21.19  3.516    2031
+   1 O3   4 |  13.251   2.282  10.162   9.113   0.713 |  19.229  19.33  19.49  3.516     546
+   1 O0   5 |  14.964   2.280  11.876   9.981   1.305 |  20.959  21.08  21.18  3.516     723
+   1 O3   5 |  13.329   2.367  10.156   9.117   0.702 |  19.376  19.48  19.53  3.516    1638
+   1 O0   6 |  14.923   2.327  11.794   9.968   1.238 |  20.918  21.02  21.18  3.516     717
+   1 O3   6 |  13.230   2.311  10.113   9.052   0.721 |  19.261  19.36  19.51  3.516     542
+
+median [min-max] per binary/jobs
+jobs 4 O0 n=6: ext 8.007 [7.937-8.102]  ready 2.306 [2.253-2.315]  req 4.905 [4.842-5.003]  ana 3.095 [3.015-3.180]  li 1.231 [1.205-1.238]  build 14.150 [13.893-14.215]  wall 14.250 [13.990-14.320]  cpu 23.315 [23.120-23.560]  rss 3.526 [3.525-3.528]  pf 2319.500 [557.000-3929.000]
+jobs 4 O3 n=6: ext 7.024 [6.947-7.134]  ready 2.296 [2.280-2.325]  req 3.921 [3.844-3.995]  ana 2.866 [2.783-2.933]  li 0.714 [0.699-0.721]  build 13.058 [12.974-13.324]  wall 13.155 [13.070-13.420]  cpu 21.685 [21.470-21.970]  rss 3.526 [3.525-3.529]  pf 893.500 [565.000-3946.000]
+  jobs 4 gain ext: 8.007 -> 7.024 = -0.983 s, 1.14x
+  jobs 4 gain req: 4.905 -> 3.921 = -0.984 s, 1.25x
+  jobs 4 gain ana: 3.095 -> 2.866 = -0.229 s, 1.08x
+  jobs 4 gain li: 1.231 -> 0.714 = -0.517 s, 1.72x
+  jobs 4 gain build: 14.150 -> 13.058 = -1.092 s, 1.08x
+  jobs 4 gain wall: 14.250 -> 13.155 = -1.095 s, 1.08x
+  jobs 4 gain cpu: 23.315 -> 21.685 = -1.630 s, 1.08x
+jobs 1 O0 n=6: ext 14.930 [14.872-14.989]  ready 2.292 [2.278-2.327]  req 11.838 [11.756-11.886]  ana 10.003 [9.945-10.059]  li 1.232 [1.225-1.305]  build 20.939 [20.871-21.155]  wall 21.050 [20.980-21.260]  cpu 21.180 [21.130-21.220]  rss 3.516 [3.516-3.517]  pf 723.000 [658.000-3915.000]
+jobs 1 O3 n=6: ext 13.290 [13.229-13.358]  ready 2.323 [2.282-2.367]  req 10.149 [10.113-10.177]  ana 9.103 [9.052-9.120]  li 0.709 [0.702-0.721]  build 19.325 [19.229-19.554]  wall 19.425 [19.330-19.650]  cpu 19.520 [19.490-19.540]  rss 3.516 [3.516-3.516]  pf 1289.500 [542.000-4275.000]
+  jobs 1 gain ext: 14.930 -> 13.290 = -1.639 s, 1.12x
+  jobs 1 gain req: 11.838 -> 10.149 = -1.690 s, 1.17x
+  jobs 1 gain ana: 10.003 -> 9.103 = -0.900 s, 1.10x
+  jobs 1 gain li: 1.232 -> 0.709 = -0.523 s, 1.74x
+  jobs 1 gain build: 20.939 -> 19.325 = -1.614 s, 1.08x
+  jobs 1 gain wall: 21.050 -> 19.425 = -1.625 s, 1.08x
+  jobs 1 gain cpu: 21.180 -> 19.520 = -1.660 s, 1.09x
+median [min-max] per binary/jobs (run 1 excluded)
+jobs 4 O0 n=5: ext 8.039 [7.952-8.102]  ready 2.308 [2.276-2.315]  req 4.926 [4.842-5.003]  ana 3.106 [3.015-3.180]  li 1.233 [1.225-1.238]  build 14.162 [14.074-14.215]  wall 14.260 [14.180-14.320]  cpu 23.350 [23.120-23.560]  rss 3.527 [3.525-3.528]  pf 3906.000 [728.000-3929.000]
+jobs 4 O3 n=5: ext 7.058 [6.947-7.134]  ready 2.297 [2.280-2.325]  req 3.941 [3.844-3.995]  ana 2.882 [2.783-2.933]  li 0.715 [0.707-0.721]  build 13.112 [12.974-13.324]  wall 13.210 [13.070-13.420]  cpu 21.730 [21.470-21.970]  rss 3.526 [3.525-3.529]  pf 750.000 [565.000-3946.000]
+  jobs 4 gain ext: 8.039 -> 7.058 = -0.981 s, 1.14x
+  jobs 4 gain req: 4.926 -> 3.941 = -0.985 s, 1.25x
+  jobs 4 gain ana: 3.106 -> 2.882 = -0.224 s, 1.08x
+  jobs 4 gain li: 1.233 -> 0.715 = -0.518 s, 1.72x
+  jobs 4 gain build: 14.162 -> 13.112 = -1.050 s, 1.08x
+  jobs 4 gain wall: 14.260 -> 13.210 = -1.050 s, 1.08x
+  jobs 4 gain cpu: 23.350 -> 21.730 = -1.620 s, 1.07x
+jobs 1 O0 n=5: ext 14.934 [14.872-14.989]  ready 2.296 [2.280-2.327]  req 11.839 [11.756-11.886]  ana 9.981 [9.945-10.059]  li 1.236 [1.225-1.305]  build 20.959 [20.871-21.155]  wall 21.080 [20.980-21.260]  cpu 21.180 [21.130-21.220]  rss 3.516 [3.516-3.516]  pf 723.000 [717.000-3915.000]
+jobs 1 O3 n=5: ext 13.251 [13.229-13.334]  ready 2.311 [2.282-2.367]  req 10.141 [10.113-10.162]  ana 9.093 [9.052-9.117]  li 0.712 [0.702-0.721]  build 19.310 [19.229-19.376]  wall 19.410 [19.330-19.480]  cpu 19.510 [19.490-19.530]  rss 3.516 [3.516-3.516]  pf 941.000 [542.000-2015.000]
+  jobs 1 gain ext: 14.934 -> 13.251 = -1.683 s, 1.13x
+  jobs 1 gain req: 11.839 -> 10.141 = -1.698 s, 1.17x
+  jobs 1 gain ana: 9.981 -> 9.093 = -0.888 s, 1.10x
+  jobs 1 gain li: 1.236 -> 0.712 = -0.524 s, 1.74x
+  jobs 1 gain build: 20.959 -> 19.310 = -1.649 s, 1.09x
+  jobs 1 gain wall: 21.080 -> 19.410 = -1.670 s, 1.09x
+  jobs 1 gain cpu: 21.180 -> 19.510 = -1.670 s, 1.09x
+
+## scripts
+--- o3full-compile.sh
+#!/bin/bash
+set -uo pipefail
+S=/private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full
+R=/Users/haruka/dev/lean-doc
+T=/Users/haruka/dev/lean-projects
+LAKE=$HOME/.elan/bin/lake
+cd "$T"
+date; uname -srm; sw_vers | tr '\n' ' '; echo; sysctl -n machdep.cpu.brand_string hw.memsize; cat lean-toolchain
+echo "litedoc4 HEAD $(git -C "$R" rev-parse HEAD)"; shasum -a 256 "$R/extractor/Extract.lean"
+echo "flags file: $(grep -v '^#' "$R/tools/leanc-flags.txt")"
+"$LAKE" env leanc --print-cflags
+for i in 1 2 3; do
+  echo "=== lean -c run $i"
+  /usr/bin/time -l "$LAKE" env lean --root="$R/extractor" -o "$S/Extract.olean" -c "$S/Extract.c" "$R/extractor/Extract.lean" 2>&1 | egrep 'real|maximum resident|page faults'
+done
+for i in 1 2 3; do
+  for lvl in O0 O3; do
+    if [ $lvl = O0 ]; then fl=""; else fl="-O3 -DNDEBUG"; fi
+    echo "=== leanc $lvl run $i"
+    /usr/bin/time -l "$LAKE" env leanc -rdynamic $fl -o "$S/extract-$lvl" "$S/Extract.c" 2>&1 | egrep 'real|maximum resident|page faults'
+  done
+done
+ls -l "$S"/extract-O0 "$S"/extract-O3
+shasum -a 256 "$S"/extract-O0 "$S"/extract-O3
+--- o3full-series.sh
+#!/bin/bash
+# usage: o3full-series.sh <pairs> <jobs list, e.g. "4 1"> <logdir>
+set -uo pipefail
+S=/private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/o3full
+R=/Users/haruka/dev/lean-doc
+T=/Users/haruka/dev/lean-projects
+L4=$R/.lake/build/bin/litedoc4
+N="$1"; JOBS="$2"; LOG="$3"
+mkdir -p "$LOG"
+echo "## conditions"
+date; uname -srm; sw_vers | tr '\n' ' '; echo; sysctl -n machdep.cpu.brand_string hw.memsize hw.ncpu
+echo "target $(git -C "$T" rev-parse HEAD) $(cat "$T/lean-toolchain")"; git -C "$T" status --short
+echo "litedoc4 $(git -C "$R" rev-parse HEAD) bin $(shasum -a 256 "$L4" | cut -c1-16)"
+shasum -a 256 "$S/extract-O0" "$S/extract-O3"
+df -h /System/Volumes/Data | tail -1
+top -l 1 -o mem | head -15
+echo "procs before:"; ps -axww -o pid,ppid,args | grep -E 'extract|litedoc4' | grep -v grep
+cd "$T"
+for j in $JOBS; do
+  for i in $(seq 1 "$N"); do
+    if [ $((i % 2)) = 1 ]; then order="O0 O3"; else order="O3 O0"; fi
+    for lvl in $order; do
+      tag="j$j-$lvl-$i"; d="$S/out-$tag"; rm -rf "$d"
+      echo "=== run $tag"
+      /usr/bin/time -l "$L4" build --root "$T" --lib InformationTheory --out "$d" --extractor-bin "$S/extract-$lvl" --jobs "$j" --timings "$LOG/$tag.timings.json" >"$LOG/$tag.log" 2>"$LOG/$tag.time"
+      echo "rc=$?"
+      grep -E '^(serve   ready|extract |build   full)' "$LOG/$tag.log"
+      grep -E '^(total|analyze|linkIndex|writeIR) ' "$d/work/serve.out"
+      grep -E 'real|maximum resident|page faults' "$LOG/$tag.time"
+      cp "$d/work/serve.out" "$LOG/$tag.serve.out"; cp "$d/work/extract-timings-1.json" "$LOG/$tag.extract-timings.json"
+    done
+    a="$S/out-j$j-O0-$i"; b="$S/out-j$j-O3-$i"
+    if /usr/bin/diff -r "$a/ir" "$b/ir" >/dev/null; then irs=identical; else irs=DIFFER; fi
+    if cmp -s "$a/link-index.lidx" "$b/link-index.lidx"; then lx=identical; else lx=DIFFER; fi
+    if /usr/bin/diff -r "$a/site" "$b/site" >/dev/null; then st=identical; else st=differs; fi
+    echo "pair j$j-$i: ir/ ($(find "$a/ir" -type f | wc -l | tr -d ' ') files) $irs; link-index.lidx ($(stat -f %z "$a/link-index.lidx") B) $lx; site/ ($(find "$a/site" -type f | wc -l | tr -d ' ') files) $st"
+    if [ "$i" = 1 ]; then
+      if [ -n "${KEEP_J:-}" ]; then :; fi
+      rm -rf "$S/keep-j$j-O0"; mv "$a" "$S/keep-j$j-O0"
+    else rm -rf "$a"; fi
+    rm -rf "$b"
+  done
+done
+k=($S/keep-j*-O0)
+if [ ${#k[@]} -ge 2 ]; then
+  if /usr/bin/diff -r "${k[0]}/ir" "${k[1]}/ir" >/dev/null && cmp -s "${k[0]}/link-index.lidx" "${k[1]}/link-index.lidx"; then echo "across jobs (${k[0]##*/} vs ${k[1]##*/}): ir/ + lidx identical"; else echo "across jobs: DIFFER"; fi
+fi
+rm -rf $S/keep-j*-O0
+echo "## after"
+df -h /System/Volumes/Data | tail -1
+top -l 1 -o mem | head -15
+echo "procs after:"; ps -axww -o pid,ppid,args | grep -E 'extract|litedoc4' | grep -v grep
+date
+echo "series done"
+--- o3full-table.py
+import re, sys, glob, os, statistics as st
+d = sys.argv[1]
+rows = []
+for log in sorted(glob.glob(os.path.join(d, 'j*-O*-*.log'))):
+    tag = os.path.basename(log)[:-4]
+    m = re.match(r'j(\d+)-(O\d)-(\d+)', tag)
+    j, lvl, i = int(m[1]), m[2], int(m[3])
+    L = open(log).read(); T = open(log[:-4] + '.time').read(); V = open(log[:-4] + '.serve.out').read()
+    g = lambda pat, s: float(re.search(pat, s, re.M)[1])
+    r = dict(j=j, lvl=lvl, i=i,
+             ext=g(r'^extract \d+ module\(s\) in ([\d.]+) s', L),
+             ready=g(r'^serve   ready (\d+)', L) / 1e9,
+             req=g(r'^total\s+([\d.]+)s', V), ana=g(r'^analyze\s+([\d.]+)s', V), li=g(r'^linkIndex\s+([\d.]+)s', V),
+             build=g(r'^build   full in ([\d.]+) s', L),
+             wall=g(r'([\d.]+) real', T), cpu=g(r'([\d.]+) user', T) + g(r'([\d.]+) sys', T),
+             rss=g(r'(\d+)\s+maximum resident', T) / 1e9, pf=int(g(r'(\d+)\s+page faults', T)))
+    rows.append(r)
+rows.sort(key=lambda r: (-r['j'], r['i'], r['lvl']))
+cols = ['ext', 'ready', 'req', 'ana', 'li', 'build', 'wall', 'cpu', 'rss', 'pf']
+print('jobs lvl run | extract-phase envload request analyze linkIndex | build-full wall user+sys peakRSS(GB) faults')
+for r in rows:
+    print(f"{r['j']:>4} {r['lvl']} {r['i']:>3} | {r['ext']:7.3f} {r['ready']:7.3f} {r['req']:7.3f} {r['ana']:7.3f} {r['li']:7.3f} | {r['build']:7.3f} {r['wall']:6.2f} {r['cpu']:6.2f} {r['rss']:6.3f} {r['pf']:>7}")
+skip1 = len(sys.argv) > 2
+print('\nmedian [min-max] per binary/jobs' + (' (run 1 excluded)' if skip1 else ''))
+for j in sorted({r['j'] for r in rows}, reverse=True):
+    med = {}
+    for lvl in ('O0', 'O3'):
+        sel = [r for r in rows if r['j'] == j and r['lvl'] == lvl and not (skip1 and r['i'] == 1)]
+        med[lvl] = {c: st.median([r[c] for r in sel]) for c in cols}
+        print(f"jobs {j} {lvl} n={len(sel)}: " + '  '.join(f"{c} {st.median([r[c] for r in sel]):.3f} [{min(r[c] for r in sel):.3f}-{max(r[c] for r in sel):.3f}]" for c in cols))
+    for c in ('ext', 'req', 'ana', 'li', 'build', 'wall', 'cpu'):
+        a, b = med['O0'][c], med['O3'][c]
+        print(f"  jobs {j} gain {c}: {a:.3f} -> {b:.3f} = -{a-b:.3f} s, {a/b:.2f}x")

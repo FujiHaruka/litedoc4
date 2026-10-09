@@ -181,10 +181,6 @@ input_file leanToolchainsFile where
   path := "tools" / "lean-toolchains.txt"
   text := true
 
-input_file leancFlagsFile where
-  path := "tools" / "leanc-flags.txt"
-  text := true
-
 input_file readerWritersFile where
   path := "extractor" / "reader" / "OleanReader" / "Writers.lean"
   text := true
@@ -240,7 +236,7 @@ input_file readerMainFile where
 -- Not plain `include_str` (Lake misses an included file's edit) nor `needs` on `Litedoc4` (all recompiled).
 lean_lib Litedoc4Sources where
   srcDir := "src"
-  needs := #[extractorSourceFile, leanToolchainsFile, leancFlagsFile,
+  needs := #[extractorSourceFile, leanToolchainsFile,
     readerWritersFile, readerReadFile, readerEntriesFile, readerModuleFile, readerSerializeFile,
     readerOracleFile, readerAssembleFile, readerCheckFile, readerPatchFile, readerPrintKeyFile,
     readerCarryFile, readerHybridFile, readerMainFile]

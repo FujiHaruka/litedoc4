@@ -34,10 +34,10 @@
 # ============================================================================
 #   Both executables are built here, from this tree, against the caller's
 #   toolchain: the extractor (`extractor/Extract.lean`, cached on toolchain +
-#   Extract.lean + the `leanc` flags) and `litedoc4` itself (`src/`, cached on
-#   toolchain + the Lean and C sources). Nothing is downloaded and there is no
-#   second toolchain to install — a caller brings elan and nothing else. The
-#   extractor in particular cannot be shipped prebuilt without the evidence in
+#   Extract.lean) and `litedoc4` itself (`src/`, cached on toolchain + the Lean
+#   and C sources). Nothing is downloaded and there is no second toolchain to
+#   install — a caller brings elan and nothing else. The extractor in particular
+#   cannot be shipped prebuilt without the evidence in
 #   .github/workflows/ci-extractor-portability.yml.
 name: litedoc4
 description: Fast HTML documentation for Lean 4 packages, built for the ones standing on Mathlib
@@ -176,7 +176,7 @@ runs:
           # the Lean sources, the vendored C, and the lakefile that names the
           # revisions of MathML4Lean and BibtexQuery — plus the toolchain that
           # compiles them.
-          echo "extractor=$(cat "$A/extractor/Extract.lean" "$A/tools/leanc-flags.txt" "$ROOT/lean-toolchain" 2>/dev/null | sha256sum | cut -c1-16)"
+          echo "extractor=$(cat "$A/extractor/Extract.lean" "$ROOT/lean-toolchain" 2>/dev/null | sha256sum | cut -c1-16)"
           echo "litedoc4=$( { cat "$A/lakefile.lean" "$ROOT/lean-toolchain" 2>/dev/null
                              find "$A/src" "$A/csrc" "$A/vendor" -type f | LC_ALL=C sort |
                                while read -r f; do cat "$f"; done

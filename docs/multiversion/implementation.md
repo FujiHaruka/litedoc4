@@ -1019,12 +1019,17 @@ Choices, with what would undo each:
    note was measured at -O0** — item 5's M checkpoint (99 s a version) and the step-3–6 notes
    included. Still open: the hash could be fused into the decode's memos (most of the remaining
    4.4 s); the session's manual-root ask takes 1.9–2.1 s against 1.0–1.6 s read-alone.
-   **The native extractor had the same hole**, on every `build` path, single-version included:
-   both binaries now take their flags from `tools/leanc-flags.txt`, which names every cache that
-   holds either (the action's extractor cache key included); the identity does not move, the IR
-   being byte-identical at both levels. On the sample the extraction gains ≈ 1.2× warm and the
-   extractor build costs ≈ 12.8 s more (measured →
-   `benchmarks/results/extractor-O3-2026-10-09.txt`); the Mathlib-scale gain is not measured.
+   **The native extractor stays at -O0, measured.** It compiles the same way on every `build`
+   path, and -O3 writes byte-identical IR, but its work is mostly inside Lean's own (already
+   optimised) library: on the sample extraction gained ≈ 1.2× (measured →
+   `benchmarks/results/extractor-O3-2026-10-09.txt`), and on the target (419 modules,
+   `--lib InformationTheory`, warm, `--jobs 4`, six alternating runs each) the extract phase went
+   8.01 → 7.02 s (1.14×) — 0.52 s of it the link index — against 12.8 s more to build the
+   extractor on the M1 and ≈ 25 s more on the runner (15.7–17.6 → 41.2–43.5 s in
+   `ci-template.yml`); IR, link index and site byte-identical in all 12 pairs (measured →
+   `benchmarks/results/extractor-O3-mathlib-2026-10-10.txt`). A consumer pays the build once per
+   cache miss and gains ≈ 1 s per full extraction, so it would need ≈ 13 full extractions per
+   miss on the M1 (≈ 25 on the runner, theoretical: the runner's gain is not measured).
 7. **M**: `benchmarks/tools/mv-m-run.sh --through-reader --session`, three versions at the
    `mv-m-reader-fixed` commits. Read: entry equality, check mode 0, and per round reused,
    reprinted, rewritten modules and phases. v4.32.2 → v4.33.0 is the seed's first test across the

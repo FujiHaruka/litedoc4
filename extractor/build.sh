@@ -15,9 +15,8 @@
 # There *is* a `lakefile.lean` at the root now, and it builds the same extractor
 # as a `lean_exe`. This script is still the one
 # the benchmarks and `tools/ci-build.sh` use: the two builds do not produce the
-# same bytes (Lake adds a package symbol prefix) even though they write
-# byte-identical IR, and every number in `benchmarks/` was taken with this one —
-# at -O0 until 2026-10-09, when the flags in `tools/leanc-flags.txt` reached it.
+# same bytes (Lake adds a package symbol prefix and `-O3`) even though they write
+# byte-identical IR, and every number in `benchmarks/` was taken with this one.
 # `tools/lake-package-gate.sh` item 4 is what keeps the two paths honest.
 #
 # usage: build.sh
@@ -26,9 +25,6 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../benchmarks/tools/env.sh
 source "$HERE/../benchmarks/tools/env.sh"
-# shellcheck source=../tools/lib/common.sh
-source "$HERE/../tools/lib/common.sh" || exit 1
-FLAGS="$(leanc_flags "$HERE/..")"
 
 LAKE="${LAKE:-$HOME/.elan/bin/lake}"
 BUILD="$HERE/build"
@@ -45,7 +41,6 @@ cd "$TARGET_REPO"
 # the Lean interpreter, which resolves symbols in the running executable (Lake
 # spells this `supportInterpreter := true`). Without it the binary dies with
 # "Could not find native implementation of external declaration".
-# shellcheck disable=SC2086  # $FLAGS is a word list; tools/leanc-flags.txt holds no globs
-"$LAKE" env leanc -rdynamic $FLAGS -o "$BUILD/extract" "$BUILD/Extract.c"
+"$LAKE" env leanc -rdynamic -o "$BUILD/extract" "$BUILD/Extract.c"
 
 echo "built $BUILD/extract"

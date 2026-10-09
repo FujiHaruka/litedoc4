@@ -14,13 +14,11 @@ on:
     paths:
       - "action.yml"
       - "tools/ci-build.sh"
-      - "tools/leanc-flags.txt"
       - ".github/workflows/ci-action.yml"
   pull_request:
     paths:
       - "action.yml"
       - "tools/ci-build.sh"
-      - "tools/leanc-flags.txt"
       - ".github/workflows/ci-action.yml"
   workflow_dispatch:
 
