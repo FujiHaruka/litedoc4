@@ -66,6 +66,7 @@ structure ShareCounts where
   constantsShared : Nat := 0
   entries : Nat := 0
   entriesShared : Nat := 0
+  hashNs : Nat := 0
 
 structure Sharing where
   prev : Prev
@@ -128,9 +129,11 @@ unsafe def decodeAll (s : Session) (mods : Array Name) (prev? : Option Prev := n
     let (md, ks) ← match sharing with
       | none => pure (md, ks)
       | some sh => do
+        let t0 ← IO.monoNanosNow
         let (h, _) ← runDM parts (hashModule (writerSeed parts[0]!.ver) parts.back!.root)
         let (sh, md, ks) ← IO.ofExcept (sh.module m h md ks |>.mapError IO.userError)
-        sharing := some sh
+        let ns := (← IO.monoNanosNow) - t0
+        sharing := some { sh with counts.hashNs := sh.counts.hashNs + ns }
         pure (md, ks)
     out := out.push (m, md)
     mentioned := mentioned.push ms

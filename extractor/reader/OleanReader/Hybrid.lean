@@ -308,6 +308,36 @@ unsafe def importNewest (search : Array System.FilePath) (roots : Array Name) : 
   let imports := roots.map ({ module := · })
   return { state := ← Assemble.importNewest search imports, imports }
 
+structure Phases where
+  spans : IO.Ref (Array (String × Nat))
+  last : IO.Ref Nat
+
+def Phases.new : IO Phases := do
+  let t ← IO.monoNanosNow
+  return { spans := ← IO.mkRef #[], last := ← IO.mkRef t }
+
+def Phases.add (p : Phases) (name : String) (ns : Nat) : IO Unit := p.spans.modify (·.push (name, ns))
+
+def Phases.markLess (p : Phases) (name : String) (parts : Array (String × Nat)) : IO Unit := do
+  let t ← IO.monoNanosNow
+  p.add name (t - (← p.last.get) - parts.foldl (· + ·.2) 0)
+  for (n, ns) in parts do p.add n ns
+  p.last.set t
+
+def Phases.mark (p : Phases) (name : String) : IO Unit := p.markLess name #[]
+
+def msText (ns : Nat) : String :=
+  let cs := ns / 10000
+  let frac := toString (cs % 100)
+  s!"{cs / 100}.{if frac.length < 2 then "0" ++ frac else frac} ms"
+
+def Phases.line (p : Phases) : IO String := do
+  p.mark "rest"
+  let spans ← p.spans.get
+  let total := spans.foldl (fun t (_, ns) => t + ns) 0
+  return s!"phases               {", ".intercalate (spans.toList.map fun (n, ns) => s!"{n} {msText ns}")}; \
+    total {msText total}"
+
 structure Printed where
   keys : Std.HashMap Name UInt64
   out : Std.HashMap Name DeclOut
@@ -346,7 +376,7 @@ def checkFailure (c : Patch.Comparison) : String :=
   | none, some why => why
   | none, none => ""
 
-unsafe def patchRound (p : PatchSession) (ms : Assemble.MImportState) (d : Assemble.Decoded)
+unsafe def patchRound (p : PatchSession) (ph : Phases) (ms : Assemble.MImportState) (d : Assemble.Decoded)
     (sh : Assemble.Prev × Assemble.ShareCounts) (ask : Std.HashSet Name) :
     IO (Assemble.Merged × Array String × Option String × Option (Carry.State × Patch.Delta)) := do
   let (next, counts) := sh
@@ -356,9 +386,11 @@ unsafe def patchRound (p : PatchSession) (ms : Assemble.MImportState) (d : Assem
   let mut lines := #[patchLine (from?.map (·.2)) counts st p.index.names.size]
   if let some name := st.perturbed then lines := lines.push s!"patch-perturbed      {name} left unrewritten"
   if st.perturbedNothing then lines := lines.push "patch-perturbed      nothing: no changed constant made a newest module be rewritten"
+  ph.mark "patch"
   if p.check then
     let c := Patch.compare m (← Assemble.rewriteMerge ms d ask)
     lines := lines ++ checkLines c
+    ph.mark "check-patch"
     unless c.clean do
       p.last.set (some (next, none))
       return (m, lines, some (checkFailure c), none)
@@ -419,76 +451,96 @@ structure Reusing where
   printed : Printed
   failure : Option String
 
-unsafe def extractReusing (p : PatchSession) (cfg : Cfg) (env : Environment) (world : World) (targets : Array Name)
-    (prev : Option Printed) (start : Option (Carry.State × Patch.Delta)) : IO Reusing := do
+unsafe def extractReusing (p : PatchSession) (ph : Phases) (cfg : Cfg) (env : Environment) (world : World)
+    (targets : Array Name) (prev : Option Printed) (start : Option (Carry.State × Patch.Delta)) : IO Reusing := do
   let (outs, state, st, d?) ← Carry.run env world targets p.scx start p.presence
   let keys := outs.fold (fun m n o => m.insert n o.key) (Std.HashMap.emptyWithCapacity outs.size)
   let mut lines := #[carryLine p.presence st]
+  ph.mark "key pass"
   if p.checkKeys then
     let t0 ← IO.monoNanosNow
     let fresh ← PrintKey.keys env world targets cfg.jobs p.scx
     let diffs ← Carry.compare env p.scx d? state outs fresh
     lines := lines ++ checkKeysLines diffs fresh.size (max cfg.jobs 1) (((← IO.monoNanosNow) - t0) / 1000000)
+    ph.mark "check-keys"
     if let some x := diffs[0]? then
       return { code := 1, lines, printed := { keys, out := {} },
                failure := some s!"{x.line} ({diffs.size} key(s) in all)" }
   p.carry.set (some state)
   let out ← IO.mkRef #[]
   let code ← Litedoc4.run cfg (some (env, world)) (some { prev := reused? prev keys, out })
+  ph.mark "extract"
   let results ← out.get
   let out := results.foldl (fun m d => m.insert d.name d) (Std.HashMap.emptyWithCapacity results.size)
   return { code, lines := lines.push (reuseLine p.scx st (countReuse prev keys results) results.size),
            printed := { keys, out }, failure := none }
 
 unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : IO Newest) (resident : Bool)
-    (patch? : Option PatchSession := none) : IO UInt32 := do
+    (ph : Phases) (patch? : Option PatchSession := none) : IO UInt32 := do
   let prevPrinted ← match patch? with
     | some p => p.printed.modifyGet fun s => (s, none)
     | none => pure none
   try
     let s ← Session.new a.old
     let manual ← askOldManualRoot s
+    ph.mark "manual root"
     let mods ← closure s targets
     let some (writer, _) ← s.firstWriter.get | throw <| IO.userError "olean reader: nothing was read"
     unless writer.githash == manual.githash do
       throw <| IO.userError s!"manual root: {manual.lean} is Lean {manual.githash}, and the version read was \
         written by Lean {writer.leanVersion} ({writer.githash})"
     checkManualCopy manual writer
+    ph.mark "closure"
     let prev? ← match patch? with
       | some p => pure (some (((← p.last.get).map (·.1)).getD {}))
       | none => pure none
     let (d, sh?) ← Assemble.decodeAll s mods prev? (PrintKey.keyExts.foldl (·.insert ·) {})
+    ph.markLess "decode" #[("hash", sh?.map (·.2.hashNs) |>.getD 0)]
     let cl ← Check.closure d
+    ph.mark "check closure"
     let il ← Check.ilean s d
+    ph.mark "check ilean"
     if let some why := invariantFailure d cl il then
       IO.eprintln s!"reader extract: invariant failed, Lean {d.writer.leanVersion} is not read: {why}"
       return 1
     let uses := autoParamUses d targets
+    ph.mark "autoparams"
     let n ← newest
+    ph.mark "newest import"
     let ask := uses.foldl (fun acc (_, tac) => acc.insert tac) {}
     let (merged, patchLines, carried) ← match patch?, sh? with
       | some p, some sh =>
-        let (m, lines, failure?, carried) ← patchRound p n.state d sh ask
+        let (m, lines, failure?, carried) ← patchRound p ph n.state d sh ask
         if let some why := failure? then
           for l in lines do IO.println l
           IO.eprintln s!"reader session: check-patch failed, Lean {d.writer.leanVersion} is not read: {why}"
           return 1
         pure (m, lines, carried)
-      | _, _ => pure (← Assemble.rewriteMerge n.state d ask, #[], none)
+      | _, _ => do
+        let m ← Assemble.rewriteMerge n.state d ask
+        ph.mark "merge"
+        pure (m, #[], none)
     let env ← Assemble.finalizeHybrid merged.out n.imports merged.idxOf (leak := !resident)
+    ph.mark "finalize"
     builtinDeclRanges.set {}
     let hs ← HardStops.new
     let world := hybridWorld env d.old d.writer manual.root hs
+    ph.mark "world"
     let (code, reuse?) ← match patch? with
       | some p => do
-        let r ← extractReusing p cfg env world targets prevPrinted carried
+        let r ← extractReusing p ph cfg env world targets prevPrinted carried
         if let some why := r.failure then
           for l in patchLines ++ r.lines do IO.println l
           IO.eprintln s!"reader session: check-keys failed, Lean {d.writer.leanVersion} is not read: {why}"
           return 1
         pure (r.code, some (r.lines, p, r.printed))
-      | none => pure (← Litedoc4.run cfg (some (env, world)), none)
+      | none => do
+        let code ← Litedoc4.run cfg (some (env, world))
+        ph.mark "extract"
+        pure (code, none)
+    ph.mark "reuse count"
     let realizations ← if resident then Assemble.clearRealizations env else pure 0
+    ph.mark "clear realizations"
     let autoParams := classifyAutoParams uses merged.sameValue
     let verso ← hs.verso.get
     let builtin ← hs.builtinDoc.get
@@ -516,6 +568,7 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       IO.println s!"  autoparam-newest {decl} {tac}: printed with the newest version's tactic text"
     if let some (_, p, printed) := reuse? then
       if code == 0 then p.printed.set (some printed)
+    ph.mark "report"
     return code
   catch e =>
     IO.eprintln s!"olean reader: refused: {e}"
@@ -538,7 +591,10 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
   if newRoots.isEmpty then
     IO.eprintln s!"reader extract: no module names in {newRootsFile}"
     return 2
-  readVersion a cfg targets (importNewest a.new newRoots) (resident := false)
+  let ph ← Phases.new
+  let code ← readVersion a cfg targets (importNewest a.new newRoots) (resident := false) ph
+  IO.println (← ph.line)
+  return code
 
 def sessionUsage : String := "\n".intercalate [
   "usage: reader session --new <search-dir>... --new-roots <modules.txt> [--check-patch]",
@@ -640,8 +696,11 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
       round := round + 1
       IO.println s!"round {round}"
       let r0 ← IO.monoNanosNow
-      let code ← readVersion r cfg targets (pure newest) (resident := true) (some patch)
+      let ph ← Phases.new
+      let code ← readVersion r cfg targets (pure newest) (resident := true) ph (some patch)
+      let phases ← ph.line
       let r1 ← IO.monoNanosNow
+      IO.println phases
       IO.println (← rssLine round)
       IO.println s!"ok {code} {r1 - r0}"
     stdout.flush

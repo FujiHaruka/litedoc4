@@ -339,8 +339,12 @@ structure ReaderBuild where
   files : Array (String × String)
   dirName : String
 
-def readerDigestOf (files : Array (String × String)) : String :=
-  let text := String.join (files.toList.map fun (path, s) => s!"{path}\n{s.utf8ByteSize}\n{s}")
+-- Not `leanc`'s own flags: it compiles at -O0 (Lake's release build passes these); drop them if `leanc --print-cflags` ever carries an -O.
+def readerCFlags : Array String := #["-O3", "-DNDEBUG"]
+
+def readerDigestOf (files : Array (String × String)) (cflags : Array String) : String :=
+  let text := " ".intercalate cflags.toList ++ "\n" ++
+    String.join (files.toList.map fun (path, s) => s!"{path}\n{s.utf8ByteSize}\n{s}")
   (sha256Hex text.toUTF8).take 16 |>.toString
 
 def readerBuildOf (rows : Array String) (extractor : String)
@@ -351,7 +355,7 @@ def readerBuildOf (rows : Array String) (extractor : String)
     | .error why => throw s!"extractor/Extract.lean cannot be cut for the reader: {why}"
     | .ok cut => pure cut
   let files := #[("Extract.lean", cut)] ++ sources
-  return { toolchain, files, dirName := s!"reader-{toolchainDirName toolchain}-{readerDigestOf files}" }
+  return { toolchain, files, dirName := s!"reader-{toolchainDirName toolchain}-{readerDigestOf files readerCFlags}" }
 
 def readerBuild : Except String ReaderBuild :=
   readerBuildOf supportedToolchains extractorSource readerSources
@@ -381,7 +385,7 @@ def readerFor (elan cache : FilePath) : BuildM FilePath := do
       "-o", (dir / s!"{stem}.olean").toString, "-c", (dir / s!"{stem}.c").toString,
       (dir / path).toString] (env := #[("LEAN_PATH", some dir.toString)])
   let partial_ := dir / "reader.partial"
-  spawnInherited elan.toString (#["run", b.toolchain, "leanc", "-rdynamic", "-o", partial_.toString]
+  spawnInherited elan.toString (#["run", b.toolchain, "leanc", "-rdynamic"] ++ readerCFlags ++ #["-o", partial_.toString]
     ++ b.files.map fun (path, _) => (dir / s!"{leanStem path}.c").toString)
   IO.FS.rename partial_ bin
   for (path, _) in b.files do

@@ -574,7 +574,7 @@ def check_lines(r):
     named = [re.match(r"  check-patch-module (\S+):", l).group(1) for l in r["lines"] if l.startswith("  check-patch-module ")]
     return m, named
 
-SESSION_ONLY = re.compile(r"^(patch|patch-perturbed|check-patch|carry|check-keys|reuse|rss|realizations) |^  check-(patch|keys)-|^  dir ")
+SESSION_ONLY = re.compile(r"^(patch|patch-perturbed|check-patch|carry|check-keys|reuse|rss|realizations|phases) |^  check-(patch|keys)-|^  dir ")
 PRINTING_WORK = re.compile(r"^  (of which equations|of which refs|member extra) ")
 def summary(lines):
     out = []

@@ -1003,9 +1003,22 @@ Choices, with what would undo each:
    **On S the session is about 2× slower per version than read-alone**, in the same gate run:
    48.96–51.53 s a round against 21.78–25.78 s, round 1 (built whole) as slow as the patched
    ones, while the extractor's own work in a round is 0.23–0.31 s and `--reader-check` adds under
-   1 s; the from-nothing fill took 302 s against read-alone's 165 s. Where the extra ≈ 25 s goes
-   is not measured yet (the round prints no decode / hash / merge / finalize split); it is the
-   first thing to answer before M's timing means anything.
+   1 s; the from-nothing fill took 302 s against read-alone's 165 s.
+   **Answered 2026-10-09** (measured →
+   `benchmarks/results/reader-session-phases-2026-10-09.txt`, three warm cycles per arm): a round
+   now prints a `phases` line. The extra time was the content hash, a second walk of every object
+   of every module, round 1 included: 26.6 s of a 51.2 s round, against 20.5 s of decode;
+   withheld, the session round took 24.4 s against read-alone's 23.6 s. **The absolute size was
+   the compile level**: the reader was linked by `leanc -rdynamic` alone, which compiles at -O0;
+   it is now built with `-O3 -DNDEBUG`, part of the digest naming its cache. At -O3 a session
+   round takes 11.45 s (decode 3.74, hash 4.37) against read-alone's 6.06 s, the IR of all 32
+   outputs byte-equal; the gain is not uniform (decode and hash ≈ 6×, extraction 1.5×, the manual
+   root ask none), so no -O0 time here scales by one factor. `tools/mv-reader-gate.sh` 14 of 14:
+   a round under `build` 9.1–10.4 s, the from-nothing fill 302 → 127 s, read-alone's 165 → 106 s;
+   building the reader 27 → 53 s, once per digest. **Every reader time recorded before this
+   note was measured at -O0** — item 5's M checkpoint (99 s a version) and the step-3–6 notes
+   included. Still open: the hash could be fused into the decode's memos (most of the remaining
+   4.4 s); the session's manual-root ask takes 1.9–2.1 s against 1.0–1.6 s read-alone.
 7. **M**: `benchmarks/tools/mv-m-run.sh --through-reader --session`, three versions at the
    `mv-m-reader-fixed` commits. Read: entry equality, check mode 0, and per round reused,
    reprinted, rewritten modules and phases. v4.32.2 → v4.33.0 is the seed's first test across the
