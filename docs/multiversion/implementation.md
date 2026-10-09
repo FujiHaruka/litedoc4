@@ -1057,6 +1057,15 @@ Choices, with what would undo each:
    (v4.34.1 natively), (a) the session, then (b) read-alone from a store copy holding only v4.34.1;
    entries equal, 3 of 3; check mode once on (a), its time stated. ≈ 1.5–2 h with the render
    (theoretical) against the 240-min timeout. Started by a `push:` on `multi-version`.
+   **Answered 2026-10-10: the session does not fit the runner** (measured →
+   `benchmarks/results/mv-l-session-2026-10-10.txt`, prediction →
+   `benchmarks/results/mv-l-reader-prediction-2026-10-10.txt`). Round 1 (built whole, checked)
+   completed in 1,184 s at a 13.8 GiB peak with check-patch and check-keys 0; round 2 held round
+   1's state (11.3 GiB resident) while decoding, filled the 3 GB swap and the runner was lost,
+   twice. The first choice's undo condition holds, so its fallback ran: every older version read
+   alone, from nothing (measured → `benchmarks/results/mv-l-reader-alone-2026-10-10.txt`): 642–701 s
+   a version, anon peak 11.1 GiB, swap within 7 MiB of full, 59.5 min for the four releases with
+   the render. (a) = (b) on L was therefore never compared.
 
 **Measurement.**
 

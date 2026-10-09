@@ -1,0 +1,66 @@
+L read alone: all of Mathlib at four releases, the older three each read alone through the reader
+====================================================================================================
+
+Run 37976206327 of .github/workflows/mv-l.yml at 1187ebd (branch multi-version), 2026-10-10 (UTC
+2026-10-09 18:51-19:53). The item 6 plan's fallback after the session did not fit the runner
+(benchmarks/results/mv-l-session-2026-10-10.txt). Prediction committed before either run:
+benchmarks/results/mv-l-reader-prediction-2026-10-10.txt (its section (3) is read-alone per
+version; its (b) arm started from a store holding v4.34.1, this one from nothing).
+
+CONDITIONS
+----------
+host      GitHub-hosted ubuntu-latest, ubuntu24 20261004.327.1, AMD EPYC 7763, 4 vCPU, 16 GB,
+          3 GB swap
+command   litedoc4 build --root <Mathlib clone at v4.34.1> --lib Mathlib --out <empty>
+          --versions v4.32.2,v4.33.0,v4.33.1,v4.34.1 --jobs 4 --reader-alone;
+          litedoc4.toml: no_equations_under = ["Mathlib.Tactic", "Mathlib.Meta"]
+versions  v4.32.2 905b95818e / v4.33.0 db584cd6d4 / v4.33.1 0df444a360 / v4.34.1 d13f23b723
+reader    -O3, built by the run (95.21 s), identity directory reader-...-b1fa2650a8262a00
+memory    1-s /proc/<pid>/status samples per process, 15-s MemAvailable / swap / free disk
+          One run; no time here is converged.
+
+ANSWER (measured)
+------
+  versions extracted: 4 of 4, through the reader: 3 (v4.32.2, v4.33.0, v4.33.1); rendered 4 of 4
+  whole command  59:32.98 wall, 7,844 + 447 s CPU, exit 0
+
+  phase (s)          v4.34.1 native   v4.32.2      v4.33.0      v4.33.1
+  toolchain          0 (extractor 22.30) 13.13     11.81        11.64
+  cache              62.93            71.18        65.42        65.71
+  lake               5.32             9.22         6.66         5.03
+  extract / read     564.69           701.03       665.05       644.26
+  put                23.51            24.32        24.21        23.84
+  render             397.89 for four versions
+
+  read-alone phases (ms)     v4.32.2      v4.33.0      v4.33.1
+  modules decoded            10,406       10,498       10,498
+  constants decoded          767,553      772,126      772,126
+  decode                     179,414      158,883      140,351
+  newest import              4,023        6,815        5,401
+  merge                      31,489       39,170       38,974
+  finalize                   14,304       12,534       19,013
+  check closure + ilean      20,790       13,054       12,901
+  extract                    444,510      430,596      424,176
+  total                      698,836      662,813      642,089
+
+  memory   reader extract: anon peak 11,321 MiB, file 6,125 MiB, its own swap up to 1,998 MiB;
+           litedoc4 (extraction of v4.34.1, render): anon peak 4,334 MiB;
+           MemAvailable minimum 3,121 MiB; swap used up to 3,065 of 3,072 MiB
+  disk     minimum 56 GiB free (71 GiB at the end)
+  store    entry.pack.gz 65.9 / 66.3 / 66.3 / 67.4 MB (v4.32.2 / v4.33.0 / v4.33.1 / v4.34.1)
+  site     78,472 files, 403,208 KiB (du); v4.34.1 8,534 files
+
+AGAINST THE PREDICTION
+----------------------
+  read-alone per version   predicted 325-634 s; measured 642-701 s: miss, 1-11% over the top.
+                           Extraction 424-445 s sits at the top of the predicted 250-450 s.
+  read-alone anon          predicted 6-8 GiB; measured 11.1 GiB (11,321 MiB): miss, +38% over the top
+  native v4.34.1 extract   predicted 540-700 s; 564.69 s: in range
+  render, four versions    predicted 6-7 min; 6.6 min: in range
+  free disk minimum        predicted 48-58 GiB; 56 GiB: in range
+
+WHAT IT SAYS
+------------
+The fallback fits the runner, without much margin: one reader process at 11.1 GiB anonymous, the
+swap within 7 MiB of full while it ran, 3.0 GiB available at the lowest. Four releases of all of
+Mathlib from nothing take 59.5 minutes, of which the three reader rounds are 33.5 minutes.
