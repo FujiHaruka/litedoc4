@@ -43,26 +43,17 @@ jobs:
         id: setup
         run: benchmarks/tools/mv-l-run.sh setup
 
-      - name: (a) v4.32.2, v4.33.0, v4.33.1 through one reader session into v4.34.1, from nothing, checked
-        id: a
-        timeout-minutes: 130
-        run: benchmarks/tools/mv-l-run.sh session
-
-      - name: (b) the same three read alone, into a copy of (a) holding only v4.34.1
-        id: b
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: benchmarks/tools/mv-l-run.sh alone
-
-      - name: (a) against (b), entry by entry
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: benchmarks/tools/mv-l-run.sh compare
+      - name: (c) v4.32.2, v4.33.0, v4.33.1 each read alone into v4.34.1, from nothing
+        id: c
+        timeout-minutes: 150
+        run: benchmarks/tools/mv-l-run.sh scratch
 
       - name: upload the store
-        if: ${{ !cancelled() && steps.a.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.c.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: mv-l-store
-          path: /home/runner/mv-l/a/store
+          path: /home/runner/mv-l/c/store
           retention-days: 14
 
       - name: sizes

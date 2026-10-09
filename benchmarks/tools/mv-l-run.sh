@@ -5,7 +5,8 @@
 #   mv-l-run.sh session   (a) every tag into an empty <work>/a, one reader session, --reader-check
 #   mv-l-run.sh alone     (b) a copy of <work>/a holding only the newest entry, --reader-alone
 #   mv-l-run.sh compare   (a)'s and (b)'s entries of the older tags byte for byte, and the counts
-#   mv-l-run.sh report    sizes of (a)'s store and site
+#   mv-l-run.sh scratch   (c) every tag into an empty <work>/c, each older one read alone
+#   mv-l-run.sh report    sizes of the store and site of <work>/a, or of <work>/c when there is no a
 #
 # Environment: MV_L_WORK (default $RUNNER_TEMP/mv-l or /private/tmp/lean-doc-relay/mv-l),
 # MV_L_JOBS (default 4), MV_L_TAGS (default v4.32.2,v4.33.0,v4.33.1,v4.34.1; the last is the newest).
@@ -159,6 +160,10 @@ case "${1:-}" in
     ls "$OUT_B/store"
     run b "$OUT_B" --reader-alone
     ;;
+  scratch)
+    rm -rf "$WORK/c"
+    run c "$WORK/c" --reader-alone
+    ;;
   compare)
     older="$(names "${OLDER[@]}")"
     declared=6
@@ -207,6 +212,7 @@ case "${1:-}" in
     [ "$passed" = "$declared" ]
     ;;
   report)
+    if [ ! -d "$OUT_A/store" ]; then OUT_A="$WORK/c"; fi
     {
       echo "store entries (bytes):"
       find "$OUT_A/store" -type f -exec ls -l {} + | awk '{ print $5, $9 }' | sed "s#$OUT_A/##"
@@ -218,7 +224,7 @@ case "${1:-}" in
     } | tee "$LOGS/report.txt"
     ;;
   *)
-    sed -n '2,11p' "$0" >&2
+    sed -n '2,12p' "$0" >&2
     exit 2
     ;;
 esac
