@@ -39,31 +39,30 @@ jobs:
           mkdir -p "$MV_L_WORK/logs"
           benchmarks/tools/record-runner.sh "$MV_L_WORK/logs/runner-start.txt"
 
-      - name: litedoc4 and Mathlib's three tags
+      - name: litedoc4 and Mathlib's four tags, the root at the newest
+        id: setup
         run: benchmarks/tools/mv-l-run.sh setup
 
-      - name: (a) v4.32.2 and v4.33.0 from nothing
-        run: benchmarks/tools/mv-l-run.sh run a v4.32.2,v4.33.0
+      - name: (a) v4.32.2, v4.33.0, v4.33.1 through one reader session into v4.34.1, from nothing, checked
+        id: a
+        timeout-minutes: 130
+        run: benchmarks/tools/mv-l-run.sh session
 
-      - name: (b) v4.33.1 added
-        run: benchmarks/tools/mv-l-run.sh run b v4.32.2,v4.33.0,v4.33.1
+      - name: (b) the same three read alone, into a copy of (a) holding only v4.34.1
+        id: b
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: benchmarks/tools/mv-l-run.sh alone
 
-      - name: (c) the three again, nothing to extract
-        run: benchmarks/tools/mv-l-run.sh run c v4.32.2,v4.33.0,v4.33.1
-
-      - name: (d) store render of 1, 2 and 3 versions, apart
-        run: benchmarks/tools/mv-l-run.sh render-alone default
-
-      - name: (e) the same with glibc's mmap and trim thresholds fixed
-        env:
-          GLIBC_TUNABLES: glibc.malloc.mmap_threshold=131072:glibc.malloc.trim_threshold=131072
-        run: benchmarks/tools/mv-l-run.sh render-alone tuned
+      - name: (a) against (b), entry by entry
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: benchmarks/tools/mv-l-run.sh compare
 
       - name: upload the store
+        if: ${{ !cancelled() && steps.a.outcome == 'success' }}
         uses: actions/upload-artifact@v7
         with:
           name: mv-l-store
-          path: /home/runner/mv-l/out/store
+          path: /home/runner/mv-l/a/store
           retention-days: 14
 
       - name: sizes
@@ -72,7 +71,11 @@ jobs:
 
       - name: record the machine at the end
         if: always()
-        run: df -h > "$MV_L_WORK/logs/df-end.txt"; free -m >> "$MV_L_WORK/logs/df-end.txt"
+        run: |
+          df -h > "$MV_L_WORK/logs/df-end.txt"
+          free -m >> "$MV_L_WORK/logs/df-end.txt"
+          sudo dmesg | grep -iE 'out of memory|killed process|oom' > "$MV_L_WORK/logs/oom.txt" || true
+          cat "$MV_L_WORK/logs/df-end.txt" "$MV_L_WORK/logs/oom.txt"
 
       - name: upload the logs
         if: always()
