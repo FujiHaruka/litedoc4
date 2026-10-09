@@ -99,7 +99,7 @@ jobs:
           path: litedoc4/extractor/build
           key: >-
             extractor-${{ hashFiles('package/lean-toolchain',
-            'litedoc4/extractor/Extract.lean') }}
+            'litedoc4/extractor/Extract.lean', 'litedoc4/tools/leanc-flags.txt') }}
 
       # The template's third cache; `id:` is the one addition. The run has to
       # be able to say whether it restored anything, because "extract was fast"

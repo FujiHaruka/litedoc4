@@ -123,14 +123,31 @@ __memory_gb () {
   if [ -n "$kb" ]; then echo "$((kb / 1024 / 1024))"; else echo '?'; fi
 }
 
+# The flags past `-rdynamic` that every `leanc` building a shipped executable
+# passes, read from the file litedoc4 itself compiles them in from, on one line.
+LEANC_FLAGS_FILE="tools/leanc-flags.txt"
+
+# usage: leanc_flags <repo-root>
+leanc_flags () {
+  local file="$1/$LEANC_FLAGS_FILE" flags levels
+  [ -f "$file" ] || { echo "leanc_flags: $file is gone" >&2; return 1; }
+  flags="$(grep -v '^[[:space:]]*#' "$file" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')"
+  levels="$(printf '%s' "$flags" | tr ' ' '\n' | grep -c '^-O' || true)"
+  if [ "$levels" -ne 1 ]; then
+    echo "leanc_flags: $file names $levels optimisation levels, not one: '$flags'" >&2
+    return 1
+  fi
+  printf '%s\n' "$flags"
+}
+
 # The extractor, built inside e2e/micro's environment, at the path every caller
 # already agreed on. Three scripts want it — tools/e2e-micro.sh,
 # tools/lake-package-gate.sh and tools/mv-s-gate.sh — and the two
 # decisions it makes are the ones a second copy gets wrong: **where the binary
 # lives** (a gitignored directory inside the sample, so a checkout never carries
-# a stale one) and **when to rebuild it** (when the source is newer, not only
-# when it is missing — a stale binary lets every check downstream pass against
-# an extractor built before the change under test).
+# a stale one) and **when to rebuild it** (when the source or the flags are
+# newer, not only when it is missing — a stale binary lets every check
+# downstream pass against an extractor built before the change under test).
 #
 # `-rdynamic` is load-bearing: `importModules (loadExts := true)` resolves
 # symbols in the running executable through the Lean interpreter.
@@ -140,13 +157,17 @@ __memory_gb () {
 micro_extractor () {
   local root="$1" micro="$2" lake="$3" log="$4"
   local exe="$micro/.lake/e2e-extract/extract"
-  if [ ! -x "$exe" ] || [ "$root/extractor/Extract.lean" -nt "$exe" ]; then
+  local flags
+  flags="$(leanc_flags "$root")" || return 1
+  if [ ! -x "$exe" ] || [ "$root/extractor/Extract.lean" -nt "$exe" ] ||
+     [ "$root/$LEANC_FLAGS_FILE" -nt "$exe" ]; then
     mkdir -p "$micro/.lake/e2e-extract"
     ( cd "$micro" && "$lake" env lean --root="$root/extractor" \
         -o "$micro/.lake/e2e-extract/Extract.olean" \
         -c "$micro/.lake/e2e-extract/Extract.c" \
         "$root/extractor/Extract.lean" ) >"$log" 2>&1
-    ( cd "$micro" && "$lake" env leanc -rdynamic \
+    # shellcheck disable=SC2086  # $flags is a word list; tools/leanc-flags.txt holds no globs
+    ( cd "$micro" && "$lake" env leanc -rdynamic $flags \
         -o "$exe" "$micro/.lake/e2e-extract/Extract.c" ) >>"$log" 2>&1
   else
     echo "reusing $exe" >&2

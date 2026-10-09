@@ -18,10 +18,10 @@
 #   5 --lib     the run passed no `--lib` and the site does not document every
 #               library root the consumer declares: the Lake-side lookup broke.
 #
-# Item 4 compares **IR, not binaries**: Lake prefixes package-local symbols and
-# compiles the generated C with `-O3 -DNDEBUG`, so the two builds differ by
-# +308,032 B (measured 2026-08-18,
-# benchmarks/results/lake-package-probe-2026-08-18.txt §2). It compares over
+# Item 4 compares **IR, not binaries**: Lake prefixes package-local symbols, so
+# the two builds differ in bytes even though both compile the generated C with
+# `-O3 -DNDEBUG` (+308,032 B while the manual build was still -O0, measured
+# 2026-08-18, benchmarks/results/lake-package-probe-2026-08-18.txt §2). It compares over
 # `e2e/micro` because that package carries declaration shapes the measurement
 # target does not have, and a comparison is only as good as the shapes that reach
 # it.

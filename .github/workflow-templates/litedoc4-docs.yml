@@ -60,11 +60,12 @@
 #                      it changes exactly when the oleans do.
 #   extractor/build    the Lean extractor (171 MB). It is compiled against the
 #                      package's toolchain, so the key is `lean-toolchain` plus
-#                      the hash of Extract.lean — the two inputs that decide its
-#                      bytes. It does not depend on the package's own sources,
-#                      so it survives every ordinary commit. Building it costs
-#                      14.90 s on an M1 with a warm cache (measured); the reason to
-#                      cache it is that it never changes, not that it is slow.
+#                      the hash of Extract.lean and of tools/leanc-flags.txt —
+#                      the three inputs that decide its bytes. It does not
+#                      depend on the package's own sources, so it survives
+#                      every ordinary commit. Building it costs 14.90 s on an
+#                      M1 with a warm cache (measured); the reason to cache it
+#                      is that it never changes, not that it is slow.
 #   docs-out           **the documentation state** — the IR, the ledger and the
 #                      site of the previous run. This is the one that makes the
 #                      incremental path reachable at all: without it every run
@@ -158,7 +159,7 @@ jobs:
           path: litedoc4/extractor/build
           key: >-
             extractor-${{ hashFiles('package/lean-toolchain',
-            'litedoc4/extractor/Extract.lean') }}
+            'litedoc4/extractor/Extract.lean', 'litedoc4/tools/leanc-flags.txt') }}
 
       # The previous run's documentation state. `key` is unique per commit so
       # every run writes its own entry; `restore-keys` is the prefix, so a run

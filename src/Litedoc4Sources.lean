@@ -4,6 +4,8 @@ def extractorSource : String := include_str "../extractor/Extract.lean"
 
 def leanToolchainsTable : String := include_str "../tools/lean-toolchains.txt"
 
+def leancFlagsTable : String := include_str "../tools/leanc-flags.txt"
+
 def readerSources : Array (String × String) := #[
   ("OleanReader/Writers.lean", include_str "../extractor/reader/OleanReader/Writers.lean"),
   ("OleanReader/Read.lean", include_str "../extractor/reader/OleanReader/Read.lean"),

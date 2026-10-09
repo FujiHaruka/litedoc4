@@ -248,8 +248,27 @@ def checkOwnership (out root : FilePath) : BuildM Unit := do
 def toolchainDirName (toolchain : String) : String :=
   toolchain.map fun c => if c.isAlphanum || c == '.' || c == '_' || c == '-' then c else '-'
 
-def sourceDigest (_ : Unit) : String :=
-  (sha256Hex extractorSource.toUTF8).take 16 |>.toString
+def leancFlagsOf (table : String) : Array String :=
+  (table.splitOn "\n").foldl (init := #[]) fun acc line =>
+    let words := ((line.map fun c => if c.isWhitespace then ' ' else c).splitOn " ").filter (!·.isEmpty)
+    match words with
+    | first :: _ => if first.startsWith "#" then acc else acc ++ words.toArray
+    | [] => acc
+
+def leancFlags : Array String := leancFlagsOf leancFlagsTable
+
+def leancFlagsNameExactlyOneOptimisationLevel : Bool :=
+  (leancFlags.filter (·.startsWith "-O")).size == 1
+
+#guard leancFlagsNameExactlyOneOptimisationLevel
+
+def buildDigestOf (files : Array (String × String)) (cflags : Array String) : String :=
+  let text := " ".intercalate cflags.toList ++ "\n" ++
+    String.join (files.toList.map fun (path, s) => s!"{path}\n{s.utf8ByteSize}\n{s}")
+  (sha256Hex text.toUTF8).take 16 |>.toString
+
+def extractorDigest (_ : Unit) : String :=
+  buildDigestOf #[("Extract.lean", extractorSource)] leancFlags
 
 def elanBeside (lake : FilePath) : FilePath :=
   match lake.parent with
@@ -284,7 +303,7 @@ def ensureToolchain (elan : FilePath) (toolchain : String) : BuildM Unit := do
   spawnInherited elan.toString #["toolchain", "install", toolchain]
 
 def extractorDir (cache : FilePath) (toolchain : String) : FilePath :=
-  cache / s!"{toolchainDirName toolchain}-{sourceDigest ()}"
+  cache / s!"{toolchainDirName toolchain}-{extractorDigest ()}"
 
 def extractorPath (cache : FilePath) (toolchain : String) : FilePath :=
   extractorDir cache toolchain / "extract"
@@ -305,8 +324,8 @@ def extractorFor (elan : FilePath) (cache : FilePath) (toolchain : String) : Bui
     "-o", (dir / "Extract.olean").toString, "-c", (dir / "Extract.c").toString, source.toString]
   -- Not without `-rdynamic`: the initializers it runs through the interpreter resolve symbols in it.
   let partial_ := dir / "extract.partial"
-  spawnInherited elan.toString #["run", toolchain, "leanc", "-rdynamic", "-o", partial_.toString,
-    (dir / "Extract.c").toString]
+  spawnInherited elan.toString (#["run", toolchain, "leanc", "-rdynamic"] ++ leancFlags ++
+    #["-o", partial_.toString, (dir / "Extract.c").toString])
   IO.FS.rename partial_ bin
   for name in ["Extract.c", "Extract.olean"] do
     if ← (dir / name).pathExists then IO.FS.removeFile (dir / name)
@@ -339,14 +358,6 @@ structure ReaderBuild where
   files : Array (String × String)
   dirName : String
 
--- Not `leanc`'s own flags: it compiles at -O0 (Lake's release build passes these); drop them if `leanc --print-cflags` ever carries an -O.
-def readerCFlags : Array String := #["-O3", "-DNDEBUG"]
-
-def readerDigestOf (files : Array (String × String)) (cflags : Array String) : String :=
-  let text := " ".intercalate cflags.toList ++ "\n" ++
-    String.join (files.toList.map fun (path, s) => s!"{path}\n{s.utf8ByteSize}\n{s}")
-  (sha256Hex text.toUTF8).take 16 |>.toString
-
 def readerBuildOf (rows : Array String) (extractor : String)
     (sources : Array (String × String)) : Except String ReaderBuild := do
   let some toolchain := readerToolchainOf rows
@@ -355,7 +366,7 @@ def readerBuildOf (rows : Array String) (extractor : String)
     | .error why => throw s!"extractor/Extract.lean cannot be cut for the reader: {why}"
     | .ok cut => pure cut
   let files := #[("Extract.lean", cut)] ++ sources
-  return { toolchain, files, dirName := s!"reader-{toolchainDirName toolchain}-{readerDigestOf files readerCFlags}" }
+  return { toolchain, files, dirName := s!"reader-{toolchainDirName toolchain}-{buildDigestOf files leancFlags}" }
 
 def readerBuild : Except String ReaderBuild :=
   readerBuildOf supportedToolchains extractorSource readerSources
@@ -385,7 +396,7 @@ def readerFor (elan cache : FilePath) : BuildM FilePath := do
       "-o", (dir / s!"{stem}.olean").toString, "-c", (dir / s!"{stem}.c").toString,
       (dir / path).toString] (env := #[("LEAN_PATH", some dir.toString)])
   let partial_ := dir / "reader.partial"
-  spawnInherited elan.toString (#["run", b.toolchain, "leanc", "-rdynamic"] ++ readerCFlags ++ #["-o", partial_.toString]
+  spawnInherited elan.toString (#["run", b.toolchain, "leanc", "-rdynamic"] ++ leancFlags ++ #["-o", partial_.toString]
     ++ b.files.map fun (path, _) => (dir / s!"{leanStem path}.c").toString)
   IO.FS.rename partial_ bin
   for (path, _) in b.files do
@@ -397,7 +408,7 @@ def readerFor (elan cache : FilePath) : BuildM FilePath := do
 
 def pruneExtractors (cache : FilePath) : IO Unit := do
   if !(← cache.isDir) then return
-  let suffix := s!"-{sourceDigest ()}"
+  let suffix := s!"-{extractorDigest ()}"
   let reader := readerBuild.toOption.map (·.dirName)
   for entry in ← cache.readDir do
     if !entry.fileName.endsWith suffix && some entry.fileName != reader then

@@ -1019,6 +1019,12 @@ Choices, with what would undo each:
    note was measured at -O0** — item 5's M checkpoint (99 s a version) and the step-3–6 notes
    included. Still open: the hash could be fused into the decode's memos (most of the remaining
    4.4 s); the session's manual-root ask takes 1.9–2.1 s against 1.0–1.6 s read-alone.
+   **The native extractor had the same hole**, on every `build` path, single-version included:
+   both binaries now take their flags from `tools/leanc-flags.txt`, which names every cache that
+   holds either (the action's extractor cache key included); the identity does not move, the IR
+   being byte-identical at both levels. On the sample the extraction gains ≈ 1.2× warm and the
+   extractor build costs ≈ 12.8 s more (measured →
+   `benchmarks/results/extractor-O3-2026-10-09.txt`); the Mathlib-scale gain is not measured.
 7. **M**: `benchmarks/tools/mv-m-run.sh --through-reader --session`, three versions at the
    `mv-m-reader-fixed` commits. Read: entry equality, check mode 0, and per round reused,
    reprinted, rewritten modules and phases. v4.32.2 → v4.33.0 is the seed's first test across the

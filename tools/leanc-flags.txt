@@ -1,0 +1,2 @@
+# Not `leanc`'s own flags: it compiles at -O0 (Lake's release build passes these); drop them if `leanc --print-cflags` ever carries an -O.
+-O3 -DNDEBUG

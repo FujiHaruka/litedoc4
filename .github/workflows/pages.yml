@@ -28,6 +28,7 @@ on:
       - "e2e/micro-dep/**"
       - "tools/build-lean-exe.sh"
       - "tools/e2e-micro.sh"
+      - "tools/leanc-flags.txt"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 

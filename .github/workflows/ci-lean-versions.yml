@@ -25,6 +25,7 @@ on:
       - "tools/build-lean-exe.sh"
       - "tools/e2e-micro.sh"
       - "tools/lean-toolchains.txt"
+      - "tools/leanc-flags.txt"
       - "tools/lean-versions-gate.sh"
       - ".github/workflows/ci-lean-versions.yml"
   pull_request:
@@ -39,6 +40,7 @@ on:
       - "tools/build-lean-exe.sh"
       - "tools/e2e-micro.sh"
       - "tools/lean-toolchains.txt"
+      - "tools/leanc-flags.txt"
       - "tools/lean-versions-gate.sh"
       - ".github/workflows/ci-lean-versions.yml"
   workflow_dispatch:
