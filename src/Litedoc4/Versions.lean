@@ -448,11 +448,94 @@ def newestSearchPath (lake package checkout copies : FilePath) : BuildM (Array S
     else out := out.push dir
   return out
 
+def searchArgs (flag : String) (dirs : Array String) : Array String :=
+  dirs.foldl (fun a d => a ++ #[flag, d]) #[]
+
+def readerExtractorArgs (modules events irDir : FilePath) (jobs : Nat)
+    (noEquationsUnder : Array String) (linkIndex : FilePath) : Array String :=
+  extractorArgs modules events irDir jobs noEquationsUnder (some linkIndex) (some modules) none
+
 def readerArgv (old new : Array String) (newRoots modules events irDir : FilePath) (jobs : Nat)
     (noEquationsUnder : Array String) (linkIndex : FilePath) : Array String :=
-  #["extract"] ++ old.foldl (fun a d => a ++ #["--old", d]) #[]
-    ++ new.foldl (fun a d => a ++ #["--new", d]) #[] ++ #["--new-roots", newRoots.toString]
-    ++ extractorArgs modules events irDir jobs noEquationsUnder (some linkIndex) (some modules) none
+  #["extract"] ++ searchArgs "--old" old ++ searchArgs "--new" new
+    ++ #["--new-roots", newRoots.toString]
+    ++ readerExtractorArgs modules events irDir jobs noEquationsUnder linkIndex
+
+def sessionChecks : Array String := #["--check-patch", "--check-keys"]
+
+def sessionArgv (new : Array String) (newRoots : FilePath) (check : Bool) : Array String :=
+  #["session"] ++ searchArgs "--new" new ++ #["--new-roots", newRoots.toString]
+    ++ (if check then sessionChecks else #[])
+
+def sessionRequest (old : Array String) (modules events irDir : FilePath) (jobs : Nat)
+    (noEquationsUnder : Array String) (linkIndex : FilePath) : Except String String := do
+  let fields := searchArgs "--old" old
+    ++ readerExtractorArgs modules events irDir jobs noEquationsUnder linkIndex
+  if let some f := fields.find? (·.any fun c => c == '\t' || c == '\n' || c == '\r') then
+    throw s!"the reader session takes one tab-separated line per version, so `{f}` cannot be sent"
+  return "\t".intercalate fields.toList ++ "\n"
+
+/-! ## One reader process for every version read -/
+
+abbrev SessionChild := IO.Process.Child { stdin := .null, stdout := .piped, stderr := .inherit }
+
+structure ReaderSession where
+  child : SessionChild
+  stdin : IO.Ref (Option IO.FS.Handle)
+  exited : IO.Ref (Option UInt32)
+  rounds : IO.Ref Nat
+
+def ReaderSession.start (reader : FilePath) (argv : Array String) : BuildM ReaderSession := do
+  (← IO.getStdout).flush
+  let child ← match ← (IO.Process.spawn
+      { cmd := reader.toString, args := argv, stdin := .piped, stdout := .piped
+        stderr := .inherit }).toBaseIO with
+    | .error e => throw (1, s!"{reader} session: {e}")
+    | .ok child => pure child
+  let (handle, child) ← child.takeStdin
+  return { child, stdin := ← IO.mkRef (some handle), exited := ← IO.mkRef none
+           rounds := ← IO.mkRef 0 }
+
+partial def ReaderSession.answer (s : ReaderSession) (tags : List String) (doing : String) :
+    BuildM String := do
+  let line ← s.child.stdout.getLine
+  if line.isEmpty then
+    let code ← s.child.wait
+    s.exited.set (some code)
+    throw (1, s!"the reader session exited {code} {doing}")
+  let text := trimEol line
+  let stdout ← IO.getStdout
+  stdout.putStrLn text
+  stdout.flush
+  if tags.any (text.startsWith ·) then return text
+  s.answer tags doing
+
+def ReaderSession.ready (s : ReaderSession) : BuildM Unit := discard <| s.answer ["ready "] "while importing the newest version"
+
+def ReaderSession.request (s : ReaderSession) (v : Store.VersionName) (line : String) :
+    BuildM UInt32 := do
+  let some handle ← s.stdin.get | throw (1, "the reader session was already stopped")
+  match ← (do handle.putStr line; handle.flush : IO Unit).toBaseIO with
+  | .error e => throw (1, s!"version {v.text}: writing to the reader session: {e}")
+  | .ok () => pure ()
+  let reply ← s.answer ["ok ", "err "] s!"while reading version {v.text}"
+  s.rounds.modify (· + 1)
+  if reply.startsWith "err " then
+    throw (1, s!"version {v.text}: the reader session refused the request: {reply}")
+  match (reply.splitOn " ")[1]?.bind (·.toNat?) with
+  | some code => return code.toUInt32
+  | none => throw (1, s!"version {v.text}: the reader session answered `{reply}`")
+
+def ReaderSession.stop (s : ReaderSession) : IO Unit := do
+  s.stdin.set none
+  let code ← match ← s.exited.get with
+    | some code => pure code
+    | none => do
+      let code ← s.child.wait
+      s.exited.set (some code)
+      pure code
+  IO.println s!"session stopped after {← s.rounds.get} request(s)\
+    {if code == 0 then "" else s!" (the reader exited {code})"}"
 
 def removeCheckout (top dir : FilePath) : IO Unit := do
   if ← dir.pathExists then

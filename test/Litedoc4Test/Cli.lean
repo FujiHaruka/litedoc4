@@ -138,6 +138,26 @@ def theReaderIsForcedOnlyOnAVersionedBuild : Bool :=
 
 #guard theReaderIsForcedOnlyOnAVersionedBuild
 
+def theReaderIsReadAloneOrCheckedOnlyOnAVersionedBuildAndNotBoth : Bool :=
+  ((parseBuild false ["--versions", "v1,v2", "--reader-alone"] {}).toOption.map
+      (fun a => (a.readerAlone, a.readerCheck))) == some (true, false)
+    && ((parseBuild false ["--versions", "v1,v2", "--reader-check"] {}).toOption.map
+      (fun a => (a.readerAlone, a.readerCheck))) == some (false, true)
+    && versionedRefusal ["--versions", "v1,v2", "--reader-alone"] == none
+    && versionedRefusal ["--versions", "v1,v2", "--reader-check"] == none
+    && (match versionedRefusal ["--versions", "v1,v2", "--reader-alone", "--reader-check"] with
+      | some m => m.startsWith "--reader-check is not a flag of `build --versions --reader-alone`"
+      | none => false)
+    && ["--reader-alone", "--reader-check"].all fun flag =>
+      (match versionedRefusal [flag] with
+        | some m => m.startsWith s!"{flag} is not a flag of `build` without --versions"
+        | none => false)
+      && (match parseBuild true [flag] {} with
+        | .error m => m.startsWith s!"{flag} is not a `watch` flag"
+        | .ok _ => false)
+
+#guard theReaderIsReadAloneOrCheckedOnlyOnAVersionedBuildAndNotBoth
+
 def everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken : Bool :=
   let v := ["--versions", "v1"]
   [(["--source-url", "u"], "--source-url"), (["--extractor-bin", "b"], "--extractor-bin"),

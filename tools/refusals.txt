@@ -21,7 +21,8 @@
 # the flags that left with the static site went with them, and the refusals
 # that replace them are `test/Litedoc4Test/Cli.lean`'s (2026-10-07). And for the
 # `reader` command and `build --versions --through-reader` (2026-10-08): their
-# synopsis and description lines in `@usage` and the two `reader-*` rows.
+# synopsis and description lines in `@usage` and the two `reader-*` rows; and
+# for `--reader-alone` and `--reader-check` (2026-10-09), their lines in `@usage`.
 #
 # **The eight subcommands of the static site** — `render`, `site`, `global`,
 # `incremental`, `ownership`, `merge`, `impact`, `prune` — left with it, and so
@@ -59,6 +60,7 @@
 |                        [--store <dir>] [--hash-urls] [--lib <Name>]...
 |                        [--lake <path>] [--jobs <n>]
 |                        [--through-reader <name>,<name>...]
+|                        [--reader-alone | --reader-check]
 |        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
 |                        [--lib <Name>]... [--source-url <url>] [--hash-urls]
 |                        [--extractor-bin <path>] [--lake <path>] [--jobs <n>]
@@ -152,8 +154,12 @@
 |                  tools/lean-toolchains.txt, the newest is extracted first and
 |                  kept checked out while every older one, checked out at
 |                  <out>/checkout-read and built the same way, is read by the
-|                  .olean reader into the newest one's environment; the reader is
-|                  built under <out>/extractors on that row's Lean. A search
+|                  .olean reader into the newest one's environment. One reader
+|                  process imports the newest once and reads the older versions in
+|                  the order --versions names them, the first built whole and each
+|                  later one patched from the one read before it, which every
+|                  version's line names; the reader is built under <out>/extractors
+|                  on that row's Lean. A search
 |                  directory of the newest outside its checkout, which every
 |                  checkout's `lake build` writes, is read from a copy under
 |                  <out>/newest-search. An entry the reader filled is judged
@@ -172,6 +178,15 @@
 |                  1.x keeps: the versions below the newest to fill through the
 |                  reader whatever the store holds. Refused when the newest
 |                  version is not on the reader's toolchain
+|   --reader-alone  (`build --versions`) for the gates, and not part of what 1.x
+|                  keeps: read each version through the reader in a process of its
+|                  own, which imports the newest again, instead of one process for
+|                  all of them. The entries it writes are the same bytes
+|   --reader-check  (`build --versions`) for the gates, and not part of what 1.x
+|                  keeps: the reader process also builds each version's environment
+|                  from scratch and computes every print key afresh, and stops the
+|                  build on the first difference from the patched environment or
+|                  the carried keys
 |   --out          (`reader build`) the directory the .olean reader is built
 |                  under, the way `build --versions` builds it under
 |                  <out>/extractors: on the last row of tools/lean-toolchains.txt,

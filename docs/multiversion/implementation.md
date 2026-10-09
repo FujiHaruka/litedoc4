@@ -989,6 +989,23 @@ Choices, with what would undo each:
 6. **`build --versions` over the session.** Read-alone is in `--help-all`, not in
    `tools/public-surface.txt`. `tools/mv-reader-gate.sh` keeps its 12 items and gains
    `patched-equals-alone` (5 entries) and `check-keys`, each made to fail once.
+   **Done 2026-10-09**: every reader fill goes through one `reader session`, started once the
+   newest's search directories are ready and stopped in the build's `finally` (its stdin closed;
+   checked against SIGTERM of the build idle and mid-round, SIGKILL of the session, and a failing
+   round — no process left); a single version is a one-round session. Older versions are read in
+   `--versions` order, each line naming `built whole` or `patched from <version>`; the record is
+   built the same way either way. `--reader-alone` (read-alone, `reader extract` per version) and
+   `--reader-check` (passes `--check-patch --check-keys`) are in `--help-all`, not in
+   `tools/public-surface.txt`. `tools/mv-reader-gate.sh` 14 of 14 (measured →
+   `benchmarks/results/mv-reader-session-2026-10-09.txt`, one run): `patched-equals-alone` 10 of 10
+   files (`record.json` and `entry.pack.gz` of five versions), `check-keys` 5 of 5 rounds at 0; both
+   made to fail once, and `reader-force` now also holds a one-round entry against a patched one.
+   **On S the session is about 2× slower per version than read-alone**, in the same gate run:
+   48.96–51.53 s a round against 21.78–25.78 s, round 1 (built whole) as slow as the patched
+   ones, while the extractor's own work in a round is 0.23–0.31 s and `--reader-check` adds under
+   1 s; the from-nothing fill took 302 s against read-alone's 165 s. Where the extra ≈ 25 s goes
+   is not measured yet (the round prints no decode / hash / merge / finalize split); it is the
+   first thing to answer before M's timing means anything.
 7. **M**: `benchmarks/tools/mv-m-run.sh --through-reader --session`, three versions at the
    `mv-m-reader-fixed` commits. Read: entry equality, check mode 0, and per round reused,
    reprinted, rewritten modules and phases. v4.32.2 → v4.33.0 is the seed's first test across the
