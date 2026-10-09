@@ -61,8 +61,20 @@ rss_timeline() {
   done
 }
 
+live() {
+  local label="$1"
+  tail -n +1 -F "$LOGS/$label.out" 2>/dev/null |
+    grep --line-buffered -E '^(phase|versions |version |ready |round |ok |err |phases |patch |check-patch |check-keys |reuse |carry |rss |render )' &
+  (sudo -n dmesg -w 2>/dev/null | grep --line-buffered -iE 'out of memory|oom|killed process') &
+  while true; do
+    sleep 30
+    echo "live $(tail -n 1 "$LOGS/$label-sampler.txt" 2>/dev/null)" \
+      "$(tail -n 4 "$LOGS/$label.rss" 2>/dev/null | awk '{ printf "%s anon=%s file=%s swap=%s; ", $2, $4, $5, $6 }')"
+  done
+}
+
 run() {
-  local label="$1" out="$2" status=0 timer sampler timeline
+  local label="$1" out="$2" status=0 timer sampler timeline watcher
   shift 2
   sample >"$LOGS/$label-sampler.txt" &
   sampler=$!
@@ -72,9 +84,14 @@ run() {
   timer=$!
   rss_timeline "$timer" "$out" >"$LOGS/$label.rss" &
   timeline=$!
+  live "$label" &
+  watcher=$!
   wait "$timer" || status=$?
   kill "$sampler" "$timeline" 2>/dev/null || true
-  wait "$sampler" "$timeline" 2>/dev/null || true
+  pkill -P "$watcher" 2>/dev/null || true
+  kill "$watcher" 2>/dev/null || true
+  pkill -f "tail -n \\+1 -F $LOGS/$label.out" 2>/dev/null || true
+  wait "$sampler" "$timeline" "$watcher" 2>/dev/null || true
   echo "exit $status" >>"$LOGS/$label.out"
   grep -E '^(phase|versions |version |put |identity |reader |newest |session |ready |round |ok |err |phases |patch |check-patch |check-keys |reuse |carry |rss |render |build |exit )' \
     "$LOGS/$label.out" || true
