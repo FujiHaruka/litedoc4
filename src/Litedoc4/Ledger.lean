@@ -23,11 +23,6 @@ namespace Litedoc4
 
 def ledgerSchema : Nat := 2
 
-/-- Which implementation will run when the key says "re-extract". Bump it
-whenever a re-extraction can produce different IR bytes, including when
-`irSchemaVersion` cannot see the difference. -/
-def extractorId : String := "litedoc4 extractor v3"
-
 /-- Which implementation will run when the key says "re-render everything".
 Bump it whenever the renderer's output bytes can change with the IR held
 fixed. -/
@@ -144,12 +139,15 @@ def jsString (j : JVal) (key : String) : String := Id.run do
 /-- Everything that can change the IR bytes. The split from `renderKey` is not
 cosmetic: `--source-url` carries a git revision, so it changes on every commit,
 and under one key every incremental build would pay a full re-extraction for an
-input Lean cannot see. -/
+input Lean cannot see.
+
+Not the extractor: the IR tree names its writer (`extractorIdentity`) and `irPlan`
+holds that against the extractor in hand. A key here would be a second record of
+the same fact, and one that can disagree with the tree it describes. -/
 def extractKeyOf (leanToolchain manifestSha256 : String) (noEquationsUnder : Array String)
     (irIndex : Option JVal) : Array (String × String) := Id.run do
   let mut key : Array (String × String) :=
-    #[("leanToolchain", leanToolchain), ("manifestSha256", manifestSha256),
-      ("extractor", extractorId)]
+    #[("leanToolchain", leanToolchain), ("manifestSha256", manifestSha256)]
   if !noEquationsUnder.isEmpty then
     key := key.push ("noEquationsUnder", ",".intercalate noEquationsUnder.toList)
   if let some j := irIndex then

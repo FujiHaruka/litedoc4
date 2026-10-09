@@ -18,25 +18,23 @@ def sourceUrl2 : String :=
 def irIndexOf (generator : String) : JVal :=
   .obj #[("schemaVersion", .num 5), ("generator", .str generator)]
 
-/-- The identity strings are the cache's version key: sharing the frozen
-prototype's would let a ledger one implementation wrote be trusted by the other.
+/-- The renderer's identity string is the render key's version: sharing the
+frozen prototype's would let a ledger one implementation wrote be trusted by the
+other.
 
-The third clause is the opposite claim about a string that looks the same. The
-IR's own `generator` is **not** renamed with them — it names what wrote the tree
-on disk, which this port does not claim to be — so it has to come back out of the
-index verbatim. A rename applied to all three at once passes the first two. -/
+The second clause is the opposite claim about a string that looks the same. The
+IR's own `generator` is **not** renamed with it — it names what wrote the tree on
+disk, which this port does not claim to be — so it has to come back out of the
+index verbatim. A rename applied to both at once passes the first. -/
 def theIdentityStringsAreNotTheFrozenPrototypes : Bool :=
   let key := extractKeyOf "leanprover/lean4:v4.31.0" "0011" #[]
     (some (irIndexOf "lean-doc/experiments/stage4b"))
-  extractorId != "lean-doc/experiments/stage4b"
-    && rendererId != "lean-doc/experiments/stage4c"
-    && keySetGet key "extractor" == some extractorId
+  rendererId != "lean-doc/experiments/stage4c"
     && keySetGet key "irGenerator" == some "lean-doc/experiments/stage4b"
     && keySetGet (renderKey sourceUrl none none none) "renderer" == some rendererId
-    && key.map (·.1) == #["leanToolchain", "manifestSha256", "extractor",
-                          "irSchemaVersion", "irGenerator"]
+    && key.map (·.1) == #["leanToolchain", "manifestSha256", "irSchemaVersion", "irGenerator"]
     && (extractKeyOf "leanprover/lean4:v4.31.0" "0011" #[] none).map (·.1)
-      == #["leanToolchain", "manifestSha256", "extractor"]
+      == #["leanToolchain", "manifestSha256"]
 
 #guard theIdentityStringsAreNotTheFrozenPrototypes
 

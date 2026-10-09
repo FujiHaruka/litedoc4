@@ -391,10 +391,10 @@ def irPlan (ir : FilePath) (current : Store.ExtractorIdentity) : IO Plan := do
 /-- The extractor: a Lean environment this run owns, started at the first request
 and released after the last round. It writes the dependency map, which a store
 entry holds beside the IR. -/
-def openExtractor (r : BuildRequest) (bin : FilePath) (modulesFile : FilePath)
-    (modules : Array String) : BuildM Resident := do
+def openExtractor (r : BuildRequest) (bin : FilePath) (extractor : Store.ExtractorIdentity)
+    (modulesFile : FilePath) (modules : Array String) : BuildM Resident := do
   let serve ← serveOptions
-    { bin, target := r.root, lake := r.lake, jobs := r.jobs
+    { bin, extractor, target := r.root, lake := r.lake, jobs := r.jobs
       modulesFile, modules, work := r.layout.work, noEquationsUnder := r.noEquationsUnder
       linkIndex := some r.layout.linkIndex }
   Resident.new serve
@@ -507,11 +507,14 @@ def runExtraction (r : BuildRequest) (bin : BuildM FilePath) : BuildM Extracted 
   -- question is "is `--out` empty, and if not, did this command write it", and
   -- creating the work directory first would make every answer "not empty, and
   -- yes".
+  let extractorInHand : BuildM (FilePath × Store.ExtractorIdentity) := do
+    let path ← bin
+    let identity ← Store.currentIdentity path (← noEquationsUnderFor r.noEquationsUnder r.root)
+    return (path, identity)
   let (plan, inHand) ← match ← planOf r libs with
     | .incremental => do
-      let path ← bin
-      let current ← Store.currentIdentity path (← noEquationsUnderFor r.noEquationsUnder r.root)
-      pure (← irPlan layout.ir current, some path)
+      let (path, identity) ← extractorInHand
+      pure (← irPlan layout.ir identity, some (path, identity))
     | full => pure (full, none)
   match plan with
   | .full why => IO.println s!"plan    extract everything ({why})"
@@ -522,7 +525,8 @@ def runExtraction (r : BuildRequest) (bin : BuildM FilePath) : BuildM Extracted 
   let modulesFile := layout.work / "modules.txt"
   writeLines modulesFile modules
 
-  let extractor ← openExtractor r (← inHand.getDM bin) modulesFile modules
+  let (path, identity) ← inHand.getDM extractorInHand
+  let extractor ← openExtractor r path identity modulesFile modules
   let bibliography := (← readSiteConfig (some r.root)).bibliography.digest
   -- `finally` and not a `←` on the two paths: the resident environment is
   -- released on the failing path too, and doing it here puts the stop **before**

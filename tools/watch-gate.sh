@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# `litedoc4 watch` notices one changed module, extracts exactly that one, puts
-# the version again into the store, and serves it.
+# `litedoc4 watch` started over a site another extractor wrote extracts it whole
+# before serving it, then notices one changed module, extracts exactly that one,
+# puts the version again into the store, and serves it.
 #
 # It fails saying either "the loop rebuilt the wrong amount of work" — with the
 # count it got and the count it expected — or "the loop rebuilt the wrong
 # module", naming both; or that the server did not answer the page the rebuild
-# had just written.
+# had just written; or that the first pass served the other extractor's tree.
 #
 # A gate and not a test because it needs a real Lean environment and a real
 # extractor. It does **not** need the measurement target: `--target`, `--lib`,
@@ -228,15 +229,49 @@ else
   grep -E '^(modules|work|build) ' "$OUT/build.log" | sed 's/^/  /'
 fi
 MODULES="$(grep -c . "$BUILD/work/modules.txt")"
+# Not a second extractor built from another source: the identities the index and the sidecar name are all a run judges.
+python3 - "$BUILD" > "$OUT/foreign.txt" 2>&1 <<'PY'
+import pathlib, re, sys
 
-say "2/5 start watch on port $PORT"
+build = pathlib.Path(sys.argv[1])
+digest = re.compile(r"source=fnv1a64:[0-9a-f]{16}")
+other = "source=fnv1a64:0000000000000000"
+index = build / "ir" / "index.json"
+text, count = digest.subn(other, index.read_text(encoding="utf-8"))
+if count != 1:
+    sys.exit(f"{index} carries {count} extractor source digests, not one")
+index.write_text(text, encoding="utf-8")
+sidecar = build / "link-index.lidx.key"
+sidecar.write_text(digest.sub(other, sidecar.read_text(encoding="utf-8")), encoding="utf-8")
+PY
+status=$?
+if [ "$status" != 0 ]; then
+  echo "watch-gate FAIL  the site could not be made to look like another extractor's:" >&2
+  cat "$OUT/foreign.txt" >&2
+  exit 1
+fi
+
+say "2/5 start watch on port $PORT over a site another extractor wrote"
 : > "$LOG"
 "$LITEDOC4" watch --root "$TARGET" --out "$BUILD" --lib "$LIB" \
   --extractor-bin "$EXTRACT_BIN" --lake "$LAKE" --jobs "$JOBS" --port "$PORT" \
   >> "$LOG" 2>&1 &
 WATCH_PID=$!
 if ! wait_for '^watch   asks the ledger' 60 "the watch banner"; then exit 1; fi
+if ! wait_for '^watch   #1 reload' 300 "the first pass over the other extractor's site"; then exit 1; fi
 sed 's/^/  /' "$LOG"
+if grep -qx 'plan    extract everything (the IR under --out was written by another extractor)' "$LOG"; then
+  check ok "the first pass extracted the other extractor's tree whole"
+else
+  check fail "the first pass did not plan a whole extraction of the other extractor's tree: $(grep -E '^plan ' "$LOG" | head -1)"
+fi
+first="$(python3 -c 'import json, sys; print((json.load(open(sys.argv[1]))["work"] or {}).get("modulesExtracted"))' \
+  "$BUILD/litedoc4-build.json" 2>&1)"
+if [ "$first" = "$MODULES" ]; then
+  check ok "the first pass re-extracted $first of $MODULES module(s)"
+else
+  check fail "the first pass re-extracted $first module(s), expected all $MODULES"
+fi
 
 code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/" 2>/dev/null)"
 if [ "$code" = 200 ]; then
@@ -270,8 +305,8 @@ fi
 # nothing to wait for, so the wait is short and its timeout *is* the answer.
 DEADLINE=300
 if [ "$INJECT" = no-touch ]; then DEADLINE=30; fi
-if ! wait_for '^watch   #1 reload' "$DEADLINE" "the first rebuild"; then exit 1; fi
-sed -n '/^watch   #1 the ledger reports/,$p' "$LOG" | sed 's/^/  /'
+if ! wait_for '^watch   #2 reload' "$DEADLINE" "the rebuild after the touch"; then exit 1; fi
+sed -n '/^watch   #2 the ledger reports/,$p' "$LOG" | sed 's/^/  /'
 
 say "4/5 what the pass cost, as integers"
 python3 - "$BUILD/litedoc4-build.json" "$BUILD/work/round-in-1.txt" "$MODULE" "$MODULES" \

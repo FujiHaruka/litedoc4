@@ -493,7 +493,9 @@ say "10/13 GATE 6 — one edited module is the one module extracted"
 # on disk — the IR and the site rendered from it — has to be what a build from
 # nothing over the edited sources writes. **A tree another extractor wrote is
 # extracted whole** — what a CI cache restores after `Extract.lean` moved — and
-# meets the same oracle.
+# meets the same oracle, its dependency map included: the copy's map has one
+# range moved, so a map kept rather than written again by the extractor in hand
+# shows as a `.lidx` the oracle does not have.
 PROBE="$SAMPLE/Example/Basic.lean"
 cp "$PROBE" "$OUT/probe.orig"
 # `set -e` must not leave the sample edited: everything below this line runs
@@ -508,18 +510,29 @@ restore_probe () {
 on_exit restore_probe
 
 cp "$OUT/first/link-index.lidx" "$OUT/lidx-before"
-# Not a second extractor built from another source: the index's identity is all the run judges the writer by.
+# Not a second extractor built from another source: the identities the index and the sidecar name are all the run judges.
 rm -rf "$OUT/foreign"
 cp -R "$OUT/first" "$OUT/foreign"
-python3 - "$OUT/foreign/ir/index.json" <<'PY'
+python3 - "$OUT/foreign" <<'PY'
 import pathlib, re, sys
 
-index = pathlib.Path(sys.argv[1])
-text, count = re.subn(r"source=fnv1a64:[0-9a-f]{16}", "source=fnv1a64:0000000000000000",
-                      index.read_text(encoding="utf-8"))
+foreign = pathlib.Path(sys.argv[1])
+digest = re.compile(r"source=fnv1a64:[0-9a-f]{16}")
+other = "source=fnv1a64:0000000000000000"
+index = foreign / "ir" / "index.json"
+text, count = digest.subn(other, index.read_text(encoding="utf-8"))
 if count != 1:
     sys.exit(f"GATE 6: {index} carries {count} extractor source digests, not one")
 index.write_text(text, encoding="utf-8")
+sidecar = foreign / "link-index.lidx.key"
+sidecar.write_text(digest.sub(other, sidecar.read_text(encoding="utf-8")), encoding="utf-8")
+lidx = foreign / "link-index.lidx"
+text, count = re.subn(r"(?m)^\tEq\t(\d+)\t(\d+)$",
+                      lambda m: f"\tEq\t{int(m[1]) + 1}\t{int(m[2]) + 1}",
+                      lidx.read_text(encoding="utf-8"))
+if count != 1:
+    sys.exit(f"GATE 6: {lidx} holds {count} ranges for Eq, not one")
+lidx.write_text(text, encoding="utf-8")
 PY
 printf '\n/-- A probe appended by GATE 6; removed before this script exits. -/\ndef e2eGate6Probe_ : Nat := 13\n' >> "$PROBE"
 (cd "$SAMPLE" && "$LAKE" build)
@@ -548,6 +561,11 @@ restore_probe
 if ! cmp -s "$OUT/lidx-before" "$OUT/first/link-index.lidx"; then
   echo "GATE 6: link-index.lidx moved for a one-declaration edit" >&2
   /usr/bin/diff "$OUT/lidx-before" "$OUT/first/link-index.lidx" | head -6 >&2
+  exit 1
+fi
+if ! cmp -s "$OUT/gate6-oracle/link-index.lidx" "$OUT/foreign/link-index.lidx"; then
+  echo "GATE 6: the foreign link-index.lidx is not what a build from nothing writes — a map another extractor wrote was kept" >&2
+  /usr/bin/diff "$OUT/gate6-oracle/link-index.lidx" "$OUT/foreign/link-index.lidx" | head -6 >&2
   exit 1
 fi
 for run in first foreign; do

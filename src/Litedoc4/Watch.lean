@@ -30,6 +30,11 @@ noticed up to `--interval` late, and that the poll is not free: at the default
 the store, and the one version rendered whole into `<out>/site`, which is what is
 served.
 
+**The first pass rebuilds whatever the ledger says.** The ledger holds the
+oleans' hashes, not which extractor wrote `<out>/ir` or which litedoc4 rendered
+`<out>/site`; `build` asks both, so a session started over another version's
+`--out` does not serve it unchecked.
+
 **A pass acts only when the ledger's answer is the same as the previous pass's.**
 While `lake build` is writing oleans the answer keeps moving, and extracting into
 that produces a site made of two half-worlds — or is stopped by the resident
@@ -44,7 +49,8 @@ ownership/merge rounds share one import.
 **A failed pass waits for the world to move again** before trying the same thing;
 retrying immediately would start a 3 GB import every interval for as long as the
 failure lasted. The first pass is the exception — it fails the command, because
-until it succeeds there is no site to serve and no state to continue from.
+until it succeeds nothing under `--out` has been checked against this litedoc4 and
+its extractor, so there is nothing this session can vouch for to serve.
 -/
 import Litedoc4.Httpd
 import Litedoc4.Versions
@@ -192,13 +198,18 @@ def Trigger.ask (t : Trigger) : IO (Except (UInt32 × String) (Option Reading)) 
 def describe (code : UInt32) (message : String) : String :=
   if code == 2 || code == 1 then message else s!"{message} (exit {code})"
 
-def announce (rebuilds : Nat) (now : Option Reading) : IO Unit := do
+def announce (rebuilds : Nat) (now : Option Reading) (built : Bool) : IO Unit := do
   IO.println ""
   match now with
   | none =>
-    IO.println s!"watch   #{rebuilds} nothing has been built under --out yet — extracting every \
-      module. This imports the package's Lean environment once, which is the slowest thing this \
-      command does; the lines below are that run's own"
+    if built then
+      IO.println s!"watch   #{rebuilds} the first pass is a build: what --out holds is checked \
+        against this litedoc4 and its extractor before it is served; the lines below are that \
+        run's own"
+    else
+      IO.println s!"watch   #{rebuilds} nothing has been built under --out yet — extracting every \
+        module. This imports the package's Lean environment once, which is the slowest thing this \
+        command does; the lines below are that run's own"
   | some reading => IO.println s!"watch   #{rebuilds} the ledger reports {reading.what}"
 
 structure LoopState where
@@ -218,7 +229,8 @@ partial def runLoop (r : Rebuild) (t : Trigger) (interval : Nat) (port : UInt16)
     (s : LoopState) : BuildM Unit := do
   let passes := s.passes + 1
   let askedAt ← IO.monoNanosNow
-  let answer ← match ← (t.ask).toBaseIO with
+  let answer ← if s.passes == 0 then pure (.ok none) else
+    match ← (t.ask).toBaseIO with
     | .ok answer => pure answer
     | .error e => pure (.error (1, toString e))
   match answer with
@@ -273,7 +285,7 @@ partial def runLoop (r : Rebuild) (t : Trigger) (interval : Nat) (port : UInt16)
     | .rebuild =>
       let rebuilds := s.rebuilds + 1
       let first := rebuilds == 1 && s.acted.isNone
-      announce rebuilds now
+      announce rebuilds now (← isRegularFile t.ledger)
       -- Bound with its type written out, and not matched on directly: `BuildM α`
       -- is by definition `IO (Except (UInt32 × String) α)`, so a bare `← (buildOne
       -- …).run` in this monad resolves to the `Built` inside rather than to the
@@ -290,8 +302,8 @@ partial def runLoop (r : Rebuild) (t : Trigger) (interval : Nat) (port : UInt16)
           {if ran.rendered then "rendered" else "kept the site of"} version {ran.version} in {seconds ran.nanos 3} s"
         IO.println s!"watch   #{rebuilds} reload http://127.0.0.1:{port}/"
       | .error (code, message) =>
-        -- The first one is fatal: with no site to serve and no state to continue
-        -- from, looping here would loop over a broken configuration.
+        -- The first one is fatal: with nothing checked to serve, looping here
+        -- would loop over a broken configuration.
         if first then throw (code, message)
         IO.eprintln s!"watch   #{rebuilds} the rebuild stopped: {describe code message}"
         IO.eprintln s!"watch   #{rebuilds} not retrying until the oleans move again — a failing \

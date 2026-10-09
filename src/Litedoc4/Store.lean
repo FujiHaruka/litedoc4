@@ -170,6 +170,9 @@ def toolchainFields : List String := ["lean", "leanGithash"]
 def ExtractorIdentity.beyondToolchain (i : ExtractorIdentity) : Array (String × String) :=
   i.fields.filter (!toolchainFields.contains ·.1)
 
+def ExtractorIdentity.key (i : ExtractorIdentity) : String :=
+  " ".intercalate (i.beyondToolchain.toList.map fun (k, v) => s!"{k}={v}")
+
 structure Dependency where
   name : String
   rev : Option String
@@ -212,7 +215,7 @@ def Checkout.schema : Checkout → Nat
 
 -- Not the whole line: a version's commit pins its Lean, so one extractor on any toolchain answers.
 def ExtractorIdentity.staleAgainst (written current : ExtractorIdentity) : Bool :=
-  written.beyondToolchain != current.beyondToolchain
+  written.key != current.key
 
 def stale (r : Record) (current : ExtractorIdentity) : Bool :=
   r.extractorIdentity.staleAgainst current

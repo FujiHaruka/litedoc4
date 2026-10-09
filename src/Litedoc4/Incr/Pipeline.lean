@@ -27,6 +27,7 @@ import Litedoc4.Incr.Merge
 import Litedoc4.Incr.Ownership
 import Litedoc4.Incr.Resident
 import Litedoc4.Packages
+import Litedoc4.Store
 
 open System
 
@@ -60,34 +61,39 @@ def checkSourceUrl (url : String) : Option String :=
 /-- The token the extractor checks the dependency map's `.key` sidecar against
 before deciding whether the map on disk can be reused.
 
-The map is a function of three inputs (`Extract.lean`'s `writeLinkIndex`): the
-imported module set, those modules' oleans, and the omit list. The extractor
-checks the first itself, out of the environment it is holding; this covers the
-other two — the oleans through three of `extractKey`'s five values, and the omit
-list **by its bytes, not its path**, because it changes when the package gains or
-loses a module and a path is not an identity.
+The map is a function of four inputs: the extractor that writes it
+(`Extract.lean`'s `writeLinkIndex`), the imported module set, those modules'
+oleans, and the omit list. The extractor checks the module set itself, out of the
+environment it is holding; this covers the rest — the oleans through two of
+`extractKey`'s values, the omit list **by its bytes, not its path**, because it
+changes when the package gains or loses a module and a path is not an identity,
+and the extractor by the identity it prints, in clear after the digest so that a
+sidecar says which extractor wrote the map beside it.
 
 `irSchemaVersion` and `irGenerator` are deliberately left out: they describe *the
 IR*, which the map is not, and they are read out of `<ir>/index.json`, which a
 first-ever build has not written yet — including them made the first incremental
 build after a first-ever build rewrite the map for nothing (measured
 2026-08-17). -/
-def linkIndexKeyOf (package omitList : FilePath) : IO String := do
+def linkIndexKeyOf (package omitList : FilePath) (extractor : Store.ExtractorIdentity) :
+    IO String := do
   let key ← extractKey package.toString none
   let mut text := ""
-  for name in ["leanToolchain", "manifestSha256", "extractor"] do
+  for name in ["leanToolchain", "manifestSha256"] do
     match keySetGet key name with
     | none => throw (IO.userError s!"extractKey has no `{name}`: the reuse token cannot be built")
     -- `name=value\n`, one per line: neither half can contain a newline (a
-    -- toolchain string, a hex digest and a compile-time constant), so the
-    -- concatenation is unambiguous without escaping.
+    -- toolchain string and a hex digest), so the concatenation is unambiguous
+    -- without escaping.
     | some value => text := text ++ name ++ "=" ++ value ++ "\n"
   -- A blank line ends the key half, so that no rearrangement of its characters
   -- can produce the same digest as a different omit list.
-  return sha256Hex ((text ++ "\n").toUTF8 ++ (← IO.FS.readBinFile omitList))
+  let digest := sha256Hex ((text ++ "\n").toUTF8 ++ (← IO.FS.readBinFile omitList))
+  return s!"{digest} {extractor.key}"
 
 structure ServeRequest where
   bin : FilePath
+  extractor : Store.ExtractorIdentity
   /-- The package being documented. -/
   target : FilePath
   /-- `--lake`, or `$LAKE`, or the name on PATH. -/
@@ -129,7 +135,7 @@ def serveOptions (r : ServeRequest) : BuildM Serve := do
   -- across runs is a second answer.
   let linkIndexKey ← match linkIndex with
     | none => pure none
-    | some _ => pure (some (← linkIndexKeyOf target modulesFile))
+    | some _ => pure (some (← linkIndexKeyOf target modulesFile r.extractor))
   let noEquationsUnder ← noEquationsUnderFor r.noEquationsUnder target
   return { bin := ← absolutePath bin
            lake := (← envOr r.lake "LAKE").getD ⟨"lake"⟩

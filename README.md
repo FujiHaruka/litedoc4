@@ -212,11 +212,12 @@ package's `.olean` files change. **It does not run `lake build`** — run that i
 `watch` notices the oleans it writes. That keeps the division of labour every other command here
 has: you build the package, litedoc4 reads it.
 
-It asks the same question `build` asks — which modules the ledger says are stale — once a second
-(`--interval`), and rebuilds only when the answer has stopped moving, so a `lake build` still
-writing oleans is never read half-finished. Every rebuild prints how many modules were
-re-extracted and how long it took, and renders the site again; a wait says what it is waiting
-for.
+Its first pass is a `build`, so a `--out` that another litedoc4 or another extractor wrote is
+brought up to date before it is served. After that it asks the same question `build` asks — which
+modules the ledger says are stale — once a second (`--interval`), and rebuilds only when the
+answer has stopped moving, so a `lake build` still writing oleans is never read half-finished.
+Every rebuild prints how many modules were re-extracted and how long it took, and renders the site
+again; a wait says what it is waiting for.
 
 The pages it serves are the bytes it wrote, with no live-reload script injected — what you look
 at is what you will publish — so reload the tab yourself. A port that is already in use is
