@@ -100,6 +100,11 @@ structure ServeRequest where
   linkIndex : Option FilePath
   noEquationsUnder : Option (Array String) := none
 
+def noEquationsUnderFor (given : Option (Array String)) (target : FilePath) : IO (Array String) :=
+  match given with
+  | some given => pure given
+  | none => return (← readConfigKeys target).noEquationsUnder
+
 /-- `lake` defaults to the name on PATH, and it is not an exception to "no
 default paths": elan's shim under that name is what picks the toolchain the
 target pins, so `~/.elan/bin/lake` would be the more specific and the more
@@ -125,9 +130,7 @@ def serveOptions (r : ServeRequest) : BuildM Serve := do
   let linkIndexKey ← match linkIndex with
     | none => pure none
     | some _ => pure (some (← linkIndexKeyOf target modulesFile))
-  let noEquationsUnder ← match r.noEquationsUnder with
-    | some given => pure given
-    | none => do pure (← readConfigKeys target).noEquationsUnder
+  let noEquationsUnder ← noEquationsUnderFor r.noEquationsUnder target
   return { bin := ← absolutePath bin
            lake := (← envOr r.lake "LAKE").getD ⟨"lake"⟩
            target, jobs := r.jobs, modulesFile, modules := r.modules

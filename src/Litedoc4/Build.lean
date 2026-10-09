@@ -27,6 +27,7 @@ wrote the old one, and every later run would re-extract everything for ever. -/
 import Litedoc4.Incr.Pipeline
 import Litedoc4.Lakefile
 import Litedoc4.Modules
+import Litedoc4.Store
 
 open System
 
@@ -182,16 +183,6 @@ def Layout.carriesAPreviousRun (l : Layout) : IO Bool := do
   let index ← isRegularFile (l.ir / "index.json")
   let map ← isRegularFile l.linkIndex
   return ledger && index && map
-
-/-- Whether the IR tree under `--out` is one this binary reads.
-
-A tree it cannot open at all counts as unreadable too: the question is "can this
-run continue from what is there", and an index that will not parse answers it the
-same way an old one does. -/
-def irIsReadable (ir : FilePath) : IO Bool := do
-  match ← (openIrTreeUnvalidated ir).toBaseIO with
-  | .error _ => return false
-  | .ok tree => return tree.index.schemaVersion ≥ minSchemaVersion
 
 /-- **How much work one run did, as integers that do not depend on the machine.**
 
@@ -368,19 +359,34 @@ def planOf (r : BuildRequest) (libs : Array String) : BuildM Plan := do
     if !markerIsTrue kv "complete" then return .full "the previous run did not finish"
     if !(← layout.carriesAPreviousRun) then
       return .full "the previous run's files are not all there"
-    -- **The IR under `--out` has to be one this binary can read.** A CI cache
-    -- restores the *previous* binary's state, so a schema bump arrives here as a
-    -- tree every reader below refuses (measured 2026-08-23). `detect` is not this
-    -- guard and cannot be: it answers "re-extract every module" correctly, and
-    -- the round then reads the **base** IR — the tree the re-extraction is about
-    -- to replace — to answer ownership, and dies there.
-    --
-    -- Only the index is read, which is a **lower bound and not a proof**: `merge`
-    -- writes the weakest schema under the tree into the index, so a tree *this*
-    -- version merged cannot overstate, but a tree an older binary merged can.
-    if !(← irIsReadable layout.ir) then
-      return .full "the IR under --out is not one this version reads"
     return .incremental
+
+/-- Whether the IR tree under `--out` is one this run can continue: this binary
+reads it, and the extractor in hand wrote it. A CI cache restores the *previous*
+run's state, so a schema bump (measured 2026-08-23) or an edited extractor arrives
+here as a tree written by something else.
+
+`detect` is not this guard and cannot be: for a schema bump it answers
+"re-extract every module" correctly, and the round then reads the **base** IR —
+the tree the re-extraction is about to replace — to answer ownership, and dies
+there. For an edited extractor it answers "re-extract what moved", and the merge
+of one new module into a tree the old extractor wrote names no extractor at all.
+
+Only the index is read, which is a **lower bound and not a proof**: `merge` writes
+the weakest schema under the tree into the index, so a tree *this* version merged
+cannot overstate, but a tree an older binary merged can. -/
+def irPlan (ir : FilePath) (current : Store.ExtractorIdentity) : IO Plan := do
+  let unreadable := Plan.full "the IR under --out is not one this version reads"
+  match ← (openIrTreeUnvalidated ir).toBaseIO with
+  | .error _ => return unreadable
+  | .ok tree =>
+    if tree.index.schemaVersion < minSchemaVersion then return unreadable
+    match Store.ExtractorIdentity.of? tree.index.extractorIdentity with
+    | none => return .full "the IR under --out names no extractor"
+    | some written =>
+      if written.staleAgainst current then
+        return .full "the IR under --out was written by another extractor"
+      return .incremental
 
 /-- The extractor: a Lean environment this run owns, started at the first request
 and released after the last round. It writes the dependency map, which a store
@@ -501,7 +507,12 @@ def runExtraction (r : BuildRequest) (bin : BuildM FilePath) : BuildM Extracted 
   -- question is "is `--out` empty, and if not, did this command write it", and
   -- creating the work directory first would make every answer "not empty, and
   -- yes".
-  let plan ← planOf r libs
+  let (plan, inHand) ← match ← planOf r libs with
+    | .incremental => do
+      let path ← bin
+      let current ← Store.currentIdentity path (← noEquationsUnderFor r.noEquationsUnder r.root)
+      pure (← irPlan layout.ir current, some path)
+    | full => pure (full, none)
   match plan with
   | .full why => IO.println s!"plan    extract everything ({why})"
   | .incremental => IO.println s!"plan    incremental (continuing {layout.out})"
@@ -511,7 +522,7 @@ def runExtraction (r : BuildRequest) (bin : BuildM FilePath) : BuildM Extracted 
   let modulesFile := layout.work / "modules.txt"
   writeLines modulesFile modules
 
-  let extractor ← openExtractor r (← bin) modulesFile modules
+  let extractor ← openExtractor r (← inHand.getDM bin) modulesFile modules
   let bibliography := (← readSiteConfig (some r.root)).bibliography.digest
   -- `finally` and not a `←` on the two paths: the resident environment is
   -- released on the failing path too, and doing it here puts the stop **before**

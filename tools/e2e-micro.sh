@@ -485,13 +485,15 @@ say "10/13 GATE 6 — one edited module is the one module extracted"
 # GATE 2 asks what an *unchanged* world costs; this asks what a one-declaration
 # edit costs, which is the shape a user actually produces.
 #
-# Three assertions. **The map does not move**: `link-index.lidx` is byte-identical
+# Four assertions. **The map does not move**: `link-index.lidx` is byte-identical
 # across the edit, so an extractor that writes the package's own declarations
 # into the map fails here. **One module is extracted** (tools/onemod-gate.sh).
 # **The tree is a build from nothing** is the *oracle*: a merge that dropped or
 # kept the wrong thing is silent in every count, so what the incremental run left
 # on disk — the IR and the site rendered from it — has to be what a build from
-# nothing over the edited sources writes.
+# nothing over the edited sources writes. **A tree another extractor wrote is
+# extracted whole** — what a CI cache restores after `Extract.lean` moved — and
+# meets the same oracle.
 PROBE="$SAMPLE/Example/Basic.lean"
 cp "$PROBE" "$OUT/probe.orig"
 # `set -e` must not leave the sample edited: everything below this line runs
@@ -506,6 +508,19 @@ restore_probe () {
 on_exit restore_probe
 
 cp "$OUT/first/link-index.lidx" "$OUT/lidx-before"
+# Not a second extractor built from another source: the index's identity is all the run judges the writer by.
+rm -rf "$OUT/foreign"
+cp -R "$OUT/first" "$OUT/foreign"
+python3 - "$OUT/foreign/ir/index.json" <<'PY'
+import pathlib, re, sys
+
+index = pathlib.Path(sys.argv[1])
+text, count = re.subn(r"source=fnv1a64:[0-9a-f]{16}", "source=fnv1a64:0000000000000000",
+                      index.read_text(encoding="utf-8"))
+if count != 1:
+    sys.exit(f"GATE 6: {index} carries {count} extractor source digests, not one")
+index.write_text(text, encoding="utf-8")
+PY
 printf '\n/-- A probe appended by GATE 6; removed before this script exits. -/\ndef e2eGate6Probe_ : Nat := 13\n' >> "$PROBE"
 (cd "$SAMPLE" && "$LAKE" build)
 
@@ -514,6 +529,18 @@ printf '\n/-- A probe appended by GATE 6; removed before this script exits. -/\n
 rm -rf "$OUT/gate6-oracle"
 "$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/gate6-oracle" \
   --extractor-bin "$EXTRACTOR" >"$OUT/gate6-oracle.log"
+if ! "$LITEDOC4" build --root "$SAMPLE" --lib Example --out "$OUT/foreign" \
+    --extractor-bin "$EXTRACTOR" >"$OUT/foreign.log" 2>&1; then
+  echo "GATE 6: continuing a tree another extractor wrote failed:" >&2
+  grep -E '^litedoc4: ' "$OUT/foreign.log" >&2 || tail -3 "$OUT/foreign.log" >&2
+  exit 1
+fi
+if ! grep -qx 'plan    extract everything (the IR under --out was written by another extractor)' \
+    "$OUT/foreign.log"; then
+  echo "GATE 6: a tree another extractor wrote was not extracted whole:" >&2
+  grep -E '^(plan|detect) ' "$OUT/foreign.log" >&2
+  exit 1
+fi
 
 restore_probe
 (cd "$SAMPLE" && "$LAKE" build)
@@ -523,12 +550,14 @@ if ! cmp -s "$OUT/lidx-before" "$OUT/first/link-index.lidx"; then
   /usr/bin/diff "$OUT/lidx-before" "$OUT/first/link-index.lidx" | head -6 >&2
   exit 1
 fi
-for tree in ir site; do
-  if ! /usr/bin/diff -r -q "$OUT/gate6-oracle/$tree" "$OUT/first/$tree" >"$OUT/gate6-$tree.diff"; then
-    echo "GATE 6: the incremental $tree is not what a build from nothing writes" >&2
-    head -10 "$OUT/gate6-$tree.diff" >&2
-    exit 1
-  fi
+for run in first foreign; do
+  for tree in ir site; do
+    if ! /usr/bin/diff -r -q "$OUT/gate6-oracle/$tree" "$OUT/$run/$tree" >"$OUT/gate6-$run-$tree.diff"; then
+      echo "GATE 6: the $run $tree is not what a build from nothing writes" >&2
+      head -10 "$OUT/gate6-$run-$tree.diff" >&2
+      exit 1
+    fi
+  done
 done
 
 # The same script runs on the Linux runner against the generated package

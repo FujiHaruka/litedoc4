@@ -211,8 +211,11 @@ def Checkout.schema : Checkout → Nat
   | .read .. => recordSchema
 
 -- Not the whole line: a version's commit pins its Lean, so one extractor on any toolchain answers.
+def ExtractorIdentity.staleAgainst (written current : ExtractorIdentity) : Bool :=
+  written.beyondToolchain != current.beyondToolchain
+
 def stale (r : Record) (current : ExtractorIdentity) : Bool :=
-  r.extractorIdentity.beyondToolchain != current.beyondToolchain
+  r.extractorIdentity.staleAgainst current
 
 structure FromCheckout where
   sources : Array (String × Option String)
