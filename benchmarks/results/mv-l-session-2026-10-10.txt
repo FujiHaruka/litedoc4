@@ -1,0 +1,53 @@
+L through one reader session: the session does not fit the runner
+====================================================================
+
+Two runs of .github/workflows/mv-l.yml on branch multi-version, 2026-10-10 (UTC 2026-10-09), arm (a)
+of benchmarks/results/mv-l-reader-prediction-2026-10-10.txt (committed before either ran):
+`litedoc4 build --root <Mathlib clone at v4.34.1> --lib Mathlib --versions
+v4.32.2,v4.33.0,v4.33.1,v4.34.1 --jobs 4 --reader-check` into an empty --out.
+
+  run 37964858132 at faf895c  (a) killed after 47 min: exit 143, no step after it ran, `always()`
+                              steps included, so no log artifact; nothing to read
+  run 37971008205 at 9e7ab96  the same, with progress, a 30-s memory line and kernel OOM lines
+                              streamed into the job log (`live` lines); (a) killed after 40.5 min,
+                              exit 143, again no later step. The figures below are from its job log.
+
+CONDITIONS
+----------
+host        GitHub-hosted ubuntu-latest, ubuntu24 20261004.327.1, AMD EPYC 7763, 4 vCPU,
+            16 GB (MemTotal 16,372,440 kB), 3 GB swap, 86 GB free at the start
+versions    v4.32.2 905b95818e / v4.33.0 db584cd6d4 / v4.33.1 0df444a360 / v4.34.1 d13f23b723
+            (Mathlib tags, each on the Lean of the same name); root checked out at v4.34.1
+reader      -O3, built by the run (`phase reader 73.27 s`)
+memory      1-s /proc/<pid>/status samples of each reader process, 15-s MemAvailable and swap
+
+ANSWER (run 37971008205; measured, one run)
+------
+native v4.34.1   extractor 20.46 s, cache 70.47 s, lake 4.55 s, extract 423.02 s, put 18.17 s
+session          ready after 1.63 s, 10,744 newest modules
+round 1, v4.32.2, built whole: completed, `ok 0`
+  phase v4.32.2 read 1,184.33 s (predicted 605-1,003 s: miss, +18% over the top)
+  phases  decode 172.9 s, hash 398.7 s, check closure 16.0 s, check ilean 10.9 s, patch 43.6 s,
+          check-patch 13.6 s, finalize 29.8 s, key pass 99.1 s, check-keys 68.6 s, extract 325.2 s,
+          clear realizations 2.0 s, rest < 4 s; total 1,183.8 s
+  patch   built whole: 10,744 newest modules rewritten; constants 0 of 767,553, entries 0 of 2,125,075
+  check-patch 0 modules; check-keys 0 of 566,246 keys (4 threads, 67.6 s)
+  reuse   0 of 316,225 reused; 566,246 keys recomputed in 96.9 s on one thread
+  rss     peak 13,800 MiB, resident 11,329 MiB after the round
+round 2, v4.33.0, patched from v4.32.2: never answered
+  checkout 1.09 s, toolchain 20.31 s, cache 86.26 s, then the request: the reader's anonymous memory
+  rose 9,622 -> 13,757 MiB over 5 min with swap full (3,071 of 3,071 MiB used) and MemAvailable
+  567 MiB at the last sample (18:47:10); the step was killed 1 min 44 s later (exit 143).
+  No `patch` line was printed, so the round died in decode or hash, holding round 1's state.
+  No kernel OOM line reached the log.
+
+Against the prediction: memory, predicted "session anon peak 9.5-12.5 GiB ... predicted to fit 16 GB
++ 3 GB swap, with 1.5-5 GiB MemAvailable at the minimum": **falsified** (anon 13.4 GiB and rising,
+swap full, the runner lost). Round 1's time: a miss of +18% over the top; within it the hash took
+2.3x the decode (398.7 against 172.9 s), as on M (mv-m-session-2026-10-10.txt), and the key pass
+plus check-keys 167.7 s.
+
+What it decides: the item 6 plan's undo condition for the session ("Undone if memory does not fit
+the runner ... Fallback: read-alone per version") holds, measured. The session keeps the previous
+round's whole state (11.3 GiB resident after round 1) while the next round decodes everything
+before it shares anything.
