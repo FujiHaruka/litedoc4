@@ -1034,6 +1034,19 @@ Choices, with what would undo each:
    `mv-m-reader-fixed` commits. Read: entry equality, check mode 0, and per round reused,
    reprinted, rewritten modules and phases. v4.32.2 → v4.33.0 is the seed's first test across the
    v4.33.0 reducibility rename (memo E8); v4.33.0 → v4.33.1 is the first patch pair timed.
+   **Done 2026-10-10** (measured → `benchmarks/results/mv-m-session-2026-10-10.txt`, one run):
+   `mv-m-run.sh --session` keeps read-alone as the oracle and sends the same request to one
+   resident `reader session --check-patch --check-keys`. Session = read-alone in every IR file and
+   the link index on 3 of 3 versions, check-patch and check-keys 0 on every round, 0 defects
+   against native; this answers step 5's "then on M". Across the rename nothing is shared and
+   21,031 of 21,928 declarations still reuse; on the patch pair 215,570 of 215,587 constants are
+   shared, 123 of 2,187 newest modules rewritten, every key carried and every declaration reused.
+   **No session round beats read-alone on M**: 66.1 / 58.1 / 61.4 s against 36.6 / 42.2 / 41.1 s.
+   Reuse cut extraction 18.0 → 1.7 s, but the content hash costs more than the decode (19.2–24.7
+   against 11.5–14.4 s) every round; round 3 without the check modes is 52.4 s, and ≈ 27.8 s
+   without the hash too (theoretical, phases subtracted). Open: decode, hash and finalize grew
+   round to round on the same modules; 2 unshared entries dirtied 123 modules (time, not
+   correctness); the patch line's by-name constant counts are 187 short of the decoded ones.
 8. **Linux**: both reader gates once on `ubuntu-latest`, where the reader has never run (item 5);
    otherwise an L failure cannot be told from a patch defect.
 9. **L**, prediction committed first. `mv-l.yml`: `v4.32.2,v4.33.0,v4.33.1,v4.34.1` from nothing

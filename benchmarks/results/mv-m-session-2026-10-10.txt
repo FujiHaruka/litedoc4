@@ -1,0 +1,113 @@
+M through one reader session: the M slice of three Mathlib releases read into the newest Lean by
+one resident `reader session --check-patch --check-keys`, each round against `reader extract` alone
+on the same version (the oracle) and the native extractor's IR (the classification)
+==================================================================================================
+
+A measurement run, not a gate. One run (2026-10-10, host clock 2026-10-09T16:01:41Z). Item 6
+step 7 of docs/multiversion/implementation.md ("Item 6 plan").
+
+CONDITIONS
+----------
+host        Apple M1, 16 GB, Darwin 25.6.0 arm64; free disk 24.19 GiB at the start
+litedoc4    32ce6304b055d1cc792136b0a4e8fb3ef36a4a32 plus 1 uncommitted path,
+            benchmarks/tools/mv-m-run.sh (the --session arm, committed with this file);
+            litedoc4 rebuilt at that tree (tools/build-lean-exe.sh --toolchain-from e2e/micro)
+reader      built by `litedoc4 reader build` on leanprover/lean4:v4.34.1 at -O3 -DNDEBUG:
+            extractors/reader-leanprover-lean4-v4.34.1-b1fa2650a8262a00, identity
+            reader=fnv1a64:f82af8143643da81 source=fnv1a64:7bb4d9f8122fd2b8 (reader build 57.5 s)
+versions    v4.32.2  mathlib 905b95818eb32af7874a58b427f50c1711a5e96c  433 modules
+            v4.33.0  mathlib db584cd6d46c92f209a44c0f1c829460d327499d  438 modules
+            v4.33.1  mathlib 0df444a360eaa60ab8c11dca51a86af692955474  438 modules
+            (the commits of benchmarks/results/mv-m-reader-fixed-2026-10-08.txt)
+newest      /private/tmp/lean-doc-relay/mv-v4341, rebuilt 2026-10-10 (a workspace requiring
+            Mathlib v4.34.1, full `lake exe cache get`): mathlib
+            d13f23b723b8a846827a245b89c10fc7d3f11612 (the commit every earlier M number cites),
+            11 search directories, 447 modules in its closure of the two roots, 2,187 newest
+            modules imported
+flags       both arms: --equations --refs --write-ir --tagged-code
+            --no-equations-under Mathlib.Tactic,Mathlib.Meta --jobs 1 --link-index, with the
+            native build's own module list
+order       per version: native build, then the session's round, then read-alone; read-alone is
+            the warmer arm. The session stayed resident (4.0-4.8 GiB) through the later
+            versions' native builds.
+old-native  absent: no earlier native store exists on this disk
+memory      swapouts 22,728 before and after (none during the run); swapins 55 -> 599; the
+            compressor held 10.26 GiB in 3.38 GiB before and 10.18 GiB in 3.49 GiB after
+warmth      each old version's oleans unpacked from the Mathlib cache minutes before they were
+            read; every phase ran once. Single runs, not converged.
+
+REPRODUCE
+---------
+  tools/build-lean-exe.sh --toolchain-from e2e/micro
+  benchmarks/tools/mv-m-run.sh --through-reader --session --need-gb 3 \
+    --work /private/tmp/lean-doc-relay/mv-m-session > full.out 2> full.err
+Total 675 s, exit 0.
+
+ANSWER
+------
+                                  v4.32.2        v4.33.0        v4.33.1
+  session round                   1, built whole 2, patched      3, patched
+  session = read-alone            yes            yes            yes          (every IR file and
+                                                                              the link index)
+  defects against native          0              0              0
+  check-patch modules / other     0 / 0          0 / 0          0 / 0
+  check-keys differing            0 of 39,888    0 of 40,427    0 of 40,427
+  newest modules rewritten        2,187 of 2,187 2,014 of 2,187 123 of 2,187
+  constants shared (decoded)      0 of 213,613   0 of 215,587   215,570 of 215,587
+  entries shared                  0 of 576,312   0 of 592,131   592,129 of 592,131
+  keys carried / recomputed       0 / 39,888     0 / 40,427     40,427 / 0
+  declarations reused / reprinted 0 / 21,680     21,031 / 897   21,928 / 0
+  session round wall              66.14 s        58.09 s        61.43 s
+  session round CPU (ps)          65.58 s        55.66 s        55.26 s
+  session peak / resident after   3,975 / 3,975  4,840 / 4,840  4,840 / 4,041 MiB
+  read-alone wall / CPU           36.63 / 33.72  42.16 / 35.36  41.09 / 34.87 s
+  read-alone peak RSS             2,901 MiB      2,804 MiB      2,867 MiB
+  pages whose own data differ     168 of 437     0 of 442       0 of 442     (untraced 0; the
+                                                                              v4.32.2 drift of the
+                                                                              2026-10-08 record)
+
+The session's `ready` (newest import and index) took 0.83 s. Its whole lifetime: 654.84 s real,
+180.76 s CPU, maximum RSS 4,840 MiB, peak footprint 4,357 MiB; it exited 0 one second after its
+stdin was closed.
+
+Patched = read-alone byte for byte on M, and check mode 0 on every round, including the first
+round across the v4.33.0 reducibility rename (no decoded object shared, 21,031 declarations still
+reused because their recomputed keys are equal) and the first patch pair timed (v4.33.0 -> v4.33.1:
+every key carried, every declaration reused).
+
+WHERE A ROUND'S TIME GOES (ms, the `phases` lines verbatim in their values)
+---------------------------------------------------------------------------
+                       session r1  session r2  session r3   alone v4.32.2  alone v4.33.0  alone v4.33.1
+  manual root               188         207         253           2,012          3,232          3,159
+  closure                   254         302         306             293            660            581
+  decode                 11,491      12,988      14,438          11,251         12,426         12,256
+  hash                   19,170      20,107      24,676               0              0              0
+  check closure / ilean   1,892       1,920       2,184           1,885          1,974          1,964
+  newest import               0           0           0             996          1,191          1,074
+  patch / merge           1,462       2,533       2,425           1,153          2,788          2,436
+  check-patch               932         957       2,305               -              -              -
+  finalize                1,873       1,003       3,936           1,170          1,662          1,286
+  key pass                5,643       8,126       2,395               -              -              -
+  check-keys              5,904       7,208       6,676               -              -              -
+  extract                17,274       2,593       1,697          17,715         18,069         18,029
+  total                  66,139      58,086      61,430          36,476         42,001         40,786
+
+**No session round beats read-alone on M, the full-share pair included.** Print reuse does what it
+was built for — extraction 18.0 -> 1.7 s on the patch pair, the key pass 2.4 s with every key
+carried — but the content hash costs more than the decode it follows (19.2-24.7 s against
+11.5-14.4 s) and is spent on every round. Without the two check modes (which `build --versions`
+does not pass by default) round 3 is 52.4 s against read-alone's 40.8 s; without the hash as well
+it would be about 27.8 s (theoretical: the phases subtracted, nothing re-run).
+
+Decode, hash and finalize grew from round to round on the same 2,156 old modules (decode 13.0 ->
+14.4 s, hash 20.1 -> 24.7 s, finalize 1.0 -> 3.9 s, v4.33.0 -> v4.33.1); not explained by this run.
+
+OPEN, FROM THIS RUN
+-------------------
+- Round 3's patch line: constants same + changed + added + removed = 215,400 (counted by name),
+  against 215,587 decoded objects (counted per module); 17 decoded constants not shared.
+- Round 3 rewrote 123 newest modules through "placed old entries" while 0 constants changed and 2
+  of 592,131 entries were unshared. check-patch is 0, so this is time, not correctness; why 2
+  entries dirty 123 modules is not explained.
+- Every reader time recorded before 2026-10-09 was at -O0 (mv-m-reader-fixed's 99 s per version);
+  these are -O3 and are not put beside those.
