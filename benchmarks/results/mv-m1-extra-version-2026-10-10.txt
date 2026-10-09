@@ -1,0 +1,93 @@
+M1, per extra version: one minor-pair round of the reader session over all of Mathlib
+======================================================================================
+
+The "M1, per extra version" measurement of docs/multiversion/implementation.md ("Item 6 plan",
+Measurement), 2026-10-10. Workload: the U9 pair, Mathlib v4.31.0 (R0) -> v4.32.0 (R1), read into
+v4.34.1, in one `reader session` per process. Five processes of R0 + R1; R1 is the figure. One more
+process with --check-patch --check-keys, and one `reader extract` of v4.32.0 alone as the oracle.
+Prediction (theoretical, in the plan): R1 ~ 146-160 s; the tracked target 1.2 min.
+
+CONDITIONS
+----------
+host        Apple M1, 16 GB, macOS 26.6.2 (Darwin 25.6.0 arm64). Other desktop applications were
+            running and not controlled (load average 1.8-6.5); nothing else heavy was started. Memory
+            before run 1: compressor 10.25 GB stored in 3.69 GB, swap 347 MB of 1 GB; before runs
+            2-5: compressor 8.2-8.7 GB stored, swap 2.4-2.7 GB.
+litedoc4    faf895c, clean; rebuilt with tools/build-lean-exe.sh --toolchain-from e2e/micro
+reader      reader-leanprover-lean4-v4.34.1-b1fa2650a8262a00, -O3, identity
+            reader=fnv1a64:f82af8143643da81 source=fnv1a64:7bb4d9f8122fd2b8
+R0          /Users/haruka/dev/lean-projects (read only): Mathlib fabf563a7c95, Lean v4.31.0,
+            8,170 modules (closure 10,583)
+R1          /private/tmp/lean-doc-relay/mv-v4320 (a workspace requiring Mathlib v4.32.0, made
+            2026-10-10): Mathlib 81a5d257c8e410db227a6665ed08f64fea08e997, Lean v4.32.0,
+            8,265 modules (closure 10,406), 8,276 IR files written
+newest      /private/tmp/lean-doc-relay/mv-v4341: Mathlib d13f23b723b8, Lean v4.34.1; roots all
+            8,530 modules, 10,744 newest modules imported (ready in 2.7-3.1 s)
+lists       made by the levers log's modlist.py; the counts are the structure-rule log's
+            (benchmarks/results/mathlib-structure-rule-and-meta-equations-2026-10-06.txt)
+flags       --equations --refs --write-ir --tagged-code --no-equations-under Mathlib.Tactic,Mathlib.Meta
+            --jobs 4 --link-index --link-index-omit <modules> (the U9 runs' --jobs 4; M ran --jobs 1)
+order       a 20-module sample first (session, check and read-alone; read-alone equal 23 of 23 files),
+            then the five processes, the check process and read-alone, one at a time, in one
+            background job of 3 h 21 min
+
+ANSWER (measured)
+------
+  run   R0 wall   R1 wall   R1 CPU    process real   peak RSS   peak footprint   R1 swapins / swapouts
+  1     806.6 s   862.3 s   815.6 s   1,726 s        9.26 GB    16.22 GB         697k / 862k pages
+  2     911.7     896.0     921.5     1,870          9.06       16.23            729k / 906k
+  3     948.2     862.0     906.4     1,862          8.60       16.22            412k / 546k
+  4     951.4     886.1     907.9     1,898          9.69       16.17            624k / 807k
+  5     931.4     876.5     915.0     1,859          9.04       16.17            509k / 640k
+  (wall from each round's `ok`; pages of 16 KiB; every process exited 0)
+
+  R1 median 876.5 s, range 862.0-896.0 s (runs 2-5 within +-2%; run 1 inside that range). Every run
+  has wall ~ CPU, the repository's warm signal, while each R1 swapped in 6.7-11.9 GB: the
+  compressor, not the page cache, is what moves here.
+
+  R1, run 5, verbatim:
+  patch   from Lean 4.31.0: constants same 656552, changed 96201, added 13806, removed 14075;
+          decoded objects replaced by the previous version's: constants 657494 of 767553, entries
+          2000057 of 2125075; newest modules 10744, rewritten 6704 (constants 6157: by name 6154,
+          realizations 113, field functions 10; entries 3371: placed old entries 2513, kept-newest
+          filter 2284)
+  carry   delta constants 124106, entries 39762, alias names 24; memos entries/stale/changed:
+          records 563334/95431/18281, resolutions 1779972/286081/4033, facts 171068/28457/2886,
+          structure-instance defaults 3893/133/77
+  reuse   287940 of 316225 declarations reused, 28285 reprinted (key differs 22959, key equal 0,
+          no previous output 4, new 5322); 566246 candidates: carried 415947, recomputed 150299
+          (stale 138204, new 12095) in 101316 ms on one thread
+  phases  manual root 3,430, closure 5,077, decode 136,631, hash 330,174, check closure 4,275,
+          check ilean 14,278, patch 68,568, finalize 23,452, key pass 108,169, extract 159,509,
+          reuse count 4,336, clear realizations 18,355, report 237, rest 9; total 876,500 ms
+  The patch, carry and reuse counts were the same in all six processes.
+
+  check process   check-patch 0 modules, 0 other, on R0 and R1; check-keys 0 of 557,366 (R0) and
+                  0 of 566,246 (R1). R1 1,042.2 s (+166 s on the median; its own check phases:
+                  check-patch 53.2 s, check-keys 145.9 s on 4 threads, finalize +25 s).
+  read-alone      `reader extract` of v4.32.0: 529.1 s wall, 1,502 s CPU, peak RSS 9.66 GB, peak
+                  footprint 13.22 GB; decode 110.5, newest import 18.8, merge 59.5, finalize 14.5,
+                  extract 309.5 s. Against run 5's R1: diff -r 0 lines over 8,276 files, link
+                  index equal.
+  disk            10.88 GiB free at the lowest (swap files grew from 1 to 7 GB); IR deleted after use
+
+AGAINST THE PREDICTION AND THE TARGET
+------------------------------------
+  R1 876.5 s against 146-160 s predicted: miss, 5.5-6.0x. Against the tracked 1.2 min: 12.2x.
+  Read-alone of the same version, 529.1 s: the session round is 1.66x slower than not using it.
+  Where the composition (~234 s, structure-rule log) went:
+    phase       composed           measured R1 (runs 2-5)
+    decode      25.7 s (4 threads) 133-139 s (one thread: the tree decodes sequentially)
+    hash        none               321-338 s
+    patch       19.1 s             69-74 s
+    finalize    11.7 s             23-27 s
+    key pass    9-23 s (carried)   96-110 s
+    extract     66.8 s             143-162 s
+    bookkeeping ~10 s              ~45-60 s (check closure/ilean, clear realizations, closure, root)
+  The carry is sound at full scale (check-keys 0 of 566,246) but saves nothing: carrying 73% of
+  the keys and recomputing 150,299 took 90-103 s on one thread, against R0's fresh pass over
+  557,366 keys in 78-85 s on the same thread. Decode and hash ran about 2x and 3x slower per module
+  than on M with the same reader (extrapolated from mv-m-session-2026-10-10.txt's per-module rate),
+  consistent with the process's own memory being compressed and swapped (not proven to cause it).
+  The session's peak footprint, 16.17-16.23 GB (16.85 GB with the check modes), is above the
+  machine's 16 GB and above the plan's 10.08 GB premise; read-alone's is 13.22 GB.

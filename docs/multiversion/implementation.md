@@ -1081,6 +1081,13 @@ Choices, with what would undo each:
   1.2 min** (D7: 2 h ÷ 51 on the runner ÷ 1.8; theoretical) by about 2×. Item 6 takes none of the
   memo's other levers (C decode, equations without `addDecl`, manifest IR); only patch pairs are
   predicted under it (memo §5). The measured baseline is the 303 s round.
+- **Measured 2026-10-10** (→ `benchmarks/results/mv-m1-extra-version-2026-10-10.txt`): R1 median
+  876.5 s (862.0–896.0, five processes, other desktop applications running), against read-alone of
+  the same version 529.1 s and the tracked 1.2 min: the prediction misses 5.5–6×, the session loses
+  to read-alone by 1.66×. R1 = read-alone byte for byte, check-patch and check-keys 0 at full scale.
+  The hash (321–338 s) had no place in the composition; the carry saved nothing (90–103 s against
+  a fresh pass's 78–85 s on the same thread); the session's peak footprint 16.2 GB against the
+  10.08 GB premise and read-alone's 13.2 GB.
 - **M1 disk: 7.4 GiB free** (measured, `df`, 2026-10-08) against 550 MB raw IR a round (plan D7)
   plus a reference; a `--need-gb` floor. Deleted first: `mv-m-render-*` (under
   `/private/tmp/lean-doc-relay`); never `mv-l-r3` (the L store copy), `u13-host` or the three
