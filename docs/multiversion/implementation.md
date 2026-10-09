@@ -94,6 +94,11 @@ the full one at checkpoints:
   noise but is 1.8× slower.
 - **L runs are checkpoints, not the loop**: at the end of step 4 (three versions, the everyday
   path), of step 5 (the rebuild from nothing), and in step 6.
+- **A change that does not win on M is never run on full Mathlib** (decided 2026-10-10, user's
+  call) — not on the M1, not on the runner. Every plan puts its full-Mathlib step behind "M wins"
+  as an explicit gate, and records a skipped one as not run, with this reason. The reader session
+  lost to read-alone on M (`benchmarks/results/mv-m-session-2026-10-10.txt`) and was still run on
+  full Mathlib, where it lost again and twice exhausted the runner.
 
 Building S and M is the first item of step 1. Read on 2026-10-06 (from the sources, nothing run):
 
