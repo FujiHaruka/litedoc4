@@ -51,6 +51,9 @@ def writers : List WriterVersion := [
   { leanVersion := "4.32.0", githash := "8c9756b28d64dab099da31a4c09229a9e6a2ef35"
     absentExts := absentBeforeV433
     reducibility := storedBeforeV433 },
+  { leanVersion := "4.32.1", githash := "f054605aea4b840552cca2e725580bffd1e1b704"
+    absentExts := absentBeforeV433
+    reducibility := storedBeforeV433 },
   { leanVersion := "4.32.2", githash := "f3b06c705e6c85f5314019d5d3baab0fec5b580c"
     absentExts := absentBeforeV433
     reducibility := storedBeforeV433 },
@@ -59,6 +62,9 @@ def writers : List WriterVersion := [
     reducibility := storedFromV433 },
   { leanVersion := "4.33.1", githash := "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
     absentExts := absentV433
+    reducibility := storedFromV433 },
+  { leanVersion := "4.34.0", githash := "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b"
+    absentExts := []
     reducibility := storedFromV433 },
   { leanVersion := "4.34.1", githash := "5045d0056413266e57c625dcd7c365b10e377c52"
     absentExts := []

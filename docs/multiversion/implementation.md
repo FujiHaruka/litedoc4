@@ -823,6 +823,12 @@ the two ways on versions that have both.
 7. **The rest of the set**: records for v4.29.1, v4.30.0, v4.32.1 and v4.34.0, each after its
    oracle; v4.30.0 is the one release whose layout is known by source only (D1). Then
    `prototypes/olean-reader/` is deleted.
+   **v4.32.1 and v4.34.0 done 2026-10-11** (measured →
+   `benchmarks/results/reader-oracle-v4321-v4340-2026-10-11.txt`): each takes its neighbours'
+   absent list and stored reducibility; `tools/reader-oracle-gate.sh` 12 of 12 with eight records.
+   `refuse-absent` now relabels as the newest record listing any extension absent, after it failed
+   on v4.34.0, whose record lists none. Left: v4.29.0, v4.29.1 and v4.30.0, whose namespace
+   extension, simp theorems and two absent extensions differ (layout log).
 
 ##### Item 6 plan: the patch path and print reuse (2026-10-08)
 

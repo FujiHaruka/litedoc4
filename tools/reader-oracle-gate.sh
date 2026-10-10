@@ -9,7 +9,9 @@
 #   refuse-version    a header naming a Lean the table has no record for
 #   refuse-githash    a known version whose githash differs in one character
 #   refuse-mixed      one read whose modules came from two writers
-#   refuse-absent     entries under an extension the record lists as absent
+#   refuse-absent     entries under an extension the record lists as absent: the
+#                     reader's own files relabelled as the newest writer whose
+#                     record lists any extension absent
 #
 # The writer list is `reader --writers`, never a second list. A refusal fixture
 # is a copy of real files with the header rewritten, and must read before it is
@@ -245,7 +247,6 @@ fi
 
 if [ -z "$OLDER" ]; then
   gone refuse-mixed "no second writer's toolchain is installed to mix with"
-  gone refuse-absent "no second writer's toolchain is installed to relabel as"
 else
   dir="$WORK/fixture-mixed"
   copy_module "$READER_TC" Init/Prelude "$dir"
@@ -254,7 +255,12 @@ else
     copy_module "leanprover/lean4:v$OLDER" Init/Prelude "$dir"
     refusal refuse-mixed "$dir" Init.Coe "Lean $OLDER" "Lean $READER_VERSION" "one read takes one writer"
   fi
+fi
 
+ABSENT_WRITER="$(awk '{ for (i = 3; i <= NF; i++) if ($i ~ /^absent-extensions=[1-9]/) w = $1 } END { print w }' "$WORK/writers.txt")"
+if [ -z "$ABSENT_WRITER" ]; then
+  gone refuse-absent "no writer record lists an extension as absent"
+else
   dir="$WORK/fixture-absent"
   mkdir -p "$dir"
   "$READER" read "$(lib_of "$READER_TC")" "$ABSENT_PROBE" >"$WORK/absent-closure.txt"
@@ -264,9 +270,9 @@ else
   if readable refuse-absent "$dir" "$ABSENT_PROBE"; then
     files=()
     while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$dir" -type f -name '*.olean*' -print0)
-    relabel "$OLDER" "$(githash_of "$OLDER")" "${files[@]}"
+    relabel "$ABSENT_WRITER" "$(githash_of "$ABSENT_WRITER")" "${files[@]}"
     refusal refuse-absent "$dir" "$ABSENT_PROBE" "entries under extension" \
-      "which the record for Lean $OLDER lists as absent"
+      "which the record for Lean $ABSENT_WRITER lists as absent"
   fi
 fi
 
