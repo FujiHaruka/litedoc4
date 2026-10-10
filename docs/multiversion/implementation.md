@@ -1281,6 +1281,14 @@ combination that won.
    loaded alone. On the runner's v4.33.1, about 294–302 s against 327 s, or 1.62–1.66× over
    read-alone (theoretical: the runner's phases scaled as M's). About 0.8–1.1 GiB of the extra
    2.0–2.3 GiB would remain (theoretical, assuming the extra is the loaded neighbour).
+   **The runner's 62, inspected 2026-10-10** (measured → `benchmarks/results/mv-l-reuse-inspect-v4.33.1-2026-10-10.txt`,
+   the 14 modules read locally, all 62 reproduced byte for byte). 60 show v4.33.1's term in v4.34.1's
+   surface form: another declaration's binders (49), names in scope (3), notation (3), another
+   structure's parents or field names (2), helpers behind equations (3). Some of those forms would
+   not elaborate in v4.33.1, e.g. a field name only v4.34.1 has. 2 (`Ergodic`, `QuasiErgodic`) were a
+   key miss: an inherited member's type changed in the parent, and the key held only the constructors'
+   types and the field names. The key now hashes the type of every member the page shows; on the
+   same modules 60 differ, and 3 of 881 more declarations are printed.
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on

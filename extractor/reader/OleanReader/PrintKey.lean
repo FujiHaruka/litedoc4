@@ -480,18 +480,10 @@ unsafe def ownKey (env : Environment) (ci : ConstantInfo) : UInt64 :=
     | .defnInfo v => shownHash v.value
     | .opaqueInfo v => shownHash v.value
     | _ => 0
-  let members := match ci with
-    | .inductInfo v =>
-      let ctors := v.ctors.foldl (init := 102) fun h c =>
-        match env.find? c with
-        | some cc => mixList h [hash c, shownHash cc.type]
-        | none => mix h (hash c)
-      if isStructure env v.name then
-        let parents := (getStructureParentInfo env v.name).foldl (init := ctors) fun h p =>
-          mixList h [hash p.structName, hash p.projFn]
-        (getStructureFieldsFlattened env v.name (includeSubobjectFields := false)).foldl (fun h f => mix h (hash f)) parents
-      else ctors
-    | _ => 0
+  let members := (memberConsts env ci).1.foldl (init := 102) fun h m =>
+    match env.find? m with
+    | some mc => mixList h [hash m, shownHash mc.type]
+    | none => mix h (hash m)
   mixList 101 [kindCode ci, hash ci.levelParams, shownHash ci.type, value, members]
 
 def candidates (world : World) (targets : Array Name) : IO (Array Name) := do
