@@ -128,6 +128,9 @@ def nestedInTheorem (theorems : Std.HashMap Name Name)
 
 unsafe def ilean (s : Session) (d : Assemble.Decoded) : IO IleanCounts := do
   let t0 ← IO.monoMsNow
+  let reads ← d.mods.mapM fun (m, _) => do
+    let path := (← findOlean s m).withExtension "ilean"
+    return (path, ← IO.asTask (readIlean path m))
   let mut byModule : Std.HashMap Nat (Std.HashMap String (Name × DeclarationRanges)) := {}
   let mut anywhere : Std.HashMap String DeclarationRanges := {}
   for (e, es) in d.keyed do
@@ -137,10 +140,9 @@ unsafe def ilean (s : Session) (d : Assemble.Decoded) : IO IleanCounts := do
       byModule := byModule.alter src fun t? => some ((t?.getD {}).insert n.toString (n, r))
       anywhere := anywhere.insert n.toString r
   let mut c : IleanCounts := {}
-  for (m, md) in d.mods, i in [0:d.mods.size] do
-    let path := (← findOlean s m).withExtension "ilean"
+  for (m, md) in d.mods, (path, read) in reads, i in [0:d.mods.size] do
     let file := path.fileName.getD ""
-    let il ← readIlean path m
+    let il ← IO.ofExcept read.get
     let decoded := byModule.getD i {}
     let theorems : Std.HashMap Name Name := md.constants.foldl (init := {}) fun t ci =>
       if ci.isTheorem then t.insert (privateToUserName ci.name) ci.name else t

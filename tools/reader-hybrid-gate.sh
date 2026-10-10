@@ -117,6 +117,11 @@
 #                     rule names, decoded + omitted = theorems), at least one
 #                     proof was omitted and at least one decoded for sorryAx
 #                     (Example.sorryHole among them)
+#   manual-root-cache ... and each of those runs, every older row's second read,
+#                     took its manual root from the reader's cache entry
+#                     named by its own toolchain's githash, which its first
+#                     read asked that toolchain for and kept there (the
+#                     second read's IR is the first's, above)
 #   reuse-self-equals-alone
 #                     every older row read again by `reader extract
 #                     --write-reuse-keys`, then by `reader extract
@@ -226,7 +231,7 @@ fi
 NEWEST_I=$(( ${#ROWS[@]} - 1 ))
 NEWEST="${ROWS[$NEWEST_I]##*:v}"
 NEWEST_SPELLING="${SPELLINGS[$NEWEST_I]}"
-declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 12 ))
+declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 13 ))
 
 record_host
 if ! installed "${ROWS[$NEWEST_I]}"; then
@@ -613,10 +618,11 @@ def check_lines(r):
 
 SESSION_ONLY = re.compile(r"^(patch|patch-perturbed|check-patch|carry|check-keys|reuse|rss|rss-at-extract|realizations|phases) |^  check-(patch|keys)-|^  dir ")
 PRINTING_WORK = re.compile(r"^  (of which equations|of which refs|member extra) ")
+CACHE_STATE = re.compile(r"^  manual-root-cache ")
 def summary(lines):
     out = []
     for l in lines:
-        if SESSION_ONLY.match(l):
+        if SESSION_ONLY.match(l) or CACHE_STATE.match(l):
             continue
         l = re.sub(r"\d+(\.\d+)?s\b|\d+ ms\b", "<t>", l)
         if PRINTING_WORK.match(l):
@@ -1078,6 +1084,42 @@ PY
     bad "$item" "$(printf '%s; ' "${fails[@]}")"
   else
     ok "$item" "${#SESSION_ROWS[@]} rows, each equal to read-alone: $(printf '%s; ' "${lines[@]}")"
+  fi
+fi
+
+item=manual-root-cache
+if ! why="$(session_ready)"; then
+  bad "$item" "$why"
+else
+  if result="$(python3 - "$(dirname "$READER")/manual-roots" "$WORK" "${SESSION_ROWS[@]}" 2>&1 <<'PY'
+import pathlib, re, sys
+cache, work, rows = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3:]
+def line(path):
+    text = path.read_text(encoding="utf-8")
+    m = re.search(r"^  manual-root-cache  (.*)$", text, re.M)
+    g = re.search(r"^reader +Lean \S+ \((\w+)\)", text, re.M)
+    return (m.group(1) if m else "no manual-root-cache line"), (g.group(1) if g else None)
+fails = []
+for v in rows:
+    first, githash = line(work / f"v{v}" / "read" / "stdout.txt")
+    second, _ = line(work / f"v{v}" / "lazy" / "stdout.txt")
+    if githash is None:
+        fails.append(f"v{v}: its first read names no githash")
+        continue
+    entry = cache / githash
+    if not re.fullmatch(rf"asked \S+ in \d+ ms, kept in {re.escape(str(entry))}", first):
+        fails.append(f"v{v}: the first read says '{first}', not asked and kept in {entry}")
+    elif second != f"read from {entry}":
+        fails.append(f"v{v}: the second read says '{second}', not read from {entry}")
+if fails:
+    sys.exit("; ".join(fails))
+print(f"{len(rows)} rows: each asked its toolchain once, kept under manual-roots/<its githash>, "
+      f"and its second read took it from there")
+PY
+)"; then
+    ok "$item" "$result"
+  else
+    bad "$item" "$result"
   fi
 fi
 

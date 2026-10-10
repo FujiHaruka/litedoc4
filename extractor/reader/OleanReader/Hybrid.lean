@@ -205,8 +205,9 @@ def usage : String := "\n".intercalate [
   "               (`proofs` line)",
   "  --write-reuse-keys",
   "               write every candidate's reuse key beside the IR, to <--ir-dir>.reuse-keys: the type's",
-  "               structural hash and its top-level binder names and kinds, a non-theorem's value, an",
-  "               inductive's constructors, parents and fields; headed by the printing identity (this",
+  "               structural hash with every binder's kind and name as a page can show it (macro scopes",
+  "               erased, their presence kept), the same of a non-theorem's value and of an inductive's",
+  "               constructors, its parents and fields; headed by the printing identity (this",
   "               reader, its Lean, the output flags). The IR and the link index are unchanged",
   "  --reuse-from <ir-dir>",
   "               an adjacent version's IR written with --write-reuse-keys: a declaration whose reuse key",
@@ -273,11 +274,8 @@ structure OldManualRoot where
   githash : String
   root : String
   probeHex : String
-  ms : Nat
 
--- Not the old toolchain's include/lean/version.h: it holds only the pre-configured root, and `manualRoot`'s initializer also reads LEAN_MANUAL_ROOT and falls back to `latest`.
-def askOldManualRoot (s : Session) : IO OldManualRoot := do
-  let t0 ← IO.monoMsNow
+def oldLean (s : Session) : IO System.FilePath := do
   let prelude ← findOlean s `Init.Prelude
   let some lib := prelude.parent.bind (·.parent)
     | throw <| IO.userError s!"manual root: {prelude} has no toolchain directory above it"
@@ -287,6 +285,12 @@ def askOldManualRoot (s : Session) : IO OldManualRoot := do
   unless ← lean.pathExists do
     throw <| IO.userError s!"manual root: the version read takes Init.Prelude from {lib}, and there is no {lean} \
       to ask for its manual root"
+  return lean
+
+-- Not the old toolchain's include/lean/version.h: it holds only the pre-configured root, and `manualRoot`'s initializer also reads LEAN_MANUAL_ROOT and falls back to `latest`.
+def askOldManualRoot (lean : System.FilePath) : IO OldManualRoot := do
+  let some lib := lean.parent.bind (·.parent) |>.map (· / "lib" / "lean")
+    | throw <| IO.userError s!"manual root: {lean} is not in a toolchain's bin"
   let out ← IO.FS.withTempFile fun h path => do
     h.putStr manualRootProgram
     h.flush
@@ -296,8 +300,36 @@ def askOldManualRoot (s : Session) : IO OldManualRoot := do
   if out.exitCode != 0 then
     return ← fail s!"exited {out.exitCode}: {(out.stdout ++ out.stderr).trimAscii.toString.take 400}"
   match out.stdout.trimAscii.toString.splitOn " " with
-  | [githash, root, probeHex] => return { lean, githash, root, probeHex, ms := (← IO.monoMsNow) - t0 }
+  | [githash, root, probeHex] => return { lean, githash, root, probeHex }
   | _ => fail s!"printed {out.stdout.take 400}, not a githash, a root and the probe's rewrite"
+
+def manualRootEnv : IO String := do
+  return match ← IO.getEnv "LEAN_MANUAL_ROOT" with
+    | some v => s!"LEAN_MANUAL_ROOT={v.quote}"
+    | none => "LEAN_MANUAL_ROOT unset"
+
+def manualRootCacheFile (githash : String) : IO System.FilePath := do
+  let some dir := (← IO.appPath).parent | throw <| IO.userError "manual root: the reader's own path has no directory"
+  return dir / "manual-roots" / githash
+
+def cachedManualRoot? (file : System.FilePath) (githash env : String) (lean : System.FilePath) :
+    IO (Option OldManualRoot) := do
+  unless ← file.pathExists do return none
+  match (← IO.FS.readFile file).splitOn "\n" with
+  | [g, e, root, probeHex, ""] =>
+    unless g == githash && e == env do return none
+    return some { lean, githash, root, probeHex }
+  | _ => return none
+
+def keepManualRoot (file : System.FilePath) (env : String) (r : OldManualRoot) (ms : Nat) : IO String := do
+  try
+    if let some dir := file.parent then IO.FS.createDirAll dir
+    let tmp : System.FilePath := ⟨s!"{file}.{← IO.Process.getPID}.tmp"⟩
+    IO.FS.writeFile tmp s!"{r.githash}\n{env}\n{r.root}\n{r.probeHex}\n"
+    IO.FS.rename tmp file
+    return s!"asked {r.lean} in {ms} ms, kept in {file}"
+  catch e =>
+    return s!"asked {r.lean} in {ms} ms, not kept: {e}"
 
 def checkManualCopy (r : OldManualRoot) (w : WriterVersion) : IO Unit := do
   let copy := utf8Hex (ManualLinks.rewrite r.root manualProbe)
@@ -308,9 +340,26 @@ def checkManualCopy (r : OldManualRoot) (w : WriterVersion) : IO Unit := do
       to {copy.length / 2}; they differ from byte {same / 2}, so Lean {w.leanVersion}'s docstrings cannot be rewritten \
       as it would"
 
-def manualRootLine (r : OldManualRoot) : String :=
-  s!"manual root          {r.root} answered by {r.lean} in {r.ms} ms; the reader's copy rewrites the probe \
-    docstring as it does ({r.probeHex.length / 2} bytes)"
+def oldManualRoot (s : Session) (w : WriterVersion) : IO (OldManualRoot × String) := do
+  let lean ← oldLean s
+  let env ← manualRootEnv
+  let file ← manualRootCacheFile w.githash
+  if let some r ← cachedManualRoot? file w.githash env lean then
+    checkManualCopy r w
+    return (r, s!"read from {file}")
+  let t0 ← IO.monoMsNow
+  let r ← askOldManualRoot lean
+  let ms := (← IO.monoMsNow) - t0
+  unless w.githash == r.githash do
+    throw <| IO.userError s!"manual root: {r.lean} is Lean {r.githash}, and the version read was \
+      written by Lean {w.leanVersion} ({w.githash})"
+  checkManualCopy r w
+  return (r, ← keepManualRoot file env r ms)
+
+def manualRootLines (r : OldManualRoot) (cache : String) : Array String :=
+  #[s!"manual root          {r.root} of Lean {r.githash}; the reader's copy rewrites the probe \
+    docstring as it does ({r.probeHex.length / 2} bytes)",
+    s!"  manual-root-cache  {cache}"]
 
 def checkArgs (a : Args) : IO (Except String (Cfg × Array Name)) := do
   let cfg ← match parseArgs a.extractor with
@@ -670,7 +719,7 @@ structure OwnKeys where
   keys : Std.HashMap String UInt64
   ms : Nat
 
-def ownKeys (env : Environment) (world : World) (targets : Array Name) : IO OwnKeys := do
+unsafe def ownKeys (env : Environment) (world : World) (targets : Array Name) : IO OwnKeys := do
   let t0 ← IO.monoMsNow
   let mut names := #[]
   let mut keys : Std.HashMap String UInt64 := {}
@@ -806,15 +855,11 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
   let patch? := reuse?.bind (·.patch?)
   try
     let s ← Session.new a.old
-    let manual ← askOldManualRoot s
-    ph.mark "manual root"
     let mods ← closure s targets
     let some (writer, _) ← s.firstWriter.get | throw <| IO.userError "olean reader: nothing was read"
-    unless writer.githash == manual.githash do
-      throw <| IO.userError s!"manual root: {manual.lean} is Lean {manual.githash}, and the version read was \
-        written by Lean {writer.leanVersion} ({writer.githash})"
-    checkManualCopy manual writer
     ph.mark "closure"
+    let (manual, manualCache) ← oldManualRoot s writer
+    ph.mark "manual root"
     let prev? ← match patch? with
       | some p => pure (some (((← p.last.get).map (·.1)).getD {}))
       | none => pure none
@@ -872,7 +917,7 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
     let autoParams := classifyAutoParams uses merged.sameValue
     let verso ← hs.verso.get
     let builtin ← hs.builtinDoc.get
-    IO.println (manualRootLine manual)
+    for l in manualRootLines manual manualCache do IO.println l
     for l in invariantLines cl il do IO.println l
     IO.println s!"reader               Lean {d.writer.leanVersion} ({d.writer.githash}) read in Lean \
       {Lean.versionString}: {mods.size} modules, {d.stats.constants} constants, \

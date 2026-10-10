@@ -451,27 +451,40 @@ unsafe def keyOf (env : Environment) (registered : NameMap (Array Name)) (memo :
            members := { memberReads with consts := memberReads.consts ++ members }, eqns := eqnReads,
            shown, spaces, ctorInducts }
 
-def binderShape (h : UInt64) (t : Expr) : UInt64 := Id.run do
-  let mut h := h
-  let mut t := t
-  while true do
-    match t with
-    | .forallE n _ b bi => h := mixList h [hash n, biCode bi]; t := b
-    | _ => break
+def shownName (n : Name) : List UInt64 := [hash n.eraseMacroScopes, hash n.hasMacroScopes]
+
+unsafe def shownHashM (e : Expr) : StateM (Std.HashMap USize UInt64) UInt64 := do
+  let p := ptrAddrUnsafe e
+  if let some h := (← get)[p]? then return h
+  let h ← match e with
+    | .app f a => do let x ← shownHashM f; let y ← shownHashM a; pure (mix (mix 6 x) y)
+    | .lam n t b bi => do
+      let x ← shownHashM t; let y ← shownHashM b
+      pure (mixList 7 (shownName n ++ [biCode bi, x, y]))
+    | .forallE n t b bi => do
+      let x ← shownHashM t; let y ← shownHashM b
+      pure (mixList 8 (shownName n ++ [biCode bi, x, y]))
+    | .letE n t v b nd => do
+      let x ← shownHashM t; let y ← shownHashM v; let z ← shownHashM b
+      pure (mixList 9 (shownName n ++ [hash nd, x, y, z]))
+    | .mdata _ b => shownHashM b
+    | .proj s i b => do let y ← shownHashM b; pure (mixList 12 [hash s, hash i, y])
+    | e => pure e.hash
+  modify (·.insert p h)
   return h
 
-def typeKey (h : UInt64) (t : Expr) : UInt64 := binderShape (mix h t.hash) t
+unsafe def shownHash (e : Expr) : UInt64 := (shownHashM e |>.run' {}) |> Id.run
 
-def ownKey (env : Environment) (ci : ConstantInfo) : UInt64 :=
+unsafe def ownKey (env : Environment) (ci : ConstantInfo) : UInt64 :=
   let value := match ci with
-    | .defnInfo v => v.value.hash
-    | .opaqueInfo v => v.value.hash
+    | .defnInfo v => shownHash v.value
+    | .opaqueInfo v => shownHash v.value
     | _ => 0
   let members := match ci with
     | .inductInfo v =>
       let ctors := v.ctors.foldl (init := 102) fun h c =>
         match env.find? c with
-        | some cc => typeKey (mix h (hash c)) cc.type
+        | some cc => mixList h [hash c, shownHash cc.type]
         | none => mix h (hash c)
       if isStructure env v.name then
         let parents := (getStructureParentInfo env v.name).foldl (init := ctors) fun h p =>
@@ -479,7 +492,7 @@ def ownKey (env : Environment) (ci : ConstantInfo) : UInt64 :=
         (getStructureFieldsFlattened env v.name (includeSubobjectFields := false)).foldl (fun h f => mix h (hash f)) parents
       else ctors
     | _ => 0
-  mixList (typeKey (mixList 101 [kindCode ci, hash ci.levelParams]) ci.type) [value, members]
+  mixList 101 [kindCode ci, hash ci.levelParams, shownHash ci.type, value, members]
 
 def candidates (world : World) (targets : Array Name) : IO (Array Name) := do
   let mut seen : NameSet := {}

@@ -1193,6 +1193,14 @@ combination that won.
 4. **E5, read-alone's fixed costs**: the manual-root ask (2.0–3.2 s a version) cached by the
    toolchain's githash, with the probe check still run per version; the `.ilean` check per module
    in parallel (1.9–2.2 s). About 4 s a version (theoretical).
+   **Measured 2026-10-10** (→ `benchmarks/results/mv-m-reuse-key-e5-2026-10-10.txt`, 3 cycles per
+   job count): the manual root is read from `manual-roots/<githash>` in the reader's directory
+   (0.4–1.5 ms against 2.1–2.6 s asked; the probe check still runs per version, the githash
+   cross-check only when the entry is made), and the `.ilean` files are parsed in parallel tasks
+   (0.41–0.50 s against 1.80–1.98 s). Output unchanged. Read-alone 7–13% faster at `--jobs 1`
+   (2.3–2.9 s a process; 4.3–6.5 s on v4.33.1), 6–10% at `--jobs 4`, but maximum RSS 15–38 MiB
+   higher at `--jobs 1`, so it misses "peak RSS not above read-alone's" at one job.
+   `tools/reader-hybrid-gate.sh` item `manual-root-cache`.
 5. **E6, inexact print reuse across processes** (decided 2026-10-10, user's call: an older
    version's page may show a few context-dependent rendering differences in exchange for about
    2×; equations stay). The probe (measured → `benchmarks/results/mv-m-print-probe-2026-10-10.txt`)
@@ -1241,6 +1249,16 @@ combination that won.
    16.8% on the v4.34.1 pair, against 8.1% for the built-in hash, likely on instance-binder names
    that never reach the page (assumed). Loading the neighbour's IR took 0.92–1.10 s, against the
    0.5 s assumed.
+   **Key loosened 2026-10-10** (→ `benchmarks/results/mv-m-reuse-key-e5-2026-10-10.txt`): of
+   the 1,923 declarations on the v4.34.1 pair that the middle key printed and the built-in hash did
+   not, 1,909 differ only in the macro scopes of anonymous binders' names (module name and hygiene
+   counter), which no page shows. The key now hashes every binder, at every depth, with its name's
+   macro scopes erased and their presence kept. Printed 8.1% / 0% / 2.5%; with E5, 1.95–2.09× faster
+   than today's read-alone at `--jobs 1` by medians (1.73–1.94× against read-alone with E5),
+   1.48–1.58× at `--jobs 4`; link index equal in every pair; the IR differs on 4 / 4 / 10
+   declarations, all of the kinds given up. E5 is kept despite its memory miss: reuse with E5
+   peaks within 0–16 MiB of today's read-alone at `--jobs 1` (2,750–2,776 against 2,749–2,765 MiB)
+   and below both read-alone arms at `--jobs 4`.
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on
