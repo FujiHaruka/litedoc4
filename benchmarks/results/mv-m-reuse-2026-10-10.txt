@@ -1,0 +1,249 @@
+E6 on M: inexact print reuse across processes. `reader extract --reuse-from <the adjacent version's IR>`
+against `reader extract` on the M slice of three Mathlib releases, chained newest first from v4.34.1,
+--lazy-proofs in both arms, 3 alternating cycles at --jobs 1 and 3 at --jobs 4
+==================================================================================================
+
+A measurement run, not a gate (2026-10-10, host clock 2026-10-10T05:23:21Z to 05:53:45Z).
+Experiment E6 of docs/multiversion/implementation.md ("Levers plan: beating read-alone on M",
+item 5; decided 2026-10-10, user's call: an older version's page may show a few
+context-dependent rendering differences in exchange for about 2x; equations stay).
+3 cycles: for lever experiments 3 alternating cycles are enough to tell an obvious win
+(decided 2026-10-10, user's call).
+
+THE MECHANISM
+-------------
+`reader extract --write-reuse-keys` writes, beside the IR, `<--ir-dir>.reuse-keys`: a header with
+the printing identity (the extractor identity line with the running Lean's version and githash
+in place of the version read's: source digest, output flags, reader digest, readerLean,
+readerLeanGithash) and one line per candidate of the target modules, `<name>\t<key>`. The key:
+kind, level parameter names, Lean's structural Expr.hash of the type, the type's top-level binder
+names and binder infos, the value's Expr.hash for a definition or opaque (0 for every other kind;
+a theorem's proof is never read), and for an inductive each constructor (name, type hash, its
+top-level binder names and infos) plus, for a structure, its parents (structure, projection) and
+flattened field names. It is written outside the IR directory (`store put` reads every file
+under it) and does not change the IR or the link index (gate below).
+`reader extract --reuse-from <dir>` (implies --write-reuse-keys) reads <dir>/index.json, every
+module file it lists and <dir>.reuse-keys. When the printing identity differs nothing is reused.
+Otherwise a declaration whose own key equals its key there is handed to the extractor's existing
+reuse hook (the one `reader session` uses) with its printed parts read back from that IR:
+binders, implicits, type, binderCode, typeCode, equations, equationCode, members (field docs then
+recomputed) and the names in refs. Everything else is computed as without the flag: positions,
+index, docstrings, attributes, kind and instance status, modifiers, sorry, generated origin, the
+module half of refs (resolved by writeIRTree in this version's environment), the dependency maps
+and the link index. A name in the IR that does not read back to the same string is not offered
+(0 such names on M). `reader session` refuses both flags: exit 2 at start-up, `err` per request.
+
+CONDITIONS
+----------
+host        Apple M1, 16 GB, Darwin 25.6.0 arm64; free disk 14.5 GiB before the setup, 10.2 GiB
+            at the end with the three checkouts kept
+litedoc4    123d272131f3228f22636ded169216ca533c9e4f plus 3 uncommitted paths, committed with this
+            file: extractor/reader/OleanReader/Hybrid.lean (the two flags, reading the neighbour,
+            the `reuse-from` line, the session refusals), extractor/reader/OleanReader/PrintKey.lean
+            (the key: binderShape, typeKey, ownKey), tools/reader-hybrid-gate.sh (the item below)
+reader      `litedoc4 reader build` on leanprover/lean4:v4.34.1 at -O3 -DNDEBUG (61.63 s):
+            reader-leanprover-lean4-v4.34.1-d9517c57ccc63b9d, identity reader=fnv1a64:f65ff6e85adf77c9
+            source=fnv1a64:7bb4d9f8122fd2b8; both arms are this one binary
+versions    v4.32.2  mathlib 905b95818eb32af7874a58b427f50c1711a5e96c  433 modules, 21,680 declarations
+            v4.33.0  mathlib db584cd6d46c92f209a44c0f1c829460d327499d  438 modules, 21,928 declarations
+            v4.33.1  mathlib 0df444a360eaa60ab8c11dca51a86af692955474  438 modules, 21,928 declarations
+            v4.34.1  /private/tmp/lean-doc-relay/mv-v4341 (read only), the 447 Mathlib modules of
+                     its closure of the two roots, 22,220 declarations
+setup       benchmarks/tools/mv-m-run.sh --through-reader --keep-checkouts --need-gb 3
+            --work /private/tmp/lean-doc-relay/mv-m-e6 (480 s); its classification of read-alone
+            against the native build: 0 defects on all three versions
+request     the one mv-m-run.sh sends, plus --lazy-proofs in both arms:
+              reader extract --old <the checkout's `lake env` LEAN_PATH, 10 dirs> --new <11 dirs>
+                --new-roots <newest closure> --lazy-proofs [--reuse-from <dir>]
+                <build/<tag>/work/modules.txt> <events.jsonl> --equations --refs --write-ir
+                --tagged-code --no-equations-under Mathlib.Tactic,Mathlib.Meta --jobs <1|4>
+                --ir-dir <d>/ir --link-index <d>/link-index.lidx --link-index-omit <modules.txt>
+            arm (r) adds --reuse-from; arm (a) is read-alone as today
+chain       newest first, as the plan says: the head is v4.34.1 read once by the same reader with
+            --old set to the newest's own search directories and its closure as targets, with
+            --write-reuse-keys and --lazy-proofs (--jobs 1; 34.31 s wall, 31.84 s CPU, max RSS
+            2,743 MiB, footprint 1,628 MiB, extract 18.13 s, 40,957 candidates keyed, 2,416,844
+            bytes of keys). In every cycle and job count, (r) v4.33.1 reuses from the head,
+            v4.33.0 from that cycle's (r) v4.33.1, v4.32.2 from that cycle's (r) v4.33.0. So the
+            older versions inherit the newer ones' inexactness, which is counted below against
+            each version's own read-alone
+order       --jobs 1 cycles, then --jobs 4 cycles; per cycle all three versions of one arm, then the
+            other: cycle 1 (r) first, cycle 2 (a) first, cycle 3 (r) first. Nothing else heavy ran;
+            other desktop applications open, load average 1.9-2.7
+memory      swapouts 5,537,290 at the start and the end (none during); swapins 4,765,371 ->
+            4,765,415; swap used 1,688 of 3,072 MiB throughout; the compressor held 5.86 GiB in
+            0.91 GiB at the start and 5.84 GiB in 0.91 GiB at the end; free pages 1.37 GiB at the
+            start, 1.43 GiB at the end (16 KiB pages)
+warmth      the oleans were unpacked by the setup run minutes before. Every phase but one held
+            within 0.6 s per arm and version at --jobs 1 (decode 8.87-9.52 s, check ilean
+            1.78-1.94 s); the merge phase, which the flag does not reach, moved 1.40-4.05 s across
+            both arms at --jobs 1 and 1.14-6.84 s at --jobs 4, and the widest walls are the
+            processes where it was high (r v4.33.1 cycle 3 at --jobs 1: 4.05 s; r v4.33.1 cycle 1
+            at --jobs 4: 6.84 s)
+same day    read-alone here is 36.6-38.6 s at --jobs 1, not the 29.3-31.1 s of
+            mv-m-print-probe-2026-10-10.txt (same request, same binary but for the key code):
+            manual root 2.21-2.43 against 0.24 s, decode 8.9-9.5 against 7.2 s, check ilean
+            1.8-1.9 against 1.3 s, extract 17.7-19.6 against 17.5 s. Every comparison below is
+            inside this run
+
+REPRODUCE
+---------
+  tools/build-lean-exe.sh --toolchain-from e2e/micro
+  benchmarks/tools/mv-m-run.sh --through-reader --keep-checkouts --need-gb 3 \
+    --work /private/tmp/lean-doc-relay/mv-m-e6
+Then a throwaway cycle driver (kept outside the tree) on the kept checkouts: the head once, then
+per cycle and arm one `/usr/bin/time -l reader extract ...` per version with the request above;
+the (r) and (a) link index of the same cycle compared with `cmp`, every IR tree and link index
+compared with `/usr/bin/diff -r` / `cmp` against cycle 1 of the same arm; a Python script
+(outside the tree) diffing each version's (r) IR against its (a) IR per file, declaration and
+field. The driver and the script ran first on a 20-module sample (the first 20 modules of
+v4.33.1's list, all three versions, --jobs 1, one cycle: 2,758 / 2,758 / 2,737 declarations,
+reused 1,964 / 2,758 / 2,728, 0 differing from read-alone, link index equal). Driver 1,073 s.
+
+ANSWER
+------
+Each cell: cycles 1, 2, 3; all (measured).
+                                       v4.33.1 <- v4.34.1   v4.33.0 <- v4.33.1   v4.32.2 <- v4.33.0
+  --jobs 1
+  (r) wall (s)                         24.65 24.24 27.46    23.06 20.91 22.60    22.96 22.74 21.73
+  (a) wall (s)                         38.64 38.04 37.17    36.64 37.37 38.10    38.34 38.01 37.43
+  (a)/(r), paired by cycle             1.57  1.57  1.35     1.59  1.79  1.69     1.67  1.67  1.72
+  (a)/(r), medians                     1.54                 1.65                 1.67
+  (r) CPU user+sys (s)                 18.26 18.63 18.90    15.82 15.58 15.88    16.40 16.52 16.30
+  (a) CPU user+sys (s)                 31.84 33.37 33.39    33.10 33.55 33.50    34.03 33.51 33.61
+  (r) / (a) maximum RSS (MiB)          2,716 / 2,724        2,701 / 2,724-2,725  2,718-2,719 / 2,732-2,733
+  (r) / (a) peak footprint (MiB)       1,605 / 1,618        1,604-1,605 / 1,618-1,620  1,608-1,611 / 1,617-1,619
+  (r) / (a) extract phase (s)          4.32-4.57 / 17.66-19.47  1.60-1.62 / 19.25-19.54  2.40-2.42 / 19.46-19.59
+  --jobs 4
+  (r) wall (s)                         29.03 22.71 22.53    21.78 20.38 20.26    19.78 19.66 19.78
+  (a) wall (s)                         28.17 28.84 27.97    30.12 28.85 29.36    28.78 28.10 28.78
+  (a)/(r), paired by cycle             0.97  1.27  1.24     1.38  1.42  1.45     1.46  1.43  1.46
+  (a)/(r), medians                     1.24                 1.44                 1.46
+  (r) CPU user+sys (s)                 20.68 21.08 19.57    17.12 16.18 16.06    16.86 16.64 16.75
+  (a) CPU user+sys (s)                 43.87 46.32 43.91    45.50 46.28 45.66    45.85 46.53 45.74
+  (r) / (a) maximum RSS (MiB)          2,733-2,734 / 2,779-2,784  2,707 / 2,777-2,780  2,730-2,732 / 2,783
+  (r) / (a) peak footprint (MiB)       1,621-1,622 / 1,674-1,678  1,610-1,611 / 1,675-1,677  1,620-1,623 / 1,611-1,672
+  (r) / (a) extract phase (s)          2.68-2.78 / 10.07-10.45  1.76-1.79 / 10.21-10.39  2.03-2.05 / 9.99-10.31
+
+Reuse, the same in every (r) process of a version (the `reuse-from` line):
+                                       v4.33.1 <- v4.34.1   v4.33.0 <- v4.33.1   v4.32.2 <- v4.33.0
+  declarations reused / produced       18,234 / 21,928      21,928 / 21,928      21,082 / 21,680
+  printed: key differs                 3,508                0                    525
+           no key in the neighbour     186                  0                    73
+           key equal, not read back    0                    0                    0
+  printed share                        16.8%                0%                   2.8%
+  keys (candidates, time)              40,427, 63-70 ms     40,427, 63-70 ms     39,888, 63-66 ms
+  loading the neighbour (s)            0.92-1.10            0.98-1.07            0.96-1.02
+  writing own keys (s)                 0.10-0.12            0.11-0.13            0.11-0.12
+
+Exactness against read-alone (the (r) IR of a version against its (a) IR, cycle 1; every later
+cycle's IR and link index equal to cycle 1's of the same arm, 18 of 18 per arm, and --jobs 1's
+cycle 1 equal to --jobs 4's for both arms and all three versions):
+                                       v4.33.1              v4.33.0              v4.32.2
+  link index equal                     yes, 6 of 6          yes, 6 of 6          yes, 6 of 6
+  IR files differing                   6 of 446             6 of 446             8 of 441
+                                       (3 modules,          (3 modules,          (5 modules,
+                                       index.json, 2 deps)  index.json, 2 deps)  index.json, 2 deps)
+  declarations differing               4 of 21,928          4 of 21,928          9 of 21,680
+  fields differing                     type + typeCode +    the same 4 as        the same 4, and 5 with
+                                       refs names 2;        v4.33.1 (inherited   equations +
+                                       equations +          through the chain)   equationCode only
+                                       equationCode +
+                                       refs names 2
+index.json differs in the bytes and contentHash of exactly the differing module files and in the
+bytes and entries of the two differing dependency maps. Those two are deps/Lean.json and
+deps/Qq.json, each missing one name read-alone has (Lean.LocalContext.findFVar?,
+Qq.Impl.mkLambdaQ): both were referenced only by ExistsAndEq.mkNestedExists's equation (below).
+No declaration differs in anything the mechanism recomputes; there is no exception list.
+
+Every differing declaration (9 distinct names; 17 declaration-version pairs; there are fewer
+than the 10 asked for). What the page shows with reuse against read-alone:
+  1 inf_Prop_eq (Mathlib.Order.PropInstances; all three versions): the statement reads
+    (fun (x1 x2 : Prop) => x1 ⊓ x2) = ... where read-alone reads (fun (x1 x2 : Prop) =>
+    min x1 x2) = ...; the link to Min.min is gone. Notation in the environment around the
+    declaration changed (v4.34.1 against v4.33.1), not the declaration.
+  2 sup_Prop_eq (same module; all three): x1 ⊔ x2 against max x1 x2, no link to Max.max.
+  3 Prop.instBooleanAlgebra (Mathlib.Order.BooleanAlgebra.Defs; all three): its equation shows
+    sdiff := fun (x y : Prop) => x ⊓ ¬y against ... => min x ¬y; no link to Min.min.
+  4 ExistsAndEq.mkNestedExists (Mathlib.Tactic.Simproc.ExistsAndEq; all three): the second
+    equation shows v4.34.1's body (let p ← Lean.Meta.mkLambdaFVars #[b] res; pure q(Exists «$p»))
+    against the version's own (let __do_lift ← Lean.getLCtx; have name : Lean.Name :=
+    (__do_lift.findFVar? b).get! ...); refs link List.toArray, Lean.Meta.mkLambdaFVars instead of
+    Option.get!, Lean.Name, Lean.LocalContext.findFVar?, Lean.LocalDecl.userName,
+    Lean.MonadLCtx.getLCtx, Qq.Impl.mkLambdaQ. The value hashes equal; the equation lemma is
+    generated through auxiliary definitions the value only names, whose bodies changed.
+  5 Prod.instBooleanAlgebra (Mathlib.Order.BooleanAlgebra.Basic; v4.32.2): the equation shows
+    toSDiff := Prod.instSDiff against toSDiff := Prod.instSDiff α β (Prod.instSDiff's binders are
+    explicit in v4.32.2 and implicit in v4.33.0: another declaration's binder infos).
+  6 Prod.instGeneralizedBooleanAlgebra (same module; v4.32.2): toSDiff := Prod.instSDiff against
+    Prod.instSDiff α β.
+  7 Prod.instCoheytingAlgebra (Mathlib.Order.Heyting.Basic; v4.32.2): the same toSDiff text.
+  8 Prod.instGeneralizedCoheytingAlgebra (same module; v4.32.2): the same toSDiff text.
+  9 Prod.instGeneralizedHeytingAlgebra (same module; v4.32.2): toHImp := Prod.instHImp against
+    toHImp := Prod.instHImp α β.
+All nine are context the plan named as given up (notation; other declarations' binders shown in
+an equation; helper definitions behind an equation). The probe's built-in-hash key differed from
+the truth on 18 (v4.33.1 <- v4.34.1) and 16 (v4.32.2 <- v4.33.0) declarations; with binder names
+and infos in the key, 4 and 5 own differences remain, and the chain carries 4 of them on.
+
+Where a reuse process's time goes (--jobs 1, ranges over the 9 (r) processes; (measured)):
+  manual root 2.20-2.48, closure 0.70, decode 8.87-9.52, check ilean 1.78-1.94, newest import
+  0.69-0.82, merge 1.67-4.05, finalize 0.97-1.07: outside extraction and reuse 17.9-21.7 s,
+  against read-alone's 17.2-20.8 s. Reuse adds keys 0.13, loading 0.92-0.99, writing keys 0.10-0.12 s.
+  Extract 1.60 s with nothing printed (link index 0.35, writeIR, sorry, analyze's unprinted part
+  0.27), 2.40 s with 598 printed, 4.32-4.57 s with 3,694 printed (analyze 2.94-3.17 s of it).
+  Read-alone's extract is 17.7-19.6 s (analyze 16.3-18.2 s: signature 10.9, equations 6.6).
+
+Against the plan's criteria (implementation.md, item 5 and "Win on M"):
+  - kill, time: "killed if the per-version wall is not at least 1.5x faster at --jobs 1". Not
+    killed by the medians: 1.54x (v4.33.1), 1.65x (v4.33.0), 1.67x (v4.32.2). Paired by cycle 8
+    of 9 pairs are at least 1.5x; the ninth is 1.35x (v4.33.1 cycle 3, whose (r) merge phase was
+    2 s high). v4.33.1 is the pair that prints 16.8%, and it clears the line by 0.04x.
+  - kill, memory: "or if the peak RSS is above read-alone's". Not killed: maximum RSS 8-24 MiB
+    below read-alone's at --jobs 1 and 45-73 MiB below at --jobs 4, in every process; peak
+    footprint 6-16 MiB below at --jobs 1, and at --jobs 4 below on two versions and inside
+    read-alone's range on v4.32.2 (1,620-1,623 against 1,611-1,672).
+  - time below read-alone by more than both arms' spread: met at --jobs 1 on all three versions
+    ((r) at most 27.46 s, (a) at least 36.64 s). At --jobs 4 met on v4.33.0 and v4.32.2 ((r) at
+    most 21.78 s, (a) at least 28.10 s); NOT met on v4.33.1, where the (r) cycle-1 process (29.03 s,
+    merge 6.84 s) lies above (a)'s 27.97-28.84 s; the other two (r) processes are 22.53-22.71 s.
+  - exactness: by the user's decision not required of IR content: 4 / 4 / 9 declarations differ
+    (0.02-0.04%), all of them context the plan said would be given up; the link index is equal
+    in every pair, as required.
+
+**Verdict: not killed. The plan's win held at --jobs 1 on all three versions (1.54-1.67x by
+medians, separated beyond both spreads, peak RSS below read-alone's), with a margin of 0.04x over
+the kill line on the pair that prints 16.8%. At --jobs 4 the win held on v4.33.0 and v4.32.2
+(1.44x, 1.46x) and failed the spread criterion on v4.33.1 (1.24x by medians, one (r) process above
+read-alone's range); memory was below read-alone's there too.** At four jobs read-alone's
+printing is already divided across the threads (extract 10.0-10.5 s against 17.7-19.6 s), so
+reuse saves less.
+
+  Against the prediction (15-16 s against 29.3 s at --jobs 1, about 1.8-1.9x; theoretical): a
+  reuse process took 20.9-27.5 s and the ratio is 1.54-1.67x. The extraction it keeps is as the
+  probe's estimate put it, 1.6-4.6 s; what is larger is the part outside it, 17.9-21.7 s where
+  the estimate's P1 had 11.7 s (manual root 2.2-2.5 against 0.24 s, decode 8.9-9.5 against 7.2 s
+  on this run). Loading the neighbour costs 0.92-1.10 s, not the 0.5 s assumed (P6). The key's
+  printed share is 16.8% on v4.33.1 <- v4.34.1 against the built-in key's 8.1% (1,771) and the
+  full key's 17.5% (3,833) in the probe: the top-level binder names cost nearly what all binder
+  names cost there. The probe's ceiling (20,214 printed parts identical on that pair) puts the
+  declarations printed although their parts would have been equal at about 2,000
+  (extrapolated: 20,214 - 18,234 reused + 4 inexact; not traced one by one). E5 (manual root
+  cached, .ilean checked in parallel; about 4 s, theoretical) acts on the part that grew.
+
+GATES (same tree)
+-----------------
+tools/reader-hybrid-gate.sh 34 of 34, with the new item `reuse-self-equals-alone`: every older row
+read again with --write-reuse-keys (IR and link index equal to read-alone, the keys file
+written), then with --reuse-from naming that run's own IR: IR and link index equal to read-alone,
+printing identity equal, every produced declaration reused and none printed (v4.31.0 109 of 109,
+v4.32.2 111 of 111, v4.33.0 109 of 109, v4.33.1 111 of 111; 16 IR files each), and the same keys
+written by both runs. It failed once first, 34 of 34 answered with 1 failed, on a litedoc4 built
+with the field member's isDirect not read back from the IR (taken as true): on all four rows
+index.json, Example.Gen, Example.ReaderProbe and Example.Shapes differ from read-alone. The
+declared count went from `... + 11` to `... + 12`. tools/lean-test-gate.sh 4 of 4 (233
+compile-time, 67 run-time). The reader's own `#guard irNamesReadBack` (Nat.add, a private name, a
+numeric-looking string component, a component with a dot, one with a space, a macro-scoped name)
+runs when the reader is built. Not run: tools/mv-reader-gate.sh and tools/reader-oracle-gate.sh
+(read-alone without the two flags runs the same code as before, but they were not asked).
+`reader session ... --reuse-from x` exits 2 (checked by hand, once).

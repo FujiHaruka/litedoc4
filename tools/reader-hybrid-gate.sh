@@ -117,6 +117,14 @@
 #                     rule names, decoded + omitted = theorems), at least one
 #                     proof was omitted and at least one decoded for sorryAx
 #                     (Example.sorryHole among them)
+#   reuse-self-equals-alone
+#                     every older row read again by `reader extract
+#                     --write-reuse-keys`, then by `reader extract
+#                     --reuse-from` naming that run's own IR: both IRs and
+#                     link indexes are the bytes of the row's read-alone run,
+#                     the second run's reuse-from line says the printing
+#                     identity is equal and every produced declaration was
+#                     reused, none printed, and both runs wrote the same keys
 #   carry-presence-flip
 #                     the first two older rows, across the shadow's
 #                     disappearance, in a session with --check-keys
@@ -218,7 +226,7 @@ fi
 NEWEST_I=$(( ${#ROWS[@]} - 1 ))
 NEWEST="${ROWS[$NEWEST_I]##*:v}"
 NEWEST_SPELLING="${SPELLINGS[$NEWEST_I]}"
-declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 11 ))
+declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 12 ))
 
 record_host
 if ! installed "${ROWS[$NEWEST_I]}"; then
@@ -312,14 +320,21 @@ search_args () {
   done
 }
 
-# usage: read_through <version> <out> [--shadow <dir>] [--lazy-proofs] [extractor flags...]
+# usage: read_through <version> <out> [--shadow <dir>] [<reader flag>...] [extractor flags...]
 #   --shadow       a search directory put before the version's own, for a corrupted copy
-#   --lazy-proofs  the reader's own flag, passed before the extractor's command line
+#   <reader flag>  --lazy-proofs, --write-reuse-keys or --reuse-from <dir>: the reader's own,
+#                  passed before the extractor's command line
 read_through () {
   local v="$1" out="$2" args=()
   shift 2
   if [ "${1:-}" = --shadow ]; then args+=(--old "$2"); shift 2; fi
-  if [ "${1:-}" = --lazy-proofs ]; then args+=(--lazy-proofs); shift; fi
+  while :; do
+    case "${1:-}" in
+      --lazy-proofs|--write-reuse-keys) args+=("$1"); shift ;;
+      --reuse-from) args+=("$1" "$2"); shift 2 ;;
+      *) break ;;
+    esac
+  done
   while IFS= read -r a; do args+=("$a"); done < <(search_args --old "$v"; search_args --new "$NEWEST")
   mkdir -p "$out"
   set +e
@@ -1052,6 +1067,63 @@ if sorry == 0:
     sys.exit(f"no proof decoded for sorryAx, so the sample's sorry was not read through the rule")
 print(f"decoded {decoded} of {theorems} (no list {unlisted}, sorryAx {sorry}), omitted {omitted}; "
       f"closure references {refs(lazy)} against read-alone's {refs(full)}")
+PY
+)"; then
+      fails+=("v$v: $counts")
+    else
+      lines+=("v$v $(find "$out/ir" -type f | wc -l | tr -d ' ') files + link index, $counts")
+    fi
+  done
+  if [ "${#fails[@]}" -ne 0 ]; then
+    bad "$item" "$(printf '%s; ' "${fails[@]}")"
+  else
+    ok "$item" "${#SESSION_ROWS[@]} rows, each equal to read-alone: $(printf '%s; ' "${lines[@]}")"
+  fi
+fi
+
+say
+say "=== the older rows read alone again, each reusing the printed parts of its own earlier output"
+item=reuse-self-equals-alone
+if ! why="$(session_ready)"; then
+  bad "$item" "$why"
+else
+  lines=()
+  fails=()
+  for v in "${SESSION_ROWS[@]}"; do
+    keys="$WORK/v$v/keys"
+    out="$WORK/v$v/reuse"
+    if ! read_through "$v" "$keys" --write-reuse-keys; then
+      fails+=("v$v: reader extract --write-reuse-keys exited non-zero: $(head -c 300 "$keys/stderr.txt")")
+    elif [ ! -d "$WORK/v$v/read/ir" ]; then
+      fails+=("v$v has no read-alone IR to equal")
+    elif ! /usr/bin/diff -r "$WORK/v$v/read/ir" "$keys/ir" >"$keys/ir.diff" 2>&1 ||
+         ! cmp -s "$WORK/v$v/read/links.lidx" "$keys/links.lidx"; then
+      fails+=("v$v: writing the reuse keys changed the IR or the link index: $(head -c 300 "$keys/ir.diff")")
+    elif [ ! -s "$keys/ir.reuse-keys" ]; then
+      fails+=("v$v: --write-reuse-keys wrote no $keys/ir.reuse-keys")
+    elif ! read_through "$v" "$out" --reuse-from "$keys/ir"; then
+      fails+=("v$v: reader extract --reuse-from exited non-zero: $(head -c 300 "$out/stderr.txt")")
+    elif ! /usr/bin/diff -r "$WORK/v$v/read/ir" "$out/ir" >"$out/ir.diff" 2>&1; then
+      fails+=("v$v: the --reuse-from IR differs from read-alone in $({ /usr/bin/diff -rq "$WORK/v$v/read/ir" "$out/ir" || true; } | sed "s|$out/ir/||; s|$WORK/v$v/read/ir/||g" | tr '\n' ' ' | head -c 400)")
+    elif ! cmp -s "$WORK/v$v/read/links.lidx" "$out/links.lidx"; then
+      fails+=("v$v: the --reuse-from link index differs from read-alone")
+    elif ! cmp -s "$keys/ir.reuse-keys" "$out/ir.reuse-keys"; then
+      fails+=("v$v: the --reuse-from run wrote other keys than the run it reused")
+    elif ! counts="$(python3 - "$out/stdout.txt" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"^reuse-from +\S+: (\d+) of (\d+) declarations reused, (\d+) printed \((.*)\); "
+              r"printing identity (equal|differs)", text, re.M)
+if not m:
+    sys.exit("no reuse-from line")
+reused, produced, printed = (int(g) for g in m.groups()[:3])
+if m.group(5) != "equal":
+    sys.exit("the printing identity differs from the run's own")
+if produced == 0:
+    sys.exit("0 declarations produced, so nothing was reused")
+if reused != produced or printed != 0:
+    sys.exit(f"{reused} of {produced} reused, {printed} printed ({m.group(4)})")
+print(f"{reused} of {produced} declarations reused, 0 printed")
 PY
 )"; then
       fails+=("v$v: $counts")

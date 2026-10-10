@@ -451,6 +451,36 @@ unsafe def keyOf (env : Environment) (registered : NameMap (Array Name)) (memo :
            members := { memberReads with consts := memberReads.consts ++ members }, eqns := eqnReads,
            shown, spaces, ctorInducts }
 
+def binderShape (h : UInt64) (t : Expr) : UInt64 := Id.run do
+  let mut h := h
+  let mut t := t
+  while true do
+    match t with
+    | .forallE n _ b bi => h := mixList h [hash n, biCode bi]; t := b
+    | _ => break
+  return h
+
+def typeKey (h : UInt64) (t : Expr) : UInt64 := binderShape (mix h t.hash) t
+
+def ownKey (env : Environment) (ci : ConstantInfo) : UInt64 :=
+  let value := match ci with
+    | .defnInfo v => v.value.hash
+    | .opaqueInfo v => v.value.hash
+    | _ => 0
+  let members := match ci with
+    | .inductInfo v =>
+      let ctors := v.ctors.foldl (init := 102) fun h c =>
+        match env.find? c with
+        | some cc => typeKey (mix h (hash c)) cc.type
+        | none => mix h (hash c)
+      if isStructure env v.name then
+        let parents := (getStructureParentInfo env v.name).foldl (init := ctors) fun h p =>
+          mixList h [hash p.structName, hash p.projFn]
+        (getStructureFieldsFlattened env v.name (includeSubobjectFields := false)).foldl (fun h f => mix h (hash f)) parents
+      else ctors
+    | _ => 0
+  mixList (typeKey (mixList 101 [kindCode ci, hash ci.levelParams]) ci.type) [value, members]
+
 def candidates (world : World) (targets : Array Name) : IO (Array Name) := do
   let mut seen : NameSet := {}
   let mut cands : Array Name := #[]

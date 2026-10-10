@@ -1227,6 +1227,20 @@ combination that won.
    **Win on M**: 3 alternating cycles against read-alone with `--lazy-proofs` in both arms, at
    `--jobs 1` and `--jobs 4`. Killed if the per-version wall is not at least 1.5× faster at
    `--jobs 1`, or if the peak RSS is above read-alone's. Full Mathlib only after a win on M.
+   **Measured 2026-10-10** (→ `benchmarks/results/mv-m-reuse-2026-10-10.txt`, 3 cycles per job
+   count): `reader extract --reuse-from`, refused by the session. `tools/reader-hybrid-gate.sh`
+   34 of 34 with `reuse-self-equals-alone`, which failed once on a build that dropped a field when
+   reading the neighbour's IR. Medians against read-alone at `--jobs 1`: 1.54× (v4.33.1 ← v4.34.1),
+   1.65×, 1.67×; at `--jobs 4`: 1.24×, 1.44×, 1.46×. Peak RSS 8–73 MiB below read-alone in every
+   process. Not killed, but v4.33.1 clears 1.5× by 0.04× and fails the spread criterion at
+   `--jobs 4`. Printed 16.8% / 0% / 2.8% of declarations. Link index equal in 18 of 18 pairs. The
+   IR differs on 4 / 4 / 9 declarations (0.02–0.04%), all of the kinds given up: notation (`⊓` for
+   `min`), an equation behind a helper definition, and instance arguments shown in equations. Below
+   the 1.8–1.9× predicted, because the steps outside extraction ran about 18 s against the probe's
+   11.7 s (manual root 2.4 s against 0.24 s), on the same host the same day. The middle key printed
+   16.8% on the v4.34.1 pair, against 8.1% for the built-in hash, likely on instance-binder names
+   that never reach the page (assumed). Loading the neighbour's IR took 0.92–1.10 s, against the
+   0.5 s assumed.
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on

@@ -185,11 +185,14 @@ structure Args where
   new : Array System.FilePath := #[]
   newRoots : Option System.FilePath := none
   lazyProofs : Bool := false
+  writeReuseKeys : Bool := false
+  reuseFrom : Option System.FilePath := none
   extractor : List String := []
 
 def usage : String := "\n".intercalate [
   "usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>",
-  "                      [--lazy-proofs] <modules.txt> <events.jsonl> [extractor flags]",
+  "                      [--lazy-proofs] [--write-reuse-keys] [--reuse-from <ir-dir>]",
+  "                      <modules.txt> <events.jsonl> [extractor flags]",
   "       reader extract --identity [extractor flags]",
   "  --old        a search directory of the version read: its Lean's lib/lean and its packages' builds",
   "  --new        a search directory of the newest version, built by this reader's Lean",
@@ -200,6 +203,17 @@ def usage : String := "\n".intercalate [
   "               sorryAx (the sorry tag then looks for it in the proof); every other proof is left",
   "               out, and the closure invariant checks the names the decoded data mentions",
   "               (`proofs` line)",
+  "  --write-reuse-keys",
+  "               write every candidate's reuse key beside the IR, to <--ir-dir>.reuse-keys: the type's",
+  "               structural hash and its top-level binder names and kinds, a non-theorem's value, an",
+  "               inductive's constructors, parents and fields; headed by the printing identity (this",
+  "               reader, its Lean, the output flags). The IR and the link index are unchanged",
+  "  --reuse-from <ir-dir>",
+  "               an adjacent version's IR written with --write-reuse-keys: a declaration whose reuse key",
+  "               equals its key there takes its printed parts from that IR (signature, equations and",
+  "               their code, structure members, the names in refs) and is not printed; everything else",
+  "               is computed as without it. Nothing is reused when the printing identity differs.",
+  "               Implies --write-reuse-keys (`reuse-from` line)",
   "  everything after these is the extractor's own command line (Extract.lean's parseArgs)"]
 
 def parseReaderArgs : List String → Args → Args
@@ -207,6 +221,8 @@ def parseReaderArgs : List String → Args → Args
   | "--new" :: d :: rest, a => parseReaderArgs rest { a with new := a.new.push d }
   | "--new-roots" :: f :: rest, a => parseReaderArgs rest { a with newRoots := some f }
   | "--lazy-proofs" :: rest, a => parseReaderArgs rest { a with lazyProofs := true }
+  | "--write-reuse-keys" :: rest, a => parseReaderArgs rest { a with writeReuseKeys := true }
+  | "--reuse-from" :: d :: rest, a => parseReaderArgs rest { a with reuseFrom := some d, writeReuseKeys := true }
   | rest, a => { a with extractor := rest }
 
 def refusedFlag? (cfg : Cfg) : Option (String × String) :=
@@ -556,6 +572,232 @@ unsafe def extractReusing (r : ReuseSession) (ph : Phases) (cfg : Cfg) (env : En
   return { code, lines := kp.lines.push (reuseLine r.scx kp.stats kp.threads (countReuse prev kp.keys results) results.size),
            printed := { keys := kp.keys, out }, failure := none, atExtract }
 
+def reuseKeysPath (irDir : System.FilePath) : System.FilePath := ⟨irDir.toString ++ ".reuse-keys"⟩
+
+def reuseKeysMarker : String := "#reuse-keys1"
+
+def printingIdentity (cfg : Cfg) : IO String := extractorIdentity cfg Lean.versionString Lean.githash readBy
+
+def irName? (s : String) : Option Name := do
+  let mut n : Name := .anonymous
+  let mut comp := ""
+  let mut quoted := false
+  let mut wasQuoted := false
+  let push (n : Name) (comp : String) (wasQuoted : Bool) : Name :=
+    match (if wasQuoted then none else comp.toNat?) with
+    | some k => if comp.all Char.isDigit then .num n k else .str n comp
+    | none => .str n comp
+  for c in s.toList do
+    if quoted then
+      if c == '»' then quoted := false else comp := comp.push c
+    else if c == '«' then
+      quoted := true
+      wasQuoted := true
+    else if c == '.' then
+      n := push n comp wasQuoted
+      comp := ""
+      wasQuoted := false
+    else comp := comp.push c
+  if quoted then none
+  n := push n comp wasQuoted
+  guard (n.toString == s)
+  return n
+
+def irNamesReadBack : Bool :=
+  let names : List Name := [`Nat.add, mkPrivateNameCore `Mathlib.Foo `bar, .str `Foo "0", .str `Foo "a.b",
+    .str (.str .anonymous "x y") "z", .num (.str `Foo.bar "_hyg") 12]
+  names.all fun n => irName? n.toString == some n
+
+#guard irNamesReadBack
+
+def spanOfJson? (j : Json) : Option Span := do
+  let a ← j.getArr?.toOption
+  let num (i : Nat) : Option Nat := a[i]? >>= (·.getNat?.toOption)
+  let start ← num 0
+  let stop ← num 1
+  let kind ← num 2
+  if a.size == 3 then return { start, stop, kind }
+  let name ← a[3]? >>= (·.getStr?.toOption) >>= irName?
+  if a.size == 4 then return { start, stop, kind, name }
+  return { start, stop, kind, name, front := ← num 4, back := ← num 5 }
+
+def jsonReq? (j : Json) (k : String) (read : Json → Option α) : Option α := (j.getObjVal? k).toOption >>= read
+
+def jsonField? (j : Json) (k : String) (read : Json → Option α) (absent : α) : Option α :=
+  match j.getObjVal? k with
+  | .ok v => read v
+  | .error _ => some absent
+
+def jsonArr? (read : Json → Option α) (j : Json) : Option (Array α) := j.getArr?.toOption >>= (·.mapM read)
+
+def jsonStr? (j : Json) : Option String := j.getStr?.toOption
+
+def jsonBool? (j : Json) : Option Bool := j.getBool?.toOption
+
+def jsonSpans? : Json → Option (Array Span) := jsonArr? spanOfJson?
+
+def memberOfJson? (j : Json) : Option Member := do
+  return {
+    label := ← jsonReq? j "label" jsonStr?
+    name := ← jsonReq? j "name" (jsonStr? · >>= irName?)
+    text := ← jsonReq? j "text" jsonStr?
+    spans := ← jsonField? j "code" jsonSpans? #[]
+    binders := ← jsonField? j "binders" (jsonArr? jsonStr?) #[]
+    implicits := ← jsonField? j "implicits" (jsonArr? jsonBool?) #[]
+    binderSpans := ← jsonField? j "binderCode" (jsonArr? jsonSpans?) #[]
+    doc := ← jsonField? j "doc" (fun d => if d.isNull then some none else (jsonStr? d).map some) none
+    isDirect := ← jsonField? j "isDirect" jsonBool? true }
+
+def printedOfJson? (j : Json) : Option DeclOut := do
+  let refName (r : Json) : Option Name := do
+    let pair ← r.getArr?.toOption
+    pair[1]? >>= jsonStr? >>= irName?
+  return {
+    name := ← jsonReq? j "name" (jsonStr? · >>= irName?), module := .anonymous, kind := "", doc := none, line := 0, col := 0
+    sig := {
+      binders := ← jsonReq? j "binders" (jsonArr? jsonStr?)
+      implicits := ← jsonReq? j "implicits" (jsonArr? jsonBool?)
+      type := ← jsonReq? j "type" jsonStr?
+      binderSpans := ← jsonField? j "binderCode" (jsonArr? jsonSpans?) #[]
+      typeSpans := ← jsonField? j "typeCode" jsonSpans? #[] }
+    equations := ← jsonReq? j "equations" (jsonArr? jsonStr?)
+    equationSpans := ← jsonField? j "equationCode" (jsonArr? jsonSpans?) #[]
+    members := ← jsonReq? j "members" (jsonArr? memberOfJson?)
+    refs := ← jsonReq? j "refs" (jsonArr? refName) }
+
+structure OwnKeys where
+  names : Array String
+  keys : Std.HashMap String UInt64
+  ms : Nat
+
+def ownKeys (env : Environment) (world : World) (targets : Array Name) : IO OwnKeys := do
+  let t0 ← IO.monoMsNow
+  let mut names := #[]
+  let mut keys : Std.HashMap String UInt64 := {}
+  for c in ← PrintKey.candidates world targets do
+    let some ci := env.find? c | continue
+    let s := c.toString
+    names := names.push s
+    keys := keys.insert s (PrintKey.ownKey env ci)
+  return { names, keys, ms := (← IO.monoMsNow) - t0 }
+
+def writeKeysFile (path : System.FilePath) (identity : String) (k : OwnKeys) : IO Unit := do
+  let h ← IO.FS.Handle.mk path .write
+  h.putStrLn s!"{reuseKeysMarker} {identity}"
+  for s in k.names do h.putStrLn s!"{s}\t{k.keys[s]!}"
+
+structure Neighbour where
+  identity : String
+  keys : Std.HashMap String UInt64
+  offered : Std.HashMap String DeclOut
+  unreadable : Std.HashSet String
+  files : Nat
+  ms : Nat
+
+def readNeighbourKeys (path : System.FilePath) : IO (String × Std.HashMap String UInt64) := do
+  let lines := (← IO.FS.readFile path).splitOn "\n"
+  let identity ← match (lines.headD "").splitOn " " with
+    | m :: rest =>
+      if m == reuseKeysMarker then pure (" ".intercalate rest)
+      else throw <| IO.userError s!"reuse: {path} does not start with {reuseKeysMarker}"
+    | [] => throw <| IO.userError s!"reuse: {path} is empty"
+  let mut keys : Std.HashMap String UInt64 := {}
+  for l in lines.drop 1 do
+    if l.isEmpty then continue
+    match l.splitOn "\t" with
+    | [s, k] =>
+      let some k := k.toNat? | throw <| IO.userError s!"reuse: {path}: not a key: {l.take 200}"
+      keys := keys.insert s k.toUInt64
+    | _ => throw <| IO.userError s!"reuse: {path}: not a name and a key: {l.take 200}"
+  return (identity, keys)
+
+def loadNeighbour (dir : System.FilePath) (identity : String) (own : OwnKeys) : IO Neighbour := do
+  let t0 ← IO.monoMsNow
+  let (theirs, keys) ← readNeighbourKeys (reuseKeysPath dir)
+  if theirs != identity then
+    return { identity := theirs, keys, offered := {}, unreadable := {}, files := 0, ms := (← IO.monoMsNow) - t0 }
+  let parse (f : System.FilePath) : IO Json := do
+    match Json.parse (← IO.FS.readFile f) with
+    | .ok j => pure j
+    | .error e => throw <| IO.userError s!"reuse: {f} is not JSON: {e.take 200}"
+  let index ← parse (dir / "index.json")
+  let some mods := (index.getObjVal? "modules" >>= (·.getArr?)).toOption
+    | throw <| IO.userError s!"reuse: {dir / "index.json"} has no module list"
+  let mut offered : Std.HashMap String DeclOut := {}
+  let mut unreadable : Std.HashSet String := {}
+  for m in mods do
+    let some file := (m.getObjVal? "file" >>= (·.getStr?)).toOption
+      | throw <| IO.userError s!"reuse: {dir / "index.json"}: a module entry names no file"
+    let some decls := ((← parse (dir / file)).getObjVal? "declarations" >>= (·.getArr?)).toOption
+      | throw <| IO.userError s!"reuse: {dir / file} has no declarations"
+    for d in decls do
+      let some s := (d.getObjVal? "name" >>= (·.getStr?)).toOption | continue
+      unless own.keys[s]?.isSome && own.keys[s]? == keys[s]? do continue
+      match printedOfJson? d with
+      | some p => offered := offered.insert s p
+      | none => unreadable := unreadable.insert s
+  return { identity := theirs, keys, offered, unreadable, files := mods.size, ms := (← IO.monoMsNow) - t0 }
+
+structure AcrossCounts where
+  reused : Nat := 0
+  keyDiffers : Nat := 0
+  noKey : Nat := 0
+  noOutput : Nat := 0
+  unreadable : Nat := 0
+  identity : Nat := 0
+  offeredNotTaken : Nat := 0
+
+unsafe def countAcross (nb : Neighbour) (own : OwnKeys) (identityEqual : Bool) (results : Array DeclOut) :
+    AcrossCounts :=
+  results.foldl (init := {}) fun c d =>
+    let s := d.name.toString
+    match nb.offered[s]? with
+    | some o =>
+      if ptrAddrUnsafe o.sig == ptrAddrUnsafe d.sig then { c with reused := c.reused + 1 }
+      else { c with offeredNotTaken := c.offeredNotTaken + 1 }
+    | none =>
+      if !identityEqual then { c with identity := c.identity + 1 }
+      else match nb.keys[s]? with
+        | none => { c with noKey := c.noKey + 1 }
+        | some k =>
+          if own.keys[s]? != some k then { c with keyDiffers := c.keyDiffers + 1 }
+          else if nb.unreadable.contains s then { c with unreadable := c.unreadable + 1 }
+          else { c with noOutput := c.noOutput + 1 }
+
+def reuseFromLine (dir : System.FilePath) (nb : Neighbour) (identityEqual : Bool) (own : OwnKeys)
+    (c : AcrossCounts) (produced : Nat) : String :=
+  let printed := produced - c.reused
+  let ident := if identityEqual then "printing identity equal" else s!"printing identity differs ({nb.identity})"
+  s!"reuse-from           {dir}: {c.reused} of {produced} declarations reused, {printed} printed (key differs \
+    {c.keyDiffers}, no key there {c.noKey}, key equal and no output there {c.noOutput}, not read back \
+    {c.unreadable}, identity {c.identity}, offered and printed {c.offeredNotTaken}); {ident}; keys of {own.names.size} candidates in {own.ms} ms; \
+    {nb.files} IR files read, {nb.offered.size} declarations offered, in {nb.ms} ms"
+
+unsafe def extractAcross (a : Args) (cfg : Cfg) (ph : Phases) (env : Environment) (world : World)
+    (targets : Array Name) : IO (UInt32 × RssAtExtract × Array String) := do
+  let some irDir := cfg.irDir | throw <| IO.userError "--write-reuse-keys writes beside --ir-dir, and there is none"
+  let identity ← printingIdentity cfg
+  let own ← ownKeys env world targets
+  ph.mark "reuse keys"
+  let (code, atExtract, lines) ← match a.reuseFrom with
+    | none => do
+      let (code, atExtract) ← extractMeasured ph (Litedoc4.run cfg (some (env, world)))
+      pure (code, atExtract, #[])
+    | some dir => do
+      let nb ← loadNeighbour dir identity own
+      ph.mark "reuse load"
+      let identityEqual := nb.identity == identity
+      let out ← IO.mkRef #[]
+      let (code, atExtract) ← extractMeasured ph <|
+        Litedoc4.run cfg (some (env, world)) (some { prev := fun n => nb.offered[n.toString]?, out })
+      let results ← out.get
+      pure (code, atExtract,
+        #[reuseFromLine dir nb identityEqual own (countAcross nb own identityEqual results) results.size])
+  if code == 0 then
+    writeKeysFile (reuseKeysPath irDir) identity own
+    ph.mark "write keys"
+  return (code, atExtract, lines)
+
 unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : IO Newest) (resident : Bool)
     (ph : Phases) (reuse? : Option ReuseSession := none) : IO UInt32 := do
   let prevPrinted ← match reuse? with
@@ -609,17 +851,21 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
     let hs ← HardStops.new
     let world := hybridWorld env d.old d.writer manual.root hs
     ph.mark "world"
-    let (code, reused, atExtract) ← match reuse? with
+    let (code, reused, atExtract, acrossLines) ← match reuse? with
       | some r => do
         let x ← extractReusing r ph cfg env world targets prevPrinted carried
         if let some why := x.failure then
           for l in patchLines ++ x.lines do IO.println l
           IO.eprintln s!"reader session: check-keys failed, Lean {d.writer.leanVersion} is not read: {why}"
           return 1
-        pure (x.code, some (x.lines, r, x.printed), x.atExtract)
+        pure (x.code, some (x.lines, r, x.printed), x.atExtract, #[])
       | none => do
-        let (code, atExtract) ← extractMeasured ph (Litedoc4.run cfg (some (env, world)))
-        pure (code, none, some atExtract)
+        if a.writeReuseKeys then
+          let (code, atExtract, lines) ← extractAcross a cfg ph env world targets
+          pure (code, none, some atExtract, lines)
+        else
+          let (code, atExtract) ← extractMeasured ph (Litedoc4.run cfg (some (env, world)))
+          pure (code, none, some atExtract, #[])
     ph.mark "reuse count"
     let realizations ← if resident then Assemble.clearRealizations env else pure 0
     ph.mark "clear realizations"
@@ -636,6 +882,7 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
     if a.lazyProofs then IO.println (proofsLine d.stats)
     for l in patchLines do IO.println l
     if let some (ls, _, _) := reused then for l in ls do IO.println l
+    for l in acrossLines do IO.println l
     if let some x := atExtract then IO.println x.line
     if resident then
       IO.println s!"realizations         {realizations} realized constants of imported declarations emptied \
@@ -671,6 +918,15 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
   let (cfg, targets) ← match ← checkArgs a with
     | .ok r => pure r
     | .error why => IO.eprintln s!"reader extract: {why}\n{usage}"; return 2
+  if a.writeReuseKeys && !cfg.writeIR then
+    IO.eprintln s!"reader extract: --write-reuse-keys and --reuse-from write the keys beside the IR, and \
+      --write-ir is not given\n{usage}"
+    return 2
+  if let some dir := a.reuseFrom then
+    for f in [dir / "index.json", reuseKeysPath dir] do
+      unless ← f.pathExists do
+        IO.eprintln s!"reader extract: --reuse-from {dir}: there is no {f} (an IR written with --write-reuse-keys)"
+        return 2
   let newRoots ← readNameList newRootsFile
   if newRoots.isEmpty then
     IO.eprintln s!"reader extract: no module names in {newRootsFile}"
@@ -740,6 +996,10 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
       return 2
   let a := parseReaderArgs args {}
   let some newRootsFile := a.newRoots | IO.eprintln s!"reader session: --new-roots is required\n{sessionUsage}"; return 2
+  if a.writeReuseKeys then
+    IO.eprintln s!"reader session: --reuse-from and --write-reuse-keys are reader extract's: a session reuses \
+      the round before it\n{sessionUsage}"
+    return 2
   if a.new.isEmpty || !a.old.isEmpty || !a.extractor.isEmpty || a.lazyProofs then
     IO.eprintln s!"reader session: the session takes --new and --new-roots only; each request names its version\n\
       {sessionUsage}"
@@ -779,6 +1039,8 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
     let checked : Except String (Cfg × Array Name) ←
       if !r.new.isEmpty || r.newRoots.isSome then
         pure (.error "a request names no newest version: the session imported it at its start")
+      else if r.writeReuseKeys then
+        pure (.error "--reuse-from and --write-reuse-keys are reader extract's: a session reuses the round before it")
       else if r.lazyProofs then
         pure (.error "--lazy-proofs is read-alone's: a round's constants can come from the round before, \
           decoded under axiom lists that may have changed since")
