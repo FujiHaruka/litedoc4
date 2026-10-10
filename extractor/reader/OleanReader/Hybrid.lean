@@ -184,21 +184,29 @@ structure Args where
   old : Array System.FilePath := #[]
   new : Array System.FilePath := #[]
   newRoots : Option System.FilePath := none
+  lazyProofs : Bool := false
   extractor : List String := []
 
 def usage : String := "\n".intercalate [
   "usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>",
-  "                      <modules.txt> <events.jsonl> [extractor flags]",
+  "                      [--lazy-proofs] <modules.txt> <events.jsonl> [extractor flags]",
   "       reader extract --identity [extractor flags]",
   "  --old        a search directory of the version read: its Lean's lib/lean and its packages' builds",
   "  --new        a search directory of the newest version, built by this reader's Lean",
   "  --new-roots  the newest version's modules, imported for its code (notation, delaborators)",
+  "  --lazy-proofs",
+  "               decode a theorem's proof only where the run reads it: when its module stores no",
+  "               axiom list for it (Lean's collectAxioms then walks the proof) or the list holds",
+  "               sorryAx (the sorry tag then looks for it in the proof); every other proof is left",
+  "               out, and the closure invariant checks the names the decoded data mentions",
+  "               (`proofs` line)",
   "  everything after these is the extractor's own command line (Extract.lean's parseArgs)"]
 
 def parseReaderArgs : List String → Args → Args
   | "--old" :: d :: rest, a => parseReaderArgs rest { a with old := a.old.push d }
   | "--new" :: d :: rest, a => parseReaderArgs rest { a with new := a.new.push d }
   | "--new-roots" :: f :: rest, a => parseReaderArgs rest { a with newRoots := some f }
+  | "--lazy-proofs" :: rest, a => parseReaderArgs rest { a with lazyProofs := true }
   | rest, a => { a with extractor := rest }
 
 def refusedFlag? (cfg : Cfg) : Option (String × String) :=
@@ -299,6 +307,11 @@ def checkArgs (a : Args) : IO (Except String (Cfg × Array Name)) := do
   let targets ← readNameList cfg.modulesPath
   if targets.isEmpty then return .error s!"no module names in {cfg.modulesPath}"
   return .ok (cfg, targets)
+
+def proofsLine (st : ReadStats) : String :=
+  s!"proofs               decoded {st.proofsDecoded} of {st.theorems} theorems' proofs; the rule decodes those \
+    with no stored axiom list ({st.proofsWithoutAxiomList}) or one holding sorryAx ({st.proofsWithSorryAx}); \
+    omitted {st.proofsOmitted}"
 
 structure Newest where
   state : Assemble.MImportState
@@ -564,6 +577,7 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       | some p => pure (some (((← p.last.get).map (·.1)).getD {}))
       | none => pure none
     let (d, sh?) ← Assemble.decodeAll s mods prev? (PrintKey.keyExts.foldl (·.insert ·) {})
+      (if a.lazyProofs then .whereRead else .every)
     ph.markLess "decode" #[("hash", sh?.map (·.2.hashNs) |>.getD 0)]
     let cl ← Check.closure d
     ph.mark "check closure"
@@ -619,6 +633,7 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       {d.stats.entriesDecoded} extension entries decoded, {d.stats.entriesSkipped} not decoded \
       in {d.stats.skippedExts.size} extensions"
     for l in merged.counts.lines do IO.println s!"  {l}"
+    if a.lazyProofs then IO.println (proofsLine d.stats)
     for l in patchLines do IO.println l
     if let some (ls, _, _) := reused then for l in ls do IO.println l
     if let some x := atExtract then IO.println x.line
@@ -725,7 +740,7 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
       return 2
   let a := parseReaderArgs args {}
   let some newRootsFile := a.newRoots | IO.eprintln s!"reader session: --new-roots is required\n{sessionUsage}"; return 2
-  if a.new.isEmpty || !a.old.isEmpty || !a.extractor.isEmpty then
+  if a.new.isEmpty || !a.old.isEmpty || !a.extractor.isEmpty || a.lazyProofs then
     IO.eprintln s!"reader session: the session takes --new and --new-roots only; each request names its version\n\
       {sessionUsage}"
     return 2
@@ -764,6 +779,9 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
     let checked : Except String (Cfg × Array Name) ←
       if !r.new.isEmpty || r.newRoots.isSome then
         pure (.error "a request names no newest version: the session imported it at its start")
+      else if r.lazyProofs then
+        pure (.error "--lazy-proofs is read-alone's: a round's constants can come from the round before, \
+          decoded under axiom lists that may have changed since")
       else
         match ← (checkArgs r).toBaseIO with
         | .ok c => pure c

@@ -12,14 +12,57 @@ structure ReadStats where
   names : Nat := 0
   levels : Nat := 0
   exprs : Nat := 0
+  theorems : Nat := 0
+  proofsDecoded : Nat := 0
+  proofsWithoutAxiomList : Nat := 0
+  proofsWithSorryAx : Nat := 0
+  proofsOmitted : Nat := 0
 
-def decModuleData (omitProofs decodeEntries : Bool) (v : UInt64) (stats : IO.Ref ReadStats) :
+inductive Proofs where
+  | every
+  | none
+  | whereRead
+
+def decStoredAxiomLists (entries : UInt64) : DM (Std.HashMap Name Bool) := do
+  let arr ← obj "Array (Name × Array EnvExtensionEntry)" entries
+  unless arr.tag == 246 do fail "ModuleData.entries" entries "expected an Array"
+  for i in [0:(u64 arr.b (arr.o + 8)).toNat] do
+    let p ← ctor "Name × Array EnvExtensionEntry" (u64 arr.b (arr.o + 24 + 8*i)) 0 2 0
+    if (← decName (p.field 0)) == axiomsExtName then
+      let lists ← decArray "Array EnvExtensionEntry" (p.field 1)
+        (decPair "Name × Array Name" · decName (decArray "Array Name" · decName))
+      return lists.foldl (fun m (c, axs) => m.insert c (axs.contains ``sorryAx)) {}
+  return {}
+
+def Proofs.keep : Proofs → Std.HashMap Name Bool → Name → Bool
+  | .every, _, _ => true
+  | .none, _, _ => false
+  | .whereRead, hasSorryAx, n => hasSorryAx.getD n true
+
+def countProofs (hasSorryAx : Std.HashMap Name Bool) (constants : Array ConstantInfo) (s : ReadStats) : ReadStats :=
+  constants.foldl (init := s) fun s ci =>
+    match ci with
+    | .thmInfo v =>
+      let s := if v.value == omittedProof then { s with proofsOmitted := s.proofsOmitted + 1 }
+        else { s with proofsDecoded := s.proofsDecoded + 1 }
+      let s := { s with theorems := s.theorems + 1 }
+      match hasSorryAx[v.name]? with
+      | none => { s with proofsWithoutAxiomList := s.proofsWithoutAxiomList + 1 }
+      | some true => { s with proofsWithSorryAx := s.proofsWithSorryAx + 1 }
+      | some false => s
+    | _ => s
+
+def decModuleData (proofs : Proofs) (decodeEntries : Bool) (v : UInt64) (stats : IO.Ref ReadStats) :
     DM (ModuleData × Array (Name × Array Keyed) × Array Name) := do
   let x ← ctor "ModuleData" v 0 5 1
   let isModule ← decBool "ModuleData.isModule" v (x.sc8 0)
   let imports ← decArray "Array Import" (x.field 0) decImport
   let constNames ← decArray "Array Name" (x.field 1) decName
-  let constants ← decArray "Array ConstantInfo" (x.field 2) (decConstantInfo omitProofs)
+  let hasSorryAx ← match proofs with
+    | .whereRead => decStoredAxiomLists (x.field 4)
+    | _ => pure {}
+  let constants ← decArray "Array ConstantInfo" (x.field 2) (decConstantInfo (proofs.keep hasSorryAx))
+  if let .whereRead := proofs then stats.modify (countProofs hasSorryAx constants)
   let mentioned := (← get).mentioned
   let extraConstNames ← decArray "Array Name" (x.field 3) decName
   let entriesObj ← obj "Array (Name × Array EnvExtensionEntry)" (x.field 4)

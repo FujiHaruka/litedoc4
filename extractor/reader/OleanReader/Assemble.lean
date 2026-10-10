@@ -110,7 +110,8 @@ def Sharing.module (sh : Sharing) (m : Name) (h : ModuleHashes) (md : ModuleData
     ks' := ks'.push (e, es')
   return ({ sh with next, counts := c }, { md with constants := cs, entries := ks'.map fun (e, es) => (e, es.map (·.2)) }, ks')
 
-unsafe def decodeAll (s : Session) (mods : Array Name) (prev? : Option Prev := none) (printed : Std.HashSet Name := {}) :
+unsafe def decodeAll (s : Session) (mods : Array Name) (prev? : Option Prev := none) (printed : Std.HashSet Name := {})
+    (proofs : Proofs := .every) :
     IO (Decoded × Option (Prev × ShareCounts)) := do
   let stats ← IO.mkRef ({} : ReadStats)
   let mut sharing := prev?.map ({ prev := ·, printed : Sharing })
@@ -125,7 +126,7 @@ unsafe def decodeAll (s : Session) (mods : Array Name) (prev? : Option Prev := n
   let mut mentioned := #[]
   for m in mods do
     let parts ← loadModule s m
-    let ((md, ks, ms), _) ← runDM parts (decModuleData false true parts.back!.root stats)
+    let ((md, ks, ms), _) ← runDM parts (decModuleData proofs true parts.back!.root stats)
     let (md, ks) ← match sharing with
       | none => pure (md, ks)
       | some sh => do

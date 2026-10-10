@@ -32,7 +32,7 @@ def readClosure (s : Session) (roots : Array Name) (stats : IO.Ref ReadStats) : 
   let mut out := #[]
   for m in ← closure s roots do
     let parts ← loadModule s m
-    let ((md, keyed, _), _) ← runDM parts (decModuleData true true parts.back!.root stats)
+    let ((md, keyed, _), _) ← runDM parts (decModuleData .none true parts.back!.root stats)
     out := out.push { name := m, constants := md.constants, entries := keyed }
   return out
 

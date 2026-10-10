@@ -107,6 +107,16 @@
 #                     row's read-alone run, its summary is read-alone's as
 #                     above, and its reuse line passes session-reuse's checks
 #                     (every round after the first reused at least one)
+#   lazy-proofs-equals-alone
+#                     every older row read again by `reader extract
+#                     --lazy-proofs` (a theorem's proof decoded only where
+#                     its module stores no axiom list for it or the list holds
+#                     sorryAx): its IR and link index are the bytes of the
+#                     row's read-alone run, its invariants hold as above, its
+#                     proofs line adds up (the proofs decoded are the ones the
+#                     rule names, decoded + omitted = theorems), at least one
+#                     proof was omitted and at least one decoded for sorryAx
+#                     (Example.sorryHole among them)
 #   carry-presence-flip
 #                     the first two older rows, across the shadow's
 #                     disappearance, in a session with --check-keys
@@ -208,7 +218,7 @@ fi
 NEWEST_I=$(( ${#ROWS[@]} - 1 ))
 NEWEST="${ROWS[$NEWEST_I]##*:v}"
 NEWEST_SPELLING="${SPELLINGS[$NEWEST_I]}"
-declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 10 ))
+declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 11 ))
 
 record_host
 if ! installed "${ROWS[$NEWEST_I]}"; then
@@ -302,12 +312,14 @@ search_args () {
   done
 }
 
-# usage: read_through <version> <out> [--shadow <dir>] [extractor flags...]
-#   --shadow  a search directory put before the version's own, for a corrupted copy
+# usage: read_through <version> <out> [--shadow <dir>] [--lazy-proofs] [extractor flags...]
+#   --shadow       a search directory put before the version's own, for a corrupted copy
+#   --lazy-proofs  the reader's own flag, passed before the extractor's command line
 read_through () {
   local v="$1" out="$2" args=()
   shift 2
   if [ "${1:-}" = --shadow ]; then args+=(--old "$2"); shift 2; fi
+  if [ "${1:-}" = --lazy-proofs ]; then args+=(--lazy-proofs); shift; fi
   while IFS= read -r a; do args+=("$a"); done < <(search_args --old "$v"; search_args --new "$NEWEST")
   mkdir -p "$out"
   set +e
@@ -1000,6 +1012,57 @@ else
     bad "$item" "$(printf '%s; ' "${fails[@]}")"
   else
     ok "$item" "${#SESSION_ROWS[@]} rounds, each equal to read-alone: $(printf '%s; ' "${lines[@]}")$summaries; $reuse"
+  fi
+fi
+
+say
+say "=== the older rows read alone again, each theorem's proof decoded only where the run reads it"
+item=lazy-proofs-equals-alone
+if ! why="$(session_ready)"; then
+  bad "$item" "$why"
+else
+  lines=()
+  fails=()
+  for v in "${SESSION_ROWS[@]}"; do
+    out="$WORK/v$v/lazy"
+    if ! read_through "$v" "$out" --lazy-proofs; then
+      fails+=("v$v: reader extract --lazy-proofs exited non-zero: $(head -c 300 "$out/stderr.txt")")
+    elif [ ! -d "$WORK/v$v/read/ir" ]; then
+      fails+=("v$v has no read-alone IR to equal")
+    elif ! /usr/bin/diff -r "$WORK/v$v/read/ir" "$out/ir" >"$out/ir.diff" 2>&1; then
+      fails+=("v$v: the --lazy-proofs IR differs from read-alone in $({ /usr/bin/diff -rq "$WORK/v$v/read/ir" "$out/ir" || true; } | sed "s|$out/ir/||; s|$WORK/v$v/read/ir/||g" | tr '\n' ' ' | head -c 400)")
+    elif ! cmp -s "$WORK/v$v/read/links.lidx" "$out/links.lidx"; then
+      fails+=("v$v: the --lazy-proofs link index differs from read-alone")
+    elif ! inv="$(invariants "$out/stdout.txt" 2>&1)"; then
+      fails+=("v$v: $inv")
+    elif ! counts="$(python3 - "$out/stdout.txt" "$WORK/v$v/read/stdout.txt" <<'PY'
+import re, sys
+lazy, full = (open(p, encoding="utf-8").read() for p in sys.argv[1:])
+m = re.search(r"^proofs +decoded (\d+) of (\d+) theorems' proofs; the rule decodes those with no stored "
+              r"axiom list \((\d+)\) or one holding sorryAx \((\d+)\); omitted (\d+)$", lazy, re.M)
+if not m:
+    sys.exit("no proofs line")
+decoded, theorems, unlisted, sorry, omitted = (int(g) for g in m.groups())
+refs = lambda t: int(re.search(r"^invariants +closure: \d+ constants, (\d+) references checked", t, re.M).group(1))
+if decoded != unlisted + sorry or decoded + omitted != theorems:
+    sys.exit(f"decoded {decoded} of {theorems} theorems, the rule decodes {unlisted} + {sorry}; omitted {omitted}")
+if omitted == 0:
+    sys.exit(f"no proof omitted of {theorems} theorems, so nothing lazy was compared")
+if sorry == 0:
+    sys.exit(f"no proof decoded for sorryAx, so the sample's sorry was not read through the rule")
+print(f"decoded {decoded} of {theorems} (no list {unlisted}, sorryAx {sorry}), omitted {omitted}; "
+      f"closure references {refs(lazy)} against read-alone's {refs(full)}")
+PY
+)"; then
+      fails+=("v$v: $counts")
+    else
+      lines+=("v$v $(find "$out/ir" -type f | wc -l | tr -d ' ') files + link index, $counts")
+    fi
+  done
+  if [ "${#fails[@]}" -ne 0 ]; then
+    bad "$item" "$(printf '%s; ' "${fails[@]}")"
+  else
+    ok "$item" "${#SESSION_ROWS[@]} rows, each equal to read-alone: $(printf '%s; ' "${lines[@]}")"
   fi
 fi
 

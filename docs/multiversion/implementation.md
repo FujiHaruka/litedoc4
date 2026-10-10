@@ -1173,6 +1173,19 @@ combination that won.
    the equation generator's four `TransparencyMode.all` sites could see an omitted proof silently
    as not unfoldable; the IR oracle is what can catch it. Mechanism 3 then checks what the run
    reads, which leaves proof references out.
+   **Measured 2026-10-10** (→ `benchmarks/results/mv-m-lazy-proofs-2026-10-10.txt`, 3 cycles per
+   job count): `reader extract --lazy-proofs` (refused by the session), exact in all 18 pairs, and
+   `tools/reader-hybrid-gate.sh` 33 of 33 with `lazy-proofs-equals-alone`, which failed once when
+   the `sorryAx` proofs were omitted too. The rule decodes about 20% of proofs (21,679–21,703 of
+   106,205–106,925) and skips 16% of the bytes, not the ≈ 50% assumed. Peak about 0.5 GiB lower
+   in every process: max RSS 2,722–2,782 against 3,220–3,277 MiB, footprint 1,614–1,678 against
+   2,117–2,179 MiB. Decode 11.3–13.4 → 8.6–10.5 s. At `--jobs 1` wall is 36.5–37.3 against
+   39.7–40.1 s (gap 2.7 s, spread ≤ 0.4 s); at `--jobs 4` the ranges overlap on a loaded host
+   (24.3–37.7 against 29.7–33.6 s). **A modest win, not an obvious one**: memory −15%, time −7% at
+   one job. Two things checked by reading Lean v4.34.1's source: whnf never unfolds a theorem, and
+   `getTheoremInfo` has no caller. With the flag, the closure invariant covers types, definition
+   bodies, decoded entries and the proofs the run reads, so a reference that occurs only inside an
+   omitted proof is not checked (862,629 → 716,629 references on v4.33.x).
 3. **E3, Mathlib's module identity across a toolchain-only bump** (v4.33.0 → v4.33.1 slices:
    two cache fetches, then seconds). Only if Mathlib is near core's 99.97% does whole-module reuse by
    file digest come back. That lever needs a retained version, so it would answer for patch pairs

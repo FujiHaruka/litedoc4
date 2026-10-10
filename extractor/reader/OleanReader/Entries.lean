@@ -350,6 +350,8 @@ inductive Placement where
 
 def privName (mod : Name) (n : Name) : Name := Name.mkNum (`_private ++ mod) 0 ++ n
 
+def axiomsExtName : Name := privName `Lean.Util.CollectAxioms `Lean.exportedAxiomsExt
+
 /-- The extensions whose entries the reader decodes, by registered name, with the entry decoder
 and the placement of the old entries. Every other extension's entries are counted and not decoded. -/
 def entryDecoders : List (Name × ExtDecoder × Placement) := [
@@ -412,7 +414,7 @@ def entryDecoders : List (Name × ExtDecoder × Placement) := [
     scopedEntry "ext entry" (·.declName) decExtTheorem, .state),
   (`Lean.Meta.unificationHintExtension,
     scopedEntry "unification hint entry" (·.val) decUnifHint, .state),
-  (privName `Lean.Util.CollectAxioms `Lean.exportedAxiomsExt, pairEntry "Name × Array Name" (decArray "Array Name" · decName), .byKey),
+  (axiomsExtName, pairEntry "Name × Array Name" (decArray "Array Name" · decName), .byKey),
   (`Lean.Meta.eqnOptionsExt,
     pairEntry "Name × Array (Name × DataValue)" (decArray "Array (Name × DataValue)" · (decPair "Name × DataValue" · decName decDataValue)), .byKey),
   (`Lean.Elab.Structural.eqnInfoExt, pairEntry "Name × Structural.EqnInfo" decStructuralEqnInfo, .byKey),

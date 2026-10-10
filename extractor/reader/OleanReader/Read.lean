@@ -359,7 +359,7 @@ def decQuotKind (addr : UInt64) (b : UInt8) : DM QuotKind :=
   | 0 => pure .type | 1 => pure .ctor | 2 => pure .lift | 3 => pure .ind
   | _ => fail "QuotKind" addr s!"value {b}"
 
-/-- What the reader keeps of a theorem's proof. `omitProofs` replaces it by a constant that no
+/-- What the reader keeps of a theorem's proof it does not decode: a constant that no
 environment defines, so a use of it fails by name instead of answering. -/
 def omittedProof : Expr := .const `_olean_reader.proofOmitted []
 
@@ -367,7 +367,7 @@ def decRule (v : UInt64) : DM RecursorRule := do
   let x ← ctor "RecursorRule" v 0 3 0
   return { ctor := ← decName (x.field 0), nfields := ← decNat (x.field 1), rhs := ← decExpr (x.field 2) }
 
-def decConstantInfo (omitProofs : Bool) (v : UInt64) : DM ConstantInfo := do
+def decConstantInfo (keepProof : Name → Bool) (v : UInt64) : DM ConstantInfo := do
   let x ← obj "ConstantInfo" v
   unless x.other == 1 && x.csSz == 16 do fail "ConstantInfo" v s!"tag {x.tag} objs {x.other} size {x.csSz}"
   let w := x.field 0
@@ -383,7 +383,7 @@ def decConstantInfo (omitProofs : Bool) (v : UInt64) : DM ConstantInfo := do
   | 2 =>
     let y ← ctor "TheoremVal" w 0 3 0
     let cv ← decConstantVal (y.field 0)
-    let value ← if omitProofs then pure omittedProof else decExpr (y.field 1)
+    let value ← if keepProof cv.name then decExpr (y.field 1) else pure omittedProof
     return .thmInfo { toConstantVal := cv, value, all := ← decNameList (y.field 2) }
   | 3 =>
     let y ← ctor "OpaqueVal" w 0 3 1
