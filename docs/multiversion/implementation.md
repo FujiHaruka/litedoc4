@@ -1288,7 +1288,19 @@ combination that won.
    not elaborate in v4.33.1, e.g. a field name only v4.34.1 has. 2 (`Ergodic`, `QuasiErgodic`) were a
    key miss: an inherited member's type changed in the parent, and the key held only the constructors'
    types and the field names. The key now hashes the type of every member the page shows; on the
-   same modules 60 differ, and 3 of 881 more declarations are printed.
+   same modules 60 differ, and 3 of 881 more declarations are printed. The 60 kinds are accepted
+   (decided 2026-10-10, user's call): keying on other declarations' shapes would cut the reuse
+   share the 2× comes from.
+   **The chain starts from the native newest, 2026-10-10** (measured →
+   `benchmarks/results/mv-reuse-native-start-2026-10-10.txt`). The reader refused the native IR
+   because the native extractor wrote no keys and the keys header carried the reader's own identity
+   (reader fields, and a digest of the copy of `Extract.lean` it compiles without `main`). The key and
+   its writer now live in `Extract.lean`; the header names the printing identity, which leaves out the
+   reader fields and digests the source without `main` on both sides; the native extractor takes
+   `--write-reuse-keys`. On the 14 modules: headers and keys identical to the reader's, reuse equal to
+   reusing from a reader read of the newest. The printing identity does not name the import set: in
+   `build --versions` the reader's new roots are the newest's own module list, so they match there, and
+   a native run of fewer modules can print notation differently (4 declarations here).
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on

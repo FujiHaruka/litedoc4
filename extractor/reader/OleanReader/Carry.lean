@@ -1,6 +1,6 @@
 import OleanReader.PrintKey
 import OleanReader.Patch
-open Lean Litedoc4
+open Lean Litedoc4 Litedoc4.ReuseKey
 
 namespace OleanReader.Carry
 open PrintKey

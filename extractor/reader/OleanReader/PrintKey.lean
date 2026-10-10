@@ -1,15 +1,8 @@
 import Extract
 import OleanReader.Entries
-open Lean Meta Litedoc4
+open Lean Meta Litedoc4 Litedoc4.ReuseKey
 
 namespace OleanReader.PrintKey
-
-@[inline] def mix (h x : UInt64) : UInt64 := mixHash h x
-
-def mixList (h : UInt64) (xs : List UInt64) : UInt64 := xs.foldl mix h
-
-def biCode : BinderInfo → UInt64
-  | .default => 0 | .implicit => 1 | .strictImplicit => 2 | .instImplicit => 3
 
 unsafe def hashExprM (e : Expr) : StateM (Std.HashMap USize UInt64) UInt64 := do
   let p := ptrAddrUnsafe e
@@ -105,10 +98,6 @@ unsafe def hashSkel (env : Environment) (es : Array Expr) : UInt64 × NameSet :=
   let (h, st) := act.run {} |> Id.run
   (h, st.consts)
 
-def kindCode : ConstantInfo → UInt64
-  | .axiomInfo _ => 1 | .defnInfo _ => 2 | .thmInfo _ => 3 | .opaqueInfo _ => 4
-  | .quotInfo _ => 5 | .inductInfo _ => 6 | .ctorInfo _ => 7 | .recInfo _ => 8
-
 def extStructure : Name := Name.mkNum `_private.Lean.Structure 0 ++ `Lean.structureExt
 def extProjFn : Name := `Lean.projectionFnInfoExt
 def extClass : Name := `Lean.classExtension
@@ -201,28 +190,14 @@ def structClosure (env : Environment) (s : Name) : Array Name := Id.run do
       if let some p := f.subobject? then todo := todo.push p
   return out
 
-def memberConsts (env : Environment) (ci : ConstantInfo) : Array Name × Reads := Id.run do
-  let .inductInfo i := ci | return (#[], {})
-  if isStructure env i.name then
-    let ctor := (getStructureCtor env i.name).name
-    let mut out := #[ctor]
-    let mut todo := #[i.name]
-    let mut seen : NameSet := {}
-    while h : todo.size > 0 do
-      let s := todo.back
-      todo := todo.pop
-      if seen.contains s then continue
-      seen := seen.insert s
-      out := out.push s
-      for p in getStructureParentInfo env s do
-        out := out.push p.projFn
-        todo := todo.push p.structName
-    for f in getStructureFieldsFlattened env i.name (includeSubobjectFields := false) do
-      if let some owner := findField? env i.name f then
-        if let some pf := getProjFnForField? env owner f then out := out.push pf
-    return (out, ({ consts := #[ctor] } : Reads).structs (structClosure env i.name))
-  else
-    return (i.ctors.toArray, ({} : Reads).structs #[i.name])
+def memberConsts (env : Environment) (ci : ConstantInfo) : Array Name × Reads :=
+  let names := memberNames env ci
+  match ci with
+  | .inductInfo i =>
+    if isStructure env i.name then
+      (names, ({ consts := #[(getStructureCtor env i.name).name] } : Reads).structs (structClosure env i.name))
+    else (names, ({} : Reads).structs #[i.name])
+  | _ => (names, {})
 
 -- Not the extension by reference: Mathlib declares it, and the reader does not import Mathlib.
 unsafe def registeredEqns (env : Environment) : IO (NameMap (Array Name)) := do
@@ -450,52 +425,6 @@ unsafe def keyOf (env : Environment) (registered : NameMap (Array Name)) (memo :
   return { key := mixList (comps.foldl mix 7) own, parts := comps.push (mixList 77 own),
            members := { memberReads with consts := memberReads.consts ++ members }, eqns := eqnReads,
            shown, spaces, ctorInducts }
-
-def shownName (n : Name) : List UInt64 := [hash n.eraseMacroScopes, hash n.hasMacroScopes]
-
-unsafe def shownHashM (e : Expr) : StateM (Std.HashMap USize UInt64) UInt64 := do
-  let p := ptrAddrUnsafe e
-  if let some h := (← get)[p]? then return h
-  let h ← match e with
-    | .app f a => do let x ← shownHashM f; let y ← shownHashM a; pure (mix (mix 6 x) y)
-    | .lam n t b bi => do
-      let x ← shownHashM t; let y ← shownHashM b
-      pure (mixList 7 (shownName n ++ [biCode bi, x, y]))
-    | .forallE n t b bi => do
-      let x ← shownHashM t; let y ← shownHashM b
-      pure (mixList 8 (shownName n ++ [biCode bi, x, y]))
-    | .letE n t v b nd => do
-      let x ← shownHashM t; let y ← shownHashM v; let z ← shownHashM b
-      pure (mixList 9 (shownName n ++ [hash nd, x, y, z]))
-    | .mdata _ b => shownHashM b
-    | .proj s i b => do let y ← shownHashM b; pure (mixList 12 [hash s, hash i, y])
-    | e => pure e.hash
-  modify (·.insert p h)
-  return h
-
-unsafe def shownHash (e : Expr) : UInt64 := (shownHashM e |>.run' {}) |> Id.run
-
-unsafe def ownKey (env : Environment) (ci : ConstantInfo) : UInt64 :=
-  let value := match ci with
-    | .defnInfo v => shownHash v.value
-    | .opaqueInfo v => shownHash v.value
-    | _ => 0
-  let members := (memberConsts env ci).1.foldl (init := 102) fun h m =>
-    match env.find? m with
-    | some mc => mixList h [hash m, shownHash mc.type]
-    | none => mix h (hash m)
-  mixList 101 [kindCode ci, hash ci.levelParams, shownHash ci.type, value, members]
-
-def candidates (world : World) (targets : Array Name) : IO (Array Name) := do
-  let mut seen : NameSet := {}
-  let mut cands : Array Name := #[]
-  for m in targets do
-    let some idx := world.moduleIndex? m | throw <| IO.userError s!"print key: module not present: {m}"
-    for c in world.constNames idx do
-      if seen.contains c then continue
-      seen := seen.insert c
-      cands := cands.push c
-  return cands
 
 def coreCtx : Core.Context := { fileName := "<printkey>", fileMap := default, options := {}, maxHeartbeats := 0 }
 

@@ -41,6 +41,10 @@ Usage: extract <modules.txt> <out.jsonl> [options]
   --ir-dir <path>     where to write it. **Required with `--write-ir`** and it
                       has no default (see `getIrDir`).
                       **Never point this inside the measurement target.**
+  --write-reuse-keys  also write every candidate's reuse key to
+                      `<ir-dir>.reuse-keys`, headed by the printing identity:
+                      the file `reader extract --reuse-from` reads (needs
+                      `--write-ir`; the IR is unchanged)
   --dump <path>       write one JSON object per declaration to <path>
   --dump-modules <p>  write one JSON object per module (docs / imports / tactics)
   --only <path>       restrict processing to the declaration names in <path>
@@ -130,6 +134,7 @@ structure Cfg where
   /-- `--ir-dir`. `none` is only legal together with `writeIR := false`;
   `parseArgs` refuses the combination, so `getIrDir` never has to invent one. -/
   irDir : Option FilePath := none
+  writeReuseKeys : Bool := false
   taggedCode : Bool := false
   /-- **An ablated run writes an incomplete IR.** `index.json` then carries an
   `ablations` list and the reader refuses it; such an IR is for the stopwatch
@@ -2178,24 +2183,29 @@ def identityLine (sourceDigest leanVersion leanGithash : String) (onlyDigest : O
       ",".intercalate (sortedDistinct (cfg.noEquationsUnder.map toString)).toList)] ++ readBy
   " ".intercalate (fields.map fun (k, v) => k ++ "=" ++ v)
 
+def identityBase : Cfg := { modulesPath := "m.txt", outPath := "o.jsonl" }
+
+def identityMoves : List Cfg := [
+  { identityBase with genEquations := true }, { identityBase with taggedCode := true },
+  { identityBase with collectRefs := true }, { identityBase with skipAnalyze := true },
+  { identityBase with noAttrs := true }, { identityBase with noInstIndex := true },
+  { identityBase with noMemberExtra := true }, { identityBase with noSorry := true },
+  { identityBase with openNamespaces := #[`Foo] }, { identityBase with noEquationsUnder := #[`Foo] }]
+
+def identityStays : List Cfg := [
+  { identityBase with modulesPath := "other.txt", outPath := "other.jsonl", jobs := 4 },
+  { identityBase with tagCode := true, ppBreakdown := true, tacticsEmulate := true },
+  { identityBase with writeIR := true, irDir := some "/ir", linkIndexPath := some "/l.lidx" },
+  { identityBase with dumpPath := some "/d", linkIndexKey := some "k", identity := true },
+  { identityBase with writeIR := true, irDir := some "/ir", writeReuseKeys := true }]
+
 def identityMovesWithEveryOutputAffectingSettingAndNoOther : Bool :=
-  let base : Cfg := { modulesPath := "m.txt", outPath := "o.jsonl" }
+  let base := identityBase
   let line (cfg : Cfg) := identityLine "fnv1a64:0123456789abcdef" "4.31.0" "abc" none cfg
-  let moves : List Cfg := [
-    { base with genEquations := true }, { base with taggedCode := true },
-    { base with collectRefs := true }, { base with skipAnalyze := true },
-    { base with noAttrs := true }, { base with noInstIndex := true },
-    { base with noMemberExtra := true }, { base with noSorry := true },
-    { base with openNamespaces := #[`Foo] }, { base with noEquationsUnder := #[`Foo] }]
-  let stays : List Cfg := [
-    { base with modulesPath := "other.txt", outPath := "other.jsonl", jobs := 4 },
-    { base with tagCode := true, ppBreakdown := true, tacticsEmulate := true },
-    { base with writeIR := true, irDir := some "/ir", linkIndexPath := some "/l.lidx" },
-    { base with dumpPath := some "/d", linkIndexKey := some "k", identity := true }]
   line base == "schema=1 source=fnv1a64:0123456789abcdef lean=4.31.0 leanGithash=abc \
       equations=0 taggedCode=0 refs=0 skipAnalyze=0 ablations= open= only= noEquationsUnder="
-    && moves.all (line · != line base)
-    && stays.all (line · == line base)
+    && identityMoves.all (line · != line base)
+    && identityStays.all (line · == line base)
     && identityLine "s" "4.31.0" "abc" (some "fnv1a64:1") base != line base
     && identityLine "fnv1a64:0123456789abcdef" "4.31.0" "abc" none base [("reader", "r")]
       == line base ++ " reader=r"
@@ -2206,10 +2216,63 @@ def identityMovesWithEveryOutputAffectingSettingAndNoOther : Bool :=
 
 #guard identityMovesWithEveryOutputAffectingSettingAndNoOther
 
+def isMainLine (line : String) : Bool :=
+  line.startsWith "def main" &&
+    match line.toList.drop 8 with
+    | [] => true
+    | c :: _ => !(c.isAlphanum || c == '_')
+
+def sourceWithoutMain (source : String) : String :=
+  let lines := (source.splitOn "\n").toArray
+  let kept := match (List.range lines.size).find? fun i => isMainLine lines[i]! with
+    | some i => lines.extract 0 i
+    | none => lines
+  let text := "\n".intercalate kept.toList
+  String.ofList (text.toList.reverse.dropWhile (· == '\n')).reverse ++ "\n"
+
+def sourceWithoutMainIsTheReaderCutAndCuttingAgainChangesNothing : Bool :=
+  let cut := sourceWithoutMain extractorSource
+  sourceWithoutMain "x\n\ndef mainly := 1\n\ndef main (args : List String) : IO UInt32 := do\n  pure 0\n"
+      == "x\n\ndef mainly := 1\n"
+    && sourceWithoutMain "x\n\n" == "x\n"
+    && sourceWithoutMain cut == cut
+    && !(cut.splitOn "\n").any isMainLine
+
+#guard sourceWithoutMainIsTheReaderCutAndCuttingAgainChangesNothing
+
+-- Not `extractorSource` whole: the reader compiles this file with `main` cut off, so only the cut names one source in both; whole is fine if the reader ever compiles the file unchanged.
+def printingLine (source leanVersion leanGithash : String) (onlyDigest : Option String) (cfg : Cfg) :
+    String :=
+  identityLine (fnv1a64Hex (sourceWithoutMain source)) leanVersion leanGithash onlyDigest cfg
+
+def printingIdentityIgnoresTheReaderFieldsAndMovesWithEverythingElse : Bool :=
+  let src := "x\n\ndef main : IO Unit := pure ()\n"
+  let readBy := [("reader", "fnv1a64:1"), ("readerLean", "4.34.1"), ("readerLeanGithash", "def")]
+  let printing (cfg : Cfg) := printingLine src "4.34.1" "abc" none cfg
+  let base := printing identityBase
+  (identityBase :: identityMoves ++ identityStays).all (fun cfg =>
+      identityLine (fnv1a64Hex "x\n") "4.34.1" "abc" none cfg readBy
+        == printing cfg ++ " reader=fnv1a64:1 readerLean=4.34.1 readerLeanGithash=def")
+    && identityMoves.all (printing · != base)
+    && identityStays.all (printing · == base)
+    && printingLine "x\n" "4.34.1" "abc" none identityBase == base
+    && printingLine "y\n" "4.34.1" "abc" none identityBase != base
+    && printingLine src "4.33.1" "abc" none identityBase != base
+    && printingLine src "4.34.1" "abd" none identityBase != base
+    && printingLine src "4.34.1" "abc" (some "fnv1a64:2") identityBase != base
+
+#guard printingIdentityIgnoresTheReaderFieldsAndMovesWithEverythingElse
+
+def onlyDigestOf (cfg : Cfg) : IO (Option String) :=
+  cfg.onlyPath.mapM fun path => return fnv1a64Hex (← IO.FS.readFile path)
+
 def extractorIdentity (cfg : Cfg) (leanVersion : String := Lean.versionString)
     (leanGithash : String := Lean.githash) (readBy : List (String × String) := []) : IO String := do
-  let onlyDigest ← cfg.onlyPath.mapM fun path => return fnv1a64Hex (← IO.FS.readFile path)
-  return identityLine (fnv1a64Hex extractorSource) leanVersion leanGithash onlyDigest cfg readBy
+  return identityLine (fnv1a64Hex extractorSource) leanVersion leanGithash (← onlyDigestOf cfg) cfg readBy
+
+-- Not the IR's identity with its reader fields: those govern how the reader assembles an old environment, not how a print is made; wrong once a reader change can alter a print without touching Extract.lean.
+def printingIdentity (cfg : Cfg) : IO String := do
+  return printingLine extractorSource Lean.versionString Lean.githash (← onlyDigestOf cfg) cfg
 
 /-- Where `--write-ir` writes: **`--ir-dir` and nothing else**. No default, and
 the `IR_DIR` environment variable is not consulted — both were ways for a
@@ -2224,6 +2287,134 @@ def getIrDir (cfg : Cfg) : IO FilePath := do
   match cfg.irDir with
   | some p => return p
   | none => throw <| IO.userError "--write-ir needs --ir-dir: there is no default"
+
+namespace ReuseKey
+
+@[inline] def mix (h x : UInt64) : UInt64 := mixHash h x
+
+def mixList (h : UInt64) (xs : List UInt64) : UInt64 := xs.foldl mix h
+
+def biCode : BinderInfo → UInt64
+  | .default => 0 | .implicit => 1 | .strictImplicit => 2 | .instImplicit => 3
+
+def kindCode : ConstantInfo → UInt64
+  | .axiomInfo _ => 1 | .defnInfo _ => 2 | .thmInfo _ => 3 | .opaqueInfo _ => 4
+  | .quotInfo _ => 5 | .inductInfo _ => 6 | .ctorInfo _ => 7 | .recInfo _ => 8
+
+def memberNames (env : Environment) (ci : ConstantInfo) : Array Name := Id.run do
+  let .inductInfo i := ci | return #[]
+  if isStructure env i.name then
+    let mut out := #[(getStructureCtor env i.name).name]
+    let mut todo := #[i.name]
+    let mut seen : NameSet := {}
+    while h : todo.size > 0 do
+      let s := todo.back
+      todo := todo.pop
+      if seen.contains s then continue
+      seen := seen.insert s
+      out := out.push s
+      for p in getStructureParentInfo env s do
+        out := out.push p.projFn
+        todo := todo.push p.structName
+    for f in getStructureFieldsFlattened env i.name (includeSubobjectFields := false) do
+      if let some owner := findField? env i.name f then
+        if let some pf := getProjFnForField? env owner f then out := out.push pf
+    return out
+  else
+    return i.ctors.toArray
+
+def shownName (n : Name) : List UInt64 := [hash n.eraseMacroScopes, hash n.hasMacroScopes]
+
+unsafe def shownHashM (e : Expr) : StateM (Std.HashMap USize UInt64) UInt64 := do
+  let p := ptrAddrUnsafe e
+  if let some h := (← get)[p]? then return h
+  let h ← match e with
+    | .app f a => do let x ← shownHashM f; let y ← shownHashM a; pure (mix (mix 6 x) y)
+    | .lam n t b bi => do
+      let x ← shownHashM t; let y ← shownHashM b
+      pure (mixList 7 (shownName n ++ [biCode bi, x, y]))
+    | .forallE n t b bi => do
+      let x ← shownHashM t; let y ← shownHashM b
+      pure (mixList 8 (shownName n ++ [biCode bi, x, y]))
+    | .letE n t v b nd => do
+      let x ← shownHashM t; let y ← shownHashM v; let z ← shownHashM b
+      pure (mixList 9 (shownName n ++ [hash nd, x, y, z]))
+    | .mdata _ b => shownHashM b
+    | .proj s i b => do let y ← shownHashM b; pure (mixList 12 [hash s, hash i, y])
+    | e => pure e.hash
+  modify (·.insert p h)
+  return h
+
+unsafe def shownHash (e : Expr) : UInt64 := (shownHashM e |>.run' {}) |> Id.run
+
+unsafe def ownKey (env : Environment) (ci : ConstantInfo) : UInt64 :=
+  let value := match ci with
+    | .defnInfo v => shownHash v.value
+    | .opaqueInfo v => shownHash v.value
+    | _ => 0
+  let members := (memberNames env ci).foldl (init := 102) fun h m =>
+    match env.find? m with
+    | some mc => mixList h [hash m, shownHash mc.type]
+    | none => mix h (hash m)
+  mixList 101 [kindCode ci, hash ci.levelParams, shownHash ci.type, value, members]
+
+def candidates (world : World) (targets : Array Name) : IO (Array Name) := do
+  let mut seen : NameSet := {}
+  let mut cands : Array Name := #[]
+  for m in targets do
+    let some idx := world.moduleIndex? m | throw <| IO.userError s!"print key: module not present: {m}"
+    for c in world.constNames idx do
+      if seen.contains c then continue
+      seen := seen.insert c
+      cands := cands.push c
+  return cands
+
+def parMap [Inhabited β] (jobs : Nat) (xs : Array α) (f : α → β) : Array β := Id.run do
+  if jobs ≤ 1 then return xs.map f
+  let stride (k : Nat) : Array β := Id.run do
+    let mut out := #[]
+    let mut i := k
+    while h : i < xs.size do
+      out := out.push (f xs[i])
+      i := i + jobs
+    return out
+  let tasks := (Array.range jobs).map fun k => Task.spawn (prio := .dedicated) fun _ => stride k
+  let parts := tasks.map Task.get
+  return (Array.range xs.size).map fun i => parts[i % jobs]![i / jobs]!
+
+structure OwnKeys where
+  entries : Array (String × UInt64)
+  keys : Std.HashMap String UInt64
+  ms : Nat
+
+unsafe def ownKeys (env : Environment) (world : World) (targets : Array Name) (jobs : Nat) : IO OwnKeys := do
+  let t0 ← IO.monoMsNow
+  let cands ← candidates world targets
+  let entries := (parMap jobs cands fun c => (env.find? c).map fun ci => (c.toString, ownKey env ci)).filterMap id
+  let keys := entries.foldl (fun m (s, k) => m.insert s k) (Std.HashMap.emptyWithCapacity entries.size)
+  return { entries, keys, ms := (← IO.monoMsNow) - t0 }
+
+def reuseKeysPath (irDir : FilePath) : FilePath := ⟨irDir.toString ++ ".reuse-keys"⟩
+
+def reuseKeysMarker : String := "#reuse-keys1"
+
+def keysText (entries : Array (String × UInt64)) (lo hi : Nat) : String := Id.run do
+  let mut out := ""
+  for i in [lo:hi] do
+    let (s, k) := entries[i]!
+    out := out ++ s ++ "\t" ++ toString k ++ "\n"
+  return out
+
+def writeKeysFile (path : FilePath) (identity : String) (k : OwnKeys) (jobs : Nat) : IO Unit := do
+  let n := k.entries.size
+  let blocks := max jobs 1
+  let size := (n + blocks - 1) / blocks
+  let texts := parMap jobs (Array.range blocks) fun b => keysText k.entries (b * size) (min n ((b + 1) * size))
+  let h ← IO.FS.Handle.mk path .write
+  h.putStrLn s!"{reuseKeysMarker} {identity}"
+  for t in texts do h.putStr t
+
+end ReuseKey
 
 /-- 16 hex digits of Lean's `String.hash`.
 
@@ -3024,6 +3215,13 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
        ("hashUs", toString (irStats.hashNanos / 1000)),
        ("writeUs", toString (irStats.writeNanos / 1000))]
 
+  let mut keysLine : Option String := none
+  if cfg.writeReuseKeys then
+    let path := ReuseKey.reuseKeysPath (← getIrDir cfg)
+    let own ← unsafe ReuseKey.ownKeys env world targets cfg.jobs
+    ReuseKey.writeKeysFile path (← printingIdentity cfg) own cfg.jobs
+    keysLine := some s!"reuse keys           {own.entries.size} declarations in {own.ms} ms -> {path}"
+
   if let some dumpPath := cfg.dumpPath then
     let tD0 ← IO.monoNanosNow
     let h ← IO.FS.Handle.mk dumpPath .write
@@ -3182,6 +3380,7 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
       IO.println s!"  spans              {irStats.spans.total} in {irStats.spanFragments} fragments — {irStats.spans.const} const, {irStats.spans.sort} sort, {irStats.spans.other} other"
       IO.println s!"  ws widths          {irStats.spans.ws} const spans carry front/back, {irStats.spans.wsUnits} UTF-16 units total (schema 3)"
     IO.println s!"  dir                {dir}"
+  if let some l := keysLine then IO.println l
   IO.println s!"total                {fmtDur (tTotal1 - tTotal0)}"
   IO.println s!"genEquations         {cfg.genEquations}   tagCode {cfg.tagCode}   refs {cfg.collectRefs}   jobs {cfg.jobs}   open {cfg.openNamespaces.toList}"
   IO.print "kinds               "
@@ -3270,7 +3469,7 @@ def parseArgs (args : List String) : Except String Cfg :=
   match args with
   | "--identity" :: rest => go { modulesPath := "", outPath := "", identity := true } rest
   | modules :: out :: rest => go { modulesPath := ⟨modules⟩, outPath := ⟨out⟩ } rest >>= check
-  | _ => .error "usage: extract [--identity | <modules.txt> <out.jsonl>] [--equations] [--no-equations-under <ns,..>] [--dump <p>] [--dump-modules <p>] [--only <p>] [--open <ns,..>] [--tag] [--refs] [--dump-refs <p>] [--link-index <p>] [--link-index-omit <p>] [--link-index-key <t>] [--write-ir --ir-dir <p>] [--tagged-code] [--skip-analyze] [--tactics-emulate] [--tactics-probe] [--pp-breakdown] [--decl-profile <p>] [--jobs <n>]"
+  | _ => .error "usage: extract [--identity | <modules.txt> <out.jsonl>] [--equations] [--no-equations-under <ns,..>] [--dump <p>] [--dump-modules <p>] [--only <p>] [--open <ns,..>] [--tag] [--refs] [--dump-refs <p>] [--link-index <p>] [--link-index-omit <p>] [--link-index-key <t>] [--write-ir --ir-dir <p> [--write-reuse-keys]] [--tagged-code] [--skip-analyze] [--tactics-emulate] [--tactics-probe] [--pp-breakdown] [--decl-profile <p>] [--jobs <n>]"
 where
   /-- The one cross-flag rule, checked **before anything runs** rather than where
   the directory is used: the IR is written at the very end of a 20-second
@@ -3279,6 +3478,8 @@ where
     if cfg.writeIR && cfg.irDir.isNone then
       .error "--write-ir needs --ir-dir <path>, which has no default: an IR tree written \
         somewhere the caller did not name is worse than none"
+    else if cfg.writeReuseKeys && !cfg.writeIR then
+      .error "--write-reuse-keys writes beside the IR, to <ir-dir>.reuse-keys, and needs --write-ir"
     else .ok cfg
   go (cfg : Cfg) : List String → Except String Cfg
   | [] => .ok cfg
@@ -3301,6 +3502,7 @@ where
   -- Deliberately does *not* imply `--write-ir`: the IR stays off unless
   -- `--write-ir` says otherwise, which keeps one rule instead of two.
   | "--ir-dir" :: p :: rest => go { cfg with irDir := some ⟨p⟩ } rest
+  | "--write-reuse-keys" :: rest => go { cfg with writeReuseKeys := true } rest
   | "--tag" :: rest => go { cfg with tagCode := true } rest
   | "--refs" :: rest => go { cfg with collectRefs := true } rest
   | "--dump-refs" :: p :: rest => go { cfg with dumpRefsPath := some ⟨p⟩ } rest

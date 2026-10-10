@@ -4,7 +4,7 @@ import OleanReader.PrintKey
 import OleanReader.Carry
 import Extract
 import Std.Async.Process
-open Lean OleanReader Litedoc4
+open Lean OleanReader Litedoc4 Litedoc4.ReuseKey
 
 namespace OleanReader.Hybrid
 
@@ -207,8 +207,9 @@ def usage : String := "\n".intercalate [
   "               write every candidate's reuse key beside the IR, to <--ir-dir>.reuse-keys: the type's",
   "               structural hash with every binder's kind and name as a page can show it (macro scopes",
   "               erased, their presence kept), the same of a non-theorem's value and of an inductive's",
-  "               constructors, its parents and fields; headed by the printing identity (this",
-  "               reader, its Lean, the output flags). The IR and the link index are unchanged",
+  "               constructors, its parents and fields; headed by the printing identity (Extract.lean",
+  "               without its main, the Lean that prints, the output flags), which the native extractor's",
+  "               --write-reuse-keys writes too. The IR and the link index are unchanged",
   "  --reuse-from <ir-dir>",
   "               an adjacent version's IR written with --write-reuse-keys: a declaration whose reuse key",
   "               equals its key there takes its printed parts from that IR (signature, equations and",
@@ -367,6 +368,8 @@ def checkArgs (a : Args) : IO (Except String (Cfg × Array Name)) := do
     | .error msg => return .error msg
   if let some (flag, why) := refusedFlag? cfg then
     return .error s!"{flag} is refused: {why}, and the version read is not the running Lean"
+  if cfg.writeReuseKeys then
+    return .error "--write-reuse-keys after <modules.txt> is the native extractor's; the reader's own comes before it"
   if cfg.identity then return .error "--identity names no version to read"
   if a.old.isEmpty then return .error "--old needs at least one search directory"
   let targets ← readNameList cfg.modulesPath
@@ -585,7 +588,7 @@ unsafe def freshKeys (r : ReuseSession) (ph : Phases) (cfg : Cfg) (env : Environ
     (targets : Array Name) : IO KeyPass := do
   let t0 ← IO.monoNanosNow
   let outs ← PrintKey.keys env world targets cfg.jobs r.scx
-  let candidates := (← PrintKey.candidates world targets).size
+  let candidates := (← ReuseKey.candidates world targets).size
   let st : Carry.Stats := { candidates, new := outs.size, ms := ((← IO.monoNanosNow) - t0) / 1000000 }
   ph.mark "key pass"
   let threads := max cfg.jobs 1
@@ -620,12 +623,6 @@ unsafe def extractReusing (r : ReuseSession) (ph : Phases) (cfg : Cfg) (env : En
   let out := results.foldl (fun m d => m.insert d.name d) (Std.HashMap.emptyWithCapacity results.size)
   return { code, lines := kp.lines.push (reuseLine r.scx kp.stats kp.threads (countReuse prev kp.keys results) results.size),
            printed := { keys := kp.keys, out }, failure := none, atExtract }
-
-def reuseKeysPath (irDir : System.FilePath) : System.FilePath := ⟨irDir.toString ++ ".reuse-keys"⟩
-
-def reuseKeysMarker : String := "#reuse-keys1"
-
-def printingIdentity (cfg : Cfg) : IO String := extractorIdentity cfg Lean.versionString Lean.githash readBy
 
 def irName? (s : String) : Option Name := do
   let mut n : Name := .anonymous
@@ -714,19 +711,6 @@ def printedOfJson? (j : Json) : Option DeclOut := do
     members := ← jsonReq? j "members" (jsonArr? memberOfJson?)
     refs := ← jsonReq? j "refs" (jsonArr? refName) }
 
-def parMap [Inhabited β] (jobs : Nat) (xs : Array α) (f : α → β) : Array β := Id.run do
-  if jobs ≤ 1 then return xs.map f
-  let stride (k : Nat) : Array β := Id.run do
-    let mut out := #[]
-    let mut i := k
-    while h : i < xs.size do
-      out := out.push (f xs[i])
-      i := i + jobs
-    return out
-  let tasks := (Array.range jobs).map fun k => Task.spawn (prio := .dedicated) fun _ => stride k
-  let parts := tasks.map Task.get
-  return (Array.range xs.size).map fun i => parts[i % jobs]![i / jobs]!
-
 def parMapIO (jobs : Nat) (xs : Array α) (f : α → IO β) : IO (Array β) := do
   if jobs ≤ 1 then return ← xs.mapM f
   let stride (k : Nat) : BaseIO (Array (Except IO.Error β)) := do
@@ -739,34 +723,6 @@ def parMapIO (jobs : Nat) (xs : Array α) (f : α → IO β) : IO (Array β) := 
   let tasks ← (Array.range jobs).mapM fun k => BaseIO.asTask (prio := .dedicated) (stride k)
   let parts := tasks.map Task.get
   (Array.range xs.size).mapM fun i => IO.ofExcept parts[i % jobs]![i / jobs]!
-
-structure OwnKeys where
-  entries : Array (String × UInt64)
-  keys : Std.HashMap String UInt64
-  ms : Nat
-
-unsafe def ownKeys (env : Environment) (world : World) (targets : Array Name) (jobs : Nat) : IO OwnKeys := do
-  let t0 ← IO.monoMsNow
-  let cands ← PrintKey.candidates world targets
-  let entries := (parMap jobs cands fun c => (env.find? c).map fun ci => (c.toString, PrintKey.ownKey env ci)).filterMap id
-  let keys := entries.foldl (fun m (s, k) => m.insert s k) (Std.HashMap.emptyWithCapacity entries.size)
-  return { entries, keys, ms := (← IO.monoMsNow) - t0 }
-
-def keysText (entries : Array (String × UInt64)) (lo hi : Nat) : String := Id.run do
-  let mut out := ""
-  for i in [lo:hi] do
-    let (s, k) := entries[i]!
-    out := out ++ s ++ "\t" ++ toString k ++ "\n"
-  return out
-
-def writeKeysFile (path : System.FilePath) (identity : String) (k : OwnKeys) (jobs : Nat) : IO Unit := do
-  let n := k.entries.size
-  let blocks := max jobs 1
-  let size := (n + blocks - 1) / blocks
-  let texts := parMap jobs (Array.range blocks) fun b => keysText k.entries (b * size) (min n ((b + 1) * size))
-  let h ← IO.FS.Handle.mk path .write
-  h.putStrLn s!"{reuseKeysMarker} {identity}"
-  for t in texts do h.putStr t
 
 structure Neighbour where
   identity : String
