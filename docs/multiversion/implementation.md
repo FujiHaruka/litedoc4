@@ -1166,15 +1166,15 @@ combination that won.
    two cache fetches, then seconds). Only if Mathlib is near core's 99.97% does whole-module reuse by
    file digest come back. That lever needs a retained version, so it would answer for patch pairs
    only.
-4. **E4, parallel decode across modules**: N tasks, bookkeeping in closure order, the writer
-   record taken from one module before spawning so mechanism 1 keeps its refusal. Predicted: M
-   decode 12–14 → ≈ 5.5–6.5 s at 4 threads (extrapolated from decode + hash 57.2 → 25.7 s at full
-   scale).
-5. **E5, read-alone's fixed costs**: the manual-root ask (2.0–3.2 s a version) cached by the
+4. **E5, read-alone's fixed costs**: the manual-root ask (2.0–3.2 s a version) cached by the
    toolchain's githash, with the probe check still run per version; the `.ilean` check per module
    in parallel (1.9–2.2 s). About 4 s a version (theoretical).
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
+Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on
+both arms alike (M decode 12–14 → ≈ 5.5–6.5 s at 4 threads, extrapolated), and cannot lower memory.
+Several modules in flight can only raise the peak, and read-alone on the runner already had its
+swap within 7 MiB of full.
 
 ### 6. CI, hosting and the full set
 
