@@ -272,6 +272,17 @@ step () {
   fi
 }
 
+three_attempts () {
+  local n
+  for n in 1 2 3; do
+    if "$@"; then return 0; fi
+    echo "attempt $n of 3 failed; removing .lake/packages and retrying in 30 s" >&2
+    rm -rf .lake/packages
+    sleep 30
+  done
+  return 1
+}
+
 fetch_and_build () {
   local label="$1" dir="$2" tc
   tc="$(tr -d '[:space:]' <"$dir/lean-toolchain")"
@@ -280,7 +291,7 @@ fetch_and_build () {
   fi
   rm -rf "$WORK/mathlib-cache"
   mkdir -p "$WORK/mathlib-cache"
-  step "$label-cache" "$dir" env MATHLIB_CACHE_DIR="$WORK/mathlib-cache" "$LAKE" exe cache get
+  step "$label-cache" "$dir" three_attempts env MATHLIB_CACHE_DIR="$WORK/mathlib-cache" "$LAKE" exe cache get
   rm -rf "$WORK/mathlib-cache"
   step "$label-lake" "$dir" "$LAKE" build Mathlib
 }
