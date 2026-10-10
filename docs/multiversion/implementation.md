@@ -1134,7 +1134,9 @@ v4.31.0 → v4.32.0, 912 of 8,153 modules (2.30% of bytes); core across a toolch
 through theorem values, 51.9% of Mathlib's (827 modules) and 16.6% of core's; object order, 0
 forward field references in 3,087,414 objects.
 
-**Win on M** means, against read-alone in the same warm state, 5 alternating cycles:
+**Win on M** means, against read-alone in the same warm state, 3 alternating cycles (decided
+2026-10-10, user's call: only an obvious improvement is worth taking, and 3 cycles tell an obvious
+one):
 - exactness: every IR file and the link index equal to read-alone;
 - time: the per-extra-version wall (rounds 2 and 3) below read-alone's by more than both arms'
   spread;
