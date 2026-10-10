@@ -537,9 +537,9 @@ case "${1:-}" in
     mkdir -p "$MATHLIB"
     git -C "$MATHLIB" init -q
     git -C "$MATHLIB" remote add origin https://github.com/leanprover-community/mathlib4
-    for tag in "${TAGS[@]}"; do
-      git -C "$MATHLIB" fetch -q --depth 1 origin "refs/tags/$tag:refs/tags/$tag"
-    done
+    refspecs=()
+    for tag in "${TAGS[@]}"; do refspecs+=("refs/tags/$tag:refs/tags/$tag"); done
+    git -C "$MATHLIB" -c maintenance.auto=false -c gc.auto=0 fetch -q --depth 1 origin "${refspecs[@]}"
     git -C "$MATHLIB" -c advice.detachedHead=false checkout -q "refs/tags/$NEWEST"
     printf 'no_equations_under = ["Mathlib.Tactic", "Mathlib.Meta"]\n' >"$MATHLIB/litedoc4.toml"
     for tag in "${TAGS[@]}"; do
