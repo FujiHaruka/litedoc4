@@ -1,5 +1,6 @@
 import Litedoc4.Versions
 import Litedoc4Test.Basis
+import Litedoc4Test.Store
 
 namespace Litedoc4Test
 namespace VersionsTest
@@ -322,6 +323,32 @@ def everyVersionIsRefusedByNameBeforeAnythingIsCheckedOut : Invariant where
       eq (good.toOption.map (·.map (·.toolchain))) (some #["leanprover/lean4:v4.31.0"])]
     IO.FS.removeDirAll dir
     return answer
+
+def anExactReadRefillsReusedOrUnrecordedPrintsAndTheChainKeepsEveryRead : Bool :=
+  withSample fun r _ _ =>
+    match Store.VersionName.parse "v4.33.1" with
+    | .error _ => false
+    | .ok above =>
+      let read (prints : Store.Prints) := { r with fill := .reader, prints }
+      let judged (prints : Store.Prints) (exactAsked : Bool) :=
+        judgeRecord (read prints) r.commit .reader exactAsked
+      judged (.reusedFrom above) true == some (.inexact (.reusedFrom above))
+        && judged .unrecorded true == some (.inexact .unrecorded)
+        && judged .exact true == none
+        && [Store.Prints.reusedFrom above, .unrecorded, .exact].all (judged · false == none)
+        && judgeRecord { r with prints := .unrecorded } r.commit .own true == none
+
+#guard anExactReadRefillsReusedOrUnrecordedPrintsAndTheChainKeepsEveryRead
+
+def onlyAReadWithANeighbourRecordsReusedPrints : Bool :=
+  match Store.VersionName.parse "v4.33.1" with
+  | .error _ => false
+  | .ok above =>
+    Reuse.prints (.from { name := above, ir := ⟨"n"⟩ }) == .reusedFrom above
+      && Reuse.prints (.without "the version above it is kept from the store") == .exact
+      && Reuse.prints .exact == .exact
+
+#guard onlyAReadWithANeighbourRecordsReusedPrints
 
 end VersionsTest
 end Litedoc4Test

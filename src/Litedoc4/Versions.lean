@@ -142,6 +142,7 @@ inductive Judgement where
   | needsReput (why : String)
   | moved (was : String)
   | otherFill (was wanted : Store.Fill)
+  | inexact (prints : Store.Prints)
   | stale
   deriving BEq, Repr
 
@@ -156,14 +157,19 @@ def Judgement.text : Judgement → String
   | .needsReput _ => "needs re-put"
   | .moved was => s!"the store holds it at {was}"
   | .otherFill was wanted => s!"filled {fillHow was}, asked {fillHow wanted}"
+  | .inexact (.reusedFrom v) => s!"prints reused from {v.text}, asked exact prints"
+  | .inexact _ => s!"its record (schema {Store.beforePrints}) does not say whether its prints \
+      were reused, asked exact prints"
   | .stale => "stale"
 
-def judgeRecord (r : Store.Record) (commit : String) (wanted : Store.Fill) : Option Judgement :=
+def judgeRecord (r : Store.Record) (commit : String) (wanted : Store.Fill) (exactAsked : Bool) :
+    Option Judgement :=
   match Store.checkoutOf r with
   | .error why => some (.needsReput why)
   | .ok _ =>
     if r.commit != commit then some (.moved r.commit)
     else if r.fill != wanted then some (.otherFill r.fill wanted)
+    else if exactAsked && r.fill == .reader && r.prints != .exact then some (.inexact r.prints)
     else none
 
 def judgeIdentity (r : Store.Record) (current : Store.ExtractorIdentity) : Judgement :=
@@ -478,6 +484,10 @@ def Reuse.text : Reuse → String
   | .exact => "through the reader alone"
   | .from n => s!"through the reader, reusing prints from {n.name.text}"
   | .without why => s!"through the reader without reuse: {why}"
+
+def Reuse.prints : Reuse → Store.Prints
+  | .from n => .reusedFrom n.name
+  | .exact | .without _ => .exact
 
 def Reuse.keepsKeys : Reuse → Bool
   | .exact => false

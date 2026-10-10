@@ -42,8 +42,10 @@
 #                         declaration reused
 #   chain                 the same build: v4, v3, v2 and v1 each reuse from the
 #                         version above it, identity equal and at least one
-#                         reused; the reads ran newest first; nothing is left
-#                         under <out> but the store, the site and the extractors
+#                         reused; each of v1..v5's record names the version its
+#                         prints were reused from, and v6's names none; the
+#                         reads ran newest first; nothing is left under <out>
+#                         but the store, the site and the extractors
 #   chain-link-index-equals-alone
 #                         each of v1..v5's link index in that store is byte-equal
 #                         to the --reader-alone store's (patched-equals-alone's
@@ -54,6 +56,13 @@
 #                         without reuse, because v6 is kept from the store; no
 #                         `reuse-from` line, exit 0, and the entry equals the
 #                         --reader-alone store's v5 byte for byte
+#   exact-refills-reused  a copy of the chain's store and v1..v6 with
+#                         --reader-alone: v1..v5, their prints reused, are each
+#                         judged so and read again, into the --reader-alone
+#                         store's entries byte for byte; v6 is kept
+#   chain-keeps-exact     a copy of the --reader-alone store and v1..v6 with no
+#                         reader flag extracts 0 of 6: an exact entry serves the
+#                         chain
 #   reader-again          the same command again extracts 0 of 6 and changes
 #                         no entry; this item and the four below pass
 #                         --reader-session, so that store stays the session's
@@ -125,6 +134,8 @@ ALONE="$WORK/alone"
 CHECK="$WORK/check"
 CHAIN="$WORK/chain"
 NONB="$WORK/no-neighbour"
+EXACT="$WORK/exact-over-chain"
+KEEPS="$WORK/chain-over-exact"
 FIRST="$WORK/reader-first"
 OLDER=(v1 v2 v3 v4 v5)
 ALL=(v1 v2 v3 v4 v5 v6)
@@ -139,6 +150,7 @@ DECLARED=(native-add reader-empty)
 for v in "${OLDER[@]}"; do DECLARED+=("reader-equals-native-$v"); done
 DECLARED+=(patched-equals-alone check-keys)
 DECLARED+=(reuse-from-native chain chain-link-index-equals-alone chain-no-neighbour)
+DECLARED+=(exact-refills-reused chain-keeps-exact)
 DECLARED+=(reader-again reader-remove-one reader-force reader-identity reader-refuse-newest)
 
 RAN=()
@@ -181,7 +193,7 @@ spelling_of () {
   awk -v tc="$1" '{ sub(/#.*/, "") } NF && $1 == tc { print $2 }' "$INVENTORY"
 }
 
-say "1/13 S as six versions"
+say "1/14 S as six versions"
 "$HERE/mv-s/generate.sh" --out "$REPO" --versions 6 >"$LOGS/generate.log" 2>&1
 cat "$LOGS/generate.log"
 READER_TC="$(awk '{ sub(/#.*/, "") } NF { tc = $1 } END { print tc }' "$INVENTORY")"
@@ -191,9 +203,9 @@ if [ "$V6_TC" != "$READER_TC" ]; then
   echo "S's v6 pins $V6_TC and the reader's toolchain is $READER_TC: tools/mv-s/v6.patch has to follow the last row of $INVENTORY" >&2
   exit 1
 fi
-for out in "$NAT" "$RD" "$ALONE" "$CHECK" "$CHAIN" "$NONB"; do mkdir -p "$out"; cp -R "$WORK/micro-dep" "$out/micro-dep"; done
+for out in "$NAT" "$RD" "$ALONE" "$CHECK" "$CHAIN" "$NONB" "$EXACT" "$KEEPS"; do mkdir -p "$out"; cp -R "$WORK/micro-dep" "$out/micro-dep"; done
 
-say "2/13 native-add: the oracle, filled natively"
+say "2/14 native-add: the oracle, filled natively"
 said_five="$(build native-five "$NAT" "$OLDER_LIST")"
 said_six="$(build native-six "$NAT" "$ALL_LIST")"
 native_fills="$(fills "$NAT/store" "${ALL[@]}" 2>&1 || true)"
@@ -207,7 +219,7 @@ else
   item ok native-add "v1..v5: $said_five; v1..v6 over that store: $said_six; every record fill=own"
 fi
 
-say "3/13 reader-empty: an empty store and v1..v6"
+say "3/14 reader-empty: an empty store and v1..v6"
 said="$(build reader-empty "$RD" "$ALL_LIST" --reader-session)"
 want="6 of 6 ($(names "${ALL[@]}")), through the reader: 5 ($(names "${OLDER[@]}"))"
 reader_fills="$(fills "$RD/store" "${ALL[@]}" 2>&1 || true)"
@@ -248,7 +260,7 @@ else
 fi
 cp -R "$RD/store" "$FIRST"
 
-say "4/13 reader-equals-native: each reader-filled entry against its native one"
+say "4/14 reader-equals-native: each reader-filled entry against its native one"
 READER="$(ls "$RD"/extractors/reader-*/reader 2>/dev/null | head -n 1 || true)"
 if [ -z "$READER" ] || [ ! -x "$READER" ]; then
   for v in "${OLDER[@]}"; do item FAIL "reader-equals-native-$v" "there is no reader under $RD/extractors"; done
@@ -274,7 +286,7 @@ else
   done
 fi
 
-say "5/13 patched-equals-alone: the same five read alone"
+say "5/14 patched-equals-alone: the same five read alone"
 said="$(build reader-alone "$ALONE" "$ALL_LIST" --reader-alone)"
 want="6 of 6 ($(names "${ALL[@]}")), through the reader: 5 ($(names "${OLDER[@]}"))"
 alone_lines="$(grep -cE '^version v[1-5]: reading [0-9a-f]+ on .* through the reader alone$' "$LOGS/reader-alone.log" || true)"
@@ -290,7 +302,7 @@ else
   item ok patched-equals-alone "--reader-alone: $said; 5 of 5 entries equal the session's, record.json and entry.pack.gz byte for byte"
 fi
 
-say "6/13 check-keys: the session's patch and carried keys checked on every round"
+say "6/14 check-keys: the session's patch and carried keys checked on every round"
 said="$(build reader-check "$CHECK" "$ALL_LIST" --reader-session --reader-check)"
 patch_zero="$(grep -cE '^check-patch +0 modules differ from rewriteMerge.s state, pointer by pointer; 0 other differences$' "$LOGS/reader-check.log" || true)"
 keys_zero="$(grep -cE '^check-keys +0 keys differ from a fresh pass ' "$LOGS/reader-check.log" || true)"
@@ -309,10 +321,16 @@ else
   item ok check-keys "--reader-check: $said; check-patch 0 modules and check-keys 0 keys on 5 of 5 rounds; 5 of 5 entries equal the session's"
 fi
 
-say "7/13 the chain: no reader flag, newest first, each version reusing from the one above"
+say "7/14 the chain: no reader flag, newest first, each version reusing from the one above"
 said="$(build chain "$CHAIN" "$ALL_LIST")"
 want="6 of 6 ($(names "${ALL[@]}")), through the reader: 5 ($(names "${OLDER[@]}"))"
 chain_fills="$(fills "$CHAIN/store" "${ALL[@]}" 2>&1 || true)"
+chain_reused="$(python3 - "$CHAIN/store" "${ALL[@]}" <<'PY' 2>&1 || true
+import json, pathlib, sys
+store = pathlib.Path(sys.argv[1])
+print(" ".join(str(json.loads((store / v / "record.json").read_text(encoding="utf-8")).get("reusedFrom", "absent")) for v in sys.argv[2:]))
+PY
+)"
 chain_order="$(grep -E '^phase +(v6 extract|v[1-5] read) ' "$LOGS/chain.log" | awk '{ print $2 }' | tr '\n' ' ' || true)"
 chain_left="$(ls -d "$CHAIN/checkout" "$CHAIN/checkout-read" "$CHAIN/newest-search" "$CHAIN/scratch" "$CHAIN/reuse-neighbour" 2>/dev/null | tr '\n' ' ' || true)"
 python3 - "$LOGS/chain.log" >"$WORK/chain-reuse.txt" <<'PY'
@@ -361,6 +379,8 @@ if [ "$said" != "$want" ]; then
   item FAIL chain "said \`versions extracted: ${said:-<no line>}\`, expected \`$want\` ($LOGS/chain.log)"
 elif [ "$chain_fills" != "reader reader reader reader reader own" ]; then
   item FAIL chain "the records' fill is $chain_fills, expected reader for v1..v5 and own for v6"
+elif [ "$chain_reused" != "v2 v3 v4 v5 v6 None" ]; then
+  item FAIL chain "the records' reusedFrom is $chain_reused, expected v2 v3 v4 v5 v6 for v1..v5 and None for v6"
 elif [ "$chain_order" != "v6 v5 v4 v3 v2 v1 " ]; then
   item FAIL chain "the phases ran in the order $chain_order, expected v6's extraction, then the reads newest first"
 elif [ -n "$chain_why" ]; then
@@ -368,7 +388,7 @@ elif [ -n "$chain_why" ]; then
 elif [ -n "$chain_left" ]; then
   item FAIL chain "left behind: $chain_left"
 else
-  item ok chain "$(awk '$1 != "v5" { printf "%s from %s %s of %s; ", $1, $2, $3, $4 }' "$WORK/chain-reuse.txt")printing identity equal throughout; read newest first; nothing left behind"
+  item ok chain "$(awk '$1 != "v5" { printf "%s from %s %s of %s; ", $1, $2, $3, $4 }' "$WORK/chain-reuse.txt")printing identity equal throughout; each record names the version above it as reusedFrom; read newest first; nothing left behind"
 fi
 lidx_differs=""
 for v in "${OLDER[@]}"; do
@@ -386,7 +406,7 @@ else
   item ok chain-link-index-equals-alone "5 of 5 link indexes (v1..v5) equal to the --reader-alone store's, byte for byte"
 fi
 
-say "8/13 chain-no-neighbour: the newest kept from the store, one older version to fill"
+say "8/14 chain-no-neighbour: the newest kept from the store, one older version to fill"
 mkdir -p "$NONB/store"
 cp -R "$CHAIN/store/v6" "$NONB/store/v6"
 set +e
@@ -411,7 +431,37 @@ else
   item ok chain-no-neighbour "exit 0; $said; v5's line says without reuse, v6 kept from the store; no reuse-from line; --reader-alone's v5 byte for byte"
 fi
 
-say "9/13 reader-again"
+say "9/14 exact-refills-reused and chain-keeps-exact: what each way of reading accepts from the store"
+
+cp -R "$CHAIN/store" "$EXACT/store"
+cp -R "$ALONE/store" "$KEEPS/store"
+said="$(build exact-over-chain "$EXACT" "$ALL_LIST" --reader-alone)"
+want="5 of 6 ($(names "${OLDER[@]}")), through the reader: 5 ($(names "${OLDER[@]}"))"
+judged=0
+for pair in "v1 v2" "v2 v3" "v3 v4" "v4 v5" "v5 v6"; do
+  read -r v above <<<"$pair"
+  if grep -qxF "version $v: prints reused from $above, asked exact prints, to be filled through the reader" "$LOGS/exact-over-chain.log"; then
+    judged=$((judged + 1))
+  fi
+done
+differs="$(same_entries "$ALONE/store" "$EXACT/store" "${ALL[@]}")"
+if [ "$said" != "$want" ]; then
+  item FAIL exact-refills-reused "--reader-alone over the chain's store said \`versions extracted: ${said:-<no line>}\`, expected \`$want\` ($LOGS/exact-over-chain.log)"
+elif [ "$judged" != 5 ]; then
+  item FAIL exact-refills-reused "$judged of 5 versions were judged \`prints reused from <the version above>, asked exact prints\`: $(grep -E '^version v[1-5]: ' "$LOGS/exact-over-chain.log" | head -c 600)"
+elif [ -n "$differs" ]; then
+  item FAIL exact-refills-reused "the entries differ from the --reader-alone store's: $differs"
+else
+  item ok exact-refills-reused "--reader-alone over the chain's store: $said; 5 of 5 judged reused and read exactly; 6 of 6 entries equal the --reader-alone store's byte for byte"
+fi
+said="$(build chain-over-exact "$KEEPS" "$ALL_LIST")"
+if [ "$said" != "0 of 6 ()" ]; then
+  item FAIL chain-keeps-exact "the chain over the --reader-alone store said \`versions extracted: ${said:-<no line>}\`, expected \`0 of 6 ()\` ($LOGS/chain-over-exact.log)"
+else
+  item ok chain-keeps-exact "the chain over the --reader-alone store: versions extracted $said"
+fi
+
+say "10/14 reader-again"
 said="$(build reader-again "$RD" "$ALL_LIST" --reader-session)"
 differs="$(same_entries "$FIRST" "$RD/store" "${ALL[@]}")"
 if [ "$said" != "0 of 6 ()" ]; then
@@ -422,7 +472,7 @@ else
   item ok reader-again "versions extracted $said, rendered $(rendered reader-again); no entry changed"
 fi
 
-say "10/13 reader-remove-one"
+say "11/14 reader-remove-one"
 "$LITEDOC4" store remove --store "$RD/store" --version v3 >"$LOGS/remove-v3.log" 2>&1
 said="$(build reader-remove-one "$RD" "$ALL_LIST" --reader-session)"
 fill="$(fills "$RD/store" v3 2>&1 || true)"
@@ -437,7 +487,7 @@ else
   item ok reader-remove-one "with v3 removed: versions extracted $said, fill=own, native-add's v3 byte for byte"
 fi
 
-say "11/13 reader-force"
+say "12/14 reader-force"
 said="$(build reader-force "$RD" "$ALL_LIST" --reader-session --through-reader v3)"
 fill="$(fills "$RD/store" v3 2>&1 || true)"
 differs="$(same_entries "$FIRST" "$RD/store" v3)"
@@ -451,7 +501,7 @@ else
   item ok reader-force "--through-reader v3: versions extracted $said, reader-empty's v3 byte for byte"
 fi
 
-say "12/13 reader-identity"
+say "13/14 reader-identity"
 python3 - "$RD/store" "${OLDER[@]}" <<'PY'
 import json, pathlib, re, sys
 for v in sys.argv[2:]:
@@ -485,7 +535,7 @@ else
   item ok reader-identity "reader= altered: $said_reader, into the same bytes; no_equations_under added: $said_config, and all 6 records carry it"
 fi
 
-say "13/13 reader-refuse-newest"
+say "14/14 reader-refuse-newest"
 set +e
 "$LITEDOC4" build --root "$REPO" --out "$WORK/refused" --versions "$OLDER_LIST" --lake "$LAKE" \
   --through-reader v1 >"$LOGS/refuse.log" 2>&1

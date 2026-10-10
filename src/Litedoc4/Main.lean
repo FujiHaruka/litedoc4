@@ -960,6 +960,10 @@ def ReadVia.text : ReadVia → String
   | .session _ none => "in the reader session, built whole"
   | .session _ (some v) => s!"in the reader session, patched from {v.text}"
 
+def ReadVia.prints : ReadVia → Store.Prints
+  | .alone _ _ _ reuse => reuse.prints
+  | .session .. => .exact
+
 def ReadVia.keepsKeys : ReadVia → Bool
   | .alone _ _ _ reuse => reuse.keepsKeys
   | .session .. => false
@@ -1001,7 +1005,7 @@ def fillThroughReader (c : VersionedRun) (via : ReadVia) (p : Versions.Planned) 
     let external ← resolveExternal (some package.toString) (some c.lake.toString)
     let origin ← match ← Versions.originOf package c.lake external p.commit sourceUrl with
       | .error message => throw (3, s!"version {v}: {message}")
-      | .ok origin => pure { origin with fill := .reader }
+      | .ok origin => pure { origin with fill := .reader, prints := via.prints }
     c.put p origin
     if via.keepsKeys then Versions.keepNeighbour c.out p.name layout.ir else pure none
   finally
@@ -1042,6 +1046,9 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
     | none => Versions.Held.absent
     | some (.error _) => .unreadable
     | some (.ok r) => .filled r.fill
+  let readerFill ← match a.readerFill with
+    | .error why => throw (2, why)
+    | .ok fill => pure fill
   let fills := Versions.fillsOf names held (newest.toolchain == readerToolchain) forced
   if let some why := Versions.unlistedNative planned fills Versions.supportedToolchains then
     throw (3, why)
@@ -1079,7 +1086,7 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
     let judged ← match held with
       | none => pure Versions.Judgement.absent
       | some (.error e) => pure (.unreadable (toString e))
-      | some (.ok r) => match Versions.judgeRecord r p.commit fill with
+      | some (.ok r) => match Versions.judgeRecord r p.commit fill (readerFill != .chain) with
         | some judged => pure judged
         | none => pure (Versions.judgeIdentity r
             (← if r.fill == .reader then readerIdentity else identity))
@@ -1096,9 +1103,6 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
       extractors }
   let checkout := outPath / Versions.checkoutName
   let session ← IO.mkRef (none : Option Versions.ReaderSession)
-  let readerFill ← match a.readerFill with
-    | .error why => throw (2, why)
-    | .ok fill => pure fill
   for p in native do
     if viaReader.isEmpty || p.name != newest.name then
       try discard <| fillNatively run checkout p
@@ -1726,7 +1730,11 @@ def storeList (store : System.FilePath) : IO UInt32 := do
       let reput := match Store.checkoutOf r with
         | .error _ => " (needs re-put)"
         | .ok _ => ""
-      IO.println s!"{v.text} {r.commit} lean {r.leanVersion} {r.fill.name} \
+      let prints := match r.prints with
+        | .reusedFrom from_ => s!" (prints reused from {from_.text})"
+        | .unrecorded => if r.fill == Store.Fill.reader then " (reuse of prints not recorded)" else ""
+        | .exact => ""
+      IO.println s!"{v.text} {r.commit} lean {r.leanVersion} {r.fill.name}{prints} \
         {r.irFiles} IR file(s) {r.irBytes} B + link index {r.linkIndexBytes} B -> \
         {r.packBytes} B{reput}"
     | .error why => IO.println s!"{v.text} unreadable: {why}"

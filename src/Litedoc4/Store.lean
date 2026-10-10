@@ -143,6 +143,14 @@ def Fill.parse? : String → Option Fill
   | "reader" => some .reader
   | _ => none
 
+/-- Whether an entry's printed parts are its own Lean's, or another version's taken
+where the cheap reuse key was equal (`reader extract --reuse-from`). -/
+inductive Prints where
+  | exact
+  | reusedFrom (v : VersionName)
+  | unrecorded
+  deriving BEq, Repr
+
 structure ExtractorIdentity where
   private mk ::
   text : String
@@ -195,6 +203,7 @@ structure Record where
   leanVersion : String
   leanGithash : String
   fill : Fill
+  prints : Prints
   sourceUrl : String
   dependencies : Array Dependency
   checkout : Checkout
@@ -206,12 +215,19 @@ structure Record where
   linkIndexBytes : Nat
   deriving BEq, Repr
 
-def recordSchema : Nat := 4
+def recordSchema : Nat := 5
 
 def Checkout.schema : Checkout → Nat
   | .beforeSources => 2
   | .beforeSite _ => 3
   | .read .. => recordSchema
+
+def beforePrints : Nat := 4
+
+def Record.schema (r : Record) : Nat :=
+  match r.checkout, r.prints with
+  | .read .., .unrecorded => beforePrints
+  | c, _ => c.schema
 
 -- Not the whole line: a version's commit pins its Lean, so one extractor on any toolchain answers.
 def ExtractorIdentity.staleAgainst (written current : ExtractorIdentity) : Bool :=
@@ -252,12 +268,16 @@ def linksOf (roots : Array (String × Option String)) : ExternalLinks :=
   mkExternalLinks (roots.map fun (root, base) => (root, base.getD ""))
 
 def Record.toJson (r : Record) : String := Id.run do
-  let mut o := s!"\{\"recordSchema\":{r.checkout.schema},\"version\":"
+  let mut o := s!"\{\"recordSchema\":{r.schema},\"version\":"
   o := jsonStr o r.version.text
   o := jsonStr (o ++ ",\"commit\":") r.commit
   o := jsonStr (o ++ ",\"leanVersion\":") r.leanVersion
   o := jsonStr (o ++ ",\"leanGithash\":") r.leanGithash
   o := jsonStr (o ++ ",\"fill\":") r.fill.name
+  if r.schema ≥ recordSchema then
+    o := match r.prints with
+      | .reusedFrom v => jsonStr (o ++ ",\"reusedFrom\":") v.text
+      | _ => o ++ ",\"reusedFrom\":null"
   o := jsonStr (o ++ ",\"sourceUrl\":") r.sourceUrl
   o := o ++ ",\"dependencies\":["
   let mut first := true
@@ -314,6 +334,15 @@ def Record.parse (text : String) : Except String Record := do
   let version ← VersionName.parse (← str j "version")
   let fillName ← str j "fill"
   let some fill := Fill.parse? fillName | throw s!"`fill` is `{fillName}`, not `own` or `reader`"
+  let prints ← if schema < recordSchema then pure Prints.unrecorded
+    else match ← field j "reusedFrom" with
+      | .null => pure Prints.exact
+      | .str s =>
+        let from_ ← VersionName.parse s
+        if fill == .own then throw s!"`reusedFrom` is `{s}` and `fill` is `own`: only the reader reuses prints"
+        if from_ == version then throw s!"`reusedFrom` names the entry's own version `{s}`"
+        pure (Prints.reusedFrom from_)
+      | _ => throw "`reusedFrom` is neither a version name nor null"
   let some extractorIdentity := ExtractorIdentity.of? (← str j "extractorIdentity")
     | throw "`extractorIdentity` is empty, holds a newline, or is not `key=value` fields"
   let dependencies ← match ← field j "dependencies" with
@@ -354,7 +383,7 @@ def Record.parse (text : String) : Except String Record := do
   let ir ← field j "ir"
   let linkIndex ← field j "linkIndex"
   return { version, commit := ← str j "commit", leanVersion := ← str j "leanVersion"
-           leanGithash := ← str j "leanGithash", fill, sourceUrl := ← str j "sourceUrl"
+           leanGithash := ← str j "leanGithash", fill, prints, sourceUrl := ← str j "sourceUrl"
            dependencies, checkout, extractorIdentity
            packSha256 := ← str pack "sha256", packBytes := ← nat pack "bytes"
            irFiles := ← nat ir "files", irBytes := ← nat ir "bytes"
@@ -424,6 +453,7 @@ structure Origin where
   sources : ExternalLinks
   site : SiteSources
   fill : Fill := .own
+  prints : Prints := .exact
 
 structure PutSummary where
   record : Record
@@ -485,7 +515,8 @@ def put (store : FilePath) (v : VersionName) (origin : Origin) (ir linkIndex : F
   let (digest, digestNanos) ← timed fun _ => sha256Hex compressed
   let record : Record :=
     { version := v, commit := origin.commit, leanVersion := tree.index.leanVersion
-      leanGithash := origin.leanGithash, fill := origin.fill, sourceUrl := origin.sourceUrl
+      leanGithash := origin.leanGithash, fill := origin.fill, prints := origin.prints
+      sourceUrl := origin.sourceUrl
       dependencies := origin.dependencies
       checkout := .read (sourceMapOf origin.sources) origin.site.title
       extractorIdentity

@@ -89,7 +89,7 @@ def sampleRecordOf (v : VersionName) (identity : ExtractorIdentity) : Record :=
   { version := v
     commit := "0123456789abcdef0123456789abcdef01234567"
     leanVersion := "4.32.2", leanGithash := "89abcdef0123456789abcdef0123456789abcdef"
-    fill := .own, sourceUrl := "https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567"
+    fill := .own, prints := .exact, sourceUrl := "https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567"
     dependencies := #[{ name := "batteries", rev := some "fedcba9876543210fedcba9876543210fedcba98" },
                       { name := "micro-dep", rev := none }]
     checkout := .read #[
@@ -117,8 +117,10 @@ def recordWithout (r : Record) (key : String) : String :=
 def recordWith (r : Record) (key : String) (value : JVal) : String :=
   recordEdited r (·.map fun (k, v) => if k == key then (k, value) else (k, v))
 
+def keyCount (text key : String) : Nat := (text.splitOn s!"\"{key}\"").length - 1
+
 def recordKeys : List String :=
-  ["recordSchema", "version", "commit", "leanVersion", "leanGithash", "fill", "sourceUrl",
+  ["recordSchema", "version", "commit", "leanVersion", "leanGithash", "fill", "reusedFrom", "sourceUrl",
    "dependencies", "sources", "title", "extractorIdentity", "pack", "ir", "linkIndex"]
 
 def aRecordRoundTripsThroughItsJsonAndAMissingOrWrongKeyIsRefused : Bool :=
@@ -135,10 +137,25 @@ def aRecordRoundTripsThroughItsJsonAndAMissingOrWrongKeyIsRefused : Bool :=
           recordWith r "sources" (.arr #[.arr #[.str "Init", .null], .arr #[.str "Init", .null]]),
           recordWith r "sources" (.arr #[.arr #[.str "Lean", .null], .arr #[.str "Init", .null]]),
           recordWith r "sources" (.obj #[]),
-          recordWith r "title" (.str ""), recordWith r "title" (.num 1)].all
+          recordWith r "title" (.str ""), recordWith r "title" (.num 1),
+          recordWith r "reusedFrom" (.str "v4.31.0"), recordWith r "reusedFrom" (.num 1)].all
         (isError ∘ Record.parse)
 
 #guard aRecordRoundTripsThroughItsJsonAndAMissingOrWrongKeyIsRefused
+
+def aReaderRecordSaysWhichVersionItsPrintsWereReusedFromAndNeverItsOwn : Bool :=
+  withSample fun r _ _ =>
+    match VersionName.parse "v4.33.1" with
+    | .error _ => false
+    | .ok above =>
+      let reused := { r with fill := .reader, prints := .reusedFrom above }
+      let exact := { r with fill := .reader }
+      [reused, exact].all (fun x => (Record.parse x.toJson).toOption == some x)
+        && keyCount reused.toJson "reusedFrom" == 1
+        && isError (Record.parse (recordWith reused "reusedFrom" (.str r.version.text)))
+        && isError (Record.parse (recordWith reused "fill" (.str "own")))
+
+#guard aReaderRecordSaysWhichVersionItsPrintsWereReusedFromAndNeverItsOwn
 
 def downgraded (r : Record) (schema : Nat) (dropped : List String) : String :=
   recordEdited r fun kv => (kv.filter (!dropped.contains ·.1)).map fun (k, v) =>
@@ -149,18 +166,19 @@ def rootsOf (r : Record) : Array (String × Option String) :=
   | .read roots _ | .beforeSite roots => roots
   | .beforeSources => #[]
 
-def keyCount (text key : String) : Nat := (text.splitOn s!"\"{key}\"").length - 1
-
 def anOlderRecordReadsAsWhatItsPutReadAndWritesBackAsItWas : Bool :=
   withSample fun r _ _ =>
-    let two := { r with checkout := .beforeSources }
-    let three := { r with checkout := .beforeSite (rootsOf r) }
-    (Record.parse (downgraded r 2 ["sources", "title"])).toOption == some two
-      && (Record.parse (downgraded r 3 ["title"])).toOption == some three
-      && [two, three].all (fun old => (Record.parse old.toJson).toOption == some old)
+    let two := { r with checkout := .beforeSources, prints := .unrecorded }
+    let three := { r with checkout := .beforeSite (rootsOf r), prints := .unrecorded }
+    let four := { r with prints := .unrecorded }
+    (Record.parse (downgraded r 2 ["sources", "title", "reusedFrom"])).toOption == some two
+      && (Record.parse (downgraded r 3 ["title", "reusedFrom"])).toOption == some three
+      && (Record.parse (downgraded r 4 ["reusedFrom"])).toOption == some four
+      && [two, three, four].all (fun old => (Record.parse old.toJson).toOption == some old)
       && (keyCount two.toJson "sources", keyCount three.toJson "sources") == (0, 1)
       && [two, three].all (keyCount ·.toJson "title" == 0)
-      && isError (Record.parse (recordWith r "recordSchema" (.num 5)))
+      && [two, three, four].all (keyCount ·.toJson "reusedFrom" == 0)
+      && isError (Record.parse (recordWith r "recordSchema" (.num 6)))
       && isError (Record.parse (recordWith r "recordSchema" (.num 1)))
 
 #guard anOlderRecordReadsAsWhatItsPutReadAndWritesBackAsItWas

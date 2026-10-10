@@ -197,14 +197,15 @@ for v in sys.argv[2:]:
     core = "https://github.com/leanprover/lean4/blob/%s/" % r["leanGithash"]
     want = [["Dep-Aux", None], ["Init", core + "src"], ["Lake", core + "src/lake"],
             ["Lean", core + "src"], ["Std", core + "src"]]
-    if r.get("recordSchema") != 4 or r.get("sources") != want or r.get("title") != "litedoc4 sample":
-        bad.append("%s: schema %s, sources %s, title %r" % (
-            v, r.get("recordSchema"), r.get("sources"), r.get("title")))
+    if (r.get("recordSchema") != 5 or r.get("sources") != want or r.get("title") != "litedoc4 sample"
+            or "reusedFrom" not in r or r["reusedFrom"] is not None):
+        bad.append("%s: schema %s, sources %s, title %r, reusedFrom %r" % (
+            v, r.get("recordSchema"), r.get("sources"), r.get("title"), r.get("reusedFrom", "<absent>")))
 print("; ".join(bad) if bad else "ok")
 PY
 )" || true
 if [ "$sources" = ok ]; then
-  item ok source-map "all ${#VERSIONS[@]} records (schema 4) map core's four roots to lean4 at their leanGithash and micro-dep's Dep-Aux to no URL, and carry litedoc4.toml's title"
+  item ok source-map "all ${#VERSIONS[@]} records (schema 5) map core's four roots to lean4 at their leanGithash and micro-dep's Dep-Aux to no URL, carry litedoc4.toml's title, and say no prints were reused"
 else
   item FAIL source-map "${sources:-the record check printed nothing}"
 fi

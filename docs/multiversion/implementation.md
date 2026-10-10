@@ -1311,8 +1311,12 @@ combination that won.
    `--reader-check` is refused without it. All three are in `--help-all` only. `tools/mv-reader-gate.sh`
    items `reuse-from-native`, `chain`, `chain-link-index-equals-alone` and `chain-no-neighbour`, each
    made to fail once; the gate 18 of 18 on the M1 (745 s), on S every chain entry byte-equal to
-   read-alone. Open: the store record does not say whether an entry was filled with reuse, so a
-   reused entry and an exact one are judged alike and neither is ever refilled to become the other.
+   read-alone.
+   **The record says whether prints were reused** (record schema 5, `reusedFrom`: the version
+   whose prints the entry took, or null). An exact read (`--reader-alone`, `--reader-session`)
+   refills a reader entry whose prints were reused, or whose schema-4 record does not say; the chain
+   keeps every entry, an exact one included. `store list` prints the version reused from.
+   `tools/mv-reader-gate.sh` items `exact-refills-reused` and `chain-keeps-exact`.
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on
