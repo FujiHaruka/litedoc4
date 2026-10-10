@@ -43,22 +43,9 @@ jobs:
         id: setup
         run: benchmarks/tools/mv-l-run.sh setup
 
-      - name: (c) v4.32.2, v4.33.0, v4.33.1 each read alone into v4.34.1, from nothing
-        id: c
-        timeout-minutes: 150
-        run: benchmarks/tools/mv-l-run.sh scratch
-
-      - name: upload the store
-        if: ${{ !cancelled() && steps.c.outcome == 'success' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: mv-l-store
-          path: /home/runner/mv-l/c/store
-          retention-days: 14
-
-      - name: sizes
-        if: always()
-        run: benchmarks/tools/mv-l-run.sh report
+      - name: (d) v4.34.1 native; v4.33.1, v4.33.0, v4.32.2 read with --lazy-proofs, alone and with --reuse-from
+        timeout-minutes: 210
+        run: benchmarks/tools/mv-l-run.sh reuse
 
       - name: record the machine at the end
         if: always()
