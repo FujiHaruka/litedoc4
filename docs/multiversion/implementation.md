@@ -1316,7 +1316,8 @@ combination that won.
    whose prints the entry took, or null). An exact read (`--reader-alone`, `--reader-session`)
    refills a reader entry whose prints were reused, or whose schema-4 record does not say; the chain
    keeps every entry, an exact one included. `store list` prints the version reused from.
-   `tools/mv-reader-gate.sh` items `exact-refills-reused` and `chain-keeps-exact`.
+   `tools/mv-reader-gate.sh` items `exact-refills-reused` and `chain-keeps-exact`, both made to fail
+   once on a build whose judgement was inverted; the gate 20 of 20 on the M1.
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on
