@@ -1271,6 +1271,16 @@ combination that won.
    4.8 s. v4.33.0 and v4.32.2 are left to estimate from M (decided 2026-10-10, user's call:
    full-Mathlib builds are expensive; estimate where an estimate will do, because v2 gets a more
    careful verification before release).
+   **Overhead cut, 2026-10-10** (measured on M → `benchmarks/results/mv-m-reuse-overhead-2026-10-10.txt`):
+   - keys are computed in parallel;
+   - the neighbour's IR is scanned in parallel and kept as raw bytes per declaration;
+   - each declaration is decoded only when extraction asks for it.
+
+   Reuse's own phases fell from 1.81–1.85 s to 0.43–0.48 s at `--jobs 4`. The output is
+   byte-identical to the previous reuse. The neighbour held 33–39 MiB against 132–135 MiB when
+   loaded alone. On the runner's v4.33.1, about 294–302 s against 327 s, or 1.62–1.66× over
+   read-alone (theoretical: the runner's phases scaled as M's). About 0.8–1.1 GiB of the extra
+   2.0–2.3 GiB would remain (theoretical, assuming the extra is the loaded neighbour).
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on

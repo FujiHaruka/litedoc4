@@ -714,78 +714,246 @@ def printedOfJson? (j : Json) : Option DeclOut := do
     members := ← jsonReq? j "members" (jsonArr? memberOfJson?)
     refs := ← jsonReq? j "refs" (jsonArr? refName) }
 
+def parMap [Inhabited β] (jobs : Nat) (xs : Array α) (f : α → β) : Array β := Id.run do
+  if jobs ≤ 1 then return xs.map f
+  let stride (k : Nat) : Array β := Id.run do
+    let mut out := #[]
+    let mut i := k
+    while h : i < xs.size do
+      out := out.push (f xs[i])
+      i := i + jobs
+    return out
+  let tasks := (Array.range jobs).map fun k => Task.spawn (prio := .dedicated) fun _ => stride k
+  let parts := tasks.map Task.get
+  return (Array.range xs.size).map fun i => parts[i % jobs]![i / jobs]!
+
+def parMapIO (jobs : Nat) (xs : Array α) (f : α → IO β) : IO (Array β) := do
+  if jobs ≤ 1 then return ← xs.mapM f
+  let stride (k : Nat) : BaseIO (Array (Except IO.Error β)) := do
+    let mut out := #[]
+    let mut i := k
+    while h : i < xs.size do
+      out := out.push (← (f xs[i]).toBaseIO)
+      i := i + jobs
+    return out
+  let tasks ← (Array.range jobs).mapM fun k => BaseIO.asTask (prio := .dedicated) (stride k)
+  let parts := tasks.map Task.get
+  (Array.range xs.size).mapM fun i => IO.ofExcept parts[i % jobs]![i / jobs]!
+
 structure OwnKeys where
-  names : Array String
+  entries : Array (String × UInt64)
   keys : Std.HashMap String UInt64
   ms : Nat
 
-unsafe def ownKeys (env : Environment) (world : World) (targets : Array Name) : IO OwnKeys := do
+unsafe def ownKeys (env : Environment) (world : World) (targets : Array Name) (jobs : Nat) : IO OwnKeys := do
   let t0 ← IO.monoMsNow
-  let mut names := #[]
-  let mut keys : Std.HashMap String UInt64 := {}
-  for c in ← PrintKey.candidates world targets do
-    let some ci := env.find? c | continue
-    let s := c.toString
-    names := names.push s
-    keys := keys.insert s (PrintKey.ownKey env ci)
-  return { names, keys, ms := (← IO.monoMsNow) - t0 }
+  let cands ← PrintKey.candidates world targets
+  let entries := (parMap jobs cands fun c => (env.find? c).map fun ci => (c.toString, PrintKey.ownKey env ci)).filterMap id
+  let keys := entries.foldl (fun m (s, k) => m.insert s k) (Std.HashMap.emptyWithCapacity entries.size)
+  return { entries, keys, ms := (← IO.monoMsNow) - t0 }
 
-def writeKeysFile (path : System.FilePath) (identity : String) (k : OwnKeys) : IO Unit := do
+def keysText (entries : Array (String × UInt64)) (lo hi : Nat) : String := Id.run do
+  let mut out := ""
+  for i in [lo:hi] do
+    let (s, k) := entries[i]!
+    out := out ++ s ++ "\t" ++ toString k ++ "\n"
+  return out
+
+def writeKeysFile (path : System.FilePath) (identity : String) (k : OwnKeys) (jobs : Nat) : IO Unit := do
+  let n := k.entries.size
+  let blocks := max jobs 1
+  let size := (n + blocks - 1) / blocks
+  let texts := parMap jobs (Array.range blocks) fun b => keysText k.entries (b * size) (min n ((b + 1) * size))
   let h ← IO.FS.Handle.mk path .write
   h.putStrLn s!"{reuseKeysMarker} {identity}"
-  for s in k.names do h.putStrLn s!"{s}\t{k.keys[s]!}"
+  for t in texts do h.putStr t
 
 structure Neighbour where
   identity : String
   keys : Std.HashMap String UInt64
-  offered : Std.HashMap String DeclOut
-  unreadable : Std.HashSet String
+  offered : Std.HashMap String (Thunk (Option DeclOut))
   files : Nat
   ms : Nat
 
-def readNeighbourKeys (path : System.FilePath) : IO (String × Std.HashMap String UInt64) := do
-  let lines := (← IO.FS.readFile path).splitOn "\n"
-  let identity ← match (lines.headD "").splitOn " " with
+def keyLine? (l : String) : Option (String × UInt64) :=
+  match l.splitOn "\t" with
+  | [s, k] => k.toNat?.map fun k => (s, k.toUInt64)
+  | _ => none
+
+def readNeighbourKeys (path : System.FilePath) (jobs : Nat) : IO (String × Std.HashMap String UInt64) := do
+  let lines := ((← IO.FS.readFile path).splitOn "\n").toArray
+  let identity ← match ((lines[0]?.getD "").splitOn " ") with
     | m :: rest =>
       if m == reuseKeysMarker then pure (" ".intercalate rest)
       else throw <| IO.userError s!"reuse: {path} does not start with {reuseKeysMarker}"
     | [] => throw <| IO.userError s!"reuse: {path} is empty"
-  let mut keys : Std.HashMap String UInt64 := {}
-  for l in lines.drop 1 do
-    if l.isEmpty then continue
-    match l.splitOn "\t" with
-    | [s, k] =>
-      let some k := k.toNat? | throw <| IO.userError s!"reuse: {path}: not a key: {l.take 200}"
-      keys := keys.insert s k.toUInt64
-    | _ => throw <| IO.userError s!"reuse: {path}: not a name and a key: {l.take 200}"
+  let body := (lines.extract 1 lines.size).filter (!·.isEmpty)
+  let parsed := parMap jobs body keyLine?
+  let mut keys : Std.HashMap String UInt64 := Std.HashMap.emptyWithCapacity body.size
+  for h : i in [0:body.size] do
+    match parsed[i]! with
+    | some (s, k) => keys := keys.insert s k
+    | none =>
+      let l := body[i]
+      if (l.splitOn "\t").length == 2 then throw <| IO.userError s!"reuse: {path}: not a key: {l.take 200}"
+      throw <| IO.userError s!"reuse: {path}: not a name and a key: {l.take 200}"
   return (identity, keys)
 
-def loadNeighbour (dir : System.FilePath) (identity : String) (own : OwnKeys) : IO Neighbour := do
+def envName (env : Environment) (n : Name) : Name :=
+  match env.find? n with
+  | some ci => ci.name
+  | none => n
+
+def withNames (f : Name → Name) (d : DeclOut) : DeclOut :=
+  let spans (ss : Array Span) := ss.map fun s => if s.name.isAnonymous then s else { s with name := f s.name }
+  { d with
+    name := f d.name
+    sig := { d.sig with binderSpans := d.sig.binderSpans.map spans, typeSpans := spans d.sig.typeSpans }
+    equationSpans := d.equationSpans.map spans
+    members := d.members.map fun m =>
+      { m with name := f m.name, spans := spans m.spans, binderSpans := m.binderSpans.map spans }
+    refs := d.refs.map f }
+
+def offerOfBytes (env : Environment) (bytes : ByteArray) : Option DeclOut :=
+  (String.fromUTF8? bytes >>= (Json.parse · |>.toOption) >>= printedOfJson?).map (withNames (envName env))
+
+namespace Scan
+
+def isWs (c : UInt8) : Bool := c == 32 || c == 10 || c == 13 || c == 9
+
+partial def ws (b : ByteArray) (i : Nat) : Nat :=
+  if h : i < b.size then (if isWs b[i] then ws b (i + 1) else i) else i
+
+partial def str (b : ByteArray) (j : Nat) : Option Nat :=
+  if h : j + 1 < b.size then
+    let c := b[j + 1]
+    if c == 34 then some (j + 2) else str b (if c == 92 then j + 2 else j + 1)
+  else none
+
+partial def nested (b : ByteArray) (j depth : Nat) : Option Nat :=
+  if h : j < b.size then
+    let d := b[j]
+    if d == 34 then (str b j).bind (nested b · depth)
+    else if d == 123 || d == 91 then nested b (j + 1) (depth + 1)
+    else if d == 125 || d == 93 then (if depth == 1 then some (j + 1) else nested b (j + 1) (depth - 1))
+    else nested b (j + 1) depth
+  else none
+
+partial def atom (b : ByteArray) (j : Nat) : Nat :=
+  if h : j < b.size then
+    let c := b[j]
+    if c == 44 || c == 125 || c == 93 || isWs c then j else atom b (j + 1)
+  else j
+
+def value (b : ByteArray) (i : Nat) : Option Nat :=
+  match b[i]? with
+  | some 34 => str b i
+  | some 123 | some 91 => nested b i 0
+  | some _ => let j := atom b i; if j == i then none else some j
+  | none => none
+
+def isKey (b : ByteArray) (i j : Nat) (k : ByteArray) : Bool :=
+  j == i + k.size + 2 && (List.range k.size).all fun n => b[i + 1 + n]! == k[n]!
+
+def member (b : ByteArray) (i : Nat) (key : ByteArray) : Except String (Option (Nat × Nat) × Nat) := do
+  unless b[i]? == some 123 do throw s!"an object expected at byte {i}"
+  let mut found := none
+  let mut j := ws b (i + 1)
+  if b[j]? == some 125 then return (found, j + 1)
+  repeat
+    unless b[j]? == some 34 do throw s!"a key expected at byte {j}"
+    let some ke := str b j | throw s!"an unterminated string at byte {j}"
+    let k := ws b ke
+    unless b[k]? == some 58 do throw s!"':' expected at byte {k}"
+    let vs := ws b (k + 1)
+    let some ve := value b vs | throw s!"a value expected at byte {vs}"
+    if found.isNone && isKey b j ke key then found := some (vs, ve)
+    let n := ws b ve
+    match b[n]? with
+    | some 44 => j := ws b (n + 1)
+    | some 125 => return (found, n + 1)
+    | _ => throw s!"',' or '}' expected at byte {n}"
+  throw "unreachable"
+
+partial def hasEscape (b : ByteArray) (i j : Nat) : Bool :=
+  i < j && (b[i]! == 92 || hasEscape b (i + 1) j)
+
+def stringAt (b : ByteArray) (i j : Nat) : Option String :=
+  if hasEscape b i j then
+    (String.fromUTF8? (b.extract i j)).bind fun t => (Json.parse t).toOption.bind (·.getStr?.toOption)
+  else String.fromUTF8? (b.extract (i + 1) (j - 1))
+
+def nameKey : ByteArray := "name".toUTF8
+
+def declarations (b : ByteArray) : Except String (Option (Array (Nat × Nat × Option String))) := do
+  let (some (vs, _), _) ← member b (ws b 0) "declarations".toUTF8 | return none
+  unless b[vs]? == some 91 do return none
+  let mut out := #[]
+  let mut j := ws b (vs + 1)
+  if b[j]? == some 93 then return some out
+  repeat
+    let (name, e) ← member b j nameKey
+    out := out.push (j, e, name.bind fun (ns, ne) => if b[ns]? == some 34 then stringAt b ns ne else none)
+    let n := ws b e
+    match b[n]? with
+    | some 44 => j := ws b (n + 1)
+    | some 93 => return some out
+    | _ => throw s!"',' or ']' expected at byte {n}"
+  throw "unreachable"
+
+end Scan
+
+def scanFindsEveryDeclaration : Bool :=
+  let str := Json.str
+  let decl (name : String) (extra : List (String × Json)) : Json := Json.mkObj <|
+    [("binders", Json.arr #[str "{α : \"]}\\"]),
+     ("members", Json.arr #[Json.mkObj [("name", str "Inner.x"), ("text", str "{ [")]])] ++
+    extra ++ [("name", str name), ("zz", Json.arr #[Json.arr #[Json.num 1, Json.num ⟨-15, 1⟩, str "a,b"], Json.null, Json.bool true])]
+  let decls := #[decl "Foo.bar" [], decl "«x y».z" [("doc", str "line\nnext \"q\"")], decl "q\"uote" [],
+                 Json.mkObj [("noName", Json.num 1)]]
+  let file := Json.mkObj [("dependencies", Json.arr #[]), ("declarations", Json.arr decls), ("module", str "M")]
+  let b := (file.pretty 20).toUTF8
+  match Scan.declarations b with
+  | .ok (some found) =>
+    found.size == decls.size && (found.zip decls).all fun ((i, j, name), d) =>
+      name == (d.getObjValAs? String "name").toOption &&
+        (String.fromUTF8? (b.extract i j) >>= (Json.parse · |>.toOption)).map (·.compress) == some d.compress
+  | _ => false
+
+#guard scanFindsEveryDeclaration
+
+def offerFile (dir : System.FilePath) (keys : Std.HashMap String UInt64) (own : OwnKeys) (file : String) :
+    IO (Array (String × ByteArray)) := do
+  let b ← IO.FS.readBinFile (dir / file)
+  let decls ← match Scan.declarations b with
+    | .ok (some ds) => pure ds
+    | .ok none => throw <| IO.userError s!"reuse: {dir / file} has no declarations"
+    | .error e => throw <| IO.userError s!"reuse: {dir / file} is not JSON: {e}"
+  return decls.filterMap fun (i, j, name) => do
+    let s ← name
+    guard (own.keys[s]?.isSome && own.keys[s]? == keys[s]?)
+    return (s, b.extract i j)
+
+def loadNeighbour (env : Environment) (dir : System.FilePath) (identity : String) (own : OwnKeys) (jobs : Nat) :
+    IO Neighbour := do
   let t0 ← IO.monoMsNow
-  let (theirs, keys) ← readNeighbourKeys (reuseKeysPath dir)
+  let (theirs, keys) ← readNeighbourKeys (reuseKeysPath dir) jobs
   if theirs != identity then
-    return { identity := theirs, keys, offered := {}, unreadable := {}, files := 0, ms := (← IO.monoMsNow) - t0 }
-  let parse (f : System.FilePath) : IO Json := do
-    match Json.parse (← IO.FS.readFile f) with
+    return { identity := theirs, keys, offered := {}, files := 0, ms := (← IO.monoMsNow) - t0 }
+  let index ← match Json.parse (← IO.FS.readFile (dir / "index.json")) with
     | .ok j => pure j
-    | .error e => throw <| IO.userError s!"reuse: {f} is not JSON: {e.take 200}"
-  let index ← parse (dir / "index.json")
+    | .error e => throw <| IO.userError s!"reuse: {dir / "index.json"} is not JSON: {e.take 200}"
   let some mods := (index.getObjVal? "modules" >>= (·.getArr?)).toOption
     | throw <| IO.userError s!"reuse: {dir / "index.json"} has no module list"
-  let mut offered : Std.HashMap String DeclOut := {}
-  let mut unreadable : Std.HashSet String := {}
-  for m in mods do
-    let some file := (m.getObjVal? "file" >>= (·.getStr?)).toOption
-      | throw <| IO.userError s!"reuse: {dir / "index.json"}: a module entry names no file"
-    let some decls := ((← parse (dir / file)).getObjVal? "declarations" >>= (·.getArr?)).toOption
-      | throw <| IO.userError s!"reuse: {dir / file} has no declarations"
-    for d in decls do
-      let some s := (d.getObjVal? "name" >>= (·.getStr?)).toOption | continue
-      unless own.keys[s]?.isSome && own.keys[s]? == keys[s]? do continue
-      match printedOfJson? d with
-      | some p => offered := offered.insert s p
-      | none => unreadable := unreadable.insert s
-  return { identity := theirs, keys, offered, unreadable, files := mods.size, ms := (← IO.monoMsNow) - t0 }
+  let files ← mods.mapM fun m => match (m.getObjVal? "file" >>= (·.getStr?)).toOption with
+    | some f => pure f
+    | none => throw <| IO.userError s!"reuse: {dir / "index.json"}: a module entry names no file"
+  let parts ← parMapIO jobs files (offerFile dir keys own)
+  let mut offered : Std.HashMap String (Thunk (Option DeclOut)) :=
+    Std.HashMap.emptyWithCapacity (parts.foldl (· + ·.size) 0)
+  for p in parts do
+    for (s, bytes) in p do offered := offered.insert s (Thunk.mk fun _ => offerOfBytes env bytes)
+  return { identity := theirs, keys, offered, files := mods.size, ms := (← IO.monoMsNow) - t0 }
 
 structure AcrossCounts where
   reused : Nat := 0
@@ -796,22 +964,31 @@ structure AcrossCounts where
   identity : Nat := 0
   offeredNotTaken : Nat := 0
 
-unsafe def countAcross (nb : Neighbour) (own : OwnKeys) (identityEqual : Bool) (results : Array DeclOut) :
+inductive Across where
+  | reused | offeredNotTaken | unreadable | identity | noKey | keyDiffers | noOutput
+  deriving Inhabited
+
+unsafe def acrossOf (nb : Neighbour) (own : OwnKeys) (identityEqual : Bool) (d : DeclOut) : Across :=
+  let s := d.name.toString
+  match nb.offered[s]?.map Thunk.get with
+  | some (some o) => if ptrAddrUnsafe o.sig == ptrAddrUnsafe d.sig then .reused else .offeredNotTaken
+  | some none => .unreadable
+  | none =>
+    if !identityEqual then .identity
+    else match nb.keys[s]? with
+      | none => .noKey
+      | some k => if own.keys[s]? != some k then .keyDiffers else .noOutput
+
+unsafe def countAcross (nb : Neighbour) (own : OwnKeys) (identityEqual : Bool) (jobs : Nat) (results : Array DeclOut) :
     AcrossCounts :=
-  results.foldl (init := {}) fun c d =>
-    let s := d.name.toString
-    match nb.offered[s]? with
-    | some o =>
-      if ptrAddrUnsafe o.sig == ptrAddrUnsafe d.sig then { c with reused := c.reused + 1 }
-      else { c with offeredNotTaken := c.offeredNotTaken + 1 }
-    | none =>
-      if !identityEqual then { c with identity := c.identity + 1 }
-      else match nb.keys[s]? with
-        | none => { c with noKey := c.noKey + 1 }
-        | some k =>
-          if own.keys[s]? != some k then { c with keyDiffers := c.keyDiffers + 1 }
-          else if nb.unreadable.contains s then { c with unreadable := c.unreadable + 1 }
-          else { c with noOutput := c.noOutput + 1 }
+  (parMap jobs results (acrossOf nb own identityEqual)).foldl (init := {}) fun c a => match a with
+    | .reused => { c with reused := c.reused + 1 }
+    | .offeredNotTaken => { c with offeredNotTaken := c.offeredNotTaken + 1 }
+    | .unreadable => { c with unreadable := c.unreadable + 1 }
+    | .identity => { c with identity := c.identity + 1 }
+    | .noKey => { c with noKey := c.noKey + 1 }
+    | .keyDiffers => { c with keyDiffers := c.keyDiffers + 1 }
+    | .noOutput => { c with noOutput := c.noOutput + 1 }
 
 def reuseFromLine (dir : System.FilePath) (nb : Neighbour) (identityEqual : Bool) (own : OwnKeys)
     (c : AcrossCounts) (produced : Nat) : String :=
@@ -819,31 +996,31 @@ def reuseFromLine (dir : System.FilePath) (nb : Neighbour) (identityEqual : Bool
   let ident := if identityEqual then "printing identity equal" else s!"printing identity differs ({nb.identity})"
   s!"reuse-from           {dir}: {c.reused} of {produced} declarations reused, {printed} printed (key differs \
     {c.keyDiffers}, no key there {c.noKey}, key equal and no output there {c.noOutput}, not read back \
-    {c.unreadable}, identity {c.identity}, offered and printed {c.offeredNotTaken}); {ident}; keys of {own.names.size} candidates in {own.ms} ms; \
+    {c.unreadable}, identity {c.identity}, offered and printed {c.offeredNotTaken}); {ident}; keys of {own.entries.size} candidates in {own.ms} ms; \
     {nb.files} IR files read, {nb.offered.size} declarations offered, in {nb.ms} ms"
 
 unsafe def extractAcross (a : Args) (cfg : Cfg) (ph : Phases) (env : Environment) (world : World)
     (targets : Array Name) : IO (UInt32 × RssAtExtract × Array String) := do
   let some irDir := cfg.irDir | throw <| IO.userError "--write-reuse-keys writes beside --ir-dir, and there is none"
   let identity ← printingIdentity cfg
-  let own ← ownKeys env world targets
+  let own ← ownKeys env world targets cfg.jobs
   ph.mark "reuse keys"
   let (code, atExtract, lines) ← match a.reuseFrom with
     | none => do
       let (code, atExtract) ← extractMeasured ph (Litedoc4.run cfg (some (env, world)))
       pure (code, atExtract, #[])
     | some dir => do
-      let nb ← loadNeighbour dir identity own
+      let nb ← loadNeighbour env dir identity own cfg.jobs
       ph.mark "reuse load"
       let identityEqual := nb.identity == identity
       let out ← IO.mkRef #[]
       let (code, atExtract) ← extractMeasured ph <|
-        Litedoc4.run cfg (some (env, world)) (some { prev := fun n => nb.offered[n.toString]?, out })
+        Litedoc4.run cfg (some (env, world)) (some { prev := fun n => nb.offered[n.toString]? >>= Thunk.get, out })
       let results ← out.get
       pure (code, atExtract,
-        #[reuseFromLine dir nb identityEqual own (countAcross nb own identityEqual results) results.size])
+        #[reuseFromLine dir nb identityEqual own (countAcross nb own identityEqual cfg.jobs results) results.size])
   if code == 0 then
-    writeKeysFile (reuseKeysPath irDir) identity own
+    writeKeysFile (reuseKeysPath irDir) identity own cfg.jobs
     ph.mark "write keys"
   return (code, atExtract, lines)
 

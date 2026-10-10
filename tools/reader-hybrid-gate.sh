@@ -125,11 +125,13 @@
 #   reuse-self-equals-alone
 #                     every older row read again by `reader extract
 #                     --write-reuse-keys`, then by `reader extract
-#                     --reuse-from` naming that run's own IR: both IRs and
-#                     link indexes are the bytes of the row's read-alone run,
-#                     the second run's reuse-from line says the printing
-#                     identity is equal and every produced declaration was
-#                     reused, none printed, and both runs wrote the same keys
+#                     --reuse-from --jobs 4` naming that run's own IR: both
+#                     IRs and link indexes are the bytes of the row's
+#                     read-alone run, the second run's reuse-from line says
+#                     the printing identity is equal and every produced
+#                     declaration was reused, none printed, and both runs
+#                     wrote the same keys, the first on one thread and the
+#                     second on four
 #   carry-presence-flip
 #                     the first two older rows, across the shadow's
 #                     disappearance, in a session with --check-keys
@@ -1143,7 +1145,7 @@ else
       fails+=("v$v: writing the reuse keys changed the IR or the link index: $(head -c 300 "$keys/ir.diff")")
     elif [ ! -s "$keys/ir.reuse-keys" ]; then
       fails+=("v$v: --write-reuse-keys wrote no $keys/ir.reuse-keys")
-    elif ! read_through "$v" "$out" --reuse-from "$keys/ir"; then
+    elif ! read_through "$v" "$out" --reuse-from "$keys/ir" --jobs 4; then
       fails+=("v$v: reader extract --reuse-from exited non-zero: $(head -c 300 "$out/stderr.txt")")
     elif ! /usr/bin/diff -r "$WORK/v$v/read/ir" "$out/ir" >"$out/ir.diff" 2>&1; then
       fails+=("v$v: the --reuse-from IR differs from read-alone in $({ /usr/bin/diff -rq "$WORK/v$v/read/ir" "$out/ir" || true; } | sed "s|$out/ir/||; s|$WORK/v$v/read/ir/||g" | tr '\n' ' ' | head -c 400)")
