@@ -338,7 +338,7 @@ for k in sorted(set(fa) & set(fr)):
     if not (isinstance(ja, dict) and isinstance(jr, dict)):
         fields[os.path.basename(k)] += 1
         continue
-    if "declarations" not in ja or "declarations" not in jr:
+    if not all(isinstance(d, dict) and "name" in d for j in (ja, jr) for d in j.get("declarations") or [None]):
         fields.update("%s:%s" % (os.path.basename(k), x) for x in set(ja) | set(jr) if ja.get(x) != jr.get(x))
         continue
     module_fields += sum(1 for x in set(ja) | set(jr) if x != "declarations" and ja.get(x) != jr.get(x))
