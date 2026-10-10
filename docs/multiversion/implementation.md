@@ -1193,6 +1193,40 @@ combination that won.
 4. **E5, read-alone's fixed costs**: the manual-root ask (2.0–3.2 s a version) cached by the
    toolchain's githash, with the probe check still run per version; the `.ilean` check per module
    in parallel (1.9–2.2 s). About 4 s a version (theoretical).
+5. **E6, inexact print reuse across processes** (decided 2026-10-10, user's call: an older
+   version's page may show a few context-dependent rendering differences in exchange for about
+   2×; equations stay). The probe (measured → `benchmarks/results/mv-m-print-probe-2026-10-10.txt`)
+   puts printing at 17.5 of 29.3 s a process on M at `--jobs 1`, and finds 93.0–98.1% of the
+   declarations' printed parts identical to the adjacent version's. Dropping a feature instead
+   gains at most −21% (equations), and tagged code cannot be dropped, because the renderer refuses
+   schema 1.
+   **Approach.** `reader extract` takes the adjacent, already-built version's IR directory and the
+   keys that run wrote. A declaration whose cheap key is equal takes its printed parts from there:
+   signature, equations and their linked code, and the names in refs. Everything else is
+   recomputed as today: positions, docstrings, attributes, instance status, field docs, the module
+   half of refs, and the link index. Only key-different declarations are printed. The key is
+   Lean's structural `Expr` hash of the type, plus the value for non-theorems, plus the type's
+   top-level binder names and binder kinds, plus the hashing toolchain's identity. A different
+   identity reuses nothing. Versions are built newest first, each reusing from the one just built.
+   **What it gives up**, by construction: rendering that depends on context outside the
+   declaration's own content, such as notation, other declarations' binders shown in its
+   equations, and helper definitions behind its equations. The probe's built-in-hash key differed
+   from the truth on 16 and 18 declarations per pair, 7 of the 10 examined on binder names and kinds,
+   which this key covers.
+   **Predicted** on M at `--jobs 1`: 15–16 s against 29.3 s, about 1.8–1.9× (theoretical: the
+   11.7 s before extraction and the extraction outside printing unchanged; printing in proportion
+   to the key-different share, 4.0–9.5% for the built-in-hash key; key 0.85 s; loading the
+   neighbour's IR 0.5 s, assumed). The middle key's reuse share is unmeasured; the full-binder key
+   needed 17.4% on the v4.34.1 pair. With E5, about 2×.
+   **Checks**:
+   - reusing from the same version's own output is byte-identical to read-alone, IR and link
+     index, with every declaration reused (a gate item, made to fail once);
+   - the link index is equal to read-alone for every pair;
+   - divergence from read-alone, counted per pair and reported in the record. It is a measured
+     cost, not a gated one, so no exception list.
+   **Win on M**: 3 alternating cycles against read-alone with `--lazy-proofs` in both arms, at
+   `--jobs 1` and `--jobs 4`. Killed if the per-version wall is not at least 1.5× faster at
+   `--jobs 1`, or if the peak RSS is above read-alone's. Full Mathlib only after a win on M.
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on
