@@ -1142,6 +1142,10 @@ one):
   spread;
 - memory: peak RSS not above read-alone's.
 
+Superseded for later levers (decided 2026-10-10, user's call): one run per arm, repeated only near
+a decision line, ±10% accepted. A measurement validates that a lever is an obvious win and has no
+side effect that cannot be overlooked (quality loss, memory rise); precision is not the goal.
+
 A lever that moves both arms equally wins when it lowers read-alone itself on the same criteria,
 and then becomes part of read-alone. A full-Mathlib run happens only after a win, and only for the
 combination that won.
