@@ -1,0 +1,73 @@
+L, E6 + E5 on the runner: v4.33.1 read alone against read with --reuse-from, all of Mathlib
+==========================================================================================
+
+E6 (inexact print reuse across processes) and E5 (read-alone's fixed costs) of
+docs/multiversion/implementation.md ("Levers plan: beating read-alone on M"), on full Mathlib on
+ubuntu-latest, after both won on M (benchmarks/results/mv-m-reuse-key-e5-2026-10-10.txt).
+Workflow mv-l.yml, `benchmarks/tools/mv-l-run.sh reuse`. Two runs reached v4.33.1 and none got
+further; the fourth was cancelled (decided 2026-10-10, user's call: full-Mathlib builds are
+expensive, and what can be estimated is estimated until the more careful verification before
+v2). v4.33.0 and v4.32.2 were never measured here.
+
+RUNS
+----
+  38041323305  25472c5  failed in setup: "fatal: shallow file has changed since we read it" between
+                        the four tag fetches (fixed in ead93f7: one fetch, no auto maintenance)
+  38041672384  ead93f7  v4.33.1 measured; the IR comparison then died on a file whose declarations
+                        list holds names (fixed in bda5277), so this run has no divergence count
+  38043515525  bda5277  v4.33.1 measured and compared; v4.33.0's cache fetch failed cloning
+                        batteries ("fatal: early EOF"), so the run stopped (retry added in 991f68a)
+  38045911619  991f68a  cancelled
+
+CONDITIONS
+----------
+host     ubuntu-latest, Linux 6.17.0-1022-azure x86_64, 4 vCPU, 15 GB, image ubuntu24
+         20261004.327.1; AMD EPYC 9V45 in run 38041672384, EPYC 9V74 in run 38043515525 (the two
+         runs are different hardware and are not pooled)
+versions newest v4.34.1 (Mathlib d13f23b723b8), measured v4.33.1 (Mathlib 0df444a360ea),
+         each with its own `litedoc4 modules --lib Mathlib`, closure 10,498 modules
+flags    --equations --refs --write-ir --tagged-code --no-equations-under Mathlib.Tactic,Mathlib.Meta
+         --jobs 4; both arms --lazy-proofs with E5; (r) also --reuse-from the v4.34.1 reader output
+order    native v4.34.1, then v4.34.1 through the reader with --write-reuse-keys (the "head": a
+         measurement crutch so that v4.33.1 has keys to reuse from; not counted per extra
+         version), then v4.33.1 (a) then (r). Warmth: each process reads its own version's oleans
+         once; user CPU ~ 2.6x wall for (a) on 4 threads.
+
+ANSWER (measured, one process per cell)
+------
+                              run 38041672384 (9V45)    run 38043515525 (9V74)
+  native v4.34.1 wall         391.74 s                  525.62 s
+  head (crutch) wall          361.25 s                  457.85 s
+  v4.33.1 (a) wall            392.39 s                  488.89 s
+  v4.33.1 (r) wall            267.93 s                  327.16 s
+  (a) / (r)                   1.46                      1.49
+  (a) reader anon peak        8,410 MiB                 7,618 MiB
+  (r) reader anon peak        10,388 MiB                9,916 MiB
+  (a) / (r) max RSS           13,050 / 13,663 MiB       13,029 / 13,661 MiB
+  host MemAvailable minimum   (a) 6,053, (r) 4,402 MiB  (a) 6,746, (r) 4,680 MiB
+  host swap maximum           (a) 483, (r) 1,455 MiB    (a) 1,543, (r) 1,538 MiB
+
+  reuse   273,760 of 317,784 declarations reused, 44,024 printed (13.9%): key differs 42,353,
+          no key in the neighbour 1,671; printing identity equal (both runs)
+  phases of (r), run 38043515525 (ms): decode 102,654, newest import 11,629, merge 29,704,
+          finalize 6,647, reuse keys 18,141, reuse load 24,692, extract 117,113, write keys 4,763,
+          closure 5,297, check ilean 3,343, rest ~1,800; total 325,627
+  phases of (a), same run (ms): decode 104,892, newest import 3,150, merge 24,882, finalize 6,049,
+          extract 340,525, check ilean 3,428, rest ~3,300; total 486,245
+  divergence (run 38043515525): link index equal; IR files 8,323 each, 17 differ; declarations
+          317,784 each, 62 differ (0.020%), none on one side only. Fields: type/typeCode 47,
+          equations 10 / equationCode 9, refs 9, binders/binderCode 5, members 2; plus
+          index.json's modules and dependencyMaps and two deps files. The comparison keeps field
+          names only, so what each difference looks like on the page is not recorded.
+
+AGAINST M AND THE PLAN
+----------------------
+  (a)/(r) at --jobs 4: 1.46-1.49 here against 1.34 on M for the same pair (a with E5). Printed
+  share 13.9% against 8.1% on M. Divergence 0.020% against 0.018% on M.
+  Memory: on M (r) peaked below (a); here (r)'s reader holds 2.0-2.3 GiB more anonymous memory
+  (the neighbour's printed output, not otherwise measured) and the host's minimum MemAvailable
+  is 1.4-2.1 GiB lower. It fitted, with swap up to 1.5 GiB of 3 GiB.
+  Reuse's own overhead is 47.6 s of (r)'s 325.6 s: keys 18.1 s (single-threaded), loading the
+  neighbour's IR 24.7 s, writing keys 4.8 s.
+  Not measured on the runner and left to estimate: v4.33.0 and v4.32.2 (on M their pairs gave
+  the higher ratios), and read-alone without E2/E5 in the same run.

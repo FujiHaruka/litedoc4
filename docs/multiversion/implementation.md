@@ -1259,6 +1259,14 @@ combination that won.
    declarations, all of the kinds given up. E5 is kept despite its memory miss: reuse with E5
    peaks within 0–16 MiB of today's read-alone at `--jobs 1` (2,750–2,776 against 2,749–2,765 MiB)
    and below both read-alone arms at `--jobs 4`.
+   **On the runner, 2026-10-10** (measured → `benchmarks/results/mv-l-reuse-2026-10-10.txt`, v4.33.1
+   only, two runs on different hardware): (a)/(r) 1.46 and 1.49 at `--jobs 4`. 13.9% printed. Link
+   index equal, and 62 of 317,784 declarations differ. The reader holds 2.0–2.3 GiB more anonymous
+   memory with reuse, and the host's minimum available memory was 4.4–4.7 GiB. Reuse's own
+   overhead was 47.6 s: keys 18.1 s on one thread, loading the neighbour's IR 24.7 s, writing keys
+   4.8 s. v4.33.0 and v4.32.2 are left to estimate from M (decided 2026-10-10, user's call:
+   full-Mathlib builds are expensive; estimate where an estimate will do, because v2 gets a more
+   careful verification before release).
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on
