@@ -1176,7 +1176,7 @@ combination that won.
 3. **E3, Mathlib's module identity across a toolchain-only bump** (v4.33.0 → v4.33.1 slices:
    two cache fetches, then seconds). Only if Mathlib is near core's 99.97% does whole-module reuse by
    file digest come back. That lever needs a retained version, so it would answer for patch pairs
-   only.
+   only. **Moot after E1**: a retained version is what loses on memory, so E3 is not run.
 4. **E5, read-alone's fixed costs**: the manual-root ask (2.0–3.2 s a version) cached by the
    toolchain's githash, with the probe check still run per version; the `.ilean` check per module
    in parallel (1.9–2.2 s). About 4 s a version (theoretical).
