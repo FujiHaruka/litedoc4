@@ -2,7 +2,7 @@
 # usage (all of Mathlib at four releases through `litedoc4 build --versions`, the older three read
 # by the .olean reader into the newest):
 #   mv-l-run.sh setup     build litedoc4, clone Mathlib's tags, check out the last
-#   mv-l-run.sh session   (a) every tag into an empty <work>/a, one reader session, --reader-check
+#   mv-l-run.sh session   (a) every tag into an empty <work>/a, one reader session (--reader-session --reader-check)
 #   mv-l-run.sh alone     (b) a copy of <work>/a holding only the newest entry, --reader-alone
 #   mv-l-run.sh compare   (a)'s and (b)'s entries of the older tags byte for byte, and the counts
 #   mv-l-run.sh scratch   (c) every tag into an empty <work>/c, each older one read alone
@@ -559,7 +559,7 @@ case "${1:-}" in
     ;;
   session)
     rm -rf "$OUT_A"
-    run a "$OUT_A" --reader-check
+    run a "$OUT_A" --reader-session --reader-check
     ;;
   alone)
     if pkill -KILL -f "$OUT_A/extractors/reader-[^ ]*/reader session "; then

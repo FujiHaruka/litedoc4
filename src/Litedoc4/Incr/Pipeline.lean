@@ -105,6 +105,7 @@ structure ServeRequest where
   /-- Where the server writes the dependency map, or `none` to write none. -/
   linkIndex : Option FilePath
   noEquationsUnder : Option (Array String) := none
+  writeReuseKeys : Bool := false
 
 def noEquationsUnderFor (given : Option (Array String)) (target : FilePath) : IO (Array String) :=
   match given with
@@ -140,7 +141,8 @@ def serveOptions (r : ServeRequest) : BuildM Serve := do
   return { bin := ← absolutePath bin
            lake := (← envOr r.lake "LAKE").getD ⟨"lake"⟩
            target, jobs := r.jobs, modulesFile, modules := r.modules
-           work := ← absolutePath r.work, linkIndex, linkIndexKey, noEquationsUnder }
+           work := ← absolutePath r.work, linkIndex, linkIndexKey, noEquationsUnder
+           writeReuseKeys := r.writeReuseKeys }
 
 /-- Whether the round loop runs again.
 

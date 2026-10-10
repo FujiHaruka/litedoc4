@@ -138,17 +138,24 @@ def theReaderIsForcedOnlyOnAVersionedBuild : Bool :=
 
 #guard theReaderIsForcedOnlyOnAVersionedBuild
 
-def theReaderIsReadAloneOrCheckedOnlyOnAVersionedBuildAndNotBoth : Bool :=
-  ((parseBuild false ["--versions", "v1,v2", "--reader-alone"] {}).toOption.map
-      (fun a => (a.readerAlone, a.readerCheck))) == some (true, false)
-    && ((parseBuild false ["--versions", "v1,v2", "--reader-check"] {}).toOption.map
-      (fun a => (a.readerAlone, a.readerCheck))) == some (false, true)
-    && versionedRefusal ["--versions", "v1,v2", "--reader-alone"] == none
-    && versionedRefusal ["--versions", "v1,v2", "--reader-check"] == none
-    && (match versionedRefusal ["--versions", "v1,v2", "--reader-alone", "--reader-check"] with
-      | some m => m.startsWith "--reader-check is not a flag of `build --versions --reader-alone`"
+def readerFillOf (args : List String) : Option ReaderFill :=
+  (parseBuild false (["--versions", "v1,v2"] ++ args) {}).toOption.bind (·.readerFill.toOption)
+
+def theReaderChainsByDefaultAndTheSessionAloneIsChecked : Bool :=
+  readerFillOf [] == some .chain
+    && readerFillOf ["--reader-alone"] == some .alone
+    && readerFillOf ["--reader-session"] == some (.session false)
+    && readerFillOf ["--reader-session", "--reader-check"] == some (.session true)
+    && ([[], ["--reader-alone"], ["--reader-session"], ["--reader-session", "--reader-check"]].all
+      fun args => versionedRefusal (["--versions", "v1,v2"] ++ args) == none)
+    && [["--reader-check"], ["--reader-alone", "--reader-check"]].all (fun args =>
+      match versionedRefusal (["--versions", "v1,v2"] ++ args) with
+      | some m => m.startsWith "--reader-check is a flag of `build --versions --reader-session`"
       | none => false)
-    && ["--reader-alone", "--reader-check"].all fun flag =>
+    && (match versionedRefusal ["--versions", "v1,v2", "--reader-alone", "--reader-session"] with
+      | some m => m.startsWith "--reader-alone and --reader-session are two ways"
+      | none => false)
+    && ["--reader-alone", "--reader-session", "--reader-check"].all fun flag =>
       (match versionedRefusal [flag] with
         | some m => m.startsWith s!"{flag} is not a flag of `build` without --versions"
         | none => false)
@@ -156,7 +163,7 @@ def theReaderIsReadAloneOrCheckedOnlyOnAVersionedBuildAndNotBoth : Bool :=
         | .error m => m.startsWith s!"{flag} is not a `watch` flag"
         | .ok _ => false)
 
-#guard theReaderIsReadAloneOrCheckedOnlyOnAVersionedBuildAndNotBoth
+#guard theReaderChainsByDefaultAndTheSessionAloneIsChecked
 
 def everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken : Bool :=
   let v := ["--versions", "v1"]

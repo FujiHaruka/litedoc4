@@ -177,10 +177,11 @@ def newestCopiesName : String := "newest-search"
 def scratchName : String := "scratch"
 def extractorsName : String := "extractors"
 def siteName : String := "site"
+def neighbourName : String := "reuse-neighbour"
 
 def ownedNames : List String :=
   [siteName, renderLedgerName, checkoutName, readCheckoutName, newestCopiesName, scratchName,
-    extractorsName]
+    extractorsName, neighbourName]
 
 structure Counted where
   extracted : Array Store.VersionName
@@ -460,10 +461,64 @@ def readerExtractorArgs (modules events irDir : FilePath) (jobs : Nat)
     (noEquationsUnder : Array String) (linkIndex : FilePath) : Array String :=
   extractorArgs modules events irDir jobs noEquationsUnder (some linkIndex) (some modules) none
 
-def readerArgv (old new : Array String) (newRoots modules events irDir : FilePath) (jobs : Nat)
-    (noEquationsUnder : Array String) (linkIndex : FilePath) : Array String :=
+def reuseKeysPath (irDir : FilePath) : FilePath := ⟨irDir.toString ++ ".reuse-keys"⟩
+
+structure Neighbour where
+  name : Store.VersionName
+  ir : FilePath
+  deriving BEq, Repr
+
+inductive Reuse where
+  | exact
+  | from (n : Neighbour)
+  | without (why : String)
+  deriving BEq, Repr
+
+def Reuse.text : Reuse → String
+  | .exact => "through the reader alone"
+  | .from n => s!"through the reader, reusing prints from {n.name.text}"
+  | .without why => s!"through the reader without reuse: {why}"
+
+def Reuse.keepsKeys : Reuse → Bool
+  | .exact => false
+  | _ => true
+
+def Reuse.readerFlags : Reuse → Array String
+  | .exact => #["--lazy-proofs"]
+  | .from n => #["--lazy-proofs", "--write-reuse-keys", "--reuse-from", n.ir.toString]
+  | .without _ => #["--lazy-proofs", "--write-reuse-keys"]
+
+def chainReuse (planned : Array Planned) (p : Planned) (kept : Option Neighbour)
+    (built : Array Store.VersionName) : Reuse :=
+  match (planned.findIdx? (·.name == p.name)).bind (planned[· + 1]?) with
+  | none => .without s!"{p.name.text} is the newest version"
+  | some above =>
+    match kept.filter (·.name == above.name) with
+    | some n => .from n
+    | none =>
+      if built.contains above.name then
+        .without s!"{above.name.text}, the version above it, was built in this run and left no \
+          reuse keys"
+      else
+        .without s!"{above.name.text}, the version above it, is kept from the store and was not \
+          built in this run"
+
+def keepNeighbour (out : FilePath) (v : Store.VersionName) (ir : FilePath) :
+    IO (Option Neighbour) := do
+  let dir := out / neighbourName
+  if ← dir.pathExists then IO.FS.removeDirAll dir
+  if !(← isRegularFile (reuseKeysPath ir)) then return none
+  let kept := dir / v.text / "ir"
+  IO.FS.createDirAll (dir / v.text)
+  IO.FS.rename ir kept
+  IO.FS.rename (reuseKeysPath ir) (reuseKeysPath kept)
+  return some { name := v, ir := kept }
+
+def readerArgv (old new : Array String) (newRoots : FilePath) (reuse : Reuse)
+    (modules events irDir : FilePath) (jobs : Nat) (noEquationsUnder : Array String)
+    (linkIndex : FilePath) : Array String :=
   #["extract"] ++ searchArgs "--old" old ++ searchArgs "--new" new
-    ++ #["--new-roots", newRoots.toString]
+    ++ #["--new-roots", newRoots.toString] ++ reuse.readerFlags
     ++ readerExtractorArgs modules events irDir jobs noEquationsUnder linkIndex
 
 def sessionChecks : Array String := #["--check-patch", "--check-keys"]

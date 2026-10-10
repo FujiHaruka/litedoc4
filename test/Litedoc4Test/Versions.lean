@@ -156,15 +156,53 @@ def everyEmbeddedReaderFileIsHashedIntoTheReaderIdentityAndNoOtherIs : Bool :=
 
 #guard everyEmbeddedReaderFileIsHashedIntoTheReaderIdentityAndNoOtherIs
 
-def theReaderIsHandedTheExtractorsOwnFlagsAfterTheTwoSearchPaths : Bool :=
-  readerArgv #["/o1", "/o2"] #["/n"] "/r.txt" "/m.txt" "/e.jsonl" "/ir" 2 #[] "/l.lidx"
-    == #["extract", "--old", "/o1", "--old", "/o2", "--new", "/n", "--new-roots", "/r.txt"]
-      ++ extractorArgs "/m.txt" "/e.jsonl" "/ir" 2 #[] (some "/l.lidx") (some "/m.txt") none
+def theReaderIsHandedItsOwnFlagsThenTheExtractorsAfterTheTwoSearchPaths : Bool :=
+  let head := #["extract", "--old", "/o1", "--old", "/o2", "--new", "/n", "--new-roots", "/r.txt"]
+  let tail := extractorArgs "/m.txt" "/e.jsonl" "/ir" 2 #[] (some "/l.lidx") (some "/m.txt") none
+  let argv (reuse : Reuse) :=
+    readerArgv #["/o1", "/o2"] #["/n"] "/r.txt" reuse "/m.txt" "/e.jsonl" "/ir" 2 #[] "/l.lidx"
+  let v5 := (named #["v5"]).map ({ name := ·, ir := "/k/v5/ir" : Neighbour })
+  argv .exact == head ++ #["--lazy-proofs"] ++ tail
+    && argv (.without "w") == head ++ #["--lazy-proofs", "--write-reuse-keys"] ++ tail
+    && v5.all (fun n => argv (.from n)
+      == head ++ #["--lazy-proofs", "--write-reuse-keys", "--reuse-from", "/k/v5/ir"] ++ tail)
     && extractArgv "/bin" "/m.txt" "/e.jsonl" "/ir" 2 #[] none none none
       == #["env", "/bin", "/m.txt", "/e.jsonl", "--equations", "--refs", "--write-ir",
         "--tagged-code", "--jobs", "2", "--ir-dir", "/ir"]
 
-#guard theReaderIsHandedTheExtractorsOwnFlagsAfterTheTwoSearchPaths
+#guard theReaderIsHandedItsOwnFlagsThenTheExtractorsAfterTheTwoSearchPaths
+
+def aVersionReusesFromTheVersionAboveOnlyWhenThatOneWasKeptAndSaysWhyNot : Bool :=
+  let planned := plannedAt #["v1", "v2", "v3", "v4"] "leanprover/lean4:v4.34.1"
+  let kept (v : String) : Option Neighbour :=
+    (named #[v])[0]?.map ({ name := ·, ir := s!"/k/{v}/ir" })
+  let built := named #["v2", "v3", "v4"]
+  (match planned.toList, kept "v3", kept "v4" with
+   | [_, v2, v3, v4], some k3, some k4 =>
+     chainReuse planned v3 (some k4) built == .from k4
+       && chainReuse planned v2 (some k3) built == .from k3
+       && chainReuse planned v2 (some k4) built
+         == .without "v3, the version above it, was built in this run and left no reuse keys"
+       && chainReuse planned v2 none built
+         == .without "v3, the version above it, was built in this run and left no reuse keys"
+       && chainReuse planned v3 none (named #["v3"])
+         == .without "v4, the version above it, is kept from the store and was not built in this \
+           run"
+       && chainReuse planned v4 (some k4) built == .without "v4 is the newest version"
+   | _, _, _ => false)
+    && (Reuse.exact).text == "through the reader alone"
+    && ((kept "v4").map (Reuse.from · |>.text)) == some "through the reader, reusing prints from v4"
+    && !Reuse.exact.keepsKeys && (Reuse.without "w").keepsKeys
+
+#guard aVersionReusesFromTheVersionAboveOnlyWhenThatOneWasKeptAndSaysWhyNot
+
+def theReuseKeysAreKeptWhereTheExtractorWritesThem : Bool :=
+  reuseKeysPath "/o/scratch/ir" == ("/o/scratch/ir.reuse-keys" : FilePath)
+    && (extractorSource.splitOn
+      "def reuseKeysPath (irDir : FilePath) : FilePath := ⟨irDir.toString ++ \".reuse-keys\"⟩").length
+      == 2
+
+#guard theReuseKeysAreKeptWhereTheExtractorWritesThem
 
 def onlyADirectoryOutsideTheNewestCheckoutAndItsLeanIsShared : Bool :=
   sharedSearchDirs #["/o/micro-dep/.lake/build/lib/lean", "/o/checkout/.lake/build/lib/lean",
@@ -209,6 +247,7 @@ def theRenderLedgerIsAmongWhatAVersionedBuildOwnsAndOutsideTheSite : Bool :=
   ownedNames.contains renderLedgerName && renderLedgerName != siteName
     && ownedNames.contains readCheckoutName && readCheckoutName != checkoutName
     && ownedNames.contains newestCopiesName
+    && ownedNames.contains neighbourName
     && (layoutOf "/o").renderLedger == ("/o" : FilePath) / renderLedgerName
 
 #guard theRenderLedgerIsAmongWhatAVersionedBuildOwnsAndOutsideTheSite

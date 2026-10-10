@@ -11,7 +11,7 @@ def usage : String :=
                        [--store <dir>] [--hash-urls] [--lib <Name>]...
                        [--lake <path>] [--jobs <n>]
                        [--through-reader <name>,<name>...]
-                       [--reader-alone | --reader-check]
+                       [--reader-alone | --reader-session [--reader-check]]
        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
                        [--lib <Name>]... [--source-url <url>] [--hash-urls]
                        [--extractor-bin <path>] [--lake <path>] [--jobs <n>]
@@ -105,11 +105,17 @@ def usage : String :=
                  tools/lean-toolchains.txt, the newest is extracted first and
                  kept checked out while every older one, checked out at
                  <out>/checkout-read and built the same way, is read by the
-                 .olean reader into the newest one's environment. One reader
-                 process imports the newest once and reads the older versions in
-                 the order --versions names them, the first built whole and each
-                 later one patched from the one read before it, which every
-                 version's line names; the reader is built under <out>/extractors
+                 .olean reader into the newest one's environment, newest first,
+                 each in a reader process of its own. A version takes the printed
+                 parts of every declaration whose reuse key is unchanged from the
+                 version above it, when that version was built in this run and
+                 kept under <out>/reuse-neighbour until the next one is read, and
+                 prints the rest; a reused print can differ from an exact read
+                 where it depends on context outside the declaration, such as
+                 notation or another declaration's binders. A version whose
+                 neighbour was not built in this run is read without reuse. Every
+                 version's line says which, and the reader's `reuse-from` line
+                 how many were reused. The reader is built under <out>/extractors
                  on that row's Lean. A search
                  directory of the newest outside its checkout, which every
                  checkout's `lake build` writes, is read from a copy under
@@ -130,14 +136,19 @@ def usage : String :=
                  reader whatever the store holds. Refused when the newest
                  version is not on the reader's toolchain
   --reader-alone  (`build --versions`) for the gates, and not part of what 1.x
-                 keeps: read each version through the reader in a process of its
-                 own, which imports the newest again, instead of one process for
-                 all of them. The entries it writes are the same bytes
-  --reader-check  (`build --versions`) for the gates, and not part of what 1.x
-                 keeps: the reader process also builds each version's environment
-                 from scratch and computes every print key afresh, and stops the
-                 build on the first difference from the patched environment or
-                 the carried keys
+                 keeps: read each version exactly, reusing nothing, through the
+                 reader in a process of its own, oldest first
+  --reader-session  (`build --versions`) for the gates, and not part of what
+                 1.x keeps: one reader process imports the newest once and reads
+                 the older versions oldest first, the first built whole and each
+                 later one patched from the one read before it, which every
+                 version's line names. The entries it writes are --reader-alone's
+                 bytes
+  --reader-check  (`build --versions --reader-session`) for the gates, and not
+                 part of what 1.x keeps: the reader session also builds each
+                 version's environment from scratch and computes every print key
+                 afresh, and stops the build on the first difference from the
+                 patched environment or the carried keys
   --out          (`reader build`) the directory the .olean reader is built
                  under, the way `build --versions` builds it under
                  <out>/extractors: on the last row of tools/lean-toolchains.txt,
@@ -651,6 +662,7 @@ structure BuildArgs where
   store : Option String := none
   throughReader : Option String := none
   readerAlone : Bool := false
+  readerSession : Bool := false
   readerCheck : Bool := false
   hashUrls : Bool := false
   /-- `watch`'s own two, as text, so that the refusal for `--port banana` is
@@ -764,6 +776,9 @@ partial def parseBuild (watching : Bool) :
     else if flag == "--reader-alone" then
       if watching then .error s!"--reader-alone is not a `watch` flag: {versionsInWatch}"
       else parseBuild watching rest { acc with readerAlone := true }
+    else if flag == "--reader-session" then
+      if watching then .error s!"--reader-session is not a `watch` flag: {versionsInWatch}"
+      else parseBuild watching rest { acc with readerSession := true }
     else if flag == "--reader-check" then
       if watching then .error s!"--reader-check is not a `watch` flag: {versionsInWatch}"
       else parseBuild watching rest { acc with readerCheck := true }
@@ -774,6 +789,23 @@ partial def parseBuild (watching : Bool) :
     else match buildRefusal watching flag with
       | some message => .error message
       | none => .error s!"unknown argument `{flag}`"
+
+inductive ReaderFill where
+  | chain
+  | alone
+  | session (check : Bool)
+  deriving BEq, Repr
+
+def BuildArgs.readerFill (a : BuildArgs) : Except String ReaderFill :=
+  if a.readerAlone && a.readerSession then
+    .error "--reader-alone and --reader-session are two ways of reading the versions below the \
+      newest: name one"
+  else if a.readerCheck && !a.readerSession then
+    .error "--reader-check is a flag of `build --versions --reader-session`: it checks the reader \
+      session's patch and carried print keys, and only --reader-session reads through the session"
+  else if a.readerAlone then .ok .alone
+  else if a.readerSession then .ok (.session a.readerCheck)
+  else .ok .chain
 
 /-- What the command line says once every flag has been read. -/
 def buildChecks (a : BuildArgs) : Option String :=
@@ -787,10 +819,11 @@ def versionedChecks (a : BuildArgs) : Option String :=
     else if a.throughReader.isSome then
       some "--through-reader is not a flag of `build` without --versions: it names versions \
         below the newest of a set, to be read into the newest one's environment"
-    else if a.readerAlone || a.readerCheck then
-      some s!"{if a.readerAlone then "--reader-alone" else "--reader-check"} is not a flag of \
-        `build` without --versions: it says how versions below the newest of a set are read"
-    else none
+    else match [("--reader-alone", a.readerAlone), ("--reader-session", a.readerSession),
+        ("--reader-check", a.readerCheck)].find? (·.2) with
+      | some (flag, _) => some s!"{flag} is not a flag of `build` without --versions: it says how \
+          versions below the newest of a set are read"
+      | none => none
   | some _ =>
     let refused : List (String × Bool × String) := [
       ("--source-url", a.sourceUrl.isSome,
@@ -801,11 +834,10 @@ def versionedChecks (a : BuildArgs) : Option String :=
         from nothing; `litedoc4 store remove` has one extracted again"),
       ("--timings", a.timings.isSome, "it is one build's record; this command prints and marks \
         which versions it extracted")]
-    let alone := if a.readerAlone && a.readerCheck then
-      some "--reader-check is not a flag of `build --versions --reader-alone`: it checks the \
-        reader session's patch and carried print keys, and a version read alone has neither"
-      else none
-    alone <|> refused.findSome? fun (flag, given, why) =>
+    let reader := match a.readerFill with
+      | .error why => some why
+      | .ok _ => none
+    reader <|> refused.findSome? fun (flag, given, why) =>
       if given then some s!"{flag} is not a flag of `build --versions`: {why}" else none
 
 /-- One request, for the two commands that ask it: `build` once and `watch` over
@@ -881,8 +913,9 @@ def VersionedRun.put (c : VersionedRun) (p : Versions.Planned) (origin : Store.O
   IO.println s!"put     {p.name.text}: {s.record.irFiles} IR file(s) -> {s.record.packBytes} B \
     ({s.record.extractorIdentity.text})"
 
-def fillNatively (c : VersionedRun) (checkout : System.FilePath) (p : Versions.Planned) :
-    BuildM (System.FilePath × Array String) := do
+def fillNatively (c : VersionedRun) (checkout : System.FilePath) (p : Versions.Planned)
+    (keepKeys : Bool := false) :
+    BuildM (System.FilePath × Array String × Option Versions.Neighbour) := do
   IO.println s!"version {p.name.text}: extracting {p.commit} on {p.toolchain}"
   let bin ← Versions.timed c.out s!"{p.name.text} extractor"
     (Versions.extractorFor c.elan c.extractors p.toolchain)
@@ -896,12 +929,15 @@ def fillNatively (c : VersionedRun) (checkout : System.FilePath) (p : Versions.P
         lake := some c.lake.toString, jobs := c.jobs }
     let request ← buildRequestOf args package.toString scratch.toString
     let e ← Versions.timed c.out s!"{p.name.text} extract"
-      (runExtraction { request with noEquationsUnder := some c.noEquationsUnder } (pure bin))
+      (runExtraction { request with noEquationsUnder := some c.noEquationsUnder
+                                    writeReuseKeys := keepKeys } (pure bin))
     let origin ← match ← Versions.originOf package c.lake request.external p.commit e.sourceUrl with
       | .error message => throw (3, s!"version {p.name.text}: {message}")
       | .ok origin => pure origin
     c.put p origin
-    return (package, libs)
+    let kept ← if keepKeys then Versions.keepNeighbour c.out p.name request.layout.ir
+      else pure none
+    return (package, libs, kept)
   finally
     if ← scratch.pathExists then IO.FS.removeDirAll scratch
 
@@ -916,14 +952,20 @@ def modulesOf (v : Store.VersionName) (package : System.FilePath) (libs : Array 
 
 inductive ReadVia where
   | alone (reader : System.FilePath) (newSearch : Array String) (newRoots : Array String)
+      (reuse : Versions.Reuse)
   | session (s : Versions.ReaderSession) (patchedFrom : Option Store.VersionName)
 
 def ReadVia.text : ReadVia → String
-  | .alone .. => "through the reader alone"
+  | .alone _ _ _ reuse => reuse.text
   | .session _ none => "in the reader session, built whole"
   | .session _ (some v) => s!"in the reader session, patched from {v.text}"
 
-def fillThroughReader (c : VersionedRun) (via : ReadVia) (p : Versions.Planned) : BuildM Unit := do
+def ReadVia.keepsKeys : ReadVia → Bool
+  | .alone _ _ _ reuse => reuse.keepsKeys
+  | .session .. => false
+
+def fillThroughReader (c : VersionedRun) (via : ReadVia) (p : Versions.Planned) :
+    BuildM (Option Versions.Neighbour) := do
   let v := p.name.text
   IO.println s!"version {v}: reading {p.commit} on {p.toolchain} {via.text}"
   let checkout := c.out / Versions.readCheckoutName
@@ -942,11 +984,11 @@ def fillThroughReader (c : VersionedRun) (via : ReadVia) (p : Versions.Planned) 
     let old ← Versions.searchPathOf c.lake package
     let events := layout.work / "events.jsonl"
     match via with
-    | .alone reader newSearch newRoots =>
+    | .alone reader newSearch newRoots reuse =>
       let rootsFile := layout.work / "new-roots.txt"
       writeLines rootsFile newRoots
       Versions.timed c.out s!"{v} read" (Versions.spawnInherited reader.toString
-        (Versions.readerArgv old newSearch rootsFile modulesFile events layout.ir c.jobs
+        (Versions.readerArgv old newSearch rootsFile reuse modulesFile events layout.ir c.jobs
           c.noEquationsUnder layout.linkIndex))
     | .session s _ =>
       let line ← match Versions.sessionRequest old modulesFile events layout.ir c.jobs
@@ -961,6 +1003,7 @@ def fillThroughReader (c : VersionedRun) (via : ReadVia) (p : Versions.Planned) 
       | .error message => throw (3, s!"version {v}: {message}")
       | .ok origin => pure { origin with fill := .reader }
     c.put p origin
+    if via.keepsKeys then Versions.keepNeighbour c.out p.name layout.ir else pure none
   finally
     if ← scratch.pathExists then IO.FS.removeDirAll scratch
     Versions.removeCheckout c.repo.top checkout
@@ -1053,33 +1096,47 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
       extractors }
   let checkout := outPath / Versions.checkoutName
   let session ← IO.mkRef (none : Option Versions.ReaderSession)
+  let readerFill ← match a.readerFill with
+    | .error why => throw (2, why)
+    | .ok fill => pure fill
   for p in native do
     if viaReader.isEmpty || p.name != newest.name then
       try discard <| fillNatively run checkout p
       finally Versions.removeCheckout repo.top checkout
   if !viaReader.isEmpty then
     try
-      let (package, libs) ← if native.any (·.name == newest.name) then fillNatively run checkout newest
+      let (package, libs, newestKept) ← if native.any (·.name == newest.name) then
+          fillNatively run checkout newest (keepKeys := readerFill == .chain)
         else do
           IO.println s!"version {newest.name.text}: checked out as the newest side of the reader"
-          Versions.prepare repo checkout (run.scratch / "mathlib-cache") elan lake a.libs newest
+          let (package, libs) ← Versions.prepare repo checkout (run.scratch / "mathlib-cache") elan
+            lake a.libs newest
+          pure (package, libs, none)
       let reader ← Versions.timed outPath "reader" (Versions.readerFor elan extractors)
       let newSearch ← Versions.timed outPath s!"{newest.name.text} search path"
         (Versions.newestSearchPath lake package checkout (outPath / Versions.newestCopiesName))
       let newRoots ← modulesOf newest.name package libs
-      if a.readerAlone then
-        for p in viaReader do fillThroughReader run (.alone reader newSearch newRoots) p
-      else
+      match readerFill with
+      | .alone =>
+        for p in viaReader do
+          discard <| fillThroughReader run (.alone reader newSearch newRoots .exact) p
+      | .chain =>
+        let built := toExtract.map (·.1.name)
+        let mut kept := newestKept
+        for p in viaReader.reverse do
+          kept ← fillThroughReader run
+            (.alone reader newSearch newRoots (Versions.chainReuse planned p kept built)) p
+      | .session check =>
         let rootsFile := outPath / Versions.newestCopiesName / "new-roots.txt"
         IO.FS.createDirAll (outPath / Versions.newestCopiesName)
         writeLines rootsFile newRoots
         let s ← Versions.ReaderSession.start reader
-          (Versions.sessionArgv newSearch rootsFile a.readerCheck)
+          (Versions.sessionArgv newSearch rootsFile check)
         session.set (some s)
         Versions.timed outPath "reader session" s.ready
         let mut previous := none
         for p in viaReader do
-          fillThroughReader run (.session s previous) p
+          discard <| fillThroughReader run (.session s previous) p
           previous := some p.name
     finally
       if let some s ← session.get then
@@ -1088,6 +1145,8 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
       if ← run.scratch.pathExists then IO.FS.removeDirAll run.scratch
       if ← (outPath / Versions.newestCopiesName).pathExists then
         IO.FS.removeDirAll (outPath / Versions.newestCopiesName)
+      if ← (outPath / Versions.neighbourName).pathExists then
+        IO.FS.removeDirAll (outPath / Versions.neighbourName)
       Versions.removeCheckout repo.top checkout
   let extracted := toExtract.map (·.1.name)
   let read := viaReader.map (·.name)

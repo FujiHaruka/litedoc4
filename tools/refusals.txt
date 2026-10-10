@@ -22,7 +22,9 @@
 # that replace them are `test/Litedoc4Test/Cli.lean`'s (2026-10-07). And for the
 # `reader` command and `build --versions --through-reader` (2026-10-08): their
 # synopsis and description lines in `@usage` and the two `reader-*` rows; and
-# for `--reader-alone` and `--reader-check` (2026-10-09), their lines in `@usage`.
+# for `--reader-alone` and `--reader-check` (2026-10-09), their lines in `@usage`;
+# and for `--reader-session` and the reuse chain (2026-10-10), their lines and the
+# `--versions` text in `@usage`.
 #
 # **The eight subcommands of the static site** — `render`, `site`, `global`,
 # `incremental`, `ownership`, `merge`, `impact`, `prune` — left with it, and so
@@ -60,7 +62,7 @@
 |                        [--store <dir>] [--hash-urls] [--lib <Name>]...
 |                        [--lake <path>] [--jobs <n>]
 |                        [--through-reader <name>,<name>...]
-|                        [--reader-alone | --reader-check]
+|                        [--reader-alone | --reader-session [--reader-check]]
 |        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
 |                        [--lib <Name>]... [--source-url <url>] [--hash-urls]
 |                        [--extractor-bin <path>] [--lake <path>] [--jobs <n>]
@@ -154,11 +156,17 @@
 |                  tools/lean-toolchains.txt, the newest is extracted first and
 |                  kept checked out while every older one, checked out at
 |                  <out>/checkout-read and built the same way, is read by the
-|                  .olean reader into the newest one's environment. One reader
-|                  process imports the newest once and reads the older versions in
-|                  the order --versions names them, the first built whole and each
-|                  later one patched from the one read before it, which every
-|                  version's line names; the reader is built under <out>/extractors
+|                  .olean reader into the newest one's environment, newest first,
+|                  each in a reader process of its own. A version takes the printed
+|                  parts of every declaration whose reuse key is unchanged from the
+|                  version above it, when that version was built in this run and
+|                  kept under <out>/reuse-neighbour until the next one is read, and
+|                  prints the rest; a reused print can differ from an exact read
+|                  where it depends on context outside the declaration, such as
+|                  notation or another declaration's binders. A version whose
+|                  neighbour was not built in this run is read without reuse. Every
+|                  version's line says which, and the reader's `reuse-from` line
+|                  how many were reused. The reader is built under <out>/extractors
 |                  on that row's Lean. A search
 |                  directory of the newest outside its checkout, which every
 |                  checkout's `lake build` writes, is read from a copy under
@@ -179,14 +187,19 @@
 |                  reader whatever the store holds. Refused when the newest
 |                  version is not on the reader's toolchain
 |   --reader-alone  (`build --versions`) for the gates, and not part of what 1.x
-|                  keeps: read each version through the reader in a process of its
-|                  own, which imports the newest again, instead of one process for
-|                  all of them. The entries it writes are the same bytes
-|   --reader-check  (`build --versions`) for the gates, and not part of what 1.x
-|                  keeps: the reader process also builds each version's environment
-|                  from scratch and computes every print key afresh, and stops the
-|                  build on the first difference from the patched environment or
-|                  the carried keys
+|                  keeps: read each version exactly, reusing nothing, through the
+|                  reader in a process of its own, oldest first
+|   --reader-session  (`build --versions`) for the gates, and not part of what
+|                  1.x keeps: one reader process imports the newest once and reads
+|                  the older versions oldest first, the first built whole and each
+|                  later one patched from the one read before it, which every
+|                  version's line names. The entries it writes are --reader-alone's
+|                  bytes
+|   --reader-check  (`build --versions --reader-session`) for the gates, and not
+|                  part of what 1.x keeps: the reader session also builds each
+|                  version's environment from scratch and computes every print key
+|                  afresh, and stops the build on the first difference from the
+|                  patched environment or the carried keys
 |   --out          (`reader build`) the directory the .olean reader is built
 |                  under, the way `build --versions` builds it under
 |                  <out>/extractors: on the last row of tools/lean-toolchains.txt,

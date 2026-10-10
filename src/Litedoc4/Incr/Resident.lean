@@ -123,6 +123,7 @@ structure Serve where
   linkIndexKey : Option String := none
   /-- `<target>/litedoc4.toml`'s `no_equations_under`. -/
   noEquationsUnder : Array String := #[]
+  writeReuseKeys : Bool := false
 
 /-- The oleans of one module list, as Lake's own content hashes.
 
@@ -412,7 +413,8 @@ is in `renderKey`.
 after it would be read as the serve loop's argument. -/
 def Serve.startArgv (s : Serve) : Array String :=
   (extractArgv s.bin s.modulesFile s.eventsPath s.unusedIrPath s.jobs s.noEquationsUnder
-    s.linkIndex (some s.modulesFile) s.linkIndexKey).push "--serve"
+    s.linkIndex (some s.modulesFile) s.linkIndexKey
+    ++ (if s.writeReuseKeys then #["--write-reuse-keys"] else #[])).push "--serve"
 
 def Server.start (s : Serve) : BuildM Server := do
   IO.FS.createDirAll s.work

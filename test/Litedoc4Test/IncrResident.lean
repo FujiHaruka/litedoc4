@@ -67,4 +67,11 @@ def theOmitListIsTheStartUpModuleListAndNotARequests : Bool :=
 
 #guard theOmitListIsTheStartUpModuleListAndNotARequests
 
+def reuseKeysAreWrittenOnlyWhenAskedAndBeforeServe : Bool :=
+  let asked := ({ serveSample with writeReuseKeys := true } : Serve).startArgv
+  !serveSample.startArgv.contains "--write-reuse-keys"
+    && asked == (serveSample.startArgv.pop.push "--write-reuse-keys").push "--serve"
+
+#guard reuseKeysAreWrittenOnlyWhenAskedAndBeforeServe
+
 end Litedoc4Test

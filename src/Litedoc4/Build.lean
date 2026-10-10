@@ -313,6 +313,7 @@ structure BuildRequest where
   timings : Option FilePath
   full : Bool
   noEquationsUnder : Option (Array String) := none
+  writeReuseKeys : Bool := false
 
 inductive Plan where
   | full (why : String)
@@ -396,7 +397,7 @@ def openExtractor (r : BuildRequest) (bin : FilePath) (extractor : Store.Extract
   let serve ← serveOptions
     { bin, extractor, target := r.root, lake := r.lake, jobs := r.jobs
       modulesFile, modules, work := r.layout.work, noEquationsUnder := r.noEquationsUnder
-      linkIndex := some r.layout.linkIndex }
+      linkIndex := some r.layout.linkIndex, writeReuseKeys := r.writeReuseKeys }
   Resident.new serve
 
 /-- What one path left behind, for the half of the run both paths share. -/

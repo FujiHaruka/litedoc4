@@ -1301,6 +1301,18 @@ combination that won.
    reusing from a reader read of the newest. The printing identity does not name the import set: in
    `build --versions` the reader's new roots are the newest's own module list, so they match there, and
    a native run of fewer modules can print notation differently (4 declarations here).
+   **`build --versions` reads through the chain by default.** The newest is extracted natively with
+   `--write-reuse-keys` when it is built in the run, and the versions filled through the reader are
+   read newest first, each by `reader extract --lazy-proofs --write-reuse-keys --reuse-from` the IR of
+   the version above it. That IR and its keys are kept under `<out>/reuse-neighbour`, one version at a
+   time, and removed when the run ends. A version whose neighbour was not built in the run (kept from
+   the store) is read without reuse, and its line says so and why. `--reader-alone` reads each version
+   exactly (`reader extract --lazy-proofs`, no reuse); `--reader-session` is the session, and
+   `--reader-check` is refused without it. All three are in `--help-all` only. `tools/mv-reader-gate.sh`
+   items `reuse-from-native`, `chain`, `chain-link-index-equals-alone` and `chain-no-neighbour`, each
+   made to fail once; the gate 18 of 18 on the M1 (745 s), on S every chain entry byte-equal to
+   read-alone. Open: the store record does not say whether an entry was filled with reuse, so a
+   reused entry and an exact one are judged alike and neither is ever refilled to become the other.
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on
