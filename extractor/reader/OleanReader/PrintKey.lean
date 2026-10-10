@@ -469,7 +469,7 @@ unsafe def keys (env : Environment) (world : World) (targets : Array Name) (jobs
   let registered ← registeredEqns env
   let cands ← candidates world targets
   let jobs := max jobs 1
-  let tasks ← (Array.range jobs).mapM fun k => IO.asTask (prio := .dedicated) do
+  let stride (k : Nat) : IO (Array (Name × KeyOut)) := do
     let memo ← IO.mkRef ({} : Memo)
     let mut out : Array (Name × KeyOut) := #[]
     let mut i := k
@@ -480,9 +480,13 @@ unsafe def keys (env : Environment) (world : World) (targets : Array Name) (jobs
         out := out.push (c, h)
       i := i + jobs
     return out
+  -- Not one task at one job: spawning a task marks the whole environment it captures multi-threaded.
+  let parts ← if jobs == 1 then pure #[← stride 0] else do
+    let tasks ← (Array.range jobs).mapM fun k => IO.asTask (prio := .dedicated) (stride k)
+    tasks.mapM fun t => IO.ofExcept t.get
   let mut keys : Std.HashMap Name KeyOut := Std.HashMap.emptyWithCapacity cands.size
-  for t in tasks do
-    for (c, h) in ← IO.ofExcept t.get do keys := keys.insert c h
+  for part in parts do
+    for (c, h) in part do keys := keys.insert c h
   return keys
 
 end OleanReader.PrintKey

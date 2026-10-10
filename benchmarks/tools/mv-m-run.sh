@@ -39,14 +39,15 @@
 # then both stores rendered (`store render`) and every page that differs traced
 # to a declaration the classification names (benchmarks/tools/mv-m-site-diff.py).
 #
-# With --session as well, one `reader session --check-patch --check-keys` is
-# started after `reader-build` (its `ready` line recorded) and stays resident
+# With --session as well, one `reader session` with --session-flags (default
+# --check-patch --check-keys) is started after `reader-build` (its `ready` line recorded) and stays resident
 # across every version; it is stopped (stdin closed, exit 0 required) after the
 # last. Per version, before the read-alone `reader` phase, which stays the oracle:
 #   session    one request: reader's argv minus --new/--new-roots, into
 #              <work>/reader-session/<tag>; every line up to `ok`/`err` saved,
 #              and its round, patch, check-patch, carry, check-keys, reuse,
-#              phases and rss lines recorded (wall from `ok`, CPU from ps)
+#              phases, rss and rss-at-extract lines recorded (wall from `ok`,
+#              CPU from ps); a line the flags do not print is left out
 #   session-vs-alone  every IR file and the link index compared byte for byte
 #              with read-alone's (sessionEqualsAlone); when they differ, the
 #              session's output is classified against the build too
@@ -58,7 +59,8 @@
 #
 # usage: benchmarks/tools/mv-m-run.sh [--roots M,M] [--versions T,T] [--work DIR]
 #          [--keep-checkouts] [--limit-modules N] [--need-gb N] [--jobs N]
-#          [--through-reader [--session] [--newest DIR] [--old-store DIR]]
+#          [--through-reader [--session [--session-flags 'F F']] [--newest DIR]
+#          [--old-store DIR]]
 #   --roots           Mathlib modules (default: the plan's first M candidate,
 #                     Mathlib.Algebra.BigOperators.Group.Finset.Basic,Mathlib.Order.Filter.Basic)
 #   --versions        Mathlib release tags, in release order (default: v4.32.2,v4.33.0,v4.33.1)
@@ -71,6 +73,9 @@
 #   --through-reader  also read each version through the .olean reader (above)
 #   --session         also read each version through one resident reader session
 #                     (above); only with --through-reader
+#   --session-flags   the session's own flags, space-separated (default:
+#                     '--check-patch --check-keys'; '' for none, '--no-patch'
+#                     for print reuse without the patch)
 #   --newest          the newest version's built workspace (default:
 #                     /private/tmp/lean-doc-relay/mv-v4341)
 #   --old-store       a store an earlier native run filled (default:
@@ -97,6 +102,7 @@ NEED_GB=4
 JOBS=1
 THROUGH=0
 SESSION=0
+SESSION_FLAGS="--check-patch --check-keys"
 NEWEST=/private/tmp/lean-doc-relay/mv-v4341
 OLD_STORE=/private/tmp/lean-doc-relay/mv-m/store
 while [ $# -gt 0 ]; do
@@ -110,6 +116,7 @@ while [ $# -gt 0 ]; do
     --jobs) JOBS="$2"; shift 2 ;;
     --through-reader) THROUGH=1; shift ;;
     --session) SESSION=1; shift ;;
+    --session-flags) SESSION_FLAGS="$2"; shift 2 ;;
     --newest) NEWEST="$2"; shift 2 ;;
     --old-store) OLD_STORE="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d'; answer 0 ;;
@@ -504,6 +511,9 @@ if ph:
         out["ms_" + name.replace(" ", "-")] = ms
     out["ms_total"] = total.split()[0]
 nums(r"peak (\d+) MiB .*resident (\d+) MiB", raw("rssLine", "rss"), "peakMiB", "residentMiB")
+nums(r"cpu (\d+) ms user, (\d+) ms system so far", raw("rssLine", "rss"), "cpuUserMsSoFar", "cpuSystemMsSoFar")
+nums(r"before extraction: peak (\d+) MiB, resident (\d+) MiB; after it: peak (\d+) MiB",
+     raw("rssAtExtractLine", "rss-at-extract"), "peakBeforeExtractMiB", "residentBeforeExtractMiB", "peakAfterExtractMiB")
 raw("readerLine", "reader")
 for k, v in out.items():
     print("%s=%s" % (k, v))
@@ -517,8 +527,9 @@ if [ "$SESSION" -eq 1 ]; then
   exec 9<>"$WORK/session.fifo"
   : >"$SOUT"
   PH_BEFORE="$(avail_kb)"; PH_RC=0
+  read -r -a session_flags <<<"$SESSION_FLAGS"
   /usr/bin/time -l -o "$LOGS/newest-session.time" "$READER" session "${NEW_ARGS[@]}" \
-    --new-roots "$LOGS/newest-closure.txt" --check-patch --check-keys \
+    --new-roots "$LOGS/newest-closure.txt" ${session_flags[@]+"${session_flags[@]}"} \
     <"$WORK/session.fifo" >"$SOUT" 2>"$SERR" 9>&- &
   SESSION_PID=$!
   session_await 0 '^ready ' "before it was ready"
@@ -526,7 +537,7 @@ if [ "$SESSION" -eq 1 ]; then
   [ -n "$SESSION_READER_PID" ] || fail "the reader session runs under /usr/bin/time ($SESSION_PID) with no child"
   read -r _ ready_ns ready_modules < <(rg -m 1 '^ready ' "$SOUT")
   ready_s="$(python3 -c 'import sys; print("%.2f" % (int(sys.argv[1]) / 1e9))' "$ready_ns")"
-  record newest session-ready "readySeconds=$ready_s" "newestModules=$ready_modules" \
+  record newest session-ready "flags=${SESSION_FLAGS// /,}" "readySeconds=$ready_s" "newestModules=$ready_modules" \
     "cpuSeconds=$(session_cpu)" "swap=$(sysctl -n vm.swapusage)"
   echo "session  ready after $ready_s s, $ready_modules newest modules (pid $SESSION_READER_PID)"
 fi
@@ -612,9 +623,10 @@ print("?" if "?" in (a, b) else "%.2f" % (float(b) - float(a)))' "$cpu0" "$(sess
     tail -c 3000 "$LOGS/$tag-session.out" >&2 || true
     fail "$tag: the reader session's round failed"
   fi
-  echo "session  round $(kv round "$LOGS/$tag-session.counts"): $(kv wallSeconds "$LOGS/$tag-session.counts") s;" \
-    "check-patch $(kv checkPatchModules "$LOGS/$tag-session.counts") module(s), check-keys $(kv checkKeysDiffer "$LOGS/$tag-session.counts") key(s);" \
-    "reused $(kv reused "$LOGS/$tag-session.counts") of $(kv produced "$LOGS/$tag-session.counts"), rewritten $(kv rewritten "$LOGS/$tag-session.counts") of $(kv newestModules "$LOGS/$tag-session.counts")"
+  local c="$LOGS/$tag-session.counts"
+  echo "session  round $(kv round "$c"): $(kv wallSeconds "$c") s;" \
+    "check-patch $(kv checkPatchModules "$c" | grep . || echo 'not run') module(s), check-keys $(kv checkKeysDiffer "$c" | grep . || echo 'not run') key(s);" \
+    "reused $(kv reused "$c") of $(kv produced "$c"), $(if [ -n "$(kv rewritten "$c")" ]; then echo "rewritten $(kv rewritten "$c") of $(kv newestModules "$c")"; else echo "no patch"; fi)"
 }
 
 reader_pass () {
@@ -641,6 +653,7 @@ reader_pass () {
     --link-index "$RD/link-index.lidx" --link-index-omit "$OUT/work/modules.txt"
   [ "$PH_RC" -eq 0 ] || fail "$tag: reader extract failed"
   record "$tag" reader "oldSearchDirs=$((${#OLD_ARGS[@]} / 2))" \
+    "rssAtExtract=$(sed -n 's/^rss-at-extract  *//p' "$LOGS/$tag-reader.out" | tr ' ' '_')" \
     "irFiles=$(find "$RD/ir" -type f | wc -l | tr -d ' ')" \
     "hardStops=$(sed -n 's/^hard stops *//p' "$LOGS/$tag-reader.out" | tr ' ' ',')"
   echo "reader   $(sed -n 's/^reader  *//p' "$LOGS/$tag-reader.out")"

@@ -97,6 +97,16 @@
 #                     carried none, every later round says it carried from
 #                     the round before, carried + recomputed is the
 #                     candidate count, and some round carried at least one
+#   no-patch-equals-alone
+#                     every older row read by one `reader session --no-patch`:
+#                     each round decoded whole and merged as read-alone merges,
+#                     every print key computed afresh, and the printed part of
+#                     every declaration whose key equals the previous round's
+#                     reused: each round answers `ok 0` and prints no patch or
+#                     carry line, its IR and link index are the bytes of that
+#                     row's read-alone run, its summary is read-alone's as
+#                     above, and its reuse line passes session-reuse's checks
+#                     (every round after the first reused at least one)
 #   carry-presence-flip
 #                     the first two older rows, across the shadow's
 #                     disappearance, in a session with --check-keys
@@ -198,7 +208,7 @@ fi
 NEWEST_I=$(( ${#ROWS[@]} - 1 ))
 NEWEST="${ROWS[$NEWEST_I]##*:v}"
 NEWEST_SPELLING="${SPELLINGS[$NEWEST_I]}"
-declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 9 ))
+declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 10 ))
 
 record_host
 if ! installed "${ROWS[$NEWEST_I]}"; then
@@ -574,7 +584,7 @@ def check_lines(r):
     named = [re.match(r"  check-patch-module (\S+):", l).group(1) for l in r["lines"] if l.startswith("  check-patch-module ")]
     return m, named
 
-SESSION_ONLY = re.compile(r"^(patch|patch-perturbed|check-patch|carry|check-keys|reuse|rss|realizations|phases) |^  check-(patch|keys)-|^  dir ")
+SESSION_ONLY = re.compile(r"^(patch|patch-perturbed|check-patch|carry|check-keys|reuse|rss|rss-at-extract|realizations|phases) |^  check-(patch|keys)-|^  dir ")
 PRINTING_WORK = re.compile(r"^  (of which equations|of which refs|member extra) ")
 def summary(lines):
     out = []
@@ -589,7 +599,7 @@ def summary(lines):
 
 REUSE = (r"reuse +(\d+) of (\d+) declarations reused, (\d+) reprinted \(key differs (\d+), key equal (\d+), "
          r"no previous output (\d+), new (\d+)\); key (.+) of (\d+) candidates: carried (\d+), recomputed (\d+) "
-         r"\(stale (\d+), new (\d+)\) in (\d+) ms on one thread$")
+         r"\(stale (\d+), new (\d+)\) in (\d+) ms on (?:one thread|\d+ threads)$")
 CHECK_KEYS = r"check-keys +(\d+) keys differ from a fresh pass \((\d+) keys, fresh memos, (\d+) thread\(s\), (\d+) ms\)$"
 
 def module_decls(ir):
@@ -676,7 +686,7 @@ elif mode == "reuse":
         elif k == 0 and (reused != 0 or new != produced):
             bad.append(f"v{v}: round 1 reused {reused}, {new} of {produced} new")
         elif k > 0 and reused == 0:
-            bad.append(f"v{v}: patched from v{versions[k - 1]} and reused nothing ({reprinted} reprinted: key differs "
+            bad.append(f"v{v}: read after v{versions[k - 1]} and reused nothing ({reprinted} reprinted: key differs "
                        f"{differs}, no previous output {noprev}, new {new})")
         else:
             seen.append(f"v{v} reused {reused} of {produced}, reprinted {reprinted} (key differs {differs}, "
@@ -938,6 +948,59 @@ elif result="$(session_check check-keys "$SESSION" "${SESSION_ROWS[@]}" 2>&1)"; 
   ok "$item" "$result"
 else
   bad "$item" "$result"
+fi
+
+say
+say "=== the older rows in one reader session --no-patch: every round built whole, keys fresh, reuse kept"
+item=no-patch-equals-alone
+NOPATCH="$WORK/session-no-patch"
+if ! why="$(session_ready)"; then
+  bad "$item" "$why"
+elif [ "${#SESSION_ROWS[@]}" -lt 2 ]; then
+  bad "$item" "fewer than two older rows, so no round reuses"
+else
+  run_session "$NOPATCH" --no-patch -- "${SESSION_ROWS[@]}"
+  sed -n 's/^rss  *//p; s/^\(reuse \)  */\1/p' "$NOPATCH/stdout.txt" | sed 's/^/  /'
+  replies=()
+  while IFS= read -r l; do replies+=("$l"); done < <(grep -E '^(ok|err) ' "$NOPATCH/stdout.txt")
+  lines=()
+  fails=()
+  nopatch_rc="$(cat "$NOPATCH/rc")"
+  if [ "$nopatch_rc" != 0 ]; then fails+=("reader session --no-patch exited $nopatch_rc: $(head -c 300 "$NOPATCH/stderr.txt")"); fi
+  if grep -qE '^(patch|carry) ' "$NOPATCH/stdout.txt"; then
+    fails+=("a round printed a patch or carry line: $(grep -m 1 -E '^(patch|carry) ' "$NOPATCH/stdout.txt" | head -c 200)")
+  fi
+  for k in "${!SESSION_ROWS[@]}"; do
+    v="${SESSION_ROWS[$k]}"
+    reply="${replies[$k]:-}"
+    if [ -z "$reply" ]; then
+      fails+=("round $((k + 1)) (v$v) was never answered")
+    elif [ "${reply%% *}" != ok ] || [ "$(printf '%s' "$reply" | cut -d' ' -f2)" != 0 ]; then
+      fails+=("round $((k + 1)) (v$v) answered '$reply'")
+    elif [ ! -d "$WORK/v$v/read/ir" ]; then
+      fails+=("v$v has no read-alone IR to equal")
+    elif ! /usr/bin/diff -r "$WORK/v$v/read/ir" "$NOPATCH/v$v/ir" >"$NOPATCH/v$v/ir.diff" 2>&1; then
+      fails+=("v$v: the --no-patch round's IR differs from read-alone: $(head -c 400 "$NOPATCH/v$v/ir.diff")")
+    elif ! cmp -s "$WORK/v$v/read/links.lidx" "$NOPATCH/v$v/links.lidx"; then
+      fails+=("v$v: the --no-patch round's link index differs from read-alone")
+    else
+      lines+=("v$v $(find "$NOPATCH/v$v/ir" -type f | wc -l | tr -d ' ') files + link index")
+    fi
+  done
+  if [ "${#replies[@]}" -ne "${#SESSION_ROWS[@]}" ]; then
+    fails+=("${#replies[@]} replies to ${#SESSION_ROWS[@]} requests")
+  fi
+  if [ "${#fails[@]}" -eq 0 ] && ! summaries="$(session_check alone "$NOPATCH" "${SESSION_ROWS[@]}" 2>&1)"; then
+    fails+=("$summaries")
+  fi
+  if [ "${#fails[@]}" -eq 0 ] && ! reuse="$(session_check reuse "$NOPATCH" "${SESSION_ROWS[@]}" 2>&1)"; then
+    fails+=("$reuse")
+  fi
+  if [ "${#fails[@]}" -ne 0 ]; then
+    bad "$item" "$(printf '%s; ' "${fails[@]}")"
+  else
+    ok "$item" "${#SESSION_ROWS[@]} rounds, each equal to read-alone: $(printf '%s; ' "${lines[@]}")$summaries; $reuse"
+  fi
 fi
 
 say

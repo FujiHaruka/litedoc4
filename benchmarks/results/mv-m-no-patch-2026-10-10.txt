@@ -1,0 +1,151 @@
+E1 on M: print reuse without the patch. One resident `reader session --no-patch` over the M slice
+of three Mathlib releases (each round decoded whole, merged by rewriteMerge as read-alone merges,
+every print key computed afresh, the previous round's printed output reused where the key is
+unchanged), against `reader extract` alone on the same versions, 3 alternating cycles
+==================================================================================================
+
+A measurement run, not a gate (2026-10-10, host clock 2026-10-10T00:26:54Z to 00:56:25Z).
+Experiment E1 of docs/multiversion/implementation.md ("Levers plan: beating read-alone on M").
+3 cycles, not 5: for lever experiments 3 alternating cycles are enough to tell an obvious win
+(decided 2026-10-10, user's call).
+
+CONDITIONS
+----------
+host        Apple M1, 16 GB, Darwin 25.6.0 arm64; free disk 15 GiB at the start, 11 GiB with the
+            three checkouts kept
+litedoc4    204c51618bdc3b28c89a66255cba023b574d4232 plus 4 uncommitted paths (the --no-patch mode:
+            extractor/reader/OleanReader/Hybrid.lean, PrintKey.lean, tools/reader-hybrid-gate.sh,
+            benchmarks/tools/mv-m-run.sh; committed with this file), litedoc4 rebuilt at that tree
+reader      `litedoc4 reader build` on leanprover/lean4:v4.34.1 at -O3 -DNDEBUG (61.27 s):
+            reader-leanprover-lean4-v4.34.1-f9f48081d29127b6, identity reader=fnv1a64:e82bd2c93642a4d4
+            source=fnv1a64:7bb4d9f8122fd2b8
+versions    v4.32.2  mathlib 905b95818eb32af7874a58b427f50c1711a5e96c  433 modules
+            v4.33.0  mathlib db584cd6d46c92f209a44c0f1c829460d327499d  438 modules
+            v4.33.1  mathlib 0df444a360eaa60ab8c11dca51a86af692955474  438 modules
+            (the commits of benchmarks/results/mv-m-session-2026-10-10.txt)
+newest      /private/tmp/lean-doc-relay/mv-v4341 (read only): 11 search directories, 447 modules in
+            its closure of the two roots, 2,187 newest modules imported
+flags       both arms: --equations --refs --write-ir --tagged-code
+            --no-equations-under Mathlib.Tactic,Mathlib.Meta --jobs 1 --link-index, with the native
+            build's own module list; the session arm also --no-patch (no check flags)
+keys        computed by PrintKey.keys, the pass --check-keys has always compared against, at
+            --jobs threads; at one job it now runs on the calling thread, because a spawned task
+            marks the whole environment it captures multi-threaded (and the extraction at --jobs 1
+            spawns none)
+order       cycle 1 session then read-alone, cycle 2 read-alone then session, cycle 3 session then
+            read-alone; nothing else heavy started during the cycles
+memory      swapouts 5,537,290 before the setup run and after the cycles (none during); swapins
+            4,755,341 -> 4,757,269; swap used 1,808 of 3,072 MiB throughout; the compressor held
+            7.59 GiB in 1.40 GiB before the cycles and 6.87 GiB in 1.10 GiB after; free pages
+            3.23 GiB before, 2.03 GiB after; load average 2.07 / 3.26 / 3.42 before, 2.45 / 2.45 /
+            2.69 after
+warmth      the oleans were unpacked by the setup run minutes before the cycles; read-alone's wall
+            exceeds its user+system CPU by 6-10%, a session round's by 2-26% (the round's CPU is
+            the session's own, without the old Lean it asks for the manual root); cycle-to-cycle
+            spread 0.17-0.35 s for read-alone, so the arms had converged
+
+REPRODUCE
+---------
+  tools/build-lean-exe.sh --toolchain-from e2e/micro
+  benchmarks/tools/mv-m-run.sh --through-reader --session --session-flags --no-patch \
+    --keep-checkouts --need-gb 3 --work /private/tmp/lean-doc-relay/mv-m-no-patch
+Then a throwaway cycle driver (kept outside the tree) on the kept checkouts: per cycle one
+`/usr/bin/time -l reader session <--new ...> --new-roots <newest closure> --no-patch` fed the three
+requests on stdin, and one `/usr/bin/time -l reader extract` per version with the same request;
+`/usr/bin/diff -r` of every IR tree and `cmp` of every link index against cycle 1's read-alone, and
+session against read-alone of the same cycle. Then one cycle of the patched session (no flags,
+session only) and one cycle of both arms at --jobs 4. Setup run 582 s, the cycles 1,006 s.
+
+ANSWER
+------
+                                     v4.32.2 (round 1)  v4.33.0 (round 2)  v4.33.1 (round 3)
+  session = read-alone, all cycles   yes, 3 of 3        yes, 3 of 3        yes, 3 of 3
+  read-alone = cycle 1's read-alone  yes                yes                yes
+  declarations reused / reprinted    0 / 21,680         21,031 / 897       21,928 / 0
+  session round wall (s)             39.74 41.67 41.77  26.46 28.97 29.56  27.66 28.00 28.00
+  session round CPU (s)              39.02 39.07 39.14  23.68 23.52 23.78  22.23 22.19 22.33
+  read-alone process wall (s)        36.11 35.92 36.79  36.97 36.79 37.14  37.02 37.13 37.19
+  read-alone process CPU (s)         33.68 33.41 33.71  34.00 33.81 33.98  33.95 34.06 33.81
+  session peak after the round (MiB) 3,215 3,214 3,215  4,903 4,902 4,903  4,939 4,949 4,950
+  session resident before extraction 3,166 3,166 3,166  4,901 4,901 4,902  4,939 4,949 4,950
+  read-alone maximum RSS (MiB)       3,221 3,219 3,220  3,227 3,228 3,227  3,228 3,228 3,227
+  read-alone resident before extr.   3,163 3,163 3,163  3,170 3,171 3,171  3,170 3,170 3,170
+  (each cell: cycles 1, 2, 3; session rows from the round's `ok` and `rss`/`rss-at-extract`
+  lines, read-alone rows from /usr/bin/time -l and its `rss-at-extract` line; all (measured))
+
+  session process (3 rounds): wall 94.61 / 99.41 / 100.62 s, maximum RSS 4,939 / 4,949 / 4,950 MiB,
+  peak footprint 3,799 / 3,799 / 3,798 MiB; read-alone processes: peak footprint 2,115-2,130 MiB.
+
+  Against the win criteria (implementation.md, "Win on M"):
+  - exactness: met. Every IR file and the link index equal to read-alone, 3 of 3 versions in each
+    cycle; read-alone itself repeated byte for byte.
+  - time: met. Rounds 2-3 take 26.46-29.56 s against read-alone's 36.79-37.19 s on the same
+    versions. The smallest gap, 7.23 s (v4.33.0), is larger than either arm's spread (session
+    round 2 3.10 s, read-alone 0.35 s). 1.24-1.40x per extra version (measured, the ratio of
+    walls: round wall against process wall; read-alone's own phases totals, 36.64-37.03 s, give
+    the same gap).
+  - memory: NOT met. From round 2 on, the session's resident set is 4,901-4,950 MiB before
+    extraction starts, against read-alone's 3,170 MiB at the same point and 3,227-3,228 MiB at
+    its peak: +1.67-1.72 GiB (+52%). Round 1 (no reuse possible) peaks at read-alone's level
+    (3,214-3,215 against 3,219-3,221 MiB).
+
+**Verdict: E1 does not win on M; by the plan's kill rule ("killed if the peak stays above it")
+it is killed.** It is exact and saves about 8-10 s per extra version, but the resident process
+holds 1.7 GiB more than read-alone from its second round on. The prediction was rounds 2-3 at
+30-33 s and peak about read-alone's (theoretical): time came in under it, memory missed it.
+
+WHERE A ROUND'S TIME GOES (ms, cycle 2's `phases` lines)
+--------------------------------------------------------
+                       session r1  session r2  session r3  alone v4.33.1
+  manual root             2,160       2,837       3,115        2,354
+  closure                   451         755         764          555
+  decode                 11,177      12,410      12,677       11,709
+  check ilean             1,796       1,823       1,854        1,806
+  newest import               0           0           0          439
+  merge                   1,130       1,108       1,118        1,134
+  finalize                1,631         351         350        1,106
+  key pass                5,530       5,094       5,084            -
+  rss probe                  52          55          57           88
+  extract                17,587       3,290       1,725       17,697
+  clear realizations         65       1,135       1,138            -
+  total                  41,669      28,970      27,999       36,975
+
+Reuse takes extraction from 17.6 s to 1.7-3.3 s; the fresh key pass gives 5.1 s of it back. The
+session's decode is 0.7-1.0 s slower than read-alone's on the same version from round 2 on, and
+clearing realizations costs 1.1 s from round 2 on against 0.07 s in round 1; neither is explained
+by this run.
+
+The round-to-round growth the patched session showed (mv-m-session-2026-10-10) does not appear
+without the patch: decode 12.41-12.58 -> 12.68-12.75 s from round 2 to 3, against read-alone's
+11.56-11.63 -> 11.71-11.76 s for the same two versions; finalize 0.35 s in both rounds. The
+patched session in this same warm state (one cycle, no check flags) still grew: decode 11.94 ->
+12.89 -> 14.74 s, hash 19.27 -> 20.22 -> 25.01 s; rounds 59.55 / 51.93 / 52.69 s, maximum RSS
+5,035 MiB, every IR equal to read-alone (measured, one cycle).
+
+The extra 1.7 GiB is not the patch's retained state: the patched session holds about the same
+from round 2 on (resident 4,975-5,035 MiB before extraction). What holds it, live objects of an
+earlier round or memory the allocator keeps after freeing, is not determined by this run.
+
+AT --jobs 4 (one cycle, (measured), not converged)
+-------------------------------------------------
+  session rounds 32.30 / 27.50 / 30.51 s against read-alone 26.19 / 27.04 / 27.14 s: no win. At four
+  threads read-alone's extraction is 7.0-7.5 s, so reuse has less to save, and the key pass is
+  slower on four threads than on one (5.89-7.18 s against 5.06-5.14 s). Session maximum RSS 4,988
+  MiB, read-alone 3,278-3,289 MiB. Every IR equal to the --jobs 1 reference, both arms.
+
+SETUP RUN (cycle 0, not in the spread)
+--------------------------------------
+mv-m-run.sh's own pass: native build, session round and read-alone per version, the session
+resident through the later versions' native builds. Session rounds 45.95 / 25.36 / 24.44 s,
+read-alone 37.49 / 38.57 / 36.75 s; session = read-alone in every IR file and the link index, 3 of
+3; 0 defects against native on every version; the reader store's render traced every differing
+page (168 of 437 on v4.32.2, the drift of the 2026-10-08 record; untraced 0). Read-alone peaked
+at 2,918-3,051 MiB there, lower than in the cycles, with the 4.4 GiB session resident beside it.
+
+GATES (same tree)
+-----------------
+tools/reader-hybrid-gate.sh 32 of 32, with the new item `no-patch-equals-alone` (four rounds on the
+sample, each equal to read-alone in every IR file, the link index and the summary; reused 105 of
+111, 107 of 109 and 103 of 111 on the three later rounds). It failed once with reuse ignoring the
+key (v4.32.2's IR differs from read-alone, the presence flip of the probe's shadow).
+tools/mv-reader-gate.sh 14 of 14, tools/lean-test-gate.sh 4 of 4.

@@ -345,13 +345,16 @@ structure Printed where
 structure PatchSession where
   check : Bool
   perturb : Bool
-  scx : Bool
-  checkKeys : Bool
   presence : Bool
   index : Patch.NewestIndex
   last : IO.Ref (Option (Assemble.Prev × Option (Patch.Built × String)))
-  printed : IO.Ref (Option Printed)
   carry : IO.Ref (Option Carry.State)
+
+structure ReuseSession where
+  scx : Bool
+  checkKeys : Bool
+  printed : IO.Ref (Option Printed)
+  patch? : Option PatchSession
 
 def patchLine (from? : Option String) (sh : Assemble.ShareCounts) (st : Patch.Stats) (modules : Nat) : String :=
   let shared := s!"decoded objects replaced by the previous version's: constants {sh.constantsShared} of \
@@ -425,12 +428,12 @@ unsafe def countReuse (prev : Option Printed) (keys : Std.HashMap Name UInt64) (
       else if keys[d.name]? == some k then { c with keyEqual := c.keyEqual + 1 }
       else { c with keyDiffers := c.keyDiffers + 1 }
 
-def reuseLine (scx : Bool) (st : Carry.Stats) (c : ReuseCounts) (produced : Nat) : String :=
+def reuseLine (scx : Bool) (st : Carry.Stats) (threads : Nat) (c : ReuseCounts) (produced : Nat) : String :=
   let key := if scx then "N1X + own" else "N1 + own (--key-without-scx)"
   s!"reuse                {c.reused} of {produced} declarations reused, {c.reprinted} reprinted (key differs \
     {c.keyDiffers}, key equal {c.keyEqual}, no previous output {c.noPrevious}, new {c.new}); key {key} of \
     {st.candidates} candidates: carried {st.carried}, recomputed {st.recomputed} (stale {st.stale}, new {st.new}) \
-    in {st.ms} ms on one thread"
+    in {st.ms} ms on {if threads ≤ 1 then "one thread" else s!"{threads} threads"}"
 
 def carryLine (presence : Bool) (st : Carry.Stats) : String :=
   let memos := s!"memos entries/stale/changed: records {st.recs.text}, resolutions {st.res.text}, \
@@ -445,41 +448,107 @@ def checkKeysLines (diffs : Array Carry.Difference) (keys jobs ms : Nat) : Array
   #[s!"check-keys           {diffs.size} keys differ from a fresh pass ({keys} keys, fresh memos, {jobs} \
       thread(s), {ms} ms)"] ++ diffs.map (s!"  check-keys-differ {·.line}")
 
+def residentKb : IO (Option Nat) := do
+  let out ← IO.Process.output { cmd := "ps", args := #["-o", "rss=", "-p", toString (← IO.Process.getPID)] }
+  return if out.exitCode == 0 then out.stdout.trimAscii.toString.toNat? else none
+
+def peakKb : IO Nat := return (← Std.IO.Process.getResourceUsage).peakResidentSetSizeKb.toNat
+
+def mibText : Option Nat → String
+  | some kb => s!"{kb / 1024} MiB"
+  | none => "unknown"
+
+structure RssAtExtract where
+  peakBefore : Nat
+  residentBefore : Option Nat
+  peakAfter : Nat
+
+def RssAtExtract.line (r : RssAtExtract) : String :=
+  s!"rss-at-extract       before extraction: peak {r.peakBefore / 1024} MiB, resident {mibText r.residentBefore}; \
+    after it: peak {r.peakAfter / 1024} MiB"
+
+def extractMeasured (ph : Phases) (extract : IO α) : IO (α × RssAtExtract) := do
+  let peakBefore ← peakKb
+  let residentBefore ← residentKb
+  ph.mark "rss probe"
+  let x ← extract
+  let peakAfter ← peakKb
+  ph.mark "extract"
+  return (x, { peakBefore, residentBefore, peakAfter })
+
+def keyMap (outs : Std.HashMap Name PrintKey.KeyOut) : Std.HashMap Name UInt64 :=
+  outs.fold (fun m n o => m.insert n o.key) (Std.HashMap.emptyWithCapacity outs.size)
+
+structure KeyPass where
+  keys : Std.HashMap Name UInt64
+  stats : Carry.Stats
+  threads : Nat
+  lines : Array String
+  failure : Option String := none
+
+unsafe def carriedKeys (r : ReuseSession) (p : PatchSession) (ph : Phases) (cfg : Cfg) (env : Environment)
+    (world : World) (targets : Array Name) (start : Option (Carry.State × Patch.Delta)) : IO KeyPass := do
+  let (outs, state, st, d?) ← Carry.run env world targets r.scx start p.presence
+  let keys := keyMap outs
+  let mut lines := #[carryLine p.presence st]
+  ph.mark "key pass"
+  if r.checkKeys then
+    let t0 ← IO.monoNanosNow
+    let fresh ← PrintKey.keys env world targets cfg.jobs r.scx
+    let diffs ← Carry.compare env r.scx d? state outs fresh
+    lines := lines ++ checkKeysLines diffs fresh.size (max cfg.jobs 1) (((← IO.monoNanosNow) - t0) / 1000000)
+    ph.mark "check-keys"
+    if let some x := diffs[0]? then
+      return { keys, stats := st, threads := 1, lines, failure := some s!"{x.line} ({diffs.size} key(s) in all)" }
+  p.carry.set (some state)
+  return { keys, stats := st, threads := 1, lines }
+
+unsafe def freshKeys (r : ReuseSession) (ph : Phases) (cfg : Cfg) (env : Environment) (world : World)
+    (targets : Array Name) : IO KeyPass := do
+  let t0 ← IO.monoNanosNow
+  let outs ← PrintKey.keys env world targets cfg.jobs r.scx
+  let candidates := (← PrintKey.candidates world targets).size
+  let st : Carry.Stats := { candidates, new := outs.size, ms := ((← IO.monoNanosNow) - t0) / 1000000 }
+  ph.mark "key pass"
+  let threads := max cfg.jobs 1
+  unless r.checkKeys do return { keys := keyMap outs, stats := st, threads, lines := #[] }
+  let t1 ← IO.monoNanosNow
+  let again ← PrintKey.keys env world targets cfg.jobs r.scx
+  let diffs ← Carry.compare env r.scx none { memo := {}, decls := {}, aliases := {} } outs again
+  let lines := checkKeysLines diffs again.size threads (((← IO.monoNanosNow) - t1) / 1000000)
+  ph.mark "check-keys"
+  return { keys := keyMap outs, stats := st, threads, lines,
+           failure := diffs[0]?.map fun x => s!"{x.line} ({diffs.size} key(s) in all)" }
+
 structure Reusing where
   code : UInt32
   lines : Array String
   printed : Printed
   failure : Option String
+  atExtract : Option RssAtExtract
 
-unsafe def extractReusing (p : PatchSession) (ph : Phases) (cfg : Cfg) (env : Environment) (world : World)
+unsafe def extractReusing (r : ReuseSession) (ph : Phases) (cfg : Cfg) (env : Environment) (world : World)
     (targets : Array Name) (prev : Option Printed) (start : Option (Carry.State × Patch.Delta)) : IO Reusing := do
-  let (outs, state, st, d?) ← Carry.run env world targets p.scx start p.presence
-  let keys := outs.fold (fun m n o => m.insert n o.key) (Std.HashMap.emptyWithCapacity outs.size)
-  let mut lines := #[carryLine p.presence st]
-  ph.mark "key pass"
-  if p.checkKeys then
-    let t0 ← IO.monoNanosNow
-    let fresh ← PrintKey.keys env world targets cfg.jobs p.scx
-    let diffs ← Carry.compare env p.scx d? state outs fresh
-    lines := lines ++ checkKeysLines diffs fresh.size (max cfg.jobs 1) (((← IO.monoNanosNow) - t0) / 1000000)
-    ph.mark "check-keys"
-    if let some x := diffs[0]? then
-      return { code := 1, lines, printed := { keys, out := {} },
-               failure := some s!"{x.line} ({diffs.size} key(s) in all)" }
-  p.carry.set (some state)
+  let kp ← match r.patch? with
+    | some p => carriedKeys r p ph cfg env world targets start
+    | none => freshKeys r ph cfg env world targets
+  if kp.failure.isSome then
+    return { code := 1, lines := kp.lines, printed := { keys := kp.keys, out := {} }, failure := kp.failure,
+             atExtract := none }
   let out ← IO.mkRef #[]
-  let code ← Litedoc4.run cfg (some (env, world)) (some { prev := reused? prev keys, out })
-  ph.mark "extract"
+  let (code, atExtract) ← extractMeasured ph <|
+    Litedoc4.run cfg (some (env, world)) (some { prev := reused? prev kp.keys, out })
   let results ← out.get
   let out := results.foldl (fun m d => m.insert d.name d) (Std.HashMap.emptyWithCapacity results.size)
-  return { code, lines := lines.push (reuseLine p.scx st (countReuse prev keys results) results.size),
-           printed := { keys, out }, failure := none }
+  return { code, lines := kp.lines.push (reuseLine r.scx kp.stats kp.threads (countReuse prev kp.keys results) results.size),
+           printed := { keys := kp.keys, out }, failure := none, atExtract }
 
 unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : IO Newest) (resident : Bool)
-    (ph : Phases) (patch? : Option PatchSession := none) : IO UInt32 := do
-  let prevPrinted ← match patch? with
-    | some p => p.printed.modifyGet fun s => (s, none)
+    (ph : Phases) (reuse? : Option ReuseSession := none) : IO UInt32 := do
+  let prevPrinted ← match reuse? with
+    | some r => r.printed.modifyGet fun s => (s, none)
     | none => pure none
+  let patch? := reuse?.bind (·.patch?)
   try
     let s ← Session.new a.old
     let manual ← askOldManualRoot s
@@ -526,18 +595,17 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
     let hs ← HardStops.new
     let world := hybridWorld env d.old d.writer manual.root hs
     ph.mark "world"
-    let (code, reuse?) ← match patch? with
-      | some p => do
-        let r ← extractReusing p ph cfg env world targets prevPrinted carried
-        if let some why := r.failure then
-          for l in patchLines ++ r.lines do IO.println l
+    let (code, reused, atExtract) ← match reuse? with
+      | some r => do
+        let x ← extractReusing r ph cfg env world targets prevPrinted carried
+        if let some why := x.failure then
+          for l in patchLines ++ x.lines do IO.println l
           IO.eprintln s!"reader session: check-keys failed, Lean {d.writer.leanVersion} is not read: {why}"
           return 1
-        pure (r.code, some (r.lines, p, r.printed))
+        pure (x.code, some (x.lines, r, x.printed), x.atExtract)
       | none => do
-        let code ← Litedoc4.run cfg (some (env, world))
-        ph.mark "extract"
-        pure (code, none)
+        let (code, atExtract) ← extractMeasured ph (Litedoc4.run cfg (some (env, world)))
+        pure (code, none, some atExtract)
     ph.mark "reuse count"
     let realizations ← if resident then Assemble.clearRealizations env else pure 0
     ph.mark "clear realizations"
@@ -552,7 +620,8 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       in {d.stats.skippedExts.size} extensions"
     for l in merged.counts.lines do IO.println s!"  {l}"
     for l in patchLines do IO.println l
-    if let some (ls, _, _) := reuse? then for l in ls do IO.println l
+    if let some (ls, _, _) := reused then for l in ls do IO.println l
+    if let some x := atExtract then IO.println x.line
     if resident then
       IO.println s!"realizations         {realizations} realized constants of imported declarations emptied \
         with the round's environment"
@@ -566,8 +635,8 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       IO.println s!"  autoparam-old-only {decl} {tac}: no newest code to evaluate, the declaration fails to print"
     for (decl, tac) in autoParams.newestDiffers do
       IO.println s!"  autoparam-newest {decl} {tac}: printed with the newest version's tactic text"
-    if let some (_, p, printed) := reuse? then
-      if code == 0 then p.printed.set (some printed)
+    if let some (_, r, printed) := reused then
+      if code == 0 then r.printed.set (some printed)
     ph.mark "report"
     return code
   catch e =>
@@ -599,7 +668,7 @@ unsafe def extractMain (args : List String) : IO UInt32 := do
 def sessionUsage : String := "\n".intercalate [
   "usage: reader session --new <search-dir>... --new-roots <modules.txt> [--check-patch]",
   "                      [--perturb-patch] [--no-field-fn-index] [--key-without-scx] [--check-keys]",
-  "                      [--carry-without-presence]",
+  "                      [--carry-without-presence] [--no-patch]",
   "  imports the newest version once and prints `ready <nanoseconds> <modules>`; then one request per line",
   "  on stdin, its fields separated by tabs:",
   "    --old <search-dir>... <modules.txt> <events.jsonl> [extractor flags]",
@@ -610,7 +679,7 @@ def sessionUsage : String := "\n".intercalate [
   "  printed part; every other one is printed. Each request is answered with `round <n>`, reader",
   "  extract's summary, a `patch` line, a `carry` line, a `reuse` line, an `rss` line and",
   "  `ok <exit code> <nanoseconds>`; one that is not run is answered `err <why>`. EOF or an empty line",
-  "  ends the session.",
+  "  ends the session. Each round also prints an `rss-at-extract` line, as reader extract does.",
   "  --check-patch        also build each request's hybrid from scratch and compare the two module by",
   "                       module, pointer by pointer; a difference fails the request before anything is",
   "                       written (`check-patch` lines)",
@@ -625,29 +694,35 @@ def sessionUsage : String := "\n".intercalate [
   "                       each naming the input that should have made the key stale)",
   "  --carry-without-presence",
   "                       carry a name resolution past a name appearing or disappearing among the",
-  "                       names it looked up (for the gate)"]
+  "                       names it looked up (for the gate)",
+  "  --no-patch           build every request's hybrid from scratch, as reader extract does, and compute",
+  "                       every print key afresh at --jobs; only the last round's keys and printed parts",
+  "                       are kept between rounds (no `patch` or `carry` line). With --check-keys the keys",
+  "                       are computed a second time and compared. --check-patch, --perturb-patch,",
+  "                       --no-field-fn-index and --carry-without-presence are refused with it"]
 
-def sessionFlags : List String :=
-  ["--check-patch", "--perturb-patch", "--no-field-fn-index", "--key-without-scx", "--check-keys",
-   "--carry-without-presence"]
+def patchOnlyFlags : List String :=
+  ["--check-patch", "--perturb-patch", "--no-field-fn-index", "--carry-without-presence"]
 
-def residentKb : IO (Option Nat) := do
-  let out ← IO.Process.output { cmd := "ps", args := #["-o", "rss=", "-p", toString (← IO.Process.getPID)] }
-  return if out.exitCode == 0 then out.stdout.trimAscii.toString.toNat? else none
+def sessionFlags : List String := patchOnlyFlags ++ ["--key-without-scx", "--check-keys", "--no-patch"]
 
 def rssLine (round : Nat) : IO String := do
-  let peak := (← Std.IO.Process.getResourceUsage).peakResidentSetSizeKb.toNat
-  let now := match ← residentKb with
-    | some kb => s!"{kb / 1024} MiB"
-    | none => "unknown"
-  return s!"rss                  round {round}: peak {peak / 1024} MiB (the process's maximum so far: a round \
-    raises it only by needing more than every round before it), resident {now} after the round"
+  let u ← Std.IO.Process.getResourceUsage
+  let now ← residentKb
+  return s!"rss                  round {round}: peak {u.peakResidentSetSizeKb.toNat / 1024} MiB (the process's \
+    maximum so far: a round raises it only by needing more than every round before it), resident {mibText now} \
+    after the round; cpu {u.cpuUserTime.toInt} ms user, {u.cpuSystemTime.toInt} ms system so far"
 
 unsafe def sessionMain (args : List String) : IO UInt32 := do
   if args == ["--help"] then
     IO.println sessionUsage
     return 0
   let (flags, args) := args.partition sessionFlags.contains
+  let noPatch := flags.contains "--no-patch"
+  if noPatch then
+    if let some f := patchOnlyFlags.find? flags.contains then
+      IO.eprintln s!"reader session: {f} is refused with --no-patch, which builds no patch\n{sessionUsage}"
+      return 2
   let a := parseReaderArgs args {}
   let some newRootsFile := a.newRoots | IO.eprintln s!"reader session: --new-roots is required\n{sessionUsage}"; return 2
   if a.new.isEmpty || !a.old.isEmpty || !a.extractor.isEmpty then
@@ -668,12 +743,15 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
     | .error e =>
       IO.eprintln s!"olean reader: refused: the newest version was not imported: {e}"
       return 1
-  let patch : PatchSession := {
-    check := flags.contains "--check-patch", perturb := flags.contains "--perturb-patch"
-    scx := !flags.contains "--key-without-scx"
-    checkKeys := flags.contains "--check-keys", presence := !flags.contains "--carry-without-presence"
-    index := Patch.buildNewestIndex newest.state (fieldFnIndex := !flags.contains "--no-field-fn-index")
-    last := ← IO.mkRef none, printed := ← IO.mkRef none, carry := ← IO.mkRef none }
+  let patch? : Option PatchSession ← if noPatch then pure none else do
+    pure (some {
+      check := flags.contains "--check-patch", perturb := flags.contains "--perturb-patch"
+      presence := !flags.contains "--carry-without-presence"
+      index := Patch.buildNewestIndex newest.state (fieldFnIndex := !flags.contains "--no-field-fn-index")
+      last := ← IO.mkRef none, carry := ← IO.mkRef none })
+  let reuse : ReuseSession := {
+    scx := !flags.contains "--key-without-scx", checkKeys := flags.contains "--check-keys"
+    printed := ← IO.mkRef none, patch? }
   IO.println s!"ready {(← IO.monoNanosNow) - t0} {newest.state.moduleNames.size}"
   let stdout ← IO.getStdout
   stdout.flush
@@ -697,7 +775,7 @@ unsafe def sessionMain (args : List String) : IO UInt32 := do
       IO.println s!"round {round}"
       let r0 ← IO.monoNanosNow
       let ph ← Phases.new
-      let code ← readVersion r cfg targets (pure newest) (resident := true) ph (some patch)
+      let code ← readVersion r cfg targets (pure newest) (resident := true) ph (some reuse)
       let phases ← ph.line
       let r1 ← IO.monoNanosNow
       IO.println phases

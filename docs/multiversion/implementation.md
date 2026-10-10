@@ -1154,6 +1154,17 @@ combination that won.
    against 40.8–42.0 s; peak RSS about read-alone's, lower if reused declarations skip the
    realizations that make extraction the peak (theoretical, phases subtracted). Killed if rounds
    2–3 do not beat read-alone, or if the peak stays above it.
+   **Killed 2026-10-10** (measured → `benchmarks/results/mv-m-no-patch-2026-10-10.txt`, 3 cycles):
+   `reader session --no-patch`, exact in every cycle (`tools/reader-hybrid-gate.sh` 32 of 32 with
+   `no-patch-equals-alone`). At `--jobs 1` rounds 2–3 took 26.5–29.6 s against read-alone's
+   36.8–37.2 s, but resident memory was 4.90–4.95 GiB against read-alone's 3.17–3.23 GiB peak
+   (+52%). The patched session holds the same from round 2 on, so the excess belongs to the resident
+   process, not to the patch; what holds it was not determined. At `--jobs 4` (one cycle, not
+   converged) the time win is gone too: 27.5 / 30.5 s against 27.0 / 27.1 s. Read-alone's
+   extraction is already 7.0–7.5 s there, and the fresh key pass, 5.9–7.2 s, takes back what reuse
+   saves. **No resident-session lever remains on M**: patch, hash and carry cannot win by
+   construction, and reuse alone loses on memory and, at four jobs, on time. The extra 1.7 GiB is
+   not diagnosed further.
 2. **E2, proofs decoded only where the run reads them**: a theorem's proof is decoded only when it
    has no stored axiom list or the list contains `sorryAx`; every other one gets an omitted proof.
    First count, on the M slice, the theorems the axiom walk would visit (minutes). Predicted: M
