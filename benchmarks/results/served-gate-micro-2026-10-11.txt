@@ -1,0 +1,216 @@
+tools/served-gate.sh on a four-version micro site: the fail-once runs and the clean pass
+======================================================================================
+
+The gate of docs/multiversion/plan.md "Phases" -> "Done": every declared version built and
+served, `<built> of <declared>`. Made to fail once each way below, then passed, in both URL modes.
+
+CONDITIONS
+----------
+date              2026-10-11T01:49:12Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+litedoc4          .lake/build/bin/litedoc4 at multi-version 4612689, built for e2e/micro's toolchain
+python            Python 3.9.6 (the oracle, tools/lib/served-check.py)
+input             tools/mv-s/generate.sh --versions 4: e2e/micro as a git repository, v1..v4, all on
+                  leanprover/lean4:v4.31.0 (v1 5d16fb2b, v2 eb2d0fde, v3 a61aa621, v4 5baad558)
+path-URL build    litedoc4 build --root <repo> --out out-path --versions v1,v2,v3,v4 --lake ~/.elan/bin/lake
+                  (micro-dep copied to out-path/micro-dep, as tools/mv-s-gate.sh does)
+                  -> versions extracted: 4 of 4, versions rendered: 4 of 4; site 66 files under d/
+hash-URL build    the same with --hash-urls, --out out-hash and --store out-path/store
+                  -> versions extracted: 0 of 4, versions rendered: 4 of 4
+served by         python3 -m http.server --bind 127.0.0.1 over a copy of <out>/site
+                  (8941 path, 8942 hash, 8943 for the edited copies); edits were made to copies only
+work area         /private/tmp/lean-doc-relay/served, deleted afterwards
+
+WHICH KEY "BUILT" READS
+-----------------------
+built-<v> reads the record's `versions` with `complete: true`, not `versionsRendered.names`:
+the latter names only what this run rendered. The same build run again over its own --out:
+  versions extracted: 0 of 4 ()
+  versions rendered: 0 of 4 ()
+  {"tool":"litedoc4 build","layout":2,"root":"/private/tmp/lean-doc-relay/served/repo","store":"/private/tmp/lean-doc-relay/served/out-rerun/store","versions":["v1","v2","v3","v4"],"complete":true,"versionsExtracted":{"count":0,"of":4,"names":[]},"versionsThroughReader":{"count":0,"of":4,"names":[]},"versionsRendered":{"count":0,"of":4,"names":[]}}
+  and the site is byte-identical to the first run's (/usr/bin/diff -r, no output). A gate on
+  versionsRendered.names would fail every incremental deploy of an unchanged site.
+
+CLEAN PASS, path URLs
+---------------------
+$ tools/served-gate.sh --declared v1,v2,v3,v4 --out out-path --url http://127.0.0.1:8941
+ITEM built-v1 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v1, complete
+ITEM built-v2 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v2, complete
+ITEM built-v3 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v3, complete
+ITEM built-v4 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v4, complete
+ITEM served-v1 ok path URLs; v1/index.html and 6 files it draws from answered 200
+ITEM served-v2 ok path URLs; v2/index.html and 6 files it draws from answered 200
+ITEM served-v3 ok path URLs; v3/index.html and 6 files it draws from answered 200
+ITEM served-v4 ok path URLs; v4/index.html and 6 files it draws from answered 200
+ITEM undeclared ok the build record and versions.json name no version outside the 4 declared
+built: 4 of 4
+served: 4 of 4
+items reported : 9 of 9
+SERVED GATE: ok
+exit=0
+
+CLEAN PASS, hash URLs
+---------------------
+$ tools/served-gate.sh --declared v1,v2,v3,v4 --out out-hash --url http://127.0.0.1:8942/
+ITEM built-v1 ok /private/tmp/lean-doc-relay/served/out-hash/litedoc4-build.json lists v1, complete
+ITEM built-v2 ok /private/tmp/lean-doc-relay/served/out-hash/litedoc4-build.json lists v2, complete
+ITEM built-v3 ok /private/tmp/lean-doc-relay/served/out-hash/litedoc4-build.json lists v3, complete
+ITEM built-v4 ok /private/tmp/lean-doc-relay/served/out-hash/litedoc4-build.json lists v4, complete
+ITEM served-v1 ok hash URLs; root page and versions.json agree on v1; 7 files answered 200
+ITEM served-v2 ok hash URLs; root page and versions.json agree on v2; 7 files answered 200
+ITEM served-v3 ok hash URLs; root page and versions.json agree on v3; 7 files answered 200
+ITEM served-v4 ok hash URLs; root page and versions.json agree on v4; 7 files answered 200
+ITEM undeclared ok the build record and versions.json name no version outside the 4 declared
+built: 4 of 4
+served: 4 of 4
+items reported : 9 of 9
+SERVED GATE: ok
+exit=0
+
+Path URLs: the 6 files are the shell's three links (assets/style.css, assets/favicon.svg,
+assets/site.js), the version's data file, and the module list and front page it names. Hash URLs:
+the root page's three links, the same three data files, and the version's routes file.
+
+FAIL ONCE
+---------
+
+### 1. --declared names v5, which was not built (path URLs)
+$ tools/served-gate.sh --declared v1,v2,v3,v4,v5 --out /private/tmp/lean-doc-relay/served/out-path --url http://127.0.0.1:8943
+ITEM built-v1 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v1, complete
+ITEM built-v2 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v2, complete
+ITEM built-v3 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v3, complete
+ITEM built-v4 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v4, complete
+ITEM built-v5 FAIL /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json does not list v5 among ['v1', 'v2', 'v3', 'v4']
+ITEM served-v1 ok path URLs; v1/index.html and 6 files it draws from answered 200
+ITEM served-v2 ok path URLs; v2/index.html and 6 files it draws from answered 200
+ITEM served-v3 ok path URLs; v3/index.html and 6 files it draws from answered 200
+ITEM served-v4 ok path URLs; v4/index.html and 6 files it draws from answered 200
+ITEM served-v5 FAIL http://127.0.0.1:8943/versions.json does not list v5
+ITEM undeclared ok the build record and versions.json name no version outside the 5 declared
+built: 4 of 5
+served: 4 of 5
+items reported : 11 of 11
+SERVED GATE: FAILED — built 4, served 4 of 5 declared; 2 item(s) failed
+exit=1
+(deleted d/29b42077e3d758d8.json.gz, v2's data file, from the served copy)
+
+### 2. v2's data file deleted (path URLs)
+$ tools/served-gate.sh --declared v1,v2,v3,v4 --out /private/tmp/lean-doc-relay/served/out-path --url http://127.0.0.1:8943
+ITEM built-v1 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v1, complete
+ITEM built-v2 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v2, complete
+ITEM built-v3 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v3, complete
+ITEM built-v4 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v4, complete
+ITEM served-v1 ok path URLs; v1/index.html and 6 files it draws from answered 200
+ITEM served-v2 FAIL http://127.0.0.1:8943/d/29b42077e3d758d8.json.gz answered 404
+ITEM served-v3 ok path URLs; v3/index.html and 6 files it draws from answered 200
+ITEM served-v4 ok path URLs; v4/index.html and 6 files it draws from answered 200
+ITEM undeclared ok the build record and versions.json name no version outside the 4 declared
+built: 4 of 4
+served: 3 of 4
+items reported : 9 of 9
+SERVED GATE: FAILED — built 4, served 3 of 4 declared; 1 item(s) failed
+exit=1
+(deleted d/c977645f5af11cbb.json.gz, v3's routes file, from the served copy)
+
+### 2h. v3's routes file deleted (hash URLs)
+$ tools/served-gate.sh --declared v1,v2,v3,v4 --out /private/tmp/lean-doc-relay/served/out-hash --url http://127.0.0.1:8943
+ITEM built-v1 ok /private/tmp/lean-doc-relay/served/out-hash/litedoc4-build.json lists v1, complete
+ITEM built-v2 ok /private/tmp/lean-doc-relay/served/out-hash/litedoc4-build.json lists v2, complete
+ITEM built-v3 ok /private/tmp/lean-doc-relay/served/out-hash/litedoc4-build.json lists v3, complete
+ITEM built-v4 ok /private/tmp/lean-doc-relay/served/out-hash/litedoc4-build.json lists v4, complete
+ITEM served-v1 ok hash URLs; root page and versions.json agree on v1; 7 files answered 200
+ITEM served-v2 ok hash URLs; root page and versions.json agree on v2; 7 files answered 200
+ITEM served-v3 FAIL http://127.0.0.1:8943/d/c977645f5af11cbb.json.gz answered 404
+ITEM served-v4 ok hash URLs; root page and versions.json agree on v4; 7 files answered 200
+ITEM undeclared ok the build record and versions.json name no version outside the 4 declared
+built: 4 of 4
+served: 3 of 4
+items reported : 9 of 9
+SERVED GATE: FAILED — built 4, served 3 of 4 declared; 1 item(s) failed
+exit=1
+(versions.json edited to drop v3: [{"name":"v1","data":"0f3ae488b6de622d"},{"name":"v2","data":"29b42077e3d758d8"},{"name":"v4","data":"7d1d63c2bbff379f"}])
+
+### 3a. versions.json drops v3 (path URLs)
+$ tools/served-gate.sh --declared v1,v2,v3,v4 --out /private/tmp/lean-doc-relay/served/out-path --url http://127.0.0.1:8943
+ITEM built-v1 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v1, complete
+ITEM built-v2 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v2, complete
+ITEM built-v3 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v3, complete
+ITEM built-v4 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v4, complete
+ITEM served-v1 ok path URLs; v1/index.html and 6 files it draws from answered 200
+ITEM served-v2 ok path URLs; v2/index.html and 6 files it draws from answered 200
+ITEM served-v3 FAIL http://127.0.0.1:8943/versions.json does not list v3
+ITEM served-v4 ok path URLs; v4/index.html and 6 files it draws from answered 200
+ITEM undeclared ok the build record and versions.json name no version outside the 4 declared
+built: 4 of 4
+served: 3 of 4
+items reported : 9 of 9
+SERVED GATE: FAILED — built 4, served 3 of 4 declared; 1 item(s) failed
+exit=1
+(versions.json edited to add v9: [{"name":"v1","data":"0f3ae488b6de622d"},{"name":"v2","data":"29b42077e3d758d8"},{"name":"v3","data":"c474eb3225caae60"},{"name":"v4","data":"7d1d63c2bbff379f"},{"name":"v9","data":"7d1d63c2bbff379f"}])
+
+### 3b. versions.json adds v9, which was not declared (path URLs)
+$ tools/served-gate.sh --declared v1,v2,v3,v4 --out /private/tmp/lean-doc-relay/served/out-path --url http://127.0.0.1:8943
+ITEM built-v1 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v1, complete
+ITEM built-v2 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v2, complete
+ITEM built-v3 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v3, complete
+ITEM built-v4 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v4, complete
+ITEM served-v1 ok path URLs; v1/index.html and 6 files it draws from answered 200
+ITEM served-v2 ok path URLs; v2/index.html and 6 files it draws from answered 200
+ITEM served-v3 ok path URLs; v3/index.html and 6 files it draws from answered 200
+ITEM served-v4 ok path URLs; v4/index.html and 6 files it draws from answered 200
+ITEM undeclared FAIL not declared, yet built: []; served: ['v9']
+built: 4 of 4
+served: 4 of 4
+items reported : 9 of 9
+SERVED GATE: FAILED — built 4, served 4 of 4 declared; 1 item(s) failed
+exit=1
+
+### 4. nothing listening on the port (connection refused)
+$ tools/served-gate.sh --declared v1,v2,v3,v4 --out /private/tmp/lean-doc-relay/served/out-path --url http://127.0.0.1:8943
+ITEM built-v1 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v1, complete
+ITEM built-v2 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v2, complete
+ITEM built-v3 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v3, complete
+ITEM built-v4 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v4, complete
+ITEM served-v1 FAIL http://127.0.0.1:8943/versions.json: [Errno 61] Connection refused
+ITEM served-v2 FAIL http://127.0.0.1:8943/versions.json: [Errno 61] Connection refused
+ITEM served-v3 FAIL http://127.0.0.1:8943/versions.json: [Errno 61] Connection refused
+ITEM served-v4 FAIL http://127.0.0.1:8943/versions.json: [Errno 61] Connection refused
+ITEM undeclared FAIL versions.json could not be read, so the set served is unknown
+built: 4 of 4
+served: 0 of 4
+items reported : 9 of 9
+SERVED GATE: FAILED — built 4, served 0 of 4 declared; 5 item(s) failed
+exit=1
+
+### 5. --declared v1,v2,v3 against the four-version site (path URLs)
+$ tools/served-gate.sh --declared v1,v2,v3 --out /private/tmp/lean-doc-relay/served/out-path --url http://127.0.0.1:8943
+ITEM built-v1 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v1, complete
+ITEM built-v2 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v2, complete
+ITEM built-v3 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v3, complete
+ITEM served-v1 ok path URLs; v1/index.html and 6 files it draws from answered 200
+ITEM served-v2 ok path URLs; v2/index.html and 6 files it draws from answered 200
+ITEM served-v3 ok path URLs; v3/index.html and 6 files it draws from answered 200
+ITEM undeclared FAIL not declared, yet built: ['v4']; served: ['v4']
+built: 3 of 3
+served: 3 of 3
+items reported : 7 of 7
+SERVED GATE: FAILED — built 3, served 3 of 3 declared; 1 item(s) failed
+exit=1
+
+### 6. the oracle dies part-way (a scratch copy of the gate whose served-check.py raises after
+###    the built- items; the tree's copy was not edited)
+ITEM built-v1 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v1, complete
+ITEM built-v2 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v2, complete
+ITEM built-v3 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v3, complete
+ITEM built-v4 ok /private/tmp/lean-doc-relay/served/out-path/litedoc4-build.json lists v4, complete
+built: 4 of 4
+served: 0 of 4
+items reported : 4 of 9
+SERVED GATE: FAILED — served-check.py exited 1:
+Traceback (most recent call last):
+  File "<scratch>/lib/served-check.py", line 198, in <module>
+    main()
+  File "<scratch>/lib/served-check.py", line 182, in main
+    raise RuntimeError("injected: the oracle dies after the built- items")
+RuntimeError: injected: the oracle dies after the built- items
+exit=1

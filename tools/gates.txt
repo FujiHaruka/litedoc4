@@ -40,6 +40,7 @@ purelean-gate.sh             ci      elan and e2e/consumer
 reader-hybrid-gate.sh        manual  elan with every toolchain in lean-toolchains.txt, a built litedoc4, and e2e/micro with e2e/micro-dep, built once per row in its own work area
 reader-oracle-gate.sh        manual  elan with the reader's toolchain and each writer's in its table, and a built litedoc4, which builds the reader; reads their own core libraries, no package
 refusal-gate.sh              ci      elan; the two frozen data files are the oracle
+served-gate.sh               manual  python3, a `build --versions` output directory and that site served over HTTP
 v8-gc-table-gate.sh          ci      deno, pinned to the version the generated table records; nothing else
 version-gate.sh              ci      nothing; reads the tracked files and this repository's tags
 watch-gate.sh                ci      elan and e2e/micro

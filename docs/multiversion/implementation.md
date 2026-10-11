@@ -1349,6 +1349,18 @@ swap within 7 MiB of full.
   "v2 targets".
 - The gate of the plan's "Done": `<built> of <declared>`, made to fail once.
 
+`tools/served-gate.sh --declared <v>,... --out <build out> --url <site>` is that gate. Per declared
+version, `built-<v>` asks the build record for a finished `build --versions` run whose `versions`
+lists it, and `served-<v>` asks the served site for `versions.json` listing it and for every file
+its front page is drawn from answering 200 (the shell or, under hash URLs, the root page with its
+embedded list and the version's routes file; the linked assets; the data file, module list and
+front page); one more item fails when either names a version not declared. It prints `built: <b>
+of <n>`, `served: <s> of <n>` and `items reported : <ran> of <2n + 1>`. On a four-version micro
+site it failed once for a declared version never built, a deleted data file, a deleted routes
+file, a version dropped from and one added to `versions.json`, a refused connection and an oracle
+that died part-way, then passed in both URL modes (measured →
+`benchmarks/results/served-gate-micro-2026-10-11.txt`).
+
 ## Gates to replace, not extend
 
 These checked the single-version output and lost their meaning under D4 / D9. All were replaced
