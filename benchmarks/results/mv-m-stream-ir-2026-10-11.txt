@@ -1,0 +1,47 @@
+M, one version natively: the extractor writes each module's IR as soon as the module is analyzed
+================================================================================================
+
+Before: every declaration's analysis result was held until the end and the IR tree written by one
+thread. After: workers take whole modules; each module is analyzed, sorry-tagged, written to
+modules/<M>.json and dropped; index.json and the dependency maps are written last. Kept per module:
+counters, the index entry, its dependency pairs, one kind string per declaration (plus the
+--dump / --dump-refs / --decl-profile payloads, only when those flags are given).
+
+Conditions: Apple M1, 16 GB, macOS 26.6.2; Lean v4.33.1, Mathlib v4.33.1 (0df444a360); the M slice
+(438 modules, 21,928 declarations), the checkout of benchmarks/results/mv-m-parallel-hash-2026-10-11.txt.
+litedoc4 at 96f0f6a (base) and 96f0f6a + this change (new). Warm, same session, one run per arm
+(the user's rule for levers: one run, +-10% accepted).
+
+direct = the extractor alone under `lake env`, /usr/bin/time -l:
+  extract <modules.txt> <events> --equations --refs --write-ir --tagged-code
+          --no-equations-under Mathlib.Meta,Mathlib.Tactic --jobs N --ir-dir <ir> --link-index <lidx>
+          --link-index-omit <modules.txt>
+build  = litedoc4 build --root <checkout> --lib Mathlib --out <empty> --extractor-bin <x> --jobs N
+
+A/B (measured)
+  arm               wall s   user+sys s   max RSS    peak footprint   analyze s   writeIR s
+  direct j4 base    10.73    26.11        1.620 GB   452.7 MB         6.229       1.155
+  direct j4 new      7.46    26.88        1.542 GB   375.2 MB         5.863       1.339*
+  direct j1 base    21.05    22.12        1.598 GB   431.0 MB        18.341       1.160
+  direct j1 new     21.18    22.28        1.507 GB   340.0 MB        19.672*      1.207*
+  build j4 base     18.70    35.88        1.625 GB   (234 MB, litedoc4's own)    extract 12.20 s
+  build j4 new      14.25    35.69        1.535 GB   (234 MB, litedoc4's own)    extract  8.17 s
+  build j1 base     30.04    31.11        1.595 GB   (234 MB, litedoc4's own)    extract 22.12 s
+  build j1 new      30.18    31.16        1.504 GB   (234 MB, litedoc4's own)    extract 22.17 s
+  * after: analyze's wall includes the per-module sorry pass and IR writes done by the workers;
+    sorry and writeIR are per-module sums (CPU across threads at N > 1) plus setup and the index,
+    so the phases no longer add up to the total. Event names and fields unchanged.
+
+  Peak footprint -77 MB at j4 (-17%), -91 MB at j1 (-21%), against ~145 MB of heap growth during
+  analyze before (not all of it returned; not separated). --jobs 4 wall -30% (direct), -24%
+  (build): IR serialization overlaps the analysis, and analyze itself is 6.23 -> 5.86 s.
+
+Exactness (measured): modules/*.json, deps/*.json and the link index byte-identical to the base at
+j4 and j1 and between j1 and j4; index.json identical once the extractor identity's source= digest
+is masked (it digests Extract.lean, so any edit moves it). --dump, --dump-modules, --dump-refs
+identical; .reuse-keys body identical. Full builds: site/, ledger.json and the link index identical;
+store entries differ only through the identity string.
+
+All of Mathlib (extrapolated, not run; 5.1% of modules measured): the footprint drop scaled by
+declarations, 77-91 MB x 14.49 = 1.1-1.3 GB, against the runner's anon baseline of 3.38 GiB at 4 jobs
+(benchmarks/results/mv-l-step4-2026-10-07.txt).

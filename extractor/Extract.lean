@@ -149,9 +149,9 @@ structure Cfg where
   checked by running the same configuration with and without the flag. -/
   ppBreakdown : Bool := false
   declProfilePath : Option FilePath := none
-  /-- The declaration order of the output is independent of `N`: workers take a
-  stride of the candidate list and the results are merged back by candidate
-  index, which is what makes the IR byte-comparable across `N`. -/
+  /-- The declaration order of the output is independent of `N`: workers take
+  whole modules and what each leaves behind is merged back by module position,
+  which is what makes the IR byte-comparable across `N`. -/
   jobs : Nat := 1
   deriving Inhabited
 
@@ -1253,8 +1253,8 @@ structure DeclOut where
   /-- Instances only: `getInstanceTypes`. Never printed on a module page — the
   browser builds those lists from `declaration-data.bmp`. -/
   instTypes : Array Name := #[]
-  /-- `"direct"`, `"transitive"` or `none`. Filled by a pass of its own after the
-  analysis (`sorryTag`), not by `analyze`, so that `--jobs` cannot reach it. -/
+  /-- `"direct"`, `"transitive"` or `none`. Filled by `sorryTag` once the
+  module's analysis is done, not by `analyze`. -/
   sorryTag : Option String := none
   /-- The declaration `@[ext]` realized this one from; see `extOriginOf`. -/
   extOrigin : Option Name := none
@@ -2572,100 +2572,113 @@ structure IrStats where
   writeNanos : Nat := 0
   deriving Inhabited
 
-def writeIRTree (tagged : Bool) (ablations : Array String) (identity : String) (dir : FilePath)
-    (world : World) (targets : Array Name) (mods : Array ModuleOut) (results : Array DeclOut) : IO IrStats := do
-  let modulesDir := dir / "modules"
-  let depsDir := dir / "deps"
-  IO.FS.createDirAll modulesDir
-  IO.FS.createDirAll depsDir
+def SpanTally.merge (a b : SpanTally) : SpanTally :=
+  { total := a.total + b.total, const := a.const + b.const, sort := a.sort + b.sort,
+    other := a.other + b.other, ws := a.ws + b.ws, wsUnits := a.wsUnits + b.wsUnits }
 
-  let targetSet : Std.HashSet Name :=
-    Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
+def IrStats.add (a b : IrStats) : IrStats :=
+  { moduleFiles := a.moduleFiles + b.moduleFiles, moduleBytes := a.moduleBytes + b.moduleBytes,
+    declarations := a.declarations + b.declarations, refPairs := a.refPairs + b.refPairs,
+    refsUnresolved := a.refsUnresolved + b.refsUnresolved, depFiles := a.depFiles + b.depFiles,
+    depEntries := a.depEntries + b.depEntries, depBytes := a.depBytes + b.depBytes,
+    indexBytes := a.indexBytes + b.indexBytes, spanFragments := a.spanFragments + b.spanFragments,
+    spans := a.spans.merge b.spans, serializeNanos := a.serializeNanos + b.serializeNanos,
+    hashNanos := a.hashNanos + b.hashNanos, writeNanos := a.writeNanos + b.writeNanos }
 
-  let mut byModule : Std.HashMap Name (Array DeclOut) :=
-    Std.HashMap.emptyWithCapacity targets.size
-  for d in results do
-    byModule := byModule.insert d.module ((byModule.getD d.module #[]).push d)
+structure IrModule where
+  stats : IrStats
+  entry : Json
+  /-- `(name, defining module)` for the references that leave the target modules. -/
+  deps : Array (Name × Name)
+  deriving Inhabited
 
+def writeIRModule (tagged : Bool) (dir : FilePath) (world : World) (targetSet : Std.HashSet Name)
+    (m : ModuleOut) (decls : Array DeclOut) : IO IrModule := do
   let mut st : IrStats := {}
-  let mut indexEntries : Array Json := #[]
-  -- Accumulated while the declarations are walked: resolution is paid once.
-  let mut depMap : Std.HashMap Name Name := Std.HashMap.emptyWithCapacity 1024
-
-  for m in mods do
-    let decls := byModule.getD m.name #[]
-    let tSer0 ← IO.monoNanosNow
-    let mut declJson : Array Json := Array.emptyWithCapacity decls.size
-    for hd : i in [0 : decls.size] do
-      let d := decls[i]
-      let mut seen : Std.HashSet Name := Std.HashSet.emptyWithCapacity d.refs.size
-      let mut pairs : Array (Name × Name) := Array.emptyWithCapacity d.refs.size
-      for n in d.refs do
-        if seen.contains n then continue
-        seen := seen.insert n
-        match world.moduleOf? n with
-        | some defMod =>
-          pairs := pairs.push (defMod, n)
-          unless targetSet.contains defMod do
-            depMap := depMap.insert n defMod
-        | none => st := { st with refsUnresolved := st.refsUnresolved + 1 }
-      st := { st with refPairs := st.refPairs + pairs.size }
-      if tagged then
-        let mut tally := st.spans
-        let mut frags := st.spanFragments + 1 + d.sig.binderSpans.size
-                         + d.equationSpans.size + d.members.size
-        for sp in d.sig.binderSpans do
+  let mut depMap : Std.HashMap Name Name := {}
+  let tSer0 ← IO.monoNanosNow
+  let mut declJson : Array Json := Array.emptyWithCapacity decls.size
+  for hd : i in [0 : decls.size] do
+    let d := decls[i]
+    let mut seen : Std.HashSet Name := Std.HashSet.emptyWithCapacity d.refs.size
+    let mut pairs : Array (Name × Name) := Array.emptyWithCapacity d.refs.size
+    for n in d.refs do
+      if seen.contains n then continue
+      seen := seen.insert n
+      match world.moduleOf? n with
+      | some defMod =>
+        pairs := pairs.push (defMod, n)
+        unless targetSet.contains defMod do
+          depMap := depMap.insert n defMod
+      | none => st := { st with refsUnresolved := st.refsUnresolved + 1 }
+    st := { st with refPairs := st.refPairs + pairs.size }
+    if tagged then
+      let mut tally := st.spans
+      let mut frags := st.spanFragments + 1 + d.sig.binderSpans.size
+                       + d.equationSpans.size + d.members.size
+      for sp in d.sig.binderSpans do
+        tally := tally.add sp
+      tally := tally.add d.sig.typeSpans
+      for sp in d.equationSpans do
+        tally := tally.add sp
+      for mem in d.members do
+        tally := tally.add mem.spans
+        frags := frags + mem.binderSpans.size
+        for sp in mem.binderSpans do
           tally := tally.add sp
-        tally := tally.add d.sig.typeSpans
-        for sp in d.equationSpans do
-          tally := tally.add sp
-        for mem in d.members do
-          tally := tally.add mem.spans
-          frags := frags + mem.binderSpans.size
-          for sp in mem.binderSpans do
-            tally := tally.add sp
-        st := { st with spans := tally, spanFragments := frags }
-      declJson := declJson.push (declToIrJson tagged i d pairs)
-    let body := Json.mkObj [
-      ("schemaVersion", Json.num (irSchemaVersion tagged)),
-      ("module", Json.str m.name.toString),
-      ("imports", Json.arr (m.imports.map (Json.str ·.toString))),
-      ("moduleDocs", Json.arr (m.docs.map fun d =>
-        Json.mkObj [("line", Json.num d.line), ("col", Json.num d.col),
-                    ("text", Json.str d.text)])),
-      ("tactics", Json.arr (m.tactics.map fun t =>
-        Json.mkObj [("internalName", Json.str t.internalName.toString),
-                    ("userName", Json.str t.userName),
-                    ("tags", Json.arr (t.tags.map (Json.str ·.toString))),
-                    ("docString", Json.str t.docString)])),
-      ("declarations", Json.arr declJson)
-    ]
-    let text := body.compress
-    let bytes := text.utf8ByteSize
-    -- The `throw` branch is what keeps the serialisation inside this timer: a
-    -- plain `let`'s only consumers are below the next clock read and the compiler
-    -- sinks it there. Measured here first as 0 µs for 8.6 MB.
-    if bytes == 0 then throw <| IO.userError s!"empty IR body for {m.name}"
-    let tSer1 ← IO.monoNanosNow
-    let h := hashHex text
-    if h.length != 16 then throw <| IO.userError s!"bad digest width for {m.name}"
-    let tHash ← IO.monoNanosNow
-    let file := s!"modules/{m.name}.json"
-    IO.FS.writeFile (dir / file) text
-    let tWrite ← IO.monoNanosNow
-    st := { st with
-      moduleFiles := st.moduleFiles + 1
-      moduleBytes := st.moduleBytes + bytes
-      declarations := st.declarations + decls.size
-      serializeNanos := st.serializeNanos + (tSer1 - tSer0)
-      hashNanos := st.hashNanos + (tHash - tSer1)
-      writeNanos := st.writeNanos + (tWrite - tHash) }
-    indexEntries := indexEntries.push <| Json.mkObj [
+      st := { st with spans := tally, spanFragments := frags }
+    declJson := declJson.push (declToIrJson tagged i d pairs)
+  let body := Json.mkObj [
+    ("schemaVersion", Json.num (irSchemaVersion tagged)),
+    ("module", Json.str m.name.toString),
+    ("imports", Json.arr (m.imports.map (Json.str ·.toString))),
+    ("moduleDocs", Json.arr (m.docs.map fun d =>
+      Json.mkObj [("line", Json.num d.line), ("col", Json.num d.col),
+                  ("text", Json.str d.text)])),
+    ("tactics", Json.arr (m.tactics.map fun t =>
+      Json.mkObj [("internalName", Json.str t.internalName.toString),
+                  ("userName", Json.str t.userName),
+                  ("tags", Json.arr (t.tags.map (Json.str ·.toString))),
+                  ("docString", Json.str t.docString)])),
+    ("declarations", Json.arr declJson)
+  ]
+  let text := body.compress
+  let bytes := text.utf8ByteSize
+  -- The `throw` branch is what keeps the serialisation inside this timer: a
+  -- plain `let`'s only consumers are below the next clock read and the compiler
+  -- sinks it there. Measured here first as 0 µs for 8.6 MB.
+  if bytes == 0 then throw <| IO.userError s!"empty IR body for {m.name}"
+  let tSer1 ← IO.monoNanosNow
+  let h := hashHex text
+  if h.length != 16 then throw <| IO.userError s!"bad digest width for {m.name}"
+  let tHash ← IO.monoNanosNow
+  let file := s!"modules/{m.name}.json"
+  IO.FS.writeFile (dir / file) text
+  let tWrite ← IO.monoNanosNow
+  return {
+    stats := { st with
+      moduleFiles := 1
+      moduleBytes := bytes
+      declarations := decls.size
+      serializeNanos := tSer1 - tSer0
+      hashNanos := tHash - tSer1
+      writeNanos := tWrite - tHash }
+    entry := Json.mkObj [
       ("module", Json.str m.name.toString),
       ("file", Json.str file),
       ("bytes", Json.num bytes),
       ("declarations", Json.num decls.size),
       ("contentHash", Json.str h)]
+    deps := depMap.toArray }
+
+def writeIRIndex (tagged : Bool) (ablations : Array String) (identity : String) (dir : FilePath)
+    (world : World) (modules : Array IrModule) : IO IrStats := do
+  let mut st : IrStats := modules.foldl (fun acc m => acc.add m.stats) {}
+  let indexEntries := modules.map (·.entry)
+  let mut depMap : Std.HashMap Name Name := Std.HashMap.emptyWithCapacity 1024
+  for m in modules do
+    for (n, defMod) in m.deps do
+      depMap := depMap.insert n defMod
 
   -- Dependency-side map slice, one file per package: two columns, name -> module.
   let mut byRoot : Std.HashMap Name (Array (Name × Name)) := {}
@@ -2771,7 +2784,31 @@ def DeclProf.line (p : DeclProf) : String :=
 
 structure Reuse where
   prev : Name → Option DeclOut
-  out : IO.Ref (Array DeclOut)
+  /-- Called once per module with its finished declarations, from whichever
+  thread analyzed it. -/
+  seen : Array DeclOut → IO Unit
+
+/-- What one module leaves behind once its declarations are written and dropped. -/
+structure ModuleRun where
+  counters : Counters := {}
+  missing : Nat := 0
+  considered : Nat := 0
+  blacklisted : Nat := 0
+  failures : Array Failure := #[]
+  profile : Array DeclProf := #[]
+  kinds : Array String := #[]
+  sorryNanos : Nat := 0
+  sorryDirect : Nat := 0
+  sorryTransitive : Nat := 0
+  ir : Option IrModule := none
+  dump : String := ""
+  dumpNanos : Nat := 0
+  refOrder : Array Name := #[]
+  refCounts : Std.HashMap Name Nat := {}
+  refOccurrences : Nat := 0
+  refNanos : Nat := 0
+
+instance : Inhabited ModuleRun := ⟨{}⟩
 
 /-- One extraction.
 
@@ -2834,16 +2871,19 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
   let tIdx0 ← IO.monoNanosNow
   let mut seen : Std.HashSet Name := Std.HashSet.emptyWithCapacity (16 * targets.size)
   let mut candidates : Array (Name × Name) := #[]
+  let mut ranges : Array (Nat × Nat) := Array.emptyWithCapacity targets.size
   let mut enumerated := 0
   for m in targets do
     let some modIdx := world.moduleIndex? m
       | throw <| IO.userError s!"module not present in the environment: {m}"
+    let lo := candidates.size
     for n in world.constNames modIdx do
       enumerated := enumerated + 1
       if seen.contains n then
         continue
       seen := seen.insert n
       candidates := candidates.push (n, m)
+    ranges := ranges.push (lo, candidates.size)
   let tIdx1 ← IO.monoNanosNow
   sink.emit "stage4b.indexLookup" (tIdx1 - tIdx0)
     [("targetModules", toString targets.size),
@@ -2997,14 +3037,6 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
 
   -- Semantic analysis. One fresh `Core.State` per declaration, exactly like
   -- doc-gen4's `process` loop, so that neither side accumulates elaborator state.
-  let mut results : Array DeclOut := #[]
-  let mut counters : Counters := {}
-  let mut blacklisted := 0
-  let mut missing := 0
-  let mut considered := 0
-  let mut failures : Array Failure := #[]
-  let mut profile : Array DeclProf := #[]
-  let work := if cfg.skipAnalyze then #[] else candidates
   let wanted (name : Name) : Bool :=
     match onlyNames with
     | some only => only.contains name
@@ -3032,10 +3064,29 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
     { index := i, name, module, kind, outcome := tag, nanos := dt,
       ppNanos := c.ppNanos, eqNanos := c.eqNanos, refNanos := c.refNanos,
       blNanos := c.blNanos, eqCount := c.eqCount, bytes := c.pp.bytes }
-  let tAn0 ← IO.monoNanosNow
-  if cfg.jobs ≤ 1 then
-    for i in [0 : work.size] do
-      let (name, module) := work[i]!
+  let targetSet : Std.HashSet Name :=
+    Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
+  let tIr0 ← IO.monoNanosNow
+  let irDir? ← if cfg.writeIR then some <$> getIrDir cfg else pure none
+  let identity ← if cfg.writeIR then
+      extractorIdentity cfg world.leanVersion world.leanGithash world.readBy
+    else pure ""
+  if let some dir := irDir? then
+    IO.FS.createDirAll (dir / "modules")
+    IO.FS.createDirAll (dir / "deps")
+  let tIrSetup := (← IO.monoNanosNow) - tIr0
+  let processModule (j : Nat) : IO ModuleRun := do
+    let some m := mods[j]? | throw <| IO.userError s!"no module at position {j}"
+    let (lo, hi) := if cfg.skipAnalyze then (0, 0) else ranges[j]!
+    let mut counters : Counters := {}
+    let mut missing := 0
+    let mut considered := 0
+    let mut blacklisted := 0
+    let mut failures : Array Failure := #[]
+    let mut profile : Array DeclProf := #[]
+    let mut decls : Array DeclOut := #[]
+    for i in [lo : hi] do
+      let (name, module) := candidates[i]!
       if !wanted name then
         continue
       let some ci := env.find? name | missing := missing + 1; continue
@@ -3046,60 +3097,82 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
         profile := profile.push (mkProf i module name outcome c dt)
       match outcome with
       | .ok none => blacklisted := blacklisted + 1
-      | .ok (some d) => results := results.push d
+      | .ok (some d) => decls := decls.push d
       | .error msg => failures := failures.push ⟨name, msg⟩
-  else
-    -- Worker `k` takes the candidates at indices `k, k+N, k+2N, …` — a stride
-    -- rather than a block, because the cost per declaration is not uniform and
-    -- the candidate list is grouped by module. **The order of the output does not
-    -- depend on N**: every answer carries its candidate index and is written back
-    -- into a slot, which is what makes two `--jobs` values byte-comparable.
-    let jobs := cfg.jobs
-    let tasks ← (Array.range jobs).mapM fun k =>
+    let mut r : ModuleRun := { counters, missing, considered, blacklisted, failures, profile }
+    if cfg.wantSorry then
+      let t0 ← IO.monoNanosNow
+      let tags ← runMeta (decls.mapM fun d => sorryTag d.name)
+      let mut tagged : Array DeclOut := Array.emptyWithCapacity decls.size
+      for h : i in [0 : decls.size] do
+        let tag := tags[i]!
+        if tag == some "direct" then r := { r with sorryDirect := r.sorryDirect + 1 }
+        if tag == some "transitive" then r := { r with sorryTransitive := r.sorryTransitive + 1 }
+        tagged := tagged.push { decls[i] with sorryTag := tag }
+      decls := tagged
+      r := { r with sorryNanos := (← IO.monoNanosNow) - t0 }
+    if let some rs := reuse then rs.seen decls
+    r := { r with kinds := decls.map (·.kind) }
+    if let some dir := irDir? then
+      r := { r with ir := some (← writeIRModule cfg.taggedCode dir world targetSet m decls) }
+    if cfg.dumpPath.isSome then
+      let t0 ← IO.monoNanosNow
+      let text := decls.foldl (init := "") fun acc d => acc ++ d.toJson.compress ++ "\n"
+      r := { r with dump := text, dumpNanos := (← IO.monoNanosNow) - t0 }
+    if cfg.dumpRefsPath.isSome then
+      let t0 ← IO.monoNanosNow
+      let mut counts : Std.HashMap Name Nat := {}
+      let mut order : Array Name := #[]
+      for d in decls do
+        for n in d.refs do
+          match counts[n]? with
+          | some k => counts := counts.insert n (k + 1)
+          | none => counts := counts.insert n 1; order := order.push n
+      r := { r with refCounts := counts, refOrder := order,
+                    refOccurrences := decls.foldl (init := 0) (· + ·.refs.size),
+                    refNanos := (← IO.monoNanosNow) - t0 }
+    return r
+  let tAn0 ← IO.monoNanosNow
+  let runs : Array ModuleRun ← if cfg.jobs ≤ 1 then (Array.range mods.size).mapM processModule else do
+    let next ← IO.mkRef 0
+    let tasks ← (Array.range cfg.jobs).mapM fun _ =>
       IO.asTask (prio := Task.Priority.dedicated) do
-        let mut outs : Array (Nat × Name × Except String (Option DeclOut)) := #[]
-        let mut c : Counters := {}
-        let mut prof : Array DeclProf := #[]
-        let mut miss := 0
-        let mut done := 0
-        let mut i := k
-        while i < work.size do
-          let (name, module) := work[i]!
-          if wanted name then
-            match env.find? name with
-            | none => miss := miss + 1
-            | some ci =>
-              done := done + 1
-              let (outcome, c1, dt) ← analyzeOne module name ci
-              c := c.add c1
-              outs := outs.push (i, name, outcome)
-              if cfg.declProfilePath.isSome then
-                prof := prof.push (mkProf i module name outcome c1 dt)
-          i := i + jobs
-        return (outs, c, prof, miss, done)
-    let mut slots : Array (Option (Name × Except String (Option DeclOut))) :=
-      Array.replicate work.size none
+        let mut outs : Array (Nat × ModuleRun) := #[]
+        repeat
+          let j ← next.modifyGet fun j => (j, j + 1)
+          if j ≥ mods.size then break
+          outs := outs.push (j, ← processModule j)
+        return outs
+    let mut slots : Array ModuleRun := Array.replicate mods.size {}
     for t in tasks do
-      let (outs, c, prof, miss, done) ← IO.ofExcept t.get
-      counters := counters.add c
-      missing := missing + miss
-      considered := considered + done
-      profile := profile ++ prof
-      for (i, name, outcome) in outs do
-        slots := slots.set! i (some (name, outcome))
-    for s in slots do
-      match s with
-      | none => pure ()
-      | some (name, outcome) =>
-        match outcome with
-        | .ok none => blacklisted := blacklisted + 1
-        | .ok (some d) => results := results.push d
-        | .error msg => failures := failures.push ⟨name, msg⟩
-    profile := profile.qsort (fun a b => a.index < b.index)
+      for (j, r) in ← IO.ofExcept t.get do
+        slots := slots.set! j r
+    pure slots
   let tAn1 ← IO.monoNanosNow
+  let mut counters : Counters := {}
+  let mut missing := 0
+  let mut considered := 0
+  let mut blacklisted := 0
+  let mut produced := 0
+  let mut failures : Array Failure := #[]
+  let mut profile : Array DeclProf := #[]
+  let mut sorryStats : SorryStats := {}
+  let mut sorryNanos := 0
+  for r in runs do
+    counters := counters.add r.counters
+    missing := missing + r.missing
+    considered := considered + r.considered
+    blacklisted := blacklisted + r.blacklisted
+    produced := produced + r.kinds.size
+    failures := failures ++ r.failures
+    profile := profile ++ r.profile
+    sorryNanos := sorryNanos + r.sorryNanos
+    sorryStats := { sorryStats with
+      direct := sorryStats.direct + r.sorryDirect
+      transitive := sorryStats.transitive + r.sorryTransitive }
   sink.emit "stage4b.analyze" (tAn1 - tAn0)
     [("considered", toString considered),
-     ("produced", toString results.size),
+     ("produced", toString produced),
      ("blacklisted", toString blacklisted),
      ("failed", toString failures.size),
      ("ppUs", toString (counters.ppNanos / 1000)),
@@ -3151,31 +3224,13 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
      ("blCalls", toString counters.blCalls),
      ("ablations", s!"\"{String.intercalate "," cfg.ablations.toList}\"")]
 
-  -- Schema 5's `sorry` key (doc-gen4 #270). A pass of its own, after the analysis
-  -- and **single-threaded**: `--jobs` must not be able to reach it, and a phase
-  -- of its own lets the cost be read off one run.
-  let mut sorryStats : SorryStats := {}
-  let tSy0 ← IO.monoNanosNow
   if cfg.wantSorry then
-    let tags ← runMeta (results.mapM fun d => sorryTag d.name)
-    let mut tagged : Array DeclOut := Array.emptyWithCapacity results.size
-    let mut direct := 0
-    let mut transitive := 0
-    for h : i in [0 : results.size] do
-      let tag := tags[i]!
-      if tag == some "direct" then direct := direct + 1
-      if tag == some "transitive" then transitive := transitive + 1
-      tagged := tagged.push { results[i] with sorryTag := tag }
-    results := tagged
-    sorryStats := { asked := results.size, direct, transitive }
-  let tSy1 ← IO.monoNanosNow
-  sink.emit "stage4b.sorry" (tSy1 - tSy0)
+    sorryStats := { sorryStats with asked := produced }
+  sink.emit "stage4b.sorry" sorryNanos
     [("wantSorry", if cfg.wantSorry then "true" else "false"),
      ("sorryAsked", toString sorryStats.asked),
      ("sorryDirect", toString sorryStats.direct),
      ("sorryTransitive", toString sorryStats.transitive)]
-
-  if let some r := reuse then r.out.set results
 
   if let some p := cfg.declProfilePath then
     let h ← IO.FS.Handle.mk p .write
@@ -3184,15 +3239,9 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
     IO.println s!"decl profile         {profile.size} records -> {p}"
 
   let mut irStats : IrStats := {}
-  let mut irDirUsed : Option FilePath := none
-  if cfg.writeIR then
-    let dir ← getIrDir cfg
-    irDirUsed := some dir
-    let t0 ← IO.monoNanosNow
-    let identity ← extractorIdentity cfg world.leanVersion world.leanGithash world.readBy
-    irStats ← writeIRTree cfg.taggedCode cfg.ablations identity dir world targets mods results
-    let t1 ← IO.monoNanosNow
-    sink.emit "stage4b.writeIR" (t1 - t0)
+  if let some dir := irDir? then
+    irStats ← writeIRIndex cfg.taggedCode cfg.ablations identity dir world (runs.filterMap (·.ir))
+    sink.emit "stage4b.writeIR" (tIrSetup + irStats.serializeNanos + irStats.hashNanos + irStats.writeNanos)
       [("taggedCode", if cfg.taggedCode then "true" else "false"),
        ("schemaVersion", toString (irSchemaVersion cfg.taggedCode)),
        ("spanFragments", toString irStats.spanFragments),
@@ -3225,11 +3274,11 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
   if let some dumpPath := cfg.dumpPath then
     let tD0 ← IO.monoNanosNow
     let h ← IO.FS.Handle.mk dumpPath .write
-    for d in results do
-      h.putStr d.toJson.compress
-      h.putStr "\n"
+    for r in runs do
+      h.putStr r.dump
     let tD1 ← IO.monoNanosNow
-    sink.emit "stage4b.dump" (tD1 - tD0) [("records", toString results.size)]
+    let dumpNanos := runs.foldl (init := 0) fun acc r => acc + r.dumpNanos
+    sink.emit "stage4b.dump" (tD1 - tD0 + dumpNanos) [("records", toString produced)]
 
   if let some dumpPath := cfg.dumpModulesPath then
     let tD0 ← IO.monoNanosNow
@@ -3248,17 +3297,18 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
     if !cfg.collectRefs then
       IO.eprintln "WARNING: --dump-refs without --refs; nothing was collected"
     let tD0 ← IO.monoNanosNow
-    let targetSet : Std.HashSet Name :=
-      Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
     let mut counts : Std.HashMap Name Nat := Std.HashMap.emptyWithCapacity 4096
     let mut order : Array Name := #[]
     let mut occurrences := 0
-    for d in results do
-      for n in d.refs do
-        occurrences := occurrences + 1
+    let mut perModuleNanos := 0
+    for r in runs do
+      occurrences := occurrences + r.refOccurrences
+      perModuleNanos := perModuleNanos + r.refNanos
+      for n in r.refOrder do
+        let k := r.refCounts.getD n 0
         match counts[n]? with
-        | some k => counts := counts.insert n (k + 1)
-        | none => counts := counts.insert n 1; order := order.push n
+        | some c => counts := counts.insert n (c + k)
+        | none => counts := counts.insert n k; order := order.push n
     let h ← IO.FS.Handle.mk dumpPath .write
     for n in order do
       let module? := world.moduleOf? n
@@ -3275,7 +3325,7 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
       h.putStr "\n"
     refUnique := order.size
     let tD1 ← IO.monoNanosNow
-    sink.emit "stage4b.dumpRefs" (tD1 - tD0)
+    sink.emit "stage4b.dumpRefs" (tD1 - tD0 + perModuleNanos)
       [("records", toString refUnique),
        ("occurrences", toString occurrences),
        ("own", toString refOwn),
@@ -3285,8 +3335,9 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
   sink.emit "stage4b.total" (tTotal1 - tTotal0) [("modules", toString targets.size)]
 
   let mut byKind : Std.HashMap String Nat := {}
-  for d in results do
-    byKind := byKind.insert d.kind ((byKind.getD d.kind 0) + 1)
+  for r in runs do
+    for k in r.kinds do
+      byKind := byKind.insert k ((byKind.getD k 0) + 1)
 
   IO.println s!"target modules       {targets.size}"
   IO.println s!"loaded modules       {world.moduleNames.size}"
@@ -3339,7 +3390,7 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
     IO.println s!"  5x force extDocs   {fmtDur p.forceExt5}  ({fmtDur (p.forceExt5 / 5)} each)"
     IO.println s!"  5x getModuleIdxFor {fmtDur p.idxOnly5}  ({fmtDur (p.idxOnly5 / 5)} each)"
     IO.println s!"  5x hoisted const2ModIdx {fmtDur p.hoisted5}  ({fmtDur (p.hoisted5 / 5)} each)"
-  IO.println s!"analyze              {fmtDur (tAn1 - tAn0)}  considered {considered}, produced {results.size}, blacklisted {blacklisted}, failed {failures.size}"
+  IO.println s!"analyze              {fmtDur (tAn1 - tAn0)}  considered {considered}, produced {produced}, blacklisted {blacklisted}, failed {failures.size}"
   IO.println s!"  of which signature {fmtDur counters.ppNanos}"
   IO.println s!"  of which equations {fmtDur counters.eqNanos}  ({counters.eqCount} lemmas, {counters.eqFailures} failed, {counters.eqSkipped} definitions skipped by --no-equations-under)"
   IO.println s!"  of which docstring {fmtDur counters.docNanos}"
@@ -3368,8 +3419,8 @@ def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Optio
     if cfg.dumpRefsPath.isSome then
       IO.println s!"refs                 {refUnique} unique, {refOwn} in target modules, {refUnique - refOwn - refUnresolved} in dependencies, {refUnresolved} without a module"
   if cfg.taggedCode then
-    IO.println s!"sorry                {fmtDur (tSy1 - tSy0)}  ({sorryStats.asked} asked, {sorryStats.direct} direct, {sorryStats.transitive} transitive)"
-  if let some dir := irDirUsed then
+    IO.println s!"sorry                {fmtDur sorryNanos}  ({sorryStats.asked} asked, {sorryStats.direct} direct, {sorryStats.transitive} transitive)"
+  if let some dir := irDir? then
     let total := irStats.moduleBytes + irStats.depBytes + irStats.indexBytes
     IO.println s!"writeIR              {fmtDur irStats.serializeNanos} serialize + {fmtDur irStats.hashNanos} hash + {fmtDur irStats.writeNanos} write"
     IO.println s!"  files              {irStats.moduleFiles} modules + {irStats.depFiles} dep maps + 1 index"
@@ -3472,8 +3523,8 @@ def parseArgs (args : List String) : Except String Cfg :=
   | _ => .error "usage: extract [--identity | <modules.txt> <out.jsonl>] [--equations] [--no-equations-under <ns,..>] [--dump <p>] [--dump-modules <p>] [--only <p>] [--open <ns,..>] [--tag] [--refs] [--dump-refs <p>] [--link-index <p>] [--link-index-omit <p>] [--link-index-key <t>] [--write-ir --ir-dir <p> [--write-reuse-keys]] [--tagged-code] [--skip-analyze] [--tactics-emulate] [--tactics-probe] [--pp-breakdown] [--decl-profile <p>] [--jobs <n>]"
 where
   /-- The one cross-flag rule, checked **before anything runs** rather than where
-  the directory is used: the IR is written at the very end of a 20-second
-  extraction, and a run that dies there has already paid for the whole of it. -/
+  the directory is first used: that is after the environment import, and a run
+  that dies there has already paid for it. -/
   check (cfg : Cfg) : Except String Cfg :=
     if cfg.writeIR && cfg.irDir.isNone then
       .error "--write-ir needs --ir-dir <path>, which has no default: an IR tree written \

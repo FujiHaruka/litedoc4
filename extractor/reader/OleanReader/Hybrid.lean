@@ -735,6 +735,11 @@ structure AcrossCounts where
   identity : Nat := 0
   offeredNotTaken : Nat := 0
 
+def AcrossCounts.add (a b : AcrossCounts) : AcrossCounts :=
+  { reused := a.reused + b.reused, keyDiffers := a.keyDiffers + b.keyDiffers, noKey := a.noKey + b.noKey,
+    noOutput := a.noOutput + b.noOutput, unreadable := a.unreadable + b.unreadable,
+    identity := a.identity + b.identity, offeredNotTaken := a.offeredNotTaken + b.offeredNotTaken }
+
 inductive Across where
   | reused | offeredNotTaken | unreadable | identity | noKey | keyDiffers | noOutput
   deriving Inhabited
@@ -750,9 +755,9 @@ unsafe def acrossOf (nb : Neighbour) (own : OwnKeys) (identityEqual : Bool) (d :
       | none => .noKey
       | some k => if own.keys[s]? != some k then .keyDiffers else .noOutput
 
-unsafe def countAcross (nb : Neighbour) (own : OwnKeys) (identityEqual : Bool) (jobs : Nat) (results : Array DeclOut) :
+unsafe def countAcross (nb : Neighbour) (own : OwnKeys) (identityEqual : Bool) (results : Array DeclOut) :
     AcrossCounts :=
-  (parMap jobs results (acrossOf nb own identityEqual)).foldl (init := {}) fun c a => match a with
+  (results.map (acrossOf nb own identityEqual)).foldl (init := {}) fun c a => match a with
     | .reused => { c with reused := c.reused + 1 }
     | .offeredNotTaken => { c with offeredNotTaken := c.offeredNotTaken + 1 }
     | .unreadable => { c with unreadable := c.unreadable + 1 }
@@ -784,12 +789,16 @@ unsafe def extractAcross (a : Args) (cfg : Cfg) (ph : Phases) (env : Environment
       let nb ← loadNeighbour env dir identity own cfg.jobs
       ph.mark "reuse load"
       let identityEqual := nb.identity == identity
-      let out ← IO.mkRef #[]
+      let counts ← IO.mkRef ({} : AcrossCounts)
+      let produced ← IO.mkRef 0
+      let seen (ds : Array DeclOut) : IO Unit := do
+        let c := countAcross nb own identityEqual ds
+        counts.modify (·.add c)
+        produced.modify (· + ds.size)
       let (code, atExtract) ← extractMeasured ph <|
-        Litedoc4.run cfg (some (env, world)) (some { prev := fun n => nb.offered[n.toString]? >>= Thunk.get, out })
-      let results ← out.get
+        Litedoc4.run cfg (some (env, world)) (some { prev := fun n => nb.offered[n.toString]? >>= Thunk.get, seen })
       pure (code, atExtract,
-        #[reuseFromLine dir nb identityEqual own (countAcross nb own identityEqual cfg.jobs results) results.size])
+        #[reuseFromLine dir nb identityEqual own (← counts.get) (← produced.get)])
   if code == 0 then
     writeKeysFile (reuseKeysPath irDir) identity own cfg.jobs
     ph.mark "write keys"
