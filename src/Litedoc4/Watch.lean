@@ -176,6 +176,7 @@ structure Trigger where
   root : FilePath
   config : ConfigSource
   libs : Array String
+  concurrency : Nat := 1
 
 /-- One reading, or `none` when nothing has ever been built here. -/
 def Trigger.ask (t : Trigger) : IO (Except (UInt32 × String) (Option Reading)) := do
@@ -192,7 +193,8 @@ def Trigger.ask (t : Trigger) : IO (Except (UInt32 × String) (Option Reading)) 
         algorithm := none
         modules := some modules, ir := some t.ir, sourceUrl := t.sourceUrl
         linkIndex := some t.linkIndex, externalLinks := some t.externalLinks
-        bibliography := bibliography.digest, noEquationsUnder := some noEquationsUnder } with
+        bibliography := bibliography.digest, noEquationsUnder := some noEquationsUnder
+        concurrency := t.concurrency } with
   | .error refusal => return .error refusal
   | .ok check => return .ok (some (Reading.of check))
 
@@ -370,7 +372,7 @@ def watchRun (r : BuildRequest) (hashUrls : Bool) (port : UInt16)
     { ledger := request.layout.ledger, ir := request.layout.ir
       linkIndex := request.layout.linkIndex, sourceUrl
       externalLinks := request.external.digest, root := request.root
-      config := request.configSource, libs }
+      config := request.configSource, libs, concurrency := request.jobs }
   runLoop { request, hashUrls } trigger interval port { quietSince := ← IO.monoNanosNow }
 
 end Litedoc4

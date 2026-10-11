@@ -425,7 +425,7 @@ def fullExtraction (r : BuildRequest) (bibliography : Option String) (modules : 
   let detected ← match ← buildLedger
       { modules, target := r.root.toString, ir := none, sourceUrl
         linkIndex := some layout.linkIndex, externalLinks := some r.external.digest
-        bibliography, noEquationsUnder := r.noEquationsUnder } with
+        bibliography, noEquationsUnder := r.noEquationsUnder, concurrency := r.jobs } with
     | .error message => throw (3, message)
     | .ok (ledger, _) => pure ledger
   writeFile (layout.work / "ledger-detect.json") detected.toJson
@@ -450,7 +450,8 @@ def incrementalExtraction (r : BuildRequest) (bibliography : Option String)
   let run ← runRounds
     { ir := layout.ir, ledger := layout.ledger, work := layout.work, modules, sourceUrl
       linkIndex := layout.linkIndex, externalDigest := r.external.digest, bibliography
-      noEquationsUnder := r.noEquationsUnder, maxRounds := defaultMaxRounds } extractor
+      noEquationsUnder := r.noEquationsUnder, maxRounds := defaultMaxRounds
+      concurrency := r.jobs } extractor
   return { what := "incremental"
            extracted := run.check.reExtract.size + run.staleFound
            rounds := run.rounds, extractNanos := run.extractNanos

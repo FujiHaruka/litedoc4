@@ -432,13 +432,6 @@ partial def parseLedger (command : String) :
     else
       .error s!"unknown argument `{flag}`"
 
-/-- `--concurrency` is accepted and its value is recorded, and a run that took it
-must not read as though it had used it: this build hashes one module at a time. -/
-def sequentialNote (concurrency : Nat) : IO Unit := do
-  if concurrency > 1 then
-    IO.println s!"ledger  --concurrency {concurrency} was asked for; this build hashes one module \
-      at a time, and the timings record keeps the number that was asked for"
-
 def jsonNames (out : String) (names : Array String) : String := Id.run do
   let mut o := out.push '['
   let mut first := true
@@ -502,7 +495,7 @@ def ledgerBuildRun (a : LedgerArgs) (modules target out : String) : IO UInt32 :=
   let result ← buildLedger
     { modules := names, target := target, ir := a.ir.map (⟨·⟩), sourceUrl := a.sourceUrl
       linkIndex := a.linkIndex.map (⟨·⟩), externalLinks := some external.digest
-      bibliography := ← ledgerBibliography a, algorithm }
+      bibliography := ← ledgerBibliography a, algorithm, concurrency := a.concurrency }
   match result with
   | .error message => refusedWith 3 message
   | .ok (ledger, phases) =>
@@ -515,7 +508,6 @@ def ledgerBuildRun (a : LedgerArgs) (modules target out : String) : IO UInt32 :=
       writeFile ⟨path⟩ (buildTimingsJson algorithm.name a.concurrency ledger.modules.size files
         hashed (phases.keyDone - phases.started) (phases.hashDone - phases.keyDone)
         (total - phases.hashDone) (total - phases.started))
-    sequentialNote a.concurrency
     IO.println s!"build {ledger.modules.size} modules, {files} olean file(s), \
       {grouped hashed} B hashed \
       in {seconds (phases.hashDone - phases.keyDone) 4} s -> {out} ({body.utf8ByteSize} B)"
@@ -532,16 +524,16 @@ def ledgerCheckRun (a : LedgerArgs) (path : String) : IO UInt32 := do
       externalLinks := some external.digest
       bibliography := ← ledgerBibliography a
       changedOut := a.changedOut.map (⟨·⟩), removedOut := a.removedOut.map (⟨·⟩)
-      renderAllOut := a.renderAllOut.map (⟨·⟩) }
+      renderAllOut := a.renderAllOut.map (⟨·⟩), concurrency := a.concurrency }
   match result with
   | .error (code, message) => refusedWith code message
   | .ok summary =>
     if let some timings := a.timings then
       writeFile ⟨timings⟩
         (checkTimingsJson a.concurrency summary ((← IO.monoNanosNow) - summary.phases.started))
-    sequentialNote a.concurrency
-    IO.println s!"check {summary.modules} modules ({summary.algorithm.name}, concurrency 1): \
-      {summary.changed.size} changed, {summary.added.size} added, {summary.removed.size} removed"
+    IO.println s!"check {summary.modules} modules ({summary.algorithm.name}, \
+      concurrency {a.concurrency}): {summary.changed.size} changed, \
+      {summary.added.size} added, {summary.removed.size} removed"
     if summary.extractInvalidated then
       IO.println s!"  extract key changed ({",".intercalate summary.extractKeyChanged.toList}) \
         -> all {summary.reExtract.size} re-extracted"

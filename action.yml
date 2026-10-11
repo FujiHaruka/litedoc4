@@ -61,7 +61,7 @@ inputs:
     description: "run `lake build` in the same job. Turn off only if the package was already built in THIS job — from another job the page cache is cold and the extractor is 5-12x slower"
     default: "true"
   jobs:
-    description: "extractor threads"
+    description: "threads for hashing the oleans and for the extractor"
     default: "4"
   lib:
     description: "library name, when it cannot be read from lakefile.toml (needed for lakefile.lean)"

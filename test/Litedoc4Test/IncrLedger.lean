@@ -269,4 +269,52 @@ def theLedgerAnswersEveryScenarioOnASyntheticPackage : Invariant where
       eq (grown.changed, grown.added, grown.removed) (#["Pkg.A", "Pkg.B"], #["Pkg.E"], #[]),
       eq grown.reExtract #["Pkg.A", "Pkg.B", "Pkg.E"]]
 
+def theLedgerIsTheSameAtAnyNumberOfWorkers : Invariant where
+  name := "build and check give the same ledger bytes, the same module sets and the same \
+    refusals at 1, 3, 4 and 16 workers over 9 modules"
+  check := do
+    let work ← incrWorkDir "ledger-workers"
+    let package := work / "package"
+    let modules := (Array.range 9).map (s!"Pkg.M{·}")
+    writeFakeRepo package (modules.map fun name => { name, threeFiles := name == "Pkg.M4" })
+    let target := package.toString
+    let listed := (#["Pkg.M0", "Pkg.M1", "Pkg.Gone"] ++ modules.extract 2 9).push "Pkg.Lost"
+    let ledgerPath := work / "ledger.json"
+    let (_, baseRefusal) ← buildSaying { modules, target, sourceUrl } ledgerPath
+    let touched ← touchSaying ledgerPath "Pkg.M5" ledgerPath
+
+    let hashedAt (n : Nat) : IO (String × String × Array String × Array String × Array String) := do
+      let whole := match ← buildLedger { modules, target, sourceUrl, concurrency := n } with
+        | .ok (ledger, _) => ledger.toJson
+        | .error why => s!"refused: {why}"
+      let short := match ← buildLedger { modules := listed, target, sourceUrl, concurrency := n } with
+        | .ok (ledger, _) => s!"built {ledger.modules.size}"
+        | .error why => why
+      let (c, refusal) ← checkSaying
+        { ledger := ledgerPath, modules := some listed, sourceUrl, concurrency := n }
+      return (whole, short ++ (refusal.getD ""), c.changed, c.removed, c.reExtract)
+    let one ← hashedAt 1
+    let three ← hashedAt 3
+    let four ← hashedAt 4
+    let sixteen ← hashedAt 16
+
+    for module in ["M3", "M6"] do
+      IO.FS.removeFile (package / ".lake/build/lib/lean/Pkg" / s!"{module}.olean.hash")
+    let thrownAt (n : Nat) : IO String := do
+      try
+        match ← buildLedger { modules, target, sourceUrl, algorithm := .lake, concurrency := n } with
+        | .ok _ => return "built"
+        | .error why => return s!"refused: {why}"
+      catch e => return toString e
+    let thrownOne ← thrownAt 1
+    let thrownFour ← thrownAt 4
+    removeDir work
+    let missing := s!"no olean under {target}/.lake/build/lib/lean for: Pkg.Gone, Pkg.Lost"
+    return first [
+      baseRefusal, touched,
+      eq (one.2.1, one.2.2.1, one.2.2.2.1) (missing, #["Pkg.M5"], #["Pkg.Gone", "Pkg.Lost"]),
+      eq (decide ((thrownOne.splitOn "M3.olean.hash").length > 1), (thrownOne.splitOn "M6").length) (true, 1),
+      eq three one, eq four one, eq sixteen one,
+      eq thrownFour thrownOne]
+
 end Litedoc4Test

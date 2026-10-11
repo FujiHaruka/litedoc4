@@ -66,6 +66,7 @@ def main : IO UInt32 :=
     Litedoc4Test.aFoldIntoAFreshOutLeavesTheBaseAloneAndADeletionNeedsNoPartialTree,
     Litedoc4Test.ownershipNamesTheReferrerAndNeverTheModuleThatWentAway,
     Litedoc4Test.theLedgerAnswersEveryScenarioOnASyntheticPackage,
+    Litedoc4Test.theLedgerIsTheSameAtAnyNumberOfWorkers,
     Litedoc4Test.noRootAndNoFileAreTheSameAnswer,
     Litedoc4Test.aBibliographyIsReadByConventionAndABadOneNamesTheFile,
     Litedoc4Test.aConfigElsewhereReadsBesideItselfAndAMissingFileIsAnError,

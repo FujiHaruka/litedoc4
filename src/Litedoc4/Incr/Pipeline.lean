@@ -161,6 +161,7 @@ structure ExtractionInput where
   bibliography : Option String
   noEquationsUnder : Option (Array String) := none
   maxRounds : Nat
+  concurrency : Nat
 
 structure Rounds where
   check : CheckSummary
@@ -195,7 +196,7 @@ def runRounds (o : ExtractionInput) (extractor : Resident) : BuildM Rounds := do
         externalLinks := some o.externalDigest
         bibliography := o.bibliography, noEquationsUnder := o.noEquationsUnder
         changedOut := some changedFile, removedOut := some removedFile
-        renderAllOut := some (o.work / "render-all.txt") }
+        renderAllOut := some (o.work / "render-all.txt"), concurrency := o.concurrency }
   let detectDone ← IO.monoNanosNow
   let moved :=
     if check.renderAll then

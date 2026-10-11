@@ -238,6 +238,27 @@ def hashModule (algorithm : Algorithm) (target libDir module : String) :
   let combined := "\n".intercalate (files.toList.map fun f => s!"{f.path} {f.hash}")
   return some { module, files, hash := sha256Text combined }
 
+def hashModules (algorithm : Algorithm) (target libDir : String) (modules : Array String)
+    (workers : Nat) : IO (Array (Option LedgerModule)) := do
+  let workers := max 1 (min workers modules.size)
+  if workers == 1 then return ← modules.mapM (hashModule algorithm target libDir)
+  let next ← IO.mkRef 0
+  let tasks ← (Array.range workers).mapM fun _ =>
+    IO.asTask (prio := .dedicated) (α := Array (Nat × Except IO.Error (Option LedgerModule))) do
+      let mut done := #[]
+      repeat
+        let k ← next.modifyGet fun k => (k, k + 1)
+        let some module := modules[k]? | break
+        done := done.push (k, ← (hashModule algorithm target libDir module).toBaseIO)
+      return done
+  let mut hashed : Array (Except IO.Error (Option LedgerModule)) :=
+    Array.replicate modules.size (.ok none)
+  for task in tasks do
+    for (k, entry) in ← MonadExcept.ofExcept (← IO.wait task) do
+      hashed := hashed.set! k entry
+  -- The first failure in list order, not in completion order: the one a sequential walk throws.
+  hashed.mapM MonadExcept.ofExcept
+
 /-- The sum every stage reports as `hashedBytes`. Clamped per file, because the
 `-1` a `lake` entry carries is "nothing was read", not "minus one byte". -/
 def hashedBytesOf (modules : Array LedgerModule) : Nat :=
@@ -268,6 +289,7 @@ structure LedgerInputs where
   bibliography : Option String := none
   noEquationsUnder : Option (Array String) := none
   algorithm : Algorithm := Algorithm.sha256
+  concurrency : Nat := 1
 
 /-- `.error` is the refusal that exits 3: at `build` time the module list and
 the build tree are supposed to agree, and a ledger that silently omitted a
@@ -281,10 +303,11 @@ def buildLedger (i : LedgerInputs) : IO (Except String (Ledger × BuildPhases)) 
   let render := renderKey i.sourceUrl (← linkIndexDigest i.linkIndex) i.externalLinks
     i.bibliography
   let keyDone ← IO.monoNanosNow
+  let hashed ← hashModules i.algorithm target libDir i.modules i.concurrency
   let mut modules : Array LedgerModule := #[]
   let mut missing : Array String := #[]
-  for module in i.modules do
-    match ← hashModule i.algorithm target libDir module with
+  for (module, entry) in i.modules.zip hashed do
+    match entry with
     | some entry => modules := modules.push entry
     | none => missing := missing.push module
   let hashDone ← IO.monoNanosNow
@@ -419,6 +442,7 @@ structure CheckInputs where
   changedOut : Option System.FilePath := none
   removedOut : Option System.FilePath := none
   renderAllOut : Option System.FilePath := none
+  concurrency : Nat := 1
 
 /-- The four durations partition the run, so they subtract: read the ledger,
 build the keys, hash the modules, compare the sets. The output files are written
@@ -489,9 +513,7 @@ def checkLedger (i : CheckInputs) : IO (Except LedgerRefusal CheckSummary) := do
     | none => previous := previous.push (entry.module, entry)
   let current := i.modules.getD (previous.map (·.1))
 
-  let mut hashed : Array (Option LedgerModule) := #[]
-  for module in current do
-    hashed := hashed.push (← hashModule algorithm ledger.target ledger.libDir module)
+  let hashed ← hashModules algorithm ledger.target ledger.libDir current i.concurrency
   let hashDone ← IO.monoNanosNow
 
   let mut present : Array LedgerModule := #[]
