@@ -45,9 +45,7 @@ jobs:
 
       # The same gate this job could run itself, run here so that a Windows
       # failure downstream is known to be about Windows and not about the site.
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - uses: ./.github/actions/setup-node
 
       - name: Page gate (ubuntu, for comparison)
         run: tools/mv-pages-gate.sh --from "$RUNNER_TEMP/mv-s" | tee "$RUNNER_TEMP/pages-ubuntu.txt"
@@ -85,9 +83,7 @@ jobs:
           name: s-renders
           path: renders
 
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - uses: ./.github/actions/setup-node
 
       # Printed before the gate runs, because "the gate was green" and "the gate
       # ran against Consolas" are different claims and only this step can tell

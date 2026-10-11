@@ -618,11 +618,13 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
   signature is invalid, so it **dies instantly with SIGKILL (exit 137)** (measured 2026-08-19). And
   `command -v node` succeeds while `node -v` fails **printing nothing**, so through a pipe it looks
   like "empty output".
-  **`tools/assets-gate.sh` is the one thing left in the tree that hits it** — npm, `npx biome`,
-  tsc, vitest and vite all run directly inside it, so calling it bare gives **exit 137 (SIGKILL)**
-  and the output says nothing about assets. Call it as
-  **`mise exec -- tools/assets-gate.sh`** (measured 2026-08-21), and the same for any bare
-  `npm …` / `npx …` (`mise.toml` pins node to 24.19.0). CI is green because the job has
+  **Every gate that runs node hits it** — `tools/assets-gate.sh` (npm, `npx biome`, tsc,
+  vitest and vite), and `benchmarks-ts-gate.sh`, `v8-gc-table-gate.sh`, `gc-table-gate.sh` and
+  `mv-pages-gate.sh`, which run `benchmarks/tools` and `tools/oracle` TypeScript with node
+  directly. Called bare, each gives **exit 137 (SIGKILL)** and output that says nothing about its
+  subject. Call them as **`mise exec -- tools/<gate>.sh`** (measured 2026-08-21 for
+  `assets-gate.sh`), and the same for any bare `node …` / `npm …` / `npx …` (`mise.toml` pins
+  node to 24.19.0). CI is green because the job has
   `setup-node`. `mise` is a shell function and does not rewrite
   PATH in a non-interactive shell — which is why `mise exec` is stated explicitly.
 - **Editing a shell script while it is running breaks that run** (measured 2026-08-24) —

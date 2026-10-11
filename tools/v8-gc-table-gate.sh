@@ -2,7 +2,7 @@
 # Is src/Litedoc4/Global/V8GcTable.lean still what V8 answers?
 #
 # The table is the only one of the five enumerated Unicode tables in src/ whose
-# oracle survives the removal of crates/: deno's own /[\p{Z}\p{C}]/u re-derives
+# oracle survives the removal of crates/: node's own /[\p{Z}\p{C}]/u re-derives
 # it with no target, no Mathlib and no Rust (measured 2026-08-31 →
 # benchmarks/results/unicode-table-regenerators-2026-08-31.txt §1). The other
 # four cannot be asked here — UnicodeBasic is not installed, and lowerTable /
@@ -13,19 +13,24 @@
 # week without anyone noticing: nothing ran it (§2 of the same log). A generator
 # with a --check nobody runs is a generator whose output has no oracle.
 #
-# A gate rather than a test because it needs deno, which `tools/lean-test-gate.sh`
+# The runtime is part of the answer: the generated header records node's, V8's
+# and Unicode's versions, so a node other than the one mise.toml pins fails here
+# on the header line even where the ranges agree.
+#
+# A gate rather than a test because it needs node, which `tools/lean-test-gate.sh`
 # must not.
 #
-# usage: v8-gc-table-gate.sh
+# usage: v8-gc-table-gate.sh   (NODE overrides the node it runs)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 GEN="$ROOT/tools/oracle/gen-v8-gc-table.ts"
 TABLE="$ROOT/src/Litedoc4/Global/V8GcTable.lean"
+NODE="${NODE:-node}"
 
-command -v deno >/dev/null 2>&1 || {
-  echo "no deno on PATH — this gate re-derives the table from V8." >&2
+command -v "$NODE" >/dev/null 2>&1 || {
+  echo "no node on PATH; set NODE or install the one mise.toml pins (this gate re-derives the table from V8)." >&2
   exit 2
 }
 
@@ -41,8 +46,8 @@ command -v deno >/dev/null 2>&1 || {
   exit 1
 }
 
-echo "== $(deno --version | head -1)"
-deno run --allow-read "$GEN" --check
+echo "== node $("$NODE" -p 'process.versions.node + " / V8 " + process.versions.v8 + " / Unicode " + process.versions.unicode')"
+"$NODE" "$GEN" --check
 
 echo
-echo "V8 GC TABLE GATE: ok ($(basename "$TABLE") is what this deno's V8 answers)"
+echo "V8 GC TABLE GATE: ok ($(basename "$TABLE") is what this node's V8 answers)"

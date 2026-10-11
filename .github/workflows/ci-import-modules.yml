@@ -187,9 +187,7 @@ jobs:
             echo "cold run $i done"
           done
 
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - uses: ./litedoc4/.github/actions/setup-node
 
       - name: Summarise
         if: always()
@@ -214,15 +212,15 @@ jobs:
             done
             echo
             echo "## residency after 'lake exe cache get'"
-            deno run --allow-read "$S" residency-after-cache-get.jsonl || true
+            node "$S" residency-after-cache-get.jsonl || true
             echo
             echo "## residency after 'lake build' (the state docs are generated in)"
-            deno run --allow-read "$S" residency-after-lake-build.jsonl || true
+            node "$S" residency-after-lake-build.jsonl || true
             for f in residency-cold-*.jsonl; do
               [ -e "$f" ] || continue
               echo
               echo "## residency after drop_caches ($f) — should be ~0"
-              deno run --allow-read "$S" "$f" || true
+              node "$S" "$f" || true
             done
             echo
             echo "## meminfo"

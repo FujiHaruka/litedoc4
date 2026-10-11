@@ -194,9 +194,7 @@ jobs:
             echo "honesty-$M done"
           done
 
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - uses: ./litedoc4/.github/actions/setup-node
 
       - name: Summarise
         if: always()
@@ -223,7 +221,7 @@ jobs:
             echo "## honesty check — residency of ALL oleans after a prefetch and nothing else"
             for M in read madvise; do
               echo "### $M"
-              deno run --allow-read litedoc4/benchmarks/tools/summarize-residency.ts \
+              node litedoc4/benchmarks/tools/summarize-residency.ts \
                 "$W/residency-after-prefetch-$M.jsonl" 2>&1 | tail -12 || true
             done
           } | tee prefetch-summary.txt

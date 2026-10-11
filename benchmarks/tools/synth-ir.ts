@@ -14,18 +14,20 @@
 // are exactly those three fields.
 //
 // usage:
-//   deno run --allow-read --allow-write benchmarks/tools/synth-ir.ts \
+//   node benchmarks/tools/synth-ir.ts \
 //     <modules.json> <search-index.json> <out dir>
 
-const [modulesPath, indexPath, outDir] = Deno.args;
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+
+const [modulesPath, indexPath, outDir] = process.argv.slice(2);
 if (!modulesPath || !indexPath || !outDir) {
   console.error("usage: synth-ir.ts <modules.json> <search-index.json> <out dir>");
-  Deno.exit(2);
+  process.exit(2);
 }
 
 type Module = { n: string; p: string; i: number[] };
-const modules = JSON.parse(Deno.readTextFileSync(modulesPath)).modules as Module[];
-const index = JSON.parse(Deno.readTextFileSync(indexPath)) as {
+const modules = JSON.parse(readFileSync(modulesPath, "utf8")).modules as Module[];
+const index = JSON.parse(readFileSync(indexPath, "utf8")) as {
   kinds: string[];
   decls: [string, number, number][];
   modules?: { n: string; p: string }[];
@@ -50,7 +52,7 @@ for (const [name, kind, module] of index.decls) {
   if (module < declsOf.length) declsOf[module].push([name, kind]);
 }
 
-Deno.mkdirSync(`${outDir}/modules`, { recursive: true });
+mkdirSync(`${outDir}/modules`, { recursive: true });
 const entries = modules.map((module, at) => {
   const body = JSON.stringify({
     schemaVersion: 4,
@@ -80,7 +82,7 @@ const entries = modules.map((module, at) => {
     })),
   });
   const file = `modules/${module.n}.json`;
-  Deno.writeTextFileSync(`${outDir}/${file}`, body);
+  writeFileSync(`${outDir}/${file}`, body);
   return {
     bytes: new TextEncoder().encode(body).length,
     contentHash: "0000000000000000",
@@ -90,7 +92,7 @@ const entries = modules.map((module, at) => {
   };
 });
 
-Deno.writeTextFileSync(
+writeFileSync(
   `${outDir}/index.json`,
   JSON.stringify({
     declarationCount: index.decls.length,

@@ -113,8 +113,8 @@ jobs:
       - name: The Lean half's invariants
         run: tools/lean-test-gate.sh
 
-  # `deno run` strips types rather than checking them, so nothing else in CI
-  # looks at the measurement tooling's TypeScript at all.
+  # node strips types rather than checking them, so nothing else in CI looks at
+  # the measurement tooling's TypeScript at all.
   benchmarks-ts:
     name: measurement tooling (types)
     runs-on: ubuntu-latest
@@ -122,15 +122,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - uses: ./.github/actions/setup-node
 
-      - name: Type-check benchmarks/tools
+      - name: Type-check benchmarks/tools and tools/oracle
         run: tools/benchmarks-ts-gate.sh
 
   # The one enumerated Unicode table in src/ that still has a live oracle: V8's
-  # own `\p{Z}\p{C}`, which deno answers with nothing else installed.
+  # own `\p{Z}\p{C}`, which node answers with nothing else installed.
   v8-gc-table:
     name: "the V8 Z|C table (re-derived)"
     runs-on: ubuntu-latest
@@ -138,14 +136,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Exact, where the job above floats on v2.x. The table *is* this runtime's
-      # answer and the generated header records which runtime gave it, so a
-      # floating deno turns the gate into an alarm about deno's release
-      # cadence instead of about the table. Bump this line in the same commit
-      # that regenerates the table with a newer deno.
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.7.14
+      # Exact: the node mise.toml pins. The table *is* this runtime's answer and
+      # the generated header records which runtime gave it, so bumping node in
+      # mise.toml turns this job red until the table is regenerated with the new
+      # node in the same commit.
+      - uses: ./.github/actions/setup-node
 
       - name: Re-derive src/Litedoc4/Global/V8GcTable.lean
         run: tools/v8-gc-table-gate.sh
@@ -205,9 +200,7 @@ jobs:
       - name: Pinnable dependency with guillemet modules
         run: tools/pinned-dep-gate.sh --out "$RUNNER_TEMP/pinned"
 
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - uses: ./.github/actions/setup-node
 
       # D9's page-path and anchor promise, read in a browser after each page is
       # drawn from data: S v1 against the frozen e2e/micro-expected pages, and

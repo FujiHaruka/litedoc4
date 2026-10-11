@@ -109,24 +109,22 @@ jobs:
             echo "drift snapshot $i taken"
           done
 
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - uses: ./litedoc4/.github/actions/setup-node
 
       - name: Summarise with the same tool the macOS numbers were taken with
         run: |
           S=litedoc4/benchmarks/tools/summarize-residency.ts
           {
             echo "## residency straight after 'lake exe cache get'"
-            deno run --allow-read "$S" residency-1.jsonl
+            node "$S" residency-1.jsonl
             echo
             echo "## by extension"
-            deno run --allow-read "$S" residency-1.jsonl --by-ext
+            node "$S" residency-1.jsonl --by-ext
             echo
             for f in residency-drift-*.jsonl; do
               [ -e "$f" ] || continue
               echo "## $f"
-              deno run --allow-read "$S" "$f"
+              node "$S" "$f"
               echo
             done
           } | tee residency-summary.txt

@@ -275,6 +275,7 @@ Released under Apache 2.0 license as described in the file LICENSE. / Authors: H
 | `crates/litedoc4-md/src/gc.rs` (UnicodeBasic の出力を列挙したデータ) | UnicodeBasic = Apache 2.0 | 1,691 行 | 無し (冒頭に rev `a2e430a4…` の記録のみ) |
 | `src/Litedoc4/Md/GcTable.lean` (上の Lean 転写、二次の派生) | 同上 | 32 行 (each set as one string literal) | 無し (冒頭に rev `a2e430a4…` の記録のみ) |
 | `crates/litedoc4-global/src/v8_gc.rs` (V8 を総当たりした出力データ) | V8 = BSD-3 | 818 行 | 無し (deno 2.7.14 / V8 rev の記録のみ) |
+| `src/Litedoc4/Global/V8GcTable.lean` (V8 を総当たりした出力データ, the table the tree reads) | V8 = BSD-3 | 23 行 (one string literal) | 無し (冒頭に node 24.19.0 / V8 13.6.233.17-node.51 / Unicode 17.0 の記録のみ) |
 | `src/Litedoc4/Lower.lean` (Rust の `str::to_lowercase` を総当たりした出力データ) | Rust std = MIT OR Apache-2.0、元データは Unicode | 180 行 (2 tables as string literals) | 無し (冒頭の記録のみ) |
 
 **md4c was the only work in this table that carried its own attribution files until

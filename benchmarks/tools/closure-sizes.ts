@@ -1,16 +1,19 @@
-#!/usr/bin/env -S deno run -A
+#!/usr/bin/env node
+import { readFile, readdir } from "node:fs/promises";
+
 /**
  * Computes the transitive import-closure size of every module in a package, by parsing the
  * `import` headers of its `.lean` sources. The closure size is what drives `doc-gen4 single`:
  * each per-module process pays for loading its whole closure into an `Environment`.
  *
- * Usage: closure-sizes.ts <src-root> <module-prefix> [<src-root> <module-prefix> ...]
+ * Usage: node closure-sizes.ts <src-root> <module-prefix> [<src-root> <module-prefix> ...]
  */
+const args = process.argv.slice(2);
 const roots: [string, string][] = [];
-for (let i = 0; i < Deno.args.length; i += 2) roots.push([Deno.args[i], Deno.args[i + 1]]);
+for (let i = 0; i < args.length; i += 2) roots.push([args[i], args[i + 1]]);
 if (roots.length === 0) {
   console.error("usage: closure-sizes.ts <src-root> <module-prefix> ...");
-  Deno.exit(1);
+  process.exit(1);
 }
 
 const imports = new Map<string, string[]>();
@@ -20,7 +23,7 @@ for (const [root, prefix] of roots) {
     if (!entry.endsWith(".lean")) continue;
     const rel = entry.slice(root.length + 1, -".lean".length);
     const mod = prefix + (rel === "" ? "" : "." + rel.replaceAll("/", "."));
-    const text = await Deno.readTextFile(entry);
+    const text = await readFile(entry, "utf8");
     const deps: string[] = [];
     let inBlockComment = false;
     for (const line of text.split("\n")) {
@@ -44,9 +47,9 @@ for (const [root, prefix] of roots) {
 }
 
 async function* walk(dir: string): AsyncGenerator<string> {
-  for await (const e of Deno.readDir(dir)) {
+  for (const e of await readdir(dir, { withFileTypes: true })) {
     const p = `${dir}/${e.name}`;
-    if (e.isDirectory) yield* walk(p);
+    if (e.isDirectory()) yield* walk(p);
     else yield p;
   }
 }

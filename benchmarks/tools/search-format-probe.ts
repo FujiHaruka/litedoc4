@@ -1,19 +1,19 @@
 // Measures the shipped `search-index.json` and the proposed binary format v2.
 //
 // Usage:
-//   deno run --allow-read benchmarks/tools/search-format-probe.ts <search-index.json>
-//   deno run --allow-read --allow-write \
-//       benchmarks/tools/search-format-probe.ts <search-index.json> --emit <out.bin>
-//   deno run --allow-read --v8-flags=--expose-gc \
+//   node benchmarks/tools/search-format-probe.ts <search-index.json>
+//   node benchmarks/tools/search-format-probe.ts <search-index.json> --emit <out.bin>
+//   node --expose-gc \
 //       benchmarks/tools/search-format-probe.ts <search-index.json> --mem <json|json+source|json+lower>
-//   deno run --allow-read --v8-flags=--expose-gc \
-//       benchmarks/tools/search-format-probe.ts <out.bin> --mem bin
+//   node --expose-gc benchmarks/tools/search-format-probe.ts <out.bin> --mem bin
 //
 // The `--mem` modes must run one per process: V8 heap deltas are only readable
 // against a baseline taken before anything is loaded.
 //
 // Every number this prints is a measurement of the file handed to it. Nothing
 // here reads the repository, so it says nothing about a site it was not given.
+
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -23,9 +23,10 @@ const DOT = 46;
 type Decl = [string, number, number];
 type Index = { decls: Decl[]; kinds: string[]; modules: { n: string; p: string }[] };
 
-const path = Deno.args[0] ?? "search-index.json";
-const memMode = Deno.args.includes("--mem") ? Deno.args[Deno.args.indexOf("--mem") + 1] : null;
-const emitTo = Deno.args.includes("--emit") ? Deno.args[Deno.args.indexOf("--emit") + 1] : null;
+const args = process.argv.slice(2);
+const path = args[0] ?? "search-index.json";
+const memMode = args.includes("--mem") ? args[args.indexOf("--mem") + 1] : null;
+const emitTo = args.includes("--emit") ? args[args.indexOf("--emit") + 1] : null;
 
 async function gzipLen(bytes: Uint8Array): Promise<number> {
   // Copied into a freshly-allocated buffer so the stream types line up; the
@@ -176,15 +177,15 @@ function shippedSearch(decls: Decl[], query: string) {
 }
 
 if (memMode) {
-  const snap = () => { for (let i = 0; i < 5; i++) (globalThis as any).gc(); const m = Deno.memoryUsage(); return m; };
+  const snap = () => { for (let i = 0; i < 5; i++) (globalThis as any).gc(); const m = process.memoryUsage(); return m; };
   const before = snap();
   let keep: unknown;
   if (memMode === "json") {
-    let raw: string | null = Deno.readTextFileSync(path);
+    let raw: string | null = readFileSync(path, "utf8");
     keep = JSON.parse(raw!);
     raw = null;
   } else if (memMode === "json+lower") {
-    let raw: string | null = Deno.readTextFileSync(path);
+    let raw: string | null = readFileSync(path, "utf8");
     const parsed = JSON.parse(raw!) as Index;
     raw = null;
     const lower = parsed.decls.map((d) => d[0].toLowerCase());
@@ -193,20 +194,20 @@ if (memMode) {
     // The peak a page actually reaches: `response.json()` has to materialise
     // the body as a JS string before it can parse it, and V8 stores that string
     // two-byte because Lean names are not all ASCII.
-    const raw = Deno.readTextFileSync(path);
+    const raw = readFileSync(path, "utf8");
     keep = { raw, parsed: JSON.parse(raw) };
   } else if (memMode === "bin") {
     // Reads an already-encoded file, because that is all a browser ever does.
     // Encoding in this process would leave the parsed JSON on the heap and
     // measure the encoder rather than the page.
-    keep = Deno.readFileSync(path);
+    keep = readFileSync(path);
   } else throw new Error(`unknown --mem mode: ${memMode}`);
   const after = snap();
   console.log(`${memMode.padEnd(11)} heap +${((after.heapUsed - before.heapUsed) / 1024).toFixed(0)} KiB   external +${((after.external - before.external) / 1024).toFixed(0)} KiB   kept=${keep ? "yes" : "no"}`);
-  Deno.exit(0);
+  process.exit(0);
 }
 
-const rawText = Deno.readTextFileSync(path);
+const rawText = readFileSync(path, "utf8");
 const data = JSON.parse(rawText) as Index;
 if (emitTo) {
   const built = encodeV2(data.decls);
@@ -214,14 +215,14 @@ if (emitTo) {
   const file = new Uint8Array(parts.reduce((a, b) => a + b.length, 0));
   let cursor = 0;
   for (const part of parts) { file.set(part, cursor); cursor += part.length; }
-  Deno.writeFileSync(emitTo, file);
+  writeFileSync(emitTo, file);
   console.log(`${emitTo}: ${file.length} B`);
-  Deno.exit(0);
+  process.exit(0);
 }
 const decls = data.decls;
 const n = decls.length;
 const names = decls.map((d) => d[0]);
-const fileBytes = Deno.statSync(path).size;
+const fileBytes = statSync(path).size;
 
 console.log(`# ${path}  ${fileBytes} B on disk`);
 console.log(`\n## 1. what is in the shipped file`);

@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-net --allow-env --allow-run --allow-write
+#!/usr/bin/env node
 /**
  * The page-path and anchor promise of a site `litedoc4 store render` wrote, as a
  * reader meets it: in a browser, after the page has been drawn from data.
@@ -6,15 +6,19 @@
  * this file is the driver.
  *
  * usage:
- *   check-mv-pages.ts --site <path-URL render> --hash <hash-URL render>
+ *   node check-mv-pages.ts --site <path-URL render> --hash <hash-URL render>
  *                     --frozen <frozen site> [--chrome PATH] [--port N]
  */
 
+import { spawn } from "node:child_process";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import puppeteer, { type Browser, type Page } from "npm:puppeteer-core@24";
+import puppeteer, { type Browser, type Page } from "puppeteer-core";
+import { listen } from "./serve.ts";
 
 const CHROME_CANDIDATES = [
-  Deno.env.get("CHROME_PATH"),
+  process.env.CHROME_PATH,
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
   "/usr/bin/google-chrome",
@@ -39,12 +43,12 @@ function findChrome(explicit?: string): string {
     "no Chrome found. Set CHROME_PATH or pass --chrome; tried:\n  " +
       candidates.filter(Boolean).join("\n  "),
   );
-  Deno.exit(2);
+  process.exit(2);
 }
 
 const isFile = (path: string): boolean => {
   try {
-    return Deno.statSync(path).isFile;
+    return statSync(path).isFile();
   } catch {
     return false;
   }
@@ -52,9 +56,9 @@ const isFile = (path: string): boolean => {
 
 function htmlFiles(dir: string, rel = ""): string[] {
   const out: string[] = [];
-  for (const e of Deno.readDirSync(`${dir}/${rel}`)) {
+  for (const e of readdirSync(`${dir}/${rel}`, { withFileTypes: true })) {
     const r = rel ? `${rel}/${e.name}` : e.name;
-    if (e.isDirectory) out.push(...htmlFiles(dir, r));
+    if (e.isDirectory()) out.push(...htmlFiles(dir, r));
     else if (e.name.endsWith(".html")) out.push(r);
   }
   return out.sort();
@@ -72,17 +76,17 @@ const DATA_DELAY_TYPED_MS = 300;
 let dataDelayMs = 0;
 
 function serve(root: string, port: number) {
-  return Deno.serve({ port, hostname: "127.0.0.1", onListen: () => {} }, async (request) => {
+  return listen({ port, hostname: "127.0.0.1" }, async (request) => {
     let path = decodeURIComponent(new URL(request.url).pathname);
     if (path.endsWith("/")) path += "index.html";
     if (dataDelayMs && path.includes("/d/")) await new Promise((r) => setTimeout(r, dataDelayMs));
     try {
-      const body = await Deno.readFile(`${root}${path}`);
+      const body = await readFile(`${root}${path}`);
       const type = TYPES[path.slice(path.lastIndexOf("."))] ?? "application/octet-stream";
       return new Response(body, { headers: { "content-type": type } });
     } catch {
       try {
-        const body = await Deno.readFile(`${root}/404.html`);
+        const body = await readFile(`${root}/404.html`);
         return new Response(body, { status: 404, headers: { "content-type": TYPES[".html"] } });
       } catch {
         return new Response("not found", { status: 404 });
@@ -104,7 +108,7 @@ function textOfHtml(html: string): string {
 }
 
 async function gunzipJson<T>(path: string): Promise<T> {
-  const stream = new Blob([await Deno.readFile(path)])
+  const stream = new Blob([await readFile(path)])
     .stream()
     .pipeThrough(new DecompressionStream("gzip"));
   return JSON.parse(await new Response(stream).text()) as T;
@@ -123,7 +127,7 @@ const unescapeHtml = (s: string): string =>
     ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#x27": "'" })[e] ?? "");
 
 function frozenIds(path: string): string[] {
-  const html = Deno.readTextFileSync(path).replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "");
+  const html = readFileSync(path, "utf8").replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "");
   return [...html.matchAll(/<[a-zA-Z][^>]*?\sid="([^"]*)"/g)].map((m) => unescapeHtml(m[1]));
 }
 
@@ -162,12 +166,22 @@ interface PageFile {
 
 type IndexNames = Record<string, [string, string | null][]>;
 
+function output(command: string, args: string[]): Promise<{ success: boolean; stdout: Buffer; stderr: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code) =>
+      resolve({ success: code === 0, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) }),
+    );
+  });
+}
+
 async function indexNames(root: string): Promise<IndexNames> {
-  const out = await new Deno.Command("python3", {
-    args: ["-I", "-X", "utf8", INDEX_READER, "--site", root, "--print-index"],
-    stdout: "piped",
-    stderr: "piped",
-  }).output();
+  const out = await output("python3", ["-I", "-X", "utf8", INDEX_READER, "--site", root, "--print-index"]);
   if (!out.success) {
     throw new Error(`check-store-render.py --print-index: ${new TextDecoder().decode(out.stderr).slice(-300)}`);
   }
@@ -202,7 +216,7 @@ async function siteData(
   root: string,
   pageAddress: (v: VersionEntry, m: ModuleEntry) => Promise<string | null>,
 ): Promise<SiteData> {
-  const versions = JSON.parse(Deno.readTextFileSync(`${root}/versions.json`)) as VersionEntry[];
+  const versions = JSON.parse(readFileSync(`${root}/versions.json`, "utf8")) as VersionEntry[];
   const pageOf = new Map<string, Map<string, string>>();
   const pageFiles = new Map<string, { version: string; page: string; file: PageFile }>();
   for (const v of versions) {
@@ -222,7 +236,7 @@ async function siteData(
 }
 
 function shellAttr(root: string, rel: string, key: string): string {
-  const m = new RegExp(` data-${key}="([0-9a-f]+)"`).exec(Deno.readTextFileSync(`${root}/${rel}`));
+  const m = new RegExp(` data-${key}="([0-9a-f]+)"`).exec(readFileSync(`${root}/${rel}`, "utf8"));
   if (!m) throw new Error(`${rel} has no data-${key}`);
   return m[1];
 }
@@ -419,7 +433,7 @@ function drawnItem(name: string, visits: Visit[]): void {
 }
 
 async function main(): Promise<void> {
-  const args = [...Deno.args];
+  const args = process.argv.slice(2);
   let site = "";
   let hashSite = "";
   let frozen = "";
@@ -434,16 +448,16 @@ async function main(): Promise<void> {
     else if (arg === "--port") port = Number(args.shift());
     else {
       console.error(`unexpected argument: ${arg}`);
-      Deno.exit(2);
+      process.exit(2);
     }
   }
   if (!site || !hashSite || !frozen) {
     console.error("usage: check-mv-pages.ts --site DIR --hash DIR --frozen DIR [--chrome PATH] [--port N]");
-    Deno.exit(2);
+    process.exit(2);
   }
-  site = await Deno.realPath(site);
-  hashSite = await Deno.realPath(hashSite);
-  frozen = await Deno.realPath(frozen);
+  site = await realpath(site);
+  hashSite = await realpath(hashSite);
+  frozen = await realpath(frozen);
   const executablePath = findChrome(chrome);
   const frozenPages = htmlFiles(frozen);
   const declared = [
@@ -478,7 +492,7 @@ async function main(): Promise<void> {
 
   const P = `http://127.0.0.1:${port}`;
   const H = `http://127.0.0.1:${port + 1}`;
-  const servers = [serve(site, port), serve(hashSite, port + 1)];
+  const servers = await Promise.all([serve(site, port), serve(hashSite, port + 1)]);
 
   const pathData = await siteData(site, (v, m) => {
     const shell = `${v.name}/${m.p}`;
@@ -1120,7 +1134,7 @@ async function main(): Promise<void> {
       return [true, `${boxes.length} <math> on ${rel} drawn, each laid out with a box and children, widest ${Math.max(...boxes.map((b) => b.width)).toFixed(0)} px`];
     });
     await itemAsync("mono-glyphs", async () => {
-      const charset = JSON.parse(await Deno.readTextFile(MONO_CHARSET)) as { chars: string };
+      const charset = JSON.parse(await readFile(MONO_CHARSET, "utf8")) as { chars: string };
       await run.fresh(`${P}/${richest}`);
       const measured = await page.evaluate((chars: string) => {
         const probe = document.querySelector(".sig, code, pre, .decl-name") ?? document.body;
@@ -1190,11 +1204,13 @@ async function main(): Promise<void> {
   if (never.length || unknown.length) {
     console.error(`the items that reported are not the items declared: never reported ${never.join(", ") || "none"}; not declared or twice ${unknown.join(", ") || "none"}`);
     console.error(`MV-PAGES GATE FAIL: ${ran.length} of ${declared.length} reported, ${failed} failed`);
-    Deno.exit(1);
+    process.exitCode = 1;
+    return;
   }
   if (failed) {
     console.error(`MV-PAGES GATE FAIL: ${failed} of ${declared.length} failed (${ran.length} of ${declared.length} ran)`);
-    Deno.exit(1);
+    process.exitCode = 1;
+    return;
   }
   console.log(`MV-PAGES GATE: ok, ${ran.length} of ${declared.length} items ran and passed`);
 }

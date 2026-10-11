@@ -24,21 +24,18 @@ namespace Litedoc4
 amount added to each. A string literal rather than an array literal because 185
 array elements are elaborated one by one and a string is one token.
 
-**Frozen: this table and `sigmaTable` have no generator and no oracle.** The
-obvious move — a `tools/oracle/` script that re-derives them the way
-`Litedoc4.Global.V8GcTable` is re-derived — has nothing to ask. What enumerated
-them was Rust's `str::to_lowercase`, which is not in this tree, and V8
-is not a stand-in for it: asked for every code point, V8 and this table disagree
-on 28, all in the same direction (U+A7CE, U+A7D2, U+A7D4, and U+16EA0..U+16EB9),
-this table lowercasing what V8 leaves alone, because Rust's character data
-carries assignments deno's V8 does not (measured 2026-08-31 →
-`benchmarks/results/unicode-table-regenerators-2026-08-31.txt` §4). Taking V8
-anyway would make the answer move with the deno version.
-
-The condition that falsifies this: vendoring the UCD files the table derives
-from (`UnicodeData.txt`, `SpecialCasing.txt`, `DerivedCoreProperties.txt`), or
-any oracle pinned to the same Unicode version. Either one makes both tables
-re-derivable and this note wrong. -/
+**Frozen: this table and `sigmaTable` have no generator.** What enumerated them
+was Rust's `str::to_lowercase`, which is not in this tree. A Unicode 16 V8 was
+not a stand-in for it: asked for every code point, deno's V8 and this table
+disagreed on 28, all in the same direction (U+A7CE, U+A7D2, U+A7D4, and
+U+16EA0..U+16EB9), this table lowercasing Unicode 17 assignments V8 left alone
+(measured 2026-08-31 →
+`benchmarks/results/unicode-table-regenerators-2026-08-31.txt` §4). The V8 in
+node 24.19.0, which answers from Unicode 17, agrees with `lowerTable` on every
+code point (measured 2026-10-11 →
+`benchmarks/results/v8-gc-table-node-2026-10-11.txt`), so the oracle pinned to
+the same Unicode version this note waited for exists; what is missing is the
+`tools/oracle/` script that would ask it, and for `sigmaTable` the measurement. -/
 def lowerTable : String :=
   "41-5A:20,C0-D6:20,D8-DE:20,100~12E:1,132~136:1,139~147:1,14A~176:1,178:-79,179~17D:1,181:D2,182~184:1,186:CE,187:1,189-18A:CD,18B:1,18E:4F,18F:CA,190:CB,191:1,193:CD,194:CF,196:D3,197:D1,198:1,19C:D3,19D:D5,19F:D6,1A0~1A4:1,1A6:DA,1A7:1,1A9:DA,1AC:1,1AE:DA,1AF:1,1B1-1B2:D9,1B3~1B5:1,1B7:DB,1B8:1,1BC:1,1C4:2,1C5:1,1C7:2,1C8:1,1CA:2,1CB~1DB:1,1DE~1EE:1,1F1:2,1F2~1F4:1,1F6:-61,1F7:-38,1F8~21E:1,220:-82,222~232:1,23A:2A2B,23B:1,23D:-A3,23E:2A28,241:1,243:-C3,244:45,245:47,246~24E:1,370~372:1,376:1,37F:74,386:26,388-38A:25,38C:40,38E-38F:3F,391-3A1:20,3A3-3AB:20,3CF:8,3D8~3EE:1,3F4:-3C,3F7:1,3F9:-7,3FA:1,3FD-3FF:-82,400-40F:50,410-42F:20,460~480:1,48A~4BE:1,4C0:F,4C1~4CD:1,4D0~52E:1,531-556:30,10A0-10C5:1C60,10C7:1C60,10CD:1C60,13A0-13EF:97D0,13F0-13F5:8,1C89:1,1C90-1CBA:-BC0,1CBD-1CBF:-BC0,1E00~1E94:1,1E9E:-1DBF,1EA0~1EFE:1,1F08-1F0F:-8,1F18-1F1D:-8,1F28-1F2F:-8,1F38-1F3F:-8,1F48-1F4D:-8,1F59~1F5F:-8,1F68-1F6F:-8,1F88-1F8F:-8,1F98-1F9F:-8,1FA8-1FAF:-8,1FB8-1FB9:-8,1FBA-1FBB:-4A,1FBC:-9,1FC8-1FCB:-56,1FCC:-9,1FD8-1FD9:-8,1FDA-1FDB:-64,1FE8-1FE9:-8,1FEA-1FEB:-70,1FEC:-7,1FF8-1FF9:-80,1FFA-1FFB:-7E,1FFC:-9,2126:-1D5D,212A:-20BF,212B:-2046,2132:1C,2160-216F:10,2183:1,24B6-24CF:1A,2C00-2C2F:30,2C60:1,2C62:-29F7,2C63:-EE6,2C64:-29E7,2C67~2C6B:1,2C6D:-2A1C,2C6E:-29FD,2C6F:-2A1F,2C70:-2A1E,2C72:1,2C75:1,2C7E-2C7F:-2A3F,2C80~2CE2:1,2CEB~2CED:1,2CF2:1,A640~A66C:1,A680~A69A:1,A722~A72E:1,A732~A76E:1,A779~A77B:1,A77D:-8A04,A77E~A786:1,A78B:1,A78D:-A528,A790~A792:1,A796~A7A8:1,A7AA:-A544,A7AB:-A54F,A7AC:-A54B,A7AD:-A541,A7AE:-A544,A7B0:-A512,A7B1:-A52A,A7B2:-A515,A7B3:3A0,A7B4~A7C2:1,A7C4:-30,A7C5:-A543,A7C6:-8A38,A7C7~A7C9:1,A7CB:-A567,A7CC~A7DA:1,A7DC:-A641,A7F5:1,FF21-FF3A:20,10400-10427:28,104B0-104D3:28,10570-1057A:27,1057C-1058A:27,1058C-10592:27,10594-10595:27,10C80-10CB2:40,10D50-10D65:20,118A0-118BF:20,16E40-16E5F:20,16EA0-16EB8:1B,1E900-1E921:22"
 

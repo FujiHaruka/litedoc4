@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-run --allow-env
+#!/usr/bin/env node
 // gen-md4lean-expected.ts -- produce `fixtures/md/md4lean-expected.json` by
 // running *MD4Lean itself*.
 //
@@ -16,14 +16,16 @@
 // MD4Lean too. Some inputs kill it (see `CRASHERS`); the runner resumes after
 // each crash and records them separately, because a crash is not an oracle.
 //
-// npm/node are broken in this environment; this must run under deno.
-//
 // usage:
-//   deno run --allow-read --allow-write --allow-run --allow-env \
-//     tools/oracle/gen-md4lean-expected.ts
+//   node tools/oracle/gen-md4lean-expected.ts
 //   ... --full /tmp/md4lean-full.json   also write every case, not just the
 //                                       committed sample
 //   ... --check                         fail if the committed file is stale
+
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const FIXTURE = new URL("../../fixtures/md/md4lean-expected.json", import.meta.url);
 const DUMPER = new URL("dump-ast.lean", import.meta.url);
@@ -182,7 +184,7 @@ const CRASHERS: [string, number, string, string][] = [
 type Case = { what: string; md: string; flags: number };
 
 async function readJson(path: string): Promise<any> {
-  return JSON.parse(await Deno.readTextFile(path));
+  return JSON.parse(await readFile(path, "utf8"));
 }
 
 /** Every docstring in the IR, deduplicated, in a deterministic order. */
@@ -214,7 +216,7 @@ async function corpusFromIr(ir: string): Promise<Case[]> {
   return cases;
 }
 
-const DYLIB = Deno.build.os === "darwin" ? "dylib" : "so";
+const DYLIB = process.platform === "darwin" ? "dylib" : "so";
 const MD4LEAN_LIBS = [
   `.lake/packages/MD4Lean/.lake/build/lib/libleanmd4c.${DYLIB}`,
   `.lake/packages/MD4Lean/.lake/build/lib/libMD4Lean_MD4Lean.${DYLIB}`,
@@ -237,13 +239,14 @@ async function runOracle(
   while (from < cases.length) {
     const inPath = `${work}/corpus-${round}.jsonl`;
     const outPath = `${work}/ast-${round}.jsonl`;
-    await Deno.writeTextFile(
+    await writeFile(
       inPath,
       cases.slice(from).map((c) => JSON.stringify([c.flags, c.md])).join("\n") + "\n",
     );
 
-    const command = new Deno.Command("lake", {
-      args: [
+    const { status: code, signal, error } = spawnSync(
+      "lake",
+      [
         "env",
         "lean",
         ...MD4LEAN_LIBS.map((lib) => `--load-dynlib=${lib}`),
@@ -252,15 +255,13 @@ async function runOracle(
         inPath,
         outPath,
       ],
-      cwd: target,
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-    const { code, signal } = await command.output();
+      { cwd: target, stdio: "inherit" },
+    );
+    if (error) throw error;
 
     let produced: string[] = [];
     try {
-      const text = await Deno.readTextFile(outPath);
+      const text = await readFile(outPath, "utf8");
       produced = text.split("\n").filter((line) => line !== "");
     } catch {
       produced = [];
@@ -395,7 +396,6 @@ function signature(ast: unknown): string {
 function textFeatures(md: string): string[] {
   const features: string[] = [];
   if (/[\u{10000}-\u{10FFFF}]/u.test(md)) features.push("astral");
-  // deno-lint-ignore no-control-regex
   if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(md)) features.push("control");
   if (md.includes("\r")) features.push("cr");
   if (md.includes("\t")) features.push("tab");
@@ -471,7 +471,7 @@ function selectCases(
   return [...chosen].sort((a, b) => a - b);
 }
 
-const args = Deno.args;
+const args = process.argv.slice(2);
 const flag = (name: string, fallback: string | null = null) => {
   const at = args.indexOf(name);
   return at >= 0 && at + 1 < args.length ? args[at + 1] : fallback;
@@ -481,7 +481,7 @@ const ir = flag("--ir", DEFAULT_IR)!;
 const full = flag("--full");
 const check = args.includes("--check");
 
-const work = await Deno.makeTempDir({ prefix: "md4lean-oracle-" });
+const work = await mkdtemp(join(tmpdir(), "md4lean-oracle-"));
 
 const real = await corpusFromIr(ir);
 const curated: Case[] = [
@@ -510,12 +510,12 @@ const provenance = {
   generatedBy: "tools/oracle/gen-md4lean-expected.ts",
   oracle: "MD4Lean.parse, run under lake env lean in the measurement target",
   target,
-  leanToolchain: (await Deno.readTextFile(`${target}/lean-toolchain`)).trim(),
+  leanToolchain: (await readFile(`${target}/lean-toolchain`, "utf8")).trim(),
   md4leanRev: md4lean?.rev ?? null,
   irPath: ir,
   irDocstrings: real.length,
   flags: DOCSTRING_FLAGS,
-  deno: Deno.version.deno,
+  node: process.versions.node,
 };
 
 const buildFixture = (indices: number[]) => ({
@@ -530,7 +530,7 @@ const buildFixture = (indices: number[]) => ({
 });
 
 if (full) {
-  await Deno.writeTextFile(full, JSON.stringify(buildFixture(usable), null, 0) + "\n");
+  await writeFile(full, JSON.stringify(buildFixture(usable), null, 0) + "\n");
   console.error(`${usable.length} cases -> ${full}`);
 }
 
@@ -540,17 +540,17 @@ const selected = selectCases(cases, answers, curated.length).filter((i) =>
 const fixture = JSON.stringify(buildFixture(selected)) + "\n";
 
 if (check) {
-  const committed = await Deno.readTextFile(FIXTURE);
+  const committed = await readFile(FIXTURE, "utf8");
   if (committed !== fixture) {
     console.error(`${FIXTURE.pathname} is not what this script produces`);
-    Deno.exit(1);
+    process.exit(1);
   }
   console.error(`${FIXTURE.pathname} is current (${selected.length} cases)`);
 } else {
-  await Deno.writeTextFile(FIXTURE, fixture);
+  await writeFile(FIXTURE, fixture);
   console.error(
     `${selected.length} of ${cases.length} cases -> ${FIXTURE.pathname}` +
       ` (${crashed.length} crashed MD4Lean and were dropped)`,
   );
 }
-await Deno.remove(work, { recursive: true });
+await rm(work, { recursive: true });

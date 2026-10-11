@@ -71,7 +71,8 @@
 #   requests         no request failed or was answered >= 400, except the two
 #                    old links, whose 404 the old-link items require
 #
-# Needs deno and a Chrome; no Chrome is exit 2, never a skip.
+# Needs node, benchmarks/tools' npm packages (installed with `npm ci` when
+# absent) and a Chrome; no node or no Chrome is exit 2, never a skip.
 #
 # usage: tools/mv-pages-gate.sh [--from DIR] [--site DIR] [--hash DIR] [--frozen DIR]
 #                               [--chrome PATH] [--port N]
@@ -81,13 +82,14 @@
 #   --site / --hash   the path-URL and hash-URL renders, instead of --from's
 #   --frozen  default: e2e/micro-expected/build
 #   --port    the path-URL site's port (default 8930); the hash-URL site is the next
+#   NODE      the node to run the driver with (default: node on PATH)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=lib/common.sh
 source "$HERE/lib/common.sh" || exit 1
-DENO="${DENO:-deno}"
+NODE="${NODE:-node}"
 
 FROM=/private/tmp/lean-doc-relay/mv-s-gate
 SITE=""
@@ -108,10 +110,18 @@ done
 SITE="${SITE:-$FROM/run1/render/all-1}"
 HASH="${HASH:-$FROM/run1/render/hash-1}"
 
-command -v "$DENO" >/dev/null 2>&1 || {
-  echo "no deno on PATH; set DENO or install it (this gate drives a browser)" >&2
+command -v "$NODE" >/dev/null 2>&1 || {
+  echo "no node on PATH; set NODE or install the one mise.toml pins (this gate drives a browser)" >&2
   exit 2
 }
+TOOLS="$ROOT/benchmarks/tools"
+if [ ! -d "$TOOLS/node_modules/puppeteer-core" ]; then
+  echo "== install (benchmarks/tools has no puppeteer-core)"
+  (cd "$TOOLS" && npm ci --no-audit --no-fund) || {
+    echo "npm ci in $TOOLS failed; the driver cannot load puppeteer-core" >&2
+    exit 2
+  }
+fi
 for dir in "$SITE" "$HASH" "$FROZEN"; do
   [ -f "$dir/index.html" ] || {
     echo "no site at $dir; tools/mv-s-gate.sh --keep leaves the two renders" >&2
@@ -123,6 +133,5 @@ record_host
 printf 'commit            %s\n' "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo '?')"
 printf 'renders           %s, %s\n' "$SITE" "$HASH"
 
-exec "$DENO" run --allow-read --allow-net --allow-env --allow-run --allow-write \
-  "$ROOT/benchmarks/tools/check-mv-pages.ts" \
+exec "$NODE" "$TOOLS/check-mv-pages.ts" \
   --site "$SITE" --hash "$HASH" --frozen "$FROZEN" ${PASS[@]+"${PASS[@]}"}

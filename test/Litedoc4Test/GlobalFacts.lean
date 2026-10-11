@@ -73,14 +73,10 @@ def aPartEndingInADotContributesTheEmptyString : Bool :=
 
 #guard aPartEndingInADotContributesTheEmptyString
 
-/-- U+088F is a separator for V8 and not for UnicodeBasic — the direction that
-costs correctness — and U+00A0 is one for both, which is as close as the
-disagreement gets to being two-sided. -/
-def theSplitIsASupersetOfBothImplementations : Bool :=
-  autolinkTokens "`Nat.succ\u088FFoo`" == #["Nat.succ", "succ", "Foo"]
-    && autolinkTokens "`Nat.succ\u00A0Foo`" == #["Nat.succ", "succ", "Foo"]
+def aSeparatorOfBothImplementationsSplits : Bool :=
+  autolinkTokens "`Nat.succ\u00A0Foo`" == #["Nat.succ", "succ", "Foo"]
 
-#guard theSplitIsASupersetOfBothImplementations
+#guard aSeparatorOfBothImplementationsSplits
 
 def rangeCard (rs : Array (UInt32 × UInt32)) : Nat :=
   rs.foldl (fun acc (lo, hi) => acc + (hi.toNat - lo.toNat + 1)) 0
@@ -89,20 +85,19 @@ def rangeCard (rs : Array (UInt32 × UInt32)) : Nat :=
 say the same thing about the same whole space in one pass, **given the two
 sortedness premises restated here**: with both tables sorted and disjoint each
 one's cardinality is the sum of its ranges, and every `Z | C` range fitting
-inside one V8 range makes `Z | C` a subset, so the 4,803 is a subtraction rather
-than a scan. What would falsify the shortcut: either table growing ranges that
-overlap, where a subset range could straddle two of them.
+inside one V8 range makes `Z | C` a subset, so the difference is a subtraction
+rather than a scan. What would falsify the shortcut: either table growing ranges
+that overlap, where a subset range could straddle two of them.
 
 That the union is `isZC || isV8ZC` is not asserted — it is `isTokenSeparator`'s
 definition, and there is no second place for it to disagree with.
-(measured 2026-08-12 → `benchmarks/results/m2b-v6-token-separators.json`) -/
-def theTwoSeparatorSetsDisagreeTheWayV6MeasuredThem : Bool :=
+(measured 2026-10-11 → `benchmarks/results/v8-gc-table-node-2026-10-11.txt`) -/
+def theTwoSeparatorSetsAreEqualTheWayNodeMeasuredThem : Bool :=
   sortedAndDisjoint v8ZcRanges && sortedAndDisjoint zcRanges
     && zcRanges.all (fun (lo, hi) => v8ZcRanges.any fun (a, b) => a ≤ lo && hi ≤ b)
-    && rangeCard v8ZcRanges - rangeCard zcRanges == 4803
-    && isTokenSeparator 0x088F && !isZC 0x088F
+    && rangeCard v8ZcRanges - rangeCard zcRanges == 0
     && isTokenSeparator 0x00A0 && isZC 0x00A0
 
-#guard theTwoSeparatorSetsDisagreeTheWayV6MeasuredThem
+#guard theTwoSeparatorSetsAreEqualTheWayNodeMeasuredThem
 
 end Litedoc4Test

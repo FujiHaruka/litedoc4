@@ -1,7 +1,7 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env
+#!/usr/bin/env node
 //
-// `--allow-write` is only used by `--mismatches`, `--allow-env` only to read
-// TARGET_REPO. Nothing is ever written to the measurement target.
+// Only `--mismatches` writes anything. Nothing is ever written to the
+// measurement target.
 //
 // Diffs the constants litedoc4 collects from a signature (`--refs`) against the
 // links doc-gen4 actually put in its HTML, the same way `compare-modules.py`
@@ -31,7 +31,7 @@
 //        + module(target).replace(".", "/") + ".html#" + target
 //
 // usage:
-//   compare-links.ts <refs.jsonl> [--doc <dir>] [--modules <list>]
+//   node compare-links.ts <refs.jsonl> [--doc <dir>] [--modules <list>]
 //                    [--list-missing]
 //                    [--decls <dump.jsonl>] [--bmp <file>] [--doc-root <dir>]
 //                    [--mismatches <out.jsonl>] [--cap N] [--legacy-blocks]
@@ -71,19 +71,21 @@
 // blocks that land outside every `div.decl` are counted and reported, since they
 // would silently break the attribution.
 
-const args = Deno.args.slice();
+import { readFile, readdir, writeFile } from "node:fs/promises";
+
+const args = process.argv.slice(2);
 const refsPath = args.shift();
 if (!refsPath || refsPath.startsWith("--")) {
   console.error("usage: compare-links.ts <refs.jsonl> [--doc <dir>] [--modules <list>] [--list-missing]");
   console.error("       [--decls <dump.jsonl>] [--bmp <file>] [--doc-root <dir>] [--mismatches <out.jsonl>] [--cap N] [--legacy-blocks]");
-  Deno.exit(2);
+  process.exit(2);
 }
 const opt = (name: string, dflt: string) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : dflt;
 };
 const REPO = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
-const TARGET = Deno.env.get("TARGET_REPO") ?? "/Users/haruka/dev/lean-projects";
+const TARGET = process.env.TARGET_REPO ?? "/Users/haruka/dev/lean-projects";
 const DOC = opt("--doc", `${TARGET}/.lake/build/doc/InformationTheory`);
 const MODULES = opt("--modules", `${REPO}/benchmarks/results/it-modules.txt`);
 const DECLS = opt("--decls", "");
@@ -145,8 +147,8 @@ const unescape = (s: string) =>
     .replaceAll("&#39;", "'").replaceAll("&amp;", "&");
 
 async function* htmlFiles(dir: string): AsyncGenerator<string> {
-  for await (const e of Deno.readDir(dir)) {
-    if (e.isDirectory) yield* htmlFiles(`${dir}/${e.name}`);
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) yield* htmlFiles(`${dir}/${e.name}`);
     else if (e.name.endsWith(".html")) yield `${dir}/${e.name}`;
   }
 }
@@ -202,7 +204,7 @@ function findDecl(ranges: [number, number, string][], pos: number): number {
 for await (const path of htmlFiles(DOC)) {
   const pageModule = path.slice(DOC.lastIndexOf("/") + 1).replace(/\.html$/, "").replaceAll("/", ".");
   htmlModules.add(pageModule);
-  const html = await Deno.readTextFile(path);
+  const html = await readFile(path, "utf8");
 
   const declRanges = blocks(html, DECL_BLOCK, "div");
   declBlocks += declRanges.length;
@@ -271,11 +273,11 @@ for await (const path of htmlFiles(DOC)) {
 }
 
 type Ref = { name: string; module: string | null; occurrences: number; own: boolean };
-const refs: Ref[] = (await Deno.readTextFile(refsPath)).trim().split("\n").map((l) => JSON.parse(l));
+const refs: Ref[] = (await readFile(refsPath, "utf8")).trim().split("\n").map((l) => JSON.parse(l));
 const refNames = new Set(refs.map((r) => r.name));
 
 const targetModules = new Set(
-  (await Deno.readTextFile(MODULES)).split("\n").map((s) => s.trim()).filter(Boolean),
+  (await readFile(MODULES, "utf8")).split("\n").map((s) => s.trim()).filter(Boolean),
 );
 const covered = [...targetModules].filter((m) => htmlModules.has(m)).length;
 
@@ -306,16 +308,20 @@ if (listMissing) {
   for (const n of extra) console.log(`extra   ${n}`);
 }
 
-if (!DECLS) Deno.exit(0);
+if (!DECLS) {
+  // process.exit alone can drop what is still buffered for a pipe on macOS.
+  await new Promise((done) => process.stdout.write("", done));
+  process.exit(0);
+}
 
 type Decl = { name: string; module: string; refs: string[]; members: { label: string; name: string }[] };
-const decls: Decl[] = (await Deno.readTextFile(DECLS)).trim().split("\n").map((l) => JSON.parse(l));
+const decls: Decl[] = (await readFile(DECLS, "utf8")).trim().split("\n").map((l) => JSON.parse(l));
 const byName = new Map(decls.map((d) => [d.name, d]));
 
 // A Map, not the parsed object: declaration names are arbitrary strings and
 // `obj["constructor"]` would answer for the prototype.
 const bmp = new Map<string, { docLink: string }>(
-  Object.entries(JSON.parse(await Deno.readTextFile(BMP)).declarations as Record<string, { docLink: string }>),
+  Object.entries(JSON.parse(await readFile(BMP, "utf8")).declarations as Record<string, { docLink: string }>),
 );
 const refModule = new Map(refs.map((r) => [r.name, r.module]));
 
@@ -605,7 +611,7 @@ async function anchors(module: string): Promise<Set<string> | null> {
   if (anchorsOf.has(module)) return anchorsOf.get(module)!;
   let ids: Set<string> | null = null;
   try {
-    const text = await Deno.readTextFile(`${DOCROOT}/${module.replaceAll(".", "/")}.html`);
+    const text = await readFile(`${DOCROOT}/${module.replaceAll(".", "/")}.html`, "utf8");
     ids = new Set<string>();
     for (const m of text.matchAll(/\sid="([^"]*)"/g)) ids.add(unescape(m[1]));
   } catch { /* page absent from this partial build */ }
@@ -723,7 +729,7 @@ console.log(`     the .bmp is exactly doc-gen4's own blacklist: a name it refuse
 console.log(`     give a page also never enters the index it ships.`);
 
 if (MISMATCHES) {
-  await Deno.writeTextFile(MISMATCHES, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  await writeFile(MISMATCHES, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
   const over = [...capped].filter(([, n]) => n > CAP);
   console.log();
   console.log(`mismatch records -> ${MISMATCHES}`);

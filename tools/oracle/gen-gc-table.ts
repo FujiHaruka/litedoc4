@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-run --allow-env
+#!/usr/bin/env node
 // gen-gc-table.ts -- write `src/Litedoc4/Md/GcTable.lean` from UnicodeBasic's
 // own answers.
 //
@@ -38,11 +38,8 @@
 // happened to the Rust file this script used to write (measured 2026-08-31, §2
 // of the same log).
 //
-// npm/node are broken in this environment; this must run under deno.
-//
 // usage:
-//   deno run --allow-read --allow-write --allow-run --allow-env \
-//     tools/oracle/gen-gc-table.ts [--target DIR]
+//   node tools/oracle/gen-gc-table.ts [--target DIR]
 //   ... --check        ask UnicodeBasic and fail if the committed .lean is not
 //                      what this produces
 //   ... --self-check   re-emit from the committed tables; the emitter only,
@@ -53,13 +50,16 @@
 //                      while the oracle is out of reach, and it is not a
 //                      regeneration — nothing is re-asked
 
+import { spawnSync } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
+
 const OUT = new URL("../../src/Litedoc4/Md/GcTable.lean", import.meta.url);
 const DUMPER = new URL("dump-gc.lean", import.meta.url);
 const DEFAULT_TARGET = "/Users/haruka/dev/lean-projects";
 
 type Range = [number, number];
 
-const args = Deno.args;
+const args = process.argv.slice(2);
 const flag = (name: string, fallback: string | null = null) => {
   const at = args.indexOf(name);
   return at >= 0 && at + 1 < args.length ? args[at + 1] : fallback;
@@ -83,20 +83,19 @@ function sortedAndDisjoint(name: string, ranges: Range[]) {
 
 /** The oracle: UnicodeBasic, through the build doc-gen4 links. */
 async function acquire(): Promise<{ pzc: Range[]; zc: Range[]; rev: string }> {
-  const DYLIB = Deno.build.os === "darwin" ? "dylib" : "so";
+  const DYLIB = process.platform === "darwin" ? "dylib" : "so";
   const lib =
     `.lake/packages/UnicodeBasic/.lake/build/lib/libUnicodeBasic_UnicodeBasic.${DYLIB}`;
-  const command = new Deno.Command("lake", {
-    args: ["env", "lean", `--load-dynlib=${lib}`, "--run", DUMPER.pathname],
-    cwd: target,
-    stdout: "piped",
-    stderr: "inherit",
-  });
-  const { code, stdout } = await command.output();
-  if (code !== 0) throw new Error(`dump-gc.lean exited ${code}`);
+  const { status, stdout, error } = spawnSync(
+    "lake",
+    ["env", "lean", `--load-dynlib=${lib}`, "--run", DUMPER.pathname],
+    { cwd: target, stdio: ["ignore", "pipe", "inherit"], encoding: "utf8", maxBuffer: 1 << 30 },
+  );
+  if (error) throw error;
+  if (status !== 0) throw new Error(`dump-gc.lean exited ${status}`);
 
   const sets = new Map<string, Range[]>();
-  for (const line of new TextDecoder().decode(stdout).split("\n")) {
+  for (const line of stdout.split("\n")) {
     if (line === "") continue;
     const at = line.indexOf(" ");
     const name = line.slice(0, at);
@@ -106,7 +105,7 @@ async function acquire(): Promise<{ pzc: Range[]; zc: Range[]; rev: string }> {
   for (const [name, ranges] of sets) sortedAndDisjoint(name, ranges);
 
   // The pin the tables came from, so a stale one can be spotted.
-  const manifest = JSON.parse(await Deno.readTextFile(`${target}/lake-manifest.json`));
+  const manifest = JSON.parse(await readFile(`${target}/lake-manifest.json`, "utf8"));
   const found = (manifest.packages ?? []).find((p: { name: string }) => p.name === "UnicodeBasic");
   return { pzc: sets.get("PZC")!, zc: sets.get("ZC")!, rev: found?.rev ?? "unknown" };
 }
@@ -208,10 +207,10 @@ function whatMoved(committed: string, source: string, writer: string): string {
 
 const path = OUT.pathname;
 const readCommitted = async () => {
-  const text = await Deno.readTextFile(OUT).catch(() => null);
+  const text = await readFile(OUT, "utf8").catch(() => null);
   if (text === null) {
     console.error(`${path} is not there; run this script without a check flag to write it`);
-    Deno.exit(1);
+    process.exit(1);
   }
   return text;
 };
@@ -219,25 +218,19 @@ const readCommitted = async () => {
 // A thrown premise reaches the reader as a stack trace otherwise, and a gate
 // whose failure needs reading past `at file:///...` is one that does not say in
 // one line what broke.
-// Both events, not one: this module has a top-level `await`, so a throw from
-// the code below arrives as a rejected module promise rather than as `error`.
+// Both events, not one: a promise nobody awaits rejects as `unhandledRejection`,
+// never as `uncaughtException`.
 const said = (reason: unknown) => {
   console.error(`${path}: ${reason instanceof Error ? reason.message : reason}`);
-  Deno.exit(1);
+  process.exit(1);
 };
-addEventListener("error", (event) => {
-  event.preventDefault();
-  said(event.error);
-});
-addEventListener("unhandledrejection", (event) => {
-  event.preventDefault();
-  said(event.reason);
-});
+process.on("uncaughtException", said);
+process.on("unhandledRejection", said);
 
 if (reemit) {
   const committed = await readCommitted();
   const held = fromCommitted(committed);
-  await Deno.writeTextFile(OUT, emit(held));
+  await writeFile(OUT, emit(held));
   console.error(
     `${held.pzc.length} + ${held.zc.length} ranges re-emitted -> ${path} ` +
       `(the ranges came from that file; UnicodeBasic was not asked)`,
@@ -247,7 +240,7 @@ if (reemit) {
   const source = emit(fromCommitted(committed));
   if (committed !== source) {
     console.error(`${path}: ${whatMoved(committed, source, "the emitter")}`);
-    Deno.exit(1);
+    process.exit(1);
   }
   const { pzc, zc } = fromCommitted(committed);
   console.error(
@@ -259,11 +252,11 @@ if (reemit) {
   const source = emit(await acquire());
   if (committed !== source) {
     console.error(`${path}: ${whatMoved(committed, source, "UnicodeBasic")}`);
-    Deno.exit(1);
+    process.exit(1);
   }
   console.error(`${path} is current (UnicodeBasic asked through ${target})`);
 } else {
   const acquired = await acquire();
-  await Deno.writeTextFile(OUT, emit(acquired));
+  await writeFile(OUT, emit(acquired));
   console.error(`${acquired.pzc.length} + ${acquired.zc.length} ranges -> ${path}`);
 }

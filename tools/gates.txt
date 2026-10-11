@@ -19,10 +19,10 @@
 assets-embed-gate.sh         ci      nothing; reads the tree
 assets-gate.sh               ci      node, via mise; the site's TypeScript
 base-ir-gate.sh              manual  the target's IR at $PURELEAN_WORK
-benchmarks-ts-gate.sh        ci      deno; type-checks benchmarks/tools
+benchmarks-ts-gate.sh        ci      node and benchmarks/tools' npm packages (npm ci when absent); type-checks benchmarks/tools and tools/oracle
 docs-gate.sh                 ci      nothing; reads the tracked files
 flag-tie-gate.sh             ci      elan, which builds the litedoc4 every documented flag is handed to
-gc-table-gate.sh             manual  deno for the emitter arm; UnicodeBasic in the target for the arm that re-asks the ranges, and it arrives only with doc-gen4
+gc-table-gate.sh             manual  node for the emitter arm; UnicodeBasic in the target for the arm that re-asks the ranges, and it arrives only with doc-gen4
 lake-package-gate.sh         ci      elan and e2e/consumer
 lean-test-gate.sh            ci      elan and a Lean package to borrow a toolchain from
 lean-versions-gate.sh        ci      one IR tree per toolchain in lean-toolchains.txt
@@ -31,7 +31,7 @@ md-memory-gate.sh            ci      the system compiler with AddressSanitizer o
 md-oracle-gate.sh            ci      nothing; reads fixtures/md/ and test/
 mv-reader-gate.sh            manual  elan and e2e/micro; builds tools/mv-s/ as six versions in its own work directory (v6 on the reader's toolchain), filled natively and through the .olean reader; ran once on ubuntu-latest (benchmarks/results/reader-linux-2026-10-10.txt) and is wired into no workflow
 mv-s-gate.sh                 ci      elan and e2e/micro (the sample's Lean); builds tools/mv-s/ as five versions in its own work directory (v5 on a second toolchain, which `build --versions` installs through elan)
-mv-pages-gate.sh             ci      deno, a headless Chrome, and the two renders mv-s-gate.sh --keep leaves; e2e/micro-expected/build as the frozen pages; python3 to decode the search indexes
+mv-pages-gate.sh             ci      node and benchmarks/tools' npm packages (npm ci when absent), a headless Chrome, and the two renders mv-s-gate.sh --keep leaves; e2e/micro-expected/build as the frozen pages; python3 to decode the search indexes
 onemod-gate.sh               ci      a build's marker and extractor log (e2e-micro calls it)
 pinned-dep-gate.sh           ci      elan, e2e/micro and e2e/micro-dep as a git require
 provenance-gate.sh           ci      nothing; reads the tree
@@ -41,7 +41,7 @@ reader-hybrid-gate.sh        manual  elan with every toolchain in lean-toolchain
 reader-oracle-gate.sh        manual  elan with the reader's toolchain and each writer's in its table, and a built litedoc4, which builds the reader; reads their own core libraries, no package
 refusal-gate.sh              ci      elan; the two frozen data files are the oracle
 served-gate.sh               manual  python3, a `build --versions` output directory and that site served over HTTP
-v8-gc-table-gate.sh          ci      deno, pinned to the version the generated table records; nothing else
+v8-gc-table-gate.sh          ci      node, the version mise.toml pins and the generated table records; nothing else
 version-gate.sh              ci      nothing; reads the tracked files and this repository's tags
 watch-gate.sh                ci      elan and e2e/micro
 workflow-gate.sh             ci      nothing; reads the tree
