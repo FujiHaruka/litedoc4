@@ -34,8 +34,11 @@ def oleanSuffixes : Array String := #[".olean", ".olean.server", ".olean.private
 /-- What a module's hash is taken over. `lake` reads the `<file>.hash` Lake
 already wrote beside every olean (`computeBinFileHash`, `Lake/Build/Common.lean`)
 instead of the olean's bytes: a string read, 6.9 KB instead of 227 MB on the
-measurement target. `sha256` is the reference — cryptographic, and not an
-undocumented implementation detail of the build tool.
+measurement target. `build` takes `lake`; `sha256`, cryptographic and owing
+nothing to the build tool, is what `ledger build` defaults to. `sha256` would be
+the build's choice again if a supported toolchain or Mathlib's cache stopped
+writing `<file>.hash` beside every olean, which today makes the build refuse
+naming the file.
 
 A name rather than an enumeration, because the ledger stores it verbatim and
 **anything that is not `lake` reads and hashes the bytes**: an unknown algorithm
