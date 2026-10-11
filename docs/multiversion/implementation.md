@@ -145,7 +145,7 @@ Copy the prototype sources into the tree as a frozen reference under `prototypes
 (Lean sources, lakefile, manifest, toolchain, the oracle sources, the design memo; no build logs,
 no rounds files). The v4.29.0 writer record stays in its log, pointed at from the directory's
 README. Not built by any gate and not part of the package; step 5 ports from it and then deletes
-it. **Done 2026-10-06.**
+it. **Done 2026-10-06; deleted 2026-10-11** when step 5 item 7 finished (`git show 852d575:prototypes/olean-reader/README.md`).
 
 Done when: the directory is committed and `git grep` finds no absolute path under
 `/Users` in it.
@@ -606,7 +606,7 @@ M1 with no other heavy application running, against the tracked 1.2 min.
 #### Step 5 plan (2026-10-08)
 
 Read from the sources on 2026-10-08, nothing run: `prototypes/olean-reader/` (7,427 lines of
-Lean), `extractor/Extract.lean`, and how `build --versions` builds the extractor today (the source
+Lean; deleted 2026-10-11, `git show 852d575:prototypes/olean-reader/`), `extractor/Extract.lean`, and how `build --versions` builds the extractor today (the source
 is embedded in `litedoc4`, written out, compiled per toolchain with `lean` + `leanc -rdynamic`).
 
 **Approach.** The reader is the extractor's second front end, not a second extractor. The
@@ -835,11 +835,13 @@ the two ways on versions that have both.
    `namespacesExt`), and the header version of a toolchain's own core library (v4.29.1's says
    4.29.0); the oracle text gained the simp layout, namespace and simp entry lines, and each oracle
    item also reads a module the writer compiled. Each record's item passed in a run with its
-   toolchain installed. Left: deleting `prototypes/olean-reader/`.
+   toolchain installed. `prototypes/olean-reader/` deleted the same day (read it at
+   `git show 852d575:prototypes/olean-reader/README.md`).
 
 ##### Item 6 plan: the patch path and print reuse (2026-10-08)
 
-Read 2026-10-08, nothing run. "Memo": `prototypes/olean-reader/differential-design.md` (item 7 deletes it).
+Read 2026-10-08, nothing run. "Memo": `prototypes/olean-reader/differential-design.md` (deleted
+2026-10-11 with the prototypes; `git show 852d575:prototypes/olean-reader/differential-design.md`).
 
 **Approach.** One resident reader process per build, a *session*. It imports the newest version
 once and takes the older versions in `--versions` order. Each one is decoded, merged, extracted and
