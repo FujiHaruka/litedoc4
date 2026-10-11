@@ -41,6 +41,19 @@
 #   path-old-link / hash-old-link  a page path without a version, answered 404
 #                                  by the host, lands on the newest version's
 #                                  page with the declaration targeted
+# The version switcher, both URL modes (path-* and hash-*), each fixture picked
+# from the drawn pages of S and a failure when S offers none:
+#   switch-same            choosing the newest in the <select> on an older
+#                          version's module page the newest also has lands on
+#                          that page of the newest, drawn, the anchor targeted
+#   switch-missing-module  choosing the newest on a module page it lacks lands on
+#                          its module list, saying the module does not exist there
+#   switch-missing-decl    choosing the newest with an anchor its same page lacks
+#                          lands on that page at the top, nothing targeted, saying
+#                          the declaration does not exist there
+#   newer-line             every older version's index and a module page show one
+#                          line naming the newest with a control, the newest's
+#                          none; following it lands on the newest's same page
 # What a reader of the path-URL site meets (the questions tools/site-gate.sh and
 # tools/browser-gate.sh ask of a single-version site; index names are decoded by
 # benchmarks/tools/check-store-render.py --print-index, not by the site's reader):

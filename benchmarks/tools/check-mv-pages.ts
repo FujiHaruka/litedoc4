@@ -8,13 +8,16 @@
  * usage:
  *   node check-mv-pages.ts --site <path-URL render> --hash <hash-URL render>
  *                     --frozen <frozen site> [--chrome PATH] [--port N]
+ *   node check-mv-pages.ts --url <site root URL> [--chrome PATH]
+ *     the smoke over a served path-URL site; tools/live-smoke-gate.sh is that gate
  */
 
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import puppeteer, { type Browser, type Page } from "puppeteer-core";
+import { gunzipSync } from "node:zlib";
+import puppeteer, { type Browser, type ElementHandle, type Page } from "puppeteer-core";
 import { listen } from "./serve.ts";
 
 const CHROME_CANDIDATES = [
@@ -266,6 +269,12 @@ class Run {
   readonly deliberate = new Map<string, number>();
   page!: Page;
 
+  readonly timeout: number;
+
+  constructor(timeout = DRAW_TIMEOUT_MS) {
+    this.timeout = timeout;
+  }
+
   watch(page: Page): void {
     this.page = page;
     page.on("console", (m) => {
@@ -293,8 +302,8 @@ class Run {
   async fresh(url: string): Promise<string> {
     await this.page.goto("about:blank");
     await this.page.goto(url, { waitUntil: "load" });
-    await this.page.waitForSelector("body[data-drawn]", { timeout: DRAW_TIMEOUT_MS });
-    await this.page.waitForNetworkIdle({ idleTime: 150, timeout: DRAW_TIMEOUT_MS });
+    await this.page.waitForSelector("body[data-drawn]", { timeout: this.timeout });
+    await this.page.waitForNetworkIdle({ idleTime: 150, timeout: this.timeout });
     return await this.page.evaluate(() => document.body.dataset.drawn ?? "");
   }
 
@@ -360,12 +369,17 @@ interface Item {
 }
 
 const items: Item[] = [];
+const reason = (e: unknown): string => {
+  if (!(e instanceof Error)) return String(e);
+  const cause = (e as Error & { cause?: { code?: string; message?: string } }).cause;
+  return cause ? `${e.message} (${cause.code ?? cause.message ?? "no cause given"})` : e.message;
+};
 function item(name: string, body: () => [boolean, string]): void {
   try {
     const [ok, what] = body();
     items.push({ name, ok, what });
   } catch (e) {
-    items.push({ name, ok: false, what: `could not be asked: ${e instanceof Error ? e.message : String(e)}` });
+    items.push({ name, ok: false, what: `could not be asked: ${reason(e)}` });
   }
 }
 async function itemAsync(name: string, body: () => Promise<[boolean, string]>): Promise<void> {
@@ -373,7 +387,7 @@ async function itemAsync(name: string, body: () => Promise<[boolean, string]>): 
     const [ok, what] = await body();
     items.push({ name, ok, what });
   } catch (e) {
-    items.push({ name, ok: false, what: `could not be asked: ${e instanceof Error ? e.message : String(e)}` });
+    items.push({ name, ok: false, what: `could not be asked: ${reason(e)}` });
   }
 }
 
@@ -432,16 +446,102 @@ function drawnItem(name: string, visits: Visit[]): void {
   });
 }
 
+const VERSION_SELECT = "select.versions";
+const NEWER_CONTROL = '#content [role="status"] button, #content [role="status"] a[href]';
+
+interface Fixture {
+  version: string;
+  module: string;
+  page: string;
+  anchor: string | null;
+}
+interface Fixtures {
+  same: Fixture | null;
+  missingModule: Fixture | null;
+  missingDecl: Fixture | null;
+}
+
+function switchFixtures(
+  older: readonly string[],
+  newest: string,
+  pageOf: Map<string, Map<string, string>>,
+  declsAt: (version: string, page: string) => string[] | undefined,
+): Fixtures {
+  const newestPages = pageOf.get(newest) ?? new Map<string, string>();
+  const out: Fixtures = { same: null, missingModule: null, missingDecl: null };
+  let sharedMost = 0;
+  for (const version of older) {
+    for (const [module, page] of pageOf.get(version) ?? []) {
+      if (!newestPages.has(module)) {
+        out.missingModule ??= { version, module, page, anchor: null };
+        continue;
+      }
+      const here = declsAt(version, page) ?? [];
+      const there = declsAt(newest, newestPages.get(module)!) ?? [];
+      const shared = here.filter((d) => there.includes(d));
+      if (shared.length > sharedMost) {
+        sharedMost = shared.length;
+        out.same = { version, module, page, anchor: shared[shared.length - 1] };
+      }
+      const gone = here.filter((d) => !there.includes(d));
+      if (gone.length) out.missingDecl ??= { version, module, page, anchor: gone[gone.length - 1] };
+    }
+  }
+  return out;
+}
+
+const need = (f: Fixture | null, what: string): Fixture => {
+  if (f === null) throw new Error(`the sample offers no ${what}`);
+  return f;
+};
+
+interface Landing {
+  path: string;
+  hash: string;
+  scrollY: number;
+  target: string | null;
+  targeted: string | null;
+  notes: string[];
+  newer: string[];
+}
+
+interface SwitchMode {
+  name: "path" | "hash";
+  at: (version: string, page: string, anchor: string | null) => string;
+  key: (version: string, page: string) => string;
+  where: (l: Landing) => { key: string; anchor: string | null };
+  targetSelector: string;
+  fixtures: Fixtures;
+}
+
+const landing = (page: Page): Promise<Landing> =>
+  page.evaluate(() => {
+    const status = [...document.querySelectorAll<HTMLElement>('#content [role="status"]')];
+    const control = (e: HTMLElement) => e.querySelector("button, a[href]") !== null;
+    const text = (e: HTMLElement) => (e.textContent ?? "").replace(/\s+/g, " ").trim();
+    return {
+      path: location.pathname,
+      hash: location.hash,
+      scrollY: Math.round(scrollY),
+      target: document.querySelector(":target")?.id ?? null,
+      targeted: document.querySelector(".targeted")?.id ?? null,
+      notes: status.filter((e) => !control(e)).map(text),
+      newer: status.filter(control).map(text),
+    };
+  });
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   let site = "";
   let hashSite = "";
   let frozen = "";
+  let live = "";
   let chrome: string | undefined;
   let port = 8930;
   while (args.length) {
     const arg = args.shift()!;
-    if (arg === "--site") site = args.shift() ?? "";
+    if (arg === "--url") live = args.shift() ?? "";
+    else if (arg === "--site") site = args.shift() ?? "";
     else if (arg === "--hash") hashSite = args.shift() ?? "";
     else if (arg === "--frozen") frozen = args.shift() ?? "";
     else if (arg === "--chrome") chrome = args.shift();
@@ -451,8 +551,16 @@ async function main(): Promise<void> {
       process.exit(2);
     }
   }
+  if (live) {
+    if (site || hashSite || frozen) {
+      console.error("--url reads a served site and nothing else: no --site, --hash or --frozen beside it");
+      process.exit(2);
+    }
+    await liveSmoke(live, findChrome(chrome));
+    return;
+  }
   if (!site || !hashSite || !frozen) {
-    console.error("usage: check-mv-pages.ts --site DIR --hash DIR --frozen DIR [--chrome PATH] [--port N]");
+    console.error("usage: check-mv-pages.ts --site DIR --hash DIR --frozen DIR [--chrome PATH] [--port N]\n       check-mv-pages.ts --url <site root URL> [--chrome PATH]");
     process.exit(2);
   }
   site = await realpath(site);
@@ -471,6 +579,7 @@ async function main(): Promise<void> {
     "hash-root",
     "path-old-link",
     "hash-old-link",
+    ...["switch-same", "switch-missing-module", "switch-missing-decl", "newer-line"].flatMap((k) => [`path-${k}`, `hash-${k}`]),
     "path-index-ids",
     "path-decls-indexed",
     "path-backrefs",
@@ -792,6 +901,134 @@ async function main(): Promise<void> {
       oldLink(H, (rel, id) => `/#/${newest}/${rel.replace(/\.html$/, "")}?id=${id}`, ".targeted"),
     );
 
+    const older = pathData.versions.slice(0, -1).map((v) => v.name);
+    const switchModes: SwitchMode[] = [
+      {
+        name: "path",
+        at: (v, page, anchor) => `${P}/${v}/${page}${anchor === null ? "" : `#${encodeURIComponent(anchor)}`}`,
+        key: (v, page) => `${v}/${page}`,
+        where: (l) => ({ key: decoded(l.path).slice(1), anchor: l.hash.length > 1 ? decoded(l.hash.slice(1)) : null }),
+        targetSelector: ":target",
+        fixtures: switchFixtures(older, newest, pathData.pageOf, (v, page) => pathVisits.get(`${v}/${page}`)?.decls),
+      },
+      {
+        name: "hash",
+        at: (v, page, anchor) =>
+          `${H}/index.html#/${v}/${page === "index.html" ? "" : page.replace(/\.html$/, "")}${anchor === null ? "" : `?${new URLSearchParams({ id: anchor })}`}`,
+        key: (v, page) => `${v}/${page === "index.html" ? "" : page.replace(/\.html$/, "")}`,
+        where: (l) => routeKey(l.hash) ?? { key: `(no route: ${l.hash})`, anchor: null },
+        targetSelector: ".targeted",
+        fixtures: switchFixtures(older, newest, hashData.pageOf, (v, page) => hashVisits.get(`${v}/${page.replace(/\.html$/, "")}`)?.decls),
+      },
+    ];
+    const settled = async (): Promise<void> => {
+      await page.waitForSelector(VERSION_SELECT, { timeout: DRAW_TIMEOUT_MS });
+      await page.waitForNetworkIdle({ idleTime: 150, timeout: DRAW_TIMEOUT_MS });
+    };
+    const after = async (what: string, act: () => Promise<unknown>): Promise<Landing> => {
+      const left = page.url();
+      const marked = await page.evaluate(() => {
+        const content = document.getElementById("content");
+        if (content) content.dataset.gateLeft = "1";
+        return content !== null;
+      });
+      if (!marked) throw new Error(`${page.url()} has no #content to tell the page left from the page arrived at`);
+      await act();
+      await page
+        .waitForFunction(
+          () => document.body.dataset.drawn === "1" && document.getElementById("content") !== null && document.querySelector("[data-gate-left]") === null,
+          { timeout: DRAW_TIMEOUT_MS },
+        )
+        .catch(() => {
+          throw new Error(`${what} on ${left} drew no new page within ${DRAW_TIMEOUT_MS} ms; the browser is at ${page.url()}`);
+        });
+      await settled();
+      return await landing(page);
+    };
+    const shown = (l: Landing, m: SwitchMode): string => {
+      const at = m.where(l);
+      return `${at.key}${at.anchor === null ? "" : `#${at.anchor}`}`;
+    };
+    const SWITCH_VIEWPORT = { width: 800, height: 400 };
+    await page.setViewport(SWITCH_VIEWPORT);
+    try {
+      for (const m of switchModes) {
+        await itemAsync(`${m.name}-switch-same`, async () => {
+          const f = need(m.fixtures.same, "module page of an older version that the newest also has, with a declaration on both");
+          const from = m.key(f.version, f.page);
+          await run.fresh(m.at(f.version, f.page, f.anchor));
+          await settled();
+          const l = await after(`choosing ${newest} in the switcher`, () => page.select(VERSION_SELECT, newest));
+          const got = await targetIs(f.anchor!, m.targetSelector);
+          const at = m.where(l);
+          const want = m.key(newest, f.page);
+          if (at.key !== want || at.anchor !== f.anchor || got !== f.anchor) {
+            return [false, `choosing ${newest} on ${from}#${f.anchor} landed on ${shown(l, m)} with ${m.targetSelector} ${got ?? "nothing"}, not ${want}#${f.anchor}`];
+          }
+          return [true, `choosing ${newest} in the switcher on ${from}#${f.anchor} lands on ${want}, drawn, ${f.anchor} ${m.targetSelector}`];
+        });
+        await itemAsync(`${m.name}-switch-missing-module`, async () => {
+          const f = need(m.fixtures.missingModule, "module an older version has and the newest lacks");
+          const from = m.key(f.version, f.page);
+          await run.fresh(m.at(f.version, f.page, null));
+          await settled();
+          const l = await after(`choosing ${newest} in the switcher`, () => page.select(VERSION_SELECT, newest));
+          const want = m.key(newest, "index.html");
+          const said = l.notes.find((n) => n.includes(f.module) && n.includes(newest) && /does not exist/.test(n));
+          if (m.where(l).key !== want || said === undefined) {
+            return [false, `choosing ${newest} on ${from} landed on ${shown(l, m)} saying ${JSON.stringify(l.notes)}, not ${want} saying ${f.module} does not exist in ${newest}`];
+          }
+          return [true, `choosing ${newest} on ${from} (${f.module}, absent from ${newest}) lands on ${want}, drawn, saying "${said}"`];
+        });
+        await itemAsync(`${m.name}-switch-missing-decl`, async () => {
+          const f = need(m.fixtures.missingDecl, "declaration on an older version's page that the newest's same page lacks");
+          const from = m.key(f.version, f.page);
+          await run.fresh(m.at(f.version, f.page, f.anchor));
+          await settled();
+          const before = await targetIs(f.anchor!, m.targetSelector);
+          const scrolled = await page.evaluate(() => Math.round(scrollY));
+          if (before !== f.anchor || scrolled === 0) {
+            return [false, `${from}#${f.anchor} drawn has ${m.targetSelector} ${before ?? "nothing"} at scrollY ${scrolled}: a landing at the top could not be told from never having moved`];
+          }
+          const l = await after(`choosing ${newest} in the switcher`, () => page.select(VERSION_SELECT, newest));
+          const at = m.where(l);
+          const want = m.key(newest, f.page);
+          const said = l.notes.find((n) => n.includes(f.anchor!) && n.includes(newest) && /does not exist/.test(n));
+          const target = m.targetSelector === ":target" ? l.target : l.targeted;
+          if (at.key !== want || at.anchor !== null || l.scrollY !== 0 || target !== null || said === undefined) {
+            return [false, `choosing ${newest} on ${from}#${f.anchor} landed on ${shown(l, m)} at scrollY ${l.scrollY}, ${m.targetSelector} ${target ?? "nothing"}, saying ${JSON.stringify(l.notes)}; not ${want} at the top saying ${f.anchor} does not exist`];
+          }
+          return [true, `choosing ${newest} on ${from}#${f.anchor} (scrollY ${scrolled}) lands on ${want} at scrollY 0, nothing targeted, saying "${said}"`];
+        });
+        await itemAsync(`${m.name}-newer-line`, async () => {
+          const bad: string[] = [];
+          for (const v of pathData.versions.map((e) => e.name)) {
+            await run.fresh(m.at(v, "index.html", null));
+            await settled();
+            const l = await landing(page);
+            if (v === newest ? l.newer.length !== 0 : l.newer.length !== 1 || !l.newer[0].includes(newest)) {
+              bad.push(`${m.key(v, "index.html")} shows ${l.newer.length} lines with a control (${JSON.stringify(l.newer)})`);
+            }
+          }
+          const f = need(m.fixtures.same, "module page of an older version that the newest also has");
+          const from = m.key(f.version, f.page);
+          await run.fresh(m.at(f.version, f.page, null));
+          await settled();
+          const there = await landing(page);
+          if (there.newer.length !== 1 || !there.newer[0].includes(newest)) {
+            return [false, `${from} shows ${JSON.stringify(there.newer)}, not one line naming ${newest} with a control${bad.length ? `; ${few(bad)}` : ""}`];
+          }
+          const l = await after("following the newer-version line", () => page.click(NEWER_CONTROL));
+          const want = m.key(newest, f.page);
+          if (m.where(l).key !== want) bad.push(`following the line on ${from} landed on ${shown(l, m)}, not ${want}`);
+          if (l.newer.length !== 0) bad.push(`${want} shows ${JSON.stringify(l.newer)}`);
+          if (bad.length) return [false, few(bad)];
+          return [true, `every older version's index and ${from} show one line naming ${newest} with a control ("${there.newer[0]}"), ${newest}'s index none; following it on ${from} lands on ${want}, drawn, with no such line`];
+        });
+      }
+    } finally {
+      await page.setViewport({ width: 800, height: 600 });
+    }
 
     const modulePageOf = (rel: string): { version: string; module: string } | null => {
       const slash = rel.indexOf("/");
@@ -1196,6 +1433,10 @@ async function main(): Promise<void> {
     await browser?.close();
     for (const s of servers) await s.shutdown();
   }
+  verdict("MV-PAGES GATE", declared);
+}
+
+function verdict(gate: string, declared: readonly string[]): void {
   for (const i of items) console.log(`${i.ok ? "ok" : "FAIL"} ${i.name}: ${i.what}`);
   const ran = items.map((i) => i.name);
   const never = declared.filter((d) => !ran.includes(d));
@@ -1203,16 +1444,156 @@ async function main(): Promise<void> {
   const failed = items.filter((i) => !i.ok).length;
   if (never.length || unknown.length) {
     console.error(`the items that reported are not the items declared: never reported ${never.join(", ") || "none"}; not declared or twice ${unknown.join(", ") || "none"}`);
-    console.error(`MV-PAGES GATE FAIL: ${ran.length} of ${declared.length} reported, ${failed} failed`);
+    console.error(`${gate} FAIL: ${ran.length} of ${declared.length} reported, ${failed} failed`);
     process.exitCode = 1;
     return;
   }
   if (failed) {
-    console.error(`MV-PAGES GATE FAIL: ${failed} of ${declared.length} failed (${ran.length} of ${declared.length} ran)`);
+    console.error(`${gate} FAIL: ${failed} of ${declared.length} failed (${ran.length} of ${declared.length} ran)`);
     process.exitCode = 1;
     return;
   }
-  console.log(`MV-PAGES GATE: ok, ${ran.length} of ${declared.length} items ran and passed`);
+  console.log(`${gate}: ok, ${ran.length} of ${declared.length} items ran and passed`);
+}
+
+const LIVE_DRAW_TIMEOUT_MS = 60000;
+const LIVE_SCANNED_MODULES = 40;
+
+async function fetched(url: URL): Promise<Buffer> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url.href} answered ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+async function liveJson<T>(root: URL, address: string): Promise<T> {
+  const bytes = await fetched(new URL(`d/${address}.json.gz`, root));
+  const plain = bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipSync(bytes) : bytes;
+  return JSON.parse(plain.toString("utf8")) as T;
+}
+
+async function liveSmoke(url: string, executablePath: string): Promise<void> {
+  const root = new URL(url.endsWith("/") ? url : `${url}/`);
+  const declared = ["live-root", "live-module", "live-search", "console", "requests"];
+  const run = new Run(LIVE_DRAW_TIMEOUT_MS);
+  let newest: VersionEntry | null = null;
+  let module: { at: string; decls: string[] } | null = null;
+  let visits = 0;
+  let browser: Browser | undefined;
+  try {
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: true,
+      args: ["--no-sandbox", "--disable-dev-shm-usage", "--no-first-run"],
+    });
+    console.log(`browser           ${await browser.version()} (${executablePath})`);
+    const page = await browser.newPage();
+    await page.setCacheEnabled(false);
+    run.watch(page);
+    const visit = async (at: string): Promise<string> => {
+      visits++;
+      return await run.fresh(at);
+    };
+
+    await itemAsync("live-root", async () => {
+      const list = JSON.parse((await fetched(new URL("versions.json", root))).toString("utf8")) as VersionEntry[];
+      const last = Array.isArray(list) ? list[list.length - 1] : undefined;
+      if (last === undefined || typeof last.name !== "string" || typeof last.data !== "string") {
+        return [false, `${root.href}versions.json is not a non-empty version list`];
+      }
+      if (last.routes !== undefined) return [false, `${root.href}versions.json names a routes file: a hash-URL site, and --url drives path URLs`];
+      newest = last;
+      const drawn = await visit(root.href);
+      const at = await page.evaluate(() => location.pathname);
+      const want = `${root.pathname}${last.name}/index.html`;
+      if (drawn !== "1" || at !== want) return [false, `${root.href} went to ${at} (drawn ${drawn || "never"}), not ${want}, the newest of ${list.length} in versions.json`];
+      return [true, `${root.href} lands on ${want}, drawn; ${last.name} is the newest of ${list.length} in versions.json`];
+    });
+
+    await itemAsync("live-module", async () => {
+      const v: VersionEntry | null = newest;
+      if (v === null) throw new Error("live-root read no version list");
+      const version = await liveJson<VersionFile>(root, v.data);
+      const list = (await liveJson<{ modules: ModuleEntry[] }>(root, version.modules)).modules;
+      const scanned = list.slice(0, LIVE_SCANNED_MODULES);
+      let best: { m: ModuleEntry; n: number } | null = null;
+      for (const m of scanned) {
+        const shell = (await fetched(new URL(`${v.name}/${m.p}`, root))).toString("utf8");
+        const address = / data-page="([0-9a-f]+)"/.exec(shell)?.[1];
+        if (address === undefined) return [false, `${v.name}/${m.p} carries no data-page`];
+        const lines = (await liveJson<{ lines: unknown[] }>(root, address)).lines;
+        const n = lines.filter((x) => x !== 0).length;
+        if (best === null || n > best.n) best = { m, n };
+      }
+      if (best === null) return [false, `${v.name}'s module list is empty`];
+      const at = `${v.name}/${best.m.p}`;
+      const drawn = await visit(new URL(at, root).href);
+      const decls = await page.evaluate(() => [...document.querySelectorAll("section.decl[id]")].map((e) => e.id));
+      if (drawn !== "1") return [false, `${at} did not draw (${drawn || "never"})`];
+      if (decls.length === 0) return [false, `${at} drew no declaration section, though its page file places ${best.n}`];
+      module = { at, decls };
+      return [true, `${at} draws ${decls.length} declaration sections (the most placed declarations of the first ${scanned.length} of ${list.length} modules)`];
+    });
+
+    await itemAsync("live-search", async () => {
+      const m: { at: string; decls: string[] } | null = module;
+      if (m === null) throw new Error("live-module drew no declaration to search for");
+      const lastOf = (name: string) => name.slice(name.lastIndexOf(".") + 1);
+      const name = m.decls.reduce((a, b) => (lastOf(b).length > lastOf(a).length ? b : a));
+      const term = lastOf(name);
+      await visit(new URL(m.at, root).href);
+      const input = await page.$("#search-input");
+      if (!input) return [false, `${m.at} has no #search-input`];
+      await input.click();
+      await input.type(term, { delay: 30 });
+      const row = await page
+        .waitForFunction(
+          (want: string) =>
+            [...document.querySelectorAll<HTMLAnchorElement>("#search-results a[href]")].find(
+              (a) => a.children[1]?.textContent === want && decodeURIComponent(new URL(a.href).hash.slice(1)) === want,
+            ) ?? null,
+          { timeout: LIVE_DRAW_TIMEOUT_MS },
+          name,
+        )
+        .catch(() => null);
+      const link = row?.asElement() ?? null;
+      if (link === null) {
+        const shown = await page.evaluate(() => (document.querySelector("#search-results")?.textContent ?? "<absent>").slice(0, 160));
+        return [false, `typed "${term}" on ${m.at}, wanted a row linking ${name}; #search-results shows "${shown}"`];
+      }
+      await (link as ElementHandle<Element>).click();
+      const arrived = await page
+        .waitForFunction(
+          (want: string) =>
+            document.body.dataset.drawn === "1" &&
+            decodeURIComponent(location.hash.slice(1)) === want &&
+            document.querySelector(":target")?.id === want,
+          { timeout: LIVE_DRAW_TIMEOUT_MS },
+          name,
+        )
+        .then(() => true)
+        .catch(() => false);
+      const at = await page.evaluate(() => ({ path: location.pathname, hash: location.hash, target: document.querySelector(":target")?.id ?? null }));
+      const want = new URL(m.at, root).pathname;
+      if (!arrived || at.path !== want) {
+        return [false, `clicking the row for ${name} landed on ${at.path}${decoded(at.hash)} with :target ${at.target ?? "nothing"}, not ${want}#${name}`];
+      }
+      return [true, `typing "${term}" on ${m.at} lists ${name}; clicking it lands on ${want}#${name}, :target`];
+    });
+
+    item("console", () => {
+      if (visits === 0) return [false, "no page was loaded, so no console was watched"];
+      if (run.errors.length) return [false, `${run.errors.length} console errors or page errors: ${few(run.errors, 3)}`];
+      return [true, `no console error and no page error over ${visits} page loads`];
+    });
+    item("requests", () => {
+      if (visits === 0) return [false, "no page was loaded, so no request was watched"];
+      if (run.failedRequests.length) return [false, `${run.failedRequests.length} failed requests: ${few(run.failedRequests, 3)}`];
+      return [true, `no request failed or was answered >= 400 over ${visits} page loads`];
+    });
+  } finally {
+    await browser?.close();
+  }
+  verdict("LIVE-SMOKE GATE", declared);
 }
 
 await main();
