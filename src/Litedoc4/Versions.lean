@@ -607,8 +607,8 @@ def commitOf (sourceUrl : String) : Option String :=
 /-- Everything a put records that the IR does not say, read out of the package
 at `root`: Lean core's revision, the manifest's dependencies, each dependency
 root's version-pinned source, and the site configuration. -/
-def originOf (root lake : FilePath) (sources : ExternalLinks) (commit sourceUrl : String) :
-    IO (Except String Store.Origin) := do
+def originOf (root lake : FilePath) (sources : ExternalLinks) (commit sourceUrl : String)
+    (config : Option FilePath) : IO (Except String Store.Origin) := do
   let leanGithash ← match ← coreGithash root lake with
     | .error why => return .error why
     | .ok hash => pure hash
@@ -619,7 +619,7 @@ def originOf (root lake : FilePath) (sources : ExternalLinks) (commit sourceUrl 
       !(sources.sourceFor core matches .pinned _) then
     return .error s!"{root}: Lean core's root `{core}` has no version-pinned source URL, so \
       pages rendered from this entry would not link into it"
-  let site ← try readSiteSources root catch e => return .error (toString e)
+  let site ← try readSiteSources root (.of root config) catch e => return .error (toString e)
   if let .error why := site.config (bibliographyPath root).toString then return .error why
   return .ok { commit, leanGithash, sourceUrl, dependencies, sources, site }
 
@@ -674,7 +674,7 @@ def buildOne (r : BuildRequest) (hashUrls : Bool) : BuildM Built := do
   let version ← match Store.VersionName.parse (commit.take 12).toString with
     | .error why => throw (3, why)
     | .ok v => pure v
-  let origin ← match ← originOf r.root lake r.external commit e.sourceUrl with
+  let origin ← match ← originOf r.root lake r.external commit e.sourceUrl r.config with
     | .error why => throw (3, s!"version {version.text}: {why}")
     | .ok origin => pure origin
   IO.FS.createDirAll store
@@ -691,8 +691,9 @@ def buildOne (r : BuildRequest) (hashUrls : Bool) : BuildM Built := do
   IO.println (extractedLine #[version] extracted)
   let site := r.layout.site
   let renderStarted ← IO.monoNanosNow
+  let pages ← r.config.mapM fun file => readSitePages (.given file)
   let done ← match ← (Data.SiteLedger.renderSite store site r.layout.renderLedger #[version]
-      hashUrls).run with
+      hashUrls pages).run with
     | .error why => throw (3, why)
     | .ok done => pure done
   let renderNanos := (← IO.monoNanosNow) - renderStarted

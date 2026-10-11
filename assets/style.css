@@ -649,6 +649,15 @@ body.plain .modhead h1 { font-size: clamp(1.75rem, 1.1rem + 2.6vw, 2.75rem); }
    `.doc`'s typography and only needs to be told where it sits. */
 .intro { margin-block: 1.4rem; }
 
+/* -- 15b'. the footer ---------------------------------------------------- */
+
+.site-footer {
+  margin-top: 3rem; padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  color: var(--fg-dim); font-size: .85rem;
+  overflow-wrap: anywhere;
+}
+
 /* -- 15b. mathematics ---------------------------------------------------- */
 
 /* `Litedoc4.Md` writes MathML into docstrings at build time, so there is no

@@ -5,16 +5,17 @@ namespace Litedoc4
 def usage : String :=
 "usage: litedoc4 build  --root <repo> --out <dir> [--lib <Name>]...
                        [--source-url <url>] [--full] [--hash-urls]
-                       [--extractor-bin <path>] [--lake <path>]
-                       [--jobs <n>] [--timings <file>]
+                       [--config <file>] [--extractor-bin <path>]
+                       [--lake <path>] [--jobs <n>] [--timings <file>]
        litedoc4 build  --root <repo> --out <dir> --versions <ref>,<ref>...
-                       [--store <dir>] [--hash-urls] [--lib <Name>]...
-                       [--lake <path>] [--jobs <n>]
+                       [--store <dir>] [--hash-urls] [--config <file>]
+                       [--lib <Name>]... [--lake <path>] [--jobs <n>]
                        [--through-reader <name>,<name>...]
                        [--reader-alone]
        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
                        [--lib <Name>]... [--source-url <url>] [--hash-urls]
-                       [--extractor-bin <path>] [--lake <path>] [--jobs <n>]
+                       [--config <file>] [--extractor-bin <path>]
+                       [--lake <path>] [--jobs <n>]
        litedoc4 modules --root <repo> [--lib <Name>]... [--out <file>]
        litedoc4 extract --modules <file> --ir-dir <dir> --timings <file>
                        [--extractor-bin <path>] [--target <repo>] [--lake <path>]
@@ -124,8 +125,9 @@ def usage : String :=
                  is extracted on its own Lean, and one
                  whose toolchain has no row in tools/lean-toolchains.txt is
                  refused before anything runs. The extraction flags come from
-                 --root's litedoc4.toml; the title, front page and bibliography
-                 from each version's own. --lake has to be elan's, which picks
+                 --root's litedoc4.toml, or --config; the title, front page,
+                 footer and bibliography from each version's own, or the first
+                 three from --config. --lake has to be elan's, which picks
                  each checkout's toolchain. Prints `versions extracted: <n> of
                  <m> (<names>)`, followed by `, through the reader: <n>
                  (<names>)` when the reader filled any, and `versions rendered:
@@ -138,6 +140,14 @@ def usage : String :=
   --reader-alone  (`build --versions`) for the gates, and not part of what 1.x
                  keeps: read each version exactly, reusing nothing, through the
                  reader in a process of its own, oldest first
+  --config       (`build`, `watch`) a file read in place of litedoc4.toml, for
+                 every version: the extraction flags, the title, the index page
+                 and the footer, with `index` and `footer` relative to the
+                 file's own directory. docs/references.bib is still read from
+                 --root, or from each version's checkout. Its title, index page
+                 and footer are applied as the site is rendered, so changing
+                 them renders every version again and extracts none. A file
+                 that is not there is refused
   --out          (`reader build`) the directory the .olean reader is built
                  under, the way `build --versions` builds it under
                  <out>/extractors: on the last row of tools/lean-toolchains.txt,
@@ -220,7 +230,7 @@ def usage : String :=
   --store        (`store`, and `build --versions`, where it defaults to
                  <out>/store) the kept versions, one directory per version:
                  <store>/<name>/entry.pack.gz (the IR tree, the dependency link
-                 index, the bibliography and the index page's Markdown, packed
+                 index, the bibliography, the index page and the footer, packed
                  and gzipped) and record.json (commit, Lean, dependencies, each
                  dependency module root's version-pinned source URL or that it
                  has none, the title, the extractor identity the IR was written
@@ -232,10 +242,10 @@ def usage : String :=
                  link-index.lidx are stored, and a build that wrote no link
                  index is refused; the commit, the dependencies, their source
                  URLs, Lean core's revision and the site configuration
-                 (litedoc4.toml's title and index, docs/references.bib) come
-                 from the checkout its marker names, which has to still be at
-                 the commit the pages link to. Putting the same directory again
-                 rewrites the entry without re-extracting anything.
+                 (litedoc4.toml's title, index and footer, docs/references.bib)
+                 come from the checkout its marker names, which has to still be
+                 at the commit the pages link to. Putting the same directory
+                 again rewrites the entry without re-extracting anything.
                  `store read --out` unpacks an entry into an empty directory
                  laid out as `build --out` lays out those two, with the site
                  configuration under site/; without it the entry is only
@@ -652,6 +662,7 @@ structure BuildArgs where
   throughReader : Option String := none
   readerAlone : Bool := false
   hashUrls : Bool := false
+  config : Option String := none
   /-- `watch`'s own two, as text, so that the refusal for `--port banana` is
   written next to what a port means. Never filled in for `build`, which refuses
   them by name. -/
@@ -765,6 +776,8 @@ partial def parseBuild (watching : Bool) :
       else parseBuild watching rest { acc with readerAlone := true }
     else if flag == "--hash-urls" then
       parseBuild watching rest { acc with hashUrls := true }
+    else if flag == "--config" then do
+      let (v, more) ← value; parseBuild watching more { acc with config := some v }
     else if flag == "--help" || flag == "-h" then
       parseBuild watching rest { acc with help := true }
     else match buildRefusal watching flag with
@@ -808,6 +821,12 @@ def versionedChecks (a : BuildArgs) : Option String :=
     refused.findSome? fun (flag, given, why) =>
       if given then some s!"{flag} is not a flag of `build --versions`: {why}" else none
 
+def configPathOf (given : Option String) : BuildM (Option System.FilePath) :=
+  given.mapM fun path => do
+    match ← (IO.FS.realPath ⟨path⟩).toBaseIO with
+    | .error e => throw (3, s!"--config {path}: {e}")
+    | .ok real => pure real
+
 /-- One request, for the two commands that ask it: `build` once and `watch` over
 and over. Resolved in one place because the two would otherwise be two places for
 `--out` to be canonicalised and for the external-link digest to be taken. -/
@@ -821,11 +840,12 @@ def buildRequestOf (a : BuildArgs) (root out : String) : BuildM BuildRequest := 
   refuseInside rootPath "--root" outPath "--out" " — `litedoc4 extract` refuses an --ir-dir there \
     for the same reason. Copy <out>/site into the repository afterwards if that is where the \
     pages belong"
+  let config ← configPathOf a.config
   -- Before anything is written, and once: `lake env lean --githash` starts a
   -- process inside the target, and the digest it feeds has to be the same one on
   -- both sides of this run.
   let external ← resolveExternal (some rootPath.toString) a.lake
-  return { root := rootPath, layout := layoutOf outPath, libs := a.libs, external
+  return { root := rootPath, layout := layoutOf outPath, libs := a.libs, external, config
            sourceUrl := a.sourceUrl, extractorBin := a.extractorBin.map (⟨·⟩)
            lake := a.lake.map (⟨·⟩), jobs := a.jobs, timings := a.timings.map (⟨·⟩)
            full := a.full }
@@ -848,7 +868,7 @@ def storePutOrigin (from_ : System.FilePath) (lake : System.FilePath) :
       return .error s!"{root} is at {commit} and the build in {from_} linked to {sourceUrl}: \
         the checkout moved since the build, or --source-url named another revision"
     let sources ← resolveExternal (some root.toString) (some lake.toString)
-    Versions.originOf root lake sources commit sourceUrl
+    Versions.originOf root lake sources commit sourceUrl none
 
 def answered (code : UInt32) (message : String) : IO UInt32 :=
   if code == 2 then refuse message else refusedWith code message
@@ -869,6 +889,7 @@ structure VersionedRun where
   libs : Array String
   jobs : Nat
   noEquationsUnder : Array String
+  config : Option System.FilePath
   extractors : System.FilePath
 
 def VersionedRun.scratch (c : VersionedRun) : System.FilePath := c.out / Versions.scratchName
@@ -899,7 +920,8 @@ def fillNatively (c : VersionedRun) (checkout : System.FilePath) (p : Versions.P
     let e ← Versions.timed c.out s!"{p.name.text} extract"
       (runExtraction { request with noEquationsUnder := some c.noEquationsUnder
                                     writeReuseKeys := keepKeys } (pure bin))
-    let origin ← match ← Versions.originOf package c.lake request.external p.commit e.sourceUrl with
+    let origin ← match ← Versions.originOf package c.lake request.external p.commit e.sourceUrl
+        c.config with
       | .error message => throw (3, s!"version {p.name.text}: {message}")
       | .ok origin => pure origin
     c.put p origin
@@ -958,7 +980,7 @@ def fillThroughReader (c : VersionedRun) (via : ReadVia) (p : Versions.Planned) 
         (Versions.readerArgv old newSearch rootsFile reuse modulesFile events layout.ir c.jobs
           c.noEquationsUnder layout.linkIndex))
     let external ← resolveExternal (some package.toString) (some c.lake.toString)
-    let origin ← match ← Versions.originOf package c.lake external p.commit sourceUrl with
+    let origin ← match ← Versions.originOf package c.lake external p.commit sourceUrl c.config with
       | .error message => throw (3, s!"version {v}: {message}")
       | .ok origin => pure { origin with fill := .reader, prints := via.prints }
     c.put p origin
@@ -979,6 +1001,7 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
   let rootPath ← match ← (IO.FS.realPath ⟨root⟩).toBaseIO with
     | .error e => throw (3, s!"--root {root}: {e}")
     | .ok path => pure path
+  let config ← configPathOf a.config
   let repo ← match ← Versions.repositoryOf rootPath with
     | .error message => throw (3, message)
     | .ok repo => pure repo
@@ -1006,7 +1029,8 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
   if let some why := Versions.unlistedNative planned fills Versions.supportedToolchains then
     throw (3, why)
   Versions.checkOwnership outPath rootPath
-  let noEquationsUnder := (← readConfigKeys rootPath).noEquationsUnder
+  let noEquationsUnder := (← readConfigKeys (.of rootPath config)).noEquationsUnder
+  let pages ← config.mapM fun file => readSitePages (.given file)
   let lake : System.FilePath := (← envOr (a.lake.map (⟨·⟩)) "LAKE").getD ⟨"lake"⟩
   let elan := Versions.elanBeside lake
   let marker := outPath / markerName
@@ -1053,7 +1077,7 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
     throw (3, Versions.readerUnavailable (viaReader.map (·.name)) newest readerToolchain)
   let run : VersionedRun :=
     { repo, out := outPath, store, elan, lake, libs := a.libs, jobs := a.jobs, noEquationsUnder
-      extractors }
+      config, extractors }
   let checkout := outPath / Versions.checkoutName
   for p in native do
     if viaReader.isEmpty || p.name != newest.name then
@@ -1095,7 +1119,7 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
   let site := outPath / Versions.siteName
   let ledger := outPath / renderLedgerName
   let done ← match ← Versions.timed outPath "render"
-      (Data.SiteLedger.renderSite store site ledger names a.hashUrls).run with
+      (Data.SiteLedger.renderSite store site ledger names a.hashUrls pages).run with
     | .error why => throw (3, why)
     | .ok done => pure done
   IO.println (Versions.renderedLine names done.rendered)
@@ -1489,7 +1513,7 @@ def extractRun (a : ExtractArgs) : BuildM Unit := do
     | none => pure none
     | some path => pure (some (← absolutePath ⟨path⟩))
   let args := extractArgv bin modulesPath events irDir a.jobs
-    (← readConfigKeys target).noEquationsUnder linkIndexPath omitPath a.linkIndexKey
+    (← readConfigKeys (.package target)).noEquationsUnder linkIndexPath omitPath a.linkIndexKey
   -- The extractor's stdout is a human-readable phase report; the
   -- machine-readable copy of the same numbers is the events file, which is what
   -- the timings are folded from. stderr is inherited, so a Lean error still
@@ -1686,7 +1710,7 @@ def storeCheckStale (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
   let some root := a.root | refuse "store check-stale needs --root <repo>: its litedoc4.toml \
       sets the extractor flags `build` passes, and so the identity"
   let bin ← absolutePath ⟨bin⟩
-  let current ← Store.currentIdentity bin (← readConfigKeys ⟨root⟩).noEquationsUnder
+  let current ← Store.currentIdentity bin (← readConfigKeys (.package ⟨root⟩)).noEquationsUnder
   let listing ← Store.list store
   let mut fresh := 0
   let mut stale := 0

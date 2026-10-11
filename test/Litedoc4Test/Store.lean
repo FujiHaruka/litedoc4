@@ -282,17 +282,18 @@ def theIdentityIsAskedForWithTheFlagsAnExtractionStartsWith : Bool :=
 def parts (paths : List String) : Except String EntryParts :=
   entryParts (paths.toArray.map (·, bytesOf "xy"))
 
-def anEntryIsTheIrUnderIrOneLinkIndexAndAtMostTheTwoSiteFiles : Bool :=
+def anEntryIsTheIrUnderIrOneLinkIndexAndAtMostTheThreeSiteFiles : Bool :=
   (parts ["ir/index.json", "ir/modules/A.json", "link-index.lidx"]).toOption == some ⟨2, 4, 2⟩
-    && (parts ["ir/index.json", "link-index.lidx", "site/index.md", "site/references.bib"]).toOption
-      == some ⟨1, 2, 2⟩
+    && (parts ["ir/index.json", "link-index.lidx", "site/footer.md", "site/index.md",
+        "site/references.bib"]).toOption == some ⟨1, 2, 2⟩
     && [["ir/index.json"], ["link-index.lidx"], ["ir/index.json", "link-index.lidx", "x"],
         ["index.json", "link-index.lidx"], ["ir/index.json", "ir-link-index.lidx"],
         ["ir/index.json", "link-index.lidx", "site/title"],
+        ["ir/index.json", "link-index.lidx", "footer.md"],
         ["ir/index.json", "link-index.lidx", "references.bib"]].all
       (isError ∘ parts)
 
-#guard anEntryIsTheIrUnderIrOneLinkIndexAndAtMostTheTwoSiteFiles
+#guard anEntryIsTheIrUnderIrOneLinkIndexAndAtMostTheThreeSiteFiles
 
 def anUnpackedEntryIsLaidOutAsBuildLaysOutItsOut : Bool :=
   let out : FilePath := "/o"
@@ -336,7 +337,7 @@ def testOrigin : Origin :=
     sourceUrl := "https://github.com/o/r/blob/0123456789abcdef0123456789abcdef01234567"
     dependencies := #[{ name := "micro-dep", rev := none }]
     sources := mkExternalLinks #[("Init", "https://core/blob/r/src"), ("Dep-Aux", "")]
-    site := { title := some "T", indexMarkdown := some "# Front\n"
+    site := { title := some "T", indexMarkdown := some "# Front\n", footerMarkdown := some "Foot\n"
               bibliography := some "@misc{K,\n  author = {Ann Author},\n  title = {A Title},\n  year = {2020}\n}\n" } }
 
 def putOut (store : FilePath) (v : VersionName) (out : FilePath) : IO PutSummary :=
@@ -387,9 +388,11 @@ def anEntryReadsBackByteForByteAndItsRecordCountsWhatTheIrHolds : Invariant wher
       eq (r.extractorIdentity.text, r.leanVersion, r.commit) (identityAText, "4.31.0", testOrigin.commit),
       eq r.checkout (.read #[("Dep-Aux", none), ("Init", some "https://core/blob/r/src")] (some "T")),
       eq (back.record == r) true,
-      eq ((back.files.map (·.1)).filter (·.startsWith "site/")).toList ["site/index.md", "site/references.bib"],
-      eq (site.map fun c => (c.title, c.indexMarkdown, c.bibliography.items.map (·.citekey)))
-        (some (some "T", some "# Front\n", #["K"]))]
+      eq ((back.files.map (·.1)).filter (·.startsWith "site/")).toList
+        ["site/footer.md", "site/index.md", "site/references.bib"],
+      eq (site.map fun c =>
+          (c.title, c.indexMarkdown, c.footerMarkdown, c.bibliography.items.map (·.citekey)))
+        (some (some "T", some "# Front\n", some "Foot\n", #["K"]))]
     IO.FS.removeDirAll dir
     return answer
 

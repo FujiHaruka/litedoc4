@@ -3,7 +3,7 @@ import { type Linker, pageHref } from "./links.js";
 import { grouped } from "./names.js";
 import type { FrontPageFile, ReferenceItem, VersionFile } from "./store-types.js";
 import type { ModuleEntry, ModulesFile } from "./types.js";
-import { docNodes } from "./words.js";
+import { pageDocNodes } from "./words.js";
 
 const LEDE =
   "API documentation for every module of this package, generated from the compiled " +
@@ -28,10 +28,7 @@ export function indexContent(
 ): Node[] {
   const modules = list.modules;
   const out: Node[] = [el("div", "modhead", el("h1", "", version.title), el("p", "lede", LEDE))];
-  if (front) {
-    const frontLinker: Linker = { ...l, roots: front.roots };
-    out.push(el("div", "intro doc", docNodes(front.html, front.words, frontLinker)));
-  }
+  if (front) out.push(el("div", "intro doc", pageDocNodes(front, l)));
   const stats = el("dl", "stats", stat("Modules", grouped(modules.length)));
   if (list.declarations !== undefined) {
     stats.append(stat("Declarations", grouped(list.declarations)));

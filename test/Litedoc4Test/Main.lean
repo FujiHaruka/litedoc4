@@ -50,6 +50,7 @@ def main : IO UInt32 :=
     Litedoc4Test.DataFormat.aCitationInContentLinksToTheReferencesPageWithNoRootPrefixAndNoAnchorId,
     Litedoc4Test.DataFormat.theReferencesDataListsEachEntryWithItsCitationsInModuleAndPageOrder,
     Litedoc4Test.DataFormat.theRenderedVersionNamesItsFrontPageAndReferencesFilesAndTheReferencesPageHasAShell,
+    Litedoc4Test.DataFormat.theVersionFileCarriesTheFooterInlineWithItsOwnWordsTableAndNoBibliography,
     Litedoc4Test.anEntryReadsBackByteForByteAndItsRecordCountsWhatTheIrHolds,
     Litedoc4Test.replacingAnEntryLeavesOnlyTheNewEntryAndNoStagingDirectory,
     Litedoc4Test.aTamperedPackIsRefusedByItsDigestOrItsLengthNamingTheEntry,
@@ -67,7 +68,9 @@ def main : IO UInt32 :=
     Litedoc4Test.theLedgerAnswersEveryScenarioOnASyntheticPackage,
     Litedoc4Test.noRootAndNoFileAreTheSameAnswer,
     Litedoc4Test.aBibliographyIsReadByConventionAndABadOneNamesTheFile,
+    Litedoc4Test.aConfigElsewhereReadsBesideItselfAndAMissingFileIsAnError,
     Litedoc4Test.aRootIsATopLevelLeanFileWithOrWithoutADirectory,
     Litedoc4Test.aDirectoryIsItsIndexAFileIsItselfAndNothingThereIsMissing,
     Litedoc4Test.theTriggerAnswersNothingYetAStableDigestAMovedOleanAndABrokenLedger,
+    Litedoc4Test.aWatchUnderAConfigAsksTheLedgerWithThatConfigsFlags,
     Litedoc4Test.VersionsTest.everyVersionIsRefusedByNameBeforeAnythingIsCheckedOut]

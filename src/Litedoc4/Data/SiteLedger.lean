@@ -39,6 +39,7 @@ def Row.counts (r : Row) : VersionCounts :=
 structure RenderLedger where
   renderer : String
   hashUrls : Bool
+  pages : Option String
   rows : Array Row
 
 def Row.push (o : String) (r : Row) : String :=
@@ -52,8 +53,11 @@ def Row.push (o : String) (r : Row) : String :=
   (pushEach o r.paths jsonStr).push '}'
 
 def RenderLedger.toJson (l : RenderLedger) : String :=
-  pushEach (jsonStr "{\"renderer\":" l.renderer ++ s!",\"hashUrls\":{l.hashUrls},\"versions\":")
-    l.rows Row.push ++ "}\n"
+  let o := jsonStr "{\"renderer\":" l.renderer ++ s!",\"hashUrls\":{l.hashUrls},\"pages\":"
+  let o := match l.pages with
+    | some digest => jsonStr o digest
+    | none => o ++ "null"
+  pushEach (o ++ ",\"versions\":") l.rows Row.push ++ "}\n"
 
 private def field (obj : JVal) (key : String) : Except String JVal :=
   match jvalGet? obj key with
@@ -94,10 +98,14 @@ def RenderLedger.parse (text : String) : Except String RenderLedger := do
   let hashUrls ← match ← field j "hashUrls" with
     | .bool b => pure b
     | _ => throw "`hashUrls` is not a boolean"
+  let pages ← match ← field j "pages" with
+    | .str s => pure (some s)
+    | .null => pure none
+    | _ => throw "`pages` is neither a string nor null"
   let rows ← match ← field j "versions" with
     | .arr items => items.mapM Row.parse
     | _ => throw "`versions` is not an array"
-  return { renderer := ← str j "renderer", hashUrls, rows }
+  return { renderer := ← str j "renderer", hashUrls, pages, rows }
 
 inductive Found where
   | absent
@@ -126,7 +134,7 @@ def heldAway (l : RenderLedger) (requested : Array (Store.VersionName × String)
         rendered from"
       else none
 
-def decide (found : Found) (renderer : String) (hashUrls : Bool)
+def decide (found : Found) (renderer : String) (hashUrls : Bool) (pages : Option String)
     (requested : Array (Store.VersionName × String))
     (missing : Option (Store.VersionName × String)) : Decision :=
   match found with
@@ -137,6 +145,9 @@ def decide (found : Found) (renderer : String) (hashUrls : Bool)
       .everything "the site was rendered by another litedoc4 executable"
     else if l.hashUrls != hashUrls then
       .everything s!"the site was rendered {if l.hashUrls then "with" else "without"} --hash-urls"
+    else if l.pages != pages then
+      .everything "the site was rendered with another --config's title, index or footer, or \
+        with or without one"
     else if let some why := heldAway l requested then .everything why
     else if let some (v, path) := missing then
       .everything s!"{path}, which {v.text}'s render wrote, is not in the site"
@@ -179,7 +190,7 @@ structure Outcome where
 /-- The old ledger is deleted before anything is written and the new one written
 last, so a render that stops part way leaves no ledger to claim its files. -/
 def renderSite (store site ledgerPath : FilePath) (names : Array Store.VersionName)
-    (hashUrls : Bool) : ExceptT String IO Outcome := do
+    (hashUrls : Bool) (pages : Option SitePages := none) : ExceptT String IO Outcome := do
   checkEntries store names
   let renderer ← rendererIdentity
   let mut requested : Array (Store.VersionName × String) := #[]
@@ -188,7 +199,8 @@ def renderSite (store site ledgerPath : FilePath) (names : Array Store.VersionNa
   let missing ← match found with
     | .ledger l => firstMissing site l
     | _ => pure none
-  let decision := decide found renderer hashUrls requested missing
+  let pagesDigest := pages.map (·.digest)
+  let decision := decide found renderer hashUrls pagesDigest requested missing
   if ← ledgerPath.pathExists then IO.FS.removeFile ledgerPath
   if let .everything why := decision then
     IO.println s!"render  every version: {why}"
@@ -199,11 +211,11 @@ def renderSite (store site ledgerPath : FilePath) (names : Array Store.VersionNa
     match step with
     | .keep row => rows := rows.push row
     | .render v key =>
-      rows := rows.push (Row.of v key (← writeEntry store site v hashUrls))
+      rows := rows.push (Row.of v key (← writeEntry store site v hashUrls pages))
       rendered := rendered.push v
   let root ← writeRoot site (rows.map (·.listed)) hashUrls
   let counts := { versions := rows.map (·.counts), assets := ← writeAssets site, root }
-  writeFile ledgerPath ({ renderer, hashUrls, rows } : RenderLedger).toJson
+  writeFile ledgerPath ({ renderer, hashUrls, pages := pagesDigest, rows } : RenderLedger).toJson
   return { counts, rendered }
 
 end SiteLedger

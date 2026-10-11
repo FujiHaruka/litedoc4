@@ -155,8 +155,8 @@ def extractKeyOf (leanToolchain manifestSha256 : String) (noEquationsUnder : Arr
     key := key.push ("irGenerator", jsString j "generator")
   return key
 
-def extractKey (target : String) (ir : Option System.FilePath) :
-    IO (Array (String × String)) := do
+def extractKey (target : String) (ir : Option System.FilePath)
+    (noEquationsUnder : Option (Array String) := none) : IO (Array (String × String)) := do
   let root : System.FilePath := ⟨target⟩
   let leanToolchain := (← readTextFile (root / "lean-toolchain")).trimAscii.toString
   let manifest := sha256Text (← readTextFile (root / "lake-manifest.json"))
@@ -168,7 +168,8 @@ def extractKey (target : String) (ir : Option System.FilePath) :
     match parseJson text with
     | .error why => throw (IO.userError s!"{path}: {why}")
     | .ok j => index := some j
-  return extractKeyOf leanToolchain manifest (← readConfigKeys root).noEquationsUnder index
+  return extractKeyOf leanToolchain manifest (← noEquationsUnderFor noEquationsUnder (.package root))
+    index
 
 /-- What changes the page bytes with the IR held fixed. Changed ⇒ re-extract
 nothing, re-render everything. -/
@@ -265,6 +266,7 @@ structure LedgerInputs where
   linkIndex : Option System.FilePath := none
   externalLinks : Option String := none
   bibliography : Option String := none
+  noEquationsUnder : Option (Array String) := none
   algorithm : Algorithm := Algorithm.sha256
 
 /-- `.error` is the refusal that exits 3: at `build` time the module list and
@@ -275,7 +277,7 @@ def buildLedger (i : LedgerInputs) : IO (Except String (Ledger × BuildPhases)) 
   let started ← IO.monoNanosNow
   let target := trimTrailingSlash i.target
   let libDir := s!"{target}/.lake/build/lib/lean"
-  let extract ← extractKey target i.ir
+  let extract ← extractKey target i.ir i.noEquationsUnder
   let render := renderKey i.sourceUrl (← linkIndexDigest i.linkIndex) i.externalLinks
     i.bibliography
   let keyDone ← IO.monoNanosNow
@@ -413,6 +415,7 @@ structure CheckInputs where
   linkIndex : Option System.FilePath := none
   externalLinks : Option String := none
   bibliography : Option String := none
+  noEquationsUnder : Option (Array String) := none
   changedOut : Option System.FilePath := none
   removedOut : Option System.FilePath := none
   renderAllOut : Option System.FilePath := none
@@ -469,7 +472,7 @@ def checkLedger (i : CheckInputs) : IO (Except LedgerRefusal CheckSummary) := do
   let readDone ← IO.monoNanosNow
   let algorithm := i.algorithm.getD ledger.algorithm
 
-  let extract ← extractKey ledger.target i.ir
+  let extract ← extractKey ledger.target i.ir i.noEquationsUnder
   let render := renderKey i.sourceUrl (← linkIndexDigest i.linkIndex) i.externalLinks
     i.bibliography
   let keyDone ← IO.monoNanosNow

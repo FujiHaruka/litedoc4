@@ -1,6 +1,6 @@
 import { link, markup } from "./dom.js";
 import { type Linker, tableHref } from "./links.js";
-import type { Table } from "./store-types.js";
+import type { FrontPageFile, Table } from "./store-types.js";
 
 export interface WordLink {
   readonly before: string;
@@ -49,3 +49,6 @@ export function docNodes(html: string, words: Table, l: Linker): DocumentFragmen
   }
   return doc;
 }
+
+export const pageDocNodes = (f: FrontPageFile, l: Linker): DocumentFragment =>
+  docNodes(f.html, f.words, { ...l, roots: f.roots });

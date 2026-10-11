@@ -51,6 +51,7 @@ binary-source
 --versions
 --store
 --hash-urls
+--config
 
 [watch]
 --root
@@ -62,10 +63,12 @@ binary-source
 --extractor-bin
 --lake
 --jobs
+--config
 
 [litedoc4.toml]
 title
 index
+footer
 no_equations_under
 
 # Page paths carry the version and keep doc-gen4's shape below it —

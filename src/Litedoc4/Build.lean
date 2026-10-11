@@ -314,6 +314,9 @@ structure BuildRequest where
   full : Bool
   noEquationsUnder : Option (Array String) := none
   writeReuseKeys : Bool := false
+  config : Option FilePath := none
+
+def BuildRequest.configSource (r : BuildRequest) : ConfigSource := .of r.root r.config
 
 inductive Plan where
   | full (why : String)
@@ -422,7 +425,7 @@ def fullExtraction (r : BuildRequest) (bibliography : Option String) (modules : 
   let detected ← match ← buildLedger
       { modules, target := r.root.toString, ir := none, sourceUrl
         linkIndex := some layout.linkIndex, externalLinks := some r.external.digest
-        bibliography } with
+        bibliography, noEquationsUnder := r.noEquationsUnder } with
     | .error message => throw (3, message)
     | .ok (ledger, _) => pure ledger
   writeFile (layout.work / "ledger-detect.json") detected.toJson
@@ -447,7 +450,7 @@ def incrementalExtraction (r : BuildRequest) (bibliography : Option String)
   let run ← runRounds
     { ir := layout.ir, ledger := layout.ledger, work := layout.work, modules, sourceUrl
       linkIndex := layout.linkIndex, externalDigest := r.external.digest, bibliography
-      maxRounds := defaultMaxRounds } extractor
+      noEquationsUnder := r.noEquationsUnder, maxRounds := defaultMaxRounds } extractor
   return { what := "incremental"
            extracted := run.check.reExtract.size + run.staleFound
            rounds := run.rounds, extractNanos := run.extractNanos
@@ -475,6 +478,8 @@ marker once what it does with the IR has worked.
 builds itself is written under `--out`. -/
 def runExtraction (r : BuildRequest) (bin : BuildM FilePath) : BuildM Extracted := do
   let started ← IO.monoNanosNow
+  let noEquationsUnder ← noEquationsUnderFor r.noEquationsUnder r.configSource
+  let r := { r with noEquationsUnder := some noEquationsUnder }
   -- The counters are the *process's*, and `watch` makes one call per pass.
   resetIrReads
   let layout := r.layout
@@ -510,7 +515,7 @@ def runExtraction (r : BuildRequest) (bin : BuildM FilePath) : BuildM Extracted 
   -- yes".
   let extractorInHand : BuildM (FilePath × Store.ExtractorIdentity) := do
     let path ← bin
-    let identity ← Store.currentIdentity path (← noEquationsUnderFor r.noEquationsUnder r.root)
+    let identity ← Store.currentIdentity path noEquationsUnder
     return (path, identity)
   let (plan, inHand) ← match ← planOf r libs with
     | .incremental => do
@@ -543,7 +548,7 @@ def runExtraction (r : BuildRequest) (bin : BuildM FilePath) : BuildM Extracted 
   -- *the tree on disk*, and writing back the pre-run values would leave a ledger
   -- the next run re-extracts everything against, for ever.
   let ledger := { done.detected with
-    extractKey := ← extractKey done.detected.target (some layout.ir)
+    extractKey := ← extractKey done.detected.target (some layout.ir) r.noEquationsUnder
     renderKey := some (renderKey sourceUrl (← linkIndexDigest (some layout.linkIndex))
       (some r.external.digest) bibliography) }
   let body := ledger.toJson

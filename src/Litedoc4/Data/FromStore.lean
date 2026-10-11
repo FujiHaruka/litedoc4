@@ -5,7 +5,8 @@ import Litedoc4.Store
 namespace Litedoc4
 namespace Data
 
-def inputOf (r : Store.Record) (files : Array (String × ByteArray)) : Except String Input := do
+def inputOf (r : Store.Record) (files : Array (String × ByteArray))
+    (pages : Option SitePages := none) : Except String Input := do
   let checkout ← Store.checkoutOf r
   let mut byPath : Std.HashMap String ByteArray := {}
   for (path, bytes) in files do byPath := byPath.insert path bytes
@@ -32,7 +33,8 @@ def inputOf (r : Store.Record) (files : Array (String × ByteArray)) : Except St
   let mut depMaps : Array (Array (String × String)) := #[]
   for e in index.dependencyMaps do
     depMaps := depMaps.push (depMapOf (← parse (Store.irPrefix ++ e.file)))
-  let site ← (← Store.siteSourcesOf checkout.title files).config Store.bibliographyEntry
+  let stored ← Store.siteSourcesOf checkout.title files
+  let site ← (pages.elim stored stored.withPages).config Store.bibliographyEntry
   return { name := r.version.text, modules, depMaps
            lidx := parseLidx (← text Store.linkIndexEntry)
            sources := Store.linksOf checkout.sources, site }

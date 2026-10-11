@@ -288,6 +288,14 @@ exit 3
 #
 # `extract` reads nothing before it refuses and prints nothing, so its three rows
 # freeze both streams by freezing one.
+@case build-config-not-there
+dir root
+argv build --root root --out out --config elsewhere/litedoc4.toml
+exit 3
+| litedoc4: --config elsewhere/litedoc4.toml: no such file or directory (error code: <varies>)
+|   file: elsewhere/litedoc4.toml
+|
+
 @case extract-ir-dir-inside-target
 dir target
 argv extract --modules m.txt --ir-dir target/ir --timings t.json --extractor-bin b --target target

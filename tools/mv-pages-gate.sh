@@ -52,6 +52,9 @@
 #   path-backrefs       every citation anchor drawn is linked from a back-reference
 #                       on its version's references.html (the reverse is path-anchors)
 #   path-titles         every drawn page's title ends in its version file's title
+#   path-footer / hash-footer  every drawn page, and the not-found page a path or a
+#                       route with no page draws, ends main#content with its version
+#                       file's footer
 #   path-flags          the sorry and origin pills drawn are exactly the content's
 #   search-dropdown / search-page   typing a declaration's last component lists it,
 #                       linking its page#id, in the top bar and on search.html

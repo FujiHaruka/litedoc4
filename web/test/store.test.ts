@@ -2,6 +2,7 @@ import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { moduleMain } from "../src/draw-module.js";
 import { indexContent } from "../src/draw-plain.js";
+import { moduleFrame, plainFrame } from "../src/frame.js";
 import { guessOf } from "../src/guess.js";
 import { gunzipped, isGzip } from "../src/gzip.js";
 import { hashHref, parseHash } from "../src/hash-route.js";
@@ -206,6 +207,7 @@ describe("moduleMain", () => {
     instances: "i",
     references: "r",
     front: null,
+    footer: null,
   };
   const page: PageFile = {
     module: "A.B",
@@ -516,5 +518,41 @@ describe("indexContent", () => {
     host.append(...indexContent(linker, version, { modules: [{ n: "A", p: "A.html" }] }, null));
     expect(host.querySelector(".modlist")?.className).toBe("modlist");
     expect(host.querySelectorAll(".stats dt").length).toBe(2);
+  });
+});
+
+describe("the footer", () => {
+  const footer = {
+    html: '<p>See <code><w>Nat</w></code> and <a href="https://example.org/">the license</a>.</p>',
+    roots: ["Init"],
+    words: { Nat: [0, "Init.Prelude", 1, 2] as const },
+  };
+  const footerOf = (nodes: Node[]): Element | null => {
+    const host = document.createElement("div");
+    host.append(...nodes);
+    return host.querySelector("main#content > footer.site-footer:last-child");
+  };
+
+  it("closes the main column of a plain page and of a module page, its words linked", () => {
+    const plain = footerOf(plainFrame(linker, { title: "T", footer }, document.createElement("p")));
+    const module = footerOf(
+      moduleFrame(linker, { title: "T", footer }, [], document.createElement("main")),
+    );
+    for (const f of [plain, module]) {
+      expect(f?.querySelector("w")).toBeNull();
+      expect([...(f?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href"))).toEqual([
+        "https://core/src/Init/Prelude.lean#L1-L2",
+        "https://example.org/",
+      ]);
+    }
+  });
+
+  it("is not drawn for a version without one", () => {
+    expect(footerOf(plainFrame(linker, { title: "T", footer: null }))).toBeNull();
+    expect(
+      footerOf(
+        moduleFrame(linker, { title: "T", footer: null }, [], document.createElement("main")),
+      ),
+    ).toBeNull();
   });
 });

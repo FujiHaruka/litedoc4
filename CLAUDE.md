@@ -139,6 +139,7 @@ too.
 | `benchmarks/` | Measurement reports, instrumentation patch, tools, raw logs. **Where the numbers come from** |
 | `src/` | **Product code (Lean). The SoT for the implementation.** Comments are only the non-obvious why not. `test/` holds its invariants; `tools/lean-test-gate.sh` is what runs them |
 | `e2e/micro/` | **The sample package** — a Lean package that does not depend on Mathlib, published at `https://fujiharuka.github.io/litedoc4/` and run by the gates. It holds, by construction, **the declaration shapes the target does not have** (→ `e2e/README.md`). **Its docstrings are published copy**; keep the gates' reasons in `/- … -/` comments |
+| `hosting/mathlib/` | **What hosting Mathlib's multi-version site needs from outside Mathlib** — its config (given with `build --config`), the footer carrying Mathlib's license notice, and the version-set script. **The footer is published copy** |
 | `tools/*-gate.sh` | **Gates** = judgements that require hardware, the target, or a toolchain. `test/` holds only what depends on zero hardware |
 | `.claude/handoff.md` | Handoff between sessions (tracked, committed) |
 

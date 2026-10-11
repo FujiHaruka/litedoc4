@@ -312,6 +312,7 @@ the file and the line, because that entry and every one after it are left out.
 ```toml
 title = "MyPkg"          # the top bar, and the second half of every page's <title>
 index = "docs/index.md"  # Markdown to put at the top of the site's index page
+footer = "docs/footer.md"  # Markdown to put at the bottom of every page
 no_equations_under = ["MyPkg.Tactic", "MyPkg.Meta"]  # definitions shown without equations
 ```
 
@@ -326,9 +327,22 @@ of these namespaces (`MyPkg.Tactic.ring_nf`, not `MyPkg.TacticX.foo` and not `My
 itself) gets no equations: they are not generated at all. Its signature, docstring and source link
 stay. Changing the list re-extracts every module on the next build.
 
-A malformed file, an unknown key, or an `index` naming a file that is not there **stops the
-build**. Carrying on with the derived title would be a site that quietly ignored what you asked
-for.
+`index` and `footer` are relative to the directory `litedoc4.toml` is in, and both are rendered
+the way docstrings are, so a name in backticks links to its declaration. The footer is on every
+page: module pages, the index, search, references and the not-found page — the place for a
+license line or a notice about who publishes the site.
+
+A malformed file, an unknown key, or an `index` or `footer` naming a file that is not there
+**stops the build**. Carrying on with the derived title would be a site that quietly ignored what
+you asked for.
+
+To document a package whose repository you do not control, keep the file somewhere else and name
+it with `--config` (`build` and `watch`). It is read in place of the package's own
+`litedoc4.toml`, for every version of a `--versions` build, and its `index` and `footer` are
+relative to its own directory; `docs/references.bib` is still read from the package. The title,
+index page and footer it names are applied as the site is rendered, so editing them renders every
+version again and extracts none, while editing its `no_equations_under` re-extracts every version.
+A `--config` naming a file that is not there stops the build.
 
 ## Status
 

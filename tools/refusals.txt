@@ -25,7 +25,9 @@
 # for `--reader-alone` and `--reader-check` (2026-10-09), their lines in `@usage`;
 # and for `--reader-session` and the reuse chain (2026-10-10), their lines and the
 # `--versions` text in `@usage`. The lines of `--reader-session` and
-# `--reader-check` left with the reader session (2026-10-11).
+# `--reader-check` left with the reader session (2026-10-11), and `--config` and
+# the footer joined `@usage` the same day, with `build-config-not-there` in
+# `tools/refusals-on-disk.txt`, written against the Lean binary.
 #
 # **The eight subcommands of the static site** — `render`, `site`, `global`,
 # `incremental`, `ownership`, `merge`, `impact`, `prune` — left with it, and so
@@ -57,16 +59,17 @@
 @usage
 | usage: litedoc4 build  --root <repo> --out <dir> [--lib <Name>]...
 |                        [--source-url <url>] [--full] [--hash-urls]
-|                        [--extractor-bin <path>] [--lake <path>]
-|                        [--jobs <n>] [--timings <file>]
+|                        [--config <file>] [--extractor-bin <path>]
+|                        [--lake <path>] [--jobs <n>] [--timings <file>]
 |        litedoc4 build  --root <repo> --out <dir> --versions <ref>,<ref>...
-|                        [--store <dir>] [--hash-urls] [--lib <Name>]...
-|                        [--lake <path>] [--jobs <n>]
+|                        [--store <dir>] [--hash-urls] [--config <file>]
+|                        [--lib <Name>]... [--lake <path>] [--jobs <n>]
 |                        [--through-reader <name>,<name>...]
 |                        [--reader-alone]
 |        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
 |                        [--lib <Name>]... [--source-url <url>] [--hash-urls]
-|                        [--extractor-bin <path>] [--lake <path>] [--jobs <n>]
+|                        [--config <file>] [--extractor-bin <path>]
+|                        [--lake <path>] [--jobs <n>]
 |        litedoc4 modules --root <repo> [--lib <Name>]... [--out <file>]
 |        litedoc4 extract --modules <file> --ir-dir <dir> --timings <file>
 |                        [--extractor-bin <path>] [--target <repo>] [--lake <path>]
@@ -176,8 +179,9 @@
 |                  is extracted on its own Lean, and one
 |                  whose toolchain has no row in tools/lean-toolchains.txt is
 |                  refused before anything runs. The extraction flags come from
-|                  --root's litedoc4.toml; the title, front page and bibliography
-|                  from each version's own. --lake has to be elan's, which picks
+|                  --root's litedoc4.toml, or --config; the title, front page,
+|                  footer and bibliography from each version's own, or the first
+|                  three from --config. --lake has to be elan's, which picks
 |                  each checkout's toolchain. Prints `versions extracted: <n> of
 |                  <m> (<names>)`, followed by `, through the reader: <n>
 |                  (<names>)` when the reader filled any, and `versions rendered:
@@ -190,6 +194,14 @@
 |   --reader-alone  (`build --versions`) for the gates, and not part of what 1.x
 |                  keeps: read each version exactly, reusing nothing, through the
 |                  reader in a process of its own, oldest first
+|   --config       (`build`, `watch`) a file read in place of litedoc4.toml, for
+|                  every version: the extraction flags, the title, the index page
+|                  and the footer, with `index` and `footer` relative to the
+|                  file's own directory. docs/references.bib is still read from
+|                  --root, or from each version's checkout. Its title, index page
+|                  and footer are applied as the site is rendered, so changing
+|                  them renders every version again and extracts none. A file
+|                  that is not there is refused
 |   --out          (`reader build`) the directory the .olean reader is built
 |                  under, the way `build --versions` builds it under
 |                  <out>/extractors: on the last row of tools/lean-toolchains.txt,
@@ -272,7 +284,7 @@
 |   --store        (`store`, and `build --versions`, where it defaults to
 |                  <out>/store) the kept versions, one directory per version:
 |                  <store>/<name>/entry.pack.gz (the IR tree, the dependency link
-|                  index, the bibliography and the index page's Markdown, packed
+|                  index, the bibliography, the index page and the footer, packed
 |                  and gzipped) and record.json (commit, Lean, dependencies, each
 |                  dependency module root's version-pinned source URL or that it
 |                  has none, the title, the extractor identity the IR was written
@@ -284,10 +296,10 @@
 |                  link-index.lidx are stored, and a build that wrote no link
 |                  index is refused; the commit, the dependencies, their source
 |                  URLs, Lean core's revision and the site configuration
-|                  (litedoc4.toml's title and index, docs/references.bib) come
-|                  from the checkout its marker names, which has to still be at
-|                  the commit the pages link to. Putting the same directory again
-|                  rewrites the entry without re-extracting anything.
+|                  (litedoc4.toml's title, index and footer, docs/references.bib)
+|                  come from the checkout its marker names, which has to still be
+|                  at the commit the pages link to. Putting the same directory
+|                  again rewrites the entry without re-extracting anything.
 |                  `store read --out` unpacks an entry into an empty directory
 |                  laid out as `build --out` lays out those two, with the site
 |                  configuration under site/; without it the entry is only

@@ -126,6 +126,7 @@ DECLARED+=(render-hash-twice render-hash-counts)
 DECLARED+=(render-usedby render-closure render-content-ir render-summaries render-math render-references render-sources)
 DECLARED+=(loop-empty loop-render-same loop-again loop-toolchain loop-remove-one loop-identity)
 DECLARED+=(loop-render-drop loop-render-add loop-render-hash loop-render-missing)
+DECLARED+=(loop-config)
 for v in "${VERSIONS[@]}"; do DECLARED+=("render-alone-$v" "render-hash-alone-$v"); done
 
 RAN=()
@@ -899,8 +900,15 @@ def front():
     want = '<h1 id="%s" class="markdown-heading">' % want_id
     if not page.get("html", "").startswith(want):
         return False, "the front page file %s does not open with %s: %r" % (v["front"], want, page.get("html", "")[:80])
-    return True, "the version file carries litedoc4.toml's title %r and names a front page file that opens with %s's heading as %s" % (
-        title, index, want)
+    footer = re.search(r'^footer = "([^"]*)"', toml, re.M).group(1)
+    links = re.findall(r"\]\((https?://[^)]+)\)", (sample / footer).read_text(encoding="utf-8"))
+    footer_html = (v.get("footer") or {}).get("html", "")
+    if not links:
+        return False, "%s holds no link, so nothing ties the version file's footer to it" % footer
+    if not footer_html.startswith("<p>") or any('href="%s"' % url not in footer_html for url in links):
+        return False, "the version file's footer %r does not carry %s's links %s" % (footer_html[:120], footer, links)
+    return True, "the version file carries litedoc4.toml's title %r, names a front page file that opens with %s's heading as %s, and carries %s inline with its link(s) %s" % (
+        title, index, want, footer, ", ".join(links))
 
 
 def reconcile_hash():
@@ -1200,6 +1208,55 @@ elif [ "$flags" != "noEquationsUnder=Example " ]; then
   item FAIL loop-identity "after that run the records carry ${flags:-no noEquationsUnder}: the root's flags did not reach every version's extraction"
 else
   item ok loop-identity "an altered source= in v2's record re-extracted exactly v2 ($said_source); no_equations_under added to the root's litedoc4.toml re-extracted all ($said_config), and every record now carries noEquationsUnder=Example"
+fi
+
+OUTSIDE="$WORK/outside"
+mkdir -p "$OUTSIDE"
+printf 'title = "outside title"\nfooter = "foot.md"\nno_equations_under = ["Example"]\n' >"$OUTSIDE/site.toml"
+printf 'Only the outside file says this.\n' >"$OUTSIDE/foot.md"
+loop_config () { # loop_config <name>
+  timed "loop $1" "$LOGS/loop-$1.log" \
+    "$LITEDOC4" build --root "$R1/repo" --out "$LOOP" --versions "$LOOP_LIST" --lake "$LAKE" \
+    --config "$OUTSIDE/site.toml" || true
+  sed -n 's/^versions extracted: //p' "$LOGS/loop-$1.log"
+}
+site_pages () { # every version's title and footer text, as the site's version files carry them
+  python3 - "$LOOP/site" <<'PY'
+import gzip
+import json
+import pathlib
+import re
+import sys
+
+site = pathlib.Path(sys.argv[1])
+for entry in json.loads((site / "versions.json").read_text(encoding="utf-8")):
+    v = json.loads(gzip.decompress((site / "d" / (entry["data"] + ".json.gz")).read_bytes()))
+    footer = re.sub(r"<[^>]+>", "", (v.get("footer") or {}).get("html", "")).strip()
+    print("%s|%s|%s" % (entry["name"], v["title"], footer))
+PY
+}
+said_config="$(loop_config config)"
+rendered_config="$(rendered config)"
+pages_config="$(site_pages 2>&1 || true)"
+printf 'The outside file, edited.\n' >"$OUTSIDE/foot.md"
+said_footer="$(loop_config config-footer)"
+rendered_footer="$(rendered config-footer)"
+pages_footer="$(site_pages 2>&1 || true)"
+want_config="" want_footer=""
+for v in "${LOOP_VERSIONS[@]}"; do
+  want_config="$want_config$v|outside title|Only the outside file says this."$'\n'
+  want_footer="$want_footer$v|outside title|The outside file, edited."$'\n'
+done
+if [ "$said_config" != "$LOOP_NONE" ] || [ "$rendered_config" != "$LOOP_ALL" ]; then
+  item FAIL loop-config "with --config naming the records' no_equations_under the loop said extracted \`${said_config:-<no line>}\`, rendered \`${rendered_config:-<no line>}\`, expected \`$LOOP_NONE\` and \`$LOOP_ALL\`"
+elif [ "$pages_config"$'\n' != "$want_config" ]; then
+  item FAIL loop-config "with --config the version files carry (version|title|footer) $(printf '%s' "$pages_config" | tr '\n' ' '), expected the outside file's title and footer on all ${#LOOP_VERSIONS[@]}"
+elif [ "$said_footer" != "$LOOP_NONE" ] || [ "$rendered_footer" != "$LOOP_ALL" ]; then
+  item FAIL loop-config "with only --config's footer edited the loop said extracted \`${said_footer:-<no line>}\`, rendered \`${rendered_footer:-<no line>}\`, expected \`$LOOP_NONE\` and \`$LOOP_ALL\`"
+elif [ "$pages_footer"$'\n' != "$want_footer" ]; then
+  item FAIL loop-config "with only --config's footer edited the version files carry $(printf '%s' "$pages_footer" | tr '\n' ' ')"
+else
+  item ok loop-config "--config elsewhere replaced every version's own title and footer on all ${#LOOP_VERSIONS[@]} (extracted $said_config, rendered $rendered_config), its no_equations_under kept every record fresh, and editing only its footer re-rendered all with nothing extracted ($said_footer)"
 fi
 
 say "8/8 report"

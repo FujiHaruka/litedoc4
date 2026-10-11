@@ -162,11 +162,11 @@ each other the key had moved and the loop would re-render the whole site on ever
 pass, for ever. So they are resolved once, in `watchRun`, and both sides read the
 same values.
 
-The module list and the bibliography are the exceptions: both are read again every
-pass, because a source file that appeared or vanished and an edited
-`docs/references.bib` are things this loop exists to notice. The run a pass
-triggers reads the bibliography through the same `readBibliography`, so the two
-cannot disagree about its digest. -/
+The module list, the bibliography and `no_equations_under` are the exceptions:
+they are read again every pass, because a source file that appeared or vanished
+and an edited `docs/references.bib` or configuration are things this loop exists
+to notice. The run a pass triggers reads them through the same `readBibliography`
+and `noEquationsUnderFor`, so the two cannot disagree about them. -/
 structure Trigger where
   ledger : FilePath
   ir : FilePath
@@ -174,6 +174,7 @@ structure Trigger where
   sourceUrl : String
   externalLinks : String
   root : FilePath
+  config : ConfigSource
   libs : Array String
 
 /-- One reading, or `none` when nothing has ever been built here. -/
@@ -183,6 +184,7 @@ def Trigger.ask (t : Trigger) : IO (Except (UInt32 × String) (Option Reading)) 
     | .error message => return .error (3, message)
     | .ok names => pure names
   let bibliography ← readBibliography t.root
+  let noEquationsUnder ← noEquationsUnderFor none t.config
   match ← checkLedger
       { ledger := t.ledger
         -- The ledger's own, never an override: two algorithms produce
@@ -190,7 +192,7 @@ def Trigger.ask (t : Trigger) : IO (Except (UInt32 × String) (Option Reading)) 
         algorithm := none
         modules := some modules, ir := some t.ir, sourceUrl := t.sourceUrl
         linkIndex := some t.linkIndex, externalLinks := some t.externalLinks
-        bibliography := bibliography.digest } with
+        bibliography := bibliography.digest, noEquationsUnder := some noEquationsUnder } with
   | .error refusal => return .error refusal
   | .ok check => return .ok (some (Reading.of check))
 
@@ -367,7 +369,8 @@ def watchRun (r : BuildRequest) (hashUrls : Bool) (port : UInt16)
   let trigger : Trigger :=
     { ledger := request.layout.ledger, ir := request.layout.ir
       linkIndex := request.layout.linkIndex, sourceUrl
-      externalLinks := request.external.digest, root := request.root, libs }
+      externalLinks := request.external.digest, root := request.root
+      config := request.configSource, libs }
   runLoop { request, hashUrls } trigger interval port { quietSince := ← IO.monoNanosNow }
 
 end Litedoc4

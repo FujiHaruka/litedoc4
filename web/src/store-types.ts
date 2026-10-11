@@ -26,6 +26,7 @@ export interface VersionFile {
   readonly instances: string;
   readonly references: string;
   readonly front: string | null;
+  readonly footer: FrontPageFile | null;
 }
 
 export interface PageFile {

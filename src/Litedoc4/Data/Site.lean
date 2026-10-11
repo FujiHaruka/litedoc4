@@ -41,8 +41,8 @@ def VersionMeta.of (r : Store.Record) : VersionMeta :=
   { commit := r.commit, lean := r.leanVersion, source := r.sourceUrl }
 
 def versionFileJson (version title : String) (m : VersionMeta) (roots : Array (String × String))
-    (modules search instances references : DataFile) (front : Option DataFile) : String :=
-    Id.run do
+    (modules search instances references : DataFile) (front : Option DataFile)
+    (footer : Option FrontPage) : String := Id.run do
   let mut o := jsonStr "{\"version\":" version
   o := jsonStr (o ++ ",\"title\":") title
   o := jsonStr (o ++ ",\"commit\":") m.commit
@@ -55,6 +55,7 @@ def versionFileJson (version title : String) (m : VersionMeta) (roots : Array (S
   o := o ++ "},\"modules\":" ++ locator modules ++ ",\"search\":" ++ locator search
     ++ ",\"instances\":" ++ locator instances ++ ",\"references\":" ++ locator references
     ++ ",\"front\":" ++ ((front.map locator).getD "null")
+    ++ ",\"footer\":" ++ ((footer.map frontPageJson).getD "null")
   return o.push '}'
 
 def rootAt (depth : Nat) : String :=
@@ -179,7 +180,7 @@ def render (m : VersionMeta) (v : VersionData) (hashUrls : Bool := false) :
     DataFile.of "json" s!"{v.name}'s front page" (frontPageJson f).toUTF8
   let versionFile := DataFile.of "json" s!"{v.name}'s version file"
     (versionFileJson v.name v.title m (versionRoots v.links) modules search instances references
-      front).toUTF8
+      front v.footer).toUTF8
   let mut data := #[modules, search, instances, references] ++ front.toArray ++ #[versionFile]
   let mut shells := #[(s!"{v.name}/index.html", versionIndexShell v.name versionFile),
     (s!"{v.name}/{referencesPage}", referencesShell v.name versionFile references),
@@ -295,10 +296,10 @@ def checkEntries (store : FilePath) (names : Array Store.VersionName) : ExceptT 
     if let .error why := Store.checkoutOf (← Store.readRecord store v) then
       throw s!"store entry {v.text}: {why}"
 
-def writeEntry (store out : FilePath) (v : Store.VersionName) (hashUrls : Bool) :
-    ExceptT String IO Written := do
+def writeEntry (store out : FilePath) (v : Store.VersionName) (hashUrls : Bool)
+    (pages : Option SitePages := none) : ExceptT String IO Written := do
   let s ← Store.read store v
-  let input ← match inputOf s.record s.files with
+  let input ← match inputOf s.record s.files pages with
     | .ok input => pure input
     | .error why => throw s!"store entry {v.text}: {why}"
   if let some warning := input.site.bibliography.warning then

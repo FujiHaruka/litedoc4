@@ -91,6 +91,18 @@ function serve(root: string, port: number) {
   });
 }
 
+function textOfHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function gunzipJson<T>(path: string): Promise<T> {
   const stream = new Blob([await Deno.readFile(path)])
     .stream()
@@ -135,6 +147,7 @@ interface VersionEntry {
 interface VersionFile {
   modules: string;
   title: string;
+  footer: { html: string } | null;
 }
 interface ModuleEntry {
   n: string;
@@ -218,6 +231,7 @@ interface Visit {
   ids: string[];
   decls: string[];
   title: string;
+  footer: string | null;
   flags: [string, string[], string][];
   hrefs: { href: string; from: string }[];
   onDemand: Record<string, number>;
@@ -277,6 +291,10 @@ class Run {
       [...document.querySelectorAll("section.decl[id]")].map((e) => e.id),
     );
     const title = await page.evaluate(() => document.title);
+    const footer = await page.evaluate(() => {
+      const f = document.querySelector("main#content > footer.site-footer:last-child");
+      return f === null ? null : (f.textContent ?? "").replace(/\s+/g, " ").trim();
+    });
     const flags = await page.evaluate(() =>
       [...document.querySelectorAll("section.decl[id]")].map(
         (s) =>
@@ -317,7 +335,7 @@ class Run {
       seen.add(href);
       hrefs.push({ href, from: where });
     }
-    return { ids, decls, title, flags, hrefs, onDemand, drawn, where };
+    return { ids, decls, title, footer, flags, hrefs, onDemand, drawn, where };
   }
 }
 
@@ -443,6 +461,8 @@ async function main(): Promise<void> {
     "path-decls-indexed",
     "path-backrefs",
     "path-titles",
+    "path-footer",
+    "hash-footer",
     "path-flags",
     "search-dropdown",
     "search-page",
@@ -488,8 +508,11 @@ async function main(): Promise<void> {
     return index;
   };
   const titles = new Map<string, string>();
+  const footers = new Map<string, string | null>();
   for (const v of pathData.versions) {
-    titles.set(v.name, (await gunzipJson<VersionFile>(`${site}/d/${v.data}.json.gz`)).title);
+    const file = await gunzipJson<VersionFile>(`${site}/d/${v.data}.json.gz`);
+    titles.set(v.name, file.title);
+    footers.set(v.name, file.footer === null ? null : textOfHtml(file.footer.html));
   }
   const contents = new Map<string, Record<string, unknown>[]>();
   for (const [key, { file }] of pathData.pageFiles) {
@@ -838,6 +861,47 @@ async function main(): Promise<void> {
       if (bad.length) return [false, `${bad.length} of ${n} drawn pages have a document title that does not end in their version file's title: ${few(bad)}`];
       return [true, `all ${n} drawn pages under a version end their document title in that version's title (${[...new Set(titles.values())].join(", ")})`];
     });
+    const notFoundVisit = async (url: string, where: string, deliberate: boolean): Promise<Visit> => {
+      if (deliberate) run.deliberate.set(url, 0);
+      let drawn = "";
+      try {
+        drawn = await run.fresh(url);
+      } catch (e) {
+        run.errors.push(`${where}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      const lost = await page.evaluate(() => document.querySelector("#content code.missing-path") !== null);
+      return { ...(await run.collect(where, drawn)), drawn: lost ? drawn : `not the not-found page (${drawn})` };
+    };
+    const footerItem = (name: string, visits: Visit[], versionOf: (where: string) => string, lost: Visit): void => {
+      item(name, () => {
+        const bad: string[] = [];
+        let n = 0;
+        if (lost.drawn !== "1") bad.push(`${lost.where}: ${lost.drawn}`);
+        for (const visit of [...visits, lost]) {
+          const want = footers.get(visit === lost ? newest : versionOf(visit.where));
+          if (want === undefined) continue;
+          n++;
+          if (want === null) bad.push(`${visit.where}: its version file carries no footer`);
+          else if (visit.footer === null) bad.push(`${visit.where}: no footer.site-footer is the last element of main#content`);
+          else if (visit.footer !== want) bad.push(`${visit.where}: the footer reads "${visit.footer}", not "${want}"`);
+        }
+        if (n === 0) return [false, "no drawn page under a version"];
+        if (bad.length) return [false, `${bad.length} of ${n} drawn pages do not end main#content with their version's footer: ${few(bad)}`];
+        return [true, `all ${n} drawn pages, ${lost.where} among them, end main#content with their version file's footer ("${[...new Set(footers.values())].join('", "')}")`];
+      });
+    };
+    footerItem(
+      "path-footer",
+      pv,
+      (where) => where.slice(0, where.indexOf("/")),
+      await notFoundVisit(`${P}/No/Such/Page.html`, "/No/Such/Page.html (404, the not-found page)", true),
+    );
+    footerItem(
+      "hash-footer",
+      hv,
+      (where) => where.slice(2, where.indexOf("/", 2)),
+      await notFoundVisit(`${H}/index.html#/no-such-version/Page`, "#/no-such-version/Page (the not-found page)", false),
+    );
     item("path-flags", () => {
       const bad: string[] = [];
       let n = 0;
@@ -1107,7 +1171,7 @@ async function main(): Promise<void> {
     });
     item("requests", () => {
       if (run.failedRequests.length) return [false, `${run.failedRequests.length} failed requests: ${few(run.failedRequests, 3)}`];
-      return [true, `no request failed or was answered >= 400, besides the ${run.deliberate.size} old links whose 404 is the old-link items' to judge`];
+      return [true, `no request failed or was answered >= 400, besides the ${run.deliberate.size} deliberate 404s (the old links and the footer's not-found page), which those items judge`];
     });
 
     console.log("frozen ids (v1, one-directional):");

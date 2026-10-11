@@ -3,15 +3,18 @@
 ```toml
 title = "MyPkg"          # the top bar, and the second half of every <title>
 index = "docs/index.md"  # Markdown to put at the top of the site's index
+footer = "docs/footer.md"  # Markdown at the bottom of every page
 no_equations_under = ["MyPkg.Tactic"]  # definitions shown without equations
 ```
 
 All optional. An absent file, an empty file and a file with none of the keys are
-the same answer.
+the same answer. `index` and `footer` are relative to the directory the file is
+in, which is the package root unless `build --config` names a file elsewhere.
 
-**A file that is there and does not parse is an error**, and so is an `index`
-naming a file that is not there: carrying on with the derived title would be a
-site that silently ignores what the package asked for.
+**A file that is there and does not parse is an error**, and so is an `index` or
+a `footer` naming a file that is not there, and a `--config` naming no file:
+carrying on with the derived title would be a site that silently ignores what
+the package asked for.
 
 The recogniser below is not a TOML parser and refuses every line it cannot
 account for, the way `Litedoc4.Lakefile` refuses a lakefile line it cannot
@@ -30,6 +33,7 @@ that point are kept. -/
 import Litedoc4.Bibtex
 import Litedoc4.Fs
 import Litedoc4.Ir.Utf16
+import Litedoc4.JsonWrite
 import Litedoc4.Sha256
 
 open System
@@ -39,13 +43,30 @@ namespace Litedoc4
 structure SiteConfig where
   title : Option String := none
   /-- The **contents** of the file `index` named, not its path: the path is
-  relative to the package root, and resolving it anywhere else would be a second
-  place that knows what it is relative to. -/
+  relative to the configuration file, and resolving it anywhere else would be a
+  second place that knows what it is relative to. -/
   indexMarkdown : Option String := none
+  footerMarkdown : Option String := none
   bibliography : Bibliography := {}
   deriving Inhabited
 
 def configFile : String := "litedoc4.toml"
+
+inductive ConfigSource where
+  | package (root : FilePath)
+  | given (file : FilePath)
+  deriving BEq, Repr
+
+def ConfigSource.of (root : FilePath) : Option FilePath → ConfigSource
+  | some file => .given file
+  | none => .package root
+
+def ConfigSource.file : ConfigSource → FilePath
+  | .package root => root / configFile
+  | .given file => file
+
+def resolveBeside (configPath : FilePath) (relative : String) : FilePath :=
+  (configPath.parent.getD ".") / relative
 
 namespace Toml
 
@@ -166,6 +187,7 @@ path into the Markdown behind it. -/
 structure ConfigKeys where
   title : Option String := none
   index : Option String := none
+  footer : Option String := none
   noEquationsUnder : Array String := #[]
   deriving BEq, Repr, Inhabited
 
@@ -180,6 +202,7 @@ nothing. -/
 def parseConfig (text : String) : Except String ConfigKeys := Id.run do
   let mut title : Option String := none
   let mut index : Option String := none
+  let mut footer : Option String := none
   let mut noEquationsUnder : Option (Array String) := none
   let mut number := 0
   for raw in text.splitOn "\n" do
@@ -200,6 +223,11 @@ def parseConfig (text : String) : Except String ConfigKeys := Id.run do
           | return .error s!"line {number}: `index` is not given a quoted string"
         if index.isSome then return .error s!"line {number}: `index` is given twice"
         index := some value
+      else if key == "footer" then
+        let .string value := value
+          | return .error s!"line {number}: `footer` is not given a quoted string"
+        if footer.isSome then return .error s!"line {number}: `footer` is given twice"
+        footer := some value
       else if key == "no_equations_under" then
         let .strings values := value
           | return .error s!"line {number}: `no_equations_under` is a list of namespaces, \
@@ -215,7 +243,7 @@ def parseConfig (text : String) : Except String ConfigKeys := Id.run do
   -- An empty title is not a title: `title = ""` would otherwise put a blank
   -- where every page names the site. Here rather than at the one caller so that
   -- reading the file and deciding what it said are not two answers.
-  return .ok { title := title.filter (fun t => !(trimWs t).isEmpty), index
+  return .ok { title := title.filter (fun t => !(trimWs t).isEmpty), index, footer
                noEquationsUnder := noEquationsUnder.getD #[] }
 
 def readIfPresent (path : FilePath) : IO (Option String) := do
@@ -249,35 +277,73 @@ def readBibliography (root : FilePath) : IO Bibliography := do
   | .ok bibliography => return bibliography
   | .error why => throw (IO.userError why)
 
-/-- `<root>/litedoc4.toml`'s keys, or none when the file is absent. -/
-def readConfigKeys (root : FilePath) : IO ConfigKeys := do
-  let path := root / configFile
-  match ← readIfPresent path with
+/-- A package's own file absent is the empty configuration; a `--config` naming
+no file is an error. -/
+def readConfigKeys (source : ConfigSource) : IO ConfigKeys := do
+  let path := source.file
+  let text ← match source with
+    | .package _ => readIfPresent path
+    | .given _ => pure (some (← readTextFile path))
+  match text with
   | none => pure {}
   | some text => match parseConfig text with
     | .ok keys => pure keys
     | .error message => throw (IO.userError s!"{path}: {message}")
+
+def noEquationsUnderFor (given : Option (Array String)) (source : ConfigSource) :
+    IO (Array String) :=
+  match given with
+  | some given => pure given
+  | none => return (← readConfigKeys source).noEquationsUnder
+
+/-- What a configuration file says about the pages, with `index` and `footer`
+read into the Markdown behind them. -/
+structure SitePages where
+  title : Option String := none
+  indexMarkdown : Option String := none
+  footerMarkdown : Option String := none
+  deriving BEq, Repr, Inhabited
+
+def readSitePages (source : ConfigSource) : IO SitePages := do
+  let keys ← readConfigKeys source
+  let markdown (key : Option String) : IO (Option String) := do
+    match key with
+    | some relative => pure (some (← readTextFile (resolveBeside source.file relative)))
+    | none => pure none
+  return { title := keys.title, indexMarkdown := ← markdown keys.index
+           footerMarkdown := ← markdown keys.footer }
+
+def SitePages.json (p : SitePages) : String :=
+  let field (o key : String) : Option String → String
+    | some text => jsonStr (o ++ s!"\"{key}\":") text
+    | none => o ++ s!"\"{key}\":null"
+  field (field (field "{" "title" p.title ++ ",") "index" p.indexMarkdown ++ ",") "footer"
+    p.footerMarkdown ++ "}"
+
+def SitePages.digest (p : SitePages) : String := sha256Text p.json
 
 /-- What `readSiteConfig` reads, before the bibliography is parsed: the text a
 store entry keeps, so a render from the store reads what `build` read. -/
 structure SiteSources where
   title : Option String := none
   indexMarkdown : Option String := none
+  footerMarkdown : Option String := none
   bibliography : Option String := none
   deriving BEq, Repr, Inhabited
 
-def readSiteSources (root : FilePath) : IO SiteSources := do
-  let keys ← readConfigKeys root
-  let indexMarkdown ← match keys.index with
-    | some relative =>
-      let resolved := root / relative
-      pure (some (← readTextFile resolved))
-    | none => pure none
-  return { title := keys.title, indexMarkdown, bibliography := ← readBibliographyText root }
+def SiteSources.withPages (s : SiteSources) (p : SitePages) : SiteSources :=
+  { s with title := p.title, indexMarkdown := p.indexMarkdown, footerMarkdown := p.footerMarkdown }
+
+/-- The pages from `pages` and the bibliography from `<root>/docs/references.bib`,
+which a `--config` elsewhere does not move. -/
+def readSiteSources (root : FilePath) (pages : ConfigSource := .package root) :
+    IO SiteSources := do
+  return ({ bibliography := ← readBibliographyText root } : SiteSources).withPages
+    (← readSitePages pages)
 
 def SiteSources.config (s : SiteSources) (bibliographySource : String) :
     Except String SiteConfig := do
-  return { title := s.title, indexMarkdown := s.indexMarkdown
+  return { title := s.title, indexMarkdown := s.indexMarkdown, footerMarkdown := s.footerMarkdown
            bibliography := ← bibliographyOf bibliographySource s.bibliography }
 
 /-- `<root>/litedoc4.toml` and `<root>/docs/references.bib`, or the empty

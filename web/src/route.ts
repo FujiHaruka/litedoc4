@@ -132,7 +132,7 @@ async function drawModule(r: Extract<Route, { kind: "module" }>): Promise<Drawn>
   );
   return {
     title: titled(page.module, version.title),
-    nodes: moduleFrame(l, version.title, memberNames(content), main),
+    nodes: moduleFrame(l, version, memberNames(content), main),
     plain: false,
     version,
     linker: l,
@@ -148,7 +148,7 @@ async function drawIndex(r: Route): Promise<Drawn> {
   const l = linkerOf(r, version, []);
   return {
     title: version.title,
-    nodes: plainFrame(l, version.title, ...indexContent(l, version, modules, front)),
+    nodes: plainFrame(l, version, ...indexContent(l, version, modules, front)),
     plain: true,
     version,
     linker: l,
@@ -163,7 +163,7 @@ async function drawReferences(r: Extract<Route, { kind: "references" }>): Promis
   const l = linkerOf(r, version, []);
   return {
     title: titled("References", version.title),
-    nodes: plainFrame(l, version.title, ...referencesContent(l, items)),
+    nodes: plainFrame(l, version, ...referencesContent(l, items)),
     plain: true,
     version,
     linker: l,
@@ -175,7 +175,7 @@ async function drawOwn(r: Route, name: string, own: (l: Linker) => Node[]): Prom
   const l = linkerOf(r, version, []);
   return {
     title: titled(name, version.title),
-    nodes: plainFrame(l, version.title, ...own(l)),
+    nodes: plainFrame(l, version, ...own(l)),
     plain: true,
     version,
     linker: l,

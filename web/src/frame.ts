@@ -1,5 +1,9 @@
 import { type Child, el, link, markup, nameParts, withId } from "./dom.js";
 import type { Linker } from "./links.js";
+import type { VersionFile } from "./store-types.js";
+import { pageDocNodes } from "./words.js";
+
+export type Framing = Pick<VersionFile, "title" | "footer">;
 
 const ICON_MENU =
   '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg>';
@@ -42,14 +46,19 @@ function topbar(l: Linker, title: string, withNav: boolean): HTMLElement {
 
 const skip = (l: Linker): HTMLAnchorElement => link("skip", l.here("content"), "Skip to content");
 
-export function plainFrame(l: Linker, title: string, ...content: Child[]): Node[] {
-  const main = withId(el("main", "content", ...content), "content");
-  return [skip(l), topbar(l, title, false), el("div", "shell", main)];
+function withFooter(l: Linker, v: Framing, main: HTMLElement): HTMLElement {
+  if (v.footer !== null) main.append(el("footer", "site-footer doc", pageDocNodes(v.footer, l)));
+  return main;
+}
+
+export function plainFrame(l: Linker, v: Framing, ...content: Child[]): Node[] {
+  const main = withFooter(l, v, withId(el("main", "content", ...content), "content"));
+  return [skip(l), topbar(l, v.title, false), el("div", "shell", main)];
 }
 
 export function moduleFrame(
   l: Linker,
-  title: string,
+  v: Framing,
   members: readonly string[],
   main: HTMLElement,
 ): Node[] {
@@ -73,5 +82,9 @@ export function moduleFrame(
       withId(el("div", "tree"), "module-tree"),
     ),
   );
-  return [skip(l), topbar(l, title, true), el("div", "shell", scrim, nav, withId(main, "content"))];
+  return [
+    skip(l),
+    topbar(l, v.title, true),
+    el("div", "shell", scrim, nav, withFooter(l, v, withId(main, "content"))),
+  ];
 }

@@ -82,9 +82,9 @@ structure Page where
   /-- What its docstrings link to (`markWord`), by `wordDest`. -/
   words : Array (String × Resolved)
 
-/-- `litedoc4.toml`'s `index`, rendered as a docstring is, against no
-bibliography: a citation there would be a back-reference from a page that has no
-module. -/
+/-- `litedoc4.toml`'s `index` or `footer`, rendered as a docstring is, against
+no bibliography: a citation there would be a back-reference from a page that has
+no module. -/
 structure FrontPage where
   html : String
   words : Array (String × Resolved)
@@ -94,6 +94,7 @@ structure VersionData where
   title : String
   pages : Array Page
   front : Option FrontPage
+  footer : Option FrontPage
   references : ByteArray
   modules : ByteArray
   search : ByteArray
@@ -194,6 +195,7 @@ def versionData (v : Input) : VersionData := Id.run do
     if let some m := byName.get? name then pages := pages.push (pageOf bib ix m sup)
   return { name := v.name, title := v.site.title.getD (siteTitle d.modules), pages
            front := v.site.indexMarkdown.map (frontPageOf ix)
+           footer := v.site.footerMarkdown.map (frontPageOf ix)
            references := (referencesJson bib.items (backrefsOf facts)).toUTF8
            modules := (moduleListOf d).toUTF8, search := d.searchIndexBin
            instances := d.instancesJson.toUTF8, usedBy := usedByFiles d
@@ -230,6 +232,7 @@ def pageRoots (p : Page) : Array String := rootsOf (p.names ++ p.words)
 
 def VersionData.links (v : VersionData) : Array (String × Resolved) :=
   v.pages.flatMap (fun p => p.names ++ p.words) ++ (v.front.map (·.words)).getD #[]
+    ++ (v.footer.map (·.words)).getD #[]
 
 def versionRoots (links : Array (String × Resolved)) : Array (String × String) := Id.run do
   let mut bases : Std.HashMap String String := {}

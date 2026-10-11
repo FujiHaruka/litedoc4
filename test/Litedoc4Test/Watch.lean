@@ -131,7 +131,7 @@ def theTriggerAnswersNothingYetAStableDigestAMovedOleanAndABrokenLedger : Invari
     IO.FS.writeFile lidx "#lidx1\n@Dep.Home\nDep.Home\n\tDep.elsewhere\n"
     let trigger : Trigger :=
       { ledger, ir, linkIndex := lidx, sourceUrl, externalLinks := "external-digest"
-        root := repo, libs := #["Pkg"] }
+        root := repo, config := .package repo, libs := #["Pkg"] }
 
     let nothingYet ← trigger.ask
     let built ← buildLedger
@@ -173,5 +173,45 @@ def theTriggerAnswersNothingYetAStableDigestAMovedOleanAndABrokenLedger : Invari
       eq (match broken with
           | .error (_, why) => (why.splitOn "ledger.json").length ≥ 2
           | .ok _ => false) true]
+
+/-- `watch --config` asks the ledger with the flags of the file it was given: a
+ledger built under that file's `no_equations_under` is quiet, and the same ledger
+asked with the package's own flags is every module to re-extract. -/
+def aWatchUnderAConfigAsksTheLedgerWithThatConfigsFlags : Invariant where
+  name := "watch --config asks the ledger with --config's no_equations_under: quiet under it, \
+    every module stale under the package's own"
+  check := do
+    let work ← incrWorkDir "watch-config"
+    let repo := work / "repo"
+    let ledger := work / "ledger.json"
+    let ir := work / "ir"
+    let lidx := work / "link-index.lidx"
+    let config := work / "hosting" / "site.toml"
+    writeWatchPackage repo #["Pkg", "Pkg.A"]
+    IO.FS.createDirAll ir
+    IO.FS.writeFile (ir / "index.json") watchIrIndex
+    IO.FS.writeFile lidx "#lidx1\n@Dep.Home\nDep.Home\n\tDep.elsewhere\n"
+    writeUnder work "hosting/site.toml" "no_equations_under = [\"Pkg.A\"]\n"
+    let built ← buildLedger
+      { modules := #["Pkg", "Pkg.A"], target := repo.toString, ir := some ir, sourceUrl
+        linkIndex := some lidx, externalLinks := some "external-digest"
+        noEquationsUnder := some #["Pkg.A"] }
+    if let .ok (l, _) := built then IO.FS.writeFile ledger l.toJson
+    let trigger (source : ConfigSource) : Trigger :=
+      { ledger, ir, linkIndex := lidx, sourceUrl, externalLinks := "external-digest"
+        root := repo, config := source, libs := #["Pkg"] }
+    let given ← (trigger (.given config)).ask
+    let own ← (trigger (.package repo)).ask
+    removeDir work
+    let reExtract (r : Except (UInt32 × String) (Option Reading)) : Option Nat :=
+      match r with
+      | .ok (some x) => some x.reExtract
+      | _ => none
+    return first [
+      match built with
+      | .error why => some s!"the ledger would not build: {why}"
+      | .ok _ => none,
+      eq (reExtract given) (some 0),
+      eq (reExtract own) (some 2)]
 
 end Litedoc4Test

@@ -395,6 +395,7 @@ def irPrefix : String := "ir/"
 def linkIndexEntry : String := "link-index.lidx"
 def bibliographyEntry : String := "site/references.bib"
 def frontPageEntry : String := "site/index.md"
+def footerEntry : String := "site/footer.md"
 
 structure EntryParts where
   irFiles : Nat
@@ -411,9 +412,9 @@ def entryParts (files : Array (String × ByteArray)) : Except String EntryParts 
       parts := { parts with linkIndexBytes := bytes.size }
     else if path.startsWith irPrefix then
       parts := { parts with irFiles := parts.irFiles + 1, irBytes := parts.irBytes + bytes.size }
-    else if path != bibliographyEntry && path != frontPageEntry then
+    else if ![bibliographyEntry, frontPageEntry, footerEntry].contains path then
       throw s!"`{path}` is neither under `{irPrefix}` nor one of `{linkIndexEntry}`, \
-        `{bibliographyEntry}` and `{frontPageEntry}`"
+        `{bibliographyEntry}`, `{frontPageEntry}` and `{footerEntry}`"
   if !sawLinkIndex then throw s!"it holds no `{linkIndexEntry}`"
   if parts.irFiles == 0 then throw s!"it holds nothing under `{irPrefix}`"
   return parts
@@ -475,6 +476,7 @@ def install (store : FilePath) (v : VersionName) : IO Unit := do
 def siteFiles (s : SiteSources) : Array (String × ByteArray) :=
   (s.bibliography.map (bibliographyEntry, ·.toUTF8)).toArray
     ++ (s.indexMarkdown.map (frontPageEntry, ·.toUTF8)).toArray
+    ++ (s.footerMarkdown.map (footerEntry, ·.toUTF8)).toArray
 
 def siteSourcesOf (title : Option String) (files : Array (String × ByteArray)) :
     Except String SiteSources := do
@@ -484,7 +486,8 @@ def siteSourcesOf (title : Option String) (files : Array (String × ByteArray)) 
     | some (_, bytes) => match String.fromUTF8? bytes with
       | some s => .ok (some s)
       | none => .error s!"`{path}` is not UTF-8"
-  return { title, indexMarkdown := ← text frontPageEntry, bibliography := ← text bibliographyEntry }
+  return { title, indexMarkdown := ← text frontPageEntry, footerMarkdown := ← text footerEntry
+           bibliography := ← text bibliographyEntry }
 
 def put (store : FilePath) (v : VersionName) (origin : Origin) (ir linkIndex : FilePath) :
     IO PutSummary := do
