@@ -843,6 +843,10 @@ the two ways on versions that have both.
 Read 2026-10-08, nothing run. "Memo": `prototypes/olean-reader/differential-design.md` (deleted
 2026-10-11 with the prototypes; `git show 852d575:prototypes/olean-reader/differential-design.md`).
 
+**Removed 2026-10-11** (decided 2026-10-11, user's call): the session, `--reader-session`,
+`--reader-check` and `reader session`; it lost to read-alone (items 7–9 below). Read it with
+`git show 1588c87:src/Litedoc4/Versions.lean` (`ReaderSession`), `git show 1588c87:extractor/reader/OleanReader/Hybrid.lean` (`sessionMain`), and `Patch.lean`, `Carry.lean`, `PrintKey.lean` beside it.
+
 **Approach.** One resident reader process per build, a *session*. It imports the newest version
 once and takes the older versions in `--versions` order. Each one is decoded, merged, extracted and
 answered before the next is checked out. Three levers go on top, each only after the one below is
@@ -1006,7 +1010,8 @@ Choices, with what would undo each:
    enumerates probe names per entry per round (810 entries on S, unknown on M), and Mathlib's
    equations attribute and reserved-name predicates are not exercised on S.
    `tools/mv-reader-gate.sh` 12 of 12, `tools/lean-test-gate.sh` 4 of 4.
-6. **`build --versions` over the session.** Read-alone is in `--help-all`, not in
+6. **`build --versions` over the session** (removed 2026-10-11, see the item 6 plan above).
+   Read-alone is in `--help-all`, not in
    `tools/public-surface.txt`. `tools/mv-reader-gate.sh` keeps its 12 items and gains
    `patched-equals-alone` (5 entries) and `check-keys`, each made to fail once.
    **Done 2026-10-09**: every reader fill goes through one `reader session`, started once the
@@ -1333,6 +1338,11 @@ combination that won.
    keeps every entry, an exact one included. `store list` prints the version reused from.
    `tools/mv-reader-gate.sh` items `exact-refills-reused` and `chain-keeps-exact`, both made to fail
    once on a build whose judgement was inverted; the gate 20 of 20 on the M1.
+   **`--reader-session` and `--reader-check` were removed 2026-10-11** (decided 2026-10-11, user's
+   call), with `reader session` and `mv-m-run.sh --session`; the chain and `--reader-alone` remain.
+   `tools/mv-reader-gate.sh` dropped `patched-equals-alone` and `check-keys` (20 → 18 items, its
+   reader-filled store now `--reader-alone`'s) and `tools/reader-hybrid-gate.sh` its ten session
+   items. Read the removed code with `git show 1588c87:src/Litedoc4/Versions.lean` (`ReaderSession`), `git show 1588c87:extractor/reader/OleanReader/Hybrid.lean` (`sessionMain`), and `Patch.lean`, `Carry.lean`, `PrintKey.lean` beside it.
 
 Parked: a flat or fused content hash. It funds a patch that returns at most 2.8 s on M.
 Dropped (decided 2026-10-10, user's call): parallel decode across modules. It saves time only, on

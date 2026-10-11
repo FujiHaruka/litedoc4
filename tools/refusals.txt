@@ -24,7 +24,8 @@
 # synopsis and description lines in `@usage` and the two `reader-*` rows; and
 # for `--reader-alone` and `--reader-check` (2026-10-09), their lines in `@usage`;
 # and for `--reader-session` and the reuse chain (2026-10-10), their lines and the
-# `--versions` text in `@usage`.
+# `--versions` text in `@usage`. The lines of `--reader-session` and
+# `--reader-check` left with the reader session (2026-10-11).
 #
 # **The eight subcommands of the static site** — `render`, `site`, `global`,
 # `incremental`, `ownership`, `merge`, `impact`, `prune` — left with it, and so
@@ -62,7 +63,7 @@
 |                        [--store <dir>] [--hash-urls] [--lib <Name>]...
 |                        [--lake <path>] [--jobs <n>]
 |                        [--through-reader <name>,<name>...]
-|                        [--reader-alone | --reader-session [--reader-check]]
+|                        [--reader-alone]
 |        litedoc4 watch  --root <repo> --out <dir> [--port <n>] [--interval <ms>]
 |                        [--lib <Name>]... [--source-url <url>] [--hash-urls]
 |                        [--extractor-bin <path>] [--lake <path>] [--jobs <n>]
@@ -189,17 +190,6 @@
 |   --reader-alone  (`build --versions`) for the gates, and not part of what 1.x
 |                  keeps: read each version exactly, reusing nothing, through the
 |                  reader in a process of its own, oldest first
-|   --reader-session  (`build --versions`) for the gates, and not part of what
-|                  1.x keeps: one reader process imports the newest once and reads
-|                  the older versions oldest first, the first built whole and each
-|                  later one patched from the one read before it, which every
-|                  version's line names. The entries it writes are --reader-alone's
-|                  bytes
-|   --reader-check  (`build --versions --reader-session`) for the gates, and not
-|                  part of what 1.x keeps: the reader session also builds each
-|                  version's environment from scratch and computes every print key
-|                  afresh, and stops the build on the first difference from the
-|                  patched environment or the carried keys
 |   --out          (`reader build`) the directory the .olean reader is built
 |                  under, the way `build --versions` builds it under
 |                  <out>/extractors: on the last row of tools/lean-toolchains.txt,

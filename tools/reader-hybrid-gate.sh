@@ -60,53 +60,6 @@
 #                     it: natively the type prints `ReaderProbeTarget.val`
 #                     where the shadow is absent and the full name where it is
 #                     there
-#   session-equals-alone
-#                     every older row read by one `reader session
-#                     --check-patch --check-keys`, oldest first, the newest
-#                     imported once, round 1 built whole and every later round
-#                     patched from the one before, its print keys carried from
-#                     the round before but where an input they read changed,
-#                     each reusing the printed part of every
-#                     declaration whose print key equals the previous round's:
-#                     each round answers `ok 0`, its IR and link index are the
-#                     bytes of that row's read-alone run, and its summary
-#                     (invariants, merge counts, hard stops, the analysis
-#                     counts) is read-alone's but for timings and the
-#                     printing-work counts a reuse skips (equation lemmas,
-#                     reference occurrences, member fields); each round's peak
-#                     RSS, patch, check-patch and reuse lines are printed
-#   session-reuse     ... and each round's reuse line, which counts a
-#                     declaration reused only when its output holds the
-#                     previous round's signature object: round 1 reused 0,
-#                     every declaration new; every later round reused at least
-#                     one and printed again none whose key was equal; in every
-#                     round reused + reprinted is the analysis's produced
-#                     count, and the reprinted ones' reasons add up
-#   session-check-patch
-#                     ... and each round's patch line says how it was built
-#                     (whole, or from the row before) and its check-patch
-#                     line says 0 modules and 0 other things differ from
-#                     rewriteMerge's state built from the same decoded data
-#   session-manual-root
-#                     ... and each round's Example.ReaderProbe docstring is
-#                     its native one, linking that row's own manual root, a
-#                     different root in every round
-#   session-check-keys
-#                     ... and each round's check-keys line says 0 of its keys
-#                     differ from a fresh pass with fresh memos; round 1
-#                     carried none, every later round says it carried from
-#                     the round before, carried + recomputed is the
-#                     candidate count, and some round carried at least one
-#   no-patch-equals-alone
-#                     every older row read by one `reader session --no-patch`:
-#                     each round decoded whole and merged as read-alone merges,
-#                     every print key computed afresh, and the printed part of
-#                     every declaration whose key equals the previous round's
-#                     reused: each round answers `ok 0` and prints no patch or
-#                     carry line, its IR and link index are the bytes of that
-#                     row's read-alone run, its summary is read-alone's as
-#                     above, and its reuse line passes session-reuse's checks
-#                     (every round after the first reused at least one)
 #   lazy-proofs-equals-alone
 #                     every older row read again by `reader extract
 #                     --lazy-proofs` (a theorem's proof decoded only where
@@ -132,41 +85,10 @@
 #                     declaration was reused, none printed, and both runs
 #                     wrote the same keys, the first on one thread and the
 #                     second on four
-#   carry-presence-flip
-#                     the first two older rows, across the shadow's
-#                     disappearance, in a session with --check-keys
-#                     --carry-without-presence (a name resolution carried
-#                     past a looked-up name appearing or disappearing):
-#                     natively Example.ReaderProbe.shadowed prints
-#                     differently on the two rows, and the second round fails
-#                     with check-keys naming it and a presence flip of
-#                     Example.ReaderProbe.ReaderProbeTarget.val
-#   patch-perturbed   the first two older rows in a session with
-#                     --perturb-patch, which leaves the last module a changed
-#                     constant dirties unrewritten: check-patch fails the
-#                     round, naming that module
-#   patch-field-fn-trigger
-#                     Example.ReaderProbeField declares `structure Flip` with
-#                     a field default on every second older row, and the
-#                     newest row declares it private: read-alone drops the
-#                     newest's private default function where the old public
-#                     Flip exists, which no constant of that newest module
-#                     shares a name with. The last two older rows in a session
-#                     with --no-field-fn-index: check-patch fails the second
-#                     round naming Example.ReaderProbeField; in the session
-#                     above the same round is 0 and its patch line rewrote a
-#                     module for a field function
-#   reuse-scx         the last two older rows, across Base's default change,
-#                     in a session with --key-without-scx (the print key
-#                     without the field defaults structure-instance notation
-#                     reads): the second round answers ok 0 and its IR
-#                     differs from read-alone in exactly
-#                     Example.ReaderProbe.withValue, reused stale as `{ }`
-#                     where read-alone prints `{ depth := 0 }`; the session
-#                     above, keyed with them, prints `{ depth := 0 }`
 #
 # The sample in e2e/micro is not changed: Example.ReaderProbe and
-# Example.ReaderProbeField are written into each row's copy only.
+# Example.ReaderProbeField are written into each row's copy only; the latter's
+# private newest `Flip` default is what read-<version> sees the merge drop.
 #
 # A row whose toolchain is not installed is not answered (exit 2): `lake`
 # would install it, so the gate checks first.
@@ -233,7 +155,7 @@ fi
 NEWEST_I=$(( ${#ROWS[@]} - 1 ))
 NEWEST="${ROWS[$NEWEST_I]##*:v}"
 NEWEST_SPELLING="${SPELLINGS[$NEWEST_I]}"
-declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 13 ))
+declared=$(( 2 * ${#ROWS[@]} + 1 + ${#REFUSED[@]} + 5 + 2 + 3 ))
 
 record_host
 if ! installed "${ROWS[$NEWEST_I]}"; then
@@ -473,10 +395,9 @@ else
   fi
 fi
 
-# usage: probe <manual|default> <version> [<the reader's output directory>]
+# usage: probe <manual|default> <version>
 probe () {
-  local read="${3:-$WORK/v$2/read}"
-  python3 - "$1" "$2" "$WORK/v$2/native/ir" "$read/ir" "$WORK/v$2/read/stdout.txt" <<'PY'
+  python3 - "$1" "$2" "$WORK/v$2/native/ir" "$WORK/v$2/read/ir" "$WORK/v$2/read/stdout.txt" <<'PY'
 import json, pathlib, re, sys
 
 kind, v, native, read, stdout = sys.argv[1:]
@@ -540,513 +461,33 @@ for item in probe-manual-root probe-structure-default; do
   fi
 done
 
-say
-say "=== the older rows in one reader session: round 1 built whole, every later round patched"
-SESSION="$WORK/session"
-SESSION_ROWS=()
-session_missing=()
+OLDER_ROWS=()
+older_missing=()
 for i in "${!ROWS[@]}"; do
   v="${ROWS[$i]##*:v}"
   if [ "$i" -eq "$NEWEST_I" ] || [ "${NATIVE_OK[$i]}" = not-installed ]; then continue; fi
-  if [ "${NATIVE_OK[$i]}" = ok ]; then SESSION_ROWS+=("$v"); else session_missing+=("v$v"); fi
+  if [ "${NATIVE_OK[$i]}" = ok ]; then OLDER_ROWS+=("$v"); else older_missing+=("v$v"); fi
 done
 
-# usage: request <version> <session directory>
-request () {
-  local v="$1" out="$2" a fields=()
-  while IFS= read -r a; do fields+=("$a"); done < <(search_args --old "$v")
-  fields+=("$WORK/v$v/modules.txt" "$out/v$v/events.jsonl" "${FLAGS[@]}"
-           --ir-dir "$out/v$v/ir" --link-index "$out/v$v/links.lidx")
-  local IFS=$'\t'
-  printf '%s\n' "${fields[*]}"
-}
-
-# usage: run_session <session directory> [<session flag>...] -- <version>...
-#   leaves requests.txt, stdout.txt, stderr.txt and rc in the directory
-run_session () {
-  local out="$1" flags=() v a new_args=()
-  shift
-  while [ "$1" != -- ]; do flags+=("$1"); shift; done
-  shift
-  mkdir -p "$out"
-  for v in "$@"; do mkdir -p "$out/v$v"; request "$v" "$out"; done >"$out/requests.txt"
-  while IFS= read -r a; do new_args+=("$a"); done < <(search_args --new "$NEWEST")
-  set +e
-  "$READER" session "${new_args[@]}" --new-roots "$WORK/v$NEWEST/modules.txt" ${flags[@]+"${flags[@]}"} \
-    <"$out/requests.txt" >"$out/stdout.txt" 2>"$out/stderr.txt"
-  echo "$?" >"$out/rc"
-  set -e
-}
-
-# usage: session_check <alone|check-patch|check-keys|reuse|perturbed|field-fn|scx|presence-flip>
-#          <session directory> <version>...
-#   field-fn takes <disabled session> <enabled session> <module> <version> <version>
-#   scx takes <session without SCX> <session with it> <version> <version>
-#   presence-flip takes <session without presence flips> <version> <version>
-session_check () {
-  WORK="$WORK" python3 - "$@" <<'PY'
-import json, os, pathlib, re, sys
-
-work = pathlib.Path(os.environ["WORK"])
-mode, args = sys.argv[1], sys.argv[2:]
-
-def rounds(directory):
-    out, cur = [], None
-    for line in (pathlib.Path(directory) / "stdout.txt").read_text(encoding="utf-8").splitlines():
-        m = re.match(r"round (\d+)$", line)
-        if m:
-            cur = {"n": int(m.group(1)), "lines": [], "code": None}
-            continue
-        m = re.match(r"ok (\d+) \d+$", line)
-        if m and cur is not None:
-            cur["code"] = int(m.group(1))
-            out.append(cur)
-            cur = None
-        elif cur is not None:
-            cur["lines"].append(line)
-    return out
-
-def grab(r, pattern):
-    for l in r["lines"]:
-        m = re.match(pattern, l)
-        if m:
-            return m
-    return None
-
-def check_lines(r):
-    m = grab(r, r"check-patch +(\d+) modules differ from rewriteMerge's state, pointer by pointer; (\d+) other differences")
-    named = [re.match(r"  check-patch-module (\S+):", l).group(1) for l in r["lines"] if l.startswith("  check-patch-module ")]
-    return m, named
-
-SESSION_ONLY = re.compile(r"^(patch|patch-perturbed|check-patch|carry|check-keys|reuse|rss|rss-at-extract|realizations|phases) |^  check-(patch|keys)-|^  dir ")
-PRINTING_WORK = re.compile(r"^  (of which equations|of which refs|member extra) ")
-CACHE_STATE = re.compile(r"^  manual-root-cache ")
-def summary(lines):
-    out = []
-    for l in lines:
-        if SESSION_ONLY.match(l) or CACHE_STATE.match(l):
-            continue
-        l = re.sub(r"\d+(\.\d+)?s\b|\d+ ms\b", "<t>", l)
-        if PRINTING_WORK.match(l):
-            l = re.sub(r"\(.*\)", "(<printing work>)", l)
-        out.append(l)
-    return out
-
-REUSE = (r"reuse +(\d+) of (\d+) declarations reused, (\d+) reprinted \(key differs (\d+), key equal (\d+), "
-         r"no previous output (\d+), new (\d+)\); key (.+) of (\d+) candidates: carried (\d+), recomputed (\d+) "
-         r"\(stale (\d+), new (\d+)\) in (\d+) ms on (?:one thread|\d+ threads)$")
-CHECK_KEYS = r"check-keys +(\d+) keys differ from a fresh pass \((\d+) keys, fresh memos, (\d+) thread\(s\), (\d+) ms\)$"
-
-def module_decls(ir):
-    out = {}
-    for f in sorted((pathlib.Path(ir) / "modules").glob("*.json")):
-        for d in json.loads(f.read_text(encoding="utf-8")).get("declarations", []):
-            out[d.get("name")] = d
-    return out
-
-def differing_files(a, b):
-    a, b = pathlib.Path(a), pathlib.Path(b)
-    fa = {p.relative_to(a) for p in a.rglob("*") if p.is_file()}
-    fb = {p.relative_to(b) for p in b.rglob("*") if p.is_file()}
-    return sorted(str(p) for p in fa | fb if p not in fa or p not in fb or (a / p).read_bytes() != (b / p).read_bytes())
-
-def fail(msg):
-    print(msg)
-    sys.exit(1)
-
-if mode == "alone":
-    directory, versions = args[0], args[1:]
-    rs = rounds(directory)
-    if len(rs) != len(versions):
-        fail(f"{len(rs)} rounds answered for {len(versions)} requests")
-    bad = []
-    for r, v in zip(rs, versions):
-        alone = (work / f"v{v}" / "read" / "stdout.txt").read_text(encoding="utf-8").splitlines()
-        a, b = summary(r["lines"]), summary(alone)
-        if a != b:
-            diff = [f"{x!r} against {y!r}" for x, y in zip(a, b) if x != y][:2] or [f"{len(a)} lines against {len(b)}"]
-            bad.append(f"v{v}: the round's summary is not read-alone's: {'; '.join(diff)}")
-    if bad:
-        fail("; ".join(bad))
-    print(f"{len(rs)} summaries equal to read-alone's, timings aside")
-elif mode == "check-patch":
-    directory, versions = args[0], args[1:]
-    rs = rounds(directory)
-    if len(rs) != len(versions):
-        fail(f"{len(rs)} rounds answered for {len(versions)} requests")
-    bad, seen = [], []
-    for k, (r, v) in enumerate(zip(rs, versions)):
-        p = grab(r, r"patch +(?:built whole: (\d+) newest modules rewritten|from Lean (\S+):.*, rewritten (\d+))")
-        m, named = check_lines(r)
-        want = "built whole" if k == 0 else f"from Lean {versions[k - 1]}"
-        said = None if p is None else ("built whole" if p.group(1) else f"from Lean {p.group(2)}")
-        if p is None:
-            bad.append(f"v{v}: no patch line")
-        elif said != want:
-            bad.append(f"v{v}: patch line says '{said}', expected '{want}'")
-        elif m is None:
-            bad.append(f"v{v}: no check-patch line")
-        elif m.group(1) != "0" or m.group(2) != "0" or named:
-            bad.append(f"v{v}: check-patch {m.group(1)} modules differ ({' '.join(named)}), {m.group(2)} other")
-        elif r["code"] != 0:
-            bad.append(f"v{v}: answered ok {r['code']}")
-        else:
-            seen.append(f"v{v} {said}, {p.group(1) or p.group(3)} rewritten, check-patch 0")
-    if bad:
-        fail("; ".join(bad))
-    print("; ".join(seen))
-elif mode == "reuse":
-    directory, versions = args[0], args[1:]
-    rs = rounds(directory)
-    if len(rs) != len(versions):
-        fail(f"{len(rs)} rounds answered for {len(versions)} requests")
-    bad, seen = [], []
-    for k, (r, v) in enumerate(zip(rs, versions)):
-        u = grab(r, REUSE)
-        a = grab(r, r"analyze +.* produced (\d+),")
-        if u is None:
-            bad.append(f"v{v}: no reuse line")
-            continue
-        if a is None:
-            bad.append(f"v{v}: no analyze line")
-            continue
-        reused, produced, reprinted, differs, equal, noprev, new = (int(u.group(i)) for i in range(1, 8))
-        analyzed = int(a.group(1))
-        if reused + reprinted != analyzed or produced != analyzed:
-            bad.append(f"v{v}: reused {reused} + reprinted {reprinted} of {produced}, the analysis produced {analyzed}")
-        elif differs + equal + noprev + new != reprinted:
-            bad.append(f"v{v}: reprinted {reprinted}, its reasons add up to {differs + equal + noprev + new}")
-        elif equal != 0:
-            bad.append(f"v{v}: {equal} declaration(s) whose key equals the previous round's were printed again")
-        elif k == 0 and (reused != 0 or new != produced):
-            bad.append(f"v{v}: round 1 reused {reused}, {new} of {produced} new")
-        elif k > 0 and reused == 0:
-            bad.append(f"v{v}: read after v{versions[k - 1]} and reused nothing ({reprinted} reprinted: key differs "
-                       f"{differs}, no previous output {noprev}, new {new})")
-        else:
-            seen.append(f"v{v} reused {reused} of {produced}, reprinted {reprinted} (key differs {differs}, "
-                        f"no previous output {noprev}, new {new}), key carried {u.group(10)}, recomputed "
-                        f"{u.group(11)} in {u.group(14)} ms")
-    if bad:
-        fail("; ".join(bad))
-    print("; ".join(seen))
-elif mode == "scx":
-    without, keyed, va, vb = args
-    decl = "Example.ReaderProbe.withValue"
-    rs = rounds(without)
-    if len(rs) != 2 or [r["code"] for r in rs] != [0, 0]:
-        fail(f"the session without SCX answered {[r['code'] for r in rs]}, expected two rounds ok 0")
-    u = grab(rs[1], REUSE)
-    if u is None or not u.group(8).startswith("N1 + own"):
-        fail(f"the session without SCX printed no reuse line keyed N1 + own for v{vb}")
-    alone = work / f"v{vb}" / "read" / "ir"
-    stale = pathlib.Path(without) / f"v{vb}" / "ir"
-    a, b = module_decls(alone), module_decls(stale)
-    names = sorted(n for n in set(a) | set(b) if a.get(n) != b.get(n))
-    files = differing_files(alone, stale)
-    if names != [decl]:
-        fail(f"without SCX, v{vb} patched from v{va} differs from read-alone in {names or 'no declaration'}, "
-             f"not exactly {decl} (files: {files or 'none'})")
-    sb, ab = b[decl].get("binders") or [], a[decl].get("binders") or []
-    if not any(":= { }" in x for x in sb) or not any(":= { depth := 0 }" in x for x in ab):
-        fail(f"without SCX {decl} prints {sb}, read-alone {ab}: not the stale default")
-    kb = (module_decls(pathlib.Path(keyed) / f"v{vb}" / "ir").get(decl) or {}).get("binders") or []
-    if kb != ab:
-        fail(f"with SCX, v{vb}'s round prints {decl} {kb}, read-alone {ab}")
-    print(f"without SCX v{vb} (patched from v{va}, {u.group(1)} reused) differs from read-alone in {decl} only: "
-          f"{' '.join(sb)} against {' '.join(ab)} ({len(files)} file(s): {' '.join(files)}); "
-          f"with SCX the round prints {' '.join(kb)}")
-elif mode == "perturbed":
-    directory = args[0]
-    stderr = (pathlib.Path(directory) / "stderr.txt").read_text(encoding="utf-8")
-    hits, bad = [], []
-    for r in rounds(directory):
-        p = grab(r, r"patch-perturbed +(\S+) left unrewritten")
-        if p is None:
-            continue
-        module = p.group(1)
-        m, named = check_lines(r)
-        if r["code"] == 0:
-            bad.append(f"round {r['n']}: {module} left unrewritten, and the round answered ok 0")
-        elif module not in named:
-            bad.append(f"round {r['n']}: {module} left unrewritten, check-patch names {named}")
-        elif f"module {module} differs from rewriteMerge's" not in stderr:
-            bad.append(f"round {r['n']}: the refusal does not name {module}")
-        else:
-            hits.append(f"round {r['n']}: {module} left unrewritten, refused naming it")
-    if bad:
-        fail("; ".join(bad))
-    if not hits:
-        fail("no round left a module unrewritten")
-    print("; ".join(hits))
-elif mode == "field-fn":
-    disabled, enabled, module, va, vb = args
-    flipped = []
-    for v in (va, vb):
-        text = (work / f"v{v}" / "read" / "stdout.txt").read_text(encoding="utf-8")
-        m = re.search(r"default and autoParam functions of old structures' fields dropped (\d+)", text)
-        if not m:
-            fail(f"v{v}: read-alone reports no field functions dropped")
-        flipped.append(int(m.group(1)))
-    if abs(flipped[0] - flipped[1]) != 1:
-        fail(f"read-alone drops {flipped[0]} field functions for v{va} and {flipped[1]} for v{vb}: "
-             f"the probe structure is not dropped on exactly one of them")
-    rs = rounds(disabled)
-    if len(rs) != 2 or rs[0]["code"] != 0:
-        fail(f"the session without the index answered {[r['code'] for r in rs]}, expected round 1 ok 0 and round 2")
-    m, named = check_lines(rs[1])
-    if rs[1]["code"] == 0 or module not in named:
-        fail(f"without the index, v{vb} patched from v{va} answered ok {rs[1]['code']} and check-patch names "
-             f"{named or 'no module'}, not {module}")
-    on = rounds(enabled)[-1]
-    m2, named2 = check_lines(on)
-    p = grab(on, r"patch .* field functions (\d+);")
-    if on["code"] != 0 or m2 is None or m2.group(1) != "0" or named2:
-        fail(f"with the index, v{vb}'s round answered ok {on['code']}, check-patch names {named2}")
-    if p is None or p.group(1) == "0":
-        fail(f"with the index, v{vb}'s patch line rewrote no module for a field function")
-    print(f"read-alone drops {flipped[0]} / {flipped[1]} field functions (v{va} / v{vb}); without the index "
-          f"v{vb} answered ok {rs[1]['code']}, check-patch naming {' '.join(named)}; with it 0 differ, "
-          f"{p.group(1)} module(s) rewritten for a field function")
-elif mode == "check-keys":
-    directory, versions = args[0], args[1:]
-    rs = rounds(directory)
-    if len(rs) != len(versions):
-        fail(f"{len(rs)} rounds answered for {len(versions)} requests")
-    bad, seen, carried_any = [], [], 0
-    for k, (r, v) in enumerate(zip(rs, versions)):
-        c = grab(r, CHECK_KEYS)
-        u = grab(r, REUSE)
-        f = grab(r, r"carry +(from the previous round|nothing to carry from)")
-        named = [l.strip() for l in r["lines"] if l.startswith("  check-keys-differ ")]
-        if c is None:
-            bad.append(f"v{v}: no check-keys line")
-        elif c.group(1) != "0" or named:
-            bad.append(f"v{v}: check-keys {c.group(1)} keys differ: {'; '.join(named)[:600]}")
-        elif u is None or f is None:
-            bad.append(f"v{v}: no {'reuse' if u is None else 'carry'} line")
-        else:
-            candidates, carried, recomputed = int(u.group(9)), int(u.group(10)), int(u.group(11))
-            from_previous = f.group(1) == "from the previous round"
-            if carried + recomputed != candidates:
-                bad.append(f"v{v}: carried {carried} + recomputed {recomputed} of {candidates} candidates")
-            elif k == 0 and (from_previous or carried != 0):
-                bad.append(f"v{v}: round 1 carried {carried} keys ({f.group(1)})")
-            elif k > 0 and not from_previous:
-                bad.append(f"v{v}: patched from v{versions[k - 1]}, and the carry line says '{f.group(1)}'")
-            elif r["code"] != 0:
-                bad.append(f"v{v}: answered ok {r['code']}")
-            else:
-                carried_any += carried
-                seen.append(f"v{v} check-keys 0 of {c.group(2)} ({c.group(4)} ms), carried {carried}, "
-                            f"recomputed {recomputed} ({u.group(14)} ms)")
-    if not bad and carried_any == 0:
-        bad.append("no round carried a key, so check-keys compared nothing carried")
-    if bad:
-        fail("; ".join(bad))
-    print("; ".join(seen))
-elif mode == "presence-flip":
-    dropped, va, vb = args
-    decl = "Example.ReaderProbe.shadowed"
-    shadow = "Example.ReaderProbe.ReaderProbeTarget.val"
-    def native_type(v):
-        f = work / f"v{v}" / "native" / "ir" / "modules" / "Example.ReaderProbe.json"
-        for d in json.loads(f.read_text(encoding="utf-8")).get("declarations", []):
-            if d.get("name") == decl:
-                return d.get("type")
-        fail(f"v{v}: the native IR has no {decl}")
-    ta, tb = native_type(va), native_type(vb)
-    if ta == tb:
-        fail(f"natively {decl} prints `{ta}` on both v{va} and v{vb}: the shadow changes no print")
-    rs = rounds(dropped)
-    if len(rs) != 2 or rs[0]["code"] != 0:
-        fail(f"the session without presence flips answered {[r['code'] for r in rs]}, expected round 1 ok 0 and round 2")
-    named = [l.strip()[len("check-keys-differ "):] for l in rs[1]["lines"] if l.startswith("  check-keys-differ ")]
-    hit = [l for l in named if l.startswith(f"{decl}: ") and f"presence-flip {shadow} " in l]
-    stderr = (pathlib.Path(dropped) / "stderr.txt").read_text(encoding="utf-8")
-    if rs[1]["code"] == 0 or not hit:
-        fail(f"without presence flips v{vb} answered ok {rs[1]['code']}, check-keys naming "
-             f"{'; '.join(named)[:600] or 'nothing'}, not {decl} with a presence flip of {shadow}")
-    if "check-keys failed" not in stderr or decl not in stderr:
-        fail(f"the refusal does not name {decl}: {stderr[:300]}")
-    print(f"natively {decl} prints `{ta}` (v{va}) and `{tb}` (v{vb}); without presence flips v{vb} answered "
-          f"ok {rs[1]['code']}, {len(named)} key(s) differ: {hit[0]}"
-          + (f"; also {'; '.join(n.split(':')[0] for n in named if n not in hit)}" if len(named) > len(hit) else ""))
-else:
-    fail(f"session_check: no mode {mode}")
-PY
-}
-
-session_ready () {
+older_ready () {
   if [ "${NATIVE_OK[$NEWEST_I]}" != ok ]; then
     echo "the newest row's sample did not build, so there is no newest side"; return 1
-  elif [ "${#session_missing[@]}" -ne 0 ]; then
-    echo "the native side of ${session_missing[*]} did not build, so the session has no request for it"; return 1
-  elif [ "${#SESSION_ROWS[@]}" -eq 0 ]; then
-    echo "no older row is installed, so there is no session to run"; return 1
+  elif [ "${#older_missing[@]}" -ne 0 ]; then
+    echo "the native side of ${older_missing[*]} did not build, so there is no read-alone run to equal"; return 1
+  elif [ "${#OLDER_ROWS[@]}" -eq 0 ]; then
+    echo "no older row is installed, so there is nothing to read again"; return 1
   fi
 }
-
-if why="$(session_ready)"; then
-  run_session "$SESSION" --check-patch --check-keys -- "${SESSION_ROWS[@]}"
-  sed -n 's/^rss  *//p; s/^\(patch \)  */\1/p; s/^check-patch  */check-patch /p; s/^\(carry \)  */\1/p;
-          s/^check-keys  */check-keys /p; s/^\(reuse \)  */\1/p' "$SESSION/stdout.txt" | sed 's/^/  /'
-fi
-
-item=session-equals-alone
-if ! why="$(session_ready)"; then
-  bad "$item" "$why"
-else
-  replies=()
-  while IFS= read -r l; do replies+=("$l"); done < <(grep -E '^(ok|err) ' "$SESSION/stdout.txt")
-  lines=()
-  fails=()
-  session_rc="$(cat "$SESSION/rc")"
-  if [ "$session_rc" != 0 ]; then fails+=("reader session exited $session_rc: $(head -c 300 "$SESSION/stderr.txt")"); fi
-  for k in "${!SESSION_ROWS[@]}"; do
-    v="${SESSION_ROWS[$k]}"
-    reply="${replies[$k]:-}"
-    if [ -z "$reply" ]; then
-      fails+=("round $((k + 1)) (v$v) was never answered")
-    elif [ "${reply%% *}" != ok ] || [ "$(printf '%s' "$reply" | cut -d' ' -f2)" != 0 ]; then
-      fails+=("round $((k + 1)) (v$v) answered '$reply'")
-    elif [ ! -d "$WORK/v$v/read/ir" ]; then
-      fails+=("v$v has no read-alone IR to equal")
-    elif ! /usr/bin/diff -r "$WORK/v$v/read/ir" "$SESSION/v$v/ir" >"$SESSION/v$v/ir.diff" 2>&1; then
-      fails+=("v$v: the session's IR differs from read-alone: $(head -c 400 "$SESSION/v$v/ir.diff")")
-    elif ! cmp -s "$WORK/v$v/read/links.lidx" "$SESSION/v$v/links.lidx"; then
-      fails+=("v$v: the session's link index differs from read-alone")
-    else
-      lines+=("v$v $(find "$SESSION/v$v/ir" -type f | wc -l | tr -d ' ') files + link index")
-    fi
-  done
-  if [ "${#replies[@]}" -ne "${#SESSION_ROWS[@]}" ]; then
-    fails+=("${#replies[@]} replies to ${#SESSION_ROWS[@]} requests")
-  fi
-  if [ "${#fails[@]}" -eq 0 ] && ! summaries="$(session_check alone "$SESSION" "${SESSION_ROWS[@]}" 2>&1)"; then
-    fails+=("$summaries")
-  fi
-  if [ "${#fails[@]}" -ne 0 ]; then
-    bad "$item" "$(printf '%s; ' "${fails[@]}")"
-  else
-    ok "$item" "${#SESSION_ROWS[@]} rounds in one session, each equal to read-alone: $(printf '%s; ' "${lines[@]}")$summaries"
-  fi
-fi
-
-item=session-check-patch
-if ! why="$(session_ready)"; then
-  bad "$item" "$why"
-elif result="$(session_check check-patch "$SESSION" "${SESSION_ROWS[@]}" 2>&1)"; then
-  ok "$item" "$result"
-else
-  bad "$item" "$result"
-fi
-
-item=session-reuse
-if ! why="$(session_ready)"; then
-  bad "$item" "$why"
-elif result="$(session_check reuse "$SESSION" "${SESSION_ROWS[@]}" 2>&1)"; then
-  ok "$item" "$result"
-else
-  bad "$item" "$result"
-fi
-
-item=session-manual-root
-if ! why="$(session_ready)"; then
-  bad "$item" "$why"
-else
-  lines=()
-  fails=()
-  roots=()
-  for v in "${SESSION_ROWS[@]}"; do
-    if [ ! -d "$SESSION/v$v/ir" ]; then fails+=("v$v: the session wrote no IR"); continue; fi
-    if result="$(probe manual "$v" "$SESSION/v$v" 2>&1)"; then
-      lines+=("${result% *}"); roots+=("${result##* }")
-    else
-      fails+=("$result")
-    fi
-  done
-  distinct=$(printf '%s\n' "${roots[@]:-}" | sort -u | grep -c . || true)
-  if [ "${#fails[@]}" -ne 0 ]; then
-    bad "$item" "$(printf '%s; ' "${fails[@]}")"
-  elif [ "$distinct" -ne "${#SESSION_ROWS[@]}" ]; then
-    bad "$item" "${#SESSION_ROWS[@]} rounds link $distinct distinct manual roots: ${roots[*]}"
-  else
-    ok "$item" "$(printf '%s; ' "${lines[@]}")$distinct distinct roots"
-  fi
-fi
-
-item=session-check-keys
-if ! why="$(session_ready)"; then
-  bad "$item" "$why"
-elif result="$(session_check check-keys "$SESSION" "${SESSION_ROWS[@]}" 2>&1)"; then
-  ok "$item" "$result"
-else
-  bad "$item" "$result"
-fi
-
-say
-say "=== the older rows in one reader session --no-patch: every round built whole, keys fresh, reuse kept"
-item=no-patch-equals-alone
-NOPATCH="$WORK/session-no-patch"
-if ! why="$(session_ready)"; then
-  bad "$item" "$why"
-elif [ "${#SESSION_ROWS[@]}" -lt 2 ]; then
-  bad "$item" "fewer than two older rows, so no round reuses"
-else
-  run_session "$NOPATCH" --no-patch -- "${SESSION_ROWS[@]}"
-  sed -n 's/^rss  *//p; s/^\(reuse \)  */\1/p' "$NOPATCH/stdout.txt" | sed 's/^/  /'
-  replies=()
-  while IFS= read -r l; do replies+=("$l"); done < <(grep -E '^(ok|err) ' "$NOPATCH/stdout.txt")
-  lines=()
-  fails=()
-  nopatch_rc="$(cat "$NOPATCH/rc")"
-  if [ "$nopatch_rc" != 0 ]; then fails+=("reader session --no-patch exited $nopatch_rc: $(head -c 300 "$NOPATCH/stderr.txt")"); fi
-  if grep -qE '^(patch|carry) ' "$NOPATCH/stdout.txt"; then
-    fails+=("a round printed a patch or carry line: $(grep -m 1 -E '^(patch|carry) ' "$NOPATCH/stdout.txt" | head -c 200)")
-  fi
-  for k in "${!SESSION_ROWS[@]}"; do
-    v="${SESSION_ROWS[$k]}"
-    reply="${replies[$k]:-}"
-    if [ -z "$reply" ]; then
-      fails+=("round $((k + 1)) (v$v) was never answered")
-    elif [ "${reply%% *}" != ok ] || [ "$(printf '%s' "$reply" | cut -d' ' -f2)" != 0 ]; then
-      fails+=("round $((k + 1)) (v$v) answered '$reply'")
-    elif [ ! -d "$WORK/v$v/read/ir" ]; then
-      fails+=("v$v has no read-alone IR to equal")
-    elif ! /usr/bin/diff -r "$WORK/v$v/read/ir" "$NOPATCH/v$v/ir" >"$NOPATCH/v$v/ir.diff" 2>&1; then
-      fails+=("v$v: the --no-patch round's IR differs from read-alone: $(head -c 400 "$NOPATCH/v$v/ir.diff")")
-    elif ! cmp -s "$WORK/v$v/read/links.lidx" "$NOPATCH/v$v/links.lidx"; then
-      fails+=("v$v: the --no-patch round's link index differs from read-alone")
-    else
-      lines+=("v$v $(find "$NOPATCH/v$v/ir" -type f | wc -l | tr -d ' ') files + link index")
-    fi
-  done
-  if [ "${#replies[@]}" -ne "${#SESSION_ROWS[@]}" ]; then
-    fails+=("${#replies[@]} replies to ${#SESSION_ROWS[@]} requests")
-  fi
-  if [ "${#fails[@]}" -eq 0 ] && ! summaries="$(session_check alone "$NOPATCH" "${SESSION_ROWS[@]}" 2>&1)"; then
-    fails+=("$summaries")
-  fi
-  if [ "${#fails[@]}" -eq 0 ] && ! reuse="$(session_check reuse "$NOPATCH" "${SESSION_ROWS[@]}" 2>&1)"; then
-    fails+=("$reuse")
-  fi
-  if [ "${#fails[@]}" -ne 0 ]; then
-    bad "$item" "$(printf '%s; ' "${fails[@]}")"
-  else
-    ok "$item" "${#SESSION_ROWS[@]} rounds, each equal to read-alone: $(printf '%s; ' "${lines[@]}")$summaries; $reuse"
-  fi
-fi
 
 say
 say "=== the older rows read alone again, each theorem's proof decoded only where the run reads it"
 item=lazy-proofs-equals-alone
-if ! why="$(session_ready)"; then
+if ! why="$(older_ready)"; then
   bad "$item" "$why"
 else
   lines=()
   fails=()
-  for v in "${SESSION_ROWS[@]}"; do
+  for v in "${OLDER_ROWS[@]}"; do
     out="$WORK/v$v/lazy"
     if ! read_through "$v" "$out" --lazy-proofs; then
       fails+=("v$v: reader extract --lazy-proofs exited non-zero: $(head -c 300 "$out/stderr.txt")")
@@ -1085,15 +526,15 @@ PY
   if [ "${#fails[@]}" -ne 0 ]; then
     bad "$item" "$(printf '%s; ' "${fails[@]}")"
   else
-    ok "$item" "${#SESSION_ROWS[@]} rows, each equal to read-alone: $(printf '%s; ' "${lines[@]}")"
+    ok "$item" "${#OLDER_ROWS[@]} rows, each equal to read-alone: $(printf '%s; ' "${lines[@]}")"
   fi
 fi
 
 item=manual-root-cache
-if ! why="$(session_ready)"; then
+if ! why="$(older_ready)"; then
   bad "$item" "$why"
 else
-  if result="$(python3 - "$(dirname "$READER")/manual-roots" "$WORK" "${SESSION_ROWS[@]}" 2>&1 <<'PY'
+  if result="$(python3 - "$(dirname "$READER")/manual-roots" "$WORK" "${OLDER_ROWS[@]}" 2>&1 <<'PY'
 import pathlib, re, sys
 cache, work, rows = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3:]
 def line(path):
@@ -1128,12 +569,12 @@ fi
 say
 say "=== the older rows read alone again, each reusing the printed parts of its own earlier output"
 item=reuse-self-equals-alone
-if ! why="$(session_ready)"; then
+if ! why="$(older_ready)"; then
   bad "$item" "$why"
 else
   lines=()
   fails=()
-  for v in "${SESSION_ROWS[@]}"; do
+  for v in "${OLDER_ROWS[@]}"; do
     keys="$WORK/v$v/keys"
     out="$WORK/v$v/reuse"
     if ! read_through "$v" "$keys" --write-reuse-keys; then
@@ -1178,77 +619,7 @@ PY
   if [ "${#fails[@]}" -ne 0 ]; then
     bad "$item" "$(printf '%s; ' "${fails[@]}")"
   else
-    ok "$item" "${#SESSION_ROWS[@]} rows, each equal to read-alone: $(printf '%s; ' "${lines[@]}")"
-  fi
-fi
-
-say
-say "=== the patch made to fail"
-FIRST_PAIR=()
-LAST_PAIR=()
-if [ "${#SESSION_ROWS[@]}" -ge 2 ]; then
-  FIRST_PAIR=("${SESSION_ROWS[@]:0:2}")
-  LAST_PAIR=("${SESSION_ROWS[@]: -2}")
-fi
-
-item=patch-perturbed
-if ! why="$(session_ready)"; then
-  bad "$item" "$why"
-elif [ "${#FIRST_PAIR[@]}" -ne 2 ]; then
-  bad "$item" "fewer than two older rows, so no round is patched"
-else
-  run_session "$WORK/session-perturbed" --check-patch --perturb-patch -- "${FIRST_PAIR[@]}"
-  if result="$(session_check perturbed "$WORK/session-perturbed" 2>&1)"; then
-    ok "$item" "--perturb-patch: $result"
-  else
-    bad "$item" "--perturb-patch: $result"
-  fi
-fi
-
-item=patch-field-fn-trigger
-if ! why="$(session_ready)"; then
-  bad "$item" "$why"
-elif [ "${#LAST_PAIR[@]}" -ne 2 ]; then
-  bad "$item" "fewer than two older rows, so no round is patched"
-else
-  run_session "$WORK/session-no-field-fn" --check-patch --no-field-fn-index -- "${LAST_PAIR[@]}"
-  if result="$(session_check field-fn "$WORK/session-no-field-fn" "$SESSION" Example.ReaderProbeField "${LAST_PAIR[@]}" 2>&1)"; then
-    ok "$item" "$result"
-  else
-    bad "$item" "$result"
-  fi
-fi
-
-say
-say "=== the print key without what structure-instance notation reads of field defaults"
-item=reuse-scx
-if ! why="$(session_ready)"; then
-  bad "$item" "$why"
-elif [ "${#LAST_PAIR[@]}" -ne 2 ]; then
-  bad "$item" "fewer than two older rows, so no round reuses"
-else
-  run_session "$WORK/session-n1" --check-patch --key-without-scx -- "${LAST_PAIR[@]}"
-  sed -n 's/^\(reuse \)  */\1/p' "$WORK/session-n1/stdout.txt" | sed 's/^/  /'
-  if result="$(session_check scx "$WORK/session-n1" "$SESSION" "${LAST_PAIR[@]}" 2>&1)"; then
-    ok "$item" "$result"
-  else
-    bad "$item" "$result"
-  fi
-fi
-
-say
-say "=== the carried key made to fail: a name resolution carried past a presence flip"
-item=carry-presence-flip
-if ! why="$(session_ready)"; then
-  bad "$item" "$why"
-elif [ "${#FIRST_PAIR[@]}" -ne 2 ]; then
-  bad "$item" "fewer than two older rows, so no key is carried"
-else
-  run_session "$WORK/session-no-presence" --check-patch --check-keys --carry-without-presence -- "${FIRST_PAIR[@]}"
-  if result="$(session_check presence-flip "$WORK/session-no-presence" "${FIRST_PAIR[@]}" 2>&1)"; then
-    ok "$item" "$result"
-  else
-    bad "$item" "$result"
+    ok "$item" "${#OLDER_ROWS[@]} rows, each equal to read-alone: $(printf '%s; ' "${lines[@]}")"
   fi
 fi
 

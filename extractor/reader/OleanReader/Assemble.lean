@@ -56,65 +56,8 @@ structure Decoded where
   stats   : ReadStats
   old     : OldWorld
 
-structure Prev where
-  consts : Std.HashMap Name (UInt64 × ConstantInfo) := {}
-  entries : Std.HashMap (Name × Name × UInt64) Keyed := {}
-  prints : Std.HashMap (Name × Name) UInt64 := {}
-
-structure ShareCounts where
-  constants : Nat := 0
-  constantsShared : Nat := 0
-  entries : Nat := 0
-  entriesShared : Nat := 0
-  hashNs : Nat := 0
-
-structure Sharing where
-  prev : Prev
-  printed : Std.HashSet Name := {}
-  next : Prev := {}
-  counts : ShareCounts := {}
-
-def Sharing.module (sh : Sharing) (m : Name) (h : ModuleHashes) (md : ModuleData) (ks : Array (Name × Array Keyed)) :
-    Except String (Sharing × ModuleData × Array (Name × Array Keyed)) := do
-  unless h.consts.size == md.constants.size && h.entries.size == ks.size &&
-      (h.entries.zip ks).all (fun ((e, hs), (e', es)) => e == e' && hs.size == es.size) do
-    throw s!"olean reader: the content hashes of {m} do not line up with its decoded constants and entries"
-  let mut next := sh.next
-  let mut c := sh.counts
-  let mut cs := Array.mkEmpty md.constants.size
-  for n in md.constNames, ci in md.constants, hc in h.consts do
-    let ci ← match sh.prev.consts[n]? with
-      | some (hp, cp) =>
-        if hp == hc then
-          c := { c with constantsShared := c.constantsShared + 1 }
-          pure cp
-        else pure ci
-      | none => pure ci
-    cs := cs.push ci
-    next := { next with consts := next.consts.insertIfNew n (hc, ci) }
-  c := { c with constants := c.constants + cs.size }
-  let mut ks' := Array.mkEmpty ks.size
-  for (e, es) in ks, (_, hs) in h.entries do
-    let mut es' := Array.mkEmpty es.size
-    for k in es, he in hs do
-      let k ← match sh.prev.entries[(e, k.1, he)]? with
-        | some kp =>
-          c := { c with entriesShared := c.entriesShared + 1 }
-          pure kp
-        | none => pure k
-      es' := es'.push k
-      next := { next with entries := next.entries.insertIfNew (e, k.1, he) k }
-      if sh.printed.contains e then
-        next := { next with prints := next.prints.insert (e, k.1) (mixHash (next.prints.getD (e, k.1) 7) (mixHash (hash m) he)) }
-    c := { c with entries := c.entries + es'.size }
-    ks' := ks'.push (e, es')
-  return ({ sh with next, counts := c }, { md with constants := cs, entries := ks'.map fun (e, es) => (e, es.map (·.2)) }, ks')
-
-unsafe def decodeAll (s : Session) (mods : Array Name) (prev? : Option Prev := none) (printed : Std.HashSet Name := {})
-    (proofs : Proofs := .every) :
-    IO (Decoded × Option (Prev × ShareCounts)) := do
+unsafe def decodeAll (s : Session) (mods : Array Name) (proofs : Proofs := .every) : IO Decoded := do
   let stats ← IO.mkRef ({} : ReadStats)
-  let mut sharing := prev?.map ({ prev := ·, printed : Sharing })
   let mut out := #[]
   let mut chunks : Array (Name × Nat × Array Keyed) := #[]
   let mut modDocs : Std.HashMap Name (Array ModuleDoc) := {}
@@ -127,15 +70,6 @@ unsafe def decodeAll (s : Session) (mods : Array Name) (prev? : Option Prev := n
   for m in mods do
     let parts ← loadModule s m
     let ((md, ks, ms), _) ← runDM parts (decModuleData proofs true parts.back!.root stats)
-    let (md, ks) ← match sharing with
-      | none => pure (md, ks)
-      | some sh => do
-        let t0 ← IO.monoNanosNow
-        let (h, _) ← runDM parts (hashModule (writerSeed parts[0]!.ver) parts.back!.root)
-        let (sh, md, ks) ← IO.ofExcept (sh.module m h md ks |>.mapError IO.userError)
-        let ns := (← IO.monoNanosNow) - t0
-        sharing := some { sh with counts.hashNs := sh.counts.hashNs + ns }
-        pure (md, ks)
     out := out.push (m, md)
     mentioned := mentioned.push ms
     index := index.insert m index.size
@@ -172,9 +106,8 @@ unsafe def decodeAll (s : Session) (mods : Array Name) (prev? : Option Prev := n
     moduleNames := mods, index, constNames, imports, modOf, consts, modDocs, inherit
     docKeys := keysOf (reachable `Lean.docStringExt)
     versoKeys := keysOf (reachable `Lean.versoDocStringExt) }
-  let d : Decoded := { writer, mods := out, keyed := extOrder.map (fun e => (e, grouped.getD e #[])),
-                       mentioned, stats := ← stats.get, old }
-  return (d, sharing.map fun sh => (sh.next, sh.counts))
+  return { writer, mods := out, keyed := extOrder.map (fun e => (e, grouped.getD e #[])),
+           mentioned, stats := ← stats.get, old }
 
 def checkMirror (s : MImportState) : IO Unit := do
   unless s.moduleNameMap.size == s.moduleNames.size do
@@ -497,45 +430,16 @@ unsafe def rewriteMerge (ms : MImportState) (d : Decoded) (ask : Std.HashSet Nam
   checkMirror out
   return { out, idxOf, counts := c, sameValue }
 
-unsafe def finalizeHybrid (out : MImportState) (imports : Array Import) (idxOf : Std.HashMap Name Nat)
-    (leak : Bool) : IO Environment := do
+unsafe def finalizeHybrid (out : MImportState) (imports : Array Import) (idxOf : Std.HashMap Name Nat) :
+    IO Environment := do
   enableInitializersExecution
   let env ← withImporting do
-    finalizeImport (unsafeCast out) imports {} (leakEnv := leak) (loadExts := true)
+    finalizeImport (unsafeCast out) imports {} (leakEnv := true) (loadExts := true)
   let mut idxMismatch := 0
   for (n, i) in idxOf.toList do
     if (env.getModuleIdxFor? n).map (·.toNat) != some i then idxMismatch := idxMismatch + 1
   if idxMismatch != 0 then
     throw <| IO.userError s!"hybrid: {idxMismatch} names placed by a module index the environment does not give them"
   return env
-
-structure MRealizationContext where
-  env : NonScalar
-  opts : NonScalar
-  realizeMapRef : IO.Ref (NameMap NonScalar)
-
-structure MEnvironment where
-  base : NonScalar
-  serverBaseExts : NonScalar
-  checked : NonScalar
-  asyncConstsMap : NonScalar
-  asyncCtx? : NonScalar
-  importRealizationCtx? : Option MRealizationContext
-  localRealizationCtxMap : NonScalar
-  allRealizations : NonScalar
-  isExporting : Bool
-
--- Not left to the environment's release: the context holds the environment and its realizations hold the context, a cycle reference counting never frees.
-unsafe def clearRealizations (env : Environment) : IO Nat := do
-  let me : MEnvironment := unsafeCast env
-  let some c := me.importRealizationCtx?
-    | throw <| IO.userError "environment mirror: the hybrid environment has no realization context"
-  unless ptrAddrUnsafe (unsafeCast c.env : MEnvironment).base == ptrAddrUnsafe me.base do
-    throw <| IO.userError "environment mirror: the realization context does not hold the environment it belongs to"
-  let m ← c.realizeMapRef.get
-  let mut n := 0
-  for (_, v) in m.toList do n := n + (unsafeCast v : PersistentHashMap Name NonScalar).foldl (fun k _ _ => k + 1) 0
-  c.realizeMapRef.set {}
-  return n
 
 end OleanReader.Assemble

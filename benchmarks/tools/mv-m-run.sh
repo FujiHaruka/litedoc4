@@ -39,27 +39,13 @@
 # then both stores rendered (`store render`) and every page that differs traced
 # to a declaration the classification names (benchmarks/tools/mv-m-site-diff.py).
 #
-# With --session as well, one `reader session` with --session-flags (default
-# --check-patch --check-keys) is started after `reader-build` (its `ready` line recorded) and stays resident
-# across every version; it is stopped (stdin closed, exit 0 required) after the
-# last. Per version, before the read-alone `reader` phase, which stays the oracle:
-#   session    one request: reader's argv minus --new/--new-roots, into
-#              <work>/reader-session/<tag>; every line up to `ok`/`err` saved,
-#              and its round, patch, check-patch, carry, check-keys, reuse,
-#              phases, rss and rss-at-extract lines recorded (wall from `ok`,
-#              CPU from ps); a line the flags do not print is left out
-#   session-vs-alone  every IR file and the link index compared byte for byte
-#              with read-alone's (sessionEqualsAlone); when they differ, the
-#              session's output is classified against the build too
-# and the session's IR, not read-alone's, is what `reader-put` stores.
-#
 # Output: <work>/logs/phases.jsonl (one JSON record per version and phase, plus
 # one for the run's conditions), each phase's raw output beside it, <work>/store,
 # <work>/measure, and a summary on stdout. Nothing is written to benchmarks/results/.
 #
 # usage: benchmarks/tools/mv-m-run.sh [--roots M,M] [--versions T,T] [--work DIR]
 #          [--keep-checkouts] [--limit-modules N] [--need-gb N] [--jobs N]
-#          [--through-reader [--session [--session-flags 'F F']] [--newest DIR]
+#          [--through-reader [--newest DIR]
 #          [--old-store DIR]]
 #   --roots           Mathlib modules (default: the plan's first M candidate,
 #                     Mathlib.Algebra.BigOperators.Group.Finset.Basic,Mathlib.Order.Filter.Basic)
@@ -71,11 +57,6 @@
 #   --need-gb         free space required before each version (default: 4)
 #   --jobs            litedoc4 build --jobs (default: 1)
 #   --through-reader  also read each version through the .olean reader (above)
-#   --session         also read each version through one resident reader session
-#                     (above); only with --through-reader
-#   --session-flags   the session's own flags, space-separated (default:
-#                     '--check-patch --check-keys'; '' for none, '--no-patch'
-#                     for print reuse without the patch)
 #   --newest          the newest version's built workspace (default:
 #                     /private/tmp/lean-doc-relay/mv-v4341)
 #   --old-store       a store an earlier native run filled (default:
@@ -101,8 +82,6 @@ LIMIT=0
 NEED_GB=4
 JOBS=1
 THROUGH=0
-SESSION=0
-SESSION_FLAGS="--check-patch --check-keys"
 NEWEST=/private/tmp/lean-doc-relay/mv-v4341
 OLD_STORE=/private/tmp/lean-doc-relay/mv-m/store
 while [ $# -gt 0 ]; do
@@ -115,8 +94,6 @@ while [ $# -gt 0 ]; do
     --need-gb) NEED_GB="$2"; shift 2 ;;
     --jobs) JOBS="$2"; shift 2 ;;
     --through-reader) THROUGH=1; shift ;;
-    --session) SESSION=1; shift ;;
-    --session-flags) SESSION_FLAGS="$2"; shift 2 ;;
     --newest) NEWEST="$2"; shift 2 ;;
     --old-store) OLD_STORE="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^set -/p' "$0" | sed '$d'; answer 0 ;;
@@ -127,7 +104,6 @@ case "$WORK" in /*) ;; *) WORK="$PWD/$WORK" ;; esac
 IFS=, read -r -a ROOT_LIST <<<"$ROOTS"
 IFS=, read -r -a TAGS <<<"$VERSIONS"
 [ "${#ROOT_LIST[@]}" -gt 0 ] && [ "${#TAGS[@]}" -gt 0 ] || { echo "--roots and --versions must name something" >&2; exit 2; }
-[ "$SESSION" -eq 0 ] || [ "$THROUGH" -eq 1 ] || { echo "--session reads through the reader: it needs --through-reader" >&2; exit 2; }
 
 command -v "$LAKE" >/dev/null 2>&1 || { echo "no lake at $LAKE; set LAKE" >&2; exit 2; }
 command -v "$ELAN" >/dev/null 2>&1 || { echo "no elan at $ELAN; set ELAN" >&2; exit 2; }
@@ -149,10 +125,7 @@ LOGS="$WORK/logs"
 JSONL="$LOGS/phases.jsonl"
 STORE="$WORK/store"
 CURRENT=""
-SESSION_PID=""
-SESSION_READER_PID=""
-on_exit 'if [ -n "$SESSION_PID" ] && kill -0 "$SESSION_PID" 2>/dev/null; then pkill -TERM -P "$SESSION_PID"; kill "$SESSION_PID"; fi
-if [ -n "$CURRENT" ] && [ "$KEEP" -eq 0 ]; then rm -rf "$WORK/checkout/$CURRENT" "$WORK/cache/$CURRENT" "$WORK/build/$CURRENT"; fi'
+on_exit 'if [ -n "$CURRENT" ] && [ "$KEEP" -eq 0 ]; then rm -rf "$WORK/checkout/$CURRENT" "$WORK/cache/$CURRENT" "$WORK/build/$CURRENT"; fi'
 
 avail_kb () { df -k "$WORK" | awk 'NR == 2 { print $4 }'; }
 work_kb () { du -sk "$WORK" 2>/dev/null | awk '{ print $1 }'; }
@@ -430,118 +403,6 @@ if [ "$THROUGH" -eq 1 ]; then
   echo "reader   $READER"
 fi
 
-SOUT="$LOGS/session.out"
-SERR="$LOGS/session.err"
-session_alive () { [ -n "$SESSION_PID" ] && kill -0 "$SESSION_PID" 2>/dev/null; }
-session_lines () { wc -l <"$SOUT" | tr -d ' '; }
-session_cpu () {
-  ps -o time= -p "$SESSION_READER_PID" 2>/dev/null | python3 -c 'import sys
-t = sys.stdin.read().strip()
-s = 0.0
-for p in t.split(":"):
-    s = s * 60 + float(p)
-print("%.2f" % s if t else "?")'
-}
-
-session_await () {
-  local from="$1" pattern="$2" doing="$3"
-  until awk -v from="$from" -v pat="$pattern" 'NR > from && $0 ~ pat { found = 1 } END { exit !found }' "$SOUT"; do
-    session_alive || fail "the reader session exited $doing; the end of $SERR: $(tail -c 1500 "$SERR")"
-    sleep 1
-  done
-}
-
-session_counts () {
-  python3 - "$1" <<'PY'
-import re
-import sys
-
-lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
-out = {}
-
-
-def raw(key, prefix):
-    for line in lines:
-        if line.startswith(prefix + " "):
-            out[key] = " ".join(line.split())
-            return out[key]
-    return None
-
-
-def nums(pattern, text, *keys):
-    m = re.search(pattern, text or "")
-    if m:
-        for k, v in zip(keys, m.groups()):
-            out[k] = v
-
-
-ok = [line for line in lines if line.startswith("ok ") or line.startswith("err ")]
-if ok and ok[-1].startswith("ok "):
-    _, code, ns = ok[-1].split()
-    out["code"] = code
-    out["wallSeconds"] = "%.2f" % (int(ns) / 1e9)
-elif ok:
-    out["err"] = ok[-1][4:]
-nums(r"^round (\d+)", raw("roundLine", "round"), "round")
-p = raw("patchLine", "patch")
-nums(r"built whole: ((\d+)) newest modules rewritten", p, "rewritten", "newestModules")
-nums(r"from Lean (\S+): constants same (\d+), changed (\d+), added (\d+), removed (\d+)", p,
-     "patchedFrom", "constSame", "constChanged", "constAdded", "constRemoved")
-nums(r"constants (\d+) of (\d+), entries (\d+) of (\d+)", p,
-     "constantsShared", "constants", "entriesShared", "entries")
-nums(r"newest modules (\d+), rewritten (\d+)", p, "newestModules", "rewritten")
-nums(r"^check-patch (\d+) modules differ.*; (\d+) other", raw("checkPatchLine", "check-patch"),
-     "checkPatchModules", "checkPatchOther")
-nums(r"^check-keys (\d+) keys differ from a fresh pass \((\d+) keys.*?(\d+) ms\)", raw("checkKeysLine", "check-keys"),
-     "checkKeysDiffer", "checkKeysKeys", "checkKeysMs")
-c = raw("carryLine", "carry")
-nums(r"delta constants (\d+), entries (\d+), alias names (\d+)", c, "deltaConsts", "deltaEntries", "aliasNames")
-r = raw("reuseLine", "reuse")
-nums(r"^reuse (\d+) of (\d+) declarations reused, (\d+) reprinted \(key differs (\d+), key equal (\d+), "
-     r"no previous output (\d+), new (\d+)\)", r,
-     "reused", "produced", "reprinted", "keyDiffers", "keyEqual", "noPrevious", "new")
-nums(r"of (\d+) candidates: carried (\d+), recomputed (\d+) \(stale (\d+), new (\d+)\) in (\d+) ms", r,
-     "keyCandidates", "keysCarried", "keysRecomputed", "keysStale", "keysNew", "keyPassMs")
-ph = raw("phasesLine", "phases")
-if ph:
-    body = ph[len("phases "):]
-    spans, _, total = body.rpartition("; total ")
-    for span in spans.split(", "):
-        name, ms, _ = span.rsplit(" ", 2)
-        out["ms_" + name.replace(" ", "-")] = ms
-    out["ms_total"] = total.split()[0]
-nums(r"peak (\d+) MiB .*resident (\d+) MiB", raw("rssLine", "rss"), "peakMiB", "residentMiB")
-nums(r"cpu (\d+) ms user, (\d+) ms system so far", raw("rssLine", "rss"), "cpuUserMsSoFar", "cpuSystemMsSoFar")
-nums(r"before extraction: peak (\d+) MiB, resident (\d+) MiB; after it: peak (\d+) MiB",
-     raw("rssAtExtractLine", "rss-at-extract"), "peakBeforeExtractMiB", "residentBeforeExtractMiB", "peakAfterExtractMiB")
-raw("readerLine", "reader")
-for k, v in out.items():
-    print("%s=%s" % (k, v))
-PY
-}
-
-if [ "$SESSION" -eq 1 ]; then
-  echo
-  echo "=== session"
-  mkfifo "$WORK/session.fifo"
-  exec 9<>"$WORK/session.fifo"
-  : >"$SOUT"
-  PH_BEFORE="$(avail_kb)"; PH_RC=0
-  read -r -a session_flags <<<"$SESSION_FLAGS"
-  /usr/bin/time -l -o "$LOGS/newest-session.time" "$READER" session "${NEW_ARGS[@]}" \
-    --new-roots "$LOGS/newest-closure.txt" ${session_flags[@]+"${session_flags[@]}"} \
-    <"$WORK/session.fifo" >"$SOUT" 2>"$SERR" 9>&- &
-  SESSION_PID=$!
-  session_await 0 '^ready ' "before it was ready"
-  SESSION_READER_PID="$(pgrep -P "$SESSION_PID" | head -n 1)"
-  [ -n "$SESSION_READER_PID" ] || fail "the reader session runs under /usr/bin/time ($SESSION_PID) with no child"
-  read -r _ ready_ns ready_modules < <(rg -m 1 '^ready ' "$SOUT")
-  ready_s="$(python3 -c 'import sys; print("%.2f" % (int(sys.argv[1]) / 1e9))' "$ready_ns")"
-  record newest session-ready "flags=${SESSION_FLAGS// /,}" "readySeconds=$ready_s" "newestModules=$ready_modules" \
-    "cpuSeconds=$(session_cpu)" "swap=$(sysctl -n vm.swapusage)"
-  echo "session  ready after $ready_s s, $ready_modules newest modules (pid $SESSION_READER_PID)"
-fi
-
 old_native_same () {
   python3 - "$1" "$2" <<'PY'
 import json
@@ -588,47 +449,6 @@ classify () {
   echo "$name $(grep -m 1 '^defects' "$LOGS/$tag-$name.txt") ($LOGS/$tag-$name.txt)"
 }
 
-session_pass () {
-  local tag="$1" SD="$WORK/reader-session/$1" line="" f from err_from cpu0 rc
-  shift
-  rm -rf "$SD"
-  mkdir -p "$SD"
-  for f in "$@" "$OUT/work/modules.txt" "$SD/events.jsonl" "${OUTPUT_FLAGS[@]}" --jobs "$JOBS" \
-      --ir-dir "$SD/ir" --link-index "$SD/link-index.lidx" --link-index-omit "$OUT/work/modules.txt"; do
-    case "$f" in *$'\t'*|*$'\n'*) fail "$tag: the session takes one tab-separated line, so '$f' cannot be sent" ;; esac
-    if [ -n "$line" ]; then line="$line"$'\t'; fi
-    line="$line$f"
-  done
-  printf '%s\n' "$line" >"$LOGS/$tag-session.request"
-  session_alive || fail "$tag: the reader session is not running; the end of $SERR: $(tail -c 1500 "$SERR")"
-  PH_BEFORE="$(avail_kb)"
-  from="$(session_lines)"
-  err_from="$(wc -c <"$SERR" | tr -d ' ')"
-  cpu0="$(session_cpu)"
-  printf '%s\n' "$line" >&9
-  session_await "$from" '^(ok|err) ' "while reading $tag"
-  tail -n "+$((from + 1))" "$SOUT" >"$LOGS/$tag-session.out"
-  tail -c "+$((err_from + 1))" "$SERR" >"$LOGS/$tag-session.err"
-  session_counts "$LOGS/$tag-session.out" >"$LOGS/$tag-session.counts"
-  rc="$(kv code "$LOGS/$tag-session.counts")"
-  PH_RC="${rc:-1}"
-  local counts=("cpuSeconds=$(python3 -c 'import sys
-a, b = sys.argv[1:3]
-print("?" if "?" in (a, b) else "%.2f" % (float(b) - float(a)))' "$cpu0" "$(session_cpu)")" "swap=$(sysctl -n vm.swapusage)")
-  while IFS= read -r f; do counts+=("$f"); done <"$LOGS/$tag-session.counts"
-  record "$tag" session "${counts[@]}"
-  if [ "$PH_RC" != 0 ]; then
-    echo "$tag session: answered $(rg -m 1 '^(ok|err) ' "$LOGS/$tag-session.out"); the end of $LOGS/$tag-session.err and .out:" >&2
-    tail -c 2000 "$LOGS/$tag-session.err" >&2 || true
-    tail -c 3000 "$LOGS/$tag-session.out" >&2 || true
-    fail "$tag: the reader session's round failed"
-  fi
-  local c="$LOGS/$tag-session.counts"
-  echo "session  round $(kv round "$c"): $(kv wallSeconds "$c") s;" \
-    "check-patch $(kv checkPatchModules "$c" | grep . || echo 'not run') module(s), check-keys $(kv checkKeysDiffer "$c" | grep . || echo 'not run') key(s);" \
-    "reused $(kv reused "$c") of $(kv produced "$c"), $(if [ -n "$(kv rewritten "$c")" ]; then echo "rewritten $(kv rewritten "$c") of $(kv newestModules "$c")"; else echo "no patch"; fi)"
-}
-
 reader_pass () {
   local tag="$1" toolchain="$2" d same
   local RD="$WORK/reader-out/$tag"
@@ -646,7 +466,6 @@ reader_pass () {
   fi
 
   while IFS= read -r d; do OLD_ARGS+=(--old "$d"); done < <(search_of "$CO")
-  if [ "$SESSION" -eq 1 ]; then session_pass "$tag" "${OLD_ARGS[@]}"; fi
   phase "$tag" reader "$WORK" "$READER" extract "${OLD_ARGS[@]}" "${NEW_ARGS[@]}" \
     --new-roots "$LOGS/newest-closure.txt" "$OUT/work/modules.txt" "$RD/events.jsonl" \
     "${OUTPUT_FLAGS[@]}" --jobs "$JOBS" --ir-dir "$RD/ir" \
@@ -660,21 +479,8 @@ reader_pass () {
 
   classify "$tag" "$toolchain" "$RD" classify
 
-  local STORED="$RD"
-  if [ "$SESSION" -eq 1 ]; then
-    STORED="$WORK/reader-session/$tag"
-    PH_BEFORE="$(avail_kb)"; PH_RC=0
-    same=yes
-    /usr/bin/diff -r "$RD/ir" "$STORED/ir" >"$LOGS/$tag-session-vs-alone.diff" 2>&1 || same=no
-    cmp -s "$RD/link-index.lidx" "$STORED/link-index.lidx" || same=no
-    record "$tag" session-vs-alone "sessionEqualsAlone=$same" \
-      "diffLines=$(wc -l <"$LOGS/$tag-session-vs-alone.diff" | tr -d ' ')"
-    echo "session  equal to read-alone in every IR file and the link index: $same"
-    if [ "$same" = no ]; then classify "$tag" "$toolchain" "$STORED" session-classify; fi
-  fi
-
-  cp "$OUT/litedoc4-build.json" "$STORED/"
-  phase "$tag" reader-put "$WORK" "$LITEDOC4" store put --store "$WORK/store-reader" --version "$tag" --from "$STORED" --lake "$LAKE"
+  cp "$OUT/litedoc4-build.json" "$RD/"
+  phase "$tag" reader-put "$WORK" "$LITEDOC4" store put --store "$WORK/store-reader" --version "$tag" --from "$RD" --lake "$LAKE"
   [ "$PH_RC" -eq 0 ] || fail "$tag: store put of the reader's IR failed"
   record "$tag" reader-put
 }
@@ -814,23 +620,6 @@ print(" ".join("%s=%s" % (k, d[k]) for k in ("files", "rawBytes", "linkIndexByte
   if [ "$KEEP" -eq 0 ]; then rm -rf "$CO" "$CACHE" "$OUT"; fi
   CURRENT=""
 done
-
-if [ "$SESSION" -eq 1 ]; then
-  PH_BEFORE="$(avail_kb)"
-  cpu_end="$(session_cpu)"
-  exec 9>&-
-  waited=0
-  while session_alive && [ "$waited" -lt 120 ]; do sleep 1; waited=$((waited + 1)); done
-  if session_alive; then fail "the reader session did not exit $waited s after its stdin was closed"; fi
-  PH_RC=0
-  wait "$SESSION_PID" || PH_RC=$?
-  SESSION_PID=""
-  rm -f "$WORK/session.fifo"
-  record newest session "cpuSecondsBeforeStop=$cpu_end" "stoppedAfterSeconds=$waited" \
-    "rounds=$(rg -c '^round ' "$SOUT" || echo 0)" "swap=$(sysctl -n vm.swapusage)"
-  [ "$PH_RC" -eq 0 ] || fail "the reader session exited $PH_RC after its stdin was closed ($SERR)"
-  echo "session  stopped after $(rg -c '^round ' "$SOUT" || echo 0) round(s), exit 0"
-fi
 
 if [ "$THROUGH" -eq 1 ]; then
   echo
