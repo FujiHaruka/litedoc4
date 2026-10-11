@@ -5,6 +5,7 @@ open Lean OleanReader
 def usage : String := "\n".intercalate [
   "usage: reader --writers",
   "       reader --registered-extensions",
+  "       reader header <file.olean>",
   "       reader read <search-dir> <module>...",
   "       reader oracle <search-dir> <seed> <count|all>",
   "       reader extract ... (reader extract --help)",
@@ -20,6 +21,8 @@ def readMain (dir : String) (roots : Array Name) : IO UInt32 := do
   IO.println s!"read {mods.size} modules written by Lean {w.leanVersion} ({w.githash}): \
     {st.constants} constants, {st.entriesDecoded} extension entries decoded, \
     {st.entriesSkipped} not decoded in {st.skippedExts.size} extensions"
+  for (e, n) in st.decodedExts.toArray.qsort (·.1.toString < ·.1.toString) do IO.println s!"decoded {e} {n}"
+  for (e, n) in st.skippedExts.toArray.qsort (·.1.toString < ·.1.toString) do IO.println s!"skipped {e} {n}"
   return 0
 
 def oracleMain (dir seed count : String) : IO UInt32 := do
@@ -49,6 +52,10 @@ unsafe def main (args : List String) : IO UInt32 := do
       return 0
     | ["--registered-extensions"] =>
       for n in ← registeredExts do IO.println n
+      return 0
+    | ["header", file] =>
+      let p ← loadPart (← Session.new #[]) file
+      IO.println p.ver.leanVersion
       return 0
     | "read" :: dir :: m :: ms => readMain dir ((m :: ms).toArray.map String.toName)
     | ["oracle", dir, seed, count] => oracleMain dir seed count

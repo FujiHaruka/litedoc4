@@ -48,7 +48,8 @@ def oracleText (s : Session) (out : IO.FS.Stream) (seed : UInt64) (k? : Option N
   let stats ← IO.mkRef ({} : ReadStats)
   let mods ← readClosure s #[`Init, `Std, `Lean] stats
   let some (w, _) ← s.firstWriter.get | throw <| IO.userError "olean reader: nothing was read"
-  for n in ← registeredExts do out.putStrLn (extLine n (!w.absentExts.contains n))
+  for n in ← registeredExts do out.putStrLn (extLine n (!w.absent.contains n))
+  out.putStrLn (layoutLine ``Meta.SimpTheorem.mk simpTheoremFields w.simpTheorem.count)
   let mut all : Array (ReadModule × ConstantInfo) := #[]
   for rm in mods do
     out.putStrLn (moduleLine rm.name rm.constants.size)
@@ -73,6 +74,12 @@ def oracleText (s : Session) (out : IO.FS.Stream) (seed : UInt64) (k? : Option N
     for e in rm.under (ScopedEnvExtension.Entry Meta.InstanceEntry) `Lean.Meta.instanceExtension do
       let (scope, ie) := scopeCode e
       out.putStrLn (instanceLine rm.name scope ie ie.attrKind.ctorIdx)
+  for rm in mods do
+    for n in rm.under Name namespacesExtName do out.putStrLn (namespaceLine rm.name n)
+  for rm in mods do
+    for e in rm.under (ScopedEnvExtension.Entry Meta.SimpEntry) `Lean.Meta.simpExtension do
+      let (scope, se) := scopeCode e
+      out.putStrLn (simpLine rm.name scope se)
   let mut structures : Std.HashMap Name StructureInfo := {}
   for rm in mods do
     for si in rm.under StructureInfo structureExtName do

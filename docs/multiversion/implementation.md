@@ -638,7 +638,8 @@ Three choices this rests on, each the plan's own, with what would undo it:
   extractor's own bytes differ — then the reader includes `Extract.lean` by text instead.
 - **The writer table is data with one list.** Each record is selected by the header's Lean
   version and githash together, and says which extensions the running Lean has that the writer
-  does not, and what each stored reducibility value means. Plan.md's layout reading (0 changes to
+  does not, and what each stored reducibility value means (and, since 2026-10-11, the simp
+  theorem's flag count, renamed extensions, and the version its own core library's headers carry). Plan.md's layout reading (0 changes to
   the object encoding in 10 pairs; patch pairs change nothing) is **the hypothesis each record is
   checked against**, never a licence to copy one: every record exists only after mechanism 2 has
   passed for it.
@@ -827,8 +828,14 @@ the two ways on versions that have both.
    `benchmarks/results/reader-oracle-v4321-v4340-2026-10-11.txt`): each takes its neighbours'
    absent list and stored reducibility; `tools/reader-oracle-gate.sh` 12 of 12 with eight records.
    `refuse-absent` now relabels as the newest record listing any extension absent, after it failed
-   on v4.34.0, whose record lists none. Left: v4.29.0, v4.29.1 and v4.30.0, whose namespace
-   extension, simp theorems and two absent extensions differ (layout log).
+   on v4.34.0, whose record lists none.
+   **v4.30.0, v4.29.1 and v4.29.0 done 2026-10-11** (measured →
+   `benchmarks/results/reader-oracle-v429-v430-2026-10-11.txt`): three record fields the decoders
+   read — the simp theorem's flag count (3 before v4.31.0), an extension rename (v4.29's public
+   `namespacesExt`), and the header version of a toolchain's own core library (v4.29.1's says
+   4.29.0); the oracle text gained the simp layout, namespace and simp entry lines, and each oracle
+   item also reads a module the writer compiled. Each record's item passed in a run with its
+   toolchain installed. Left: deleting `prototypes/olean-reader/`.
 
 ##### Item 6 plan: the patch path and print reuse (2026-10-08)
 

@@ -1,0 +1,276 @@
+The reader's writer records for Lean v4.30.0, v4.29.1 and v4.29.0, held against each Lean's own answer
+======================================================================================================
+
+Gate runs (tools/reader-oracle-gate.sh, `manual`) and hand runs, 2026-10-11. Step 5 item 7 of
+docs/multiversion/implementation.md: the last three releases of the version set without a record.
+The disk holds one extra toolchain at a time, so each new record's oracle item was answered in its
+own run (that toolchain installed, the other two not) -- every run below is the final code.
+
+Conditions
+----------
+  date              2026-10-11
+  host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+  reader            leanprover/lean4:v4.34.1 (5045d0056413266e57c625dcd7c365b10e377c52), built by
+                    `litedoc4 reader build` after tools/build-lean-exe.sh --toolchain-from e2e/micro
+  writers installed leanprover/lean4:v4.31.0, v4.32.0, v4.32.2, v4.33.0, v4.33.1, v4.34.1 throughout,
+                    plus one of v4.30.0 / v4.29.1 / v4.29.0 per run (elan release builds,
+                    arm64-apple-darwin; installed, answered, uninstalled)
+  githashes         `elan run <tc> lean --githash`, equal to the tag SHAs in
+                    lean-olean-layout-history-2026-10-04.txt and to the githash in each toolchain's
+                    own .olean headers (measured):
+                      v4.30.0  d024af099ca4bf2c86f649261ebf59565dc8c622
+                      v4.29.1  f72c35b3f637c8c6571d353742168ab66cc22c00
+                      v4.29.0  98dc76e3c0a9b856c9b98726b713fb04fab16740
+  input             each toolchain's own lib/lean (Init, Std, Lean); no package, no Mathlib
+  runs              single runs: these are deterministic answers, not timings
+
+What each record needed, and why
+--------------------------------
+v4.30.0  (layout log, "Changes": v4.29.1 -> v4.30.0 and v4.30.0 -> v4.31.0)
+  - SimpTheorem has no `backwardRfl` (added v4.30.0 -> v4.31.0, ac9a1cb415): 5 object fields and
+    3 one-byte scalars, not 4. New record field `simpTheorem := .postPermRfl`; the decoder takes the
+    scalar count from it and sets `backwardRfl := false` without reading a fourth byte.
+  - absent extensions: 42 (measured: `dump exts` on v4.30.0 against `reader --registered-extensions`),
+    v4.31.0's 22 plus 20 -- among them `Lean.Meta.eqnOptionsExt` (v4.30.0 -> v4.31.0, 1d2cfb47e7) and
+    11 extensions that v4.30.0 registers under a public name and v4.31.0+ under a `_private` one
+    (e.g. `Lean.extraModUses` -> `_private.Lean.ExtraModUses.0.Lean.extraModUses`); none of those 11
+    is an extension the reader decodes, so their entries are counted, not decoded.
+  - stored reducibility: v4.31.0's (4 values, 3 = instanceReducible); the oracle's `status` lines agree.
+  - namespacesExt is already the private name (it went private in v4.29.1 -> v4.30.0, 8e6f2750da), and
+    exportedAxiomsExt is present (added in the same pair, 142ca24192).
+  - placement (439c3c5544, c53c4b4d2e): unaffected, the reader takes ModuleData from .olean.private.
+v4.29.1 and v4.29.0  (layout log: v4.29.0 -> v4.29.1 no change; v4.29.1 -> v4.30.0)
+  - namespacesExt is registered as `Lean.namespacesExt` (public). New record field `renamedExts`:
+    the reader decodes the entries written under `Lean.namespacesExt` as the running Lean's
+    `_private.Lean.Namespace.0.Lean.namespacesExt` (same entry type, Name), in decModuleData,
+    hashModule and decStoredAxiomLists alike. The private name counts as absent for these records
+    (it is derived from the rename, not listed twice), so data carrying it is refused.
+  - absent extensions: 55 (measured, same list on v4.29.0 and v4.29.1) = v4.30.0's 42, the rename's
+    target, and 12 more, among them `_private.Lean.Util.CollectAxioms.0.Lean.exportedAxiomsExt` and
+    `Lean.Meta.matcherLikeExt` (both decoded extensions in later writers).
+  - SimpTheorem as v4.30.0 (`.postPermRfl`); stored reducibility as v4.30.0.
+  - v4.29.1's own core library carries "4.29.0" in its .olean headers, with v4.29.1's githash
+    (measured: Init/Prelude.olean header bytes 7..39 = "4.29.0", 40..79 = f72c35b3...), while the
+    v4.29.1 `lean` binary writes "4.29.1" into the headers of the modules it compiles (measured: a
+    one-line Foo.lean compiled by it, and the gate's Dump.olean). Not in the layout log -- it is a
+    header string, not a layout. New record field `coreHeaderVersion` (defaults to `leanVersion`;
+    "4.29.0" for v4.29.1). A record is now selected by the header naming either of its two versions
+    and then by githash; v4.29.0's core and its compiled modules both say "4.29.0" (measured), and so
+    do v4.30.0's ("4.30.0"), v4.31.0's and v4.34.1's.
+Not branched on the version string anywhere: the three facts are record fields that the decoders and
+the selection read (`simpTheorem`, `renamedExts`, `coreHeaderVersion`). `checkWriters` refuses to
+start (exit 3) when a rename's source is an extension the running Lean registers itself, when its
+target is one the running Lean does not register, or when two records share a githash.
+
+What the oracle compares now
+----------------------------
+The oracle text (OleanReader/Serialize.lean, written by both sides) gained three kinds of line,
+because without them two of the three record facts above can be wrong with every line still equal:
+  layout Lean.Meta.SimpTheorem.mk <objs> <scalar bytes>
+      the writer: `Compiler.LCNF.getCtorLayout`; the reader: its record. Needed because the decoder's
+      own size check cannot tell 3 scalars from 4: align8(8 + 5*8 + 3) = align8(8 + 5*8 + 4) = 56, and
+      the padding byte is zero, so a 4-flag decoder reads v4.30.0 data as `backwardRfl = false` and a
+      3-flag decoder reads v4.31.0+ data without error (both measured below).
+  ns <module> <name>
+      every module's namespace entries in stored order; the writer takes them from its own extension
+      whose name ends in `namespacesExt`, whatever it registers it as.
+  simp <module> <scope> <entry>
+      every simpExtension entry: origin, priority, post, perm, rfl, key count, level params, proof.
+      backwardRfl cannot be in the shared text (v4.29/v4.30 cannot name the field); the layout line
+      is what holds it.
+And the oracle item also asks the reader to take the Dump.olean that the writer's own `lean`
+compiled (`reader header <file>`): it must name that writer's record. Without it the 4.29.1 header
+split would be checked on the core side only.
+To build on v4.29/v4.30, Serialize.lean's `unfoldMask` calls `Meta.canUnfold` under
+`withTransparency` instead of `Meta.canUnfoldDefault`, which is private before v4.31.0 (the same
+answer on every writer: the `status` lines are equal on all eight answered toolchains).
+
+Constructor layouts of every type the reader decodes (measured, hand run)
+--------------------------------------------------------------------------
+79 types (the kernel objects of Read.lean, every entry type of Entries.lean, Option/List/Prod/Array),
+`getCtorLayout` of each constructor plus its field names after the parameters, on each toolchain:
+  v4.29.0 = v4.29.1 = v4.30.0     171 constructors, byte-identical text
+  v4.30.0 -> v4.31.0              1 line differs: SimpTheorem.mk, fields +backwardRfl, ssize 3 -> 4
+  v4.31.0 -> v4.34.1              1 line added: ReducibilityStatus.instanceReducible (cidx 4)
+0 MISSING, 0 layout errors on any of them. So the layout log's one change to a decoded object in
+this window is the only one, including the types the layout log did not list (sparseCasesOnInfo,
+privateConstKinds, auxParentProjInfo, congr kinds, eqnInfo, recommended spelling, ...).
+
+The gate, with each new toolchain installed
+-------------------------------------------
+##### gate-4.30.0-final
+date              2026-10-11T00:59:00Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+=== the reader, on leanprover/lean4:v4.34.1
+  11 writer record(s): 4.29.0 4.29.1 4.30.0 4.31.0 4.32.0 4.32.1 4.32.2 4.33.0 4.33.1 4.34.0 4.34.1
+
+=== the oracle: each writer's Lean against the reader, sample all, seed 1
+ITEM oracle-4.29.0 ----  leanprover/lean4:v4.29.0 is not installed; this record is not answered
+ITEM oracle-4.29.1 ----  leanprover/lean4:v4.29.1 is not installed; this record is not answered
+ITEM oracle-4.30.0 ok    485629 lines equal (197422 constants, 197422 sampled, 4 reducibility values; its compiled Dump.olean read as 4.30.0) in 30s
+ITEM oracle-4.31.0 ok    498198 lines equal (204091 constants, 204091 sampled, 4 reducibility values; its compiled Dump.olean read as 4.31.0) in 31s
+ITEM oracle-4.32.0 ok    499783 lines equal (204731 constants, 204731 sampled, 4 reducibility values; its compiled Dump.olean read as 4.32.0) in 31s
+ITEM oracle-4.32.1 ----  leanprover/lean4:v4.32.1 is not installed; this record is not answered
+ITEM oracle-4.32.2 ok    499783 lines equal (204731 constants, 204731 sampled, 4 reducibility values; its compiled Dump.olean read as 4.32.2) in 31s
+ITEM oracle-4.33.0 ok    519455 lines equal (206832 constants, 206832 sampled, 5 reducibility values; its compiled Dump.olean read as 4.33.0) in 31s
+ITEM oracle-4.33.1 ok    519455 lines equal (206832 constants, 206832 sampled, 5 reducibility values; its compiled Dump.olean read as 4.33.1) in 31s
+ITEM oracle-4.34.0 ----  leanprover/lean4:v4.34.0 is not installed; this record is not answered
+ITEM oracle-4.34.1 ok    523080 lines equal (208210 constants, 208210 sampled, 5 reducibility values; its compiled Dump.olean read as 4.34.1) in 32s
+
+=== the refusals, on copies of leanprover/lean4:v4.34.1's own files
+ITEM refuse-version ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-version/Init/Prelude.olean: written by Lean 4.99.0 (5045d0056413266e57c625dcd7c365b10e377c52); this reader has no record for Lean 4.99.0 and reads only 4.29.0, 4.29.1, 4.30.0, 4.31.0, 4.32.0, 4.32.1, 4.32.2, 4.33.0, 4.33.1, 4.34.0, 4.34.1
+ITEM refuse-githash ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-githash/Init/Prelude.olean: written by Lean 4.34.1 with githash 0045d0056413266e57c625dcd7c365b10e377c52, but this reader's records for Lean 4.34.1 are for githash 5045d0056413266e57c625dcd7c365b10e377c52; a different build of 4.34.1 is refused
+ITEM refuse-mixed ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-mixed/Init/Prelude.olean: written by Lean 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6), but /private/tmp/lean-doc-relay/reader-oracle/fixture-mixed/Init/Coe.olean in the same read was written by Lean 4.34.1 (5045d0056413266e57c625dcd7c365b10e377c52); one read takes one writer
+ITEM refuse-absent ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-absent/Init/Grind/Homo/Nat.olean: ModuleData.entries at 0x5bf541e55b0: entries under extension Lean.Meta.Grind.homoExt, which the record for Lean 4.33.1 lists as absent from that writer
+
+=== summary
+items reported : 11 of 15
+failed         : 0
+READER ORACLE GATE: 11 of 15 items answered -- the rest were not asked, which is not a pass
+##### gate-4.29.1
+date              2026-10-11T00:42:42Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+=== the reader, on leanprover/lean4:v4.34.1
+  11 writer record(s): 4.29.0 4.29.1 4.30.0 4.31.0 4.32.0 4.32.1 4.32.2 4.33.0 4.33.1 4.34.0 4.34.1
+
+=== the oracle: each writer's Lean against the reader, sample all, seed 1
+ITEM oracle-4.29.0 ----  leanprover/lean4:v4.29.0 is not installed; this record is not answered
+ITEM oracle-4.29.1 ok    464655 lines equal (189153 constants, 189153 sampled, 4 reducibility values; its compiled Dump.olean read as 4.29.1) in 30s
+ITEM oracle-4.30.0 ----  leanprover/lean4:v4.30.0 is not installed; this record is not answered
+ITEM oracle-4.31.0 ok    498198 lines equal (204091 constants, 204091 sampled, 4 reducibility values; its compiled Dump.olean read as 4.31.0) in 31s
+ITEM oracle-4.32.0 ok    499783 lines equal (204731 constants, 204731 sampled, 4 reducibility values; its compiled Dump.olean read as 4.32.0) in 31s
+ITEM oracle-4.32.1 ----  leanprover/lean4:v4.32.1 is not installed; this record is not answered
+ITEM oracle-4.32.2 ok    499783 lines equal (204731 constants, 204731 sampled, 4 reducibility values; its compiled Dump.olean read as 4.32.2) in 31s
+ITEM oracle-4.33.0 ok    519455 lines equal (206832 constants, 206832 sampled, 5 reducibility values; its compiled Dump.olean read as 4.33.0) in 32s
+ITEM oracle-4.33.1 ok    519455 lines equal (206832 constants, 206832 sampled, 5 reducibility values; its compiled Dump.olean read as 4.33.1) in 32s
+ITEM oracle-4.34.0 ----  leanprover/lean4:v4.34.0 is not installed; this record is not answered
+ITEM oracle-4.34.1 ok    523080 lines equal (208210 constants, 208210 sampled, 5 reducibility values; its compiled Dump.olean read as 4.34.1) in 32s
+
+=== the refusals, on copies of leanprover/lean4:v4.34.1's own files
+ITEM refuse-version ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-version/Init/Prelude.olean: written by Lean 4.99.0 (5045d0056413266e57c625dcd7c365b10e377c52); this reader has no record for Lean 4.99.0 and reads only 4.29.0, 4.29.1, 4.30.0, 4.31.0, 4.32.0, 4.32.1, 4.32.2, 4.33.0, 4.33.1, 4.34.0, 4.34.1
+ITEM refuse-githash ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-githash/Init/Prelude.olean: written by Lean 4.34.1 with githash 0045d0056413266e57c625dcd7c365b10e377c52, but this reader's records for Lean 4.34.1 are for githash 5045d0056413266e57c625dcd7c365b10e377c52; a different build of 4.34.1 is refused
+ITEM refuse-mixed ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-mixed/Init/Prelude.olean: written by Lean 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6), but /private/tmp/lean-doc-relay/reader-oracle/fixture-mixed/Init/Coe.olean in the same read was written by Lean 4.34.1 (5045d0056413266e57c625dcd7c365b10e377c52); one read takes one writer
+ITEM refuse-absent ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-absent/Init/Grind/Homo/Nat.olean: ModuleData.entries at 0x5bf541e55b0: entries under extension Lean.Meta.Grind.homoExt, which the record for Lean 4.33.1 lists as absent from that writer
+
+=== summary
+items reported : 11 of 15
+failed         : 0
+READER ORACLE GATE: 11 of 15 items answered -- the rest were not asked, which is not a pass
+##### gate-4.29.0
+date              2026-10-11T00:51:40Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+=== the reader, on leanprover/lean4:v4.34.1
+  11 writer record(s): 4.29.0 4.29.1 4.30.0 4.31.0 4.32.0 4.32.1 4.32.2 4.33.0 4.33.1 4.34.0 4.34.1
+
+=== the oracle: each writer's Lean against the reader, sample all, seed 1
+ITEM oracle-4.29.0 ok    464655 lines equal (189153 constants, 189153 sampled, 4 reducibility values; its compiled Dump.olean read as 4.29.0) in 28s
+ITEM oracle-4.29.1 ----  leanprover/lean4:v4.29.1 is not installed; this record is not answered
+ITEM oracle-4.30.0 ----  leanprover/lean4:v4.30.0 is not installed; this record is not answered
+ITEM oracle-4.31.0 ok    498198 lines equal (204091 constants, 204091 sampled, 4 reducibility values; its compiled Dump.olean read as 4.31.0) in 31s
+ITEM oracle-4.32.0 ok    499783 lines equal (204731 constants, 204731 sampled, 4 reducibility values; its compiled Dump.olean read as 4.32.0) in 31s
+ITEM oracle-4.32.1 ----  leanprover/lean4:v4.32.1 is not installed; this record is not answered
+ITEM oracle-4.32.2 ok    499783 lines equal (204731 constants, 204731 sampled, 4 reducibility values; its compiled Dump.olean read as 4.32.2) in 31s
+ITEM oracle-4.33.0 ok    519455 lines equal (206832 constants, 206832 sampled, 5 reducibility values; its compiled Dump.olean read as 4.33.0) in 32s
+ITEM oracle-4.33.1 ok    519455 lines equal (206832 constants, 206832 sampled, 5 reducibility values; its compiled Dump.olean read as 4.33.1) in 32s
+ITEM oracle-4.34.0 ----  leanprover/lean4:v4.34.0 is not installed; this record is not answered
+ITEM oracle-4.34.1 ok    523080 lines equal (208210 constants, 208210 sampled, 5 reducibility values; its compiled Dump.olean read as 4.34.1) in 32s
+
+=== the refusals, on copies of leanprover/lean4:v4.34.1's own files
+ITEM refuse-version ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-version/Init/Prelude.olean: written by Lean 4.99.0 (5045d0056413266e57c625dcd7c365b10e377c52); this reader has no record for Lean 4.99.0 and reads only 4.29.0, 4.29.1, 4.30.0, 4.31.0, 4.32.0, 4.32.1, 4.32.2, 4.33.0, 4.33.1, 4.34.0, 4.34.1
+ITEM refuse-githash ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-githash/Init/Prelude.olean: written by Lean 4.34.1 with githash 0045d0056413266e57c625dcd7c365b10e377c52, but this reader's records for Lean 4.34.1 are for githash 5045d0056413266e57c625dcd7c365b10e377c52; a different build of 4.34.1 is refused
+ITEM refuse-mixed ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-mixed/Init/Prelude.olean: written by Lean 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6), but /private/tmp/lean-doc-relay/reader-oracle/fixture-mixed/Init/Coe.olean in the same read was written by Lean 4.34.1 (5045d0056413266e57c625dcd7c365b10e377c52); one read takes one writer
+ITEM refuse-absent ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-absent/Init/Grind/Homo/Nat.olean: ModuleData.entries at 0x5bf541e55b0: entries under extension Lean.Meta.Grind.homoExt, which the record for Lean 4.33.1 lists as absent from that writer
+
+=== summary
+items reported : 11 of 15
+failed         : 0
+READER ORACLE GATE: 11 of 15 items answered -- the rest were not asked, which is not a pass
+
+oracle-4.30.0 / oracle-4.29.1 / oracle-4.29.0 ok, each in the run where its toolchain was installed;
+every other answered item ok in all three runs. Each run exits 2 because three or four records'
+toolchains are not installed (`----`), which the gate reports as not a pass by design. One run
+(the first v4.30.0 run, before the header check and the v4.29 records; 7 writers installed) took
+6 min 34 s wall (shell `time`); the three above were not timed.
+Line counts by kind (writer = reader in every case):
+                  ext  layout  module   const    red  status   inst     ns   simp  struct  mdoc  verso    decl
+  v4.30.0         198       1    2141  197422  37239       4   9410  17129  19906    2152  2045    560  197422
+  v4.29.1         198       1    2048  189153  34728       4   9082  16513  19174    2077  2000    524  189153
+  v4.29.0         198       1    2048  189153  34728       4   9082  16513  19174    2077  2000    524  189153
+
+Every decoded extension, the whole core library (measured, hand run)
+--------------------------------------------------------------------
+`reader read <toolchain>/lib/lean Init Std Lean` (the reader now also lists `decoded <ext> <n>` and
+`skipped <ext> <n>`), exit 0 on each -- every entry of every extension the reader decodes went
+through its decoder, under the record:
+  v4.30.0  2141 modules, 197,422 constants, 527,420 entries decoded in 50 extensions, 1,150,444 not
+           decoded in 67
+  v4.29.1  2048 modules, 189,153 constants, 363,635 entries decoded in 48 extensions, 1,122,344 not
+           decoded in 63
+  v4.29.0  the same counts as v4.29.1, extension by extension
+v4.29.x decode two extensions fewer than v4.30.0: matcherLikeExt and exportedAxiomsExt, absent there.
+`Lean.namespacesExt` appears in neither list on v4.29.x: its 16,513 entries are decoded under the
+private name. Decoded, v4.30.0: CSimp.ext 53, implementedByAttr 321, inlineAttrs 21,321,
+specializeAttr 344, PartialFixpoint.eqnInfoExt 1, Structural.eqnInfoExt 1,103, WF.eqnInfoExt 259,
+unboxAttr 22, deprecatedAttr 817, extExtension 62, Match.Extension.extension 12,148, coeDeclAttr 14,
+coeExt 4, congrExtension 65, congrKindsExt 732, defaultInstanceExtension 34, instanceExtension 9,410,
+matcherLikeExt 7, simpExtension 19,906, unificationHintExtension 1, tacticAlternativeExt 43,
+tacticNameExt 1, recommendedSpellingByNameExt 151, aliasExtension 260, auxParentProjInfoExt 8,
+auxRecExt 8,339, classExtension 394, declRangeExt 96,753, docStringExt 18,440, exportAttr 244,
+externAttr 951, matchPatternAttr 53, neverExtractAttr 11, noConfusionExt 5,521, noncomputableExt 265,
+ppNoDotAttr 1, ppUsingAnonymousConstructorAttr 5, projectionFnInfoExt 6,365, protectedExt 17,383,
+versoDocStringExt 560, sparseCasesOnExt 5,537, inheritDocStringExt 1,201, moduleDocExt 2,045,
+sparseCasesOnInfoExt 3,538, namespacesExt 17,129, privateConstKindsExt 83,653, structureExt 2,152,
+exportedAxiomsExt 150,067, recExt 2,487, reducibilityCore 37,239.
+Decoded, v4.29.0: simpExtension 19,174, namespacesExt 16,513, instanceExtension 9,082,
+declRangeExt 93,390, privateConstKindsExt 80,455, reducibilityCore 34,728, and the rest of the
+v4.30.0 list less matcherLikeExt and exportedAxiomsExt.
+
+Each new check, made to fail once (measured)
+--------------------------------------------
+Hand runs compare `reader oracle` against the writer's text with `cmp`, as the gate does; the reader
+was rebuilt from the changed source for each, and the record restored afterwards.
+  simp layout, both directions   v4.30.0 recorded as 4 flags and v4.31.0 as 3: the reader exits 0 on
+                                 both, and the texts differ at exactly one line, line 199:
+                                   Lean   layout Lean.Meta.SimpTheorem.mk 5 3   (v4.30.0)
+                                   reader layout Lean.Meta.SimpTheorem.mk 5 4
+                                   Lean   layout Lean.Meta.SimpTheorem.mk 5 4   (v4.31.0)
+                                   reader layout Lean.Meta.SimpTheorem.mk 5 3
+                                 all 19,906 (v4.30.0) / 20,481 (v4.31.0) simp lines still equal: without the layout line
+                                 a wrong simp record passes silently.
+  namespace rename dropped       v4.29.x with `renamedExts := []` and the private name listed absent
+                                 by hand (so the ext lines still agree): the reader exits 0, decodes
+                                 16,513 entries fewer (363,635 -> 347,122) and emits 0 ns lines
+                                 against Lean's 16,513; the texts differ at line 235215
+                                   Lean   ns Init.Prelude [anonymous]
+                                   reader simp Init.Prelude global ["toUnfold",["Eq","ndrec"]]
+  rename source registered       ⟨Lean.declRangeExt, namespacesExt⟩: `reader --writers` exits 3,
+                                 "the record for Lean 4.29.0 renames Lean.declRangeExt, and the running
+                                 Lean registers Lean.declRangeExt itself"
+  rename target not registered   ⟨Lean.namespacesExt, Lean.noSuchExt⟩: exit 3, "... renames
+                                 Lean.namespacesExt to Lean.noSuchExt, which the running Lean does not
+                                 register"
+  two records, one githash       v4.29.0 given v4.29.1's githash: exit 3, "two records share a githash"
+  core header                    v4.29.1 without `coreHeaderVersion`: the oracle's reader exits 1,
+                                 "Init.olean: written by Lean 4.29.0 with githash f72c35b3..., but this
+                                 reader's records for Lean 4.29.0 are for githash 98dc76e3...; a
+                                 different build of 4.29.0 is refused"
+  package header (gate)          the githashes of the v4.29.0 and v4.29.1 records swapped, through the
+                                 whole gate with v4.29.1 installed: the core library then reads as
+                                 "4.29.0" (exit 0 -- the two records are identical apart from identity,
+                                 so every oracle line would agree), and the new check fails:
+                                   ITEM oracle-4.29.1 FAIL  the reader refuses the Dump.olean that Lean
+                                   4.29.1 compiled (exit 1)
+                                 That run also failed refuse-version: selection then went by githash
+                                 first, and a 4.99.0 header with v4.34.1's githash was refused as "the
+                                 build of Lean 4.34.1 with Lean 4.99.0 in its header", not "no record for
+                                 Lean 4.99.0". Selection now goes by header version first, then githash
+                                 (the runs above: refuse-version ok); with the swap under the final
+                                 order, `reader header` on that Dump.olean exits 1 ("... a different
+                                 build of 4.29.1 is refused") and the core still reads as 4.29.0.
+
+What this does not cover
+------------------------
+  - Core only. No Mathlib, and no package compiled by v4.29.x or v4.30.0 other than the gate's
+    Dump.olean and a one-line Foo.lean, was read in this work.
+  - `backwardRfl = true` values: the shared text cannot carry the field, so a v4.31.0+ entry with
+    it set is held only through the layout line, not value by value.

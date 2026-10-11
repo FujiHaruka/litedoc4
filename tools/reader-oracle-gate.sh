@@ -5,7 +5,9 @@
 #   oracle-<version>  that Lean loads its own Init, Std and Lean and writes the
 #                     text OleanReader/Serialize.lean defines; the reader decodes
 #                     the same files and writes it too; the two are equal byte
-#                     for byte
+#                     for byte; and the reader takes the module that Lean
+#                     compiled for the dumper as that Lean's (v4.29.1 writes
+#                     another version into its own core library's headers)
 #   refuse-version    a header naming a Lean the table has no record for
 #   refuse-githash    a known version whose githash differs in one character
 #   refuse-mixed      one read whose modules came from two writers
@@ -144,6 +146,17 @@ for v in "${WRITERS[@]}"; do
     excerpt "$dir/build.log"
     continue
   fi
+  set +e
+  taken="$("$READER" header "$dir/Dump.olean" 2>"$dir/header.err")"
+  hrc=$?
+  set -e
+  if [ "$hrc" -ne 0 ]; then
+    bad "$item" "the reader refuses the Dump.olean that Lean $v compiled (exit $hrc)"; excerpt "$dir/header.err"
+    continue
+  elif [ "$taken" != "$v" ]; then
+    bad "$item" "the reader takes the Dump.olean that Lean $v compiled as Lean $taken's"
+    continue
+  fi
   started=$(date +%s)
   set +e
   elan run "$tc" "$dir/dump" oracle "$WORK/registered.txt" "$SEED" "$SAMPLE" >"$dir/writer.txt" 2>"$dir/writer.err"
@@ -159,7 +172,7 @@ for v in "${WRITERS[@]}"; do
   elif [ ! -s "$dir/writer.txt" ]; then
     bad "$item" "the dumper wrote nothing"
   elif cmp -s "$dir/writer.txt" "$dir/reader.txt"; then
-    ok "$item" "$(wc -l <"$dir/writer.txt" | tr -d ' ') lines equal ($(grep -c '^const ' "$dir/writer.txt") constants, $(grep -c '^decl ' "$dir/writer.txt") sampled, $(grep -c '^status ' "$dir/writer.txt") reducibility values) in ${took}s"
+    ok "$item" "$(wc -l <"$dir/writer.txt" | tr -d ' ') lines equal ($(grep -c '^const ' "$dir/writer.txt") constants, $(grep -c '^decl ' "$dir/writer.txt") sampled, $(grep -c '^status ' "$dir/writer.txt") reducibility values; its compiled Dump.olean read as $taken) in ${took}s"
   else
     line="$( (cmp "$dir/writer.txt" "$dir/reader.txt" 2>&1 || true) | sed -n 's/.*line \([0-9][0-9]*\).*/\1/p')"
     if [ -z "$line" ]; then line="$(( $(wc -l <"$dir/reader.txt") + 1 ))"; fi

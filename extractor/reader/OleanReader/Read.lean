@@ -39,14 +39,16 @@ def Session.new (searchPath : Array System.FilePath) : IO Session :=
   return { searchPath, firstWriter := ← IO.mkRef none }
 
 def selectWriter (path : System.FilePath) (lv gh : String) : Except String WriterVersion :=
-  match writers.find? (·.leanVersion == lv) with
-  | none =>
+  match writers.filter (·.writesHeader lv) with
+  | [] =>
     .error s!"{path}: written by Lean {lv} ({gh}); this reader has no record for Lean {lv} \
       and reads only {", ".intercalate (writers.map (·.leanVersion))}"
-  | some w =>
-    if w.githash == gh then .ok w
-    else .error s!"{path}: written by Lean {lv} with githash {gh}, but the record for Lean {lv} \
-      is for githash {w.githash}; a different build of {lv} is refused"
+  | ws =>
+    match ws.find? (·.githash == gh) with
+    | some w => .ok w
+    | none =>
+      .error s!"{path}: written by Lean {lv} with githash {gh}, but this reader's records for Lean {lv} \
+        are for githash {", ".intercalate (ws.map (·.githash))}; a different build of {lv} is refused"
 
 def loadPart (s : Session) (path : System.FilePath) : IO Part := do
   let bytes ← IO.FS.readBinFile path

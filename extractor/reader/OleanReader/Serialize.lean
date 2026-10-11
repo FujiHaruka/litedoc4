@@ -108,18 +108,19 @@ def scopeCode {α} : ScopedEnvExtension.Entry α → String × α
 
 def lastComponent (s : String) : String := (s.splitOn ".").getLast!
 
-/-- `.implicit` would separate `implicitReducible` from `semireducible`, but v4.31.0 has no such mode. -/
+/-- `.implicit` would separate `implicitReducible` from `semireducible`, but the writers before
+v4.33.0 have no such mode. -/
 def unfoldMask (s : ReducibilityStatus) : IO String := do
   let dummy : Name := `_olean_reader_oracle.dummy
   let info : ConstantInfo := .axiomInfo { name := dummy, levelParams := [], type := .sort 0, isUnsafe := false }
   let ctx : Core.Context := { fileName := "<olean-reader-oracle>", fileMap := default }
-  let act : CoreM String := do
+  let act : MetaM String := do
     setReducibilityStatus dummy s
     let modes : List Meta.TransparencyMode := [.reducible, .instances, .default]
     let bits ← modes.mapM fun m => do
-      pure (if ← Meta.canUnfoldDefault { transparency := m } info then "1" else "0")
+      pure (if ← Meta.withTransparency m (Meta.canUnfold info) then "1" else "0")
     return String.join bits
-  let (r, _) ← act.toIO ctx { env := ← mkEmptyEnvironment }
+  let (r, _) ← (act.run' {} {}).toIO ctx { env := ← mkEmptyEnvironment }
   return r
 
 def extLine (n : String) (present : Bool) : String :=
@@ -143,6 +144,27 @@ def instanceLine (m : Name) (scope : String) (e : Meta.InstanceEntry) (attrKind 
     ("priority", toJson e.priority), ("synthOrder", toJson e.synthOrder),
     ("attrKind", toJson attrKind), ("keys", toJson e.keys.size), ("val", exprJson e.val)]
   s!"inst {m} {scope} {j.compress}"
+
+def layoutLine (ctor : Name) (objs scalarBytes : Nat) : String := s!"layout {ctor} {objs} {scalarBytes}"
+
+def namespaceLine (m n : Name) : String := s!"ns {m} {n}"
+
+def originJson : Meta.Origin → Json
+  | .decl n post inv => Json.arr #["decl", nameToJson n, toJson post, toJson inv]
+  | .fvar id => Json.arr #["fvar", nameToJson id.name]
+  | .stx id _ => Json.arr #["stx", nameToJson id]
+  | .other n => Json.arr #["other", nameToJson n]
+
+def simpEntryJson : Meta.SimpEntry → Json
+  | .thm t => Json.mkObj [
+      ("origin", originJson t.origin), ("priority", toJson t.priority), ("post", toJson t.post),
+      ("perm", toJson t.perm), ("rfl", toJson t.rfl), ("keys", toJson t.keys.size),
+      ("levelParams", Json.arr (t.levelParams.map nameToJson)), ("proof", exprJson t.proof)]
+  | .toUnfold n => Json.arr #["toUnfold", nameToJson n]
+  | .toUnfoldThms n thms => Json.arr #["toUnfoldThms", nameToJson n, Json.arr (thms.map nameToJson)]
+
+def simpLine (m : Name) (scope : String) (e : Meta.SimpEntry) : String :=
+  s!"simp {m} {scope} {(simpEntryJson e).compress}"
 
 def structureLine (si : StructureInfo) : String :=
   let fields := si.fieldInfo.map fun f => Json.mkObj [

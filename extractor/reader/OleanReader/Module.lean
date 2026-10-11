@@ -23,12 +23,15 @@ inductive Proofs where
   | none
   | whereRead
 
+def decExtName (v : UInt64) : DM Name := do
+  return (← read)[0]!.ver.registeredName (← decName v)
+
 def decStoredAxiomLists (entries : UInt64) : DM (Std.HashMap Name Bool) := do
   let arr ← obj "Array (Name × Array EnvExtensionEntry)" entries
   unless arr.tag == 246 do fail "ModuleData.entries" entries "expected an Array"
   for i in [0:(u64 arr.b (arr.o + 8)).toNat] do
     let p ← ctor "Name × Array EnvExtensionEntry" (u64 arr.b (arr.o + 24 + 8*i)) 0 2 0
-    if (← decName (p.field 0)) == axiomsExtName then
+    if (← decExtName (p.field 0)) == axiomsExtName then
       let lists ← decArray "Array EnvExtensionEntry" (p.field 1)
         (decPair "Name × Array Name" · decName (decArray "Array Name" · decName))
       return lists.foldl (fun m (c, axs) => m.insert c (axs.contains ``sorryAx)) {}
@@ -72,10 +75,11 @@ def decModuleData (proofs : Proofs) (decodeEntries : Bool) (v : UInt64) (stats :
   for i in [0:n] do
     let pv := u64 entriesObj.b (entriesObj.o + 24 + 8*i)
     let p ← ctor "Name × Array EnvExtensionEntry" pv 0 2 0
-    let extName ← decName (p.field 0)
+    let written ← decName (p.field 0)
     let ver := (← read)[0]!.ver
-    if ver.absentExts.contains extName.toString then
-      fail "ModuleData.entries" pv s!"entries under extension {extName}, which the record for Lean {ver.leanVersion} lists as absent from that writer"
+    if ver.absent.contains written.toString then
+      fail "ModuleData.entries" pv s!"entries under extension {written}, which the record for Lean {ver.leanVersion} lists as absent from that writer"
+    let extName := ver.registeredName written
     let arr ← obj "Array EnvExtensionEntry" (p.field 1)
     unless arr.tag == 246 do fail "entries" (p.field 1) "expected an Array"
     let k := (u64 arr.b (arr.o + 8)).toNat
@@ -215,7 +219,7 @@ def hashModule (seed root : UInt64) : DM ModuleHashes := do
   let mut entries := #[]
   for i in [0:(u64 es.b (es.o + 8)).toNat] do
     let p ← ctor "Name × Array EnvExtensionEntry" (u64 es.b (es.o + 24 + 8*i)) 0 2 0
-    let e ← decName (p.field 0)
+    let e ← decExtName (p.field 0)
     if (decoderFor e).isNone then continue
     let arr ← obj "Array EnvExtensionEntry" (p.field 1)
     let k := (u64 arr.b (arr.o + 8)).toNat

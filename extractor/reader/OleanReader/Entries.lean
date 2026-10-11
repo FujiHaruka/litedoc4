@@ -278,12 +278,18 @@ def decOrigin (v : UInt64) : DM Meta.Origin := do
   | 3 => let x ← ctor "Origin.other" v 3 1 0; return .other (← decName (x.field 0))
   | t => fail "Origin" v s!"tag {t}"
 
+def simpTheoremFields : Nat := 5
+
 def decSimpTheorem (v : UInt64) : DM Meta.SimpTheorem := do
-  let x ← ctor "SimpTheorem" v 0 5 4
+  let flags := (← read)[0]!.ver.simpTheorem
+  let x ← ctor "SimpTheorem" v 0 simpTheoremFields flags.count
+  let backwardRfl ← match flags with
+    | .postPermRfl => pure false
+    | .postPermRflBackwardRfl => decBool "SimpTheorem.backwardRfl" v (x.sc8 3)
   return { keys := ← decArray "Array Key" (x.field 0) decKey, levelParams := ← decArray "Array Name" (x.field 1) decName,
            proof := ← decExpr (x.field 2), priority := ← decNat (x.field 3), origin := ← decOrigin (x.field 4),
            post := ← decBool "SimpTheorem.post" v (x.sc8 0), perm := ← decBool "SimpTheorem.perm" v (x.sc8 1),
-           rfl := ← decBool "SimpTheorem.rfl" v (x.sc8 2), backwardRfl := ← decBool "SimpTheorem.backwardRfl" v (x.sc8 3) }
+           rfl := ← decBool "SimpTheorem.rfl" v (x.sc8 2), backwardRfl }
 
 def decSimpEntry (v : UInt64) : DM Meta.SimpEntry := do
   let x ← obj "SimpEntry" v
@@ -348,8 +354,6 @@ inductive Placement where
   | allModules
   deriving BEq, Repr
 
-def privName (mod : Name) (n : Name) : Name := Name.mkNum (`_private ++ mod) 0 ++ n
-
 def axiomsExtName : Name := privName `Lean.Util.CollectAxioms `Lean.exportedAxiomsExt
 
 /-- The extensions whose entries the reader decodes, by registered name, with the entry decoder
@@ -369,7 +373,7 @@ def entryDecoders : List (Name × ExtDecoder × Placement) := [
   (`reducibilityCore, pairEntry "Name × ReducibilityStatus" decReducibility, .byKey),
   (`reducibilityExtra,
     scopedEntry "reducibilityExtra entry" (·.1) (decPair "Name × ReducibilityStatus" · decName decReducibility), .state),
-  (Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt, tagEntry, .state),
+  (namespacesExtName, tagEntry, .state),
   (`Lean.docStringExt, pairEntry "Name × String" decString, .byKey),
   (privName `Lean.DocString.Extension `Lean.inheritDocStringExt, pairEntry "Name × Name" decName, .byKey),
   (privName `Lean.DocString.Extension `Lean.moduleDocExt, ExtDecoder.of (fun _ => .anonymous) decModuleDoc, .perModule),
