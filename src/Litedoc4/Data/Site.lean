@@ -7,6 +7,7 @@ import Litedoc4.Data.Layout
 import Litedoc4.Fs
 import Litedoc4.Gzip
 import Litedoc4.Md.Escape
+import Litedoc4.Parallel
 
 open System
 
@@ -251,24 +252,30 @@ structure Written where
   listed : Listed
   paths : Array String
 
-def writeVersion (out : FilePath) (m : VersionMeta) (v : VersionData) (hashUrls : Bool) :
-    ExceptT String IO Written := do
-  let r ← ExceptT.mk (pure (render m v hashUrls))
-  IO.FS.createDirAll (out / "d")
+def distinctPaths (data : Array DataFile) : Array DataFile := Id.run do
   let mut referenced : Std.HashSet String := {}
-  let mut paths : Array String := #[]
-  let mut added : Tally := {}
-  for f in r.data do
+  let mut distinct : Array DataFile := #[]
+  for f in data do
     if referenced.contains f.path then continue
     referenced := referenced.insert f.path
-    paths := paths.push f.path
-    if let some t ← writeData out f then added := added.plus t
+    distinct := distinct.push f
+  return distinct
+
+def writeVersion (out : FilePath) (m : VersionMeta) (v : VersionData) (hashUrls : Bool)
+    (workers : Nat := 1) : ExceptT String IO Written := do
+  let r ← ExceptT.mk (pure (render m v hashUrls))
+  IO.FS.createDirAll (out / "d")
+  let distinct := distinctPaths r.data
+  let mut paths := distinct.map (·.path)
+  let mut added : Tally := {}
+  for written in ← parallelMap workers distinct fun f => (writeData out f).run do
+    if let some t ← ExceptT.mk (pure written) then added := added.plus t
   let mut shells : Tally := {}
   for (path, body) in r.shells do
     shells := shells.plus (← writeText out path body)
     paths := paths.push path
   return { counts := { version := v.name, modules := v.pages.size, shells
-                       referenced := referenced.size, added }
+                       referenced := distinct.size, added }
            listed := { name := v.name, data := r.versionFile.address
                        routes := r.routes.map (·.address) }
            paths }
@@ -297,14 +304,12 @@ def checkEntries (store : FilePath) (names : Array Store.VersionName) : ExceptT 
       throw s!"store entry {v.text}: {why}"
 
 def writeEntry (store out : FilePath) (v : Store.VersionName) (hashUrls : Bool)
-    (pages : Option SitePages := none) : ExceptT String IO Written := do
+    (pages : Option SitePages := none) (workers : Nat := 1) : ExceptT String IO Written := do
   let s ← Store.read store v
-  let input ← match inputOf s.record s.files pages with
-    | .ok input => pure input
-    | .error why => throw s!"store entry {v.text}: {why}"
+  let input ← (inputOn workers s.record s.files pages).adapt (s!"store entry {v.text}: {·}")
   if let some warning := input.site.bibliography.warning then
     IO.eprintln s!"warning: store entry {v.text}: {warning}"
-  writeVersion out (VersionMeta.of s.record) (versionData input) hashUrls
+  writeVersion out (VersionMeta.of s.record) (← versionDataOn workers input) hashUrls workers
 
 def writeRoot (out : FilePath) (entries : Array Listed) (hashUrls : Bool) :
     ExceptT String IO Tally := do

@@ -57,6 +57,8 @@ def main : IO UInt32 :=
     Litedoc4Test.anIrWithNoIdentityIsRefusedAndLeavesNothingInTheStore,
     Litedoc4Test.anOutWithNoLinkIndexIsRefusedNamingItAndLeavesNothingInTheStore,
     Litedoc4Test.theListingIsByteOrderAndSkipsStagingAndNamesStrays,
+    Litedoc4Test.parallelMapAnswersInListOrderAndThrowsTheFirstFailureInListOrder,
+    Litedoc4Test.theSiteIsTheSameAtAnyNumberOfWorkers,
     Litedoc4Test.theIrReadCountsAreByKindAndReset,
     Litedoc4Test.openUnvalidatedReadsExactlyWhatOpenRefuses,
     Litedoc4Test.bothIrDoorsRefuseAnIndexEntryMissingAKey,

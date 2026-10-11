@@ -190,7 +190,8 @@ structure Outcome where
 /-- The old ledger is deleted before anything is written and the new one written
 last, so a render that stops part way leaves no ledger to claim its files. -/
 def renderSite (store site ledgerPath : FilePath) (names : Array Store.VersionName)
-    (hashUrls : Bool) (pages : Option SitePages := none) : ExceptT String IO Outcome := do
+    (hashUrls : Bool) (pages : Option SitePages := none) (workers : Nat := 1) :
+    ExceptT String IO Outcome := do
   checkEntries store names
   let renderer ← rendererIdentity
   let mut requested : Array (Store.VersionName × String) := #[]
@@ -211,7 +212,7 @@ def renderSite (store site ledgerPath : FilePath) (names : Array Store.VersionNa
     match step with
     | .keep row => rows := rows.push row
     | .render v key =>
-      rows := rows.push (Row.of v key (← writeEntry store site v hashUrls pages))
+      rows := rows.push (Row.of v key (← writeEntry store site v hashUrls pages workers))
       rendered := rendered.push v
   let root ← writeRoot site (rows.map (·.listed)) hashUrls
   let counts := { versions := rows.map (·.counts), assets := ← writeAssets site, root }

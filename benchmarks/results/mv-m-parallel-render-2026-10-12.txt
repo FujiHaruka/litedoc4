@@ -1,0 +1,37 @@
+M, one version natively: the render's per-module and per-file stages on --jobs workers
+===================================================================================
+
+Conditions: Apple M1, 16 GB, macOS 26.6.2; Lean v4.33.1, Mathlib v4.33.1 (0df444a360); the M slice
+(438 modules). Same checkout as mv-m-lake-hash-2026-10-12.txt. litedoc4 at 3a7c648 (before) and
+3a7c648 + the parallel render (after), both built with Lean v4.31.0; extractor from 085ee58 in
+every arm. Warm (a discarded warm-up per binary). One run per arm (the user's rule for levers).
+
+Profile of the render before (measured, one thread, `store render` on the M store entry, ms)
+  store read (unpack)            220   sequential
+  parse 438 module IRs           705   per module
+  facts                           84   per module
+  derive                         326   whole version
+  name index                      10   whole version
+  pages                          924   per module
+  Used by + lists                 98   whole version
+  render (data and shells)       180   whole version (not parallelised)
+  gzip + write data files        700   per file
+  -> ~2.4 s of ~3.3 s is per-item work.
+
+A/B, full build (measured)
+  run              wall      user+sys   renderSeconds   totalSeconds   litedoc4 peak footprint
+  build j4 before  13.40 s   33.39 s    3.251 s         13.301 s       222.8 MiB
+  build j4 after   11.73 s   32.47 s    1.848 s         11.486 s       265.5 MiB
+  build j1 before  27.21 s   28.17 s    3.220 s         27.109 s       222.8 MiB
+  build j1 after   27.12 s   28.11 s    3.305 s         27.021 s       219.9 MiB
+  The render is litedoc4's peak: per-process RSS samples 229 -> 269 MiB at j4, 229 -> 226 at j1.
+  (max RSS under /usr/bin/time -l is the extractor child, 1.46 GB, unchanged.)
+
+  --jobs 4: render -1.40 s (-43%), build -1.8 s; litedoc4's peak +43 MiB (+19%). --jobs 1: unchanged.
+  How the extra memory grows with the worker count was not measured (only 1 and 4).
+
+store render (one worker; it takes no --jobs): before 3.13 s / 231.7 MiB, after 3.18 s / 229.4 MiB.
+
+Exactness (measured): site/ and store/ equal by diff -r for before-j4 vs after-j4, after-j1 vs
+after-j4, before-j1 vs after-j1, before-j1 vs before-j4. render-ledger.json differs only in
+`renderer` between binaries and is byte-identical within one.

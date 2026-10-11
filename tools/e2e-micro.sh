@@ -205,6 +205,12 @@ if ! /usr/bin/diff -r "$OUT/first/ir" "$OUT/jobs4/ir"; then
   echo "--jobs 4 extracted a different IR than --jobs 1" >&2
   exit 1
 fi
+# Not the site alone: its files are named by their bytes, so a reordered render shows only in the ledger's paths.
+if ! /usr/bin/diff -r "$OUT/again/site" "$OUT/jobs4/site" \
+  || ! /usr/bin/diff "$OUT/again/render-ledger.json" "$OUT/jobs4/render-ledger.json"; then
+  echo "--jobs 4 rendered a different site or render ledger than --jobs 1" >&2
+  exit 1
+fi
 
 say "7/13 GATE 5 — the work, as integers"
 # Four markers: the first build (snapshotted before the second run overwrote it),

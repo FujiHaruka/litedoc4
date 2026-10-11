@@ -1111,7 +1111,7 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
   let site := outPath / Versions.siteName
   let ledger := outPath / renderLedgerName
   let done ← match ← Versions.timed outPath "render"
-      (Data.SiteLedger.renderSite store site ledger names a.hashUrls pages).run with
+      (Data.SiteLedger.renderSite store site ledger names a.hashUrls pages a.jobs).run with
     | .error why => throw (3, why)
     | .ok done => pure done
   IO.println (Versions.renderedLine names done.rendered)

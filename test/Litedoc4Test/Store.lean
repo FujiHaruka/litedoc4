@@ -1,5 +1,6 @@
 import Litedoc4.Build
 import Litedoc4.Data.FromStore
+import Litedoc4.Data.SiteLedger
 import Litedoc4.Ledger
 import Litedoc4.Store
 import Litedoc4Test.Basis
@@ -492,6 +493,90 @@ def theListingIsByteOrderAndSkipsStagingAndNamesStrays : Invariant where
       eq (listing.entries.map (·.1.text)).toList ["a", "v10", "v2"],
       eq listing.strays.toList ["not a version"],
       eq (listing.entries.all fun e => e.2.toOption.isSome) true]
+    IO.FS.removeDirAll dir
+    return answer
+
+def parallelMapAnswersInListOrderAndThrowsTheFirstFailureInListOrder : Invariant where
+  name := "parallelMap gives each item's result at its own index and throws the failure earliest \
+    in the list, at 1, 4, 16 and 64 workers over 30 items"
+  check := do
+    let items := Array.range 30
+    let mut answer := none
+    for workers in [1, 4, 16, 64] do
+      let mapped ← parallelMap workers items fun i => pure (i * 2)
+      let failed ← messageOf <| parallelMap workers items fun i =>
+        if i == 21 || i == 3 then throw (IO.userError s!"item {i}") else pure i
+      answer := answer.orElse fun _ => first [
+        eq (workers, mapped) (workers, items.map (· * 2)),
+        eq (workers, failed) (workers, some "item 3")]
+    return answer
+
+def moduleCount : Nat := 12
+
+def moduleName (i : Nat) : String := s!"P.M{i}"
+
+def moduleIrText (i : Nat) : String := Id.run do
+  let previous := moduleName (i - 1)
+  let mut decls : Array String := #[]
+  for k in [0:i + 1] do
+    let refs := if i == 0 then "[]" else s!"[[\"{previous}\",\"{previous}.f0\"]]"
+    decls := decls.push s!"\{\"name\":\"{moduleName i}.f{k}\",\"kind\":\"definition\",\
+      \"type\":\"Nat\",\"typeCode\":[[0,3,1,\"Nat\"]],\"line\":{3 + 2 * k},\
+      \"endLine\":{4 + 2 * k},\"index\":{k},\"doc\":\"Uses `{previous}.f0` [K].\",\"refs\":{refs}}"
+  let imports := if i == 0 then "[]" else s!"[\"{previous}\"]"
+  return s!"\{\"module\":\"{moduleName i}\",\"schemaVersion\":5,\"imports\":{imports},\
+    \"moduleDocs\":[\{\"line\":1,\"text\":\"# M{i}\\nSee `{moduleName (i + 1)}.f0`.\"}],\
+    \"declarations\":[{",".intercalate decls.toList}]}"
+
+def writeModulesOut (out : FilePath) : IO Unit := do
+  let ir := out / "ir"
+  IO.FS.createDirAll (ir / "modules")
+  let mut entries : Array String := #[]
+  for i in [0:moduleCount] do
+    let text := moduleIrText i
+    IO.FS.writeFile (ir / "modules" / s!"{moduleName i}.json") text
+    entries := entries.push s!"\{\"module\":\"{moduleName i}\",\"file\":\"modules/{moduleName i}.json\",\
+      \"bytes\":{text.utf8ByteSize},\"contentHash\":\"0\"}"
+  IO.FS.writeFile (ir / "index.json")
+    ((irIndex (some identityAText)).replace "\"modules\":[]" s!"\"modules\":[{",".intercalate entries.toList}]")
+  IO.FS.writeBinFile (out / "link-index.lidx") lidxBytes
+
+def firstDifference (got expected : Array (String × ByteArray)) : Option String :=
+  if got.size != expected.size then some s!"{got.size} files, expected {expected.size}"
+  else (got.zip expected).findSome? fun ((path, bytes), (want, wanted)) =>
+    if path != want then some s!"{path} where {want} was expected"
+    else if bytes != wanted then some s!"{path} has other bytes"
+    else none
+
+def theSiteIsTheSameAtAnyNumberOfWorkers : Invariant where
+  name := "a store entry of 12 modules renders the same site, render ledger and counts at 1, 3, 4 \
+    and 16 workers, with and without --hash-urls"
+  check := do
+    let dir ← scratch "render-workers"
+    let store := dir / "store"
+    writeModulesOut (dir / "build")
+    let v ← versionNamed "v1"
+    let _ ← putOut store v (dir / "build")
+    let renderAt (workers : Nat) (hashUrls : Bool) : IO (Array (String × ByteArray) × String) := do
+      let out := dir / s!"site-{workers}-{hashUrls}"
+      let ledger := dir / s!"render-ledger-{workers}-{hashUrls}.json"
+      let counts ← match ← (Data.SiteLedger.renderSite store out ledger #[v] hashUrls none
+          workers).run with
+        | .ok done => pure done.counts.json
+        | .error why => pure s!"refused: {why}"
+      let tree := (← readTree out).push ("render-ledger.json", ← IO.FS.readBinFile ledger)
+      return (tree.qsort (fun a b => byteLt a.1 b.1), counts)
+    let mut answer := none
+    for hashUrls in [false, true] do
+      let (one, oneCounts) ← renderAt 1 hashUrls
+      answer := answer.orElse fun _ =>
+        if mentions oneCounts s!"\"modules\":{moduleCount}" then none
+        else some s!"at 1 worker the counts are {oneCounts}, not one page per module"
+      for workers in [3, 4, 16] do
+        let (many, counts) ← renderAt workers hashUrls
+        answer := answer.orElse fun _ => first [
+          (firstDifference many one).map (s!"at {workers} workers, hashUrls {hashUrls}: " ++ ·),
+          eq (workers, hashUrls, counts) (workers, hashUrls, oneCounts)]
     IO.FS.removeDirAll dir
     return answer
 

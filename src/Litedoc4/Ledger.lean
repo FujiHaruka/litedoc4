@@ -17,6 +17,7 @@ import Litedoc4.Ir.Utf16
 import Litedoc4.Json
 import Litedoc4.JsonWrite
 import Litedoc4.Metrics
+import Litedoc4.Parallel
 import Litedoc4.Sha256
 
 namespace Litedoc4
@@ -242,25 +243,8 @@ def hashModule (algorithm : Algorithm) (target libDir module : String) :
   return some { module, files, hash := sha256Text combined }
 
 def hashModules (algorithm : Algorithm) (target libDir : String) (modules : Array String)
-    (workers : Nat) : IO (Array (Option LedgerModule)) := do
-  let workers := max 1 (min workers modules.size)
-  if workers == 1 then return ← modules.mapM (hashModule algorithm target libDir)
-  let next ← IO.mkRef 0
-  let tasks ← (Array.range workers).mapM fun _ =>
-    IO.asTask (prio := .dedicated) (α := Array (Nat × Except IO.Error (Option LedgerModule))) do
-      let mut done := #[]
-      repeat
-        let k ← next.modifyGet fun k => (k, k + 1)
-        let some module := modules[k]? | break
-        done := done.push (k, ← (hashModule algorithm target libDir module).toBaseIO)
-      return done
-  let mut hashed : Array (Except IO.Error (Option LedgerModule)) :=
-    Array.replicate modules.size (.ok none)
-  for task in tasks do
-    for (k, entry) in ← MonadExcept.ofExcept (← IO.wait task) do
-      hashed := hashed.set! k entry
-  -- The first failure in list order, not in completion order: the one a sequential walk throws.
-  hashed.mapM MonadExcept.ofExcept
+    (workers : Nat) : IO (Array (Option LedgerModule)) :=
+  parallelMap workers modules (hashModule algorithm target libDir)
 
 /-- The sum every stage reports as `hashedBytes`. Clamped per file, because the
 `-1` a `lake` entry carries is "nothing was read", not "minus one byte". -/

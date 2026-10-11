@@ -4,6 +4,7 @@ import Litedoc4.Config
 import Litedoc4.Data.Content
 import Litedoc4.External
 import Litedoc4.Global.Artifacts
+import Litedoc4.Parallel
 import Litedoc4.Render.Code
 import Litedoc4.Render.LinkIndex
 
@@ -181,26 +182,47 @@ def referencesJson (items : Array BibItem) (backrefs : Array Backref) : String :
       jsonStr (jsonStr (out.push '[') b.module ++ s!",{b.index},") b.citation.funName |>.push ']')
       |>.push '}'
 
-def versionData (v : Input) : VersionData := Id.run do
-  let bib := v.site.bibliography
-  let facts := v.modules.map (factsOf · "" bib)
+def Input.factsOf (v : Input) (m : Module) : ModuleFacts := Litedoc4.factsOf m "" v.site.bibliography
+
+structure Prepared where
+  input : Input
+  facts : Array ModuleFacts
+  derived : Derived
+  suppressed : Std.HashSet String
+  index : NameIndex
+  pageModules : Array Module
+
+def prepare (v : Input) (facts : Array ModuleFacts) : Prepared := Id.run do
   let d := deriveData facts v.depMaps
-  let sup := suppressedOf v.modules
   let mut byName : Std.HashMap String Module := {}
   for m in v.modules do byName := byName.insert m.name m
   let sources : ExternalLinks := { roots := v.sources.roots.map ({ · with docs := none }) }
-  let ix := buildIndex v.depMaps v.modules v.lidx sources
-  let mut pages : Array Page := #[]
-  for name in d.modules do
-    if let some m := byName.get? name then pages := pages.push (pageOf bib ix m sup)
-  return { name := v.name, title := v.site.title.getD (siteTitle d.modules), pages
-           front := v.site.indexMarkdown.map (frontPageOf ix)
-           footer := v.site.footerMarkdown.map (frontPageOf ix)
-           references := (referencesJson bib.items (backrefsOf facts)).toUTF8
-           modules := (moduleListOf d).toUTF8, search := d.searchIndexBin
-           instances := d.instancesJson.toUTF8, usedBy := usedByFiles d
-           linkNames := pages.foldl (fun n p => n + p.names.size + p.words.size) 0
-           docTokens := (dedupSorted (sortUtf16 (facts.flatMap (·.tokens)))).size }
+  return { input := v, facts, derived := d, suppressed := suppressedOf v.modules
+           index := buildIndex v.depMaps v.modules v.lidx sources
+           pageModules := d.modules.filterMap byName.get? }
+
+def Prepared.page (p : Prepared) (m : Module) : Page :=
+  pageOf p.input.site.bibliography p.index m p.suppressed
+
+def Prepared.finish (p : Prepared) (pages : Array Page) : VersionData :=
+  let v := p.input
+  let d := p.derived
+  { name := v.name, title := v.site.title.getD (siteTitle d.modules), pages
+    front := v.site.indexMarkdown.map (frontPageOf p.index)
+    footer := v.site.footerMarkdown.map (frontPageOf p.index)
+    references := (referencesJson v.site.bibliography.items (backrefsOf p.facts)).toUTF8
+    modules := (moduleListOf d).toUTF8, search := d.searchIndexBin
+    instances := d.instancesJson.toUTF8, usedBy := usedByFiles d
+    linkNames := pages.foldl (fun n p => n + p.names.size + p.words.size) 0
+    docTokens := (dedupSorted (sortUtf16 (p.facts.flatMap (·.tokens)))).size }
+
+def versionData (v : Input) : VersionData :=
+  let p := prepare v (v.modules.map v.factsOf)
+  p.finish (p.pageModules.map p.page)
+
+def versionDataOn (workers : Nat) (v : Input) : IO VersionData := do
+  let p := prepare v (← parallelMap workers v.modules (pure ∘ v.factsOf))
+  return p.finish (← parallelMap workers p.pageModules (pure ∘ p.page))
 
 def pushResolved (out : String) (rootAt : String → Nat) (key : String) : Resolved → String
   | .own module none => jsonStr (out.push '[') module ++ ",null]"

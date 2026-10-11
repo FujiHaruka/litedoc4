@@ -693,7 +693,7 @@ def buildOne (r : BuildRequest) (hashUrls : Bool) : BuildM Built := do
   let renderStarted ← IO.monoNanosNow
   let pages ← r.config.mapM fun file => readSitePages (.given file)
   let done ← match ← (Data.SiteLedger.renderSite store site r.layout.renderLedger #[version]
-      hashUrls pages).run with
+      hashUrls pages r.jobs).run with
     | .error why => throw (3, why)
     | .ok done => pure done
   let renderNanos := (← IO.monoNanosNow) - renderStarted
