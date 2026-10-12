@@ -22,12 +22,13 @@ jobs:
     timeout-minutes: 360
     env:
       MV_L_WORK: /home/runner/mv-l
-      MV_L_TAGS: v4.29.0,v4.29.1,v4.30.0,v4.31.0,v4.32.0,v4.32.1,v4.32.2,v4.33.0,v4.33.1,v4.34.0,v4.34.1
+      MV_L_ARM: probe
+      MV_L_TAGS: v4.29.1,v4.30.0,v4.34.1
     steps:
       - uses: actions/checkout@v7
 
-      - name: GNU time
-        run: sudo apt-get install -y time
+      - name: GNU time and gdb
+        run: sudo apt-get install -y time gdb
 
       - name: free disk the run does not use
         run: |
@@ -46,26 +47,27 @@ jobs:
           mkdir -p "$MV_L_WORK/logs"
           benchmarks/tools/record-runner.sh "$MV_L_WORK/logs/runner-start.txt"
 
-      - name: litedoc4 and Mathlib's eleven releases, the root at the newest
+      - name: litedoc4 and Mathlib's releases, the root at the newest
         id: setup
         run: benchmarks/tools/mv-l-run.sh setup
 
-      - name: all eleven releases from nothing, as hosting builds them
+      - name: the releases from nothing, as hosting builds them (full), or once with a stuck reader sampled (probe)
         id: full
-        timeout-minutes: 320
-        run: benchmarks/tools/mv-l-run.sh full
+        timeout-minutes: ${{ env.MV_L_ARM == 'full' && 320 || 90 }}
+        run: benchmarks/tools/mv-l-run.sh "$MV_L_ARM"
 
       - name: the same build again, nothing left to do
+        if: env.MV_L_ARM == 'full'
         timeout-minutes: 20
         run: benchmarks/tools/mv-l-run.sh noop
 
       - name: served-gate over the site on 127.0.0.1
-        if: always() && steps.full.outcome != 'skipped'
+        if: always() && env.MV_L_ARM == 'full' && steps.full.outcome != 'skipped'
         timeout-minutes: 15
         run: benchmarks/tools/mv-l-run.sh served
 
       - name: sizes of the store and the site
-        if: always() && steps.full.outcome != 'skipped'
+        if: always() && env.MV_L_ARM == 'full' && steps.full.outcome != 'skipped'
         timeout-minutes: 20
         run: benchmarks/tools/mv-l-run.sh report
 
@@ -85,7 +87,7 @@ jobs:
           path: /home/runner/mv-l/logs
 
       - name: upload the store
-        if: always() && steps.full.outcome != 'skipped'
+        if: always() && env.MV_L_ARM == 'full' && steps.full.outcome != 'skipped'
         uses: actions/upload-artifact@v7
         with:
           name: mv-l-store

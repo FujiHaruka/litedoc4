@@ -7,6 +7,9 @@
 #                         hosting/mathlib/litedoc4.toml), up to three attempts on the same store
 #   mv-l-run.sh noop      the same build again into <work>/c, which has nothing left to do
 #   mv-l-run.sh served    tools/served-gate.sh against <work>/c/site served on 127.0.0.1
+#   mv-l-run.sh probe     the `full` build once; a reader alive past MV_L_PROBE_AFTER seconds
+#                         (default 900) is sampled MV_L_PROBE_SAMPLES times (default 4), 120 s
+#                         apart (threads, stacks, I/O, its events and IR so far), then killed
 #   mv-l-run.sh reuse     (d) the newest built natively, then each older tag, newest first, read
 #                         twice by `reader extract --lazy-proofs`: alone (a) and with --reuse-from
 #                         the newer tag's reader IR (r); the two compared, then deleted
@@ -530,6 +533,46 @@ print("native   " + ", ".join("%s %s" % (k, r[k]) for k in ("modules", "extractS
   [ "$REUSE_OK" = "$REUSE_DECLARED" ] || exit 1
 }
 
+probe_once () {
+  local pid="$1" n="$2" arg next=""
+  echo "=== sample $n at $(date -u +%H:%M:%S), reader $pid"
+  ps -L -o tid,pcpu,stat,wchan:32,time -p "$pid" || true
+  grep -E '^(State|Threads|RssAnon|RssFile|VmSwap|voluntary_ctxt|nonvoluntary_ctxt)' "/proc/$pid/status" || true
+  sudo -n cat "/proc/$pid/io" 2>/dev/null || true
+  while IFS= read -r arg; do
+    if [ "$next" = ir ]; then
+      echo "--- $arg: $(find "$arg" -type f 2>/dev/null | wc -l | tr -d ' ') files; newest:"
+      find "$arg" -type f -printf '%T@ %s %p\n' 2>/dev/null | sort -n | tail -n 5 || true
+    fi
+    next=""
+    if [ "$arg" = --ir-dir ]; then next=ir; fi
+    case "$arg" in
+      *.jsonl) echo "--- the end of $arg ($(wc -c <"$arg" 2>/dev/null || echo 0) bytes)"; tail -c 1500 "$arg" 2>/dev/null || true; echo ;;
+    esac
+  done < <(tr '\0' '\n' <"/proc/$pid/cmdline")
+  echo "--- stacks"
+  sudo -n gdb -p "$pid" -batch -ex 'set pagination off' -ex 'thread apply all bt 40' 2>&1 | head -c 80000 || true
+}
+
+stack_probe () {
+  local after="$1" samples="$2" pid seen="" since=0 n
+  while true; do
+    pid="$(pgrep -f "/extractors/reader-[^ ]*/reader extract " | head -n 1 || true)"
+    if [ -z "$pid" ]; then seen=""; sleep 10; continue; fi
+    if [ "$pid" != "$seen" ]; then seen="$pid"; since=$SECONDS; fi
+    if [ $((SECONDS - since)) -lt "$after" ]; then sleep 10; continue; fi
+    tr '\0' ' ' <"/proc/$pid/cmdline" | head -c 4000 >"$LOGS/probe-cmdline.txt" || true
+    for ((n = 1; n <= samples; n++)); do
+      probe_once "$pid" "$n" >>"$LOGS/probe-stacks.txt" 2>&1
+      echo "probe: sample $n of $samples of reader $pid, $((SECONDS - since)) s after it was first seen"
+      if [ "$n" -lt "$samples" ]; then sleep 120; fi
+    done
+    echo "probe: killing reader $pid"
+    kill "$pid" 2>/dev/null || true
+    return 0
+  done
+}
+
 case "${1:-}" in
   setup)
     "$ROOT/tools/build-lean-exe.sh" --toolchain-from "$ROOT/e2e/micro" >"$LOGS/litedoc4-build.log" 2>&1
@@ -566,6 +609,13 @@ case "${1:-}" in
     ;;
   noop)
     run noop "$OUT_C" --config "$CONFIG"
+    answer "$RUN_STATUS"
+    ;;
+  probe)
+    rm -rf "$OUT_C"
+    stack_probe "${MV_L_PROBE_AFTER:-900}" "${MV_L_PROBE_SAMPLES:-4}" &
+    run probe "$OUT_C" --config "$CONFIG"
+    echo "probe: build exit $RUN_STATUS; samples in $LOGS/probe-stacks.txt"
     answer "$RUN_STATUS"
     ;;
   served)
