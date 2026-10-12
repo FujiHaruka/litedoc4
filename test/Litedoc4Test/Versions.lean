@@ -54,27 +54,57 @@ def theExtractedLineNamesWhatTheReaderFilledAndOnlyThen : Bool :=
 
 #guard theExtractedLineNamesWhatTheReaderFilledAndOnlyThen
 
-def fillNames (fills : Array Store.Fill) : List String := fills.toList.map Store.Fill.name
-
-def theReaderFillsOlderVersionsOnlyFromNothingWithTheNewestOnItsToolchain : Bool :=
-  let vs := named #["v1", "v2", "v3"]
-  let empty := #[Held.absent, .absent, .absent]
-  fillNames (fillsOf vs empty true #[]) == ["reader", "reader", "own"]
-    && fillNames (fillsOf vs empty false #[]) == ["own", "own", "own"]
-    && fillNames (fillsOf vs #[.absent, .absent, .filled .own] true #[]) == ["reader", "reader", "own"]
-    && fillNames (fillsOf vs #[.filled .own, .absent, .absent] true #[]) == ["own", "own", "own"]
-    && fillNames (fillsOf vs #[.unreadable, .absent, .absent] true #[]) == ["own", "own", "own"]
-    && fillNames (fillsOf vs #[.filled .reader, .absent, .absent] true #[])
-      == ["reader", "own", "own"]
-    && fillNames (fillsOf vs #[.filled .own, .filled .own, .absent] true (named #["v2"]))
-      == ["own", "reader", "own"]
-    && fillNames (fillsOf vs empty false (named #["v1"])) == ["reader", "own", "own"]
-    && fillNames (fillsOf (named #["v1"]) #[.absent] true #[]) == ["own"]
-
-#guard theReaderFillsOlderVersionsOnlyFromNothingWithTheNewestOnItsToolchain
-
 def plannedAt (names : Array String) (toolchain : String) : Array Planned :=
   (named names).map fun name => { name, commit := "abc", toolchain }
+
+def fillNames (fills : Array Store.Fill) : List String := fills.toList.map Store.Fill.name
+
+def theReaderFillsAnOlderVersionFromNothingOrWithNoRowWithTheNewestOnItsToolchain : Bool :=
+  let vs := named #["v1", "v2", "v3"]
+  let empty := #[Held.absent, .absent, .absent]
+  let listed := #[true, true, true]
+  fillNames (fillsOf vs empty listed true #[]) == ["reader", "reader", "own"]
+    && fillNames (fillsOf vs empty listed false #[]) == ["own", "own", "own"]
+    && fillNames (fillsOf vs #[.absent, .absent, .filled .own] listed true #[])
+      == ["reader", "reader", "own"]
+    && fillNames (fillsOf vs #[.filled .own, .absent, .absent] listed true #[]) == ["own", "own", "own"]
+    && fillNames (fillsOf vs #[.unreadable, .absent, .absent] listed true #[]) == ["own", "own", "own"]
+    && fillNames (fillsOf vs #[.filled .reader, .absent, .absent] listed true #[])
+      == ["reader", "own", "own"]
+    && fillNames (fillsOf vs #[.filled .own, .filled .own, .absent] listed true (named #["v2"]))
+      == ["own", "reader", "own"]
+    && fillNames (fillsOf vs empty listed false (named #["v1"])) == ["reader", "own", "own"]
+    && fillNames (fillsOf (named #["v1"]) #[.absent] #[true] true #[]) == ["own"]
+    && fillNames (fillsOf vs #[.absent, .filled .reader, .filled .own] #[false, true, true] true #[])
+      == ["reader", "reader", "own"]
+    && fillNames (fillsOf vs #[.absent, .filled .reader, .filled .own] listed true #[])
+      == ["own", "reader", "own"]
+    && fillNames (fillsOf vs #[.absent, .filled .reader, .filled .own] #[false, true, true] false #[])
+      == ["own", "reader", "own"]
+    && fillNames (fillsOf vs #[.unreadable, .filled .reader, .filled .own] #[false, true, true] true
+      #[]) == ["own", "reader", "own"]
+    && fillNames (fillsOf vs #[.filled .own, .filled .reader, .filled .own] #[false, true, true] true
+      #[]) == ["own", "reader", "own"]
+    && fillNames (fillsOf vs #[.absent, .absent, .filled .own] #[false, true, true] false #[])
+      == ["own", "own", "own"]
+
+#guard theReaderFillsAnOlderVersionFromNothingOrWithNoRowWithTheNewestOnItsToolchain
+
+def aResumedBuildReadsTheVersionsWithNoRowAndExtractsTheListedOnesNatively : Bool :=
+  let rows := #["leanprover/lean4:v4.31.0", "leanprover/lean4:v4.34.1"]
+  let planned := plannedAt #["v1"] "leanprover/lean4:v4.29.0"
+    ++ plannedAt #["v2"] "leanprover/lean4:v4.31.0"
+    ++ plannedAt #["v3", "v4"] "leanprover/lean4:v4.30.0"
+    ++ plannedAt #["v5"] "leanprover/lean4:v4.34.1"
+  let held := #[Held.absent, .absent, .filled .reader, .filled .reader, .filled .own]
+  let fills := fillsOf (planned.map (·.name)) held (rowsOf planned rows) true #[]
+  planned.size == 5 && rowsOf planned rows == #[false, true, false, false, true]
+    && fillNames fills == ["reader", "own", "reader", "reader", "own"]
+    && unlistedNative planned fills rows == none
+    && (unlistedNative planned (fillsOf (planned.map (·.name)) held (rowsOf planned rows) false #[])
+      rows).isSome
+
+#guard aResumedBuildReadsTheVersionsWithNoRowAndExtractsTheListedOnesNatively
 
 def theForcingFlagIsRefusedByNameOutsideTheSetOnTheNewestAndOffTheReadersToolchain : Bool :=
   let vs := named #["v1", "v2", "v3"]
@@ -323,6 +353,29 @@ def everyVersionIsRefusedByNameBeforeAnythingIsCheckedOut : Invariant where
       eq (good.toOption.map (·.map (·.toolchain))) (some #["leanprover/lean4:v4.31.0"])]
     IO.FS.removeDirAll dir
     return answer
+
+def aRetriedStepRunsAtMostThreeTimesAndFailsWithItsLastError : Invariant where
+  name := "a retried step runs until it succeeds, three attempts in all, runs `between` before \
+    each repeat and fails with the last attempt's error"
+  check := do
+    let calls ← IO.mkRef 0
+    let betweens ← IO.mkRef 0
+    let run (succeedsOn : Nat) : IO (Option String × Nat × Nat) := do
+      calls.set 0
+      betweens.set 0
+      let step : BuildM Unit := do
+        calls.modify (· + 1)
+        let n ← calls.get
+        if n < succeedsOn then throw (1, s!"step exited {n}")
+      let r ← (retried step (betweens.modify (· + 1)) (pauseSeconds := 0)).run
+      let failed := match r with
+        | .ok () => none
+        | .error (_, why) => some why
+      return (failed, ← calls.get, ← betweens.get)
+    return first [
+      eq (← run 1) (none, 1, 0),
+      eq (← run 3) (none, 3, 2),
+      eq (← run 4) (some "step exited 3", 3, 2)]
 
 def anExactReadRefillsReusedOrUnrecordedPrintsAndTheChainKeepsEveryRead : Bool :=
   withSample fun r _ _ =>

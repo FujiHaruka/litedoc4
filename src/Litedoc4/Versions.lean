@@ -16,9 +16,11 @@ def toolchainRows (table : String) : Array String :=
 
 def supportedToolchains : Array String := toolchainRows leanToolchainsTable
 
+def hasRow (rows : Array String) (toolchain : String) : Bool := rows.contains toolchain
+
 def unlistedToolchain (v : Store.VersionName) (commit toolchain : String) (rows : Array String) :
     Option String :=
-  if rows.contains toolchain then none
+  if hasRow rows toolchain then none
   else some s!"version {v.text} ({commit}) pins `{toolchain}`, which has no row in \
     tools/lean-toolchains.txt — the toolchains this extractor is known to build and run on are \
     {", ".intercalate rows.toList}. A release needs the extractor to build on its Lean and a row \
@@ -90,7 +92,10 @@ inductive Held where
   | filled (how : Store.Fill)
   deriving BEq, Repr
 
-def fillsOf (names : Array Store.VersionName) (held : Array Held)
+def rowsOf (planned : Array Planned) (rows : Array String) : Array Bool :=
+  planned.map (hasRow rows ·.toolchain)
+
+def fillsOf (names : Array Store.VersionName) (held : Array Held) (listed : Array Bool)
     (newestOnReader : Bool) (forced : Array Store.VersionName) : Array Store.Fill := Id.run do
   let older := names.size - 1
   let fromNothing := newestOnReader && ((held.extract 0 older).all (· == .absent))
@@ -103,7 +108,7 @@ def fillsOf (names : Array Store.VersionName) (held : Array Held)
       else match held[i]? with
         | some (.filled how) => how
         | some .unreadable => .own
-        | _ => if fromNothing then .reader else .own
+        | _ => if fromNothing || (newestOnReader && listed[i]? == some false) then .reader else .own
     i := i + 1
   return out
 
@@ -275,6 +280,20 @@ def spawnInherited (cmd : String) (args : Array String) (cwd : Option FilePath :
   if code != 0 then
     throw (1, s!"{spelled}{(cwd.map (s!" in {·}")).getD ""} exited {code}")
 
+def attemptsInAll : Nat := 3
+
+def retried (act : BuildM Unit) (between : BuildM Unit := pure ()) (pauseSeconds : Nat := 30)
+    (left : Nat := attemptsInAll - 1) : BuildM Unit :=
+  match left with
+  | 0 => act
+  | left + 1 =>
+    tryCatch act fun (_, why) => do
+      IO.println s!"retry   {why}; attempt {attemptsInAll - left} of {attemptsInAll} in \
+        {pauseSeconds} s"
+      IO.sleep (pauseSeconds * 1000).toUInt32
+      between
+      retried act between pauseSeconds left
+
 def installedToolchains (elan : FilePath) : BuildM (Array String) := do
   let out ← match ← (IO.Process.output
       { cmd := elan.toString, args := #["toolchain", "list"] }).toBaseIO with
@@ -288,7 +307,7 @@ def installedToolchains (elan : FilePath) : BuildM (Array String) := do
 def ensureToolchain (elan : FilePath) (toolchain : String) : BuildM Unit := do
   if (← installedToolchains elan).contains toolchain then return
   IO.println s!"toolchain {toolchain}: not installed, installing"
-  spawnInherited elan.toString #["toolchain", "install", toolchain]
+  retried (spawnInherited elan.toString #["toolchain", "install", toolchain])
 
 def extractorDir (cache : FilePath) (toolchain : String) : FilePath :=
   cache / s!"{toolchainDirName toolchain}-{sourceDigest ()}"
@@ -572,8 +591,12 @@ def fetchMathlibCache (lake package cacheDir : FilePath) : BuildM Unit := do
   if ← cacheDir.pathExists then IO.FS.removeDirAll cacheDir
   IO.FS.createDirAll cacheDir
   try
-    spawnInherited lake.toString #["exe", "cache", "get"] (some package)
-      #[("MATHLIB_CACHE_DIR", some cacheDir.toString)]
+    retried (spawnInherited lake.toString #["exe", "cache", "get"] (some package)
+        #[("MATHLIB_CACHE_DIR", some cacheDir.toString)])
+      -- Not a bare retry: Lake fetches into an existing package directory rather than recloning it, so a half-made clone would outlive the attempt.
+      (between := do
+        let packages := package / ".lake" / "packages"
+        if ← packages.pathExists then IO.FS.removeDirAll packages)
   finally
     if ← cacheDir.pathExists then IO.FS.removeDirAll cacheDir
 
@@ -627,7 +650,7 @@ def originOf (root lake : FilePath) (sources : ExternalLinks) (commit sourceUrl 
 
 def unlistedRootToolchain (root : FilePath) (toolchain : String) (rows : Array String) :
     Option String :=
-  if rows.contains toolchain then none
+  if hasRow rows toolchain then none
   else some s!"{root} pins `{toolchain}`, which has no row in tools/lean-toolchains.txt — the \
     toolchains the extractor this command builds is known to build and run on are \
     {", ".intercalate rows.toList}. Pass --extractor-bin to use an extractor built some other way"

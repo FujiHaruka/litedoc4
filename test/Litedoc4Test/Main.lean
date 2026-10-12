@@ -76,4 +76,5 @@ def main : IO UInt32 :=
     Litedoc4Test.aDirectoryIsItsIndexAFileIsItselfAndNothingThereIsMissing,
     Litedoc4Test.theTriggerAnswersNothingYetAStableDigestAMovedOleanAndABrokenLedger,
     Litedoc4Test.aWatchUnderAConfigAsksTheLedgerWithThatConfigsFlags,
-    Litedoc4Test.VersionsTest.everyVersionIsRefusedByNameBeforeAnythingIsCheckedOut]
+    Litedoc4Test.VersionsTest.everyVersionIsRefusedByNameBeforeAnythingIsCheckedOut,
+    Litedoc4Test.VersionsTest.aRetriedStepRunsAtMostThreeTimesAndFailsWithItsLastError]

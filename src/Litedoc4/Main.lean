@@ -1017,7 +1017,8 @@ def versionsRun (a : BuildArgs) (root out list : String) : BuildM Unit := do
     | some (.error _) => .unreadable
     | some (.ok r) => .filled r.fill
   let readerFill := a.readerFill
-  let fills := Versions.fillsOf names held (newest.toolchain == readerToolchain) forced
+  let fills := Versions.fillsOf names held (Versions.rowsOf planned Versions.supportedToolchains)
+    (newest.toolchain == readerToolchain) forced
   if let some why := Versions.unlistedNative planned fills Versions.supportedToolchains then
     throw (3, why)
   Versions.checkOwnership outPath rootPath
