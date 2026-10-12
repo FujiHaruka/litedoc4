@@ -21,7 +21,8 @@
 #   2 DEFINED   an `Invariant` is defined in test/ and the runner never ran it.
 #               Writing one and forgetting to add it to `Main.lean`'s list is
 #               silent otherwise: the suite stays green having asked less.
-#   3 RAN       the executable reported a failure. Its own line names which.
+#   3 RAN       the executable reported a failure, or a panic aborted it. Its
+#               own line, or the panic's message, names which.
 #   4 GUARDS    test/ holds no `#guard` at all. Half the suite would then be
 #               absent while the other half still reported a number.
 #
@@ -70,9 +71,10 @@ echo "=== 2/4 every Invariant defined is one the runner runs"
 # pattern quietly means one directory deep.
 DEFINED="$(find "$ROOT/test" -name '*.lean' -exec cat {} + 2>/dev/null | tr '\n' ' ' | grep -oE ': +Invariant +(where|:=)' | wc -l | tr -d ' ' || true)"
 OUT="$(mktemp "${TMPDIR:-/tmp}/lean-test-run.XXXXXX")"
-# No pipe: the exit code has to be the executable's.
+# No pipe: the exit code has to be the executable's. A Lean panic prints and
+# returns a default value, so without the abort an invariant can pass over one.
 set +e
-"$EXE" >"$OUT" 2>"$OUT.err"
+LEAN_ABORT_ON_PANIC=1 "$EXE" >"$OUT" 2>"$OUT.err"
 run_rc=$?
 set -e
 RAN="$(sed -n 's/^litedoc4-test: \([0-9][0-9]*\) invariants ran.*/\1/p' "$OUT")"

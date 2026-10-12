@@ -5,7 +5,7 @@ def parallelMap (workers : Nat) (items : Array α) (f : α → IO β) : IO (Arra
   let workers := max 1 (min workers n)
   -- Items taken out of a ref rather than read from `items`: each is released once `f` has run on it, not after the last.
   let pending ← IO.mkRef (items.map some)
-  let take (k : Nat) : IO (Option α) := pending.modifyGet fun a => (a[k]?.join, a.set! k none)
+  let take (k : Nat) : IO (Option α) := pending.modifyGet fun a => (a[k]?.join, a.setIfInBounds k none)
   if workers == 1 then
     let mut out := Array.mkEmpty n
     repeat

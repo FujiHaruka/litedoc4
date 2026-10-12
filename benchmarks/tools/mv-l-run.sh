@@ -54,6 +54,8 @@ time_cmd() {
     echo /usr/bin/time -l
   fi
 }
+# Not `$(time_cmd)` on the backgrounded line: that subshell is the timer's first child, and the samplers took it for litedoc4.
+TIME_CMD="$(time_cmd)"
 
 sample() {
   while true; do
@@ -98,8 +100,8 @@ run() {
   shift 2
   sample >"$LOGS/$label-sampler.txt" &
   sampler=$!
-  # shellcheck disable=SC2046  # the time command is two words on purpose
-  $(time_cmd) "$LITEDOC4" build --root "$MATHLIB" --lib Mathlib --out "$out" \
+  # shellcheck disable=SC2086  # the time command is two words on purpose
+  $TIME_CMD "$LITEDOC4" build --root "$MATHLIB" --lib Mathlib --out "$out" \
     --versions "$(list "${TAGS[@]}")" --jobs "$JOBS" "$@" >"$LOGS/$label.out" 2>"$LOGS/$label.err" &
   timer=$!
   rss_timeline "$timer" "$out" >"$LOGS/$label.rss" &
@@ -235,8 +237,8 @@ proc () {
   echo "start $label $(date -u +%H:%M:%S)"
   sample >"$LOGS/$label-sampler.txt" &
   sampler=$!
-  # shellcheck disable=SC2046  # the time command is two words on purpose
-  $(time_cmd) -o "$LOGS/$label.time" "$@" >"$LOGS/$label.out" 2>"$LOGS/$label.err" &
+  # shellcheck disable=SC2086  # the time command is two words on purpose
+  $TIME_CMD -o "$LOGS/$label.time" "$@" >"$LOGS/$label.out" 2>"$LOGS/$label.err" &
   timer=$!
   proc_peaks "$timer" "$label" >"$LOGS/$label.rss" &
   peaks=$!

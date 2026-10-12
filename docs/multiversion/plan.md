@@ -24,7 +24,7 @@ This milestone ships as v2.0.0. What it has to meet:
 | | Target | Where it stands on 2026-10-06 |
 |---|---|---|
 | Add one new release to a site whose earlier versions are kept | ≤ 15 min on one GitHub `ubuntu-latest` runner | 13.5 min with three versions, ≈ 13.6 min at 11 (measured / extrapolated, 2026-10-07 → `benchmarks/results/mv-l-step4-incremental-2026-10-07.txt`) |
-| Every version in the set from nothing | ≤ 2 h on one runner, for the set as it is when measured | 11 versions ≈ 81 min plus the render (theoretical, D7) |
+| Every version in the set from nothing | ≤ 2 h on one runner, for the set as it is when measured | 11 versions 90.5 min, render included (measured 2026-10-12 → `benchmarks/results/mv-l-full-eleven-2026-10-12.txt`) |
 | Per extra version in a rebuild from nothing | 2.2 min on the runner — **tracked, not a release condition** | ≈ 7 min (theoretical, U9 composed at the runner's 1.8×) |
 | Hosted bytes and cost | 51 versions ≤ 1.5 GB; ≤ $1 a month plus a domain | 0.32 GB for 11, 1.38 GB for 51 (extrapolated, U6) |
 | Reader | the largest module page settles faster than today's published page (361 ms) | 153 ms (measured, loopback, U7) |
@@ -301,7 +301,9 @@ exist → `benchmarks/results/mathlib-build-host-levers-2026-10-05.txt`):
   update`, cache fetch, build).
 - **The output is the same on both machines**: every IR file, native and hybrid, hashes identically
   on Linux x86_64 and on the M1.
-- The render pass on the runner is not measured.
+- **The render fits too (2026-10-12).** All 11 versions render in 763.99 s; host MemAvailable stays
+  at or above 11.5 GiB throughout, so the render needs no streaming at 11 (measured →
+  `benchmarks/results/mv-l-full-eleven-2026-10-12.txt`; litedoc4's own peak was not sampled).
 
 ### U6 — Where can it be hosted, with numbers?
 
