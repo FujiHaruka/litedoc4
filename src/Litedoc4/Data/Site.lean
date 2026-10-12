@@ -305,12 +305,12 @@ def checkEntries (store : FilePath) (names : Array Store.VersionName) : ExceptT 
 
 def writeEntry (store out : FilePath) (v : Store.VersionName) (hashUrls : Bool)
     (pages : Option SitePages := none) (workers : Nat := 1) : ExceptT String IO Written := do
-  let s ← Store.read store v
+  let { record, files, .. } ← Store.read store v
   let refused := (s!"store entry {v.text}: {·}")
-  let input ← ExceptT.mk (pure ((inputOf s.record s.files pages).mapError refused))
+  let input ← ExceptT.mk (pure ((inputOf record files pages).mapError refused))
   if let some warning := input.site.bibliography.warning then
     IO.eprintln s!"warning: store entry {v.text}: {warning}"
-  writeVersion out (VersionMeta.of s.record) (← (versionDataOn workers input).adapt refused)
+  writeVersion out (VersionMeta.of record) (← (versionDataOn workers input).adapt refused)
     hashUrls workers
 
 def writeRoot (out : FilePath) (entries : Array Listed) (hashUrls : Bool) :

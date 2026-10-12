@@ -193,33 +193,35 @@ def Input.scan (v : Input) (load : Unit → Except String Module) : Except Strin
            members := memberNamesOf m }
 
 structure Prepared where
-  input : Input
+  name : String
+  site : SiteConfig
   facts : Array ModuleFacts
   derived : Derived
   suppressed : Std.HashSet String
   index : NameIndex
-  pageModules : Array (Unit → Except String Module)
 
-def prepare (v : Input) (scanned : Array Scanned) : Prepared := Id.run do
+-- The page loaders apart from `Prepared`, not a field of it: page building must be their only holder, so each module's bytes go once its page is built.
+def prepare (v : Input) (scanned : Array Scanned) :
+    Prepared × Array (Unit → Except String Module) := Id.run do
   let facts := scanned.map (·.facts)
   let d := deriveData facts v.depMaps
   let mut byName : Std.HashMap String (Unit → Except String Module) := {}
   for (s, load) in scanned.zip v.modules do byName := byName.insert s.names.name load
   let sources : ExternalLinks := { roots := v.sources.roots.map ({ · with docs := none }) }
-  return { input := v, facts, derived := d, suppressed := suppressedFrom (scanned.map (·.members))
-           index := buildIndex v.depMaps (scanned.map (·.names)) v.lidx sources
-           pageModules := d.modules.filterMap byName.get? }
+  return ({ name := v.name, site := v.site, facts, derived := d
+            suppressed := suppressedFrom (scanned.map (·.members))
+            index := buildIndex v.depMaps (scanned.map (·.names)) v.lidx sources },
+          d.modules.filterMap byName.get?)
 
 def Prepared.page (p : Prepared) (load : Unit → Except String Module) : Except String Page :=
-  return pageOf p.input.site.bibliography p.index (← load ()) p.suppressed
+  return pageOf p.site.bibliography p.index (← load ()) p.suppressed
 
 def Prepared.finish (p : Prepared) (pages : Array Page) : VersionData :=
-  let v := p.input
   let d := p.derived
-  { name := v.name, title := v.site.title.getD (siteTitle d.modules), pages
-    front := v.site.indexMarkdown.map (frontPageOf p.index)
-    footer := v.site.footerMarkdown.map (frontPageOf p.index)
-    references := (referencesJson v.site.bibliography.items (backrefsOf p.facts)).toUTF8
+  { name := p.name, title := p.site.title.getD (siteTitle d.modules), pages
+    front := p.site.indexMarkdown.map (frontPageOf p.index)
+    footer := p.site.footerMarkdown.map (frontPageOf p.index)
+    references := (referencesJson p.site.bibliography.items (backrefsOf p.facts)).toUTF8
     modules := (moduleListOf d).toUTF8, search := d.searchIndexBin
     instances := d.instancesJson.toUTF8, usedBy := usedByFiles d
     linkNames := pages.foldl (fun n p => n + p.names.size + p.words.size) 0
@@ -227,13 +229,13 @@ def Prepared.finish (p : Prepared) (pages : Array Page) : VersionData :=
 
 -- Pages parse again rather than reuse `scan`'s modules, which would all be held at once; fine if a parsed module were near its bytes' size.
 def versionData (v : Input) : Except String VersionData := do
-  let p := prepare v (← v.modules.mapM v.scan)
-  return p.finish (← p.pageModules.mapM p.page)
+  let (p, pending) := prepare v (← v.modules.mapM v.scan)
+  return p.finish (← pending.mapM p.page)
 
 def versionDataOn (workers : Nat) (v : Input) : ExceptT String IO VersionData := do
   let scanned ← parallelMap workers v.modules (pure ∘ v.scan)
-  let p := prepare v (← ExceptT.mk (pure (scanned.mapM id)))
-  let pages ← parallelMap workers p.pageModules (pure ∘ p.page)
+  let (p, pending) := prepare v (← ExceptT.mk (pure (scanned.mapM id)))
+  let pages ← parallelMap workers pending (pure ∘ p.page)
   return p.finish (← ExceptT.mk (pure (pages.mapM id)))
 
 def pushResolved (out : String) (rootAt : String → Nat) (key : String) : Resolved → String

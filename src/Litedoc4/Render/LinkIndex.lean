@@ -40,7 +40,11 @@ byte scan `purelean-microbench-optimised-2026-08-30.txt` measured at 0.0877 s,
 split so that the `@` module set and the declaration map stay apart. -/
 def parseLidx (text : String) : Lidx := Id.run do
   let n := text.utf8ByteSize
-  let mut names : Std.HashMap String LidxEntry := Std.HashMap.emptyWithCapacity 524288
+  -- Not a literal capacity: that compiles to a constant kept all run and copied by the first insert (524288 cost M's render 30 MB).
+  let mut lines := 0
+  for k in [0:n] do
+    if byteAt text k == 10 then lines := lines + 1
+  let mut names : Std.HashMap String LidxEntry := Std.HashMap.emptyWithCapacity lines
   let mut modules : Std.HashSet String := Std.HashSet.emptyWithCapacity 8192
   let mut group := ""
   let mut i := 0

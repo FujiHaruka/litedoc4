@@ -13,10 +13,14 @@ structure Opened where
   index : Index
   pages : Option SitePages
 
-def textAt (byPath : Std.HashMap String ByteArray) (path : String) : Except String String := do
-  let some bytes := byPath.get? path | throw s!"the entry holds no `{path}`"
-  let some s := String.fromUTF8? bytes | throw s!"`{path}` is not UTF-8"
-  pure s
+def bytesText (path : String) : Option ByteArray → Except String String
+  | none => throw s!"the entry holds no `{path}`"
+  | some bytes => match String.fromUTF8? bytes with
+    | some s => pure s
+    | none => throw s!"`{path}` is not UTF-8"
+
+def textAt (byPath : Std.HashMap String ByteArray) (path : String) : Except String String :=
+  bytesText path (byPath.get? path)
 
 def parseAt (byPath : Std.HashMap String ByteArray) (path : String) : Except String JVal := do
   match parseJson (← textAt byPath path) with
@@ -33,13 +37,22 @@ def openEntry (r : Store.Record) (files : Array (String × ByteArray))
     throw (schemaRefusal "index.json" index.schemaVersion)
   return { record := r, checkout, files, byPath, index, pages }
 
-def Opened.module (o : Opened) (e : IndexEntry) : Except String Module := do
+-- Not a closure over `byPath`: the loader would hold every module's bytes until the last page is built.
+structure StoredModule where
+  path : String
+  module : String
+  bytes : Option ByteArray
+
+def StoredModule.of (byPath : Std.HashMap String ByteArray) (e : IndexEntry) : StoredModule :=
   let path := Store.irPrefix ++ e.file
-  let m ← match parseModule (← textAt o.byPath path) with
+  { path, module := e.module, bytes := byPath.get? path }
+
+def StoredModule.load (s : StoredModule) (_ : Unit) : Except String Module := do
+  let m ← match parseModule (← bytesText s.path s.bytes) with
     | .ok m => pure m
-    | .error why => throw s!"parsing `{path}`: {why}"
-  if m.schemaVersion < minSchemaVersion then throw (schemaRefusal path m.schemaVersion)
-  if m.name != e.module then throw (mismatchRefusal path e.module m.name)
+    | .error why => throw s!"parsing `{s.path}`: {why}"
+  if m.schemaVersion < minSchemaVersion then throw (schemaRefusal s.path m.schemaVersion)
+  if m.name != s.module then throw (mismatchRefusal s.path s.module m.name)
   return m
 
 def Opened.finish (o : Opened) (modules : Array (Unit → Except String Module)) :
@@ -56,7 +69,8 @@ def Opened.finish (o : Opened) (modules : Array (Unit → Except String Module))
 def inputOf (r : Store.Record) (files : Array (String × ByteArray))
     (pages : Option SitePages := none) : Except String Input := do
   let o ← openEntry r files pages
-  o.finish (o.index.modules.map fun e _ => o.module e)
+  let stored := o.index.modules.map (StoredModule.of o.byPath)
+  o.finish (stored.map StoredModule.load)
 
 end Data
 end Litedoc4
