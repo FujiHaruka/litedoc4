@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# usage (all of Mathlib at four releases through `litedoc4 build --versions`, the older three read
+# usage (all of Mathlib at the releases MV_L_TAGS names, through `litedoc4 build --versions`, the older ones read
 # by the .olean reader into the newest):
 #   mv-l-run.sh setup     build litedoc4, clone Mathlib's tags, check out the last
 #   mv-l-run.sh scratch   (c) every tag into an empty <work>/c, each older one read alone
+#   mv-l-run.sh full      every tag into an empty <work>/c as hosting builds it (the reuse chain,
+#                         hosting/mathlib/litedoc4.toml), up to three attempts on the same store
+#   mv-l-run.sh noop      the same build again into <work>/c, which has nothing left to do
+#   mv-l-run.sh served    tools/served-gate.sh against <work>/c/site served on 127.0.0.1
 #   mv-l-run.sh reuse     (d) the newest built natively, then each older tag, newest first, read
 #                         twice by `reader extract --lazy-proofs`: alone (a) and with --reuse-from
 #                         the newer tag's reader IR (r); the two compared, then deleted
-#   mv-l-run.sh report    sizes of the store and site of <work>/c
+#   mv-l-run.sh report    sizes of the store and site of <work>/c, and whose prints each entry holds
 #
 # Environment: MV_L_WORK (default $RUNNER_TEMP/mv-l or /private/tmp/lean-doc-relay/mv-l),
-# MV_L_JOBS (default 4), MV_L_TAGS (default v4.32.2,v4.33.0,v4.33.1,v4.34.1; the last is the newest).
+# MV_L_JOBS (default 4), MV_L_TAGS (default v4.32.2,v4.33.0,v4.33.1,v4.34.1; the last is the newest),
+# MV_L_SERVED_PORT (default 8941).
 # `reuse` on prepared checkouts instead of the clone (a small local run), all optional:
 #   MV_L_NEWEST_WORKSPACE  a built workspace of the newest tag, only read (default: the clone,
 #                          whose cache `reuse` fetches and builds)
@@ -33,6 +38,8 @@ IFS=, read -r -a TAGS <<<"${MV_L_TAGS:-v4.32.2,v4.33.0,v4.33.1,v4.34.1}"
 NEWEST="${TAGS[${#TAGS[@]}-1]}"
 OLDER=("${TAGS[@]:0:${#TAGS[@]}-1}")
 LITEDOC4="$ROOT/.lake/build/bin/litedoc4"
+CONFIG="$ROOT/hosting/mathlib/litedoc4.toml"
+RUN_STATUS=0
 mkdir -p "$LOGS"
 
 list () { (IFS=,; echo "$*"); }
@@ -74,7 +81,7 @@ rss_timeline() {
 live() {
   local label="$1"
   tail -n +1 -F "$LOGS/$label.out" 2>/dev/null |
-    grep --line-buffered -E '^(phase|versions |version |phases |render )' &
+    grep --line-buffered -E '^(phase|versions |version |phases |render |reuse-from |reader )' &
   (sudo -n dmesg -w 2>/dev/null | grep --line-buffered -iE 'out of memory|oom|killed process') &
   while true; do
     sleep 30
@@ -103,7 +110,7 @@ run() {
   pkill -f "tail -n \\+1 -F $LOGS/$label.out" 2>/dev/null || true
   wait "$sampler" "$timeline" "$watcher" 2>/dev/null || true
   echo "exit $status" >>"$LOGS/$label.out"
-  grep -E '^(phase|versions |version |put |identity |reader |newest |phases |render |build |exit )' \
+  grep -E '^(phase|versions |version |put |identity |reader |newest |phases |render |build |reuse-from |exit )' \
     "$LOGS/$label.out" || true
   echo "--- peak per process (MiB, 1-s samples of /proc/<pid>/status)"
   awk '!/^#/ { if ($4 > a[$2]) a[$2] = $4; if ($5 > f[$2]) f[$2] = $5; if ($6 > s[$2]) s[$2] = $6 }
@@ -115,7 +122,7 @@ run() {
   echo "--- GNU time (the largest process in the tree, not the reader alone)"
   grep -E 'Elapsed|Maximum resident|User time|System time' "$LOGS/$label.err" || true
   tail -n 25 "$LOGS/$label.err"
-  answer "$status"
+  RUN_STATUS=$status
 }
 
 LAKE="${LAKE:-$(command -v lake || echo "$HOME/.elan/bin/lake")}"
@@ -544,6 +551,37 @@ case "${1:-}" in
   scratch)
     rm -rf "$OUT_C"
     run c "$OUT_C" --reader-alone
+    answer "$RUN_STATUS"
+    ;;
+  full)
+    rm -rf "$OUT_C"
+    for attempt in 1 2 3; do
+      run "full-$attempt" "$OUT_C" --config "$CONFIG"
+      if [ "$RUN_STATUS" = 0 ]; then break; fi
+      echo "full-$attempt exited $RUN_STATUS; the store keeps every version already put" >&2
+      if [ "$attempt" -lt 3 ]; then sleep 60; fi
+    done
+    echo "full: $attempt attempt(s), exit $RUN_STATUS"
+    answer "$RUN_STATUS"
+    ;;
+  noop)
+    run noop "$OUT_C" --config "$CONFIG"
+    answer "$RUN_STATUS"
+    ;;
+  served)
+    port="${MV_L_SERVED_PORT:-8941}"
+    [ -d "$OUT_C/site" ] || { echo "no $OUT_C/site" >&2; exit 1; }
+    python3 -m http.server --bind 127.0.0.1 --directory "$OUT_C/site" "$port" >"$LOGS/served-httpd.log" 2>&1 &
+    for _ in $(seq 30); do
+      if curl -fsS -o /dev/null "http://127.0.0.1:$port/versions.json" 2>/dev/null; then break; fi
+      sleep 1
+    done
+    status=0
+    "$ROOT/tools/served-gate.sh" --declared "$(list "${TAGS[@]}")" --out "$OUT_C" \
+      --url "http://127.0.0.1:$port" >"$LOGS/served.txt" 2>&1 || status=$?
+    grep -vE '^ITEM [^ ]+ ok ' "$LOGS/served.txt" | tail -n 60
+    echo "served-gate exit $status"
+    answer "$status"
     ;;
   reuse)
     reuse_arm
@@ -552,10 +590,32 @@ case "${1:-}" in
     {
       echo "store entries (bytes):"
       find "$OUT_C/store" -type f -exec ls -l {} + | awk '{ print $5, $9 }' | sed "s#$OUT_C/##"
+      echo "store total: $(du -sk "$OUT_C/store" | awk '{ print $1 }') KiB"
+      echo "whose prints each entry holds (record.json, scalar fields):"
+      find "$OUT_C/store" -name record.json | sort | while IFS= read -r r; do
+        echo "  ${r#"$OUT_C/"}: $(python3 -c 'import json, sys
+r = json.load(open(sys.argv[1], encoding="utf-8"))
+print(", ".join("%s=%s" % (k, json.dumps(v)) for k, v in sorted(r.items()) if not isinstance(v, (dict, list))))' "$r")"
+      done
       echo "site: $(find "$OUT_C/site" -type f | wc -l | tr -d ' ') files, $(du -sk "$OUT_C/site" | awk '{ print $1 }') KiB"
       for d in "$OUT_C/site"/*/; do
         echo "  $(basename "$d"): $(find "$d" -type f | wc -l | tr -d ' ') files, $(du -sk "$d" | awk '{ print $1 }') KiB"
       done
+      python3 -c 'import os, sys
+sizes = []
+for d, _, fs in os.walk(sys.argv[1]):
+    for f in fs:
+        p = os.path.join(d, f)
+        sizes.append((os.path.getsize(p), os.path.relpath(p, sys.argv[1])))
+edges = [4096, 65536, 1 << 20, 25 << 20]
+counts = [0] * (len(edges) + 1)
+for n, _ in sizes:
+    counts[sum(n >= e for e in edges)] += 1
+print("site apparent bytes: %d in %d files" % (sum(n for n, _ in sizes), len(sizes)))
+print("files by size: <4 KiB %d, <64 KiB %d, <1 MiB %d, <25 MiB %d, >=25 MiB %d" % tuple(counts))
+for n, p in sorted(sizes, reverse=True)[:5]:
+    print("  largest: %d %s" % (n, p))' "$OUT_C/site"
+      echo "site as one tar.gz (-6): $(tar -C "$OUT_C/site" -cf - . | gzip -6 | wc -c | tr -d ' ') bytes"
       df -h "$WORK"
     } | tee "$LOGS/report.txt"
     ;;
