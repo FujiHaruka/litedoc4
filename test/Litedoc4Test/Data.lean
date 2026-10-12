@@ -22,6 +22,19 @@ def pageRoot (module : String) : String := Id.run do
   for _ in [0:(moduleComponents module).size - 1] do out := out ++ "../"
   return out ++ "./"
 
+instance : Inhabited Data.VersionData :=
+  ⟨{ name := "", title := "", pages := #[], front := none, footer := none, references := .empty
+     modules := .empty, search := .empty, instances := .empty, usedBy := #[], linkNames := 0
+     docTokens := 0 }⟩
+
+def versionOf (v : Data.Input) : Data.VersionData :=
+  match Data.versionData v with
+  | .ok d => d
+  | .error why => panic! why
+
+def held (modules : Array Module) : Array (Unit → Except String Module) :=
+  modules.map fun m _ => .ok m
+
 def dataSpan (start stop kind : Nat) (name : String := "") : Span := { start, stop, kind, name }
 
 def fDecl : Decl :=
@@ -57,8 +70,8 @@ def pinned : ExternalLinks := mkExternalLinks #[("Init", "https://core/src"), ("
 def dataVersion (name : String) (a : Array Decl) (depStart : Nat := 10)
     (b : Array Decl := #[hDecl]) (others : Array Module := #[]) (sources := pinned) :
     Data.VersionData :=
-  Data.versionData
-    { name, modules := #[moduleA a, moduleB b] ++ others, depMaps := dataDepMaps
+  versionOf
+    { name, modules := held (#[moduleA a, moduleB b] ++ others), depMaps := dataDepMaps
       lidx := dataLidx depStart, sources }
 
 def base : Data.VersionData := dataVersion "v1" #[fDecl, gDecl]
@@ -99,8 +112,8 @@ def itemText (v : Data.VersionData) (module : String) (i : Nat) : String :=
   (((pageAt v module).bind (·.items[i]?)).bind (String.fromUTF8? ·.content.bytes)).getD ""
 
 def aPageFileListsEachImportOnceInNameOrder : Bool :=
-  let v := Data.versionData
-    { name := "imports", modules := #[{ moduleB #[hDecl] with imports := #["P.A", "Init", "Init"] }]
+  let v := versionOf
+    { name := "imports", modules := held #[{ moduleB #[hDecl] with imports := #["P.A", "Init", "Init"] }]
       depMaps := #[], lidx := dataLidx 10, sources := {} }
   ((pageAt v "P.B").map (·.imports)) == some #["Init", "P.A"]
 
@@ -468,7 +481,7 @@ def everyVersionHasASearchAndAFoundationalTypesShellCarryingBuildsText : Bool :=
 
 /-- No docstring anywhere, so `#guard` reaches it without md4c. -/
 def undocumented (modules : Array Module) : Data.VersionData :=
-  Data.versionData { name := "u", modules, depMaps := dataDepMaps, lidx := dataLidx 10, sources := pinned }
+  versionOf { name := "u", modules := held modules, depMaps := dataDepMaps, lidx := dataLidx 10, sources := pinned }
 
 def theVersionFileListsExactlyTheRootsItsPagesNameWithTheBaseTheyResolvedUnder : Bool :=
   let onlyB := undocumented #[moduleB #[hDecl]]
@@ -570,8 +583,8 @@ def deepCiting : Module :=
 
 def siteVersion (name : String) (a : Array Decl) (front : Option String := none)
     (footer : Option String := none) : Data.VersionData :=
-  Data.versionData
-    { name, modules := #[moduleA a, moduleB #[hDecl], deepCiting], depMaps := dataDepMaps
+  versionOf
+    { name, modules := held #[moduleA a, moduleB #[hDecl], deepCiting], depMaps := dataDepMaps
       lidx := dataLidx 10, sources := pinned
       site := { title := some "T", indexMarkdown := front, footerMarkdown := footer
                 bibliography := dataBib } }

@@ -1,6 +1,5 @@
 /- A store entry, as the data format's input, read in memory. -/
 import Litedoc4.Data.Version
-import Litedoc4.Parallel
 import Litedoc4.Store
 
 namespace Litedoc4
@@ -43,7 +42,8 @@ def Opened.module (o : Opened) (e : IndexEntry) : Except String Module := do
   if m.name != e.module then throw (mismatchRefusal path e.module m.name)
   return m
 
-def Opened.finish (o : Opened) (modules : Array Module) : Except String Input := do
+def Opened.finish (o : Opened) (modules : Array (Unit → Except String Module)) :
+    Except String Input := do
   let mut depMaps : Array (Array (String × String)) := #[]
   for e in o.index.dependencyMaps do
     depMaps := depMaps.push (depMapOf (← parseAt o.byPath (Store.irPrefix ++ e.file)))
@@ -56,14 +56,7 @@ def Opened.finish (o : Opened) (modules : Array Module) : Except String Input :=
 def inputOf (r : Store.Record) (files : Array (String × ByteArray))
     (pages : Option SitePages := none) : Except String Input := do
   let o ← openEntry r files pages
-  o.finish (← o.index.modules.mapM o.module)
-
-def inputOn (workers : Nat) (r : Store.Record) (files : Array (String × ByteArray))
-    (pages : Option SitePages := none) : ExceptT String IO Input := do
-  let o ← openEntry r files pages
-  let parsed ← parallelMap workers o.index.modules (pure ∘ o.module)
-  let modules ← (parsed.mapM id : Except String (Array Module))
-  o.finish modules
+  o.finish (o.index.modules.map fun e _ => o.module e)
 
 end Data
 end Litedoc4

@@ -11,13 +11,18 @@ namespace Litedoc4
 /-- Every name that is some declaration's member, over the **whole site**: a
 structure declared in `A` can have its projections attributed to `B`, and a
 per-module set leaves those on `B`'s page. -/
-def suppressedOf (mods : Array Module) : Std.HashSet String := Id.run do
+def suppressedFrom (memberNames : Array (Array String)) : Std.HashSet String := Id.run do
   let mut s : Std.HashSet String := Std.HashSet.emptyWithCapacity 512
-  for m in mods do
-    for d in m.decls do
-      for mem in d.members do
-        s := s.insert mem.name
+  for names in memberNames do
+    for name in names do
+      s := s.insert name
   return s
+
+def memberNamesOf (m : Module) : Array String :=
+  m.decls.flatMap fun d => d.members.map (·.name)
+
+def suppressedOf (mods : Array Module) : Std.HashSet String :=
+  suppressedFrom (mods.map memberNamesOf)
 
 /-! ## Page order
 

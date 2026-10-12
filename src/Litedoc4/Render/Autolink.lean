@@ -91,7 +91,18 @@ structure NameIndex where
   external : ExternalLinks
   deriving Inhabited
 
-def buildIndex (deps : Array (Array (String × String))) (mods : Array Module)
+structure DeclNames where
+  name : String
+  refs : Array (String × String)
+
+structure ModuleNames where
+  name : String
+  decls : Array DeclNames
+
+def ModuleNames.of (m : Module) : ModuleNames :=
+  { name := m.name, decls := m.decls.map fun d => { name := d.name, refs := d.refs } }
+
+def buildIndex (deps : Array (Array (String × String))) (mods : Array ModuleNames)
     (lidx : Lidx) (external : ExternalLinks) (nonModuleFiles : Array String := #[]) :
     NameIndex := Id.run do
   let mut known : Std.HashMap String String := Std.HashMap.emptyWithCapacity 16384

@@ -1762,9 +1762,9 @@ def storeMeasure (a : StoreArgs) (store : System.FilePath) : IO UInt32 := do
   let mut vs : Array Data.VersionData := #[]
   for v in names do
     let s ← Store.read store v
-    match Data.inputOf s.record s.files with
+    match Data.inputOf s.record s.files >>= Data.versionData with
     | .error why => return ← refusedWith 3 s!"store entry {v.text}: {why}"
-    | .ok input => vs := vs.push (Data.versionData input)
+    | .ok data => vs := vs.push data
   let layout ← match measureLayout candidate chunkBytes vs with
     | .error why => return ← refusedWith 3 why
     | .ok layout => pure layout

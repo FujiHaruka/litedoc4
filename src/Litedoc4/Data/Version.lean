@@ -47,7 +47,7 @@ namespace Data
 
 structure Input where
   name : String
-  modules : Array Module
+  modules : Array (Unit → Except String Module)
   depMaps : Array (Array (String × String))
   lidx : Lidx
   sources : ExternalLinks
@@ -182,7 +182,15 @@ def referencesJson (items : Array BibItem) (backrefs : Array Backref) : String :
       jsonStr (jsonStr (out.push '[') b.module ++ s!",{b.index},") b.citation.funName |>.push ']')
       |>.push '}'
 
-def Input.factsOf (v : Input) (m : Module) : ModuleFacts := Litedoc4.factsOf m "" v.site.bibliography
+structure Scanned where
+  facts : ModuleFacts
+  names : ModuleNames
+  members : Array String
+
+def Input.scan (v : Input) (load : Unit → Except String Module) : Except String Scanned := do
+  let m ← load ()
+  return { facts := Litedoc4.factsOf m "" v.site.bibliography, names := .of m
+           members := memberNamesOf m }
 
 structure Prepared where
   input : Input
@@ -190,19 +198,20 @@ structure Prepared where
   derived : Derived
   suppressed : Std.HashSet String
   index : NameIndex
-  pageModules : Array Module
+  pageModules : Array (Unit → Except String Module)
 
-def prepare (v : Input) (facts : Array ModuleFacts) : Prepared := Id.run do
+def prepare (v : Input) (scanned : Array Scanned) : Prepared := Id.run do
+  let facts := scanned.map (·.facts)
   let d := deriveData facts v.depMaps
-  let mut byName : Std.HashMap String Module := {}
-  for m in v.modules do byName := byName.insert m.name m
+  let mut byName : Std.HashMap String (Unit → Except String Module) := {}
+  for (s, load) in scanned.zip v.modules do byName := byName.insert s.names.name load
   let sources : ExternalLinks := { roots := v.sources.roots.map ({ · with docs := none }) }
-  return { input := v, facts, derived := d, suppressed := suppressedOf v.modules
-           index := buildIndex v.depMaps v.modules v.lidx sources
+  return { input := v, facts, derived := d, suppressed := suppressedFrom (scanned.map (·.members))
+           index := buildIndex v.depMaps (scanned.map (·.names)) v.lidx sources
            pageModules := d.modules.filterMap byName.get? }
 
-def Prepared.page (p : Prepared) (m : Module) : Page :=
-  pageOf p.input.site.bibliography p.index m p.suppressed
+def Prepared.page (p : Prepared) (load : Unit → Except String Module) : Except String Page :=
+  return pageOf p.input.site.bibliography p.index (← load ()) p.suppressed
 
 def Prepared.finish (p : Prepared) (pages : Array Page) : VersionData :=
   let v := p.input
@@ -216,13 +225,16 @@ def Prepared.finish (p : Prepared) (pages : Array Page) : VersionData :=
     linkNames := pages.foldl (fun n p => n + p.names.size + p.words.size) 0
     docTokens := (dedupSorted (sortUtf16 (p.facts.flatMap (·.tokens)))).size }
 
-def versionData (v : Input) : VersionData :=
-  let p := prepare v (v.modules.map v.factsOf)
-  p.finish (p.pageModules.map p.page)
+-- Pages parse again rather than reuse `scan`'s modules, which would all be held at once; fine if a parsed module were near its bytes' size.
+def versionData (v : Input) : Except String VersionData := do
+  let p := prepare v (← v.modules.mapM v.scan)
+  return p.finish (← p.pageModules.mapM p.page)
 
-def versionDataOn (workers : Nat) (v : Input) : IO VersionData := do
-  let p := prepare v (← parallelMap workers v.modules (pure ∘ v.factsOf))
-  return p.finish (← parallelMap workers p.pageModules (pure ∘ p.page))
+def versionDataOn (workers : Nat) (v : Input) : ExceptT String IO VersionData := do
+  let scanned ← parallelMap workers v.modules (pure ∘ v.scan)
+  let p := prepare v (← ExceptT.mk (pure (scanned.mapM id)))
+  let pages ← parallelMap workers p.pageModules (pure ∘ p.page)
+  return p.finish (← ExceptT.mk (pure (pages.mapM id)))
 
 def pushResolved (out : String) (rootAt : String → Nat) (key : String) : Resolved → String
   | .own module none => jsonStr (out.push '[') module ++ ",null]"

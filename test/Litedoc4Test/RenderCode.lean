@@ -14,7 +14,7 @@ def noRefs : Std.HashMap String String := Std.HashMap.emptyWithCapacity 0
 what a run has for its own package's modules. -/
 def codeIndex (entries : List (String × String)) (pages : List String := [])
     (lidx : String := "") (external : List (String × String) := []) : NameIndex :=
-  buildIndex #[] (alModules entries pages) (parseLidx lidx) (mkExternalLinks external.toArray)
+  buildIndex #[] (namesOf (alModules entries pages)) (parseLidx lidx) (mkExternalLinks external.toArray)
 
 /-- The extractor resolved every constant it tagged against the environment,
 which is what makes a constant link to the module that *defined* it rather than
