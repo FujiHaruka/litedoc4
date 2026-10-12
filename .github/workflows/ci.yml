@@ -73,11 +73,17 @@ jobs:
         run: tools/md-oracle-gate.sh
 
       # Nothing else in the tree looks for a memory-safety or a leak defect in
-      # the C Lake links into both executables. Two of the six items exist only
+      # md4c and md_events.c, which Lake links into both executables. Two of the six items exist only
       # to show the sanitizer is watching that C and not the harness around it:
       # a clean subject and an uninstrumented one print the same nothing.
       - name: The vendored C is memory-safe over the fuzz corpus
         run: tools/md-memory-gate.sh
+
+      # The same pairing for the gzip reader every store read goes through: an
+      # injected read past the input piece is reported only where gzip.c was
+      # built with the flag, and the corpus is read whole and split at every byte.
+      - name: The gzip reader is memory-safe over whole, cut and split members
+        run: tools/gzip-memory-gate.sh
 
       # A release moves one literal in Version.lean; six other files repeat it,
       # and until this gate nothing read either side. Item 3 is the one that

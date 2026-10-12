@@ -174,26 +174,35 @@ def refusedAs (label : String) (input : ByteArray) (why : Gzip.Refusal) : Option
   | .error e => (eq e why.message).map (s!"{label}: " ++ ·)
   | .ok _ => some s!"{label}: accepted, expected \"{why.message}\""
 
-def malformedMembers : List (Option String) :=
+def storedThenDistanceCode30 : ByteArray :=
+  ⟨#[0x00, 0x40, 0x9c, 0xbf, 0x63]⟩ ++ ⟨Array.replicate 40000 0x78⟩ ++ ⟨#[0x03, 0x3e, 0x00]⟩
+
+def malformedInputs : List (String × ByteArray × Gzip.Refusal) :=
   let m := pythonMember
   let n := m.size
   let header := m.extract 0 10
   let body := m.extract 10 (n - 8)
   let trailer := m.extract (n - 8) n
-  [refusedAs "17 bytes" (m.extract 0 17) .shorterThanAMember,
-   refusedAs "a zip signature" (withByte m 0 0x50) .notGzip,
-   refusedAs "method 7" (withByte m 2 7) .notDeflate,
-   refusedAs "flag bit 5" (withByte m 3 0x20) .reservedFlagSet,
-   refusedAs "FNAME with no terminator" (withByte header 3 0x08 ++ "unterminated".toUTF8 ++ trailer)
-     .headerRunsIntoTrailer,
-   refusedAs "a wrong header CRC" (withByte pythonMemberWithEveryField 34 0) .headerChecksumMismatch,
-   refusedAs "a length of 4 GiB - 1" (withLe32 m (n - 4) 0xffffffff) .trailerClaimsMoreThanDeflateCanHold,
-   refusedAs "block type 3" (header ++ ⟨#[0x07]⟩ ++ trailer) .corruptDeflate,
-   refusedAs "half a body" (header ++ body.extract 0 (body.size / 2) ++ trailer) .truncatedDeflate,
-   refusedAs "a second trailer" (m ++ trailer) .bytesBetweenDeflateAndTrailer,
-   refusedAs "a length one short" (withLe32 m (n - 4) (storeSentence.size - 1)) .longerThanItsTrailerSays,
-   refusedAs "a length one long" (withLe32 m (n - 4) (storeSentence.size + 1)) .shorterThanItsTrailerSays,
-   refusedAs "a CRC off by one" (withLe32 m (n - 8) (le32 m (n - 8) ^^^ 1)) .checksumMismatch]
+  [("17 bytes", m.extract 0 17, .shorterThanAMember),
+   ("a zip signature", withByte m 0 0x50, .notGzip),
+   ("method 7", withByte m 2 7, .notDeflate),
+   ("flag bit 5", withByte m 3 0x20, .reservedFlagSet),
+   ("FNAME with no terminator", withByte header 3 0x08 ++ "unterminated".toUTF8 ++ trailer,
+     .headerRunsIntoTrailer),
+   ("a wrong header CRC", withByte pythonMemberWithEveryField 34 0, .headerChecksumMismatch),
+   ("a length of 4 GiB - 1", withLe32 m (n - 4) 0xffffffff, .trailerClaimsMoreThanDeflateCanHold),
+   ("block type 3", header ++ ⟨#[0x07]⟩ ++ trailer, .corruptDeflate),
+   ("a match before any output", header ++ ⟨#[0x03, 0x02, 0x00]⟩ ++ trailer, .corruptDeflate),
+   ("distance code 30 after 40000 bytes",
+     header ++ storedThenDistanceCode30 ++ withLe32 trailer 4 40003, .corruptDeflate),
+   ("half a body", header ++ body.extract 0 (body.size / 2) ++ trailer, .truncatedDeflate),
+   ("a second trailer", m ++ trailer, .bytesBetweenDeflateAndTrailer),
+   ("a length one short", withLe32 m (n - 4) (storeSentence.size - 1), .longerThanItsTrailerSays),
+   ("a length one long", withLe32 m (n - 4) (storeSentence.size + 1), .shorterThanItsTrailerSays),
+   ("a CRC off by one", withLe32 m (n - 8) (le32 m (n - 8) ^^^ 1), .checksumMismatch)]
+
+def malformedMembers : List (Option String) :=
+  malformedInputs.map fun (label, input, why) => refusedAs label input why
 
 def eachRefusalNamesWhatItFound : Invariant where
   name := "each malformed member is refused with the message for what is wrong with it"

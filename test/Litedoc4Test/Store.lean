@@ -4,6 +4,7 @@ import Litedoc4.Data.SiteLedger
 import Litedoc4.Ledger
 import Litedoc4.Store
 import Litedoc4Test.Basis
+import Litedoc4Test.Gzip
 
 namespace Litedoc4Test
 open Litedoc4 Litedoc4.Store System
@@ -189,6 +190,27 @@ def refusalOf : Except String α → String
   | .ok _ => ""
 
 def mentions (text part : String) : Bool := (text.splitOn part).length ≥ 2
+
+def eachMalformedPackIsRefusedWithTheMessageForWhatIsWrongWithIt : Bool :=
+  [("litedoc4-pack 2\n1\na\n1\nx", "not a pack: it does not open with `litedoc4-pack 1`"),
+   ("litedoc4-pack", "not a pack: it does not open with `litedoc4-pack 1`"),
+   ("litedoc4-pack 1\n1", "the file count has no line end"),
+   ("litedoc4-pack 1\n01\na\n1\nx", "the file count is not a decimal number"),
+   ("litedoc4-pack 1\n2\na\n1\nx", "the pack holds 1 of the 2 files it declares"),
+   ("litedoc4-pack 1\n1\na", "file 1 of 1: its path has no line end"),
+   ("litedoc4-pack 1\n1\n\n1\nx", "file 1 of 1: a path is empty"),
+   ("litedoc4-pack 1\n1\n../a\n1\nx", "file 1 of 1: `../a` has an empty, `.` or `..` component"),
+   ("litedoc4-pack 1\n2\nb\n1\nxa\n1\nx",
+     "`a` follows `b`: the paths are not in strictly ascending byte order"),
+   ("litedoc4-pack 1\n1\na\n1", "`a`: its length has no line end"),
+   ("litedoc4-pack 1\n1\na\n01\nx", "`a`: its length is not a decimal number"),
+   ("litedoc4-pack 1\n1\na\n2\nx", "`a` claims 2 bytes and 1 remain"),
+   ("litedoc4-pack 1\n1\na\n1\nxyz", "2 byte(s) follow the last of the 1 files")].all
+    (fun (pack, why) => refusalOf (packText pack) == why)
+  && refusalOf (decode ("litedoc4-pack 1\n1\n".toUTF8 ++ ⟨#[0xff]⟩ ++ "\n1\nx".toUTF8))
+    == "file 1 of 1: its path is not UTF-8"
+
+#guard eachMalformedPackIsRefusedWithTheMessageForWhatIsWrongWithIt
 
 def anEntryWithoutTheSiteConfigurationOrTheSourceMapNeedsReputAndACurrentOneDoesNot : Bool :=
   withSample fun r _ _ =>
@@ -443,6 +465,135 @@ def aTamperedPackIsRefusedByItsDigestOrItsLengthNamingTheEntry : Invariant where
       eq intact none]
     IO.FS.removeDirAll dir
     return answer
+
+def aPackWhoseTrailerCrcIsWrongIsRefusedByTheMemberNamingTheEntryEvenWithItsDigestRecorded :
+    Invariant where
+  name := "a pack whose trailer CRC is wrong is refused by the member, naming the entry, even when \
+    its record carries that pack's digest"
+  check := do
+    let dir ← scratch "trailer"
+    let store := dir / "store"
+    writeOut dir (some identityAText) "{}"
+    let v1 ← versionNamed "v1"
+    let _ ← putOut store v1 dir
+    let pack := entryDir store v1 / packFile
+    let original ← IO.FS.readBinFile pack
+    let crcAt := original.size - 8
+    let wrong := original.set! crcAt (original[crcAt]! ^^^ 1)
+    IO.FS.writeBinFile pack wrong
+    let record ← readRecord store v1
+    IO.FS.writeFile (entryDir store v1 / recordFile) { record with packSha256 := sha256Hex wrong }.toJson
+    let refused ← messageOf (read store v1)
+    let answer := if says refused ["store entry v1", Gzip.Refusal.checksumMismatch.message] then none
+      else some s!"a wrong trailer CRC was answered {refused}"
+    IO.FS.removeDirAll dir
+    return answer
+
+/-! ## A pack read as its member inflates -/
+
+def feederOf (pieces : List ByteArray) : IO (IO ByteArray) := do
+  let left ← IO.mkRef pieces
+  return do
+    match ← left.get with
+    | [] => return .empty
+    | piece :: rest => left.set rest; return piece
+
+def piecesOf (b : ByteArray) (cuts : List Nat) : List ByteArray :=
+  let bounds := (0 :: cuts.filter (fun c => c > 0 && c < b.size)) ++ [b.size]
+  (bounds.zip bounds.tail).filterMap fun (a, z) => if a < z then some (b.extract a z) else none
+
+def chunksOf (b : ByteArray) (n : Nat) : List ByteArray :=
+  piecesOf b ((List.range ((b.size + n - 1) / n)).map (· * n))
+
+def everySplit (b : ByteArray) : List (List ByteArray) :=
+  (List.range b.size).map fun cut => piecesOf b [cut]
+
+def wholeAnswer (member : ByteArray) : Except String (Array (String × ByteArray)) :=
+  match Gzip.decompress member with
+  | .ok packed => decode packed
+  | .error why => .error why
+
+def streamedAs (label : String) (member : ByteArray) (pieces : List ByteArray)
+    (want : Except String (Array (String × ByteArray))) (inflated : Option Nat) :
+    IO (Option String) := do
+  let u ← unpackMember member.size (← feederOf pieces)
+  let at_ := s!"{label}, in {pieces.length} piece(s)"
+  return match u.files.mapError (·.message), want with
+    | .ok got, .ok want =>
+      if !samePairs got want then some s!"{at_}: other files than {want.size} expected"
+      else if some u.packedBytes != inflated then
+        some s!"{at_}: {u.packedBytes} bytes inflated, expected {inflated}"
+      else none
+    | .error got, .error want =>
+      if got == want then none else some s!"{at_}: refused \"{got}\", expected \"{want}\""
+    | .ok _, .error want => some s!"{at_}: accepted, expected \"{want}\""
+    | .error got, .ok _ => some s!"{at_}: refused \"{got}\", expected the files"
+
+def streamedLikeWhole (label : String) (member : ByteArray) (pieces : List ByteArray) :
+    IO (Option String) :=
+  streamedAs label member pieces (wholeAnswer member) ((Gzip.decompress member).toOption.map (·.size))
+
+def streamedToItsPack (label : String) (pack : ByteArray) (member : ByteArray)
+    (pieces : List ByteArray) : IO (Option String) :=
+  streamedAs label member pieces (decode pack) (some pack.size)
+
+def firstOf (checks : List (IO (Option String))) : IO (Option String) := do
+  for c in checks do
+    if let some why ← c then return some why
+  return none
+
+def samplePack : ByteArray := (encode sampleFiles).toOption.getD .empty
+
+def aPackReadAsItsMemberInflatesIsThePacksFilesWhereverTheChunksAreCut : Invariant where
+  name := "a pack read as its member inflates is the pack's files, cut at every byte and a byte \
+    at a time"
+  check := firstOf <| [6, 0].flatMap fun level =>
+    let member := Gzip.compress level samplePack
+    let label := s!"the sample pack at level {level}"
+    (everySplit member ++ [chunksOf member 1]).map (streamedToItsPack label samplePack member ·)
+
+def badPacks : List ByteArray :=
+  ["litedoc4-pack 2\n1\na\n1\nx", "litedoc4-pack 1\n01\na\n1\nx", "litedoc4-pack 1\n1\na\n01\nx",
+   "litedoc4-pack 1\n1\n../a\n1\nx", "litedoc4-pack 1\n1\n\n1\nx", "litedoc4-pack 1\n1\na",
+   "litedoc4-pack 1\n2\nb\n1\nxa\n1\nx", "litedoc4-pack 1\n1\na\n2\nx",
+   "litedoc4-pack 1\n1\na\n1\nxyz"].map String.toUTF8
+    ++ ["litedoc4-pack 1\n1\n".toUTF8 ++ ⟨#[0xff]⟩ ++ "\n1\nx".toUTF8]
+    ++ (List.range samplePack.size).map (samplePack.extract 0 ·)
+
+def aStreamedReadRefusesWithTheWholeMembersMessageForEveryGzipAndPackRefusal : Invariant where
+  name := "a streamed read refuses with the whole member's message for every gzip refusal, every \
+    cut member and every malformed or cut pack"
+  check := firstOf <|
+    (malformedInputs.flatMap fun (label, input, why) =>
+      [streamedLikeWhole label input [input], streamedLikeWhole label input (chunksOf input 1),
+       streamedLikeWhole label input (chunksOf input 5),
+       do
+         let u ← unpackMember input.size (← feederOf (chunksOf input 3))
+         return match u.files with
+           | .error (.gzip got) => eq got.message why.message
+           | _ => some s!"{label}: not refused by the member"])
+    ++ ((List.range (Gzip.compress 6 samplePack).size).map fun cut =>
+      let member := (Gzip.compress 6 samplePack).extract 0 cut
+      streamedLikeWhole s!"the first {cut} bytes of the member" member (chunksOf member 2))
+    ++ ((badPacks ++ [samplePack.push 0]).map fun pack =>
+      let member := Gzip.compress 6 pack
+      streamedToItsPack s!"a {pack.size}-byte malformed pack" pack member (chunksOf member 1))
+
+def largePack : ByteArray :=
+  let small := (List.range 300).map fun i => (s!"ir/modules/M{i}.json", repeatedText (i % 7) s!"\{\"m\":{i}}\n")
+  let files := #[("ir/big.bin", xorshiftBytes 1500000),
+                  ("ir/text.json", repeatedText 9000 "theorem foo (n : Nat) : n + 0 = n := rfl\n")]
+    ++ small.toArray
+  (encode files).toOption.getD .empty
+
+def aLargePackStreamsAcrossTheWindowAndAFileAboveAMebibyte : Invariant where
+  name := "a large pack, a file above a mebibyte and output well past the inflater's window, \
+    streams to the pack's files at several chunk sizes"
+  check := firstOf <| [6, 1, 0].flatMap fun level =>
+    let member := Gzip.compress level largePack
+    let label := s!"the large pack at level {level}"
+    [[member], chunksOf member 4096, chunksOf member 7919, chunksOf member 65536,
+     piecesOf member [member.size / 2]].map (streamedToItsPack label largePack member ·)
 
 def anIrWithNoIdentityIsRefusedAndLeavesNothingInTheStore : Invariant where
   name := "an IR whose index carries no extractorIdentity is refused and leaves nothing in the store"

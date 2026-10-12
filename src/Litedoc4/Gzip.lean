@@ -50,5 +50,60 @@ private opaque inflateMember (input : @& ByteArray) : Except Refusal ByteArray
 def decompress (input : ByteArray) : Except String ByteArray :=
   (inflateMember input).mapError Refusal.message
 
+private opaque ReaderPointed : NonemptyType
+
+/-- One member of a known length, inflated a piece at a time; it answers a
+refusal or the end only once every byte of the member has reached it. -/
+def Reader : Type := ReaderPointed.type
+
+instance : Nonempty Reader := ReaderPointed.property
+
+@[extern "litedoc4_gzip_reader_new"]
+private opaque Reader.new (memberBytes : USize) : BaseIO Reader
+
+private structure Pulled where
+  dest : ByteArray
+  pos : Nat
+  outcome : Except Refusal Nat
+  deriving Inhabited
+
+@[extern "litedoc4_gzip_reader_pull"]
+private opaque Reader.pull (r : @& Reader) (input : @& ByteArray) (pos : USize) (dest : ByteArray)
+  (want : USize) (toLineEnd : Bool) : BaseIO Pulled
+
+inductive Piece where
+  | whole (bytes : ByteArray)
+  | last (bytes : ByteArray)
+
+def clampedUSize (n : Nat) : USize :=
+  if n < USize.size then n.toUSize else USize.ofNat (USize.size - 1)
+
+/-- A member whose bytes `next` hands over a chunk at a time. -/
+structure Inflow where
+  private reader : Reader
+  private next : IO ByteArray
+  private input : IO.Ref (ByteArray × Nat)
+
+def Inflow.new (memberBytes : Nat) (next : IO ByteArray) : IO Inflow := do
+  return { reader := ← Reader.new (clampedUSize memberBytes), next, input := ← IO.mkRef (.empty, 0) }
+
+/-- `want` bytes, or the bytes up to a line end and without it, as `whole`;
+`last` when the member ended first. -/
+partial def Inflow.pull (f : Inflow) (want : Nat) (toLineEnd : Bool) :
+    IO (Except Refusal Piece) := do
+  let (input, pos) ← f.input.get
+  let rec go (input : ByteArray) (pos : Nat) (dest : ByteArray) : IO (Except Refusal Piece) := do
+    let ⟨dest, pos, outcome⟩ ← f.reader.pull input pos.toUSize dest (clampedUSize want) toLineEnd
+    if outcome matches .ok 0 then
+      let more ← f.next
+      if !more.isEmpty then return ← go more 0 dest
+    f.input.set (input, pos)
+    return match outcome with
+      | .ok 0 => .error .truncatedDeflate
+      | .ok 1 => .ok (.whole dest)
+      | .ok _ => .ok (.last dest)
+      | .error why => .error why
+  go input pos .empty
+
 end Gzip
 end Litedoc4

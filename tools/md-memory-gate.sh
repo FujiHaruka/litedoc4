@@ -32,7 +32,7 @@
 #   it is a compared quantity.
 #
 #   **The optimisation level is not a difference any more.** It is read out of
-#   lakefile.lean's `ccFlags` below, so the gate compiles at whatever the product
+#   lakefile.lean's `ccFlags` by tools/lib/asan.sh, so the gate compiles at what the product
 #   compiles at and a change to one moves the other. It used to be a written-down
 #   `-O1` against a product built with no `-O` at all, which is a level nothing
 #   ships (measured 2026-09-02 ->
@@ -86,6 +86,8 @@ ROOT="$(cd "$HERE/.." && pwd)"
 # shellcheck source=lib/common.sh
 source "$HERE/lib/common.sh" || exit 1
 answer_required
+# shellcheck source=lib/asan.sh
+source "$HERE/lib/asan.sh" || exit 1
 
 CC="${CC:-cc}"
 DECLARED=6
@@ -120,44 +122,12 @@ command -v python3 >/dev/null 2>&1 || {
 WORK="$(mktemp -d)"
 on_exit 'rm -rf "$WORK"'
 
-# --------------------------------------------------------- optimisation level --
-# Taken from lakefile.lean's `ccFlags`, not written down here, for the same
-# reason the md4c flag word below is: a gate compiled at a level the product does
-# not ship would be watching code nobody runs. It watched -O1 against a product
-# built with no `-O` at all until this was read from the file (measured
-# 2026-09-02 -> benchmarks/results/md-memory-opt-2026-09-02.txt), and writing the
-# level down here again would only move the day the two drift.
-#
-# `-g` is not part of this and is added on top: it emits debug info and changes
-# no code, and without it a report names no line.
-PRODUCT_OPT="$(python3 - "$ROOT" <<'LAKEOPT'
-import pathlib
-import re
-import sys
-
-root = pathlib.Path(sys.argv[1])
-text = (root / "lakefile.lean").read_text(encoding="utf-8")
-
-body = re.search(r"(?ms)^def ccFlags\b.*?(?=^(?:def |/--|@\[|end )|\Z)", text)
-if not body:
-    sys.exit(
-        "md-memory-gate: lakefile.lean no longer defines ccFlags -- that function is "
-        "what the product's C is compiled with, and this gate cannot guess the level"
-    )
-levels = re.findall(r'"(-O[^"]*)"', body.group(0))
-if len(levels) > 1:
-    sys.exit(
-        "md-memory-gate: ccFlags names %d optimisation levels (%s) -- which one reaches "
-        "md4c.c depends on a branch this gate does not read" % (len(levels), ", ".join(levels))
-    )
-sys.stdout.write(levels[0] if levels else "")
-LAKEOPT
-)" || answer 2
+# ------------------------------------------------------ optimisation level --
+PRODUCT_OPT="$(asan_product_opt)" || answer 2
 
 CFLAGS_COMMON=(-g -Werror=implicit-function-declaration
                -I "$ROOT/csrc/memcheck" -I "$ROOT/vendor/md4c")
 [ -z "$PRODUCT_OPT" ] || CFLAGS_COMMON+=("$PRODUCT_OPT")
-ASAN=(-fsanitize=address -fno-omit-frame-pointer)
 
 compile () {  # compile <out.o> <src.c> asan|plain
   if [ "$3" = "asan" ]; then
@@ -171,30 +141,6 @@ link () {  # link <out> <obj>...
   local out="$1"
   shift
   "$CC" -g "${ASAN[@]}" -o "$out" "$@"
-}
-
-# A watchdog and not a `timeout`: macOS ships no `timeout`, and this gate has to
-# be able to say "the sanitizer runtime never came up" on the machine where that
-# actually happens rather than hang there.
-run_bounded () {  # run_bounded <seconds> <log> <cmd>...
-  local limit="$1" log="$2"
-  shift 2
-  "$@" >"$log" 2>&1 &
-  local pid=$!
-  ( sleep "$limit"; kill -9 "$pid" ) >/dev/null 2>&1 &
-  local dog=$!
-  local rc=0
-  # stderr dropped on both waits: the shell announces a killed child as
-  # `Killed: 9` on its own stderr, which would be the loudest line in the report
-  # of a watchdog firing exactly as designed.
-  wait "$pid" 2>/dev/null || rc=$?
-  kill "$dog" >/dev/null 2>&1 || true
-  wait "$dog" >/dev/null 2>&1 || true
-  return "$rc"
-}
-
-excerpt () {
-  sed -n '1,20p' "$1" | sed 's/^/      /'
 }
 
 # ---------------------------------------------------------------- flag word --
@@ -309,31 +255,10 @@ for name, path, old, new in INJECTIONS:
 PY
 
 # --------------------------------------------------------------------- probe --
-# Before any of it: can a program built with this flag reach its own main on
-# this platform? On macOS 26 with the Command Line Tools' clang 17 runtime it
-# cannot -- it spins in AddressSanitizer's own initializer -- and six hanging
-# items would say nothing about the C.
-cat > "$WORK/probe.c" <<'C'
-int main(void) { return 0; }
-C
-"$CC" "${ASAN[@]}" -g -o "$WORK/probe" "$WORK/probe.c"
 probe_rc=0
-run_bounded "$PROBE_LIMIT" "$WORK/probe.log" "$WORK/probe" || probe_rc=$?
+asan_probe "$WORK" "$PROBE_LIMIT" || probe_rc=$?
 if [ "$probe_rc" -ne 0 ]; then
-  say "MD MEMORY GATE: 0 of $DECLARED items answered"
-  say
-  if [ "$probe_rc" -eq 137 ]; then
-    say "  A three-line program built with -fsanitize=address did not reach its own"
-    say "  main within ${PROBE_LIMIT}s using $($CC --version | head -1)."
-  else
-    say "  A three-line program built with -fsanitize=address exited $probe_rc using"
-    say "  $($CC --version | head -1)."
-  fi
-  excerpt "$WORK/probe.log"
-  say
-  say "  The AddressSanitizer runtime does not start on this platform, so nothing"
-  say "  below would be watching the C. This is not a pass: the memory question is"
-  say "  answered by the CI job on ubuntu-latest, which has a runtime that starts."
+  asan_unstartable "MD MEMORY GATE" "$DECLARED" "$probe_rc" "$WORK" "$PROBE_LIMIT"
   answer 2
 fi
 

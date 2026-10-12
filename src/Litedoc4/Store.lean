@@ -85,47 +85,130 @@ def lineEnd? (b : ByteArray) (start : Nat) : Option Nat := Id.run do
 
 /-- `0` or digits without a leading zero, at most 20 of them: one spelling per
 number, so a decoded pack re-encodes to its own bytes. -/
-def canonicalDecimal? (b : ByteArray) (start stop : Nat) : Option Nat := Id.run do
-  let n := stop - start
+def canonicalDecimal? (b : ByteArray) : Option Nat := Id.run do
+  let n := b.size
   if n == 0 || n > 20 then return none
-  if n > 1 && b[start]! == 48 then return none
+  if n > 1 && b[0]! == 48 then return none
   let mut acc := 0
-  for i in [start:stop] do
+  for i in [0:n] do
     let c := b[i]!
     if c < 48 || c > 57 then return none
     acc := acc * 10 + (c - 48).toNat
   return some acc
 
-def decode (b : ByteArray) : Except String (Array (String × ByteArray)) := do
-  let magic := packMagic.toUTF8
-  if b.size < magic.size || b.extract 0 magic.size != magic then
-    throw "not a pack: it does not open with `litedoc4-pack 1`"
-  let some countEnd := lineEnd? b magic.size | throw "the file count has no line end"
-  let some count := canonicalDecimal? b magic.size countEnd
-    | throw "the file count is not a decimal number"
-  let mut out : Array (String × ByteArray) := #[]
-  let mut previous : Option String := none
-  let mut i := countEnd + 1
-  for k in [0:count] do
-    if i ≥ b.size then throw s!"the pack holds {k} of the {count} files it declares"
-    let some pathEnd := lineEnd? b i | throw s!"file {k + 1} of {count}: its path has no line end"
-    let some path := String.fromUTF8? (b.extract i pathEnd)
-      | throw s!"file {k + 1} of {count}: its path is not UTF-8"
-    if let some why := irPathRefusal? path then throw s!"file {k + 1} of {count}: {why}"
-    if let some before := previous then
-      if !byteLt before path then
-        throw s!"`{path}` follows `{before}`: the paths are not in strictly ascending byte order"
-    let some lengthEnd := lineEnd? b (pathEnd + 1) | throw s!"`{path}`: its length has no line end"
-    let some length := canonicalDecimal? b (pathEnd + 1) lengthEnd
-      | throw s!"`{path}`: its length is not a decimal number"
-    let start := lengthEnd + 1
-    if start + length > b.size then
-      throw s!"`{path}` claims {length} bytes and {b.size - start} remain"
-    out := out.push (path, b.extract start (start + length))
-    previous := some path
-    i := start + length
-  if i != b.size then throw s!"{b.size - i} byte(s) follow the last of the {count} files"
-  return out
+/-- What the pack decoder reads: `take n` gives `n` bytes, fewer only where the
+pack ends; `line` gives the bytes up to the next line end, without it, and
+whether there was one; `rest` reads what is left and counts it. -/
+structure Source (m : Type → Type) where
+  take : Nat → m ByteArray
+  line : m (ByteArray × Bool)
+  rest : m Nat
+
+def decodeFrom [Monad m] (src : Source m) : m (Except String (Array (String × ByteArray))) :=
+  ExceptT.run do
+    let magic := packMagic.toUTF8
+    if (← src.take magic.size) != magic then
+      throw "not a pack: it does not open with `litedoc4-pack 1`"
+    let (countLine, counted) ← src.line
+    if !counted then throw "the file count has no line end"
+    let some count := canonicalDecimal? countLine
+      | throw "the file count is not a decimal number"
+    let mut out : Array (String × ByteArray) := #[]
+    let mut previous : Option String := none
+    for k in [0:count] do
+      let (pathLine, pathEnded) ← src.line
+      if !pathEnded && pathLine.isEmpty then
+        throw s!"the pack holds {k} of the {count} files it declares"
+      if !pathEnded then throw s!"file {k + 1} of {count}: its path has no line end"
+      let some path := String.fromUTF8? pathLine
+        | throw s!"file {k + 1} of {count}: its path is not UTF-8"
+      if let some why := irPathRefusal? path then throw s!"file {k + 1} of {count}: {why}"
+      if let some before := previous then
+        if !byteLt before path then
+          throw s!"`{path}` follows `{before}`: the paths are not in strictly ascending byte order"
+      let (lengthLine, lengthEnded) ← src.line
+      if !lengthEnded then throw s!"`{path}`: its length has no line end"
+      let some length := canonicalDecimal? lengthLine
+        | throw s!"`{path}`: its length is not a decimal number"
+      let bytes ← src.take length
+      if bytes.size < length then
+        throw s!"`{path}` claims {length} bytes and {bytes.size} remain"
+      out := out.push (path, bytes)
+      previous := some path
+    let left ← src.rest
+    if left != 0 then throw s!"{left} byte(s) follow the last of the {count} files"
+    return out
+
+def bytesSource (b : ByteArray) : Source (StateM Nat) where
+  take n := modifyGet fun i => let j := min (i + n) b.size; (b.extract i j, j)
+  line := modifyGet fun i => match lineEnd? b i with
+    | some e => ((b.extract i e, true), e + 1)
+    | none => ((b.extract i b.size, false), b.size)
+  rest := modifyGet fun i => (b.size - i, b.size)
+
+def decode (b : ByteArray) : Except String (Array (String × ByteArray)) :=
+  ((decodeFrom (bytesSource b)).run' 0).run
+
+inductive Unreadable where
+  | gzip (why : Gzip.Refusal)
+  | pack (why : String)
+
+def Unreadable.message : Unreadable → String
+  | .gzip why => why.message
+  | .pack why => why
+
+structure Pulling where
+  handedOut : Nat := 0
+  pullNanos : Nat := 0
+
+def drainBytes : Nat := 1 <<< 16
+
+def inflowTake (f : Gzip.Inflow) (tally : IO.Ref Pulling) (want : Nat) (toLineEnd : Bool) :
+    ExceptT Gzip.Refusal IO Gzip.Piece := do
+  let started ← IO.monoNanosNow
+  let piece ← ExceptT.mk (f.pull want toLineEnd)
+  let stopped ← IO.monoNanosNow
+  let size := match piece with
+    | .whole b => b.size + if toLineEnd then 1 else 0
+    | .last b => b.size
+  tally.modify fun t => { handedOut := t.handedOut + size, pullNanos := t.pullNanos + (stopped - started) }
+  return piece
+
+def inflowSource (f : Gzip.Inflow) (tally : IO.Ref Pulling) : Source (ExceptT Gzip.Refusal IO) where
+  take n := do
+    match ← inflowTake f tally n false with
+    | .whole b | .last b => return b
+  line := do
+    match ← inflowTake f tally 0 true with
+    | .whole b => return (b, true)
+    | .last b => return (b, false)
+  rest := do
+    let mut left := 0
+    repeat
+      match ← inflowTake f tally drainBytes false with
+      | .whole b => left := left + b.size
+      | .last b => return left + b.size
+    return left
+
+structure Unpacked where
+  files : Except Unreadable (Array (String × ByteArray))
+  packedBytes : Nat
+  pullNanos : Nat
+
+/-- The pack inside one gzip member of `memberBytes` bytes that `next` hands over
+in chunks. A refusal of the member outranks a refusal of the pack, and nothing is
+answered before the member's last byte has been asked for. -/
+def unpackMember (memberBytes : Nat) (next : IO ByteArray) : IO Unpacked := do
+  let tally ← IO.mkRef ({} : Pulling)
+  let src := inflowSource (← Gzip.Inflow.new memberBytes next) tally
+  let files ← match ← (decodeFrom src).run with
+    | .error why => pure (.error (.gzip why))
+    | .ok (.ok files) => pure (.ok files)
+    | .ok (.error why) => match ← src.rest.run with
+      | .error gzip => pure (.error (.gzip gzip))
+      | .ok _ => pure (.error (.pack why))
+  let t ← tally.get
+  return { files, packedBytes := t.handedOut, pullNanos := t.pullNanos }
 
 /-! ## The record -/
 
@@ -559,29 +642,54 @@ structure ReadSummary where
   decompressNanos : Nat
   unpackNanos : Nat
 
+def packChunkBytes : Nat := 1 <<< 20
+
+structure Feed where
+  hasher : Sha256.Hasher := .init
+  fed : Nat := 0
+  readNanos : Nat := 0
+  hashNanos : Nat := 0
+
 def read (store : FilePath) (v : VersionName) : IO ReadSummary := do
   let started ← IO.monoNanosNow
   let dir := entryDir store v
   if !(← dir.isDir) then throw (IO.userError s!"store entry {v.text}: there is no {dir}")
   let record ← readRecord store v
-  let compressed ← IO.FS.readBinFile (dir / packFile)
-  let read ← IO.monoNanosNow
-  let damaged := s!"store entry {v.text}: {dir / packFile}"
-  if compressed.size != record.packBytes then
-    throw (IO.userError s!"{damaged} is {compressed.size} bytes and its record says \
-      {record.packBytes}: the entry is damaged — remove it and put it again")
-  let (digest, verifyNanos) ← timed fun _ => sha256Hex compressed
+  let path := dir / packFile
+  let damaged := s!"store entry {v.text}: {path}"
+  let sizeRefusal (size : Nat) := IO.userError s!"{damaged} is {size} bytes and its record says \
+      {record.packBytes}: the entry is damaged — remove it and put it again"
+  let size := (← path.metadata).byteSize.toNat
+  if size != record.packBytes then throw (sizeRefusal size)
+  let handle ← IO.FS.Handle.mk path .read
+  let feed ← IO.mkRef ({} : Feed)
+  let opened ← IO.monoNanosNow
+  let next : IO ByteArray := do
+    let s ← feed.get
+    let readStarted ← IO.monoNanosNow
+    let chunk ← handle.read (min packChunkBytes (size - s.fed)).toUSize
+    let readStopped ← IO.monoNanosNow
+    if chunk.isEmpty then throw (sizeRefusal s.fed)
+    let (hasher, hashNanos) ← timed fun _ => s.hasher.update chunk
+    feed.set { hasher, fed := s.fed + chunk.size, readNanos := s.readNanos + (readStopped - readStarted)
+               hashNanos := s.hashNanos + hashNanos }
+    return chunk
+  let unpacked ← unpackMember size next
+  let streamed ← IO.monoNanosNow
+  let s ← feed.get
+  let mut beyond ← handle.read 1
+  let mut total := s.fed
+  while !beyond.isEmpty do
+    total := total + beyond.size
+    beyond ← handle.read drainBytes.toUSize
+  if total != size then throw (sizeRefusal total)
+  let (digest, finalNanos) ← timed fun _ => hexBytes s.hasher.digest
   if digest != record.packSha256 then
     throw (IO.userError s!"{damaged} has SHA-256 {digest} and its record says \
       {record.packSha256}: the entry is damaged — remove it and put it again")
-  let (packed, decompressNanos) ← timed fun _ => Gzip.decompress compressed
-  let packed ← match packed with
-    | .ok bytes => pure bytes
-    | .error why => throw (IO.userError s!"{damaged}: {why}")
-  let (files, unpackNanos) ← timed fun _ => decode packed
-  let files ← match files with
+  let files ← match unpacked.files with
     | .ok files => pure files
-    | .error why => throw (IO.userError s!"{damaged}: {why}")
+    | .error why => throw (IO.userError s!"{damaged}: {why.message}")
   let parts ← match entryParts files with
     | .ok parts => pure parts
     | .error why => throw (IO.userError s!"{damaged}: {why}")
@@ -590,8 +698,11 @@ def read (store : FilePath) (v : VersionName) : IO ReadSummary := do
     throw (IO.userError s!"{damaged} unpacks to {parts.irFiles} IR files of {parts.irBytes} \
       bytes and a link index of {parts.linkIndexBytes}, and its record says {recorded.irFiles}, \
       {recorded.irBytes} and {recorded.linkIndexBytes}")
-  return { record, files, packedBytes := packed.size, readNanos := read - started
-           verifyNanos, decompressNanos, unpackNanos }
+  let fedNanos := s.readNanos + s.hashNanos
+  return { record, files, packedBytes := unpacked.packedBytes
+           readNanos := opened - started + s.readNanos, verifyNanos := s.hashNanos + finalNanos
+           decompressNanos := unpacked.pullNanos - fedNanos
+           unpackNanos := streamed - opened - unpacked.pullNanos }
 
 def unpackTo (out : FilePath) (files : Array (String × ByteArray)) : IO Unit := do
   if (← out.pathExists) && !(← isEmptyDir out) then

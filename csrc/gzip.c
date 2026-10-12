@@ -6,6 +6,7 @@
 
 #include <lean/lean.h>
 
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +28,11 @@
 
 #define RAW_DEFLATE_WINDOW_BITS (-15)
 #define DEFLATE_MAX_EXPANSION 1032
+#define DEFLATE_WINDOW TINFL_LZ_DICT_SIZE
+#define OUTPUT_SIZE (4 * DEFLATE_WINDOW)
+
+#define FIRST_PIECE ((size_t)1 << 20)
+#define FIRST_LINE ((size_t)64)
 
 enum refusal {
     SHORTER_THAN_A_MEMBER,
@@ -42,6 +48,33 @@ enum refusal {
     LONGER_THAN_ITS_TRAILER_SAYS,
     SHORTER_THAN_ITS_TRAILER_SAYS,
     CHECKSUM_MISMATCH
+};
+
+enum pulled { NEEDS_INPUT, FILLED, ENDED, REFUSED };
+
+enum header_step { FIXED, XLEN, EXTRA, NAME, COMMENT, HCRC, BODY };
+
+struct gz_member {
+    tinfl_decompressor inflator;
+    size_t size;
+    size_t received;
+    size_t trailer_at;
+    size_t body_at;
+    enum header_step step;
+    uint8_t flags;
+    size_t field_left;
+    uint8_t field[2];
+    uint32_t header_crc;
+    int refused;
+    int inflating;
+    tinfl_status status;
+    size_t produced;
+    uint32_t crc;
+    size_t past_deflate;
+    uint8_t trailer[GZ_TRAILER_SIZE];
+    size_t out_at;
+    size_t out_end;
+    uint8_t out[OUTPUT_SIZE];
 };
 
 static void put_le32(uint8_t *p, uint32_t v) {
@@ -84,121 +117,392 @@ lean_obj_res litedoc4_gzip_compress(uint8_t level, b_lean_obj_arg input) {
     return out;
 }
 
-static lean_obj_res refused(enum refusal why) {
+static lean_obj_res refused(int why) {
     lean_obj_res r = lean_alloc_ctor(0, 1, 0);
     lean_ctor_set(r, 0, lean_box((size_t)why));
     return r;
 }
 
-static lean_obj_res accepted(lean_obj_res bytes) {
+static lean_obj_res accepted(lean_obj_res value) {
     lean_obj_res r = lean_alloc_ctor(1, 1, 0);
-    lean_ctor_set(r, 0, bytes);
+    lean_ctor_set(r, 0, value);
     return r;
 }
 
-static size_t skip_zero_terminated(const uint8_t *src, size_t pos, size_t end) {
-    while (pos < end && src[pos] != 0) {
-        pos++;
-    }
-    return pos;
+static void member_init(struct gz_member *m, size_t size) {
+    tinfl_init(&m->inflator);
+    m->size = size;
+    m->received = 0;
+    m->trailer_at = size < GZ_HEADER_SIZE + GZ_TRAILER_SIZE ? size : size - GZ_TRAILER_SIZE;
+    m->body_at = 0;
+    m->step = FIXED;
+    m->flags = 0;
+    m->field_left = 0;
+    m->header_crc = MZ_CRC32_INIT;
+    m->refused = size < GZ_HEADER_SIZE + GZ_TRAILER_SIZE ? SHORTER_THAN_A_MEMBER : -1;
+    m->inflating = 0;
+    m->status = TINFL_STATUS_NEEDS_MORE_INPUT;
+    m->produced = 0;
+    m->crc = MZ_CRC32_INIT;
+    m->past_deflate = 0;
+    m->out_at = 0;
+    m->out_end = 0;
 }
 
-static int skip_header(const uint8_t *src, size_t trailer_at, size_t *body_at,
-                       enum refusal *why) {
-    if (src[0] != GZ_ID1 || src[1] != GZ_ID2) {
-        *why = NOT_GZIP;
-        return 0;
+static void refuse(struct gz_member *m, enum refusal why) {
+    if (m->refused < 0) {
+        m->refused = (int)why;
     }
-    if (src[2] != GZ_CM_DEFLATE) {
-        *why = NOT_DEFLATE;
-        return 0;
-    }
-    uint8_t flg = src[3];
-    if (flg & GZ_FRESERVED) {
-        *why = RESERVED_FLAG_SET;
-        return 0;
-    }
-    *why = HEADER_RUNS_INTO_TRAILER;
-    size_t pos = GZ_HEADER_SIZE;
-    if (flg & GZ_FEXTRA) {
-        if (trailer_at - pos < 2) {
-            return 0;
+}
+
+static void enter(struct gz_member *m, enum header_step step) {
+    for (;;) {
+        if (step == XLEN && !(m->flags & GZ_FEXTRA)) {
+            step = NAME;
+        } else if (step == XLEN) {
+            m->field_left = 2;
+            break;
+        } else if (step == EXTRA && m->field_left == 0) {
+            step = NAME;
+        } else if (step == NAME && !(m->flags & GZ_FNAME)) {
+            step = COMMENT;
+        } else if (step == COMMENT && !(m->flags & GZ_FCOMMENT)) {
+            step = HCRC;
+        } else if (step == HCRC && !(m->flags & GZ_FHCRC)) {
+            step = BODY;
+        } else if (step == HCRC) {
+            m->field_left = 2;
+            break;
+        } else {
+            break;
         }
-        size_t xlen = (size_t)src[pos] | ((size_t)src[pos + 1] << 8);
-        pos += 2;
-        if (trailer_at - pos < xlen) {
-            return 0;
-        }
-        pos += xlen;
     }
-    for (uint8_t field = GZ_FNAME; field <= GZ_FCOMMENT; field <<= 1) {
-        if (flg & field) {
-            pos = skip_zero_terminated(src, pos, trailer_at);
-            if (pos == trailer_at) {
-                return 0;
+    m->step = step;
+    if (step == BODY) {
+        m->body_at = m->received;
+        m->inflating = 1;
+    }
+}
+
+static void take_header_byte(struct gz_member *m, uint8_t b) {
+    size_t at = m->received;
+    enum header_step next = m->step;
+    if (m->step != HCRC) {
+        m->header_crc = (uint32_t)mz_crc32(m->header_crc, &b, 1);
+    }
+    switch (m->step) {
+    case FIXED:
+        if ((at == 0 && b != GZ_ID1) || (at == 1 && b != GZ_ID2)) {
+            refuse(m, NOT_GZIP);
+        } else if (at == 2 && b != GZ_CM_DEFLATE) {
+            refuse(m, NOT_DEFLATE);
+        } else if (at == 3 && (b & GZ_FRESERVED)) {
+            refuse(m, RESERVED_FLAG_SET);
+        } else if (at == 3) {
+            m->flags = b;
+        }
+        if (at == GZ_HEADER_SIZE - 1) {
+            next = XLEN;
+        }
+        break;
+    case XLEN:
+        m->field[2 - m->field_left] = b;
+        if (--m->field_left == 0) {
+            m->field_left = (size_t)m->field[0] | ((size_t)m->field[1] << 8);
+            next = EXTRA;
+        }
+        break;
+    case EXTRA:
+        if (--m->field_left == 0) {
+            next = NAME;
+        }
+        break;
+    case NAME:
+        if (b == 0) {
+            next = COMMENT;
+        }
+        break;
+    case COMMENT:
+        if (b == 0) {
+            next = HCRC;
+        }
+        break;
+    case HCRC:
+        m->field[2 - m->field_left] = b;
+        if (--m->field_left == 0) {
+            uint32_t want = (uint32_t)m->field[0] | ((uint32_t)m->field[1] << 8);
+            if ((m->header_crc & 0xffff) != want) {
+                refuse(m, HEADER_CHECKSUM_MISMATCH);
             }
-            pos++;
+            next = BODY;
+        }
+        break;
+    case BODY:
+        break;
+    }
+    m->received++;
+    if (next != m->step && m->refused < 0) {
+        enter(m, next);
+    }
+}
+
+static void take_framing(struct gz_member *m, const uint8_t *in, size_t len, size_t *pos) {
+    while (*pos < len && m->received < m->size) {
+        if (m->refused >= 0) {
+            size_t n = len - *pos;
+            if (n > m->size - m->received) {
+                n = m->size - m->received;
+            }
+            *pos += n;
+            m->received += n;
+        } else if (m->received >= m->trailer_at && m->step != BODY) {
+            refuse(m, HEADER_RUNS_INTO_TRAILER);
+        } else if (m->received >= m->trailer_at) {
+            m->trailer[m->received - m->trailer_at] = in[*pos];
+            (*pos)++;
+            m->received++;
+        } else if (m->step != BODY) {
+            take_header_byte(m, in[(*pos)++]);
+        } else if (m->inflating) {
+            return;
+        } else {
+            size_t n = len - *pos;
+            if (n > m->trailer_at - m->received) {
+                n = m->trailer_at - m->received;
+            }
+            if (m->status == TINFL_STATUS_DONE) {
+                m->past_deflate += n;
+            }
+            *pos += n;
+            m->received += n;
         }
     }
-    if (flg & GZ_FHCRC) {
-        if (trailer_at - pos < 2) {
-            return 0;
-        }
-        uint32_t want = (uint32_t)src[pos] | ((uint32_t)src[pos + 1] << 8);
-        if ((crc32_of(src, pos) & 0xffff) != want) {
-            *why = HEADER_CHECKSUM_MISMATCH;
-            return 0;
-        }
-        pos += 2;
+}
+
+static void inflate_some(struct gz_member *m, const uint8_t *in, size_t len, size_t *pos) {
+    if (m->out_end == OUTPUT_SIZE) {
+        memmove(m->out, m->out + OUTPUT_SIZE - DEFLATE_WINDOW, DEFLATE_WINDOW);
+        m->inflator.m_dist_from_out_buf_start -= OUTPUT_SIZE - DEFLATE_WINDOW;
+        m->out_at = DEFLATE_WINDOW;
+        m->out_end = DEFLATE_WINDOW;
     }
-    *body_at = pos;
-    return 1;
+    size_t in_n = 0;
+    if (m->received < m->trailer_at) {
+        in_n = len - *pos;
+        if (in_n > m->trailer_at - m->received) {
+            in_n = m->trailer_at - m->received;
+        }
+    }
+    size_t out_n = OUTPUT_SIZE - m->out_end;
+    /* Not a wrapping 32 KiB ring: tinfl checks a distance against the output only when NON_WRAPPING. */
+    m->status = tinfl_decompress(&m->inflator, in + *pos, &in_n, m->out, m->out + m->out_end,
+                                 &out_n,
+                                 TINFL_FLAG_HAS_MORE_INPUT |
+                                     TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+    *pos += in_n;
+    m->received += in_n;
+    m->crc = (uint32_t)mz_crc32(m->crc, m->out + m->out_end, out_n);
+    m->produced += out_n;
+    m->out_end += out_n;
+    if (m->status == TINFL_STATUS_DONE || m->status < 0 ||
+        (m->status == TINFL_STATUS_NEEDS_MORE_INPUT && m->received >= m->trailer_at)) {
+        m->inflating = 0;
+    }
+}
+
+static int verdict(const struct gz_member *m) {
+    if (m->refused >= 0) {
+        return m->refused;
+    }
+    uint32_t want_crc = get_le32(m->trailer);
+    size_t want_len = get_le32(m->trailer + 4);
+    if (m->trailer_at - m->body_at < want_len / DEFLATE_MAX_EXPANSION) {
+        return TRAILER_CLAIMS_MORE_THAN_DEFLATE_CAN_HOLD;
+    }
+    if (m->produced > want_len) {
+        return LONGER_THAN_ITS_TRAILER_SAYS;
+    }
+    if (m->status == TINFL_STATUS_DONE && m->past_deflate != 0) {
+        return BYTES_BETWEEN_DEFLATE_AND_TRAILER;
+    }
+    if (m->status == TINFL_STATUS_DONE && m->produced != want_len) {
+        return SHORTER_THAN_ITS_TRAILER_SAYS;
+    }
+    if (m->status == TINFL_STATUS_DONE && m->crc != want_crc) {
+        return CHECKSUM_MISMATCH;
+    }
+    if (m->status == TINFL_STATUS_DONE) {
+        return -1;
+    }
+    if (m->status == TINFL_STATUS_NEEDS_MORE_INPUT) {
+        return TRUNCATED_DEFLATE;
+    }
+    return CORRUPT_DEFLATE;
+}
+
+static enum pulled member_pull(struct gz_member *m, const uint8_t *in, size_t len, size_t *pos,
+                               uint8_t *dst, size_t room, size_t *wrote, int to_line_end,
+                               int *line_ended, int *why) {
+    *wrote = 0;
+    *line_ended = 0;
+    for (;;) {
+        if (m->out_at < m->out_end) {
+            if (*wrote == room) {
+                return FILLED;
+            }
+            size_t n = m->out_end - m->out_at;
+            if (n > room - *wrote) {
+                n = room - *wrote;
+            }
+            const uint8_t *from = m->out + m->out_at;
+            size_t keep = n;
+            if (to_line_end) {
+                for (size_t i = 0; i < n; i++) {
+                    if (from[i] == '\n') {
+                        keep = i;
+                        *line_ended = 1;
+                        break;
+                    }
+                }
+            }
+            memcpy(dst + *wrote, from, keep);
+            *wrote += keep;
+            m->out_at += keep + (size_t)*line_ended;
+            if (*line_ended) {
+                return FILLED;
+            }
+            continue;
+        }
+        take_framing(m, in, len, pos);
+        if (m->inflating && m->refused < 0) {
+            inflate_some(m, in, len, pos);
+            if (m->inflating && m->status == TINFL_STATUS_NEEDS_MORE_INPUT &&
+                m->out_at == m->out_end) {
+                return NEEDS_INPUT;
+            }
+            continue;
+        }
+        if (m->received < m->size) {
+            if (*pos == len) {
+                return NEEDS_INPUT;
+            }
+            continue;
+        }
+        *why = verdict(m);
+        return *why < 0 ? ENDED : REFUSED;
+    }
+}
+
+static lean_obj_res grown(lean_obj_arg dest, size_t want, int to_line_end) {
+    size_t have = lean_sarray_size(dest);
+    size_t cap = lean_sarray_capacity(dest);
+    size_t first = to_line_end ? FIRST_LINE : FIRST_PIECE;
+    size_t next = cap < first / 2 ? first : 2 * cap;
+    if (!to_line_end && next > want) {
+        next = want;
+    }
+    if (next <= have) {
+        next = have + 1;
+    }
+    lean_obj_res out = lean_alloc_sarray(1, have, next);
+    if (have != 0) {
+        memcpy(lean_sarray_cptr(out), lean_sarray_cptr(dest), have);
+    }
+    lean_dec_ref(dest);
+    return out;
+}
+
+static enum pulled pull_into(struct gz_member *m, const uint8_t *in, size_t len, size_t *pos,
+                             lean_obj_res *dest, size_t want, int to_line_end, int *why) {
+    for (;;) {
+        size_t have = lean_sarray_size(*dest);
+        if (!to_line_end && have >= want) {
+            return FILLED;
+        }
+        if (!lean_is_exclusive(*dest)) {
+            *dest = grown(*dest, want, to_line_end);
+        }
+        size_t room = lean_sarray_capacity(*dest) - have;
+        if (!to_line_end && room > want - have) {
+            room = want - have;
+        }
+        size_t wrote;
+        int line_ended;
+        enum pulled p = member_pull(m, in, len, pos, lean_sarray_cptr(*dest) + have, room, &wrote,
+                                    to_line_end, &line_ended, why);
+        lean_sarray_set_size(*dest, have + wrote);
+        if (p != FILLED || line_ended || (!to_line_end && have + wrote == want)) {
+            return p;
+        }
+        if (room == 0) {
+            *dest = grown(*dest, want, to_line_end);
+        }
+    }
 }
 
 lean_obj_res litedoc4_gzip_inflate_member(b_lean_obj_arg input) {
     const uint8_t *src = lean_sarray_cptr(input);
     size_t n = lean_sarray_size(input);
-    if (n < GZ_HEADER_SIZE + GZ_TRAILER_SIZE) {
-        return refused(SHORTER_THAN_A_MEMBER);
+    struct gz_member *m = (struct gz_member *)malloc(sizeof *m);
+    if (m == NULL) {
+        lean_internal_panic_out_of_memory();
     }
-    size_t trailer_at = n - GZ_TRAILER_SIZE;
-    enum refusal why;
-    size_t body_at;
-    if (!skip_header(src, trailer_at, &body_at, &why)) {
-        return refused(why);
-    }
-    size_t body_len = trailer_at - body_at;
-    uint32_t want_crc = get_le32(src + trailer_at);
-    size_t want_len = get_le32(src + trailer_at + 4);
-    if (body_len < want_len / DEFLATE_MAX_EXPANSION) {
-        return refused(TRAILER_CLAIMS_MORE_THAN_DEFLATE_CAN_HOLD);
-    }
-
-    lean_obj_res out = lean_alloc_sarray(1, want_len, want_len);
-    uint8_t *dst = lean_sarray_cptr(out);
-    tinfl_decompressor inflator;
-    tinfl_init(&inflator);
-    size_t consumed = body_len;
-    size_t produced = want_len;
-    tinfl_status status = tinfl_decompress(
-        &inflator, src + body_at, &consumed, dst, dst, &produced,
-        TINFL_FLAG_HAS_MORE_INPUT | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
-
-    if (status == TINFL_STATUS_DONE && consumed != body_len) {
-        why = BYTES_BETWEEN_DEFLATE_AND_TRAILER;
-    } else if (status == TINFL_STATUS_DONE && produced != want_len) {
-        why = SHORTER_THAN_ITS_TRAILER_SAYS;
-    } else if (status == TINFL_STATUS_DONE && crc32_of(dst, produced) != want_crc) {
-        why = CHECKSUM_MISMATCH;
-    } else if (status == TINFL_STATUS_DONE) {
+    member_init(m, n);
+    size_t claimed = n < GZ_HEADER_SIZE + GZ_TRAILER_SIZE ? 0 : get_le32(src + n - 4);
+    size_t capacity =
+        claimed / DEFLATE_MAX_EXPANSION <= n - GZ_HEADER_SIZE - GZ_TRAILER_SIZE ? claimed : 0;
+    lean_obj_res out = lean_alloc_sarray(1, 0, capacity);
+    size_t pos = 0;
+    int why = TRUNCATED_DEFLATE;
+    enum pulled p = pull_into(m, src, n, &pos, &out, SIZE_MAX, 0, &why);
+    free(m);
+    if (p == ENDED) {
         return accepted(out);
-    } else if (status == TINFL_STATUS_NEEDS_MORE_INPUT) {
-        why = TRUNCATED_DEFLATE;
-    } else if (status == TINFL_STATUS_HAS_MORE_OUTPUT) {
-        why = LONGER_THAN_ITS_TRAILER_SAYS;
-    } else {
-        why = CORRUPT_DEFLATE;
     }
     lean_dec_ref(out);
     return refused(why);
+}
+
+static void reader_finalize(void *m) { free(m); }
+
+static void reader_foreach(void *m, b_lean_obj_arg f) {
+    (void)m;
+    (void)f;
+}
+
+static _Atomic(lean_external_class *) reader_class;
+
+static lean_external_class *the_reader_class(void) {
+    lean_external_class *known = atomic_load(&reader_class);
+    if (known == NULL) {
+        lean_external_class *mine = lean_register_external_class(reader_finalize, reader_foreach);
+        known = atomic_compare_exchange_strong(&reader_class, &known, mine) ? mine : known;
+    }
+    return known;
+}
+
+lean_obj_res litedoc4_gzip_reader_new(size_t member_bytes) {
+    struct gz_member *m = (struct gz_member *)malloc(sizeof *m);
+    if (m == NULL) {
+        lean_internal_panic_out_of_memory();
+    }
+    member_init(m, member_bytes);
+    return lean_alloc_external(the_reader_class(), m);
+}
+
+lean_obj_res litedoc4_gzip_reader_pull(b_lean_obj_arg reader, b_lean_obj_arg input, size_t pos,
+                                       lean_obj_arg dest, size_t want, uint8_t to_line_end) {
+    struct gz_member *m = (struct gz_member *)lean_get_external_data(reader);
+    size_t len = lean_sarray_size(input);
+    if (pos > len) {
+        pos = len;
+    }
+    int why = -1;
+    enum pulled p =
+        pull_into(m, lean_sarray_cptr(input), len, &pos, &dest, want, to_line_end, &why);
+    lean_obj_res r = lean_alloc_ctor(0, 3, 0);
+    lean_ctor_set(r, 0, dest);
+    lean_ctor_set(r, 1, lean_usize_to_nat(pos));
+    lean_ctor_set(r, 2, p == REFUSED ? refused(why) : accepted(lean_box((size_t)p)));
+    return r;
 }

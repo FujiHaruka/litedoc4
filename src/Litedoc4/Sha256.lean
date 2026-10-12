@@ -80,20 +80,16 @@ def blocks : Nat → ByteArray → Nat → State → State
   | 0, _, _, s => s
   | n + 1, bs, off, s => blocks n bs (off + 64) (block s bs off)
 
-/-- The trailing partial block, the `0x80`, the zero fill and the 64-bit length,
-as the one or two blocks they make. Built rather than appended to the input: the
-input is an olean read whole, and padding it in place would copy it. -/
-def tail (bs : ByteArray) (from_ : Nat) : ByteArray := Id.run do
-  let n := bs.size
-  let rest := n - from_
+/-- The bytes past the last whole block, the `0x80`, the zero fill and the
+64-bit length, as the one or two blocks they make. -/
+def tail (rest : ByteArray) (length : Nat) : ByteArray := Id.run do
   let mut out : ByteArray := ByteArray.emptyWithCapacity 128
-  for i in [from_:n] do
-    out := out.push (bs.get! i)
+  out := out ++ rest
   out := out.push 0x80
-  let target := if rest < 56 then 56 else 120
+  let target := if rest.size < 56 then 56 else 120
   for _ in [out.size:target] do
     out := out.push 0
-  let bits : Nat := n * 8
+  let bits : Nat := length * 8
   for i in [0:8] do
     out := out.push (UInt8.ofNat ((bits >>> ((7 - i) * 8)) % 256))
   return out
@@ -107,21 +103,43 @@ def digestBytes (s : State) : ByteArray := Id.run do
     out := out.push w.toUInt8
   return out
 
-def hash (bs : ByteArray) : ByteArray :=
-  let full := bs.size / 64
-  let s := blocks full bs 0 initial
-  let t := tail bs (full * 64)
-  digestBytes (blocks (t.size / 64) t 0 s)
+/-- A digest taken over bytes that arrive in pieces: `pending` is the partial
+block the last piece left, fewer than 64 bytes. -/
+structure Hasher where
+  state : State
+  length : Nat
+  pending : ByteArray
+
+def Hasher.init : Hasher := ⟨initial, 0, .empty⟩
+
+def Hasher.update (h : Hasher) (bs : ByteArray) : Hasher := Id.run do
+  let length := h.length + bs.size
+  let mut s := h.state
+  let mut from_ := 0
+  if !h.pending.isEmpty then
+    from_ := min (64 - h.pending.size) bs.size
+    let block := h.pending ++ bs.extract 0 from_
+    if block.size < 64 then return ⟨s, length, block⟩
+    s := Sha256.block s block 0
+  let full := (bs.size - from_) / 64
+  return ⟨blocks full bs from_ s, length, bs.extract (from_ + full * 64) bs.size⟩
+
+def Hasher.digest (h : Hasher) : ByteArray :=
+  let t := tail h.pending h.length
+  digestBytes (blocks (t.size / 64) t 0 h.state)
+
+def hash (bs : ByteArray) : ByteArray := (Hasher.init.update bs).digest
 
 end Sha256
 
-def sha256Hex (bs : ByteArray) : String := Id.run do
-  let d := Sha256.hash bs
+def hexBytes (d : ByteArray) : String := Id.run do
   let mut out := ""
   for i in [0:d.size] do
     let b := (d.get! i).toNat
     out := (out.push (hexDigit (b / 16))).push (hexDigit (b % 16))
   return out
+
+def sha256Hex (bs : ByteArray) : String := hexBytes (Sha256.hash bs)
 
 def sha256Text (s : String) : String := sha256Hex s.toUTF8
 
