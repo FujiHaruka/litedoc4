@@ -1,0 +1,75 @@
+All eleven Mathlib releases from nothing on one runner, predicted before it ran
+==============================================================================
+
+Written 2026-10-12, before .github/workflows/mv-l.yml ran this arm. Every figure here is (theoretical)
+unless labelled otherwise: measured parts composed per row, unverified until the run. The run's own log
+is a separate file; this one is not edited after the run.
+
+What runs: ubuntu-latest (4 vCPU = 2 cores, 16 GB + 3 GB swap), benchmarks/tools/mv-l-run.sh, after
+deleting the runner's Android, .NET and GHC trees for disk. The root is a clone of Mathlib at v4.34.1;
+`litedoc4 build --root <clone> --lib Mathlib --out <empty> --versions v4.29.0,v4.29.1,v4.30.0,v4.31.0,
+v4.32.0,v4.32.1,v4.32.2,v4.33.0,v4.33.1,v4.34.0,v4.34.1 --jobs 4 --config hosting/mathlib/litedoc4.toml`
+(the product default: no --reader-alone; the hosting config, whose equations rule is the one every
+earlier L run used). litedoc4 built on e2e/micro's v4.31.0. The eleven are every non-draft,
+non-prerelease release on Mathlib's Releases page on 2026-10-12 (hosting/mathlib/versions.sh).
+  full    the build above, up to three attempts on the same store (a failed attempt keeps every
+          version it put; a version's cache fetch is not retried inside the product)
+  noop    the same command again into the same --out
+  served  tools/served-gate.sh --declared <the eleven> over the site on python3 -m http.server
+  report  store and site sizes, each entry's record (whose prints it holds), size buckets
+The store is uploaded as an Actions artifact (retention 30 days).
+
+Sources (all measured, runner unless marked)
+  RA   benchmarks/results/mv-l-reader-alone-2026-10-10.txt (EPYC 7763; 4 releases from nothing)
+  RU   benchmarks/results/mv-l-reuse-2026-10-10.txt (EPYC 9V45 / 9V74; v4.33.1 with and without reuse)
+  S4   benchmarks/results/mv-l-step4-2026-10-07.txt; RM benchmarks/results/mv-l-render-memory-2026-10-08.txt
+  MR   benchmarks/results/mv-m-parallel-render-2026-10-12.txt (M1, M slice: render 3.25 -> 1.85 s at --jobs 4)
+CPU   the runner's CPU varies by run (7763 / 9V45 / 9V74): the native extraction of v4.34.1 took
+      564.69 / 391.74 / 525.62 s. Ranges below span all three; nothing is scaled to one.
+
+(1) Order the product takes (Versions chain): v4.34.1 native; v4.34.0 through the reader without reuse
+    (the version above it was built natively and left no reuse keys); v4.33.1 down to v4.29.0 each
+    reusing prints from the version above. Counted: `versions extracted: 11 of 11`, through the
+    reader 10, `versions rendered: 11 of 11`. Falsified: any of the nine falls to "without reuse".
+
+(2) Per version, wall (s)
+  fixed per version   checkout ~1, toolchain 12-13, cache 63-71, lake 5-9, put 24 (RA)   = 105-120
+  v4.34.1 native      extract 390-600 (RA, RU)                                         + 105-120
+  v4.34.0 no reuse    read 360-560 (RU: head with keys 361-458, read-alone 392-489;
+                      7763 not measured with --lazy-proofs, so the top is widened)      + 105-120
+  each of nine reused read 250-380 (RU: 268-327 for v4.33.1 <- v4.34.1; older releases
+                      are smaller, the reuse share between them is not measured)       + 105-120
+  once                reader build 73-95, extractor 20-22 (RA, mv-l-session)
+  render, eleven      55-100 per version (RA 99.5 sequential; x 0.57 from MR, M only)  = 600-1,100
+  Falsified per row when outside its range.
+
+(3) The whole build: 500-720 + 465-680 + 9 x (355-500) + 95-117 + 600-1,100
+    = 4,860-7,120 s = 81-119 min. The job adds setup (~4 min) and the steps after it.
+    Falsified: outside 75-125 min, or the job hits its 360-min limit.
+
+(4) Memory
+  reader, reused     anon peak 9.5-11.5 GiB (RU: 9,916 / 10,388 MiB); host swap may fill (RA: 3,065
+                     of 3,072 MiB) without the run dying
+  reader, no reuse   anon 7.5-11.5 GiB (RU 7,618 / 8,410; RA read-alone without lazy proofs 11,321)
+  litedoc4 render    anon peak 6-10 GiB: RA 4,334 MiB at four versions, + 0.585 GiB per further
+                     version from the allocator's growth on v4.31.0 (RM) = 8.4 GiB at eleven, less
+                     the peak cuts on M since (21-34%), plus whatever four render workers add on L
+                     (not measured). This is the plan's "question to ask before 11": read the
+                     litedoc4 rows of full-*.rss over the render phase.
+  Falsified: an OOM kill, or the render above 12 GiB anon.
+
+(5) Disk: minimum free >= 40 GiB (86 GiB at the start, + the deleted trees, - eleven toolchains
+    ~2.9 GB each, - one workspace 7.5 GB, - store and site). Falsified below 25 GiB.
+
+(6) Sizes
+  store       11 x 63-68 MB = 0.70-0.75 GB (RA 65.9-67.4 MB per entry; older releases smaller)
+  site        190,000-230,000 files, 0.9-1.3 GB du (RA: 78,472 files, 403,208 KiB for four,
+              linear per version); no file >= 25 MiB
+  Falsified: outside those ranges.
+
+(7) noop: `versions extracted: 0 of 11`, `versions rendered: 0 of 11`, under 2 min (S4 step: 3.2 s
+    at three versions, plus resolving eleven tags and identities). Falsified if anything is extracted
+    or rendered.
+
+(8) served: `built: 11 of 11`, `served: 11 of 11`, 23 of 23 items. Its first run at this scale and
+    with dotted release names.

@@ -6,7 +6,7 @@ here.
 
 | File | What it is |
 |---|---|
-| `litedoc4.toml` | The site's config, given to `litedoc4 build --config` in place of a `litedoc4.toml` Mathlib does not have: the title, and the footer |
+| `litedoc4.toml` | The site's config, given to `litedoc4 build --config` in place of a `litedoc4.toml` Mathlib does not have: the title, the footer, and no equations for the definitions under `Mathlib.Tactic` and `Mathlib.Meta` |
 | `footer.md` | The footer on every page: Mathlib's license and copyright, and that the site is not Mathlib's own |
 | `versions.sh` | The version set: every release on Mathlib's Releases page that is not a draft or a prerelease, in version order (`gh`, authenticated) |
 
