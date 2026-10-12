@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 360
     env:
       MV_L_WORK: /home/runner/mv-l
-      MV_L_ARM: probe
-      MV_L_TAGS: v4.29.1,v4.30.0,v4.34.1
+      MV_L_ARM: full
+      MV_L_TAGS: v4.29.0,v4.29.1,v4.30.0,v4.31.0,v4.32.0,v4.32.1,v4.32.2,v4.33.0,v4.33.1,v4.34.0,v4.34.1
     steps:
       - uses: actions/checkout@v7
 
