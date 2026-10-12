@@ -1,4 +1,5 @@
 import OleanReader.Check
+import OleanReader.Axioms
 import Extract
 import Std.Async.Process
 open Lean OleanReader Litedoc4 Litedoc4.ReuseKey
@@ -8,7 +9,8 @@ namespace OleanReader.Hybrid
 def readerSource : String := String.join [
   include_str "Writers.lean", include_str "Read.lean", include_str "Entries.lean",
   include_str "Module.lean", include_str "Serialize.lean", include_str "Oracle.lean",
-  include_str "Assemble.lean", include_str "Check.lean", include_str "Hybrid.lean", include_str "Main.lean"]
+  include_str "Assemble.lean", include_str "Axioms.lean", include_str "Check.lean", include_str "Hybrid.lean",
+  include_str "Main.lean"]
 
 def readBy : List (String × String) :=
   [("reader", fnv1a64Hex readerSource), ("readerLean", Lean.versionString),
@@ -195,10 +197,10 @@ def usage : String := "\n".intercalate [
   "  --new-roots  the newest version's modules, imported for its code (notation, delaborators)",
   "  --lazy-proofs",
   "               decode a theorem's proof only where the run reads it: when its module stores no",
-  "               axiom list for it (Lean's collectAxioms then walks the proof) or the list holds",
-  "               sorryAx (the sorry tag then looks for it in the proof); every other proof is left",
-  "               out, and the closure invariant checks the names the decoded data mentions",
-  "               (`proofs` line)",
+  "               axiom list for it (the reader computes one from the proof, `axiom lists` line) or",
+  "               the list holds sorryAx (the sorry tag then looks for it in the proof); every other",
+  "               proof is left out, and the closure invariant checks the names the decoded data",
+  "               mentions (`proofs` line)",
   "  --write-reuse-keys",
   "               write every candidate's reuse key beside the IR, to <--ir-dir>.reuse-keys: the type's",
   "               structural hash with every binder's kind and name as a page can show it (macro scopes",
@@ -815,6 +817,8 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
     ph.mark "manual root"
     let d ← Assemble.decodeAll s mods (if a.lazyProofs then .whereRead else .every)
     ph.mark "decode"
+    let (d, axiomLists) ← Axioms.supply d
+    ph.mark "axiom lists"
     let cl ← Check.closure d
     ph.mark "check closure"
     let il ← Check.ilean s d
@@ -851,6 +855,7 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
       in {d.stats.skippedExts.size} extensions"
     for l in merged.counts.lines do IO.println s!"  {l}"
     if a.lazyProofs then IO.println (proofsLine d.stats)
+    IO.println axiomLists.line
     for l in acrossLines do IO.println l
     IO.println atExtract.line
     IO.println s!"hard stops           verso={verso.size} builtin-doc={builtin.size} tactic-table=1 \

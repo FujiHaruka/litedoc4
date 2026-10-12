@@ -8,6 +8,7 @@ def usage : String := "\n".intercalate [
   "       reader header <file.olean>",
   "       reader read <search-dir> <module>...",
   "       reader oracle <search-dir> <seed> <count|all>",
+  "       reader axioms <search-dir> <module>...",
   "       reader extract ... (reader extract --help)"]
 
 def readMain (dir : String) (roots : Array Name) : IO UInt32 := do
@@ -33,6 +34,14 @@ def oracleMain (dir seed count : String) : IO UInt32 := do
     {st.names}, Level data {st.levels}, Expr data {st.exprs}"
   return 0
 
+unsafe def axiomsMain (dir : String) (roots : Array Name) : IO UInt32 := do
+  let s ← Session.new #[dir]
+  let d ← Assemble.decodeAll s (← closure s roots)
+  let y ← Axioms.synthesize d
+  let c := Axioms.compare d y
+  for l in c.lines y do IO.println l
+  return if c.agrees then 0 else 1
+
 unsafe def main (args : List String) : IO UInt32 := do
   if let .error why := checkWriters (← registeredExts) then
     IO.eprintln s!"olean reader: the writer table is inconsistent: {why}"
@@ -56,6 +65,7 @@ unsafe def main (args : List String) : IO UInt32 := do
       return 0
     | "read" :: dir :: m :: ms => readMain dir ((m :: ms).toArray.map String.toName)
     | ["oracle", dir, seed, count] => oracleMain dir seed count
+    | "axioms" :: dir :: m :: ms => axiomsMain dir ((m :: ms).toArray.map String.toName)
     | _ =>
       IO.eprintln usage
       return 2

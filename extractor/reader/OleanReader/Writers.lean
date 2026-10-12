@@ -12,6 +12,8 @@ def privName (mod : Name) (n : Name) : Name := Name.mkNum (`_private ++ mod) 0 +
 
 def namespacesExtName : Name := privName `Lean.Namespace `Lean.namespacesExt
 
+def axiomsExtName : Name := privName `Lean.Util.CollectAxioms `Lean.exportedAxiomsExt
+
 structure RenamedExt where
   writtenAs : Name
   registeredAs : Name
@@ -160,7 +162,8 @@ def writers : List WriterVersion := [
 def WriterVersion.describe (w : WriterVersion) : String :=
   let red := w.reducibility.toList.zipIdx.map fun (r, i) => s!"{i}={r.writerName}"
   s!"{w.leanVersion} {w.githash} core-header={w.coreHeaderVersion} absent-extensions={w.absent.length} renamed-extensions={w.renamedExts.length} \
-    simp-theorem-flags={w.simpTheorem.count} reducibility={",".intercalate red}"
+    simp-theorem-flags={w.simpTheorem.count} reducibility={",".intercalate red} \
+    axiom-lists={if w.absent.contains axiomsExtName.toString then "absent" else "stored"}"
 
 def checkWriters (registered : Array String) : Except String Unit := do
   for w in writers do

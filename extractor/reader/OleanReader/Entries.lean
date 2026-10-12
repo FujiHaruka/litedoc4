@@ -354,8 +354,6 @@ inductive Placement where
   | allModules
   deriving BEq, Repr
 
-def axiomsExtName : Name := privName `Lean.Util.CollectAxioms `Lean.exportedAxiomsExt
-
 /-- The extensions whose entries the reader decodes, by registered name, with the entry decoder
 and the placement of the old entries. Every other extension's entries are counted and not decoded. -/
 def entryDecoders : List (Name × ExtDecoder × Placement) := [

@@ -53,8 +53,20 @@ structure Decoded where
   mods    : Array (Name × ModuleData)
   keyed   : Array (Name × Array (Nat × Keyed))
   mentioned : Array (Array Name)
+  axiomScope : Array (Array Name)
   stats   : ReadStats
   old     : OldWorld
+
+def exportedConstNames (main : Part) : IO (Array Name) := do
+  let (ns, _) ← runDM #[main] do
+    let x ← ctor "ModuleData" main.root 0 5 1
+    decArray "Array Name" (x.field 1) decName
+  return ns
+
+def axiomScopeOf (parts : Array Part) (md : ModuleData) : IO (Array Name) := do
+  unless md.isModule do return md.constNames
+  let exported := (← exportedConstNames parts[0]!).foldl (·.insert ·) ({} : NameSet)
+  return md.constNames.filter exported.contains
 
 unsafe def decodeAll (s : Session) (mods : Array Name) (proofs : Proofs := .every) : IO Decoded := do
   let stats ← IO.mkRef ({} : ReadStats)
@@ -67,11 +79,13 @@ unsafe def decodeAll (s : Session) (mods : Array Name) (proofs : Proofs := .ever
   let mut constNames := #[]
   let mut imports := #[]
   let mut mentioned := #[]
+  let mut axiomScope := #[]
   for m in mods do
     let parts ← loadModule s m
     let ((md, ks, ms), _) ← runDM parts (decModuleData proofs true parts.back!.root stats)
     out := out.push (m, md)
     mentioned := mentioned.push ms
+    axiomScope := axiomScope.push (← axiomScopeOf parts md)
     index := index.insert m index.size
     constNames := constNames.push md.constNames
     imports := imports.push (md.imports.map (·.module))
@@ -107,7 +121,7 @@ unsafe def decodeAll (s : Session) (mods : Array Name) (proofs : Proofs := .ever
     docKeys := keysOf (reachable `Lean.docStringExt)
     versoKeys := keysOf (reachable `Lean.versoDocStringExt) }
   return { writer, mods := out, keyed := extOrder.map (fun e => (e, grouped.getD e #[])),
-           mentioned, stats := ← stats.get, old }
+           mentioned, axiomScope, stats := ← stats.get, old }
 
 def checkMirror (s : MImportState) : IO Unit := do
   unless s.moduleNameMap.size == s.moduleNames.size do

@@ -209,6 +209,10 @@ input_file readerAssembleFile where
   path := "extractor" / "reader" / "OleanReader" / "Assemble.lean"
   text := true
 
+input_file readerAxiomsFile where
+  path := "extractor" / "reader" / "OleanReader" / "Axioms.lean"
+  text := true
+
 input_file readerCheckFile where
   path := "extractor" / "reader" / "OleanReader" / "Check.lean"
   text := true
@@ -226,7 +230,7 @@ lean_lib Litedoc4Sources where
   srcDir := "src"
   needs := #[extractorSourceFile, leanToolchainsFile,
     readerWritersFile, readerReadFile, readerEntriesFile, readerModuleFile, readerSerializeFile,
-    readerOracleFile, readerAssembleFile, readerCheckFile, readerHybridFile, readerMainFile]
+    readerOracleFile, readerAssembleFile, readerAxiomsFile, readerCheckFile, readerHybridFile, readerMainFile]
 
 /-- Deliberately **not** `supportInterpreter`, and deliberately importing no
 `Lean`: an executable that imports `Lean` measures 226 MB against 5.3 MB for one

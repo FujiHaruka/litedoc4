@@ -8,6 +8,13 @@
 #                     for byte; and the reader takes the module that Lean
 #                     compiled for the dumper as that Lean's (v4.29.1 writes
 #                     another version into its own core library's headers)
+#   axioms-<version>  the reader computes every axiom list of that Lean's Init,
+#                     Std and Lean as its own Lean's collectAxioms stores them,
+#                     with every stored list ignored, and each equals the list
+#                     that Lean stored; declared for each record that does not
+#                     list the extension as absent (`axiom-lists=` in
+#                     `reader --writers`), since a writer without it stores
+#                     nothing to hold the computation against
 #   refuse-version    a header naming a Lean the table has no record for
 #   refuse-githash    a known version whose githash differs in one character
 #   refuse-mixed      one read whose modules came from two writers
@@ -113,7 +120,10 @@ if [ "${#WRITERS[@]}" -eq 0 ]; then
   say "reader-oracle-gate: the reader lists no writer -- there is nothing to hold it against" >&2
   exit 1
 fi
-declared=$(( ${#WRITERS[@]} + ${#REFUSALS[@]} ))
+LISTING=()
+while read -r version _; do LISTING+=("$version"); done < <(awk '/ axiom-lists=stored( |$)/' "$WORK/writers.txt")
+NOT_LISTING="$(awk '/ axiom-lists=absent( |$)/ { printf "%s%s", sep, $1; sep = " " }' "$WORK/writers.txt")"
+declared=$(( ${#WRITERS[@]} + ${#LISTING[@]} + ${#REFUSALS[@]} ))
 "$READER" --registered-extensions >"$WORK/registered.txt"
 say "  ${#WRITERS[@]} writer record(s): ${WRITERS[*]}"
 
@@ -181,6 +191,36 @@ for v in "${WRITERS[@]}"; do
     say "      reader $(sed -n "${line}p" "$dir/reader.txt" | head -c 300)"
   fi
   rm -f "$dir/writer.txt" "$dir/reader.txt" "$dir/dump" "$dir"/*.c "$dir"/OleanReader/*.c
+done
+
+say
+say "=== axiom lists: each writer's core library computed with its stored lists ignored, against them"
+if [ -n "$NOT_LISTING" ]; then
+  say "  not declared: Lean $NOT_LISTING -- the records list the extension as absent, so nothing is stored to compare"
+fi
+for v in ${LISTING[@]+"${LISTING[@]}"}; do
+  tc="leanprover/lean4:v$v"
+  item="axioms-$v"
+  if ! installed "$tc"; then
+    gone "$item" "$tc is not installed; this record is not answered"
+    continue
+  fi
+  out="$WORK/axioms-$v"
+  started=$(date +%s)
+  set +e
+  "$READER" axioms "$(lib_of "$tc")" Init Std Lean >"$out.txt" 2>"$out.err"
+  rc=$?
+  set -e
+  took=$(( $(date +%s) - started ))
+  if [ "$rc" -eq 0 ]; then
+    ok "$item" "$(head -n 1 "$out.txt" | head -c 600) in ${took}s"
+  elif [ "$rc" -eq 1 ] && [ -s "$out.txt" ]; then
+    bad "$item" "the computed lists differ from the ones Lean $v stored"
+    excerpt "$out.txt"
+  else
+    bad "$item" "the reader exited $rc"
+    excerpt "$out.err"
+  fi
 done
 
 relabel () {
