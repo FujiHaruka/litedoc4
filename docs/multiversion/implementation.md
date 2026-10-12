@@ -571,6 +571,12 @@ entry re-extracted into the same bytes render `0 of 5`.
   because the growth leaves with the toolchain. litedoc4, its tests and the extractor build on
   v4.34.1 (measured → `benchmarks/results/lean-434-build-2026-10-08.txt`), which is now a row. **Falsified** if the set must be fully rendered past ≈ 20 versions on a 16 GB machine
   while the renderer is still built on v4.33 or older.
+  **A second lever is parked** (decided 2026-10-12, user's call): reading the entry through an
+  incremental gzip reader, so no block above 3.23 MB is allocated, took M's render peak only
+  111.3 → 106.6 MB (−4%), because later stages had been reusing the freed pack (measured →
+  `benchmarks/results/mv-m-streaming-read-2026-10-12.txt`). Kept on the branch
+  `streaming-store-read`, not merged; that it stops the growth on L is theoretical. Revisit with
+  a full run that measures the growth.
 - **Premise**: the previously deployed site is at `<out>/site` when the build starts. Locally it
   is; on the runner step 6 has to bring it down with the store (≈ 300 MB at three versions,
   ≈ 1 GB at 11, extrapolated from the run above). **Falsified** if bringing it down costs more
