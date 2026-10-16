@@ -25,6 +25,19 @@ release extract only that release. Then `tools/served-gate.sh --declared "$(host
 --out <out> --url <where the site is served>` checks that every version in the set was built and
 is served.
 
+## Where it is served
+
+`https://mathlib.fuji.land`, a custom domain of the Cloudflare R2 bucket `mathlib-docs`. The store
+lives in a second bucket, `mathlib-docs-store`, which no domain serves. `tools/mathlib-site.sh`,
+run by `.github/workflows/mathlib-site.yml`, restores the store, builds, saves the store, uploads
+the site and checks it as served; it needs the repository secrets `R2_ACCESS_KEY_ID` and
+`R2_SECRET_ACCESS_KEY`, a token with object read and write on both buckets.
+
+R2 answers a path with the object of that exact key and has no directory index, so the `fuji.land`
+zone carries a URL rewrite rule: when the host is `mathlib.fuji.land` and the path ends with `/`,
+the path becomes `concat(http.request.uri.path, "index.html")`. Without it the site root and each
+`<version>/` answer 404.
+
 ## The license notice
 
 Mathlib is released under the Apache License 2.0, which allows redistributing it and works derived
