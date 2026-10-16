@@ -290,10 +290,10 @@ def readConfigKeys (source : ConfigSource) : IO ConfigKeys := do
     | .ok keys => pure keys
     | .error message => throw (IO.userError s!"{path}: {message}")
 
-def noEquationsUnderFor (given : Option (Array String)) (source : ConfigSource) :
+def noEquationsUnderFor (stated : Option (Array String)) (source : ConfigSource) :
     IO (Array String) :=
-  match given with
-  | some given => pure given
+  match stated with
+  | some stated => pure stated
   | none => return (← readConfigKeys source).noEquationsUnder
 
 /-- What a configuration file says about the pages, with `index` and `footer`

@@ -85,6 +85,11 @@ unsafe def main (args : List String) : IO UInt32 := do
     discard loadCore
     for n in ← registeredExts do IO.println n
     return 0
+  | "carriers" :: asked =>
+    let env ← loadCore
+    for m in env.header.moduleNames, md in env.header.moduleData do
+      if let some (e, _) := md.entries.find? (asked.contains ·.1.toString) then IO.println s!"{m} {e}"
+    return 0
   | ["oracle", askedFile, seed, k] =>
     let env ← loadCore
     let asked := (← IO.FS.lines askedFile).filter (!·.isEmpty)
@@ -101,5 +106,5 @@ unsafe def main (args : List String) : IO UInt32 := do
     emitSample out env all seed.toNat!.toUInt64 (if k == "all" then all.size else k.toNat!)
     return 0
   | _ =>
-    IO.eprintln "usage: dump exts | dump oracle <extension-names-file> <seed> <count|all>"
+    IO.eprintln "usage: dump exts | dump carriers <extension-name>... | dump oracle <extension-names-file> <seed> <count|all>"
     return 2

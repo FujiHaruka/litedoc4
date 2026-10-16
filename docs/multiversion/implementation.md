@@ -449,8 +449,8 @@ What has to change on the way: the ledger keys, `Generation.take`, `deriveSource
 toolchains the native path supports, and a version on a toolchain with no row fails by name.
 
 **This is a cost paid on every release**: adding a release needs the extractor to build on its
-Lean and a row for it (with column 2 measured). v4.34.1 has one since 2026-10-08, with no change
-to the extractor; v4.34.0 has none. There is no fallback —
+Lean and a row for it (with column 2 measured). v4.34.1 has one since 2026-10-08 and v4.35.0 since
+2026-10-16, both with no change to the extractor; v4.34.0 has none. There is no fallback —
 the reader knows no layout for a Lean newer than its writer table either.
 
 Done when: an empty store plus three versions builds the site; the same command with one version
@@ -627,7 +627,7 @@ from-scratch output it replaces.
 Three choices this rests on, each the plan's own, with what would undo it:
 
 - **The reader is compiled on one toolchain, the newest row of `tools/lean-toolchains.txt`
-  (v4.34.1 today).** It decodes into the running Lean's types (the prototype mirrors private
+  (v4.35.0 today).** It decodes into the running Lean's types (the prototype mirrors private
   structures field for field and casts them), so it cannot be branch-free across rows the way
   `Extract.lean` is; D10 already put printing in one Lean, the newest. The `World` seam goes into
   `Extract.lean` and compiles on every row, watched by `ci-lean-versions.yml` as now. A version

@@ -19,8 +19,11 @@
 #   refuse-githash    a known version whose githash differs in one character
 #   refuse-mixed      one read whose modules came from two writers
 #   refuse-absent     entries under an extension the record lists as absent: the
-#                     reader's own files relabelled as the newest writer whose
-#                     record lists any extension absent
+#                     reader's own files relabelled as the newest writer one of
+#                     whose absent extensions has entries in some module of the
+#                     reader's core library, that module as the probe -- which
+#                     module carries which extension is the reader's Lean's own
+#                     answer (`dump carriers`), so neither half is written here
 #
 # The writer list is `reader --writers`, never a second list. A refusal fixture
 # is a copy of real files with the header rewritten, and must read before it is
@@ -67,7 +70,6 @@ TOOLCHAINS="${ELAN_HOME:-$HOME/.elan}/toolchains"
 READER_SRC="$ROOT/extractor/reader"
 DUMP_SRC="$ROOT/tools/reader-oracle/Dump.lean"
 REFUSALS=(refuse-version refuse-githash refuse-mixed refuse-absent)
-ABSENT_PROBE=Init.Grind.Homo.Nat
 
 rm -rf "$WORK"
 mkdir -p "$WORK"
@@ -190,7 +192,8 @@ for v in "${WRITERS[@]}"; do
     say "      Lean   $(sed -n "${line}p" "$dir/writer.txt" | head -c 300)"
     say "      reader $(sed -n "${line}p" "$dir/reader.txt" | head -c 300)"
   fi
-  rm -f "$dir/writer.txt" "$dir/reader.txt" "$dir/dump" "$dir"/*.c "$dir"/OleanReader/*.c
+  rm -f "$dir/writer.txt" "$dir/reader.txt" "$dir"/*.c "$dir"/OleanReader/*.c
+  if [ "$v" != "$READER_VERSION" ]; then rm -f "$dir/dump"; fi
 done
 
 say
@@ -310,10 +313,37 @@ else
   fi
 fi
 
-ABSENT_WRITER="$(awk '{ for (i = 3; i <= NF; i++) if ($i ~ /^absent-extensions=[1-9]/) w = $1 } END { print w }' "$WORK/writers.txt")"
-if [ -z "$ABSENT_WRITER" ]; then
-  gone refuse-absent "no writer record lists an extension as absent"
+READER_DUMP="$WORK/dump-$READER_VERSION/dump"
+ABSENT_WRITER=""
+ABSENT_PROBE=""
+ABSENT_EXT=""
+absent_pair () {
+  local i v n names
+  for (( i = ${#WRITERS[@]} - 1; i >= 0; i-- )); do
+    v="${WRITERS[$i]}"
+    if [ "$v" = "$READER_VERSION" ]; then continue; fi
+    "$READER" --absent-extensions "$v" >"$WORK/absent-$v.txt" 2>"$WORK/absent-$v.err" || return 1
+    if [ ! -s "$WORK/absent-$v.txt" ]; then continue; fi
+    names=()
+    while IFS= read -r n; do names+=("$n"); done <"$WORK/absent-$v.txt"
+    elan run "$READER_TC" "$READER_DUMP" carriers "${names[@]}" >"$WORK/carriers-$v.txt" 2>"$WORK/carriers-$v.err" || return 1
+    if [ -s "$WORK/carriers-$v.txt" ]; then
+      read -r ABSENT_PROBE ABSENT_EXT <"$WORK/carriers-$v.txt"
+      ABSENT_WRITER="$v"
+      return 0
+    fi
+  done
+}
+
+if [ ! -x "$READER_DUMP" ]; then
+  bad refuse-absent "no dumper built on $READER_TC (see oracle-$READER_VERSION), and it names the module that carries an absent extension"
+elif ! absent_pair; then
+  bad refuse-absent "asking which module carries a writer's absent extension failed"
+  excerpt "$(ls -t "$WORK"/absent-*.err "$WORK"/carriers-*.err 2>/dev/null | head -n 1)"
+elif [ -z "$ABSENT_WRITER" ]; then
+  gone refuse-absent "no module of $READER_TC's core carries entries under an extension any other writer's record lists as absent"
 else
+  say "  refuse-absent: Lean $ABSENT_WRITER lists $ABSENT_EXT as absent, and $READER_TC's $ABSENT_PROBE carries entries under it"
   dir="$WORK/fixture-absent"
   mkdir -p "$dir"
   "$READER" read "$(lib_of "$READER_TC")" "$ABSENT_PROBE" >"$WORK/absent-closure.txt"
@@ -324,7 +354,7 @@ else
     files=()
     while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$dir" -type f -name '*.olean*' -print0)
     relabel "$ABSENT_WRITER" "$(githash_of "$ABSENT_WRITER")" "${files[@]}"
-    refusal refuse-absent "$dir" "$ABSENT_PROBE" "entries under extension" \
+    refusal refuse-absent "$dir" "$ABSENT_PROBE" "entries under extension $ABSENT_EXT," \
       "which the record for Lean $ABSENT_WRITER lists as absent"
   fi
 fi

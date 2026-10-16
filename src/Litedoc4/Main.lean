@@ -813,8 +813,8 @@ def versionedChecks (a : BuildArgs) : Option String :=
     refused.findSome? fun (flag, given, why) =>
       if given then some s!"{flag} is not a flag of `build --versions`: {why}" else none
 
-def configPathOf (given : Option String) : BuildM (Option System.FilePath) :=
-  given.mapM fun path => do
+def configPathOf (stated : Option String) : BuildM (Option System.FilePath) :=
+  stated.mapM fun path => do
     match ← (IO.FS.realPath ⟨path⟩).toBaseIO with
     | .error e => throw (3, s!"--config {path}: {e}")
     | .ok real => pure real

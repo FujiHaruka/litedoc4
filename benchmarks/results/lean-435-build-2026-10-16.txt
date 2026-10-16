@@ -1,0 +1,69 @@
+Does litedoc4 build on Lean v4.35.0, and does the .olean reader run on it?
+=========================================================================
+
+Working tree on e16c3ef (branch multi-version) plus the v4.35.0 changes, uncommitted at the time.
+Apple M1, 16 GB, macOS 26.6.2. Run 2026-10-16/17.
+leanprover/lean4:v4.35.0, leanGithash eb6cafb7290e8bd5f2937522d8d804f58f02bafc.
+
+(0) What v4.35.0 rejects (measured)
+  `given` as a binder name in a `def` or `example` signature: `def a (given : Nat)`,
+  `def v (x given : Nat)` and `def e {given : Nat}` fail with "unexpected identifier; expected '_' or
+  forbidden token" (or "expected ')'"). `theorem t (given : Nat)`, `fun (given : Nat) =>`,
+  `| some given =>`, `let given ←`, a structure field and a constructor named `given` all elaborate.
+  Two sites in src/ had it (Config.noEquationsUnderFor, Main.configPathOf); both renamed `stated`.
+
+(1) The litedoc4 executable (measured)
+  tools/build-lean-exe.sh --toolchain-from <a directory holding lean-toolchain = leanprover/lean4:v4.35.0>
+  in a detached worktree of the same tree: "Build completed successfully (194 jobs)", 0 warnings,
+  32 s wall. BibtexQuery, MathML4Lean and MD4Lean are among the 194.
+
+(2) The tests (measured)
+  tools/lean-test-gate.sh with its --toolchain-from pointed at the same directory (a one-line edit in
+  the worktree's copy): "LEAN TEST GATE: ok — 243 compile-time, 74 run-time", 4 of 4 items, 13 s wall.
+  The same gate unedited (e2e/micro, v4.31.0) in the tree: the same line, 24 s wall.
+
+(3) The row (measured)
+  tools/e2e-micro.sh in the worktree with e2e/micro and e2e/micro-dep pinned to v4.35.0 and a row
+  `leanprover/lean4:v4.35.0 UNMEASURED`: GATE 8 stopped with "Lean spelled the reducible-instance
+  attribute ['instance_reducible'] here". With that in column 2: "E2E MICRO: ok", 13 of 13 steps,
+  12 s wall. The extractor was built in the sample's v4.35.0 environment by step 2.
+  The same script with both pinned to v4.34.1: "E2E MICRO: ok". Their IR, through
+  tools/lean-versions-gate.sh: "LEAN VERSIONS: leanprover/lean4:v4.34.1, leanprover/lean4:v4.35.0
+  agree over 13 IR files (rename to `implicit_reducible` applied leanprover/lean4:v4.34.1 6,
+  leanprover/lean4:v4.35.0 6 time(s), nothing else normalised)".
+  Not done: ci-lean-versions.yml over all six rows; a Mathlib-sized package on v4.35.0.
+
+(4) The reader on v4.35.0 (measured)
+  Writer record 4.35.0 (githash above, no absent extension). Against v4.35.0's registered extensions:
+  4.34.x lack Lean.Linter.codeQualityLogExt and write frameProcExt as
+  Lean.Elab.Tactic.Do.Internal.VCGen.frameProcExt (registered as Lean.Elab.Tactic.VCGen.frameProcExt
+  from 4.35.0; recorded as a rename for 4.33.0-4.34.1, absent before). sineQueNon and symbolFrequency
+  are written by older Leans and not registered by v4.35.0, so they are skipped like any unregistered
+  extension. The set difference of each installed Lean's registered extensions against v4.35.0's
+  (4.31.0, 4.32.2, 4.33.0, 4.33.1, 4.34.1) equals that record's absent list exactly.
+
+  tools/reader-oracle-gate.sh (all 12 writer toolchains installed, sample all, seed 1):
+  "READER ORACLE GATE: ok (26 of 26)", 788 s wall. oracle-4.29.0 .. oracle-4.35.0 12 of 12 equal
+  byte for byte (oracle-4.35.0: 523242 lines, 208149 constants); axioms-4.30.0 .. axioms-4.35.0
+  10 of 10 equal; refuse-version, refuse-githash, refuse-mixed, refuse-absent.
+
+  refuse-absent chooses its pair: the newest writer other than the reader's whose absent list has
+  entries in some module of the reader's core, which module being v4.35.0's own answer
+  (`dump carriers`). It chose Lean 4.33.1, Lean.Meta.Grind.homoExt, Init.Grind.Homo.BitVec. With the
+  probe the earlier gate hard-coded (Init.Grind.Homo.Nat) the module does not exist on v4.35.0; with
+  4.34.1, the newest writer listing anything absent, no v4.35.0 core module carries entries under
+  either of its absent names, so the refusal never fired ("reading ... exited 0, a refusal exits 1").
+  Made to fail once: the reader built with its absent-extension check disabled (`if false && ...` in
+  OleanReader/Module.lean, a worktree copy), --sample 1: "ITEM refuse-absent FAIL  reading
+  Init.Grind.Homo.BitVec exited 0, a refusal exits 1", "READER ORACLE GATE: FAILED (1 of 26 answered
+  items)", exit 1, 519 s wall.
+
+  tools/reader-hybrid-gate.sh over the six rows: "READER HYBRID GATE: ok (27 of 27)", 316 s wall;
+  read-4.31.0 .. read-4.34.1 and self-4.35.0 each "16 IR files and the link index equal".
+
+(5) The multi-version gates (measured)
+  tools/mv-s/v6.patch pinned v6 to v4.34.1, the previous last row; tools/mv-reader-gate.sh refused
+  before running ("S's v6 pins leanprover/lean4:v4.34.1 and the reader's toolchain is
+  leanprover/lean4:v4.35.0: tools/mv-s/v6.patch has to follow the last row ..."). Repinned to v4.35.0:
+  "MV READER GATE: ok, 18 of 18 items ran and passed", 588 s wall.
+  tools/mv-s-gate.sh (v1..v5, no v4.35.0 in it): "MV-S GATE: ok, 64 of 64 items ran and passed", 102 s.

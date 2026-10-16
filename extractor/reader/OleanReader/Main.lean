@@ -4,6 +4,7 @@ open Lean OleanReader
 
 def usage : String := "\n".intercalate [
   "usage: reader --writers",
+  "       reader --absent-extensions <lean-version>",
   "       reader --registered-extensions",
   "       reader header <file.olean>",
   "       reader read <search-dir> <module>...",
@@ -55,6 +56,11 @@ unsafe def main (args : List String) : IO UInt32 := do
     match args with
     | ["--writers"] =>
       for w in writers do IO.println w.describe
+      return 0
+    | ["--absent-extensions", v] =>
+      let some w := writers.find? (·.leanVersion == v)
+        | throw <| IO.userError s!"no record for Lean {v}"
+      for e in w.absent do IO.println e
       return 0
     | ["--registered-extensions"] =>
       for n in ← registeredExts do IO.println n
