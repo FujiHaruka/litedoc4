@@ -15,7 +15,7 @@
 
 ## Next step (blocked on the user)
 
-1. Cloudflare R2: bucket, domain, API token as repository secrets — the user's account and money. No secrets exist today (`gh secret list` empty).
+1. Cloudflare R2 (decided 2026-10-16, user's call): bucket `mathlib-docs`, served at `mathlib.fuji.land` (fuji.land's DNS moved to Cloudflare; account `ab236b68c2f6f5943bc40abfe51aba70`). Secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` set 2026-10-15. Still open: the custom domain is not yet connected to the bucket (no DNS record for `mathlib.fuji.land` as of 2026-10-16).
 2. The workflow lives in this repo and reads `hosting/mathlib/` (user's call 2026-10-11, by asking for that directory).
 3. Approval for the first full run of all 11 versions on the runner (the user said "not yet" on 2026-10-11).
 Then: the workflow (restore the store from an R2 prefix the site does not serve, `build --versions` with the 11 non-prerelease releases from the GitHub API, save the store, deploy, run served-gate against the live URL). A new workflow on a branch can only run through a `push:` trigger naming the branch, which would start the full run — so write it only once (3) is approved.
