@@ -127,7 +127,6 @@ jobs:
           root: e2e/micro
           jobs: "2"
           versions: v1.3.0,v1.4.0
-          full: "true"
 
       - id: again
         uses: ./
