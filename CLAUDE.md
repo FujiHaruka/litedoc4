@@ -592,7 +592,8 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
   — **a branch push starts nothing**: every `push:` trigger in the tree is limited to `main`
   (measured 2026-08-29). **`pull_request:` does not filter**, so opening a PR does start `ci.yml`,
   `ci-action.yml`, `ci-lake.yml` and `ci-lean-versions.yml` (each behind its own `paths:`); the
-  other nine are `workflow_dispatch` only. **`workflow_dispatch` needs the workflow to exist on the
+  rest start only from `workflow_dispatch`, plus `pages.yml` on a push to `main` and
+  `mathlib-site.yml` on its schedule. **`workflow_dispatch` needs the workflow to exist on the
   default branch** — a new one on a branch cannot be dispatched by name at all, and the way to run
   it is a `push:` trigger naming that branch.
 - **The moment you put a pipe in, the exit code you are looking at is the last command's.**

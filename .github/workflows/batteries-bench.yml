@@ -1,0 +1,122 @@
+# A measurement, not a gate: doc-gen4 and litedoc4 documenting Batteries on one runner, speed and
+# memory. Its numbers go to benchmarks/results/ (first run:
+# benchmarks/results/batteries-docgen4-litedoc4-2026-10-17.txt).
+name: Batteries bench (doc-gen4 vs litedoc4)
+
+on:
+  workflow_dispatch:
+    inputs:
+      batteries_tag:
+        description: "Batteries tag; its lean-toolchain must be leanprover/lean4:<the same tag>"
+        default: "v4.35.0"
+      docgen_rev:
+        description: "doc-gen4 rev (empty: the Batteries tag)"
+        default: ""
+      rounds:
+        description: "warm rounds per cell"
+        default: "5"
+      docgen_jobs1:
+        description: "doc-gen4 at 1 job: skip, or LEAN_NUM_THREADS=1 (reaches every process lake starts)"
+        type: choice
+        options: [skip, lean-num-threads]
+        default: skip
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      BENCH_WORK: /home/runner/batteries-bench
+      LOGS: /home/runner/batteries-bench/logs
+      BATTERIES_TAG: ${{ inputs.batteries_tag }}
+      DOCGEN_REV: ${{ inputs.docgen_rev }}
+      ROUNDS: ${{ inputs.rounds }}
+      DOCGEN_JOBS1: ${{ inputs.docgen_jobs1 }}
+      JOBS_HI: "4"
+      JOBS_LO: "1"
+      JOB_MINUTES: "360"
+      RESERVE_MINUTES: "20"
+      STEP_RESERVE_MINUTES: "12"
+      ROUND_TIMEOUT_S: "3600"
+      DOCGEN4_FIRST_ESTIMATE_S: "1200"
+      LITEDOC4_FIRST_ESTIMATE_S: "300"
+      BATTERIES_BUILD_TIMEOUT: "3600"
+    steps:
+      - name: job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+
+      - name: GNU time and rsync
+        run: sudo apt-get install -y time rsync
+
+      - name: record the machine at the start
+        run: benchmarks/tools/batteries-bench.sh start
+
+      - name: free disk the run does not use
+        run: benchmarks/tools/batteries-bench.sh free-disk
+
+      - name: install elan
+        id: elan
+        run: benchmarks/tools/batteries-bench.sh elan
+
+      - name: build litedoc4
+        id: ld4bin
+        run: benchmarks/tools/batteries-bench.sh litedoc4-bin
+
+      - name: Batteries, built
+        id: batt
+        if: always() && steps.elan.outcome == 'success'
+        run: benchmarks/tools/batteries-bench.sh batteries
+
+      - name: doc-gen4 workspace
+        id: dgws
+        if: always() && steps.batt.outcome == 'success'
+        run: benchmarks/tools/batteries-bench.sh docgen-ws
+
+      - name: build doc-gen4
+        id: dgbuild
+        if: always() && steps.dgws.outcome == 'success'
+        run: benchmarks/tools/batteries-bench.sh docgen-build
+
+      - name: doc-gen4 core docs and the snapshot
+        id: dgcore
+        if: always() && steps.dgbuild.outcome == 'success'
+        run: benchmarks/tools/batteries-bench.sh docgen-core
+
+      - name: litedoc4 prime round (builds the extractor)
+        id: prime
+        if: always() && steps.ld4bin.outcome == 'success' && steps.batt.outcome == 'success'
+        run: benchmarks/tools/batteries-bench.sh litedoc4-prime
+
+      - name: rounds step deadline
+        id: deadline
+        if: always() && steps.dgcore.outcome == 'success' && steps.prime.outcome == 'success'
+        run: benchmarks/tools/batteries-bench.sh rounds-minutes
+
+      - name: rounds
+        if: always() && steps.dgcore.outcome == 'success' && steps.prime.outcome == 'success'
+        timeout-minutes: ${{ fromJSON(steps.deadline.outputs.minutes || '300') }}
+        run: benchmarks/tools/batteries-bench.sh rounds
+
+      - name: summarize
+        if: always()
+        run: benchmarks/tools/batteries-bench.sh summarize
+
+      - name: record the machine at the end
+        if: always()
+        run: benchmarks/tools/batteries-bench.sh end
+
+      - name: upload the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: batteries-bench-${{ inputs.batteries_tag }}
+          path: /home/runner/batteries-bench/logs
