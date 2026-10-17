@@ -1,0 +1,551 @@
+doc-gen4 and litedoc4 building Mathlib v4.35.0's documentation from nothing, one after the other on one runner
+==============================================================================================================
+Date: 2026-10-17. One job on a GitHub-hosted ubuntu-latest runner (run 39033244521, branch probe/docgen4-runner,
+commit 55e0f1903bb99d287cad499e795f7b97f1a513f5, deleted afterwards; the workflow and the driver are reproduced
+under CODE). Both arms ran on the same machine in sequence, so runner-to-runner variation does not enter the
+comparison. One run per arm: single measurements, not converged series.
+
+QUESTIONS
+---------
+(1) How long does doc-gen4 take to build Mathlib's documentation from nothing on a standard runner?
+(2) How long does litedoc4 take to build Mathlib's site from nothing on the same machine?
+(3) Does doc-gen4 stall on memory there, as the M1 build (benchmarks/doc-gen4-report.md section 4.6) did?
+(4) What does Mathlib's own documentation job take (leanprover-community/mathlib4_docs, docs.yaml)?
+
+HEADLINE
+--------
+(1)+(2) (measured, one run each; wall / CPU user+sys / GNU time's "percent of CPU")
+      arm                                                  wall        CPU (user+sys)          CPU%
+      litedoc4 build --lib Mathlib, one version, empty out  565.7 s     1,976.3 s (1,949.4+26.9)  349%
+        extract 454.3 s / put 26.2 s / render 72.5 s (the program's own timings)
+      doc-gen4 lake build Mathlib:docs                     6,595 s     24,245.1 s (17,004.5+7,240.7) 367%
+      doc-gen4 lake build Mathlib:docsHeader                 178 s        456.3 s
+      doc-gen4 total (docs + docsHeader)                   6,773 s     24,701.5 s
+    Not counted in either: building litedoc4 (77.9 s), building doc-gen4 (73.7 s), Mathlib's cache (63.5 s).
+    Ratio of the two totals: 6,773 / 565.7 = 12.0x wall, 24,701.5 / 1,976.3 = 12.5x CPU (measured) - for
+    DIFFERENT SCOPES, see SCOPE below; this is not a same-work multiplier.
+(3) No (measured). MemAvailable never fell below 11.47 GiB during Mathlib:docs; swap-out over the whole arm was
+    128,375 pages (~501 MiB), swap-in 53,452 pages; SwapFree min 2,570 MiB of 3,072; no OOM line in dmesg. The
+    M1 build stalled with 8 cores on 16 GB; here lake's default parallelism is 4 jobs on 16 GB. That the lower
+    parallelism is why it did not stall is an inference, not measured.
+    A large share of doc-gen4's CPU is system time: 7,240.7 s of 24,245.1 s (30%). litedoc4's is 26.9 s (1.4%).
+    What the system time is spent on is not measured.
+(4) (measured, GitHub API, 100 most recent successful runs 2026-09-12..2026-10-17, the "generate docs" step only:
+    lake build of Batteries, Qq, Aesop, ProofWidgets, Mathlib, Archive, Counterexamples and docs:docs, then
+    Mathlib:docsHeader; doc-gen4 at main, Lean at Mathlib master's toolchain, e.g. v4.36.0-rc1 on 2026-10-17)
+      runner class (self-hosted, label doc-gen)  runs  dates                    median   min    max
+      runner-20260903-pr16                        19   2026-09-12..2026-09-22  2,692 s  2,547  2,755
+      runner-20260903-pr                           4   2026-09-13..2026-09-21  1,704 s  1,702  1,710
+      runner-20260903-doc-gen                      8   2026-09-14..2026-09-21  2,676 s  2,614  2,723
+      runner-20260921-pr                           4   2026-09-22..2026-09-23  1,253 s  1,236  1,656
+      runner-20260923-static                      16   2026-09-24..2026-09-29  1,282 s  1,195  1,346
+      runner-20260928-static                      49   2026-09-29..2026-10-17  1,736 s  1,049  1,847
+    The hardware of these runners is not disclosed (the job logs carry runner and machine names only), so these
+    numbers cannot be set beside the ones above. The runner names carry a start timestamp, which suggests a fresh
+    machine per run; that is inferred from the names, not checked.
+
+SCOPE
+-----
+- litedoc4: the 8,625 modules of Mathlib v4.35.0's `Mathlib` library; 8,631 HTML pages, 31,956 files, 64,065,253 B
+  stored (162,300 KiB on disk). Dependencies (17 roots from 8 packages + core) are linked, not documented.
+  hosting/mathlib/litedoc4.toml (no_equations_under = Mathlib.Meta, Mathlib.Tactic), equations and refs on.
+- doc-gen4: Mathlib:docs walks the import closure. Its log has 8,626 "Built mathlib/..." lines, plus 195 batteries,
+  132 aesop, 35 importGraph, 14 Qq, 13 proofwidgets, 13 plausible, 4 LeanSearchClient, and one `coreDocs` job for
+  Lean's own Init/Std/Lean/Lake (767 s by itself; it ran in parallel with module jobs). Output: 11,548 HTML files,
+  2,548,468,696 B under .lake/build/doc; 1,223,721,291 B under doc-data; api-docs.db 836,108 KiB.
+- So doc-gen4 documents more: 11,548 - 8,631 = 2,917 more HTML files (dependencies and core). Bytes: doc-gen4's
+  .lake/build/doc is 2,548,468,696 B; litedoc4's site is 464,797,287 B before its own compression and
+  64,065,253 B as written. The 12x above is the cost of each tool's own definition of "Mathlib's documentation",
+  not a per-module ratio.
+
+CONDITIONS
+----------
+- Runner: GitHub-hosted ubuntu-latest, image ubuntu24 20261012.334.1, kernel 6.17.0-1022-azure x86_64; 4 vCPU =
+  AMD EPYC 7763, 2 cores x 2 threads; MemTotal 16,373,452 kB; swap 3,145,724 kB; 145 GB root. Public repository,
+  free tier.
+- Lean v4.35.0; Mathlib v4.35.0 56a005855ea17e0b0958f73ec801ae140b0a1679 (oleans from `lake exe cache get`;
+  `lake build Mathlib` afterwards 3.9 s, a no-op); doc-gen4 tag v4.35.0 (0e1ffe2e4ba5ecfdfaf15c65b8d3805dbb7134ae);
+  litedoc4 at the probe commit above (= main 2026-10-17 plus the probe files), binary sha256
+  ad1d2698ae686e513c677420f720ab4238e5c4c20ca066dd927ea26ce31857eb.
+- doc-gen4's workspace follows mathlib4_docs' docs.yaml (`lake new workaround lib`, a git commit and origin,
+  Mathlib's .lake/packages copied in, `lake update` with MATHLIB_NO_CACHE_ON_UPDATE=1). Every package Mathlib pins
+  kept Mathlib's rev in the workaround's manifest (docgen-manifest-diff: 8 same; the 6 differing entries are
+  doc-gen4 and its own dependencies, and the path to Mathlib).
+- Parallelism: litedoc4 --jobs 4; doc-gen4 lake's default (4 here). Not tuned.
+- Warm / cold: each arm ran once on a runner whose oleans had just been written by `cache get`; litedoc4 first.
+  Major page faults: litedoc4 1,101 (GNU time) / 1,349 (vmstat delta); doc-gen4 docs 38,563 / 31,789.
+- Memory columns come from a 5-s sampler over the process tree (sums of VmRSS/RssAnon/RssFile/VmSwap across the
+  tree's processes, which double-counts shared file pages: doc-gen4's tree "RSS" peaked at 20.56 GiB on a 16 GiB
+  machine for that reason) and system-wide /proc/meminfo, /proc/vmstat. MemAvailable / swap are the numbers to
+  read. litedoc4: tree anon peak 3.12 GiB, MemAvailable min 11.24 GiB, swap-out 0. doc-gen4 docs: tree anon peak
+  2.08 GiB, MemAvailable min 11.47 GiB, VmSwap peak 371 MiB.
+
+WHAT IS NOT MEASURED
+--------------------
+- Repeat runs; variation between runners; cold vs warm on the runner.
+- doc-gen4 restricted to the same 8,625 modules (it has no switch for that); litedoc4 documenting core and deps.
+- Where doc-gen4's 7,240 s of system time goes.
+- Why the runner did not stall where the M1 did (parallelism is the inference above).
+- The hardware of Mathlib's own doc-gen runners.
+
+HOW IT WAS RUN
+--------------
+  git worktree add -b probe/docgen4-runner <worktree> main
+  add .github/workflows/docgen4-runner-probe.yml and probe/docgen4-runner/probe.sh (CODE); commit, push the branch
+  first push SMOKE=1 (run 39032348573): doc-gen4 on one module only, to check the workspace on the runner; it
+    failed on a module that does not exist at v4.35.0 (Mathlib.Logic.Basic), after `coreDocs` had built (762 s)
+  second push SMOKE=0 (run 39033244521): the numbers above, from the artifact's timings.txt, <arm>.time (GNU time
+    -v), <arm>-sampler.tsv, <arm>-outcome.txt, litedoc4-timings.jsonl, litedoc4.log, docgen4-docs.log,
+    litedoc4-output.txt, docgen4-output.txt, docgen-manifest-diff.txt, machine-*.txt
+  official CI: gh api repos/leanprover-community/mathlib4_docs/actions/workflows/65658331/runs?status=success,
+    then each run's jobs: (completed_at - started_at) of the step "generate docs"
+  the branch was deleted afterwards
+
+timings.txt (verbatim)
+----------------------
+name	start_utc	end_utc	wall_s	exit
+free-disk	2026-10-17T12:37:19Z	2026-10-17T12:38:09Z	49.5	0
+elan-install	2026-10-17T12:38:09Z	2026-10-17T12:38:09Z	0.5	0
+litedoc4-bin	2026-10-17T12:38:09Z	2026-10-17T12:39:27Z	77.9	0
+mathlib-fetch	2026-10-17T12:39:27Z	2026-10-17T12:39:35Z	7.5	0
+mathlib-cache-get	2026-10-17T12:39:35Z	2026-10-17T12:40:39Z	63.5	0
+mathlib-nobuild	2026-10-17T12:40:39Z	2026-10-17T12:40:44Z	4.2	0
+mathlib-build	2026-10-17T12:40:44Z	2026-10-17T12:40:48Z	3.9	0
+litedoc4	2026-10-17T12:40:48Z	2026-10-17T12:50:15Z	566	0
+docgen-lake-new	2026-10-17T12:50:17Z	2026-10-17T12:50:17Z	0.1	0
+docgen-copy-packages	2026-10-17T12:50:17Z	2026-10-17T12:50:17Z	0.7	0
+docgen-lake-update	2026-10-17T12:50:17Z	2026-10-17T12:50:27Z	9.9	0
+docgen-build	2026-10-17T12:50:27Z	2026-10-17T12:51:41Z	73.7	0
+docgen4-docs	2026-10-17T12:51:41Z	2026-10-17T14:41:38Z	6595	0
+docgen4-header	2026-10-17T14:41:38Z	2026-10-17T14:44:40Z	178	0
+
+CODE
+----
+=== .github/workflows/docgen4-runner-probe.yml
+name: doc-gen4 runner probe
+
+on:
+  push:
+    branches: [probe/docgen4-runner]
+
+permissions:
+  contents: read
+
+env:
+  SMOKE: "0"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      PROBE_WORK: /home/runner/probe-work
+      LOGS: /home/runner/probe-work/logs
+      MATHLIB_TAG: v4.35.0
+      DOCGEN_REV: v4.35.0
+      JOB_MINUTES: "360"
+      RESERVE_MINUTES: "30"
+      STEP_RESERVE_MINUTES: "15"
+      LITEDOC4_TIMEOUT: "7200"
+      MATHLIB_BUILD_TIMEOUT: "1800"
+    steps:
+      - name: job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+
+      - name: GNU time
+        run: sudo apt-get install -y time
+
+      - name: record the machine at the start
+        run: probe/docgen4-runner/probe.sh start
+
+      - name: free disk the run does not use
+        run: probe/docgen4-runner/probe.sh free-disk
+
+      - name: install elan
+        id: elan
+        run: probe/docgen4-runner/probe.sh elan
+
+      - name: build litedoc4
+        id: ld4bin
+        if: env.SMOKE != '1'
+        run: probe/docgen4-runner/probe.sh litedoc4-bin
+
+      - name: Mathlib v4.35.0 and its cache
+        id: mathlib
+        if: always() && steps.elan.outcome == 'success'
+        run: probe/docgen4-runner/probe.sh mathlib
+
+      - name: lake build Mathlib (a no-op after the cache)
+        if: always() && steps.mathlib.outcome == 'success'
+        run: probe/docgen4-runner/probe.sh mathlib-build
+
+      - name: litedoc4 arm
+        if: always() && steps.ld4bin.outcome == 'success' && steps.mathlib.outcome == 'success'
+        run: probe/docgen4-runner/probe.sh litedoc4
+
+      - name: doc-gen4 workspace
+        id: dgws
+        if: always() && steps.mathlib.outcome == 'success'
+        run: probe/docgen4-runner/probe.sh docgen-ws
+
+      - name: build doc-gen4
+        id: dgbuild
+        if: always() && steps.dgws.outcome == 'success'
+        run: probe/docgen4-runner/probe.sh docgen-build
+
+      - name: doc-gen4 step deadline
+        id: deadline
+        if: always() && steps.dgbuild.outcome == 'success'
+        run: probe/docgen4-runner/probe.sh docgen-minutes
+
+      - name: doc-gen4 arm
+        if: always() && steps.dgbuild.outcome == 'success'
+        timeout-minutes: ${{ fromJSON(steps.deadline.outputs.minutes || '345') }}
+        run: probe/docgen4-runner/probe.sh docgen
+
+      - name: record the machine at the end
+        if: always()
+        run: probe/docgen4-runner/probe.sh end
+
+      - name: upload the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docgen4-runner-probe
+          path: /home/runner/probe-work/logs
+=== probe/docgen4-runner/probe.sh
+#!/bin/bash
+# litedoc4 and doc-gen4 building Mathlib's documentation from nothing, one after the
+# other on one runner. One subcommand per workflow step; everything it writes goes to $LOGS.
+#   probe.sh start               timings header, the machine at the start, the repository's HEAD
+#   probe.sh free-disk           the runner's preinstalled toolchains this run does not use
+#   probe.sh elan                elan with no default toolchain
+#   probe.sh litedoc4-bin        litedoc4 built as tools/mathlib-site.sh setup builds it
+#   probe.sh mathlib             Mathlib $MATHLIB_TAG (--depth 1) and `lake exe cache get`
+#   probe.sh mathlib-build       `lake build --no-build Mathlib`, then `lake build Mathlib`
+#   probe.sh litedoc4            the litedoc4 arm: one version, empty --out
+#   probe.sh docgen-ws           the workaround workspace of mathlib4_docs' docs.yaml
+#   probe.sh docgen-build        `lake build doc-gen4`
+#   probe.sh docgen-minutes      the doc-gen4 step's timeout-minutes into $GITHUB_OUTPUT
+#   probe.sh docgen              the doc-gen4 arm: Mathlib:docs, then Mathlib:docsHeader
+#   probe.sh end                 the machine at the end
+# Environment: JOB_START (epoch seconds, set by the workflow's first step), SMOKE (1: no
+# litedoc4 arm, doc-gen4 on one module), PROBE_WORK, LOGS, MATHLIB_TAG, DOCGEN_REV,
+# JOB_MINUTES, RESERVE_MINUTES, STEP_RESERVE_MINUTES, LITEDOC4_TIMEOUT, MATHLIB_BUILD_TIMEOUT.
+set -euo pipefail
+
+P=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(cd "$P/../.." && pwd)
+W=${PROBE_WORK:-$HOME/probe-work}
+LOGS=${LOGS:-$W/logs}
+MATHLIB=$W/mathlib
+WS=$W/workaround
+LD4OUT=$W/litedoc4-out
+LITEDOC4=$ROOT/.lake/build/bin/litedoc4
+TAG=${MATHLIB_TAG:-v4.35.0}
+DOCGEN_REV=${DOCGEN_REV:-v4.35.0}
+SMOKE=${SMOKE:-1}
+SMOKE_MODULE=${SMOKE_MODULE:-Mathlib.Logic.Pairwise}
+JOB_MINUTES=${JOB_MINUTES:-360}
+RESERVE_MINUTES=${RESERVE_MINUTES:-30}
+STEP_RESERVE_MINUTES=${STEP_RESERVE_MINUTES:-15}
+LITEDOC4_TIMEOUT=${LITEDOC4_TIMEOUT:-7200}
+MATHLIB_BUILD_TIMEOUT=${MATHLIB_BUILD_TIMEOUT:-1800}
+mkdir -p "$W" "$LOGS"
+export PATH="$HOME/.elan/bin:$PATH"
+
+utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+timing_line() {
+  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" | tee -a "$LOGS/timings.txt"
+}
+
+timed() {
+  local name=$1; shift
+  local s0 t0 t1 rc
+  s0=$(utc); t0=$(date +%s.%N)
+  if "$@"; then rc=0; else rc=$?; fi
+  t1=$(date +%s.%N)
+  timing_line "$name" "$s0" "$(utc)" "$(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.1f", b-a}')" "$rc"
+  return "$rc"
+}
+
+remaining() {
+  : "${JOB_START:?JOB_START comes from the first workflow step}"
+  echo $(( JOB_START + (JOB_MINUTES - RESERVE_MINUTES) * 60 - $(date +%s) ))
+}
+
+record() {
+  {
+    echo "## date"; utc
+    echo "## image"; echo "ImageOS=${ImageOS:-?} ImageVersion=${ImageVersion:-?} RUNNER_OS=${RUNNER_OS:-?}"
+    echo "## kernel"; uname -a
+    echo "## nproc"; nproc || true
+    echo "## lscpu"; lscpu || true
+    echo "## meminfo"; cat /proc/meminfo || true
+    echo "## swap"; swapon --show || true; free -b || true
+    echo "## vmstat"; grep -E '^(pswpin|pswpout|pgmajfault|oom_kill) ' /proc/vmstat || true
+    echo "## df"; df -h || true
+    echo "## vm sysctl"; sysctl vm.swappiness vm.overcommit_memory 2>/dev/null || true
+    echo "## oom"; sudo -n dmesg 2>/dev/null | grep -iE 'out of memory|oom-kill|killed process' || echo "(none)"
+  } > "$LOGS/machine-$1.txt" 2>&1
+}
+
+tree_pids() {
+  ps -e -o pid=,ppid= | awk -v root="$1" '
+    { parent[$1] = $2 }
+    END {
+      inside[root] = 1
+      grew = 1
+      while (grew) {
+        grew = 0
+        for (p in parent) if (!(p in inside) && (parent[p] in inside)) { inside[p] = 1; grew = 1 }
+      }
+      for (p in inside) print p
+    }'
+}
+
+sample() {
+  local root=$1 out=$2 top=$3 tick=0
+  printf 't\tVmRSS\tRssAnon\tRssFile\tVmSwap\tMemAvailable\tCached\tSwapFree\tpswpin\tpswpout\tpgmajfault\tnprocs\tRootAvailKB\n' > "$out"
+  : > "$top"
+  while kill -0 "$root" 2>/dev/null; do
+    local files rss anon file swap n mi vs disk
+    files=$(tree_pids "$root" | sed 's#.*#/proc/&/status#')
+    read -r rss anon file swap n <<<"$({ cat $files 2>/dev/null || true; } | awk '
+      /^VmRSS:/ { a += $2 } /^RssAnon:/ { b += $2 } /^RssFile:/ { c += $2 } /^VmSwap:/ { d += $2 }
+      /^Pid:/ { n++ }
+      END { printf "%d %d %d %d %d\n", a, b, c, d, n }')"
+    mi=$(awk '/^(MemAvailable|Cached|SwapFree):/{printf "%s\t", $2}' /proc/meminfo 2>/dev/null || true)
+    vs=$(awk '/^(pswpin|pswpout|pgmajfault) /{printf "%s\t", $2}' /proc/vmstat 2>/dev/null || true)
+    disk=$(df -k --output=avail / 2>/dev/null | tail -1 | tr -d ' ' || true)
+    printf '%s\t%s\t%s\t%s\t%s\t%s%s%s\t%s\n' "$(date +%s)" "$rss" "$anon" "$file" "$swap" "$mi" "$vs" "$n" "$disk" >> "$out"
+    if [ $((tick % 12)) -eq 0 ]; then
+      { echo "== $(utc)"; ps -eo pid,ppid,rss,etimes,args --sort=-rss 2>/dev/null | head -8 | cut -c1-240; } >> "$top" || true
+    fi
+    tick=$((tick + 1))
+    sleep 5
+  done
+}
+
+measure() {
+  local name=$1 budget=$2 log=$3; shift 3
+  local s0 t0 t1 rc root sp wall outcome progress
+  if [ "$budget" -lt 60 ]; then
+    timing_line "$name" "$(utc)" "$(utc)" 0 124
+    printf 'outcome\tnot started: %s s left before the deadline\n' "$budget" | tee "$LOGS/$name-outcome.txt"
+    return 124
+  fi
+  record "before-$name"
+  echo "$name: budget $budget s, $*"
+  s0=$(utc); t0=$(date +%s)
+  /usr/bin/time -v -o "$LOGS/$name.time" timeout -k 120 "$budget" "$@" > "$log" 2>&1 &
+  root=$!
+  sample "$root" "$LOGS/$name-sampler.tsv" "$LOGS/$name-top.txt" &
+  sp=$!
+  if wait "$root"; then rc=0; else rc=$?; fi
+  t1=$(date +%s)
+  wait "$sp" || true
+  wall=$((t1 - t0))
+  timing_line "$name" "$s0" "$(utc)" "$wall" "$rc"
+  record "after-$name"
+  if [ "$rc" -eq 0 ]; then outcome=finished
+  elif { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; } && [ "$wall" -ge $((budget - 1)) ]; then outcome=timeout
+  else outcome=failed
+  fi
+  progress=$(grep -oE '\[[0-9]+/[0-9]+\]' "$log" | tail -1 || true)
+  {
+    printf 'outcome\t%s\n' "$outcome"
+    printf 'exit\t%s\n' "$rc"
+    printf 'wall_s\t%s\n' "$wall"
+    printf 'budget_s\t%s\n' "$budget"
+    printf 'command\t%s\n' "$*"
+    printf 'last_progress\t%s\n' "${progress:-(none)}"
+    printf 'last_line\t%s\n' "$(tail -1 "$log" | cut -c1-400)"
+  } | tee "$LOGS/$name-outcome.txt"
+  return "$rc"
+}
+
+tree_size() {
+  local dir=$1 listing
+  if [ -e "$dir" ]; then
+    listing=$(mktemp)
+    find "$dir" -type f -printf '%s %p\n' > "$listing"
+    printf '%s\tfiles %s\thtml %s\tbytes %s\tdisk_kb %s\n' "$dir" \
+      "$(wc -l < "$listing")" "$(grep -c '\.html$' "$listing" || true)" \
+      "$(awk '{ s += $1 } END { printf "%d", s }' "$listing")" "$(du -sk "$dir" | cut -f1)"
+    rm -f "$listing"
+  else
+    printf '%s\tabsent\n' "$dir"
+  fi
+}
+
+case "${1:-}" in
+  start)
+    printf 'name\tstart_utc\tend_utc\twall_s\texit\n' > "$LOGS/timings.txt"
+    record start
+    {
+      echo "JOB_START=${JOB_START:-unset}"
+      echo "litedoc4 HEAD $(git -C "$ROOT" rev-parse HEAD)"
+      echo "SMOKE=$SMOKE MATHLIB_TAG=$TAG DOCGEN_REV=$DOCGEN_REV JOB_MINUTES=$JOB_MINUTES RESERVE_MINUTES=$RESERVE_MINUTES"
+      echo "LITEDOC4_TIMEOUT=$LITEDOC4_TIMEOUT MATHLIB_BUILD_TIMEOUT=$MATHLIB_BUILD_TIMEOUT"
+    } | tee "$LOGS/run.txt"
+    exit 0
+    ;;
+  free-disk)
+    df -h / | tee "$LOGS/free-disk.txt"
+    timed free-disk sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+    df -h / | tee -a "$LOGS/free-disk.txt"
+    exit 0
+    ;;
+  elan)
+    timed elan-install bash -c 'curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none'
+    echo "$HOME/.elan/bin" >> "${GITHUB_PATH:-/dev/null}"
+    elan --version | tee -a "$LOGS/run.txt"
+    exit 0
+    ;;
+  litedoc4-bin)
+    timed litedoc4-bin "$ROOT/tools/build-lean-exe.sh" --toolchain-from "$ROOT/e2e/micro" > "$LOGS/litedoc4-bin.log" 2>&1
+    [ -x "$LITEDOC4" ] || { echo "no $LITEDOC4" >&2; exit 1; }
+    sha256sum "$LITEDOC4" | tee -a "$LOGS/run.txt"
+    exit 0
+    ;;
+  mathlib)
+    rm -rf "$MATHLIB"; mkdir -p "$MATHLIB"
+    git -C "$MATHLIB" init -q
+    git -C "$MATHLIB" remote add origin https://github.com/leanprover-community/mathlib4
+    timed mathlib-fetch git -C "$MATHLIB" -c maintenance.auto=false -c gc.auto=0 fetch -q --depth 1 origin "refs/tags/$TAG:refs/tags/$TAG"
+    git -C "$MATHLIB" -c advice.detachedHead=false checkout -q "refs/tags/$TAG"
+    echo "mathlib $TAG $(git -C "$MATHLIB" rev-parse HEAD) $(cat "$MATHLIB/lean-toolchain")" | tee -a "$LOGS/run.txt"
+    cd "$MATHLIB"
+    timed mathlib-cache-get lake exe cache get > "$LOGS/mathlib-cache-get.log" 2>&1
+    tail -5 "$LOGS/mathlib-cache-get.log"
+    printf 'mathlib .lake\t%s KiB\n' "$(du -sk .lake | cut -f1)" | tee -a "$LOGS/run.txt"
+    exit 0
+    ;;
+  mathlib-build)
+    cd "$MATHLIB"
+    timed mathlib-nobuild lake build --no-build Mathlib > "$LOGS/mathlib-nobuild.log" 2>&1 || true
+    timed mathlib-build env LEAN_ABORT_ON_PANIC=1 timeout -k 60 "$MATHLIB_BUILD_TIMEOUT" lake build Mathlib > "$LOGS/mathlib-build.log" 2>&1
+    tail -3 "$LOGS/mathlib-build.log"
+    exit 0
+    ;;
+  litedoc4)
+    budget=$(remaining)
+    if [ "$budget" -gt "$LITEDOC4_TIMEOUT" ]; then budget=$LITEDOC4_TIMEOUT; fi
+    rm -rf "$LD4OUT"; mkdir -p "$LD4OUT"
+    rc=0
+    measure litedoc4 "$budget" "$LOGS/litedoc4.log" \
+      "$LITEDOC4" build --root "$MATHLIB" --lib Mathlib --out "$LD4OUT" --jobs 4 \
+      --config "$ROOT/hosting/mathlib/litedoc4.toml" --lake "$(command -v lake)" \
+      --timings "$LOGS/litedoc4-timings.jsonl" || rc=$?
+    {
+      tree_size "$LD4OUT/site"
+      for d in "$LD4OUT"/*; do
+        if [ -d "$d" ]; then printf '%s\tdisk_kb %s\n' "$d" "$(du -sk "$d" | cut -f1)"; fi
+      done
+      printf '%s\tdisk_kb %s\n' "$LD4OUT" "$(du -sk "$LD4OUT" | cut -f1)"
+    } | tee "$LOGS/litedoc4-output.txt"
+    for f in "$LD4OUT"/*.json; do
+      if [ -f "$f" ]; then cp "$f" "$LOGS/litedoc4-out-$(basename "$f")"; fi
+    done
+    rm -rf "$LD4OUT"
+    df -h / | tee -a "$LOGS/litedoc4-output.txt"
+    exit "$rc"
+    ;;
+  docgen-ws)
+    rm -rf "$WS"
+    cd "$W"
+    timed docgen-lake-new lake "+$(cat "$MATHLIB/lean-toolchain")" new workaround lib > "$LOGS/docgen-lake-new.log" 2>&1
+    cd "$WS"
+    cp -f "$MATHLIB/lean-toolchain" .
+    rm -f lakefile.lean
+    printf '%s\n' \
+      'name = "workaround"' \
+      'defaultTargets = ["workaround"]' \
+      '' \
+      '[[lean_lib]]' \
+      'name = "Workaround"' \
+      '' \
+      '[[require]]' \
+      'scope = "leanprover"' \
+      'name = "doc-gen4"' \
+      "rev = \"$DOCGEN_REV\"" \
+      '' \
+      '[[require]]' \
+      'name = "mathlib"' \
+      "path = \"../$(basename "$MATHLIB")\"" > lakefile.toml
+    cp lakefile.toml "$LOGS/workaround-lakefile.toml"
+    if [ ! -d .git ]; then git init -q; fi
+    git config user.email "mathlib4_docs@leanprover-community.github.io"
+    git config user.name "mathlib4_docs CI"
+    git add .
+    git commit -q -m workaround
+    git remote add origin "https://github.com/leanprover-community/workaround"
+    mkdir -p .lake/packages
+    timed docgen-copy-packages cp -r "$MATHLIB"/.lake/packages/* .lake/packages
+    MATHLIB_NO_CACHE_ON_UPDATE=1 timed docgen-lake-update lake update > "$LOGS/docgen-lake-update.log" 2>&1
+    mkdir -p docs
+    cp "$MATHLIB/docs/references.bib" docs/references.bib
+    cp lake-manifest.json "$LOGS/workaround-lake-manifest.json"
+    cp "$MATHLIB/lake-manifest.json" "$LOGS/mathlib-lake-manifest.json"
+    python3 -I - "$MATHLIB/lake-manifest.json" lake-manifest.json <<'PY' | tee "$LOGS/docgen-manifest-diff.txt"
+import json, sys
+def revs(path):
+    return {p["name"]: p.get("rev", p.get("dir", "?")) for p in json.load(open(path))["packages"]}
+mathlib, workaround = revs(sys.argv[1]), revs(sys.argv[2])
+for name in sorted(set(mathlib) | set(workaround)):
+    a, b = mathlib.get(name, "-"), workaround.get(name, "-")
+    print(f"{'same' if a == b else 'DIFF'}\t{name}\tmathlib {a}\tworkaround {b}")
+PY
+    printf 'workaround .lake\t%s KiB\n' "$(du -sk .lake | cut -f1)" | tee -a "$LOGS/run.txt"
+    exit 0
+    ;;
+  docgen-build)
+    cd "$WS"
+    timed docgen-build lake build doc-gen4 > "$LOGS/docgen-build.log" 2>&1
+    tail -3 "$LOGS/docgen-build.log"
+    exit 0
+    ;;
+  docgen-minutes)
+    : "${JOB_START:?JOB_START comes from the first workflow step}"
+    minutes=$(( (JOB_START + (JOB_MINUTES - STEP_RESERVE_MINUTES) * 60 - $(date +%s)) / 60 ))
+    if [ "$minutes" -lt 1 ]; then minutes=1; fi
+    echo "minutes=$minutes" | tee -a "${GITHUB_OUTPUT:-/dev/null}"
+    exit 0
+    ;;
+  docgen)
+    cd "$WS"
+    rc=0
+    if [ "$SMOKE" = 1 ]; then
+      measure docgen4-smoke "$(remaining)" "$LOGS/docgen4-smoke.log" lake build "+$SMOKE_MODULE:docs" || rc=$?
+    else
+      measure docgen4-docs "$(remaining)" "$LOGS/docgen4-docs.log" lake build Mathlib:docs || rc=$?
+      if [ "$rc" -eq 0 ]; then
+        measure docgen4-header "$(remaining)" "$LOGS/docgen4-header.log" lake build Mathlib:docsHeader || rc=$?
+      else
+        timing_line docgen4-header - - - skipped
+      fi
+    fi
+    {
+      tree_size .lake/build/doc
+      tree_size .lake/build/doc-data
+      for f in .lake/build/api-docs.db*; do
+        if [ -f "$f" ]; then printf '%s\tdisk_kb %s\n' "$f" "$(du -sk "$f" | cut -f1)"; fi
+      done
+      df -h /
+    } | tee "$LOGS/docgen4-output.txt"
+    exit "$rc"
+    ;;
+  end)
+    record end
+    ls -la "$LOGS"
+    exit 0
+    ;;
+  *)
+    sed -n '2,/^set -/p' "$0" | sed '$d'
+    exit 2
+    ;;
+esac
