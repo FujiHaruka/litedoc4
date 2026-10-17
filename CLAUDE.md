@@ -644,6 +644,9 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
 
 ## Language
 
+- **Replies to the user are always Japanese** — status lines, reports and briefs, including the
+  report that follows a long run of English commits and logs. Everything below is about what is
+  written into files, never about the conversation.
 - Everything is English: docs, commit messages, and code surface (identifiers, comments,
   docstrings, script usage).
 - The four honesty labels are written `(measured)` / `(extrapolated)` / `(assumed)` /
