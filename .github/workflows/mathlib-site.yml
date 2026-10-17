@@ -22,6 +22,7 @@ jobs:
     env:
       MATHLIB_SITE_WORK: /home/runner/mathlib-site
       MATHLIB_SITE_URL: https://mathlib.fuji.land
+      MATHLIB_SITE_HOLD_BACK: v4.35.0
       R2_ACCOUNT_ID: ab236b68c2f6f5943bc40abfe51aba70
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}

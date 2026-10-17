@@ -6,19 +6,23 @@
 # usage: tools/mathlib-site.sh <step>
 #   versions  hosting/mathlib/versions.sh into <work>/versions.txt
 #   setup     build litedoc4; fetch Mathlib's release tags; check out the newest
-#   restore   the store bucket into <work>/out/store (an empty bucket is a build from nothing)
+#   restore   the store bucket into <work>/out/store (an empty bucket is a build from nothing);
+#             when it holds a render ledger, that and the site bucket into <work>/out/site, so
+#             the build renders only the versions the deployed site does not hold
 #   build     `litedoc4 build --versions`, up to three attempts on the same store
 #   save      <work>/out/store into the store bucket, then checked there; nothing is deleted
 #   local     tools/served-gate.sh over <work>/out/site served on 127.0.0.1
-#   deploy    <work>/out/site into the site bucket: every file but the entry points, then
-#             the entry points, then (only with MATHLIB_SITE_PRUNE=1) deleting what the
-#             site no longer has, then every file of the site checked in the bucket
+#   deploy    the files the build wrote into the site bucket: all but the entry points, then
+#             the entry points, then (only with MATHLIB_SITE_PRUNE=1) deleting what the site
+#             no longer has; those files checked in the bucket, then the render ledger saved
 #   live      tools/served-gate.sh, then tools/live-smoke-gate.sh, against MATHLIB_SITE_URL
 #
 # Environment: MATHLIB_SITE_WORK (default $RUNNER_TEMP/mathlib-site), MATHLIB_SITE_URL
 # (default https://mathlib.fuji.land), MATHLIB_SITE_JOBS (default 4), R2_ACCOUNT_ID,
 # R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY for restore, save and deploy; `gh`
-# authenticated for versions.
+# authenticated for versions. To measure adding a release: MATHLIB_SITE_HOLD_BACK=<v> leaves
+# <v> out of the version set and out of the restored store; MATHLIB_SITE_REEXTRACT=<v> leaves
+# it out of the restored store only.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,7 +34,9 @@ JOBS="${MATHLIB_SITE_JOBS:-4}"
 LITEDOC4="$ROOT/.lake/build/bin/litedoc4"
 SITE_BUCKET=mathlib-docs
 STORE_BUCKET=mathlib-docs-store
-ENTRY_POINTS=(--exclude /versions.json --exclude /index.html --exclude /404.html)
+ENTRY_POINTS='^(versions\.json|index\.html|404\.html)$'
+LEDGER=render-ledger.json
+BUILD_STARTED="$WORK/build-started"
 mkdir -p "$WORK"
 
 versions () {
@@ -51,11 +57,16 @@ r2 () {
 case "${1:-}" in
   versions)
     "$ROOT/hosting/mathlib/versions.sh" >"$WORK/versions.txt"
+    if [ -n "${MATHLIB_SITE_HOLD_BACK:-}" ]; then
+      tr , '\n' <"$WORK/versions.txt" | grep -vxF "$MATHLIB_SITE_HOLD_BACK" | paste -sd, - >"$WORK/versions.held"
+      mv "$WORK/versions.held" "$WORK/versions.txt"
+    fi
     cat "$WORK/versions.txt"
     ;;
   setup)
     "$ROOT/tools/build-lean-exe.sh" --toolchain-from "$ROOT/e2e/micro"
     [ -x "$LITEDOC4" ] || { echo "no $LITEDOC4" >&2; exit 1; }
+    sha256sum "$LITEDOC4"
     IFS=, read -r -a tags <<<"$(versions)"
     rm -rf "$MATHLIB"
     mkdir -p "$MATHLIB"
@@ -71,10 +82,20 @@ case "${1:-}" in
     ;;
   restore)
     mkdir -p "$OUT/store"
-    r2 copy "r2:$STORE_BUCKET/store" "$OUT/store"
+    without=()
+    for v in ${MATHLIB_SITE_HOLD_BACK:-} ${MATHLIB_SITE_REEXTRACT:-}; do without+=(--exclude "/$v/**"); done
+    r2 copy "r2:$STORE_BUCKET/store" "$OUT/store" ${without[@]+"${without[@]}"}
     echo "restored: $(find "$OUT/store" -type f | wc -l) files, $(du -sk "$OUT/store" | cut -f1) KiB"
+    if r2 lsf "r2:$STORE_BUCKET" --files-only | grep -qxF "$LEDGER"; then
+      r2 copyto "r2:$STORE_BUCKET/$LEDGER" "$OUT/$LEDGER"
+      r2 copy "r2:$SITE_BUCKET" "$OUT/site"
+      echo "site restored: $(find "$OUT/site" -type f | wc -l) files, $(du -sk "$OUT/site" | cut -f1) KiB"
+    else
+      echo "no render ledger in the store bucket: every version renders"
+    fi
     ;;
   build)
+    date -u +%Y-%m-%dT%H:%M:%SZ >"$BUILD_STARTED"
     status=1
     for attempt in 1 2 3; do
       set +e
@@ -113,13 +134,18 @@ case "${1:-}" in
     ;;
   deploy)
     [ -d "$OUT/site" ] || { echo "no $OUT/site" >&2; exit 1; }
-    r2 copy "$OUT/site" "r2:$SITE_BUCKET" "${ENTRY_POINTS[@]}"
-    r2 copy "$OUT/site" "r2:$SITE_BUCKET"
+    [ -s "$BUILD_STARTED" ] || { echo "no $BUILD_STARTED; run the build step first" >&2; exit 1; }
+    (cd "$OUT/site" && find . -type f -newer "$BUILD_STARTED" | sed 's|^\./||') >"$WORK/written.txt"
+    { grep -vE "$ENTRY_POINTS" "$WORK/written.txt" >"$WORK/written-pages.txt" || [ $? = 1 ]; }
+    { grep -E "$ENTRY_POINTS" "$WORK/written.txt" >"$WORK/written-entry.txt" || [ $? = 1 ]; }
+    echo "site: $(find "$OUT/site" -type f | wc -l) files, $(wc -l <"$WORK/written.txt") written by this build ($(wc -l <"$WORK/written-entry.txt") entry points)"
+    r2 copy "$OUT/site" "r2:$SITE_BUCKET" --no-traverse --files-from "$WORK/written-pages.txt"
+    r2 copy "$OUT/site" "r2:$SITE_BUCKET" --no-traverse --files-from "$WORK/written-entry.txt"
     if [ "${MATHLIB_SITE_PRUNE:-0}" = 1 ]; then
       r2 sync "$OUT/site" "r2:$SITE_BUCKET"
     fi
-    echo "site: $(find "$OUT/site" -type f | wc -l) files, $(du -sk "$OUT/site" | cut -f1) KiB"
-    r2 check "$OUT/site" "r2:$SITE_BUCKET" --one-way
+    r2 check "$OUT/site" "r2:$SITE_BUCKET" --one-way --files-from "$WORK/written.txt"
+    r2 copyto "$OUT/$LEDGER" "r2:$STORE_BUCKET/$LEDGER"
     ;;
   live)
     "$ROOT/tools/served-gate.sh" --declared "$(versions)" --out "$OUT" --url "$SITE_URL"
