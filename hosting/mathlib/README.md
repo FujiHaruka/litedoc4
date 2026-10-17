@@ -28,11 +28,11 @@ is served.
 ## Where it is served
 
 `https://mathlib.fuji.land`, a custom domain of the Cloudflare R2 bucket `mathlib-docs`. The store
-lives in a second bucket, `mathlib-docs-store`, which no domain serves, beside the render ledger of
-the site as deployed. `tools/mathlib-site.sh`, run by `.github/workflows/mathlib-site.yml`, restores
-the store and, when the ledger is there, the deployed site with it, so a build renders only the
+lives in a second bucket, `mathlib-docs-store`, which no domain serves, beside an archive of the
+site as deployed with its render ledger. `tools/mathlib-site.sh`, run by
+`.github/workflows/mathlib-site.yml`, restores the store and the archive, so a build renders only the
 versions the deployed site does not hold; then it builds, saves the store, uploads the files the
-build wrote, saves the ledger, and checks the site as served. It needs the repository secrets
+build wrote, archives the site again, and checks the site as served. It needs the repository secrets
 `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, a token with object read and write on both buckets.
 
 R2 answers a path with the object of that exact key and has no directory index, so the `fuji.land`

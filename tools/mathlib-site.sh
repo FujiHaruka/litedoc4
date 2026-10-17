@@ -7,14 +7,15 @@
 #   versions  hosting/mathlib/versions.sh into <work>/versions.txt
 #   setup     build litedoc4; fetch Mathlib's release tags; check out the newest
 #   restore   the store bucket into <work>/out/store (an empty bucket is a build from nothing);
-#             when it holds a render ledger, that and the site bucket into <work>/out/site, so
-#             the build renders only the versions the deployed site does not hold
+#             when it holds the deployed site's archive, that into <work>/out, so the build
+#             renders only the versions the deployed site does not hold
 #   build     `litedoc4 build --versions`, up to three attempts on the same store
 #   save      <work>/out/store into the store bucket, then checked there; nothing is deleted
 #   local     tools/served-gate.sh over <work>/out/site served on 127.0.0.1
 #   deploy    the files the build wrote into the site bucket: all but the entry points, then
 #             the entry points, then (only with MATHLIB_SITE_PRUNE=1) deleting what the site
-#             no longer has; those files checked in the bucket, then the render ledger saved
+#             no longer has; those files checked in the bucket, then the site, its render
+#             ledger and the build record archived into the store bucket
 #   live      tools/served-gate.sh, then tools/live-smoke-gate.sh, against MATHLIB_SITE_URL
 #
 # Environment: MATHLIB_SITE_WORK (default $RUNNER_TEMP/mathlib-site), MATHLIB_SITE_URL
@@ -35,7 +36,8 @@ LITEDOC4="$ROOT/.lake/build/bin/litedoc4"
 SITE_BUCKET=mathlib-docs
 STORE_BUCKET=mathlib-docs-store
 ENTRY_POINTS='^(versions\.json|index\.html|404\.html)$'
-LEDGER=render-ledger.json
+ARCHIVE=site.tar.zst
+ARCHIVED=(site render-ledger.json litedoc4-build.json)
 BUILD_STARTED="$WORK/build-started"
 mkdir -p "$WORK"
 
@@ -86,12 +88,13 @@ case "${1:-}" in
     for v in ${MATHLIB_SITE_HOLD_BACK:-} ${MATHLIB_SITE_REEXTRACT:-}; do without+=(--exclude "/$v/**"); done
     r2 copy "r2:$STORE_BUCKET/store" "$OUT/store" ${without[@]+"${without[@]}"}
     echo "restored: $(find "$OUT/store" -type f | wc -l) files, $(du -sk "$OUT/store" | cut -f1) KiB"
-    if r2 lsf "r2:$STORE_BUCKET" --files-only | grep -qxF "$LEDGER"; then
-      r2 copyto "r2:$STORE_BUCKET/$LEDGER" "$OUT/$LEDGER"
-      r2 copy "r2:$SITE_BUCKET" "$OUT/site"
+    if r2 lsf "r2:$STORE_BUCKET" --files-only | grep -qxF "$ARCHIVE"; then
+      r2 copyto "r2:$STORE_BUCKET/$ARCHIVE" "$WORK/$ARCHIVE"
+      zstd -dc "$WORK/$ARCHIVE" | tar -C "$OUT" -xf -
+      rm "$WORK/$ARCHIVE"
       echo "site restored: $(find "$OUT/site" -type f | wc -l) files, $(du -sk "$OUT/site" | cut -f1) KiB"
     else
-      echo "no render ledger in the store bucket: every version renders"
+      echo "no $ARCHIVE in the store bucket: every version renders"
     fi
     ;;
   build)
@@ -145,7 +148,10 @@ case "${1:-}" in
       r2 sync "$OUT/site" "r2:$SITE_BUCKET"
     fi
     r2 check "$OUT/site" "r2:$SITE_BUCKET" --one-way --files-from "$WORK/written.txt"
-    r2 copyto "$OUT/$LEDGER" "r2:$STORE_BUCKET/$LEDGER"
+    tar -C "$OUT" -cf - "${ARCHIVED[@]}" | zstd -1 -T0 -q -f -o "$WORK/$ARCHIVE"
+    echo "archive: $(du -k "$WORK/$ARCHIVE" | cut -f1) KiB"
+    r2 copyto "$WORK/$ARCHIVE" "r2:$STORE_BUCKET/$ARCHIVE"
+    rm "$WORK/$ARCHIVE"
     ;;
   live)
     "$ROOT/tools/served-gate.sh" --declared "$(versions)" --out "$OUT" --url "$SITE_URL"
