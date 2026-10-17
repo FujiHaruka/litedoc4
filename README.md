@@ -9,7 +9,9 @@ self-contained static site.
 
 Live example: <https://fujiharuka.github.io/information-theory/> — 422 modules, one command,
 **24.5 s** (measured with the static-page build of litedoc4 1.4.0 or earlier; see Speed). A sample, <https://fujiharuka.github.io/litedoc4/>, is eleven modules rebuilt from this
-repository's `main` on every push: the shapes a page can take rather than the scale.
+repository's `main` on every push: the shapes a page can take rather than the scale. Every Mathlib
+release on its Releases page, twelve of them, is one site at <https://mathlib.fuji.land> (see Several
+versions in one site).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/site-dark.png">
@@ -32,7 +34,10 @@ those pages were generated here.
 - a dark theme
 - page paths (`<version>/Foo/Bar.html`) and declaration anchors (`#Foo.bar`) in doc-gen4's shape
   under a version directory; a link in doc-gen4's shape without the version lands on the newest
-  version's page
+  version's page, on a host that answers a missing path with the site's `404.html` (GitHub Pages
+  does)
+- several versions of your package — tags, branches or commits — in one site, with a version
+  switcher that keeps you on the same page
 
 ## Is this for you?
 
@@ -59,7 +64,7 @@ You need `elan`/`lake` and a package that `lake build` passes. Add one line to y
 `lakefile.lean` (or the `[[require]]` equivalent in `lakefile.toml`):
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.4.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v2.0.0"
 ```
 
 ```sh
@@ -74,7 +79,8 @@ including for a `lakefile.lean` package where `--lib` otherwise has to be writte
 
 `--out` is required and must be outside the package, and a relative path resolves against the
 package directory, so `../mypkg-docs` is the shortest spelling that works. The site shows one
-version, named by the first 12 hex digits of your commit. Running the same command again extracts
+version, named by the first 12 hex digits of your commit (for more than one, see Several versions
+in one site). Running the same command again extracts
 only the modules whose oleans moved, so keep `--out` between runs; `--full` extracts everything
 again.
 
@@ -162,7 +168,7 @@ jobs:
     environment: { name: github-pages }
     steps:
       - uses: actions/checkout@v7
-      - uses: FujiHaruka/litedoc4@v1.4.0
+      - uses: FujiHaruka/litedoc4@v2.0.0
         id: docs
         with:
           cache-get: true             # `lake exe cache get` — drop it if you have no Mathlib
@@ -184,6 +190,57 @@ Outputs: `site`, `out` and `timings`.
 
 To archive instead of publish, swap the last two steps for `actions/upload-artifact` and drop
 the `permissions` / `environment` lines.
+
+## Several versions in one site
+
+```sh
+litedoc4 build --root <repo> --out <dir> --versions v0.4.0,v0.5.0,main [--lib <Name>]...
+```
+
+`--versions` names tags, branches or commits of `--root`'s git repository, the last the newest,
+and builds one site of all of them. Each version's pages live under its own name
+(`v0.5.0/Foo/Bar.html`), every page has a version switcher that lands on the same page in the
+other version (or on that version's front page, saying the module is not there), and a
+versionless path in doc-gen4's shape lands on the newest where the host serves the site's
+`404.html` for a missing path.
+
+Each version is checked out under `--out`, its toolchain installed by elan, its libraries built by
+`lake build` and its modules extracted by an extractor built for its own Lean, so `--lake` has to
+be elan's. A version whose toolchain is not in
+[`tools/lean-toolchains.txt`](tools/lean-toolchains.txt) is refused before anything runs.
+
+`<out>/store` keeps every version built (`--store` moves it). **Keep it between runs**: a version
+the store already holds at the same commit is not extracted again, and a version the site already
+holds is not rendered again, so adding a release to the list costs that one release. When the store
+holds none of the older versions and the newest is on the newest Lean litedoc4 supports, the older
+ones are read into the newest one's Lean instead of each running its own; a declaration read that
+way can print differently from its own Lean where its printing depends on notation or binders
+declared elsewhere.
+
+In the action, the same thing is the `versions` input (and `store`); the store is cached with the
+rest of the state. `actions/checkout` fetches no history or tags by default, so give it
+`fetch-depth: 0`:
+
+```yaml
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: FujiHaruka/litedoc4@v2.0.0
+        id: docs
+        with:
+          versions: v0.4.0,v0.5.0,main
+```
+
+With `--hash-urls` (the action's `hash-urls`) the site has no file per page: the root `index.html`
+draws every page from the address's fragment, `#/<version>/<module path>`.
+
+<https://mathlib.fuji.land> is Mathlib built this way — every release on Mathlib's Releases page
+that is not a prerelease, twelve on 2026-10-17, about 184,000 files. On one GitHub
+`ubuntu-latest` runner (4 vCPU, 16 GB, `--jobs 4`), building all twelve from nothing took
+**84.6 min**, and adding the twelfth to a deployed site of eleven took **11.6 min** of build and
+18.5 min from the job's start to the deployed site passing its checks (measured 2026-10-17, one run
+each; logs `benchmarks/results/mathlib-site-first-run-2026-10-17.txt` and
+`benchmarks/results/mathlib-site-add-one-2026-10-17.txt`). What hosting it takes from outside
+Mathlib is in [`hosting/mathlib/`](hosting/mathlib/).
 
 ## Running it from a checkout
 
@@ -346,7 +403,7 @@ A `--config` naming a file that is not there stops the build.
 
 ## Status
 
-`v1.4.0` — nothing is downloaded; Lake builds litedoc4 from the ref you pinned. Tested on macOS
+`v2.0.0` — nothing is downloaded; Lake builds litedoc4 from the ref you pinned. Tested on macOS
 (Apple Silicon) and `ubuntu-latest` with Lean/Mathlib v4.31.0, and the browser side also on
 `windows-latest`.
 Pin the action and the `require` to a tag — `v1.3.0` or later, since that is the first one a
@@ -360,12 +417,18 @@ byte-identical IR once one rename is applied — Lean's own reclassification of 
 difference between them, in [`tools/lean-toolchains.txt`](tools/lean-toolchains.txt) (measured
 2026-08-29; v4.34.1 2026-10-08; v4.35.0 2026-10-16). A toolchain that is not in that file fails by name.
 
-### What 1.x keeps
+### What 2.x keeps
 
-The names your own files can contain do not move inside 1.x: the action's inputs and outputs,
+The names your own files can contain do not move inside 2.x: the action's inputs and outputs,
 `litedoc4.toml`'s keys, `build`'s and `watch`'s flags, and the site's page paths and declaration
 anchors. The list is [`tools/public-surface.txt`](tools/public-surface.txt), and CI fails when one
 of them goes missing.
+
+A script written for 1.x that passes `--extractor`, `--extractor-arg`, `--link-index`,
+`--deps-docs-url`, `--deps-docs-index`, `--mode` or `--max-rounds` to `build` or `watch` is
+refused with `unknown argument`: drop the flag. Dependency names link to their version-pinned
+source, never to another documentation site. A link into a 1.x site, `Foo/Bar.html#Foo.bar`, lands
+on that page in the newest version wherever the host serves the site's `404.html`.
 
 The IR schema, the ledger and `.lidx` are internal, and you never pin them yourself: the action
 and the Lake script build both executables out of the ref you pinned, so they always come from

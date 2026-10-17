@@ -34,11 +34,14 @@ site as deployed with its render ledger. `tools/mathlib-site.sh`, run by
 versions the deployed site does not hold; then it builds, saves the store, uploads the files the
 build wrote, archives the site again, and checks the site as served. It needs the repository secrets
 `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, a token with object read and write on both buckets.
+The workflow runs only when started by hand (Actions → Mathlib site → Run workflow), on `main`.
 
 R2 answers a path with the object of that exact key and has no directory index, so the `fuji.land`
 zone carries a URL rewrite rule: when the host is `mathlib.fuji.land` and the path ends with `/`,
 the path becomes `concat(http.request.uri.path, "index.html")`. Without it the site root and each
-`<version>/` answer 404.
+`<version>/` answer 404. A path with no object answers Cloudflare's own 404 page rather than the
+site's `404.html`, so a versionless link in doc-gen4's shape (`Mathlib/Order/Basic.html`) does not
+reach the newest version here.
 
 ## The license notice
 
