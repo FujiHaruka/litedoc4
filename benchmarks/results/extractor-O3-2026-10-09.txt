@@ -1,0 +1,146 @@
+# The native extractor at -O0 (leanc -rdynamic alone) against -O3 -DNDEBUG (tools/leanc-flags.txt), on e2e/micro
+# (11 target modules, 611 loaded), Lean v4.31.0, --jobs 1. Apple M1, 16 GB, macOS (Darwin 25.6.0); other desktop
+# applications open; runs alternate -O0 / -O3, the first partly cold. IR (14 files) and .lidx identical in all 4 pairs,
+# <out>/ir and site/ identical in all 4 build pairs. Peak RSS ≈ 398 MB both. Binary 171,600,496 B / 171,737,664 B.
+
+## compile (lean -c is the same for both; leanc link step differs)
+2026年 10月 9日 金曜日 12時13分39秒 UTC
+Darwin 25.6.0 arm64
+Apple M1
+17179869184
+leanprover/lean4:v4.31.0
+-I /Users/haruka/.elan/toolchains/leanprover--lean4---v4.31.0/include -fstack-clash-protection -fdata-sections -ffunction-sections -fvisibility=hidden
+=== lean -c run 1
+       13.61 real        10.47 user         0.82 sys
+          1547026432  maximum resident set size
+               33972  page faults
+           309175269  instructions retired
+=== lean -c run 2
+       10.00 real        10.34 user         0.46 sys
+          1536983040  maximum resident set size
+                 127  page faults
+           320656422  instructions retired
+=== lean -c run 3
+       10.25 real        10.42 user         0.50 sys
+          1536360448  maximum resident set size
+                   4  page faults
+           312163593  instructions retired
+=== leanc O0 run 1
+        2.52 real         1.61 user         0.29 sys
+           906395648  maximum resident set size
+               28114  page faults
+=== leanc O3 run 1
+       14.97 real        14.82 user         0.30 sys
+           905920512  maximum resident set size
+               11030  page faults
+=== leanc O0 run 2
+        1.57 real         1.59 user         0.17 sys
+           906215424  maximum resident set size
+               10479  page faults
+=== leanc O3 run 2
+       14.47 real        14.45 user         0.28 sys
+           906854400  maximum resident set size
+               10485  page faults
+=== leanc O0 run 3
+        1.62 real         1.63 user         0.19 sys
+           906444800  maximum resident set size
+               10485  page faults
+=== leanc O3 run 3
+       14.39 real        14.43 user         0.22 sys
+           904396800  maximum resident set size
+               10483  page faults
+-rwxr-xr-x@ 1 haruka  wheel  171600496 10月  9 21:14 /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/meas/extract-O0
+-rwxr-xr-x@ 1 haruka  wheel  171737664 10月  9 21:15 /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/meas/extract-O3
+0199e2839e5eef11be1dbdc14ef3ef6db895b642307d3278d6682381e5b64fb2  /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/meas/extract-O0
+740d670ea6a0df2e7027f652b66d9a1b67f442025dcdad41742b8bbe52c176ff  /private/tmp/claude-502/-Users-haruka-dev-lean-doc/39ae2f8e-8229-4673-a466-1d7119d13639/scratchpad/meas/extract-O3
+exit=0
+
+## extraction
+2026年 10月 9日 金曜日 12時15分11秒 UTC
+modules: 11
+=== extract O0 run 1
+rc=0
+        2.67 real         0.33 user         0.20 sys
+           397918208  maximum resident set size
+                7576  page faults
+=== extract O3 run 1
+rc=0
+        2.07 real         0.24 user         0.15 sys
+           398049280  maximum resident set size
+                 183  page faults
+=== extract O0 run 2
+rc=0
+        0.39 real         0.30 user         0.08 sys
+           397885440  maximum resident set size
+                 181  page faults
+=== extract O3 run 2
+rc=0
+        0.32 real         0.22 user         0.08 sys
+           398114816  maximum resident set size
+                 181  page faults
+=== extract O0 run 3
+rc=0
+        0.40 real         0.30 user         0.08 sys
+           397869056  maximum resident set size
+                 184  page faults
+=== extract O3 run 3
+rc=0
+        0.32 real         0.23 user         0.08 sys
+           397967360  maximum resident set size
+                 181  page faults
+=== extract O0 run 4
+rc=0
+        0.39 real         0.30 user         0.08 sys
+           397836288  maximum resident set size
+                 181  page faults
+=== extract O3 run 4
+rc=0
+        0.32 real         0.23 user         0.08 sys
+           398049280  maximum resident set size
+                 181  page faults
+=== build O0 run 1
+rc=0
+        0.83 real         0.65 user         0.14 sys
+           398065664  maximum resident set size
+=== build O3 run 1
+rc=0
+        0.85 real         0.59 user         0.17 sys
+           398065664  maximum resident set size
+=== build O0 run 2
+rc=0
+        0.84 real         0.64 user         0.16 sys
+           398082048  maximum resident set size
+=== build O3 run 2
+rc=0
+        0.76 real         0.57 user         0.16 sys
+           398147584  maximum resident set size
+=== build O0 run 3
+rc=0
+        0.83 real         0.65 user         0.16 sys
+           397901824  maximum resident set size
+=== build O3 run 3
+rc=0
+        0.76 real         0.58 user         0.16 sys
+           398278656  maximum resident set size
+=== build O0 run 4
+rc=0
+        0.83 real         0.64 user         0.16 sys
+           397967360  maximum resident set size
+=== build O3 run 4
+rc=0
+        0.76 real         0.57 user         0.16 sys
+           398196736  maximum resident set size
+=== IR equality
+run 1: ir/ (14 files) + lidx identical
+build run 1: <out>/ir identical (14 files)
+build run 1: site identical
+run 2: ir/ (14 files) + lidx identical
+build run 2: <out>/ir identical (14 files)
+build run 2: site identical
+run 3: ir/ (14 files) + lidx identical
+build run 3: <out>/ir identical (14 files)
+build run 3: site identical
+run 4: ir/ (14 files) + lidx identical
+build run 4: <out>/ir identical (14 files)
+build run 4: site identical
+exit=0

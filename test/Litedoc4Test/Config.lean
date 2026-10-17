@@ -25,6 +25,52 @@ def aBlankTitleFallsBackToTheDerivedOne : Bool :=
 
 #guard aBlankTitleFallsBackToTheDerivedOne
 
+def noEquationsUnderIsAOneLineListOfNamespaces : Bool :=
+  keysOf "no_equations_under = [\"Mathlib.Tactic\", \"Mathlib.Meta\"]  # meta code\n"
+      == some { noEquationsUnder := #["Mathlib.Tactic", "Mathlib.Meta"] }
+    && keysOf "no_equations_under = []\n" == some {}
+    && keysOf "no_equations_under = [ \"A\" , ]\ntitle = \"T\"\n"
+      == some { title := some "T", noEquationsUnder := #["A"] }
+    && [ "no_equations_under = \"Mathlib.Tactic\"\n",
+         "no_equations_under = [\"Mathlib.Tactic\"\n",
+         "no_equations_under = [Mathlib.Tactic]\n",
+         "no_equations_under = [\"\"]\n",
+         "no_equations_under = [\"Mathlib..Tactic\"]\n",
+         "no_equations_under = [\"Mathlib Tactic\"]\n",
+         "no_equations_under = [\"A,B\"]\n",
+         "no_equations_under = [\"A\"] x\n",
+         "no_equations_under = [\"A\"]\nno_equations_under = [\"B\"]\n",
+         "title = [\"T\"]\n", "index = [\"docs/index.md\"]\n" ].all (keysOf · == none)
+
+#guard noEquationsUnderIsAOneLineListOfNamespaces
+
+def footerIsOneQuotedPathGivenOnce : Bool :=
+  keysOf "footer = \"docs/footer.md\"\n" == some { footer := some "docs/footer.md" }
+    && keysOf "title = \"T\"\nfooter = \"f.md\"  # every page\nindex = \"i.md\"\n"
+      == some { title := some "T", index := some "i.md", footer := some "f.md" }
+    && [ "footer = [\"docs/footer.md\"]\n", "footer = docs/footer.md\n",
+         "footer = \"a.md\"\nfooter = \"b.md\"\n", "footers = \"a.md\"\n" ].all (keysOf · == none)
+
+#guard footerIsOneQuotedPathGivenOnce
+
+def indexAndFooterResolveBesideTheFileThatNamesThem : Bool :=
+  resolveBeside (ConfigSource.given "/srv/hosting/mathlib/litedoc4.toml").file "footer.md"
+      == ("/srv/hosting/mathlib/footer.md" : FilePath)
+    && resolveBeside (ConfigSource.package "/pkg").file "docs/index.md"
+      == ("/pkg/docs/index.md" : FilePath)
+    && (ConfigSource.of "/pkg" none).file == ("/pkg/litedoc4.toml" : FilePath)
+    && (ConfigSource.of "/pkg" (some "/elsewhere/site.toml")).file
+      == ("/elsewhere/site.toml" : FilePath)
+
+#guard indexAndFooterResolveBesideTheFileThatNamesThem
+
+def eachOfTheThreePageKeysMovesThePagesDigest : Bool :=
+  let digests := [({} : SitePages), { title := some "x" }, { indexMarkdown := some "x" },
+    { footerMarkdown := some "x" }, { footerMarkdown := some "y" }].map (·.digest)
+  digests.eraseDups.length == digests.length
+
+#guard eachOfTheThreePageKeysMovesThePagesDigest
+
 /-- The one claim left in `IO`: no package root and a root holding no
 `litedoc4.toml` are the empty configuration, and an absent file is the ordinary
 case rather than a failure — most packages configure nothing.
@@ -55,6 +101,47 @@ def noRootAndNoFileAreTheSameAnswer : Invariant where
       -- because the path is relative to the package root and resolving it
       -- anywhere else would be a second place that knows what it is relative to.
       eq read.title (some "MyPkg"), eq read.indexMarkdown (some "# Hello\n")]
+
+/-- A `--config` is read in place of the package's file: its `index` and
+`footer` beside it, the bibliography still from the package root. Unlike the
+package's own file, one that is not there is an error, and so is a `footer`
+naming a file that is not there. -/
+def aConfigElsewhereReadsBesideItselfAndAMissingFileIsAnError : Invariant where
+  name := "--config's index and footer are read beside it and the bibliography from the root; \
+    a --config or a footer that is not there is an error"
+  check := do
+    let base : FilePath := ⟨(← IO.getEnv "TMPDIR").getD "/tmp"⟩
+    let dir := base / s!"litedoc4-lean-test-config-given-{← IO.Process.getPID}"
+    if ← dir.pathExists then IO.FS.removeDirAll dir
+    let root := dir / "pkg"
+    let hosting := dir / "hosting"
+    IO.FS.createDirAll (root / "docs")
+    IO.FS.createDirAll hosting
+    IO.FS.writeFile (root / configFile) "title = \"Own\"\nfooter = \"docs/footer.md\"\n"
+    IO.FS.writeFile (root / "docs" / "footer.md") "own footer\n"
+    IO.FS.writeFile (root / "docs" / "references.bib")
+      "@misc{K, author={Doe, John}, title={T}, year={2012}}\n"
+    let given := hosting / "site.toml"
+    IO.FS.writeFile given "title = \"Outside\"\nfooter = \"footer.md\"\n"
+    IO.FS.writeFile (hosting / "footer.md") "outside footer\n"
+    let own ← readSiteSources root
+    let outside ← readSiteSources root (.given given)
+    let absentConfig ← (readSiteSources root (.given (hosting / "absent.toml"))).toBaseIO
+    IO.FS.removeFile (hosting / "footer.md")
+    let absentFooter ← (readSiteSources root (.given given)).toBaseIO
+    IO.FS.removeFile (root / "docs" / "footer.md")
+    let absentOwnFooter ← (readSiteSources root).toBaseIO
+    IO.FS.removeDirAll dir
+    return first [
+      eq (own.title, own.footerMarkdown) (some "Own", some "own footer\n"),
+      eq (outside.title, outside.footerMarkdown) (some "Outside", some "outside footer\n"),
+      eq (outside.bibliography.isSome, outside.bibliography == own.bibliography) (true, true),
+      if absentConfig matches .error _ then none
+        else some "a --config naming no file was read as the empty configuration",
+      if absentFooter matches .error _ then none
+        else some "a --config's footer naming no file was read as no footer",
+      if absentOwnFooter matches .error _ then none
+        else some "the package's footer naming no file was read as no footer"]
 
 /-- `docs/references.bib` under the package root, read by convention: absent and
 blank are no bibliography and no digest, so neither moves the render key; a file

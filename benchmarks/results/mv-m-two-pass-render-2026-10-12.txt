@@ -1,0 +1,56 @@
+M, one version natively: the render scans each module and drops it, then parses it again for its page
+====================================================================================================
+
+Conditions: Apple M1, 16 GB, macOS 26.6.2; Lean v4.33.1, Mathlib v4.33.1 (0df444a360); the M slice
+(438 modules). Same checkout and store entry as mv-m-parallel-render-2026-10-12.txt. litedoc4 at
+8c57984 (base) and 8c57984 + this change (new), both built with Lean v4.31.0; one prebuilt extractor
+in every build arm. Warm (a discarded warm-up per binary). One run per arm (the user's rule for
+levers: one run, +-10% accepted). Units: MB = 10^6 B.
+
+Where the render's memory was, before (measured, `store render` one worker, a scratch build with
+a footprint marker at each stage and, in a separate run, a walker counting bytes reachable from
+each structure)
+  stage                          footprint MB   live data
+  store read returns               78.9         compressed entry 4.6, inflated pack 30.1, per-file
+                                                copies 30.2 (copies: the three add up exactly)
+  all modules parsed              178.7         parsed module IRs 111.4
+  input built                     222.2         97% of the peak; link index 18.8
+  cross-module tables built       227.3         143.2 live
+  pages built                     229.0         159.5 live (the parsed modules still held)
+  data and pages written          229.9
+  peak footprint                  229.5 (no markers)
+  Dropping each module's bytes as it is parsed: 224.8 MB (-2%). Keeping the per-file copies alive
+  to the end: 256.1 MB (+26.6): today they are already freed when the input is built.
+
+The change: the render input carries one loader per module instead of the parsed modules. Pass 1
+(on --jobs workers) parses a module, keeps its facts, its declaration names and refs, and its member
+names, and drops it; the name index and the suppressed set are built from those, in module order.
+Pass 2 (on the workers) parses each page module again and builds its page. No moment holds every
+parsed module. The per-file bytes stay for the re-parse.
+
+A/B (measured)
+  arm                   wall      user+sys   renderSeconds   peak footprint (litedoc4)
+  store render base     3.22 s    3.20 s     -               229.5 MB
+  store render new      3.84 s    3.83 s     -               151.0 MB   (-34%)
+  build j4 base        11.90 s   33.42 s     1.879 s         278.8 MB
+  build j4 new         11.93 s   33.87 s     1.999 s         207.2 MB   (-26%)
+  build j1 base        27.12 s   28.09 s     3.323 s         230.5 MB
+  build j1 new         27.82 s   28.80 s     3.993 s         154.9 MB   (-33%)
+  (build: max RSS under /usr/bin/time -l is the extractor child's, ~1.46 GB in every arm, unchanged)
+  Time: the second parse, +0.62 s for store render, +0.67 s render at --jobs 1, +0.12 s at --jobs 4.
+
+Where the new peak sits (one store render run with the markers on the new code, footprint MB)
+  store read 78.8 / input built 119.3 / after pass 1 130.4 / tables built 137.9 / after pass 2 149.6
+  The peak is the pages accumulating, no longer the parsed modules. Building the input still adds
+  ~40 MB (was 43.5), now on a 79 MB base.
+
+Exactness (measured, /usr/bin/diff -r): store render base vs new, site identical; build j4 and j1
+base vs new, site/ and store/ identical; new j1 vs new j4 identical. render-ledger.json differs only
+in `renderer`.
+
+Gates: tools/lean-test-gate.sh 4 of 4 (242 compile-time, 73 run-time); tools/mv-s-gate.sh 64 of 64;
+tools/mv-pages-gate.sh 56 of 56; tools/e2e-micro.sh ok.
+
+All of Mathlib (not run): the share scaled from M would take the runner's 3.67 GiB render peak
+per version down by about a quarter to a third (extrapolated, 438 of 8,316 modules measured; the
+premise is that parsed IR is the same share of the peak at full scale, not separated there).

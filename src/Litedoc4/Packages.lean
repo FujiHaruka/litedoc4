@@ -52,9 +52,11 @@ structure PackageEntry where
   /-- Where the sources are, relative to the target root, for the entries that
   say so themselves. `none` is `<packagesDir>/<name>`. -/
   dir : Option String := none
+  rev : Option String := none
   deriving Inhabited
 
 structure Manifest where
+  name : Option String := none
   packagesDir : String := defaultPackagesDir
   listed : Nat := 0
   packages : Array PackageEntry := #[]
@@ -129,15 +131,17 @@ def parseManifest (path : FilePath) (text : String) : Except String Manifest := 
         match jStrField entry "url", jStrField entry "rev" with
         | some url, some rev =>
           if isFortyHex rev then
-            packages := packages.push { name, blobBase := s!"{stripDotGit url}/blob/{rev}" }
+            packages := packages.push
+              { name, blobBase := s!"{stripDotGit url}/blob/{rev}", rev := some rev }
           else
             problems := problems.push s!"{path}: package `{name}` is pinned at `{rev}`, which \
               is not 40 hex digits — a tag or a branch is not a version-pinned link"
-            packages := packages.push { name }
+            packages := packages.push { name, rev := some rev }
         | _, _ =>
           problems := problems.push s!"{path}: package `{name}` has no `url` or no `rev`"
-          packages := packages.push { name }
-  return .ok { packagesDir, listed := listed.size, packages, problems }
+          packages := packages.push { name, rev := jStrField entry "rev" }
+  return .ok { name := jStrField value "name", packagesDir, listed := listed.size, packages,
+               problems }
 
 def readManifest (path : FilePath) : IO (Except String Manifest) := do
   let read ← try

@@ -1,0 +1,1015 @@
+How much per-declaration content consecutive Mathlib releases share (plan U3)
+============================================================================
+2026-10-04
+
+Question
+--------
+Between two consecutive Mathlib releases, how many declarations carry byte-identical
+content once the version-specific parts are taken out? And of the declarations whose own
+source did not change, how many still changed in content, and why? The second number is
+the falsifier of the multi-version plan's hypothesis.
+Two pairs:
+  patch pair   v4.33.0 -> v4.33.1   (same Lean series: the cleaner test)
+  minor pair   v4.32.2 -> v4.33.0
+Plus a non-determinism check: v4.33.1 extracted twice, and the two IRs compared byte for byte.
+
+Answer
+------
+  Share of common declarations whose content is byte-identical (ladder defined below):
+
+                                                         patch pair          minor pair
+    raw IR record, as the extractor wrote it        317,832  99.9994%   177,837  56.44%
+    (a) IR + link targets resolved as render does    36,490  11.48%      22,199   7.04%
+    (b) (a) minus own source position                36,490  11.48%      35,387  11.23%
+    (c) (b) minus dependency revision in links      317,832  99.9994%   136,154  43.21%
+    (c') (c) minus dependency line ranges in links  317,832  99.9994%   292,537  92.84%
+    (d) (c') minus the reducibility-string rename   317,832  99.9994%   308,449  97.89%
+    (d-lit) (c) minus the rename, dependency
+            line ranges KEPT                        317,832  99.9994%   144,659  45.91%
+        denominator = declarations present in both    317,834             315,109
+
+  Falsifier (minor pair; declarations whose own source did not change and whose content still
+  changed at level (d)):
+    strict (module source file byte-identical)       603 of  93,533   0.64%
+    loose  (the declaration's own lines identical) 3,789 of 305,103   1.24%
+  In the patch pair every Mathlib source file is identical, and 2 of 317,834 declarations
+  changed at (d), both because of Lean itself (section 4).
+  (d) is defined on (c'), not on (c); a (d) built directly on (c) is the row (d-lit). The
+  difference between the two rows is entirely dependency line ranges.
+  Of all 317,834 v4.33.0 declarations, 308,449 (97.05%) reuse a v4.32.2 entry at (d).
+
+  Non-determinism: none. The two v4.33.1 extractions wrote byte-identical IR (8,323 files),
+  a byte-identical link index, and byte-identical sites (8,325 files).
+
+  Verdict on the hypothesis: it holds for both pairs. What does not hold is the assumption
+  that "version-specific" means only source links, Used by and instances. (a) -> (c) and
+  (c) -> (c') show that **links into dependencies change for most declarations**: Lean
+  core's revision moves on every release (77.8% of declarations have a signature link into
+  Lean core), and in the minor pair 20.7% of the dependency declarations referenced also
+  moved lines. D5 has to keep the dependency revision **and** the dependency line range out
+  of the shared content. Without that, sharing is 7-11%; with it, 97.9-99.9994%.
+
+Conditions
+----------
+  machine        Apple M1, 16 GiB (17,179,869,184 B), macOS 26.6.2 (25G83)
+  litedoc4       22c367f4e5258f8f70b8d5371a7f2f59e4469ec1 (branch multi-version, clean).
+                 The litedoc4 executable was the one already built from this tree
+                 (src/ and extractor/ unchanged since 600614e, before the build)
+  extractor      extractor/Extract.lean sha256 73e33b6e…a0e (the same file as
+                 mathlib-render-2026-10-03.txt), built per version inside that version's
+                 Mathlib checkout with extractor/build.sh's two commands (`lake env lean
+                 --root=<repo>/extractor -c`, `lake env leanc -rdynamic`)
+  Mathlib        v4.32.2  905b95818eb32af7874a58b427f50c1711a5e96c  Lean f3b06c705e6c85f5314019d5d3baab0fec5b580c
+                 v4.33.0  db584cd6d46c92f209a44c0f1c829460d327499d  Lean d8b18978322de05a8f3dba51ef03cf5461676c17
+                 v4.33.1  0df444a360eaa60ab8c11dca51a86af692955474  Lean 819816b2e0a3bf405af45ae5c7af2491d8f5bee6
+                 Each toolchain's own lean-toolchain matched the tag; no toolchain was installed.
+                 v4.33.0 -> v4.33.1 is one Mathlib commit ("chore: bump toolchain to
+                 v4.33.1"): all 8,312 module sources are byte-identical and every
+                 dependency in lake-manifest.json has the same revision. Only Lean moves.
+                 v4.32.2 -> v4.33.0: 470 commits ahead, 2 behind (GitHub compare); every
+                 dependency revision changed.
+  checkout       Mathlib as the root package, the shape of mathlib-render-2026-10-03.txt:
+                 `git fetch --depth 1 origin <sha>` from GitHub into an empty repository,
+                 `lake exe cache get` with MATHLIB_CACHE_DIR inside the work area (512 M /
+                 440 M / 440 M downloaded, deleted with it), `lake build --no-build Mathlib`
+                 -> "All targets up-to-date" (8,654 / 8,705 / 8,705 jobs) before extracting.
+                 Not a separate workspace requiring Mathlib: `--lib Mathlib` with `--root`
+                 on the Mathlib checkout is the invocation already proven at this scale.
+                 Whether the other shape writes the same IR was not checked.
+  flags          litedoc4 build --root <checkout> --out <out> --lib Mathlib --extractor-bin
+                 <work>/ext/extract --lake ~/.elan/bin/lake --jobs 4 --source-url
+                 https://github.com/leanprover-community/mathlib4/blob/<sha> --timings <file>
+  page cache     not controlled; the oleans were decompressed about 1 minute before each run
+  runs           ONE per version (TWO for v4.33.1, for the determinism check). The subject is
+                 content, not time; every time below is (measured, single run)
+
+  Extraction (litedoc4 build end to end, /usr/bin/time -l; peak RSS is the maximum over the
+  waited-for process tree):
+    version         modules  declarations  extract s  total s  peak RSS
+    v4.32.2           8,265      316,286     339.8     499.9   4.64 GB
+    v4.33.0           8,312      317,834     327.9     485.4   5.08 GB
+    v4.33.1 run 1     8,312      317,834     486.5     649.7   4.69 GB   (*)
+    v4.33.1 run 2     8,312      317,834     322.7     481.0   6.32 GB
+    (*) ran while a 7-minute single-threaded comparison was running beside it; not comparable
+  Extractor records (analyze): v4.33.0 and v4.33.1 both "considered 569,200, produced
+  317,834, failed 0", equation lemmas 59,446 with 72 failed. The v4.32.2 record was not kept:
+  the work directory was deleted before it was copied. Its IR has 316,286 declarations.
+
+Method
+------
+  Unit: one declaration, keyed by its full name (no name occurs twice in any of the IRs).
+  A declaration present in both versions is "common"; otherwise added / removed. "Moved" =
+  common but in a different module.
+
+  The IR stores link targets as names, and the revision and line range appear only when
+  render resolves them. The comparison therefore resolves every link target the way render
+  does (read from src/Litedoc4/External.lean `sourceUrlAt`, `Packages.assembleLinks`; the
+  model was not compared against rendered bytes):
+    a Mathlib name       -> (module, name)             the page and anchor it links to
+    a dependency name    -> (repository revision, module, line range from that version's
+                             link-index.lidx)          Lean core's four roots carry the
+                                                        toolchain's commit, the others the
+                                                        lake-manifest revision
+  The module of every link target comes from the declaration's own `refs` list. On a sample
+  of 300 modules all 144,493 named spans had their name in `refs`.
+
+  Field classes compared, per declaration:
+    sig_text        binders, type, implicits
+    sig_markup      typeCode / binderCode span positions and kinds (names removed)
+    sig_links       the resolved targets of those spans
+    doc             docstring as stored (link resolution inside it is NOT modelled)
+    eq_text / eq_markup / eq_links    equations, the same three ways
+    attrs           attribute list
+    header          kind, modifiers, generated
+    instances       instClass, instTypes
+    members_text / members_markup / members_links   structure members, the same three ways
+    refs            (module, name) of everything referenced (feeds Used by)
+    position        line, col, endLine, endCol, selectionRange, index (index = order in the
+                    module, which the plan puts in the per-version layer)
+  Ladder:
+    (a)  every class, links fully resolved. The declaration's own source link is NOT in (a):
+         it carries the Mathlib commit, so it differs for 100% of declarations by
+         construction. Counted as a constant prefix, it is exactly the `position` class
+    (b)  (a) without `position`
+    (c)  (b) with the dependency revision dropped from every link
+    (c') (c) with the dependency line range dropped too: a dependency link = (root, module)
+    (d-lit) (c) with the same rename reading; dependency line ranges kept
+    (d)  (c') with `implicit_reducible` and `instance_reducible` read as one string, on both
+         sides. Not a 1:1 rename: v4.33.x writes `instance_reducible` for 16,256 declarations
+         and still `implicit_reducible` for 359 non-instance definitions; v4.32.2 writes
+         `implicit_reducible` for 16,277 and never `instance_reducible`
+    beyond (d), for D5: (e) also without `refs` 308,451; (f) also with Mathlib link targets
+    addressed by name rather than module 308,497 (minor pair; patch pair unchanged)
+
+  "Own source did not change", two approximations, both from the kept source trees of the
+  two tags (not from the GitHub compare API, which lists at most 300 files):
+    strict  the declaration's module file is byte-identical in both tags
+    loose   the lines line..endLine of the declaration are byte-identical (it may have moved
+            inside its file). A section `variable`, an `open`, an import or an upstream
+            definition can still change its elaborated statement legitimately
+  Both exclude moved declarations.
+
+1. Modules and declarations
+---------------------------
+                                       patch pair            minor pair
+  modules            A / B          8,312 / 8,312          8,265 / 8,312
+  modules            common / added / removed
+                                    8,312 / 0 / 0          8,261 / 51 / 4
+  module source file identical      8,312 (100%)           4,259 (51.56% of common)
+  module IR contentHash identical   8,310                  3,448 (41.74%)
+  declarations       A / B        317,834 / 317,834      316,286 / 317,834
+  declarations       common       317,834                315,109
+  added / removed                 0 / 0                  2,725 / 1,177
+  moved module                    0                        122 (46 of them identical at (f),
+                                                                2 at (d))
+
+2. Which fields changed (a declaration counts in every class it changed in)
+------------------------------------------------------------------------------
+                                          patch pair      minor pair
+  sig_links (fully resolved)                 247,150         245,523
+    of which still different at (c)                0         162,167
+    of which still different at (c')               0           4,263
+  eq_links                                    56,961          56,617
+    at (c) / at (c')                         1 / 1       17,839 / 1,240
+  members_links                                2,659           2,648
+    at (c) / at (c')                         0 / 0        1,993 / 66
+  position                                         0         123,516  (39.20%)
+  attrs                                            0          17,369
+    still different after the rename (d)          0           1,190
+  sig_text                                         0           1,621
+  sig_markup                                       0           1,348
+  refs                                             0           5,401
+  doc                                              1             954
+  eq_text / eq_markup                          1 / 1         451 / 434
+  header                                           0             108
+  members_text / members_markup                0 / 0          16 / 14
+  instances                                        0               7
+  link targets, minor pair only:
+    Mathlib target set changed                 5,215 (by name: 5,166 - the rest moved module)
+    dependency target changed at (c')            136 (a Lean core declaration moved file)
+    dependency target changed at (c)         168,063 (line range only)
+
+  Dependency line ranges in the link index: 18,365 of 88,520 dependency declarations present
+  in both v4.32.2 and v4.33.0 changed range (20.75%); 0 of 89,943 between v4.33.0 and
+  v4.33.1 (the two link indexes are byte-identical).
+
+  Exclusive combinations (the declaration changed in exactly these classes and no other):
+    patch pair (281,344 changed at (a))
+      sig_links                          221,724
+      eq_links                            32,147
+      sig_links,eq_links                  24,812
+      members_links                        2,047
+      sig_links,members_links                612
+      sig_links,doc,eq_links                   1
+      sig_links,eq_text,eq_markup,eq_links     1
+    minor pair (292,226 changed at (a); the 40 largest combinations, each count exact)
+      sig_links                          129,134
+      sig_links,position                  86,141
+      eq_links                            13,284
+      position                            13,188   (only the source position; `position`
+                                                    includes `index`, the order in the module)
+      sig_links,eq_links                  11,156
+      eq_links,position                    9,328
+      sig_links,eq_links,position          5,536
+      eq_links,attrs                       5,522
+      sig_links,eq_links,attrs             5,427
+      eq_links,attrs,position              2,745
+      sig_links,eq_links,attrs,position    2,063
+      members_links                        1,571
+      sig_links,refs                       1,353
+      sig_links,refs,position              1,220
+      sig_text,sig_markup,sig_links,refs,position  541
+      sig_links,members_links                493
+      members_links,position                 403
+      eq_links,refs                          348
+      sig_links,doc,attrs,refs,position      319
+      attrs                                  264   (only attributes)
+      (the other 20 of the 40, 40 to 257 each, omitted here; smaller ones not listed)
+    "Only links changed" (sig/eq/members links, nothing else): patch 281,342 of 281,344;
+    minor 155,638 (49.39% of common). "Only links and position": minor 101,512 (32.21%).
+
+3. Declarations whose source did not change but whose content did (minor pair)
+------------------------------------------------------------------------------
+                                        strict (file)        loose (own lines)
+  declarations in the tier                 93,533              305,103
+  changed at (a)                           82,650              283,253
+  changed at (b)                           82,633  (88.35%)    270,621  (88.70%)
+  changed at (c)                           58,258  (62.29%)    171,951  (56.36%)
+  changed at (c')                           6,236  ( 6.67%)     18,606  ( 6.10%)
+  changed at (d)                              603  ( 0.64%)      3,789  ( 1.24%)
+  changed at (d-lit)                       55,243  (59.06%)    164,082  (53.78%)
+  changed at (f)                              603                3,786
+
+  Why, at (d):
+                                                           strict    loose
+  a Mathlib link target's NAME changed, printed text same     542    2,930
+  a Mathlib link target's name changed, text changed too       35      457
+  signature text changed, same Mathlib link names               3      266
+  equation text changed only                                    12       66
+  a dependency link target moved module (Lean core split)       11       29
+  attributes (beyond the rename)                                 0       16
+  docstring                                                      0       14
+  kind / modifiers                                               0        6
+  a Mathlib link target moved module, same name                  0        2
+  other (members 2, refs 1)                                      0        3
+
+  The dominant cause is one upstream change: `setOf` became `Set.ofPred` in
+  Mathlib.Data.Set.Defs. Every `{x | p x}` prints the same text and now links to a different
+  constant. It accounts for 539 of the 603 strict cases, and for at least 3,894 declarations
+  over all common declarations of the minor pair. Other recurring target swaps over all common declarations: Set.restrict ->
+  Set.domRestrict 203, LinearEquiv.ofLinear -> LinearEquiv.ofLinearMap 65, IsSolvable ->
+  Group.IsSolvable 34, a removed `Finset.Iic` / `Finset.Ici` / `Finset.Ioi` behind a new
+  `∑ i ≤ n` notation 25 / 11 / 15.
+  Attribute changes after the rename, all common declarations: 306 declarations gained
+  `instance_reducible` with no attribute before; the rest are `simp` -> `deprecated` and
+  similar real changes.
+
+  Printer drift vs real change. Here each version is printed by its own Lean and its own
+  Mathlib, so a printer difference between v4.32.2 and v4.33.0 shows up as "signature text
+  changed". Under plan D10 one printer prints every version and this part disappears. Bounds:
+    - patch pair, all sources identical, one Lean series: 0 signature text changes. No
+      printer drift between v4.33.0 and v4.33.1.
+    - minor pair, strict tier: 27 signature text changes; 25 also changed the set of
+      referenced names (real), 2 did not (drift candidates).
+    - minor pair, loose tier: 652 signature text changes; 397 changed referenced names,
+      255 did not. 255 is the upper bound on Lean-printer drift in the loose tier, and it
+      still includes upstream changes such as an argument becoming explicit.
+    - Part of what looks like a real change is Mathlib's own notation code, not Lean's
+      printer: `∑ i ∈ Finset.Iic a, f i` -> `∑ i ≤ a, f i` comes from a new Mathlib
+      delaborator. Under D10 the newest Mathlib's delaborators print every version, so these
+      would print alike too. Not separated in the counts above.
+
+  Examples (minor pair; A = v4.32.2, B = v4.33.0; strict tier unless marked "loose"):
+   1. Filter.eventually_cofinite [Order.Filter.Cofinite]: same type text; target setOf -> Set.ofPred
+   2. Set.indicator_le_indicator_nonneg [Algebra.Order.Group.Indicator]: same, setOf -> Set.ofPred
+   3. Set.Iic_def [Order.Interval.Set.Defs]: same, setOf -> Set.ofPred
+   4. MvPolynomial.vanishingIdeal [RingTheory.Nullstellensatz]: equation text same, setOf -> Set.ofPred
+   5. SetRel.cod [Data.Rel]: equation, setOf -> Set.ofPred
+   6. ContRepresentation.invariants [RepresentationTheory.Continuous.Basic]: equation, setOf -> Set.ofPred
+   7. SeminormedCommGroup [Analysis.Normed.Group.Defs]: member texts same, setOf -> Set.ofPred
+   8. LieAlgebra.IsSemisimple [Algebra.Lie.Semisimple.Defs]: members, setOf -> Set.ofPred
+   9. PseudoMetric.isSymm_ball [Topology.MetricSpace.BundledFun]: instTypes ["setOf"] -> ["Set.ofPred"]
+  10. Nat.chineseRemainderOfMultiset [Data.Nat.ChineseRemainder]: type and equation, setOf -> Set.ofPred
+  11. Fin.sum_Iic_sub [Algebra.BigOperators.Intervals]: "∑ i ∈ Finset.Iic a, (f i.succ - f i.castSucc) = …"
+      -> "∑ i ≤ a, (f i.succ - f i.castSucc) = …" (new Mathlib notation)
+  12. Polynomial.Chebyshev.sumNodes [Analysis.SpecialFunctions.Trigonometric.Chebyshev.Extremal]:
+      equation "∑ i ∈ Finset.Iic n, …" -> "∑ i ≤ n, …"
+  13. extDerivWithin_apply_vectorField [Analysis.Calculus.DifferentialForm.VectorField]:
+      "∑ j ∈ Finset.Ici i, …" -> "∑ j ≥ i, …"
+  14. CategoryTheory.Pretriangulated.commShiftIso_unopUnop_inv_app_assoc
+      [CategoryTheory.Triangulated.Opposite.OpOp]: a generated `_assoc` lemma; its binder
+      "((shiftFunctor Cᵒᵖᵒᵖ n).comp (unopUnop C)).obj X" -> "(unopUnop C).obj ((shiftFunctor Cᵒᵖᵒᵖ n).obj X)"
+      and the composition re-associated
+  15. CategoryTheory.Limits.colimit.w_apply [CategoryTheory.ConcreteCategory.Elementwise]:
+      a generated lemma; "(f : j ⟶ j')" -> "(f : j' ⟶ j)", statement mirrored
+  16. DerivedCategory.homologyFunctorFactorsh_hom_app_quotient_obj_assoc
+      [Algebra.Homology.DerivedCategory.HomologySequence]: generated `_assoc`, re-associated
+  17. Int.cobounded_eq [Topology.Instances.Int]: binder "[Nonempty α]" no longer included
+  18. CategoryTheory.WideSubcategory.instMonoidalCategoryStruct [CategoryTheory.Monoidal.Widesubcategory]:
+      equation now refers to CategoryTheory.WideSubcategory.isoMk instead of CategoryTheory.isoMk
+  19. instCompleteLinearOrderEReal [Data.EReal.Basic]: equation refers to _aux_14 / _proof_13
+      instead of _aux_13 / _proof_15 (auxiliary names numbered differently)
+  20. CommRingCat.commRingObj and RingCat.ringObj [Algebra.Category.Ring.Limits]: same, _aux_36/_aux_43
+      -> _aux_30/_aux_41
+  21. Mathlib.Meta.NormNum.isNat_ofScientific_of_false [Tactic.NormNum.OfScientific]: links to
+      OfScientific.ofScientific now go to Init.Data.OfScientific.Basic, not Init.Data.OfScientific
+      (a Lean core file split: the dependency link changes even with revision and lines dropped)
+  22. Mathlib.TacticAnalysis.grindReplacementWith [Tactic.TacticAnalysis.Declarations]: Float moved
+      Init.Data.Float -> Init.Data.Float.Float
+  23. Mathlib.TacticAnalysis.findTacticSeqs [Tactic.TacticAnalysis]: Lean.Elab.Info.stx moved
+      Lean.Server.InfoUtils -> Lean.Elab.InfoTree.Basic
+  24. Manifold.delabMDifferentiableOn / …At / …WithinAt [Geometry.Manifold.Notation]: the
+      equation of a delaborator (a metaprogram) printed differently
+  25. Mathlib.Tactic.Ring.evalLE / evalLT [Tactic.Ring.Compare]: equation of a metaprogram changed
+  26. instCompleteLinearOrderElemIccOfFactLe [Order.CompleteLatticeIntervals]: structure-instance
+      equation text changed
+  27. (loose) LinearMap.mul'_comm [Algebra.Algebra.Bilinear]: own lines unchanged, binder
+      "[NonUnitalCommSemiring A]" -> "[NonUnitalNonAssocCommSemiring A]" (it comes from outside
+      those lines)
+  28. (loose) RingHom.equivRatAlgHom_apply [Algebra.Algebra.Hom.Rat]: a generated `simps` lemma;
+      "{R : Type u_1} {S : Type u_2}" -> "(R : Type u_1) (S : Type u_2)", type
+      "equivRatAlgHom f = …" -> "(equivRatAlgHom R S) f = …"
+
+4. The patch pair in full
+-------------------------
+  281,344 of 317,834 declarations (88.52%) differ at (a), and 281,342 of those differ only in
+  links: the Lean core revision moved from d8b18978… to 819816b2… and every link into
+  Init / Lean / Std / Lake carries it. 247,150 declarations (77.76%) have such a link in the
+  signature. Line ranges and dependency revisions of every non-core package are unchanged.
+  The two that differ at (d), both Lean-caused, not Mathlib-caused:
+    Mathlib.Tactic.GCongr.tacticGcongr_discharger [Tactic.GCongr.Core]  doc: the stored docstring
+      holds a Lean reference-manual URL carrying Lean's own version: ".../doc/reference/4.33.0/find/..."
+      -> ".../doc/reference/4.33.1/find/..."
+    SimpleGraph.Walk.take [Combinatorics.SimpleGraph.Walk.Operations]  the second equation lemma
+      Lean generated differs: "p.take 0 = SimpleGraph.Walk.nil.copy ⋯ ⋯" -> "p.take 0 =
+      match v, p, 0 with | … " (the only input that changed is Lean)
+
+5. Non-determinism (v4.33.1, extracted twice)
+---------------------------------------------
+  Two `litedoc4 build` runs, each into a fresh --out, both reporting "path":"full", 8,312 of 8,312 modules
+  extracted, one extractor request, 0 global-cache hits:
+    IR             8,323 files     /usr/bin/diff -rq: no difference
+    link-index.lidx                cmp: identical
+    site           8,325 files     sha256 of every file: identical
+  So extraction is byte-deterministic on this input, and so is rendering the same IR. The two
+  runs used different --out paths and the site still came out identical. The plan's wording
+  ("render the same IR twice") is covered by the site comparison.
+
+6. What this does not measure
+-----------------------------
+  - Rendered bytes. The comparison is over the IR plus the link targets render would build,
+    modelled from the source of render's link code, not compared against its output.
+  - Docstring link resolution. Docstrings are compared as stored; a `[foo]` link inside an
+    unchanged docstring that resolves differently is not counted.
+  - Used by, the instance lists, the search index, the module list: they are global, built
+    after extraction, and the plan already puts them in the per-version layer. `refs`, which
+    feeds Used by, is counted (5,401 changed declarations in the minor pair).
+  - The declaration's own source link with the commit SHA: 100% different by construction.
+  - D10's printer. Here every version is printed by its own Lean and Mathlib, as today. The
+    hybrid of U9 (newest Lean and Mathlib printing an old version's data) was not run; it
+    would remove printer and notation drift (bounded in section 3) and keep the data changes
+    (setOf -> Set.ofPred, generated lemmas, auxiliary names).
+  - Why the 2,725 added and 1,177 removed declarations of the minor pair were added or
+    removed (renames vs new vs deleted). A declaration that fails to extract vanishes from the
+    IR: the v4.33.x runs reported 0 failed; the v4.32.2 record was not kept (Conditions).
+  - Other pairs. Two pairs only, and only one patch pair, whose Mathlib side is a pure
+    toolchain bump. A patch release that also changes Mathlib sources is not measured.
+  - The ≥ 90% expectation in the plan was stated "excluding source links, Used by and
+    instances". At that level, (b), the measured share is 11.48% (patch) and 11.23% (minor).
+    The expectation holds only once dependency links are also made version-free ((c) / (c')).
+
+7. Scripts and commands
+-----------------------
+  Work area: <workspace> = the gates' relay directory, one u3-<tag> checkout at a time,
+  deleted before the next. Per version, kept: ir/, link-index.lidx, lake-manifest.json,
+  `lake env lean --githash`, the Mathlib commit, and Mathlib/**/*.lean + Mathlib.lean
+  (about 110 M). All of it was deleted when the analysis finished, after this file was written.
+  Analysis: run first with --limit 20 (20 modules, a few seconds), then on everything
+  (440 s per pair, single process, 3.7 GB peak RSS (measured)).
+    u3compare.py <keep v4.33.0> <keep v4.33.1> patch.json
+    u3compare.py <keep v4.32.2> <keep v4.33.0> minor.json
+    u3causes.py  <keep v4.32.2> <keep v4.33.0>                 (strict tier)
+    u3causes.py  <keep v4.32.2> <keep v4.33.0> --all-modules
+    u3examples.py <keep A> <keep B> minor.json --tier file_identical --per 3
+
+  Per version (ver2.sh; the v4.32.2 / v4.33.0 runs used the same script without the
+  three lines that copy the extractor records, hash the site and delete the out dir):
+
+    #!/bin/bash
+    # usage: ver.sh <tag> <sha> <label> [--reuse-workspace]
+    set -uo pipefail
+    TAG=$1; SHA=$2; LABEL=$3; REUSE=${4:-}
+    REPO=<repo>
+    R=<workspace>
+    W=$R/u3-$TAG
+    K=$R/u3-keep/$LABEL
+    LAKE=$HOME/.elan/bin/lake
+    LD4=$REPO/.lake/build/bin/litedoc4
+    mkdir -p "$K/logs"
+    L=$K/logs
+    step() { echo "$(date '+%F %T') $*" | tee -a "$L/steps.txt"; }
+    freecheck() {
+      local avail; avail=$(df -k <workspace> | awk 'NR==2{print $4}')
+      df -h <workspace> | tail -1 >> "$L/steps.txt"
+      if [ "$avail" -lt $((8*1024*1024)) ]; then step "STOP: free space under 8 GiB ($avail KiB)"; exit 3; fi
+    }
+    run() { # name cmd...
+      local name=$1; shift
+      local t0=$SECONDS
+      "$@" > "$L/$name.log" 2>&1
+      local rc=$?
+      step "$name rc=$rc wall=$((SECONDS-t0))s"
+      return $rc
+    }
+    step "start $TAG $SHA $LABEL"
+    freecheck
+    if [ "$REUSE" != "--reuse-workspace" ]; then
+      [ -e "$W" ] && { step "STOP: $W exists"; exit 3; }
+      mkdir -p "$W"
+      git -C "$W" init -q mathlib
+      git -C "$W/mathlib" remote add origin https://github.com/leanprover-community/mathlib4
+      run fetch git -C "$W/mathlib" fetch --depth 1 origin "$SHA" || exit 1
+      run checkout git -C "$W/mathlib" checkout --detach FETCH_HEAD || exit 1
+      TC=$(cat "$W/mathlib/lean-toolchain"); step "toolchain $TC"
+      [ "$TC" = "leanprover/lean4:$TAG" ] || { step "STOP: toolchain mismatch"; exit 1; }
+      [ -d "$HOME/.elan/toolchains/leanprover--lean4---$TAG" ] || { step "STOP: toolchain not installed"; exit 1; }
+      freecheck
+      export MATHLIB_CACHE_DIR=$W/cache
+      ( cd "$W/mathlib" && run cacheget "$LAKE" exe cache get ) || exit 1
+      du -sh "$W/cache" >> "$L/steps.txt"
+      freecheck
+      ( cd "$W/mathlib" && run nobuild "$LAKE" build --no-build Mathlib ) || { step "STOP: oleans incomplete"; exit 1; }
+      mkdir -p "$W/ext"
+      ( cd "$W/mathlib" && run extlean "$LAKE" env lean --root="$REPO/extractor" -o "$W/ext/Extract.olean" -c "$W/ext/Extract.c" "$REPO/extractor/Extract.lean" ) || exit 1
+      ( cd "$W/mathlib" && run extleanc "$LAKE" env leanc -rdynamic -o "$W/ext/extract" "$W/ext/Extract.c" ) || exit 1
+      ( cd "$W/mathlib" && "$LAKE" env lean --githash > "$K/lean-githash.txt" 2>&1; "$LAKE" env lean --version > "$K/lean-version.txt" 2>&1 )
+      cp "$W/mathlib/lake-manifest.json" "$K/lake-manifest.json"
+      git -C "$W/mathlib" rev-parse HEAD > "$K/mathlib-rev.txt"
+      mkdir -p "$K/src"
+      ( cd "$W/mathlib" && rsync -a --include='*/' --include='*.lean' --exclude='*' Mathlib "$K/src/" && cp Mathlib.lean "$K/src/" )
+      du -sh "$K/src" >> "$L/steps.txt"
+      run modules "$LD4" modules --root "$W/mathlib" --lib Mathlib --out "$K/modules.txt"
+    fi
+    freecheck
+    OUT=$W/out-$LABEL
+    rm -rf "$OUT"
+    run build /usr/bin/time -l "$LD4" build --root "$W/mathlib" --out "$OUT" \
+      --lib Mathlib --extractor-bin "$W/ext/extract" --lake "$LAKE" --jobs 4 \
+      --source-url "https://github.com/leanprover-community/mathlib4/blob/$SHA" \
+      --timings "$K/timings.json"
+    BRC=$?
+    freecheck
+    cp "$OUT/litedoc4-build.json" "$K/" 2>/dev/null
+    cp "$OUT/link-index.lidx" "$OUT/link-index.lidx.key" "$K/" 2>/dev/null
+    cp "$OUT/work/serve.out" "$OUT/work/extract-timings-1.json" "$K/" 2>/dev/null
+    mv "$OUT/ir" "$K/ir"
+    ( cd "$OUT/site" && find . -type f -print0 | sort -z | xargs -0 shasum -a 256 ) > "$K/site-sha.txt"
+    du -sh "$K/ir" "$OUT/site" >> "$L/steps.txt" 2>&1
+    rm -rf "$OUT"
+    step "build rc=$BRC done"
+    exit $BRC
+
+  --- u3compare.py
+    #!/usr/bin/env python3
+    """U3: per-declaration sharing between two litedoc4 IRs of consecutive Mathlib releases.
+
+    usage: u3compare.py <keepA> <keepB> <out.json> [--limit N] [--examples K]
+
+    <keep> holds: ir/ (index.json, modules/), link-index.lidx, lake-manifest.json,
+    lean-githash.txt, mathlib-rev.txt, src/ (Mathlib/**/*.lean, Mathlib.lean).
+    """
+    import hashlib
+    import json
+    import os
+    import sys
+    from collections import Counter, defaultdict
+
+    CORE_ROOTS = {"Init": "lean4", "Lean": "lean4", "Std": "lean4", "Lake": "lean4"}
+    RENAME = ("implicit_reducible", "instance_reducible")
+    POS_KEYS = ("line", "col", "endLine", "endCol", "selectionRange", "index")
+
+
+    def h(obj):
+        return hashlib.blake2b(json.dumps(obj, ensure_ascii=False, sort_keys=True,
+                                          separators=(",", ":")).encode(), digest_size=8).digest()
+
+
+    class Version:
+        def __init__(self, keep):
+            self.keep = keep
+            self.index = json.load(open(os.path.join(keep, "ir", "index.json")))
+            self.mathlib_rev = open(os.path.join(keep, "mathlib-rev.txt")).read().strip()
+            self.lean_rev = open(os.path.join(keep, "lean-githash.txt")).read().strip()
+            manifest = json.load(open(os.path.join(keep, "lake-manifest.json")))
+            self.pkg_rev = {p["name"].lower(): p.get("rev", "") for p in manifest["packages"]}
+            self.lidx = {}
+            with open(os.path.join(keep, "link-index.lidx"), encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("\t"):
+                        parts = line.rstrip("\n").split("\t")
+                        if len(parts) == 4:
+                            self.lidx[parts[1]] = (parts[2], parts[3])
+            self.src_cache = {}
+
+        def root_rev(self, root):
+            if root in CORE_ROOTS:
+                return "lean4@" + self.lean_rev
+            key = {"Batteries": "batteries", "Aesop": "aesop", "Qq": "qq", "ProofWidgets": "proofwidgets",
+                   "Plausible": "plausible", "ImportGraph": "importgraph",
+                   "LeanSearchClient": "leansearchclient", "Cli": "cli"}.get(root, root.lower())
+            return key + "@" + self.pkg_rev.get(key, "?")
+
+        def module_files(self):
+            return [(m["module"], os.path.join(self.keep, "ir", m["file"]),
+                     m.get("contentHash")) for m in self.index["modules"]]
+
+        def src_lines(self, module):
+            if module not in self.src_cache:
+                p = os.path.join(self.keep, "src", *module.split(".")) + ".lean"
+                try:
+                    with open(p, "rb") as f:
+                        data = f.read()
+                    self.src_cache[module] = (data, data.split(b"\n"))
+                except OSError:
+                    self.src_cache[module] = (None, None)
+            return self.src_cache[module]
+
+
+    def resolve(v, refmod, name, mode):
+        """The link target a rendered page would carry for `name`, at one normalisation level."""
+        module = refmod.get(name)
+        if module is None:
+            return ["?", name]
+        root = module.split(".")[0]
+        if root == "Mathlib":
+            return ["M", name] if mode == "byname" else ["M", module, name]
+        rng = v.lidx.get(name)
+        if mode == "full":
+            return ["D", v.root_rev(root), module, rng]
+        if mode == "norev":
+            return ["D", root, module, rng]
+        return ["D", root, module]
+
+
+    def span_parts(spans, v, refmod, mode):
+        markup, links = [], []
+        for s in spans:
+            markup.append([s[0], s[1], s[2]] + list(s[4:]))
+            if len(s) > 3:
+                links.append(resolve(v, refmod, s[3], mode))
+        return markup, links
+
+
+    def fields(d, v, mode):
+        """Field classes of one declaration, each a JSON-able value."""
+        refmod = {n: m for m, n in d.get("refs", [])}
+        out = {}
+        out["sig_text"] = [d.get("binders"), d.get("type"), d.get("implicits")]
+        tm, tl = span_parts(d.get("typeCode", []), v, refmod, mode)
+        bm, bl = [], []
+        for b in d.get("binderCode", []):
+            m_, l_ = span_parts(b, v, refmod, mode)
+            bm.append(m_)
+            bl.append(l_)
+        out["sig_markup"] = [tm, bm]
+        out["sig_links"] = [tl, bl]
+        out["doc"] = d.get("doc")
+        out["eq_text"] = d.get("equations")
+        em, el = [], []
+        for e in d.get("equationCode", []):
+            m_, l_ = span_parts(e, v, refmod, mode)
+            em.append(m_)
+            el.append(l_)
+        out["eq_markup"] = em
+        out["eq_links"] = el
+        out["attrs"] = d.get("attrs")
+        out["header"] = [d.get("kind"), d.get("modifiers"), d.get("generated")]
+        out["instances"] = [d.get("instClass"), d.get("instTypes")]
+        mt, mm, ml = [], [], []
+        for m in d.get("members", []):
+            mt.append([m.get("label"), m.get("name"), m.get("text"), m.get("binders"),
+                       m.get("implicits"), m.get("doc"), m.get("isDirect")])
+            cm, cl = span_parts(m.get("code", []), v, refmod, mode)
+            bmm, bll = [], []
+            for b in m.get("binderCode", []):
+                m_, l_ = span_parts(b, v, refmod, mode)
+                bmm.append(m_)
+                bll.append(l_)
+            mm.append([cm, bmm])
+            ml.append([cl, bll])
+        out["members_text"] = mt
+        out["members_markup"] = mm
+        out["members_links"] = ml
+        out["refs"] = d.get("refs")
+        out["position"] = [d.get(k) for k in POS_KEYS]
+        known = {"binders", "type", "implicits", "typeCode", "binderCode", "doc", "equations",
+                 "equationCode", "attrs", "kind", "modifiers", "generated", "instClass", "instTypes",
+                 "members", "refs", "name"} | set(POS_KEYS)
+        out["other"] = {k: d[k] for k in sorted(d) if k not in known}
+        return out
+
+
+    LINK_CLASSES = ("sig_links", "eq_links", "members_links")
+    CLASSES = ("sig_text", "sig_markup", "sig_links", "doc", "eq_text", "eq_markup", "eq_links",
+               "attrs", "header", "instances", "members_text", "members_markup", "members_links",
+               "refs", "position", "other")
+    META = ("links_mathlib_targets", "links_mathlib_names", "links_dep_targets_nolines",
+            "links_dep_targets_norev")
+    LEVELS = ("a_full", "b_nopos", "c_norev", "c2_nodeplines", "d_rename", "e_norefs", "f_mathlib_by_name",
+              "d_lit_norev_rename")
+
+
+    def norm_attrs(a, _is_instance=None):
+        if a is None:
+            return a
+        return json.loads(json.dumps(a).replace(RENAME[0], RENAME[1]))
+
+
+    def _targets(f):
+        out = []
+
+        def walk(x):
+            if isinstance(x, list):
+                if x and x[0] in ("M", "D", "?") and len(x) >= 3 and isinstance(x[1], str):
+                    out.append(x)
+                else:
+                    for y in x:
+                        walk(y)
+        for c in LINK_CLASSES:
+            walk(f[c])
+        return out
+
+
+    def record(d, v):
+        inst = "instClass" in d
+        full = fields(d, v, "full")
+        norev = fields(d, v, "norev")
+        nolines = fields(d, v, "nolines")
+        byname = fields(d, v, "byname")
+        per_class = {c: h(full[c]) for c in CLASSES}
+        for c in LINK_CLASSES:
+            per_class[c + "@norev"] = h(norev[c])
+            per_class[c + "@nolines"] = h(nolines[c])
+        per_class["attrs@norm"] = h(norm_attrs(full["attrs"], inst))
+        per_class["links_mathlib_targets"] = h(sorted(set(json.dumps(t) for t in _targets(nolines) if t[0] == "M")))
+        per_class["links_mathlib_names"] = h(sorted(set(t[2] for t in _targets(nolines) if t[0] == "M")))
+        per_class["links_dep_targets_nolines"] = h(sorted(set(json.dumps(t) for t in _targets(nolines) if t[0] == "D")))
+        per_class["links_dep_targets_norev"] = h(sorted(set(json.dumps(t) for t in _targets(norev) if t[0] == "D")))
+        nonpos = [c for c in CLASSES if c != "position"]
+        levels = {
+            "a_full": h([full[c] for c in CLASSES]),
+            "b_nopos": h([full[c] for c in nonpos]),
+            "c_norev": h([norev[c] for c in nonpos]),
+            "c2_nodeplines": h([nolines[c] for c in nonpos]),
+        }
+        d_fields = dict(nolines)
+        d_fields["attrs"] = norm_attrs(nolines["attrs"], inst)
+        levels["d_rename"] = h([d_fields[c] for c in nonpos])
+        dl_fields = dict(norev)
+        dl_fields["attrs"] = norm_attrs(norev["attrs"], inst)
+        levels["d_lit_norev_rename"] = h([dl_fields[c] for c in nonpos])
+        levels["e_norefs"] = h([d_fields[c] for c in nonpos if c != "refs"])
+        f_fields = dict(byname)
+        f_fields["attrs"] = norm_attrs(byname["attrs"], inst)
+        levels["f_mathlib_by_name"] = h([f_fields[c] for c in nonpos if c != "refs"])
+        raw = dict(d)
+        return {"levels": levels, "classes": per_class, "line": d.get("line"),
+                "endLine": d.get("endLine"), "raw": h(raw),
+                "linknames": h(sorted({n for m, n in d.get("refs", [])}))}
+
+
+    def load(v, limit_modules):
+        decls = {}
+        dup = 0
+        mods = v.module_files()
+        if limit_modules is not None:
+            mods = [m for m in mods if m[0] in limit_modules]
+        for module, path, _ in mods:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for d in data["declarations"]:
+                r = record(d, v)
+                r["module"] = module
+                if d["name"] in decls:
+                    dup += 1
+                decls[d["name"]] = r
+        return decls, dup
+
+
+    def decl_src(v, module, line, end):
+        data, lines = v.src_lines(module)
+        if lines is None or line is None or end is None:
+            return None
+        return b"\n".join(lines[line - 1:end])
+
+
+    def main():
+        args = sys.argv[1:]
+        limit = None
+        nex = 25
+        if "--limit" in args:
+            i = args.index("--limit")
+            limit = int(args[i + 1])
+            del args[i:i + 2]
+        if "--examples" in args:
+            i = args.index("--examples")
+            nex = int(args[i + 1])
+            del args[i:i + 2]
+        ka, kb, outp = args
+        A, B = Version(ka), Version(kb)
+        limit_modules = None
+        if limit is not None:
+            names_b = {m["module"] for m in B.index["modules"]}
+            limit_modules = set([m["module"] for m in A.index["modules"] if m["module"] in names_b][:limit])
+        hashes_a = {m["module"]: m.get("contentHash") for m in A.index["modules"]}
+        hashes_b = {m["module"]: m.get("contentHash") for m in B.index["modules"]}
+        common_mods = set(hashes_a) & set(hashes_b)
+        rep = {"modules": {"A": len(hashes_a), "B": len(hashes_b), "common": len(common_mods),
+                           "contentHash_identical": sum(1 for m in common_mods if hashes_a[m] == hashes_b[m]),
+                           "added": len(set(hashes_b) - set(hashes_a)),
+                           "removed": len(set(hashes_a) - set(hashes_b))}}
+        file_same = {}
+        for m in common_mods:
+            da, _ = A.src_lines(m)
+            db, _ = B.src_lines(m)
+            file_same[m] = da is not None and da == db
+        rep["modules"]["source_file_identical"] = sum(file_same.values())
+        A.src_cache.clear()
+        B.src_cache.clear()
+
+        da, dupa = load(A, limit_modules)
+        db, dupb = load(B, limit_modules)
+        rep["duplicates"] = [dupa, dupb]
+        na, nb = set(da), set(db)
+        common = na & nb
+        rep["decls"] = {"A": len(na), "B": len(nb), "common": len(common), "added": len(nb - na),
+                        "removed": len(na - nb)}
+        moved = {n for n in common if da[n]["module"] != db[n]["module"]}
+        rep["decls"]["moved_module"] = len(moved)
+        lv = {L: sum(1 for n in common if da[n]["levels"][L] == db[n]["levels"][L]) for L in LEVELS}
+        lv["raw_ir_record"] = sum(1 for n in common if da[n]["raw"] == db[n]["raw"])
+        rep["identical_of_common"] = lv
+        rep["identical_of_common_not_moved"] = {
+            L: sum(1 for n in common - moved if da[n]["levels"][L] == db[n]["levels"][L]) for L in LEVELS}
+        rep["identical_moved"] = {
+            L: sum(1 for n in moved if da[n]["levels"][L] == db[n]["levels"][L]) for L in LEVELS}
+
+        keys = list(da[next(iter(common))]["classes"]) if common else []
+        cls_count = Counter()
+        combo = Counter()
+        combo_d = Counter()
+        for n in common:
+            ca, cb = da[n]["classes"], db[n]["classes"]
+            diff = [k for k in keys if ca[k] != cb[k]]
+            for k in diff:
+                cls_count[k] += 1
+            base = [k for k in diff if "@" not in k and k not in META]
+            if base:
+                combo[",".join(base)] += 1
+            dd = []
+            for k in base:
+                if k == "position" or k == "links_dep_targets_norev":
+                    continue
+                if k in LINK_CLASSES and ca[k + "@nolines"] == cb[k + "@nolines"]:
+                    continue
+                if k == "attrs" and ca["attrs@norm"] == cb["attrs@norm"]:
+                    continue
+                dd.append(k)
+            if dd:
+                combo_d[",".join(dd)] += 1
+        rep["field_changed"] = dict(cls_count.most_common())
+        rep["exclusive_combos_raw"] = dict(combo.most_common(40))
+        rep["exclusive_combos_after_d"] = dict(combo_d.most_common(40))
+
+        tiers = {}
+        examples = defaultdict(list)
+        for tier in ("file_identical", "decl_text_identical"):
+            sel = []
+            for n in common - moved:
+                m = da[n]["module"]
+                if tier == "file_identical":
+                    ok = file_same.get(m, False)
+                else:
+                    sa = decl_src(A, m, da[n]["line"], da[n]["endLine"])
+                    sb = decl_src(B, m, db[n]["line"], db[n]["endLine"])
+                    ok = sa is not None and sa == sb
+                if ok:
+                    sel.append(n)
+            t = {"n": len(sel)}
+            for L in LEVELS:
+                t["changed_" + L] = sum(1 for n in sel if da[n]["levels"][L] != db[n]["levels"][L])
+            why = Counter()
+            drift = Counter()
+            for n in sel:
+                if da[n]["levels"]["d_rename"] == db[n]["levels"]["d_rename"]:
+                    continue
+                ca, cb = da[n]["classes"], db[n]["classes"]
+                causes = []
+                for k in keys:
+                    if "@" in k or k in ("position", "links_dep_targets_norev") or ca[k] == cb[k]:
+                        continue
+                    if k in LINK_CLASSES and ca[k + "@nolines"] == cb[k + "@nolines"]:
+                        continue
+                    if k == "attrs" and ca["attrs@norm"] == cb["attrs@norm"]:
+                        continue
+                    causes.append(k)
+                key = ",".join(causes)
+                why[key] += 1
+                if "sig_text" in causes:
+                    drift["same_link_names" if da[n]["linknames"] == db[n]["linknames"]
+                          else "different_link_names"] += 1
+                if len(examples[(tier, key)]) < nex:
+                    examples[(tier, key)].append(n)
+            t["causes_after_d"] = dict(why.most_common())
+            t["sig_text_split"] = dict(drift)
+            tiers[tier] = t
+            A.src_cache.clear()
+            B.src_cache.clear()
+        rep["source_unchanged"] = tiers
+        rep["example_names"] = {f"{a}|{b}": v for (a, b), v in examples.items()}
+        rep["example_modules"] = {n: [da[n]["module"], db[n]["module"]]
+                                  for v in examples.values() for n in v}
+        json.dump(rep, open(outp, "w"), indent=1, sort_keys=True)
+        print(json.dumps({k: rep[k] for k in ("modules", "decls", "identical_of_common")}, indent=1))
+
+
+    if __name__ == "__main__":
+        main()
+
+  --- u3causes.py
+    #!/usr/bin/env python3
+    """Aggregate what changed, for declarations whose module source file is byte-identical in both versions.
+
+    usage: u3causes.py <keepA> <keepB> [--limit N] [--all-modules]
+    """
+    import json
+    import os
+    import sys
+    from collections import Counter
+
+    RENAME = ("implicit_reducible", "instance_reducible")
+
+
+    def modules(keep):
+        idx = json.load(open(os.path.join(keep, "ir", "index.json")))
+        return {m["module"]: os.path.join(keep, "ir", m["file"]) for m in idx["modules"]}
+
+
+    def src(keep, module):
+        p = os.path.join(keep, "src", *module.split(".")) + ".lean"
+        try:
+            return open(p, "rb").read()
+        except OSError:
+            return None
+
+
+    def main():
+        args = sys.argv[1:]
+        limit = None
+        if "--limit" in args:
+            i = args.index("--limit")
+            limit = int(args[i + 1])
+            del args[i:i + 2]
+        all_modules = "--all-modules" in args
+        args = [a for a in args if a != "--all-modules"]
+        ka, kb = args
+        ma, mb = modules(ka), modules(kb)
+        common = sorted(set(ma) & set(mb))
+        if not all_modules:
+            common = [m for m in common if src(ka, m) is not None and src(ka, m) == src(kb, m)]
+        if limit is not None:
+            common = common[:limit]
+        name_swaps = Counter()
+        swap_decls = Counter()
+        attr_pairs = Counter()
+        doc_examples = []
+        header_pairs = Counter()
+        sig_same_text_names = 0
+        n = 0
+        for m in common:
+            da = {d["name"]: d for d in json.load(open(ma[m]))["declarations"]}
+            db = {d["name"]: d for d in json.load(open(mb[m]))["declarations"]}
+            for name in set(da) & set(db):
+                a, b = da[name], db[name]
+                n += 1
+                ra = {x[1] for x in a.get("refs", [])}
+                rb = {x[1] for x in b.get("refs", [])}
+                if ra != rb:
+                    key = " | ".join(sorted(ra - rb)[:3]) + "  ->  " + " | ".join(sorted(rb - ra)[:3])
+                    name_swaps[key] += 1
+                    for r in ra - rb:
+                        swap_decls["-" + r] += 1
+                    for r in rb - ra:
+                        swap_decls["+" + r] += 1
+                    if a.get("type") == b.get("type") and a.get("binders") == b.get("binders"):
+                        sig_same_text_names += 1
+                aa = json.dumps(a.get("attrs")).replace(*RENAME)
+                ab = json.dumps(b.get("attrs")).replace(*RENAME)
+                if aa != ab:
+                    attr_pairs[aa[:120] + "  ->  " + ab[:120]] += 1
+                if a.get("doc") != b.get("doc") and len(doc_examples) < 8:
+                    doc_examples.append((name, (a.get("doc") or "")[:200], (b.get("doc") or "")[:200]))
+                ha = [a.get("kind"), a.get("modifiers"), a.get("generated")]
+                hb = [b.get("kind"), b.get("modifiers"), b.get("generated")]
+                if ha != hb:
+                    header_pairs[json.dumps(ha) + "  ->  " + json.dumps(hb)] += 1
+        print(f"modules {len(common)}  common decls {n}")
+        print(f"decls whose referenced-name set changed while binders+type text did not: {sig_same_text_names}")
+        print("--- referenced-name swaps (removed -> added), top 25")
+        for k, c in name_swaps.most_common(25):
+            print(f"{c:7d}  {k}")
+        print("--- names most often removed/added, top 20")
+        for k, c in swap_decls.most_common(20):
+            print(f"{c:7d}  {k}")
+        print("--- attrs changes after the reducibility rename, top 15")
+        for k, c in attr_pairs.most_common(15):
+            print(f"{c:7d}  {k}")
+        print("--- header (kind/modifiers/generated) changes, top 10")
+        for k, c in header_pairs.most_common(10):
+            print(f"{c:7d}  {k}")
+        print("--- doc changes, examples")
+        for e in doc_examples:
+            print(json.dumps(e, ensure_ascii=False))
+
+
+    if __name__ == "__main__":
+        main()
+
+  --- u3examples.py (display only)
+    #!/usr/bin/env python3
+    """Print, for the example declarations a u3compare.py report names, the fields that differ.
+
+    usage: u3examples.py <keepA> <keepB> <report.json> [--per N] [--width W] [--tier T]
+    """
+    import json
+    import os
+    import sys
+
+    SHOW = ("binders", "type", "doc", "equations", "attrs", "modifiers", "kind", "instClass",
+            "instTypes", "generated")
+
+
+    def load_module(keep, module):
+        idx = json.load(open(os.path.join(keep, "ir", "index.json")))
+        for m in idx["modules"]:
+            if m["module"] == module:
+                return {d["name"]: d for d in json.load(open(os.path.join(keep, "ir", m["file"])))["declarations"]}
+        return {}
+
+
+    def main():
+        args = sys.argv[1:]
+        per, width, tier = 3, 400, "file_identical"
+        for flag in ("--per", "--width", "--tier"):
+            if flag in args:
+                i = args.index(flag)
+                val = args[i + 1]
+                del args[i:i + 2]
+                if flag == "--per":
+                    per = int(val)
+                elif flag == "--width":
+                    width = int(val)
+                else:
+                    tier = val
+        ka, kb, rp = args
+        rep = json.load(open(rp))
+        cache = {}
+
+        def decl(keep, module, name):
+            key = (keep, module)
+            if key not in cache:
+                cache[key] = load_module(keep, module)
+            return cache[key].get(name)
+
+        for key, names in sorted(rep["example_names"].items(), key=lambda kv: -len(kv[1])):
+            t, causes = key.split("|", 1)
+            if t != tier:
+                continue
+            print(f"=== cause set: {causes}  (showing {min(per, len(names))})")
+            for n in names[:per]:
+                ma, mb = rep["example_modules"][n]
+                a, b = decl(ka, ma, n), decl(kb, mb, n)
+                print(f"--- {n}  [{ma}]")
+                for f in SHOW:
+                    if a.get(f) != b.get(f):
+                        print(f"  {f}:\n    A: {json.dumps(a.get(f), ensure_ascii=False)[:width]}\n"
+                              f"    B: {json.dumps(b.get(f), ensure_ascii=False)[:width]}")
+                ra = {tuple(r) for r in a.get("refs", [])}
+                rb = {tuple(r) for r in b.get("refs", [])}
+                if ra != rb:
+                    print(f"  refs only A: {sorted(ra - rb)[:6]}\n  refs only B: {sorted(rb - ra)[:6]}")
+                if a.get("members") != b.get("members"):
+                    ta = [m.get("text") for m in a.get("members", [])]
+                    tb = [m.get("text") for m in b.get("members", [])]
+                    print(f"  members text A: {json.dumps(ta, ensure_ascii=False)[:width]}\n"
+                          f"  members text B: {json.dumps(tb, ensure_ascii=False)[:width]}")
+                for f in ("typeCode", "binderCode", "equationCode"):
+                    if a.get(f) != b.get(f) and a.get(f.replace("Code", "s") if f == "equationCode" else
+                                                        ("type" if f == "typeCode" else "binders")) == \
+                            b.get(f.replace("Code", "s") if f == "equationCode" else
+                                  ("type" if f == "typeCode" else "binders")):
+                        print(f"  {f} differs with same text")
+
+
+    if __name__ == "__main__":
+        main()

@@ -1,0 +1,3 @@
+title = "Mathlib"
+footer = "footer.md"
+no_equations_under = ["Mathlib.Tactic", "Mathlib.Meta"]

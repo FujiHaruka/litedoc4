@@ -274,7 +274,7 @@ if not promised_pairs:
 for command, flag in promised_pairs:
     if (command, flag) not in pairs:
         problems.append(
-            f"1.x promises `litedoc4 {command} {flag}` and this gate never hands it over — "
+            f"2.x promises `litedoc4 {command} {flag}` and this gate never hands it over — "
             "the synopsis reading here and public-surface-gate's disagree, so nothing "
             "checks that the promised flag is accepted rather than merely spelled"
         )
@@ -310,7 +310,7 @@ print(f"FLAG TIE GATE: lean {len(reported)}/{len(pairs)} pair(s), {controls} con
       + "; the oracle arm is retired with crates/, so one binary answers"
       + f"; {len(commands)} command(s), {len(flags)} distinct flag(s), "
       + f"{len(described)} described; {len(promised_pairs)} promised flag(s) "
-      + "are among the pairs, so 1.x promises what a parser accepts")
+      + "are among the pairs, so 2.x promises what a parser accepts")
 PY
 
 if [ "$rc" -ne 0 ]; then

@@ -1,7 +1,7 @@
 // What the search index costs a browser, measured in a browser.
 //
 // The retreat line for the binary index was that it goes in only if the peak
-// drops by 5x, and the numbers behind that line were Deno's V8
+// drops by 5x, and the numbers behind that line were a runtime's V8
 // (`heapUsed` / `external`), which is not a browser's accounting. This is the
 // same question asked of Chrome, through the real page: load `search.html`,
 // let `app.js` fetch and read the index, and read `JSHeapUsedSize` off the
@@ -12,12 +12,15 @@
 // from a document — is a comparison of conditions rather than of formats.
 //
 // usage:
-//   deno run -A benchmarks/tools/measure-index-memory.ts <site A> <site B> \
+//   node benchmarks/tools/measure-index-memory.ts <site A> <site B> \
 //     [--chrome PATH] [--port N] [--query Q] [--runs N]
-import puppeteer, { type Browser } from "npm:puppeteer-core@24";
+import { statSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import puppeteer, { type Browser } from "puppeteer-core";
+import { listen } from "./serve.ts";
 
 const CHROME_CANDIDATES = [
-  Deno.env.get("CHROME_PATH"),
+  process.env.CHROME_PATH,
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
   "/usr/bin/google-chrome",
@@ -27,7 +30,7 @@ const CHROME_CANDIDATES = [
 
 function findChrome(): string {
   for (const candidate of CHROME_CANDIDATES) {
-    if (candidate && (() => { try { return Deno.statSync(candidate).isFile; } catch { return false; } })()) {
+    if (candidate && (() => { try { return statSync(candidate).isFile(); } catch { return false; } })()) {
       return candidate;
     }
   }
@@ -42,10 +45,10 @@ function serve(root: string, port: number) {
     ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml",
   };
-  return Deno.serve({ port, onListen: () => {} }, async (request) => {
+  return listen({ port }, async (request) => {
     const path = decodeURIComponent(new URL(request.url).pathname);
     try {
-      const body = await Deno.readFile(`${root}${path}`);
+      const body = await readFile(`${root}${path}`);
       const type = types[path.slice(path.lastIndexOf("."))] ?? "application/octet-stream";
       return new Response(body, { headers: { "content-type": type } });
     } catch {
@@ -54,15 +57,16 @@ function serve(root: string, port: number) {
   });
 }
 
-const positional = Deno.args.filter((a) => !a.startsWith("--"));
+const args = process.argv.slice(2);
+const positional = args.filter((a) => !a.startsWith("--"));
 const flag = (name: string, fallback: string) => {
-  const at = Deno.args.indexOf(`--${name}`);
-  return at >= 0 ? Deno.args[at + 1] : fallback;
+  const at = args.indexOf(`--${name}`);
+  return at >= 0 ? args[at + 1] : fallback;
 };
 const [siteA, siteB] = positional;
 if (!siteA || !siteB) {
   console.error("usage: measure-index-memory.ts <site A> <site B> [--query Q] [--runs N]");
-  Deno.exit(2);
+  process.exit(2);
 }
 const query = flag("query", "inf");
 const runs = Number(flag("runs", "5"));
@@ -116,7 +120,7 @@ console.log(`query   ${JSON.stringify(query)}   runs ${runs}`);
 
 for (const [i, site] of [siteA, siteB].entries()) {
   const port = basePort + i;
-  const server = serve(site, port);
+  const server = await serve(site, port);
   const base = `http://127.0.0.1:${port}`;
   const idle: number[] = [];
   const loaded: number[] = [];

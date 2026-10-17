@@ -1,0 +1,1360 @@
+Consecutive releases: how much of a declaration's print can be reused from the previous release, how many modules are unchanged, and the key pass's 182 panics
+====================================================================================================================================================
+Date: 2026-10-05. Context: docs/multiversion/plan.md U3 (what consecutive releases share), U5 / U9 (the hybrid and its
+cost), D5 (content-addressed declarations), D7 (how a new release gets in), D10 (one reader, every version printed by
+the newest Lean and Mathlib). The proposed redesign processes versions in order in one process and handles only the
+difference from the previous version: it reuses the print of every declaration whose print key is unchanged and patches
+the environment with the changed modules only. This log measures what that difference is between consecutive releases.
+The programs are those of benchmarks/results/mathlib-build-host-levers-2026-10-05.txt (the "levers log": the hybrid,
+the seamed extractor, the print-key pass G7, the comparators) with the changes listed under CODE. A measurement in
+scratch Lake projects on this M1; nothing in src/ or extractor/ was changed.
+
+QUESTIONS
+---------
+(1) Content floor: of the declarations present in both Mathlib v4.31.0 and v4.32.0 (by name), how many have the same
+    content (type; type and value)? How many are added, removed, renamed-looking?
+(2) Module level: of the modules in both closures, how many are unchanged by decoded content (not by file bytes)? How
+    many constants do the changed modules hold, and how many of those changed? This is what an environment patch has to
+    touch.
+(3) The G7 print key on the consecutive pair: key-equal / output-equal cells, every hole, and lost reuse by key
+    component, next to the 3-apart numbers (v4.31.0 vs v4.34.1: 71.89% of 308,089, 6 holes).
+(4) The 182 panics of the key pass ("PANIC at Lean.getStructureInfo Lean.Structure:139:4: structure expected"): which
+    declarations, which component, a fix, and whether the fix changes the 3-apart result.
+(5) Where lost reuse comes from, what a finer key could recover, and the cost of the key pass and of the content check.
+
+HEADLINE
+--------
+Release order: Mathlib's releases page lists v4.32.0 (2026-07-13) as the first non-prerelease after v4.31.0 (2026-06-15);
+v4.32.0-rc1 lies between them and is a prerelease. Mathlib v4.32.0 = 81a5d257c8e410db227a6665ed08f64fea08e997, pinned
+to Lean v4.32.0 (8c9756b28d64dab099da31a4c09229a9e6a2ef35).
+
+(1) Content floor (measured; hashes of the stored object graphs, CONTENT HASHES below). Documented declarations = the
+    names in each version's hybrid IR (v4.31.0 311,345, v4.32.0 316,225); in both: 310,899.
+      same type                                        279,896   90.03%
+      same type and universe names                     279,881   90.02%
+      same type and value, proofs counted              257,576   82.85%
+      same type and value, theorem proofs ignored      275,777   88.70%   (the content a print can depend on)
+      whole ConstantInfo equal                         255,261   82.10%
+    Added 5,326, removed 446; renamed-looking (same kind, universe names, type, and value unless a theorem, matched
+    one-to-one) 20, e.g. IsInducing.sumSwap -> Topology.IsInducing.sumSwap, Finset.filter_fst_eq_antidiagonal ->
+    Finset.HasAntidiagonal.filter_fst_eq_antidiagonal.
+    This is NOT an upper bound for an "as shown" key (the task's premise): 14,619 declarations (4.70%) have a different
+    type or value and are G7-equal and print the same (a hidden argument changed). The three numbers that bracket reuse:
+      content equal (proofs ignored)  275,777  88.70%
+      G7 key equal                     260,835  83.90%
+      printed output equal             298,443  95.99%   <- the ceiling for any reuse rule on this pair
+    Over every constant of the closure (752,753 in both): same type 91.58%, type and value with proofs 87.56%, proofs
+    ignored 90.53%, whole constant 87.22%; 14,075 removed, 13,806 added.
+(2) Modules (measured). Of the 8,170 Mathlib modules of v4.31.0 and 8,265 of v4.32.0, 8,150 are in both:
+      every constant equal (same names, order, whole ConstantInfo)     2,503   30.71% of 8,150 (30.64% of 8,170)
+      + the module header (imports, constNames, extraConstNames)        2,475   30.37%
+      + the entries of the 57 extensions the hybrid decodes             2,154   26.43%
+      + header + decoded entries                                        2,143   26.29%
+      everything equal (all 300+ extensions' entries too)                 912   11.19%
+    Of the 10,583 closure modules of v4.31.0 (10,406 in v4.32.0, 10,269 in both): constants equal 4,248 (41.37% of
+    10,269), everything equal 1,523 (14.83%). Among modules whose constants are equal, what still differs is mostly the
+    compiler's extensions, which the hybrid never reads (Lean.Compiler.LCNF.monoExt 1,737 modules, five other LCNF
+    extensions ~1,110 each, sineQueNon 785, extraModUses 325); of the decoded ones namespacesExt 228, declRangeExt 134,
+    moduleDocExt 69, docStringExt 31.
+    The 5,647 Mathlib modules whose constants changed hold 471,422 v4.32.0 constants, of which 371,833 (78.87%) are
+    unchanged and 99,589 changed or new (closure: 6,021 modules, 520,627 constants, 104,263 changed or new). So a patch
+    by module rebuilds ~69% of Mathlib's modules to carry ~21% changed constants; a patch by constant touches ~13% of the
+    closure's constants (whole-constant inequality 12.78% of 752,753, plus 13,806 new).
+(3) G7 on the consecutive pair (measured), next to the 3-apart pair (measured; re-run here with the fixed key, numbers
+    identical to the levers log):
+                                       v4.31.0 -> v4.32.0 (consecutive)      v4.34.1 -> v4.31.0 (3 apart)
+                                       hybrid vs hybrid                       native vs hybrid
+      declarations in both               310,899                                308,089
+      printed fields equal               298,443  95.99%                        277,504  90.07%
+      key-equal                          260,835  83.90%                        221,484  71.89%
+        and output-equal                 260,834                                221,478
+        and output-different (holes)           1                                      6
+      key-different                       50,064                                 86,605
+        and output-equal (lost reuse)     37,609  12.10%                         56,026  18.19%
+        and output-different              12,455                                 30,579
+    The one hole: MeasureTheory.VectorMeasure.measureOf', equation `↑self = self.1` in v4.31.0, `self.measureOf' =
+    self.1` in v4.32.0 (its refs gain measureOf'). v4.31.0's source has `attribute [coe]
+    VectorMeasure.measureOf'`, v4.32.0's does not: the declaration's OWN coercion attribute changed. The key covers the
+    coercion data of referenced constants only, and the declaration's own name is not among them because its equation
+    is generated at extraction time, not stored (class: own printing attribute). The six 3-apart holes (H1 instance
+    synthesis inside `⊔`/`max` 2, H3 parent-projection path 2, H5 equation generation failing on old meta code 2) do not
+    occur here. Other variants on the consecutive pair: F0 72.26% / 1 hole, G2 83.42% / 1, F7 84.89% / 2 (+ the matcher
+    value of Mathlib.Tactic.Abel.isAtom), F8 94.17% / 7, F9 94.42% / 20 (full table under THE KEY ON THE CONSECUTIVE
+    PAIR).
+(4) The panics (measured). All 182 come from one place: the projection-structure layout (component SPSTR, added to the
+    key in the levers log's fourth key iteration) looked the structure up as the projection's constructor name minus
+    its last component. For a private constructor that prefix is `_private.<module>.0.<S>` (81 of the 91 projections:
+    AlgCat.carrier, ModuleCat.carrier, the *.Hom.hom' projections of 30 concrete categories, TopRep, Rep, ...), and for
+    a macro-scoped constructor the prefix drops the scopes (10: RpcEncodablePacket.* in two Mathlib widget files);
+    neither is a registered structure, so getStructureFieldsFlattened and getStructureParentInfo panicked once each:
+    91 x 2 = 182 in the hybrid (v4.31.0 and v4.32.0 alike), 21 x 2 = 42 natively in v4.34.1. The stderr of the levers
+    runs dates it: 0 panics through the passes before SPSTR (nk2/nk3, hk/hk2), 42 / 182 from the first pass with it
+    (nk4, hk3) on - which answers the runner log's "what changed between them is not established".
+    The fix: the structure is the constructor's inductive type, read off the constructor; a name that is still not a
+    registered structure becomes an explicit component value (marker 92 or 93) and is reported by name, never a panic's
+    default. After the fix: 0 panics in every pass; all 91 / 21 projections resolve through the inductive (the marker
+    branches never fired). The fix changed the key value: 3,452 of the 557,366 v4.31.0 component rows differ, all in
+    SPSTR (row diff against the unfixed pass, whose file hashed exactly to the levers log's a9437240...).
+    Effect on the 3-apart result: none in the counts. With v4.34.1's native IR and keys regenerated, every cell of all 11
+    variants equals the levers log's table and the six G7 holes are the same six names. What is compared is counts and
+    hole names; whether the key-equal SET is identical was not compared (the unfixed native key file no longer existed).
+    The panic default had been the same on both sides of each pair for the same projections, which is why the counts did
+    not move (inferred).
+(5) Where lost reuse comes from (measured, 37,609 declarations; G7 components):
+      SSTR alone (field / parent data of a referenced structure)    28,039   74.6%
+      SPSTR alone (flattened layout of a projection's structure)     2,245
+      TS alone (own type as shown)                                   1,737
+      SAUX alone (opaque / matcher values)                             835
+      SPSTR + SSTR                                                     790
+      E alone (stored equations)                                       500
+      SSH alone 459, VS alone 292, every shown component at once 710 / 215 / 162 (own type / value / equations changed
+      and with it the shown set), ...
+      only components over referenced constants differ (own N TS VS E equal): 32,698 of 37,609
+    SSTR is one upstream change: 32 referenced structures changed fields or parents, and 30,677 of the lost declarations
+    name one of them (IR refs as the proxy for the shown set): Ring 8,730, Field 8,551, Monoid 5,126, AddMonoid 3,755,
+    DivisionRing 1,230, GroupWithZero 722, LinearOrderedCommGroupWithZero 619, OpenPartialHomeomorph 506, AffineSubspace
+    474, Semifield 463, ... In v4.32.0 the data fields `npow` / `nsmul` / `zpow` / `zsmul` became parent classes
+    (`toNPow` / `toNSMul` / `toZPow` / `toZSMul`, parents NPow / NSMul / ZPow / ZSMul) in Monoid, AddMonoid,
+    DivInvMonoid, SubNegMonoid and everything above them (read from both versions' structure info, STRUCTURES below). A
+    declaration that mentions `[Ring R]` prints none of Ring's fields.
+    What a finer key would recover (bounded by measured points; the estimate between them is theoretical):
+      G7 as is                                        260,835  83.90%  1 hole
+      F7 (G7 without SAUX, SPSTR)                     263,918  84.89%  2 holes
+      F8 (F7 without SSTR: structure data dropped)    292,766  94.17%  7 holes
+      F9 (own content as shown + shown names only)    293,552  94.42%  20 holes
+    F8's 5 extra holes are printed structure instances whose field was renamed (AffineSubspace.comap / map / mk',
+    affineSpan, Submodule.toAffineSubspace: `smul_vsub_vadd_mem` -> `smul_vsub_vadd_mem'`). A key that keeps SSTR only
+    for structures whose constructor is shown (structure-instance notation) or whose fields are the declaration's own
+    members would still catch those and would recover most of the 28,039 SSTR-only declarations: about 92-94% key-equal
+    (theoretical; not implemented). At 3 apart the same component is again the largest (SSTR alone 26,202 of 56,026;
+    Ring 8,221, Field 7,908, Monoid 4,759, AddMonoid 3,448), followed by own type as shown (TS alone 14,053).
+    Adding the declaration's own referenced-constant record to its key would catch the one consecutive hole at a cost of
+    at least 286 reuses (all through PSTR), counted only on the 51,995 key-equal declarations that some declaration shows
+    (208,840 others have no own record in the dump; unmeasured).
+    Costs (measured, M1): the key pass 100.4 s (v4.31.0, 557,366 candidates) and 103.9 s (v4.32.0, 566,246), single
+    threaded, after decode + assembly (whole keys-only process 242.6 / 247.9 s wall, peak footprint 4.32 / 4.31 GB);
+    natively on v4.34.1 101.5 s (580,218). The content check: 77.1 s (v4.31.0, 6.998 GB read) and 73.0 s (v4.32.0, 6.937
+    GB) per version, one module at a time, peak RSS 108 / 133 MB; the comparison of two content files 55.6 s, 1.9 GB.
+
+What this means for the redesign's premise (c) (theoretical; premises: G7 as measured, decode and assembly unchanged):
+    between consecutive minors, 83.90% of shared declarations reuse their print by count (the time share is not measured
+    here; at 3 apart it was 60.6% of analysis time for 71.89% by count), and 95.99% is the most any rule could reuse. An
+    environment patch by module would rebuild 69% of Mathlib's modules (constants differ in 5,647 of 8,150) and 89% if
+    every extension entry has to match; by constant it is ~13% of the closure.
+
+CONDITIONS
+----------
+- Hardware: Apple M1 (4 performance + 4 efficiency cores), 16 GiB, macOS 26.6.2. One heavy process at a time. Swap in use
+  at the start of every run 4.07-4.13 GB of 5.12 GB (other desktop applications running, not controlled), not more than
+  4.19 GB after any run.
+- v4.31.0: Lean 4.31.0 (68218e876d2a), Mathlib v4.31.0 (fabf563a7c95) in <old-workspace> (read-only; never run through
+  lake here - every program got the variables of the levers log's recorded `lake env`). Its only `git status` entry,
+  the untracked `docs/doc-gen-bench/`, has an mtime of 2026-08-16 and was there before this session; nothing was
+  written there.
+- v4.32.0: Lean 4.32.0 (8c9756b28d64), Mathlib v4.32.0 (81a5d257c8e4) in <v4.32.0-workspace>: a lakefile requiring
+  mathlib @ "v4.32.0", lean-toolchain leanprover/lean4:v4.32.0, `elan toolchain install` 25.2 s, `lake update`
+  (MATHLIB_NO_CACHE_ON_UPDATE=1) 49.1 s, `lake exe cache get` 51.2 s (8,639 archives; ~/.cache/mathlib 1,327,972 KiB /
+  25,839 files before, 1,773,908 KiB / 34,478 after, the 8,639 added archives deleted afterwards: 1,327,972 / 25,839).
+  `lake build --no-build Probe` (Probe = `import Mathlib`) reported only Probe itself out of date ([8655/8656]): no
+  Mathlib module needed a rebuild. Workspace 8,045,700 KiB, toolchain 2,756,128 KiB (both kept). Packages: aesop,
+  batteries, Cli, importGraph, LeanSearchClient, mathlib, plausible, proofwidgets, Qq.
+- Printer: Lean 4.34.1 (5045d0056413), Mathlib v4.34.1 (d13f23b723b8) in <new-workspace> (read-only), as in the levers log.
+- Module sets: v4.31.0 the levers log's 8,170; v4.32.0 8,265 (modlist.py on its sources); v4.34.1 8,530.
+- The consecutive pair compares two hybrid runs (both versions read by the reader and printed by v4.34.1); the 3-apart
+  pair compares a native v4.34.1 run with a hybrid v4.31.0 run, as in the levers log. "Printed fields equal" is
+  therefore a different shape in the two columns: in the consecutive column both sides went through the same printer.
+  95.99% here is not comparable with the release-sharing log's 97.89% (another pair, v4.32.2 -> v4.33.0, each version
+  printed by its own Lean, rendered pages compared).
+- Both v4.31.0 and v4.32.0 predate the v4.33.0 reducibility rename, so this pair carries none of that churn.
+- Key files were computed with no extraction in the process (HYBRID_STOP_AFTER=keys-only, natively import + key pass), as
+  in the levers log.
+- Warm / cold: not separated. In every single-threaded run wall exceeded user + sys (keys-only 242.6 s vs 194.8 s), so
+  by this repository's criterion none was warm. Each full run ran once; the subjects (keys, content, prints) do not
+  depend on warmth, and the timings are single measurements.
+- Sampling: every new or changed program ran on 20 modules / 20 records first (hybrid v4.32.0 on entries 2-21 of its
+  list, a 3,036-module closure; key pass on the levers log's 20-module sample; native key pass on 20 v4.34.1 modules;
+  content hashing on the first 20 closure modules; the comparators with --limit 20; the oracle on 20 records).
+
+THE READER ON v4.32.0 (the gate, before anything else on that version)
+---------------------------------------------------------------------
+- Refused by name before the record existed (made to fail once, measured): "Mathlib/Algebra/AddConstMap/Basic.olean:
+  written by Lean 4.32.0 (8c9756b28d64dab099da31a4c09229a9e6a2ef35); this reader knows only 4.31.0 (68218e876d2a...)".
+  The header bytes of a v4.32.0 .olean: "olean", version 2, flags 1, "4.32.0", that githash = `lean --githash` of the
+  toolchain = the layout log's tag SHA.
+- Layout: the layout log (lean-olean-layout-history-2026-10-04.txt) records no layout or meaning change v4.31.0 ->
+  v4.32.0 (CompactedRegion.save gained a v3 header for closure-carrying regions; .olean files are still v2, confirmed on
+  the files). ReducibilityStatus keeps 4 constructors with 3 = instance-reducible (changed only in v4.33.0).
+- Registered persistent extensions after `import Mathlib` (Exts.lean, each version's own Lean, measured): v4.31.0 316,
+  v4.32.0 326, v4.34.1 343. v4.32.0 adds 15 over v4.31.0 (5 LCNF compiler extensions, envLinterSnapshotExt,
+  internalSpecMap, BVDecide's three moved from Lean.Elab.Tactic.BVDecide.Frontend to Lean.Meta.Tactic.BVDecide,
+  Mathlib.Tactic.Polynomial's three, two GrindAttrs) and drops 5 (the three old BVDecide names,
+  Lean.Linter.EnvLinter.builtinNolintAttr, Mathlib's SetNotationForOrder extension). 22 names v4.34.1 registers and
+  v4.32.0 does not make the v4.32.0 record's absent list (an entry under any of them stops the read); none appeared. All
+  57 extensions the hybrid decodes are registered in v4.32.0 under the same names (55 by the name diff, structureExt and
+  namespacesExt by their decoded entry counts, 5,733 and 30,558), so no decoded extension was renamed into "not
+  decoded". Of the 57, reducibilityExtra has entries in v4.31.0 and none in v4.32.0 (registered in both).
+- The record: version "4.32.0", that githash, namespacesExt under the private name (as v4.31.0), the 22 absent names, the
+  v4.31.0 reducibility meaning. The absent check was made to fail once (a copy with "Lean.docStringExt" added, 20
+  modules: "extension Lean.docStringExt does not exist in v4.32.0, yet it has entries"), then reverted.
+- Oracle (measured): Drift.lean's old side compiled and run by Lean v4.32.0 (seed 20261004, N = 316,286 documented
+  declarations, 5,000 sampled, 1.58%) against the reader's serialization of the same types: identical 5,000 of 5,000,
+  not found 0, different 0. Made to fail once: one node of one record's type changed in a copy of the 20-record file ->
+  "identical 19 of 20; different 1 (Quiver.stronglyConnectedSetoid)". The whole closure (10,406 modules, 6,937,341,048
+  B) read with proofs decoded: 11,305,773 Name hashes, 283,470 Level data words, 132,792,156 Expr data words recomputed
+  equal to the stored ones; 49.7 s, peak RSS 239 MB (proofs omitted: 25.0 s, 152 MB).
+
+THE HYBRID RUNS (measured, /usr/bin/time -l; footprint = peak memory footprint)
+------------------------------------------------------------------------------
+  run                                        decode    assembly  extraction  wall       user      sys     peak RSS   footprint
+  hybrid v4.31.0, 4 jobs                      83.4 s    55.7 s    219.1 s    363.05 s  1032.37   51.93   6.83 GB    8.70 GB
+  hybrid v4.32.0, 4 jobs                      84.0 s    54.1 s    229.0 s    371.82 s  1053.24   49.21   6.89 GB    8.63 GB
+  keys-only v4.31.0, unfixed (reproduction)   82.2 s    56.7 s    keys 101.7  244.43 s   180.76   15.25   6.56 GB    4.32 GB
+  keys-only v4.31.0, fixed                    83.1 s    55.3 s    keys 100.4  242.61 s   179.67   15.17   6.81 GB    4.32 GB
+  keys-only v4.32.0, fixed                    83.9 s    56.0 s    keys 103.9  247.91 s   183.63   15.88   5.77 GB    4.31 GB
+  native v4.34.1 extraction, 4 jobs              -         -         -       251.25 s   882.24   25.45   6.32 GB    4.19 GB
+  native v4.34.1 import + key pass, fixed     import 22.2 s       keys 101.5  124.09 s    96.76    5.63   -          1.16 GB
+- Reproduction (measured): the hybrid v4.31.0 IR (8,170 module files, dependency maps, index, link index: 8,182 files)
+  hashes identically to the levers log's (expected-hybrid-ir.sha256), and the unfixed keys-only file hashes to its
+  a9437240cba05bd4... (557,367 lines). So the rebuilt projects with the versioned reader are the levers log's programs
+  on v4.31.0.
+- v4.32.0 in the hybrid: closure 10,406 modules from 8,265 roots, 767,553 constants decoded (766,559 after the importer's
+  duplicate rule), 752,892 replaced in place, 13,667 old-only in the extra module; HARD STOPS 0 Verso docstrings, 0
+  builtin-only docstrings; 316,225 declarations produced (v4.31.0: 311,345).
+- Native v4.34.1: 8,530 module files, 322,958 declarations; its comparison with the hybrid v4.31.0 reproduces the levers
+  log's printed-fields-equal count exactly (277,504 of 308,089).
+
+THE KEY ON THE CONSECUTIVE PAIR (measured; keycmp3.py, A = v4.31.0 hybrid, B = v4.32.0 hybrid)
+------------------------------------------------------------------------------------------------
+IR-A 311,345, IR-B 316,225, in both 310,899, every declaration with components. Printed fields equal 298,443 (95.99%).
+  variant                                           key-equal            out-diff  key-different  out-equal  out-diff
+  F0 strict                                         224,664  72.26%        1        86,235        73,780     12,455
+  F1 as shown                                       256,478  82.50%        1        54,421        41,966     12,455
+  F2 F1 + shapes                                    262,347  84.38%        2        48,552        36,098     12,454
+  F4 F2 without name resolution                     262,379  84.39%        6        48,520        36,070     12,450
+  F5 F2 without reducible values                    263,424  84.73%        2        47,475        35,021     12,454
+  F6 F2 without reducibility                        262,658  84.48%        2        48,241        35,787     12,454
+  F7 F5 without reducibility                        263,918  84.89%        2        46,981        34,527     12,454
+  F8 F7 without structure data                      292,766  94.17%        7        18,133         5,684     12,449
+  F9 own as shown only                              293,552  94.42%       20        17,347         4,911     12,436
+  G2 F2 + SAUX + SPSTR                              259,353  83.42%        1        51,546        39,091     12,455
+  G7 F7 + SAUX + SPSTR (proposed)                   260,835  83.90%        1        50,064        37,609     12,455
+Holes (holedetail.py; every key-equal declaration whose printed fields differ):
+  G7, G2, F0, F1 (1): MeasureTheory.VectorMeasure.measureOf' - equations / equationCode / refs, as in HEADLINE (3).
+  F2, F5, F6, F7 (2): + Mathlib.Tactic.Abel.isAtom (a matcher's value; SAUX catches it).
+  F4 (6): + 4 name-resolution cases in Mathlib.Data.Finset.MulAntidiagonal (`mulAntidiagonal` printed `Finset.
+     mulAntidiagonal` in v4.32.0: Finset.isPWO_support_mulAntidiagonal, swap_mem_ / mem_mulAntidiagonal,
+     mulAntidiagonal_min_mul_min; SRES catches them).
+  F8 (7): F7's 2 + AffineSubspace.comap, AffineSubspace.map, AffineSubspace.mk', affineSpan, Submodule.toAffineSubspace
+     (equations printing a structure instance whose field became `smul_vsub_vadd_mem'`; SSTR catches them).
+  F9 (20): the above plus further equation and type differences (12 equations, 7 types; not read one by one).
+Lost reuse under G7 (37,609), how often each component differs (and alone): N 38 (26), TS 3,035 (1,737), VS 1,349 (292),
+  E 1,060 (500), SN 1,513 (0), SSH 2,238 (459), SRES 1,546 (28), SAUX 2,226 (835), SPSTR 4,687 (2,245), SPROJ 1,579
+  (22), SCLS 1,208 (0), SSTR 30,677 (28,039), SCOE 1,135 (0), SPP 1,151 (0), SMAT 1,117 (0), SPROT 1,136 (0).
+Referenced constants whose record differs between the two key passes (records on both sides 169,119; v4.31.0 only 1,949,
+  v4.32.0 only 4,182): T 17,289; TS 11,776; V 10,464; AUX 3,465; SH 2,055; RV 1,737; PSTR 525; LP 270; MAT 194; PROJ 65;
+  RED 35; STR 32; INST 27; COE 2; CLS 1; PROT 1; PP 0.
+Which changed constants the lost declarations name in their IR refs (a proxy: refs cover the printed signature, not the
+  value, equations or members, so some declarations name none):
+  SSTR (30,677; 852 name none): Ring 8,730, Field 8,551, Monoid 5,126, AddMonoid 3,755, DivisionRing 1,230,
+    GroupWithZero 722, LinearOrderedCommGroupWithZero 619, OpenPartialHomeomorph 506, AffineSubspace 474, Semifield 463,
+    DivisionSemiring 255, AddMonoidAlgebra 225 (29 distinct).
+  SPSTR (4,687; 3,419 name none): RCLike.re 223, Bundle.Trivialization.baseSet 216, RCLike.im 114, RCLike.I 68,
+    MonomialOrder.toSyn 56, AddMonoidWithOne.toNatCast 42, ... (169 distinct).
+  SSH (2,238; 1,552 name none): NormalizationMonoid 132, normalize 67, Monoid.mk 64, CategoryTheory.Adjunction.comp 61.
+  SPROJ (1,579): SkewMonoidAlgebra.coeff 32, CategoryTheory.Functor.PushoutObjObj.ι 31, AddMonoidAlgebra.coeff 24.
+  SAUX, SCLS, SCOE, SPP, SMAT, SPROT: changed constants not visible in refs (values / equations).
+Content x key x output (crosstab.py, 310,899):
+  content= key= out=  246,215  79.19%        content! key= out=   14,619  4.70%
+  content= key! out=   29,308   9.43%        content! key! out=    8,301  2.67%
+  content= key! out!      253   0.08%        content! key! out!   12,202  3.92%
+  content= key= out!        1   (measureOf')
+  i.e. 29,308 declarations whose own content is unchanged lose reuse through a referenced constant, and 254 with
+  unchanged content print differently (253 caught by the key).
+
+THE KEY ON THE 3-APART PAIR, FIXED KEY (measured; A = native v4.34.1, B = hybrid v4.31.0)
+-----------------------------------------------------------------------------------------
+Every row equal to the levers log's: F0 87,998 / 4 holes, F1 104,979 / 4, F2 158,623 / 5, F4 158,833 / 8, F5 166,304 / 5,
+F6 211,986 / 7, F7 223,650 / 7, F8 250,338 / 18, F9 254,322 / 27, G2 157,193 / 4, G7 221,484 / 6 (output-equal among
+key-different 56,026). G7 holes: Nat.instMulZeroClass, FinBoolAlg.hasForgetToFinPartOrd_forget₂_obj_str, sup_Prop_eq,
+inf_Prop_eq, Mathlib.Tactic.FieldSimp.qNF.mkMulProof, ...mkDivProof - the levers log's six. New here: the cells it did not
+print (key-different and output-different 30,579) and the attribution: SSTR alone 26,202, TS alone 14,053, TS + SSTR
+1,516, SPSTR alone 1,431, TS + VS 1,107, SPROJ alone 985; SSTR names Ring 8,221, Field 7,908, Monoid 4,759, AddMonoid
+3,448, AddZeroClass 1,317, DivisionRing 1,152, MulOneClass 1,075 (43 distinct); 57 referenced structures changed.
+
+STRUCTURES (measured: StructInfo.lean, each version's own Lean, the 32 constants whose STR record differs)
+---------------------------------------------------------------------------------------------------------
+v4.31.0 -> v4.32.0, fields / parents:
+  Monoid           npow -> toNPow, parents + NPow          AddMonoid       nsmul -> toNSMul, parents + NSMul
+  DivInvMonoid     zpow -> toZPow, parents + ZPow          SubNegMonoid    zsmul -> toZSMul, parents + ZSMul
+  Ring, AddGroupWithOne, LinearOrderedAddCommGroupWithTop: zsmul -> toZSMul (moved before sub_eq_add_neg)
+  Field, DivisionRing, DivisionSemiring, Semifield, GroupWithZero, CommGroupWithZero, LinearOrderedCommGroupWithZero:
+    zpow -> toZPow
+  others: AffineSubspace smul_vsub_vadd_mem -> smul_vsub_vadd_mem'; MonomialOrder acm / lo / iocam / wf ->
+    addCommMonoidSyn / linearOrderSyn / isOrderedAddMonoid_syn / wellFoundedLT_syn; NormalizationMonoid normUnit_mul /
+    normUnit_coe_units -> normUnit_one / normUnit_mul_units; OpenPartialHomeomorph's parent PartialEquiv ->
+    PartialHomeomorph; PullbackObjObj / PushoutObjObj gained π / ι fields; Computability.Encoding lost Γ;
+    GCongrLemma key -> keys; Convert.ExpensiveConfig's parent; AddMonoidAlgebra, MonoidAlgebra, PolynomialModule,
+    SkewMonoidAlgebra, ContRepresentation, adicCompletion, InfinitePlace.Completion became (or changed) one-field
+    structures; DeltaGenerated / DeltaGeneratedSpace stopped being structures.
+
+CONTENT HASHES (how (1) and (2) were measured)
+----------------------------------------------
+contenthash reads each module of the `Mathlib` closure (one at a time, all parts, the reader's loader and version
+check) and hashes the stored object graph from the root of ModuleData: an object's hash is its tag, its object fields'
+hashes and its scalar bytes (arrays: size and elements; strings, scalar arrays and bignums: their payload), so equal
+content hashes equal whatever its addresses and the header (which carries the writer's githash) is not read. A
+constructor's tail padding is part of its scalar bytes; Lean's allocator zeroes the last word of a constructor whose
+size is rounded up, for exactly this purpose (lean_alloc_ctor_memory in lean.h: "we make sure the sharing maximizer
+procedures at maxsharing.cpp and compact.cpp are not affected by uninitialized data"). Per constant: kind, universe
+names, type, value (definitions, theorems, opaques; a theorem's value is its proof), whole ConstantInfo; per module the
+header arrays and each extension's entry array. 64-bit hashes (mixHash); a collision would count a changed item as
+unchanged (not checked; ~10^6 items per file). Proofs are read: the reader's proofs-omitted mode is not used here, so
+"value equal" for a theorem compares the proofs.
+contentcmp.py pairs modules and constants by name (a constant by the first closure module that lists it), and the
+documented set by the IR names. Made to fail once (measured, 20 modules): one constant's type hash and one module's
+entries changed in a copy -> "type" 5,167 -> 5,166, the rec kind row 209 -> 208, "constants + decoded entries equal" 15
+-> 14, auxRecExt listed as differing.
+keycmp3.py = keycmp2.py's counts (variants imported verbatim) plus the four cells, the component patterns and the
+referenced-constant attribution. Made to fail once (measured, 20 modules): one declaration's type changed by one
+character in a copy of the v4.32.0 IR and one component of another declaration -> G7 key-equal out! 0 -> 1, lost reuse
+195 -> 196, SSTR alone 138 -> 139, nothing else.
+
+WHAT FAILED, AND WHY
+--------------------
+1. The first full key run of this session read `modules-all.txt` relative to the workspace runx.sh changes into and
+   stopped after 1.8 s ("no such file"); the same for a native key sample whose binary path was relative. Re-run with
+   absolute paths.
+2. The first check that every decoded extension is registered in v4.32.0 parsed the two `Name.mkNum` entries of the
+   decoder list into nonexistent names; their registration was then read from the decoded entry counts instead.
+3. A first version of keycmp3.py had an f-string typo (SyntaxError on the sample run); fixed before any result.
+
+WHAT IS NOT MEASURED
+--------------------
+- No native v4.32.0 extraction: the hybrid's print of v4.32.0 was not held against v4.32.0's own extractor (only the
+  reader against v4.32.0's own serialization, the oracle). v4.31.0's arm reproducing the levers log is the evidence that
+  the program is unchanged.
+- Time share of the reusable declarations on this pair (no --decl-profile run): 83.90% is a share by count.
+- The finer SSTR key (restricted to structures whose constructor or fields are printed): not implemented; its 92-94% is
+  theoretical, bounded by F7 and F8.
+- The own-record key change (catches the one hole): its cost counted only where an own record exists (51,995 of
+  260,835 key-equal declarations).
+- The marker branches of the fix (a projection whose inductive is not a registered structure; a projection whose
+  constructor is not found) never fired; the path exists, unexercised.
+- Identity of the 3-apart key-equal set before and after the fix (counts and hole names only).
+- The v4.31.0 record still has no absent-extension list (unchanged from the levers log); only the v4.32.0 record checks.
+- An environment patch itself (the next task): this log says how much differs, not what applying it costs.
+- Patch pairs, other minor pairs, and whether consecutive shares hold for older releases.
+- Hash collisions in the content hashes; cold page cache.
+
+HOW IT WAS RUN
+--------------
+  # workspace v4.32.0 (setup-v4320.sh): toolchain, lake update, cache get, lake build --no-build Probe
+  cd <v4.32.0-workspace> && lake env printenv > lakeenv-v4320.txt
+  python3 modlist.py <v4.32.0-workspace>/.lake/packages/mathlib modules-v4320.txt            # 8,265
+  # reproduction and the unfixed key file (before any source change)
+  cd <scratch>/hybrid && lake build
+  HYBRID_STOP_AFTER=keys-only HYBRID_KEYS=keys-base-v4310.tsv runh.sh kbase modules-all.txt 4
+  SP=sp-v4320.txt HYBRID_STOP_AFTER=decode runh.sh refuse modules-sample-v4320.txt 4         # the refusal
+  # extension names, each version's own Lean
+  runx.sh lakeenv-{old,v4320,new}.txt <cwd> exts/<v> lean --run Exts.lean mathlib
+  # the record, the fix, oracle and contenthash executables; lake build
+  runx.sh lakeenv-v4320.txt <v4.32.0-workspace> oracle/old5000 lean --run Drift.lean old old5000.jsonl 20261004 5000
+  oracle sp-v4320.txt all old5000.jsonl - ; ORACLE_KEEP_PROOFS=1 oracle sp-v4320.txt all old5000.jsonl -
+  contenthash sp-old.txt content/a.tsv all ; contenthash sp-v4320.txt content/b.tsv all
+  PRINTKEY_RECS=recs-v4310.tsv HYBRID_STOP_AFTER=keys-only HYBRID_KEYS=keys-v4310.tsv runh.sh k4310 modules-all.txt 4
+  runh.sh h4310 modules-all.txt 4                       # IR hashes against expected-hybrid-ir.sha256
+  SP=sp-v4320.txt runh.sh h4320 modules-v4320.txt 4
+  SP=sp-v4320.txt PRINTKEY_RECS=recs-v4320.tsv HYBRID_STOP_AFTER=keys-only HYBRID_KEYS=keys-v4320.tsv runh.sh k4320 modules-v4320.txt 4
+  runn.sh n4341 modules-v4341.txt 4 lakeenv-new.txt <new-workspace> <scratch>/hybrid/.lake/build/bin/extract
+  PRINTKEY_RECS=recs-v4341.tsv runx.sh lakeenv-new.txt <new-workspace> nk nativekeys modules-v4341.txt keys-v4341.tsv
+  python3 contentcmp.py content/a.tsv content/b.tsv h4310/ir h4320/ir
+  python3 keycmp3.py h4310/ir keys-v4310.tsv h4320/ir keys-v4320.tsv holes-consec.jsonl --recs recs-v4310.tsv recs-v4320.tsv
+  python3 keycmp3.py n4341/ir keys-v4341.tsv h4310/ir keys-v4310.tsv holes-3apart.jsonl --recs recs-v4341.tsv recs-v4310.tsv
+  python3 holedetail.py holes-consec.jsonl G7 h4310/ir h4320/ir      # also F2, F4, F8
+  python3 crosstab.py content/a.tsv content/b.tsv h4310/ir keys-v4310.tsv recs-v4310.tsv h4320/ir keys-v4320.tsv recs-v4320.tsv
+  runx.sh lakeenv-{old,v4320}.txt <cwd> si-<v> lean --run StructInfo.lean sstr-changed.txt
+sp-v4320.txt lists <toolchain v4.32.0>/lib/lean, then <v4.32.0-workspace>/.lake/packages/<pkg>/.lake/build/lib/lean for
+mathlib, plausible, LeanSearchClient, importGraph, proofwidgets, aesop, Qq, batteries, Cli (the order of sp-old.txt).
+stdout and stderr to separate files throughout. Deleted after this file was written: the IR trees, link indexes, key and
+record files, content files, the oracle JSONL and the scratch projects' build directories; kept: <v4.32.0-workspace>,
+<toolchain v4.32.0>, the sources (<scratch>/hybrid, <scratch>/src, with the levers log's versions in src/levers-log) and
+the small reports.
+
+CODE
+----
+=== OleanReader.lean: diff against the levers log's (= the full-extraction log's): writer records, v4.32.0
+--- OleanReader.lean (levers log)
++++ OleanReader.lean (this log)
+@@ -2,26 +2,52 @@
+ open Lean
+ 
+ /-!
+-An `.olean` reader that walks the bytes of a module written by Lean v4.31.0 and rebuilds its
+-`ModuleData` as values of the Lean that runs it. It knows exactly one writer version; anything
+-else is refused by name. Every object it meets is checked against the layout it expects (tag,
++An `.olean` reader that walks the bytes of a module written by an older Lean and rebuilds its
++`ModuleData` as values of the Lean that runs it. It knows the writer versions in `knownWriters`;
++anything else is refused by name. Every object it meets is checked against the layout it expects (tag,
+ object-field count, byte size) and every computed field it can recompute (Name hash, Level and
+ Expr data) is compared with the stored one; a mismatch is an error, never a skip.
+ -/
+ 
+ namespace OleanReader
+ 
+-def knownLeanVersion := "4.31.0"
+-def knownGithash := "68218e876d2a38b1985b8590fff244a83c321783"
+ def headerSize : Nat := 88
++
++def namespacesExtV434 : Name := Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt
++
++/-- Everything the reader knows about one writer, selected by the header's version string and
++githash together. -/
++structure WriterVersion where
++  leanVersion       : String
++  githash           : String
++  /-- Extensions the running Lean registers that this writer does not have. Seeing one of them
++  in this writer's data is an error. -/
++  absentExts        : List String
++  /-- What each stored `ReducibilityStatus` constructor index means, as the running Lean's value. -/
++  reducibility      : Array ReducibilityStatus
++
++instance : Inhabited WriterVersion := ⟨⟨"", "", [], #[]⟩⟩
++
++def v4_31_0 : WriterVersion := {
++  leanVersion := "4.31.0", githash := "68218e876d2a38b1985b8590fff244a83c321783"
++  absentExts := []
++  reducibility := #[.reducible, .semireducible, .irreducible, .instanceReducible] }
++
++def v4_32_0 : WriterVersion := {
++  leanVersion := "4.32.0", githash := "8c9756b28d64dab099da31a4c09229a9e6a2ef35"
++  absentExts := ["Inclusion.IntervalDyadicReal.intervalDyadicRealFamily.hypothesisExt", "Inclusion.IntervalDyadicReal.intervalDyadicRealFamily.inclusionExt", "Inclusion.coreFamily.hypothesisExt", "Inclusion.coreFamily.inclusionExt", "Inclusion.inclusionParamExt", "Lean.Doc.DeferredCheck.handlerExt", "Lean.Doc.deferredCheckExt", "Lean.Doc.docBlockMdExt", "Lean.Doc.docInlineMdExt", "Lean.Elab.Tactic.Do.Internal.VCGen.frameProcExt", "Lean.Linter.CodeQuality.packageCheckExt", "Lean.Meta.Grind.homoExt", "Lean.Meta.Grind.homoPredExt", "Lean.Meta.Grind.homoSourceTypesExt", "Lean.Meta.Grind.liaExt", "Lean.Meta.Tactic.BVDecide.metaIntToBitVecExt", "Lean.Meta.Tactic.BVDecide.symIntToBitVecExt", "Lean.bool_to_prop", "Mathlib.Tactic.Echelon.bareissExt", "Mathlib.Tactic.higherOrderAttr", "Std.Internal.treeTacExt", "_private.Batteries.Util.ProofWanted.0.wantedArityExt"]
++  reducibility := #[.reducible, .semireducible, .irreducible, .instanceReducible] }
++
++def knownWriters : List WriterVersion := [v4_31_0, v4_32_0]
+ 
+ structure Part where
+   path  : System.FilePath
+   bytes : ByteArray
+   base  : UInt64
+   root  : UInt64
++  ver   : WriterVersion
+ 
+-instance : Inhabited Part := ⟨⟨"", .empty, 0, 0⟩⟩
++instance : Inhabited Part := ⟨⟨"", .empty, 0, 0, default⟩⟩
+ 
+ @[inline] def u8 (b : ByteArray) (o : Nat) : UInt8 := b.get! o
+ @[inline] def u16 (b : ByteArray) (o : Nat) : UInt16 :=
+@@ -40,6 +66,8 @@
+     s := s.push (Char.ofNat c.toNat)
+   return s
+ 
++initialize writerOfClosure : IO.Ref String ← IO.mkRef ""
++
+ def loadPart (path : System.FilePath) : IO Part := do
+   let bytes ← IO.FS.readBinFile path
+   if bytes.size < headerSize + 8 then throw <| IO.userError s!"{path}: shorter than an .olean header"
+@@ -50,11 +78,14 @@
+   let gh := cstr bytes 40 40
+   unless version == 2 && flags == 1 do
+     throw <| IO.userError s!"{path}: header version {version} flags {flags}, known: 2 / 1"
+-  unless lv == knownLeanVersion && gh == knownGithash do
+-    throw <| IO.userError s!"{path}: written by Lean {lv} ({gh}); this reader knows only {knownLeanVersion} ({knownGithash})"
++  let some ver := knownWriters.find? (fun w => w.leanVersion == lv && w.githash == gh)
++    | throw <| IO.userError s!"{path}: written by Lean {lv} ({gh}); this reader knows only {", ".intercalate (knownWriters.map fun w => s!"{w.leanVersion} ({w.githash})")}"
++  let first ← writerOfClosure.modifyGet fun w => (w, if w.isEmpty then lv else w)
++  unless first.isEmpty || first == lv do
++    throw <| IO.userError s!"{path}: written by Lean {lv}, but this closure was read as written by {first}"
+   let base := u64 bytes 80
+   let root := u64 bytes headerSize
+-  return { path, bytes, base, root }
++  return { path, bytes, base, root, ver }
+ 
+ structure DState where
+   names   : Std.HashMap UInt64 Name := {}
+@@ -486,15 +517,15 @@
+     | b => fail "CoeFnType" v s!"value {b}"
+   return { numArgs := ← decNat (x.field 0), coercee := ← decNat (x.field 1), type }
+ 
+-/-- v4.31.0 writes 0 reducible, 1 semireducible, 2 irreducible, 3 "unfolded at .instances or
+-above" (what the `instance` command wrote). From v4.33.0 that meaning is constructor 4,
+-`instanceReducible`, and 3 means something else (layout log, v4.32.2 -> v4.33.0). -/
++/-- v4.31.0 and v4.32.0 write 0 reducible, 1 semireducible, 2 irreducible, 3 "unfolded at
++.instances or above" (what the `instance` command wrote). From v4.33.0 that meaning is
++constructor 4, `instanceReducible`, and 3 means something else (layout log, v4.32.2 -> v4.33.0). -/
+ def decReducibility (v : UInt64) : DM ReducibilityStatus := do
+   unless isScalar v do fail "ReducibilityStatus" v "expected a boxed enum"
+-  match unbox v with
+-  | 0 => return .reducible | 1 => return .semireducible | 2 => return .irreducible
+-  | 3 => return .instanceReducible
+-  | k => fail "ReducibilityStatus" v s!"value {k} unknown to v4.31.0"
++  let ver := (← read)[0]!.ver
++  match ver.reducibility[unbox v]? with
++  | some s => return s
++  | none => fail "ReducibilityStatus" v s!"value {unbox v} unknown to v{ver.leanVersion}"
+ 
+ /-- An extension entry with the declaration name it is about (used to regroup entries by module). -/
+ abbrev Keyed := Name × EnvExtensionEntry
+@@ -859,6 +890,9 @@
+     let pv := u64 entriesObj.b (entriesObj.o + 24 + 8*i)
+     let p ← ctor "Name × Array EnvExtensionEntry" pv 0 2 0
+     let extName ← decName (p.field 0)
++    let ver := (← read)[0]!.ver
++    if ver.absentExts.contains extName.toString then
++      fail "ModuleData.entries" pv s!"extension {extName} does not exist in v{ver.leanVersion}, yet it has entries"
+     let arr ← obj "Array EnvExtensionEntry" (p.field 1)
+     unless arr.tag == 246 do fail "entries" (p.field 1) "expected an Array"
+     let k := (u64 arr.b (arr.o + 8)).toNat
+
+=== PrintKey.lean: diff against the levers log's (its CODE section): the panic fix, the record dump
+--- PrintKey.lean (levers log)
++++ PrintKey.lean (this log)
+@@ -241,20 +241,41 @@
+   #[r.type, r.skel, r.shape, r.lps, r.red, r.proj, r.cls, r.struct, r.coe, r.inst, r.pp, r.matcher, r.prot, r.value,
+     r.redValue, r.auxValue, r.projStruct]
+ 
+-/-- The flattened field layout of a structure and of every structure above it. -/
+-def structLayout (env : Environment) (s : Name) : UInt64 := Id.run do
++/-- Every place the key met a name it expected to be a structure and was not, with the reason;
++written by the key pass so that this case is counted, never a panic's default. -/
++initialize notStructures : IO.Ref (Array String) ← IO.mkRef #[]
++
++/-- The flattened field layout of a structure and of every structure above it. A name that is
++not a registered structure is a component value of its own (`92`), never a panic's default. -/
++def structLayout (env : Environment) (s : Name) : UInt64 × Array Name := Id.run do
+   let mut h : UInt64 := 91
+   let mut todo := #[s]
+   let mut seen : NameSet := {}
++  let mut missing := #[]
+   while h' : todo.size > 0 do
+     let t := todo.back
+     todo := todo.pop
+     if seen.contains t then continue
+     seen := seen.insert t
++    let some si := getStructureInfo? env t
++      | h := mixList h [92, hash t]; missing := missing.push t; continue
+     h := mixList h ([hash t] ++ (getStructureFieldsFlattened env t (includeSubobjectFields := true)).toList.map hash)
+-    for p in getStructureParentInfo env t do
++    for p in si.parentInfo do
+       h := mixList h [hash p.projFn, hash p.subobject]
+       todo := todo.push p.structName
++  return (h, missing)
++
++/-- The layout of the structure a projection function belongs to: its constructor's inductive
++type, read off the constructor (`ctorName.getPrefix` is not it for a private constructor, whose
++name is `_private.<module>.0.<S>.<ctor>`). -/
++def projStructLayout (env : Environment) (c ctor : Name) : IO UInt64 := do
++  let some (.ctorInfo cv) := env.find? ctor
++    | notStructures.modify (·.push s!"{c}\tconstructor {ctor} not found"); return mixList 93 [hash ctor]
++  let (h, missing) := structLayout env cv.induct
++  for t in missing do
++    notStructures.modify (·.push s!"{c}\tconstructor {ctor} of {cv.induct}: {t} is not a registered structure (prefix {ctor.getPrefix} is{if (getStructureInfo? env ctor.getPrefix).isSome then "" else " not"} one)")
++  if missing.isEmpty && ctor.getPrefix != cv.induct then
++    notStructures.modify (·.push s!"{c}\tconstructor {ctor} of {cv.induct}: prefix {ctor.getPrefix} differs from the inductive (resolved through the inductive)")
+   return h
+ 
+ unsafe def record (env : Environment) (c : Name) : CoreM Rec := do
+@@ -283,9 +304,9 @@
+     | .opaqueInfo o => hashExpr o.value
+     | .defnInfo d => if (Match.Extension.getMatcherInfo? env c).isSome then hashExpr d.value else 0
+     | _ => 0
+-  let projStruct := match env.getProjectionFnInfo? c with
+-    | some p => structLayout env p.ctorName.getPrefix
+-    | none => 0
++  let projStruct ← match env.getProjectionFnInfo? c with
++    | some p => projStructLayout env c p.ctorName
++    | none => pure 0
+   return { type := mixList (hashExpr ci.type) [kindCode ci], skel := (hashSkel env #[ci.type]).1, shape := shapeOf ci.type,
+            lps := hash ci.levelParams, red := redCode red, proj, cls := hash (isClass env c), struct, coe, inst, pp,
+            matcher, prot := hash (isProtected env c), value := v, redValue := rv, auxValue := aux, projStruct }
+@@ -367,6 +388,17 @@
+       n := n + 1
+     h.putStr (String.join lines.toList)
+   h.flush
++  let ns ← notStructures.get
++  IO.eprintln s!"printkey: projections whose structure is not a registered structure or not at the constructor's prefix: {ns.size}"
++  for l in ns do IO.eprintln s!"  printkey-structure {l}"
++  if let some p ← IO.getEnv "PRINTKEY_RECS" then
++    let r ← IO.FS.Handle.mk p .write
++    r.putStr ("name\t" ++ "\t".intercalate recFields ++ "\n")
++    let st ← memo.get
++    for (c, x) in st.recs.toArray.qsort (fun a b => Name.quickLt a.1 b.1) do
++      r.putStr s!"{c}\t{"\t".intercalate (x.toArray.toList.map toString)}\n"
++    r.flush
++    IO.eprintln s!"printkey: {st.recs.size} referenced-constant records written"
+   return (n, missing)
+ 
+ end PrintKey
+
+=== lakefile.lean (hybrid project): diff against the levers log's
+--- lakefile.lean (levers log)
++++ lakefile.lean (this log)
+@@ -24,3 +24,12 @@
+ lean_exe nativekeys where
+   root := `NativeKeys
+   supportInterpreter := true
++
++@[default_target]
++lean_exe oracle where
++  root := `OracleMain
++  supportInterpreter := true
++
++@[default_target]
++lean_exe contenthash where
++  root := `ContentMain
+
+=== runh.sh: diff against the levers log's
+--- runh.sh (levers log)
++++ runh.sh (this log)
+@@ -11,7 +11,7 @@
+ sysmem() { echo "== $1 $(date +%s)"; sysctl vm.swapusage; vm_stat; df -k <scratch> | tail -1; }
+ sysmem before > "$R/sysmem.txt"
+ export SNAPDIR=$R
+-$U/run/runx.sh $U/run/lakeenv-new.txt $NEW $R/hybrid $bin $U/run/sp-old.txt "$mods" $R/events.jsonl \
++$U/run/runx.sh $U/run/lakeenv-new.txt $NEW $R/hybrid $bin ${SP:-$U/run/sp-old.txt} "$mods" $R/events.jsonl \
+   --equations --refs --write-ir --tagged-code --jobs "$jobs" \
+   --ir-dir $R/ir --link-index $R/link-index.lidx --link-index-omit "$mods" ${EXTRA_ARGS:-} &
+ rp=$!
+
+=== HybridMain.lean, NativeKeys.lean, Assemble.lean, Extract.lean, ExtractMain.lean, Snap.lean, runx.sh, runn.sh, sampler.sh, snapshot.sh, modlist.py, keycmp_lib.py, keycmp2.py: the levers log's, unchanged. Exts.lean: the oldest-release log's (mathlib-oldest-release-drift-2026-10-05.txt), unchanged. Drift.lean: the drift log's SCRIPT 1 (mathlib-printer-drift-2026-10-04.txt), unchanged. keycmp2_variants.py: keycmp2.py's lines from `REST = [...]` to `load_comps`, verbatim, under a module docstring.
+
+
+=== OracleMain.lean (the oracle gate; the serialization block is Drift.lean's, verbatim)
+import OleanReader
+open Lean OleanReader
+
+/-! The reader held against a Lean's own answer: the drift log's serialization (`Drift.lean`,
+verbatim from `structure StrictE` to `serialize`), applied to the types the reader decodes, compared
+byte for byte with what that Lean serialized for the same seeded sample. -/
+
+structure StrictE where
+  e : Expr
+
+instance : BEq StrictE := ⟨fun a b => a.e.equal b.e⟩
+instance : Hashable StrictE := ⟨fun a => a.e.hash⟩
+
+structure SState where
+  nodes : Array Json := #[]
+  levels : Array Json := #[]
+  emap : Std.HashMap StrictE Nat := {}
+  lmap : Std.HashMap Level Nat := {}
+  mdata : Nat := 0
+  mvars : Nat := 0
+  fvars : Nat := 0
+  lmvars : Nat := 0
+
+def nameToJson (n : Name) : Json :=
+  let rec go : Name → Array Json → Array Json
+    | .anonymous, acc => acc
+    | .str p s, acc => go p (acc.push (Json.str s))
+    | .num p k, acc => go p (acc.push (toJson k))
+  Json.arr (go n #[]).reverse
+
+def jsonToName (j : Json) : Except String Name := do
+  let cs ← j.getArr?
+  cs.foldlM (init := Name.anonymous) fun acc c =>
+    match c with
+    | .str s => pure (Name.mkStr acc s)
+    | .num _ => do pure (Name.mkNum acc (← c.getNat?))
+    | _ => throw "bad name component"
+
+def biCode : BinderInfo → String
+  | .default => "d" | .implicit => "i" | .strictImplicit => "s" | .instImplicit => "c"
+
+def codeBi : String → BinderInfo
+  | "i" => .implicit | "s" => .strictImplicit | "c" => .instImplicit | _ => .default
+
+partial def serL (l : Level) : StateM SState Nat := do
+  if let some i := (← get).lmap[l]? then return i
+  let j ← match l with
+    | .zero => pure (Json.arr #["z"])
+    | .succ a => do let i ← serL a; pure (Json.arr #["s", toJson i])
+    | .max a b => do let i ← serL a; let k ← serL b; pure (Json.arr #["m", toJson i, toJson k])
+    | .imax a b => do let i ← serL a; let k ← serL b; pure (Json.arr #["i", toJson i, toJson k])
+    | .param n => pure (Json.arr #["p", nameToJson n])
+    | .mvar m => do
+      modify fun s => { s with lmvars := s.lmvars + 1 }
+      pure (Json.arr #["v", nameToJson m.name])
+  let s ← get
+  let idx := s.levels.size
+  set { s with levels := s.levels.push j, lmap := s.lmap.insert l idx }
+  return idx
+
+partial def serE (e : Expr) : StateM SState Nat := do
+  if let .mdata _ b := e then
+    modify fun s => { s with mdata := s.mdata + 1 }
+    return (← serE b)
+  if let some i := (← get).emap[StrictE.mk e]? then return i
+  let j ← match e with
+    | .bvar i => pure (Json.arr #["b", toJson i])
+    | .fvar id => do
+      modify fun s => { s with fvars := s.fvars + 1 }
+      pure (Json.arr #["F", nameToJson id.name])
+    | .mvar id => do
+      modify fun s => { s with mvars := s.mvars + 1 }
+      pure (Json.arr #["M", nameToJson id.name])
+    | .sort l => do pure (Json.arr #["S", toJson (← serL l)])
+    | .const n ls => do
+      let is ← ls.mapM serL
+      pure (Json.arr #["C", nameToJson n, Json.arr (is.toArray.map toJson)])
+    | .app f a => do let i ← serE f; let k ← serE a; pure (Json.arr #["A", toJson i, toJson k])
+    | .lam n t b bi => do
+      let i ← serE t; let k ← serE b
+      pure (Json.arr #["L", nameToJson n, Json.str (biCode bi), toJson i, toJson k])
+    | .forallE n t b bi => do
+      let i ← serE t; let k ← serE b
+      pure (Json.arr #["P", nameToJson n, Json.str (biCode bi), toJson i, toJson k])
+    | .letE n t v b nd => do
+      let i ← serE t; let k ← serE v; let m ← serE b
+      pure (Json.arr #["E", nameToJson n, toJson i, toJson k, toJson m, toJson nd])
+    | .lit (.natVal n) => pure (Json.arr #["N", Json.str (toString n)])
+    | .lit (.strVal s) => pure (Json.arr #["T", Json.str s])
+    | .proj s i b => do let k ← serE b; pure (Json.arr #["J", nameToJson s, toJson i, toJson k])
+    | .mdata _ _ => unreachable!
+  let s ← get
+  let idx := s.nodes.size
+  set { s with nodes := s.nodes.push j, emap := s.emap.insert (StrictE.mk e) idx }
+  return idx
+
+def serialize (e : Expr) : Json × SState :=
+  let (root, s) := (serE e).run {}
+  (Json.mkObj [("levels", Json.arr s.levels), ("nodes", Json.arr s.nodes), ("root", toJson root)], s)
+
+
+def readSearchPath (f : System.FilePath) : IO (Array System.FilePath) := do
+  return (← IO.FS.lines f).filter (!·.isEmpty) |>.map System.FilePath.mk
+
+/-- `oracle <searchpath-file> <limit|all> <oracle.jsonl> <out-types.jsonl|->`: reads every module
+of `Mathlib`'s closure once, entries decoded, proofs omitted unless `ORACLE_KEEP_PROOFS=1`, and compares the serialized type of
+every oracle record. -/
+def oracleMain (spFile limitS oracle outTypes : String) : IO UInt32 := do
+  let sp ← readSearchPath spFile
+  let t0 ← IO.monoMsNow
+  let mods ← closure sp #[`Mathlib]
+  let mods := if limitS == "all" then mods else mods.extract 0 limitS.toNat!
+  let mut wanted : Std.HashSet Name := {}
+  let mut oracleRecs : Array (Name × String) := #[]
+  for line in ← IO.FS.lines oracle do
+    if line.isEmpty then continue
+    let j ← IO.ofExcept (Json.parse line)
+    let nameS ← IO.ofExcept (j.getObjValAs? String "nameStr")
+    let ty ← IO.ofExcept (j.getObjVal? "type")
+    let nj ← IO.ofExcept (j.getObjVal? "name")
+    let n := (← IO.ofExcept nj.getArr?).foldl (init := Name.anonymous) fun acc c =>
+      match c with
+      | .str s => Name.mkStr acc s
+      | .num k => Name.mkNum acc k.mantissa.toNat
+      | _ => acc
+    unless n.toString == nameS do throw <| IO.userError s!"name decode mismatch {n} vs {nameS}"
+    wanted := wanted.insert n
+    oracleRecs := oracleRecs.push (n, ty.compress)
+  let omitProofs := (← IO.getEnv "ORACLE_KEEP_PROOFS") != some "1"
+  let stats ← IO.mkRef ({} : ReadStats)
+  let mut found : Std.HashMap Name String := {}
+  let mut bytes := 0
+  let mut objects := 0
+  for m in mods do
+    let parts ← loadModule sp m
+    let ((md, _), st) ← runDM parts (decModuleData omitProofs true parts.back!.root stats)
+    bytes := bytes + parts.foldl (· + ·.bytes.size) 0
+    objects := objects + st.objects
+    for ci in md.constants do
+      if wanted.contains ci.name && !found.contains ci.name then
+        found := found.insert ci.name (serialize ci.type).1.compress
+  let t1 ← IO.monoMsNow
+  let s ← stats.get
+  let w ← writerOfClosure.get
+  IO.eprintln s!"writer of every part read: Lean {w}"
+  IO.eprintln s!"modules {mods.size}, bytes {bytes}, objects visited {objects}, constants {s.constants}, entries decoded {s.entriesDecoded}, entries not decoded {s.entriesSkipped} in {s.skippedExts.size} extensions; {t1 - t0} ms"
+  IO.eprintln s!"checked against the stored computed field: Name hashes {s.names}, Level data {s.levels}, Expr data {s.exprs}"
+  for (e, k) in s.decodedExts.toArray.qsort (fun a b => a.1.toString < b.1.toString) do
+    IO.eprintln s!"  decoded ext {e} {k}"
+  for (e, k) in s.skippedExts.toArray.qsort (fun a b => a.2 > b.2) do
+    IO.eprintln s!"  not decoded ext {e} {k}"
+  let mut same := 0
+  let mut missing := 0
+  let mut diff := #[]
+  for (n, ty) in oracleRecs do
+    match found[n]? with
+    | none => missing := missing + 1
+    | some t => if t == ty then same := same + 1 else diff := diff.push n
+  IO.println s!"oracle: identical {same} of {oracleRecs.size}; not found {missing}; different {diff.size}"
+  for n in diff.extract 0 10 do IO.println s!"  different: {n}"
+  if outTypes != "-" then
+    let h ← IO.FS.Handle.mk outTypes .write
+    for (n, _) in oracleRecs do
+      if let some t := found[n]? then h.putStrLn t
+  return if same == oracleRecs.size then 0 else 1
+
+def main (args : List String) : IO UInt32 := do
+  match args with
+  | [sp, limit, oracle, out] => oracleMain sp limit oracle out
+  | _ => IO.eprintln "usage: oracle <searchpath-file> <limit|all> <oracle.jsonl> <out-types.jsonl|->"; return 2
+
+=== ContentMain.lean (contenthash)
+import OleanReader
+open Lean OleanReader
+
+/-! Content hashes of every module of `Mathlib`'s closure, from the stored object graph rather than
+the file bytes (the header carries the writer's githash): a 64-bit hash per module part, per
+constant (its type, its value, the whole `ConstantInfo`) and per extension's entries. Every object
+is hashed from its tag, its object fields' hashes and its scalar bytes, so two graphs with the same
+content hash the same whatever their addresses. The scalar bytes include a constructor's tail
+padding, which Lean's allocator zeroes for this purpose (`lean_alloc_ctor_memory`, lean.h). -/
+
+def readSearchPath (f : System.FilePath) : IO (Array System.FilePath) := do
+  return (← IO.FS.lines f).filter (!·.isEmpty) |>.map System.FilePath.mk
+
+def bytesHash (b : ByteArray) (start stop : Nat) (h : UInt64) : UInt64 := Id.run do
+  let mut h := h
+  let mut i := start
+  while i + 8 ≤ stop do
+    h := mixHash h (u64 b i); i := i + 8
+  while i < stop do
+    h := mixHash h (u8 b i).toUInt64; i := i + 1
+  return mixHash h (stop - start).toUInt64
+
+partial def rawHash (memo : IO.Ref (Std.HashMap UInt64 UInt64)) (v : UInt64) : DM UInt64 := do
+  if isScalar v then return mixHash 1 v
+  if let some h := (← memo.get)[v]? then return h
+  let x ← obj "object" v
+  let h ← if x.tag ≤ 244 then do
+      let mut h := mixHash 2 (mixHash x.tag.toUInt64 x.other.toUInt64)
+      for i in [0:x.other] do h := mixHash h (← rawHash memo (x.field i))
+      pure (bytesHash x.b (x.o + 8 + 8*x.other) (x.o + x.csSz) h)
+    else if x.tag == 246 then do
+      let n := (u64 x.b (x.o + 8)).toNat
+      let mut h := mixHash 3 n.toUInt64
+      for i in [0:n] do h := mixHash h (← rawHash memo (u64 x.b (x.o + 24 + 8*i)))
+      pure h
+    else if x.tag == 248 then
+      let n := (u64 x.b (x.o + 8)).toNat
+      pure (bytesHash x.b (x.o + 24) (x.o + 24 + n * x.other) (mixHash 4 x.other.toUInt64))
+    else if x.tag == 249 then
+      let n := (u64 x.b (x.o + 8)).toNat
+      pure (bytesHash x.b (x.o + 32) (x.o + 32 + n) 5)
+    else if x.tag == 250 then
+      let sz := u32 x.b (x.o + 12)
+      let limbs := if sz ≥ 0x80000000 then (0 - sz).toNat else sz.toNat
+      pure (bytesHash x.b (x.o + 24) (x.o + 24 + 8 * limbs) (mixHash 6 sz.toUInt64))
+    else fail "object" v s!"tag {x.tag} is not expected in a compacted module"
+  memo.modify (·.insert v h)
+  return h
+
+def kindName : Nat → String
+  | 0 => "axiom" | 1 => "defn" | 2 => "thm" | 3 => "opaque" | 4 => "quot" | 5 => "induct"
+  | 6 => "ctor" | 7 => "rec" | _ => "?"
+
+/-- One module's lines (the file starts with a `D` line per extension the hybrid decodes): `M` module, isModule, parts, hashes of imports / constNames /
+extraConstNames, constant count; `C` per constant: name, kind, level params, type, value (`0` if
+the kind has none), whole `ConstantInfo`; `E` per extension: name, entry count, entries. -/
+def moduleLines (m : Name) (root : UInt64) (nparts : Nat) : DM (Array String) := do
+  let memo ← IO.mkRef ({} : Std.HashMap UInt64 UInt64)
+  let x ← ctor "ModuleData" root 0 5 1
+  let consts ← obj "Array ConstantInfo" (x.field 2)
+  let n := (u64 consts.b (consts.o + 8)).toNat
+  let mut out := #[s!"M\t{m}\t{x.sc8 0}\t{nparts}\t{← rawHash memo (x.field 0)}\t{← rawHash memo (x.field 1)}\t{← rawHash memo (x.field 3)}\t{n}"]
+  for i in [0:n] do
+    let cv := u64 consts.b (consts.o + 24 + 8*i)
+    let c ← obj "ConstantInfo" cv
+    let w ← obj "XVal" (c.field 0)
+    let k ← ctor "ConstantVal" (w.field 0) 0 3 0
+    let name ← decName (k.field 0)
+    let value ← if c.tag == 1 || c.tag == 2 || c.tag == 3 then rawHash memo (w.field 1) else pure 0
+    out := out.push s!"C\t{m}\t{name}\t{kindName c.tag}\t{← rawHash memo (k.field 1)}\t{← rawHash memo (k.field 2)}\t{value}\t{← rawHash memo cv}"
+  let es ← obj "entries" (x.field 4)
+  let ne := (u64 es.b (es.o + 8)).toNat
+  for i in [0:ne] do
+    let p ← ctor "Name × Array EnvExtensionEntry" (u64 es.b (es.o + 24 + 8*i)) 0 2 0
+    let e ← decName (p.field 0)
+    let arr ← obj "Array EnvExtensionEntry" (p.field 1)
+    out := out.push s!"E\t{m}\t{e}\t{u64 arr.b (arr.o + 8)}\t{← rawHash memo (p.field 1)}"
+  return out
+
+def main (args : List String) : IO UInt32 := do
+  let [spFile, outPath, limitS] := args
+    | IO.eprintln "usage: contenthash <searchpath-file> <out.tsv> <limit|all>"; return 2
+  let sp ← readSearchPath spFile
+  let t0 ← IO.monoMsNow
+  let mods ← closure sp #[`Mathlib]
+  let mods := if limitS == "all" then mods else mods.extract 0 limitS.toNat!
+  let h ← IO.FS.Handle.mk outPath .write
+  for (e, _, _) in entryDecoders do h.putStrLn s!"D\t{e}"
+  let mut bytes := 0
+  let mut objects := 0
+  for m in mods do
+    let parts ← loadModule sp m
+    let (lines, st) ← runDM parts (moduleLines m parts.back!.root parts.size)
+    bytes := bytes + parts.foldl (· + ·.bytes.size) 0
+    objects := objects + st.objects
+    h.putStr ("\n".intercalate lines.toList ++ "\n")
+  h.flush
+  let t1 ← IO.monoMsNow
+  IO.eprintln s!"writer: Lean {← writerOfClosure.get}; modules {mods.size}, bytes {bytes}, objects visited {objects}; {t1 - t0} ms"
+  return 0
+
+=== StructInfo.lean (structure fields and parents, run by each version's Lean)
+import Lean
+open Lean
+
+def main (args : List String) : IO UInt32 := do
+  initSearchPath (← findSysroot)
+  unsafe Lean.enableInitializersExecution
+  let env ← importModules #[{ module := `Mathlib }] Options.empty (leakEnv := true) (loadExts := true)
+  for line in ← IO.FS.lines args[0]! do
+    if line.isEmpty then continue
+    let n := line.toName
+    match getStructureInfo? env n with
+    | none => IO.println s!"{n}\tnot a structure"
+    | some si => IO.println s!"{n}\tfields {si.fieldNames.toList}\tparents {(si.parentInfo.map (·.structName)).toList}"
+  return 0
+
+=== contentcmp.py
+"""Content of two versions, from contenthash files: declarations by name (type / value / whole
+constant), modules by decoded content, renamed-looking declarations.
+
+usage: contentcmp.py <content-A.tsv> <content-B.tsv> <ir-A> <ir-B> [--limit N]
+A is the earlier version. <ir-*> are extractor IR directories (their declaration names are the
+documented set); `-` for none. No exception list: an unknown line kind stops it.
+"""
+import json, os, sys
+from collections import Counter, defaultdict
+
+args = sys.argv[1:]
+limit = None
+if '--limit' in args:
+    i = args.index('--limit')
+    limit = int(args[i + 1])
+    args = args[:i] + args[i + 2:]
+ca, cb, ira, irb = args
+
+
+def load(path):
+    decoded, mods, consts, exts = [], {}, {}, defaultdict(dict)
+    order = []
+    for line in open(path, encoding='utf-8'):
+        p = line.rstrip('\n').split('\t')
+        if p[0] == 'D':
+            decoded.append(p[1])
+        elif p[0] == 'M':
+            if limit is not None and len(order) >= limit:
+                break
+            m = p[1]
+            order.append(m)
+            mods[m] = {'isModule': p[2], 'parts': p[3], 'imports': p[4], 'constNames': p[5], 'extra': p[6],
+                       'n': int(p[7]), 'consts': []}
+        elif p[0] == 'C':
+            m, n = p[1], p[2]
+            rec = {'module': m, 'kind': p[3], 'lps': p[4], 'type': p[5], 'value': p[6], 'full': p[7]}
+            mods[m]['consts'].append(n)
+            if n not in consts:
+                consts[n] = rec
+        elif p[0] == 'E':
+            exts[p[1]][p[2]] = (int(p[3]), p[4])
+        else:
+            raise SystemExit(f'unknown line kind {p[0]!r} in {path}')
+    for m, d in mods.items():
+        if len(d['consts']) != d['n']:
+            raise SystemExit(f'{path}: module {m} lists {len(d["consts"])} constants, header says {d["n"]}')
+    return decoded, order, mods, consts, exts
+
+
+def ir_names(ir):
+    if ir == '-':
+        return None
+    out = set()
+    for f in os.listdir(os.path.join(ir, 'modules')):
+        for d in json.load(open(os.path.join(ir, 'modules', f), encoding='utf-8'))['declarations']:
+            out.add(d['name'])
+    return out
+
+
+decA, orderA, MA, CA, EA = load(ca)
+decB, orderB, MB, CB, EB = load(cb)
+if decA != decB:
+    raise SystemExit('the two files list different decoded extensions')
+DEC = set(decA)
+DA, DB = ir_names(ira), ir_names(irb)
+
+
+def pct(a, b):
+    return f'{100 * a / b:.2f}%' if b else '-'
+
+
+def is_mathlib(m):
+    return m == 'Mathlib' or m.startswith('Mathlib.')
+
+
+print(f'modules: A {len(MA)}, B {len(MB)}, both {sum(1 for m in MA if m in MB)}, '
+      f'A only {sum(1 for m in MA if m not in MB)}, B only {sum(1 for m in MB if m not in MA)}')
+print(f'constants (closure, first module wins): A {len(CA)}, B {len(CB)}')
+
+
+def const_tuple(m, M, C):
+    return tuple((n, C[n]['full']) for n in M[m]['consts'])
+
+
+def ext_equal(m, which):
+    ea, eb = EA.get(m, {}), EB.get(m, {})
+    names = set(ea) | set(eb)
+    if which == 'decoded':
+        names &= DEC
+    return all(ea.get(e) == eb.get(e) for e in names)
+
+
+ext_diff_given_consts = Counter()
+mod_stats = {}
+for scope, pred in [('closure', lambda m: True), ('Mathlib', is_mathlib)]:
+    both = [m for m in MA if m in MB and pred(m)]
+    c = Counter()
+    for m in both:
+        a, b = MA[m], MB[m]
+        cons = const_tuple(m, MA, CA) == const_tuple(m, MB, CB)
+        hdr = all(a[k] == b[k] for k in ('isModule', 'imports', 'constNames', 'extra'))
+        dec = ext_equal(m, 'decoded')
+        alle = ext_equal(m, 'all')
+        c['constants equal'] += cons
+        c['constants + header equal'] += cons and hdr
+        c['constants + decoded entries equal'] += cons and dec
+        c['constants + header + decoded entries equal'] += cons and hdr and dec
+        c['everything equal'] += cons and hdr and alle
+        if scope == 'closure' and cons:
+            ea, eb = EA.get(m, {}), EB.get(m, {})
+            for e in set(ea) | set(eb):
+                if ea.get(e) != eb.get(e):
+                    ext_diff_given_consts[e] += 1
+            if not hdr:
+                for k in ('isModule', 'imports', 'constNames', 'extra'):
+                    if a[k] != b[k]:
+                        ext_diff_given_consts['<header ' + k + '>'] += 1
+    mod_stats[scope] = (both, c)
+    print(f'modules in both, {scope}: {len(both)} (A has {sum(1 for m in MA if pred(m))}, B has {sum(1 for m in MB if pred(m))})')
+    for k in ['constants equal', 'constants + header equal', 'constants + decoded entries equal',
+              'constants + header + decoded entries equal', 'everything equal']:
+        print(f'  {k:45s} {c[k]:6d}  {pct(c[k], len(both))}')
+
+print('modules whose constants are equal, by what still differs (closure; a module can count in several):')
+for e, k in ext_diff_given_consts.most_common(40):
+    print(f'  {k:6d}  {e}{"  (decoded)" if e in DEC else ""}')
+
+for scope, (both, _) in mod_stats.items():
+    changed = [m for m in both if const_tuple(m, MA, CA) != const_tuple(m, MB, CB)]
+    tot = same = 0
+    for m in changed:
+        for n in MB[m]['consts']:
+            tot += 1
+            if n in CA and CA[n]['full'] == CB[n]['full']:
+                same += 1
+    print(f'{scope}: modules whose constants changed {len(changed)}; their constants in B {tot}, of which unchanged '
+          f'{same} ({pct(same, tot)}), changed or new {tot - same}')
+
+
+def floor(names, label):
+    names = sorted(names)
+    c = Counter()
+    for n in names:
+        a, b = CA[n], CB[n]
+        c['type'] += a['type'] == b['type']
+        c['type + lps'] += a['type'] == b['type'] and a['lps'] == b['lps']
+        same_v = a['value'] == b['value']
+        c['type + value'] += a['type'] == b['type'] and a['lps'] == b['lps'] and same_v and a['kind'] == b['kind']
+        nonthm = same_v or (a['kind'] == 'thm' and b['kind'] == 'thm')
+        c['type + value, theorem proofs ignored'] += (a['type'] == b['type'] and a['lps'] == b['lps'] and nonthm
+                                                       and a['kind'] == b['kind'])
+        c['whole constant'] += a['full'] == b['full']
+        c['kind ' + b['kind']] += 1
+        c['kind ' + b['kind'] + ' type+value(no proofs) equal'] += (a['type'] == b['type'] and a['lps'] == b['lps']
+                                                                      and nonthm and a['kind'] == b['kind'])
+    print(f'content floor, {label}: {len(names)} declarations in both')
+    for k in ['type', 'type + lps', 'type + value', 'type + value, theorem proofs ignored', 'whole constant']:
+        print(f'  {k:40s} {c[k]:7d}  {pct(c[k], len(names))}')
+    for k in sorted(x for x in c if x.startswith('kind ') and not x.endswith('equal')):
+        e = c[k + ' type+value(no proofs) equal']
+        print(f'    {k:30s} {c[k]:7d}, type+value (no proofs) equal {e} ({pct(e, c[k])})')
+
+
+def renames(removed, added, label):
+    key = lambda r: (r['kind'], r['lps'], r['type'], r['value'] if r['kind'] != 'thm' else '')
+    idx = defaultdict(list)
+    for n in added:
+        idx[key(CB[n])].append(n)
+    uniq = amb = 0
+    ex = []
+    for n in sorted(removed):
+        hits = idx.get(key(CA[n]), [])
+        if len(hits) == 1:
+            uniq += 1
+            if len(ex) < 12:
+                ex.append(f'{n} -> {hits[0]}')
+        elif hits:
+            amb += 1
+    print(f'{label}: removed {len(removed)}, added {len(added)}; renamed-looking (same kind, universe names, type, '
+          f'and value unless a theorem) unique {uniq}, ambiguous {amb}')
+    for e in ex:
+        print('    ' + e)
+
+
+allboth = [n for n in CA if n in CB]
+floor(allboth, 'every constant of the closure')
+renames([n for n in CA if n not in CB], [n for n in CB if n not in CA], 'closure constants')
+if DA is not None and DB is not None:
+    for n in DA | DB:
+        if (n in DA and n not in CA) or (n in DB and n not in CB):
+            raise SystemExit(f'documented declaration {n} has no constant in its content file')
+    docboth = DA & DB
+    floor(docboth, 'documented declarations (IR names) in both')
+    renames(DA - DB, DB - DA, 'documented declarations')
+
+=== keycmp3.py
+"""keycmp2.py's counts, the four cells of key x output per variant, and for the proposed key G7
+where lost reuse comes from: which components differ, and (with the referenced-constant records of
+both key passes) which changed referenced constants the declaration's IR refs name.
+
+usage: keycmp3.py <ir-A> <comps-A.tsv> <ir-B> <comps-B.tsv> <holes.jsonl>
+                  [--recs <recs-A.tsv> <recs-B.tsv>] [--limit N]
+"""
+import json, sys
+from collections import Counter, defaultdict
+
+args = sys.argv[1:]
+limit = None
+recs = None
+if '--limit' in args:
+    i = args.index('--limit'); limit = int(args[i + 1]); args = args[:i] + args[i + 2:]
+if '--recs' in args:
+    i = args.index('--recs'); recs = (args[i + 1], args[i + 2]); args = args[:i] + args[i + 3:]
+ir_a, comps_a, ir_b, comps_b, holes_path = args
+
+import keycmp_lib as K
+from keycmp2_variants import VARIANTS, load_comps
+
+A, B = K.load(ir_a, limit), K.load(ir_b, limit)
+ca, CA = load_comps(comps_a)
+cb, CB = load_comps(comps_b)
+assert ca == cb
+both = [n for n in A if n in B]
+print(f'declarations: IR-A {len(A)}, IR-B {len(B)}, in both {len(both)}; '
+      f'without components: A {sum(1 for n in A if n not in CA)}, B {sum(1 for n in B if n not in CB)}')
+out_eq = sum(1 for n in both if A[n][1] == B[n][1])
+print(f'printed fields equal: {out_eq} of {len(both)} ({100 * out_eq / len(both):.2f}%)')
+holes = open(holes_path, 'w')
+for name, comps in VARIANTS.items():
+    c = Counter()
+    fields = Counter()
+    for n in both:
+        if n not in CA or n not in CB:
+            c['no key'] += 1
+            continue
+        keq = all(CA[n][x] == CB[n][x] for x in comps)
+        peq = A[n][1] == B[n][1]
+        c[('key=' if keq else 'key!') + (' out=' if peq else ' out!')] += 1
+        if keq and not peq:
+            fs = [K.PRINTED[i] for i in range(len(K.PRINTED)) if A[n][1][i] != B[n][1][i]]
+            holes.write(json.dumps({'variant': name, 'name': n, 'moduleA': A[n][0], 'moduleB': B[n][0],
+                                    'fields': fs}) + '\n')
+            for f in fs:
+                fields[f] += 1
+    keq = c['key= out='] + c['key= out!']
+    print(f'{name}: key-equal {keq} ({100 * keq / len(both):.2f}%) [out= {c["key= out="]}, out! {c["key= out!"]}]; '
+          f'key-different {c["key! out="] + c["key! out!"]} [out= {c["key! out="]}, out! {c["key! out!"]}]; '
+          f'no key {c["no key"]}')
+    if fields:
+        print('   hole fields: ' + ', '.join(f'{k} {v}' for k, v in fields.most_common()))
+
+G7 = VARIANTS['G7 = F7 + opaque/matcher values + projection structure layout']
+lost = [n for n in both if A[n][1] == B[n][1] and any(CA[n][x] != CB[n][x] for x in G7)]
+print(f'G7 lost reuse (output equal, key different): {len(lost)}')
+single = Counter()
+pattern = Counter()
+for n in lost:
+    d = tuple(x for x in G7 if CA[n][x] != CB[n][x])
+    pattern[d] += 1
+    if len(d) == 1:
+        single[d[0]] += 1
+print('  how often each G7 component differs among them:')
+for x in G7:
+    k = sum(v for d, v in pattern.items() if x in d)
+    print(f'    {x:6s} {k:7d}   alone {single[x]}')
+print('  most common difference patterns:')
+for d, v in pattern.most_common(15):
+    print(f'    {v:7d}  {" ".join(d)}')
+own = {'N', 'TS', 'VS', 'E'}
+only_shown = sum(v for d, v in pattern.items() if not (set(d) & own))
+print(f'  only components over referenced constants differ (own N TS VS E equal): {only_shown}')
+
+if recs:
+    def load_recs(p):
+        f = open(p, encoding='utf-8')
+        head = f.readline().rstrip('\n').split('\t')
+        out = {}
+        for line in f:
+            q = line.rstrip('\n').split('\t')
+            out[q[0]] = dict(zip(head[1:], q[1:]))
+        return head[1:], out
+    ha, RA = load_recs(recs[0])
+    hb, RB = load_recs(recs[1])
+    assert ha == hb
+    changed = defaultdict(set)
+    for c in RA.keys() & RB.keys():
+        for f in ha:
+            if RA[c][f] != RB[c][f]:
+                changed['S' + f].add(c)
+    print('referenced constants (records present on both sides: '
+          f'{len(RA.keys() & RB.keys())}; A only {len(RA.keys() - RB.keys())}, B only {len(RB.keys() - RA.keys())}) '
+          'whose record differs, per component:')
+    for f in ha:
+        print(f'    S{f:5s} {len(changed["S" + f])}')
+    refs = {}
+    for ir, side in ((ir_a, 'A'), (ir_b, 'B')):
+        import os
+        for fn in sorted(os.listdir(os.path.join(ir, 'modules')))[:limit]:
+            for d in json.load(open(os.path.join(ir, 'modules', fn), encoding='utf-8'))['declarations']:
+                if side == 'B' and d['name'] in refs:
+                    refs[d['name']] |= {r[1] for r in d.get('refs', [])}
+                elif side == 'A':
+                    refs[d['name']] = {r[1] for r in d.get('refs', [])}
+    for comp in [x for x in G7 if x.startswith('S') and x not in ('SN', 'SRES')]:
+        decls = [n for n in lost if CA[n][comp] != CB[n][comp]]
+        if not decls:
+            continue
+        blame = Counter()
+        unseen = 0
+        for n in decls:
+            hit = refs.get(n, set()) & changed[comp]
+            if not hit:
+                unseen += 1
+            for c in hit:
+                blame[c] += 1
+        print(f'  {comp}: {len(decls)} lost-reuse declarations; changed constants named in their IR refs: '
+              f'{len(blame)} distinct; declarations with none in refs (value, equations or members): {unseen}')
+        for c, v in blame.most_common(12):
+            print(f'      {v:7d}  {c}')
+
+=== crosstab.py
+"""Content equality (contenthash) x G7 key equality x printed-output equality for the declarations two
+IRs share, and how many key-equal declarations a key that also covered the declaration's own
+referenced-constant record would lose or catch.
+
+usage: crosstab.py <content-A.tsv> <content-B.tsv> <ir-A> <comps-A> <recs-A> <ir-B> <comps-B> <recs-B> [--limit N]
+"""
+import sys
+from collections import Counter
+args = sys.argv[1:]
+limit = None
+if '--limit' in args:
+    i = args.index('--limit'); limit = int(args[i + 1]); args = args[:i] + args[i + 2:]
+ca, cb, ira, ka, ra, irb, kb, rb = args
+import keycmp_lib as K
+from keycmp2_variants import VARIANTS, load_comps
+G7 = VARIANTS['G7 = F7 + opaque/matcher values + projection structure layout']
+OWNREC = ['SH', 'AUX', 'PSTR', 'PROJ', 'CLS', 'STR', 'COE', 'PP', 'MAT', 'PROT']
+
+
+def content(p):
+    out = {}
+    for line in open(p, encoding='utf-8'):
+        q = line.rstrip('\n').split('\t')
+        if q[0] == 'C' and q[2] not in out:
+            out[q[2]] = (q[3], q[4], q[5], q[6] if q[3] != 'thm' else '')
+    return out
+
+
+def recs(p):
+    f = open(p, encoding='utf-8')
+    h = f.readline().rstrip('\n').split('\t')
+    return {l.split('\t')[0]: dict(zip(h[1:], l.rstrip('\n').split('\t')[1:])) for l in f}
+
+
+A, B = K.load(ira, limit), K.load(irb, limit)
+_, CA = load_comps(ka)
+_, CB = load_comps(kb)
+TA, TB = content(ca), content(cb)
+RA, RB = recs(ra), recs(rb)
+both = [n for n in A if n in B]
+c = Counter()
+own = Counter()
+for n in both:
+    ce = TA[n] == TB[n]
+    ke = all(CA[n][x] == CB[n][x] for x in G7)
+    oe = A[n][1] == B[n][1]
+    c[('content=' if ce else 'content!', 'key=' if ke else 'key!', 'out=' if oe else 'out!')] += 1
+    if ke:
+        if n in RA and n in RB:
+            d = [x for x in OWNREC if RA[n][x] != RB[n][x]]
+            own['key-equal, own record on both sides'] += 1
+            if d:
+                own['... own record differs' + (' (output equal: reuse lost)' if oe else ' (output different: hole caught)')] += 1
+                for x in d:
+                    own['    component ' + x] += 1
+        else:
+            own['key-equal, own record missing on a side (not shown by any declaration)'] += 1
+print(f'declarations in both: {len(both)}')
+for k in sorted(c):
+    print(f'  {" ".join(k):28s} {c[k]:7d}  {100 * c[k] / len(both):.2f}%')
+ce = sum(v for k, v in c.items() if k[0] == 'content=')
+print(f'content equal (type, universe names, value unless a theorem): {ce}; of them key-equal '
+      f'{sum(v for k, v in c.items() if k[:2] == ("content=", "key="))}, output-equal '
+      f'{sum(v for k, v in c.items() if k[0] == "content=" and k[2] == "out=")}')
+for k, v in own.items():
+    print(f'  {k}: {v}')
+
+=== holedetail.py
+"""Every hole of one key variant, printed with the differing fields of both IRs side by side.
+
+usage: holedetail.py <holes.jsonl> <variant-prefix> <ir-A> <ir-B>
+"""
+import json, os, sys
+
+holes_path, prefix, ir_a, ir_b = sys.argv[1:]
+holes = [h for h in map(json.loads, open(holes_path, encoding='utf-8')) if h['variant'].startswith(prefix)]
+
+
+def decl(ir, module, name):
+    fn = os.path.join(ir, 'modules', module + '.json')
+    for d in json.load(open(fn, encoding='utf-8'))['declarations']:
+        if d['name'] == name:
+            return d
+    raise SystemExit(f'{name} not in {fn}')
+
+
+def field(d, f):
+    if f == 'refnames':
+        return [r[1] for r in d.get('refs', [])]
+    if f == 'members':
+        return [{k: x for k, x in m.items() if k != 'doc'} for m in d.get('members', [])]
+    return d.get(f, '<absent>')
+
+
+print(f'{len(holes)} holes of variant {prefix}')
+for h in holes:
+    a = decl(ir_a, h['moduleA'], h['name'])
+    b = decl(ir_b, h['moduleB'], h['name'])
+    print(f'== {h["name"]} ({h["moduleA"]} / {h["moduleB"]}): {", ".join(h["fields"])}')
+    for f in h['fields']:
+        va, vb = field(a, f), field(b, f)
+        if f == 'refnames':
+            print(f'   refs only A: {sorted(set(va) - set(vb))}; only B: {sorted(set(vb) - set(va))}')
+        else:
+            print(f'   {f} A: {json.dumps(va, ensure_ascii=False)[:600]}')
+            print(f'   {f} B: {json.dumps(vb, ensure_ascii=False)[:600]}')
+
+=== setup-v4320.sh (the v4.32.0 workspace)
+#!/bin/bash
+set -uo pipefail
+cd <v4.32.0-workspace>
+t() { python3 -c 'import time; print(time.time())'; }
+echo "== cache before"; du -sk ~/.cache/mathlib; ls ~/.cache/mathlib | wc -l
+echo "== toolchain"; a=$(t); elan toolchain install leanprover/lean4:v4.32.0 > toolchain.log 2>&1; echo "toolchain exit=$? s=$(python3 -c "print($(t)-$a)")"
+echo "== update"; a=$(t); MATHLIB_NO_CACHE_ON_UPDATE=1 lake update > update.log 2>&1; echo "update exit=$? s=$(python3 -c "print($(t)-$a)")"
+echo "== mathlib rev"; git -C .lake/packages/mathlib rev-parse HEAD
+echo "== cache"; a=$(t); lake exe cache get > cache.log 2>&1; echo "cache exit=$? s=$(python3 -c "print($(t)-$a)")"
+echo "== no-build check"; lake build --no-build Probe > nobuild.log 2>&1; echo "nobuild exit=$?"; tail -3 nobuild.log
+echo "== cache after"; du -sk ~/.cache/mathlib; ls ~/.cache/mathlib | wc -l
+du -sk . ~/.elan/toolchains/leanprover--lean4---v4.32.0
+df -k <scratch> | tail -1
+
+=== lakefile.lean of the v4.32.0 workspace (lean-toolchain leanprover/lean4:v4.32.0; Probe.lean = `import Mathlib`)
+import Lake
+open Lake DSL
+package mvprobe
+require mathlib from git "https://github.com/leanprover-community/mathlib4" @ "v4.32.0"
+lean_lib Probe

@@ -26,6 +26,15 @@ session (measured 2026-08-31 →
 noticed up to `--interval` late, and that the poll is not free: at the default
 1000 ms a pass takes 3.2 s and a core is busy for two thirds of it.
 
+**A pass is `build` without `--versions`**: the IR brought up to date, put into
+the store, and the one version rendered whole into `<out>/site`, which is what is
+served.
+
+**The first pass rebuilds whatever the ledger says.** The ledger holds the
+oleans' hashes, not which extractor wrote `<out>/ir` or which litedoc4 rendered
+`<out>/site`; `build` asks both, so a session started over another version's
+`--out` does not serve it unchecked.
+
 **A pass acts only when the ledger's answer is the same as the previous pass's.**
 While `lake build` is writing oleans the answer keeps moving, and extracting into
 that produces a site made of two half-worlds — or is stopped by the resident
@@ -40,10 +49,11 @@ ownership/merge rounds share one import.
 **A failed pass waits for the world to move again** before trying the same thing;
 retrying immediately would start a 3 GB import every interval for as long as the
 failure lasted. The first pass is the exception — it fails the command, because
-until it succeeds there is no site to serve and no state to continue from.
+until it succeeds nothing under `--out` has been checked against this litedoc4 and
+its extractor, so there is nothing this session can vouch for to serve.
 -/
-import Litedoc4.Build
 import Litedoc4.Httpd
+import Litedoc4.Versions
 
 open System
 
@@ -152,11 +162,11 @@ each other the key had moved and the loop would re-render the whole site on ever
 pass, for ever. So they are resolved once, in `watchRun`, and both sides read the
 same values.
 
-The module list and the bibliography are the exceptions: both are read again every
-pass, because a source file that appeared or vanished and an edited
-`docs/references.bib` are things this loop exists to notice. The run a pass
-triggers reads the bibliography through the same `readBibliography`, so the two
-cannot disagree about its digest. -/
+The module list, the bibliography and `no_equations_under` are the exceptions:
+they are read again every pass, because a source file that appeared or vanished
+and an edited `docs/references.bib` or configuration are things this loop exists
+to notice. The run a pass triggers reads them through the same `readBibliography`
+and `noEquationsUnderFor`, so the two cannot disagree about them. -/
 structure Trigger where
   ledger : FilePath
   ir : FilePath
@@ -164,7 +174,9 @@ structure Trigger where
   sourceUrl : String
   externalLinks : String
   root : FilePath
+  config : ConfigSource
   libs : Array String
+  concurrency : Nat := 1
 
 /-- One reading, or `none` when nothing has ever been built here. -/
 def Trigger.ask (t : Trigger) : IO (Except (UInt32 × String) (Option Reading)) := do
@@ -173,6 +185,7 @@ def Trigger.ask (t : Trigger) : IO (Except (UInt32 × String) (Option Reading)) 
     | .error message => return .error (3, message)
     | .ok names => pure names
   let bibliography ← readBibliography t.root
+  let noEquationsUnder ← noEquationsUnderFor none t.config
   match ← checkLedger
       { ledger := t.ledger
         -- The ledger's own, never an override: two algorithms produce
@@ -180,7 +193,8 @@ def Trigger.ask (t : Trigger) : IO (Except (UInt32 × String) (Option Reading)) 
         algorithm := none
         modules := some modules, ir := some t.ir, sourceUrl := t.sourceUrl
         linkIndex := some t.linkIndex, externalLinks := some t.externalLinks
-        bibliography := bibliography.digest } with
+        bibliography := bibliography.digest, noEquationsUnder := some noEquationsUnder
+        concurrency := t.concurrency } with
   | .error refusal => return .error refusal
   | .ok check => return .ok (some (Reading.of check))
 
@@ -188,13 +202,18 @@ def Trigger.ask (t : Trigger) : IO (Except (UInt32 × String) (Option Reading)) 
 def describe (code : UInt32) (message : String) : String :=
   if code == 2 || code == 1 then message else s!"{message} (exit {code})"
 
-def announce (rebuilds : Nat) (now : Option Reading) : IO Unit := do
+def announce (rebuilds : Nat) (now : Option Reading) (built : Bool) : IO Unit := do
   IO.println ""
   match now with
   | none =>
-    IO.println s!"watch   #{rebuilds} nothing has been built under --out yet — generating the \
-      whole site. This imports the package's Lean environment once and extracts every module, \
-      which is the slowest thing this command does; the lines below are that run's own"
+    if built then
+      IO.println s!"watch   #{rebuilds} the first pass is a build: what --out holds is checked \
+        against this litedoc4 and its extractor before it is served; the lines below are that \
+        run's own"
+    else
+      IO.println s!"watch   #{rebuilds} nothing has been built under --out yet — extracting every \
+        module. This imports the package's Lean environment once, which is the slowest thing this \
+        command does; the lines below are that run's own"
   | some reading => IO.println s!"watch   #{rebuilds} the ledger reports {reading.what}"
 
 structure LoopState where
@@ -206,11 +225,16 @@ structure LoopState where
   said : Option Nat := none
   quietSince : Nat
 
-partial def runLoop (r : BuildRequest) (t : Trigger) (interval : Nat) (port : UInt16)
+structure Rebuild where
+  request : BuildRequest
+  hashUrls : Bool
+
+partial def runLoop (r : Rebuild) (t : Trigger) (interval : Nat) (port : UInt16)
     (s : LoopState) : BuildM Unit := do
   let passes := s.passes + 1
   let askedAt ← IO.monoNanosNow
-  let answer ← match ← (t.ask).toBaseIO with
+  let answer ← if s.passes == 0 then pure (.ok none) else
+    match ← (t.ask).toBaseIO with
     | .ok answer => pure answer
     | .error e => pure (.error (1, toString e))
   match answer with
@@ -265,22 +289,25 @@ partial def runLoop (r : BuildRequest) (t : Trigger) (interval : Nat) (port : UI
     | .rebuild =>
       let rebuilds := s.rebuilds + 1
       let first := rebuilds == 1 && s.acted.isNone
-      announce rebuilds now
+      announce rebuilds now (← isRegularFile t.ledger)
       -- Bound with its type written out, and not matched on directly: `BuildM α`
-      -- is by definition `IO (Except (UInt32 × String) α)`, so a bare `← (runBuild
-      -- r).run` in this monad resolves to the `BuildRan` inside rather than to the
-      -- `Except` around it.
-      let outcome : Except (UInt32 × String) BuildRan ← (runBuild r).run
+      -- is by definition `IO (Except (UInt32 × String) α)`, so a bare `← (buildOne
+      -- …).run` in this monad resolves to the `Built` inside rather than to the
+      -- `Except` around it. An exception becomes the same refusal, so that a pass
+      -- that cannot write is reported and waited out rather than ending the loop.
+      let attempt : IO (Except (UInt32 × String) Versions.Built) :=
+        try (Versions.buildOne r.request r.hashUrls).run
+        catch e => pure (.error (1, toString e))
+      let outcome : Except (UInt32 × String) Versions.Built ← attempt
       match outcome with
       | .ok ran =>
         IO.println s!"watch   #{rebuilds} {ran.what} — re-extracted {ran.modulesExtracted} \
-          module(s), re-rendered {ran.pagesRendered} page(s), started Lean \
-          {ran.extractorRequests} time(s) in {seconds ran.nanos 3} s\
-          {if ran.pagesRendered == 0 then " — no page on the site changed" else ""}"
+          module(s), started Lean {ran.extractorRequests} time(s), \
+          {if ran.rendered then "rendered" else "kept the site of"} version {ran.version} in {seconds ran.nanos 3} s"
         IO.println s!"watch   #{rebuilds} reload http://127.0.0.1:{port}/"
       | .error (code, message) =>
-        -- The first one is fatal: with no site to serve and no state to continue
-        -- from, looping here would loop over a broken configuration.
+        -- The first one is fatal: with nothing checked to serve, looping here
+        -- would loop over a broken configuration.
         if first then throw (code, message)
         IO.eprintln s!"watch   #{rebuilds} the rebuild stopped: {describe code message}"
         IO.eprintln s!"watch   #{rebuilds} not retrying until the oleans move again — a failing \
@@ -298,7 +325,7 @@ no way to change the mode, so a process that does not exit — this one — leav
 log empty for as long as it runs (measured 2026-08-31 →
 `benchmarks/results/purelean-async-tcp-2026-08-31.txt` §5). The straightforward
 alternative is a helper the loop prints through, but the lines a reader waits for
-during a pass are the *build's* own, printed by `runBuild` and everything under it;
+during a pass are the *build's* own, printed by `buildOne` and everything under it;
 replacing the stream is what reaches those without a flush at each of them. What
 would falsify it: a buffering-mode setter in core, which would make this one call. -/
 private def lineFlushed (s : IO.FS.Stream) : IO.FS.Stream :=
@@ -306,7 +333,8 @@ private def lineFlushed (s : IO.FS.Stream) : IO.FS.Stream :=
     write := fun bytes => do s.write bytes; s.flush
     putStr := fun text => do s.putStr text; s.flush }
 
-def watchRun (r : BuildRequest) (port : UInt16) (interval : Nat) : BuildM Unit := do
+def watchRun (r : BuildRequest) (hashUrls : Bool) (port : UInt16)
+    (interval : Nat) : BuildM Unit := do
   discard <| IO.setStdout (lineFlushed (← IO.getStdout))
 
   -- Pinned here, once, and never derived again — see `Trigger`.
@@ -342,8 +370,9 @@ def watchRun (r : BuildRequest) (port : UInt16) (interval : Nat) : BuildM Unit :
 
   let trigger : Trigger :=
     { ledger := request.layout.ledger, ir := request.layout.ir
-      linkIndex := request.linkIndex, sourceUrl
-      externalLinks := request.external.digest, root := request.root, libs }
-  runLoop request trigger interval port { quietSince := ← IO.monoNanosNow }
+      linkIndex := request.layout.linkIndex, sourceUrl
+      externalLinks := request.external.digest, root := request.root
+      config := request.configSource, libs, concurrency := request.jobs }
+  runLoop { request, hashUrls } trigger interval port { quietSince := ← IO.monoNanosNow }
 
 end Litedoc4

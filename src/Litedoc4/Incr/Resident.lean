@@ -12,7 +12,7 @@ lake env <extract> <modules.txt> <events.jsonl> --equations --refs
 
 # The request channel is a pipe
 
-The server's loop ends on EOF (`Extract.lean:2747`), and the channel is the
+The server's loop ends on EOF (`serve` in `Extract.lean`), and the channel is the
 child's **stdin pipe**, held in a reference cell for as long as the server is
 wanted. Lean has no explicit close for a handle, so emptying the cell drops the
 last reference and the finaliser closes the fd. What that buys:
@@ -47,8 +47,8 @@ and after every request.
 
 1. **`--ir-dir` is required at start-up even though every request overrides it**
    (measured 2026-08-15): the extractor refuses `--write-ir` without one
-   (`Extract.lean:2778-2782`), while a request's third field replaces it
-   (`Extract.lean:2753`). The value passed here names nothing that is written.
+   (`serve` in `Extract.lean`), while a request's third field replaces it
+   (`serve` in `Extract.lean`). The value passed here names nothing that is written.
 2. **stderr is inherited, exactly as the one-shot path inherits it.** A Lean
    error has to reach the caller, and the two extraction paths have to be
    diagnosable the same way. -/
@@ -94,7 +94,7 @@ def refuseInside (container : FilePath) (containerFlag : String) (candidate : Fi
 
 /-- Everything the server is started with. `modulesFile` is the **superset** it
 imports — whatever a request asks for later has to be inside it, because a
-resident environment is never grown (`Extract.lean:2707-2714`). -/
+resident environment is never grown (`serve` in `Extract.lean`). -/
 structure Serve where
   bin : FilePath
   lake : FilePath
@@ -121,6 +121,9 @@ structure Serve where
   too: a token that changed between two requests of one server would describe two
   different maps in one file. -/
   linkIndexKey : Option String := none
+  /-- `<target>/litedoc4.toml`'s `no_equations_under`. -/
+  noEquationsUnder : Array String := #[]
+  writeReuseKeys : Bool := false
 
 /-- The oleans of one module list, as Lake's own content hashes.
 
@@ -171,7 +174,7 @@ def stale (moved : Array String) (when : String) : UInt32 × String :=
   let more := if rest > 0 then s!" and {rest} more" else ""
   (3, s!"the oleans moved {when}: {moved.size} module(s) — {", ".intercalate named}{more}. The \
     resident extractor imported the world as it was at the head of this run and Lean cannot swap \
-    one module out of an imported environment (`Extract.lean:2716-2721`), so every answer it has \
+    one module out of an imported environment (`serve` in `Extract.lean`), so every answer it has \
     given since is about the old world. Re-run after the build that is in flight has finished")
 
 /-! ## The extraction's shared parts -/
@@ -198,10 +201,15 @@ so its absence is not an error. -/
 def clearEvents (events : FilePath) : IO Unit :=
   discard <| (IO.FS.removeFile events).toBaseIO
 
-/-- The whole command line an extraction is started with, after `lake env`.
+def outputFlags (noEquationsUnder : Array String) : Array String :=
+  if noEquationsUnder.isEmpty then fixedFlags
+  else fixedFlags ++ #["--no-equations-under", ",".intercalate noEquationsUnder.toList]
 
-**One spelling for both extraction paths.** `litedoc4 extract` runs it once and
-`Serve.startArgv` appends `--serve` to it; written twice, one path's flag order
+/-- The extractor's own command line, after the binary.
+
+**One spelling for every extraction path.** `litedoc4 extract` runs it once,
+`Serve.startArgv` appends `--serve` to it, and `build --versions` hands it to
+`reader extract` for a version filled through the reader; written twice, one path's flag order
 or one path's `--link-index-omit` could move while the other stood still, and the
 two records of the same run would stop being comparable — which is the whole
 reason `eventsBeside` is shared too.
@@ -214,11 +222,12 @@ Split out of the spawn for the reason `Serve.startArgv` was: which flags an
 extraction is given is a decision about its inputs, and inside `IO.Process.spawn`
 it could only be asked by running Lean against a real package. What would falsify
 the split: a flag whose value has to be read off disk here. -/
-def extractArgv (bin modules events irDir : FilePath) (jobs : Nat)
+def extractorArgs (modules events irDir : FilePath) (jobs : Nat)
+    (noEquationsUnder : Array String)
     (linkIndex linkIndexOmit : Option FilePath) (linkIndexKey : Option String) :
     Array String := Id.run do
-  let mut args := #["env", bin.toString, modules.toString, events.toString]
-  args := args ++ fixedFlags
+  let mut args := #[modules.toString, events.toString]
+  args := args ++ outputFlags noEquationsUnder
   args := args ++ #["--jobs", toString jobs, "--ir-dir", irDir.toString]
   if let some map := linkIndex then
     args := args.push "--link-index" |>.push map.toString
@@ -227,6 +236,13 @@ def extractArgv (bin modules events irDir : FilePath) (jobs : Nat)
     if let some key := linkIndexKey then
       args := args.push "--link-index-key" |>.push key
   return args
+
+def extractArgv (bin modules events irDir : FilePath) (jobs : Nat)
+    (noEquationsUnder : Array String)
+    (linkIndex linkIndexOmit : Option FilePath) (linkIndexKey : Option String) :
+    Array String :=
+  #["env", bin.toString] ++
+    extractorArgs modules events irDir jobs noEquationsUnder linkIndex linkIndexOmit linkIndexKey
 
 /-- The modules an extraction was asked for. Blank once trimmed, or *starting*
 with `#` untrimmed — the asymmetry is deliberate, because this count is compared
@@ -239,7 +255,7 @@ def countModuleLines (listed : String) : Nat :=
 one event shape that carries no clock.
 
 **Not a `Float`**: Lean has no shortest-round-trip printer, and these numbers are
-copied through verbatim by `incremental --timings`, so a value written once and
+copied through verbatim by whatever aggregates the record, so a value written once and
 read back has to come out as the bytes it went in as. Trailing zeros go because
 a fixed six places would print `4.542440` where the number is `4.54244`. What
 would falsify it: a `Float` printer in core that round-trips. -/
@@ -331,7 +347,7 @@ def trimEol (s : String) : String := Id.run do
 
 /-- One request line, or a refusal naming the path that cannot be sent.
 
-The protocol splits on spaces and tabs (`Extract.lean:2748`), so a path with
+The protocol splits on spaces and tabs (`serve` in `Extract.lean`), so a path with
 whitespace in it does not fail — it arrives as two shorter paths and the server
 writes an IR tree somewhere nobody named. The paths are absolute because the
 server's working directory is the target. -/
@@ -341,7 +357,7 @@ def requestLine (paths : Array FilePath) : BuildM String := do
     let text := (← absolutePath path).toString
     if text.toList.any (fun c => isWhiteSpaceCp c.val) then
       throw (3, s!"the resident extractor's protocol is one space-separated line per request \
-        (`Extract.lean:2748`), so a path with whitespace in it cannot be sent: {text}")
+        (`serve` in `Extract.lean`), so a path with whitespace in it cannot be sent: {text}")
     if !line.isEmpty then line := line.push ' '
     line := line ++ text
   return line.push '\n'
@@ -396,8 +412,9 @@ is in `renderKey`.
 `--serve` is last because everything before it is configuration; a flag appended
 after it would be read as the serve loop's argument. -/
 def Serve.startArgv (s : Serve) : Array String :=
-  (extractArgv s.bin s.modulesFile s.eventsPath s.unusedIrPath s.jobs
-    s.linkIndex (some s.modulesFile) s.linkIndexKey).push "--serve"
+  (extractArgv s.bin s.modulesFile s.eventsPath s.unusedIrPath s.jobs s.noEquationsUnder
+    s.linkIndex (some s.modulesFile) s.linkIndexKey
+    ++ (if s.writeReuseKeys then #["--write-reuse-keys"] else #[])).push "--serve"
 
 def Server.start (s : Serve) : BuildM Server := do
   IO.FS.createDirAll s.work

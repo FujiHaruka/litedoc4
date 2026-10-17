@@ -1,0 +1,1299 @@
+The key pass by component, and whether the reprinted set's equation cost is selection or amortization
+=====================================================================================================
+Date: 2026-10-06. Context: docs/multiversion/plan.md D7 (decided 2026-10-06: all versions from nothing, differential,
+in one process) and U9 (the reader, the hybrid, print reuse). The two large items of a patched version are the key pass
+(97 s on the M1) and reprinting (111 s for 17.5% of declarations) - benchmarks/results/mathlib-environment-patch-2026-10-05.txt
+(the "patch log"), round R1. A design memo (not in the repository) proposed an incremental key pass with carried memos
+("Option 1": 10-20 s on the M1, theoretical) and asked two experiments first: E1 (where the key pass's time is, and
+whether it is in parts a memo can carry) and E2 (whether the reprinted 17.5% take 59% of the equation time because they
+are the expensive declarations, or because the full run amortized shared work). The programs are the patch log's
+(patchrun: the reader, the hybrid assembly, the patch, the seamed extractor, the print key G7 with the own record) with
+probes added under CODE. A measurement in scratch Lake projects on this M1; nothing in src/ or extractor/ was changed.
+
+QUESTIONS
+---------
+(E1) Profile `keysPar`, the key pass of the patch path, by component: records of the shown constants, name resolution,
+     the declaration's own skeleton and hashes, assembly. Count calls per component, the distinct (namespace, constant)
+     resolution pairs, how often the resolution memo resets at its 1,000,000 cap, the distribution of |S(d)| (constants
+     shown per declaration), and how many alias / namespace entries change between v4.31.0 and v4.32.0. From the
+     numbers: what can Option 1 reach (theoretical), and does its kill condition fire ("if the key pass is dominated by
+     skeleton hashing, which no memo carries, Option 1's 10-20 s is wrong")?
+(E2) One patch process, R0 v4.31.0 full, R1 v4.32.0 with reuse, profiled per declaration. For the declarations R1
+     reprints that also exist in v4.31.0, compare their equation cost in R0 and in R1. Split equation time into
+     generation and printing in a full run (earlier full runs recorded `eqGenUs 0`: why?).
+
+HEADLINE
+--------
+(E1) The key pass is dominated by name resolution, not by skeleton hashing; the kill condition does not fire
+    (measured, 1 thread, v4.32.0 keyed after v4.31.0, 566,246 candidates, 125.05 s of keyed time with the probe on):
+      name resolution (memo misses)                      65.60 s  52.5%   1,835,548 computations, 5,672,494 resolveGlobalName calls
+        of which getRevAliases                            0.04 s   0.0%
+      the declaration's own skeleton (type + value)      18.87 s  15.1%   566,246 declarations
+      the declaration's own record (not memoised)        16.15 s  12.9%   454,101 computations
+      memo lookups + aggregation                          8.90 s   7.1%   11.4 M lookups
+      records of shown constants (memo misses)            8.07 s   6.5%   173,301 computations
+      rest (toIO, find?, G7 fold)                         5.54 s   4.4%
+      other own parts (eqnData, members, shown set)       1.92 s   1.5%
+    v4.31.0 alone gives the same picture (109.37 s: resolution 52.6%, own skeleton 15.7%, own record 13.7%).
+    The resolution memo is not the problem: 1,811,891 distinct pairs (1,779,972 for v4.31.0); one reset in the 1-thread
+    run and none in any thread of the 4-thread run (each thread ~720,000 misses, under the cap); 23,657 recomputations
+    after the reset (~0.8 s). `getRevAliases`, the whole-state fold Option 1a proposed to memoise, costs 0.04 s.
+    |S(d)|: mean 9.62, median 8, p90 17, p99 34, max 317 (RCLike); sum 5,444,675; |spaces(d)| mean 1.016.
+    Between the versions: records 146,798 same, 22,321 changed, 4,182 new, 1,949 removed (of 173,301); resolution values
+    1,759,318 same, 86 changed, 52,487 new, 20,568 removed (of 1,811,891); alias pairs in the environment 649 -> 640 (+9,
+    -18), decoded alias entries 637 -> 633 (+14, -18); namespaces 26,198 -> 30,023 (+4,410, -585), which name resolution
+    does not read (Lean v4.34.1's resolveGlobalName never calls isNamespace).
+    Four threads do not scale (measured): per unit of work a thread costs 1.6-1.9x a lone thread for records and the
+    declaration's own parts and 3.35x for resolution, on top of the duplicated work (records 1.94x, resolutions 1.58x).
+    Marking the environment persistent (no reference counting; the environment then leaks) took the 4-thread pass from
+    126.2 / 133.1 s to 74.7 s; 1 thread persistent 118.0 s. Reference counting on the shared environment accounts for
+    R1's penalty (R0, non-persistent, was already 75.2 s); duplicated records do not. A per-unit cost of ~1.8x at 4
+    threads survives persistence (74.7 s x 4 against 118.0 s x 1.38 of duplicated work), cause not measured.
+    What Option 1 could reach (theoretical, from the 1-thread components; CPU, then 4-thread wall at the measured
+    1.6-1.9x per-unit cost): 1a alone (shared memo, no carry) ~54-96 s wall, not the memo's 25-30 s; 1a+1b (carried
+    memos, every declaration's own part recomputed) ~41 s CPU, ~16-19 s wall; 1a+1b+1c (only the declarations whose
+    inputs changed: 161,006, 28.4%) ~23 s CPU, ~9-11 s wall. Both carried figures take the lower bound for resolution
+    recomputation (the 52,573 pairs whose value is new or changed); if invalidation re-resolved every pair, they grow by
+    up to 64 s of CPU. The 10-20 s of the memo is reachable, and what decides it is how tight the resolution
+    invalidation is, not skeleton hashing.
+(E2) Selection, not amortization (measured, within one process). In R0 alone, the 12,114 declarations with equation
+    lemmas that R1 reprints are 21.7% of the 55,923 with lemmas and carry 54.9% of R0's equation time (246.7 of 449.3 s;
+    59.9% of generation). Per declaration, the same 12,105 declarations cost the same in both rounds: generation 148.6 s
+    in R0 and 151.2 s in R1 (x1.02), equations in total x1.14, while the control - their signature printing, the same
+    work in both rounds - took x1.83 (the machine was slower in R1, see CONDITIONS). Lemma counts equal for 12,164 of
+    12,169. The skew is a heavy tail: the reprinted set's 10 heaviest declarations carry 246.2 of its 442.0 s in R0;
+    Mathlib.Tactic.* alone is 655 reprinted declarations with 298.7 s (reused ones there: 1,248 with 19.0 s).
+    The generation / printing split (measured for the first time per declaration and on the patch path): of R0's 650.4 s
+    of equation time, the 55,923 declarations with lemmas take 449.3 s - generation 248.1 s (55%), printer steps 191.2 s
+    (43%), the rest 10.1 s - and 83 declarations without a lemma (79 counted equation failures) take 201.1 s, 31% of all
+    equation time, which the probe does not split. 64 of those 83 are in R1's reprinted set and fail again there.
+    Why full runs recorded `eqGenUs 0`: the generation clock exists only inside the pretty-print probe, which runs only
+    with --pp-breakdown (--decl-profile switches it on); production runs pass neither. The probe is not broken: the
+    levers log's profiled hybrid run of v4.31.0 recorded the split (eqGenUs 100,618,270 of eqUs 245,146,738) and it was
+    never reported. What was missing was a per-declaration split; it is added (CODE).
+
+CONDITIONS
+----------
+- Hardware: Apple M1 (4 performance + 4 efficiency cores), 16 GiB, macOS 26.6.2. One heavy process at a time. Other desktop
+  applications running (not controlled): several browsers and chat clients held ~12 GB in the system compressor.
+- Versions as in the patch log: v4.31.0 (Lean 68218e876d2a, Mathlib fabf563a7c95) in <old-workspace>, read-only; v4.32.0
+  (Lean 8c9756b28d64, Mathlib 81a5d257c8e4) in <v4.32.0-workspace>; printer Lean 4.34.1 (5045d0056413), Mathlib v4.34.1
+  (d13f23b723b8) in <new-workspace>. Module sets: 8,170 (closure 10,583) and 8,265 (closure 10,406).
+- E1 process (keys only, PATCH_STOP=keys, decode on 4 threads): 1,232.34 s wall, 3,220.17 s user, 74.07 s sys, maximum
+  resident set 6.79 GB, peak footprint 7.21 GB; footprint at round end 5.50 GB (R0), 6.98 GB (R1); the process had
+  3.35 GB compressed on average (max 5.24 GB; 5-s sampler); swap 3.21 GB before, 3.11 GB after. No extraction runs in a
+  keys-only process, so R1's key pass does not follow an extraction as it does in the patch log's R1.
+- E2 process (two rounds as the patch log's first two: v4.31.0 full, v4.32.0 with G7 reuse, decode 1 thread, 4 jobs,
+  --equations --refs --write-ir --tagged-code --link-index, plus --decl-profile): 2,462.80 s wall, 4,919.07 s user,
+  250.40 s sys, maximum resident set 7.62 GB, peak footprint 9.84 GB (patch log: 10.08); footprint at round end 7.58 GB
+  (R0) and 8.62 GB (R1) (patch log: 7.45 / 8.49). The machine kept only 1.8-3.3 GB of it resident at the phase
+  snapshots and the process had 6.25 GB compressed on average (max 8.49 GB); swap 3.09 GB before, 4.04 GB after.
+  Extraction took 1,061.8 s in R0 and 750.5 s in R1 against the patch log's 241.2 / 111.1 s: every absolute time of E2
+  is inflated by the compressor, unevenly between rounds (signature printing of the same declarations x1.83 in R1).
+  Only ratios within the run are read in E2; no E2 time is a product figure.
+- Warm / cold: not separated; one run of each process (the E1 variants inside it are repeated, see E1 TIMES).
+- Sampling: every program ran first on the patch log's 20-module sample (closures 3,172 / 3,032 modules), both
+  experiments: keys of every probed variant equal to the unprobed one; sample IR equal to the from-scratch references
+  in both rounds. Analysis scripts ran on 20 records first.
+
+E1 - WHAT WAS RUN
+-----------------
+One process, PATCH_STOP=keys, rounds v4.31.0 then v4.32.0. In each round `keysPar` ran several times over the same
+environment ("variants"), the first unprobed, every later one checked against it:
+  R0 v4.31.0: plain 4 threads, probe 1 thread, probe 4 threads, plain 4 threads
+  R1 v4.32.0: plain 4, probe 4, probe 1, plain 4, then the environment marked persistent (Runtime.markPersistent,
+              11.9 s), plain 4, plain 1
+The probe (CODE: KStats / KProbe in PrintKey.lean) times each component with two clock reads and pins every timed pure
+value (a pure `let` is otherwise sunk past the clock read; the extractor's `pin`). The 1-thread probe variant also keeps
+every resolution value uncapped, the records, and one row per declaration (|S|, |spaces|, component times, own hash, SN,
+SRES, G7, G7+own) and, in R1, flags each declaration whose shown records or resolution values differ from R0's.
+
+THE OUTPUT CHECK (E1)
+---------------------
+- Every variant's keys were written sorted, hashed and compared with the first variant's map in the process, both
+  directions (measured): R0 all 4 variants sha256 5c565ebd98767f655c8e885baaa69d20733d57257968279c4f60532a8447187d
+  (557,366 lines), differing or missing 0; R1 all 6 variants 596a00d6242d20724fccc4ba20f561bb62794dfcbbb5a6729aeb8db3e0f3a2b6
+  (566,246 lines), 0. The same R0 hash came out of two other processes (the failed run under WHAT FAILED and a
+  diagnostic run), so it is stable across processes.
+- There were no key hash lists from the patch log on disk (only IR hash lists). The cross-process anchor is E2's R1,
+  which runs the probe-carrying binary with the probe off: G7 equal 260,835 and G7+own equal 260,544 of the 311,345
+  previous outputs, the patch log's numbers exactly (measured).
+- Across all candidates (not only produced declarations): 554,151 in both versions, G7 equal 460,155, G7+own equal
+  459,586 (measured).
+
+E1 TIMES (measured; wall of each keysPar call, seconds)
+-------------------------------------------------------
+  variant                         R0 v4.31.0        R1 v4.32.0
+  plain, 4 threads (first)          75.2             126.2
+  probe, 1 thread                  111.9             127.9
+  probe, 4 threads                  83.3             120.0
+  plain, 4 threads (again)          91.7             133.1
+  plain, 4 threads, persistent        -               74.7
+  plain, 1 thread, persistent         -              118.0
+  The patch log's key pass: R0 74.4 s, R1 97.1 s (4 threads, after an extraction); the consecutive log's 1-thread pass
+  100-104 s (persistent environment). The probe's own cost is not separated (no unprobed 1-thread run on the
+  non-persistent environment); its clock reads are inside the keyed times below.
+
+E1 COMPONENTS (measured, seconds of thread time; probe on)
+-----------------------------------------------------------
+  component                                   R0 1 thread  R1 1 thread   R0 4 threads  R1 4 threads (summed)
+  own: name + type hash                            0.01        0.01          0.02          0.02
+  own: members                                     0.14        0.29          0.25          0.40
+  own: skeleton of the type (+ members)           15.06       16.45         22.98         30.58
+  own: stored equations (eqnData)                  0.72        0.85          1.67          2.02
+  own: skeleton of the value (+ equations)         2.07        2.42          3.73          4.86
+  shown set, sort, namespaces                      0.71        0.78          0.99          1.35
+  records of shown constants (memo misses)         7.18        8.07         19.34         25.26
+  own record (keysPar, not memoised)              15.00       16.15         26.05         34.44
+  resolutions (memo misses)                       57.53       65.60        230.95        347.53
+    getRevAliases                                  0.04        0.04          0.08          0.12
+    resolveGlobalName loop                        57.49       65.56        230.87        347.42
+  memo lookups + aggregation                       7.73        8.90         10.95         14.66
+  rest (toIO, find?, G7 fold)                      3.22        5.54          4.47          5.81
+  keyed total                                    109.37      125.05        321.41        466.94
+  Inside every record computed (memo misses and own records; R1 1 thread, 23.72 s): type, skeleton and shape 16.52,
+  value hashes 5.05, structure layouts 0.35, the rest (projection, coercion, instance, pp, matcher, class, protected)
+  1.80.
+  Counts (R1, 1 thread / 4 threads summed): records computed 173,301 / 335,706, hits 5,271,374 / 5,108,969; own records
+  computed 454,101 / 509,959; resolutions computed 1,835,548 / 2,898,824, hits 4,137,116 / 3,073,840; resets 1 / 0;
+  recomputed after a reset 23,657 / 0; resolveGlobalName calls 5,672,494 / 8,884,345 (~3.1 per pair); reverse aliases
+  found 49,109 / 77,412. Distinct pairs 1,811,891 and distinct records 173,301 in both variants. R0: records 171,068,
+  resolutions 1,803,697 computed of 1,779,972 distinct, 1 reset, 23,725 recomputed.
+  Per unit, 1 thread: a record 46.6 us, a resolution 35.7 us (11.6 us per resolveGlobalName call), a declaration's own
+  parts 35.4 us (skeleton of the type 29.1 us). The same per unit at 4 threads (thread time): x1.62, x3.35, x1.89, x1.86.
+  R0: x1.39, x2.54, x1.59, x1.53.
+
+|S(d)| AND THE NAMESPACES (measured, per candidate declaration)
+--------------------------------------------------------------
+  R1 (566,246): mean 9.62, median 8, p90 17, p99 34, max 317; sum 5,444,675.
+    0: 93 | 1: 1,627 | 2-4: 77,618 | 5-9: 273,034 | 10-19: 179,053 | 20-49: 33,635 | 50-99: 1,058 | 100-199: 115 | 200-499: 13
+    largest: RCLike 317, ConditionallyCompleteLinearOrderedField 297, DenselyNormedField 256, NontriviallyNormedField 255,
+    CommCStarAlgebra 254 (structures and classes: S(d) includes every ancestor and projection)
+  R0 (557,366): mean 9.61, median 8, p90 17, p99 34, max 309; sum 5,356,403.
+  |spaces(d)| (the declaration's namespace plus its members'): mean 1.016, max 71; 562,218 have one. Resolution lookups
+  (sum |S| x |spaces|) 5,972,664 in R1. The shown-by index Option 1c needs is ~5.4 M entries (its premise assumed ~5 M).
+
+WHAT CHANGES BETWEEN THE VERSIONS (measured, R1 against R0)
+-----------------------------------------------------------
+- Records (all 17 fields compared): 146,798 same, 22,321 changed, 4,182 new, 1,949 removed. Changed by field: type
+  17,289, type as shown 11,776, value 10,464, auxiliary value 3,465, shape 2,055, reducible value 1,737, projection's
+  structure layout 525, universe names 270, matcher 194, projection 65, reducibility 35, structure 32, instance 27,
+  coercion 2, class 1, protected 1, pp 0.
+- Resolution values: 1,759,318 same, 86 changed, 52,487 new pairs, 20,568 gone. Almost all resolution work a carried
+  memo would redo is for pairs that did not exist before, not for values that moved.
+- Aliases: the environment's alias state 647 names / 649 pairs -> 638 / 640 (+9 pairs, -18); decoded alias entries
+  637 -> 633 distinct pairs (+14, -18). Namespaces 26,198 -> 30,023 (+4,410, -585); not an input of the resolution
+  component (read in v4.34.1: resolveGlobalName goes through resolveUsingNamespace / resolveExact / aliases / private
+  names / containsDeclOrReserved, never isNamespace).
+
+WHICH DECLARATIONS A CARRIED PASS WOULD RECOMPUTE (Option 1c; measured on R1, 1 thread)
+---------------------------------------------------------------------------------------
+  input changed                                       declarations
+  new declaration                                         12,095
+  own hash (N T TS V VS E) differs                        67,268
+  shown set (SN) differs                                  23,387
+  a shown constant's record differs (any field)          125,566
+  a resolution value differs or is new                    21,978
+  own record differs (seen through the own key only)         569
+  union                                                  161,006  (28.43%)
+  key-different: G7 106,091, G7+own 106,660; key-different declarations outside the union: 0 (every key change is
+  explained by a flagged input - a weak, one-round version of the check mode Option 1 asks for).
+  81,310 are flagged only through a changed record, because records are compared on all 17 fields while G7 reads 10 of
+  them (the type field alone changed for 17,289 records). Comparing records on the key's fields only would move the
+  union toward the 106,660 key-different declarations (theoretical; not computed).
+
+OPTION 1, WHAT IT COULD REACH (theoretical; premises listed)
+------------------------------------------------------------
+Premises: R1's 1-thread probe components (v4.31.0 -> v4.32.0, non-persistent environment, M1); a record costs 46.6 us
+and a resolution 35.7 us as measured; the per-declaration part (the keyOf time of a declaration minus the record and
+resolution computations it happened to trigger) is 35.23 s over all declarations and 13.65 s over the union above; own
+records 16.15 s over all, 6.15 s over the union; four threads give a speed-up of 4 / (1.6-1.9) = 2.1-2.5 when no work is
+duplicated (the measured per-unit cost of records and own parts at 4 threads); invalidation bookkeeping costs nothing
+(not measured).
+- Today: 126-133 s (4 threads, non-persistent, this process), 97.1 s in the patch log's R1.
+- 1a, shared memos with no cap, nothing carried: CPU 125.05 - 0.84 s of reset recomputation = ~124 s. Removing the
+  duplicated work divides the 4-thread wall by ~1.38 (records x1.94 on 6.5%, own records x1.12 on 12.9%, resolutions
+  x1.58 on 52.5% of the work): ~91-96 s non-persistent, ~54 s if the environment were persistent. The memo's 25-30 s
+  for 1a assumed linear scaling, which the measurement contradicts.
+- 1a + 1b, records and resolutions carried, every declaration's own part recomputed: 35.23 + 2.47 (own records at the
+  record change rate, 15.3%) + 1.24 (26,503 records new or changed) + 1.88 (52,573 resolutions new or changed) =
+  ~40.8 s CPU, ~16-19 s wall at 4 threads. Upper end if resolution invalidation re-resolved every pair: +63.7 s CPU.
+- 1a + 1b + 1c, only the union recomputed: 13.65 + 6.15 + 1.24 + 1.88 = ~22.9 s CPU, ~9-11 s wall at 4 threads;
+  ~23 s on one thread.
+- The kill condition does not fire: the declaration's own skeleton is 15.1% of the pass (R1) and all own parts 16.0%.
+  What Option 1 cannot carry without 1c is the per-declaration part as a whole (35.2 s, 28%: skeletons, lookups,
+  aggregation, the rest). What decides whether 1b lands near its lower bound is the resolution invalidation: its probe
+  set is an over-approximation of the 52,573 pairs that actually need recomputing, by an unmeasured factor.
+- Contention is a lever of its own: the same pass on a persistent environment is 74.7 s instead of 126-133 s (4
+  threads). The patch path needs a freeable environment, so this is not available as measured. It removes R1's
+  penalty over R0, not the ~1.8x per-unit cost of 4 threads, which remains after it (cause not measured).
+
+E2 - WHAT WAS RUN
+-----------------
+One patch process over two rounds, the patch log's first two (R0 v4.31.0 full; R1 v4.32.0, G7 reuse), with
+--decl-profile, which writes one record per candidate per round (wall time, signature print time, equation time and,
+new here, its generation and printer-step parts). A declaration is "reprinted in R1" when R1 printed its signature
+(ppNs > 0): 55,390, the patch log's count; 260,835 reused.
+
+THE OUTPUT CHECK (E2)
+---------------------
+- R0: 8,181 of 8,181 IR files and the link index equal the v4.31.0 hybrid reference (measured).
+- R1: 8,274 of 8,276 IR files equal the from-scratch v4.32.0 reference, link index equal; the two files are index.json and
+  Mathlib.MeasureTheory.VectorMeasure.Basic, the patch log's known G7 hole (MeasureTheory.VectorMeasure.measureOf',
+  closed by the own record; R1 runs G7 here to reproduce the 55,390 reprints) (measured).
+- Keys: G7 equal 260,835, G7+own 260,544, G7-equal but own-different 291 - the patch log's numbers (measured).
+- Realization map of imported constants: 60,943 entries after R0, 19,968 after R1 (patch log: 60,943 / 19,968).
+
+E2 RESULTS (measured, thread-summed seconds inside one process; absolute values inflated, see CONDITIONS)
+----------------------------------------------------------------------------------------------------------
+- Equation time: R0 650.4 s (signature 970.1 s), 58,374 lemma sets; R1 463.1 s (signature 384.0 s). Patch log, same
+  rounds without the probe and without memory pressure: 254.3 s and 151.2 s.
+- Split, R0: declarations with lemmas (55,923) 449.3 s = generation 248.1 + printer steps 191.2 + rest 10.1; declarations
+  with equation time and no lemma (83; the run counts 79 equation failures) 201.1 s, of which the probe attributes 1.6 s
+  to generation and 0.1 s to printing. R1: with lemmas (13,098) 294.4 s = 156.7 + 132.2 + 5.5; no lemma (65) 168.7 s.
+- Selection, R0 alone: the 50,064 reprinted declarations that exist in v4.31.0 are 16.1% of R0's produced declarations and
+  carry 68.0% of R0's equation time (442.0 of 650.4 s), against 17.2% of its signature time. Without the no-lemma
+  declarations: 12,114 of 55,923 (21.7%) carry 54.9% (246.7 of 449.3 s) and 59.9% of generation. 64 of the 83 no-lemma
+  declarations are in the reprinted set (195.3 s in R0) and 64 of R1's 65 failed in R0 too.
+  Per declaration with equations (R0): reprinted mean 36.29 ms, median 3.48, p90 22.12, p99 236.08 (12,178); reused mean
+  4.75 ms, median 2.46, p90 8.36, p99 28.76 (43,828). The heaviest 10 / 100 / 1,000 of the reprinted set carry 246.2 /
+  320.5 / 386.7 of its 442.0 s.
+  By name: Mathlib.Tactic.* 655 reprinted, 298.7 s (1,248 reused, 19.0 s); Mathlib.Meta.* 328 reprinted, 48.4 s (192
+  reused, 7.2 s); everything outside meta-code prefixes 10,884 reprinted, 72.2 s (41,945 reused, 176.9 s). The reprinted
+  set is rich in meta code - definitions whose equations are long to generate or fail - which the v4.31.0 -> v4.32.0
+  change in the Lean core they show made key-different (inferred from the prefixes; not traced per declaration).
+- Amortization, per declaration, the 12,105 reprinted declarations with lemmas in both rounds:
+      field                      R0        R1      R1/R0 (sums)
+      equations (eqNs)        246.7 s   281.0 s     1.139
+      generation (eqGenNs)    148.6 s   151.2 s     1.018
+      printer steps (eqPpNs)   94.0 s   124.6 s     1.326
+      signature (ppNs)         27.8 s    51.0 s     1.831
+  and over the 12,169 with equation time in both rounds (failures included): equations x1.017, median 1.930 (0.823-3.616);
+  generation x1.018, median 1.782 (0.765-3.521); printer steps x1.325, median 1.982 (0.855-3.884); signature x1.824,
+  median 1.972 (0.949-3.632). Equation work costs no more per declaration in the reuse round than in the full round,
+  against a machine that was ~1.8-2x slower in R1 on the control; the amortization hypothesis predicts R1 above the
+  control and it is at or below it. The same lemma count in both rounds for 12,164 of 12,169.
+- Verdict: selection. Only fewer reprints or cheaper equations shrink the reprinted set's equation time; pre-realizing
+  shared auxiliaries is not a lever (the memo's Option 2 alternative). A lever the memo did not list: 83 declarations
+  without a lemma take 31% of all equation time in R0 and 36% in R1, and fail the same way every round.
+
+WHAT FAILED, AND WHY
+--------------------
+1. The first full E1 run took 14,564 s (4 h) and its times were thrown away. Moving the per-thread output arrays of
+   keysPar into a loop that also carried the probe's rows made the arrays shared at every push, so every push copied the
+   array: quadratic in the declarations per thread. 1-thread variants took up to 3,586 s, the unprobed ones 351-2,028 s.
+   On the 20-module sample the copies cost 8 ms and were invisible; on the full data the time outside the probe's clocks
+   (3,400 s of a 3,583 s task) showed it. Fixed by holding both arrays in references; a diagnostic run then gave 71.9 s
+   (4 threads) and 108.3 s (1 thread) on v4.31.0 with the same key hash. The broken run also ran under heavy
+   compression (mean 4.6 GB of the process compressed). Its counts (pairs, records, deltas) equal the rerun's.
+2. The probe does not split the 201 s of the 83 no-lemma declarations: its generation clock is read only when
+   getEqnsFor? returns, and these throw (inferred: the time is generation that fails). Not fixed in this run.
+3. E2 ran under memory pressure the patch log did not have (see CONDITIONS); its absolute times are not usable as
+   product figures, only its within-run ratios.
+
+WHAT IS NOT MEASURED
+--------------------
+- The resolution invalidation's real recompute set (Option 1b): only its lower bound (52,573 pairs) and upper bound
+  (all 1,811,891) are known. Building the probe-name index of the memo and counting is E4's work.
+- The 1c union with records compared on the key's fields only.
+- The probe's own overhead at 1 thread (no unprobed 1-thread run on a non-persistent environment).
+- Why R1's unprobed 4-thread pass (126-133 s) is slower than R0's (75-92 s) in the same process; the persistent run
+  says it is reference counting, not which objects.
+- Whether 4 threads land on efficiency cores (M1: 4 + 4); `.dedicated` threads are not pinned.
+- The key time spent on candidates the extractor then blacklists: the key pass keys all 566,246 candidates, 316,225 are
+  produced; the per-declaration rows that would answer it were deleted.
+- The split of the no-lemma declarations' equation time; equation time on a machine without memory pressure.
+- A patch pair, other minor pairs, the runner.
+
+HOW IT WAS RUN
+--------------
+  cp <scratch>/hybrid/{*.lean,lakefile.lean,lean-toolchain,lake-manifest.json} <scratch>/src/patch-log/   # the patch log's state
+  # the probes (CODE), then
+  cd <scratch>/hybrid && lake build patchrun
+  # E1, sample then full; rounds = the patch log's sample / full rounds 1-2 (full: decode on 4 threads)
+  PATCH_STOP=keys KEYPROF_PLAN_R0=plain:4,prof:4,prof:1 KEYPROF_PLAN_R1=plain:4,prof:4,prof:1,persist,plain:4,plain:1 \
+    runp.sh e1s rounds-e1s.tsv 4
+  HYBRID_SNAPSHOT=snapshot.sh PATCH_STOP=keys KEYPROF_PLAN_R0=plain:4,prof:1,prof:4,plain:4 \
+    KEYPROF_PLAN_R1=plain:4,prof:4,prof:1,plain:4,persist,plain:4,plain:1 runp.sh e1 rounds-e1.tsv 4
+  python3 e1.py e1/patchrun.err e1/r0-v4310/keyrows-r0.tsv e1/r1-v4320/keyrows-r1.tsv [20]
+  # E2, sample then full; rounds = the patch log's rounds 1-2 (decode 1 thread, references h4310 / s4320)
+  EXTRA_ARGS="--decl-profile /dev/null" runp.sh e2s rounds-e2s.tsv 4
+  HYBRID_SNAPSHOT=snapshot.sh EXTRA_ARGS="--decl-profile /dev/null" runp.sh e2 rounds-e2.tsv 4
+  python3 e2.py  e2/r0-v4310/decl-profile.jsonl e2/r1-v4320/decl-profile.jsonl [20]
+  python3 e2b.py e2/r0-v4310/decl-profile.jsonl e2/r1-v4320/decl-profile.jsonl [20]
+(--decl-profile's path is replaced per round by <round dir>/decl-profile.jsonl.) Every program under /usr/bin/time -l
+with the 5-s sampler; stdout and stderr to separate files. Deleted afterwards: the R1 IR tree and link index, both
+decl-profile JSONL files, the key dumps (deleted by the program after hashing), the per-declaration key rows, the sample
+runs. Kept: the sources (<scratch>/hybrid; the previous state in <scratch>/src/patch-log; the scripts and diffs in
+<scratch>/src/e1e2), the run reports, the IR hash lists, the workspaces.
+
+CODE
+----
+=== PrintKey.lean (diff against the patch log's state)
+--- src/patch-log/PrintKey.lean	2026-10-06 07:51:13
++++ hybrid/PrintKey.lean	2026-10-06 12:07:37
+@@ -11,7 +11,76 @@
+ @[inline] def mix (h x : UInt64) : UInt64 := mixHash h x
+ 
+ def mixList (h : UInt64) (xs : List UInt64) : UInt64 := xs.foldl mix h
++
++/-! ## The key-pass probe (E1)
++
++Off unless `keysPar` is given a report ref. Every site is one `Option` test, plus two clock
++reads when on. A pure `let` is timed only behind `pinU` / `pinN`: the compiler may sink a pure
++`let` to its first use, past the next clock read (`Extract.lean`'s `pin`). -/
++
++@[noinline] def pinU (x : UInt64) : BaseIO Unit := if x == 0 then return () else return ()
++@[noinline] def pinN (n : Nat) : BaseIO Unit := if n == 0 then return () else return ()
++
++/-- Counters of one thread. Times in nanoseconds. -/
++structure KStats where
++  decls : Nat := 0
++  tTask : Nat := 0
++  tKey : Nat := 0
++  tOwnHash : Nat := 0
++  tMembers : Nat := 0
++  tSkelT : Nat := 0
++  tEqn : Nat := 0
++  tSkelV : Nat := 0
++  tVal : Nat := 0
++  tShown : Nat := 0
++  tLoop : Nat := 0
++  recHit : Nat := 0
++  recMiss : Nat := 0
++  tRec : Nat := 0
++  tRecType : Nat := 0
++  tRecValue : Nat := 0
++  tRecStruct : Nat := 0
++  tRecOther : Nat := 0
++  resHit : Nat := 0
++  resMiss : Nat := 0
++  resRecomputed : Nat := 0
++  resResets : Nat := 0
++  tRes : Nat := 0
++  tRevAlias : Nat := 0
++  revAliasFound : Nat := 0
++  resolveCalls : Nat := 0
++  ownRecMiss : Nat := 0
++  tOwnRec : Nat := 0
++  shownSum : Nat := 0
++  spacesSum : Nat := 0
++  deriving Inhabited
++
++def KStats.add (a b : KStats) : KStats :=
++  { decls := a.decls + b.decls, tTask := a.tTask + b.tTask, tKey := a.tKey + b.tKey,
++    tOwnHash := a.tOwnHash + b.tOwnHash, tMembers := a.tMembers + b.tMembers, tSkelT := a.tSkelT + b.tSkelT,
++    tEqn := a.tEqn + b.tEqn, tSkelV := a.tSkelV + b.tSkelV, tVal := a.tVal + b.tVal, tShown := a.tShown + b.tShown,
++    tLoop := a.tLoop + b.tLoop, recHit := a.recHit + b.recHit, recMiss := a.recMiss + b.recMiss, tRec := a.tRec + b.tRec,
++    tRecType := a.tRecType + b.tRecType, tRecValue := a.tRecValue + b.tRecValue, tRecStruct := a.tRecStruct + b.tRecStruct,
++    tRecOther := a.tRecOther + b.tRecOther, resHit := a.resHit + b.resHit, resMiss := a.resMiss + b.resMiss,
++    resRecomputed := a.resRecomputed + b.resRecomputed, resResets := a.resResets + b.resResets, tRes := a.tRes + b.tRes,
++    tRevAlias := a.tRevAlias + b.tRevAlias, revAliasFound := a.revAliasFound + b.revAliasFound,
++    resolveCalls := a.resolveCalls + b.resolveCalls, ownRecMiss := a.ownRecMiss + b.ownRecMiss,
++    tOwnRec := a.tOwnRec + b.tOwnRec, shownSum := a.shownSum + b.shownSum, spacesSum := a.spacesSum + b.spacesSum }
+ 
++/-- What one `keyOf` call leaves for its caller's row. -/
++structure KCur where
++  shown : Nat := 0
++  spaces : Nat := 0
++  tOwn : Nat := 0
++  tSkel : Nat := 0
++  tRecMiss : Nat := 0
++  tResMiss : Nat := 0
++  nRecMiss : Nat := 0
++  nResMiss : Nat := 0
++  recChanged : Bool := false
++  resChanged : Bool := false
++  deriving Inhabited
++
+ def biCode : BinderInfo → UInt64
+   | .default => 0 | .implicit => 1 | .strictImplicit => 2 | .instImplicit => 3
+ 
+@@ -124,10 +193,10 @@
+ 
+ /-- How the printer can abbreviate `c` inside namespace `ns`: every reverse alias and every
+ suffix, resolved as the printer resolves it. -/
+-def resolution (env : Environment) (ns c : Name) : UInt64 := Id.run do
+-  if c.hasMacroScopes then return mix 32 (hash c)
+-  let initial := (getRevAliases env c).toArray.push (rootNamespace.appendCore c)
++def resolutionFrom (env : Environment) (ns c : Name) (revAliases : List Name) : UInt64 × Nat := Id.run do
++  let initial := revAliases.toArray.push (rootNamespace.appendCore c)
+   let mut h : UInt64 := 31
++  let mut calls := 0
+   for n in initial do
+     h := mix h (hash n)
+     if n.hasMacroScopes then continue
+@@ -136,9 +205,13 @@
+     for comp in comps do
+       suffix := comp.appendCore suffix
+       let rs := ResolveName.resolveGlobalName env {} ns [] suffix
++      calls := calls + 1
+       h := mixList h ((hash suffix) :: rs.map fun (r, fs) => mix (hash r) (hash fs))
+-  return h
++  return (h, calls)
+ 
++def resolution (env : Environment) (ns c : Name) : UInt64 :=
++  if c.hasMacroScopes then mix 32 (hash c) else (resolutionFrom env ns c (getRevAliases env c)).1
++
+ /-- The declarations whose printed form makes up the members of a structure or inductive, and
+ the structures the flattened fields go through. -/
+ def memberConsts (env : Environment) (ci : ConstantInfo) : Array Name := Id.run do
+@@ -233,6 +306,7 @@
+   redValue : UInt64
+   auxValue : UInt64
+   projStruct : UInt64
++  deriving BEq
+ 
+ def recFields : List String :=
+   ["T", "TS", "SH", "LP", "RED", "PROJ", "CLS", "STR", "COE", "INST", "PP", "MAT", "PROT", "V", "RV", "AUX", "PSTR"]
+@@ -278,15 +352,61 @@
+     notStructures.modify (·.push s!"{c}\tconstructor {ctor} of {cv.induct}: prefix {ctor.getPrefix} differs from the inductive (resolved through the inductive)")
+   return h
+ 
+-unsafe def record (env : Environment) (c : Name) : CoreM Rec := do
++/-- The probe's state for one thread: counters, the resolution pairs met (to tell a recomputation
++after a reset from a first computation), optionally every resolution value (uncapped), the rows
++of the 1-thread variant, and the previous round's records and resolutions to flag against. -/
++structure KProbe where
++  stats : KStats := {}
++  seen : Std.HashSet UInt64 := {}
++  keepAll : Bool := false
++  resAll : Std.HashMap UInt64 UInt64 := {}
++  prevRecs : Option (Std.HashMap Name Rec) := none
++  prevRes : Option (Std.HashMap UInt64 UInt64) := none
++  cur : KCur := {}
++
++abbrev KProbeRef := Option (IO.Ref KProbe)
++
++@[inline] def kNow (p : KProbeRef) : BaseIO Nat :=
++  match p with
++  | none => return 0
++  | some _ => IO.monoNanosNow
++
++@[inline] def kBump (p : KProbeRef) (f : KStats → KStats) : BaseIO Unit :=
++  match p with
++  | none => return ()
++  | some r => r.modify fun s => { s with stats := f s.stats }
++
++@[inline] def pairHash (ns c : Name) : UInt64 := mix (hash ns) (hash c)
++
++unsafe def record (env : Environment) (c : Name) (probe : KProbeRef := none) : CoreM Rec := do
+   let some ci := env.find? c | let m := mix 99 (hash c); return ⟨m, m, m, m, m, m, m, m, m, m, m, m, m, m, m, m, m⟩
++  let t0 ← kNow probe
++  let type := mixList (hashExpr ci.type) [kindCode ci]
++  let skel := (hashSkel env #[ci.type]).1
++  let shape := shapeOf ci.type
++  pinU (mix (mix type skel) shape)
++  let t1 ← kNow probe
+   let red := getReducibilityStatusCore env c
+-  let proj := match env.getProjectionFnInfo? c with
+-    | some p => mixList 21 [hash p.ctorName, hash p.numParams, hash p.i, hash p.fromClass]
+-    | none => 0
++  let (v, rv) := match ci with
++    | .defnInfo d => let x := hashExpr d.value; (x, if red == ReducibilityStatus.reducible then x else 0)
++    | _ => (0, 0)
++  let aux := match ci with
++    | .opaqueInfo o => hashExpr o.value
++    | .defnInfo d => if (Match.Extension.getMatcherInfo? env c).isSome then hashExpr d.value else 0
++    | _ => 0
++  pinU (mix (mix v rv) aux)
++  let t2 ← kNow probe
+   let struct := match getStructureInfo? env c with
+     | some si => mixList 23 (si.fieldNames.toList.map hash ++ (getStructureParentInfo env c).toList.map (fun (p : StructureParentInfo) => hash p.structName))
+     | none => 0
++  pinU struct
++  let projStruct ← match env.getProjectionFnInfo? c with
++    | some p => projStructLayout env c p.ctorName
++    | none => pure 0
++  let t3 ← kNow probe
++  let proj := match env.getProjectionFnInfo? c with
++    | some p => mixList 21 [hash p.ctorName, hash p.numParams, hash p.i, hash p.fromClass]
++    | none => 0
+   let coe := match ← getCoeFnInfo? c with
+     | some cf => mix 24 (hash (reprStr cf))
+     | none => 0
+@@ -297,19 +417,16 @@
+   let matcher := match Match.Extension.getMatcherInfo? env c with
+     | some mi => mix 28 (hash (reprStr mi))
+     | none => 0
+-  let (v, rv) := match ci with
+-    | .defnInfo d => let x := hashExpr d.value; (x, if red == ReducibilityStatus.reducible then x else 0)
+-    | _ => (0, 0)
+-  let aux := match ci with
+-    | .opaqueInfo o => hashExpr o.value
+-    | .defnInfo d => if (Match.Extension.getMatcherInfo? env c).isSome then hashExpr d.value else 0
+-    | _ => 0
+-  let projStruct ← match env.getProjectionFnInfo? c with
+-    | some p => projStructLayout env c p.ctorName
+-    | none => pure 0
+-  return { type := mixList (hashExpr ci.type) [kindCode ci], skel := (hashSkel env #[ci.type]).1, shape := shapeOf ci.type,
+-           lps := hash ci.levelParams, red := redCode red, proj, cls := hash (isClass env c), struct, coe, inst, pp,
+-           matcher, prot := hash (isProtected env c), value := v, redValue := rv, auxValue := aux, projStruct }
++  let lps := hash ci.levelParams
++  let cls := hash (isClass env c)
++  let prot := hash (isProtected env c)
++  pinU (mixList proj [coe, inst, pp, matcher, lps, cls, prot, redCode red])
++  let t4 ← kNow probe
++  kBump probe fun s => { s with
++    tRecType := s.tRecType + (t1 - t0), tRecValue := s.tRecValue + (t2 - t1),
++    tRecStruct := s.tRecStruct + (t3 - t2), tRecOther := s.tRecOther + (t4 - t3) }
++  return { type, skel, shape, lps, red := redCode red, proj, cls, struct, coe, inst, pp,
++           matcher, prot, value := v, redValue := rv, auxValue := aux, projStruct }
+ 
+ structure Memo where
+   recs : Std.HashMap Name Rec := {}
+@@ -323,43 +440,132 @@
+   ["N", "T", "TS", "V", "VS", "E", "SN"] ++ recFields.map ("S" ++ ·) ++ ["SRES"]
+ 
+ unsafe def keyOf (env : Environment) (registered : NameMap (Array Name)) (memo : IO.Ref Memo) (n : Name) (ci : ConstantInfo)
+-    (resLimit : Nat := 4000000) : CoreM (Array UInt64 × Nat) := do
++    (resLimit : Nat := 4000000) (probe : KProbeRef := none) : CoreM (Array UInt64 × Nat) := do
++  let t0 ← kNow probe
+   let cN := mixList 51 [hash n, kindCode ci, hash ci.levelParams]
+   let cT := hashExpr ci.type
++  pinU (mix cN cT)
++  let t1 ← kNow probe
+   let members := memberConsts env ci
+   let memberTypes := members.filterMap fun m => (env.find? m).map (·.type)
++  pinN (members.size + memberTypes.size)
++  let t2 ← kNow probe
+   let (cTS, skelT) := hashSkel env (#[ci.type] ++ memberTypes)
+-  let (cV, cVS, cE, skelV) ← match ci with
+-    | .defnInfo v =>
++  pinU cTS
++  let t3 ← kNow probe
++  let (cV, cVS, cE, skelV, tE, tSV, tV) ← match ci with
++    | .defnInfo v => do
++      let a ← kNow probe
+       let (eh, es) := eqnData env registered n
++      pinU eh
++      pinN es.size
++      let b ← kNow probe
+       let (vs, sv) := hashSkel env (#[v.value] ++ es)
+-      pure (hashExpr v.value, vs, eh, sv)
+-    | _ => pure (0, 0, 0, {})
++      pinU vs
++      let c ← kNow probe
++      let hv := hashExpr v.value
++      pinU hv
++      let d ← kNow probe
++      pure (hv, vs, eh, sv, b - a, c - b, d - c)
++    | _ => pure (0, 0, 0, {}, 0, 0, 0)
++  let t4 ← kNow probe
+   let mut shown : NameSet := members.foldl (·.insert ·) {}
+   for c in skelT.toList ++ skelV.toList do shown := shown.insert c
+   let spaces := members.foldl (fun s m => if s.contains m.getPrefix then s else s.push m.getPrefix) #[n.getPrefix]
++  let sorted := shown.toArray.qsort Name.quickLt
++  pinN (sorted.size + spaces.size)
++  let t5 ← kNow probe
++  let flagging ← match probe with
++    | some r => pure (← r.get).prevRecs.isSome
++    | none => pure false
+   let mut names : UInt64 := 71
+   let mut agg : Array UInt64 := Array.replicate recFields.length 72
+   let mut res : UInt64 := 73
+-  for c in shown.toArray.qsort Name.quickLt do
++  let mut cur : KCur := {}
++  let mut seenRecs : Array (Name × Rec) := #[]
++  let mut seenRes : Array (UInt64 × UInt64) := #[]
++  for c in sorted do
+     let st ← memo.get
+-    let r ← match st.recs[c]? with
+-      | some r => pure r
+-      | none => do let r ← record env c; memo.modify fun s => { s with recs := s.recs.insert c r }; pure r
++    let (r, dtR) ← match st.recs[c]? with
++      | some r => do
++        kBump probe fun s => { s with recHit := s.recHit + 1 }
++        pure (r, none)
++      | none => do
++        let a ← kNow probe
++        let r ← record env c probe
++        let b ← kNow probe
++        memo.modify fun s => { s with recs := s.recs.insert c r }
++        kBump probe fun s => { s with recMiss := s.recMiss + 1, tRec := s.tRec + (b - a) }
++        pure (r, some (b - a))
++    if let some dt := dtR then
++      cur := { cur with tRecMiss := cur.tRecMiss + dt, nRecMiss := cur.nRecMiss + 1 }
++    if flagging then seenRecs := seenRecs.push (c, r)
+     let mut rs : UInt64 := 0
+     for ns in spaces do
+       let st ← memo.get
+-      let x ← match st.res[(ns, c)]? with
+-        | some x => pure x
++      let (x, dtX) ← match st.res[(ns, c)]? with
++        | some x => do
++          kBump probe fun s => { s with resHit := s.resHit + 1 }
++          pure (x, none)
+         | none => do
+-          let x := resolution env ns c
+-          if st.res.size > resLimit then memo.modify fun s => { s with res := {} }
++          let (x, dtX) ← match probe with
++            | none => pure (resolution env ns c, none)
++            | some pr => do
++              let a ← IO.monoNanosNow
++              let (x, calls, found, tRA) ← if c.hasMacroScopes then pure (mix 32 (hash c), 0, 0, 0) else do
++                let ra := getRevAliases env c
++                pinN ra.length
++                let m ← IO.monoNanosNow
++                let (x, calls) := resolutionFrom env ns c ra
++                pinU x
++                pure (x, calls, ra.length, m - a)
++              let b ← IO.monoNanosNow
++              let ph := pairHash ns c
++              let p ← pr.get
++              let again := p.seen.contains ph
++              pr.modify fun s => { s with
++                seen := if again then s.seen else s.seen.insert ph,
++                resAll := if s.keepAll then s.resAll.insert ph x else s.resAll,
++                stats := { s.stats with
++                  resMiss := s.stats.resMiss + 1, tRes := s.stats.tRes + (b - a),
++                  tRevAlias := s.stats.tRevAlias + tRA, revAliasFound := s.stats.revAliasFound + found,
++                  resolveCalls := s.stats.resolveCalls + calls,
++                  resRecomputed := s.stats.resRecomputed + (if again then 1 else 0) } }
++              pure (x, some (b - a))
++          if st.res.size > resLimit then
++            memo.modify fun s => { s with res := {} }
++            kBump probe fun s => { s with resResets := s.resResets + 1 }
+           memo.modify fun s => { s with res := s.res.insert (ns, c) x }
+-          pure x
++          pure (x, dtX)
++      if let some dt := dtX then
++        cur := { cur with tResMiss := cur.tResMiss + dt, nResMiss := cur.nResMiss + 1 }
++      if flagging then seenRes := seenRes.push (pairHash ns c, x)
+       rs := mix rs x
+     names := mix names (hash c)
+     agg := (agg.zip r.toArray).map fun (a, x) => mix a x
+     res := mix res rs
++  pinU (mix names res)
++  let t6 ← kNow probe
++  if let some pr := probe then
++    let p ← pr.get
++    let mut recChanged := false
++    let mut resChanged := false
++    if let some prev := p.prevRecs then
++      for (c, r) in seenRecs do
++        unless prev[c]? == some r do recChanged := true
++    if let some prev := p.prevRes then
++      for (ph, x) in seenRes do
++        unless prev[ph]? == some x do resChanged := true
++    pr.set { p with
++      cur := { cur with
++        shown := sorted.size, spaces := spaces.size,
++        tOwn := (t3 - t0) + tE + tSV + tV, tSkel := (t3 - t2) + tSV, recChanged, resChanged },
++      stats := { p.stats with
++        decls := p.stats.decls + 1,
++        tOwnHash := p.stats.tOwnHash + (t1 - t0), tMembers := p.stats.tMembers + (t2 - t1),
++        tSkelT := p.stats.tSkelT + (t3 - t2), tEqn := p.stats.tEqn + tE, tSkelV := p.stats.tSkelV + tSV,
++        tVal := p.stats.tVal + tV, tShown := p.stats.tShown + (t5 - t4), tLoop := p.stats.tLoop + (t6 - t5),
++        shownSum := p.stats.shownSum + sorted.size, spacesSum := p.stats.spacesSum + spaces.size } }
+   return (#[cN, cT, cTS, cV, cVS, cE, names] ++ agg ++ #[res], shown.size)
+ 
+ /-- Key components of every candidate the extractor would visit, in its enumeration order (first
+@@ -406,9 +612,35 @@
+ SSTR SCOE SPP SMAT SPROT. -/
+ def g7Idx : Array Nat := #[0, 2, 4, 5, 6, 9, 24, 22, 23, 12, 13, 14, 15, 17, 18, 19]
+ 
++/-- One declaration's row of the 1-thread probe variant. -/
++structure KRow where
++  name : Name
++  ownH : UInt64
++  sn : UInt64
++  sres : UInt64
++  g7 : UInt64
++  own : UInt64
++  tKey : Nat
++  tOwnRec : Nat
++  cur : KCur
++
++/-- What a probed `keysPar` reports: counters per thread, the rows (1 thread only), the records
++and every resolution value (1 thread only, for the next round to flag against), distinct pairs. -/
++structure KReport where
++  threads : Array KStats := #[]
++  rows : Array KRow := #[]
++  recs : Std.HashMap Name Rec := {}
++  resAll : Std.HashMap UInt64 UInt64 := {}
++  distinctPairs : Nat := 0
++  distinctRecs : Nat := 0
++
+ /-- G7, and G7 with the declaration's own record over the same fields (SH AUX PSTR PROJ CLS STR COE
+-PP MAT PROT), for every candidate the extractor visits; `jobs` threads, each with its own memo. -/
+-unsafe def keysPar (env : Environment) (world : World) (targets : Array Name) (jobs : Nat) :
++PP MAT PROT), for every candidate the extractor visits; `jobs` threads, each with its own memo.
++With `report`, every thread runs the probe; with `jobs = 1` it also keeps rows, records and every
++resolution value, and flags each declaration against `prev` (records, resolutions). -/
++unsafe def keysPar (env : Environment) (world : World) (targets : Array Name) (jobs : Nat)
++    (report : Option (IO.Ref KReport) := none)
++    (prev : Option (Std.HashMap Name Rec × Std.HashMap UInt64 UInt64) := none) :
+     IO (Std.HashMap Name (UInt64 × UInt64) × Nat) := do
+   let registered := (← registeredEqns env).getD {}
+   let mut seen : NameSet := {}
+@@ -421,9 +653,20 @@
+       cands := cands.push c
+   let coreCtx : Core.Context := { fileName := "<printkey>", fileMap := default, options := {}, maxHeartbeats := 0 }
+   let prio := if (← IO.getEnv "PATCH_POOL") == some "1" then Task.Priority.default else .dedicated
++  let single : Bool := jobs ≤ 1
+   let tasks ← (Array.range jobs).mapM fun k => IO.asTask (prio := prio) do
++    let tT0 ← IO.monoNanosNow
+     let memo ← IO.mkRef ({} : Memo)
+-    let mut out : Array (Name × UInt64 × UInt64) := #[]
++    let probe : KProbeRef ← match report with
++      | none => pure none
++      | some _ => do
++        let r ← IO.mkRef ({
++          keepAll := single,
++          prevRecs := if single then prev.map (·.1) else none,
++          prevRes := if single then prev.map (·.2) else none } : KProbe)
++        pure (some r)
++    let out ← IO.mkRef (Array.mkEmpty (α := Name × UInt64 × UInt64) (cands.size / jobs + 1))
++    let rows ← IO.mkRef (#[] : Array KRow)
+     let mut missing := 0
+     let mut i := k
+     while i < cands.size do
+@@ -431,21 +674,58 @@
+       match env.find? c with
+       | none => missing := missing + 1
+       | some ci =>
+-        let ((comps, _), _) ← (keyOf env registered memo c ci (resLimit := 1000000)).toIO coreCtx { env := env }
++        let a ← kNow probe
++        let ((comps, _), _) ← (keyOf env registered memo c ci (resLimit := 1000000) (probe := probe)).toIO coreCtx { env := env }
+         let g7 := g7Idx.foldl (fun h j => mix h comps[j]!) 7
++        let b ← kNow probe
+         let r ← match (← memo.get).recs[c]? with
+           | some r => pure r
+-          | none => do let (r, _) ← (record env c).toIO coreCtx { env := env }; pure r
++          | none => do
++            let (r, _) ← (record env c probe).toIO coreCtx { env := env }
++            pure r
+         let own := mixList g7 [r.shape, r.auxValue, r.projStruct, r.proj, r.cls, r.struct, r.coe, r.pp, r.matcher, r.prot]
+-        out := out.push (c, g7, own)
++        pinU own
++        let d ← kNow probe
++        if let some pr := probe then
++          let wasOwnMiss := !((← memo.get).recs.contains c)
++          kBump probe fun s => { s with
++            tKey := s.tKey + (b - a), tOwnRec := s.tOwnRec + (d - b),
++            ownRecMiss := s.ownRecMiss + (if wasOwnMiss then 1 else 0) }
++          if single then
++            let cur := (← pr.get).cur
++            rows.modify (·.push {
++              name := c, ownH := mixList 0 (comps.extract 0 6).toList, sn := comps[6]!,
++              sres := comps[24]!, g7, own, tKey := b - a, tOwnRec := d - b, cur })
++        out.modify (·.push (c, g7, own))
+       i := i + jobs
+-    return (out, missing)
++    let tT1 ← IO.monoNanosNow
++    let extra ← match probe with
++      | none => pure none
++      | some pr => do
++        let p ← pr.get
++        let st := { p.stats with tTask := tT1 - tT0 }
++        pure (some (st, p.seen, ← rows.get, (← memo.get).recs, p.resAll))
++    return (← out.get, missing, extra)
+   let mut keys : Std.HashMap Name (UInt64 × UInt64) := Std.HashMap.emptyWithCapacity cands.size
+   let mut missing := 0
++  let mut threads : Array KStats := #[]
++  let mut pairs : Std.HashSet UInt64 := {}
++  let mut recNames : NameSet := {}
++  let mut rep : KReport := {}
+   for t in tasks do
+-    let (out, miss) ← IO.ofExcept t.get
++    let (out, miss, extra) ← IO.ofExcept t.get
+     missing := missing + miss
+     for (c, g, o) in out do keys := keys.insert c (g, o)
++    if let some (st, sn, rows, recs, resAll) := extra then
++      threads := threads.push st
++      if single then
++        rep := { rep with rows, recs, resAll }
++        pairs := sn
++      else
++        pairs := sn.fold (fun s x => s.insert x) pairs
++      recNames := recs.fold (fun s n _ => s.insert n) recNames
++  if let some r := report then
++    r.set { rep with threads, distinctPairs := pairs.size, distinctRecs := recNames.size }
+   return (keys, missing)
+ 
+ end PrintKey
+
+=== PatchMain.lean (diff against the patch log's state)
+--- src/patch-log/PatchMain.lean	2026-10-06 07:51:13
++++ hybrid/PatchMain.lean	2026-10-06 12:08:14
+@@ -148,6 +148,156 @@
+     | _ => pure ()
+   return m
+ 
++/-! ## The key-pass profile (E1): several `keysPar` variants in one round, checked against the first -/
++
++structure ProfCarry where
++  prev : Option (Std.HashMap Name PrintKey.Rec × Std.HashMap UInt64 UInt64) := none
++  aliases : Std.HashSet (Name × Name) := {}
++  namespaces : Std.HashSet Name := {}
++  envAliases : Std.HashSet (Name × Name) := {}
++  filled : Bool := false
++
++unsafe def decodedAliasNs (d : Assemble.Decoded) : Std.HashSet (Name × Name) × Std.HashSet Name := Id.run do
++  let nsExt := Name.mkNum `_private.Lean.Namespace 0 ++ `Lean.namespacesExt
++  let mut al : Std.HashSet (Name × Name) := {}
++  let mut ns : Std.HashSet Name := {}
++  for (e, es) in d.keyed do
++    if e == `Lean.aliasExtension then
++      for (_, k) in es do al := al.insert (unsafeCast k.2 : Name × Name)
++    else if e == nsExt then
++      for (_, k) in es do ns := ns.insert (unsafeCast k.2 : Name)
++  return (al, ns)
++
++def setDiff {α : Type} [BEq α] [Hashable α] (a b : Std.HashSet α) : Nat × Nat :=
++  (b.fold (fun k x => if a.contains x then k else k + 1) 0, a.fold (fun k x => if b.contains x then k else k + 1) 0)
++
++def statsLine (s : PrintKey.KStats) : String :=
++  s!"decls {s.decls} tTask {s.tTask} tKey {s.tKey} tOwnHash {s.tOwnHash} tMembers {s.tMembers} tSkelT {s.tSkelT} tEqn {s.tEqn} tSkelV {s.tSkelV} tVal {s.tVal} tShown {s.tShown} tLoop {s.tLoop} recHit {s.recHit} recMiss {s.recMiss} tRec {s.tRec} tRecType {s.tRecType} tRecValue {s.tRecValue} tRecStruct {s.tRecStruct} tRecOther {s.tRecOther} resHit {s.resHit} resMiss {s.resMiss} resRecomputed {s.resRecomputed} resResets {s.resResets} tRes {s.tRes} tRevAlias {s.tRevAlias} revAliasFound {s.revAliasFound} resolveCalls {s.resolveCalls} ownRecMiss {s.ownRecMiss} tOwnRec {s.tOwnRec} shownSum {s.shownSum} spacesSum {s.spacesSum}"
++
++unsafe def keyProfile (r : Nat) (dir : System.FilePath) (env0 : Environment) (world : World) (targets : Array Name)
++    (plan : String) (carry : ProfCarry) (d : Assemble.Decoded) (prevKeys : Std.HashMap Name (UInt64 × UInt64)) :
++    IO (Std.HashMap Name (UInt64 × UInt64) × Nat × ProfCarry) := do
++  let mut env := env0
++  let mut persistent := false
++  let mut ref? : Option (Std.HashMap Name (UInt64 × UInt64)) := none
++  let mut missing0 := 0
++  let mut carry' := carry
++  let mut vi := 0
++  for v in plan.splitOn "," do
++    if v == "persist" then
++      let t0 ← IO.monoMsNow
++      env ← Runtime.markPersistent env
++      persistent := true
++      emit r "mark-persistent" ((← IO.monoMsNow) - t0)
++      continue
++    let some (mode, jobs) := (match v.splitOn ":" with
++        | [m, j] => j.toNat?.map (m, ·)
++        | _ => none)
++      | throw <| IO.userError s!"keyprof: bad variant {v}"
++    let prof := mode == "prof"
++    let rep ← IO.mkRef ({} : PrintKey.KReport)
++    let prevArg := if prof && jobs == 1 then carry.prev else none
++    let t0 ← IO.monoMsNow
++    let (keys, missing) ← PrintKey.keysPar env world targets jobs (if prof then some rep else none) prevArg
++    let t1 ← IO.monoMsNow
++    let label := s!"{mode}{jobs}{if persistent then "p" else ""}"
++    emit r s!"keys-{vi}-{label}" (t1 - t0) s!"candidates {keys.size} missing {missing}"
++    let f := dir / s!"keys-{vi}-{label}.tsv"
++    let sorted := keys.toArray.qsort (fun a b => Name.quickLt a.1 b.1)
++    let h ← IO.FS.Handle.mk f .write
++    let mut buf : Array String := #[]
++    for (n, g, o) in sorted do
++      buf := buf.push s!"{n}\t{g}\t{o}\n"
++      if buf.size ≥ 20000 then
++        h.putStr (String.join buf.toList); buf := #[]
++    h.putStr (String.join buf.toList)
++    h.flush
++    let out ← IO.Process.output { cmd := "/usr/bin/shasum", args := #["-a", "256", f.toString] }
++    IO.eprintln s!"KEYHASH r{r} v{vi} {label} {(out.stdout.splitOn " ").head!} lines {sorted.size}"
++    IO.FS.removeFile f
++    match ref? with
++    | none =>
++      ref? := some keys
++      missing0 := missing
++    | some ref =>
++      let mut diff := 0
++      for (n, k) in keys do
++        unless ref[n]? == some k do diff := diff + 1
++      for (n, _) in ref do
++        unless keys.contains n do diff := diff + 1
++      IO.eprintln s!"KEYCHECK r{r} v{vi} {label}: {keys.size} keys, reference {ref.size}, differing or missing {diff}"
++    if prof then
++      let rp ← rep.get
++      let tot := rp.threads.foldl PrintKey.KStats.add {}
++      IO.eprintln s!"KSTATS r{r} v{vi} {label} total {statsLine tot}"
++      for i in [0:rp.threads.size] do
++        IO.eprintln s!"KSTATS r{r} v{vi} {label} thread{i} {statsLine rp.threads[i]!}"
++      IO.eprintln s!"KDISTINCT r{r} v{vi} {label} pairs {rp.distinctPairs} records {rp.distinctRecs}"
++      if jobs == 1 then
++        let rf := dir / s!"keyrows-r{r}.tsv"
++        let h ← IO.FS.Handle.mk rf .write
++        h.putStr "name\tshown\tspaces\townH\tsn\tsres\tg7\town\ttKey\ttOwnRec\ttOwn\ttSkel\ttRecMiss\ttResMiss\tnRecMiss\tnResMiss\trecChanged\tresChanged\n"
++        let mut rbuf : Array String := #[]
++        for w in rp.rows do
++          let c := w.cur
++          rbuf := rbuf.push s!"{w.name}\t{c.shown}\t{c.spaces}\t{w.ownH}\t{w.sn}\t{w.sres}\t{w.g7}\t{w.own}\t{w.tKey}\t{w.tOwnRec}\t{c.tOwn}\t{c.tSkel}\t{c.tRecMiss}\t{c.tResMiss}\t{c.nRecMiss}\t{c.nResMiss}\t{if c.recChanged then 1 else 0}\t{if c.resChanged then 1 else 0}\n"
++          if rbuf.size ≥ 20000 then
++            h.putStr (String.join rbuf.toList); rbuf := #[]
++        h.putStr (String.join rbuf.toList)
++        h.flush
++        IO.eprintln s!"KROWS r{r}: {rp.rows.size} rows -> {rf}"
++        if let some (pRecs, pRes) := carry.prev then
++          let mut same := 0
++          let mut changed := 0
++          let mut added := 0
++          let mut fields := Array.replicate PrintKey.recFields.length 0
++          for (c, x) in rp.recs do
++            match pRecs[c]? with
++            | none => added := added + 1
++            | some y =>
++              if x == y then same := same + 1 else
++                changed := changed + 1
++                let xa := x.toArray
++                let ya := y.toArray
++                for j in [0:xa.size] do
++                  unless xa[j]! == ya[j]! do fields := fields.modify j (· + 1)
++          let removed := pRecs.fold (fun k c _ => if rp.recs.contains c then k else k + 1) 0
++          IO.eprintln s!"RECDELTA r{r}: records {rp.recs.size}, previous {pRecs.size}; same {same} changed {changed} new {added} removed {removed}; changed by field {String.intercalate " " ((PrintKey.recFields.zip fields.toList).map fun (n, k) => s!"{n}={k}")}"
++          let mut rsame := 0
++          let mut rchanged := 0
++          let mut radded := 0
++          for (ph, x) in rp.resAll do
++            match pRes[ph]? with
++            | none => radded := radded + 1
++            | some y => if x == y then rsame := rsame + 1 else rchanged := rchanged + 1
++          let rremoved := pRes.fold (fun k ph _ => if rp.resAll.contains ph then k else k + 1) 0
++          IO.eprintln s!"RESDELTA r{r}: pairs {rp.resAll.size}, previous {pRes.size}; same {rsame} changed {rchanged} new {radded} removed {rremoved}"
++        carry' := { carry' with prev := some (rp.recs, rp.resAll) }
++    vi := vi + 1
++  let some keys := ref? | throw <| IO.userError "keyprof: empty plan"
++  if !prevKeys.isEmpty then
++    let mut both := 0
++    let mut g7Eq := 0
++    let mut ownEq := 0
++    for (n, k) in keys do
++      if let some k' := prevKeys[n]? then
++        both := both + 1
++        if k.1 == k'.1 then g7Eq := g7Eq + 1
++        if k.2 == k'.2 then ownEq := ownEq + 1
++    IO.eprintln s!"KEYCMP r{r}: candidates {keys.size}, previous {prevKeys.size}, in both {both}; G7 equal {g7Eq}; G7+own equal {ownEq}"
++  let (al, ns) := decodedAliasNs d
++  let envAl : Std.HashSet (Name × Name) :=
++    (getAliasState env).fold (fun s a es => es.foldl (fun s e => s.insert (a, e)) s) {}
++  let envKeys := (getAliasState env).fold (fun k _ _ => k + 1) 0
++  IO.eprintln s!"ALIAS r{r}: decoded alias entries {al.size} (distinct pairs), namespaces {ns.size}; environment alias state {envKeys} names, {envAl.size} pairs"
++  if carry.filled then
++    let (a1, r1) := setDiff carry.aliases al
++    let (a2, r2) := setDiff carry.namespaces ns
++    let (a3, r3) := setDiff carry.envAliases envAl
++    IO.eprintln s!"ALIASDELTA r{r}: decoded alias pairs +{a1} -{r1}; namespaces +{a2} -{r2}; environment alias pairs +{a3} -{r3}"
++  carry' := { carry' with aliases := al, namespaces := ns, envAliases := envAl, filled := true }
++  return (keys, missing0, carry')
++
+ unsafe def main (args : List String) : IO UInt32 := do
+   match args with
+   | specFile :: outDir :: rest =>
+@@ -168,6 +318,8 @@
+     let mut prevOld? : Option Assemble.OldWorld := none
+     let mut prevResults : Std.HashMap Name DeclOut := {}
+     let mut prevKeys : Std.HashMap Name (UInt64 × UInt64) := {}
++    let plan := (← IO.getEnv "KEYPROF_PLAN").getD ""
++    let mut carry : ProfCarry := {}
+     let mut kept := 0
+     let mut failed := false
+     snap "start"
+@@ -237,7 +389,11 @@
+       let hs : HardStops := { verso := ← IO.mkRef #[], builtinDoc := ← IO.mkRef #[] }
+       let world := hybridWorld env d.old hs
+       let tK0 ← IO.monoMsNow
+-      let (keys, missing) ← PrintKey.keysPar env world targets cfg0.jobs
++      let planR := (← IO.getEnv s!"KEYPROF_PLAN_R{r}").getD plan
++      let (keys, missing) ← if planR.isEmpty then PrintKey.keysPar env world targets cfg0.jobs else do
++        let (k, m, c) ← keyProfile r dir env world targets planR carry d prevKeys
++        carry := c
++        pure (k, m)
+       let tK1 ← IO.monoMsNow
+       emit r "keys" (tK1 - tK0) s!"candidates {keys.size} missing {missing}"
+       let pick := fun (k : UInt64 × UInt64) => if spec.key == "own" then k.2 else k.1
+@@ -265,6 +421,7 @@
+         | _, _, _ => none
+       let outRef ← IO.mkRef #[]
+       let cfg := { cfg0 with
++        declProfilePath := cfg0.declProfilePath.map fun _ => dir / "decl-profile.jsonl",
+         modulesPath := ⟨spec.modules⟩, outPath := dir / "events.jsonl", irDir := some (dir / "ir"),
+         linkIndexPath := some (dir / "link-index.lidx"), linkIndexOmitPath := some ⟨spec.modules⟩ }
+       let tE0 ← IO.monoMsNow
+
+=== Extract.lean (diff against the patch log's state)
+--- src/patch-log/Extract.lean	2026-10-06 07:51:13
++++ hybrid/Extract.lean	2026-10-06 07:54:44
+@@ -2452,6 +2452,10 @@
+   nanos : Nat
+   ppNanos : Nat
+   eqNanos : Nat
++  /-- The part of `eqNanos` in `getEqnsFor?` / `valueToEq` + `inferType`, and the part in the
++  pretty printer's own steps; the rest is the tagged-code walk and the telescope. -/
++  eqGenNanos : Nat
++  eqPpNanos : Nat
+   refNanos : Nat
+   blNanos : Nat
+   eqCount : Nat
+@@ -2465,7 +2469,7 @@
+   s!"\{\"i\":{p.index},\"name\":{Json.str p.name.toString |>.compress}," ++
+   s!"\"module\":{Json.str p.module.toString |>.compress}," ++
+   s!"\"kind\":\"{p.kind}\",\"outcome\":\"{p.outcome}\",\"ns\":{p.nanos}," ++
+-  s!"\"ppNs\":{p.ppNanos},\"eqNs\":{p.eqNanos}," ++
++  s!"\"ppNs\":{p.ppNanos},\"eqNs\":{p.eqNanos},\"eqGenNs\":{p.eqGenNanos},\"eqPpNs\":{p.eqPpNanos}," ++
+   s!"\"refNs\":{p.refNanos},\"blNs\":{p.blNanos}," ++
+   s!"\"eqs\":{p.eqCount},\"bytes\":{p.bytes}}\n"
+ 
+@@ -2729,7 +2733,8 @@
+       | .ok none => ("", "blacklisted")
+       | .error _ => ("", "failed")
+     { index := i, name, module, kind, outcome := tag, nanos := dt,
+-      ppNanos := c.ppNanos, eqNanos := c.eqNanos, refNanos := c.refNanos,
++      ppNanos := c.ppNanos, eqNanos := c.eqNanos, eqGenNanos := c.eqPp.eqGenNanos,
++      eqPpNanos := c.eqPp.accounted, refNanos := c.refNanos,
+       blNanos := c.blNanos, eqCount := c.eqCount, bytes := c.pp.bytes }
+   let tAn0 ← IO.monoNanosNow
+   if cfg.jobs ≤ 1 then
+
+=== runp.sh (diff)
+--- src/patch-log/runp.sh	2026-10-06 07:59:50
++++ run/runp.sh	2026-10-06 07:59:50
+@@ -12,7 +12,7 @@
+ sysmem before > "$R/sysmem.txt"
+ export SNAPDIR=$R
+ $U/run/runx.sh $U/run/lakeenv-new.txt $NEW $R/patchrun $bin "$rounds" "$R" \
+-  --equations --refs --write-ir --tagged-code --jobs "$jobs" --ir-dir "$R/unused" &
++  --equations --refs --write-ir --tagged-code --jobs "$jobs" --ir-dir "$R/unused" ${EXTRA_ARGS:-} &
+ rp=$!
+ sleep_py() { python3 -c "import time; time.sleep($1)"; }
+ sleep_py 1
+
+=== e1.py
+"""E1: the key pass by component.
+usage: e1.py <patchrun.err> <r0 keyrows.tsv> <r1 keyrows.tsv> [limit]"""
+import re, sys, statistics as st
+
+err, rows0p, rows1p = sys.argv[1:4]
+limit = int(sys.argv[4]) if len(sys.argv) > 4 else 0
+
+stats = {}   # (round, variant label, thread) -> dict
+times = {}
+other = []
+for l in open(err, errors="replace"):
+    m = re.match(r"KSTATS r(\d+) v(\d+) (\S+) (\S+) (.*)", l)
+    if m:
+        kv = m.group(5).split()
+        stats[(int(m.group(1)), m.group(3), m.group(4))] = {kv[i]: int(kv[i + 1]) for i in range(0, len(kv), 2)}
+        continue
+    m = re.match(r"TIME r(\d+) (keys-\S+|mark-persistent|keys|decode|patch|finalize|closure|import-newest|newest-index) (\d+)", l)
+    if m:
+        times[(int(m.group(1)), m.group(2))] = int(m.group(3)); continue
+    if re.match(r"(KDISTINCT|KEYHASH|KEYCHECK|RECDELTA|RESDELTA|KEYCMP|ALIAS|ALIASDELTA|PATCH|RECORD) ", l):
+        other.append(l.rstrip())
+
+print("== variant wall times (ms)")
+for k, v in sorted(times.items()): print(f"  r{k[0]} {k[1]:24s} {v}")
+for l in other: print("  " + l[:400])
+
+def s(ns): return ns / 1e9
+def comp(d):
+    own = d["tOwnHash"] + d["tMembers"] + d["tSkelT"] + d["tEqn"] + d["tSkelV"] + d["tVal"]
+    lookup = d["tLoop"] - d["tRec"] - d["tRes"]
+    rest = d["tKey"] - own - d["tShown"] - d["tLoop"]
+    keyed = d["tKey"] + d["tOwnRec"]
+    rows = [
+        ("own: name + type hash", d["tOwnHash"]), ("own: members", d["tMembers"]),
+        ("own: skeleton of type (+members)", d["tSkelT"]), ("own: stored equations (eqnData)", d["tEqn"]),
+        ("own: skeleton of value (+eqns)", d["tSkelV"]), ("own: value hash", d["tVal"]),
+        ("shown set + sort + spaces", d["tShown"]),
+        ("records (memo misses in keyOf)", d["tRec"]), ("own record (keysPar, not memoised)", d["tOwnRec"]),
+        ("resolutions (memo misses)", d["tRes"]), ("  of which getRevAliases", d["tRevAlias"]),
+        ("  of which resolveGlobalName loop", d["tRes"] - d["tRevAlias"]),
+        ("memo lookups + aggregation", lookup), ("rest (toIO, find?, G7 fold)", rest)]
+    return keyed, rows
+
+for (r, lab, th), d in sorted(stats.items()):
+    if th != "total": continue
+    keyed, rows = comp(d)
+    print(f"\n== r{r} {lab}: keyed time {s(keyed):.2f} s (thread-summed), task time {s(d['tTask']):.2f} s, decls {d['decls']}")
+    for n, v in rows: print(f"  {n:40s} {s(v):8.2f} s  {v / keyed * 100:5.1f}%")
+    rin = d["tRecType"] + d["tRecValue"] + d["tRecStruct"] + d["tRecOther"]
+    print(f"  record internals (memo misses + own records, {s(rin):.2f} s): type/skeleton/shape {s(d['tRecType']):.2f}, value {s(d['tRecValue']):.2f}, structure layout {s(d['tRecStruct']):.2f}, other {s(d['tRecOther']):.2f}")
+    print(f"  counts: records hit {d['recHit']} miss {d['recMiss']} (own-record computations {d['ownRecMiss']}); resolutions hit {d['resHit']} miss {d['resMiss']} "
+          f"(recomputed after a reset {d['resRecomputed']}), resets {d['resResets']}; resolveGlobalName calls {d['resolveCalls']}; reverse aliases found {d['revAliasFound']}; "
+          f"sum |S| {d['shownSum']}, sum |spaces| {d['spacesSum']}")
+    if d["recMiss"]: print(f"  per unit: record {d['tRec']/d['recMiss']/1e3:.1f} us, resolution {d['tRes']/max(1,d['resMiss'])/1e3:.1f} us, own+shown per decl {(sum(v for n,v in rows[:7]))/d['decls']/1e3:.1f} us, skeleton T per decl {d['tSkelT']/d['decls']/1e3:.1f} us")
+    ths = [(k[2], v) for k, v in stats.items() if k[0] == r and k[1] == lab and k[2] != "total"]
+    if len(ths) > 1:
+        print("  threads: " + "; ".join(f"{t}: task {s(v['tTask']):.1f} s resets {v['resResets']} recMiss {v['recMiss']} resMiss {v['resMiss']}" for t, v in sorted(ths)))
+
+# 4 threads against 1: per-unit inflation
+for r in (0, 1):
+    a = stats.get((r, "prof1", "total")); b = stats.get((r, "prof4", "total"))
+    if not a or not b: continue
+    print(f"\n== r{r} prof4 / prof1 (thread-summed time per unit of work)")
+    for n, f, u in (("skeleton T per decl", "tSkelT", "decls"), ("own parts per decl", None, "decls"), ("record", "tRec", "recMiss"),
+                    ("resolution", "tRes", "resMiss"), ("lookup+agg per lookup", None, None), ("keyed total", None, None)):
+        if n == "own parts per decl":
+            fa = sum(a[x] for x in ("tOwnHash","tMembers","tSkelT","tEqn","tSkelV","tVal")); fb = sum(b[x] for x in ("tOwnHash","tMembers","tSkelT","tEqn","tSkelV","tVal"))
+            print(f"  {n:24s} 1t {fa/a['decls']/1e3:8.1f} us  4t {fb/b['decls']/1e3:8.1f} us  x{(fb/b['decls'])/(fa/a['decls']):.2f}")
+        elif n == "lookup+agg per lookup":
+            la = a["tLoop"]-a["tRec"]-a["tRes"]; lb = b["tLoop"]-b["tRec"]-b["tRes"]
+            na = a["recHit"]+a["recMiss"]+a["resHit"]+a["resMiss"]; nb = b["recHit"]+b["recMiss"]+b["resHit"]+b["resMiss"]
+            print(f"  {n:24s} 1t {la/na:8.1f} ns  4t {lb/nb:8.1f} ns  x{(lb/nb)/(la/na):.2f}")
+        elif n == "keyed total":
+            print(f"  {n:24s} 1t {s(a['tKey']+a['tOwnRec']):8.1f} s   4t {s(b['tKey']+b['tOwnRec']):8.1f} s   x{(b['tKey']+b['tOwnRec'])/(a['tKey']+a['tOwnRec']):.2f}; work units: records x{b['recMiss']/a['recMiss']:.2f}, resolutions x{b['resMiss']/max(1,a['resMiss']):.2f}")
+        else:
+            print(f"  {n:24s} 1t {a[f]/a[u]/1e3:8.1f} us  4t {b[f]/b[u]/1e3:8.1f} us  x{(b[f]/b[u])/(a[f]/a[u]):.2f}")
+
+def rows(p):
+    out = {}
+    with open(p) as f:
+        hdr = f.readline().rstrip("\n").split("\t")
+        for i, l in enumerate(f):
+            if limit and i >= limit: break
+            v = l.rstrip("\n").split("\t")
+            d = dict(zip(hdr, v))
+            for k in hdr[1:]: d[k] = int(d[k])
+            out[d["name"]] = d
+    return out
+
+R0 = rows(rows0p); R1 = rows(rows1p)
+def q(xs, p): xs = sorted(xs); return xs[min(len(xs)-1, int(p*len(xs)))]
+for lbl, R in (("r0", R0), ("r1", R1)):
+    S = [d["shown"] for d in R.values()]; SP = [d["spaces"] for d in R.values()]
+    buckets = [(0,0),(1,1),(2,4),(5,9),(10,19),(20,49),(50,99),(100,199),(200,499),(500,10**9)]
+    hist = ", ".join(f"{a}-{b if b<10**9 else ''}: {sum(1 for x in S if a<=x<=b)}" for a,b in buckets)
+    print(f"\n== {lbl} |S(d)| over {len(S)} declarations: mean {st.mean(S):.2f} median {q(S,.5)} p90 {q(S,.9)} p99 {q(S,.99)} max {max(S)} sum {sum(S)}")
+    print(f"   histogram {hist}")
+    print(f"   |spaces(d)|: mean {st.mean(SP):.3f} max {max(SP)}; 1: {sum(1 for x in SP if x==1)}, 2: {sum(1 for x in SP if x==2)}, 3+: {sum(1 for x in SP if x>=3)}; resolution lookups sum |S|*|spaces| {sum(d['shown']*d['spaces'] for d in R.values())}")
+    top = sorted(R.values(), key=lambda d: -d["shown"])[:5]
+    print("   largest: " + "; ".join(f"{d['name']} {d['shown']}" for d in top))
+
+# Option 1c: which declarations a carried pass would recompute on r1
+new = [n for n in R1 if n not in R0]
+f = {"new": set(new)}
+f["own"] = {n for n, d in R1.items() if n in R0 and d["ownH"] != R0[n]["ownH"]}
+f["shownSet"] = {n for n, d in R1.items() if n in R0 and d["sn"] != R0[n]["sn"]}
+f["record"] = {n for n, d in R1.items() if d["recChanged"]}
+f["resolution"] = {n for n, d in R1.items() if d["resChanged"]}
+f["ownRecord"] = {n for n, d in R1.items() if n in R0 and d["own"] != R0[n]["own"] and d["g7"] == R0[n]["g7"]}
+aff = set().union(*f.values())
+g7diff = {n for n, d in R1.items() if n not in R0 or d["g7"] != R0[n]["g7"]}
+owndiff = {n for n, d in R1.items() if n not in R0 or d["own"] != R0[n]["own"]}
+print(f"\n== r1 recompute set of a carried pass (1c), {len(R1)} declarations")
+for k, v in f.items(): print(f"   {k:12s} {len(v)}")
+print(f"   union {len(aff)} ({len(aff)/len(R1)*100:.2f}%); key-different (G7) {len(g7diff)}, (G7+own) {len(owndiff)}; key-different not in union {len(owndiff - aff)}")
+only_rec = f["record"] - f["new"] - f["own"] - f["shownSet"] - f["resolution"]
+only_res = f["resolution"] - f["new"] - f["own"] - f["shownSet"] - f["record"]
+print(f"   only through a changed record {len(only_rec)}, only through a changed resolution {len(only_res)}")
+def tsum(ns, fld): return sum(R1[n][fld] for n in ns)
+base = lambda d: d["tKey"] - d["tRecMiss"] - d["tResMiss"]
+allbase = sum(base(d) for d in R1.values())
+affbase = sum(base(R1[n]) for n in aff)
+print(f"   r1 1-thread: per-declaration part (keyOf minus record and resolution misses) all {s(allbase):.2f} s, over the union {s(affbase):.2f} s; own records all {s(tsum(R1, 'tOwnRec')):.2f} s, union {s(tsum(aff, 'tOwnRec')):.2f} s")
+print(f"   r1 1-thread: record misses {s(tsum(R1,'tRecMiss')):.2f} s, resolution misses {s(tsum(R1,'tResMiss')):.2f} s; sum tKey {s(tsum(R1,'tKey')):.2f} s")
+
+=== e2.py
+"""E2: is the reprinted set's equation cost selection or amortization?
+usage: e2.py <r0 decl-profile.jsonl> <r1 decl-profile.jsonl> [limit]"""
+import json, sys, statistics as st
+
+def load(p, limit):
+    out = {}
+    with open(p) as f:
+        for i, l in enumerate(f):
+            if limit and i >= limit: break
+            r = json.loads(l)
+            if r["outcome"] == "ok":
+                out[r["name"]] = r
+    return out
+
+def s(xs): return sum(xs)
+def sec(ns): return ns / 1e9
+def q(xs, p):
+    xs = sorted(xs); return xs[min(len(xs) - 1, int(p * len(xs)))] if xs else float("nan")
+
+limit = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+r0 = load(sys.argv[1], limit); r1 = load(sys.argv[2], limit)
+P = {n for n, r in r1.items() if r["ppNs"] > 0}
+R = {n for n, r in r1.items() if r["ppNs"] == 0}
+print(f"R0 ok {len(r0)}; R1 ok {len(r1)}; R1 printed {len(P)}, reused {len(R)}")
+for lbl, rr in (("R0", r0), ("R1", r1)):
+    eq = s(r["eqNs"] for r in rr.values()); gen = s(r["eqGenNs"] for r in rr.values()); pp = s(r["eqPpNs"] for r in rr.values())
+    print(f"{lbl} equations: total {sec(eq):.1f} s; generation {sec(gen):.1f} s ({gen/eq*100 if eq else 0:.1f}%), printer steps {sec(pp):.1f} s ({pp/eq*100 if eq else 0:.1f}%), rest {sec(eq-gen-pp):.1f} s; signature ppNs {sec(s(r['ppNs'] for r in rr.values())):.1f} s; lemmas {s(r['eqs'] for r in rr.values())}; with equations {sum(1 for r in rr.values() if r['eqNs']>0)}")
+both = P & set(r0)
+new = P - set(r0)
+print(f"R1 printed: in R0 {len(both)}, new {len(new)}")
+eq0 = s(r["eqNs"] for r in r0.values())
+eqP0 = s(r0[n]["eqNs"] for n in both)
+print(f"SELECTION (R0 alone): the {len(both)} declarations R1 reprints are {len(both)/len(r0)*100:.1f}% of R0's ok declarations, "
+      f"{sum(1 for n in both if r0[n]['eqNs']>0)/max(1,sum(1 for r in r0.values() if r['eqNs']>0))*100:.1f}% of those with equations, "
+      f"and carry {eqP0/eq0*100 if eq0 else 0:.1f}% of R0's equation time ({sec(eqP0):.1f} of {sec(eq0):.1f} s); "
+      f"signature share {s(r0[n]['ppNs'] for n in both)/max(1,s(r['ppNs'] for r in r0.values()))*100:.1f}%")
+eqP1 = s(r1[n]["eqNs"] for n in P); eq1 = s(r["eqNs"] for r in r1.values())
+print(f"R1: printed set equation time {sec(eqP1):.1f} s (of R1 total {sec(eq1):.1f}); of which in-R0 declarations {sec(s(r1[n]['eqNs'] for n in both)):.1f} s, new {sec(s(r1[n]['eqNs'] for n in new)):.1f} s")
+E = [n for n in both if r0[n]["eqNs"] > 0 and r1[n]["eqNs"] > 0]
+print(f"PER DECLARATION, reprinted, in R0, equations in both rounds: {len(E)}")
+for fld in ("eqNs", "eqGenNs", "eqPpNs", "ppNs", "ns"):
+    a = s(r0[n][fld] for n in E); b = s(r1[n][fld] for n in E)
+    rat = [r1[n][fld] / r0[n][fld] for n in E if r0[n][fld] > 0]
+    print(f"  {fld:8s} R0 {sec(a):8.2f} s  R1 {sec(b):8.2f} s  R1/R0 sum {b/a if a else float('nan'):.3f}  per-decl ratio median {q(rat,.5):.3f} p10 {q(rat,.1):.3f} p90 {q(rat,.9):.3f}")
+same_eqs = sum(1 for n in E if r0[n]["eqs"] == r1[n]["eqs"])
+print(f"  same lemma count in both rounds: {same_eqs} of {len(E)}")
+# where the R1 excess sits
+d = sorted(((r1[n]["eqNs"] - r0[n]["eqNs"], n) for n in E), reverse=True)
+tot_pos = s(x for x, _ in d if x > 0); tot_neg = s(x for x, _ in d if x < 0)
+print(f"  R1-R0 equation difference: +{sec(tot_pos):.2f} s over {sum(1 for x,_ in d if x>0)} declarations, {sec(tot_neg):.2f} s over {sum(1 for x,_ in d if x<0)}")
+top = d[:10]
+cum = 0
+for x, n in d[:2000]: cum += x
+print(f"  top 2000 increases sum {sec(cum):.2f} s; top 10:")
+for x, n in top:
+    print(f"    {sec(x)*1000:9.1f} ms  R0 eq {r0[n]['eqNs']/1e6:8.1f} ms gen {r0[n]['eqGenNs']/1e6:8.1f}  R1 eq {r1[n]['eqNs']/1e6:8.1f} ms gen {r1[n]['eqGenNs']/1e6:8.1f}  lemmas {r0[n]['eqs']}/{r1[n]['eqs']}  {n}")
+# size classes in R0: are the reprinted ones heavy?
+defs0 = [r for r in r0.values() if r["eqNs"] > 0]
+bothE = [r0[n] for n in both if r0[n]["eqNs"] > 0]
+restE = [r for n, r in r0.items() if r["eqNs"] > 0 and n not in P]
+for lbl, xs in (("R0 reprinted-in-R1", bothE), ("R0 reused-in-R1", restE)):
+    v = [r["eqNs"] / 1e6 for r in xs]; g = [r["eqGenNs"] / 1e6 for r in xs]
+    if v:
+        print(f"{lbl}: {len(v)} with equations; eq ms mean {st.mean(v):.2f} median {q(v,.5):.2f} p90 {q(v,.9):.2f} p99 {q(v,.99):.2f}; gen ms mean {st.mean(g):.2f} median {q(g,.5):.2f}; kinds {dict((k, sum(1 for r in xs if r['kind']==k)) for k in ('definition','instance'))}")
+
+=== e2b.py
+"""E2 detail: where the reprinted set's equation time sits, and what the unattributed rest is.
+usage: e2b.py <r0 decl-profile.jsonl> <r1 decl-profile.jsonl> [limit]"""
+import json, sys
+from collections import defaultdict
+limit = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+def load(p):
+    out = {}
+    for i, l in enumerate(open(p)):
+        if limit and i >= limit: break
+        r = json.loads(l)
+        if r["outcome"] == "ok": out[r["name"]] = r
+    return out
+r0 = load(sys.argv[1]); r1 = load(sys.argv[2])
+P = {n for n, r in r1.items() if r["ppNs"] > 0}
+for lbl, rr in (("R0", r0), ("R1", r1)):
+    E = [r for r in rr.values() if r["eqNs"] > 0]
+    z = [r for r in E if r["eqs"] == 0]; nz = [r for r in E if r["eqs"] > 0]
+    f = lambda xs, k: sum(r[k] for r in xs) / 1e9
+    print(f"{lbl}: with equation time {len(E)}; eqCount 0 (failed or none) {len(z)}: eq {f(z,'eqNs'):.1f} s gen {f(z,'eqGenNs'):.1f} pp {f(z,'eqPpNs'):.1f}; eqCount>0 {len(nz)}: eq {f(nz,'eqNs'):.1f} s gen {f(nz,'eqGenNs'):.1f} pp {f(nz,'eqPpNs'):.1f} rest {f(nz,'eqNs')-f(nz,'eqGenNs')-f(nz,'eqPpNs'):.1f}")
+def group(n):
+    for p in ("Lean.", "Mathlib.Tactic.", "Mathlib.Meta.", "Mathlib.Linter.", "Mathlib.Util.", "Mathlib.Lean.", "Qq.", "Aesop.", "Batteries.", "Std.", "Plausible.", "ProofWidgets.", "Mathlib."):
+        if n.startswith(p): return p
+    return "(other)"
+g = defaultdict(lambda: [0, 0, 0, 0])
+for n, r in r0.items():
+    if r["eqNs"] <= 0: continue
+    k = group(n); x = g[k]
+    if n in P: x[0] += 1; x[1] += r["eqNs"]
+    else: x[2] += 1; x[3] += r["eqNs"]
+tot = sum(r["eqNs"] for r in r0.values())
+print(f"R0 equation time by name prefix (reprinted in R1 | reused in R1), total {tot/1e9:.1f} s")
+for k, x in sorted(g.items(), key=lambda kv: -(kv[1][1] + kv[1][3])):
+    print(f"  {k:18s} reprinted {x[0]:6d} {x[1]/1e9:7.1f} s | reused {x[2]:6d} {x[3]/1e9:7.1f} s")
+heavy = sorted((r["eqNs"], n) for n, r in r0.items() if n in P)[::-1]
+cum = 0; ks = {}
+for i, (x, n) in enumerate(heavy):
+    cum += x
+    for t in (10, 100, 1000): 
+        if i + 1 == t: ks[t] = cum
+print("R0 eq time of the reprinted set's heaviest 10 / 100 / 1000: " + ", ".join(f"{ks.get(t,0)/1e9:.1f} s" for t in (10,100,1000)) + f" of {sum(x for x,_ in heavy)/1e9:.1f} s")
+fail0 = {n for n, r in r0.items() if r["eqNs"] > 0 and r["eqs"] == 0}
+fail1 = {n for n, r in r1.items() if r["eqNs"] > 0 and r["eqs"] == 0}
+print(f"no-lemma declarations: R0 {len(fail0)}, of which reprinted in R1 {len(fail0 & P)} ({sum(r0[n]['eqNs'] for n in fail0 & P)/1e9:.1f} s in R0); R1 {len(fail1)}, also in R0's {len(fail1 & fail0)}")
+both = [n for n in P if n in r0 and r0[n]["eqNs"] > 0 and r0[n]["eqs"] > 0 and r1[n]["eqs"] > 0]
+for k in ("eqNs", "eqGenNs", "eqPpNs", "ppNs"):
+    a = sum(r0[n][k] for n in both); b = sum(r1[n][k] for n in both)
+    print(f"lemmas in both rounds, {len(both)} declarations: {k} R0 {a/1e9:.1f} s R1 {b/1e9:.1f} s R1/R0 {b/a:.3f}")
+succ0 = [n for n, r in r0.items() if r["eqNs"] > 0 and r["eqs"] > 0]
+tot = sum(r0[n]["eqNs"] for n in succ0); inP = sum(r0[n]["eqNs"] for n in succ0 if n in P)
+gtot = sum(r0[n]["eqGenNs"] for n in succ0); ginP = sum(r0[n]["eqGenNs"] for n in succ0 if n in P)
+print(f"R0, declarations with lemmas {len(succ0)}, reprinted in R1 {sum(1 for n in succ0 if n in P)}: share of equation time {inP/tot*100:.1f}% ({inP/1e9:.1f} of {tot/1e9:.1f} s), of generation {ginP/gtot*100:.1f}%")
+

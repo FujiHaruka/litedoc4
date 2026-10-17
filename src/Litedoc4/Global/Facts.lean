@@ -76,11 +76,12 @@ up linking.
 **Do not narrow this to one of them.** The two ways to be wrong are not mirror
 images: a token too many costs a re-render, a token too few keeps a link pointing
 at the module a name used to live in and nothing downstream notices. The tables
-disagree on 4,803 code points, every one of them a separator for V8 and not for
-UnicodeBasic (measured 2026-08-12 →
-`benchmarks/results/m2b-v6-token-separators.json`), so the first disjunct is dead
-today and stays: the two tables are pinned to things that move independently (a
-`lake-manifest.json` rev and a V8 build). -/
+are equal today, both answering from Unicode 17 (measured 2026-10-11 →
+`benchmarks/results/v8-gc-table-node-2026-10-11.txt`), so either disjunct alone
+would give the same tokens, and both stay: the two tables are pinned to things
+that move independently (a `lake-manifest.json` rev and a node build), and a V8
+one Unicode version behind disagreed on 4,803 code points (measured 2026-08-12 →
+`benchmarks/results/m2b-v6-token-separators.json`). -/
 def isTokenSeparator (c : UInt32) : Bool := isZC c || isV8ZC c
 
 /-- JavaScript's `\s`: `WhiteSpace` plus `LineTerminator`.

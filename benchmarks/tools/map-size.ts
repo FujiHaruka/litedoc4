@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env --allow-run
+#!/usr/bin/env node
 //
 // Matches the demand side (the constants litedoc4 collects from a signature,
 // `stage3-refs.jsonl`) against the supply side (doc-gen4's
@@ -12,10 +12,10 @@
 // seconds is the table".
 //
 // usage:
-//   map-size.ts [--bmp <file>] [--refs <jsonl>] [--modules <list>] [--doc <dir>]
+//   node map-size.ts [--bmp <file>] [--refs <jsonl>] [--modules <list>] [--doc <dir>]
 //               [--runs N] [--standalone N] [--sample N] [--json <out>]
 //               [--work <dir>] [--note <line>]...
-//   map-size.ts --load-once <file>          (internal: one read + parse, then exit)
+//   node map-size.ts --load-once <file>          (internal: one read + parse, then exit)
 //
 //   --bmp      doc-gen4's search index, default
 //              $TARGET_REPO/.lake/build/doc/declarations/declaration-data.bmp
@@ -27,23 +27,28 @@
 //   --pkg      the target package's directory under --doc, default InformationTheory
 //   --runs     load-time repetitions per variant (default 7, run 1 dropped as cold)
 //   --standalone N  repeat the load timing with one process per read as a
-//                   cross-check (default 0 = off; needs --allow-run)
+//                   cross-check (default 0 = off)
 //   --sample   dependency declarations to resolve to a real file (default 50)
 //   --json     also write a machine-readable summary here
 //   --work     scratch dir for the derived variants (default: a temp dir)
 //   --note     extra condition line to print in the header (repeatable)
 //
-// `--allow-write` is only used for the derived variants under `--work`: load
-// time has to be measured against a real file, not an in-memory string, because
-// that is what a consumer of the map would pay. `--allow-run` is only used by
-// `--standalone`, which re-invokes this same file. Nothing is written to the
-// target repository; the .bmp and the HTML are read-only inputs.
+// The only files written are the derived variants under `--work`: load time has
+// to be measured against a real file, not an in-memory string, because that is
+// what a consumer of the map would pay. `--standalone` re-invokes this same
+// file. Nothing is written to the target repository; the .bmp and the HTML are
+// read-only inputs.
 //
 // Timing note: run 1 of every variant is discarded, so the reported numbers are
 // warm (page cache holds the file by construction). The spread of the remaining
 // runs is printed so a single-run number is never what gets quoted.
 
-const args = Deno.args.slice();
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const args = process.argv.slice(2);
 const opt = (name: string, dflt: string) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : dflt;
@@ -60,17 +65,14 @@ const loadOnce = args.indexOf("--load-once");
 if (loadOnce >= 0) {
   const p = args[loadOnce + 1];
   const t0 = performance.now();
-  const v = JSON.parse(await Deno.readTextFile(p));
+  const v = JSON.parse(await readFile(p, "utf8"));
   const t1 = performance.now();
   console.log(`${((t1 - t0) / 1000).toFixed(4)} ${Object.keys(v).length}`);
-  Deno.exit(0);
+  process.exit(0);
 }
 
 const REPO = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
-let TARGET = "/Users/haruka/dev/lean-projects";
-try {
-  TARGET = Deno.env.get("TARGET_REPO") ?? TARGET;
-} catch { /* --allow-env not granted; the default is right for this project */ }
+const TARGET = process.env.TARGET_REPO ?? "/Users/haruka/dev/lean-projects";
 
 const BMP = opt("--bmp", `${TARGET}/.lake/build/doc/declarations/declaration-data.bmp`);
 const REFS = opt("--refs", `${REPO}/benchmarks/results/stage3-refs.jsonl`);
@@ -116,7 +118,7 @@ async function loadTimes(path: string): Promise<number[]> {
   const ts: number[] = [];
   for (let i = 0; i < RUNS; i++) {
     const t0 = performance.now();
-    const text = await Deno.readTextFile(path);
+    const text = await readFile(path, "utf8");
     const v = JSON.parse(text);
     const t1 = performance.now();
     if (typeof v !== "object") throw new Error("parse produced a non-object");
@@ -130,15 +132,15 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
 };
 
-const bmpBytes = (await Deno.stat(BMP)).size;
-const bmpText = await Deno.readTextFile(BMP);
+const bmpBytes = (await stat(BMP)).size;
+const bmpText = await readFile(BMP, "utf8");
 const bmp = JSON.parse(bmpText);
 const decls = bmp.declarations as Record<string, IndexedDecl>;
 const declNames = Object.keys(decls);
 
-const refs: Ref[] = (await Deno.readTextFile(REFS)).trim().split("\n").map((l) => JSON.parse(l));
+const refs: Ref[] = (await readFile(REFS, "utf8")).trim().split("\n").map((l) => JSON.parse(l));
 const targetModules = new Set(
-  (await Deno.readTextFile(MODULES)).split("\n").map((s) => s.trim()).filter(Boolean),
+  (await readFile(MODULES, "utf8")).split("\n").map((s) => s.trim()).filter(Boolean),
 );
 
 // The `own` flag in the refs file means "defining module is in the target
@@ -234,7 +236,7 @@ for (const r of sampled) {
   const path = `${DOC}/${rel}`;
   let html = "";
   try {
-    html = await Deno.readTextFile(path);
+    html = await readFile(path, "utf8");
     fileOk++;
   } catch {
     brokenLinks.push(`${r.name} -> ${link} (no file)`);
@@ -252,8 +254,8 @@ for (const r of sampled) {
 // what it published. So a name can be linked and have no anchor. Search the
 // package's own HTML for exactly the names that are missing from the index.
 async function* htmlFiles(dir: string): AsyncGenerator<string> {
-  for await (const e of Deno.readDir(dir)) {
-    if (e.isDirectory) yield* htmlFiles(`${dir}/${e.name}`);
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) yield* htmlFiles(`${dir}/${e.name}`);
     else if (e.name.endsWith(".html")) yield `${dir}/${e.name}`;
   }
 }
@@ -262,7 +264,7 @@ const deadLinks = new Map<string, number>();
 const pkgHtml = `${DOC}/${PKG}`;
 try {
   for await (const p of htmlFiles(pkgHtml)) {
-    const html = await Deno.readTextFile(p);
+    const html = await readFile(p, "utf8");
     for (const n of depMissNames) {
       const c = html.split(`#${n}"`).length - 1;
       if (c) deadLinks.set(n, (deadLinks.get(n) ?? 0) + c);
@@ -274,7 +276,7 @@ for (const n of deadLinks.keys()) {
   const ref = refs.find((r) => r.name === n)!;
   const page = `${DOC}/${ref.module.replaceAll(".", "/")}.html`;
   try {
-    deadLinkAnchors.set(n, (await Deno.readTextFile(page)).includes(`id="${n}"`));
+    deadLinkAnchors.set(n, (await readFile(page, "utf8")).includes(`id="${n}"`));
   } catch {
     deadLinkAnchors.set(n, false);
   }
@@ -317,8 +319,8 @@ function shapes(names: string[]) {
   };
 }
 
-const workDir = WORK || (await Deno.makeTempDir({ prefix: "litedoc4-mapsize-" }));
-await Deno.mkdir(workDir, { recursive: true });
+const workDir = WORK || (await mkdtemp(join(tmpdir(), "litedoc4-mapsize-")));
+await mkdir(workDir, { recursive: true });
 
 type SizeRow = {
   slice: string;
@@ -342,7 +344,7 @@ for (const s of slices) {
     sizeRows.push({ slice: s.label, shape, count: s.names.length, raw, gzip: await gzipBytes(text as string) });
     if (shape === "docLink + kind (as shipped)") {
       const path = `${workDir}/decls-${s.label.replaceAll(" ", "-")}.json`;
-      await Deno.writeTextFile(path, text as string);
+      await writeFile(path, text as string);
       timedFiles.push({ label: `declarations only, ${s.label}`, path, bytes: raw });
     }
   }
@@ -361,12 +363,10 @@ if (STANDALONE > 0) {
   for (const f of timedFiles) {
     const times: number[] = [];
     for (let i = 0; i < STANDALONE; i++) {
-      const cmd = new Deno.Command(Deno.execPath(), {
-        args: ["run", "--allow-read", new URL(import.meta.url).pathname, "--load-once", f.path],
-        stdout: "piped",
+      const { stdout } = spawnSync(process.execPath, [new URL(import.meta.url).pathname, "--load-once", f.path], {
+        encoding: "utf8",
       });
-      const { stdout } = await cmd.output();
-      times.push(Number(new TextDecoder().decode(stdout).trim().split(" ")[0]));
+      times.push(Number(stdout.trim().split(" ")[0]));
     }
     standaloneRows.push({ label: f.label, bytes: f.bytes, times: times.slice(1) });
   }
@@ -376,7 +376,7 @@ say("stage 3 / increment 2 -- demand vs supply, and the real size of the map");
 say();
 say("conditions");
 say(`  date                ${new Date().toISOString()}`);
-say(`  runtime             deno ${Deno.version.deno} / v8 ${Deno.version.v8} on ${Deno.build.target}`);
+say(`  runtime             node ${process.versions.node} / v8 ${process.versions.v8} on ${process.arch}-${process.platform}`);
 say(`  load-time runs      ${RUNS} per variant, run 1 dropped -> ${RUNS - 1} warm runs reported`);
 say(`  warm/cold           warm by construction (the same file is re-read in-process)`);
 for (const n of NOTES) say(`  ${n}`);
@@ -546,8 +546,8 @@ say();
 const jsonSummary = {
   conditions: {
     date: new Date().toISOString(),
-    deno: Deno.version.deno,
-    target: Deno.build.target,
+    node: process.versions.node,
+    target: `${process.arch}-${process.platform}`,
     runs: RUNS,
     runsReported: RUNS - 1,
     warm: true,
@@ -573,4 +573,4 @@ const jsonSummary = {
 };
 
 console.log(out.join("\n"));
-if (JSON_OUT) await Deno.writeTextFile(JSON_OUT, JSON.stringify(jsonSummary, null, 2) + "\n");
+if (JSON_OUT) await writeFile(JSON_OUT, JSON.stringify(jsonSummary, null, 2) + "\n");

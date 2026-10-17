@@ -1,0 +1,12 @@
+{
+  "name": "litedoc4-benchmark-tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The measurement tooling's TypeScript, run directly by node. Type-checked by tools/benchmarks-ts-gate.sh; never published.",
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "puppeteer-core": "24.43.1",
+    "typescript": "7.0.2"
+  }
+}

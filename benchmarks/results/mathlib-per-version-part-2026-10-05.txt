@@ -1,0 +1,1241 @@
+How small the per-version part of a multi-version Mathlib site can be (plan U10)
+================================================================================
+2026-10-05
+
+Question
+--------
+Declaration content is stored once, content-addressed (D5, decided 2026-10-05). The per-version
+part then grows with every version: the manifest, own positions, dependency link targets, and the
+global files (Used by, name map, search index, instances, module list). The U6 sizing stored each
+of them whole for every version. A theoretical lower bound (plan U10) put 11 versions at about
+54 MB and 51 at about 92 MB. It assumed that each per-version part changes in proportion to the
+declarations that changed (about 3% per minor release). That was not measured for Used by or the
+global files.
+This run measures, on one minor pair (v4.32.2 -> v4.33.0) and one patch pair (v4.33.0 -> v4.33.1),
+each part whole and as a delta against the previous version, and the content store's growth. It
+then replaces the assumptions with these numbers for 11 and 51 versions, with and without Used by.
+
+Answer
+------
+  1. Totals (MB = 10^6 B; every total is (extrapolated) from one minor pair and one patch pair, as
+     the premises in section 5 say. The pairs themselves are (measured)):
+
+                                                         11 versions      51 versions
+     (i) minimum: base version whole + deltas
+         with Used by                                       52.1 MB          96.9 MB
+         without the Used by file                           47.3 MB          89.3 MB
+         without Used by, and `refs` dropped from blobs     43.4 MB          84.8 MB
+     (ii) practical: every version's parts stored whole, compressed; content shared
+         gzip -6 (browser-readable with no host support)
+           with Used by                                    293.0 MB        1,155.0 MB
+           without the Used by file                        177.0 MB          617.3 MB
+           without Used by, and `refs` dropped from blobs  168.0 MB          599.8 MB
+         brotli -q 11 (the host has to send Content-Encoding: br, U7)
+           with Used by                                    196.8 MB          756.3 MB
+           without the Used by file                        143.0 MB          507.2 MB
+     Files for (ii), hash URLs (one HTML file + 3 assets), content packed per module per transition:
+         per-version parts one file each                   18,212           57,932
+         manifest + positions as one file per module       109,622          481,742
+
+  2. The plan's lower bound is close. Shape (i) is 52.1 MB at 11 versions and 96.9 MB at 51,
+     against the theoretical 54 and 92 MB. But the shape inside it is different. The content store is
+     most of shape (i): 35.8 of 52.1 MB at 11 versions, 62.8 of 96.9 MB at 51. Of that, 29.1 MB is
+     the base version.
+
+  3. In shape (ii), Used by is the largest part: 116.0 of 293.0 MB at 11 versions (40%) and 537.7
+     of 1,155.0 MB (47%) at 51, with gzip. Next are the other global files (54.6 / 253.1 MB) and
+     the manifest (31.2 / 144.7 MB). The manifest does not compress: 338,809 8-byte hashes per
+     version are 2.71 MB of random bytes. At 51 versions the manifests (144.7 MB) are larger than
+     the whole content store (139.8 MB).
+
+  4. Used by against the ≈3% assumption: it holds for this minor pair. Its byte delta is
+     140,241 B, which is 3.37% of the whole file under zstd -19. As a semantic delta, 34,776
+     (used, user) pairs changed (21,813 added, 12,963 removed) out of 1,915,412, which is 1.82%.
+     That delta compresses to 164,824 B. For comparison, 2.95% of declarations had new content
+     (U3). In the patch pair, Used by is byte-identical. The manifest (3.37%) and the
+     relatively encoded positions (4.21%) also change at about the rate of the declarations.
+     Two global files do not. search-index.bin's delta is 32.0% of the whole and modules.json's
+     is 32.8%. In shape (i) at 51 versions, the search index deltas alone are 12.7 MB, more than
+     all of Used by (7.65 MB).
+
+  5. Surprises:
+     - The encoding of positions decides their delta. The positions as absolute JSON give a zstd
+       delta of 31.0% of the whole. The same positions relative to the previous item give 4.2%.
+       The cause is that 107,166 of 330,497 items moved by a whole number of lines with their
+       shape unchanged.
+     - zstd --patch-from of a byte-identical 80 MB file is 27,713 B, not about 0. An identical
+       file has to be stored as "same as the previous version", not as a patch.
+     - The content store holds blobs in the IR's own form. That form is about 2x the page-data
+       form U7 measured: 57.5 MB with gzip per module pack, against U7's 28.6 MB for every page
+       of v4.31.0. Compressing each blob alone is 3.5x worse than compressing packs (202.6 MB).
+     - The definition of a blob reproduces U3 exactly. 308,449 of v4.33.0's 317,834 declaration
+       blobs are already in v4.32.2's store, and that is U3's level-(d) count. The two choices
+       below change nothing in this pair: keeping the dependency target's name in the blob, and
+       keeping every IR field.
+
+Conditions
+----------
+  machine        Apple M1, 16 GiB (17,179,869,184 B), macOS 26.6.2 (25G83)
+  litedoc4       272310f6b4e1e7731b414a6ddde7e4df42b63e2c (branch multi-version, clean). src/ and
+                 extractor/ are unchanged since 600614e. The litedoc4 executable was the one
+                 already built from this tree, the same one as for U3
+  extractor      extractor/Extract.lean sha256 73e33b6e…a0e (the file U3 used). Built per version
+                 inside that version's Mathlib checkout with extractor/build.sh's two commands
+  Mathlib        v4.32.2  905b95818eb32af7874a58b427f50c1711a5e96c  Lean f3b06c705e6c85f5314019d5d3baab0fec5b580c
+                 v4.33.0  db584cd6d46c92f209a44c0f1c829460d327499d  Lean d8b18978322de05a8f3dba51ef03cf5461676c17
+                 v4.33.1  0df444a360eaa60ab8c11dca51a86af692955474  Lean 819816b2e0a3bf405af45ae5c7af2491d8f5bee6
+                 (the same commits and Lean hashes as U3). Each version was printed by its own
+                 Lean and Mathlib, not by D10's one printer
+  setup          exactly U3's (mathlib-release-sharing-2026-10-04.txt, "Scripts and commands"):
+                 `git fetch --depth 1`, `lake exe cache get` (512 M / 440 M / 440 M), `lake build
+                 --no-build Mathlib`, then `litedoc4 build --root <checkout> --out <out> --lib
+                 Mathlib --extractor-bin <ext> --lake ~/.elan/bin/lake --jobs 4 --source-url
+                 https://github.com/leanprover-community/mathlib4/blob/<sha>`. One build per
+                 version, run in sequence, and the checkout was deleted before the next.
+                 Kept: ir/, link-index.lidx, lake-manifest.json, the Lean githash, and the site.
+                 The module pages (Mathlib/**.html, Mathlib.html) were deleted from each kept
+                 site once its page count and bytes were written down; nothing here reads them.
+                 Differences from U3: the source tree and `litedoc4 modules` were not kept.
+                 On v4.33.1 the free-space guard stopped the script after the build had
+                 finished (rc=0, 7.6 GiB free). Its remaining steps (copy, move, delete the
+                 checkout) were then run by hand, unchanged.
+  builds         (measured, single run; not the subject. The v4.33.0 and v4.33.1 builds ran
+                 while analysis ran beside them)
+                   version   decls    modules  site files  site bytes      module page bytes  wall   peak RSS
+                   v4.32.2  316,286   8,265     8,278    1,207,856,079     1,091,718,526     632 s  4.47 GB
+                   v4.33.0  317,834   8,312     8,325    1,213,888,463     1,097,192,457     835 s  5.38 GB
+                   v4.33.1  317,834   8,312     8,325    1,213,887,853     1,097,191,847     969 s  4.67 GB
+                 The v4.33.0 and v4.33.1 link-index.lidx are byte-identical (cmp)
+  tools          zstd 1.5.7, brotli 1.2.0, xz 5.8.3 (all Homebrew), Apple gzip 479,
+                 Python 3.9.6. Per-blob and per-pack gzip -6 is Python's gzip module
+                 (zlib level 6, mtime 0). Whole files use the gzip CLI (-6 -n). Compression is
+                 deterministic and was run once
+  page cache     not relevant: the subject is bytes, not time
+
+Definitions
+-----------
+  Blob (part 1). One declaration's content, stored once and found by a hash of its bytes.
+    The blob is the IR declaration record with `line`, `col`, `endLine`, `endCol`,
+    `selectionRange` and `index` removed. In `attrs`, `implicit_reducible` is rewritten to
+    `instance_reducible`. It is serialized as compact JSON (UTF-8, no spaces) in the IR's key
+    order. The name stays in the blob, and the manifest holds only hashes.
+    Every other IR field stays, `refs` included. The blob carries link targets as the IR does:
+    a name per span, plus the module of each referenced name in `refs`. It carries no
+    dependency revision and no line range, since the IR has neither (render adds them from
+    link-index.lidx and lake-manifest.json). This is U3's level (d) plus the dependency
+    target's name, which a renderer needs to find the line range. The cross-check above shows
+    that this extra name changes no count in this pair.
+    The stored v4.32.2 blob says `instance_reducible` where v4.32.2's page today says
+    `implicit_reducible`. A renderer would print it per version, or accept that.
+    Also content-addressed, as two more blob kinds: a module header (the IR module record
+    without `declarations`, `moduleDocs` and `schemaVersion`, so: module, imports, tactics)
+    and each module docstring's text.
+    Hash: BLAKE2b, 8 bytes. A check over all three versions (692,551 distinct blobs, with and
+    without refs) found no two distinct blobs with the same hash (sha256 of each compared).
+    "Without Used by" variant (`norefs`): the declaration blob without `refs`. `refs` feeds Used
+    by. Its other use, a dependency link's module, is also in part 4.
+  Content store, measured three ways:
+    per blob        each blob gzip -6 on its own (the wrong way for small blobs, given for scale)
+    per module      the distinct blobs, grouped by the first module that holds them, joined with
+                    "\n" and compressed per pack (gzip -6, brotli -q 11)
+    one stream      all of a store or of a version-delta's new blobs as one stream (zstd -19
+                    --long=31, xz -9e). For a delta, also zstd --patch-from the old store's
+                    stream
+  Manifest (part 2). For each module, in page order: its header's hash, then its module
+    docstrings and declarations, sorted the way render's `pageItems` sorts them (line, col,
+    sequence). All declarations, including any that render suppresses.
+    manifest.json {module: [16-hex hash, ...]}. manifest.bin, per module: u16 name length,
+    name, u32 count, 8-byte hashes. The binary form is obviously better, because hex doubles
+    random bytes and no compressor recovers that.
+  Own positions (part 3), in manifest order:
+    positions.json      {module: [[line, col, endLine, endCol, [sl, sc, el, ec]] for a
+                        declaration, [line, col] for a module docstring]}
+    positions-rel.json  the same, each item relative: line - previous item's line, col,
+                        endLine - line, endCol, selection range relative to the item's line
+    shift-aware delta   (semantic) for each module of B, B's items in page order. An item
+                        whose key (declaration name, or the docstring's text hash) exists in
+                        A's same module with the same relative shape is covered by a run
+                        [first index, count, line shift]. Every other item is written
+                        explicitly
+  Dependency link targets (part 4). {"rev": {root: "repo@revision"}, "names": {name: [module,
+    startLine, endLine]}}. The names are every dependency declaration that some declaration of
+    the version links to from a signature, equation or structure-member span, with the module
+    from `refs` and the range from link-index.lidx. This is 3,441 / 3,439 names, not the
+    lidx's 88-90 k. The revision is stored once per root (10 roots, 7 repositories).
+  Global files (part 5). The ten files the site writes besides module pages
+    (Global/Artifacts.lean `artifactFiles`): declarations/used-by.json,
+    declarations/name-map.json, search-index.bin, instances.json, modules.json, index.html,
+    404.html, search.html, foundational_types.html, references.html. Each as written, byte for
+    byte. The assets (style.css, app.js, favicon.svg; 45,229 B raw) do not depend on the version
+    and are counted once as files, not as bytes.
+  Deltas.
+    byte delta      zstd -19 --long=31 --patch-from=<A's file> <B's file>. Round trip
+                    (zstd -d --patch-from) checked byte for byte on manifest.json and on
+                    used-by.json in both pairs
+    semantic delta  manifest: per changed module, opcodes [A index, A count, B hashes]
+                    (difflib), plus removed modules. positions: the shift-aware delta above.
+                    deplinks: changed revisions, removed names, and set names. Used by:
+                    one line per (used, user) pair added or removed
+
+1. Each version whole (bytes)
+-----------------------------
+                                 raw          gzip -6      brotli 11    zstd -19
+  manifest.json   v4.32.2      6,773,893     3,599,785    3,062,842    2,913,127
+                  v4.33.0/.1   6,807,744     3,617,741    3,077,341    2,933,125
+  manifest.bin    v4.32.2      3,073,606     2,828,617    2,779,848    2,793,110
+                  v4.33.0/.1   3,089,156     2,842,793    2,793,595    2,806,988
+  positions.json  v4.32.2      9,644,614     3,129,912    1,834,019    1,981,021
+                  v4.33.0/.1   9,694,405     3,146,204    1,844,342    1,990,876
+  positions-rel   v4.32.2      7,460,221     1,514,731    1,119,391    1,141,077
+                  v4.33.0/.1   7,498,335     1,523,315    1,126,401    1,147,695
+  deplinks.json   v4.32.2        185,129        41,662       33,066       36,486
+                  v4.33.0/.1     185,125        41,560       32,900       36,380
+  global files (v4.33.0; v4.32.2 within 1%)
+    used-by.json              80,025,697    10,561,682    4,894,743    4,159,765
+    name-map.json             24,884,207     2,217,259    1,631,312    1,683,829
+    search-index.bin           5,247,635     1,845,812    1,520,644    1,585,836
+    instances.json             2,698,047       453,673      278,957      278,929
+    index.html                 2,404,554       206,109      158,880      165,907
+    modules.json               1,024,615       167,705      132,457      142,541
+    references.html              359,290        76,766       55,842       61,434
+    the other three                6,732         3,383        2,433        3,394
+    all ten     v4.32.2      116,092,324    15,450,188    8,632,301    8,042,711
+                v4.33.0      116,650,777    15,532,389    8,675,268    8,081,635
+  (v4.33.0 and v4.33.1 differ by a few bytes in manifest/deplinks/index.html compression; the
+  raw files differ only in index.html, deplinks and 3 manifest entries.)
+  Largest single file: used-by.json, 80.0 MB raw (76.3 MiB). That is over Cloudflare's 25 MiB
+  per-file limit unless it is stored compressed. name-map.json is 23.7 MiB raw.
+
+  Content store, v4.32.2 alone (336,564 distinct blobs: 316,286 declarations, 8,265 headers,
+  12,590 module docstrings, less 577 repeated module docstring texts):
+                                 raw          per blob gz6  per module    per module   one stream   one stream
+                                                            gz6           br11         zstd -19     xz -9e
+    with refs                538,307,001    202,560,322    57,543,931    44,262,553   30,693,254   29,097,360
+    without refs (norefs)    400,779,262    171,000,398    50,633,243        -        26,873,422   25,349,536
+    per module = 8,265 packs, the largest 128,399 B gzipped.
+
+2. Minor pair v4.32.2 -> v4.33.0
+--------------------------------
+  Content store growth (blobs of v4.33.0 not in v4.32.2's store):
+    9,747 new blobs (9,385 declarations, 190 module headers, 172 module docstrings),
+    19,769,884 B raw
+      per blob gz6         7,181,229      per module gz6   3,289,024 in 1,958 packs
+      per module br11      2,760,487      one stream zstd  1,577,048   xz -9e 1,489,652
+      zstd --patch-from the v4.32.2 store (538 MB)       1,346,616
+    norefs: 9,670 new blobs, 15,038,320 B raw; per module gz6 2,864,048 (1,949 packs);
+      one stream xz -9e 1,318,796
+    Declarations of v4.33.0 whose blob is already in the v4.32.2 store: 308,449 of 317,834
+    (= U3 level (d)).
+
+  Per-version parts: whole (B, best of gz6/br11/zstd19) and delta
+                          whole B     byte delta   delta/whole   semantic delta (best)   semantic counts
+    manifest.bin        2,793,595       94,547      3.37%     manifest-sem 119,047   2,058 of 8,312 modules changed; 51 added,
+                                                                                     4 removed; entries +9,948 / -8,232; 328,861
+                                                                                     of 338,809 in place
+    manifest.json       2,933,125       98,832      3.37%
+    positions-rel       1,126,401       48,284      4.21%     positions-sem 100,884  of 330,497 items: 216,171 same, 107,166
+                                                              (raw 536,277)          shifted with same shape (12,558 runs),
+                                                                                     7,160 explicit; 5,070 modules unchanged
+    positions.json      1,844,342      616,900     30.99%
+    deplinks.json          32,900        4,814     13.23%     deplinks-sem 12,074    3,441 -> 3,439 names: 11 added, 13 removed,
+                                                                                     1,227 changed range or module; all 10
+                                                                                     roots' revisions changed
+    used-by.json        4,159,765      140,241      3.37%     164,824 (xz -9e)       see section 4
+    name-map.json       1,631,312       34,813      2.07%
+    search-index.bin    1,520,644      507,525     32.00%  (of zstd19 whole: 1,585,836)
+    modules.json          132,457       46,772     32.81%  (of zstd19 whole: 142,541)
+    instances.json        278,929        4,280      1.53%
+    index.html            158,880        1,787      1.08%
+    references.html        55,842          870      1.42%
+    404 / search / foundational_types   23 each (byte-identical)
+  (delta/whole is against the zstd -19 whole unless marked otherwise.)
+  search-index.bin and modules.json: both hold integer indexes or offsets into lists, and
+  every inserted entry shifts them. modules.json's "i" fields are list indexes; search-index.bin
+  is a binary format with offsets. This was read from the bytes, not traced in the code.
+
+3. Patch pair v4.33.0 -> v4.33.1
+--------------------------------
+  Content store growth: 3 new blobs, 8,683 B raw — the two declarations U3 found
+  (Mathlib.Tactic.GCongr.tacticGcongr_discharger's docstring, SimpleGraph.Walk.take's equation),
+  and the module header of Mathlib.Tactic.GCongr.Core (its tactic docstring carries Lean's
+  version in a reference-manual URL). Per module gz6 2,963 (2 packs); xz 2,768;
+  patch-from the old store 2,005.
+  Per-version parts:
+    manifest            2 modules changed, entries +3 / -3; byte delta 314 (bin), semantic 162
+    positions           identical; byte delta 655 (rel), semantic 7
+    deplinks            names identical; 4 revisions (the Lean core roots) changed; delta 98
+    global files        byte-identical except index.html (the Lean version), delta 231.
+                        zstd --patch-from of the byte-identical files still costs: used-by.json
+                        27,713, name-map.json 3,674, search-index.bin 986, instances.json 331,
+                        modules.json 106, references.html 51, the three small pages 23 each
+    Used by semantic    0 pairs added, 0 removed (13 B)
+
+4. Used by
+----------
+                                   minor pair         patch pair
+  (used, user) pairs  A / B        1,906,562 / 1,915,412   1,915,412 / 1,915,412
+  added / removed                  21,813 / 12,963         0 / 0
+  changed, of B's pairs            1.82%                   0
+  used declarations changed        3,531 of 63,447 (5.57%) 0
+  semantic delta text              1,902,559 raw; gz6 258,052; zstd -19 170,508; xz -9e 164,824
+  byte delta (zstd patch)          140,241 (3.37% of 4,159,765)   27,713 (file byte-identical)
+  Reading: in the minor pair Used by changes at about the rate of the declarations (2.95% new
+  content, U3). The byte delta is smaller than the semantic delta, so the file's own order
+  already keeps the changes local.
+
+5. Totals for 11 and 51 versions
+--------------------------------
+  Premises (all of them hold for every row below):
+    - base = v4.32.2 whole. Every minor transition costs what v4.32.2 -> v4.33.0 cost, and every
+      patch transition what v4.33.0 -> v4.33.1 cost: 5 + 5 transitions at 11 versions (today's
+      mix, plan U6), 25 + 25 at 51 (+20 + 20, the mix assumed in U6). So both columns are
+      (extrapolated): from one measured pair of each kind, 2 of 10 transitions at 11.
+    - The patch pair is a toolchain bump with no Mathlib source change. A patch release that
+      changes Mathlib sources would cost more and is not measured.
+    - Each version here is printed by its own Lean. D10 prints every version with one printer,
+      which removes the printer drift U3 bounded (at most 255 declarations in the minor pair).
+    - Sizes are the parts as defined above. There is no HTML shell (hash URLs, D6 option), and
+      the assets (45 KB, once) are not in the bytes.
+    - Shape (ii) needs a way to find which pack holds a given hash: the version that
+      introduced it, or a hash -> pack index. That is not defined and not counted. Kept per
+      manifest entry, it is one small number per entry, so it is within the manifest's
+      order of size (theoretical).
+
+  (i) minimum. Base whole at its best compression: content one stream (xz -9e), and every
+      per-version part best of gz6/br11/zstd19 (manifest.bin, positions-rel). Then per
+      transition the smallest of the byte delta and the semantic delta; for content, new blobs
+      as one stream or patched from the old store, whichever is smaller.
+                                   11 versions             51 versions
+      part                     with UB    without UB   with UB    without UB  (MB)
+      content store              35.84      31.96        62.81      58.39   (norefs in "without")
+      manifest                    3.25       3.25         5.15       5.15
+      positions                   1.36       1.36         2.33       2.33
+      dependency links            0.06       0.06         0.16       0.16
+      global files except UB      6.78       6.78        18.81      18.81   (search-index deltas 12.7 of 18.8 at 51)
+      Used by                     4.84        -           7.65        -
+      total                      52.13      43.40        96.90      84.82
+      without the Used by file but blobs keeping refs: 47.29 at 11, 89.25 at 51
+      per transition: minor 2.24 MB with Used by (new content 1.35, global files 0.60, Used by
+      0.14, manifest 0.09, positions 0.05). Patch 7.7 kB, most of it the zstd cost of
+      byte-identical global files (5.4 kB). Storing those as "unchanged" would bring it to
+      about 2.5 kB.
+
+  (ii) practical: a browser opens any version directly. Content is shared as per-module packs
+      (gzip -6 or brotli 11 per pack; a transition adds packs only for modules with new
+      blobs). Each version's manifest (bin), positions (rel), dependency links and global
+      files are stored whole and compressed. Their size is the mean of the three measured
+      versions.
+                                   11 versions                      51 versions
+      part                   gz6 with  gz6 w/o   br11 with    gz6 with  gz6 w/o   br11 with  (MB)
+      content store            74.00    64.97     58.08        139.84   122.30    113.34
+      manifest                 31.22    31.22     30.68        144.74   144.74    142.24
+      positions                16.72    16.72     12.36         77.54    77.54     57.33
+      dependency links          0.46     0.46      0.36          2.12     2.12      1.68
+      global files except UB   54.58    54.58     41.54        253.06   253.06    192.58
+      Used by                 115.97      -       53.73        537.69      -      249.12
+      total                   292.96   167.95    196.75      1,155.00   599.77    756.30
+      without the Used by file but blobs keeping refs: gz6 176.99 / 617.31; br11 143.02 / 507.18
+      Files (hash URLs: one HTML file plus 3 assets):
+        content packs: 8,265 + 5 x 1,958 + 5 x 2 = 18,065 at 11; 8,265 + 25 x 1,958 + 25 x 2 =
+        57,265 at 51
+        per-version parts as one file each (manifest, positions, dependency links and the 10
+        global files = 13 per version): 18,212 at 11, 57,932 at 51
+        manifest + positions as one file per module per version (8,312 + 11 per version):
+        109,622 at 11, 481,742 at 51
+      The content packs alone pass Cloudflare's 20,000-file free limit at 13 versions
+      (extrapolated: 8,265 + 1,960 per minor/patch couple), and the 100,000 paid limit at about
+      95 versions. Per-module packing per transition is what drives the count, not the
+      per-version parts.
+
+6. What dominates
+-----------------
+  - Shape (i): the content store, 69% at 11 versions and 65% at 51. Of the per-version parts,
+    the global files other than Used by come first at 51 versions, because of search-index.bin's
+    32% deltas. Used by is next (7.65 MB), then the manifest (5.15 MB).
+  - Shape (ii): Used by (40% / 47% with gzip), then the other global files, then the manifest.
+    The manifest is incompressible: 2.71 MB of every version's 2.84 MB is hashes. The content
+    store becomes a minority as versions grow: 25% of the total at 11 versions, 12% at 51.
+  - Against the U6 sizing (hosting-and-client-render-2026-10-05.txt, row 3, gzip): its
+    per-version global files (168 MB at 11) agree with this run's 170.6 MB (Used by + global
+    files). Its shared content (33 MB at 11) is low by 2.2x, because the blobs here are IR
+    records and new content is packed per module per transition (74.0 MB). Its 119 MB of page
+    shells is replaced here by manifest + positions, 47.9 MB.
+
+7. What is not measured
+-----------------------
+  - A compact blob encoding. Blobs are the IR record. U7's page-data scheme was 0.50x of this
+    run's per-module packs for the same Mathlib scale (28.6 MB against 57.5 MB with gzip).
+    v4.31.0 against v4.32.2 is not the same input, so this is (theoretical) for the content
+    store, and it does not touch the per-version parts.
+  - Anything but these two pairs. The 11 / 51 totals assume every minor transition is like
+    v4.32.2 -> v4.33.0 and every patch transition like a toolchain-only bump.
+  - D10's one printer, U9's hybrid: each version was printed by its own Lean here.
+  - Rendering from these parts. No page was drawn from a manifest and blobs. Whether the parts
+    are complete for render (citations, suppressed declarations, docstring link resolution)
+    is inferred from the IR and render's source, not checked.
+  - The hash -> pack lookup of shape (ii) (section 5, premises).
+  - Smaller hashes. A 6-byte hash would cut the manifest by about 25%. At 1 M blobs the chance
+    of any collision would be about 0.2% (theoretical), and that was not judged.
+  - Delta chains for shape (ii) (whole every k versions, deltas between) — a middle shape, not
+    computed.
+  - Time. Compressing (brotli 11, xz -9e on 538 MB) took about 43 minutes for the first two
+    versions and the minor pair. That is bytes-only work, and none of it is a build budget
+    number.
+
+8. Scripts
+----------
+  Work area <workspace> = the gates' relay directory, mv-u10. All of it (kept IRs, sites, parts,
+  deltas) was deleted after this file was written.
+  Order: all.sh (setup, background); u10parts.py per version (first with --limit 20);
+  u10pair.py per pair (first on a 20-module sample against itself, which gave 0 new blobs and
+  0 changes, then on the minor-pair sample); u10measure.py --versions v4.32.2,v4.33.0, then
+  --versions v4.33.0,v4.33.1 --no-base-content (first on the 20-module sample); u10totals.py.
+  checks.py holds the reuse cross-check (308,449) and the collision check; both ran inline
+  (python3 -) with this code.
+
+  --- all.sh  (setup driver, run in the background)
+    #!/bin/bash
+    set -uo pipefail
+    S=<scripts>
+    mkdir -p <workspace>/keep
+    for pair in "v4.32.2 905b95818eb32af7874a58b427f50c1711a5e96c" "v4.33.0 db584cd6d46c92f209a44c0f1c829460d327499d" "v4.33.1 0df444a360eaa60ab8c11dca51a86af692955474"; do
+      set -- $pair
+      bash $S/ver.sh "$1" "$2"
+      rc=$?
+      echo "$(date '+%F %T') $1 rc=$rc"
+      [ $rc -eq 0 ] || { echo "STOPPED at $1"; exit $rc; }
+    done
+    echo ALLDONE
+
+  --- ver.sh  (one version: setup, extract, render, keep, delete the checkout)
+    #!/bin/bash
+    set -uo pipefail
+    TAG=$1; SHA=$2; LABEL=$TAG
+    REPO=<repo>
+    R=<workspace>
+    W=$R/w-$TAG
+    K=$R/keep/$LABEL
+    LAKE=$HOME/.elan/bin/lake
+    LD4=$REPO/.lake/build/bin/litedoc4
+    mkdir -p "$K/logs"
+    L=$K/logs
+    step() { echo "$(date '+%F %T') $*" | tee -a "$L/steps.txt"; }
+    freecheck() {
+      local avail; avail=$(df -k <workspace> | awk 'NR==2{print $4}')
+      df -h <workspace> | tail -1 >> "$L/steps.txt"
+      if [ "$avail" -lt $((8*1024*1024)) ]; then step "STOP: free space under 8 GiB ($avail KiB)"; exit 3; fi
+    }
+    run() {
+      local name=$1; shift
+      local t0=$SECONDS
+      "$@" > "$L/$name.log" 2>&1
+      local rc=$?
+      step "$name rc=$rc wall=$((SECONDS-t0))s"
+      return $rc
+    }
+    step "start $TAG $SHA $LABEL"
+    freecheck
+    [ -e "$W" ] && { step "STOP: $W exists"; exit 3; }
+    mkdir -p "$W"
+    git -C "$W" init -q mathlib
+    git -C "$W/mathlib" remote add origin https://github.com/leanprover-community/mathlib4
+    run fetch git -C "$W/mathlib" fetch --depth 1 origin "$SHA" || exit 1
+    run checkout git -C "$W/mathlib" checkout --detach FETCH_HEAD || exit 1
+    TC=$(cat "$W/mathlib/lean-toolchain"); step "toolchain $TC"
+    [ "$TC" = "leanprover/lean4:$TAG" ] || { step "STOP: toolchain mismatch"; exit 1; }
+    [ -d "$HOME/.elan/toolchains/leanprover--lean4---$TAG" ] || { step "STOP: toolchain not installed"; exit 1; }
+    freecheck
+    export MATHLIB_CACHE_DIR=$W/cache
+    ( cd "$W/mathlib" && run cacheget "$LAKE" exe cache get ) || exit 1
+    du -sh "$W/cache" >> "$L/steps.txt"
+    freecheck
+    ( cd "$W/mathlib" && run nobuild "$LAKE" build --no-build Mathlib ) || { step "STOP: oleans incomplete"; exit 1; }
+    mkdir -p "$W/ext"
+    ( cd "$W/mathlib" && run extlean "$LAKE" env lean --root="$REPO/extractor" -o "$W/ext/Extract.olean" -c "$W/ext/Extract.c" "$REPO/extractor/Extract.lean" ) || exit 1
+    ( cd "$W/mathlib" && run extleanc "$LAKE" env leanc -rdynamic -o "$W/ext/extract" "$W/ext/Extract.c" ) || exit 1
+    ( cd "$W/mathlib" && "$LAKE" env lean --githash > "$K/lean-githash.txt" 2>&1; "$LAKE" env lean --version > "$K/lean-version.txt" 2>&1 )
+    cp "$W/mathlib/lake-manifest.json" "$K/lake-manifest.json"
+    git -C "$W/mathlib" rev-parse HEAD > "$K/mathlib-rev.txt"
+    freecheck
+    OUT=$W/out-$LABEL
+    rm -rf "$OUT"
+    run build /usr/bin/time -l "$LD4" build --root "$W/mathlib" --out "$OUT" \
+      --lib Mathlib --extractor-bin "$W/ext/extract" --lake "$LAKE" --jobs 4 \
+      --source-url "https://github.com/leanprover-community/mathlib4/blob/$SHA" \
+      --timings "$K/timings.json"
+    BRC=$?
+    freecheck
+    cp "$OUT/litedoc4-build.json" "$K/" 2>/dev/null
+    cp "$OUT/link-index.lidx" "$OUT/link-index.lidx.key" "$K/" 2>/dev/null
+    cp "$OUT/work/serve.out" "$OUT/work/extract-timings-1.json" "$K/" 2>/dev/null
+    mv "$OUT/ir" "$K/ir"
+    mv "$OUT/site" "$K/site"
+    du -sh "$K/ir" "$K/site" >> "$L/steps.txt" 2>&1
+    rm -rf "$W"
+    step "build rc=$BRC done; checkout deleted"
+    freecheck
+    exit $BRC
+
+  --- u10parts.py
+    #!/usr/bin/env python3
+    """U10: split one version's IR into the parts of the multi-version design.
+
+    usage: u10parts.py <keep> <outdir> [--limit N]
+
+    Writes into <outdir>:
+      content.tsv         hash \t module \t kind \t blob        (every blob of this version, page order)
+      content-norefs.tsv  the same, declaration blobs without `refs` (level (e))
+      manifest.json       {module: [hash, ...]} in page order
+      manifest.bin        per module: name, count, 8-byte hashes
+      positions.json      {module: [[line, col, endLine, endCol, selectionRange] | [line, col], ...]}
+      positions-rel.json  the same, each item relative to the previous one
+      posbyname.tsv       module \t key \t line \t rest-json   (input for the shift-aware delta)
+      deplinks.json       {"rev": {root: repo@revision}, "names": {name: [module, startLine, endLine]}}
+    """
+    import hashlib
+    import json
+    import os
+    import struct
+    import sys
+
+    CORE_ROOTS = {"Init", "Lean", "Std", "Lake"}
+    PKG_KEY = {"Batteries": "batteries", "Aesop": "aesop", "Qq": "qq", "ProofWidgets": "proofwidgets",
+               "Plausible": "plausible", "ImportGraph": "importgraph",
+               "LeanSearchClient": "leansearchclient", "Cli": "cli"}
+    POS_KEYS = ("line", "col", "endLine", "endCol", "selectionRange")
+    DROP = set(POS_KEYS) | {"index"}
+    RENAME = ("implicit_reducible", "instance_reducible")
+    MODULE_SKIP = {"declarations", "moduleDocs", "schemaVersion"}
+
+
+    def dumps(x):
+        return json.dumps(x, ensure_ascii=False, separators=(",", ":"))
+
+
+    def hblob(b):
+        return hashlib.blake2b(b, digest_size=8).digest()
+
+
+    def decl_blob(d, with_refs=True):
+        out = {}
+        for k, v in d.items():
+            if k in DROP:
+                continue
+            if k == "refs" and not with_refs:
+                continue
+            if k == "attrs":
+                v = json.loads(dumps(v).replace(RENAME[0], RENAME[1]))
+            out[k] = v
+        return dumps(out).encode()
+
+
+    def span_names(spans, acc):
+        for s in spans:
+            if len(s) > 3 and isinstance(s[3], str):
+                acc.add(s[3])
+
+
+    def linked_names(d):
+        acc = set()
+        span_names(d.get("typeCode", []), acc)
+        for b in d.get("binderCode", []):
+            span_names(b, acc)
+        for e in d.get("equationCode", []):
+            span_names(e, acc)
+        for m in d.get("members", []):
+            span_names(m.get("code", []), acc)
+            for b in m.get("binderCode", []):
+                span_names(b, acc)
+        return acc
+
+
+    def page_items(mod):
+        items = []
+        seq = 0
+        for i, md in enumerate(mod.get("moduleDocs", [])):
+            items.append((md.get("line", 0), md.get("col", 0), seq, True, i))
+            seq += 1
+        for i, d in enumerate(mod["declarations"]):
+            items.append((d.get("line", 0), d.get("col", 0), seq + d.get("index", 0), False, i))
+        items.sort(key=lambda t: (t[0], t[1], t[2]))
+        return items
+
+
+    def pos_of(d):
+        return [d.get(k) for k in POS_KEYS]
+
+
+    def rel(prev_line, p):
+        line, col, end_line, end_col, sel = p
+        r = [line - prev_line, col, end_line - line, end_col]
+        if sel is not None:
+            r.append(sel_rel(sel, line))
+        return r
+
+
+    def sel_rel(sel, line):
+        if isinstance(sel, dict):
+            sl = sel.get("line", line)
+            return [sl - line, sel.get("col"), sel.get("endLine", sl) - sl, sel.get("endCol")]
+        if isinstance(sel, list) and len(sel) == 4 and all(isinstance(x, int) for x in sel):
+            return [sel[0] - line, sel[1], sel[2] - sel[0], sel[3]]
+        return sel
+
+
+    def main():
+        args = sys.argv[1:]
+        limit = None
+        if "--limit" in args:
+            i = args.index("--limit")
+            limit = int(args[i + 1])
+            del args[i:i + 2]
+        keep, outdir = args
+        os.makedirs(outdir, exist_ok=True)
+        index = json.load(open(os.path.join(keep, "ir", "index.json")))
+        lean_rev = open(os.path.join(keep, "lean-githash.txt")).read().strip()
+        manifest_pk = json.load(open(os.path.join(keep, "lake-manifest.json")))
+        pkg_rev = {p["name"].lower(): p.get("rev", "") for p in manifest_pk["packages"]}
+        lidx = {}
+        with open(os.path.join(keep, "link-index.lidx"), encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("\t"):
+                    parts = line.rstrip("\n").split("\t")
+                    if len(parts) == 4:
+                        lidx[parts[1]] = (parts[2], parts[3])
+        mods = index["modules"]
+        if limit is not None:
+            mods = mods[:limit]
+        seen = {}
+        content = open(os.path.join(outdir, "content.tsv"), "w", encoding="utf-8")
+        content_nr = open(os.path.join(outdir, "content-norefs.tsv"), "w", encoding="utf-8")
+        posbyname = open(os.path.join(outdir, "posbyname.tsv"), "w", encoding="utf-8")
+        manifest = {}
+        mbin = bytearray()
+        positions = {}
+        positions_rel = {}
+        dep = {}
+        roots_used = set()
+        n_decl = n_doc = 0
+        for m in mods:
+            mod = json.load(open(os.path.join(keep, "ir", m["file"]), encoding="utf-8"))
+            name = mod["module"]
+            header = {k: v for k, v in mod.items() if k not in MODULE_SKIP}
+            hb = dumps(header).encode()
+            hashes = []
+            poss = []
+            prels = []
+            prev_line = 0
+
+            def emit(kind, blob, blob_nr):
+                h = hblob(blob)
+                hx = h.hex()
+                if hx in seen:
+                    if seen[hx] != hashlib.sha256(blob).digest():
+                        raise SystemExit(f"hash collision on {hx}")
+                else:
+                    seen[hx] = hashlib.sha256(blob).digest()
+                content.write(f"{hx}\t{name}\t{kind}\t{blob.decode()}\n")
+                content_nr.write(f"{hblob(blob_nr).hex()}\t{name}\t{kind}\t{blob_nr.decode()}\n")
+                return h
+
+            hashes.append(emit("H", hb, hb))
+            refmod_all = {}
+            for it in page_items(mod):
+                line, col, _, is_doc, i = it
+                if is_doc:
+                    md = mod["moduleDocs"][i]
+                    b = dumps({"moduleDoc": md.get("text")}).encode()
+                    hashes.append(emit("M", b, b))
+                    poss.append([md.get("line"), md.get("col")])
+                    prels.append([md.get("line") - prev_line, md.get("col")])
+                    posbyname.write(f"{name}\tdoc:{hashlib.blake2b(b, digest_size=8).hexdigest()}\t{md.get('line')}\t{dumps([md.get('col')])}\n")
+                    prev_line = md.get("line")
+                    n_doc += 1
+                else:
+                    d = mod["declarations"][i]
+                    hashes.append(emit("D", decl_blob(d), decl_blob(d, with_refs=False)))
+                    p = pos_of(d)
+                    poss.append(p)
+                    prels.append(rel(prev_line, p))
+                    r = rel(p[0], p)
+                    posbyname.write(f"{name}\t{d['name']}\t{p[0]}\t{dumps(r[1:])}\n")
+                    prev_line = p[0]
+                    n_decl += 1
+                    refmod = {n: mm for mm, n in d.get("refs", [])}
+                    for n in linked_names(d):
+                        mm = refmod.get(n)
+                        if mm is None:
+                            continue
+                        root = mm.split(".")[0]
+                        if root == "Mathlib":
+                            continue
+                        roots_used.add(root)
+                        rng = lidx.get(n)
+                        dep[n] = [mm, int(rng[0]), int(rng[1])] if rng else [mm]
+            manifest[name] = [h.hex() for h in hashes]
+            nb = name.encode()
+            mbin += struct.pack("<H", len(nb)) + nb + struct.pack("<I", len(hashes)) + b"".join(hashes)
+            positions[name] = poss
+            positions_rel[name] = prels
+        revs = {}
+        for root in sorted(roots_used):
+            if root in CORE_ROOTS:
+                revs[root] = "lean4@" + lean_rev
+            else:
+                key = PKG_KEY.get(root, root.lower())
+                revs[root] = key + "@" + pkg_rev.get(key, "?")
+        with open(os.path.join(outdir, "manifest.json"), "w", encoding="utf-8") as f:
+            f.write(dumps(manifest))
+        with open(os.path.join(outdir, "manifest.bin"), "wb") as f:
+            f.write(mbin)
+        with open(os.path.join(outdir, "positions.json"), "w", encoding="utf-8") as f:
+            f.write(dumps(positions))
+        with open(os.path.join(outdir, "positions-rel.json"), "w", encoding="utf-8") as f:
+            f.write(dumps(positions_rel))
+        with open(os.path.join(outdir, "deplinks.json"), "w", encoding="utf-8") as f:
+            f.write(dumps({"rev": revs, "names": {k: dep[k] for k in sorted(dep)}}))
+        content.close()
+        content_nr.close()
+        posbyname.close()
+        print(dumps({"modules": len(mods), "decls": n_decl, "moduleDocs": n_doc, "distinct_blobs": len(seen),
+                     "dep_names": len(dep), "roots": revs}))
+
+
+    if __name__ == "__main__":
+        main()
+
+  --- u10pair.py
+    #!/usr/bin/env python3
+    """U10: content-store growth and semantic deltas between two versions' parts (u10parts.py output).
+
+    usage: u10pair.py <partsA> <partsB> <outdir>
+
+    Writes into <outdir>:
+      new-blobs.tsv / new-blobs-norefs.tsv   blobs of B whose hash is not in A (module \t blob)
+      manifest-sem.json    per module: hashes removed / added (by position-free diff) and modules added/removed
+      positions-sem.json   shift-aware delta of B's positions against A's
+      deplinks-sem.json    names added / removed / changed, revisions changed
+    and prints counts as JSON.
+    """
+    import difflib
+    import json
+    import os
+    import sys
+
+
+    def dumps(x):
+        return json.dumps(x, ensure_ascii=False, separators=(",", ":"))
+
+
+    def read_hashes(path):
+        hs = set()
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                hs.add(line[:16])
+        return hs
+
+
+    def new_blobs(pa, pb, name, out):
+        old = read_hashes(os.path.join(pa, name))
+        seen = set()
+        n = nb = 0
+        kinds = {}
+        with open(os.path.join(pb, name), encoding="utf-8") as f, open(out, "w", encoding="utf-8") as o:
+            for line in f:
+                h, mod, kind, blob = line.rstrip("\n").split("\t", 3)
+                if h in old or h in seen:
+                    continue
+                seen.add(h)
+                o.write(f"{mod}\t{blob}\n")
+                n += 1
+                nb += len(blob.encode())
+                kinds[kind] = kinds.get(kind, 0) + 1
+        return {"new_blobs": n, "new_blob_bytes": nb, "by_kind": kinds}
+
+
+    def manifest_sem(pa, pb):
+        A = json.load(open(os.path.join(pa, "manifest.json")))
+        B = json.load(open(os.path.join(pb, "manifest.json")))
+        delta = {"removed_modules": sorted(set(A) - set(B)), "modules": {}}
+        st = {"modules_added": 0, "modules_removed": len(set(A) - set(B)), "modules_changed": 0,
+              "entries_added": 0, "entries_removed": 0, "entries_B": 0, "entries_same_position": 0}
+        for m, hb in B.items():
+            st["entries_B"] += len(hb)
+            ha = A.get(m)
+            if ha is None:
+                st["modules_added"] += 1
+                st["entries_added"] += len(hb)
+                delta["modules"][m] = {"new": hb}
+                continue
+            if ha == hb:
+                st["entries_same_position"] += len(hb)
+                continue
+            st["modules_changed"] += 1
+            ops = []
+            sm = difflib.SequenceMatcher(a=ha, b=hb, autojunk=False)
+            for tag, i1, i2, j1, j2 in sm.get_opcodes():
+                if tag == "equal":
+                    st["entries_same_position"] += i2 - i1
+                    continue
+                st["entries_removed"] += i2 - i1
+                st["entries_added"] += j2 - j1
+                ops.append([i1, i2 - i1, hb[j1:j2]])
+            delta["modules"][m] = {"ops": ops}
+        return delta, st
+
+
+    def read_pos(path):
+        out = {}
+        occ = {}
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                mod, key, ln, rest = line.rstrip("\n").split("\t")
+                n = occ.get((mod, key), 0)
+                occ[(mod, key)] = n + 1
+                out.setdefault(mod, []).append((f"{key}#{n}" if n else key, int(ln), rest))
+        return out
+
+
+    def positions_sem(pa, pb):
+        A = read_pos(os.path.join(pa, "posbyname.tsv"))
+        B = read_pos(os.path.join(pb, "posbyname.tsv"))
+        delta = {}
+        st = {"items_B": 0, "same_position": 0, "shifted_same_shape": 0, "explicit": 0, "runs": 0,
+              "modules_unchanged": 0}
+        for m, items in B.items():
+            st["items_B"] += len(items)
+            old = {k: (ln, rest) for k, ln, rest in A.get(m, [])}
+            runs = []
+            explicit = []
+            cur = None
+            unchanged = True
+            for idx, (k, ln, rest) in enumerate(items):
+                o = old.get(k)
+                if o is not None and o[1] == rest:
+                    shift = ln - o[0]
+                    if shift == 0:
+                        st["same_position"] += 1
+                    else:
+                        st["shifted_same_shape"] += 1
+                        unchanged = False
+                    if cur is not None and cur[2] == shift and cur[0] + cur[1] == idx:
+                        cur[1] += 1
+                    else:
+                        cur = [idx, 1, shift]
+                        runs.append(cur)
+                else:
+                    unchanged = False
+                    st["explicit"] += 1
+                    explicit.append([idx, ln, json.loads(rest)])
+                    cur = None
+            if unchanged and len(A.get(m, [])) == len(items):
+                st["modules_unchanged"] += 1
+                continue
+            st["runs"] += len(runs)
+            delta[m] = {"runs": runs, "explicit": explicit}
+        st["modules_removed"] = len(set(A) - set(B))
+        return delta, st
+
+
+    def deplinks_sem(pa, pb):
+        A = json.load(open(os.path.join(pa, "deplinks.json")))
+        B = json.load(open(os.path.join(pb, "deplinks.json")))
+        na, nb = A["names"], B["names"]
+        delta = {"rev": {k: v for k, v in B["rev"].items() if A["rev"].get(k) != v},
+                 "removed": sorted(set(na) - set(nb)),
+                 "set": {k: v for k, v in nb.items() if na.get(k) != v}}
+        st = {"names_A": len(na), "names_B": len(nb), "added": len(set(nb) - set(na)),
+              "removed": len(set(na) - set(nb)),
+              "changed": sum(1 for k in set(na) & set(nb) if na[k] != nb[k]),
+              "revs_changed": len(delta["rev"])}
+        return delta, st
+
+
+    def main():
+        pa, pb, outdir = sys.argv[1:]
+        os.makedirs(outdir, exist_ok=True)
+        rep = {}
+        rep["content"] = new_blobs(pa, pb, "content.tsv", os.path.join(outdir, "new-blobs.tsv"))
+        rep["content_norefs"] = new_blobs(pa, pb, "content-norefs.tsv", os.path.join(outdir, "new-blobs-norefs.tsv"))
+        d, rep["manifest"] = manifest_sem(pa, pb)
+        open(os.path.join(outdir, "manifest-sem.json"), "w").write(dumps(d))
+        d, rep["positions"] = positions_sem(pa, pb)
+        open(os.path.join(outdir, "positions-sem.json"), "w").write(dumps(d))
+        d, rep["deplinks"] = deplinks_sem(pa, pb)
+        open(os.path.join(outdir, "deplinks-sem.json"), "w").write(dumps(d))
+        json.dump(rep, open(os.path.join(outdir, "pair.json"), "w"), indent=1)
+        print(json.dumps(rep, indent=1))
+
+
+    if __name__ == "__main__":
+        main()
+
+  --- u10measure.py
+    #!/usr/bin/env python3
+    """U10: sizes of every part, whole and as deltas.
+
+    usage: u10measure.py <root> <out.json> [--versions a,b,c] [--skip-br-packs]
+    <root> holds parts/<tag>/ (u10parts.py), pairs/<A>_<B>/ (u10pair.py) and keep/<tag>/site/.
+    """
+    import gzip
+    import json
+    import os
+    import subprocess
+    import sys
+    import zlib
+
+    GLOBALS = ["declarations/used-by.json", "declarations/name-map.json", "search-index.bin",
+               "instances.json", "modules.json", "index.html", "404.html", "search.html",
+               "foundational_types.html", "references.html"]
+
+
+    def gz6(b):
+        return len(gzip.compress(b, compresslevel=6, mtime=0))
+
+
+    def deflate6(b):
+        c = zlib.compressobj(6, zlib.DEFLATED, -15)
+        return len(c.compress(b) + c.flush())
+
+
+    def cli(cmd, data=None):
+        r = subprocess.run(cmd, input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if r.returncode != 0:
+            raise SystemExit(f"{cmd} failed: {r.stderr[:500]!r}")
+        return r.stdout
+
+
+    def fsize(p):
+        return os.stat(p).st_size
+
+
+    def file_sizes(path, tmp):
+        raw = fsize(path)
+        return {"raw": raw,
+                "gz6": len(cli(["gzip", "-6", "-n", "-c", path])),
+                "br11": len(cli(["brotli", "-q", "11", "-c", path])),
+                "zstd19": len(cli(["zstd", "-19", "--long=31", "-q", "-c", path]))}
+
+
+    def patch(old, new, tmp, check=False):
+        out = os.path.join(tmp, "patch.zst")
+        cli(["zstd", "-19", "--long=31", "-q", "-f", "--patch-from=" + old, new, "-o", out])
+        n = fsize(out)
+        if check:
+            back = os.path.join(tmp, "patch.back")
+            cli(["zstd", "-d", "--long=31", "-q", "-f", "--patch-from=" + old, out, "-o", back])
+            if open(back, "rb").read() != open(new, "rb").read():
+                raise SystemExit(f"patch round trip failed for {new}")
+            os.remove(back)
+        os.remove(out)
+        return n
+
+
+    def stream_sizes(data, tmp, name):
+        p = os.path.join(tmp, name)
+        open(p, "wb").write(data)
+        r = {"raw": len(data), "gz6": len(cli(["gzip", "-6", "-n", "-c", p])),
+             "zstd19": len(cli(["zstd", "-19", "--long=31", "-q", "-c", p])),
+             "xz9e": len(cli(["xz", "-9e", "-c", p]))}
+        os.remove(p)
+        return r
+
+
+    def packs(lines, br=False, tmp=None):
+        """lines: iterable of (module, blob str). One pack per module, blobs joined with newline."""
+        by_mod = {}
+        for mod, blob in lines:
+            by_mod.setdefault(mod, []).append(blob)
+        tot_gz = tot_raw = tot_br = 0
+        largest_gz = 0
+        for mod, blobs in by_mod.items():
+            b = "\n".join(blobs).encode()
+            tot_raw += len(b)
+            g = gz6(b)
+            tot_gz += g
+            largest_gz = max(largest_gz, g)
+            if br:
+                tot_br += len(cli(["brotli", "-q", "11", "-c"], b))
+        r = {"packs": len(by_mod), "raw": tot_raw, "gz6": tot_gz, "largest_gz6": largest_gz}
+        if br:
+            r["br11"] = tot_br
+        return r
+
+
+    def per_blob(blobs):
+        g = d = 0
+        for b in blobs:
+            g += gz6(b)
+            d += deflate6(b)
+        return {"gz6_each": g, "deflate6_each": d}
+
+
+    def distinct_content(path):
+        seen = set()
+        out = []
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                h, mod, kind, blob = line.rstrip("\n").split("\t", 3)
+                if h in seen:
+                    continue
+                seen.add(h)
+                out.append((mod, blob))
+        return out
+
+
+    def content_whole(parts, tmp, name, br):
+        items = distinct_content(os.path.join(parts, name))
+        blobs = [b.encode() for _, b in items]
+        r = {"blobs": len(blobs), "raw": sum(len(b) for b in blobs)}
+        r.update(per_blob(blobs))
+        r["per_module"] = packs(items, br=br)
+        r["one_stream"] = stream_sizes(b"\n".join(blobs), tmp, "all.blobs")
+        return r
+
+
+    def content_count(parts, name):
+        items = distinct_content(os.path.join(parts, name))
+        return {"blobs": len(items), "raw": sum(len(b.encode()) for _, b in items)}
+
+
+    def content_new(pair, tmp, name, old_stream_path):
+        items = []
+        with open(os.path.join(pair, name), encoding="utf-8") as f:
+            for line in f:
+                mod, blob = line.rstrip("\n").split("\t", 1)
+                items.append((mod, blob))
+        blobs = [b.encode() for _, b in items]
+        r = {"blobs": len(blobs), "raw": sum(len(b) for b in blobs)}
+        r.update(per_blob(blobs))
+        r["per_module"] = packs(items, br=True)
+        data = b"\n".join(blobs)
+        r["one_stream"] = stream_sizes(data, tmp, "new.blobs")
+        if old_stream_path is not None:
+            p = os.path.join(tmp, "new.blobs")
+            open(p, "wb").write(data)
+            r["one_stream_patch_from_old_store"] = patch(old_stream_path, p, tmp)
+            os.remove(p)
+        return r
+
+
+    def write_store(parts, name, path):
+        items = distinct_content(os.path.join(parts, name))
+        open(path, "wb").write(b"\n".join(b.encode() for _, b in items))
+
+
+    def usedby_sem(old, new, tmp):
+        A = json.load(open(old, encoding="utf-8"))
+        B = json.load(open(new, encoding="utf-8"))
+        pa = {(k, u) for k, us in A.items() for u in us}
+        pb = {(k, u) for k, us in B.items() for u in us}
+        added = sorted(pb - pa)
+        removed = sorted(pa - pb)
+        text = "".join(f"+\t{k}\t{u}\n" for k, u in added) + "".join(f"-\t{k}\t{u}\n" for k, u in removed)
+        r = {"pairs_A": len(pa), "pairs_B": len(pb), "added": len(added), "removed": len(removed),
+             "targets_A": len(A), "targets_B": len(B),
+             "targets_changed": sum(1 for k in set(A) | set(B) if set(A.get(k, [])) != set(B.get(k, [])))}
+        r["delta_text"] = stream_sizes(text.encode(), tmp, "ub.delta")
+        return r
+
+
+    def main():
+        args = sys.argv[1:]
+        versions = ["v4.32.2", "v4.33.0", "v4.33.1"]
+        if "--versions" in args:
+            i = args.index("--versions")
+            versions = args[i + 1].split(",")
+            del args[i:i + 2]
+        br_packs = "--skip-br-packs" not in args
+        base_content = "--no-base-content" not in args
+        args = [a for a in args if a not in ("--skip-br-packs", "--no-base-content")]
+        root, outp = args
+        tmp = os.path.join(root, "tmp")
+        os.makedirs(tmp, exist_ok=True)
+        rep = {"versions": {}, "pairs": {}}
+        for v in versions:
+            P = os.path.join(root, "parts", v)
+            site = os.path.join(root, "keep", v, "site")
+            r = {}
+            if v == versions[0] and base_content:
+                r["content"] = content_whole(P, tmp, "content.tsv", br_packs)
+                r["content_norefs"] = content_whole(P, tmp, "content-norefs.tsv", False)
+            else:
+                r["content"] = content_count(P, "content.tsv")
+                r["content_norefs"] = content_count(P, "content-norefs.tsv")
+            for f in ("manifest.json", "manifest.bin", "positions.json", "positions-rel.json", "deplinks.json"):
+                r[f] = file_sizes(os.path.join(P, f), tmp)
+            g = {}
+            for f in GLOBALS:
+                p = os.path.join(site, f)
+                g[f] = file_sizes(p, tmp) if os.path.exists(p) else None
+            r["globals"] = g
+            rep["versions"][v] = r
+            print(v, "done", flush=True)
+            json.dump(rep, open(outp, "w"), indent=1)
+        for a, b in zip(versions, versions[1:]):
+            PA = os.path.join(root, "parts", a)
+            PB = os.path.join(root, "parts", b)
+            Q = os.path.join(root, "pairs", f"{a}_{b}")
+            r = {}
+            store = os.path.join(tmp, "old.store")
+            write_store(PA, "content.tsv", store)
+            r["content_new"] = content_new(Q, tmp, "new-blobs.tsv", store)
+            os.remove(store)
+            r["content_new_norefs"] = content_new(Q, tmp, "new-blobs-norefs.tsv", None)
+            for f in ("manifest.json", "manifest.bin", "positions.json", "positions-rel.json", "deplinks.json"):
+                r[f + "@patch"] = patch(os.path.join(PA, f), os.path.join(PB, f), tmp, check=(f == "manifest.json"))
+            for f in ("manifest-sem.json", "positions-sem.json", "deplinks-sem.json"):
+                r[f] = file_sizes(os.path.join(Q, f), tmp)
+            g = {}
+            for f in GLOBALS:
+                pa = os.path.join(root, "keep", a, "site", f)
+                pb = os.path.join(root, "keep", b, "site", f)
+                if os.path.exists(pa) and os.path.exists(pb):
+                    g[f] = {"patch": patch(pa, pb, tmp, check=(f == "declarations/used-by.json")),
+                            "identical": open(pa, "rb").read() == open(pb, "rb").read()}
+            r["globals@patch"] = g
+            r["usedby_sem"] = usedby_sem(os.path.join(root, "keep", a, "site", "declarations/used-by.json"),
+                                         os.path.join(root, "keep", b, "site", "declarations/used-by.json"), tmp)
+            rep["pairs"][f"{a}_{b}"] = r
+            print(a, b, "done", flush=True)
+            json.dump(rep, open(outp, "w"), indent=1)
+
+
+    if __name__ == "__main__":
+        main()
+
+  --- u10totals.py
+    #!/usr/bin/env python3
+    """U10: stored bytes for N versions, from u10measure.py's two reports.
+
+    usage: u10totals.py <measure-minor.json> <measure-patch.json>
+    """
+    import json
+    import sys
+
+    GLOBALS = ["declarations/used-by.json", "declarations/name-map.json", "search-index.bin",
+               "instances.json", "modules.json", "index.html", "404.html", "search.html",
+               "foundational_types.html", "references.html"]
+    UB = "declarations/used-by.json"
+    MIX = {11: (5, 5), 51: (25, 25)}
+
+
+    def best(d, keys=("gz6", "br11", "zstd19")):
+        return min(d[k] for k in keys if k in d)
+
+
+    def main():
+        mi = json.load(open(sys.argv[1]))
+        pa = json.load(open(sys.argv[2]))
+        V = {"v4.32.2": mi["versions"]["v4.32.2"], "v4.33.0": mi["versions"]["v4.33.0"],
+             "v4.33.1": pa["versions"]["v4.33.1"]}
+        P = {"minor": mi["pairs"]["v4.32.2_v4.33.0"], "patch": pa["pairs"]["v4.33.0_v4.33.1"]}
+        base = V["v4.32.2"]
+        out = {}
+
+        def whole_min(v, with_ub):
+            t = {"manifest": min(best(v["manifest.json"]), best(v["manifest.bin"])),
+                 "positions": min(best(v["positions.json"]), best(v["positions-rel.json"])),
+                 "deplinks": best(v["deplinks.json"]),
+                 "globals": sum(best(v["globals"][g]) for g in GLOBALS if g != UB)}
+            if with_ub:
+                t["usedby"] = best(v["globals"][UB])
+            return t
+
+        def delta_min(p, with_ub):
+            t = {"manifest": min(p["manifest.json@patch"], p["manifest.bin@patch"], best(p["manifest-sem.json"])),
+                 "positions": min(p["positions.json@patch"], p["positions-rel.json@patch"], best(p["positions-sem.json"])),
+                 "deplinks": min(p["deplinks.json@patch"], best(p["deplinks-sem.json"])),
+                 "globals": sum(p["globals@patch"][g]["patch"] for g in GLOBALS if g != UB)}
+            if with_ub:
+                t["usedby"] = min(p["globals@patch"][UB]["patch"],
+                                  best(p["usedby_sem"]["delta_text"], ("gz6", "zstd19", "xz9e")))
+            return t
+
+        for with_ub in (True, False):
+            cname = "content" if with_ub else "content_norefs"
+            nname = "content_new" if with_ub else "content_new_norefs"
+            c_base = best(base[cname]["one_stream"], ("zstd19", "xz9e"))
+            c_new = {k: min([best(P[k][nname]["one_stream"], ("zstd19", "xz9e"))]
+                            + ([P[k][nname]["one_stream_patch_from_old_store"]]
+                               if "one_stream_patch_from_old_store" in P[k][nname] else []))
+                     for k in P}
+            w = whole_min(base, with_ub)
+            d = {k: delta_min(P[k], with_ub) for k in P}
+            key = "i_" + ("with" if with_ub else "without") + "_usedby"
+            out[key] = {"content_base": c_base, "content_new": c_new, "base_whole": w, "delta": d}
+            for n, (nm, npat) in MIX.items():
+                total = c_base + sum(w.values()) + nm * (c_new["minor"] + sum(d["minor"].values())) \
+                    + npat * (c_new["patch"] + sum(d["patch"].values()))
+                parts = {"content": c_base + nm * c_new["minor"] + npat * c_new["patch"]}
+                for part in w:
+                    parts[part] = w[part] + nm * d["minor"][part] + npat * d["patch"][part]
+                out[key][f"N{n}"] = {"total": total, "parts": parts}
+
+        for comp in ("gz6", "br11"):
+            for with_ub in (True, False):
+                cname = "content" if with_ub else "content_norefs"
+                nname = "content_new" if with_ub else "content_new_norefs"
+                if comp == "br11" and not with_ub:
+                    continue
+                c_base = base[cname]["per_module"][comp]
+                c_new = {k: P[k][nname]["per_module"][comp] for k in P}
+                per_version = []
+                for v in V.values():
+                    t = {"manifest": min(v["manifest.json"][comp], v["manifest.bin"][comp]),
+                         "positions": min(v["positions.json"][comp], v["positions-rel.json"][comp]),
+                         "deplinks": v["deplinks.json"][comp],
+                         "globals": sum(v["globals"][g][comp] for g in GLOBALS if g != UB)}
+                    if with_ub:
+                        t["usedby"] = v["globals"][UB][comp]
+                    per_version.append(t)
+                mean = {k: sum(t[k] for t in per_version) / len(per_version) for k in per_version[0]}
+                key = f"ii_{comp}_" + ("with" if with_ub else "without") + "_usedby"
+                out[key] = {"content_base": c_base, "content_new": c_new, "per_version_mean": mean}
+                for n, (nm, npat) in MIX.items():
+                    parts = {"content": c_base + nm * c_new["minor"] + npat * c_new["patch"]}
+                    for part in mean:
+                        parts[part] = n * mean[part]
+                    out[key][f"N{n}"] = {"total": sum(parts.values()), "parts": parts}
+
+        packs_base = base["content"]["per_module"]["packs"]
+        packs_new = {k: P[k]["content_new"]["per_module"]["packs"] for k in P}
+        modules = 8312
+        files = {}
+        for n, (nm, npat) in MIX.items():
+            content_files = packs_base + nm * packs_new["minor"] + npat * packs_new["patch"]
+            shell_and_assets = 1 + 3
+            one_file_per_part = n * (3 + len(GLOBALS))
+            per_module_parts = n * (modules + 1 + len(GLOBALS))
+            files[f"N{n}"] = {"content_packs": content_files,
+                              "A_parts_whole": shell_and_assets + content_files + one_file_per_part,
+                              "B_parts_per_module": shell_and_assets + content_files + per_module_parts}
+        out["files_ii"] = files
+        print(json.dumps(out, indent=1))
+
+
+    if __name__ == "__main__":
+        main()
+
+  --- checks.py  (reuse cross-check and collision check: python3 checks.py <workspace>)
+    import hashlib, sys
+    R = sys.argv[1]
+    A = set()
+    for l in open(f"{R}/parts/v4.32.2/content.tsv", encoding="utf-8"):
+        A.add(l[:16])
+    n = r = 0
+    for l in open(f"{R}/parts/v4.33.0/content.tsv", encoding="utf-8"):
+        if l[17:].split("\t", 2)[1] == "D":
+            n += 1
+            r += l[:16] in A
+    print("decls B", n, "reuse", r)
+    seen = {}
+    bad = 0
+    for v in ("v4.32.2", "v4.33.0", "v4.33.1"):
+        for name in ("content.tsv", "content-norefs.tsv"):
+            for l in open(f"{R}/parts/{v}/{name}", encoding="utf-8"):
+                h, m, k, b = l.rstrip("\n").split("\t", 3)
+                d = hashlib.sha256(b.encode()).digest()
+                o = seen.setdefault((name, h), d)
+                bad += o != d
+    print("distinct", len(seen), "collisions", bad)

@@ -1,0 +1,908 @@
+import OleanReader.Check
+import OleanReader.Axioms
+import Extract
+import Std.Async.Process
+open Lean OleanReader Litedoc4 Litedoc4.ReuseKey
+
+namespace OleanReader.Hybrid
+
+def readerSource : String := String.join [
+  include_str "Writers.lean", include_str "Read.lean", include_str "Entries.lean",
+  include_str "Module.lean", include_str "Serialize.lean", include_str "Oracle.lean",
+  include_str "Assemble.lean", include_str "Axioms.lean", include_str "Check.lean", include_str "Hybrid.lean",
+  include_str "Main.lean"]
+
+def readBy : List (String × String) :=
+  [("reader", fnv1a64Hex readerSource), ("readerLean", Lean.versionString),
+   ("readerLeanGithash", Lean.githash)]
+
+structure HardStops where
+  verso : IO.Ref (Array Name)
+  builtinDoc : IO.Ref (Array Name)
+
+def HardStops.new : IO HardStops := return { verso := ← IO.mkRef #[], builtinDoc := ← IO.mkRef #[] }
+
+partial def inheritTarget (inherit : Std.HashMap Name Name) (n : Name) (seen : NameSet := {}) : Name :=
+  match inherit[n]? with
+  | some u => if seen.contains u then n else inheritTarget inherit u (seen.insert n)
+  | none => n
+
+/-! ## Lean reference manual links, rewritten with the version's own root
+
+**Copied from Lean's `src/Lean/DocString/Links.lean` (v4.34.1)**, changed only by dropping its
+comments, taking the root as an argument, and returning the text outside `BaseIO`:
+
+    Copyright (c) 2025 Lean FRO, LLC. All rights reserved.
+    Released under Apache 2.0 license as described in the file LICENSE.
+    Authors: David Thrane Christiansen
+-/
+
+namespace ManualLinks
+
+def domainMap : Std.HashMap String String :=
+  Std.HashMap.ofList [
+    ("section", "Verso.Genre.Manual.section"),
+    ("errorExplanation", errorExplanationManualDomain)
+  ]
+
+def rw (path : String) : Except String String := do
+  match path.split '/' |>.toStringList with
+  | [] | [""] =>
+    throw "Missing documentation type"
+  | kind :: args =>
+    if let some domain := domainMap.get? kind then
+      if let [s] := args then
+        if s.isEmpty then
+          throw s!"Empty {kind} ID"
+        return s!"find/?domain={domain}&name={s}"
+      else
+        throw s!"Expected one item after `{kind}`, but got {args}"
+    else
+      let acceptableKinds := ", ".intercalate <| domainMap.toList.map fun (k, _) => s!"`{k}`"
+      throw s!"Unknown documentation type `{kind}`. Expected one of the following: {acceptableKinds}"
+
+def urlChar (c : Char) : Bool :=
+  c.isAlphanum || c == '-' || c == '.' || c == '_' || c == '~' ||
+  c == ':' || c == '/' || c == '?' || c == '#' || c == '[' || c == ']' || c == '@' ||
+  c == '!' || c == '$' || c == '&' || c == '\'' || c == '*' ||
+  c == '+' || c == ',' || c == ';' || c == '='
+
+def rewriteCore (root s : String) : Id (Array (Lean.Syntax.Range × String) × String) := do
+  let scheme := "lean-manual://"
+  let mut out := ""
+  let mut errors := #[]
+  let mut iter := s.startPos
+  while h : ¬iter.IsAtEnd do
+    let c := iter.get h
+    let pre := iter
+    iter := iter.next h
+
+    match pre.skip? scheme with
+    | none =>
+      out := out.push c
+      continue
+    | some start =>
+      let mut iter' := start
+      while h' : ¬iter'.IsAtEnd do
+        let c' := iter'.get h'
+        let pre' := iter'
+        iter' := iter'.next h'
+        if urlChar c' && ¬iter'.IsAtEnd then
+          continue
+        match rw (s.extract start pre') with
+        | .error err =>
+          errors := errors.push (⟨pre.offset, pre'.offset⟩, err)
+          out := out.push c
+          break
+        | .ok path =>
+          out := out ++ root ++ path
+          out := out.push c'
+          iter := iter'
+          break
+
+  pure (errors, out)
+
+def rewrite (root docString : String) : String := Id.run do
+  let (errs, str) ← rewriteCore root docString
+  if !errs.isEmpty then
+    let errReport :=
+      r#"**❌ Syntax Errors in Lean Language Reference Links**
+
+The `lean-manual` URL scheme is used to link to the version of the Lean reference manual that
+corresponds to this version of Lean. Errors occurred while processing the links in this documentation
+comment:
+"# ++
+      String.join (errs.toList.map (fun (⟨s, e⟩, msg) => s!" * ```{String.Pos.Raw.extract docString s e}```: {msg}\n\n"))
+    return str ++ "\n\n" ++ errReport
+  return str
+
+end ManualLinks
+
+-- Not `findDocString?`: it ends in `rewriteManualLinks`, which reads the running Lean's manual root, fixed at process start.
+def docStringBeforeLinks? (env : Environment) (declName : Name) : IO (Option String) := do
+  let declName := (Parser.Tactic.Doc.alternativeOfTactic env declName).getD declName
+  let exts := Parser.Tactic.Doc.getTacticExtensionString env declName
+  let spellings := Parser.Term.Doc.getRecommendedSpellingString env declName
+  return (← findSimpleDocString? env declName).map (· ++ exts ++ spellings)
+
+def hybridWorld (env : Environment) (o : Assemble.OldWorld) (writer : WriterVersion) (manualRoot : String)
+    (hs : HardStops) : World :=
+  { moduleNames := o.moduleNames
+    moduleIndex? := fun m => o.index[m]?
+    constNames := fun i => o.constNames[i]!
+    imports := fun i => o.imports[i]!
+    moduleOf? := fun n => o.modOf[n]?
+    contains := fun n => o.consts.contains n
+    moduleDocs := fun m => o.modDocs.getD m #[]
+    docString? := fun n => do
+      let t := inheritTarget o.inherit ((Parser.Tactic.Doc.alternativeOfTactic env n).getD n)
+      if o.docKeys.contains t then
+        return (← docStringBeforeLinks? env n).map (ManualLinks.rewrite manualRoot)
+      else if o.versoKeys.contains t then
+        hs.verso.modify (·.push n)
+        return some s!"<hard stop: the docstring of {t} is Verso and was not decoded>"
+      else
+        match ← findDocString? env n with
+        | none => return none
+        | some _ =>
+          hs.builtinDoc.modify (·.push n)
+          return some s!"<hard stop: the docstring of {t} came from Lean {Lean.versionString}'s builtin table>"
+    tactics := pure none
+    leanVersion := writer.leanVersion
+    leanGithash := writer.githash
+    readBy }
+
+def autoParamTactics (e : Expr) : Array Name :=
+  let used := e.getUsedConstants
+  if !used.contains ``autoParam then #[]
+  else used.filter fun c =>
+    (e.find? fun s => s.isAppOfArity ``autoParam 2 && s.appArg!.isConstOf c).isSome
+
+structure AutoParams where
+  oldOnly : Array (Name × Name) := #[]
+  newestDiffers : Array (Name × Name) := #[]
+  newestEqual : Nat := 0
+
+def autoParamUses (d : Assemble.Decoded) (targets : Array Name) : Array (Name × Name) := Id.run do
+  let mut out := #[]
+  for (m, md) in d.mods do
+    unless targets.contains m do continue
+    for ci in md.constants do
+      for tac in autoParamTactics ci.type do out := out.push (ci.name, tac)
+  return out
+
+def classifyAutoParams (uses : Array (Name × Name)) (sameValue : Std.HashMap Name Bool) : AutoParams :=
+  uses.foldl (init := {}) fun a (decl, tac) =>
+    match sameValue[tac]? with
+    | none => { a with oldOnly := a.oldOnly.push (decl, tac) }
+    | some false => { a with newestDiffers := a.newestDiffers.push (decl, tac) }
+    | some true => { a with newestEqual := a.newestEqual + 1 }
+
+structure Args where
+  old : Array System.FilePath := #[]
+  new : Array System.FilePath := #[]
+  newRoots : Option System.FilePath := none
+  lazyProofs : Bool := false
+  writeReuseKeys : Bool := false
+  reuseFrom : Option System.FilePath := none
+  extractor : List String := []
+
+def usage : String := "\n".intercalate [
+  "usage: reader extract --old <search-dir>... --new <search-dir>... --new-roots <modules.txt>",
+  "                      [--lazy-proofs] [--write-reuse-keys] [--reuse-from <ir-dir>]",
+  "                      <modules.txt> <events.jsonl> [extractor flags]",
+  "       reader extract --identity [extractor flags]",
+  "  --old        a search directory of the version read: its Lean's lib/lean and its packages' builds",
+  "  --new        a search directory of the newest version, built by this reader's Lean",
+  "  --new-roots  the newest version's modules, imported for its code (notation, delaborators)",
+  "  --lazy-proofs",
+  "               decode a theorem's proof only where the run reads it: when its module stores no",
+  "               axiom list for it (the reader computes one from the proof, `axiom lists` line) or",
+  "               the list holds sorryAx (the sorry tag then looks for it in the proof); every other",
+  "               proof is left out, and the closure invariant checks the names the decoded data",
+  "               mentions (`proofs` line)",
+  "  --write-reuse-keys",
+  "               write every candidate's reuse key beside the IR, to <--ir-dir>.reuse-keys: the type's",
+  "               structural hash with every binder's kind and name as a page can show it (macro scopes",
+  "               erased, their presence kept), the same of a non-theorem's value and of an inductive's",
+  "               constructors, its parents and fields; headed by the printing identity (Extract.lean",
+  "               without its main, the Lean that prints, the output flags), which the native extractor's",
+  "               --write-reuse-keys writes too. The IR and the link index are unchanged",
+  "  --reuse-from <ir-dir>",
+  "               an adjacent version's IR written with --write-reuse-keys: a declaration whose reuse key",
+  "               equals its key there takes its printed parts from that IR (signature, equations and",
+  "               their code, structure members, the names in refs) and is not printed; everything else",
+  "               is computed as without it. Nothing is reused when the printing identity differs.",
+  "               Implies --write-reuse-keys (`reuse-from` line)",
+  "  everything after these is the extractor's own command line (Extract.lean's parseArgs)"]
+
+def parseReaderArgs : List String → Args → Args
+  | "--old" :: d :: rest, a => parseReaderArgs rest { a with old := a.old.push d }
+  | "--new" :: d :: rest, a => parseReaderArgs rest { a with new := a.new.push d }
+  | "--new-roots" :: f :: rest, a => parseReaderArgs rest { a with newRoots := some f }
+  | "--lazy-proofs" :: rest, a => parseReaderArgs rest { a with lazyProofs := true }
+  | "--write-reuse-keys" :: rest, a => parseReaderArgs rest { a with writeReuseKeys := true }
+  | "--reuse-from" :: d :: rest, a => parseReaderArgs rest { a with reuseFrom := some d, writeReuseKeys := true }
+  | rest, a => { a with extractor := rest }
+
+def refusedFlag? (cfg : Cfg) : Option (String × String) :=
+  if cfg.tacticsDumpPath.isSome then some ("--dump-tactics", "it lists the running Lean's tactic table")
+  else if cfg.tacticsEmulate then some ("--tactics-emulate", "it runs doc-gen4's tactic collection over the running Lean's tables")
+  else if cfg.tacticsProbe then some ("--tactics-probe", "it times the running Lean's tactic tables")
+  else if cfg.serve then some ("--serve", "a resident extractor re-imports natively")
+  else none
+
+def invariantFailure (d : Assemble.Decoded) (cl : Check.ClosureCounts) (il : Check.IleanCounts) : Option String :=
+  if let some x := cl.dangling[0]? then
+    some s!"module {x.module}: {x.constant} mentions {x.missing}, which no module of Lean \
+      {d.writer.leanVersion}'s import closure declares ({cl.dangling.size} dangling reference(s) in all)"
+  else if let some p := il.problems[0]? then
+    some s!"{p} ({il.problems.size} disagreement(s) in all)"
+  else none
+
+def invariantLines (cl : Check.ClosureCounts) (il : Check.IleanCounts) : List String := [
+  s!"invariants           closure: {cl.constants} constants, {cl.references} references checked, \
+    {cl.dangling.size} dangling ({cl.ms} ms)",
+  s!"  ilean              {il.modules} modules ({il.bytes} bytes), {il.compared} declarations listed and equal, \
+    {il.problems.size} disagree ({il.ms} ms)",
+  s!"  ilean-no-parent    {il.notListed} decoded ranges: no reference the module records has the \
+    declaration as its parent, and the .ilean lists parents only",
+  s!"  ilean-imported     {il.imported} listed parents declared by an imported module (an `attribute` \
+    command on it): equal to that module's decoded range, which the writer looked up in the command's environment",
+  s!"  ilean-in-theorem   {il.inTheorem} decoded ranges: a parent nested in a theorem's range (let rec, \
+    where), elaborated asynchronously; the .ilean writer looks ranges up in the command's environment"]
+
+def manualProbe : String :=
+  "é [a](lean-manual://section/tactic-macro-extension) [b](lean-manual://errorExplanation/lean.unknownIdentifier)\n\
+  ü lean-manual://nope/x (lean-manual://section/) lean-manual:// lean-manual://section/a/b\n\
+  end lean-manual://section/last-one"
+
+def utf8Hex (s : String) : String :=
+  String.join (s.toUTF8.toList.map fun b => hexDigitRepr (b.toNat / 16) ++ hexDigitRepr (b.toNat % 16))
+
+def manualRootProgram : String := "\n".intercalate [
+  "import Lean.DocString.Links",
+  s!"def probe : String := {manualProbe.quote}",
+  "def hex (s : String) : String :=",
+  "  String.join (s.toUTF8.toList.map fun b => hexDigitRepr (b.toNat / 16) ++ hexDigitRepr (b.toNat % 16))",
+  "#eval show IO Unit from do IO.println s!\"{Lean.githash} {Lean.manualRoot} {hex (← Lean.rewriteManualLinks probe)}\"",
+  ""]
+
+structure OldManualRoot where
+  lean : System.FilePath
+  githash : String
+  root : String
+  probeHex : String
+
+def oldLean (s : Session) : IO System.FilePath := do
+  let prelude ← findOlean s `Init.Prelude
+  let some lib := prelude.parent.bind (·.parent)
+    | throw <| IO.userError s!"manual root: {prelude} has no toolchain directory above it"
+  let some top := lib.parent.bind (·.parent)
+    | throw <| IO.userError s!"manual root: {lib} is not a toolchain's lib/lean"
+  let lean := top / "bin" / "lean"
+  unless ← lean.pathExists do
+    throw <| IO.userError s!"manual root: the version read takes Init.Prelude from {lib}, and there is no {lean} \
+      to ask for its manual root"
+  return lean
+
+-- Not the old toolchain's include/lean/version.h: it holds only the pre-configured root, and `manualRoot`'s initializer also reads LEAN_MANUAL_ROOT and falls back to `latest`.
+def askOldManualRoot (lean : System.FilePath) : IO OldManualRoot := do
+  let some lib := lean.parent.bind (·.parent) |>.map (· / "lib" / "lean")
+    | throw <| IO.userError s!"manual root: {lean} is not in a toolchain's bin"
+  let out ← IO.FS.withTempFile fun h path => do
+    h.putStr manualRootProgram
+    h.flush
+    IO.Process.output { cmd := lean.toString, args := #[path.toString], env := #[("LEAN_PATH", some lib.toString)] }
+  let fail (why : String) : IO OldManualRoot :=
+    throw <| IO.userError s!"manual root: {lean} was asked for Lean.manualRoot and {why}"
+  if out.exitCode != 0 then
+    return ← fail s!"exited {out.exitCode}: {(out.stdout ++ out.stderr).trimAscii.toString.take 400}"
+  match out.stdout.trimAscii.toString.splitOn " " with
+  | [githash, root, probeHex] => return { lean, githash, root, probeHex }
+  | _ => fail s!"printed {out.stdout.take 400}, not a githash, a root and the probe's rewrite"
+
+def manualRootEnv : IO String := do
+  return match ← IO.getEnv "LEAN_MANUAL_ROOT" with
+    | some v => s!"LEAN_MANUAL_ROOT={v.quote}"
+    | none => "LEAN_MANUAL_ROOT unset"
+
+def manualRootCacheFile (githash : String) : IO System.FilePath := do
+  let some dir := (← IO.appPath).parent | throw <| IO.userError "manual root: the reader's own path has no directory"
+  return dir / "manual-roots" / githash
+
+def cachedManualRoot? (file : System.FilePath) (githash env : String) (lean : System.FilePath) :
+    IO (Option OldManualRoot) := do
+  unless ← file.pathExists do return none
+  match (← IO.FS.readFile file).splitOn "\n" with
+  | [g, e, root, probeHex, ""] =>
+    unless g == githash && e == env do return none
+    return some { lean, githash, root, probeHex }
+  | _ => return none
+
+def keepManualRoot (file : System.FilePath) (env : String) (r : OldManualRoot) (ms : Nat) : IO String := do
+  try
+    if let some dir := file.parent then IO.FS.createDirAll dir
+    let tmp : System.FilePath := ⟨s!"{file}.{← IO.Process.getPID}.tmp"⟩
+    IO.FS.writeFile tmp s!"{r.githash}\n{env}\n{r.root}\n{r.probeHex}\n"
+    IO.FS.rename tmp file
+    return s!"asked {r.lean} in {ms} ms, kept in {file}"
+  catch e =>
+    return s!"asked {r.lean} in {ms} ms, not kept: {e}"
+
+def checkManualCopy (r : OldManualRoot) (w : WriterVersion) : IO Unit := do
+  let copy := utf8Hex (ManualLinks.rewrite r.root manualProbe)
+  unless copy == r.probeHex do
+    let same := (copy.toList.zip r.probeHex.toList).takeWhile (fun (a, b) => a == b) |>.length
+    throw <| IO.userError s!"manual root: {r.lean} (Lean {w.leanVersion}) rewrites the probe docstring to \
+      {r.probeHex.length / 2} bytes and the reader's copy of rewriteManualLinks, given the same root {r.root}, \
+      to {copy.length / 2}; they differ from byte {same / 2}, so Lean {w.leanVersion}'s docstrings cannot be rewritten \
+      as it would"
+
+def oldManualRoot (s : Session) (w : WriterVersion) : IO (OldManualRoot × String) := do
+  let lean ← oldLean s
+  let env ← manualRootEnv
+  let file ← manualRootCacheFile w.githash
+  if let some r ← cachedManualRoot? file w.githash env lean then
+    checkManualCopy r w
+    return (r, s!"read from {file}")
+  let t0 ← IO.monoMsNow
+  let r ← askOldManualRoot lean
+  let ms := (← IO.monoMsNow) - t0
+  unless w.githash == r.githash do
+    throw <| IO.userError s!"manual root: {r.lean} is Lean {r.githash}, and the version read was \
+      written by Lean {w.leanVersion} ({w.githash})"
+  checkManualCopy r w
+  return (r, ← keepManualRoot file env r ms)
+
+def manualRootLines (r : OldManualRoot) (cache : String) : Array String :=
+  #[s!"manual root          {r.root} of Lean {r.githash}; the reader's copy rewrites the probe \
+    docstring as it does ({r.probeHex.length / 2} bytes)",
+    s!"  manual-root-cache  {cache}"]
+
+def checkArgs (a : Args) : IO (Except String (Cfg × Array Name)) := do
+  let cfg ← match parseArgs a.extractor with
+    | .ok cfg => pure cfg
+    | .error msg => return .error msg
+  if let some (flag, why) := refusedFlag? cfg then
+    return .error s!"{flag} is refused: {why}, and the version read is not the running Lean"
+  if cfg.writeReuseKeys then
+    return .error "--write-reuse-keys after <modules.txt> is the native extractor's; the reader's own comes before it"
+  if cfg.identity then return .error "--identity names no version to read"
+  if a.old.isEmpty then return .error "--old needs at least one search directory"
+  let targets ← readNameList cfg.modulesPath
+  if targets.isEmpty then return .error s!"no module names in {cfg.modulesPath}"
+  return .ok (cfg, targets)
+
+def proofsLine (st : ReadStats) : String :=
+  s!"proofs               decoded {st.proofsDecoded} of {st.theorems} theorems' proofs; the rule decodes those \
+    with no stored axiom list ({st.proofsWithoutAxiomList}) or one holding sorryAx ({st.proofsWithSorryAx}); \
+    omitted {st.proofsOmitted}"
+
+structure Newest where
+  state : Assemble.MImportState
+  imports : Array Import
+
+unsafe def importNewest (search : Array System.FilePath) (roots : Array Name) : IO Newest := do
+  let imports := roots.map ({ module := · })
+  return { state := ← Assemble.importNewest search imports, imports }
+
+structure Phases where
+  spans : IO.Ref (Array (String × Nat))
+  last : IO.Ref Nat
+
+def Phases.new : IO Phases := do
+  let t ← IO.monoNanosNow
+  return { spans := ← IO.mkRef #[], last := ← IO.mkRef t }
+
+def Phases.mark (p : Phases) (name : String) : IO Unit := do
+  let t ← IO.monoNanosNow
+  let last ← p.last.get
+  p.spans.modify (·.push (name, t - last))
+  p.last.set t
+
+def msText (ns : Nat) : String :=
+  let cs := ns / 10000
+  let frac := toString (cs % 100)
+  s!"{cs / 100}.{if frac.length < 2 then "0" ++ frac else frac} ms"
+
+def Phases.line (p : Phases) : IO String := do
+  p.mark "rest"
+  let spans ← p.spans.get
+  let total := spans.foldl (fun t (_, ns) => t + ns) 0
+  return s!"phases               {", ".intercalate (spans.toList.map fun (n, ns) => s!"{n} {msText ns}")}; \
+    total {msText total}"
+
+def residentKb : IO (Option Nat) := do
+  let out ← IO.Process.output { cmd := "ps", args := #["-o", "rss=", "-p", toString (← IO.Process.getPID)] }
+  return if out.exitCode == 0 then out.stdout.trimAscii.toString.toNat? else none
+
+def peakKb : IO Nat := return (← Std.IO.Process.getResourceUsage).peakResidentSetSizeKb.toNat
+
+def mibText : Option Nat → String
+  | some kb => s!"{kb / 1024} MiB"
+  | none => "unknown"
+
+structure RssAtExtract where
+  peakBefore : Nat
+  residentBefore : Option Nat
+  peakAfter : Nat
+
+def RssAtExtract.line (r : RssAtExtract) : String :=
+  s!"rss-at-extract       before extraction: peak {r.peakBefore / 1024} MiB, resident {mibText r.residentBefore}; \
+    after it: peak {r.peakAfter / 1024} MiB"
+
+def extractMeasured (ph : Phases) (extract : IO α) : IO (α × RssAtExtract) := do
+  let peakBefore ← peakKb
+  let residentBefore ← residentKb
+  ph.mark "rss probe"
+  let x ← extract
+  let peakAfter ← peakKb
+  ph.mark "extract"
+  return (x, { peakBefore, residentBefore, peakAfter })
+
+def irName? (s : String) : Option Name := do
+  let mut n : Name := .anonymous
+  let mut comp := ""
+  let mut quoted := false
+  let mut wasQuoted := false
+  let push (n : Name) (comp : String) (wasQuoted : Bool) : Name :=
+    match (if wasQuoted then none else comp.toNat?) with
+    | some k => if comp.all Char.isDigit then .num n k else .str n comp
+    | none => .str n comp
+  for c in s.toList do
+    if quoted then
+      if c == '»' then quoted := false else comp := comp.push c
+    else if c == '«' then
+      quoted := true
+      wasQuoted := true
+    else if c == '.' then
+      n := push n comp wasQuoted
+      comp := ""
+      wasQuoted := false
+    else comp := comp.push c
+  if quoted then none
+  n := push n comp wasQuoted
+  guard (n.toString == s)
+  return n
+
+def irNamesReadBack : Bool :=
+  let names : List Name := [`Nat.add, mkPrivateNameCore `Mathlib.Foo `bar, .str `Foo "0", .str `Foo "a.b",
+    .str (.str .anonymous "x y") "z", .num (.str `Foo.bar "_hyg") 12]
+  names.all fun n => irName? n.toString == some n
+
+#guard irNamesReadBack
+
+def spanOfJson? (j : Json) : Option Span := do
+  let a ← j.getArr?.toOption
+  let num (i : Nat) : Option Nat := a[i]? >>= (·.getNat?.toOption)
+  let start ← num 0
+  let stop ← num 1
+  let kind ← num 2
+  if a.size == 3 then return { start, stop, kind }
+  let name ← a[3]? >>= (·.getStr?.toOption) >>= irName?
+  if a.size == 4 then return { start, stop, kind, name }
+  return { start, stop, kind, name, front := ← num 4, back := ← num 5 }
+
+def jsonReq? (j : Json) (k : String) (read : Json → Option α) : Option α := (j.getObjVal? k).toOption >>= read
+
+def jsonField? (j : Json) (k : String) (read : Json → Option α) (absent : α) : Option α :=
+  match j.getObjVal? k with
+  | .ok v => read v
+  | .error _ => some absent
+
+def jsonArr? (read : Json → Option α) (j : Json) : Option (Array α) := j.getArr?.toOption >>= (·.mapM read)
+
+def jsonStr? (j : Json) : Option String := j.getStr?.toOption
+
+def jsonBool? (j : Json) : Option Bool := j.getBool?.toOption
+
+def jsonSpans? : Json → Option (Array Span) := jsonArr? spanOfJson?
+
+def memberOfJson? (j : Json) : Option Member := do
+  return {
+    label := ← jsonReq? j "label" jsonStr?
+    name := ← jsonReq? j "name" (jsonStr? · >>= irName?)
+    text := ← jsonReq? j "text" jsonStr?
+    spans := ← jsonField? j "code" jsonSpans? #[]
+    binders := ← jsonField? j "binders" (jsonArr? jsonStr?) #[]
+    implicits := ← jsonField? j "implicits" (jsonArr? jsonBool?) #[]
+    binderSpans := ← jsonField? j "binderCode" (jsonArr? jsonSpans?) #[]
+    doc := ← jsonField? j "doc" (fun d => if d.isNull then some none else (jsonStr? d).map some) none
+    isDirect := ← jsonField? j "isDirect" jsonBool? true }
+
+def printedOfJson? (j : Json) : Option DeclOut := do
+  let refName (r : Json) : Option Name := do
+    let pair ← r.getArr?.toOption
+    pair[1]? >>= jsonStr? >>= irName?
+  return {
+    name := ← jsonReq? j "name" (jsonStr? · >>= irName?), module := .anonymous, kind := "", doc := none, line := 0, col := 0
+    sig := {
+      binders := ← jsonReq? j "binders" (jsonArr? jsonStr?)
+      implicits := ← jsonReq? j "implicits" (jsonArr? jsonBool?)
+      type := ← jsonReq? j "type" jsonStr?
+      binderSpans := ← jsonField? j "binderCode" (jsonArr? jsonSpans?) #[]
+      typeSpans := ← jsonField? j "typeCode" jsonSpans? #[] }
+    equations := ← jsonReq? j "equations" (jsonArr? jsonStr?)
+    equationSpans := ← jsonField? j "equationCode" (jsonArr? jsonSpans?) #[]
+    members := ← jsonReq? j "members" (jsonArr? memberOfJson?)
+    refs := ← jsonReq? j "refs" (jsonArr? refName) }
+
+def parMapIO (jobs : Nat) (xs : Array α) (f : α → IO β) : IO (Array β) := do
+  if jobs ≤ 1 then return ← xs.mapM f
+  let stride (k : Nat) : BaseIO (Array (Except IO.Error β)) := do
+    let mut out := #[]
+    let mut i := k
+    while h : i < xs.size do
+      out := out.push (← (f xs[i]).toBaseIO)
+      i := i + jobs
+    return out
+  let tasks ← (Array.range jobs).mapM fun k => BaseIO.asTask (prio := .dedicated) (stride k)
+  let parts := tasks.map Task.get
+  (Array.range xs.size).mapM fun i => IO.ofExcept parts[i % jobs]![i / jobs]!
+
+structure Neighbour where
+  identity : String
+  keys : Std.HashMap String UInt64
+  offered : Std.HashMap String (Thunk (Option DeclOut))
+  files : Nat
+  ms : Nat
+
+def keyLine? (l : String) : Option (String × UInt64) :=
+  match l.splitOn "\t" with
+  | [s, k] => k.toNat?.map fun k => (s, k.toUInt64)
+  | _ => none
+
+def readNeighbourKeys (path : System.FilePath) (jobs : Nat) : IO (String × Std.HashMap String UInt64) := do
+  let lines := ((← IO.FS.readFile path).splitOn "\n").toArray
+  let identity ← match ((lines[0]?.getD "").splitOn " ") with
+    | m :: rest =>
+      if m == reuseKeysMarker then pure (" ".intercalate rest)
+      else throw <| IO.userError s!"reuse: {path} does not start with {reuseKeysMarker}"
+    | [] => throw <| IO.userError s!"reuse: {path} is empty"
+  let body := (lines.extract 1 lines.size).filter (!·.isEmpty)
+  let parsed := parMap jobs body keyLine?
+  let mut keys : Std.HashMap String UInt64 := Std.HashMap.emptyWithCapacity body.size
+  for h : i in [0:body.size] do
+    match parsed[i]! with
+    | some (s, k) => keys := keys.insert s k
+    | none =>
+      let l := body[i]
+      if (l.splitOn "\t").length == 2 then throw <| IO.userError s!"reuse: {path}: not a key: {l.take 200}"
+      throw <| IO.userError s!"reuse: {path}: not a name and a key: {l.take 200}"
+  return (identity, keys)
+
+def envName (env : Environment) (n : Name) : Name :=
+  match env.find? n with
+  | some ci => ci.name
+  | none => n
+
+def withNames (f : Name → Name) (d : DeclOut) : DeclOut :=
+  let spans (ss : Array Span) := ss.map fun s => if s.name.isAnonymous then s else { s with name := f s.name }
+  { d with
+    name := f d.name
+    sig := { d.sig with binderSpans := d.sig.binderSpans.map spans, typeSpans := spans d.sig.typeSpans }
+    equationSpans := d.equationSpans.map spans
+    members := d.members.map fun m =>
+      { m with name := f m.name, spans := spans m.spans, binderSpans := m.binderSpans.map spans }
+    refs := d.refs.map f }
+
+def offerOfBytes (env : Environment) (bytes : ByteArray) : Option DeclOut :=
+  (String.fromUTF8? bytes >>= (Json.parse · |>.toOption) >>= printedOfJson?).map (withNames (envName env))
+
+namespace Scan
+
+def isWs (c : UInt8) : Bool := c == 32 || c == 10 || c == 13 || c == 9
+
+partial def ws (b : ByteArray) (i : Nat) : Nat :=
+  if h : i < b.size then (if isWs b[i] then ws b (i + 1) else i) else i
+
+partial def str (b : ByteArray) (j : Nat) : Option Nat :=
+  if h : j + 1 < b.size then
+    let c := b[j + 1]
+    if c == 34 then some (j + 2) else str b (if c == 92 then j + 2 else j + 1)
+  else none
+
+partial def nested (b : ByteArray) (j depth : Nat) : Option Nat :=
+  if h : j < b.size then
+    let d := b[j]
+    if d == 34 then (str b j).bind (nested b · depth)
+    else if d == 123 || d == 91 then nested b (j + 1) (depth + 1)
+    else if d == 125 || d == 93 then (if depth == 1 then some (j + 1) else nested b (j + 1) (depth - 1))
+    else nested b (j + 1) depth
+  else none
+
+partial def atom (b : ByteArray) (j : Nat) : Nat :=
+  if h : j < b.size then
+    let c := b[j]
+    if c == 44 || c == 125 || c == 93 || isWs c then j else atom b (j + 1)
+  else j
+
+def value (b : ByteArray) (i : Nat) : Option Nat :=
+  match b[i]? with
+  | some 34 => str b i
+  | some 123 | some 91 => nested b i 0
+  | some _ => let j := atom b i; if j == i then none else some j
+  | none => none
+
+def isKey (b : ByteArray) (i j : Nat) (k : ByteArray) : Bool :=
+  j == i + k.size + 2 && (List.range k.size).all fun n => b[i + 1 + n]! == k[n]!
+
+def member (b : ByteArray) (i : Nat) (key : ByteArray) : Except String (Option (Nat × Nat) × Nat) := do
+  unless b[i]? == some 123 do throw s!"an object expected at byte {i}"
+  let mut found := none
+  let mut j := ws b (i + 1)
+  if b[j]? == some 125 then return (found, j + 1)
+  repeat
+    unless b[j]? == some 34 do throw s!"a key expected at byte {j}"
+    let some ke := str b j | throw s!"an unterminated string at byte {j}"
+    let k := ws b ke
+    unless b[k]? == some 58 do throw s!"':' expected at byte {k}"
+    let vs := ws b (k + 1)
+    let some ve := value b vs | throw s!"a value expected at byte {vs}"
+    if found.isNone && isKey b j ke key then found := some (vs, ve)
+    let n := ws b ve
+    match b[n]? with
+    | some 44 => j := ws b (n + 1)
+    | some 125 => return (found, n + 1)
+    | _ => throw s!"',' or '}' expected at byte {n}"
+  throw "unreachable"
+
+partial def hasEscape (b : ByteArray) (i j : Nat) : Bool :=
+  i < j && (b[i]! == 92 || hasEscape b (i + 1) j)
+
+def stringAt (b : ByteArray) (i j : Nat) : Option String :=
+  if hasEscape b i j then
+    (String.fromUTF8? (b.extract i j)).bind fun t => (Json.parse t).toOption.bind (·.getStr?.toOption)
+  else String.fromUTF8? (b.extract (i + 1) (j - 1))
+
+def nameKey : ByteArray := "name".toUTF8
+
+def declarations (b : ByteArray) : Except String (Option (Array (Nat × Nat × Option String))) := do
+  let (some (vs, _), _) ← member b (ws b 0) "declarations".toUTF8 | return none
+  unless b[vs]? == some 91 do return none
+  let mut out := #[]
+  let mut j := ws b (vs + 1)
+  if b[j]? == some 93 then return some out
+  repeat
+    let (name, e) ← member b j nameKey
+    out := out.push (j, e, name.bind fun (ns, ne) => if b[ns]? == some 34 then stringAt b ns ne else none)
+    let n := ws b e
+    match b[n]? with
+    | some 44 => j := ws b (n + 1)
+    | some 93 => return some out
+    | _ => throw s!"',' or ']' expected at byte {n}"
+  throw "unreachable"
+
+end Scan
+
+def scanFindsEveryDeclaration : Bool :=
+  let str := Json.str
+  let decl (name : String) (extra : List (String × Json)) : Json := Json.mkObj <|
+    [("binders", Json.arr #[str "{α : \"]}\\"]),
+     ("members", Json.arr #[Json.mkObj [("name", str "Inner.x"), ("text", str "{ [")]])] ++
+    extra ++ [("name", str name), ("zz", Json.arr #[Json.arr #[Json.num 1, Json.num ⟨-15, 1⟩, str "a,b"], Json.null, Json.bool true])]
+  let decls := #[decl "Foo.bar" [], decl "«x y».z" [("doc", str "line\nnext \"q\"")], decl "q\"uote" [],
+                 Json.mkObj [("noName", Json.num 1)]]
+  let file := Json.mkObj [("dependencies", Json.arr #[]), ("declarations", Json.arr decls), ("module", str "M")]
+  let b := (file.pretty 20).toUTF8
+  match Scan.declarations b with
+  | .ok (some found) =>
+    found.size == decls.size && (found.zip decls).all fun ((i, j, name), d) =>
+      name == (d.getObjValAs? String "name").toOption &&
+        (String.fromUTF8? (b.extract i j) >>= (Json.parse · |>.toOption)).map (·.compress) == some d.compress
+  | _ => false
+
+#guard scanFindsEveryDeclaration
+
+def offerFile (dir : System.FilePath) (keys : Std.HashMap String UInt64) (own : OwnKeys) (file : String) :
+    IO (Array (String × ByteArray)) := do
+  let b ← IO.FS.readBinFile (dir / file)
+  let decls ← match Scan.declarations b with
+    | .ok (some ds) => pure ds
+    | .ok none => throw <| IO.userError s!"reuse: {dir / file} has no declarations"
+    | .error e => throw <| IO.userError s!"reuse: {dir / file} is not JSON: {e}"
+  return decls.filterMap fun (i, j, name) => do
+    let s ← name
+    guard (own.keys[s]?.isSome && own.keys[s]? == keys[s]?)
+    return (s, b.extract i j)
+
+def loadNeighbour (env : Environment) (dir : System.FilePath) (identity : String) (own : OwnKeys) (jobs : Nat) :
+    IO Neighbour := do
+  let t0 ← IO.monoMsNow
+  let (theirs, keys) ← readNeighbourKeys (reuseKeysPath dir) jobs
+  if theirs != identity then
+    return { identity := theirs, keys, offered := {}, files := 0, ms := (← IO.monoMsNow) - t0 }
+  let index ← match Json.parse (← IO.FS.readFile (dir / "index.json")) with
+    | .ok j => pure j
+    | .error e => throw <| IO.userError s!"reuse: {dir / "index.json"} is not JSON: {e.take 200}"
+  let some mods := (index.getObjVal? "modules" >>= (·.getArr?)).toOption
+    | throw <| IO.userError s!"reuse: {dir / "index.json"} has no module list"
+  let files ← mods.mapM fun m => match (m.getObjVal? "file" >>= (·.getStr?)).toOption with
+    | some f => pure f
+    | none => throw <| IO.userError s!"reuse: {dir / "index.json"}: a module entry names no file"
+  let parts ← parMapIO jobs files (offerFile dir keys own)
+  let mut offered : Std.HashMap String (Thunk (Option DeclOut)) :=
+    Std.HashMap.emptyWithCapacity (parts.foldl (· + ·.size) 0)
+  for p in parts do
+    for (s, bytes) in p do offered := offered.insert s (Thunk.mk fun _ => offerOfBytes env bytes)
+  return { identity := theirs, keys, offered, files := mods.size, ms := (← IO.monoMsNow) - t0 }
+
+structure AcrossCounts where
+  reused : Nat := 0
+  keyDiffers : Nat := 0
+  noKey : Nat := 0
+  noOutput : Nat := 0
+  unreadable : Nat := 0
+  identity : Nat := 0
+  offeredNotTaken : Nat := 0
+
+def AcrossCounts.add (a b : AcrossCounts) : AcrossCounts :=
+  { reused := a.reused + b.reused, keyDiffers := a.keyDiffers + b.keyDiffers, noKey := a.noKey + b.noKey,
+    noOutput := a.noOutput + b.noOutput, unreadable := a.unreadable + b.unreadable,
+    identity := a.identity + b.identity, offeredNotTaken := a.offeredNotTaken + b.offeredNotTaken }
+
+inductive Across where
+  | reused | offeredNotTaken | unreadable | identity | noKey | keyDiffers | noOutput
+  deriving Inhabited
+
+unsafe def acrossOf (nb : Neighbour) (own : OwnKeys) (identityEqual : Bool) (d : DeclOut) : Across :=
+  let s := d.name.toString
+  match nb.offered[s]?.map Thunk.get with
+  | some (some o) => if ptrAddrUnsafe o.sig == ptrAddrUnsafe d.sig then .reused else .offeredNotTaken
+  | some none => .unreadable
+  | none =>
+    if !identityEqual then .identity
+    else match nb.keys[s]? with
+      | none => .noKey
+      | some k => if own.keys[s]? != some k then .keyDiffers else .noOutput
+
+unsafe def countAcross (nb : Neighbour) (own : OwnKeys) (identityEqual : Bool) (results : Array DeclOut) :
+    AcrossCounts :=
+  (results.map (acrossOf nb own identityEqual)).foldl (init := {}) fun c a => match a with
+    | .reused => { c with reused := c.reused + 1 }
+    | .offeredNotTaken => { c with offeredNotTaken := c.offeredNotTaken + 1 }
+    | .unreadable => { c with unreadable := c.unreadable + 1 }
+    | .identity => { c with identity := c.identity + 1 }
+    | .noKey => { c with noKey := c.noKey + 1 }
+    | .keyDiffers => { c with keyDiffers := c.keyDiffers + 1 }
+    | .noOutput => { c with noOutput := c.noOutput + 1 }
+
+def reuseFromLine (dir : System.FilePath) (nb : Neighbour) (identityEqual : Bool) (own : OwnKeys)
+    (c : AcrossCounts) (produced : Nat) : String :=
+  let printed := produced - c.reused
+  let ident := if identityEqual then "printing identity equal" else s!"printing identity differs ({nb.identity})"
+  s!"reuse-from           {dir}: {c.reused} of {produced} declarations reused, {printed} printed (key differs \
+    {c.keyDiffers}, no key there {c.noKey}, key equal and no output there {c.noOutput}, not read back \
+    {c.unreadable}, identity {c.identity}, offered and printed {c.offeredNotTaken}); {ident}; keys of {own.entries.size} candidates in {own.ms} ms; \
+    {nb.files} IR files read, {nb.offered.size} declarations offered, in {nb.ms} ms"
+
+unsafe def extractAcross (a : Args) (cfg : Cfg) (ph : Phases) (env : Environment) (world : World)
+    (targets : Array Name) : IO (UInt32 × RssAtExtract × Array String) := do
+  let some irDir := cfg.irDir | throw <| IO.userError "--write-reuse-keys writes beside --ir-dir, and there is none"
+  let identity ← printingIdentity cfg
+  let own ← ownKeys env world targets cfg.jobs
+  ph.mark "reuse keys"
+  let (code, atExtract, lines) ← match a.reuseFrom with
+    | none => do
+      let (code, atExtract) ← extractMeasured ph (Litedoc4.run cfg (some (env, world)))
+      pure (code, atExtract, #[])
+    | some dir => do
+      let nb ← loadNeighbour env dir identity own cfg.jobs
+      ph.mark "reuse load"
+      let identityEqual := nb.identity == identity
+      let counts ← IO.mkRef ({} : AcrossCounts)
+      let produced ← IO.mkRef 0
+      let seen (ds : Array DeclOut) : IO Unit := do
+        let c := countAcross nb own identityEqual ds
+        counts.modify (·.add c)
+        produced.modify (· + ds.size)
+      let (code, atExtract) ← extractMeasured ph <|
+        Litedoc4.run cfg (some (env, world)) (some { prev := fun n => nb.offered[n.toString]? >>= Thunk.get, seen })
+      pure (code, atExtract,
+        #[reuseFromLine dir nb identityEqual own (← counts.get) (← produced.get)])
+  if code == 0 then
+    writeKeysFile (reuseKeysPath irDir) identity own cfg.jobs
+    ph.mark "write keys"
+  return (code, atExtract, lines)
+
+unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : IO Newest) (ph : Phases) :
+    IO UInt32 := do
+  try
+    let s ← Session.new a.old
+    let mods ← closure s targets
+    let some (writer, _) ← s.firstWriter.get | throw <| IO.userError "olean reader: nothing was read"
+    ph.mark "closure"
+    let (manual, manualCache) ← oldManualRoot s writer
+    ph.mark "manual root"
+    let d ← Assemble.decodeAll s mods (if a.lazyProofs then .whereRead else .every)
+    ph.mark "decode"
+    let (d, axiomLists) ← Axioms.supply d
+    ph.mark "axiom lists"
+    let cl ← Check.closure d
+    ph.mark "check closure"
+    let il ← Check.ilean s d
+    ph.mark "check ilean"
+    if let some why := invariantFailure d cl il then
+      IO.eprintln s!"reader extract: invariant failed, Lean {d.writer.leanVersion} is not read: {why}"
+      return 1
+    let uses := autoParamUses d targets
+    ph.mark "autoparams"
+    let n ← newest
+    ph.mark "newest import"
+    let ask := uses.foldl (fun acc (_, tac) => acc.insert tac) {}
+    let merged ← Assemble.rewriteMerge n.state d ask
+    ph.mark "merge"
+    let env ← Assemble.finalizeHybrid merged.out n.imports merged.idxOf
+    ph.mark "finalize"
+    builtinDeclRanges.set {}
+    let hs ← HardStops.new
+    let world := hybridWorld env d.old d.writer manual.root hs
+    ph.mark "world"
+    let (code, atExtract, acrossLines) ← if a.writeReuseKeys then
+        extractAcross a cfg ph env world targets
+      else do
+        let (code, atExtract) ← extractMeasured ph (Litedoc4.run cfg (some (env, world)))
+        pure (code, atExtract, #[])
+    let autoParams := classifyAutoParams uses merged.sameValue
+    let verso ← hs.verso.get
+    let builtin ← hs.builtinDoc.get
+    for l in manualRootLines manual manualCache do IO.println l
+    for l in invariantLines cl il do IO.println l
+    IO.println s!"reader               Lean {d.writer.leanVersion} ({d.writer.githash}) read in Lean \
+      {Lean.versionString}: {mods.size} modules, {d.stats.constants} constants, \
+      {d.stats.entriesDecoded} extension entries decoded, {d.stats.entriesSkipped} not decoded \
+      in {d.stats.skippedExts.size} extensions"
+    for l in merged.counts.lines do IO.println s!"  {l}"
+    if a.lazyProofs then IO.println (proofsLine d.stats)
+    IO.println axiomLists.line
+    for l in acrossLines do IO.println l
+    IO.println atExtract.line
+    IO.println s!"hard stops           verso={verso.size} builtin-doc={builtin.size} tactic-table=1 \
+      autoparam-old-only={autoParams.oldOnly.size} autoparam-newest={autoParams.newestDiffers.size}"
+    IO.println s!"  tactic-table: no module carries tactics; the running Lean's table is not the old version's"
+    IO.println s!"  autoparam: {autoParams.newestEqual} binder tactic(s) whose newest code has the old value"
+    for n in verso do IO.println s!"  verso {n}"
+    for n in builtin do IO.println s!"  builtin-doc {n}"
+    for (decl, tac) in autoParams.oldOnly do
+      IO.println s!"  autoparam-old-only {decl} {tac}: no newest code to evaluate, the declaration fails to print"
+    for (decl, tac) in autoParams.newestDiffers do
+      IO.println s!"  autoparam-newest {decl} {tac}: printed with the newest version's tactic text"
+    ph.mark "report"
+    return code
+  catch e =>
+    IO.eprintln s!"olean reader: refused: {e}"
+    return 1
+
+unsafe def extractMain (args : List String) : IO UInt32 := do
+  let a := parseReaderArgs args {}
+  if let .ok cfg := parseArgs a.extractor then
+    if cfg.identity then
+      IO.println (← extractorIdentity cfg "" "" readBy)
+      return 0
+  let some newRootsFile := a.newRoots | IO.eprintln s!"reader extract: --new-roots is required\n{usage}"; return 2
+  if a.new.isEmpty then
+    IO.eprintln s!"reader extract: --old and --new each need at least one search directory\n{usage}"
+    return 2
+  let (cfg, targets) ← match ← checkArgs a with
+    | .ok r => pure r
+    | .error why => IO.eprintln s!"reader extract: {why}\n{usage}"; return 2
+  if a.writeReuseKeys && !cfg.writeIR then
+    IO.eprintln s!"reader extract: --write-reuse-keys and --reuse-from write the keys beside the IR, and \
+      --write-ir is not given\n{usage}"
+    return 2
+  if let some dir := a.reuseFrom then
+    for f in [dir / "index.json", reuseKeysPath dir] do
+      unless ← f.pathExists do
+        IO.eprintln s!"reader extract: --reuse-from {dir}: there is no {f} (an IR written with --write-reuse-keys)"
+        return 2
+  let newRoots ← readNameList newRootsFile
+  if newRoots.isEmpty then
+    IO.eprintln s!"reader extract: no module names in {newRootsFile}"
+    return 2
+  let ph ← Phases.new
+  let code ← readVersion a cfg targets (importNewest a.new newRoots) ph
+  IO.println (← ph.line)
+  return code
+
+end OleanReader.Hybrid

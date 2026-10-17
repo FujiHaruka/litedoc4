@@ -1,8 +1,7 @@
 /- The docstrings a module page shows, in the order it shows them, and the
-citations they make. Asked by the renderer, which numbers the anchors, and by the
-whole-package step, which lists them on `references.html` — and in an
-incremental build that step runs before the renderer, so it cannot read the
-numbers off the pages. -/
+citations they make. Asked for a page's items, and by the whole-package step,
+which lists the citations on the references page and cannot read their numbers
+off pages it never sees. -/
 import Std.Data.HashSet
 import Litedoc4.Ir
 import Litedoc4.Md.Html
@@ -12,13 +11,18 @@ namespace Litedoc4
 /-- Every name that is some declaration's member, over the **whole site**: a
 structure declared in `A` can have its projections attributed to `B`, and a
 per-module set leaves those on `B`'s page. -/
-def suppressedOf (mods : Array Module) : Std.HashSet String := Id.run do
+def suppressedFrom (memberNames : Array (Array String)) : Std.HashSet String := Id.run do
   let mut s : Std.HashSet String := Std.HashSet.emptyWithCapacity 512
-  for m in mods do
-    for d in m.decls do
-      for mem in d.members do
-        s := s.insert mem.name
+  for names in memberNames do
+    for name in names do
+      s := s.insert name
   return s
+
+def memberNamesOf (m : Module) : Array String :=
+  m.decls.flatMap fun d => d.members.map (·.name)
+
+def suppressedOf (mods : Array Module) : Std.HashSet String :=
+  suppressedFrom (mods.map memberNamesOf)
 
 /-! ## Page order
 
@@ -61,8 +65,8 @@ structure PageCitation where
   citation : Citation
   deriving BEq, Repr, Inhabited
 
-/-- What `declHtml` renders a docstring for: the declaration's own, then its
-direct fields or its constructors. -/
+/-- What a declaration shows a docstring for: its own, then its direct fields or
+its constructors. -/
 def declDocs (d : Decl) : Array (String × String) := Id.run do
   let mut docs := #[(d.name, d.doc)]
   if d.kind == "structure" || d.kind == "class" then
@@ -82,7 +86,7 @@ bibliography. -/
 def citationsIn (bib : Bibliography) (funName text : String) : Array Citation :=
   if (citedKeys bib text).isEmpty && (text.splitOn referencesPage).length == 1 then #[]
   else
-    let walk := docstring "" { root := "", links := noLinks, bib } text
+    let walk := docstring "" { hrefs := .relative "" noLinks, bib } text
     (walk.run {}).2.cited.map ({ citekey := ·, funName })
 
 /-- **The one answer to which citation anchors a page carries and in what

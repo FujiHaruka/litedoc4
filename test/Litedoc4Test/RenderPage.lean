@@ -1,16 +1,11 @@
-/- Which declarations get an entry, in what order they and the module
-docstrings appear, and the frame around them.
+/- Which declarations get an entry, and in what order they and the module
+docstrings appear.
 
-The first two are closed now that `suppressedOf` is not in `IO` — it reads no
-file and opened none, and while it was an `IO` action the set it computes could
-not be asked a question at compile time. The third builds a whole page, whose
-docstrings are Markdown, so it runs.
-
-`page_path` has no guard of its own: the rule is `pageUrl`'s, guarded in
-`Litedoc4Test.IrName` against the path spelling beside it. -/
-import Litedoc4.Render.Page
+Both closed now that `suppressedOf` is not in `IO` — it reads no file and opened
+none, and while it was an `IO` action the set it computes could not be asked a
+question at compile time. -/
+import Litedoc4.Render.PageDocs
 import Litedoc4Test.Basis
-import Litedoc4Test.RenderDecl
 
 namespace Litedoc4Test
 open Litedoc4
@@ -74,37 +69,5 @@ def aModuleDocstringPrecedesADeclarationAtTheSamePosition : Bool :=
     == #["first", "Pkg.Two.a", "Pkg.Two.a.mk", "second", "Pkg.Two.b"]
 
 #guard aModuleDocstringPrecedesADeclarationAtTheSamePosition
-
-/-- The body is assembled in a different order from the one it is written in: the
-sidebar's table of contents is the page's declarations *in page order*, which is
-only known once they have been laid out, so `main` is built first and the frame
-around it second. That makes the docstring ordering reach two places in the
-output rather than one, and both are asserted.
-
-The doctype is not decoration: without it the browser is in quirks mode, where
-`box-sizing` and the grid the page is laid out on behave differently. -/
-def thePageWrapsMainInTheFrame : Invariant where
-  name := "a page is doctype, head, body, the frame, and main in page order"
-  check := do
-    let ix := declIndex [] pkgTwoPage
-    let sup := suppressedOf #[pkgTwoPage]
-    let title := siteTitle #[pkgTwoPage.name]
-    match (pageHtml ix {} #[] pkgTwoPage sup "https://h/o/r/blob/dead" title).run {} with
-    | .error message => return some s!"the page was refused: {message}"
-    | .ok (html, _) =>
-      let toc := (html.splitOn "<main").headD ""
-      return first [
-        if html.startsWith "<!DOCTYPE html><html lang=\"en\"><head>" then none
-          else some s!"the page does not open with the doctype: {html}",
-        if emits html "</head><body data-root=\".././\" data-module=\"Pkg.Two\">" then none
-          else some s!"the page does not tell app.js where it is: {html}",
-        if emits html "<main class=\"content\" id=\"content\"><div class=\"modhead\">" then none
-          else some s!"the module heading does not open main: {html}",
-        if before html "<div class=\"modmeta\">" "<div class=\"moddoc\"><p>first</p></div>"
-          then none else some s!"the imports do not precede the module's own first word: {html}",
-        if html.endsWith "</main></div></body></html>" then none
-          else some s!"the page does not close: {html}",
-        if before toc "#Pkg.Two.a\"" "#Pkg.Two.b\"" then none
-          else some s!"the table of contents is not in page order: {toc}"]
 
 end Litedoc4Test

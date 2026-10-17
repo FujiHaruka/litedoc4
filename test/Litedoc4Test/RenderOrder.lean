@@ -2,7 +2,7 @@
 
 All closed and none of it reaches `Md.events`, so the compiler answers them and
 there is nothing to run. -/
-import Litedoc4.Render.Order
+import Litedoc4.Data.Version
 
 namespace Litedoc4Test
 open Litedoc4

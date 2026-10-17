@@ -19,21 +19,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "src" / "Litedoc4" / "Assets.lean"
 
-# `themeBootJs` is last and deliberately outside `assets` below:
-# `Litedoc4.Render.Frame` inlines it into every page's `<head>` rather than
-# writing it as a file, so it is an asset of the executable and not of the site.
+# The third column is whether the site writes the file (`storeAssets` below, under
+# the site's `assets/`). `themeBootJs` is not: every page inlines it into its
+# `<head>` rather than loading it as a file, so it is an asset of the executable
+# and not of a site. `redirectJs` is inlined the same way, into the root
+# `index.html` and `404.html`.
 SOURCES = [
     ("styleCss", "style.css", True),
-    ("appJs", "app.js", True),
     ("faviconSvg", "favicon.svg", True),
     ("themeBootJs", "theme-boot.js", False),
+    ("siteJs", "site.js", True),
+    ("redirectJs", "redirect.js", False),
 ]
 
 
 def escape(name, body):
     """Escape for a Lean string literal.
 
-    Two characters, because that is what these four files need (measured): no
+    Two characters, because that is what these five files need (measured): no
     CR and no control character other than newline and tab. A file that later
     carries one stops the generator rather than being encoded on a guess —
     Lean's `\\x` and `\\u` escapes have not been measured here, and inventing an
@@ -66,13 +69,13 @@ def generate():
         out.append(f"def {ident} : String :=\n  \"{escape(filename, body)}\"\n\n")
 
     listed = ", ".join(
-        f'("{filename}", {ident})' for ident, filename, in_site in SOURCES if in_site
+        f'("{filename}", {ident})' for ident, filename, written in SOURCES if written
     )
     out.append(
-        "/-- Each asset's path **under the site root**, paired with its bytes.\n"
-        "The paths are flat, relative and `/`-separated because they are URLs a\n"
-        "page asks for, not filesystem paths. -/\n"
-        f"def assets : Array (String × String) :=\n  #[{listed}]\n\n"
+        "/-- What a site writes, each path under its `assets/`. The paths are flat,\n"
+        "relative and `/`-separated because they are URLs a page asks for, not\n"
+        "filesystem paths. -/\n"
+        f"def storeAssets : Array (String × String) :=\n  #[{listed}]\n\n"
     )
     out.append("end Litedoc4\n")
     return "".join(out)

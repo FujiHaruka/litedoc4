@@ -137,7 +137,7 @@ def withMathlibDocs : ExternalLinks :=
     #[("Mathlib.Order.Basic", "./Mathlib/Order/Basic.html")])]
 
 /-- The name the table holds resolves on the documentation site; the one it does
-not gets nothing from here, which is what sends `linkTo` on to the version-pinned
+not gets nothing from here, which is what sends `linkDest` on to the version-pinned
 source — and that source is untouched by any of this. -/
 def aNameTheTableHoldsResolvesAndOneItDoesNotDoesNot : Bool :=
   withMathlibDocs.docsUrlFor "Mathlib.Order.Basic" (some "Mathlib.Order.le_refl")

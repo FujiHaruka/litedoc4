@@ -1,0 +1,37 @@
+M, one version natively: the store entry read through an incremental gzip reader (parked, not merged)
+=====================================================================================================
+
+Conditions: Apple M1, 16 GB, macOS 26.6.2; Lean v4.33.1, Mathlib v4.33.1 (0df444a360); the M slice
+(438 modules). Same checkout and store entry as mv-m-render-release-2026-10-12.txt. litedoc4 at
+3756af6 (head) and the branch streaming-store-read at 2081349 (new), both built with Lean v4.31.0;
+one prebuilt extractor in every build arm. Warm (a discarded warm-up per binary). One run per arm.
+Units: MB = 10^6 B.
+
+The change: the entry file is read in 1 MiB chunks, hashed incrementally, and fed to a gzip-member
+reader in C that hands out each pack file straight into its own buffer; one pack decoder over a byte
+source serves both the in-memory and the streamed read. Every refusal keeps its message and order.
+
+A/B (measured, litedoc4's own peak footprint)
+  arm                      head                       new
+  store render (1 worker)  111.3 MB  3.90 s           106.6 MB  3.92 s    (-4.2%)
+  build j4                 169.0 MB  render 2.015 s   164.0 MB  render 1.993 s   (-3.0%)
+  build j1                 118.9 MB  render 3.964 s   118.7 MB  render 3.955 s   (~0)
+
+Why so little (measured, stage markers on both binaries, store render): the store-read stage fell
+78.7 -> 53.4 MB, but on head the input parse and pass 1 reused the pages the dead pack had freed;
+on new those stages add 41.9 MB instead of 29.1. The ~30 MB ceiling assumed no reuse.
+
+Large allocations: new, on M, none at or above 40 MiB (largest 3.23 MB, the link index). Head on
+full Mathlib allocates two per version, 63 MiB and 538 MiB (mv-l-render-memory-2026-10-08.txt).
+That the new read stops the ~0.57 GiB per-version growth on full Mathlib is theoretical: it assumes
+no single stored file reaches 40 MiB, unmeasured there.
+
+Exactness (measured, /usr/bin/diff -r): store render site and build j4 / j1 site/ and store/
+identical to head. Damaged copies (flipped byte, truncation, wrong trailer CRC with and without a
+re-recorded digest) refused with head's messages, nothing rendered.
+
+Gates on the branch: lean-test-gate 243 compile-time, 77 run-time; mv-s-gate 64 of 64;
+mv-pages-gate 56 of 56; e2e-micro ok. The new gzip-memory-gate was never run (AddressSanitizer
+does not run on this machine; not dispatched on CI).
+
+Decision (2026-10-12, user's call): not merged; kept on the branch for a full run to judge.

@@ -1,0 +1,113 @@
+The runner's 62 reuse divergences on v4.33.1, reproduced and classified; the cheap key's member miss fixed
+=========================================================================================================
+
+An inspection run, not a gate (2026-10-10). The runner's E6 run (mv-l-reuse-2026-10-10.txt) found 62 of
+317,784 declarations differing between v4.33.1 read alone (a) and v4.33.1 read with --reuse-from the
+reader IR of v4.34.1 (r); the list is mv-l-reuse-differing-v4.33.1-2026-10-10.txt. Question: is each
+of them the same statement in a surface form borrowed from v4.34.1 (the kinds E6 gives up), or a key
+miss that shows a different statement? One run per arm (decided 2026-10-10, user's call).
+
+CONDITIONS
+----------
+host        Apple M1 (MacBookAir10,1), 8 cores, 16 GiB, Darwin 25.6.0 arm64
+litedoc4    dc86ed9 (before the fix), then dc86ed9 plus the fix below; rebuilt with
+            tools/build-lean-exe.sh --toolchain-from e2e/micro (leanprover/lean4:v4.31.0)
+readers     before: reader-leanprover-lean4-v4.34.1-7f53468bcc161637 (sources equal to dc86ed9; the runner
+            ran bda5277, whose Hybrid.lean differs, and all 62 still reproduce)
+            after:  reader-leanprover-lean4-v4.34.1-76952854ed7d71c7
+newest      /private/tmp/lean-doc-relay/mv-v4341, Mathlib d13f23b723b8a846827a245b89c10fc7d3f11612, v4.34.1
+old         /private/tmp/lean-doc-relay/mv-v4331 (made for this run: `lake update`, `lake exe cache get`),
+            Mathlib 0df444a360eaa60ab8c11dca51a86af692955474 (the runner's), leanprover/lean4:v4.33.1
+modules     the 14 distinct modules of the 62 rows, for head, (a) and (r) alike; --new-roots all 8,530
+            modules of v4.34.1's Mathlib, as on the runner. So head holds keys for 881 declarations, not
+            317,784
+flags       as mv-l-run.sh's read_args: --equations --refs --write-ir --tagged-code --no-equations-under
+            Mathlib.Tactic,Mathlib.Meta --jobs 4 --lazy-proofs; head adds --write-reuse-keys, (r) adds
+            --reuse-from head/ir; order head, (a), (r); /usr/bin/time -l
+
+RUNS (one each)
+---------------
+                       head (v4.34.1)        (a)                   (r)
+  before the fix       76.66 s, 7,230 MiB    62.06 s, 7,443 MiB    58.20 s, 7,481 MiB
+  after the fix        66.86 s, 7,556 MiB    62.94 s, 7,276 MiB    61.03 s, 7,434 MiB
+  (wall, max RSS (measured); with 14 target modules the newest import dominates both arms, so these say
+  nothing about reuse's speed)
+  (r) reuse-from, before: 761 of 881 declarations reused, 120 printed (key differs 109, no key there 11)
+  (r) reuse-from, after:  758 of 881 declarations reused, 123 printed (key differs 112, no key there 11)
+
+REPRODUCTION (before the fix)
+-----------------------------
+Link index byte-equal. 881 declarations each, 62 differ, none on one side only. The local differing
+list is byte-identical to the runner's: all 62, no extras. In all 62, every differing field of (r)
+equals head's v4.34.1 value (refs excepted where (r) looks names up again in v4.33.1 and drops the
+ones v4.33.1 lacks). Each declaration was also printed in full (pp.all) by each version's own Lean:
+identical for 57 of 62 (73 commands, 71 identical; the 5 that differ are listed under G8 and G9).
+
+THE 62, BY CAUSE ((a) -> (r); head equals (r) everywhere)
+--------------------------------------------------------
+G1  16  RootPairing.Equiv.weightEquiv / coweightEquiv take P Q explicitly in v4.33.1, implicitly in
+        v4.34.1 (`variable {P Q}` added). Field notation flips:
+        weightEquiv_mul  `weightEquiv P P x * weightEquiv P P y = ...` -> `x.weightEquiv * y.weightEquiv = ...`
+        Rows: weightEquiv_one, coweightEquiv_one, weightEquiv_mul, coweightEquiv_mul,
+        weightEquiv_comp_toLin, coweightEquiv_comp_toLin (refs reordered), weightHom, coweightHom
+        (equations), weightHom_apply, coweightHom_apply, coweightHom_op, inv_weightMap,
+        inv_coweightMap, reflection_weightEquiv, reflection_coweightEquiv, symm (equation).
+        Kind: another declaration's binders. In (r), weightEquiv's own page still shows (P ...) (Q ...).
+G2  21  PowerSeries.derivative takes R explicitly in v4.33.1 (`variable (R) in`), implicitly in v4.34.1:
+        `(derivative R) X` -> `derivative X`. Binder rows (derivative.ext, exp_unique_of_derivative_eq_self)
+        keep their binder names; only the hypothesis's type drops R. Rows: coeff_derivative,
+        coeff_derivativeFun, coeff_iterate_derivative, constantCoeff_iterate_derivative, derivative.ext,
+        derivativeFun (equation), derivativeFun_C, derivativeFun_coe, derivative_C, derivative_X,
+        derivative_coe, derivative_inv, derivative_invOf, derivative_one, derivative_pow,
+        derivative_subst, trunc_derivative, trunc_derivative', trunc_derivativeFun, derivative_exp,
+        exp_unique_of_derivative_eq_self. Kind: another declaration's binders.
+G3  12  MvPowerSeries.pderiv, the same (`variable (R) in` removed): `(pderiv R i) f` -> `(pderiv i) f`.
+        Rows: pderiv.ext (binder names equal), coeff_pderiv, pderiv_C, pderiv_X, pderiv_X_of_ne,
+        pderiv_X_self, pderiv_coe, pderiv_inv, pderiv_invOf, pderiv_one, pderiv_pow, trunc_pderiv.
+G4   3  `_root_.` qualification: MeromorphicOn.id `MeromorphicOn _root_.id U` -> `MeromorphicOn id U`
+        (v4.34.1 makes MeromorphicOn.id protected); Quot.lindelofSpace, Quotient.lindelofSpace
+        `_root_.LindelofSpace` -> `LindelofSpace` (v4.34.1 deletes the deprecated aliases
+        Quot.LindelofSpace / Quotient.LindelofSpace). Kind: other declarations' names in scope.
+G5   3  Prop.linearOrder is an instance in v4.33.1, a def in v4.34.1: inf_Prop_eq `min x1 x2` -> `x1 ⊓ x2`,
+        sup_Prop_eq `max` -> `⊔`, Prop.instBooleanAlgebra (equation) `min x ¬y` -> `x ⊓ ¬y`. Kind: notation
+        in the environment (as on M).
+G6   1  Nat.instMulZeroClass (equation) `toAddZeroClass.toZero` -> `toAddZeroClass.toAddZero.toZero`:
+        AddZeroClass's parents changed (v4.34.1 `extends Zero M, Add M, AddZero M`). Kind: another
+        declaration's structure.
+G7   1  ProfiniteGrp.of (equation) `topologicalGroup := inst✝²` -> `isTopologicalGroup := inst✝²`: the field
+        was renamed in v4.34.1, so (r) names a field v4.33.1 does not have. Kind: another declaration's
+        structure.
+G8   3  Equations whose content sits outside the declaration's value (value identical in both versions):
+        ExistsAndEq.mkNestedExists (helper `_f` differs; as on M); Lean.Export.exportLevel (`_f` differs
+        only in the panic's source line, 105 -> 107; equationCode equal because both are 3 characters);
+        SimpleGraph.Walk.take (the stored take.eq_2 differs: `p.take 0 = match ...` -> `p.take 0 =
+        SimpleGraph.Walk.nil.copy ⋯ ⋯`). Kind: helper definitions behind equations.
+G9   2  Ergodic, QuasiErgodic (members, refs): the member list is the same, but the inherited member
+        PreErgodic.aeconst_set reads `Filter.EventuallyConst s (ae μ)` -> `Filter.EventuallyEmptyOrUniv s
+        (ae μ)`, a constant that does not exist in v4.33.1. The parent's field changed between the
+        versions; (r)'s own PreErgodic.aeconst_set still says EventuallyConst. A DIFFERENT STATEMENT: the
+        cheap key hashed the constructors' types and the flattened field NAMES, and an inherited field's
+        type is in neither (Ergodic.mk takes `toPreErgodic : PreErgodic f μ`).
+
+16 + 21 + 12 + 3 + 3 + 1 + 1 + 3 + 2 = 62. G1-G8 (60) show the same term as v4.33.1 in a surface
+form v4.34.1's context produces; some of those forms would not elaborate in v4.33.1 (G1's
+`x.weightEquiv`, G7's `isTopologicalGroup`, G8's line 107). G9 (2) is a key miss.
+
+THE FIX
+-------
+PrintKey.ownKey hashes, for an inductive, the name and type of every member the page shows
+(memberConsts: the constructor, the structure and its parents with their projections, and every
+flattened field's projection), instead of the constructors' types and the field names. This is the
+member set the exact key (keyOf) already reads.
+After the fix, same 14 modules, all three arms rerun with the new reader:
+  link index byte-equal; declarations differing 60 of 881; the differing list equals the runner's 62
+  minus Ergodic and QuasiErgodic, nothing else moved.
+  Newly printed: Ergodic, QuasiErgodic and RootPairing.Equiv (key differs 109 -> 112). Found by writing
+  v4.33.1's keys with both readers and comparing each to its head: equal keys 1,380 -> 1,377 of 1,687
+  candidates, the three above and nothing gained. RootPairing.Equiv's output is the same either way
+  (it was not among the 62): a member's type differs between the versions as a term, not on the page.
+  Full-Mathlib effect on the printed share: not measured; 3 of 881 here (assumed small).
+
+GATES (same tree, after the fix)
+--------------------------------
+tools/reader-hybrid-gate.sh 35 of 35; tools/lean-test-gate.sh ok (233 compile-time, 67 run-time).

@@ -1,0 +1,35 @@
+All eleven Mathlib releases from nothing, second attempt: a 504 on a toolchain download, then a resume refused
+=============================================================================================================
+
+Run 38242588771 of .github/workflows/mv-l.yml at b7637eb (branch multi-version), 2026-10-12, arm `full`
+after the axiom-list fix (benchmarks/results/mv-l-axioms-fix-2026-10-12.txt, which holds this run's
+prediction). One run.
+
+CONDITIONS
+----------
+host      GitHub-hosted ubuntu-latest, AMD EPYC 7763, 4 vCPU, 16 GB, 3 GB swap
+command   as benchmarks/results/mv-l-full-2026-10-12.txt; the driver retries the whole build up to
+          three times on the same --out
+
+ANSWER (measured)
+------
+  attempt 1  26:39.30 wall, exit 1. Put: v4.34.1 (native extract 539.03 s), v4.34.0 (read 258.90 s,
+             322,958 of 322,958 reused), v4.33.1 (read 299.93 s, 273,725 of 317,784 reused). Then
+             v4.33.0's `elan toolchain install leanprover/lean4:v4.33.0` failed: "could not download
+             file from 'https://releases.lean-lang.org/lean4/v4.33.0/lean-4.33.0-linux.tar.zst' ...
+             http request returned an unsuccessful status code: 504", and the build threw.
+  attempt 2  0.16 s, exit 3; attempt 3 the same: "version v4.29.0 (8a17838…) pins
+             `leanprover/lean4:v4.29.0`, which has no row in tools/lean-toolchains.txt …".
+  served     failed (no finished build record); report: a store of three entries, no site.
+
+WHAT IT SAYS
+------------
+Two product defects, neither about the reader:
+  - A toolchain download (and, earlier, a cache fetch: mv-l-reuse-2026-10-10.txt, "fatal: early EOF")
+    is tried once; one transient HTTP error ends a build that has run for half an hour or more.
+  - A from-nothing build interrupted part-way cannot be resumed: with some older versions already
+    held, every absent older version is planned native, and a release whose Lean has no native row
+    (v4.29.0-v4.30.0, v4.32.0-v4.32.1, v4.34.0) is refused at once, so the driver's retries were
+    worthless.
+The numbers that did come out agree with mv-l-full-2026-10-12.txt (same reuse counts to the
+declaration for v4.34.0 and v4.33.1).

@@ -1,0 +1,192 @@
+E2 on M: a theorem's proof decoded only where the run reads it. `reader extract --lazy-proofs`
+against `reader extract` on the M slice of three Mathlib releases, one version per process,
+3 alternating cycles at --jobs 4 and 3 at --jobs 1
+==================================================================================================
+
+A measurement run, not a gate (2026-10-10, host clock 2026-10-10T01:51:32Z to 02:22:48Z).
+Experiment E2 of docs/multiversion/implementation.md ("Levers plan: beating read-alone on M").
+3 cycles: for lever experiments 3 alternating cycles are enough to tell an obvious win
+(decided 2026-10-10, user's call).
+
+THE RULE
+--------
+Decided per theorem, before its ConstantInfo is built, from its own module's exportedAxiomsExt
+entries (decoded first, names only): the proof is decoded iff the module stores no axiom list for
+the theorem, or the list holds sorryAx. Every other theorem gets the reader's omitted proof (a
+constant no environment defines). Readers of theorem values in a read-alone run:
+- Lean's collectAxioms (the sorry tag asks it for every analysed declaration): an imported name
+  with a stored list is answered from the list and its body is never walked; only a name without
+  one is walked, and the rule decodes exactly those. The hybrid places the old entries by key in
+  the module the environment gives each name (finalizeHybrid refuses an index mismatch), sorted
+  by Name.quickLt, so Lean's lookup finds the same list the rule read.
+- the extractor's mentionsSorryAx: asked only when collectAxioms answered sorryAx, so the theorem
+  either had sorryAx in its list or no list: decoded either way.
+- mechanism 3's closure check: it checks the names the decoder saw. With the flag it checks types,
+  definition bodies, entries and the proofs the run decodes; names that occur only inside an
+  omitted proof are not checked (references 862,629 -> 716,629 on v4.33.x, 853,381 -> 708,779 on
+  v4.32.2; 0 dangling in both arms).
+- the kernel during addDecl of realized lemmas: the extractor runs with debug.skipKernelTC true,
+  so nothing is type-checked and the kernel never unfolds a proof.
+- the equation generator's TransparencyMode.all sites (WF/Fix.lean, WF/Unfold.lean,
+  DefEqAttrib, the delaborator's whnf of function types): in Lean v4.34.1 Meta's whnf never
+  unfolds a theorem at any transparency. getUnfoldableConst? and getUnfoldableConstNoEx?
+  (Meta/GetUnfoldableConst.lean) both answer none for a theorem, and Meta.getTheoremInfo has no
+  caller, so no Meta path reads a proof body through unfolding. Had one unfolded it, the omitted
+  proof's name would throw "unknown constant" on the first path and stay a stuck term, silently,
+  on the NoEx one. The IR oracle below is what answers for both, and it answered equal on every
+  file.
+- Mathlib's eqns attribute and the equation lemmas getEqnsFor? returns: names, printed through
+  inferType (types only). The autoParam sameValue comparison reads value? of tactic definitions,
+  never of theorems. PrintKey and the patch read values only in `reader session`, which refuses
+  --lazy-proofs (a carried constant could have been decoded under an axiom list since changed).
+
+STEP 0 (before building; (measured), one run, Python walker over every part of each module)
+------
+On the newest workspace /private/tmp/lean-doc-relay/mv-v4341 (Lean v4.34.1), the import closure
+of the two M roots, 2,187 modules (core, the packages and 447 Mathlib modules), because the M
+checkouts were not on disk: 107,505 theorems; a stored axiom list 85,726, none 21,779 (Init
+11,044, Std 5,117, Mathlib 3,654, Lean 1,242, Batteries 579, others 144); a list with sorryAx 0.
+The rule decodes 20.26% of the proofs. Region bytes 1,585.7 MB: reachable only through the
+omitted proofs 256.5 MB (16.2%), only through any proof 379.8 MB (24.0%). This denominator is the
+whole closure, core included; the plan's 51.9% (bytes reachable only through theorem values) was
+Mathlib's own 827 modules, and the two are not comparable. On the M versions themselves the
+reader's `proofs` line gives the same split (ANSWER).
+
+CONDITIONS
+----------
+host        Apple M1, 16 GB, Darwin 25.6.0 arm64; free disk 13.8 GiB at the start, 10 GiB with the
+            three checkouts kept
+litedoc4    b67fa673caf384cd1f4d541f22b709561d35c6d4 plus 7 uncommitted paths (the flag:
+            extractor/reader/OleanReader/{Assemble,Entries,Hybrid,Module,Oracle,Read}.lean and
+            tools/reader-hybrid-gate.sh; committed with this file)
+reader      `litedoc4 reader build` on leanprover/lean4:v4.34.1 at -O3 -DNDEBUG (59.51 s):
+            reader-leanprover-lean4-v4.34.1-a32c89da3ee0af40, identity reader=fnv1a64:5bfd0bd88e37e744
+            source=fnv1a64:7bb4d9f8122fd2b8; both arms are this one binary
+versions    v4.32.2  mathlib 905b95818eb32af7874a58b427f50c1711a5e96c  433 modules
+            v4.33.0  mathlib db584cd6d46c92f209a44c0f1c829460d327499d  438 modules
+            v4.33.1  mathlib 0df444a360eaa60ab8c11dca51a86af692955474  438 modules
+newest      /private/tmp/lean-doc-relay/mv-v4341 (read only): 11 search directories, 447 modules in
+            its closure of the two roots
+flags       both arms: --equations --refs --write-ir --tagged-code
+            --no-equations-under Mathlib.Tactic,Mathlib.Meta --jobs <4|1> --link-index, with the
+            native build's own module list; arm a also --lazy-proofs
+order       per cycle all three versions of one arm, then of the other: cycle 1 lazy first, cycle 2
+            full first, cycle 3 lazy first (both job counts); nothing else heavy started during the
+            cycles; other desktop applications open, load average 1.9-3.6
+memory      swapouts 5,537,290 at the start and the end (none during); swapins 4,760,945 ->
+            4,761,352; swap used 1,752 -> 1,744 of 3,072 MiB; the compressor held 6.13 GiB in
+            0.89 GiB at the start and 6.07 GiB in 0.84 GiB at the end; free pages 1.58 GiB at the
+            start, 1.85 GiB at the end (16 KiB pages)
+warmth      the oleans were unpacked by the setup run minutes before the cycles. At --jobs 1 the
+            arms converged (spread 0.13-0.39 s per version and arm, the first process of the run
+            aside). At --jobs 4 they did not: user+system CPU for the same work rose from 40-41 s in
+            cycle 1 to 49-50 s in cycle 3 for the full arm (and 36-37 -> 45-46 s for lazy), wall
+            spread 0.8-12.8 s, the four extraction threads sharing the cores with the desktop load
+
+REPRODUCE
+---------
+  tools/build-lean-exe.sh --toolchain-from e2e/micro
+  benchmarks/tools/mv-m-run.sh --through-reader --keep-checkouts --need-gb 3 \
+    --work /private/tmp/lean-doc-relay/mv-m-lazy
+Then a throwaway cycle driver (kept outside the tree) on the kept checkouts: per cycle, per arm,
+one `/usr/bin/time -l reader extract [--lazy-proofs] ...` per version with the request mv-m-run.sh
+sends; `/usr/bin/diff -r` of every IR tree and `cmp` of every link index, lazy against full of the
+same cycle and both against cycle 1's full of the same job count. A one-version smoke cycle
+(v4.33.1, --jobs 4) ran first and was equal. Setup run 547 s, --jobs 4 cycles 559 s, --jobs 1
+cycles 711 s.
+
+ANSWER
+------
+                                       v4.32.2            v4.33.0            v4.33.1
+  lazy = full, same cycle, all 6       yes, 6 of 6        yes, 6 of 6        yes, 6 of 6
+  lazy and full = cycle 1's full       yes                yes                yes
+  theorems                             106,205            106,925            106,925
+  proofs decoded (no list / sorryAx)   21,703 (21,703/0)  21,679 (21,679/0)  21,679 (21,679/0)
+  proofs omitted                       84,502             85,246             85,246
+
+  --jobs 4 (each cell: cycles 1, 2, 3; all (measured))
+  lazy wall (s)                        31.66 26.33 27.55  24.31 28.69 28.69  24.88 37.72 28.67
+  full wall (s)                        30.13 30.06 30.91  30.53 32.61 32.17  29.74 33.61 32.45
+  lazy CPU user+sys (s)                37.27 43.29 45.56  36.27 46.38 45.99  36.56 45.63 46.01
+  full CPU user+sys (s)                40.42 42.55 48.89  41.21 44.23 49.76  41.64 45.43 49.87
+  lazy decode phase (s)                 8.63  9.23  9.81   9.37 10.20 10.44   9.17 10.47 10.33
+  full decode phase (s)                11.40 11.28 12.93  11.70 11.97 13.38  11.85 11.78 13.35
+  lazy maximum RSS (MiB)               2,775 2,775 2,775  2,782 2,782 2,782  2,782 2,780 2,781
+  full maximum RSS (MiB)               3,275 3,274 3,275  3,275 3,274 3,274  3,275 3,275 3,277
+  lazy peak footprint (MiB)            1,668 1,667 1,666  1,678 1,675 1,672  1,641 1,673 1,672
+  full peak footprint (MiB)            2,177 2,177 2,176  2,176 2,130 2,175  2,177 2,177 2,179
+  resident before extraction (MiB)     lazy 2,666 every process; full 3,162 (v4.32.2), 3,168
+
+  --jobs 1 (same layout)
+  lazy wall (s)                        42.82 36.42 36.03  36.51 36.74 36.76  37.27 36.91 36.93
+  full wall (s)                        39.42 39.32 39.14  39.74 40.11 39.94  40.01 40.00 40.13
+  lazy decode phase (s)                 9.01  8.95  8.88   9.18  9.31  9.30   9.39  9.52  9.32
+  full decode phase (s)                11.76 11.82 11.68  12.03 12.07 12.17  12.18 12.12 12.21
+  lazy maximum RSS (MiB)               2,722-2,725 in every process
+  full maximum RSS (MiB)               3,220-3,221 in every process
+  lazy / full peak footprint (MiB)     1,614-1,616 / 2,117-2,123
+  extract phase                        19.41-20.08 s lazy, 19.58-19.74 s full
+
+  The first process of each job count (cycle 1, lazy, v4.32.2) also paid the newest import and
+  merge cold: merge 7.15 / 6.39 s, newest import 3.17 / 3.00 s against 1.1-1.2 / 0.45-0.5 s in
+  every later process. The same happened once mid-run at --jobs 4 (cycle 2, lazy, v4.33.1: merge
+  5.58 s, newest import 2.55 s).
+
+  Against the win criteria (implementation.md, "Win on M"; the time criterion reads the
+  per-extra-version wall, v4.33.0 and v4.33.1):
+  - exactness: met. Every IR file and the link index equal to read-alone without the flag, 3 of 3
+    versions in every cycle at both job counts, and each arm equal to cycle 1's full arm.
+  - memory: met. Maximum RSS 2,775-2,782 against 3,274-3,277 MiB at --jobs 4 (-492 to -500 MiB paired by cycle,
+    -15%), 2,722-2,725 against 3,220-3,221 MiB at --jobs 1; peak footprint 1,641-1,678 against
+    2,130-2,179 MiB (-23%) and 1,614-1,616 against 2,117-2,123 MiB. No overlap in any cell.
+  - time at --jobs 1: met. v4.33.0 36.51-36.76 against 39.74-40.11 s, v4.33.1 36.91-37.27 against
+    40.00-40.13 s: the smallest gap (2.73 s) is larger than either arm's spread (0.13-0.37 s);
+    -8%. On v4.32.2 too once the run's first process is set aside (36.03-36.42 against
+    39.14-39.42 s); with it, lazy's spread is 6.79 s and the criterion fails on that version.
+  - time at --jobs 4: NOT met. v4.33.0 24.31-28.69 against 30.53-32.61 s: the smallest gap
+    (1.84 s) is below lazy's spread (4.38 s); v4.33.1 24.88-37.72 against 29.74-33.61 s overlap.
+    Lazy is faster in 7 of the 9 same-cycle pairs, and its single-threaded decode phase is lower
+    in all 9 (by 1.3-3.1 s), but the host did not hold the four extraction threads steady enough
+    for the spread rule to separate the arms.
+
+**Verdict: exact, and lower in memory in every process; faster at --jobs 1 by the plan's rule,
+not separated at --jobs 4 on this run.** By the plan's three criteria E2 wins at one job and fails
+the time criterion at four, where the product runs. The time it removes is in the decode phase,
+which does not depend on --jobs (2.7-2.9 s at one job, 1.3-3.1 s at four).
+
+  Against the prediction (decode 12-14 -> 6-7 s, peak -0.5 to -0.8 GiB; extrapolated):
+  decode 11.3-13.4 -> 8.6-10.5 s, about -2.8 s rather than about halved: the rule keeps 20% of the
+  proofs, and step 0 put the bytes it skips at 16.2% of the closure, not the ~50% the prediction
+  extrapolated from. Peak: maximum RSS -492 to -500 MiB (-0.48 to -0.49 GiB) at --jobs 4 and
+  -495 to -499 MiB at --jobs 1; peak footprint, paired per cycle, -455 to -536 MiB at --jobs 4 and
+  -501 to -508 MiB at --jobs 1. The low end of the predicted range, partly below it.
+
+WHERE A PROCESS'S TIME GOES (ms, --jobs 1, cycle 2, v4.33.1, from the `phases` lines)
+-----------------------------------------------------------------------------------
+                       lazy     full
+  manual root         2,349    2,401
+  closure               714      717
+  decode              9,517   12,125
+  check closure          73       87
+  check ilean         1,832    1,896
+  newest import         453      482
+  merge               1,134    1,160
+  finalize              957    1,136
+  rss probe              85       86
+  extract            19,646   19,741
+  total              36,760   39,831
+
+GATES (same tree)
+-----------------
+tools/reader-hybrid-gate.sh 33 of 33, with the new item `lazy-proofs-equals-alone` (every older
+row read again with --lazy-proofs: IR and link index equal to read-alone, invariants hold, the
+proofs decoded are the ones the rule names; e.g. v4.33.1 decoded 11,049 of 45,607 (no list
+11,047, sorryAx 2), omitted 34,558, closure references 164,888 against 229,383). It failed once
+with the rule omitting the sorryAx proofs too: on all four rows only index.json and
+modules/Example.Sorry.json differ, Example.Sorry.sorryHole's `sorry` reading "transitive" where
+read-alone reads "direct". The sample has no falsifier for the other half of the rule (a theorem
+without a stored list): the axiom walk visits such a body only when asked about a name that has
+no list, and no analysed declaration of the sample is one; on M only the IR oracle above answers
+for it. tools/mv-reader-gate.sh 14 of 14, tools/lean-test-gate.sh 4 of 4,
+tools/reader-oracle-gate.sh 10 of 10 (its read and oracle paths now pass Proofs.none, the former
+omitProofs true).

@@ -17,7 +17,15 @@ litedoc4 as a whole is licensed separately; see this repository's LICENSE.
 This binary does **not** link doc-gen4 — it imports only `Lean`.
 
 Usage: extract <modules.txt> <out.jsonl> [options]
+       extract --identity [options]
+  --identity          print the extractor output identity for these options —
+                      the line `--write-ir` puts in `index.json` as
+                      `extractorIdentity` — and extract nothing
   --equations         generate equation lemmas (default: off)
+  --no-equations-under <ns>[,<ns>]
+                      no equations for a definition whose name lies strictly
+                      inside one of these namespaces; its signature, docstring
+                      and position stay
   --write-ir          persist the result as one JSON file per module + an index
                       + a dependency-side map slice (default: off)
   --tagged-code       record, per printed fragment, the pre-order list of tag
@@ -33,6 +41,10 @@ Usage: extract <modules.txt> <out.jsonl> [options]
   --ir-dir <path>     where to write it. **Required with `--write-ir`** and it
                       has no default (see `getIrDir`).
                       **Never point this inside the measurement target.**
+  --write-reuse-keys  also write every candidate's reuse key to
+                      `<ir-dir>.reuse-keys`, headed by the printing identity:
+                      the file `reader extract --reuse-from` reads (needs
+                      `--write-ir`; the IR is unchanged)
   --dump <path>       write one JSON object per declaration to <path>
   --dump-modules <p>  write one JSON object per module (docs / imports / tactics)
   --only <path>       restrict processing to the declaration names in <path>
@@ -96,6 +108,8 @@ structure Cfg where
   modulesPath : FilePath
   outPath : FilePath
   genEquations : Bool := false
+  noEquationsUnder : Array Name := #[]
+  identity : Bool := false
   dumpPath : Option FilePath := none
   dumpModulesPath : Option FilePath := none
   onlyPath : Option FilePath := none
@@ -120,6 +134,7 @@ structure Cfg where
   /-- `--ir-dir`. `none` is only legal together with `writeIR := false`;
   `parseArgs` refuses the combination, so `getIrDir` never has to invent one. -/
   irDir : Option FilePath := none
+  writeReuseKeys : Bool := false
   taggedCode : Bool := false
   /-- **An ablated run writes an incomplete IR.** `index.json` then carries an
   `ablations` list and the reader refuses it; such an IR is for the stopwatch
@@ -134,9 +149,9 @@ structure Cfg where
   checked by running the same configuration with and without the flag. -/
   ppBreakdown : Bool := false
   declProfilePath : Option FilePath := none
-  /-- The declaration order of the output is independent of `N`: workers take a
-  stride of the candidate list and the results are merged back by candidate
-  index, which is what makes the IR byte-comparable across `N`. -/
+  /-- The declaration order of the output is independent of `N`: workers take
+  whole modules and what each leaves behind is merged back by module position,
+  which is what makes the IR byte-comparable across `N`. -/
   jobs : Nat := 1
   deriving Inhabited
 
@@ -151,6 +166,37 @@ def Cfg.ablations (c : Cfg) : Array String :=
   let a := if c.noInstIndex then a.push "instIndex" else a
   let a := if c.noMemberExtra then a.push "memberExtra" else a
   if c.noSorry then a.push "sorry" else a
+
+structure World where
+  moduleNames : Array Name
+  moduleIndex? : Name → Option Nat
+  constNames : Nat → Array Name
+  imports : Nat → Array Name
+  moduleOf? : Name → Option Name
+  contains : Name → Bool
+  moduleDocs : Name → Array ModuleDoc
+  docString? : Name → IO (Option String)
+  tactics : MetaM (Option (Array TacticDoc))
+  leanVersion : String
+  leanGithash : String
+  readBy : List (String × String)
+
+def World.ofEnv (env : Environment) : World :=
+  let header := env.header
+  -- Not `header.moduleNames` inside the closures: it is a `def` that allocates a fresh array per call (fine if it becomes a field).
+  let modNames := header.moduleNames
+  { moduleNames := modNames
+    moduleIndex? := fun m => (env.getModuleIdx? m).map (·.toNat)
+    constNames := fun i => header.moduleData[i]!.constNames
+    imports := fun i => header.moduleData[i]!.imports.map Import.module
+    moduleOf? := fun n => (env.getModuleIdxFor? n).map (modNames[·]!)
+    contains := env.contains
+    moduleDocs := fun m => (getModuleDoc? env m).getD #[]
+    docString? := fun n => findDocString? env n
+    tactics := some <$> allTacticDocs
+    leanVersion := Lean.versionString
+    leanGithash := Lean.githash
+    readBy := [] }
 
 /-! ## doc-gen4's blacklist, transcribed
 
@@ -424,13 +470,10 @@ def linkIndexIsCurrent (path : FilePath) (key : String) (modNames : Array Name) 
 A module in `omitModules` contributes its name to the `@` section like any other
 and contributes **no declaration group**. (Spelled out rather than `omit`, which
 Lean 4 reserves for the `variable`-section instance elision.) -/
-def writeLinkIndex (path : FilePath) (omitModules : Std.HashSet Name) :
+def writeLinkIndex (world : World) (path : FilePath) (omitModules : Std.HashSet Name) :
     MetaM LinkIndexStats := do
   let env ← getEnv
-  let header := env.header
-  -- `EnvironmentHeader.moduleNames` is a `def`, not a field: every call
-  -- allocates a fresh array of one name per loaded module. Hoist it.
-  let modNames := header.moduleNames
+  let modNames := world.moduleNames
   let h ← IO.FS.Handle.mk path .write
   let mut stats : LinkIndexStats := { moduleNames := modNames.size }
   -- Written in chunks: one `putStr` per line would be 750k calls, one string
@@ -445,12 +488,12 @@ def writeLinkIndex (path : FilePath) (omitModules : Std.HashSet Name) :
   for i in [0:modNames.size] do
     let m := modNames[i]!
     let mut kept : Array Name := #[]
-    for n in header.moduleData[i]!.constNames do
+    for n in world.constNames i do
       stats := { stats with scanned := stats.scanned + 1 }
       -- The owning module is `const2ModIdx`'s, not the list this name came out
       -- of; a name owned elsewhere is written when that module's turn comes.
-      let some idx := env.getModuleIdxFor? n | continue
-      if modNames[idx]! != m then continue
+      let some owner := world.moduleOf? n | continue
+      if owner != m then continue
       if isPrivateName n then continue
       match env.find? n with
       | some (.recInfo _) | none => continue
@@ -1210,8 +1253,8 @@ structure DeclOut where
   /-- Instances only: `getInstanceTypes`. Never printed on a module page — the
   browser builds those lists from `declaration-data.bmp`. -/
   instTypes : Array Name := #[]
-  /-- `"direct"`, `"transitive"` or `none`. Filled by a pass of its own after the
-  analysis (`sorryTag`), not by `analyze`, so that `--jobs` cannot reach it. -/
+  /-- `"direct"`, `"transitive"` or `none`. Filled by `sorryTag` once the
+  module's analysis is done, not by `analyze`. -/
   sorryTag : Option String := none
   /-- The declaration `@[ext]` realized this one from; see `extOriginOf`. -/
   extOrigin : Option Name := none
@@ -1241,6 +1284,7 @@ structure Counters where
   docNanos : Nat := 0
   eqCount : Nat := 0
   eqFailures : Nat := 0
+  eqSkipped : Nat := 0
   /-- Runs *inside* the pretty printing it measures, so this is a part of
   `ppNanos` (and of `eqNanos` for the equations), not an addition to it. -/
   refNanos : Nat := 0
@@ -1276,6 +1320,7 @@ def Counters.add (a b : Counters) : Counters :=
     docNanos := a.docNanos + b.docNanos,
     eqCount := a.eqCount + b.eqCount,
     eqFailures := a.eqFailures + b.eqFailures,
+    eqSkipped := a.eqSkipped + b.eqSkipped,
     refNanos := a.refNanos + b.refNanos,
     refCount := a.refCount + b.refCount,
     attrNanos := a.attrNanos + b.attrNanos,
@@ -1337,7 +1382,7 @@ declarations it also fires on structure and class field projections and on
 macro-defined declarations, and it does *not* fire on the `to_additive` twins
 whose additive name the author wrote out. It is a necessary condition here,
 joined to a name the environment can confirm. -/
-def extOriginOf (name : Name) (sameRange : Bool) : CoreM (Option Name) := do
+def extOriginOf (world : World) (name : Name) (sameRange : Bool) : CoreM (Option Name) := do
   unless sameRange do return none
   match name with
   | .str parent "ext" =>
@@ -1347,20 +1392,23 @@ def extOriginOf (name : Name) (sameRange : Bool) : CoreM (Option Name) := do
       return none
   | .str parent "ext_iff" =>
     let extName := Name.str parent "ext"
-    if (← getEnv).contains extName && (← Lean.Meta.Ext.isExtTheorem extName) then
+    if world.contains extName && (← Lean.Meta.Ext.isExtTheorem extName) then
       return some extName
     else
       return none
   | _ => return none
 
 /-- doc-gen4's `Info.ofConstantVal` + `NameInfo.ofTypedName` for one name. -/
-def baseInfo (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (kind : String)
-    (cv : ConstantVal) : AnalyzeM DeclOut := do
-  let e := Expr.const cv.name (cv.levelParams.map mkLevelParam)
-  let t ← inferType e
-  let sig ← timedPp (ppSignature probe cfg.tagCode refs cv.name t)
+def baseInfo (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (module : Name)
+    (kind : String) (cv : ConstantVal) (sig? : Option Sig := none) : AnalyzeM DeclOut := do
+  let sig ← match sig? with
+    | some s => pure s
+    | none => do
+      let e := Expr.const cv.name (cv.levelParams.map mkLevelParam)
+      let t ← inferType e
+      timedPp (ppSignature probe cfg.tagCode refs cv.name t)
   let tDoc0 ← IO.monoNanosNow
-  let doc ← Lean.findDocString? (← getEnv) cv.name
+  let doc ← world.docString? cv.name
   let tDoc1 ← IO.monoNanosNow
   modify fun c => { c with docNanos := c.docNanos + (tDoc1 - tDoc0) }
   let some ranges ← findDeclarationRanges? cv.name
@@ -1380,7 +1428,7 @@ def baseInfo (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (kin
       && ranges.range.pos.column == ranges.selectionRange.pos.column
       && ranges.range.endPos.line == ranges.selectionRange.endPos.line
       && ranges.range.endPos.column == ranges.selectionRange.endPos.column
-  let extOrigin ← extOriginOf cv.name sameRange
+  let extOrigin ← extOriginOf world cv.name sameRange
   return {
     name := cv.name, module, kind, sig, doc, attrs, extOrigin,
     line := ranges.range.pos.line, col := ranges.range.pos.column,
@@ -1392,9 +1440,25 @@ def baseInfo (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (kin
     equations := #[]
   }
 
+def isStrictlyInsideAny (namespaces : Array Name) (declName : Name) : Bool :=
+  let userName := privateToUserName declName
+  namespaces.any fun ns => ns != userName && ns.isPrefixOf userName
+
+def namespaceMatchingIsByComponentAndStrict : Bool :=
+  let under := isStrictlyInsideAny #[`Mathlib.Tactic, `Mathlib.Meta]
+  under `Mathlib.Tactic.Ring.foo && under `Mathlib.Meta.bar
+    && under (mkPrivateNameCore `Mathlib.Foo `Mathlib.Tactic.baz)
+    && !under `Mathlib.TacticX.foo && !under `Mathlib.Tactic && !under `Mathlib.Foo.Tactic.x
+    && !isStrictlyInsideAny #[] `Mathlib.Tactic.Ring.foo
+
+#guard namespaceMatchingIsByComponentAndStrict
+
 def withEquations (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : DefinitionVal)
     (d : DeclOut) : AnalyzeM DeclOut := do
   unless cfg.genEquations do return d
+  if isStrictlyInsideAny cfg.noEquationsUnder v.name then
+    modify fun c => { c with eqSkipped := c.eqSkipped + 1 }
+    return d
   -- A probe of its own, so the equations' share can be separated; folded into both.
   let eqProbe : PpProbe ← match probe with
     | none => pure none
@@ -1444,8 +1508,8 @@ projection function a second time inside `getFieldTypes` and then throws that
 away — the output path reads the field's attributes from the projection
 function's own `name_info` row. The projection function is a declaration this
 extractor already visits, so its attributes are already in the IR. -/
-def structureMembers (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : InductiveVal) :
-    AnalyzeM (Array Member) := do
+def structureMembers (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink)
+    (v : InductiveVal) : AnalyzeM (Array Member) := do
   let env ← getEnv
   let structName := v.name
   let us := v.levelParams.map mkLevelParam
@@ -1479,7 +1543,7 @@ def structureMembers (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (v : Inducti
             if !isDirect then inherited := inherited + 1
             let sig ← ppSignature probe cfg.tagCode refs projFn ty
             let t2 ← IO.monoNanosNow
-            let doc ← Lean.findDocString? env projFn
+            let doc ← world.docString? projFn
             let t3 ← IO.monoNanosNow
             extra := extra + (t3 - t2)
             acc := acc.push {
@@ -1526,12 +1590,12 @@ Nothing is emitted for a theorem, even when it is an instance
 `structure` / `class` / `class inductive`, whose `getKindDescription` branches
 ignore `isUnsafe`.
 -/
-def declModifiers (ci : ConstantInfo) (kind : String) : MetaM (Array String) := do
+def declModifiers (world : World) (ci : ConstantInfo) (kind : String) : MetaM (Array String) := do
   let env ← getEnv
   match ci with
   | .axiomInfo i => return if i.isUnsafe then #["unsafe"] else #[]
   | .opaqueInfo i =>
-    if (env.find? (Compiler.mkUnsafeRecName i.name)).isSome then return #["partial"]
+    if world.contains (Compiler.mkUnsafeRecName i.name) then return #["partial"]
     else if i.isUnsafe then return #["unsafe"]
     else return #[]
   | .defnInfo i =>
@@ -1565,8 +1629,9 @@ def withInstanceIndex (cfg : Cfg) (type : Expr) (d : DeclOut) : AnalyzeM DeclOut
   return { d with attrs, instClass := some className, instTypes := typeNames }
 
 /-- doc-gen4's `DocInfo.ofConstant`. -/
-def analyzeCore (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (name : Name)
-    (ci : ConstantInfo) : AnalyzeM (Option DeclOut) := do
+def analyzeCore (cfg : Cfg) (world : World) (probe : PpProbe) (refs : RefSink) (module : Name)
+    (name : Name) (ci : ConstantInfo) (p? : Option DeclOut := none) :
+    AnalyzeM (Option DeclOut) := do
   let b0 ← probe.now
   let bl ← isBlackListed name
   let b1 ← probe.now
@@ -1574,20 +1639,28 @@ def analyzeCore (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (
     modify fun c => { c with blNanos := c.blNanos + (b1 - b0), blCalls := c.blCalls + 1 }
   if bl then
     return none
+  let base (kind : String) (cv : ConstantVal) :=
+    baseInfo cfg world probe refs module kind cv (p?.map (·.sig))
   match ci with
-  | .axiomInfo i => return some (← baseInfo cfg probe refs module "axiom" i.toConstantVal)
+  | .axiomInfo i => return some (← base "axiom" i.toConstantVal)
   | .thmInfo i =>
     let isInst ← if ← isProjFn i.name then pure false else isInstanceDecl i.name
     let kind := if isInst then "instance" else "theorem"
-    let d ← baseInfo cfg probe refs module kind i.toConstantVal
+    let d ← base kind i.toConstantVal
     if isInst then return some (← withInstanceIndex cfg i.type d) else return some d
-  | .opaqueInfo i => return some (← baseInfo cfg probe refs module "opaque" i.toConstantVal)
+  | .opaqueInfo i => return some (← base "opaque" i.toConstantVal)
   | .defnInfo i =>
     let isInst ← if ← isProjFn i.name then pure false else isInstanceDecl i.name
     let kind := if isInst then "instance" else "definition"
-    let d ← baseInfo cfg probe refs module kind i.toConstantVal
+    let d ← base kind i.toConstantVal
     let d ← if isInst then withInstanceIndex cfg i.type d else pure d
-    return some (← withEquations cfg probe refs i d)
+    match p? with
+    | some p =>
+      if cfg.genEquations then
+        return some { d with
+          equations := p.equations, equationSpans := p.equationSpans, eqFailed := p.eqFailed }
+      else return some d
+    | none => return some (← withEquations cfg probe refs i d)
   | .inductInfo i =>
     let env ← getEnv
     let isStruct := isStructure env i.name
@@ -1595,16 +1668,22 @@ def analyzeCore (cfg : Cfg) (probe : PpProbe) (refs : RefSink) (module : Name) (
     let kind :=
       if isStruct then (if isCls then "class" else "structure")
       else (if isCls then "class_inductive" else "inductive")
-    let d ← baseInfo cfg probe refs module kind i.toConstantVal
-    let members ← if isStruct then structureMembers cfg probe refs i
-                  else inductiveMembers cfg probe refs i
+    let d ← base kind i.toConstantVal
+    let members ← match p? with
+      | some p => p.members.mapM fun m => do
+          if m.label == "field" && cfg.wantMemberExtra then
+            return { m with doc := ← world.docString? m.name }
+          else return m
+      | none =>
+        if isStruct then structureMembers cfg world probe refs i
+        else inductiveMembers cfg probe refs i
     return some { d with members }
-  | .ctorInfo i => return some (← baseInfo cfg probe refs module "constructor" i.toConstantVal)
-  | .quotInfo i => return some (← baseInfo cfg probe refs module "opaque" i.toConstantVal)
+  | .ctorInfo i => return some (← base "constructor" i.toConstantVal)
+  | .quotInfo i => return some (← base "opaque" i.toConstantVal)
   | .recInfo _ => return none
 
-def analyze (cfg : Cfg) (module : Name) (name : Name) (ci : ConstantInfo) :
-    AnalyzeM (Option DeclOut) := do
+def analyze (cfg : Cfg) (world : World) (module : Name) (name : Name) (ci : ConstantInfo)
+    (p? : Option DeclOut := none) : AnalyzeM (Option DeclOut) := do
   let refs : RefSink ←
     if cfg.collectRefs || cfg.taggedCode then
       let r ← IO.mkRef {}
@@ -1613,7 +1692,7 @@ def analyze (cfg : Cfg) (module : Name) (name : Name) (ci : ConstantInfo) :
       pure none
   let probe : PpProbe ←
     if cfg.ppBreakdown then do let r ← IO.mkRef ({} : PpAcc); pure (some r) else pure none
-  let d? ← analyzeCore cfg probe refs module name ci
+  let d? ← analyzeCore cfg world probe refs module name ci p?
   let acc ← match refs with
     | some s => s.ref.get
     | none => pure {}
@@ -1625,9 +1704,9 @@ def analyze (cfg : Cfg) (module : Name) (name : Name) (ci : ConstantInfo) :
   match d? with
   | none => return none
   | some d =>
-    let d := { d with refs := acc.names }
+    let d := { d with refs := match p? with | some p => p.refs | none => acc.names }
     if cfg.taggedCode then
-      return some { d with modifiers := ← declModifiers ci d.kind }
+      return some { d with modifiers := ← declModifiers world ci d.kind }
     else
       return some d
 
@@ -1747,19 +1826,17 @@ def mkTacticOut (doc : TacticDoc) (definingModule : Name) : TacticOut :=
       ("\n\n".intercalate doc.extensionDocs.toList)
     definingModule }
 
-def collectModuleDocs (targets : Array Name) : MetaM (Array ModuleOut) := do
-  let env ← getEnv
-  let header := env.header
+def collectModuleDocs (world : World) (targets : Array Name) : MetaM (Array ModuleOut) := do
   let mut out : Array ModuleOut := Array.emptyWithCapacity targets.size
   for m in targets do
-    let some modIdx := env.getModuleIdx? m
+    let some modIdx := world.moduleIndex? m
       | throwError "module not present in the environment: {m}"
-    let docs := (getModuleDoc? env m |>.getD #[]).map fun d =>
+    let docs := (world.moduleDocs m).map fun d =>
       { line := d.declarationRange.pos.line, col := d.declarationRange.pos.column,
         text := d.doc : ModDocOut }
     out := out.push {
       name := m
-      imports := header.moduleData[modIdx]!.imports.map Import.module
+      imports := world.imports modIdx
       docs
       tactics := #[]
     }
@@ -1767,26 +1844,22 @@ def collectModuleDocs (targets : Array Name) : MetaM (Array ModuleOut) := do
 
 /-- One enumeration of the tactic table for the whole environment, bucketed by
 defining module. Returns the updated modules, the total number of tactics in the
-environment, and how many of them landed in a target module. -/
-def collectTacticsOnce (mods : Array ModuleOut) : MetaM (Array ModuleOut × Nat × Nat) := do
-  let env ← getEnv
-  let header := env.header
+environment, and how many of them landed in a target module; `none` when the
+world has no tactic table to answer from. -/
+def collectTacticsOnce (world : World) (mods : Array ModuleOut) :
+    MetaM (Option (Array ModuleOut × Nat × Nat)) := do
   let mut idxOf : Std.HashMap Name Nat := Std.HashMap.emptyWithCapacity mods.size
   for h : i in [0 : mods.size] do
     idxOf := idxOf.insert mods[i].name i
-  -- `EnvironmentHeader.moduleNames` is a *function*, not a field: a fresh array
-  -- per call. doc-gen4 calls it inside its per-tactic loop; hoisting removes 12.98 s.
-  let modNames := header.moduleNames
-  let allDocs ← allTacticDocs
+  let some allDocs ← world.tactics | return none
   let mut mods := mods
   let mut assigned := 0
   for doc in allDocs do
-    let some modIdx := env.getModuleIdxFor? doc.internalName | continue
-    let definingModule := modNames[modIdx]!
+    let some definingModule := world.moduleOf? doc.internalName | continue
     let some i := idxOf[definingModule]? | continue
     mods := mods.modify i fun m => { m with tactics := m.tactics.push (mkTacticOut doc definingModule) }
     assigned := assigned + 1
-  return (mods, allDocs.size, assigned)
+  return some (mods, allDocs.size, assigned)
 
 /-- Every tactic in the environment with its defining module, regardless of the
 target list: a module list on which the bucketing can be checked against doc-gen4. -/
@@ -2070,6 +2143,137 @@ every declaration of a tagged file on purpose — an omission rule would give it
 absence two meanings. -/
 def irSchemaVersion (tagged : Bool) : Nat := if tagged then 5 else 1
 
+def fnv1a64 (s : String) : UInt64 :=
+  s.toUTF8.foldl (fun h b => (h ^^^ b.toUInt64) * 0x100000001b3) 0xcbf29ce484222325
+
+def fnv1a64MatchesItsPublishedVectors : Bool :=
+  fnv1a64 "" == 0xcbf29ce484222325 && fnv1a64 "a" == 0xaf63dc4c8601ec8c
+    && fnv1a64 "foobar" == 0x85944171f73967e8
+
+#guard fnv1a64MatchesItsPublishedVectors
+
+-- Not `String.hash` (`hashHex`): Lean's runtime promises it nothing across versions.
+def fnv1a64Hex (s : String) : String :=
+  let digits := String.ofList (Nat.toDigits 16 (fnv1a64 s).toNat)
+  "fnv1a64:" ++ "".pushn '0' (16 - digits.length) ++ digits
+
+def extractorSource : String := include_str "Extract.lean"
+
+def sortedDistinct (xs : Array String) : Array String :=
+  (xs.qsort (· < ·)).foldl (init := #[]) fun acc x =>
+    if acc.back? == some x then acc else acc.push x
+
+def identityLine (sourceDigest leanVersion leanGithash : String) (onlyDigest : Option String)
+    (cfg : Cfg) (readBy : List (String × String) := []) : String :=
+  let flag (b : Bool) := if b then "1" else "0"
+  let names (ns : Array Name) := ",".intercalate (ns.toList.map toString)
+  let fields := [
+    ("schema", toString (irSchemaVersion cfg.taggedCode)),
+    ("source", sourceDigest),
+    ("lean", leanVersion),
+    ("leanGithash", leanGithash),
+    ("equations", flag cfg.genEquations),
+    ("taggedCode", flag cfg.taggedCode),
+    ("refs", flag cfg.collectRefs),
+    ("skipAnalyze", flag cfg.skipAnalyze),
+    ("ablations", ",".intercalate cfg.ablations.toList),
+    ("open", names cfg.openNamespaces),
+    ("only", onlyDigest.getD ""),
+    ("noEquationsUnder",
+      ",".intercalate (sortedDistinct (cfg.noEquationsUnder.map toString)).toList)] ++ readBy
+  " ".intercalate (fields.map fun (k, v) => k ++ "=" ++ v)
+
+def identityBase : Cfg := { modulesPath := "m.txt", outPath := "o.jsonl" }
+
+def identityMoves : List Cfg := [
+  { identityBase with genEquations := true }, { identityBase with taggedCode := true },
+  { identityBase with collectRefs := true }, { identityBase with skipAnalyze := true },
+  { identityBase with noAttrs := true }, { identityBase with noInstIndex := true },
+  { identityBase with noMemberExtra := true }, { identityBase with noSorry := true },
+  { identityBase with openNamespaces := #[`Foo] }, { identityBase with noEquationsUnder := #[`Foo] }]
+
+def identityStays : List Cfg := [
+  { identityBase with modulesPath := "other.txt", outPath := "other.jsonl", jobs := 4 },
+  { identityBase with tagCode := true, ppBreakdown := true, tacticsEmulate := true },
+  { identityBase with writeIR := true, irDir := some "/ir", linkIndexPath := some "/l.lidx" },
+  { identityBase with dumpPath := some "/d", linkIndexKey := some "k", identity := true },
+  { identityBase with writeIR := true, irDir := some "/ir", writeReuseKeys := true }]
+
+def identityMovesWithEveryOutputAffectingSettingAndNoOther : Bool :=
+  let base := identityBase
+  let line (cfg : Cfg) := identityLine "fnv1a64:0123456789abcdef" "4.31.0" "abc" none cfg
+  line base == "schema=1 source=fnv1a64:0123456789abcdef lean=4.31.0 leanGithash=abc \
+      equations=0 taggedCode=0 refs=0 skipAnalyze=0 ablations= open= only= noEquationsUnder="
+    && identityMoves.all (line · != line base)
+    && identityStays.all (line · == line base)
+    && identityLine "s" "4.31.0" "abc" (some "fnv1a64:1") base != line base
+    && identityLine "fnv1a64:0123456789abcdef" "4.31.0" "abc" none base [("reader", "r")]
+      == line base ++ " reader=r"
+    && line { base with noEquationsUnder := #[`B, `A, `B] }
+      == line { base with noEquationsUnder := #[`A, `B] }
+    && line { base with noEquationsUnder := #[`A] }
+      != line { base with noEquationsUnder := #[`A, `B] }
+
+#guard identityMovesWithEveryOutputAffectingSettingAndNoOther
+
+def isMainLine (line : String) : Bool :=
+  line.startsWith "def main" &&
+    match line.toList.drop 8 with
+    | [] => true
+    | c :: _ => !(c.isAlphanum || c == '_')
+
+def sourceWithoutMain (source : String) : String :=
+  let lines := (source.splitOn "\n").toArray
+  let kept := match (List.range lines.size).find? fun i => isMainLine lines[i]! with
+    | some i => lines.extract 0 i
+    | none => lines
+  let text := "\n".intercalate kept.toList
+  String.ofList (text.toList.reverse.dropWhile (· == '\n')).reverse ++ "\n"
+
+def sourceWithoutMainIsTheReaderCutAndCuttingAgainChangesNothing : Bool :=
+  let cut := sourceWithoutMain extractorSource
+  sourceWithoutMain "x\n\ndef mainly := 1\n\ndef main (args : List String) : IO UInt32 := do\n  pure 0\n"
+      == "x\n\ndef mainly := 1\n"
+    && sourceWithoutMain "x\n\n" == "x\n"
+    && sourceWithoutMain cut == cut
+    && !(cut.splitOn "\n").any isMainLine
+
+#guard sourceWithoutMainIsTheReaderCutAndCuttingAgainChangesNothing
+
+-- Not `extractorSource` whole: the reader compiles this file with `main` cut off, so only the cut names one source in both; whole is fine if the reader ever compiles the file unchanged.
+def printingLine (source leanVersion leanGithash : String) (onlyDigest : Option String) (cfg : Cfg) :
+    String :=
+  identityLine (fnv1a64Hex (sourceWithoutMain source)) leanVersion leanGithash onlyDigest cfg
+
+def printingIdentityIgnoresTheReaderFieldsAndMovesWithEverythingElse : Bool :=
+  let src := "x\n\ndef main : IO Unit := pure ()\n"
+  let readBy := [("reader", "fnv1a64:1"), ("readerLean", "4.34.1"), ("readerLeanGithash", "def")]
+  let printing (cfg : Cfg) := printingLine src "4.34.1" "abc" none cfg
+  let base := printing identityBase
+  (identityBase :: identityMoves ++ identityStays).all (fun cfg =>
+      identityLine (fnv1a64Hex "x\n") "4.34.1" "abc" none cfg readBy
+        == printing cfg ++ " reader=fnv1a64:1 readerLean=4.34.1 readerLeanGithash=def")
+    && identityMoves.all (printing · != base)
+    && identityStays.all (printing · == base)
+    && printingLine "x\n" "4.34.1" "abc" none identityBase == base
+    && printingLine "y\n" "4.34.1" "abc" none identityBase != base
+    && printingLine src "4.33.1" "abc" none identityBase != base
+    && printingLine src "4.34.1" "abd" none identityBase != base
+    && printingLine src "4.34.1" "abc" (some "fnv1a64:2") identityBase != base
+
+#guard printingIdentityIgnoresTheReaderFieldsAndMovesWithEverythingElse
+
+def onlyDigestOf (cfg : Cfg) : IO (Option String) :=
+  cfg.onlyPath.mapM fun path => return fnv1a64Hex (← IO.FS.readFile path)
+
+def extractorIdentity (cfg : Cfg) (leanVersion : String := Lean.versionString)
+    (leanGithash : String := Lean.githash) (readBy : List (String × String) := []) : IO String := do
+  return identityLine (fnv1a64Hex extractorSource) leanVersion leanGithash (← onlyDigestOf cfg) cfg readBy
+
+-- Not the IR's identity with its reader fields: those govern how the reader assembles an old environment, not how a print is made; wrong once a reader change can alter a print without touching Extract.lean.
+def printingIdentity (cfg : Cfg) : IO String := do
+  return printingLine extractorSource Lean.versionString Lean.githash (← onlyDigestOf cfg) cfg
+
 /-- Where `--write-ir` writes: **`--ir-dir` and nothing else**. No default, and
 the `IR_DIR` environment variable is not consulted — both were ways for a
 `--write-ir` run to put several MB into a directory the caller never named and
@@ -2083,6 +2287,134 @@ def getIrDir (cfg : Cfg) : IO FilePath := do
   match cfg.irDir with
   | some p => return p
   | none => throw <| IO.userError "--write-ir needs --ir-dir: there is no default"
+
+namespace ReuseKey
+
+@[inline] def mix (h x : UInt64) : UInt64 := mixHash h x
+
+def mixList (h : UInt64) (xs : List UInt64) : UInt64 := xs.foldl mix h
+
+def biCode : BinderInfo → UInt64
+  | .default => 0 | .implicit => 1 | .strictImplicit => 2 | .instImplicit => 3
+
+def kindCode : ConstantInfo → UInt64
+  | .axiomInfo _ => 1 | .defnInfo _ => 2 | .thmInfo _ => 3 | .opaqueInfo _ => 4
+  | .quotInfo _ => 5 | .inductInfo _ => 6 | .ctorInfo _ => 7 | .recInfo _ => 8
+
+def memberNames (env : Environment) (ci : ConstantInfo) : Array Name := Id.run do
+  let .inductInfo i := ci | return #[]
+  if isStructure env i.name then
+    let mut out := #[(getStructureCtor env i.name).name]
+    let mut todo := #[i.name]
+    let mut seen : NameSet := {}
+    while h : todo.size > 0 do
+      let s := todo.back
+      todo := todo.pop
+      if seen.contains s then continue
+      seen := seen.insert s
+      out := out.push s
+      for p in getStructureParentInfo env s do
+        out := out.push p.projFn
+        todo := todo.push p.structName
+    for f in getStructureFieldsFlattened env i.name (includeSubobjectFields := false) do
+      if let some owner := findField? env i.name f then
+        if let some pf := getProjFnForField? env owner f then out := out.push pf
+    return out
+  else
+    return i.ctors.toArray
+
+def shownName (n : Name) : List UInt64 := [hash n.eraseMacroScopes, hash n.hasMacroScopes]
+
+unsafe def shownHashM (e : Expr) : StateM (Std.HashMap USize UInt64) UInt64 := do
+  let p := ptrAddrUnsafe e
+  if let some h := (← get)[p]? then return h
+  let h ← match e with
+    | .app f a => do let x ← shownHashM f; let y ← shownHashM a; pure (mix (mix 6 x) y)
+    | .lam n t b bi => do
+      let x ← shownHashM t; let y ← shownHashM b
+      pure (mixList 7 (shownName n ++ [biCode bi, x, y]))
+    | .forallE n t b bi => do
+      let x ← shownHashM t; let y ← shownHashM b
+      pure (mixList 8 (shownName n ++ [biCode bi, x, y]))
+    | .letE n t v b nd => do
+      let x ← shownHashM t; let y ← shownHashM v; let z ← shownHashM b
+      pure (mixList 9 (shownName n ++ [hash nd, x, y, z]))
+    | .mdata _ b => shownHashM b
+    | .proj s i b => do let y ← shownHashM b; pure (mixList 12 [hash s, hash i, y])
+    | e => pure e.hash
+  modify (·.insert p h)
+  return h
+
+unsafe def shownHash (e : Expr) : UInt64 := (shownHashM e |>.run' {}) |> Id.run
+
+unsafe def ownKey (env : Environment) (ci : ConstantInfo) : UInt64 :=
+  let value := match ci with
+    | .defnInfo v => shownHash v.value
+    | .opaqueInfo v => shownHash v.value
+    | _ => 0
+  let members := (memberNames env ci).foldl (init := 102) fun h m =>
+    match env.find? m with
+    | some mc => mixList h [hash m, shownHash mc.type]
+    | none => mix h (hash m)
+  mixList 101 [kindCode ci, hash ci.levelParams, shownHash ci.type, value, members]
+
+def candidates (world : World) (targets : Array Name) : IO (Array Name) := do
+  let mut seen : NameSet := {}
+  let mut cands : Array Name := #[]
+  for m in targets do
+    let some idx := world.moduleIndex? m | throw <| IO.userError s!"print key: module not present: {m}"
+    for c in world.constNames idx do
+      if seen.contains c then continue
+      seen := seen.insert c
+      cands := cands.push c
+  return cands
+
+def parMap [Inhabited β] (jobs : Nat) (xs : Array α) (f : α → β) : Array β := Id.run do
+  if jobs ≤ 1 then return xs.map f
+  let stride (k : Nat) : Array β := Id.run do
+    let mut out := #[]
+    let mut i := k
+    while h : i < xs.size do
+      out := out.push (f xs[i])
+      i := i + jobs
+    return out
+  let tasks := (Array.range jobs).map fun k => Task.spawn (prio := .dedicated) fun _ => stride k
+  let parts := tasks.map Task.get
+  return (Array.range xs.size).map fun i => parts[i % jobs]![i / jobs]!
+
+structure OwnKeys where
+  entries : Array (String × UInt64)
+  keys : Std.HashMap String UInt64
+  ms : Nat
+
+unsafe def ownKeys (env : Environment) (world : World) (targets : Array Name) (jobs : Nat) : IO OwnKeys := do
+  let t0 ← IO.monoMsNow
+  let cands ← candidates world targets
+  let entries := (parMap jobs cands fun c => (env.find? c).map fun ci => (c.toString, ownKey env ci)).filterMap id
+  let keys := entries.foldl (fun m (s, k) => m.insert s k) (Std.HashMap.emptyWithCapacity entries.size)
+  return { entries, keys, ms := (← IO.monoMsNow) - t0 }
+
+def reuseKeysPath (irDir : FilePath) : FilePath := ⟨irDir.toString ++ ".reuse-keys"⟩
+
+def reuseKeysMarker : String := "#reuse-keys1"
+
+def keysText (entries : Array (String × UInt64)) (lo hi : Nat) : String := Id.run do
+  let mut out := ""
+  for i in [lo:hi] do
+    let (s, k) := entries[i]!
+    out := out ++ s ++ "\t" ++ toString k ++ "\n"
+  return out
+
+def writeKeysFile (path : FilePath) (identity : String) (k : OwnKeys) (jobs : Nat) : IO Unit := do
+  let n := k.entries.size
+  let blocks := max jobs 1
+  let size := (n + blocks - 1) / blocks
+  let texts := parMap jobs (Array.range blocks) fun b => keysText k.entries (b * size) (min n ((b + 1) * size))
+  let h ← IO.FS.Handle.mk path .write
+  h.putStrLn s!"{reuseKeysMarker} {identity}"
+  for t in texts do h.putStr t
+
+end ReuseKey
 
 /-- 16 hex digits of Lean's `String.hash`.
 
@@ -2240,102 +2572,113 @@ structure IrStats where
   writeNanos : Nat := 0
   deriving Inhabited
 
-def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env : Environment)
-    (targets : Array Name) (mods : Array ModuleOut) (results : Array DeclOut) : IO IrStats := do
-  let modulesDir := dir / "modules"
-  let depsDir := dir / "deps"
-  IO.FS.createDirAll modulesDir
-  IO.FS.createDirAll depsDir
+def SpanTally.merge (a b : SpanTally) : SpanTally :=
+  { total := a.total + b.total, const := a.const + b.const, sort := a.sort + b.sort,
+    other := a.other + b.other, ws := a.ws + b.ws, wsUnits := a.wsUnits + b.wsUnits }
 
-  -- `moduleNames` is a `def`, not a field: a fresh array per call. Hoist it.
-  let modNames := env.header.moduleNames
-  let targetSet : Std.HashSet Name :=
-    Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
+def IrStats.add (a b : IrStats) : IrStats :=
+  { moduleFiles := a.moduleFiles + b.moduleFiles, moduleBytes := a.moduleBytes + b.moduleBytes,
+    declarations := a.declarations + b.declarations, refPairs := a.refPairs + b.refPairs,
+    refsUnresolved := a.refsUnresolved + b.refsUnresolved, depFiles := a.depFiles + b.depFiles,
+    depEntries := a.depEntries + b.depEntries, depBytes := a.depBytes + b.depBytes,
+    indexBytes := a.indexBytes + b.indexBytes, spanFragments := a.spanFragments + b.spanFragments,
+    spans := a.spans.merge b.spans, serializeNanos := a.serializeNanos + b.serializeNanos,
+    hashNanos := a.hashNanos + b.hashNanos, writeNanos := a.writeNanos + b.writeNanos }
 
-  let mut byModule : Std.HashMap Name (Array DeclOut) :=
-    Std.HashMap.emptyWithCapacity targets.size
-  for d in results do
-    byModule := byModule.insert d.module ((byModule.getD d.module #[]).push d)
+structure IrModule where
+  stats : IrStats
+  entry : Json
+  /-- `(name, defining module)` for the references that leave the target modules. -/
+  deps : Array (Name × Name)
+  deriving Inhabited
 
+def writeIRModule (tagged : Bool) (dir : FilePath) (world : World) (targetSet : Std.HashSet Name)
+    (m : ModuleOut) (decls : Array DeclOut) : IO IrModule := do
   let mut st : IrStats := {}
-  let mut indexEntries : Array Json := #[]
-  -- Accumulated while the declarations are walked: resolution is paid once.
-  let mut depMap : Std.HashMap Name Name := Std.HashMap.emptyWithCapacity 1024
-
-  for m in mods do
-    let decls := byModule.getD m.name #[]
-    let tSer0 ← IO.monoNanosNow
-    let mut declJson : Array Json := Array.emptyWithCapacity decls.size
-    for hd : i in [0 : decls.size] do
-      let d := decls[i]
-      let mut seen : Std.HashSet Name := Std.HashSet.emptyWithCapacity d.refs.size
-      let mut pairs : Array (Name × Name) := Array.emptyWithCapacity d.refs.size
-      for n in d.refs do
-        if seen.contains n then continue
-        seen := seen.insert n
-        match (env.getModuleIdxFor? n).map (modNames[·]!) with
-        | some defMod =>
-          pairs := pairs.push (defMod, n)
-          unless targetSet.contains defMod do
-            depMap := depMap.insert n defMod
-        | none => st := { st with refsUnresolved := st.refsUnresolved + 1 }
-      st := { st with refPairs := st.refPairs + pairs.size }
-      if tagged then
-        let mut tally := st.spans
-        let mut frags := st.spanFragments + 1 + d.sig.binderSpans.size
-                         + d.equationSpans.size + d.members.size
-        for sp in d.sig.binderSpans do
+  let mut depMap : Std.HashMap Name Name := {}
+  let tSer0 ← IO.monoNanosNow
+  let mut declJson : Array Json := Array.emptyWithCapacity decls.size
+  for hd : i in [0 : decls.size] do
+    let d := decls[i]
+    let mut seen : Std.HashSet Name := Std.HashSet.emptyWithCapacity d.refs.size
+    let mut pairs : Array (Name × Name) := Array.emptyWithCapacity d.refs.size
+    for n in d.refs do
+      if seen.contains n then continue
+      seen := seen.insert n
+      match world.moduleOf? n with
+      | some defMod =>
+        pairs := pairs.push (defMod, n)
+        unless targetSet.contains defMod do
+          depMap := depMap.insert n defMod
+      | none => st := { st with refsUnresolved := st.refsUnresolved + 1 }
+    st := { st with refPairs := st.refPairs + pairs.size }
+    if tagged then
+      let mut tally := st.spans
+      let mut frags := st.spanFragments + 1 + d.sig.binderSpans.size
+                       + d.equationSpans.size + d.members.size
+      for sp in d.sig.binderSpans do
+        tally := tally.add sp
+      tally := tally.add d.sig.typeSpans
+      for sp in d.equationSpans do
+        tally := tally.add sp
+      for mem in d.members do
+        tally := tally.add mem.spans
+        frags := frags + mem.binderSpans.size
+        for sp in mem.binderSpans do
           tally := tally.add sp
-        tally := tally.add d.sig.typeSpans
-        for sp in d.equationSpans do
-          tally := tally.add sp
-        for mem in d.members do
-          tally := tally.add mem.spans
-          frags := frags + mem.binderSpans.size
-          for sp in mem.binderSpans do
-            tally := tally.add sp
-        st := { st with spans := tally, spanFragments := frags }
-      declJson := declJson.push (declToIrJson tagged i d pairs)
-    let body := Json.mkObj [
-      ("schemaVersion", Json.num (irSchemaVersion tagged)),
-      ("module", Json.str m.name.toString),
-      ("imports", Json.arr (m.imports.map (Json.str ·.toString))),
-      ("moduleDocs", Json.arr (m.docs.map fun d =>
-        Json.mkObj [("line", Json.num d.line), ("col", Json.num d.col),
-                    ("text", Json.str d.text)])),
-      ("tactics", Json.arr (m.tactics.map fun t =>
-        Json.mkObj [("internalName", Json.str t.internalName.toString),
-                    ("userName", Json.str t.userName),
-                    ("tags", Json.arr (t.tags.map (Json.str ·.toString))),
-                    ("docString", Json.str t.docString)])),
-      ("declarations", Json.arr declJson)
-    ]
-    let text := body.compress
-    let bytes := text.utf8ByteSize
-    -- The `throw` branch is what keeps the serialisation inside this timer: a
-    -- plain `let`'s only consumers are below the next clock read and the compiler
-    -- sinks it there. Measured here first as 0 µs for 8.6 MB.
-    if bytes == 0 then throw <| IO.userError s!"empty IR body for {m.name}"
-    let tSer1 ← IO.monoNanosNow
-    let h := hashHex text
-    if h.length != 16 then throw <| IO.userError s!"bad digest width for {m.name}"
-    let tHash ← IO.monoNanosNow
-    let file := s!"modules/{m.name}.json"
-    IO.FS.writeFile (dir / file) text
-    let tWrite ← IO.monoNanosNow
-    st := { st with
-      moduleFiles := st.moduleFiles + 1
-      moduleBytes := st.moduleBytes + bytes
-      declarations := st.declarations + decls.size
-      serializeNanos := st.serializeNanos + (tSer1 - tSer0)
-      hashNanos := st.hashNanos + (tHash - tSer1)
-      writeNanos := st.writeNanos + (tWrite - tHash) }
-    indexEntries := indexEntries.push <| Json.mkObj [
+      st := { st with spans := tally, spanFragments := frags }
+    declJson := declJson.push (declToIrJson tagged i d pairs)
+  let body := Json.mkObj [
+    ("schemaVersion", Json.num (irSchemaVersion tagged)),
+    ("module", Json.str m.name.toString),
+    ("imports", Json.arr (m.imports.map (Json.str ·.toString))),
+    ("moduleDocs", Json.arr (m.docs.map fun d =>
+      Json.mkObj [("line", Json.num d.line), ("col", Json.num d.col),
+                  ("text", Json.str d.text)])),
+    ("tactics", Json.arr (m.tactics.map fun t =>
+      Json.mkObj [("internalName", Json.str t.internalName.toString),
+                  ("userName", Json.str t.userName),
+                  ("tags", Json.arr (t.tags.map (Json.str ·.toString))),
+                  ("docString", Json.str t.docString)])),
+    ("declarations", Json.arr declJson)
+  ]
+  let text := body.compress
+  let bytes := text.utf8ByteSize
+  -- The `throw` branch is what keeps the serialisation inside this timer: a
+  -- plain `let`'s only consumers are below the next clock read and the compiler
+  -- sinks it there. Measured here first as 0 µs for 8.6 MB.
+  if bytes == 0 then throw <| IO.userError s!"empty IR body for {m.name}"
+  let tSer1 ← IO.monoNanosNow
+  let h := hashHex text
+  if h.length != 16 then throw <| IO.userError s!"bad digest width for {m.name}"
+  let tHash ← IO.monoNanosNow
+  let file := s!"modules/{m.name}.json"
+  IO.FS.writeFile (dir / file) text
+  let tWrite ← IO.monoNanosNow
+  return {
+    stats := { st with
+      moduleFiles := 1
+      moduleBytes := bytes
+      declarations := decls.size
+      serializeNanos := tSer1 - tSer0
+      hashNanos := tHash - tSer1
+      writeNanos := tWrite - tHash }
+    entry := Json.mkObj [
       ("module", Json.str m.name.toString),
       ("file", Json.str file),
       ("bytes", Json.num bytes),
       ("declarations", Json.num decls.size),
       ("contentHash", Json.str h)]
+    deps := depMap.toArray }
+
+def writeIRIndex (tagged : Bool) (ablations : Array String) (identity : String) (dir : FilePath)
+    (world : World) (modules : Array IrModule) : IO IrStats := do
+  let mut st : IrStats := modules.foldl (fun acc m => acc.add m.stats) {}
+  let indexEntries := modules.map (·.entry)
+  let mut depMap : Std.HashMap Name Name := Std.HashMap.emptyWithCapacity 1024
+  for m in modules do
+    for (n, defMod) in m.deps do
+      depMap := depMap.insert n defMod
 
   -- Dependency-side map slice, one file per package: two columns, name -> module.
   let mut byRoot : Std.HashMap Name (Array (Name × Name)) := {}
@@ -2372,7 +2715,8 @@ def writeIRTree (tagged : Bool) (ablations : Array String) (dir : FilePath) (env
   let index := Json.mkObj ([
     ("schemaVersion", Json.num (irSchemaVersion tagged)),
     ("generator", Json.str "lean-doc/experiments/stage4b"),
-    ("leanVersion", Json.str Lean.versionString),
+    ("leanVersion", Json.str world.leanVersion),
+    ("extractorIdentity", Json.str identity),
     ("hashAlgorithm", Json.str "lean-string-hash-64/hex16"),
     ("moduleCount", Json.num st.moduleFiles),
     ("declarationCount", Json.num st.declarations)] ++
@@ -2438,14 +2782,43 @@ def DeclProf.line (p : DeclProf) : String :=
   s!"\"refNs\":{p.refNanos},\"blNs\":{p.blNanos}," ++
   s!"\"eqs\":{p.eqCount},\"bytes\":{p.bytes}}\n"
 
+structure Reuse where
+  prev : Name → Option DeclOut
+  /-- Called once per module with its finished declarations, from whichever
+  thread analyzed it. -/
+  seen : Array DeclOut → IO Unit
+
+/-- What one module leaves behind once its declarations are written and dropped. -/
+structure ModuleRun where
+  counters : Counters := {}
+  missing : Nat := 0
+  considered : Nat := 0
+  blacklisted : Nat := 0
+  failures : Array Failure := #[]
+  profile : Array DeclProf := #[]
+  kinds : Array String := #[]
+  sorryNanos : Nat := 0
+  sorryDirect : Nat := 0
+  sorryTransitive : Nat := 0
+  ir : Option IrModule := none
+  dump : String := ""
+  dumpNanos : Nat := 0
+  refOrder : Array Name := #[]
+  refCounts : Std.HashMap Name Nat := {}
+  refOccurrences : Nat := 0
+  refNanos : Nat := 0
+
+instance : Inhabited ModuleRun := ⟨{}⟩
+
 /-- One extraction.
 
-When `preEnv` is given the search path is already initialised and the environment
+When `pre` is given the search path is already initialised and the environment
 already imported, so both are skipped and everything downstream runs unchanged.
 The environment is *not* threaded back out — each request derives its own
 (`--open` activation returns a new one) and drops it, which is what makes reuse
 sound rather than merely fast. -/
-def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
+def run (cfg : Cfg) (pre : Option (Environment × World) := none) (reuse : Option Reuse := none) :
+    IO UInt32 := do
   let sink ← Sink.create cfg.outPath
   let tTotal0 ← IO.monoNanosNow
 
@@ -2460,25 +2833,25 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     | none => pure none
 
   let tSp0 ← IO.monoNanosNow
-  if preEnv.isNone then
+  if pre.isNone then
     initSearchPath (← findSysroot)
   let tSp1 ← IO.monoNanosNow
   sink.emit "stage4b.initSearchPath" (tSp1 - tSp0)
 
   let tImp0 ← IO.monoNanosNow
-  let env ← match preEnv with
-    | some e => pure e
+  let (env, world) ← match pre with
+    | some p => pure p
     | none => do
       unsafe Lean.enableInitializersExecution
-      importModules (targets.map (Import.mk · false true false)) Options.empty
+      let env ← importModules (targets.map (Import.mk · false true false)) Options.empty
         (leakEnv := true) (loadExts := true)
+      pure (env, World.ofEnv env)
   let tImp1 ← IO.monoNanosNow
   sink.emit "stage4b.importModules" (tImp1 - tImp0)
     [("directImports", toString targets.size),
-     ("resident", if preEnv.isSome then "1" else "0")]
+     ("resident", if pre.isSome then "1" else "0")]
 
-  let header := env.header
-  sink.emit "stage4b.envStats" 0 [("loadedModules", toString header.moduleNames.size)]
+  sink.emit "stage4b.envStats" 0 [("loadedModules", toString world.moduleNames.size)]
 
   -- `--open` probe. Scoped notation lives in `ScopedEnvExtension`s, which an
   -- imported environment has *not* activated; `Core.Context.openDecls` alone is
@@ -2498,16 +2871,19 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
   let tIdx0 ← IO.monoNanosNow
   let mut seen : Std.HashSet Name := Std.HashSet.emptyWithCapacity (16 * targets.size)
   let mut candidates : Array (Name × Name) := #[]
+  let mut ranges : Array (Nat × Nat) := Array.emptyWithCapacity targets.size
   let mut enumerated := 0
   for m in targets do
-    let some modIdx := env.getModuleIdx? m
+    let some modIdx := world.moduleIndex? m
       | throw <| IO.userError s!"module not present in the environment: {m}"
-    for n in header.moduleData[modIdx]!.constNames do
+    let lo := candidates.size
+    for n in world.constNames modIdx do
       enumerated := enumerated + 1
       if seen.contains n then
         continue
       seen := seen.insert n
       candidates := candidates.push (n, m)
+    ranges := ranges.push (lo, candidates.size)
   let tIdx1 ← IO.monoNanosNow
   sink.emit "stage4b.indexLookup" (tIdx1 - tIdx0)
     [("targetModules", toString targets.size),
@@ -2552,7 +2928,7 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     -- when it got cheap would look like one that stopped writing the map at all.
     let s ← match cfg.linkIndexKey with
       | some key =>
-        if ← linkIndexIsCurrent p key header.moduleNames then
+        if ← linkIndexIsCurrent p key world.moduleNames then
           pure { reused := true }
         else do
           -- Down before the map, up after it: the sidecar this rewrite replaces
@@ -2561,11 +2937,11 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
           -- past the `@` section is exactly what `linkIndexIsCurrent` cannot see.
           let keyPath := linkIndexKeyPath p
           if ← keyPath.pathExists then IO.FS.removeFile keyPath
-          let s ← runMeta (writeLinkIndex p omitModules)
+          let s ← runMeta (writeLinkIndex world p omitModules)
           IO.FS.writeFile keyPath (key ++ "\n")
           pure s
       | none => do
-        let s ← runMeta (writeLinkIndex p omitModules)
+        let s ← runMeta (writeLinkIndex world p omitModules)
         -- A sidecar an earlier run left behind describes a map that no longer
         -- exists, and a later run *with* a token would believe it.
         let keyPath := linkIndexKeyPath p
@@ -2590,7 +2966,7 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
   -- doc-gen4's `getAllModuleDocs`, split so the per-module part (docstrings +
   -- imports) and the part doc-gen4 repeats per module (tactics) can be told apart.
   let tMd0 ← IO.monoNanosNow
-  let mods ← runMeta (collectModuleDocs targets)
+  let mods ← runMeta (collectModuleDocs world targets)
   let tMd1 ← IO.monoNanosNow
   let modDocCount := mods.foldl (init := 0) fun a m => a + m.docs.size
   let modsWithDocs := mods.foldl (init := 0) fun a m => a + (if m.docs.isEmpty then 0 else 1)
@@ -2600,10 +2976,14 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
      ("modulesWithDocs", toString modsWithDocs), ("imports", toString importCount)]
 
   let tTac0 ← IO.monoNanosNow
-  let (mods, tacticsInEnv, tacticsAssigned) ← runMeta (collectTacticsOnce mods)
+  let (mods, tacticsInEnv, tacticsAssigned, tacticsAnswered) ←
+    match ← runMeta (collectTacticsOnce world mods) with
+    | some (m, n, a) => pure (m, n, a, true)
+    | none => pure (mods, 0, 0, false)
   let tTac1 ← IO.monoNanosNow
   sink.emit "stage4b.tactics" (tTac1 - tTac0)
-    [("tacticsInEnv", toString tacticsInEnv), ("tacticsAssigned", toString tacticsAssigned)]
+    [("tacticsInEnv", toString tacticsInEnv), ("tacticsAssigned", toString tacticsAssigned),
+     ("answered", if tacticsAnswered then "true" else "false")]
 
   -- Diagnosis only: the same collection done doc-gen4's way.
   let mut tEmu := 0
@@ -2657,14 +3037,6 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
 
   -- Semantic analysis. One fresh `Core.State` per declaration, exactly like
   -- doc-gen4's `process` loop, so that neither side accumulates elaborator state.
-  let mut results : Array DeclOut := #[]
-  let mut counters : Counters := {}
-  let mut blacklisted := 0
-  let mut missing := 0
-  let mut considered := 0
-  let mut failures : Array Failure := #[]
-  let mut profile : Array DeclProf := #[]
-  let work := if cfg.skipAnalyze then #[] else candidates
   let wanted (name : Name) : Bool :=
     match onlyNames with
     | some only => only.contains name
@@ -2676,7 +3048,9 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     let t0 ← if cfg.ppBreakdown then IO.monoNanosNow else pure 0
     let job : MetaM (Except String (Option DeclOut) × Counters) :=
       tryCatchRuntimeEx
-        (do let (r, c) ← (analyze cfg module name ci).run {}; return (Except.ok r, c))
+        (do
+          let (r, c) ← (analyze cfg world module name ci (reuse.bind (·.prev name))).run {}
+          return (Except.ok r, c))
         (fun e => do return (Except.error (← e.toMessageData.toString), {}))
     let ((outcome, c), _, _) ← job.toIO coreCtx { env := env } {} {}
     let t1 ← if cfg.ppBreakdown then IO.monoNanosNow else pure 0
@@ -2690,10 +3064,29 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     { index := i, name, module, kind, outcome := tag, nanos := dt,
       ppNanos := c.ppNanos, eqNanos := c.eqNanos, refNanos := c.refNanos,
       blNanos := c.blNanos, eqCount := c.eqCount, bytes := c.pp.bytes }
-  let tAn0 ← IO.monoNanosNow
-  if cfg.jobs ≤ 1 then
-    for i in [0 : work.size] do
-      let (name, module) := work[i]!
+  let targetSet : Std.HashSet Name :=
+    Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
+  let tIr0 ← IO.monoNanosNow
+  let irDir? ← if cfg.writeIR then some <$> getIrDir cfg else pure none
+  let identity ← if cfg.writeIR then
+      extractorIdentity cfg world.leanVersion world.leanGithash world.readBy
+    else pure ""
+  if let some dir := irDir? then
+    IO.FS.createDirAll (dir / "modules")
+    IO.FS.createDirAll (dir / "deps")
+  let tIrSetup := (← IO.monoNanosNow) - tIr0
+  let processModule (j : Nat) : IO ModuleRun := do
+    let some m := mods[j]? | throw <| IO.userError s!"no module at position {j}"
+    let (lo, hi) := if cfg.skipAnalyze then (0, 0) else ranges[j]!
+    let mut counters : Counters := {}
+    let mut missing := 0
+    let mut considered := 0
+    let mut blacklisted := 0
+    let mut failures : Array Failure := #[]
+    let mut profile : Array DeclProf := #[]
+    let mut decls : Array DeclOut := #[]
+    for i in [lo : hi] do
+      let (name, module) := candidates[i]!
       if !wanted name then
         continue
       let some ci := env.find? name | missing := missing + 1; continue
@@ -2704,60 +3097,82 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
         profile := profile.push (mkProf i module name outcome c dt)
       match outcome with
       | .ok none => blacklisted := blacklisted + 1
-      | .ok (some d) => results := results.push d
+      | .ok (some d) => decls := decls.push d
       | .error msg => failures := failures.push ⟨name, msg⟩
-  else
-    -- Worker `k` takes the candidates at indices `k, k+N, k+2N, …` — a stride
-    -- rather than a block, because the cost per declaration is not uniform and
-    -- the candidate list is grouped by module. **The order of the output does not
-    -- depend on N**: every answer carries its candidate index and is written back
-    -- into a slot, which is what makes two `--jobs` values byte-comparable.
-    let jobs := cfg.jobs
-    let tasks ← (Array.range jobs).mapM fun k =>
+    let mut r : ModuleRun := { counters, missing, considered, blacklisted, failures, profile }
+    if cfg.wantSorry then
+      let t0 ← IO.monoNanosNow
+      let tags ← runMeta (decls.mapM fun d => sorryTag d.name)
+      let mut tagged : Array DeclOut := Array.emptyWithCapacity decls.size
+      for h : i in [0 : decls.size] do
+        let tag := tags[i]!
+        if tag == some "direct" then r := { r with sorryDirect := r.sorryDirect + 1 }
+        if tag == some "transitive" then r := { r with sorryTransitive := r.sorryTransitive + 1 }
+        tagged := tagged.push { decls[i] with sorryTag := tag }
+      decls := tagged
+      r := { r with sorryNanos := (← IO.monoNanosNow) - t0 }
+    if let some rs := reuse then rs.seen decls
+    r := { r with kinds := decls.map (·.kind) }
+    if let some dir := irDir? then
+      r := { r with ir := some (← writeIRModule cfg.taggedCode dir world targetSet m decls) }
+    if cfg.dumpPath.isSome then
+      let t0 ← IO.monoNanosNow
+      let text := decls.foldl (init := "") fun acc d => acc ++ d.toJson.compress ++ "\n"
+      r := { r with dump := text, dumpNanos := (← IO.monoNanosNow) - t0 }
+    if cfg.dumpRefsPath.isSome then
+      let t0 ← IO.monoNanosNow
+      let mut counts : Std.HashMap Name Nat := {}
+      let mut order : Array Name := #[]
+      for d in decls do
+        for n in d.refs do
+          match counts[n]? with
+          | some k => counts := counts.insert n (k + 1)
+          | none => counts := counts.insert n 1; order := order.push n
+      r := { r with refCounts := counts, refOrder := order,
+                    refOccurrences := decls.foldl (init := 0) (· + ·.refs.size),
+                    refNanos := (← IO.monoNanosNow) - t0 }
+    return r
+  let tAn0 ← IO.monoNanosNow
+  let runs : Array ModuleRun ← if cfg.jobs ≤ 1 then (Array.range mods.size).mapM processModule else do
+    let next ← IO.mkRef 0
+    let tasks ← (Array.range cfg.jobs).mapM fun _ =>
       IO.asTask (prio := Task.Priority.dedicated) do
-        let mut outs : Array (Nat × Name × Except String (Option DeclOut)) := #[]
-        let mut c : Counters := {}
-        let mut prof : Array DeclProf := #[]
-        let mut miss := 0
-        let mut done := 0
-        let mut i := k
-        while i < work.size do
-          let (name, module) := work[i]!
-          if wanted name then
-            match env.find? name with
-            | none => miss := miss + 1
-            | some ci =>
-              done := done + 1
-              let (outcome, c1, dt) ← analyzeOne module name ci
-              c := c.add c1
-              outs := outs.push (i, name, outcome)
-              if cfg.declProfilePath.isSome then
-                prof := prof.push (mkProf i module name outcome c1 dt)
-          i := i + jobs
-        return (outs, c, prof, miss, done)
-    let mut slots : Array (Option (Name × Except String (Option DeclOut))) :=
-      Array.replicate work.size none
+        let mut outs : Array (Nat × ModuleRun) := #[]
+        repeat
+          let j ← next.modifyGet fun j => (j, j + 1)
+          if j ≥ mods.size then break
+          outs := outs.push (j, ← processModule j)
+        return outs
+    let mut slots : Array ModuleRun := Array.replicate mods.size {}
     for t in tasks do
-      let (outs, c, prof, miss, done) ← IO.ofExcept t.get
-      counters := counters.add c
-      missing := missing + miss
-      considered := considered + done
-      profile := profile ++ prof
-      for (i, name, outcome) in outs do
-        slots := slots.set! i (some (name, outcome))
-    for s in slots do
-      match s with
-      | none => pure ()
-      | some (name, outcome) =>
-        match outcome with
-        | .ok none => blacklisted := blacklisted + 1
-        | .ok (some d) => results := results.push d
-        | .error msg => failures := failures.push ⟨name, msg⟩
-    profile := profile.qsort (fun a b => a.index < b.index)
+      for (j, r) in ← IO.ofExcept t.get do
+        slots := slots.set! j r
+    pure slots
   let tAn1 ← IO.monoNanosNow
+  let mut counters : Counters := {}
+  let mut missing := 0
+  let mut considered := 0
+  let mut blacklisted := 0
+  let mut produced := 0
+  let mut failures : Array Failure := #[]
+  let mut profile : Array DeclProf := #[]
+  let mut sorryStats : SorryStats := {}
+  let mut sorryNanos := 0
+  for r in runs do
+    counters := counters.add r.counters
+    missing := missing + r.missing
+    considered := considered + r.considered
+    blacklisted := blacklisted + r.blacklisted
+    produced := produced + r.kinds.size
+    failures := failures ++ r.failures
+    profile := profile ++ r.profile
+    sorryNanos := sorryNanos + r.sorryNanos
+    sorryStats := { sorryStats with
+      direct := sorryStats.direct + r.sorryDirect
+      transitive := sorryStats.transitive + r.sorryTransitive }
   sink.emit "stage4b.analyze" (tAn1 - tAn0)
     [("considered", toString considered),
-     ("produced", toString results.size),
+     ("produced", toString produced),
      ("blacklisted", toString blacklisted),
      ("failed", toString failures.size),
      ("ppUs", toString (counters.ppNanos / 1000)),
@@ -2809,25 +3224,9 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
      ("blCalls", toString counters.blCalls),
      ("ablations", s!"\"{String.intercalate "," cfg.ablations.toList}\"")]
 
-  -- Schema 5's `sorry` key (doc-gen4 #270). A pass of its own, after the analysis
-  -- and **single-threaded**: `--jobs` must not be able to reach it, and a phase
-  -- of its own lets the cost be read off one run.
-  let mut sorryStats : SorryStats := {}
-  let tSy0 ← IO.monoNanosNow
   if cfg.wantSorry then
-    let tags ← runMeta (results.mapM fun d => sorryTag d.name)
-    let mut tagged : Array DeclOut := Array.emptyWithCapacity results.size
-    let mut direct := 0
-    let mut transitive := 0
-    for h : i in [0 : results.size] do
-      let tag := tags[i]!
-      if tag == some "direct" then direct := direct + 1
-      if tag == some "transitive" then transitive := transitive + 1
-      tagged := tagged.push { results[i] with sorryTag := tag }
-    results := tagged
-    sorryStats := { asked := results.size, direct, transitive }
-  let tSy1 ← IO.monoNanosNow
-  sink.emit "stage4b.sorry" (tSy1 - tSy0)
+    sorryStats := { sorryStats with asked := produced }
+  sink.emit "stage4b.sorry" sorryNanos
     [("wantSorry", if cfg.wantSorry then "true" else "false"),
      ("sorryAsked", toString sorryStats.asked),
      ("sorryDirect", toString sorryStats.direct),
@@ -2840,14 +3239,9 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     IO.println s!"decl profile         {profile.size} records -> {p}"
 
   let mut irStats : IrStats := {}
-  let mut irDirUsed : Option FilePath := none
-  if cfg.writeIR then
-    let dir ← getIrDir cfg
-    irDirUsed := some dir
-    let t0 ← IO.monoNanosNow
-    irStats ← writeIRTree cfg.taggedCode cfg.ablations dir env targets mods results
-    let t1 ← IO.monoNanosNow
-    sink.emit "stage4b.writeIR" (t1 - t0)
+  if let some dir := irDir? then
+    irStats ← writeIRIndex cfg.taggedCode cfg.ablations identity dir world (runs.filterMap (·.ir))
+    sink.emit "stage4b.writeIR" (tIrSetup + irStats.serializeNanos + irStats.hashNanos + irStats.writeNanos)
       [("taggedCode", if cfg.taggedCode then "true" else "false"),
        ("schemaVersion", toString (irSchemaVersion cfg.taggedCode)),
        ("spanFragments", toString irStats.spanFragments),
@@ -2870,14 +3264,21 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
        ("hashUs", toString (irStats.hashNanos / 1000)),
        ("writeUs", toString (irStats.writeNanos / 1000))]
 
+  let mut keysLine : Option String := none
+  if cfg.writeReuseKeys then
+    let path := ReuseKey.reuseKeysPath (← getIrDir cfg)
+    let own ← unsafe ReuseKey.ownKeys env world targets cfg.jobs
+    ReuseKey.writeKeysFile path (← printingIdentity cfg) own cfg.jobs
+    keysLine := some s!"reuse keys           {own.entries.size} declarations in {own.ms} ms -> {path}"
+
   if let some dumpPath := cfg.dumpPath then
     let tD0 ← IO.monoNanosNow
     let h ← IO.FS.Handle.mk dumpPath .write
-    for d in results do
-      h.putStr d.toJson.compress
-      h.putStr "\n"
+    for r in runs do
+      h.putStr r.dump
     let tD1 ← IO.monoNanosNow
-    sink.emit "stage4b.dump" (tD1 - tD0) [("records", toString results.size)]
+    let dumpNanos := runs.foldl (init := 0) fun acc r => acc + r.dumpNanos
+    sink.emit "stage4b.dump" (tD1 - tD0 + dumpNanos) [("records", toString produced)]
 
   if let some dumpPath := cfg.dumpModulesPath then
     let tD0 ← IO.monoNanosNow
@@ -2896,22 +3297,21 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     if !cfg.collectRefs then
       IO.eprintln "WARNING: --dump-refs without --refs; nothing was collected"
     let tD0 ← IO.monoNanosNow
-    -- `moduleNames` is a `def`, not a field: a fresh array per call. Hoist it.
-    let modNames := header.moduleNames
-    let targetSet : Std.HashSet Name :=
-      Std.HashSet.emptyWithCapacity targets.size |>.insertMany targets
     let mut counts : Std.HashMap Name Nat := Std.HashMap.emptyWithCapacity 4096
     let mut order : Array Name := #[]
     let mut occurrences := 0
-    for d in results do
-      for n in d.refs do
-        occurrences := occurrences + 1
+    let mut perModuleNanos := 0
+    for r in runs do
+      occurrences := occurrences + r.refOccurrences
+      perModuleNanos := perModuleNanos + r.refNanos
+      for n in r.refOrder do
+        let k := r.refCounts.getD n 0
         match counts[n]? with
-        | some k => counts := counts.insert n (k + 1)
-        | none => counts := counts.insert n 1; order := order.push n
+        | some c => counts := counts.insert n (c + k)
+        | none => counts := counts.insert n k; order := order.push n
     let h ← IO.FS.Handle.mk dumpPath .write
     for n in order do
-      let module? := (env.getModuleIdxFor? n).map (modNames[·]!)
+      let module? := world.moduleOf? n
       let own := match module? with
         | some m => targetSet.contains m
         | none => false
@@ -2925,7 +3325,7 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
       h.putStr "\n"
     refUnique := order.size
     let tD1 ← IO.monoNanosNow
-    sink.emit "stage4b.dumpRefs" (tD1 - tD0)
+    sink.emit "stage4b.dumpRefs" (tD1 - tD0 + perModuleNanos)
       [("records", toString refUnique),
        ("occurrences", toString occurrences),
        ("own", toString refOwn),
@@ -2935,11 +3335,12 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
   sink.emit "stage4b.total" (tTotal1 - tTotal0) [("modules", toString targets.size)]
 
   let mut byKind : Std.HashMap String Nat := {}
-  for d in results do
-    byKind := byKind.insert d.kind ((byKind.getD d.kind 0) + 1)
+  for r in runs do
+    for k in r.kinds do
+      byKind := byKind.insert k ((byKind.getD k 0) + 1)
 
   IO.println s!"target modules       {targets.size}"
-  IO.println s!"loaded modules       {header.moduleNames.size}"
+  IO.println s!"loaded modules       {world.moduleNames.size}"
   IO.println s!"importModules        {fmtDur (tImp1 - tImp0)}"
   IO.println s!"indexLookup          {fmtDur (tIdx1 - tIdx0)}  enumerated {enumerated}, unique {candidates.size}"
   IO.println s!"moduleDocs           {fmtDur (tMd1 - tMd0)}  {modDocCount} docs in {modsWithDocs} modules, {importCount} imports"
@@ -2961,7 +3362,10 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
       if s.omitted != 0 || s.omittedDeclarations != 0 then
         IO.println s!"  omitted            {s.omittedDeclarations} declarations in {s.omitted} modules \
           (--link-index-omit; their names are still in the @ section)"
-  IO.println s!"tactics              {fmtDur (tTac1 - tTac0)}  {tacticsInEnv} in env, {tacticsAssigned} in target modules"
+  if tacticsAnswered then
+    IO.println s!"tactics              {fmtDur (tTac1 - tTac0)}  {tacticsInEnv} in env, {tacticsAssigned} in target modules"
+  else
+    IO.println s!"tactics              NOT ANSWERED: this world has no tactic table, so no module carries tactics"
   if cfg.tacticsEmulate then
     IO.println s!"tacticsPerModule     {fmtDur tEmu}  (doc-gen4's shape: {targets.size} × allTacticDocs)"
     IO.println s!"  of which allTactic {fmtDur emuAll}"
@@ -2986,9 +3390,9 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     IO.println s!"  5x force extDocs   {fmtDur p.forceExt5}  ({fmtDur (p.forceExt5 / 5)} each)"
     IO.println s!"  5x getModuleIdxFor {fmtDur p.idxOnly5}  ({fmtDur (p.idxOnly5 / 5)} each)"
     IO.println s!"  5x hoisted const2ModIdx {fmtDur p.hoisted5}  ({fmtDur (p.hoisted5 / 5)} each)"
-  IO.println s!"analyze              {fmtDur (tAn1 - tAn0)}  considered {considered}, produced {results.size}, blacklisted {blacklisted}, failed {failures.size}"
+  IO.println s!"analyze              {fmtDur (tAn1 - tAn0)}  considered {considered}, produced {produced}, blacklisted {blacklisted}, failed {failures.size}"
   IO.println s!"  of which signature {fmtDur counters.ppNanos}"
-  IO.println s!"  of which equations {fmtDur counters.eqNanos}  ({counters.eqCount} lemmas, {counters.eqFailures} failed)"
+  IO.println s!"  of which equations {fmtDur counters.eqNanos}  ({counters.eqCount} lemmas, {counters.eqFailures} failed, {counters.eqSkipped} definitions skipped by --no-equations-under)"
   IO.println s!"  of which docstring {fmtDur counters.docNanos}"
   if cfg.taggedCode then
     IO.println s!"  attributes         {fmtDur counters.attrNanos}  ({counters.attrCount} calls, {counters.attrDecls} declarations with at least one)"
@@ -3015,8 +3419,8 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
     if cfg.dumpRefsPath.isSome then
       IO.println s!"refs                 {refUnique} unique, {refOwn} in target modules, {refUnique - refOwn - refUnresolved} in dependencies, {refUnresolved} without a module"
   if cfg.taggedCode then
-    IO.println s!"sorry                {fmtDur (tSy1 - tSy0)}  ({sorryStats.asked} asked, {sorryStats.direct} direct, {sorryStats.transitive} transitive)"
-  if let some dir := irDirUsed then
+    IO.println s!"sorry                {fmtDur sorryNanos}  ({sorryStats.asked} asked, {sorryStats.direct} direct, {sorryStats.transitive} transitive)"
+  if let some dir := irDir? then
     let total := irStats.moduleBytes + irStats.depBytes + irStats.indexBytes
     IO.println s!"writeIR              {fmtDur irStats.serializeNanos} serialize + {fmtDur irStats.hashNanos} hash + {fmtDur irStats.writeNanos} write"
     IO.println s!"  files              {irStats.moduleFiles} modules + {irStats.depFiles} dep maps + 1 index"
@@ -3027,6 +3431,7 @@ def run (cfg : Cfg) (preEnv : Option Environment := none) : IO UInt32 := do
       IO.println s!"  spans              {irStats.spans.total} in {irStats.spanFragments} fragments — {irStats.spans.const} const, {irStats.spans.sort} sort, {irStats.spans.other} other"
       IO.println s!"  ws widths          {irStats.spans.ws} const spans carry front/back, {irStats.spans.wsUnits} UTF-16 units total (schema 3)"
     IO.println s!"  dir                {dir}"
+  if let some l := keysLine then IO.println l
   IO.println s!"total                {fmtDur (tTotal1 - tTotal0)}"
   IO.println s!"genEquations         {cfg.genEquations}   tagCode {cfg.tagCode}   refs {cfg.collectRefs}   jobs {cfg.jobs}   open {cfg.openNamespaces.toList}"
   IO.print "kinds               "
@@ -3076,8 +3481,9 @@ partial def serve (cfg : Cfg) : IO UInt32 := do
     return 1
   let env ← importModules (targets.map (Import.mk · false true false)) Options.empty
     (leakEnv := true) (loadExts := true)
+  let world := World.ofEnv env
   let t1 ← IO.monoNanosNow
-  IO.println s!"ready {t1 - t0} {env.header.moduleNames.size} {targets.size}"
+  IO.println s!"ready {t1 - t0} {world.moduleNames.size} {targets.size}"
   (← IO.getStdout).flush
   let stdin ← IO.getStdin
   let rec loop : IO UInt32 := do
@@ -3096,7 +3502,7 @@ partial def serve (cfg : Cfg) : IO UInt32 := do
         modulesPath := ⟨modules⟩, outPath := ⟨out⟩,
         irDir := match rest with | dir :: _ => some ⟨dir⟩ | [] => cfg.irDir }
       let r0 ← IO.monoNanosNow
-      let code ← run reqCfg (some env)
+      let code ← run reqCfg (some (env, world))
       let r1 ← IO.monoNanosNow
       IO.println s!"ok {code} {r1 - r0}"
       (← IO.getStdout).flush
@@ -3112,20 +3518,29 @@ end Litedoc4
 open Litedoc4 in
 def parseArgs (args : List String) : Except String Cfg :=
   match args with
+  | "--identity" :: rest => go { modulesPath := "", outPath := "", identity := true } rest
   | modules :: out :: rest => go { modulesPath := ⟨modules⟩, outPath := ⟨out⟩ } rest >>= check
-  | _ => .error "usage: extract <modules.txt> <out.jsonl> [--equations] [--dump <p>] [--dump-modules <p>] [--only <p>] [--open <ns,..>] [--tag] [--refs] [--dump-refs <p>] [--link-index <p>] [--link-index-omit <p>] [--link-index-key <t>] [--write-ir --ir-dir <p>] [--tagged-code] [--skip-analyze] [--tactics-emulate] [--tactics-probe] [--pp-breakdown] [--decl-profile <p>] [--jobs <n>]"
+  | _ => .error "usage: extract [--identity | <modules.txt> <out.jsonl>] [--equations] [--no-equations-under <ns,..>] [--dump <p>] [--dump-modules <p>] [--only <p>] [--open <ns,..>] [--tag] [--refs] [--dump-refs <p>] [--link-index <p>] [--link-index-omit <p>] [--link-index-key <t>] [--write-ir --ir-dir <p> [--write-reuse-keys]] [--tagged-code] [--skip-analyze] [--tactics-emulate] [--tactics-probe] [--pp-breakdown] [--decl-profile <p>] [--jobs <n>]"
 where
   /-- The one cross-flag rule, checked **before anything runs** rather than where
-  the directory is used: the IR is written at the very end of a 20-second
-  extraction, and a run that dies there has already paid for the whole of it. -/
+  the directory is first used: that is after the environment import, and a run
+  that dies there has already paid for it. -/
   check (cfg : Cfg) : Except String Cfg :=
     if cfg.writeIR && cfg.irDir.isNone then
       .error "--write-ir needs --ir-dir <path>, which has no default: an IR tree written \
         somewhere the caller did not name is worse than none"
+    else if cfg.writeReuseKeys && !cfg.writeIR then
+      .error "--write-reuse-keys writes beside the IR, to <ir-dir>.reuse-keys, and needs --write-ir"
     else .ok cfg
   go (cfg : Cfg) : List String → Except String Cfg
   | [] => .ok cfg
   | "--equations" :: rest => go { cfg with genEquations := true } rest
+  | "--no-equations-under" :: list :: rest => do
+    let names ← (list.splitOn ",").toArray.mapM fun raw =>
+      let text := raw.trimAscii.toString
+      if !text.isEmpty && text.toName.toString == text then .ok text.toName
+      else .error s!"--no-equations-under: `{raw}` is not a namespace"
+    go { cfg with noEquationsUnder := names } rest
   | "--write-ir" :: rest => go { cfg with writeIR := true } rest
   | "--tagged-code" :: rest => go { cfg with taggedCode := true } rest
   -- Ablations. They subtract one of the additions so its cost can be measured;
@@ -3138,6 +3553,7 @@ where
   -- Deliberately does *not* imply `--write-ir`: the IR stays off unless
   -- `--write-ir` says otherwise, which keeps one rule instead of two.
   | "--ir-dir" :: p :: rest => go { cfg with irDir := some ⟨p⟩ } rest
+  | "--write-reuse-keys" :: rest => go { cfg with writeReuseKeys := true } rest
   | "--tag" :: rest => go { cfg with tagCode := true } rest
   | "--refs" :: rest => go { cfg with collectRefs := true } rest
   | "--dump-refs" :: p :: rest => go { cfg with dumpRefsPath := some ⟨p⟩ } rest
@@ -3170,5 +3586,9 @@ where
 
 def main (args : List String) : IO UInt32 := do
   match parseArgs args with
-  | .ok cfg => if cfg.serve then Litedoc4.serve cfg else Litedoc4.run cfg
+  | .ok cfg =>
+    if cfg.identity then
+      IO.println (← Litedoc4.extractorIdentity cfg)
+      return 0
+    if cfg.serve then Litedoc4.serve cfg else Litedoc4.run cfg
   | .error msg => IO.eprintln msg; return 1

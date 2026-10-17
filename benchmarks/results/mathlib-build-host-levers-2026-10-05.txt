@@ -1,0 +1,1671 @@
+The build host for the multi-version build: where the hybrid's memory, CPU and disk go, which levers make them smaller, and print reuse across versions with its falsifier
+==================================================================================================================================================================
+Date: 2026-10-05. Context: docs/multiversion/plan.md U5 (can the build host carry it), U9 (the reader and the hybrid,
+"per version end to end ~6.5 min wall, ~19 min CPU"), D2 (all versions from nothing in <= 2 h on one machine, one new
+release in <= 15 min), D3 (build host), D5 (content-addressed declarations), D10 (one reader, every version printed
+by the newest Lean and Mathlib). The hybrid is the one of benchmarks/results/mathlib-hybrid-full-extraction-2026-10-05.txt
+(the "full-extraction log" below), rebuilt from that log's CODE section and the reader log's
+(benchmarks/results/olean-reader-prototype-2026-10-04.txt) and extended with inert instrumentation and a key pass. A
+measurement in scratch Lake projects on this M1; nothing in src/ or extractor/ was changed. The runner part is a
+prepared, not-yet-run probe (PROBE below).
+
+QUESTIONS
+---------
+(1) Does the rebuilt hybrid reproduce the full-extraction log?
+(2) Memory split: of the hybrid's ~9 GB, how much is the newest Mathlib import, the decoded old data (with and
+    without proofs), the extractor's working set at 1, 2 and 4 jobs? Do the jobs share one environment? Which lever
+    brings it under 12 GB and under 8 GB, at what time cost?
+(3) Print reuse: every version is printed by the same newest printer, so a declaration whose "print key" is equal
+    to one already printed need not be printed again. Design the key, falsify it on Mathlib v4.31.0 (hybrid) against
+    v4.34.1 (native), and price the key pass.
+(4) The smaller levers: one newest import per process for all versions, proofs skipped, reading from the cache's
+    compressed archives, fewer or more jobs.
+(5) The "one new release in 15 min" line and the from-nothing line for 11 and 51 versions, on this M1 and
+    (theoretical) on a GitHub-hosted ubuntu-latest runner.
+
+HEADLINE
+--------
+(1) Reproduced exactly (measured). The rebuilt hybrid, full Mathlib v4.31.0, 4 jobs, compared field by field with
+    the native v4.31.0 IR that the full-extraction log's native arm reproduced byte for byte: every row of that log's
+    comparison table comes out with the same numbers (311,345 of 311,415 declarations; type 307,657; binders 310,319;
+    equations 309,770; attrs 84,507 / 100,643; tactics 0 / 215; ...). Time: closure 3.2 s, decoding 82.5 s, newest
+    import + assembly 54.6 s, extraction 228.5 s, 368.8 s to the end of extraction; peak memory footprint
+    9,102,026,368 B (the log: 389-394 s, 8.7-9.1 GB). The IR of 1, 2 and 4 jobs and of the instrumented builds is
+    byte-identical (`diff -r`).
+(2) Memory, hybrid on M1, macOS footprint = dirty memory including what macOS compressed or swapped (measured at
+    phase boundaries with the process paused, `footprint -w`; peaks from /usr/bin/time -l):
+      part                                                           dirty (anonymous)    clean, file-backed
+      newest Mathlib v4.34.1 import alone (native importModules)        0.91 GB             5.22 GB mapped .olean
+        of which Lean heap 0.43, page tables 0.39, malloc 0.09
+      decoded old v4.31.0 data, proofs omitted (the design)              3.19 GB             -
+      decoded old v4.31.0 data, proofs kept                              7.69 GB             -
+      after assembly (old data + newest import + merged extensions)      4.25 GB             2.70 GB resident
+      extraction peak, 4 jobs  (+4.85 over assembly)                     9.10 GB
+      extraction peak, 2 jobs  (+4.04)                                   8.29 GB
+      extraction peak, 1 job   (+3.63)                                   7.83 GB
+      for comparison: native v4.34.1 extraction, 4 jobs                  4.20 GB peak (0.91 after import, +3.3)
+      the same without --tagged-code                                     3.10 GB peak
+    - The jobs share one environment in one process (threads of one `IO.asTask` pool over one `env`, read in the code;
+      measured: 1 -> 4 jobs adds 1.27 GB, not three more environments).
+    - The extraction's share grows linearly with the declarations done (sampler: native 0.5 -> 4.0 GB over the
+      analysis; hybrid 1 job 4.0 -> 6.5 GB): it is the results held until the IR is written, plus whatever the
+      equation generator caches. Tagged code alone is 1.1 GB of it (measured natively by ablation); the rest is not
+      attributed.
+    - Swap: the machine had 3.80 GB of swap in use before the reproduction run, 4.11 GB at most during it, 3.87 GB
+      after (measured, `vm.swapusage`). The full-extraction log's "~3.5 GB swap, no baseline" was the machine's
+      baseline, not the hybrid's. What macOS did instead is compress: up to 5.1 GB of the hybrid process's memory was
+      held compressed (`top` CMPRS, measured). Linux on the runner does not compress, so the number that transfers is
+      the dirty total (9.1 GB at 4 jobs), plus whatever of the 5.2 GB of mapped newest oleans the run keeps touching.
+    - Under 12 GB: already, at any job count, as dirty memory (measured). Under 8 GB: 1 job (7.83 GB, +288 s of
+      extraction, measured); 2 jobs is 8.29 GB (+84 s). Streaming the IR per module instead of holding every result
+      would take most of the +3.6-4.9 GB away (theoretical; 1.1 GB of it measured as tagged code).
+(3) Print reuse. The key is a set of hashes of what the printed fields are computed from (KEY below). Falsified on
+    the 308,089 declarations present in both Mathlib v4.31.0 (hybrid) and v4.34.1 (native), 3 minor releases apart,
+    printed fields equal on 277,504 (90.07%):
+      key                                               key-equal          output-different    output-equal but
+                                                                           among key-equal     key-different
+      G7 (the key proposed)                             221,484  71.89%      6                  56,026
+      G2 = G7 + reducibility + reducible values         157,193  51.02%      4                 120,315
+      F0 strict (full types and values)                  87,998  28.56%      4                 189,510
+      F9 own declaration only, as shown                 254,322  82.55%     27                  23,209
+    Every hole is classified (HOLES): the 4 that every variant has are 2 declarations printed through a notation
+    whose delaborator synthesises instances (`⊔` vs `max` on Prop) and 2 parent-projection paths in printed instance
+    values (cause not isolated); G7 adds 2 equation-generation failures in the hybrid (the full-extraction log's
+    class G). By time, the key-equal declarations are 60.6% of the v4.31.0 analysis time under G7 (36.6% under G2;
+    measured with the per-declaration profile). The key pass takes 101 s single-threaded per version on either side
+    (557,366 / 580,218 candidates), against 779 s of printing CPU (pp + equations) in the 4-job extraction: 7.7x
+    cheaper than what it can save, not free. Net (theoretical): ~370 s CPU saved per old version, but on the M1
+    wall clock only ~25 s single-threaded or ~100 s with the key pass parallelised, because decoding and assembly
+    (141 s) do not shrink.
+    Consecutive releases share more content (other log: 97.89% of declarations at the minor pair v4.32.2 -> v4.33.0,
+    99.9994% at the patch pair, mathlib-release-sharing-2026-10-04.txt), but the key-equal share was measured at 3
+    minors apart only; at 1 apart it is unmeasured.
+(4) Smaller levers (all on M1):
+    - Proofs omitted is already the design: kept, decoding takes 110.1 s instead of 82.5 s and the heap 7.69 GB
+      instead of 3.19 GB (measured). The task's "88 -> ~45 s" premise mixed the prototype's 11-extension decoding
+      with this one; the 88 s of the full-extraction log were already proofs-omitted (its CONDITIONS say so).
+    - One newest import per process, swapping old data between versions: decoding + assembling twice in one process
+      does not release the first round (measured): footprint 4.0 -> 14.8 GB with the environment leaked (as the
+      extractor does), 4.1 -> 13.5 GB with `leakEnv := false`. Two causes: the old round stays (heap 3.6 -> 6.0 GB
+      after the second decode even unleaked), and the second newest import cannot mmap the oleans at their address
+      (taken by the first) and reads them into 6.9 GB of malloc. Only the newest `importModulesCore` (12.5 s per
+      version) could be shared, and only by keeping its ModuleData rather than importing again (theoretical).
+    - Archives: one version's 8,908 cache archives are 451.4 MB (v4.34.1, measured); extracted they are 6.90 GB, of
+      which the reader needs .olean / .olean.server / .olean.private / .ir = 6.10 GB; .c (0.49 GB) and .ilean
+      (0.29 GB) are never read (.ilean only if D10 mechanism 3 is built). Reading each old version module by module
+      straight from the archives turns 6.9 GB of disk into 0.45 GB, at the same decompression work: leantar unpacked
+      a 5.17 GiB set in 14.4-14.5 s here (measured 2026-08, ci-warmstart-summary.txt). The newest version is
+      imported by Lean, which maps files: it stays extracted. Disk is not the runner's problem (87 GB free).
+    - Jobs on M1: 1 / 2 / 4 jobs = extraction 517 / 312 / 228 s, CPU (process, minus the key pass) ~755 / ~867 /
+      ~1,119 s, footprint 7.83 / 8.29 / 9.10 GB. More jobs cost CPU (E-cores, contention) and memory, and buy wall
+      clock. On 2 physical cores with SMT the shape is unmeasured: the probe runs 4 and 2 jobs.
+(5) Lines (composition; parts measured where named, the rest theoretical):
+    - One new release in 15 min holds only if old versions are not re-printed (D7's "keep each version's output as
+      printed when it was added"): the new release is the newest, extracted natively (243 s on M1, measured;
+      ~6-8 min on the runner, theoretical) plus toolchain, cache fetch and the multi-version render. Re-printing the
+      10 older versions with the new printer is 10 hybrid runs, ~1 h on M1 even with print reuse.
+    - From nothing, 11 versions: M1 ~66 min without print reuse (extrapolated: 243 s native newest + 10 x 369 s),
+      ~49-61 min with it (theoretical). 51 versions: ~5.2 h without, ~3.8-4.8 h with (theoretical); decoding and assembly
+      alone are 50 x 141 s = ~2.0 h (extrapolated). So from nothing at 51 versions does not fit 2 h on one M1 with
+      or without print reuse; the runner is slower (~11 min per old version, theoretical: ~2 h for 11, ~9 h for 51).
+
+CONDITIONS
+----------
+- Hardware: Apple M1 (4 performance + 4 efficiency cores), hw.memsize 17,179,869,184 B (16 GiB), macOS 26.6.2
+  (25G83). One heavy process at a time throughout; other desktop applications were running (not controlled). The
+  machine had 3.84 GB of swap in use and ~12 GB of pages held in the compressor at the start of the session.
+- Old: Lean 4.31.0 (68218e876d2a), Mathlib v4.31.0 (fabf563a7c95a166b8d7b6efca11c8b4dc9d911f) in <old-workspace>
+  (the measurement target, read-only; `lake env printenv` read, `git status` unchanged before and after) with its
+  packages; Lean core from <toolchain v4.31.0>/lib/lean.
+- New: Lean 4.34.1 (5045d0056413), Mathlib v4.34.1 (d13f23b723b8a846827a245b89c10fc7d3f11612) in <new-workspace>
+  (cache oleans, read-only, kept).
+- Module sets: v4.31.0 = the 8,170 modules of the existing run's modules.txt; v4.34.1 = 8,530 modules, `Mathlib` and
+  every `Mathlib.*` module in its import closure read from the sources (modlist.py; on v4.31.0 it reproduces the
+  8,170-line list exactly, `diff` = 0).
+- Native v4.31.0 reference: the existing v4.31.0 IR (wmathlib/out), which the full-extraction log's native arm
+  reproduced byte for byte; no native v4.31.0 run here.
+- Flags (every extraction): `--equations --refs --write-ir --tagged-code --jobs N --ir-dir --link-index
+  --link-index-omit <modules>` as in the full-extraction log; the native v4.34.1 extraction ran the same Extract.lean
+  built with v4.34.1 (the hybrid project's `extract`). Each program ran directly under /usr/bin/time -l with the
+  variables `lake env` sets (runx.sh).
+- Reconstruction: OleanReader.lean and Assemble.lean = the reader log's code + the full-extraction log's diffs
+  (`patch`, all hunks applied clean); Extract.lean = extractor/Extract.lean (sha256 73e33b6e...) + that log's diff;
+  HybridMain.lean, compare.py, classify.py, checks.py, runx.sh verbatim (reconstruct.py). Both projects build with 0
+  warnings. The binary that ran the reproduction carried the new hooks (snapshot, proofs, rounds, keys), all inert
+  unless their variables are set; its IR is identical to the un-instrumented sample's and reproduces the table.
+- Memory instruments: `footprint -w -f bytes -p` at phase boundaries, called synchronously by the paused process
+  (pauses 0.04-0.75 s, logged; not subtracted from wall clock, as each is < 1 s); a 5-s sampler of `ps` RSS, `top`
+  MEM / CMPRS, `vm.swapusage` and vm_stat; `vm.swapusage` and vm_stat before and after each run. Lean's own heap
+  is read as footprint's "IOAccelerator" row (inferred: it is the only category that grows with decoding; the VM
+  tag of Lean's allocator's regions was not looked up); malloc regions are MALLOC_*.
+- Warm / cold: not separated. Every full run read ~14 GB of oleans (both versions) on a machine with no room to
+  cache them all.
+- Sampling: every new program ran on 20 modules first (hybrid: entries 2-21 of the list, a 3,172-module closure;
+  key passes: the same 20 modules) before any full run, and both comparators ran on 20 modules and were made to fail
+  once before the full comparison.
+- Determinism (measured): the IR of 1, 2 and 4 jobs and of the profiled run are byte-identical; the k1/k2 key file
+  of two separate runs (2 jobs, 1 job) is byte-identical.
+- The final key files on both sides were computed with no extraction in the process (native: import + key pass;
+  hybrid: decode + assemble + key pass, HYBRID_STOP_AFTER=keys-only), so constants the equation generator realizes
+  during an extraction cannot have reached them.
+
+THE REPRODUCTION
+----------------
+compare.py (the full-extraction log's) on the native v4.31.0 IR against the rebuilt hybrid's, full run, 4 jobs:
+every row equal to that log's THE COMPARISON, row by row (decl.attrs 84507 / 100643, decl.binderCode 309930 / 311345,
+decl.type 307657 / 311345, declaration.presence 311345 / 311415, equation(item) 56806 / 58411, lidx.range 91425 /
+91425, tactic.presence 0 / 215, native-only declaration 70, native-only ref(pair) 3520, hybrid-only ref(pair) 82, ...
+all 74 rows). Sample first: on the 20-module sample the declaration fields reconcile and the index / link index /
+dependency maps differ by construction, as that log describes.
+Phases (hybrid stderr, ms): closure 3,233; decoding 82,510 (10,583 modules, 767,828 constants); newest import +
+assembly 54,614, of which v4.34.1's importModulesCore 12,501, rewriting and merging 32,498, finalizeImport 8,396;
+extraction 228,487 (analysis 207.9 s: pp 531.0 s CPU, equations 248.1 s CPU, docstrings 7.6, attributes 4.0,
+instances 0.7; writeIR 16.2; link index 1.5; sorry pass 0.6); 368,844 to the end of extraction.
+
+TIME AND MEMORY, PER RUN (measured; footprint = /usr/bin/time -l "peak memory footprint")
+---------------------------------------------------------------------------------------
+  run                                   wall to end      process     user      sys    peak RSS    peak footprint
+                                        of extraction    wall
+  hybrid v4.31.0, 4 jobs (+ key pass)      368.8 s       524.11 s   1196.92   74.68   6.36 GB     9,102,026,368 B
+  hybrid v4.31.0, 2 jobs (+ key pass)      455.8 s       609.26 s    968.12   46.80   6.59 GB     8,288,116,992 B
+  hybrid v4.31.0, 1 job  (+ key pass)      661.7 s       808.57 s    860.16   39.36   6.56 GB     7,834,950,528 B
+  hybrid v4.31.0, 4 jobs, --decl-profile   578.2 s       580.03 s   1262.79   68.04   -           8,667,685,952 B
+  native v4.34.1, 4 jobs                   238.9 s       242.89 s    861.16   25.72   6.30 GB     4,198,531,520 B
+  native v4.34.1, 4 jobs, no tagged code   223.4 s       223.94 s    878.48   20.21   8.13 GB     3,099,965,760 B
+  hybrid decode only, proofs kept          110.1 s       119.59 s     98.27    9.87   6.94 GB     7,710,343,296 B
+  hybrid decode + assemble twice, leaked       -         277.51 s    167.90   35.25   7.64 GB    14,999,768,896 B
+  hybrid decode + assemble twice, unleaked     -         274.82 s    171.59   39.58   8.88 GB    14,726,523,136 B
+  native v4.34.1 import + key pass (G)         -         127.73 s     95.85    5.70   -           1,156,229,056 B
+  hybrid decode + assemble + key pass (G)      -         250.93 s    181.19   15.68   -           4,326,014,720 B
+- The three hybrid runs' process times include a single-threaded key pass after extraction (153 / 148 / 144 s, the
+  first with 1,210 panics in the key code, fixed before the others; see WHAT FAILED); extraction alone is the
+  "wall to end of extraction" column. CPU of the extraction without the key pass is ~1,119 / ~867 / ~755 s
+  (process CPU minus the key pass, which is single-threaded; inferred).
+- Analysis phase: 207.9 s (4 jobs), 290.4 s (2), 497.0 s (1); pp CPU 531.0 / 374.4 / 321.4 s; equations 248.1 /
+  175.5 / 152.9 s. Per-thread work grows with the job count on this machine (4 jobs include efficiency cores).
+- Sampler maxima (5 s): top MEM 8.48 GB (4 jobs), 7.88 (2), 7.47 (1), native 3.97 GB; top CMPRS (the process's
+  memory held compressed) up to 5.1 GB (4 and 2 jobs), 4.7 (1), 2.1 GB native; RSS at most 5.9-6.1 GB in every
+  hybrid run. Swap used before / after: 3.80 -> 3.87 GB (4 jobs, 4.11 at most during), 3.84 -> 3.80 (2), 3.80 ->
+  3.77 (1), 3.85 -> 3.84 (native). The proofs-kept and two-round runs pushed it to 4.59, 7.09 and 7.44 GB.
+- The hybrid's footprint has a transient high about 75-85 s into the extraction at every job count (8.5 / 7.9 /
+  7.5 GB in the sampler), then falls by 2-3 GB and climbs again with the declarations done. What it is was not
+  found.
+
+THE MEMORY SPLIT (measured, footprint at phase boundaries; Dirty includes compressed / swapped)
+-----------------------------------------------------------------------------------------------
+  snapshot                                  Lean heap      page tables   malloc    total dirty     mapped file (clean)
+  native v4.34.1, after importModules       432,406,528    389,916,224   ~85 M     909,321,792     5,222,596,608
+  hybrid, after decoding (proofs omitted)   3,191,062,528  2,039,488     0.4 M     3,195,248,320   0
+  hybrid, after decoding (proofs kept)      7,693,336,576  -             -         7,700,103,360   0
+  hybrid, after assembly                    3,765,436,416  391,528,128   ~86 M     4,245,028,544   2,704,310,272
+  hybrid, after extraction (4 jobs)         6,127,009,792  394,094,016   ~46 M     6,570,485,184   825,409,536
+- Assembly adds ~1.05 GB of dirty memory: 0.39 GB of page tables for the 53,544 mapped newest files, ~0.57 GB of Lean
+  heap (the hash maps finalizeImport builds and the merged extension states), malloc 0.09. The newest oleans
+  themselves are clean file-backed memory, reclaimable, as natively.
+- "After extraction" is lower than the peak because the results are released when the IR is written; Lean's heap
+  keeps the pages, so the footprint does not drop back to the assembly level.
+- Theorem proofs: omitting them (the design, as in the full-extraction log) saves 4.50 GB and 27.6 s of decoding.
+  Whether the extraction needs them: it reads proof values only in the sorry pass, and only for declarations
+  without a stored axiom list (98 produced declarations, 19 of them theorems, in the full-extraction log); for all
+  others `collectAxioms` reads exportedAxiomsExt. Nothing else in the extractor reads a theorem's value (read in
+  the code: `mentionsSorryAx` is reached only when the stored list contains sorryAx).
+
+KEY
+---
+Two passes of the same code (PrintKey.lean), both in Lean v4.34.1: natively after importing v4.34.1 (`nativekeys`),
+and in the hybrid after assembly (`HYBRID_KEYS`). For each candidate the extractor visits, it writes components,
+each a 64-bit hash; a key is a set of components. Printed fields covered: type, binders, implicits, typeCode,
+binderCode, equations, equationCode, members (all but their docstring), refs as names. Not covered and recomputed
+per version: placement (line, col, ranges, index, module, the module of each ref, `generated`, which reads the own
+ranges) and the cheap fields (kind, modifiers, doc, attrs, instClass, instTypes, sorry, member docstrings: 12 s of
+CPU in the 4-job extraction against 779 s of printing).
+Own components:
+  N    name, kind, universe parameter names
+  T    type (structural hash with binder names and binder kinds); TS the same "as shown": in an application of a
+       constant that is not a constructor, arguments in implicit, strict-implicit and instance positions (read off the
+       constant's type, no reduction) are a placeholder
+  V    value of a definition; VS the same as shown
+  E    stored equation lemmas (`f.eq_<n>`, `f.eq_def`), the structural / well-founded / partial-fixpoint recursion
+       data, and the lemmas registered by Mathlib's `eqns` attribute (which `irreducible_def` uses; read through the
+       extension named `eqnsAttribute`)
+Over the constants that survive in the "as shown" type and value (members included), sorted by name:
+  SN names; ST types; STS types as shown; SSH shapes (per leading binder its kind and the head of its type, and the
+  head of the result: what the app delaborator and field notation read); SLP universe names; SRED reducibility;
+  SPROJ projection info; SCLS class; SSTR structure fields and parents; SCOE coercion info; SINST instance and
+  priority; SPP pp_nodot / pp_using_anonymous_constructor; SMAT matcher info; SPROT protected; SV values of
+  definitions; SRV values of reducible definitions; SAUX values of opaques and matchers; SPSTR the flattened field
+  layout of a projection's structure and all its ancestors; SRES name resolution (every reverse alias and every
+  suffix of the name resolved as the printer resolves it, in the declaration's namespace and each member's).
+The proposed key, G7 = N TS VS E SN SSH SRES SAUX SPSTR SPROJ SCLS SSTR SCOE SPP SMAT SPROT.
+
+THE FALSIFIER
+-------------
+keycmp2.py (Python) pairs declarations by name between the native v4.34.1 IR and the hybrid v4.31.0 IR (IR-A
+322,958, IR-B 311,345, in both 308,089; A only 14,869, B only 3,256), takes the key components of both passes
+(580,218 and 557,366 candidates; every declaration of both IRs has components), and for each key variant counts
+key-equal / key-different against printed-fields-equal / different. No exception list; a field it does not know
+stops it. Made to fail once (measured): on a 20-module copy with one type changed by one character and one
+component changed for another declaration, every variant reported exactly 1 key-equal output-different (that
+declaration, field `type`) and 1 key-different output-equal (the other), nothing else.
+Printed fields equal on 277,504 of 308,089 (90.07%).
+  variant                                          key-equal           holes   output-equal, key-different
+  F0  N T V E SN ST SLP SINST SV SRES + rest*        87,998  28.56%      4      189,510
+  F1  as shown: N TS VS E SN STS SRV SRES + rest*   104,979  34.07%      4      172,529
+  F2  F1 with SSH for STS                           158,623  51.49%      5      118,886
+  F4  F2 without SRES                               158,833  51.55%      8      118,679
+  F5  F2 without SRV                                166,304  53.98%      5      111,205
+  F6  F2 without SRED                               211,986  68.81%      7       65,525
+  F7  F5 without SRED                               223,650  72.59%      7       53,861
+  F8  F7 without SSTR                               250,338  81.26%     18       27,184
+  F9  N TS VS E SN only                             254,322  82.55%     27       23,209
+  G2  F2 + SAUX + SPSTR                             157,193  51.02%      4      120,315
+  G7  F7 + SAUX + SPSTR (proposed)                  221,484  71.89%      6       56,026
+  (* rest = SRED SPROJ SCLS SSTR SCOE SPP SMAT SPROT; F7, F8, G7 drop SRED)
+How often each component differs among the 277,504 output-equal declarations (why stricter keys lose share):
+  ST 127,359; STS 121,580; SV 104,910; SLP 100,172; SRED 74,491; T 54,345; SSTR 32,271; TS 19,807; SRV 19,637;
+  V 7,612; SPSTR 7,104; SPROJ 4,985; VS 4,361; SSH 4,327; SRES 3,255; SN 2,791; SAUX 2,608; E 2,398; SCLS 2,159;
+  SINST 2,022; SCOE 1,735; SPROT 1,587; SPP 1,579; SMAT 1,456; N 94. SRED alone separates 25,905 output-equal
+  declarations: the reducibility of referenced instances differs between the two versions' data while nothing
+  printed depends on it here.
+The first key tried (all referenced constants with full types and their printing data, equivalent to F0 over every
+referenced constant instead of the shown ones; the run before the components) was key-equal on 80,204 (26.03%)
+with 3 holes. Key iterations, each made to fail on real data first and then fixed:
+  - the "as shown" skeleton first dropped hidden arguments of constructor applications too, which structure-instance
+    notation prints: 91 holes (`{ toMul := ... }` with renamed parent fields); constructors now keep every argument;
+  - name resolution dropped: 3 more holes (`_root_.id`, `Finset.mulAntidiagonal` qualification) -> SRES kept;
+  - structure data dropped: 11 more holes (renamed structure fields in printed instances, `acm` ->
+    `addCommMonoidSyn`, `smul_vsub_vadd_mem` -> `smul_vsub_vadd_mem'`) -> SSTR kept;
+  - a matcher's value (the `match` arms with name literals in `Mathlib.Tactic.Abel.isAtom`) -> SAUX;
+  - `irreducible_def` (`nhds`, `tangentConeAt`): the printed equation is the lemma registered by the `eqns`
+    attribute, whose type moved from `setOf` to `Set.ofPred` -> E reads that attribute.
+
+HOLES (every key-equal declaration whose printed fields differ, final key pass)
+--------------------------------------------------------------------------------
+G7, 6 (0.0027% of key-equal):
+  H1 (2) sup_Prop_eq, inf_Prop_eq: `(fun x1 x2 => x1 ⊔ x2)` natively, `max x1 x2` in the hybrid; refs lose
+     Max.max / Min.min. Same term, same key data; the newest Mathlib's delaborator chooses between `⊔` and `max`
+     (`⊓` / `min`) by synthesising an order instance, i.e. it reads the whole instance set, which differs between
+     the two versions' data (inferred from the output; the instance query itself was not traced). A key cannot
+     carry "every instance"; these are in every variant, F0 included.
+  H3 (2) Nat.instMulZeroClass (equation: `Nat.instAddMonoid.toAddZeroClass.toAddZero.toZero` natively,
+     `...toAddZeroClass.toZero` in the hybrid) and FinBoolAlg.hasForgetToFinPartOrd_forget₂_obj_str (type: the
+     parent-projection path `BooleanAlgebra.toBiheytingAlgebra.toCoheytingAlgebra...` vs
+     `BiheytingAlgebra.toCoheytingAlgebra...`): the same value and type (F0 compares them in full) printed through a
+     different chain of parent projections; the class hierarchy moved (AddZeroClass gained AddZero as a parent).
+     Cause not isolated: the projection info and the field layout of the projections' structures (SPSTR) are equal
+     on both sides. In every variant.
+  H5 (2) Mathlib.Tactic.FieldSimp.qNF.mkMulProof / mkDivProof: 3 equations natively, none in the hybrid: equation
+     generation fails on the old definition (the full-extraction log's class G, "meta code over Qq"). Key-different
+     under G2 (reducibility of a referenced constant), key-equal under G7. A failed equation attempt is visible to
+     the extractor (counted), so a reuse step can refuse to reuse into a declaration whose own equation attempt
+     failed (theoretical).
+G2 and F0: H1 (2) and H3 (2) only. F9 (27): the 6 above plus name resolution 6 (MeromorphicOn.id `_root_.id`,
+  Quotient/Quot.lindelofSpace `_root_.LindelofSpace`, Finset.swap_mem_mulAntidiagonal, Finset.mem_mulAntidiagonal,
+  Finset.mulAntidiagonal_min_mul_min), renamed structure fields in printed instances 14 (MonomialOrder.degLex / lex,
+  AffineSubspace.comap / map, affineSpan, Submodule.toAffineSubspace, ProfiniteGrp.of, DiscreteQuotient.instOrderTop /
+  instOrderBotOfLocallyConnectedSpace / ofIsClopen / instMin / comap, LocallyConstant.discreteQuotient,
+  Mathlib.Tactic.GCongr.relImpRelLemma), a matcher's value 1 (Mathlib.Tactic.Abel.isAtom).
+
+THE KEY PASS: COST AND REUSABLE SHARE
+-------------------------------------
+- Time (measured, single-threaded, final key): 101.2 s for 580,218 candidates natively (v4.34.1), 101.1 s for
+  557,366 in the hybrid (v4.31.0); the first, coarser keys took 139-153 s. Peak footprint of the native import +
+  key pass 1.16 GB (the key pass adds ~0.25 GB over the import).
+- Against printing: the 4-job extraction spends 779.1 s of thread time in printing (pp 531.0 + equations 248.1),
+  so the key pass is 7.7x cheaper than the printing it can replace (measured both).
+- Reusable share at 3 minors apart (v4.31.0 reusing v4.34.1's prints), G7: 221,484 of the 311,345 produced v4.31.0
+  declarations (71.14%) by count, 60.59% of the analysis time and 60.19% of pp + equation time by the
+  per-declaration profile (measured, --decl-profile run; that run's extraction took 437.6 s instead of 228.5 s with
+  the profiler on, so the shares assume the profiler's overhead is proportional). G2: 50.49% by count, 36.64% by
+  time.
+- Net per old version, G7 (theoretical; premises: the time shares above hold without the profiler, the key pass is
+  added, nothing else changes): printing CPU 779 s -> ~310 s, minus the key pass 101 s: ~370 s CPU saved of ~1,119
+  s. Wall clock at 4 jobs: analysis 208 s -> ~82 s, plus 101 s of key pass single-threaded (~25 s if run on 4
+  threads, unverified): ~25-100 s saved of 369 s, because closure + decoding + assembly (141 s) and writing the IR
+  (16 s) do not shrink.
+- Not extrapolated: the share between consecutive releases (only 3 apart is measured), and whether a version can
+  reuse from several earlier versions at once (a store keyed by the key, D5) adds anything beyond the nearest.
+
+SMALLER LEVERS (details)
+------------------------
+1. One newest import per process, old data swapped (measured, HYBRID_ROUNDS=2, decode + assemble twice, no
+   extraction):
+     snapshot                    leaked (as the extractor)       unleaked (leakEnv := false)
+     round 0 decoded             3.20 GB                         3.20 GB
+     round 0 assembled           4.02 GB                         4.10 GB
+     round 1 decoded             6.68 GB (heap 6.19)             6.45 GB (heap 5.97)
+     round 1 assembled          14.77 GB (heap 6.65, malloc     13.47 GB (heap 5.39, malloc
+                                  small 6.93, malloc large 1.00)   small 6.92)
+     peak footprint             15.00 GB                        14.73 GB
+   Round 1 timings: importModulesCore 24.8 / 21.3 s (12.5-13.0 s in round 0), rewrite and merge 12.7 / 11.9 s,
+   finalizeImport 12.6 / 3.8 s; decoding 85.4 / 84.4 s. The machine's swap rose from 4.59 to 7.09 and 7.44 GB.
+   Reading: (a) with `leakEnv := true` every object reachable from the environment is marked persistent and never
+   freed (Lean v4.34.1's finalizeImport, read in the source); the second decode grew the heap by 2.66 GB leaked and
+   2.35 GB unleaked, against 3.19 GB for a decode into an empty process, so unleaking gave back ~0.3 GB more of the
+   first round's ~3.6 GB (inferred from the heap sizes; Lean's allocator reuses freed pages); (b) the second `importModulesCore` of the newest Mathlib allocates 6.9 GB of malloc: the
+   first import's mappings occupy the address the .olean files ask to be mapped at, and Lean reads them into memory
+   instead (inferred from the malloc growth matching the mapped size; not traced). So in one process only the first
+   newest import can be reused, by keeping its ModuleData, and the old data of a finished version is not given back
+   with the code as it is. One process per version is the shape that releases memory (an exit).
+2. Proofs (measured): omitted 82.5-85.4 s / 3.19 GB of heap; kept 110.1 s / 7.69 GB. Already in.
+3. Archives (measured: sizes; theoretical: the reading): v4.34.1's archives = the 8,908 .ltar files whose mtime falls
+   in the window of that workspace's cache fetch (2026-10-04 19:00-20:30), the same count its `cache get` log reports
+   ("Already decompressed 8908 file(s)"): 451,433,503 B. Their content, extracted (the workspace's packages' build
+   directories): .olean.private 3,794,794,992 B; .olean 1,921,533,720; .c 494,740,570; .ilean 293,730,211; .ir
+   278,363,056; .olean.server 106,633,400; .trace / .sig / .hash / .export / .json together 6,305,099; total
+   6,896,101,048 B. The reader opens .olean, .olean.server and .olean.private of each module and the .ir of each
+   `module`-system module (`loadModule`, `readIRExtraConstNames`, read in the code): 6,101,325,168 B. One archive
+   unpacked (a v4.29-era module): .olean / .olean.server / .olean.private / .ilean / .ir / .c / .trace and seven
+   .hash files, 303 KB from 22.5 KB. The leantar in the Mathlib cache directory (0.1.17) refuses the v4.34.1-era
+   archives ("bad .ltar file"); the toolchains' own leantar (0.1.19) is the one to use.
+4. Jobs: in TIME AND MEMORY. On M1 the CPU cost of a job grows with the job count (pp CPU 321 / 374 / 531 s for 1 /
+   2 / 4 jobs); the runner's 2 physical cores x 2 threads are a different shape and are what the probe's arms (b)
+   and (c) measure.
+
+COMPOSITION: ONE NEW RELEASE, AND FROM NOTHING
+----------------------------------------------
+Measured components (M1, this log unless named): hybrid per old version 368.8 s to the end of extraction (4 jobs);
+native newest 238.9 s (242.9 s process); key pass 101 s; extractor builds 29.8-31.9 s (lake build of either scratch
+project); render 61.5 s + global 30.4 s for one version (benchmarks/results/mathlib-render-fixed-2026-10-03.txt,
+single-version render); cache download 440-512 MB per version
+(benchmarks/results/mathlib-release-sharing-2026-10-04.txt); leantar 14.4-14.5 s for 5.17 GiB
+(ci-warmstart-summary.txt, 2026-08). Not measured: toolchain install, `lake update`, `cache get` wall clock, the
+multi-version render, anything on the runner.
+- One new release, D7 "keep each version's output" (theoretical): toolchain install + `lake update` + `cache get` for
+  the new release (the probe measures these on the runner) + build the extractor (~0.5 min) + native extraction of
+  the new release (4.0 min on M1; ~6-8 min on the runner assuming 0.6-0.7x the M1's per-thread speed and 2 cores x
+  SMT, unverified) + the multi-version render (unmeasured). Inside 15 min on the runner only if fetching and the
+  render take < ~5 min together.
+- One new release, re-printing every older version with the new printer (theoretical): 10 x (369 s, or ~270-345 s
+  with print reuse) on M1 = 45-62 min. Not inside 15 min on any host measured.
+- From nothing, M1, 4 jobs: 11 versions = 243 + 10 x 369 s = ~66 min without reuse (extrapolated from one version
+  each); with G7 reuse ~61 min (key pass single-threaded) or ~49 min (key pass on 4 threads) (theoretical). 51
+  versions: 243 + 50 x 369 s = ~5.2 h (extrapolated); ~4.8 / ~3.8 h with reuse (theoretical). Closure + decoding +
+  assembly alone: 50 x 141 s = ~2.0 h (extrapolated). The 2-hour line does not hold at 51 versions on one M1.
+- From nothing, runner (theoretical; premises: per-thread speed 0.6-0.7x an M1 performance core, SMT adds ~30% on
+  2 cores, the serial part (closure + decoding + assembly + writeIR + key pass, ~258 s on M1) scales by 1/0.65, the
+  1-job analysis (497 s on M1) spreads over ~1.8 M1-core equivalents; all unverified): ~11 min per old version, ~2 h
+  for 11 versions, ~9 h for 51. The probe replaces these with measurements.
+- Memory on the runner (theoretical): 9.1 GB of dirty memory at 4 jobs has to be resident or in the 3 GB of swap on a
+  16 GB machine without compression, next to whatever part of the 5.2 GB of mapped newest oleans the run touches.
+  It fits on paper; at 2 jobs 8.3 GB, at 1 job 7.8 GB.
+
+PROBE (prepared, not run)
+-------------------------
+One job on ubuntu-latest, files in CODE (probe.sh, snapshot-linux.sh, the workflow). Trigger: `push:` on branch
+probe/build-host and `workflow_dispatch` (inputs: module count, jobs of the third arm). It records the runner
+(image, date, nproc, lscpu, /proc/meminfo, swap, df); installs elan, v4.31.0 and v4.34.1 (timed); creates a Mathlib
+v4.31.0 and a v4.34.1 workspace (`lake update` with MATHLIB_NO_CACHE_ON_UPDATE=1, then `lake exe cache get`, each
+timed); builds the hybrid and the native extractor; runs (a) native v4.31.0, 4 jobs, (b) the hybrid v4.31.0, 4 jobs,
+with smaps_rollup snapshots at the phase boundaries, (c) the hybrid with 2 jobs (one per physical core), (d) with 1
+job (the M1's under-8-GB setting), (e) the hybrid's decode + assembly + key pass alone (the mode of the M1 key file);
+each under GNU `/usr/bin/time -v` with a 5-s sampler of /proc/<pid>/status (VmRSS, RssAnon, RssFile, VmSwap),
+/proc/meminfo and /proc/vmstat; compares (a) with (b) (compare.py, classify.py); hashes every IR file and the key
+file and diffs them against this machine's (expected-native-ir.sha256 = the v4.31.0 reference IR,
+expected-hybrid-ir.sha256 = this log's hybrid IR, expected-hybrid-keys.sha256 = the final key file, sha256
+a9437240cba05bd4..., 557,367 lines with the header); uploads the logs, never the IR. Checked locally: the workflow
+parses (PyYAML), probe.sh and snapshot-linux.sh pass `bash -n`, both Lean projects build here, modlist.py reproduces
+the v4.31.0 list; nothing Linux-specific was run.
+
+WHAT FAILED, AND WHY
+--------------------
+1. The first key pass panicked 1,210 times ("unreachable @ extractMainModule" inside Name.append): appending a
+   hygienic name (macro scopes) with `++`. The printer itself returns such names unabbreviated; the resolution
+   component now does the same, and builds suffixes with `appendCore`. Its keys from that run (k1/k2) were used only
+   for the first comparison (26.03% / 3 holes) and its timing; every later pass had 0 panics.
+2. The first "as shown" skeleton dropped hidden arguments of constructor applications: 91 holes, all printed
+   structure instances. Fixed as in THE FALSIFIER; each later component was added after a hole showed it was
+   missing, and each addition was measured against the same two IRs (holes 91 -> 7 -> 4 under G2, 6 under G7).
+3. In zsh, one `rm -rf a/ir b/ir c*/ir` with an unmatched glob removed nothing ("no matches found"); caught by
+   listing the directories afterwards.
+4. A Lean elaboration change: after one more structure field, two field accesses in PrintKey.lean no longer
+   elaborated (`hash ·.structName`, `.reducible`); written with explicit types.
+
+WHAT IS NOT MEASURED
+--------------------
+- Anything on the runner: the probe is prepared, not run. Every runner number above is (theoretical).
+- The transient footprint high ~80 s into the hybrid's extraction: seen at every job count, not attributed.
+- The part of the extraction's working set that is not tagged code (~2.2 GB natively): results versus caches of
+  the equation generator not separated; streaming the IR per module not implemented.
+- The key-equal share between consecutive releases, and for any pair other than v4.31.0 / v4.34.1; the H1 instance
+  query and the H3 projection-path choice not traced to the line that decides them.
+- The key pass on more than one thread; key-pass memory beyond the ~0.25 GB seen natively; whether a key pass run
+  after an extraction in the same process (seeing what the equation generator realized) gives other keys.
+- Reading from the archives: not implemented; only sizes and the files the reader opens. Cold page cache after a
+  reboot not measured; warm and cold not separated.
+- `cache get`, `lake update` and toolchain install wall clock: not timed here (the probe times them).
+- Multi-version render: not built. The 15-minute line's render term is open.
+- Peak memory with the desktop applications closed; the machine started every run with 3.7-3.8 GB in swap and
+  ~12 GB in the compressor.
+
+HOW IT WAS RUN
+--------------
+  python3 reconstruct.py <repo> <scratch>/src           # sources from the two logs' CODE sections (`patch`)
+  cd <scratch>/hybrid && lake build                      # leanprover/lean4:v4.34.1: extract, hybrid, nativekeys
+  cd <scratch>/native && lake build                      # leanprover/lean4:v4.31.0: extract
+  cd <old-workspace> && lake env printenv > lakeenv-old.txt;  cd <new-workspace> && lake env printenv > lakeenv-new.txt
+  python3 modlist.py <new-workspace>/.lake/packages/mathlib modules-v4341.txt     # 8,530
+  # sample, then full; HYBRID_SNAPSHOT makes the process call snapshot.sh at phase boundaries
+  runh.sh sample1 modules-sample.txt 4                   # entries 2-21 of the v4.31.0 list
+  HYBRID_SNAPSHOT=snapshot.sh HYBRID_KEYS=keys.tsv runh.sh h4a modules-all.txt 4      # also h2 (2 jobs), h1 (1 job)
+  python3 compare.py <native v4.31.0 reference> h4a details.jsonl > report.txt
+  runn.sh n4341 modules-v4341.txt 4 lakeenv-new.txt <new-workspace> <scratch>/hybrid/.lake/build/bin/extract
+  runx.sh lakeenv-new.txt <new-workspace> nk nativekeys modules-v4341.txt keysh-v4341-native.tsv
+  HYBRID_STOP_AFTER=keys-only HYBRID_KEYS=keysh-v4310-hybrid.tsv runh.sh hk4 modules-all.txt 4
+  python3 keycmp2.py n4341/ir keysh-v4341-native.tsv h4a/ir keysh-v4310-hybrid.tsv holes.jsonl
+  EXTRA_ARGS="--decl-profile declprof.jsonl" runh.sh hprof modules-all.txt 4
+  levers.sh                                              # proofs kept, two rounds leaked / unleaked, no tagged code
+stdout and stderr to separate files. The IR trees, key files, profiles, details and the scratch projects' build
+directories were deleted after this file was written; the sources (<scratch>/src, the two projects' sources) and the
+probe directory were kept.
+
+CODE
+----
+=== HybridMain.lean: diff against the full-extraction log's HybridMain.lean (its CODE section)
+--- HybridMain.lean (full-extraction log)
++++ HybridMain.lean (this log)
+@@ -1,6 +1,8 @@
+ import OleanReader
+ import Assemble
+ import Extract
++import PrintKey
++import Snap
+ open Lean OleanReader Litedoc4
+ 
+ /-! The extractor of `Extract.lean`, unchanged, run in the hybrid: where the native run calls
+@@ -52,21 +54,44 @@
+       | IO.eprintln "hybrid: bad extractor arguments"; return 2
+     let sp ← readSearchPath spFile
+     let targets := (← IO.FS.lines modules).filter (!·.isEmpty) |>.map String.toName
++    let keepProofs := (← IO.getEnv "HYBRID_KEEP_PROOFS") == some "1"
++    let leak := (← IO.getEnv "HYBRID_LEAK") != some "0"
++    let stopAfter := (← IO.getEnv "HYBRID_STOP_AFTER").getD ""
++    let rounds := ((← IO.getEnv "HYBRID_ROUNDS").bind String.toNat?).getD 1
++    snap "start"
+     let t0 ← IO.monoMsNow
+     let mods ← closure sp targets
+     let t1 ← IO.monoMsNow
+     IO.eprintln s!"closure {mods.size} modules from {targets.size} roots in {t1 - t0} ms"
+-    let d ← Assemble.decodeAll sp mods
++    if stopAfter == "assemble" && rounds > 1 then
++      for r in [0:rounds] do
++        let ta ← IO.monoMsNow
++        let d ← Assemble.decodeAll sp mods (omitProofs := !keepProofs)
++        let tb ← IO.monoMsNow
++        snap s!"round{r}-decoded"
++        let (env, _) ← Assemble.assembleHybrid d leak
++        let tc ← IO.monoMsNow
++        IO.eprintln s!"round {r}: decoded in {tb - ta} ms, assembled in {tc - tb} ms, constants {env.constants.map₁.size}"
++        snap s!"round{r}-assembled"
++      snap "rounds-done"
++      return 0
++    let d ← Assemble.decodeAll sp mods (omitProofs := !keepProofs)
+     let t2 ← IO.monoMsNow
++    snap "decoded"
++    if stopAfter == "decode" then
++      IO.eprintln s!"decoded {d.mods.size} modules in {t2 - t1} ms (proofs {if keepProofs then "kept" else "omitted"}); stopping"
++      return 0
+     IO.eprintln s!"decoded {d.mods.size} modules in {t2 - t1} ms; constants {d.stats.constants}, entries decoded {d.stats.entriesDecoded}, entries not decoded {d.stats.entriesSkipped} in {d.stats.skippedExts.size} extensions"
+     for (e, k) in d.stats.decodedExts.toArray.qsort (fun a b => a.1.toString < b.1.toString) do
+       IO.eprintln s!"  decoded ext {e} {k}"
+     for (e, k) in d.stats.skippedExts.toArray.qsort (fun a b => a.2 > b.2) do
+       IO.eprintln s!"  not decoded ext {e} {k}"
+     IO.eprintln s!"old world: modules {d.old.moduleNames.size}, constants {d.old.consts.size}, const2ModIdx {d.old.modOf.size}, modules with module docs {d.old.modDocs.size}, docstring keys {d.old.docKeys.size}, Verso docstring keys {d.old.versoKeys.size}, inherit_doc {d.old.inherit.size}, stored axiom lists {d.old.axiomKeys.size}"
+-    let (env, msg) ← Assemble.assembleHybrid d
++    let (env, msg) ← Assemble.assembleHybrid d leak
+     let t3 ← IO.monoMsNow
+     IO.eprintln s!"{msg}\nassembled in {t3 - t2} ms"
++    snap "assembled"
++    if stopAfter == "assemble" then return 0
+     let builtinRanges := (← builtinDeclRanges.get).size
+     builtinDeclRanges.set {}
+     IO.eprintln s!"builtinDeclRanges of v{Lean.versionString} cleared: {builtinRanges} entries"
+@@ -84,14 +109,21 @@
+     IO.eprintln s!"target-module constants without a stored axiom list (collectAxioms walks the value there): {noAxioms} of {targetConsts}"
+     let hs : HardStops := { verso := ← IO.mkRef #[], builtinDoc := ← IO.mkRef #[] }
+     let world := hybridWorld env d.old hs
+-    let code ← Litedoc4.run cfg (some (env, world))
++    let code ← if stopAfter == "keys-only" then pure 0 else Litedoc4.run cfg (some (env, world))
+     let t4 ← IO.monoMsNow
++    snap "extracted"
+     let v ← hs.verso.get
+     let b ← hs.builtinDoc.get
+     IO.eprintln s!"extraction {t4 - t3} ms; total {t4 - t0} ms"
+     IO.eprintln s!"HARD STOPS: Verso docstrings not decoded {v.size}, docstrings only in the builtin table {b.size}, tactic table 1 (no module carries tactics)"
+     for n in v.toList.take 20 do IO.eprintln s!"  verso: {n}"
+     for n in b.toList.take 20 do IO.eprintln s!"  builtin: {n}"
++    if let some p ← IO.getEnv "HYBRID_KEYS" then
++      let t5 ← IO.monoMsNow
++      let (n, missing) ← PrintKey.writeKeys env world targets p
++      let t6 ← IO.monoMsNow
++      IO.eprintln s!"keys {n} (missing {missing}) in {t6 - t5} ms"
++      snap "keyed"
+     return code
+   | _ =>
+     IO.eprintln "usage: hybrid <searchpath-file> <modules.txt> <events.jsonl> [extractor options]"
+
+=== Assemble.lean: diff against the full-extraction log's Assemble.lean (the reader log's + that log's diff)
+--- Assemble.lean (full-extraction log)
++++ Assemble.lean (this log)
+@@ -65,8 +65,8 @@
+   stats   : ReadStats
+   old     : OldWorld
+ 
+-/-- Decodes every module of the closure, one at a time, proofs omitted. -/
+-unsafe def decodeAll (sp : Array System.FilePath) (mods : Array Name) : IO Decoded := do
++/-- Decodes every module of the closure, one at a time. -/
++unsafe def decodeAll (sp : Array System.FilePath) (mods : Array Name) (omitProofs : Bool := true) : IO Decoded := do
+   let stats ← IO.mkRef ({} : ReadStats)
+   let mut out := #[]
+   let mut chunks : Array (Name × Nat × Array Keyed) := #[]
+@@ -78,7 +78,7 @@
+   let mut imports := #[]
+   for m in mods do
+     let parts ← loadModule sp m
+-    let ((md, ks), _) ← runDM parts (decModuleData true true parts.back!.root stats)
++    let ((md, ks), _) ← runDM parts (decModuleData omitProofs true parts.back!.root stats)
+     out := out.push (m, md)
+     index := index.insert m index.size
+     constNames := constNames.push md.constNames
+@@ -216,11 +216,13 @@
+ constants in one extra module at the end, newest-only realizations of old declarations dropped,
+ and every extension in one of three classes: decoded (old entries, newest kept only for keys the
+ old version does not have), kept newest (`keepNewest`), or emptied. -/
+-unsafe def assembleHybrid (d : Decoded) : IO (Environment × String) := do
++unsafe def assembleHybrid (d : Decoded) (leak : Bool := true) : IO (Environment × String) := do
++  let tA0 ← IO.monoMsNow
+   initSearchPath (← findSysroot)
+   enableInitializersExecution
+   let imports : Array Import := #[{ module := `Mathlib }]
+   let (_, s) ← withImporting (importModulesCore imports |>.run)
++  let tA1 ← IO.monoMsNow
+   let ms : MImportState := unsafeCast s
+   checkMirror ms
+   let mut oldConsts : Std.HashMap Name ConstantInfo := {}
+@@ -363,9 +365,12 @@
+     moduleNameMap := out.moduleNameMap.insert extraName (decodedModule extraName extra)
+     moduleNames := out.moduleNames.push extraName }
+   checkMirror out
++  let tA2 ← IO.monoMsNow
+   enableInitializersExecution
+   let env ← withImporting do
+-    finalizeImport (unsafeCast out) imports {} (leakEnv := true) (loadExts := true)
++    finalizeImport (unsafeCast out) imports {} (leakEnv := leak) (loadExts := true)
++  let tA3 ← IO.monoMsNow
++  IO.eprintln s!"assembly phases: newest importModulesCore {tA1 - tA0} ms, rewrite and merge {tA2 - tA1} ms, finalizeImport {tA3 - tA2} ms"
+   -- `idxOf` is what the extensions were placed by; it must be what the environment answers
+   let mut idxMismatch := 0
+   for (n, i) in idxOf.toList do
+
+=== OleanReader.lean, Extract.lean, ExtractMain.lean, runx.sh, compare.py, classify.py, checks.py: the full-extraction log's, unchanged (reconstruct.py rebuilds the first three)
+
+
+=== lakefile.lean (the hybrid project, leanprover/lean4:v4.34.1; the native project, v4.31.0, is the full-extraction log's native lakefile)
+import Lake
+open Lake DSL
+
+package u12 where
+  moreLeancArgs := #["-O3"]
+
+lean_lib Extract
+lean_lib OleanReader
+lean_lib Assemble
+lean_lib PrintKey
+lean_lib Snap
+
+@[default_target]
+lean_exe extract where
+  root := `ExtractMain
+  supportInterpreter := true
+
+@[default_target]
+lean_exe hybrid where
+  root := `HybridMain
+  supportInterpreter := true
+
+@[default_target]
+lean_exe nativekeys where
+  root := `NativeKeys
+  supportInterpreter := true
+
+=== Snap.lean
+/-! A memory snapshot taken by a child process while this one waits, so the numbers belong to a
+known point of the run. Inert unless `HYBRID_SNAPSHOT` names the script. -/
+
+def snap (label : String) : IO Unit := do
+  let some script ← IO.getEnv "HYBRID_SNAPSHOT" | return
+  let pid ← IO.Process.getPID
+  let t0 ← IO.monoMsNow
+  let out ← IO.Process.output { cmd := script, args := #[toString pid, label] }
+  let t1 ← IO.monoMsNow
+  IO.eprintln s!"snapshot {label}: paused {t1 - t0} ms (exit {out.exitCode})"
+
+=== NativeKeys.lean (the key pass on a native import)
+import PrintKey
+import Snap
+open Lean Litedoc4
+
+/-! The print keys of a version extracted natively: the same import as the extractor's, then the
+key pass. -/
+
+unsafe def main (args : List String) : IO UInt32 := do
+  match args with
+  | [modules, out] =>
+    let targets := (← IO.FS.lines modules).filter (!·.isEmpty) |>.map String.toName
+    let t0 ← IO.monoMsNow
+    initSearchPath (← findSysroot)
+    enableInitializersExecution
+    let env ← importModules (targets.map (Import.mk · false true false)) Options.empty
+      (leakEnv := true) (loadExts := true)
+    let t1 ← IO.monoMsNow
+    IO.eprintln s!"import {targets.size} modules in {t1 - t0} ms"
+    snap "imported"
+    let (n, missing) ← PrintKey.writeKeys env (World.ofEnv env) targets out
+    let t2 ← IO.monoMsNow
+    IO.eprintln s!"keys {n} (missing {missing}) in {t2 - t1} ms"
+    snap "keyed"
+    return 0
+  | _ => IO.eprintln "usage: nativekeys <modules.txt> <out.tsv>"; return 2
+
+=== PrintKey.lean (the key pass, final version)
+import Lean
+import Extract
+open Lean Meta Litedoc4
+
+/-! The print key: hashes of what the printed fields of one declaration are computed from, read
+from the environment the extractor prints in, written as components so that a key is a choice
+of them. -/
+
+namespace PrintKey
+
+@[inline] def mix (h x : UInt64) : UInt64 := mixHash h x
+
+def mixList (h : UInt64) (xs : List UInt64) : UInt64 := xs.foldl mix h
+
+def biCode : BinderInfo → UInt64
+  | .default => 0 | .implicit => 1 | .strictImplicit => 2 | .instImplicit => 3
+
+unsafe def hashExprM (e : Expr) : StateM (Std.HashMap USize UInt64) UInt64 := do
+  let p := ptrAddrUnsafe e
+  if let some h := (← get)[p]? then return h
+  let h ← match e with
+    | .bvar i => pure (mix 1 (hash i))
+    | .fvar f => pure (mix 2 (hash f.name))
+    | .mvar m => pure (mix 3 (hash m.name))
+    | .sort l => pure (mix 4 (hash l))
+    | .const n ls => pure (mix (mix 5 (hash n)) (hash ls))
+    | .app f a => do let x ← hashExprM f; let y ← hashExprM a; pure (mix (mix 6 x) y)
+    | .lam n t b bi => do
+      let x ← hashExprM t; let y ← hashExprM b
+      pure (mixList 7 [hash n, biCode bi, x, y])
+    | .forallE n t b bi => do
+      let x ← hashExprM t; let y ← hashExprM b
+      pure (mixList 8 [hash n, biCode bi, x, y])
+    | .letE n t v b nd => do
+      let x ← hashExprM t; let y ← hashExprM v; let z ← hashExprM b
+      pure (mixList 9 [hash n, hash nd, x, y, z])
+    | .lit l => pure (mix 10 (hash l))
+    | .mdata d b => do
+      let y ← hashExprM b
+      pure (mixList 11 (d.entries.map (fun (k, v) => mix (hash k) (hash (toString v))) ++ [y]))
+    | .proj s i b => do let y ← hashExprM b; pure (mixList 12 [hash s, hash i, y])
+  modify (·.insert p h)
+  return h
+
+unsafe def hashExpr (e : Expr) : UInt64 := (hashExprM e |>.run' {}) |> Id.run
+
+/-- Binder infos of a constant's leading `∀`s, read off its type without reduction. -/
+def binderInfos (env : Environment) (c : Name) : Array BinderInfo := Id.run do
+  let some ci := env.find? c | return #[]
+  let mut t := ci.type
+  let mut out := #[]
+  while true do
+    match t with
+    | .forallE _ _ b bi => out := out.push bi; t := b
+    | _ => break
+  return out
+
+structure SkelState where
+  memo : Std.HashMap USize UInt64 := {}
+  bis : Std.HashMap Name (Array BinderInfo) := {}
+  consts : NameSet := {}
+
+/-- The hash of what the printer shows by default: an application of a constant loses its
+implicit, strict-implicit and instance arguments (hidden unless `@` is printed); everything else
+as `hashExprM`. Also collects the constants that survive. -/
+unsafe def hashSkelM (env : Environment) (e : Expr) : StateM SkelState UInt64 := do
+  let p := ptrAddrUnsafe e
+  if let some h := (← get).memo[p]? then return h
+  let h ← match e with
+    | .app .. =>
+      let fn := e.getAppFn
+      let args := e.getAppArgs
+      match fn with
+      | .const c ls => do
+        modify fun st => { st with consts := st.consts.insert c }
+        let bis ← match (← get).bis[c]? with
+          | some b => pure b
+          | none => do
+            let b := if (env.find? c).any (·.isCtor) then #[] else binderInfos env c
+            modify (fun st => { st with bis := st.bis.insert c b }); pure b
+        let mut h := mixList 61 [hash c, hash ls]
+        for i in [0:args.size] do
+          let shown := match bis[i]? with
+            | some .default => true
+            | some _ => false
+            | none => true
+          if shown then h := mix h (← hashSkelM env args[i]!) else h := mix h 62
+        pure h
+      | _ => do
+        let mut h ← hashSkelM env fn
+        for a in args do h := mix h (← hashSkelM env a)
+        pure (mix 63 h)
+    | .const n ls => do modify (fun st => { st with consts := st.consts.insert n }); pure (mix (mix 5 (hash n)) (hash ls))
+    | .lam n t b bi => do
+      let x ← hashSkelM env t; let y ← hashSkelM env b
+      pure (mixList 7 [hash n, biCode bi, x, y])
+    | .forallE n t b bi => do
+      let x ← hashSkelM env t; let y ← hashSkelM env b
+      pure (mixList 8 [hash n, biCode bi, x, y])
+    | .letE n t v b nd => do
+      let x ← hashSkelM env t; let y ← hashSkelM env v; let z ← hashSkelM env b
+      pure (mixList 9 [hash n, hash nd, x, y, z])
+    | .mdata d b => do
+      let y ← hashSkelM env b
+      pure (mixList 11 (d.entries.map (fun (k, v) => mix (hash k) (hash (toString v))) ++ [y]))
+    | .proj s i b => do let y ← hashSkelM env b; pure (mixList 12 [hash s, hash i, y])
+    | _ => pure ((hashExprM e).run' {} |> Id.run)
+  modify fun st => { st with memo := st.memo.insert p h }
+  return h
+
+/-- Skeleton hash of several expressions, and the constants that survive in them. -/
+unsafe def hashSkel (env : Environment) (es : Array Expr) : UInt64 × NameSet :=
+  let act : StateM SkelState UInt64 := es.foldlM (fun h e => do pure (mix h (← hashSkelM env e))) 71
+  let (h, st) := act.run {} |> Id.run
+  (h, st.consts)
+
+def kindCode : ConstantInfo → UInt64
+  | .axiomInfo _ => 1 | .defnInfo _ => 2 | .thmInfo _ => 3 | .opaqueInfo _ => 4
+  | .quotInfo _ => 5 | .inductInfo _ => 6 | .ctorInfo _ => 7 | .recInfo _ => 8
+
+def redCode : ReducibilityStatus → UInt64
+  | .reducible => 1 | .semireducible => 2 | .irreducible => 3 | .implicitReducible => 4
+  | .instanceReducible => 5
+
+/-- How the printer can abbreviate `c` inside namespace `ns`: every reverse alias and every
+suffix, resolved as the printer resolves it. -/
+def resolution (env : Environment) (ns c : Name) : UInt64 := Id.run do
+  if c.hasMacroScopes then return mix 32 (hash c)
+  let initial := (getRevAliases env c).toArray.push (rootNamespace.appendCore c)
+  let mut h : UInt64 := 31
+  for n in initial do
+    h := mix h (hash n)
+    if n.hasMacroScopes then continue
+    let comps := n.componentsRev
+    let mut suffix : Name := .anonymous
+    for comp in comps do
+      suffix := comp.appendCore suffix
+      let rs := ResolveName.resolveGlobalName env {} ns [] suffix
+      h := mixList h ((hash suffix) :: rs.map fun (r, fs) => mix (hash r) (hash fs))
+  return h
+
+/-- The declarations whose printed form makes up the members of a structure or inductive, and
+the structures the flattened fields go through. -/
+def memberConsts (env : Environment) (ci : ConstantInfo) : Array Name := Id.run do
+  let .inductInfo i := ci | return #[]
+  if isStructure env i.name then
+    let mut out := #[(getStructureCtor env i.name).name]
+    let mut todo := #[i.name]
+    let mut seen : NameSet := {}
+    while h : todo.size > 0 do
+      let s := todo.back
+      todo := todo.pop
+      if seen.contains s then continue
+      seen := seen.insert s
+      out := out.push s
+      for p in getStructureParentInfo env s do
+        out := out.push p.projFn
+        todo := todo.push p.structName
+    for f in getStructureFieldsFlattened env i.name (includeSubobjectFields := false) do
+      if let some owner := findField? env i.name f then
+        if let some pf := getProjFnForField? env owner f then out := out.push pf
+    return out
+  else
+    return i.ctors.toArray
+
+/-- The lemmas a package registered as a declaration's equations (Mathlib's `eqns` attribute,
+which `irreducible_def` uses): the state of the persistent extension named `eqnsAttribute`, read
+by name because this code does not import the package that declares it. -/
+unsafe def registeredEqns (env : Environment) : IO (Option (NameMap (Array Name))) := do
+  let exts ← persistentEnvExtensionsRef.get
+  let some e := exts.find? (·.name == `eqnsAttribute) | return none
+  let ext : SimplePersistentEnvExtension (Name × Array Name) (Thunk (NameMap (Array Name))) := unsafeCast e
+  return some (ext.getState env).get
+
+/-- Stored equation lemmas and the recursion data the equation generator reads. -/
+unsafe def eqnData (env : Environment) (registered : NameMap (Array Name)) (n : Name) : UInt64 × Array Expr := Id.run do
+  let mut h : UInt64 := 41
+  let mut es : Array Expr := #[]
+  for l in (registered.find? n).getD #[] do
+    if let some ci := env.find? l then
+      h := mixList h [46, hash l, hashExpr ci.type]; es := es.push ci.type
+  let mut i := 1
+  while true do
+    let some ci := env.find? (n.str s!"eq_{i}") | break
+    h := mix h (hashExpr ci.type); es := es.push ci.type; i := i + 1
+  if let some ci := env.find? (n.str "eq_def") then
+    h := mixList h [42, hashExpr ci.type]; es := es.push ci.type
+  if let some e := Elab.Structural.eqnInfoExt.find? env n then
+    h := mixList h [43, hashExpr e.type, hashExpr e.value, hash e.recArgPos, hash e.declNames]
+    es := es.push e.value
+  if let some e := Elab.WF.eqnInfoExt.find? env n then
+    h := mixList h [44, hashExpr e.type, hashExpr e.value, hash e.declNames, hash e.declNameNonRec]
+    es := es.push e.value
+  if let some e := Elab.PartialFixpoint.eqnInfoExt.find? env n then
+    h := mixList h [45, hashExpr e.type, hashExpr e.value, hash e.declNames]
+    es := es.push e.value
+  return (h, es)
+
+/-- What the app delaborator and field notation read off a referenced constant's type: per
+leading binder its kind and the head of its type, and the head of the result. -/
+def shapeOf (t : Expr) : UInt64 := Id.run do
+  let headCode (e : Expr) : UInt64 :=
+    match e.getAppFn with
+    | .const n _ => hash n
+    | .sort l => mix 81 (hash l.isZero)
+    | .bvar _ => 82
+    | .forallE .. => 83
+    | _ => 84
+  let mut h : UInt64 := 80
+  let mut t := t
+  while true do
+    match t with
+    | .forallE _ d b bi => h := mixList h [biCode bi, headCode d]; t := b
+    | _ => break
+  return mix h (headCode t)
+
+/-- The printing data of one referenced constant, in parts. -/
+structure Rec where
+  type : UInt64
+  skel : UInt64
+  shape : UInt64
+  lps : UInt64
+  red : UInt64
+  proj : UInt64
+  cls : UInt64
+  struct : UInt64
+  coe : UInt64
+  inst : UInt64
+  pp : UInt64
+  matcher : UInt64
+  prot : UInt64
+  value : UInt64
+  redValue : UInt64
+  auxValue : UInt64
+  projStruct : UInt64
+
+def recFields : List String :=
+  ["T", "TS", "SH", "LP", "RED", "PROJ", "CLS", "STR", "COE", "INST", "PP", "MAT", "PROT", "V", "RV", "AUX", "PSTR"]
+
+def Rec.toArray (r : Rec) : Array UInt64 :=
+  #[r.type, r.skel, r.shape, r.lps, r.red, r.proj, r.cls, r.struct, r.coe, r.inst, r.pp, r.matcher, r.prot, r.value,
+    r.redValue, r.auxValue, r.projStruct]
+
+/-- The flattened field layout of a structure and of every structure above it. -/
+def structLayout (env : Environment) (s : Name) : UInt64 := Id.run do
+  let mut h : UInt64 := 91
+  let mut todo := #[s]
+  let mut seen : NameSet := {}
+  while h' : todo.size > 0 do
+    let t := todo.back
+    todo := todo.pop
+    if seen.contains t then continue
+    seen := seen.insert t
+    h := mixList h ([hash t] ++ (getStructureFieldsFlattened env t (includeSubobjectFields := true)).toList.map hash)
+    for p in getStructureParentInfo env t do
+      h := mixList h [hash p.projFn, hash p.subobject]
+      todo := todo.push p.structName
+  return h
+
+unsafe def record (env : Environment) (c : Name) : CoreM Rec := do
+  let some ci := env.find? c | let m := mix 99 (hash c); return ⟨m, m, m, m, m, m, m, m, m, m, m, m, m, m, m, m, m⟩
+  let red := getReducibilityStatusCore env c
+  let proj := match env.getProjectionFnInfo? c with
+    | some p => mixList 21 [hash p.ctorName, hash p.numParams, hash p.i, hash p.fromClass]
+    | none => 0
+  let struct := match getStructureInfo? env c with
+    | some si => mixList 23 (si.fieldNames.toList.map hash ++ (getStructureParentInfo env c).toList.map (fun (p : StructureParentInfo) => hash p.structName))
+    | none => 0
+  let coe := match ← getCoeFnInfo? c with
+    | some cf => mix 24 (hash (reprStr cf))
+    | none => 0
+  let inst := if isInstanceCore env c then
+      mix 25 (hash (((instanceExtension.getState env).instanceNames.find? c).map (·.priority) |>.getD 0))
+    else 0
+  let pp := mixList 26 [hash (hasPPNoDotAttribute env c), hash (hasPPUsingAnonymousConstructorAttribute env c)]
+  let matcher := match Match.Extension.getMatcherInfo? env c with
+    | some mi => mix 28 (hash (reprStr mi))
+    | none => 0
+  let (v, rv) := match ci with
+    | .defnInfo d => let x := hashExpr d.value; (x, if red == ReducibilityStatus.reducible then x else 0)
+    | _ => (0, 0)
+  let aux := match ci with
+    | .opaqueInfo o => hashExpr o.value
+    | .defnInfo d => if (Match.Extension.getMatcherInfo? env c).isSome then hashExpr d.value else 0
+    | _ => 0
+  let projStruct := match env.getProjectionFnInfo? c with
+    | some p => structLayout env p.ctorName.getPrefix
+    | none => 0
+  return { type := mixList (hashExpr ci.type) [kindCode ci], skel := (hashSkel env #[ci.type]).1, shape := shapeOf ci.type,
+           lps := hash ci.levelParams, red := redCode red, proj, cls := hash (isClass env c), struct, coe, inst, pp,
+           matcher, prot := hash (isProtected env c), value := v, redValue := rv, auxValue := aux, projStruct }
+
+structure Memo where
+  recs : Std.HashMap Name Rec := {}
+  res : Std.HashMap (Name × Name) UInt64 := {}
+
+/-- Components of one declaration's key, each a hash; a key is a set of them. Own: N name, kind
+and universe names; T type; TS type as shown; V value; VS value as shown; E stored equations and
+recursion data. Over the constants that survive in what is shown (the members included): SN their
+names, then one aggregate per `recFields` entry (prefix `S`), and SRES name resolution. -/
+def componentNames : List String :=
+  ["N", "T", "TS", "V", "VS", "E", "SN"] ++ recFields.map ("S" ++ ·) ++ ["SRES"]
+
+unsafe def keyOf (env : Environment) (registered : NameMap (Array Name)) (memo : IO.Ref Memo) (n : Name) (ci : ConstantInfo) : CoreM (Array UInt64 × Nat) := do
+  let cN := mixList 51 [hash n, kindCode ci, hash ci.levelParams]
+  let cT := hashExpr ci.type
+  let members := memberConsts env ci
+  let memberTypes := members.filterMap fun m => (env.find? m).map (·.type)
+  let (cTS, skelT) := hashSkel env (#[ci.type] ++ memberTypes)
+  let (cV, cVS, cE, skelV) ← match ci with
+    | .defnInfo v =>
+      let (eh, es) := eqnData env registered n
+      let (vs, sv) := hashSkel env (#[v.value] ++ es)
+      pure (hashExpr v.value, vs, eh, sv)
+    | _ => pure (0, 0, 0, {})
+  let mut shown : NameSet := members.foldl (·.insert ·) {}
+  for c in skelT.toList ++ skelV.toList do shown := shown.insert c
+  let spaces := members.foldl (fun s m => if s.contains m.getPrefix then s else s.push m.getPrefix) #[n.getPrefix]
+  let mut names : UInt64 := 71
+  let mut agg : Array UInt64 := Array.replicate recFields.length 72
+  let mut res : UInt64 := 73
+  for c in shown.toArray.qsort Name.quickLt do
+    let st ← memo.get
+    let r ← match st.recs[c]? with
+      | some r => pure r
+      | none => do let r ← record env c; memo.modify fun s => { s with recs := s.recs.insert c r }; pure r
+    let mut rs : UInt64 := 0
+    for ns in spaces do
+      let st ← memo.get
+      let x ← match st.res[(ns, c)]? with
+        | some x => pure x
+        | none => do
+          let x := resolution env ns c
+          if st.res.size > 4000000 then memo.modify fun s => { s with res := {} }
+          memo.modify fun s => { s with res := s.res.insert (ns, c) x }
+          pure x
+      rs := mix rs x
+    names := mix names (hash c)
+    agg := (agg.zip r.toArray).map fun (a, x) => mix a x
+    res := mix res rs
+  return (#[cN, cT, cTS, cV, cVS, cE, names] ++ agg ++ #[res], shown.size)
+
+/-- Key components of every candidate the extractor would visit, in its enumeration order (first
+module wins): `name`, the components in `componentNames` order, the shown-constant count; one
+header line. -/
+unsafe def writeKeys (env : Environment) (world : World) (targets : Array Name) (out : System.FilePath) :
+    IO (Nat × Nat) := do
+  let memo ← IO.mkRef ({} : Memo)
+  let registered ← registeredEqns env
+  IO.eprintln s!"printkey: eqns attribute {match registered with | some m => s!"found, {m.size} declarations" | none => "not found"}"
+  let registered := registered.getD {}
+  let h ← IO.FS.Handle.mk out .write
+  h.putStr ("name\t" ++ "\t".intercalate componentNames ++ "\trefs\n")
+  let mut seen : NameSet := {}
+  let mut n := 0
+  let mut missing := 0
+  let coreCtx : Core.Context := { fileName := "<printkey>", fileMap := default, options := {}, maxHeartbeats := 0 }
+  for m in targets do
+    let some idx := world.moduleIndex? m | throw <| IO.userError s!"printkey: module not present: {m}"
+    let mut lines : Array String := #[]
+    for c in world.constNames idx do
+      if seen.contains c then continue
+      seen := seen.insert c
+      let some ci := env.find? c | missing := missing + 1; continue
+      let ((comps, refs), _) ← (keyOf env registered memo c ci).toIO coreCtx { env := env }
+      lines := lines.push s!"{c}\t{"\t".intercalate (comps.toList.map toString)}\t{refs}\n"
+      n := n + 1
+    h.putStr (String.join lines.toList)
+  h.flush
+  return (n, missing)
+
+end PrintKey
+
+=== reconstruct.py (sources from the two logs' CODE sections)
+"""Rebuild the hybrid scratch sources from the committed logs' CODE sections.
+
+usage: reconstruct.py <repo> <out-dir>
+"""
+import os
+import subprocess
+import sys
+
+repo, out = sys.argv[1], sys.argv[2]
+R = os.path.join(repo, 'benchmarks/results')
+
+
+def blocks(path):
+    lines = open(path, encoding='utf-8').read().split('\n')
+    start = lines.index('CODE')
+    res, cur, name = {}, None, None
+    for ln in lines[start + 2:]:
+        if ln.startswith('=== '):
+            if name is not None:
+                res[name] = cur
+            name, cur = ln[4:], []
+        elif name is not None:
+            cur.append(ln)
+    res[name] = cur
+    return res
+
+
+def body(lines):
+    while lines and lines[-1] == '':
+        lines = lines[:-1]
+    return '\n'.join(lines) + '\n'
+
+
+def find(bs, prefix):
+    hits = [k for k in bs if k.startswith(prefix)]
+    assert len(hits) == 1, (prefix, hits)
+    return bs[hits[0]]
+
+
+reader = blocks(os.path.join(R, 'olean-reader-prototype-2026-10-04.txt'))
+full = blocks(os.path.join(R, 'mathlib-hybrid-full-extraction-2026-10-05.txt'))
+
+orig = os.path.join(out, 'orig')
+os.makedirs(orig, exist_ok=True)
+open(os.path.join(orig, 'OleanReader.lean'), 'w').write(body(find(reader, 'OleanReader.lean')))
+open(os.path.join(orig, 'Assemble.lean'), 'w').write(body(find(reader, 'Assemble.lean')))
+with open(os.path.join(orig, 'Extract.lean'), 'w') as f:
+    f.write(open(os.path.join(repo, 'extractor/Extract.lean'), encoding='utf-8').read())
+
+for fname, prefix in [('Extract.lean', 'Extract.lean: diff'),
+                      ('OleanReader.lean', 'OleanReader.lean: diff'),
+                      ('Assemble.lean', 'Assemble.lean: diff')]:
+    d = os.path.join(out, fname + '.diff')
+    open(d, 'w').write(body(find(full, prefix)))
+    dst = os.path.join(out, fname)
+    open(dst, 'w').write(open(os.path.join(orig, fname)).read())
+    r = subprocess.run(['patch', '--no-backup-if-mismatch', dst, d], capture_output=True, text=True)
+    print(fname, 'patch exit', r.returncode, r.stdout.strip().replace('\n', ' | '), r.stderr.strip())
+
+simple = {
+    'HybridMain.lean': 'HybridMain.lean',
+    'ExtractMain.lean': 'ExtractMain.lean',
+    'lakefile.lean': 'lakefile.lean',
+    'compare.py': 'compare.py',
+    'classify.py': 'classify.py',
+    'checks.py': 'checks.py',
+    'runx.sh': 'runx.sh',
+}
+for fname, prefix in simple.items():
+    open(os.path.join(out, fname), 'w').write(body(find(full, prefix)))
+    print('wrote', fname)
+
+=== keycmp_lib.py (IR loading for the key comparator)
+"""IR loading shared by the key comparators: per declaration, hashes of its printed and cheap fields."""
+import hashlib, json, os
+
+PRINTED = ['type', 'binders', 'implicits', 'typeCode', 'binderCode', 'equations', 'equationCode',
+           'members', 'refnames']
+CHEAP = ['kind', 'modifiers', 'doc', 'attrs', 'instClass', 'instTypes', 'sorry', 'memberdocs']
+PLACEMENT = {'line', 'col', 'endLine', 'endCol', 'selectionRange', 'index', 'generated', 'refs', 'name'}
+
+
+def h(v):
+    return hashlib.blake2b(json.dumps(v, ensure_ascii=False, sort_keys=True).encode(), digest_size=8).digest()
+
+
+def split(d):
+    known = set(PRINTED) | set(CHEAP) | PLACEMENT
+    v = dict(d)
+    v['refnames'] = [r[1] for r in d.get('refs', [])]
+    v['members'] = [{k: x for k, x in m.items() if k != 'doc'} for m in d.get('members', [])]
+    v['memberdocs'] = [m.get('doc') for m in d.get('members', [])]
+    unknown = set(d) - known - {'members'}
+    if unknown:
+        raise SystemExit(f'unclassified field(s) {sorted(unknown)} in {d["name"]}')
+    return v
+
+
+def load(ir, limit=None):
+    mods = sorted(os.listdir(os.path.join(ir, 'modules')))
+    if limit:
+        mods = mods[:limit]
+    out = {}
+    for f in mods:
+        m = json.load(open(os.path.join(ir, 'modules', f), encoding='utf-8'))
+        for d in m['declarations']:
+            v = split(d)
+            if d['name'] in out:
+                raise SystemExit(f'{d["name"]} twice in {ir}')
+            out[d['name']] = (m['module'], tuple(h(v.get(k, '<absent>')) for k in PRINTED),
+                              tuple(h(v.get(k, '<absent>')) for k in CHEAP))
+    return out
+
+=== keycmp2.py (the key falsifier)
+"""Key variants against the printed output. Like keycmp.py, but the key files carry components and
+a key is a set of them; also says, for declarations whose output is equal but whose key is not,
+which components differ.
+
+usage: keycmp2.py <ir-A> <comps-A.tsv> <ir-B> <comps-B.tsv> <holes.jsonl> [--limit N]
+"""
+import json, sys
+from collections import Counter
+sys.argv, rest = sys.argv[:6], sys.argv[6:]
+limit = int(rest[rest.index('--limit') + 1]) if '--limit' in rest else None
+ir_a, comps_a, ir_b, comps_b, holes_path = sys.argv[1:6]
+
+import keycmp_lib as K
+
+REST = ['SRED', 'SPROJ', 'SCLS', 'SSTR', 'SCOE', 'SPP', 'SMAT', 'SPROT']
+VARIANTS = {
+    'F0 strict: full own and shown types, all data, values': ['N', 'T', 'V', 'E', 'SN', 'ST', 'SLP', 'SINST', 'SV', 'SRES'] + REST,
+    'F1 as shown: shown types, reducible values': ['N', 'TS', 'VS', 'E', 'SN', 'STS', 'SRV', 'SRES'] + REST,
+    'F2 = F1 with shapes for shown types': ['N', 'TS', 'VS', 'E', 'SN', 'SSH', 'SRV', 'SRES'] + REST,
+    'F4 = F2 without name resolution': ['N', 'TS', 'VS', 'E', 'SN', 'SSH', 'SRV'] + REST,
+    'F5 = F2 without reducible values': ['N', 'TS', 'VS', 'E', 'SN', 'SSH', 'SRES'] + REST,
+    'F6 = F2 without reducibility': ['N', 'TS', 'VS', 'E', 'SN', 'SSH', 'SRV', 'SRES'] + [r for r in REST if r != 'SRED'],
+    'F7 = F5 without reducibility': ['N', 'TS', 'VS', 'E', 'SN', 'SSH', 'SRES'] + [r for r in REST if r != 'SRED'],
+    'F8 = F7 without structure data': ['N', 'TS', 'VS', 'E', 'SN', 'SSH', 'SRES'] + [r for r in REST if r not in ('SRED', 'SSTR')],
+    'F9 = own as shown only (N TS VS E SN)': ['N', 'TS', 'VS', 'E', 'SN'],
+    'G2 = F2 + opaque/matcher values + projection structure layout': ['N', 'TS', 'VS', 'E', 'SN', 'SSH', 'SRV', 'SRES', 'SAUX', 'SPSTR'] + REST,
+    'G7 = F7 + opaque/matcher values + projection structure layout': ['N', 'TS', 'VS', 'E', 'SN', 'SSH', 'SRES', 'SAUX', 'SPSTR'] + [r for r in REST if r != 'SRED'],
+}
+
+
+def load_comps(p):
+    f = open(p, encoding='utf-8')
+    head = f.readline().rstrip('\n').split('\t')
+    assert head[0] == 'name' and head[-1] == 'refs', head
+    cols = head[1:-1]
+    out = {}
+    for line in f:
+        parts = line.rstrip('\n').split('\t')
+        if parts[0] in out:
+            raise SystemExit(f'{parts[0]} twice in {p}')
+        out[parts[0]] = dict(zip(cols, parts[1:-1]))
+    return cols, out
+
+
+A, B = K.load(ir_a, limit), K.load(ir_b, limit)
+ca, CA = load_comps(comps_a)
+cb, CB = load_comps(comps_b)
+assert ca == cb
+both = [n for n in A if n in B]
+print(f'declarations: IR-A {len(A)}, IR-B {len(B)}, in both {len(both)}; '
+      f'without components: A {sum(1 for n in A if n not in CA)}, B {sum(1 for n in B if n not in CB)}')
+out_eq = sum(1 for n in both if A[n][1] == B[n][1])
+print(f'printed fields equal: {out_eq} of {len(both)}')
+holes = open(holes_path, 'w')
+for name, comps in VARIANTS.items():
+    c = Counter()
+    fields = Counter()
+    for n in both:
+        if n not in CA or n not in CB:
+            c['no key'] += 1
+            continue
+        keq = all(CA[n][x] == CB[n][x] for x in comps)
+        peq = A[n][1] == B[n][1]
+        c[('key=' if keq else 'key!') + (' out=' if peq else ' out!')] += 1
+        if keq and not peq:
+            fs = [K.PRINTED[i] for i in range(len(K.PRINTED)) if A[n][1][i] != B[n][1][i]]
+            holes.write(json.dumps({'variant': name, 'name': n, 'moduleA': A[n][0], 'moduleB': B[n][0],
+                                    'fields': fs}) + '\n')
+            for f in fs:
+                fields[f] += 1
+    keq = c['key= out='] + c['key= out!']
+    print(f'{name}: key-equal {keq} ({100 * keq / len(both):.2f}%), of them output-different {c["key= out!"]}; '
+          f'key-different {c["key! out="] + c["key! out!"]} (output-equal {c["key! out="]}); no key {c["no key"]}')
+    if fields:
+        print('   hole fields: ' + ', '.join(f'{k} {v}' for k, v in fields.most_common()))
+diff = Counter()
+for n in both:
+    if n in CA and n in CB and A[n][1] == B[n][1]:
+        d = tuple(x for x in ca if CA[n][x] != CB[n][x])
+        for x in d:
+            diff[x] += 1
+        diff['pattern ' + ' '.join(d)] += 1
+print('output-equal declarations: how often each component differs')
+for x in ca:
+    print(f'  {x:5s} {diff[x]}')
+print('most common difference patterns among output-equal declarations:')
+for k, v in sorted(((k, v) for k, v in diff.items() if k.startswith('pattern')), key=lambda kv: -kv[1])[:15]:
+    print(f'  {v:7d}  {k[8:] or "(none)"}')
+
+=== runh.sh (one hybrid run: sampler, system memory before / after)
+#!/bin/bash
+# usage: runh.sh <run-name> <modules.txt> <jobs> [hybrid-binary]
+# One hybrid run under /usr/bin/time -l from the v4.34.1 workspace, with the sampler beside it and
+# system memory state recorded before and after.
+set -uo pipefail
+U=<scratch>
+NEW=<new-workspace>
+name=$1; mods=$2; jobs=$3; bin=${4:-$U/hybrid/.lake/build/bin/hybrid}
+R=$U/run/$name
+rm -rf "$R" && mkdir -p "$R"
+sysmem() { echo "== $1 $(date +%s)"; sysctl vm.swapusage; vm_stat; df -k <scratch> | tail -1; }
+sysmem before > "$R/sysmem.txt"
+export SNAPDIR=$R
+$U/run/runx.sh $U/run/lakeenv-new.txt $NEW $R/hybrid $bin $U/run/sp-old.txt "$mods" $R/events.jsonl \
+  --equations --refs --write-ir --tagged-code --jobs "$jobs" \
+  --ir-dir $R/ir --link-index $R/link-index.lidx --link-index-omit "$mods" ${EXTRA_ARGS:-} &
+rp=$!
+sleep_py() { python3 -c "import time; time.sleep($1)"; }
+sleep_py 1
+pid=$(pgrep -P "$(pgrep -P $rp | head -1)" | head -1)
+[ -z "$pid" ] && pid=$(pgrep -f "$bin" | head -1)
+echo "pid $pid" > "$R/pid.txt"
+$U/run/sampler.sh "$pid" "$R/sampler.tsv" 5 &
+wait $rp
+rc=$?
+sysmem after >> "$R/sysmem.txt"
+echo "runh exit $rc"
+
+=== runn.sh (one native run)
+#!/bin/bash
+# usage: runn.sh <run-name> <modules.txt> <jobs> <lakeenv> <workspace> <extract-binary>
+# One native extractor run under /usr/bin/time -l, the sampler beside it, system memory before/after.
+set -uo pipefail
+U=<scratch>
+name=$1; mods=$2; jobs=$3; envf=$4; ws=$5; bin=$6
+R=$U/run/$name
+rm -rf "$R" && mkdir -p "$R"
+sysmem() { echo "== $1 $(date +%s)"; sysctl vm.swapusage; vm_stat; df -k <scratch> | tail -1; }
+sysmem before > "$R/sysmem.txt"
+$U/run/runx.sh "$envf" "$ws" $R/native "$bin" "$mods" $R/events.jsonl \
+  --equations --refs --write-ir --tagged-code --jobs "$jobs" \
+  --ir-dir $R/ir --link-index $R/link-index.lidx --link-index-omit "$mods" &
+rp=$!
+python3 -c "import time; time.sleep(1)"
+pid=$(pgrep -P "$(pgrep -P $rp | head -1)" | head -1)
+echo "pid $pid" > "$R/pid.txt"
+$U/run/sampler.sh "$pid" "$R/sampler.tsv" 5 &
+wait $rp
+rc=$?
+sysmem after >> "$R/sysmem.txt"
+echo "runn exit $rc"
+
+=== sampler.sh (macOS, every 5 s)
+#!/bin/bash
+# usage: sampler.sh <pid-file-or-pid> <out.tsv> [interval]
+# Every <interval> s while the process lives: epoch, rss KiB, top MEM/CMPRS, swap used, vm_stat pageouts/swapouts/compressor pages.
+set -uo pipefail
+pid=$1; out=$2; iv=${3:-5}
+echo -e "t\trss_kib\tmem_cmprs\tswap_used\tpageouts\tswapouts\tcompressor_pages\tfree_pages" > "$out"
+while kill -0 "$pid" 2>/dev/null; do
+  t=$(date +%s)
+  rss=$(ps -o rss= -p "$pid" | tr -d ' ')
+  fp=$(top -l 1 -pid "$pid" -stats mem,cmprs 2>/dev/null | tail -1 | awk '{print $1"/"$2}')
+  sw=$(sysctl -n vm.swapusage | awk '{print $6}')
+  vs=$(vm_stat)
+  po=$(echo "$vs" | awk '/Pageouts/{gsub("\\.","",$2); print $2}')
+  so=$(echo "$vs" | awk '/Swapouts/{gsub("\\.","",$2); print $2}')
+  cp=$(echo "$vs" | awk '/occupied by compressor/{gsub("\\.","",$5); print $5}')
+  fr=$(echo "$vs" | awk '/Pages free/{gsub("\\.","",$3); print $3}')
+  echo -e "$t\t$rss\t$fp\t$sw\t$po\t$so\t$cp\t$fr" >> "$out"
+  python3 -c "import time; time.sleep($iv)"
+done
+echo "sampler done" >> "$out.done"
+
+=== snapshot.sh (macOS, called by the paused process)
+#!/bin/bash
+# usage: snapshot.sh <pid> <label>   (writes $SNAPDIR/<label>.txt; called by the paused process)
+set -uo pipefail
+pid=$1; label=$2; d=${SNAPDIR:-.}
+{
+  echo "== $label $(date +%s)"
+  echo "rss_kib $(ps -o rss= -p "$pid" | tr -d ' ')"
+  sysctl vm.swapusage
+  vm_stat | rg 'free|active|inactive|File-backed|Anonymous|compressor|Pageouts|Swapouts'
+  footprint -w -f bytes -p "$pid"
+} > "$d/snap-$label.txt" 2>&1
+exit 0
+
+=== levers.sh
+#!/bin/bash
+# The lever runs, one after another: proofs kept, two decode+assemble rounds (leak on / off),
+# native v4.34.1 without tagged code.
+set -uo pipefail
+U=<scratch>/run
+cd $U
+export HYBRID_SNAPSHOT=$U/snapshot.sh
+HYBRID_KEEP_PROOFS=1 HYBRID_STOP_AFTER=decode ./runh.sh proofs $U/modules-all.txt 4
+HYBRID_STOP_AFTER=assemble HYBRID_ROUNDS=2 HYBRID_LEAK=1 ./runh.sh rounds-leak $U/modules-all.txt 4
+HYBRID_STOP_AFTER=assemble HYBRID_ROUNDS=2 HYBRID_LEAK=0 ./runh.sh rounds-noleak $U/modules-all.txt 4
+unset HYBRID_SNAPSHOT
+R=$U/n4341-notag; rm -rf $R; mkdir -p $R
+./runx.sh lakeenv-new.txt <new-workspace> $R/native <scratch>/hybrid/.lake/build/bin/extract \
+  $U/modules-v4341.txt $R/events.jsonl --equations --refs --write-ir --jobs 4 --ir-dir $R/ir --link-index $R/link-index.lidx \
+  --link-index-omit $U/modules-v4341.txt &
+rp=$!
+python3 -c "import time; time.sleep(1)"
+pid=$(pgrep -P "$(pgrep -P $rp | head -1)" | head -1)
+./sampler.sh "$pid" $R/sampler.tsv 5 &
+wait $rp
+echo "levers done"
+
+=== modlist.py (the `Mathlib` library's modules, from the sources)
+"""The modules of Mathlib's `Mathlib` library: `Mathlib` and every `Mathlib.*` module in its import
+closure, read from the sources. usage: modlist.py <mathlib-src-root> <out>"""
+import os, re, sys
+root, out = sys.argv[1], sys.argv[2]
+imp = re.compile(r'^\s*(?:public\s+)?(?:meta\s+)?import\s+(?:all\s+)?([\w.«»\']+)')
+def imports(m):
+    p = os.path.join(root, *m.split('.')) + '.lean'
+    res = []
+    for line in open(p, encoding='utf-8'):
+        mm = imp.match(line)
+        if mm:
+            res.append(mm.group(1))
+        elif line.startswith(('namespace', 'section', 'theorem', 'def ', '/-!')):
+            break
+    return res
+seen, todo = set(), ['Mathlib']
+while todo:
+    m = todo.pop()
+    if m in seen: continue
+    seen.add(m)
+    for i in imports(m):
+        if (i == 'Mathlib' or i.startswith('Mathlib.')) and i not in seen:
+            todo.append(i)
+lst = ['Mathlib'] + sorted(seen - {'Mathlib'})
+open(out, 'w').write('\n'.join(lst) + '\n')
+print(len(lst))
+
+=== PROBE: build-host-probe.yml (goes to .github/workflows/ on the branch)
+name: build-host probe
+
+on:
+  push:
+    branches: [probe/build-host]
+  workflow_dispatch:
+    inputs:
+      modules:
+        description: "first N modules of Mathlib v4.31.0's library to extract (0 = all 8,170)"
+        default: "0"
+      arm_c_jobs:
+        description: "jobs for arm (c), the hybrid again (0 = skip it)"
+        default: "2"
+      arm_d_jobs:
+        description: "jobs for arm (d), the hybrid again (0 = skip it)"
+        default: "1"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      PROBE_WORK: /home/runner/probe-work
+      LOGS: /home/runner/probe-work/logs
+      MODULES: ${{ github.event.inputs.modules || '0' }}
+      ARM_C_JOBS: ${{ github.event.inputs.arm_c_jobs || '2' }}
+      ARM_D_JOBS: ${{ github.event.inputs.arm_d_jobs || '1' }}
+      ARM_TIMEOUT: "7200"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: GNU time
+        run: sudo apt-get install -y time
+
+      - name: record the machine
+        run: probe/build-host/probe.sh record start
+
+      - name: elan and the two toolchains
+        run: probe/build-host/probe.sh toolchains
+
+      - name: Mathlib v4.31.0 workspace (lake update, cache get)
+        run: probe/build-host/probe.sh ws old
+
+      - name: Mathlib v4.34.1 workspace (lake update, cache get)
+        run: probe/build-host/probe.sh ws new
+
+      - name: build the hybrid and the native extractor
+        run: probe/build-host/probe.sh build
+
+      - name: module list and search path
+        run: probe/build-host/probe.sh lists "$MODULES"
+
+      - name: (a) native v4.31.0 extraction, 4 jobs
+        run: probe/build-host/probe.sh arm native 4
+
+      - name: (b) hybrid v4.31.0 extraction, 4 jobs
+        if: always()
+        run: probe/build-host/probe.sh arm hybrid 4
+
+      - name: (c) hybrid again, 2 jobs (one per physical core)
+        if: always() && env.ARM_C_JOBS != '0'
+        run: probe/build-host/probe.sh arm hybrid-c "$ARM_C_JOBS"
+
+      - name: (d) hybrid again, 1 job (the under-8-GB lever on M1)
+        if: always() && env.ARM_D_JOBS != '0'
+        run: probe/build-host/probe.sh arm hybrid-d "$ARM_D_JOBS"
+
+      - name: (e) hybrid decode, assembly and key pass only
+        if: always()
+        run: probe/build-host/probe.sh arm hybrid-keys 4
+
+      - name: compare and hash
+        if: always()
+        run: probe/build-host/probe.sh compare
+
+      - name: record the machine at the end
+        if: always()
+        run: probe/build-host/probe.sh record end
+
+      - name: upload the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-host-probe
+          path: /home/runner/probe-work/logs
+
+=== PROBE: probe/build-host/probe.sh
+#!/bin/bash
+# The build-host probe, one subcommand per workflow step. Everything it writes goes to $LOGS.
+#   probe.sh record <label>        machine, memory, swap, disk
+#   probe.sh toolchains            elan + the two Lean toolchains, timed
+#   probe.sh ws <old|new>          a workspace requiring Mathlib, `lake update` and `cache get` timed
+#   probe.sh build                 the hybrid (v4.34.1) and native (v4.31.0) projects, timed
+#   probe.sh lists <N>             module lists (first N of the v4.31.0 `Mathlib` library; 0 = all)
+#   probe.sh arm <name> <jobs>     name: native | hybrid | hybrid-c | hybrid-d | hybrid-keys (decode, assemble, key pass)
+#   probe.sh compare               native vs hybrid IR, IR hash lists, the expected-hash checks
+set -euo pipefail
+P=$(cd "$(dirname "$0")" && pwd)
+W=${PROBE_WORK:-$HOME/probe-work}
+LOGS=${LOGS:-$W/logs}
+mkdir -p "$W" "$LOGS"
+answered=0
+on_exit() { local s=$?; if [ $s -eq 0 ] && [ $answered -eq 0 ]; then echo "probe.sh: fell off without an answer" >&2; exit 70; fi; }
+trap on_exit EXIT
+answer() { answered=1; exit "$1"; }
+stamp() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" | tee -a "$LOGS/phases.txt"; }
+timed() { local label=$1; shift; local t0 t1 rc; t0=$(date +%s.%N); if "$@"; then rc=0; else rc=$?; fi; t1=$(date +%s.%N)
+  echo "$label $(awk "BEGIN{printf \"%.1f\", $t1 - $t0}") s exit $rc" | tee -a "$LOGS/timings.txt"; return $rc; }
+
+record() {
+  local f="$LOGS/machine-$1.txt"
+  {
+    echo "## date"; date -u +%Y-%m-%dT%H:%M:%SZ
+    echo "## image"; echo "ImageOS=${ImageOS:-?} ImageVersion=${ImageVersion:-?} RUNNER_OS=${RUNNER_OS:-?}"
+    echo "## kernel"; uname -a
+    echo "## nproc"; nproc
+    echo "## lscpu"; lscpu
+    echo "## meminfo"; cat /proc/meminfo
+    echo "## swap"; swapon --show || true; free -b
+    echo "## df"; df -h
+    echo "## vm sysctl"; sysctl vm.swappiness vm.overcommit_memory 2>/dev/null || true
+  } > "$f" 2>&1
+}
+
+toolchains() {
+  timed elan-install bash -c 'curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none'
+  export PATH="$HOME/.elan/bin:$PATH"
+  timed toolchain-v4.31.0 elan toolchain install leanprover/lean4:v4.31.0
+  timed toolchain-v4.34.1 elan toolchain install leanprover/lean4:v4.34.1
+  du -sh "$HOME/.elan/toolchains/"* | tee -a "$LOGS/timings.txt"
+}
+
+ws() {
+  export PATH="$HOME/.elan/bin:$PATH"
+  local v=$1 d="$W/ws-$1"
+  rm -rf "$d"; cp -r "$P/ws-$v" "$d"
+  cd "$d"
+  MATHLIB_NO_CACHE_ON_UPDATE=1 timed "ws-$v-lake-update" lake update > "$LOGS/ws-$v-update.log" 2>&1
+  git -C .lake/packages/mathlib rev-parse HEAD | tee "$LOGS/ws-$v-mathlib-rev.txt"
+  timed "ws-$v-cache-get" lake exe cache get > "$LOGS/ws-$v-cache.log" 2>&1
+  tail -5 "$LOGS/ws-$v-cache.log"
+  timed "ws-$v-build-check" lake build --no-build Mathlib > "$LOGS/ws-$v-nobuild.log" 2>&1 || echo "ws-$v no-build check failed (not fatal)" | tee -a "$LOGS/timings.txt"
+  lake env printenv > "$W/lakeenv-$v.txt"
+  du -sh .lake | tee -a "$LOGS/timings.txt"
+  du -sh "${XDG_CACHE_HOME:-$HOME/.cache}/mathlib" 2>/dev/null | tee -a "$LOGS/timings.txt" || true
+}
+
+build() {
+  export PATH="$HOME/.elan/bin:$PATH"
+  rm -rf "$W/hybrid" "$W/native"; cp -r "$P/hybrid" "$W/hybrid"; cp -r "$P/native" "$W/native"
+  (cd "$W/hybrid" && timed build-hybrid lake build > "$LOGS/build-hybrid.log" 2>&1)
+  (cd "$W/native" && timed build-native lake build > "$LOGS/build-native.log" 2>&1)
+}
+
+lists() {
+  local n=$1
+  python3 "$P/modlist.py" "$W/ws-old/.lake/packages/mathlib" "$W/modules-old-all.txt"
+  if [ "$n" -gt 0 ]; then head -n "$n" "$W/modules-old-all.txt" > "$W/modules.txt"; else cp "$W/modules-old-all.txt" "$W/modules.txt"; fi
+  wc -l "$W/modules.txt" | tee -a "$LOGS/timings.txt"
+  {
+    echo "$HOME/.elan/toolchains/leanprover--lean4---v4.31.0/lib/lean"
+    python3 -c "import json,sys; print('\n'.join(p['name'] for p in json.load(open(sys.argv[1]))['packages']))" \
+      "$W/ws-old/lake-manifest.json" | while read -r p; do echo "$W/ws-old/.lake/packages/$p/.lake/build/lib/lean"; done
+  } > "$W/sp-old.txt"
+  cp "$W/modules.txt" "$W/sp-old.txt" "$LOGS/"
+}
+
+sampler() {
+  local pid=$1 out=$2
+  echo -e "t\tVmRSS\tRssAnon\tRssFile\tVmSwap\tMemAvailable\tCached\tSwapFree\tpswpin\tpswpout\tpgmajfault" > "$out"
+  while kill -0 "$pid" 2>/dev/null; do
+    local st mi vs
+    st=$(awk '/^(VmRSS|RssAnon|RssFile|VmSwap):/{printf "%s\t", $2}' "/proc/$pid/status" 2>/dev/null || true)
+    mi=$(awk '/^(MemAvailable|Cached|SwapFree):/{printf "%s\t", $2}' /proc/meminfo)
+    vs=$(awk '/^(pswpin|pswpout|pgmajfault) /{printf "%s\t", $2}' /proc/vmstat)
+    echo -e "$(date +%s)\t${st}${mi}${vs}" >> "$out"
+    sleep 5
+  done
+}
+
+arm() {
+  local name=$1 jobs=$2 R="$W/run-$1"
+  rm -rf "$R"; mkdir -p "$R"
+  local envf ws bin pre=()
+  case "$name" in
+    native) envf="$W/lakeenv-old.txt"; ws="$W/ws-old"; bin="$W/native/.lake/build/bin/extract" ;;
+    hybrid|hybrid-c|hybrid-d|hybrid-keys) envf="$W/lakeenv-new.txt"; ws="$W/ws-new"; bin="$W/hybrid/.lake/build/bin/hybrid"; pre=("$W/sp-old.txt") ;;
+    *) echo "unknown arm $name" >&2; return 2 ;;
+  esac
+  for v in LEAN_PATH LEAN_SYSROOT LEAN_SRC_PATH LEAN_GITHASH PATH ELAN_TOOLCHAIN LEAN LAKE LAKE_HOME; do
+    local val; val=$(grep "^$v=" "$envf" | head -1 | cut -d= -f2- || true)
+    export "$v=$val"
+  done
+  export SNAPDIR="$R" HYBRID_SNAPSHOT="$P/snapshot-linux.sh"
+  if [ "$name" = hybrid-keys ]; then export HYBRID_KEYS="$R/keys.tsv" HYBRID_STOP_AFTER=keys-only; fi
+  record "before-$name"
+  stamp "arm $name start (jobs $jobs)"
+  cd "$ws"
+  set +e
+  timeout "${ARM_TIMEOUT:-7200}" /usr/bin/time -v "$bin" "${pre[@]}" "$W/modules.txt" "$R/events.jsonl" \
+    --equations --refs --write-ir --tagged-code --jobs "$jobs" \
+    --ir-dir "$R/ir" --link-index "$R/link-index.lidx" --link-index-omit "$W/modules.txt" \
+    > "$LOGS/$name.out" 2> "$LOGS/$name.err" &
+  local tp=$!
+  sleep 2
+  local pid; pid=$(pgrep -P "$(pgrep -P $tp | head -1)" | head -1 || true)
+  if [ -n "$pid" ]; then sampler "$pid" "$LOGS/$name-sampler.tsv" & fi
+  wait $tp
+  local rc=$?
+  set -e
+  stamp "arm $name exit $rc"
+  record "after-$name"
+  for f in "$R"/snap-*.txt; do
+    if [ -f "$f" ]; then cp "$f" "$LOGS/$name-$(basename "$f")"; fi
+  done
+  if [ -f "$R/events.jsonl" ]; then cp "$R/events.jsonl" "$LOGS/$name-events.jsonl"; fi
+  if [ -f "$R/keys.tsv" ]; then (cd "$R" && sha256sum keys.tsv && wc -l < keys.tsv) > "$LOGS/$name-keys.sha256"; fi
+  if [ -d "$R/ir" ]; then (cd "$R/ir" && find . -type f | LC_ALL=C sort | xargs sha256sum) > "$LOGS/$name-ir.sha256"; fi
+  if [ -f "$R/link-index.lidx" ]; then (cd "$R" && sha256sum link-index.lidx) >> "$LOGS/$name-ir.sha256"; fi
+  return $rc
+}
+
+compare() {
+  local n="$W/run-native" h="$W/run-hybrid"
+  if [ -d "$n/ir" ] && [ -d "$h/ir" ]; then
+    python3 "$P/compare.py" "$n" "$h" "$W/details.jsonl" > "$LOGS/compare-report.txt" 2> "$LOGS/compare.err" || echo "compare exit $?" >> "$LOGS/compare.err"
+    python3 "$P/classify.py" "$W/details.jsonl" 2 > "$LOGS/compare-classes.txt" 2>&1 || true
+  fi
+  if [ -f "$LOGS/hybrid-keys-keys.sha256" ]; then
+    if diff <(awk '{$1=$1};1' "$P/expected-hybrid-keys.sha256") <(awk '{$1=$1};1' "$LOGS/hybrid-keys-keys.sha256") > /dev/null; then
+      echo "hybrid keys: identical to the M1 run" | tee -a "$LOGS/timings.txt"
+    else
+      echo "hybrid keys: differ from the M1 run" | tee -a "$LOGS/timings.txt"
+    fi
+  fi
+  for a in native hybrid; do
+    local e="$P/expected-$a-ir.sha256"
+    if [ -f "$LOGS/$a-ir.sha256" ] && [ -f "$e" ]; then
+      if diff <(sed 's#  \./#  #' "$e") <(sed 's#  \./#  #' "$LOGS/$a-ir.sha256") > "$LOGS/$a-ir-vs-m1.diff"; then
+        echo "$a IR: identical to the M1 run" | tee -a "$LOGS/timings.txt"
+      else
+        echo "$a IR: $(grep -c '^[<>]' "$LOGS/$a-ir-vs-m1.diff") differing lines against the M1 run" | tee -a "$LOGS/timings.txt"
+      fi
+    fi
+  done
+}
+
+case "${1:-}" in
+  record) record "$2" ;;
+  toolchains) toolchains ;;
+  ws) ws "$2" ;;
+  build) build ;;
+  lists) lists "$2" ;;
+  arm) arm "$2" "$3" || { echo "arm $2 failed" >&2; answer 1; } ;;
+  compare) compare ;;
+  *) echo "usage: probe.sh record|toolchains|ws|build|lists|arm|compare ..." >&2; answer 2 ;;
+esac
+answer 0
+
+=== PROBE: probe/build-host/snapshot-linux.sh
+#!/bin/bash
+# usage: snapshot-linux.sh <pid> <label>   (writes $SNAPDIR/snap-<label>.txt; called by the paused process)
+pid=$1; label=$2; d=${SNAPDIR:-.}
+{
+  echo "== $label $(date +%s)"
+  grep -E '^(VmRSS|VmHWM|RssAnon|RssFile|RssShmem|VmSwap):' "/proc/$pid/status"
+  echo "-- smaps_rollup"; cat "/proc/$pid/smaps_rollup"
+  echo "-- meminfo"; grep -E '^(MemTotal|MemFree|MemAvailable|Cached|AnonPages|Mapped|SwapTotal|SwapFree):' /proc/meminfo
+} > "$d/snap-$label.txt" 2>&1
+exit 0
+
+=== PROBE: probe/build-host/ws-old/lakefile.lean (ws-new: package wsnew, @ "v4.34.1"; lean-toolchain v4.31.0 / v4.34.1)
+import Lake
+open Lake DSL
+
+package wsold
+
+require mathlib from git "https://github.com/leanprover-community/mathlib4" @ "v4.31.0"
+
+=== PROBE: the rest of probe/build-host/
+hybrid/ and native/: the two projects above. compare.py, classify.py, checks.py: the full-extraction log's.
+expected-native-ir.sha256 (8,182 lines), expected-hybrid-ir.sha256, expected-hybrid-keys.sha256: generated on this machine (shasum -a 256).
+

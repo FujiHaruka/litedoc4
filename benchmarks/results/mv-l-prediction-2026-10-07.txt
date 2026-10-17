@@ -1,0 +1,53 @@
+The first L checkpoint (docs/multiversion/implementation.md step 4), predicted before it ran
+==========================================================================================
+
+Written 2026-10-07, before .github/workflows/mv-l.yml first ran. Everything here is (theoretical):
+a composition of the measured parts named per row, unverified until the run. The run's own log is a
+separate file; this one is not edited after the run.
+
+What runs: `litedoc4 build --root <Mathlib clone> --lib Mathlib --versions ... --jobs 4` on a
+GitHub-hosted ubuntu-latest runner (4 vCPU = 2 cores, 16 GB), with `no_equations_under =
+["Mathlib.Tactic", "Mathlib.Meta"]` (the flags of the M run and of the runner baseline):
+  (a) v4.32.2, v4.33.0 from nothing; (b) v4.33.1 added; (c) all three again.
+
+Sources
+  M     benchmarks/results/mv-m-2026-10-07.txt (M1, 438 modules / 21,928 declarations at v4.33.0,
+        one run) and benchmarks/results/mv-m-render-2026-10-07.txt (render, 5 runs, warm)
+  R     benchmarks/results/mathlib-build-host-runner-2026-10-05.txt (ubuntu-latest, all of Mathlib
+        v4.31.0, one run): toolchain 11.3-12.0 s, `lake update` 46 s, `cache get` 43-48 s, build
+        0.8 min, native extractor build 47.5 s, native extraction 4 jobs 482 s; runner/M1 = 1.8x
+        (hybrid) to 2.0-2.2x (native)
+  scale Mathlib v4.33.0: 317,834 declarations / 21,928 = 14.49; 8,312 modules / 438 = 19.0
+
+Per version, on the runner
+  phase       M (M1)                      basis                                  predicted
+  checkout    -                           `git worktree add`, ~9k files (assumed) <= 10 s
+  toolchain   -                           R, once per toolchain                   11-12 s, else 0
+  extractor   14.6-20.5 s                 R native extractor build 47.5 s         ~50 s, once per toolchain
+  cache       deps 19-22 + cache 18-23 s  R update 46 + get 43-48 s (no update     ~90 s
+              (slice)                     here; the manifest's clones instead)
+  lake        1.0-1.4 s                   R build 0.8 min                          ~50 s
+  extract     build 24.8 - render 2.8     22 s x 14.49 x 2.0-2.2 (declarations);   480-700 s
+              = 22 s                      R native extraction 482 s (v4.31.0)
+  put         1.14 s                      x 14.49 x 1.8-2.0                       30-33 s
+  render      3.2 s CPU per version       x 14.49 x 1.8-2.0, per version          84-93 s per version;
+                                                                                  peak RSS <= 3.1 GB
+                                                                                  (upper side)
+
+Per run (sum of the rows; the extractor rows land partly outside `phase` lines, since the identity
+is asked of an extractor before the loop)
+  (a) 2 x (toolchain 12 + extractor 50 + checkout 10 + cache 90 + lake 50 + extract 480-700 + put 32)
+      + render 2 x 84-93                                  = 25-33 min
+  (b) one version as above + render 3 x 84-93            = 16-20 min
+  (c) identity + render 3 x 84-93                        = 4.5-5 min
+
+Counts, compared exactly, not predicted in time
+  versions extracted: (a) 2 of 2, (b) 1 of 3 (v4.33.1), (c) 0 of 3.
+  The site in (c) byte-identical to the site in (b).
+
+Sizes (extrapolated earlier, quoted)
+  store entry, compressed: 66-84 MB per version (mv-m-2026-10-07.txt (11)).
+  hosted site per version: content 22.9 MB first + shells 3.67 MB (mv-m-render-2026-10-07.txt (6)).
+
+Falsified per phase when the run's figure is more than 25% outside the predicted range; the miss and
+the recalibration are written into the run's log and implementation.md.

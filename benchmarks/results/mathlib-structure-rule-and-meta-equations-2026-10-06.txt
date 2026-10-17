@@ -1,0 +1,358 @@
+The meta-code equations rule applied, and the narrower structure-data rule for the print key (E3)
+==================================================================================================
+Date: 2026-10-06. Context: docs/multiversion/plan.md D8 (decided 2026-10-06: definitions under `Mathlib.Tactic.*` and
+`Mathlib.Meta.*` show no equations), D7 (decided 2026-10-06: all versions from nothing, differential, in one process) and
+U9 (the reader, the hybrid, print reuse). The programs are those of
+benchmarks/results/mathlib-key-and-equation-profile-2026-10-06.txt (the "profile log": patchrun - the reader, the hybrid
+assembly, the patch, the seamed extractor, the print key G7 with the own record) with the changes under CODE. Earlier logs
+cited: benchmarks/results/mathlib-environment-patch-2026-10-05.txt (the "patch log") and
+benchmarks/results/mathlib-consecutive-release-reuse-2026-10-05.txt (the "consecutive log"). A design memo (not in the
+repository) proposed, as its experiment E3, keeping the structure data of a referenced constant in the key only where the
+printer reads it. A measurement in scratch Lake projects on this M1; nothing in src/ or extractor/ was changed.
+
+QUESTIONS
+---------
+(1) The meta-code rule, applied in the seamed extractor (the hybrid build on Lean v4.34.1 and the native build on Lean
+    v4.31.0): on the pair v4.31.0 -> v4.32.0 along the patch path (R0 full, R1 with reuse under G7 + own), what is R1's
+    extraction time against the patch log's 111.1 s, the equation time of the reprinted set, and where are the equation
+    failures now (the profile log's 83 definitions with no lemma, 201 s): how many were under the two prefixes, what are
+    the rest? Does the patched IR still equal a from-scratch IR made with the same rule?
+(2) E3: the field / parent data of referenced structures (SSTR) caused 74.6% of lost reuse on this pair (consecutive
+    log). Keep it only where the printer reads it - a shown constructor's structure, the declaration's own members, a
+    projection's structure (already the component SPSTR). Verify the read sites in the Lean v4.34.1 and Mathlib v4.34.1
+    sources, implement the rule as a key variant, and compare keys of both versions against regenerated from-scratch IR:
+    key-equal share and every hole. Falsifiers: holes > 0 (the rule misses a read); key-equal below F7's 84.89% (the
+    rule is wrong somewhere).
+(3) The patch path once more with the best variant that has 0 holes on this pair and the meta-code rule: R1's phase
+    times next to the patch log's, and the IR oracle.
+
+HEADLINE
+--------
+(1) The rule removes all but 0.3 s of the equation failures, and R1's extraction drops from 111.1 s to 84.3 s
+    (measured, one run each; absolute times under the memory pressure stated in CONDITIONS).
+      R1 v4.32.0, reuse under G7 + own          patch log (no rule, G7)   this log (rule, G7 + own)
+      declarations reprinted                     55,390                    55,681  (316,225 produced, 260,544 reused)
+      extraction                                 111.1 s                    84.3 s   (R1/R0 0.46 there, 0.38 here)
+        analysis                                  87.9 s                    58.8 s
+        writeIR                                   18.2 s                    20.2 s
+      printing CPU (threads summed)              137.6 s                   138.2 s
+      equations CPU (threads summed)             151.2 s                    62.0 s   (13,442 lemmas; 1,051 meta-code
+                                                                                      definitions skipped)
+    The 291 extra reprints are the own record (G7 + own instead of G7, the patch log's R3 key; measured there). R0 (the
+    full first version in the same process): extraction 220.2 s against 241.2 s, equations CPU 162.0 s against 254.3 s,
+    printing CPU 594.4 s against 591.0 s (measured). From scratch, v4.31.0: 2,439 definitions skipped, equation lemmas
+    58,374 -> 55,540, equation time 237.0 -> 146.0 s of thread time, failures 79 -> 17; v4.32.0: 2,501 skipped, 59,264 ->
+    56,363 lemmas, 232.7 -> 149.1 s, failures 80 -> 17 (measured; the "before" runs are the consecutive and patch logs'
+    from-scratch runs, in other sessions).
+    The failures now (measured, names logged per declaration): 17 failures and 4 empty equation sets on v4.31.0, 21
+    declarations taking 0.3 s together, against the profile log's 83 with no lemma (79 failures + 4 empty), 201.1 s. So
+    62 of the 83 were under the two prefixes (theoretical, by construction: the rule is a name filter applied before
+    any equation is computed, so a declaration outside the prefixes takes the same path as before; the 62 were not
+    observed by name - the profile log's per-declaration file was deleted). The 4 empty sets are the same kind as before
+    (Fin2.elim0, List.Pi.nil, Multiset.Pi.empty, Vector3.nil: definitions by empty match). All 17 failures are meta code
+    outside the prefixes, 13 of them Qq-quoted simprocs and extensions failing with "unquoteExpr: __result.<n> :
+    Lean.Expr" (Rat.evalIntFloor / evalIntCeil / evalIntFract / evalRound, Finset.Ico_ofNat_ofNat and three siblings,
+    Fin.prod_univ_ofNat, Fin.sum_univ_ofNat, ExistsAndEq.withNestedExistsElim / Intro, Nat.Mathlib.Meta.Positivity.
+    evalRadical, Matrix.toExpr), 3 failing with "failed" (Qq.ofNatQ, PiFin.toExpr, Multiset.instToExprOfToLevel). One of
+    them, Nat.Mathlib.Meta.Positivity.evalRadical, is a positivity extension whose name starts with `Nat.`: a namespace-
+    prefix spelling misses meta code declared inside another namespace. In R1, 14 of the 17 fail again (0.4 s); the other
+    3 failed in R0 too and their (empty) equations were reused.
+    The oracle: R0 equals the from-scratch v4.31.0 IR made with the rule in all 8,181 files and the link index, R1 the
+    from-scratch v4.32.0 IR made with the rule in all 8,276 files and the link index (measured). With the rule, 260 of
+    v4.31.0's 8,170 module files change against the previous hybrid IR, all of them among the 274 modules that hold a
+    meta-code definition, plus 7 dependency maps and index.json (fewer equations, fewer refs); the link index is unchanged
+    (measured). No `Mathlib.Tactic.*` / `Mathlib.Meta.*` definition carries an equation in either IR (2,450 / 2,512 such
+    definitions and instances; 11 / 11 of them were not counted as skipped, inferred to be theorem-kind instances as
+    the one seen on the meta sample) (measured, metacheck.py).
+(2) The narrower rule reaches 92.78% key-equal with 0 holes (measured, 310,899 declarations in both versions):
+      variant                                        key-equal          holes   lost reuse (key!, out=)   key!, out!
+      printed output equal (the ceiling)            299,001  96.17%
+      F7 (anchor: equals the consecutive log)       263,918  84.89%      1          35,084                 11,897
+      F8 (structure data dropped)                   292,766  94.17%      6           6,241                 11,892
+      G7                                            260,835  83.90%      1          38,167                 11,897
+      G7 + own (the patch log's key)                260,544  83.80%      0          38,457                 11,898
+      N1  = G7, SSTR -> SSTRN                       288,874  92.92%      1          10,128                 11,897
+      N1  + own                                     288,438  92.78%      0          10,563                 11,898
+      N1X + own (+ defaults, anonymous ctor)        287,941  92.62%      0          11,060                 11,898
+    The ceiling is 299,001 here against 298,443 in the consecutive log: the 558 are inferred to be meta-code definitions
+    whose equations differed between the versions and are no longer printed (not checked by name). The anchor is F7's
+    key-equal count; its holes fell from 2 to 1 for the same reason as F8's (below).
+    SSTRN mixes the structure data (field names, parent structures) of a shown constant only when the constant is one of
+    the declaration's members (the documented structure, its ancestors, the constructor and projections), and, for every
+    shown constructor of a structure, the data of that structure. The projection case stays SPSTR, unchanged.
+    Attempt 1 is N1 + own; it has no hole, so no second attempt was needed. N1's one hole without the own record is the
+    known one (MeasureTheory.VectorMeasure.measureOf': its own `[coe]` attribute removed in v4.32.0; the patch log closed
+    it with the own record). F8's other five holes (AffineSubspace.comap / map / mk', affineSpan, Submodule.toAffineSubspace:
+    equations printing a structure instance whose field became `smul_vsub_vadd_mem'`) are all SSTRN-different, so N1
+    keeps them out (measured, per declaration). F8 has 6 holes here against 7 in the consecutive log because one of the
+    seven, Mathlib.Tactic.Abel.isAtom, is meta code and prints no equation now.
+    Key-equal is far above F7's 84.89%, so the second falsifier does not fire either. The rule recovers 27,894 reuses
+    over G7 + own (38,457 -> 10,563 lost; the consecutive log's SSTR-alone count was 28,039), matching the memo's 92-94%
+    (theoretical there) and its reprint estimate of ~27,000: R1 now reprints 27,787 (measured). SSTRN still differs in
+    288 of the 10,563 lost declarations, never alone. The remaining lost reuse, by component alone: SPSTR 3,002, own
+    type as shown 1,830, SAUX 849, SSH 626, stored equations 608, own record 435, own value as shown 307.
+    Reading the sources (READ SITES below) confirms the memo's three core sites and adds one read inside them that no key
+    component models, G7 included: structure-instance notation omits a field whose value equals its default, so it
+    reads each field's default-value function and that function's value. N1X adds it (with the structure's
+    pp_using_anonymous_constructor attribute) and costs 497 reuses; on this pair it catches no output difference
+    (key!/out! 11,898 under both N1 + own and N1X + own). N1 + own is the variant run below; the default read is listed
+    under WHAT IS NOT MEASURED.
+(3) R1 with both changes (meta-code rule, N1 + own), next to the patch log and to (1) (measured; one process each):
+      phase                              patch log R1     (1) rule, G7 + own    (3) rule, N1 + own
+      closure                               3.6 s              3.5 s                3.6 s
+      decode v4.32.0 (1 thread)            57.2 s             58.3 s               57.9 s
+      delta + patch                        19.1 s             22.5 s               26.8 s
+      finalizeImport                       11.7 s             10.7 s               17.4 s
+      key pass (4 threads)                 97.1 s             94.4 s              104.2 s
+      extraction                          111.1 s             84.3 s               66.8 s
+        analysis                           87.9 s             58.8 s               41.0 s
+        writeIR                            18.2 s             20.2 s               20.0 s
+        printing / equations CPU     137.6 / 151.2 s     138.2 / 62.0 s        77.4 / 53.4 s
+      reprinted / reused             55,390 / 260,835   55,681 / 260,544      27,787 / 288,438
+      round wall (process clock)          325 s              299 s                303 s
+    IR oracle (3): R0 8,181 of 8,181 files and the link index equal to the from-scratch v4.31.0 IR with the rule, R1
+    8,276 of 8,276 and the link index equal to the from-scratch v4.32.0 IR with the rule (measured). The Lean key and
+    the comparator agree: R1 reused 288,438 under N1 + own and 260,544 under G7 + own, the comparator's counts exactly.
+    What the two changes do to R1's extraction: 111.1 -> 66.8 s, analysis 87.9 -> 41.0 s; writeIR (~20 s) does not
+    shrink with reuse. What they do not do: the round. The key pass (94-104 s), patch (19-27 s) and finalize (11-17 s)
+    moved by as much as the extraction gained between single runs, so R1's round wall is 299 / 303 s in both of this
+    log's processes. Whether SSTRN made the key pass slower (94.4 -> 104.2 s) or the machine did is not separable from
+    one run each (R0's key pass: 69.3 vs 72.9 s). Composed with the patch log's premises (theoretical: its R1 phases
+    with decode on 4 threads 25.7 s, patch 19.1 s, finalize 11.7 s, key pass 97.1 s, bookkeeping ~10 s, and this log's
+    extraction 66.8 s): ~234 s, ~3.9 min per extra version on the M1, against the patch log's ~278 s. The key pass is now
+    the largest phase by far (~41% of that).
+
+CONDITIONS
+----------
+- Hardware: Apple M1 (4 performance + 4 efficiency cores), 16 GiB, macOS 26.6.2. One heavy process at a time. Other desktop
+  applications running (not controlled). Before every full run the system compressor held 832,441-896,587 pages (16 KiB
+  each: 13.6-14.7 GB of other memory, compressed into 3.2-3.6 GB) and swap was 2.9-3.3 GB used of 4.1 GB (measured,
+  vm_stat and sysctl before each run). That is well over the ~6 GB this task set as the line and the same state as the profile log (~12 GB); the
+  patch log did not record its compressor. Absolute times are therefore inflated by an unknown amount; read the R1/R0
+  ratios and the within-process comparisons first. Each patch process had 3.9 GB of its own memory compressed on average
+  (max 6.6 / 6.7 GB; 5-s sampler), the from-scratch runs 2.3 / 2.5 GB (measured).
+- Versions as in the patch log: v4.31.0 (Lean 68218e876d2a, Mathlib fabf563a7c95) in <old-workspace>, read-only; v4.32.0
+  (Lean 8c9756b28d64, Mathlib 81a5d257c8e4) in <v4.32.0-workspace>, read-only; printer Lean 4.34.1 (5045d0056413),
+  Mathlib v4.34.1 (d13f23b723b8) in <new-workspace>, read-only. Module sets: 8,170 (closure 10,583) and 8,265 (closure
+  10,406). Extractor flags in every run: --equations --refs --write-ir --tagged-code --jobs 4 --link-index
+  --link-index-omit <modules>.
+- Patch processes as the patch log's R0 / R1: decode on 1 thread in both rounds, leakEnv false, the realization map
+  emptied after each extraction, footprint snapshots at phase boundaries (6.0 s of pauses per process, not subtracted).
+  Process (1) (measured): 703.46 s wall, 1,925.35 s user, 127.68 s sys, peak footprint 10.07 GB; process (3): 719.79 s, 1,916.87 s,
+  127.09 s, 10.19 GB (patch log: 10.08 GB).
+- From-scratch hybrid runs with the rule, which also wrote the key components (HYBRID_KEYS, single-threaded key pass after
+  the extraction; measured): v4.31.0 466.01 s wall, 1,046.66 s user, 63.17 s sys, peak footprint 8.77 GB; v4.32.0 482.01 s,
+  1,089.82 s, 58.92 s, 8.69 GB.
+- Warm / cold: not separated; every full program ran once. The timings are single measurements; the subjects (IR equality,
+  keys, failure lists) do not depend on warmth.
+- Sampling: every changed program ran first on samples - the patch log's 20-module sample (hybrid v4.31.0 and v4.32.0
+  with keys; its IR hashes equal the earlier sample references byte for byte, since none of its modules holds meta
+  code), a 20-module meta sample (10 `Mathlib.Tactic.*` modules + 10 of the standard sample; hybrid v4.31.0: 257
+  definitions skipped, 85 lemmas; hybrid v4.32.0: 255 / 84; native v4.31.0: 257 / 85), the patch path on the meta
+  sample three times (G7 + own, N1 + own, N1X + own; all four rounds' IR equal to the sample references), the
+  comparator on the sample (metacheck.py, keycmp4.py and the key-column perturbation on 20 modules first). eqfail.py ran on
+  the full stderr directly; it reads only the 21-37 matching lines of a run.
+
+THE META-CODE RULE (what was applied)
+------------------------------------
+- In `withEquations`, after the --equations guard: a definition whose name, with any private prefix removed
+  (`privateToUserName`), lies strictly under `Mathlib.Tactic` or `Mathlib.Meta` gets no equations and is counted
+  (`eqSkipped`). It applies to every `.defnInfo` the extractor documents, instances included; its signature, docstring
+  and source range are unchanged. The prefixes are a fixed list in the extractor for this prototype; how the product
+  spells it for packages other than Mathlib is open (D8), and the case above (meta code inside `Nat.`) is one input to
+  that.
+- Equation failures and empty equation sets are written to stderr by name with their time and the first line of the
+  message (EQFAIL / EQEMPTY); no IR field was added.
+- The same edit applied to the native build (Lean v4.31.0, the full-extraction log's seamed source); it builds and, on the
+  meta sample, skips the same 257 definitions and produces the same 85 lemmas as the hybrid (measured).
+- metacheck.py: no meta-code definition with equations in an IR. Made to fail once (measured): one equation inserted into
+  Mathlib.Tactic.Abel.NormalExpr.zero' in a copy of the meta-sample IR -> "meta-code definitions with equations: 1",
+  exit 1.
+
+THE READ SITES (read in the sources: Lean v4.34.1 core, and the nine packages of the Mathlib v4.34.1 workspace)
+---------------------------------------------------------------------------------------------------------
+Search: every file under the core's Lean/PrettyPrinter for getStructure* / isStructure / StructureInfo / getFieldInfo? /
+getProjFnForField? / findField? / getEffectiveDefault* / isConstructorApp?; in aesop, batteries, Cli, importGraph,
+LeanSearchClient, mathlib, plausible, proofwidgets and Qq, every file that defines a delaborator (127 files with app_delab
+/ @[delab / DelabM / Delab :=; Mathlib alone has 148 app_delab occurrences) for the same names plus fieldNotationCandidate?
+/ parentProj? / isParentProj / projFn. The packages: 0 hits - no package delaborator reads structure data. Core:
+  FieldNotation.lean:33-45 projInfo       for a shown constant `S.f`: S's field info (is `f` a field; is it a
+                                          subobject), S's parent projections, numParams, isClass S. Answers "some" only for
+                                          a projection or a parent projection of S. Covered by SPROJ / SPSTR of the shown
+                                          projection (the flattened layout of its structure and ancestors).
+  Builtins.lean:596-634 collectStructFields  a constructor application printed as { f := ... }: getStructureFields of the
+                                          constructor's structure; getFieldInfo?'s subobject flag, which decides flattening
+                                          into a nested parent constructor application (itself shown, so its structure is
+                                          covered in turn); getEffectiveDefaultFnForField? and the default function's
+                                          value, through which a field equal to its default is omitted.
+  Builtins.lean:639-682 delabStructureInstance  isStructure of the constructor's inductive, the inductive's
+                                          pp_using_anonymous_constructor attribute (G7's SPP covers shown constants; the
+                                          inductive need not be shown), the binder infos of the constructor (its shape).
+  TopDownAnalyze.lean:146 isStructureInstance  only under pp.analyze, which the extractor does not set.
+  Builtins.lean:1214 delabProj            a primitive projection prints `e.<index+1>`; no structure data.
+  The extractor's own reads: structureMembers (the documented structure's parents, flattened fields, getFieldOrigin,
+  mkProjection) - the members; isProjFn (the blacklist) and the ext origin are recomputed every round, not reused.
+So the memo's three sites hold; the default-value read and the anonymous-constructor attribute of the inductive are the
+two details it did not name. SSTRN covers the field names and parents; SCX (N1X) covers the other two.
+
+THE KEY VARIANT (what was implemented)
+-------------------------------------
+- Two new components per declaration, computed in the same loop over the shown constants as every other one:
+  SSTRN: for a shown constant that is a member of the declaration, its STR record value (field names, parent structures);
+  for a shown constant that is a constructor of a structure, the same data of that structure. SCX: for a shown
+  constructor of a structure, the structure's anonymous-constructor attribute and, for every field at every level, the
+  effective default-value function's name, type and value.
+- N1 = G7 with SSTR replaced by SSTRN; N1X = N1 + SCX; "+ own" = the declaration's own record over the patch log's ten
+  fields. In the patch process, PRINTKEY_VARIANT=nown (N1 + own) or nownx (N1X + own) chooses the second key; unset, it is
+  G7 + own as before.
+- The key file written by the from-scratch runs gained SSTRN, SCX and OWN columns. keycmp4.py = keycmp3.py with the new
+  variants and the lost-reuse analysis for a chosen variant.
+- Cross-checks (measured): the comparator's F7, G7 and G7 + own counts equal the consecutive and patch logs' (263,918 /
+  260,835 / 260,544); on the meta sample, the patch process reused 532 / 599 / 597 under G7 / N1 + own / N1X + own,
+  the comparator's counts. Made to fail once (measured, standard sample): SSTRN of AddConstEquiv and OWN of
+  AddConstEquiv.Simps.symm_apply set to 1 in a copy of the v4.32.0 key file -> N1 1,114 -> 1,113, N1 + own 1,114 ->
+  1,112, G7 + own 976 -> 975, G7 unchanged.
+
+WHAT FAILED, AND WHY
+--------------------
+1. The first sample run and the first sample patch process were given the module list and the rounds file by relative
+   path and stopped in ~3 s ("no such file") - the consecutive log's trap; re-run with absolute paths.
+2. The first fail-once perturbation of the new key columns changed two declarations that are not in both IRs, so no
+   count moved; redone on declarations present in both (the result above).
+3. The holes file of the full comparison was deleted with the key dumps after the hole names had been read; every hole
+   is named in this log.
+
+WHAT IS NOT MEASURED
+--------------------
+- The default-value read: N1 + own does not model it (nor did G7). The release that would show a hole: a default-value
+  function's body changes while a shared declaration prints a structure instance with a field equal to that default.
+  N1X + own models it at a cost of 497 reuses on this pair; whether it ever catches a difference is unknown.
+- The 62 meta-code definitions among the profile log's 83 are inferred by construction, not seen by name.
+- Whether the key pass got slower with SSTRN (single runs, compressor-inflated); the time split of the remaining
+  equation work.
+- The rule's effect on pages: equations disappear from 260 / 274 module pages of meta code; nothing was rendered.
+- N1 on the 3-apart pair, on a patch pair, across the v4.33.0 reducibility rename; anything on the runner; a cold start.
+- The native build ran on the 20-module meta sample only; no full native extraction.
+
+HOW IT WAS RUN
+--------------
+  cp <scratch>/hybrid/{*.lean,lakefile.lean,lean-toolchain,lake-manifest.json} <scratch>/src/profile-log/   # previous state
+  # the changes (CODE); then
+  cd <scratch>/hybrid && lake build ; cd <scratch>/native && lake build          # v4.34.1 and v4.31.0
+  HYBRID_KEYS=... PRINTKEY_RECS=... runh.sh ss4310m <abs>/modules-sample.txt 4                 # samples, then hashed
+  SP=sp-v4320.txt HYBRID_KEYS=... runh.sh ss4320m / ssm4320 <abs>/modules-sample[-meta].txt 4
+  HYBRID_KEYS=... runh.sh ssm4310 <abs>/modules-sample-meta.txt 4
+  runn.sh nsm4310 <abs>/modules-sample-meta.txt 4 lakeenv-old.txt <old-workspace> <scratch>/native/.lake/build/bin/extract
+  python3 metacheck.py <ir> ; python3 keycmp4.py <ir-A> <keys-A> <ir-B> <keys-B> <holes> [--recs ...] --lost N1+own
+  [PRINTKEY_VARIANT=nown|nownx] runp.sh pe3s|pe3sn|pe3sx <abs>/rounds-e3s.tsv 4                # sample patch paths
+  HYBRID_KEYS=... PRINTKEY_RECS=... runh.sh h4310m <abs>/modules-all.txt 4                     # full, from scratch
+  SP=sp-v4320.txt HYBRID_KEYS=... PRINTKEY_RECS=... runh.sh h4320m <abs>/modules-v4320.txt 4
+  python3 keycmp4.py h4310m/ir h4310m-keys.tsv h4320m/ir h4320m-keys.tsv holes.jsonl --recs ... --lost N1+own
+  python3 eqfail.py h4310m/hybrid.err ; python3 eqfail.py h4320m/hybrid.err
+  HYBRID_SNAPSHOT=snapshot.sh runp.sh pm1 <abs>/rounds-e3full.tsv 4                            # (1)
+  PRINTKEY_VARIANT=nown HYBRID_SNAPSHOT=snapshot.sh runp.sh pm2 <abs>/rounds-e3full.tsv 4      # (3)
+rounds-e3full.tsv: v4.31.0 full (decode 1 thread, reference h4310m), then v4.32.0 with key "own" (decode 1 thread,
+reference h4320m). Every full run under /usr/bin/time -l with the 5-s sampler and the system memory state before and
+after; stdout and stderr to separate files; `df` before each (5.3, 4.5, 4.3, 4.3 GiB free). During each patch process
+three IR trees existed for one round at a time: both from-scratch reference trees were kept until both processes had
+passed the oracle (a differing round could not have been classified with its reference deleted), beside the round's own
+tree, which the program deletes after hashing; free disk stayed above ~3.7 GiB (theoretical: 4.3 GiB minus one tree). Deleted afterwards: both
+from-scratch IR trees and link indexes, the patch rounds' trees (deleted by the program after hashing; none differed),
+the key and record dumps, the holes file, the sample trees. Kept: the sources (<scratch>/hybrid, <scratch>/native; the
+previous state in <scratch>/src/profile-log; scripts, diffs and summaries in <scratch>/src/e3), the run reports, the IR
+hash lists, the workspaces.
+
+CODE
+----
+=== Extract.lean (hybrid; the native build's diff is the same at other line numbers)
+@@ Counters
+   eqFailures : Nat := 0
++  eqSkipped : Nat := 0
+@@ Counters.add
++    eqSkipped := a.eqSkipped + b.eqSkipped,
+@@ before withEquations
++def metaCodePrefixes : Array Name := #[`Mathlib.Tactic, `Mathlib.Meta]
++
++def isMetaCode (n : Name) : Bool :=
++  let u := privateToUserName n
++  metaCodePrefixes.any fun p => p != u && p.isPrefixOf u
+@@ withEquations
+   unless cfg.genEquations do return d
++  if isMetaCode v.name then
++    modify fun c => { c with eqSkipped := c.eqSkipped + 1 }
++    return d
+@@ withEquations, the result
+   | .ok eqs =>
+     modify fun c => { c with eqCount := c.eqCount + eqs.size }
++    if eqs.isEmpty then IO.eprintln s!"EQEMPTY {v.name}\t{(t1 - t0) / 1000000}"
+     return { d with equations := eqs.map (·.1), equationSpans := eqs.map (·.2) }
+-  | .error _ =>
++  | .error msg =>
+     modify fun c => { c with eqFailures := c.eqFailures + 1 }
++    IO.eprintln s!"EQFAIL {v.name}\t{(t1 - t0) / 1000000}\t{String.mk (((msg.splitOn "\n").headD "").toList.take 200)}"
+     return { d with eqFailed := true }
+@@ the analyze event and the summary line: eqSkipped added
+
+=== PrintKey.lean
++def structData (env : Environment) (s : Name) : UInt64 :=
++  match getStructureInfo? env s with
++  | some si => mixList 23 (si.fieldNames.toList.map hash ++ (getStructureParentInfo env s).toList.map (fun (p : StructureParentInfo) => hash p.structName))
++  | none => 0
++
++unsafe def ctorExtra (env : Environment) (s : Name) : UInt64 := Id.run do
++  let mut h : UInt64 := mixList 97 [hash (hasPPUsingAnonymousConstructorAttribute env s)]
++  for f in getStructureFieldsFlattened env s (includeSubobjectFields := true) do
++    if let some fn := getEffectiveDefaultFnForField? env s f then
++      let body := match env.find? fn with
++        | some ci => mixList (hashExpr ci.type) [((ci.value? (allowOpaque := true)).map hashExpr).getD 0]
++        | none => 98
++      h := mixList h [hash f, hash fn, body]
++  return h
+@@ componentNames
+-  ... ++ ["SRES"]
++  ... ++ ["SRES", "SSTRN", "SCX"]
+@@ keyOf
+-  let mut shown : NameSet := members.foldl (·.insert ·) {}
++  let memberSet : NameSet := members.foldl (·.insert ·) {}
++  let mut shown : NameSet := memberSet
++  let mut sstrn : UInt64 := 74
++  let mut scx : UInt64 := 75
+   (inside the loop over the sorted shown constants, after the existing aggregates)
++    if memberSet.contains c then sstrn := mixList sstrn [hash c, r.struct]
++    if let some (.ctorInfo cv) := env.find? c then
++      if isStructure env cv.induct then
++        sstrn := mixList sstrn [76, hash cv.induct, structData env cv.induct]
++        scx := mixList scx [hash cv.induct, ctorExtra env cv.induct]
+-  return (#[cN, cT, cTS, cV, cVS, cE, names] ++ agg ++ #[res], shown.size)
++  return (#[cN, cT, cTS, cV, cVS, cE, names] ++ agg ++ #[res, sstrn, scx], shown.size)
++def ownMix (h : UInt64) (r : Rec) : UInt64 :=
++  mixList h [r.shape, r.auxValue, r.projStruct, r.proj, r.cls, r.struct, r.coe, r.pp, r.matcher, r.prot]
+@@ writeKeys: an OWN column, ownMix 0 of the declaration's own record (memo or computed, not inserted)
++def g7nIdx (extra : Bool) : Array Nat :=
++  g7Idx.map (fun j => if j == 14 then 25 else j) ++ (if extra then #[26] else #[])
+@@ keysPar
++  let variant := (← IO.getEnv "PRINTKEY_VARIANT").getD ""
++  let secondIdx ← match variant with
++    | "" => pure g7Idx
++    | "nown" => pure (g7nIdx false)
++    | "nownx" => pure (g7nIdx true)
++    | v => throw <| IO.userError s!"printkey: unknown PRINTKEY_VARIANT {v}"
+-        let own := mixList g7 [r.shape, r.auxValue, r.projStruct, r.proj, r.cls, r.struct, r.coe, r.pp, r.matcher, r.prot]
++        let base := if variant.isEmpty then g7 else secondIdx.foldl (fun h j => mix h comps[j]!) 7
++        let own := ownMix base r
+
+=== PatchMain.lean: the KEYS line names the second key (G7+own, or the variant)
+
+=== keycmp2_variants.py (keycmp4.py imports it; keycmp4.py = keycmp3.py + these variants + --lost <variant>)
++G7 = VARIANTS['G7 = F7 + opaque/matcher values + projection structure layout']
++NARROW = [('SSTRN' if x == 'SSTR' else x) for x in G7]
++E3_VARIANTS = {
++    'G7+own (the patch log key)': G7 + ['OWN'],
++    'N1 = G7 with SSTR narrowed (members, shown constructors)': NARROW,
++    'N1+own': NARROW + ['OWN'],
++    'N1X+own = N1+own + constructor extras (defaults, anonymous ctor)': NARROW + ['SCX', 'OWN'],
++}
+
+=== metacheck.py (new): per IR, definitions and instances whose user name starts with Mathlib.Tactic. / Mathlib.Meta.,
+    with and without equations; exit 1 if any meta-code definition has equations.
+=== eqfail.py (new): EQFAIL / EQEMPTY lines grouped by name prefix and message, with their time.

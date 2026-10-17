@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write
+#!/usr/bin/env node
 // V6: the two `autolinkTokens` separator sets.
 //
 // `autolinkTokens` splits the inside of a code span on a separator set. The
@@ -18,19 +18,19 @@
 // `src/Litedoc4/Md/GcTable.lean`, which `tools/oracle/gen-gc-table.ts` generates
 // from the build doc-gen4 links — not a second copy of the UCD.
 //
-// npm/node are broken in this environment; this must run under deno.
-//
 // usage:
-//   deno run --allow-read --allow-write benchmarks/tools/v6-token-separators.ts
+//   node benchmarks/tools/v6-token-separators.ts
 //   ... --ir <dir>       the IR tree to scan   (default: the w7h base IR)
 //   ... --out <file>     where to write the log (default: the path below)
+
+import { readFile, writeFile } from "node:fs/promises";
 
 const REPO = new URL("../..", import.meta.url).pathname;
 const DEFAULT_IR = "/private/tmp/lean-doc-relay/w7h/base-ir";
 const DEFAULT_OUT = `${REPO}benchmarks/results/m2b-v6-token-separators.json`;
 const GC_TABLE = `${REPO}src/Litedoc4/Md/GcTable.lean`;
 
-const args = Deno.args;
+const args = process.argv.slice(2);
 const flag = (name: string, fallback: string) => {
   const at = args.indexOf(name);
   return at >= 0 && at + 1 < args.length ? args[at + 1] : fallback;
@@ -69,7 +69,7 @@ function readUnicodeBasicZC(source: string): (cp: number) => boolean {
   return (cp: number) => member[cp] === 1;
 }
 
-const gcSource = await Deno.readTextFile(GC_TABLE);
+const gcSource = await readFile(GC_TABLE, "utf8");
 const isUnicodeBasicZC = readUnicodeBasicZC(gcSource);
 
 const V8_ZC = /[\p{Z}\p{C}]/u;
@@ -111,7 +111,7 @@ interface Occurrence {
   direction: "v8Only" | "unicodeBasicOnly";
 }
 
-const index = JSON.parse(await Deno.readTextFile(`${irRoot}/index.json`));
+const index = JSON.parse(await readFile(`${irRoot}/index.json`, "utf8"));
 const occurrences: Occurrence[] = [];
 let modulesScanned = 0;
 let declsScanned = 0;
@@ -120,7 +120,7 @@ let codeSpansScanned = 0;
 let codeSpanCodePoints = 0;
 for (const entry of index.modules) {
   modulesScanned++;
-  const module = JSON.parse(await Deno.readTextFile(`${irRoot}/${entry.file}`));
+  const module = JSON.parse(await readFile(`${irRoot}/${entry.file}`, "utf8"));
   for (const decl of module.declarations ?? []) {
     declsScanned++;
     if (!decl.doc) continue;
@@ -147,7 +147,7 @@ const record = {
   measurement: "V6: the two autolinkTokens separator sets",
   date: new Date().toISOString().slice(0, 10),
   label: "実測",
-  runtime: { deno: Deno.version.deno, v8: Deno.version.v8 },
+  runtime: { node: process.versions.node, v8: process.versions.v8, unicode: process.versions.unicode },
   unicodeBasicFrom: "src/Litedoc4/Md/GcTable.lean (generated from the build doc-gen4 links)",
   sets: {
     v8Members: v8Total,
@@ -175,7 +175,7 @@ const record = {
   },
 };
 
-await Deno.writeTextFile(outPath, `${JSON.stringify(record, null, 2)}\n`);
+await writeFile(outPath, `${JSON.stringify(record, null, 2)}\n`);
 console.error(
   [
     `V8 |Z∪C| = ${v8Total}, UnicodeBasic |Z∪C| = ${unicodeBasicTotal}`,

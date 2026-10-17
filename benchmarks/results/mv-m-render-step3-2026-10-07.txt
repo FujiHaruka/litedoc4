@@ -1,0 +1,577 @@
+M, step 3: the store renderer's output re-derived after the page moved into the browser
+
+Input: the M store step 2 rendered (benchmarks/results/mv-m-render-2026-10-07.txt), unchanged:
+/private/tmp/lean-doc-relay/mv-m/store, three schema-4 entries v4.32.2 / v4.33.0 / v4.33.1,
+433 / 438 / 438 Mathlib modules. Renderer: litedoc4 built at 8795709; HEAD a5d2293 changes no
+path under src/, web/ or extractor/ since then. Rendered by benchmarks/tools/mv-m-render.sh, the
+one uncommitted path of every run below (its diff is in (8)). Two kept renders: path URLs and
+--hash-urls, 5 full renders of the three versions each plus each version alone once.
+
+Conditions: Apple M1, 16 GB, macOS 25.6.0; 4 GB swap with 2.64-2.72 GB used; warm (wall within
+0.1-0.5 s of user + sys on every run; the store is 14 MB). Load average: 1.73 at the session's
+start, when the two --runs 2 sample runs ran; 4.1-8.5 during the kept runs (spindump and Spotlight
+indexing appeared during the path run, a charting app and WindowServer at ~110% CPU throughout).
+Read the timing in (7) with that in mind: CPU time rose with the load, the bytes did not move.
+
+Every byte and file count below comes from the kept renders and was taken twice: the two sample
+runs' all-1 trees are byte-identical to the kept runs' all-1 trees (diff -r, both modes).
+Byte counts are "stored" (what a host serves: gzip files as written, HTML and assets uncompressed)
+unless "raw" is written.
+
+(1) Done-when identities, both modes (measured)
+  - render twice: all-2 .. all-5 byte-identical to all-1 (diff -r and the JSON counts), path and
+    hash mode.
+  - each version alone: path mode - its <v>/ shells, 404.html and assets/ byte-identical to the
+    three-version run's; hash mode - index.html, 404.html and assets/ byte-identical, no <v>/
+    directory written; both modes - every data file it wrote is in all-1's d/ byte for byte
+    (path 1,193 / 1,207 / 1,207; hash 1,194 / 1,208 / 1,208, the routing table being the one
+    more). The root index.html is version-set dependent in path mode (it names the newest
+    version) and is not compared there.
+  - a separate reader reconciles the renderer's counts with the tree: shells, data referenced and
+    added per version, every d/ file referenced, assets/, every file of the site; in hash mode,
+    every routing table names exactly its module list's pages plus the four version pages.
+
+(2) Hash mode's identities, made to fail once (measured)
+  None of the three had ever been made to fail with --hash-urls. Each defect below was injected
+  through LITEDOC4 pointing at a wrapper that runs the real binary and then alters the output it
+  just wrote (one defect per run, --runs 2, otherwise the same command). Exit status and the line
+  that named it:
+    render twice     one byte appended to a d/ file of all-2      exit 1  "all-2 identical to all-1: no"
+    alone, data      one byte appended to a d/ file of alone-v4.33.0
+                                                                  exit 1  "... 1 of 1208"
+    alone, root      one byte appended to alone-v4.33.0/index.html
+                                                                  exit 1  "index.html 404.html assets identical to all-1's: no"
+    alone, 404       the same on alone-v4.33.0/404.html            exit 1  (the same line)
+    alone, assets    the same on alone-v4.33.0/assets/style.css    exit 1  (the same line)
+    reader           all-1/v4.33.0/x.html added                    exit 1  "v4.33.0: 1 shells written with hash URLs"
+    reader           "routes" dropped from v4.33.0 in all-1/versions.json
+                                                                  exit 1  "versions.json names a routes file for some versions and not others"
+    reader           v4.33.0's routing table deleted from all-1/d/ exit 1  "v4.33.0: routes f77a9c63295d3e3f.json.gz is not in d/"
+    reader           one module removed from v4.33.0's routing table (same file name)
+                                                                  exit 1  "... absent: ['Mathlib/Algebra/BigOperators/Group/Finset/Basic.html']"
+    reader           an unreferenced file added to all-1/d/        exit 1  "d/ holds 1 file(s) no version references; total files 1888 vs 1889 on disk"
+  The reader defects were injected after the last render, so the identity checks stayed green and
+  each failure is the reader's alone. Path mode, the new 404.html compare: exit 1, "v4.33.0
+  404.html assets identical to all-1's: no". Clean runs pass in both modes ((1)).
+
+  Found doing this, and fixed in the script: in hash mode the "alone" identity compared no byte.
+  Its "shells identical to all-1's: yes" meant only that alone-<v>/<v>/ did not exist. The script
+  at HEAD, given the "alone, root" and "alone, assets" defects above, printed "yes" for all three
+  versions and exited 0 both times. In hash mode the root index.html is the only page there is,
+  and nothing compared it. Path mode had the same gap for 404.html and assets/. The fix compares
+  404.html and assets/ in both modes, and index.html in hash mode; the identity line now names
+  what it compared.
+
+(3) Hosted bytes and files, the three versions (measured)
+                         path mode                       hash mode
+  files                  3,206                           1,888
+  stored                 5,476,290 B (28,508,090 raw)    4,419,778 B (27,508,484 raw)
+    shells               1,321 files 1,091,285 B         0
+    data (gzip)          1,879 files 4,306,588 B         1,882 files 4,342,043 B
+                         (27,338,388 raw)                (27,430,749 raw; 3 routing tables)
+    assets               3 files 69,903 B                3 files 69,903 B
+                         (site.js 39,776, style.css 29,767, favicon.svg 360; gzip -9 21,686)
+    root                 3 files 8,514 B                 3 files 7,832 B
+                         (index.html 4,226, 404.html     (index.html 3,443, 404.html 4,169,
+                          4,152, versions.json 136)       versions.json 220)
+  step 2:                3,196 files, 4,877,142 B: shells 1,315 files 580,133 B, data 1,879 files
+                         4,296,597 B, root 2 files 412 B, no assets.
+  The data files are the same 1,879 files as step 2's except the three module lists (+4,964 /
+  +5,026 B stored; v4.33.1 shares v4.33.0's) and the version files that name them; content, page, Used-by, search,
+  instances and references files are byte-for-byte the same sizes.
+
+(4) Shells, module list, routing table, search index (measured, then extrapolated)
+  Shells (path mode), per version: its module pages + index.html 641, references.html 702,
+  search.html 1,127, foundational_types.html 2,872 B.
+    all 1,321: mean 826 B, median 819 (step 2: 1,315, 441 B each)
+    module pages, 1,309: mean 821 B, median 819, min 769, max 891 (the root-relative "../"
+    prefix appears three times and grows with path depth);
+    Mathlib/Algebra/Group/Defs.html 821 B.
+  Module list per version (gzip / raw): 11,919 / 56,934 (v4.32.2), 12,069 / 57,572 (v4.33.0,
+    v4.33.1). Step 2: 6,955 / 39,533 and 7,043 / 40,027. Growth 1.71x stored, 1.44x raw on M
+    (S's ~2.6x does not carry to M; 403 of 438 modules carry a summary, which is 15,639 B of the
+    57,632 B of compact JSON).
+  Routing table per version (hash mode, gzip / raw): 11,697 / 30,541 (433 entries), 11,878 /
+    30,910 (438), 11,880 / 30,910 (438): 27.1 B stored and 70.6 B raw per module.
+  Search index per version (gzip / raw): 113,027 / 308,207 (v4.32.2), 114,047 / 312,045.
+  Per Mathlib version (extrapolated; module list and routing table scaled by modules
+  8,312 / 438 = 18.98 because both are one row per module; search index by declarations
+  317,834 / 21,928 = 14.49, as in step 2):
+    module list    229 KB gzip, 1.09 MB raw (step 2's scaling by declarations put it at ~100 KB)
+    routing table  225 KB gzip, 587 KB raw, against step 3's 246 KB / 686 KB from the target's
+                   8,169 real module paths (82.5 B raw per entry). M's paths are shorter than
+                   the target's; the target-based figure is the better one for Mathlib.
+    search index   1.65 MB gzip, 4.52 MB raw
+
+(5) What a release adds (measured, data files new to d/ + that version's shells)
+                       path mode                                  hash mode
+  first (v4.32.2)      1,193 files 2,432,583 B + 437 shells        1,194 files 2,444,280 B
+                       360,985 B
+  minor (v4.33.0)      683 files 1,862,931 B + 442 shells          684 files 1,874,809 B
+                       365,150 B                                  (incl. routing table 11,878)
+  patch (v4.33.1)      3 files 11,074 B + 442 shells 365,150 B     4 files 22,954 B (content
+                       (content 9,450, page 1,140, version 484)    9,450, page 1,140, version
+                                                                  484, routing table 11,880)
+  step 2:              minor 683 files 1,857,905 B + 440 shells 194,129 B;
+                       patch 3 files 11,073 B + 440 shells 194,129 B.
+  A patch release in path mode is now 97% shells by bytes (365,150 of 376,224). In hash mode it
+  writes no shells, but its routing table is a whole new file: the one changed page file changes
+  one address in it. At Mathlib that is ~225 KB per patch release against ~11 KB of data
+  (extrapolated as in (4); the patch data assumes Mathlib's patch touches M's handful of items,
+  as step 2 did).
+
+(6) A module-page view: what is fetched, and when (measured; fetch order read from web/src at HEAD)
+  Path mode, before the page draws: the shell, then assets/site.js (and style.css, favicon) on a
+  first visit, then the version file and the page file in parallel, then the content file. Data
+  round trips: 2 in a row.
+  Hash mode, before it draws: the root index.html, site.js, versions.json, then the version file
+  and the routing table in parallel, then the page file, then the content file. Data round trips:
+  4 in a row (versions.json -> routing table -> page -> content). Within one document all
+  data files are cached by URL, so later hash navigations re-fetch only page and content.
+  After the draw, both modes fetch versions.json for the switcher. In path mode, on any version
+  but the newest, canonical also fetches the newest version's version file and module list:
+  484 + 12,069 = 12,553 B more per view on M (~229 KB per view at Mathlib, extrapolated, unless
+  the browser's HTTP cache serves it, since each path-mode view is a new document).
+  On demand: the module list (the tree, the imports upgrade, search), the search index (search
+  box focus), Used by (per declaration toggle), instances (instances file + search index + module
+  list: 17,401 + 114,047 + 12,069 = 143,517 B on M; ~2.13 MB at Mathlib, extrapolated: 1.65 search
+  + 0.25 instances + 0.23 module list).
+
+  Bytes before the draw, stored (assets excluded; on a first visit they add 69,903 B, 21,686 B
+  under gzip -9 if the host compresses):
+               pages  version+page+content          path: + shell                hash: + index.html 3,443
+                      total / median / max          total / median / max         + versions.json 220 + routes
+  v4.32.2       433   2,150,898 / 3,097 / 30,134    2,506,541 / 3,950 / 30,955   8,801,778 / 18,457 / 45,494
+  v4.33.0       438   2,173,027 / 3,094 / 30,137    2,532,835 / 3,937 / 30,958   8,979,985 / 18,636 / 45,678
+  v4.33.1       438   2,173,464 / 3,096 / 30,138    2,533,272 / 3,938 / 30,959   8,981,298 / 18,638 / 45,681
+  Largest: Mathlib.Algebra.Group.Defs, content 26,003 + page 3,651 + version 483 = 30,137 B
+  (v4.33.0); its Used by, 25,362 B, is no longer fetched before the draw.
+  Step 2 counted version + page + Used by + content: 2,481,566 B, median 3,524, max 55,499
+  (v4.33.0). The difference, 308,539 B, is Used by moving to on demand; the files are the same
+  bytes. At step 1's scope (version + page + content + module list) step 2 had 5,257,861 B;
+  the module list is now fetched only on demand, so a view before the draw is 2,173,027 B,
+  and it would be 7,459,249 B if every view also fetched the larger list.
+  Hash mode: the routing table is 64% of a median first view on M (11,878 of 18,636 B). At
+  Mathlib it would be ~225 KB against a ~3 KB median page (extrapolated; per-page files assumed
+  to stay M-sized). Only the first view of a version in one document pays it.
+
+(7) Render time and memory (measured; 5 runs of all three versions + one per version alone)
+  path:  wall 11.14 / 11.78 / 12.03 / 13.37 / 13.45 s; cpu 10.97 / 11.68 / 11.82 / 12.90 /
+         13.11 s; peak RSS 253 MiB; alone 4.22 / 4.26 / 4.07 s cpu, 220-221 MiB (load 4.1-9.1)
+  hash:  wall 10.95 / 11.70 / 11.81 / 12.10 / 12.31 s; cpu 10.75 / 11.51 / 11.66 / 11.97 /
+         12.21 s; 253 MiB; alone 4.09 / 3.93 / 3.98 s cpu (load 8.5 -> 4.6)
+  re-run, path then hash, same session (load 4.4-6.0): path cpu median 11.78 s, hash 12.04 s,
+         253 MiB, alone 4.0-4.1 s.
+  The sample runs at load ~1.8, minutes earlier, same binary and store (2 runs each): path cpu
+  9.29 / 9.34 s, alone 3.17-3.20 s, peak 253-259 MiB; hash cpu 9.25 / 9.24 s, alone 3.15-3.20 s.
+  Step 2: 9.42 s median cpu, 3.2 s alone, 253 MiB.
+  Read: the 11-13 s are the load, not step 3. At comparable load, step 3's render costs what
+  step 2's did (9.3 against 9.4 s CPU, 2 runs against 5), and hash mode costs the same as path
+  mode. Peak RSS does not move with the load or the mode. The ~47 s CPU and <= 3.1 GB per
+  Mathlib version step 2 extrapolated stand.
+
+(8) The script change (benchmarks/tools/mv-m-render.sh, uncommitted when these runs were made)
+  - alone: compares 404.html and assets/ in both modes, and index.html in hash mode (see (2)).
+    Before, hash mode compared nothing and printed "shells identical: yes".
+  - the view line counted Used by as fetched before the draw. Since step 3 it is on demand. The
+    line now counts version + page (+ routing table) + content and names the module list and
+    Used by as on demand.
+  - the conditions block records the load average.
+
+(9) Extrapolated to Mathlib (extrapolated: 5.3% of modules measured, one minor and one patch
+  pair; step 2's scalings kept for content, page, Used by, search and instances (declarations,
+  14.49) and its minor-content estimate of 8.58 MB; module list and routing table scaled by
+  modules (18.98, 19.20 for the 433-module first version); references, version file, assets and
+  root files not scaled; 8,312 modules + 4 version pages = 8,316 shells per version, each module
+  shell at M's 821.4 B mean (assumed: Mathlib's path depth and name lengths match M's);
+  11 versions = first + 5 minor + 5 patch, 51 = first + 25 + 25)
+  - first version, data: 34.70 MB (step 2: 34.6); minor release data 18.97 MB (content 8.58,
+    the rest 10.39, of which module list 0.23); patch 11 KB (assumed, as in step 2)
+  - shells per version: 8,312 x 821.4 + 5,342 = 6.83 MB (step 2: 3.67 MB at 441 B)
+  - hash mode: no shells; one routing table per version, 225 KB (or 246 KB by step 3's
+    target-based figure)
+                   path mode                          hash mode                  step 2   step 1, a
+                   data    shells   total            data    routes   total
+    11 versions    130 MB  75 MB    205 MB           130 MB  2.5 MB   132 MB     169 MB   198 MB
+    51 versions    509 MB  348 MB   858 MB           509 MB  11.5 MB  521 MB     693 MB   854 MB
+    (target: 51 versions <= 1.5 GB; assets and root files add 0.08 MB once)
+  - files per release, path mode: 8,316 shells + 3 data (patch) or + ~11.2k data (minor: ~1,958
+    content + ~7,951 page + ~1,309 Used by + 5, assumed in proportion to modules as in step 2).
+    Hash mode: the same data files + 1 routing table, no shells.
+  Shells are now 41% of the 51-version path-mode total, and they are what a patch release adds.
+
+(10) For the next decisions (measured on M; extrapolations labelled)
+  (a) Dependency line ranges in every page file, v4.32.2 -> v4.33.0, 433 modules in both:
+      page file unchanged 19, changed 414 (355,906 B stored). Content unchanged but a new page
+      file: 228; in 211 of them the only difference is dependency line ranges (108,831 B stored,
+      313,746 raw, in v4.33.0's d/); in 1 more the dependency entries' root/module differ too
+      and nothing else; 16 differ in the page's own data. (Step 2: 211 of 228, same files.)
+      With dependency lines out of the page file (an entry keeps root index + module), 203 of
+      the 414 still change: 247,075 B stored as they are today, 217,911 B (gzip -9) with
+      the lines removed. With the whole dependency entry out of the page file, 202.
+      One per-version table of every dependency entry the pages name: 1,106 distinct names
+      (v4.32.2) / 1,104 (v4.33.0), 8,504 / 8,542 entries across the pages, no name with two
+      different entries; Init 704, Lean 340, Batteries 43, Std 11, ProofWidgets 4,
+      ImportGraph 2 (v4.33.0).
+        name -> [root, module, l1, l2]   60,443 B raw, 14,246 B gzip -9 (v4.33.0)
+        name -> [l1, l2]                 31,444 B raw, 11,657 B gzip -9
+      The renderer stores gzip -9 output: it matched byte for byte on a sampled page file.
+      Page files' raw bytes with dependency lines removed: 1,212,555 of 1,285,374 (94.3%).
+      What it trades, on M: a minor release's page files go from 358,295 B to ~220 KB
+      (217,911 for the 203 changed modules + ~2.1 KB for the 5 new ones), plus a 14,246 B table:
+      net ~124 KB (35% of page bytes) per minor release. Every page view fetches the table
+      before it can draw links: +14,246 B on a 3,094 B median view (the view grows 5.6x). At
+      Mathlib: 1.8-2.0 MB per minor release (extrapolated: the 138,277 B of page bytes saved x
+      14.49, less the table at 14 KB unscaled or ~0.2 MB scaled the same way), 9.5-10.5% of the
+      ~19 MB minor; the table's size at Mathlib is not measured (M names 1,104 distinct
+      dependency declarations; Mathlib names more, by an unknown factor of at most ~19).
+  (b) The inlined theme script: 185 B per page (168 B of script + the <script> tags), 22.5% of a
+      module shell's 821 B. Path mode: in 1,321 shells + index.html + 404.html = 244,755 B on M;
+      hash mode: 2 files, 370 B. At Mathlib: 8,316 x 185 = 1.54 MB per version, 16.9 MB at 11
+      versions, 78.5 MB at 51 (extrapolated, the shell count above).
+  (c) The search index, per version: 312,045 B raw / 114,047 B gzip (v4.33.0); 308,207 / 113,027
+      (v4.32.2). Opening instances pulls it with the instances file and the module list:
+      143,517 B stored on M; ~2.13 MB stored, ~7.0 MB raw at Mathlib (extrapolated: search and
+      instances x 14.49, module list x 18.98). Step 3's "~5 MB" is the raw search index alone
+      (4.52 MB).
+
+What looked wrong:
+  - mv-m-render.sh --hash-urls's "alone" identity compared no byte (fixed, (2) and (8)).
+  - mv-m-render.sh's view line still counted Used by as a pre-draw fetch (fixed, (8)); step 2's
+    view figures carry Used by and are not the step-3 page's.
+  - In path mode, every module-page view on a non-newest version fetches the newest version's
+    whole module list after drawing, for the canonical link: ~229 KB per view at Mathlib
+    (extrapolated) unless HTTP-cached. This is the largest after-draw fetch, and it happens on
+    every old-version view.
+  - In hash mode a patch release re-writes the version's routing table, ~225 KB at Mathlib against
+    ~11 KB of data (extrapolated). Splitting the table, or putting the route beside the page,
+    would change that.
+  - The kept runs' CPU times (11-13 s) are inflated by machine load ((7)).
+
+Raw outputs follow: the path-mode and hash-mode script runs (kept renders), the re-timing runs,
+the sample runs' timing lines, the layout analysis and the dependency-line analysis.
+
+---- path mode, kept render (mv-m-render.sh --runs 5) ----
+run of a5d22933f65a13e6f9224c005276a1281fcaa8ba (1 uncommitted path(s))
+date              2026-10-07T01:33:10Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+swap              total = 4096.00M  used = 2636.31M  free = 1459.69M  (encrypted)
+load              4.13 4.23 3.38
+store             /private/tmp/lean-doc-relay/mv-m/store
+versions          v4.32.2,v4.33.0,v4.33.1
+runs              5
+urls              paths
+all-2 identical to all-1: yes
+all-3 identical to all-1: yes
+all-4 identical to all-1: yes
+all-5 identical to all-1: yes
+alone-v4.32.2: v4.32.2 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1193
+alone-v4.33.0: v4.33.0 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1207
+alone-v4.33.1: v4.33.1 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1207
+hosted (all 3 versions): 3206 files, 5476290 B stored (28508090 B raw)
+  shells 1321 files 1091285 B; data 1879 files 4306588 B stored (27338388 B raw); assets 3 files 69903 B; root 3 files 8514 B
+reconciled with the renderer's counts: shells, data referenced and added per version, every d/ file referenced, assets/, every file of the site; each version's shells are its module list's pages plus index.html, references.html, search.html, foundational_types.html
+
+v4.32.2: 437 shells (360985 B)
+  kind        referenced files/stored         added files/raw/stored
+  content          432       1582300      432   10418901    1582300
+  page             433        359459      433    1268847     359459
+  usedBy           323        303085      323    3030298     303085
+  modules            1         11919        1      56934      11919
+  search             1        113027        1     308207     113027
+  instances          1         17330        1      94761      17330
+  references         1         44980        1     157595      44980
+  front              0             0        0          0          0
+  version            1           483        1       1102        483
+  routes             0             0        0          0          0
+  total           1193       2432583     1193   15336645    2432583
+
+v4.33.0: 442 shells (365150 B)
+  kind        referenced files/stored         added files/raw/stored
+  content          436       1598535      190    7822181    1106877
+  page             438        362938      419    1275532     358295
+  usedBy           328        305789       69    2230927     208287
+  modules            1         12069        1      57572      12069
+  search             1        114047        1     312045     114047
+  instances          1         17401        1      95007      17401
+  references         1         45472        1     159333      45472
+  front              0             0        0          0          0
+  version            1           483        1       1102        483
+  routes             0             0        0          0          0
+  total           1207       2456734      683   11953699    1862931
+
+v4.33.1: 442 shells (365150 B)
+  kind        referenced files/stored         added files/raw/stored
+  content          436       1598535        1      42841       9450
+  page             438        362937        1       4101       1140
+  usedBy           328        305789        0          0          0
+  modules            1         12069        0          0          0
+  search             1        114047        0          0          0
+  instances          1         17401        0          0          0
+  references         1         45472        0          0          0
+  front              0             0        0          0          0
+  version            1           484        1       1102        484
+  routes             0             0        0          0          0
+  total           1207       2456734        3      48044      11074
+
+v4.32.2: before it draws, a module page fetches its version, page and content files: 433 pages, 2150898 B in all, max 30134, median 3097 (on demand: the module list 11919 B, Used by)
+v4.33.0: before it draws, a module page fetches its version, page and content files: 438 pages, 2173027 B in all, max 30137, median 3094 (on demand: the module list 12069 B, Used by)
+v4.33.1: before it draws, a module page fetches its version, page and content files: 438 pages, 2173464 B in all, max 30138, median 3096 (on demand: the module list 12069 B, Used by)
+
+all-1            wall  11.14 s  cpu  10.97 s  peak RSS    253 MiB  page faults 11
+all-2            wall  11.78 s  cpu  11.68 s  peak RSS    253 MiB  page faults 30
+all-3            wall  12.03 s  cpu  11.82 s  peak RSS    253 MiB  page faults 29
+all-4            wall  13.37 s  cpu  12.90 s  peak RSS    253 MiB  page faults 22
+all-5            wall  13.45 s  cpu  13.11 s  peak RSS    253 MiB  page faults 22
+alone-v4.32.2    wall   4.31 s  cpu   4.22 s  peak RSS    220 MiB  page faults 22
+alone-v4.33.0    wall   4.31 s  cpu   4.26 s  peak RSS    221 MiB  page faults 11
+alone-v4.33.1    wall   4.14 s  cpu   4.07 s  peak RSS    221 MiB  page faults 30
+all versions, 5 runs: median wall 12.03 s, median cpu 11.82 s, max peak RSS 253 MiB
+---- after the path-mode run, appended by the calling shell: the script's exit status ----
+exit=0
+
+---- hash mode, kept render (mv-m-render.sh --runs 5 --hash-urls) ----
+run of a5d22933f65a13e6f9224c005276a1281fcaa8ba (1 uncommitted path(s))
+date              2026-10-07T01:34:59Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+swap              total = 4096.00M  used = 2636.31M  free = 1459.69M  (encrypted)
+load              8.49 6.03 4.19
+store             /private/tmp/lean-doc-relay/mv-m/store
+versions          v4.32.2,v4.33.0,v4.33.1
+runs              5
+urls              --hash-urls
+all-2 identical to all-1: yes
+all-3 identical to all-1: yes
+all-4 identical to all-1: yes
+all-5 identical to all-1: yes
+alone-v4.32.2: index.html 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1194
+alone-v4.33.0: index.html 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1208
+alone-v4.33.1: index.html 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1208
+hosted (all 3 versions): 1888 files, 4419778 B stored (27508484 B raw)
+  shells 0 files 0 B; data 1882 files 4342043 B stored (27430749 B raw); assets 3 files 69903 B; root 3 files 7832 B
+reconciled with the renderer's counts: shells, data referenced and added per version, every d/ file referenced, assets/, every file of the site; each version's routes file names exactly its module list's pages plus index.html, references.html, search.html, foundational_types.html
+
+v4.32.2: 0 shells (0 B)
+  kind        referenced files/stored         added files/raw/stored
+  content          432       1582300      432   10418901    1582300
+  page             433        359459      433    1268847     359459
+  usedBy           323        303085      323    3030298     303085
+  modules            1         11919        1      56934      11919
+  search             1        113027        1     308207     113027
+  instances          1         17330        1      94761      17330
+  references         1         44980        1     157595      44980
+  front              0             0        0          0          0
+  version            1           483        1       1102        483
+  routes             1         11697        1      30541      11697
+  total           1194       2444280     1194   15367186    2444280
+
+v4.33.0: 0 shells (0 B)
+  kind        referenced files/stored         added files/raw/stored
+  content          436       1598535      190    7822181    1106877
+  page             438        362938      419    1275532     358295
+  usedBy           328        305789       69    2230927     208287
+  modules            1         12069        1      57572      12069
+  search             1        114047        1     312045     114047
+  instances          1         17401        1      95007      17401
+  references         1         45472        1     159333      45472
+  front              0             0        0          0          0
+  version            1           483        1       1102        483
+  routes             1         11878        1      30910      11878
+  total           1208       2468612      684   11984609    1874809
+
+v4.33.1: 0 shells (0 B)
+  kind        referenced files/stored         added files/raw/stored
+  content          436       1598535        1      42841       9450
+  page             438        362937        1       4101       1140
+  usedBy           328        305789        0          0          0
+  modules            1         12069        0          0          0
+  search             1        114047        0          0          0
+  instances          1         17401        0          0          0
+  references         1         45472        0          0          0
+  front              0             0        0          0          0
+  version            1           484        1       1102        484
+  routes             1         11880        1      30910      11880
+  total           1208       2468614        4      78954      22954
+
+v4.32.2: before it draws, a module page fetches its version, page, routes and content files: 433 pages, 7215699 B in all, max 41831, median 14794 (on demand: the module list 11919 B, Used by)
+v4.33.0: before it draws, a module page fetches its version, page, routes and content files: 438 pages, 7375591 B in all, max 42015, median 14972 (on demand: the module list 12069 B, Used by)
+v4.33.1: before it draws, a module page fetches its version, page, routes and content files: 438 pages, 7376904 B in all, max 42018, median 14976 (on demand: the module list 12069 B, Used by)
+
+all-1            wall  10.95 s  cpu  10.75 s  peak RSS    253 MiB  page faults 352
+all-2            wall  11.70 s  cpu  11.51 s  peak RSS    253 MiB  page faults 22
+all-3            wall  11.81 s  cpu  11.66 s  peak RSS    253 MiB  page faults 30
+all-4            wall  12.10 s  cpu  11.97 s  peak RSS    253 MiB  page faults 30
+all-5            wall  12.31 s  cpu  12.21 s  peak RSS    253 MiB  page faults 11
+alone-v4.32.2    wall   4.14 s  cpu   4.09 s  peak RSS    219 MiB  page faults 11
+alone-v4.33.0    wall   4.01 s  cpu   3.93 s  peak RSS    221 MiB  page faults 11
+alone-v4.33.1    wall   4.02 s  cpu   3.98 s  peak RSS    221 MiB  page faults 22
+all versions, 5 runs: median wall 11.81 s, median cpu 11.66 s, max peak RSS 253 MiB
+---- after the hash-mode run, appended by the calling shell: the script's exit status and the load ----
+exit=0
+10:36  up 5 days, 12:42, 4 users, load averages: 4.57 5.33 4.10
+
+---- re-timing, path mode (identity and timing lines) ----
+run of a5d22933f65a13e6f9224c005276a1281fcaa8ba (1 uncommitted path(s))
+date              2026-10-07T01:37:04Z
+swap              total = 4096.00M  used = 2636.31M  free = 1459.69M  (encrypted)
+load              4.88 5.32 4.15
+urls              paths
+all-2 identical to all-1: yes
+all-3 identical to all-1: yes
+all-4 identical to all-1: yes
+all-5 identical to all-1: yes
+alone-v4.32.2: v4.32.2 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1193
+alone-v4.33.0: v4.33.0 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1207
+alone-v4.33.1: v4.33.1 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1207
+all-1            wall  11.13 s  cpu  10.86 s  peak RSS    253 MiB  page faults 352
+all-2            wall  11.82 s  cpu  11.64 s  peak RSS    253 MiB  page faults 22
+all-3            wall  11.91 s  cpu  11.78 s  peak RSS    253 MiB  page faults 22
+all-4            wall  12.29 s  cpu  12.13 s  peak RSS    253 MiB  page faults 11
+all-5            wall  12.32 s  cpu  12.14 s  peak RSS    253 MiB  page faults 30
+alone-v4.32.2    wall   4.14 s  cpu   4.09 s  peak RSS    219 MiB  page faults 11
+alone-v4.33.0    wall   4.05 s  cpu   4.02 s  peak RSS    221 MiB  page faults 11
+alone-v4.33.1    wall   4.10 s  cpu   4.04 s  peak RSS    221 MiB  page faults 30
+all versions, 5 runs: median wall 11.91 s, median cpu 11.78 s, max peak RSS 253 MiB
+
+---- re-timing, hash mode (identity and timing lines) ----
+run of a5d22933f65a13e6f9224c005276a1281fcaa8ba (1 uncommitted path(s))
+date              2026-10-07T01:38:36Z
+swap              total = 4096.00M  used = 2636.31M  free = 1459.69M  (encrypted)
+load              4.38 5.03 4.15
+urls              --hash-urls
+all-2 identical to all-1: yes
+all-3 identical to all-1: yes
+all-4 identical to all-1: yes
+all-5 identical to all-1: yes
+alone-v4.32.2: index.html 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1194
+alone-v4.33.0: index.html 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1208
+alone-v4.33.1: index.html 404.html assets identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1208
+all-1            wall  11.74 s  cpu  11.64 s  peak RSS    253 MiB  page faults 11
+all-2            wall  12.13 s  cpu  12.00 s  peak RSS    253 MiB  page faults 22
+all-3            wall  12.23 s  cpu  12.04 s  peak RSS    253 MiB  page faults 11
+all-4            wall  12.40 s  cpu  12.24 s  peak RSS    253 MiB  page faults 22
+all-5            wall  12.25 s  cpu  12.13 s  peak RSS    253 MiB  page faults 24
+alone-v4.32.2    wall   4.06 s  cpu   4.00 s  peak RSS    219 MiB  page faults 30
+alone-v4.33.0    wall   4.01 s  cpu   3.98 s  peak RSS    221 MiB  page faults 11
+alone-v4.33.1    wall   4.06 s  cpu   4.00 s  peak RSS    221 MiB  page faults 11
+all versions, 5 runs: median wall 12.23 s, median cpu 12.04 s, max peak RSS 253 MiB
+
+---- re-timing, load after each run ----
+path exit=0
+10:38  up 5 days, 12:44, 4 users, load averages: 4.38 5.03 4.15
+hash exit=0
+10:40  up 5 days, 12:46, 4 users, load averages: 5.96 5.28 4.33
+
+---- sample run, path mode, --runs 2, the script as at HEAD before (8) (load ~1.8) ----
+run of a5d22933f65a13e6f9224c005276a1281fcaa8ba (0 uncommitted path(s))
+date              2026-10-07T01:16:59Z
+swap              total = 4096.00M  used = 2716.31M  free = 1379.69M  (encrypted)
+urls              paths
+all-2 identical to all-1: yes
+alone-v4.32.2: shells identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1193
+alone-v4.33.0: shells identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1207
+alone-v4.33.1: shells identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1207
+all-1            wall   9.31 s  cpu   9.29 s  peak RSS    259 MiB  page faults 11
+all-2            wall   9.37 s  cpu   9.34 s  peak RSS    253 MiB  page faults 19
+alone-v4.32.2    wall   3.22 s  cpu   3.17 s  peak RSS    219 MiB  page faults 11
+alone-v4.33.0    wall   3.21 s  cpu   3.20 s  peak RSS    221 MiB  page faults 11
+alone-v4.33.1    wall   3.21 s  cpu   3.19 s  peak RSS    221 MiB  page faults 19
+all versions, 2 runs: median wall 9.34 s, median cpu 9.32 s, max peak RSS 259 MiB
+
+---- sample run, hash mode, --runs 2, the script as at HEAD before (8) (load ~1.8) ----
+run of a5d22933f65a13e6f9224c005276a1281fcaa8ba (0 uncommitted path(s))
+date              2026-10-07T01:18:07Z
+swap              total = 4096.00M  used = 2716.31M  free = 1379.69M  (encrypted)
+urls              --hash-urls
+all-2 identical to all-1: yes
+alone-v4.32.2: shells identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1194
+alone-v4.33.0: shells identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1208
+alone-v4.33.1: shells identical to all-1's: yes; data files absent or other bytes in all-1/d: 0 of 1208
+all-1            wall   9.27 s  cpu   9.25 s  peak RSS    253 MiB  page faults 11
+all-2            wall   9.25 s  cpu   9.24 s  peak RSS    253 MiB  page faults 11
+alone-v4.32.2    wall   3.16 s  cpu   3.15 s  peak RSS    219 MiB  page faults 11
+alone-v4.33.0    wall   3.22 s  cpu   3.20 s  peak RSS    220 MiB  page faults 11
+alone-v4.33.1    wall   3.20 s  cpu   3.18 s  peak RSS    221 MiB  page faults 11
+all versions, 2 runs: median wall 9.26 s, median cpu 9.25 s, max peak RSS 253 MiB
+
+---- layout analysis over the kept renders' all-1 (scratch analyze.py) ----
+== shells (path mode)
+v4.32.2 version pages: index.html 641, references.html 702, search.html 1127, foundational_types.html 2872
+v4.33.0 version pages: index.html 641, references.html 702, search.html 1127, foundational_types.html 2872
+v4.33.1 version pages: index.html 641, references.html 702, search.html 1127, foundational_types.html 2872
+all shells: n=1321 mean 826 median 819 min 641 max 2872 total 1091285
+module-page shells: n=1309 mean 821 median 819 min 769 max 891 total 1075259
+theme script line in a shell: 185 B (with its <script> tags; newline not counted)
+module-page shell Mathlib/Algebra/Group/Defs.html (v4.33.0): 821 B
+== root and assets (path mode)
+  404.html           4152 B (gzip -9 1938)
+  index.html         4226 B (gzip -9 1964)
+  versions.json       136 B (gzip -9 106)
+  assets/favicon.svg    360 B (gzip -9 244)
+  assets/site.js    39776 B (gzip -9 12105)
+  assets/style.css  29767 B (gzip -9 9337)
+  theme script in root index.html: yes
+== root and assets (hash mode)
+  404.html           4169 B (gzip -9 1950)
+  index.html         3443 B (gzip -9 1569)
+  versions.json       220 B (gzip -9 146)
+  assets/favicon.svg    360 B (gzip -9 244)
+  assets/site.js    39776 B (gzip -9 12105)
+  assets/style.css  29767 B (gzip -9 9337)
+  theme script in root index.html: yes
+== per-version data files (stored gzip / raw)
+v4.32.2 modules list 11919 / 56934; search 113027 / 308207; instances 17330 / 94761; references 44980 / 157595; version file 483 / 1102
+v4.32.2 routes 433 entries, 11697 / 30541 (27.0 / 70.5 B per entry)
+v4.33.0 modules list 12069 / 57572; search 114047 / 312045; instances 17401 / 95007; references 45472 / 159333; version file 483 / 1102
+v4.33.0 routes 438 entries, 11878 / 30910 (27.1 / 70.6 B per entry)
+v4.33.1 modules list 12069 / 57572; search 114047 / 312045; instances 17401 / 95007; references 45472 / 159333; version file 484 / 1102
+v4.33.1 routes 438 entries, 11880 / 30910 (27.1 / 70.6 B per entry)
+versions.json: path 136 B, hash 220 B
+== what each release adds (path mode), data files added: files / stored B by kind
+v4.32.2: 1193 files 2432583 B: content 432/1582300; instances 1/17330; modules 1/11919; page 433/359459; references 1/44980; search 1/113027; usedBy 323/303085; version 1/483
+v4.33.0: 683 files 1862931 B: content 190/1106877; instances 1/17401; modules 1/12069; page 419/358295; references 1/45472; search 1/114047; usedBy 69/208287; version 1/483
+v4.33.1: 3 files 11074 B: content 1/9450; page 1/1140; version 1/484
+(the same check: d/ holds 1879 files, union referenced 1879)
+== what each release adds (hash mode), data files added: files / stored B by kind
+v4.32.2: 1194 files 2444280 B: content 432/1582300; instances 1/17330; modules 1/11919; page 433/359459; references 1/44980; routes 1/11697; search 1/113027; usedBy 323/303085; version 1/483
+v4.33.0: 684 files 1874809 B: content 190/1106877; instances 1/17401; modules 1/12069; page 419/358295; references 1/45472; routes 1/11878; search 1/114047; usedBy 69/208287; version 1/483
+v4.33.1: 4 files 22954 B: content 1/9450; page 1/1140; routes 1/11880; version 1/484
+(the same check: d/ holds 1882 files, union referenced 1882)
+== module-page views: bytes fetched (stored)
+v4.32.2 (433 pages)
+  data before draw (version+page+content): total 2150898 max 30134 median 3097 mean 4967; content files 1582300 B, page files 359459 B, version file 483 B each
+  largest: Mathlib/Algebra/Group/Defs.html version 483 + page 3645 + content 26006 = 30134 (Used by on demand 25289)
+  path view before draw (shell + data): total 2506541 max 30955 median 3950
+  hash view before draw (root index.html 3443 + versions.json 220 + routes 11697 + data): total 8801778 max 45494 median 18457
+  after draw, path mode: versions.json 136 + canonical: newest version file 484 + newest module list 12069 = 12689 per view
+  on demand: module list 11919 (tree, imports, search), search index 113027 + module list (search box focus), instances 17330 + search + module list, Used by per module (median 185, max 25289)
+v4.33.0 (438 pages)
+  data before draw (version+page+content): total 2173027 max 30137 median 3094 mean 4961; content files 1598535 B, page files 362938 B, version file 483 B each
+  largest: Mathlib/Algebra/Group/Defs.html version 483 + page 3651 + content 26003 = 30137 (Used by on demand 25362)
+  path view before draw (shell + data): total 2532835 max 30958 median 3937
+  hash view before draw (root index.html 3443 + versions.json 220 + routes 11878 + data): total 8979985 max 45678 median 18636
+  after draw, path mode: versions.json 136 + canonical: newest version file 484 + newest module list 12069 = 12689 per view
+  on demand: module list 12069 (tree, imports, search), search index 114047 + module list (search box focus), instances 17401 + search + module list, Used by per module (median 186, max 25362)
+v4.33.1 (438 pages)
+  data before draw (version+page+content): total 2173464 max 30138 median 3096 mean 4962; content files 1598535 B, page files 362937 B, version file 484 B each
+  largest: Mathlib/Algebra/Group/Defs.html version 484 + page 3651 + content 26003 = 30138 (Used by on demand 25362)
+  path view before draw (shell + data): total 2533272 max 30959 median 3938
+  hash view before draw (root index.html 3443 + versions.json 220 + routes 11880 + data): total 8981298 max 45681 median 18638
+  after draw, path mode: versions.json 136 (newest: no canonical fetch)
+  on demand: module list 12069 (tree, imports, search), search index 114047 + module list (search box focus), instances 17401 + search + module list, Used by per module (median 186, max 25362)
+
+---- dependency-line analysis, path-mode all-1 (scratch deplines.py) ----
+modules in both v4.32.2 and v4.33.0: 433
+page file unchanged: 19; changed: 414 (355906 B stored)
+content unchanged but page file changed: 228
+  of which only dependency line ranges differ: 211, 108831 B stored (313746 B raw) in v4.33.0
+  of which dependency root/module differ too, nothing else: 1
+if dependency lines left the page file (entry keeps root+module): 203 page files change, 247075 B stored today, 217911 B gzip -9 with the lines removed
+if dependency entries left the page file whole (entry is a marker): 202 page files change, 246243 B stored
+v4.32.2: 433 pages, 8504 dependency entries (1106 distinct names, 0 disagreeing duplicates); table name->[root,module,l1,l2] 60503 B raw, 14291 B gzip -9; name->[l1,l2] 31479 raw, 11707 gzip -9; page files raw (re-serialized) 1268847, with dependency lines removed 1196394
+  distinct dependency names by root: [('Init', 705), ('Lean', 341), ('Batteries', 43), ('Std', 11), ('ProofWidgets', 4), ('ImportGraph', 2)]
+v4.33.0: 438 pages, 8542 dependency entries (1104 distinct names, 0 disagreeing duplicates); table name->[root,module,l1,l2] 60443 B raw, 14246 B gzip -9; name->[l1,l2] 31444 raw, 11657 gzip -9; page files raw (re-serialized) 1285374, with dependency lines removed 1212555
+  distinct dependency names by root: [('Init', 704), ('Lean', 340), ('Batteries', 43), ('Std', 11), ('ProofWidgets', 4), ('ImportGraph', 2)]
+v4.33.1: 438 pages, 8542 dependency entries (1104 distinct names, 0 disagreeing duplicates); table name->[root,module,l1,l2] 60443 B raw, 14246 B gzip -9; name->[l1,l2] 31444 raw, 11657 gzip -9; page files raw (re-serialized) 1285374, with dependency lines removed 1212555
+  distinct dependency names by root: [('Init', 704), ('Lean', 340), ('Batteries', 43), ('Std', 11), ('ProofWidgets', 4), ('ImportGraph', 2)]
+calibration: page 03a55f4c3d5432f0 stored 564, gzip -9 of its raw 564, raw 1583, compact re-serialized 1583

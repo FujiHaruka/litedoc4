@@ -8,8 +8,10 @@ reference to them links to that dependency's **version-pinned source on GitHub**
 self-contained static site.
 
 Live example: <https://fujiharuka.github.io/information-theory/> — 422 modules, one command,
-**24.5 s**. A sample, <https://fujiharuka.github.io/litedoc4/>, is eleven modules rebuilt from this
-repository's `main` on every push: the shapes a page can take rather than the scale.
+**24.5 s** (measured with the static-page build of litedoc4 1.4.0 or earlier; see Speed). A sample, <https://fujiharuka.github.io/litedoc4/>, is eleven modules rebuilt from this
+repository's `main` on every push: the shapes a page can take rather than the scale. Every Mathlib
+release on its Releases page, twelve of them, is one site at <https://mathlib.fuji.land> (see Several
+versions in one site).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/site-dark.png">
@@ -30,8 +32,12 @@ those pages were generated here.
   browser to draw it
 - **uses `sorry`** and **depends on `sorry`** markers, kept apart as the different claims they are
 - a dark theme
-- page paths (`Foo/Bar.html`) and declaration anchors (`#Foo.bar`) in doc-gen4's shape, so links
-  into docs you already publish keep working
+- page paths (`<version>/Foo/Bar.html`) and declaration anchors (`#Foo.bar`) in doc-gen4's shape
+  under a version directory; a link in doc-gen4's shape without the version lands on the newest
+  version's page, on a host that answers a missing path with the site's `404.html` (GitHub Pages
+  does)
+- several versions of your package — tags, branches or commits — in one site, with a version
+  switcher that keeps you on the same page
 
 ## Is this for you?
 
@@ -43,8 +49,8 @@ with how large your dependencies are next to your own code, and Mathlib is as la
 - **you want to search dependency declarations** — search covers your package only
 - **your source is not on GitHub** — source links are GitHub URLs, and another host is refused
   rather than guessed unless you pass `--source-url`
-- **you are on a Lean newer than v4.33.1** — v4.31.0, v4.32.2, v4.33.0 and v4.33.1 are the ones CI
-  runs end to end, and of those **only v4.31.0 has been run over a Mathlib-sized package**. The
+- **you are on a Lean newer than v4.35.0** — v4.31.0, v4.32.2, v4.33.0, v4.33.1, v4.34.1 and v4.35.0 are the
+  ones CI runs end to end, and of those **only v4.31.0 has been run over a Mathlib-sized package**. The
   extractor is compiled against your toolchain, so a version it cannot handle surfaces as a build
   failure, not as bad output
 - **you are running it on Windows** — the generator has been run on Linux and macOS only
@@ -58,29 +64,34 @@ You need `elan`/`lake` and a package that `lake build` passes. Add one line to y
 `lakefile.lean` (or the `[[require]]` equivalent in `lakefile.toml`):
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.4.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v2.0.0"
 ```
 
 ```sh
 lake run docs -- --out ../mypkg-docs
 ```
 
-**The site is `../mypkg-docs/site`** — open its `index.html`. Lake builds both executables against
+**The site is `../mypkg-docs/site`** — serve it over HTTP (`python3 -m http.server -d
+../mypkg-docs/site`, or `litedoc4 watch` below) and open the address it prints: its pages are
+drawn by a script, which a browser does not run for a page opened from disk. Lake builds both executables against
 your own toolchain, and the script fills in `--root`, `--extractor-bin` and `--lib` for you,
 including for a `lakefile.lean` package where `--lib` otherwise has to be written by hand.
 
 `--out` is required and must be outside the package, and a relative path resolves against the
-package directory, so `../mypkg-docs` is the shortest spelling that works. Running the same command
-again is incremental, so keep it between runs; `--full` starts over.
+package directory, so `../mypkg-docs` is the shortest spelling that works. The site shows one
+version, named by the first 12 hex digits of your commit (for more than one, see Several versions
+in one site). Running the same command again extracts
+only the modules whose oleans moved, so keep `--out` between runs; `--full` extracts everything
+again.
 
 Underneath, litedoc4 is two commands, which you reach directly for `watch` and for the flags
 `docs` does not pass through:
 
 ```
-litedoc4 build  --root <repo> --out <dir> --extractor-bin <path>
-                [--lib <Name>]... [--jobs <n>] [--source-url <url>] [--full]
-litedoc4 watch  --root <repo> --out <dir> --extractor-bin <path>
-                [--lib <Name>]... [--jobs <n>] [--port <n>]
+litedoc4 build  --root <repo> --out <dir> [--lib <Name>]...
+                [--jobs <n>] [--source-url <url>] [--full]
+litedoc4 watch  --root <repo> --out <dir> [--lib <Name>]...
+                [--jobs <n>] [--port <n>]
 ```
 
 `litedoc4 --help-all` is every flag. The two you are most likely to need are `--lib <Name>`, when
@@ -106,6 +117,11 @@ without a warning (both measured, `benchmarks/results/lake-package-probe-2026-08
 the file, Lake builds both executables with your toolchain and says nothing.
 
 ## Speed
+
+**Every litedoc4 number in this section and in "Watching while you work" was measured with
+litedoc4 1.4.0 or earlier** (2026-08-15 to 2026-08-29), whose `build` wrote every page as static
+HTML. The build
+that renders the site from its store of versions has not been timed on this package yet.
 
 Apple M1 / 16 GB, warm page cache, wall clock. One Mathlib-dependent package throughout, at two
 of its revisions (432 and 422 modules); each row names the one it ran on:
@@ -152,7 +168,7 @@ jobs:
     environment: { name: github-pages }
     steps:
       - uses: actions/checkout@v7
-      - uses: FujiHaruka/litedoc4@v1.4.0
+      - uses: FujiHaruka/litedoc4@v2.0.0
         id: docs
         with:
           cache-get: true             # `lake exe cache get` — drop it if you have no Mathlib
@@ -164,15 +180,67 @@ jobs:
 That is the whole thing: the action installs elan if it is missing, runs `lake build` and the
 docs **in one job** (split across jobs the oleans fall out of the page cache and it runs 5–12×
 slower), and keeps four caches for you — Mathlib's oleans, the Lean extractor, the litedoc4
-build, and last run's state, which is what makes the second run incremental.
+build, and last run's store and extraction state, which is what lets the second run extract only
+what moved.
 
 Inputs you may need: `root` if your package is not at the repository root, `lib` if you use
 `lakefile.lean`, `lake-build: false` if you already built the package **earlier in the same
-job** (from another job the page cache is cold), `full: true` to ignore previous state.
+job** (from another job the page cache is cold), `full: true` to extract every module again.
 Outputs: `site`, `out` and `timings`.
 
 To archive instead of publish, swap the last two steps for `actions/upload-artifact` and drop
 the `permissions` / `environment` lines.
+
+## Several versions in one site
+
+```sh
+litedoc4 build --root <repo> --out <dir> --versions v0.4.0,v0.5.0,main [--lib <Name>]...
+```
+
+`--versions` names tags, branches or commits of `--root`'s git repository, the last the newest,
+and builds one site of all of them. Each version's pages live under its own name
+(`v0.5.0/Foo/Bar.html`), every page has a version switcher that lands on the same page in the
+other version (or on that version's front page, saying the module is not there), and a
+versionless path in doc-gen4's shape lands on the newest where the host serves the site's
+`404.html` for a missing path.
+
+Each version is checked out under `--out`, its toolchain installed by elan, its libraries built by
+`lake build` and its modules extracted by an extractor built for its own Lean, so `--lake` has to
+be elan's. A version whose toolchain is not in
+[`tools/lean-toolchains.txt`](tools/lean-toolchains.txt) is refused before anything runs.
+
+`<out>/store` keeps every version built (`--store` moves it). **Keep it between runs**: a version
+the store already holds at the same commit is not extracted again, and a version the site already
+holds is not rendered again, so adding a release to the list costs that one release. When the store
+holds none of the older versions and the newest is on the newest Lean litedoc4 supports, the older
+ones are read into the newest one's Lean instead of each running its own; a declaration read that
+way can print differently from its own Lean where its printing depends on notation or binders
+declared elsewhere.
+
+In the action, the same thing is the `versions` input (and `store`); the store is cached with the
+rest of the state. `actions/checkout` fetches no history or tags by default, so give it
+`fetch-depth: 0`:
+
+```yaml
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: FujiHaruka/litedoc4@v2.0.0
+        id: docs
+        with:
+          versions: v0.4.0,v0.5.0,main
+```
+
+With `--hash-urls` (the action's `hash-urls`) the site has no file per page: the root `index.html`
+draws every page from the address's fragment, `#/<version>/<module path>`.
+
+<https://mathlib.fuji.land> is Mathlib built this way — every release on Mathlib's Releases page
+that is not a prerelease, twelve on 2026-10-17, about 184,000 files. On one GitHub
+`ubuntu-latest` runner (4 vCPU, 16 GB, `--jobs 4`), building all twelve from nothing took
+**84.6 min**, and adding the twelfth to a deployed site of eleven took **11.6 min** of build and
+18.5 min from the job's start to the deployed site passing its checks (measured 2026-10-17, one run
+each; logs `benchmarks/results/mathlib-site-first-run-2026-10-17.txt` and
+`benchmarks/results/mathlib-site-add-one-2026-10-17.txt`). What hosting it takes from outside
+Mathlib is in [`hosting/mathlib/`](hosting/mathlib/).
 
 ## Running it from a checkout
 
@@ -201,11 +269,12 @@ package's `.olean` files change. **It does not run `lake build`** — run that i
 `watch` notices the oleans it writes. That keeps the division of labour every other command here
 has: you build the package, litedoc4 reads it.
 
-It asks the same question `build` asks — which modules the ledger says are stale — once a second
-(`--interval`), and rebuilds only when the answer has stopped moving, so a `lake build` still
-writing oleans is never read half-finished. Every rebuild prints how many modules were
-re-extracted, how many pages were re-rendered and how long it took; a wait says what it is
-waiting for.
+Its first pass is a `build`, so a `--out` that another litedoc4 or another extractor wrote is
+brought up to date before it is served. After that it asks the same question `build` asks — which
+modules the ledger says are stale — once a second (`--interval`), and rebuilds only when the
+answer has stopped moving, so a `lake build` still writing oleans is never read half-finished.
+Every rebuild prints how many modules were re-extracted and how long it took, and renders the site
+again; a wait says what it is waiting for.
 
 The pages it serves are the bytes it wrote, with no live-reload script injected — what you look
 at is what you will publish — so reload the tab yourself. A port that is already in use is
@@ -215,8 +284,8 @@ One edited module reaches its page in **5.5–6.2 s** (median 5.65 s over 15 cyc
 cycle of a session costs 13.7 s). **86–89 % of that is Lean loading its environment**, which a
 rebuild has to redo because Lean cannot swap a module out of an imported one — so that figure is
 a floor, not something tuning the loop moves. It does not include your own `lake build`, which
-runs before any of it. Apple M1, 422 modules, warm page cache; raw logs in
-[`benchmarks/`](benchmarks/).
+runs before any of it. Apple M1, 422 modules, warm page cache, litedoc4's static-page build of
+2026-08-21; log `benchmarks/results/watch-2026-08-21.txt`.
 
 ## What the pages show
 
@@ -240,15 +309,9 @@ this way 7,867 times out of 8,169 (measured 2026-08-29, log
 
 A module whose docstring opens with prose instead is listed by name alone, and a heading that
 merely repeats the module's own name — `# Basic` on `Pkg.Basic` — is written to the page as it
-stands rather than dropped. The build counts both, which is what tells you where a better heading
-is worth writing:
-
-```
-global  module descriptions 390 of 422 (0 repeat the module name)
-```
-
-(the live example's own front page; measured 2026-08-29, log
-`benchmarks/results/module-summary-live-2026-08-29.txt`)
+stands rather than dropped. The live example's front page describes 390 of its 422 modules, and
+none of the 390 repeats the module's name (measured 2026-08-29, log
+`benchmarks/results/module-summary-live-2026-08-29.txt`).
 
 ### Math in docstrings
 
@@ -257,12 +320,7 @@ draw them — no MathJax, no KaTeX, no math web font — because every current b
 out itself.
 
 A formula the converter cannot read is written back as its own source, exactly as doc-gen4 leaves
-every formula, and the build always says how many, zero included:
-
-```
-render  math spans kept as LaTeX 3
-work    extract 422 / render 422 / math-fallback 3 / …
-```
+every formula.
 
 On Mathlib's own docstrings **2,113 of 2,123 formulas convert** (measured 2026-08-22, log
 `benchmarks/results/mathml-2026-08-22.txt`); the ten that do not use commands the converter does
@@ -298,9 +356,7 @@ that is not a key in the file stays as you wrote it. `references.html` is writte
 the file exists; without one it lists nothing.
 
 A docstring link to a relative path that is not a file of the site — `[Key](Key)` where
-`[text][Key]` was meant, or a page that does not exist — is kept as written, and the build prints a
-`warning:` naming the module, the declaration and the line, with the citation form when the
-destination is a bibliography key.
+`[text][Key]` was meant, or a page that does not exist — is kept as written.
 
 BibtexQuery cannot read `@string`, `@comment` or `@preamble`, nor a stray `@` in a note, and
 stops at the first one. The entries before it are kept and the build **prints a warning** naming
@@ -308,11 +364,13 @@ the file and the line, because that entry and every one after it are left out.
 
 ## Configuring the site
 
-`litedoc4.toml` next to your `lakefile`, both keys optional:
+`litedoc4.toml` next to your `lakefile`, every key optional:
 
 ```toml
 title = "MyPkg"          # the top bar, and the second half of every page's <title>
 index = "docs/index.md"  # Markdown to put at the top of the site's index page
+footer = "docs/footer.md"  # Markdown to put at the bottom of every page
+no_equations_under = ["MyPkg.Tactic", "MyPkg.Meta"]  # definitions shown without equations
 ```
 
 Without it the title is the name your modules share (`Foo.*` → `Foo`), which is what a reader
@@ -320,13 +378,32 @@ types to import your package. It is a file rather than a flag because every stag
 reads it, so there is no way to leave the flag off one of them and end up with a site that
 disagrees with itself about its own name.
 
-A malformed file, an unknown key, or an `index` naming a file that is not there **stops the
-build**. Carrying on with the derived title would be a site that quietly ignored what you asked
-for.
+`no_equations_under` is for implementation code — tactics, elaborators, metaprograms — whose
+equations would print the code's own body back as a lemma. A definition whose name lies inside one
+of these namespaces (`MyPkg.Tactic.ring_nf`, not `MyPkg.TacticX.foo` and not `MyPkg.Tactic`
+itself) gets no equations: they are not generated at all. Its signature, docstring and source link
+stay. Changing the list re-extracts every module on the next build.
+
+`index` and `footer` are relative to the directory `litedoc4.toml` is in, and both are rendered
+the way docstrings are, so a name in backticks links to its declaration. The footer is on every
+page: module pages, the index, search, references and the not-found page — the place for a
+license line or a notice about who publishes the site.
+
+A malformed file, an unknown key, or an `index` or `footer` naming a file that is not there
+**stops the build**. Carrying on with the derived title would be a site that quietly ignored what
+you asked for.
+
+To document a package whose repository you do not control, keep the file somewhere else and name
+it with `--config` (`build` and `watch`). It is read in place of the package's own
+`litedoc4.toml`, for every version of a `--versions` build, and its `index` and `footer` are
+relative to its own directory; `docs/references.bib` is still read from the package. The title,
+index page and footer it names are applied as the site is rendered, so editing them renders every
+version again and extracts none, while editing its `no_equations_under` re-extracts every version.
+A `--config` naming a file that is not there stops the build.
 
 ## Status
 
-`v1.4.0` — nothing is downloaded; Lake builds litedoc4 from the ref you pinned. Tested on macOS
+`v2.0.0` — nothing is downloaded; Lake builds litedoc4 from the ref you pinned. Tested on macOS
 (Apple Silicon) and `ubuntu-latest` with Lean/Mathlib v4.31.0, and the browser side also on
 `windows-latest`.
 Pin the action and the `require` to a tag — `v1.3.0` or later, since that is the first one a
@@ -334,19 +411,24 @@ machine with only elan on it can use. If your package is not at the top of its r
 `v1.0.1` is the first release whose source links point at it. `@main` moves.
 
 **Every Lean version litedoc4 claims is run end to end on every change to the extractor or the
-sample**, and their output is compared: v4.31.0, v4.32.2, v4.33.0 and v4.33.1 produce byte-identical IR
-once one rename is applied — Lean's own reclassification of a reducible instance
+sample**, and their output is compared: v4.31.0, v4.32.2, v4.33.0, v4.33.1, v4.34.1 and v4.35.0 produce
+byte-identical IR once one rename is applied — Lean's own reclassification of a reducible instance
 (`implicit_reducible` → `instance_reducible`, from v4.33.0). That rename is the only recorded
-difference between them, in
-[`tools/lean-toolchains.txt`](tools/lean-toolchains.txt) (measured 2026-08-29). A toolchain that
-is not in that file fails by name.
+difference between them, in [`tools/lean-toolchains.txt`](tools/lean-toolchains.txt) (measured
+2026-08-29; v4.34.1 2026-10-08; v4.35.0 2026-10-16). A toolchain that is not in that file fails by name.
 
-### What 1.x keeps
+### What 2.x keeps
 
-The names your own files can contain do not move inside 1.x: the action's inputs and outputs,
+The names your own files can contain do not move inside 2.x: the action's inputs and outputs,
 `litedoc4.toml`'s keys, `build`'s and `watch`'s flags, and the site's page paths and declaration
 anchors. The list is [`tools/public-surface.txt`](tools/public-surface.txt), and CI fails when one
 of them goes missing.
+
+A script written for 1.x that passes `--extractor`, `--extractor-arg`, `--link-index`,
+`--deps-docs-url`, `--deps-docs-index`, `--mode` or `--max-rounds` to `build` or `watch` is
+refused with `unknown argument`: drop the flag. Dependency names link to their version-pinned
+source, never to another documentation site. A link into a 1.x site, `Foo/Bar.html#Foo.bar`, lands
+on that page in the newest version wherever the host serves the site's `404.html`.
 
 The IR schema, the ledger and `.lidx` are internal, and you never pin them yourself: the action
 and the Lake script build both executables out of the ref you pinned, so they always come from

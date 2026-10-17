@@ -1,6 +1,6 @@
 /- The two cache keys.
 
-`extractKey` reads three files and `extractKeyOf` decides what they mean, so the
+`extractKey` reads four files and `extractKeyOf` decides what they mean, so the
 key's own shape is a guard and only the seam needs a package on disk. -/
 import Litedoc4.Ledger
 import Litedoc4Test.IncrFixture
@@ -18,27 +18,37 @@ def sourceUrl2 : String :=
 def irIndexOf (generator : String) : JVal :=
   .obj #[("schemaVersion", .num 5), ("generator", .str generator)]
 
-/-- The identity strings are the cache's version key: sharing the frozen
-prototype's would let a ledger one implementation wrote be trusted by the other.
+/-- The renderer's identity string is the render key's version: sharing the
+frozen prototype's would let a ledger one implementation wrote be trusted by the
+other.
 
-The third clause is the opposite claim about a string that looks the same. The
-IR's own `generator` is **not** renamed with them — it names what wrote the tree
-on disk, which this port does not claim to be — so it has to come back out of the
-index verbatim. A rename applied to all three at once passes the first two. -/
+The second clause is the opposite claim about a string that looks the same. The
+IR's own `generator` is **not** renamed with it — it names what wrote the tree on
+disk, which this port does not claim to be — so it has to come back out of the
+index verbatim. A rename applied to both at once passes the first. -/
 def theIdentityStringsAreNotTheFrozenPrototypes : Bool :=
-  let key := extractKeyOf "leanprover/lean4:v4.31.0" "0011"
+  let key := extractKeyOf "leanprover/lean4:v4.31.0" "0011" #[]
     (some (irIndexOf "lean-doc/experiments/stage4b"))
-  extractorId != "lean-doc/experiments/stage4b"
-    && rendererId != "lean-doc/experiments/stage4c"
-    && keySetGet key "extractor" == some extractorId
+  rendererId != "lean-doc/experiments/stage4c"
     && keySetGet key "irGenerator" == some "lean-doc/experiments/stage4b"
     && keySetGet (renderKey sourceUrl none none none) "renderer" == some rendererId
-    && key.map (·.1) == #["leanToolchain", "manifestSha256", "extractor",
-                          "irSchemaVersion", "irGenerator"]
-    && (extractKeyOf "leanprover/lean4:v4.31.0" "0011" none).map (·.1)
-      == #["leanToolchain", "manifestSha256", "extractor"]
+    && key.map (·.1) == #["leanToolchain", "manifestSha256", "irSchemaVersion", "irGenerator"]
+    && (extractKeyOf "leanprover/lean4:v4.31.0" "0011" #[] none).map (·.1)
+      == #["leanToolchain", "manifestSha256"]
 
 #guard theIdentityStringsAreNotTheFrozenPrototypes
+
+def aNoEquationListIsAnExtractKeyOnlyWhenItIsNotEmpty : Bool :=
+  let keyOf (namespaces : Array String) := extractKeyOf "leanprover/lean4:v4.31.0" "0011"
+    namespaces (some (irIndexOf "g"))
+  let tactic := keyOf #["Mathlib.Tactic"]
+  (keyOf #[]).all (·.1 != "noEquationsUnder")
+    && keySetGet tactic "noEquationsUnder" == some "Mathlib.Tactic"
+    && keySetDiff (keyOf #[]) tactic == #["noEquationsUnder"]
+    && keySetDiff tactic (keyOf #[]) == #["noEquationsUnder"]
+    && keySetDiff tactic (keyOf #["Mathlib.Tactic", "Mathlib.Meta"]) == #["noEquationsUnder"]
+
+#guard aNoEquationListIsAnExtractKeyOnlyWhenItIsNotEmpty
 
 /-- Where each **dependency's** source lives reaches every page that links into
 one, and it moves on exactly the occasion an incremental build runs — a bumped
@@ -258,5 +268,53 @@ def theLedgerAnswersEveryScenarioOnASyntheticPackage : Invariant where
       -- and no count says so.
       eq (grown.changed, grown.added, grown.removed) (#["Pkg.A", "Pkg.B"], #["Pkg.E"], #[]),
       eq grown.reExtract #["Pkg.A", "Pkg.B", "Pkg.E"]]
+
+def theLedgerIsTheSameAtAnyNumberOfWorkers : Invariant where
+  name := "build and check give the same ledger bytes, the same module sets and the same \
+    refusals at 1, 3, 4 and 16 workers over 9 modules"
+  check := do
+    let work ← incrWorkDir "ledger-workers"
+    let package := work / "package"
+    let modules := (Array.range 9).map (s!"Pkg.M{·}")
+    writeFakeRepo package (modules.map fun name => { name, threeFiles := name == "Pkg.M4" })
+    let target := package.toString
+    let listed := (#["Pkg.M0", "Pkg.M1", "Pkg.Gone"] ++ modules.extract 2 9).push "Pkg.Lost"
+    let ledgerPath := work / "ledger.json"
+    let (_, baseRefusal) ← buildSaying { modules, target, sourceUrl } ledgerPath
+    let touched ← touchSaying ledgerPath "Pkg.M5" ledgerPath
+
+    let hashedAt (n : Nat) : IO (String × String × Array String × Array String × Array String) := do
+      let whole := match ← buildLedger { modules, target, sourceUrl, concurrency := n } with
+        | .ok (ledger, _) => ledger.toJson
+        | .error why => s!"refused: {why}"
+      let short := match ← buildLedger { modules := listed, target, sourceUrl, concurrency := n } with
+        | .ok (ledger, _) => s!"built {ledger.modules.size}"
+        | .error why => why
+      let (c, refusal) ← checkSaying
+        { ledger := ledgerPath, modules := some listed, sourceUrl, concurrency := n }
+      return (whole, short ++ (refusal.getD ""), c.changed, c.removed, c.reExtract)
+    let one ← hashedAt 1
+    let three ← hashedAt 3
+    let four ← hashedAt 4
+    let sixteen ← hashedAt 16
+
+    for module in ["M3", "M6"] do
+      IO.FS.removeFile (package / ".lake/build/lib/lean/Pkg" / s!"{module}.olean.hash")
+    let thrownAt (n : Nat) : IO String := do
+      try
+        match ← buildLedger { modules, target, sourceUrl, algorithm := .lake, concurrency := n } with
+        | .ok _ => return "built"
+        | .error why => return s!"refused: {why}"
+      catch e => return toString e
+    let thrownOne ← thrownAt 1
+    let thrownFour ← thrownAt 4
+    removeDir work
+    let missing := s!"no olean under {target}/.lake/build/lib/lean for: Pkg.Gone, Pkg.Lost"
+    return first [
+      baseRefusal, touched,
+      eq (one.2.1, one.2.2.1, one.2.2.2.1) (missing, #["Pkg.M5"], #["Pkg.Gone", "Pkg.Lost"]),
+      eq (decide ((thrownOne.splitOn "M3.olean.hash").length > 1), (thrownOne.splitOn "M6").length) (true, 1),
+      eq three one, eq four one, eq sixteen one,
+      eq thrownFour thrownOne]
 
 end Litedoc4Test

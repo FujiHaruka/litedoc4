@@ -1,0 +1,42 @@
+Why reading Mathlib v4.29.1 does not finish: every worker walks proofs for their axioms
+=====================================================================================
+
+Run 38224909520 of .github/workflows/mv-l.yml at ce6cb1d (branch multi-version), 2026-10-12
+08:39-09:24 UTC, arm `probe` of benchmarks/tools/mv-l-run.sh: the build of
+benchmarks/results/mv-l-full-2026-10-12.txt cut to v4.29.1,v4.30.0,v4.34.1, so that v4.29.1 is read
+reusing prints from v4.30.0 as there. A reader alive 900 s was sampled four times 120 s apart
+(threads, /proc status and io, its events file, the IR written so far, `gdb thread apply all bt 40`),
+then killed. One run.
+
+CONDITIONS
+----------
+host      GitHub-hosted ubuntu-latest, Intel(R) Xeon(R) 6973P-C, 4 vCPU, 16 GB, 3 GB swap
+command   litedoc4 build ... --versions v4.29.1,v4.30.0,v4.34.1 --jobs 4 --config hosting/mathlib/litedoc4.toml
+
+ANSWER (measured)
+------
+  v4.34.1 native extract 326.86 s; v4.30.0 read 296.92 s (219,145 of 307,299 reused from v4.34.1)
+  v4.29.1: reproduced. Samples 1-4 (09:16:07 to 09:22:11):
+    the four extraction workers at 98.4-98.6% CPU each, state R, in every sample (the main thread
+    waits on their tasks); no thread waits on a lock or on I/O
+    IR files written: 1,257 -> 1,304 -> 1,329 -> 1,342 (85 in 6 min; v4.30.0 wrote 8,106 in all)
+    events: the last phase line is `stage4b.tactics`, the step before the per-declaration work
+    anon 8,258,336 kB, swap 0
+    stacks: all 16 worker stacks (4 threads x 4 samples) are inside Lean's CollectAxioms.collect
+    recursion, 14-39 of the 40 frames shown, with Expr.getUsedConstants / FoldConsts at the top
+
+THE CAUSE (read in Lean's sources)
+---------
+Lean v4.30.0 added `exportedAxiomsExt` to Lean/Util/CollectAxioms.lean: each module's olean stores
+the axiom list of each of its declarations, and `collectAxioms` on an imported constant is a lookup.
+v4.29.1's CollectAxioms.lean has no such extension (fetched from leanprover/lean4 at both tags,
+2026-10-12): oleans built by v4.29.x carry no axiom lists. Extract.lean's sorry tag calls
+`collectAxioms` once per declaration, and with no stored list the 4.34.1 implementation walks the
+declaration's whole dependency closure, proofs included, with a visited set that lives for that one
+call. Every Mathlib declaration's closure reaches the foundations, so the same closure is walked
+again for each of ~300,000 declarations.
+
+At the sampled rate (85 IR files in 6 min) the remaining ~6,800 files would take ~8 h (extrapolated
+from 6 min of one run; the rate is not constant across modules). The four-hour run of
+mv-l-full-2026-10-12.txt is consistent with this. v4.29.0's CollectAxioms.lean has no such extension
+either (fetched the same way), so v4.29.0 is in the same case.

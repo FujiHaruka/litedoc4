@@ -1,0 +1,48 @@
+Mathlib v4.29.1 read with synthesized axiom lists: 410 s where it did not finish in 4.2 h
+========================================================================================
+
+Run 38238331971 of .github/workflows/mv-l.yml at 75bb521 (branch multi-version), 2026-10-12, arm
+`probe` (the same three releases as benchmarks/results/mv-l-probe-v4.29.1-2026-10-12.txt). The change
+under test: the reader computes the per-declaration axiom lists Lean v4.30.0+ stores in each olean
+when no module of the read stores them, the way the reader's Lean (v4.34.1) `collectAxioms` stores
+them, and supplies them where decoded lists would go. The probe's sampler never fired: no reader
+lived 900 s. One run.
+
+CONDITIONS
+----------
+host      GitHub-hosted ubuntu-latest, AMD EPYC 9V74, 4 vCPU, 16 GB, 3 GB swap
+command   litedoc4 build --root <Mathlib clone at v4.34.1> --lib Mathlib --out <empty>
+          --versions v4.29.1,v4.30.0,v4.34.1 --jobs 4 --config hosting/mathlib/litedoc4.toml
+
+ANSWER (measured)
+------
+  whole build   33:47.01 wall, exit 0; versions extracted 3 of 3, rendered 3 of 3
+  v4.34.1       native extract 560.47 s
+  v4.30.0       read 383.73 s; axiom lists stored by 10,183 of 10,601 modules, none synthesized
+                (phase 7.86 ms); 219,145 of 307,299 reused from v4.34.1
+  v4.29.1       read 409.98 s (did not finish in 15,227 s before the change)
+                axiom lists stored by no module of 10,281; synthesized for 615,306 declarations in
+                9,900 modules, 14 distinct axioms, 22 distinct lists, 1 holding sorryAx: 39,179.65 ms,
+                one thread
+                proofs decoded 499,002 of 499,002 (no stored list, so every proof is kept)
+                decode 131,552.50 ms; 227,550 of 297,983 reused from v4.30.0
+  render        202.89 s for three versions
+  memory        reader anon peak 8,692 MiB; litedoc4 anon peak 3,385 MiB; host MemAvailable
+                minimum 5,253 MiB, swap up to 1,905 MiB
+  disk          minimum 78 GiB free
+
+What the synthesis is checked against: tools/reader-oracle-gate.sh items axioms-<version>, which
+ignore every stored list of a Lean core library, synthesize them all and compare: 151,091-153,631 of
+151,091-153,631 equal for v4.31.0, v4.32.0, v4.32.2, v4.33.0, v4.33.1, v4.34.1 on an Apple M1
+(measured 2026-10-12; made to fail once with constructor traversal dropped: 16,706 of 153,631
+differ on v4.34.1). No committed gate drives the supplied lists through an extraction; this run is
+the first on Mathlib, and its sorry tags were not compared with anything.
+
+PREDICTION FOR THE ELEVEN-RELEASE RERUN (written before it ran)
+-----------------------------------------------------------------
+benchmarks/results/mv-l-full-prediction-2026-10-12.txt still applies, changed by what
+mv-l-full-2026-10-12.txt and this run measured: v4.34.0 reuses from v4.34.1 (read 249 s there, not
+360-560); v4.29.1 and v4.29.0 read 350-500 s each, synthesis included. The whole build 75-130 min
+(theoretical: nine versions 66.5 min measured on a Xeon 8573C, the CPU varies by run 25-35%, plus
+two v4.29 reads and the eleven-version render, 600-1,100 s). Counted: extracted 11 of 11, rendered
+11 of 11; noop 0 of 11 / 0 of 11; served 11 of 11 built and served.

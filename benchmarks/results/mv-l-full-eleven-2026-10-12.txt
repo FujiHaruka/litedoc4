@@ -1,0 +1,97 @@
+All eleven Mathlib releases from nothing: 90.5 min, every version extracted, rendered and served
+=============================================================================================
+
+Run 38248810732 of .github/workflows/mv-l.yml at bf2b52a (branch multi-version), 2026-10-12
+12:27-13:57 UTC, arm `full` of benchmarks/tools/mv-l-run.sh, then `noop`, `served` and `report`.
+The third attempt at this build: mv-l-full-2026-10-12.txt stopped at v4.29.1 (axiom lists, fixed in
+75bb521), mv-l-full-rerun-2026-10-12.txt at a 504 (retry and resume, fixed in bf2b52a). The
+prediction is mv-l-axioms-fix-2026-10-12.txt, on mv-l-full-prediction-2026-10-12.txt. One run.
+
+CONDITIONS
+----------
+host      GitHub-hosted ubuntu-latest (image ubuntu24 20261004.327.1), AMD EPYC 7763, 4 vCPU,
+          16 GB, 3 GB swap, 102 GiB free at the start
+command   litedoc4 build --root <Mathlib clone at v4.34.1> --lib Mathlib --out <empty>
+          --versions v4.29.0,v4.29.1,v4.30.0,v4.31.0,v4.32.0,v4.32.1,v4.32.2,v4.33.0,v4.33.1,v4.34.0,v4.34.1
+          --jobs 4 --config hosting/mathlib/litedoc4.toml
+          cold: no toolchain, no Mathlib workspace, no store, no site
+
+ANSWER (measured)
+------
+  whole build   1:30:31 wall (5,431 s), exit 0, attempt 1 of 3; user 9,491.66 s, sys 946.97 s
+                versions extracted 11 of 11 (native 1, through the reader 10); rendered 11 of 11
+                retries: none fired (11 toolchain installs, 11 cache fetches, all first try)
+
+  per version   (read = the reader's extraction; reuse = declarations whose prints came from the
+                 neighbour already in the store)
+    v4.34.1   native extract 534.26 s (8,530 modules); reader built 92.86 s
+    v4.34.0   read 269.69 s   322,958 of 322,958 reused from v4.34.1
+    v4.33.1   read 305.23 s   273,725 of 317,784 from v4.34.0
+    v4.33.0   read 217.12 s   317,784 of 317,784 from v4.33.1
+    v4.32.2   read 247.72 s   304,953 of 316,225 from v4.33.0
+    v4.32.1   read 203.85 s   316,225 of 316,225 from v4.32.2
+    v4.32.0   read 209.91 s   316,225 of 316,225 from v4.32.1
+    v4.31.0   read 257.89 s   277,496 of 311,345 from v4.32.0
+    v4.30.0   read 287.95 s   281,611 of 307,299 from v4.31.0
+    v4.29.1   read 387.10 s   227,550 of 297,983 from v4.30.0; axiom lists synthesized for
+                              615,306 declarations in 35,248 ms
+    v4.29.0   read 250.26 s   297,983 of 297,983 from v4.29.1; synthesized in 35,412 ms
+  where the time went   reads 2,636.72 s, cache fetches 719.54 s (56.73-71.65 s each), render
+                        763.99 s, native extract 534.26 s, puts ≈ 285 s (24.25-27.78 s each),
+                        toolchains 103.33 s, reader build 92.86 s
+
+  memory        reader anon peak 9,445 MiB, its own swap up to 1,518 MiB; host MemAvailable minimum
+                4,070 MiB (12:52, during a read), host swap up to 2,993 of 3,071 MiB; no OOM line
+                litedoc4 itself: no per-process row (see DEFECTS, the sampler). During the render
+                (13:44:47-13:57:31) host MemAvailable stayed at or above 11,768 MiB of 15,989 MiB,
+                so everything resident on the host was at most 4.2 GiB; swap held 2.5 GiB from the
+                reads throughout and did not shrink, so the render did not page it back in.
+  disk          minimum 58.43 GiB free (after v4.29.0's put); 72 GiB free at the end
+
+  noop          the same build again: 10.94 s, exit 0, versions extracted 0 of 11, rendered 0 of 11,
+                peak RSS 597 MiB
+  served        tools/served-gate.sh over the site on 127.0.0.1: built 11 of 11, served 11 of 11,
+                items reported 23 of 23, ok
+  store         11 entries, 701,228 KiB (61.8-67.4 MB each); v4.29.0/v4.29.1, v4.32.0/v4.32.1/
+                v4.32.2 and v4.33.0/v4.33.1 within 3 bytes of each other, v4.34.0/v4.34.1 15,864
+  site          164,076 files, 835,752 KiB on disk, 293,925,205 bytes apparent; as one tar.gz (-6)
+                225,306,068 bytes. Shared data `d/` 73,538 files / 422,524 KiB; per version
+                7,876-8,534 files / 35,956-38,948 KiB. By size: <4 KiB 153,797, <64 KiB 10,064,
+                <1 MiB 209, <25 MiB 6, >=25 MiB 0; largest 1,881,544 bytes
+
+PREDICTION AGAINST RESULT
+-------------------------
+  whole build 75-130 min ............................ 90.5 min                         held
+  v4.34.0 reuses from v4.34.1, read ≈ 250 s ......... 269.69 s, all reused             held
+  v4.29.x reads 350-500 s each ...................... v4.29.1 387.10 s                 held
+                                                      v4.29.0 250.26 s                 wrong, cheaper:
+                      it reused every declaration from v4.29.1, so nothing was printed
+  render 600-1,100 s ................................ 763.99 s                         held
+  render anon peak 6-10 GiB ......................... not measured per process; host-wide
+                      resident ≤ 4.2 GiB during the render, so most likely wrong in the cheap
+                      direction (the 2.5 GiB in swap is the one way it could still be above 6)
+  extracted / rendered 11 of 11 ..................... 11 / 11                          held
+  noop 0 of 11 / 0 of 11 ............................ 0 / 0                            held
+  served 23 of 23 ................................... 23 of 23                         held
+  site 190k-230k files, 0.9-1.3 GB du ............... 164,076 files, 0.86 GB           wrong, smaller
+  no file ≥ 25 MiB .................................. 0                                held
+  store 0.70-0.75 GB ................................ 0.72 GB                          held
+  minimum free disk ≥ 40 GiB ........................ 58.43 GiB                        held
+
+DEFECTS THIS RUN SHOWED
+-----------------------
+  1. `Error: index out of bounds` with a backtrace, 136 times on stderr (the "4 times during
+     v4.34.1's cache fetch" of mv-l-full-2026-10-12.txt is the same thing). All 136 backtraces are
+     one call site on a task thread; 136 = 34 calls x 4 workers. The parallel map's worker that
+     finds the list exhausted cleared slot k = n of the pending array with `set!`, which panics out
+     of range and returns the array unchanged — so no output was wrong, but every parallel map
+     printed one panic per worker. Fixed in the commit that adds this log (`setIfInBounds`), and
+     tools/lean-test-gate.sh now runs the test executable with LEAN_ABORT_ON_PANIC=1: with the
+     old line put back it fails (the parallelMap invariant aborts, exit 134); with the fix,
+     243 compile-time and 74 run-time hold and none panics (Apple M1, 2026-10-12).
+  2. The memory sampler recorded no litedoc4 row in this run or in mv-l-full-2026-10-12.txt. The
+     build was started as `$(time_cmd) litedoc4 ... &`; the command substitution runs inside the
+     backgrounded process, so its subshell is the timer's first child, the sampler can take it for
+     litedoc4, and once it exits the sampler never looks again (shown on an M1 with a slowed
+     substitution: the first child seen is bash in 5 of 5). Fixed in the same commit (the time
+     command is computed once, before anything is backgrounded); not yet seen on a runner.

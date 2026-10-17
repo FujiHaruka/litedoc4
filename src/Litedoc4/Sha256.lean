@@ -2,11 +2,12 @@
 
 Lean rather than C under `csrc/`: the C route is `vendor/md4c`'s and a
 transcribed implementation carries an attribution obligation
-(`docs/provenance.md`), for a hash that runs here at 112 MB/s single-threaded —
-2.03 s for the measurement target's 422 oleans against a 60 s budget
-(measured 2026-08-31 → `benchmarks/results/purelean-sha256-2026-08-31.txt`).
-What would falsify this: an input an order of magnitude larger, or a caller that
-hashes it more than once per build. -/
+(`docs/provenance.md`), for a hash that runs here at 112 MB/s on one thread
+(measured 2026-08-31 → `benchmarks/results/purelean-sha256-2026-08-31.txt`), and
+the ledger runs as many threads as `--jobs` (or `ledger`'s `--concurrency`) gives
+it. What would falsify this: a hash phase that is still a large share of a build
+at the threads it was given, or a caller that hashes the same bytes more than
+once per build. -/
 import Litedoc4.Bytes
 
 namespace Litedoc4

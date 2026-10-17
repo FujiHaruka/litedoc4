@@ -1,0 +1,324 @@
+Print probe on M: what each printed feature of `reader extract` costs (probe A), and how much
+printing a cheap, inexact per-declaration reuse would skip (probe B), with a time estimate
+==================================================================================================
+
+A measurement run, not a gate (2026-10-10, host clock 2026-10-10T03:50:10Z to 04:11:23Z).
+Question from the levers work: read-alone (`reader extract`, one version per process) should get
+2x faster; extraction is its largest phase, so 2x needs printing less. Measured on the M slice
+only, never on full Mathlib. 3 alternating cycles (decided 2026-10-10, user's call: lever
+experiments take 3 cycles).
+
+CONDITIONS
+----------
+host        Apple M1, 16 GB, Darwin 25.6.0 arm64; free disk 14 GiB at the start, 10 GiB with the
+            three checkouts kept
+litedoc4    65e5d85a53fa66c8af9c90f3ffce4df85c774bec plus 1 uncommitted path, not committed with
+            this file: extractor/reader/OleanReader/Hybrid.lean (+33 lines), a throwaway
+            `--dump-own-keys <path>` on `reader extract` (PROBE B KEY below). It runs after the
+            extraction, in a `phases` span of its own (`own keys`), and writes one line per
+            candidate of the target modules
+reader      `litedoc4 reader build` on leanprover/lean4:v4.34.1 at -O3 -DNDEBUG (53.55 s):
+            reader-leanprover-lean4-v4.34.1-2c63da5154014426, identity reader=fnv1a64:7d20bfffe4dabb59
+            source=fnv1a64:7bb4d9f8122fd2b8. source= is the one mv-m-lazy-proofs-2026-10-10.txt
+            records; reader= moved with the Hybrid.lean edit. Every run here is this one binary
+versions    v4.32.2  mathlib 905b95818eb32af7874a58b427f50c1711a5e96c  433 modules, 21,680 declarations
+            v4.33.0  mathlib db584cd6d46c92f209a44c0f1c829460d327499d  438 modules, 21,928 declarations
+            v4.33.1  mathlib 0df444a360eaa60ab8c11dca51a86af692955474  438 modules, 21,928 declarations
+            v4.34.1  /private/tmp/lean-doc-relay/mv-v4341 (read only), the 447 Mathlib modules of
+                     its closure of the two roots, 22,220 declarations
+setup       benchmarks/tools/mv-m-run.sh --through-reader --keep-checkouts --need-gb 3 (477 s);
+            its classification against the native build: 0 defects on all three versions
+request     the one mv-m-run.sh sends, plus --lazy-proofs in every run:
+              reader extract --old <the checkout's `lake env` LEAN_PATH, 10 dirs>
+                --new <the newest's 11 dirs> --new-roots <newest closure> --lazy-proofs
+                <build/<tag>/work/modules.txt> <events.jsonl> <ARM FLAGS>
+                --no-equations-under Mathlib.Tactic,Mathlib.Meta --jobs 1 --ir-dir <d>/ir
+                --link-index <d>/link-index.lidx --link-index-omit <modules.txt>
+            arms (ARM FLAGS): a1 --equations --refs --write-ir --tagged-code (today's)
+                              a2 without --equations      a3 without --tagged-code
+                              a4 without --refs           a5 --write-ir only
+            The reader forwards every argument after its own flags to the extractor's parseArgs
+            unchanged and refuses only --dump-tactics, --tactics-emulate, --tactics-probe and
+            --serve, so all three flags can be turned off through it.
+            v4.34.1 was read by the same reader with --old set to the newest's own search
+            directories and the newest closure as targets: it reads and prints (2,159 modules,
+            211,600 constants decoded); its IR is the same format, written by the same code.
+order       one throwaway a1 first (the first process pays newest import and merge cold: 2.19 s and
+            5.06 s, against 0.42-0.44 and 1.09-1.13 s later), then cycle 1 a1 a2 a3 a4 a5,
+            cycle 2 a3 a4 a5 a1 a2, cycle 3 a5 a1 a2 a3 a4, all on v4.33.1; then one a1 with
+            --pp-breakdown (v4.33.1); then one a1 per version with --dump-own-keys and
+            --decl-profile (both not timed against the arms). Nothing else heavy ran; other
+            desktop applications open, load average 1.8-2.4
+memory      swapouts 5,537,290 at the start and the end (none during); swapins 4,763,388 ->
+            4,763,404; swap used 1,712 of 3,072 MiB throughout; free pages 1.34 GiB at the start,
+            1.28 GiB at the end (16 KiB pages)
+warmth      the oleans were unpacked by the setup run minutes before; at one job every arm
+            converged (extract phase spread 0.04-0.13 s per arm). The first timed cycle's decode
+            phase is 0.8-1.4 s higher than cycles 2-3 in every arm (8.07-8.53 s against
+            7.11-7.56 s), so cycle 1's walls are the high end of each arm
+same day    today's a1 process is 29.3-31.1 s, not the 36.8 s mv-m-lazy-proofs-2026-10-10.txt
+            measured with the same request this morning: manual root 0.24 against 2.35 s, decode
+            7.2 against 9.5 s, check ilean 1.3 against 1.8 s, extract 17.6 against 19.6 s. Every
+            comparison below is inside this run; the morning's numbers are not mixed in
+
+REPRODUCE
+---------
+  tools/build-lean-exe.sh --toolchain-from e2e/micro      (with the Hybrid.lean edit)
+  benchmarks/tools/mv-m-run.sh --through-reader --keep-checkouts --need-gb 3 \
+    --work /private/tmp/lean-doc-relay/mv-m-probe
+Then a throwaway driver (kept outside the tree) on the kept checkouts: per run
+`/usr/bin/time -l reader extract ...` with the request above, stdout kept per run (its `phases`
+line and the extractor's own summary: analyze, of which signature / equations / docstring,
+linkIndex, sorry, writeIR); every later cycle's IR tree and link index compared with
+`/usr/bin/diff -r` / `cmp` against cycle 1 of the same arm; two Python scripts (outside the
+tree): one diffing each arm's IR against a1 per declaration and field, one joining two
+versions' IR, key dumps and decl profiles (PROBE B). Both scripts ran on a 20-module sample
+(v4.33.1 against v4.34.1) before the full slice. Driver 616 s.
+
+ANSWER — PROBE A (v4.33.1, --jobs 1, --lazy-proofs, all (measured))
+------------------------------------------------------------------
+Each cell: cycles 1, 2, 3.
+                     wall (s)              user+sys (s)          extract phase (s)     max RSS (MiB)
+  a1 today's         31.06 29.45 29.32     30.63 30.50 30.40     17.55 17.58 17.52     2,727-2,728
+  a2 -equations      24.79 23.23 23.04     23.21 22.85 22.91     11.13 11.10 11.21     2,683
+  a3 -tagged-code    30.39 28.99 29.56     29.94 29.73 29.87     16.83 16.82 16.95     2,693
+  a4 -refs           30.92 29.51 30.13     30.60 30.37 30.40     17.45 17.50 17.42     2,724
+  a5 all three off   22.69 22.04 21.69     21.89 21.72 21.66      9.96  9.88  9.90     2,680
+Peak footprint 1,614-1,616 (a1), 1,586-1,587 (a2), 1,586-1,588 (a3), 1,618-1,619 (a4),
+1,584-1,585 MiB (a5). Every later cycle's IR and link index equal to cycle 1 of its arm, 10 of 10.
+
+What each flag costs, from the extract phase (paired by arm, cycles 1-3; the extract phase is the
+only one the flags reach, and the other phases are equal across arms within cycle noise):
+  --equations      6.3-6.5 s  (extract 17.52-17.58 -> 11.10-11.21; wall about -6.3 s, -21%)
+  --tagged-code    0.6-0.8 s  (-> 16.82-16.95)
+  --refs           0.08-0.10 s paired (-> 17.42-17.50; the two ranges are 0.02 s apart)
+  all three        7.6-7.7 s  (-> 9.88-9.96; wall 29.3-31.1 -> 21.7-22.7 s, -25 to -27%)
+
+Where a1's extract phase goes (a1 cycle 2; the extractor's own lines):
+  analyze 16.49 s = signature printing 9.97 + equations 5.96 + docstring 0.11 + the rest of
+  analyze 0.45 (blacklist test, ranges, attributes 0.05, instance index 0.01, modifiers);
+  link index 0.35, writeIR 0.69 (serialize 0.62), sorry 0.014; extract phase 17.58 s.
+  So outside signature + equations the extract phase holds 1.65 s.
+With --pp-breakdown (one run, IR equal to a1's, analyze 16.48 s): delaborate 7.00 s (of it the
+equations 1.56), parenthesize 1.49 (0.25), format 2.55 (0.46), layout 0.46 (0.10), sanitize
+0.15 (0.04), equation generation (getEqnsFor?/valueToEq + inferType) 3.31 s; accounted 14.97 of
+15.91 s. 23,743 signatures (90,807 binders), 3,839 equation terms, 3.26 MB printed. 40,427
+candidates, 21,928 produced, 18,499 blacklisted. Of the equations' 5.96 s, 3.31 s is generating
+the equation lemmas and about 2.4 s is printing them.
+
+What disappears from the IR (per declaration, a1 against the arm, all 21,928 declarations):
+  a2  "equations" and "equationCode" emptied on 3,583 declarations (the keys stay, as []); refs
+      reached only through an equation gone from 3,585 ("refs" emptied on 81); dependencyMaps in
+      index.json shrink accordingly. Everything else equal; schema 5; renderable.
+  a3  schema 5 -> 1 in index.json and every module file, which the renderer refuses (it requires
+      schemaVersion 5). Gone from every declaration: binderCode, typeCode, equationCode (all
+      linked code), modifiers, index, endLine/endCol, selectionRange; attrs from 7,180, instClass
+      and instTypes from 1,659 instances, generated (@[ext] origin) from 73; structure fields
+      lose binders, binderCode, doc and isDirect (325 declarations' members). The sorry key too,
+      though M has no sorry. IR 26.6 -> 13.1 MB.
+  a4  "refs" emptied on 21,894 of 21,928 declarations (the declaration -> referenced-name list the
+      site's dependency maps and back links come from); dependencyMaps in index.json follow.
+      Linked code (the spans) stays: --tagged-code keeps the info collection alive. IR 26.6 ->
+      22.3 MB.
+  a5  all of the above; schema 1, refused by the renderer. IR 7.8 MB.
+The link index is byte-identical in every arm.
+Verdict A: equations are the one feature that costs a lot (-21% of the process, and the only one
+whose removal leaves a renderable IR worth discussing); tagged code is cheap and cannot be
+dropped without the renderer refusing the IR; refs cost nothing measurable. All three together
+give -25 to -27%, far from 2x: signature printing alone is 10 s and the phases before extraction are
+11.7 s.
+
+PROBE B KEY (the throwaway dump; it must not change the IR)
+------------------------------------------------------------
+Per candidate of the target modules (40,427 on v4.33.1), from the decoded ConstantInfo in the
+hybrid environment: kind, hash of the level parameter names, the type's Lean Expr.hash (built-in,
+structural: ignores binder names and binder infos) and a full hash of the type (PrintKey.hashExpr:
+binder names, binder infos and mdata included), the same two for the value of a definition (0 for
+everything else; a theorem's proof is never in it), the same two over an inductive's constructors
+(name + type) plus, for a structure, its parents (structure, projection) and flattened field
+names, and the hash of the docstring. Two keys were evaluated:
+  builtin key  kind, levels, Expr.hash of type, value, constructors/fields
+  full key     kind, levels, full hash of type, value, constructors/fields
+Cost (`own keys` span, both keys and the docstring for every candidate): 0.84-0.87 s (measured).
+The v4.33.1 run with the dump and --decl-profile has every IR file and the link index equal to
+a1's cycle 1 (diff -r and cmp): the dump does not change the IR.
+
+ANSWER — PROBE B (all counts (measured); "built" is the older version, "other" the adjacent one
+whose IR would be reused; printed part = binders, implicits, type, equations, members without
+their doc/isDirect, refs as names, binderCode, typeCode, equationCode — what printing produces;
+everything else in an entry is read without printing and would be recomputed)
+-----------------------------------------------------------------------------------------------
+                                          v4.32.2 <- v4.33.0  v4.33.0 <- v4.33.1  v4.33.1 <- v4.34.1
+  declarations built / other              21,680 / 21,928     21,928 / 21,928     21,928 / 22,220
+  in both                                 21,607              21,928              21,742
+  entry byte-identical                    12,361              21,927               6,308
+  identical except positions/index        21,161              21,927              17,057
+  printed part identical (the ceiling)    21,201 (98.1%)      21,928 (100%)       20,214 (93.0%)
+  builtin key equal                       21,142              21,928              20,157
+    printed part differs (inexact)            16                   0                  18
+    entry differs beyond positions            54                   1               3,158
+  builtin key differs                        465                   0               1,585
+    printed part identical (missed)           75                   0                  75
+  full key equal                          21,082              21,928              18,095
+    printed part differs (inexact)             5                   0                   3
+    entry differs beyond positions            40                   1               2,482
+  full key differs                           525                   0               3,647
+    printed part identical (missed)          124                   0               2,122
+  to print with the builtin key           538 (73 new)        0                   1,771 (186 new)
+    share of analyze time (decl profile)  4.0% of 16.35 s     0% of 16.40 s       9.5% of 16.47 s
+  to print with the full key              598                 0                   3,833
+    share of analyze time                 4.3%                0%                  17.4%
+The v4.33.0/v4.33.1 pair is degenerate on M: one entry differs, a docstring's manual link
+(reference/4.33.0 against reference/4.33.1, the toolchain's manual root).
+The share is the per-declaration `ns` of --decl-profile on the built version summed over the
+declarations to print, divided by the sum over all produced (profile sums 16.35-16.47 s, analyze
+16.43-16.55 s in the same runs).
+
+Where the inexactness is (key equal, entry differs beyond positions; fields that differ):
+  builtin, v4.32.2 <- v4.33.0: attrs 20, doc 11, equations 6, refs modules only 4, binders +
+    equations + implicits 4, binders + type 3, attrs + doc 3, binders 2, type 1
+  builtin, v4.33.1 <- v4.34.1: refs modules only 3,035, attrs 32, doc 24, instClass 17,
+    attrs + doc 16, attrs + refs modules 8, binders 5, binders + implicits 4, refs names + type 2,
+    equations + refs names 2, and 7 more with binders/implicits/kind
+  full, v4.33.1 <- v4.34.1: refs modules only 2,396, attrs 30, doc 21, instClass 17, attrs +
+    refs modules 8, refs names + type 2, equations + refs names 1, and 5 more of attrs/doc
+Ten examples of a different printed part under an equal key (built vs other):
+  1 hnot_sdiff_comm (v4.32.2, builtin): binders (a b : α) vs (b a : α) and the statement mirrored,
+    ￢a \ b = ￢b \ a vs ￢b \ a = ￢a \ b: alpha-equivalent, so Expr.hash is equal.
+  2 Prod.instCompl (v4.32.2, builtin): (α : Type u_2) (β : Type u_3) vs {α} {β}; the equation
+    prints Prod.instCompl α β = ... vs Prod.instCompl = ...: Expr.hash ignores binder infos.
+  3 iInf_sup_iInf (v4.32.2, builtin): ⨅ (i : ι'), g i vs ⨅ (j : ι'), g j (a bound name).
+  4 DirectedOn.le_of_maximal (v4.32.2, builtin): fun (x1 x2 : α) vs fun (x y : α) in a binder.
+  5 Relation.map_onFun_map_eq_map (v4.33.1, builtin): {r : α → α → Prop} vs (r : ...).
+  6 Mathlib.Tactic.Translate.getRelevantArg (v4.33.1, builtin): (lint : Bool := true) vs
+    (isMainTranslation : Bool := true).
+  7 WellFounded.list_chain' (v4.33.1, builtin): (hwf : WellFounded r) vs [WellFounded r], and
+    with it kind theorem vs instance, instClass, instTypes.
+  8 Prod.instBooleanAlgebra (v4.32.2, both keys): own value identical, but its equation prints
+    toSDiff := Prod.instSDiff α β vs Prod.instSDiff: another declaration's binders became
+    implicit. Printing reads other declarations.
+  9 inf_Prop_eq (v4.33.1, both keys): type (fun x1 x2 => min x1 x2) = ... vs (fun x1 x2 => x1 ⊓ x2)
+    = ..., refs lose Min.min: same expression, different notation in the environment around it.
+  10 ExistsAndEq.mkNestedExists (v4.33.1, both keys): its value hashes equal (both hashes), yet
+    the equations differ (`let __do_lift ← Lean.getLCtx; have name ...` vs
+    `let p ← Lean.Meta.mkLambdaFVars #[b] res`): the equations are generated through other
+    constants the value only names (the recursion's auxiliary definitions), whose bodies changed.
+  Examples 1-7 are binder names/infos, which the builtin key cannot see; examples 8-10 are
+  context, which no own-content key can see. Not printed but wrong if frozen:
+  AddEquiv.apply_eq_iff_symm_apply gains [deprecated] (attrs), Finset.eq_prod_range_div gains a
+  docstring, AddCommGroup.toAddCancelCommMonoid's refs point at AddCancelCommMonoid in
+  Mathlib.Algebra.Group.Defs vs Mathlib.Algebra.Group.Monoid.
+The full key's 2,122 misses on v4.33.1 <- v4.34.1 are binder names that change in the
+expression and not in the printed text (assumed: names of anonymous instance binders and other
+binders the printer does not show; not traced one by one).
+
+Cross-declaration parts of an IR entry (there is no "used by" list in the IR: the site builds it,
+and the per-class instance lists, from refs and instTypes):
+  refs, as [module, name]: the module is resolved from the environment at write time, so it
+    moves when a referenced declaration moves; 4 declarations (v4.32.2 <- v4.33.0) and 3,587
+    (v4.33.1 <- v4.34.1, Mathlib.Algebra.Group.Defs split up) differ only there. Re-resolving the
+    reused names against the built environment costs no printing.
+  attrs, kind/instClass/instTypes: read from extension entries that other modules add
+    (`attribute [...]`, deprecations, Lean's own attribute renames); 106 and 109 declarations.
+    Recomputed without printing.
+  doc: docstrings added from elsewhere (aliases) and the manual root of the toolchain; 88 and 115.
+  printed text itself: notation, other declarations' binder infos, auxiliary definitions behind
+    equations (examples 8-10). These are the parts a reuse would freeze, and the counts above
+    (inexact 16/0/18 builtin, 5/0/3 full) are their size on M.
+  sorry "transitive" depends on other declarations' axioms; M has no sorry, so not measured.
+
+ESTIMATE (theoretical; unverified) — per-version process time on M at --jobs 1 if only the
+declarations whose key differs, and the new ones, were printed
+-------------------------------------------------------------------------------------------
+Premises:
+  P1 the phases before extraction stay as measured: a1 cycles 2-3 total minus extract = 11.7 s
+     (decode 7.2, check ilean 1.3, merge 1.1, finalize 0.9, newest import 0.4, the rest 0.8)
+     (measured)
+  P2 the extract phase outside analyze stays: 1.09 s (link index, writeIR, sorry) (measured)
+  P3 a reused declaration still pays analyze's non-printing part; for all declarations that is
+     16.49 - 9.97 - 5.96 = 0.56 s (measured), kept whole
+  P4 printing (signature + equations, 15.93 s) scales with the profiled share of the declarations
+     to print (measured shares above; the share is of all analyze time, a slight overcount)
+  P5 the key costs 0.85 s (measured, both hashes and docstrings for every candidate)
+  P6 reading the adjacent version's IR into the extractor costs 0.5 s (assumed; nothing measured)
+  P7 no exactness check runs, and the adjacent version's IR already exists
+Builtin key: 11.7 + 1.09 + 0.56 + share x 15.93 + 0.85 + 0.5
+  v4.32.2 <- v4.33.0   15.3 s   (1.9x against a1's 29.3 s of cycles 2-3)
+  v4.33.0 <- v4.33.1   14.7 s   (2.0x)
+  v4.33.1 <- v4.34.1   16.2 s   (1.8x)
+Full key: 15.5 / 14.7 / 17.5 s.
+Combined with dropping --equations (the most expensive feature): it removes only the printed
+share's equations (share x about 6.3 s), 15.1 / 14.7 / 15.6 s with the builtin key. Dropping
+--equations alone: 23.0-24.8 s (measured, a2), 1.25-1.27x paired by cycle.
+Floor: with nothing printed, 11.7 + 1.09 + 0.56 + 0.85 + 0.5 = 14.7 s, 2.0x. So 2x through
+reuse is reachable only on a pair that barely changed; on the two real pairs the estimate lands
+at 1.8-1.9x, and what blocks it is the 11.7 s before extraction (decode alone 7.2 s), not
+printing.
+
+THE DUMP (uncommitted; applied to 65e5d85 for this run; git diff of the one path)
+-------------------------------------------------------------------------------
+diff --git a/extractor/reader/OleanReader/Hybrid.lean b/extractor/reader/OleanReader/Hybrid.lean
+index 26d9c86..c65880e 100644
+--- a/extractor/reader/OleanReader/Hybrid.lean
++++ b/extractor/reader/OleanReader/Hybrid.lean
+@@ -185,6 +185,7 @@ structure Args where
+   new : Array System.FilePath := #[]
+   newRoots : Option System.FilePath := none
+   lazyProofs : Bool := false
++  dumpOwnKeys : Option System.FilePath := none
+   extractor : List String := []
+ 
+ def usage : String := "\n".intercalate [
+@@ -207,6 +208,7 @@ def parseReaderArgs : List String → Args → Args
+   | "--new" :: d :: rest, a => parseReaderArgs rest { a with new := a.new.push d }
+   | "--new-roots" :: f :: rest, a => parseReaderArgs rest { a with newRoots := some f }
+   | "--lazy-proofs" :: rest, a => parseReaderArgs rest { a with lazyProofs := true }
++  | "--dump-own-keys" :: p :: rest, a => parseReaderArgs rest { a with dumpOwnKeys := some p }
+   | rest, a => { a with extractor := rest }
+ 
+ def refusedFlag? (cfg : Cfg) : Option (String × String) :=
+@@ -556,6 +558,34 @@ unsafe def extractReusing (r : ReuseSession) (ph : Phases) (cfg : Cfg) (env : En
+   return { code, lines := kp.lines.push (reuseLine r.scx kp.stats kp.threads (countReuse prev kp.keys results) results.size),
+            printed := { keys := kp.keys, out }, failure := none, atExtract }
+ 
++unsafe def ownKeyFields (env : Environment) (ci : ConstantInfo) : Array UInt64 :=
++  let full := PrintKey.hashExpr
++  let (vB, vF) := match ci with
++    | .defnInfo v => (v.value.hash, full v.value)
++    | _ => (0, 0)
++  let (mB, mF) := match ci with
++    | .inductInfo v =>
++      let ctors := v.ctors.toArray.filterMap env.find?
++      let b := ctors.foldl (fun h c => mixHash (mixHash h (hash c.name)) c.type.hash) 0
++      let f := ctors.foldl (fun h c => mixHash (mixHash h (hash c.name)) (full c.type)) 0
++      let s := if isStructure env v.name then
++          let ph := (getStructureParentInfo env v.name).foldl
++            (fun h p => mixHash (mixHash h (hash p.structName)) (hash p.projFn)) 1
++          (getStructureFieldsFlattened env v.name (includeSubobjectFields := false)).foldl
++            (fun h f => mixHash h (hash f)) ph
++        else 0
++      (mixHash b s, mixHash f s)
++    | _ => (0, 0)
++  #[PrintKey.kindCode ci, hash ci.levelParams, ci.type.hash, full ci.type, vB, vF, mB, mF]
++
++unsafe def dumpOwnKeys (env : Environment) (world : World) (targets : Array Name) (path : System.FilePath) :
++    IO Unit := do
++  let h ← IO.FS.Handle.mk path .write
++  for c in ← PrintKey.candidates world targets do
++    let some ci := env.find? c | continue
++    let fields := (ownKeyFields env ci).push (hash (← world.docString? c))
++    h.putStrLn (String.intercalate "\t" (c.toString :: fields.toList.map toString))
++
+ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : IO Newest) (resident : Bool)
+     (ph : Phases) (reuse? : Option ReuseSession := none) : IO UInt32 := do
+   let prevPrinted ← match reuse? with
+@@ -620,6 +650,9 @@ unsafe def readVersion (a : Args) (cfg : Cfg) (targets : Array Name) (newest : I
+       | none => do
+         let (code, atExtract) ← extractMeasured ph (Litedoc4.run cfg (some (env, world)))
+         pure (code, none, some atExtract)
++    if let some p := a.dumpOwnKeys then
++      dumpOwnKeys env world targets p
++      ph.mark "own keys"
+     ph.mark "reuse count"
+     let realizations ← if resident then Assemble.clearRealizations env else pure 0
+     ph.mark "clear realizations"

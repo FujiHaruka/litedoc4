@@ -1,12 +1,15 @@
-import { searchData } from "./data.js";
 import { resultItem } from "./result-item.js";
 import { search } from "./search.js";
+import type { SearchSource } from "./types.js";
 
 const DEBOUNCE_MS = 90;
 /** The dropdown is a peek, not the result list; `search.html` is that. */
 const MAX_ROWS = 30;
 
-export function initSearch(): void {
+export function initSearch(
+  source: SearchSource,
+  signal: AbortSignal = new AbortController().signal,
+): void {
   const input = document.getElementById("search-input") as HTMLInputElement | null;
   const list = document.getElementById("search-results");
   if (!input || !list) return;
@@ -25,7 +28,7 @@ export function initSearch(): void {
   const run = async (): Promise<void> => {
     const query = input.value.trim().toLowerCase();
     if (query.length < 2) return close();
-    const data = await searchData();
+    const data = await source.data();
     if (!data) return close();
 
     const hits = search(data.index, query);
@@ -39,7 +42,7 @@ export function initSearch(): void {
       return;
     }
     items = hits.slice(0, MAX_ROWS).map((id) => {
-      const li = resultItem(data, id);
+      const li = resultItem(data, id, source.href);
       list.append(li);
       return li;
     });
@@ -61,7 +64,7 @@ export function initSearch(): void {
     clearTimeout(timer);
     timer = setTimeout(() => void run(), DEBOUNCE_MS);
   });
-  input.addEventListener("focus", () => void searchData()); // warm the index
+  input.addEventListener("focus", () => void source.data()); // warm the index
   input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -77,17 +80,25 @@ export function initSearch(): void {
       items[active]?.querySelector("a")?.click();
     }
   });
-  document.addEventListener("click", (e) => {
-    if (!(e.target as Element | null)?.closest(".search")) close();
-  });
+  document.addEventListener(
+    "click",
+    (e) => {
+      if (!(e.target as Element | null)?.closest(".search")) close();
+    },
+    { signal },
+  );
 
   // `/` focuses search — but not while the reader is typing somewhere else.
-  document.addEventListener("keydown", (e) => {
-    const tag = document.activeElement?.tagName;
-    if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA") {
-      e.preventDefault();
-      input.focus();
-      input.select();
-    }
-  });
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      const tag = document.activeElement?.tagName;
+      if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA") {
+        e.preventDefault();
+        input.focus();
+        input.select();
+      }
+    },
+    { signal },
+  );
 }

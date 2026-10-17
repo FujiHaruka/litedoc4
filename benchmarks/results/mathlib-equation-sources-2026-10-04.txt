@@ -1,0 +1,133 @@
+Where Mathlib's equations could come from without running the old Lean
+=====================================================================
+Date: 2026-10-04. Context: docs/multiversion/plan.md U8. The extractor gets a definition's
+equations from `getEqnsFor?`, which either returns equation lemmas already stored in the
+environment (`f.eq_1` … — `alreadyGenerated?`) or generates them by elaboration (`mkEqns`: unfold
+theorem, match splitting, tactic proofs). Under D10 (one reader in the newest Lean) generation
+cannot run on an old definition. Question: for how many definitions is generation needed at all?
+
+CONDITIONS
+- Lean 4.34.1, Mathlib v4.34.1 (d13f23b723b8a846827a245b89c10fc7d3f11612), Mathlib oleans from
+  the cache, workspace <new-workspace>, `lake env lean --run eqcount.lean <step> <cap>`.
+- Apple M1, 16 GiB RAM, macOS 26.6.2, single-threaded.
+- Sampled first: every 1,000th definition, 20 asked (5 had `eq_1`); 90.8 s wall, 4.05 GB peak
+  RSS, mostly import with a cold page cache.
+- Full runs over all 57,892 definitions, three times, each adding one split (matcher / recursive,
+  then ite / dite / cond); identical counts on the shared columns every time. 88.5–117.7 s wall,
+  4.20–4.47 GB peak RSS, user 5.5–7.0 s, sys 13.2–16.7 s (page-cache bound, not warm). The counts
+  are deterministic; the times are single runs.
+- Population: definitions the extractor keeps and asks `getEqnsFor?` about — `defnInfo`, has a
+  declaration range, not internal / auxiliary / matcher, type not a proposition.
+
+RESULT (measured, all 57,892, one version)
+  definitions asked about                                              57,892   100%
+  `f.eq_1` already stored in some module's .olean                      13,232   22.86%
+  not stored, non-recursive, value mentions no matcher and no
+    ite / dite / cond                                                  41,685   72.00%
+  not stored, non-recursive, no matcher but ite / dite / cond             630    1.09%
+  not stored, non-recursive, value mentions a matcher                   1,994    3.44%
+  not stored, recursive (`isRecursiveDefinition`)                         351    0.61%
+  (also: `f.eq_def` stored 418; recursive in total 724)
+
+  Mathlib tactic kinds: 282, all 282 `ParserDescr` values (data), 0 compiled `Parser`.
+
+READING
+- 22.86% need nothing but decoding the stored lemma and printing it.
+- For the 72.00% row, `mkEqns` has nothing to split, so its one equation is `f xs = body`, which
+  can be built from the decoded type and value. That this is exactly what Lean generates is
+  inferred from reading `mkEqns`, not compared on output (open: compare on a sample).
+- 5.14% (2,975) need real generation: matcher, if-then-else, or recursion.
+- One version only; the shares on older versions are not measured.
+- Not to be confused with the plan's "58,426 equations per version", which counts lemmas, not
+  definitions.
+
+ALSO MEASURED (same day, same machine): Lean core's own oleans for v4.34.1
+- `find <toolchain>/lib/lean -name '*.olean*'` over the v4.34.1 toolchain: 7,556 files,
+  1,749,779,168 B. A reader has to decode each version's core too (core names are in every signature),
+  and it ships with the toolchain, not with Mathlib's cache.
+
+RAW OUTPUT (third full run)
+defs eligible 57892, sampled 57892 (step 1), eq_1 present 13232, eq_def present 418, recursive 724
+sample without eq_1: [Mathlib.Linter.directoryDependencyCheck, findImports, Mathlib.Linter.copyrightHeaderChecks, Lean.Linter.whenLinterActivated, Lean.Linter.whenNotLinterOption, Lean.Linter.whenLinterOption, adaptationNoteCmd, «tactic#adaptation_note_», reportAdaptationNote, adaptationNoteTermStx]
+without eq_1 and non-recursive 44309, of which the value mentions a matcher 1994, of the rest ite/dite/cond 630
+mathlib tactic kinds 282: ParserDescr 282, Parser (code) 0, other 0; code examples []
+
+SCRIPT (eqcount.lean)
+import Lean
+open Lean Meta
+
+/-! For every `step`-th Mathlib definition the extractor would keep and ask `getEqnsFor?` about
+(definition, has a declaration range, not internal / aux / matcher, type not a proposition):
+does the imported environment already hold its `eq_1` (realized when Mathlib was built), and its
+`eq_def`? Also: for every tactic syntax kind defined in Mathlib, is its parser constant a
+`ParserDescr` (data) or a hand-written `Parser` (code)? Usage: eqcount <step> <cap> -/
+
+def main (args : List String) : IO Unit := do
+  let step := (args[0]? >>= String.toNat?).getD 1
+  let cap := (args[1]? >>= String.toNat?).getD 1000000000
+  unsafe Lean.enableInitializersExecution
+  initSearchPath (← findSysroot)
+  let env ← importModules #[{ module := `Mathlib }] Options.empty (loadExts := true)
+  let modNames := env.header.moduleNames
+  let ctx : Core.Context := { fileName := "<eqcount>", fileMap := default, maxHeartbeats := 0 }
+  let act : MetaM (Nat × Nat × Nat × Nat × Nat × Array Name × Nat × Nat × Nat) := do
+    let mut noEqNonrecIte := 0
+    let mut noEqNonrec := 0
+    let mut noEqNonrecMatch := 0
+    let mut seen := 0
+    let mut asked := 0
+    let mut eq1 := 0
+    let mut eqdef := 0
+    let mut recs := 0
+    let mut examples : Array Name := #[]
+    for i in [0:modNames.size] do
+      unless modNames[i]!.getRoot == `Mathlib do continue
+      for n in env.header.moduleData[i]!.constNames do
+        let some (.defnInfo v) := env.find? n | continue
+        if n.isInternal || n.isInternalDetail then continue
+        if isAuxRecursor env n || isNoConfusion env n || isMatcherCore env n then continue
+        if (← findDeclarationRanges? n).isNone then continue
+        if ← isProp v.type then continue
+        seen := seen + 1
+        if seen % step != 0 then continue
+        if asked ≥ cap then continue
+        asked := asked + 1
+        if env.contains (mkEqLikeNameFor env n "eq_1") then eq1 := eq1 + 1
+        else
+          if examples.size < 10 then examples := examples.push n
+          unless (← isRecursiveDefinition n) do
+            noEqNonrec := noEqNonrec + 1
+            if v.value.foldConsts false (fun c acc => acc || isMatcherCore env c) then
+              noEqNonrecMatch := noEqNonrecMatch + 1
+            else if v.value.foldConsts false (fun c acc => acc || c == ``ite || c == ``dite || c == ``cond) then
+              noEqNonrecIte := noEqNonrecIte + 1
+        if env.contains (mkEqLikeNameFor env n "eq_def") then eqdef := eqdef + 1
+        if (← isRecursiveDefinition n) then recs := recs + 1
+    return (seen, asked, eq1, eqdef, recs, examples, noEqNonrec, noEqNonrecMatch, noEqNonrecIte)
+  let ((seen, asked, eq1, eqdef, recs, examples, noEqNonrec, noEqNonrecMatch, noEqNonrecIte), _, _) ← act.toIO ctx { env } {} {}
+  IO.println s!"defs eligible {seen}, sampled {asked} (step {step}), eq_1 present {eq1}, eq_def present {eqdef}, recursive {recs}"
+  IO.println s!"sample without eq_1: {examples.toList}"
+  IO.println s!"without eq_1 and non-recursive {noEqNonrec}, of which the value mentions a matcher {noEqNonrecMatch}, of the rest ite/dite/cond {noEqNonrecIte}"
+  let some tactics := (Lean.Parser.parserExtension.getState env).categories.find? `tactic
+    | IO.println "no tactic category"; return
+  let mut descr := 0
+  let mut code := 0
+  let mut other := 0
+  let mut mathlibKinds := 0
+  let mut codeEx : Array Name := #[]
+  for (k, _) in tactics.kinds do
+    let some idx := env.getModuleIdxFor? k | continue
+    unless modNames[idx]!.getRoot == `Mathlib do continue
+    mathlibKinds := mathlibKinds + 1
+    match env.find? k with
+    | some ci =>
+      match ci.type.getAppFn with
+      | .const c _ =>
+        if c == ``Lean.ParserDescr || c == ``Lean.TrailingParserDescr then descr := descr + 1
+        else if c == ``Lean.Parser.Parser || c == ``Lean.Parser.TrailingParser then
+          code := code + 1
+          if codeEx.size < 8 then codeEx := codeEx.push k
+        else other := other + 1
+      | _ => other := other + 1
+    | none => other := other + 1
+  IO.println s!"mathlib tactic kinds {mathlibKinds}: ParserDescr {descr}, Parser (code) {code}, other {other}; code examples {codeEx.toList}"

@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env
+#!/usr/bin/env node
 //
 // **Byte accounting** of the generated module pages against doc-gen4's own
 // pages, region by region.
@@ -48,20 +48,22 @@
 // The page-level byte-identity number below is computed without the segmenter at
 // all, as a cross-check on that.
 
-const argv = Deno.args.slice();
+import { readFile, readdir, writeFile } from "node:fs/promises";
+
+const argv = process.argv.slice(2);
 const opt = (n: string, d = "") => {
   const i = argv.indexOf(n);
   return i >= 0 ? argv[i + 1] : d;
 };
 const PAGES = opt("--pages");
-const TARGET = Deno.env.get("TARGET_REPO") ?? "/Users/haruka/dev/lean-projects";
+const TARGET = process.env.TARGET_REPO ?? "/Users/haruka/dev/lean-projects";
 const DOC_ROOT = opt("--doc-root", `${TARGET}/.lake/build/doc/InformationTheory`);
 const REPORT = opt("--report");
 const DIFFS = opt("--diffs");
 const MAX_DIFFS = Number(opt("--max-diffs", "5")); // per region
 if (!PAGES) {
   console.error("usage: coverage.ts --pages <dir> [--doc-root <dir>] [--report <txt>] [--diffs <txt>]");
-  Deno.exit(2);
+  process.exit(2);
 }
 
 const enc = new TextEncoder();
@@ -283,9 +285,9 @@ function segmentDecl(
 }
 
 async function* walk(dir: string): AsyncGenerator<string> {
-  for await (const e of Deno.readDir(dir)) {
+  for (const e of await readdir(dir, { withFileTypes: true })) {
     const p = `${dir}/${e.name}`;
-    if (e.isDirectory) yield* walk(p);
+    if (e.isDirectory()) yield* walk(p);
     else if (e.name.endsWith(".html")) yield p;
   }
 }
@@ -429,12 +431,12 @@ for (const path of theirPaths) {
   pageMissBytes = 0;
   const rel = path.slice(DOC_ROOT.length + 1);
   const module = "InformationTheory." + rel.slice(0, -".html".length).split("/").join(".");
-  const theirs = await Deno.readTextFile(path);
+  const theirs = await readFile(path, "utf8");
   inv.total += u8(theirs);
 
   let mine: string | null = null;
   try {
-    mine = await Deno.readTextFile(`${PAGES}/${module.split(".").join("/")}.html`);
+    mine = await readFile(`${PAGES}/${module.split(".").join("/")}.html`, "utf8");
   } catch {
     mine = null;
   }
@@ -655,7 +657,7 @@ say();
 say(`pages(mine)  ${PAGES}`);
 say(`doc-root     ${DOC_ROOT}`);
 say(`date         ${new Date().toISOString().replace(/\.\d+Z$/, "Z")}`);
-say(`deno         ${Deno.version.deno} / V8 ${Deno.version.v8}`);
+say(`node         ${process.versions.node} / V8 ${process.versions.v8}`);
 say();
 say("母数は **doc-gen4 がディスクに出した 348 ページ**。生成側は IR の 432 モジュール分を");
 say(`書いているが (${n(minePages)} ファイル)、doc-gen4 側に無い 84 ページは採点していない。`);
@@ -846,7 +848,7 @@ say();
         `their: ${JSON.stringify(c.their.slice(Math.max(0, i - 120), i + 200))}\n`,
     );
   }
-  await Deno.writeTextFile(opt("--cm-dump", "/dev/null"), dump.join("\n"));
+  await writeFile(opt("--cm-dump", "/dev/null"), dump.join("\n"));
 }
 {
   const c = (s: string, re: RegExp) => (s.match(re) ?? []).length;
@@ -890,5 +892,5 @@ say();
 
 const text = out.join("\n") + "\n";
 console.log(text);
-if (REPORT) await Deno.writeTextFile(REPORT, text);
-if (DIFFS) await Deno.writeTextFile(DIFFS, examples.join("\n\n") + "\n");
+if (REPORT) await writeFile(REPORT, text);
+if (DIFFS) await writeFile(DIFFS, examples.join("\n\n") + "\n");

@@ -1,18 +1,20 @@
-#!/usr/bin/env -S deno run -A
+#!/usr/bin/env node
+import { readFileSync } from "node:fs";
+
 /**
  * Aggregates the JSONL emitted by the instrumented doc-gen4 (`DOCGEN_TIMING=<file>`).
  *
- * Usage: analyze.ts <file.jsonl> [--by-module]
+ * Usage: node analyze.ts <file.jsonl> [--by-module]
  */
 type Rec = { phase: string; pid: number; us: number; [k: string]: unknown };
 
-const [path, ...flags] = Deno.args;
+const [path, ...flags] = process.argv.slice(2);
 if (!path) {
   console.error("usage: analyze.ts <file.jsonl> [--by-module]");
-  Deno.exit(1);
+  process.exit(1);
 }
 
-const recs: Rec[] = Deno.readTextFileSync(path)
+const recs: Rec[] = readFileSync(path, "utf8")
   .trim()
   .split("\n")
   .filter((l) => l.length > 0)

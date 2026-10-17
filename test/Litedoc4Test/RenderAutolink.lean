@@ -9,6 +9,17 @@ import Litedoc4.Render.Autolink
 namespace Litedoc4Test
 open Litedoc4
 
+/-- A link to another module as a page at `root` writes it: `linkDest`'s answer
+spelled by `LinkDest.href`. -/
+def linkTo (ix : NameIndex) (root module : String) (anchor : Option String) : Option String :=
+  (linkDest ix module anchor).map (·.href root)
+
+/-- What a page at `root` resolves a word or a source path in a docstring to. -/
+def pageResolver (c : PageCtx) (root : String) : LinkResolver :=
+  { nameToLink := nameToLink c root
+    sourcePathToLink := fun path => (sourcePathDest c path).map (·.href root)
+    isSiteFile := c.ix.siteFiles.contains }
+
 /-- One module per distinct name-to-module pair, plus modules that have a page
 and declare nothing. **The modules are the page set**, which is what a run has
 for its own package and only for it. -/
@@ -22,9 +33,11 @@ def alModules (entries : List (String × String)) (pages : List String) : Array 
     if !out.any (·.name == module) then out := out.push { name := module }
   return out
 
+def namesOf (mods : Array Module) : Array ModuleNames := mods.map ModuleNames.of
+
 def alIndex (entries : List (String × String)) (pages : List String)
     (lidx : String := "") (external : List (String × String) := []) : NameIndex :=
-  buildIndex #[] (alModules entries pages) (parseLidx lidx) (mkExternalLinks external.toArray)
+  buildIndex #[] (namesOf (alModules entries pages)) (parseLidx lidx) (mkExternalLinks external.toArray)
 
 /-- The module `MODULE_JSON` is, as values: a declaration whose references name
 one module of a dependency and one of this package, a private declaration, and
@@ -38,7 +51,7 @@ def pkgTwo : Module :=
       { name := "Pkg.Two.a", kind := "def", line := 5, col := 0, index := 2 }] }
 
 def alResolve (ix : NameIndex) (m : Module) (s : String) : Option String :=
-  nameToLink (mkPageCtx ix "../" m) s
+  nameToLink (mkPageCtx ix m) "../" s
 
 def nameLiteralsAcceptWhatLeanAccepts : Bool :=
   ["Nat", "Nat.succ", "Nat.succ'", "foo!", "foo?", "_root_.Nat", "Nat.1", "«a b».c",
@@ -72,7 +85,7 @@ there, a reference only fills a gap, and a private name is in the map — it is
 `nameToLink` that refuses to look one up, not the map that lacks it. -/
 def aReferenceFillsAGapAndADeclarationOverwrites : Bool :=
   let ix := buildIndex #[#[("Dep.shared", "Dep.Other"), ("Pkg.Two.a", "Dep.Stale")]]
-    #[pkgTwo] emptyLidx (mkExternalLinks #[])
+    (namesOf #[pkgTwo]) (parseLidx "") (mkExternalLinks #[])
   ix.known.get? "Pkg.Two.a" == some "Pkg.Two"
     && ix.known.get? "Dep.shared" == some "Dep.Other"
     && ix.known.get? "Pkg.One.a" == some "Pkg.One"
@@ -85,7 +98,7 @@ dropping any one of them fails here. `Pkg.Empty` is the load-bearing one: a
 module that declares nothing is not a value in `known` either, so it is a link
 target only because the IR listed it. -/
 def knownModulesIsTheUnionOfThreeSources : Bool :=
-  let ix := buildIndex #[] #[pkgTwo, { name := "Pkg.Empty" }] (parseLidx "@Lidx.Only\n")
+  let ix := buildIndex #[] (namesOf #[pkgTwo, { name := "Pkg.Empty" }]) (parseLidx "@Lidx.Only\n")
     (mkExternalLinks #[])
   ["Pkg.Empty", "Pkg.One", "Dep.M", "Lidx.Only", "Pkg.Two"].all ix.knownModules.contains
     && !ix.knownModules.contains "Nowhere"
@@ -125,7 +138,7 @@ def alLidx : String := "@Lidx.Only\nDep.M\n\tDep.only_in_lidx\t12\t14\n"
 answer — `none` included — so `_private.Pkg.Two.hidden` gets no link from the
 last branch either, and `a b` never reaches a lookup at all. -/
 def resolutionTakesTheBranchesInOrder : Bool :=
-  let ix := buildIndex #[] #[pkgTwo, { name := "Dep.M" }, { name := "Lidx.Only" }]
+  let ix := buildIndex #[] (namesOf #[pkgTwo, { name := "Dep.M" }, { name := "Lidx.Only" }])
     (parseLidx alLidx) (mkExternalLinks #[])
   alResolve ix pkgTwo "Pkg.Two.a" == some "../Pkg/Two.html#Pkg.Two.a"
     && alResolve ix pkgTwo "Dep.only_in_lidx" == some "../Dep/M.html#Dep.only_in_lidx"
@@ -147,7 +160,7 @@ rather than appended: the two name different kinds of thing, and a blob URL
 carrying `#LE.ext` points at nothing. -/
 def aLinkTakesOneOfFourBranches : Bool :=
   let mathlib := "https://host/o/mathlib4/blob/fabf563"
-  let ix := buildIndex #[] #[pkgTwo] (parseLidx "Mathlib.Order.Basic\n\tLE.ext\t67\t67\n")
+  let ix := buildIndex #[] (namesOf #[pkgTwo]) (parseLidx "Mathlib.Order.Basic\n\tLE.ext\t67\t67\n")
     (mkExternalLinks #[("Mathlib", mathlib), ("Dep", "")])
   linkTo ix ".././" "Mathlib.Order.Basic" (some "LE.ext")
       == some (mathlib ++ "/Mathlib/Order/Basic.lean#L67-L67")
@@ -171,10 +184,10 @@ The bytes are asserted and not only the resolver's answer, because the failure
 this replaced is invisible at the resolver: an `<a href>` that renders perfectly
 and 404s. -/
 def aModuleOfThisPackageWithNoPageIsNotALink : Bool :=
-  let ix := buildIndex #[] #[pkgTwo]
+  let ix := buildIndex #[] (namesOf #[pkgTwo])
     (parseLidx "@Pkg.Recycling\nPkg.Recycling\n\tPkg.Recycling.helper\t3\t4\n")
     (mkExternalLinks #[])
-  let page := pageRenderer (mkPageCtx ix "../" pkgTwo) {}
+  let page := pageResolver (mkPageCtx ix pkgTwo) "../"
   ix.knownModules.contains "Pkg.Recycling" && !ix.pages.contains "Pkg.Recycling"
     && ix.pages.contains "Pkg.Two"
     && alResolve ix pkgTwo "Pkg.Recycling.helper" == none
@@ -213,7 +226,7 @@ answers nothing either. -/
 def anUnresolvedSourcePathStaysACodeSpan : Bool :=
   let ix := alIndex [] ["Pkg.Deep.Sub.Thing", "Dep.Sub.Thing", "Other.X.Amb", "P.X.Amb"]
     "" [("Dep", "https://host/o/dep/blob/abc")]
-  let page := pageRenderer (mkPageCtx ix "../" {}) {}
+  let page := pageResolver (mkPageCtx ix {}) "../"
   autoLinkInline "" page "Deep/Sub/Thing.lean"
       == "<a href=\"../Pkg/Deep/Sub/Thing.html\">Deep/Sub/Thing.lean</a>"
     && autoLinkInline "" page "Dep/Sub/Thing.lean"
@@ -228,7 +241,7 @@ an anchor there would land in the middle of every double space. It is asked of
 an index that holds the empty string as a declaration, as a module and in the
 `.lidx`'s `@` section — every source a branch could reach it from. -/
 def theEmptyStringNeverResolves : Bool :=
-  let ix := buildIndex #[] #[{ name := "Pkg.Two", decls := #[{ name := "" }] }, { name := "" }]
+  let ix := buildIndex #[] (namesOf #[{ name := "Pkg.Two", decls := #[{ name := "" }] }, { name := "" }])
     (parseLidx "@\n") (mkExternalLinks #[])
   alResolve ix { name := "Pkg.Two", decls := #[{ name := "" }] } "" == none
 

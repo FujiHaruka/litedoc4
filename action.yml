@@ -8,7 +8,7 @@
 #   blocks whose keys you had to get right, an elan install, and a call into
 #   tools/ci-build.sh. All of that is here now, and the caller writes:
 #
-#       - uses: FujiHaruka/litedoc4@v1.4.0
+#       - uses: FujiHaruka/litedoc4@v2.0.0
 #         id: docs
 #       - uses: actions/upload-pages-artifact@v5
 #         with: { path: "${{ steps.docs.outputs.site }}" }
@@ -52,7 +52,7 @@ inputs:
     description: "the Lean package to document, relative to the workspace (or absolute)"
     default: "."
   out:
-    description: "where the documentation state goes; <out>/site is the site. Must be outside root. Default: a directory under RUNNER_TEMP"
+    description: "where the documentation state goes; <out>/site is the site, <out>/store the store of versions unless `store` names another (`store` needs `versions`). Must be outside root. Default: a directory under RUNNER_TEMP"
     default: ""
   cache-get:
     description: "run `lake exe cache get` first — you want this for a Mathlib-dependent package"
@@ -61,7 +61,7 @@ inputs:
     description: "run `lake build` in the same job. Turn off only if the package was already built in THIS job — from another job the page cache is cold and the extractor is 5-12x slower"
     default: "true"
   jobs:
-    description: "extractor threads"
+    description: "threads for hashing the oleans and for the extractor"
     default: "4"
   lib:
     description: "library name, when it cannot be read from lakefile.toml (needed for lakefile.lean)"
@@ -70,13 +70,22 @@ inputs:
     description: "base URL for source links, when `origin` is not GitHub"
     default: ""
   full:
-    description: "ignore any previous state under out and regenerate everything"
+    description: "ignore the IR under out and extract every module again"
+    default: "false"
+  versions:
+    description: "comma-separated tags, branches or commits of root's repository, the last the newest, to build one site of all of them from the store. Left empty, the checked-out working tree is the one version, named by its commit"
+    default: ""
+  store:
+    description: "with `versions`, the store of built versions, relative to the workspace (or absolute). Default: <out>/store. Without `versions` the store is always <out>/store and holds only the version just built, so setting this fails the step"
+    default: ""
+  hash-urls:
+    description: "serve every page from the root index.html with the route in the URL fragment, for hosts that cannot answer every path with one page"
     default: "false"
   install-elan:
     description: "install elan if `lake` is not already on PATH"
     default: "true"
   cache:
-    description: "use actions/cache for the extractor, the litedoc4 build, Mathlib's oleans and the incremental state"
+    description: "use actions/cache for the extractor, the litedoc4 build, Mathlib's oleans, and the store and extraction state"
     default: "true"
 
 outputs:
@@ -84,12 +93,12 @@ outputs:
     description: "the generated site — hand this to upload-pages-artifact or upload-artifact"
     value: "${{ steps.build.outputs.site }}"
   out:
-    description: "the state directory (site + caches). Keep it between runs to stay incremental"
+    description: "the state directory (site, store and extraction state). Keep it between runs: the store holds every version already built (with `versions`), or the one just built"
     value: "${{ steps.build.outputs.out }}"
   timings:
     description: "path to the phase timings JSON"
     value: "${{ steps.build.outputs.timings }}"
-  # Constant, and kept rather than dropped: it is a name 1.x promised, and a
+  # Constant, and kept rather than dropped: it is a name 2.x promised, and a
   # workflow that reads a *removed* output gets an empty string with no error,
   # so removing it would turn somebody's `test "$SRC" = release` into a silent
   # pass. Left in place, that same line fails and says why.
@@ -108,6 +117,8 @@ runs:
       env:
         INPUT_ROOT: ${{ inputs.root }}
         INPUT_OUT: ${{ inputs.out }}
+        INPUT_STORE: ${{ inputs.store }}
+        INPUT_VERSIONS: ${{ inputs.versions }}
       run: |
         set -euo pipefail
         A="$GITHUB_ACTION_PATH"
@@ -124,6 +135,14 @@ runs:
         OUT="$INPUT_OUT"
         if [ -z "$OUT" ]; then OUT="$RUNNER_TEMP/litedoc4-out"; fi
         case "$OUT" in /*) ;; *) OUT="$GITHUB_WORKSPACE/$OUT" ;; esac
+
+        if [ -n "$INPUT_STORE" ] && [ -z "$INPUT_VERSIONS" ]; then
+          echo "::error::store is set and versions is empty: a site of one version keeps only that version, in <out>/store; store names the store of a site built from versions"
+          exit 1
+        fi
+        STORE="$INPUT_STORE"
+        if [ -z "$STORE" ]; then STORE="$OUT/store"; fi
+        case "$STORE" in /*) ;; *) STORE="$GITHUB_WORKSPACE/$STORE" ;; esac
 
         # **Restore caches only the first time this action runs in a job.**
         #
@@ -142,6 +161,16 @@ runs:
           echo "first=$FIRST"
           echo "root=$ROOT"
           echo "out=$OUT"
+          echo "store=$STORE"
+          # What is worth keeping between runs: the store, which holds every
+          # version already built (only the last one without `versions`), and
+          # the extraction state beside it. Not the site, which is rendered
+          # from the store on every run.
+          echo "state<<LITEDOC4_STATE"
+          echo "$OUT"
+          echo "!$OUT/site"
+          case "$STORE" in "$OUT"/*) ;; *) echo "$STORE" ;; esac
+          echo "LITEDOC4_STATE"
           # Hashed here rather than with hashFiles(): see the header. The
           # `litedoc4` key covers every file Lake compiles into the executable —
           # the Lean sources, the vendored C, and the lakefile that names the
@@ -155,6 +184,7 @@ runs:
           echo "binary-source=lake"
           echo "manifest=$(sha256sum "$ROOT/lake-manifest.json" 2>/dev/null | cut -c1-16 || echo none)"
           echo "toolchain=$(tr -d '\n' < "$ROOT/lean-toolchain" 2>/dev/null || echo unknown)"
+          if [ -n "$INPUT_VERSIONS" ]; then echo "kind=versions"; else echo "kind=one"; fi
         } >> "$GITHUB_OUTPUT"
 
     - name: Cache the litedoc4 build
@@ -190,15 +220,16 @@ runs:
         key: litedoc4-mathlib-${{ steps.keys.outputs.manifest }}
         restore-keys: litedoc4-mathlib-
 
-    # What makes a run incremental: last run's state. The key moves every commit
-    # so each run saves its own, and restore-keys picks the most recent one up.
-    - name: Cache the incremental state
+    # What makes a run reuse earlier work: last run's store and extraction
+    # state. The key moves every commit so each run saves its own, and
+    # restore-keys picks the most recent one up.
+    - name: Cache the store and the extraction state
       if: inputs.cache == 'true' && inputs.full != 'true' && steps.keys.outputs.first == 'true'
       uses: actions/cache@v6
       with:
-        path: ${{ steps.keys.outputs.out }}
-        key: litedoc4-state-${{ steps.keys.outputs.toolchain }}-${{ github.sha }}
-        restore-keys: litedoc4-state-${{ steps.keys.outputs.toolchain }}-
+        path: ${{ steps.keys.outputs.state }}
+        key: litedoc4-state-${{ steps.keys.outputs.kind }}-${{ steps.keys.outputs.toolchain }}-${{ github.sha }}
+        restore-keys: litedoc4-state-${{ steps.keys.outputs.kind }}-${{ steps.keys.outputs.toolchain }}-
 
     - name: Install elan
       if: inputs.install-elan == 'true'
@@ -233,6 +264,9 @@ runs:
         IN_LIB: ${{ inputs.lib }}
         IN_SOURCE_URL: ${{ inputs.source-url }}
         IN_FULL: ${{ inputs.full }}
+        IN_VERSIONS: ${{ inputs.versions }}
+        IN_HASH_URLS: ${{ inputs.hash-urls }}
+        STORE: ${{ steps.keys.outputs.store }}
       run: |
         set -euo pipefail
         # `if`, not `[ … ] && …`: under `set -e` a false test is the last
@@ -249,7 +283,9 @@ runs:
         if [ -n "$IN_LIB" ]; then PASS+=(--lib "$IN_LIB"); fi
         if [ -n "$IN_SOURCE_URL" ]; then PASS+=(--source-url "$IN_SOURCE_URL"); fi
         if [ "$IN_FULL" = "true" ]; then PASS+=(--full); fi
-        if [ "${#PASS[@]}" -gt 0 ]; then ARGS+=(-- "${PASS[@]}"); fi
+        if [ -n "$IN_VERSIONS" ]; then PASS+=(--versions "$IN_VERSIONS" --store "$STORE"); fi
+        if [ "$IN_HASH_URLS" = "true" ]; then PASS+=(--hash-urls); fi
+        ARGS+=(-- ${PASS[@]+"${PASS[@]}"})
 
         "$GITHUB_ACTION_PATH/tools/ci-build.sh" \
           --root "$ROOT" --out "$OUT" --jobs "$IN_JOBS" \

@@ -1,0 +1,443 @@
+# Item 6 step 6: build --versions over one reader session, on the sample (S, six versions, five through the reader).
+# Apple M1, 16 GB, macOS 25.6.0; one run each. Sections: (1) tools/mv-reader-gate.sh 14 of 14, the clean run;
+# (2) fail-once: a patched round writes a fake dependency into its record, and --reader-check passes only --check-patch
+# through — 3 of 14 failed (patched-equals-alone, check-keys, and reader-force).
+
+## (1) tools/mv-reader-gate.sh
+
+=== 1/11 S as six versions
+v1 5d16fb2b43744a5161f3d0feff4f34d769f60669
+v2 eb2d0fde1ec8ee744e6ab478e752f03151473549
+v3 a61aa62134bad98cba7926fb2119acc7caf34c85
+v4 5baad55841c7ac0e6f2d8c6cb90cc91747d38f44
+v5 d6c5f662daacb19e5b1f12c787ce054b218a5ab7
+v6 24e510c1c1029b3a33d9f8aec5be09768e1d15e5
+
+=== 2/11 native-add: the oracle, filled natively
+ok native-add: v1..v5: 5 of 5 (v1, v2, v3, v4, v5); v1..v6 over that store: 1 of 6 (v6); every record fill=own
+
+=== 3/11 reader-empty: an empty store and v1..v6
+ok reader-empty: versions extracted 6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5); fill reader for v1..v5 and own for v6, in the records and the marker; v6 extracted before each read, a disk line after every read; one session, v1 built whole and v2..v5 each patched from the one before, stopped after 5 requests; the newest side's micro-dep read from its copy, no checkout or copy left; v6 is native-add's byte for byte; the site holds all 6
+
+=== 4/11 reader-equals-native: each reader-filled entry against its native one
+ok reader-equals-native-v1: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v2: 13 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v3: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v4: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v5: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+
+=== 5/11 patched-equals-alone: the same five read alone
+ok patched-equals-alone: --reader-alone: 6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5); 5 of 5 entries equal the session's, record.json and entry.pack.gz byte for byte
+
+=== 6/11 check-keys: the session's patch and carried keys checked on every round
+ok check-keys: --reader-check: 6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5); check-patch 0 modules and check-keys 0 keys on 5 of 5 rounds; 5 of 5 entries equal the session's
+
+=== 7/11 reader-again
+ok reader-again: versions extracted 0 of 6 (), rendered 0 of 6 (); no entry changed
+
+=== 8/11 reader-remove-one
+ok reader-remove-one: with v3 removed: versions extracted 1 of 6 (v3), fill=own, native-add's v3 byte for byte
+
+=== 9/11 reader-force
+ok reader-force: --through-reader v3: versions extracted 1 of 6 (v3), through the reader: 1 (v3), reader-empty's v3 byte for byte
+
+=== 10/11 reader-identity
+ok reader-identity: reader= altered: 5 of 6 (v1, v2, v3, v4, v5), through the reader: 5 (v1, v2, v3, v4, v5), into the same bytes; no_equations_under added: 6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5), and all 6 records carry it
+
+=== 11/11 reader-refuse-newest
+ok reader-refuse-newest: exit 3: litedoc4: --through-reader: the newest version v5 (d6c5f662daacb19e5b1f12c787ce054b218a5ab7) pins `leanprover/lean4:v4.32.2`, and the reader runs on `leanprover/lean4:v4.34.1`, the newest row of tools/lean-toolchains.txt: it reads an older version into the newest one's environment, so the newest has
+
+=== report
+wall time per build (printed, never judged):
+native-five            52 s
+native-six             20 s
+reader-empty           302 s
+reader-alone           165 s
+reader-check           310 s
+reader-again           1 s
+reader-remove-one      22 s
+reader-force           54 s
+reader-identity-reader 257 s
+reader-identity-config 265 s
+the reader-filled run's phases:
+phase   v6 extractor 6.21 s
+disk    v6 extractor 32.31 GiB free
+phase   v6 checkout 0.05 s
+disk    v6 checkout 32.31 GiB free
+phase   v6 toolchain 0.01 s
+disk    v6 toolchain 32.31 GiB free
+phase   v6 lake 1.08 s
+disk    v6 lake 32.31 GiB free
+phase   v6 extract 3.44 s
+disk    v6 extract 32.31 GiB free
+phase   v6 put 0.07 s
+disk    v6 put 32.31 GiB free
+phase   reader 27.21 s
+disk    reader 32.13 GiB free
+phase   v6 search path 0.11 s
+disk    v6 search path 32.13 GiB free
+phase   reader session 3.61 s
+disk    reader session 32.12 GiB free
+phase   v1 checkout 0.06 s
+disk    v1 checkout 32.12 GiB free
+phase   v1 toolchain 0.01 s
+disk    v1 toolchain 32.12 GiB free
+phase   v1 lake 2.62 s
+disk    v1 lake 32.12 GiB free
+phase   v1 read 48.96 s
+disk    v1 read 32.10 GiB free
+phase   v1 put 0.07 s
+disk    v1 put 32.10 GiB free
+phase   v2 checkout 0.05 s
+disk    v2 checkout 32.10 GiB free
+phase   v2 toolchain 0.01 s
+disk    v2 toolchain 32.10 GiB free
+phase   v2 lake 0.87 s
+disk    v2 lake 32.10 GiB free
+phase   v2 read 49.31 s
+disk    v2 read 32.09 GiB free
+phase   v2 put 0.07 s
+disk    v2 put 32.09 GiB free
+phase   v3 checkout 0.05 s
+disk    v3 checkout 32.10 GiB free
+phase   v3 toolchain 0.01 s
+disk    v3 toolchain 32.10 GiB free
+phase   v3 lake 0.96 s
+disk    v3 lake 32.10 GiB free
+phase   v3 read 50.21 s
+disk    v3 read 32.09 GiB free
+phase   v3 put 0.07 s
+disk    v3 put 32.09 GiB free
+phase   v4 checkout 0.05 s
+disk    v4 checkout 32.09 GiB free
+phase   v4 toolchain 0.01 s
+disk    v4 toolchain 32.09 GiB free
+phase   v4 lake 0.87 s
+disk    v4 lake 32.09 GiB free
+phase   v4 read 49.50 s
+disk    v4 read 32.09 GiB free
+phase   v4 put 0.07 s
+disk    v4 put 32.09 GiB free
+phase   v5 checkout 0.05 s
+disk    v5 checkout 32.09 GiB free
+phase   v5 toolchain 0.01 s
+disk    v5 toolchain 32.09 GiB free
+phase   v5 lake 2.24 s
+disk    v5 lake 32.09 GiB free
+phase   v5 read 51.53 s
+disk    v5 read 32.10 GiB free
+phase   v5 put 0.07 s
+disk    v5 put 32.10 GiB free
+phase   render 0.41 s
+disk    render 32.10 GiB free
+date              2026-10-09T02:13:28Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+total             1453 s
+
+MV READER GATE: ok, 14 of 14 items ran and passed
+work directory kept at /private/tmp/lean-doc-relay/mv-reader
+exit=0
+
+## (2) fail-once
+
+=== 1/11 S as six versions
+v1 5d16fb2b43744a5161f3d0feff4f34d769f60669
+v2 eb2d0fde1ec8ee744e6ab478e752f03151473549
+v3 a61aa62134bad98cba7926fb2119acc7caf34c85
+v4 5baad55841c7ac0e6f2d8c6cb90cc91747d38f44
+v5 d6c5f662daacb19e5b1f12c787ce054b218a5ab7
+v6 24e510c1c1029b3a33d9f8aec5be09768e1d15e5
+
+=== 2/11 native-add: the oracle, filled natively
+ok native-add: v1..v5: 5 of 5 (v1, v2, v3, v4, v5); v1..v6 over that store: 1 of 6 (v6); every record fill=own
+
+=== 3/11 reader-empty: an empty store and v1..v6
+ok reader-empty: versions extracted 6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5); fill reader for v1..v5 and own for v6, in the records and the marker; v6 extracted before each read, a disk line after every read; one session, v1 built whole and v2..v5 each patched from the one before, stopped after 5 requests; the newest side's micro-dep read from its copy, no checkout or copy left; v6 is native-add's byte for byte; the site holds all 6
+
+=== 4/11 reader-equals-native: each reader-filled entry against its native one
+ok reader-equals-native-v1: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v2: 13 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v3: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v4: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ok reader-equals-native-v5: 14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+
+=== 5/11 patched-equals-alone: the same five read alone
+FAIL patched-equals-alone: 4 of 10 files differ from the session's: v2/record.json v3/record.json v4/record.json v5/record.json
+
+=== 6/11 check-keys: the session's patch and carried keys checked on every round
+FAIL check-keys: 0 of 5 rounds report 0 keys differing (0 check-keys line(s)): 
+
+=== 7/11 reader-again
+ok reader-again: versions extracted 0 of 6 (), rendered 0 of 6 (); no entry changed
+
+=== 8/11 reader-remove-one
+ok reader-remove-one: with v3 removed: versions extracted 1 of 6 (v3), fill=own, native-add's v3 byte for byte
+
+=== 9/11 reader-force
+FAIL reader-force: v3 differs from reader-empty's: v3/record.json
+
+=== 10/11 reader-identity
+ok reader-identity: reader= altered: 5 of 6 (v1, v2, v3, v4, v5), through the reader: 5 (v1, v2, v3, v4, v5), into the same bytes; no_equations_under added: 6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5), and all 6 records carry it
+
+=== 11/11 reader-refuse-newest
+ok reader-refuse-newest: exit 3: litedoc4: --through-reader: the newest version v5 (d6c5f662daacb19e5b1f12c787ce054b218a5ab7) pins `leanprover/lean4:v4.32.2`, and the reader runs on `leanprover/lean4:v4.34.1`, the newest row of tools/lean-toolchains.txt: it reads an older version into the newest one's environment, so the newest has
+
+=== report
+wall time per build (printed, never judged):
+native-five            48 s
+native-six             20 s
+reader-empty           294 s
+reader-alone           164 s
+reader-check           302 s
+reader-again           1 s
+reader-remove-one      22 s
+reader-force           53 s
+reader-identity-reader 255 s
+reader-identity-config 256 s
+the reader-filled run's phases:
+phase   v6 extractor 6.11 s
+disk    v6 extractor 32.34 GiB free
+phase   v6 checkout 0.05 s
+disk    v6 checkout 32.34 GiB free
+phase   v6 toolchain 0.01 s
+disk    v6 toolchain 32.34 GiB free
+phase   v6 lake 0.99 s
+disk    v6 lake 32.34 GiB free
+phase   v6 extract 3.47 s
+disk    v6 extract 32.34 GiB free
+phase   v6 put 0.07 s
+disk    v6 put 32.34 GiB free
+phase   reader 24.63 s
+disk    reader 32.17 GiB free
+phase   v6 search path 0.09 s
+disk    v6 search path 32.17 GiB free
+phase   reader session 3.35 s
+disk    reader session 32.17 GiB free
+phase   v1 checkout 0.05 s
+disk    v1 checkout 32.17 GiB free
+phase   v1 toolchain 0.01 s
+disk    v1 toolchain 32.17 GiB free
+phase   v1 lake 2.50 s
+disk    v1 lake 32.17 GiB free
+phase   v1 read 48.21 s
+disk    v1 read 32.17 GiB free
+phase   v1 put 0.07 s
+disk    v1 put 32.17 GiB free
+phase   v2 checkout 0.05 s
+disk    v2 checkout 32.17 GiB free
+phase   v2 toolchain 0.01 s
+disk    v2 toolchain 32.17 GiB free
+phase   v2 lake 0.89 s
+disk    v2 lake 32.17 GiB free
+phase   v2 read 48.58 s
+disk    v2 read 32.17 GiB free
+phase   v2 put 0.07 s
+disk    v2 put 32.17 GiB free
+phase   v3 checkout 0.05 s
+disk    v3 checkout 32.17 GiB free
+phase   v3 toolchain 0.01 s
+disk    v3 toolchain 32.17 GiB free
+phase   v3 lake 0.88 s
+disk    v3 lake 32.17 GiB free
+phase   v3 read 49.07 s
+disk    v3 read 32.17 GiB free
+phase   v3 put 0.07 s
+disk    v3 put 32.17 GiB free
+phase   v4 checkout 0.05 s
+disk    v4 checkout 32.17 GiB free
+phase   v4 toolchain 0.01 s
+disk    v4 toolchain 32.17 GiB free
+phase   v4 lake 0.90 s
+disk    v4 lake 32.17 GiB free
+phase   v4 read 48.93 s
+disk    v4 read 32.17 GiB free
+phase   v4 put 0.07 s
+disk    v4 put 32.17 GiB free
+phase   v5 checkout 0.05 s
+disk    v5 checkout 32.17 GiB free
+phase   v5 toolchain 0.01 s
+disk    v5 toolchain 32.17 GiB free
+phase   v5 lake 2.52 s
+disk    v5 lake 32.17 GiB free
+phase   v5 read 49.85 s
+disk    v5 read 32.17 GiB free
+phase   v5 put 0.07 s
+disk    v5 put 32.17 GiB free
+phase   render 0.42 s
+disk    render 32.17 GiB free
+date              2026-10-09T01:13:53Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+total             1418 s
+
+MV READER GATE FAIL: 3 of 14 failed (14 of 14 ran)
+work directory left for reading at /private/tmp/lean-doc-relay/mv-reader-f1
+exit=1
+
+## (3) the same gate run's read-alone build (patched-equals-alone's other arm), phase and disk lines
+phase   v6 extractor 11.73 s
+disk    v6 extractor 31.92 GiB free
+phase   v6 checkout 0.05 s
+disk    v6 checkout 31.92 GiB free
+phase   v6 toolchain 0.01 s
+disk    v6 toolchain 31.92 GiB free
+phase   v6 lake 1.10 s
+disk    v6 lake 31.92 GiB free
+phase   v6 extract 3.68 s
+disk    v6 extract 31.91 GiB free
+phase   v6 put 0.07 s
+disk    v6 put 31.91 GiB free
+phase   reader 24.85 s
+disk    reader 31.75 GiB free
+phase   v6 search path 0.09 s
+disk    v6 search path 31.75 GiB free
+phase   v1 checkout 0.05 s
+disk    v1 checkout 31.75 GiB free
+phase   v1 toolchain 0.01 s
+disk    v1 toolchain 31.75 GiB free
+phase   v1 lake 2.35 s
+disk    v1 lake 31.74 GiB free
+total                0.240s
+phase   v1 read 25.78 s
+disk    v1 read 31.74 GiB free
+phase   v1 put 0.07 s
+disk    v1 put 31.74 GiB free
+phase   v2 checkout 0.06 s
+disk    v2 checkout 31.74 GiB free
+phase   v2 toolchain 0.01 s
+disk    v2 toolchain 31.74 GiB free
+phase   v2 lake 0.98 s
+disk    v2 lake 31.74 GiB free
+total                0.231s
+phase   v2 read 22.12 s
+disk    v2 read 31.74 GiB free
+phase   v2 put 0.07 s
+disk    v2 put 31.74 GiB free
+phase   v3 checkout 0.05 s
+disk    v3 checkout 31.74 GiB free
+phase   v3 toolchain 0.01 s
+disk    v3 toolchain 31.74 GiB free
+phase   v3 lake 0.87 s
+disk    v3 lake 31.74 GiB free
+total                0.234s
+phase   v3 read 21.89 s
+disk    v3 read 31.74 GiB free
+phase   v3 put 0.07 s
+disk    v3 put 31.73 GiB free
+phase   v4 checkout 0.05 s
+disk    v4 checkout 31.74 GiB free
+phase   v4 toolchain 0.01 s
+disk    v4 toolchain 31.74 GiB free
+phase   v4 lake 0.87 s
+disk    v4 lake 31.74 GiB free
+total                0.237s
+phase   v4 read 21.78 s
+disk    v4 read 31.73 GiB free
+phase   v4 put 0.07 s
+disk    v4 put 31.73 GiB free
+phase   v5 checkout 0.05 s
+disk    v5 checkout 31.74 GiB free
+phase   v5 toolchain 0.01 s
+disk    v5 toolchain 31.74 GiB free
+phase   v5 lake 2.24 s
+disk    v5 lake 31.74 GiB free
+total                0.234s
+phase   v5 read 22.27 s
+disk    v5 read 31.73 GiB free
+phase   v5 put 0.07 s
+disk    v5 put 31.73 GiB free
+versions extracted: 6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5)
+phase   render 0.39 s
+disk    render 31.73 GiB free
+versions rendered: 6 of 6 (v1, v2, v3, v4, v5, v6)
+
+## (4) the same gate run's session build (reader-empty), phase and disk lines
+version v1: not in the store, to be filled through the reader
+version v2: not in the store, to be filled through the reader
+version v3: not in the store, to be filled through the reader
+version v4: not in the store, to be filled through the reader
+version v5: not in the store, to be filled through the reader
+version v6: not in the store
+version v6: extracting 24e510c1c1029b3a33d9f8aec5be09768e1d15e5 on leanprover/lean4:v4.34.1
+phase   v6 extractor 6.21 s
+disk    v6 extractor 32.31 GiB free
+phase   v6 checkout 0.05 s
+disk    v6 checkout 32.31 GiB free
+phase   v6 toolchain 0.01 s
+disk    v6 toolchain 32.31 GiB free
+phase   v6 lake 1.08 s
+disk    v6 lake 32.31 GiB free
+phase   v6 extract 3.44 s
+disk    v6 extract 32.31 GiB free
+phase   v6 put 0.07 s
+disk    v6 put 32.31 GiB free
+phase   reader 27.21 s
+disk    reader 32.13 GiB free
+phase   v6 search path 0.11 s
+disk    v6 search path 32.13 GiB free
+phase   reader session 3.61 s
+disk    reader session 32.12 GiB free
+version v1: reading 5d16fb2b43744a5161f3d0feff4f34d769f60669 on leanprover/lean4:v4.31.0 in the reader session, built whole
+phase   v1 checkout 0.06 s
+disk    v1 checkout 32.12 GiB free
+phase   v1 toolchain 0.01 s
+disk    v1 toolchain 32.12 GiB free
+phase   v1 lake 2.62 s
+disk    v1 lake 32.12 GiB free
+total                0.452s
+phase   v1 read 48.96 s
+disk    v1 read 32.10 GiB free
+phase   v1 put 0.07 s
+disk    v1 put 32.10 GiB free
+version v2: reading eb2d0fde1ec8ee744e6ab478e752f03151473549 on leanprover/lean4:v4.31.0 in the reader session, patched from v1
+phase   v2 checkout 0.05 s
+disk    v2 checkout 32.10 GiB free
+phase   v2 toolchain 0.01 s
+disk    v2 toolchain 32.10 GiB free
+phase   v2 lake 0.87 s
+disk    v2 lake 32.10 GiB free
+total                0.253s
+phase   v2 read 49.31 s
+disk    v2 read 32.09 GiB free
+phase   v2 put 0.07 s
+disk    v2 put 32.09 GiB free
+version v3: reading a61aa62134bad98cba7926fb2119acc7caf34c85 on leanprover/lean4:v4.31.0 in the reader session, patched from v2
+phase   v3 checkout 0.05 s
+disk    v3 checkout 32.10 GiB free
+phase   v3 toolchain 0.01 s
+disk    v3 toolchain 32.10 GiB free
+phase   v3 lake 0.96 s
+disk    v3 lake 32.10 GiB free
+total                0.245s
+phase   v3 read 50.21 s
+disk    v3 read 32.09 GiB free
+phase   v3 put 0.07 s
+disk    v3 put 32.09 GiB free
+version v4: reading 5baad55841c7ac0e6f2d8c6cb90cc91747d38f44 on leanprover/lean4:v4.31.0 in the reader session, patched from v3
+phase   v4 checkout 0.05 s
+disk    v4 checkout 32.09 GiB free
+phase   v4 toolchain 0.01 s
+disk    v4 toolchain 32.09 GiB free
+phase   v4 lake 0.87 s
+disk    v4 lake 32.09 GiB free
+total                0.253s
+phase   v4 read 49.50 s
+disk    v4 read 32.09 GiB free
+phase   v4 put 0.07 s
+disk    v4 put 32.09 GiB free
+version v5: reading d6c5f662daacb19e5b1f12c787ce054b218a5ab7 on leanprover/lean4:v4.32.2 in the reader session, patched from v4
+phase   v5 checkout 0.05 s
+disk    v5 checkout 32.09 GiB free
+phase   v5 toolchain 0.01 s
+disk    v5 toolchain 32.09 GiB free
+phase   v5 lake 2.24 s
+disk    v5 lake 32.09 GiB free
+total                0.308s
+phase   v5 read 51.53 s
+disk    v5 read 32.10 GiB free
+phase   v5 put 0.07 s
+disk    v5 put 32.10 GiB free
+session stopped after 5 request(s)
+versions extracted: 6 of 6 (v1, v2, v3, v4, v5, v6), through the reader: 5 (v1, v2, v3, v4, v5)
+phase   render 0.41 s
+disk    render 32.10 GiB free
+versions rendered: 6 of 6 (v1, v2, v3, v4, v5, v6)

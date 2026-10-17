@@ -1,0 +1,31 @@
+Mathlib site, second production run: the same twelve releases with the store restored from R2,
+deployed to https://mathlib.fuji.land (measured).
+
+run         GitHub Actions 38992516164, workflow mathlib-site.yml, commit 0fd31aa, conclusion success
+runner      ubuntu-latest (Ubuntu 24.04), AMD EPYC 7763, 15 GB (live-smoke-gate's host line)
+versions    the twelve of mathlib-site-first-run-2026-10-17.txt, unchanged
+rclone      1.75.2 (upstream .deb, sha256 checked), replacing apt's 1.60.1
+store       restored: 24 files, 767484 KiB (saved by the first run)
+
+step wall times (from the job's step timestamps)
+  setup (litedoc4 + Mathlib tags)        1.5 min
+  restore the store                      0.1 min
+  build every version                   15.9 min   1 attempt, exit 0
+    toolchain v4.35.0 install            13 s
+    reader built                         83.47 s
+    versions extracted                   0 of 12 (every version "fresh" against the store)
+    render                               848.78 s, 12 of 12 ("no render ledger beside the site":
+                                         the site directory is not restored, so every version renders)
+  save the store                         0.0 min   check: 24 matching files, 0 differences
+  served-gate on 127.0.0.1               0.0 min   built 12 of 12, served 12 of 12
+  deploy                                 8.0 min   site: 183478 files, 936980 KiB on disk
+    pass 1 (all but entry points)        2.8 min
+    pass 2 (entry points)                2.6 min
+    check --one-way                      2.6 min   183478 matching files, 0 differences
+  live                                   0.6 min
+    served-gate                          built 12 of 12, served 12 of 12, 25 of 25 items
+    live-smoke-gate                      5 of 5 (Chrome 155.0.8059.39, /usr/bin/google-chrome)
+  job total                             27.3 min
+
+rclone errors in the whole job log: 0 (the first run's every first attempt failed with
+"NotImplemented" under 1.60.1).

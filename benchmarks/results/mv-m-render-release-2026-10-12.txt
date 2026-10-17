@@ -1,0 +1,55 @@
+M, one version natively: the link index sized from its text, and each module's bytes released once its page is built
+=====================================================================================================================
+
+Conditions: Apple M1, 16 GB, macOS 26.6.2; Lean v4.33.1, Mathlib v4.33.1 (0df444a360); the M slice
+(438 modules). Same checkout and store entry as mv-m-two-pass-render-2026-10-12.txt. litedoc4 at
+679bca0 (base) and 679bca0 + this change, both built with Lean v4.31.0; one prebuilt extractor in
+every build arm. Warm (a discarded warm-up per binary). One run per arm (the user's rule for levers:
+one run, +-10% accepted). Units: MB = 10^6 B.
+
+What was live at the base's peak (measured, `store render` one worker; footprint from an in-process
+counter at stage markers, live bytes from a separate run with an object-graph walker)
+  stage                     footprint MB   live data
+  store read                  78.8         per-file copies 30.2; compressed 4.6 + inflated pack 30.1
+                                           dead but still counted (the allocator reports 36.3 MiB
+                                           released; macOS's footprint does not drop)
+  site config                 87.1 (+7.4)  site 0.45; the rest is bibliography-parse garbage
+  link index text             90.4 (+3.3)  a 3.2 MB copy
+  link index parsed          119.1 (+28.7) link index 18.8, of it an 8.4 MB bucket array; the
+                                           capacity literal 524,288 compiles to a constant kept all
+                                           run and copied by the first insert
+  pass 1 (scan)              129.9         scan results 25.5 (facts 10.0, names and refs 17.6)
+  tables built               137.5         module bytes 30.3, link index 18.8, facts 10.0, derived
+                                           6.2, name index without the link index 3.0
+  pass 2 (pages)             149.2         pages 17.3; 82.9 live in all
+  data rendered              151.2         data files 21.4
+
+Levers (measured)
+  arm                                     store render        build j4                       build j1
+  base                                    151.1 MB  3.83 s    208.0 MB  render 1.998 s       155.0 MB  render 3.943 s
+  A  link-index map sized from the        121.0 MB  3.87 s    170.9 MB  render 2.118 s       129.5 MB  render 3.942 s
+     text's line count
+  A+B  each module's bytes released       111.4 MB  3.89 s    163.9 MB  render 1.988 s       119.0 MB  render 3.943 s
+     once its page is built               (-26%)              (-21%)                         (-23%)
+  (build: litedoc4's peak footprint; max RSS under /usr/bin/time -l is the extractor child's.)
+  A map with no capacity measured the same as A (120.9 MB); the line count keeps it from resizing.
+
+Killed
+  no bibliography at all (a ceiling probe)      111.0 MB: at most 0.3 MB
+  smaller scan summaries                        footprint grows +3.4 MB after pass 1, so they cannot
+                                                move the peak
+  each page turned into data files at once      at most the same 3.4 MB
+Not tried
+  inflating the entry straight into per-file buffers: ceiling ~30 MB (~27% of the new peak),
+  estimated from the store-read stage; needs streaming C beside the gzip code and a pack decoder
+  built around a stream.
+
+Exactness (measured, /usr/bin/diff -r): store render site and stdout identical to the base; build
+j4 and j1 site/ and store/ identical; new j1 and j4 sites identical. render-ledger.json differs only
+in `renderer`.
+
+Gates: tools/lean-test-gate.sh 4 of 4 (242 compile-time, 73 run-time); tools/mv-s-gate.sh 64 of 64;
+tools/mv-pages-gate.sh 56 of 56; tools/e2e-micro.sh ok.
+
+Since 8c57984 (mv-m-two-pass-render-2026-10-12.txt and this): store render 229.5 -> 111.4 MB (-51%),
+build j4 278.8 -> 163.9 MB (-41%), build j1 230.5 -> 119.0 MB (-48%), on M, one run each.

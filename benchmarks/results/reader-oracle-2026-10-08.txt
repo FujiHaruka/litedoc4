@@ -1,0 +1,24 @@
+date              2026-10-08T00:31:33Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+=== the reader, on leanprover/lean4:v4.34.1
+  6 writer record(s): 4.31.0 4.32.0 4.32.2 4.33.0 4.33.1 4.34.1
+
+=== the oracle: each writer's Lean against the reader, sample all, seed 1
+ITEM oracle-4.31.0 ok    465410 lines equal (204091 constants, 204091 sampled, 4 reducibility values) in 67s
+ITEM oracle-4.32.0 ok    466897 lines equal (204731 constants, 204731 sampled, 4 reducibility values) in 67s
+ITEM oracle-4.32.2 ok    466897 lines equal (204731 constants, 204731 sampled, 4 reducibility values) in 67s
+ITEM oracle-4.33.0 ok    472526 lines equal (206832 constants, 206832 sampled, 5 reducibility values) in 68s
+ITEM oracle-4.33.1 ok    472526 lines equal (206832 constants, 206832 sampled, 5 reducibility values) in 69s
+ITEM oracle-4.34.1 ok    475787 lines equal (208210 constants, 208210 sampled, 5 reducibility values) in 68s
+
+=== the refusals, on copies of leanprover/lean4:v4.34.1's own files
+ITEM refuse-version ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-version/Init/Prelude.olean: written by Lean 4.99.0 (5045d0056413266e57c625dcd7c365b10e377c52); this reader has no record for Lean 4.99.0 and reads only 4.31.0, 4.32.0, 4.32.2, 4.33.0, 4.33.1, 4.34.1
+ITEM refuse-githash ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-githash/Init/Prelude.olean: written by Lean 4.34.1 with githash 0045d0056413266e57c625dcd7c365b10e377c52, but the record for Lean 4.34.1 is for githash 5045d0056413266e57c625dcd7c365b10e377c52; a different build of 4.34.1 is refused
+ITEM refuse-mixed ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-mixed/Init/Prelude.olean: written by Lean 4.33.1 (819816b2e0a3bf405af45ae5c7af2491d8f5bee6), but /private/tmp/lean-doc-relay/reader-oracle/fixture-mixed/Init/Coe.olean in the same read was written by Lean 4.34.1 (5045d0056413266e57c625dcd7c365b10e377c52); one read takes one writer
+ITEM refuse-absent ok    olean reader: refused: /private/tmp/lean-doc-relay/reader-oracle/fixture-absent/Init/Grind/Homo/Nat.olean: ModuleData.entries at 0x5bf541e55b0: entries under extension Lean.Meta.Grind.homoExt, which the record for Lean 4.33.1 lists as absent from that writer
+
+=== summary
+items reported : 10 of 10
+failed         : 0
+READER ORACLE GATE: ok (10 of 10)
+exit=0

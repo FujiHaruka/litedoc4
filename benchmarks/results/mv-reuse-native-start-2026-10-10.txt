@@ -1,0 +1,80 @@
+Print reuse starting from the native extraction of the newest version: why it was refused, and the fix
+=====================================================================================================
+
+An inspection run, not a gate (2026-10-10). E6's chain (docs/multiversion/implementation.md, "Levers
+plan", item 5) builds versions newest first, each older one reusing prints from the one just built.
+The newest is extracted natively, and `reader extract --reuse-from` refused the native IR, so the
+runner measurement read v4.34.1 a second time through the reader to get keys: 361.25 s and 457.85 s
+on the runner (measured -> mv-l-reuse-2026-10-10.txt, "head (crutch) wall").
+
+WHY IT WAS REFUSED (read off the code and the keys headers)
+-------------------------------------------------------------
+1. The native extractor wrote no keys file: the key, the candidate list and the keys writer lived in
+   the reader only.
+2. The keys header carries a printing identity, and the reader's was its IR identity: source digest,
+   Lean, output settings, plus reader=, readerLean=, readerLeanGithash=, which a native run never has.
+3. Found while fixing 2: the source digests differ too. The reader compiles Extract.lean with `main`
+   cut off, so its source= digest (7bb4d9f8122fd2b8 before this change) was not the native binary's
+   (f0c4... before; the whole file).
+The output settings (equations, refs, tagged code, no-equations-under) already matched: both paths
+take their flags from one function in litedoc4.
+
+THE FIX
+-------
+- The cheap key (ownKey, the member names it hashes, shownHash, the candidate list) and the keys file
+  writer move into Extract.lean, so both binaries compute the same key from the same code, and the key
+  code is under the source digest. Key values unchanged (below).
+- The printing identity is the identity line over Extract.lean with `main` cut, the printing Lean and
+  the output settings, without the reader fields. The IR's own identity (index.json) is unchanged.
+- The native extractor takes `--write-reuse-keys` (needs --write-ir), writing the same file the reader
+  writes. Not yet passed by `build --versions`.
+- Two #guards, each made to fail once on a scratch copy: the printing identity ignores the reader
+  fields and moves with everything else; the cut matches the reader's and cutting twice changes
+  nothing. Extract.lean compiles on v4.31.0, v4.32.2, v4.33.0, v4.33.1, v4.34.1.
+
+CONDITIONS
+----------
+host        Apple M1 (MacBookAir10,1), 8 cores, 16 GiB, Darwin 25.6.0 arm64
+tree        a87696a plus the fix (uncommitted when measured, committed with this file)
+reader      reader-leanprover-lean4-v4.34.1-f26937a9a6a77c5b; native extractor
+            leanprover-lean4-v4.34.1-4f6e952bf65ec75a/extract, built as `build --versions` builds one
+versions    newest /private/tmp/lean-doc-relay/mv-v4341 (Mathlib d13f23b7, v4.34.1); old mv-v4331
+            (Mathlib 0df444a3, v4.33.1); the 14 modules of mv-l-reuse-inspect-v4.33.1-2026-10-10.txt
+flags       --equations --refs --write-ir --tagged-code --no-equations-under Mathlib.Tactic,Mathlib.Meta
+            --jobs 4; reader arms --lazy-proofs, --new-roots all 8,530 v4.34.1 Mathlib modules
+runs        one each, /usr/bin/time -l, in this order:
+              native  v4.34.1 natively, the 14 modules, --write-reuse-keys    exit 0  14.04 s  2,865 MiB
+              head2   v4.34.1 through the reader, --write-reuse-keys          exit 0  65.05 s  7,484 MiB
+              a2      v4.33.1 read alone                                       exit 0  71.44 s  7,460 MiB
+              rn      v4.33.1, --reuse-from native                             exit 0  59.42 s  7,534 MiB
+              rh      v4.33.1, --reuse-from head2                              exit 0  56.69 s  7,568 MiB
+
+RESULTS (all (measured))
+------------------------
+headers     native's and head2's keys headers identical (source=fnv1a64:853d89b3bdd2f405 ... no reader
+            fields)
+reuse-from  rn and rh alike: 758 of 881 declarations reused, 123 printed (key differs 112, no key there
+            11); rn: "printing identity equal"
+keys        v4.34.1: native = head2 = the earlier head (a87696a's reader), 1,710 of 1,710 equal, same
+            order. v4.33.1: 1,687 of 1,687 equal across the a87696a reader and this one
+link index  a2 = rn = rh byte-equal; native = head2 byte-equal
+a2 vs rh    60 declarations differ, the list of mv-l-reuse-inspect-v4.33.1-2026-10-10.txt after its fix
+a2 vs rn    62: the same 60 plus MvPowerSeries.coeff_pderivFun (type) and MvPowerSeries.pderivFun
+            (equations), copied from native's prints
+native vs   4 declarations, all in Mathlib.RingTheory.MvPowerSeries.Derivative: native prints
+head2       `Finsupp.single i 1` where the reader prints `fun₀ | i => 1` (coeff_pderiv, coeff_pderivFun,
+            trunc_pderiv: type; pderivFun: equations). The cause is the import set, not the printer: the
+            native run imported only the 14 modules' closure, which lacks Mathlib.Data.Finsupp.Notation;
+            the reader imports all of v4.34.1's Mathlib. A second native run with that module added made
+            the module's IR byte-equal to head2's.
+In `build --versions` the reader's new roots are the newest version's own module list, the one its
+native extraction imports, so the two import sets are equal there by construction; this 14-module
+run is the case where they are not. Nothing checks it: the printing identity does not name the
+import set.
+Saved per full build (theoretical, unverified on the runner): the crutch's 361-458 s, less the native
+build's own key writing (keys took 18.1 s on one thread on the runner before keys went parallel).
+
+GATES (same tree)
+-----------------
+tools/lean-test-gate.sh ok (233 compile-time, 67 run-time); tools/reader-hybrid-gate.sh 35 of 35;
+tools/mv-s-gate.sh 63 of 63.

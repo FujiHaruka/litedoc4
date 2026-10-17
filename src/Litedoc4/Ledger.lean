@@ -9,6 +9,7 @@ extraction this stage exists to skip.
 **Module hashes are taken before the extraction they license, and the file is
 written after the render.** A ledger written first would claim modules are up to
 date whose IR a failed run never produced. -/
+import Litedoc4.Config
 import Litedoc4.External
 import Litedoc4.Fs
 import Litedoc4.Incr.Ordered
@@ -16,16 +17,12 @@ import Litedoc4.Ir.Utf16
 import Litedoc4.Json
 import Litedoc4.JsonWrite
 import Litedoc4.Metrics
+import Litedoc4.Parallel
 import Litedoc4.Sha256
 
 namespace Litedoc4
 
 def ledgerSchema : Nat := 2
-
-/-- Which implementation will run when the key says "re-extract". Bump it
-whenever a re-extraction can produce different IR bytes, including when
-`irSchemaVersion` cannot see the difference. -/
-def extractorId : String := "litedoc4 extractor v3"
 
 /-- Which implementation will run when the key says "re-render everything".
 Bump it whenever the renderer's output bytes can change with the IR held
@@ -38,8 +35,11 @@ def oleanSuffixes : Array String := #[".olean", ".olean.server", ".olean.private
 /-- What a module's hash is taken over. `lake` reads the `<file>.hash` Lake
 already wrote beside every olean (`computeBinFileHash`, `Lake/Build/Common.lean`)
 instead of the olean's bytes: a string read, 6.9 KB instead of 227 MB on the
-measurement target. `sha256` is the reference — cryptographic, and not an
-undocumented implementation detail of the build tool.
+measurement target. `build` takes `lake`; `sha256`, cryptographic and owing
+nothing to the build tool, is what `ledger build` defaults to. `sha256` would be
+the build's choice again if a supported toolchain or Mathlib's cache stopped
+writing `<file>.hash` beside every olean, which today makes the build refuse
+naming the file.
 
 A name rather than an enumeration, because the ledger stores it verbatim and
 **anything that is not `lake` reads and hashes the bytes**: an unknown algorithm
@@ -143,19 +143,24 @@ def jsString (j : JVal) (key : String) : String := Id.run do
 /-- Everything that can change the IR bytes. The split from `renderKey` is not
 cosmetic: `--source-url` carries a git revision, so it changes on every commit,
 and under one key every incremental build would pay a full re-extraction for an
-input Lean cannot see. -/
-def extractKeyOf (leanToolchain manifestSha256 : String) (irIndex : Option JVal) :
-    Array (String × String) := Id.run do
+input Lean cannot see.
+
+Not the extractor: the IR tree names its writer (`extractorIdentity`) and `irPlan`
+holds that against the extractor in hand. A key here would be a second record of
+the same fact, and one that can disagree with the tree it describes. -/
+def extractKeyOf (leanToolchain manifestSha256 : String) (noEquationsUnder : Array String)
+    (irIndex : Option JVal) : Array (String × String) := Id.run do
   let mut key : Array (String × String) :=
-    #[("leanToolchain", leanToolchain), ("manifestSha256", manifestSha256),
-      ("extractor", extractorId)]
+    #[("leanToolchain", leanToolchain), ("manifestSha256", manifestSha256)]
+  if !noEquationsUnder.isEmpty then
+    key := key.push ("noEquationsUnder", ",".intercalate noEquationsUnder.toList)
   if let some j := irIndex then
     key := key.push ("irSchemaVersion", jsString j "schemaVersion")
     key := key.push ("irGenerator", jsString j "generator")
   return key
 
-def extractKey (target : String) (ir : Option System.FilePath) :
-    IO (Array (String × String)) := do
+def extractKey (target : String) (ir : Option System.FilePath)
+    (noEquationsUnder : Option (Array String) := none) : IO (Array (String × String)) := do
   let root : System.FilePath := ⟨target⟩
   let leanToolchain := (← readTextFile (root / "lean-toolchain")).trimAscii.toString
   let manifest := sha256Text (← readTextFile (root / "lake-manifest.json"))
@@ -167,7 +172,8 @@ def extractKey (target : String) (ir : Option System.FilePath) :
     match parseJson text with
     | .error why => throw (IO.userError s!"{path}: {why}")
     | .ok j => index := some j
-  return extractKeyOf leanToolchain manifest index
+  return extractKeyOf leanToolchain manifest (← noEquationsUnderFor noEquationsUnder (.package root))
+    index
 
 /-- What changes the page bytes with the IR held fixed. Changed ⇒ re-extract
 nothing, re-render everything. -/
@@ -236,6 +242,10 @@ def hashModule (algorithm : Algorithm) (target libDir module : String) :
   let combined := "\n".intercalate (files.toList.map fun f => s!"{f.path} {f.hash}")
   return some { module, files, hash := sha256Text combined }
 
+def hashModules (algorithm : Algorithm) (target libDir : String) (modules : Array String)
+    (workers : Nat) : IO (Array (Option LedgerModule)) :=
+  parallelMap workers modules (hashModule algorithm target libDir)
+
 /-- The sum every stage reports as `hashedBytes`. Clamped per file, because the
 `-1` a `lake` entry carries is "nothing was read", not "minus one byte". -/
 def hashedBytesOf (modules : Array LedgerModule) : Nat :=
@@ -264,7 +274,9 @@ structure LedgerInputs where
   linkIndex : Option System.FilePath := none
   externalLinks : Option String := none
   bibliography : Option String := none
+  noEquationsUnder : Option (Array String) := none
   algorithm : Algorithm := Algorithm.sha256
+  concurrency : Nat := 1
 
 /-- `.error` is the refusal that exits 3: at `build` time the module list and
 the build tree are supposed to agree, and a ledger that silently omitted a
@@ -274,14 +286,15 @@ def buildLedger (i : LedgerInputs) : IO (Except String (Ledger × BuildPhases)) 
   let started ← IO.monoNanosNow
   let target := trimTrailingSlash i.target
   let libDir := s!"{target}/.lake/build/lib/lean"
-  let extract ← extractKey target i.ir
+  let extract ← extractKey target i.ir i.noEquationsUnder
   let render := renderKey i.sourceUrl (← linkIndexDigest i.linkIndex) i.externalLinks
     i.bibliography
   let keyDone ← IO.monoNanosNow
+  let hashed ← hashModules i.algorithm target libDir i.modules i.concurrency
   let mut modules : Array LedgerModule := #[]
   let mut missing : Array String := #[]
-  for module in i.modules do
-    match ← hashModule i.algorithm target libDir module with
+  for (module, entry) in i.modules.zip hashed do
+    match entry with
     | some entry => modules := modules.push entry
     | none => missing := missing.push module
   let hashDone ← IO.monoNanosNow
@@ -412,9 +425,11 @@ structure CheckInputs where
   linkIndex : Option System.FilePath := none
   externalLinks : Option String := none
   bibliography : Option String := none
+  noEquationsUnder : Option (Array String) := none
   changedOut : Option System.FilePath := none
   removedOut : Option System.FilePath := none
   renderAllOut : Option System.FilePath := none
+  concurrency : Nat := 1
 
 /-- The four durations partition the run, so they subtract: read the ledger,
 build the keys, hash the modules, compare the sets. The output files are written
@@ -468,7 +483,7 @@ def checkLedger (i : CheckInputs) : IO (Except LedgerRefusal CheckSummary) := do
   let readDone ← IO.monoNanosNow
   let algorithm := i.algorithm.getD ledger.algorithm
 
-  let extract ← extractKey ledger.target i.ir
+  let extract ← extractKey ledger.target i.ir i.noEquationsUnder
   let render := renderKey i.sourceUrl (← linkIndexDigest i.linkIndex) i.externalLinks
     i.bibliography
   let keyDone ← IO.monoNanosNow
@@ -485,9 +500,7 @@ def checkLedger (i : CheckInputs) : IO (Except LedgerRefusal CheckSummary) := do
     | none => previous := previous.push (entry.module, entry)
   let current := i.modules.getD (previous.map (·.1))
 
-  let mut hashed : Array (Option LedgerModule) := #[]
-  for module in current do
-    hashed := hashed.push (← hashModule algorithm ledger.target ledger.libDir module)
+  let hashed ← hashModules algorithm ledger.target ledger.libDir current i.concurrency
   let hashDone ← IO.monoNanosNow
 
   let mut present : Array LedgerModule := #[]

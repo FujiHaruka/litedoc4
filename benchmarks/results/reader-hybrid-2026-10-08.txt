@@ -1,0 +1,32 @@
+date              2026-10-08T02:27:46Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+=== the reader, on leanprover/lean4:v4.34.1
+  schema=5 source=fnv1a64:72f05375aa7cbc52 lean= leanGithash= equations=1 taggedCode=1 refs=1 skipAnalyze=0 ablations= open= only= noEquationsUnder= reader=fnv1a64:87abb30fca6ca491 readerLean=4.34.1 readerLeanGithash=5045d0056413266e57c625dcd7c365b10e377c52
+
+=== the sample, natively, on each row
+  v4.31.0: 11 modules extracted
+  v4.32.2: 11 modules extracted
+  v4.33.0: 11 modules extracted
+  v4.33.1: 11 modules extracted
+  v4.34.1: 11 modules extracted
+
+=== the reader against each native IR
+ITEM read-4.31.0 ok    14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ITEM read-4.32.2 ok    14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ITEM read-4.33.0 ok    14 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+ITEM read-4.33.1 ok    14 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+ITEM self-4.34.1 ok    14 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+
+=== the hard stops each reader run reported
+ITEM hard-stops ok    5 run(s), each: verso=0 builtin-doc=0 tactic-table=1 autoparam-old-only=0 autoparam-newest=0
+
+=== the flags the hybrid refuses
+ITEM refuse-dump-tactics ok    reader extract: --dump-tactics is refused: it lists the running Lean's tactic table, and the version read is not the running Lean
+ITEM refuse-tactics-emulate ok    reader extract: --tactics-emulate is refused: it runs doc-gen4's tactic collection over the running Lean's tables, and the version read is not the running Lean
+ITEM refuse-tactics-probe ok    reader extract: --tactics-probe is refused: it times the running Lean's tactic tables, and the version read is not the running Lean
+ITEM refuse-serve ok    reader extract: --serve is refused: a resident extractor re-imports natively, and the version read is not the running Lean
+
+=== summary
+items reported : 10 of 10
+failed         : 0
+READER HYBRID GATE: ok (10 of 10)

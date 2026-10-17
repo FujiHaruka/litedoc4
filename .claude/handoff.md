@@ -1,78 +1,47 @@
-# Handoff — 2026-09-02 (both open candidates closed)
+# Handoff — 2026-10-17 (multi-version: releasing v2.0.0)
 
 ## State
 
-**`main` is at `9b7b7df`, clean, and the two candidates the previous handoff left are done.**
-Both went through a PR because their evidence is a CI run: the memory gate cannot answer on
-this machine at all.
+- Working directory: /Users/haruka/dev/lean-doc
+- Branch: multi-version (pushed; no PR). Clean after the handoff commit.
+- Working context: the three steps the user ordered on 2026-10-11 — (1) the store record says whose prints an entry reused, (2) reader records for the remaining releases then delete the prototype, (3) CI/hosting with no full-Mathlib measurement until the user approves.
 
-- `6d5b877` (PR #5) — **the bash 3.2 answer guard**. A script under `set -euo pipefail` with an
-  EXIT trap reported a `set -u` abort as **exit 0**; ten scripts under `tools/` were in that
-  shape and only `md-memory-gate.sh` defended itself
-- `9b7b7df` (PR #6) — **the memory gate's optimisation level**. It compiled the C at a
-  written-down `-O1` against a product Lake builds with **no `-O` at all**
+## Where we are
 
-Gates on `main`: `DOCS GATE: 220 citations` · `WORKFLOW GATE: 33 gates, 26 ci, 7 manual` and
-`10 script(s) trap under set -e and every one claims its answer` · `VERSION GATE: ok — 1.4.0` ·
-`PROVENANCE`, `PUBLIC SURFACE`, `MD ORACLE`, `libc-shim` ok · `MD MEMORY GATE: ok (6 of 6)` on
-ubuntu-latest, **0 of 6 and exit 2 on macOS**.
+- Step 1 done (d74a0bf): store schema 5 carries `reusedFrom`; an exact read refills reused or unrecorded entries; the chain keeps exact ones. mv-reader-gate 20 of 20.
+- Step 2 done: reader records for all 11 releases (6ea63ee: v4.32.1, v4.34.0; 852d575: v4.30.0, v4.29.1, v4.29.0 — simp flag count, extension renames and core header version are record data). reader-hybrid-gate 35/35, mv-reader-gate 20/20. `prototypes/olean-reader/` deleted (4612689; read it at `git show 852d575:prototypes/olean-reader/`).
+- Step 3, the part that needs no account: `tools/served-gate.sh` (1a9956d), the plan's `<built> of <declared>` gate, `manual`, made to fail once on micro in both URL modes. Never run against a live host or with dotted release names.
+- After the pause, on the user's word (2026-10-11): the resident reader session is removed (1655b76, −2,846 lines); `footer` in litedoc4.toml and `build`/`watch --config <file>` (77ea5e1); `hosting/mathlib/` holds Mathlib's config, its license footer (Apache-2.0, copyright, not affiliated) and `versions.sh`. The deploy workflow reads `hosting/mathlib/`.
 
-## Relay control
-- Mode: DONE
-- Goal: the two candidates left by leg 2 — the bash 3.2 hole, and the memory gate's `-O`
-- Leg: 3 / cap 8
-- Predecessor: leg 2 (`cada28c`)
-- Stop-on: completion
-- Progress ledger:
-  - r3: **answer guard** (PR #5, `6d5b877`) · **md-memory takes the product's `-O`**
-    (PR #6, `9b7b7df`) · both merged, `main` green
+## Next step (blocked on the user)
 
-## What this leg established
-
-- **`tools/lib/common.sh` has `answer_required` / `answer`.** Opt-in, so the scripts that source
-  it and do not ask keep answering exactly what they did. A 0 no path claimed becomes **70**.
-  `exit 70` and not `return 70` — under `set -uo pipefail` a trap's return value is discarded
-- **The reach was written down too wide.** `set -e` is what makes it a hole: under
-  `set -uo pipefail` the same abort exits 1. Of the thirteen scripts combining `set -u` with a
-  trap, **ten are exposed and three are not** (`render-compare.sh`, `site-compare.sh`,
-  `watch-gate.sh` — C1 had counted the last of those as covered by CI's bash 5)
-- **`tools/workflow-gate.sh` question 5** keeps the pairing: `answer_required` present, no bare
-  `exit 0` left, and the last executable line is an answer. Made to fail once in each part
-- **`md-memory-gate.sh` reads `PRODUCT_OPT` out of `lakefile.lean`'s `ccFlags`**, the way it
-  already reads the md4c flag word out of the Lean sources. It refuses (exit 2) if `ccFlags` is
-  gone or names two levels; both refusals were made to fail once
-- → `benchmarks/results/bash32-answer-guard-2026-09-02.txt`,
-  `benchmarks/results/md-memory-opt-2026-09-02.txt`, and the last two sections of
-  `docs/verification-log.md` before 書き方
-
-## Candidates for a next session
-
-Nothing is open that a previous session named. If a next one is wanted:
-
-1. **Three of the ten never ran end to end** — `deps-docs-gate.sh`, `extractor-mismatch.sh`,
-   `extractor-uniqueness.sh`. Their claim is `bash -n`, the entry paths and question 5, and the
-   verification log says so. `deps-docs` was **deliberately not run**: it rebuilds the target's
-   site, and `/Users/haruka/dev/lean-projects/.lake/build/doc` there is A1's oracle
-2. **The A1 oracle is still alive and still cannot be rebuilt.** `lake update` or a `.lake` wipe
-   in the target destroys it. Ask any doc-gen4-shaped question before touching the target
-3. **`answer` has a one-call-wide window** — a path that claims and then dies before `exit`
-   would still answer 0. Closing it would need the claim to be the exit, which it already
-   nearly is
-
-## What a future session must not misread
-
-- **`tools/md-memory-gate.sh` answers 0 of 6 and exits 2 on this machine.** A program built with
-  `-fsanitize=address` never reaches its own `main` on this macOS. **That is not a pass and not
-  a broken gate** — ubuntu-latest is where the six are answered
-- **A gate here that combines `set -e` with an EXIT trap must end by saying its answer.**
-  Question 5 fails a new one that does not, and the symptom of forgetting is **exit 70 on a run
-  that printed "ok"** — which is how `publish-pages.sh` was caught on the way in
-- **The seconds in `md-memory-opt-2026-09-02.txt` are not a comparison.** 3.09 s at the product's
-  level, 5.38 s and 6.6 s at `-O1` — three single runs on three runner instances, and the
-  5.38 / 6.6 spread is the same code at the same level
+1. Cloudflare R2 (decided 2026-10-16, user's call): bucket `mathlib-docs`, served at `mathlib.fuji.land` (fuji.land's DNS moved to Cloudflare; account `ab236b68c2f6f5943bc40abfe51aba70`). Secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` set 2026-10-15. Still open: the custom domain is not yet connected to the bucket (no DNS record for `mathlib.fuji.land` as of 2026-10-16).
+1b. Done 2026-10-16/17: `.github/workflows/mathlib-site.yml` + `tools/mathlib-site.sh` (e16c3ef). Since b640518 it and mv-l.yml are workflow_dispatch only: a push starts neither. Lean v4.35.0 supported (76d7b81); Mathlib's set is now 12 releases.
+1c. Done 2026-10-17: `mathlib.fuji.land` connected to `mathlib-docs` (HTTPS answers; 404 while empty) and the rewrite rule `mathlib directory index` deployed on the fuji.land zone (hosting/mathlib/README.md). The Cloudflare session is in Brave ("Browser 1" of the Chrome extension).
+2. The workflow lives in this repo and reads `hosting/mathlib/` (user's call 2026-10-11, by asking for that directory).
+3. Done 2026-10-17 (user approved "やろう"): first production run 38983206954 built all 12 from nothing (84.6 min) and deployed; its live check failed only because Cloudflare 403s urllib's default User-Agent. Fixed with rclone 1.75.2 and bucket checks (0fd31aa); second run 38992516164 green in 27.3 min, 0 of 12 extracted, render 14.1 min because the site directory is not restored. Logs: benchmarks/results/mathlib-site-first-run-2026-10-17.txt, mathlib-site-second-run-2026-10-17.txt. mathlib.fuji.land serves all 12.
+4. Done 2026-10-17 (user: "1をやって", single-version comparison skipped): adding one release in production — build 11.6 min, whole job 18.5 min against <= 15 min (benchmarks/results/mathlib-site-add-one-2026-10-17.txt). The site, render ledger and build record travel as site.tar.zst in the store bucket; deploy uploads only files the build wrote. Measurement knobs removed. The object render-ledger.json in the store bucket is a stray from the first attempt, unused.
+5. 2026-10-17 (user: "リリース作業を完了させて"): v2.0.0 — version 2.0.0 in every tracked site, README section on several versions, "What 2.x keeps", implementation plan deleted, an action job for `versions`, PR multi-version → main (merge commit, never squash: SHAs are cited), tag, release notes, then information-theory's docs.yml pin to v2.0.0 and a dispatched republish. Open question for the user: whether the Mathlib site workflow gets a schedule.
+Then: the workflow (restore the store from an R2 prefix the site does not serve, `build --versions` with the 11 non-prerelease releases from the GitHub API, save the store, deploy, run served-gate against the live URL). A new workflow on a branch can only run through a `push:` trigger naming the branch, which would start the full run — so write it only once (3) is approved.
 
 ## Files to read first
 
-1. `tools/lib/common.sh` — `on_exit`, then the `answer_required` / `answer` block below it
-2. `tools/workflow-gate.sh` question 5 (header, and the block near the end)
-3. `docs/verification-log.md` — the last two sections before 書き方
+- `docs/multiversion/plan.md` — "v2 targets" (the implementation plan was deleted for the release: `git show b640518:docs/multiversion/implementation.md`)
+- `tools/served-gate.sh`
+
+## Load-bearing context
+
+- User rules (also in memory): measure as lightly as possible — one run per arm, ±10% fine; full-Mathlib runs only after asking; Japanese brief-me, no code names.
+- Subagent prompts: every command foreground, ≤ 9 min each; at most 1 subagent; tell it not to commit.
+- Pushing `.github/workflows/mv-l.yml` or `benchmarks/tools/mv-l-run.sh` starts a full-Mathlib runner run. Ask first, or `[skip ci]`.
+- Do not touch /private/tmp/lean-doc-relay/mv-v4341 or mv-v4320. After editing extractor/ or src/, rebuild with `tools/build-lean-exe.sh --toolchain-from e2e/micro` before gates (the reader source is embedded in the binary).
+
+## Relay control
+- Mode: PAUSED
+- Goal: steps 1–3 above, no full-Mathlib measurement
+- Leg: 1 / cap 8
+- Predecessor: none
+- Stop-on: completion | user-decision | no-progress×2 | leg-cap
+- Paused on: user-decision — R2 account/domain/secrets, where the workflow lives, approval of the first full run
+- Progress ledger:
+  - r1: d74a0bf, 0f73c2b, 6ea63ee, 852d575, 4612689, 1a9956d (steps 1 and 2 done; step 3's gate); 1655b76, 77ea5e1 (session removed; footer, --config, hosting/mathlib)

@@ -63,7 +63,7 @@ tools/apply-instrumentation.sh --check   # 計装が当たっているか
 tools/apply-instrumentation.sh           # 当て直してビルド
 tools/run-serial.sh                      # 方式A (モジュールごとに 1 プロセス)
 tools/run-full.sh 4 full-build           # フルビルド (LEAN_NUM_THREADS=4、再開可能)
-deno run -A tools/analyze.ts results/<name>.jsonl
+node tools/analyze.ts results/<name>.jsonl   # node 24 runs the .ts directly; `mise exec --` on this machine
 ```
 
 doc-gen4 の計装とは独立に、**公開ドキュメントサイトとの版ズレ**を測るものが 1 本ある

@@ -3,19 +3,23 @@
 ```toml
 title = "MyPkg"          # the top bar, and the second half of every <title>
 index = "docs/index.md"  # Markdown to put at the top of the site's index
+footer = "docs/footer.md"  # Markdown at the bottom of every page
+no_equations_under = ["MyPkg.Tactic"]  # definitions shown without equations
 ```
 
-Both optional. An absent file, an empty file and a file with neither key are the
-same answer.
+All optional. An absent file, an empty file and a file with none of the keys are
+the same answer. `index` and `footer` are relative to the directory the file is
+in, which is the package root unless `build --config` names a file elsewhere.
 
-**A file that is there and does not parse is an error**, and so is an `index`
-naming a file that is not there: carrying on with the derived title would be a
-site that silently ignores what the package asked for.
+**A file that is there and does not parse is an error**, and so is an `index` or
+a `footer` naming a file that is not there, and a `--config` naming no file:
+carrying on with the derived title would be a site that silently ignores what
+the package asked for.
 
 The recogniser below is not a TOML parser and refuses every line it cannot
 account for, the way `Litedoc4.Lakefile` refuses a lakefile line it cannot
 account for. A general parser would accept spellings this reader would
-then have to interpret — a table header, an array, a literal string — and the
+then have to interpret — a table header, a multi-line array, a literal string — and the
 failure mode of guessing here is a site with the wrong title on every page,
 which nothing downstream can see. What would falsify this: a package that has to
 write its title in a spelling this refuses, which is a reason to widen the
@@ -29,6 +33,7 @@ that point are kept. -/
 import Litedoc4.Bibtex
 import Litedoc4.Fs
 import Litedoc4.Ir.Utf16
+import Litedoc4.JsonWrite
 import Litedoc4.Sha256
 
 open System
@@ -38,13 +43,30 @@ namespace Litedoc4
 structure SiteConfig where
   title : Option String := none
   /-- The **contents** of the file `index` named, not its path: the path is
-  relative to the package root, and resolving it anywhere else would be a second
-  place that knows what it is relative to. -/
+  relative to the configuration file, and resolving it anywhere else would be a
+  second place that knows what it is relative to. -/
   indexMarkdown : Option String := none
+  footerMarkdown : Option String := none
   bibliography : Bibliography := {}
   deriving Inhabited
 
 def configFile : String := "litedoc4.toml"
+
+inductive ConfigSource where
+  | package (root : FilePath)
+  | given (file : FilePath)
+  deriving BEq, Repr
+
+def ConfigSource.of (root : FilePath) : Option FilePath → ConfigSource
+  | some file => .given file
+  | none => .package root
+
+def ConfigSource.file : ConfigSource → FilePath
+  | .package root => root / configFile
+  | .given file => file
+
+def resolveBeside (configPath : FilePath) (relative : String) : FilePath :=
+  (configPath.parent.getD ".") / relative
 
 namespace Toml
 
@@ -110,8 +132,27 @@ partial def basicString (cs : List Char) (acc : String) :
   | '\\' :: [] => .error "a string ends in a backslash"
   | c :: rest => basicString rest (acc.push c)
 
+inductive Value where
+  | string (text : String)
+  | strings (texts : Array String)
+  | neither
+  deriving BEq, Repr
+
+/-- The rest of a one-line array of basic strings, after its `[`. -/
+partial def stringArray (key : String) (cs : List Char) (acc : Array String) :
+    Except String (Array String × List Char) :=
+  match skipSpace cs with
+  | ']' :: rest => .ok (acc, rest)
+  | '"' :: rest => do
+    let (value, rest) ← basicString rest ""
+    match skipSpace rest with
+    | ',' :: rest => stringArray key rest (acc.push value)
+    | ']' :: rest => .ok (acc.push value, rest)
+    | _ => .error s!"`{key}`'s list is not closed with `]` on the same line"
+  | _ => .error s!"`{key}`'s list holds something other than quoted strings"
+
 /-- `none` for a line that says nothing (blank, or a comment). -/
-def line (text : String) : Except String (Option (String × String)) := do
+def line (text : String) : Except String (Option (String × Value)) := do
   let cs := skipSpace text.toList
   match cs with
   | [] => return none
@@ -120,21 +161,25 @@ def line (text : String) : Except String (Option (String × String)) := do
     let (key, rest) := takeKey cs ""
     if key.isEmpty then
       throw "a line that is neither blank, a comment, nor `key = \"value\"`"
-    match skipSpace rest with
-    | '=' :: rest =>
-      match skipSpace rest with
-      | '"' :: rest => do
-        let (value, rest) ← basicString rest ""
+    let (value, rest) ← match skipSpace rest with
+      | '=' :: rest =>
         match skipSpace rest with
-        | [] => return some (key, value)
-        | '#' :: _ => return some (key, value)
-        | _ => throw s!"`{key}` has something after its value"
-      | _ => throw s!"`{key}` is not given a quoted string"
-    | _ => throw s!"`{key}` is not followed by `=`"
+        | '"' :: rest => do
+          let (value, rest) ← basicString rest ""
+          pure (Value.string value, rest)
+        | '[' :: rest => do
+          let (values, rest) ← stringArray key rest #[]
+          pure (Value.strings values, rest)
+        | _ => pure (Value.neither, [])
+      | _ => throw s!"`{key}` is not followed by `=`"
+    match skipSpace rest with
+    | [] => return some (key, value)
+    | '#' :: _ => return some (key, value)
+    | _ => throw s!"`{key}` has something after its value"
 
 end Toml
 
-/-- The two keys as the file spells them, with `index` still a path.
+/-- The keys as the file spells them, with `index` still a path.
 
 Separate from `SiteConfig`, which carries the index file's **contents**: this is
 what reading the text alone can answer, and `readSiteConfig` is what turns the
@@ -142,14 +187,23 @@ path into the Markdown behind it. -/
 structure ConfigKeys where
   title : Option String := none
   index : Option String := none
+  footer : Option String := none
+  noEquationsUnder : Array String := #[]
   deriving BEq, Repr, Inhabited
 
-/-- `title` and `index`, and an unknown key is a hard error rather than an
-ignored line: a misspelled key that is silently dropped is a package whose
-configuration does nothing and says nothing. -/
+/-- The extractor's own test for `--no-equations-under`, which also refuses the `,`
+that joins the list on its command line. -/
+def isNamespace (text : String) : Bool :=
+  !text.isEmpty && text.toName.toString == text
+
+/-- An unknown key is a hard error rather than an ignored line: a misspelled key
+that is silently dropped is a package whose configuration does nothing and says
+nothing. -/
 def parseConfig (text : String) : Except String ConfigKeys := Id.run do
   let mut title : Option String := none
   let mut index : Option String := none
+  let mut footer : Option String := none
+  let mut noEquationsUnder : Option (Array String) := none
   let mut number := 0
   for raw in text.splitOn "\n" do
     number := number + 1
@@ -160,17 +214,37 @@ def parseConfig (text : String) : Except String ConfigKeys := Id.run do
     | .ok none => pure ()
     | .ok (some (key, value)) =>
       if key == "title" then
+        let .string value := value
+          | return .error s!"line {number}: `title` is not given a quoted string"
         if title.isSome then return .error s!"line {number}: `title` is given twice"
         title := some value
       else if key == "index" then
+        let .string value := value
+          | return .error s!"line {number}: `index` is not given a quoted string"
         if index.isSome then return .error s!"line {number}: `index` is given twice"
         index := some value
+      else if key == "footer" then
+        let .string value := value
+          | return .error s!"line {number}: `footer` is not given a quoted string"
+        if footer.isSome then return .error s!"line {number}: `footer` is given twice"
+        footer := some value
+      else if key == "no_equations_under" then
+        let .strings values := value
+          | return .error s!"line {number}: `no_equations_under` is a list of namespaces, \
+              like `[\"MyPkg.Tactic\"]`"
+        if noEquationsUnder.isSome then
+          return .error s!"line {number}: `no_equations_under` is given twice"
+        if let some bad := values.find? (!isNamespace ·) then
+          return .error s!"line {number}: `no_equations_under` holds `{bad}`, which is not a \
+            namespace"
+        noEquationsUnder := some values
       else
         return .error s!"line {number}: unknown key `{key}`"
   -- An empty title is not a title: `title = ""` would otherwise put a blank
   -- where every page names the site. Here rather than at the one caller so that
   -- reading the file and deciding what it said are not two answers.
-  return .ok { title := title.filter (fun t => !(trimWs t).isEmpty), index }
+  return .ok { title := title.filter (fun t => !(trimWs t).isEmpty), index, footer
+               noEquationsUnder := noEquationsUnder.getD #[] }
 
 def readIfPresent (path : FilePath) : IO (Option String) := do
   try
@@ -179,37 +253,107 @@ def readIfPresent (path : FilePath) : IO (Option String) := do
     | .noFileOrDirectory .. => pure none
     | e => throw (unreadable path e)
 
-/-- `<root>/docs/references.bib`. Absent and blank are the same answer as a
+def bibliographyPath (root : FilePath) : FilePath := root / "docs" / "references.bib"
+
+/-- `<root>/docs/references.bib`'s text. Absent and blank are the same answer as a
 package with no bibliography, and neither moves the render key. -/
+def readBibliographyText (root : FilePath) : IO (Option String) := do
+  let some text ← readIfPresent (bibliographyPath root) | return none
+  return if text.trimAscii.isEmpty then none else some text
+
+def bibliographyOf (source : String) : Option String → Except String Bibliography
+  | none => .ok {}
+  | some text =>
+    match processBibtex text with
+    | .ok read =>
+      let warning := read.unread.map fun u =>
+        s!"{source}: line {u.line}: BibtexQuery cannot read the entry that starts here, so it \
+          and everything after it ({u.ats} `@` in all) are left out of the bibliography"
+      .ok { Bibliography.of read.items (some (sha256Text text)) with warning }
+    | .error message => .error s!"{source}: {message}"
+
 def readBibliography (root : FilePath) : IO Bibliography := do
-  let path := root / "docs" / "references.bib"
-  let some text ← readIfPresent path | return {}
-  if text.trimAscii.isEmpty then return {}
-  match processBibtex text with
-  | .ok read =>
-    let warning := read.unread.map fun u =>
-      s!"{path}: line {u.line}: BibtexQuery cannot read the entry that starts here, so it \
-        and everything after it ({u.ats} `@` in all) are left out of the bibliography"
-    return { Bibliography.of read.items (some (sha256Text text)) with warning }
-  | .error message => throw (IO.userError s!"{path}: {message}")
+  match bibliographyOf (bibliographyPath root).toString (← readBibliographyText root) with
+  | .ok bibliography => return bibliography
+  | .error why => throw (IO.userError why)
+
+/-- A package's own file absent is the empty configuration; a `--config` naming
+no file is an error. -/
+def readConfigKeys (source : ConfigSource) : IO ConfigKeys := do
+  let path := source.file
+  let text ← match source with
+    | .package _ => readIfPresent path
+    | .given _ => pure (some (← readTextFile path))
+  match text with
+  | none => pure {}
+  | some text => match parseConfig text with
+    | .ok keys => pure keys
+    | .error message => throw (IO.userError s!"{path}: {message}")
+
+def noEquationsUnderFor (stated : Option (Array String)) (source : ConfigSource) :
+    IO (Array String) :=
+  match stated with
+  | some stated => pure stated
+  | none => return (← readConfigKeys source).noEquationsUnder
+
+/-- What a configuration file says about the pages, with `index` and `footer`
+read into the Markdown behind them. -/
+structure SitePages where
+  title : Option String := none
+  indexMarkdown : Option String := none
+  footerMarkdown : Option String := none
+  deriving BEq, Repr, Inhabited
+
+def readSitePages (source : ConfigSource) : IO SitePages := do
+  let keys ← readConfigKeys source
+  let markdown (key : Option String) : IO (Option String) := do
+    match key with
+    | some relative => pure (some (← readTextFile (resolveBeside source.file relative)))
+    | none => pure none
+  return { title := keys.title, indexMarkdown := ← markdown keys.index
+           footerMarkdown := ← markdown keys.footer }
+
+def SitePages.json (p : SitePages) : String :=
+  let field (o key : String) : Option String → String
+    | some text => jsonStr (o ++ s!"\"{key}\":") text
+    | none => o ++ s!"\"{key}\":null"
+  field (field (field "{" "title" p.title ++ ",") "index" p.indexMarkdown ++ ",") "footer"
+    p.footerMarkdown ++ "}"
+
+def SitePages.digest (p : SitePages) : String := sha256Text p.json
+
+/-- What `readSiteConfig` reads, before the bibliography is parsed: the text a
+store entry keeps, so a render from the store reads what `build` read. -/
+structure SiteSources where
+  title : Option String := none
+  indexMarkdown : Option String := none
+  footerMarkdown : Option String := none
+  bibliography : Option String := none
+  deriving BEq, Repr, Inhabited
+
+def SiteSources.withPages (s : SiteSources) (p : SitePages) : SiteSources :=
+  { s with title := p.title, indexMarkdown := p.indexMarkdown, footerMarkdown := p.footerMarkdown }
+
+/-- The pages from `pages` and the bibliography from `<root>/docs/references.bib`,
+which a `--config` elsewhere does not move. -/
+def readSiteSources (root : FilePath) (pages : ConfigSource := .package root) :
+    IO SiteSources := do
+  return ({ bibliography := ← readBibliographyText root } : SiteSources).withPages
+    (← readSitePages pages)
+
+def SiteSources.config (s : SiteSources) (bibliographySource : String) :
+    Except String SiteConfig := do
+  return { title := s.title, indexMarkdown := s.indexMarkdown, footerMarkdown := s.footerMarkdown
+           bibliography := ← bibliographyOf bibliographySource s.bibliography }
 
 /-- `<root>/litedoc4.toml` and `<root>/docs/references.bib`, or the empty
 configuration when `root` is `none` or holds neither file. -/
 def readSiteConfig (root : Option FilePath) : IO SiteConfig := do
   let some root := root | return {}
-  let path := root / configFile
-  let keys ← match ← readIfPresent path with
-    | none => pure {}
-    | some text => match parseConfig text with
-      | .ok keys => pure keys
-      | .error message => throw (IO.userError s!"{path}: {message}")
-  let indexMarkdown ← match keys.index with
-    | some relative =>
-      let resolved := root / relative
-      pure (some (← readTextFile resolved))
-    | none => pure none
-  let bibliography ← readBibliography root
-  if let some warning := bibliography.warning then IO.eprintln s!"warning: {warning}"
-  return { title := keys.title, indexMarkdown, bibliography }
+  match (← readSiteSources root).config (bibliographyPath root).toString with
+  | .error why => throw (IO.userError why)
+  | .ok config =>
+    if let some warning := config.bibliography.warning then IO.eprintln s!"warning: {warning}"
+    return config
 
 end Litedoc4

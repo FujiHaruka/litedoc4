@@ -1,0 +1,22 @@
+{
+  "//": "Type-checks what node runs directly. node strips types and checks none, so this and tools/benchmarks-ts-gate.sh are the only check these scripts get. The DOM libs are for the callbacks puppeteer runs inside the page.",
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "moduleDetection": "force",
+    "types": ["node"],
+
+    "strict": true,
+    "noImplicitOverride": true,
+
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["*.ts", "../../tools/oracle/*.ts"]
+}

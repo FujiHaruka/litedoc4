@@ -14,7 +14,7 @@ reachable from the command line and belong to `tools/refusal-gate.sh`, which
 holds `unknown-subcommand` and a `*-unknown-flag` row per command.
 
 There is no `Args` type here to test. The Rust half shares one cursor between
-fourteen `match`es; the Lean half is fourteen `List String` recursions, and
+fourteen `match`es; the Lean half is seven `List String` recursions, and
 "the value is the argument after the flag and it is consumed" is the list
 pattern `flag :: v :: more` — so what is left to ask is that a real parser
 answers with the value it was handed and reads the *next* flag from `more`.
@@ -32,13 +32,13 @@ namespace Litedoc4Test
 open Litedoc4
 
 /-- The value is the next argument and it is **consumed**: the second clause
-hands `--pages` to `--ir` and finds that nothing else was filled in, which is
-the half a parser that peeked instead of taking would fail. -/
+hands `--ir-dir` to `--modules` and finds that nothing else was filled in, which
+is the half a parser that peeked instead of taking would fail. -/
 def aFlagsValueIsTheArgumentAfterItAndIsNotReadAgainAsAFlag : Bool :=
-  (parseRender ["--ir", "site", "--pages", "p"] {}).toOption.map
-      (fun a => (a.ir, a.pages)) == some (some "site", some "p")
-    && (parseRender ["--ir", "--pages"] {}).toOption.map
-      (fun a => (a.ir, a.pages)) == some (some "--pages", none)
+  (parseExtract ["--modules", "m", "--ir-dir", "p"] {}).toOption.map
+      (fun a => (a.modules, a.irDir)) == some (some "m", some "p")
+    && (parseExtract ["--modules", "--ir-dir"] {}).toOption.map
+      (fun a => (a.modules, a.irDir)) == some (some "--ir-dir", none)
 
 #guard aFlagsValueIsTheArgumentAfterItAndIsNotReadAgainAsAFlag
 
@@ -56,14 +56,13 @@ def aNumberFlagIsTheValueItTook : Bool :=
 `match` in `src/Main.lean` would agree with it by construction, and a subcommand
 added there and not here is one nobody checked. -/
 def subcommands : Array String :=
-  #["build", "watch", "incremental", "modules", "links", "extract", "site", "render",
-    "global", "ledger", "ownership", "merge", "impact", "prune"]
+  #["build", "watch", "modules", "links", "extract", "ledger", "store", "reader"]
 
 /-- A subcommand the front door does not name is one nobody finds. Being named at
 all, beside the sentence that says where its command line is, is the whole
-obligation — `summary` gives two of the fourteen a synopsis on purpose.
+obligation — `summary` gives two of the eight a synopsis on purpose.
 
-The last clause is the way back: without `--help-all` the twelve are hidden with
+The last clause is the way back: without `--help-all` the six are hidden with
 nothing pointing at them. -/
 def theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines : Bool :=
   subcommands.all (fun name => (summary.splitOn name).length ≥ 2)
@@ -73,9 +72,9 @@ def theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines : Bool :=
 #guard theSummaryNamesEverySubcommandAndTheWayToTheirCommandLines
 
 /-- Both spellings through every parser, because they are two patterns in each of
-the thirteen flag loops: one that lost `-h` passes a check that only asks
-`--help`. Thirteen and not fourteen — `parseBuild` serves `build` and `watch`,
-and the `Bool` is which.
+the seven flag loops: one that lost `-h` passes a check that only asks `--help`.
+Seven and not eight — `parseBuild` serves `build` and `watch`, and the `Bool` is
+which.
 
 `--help` is in no synopsis line, so `tools/flag-tie-gate.sh` never hands it to a
 command: this is the only place the pair is asked. -/
@@ -83,19 +82,104 @@ def everyParserTakesBothSpellingsOfHelp : Bool :=
   ["--help", "-h"].all fun h =>
     (parseBuild false [h] {}).toOption.map (·.help) == some true
       && (parseBuild true [h] {}).toOption.map (·.help) == some true
-      && (parseIncremental [h] {}).toOption.map (·.help) == some true
       && (parseModules [h] {}).toOption.map (·.help) == some true
       && (parseLinks [h] {}).toOption.map (·.help) == some true
       && (parseExtract [h] {}).toOption.map (·.help) == some true
-      && (parseSite [h] {}).toOption.map (·.help) == some true
-      && (parseRender [h] {}).toOption.map (·.help) == some true
-      && (parseGlobal [h] {}).toOption.map (·.help) == some true
       && (parseLedger "check" [h] {}).toOption.map (·.help) == some true
-      && (parseOwnership [h] {}).toOption.map (·.help) == some true
-      && (parseMerge [h] {}).toOption.map (·.help) == some true
-      && (parseImpact [h] {}).toOption.map (·.help) == some true
-      && (parsePrune [h] {}).toOption.map (·.help) == some true
+      && (parseStore "put" [h] {}).toOption.map (·.help) == some true
+      && (parseReader [h] {}).toOption.map (·.help) == some true
 
 #guard everyParserTakesBothSpellingsOfHelp
+
+def versionedRefusal (args : List String) : Option String :=
+  match parseBuild false args {} with
+  | .ok a => versionedChecks a
+  | .error _ => none
+
+def namesFlag (message : Option String) (flag : String) : Bool :=
+  match message with
+  | some m => m.startsWith s!"{flag} is not a flag of `build --versions`"
+  | none => false
+
+/-- `--hash-urls` is every build's and `watch`'s, since it is the same output.
+`--store` is `build --versions`'s alone: a site of one version keeps only that
+version in `<out>/store`, so `build` without `--versions` and `watch` refuse it
+by name, and `watch` refuses `--versions` the same way. -/
+def theStoreIsVersionedBuildsAloneAndHashUrlsIsEveryBuilds : Bool :=
+  ((parseBuild false ["--versions", "v1,v2", "--store", "s", "--hash-urls"] {}).toOption.map
+      fun a => (a.versions, a.store, a.hashUrls)) == some (some "v1,v2", some "s", true)
+    && versionedRefusal ["--store", "s", "--versions", "v1"] == none
+    && (match versionedRefusal ["--store", "s", "--hash-urls"] with
+      | some m => m.startsWith "--store is not a flag of `build` without --versions"
+      | none => false)
+    && versionedRefusal ["--hash-urls"] == none
+    && ((parseBuild true ["--hash-urls"] {}).toOption.map (·.hashUrls)) == some true
+    && (match parseBuild true ["--store", "s"] {} with
+      | .error m => m.startsWith "--store is not a `watch` flag"
+      | .ok _ => false)
+    && (match parseBuild true ["--versions", "v1"] {} with
+      | .error m => m.startsWith "--versions is not a `watch` flag"
+      | .ok _ => false)
+
+#guard theStoreIsVersionedBuildsAloneAndHashUrlsIsEveryBuilds
+
+def theReaderIsForcedOnlyOnAVersionedBuild : Bool :=
+  ((parseBuild false ["--versions", "v1,v2", "--through-reader", "v1"] {}).toOption.map
+      (·.throughReader)) == some (some "v1")
+    && versionedRefusal ["--versions", "v1,v2", "--through-reader", "v1"] == none
+    && (match versionedRefusal ["--through-reader", "v1"] with
+      | some m => m.startsWith "--through-reader is not a flag of `build` without --versions"
+      | none => false)
+    && (match parseBuild true ["--through-reader", "v1"] {} with
+      | .error m => m.startsWith "--through-reader is not a `watch` flag"
+      | .ok _ => false)
+    && (parseReader ["--out", "d", "--lake", "l"] {}).toOption.map (fun a => (a.out, a.lake))
+      == some (some "d", some "l")
+
+#guard theReaderIsForcedOnlyOnAVersionedBuild
+
+def readerFillOf (args : List String) : Option ReaderFill :=
+  (parseBuild false (["--versions", "v1,v2"] ++ args) {}).toOption.map (·.readerFill)
+
+def theReaderChainsByDefaultAndReadsAloneOnlyOnAVersionedBuild : Bool :=
+  readerFillOf [] == some .chain
+    && readerFillOf ["--reader-alone"] == some .alone
+    && ([[], ["--reader-alone"]].all
+      fun args => versionedRefusal (["--versions", "v1,v2"] ++ args) == none)
+    && (match versionedRefusal ["--reader-alone"] with
+      | some m => m.startsWith "--reader-alone is not a flag of `build` without --versions"
+      | none => false)
+    && (match parseBuild true ["--reader-alone"] {} with
+      | .error m => m.startsWith "--reader-alone is not a `watch` flag"
+      | .ok _ => false)
+
+#guard theReaderChainsByDefaultAndReadsAloneOnlyOnAVersionedBuild
+
+def everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken : Bool :=
+  let v := ["--versions", "v1"]
+  [(["--source-url", "u"], "--source-url"), (["--extractor-bin", "b"], "--extractor-bin"),
+   (["--full"], "--full"), (["--timings", "t"], "--timings")].all
+      (fun (args, flag) => namesFlag (versionedRefusal (v ++ args)) flag)
+    && versionedRefusal (v ++ ["--store", "s", "--hash-urls", "--lib", "L", "--lake", "k",
+        "--jobs", "2"]) == none
+    && versionedRefusal ["--hash-urls", "--source-url", "u", "--full",
+        "--extractor-bin", "b", "--timings", "t"] == none
+
+#guard everyFlagAVersionedBuildDecidesPerVersionIsRefusedByNameAndTheRestAreTaken
+
+/-- The flags of the static single-version site are gone from both commands, and
+a caller who still passes one is told it is an unknown argument: each named a
+decision (the dependency map's file, a one-shot extraction program, the render
+set's mode and bound, a dependency's documentation site) that the site rendered
+from the store does not take. -/
+def theStaticSitesFlagsAreUnknownToBuildAndWatch : Bool :=
+  ["--link-index", "--extractor", "--extractor-arg", "--mode", "--max-rounds",
+   "--deps-docs-url", "--deps-docs-index", "--deps-docs-map"].all fun flag =>
+    [false, true].all fun watching =>
+      match parseBuild watching [flag, "x"] {} with
+      | .error m => m == s!"unknown argument `{flag}`"
+      | .ok _ => false
+
+#guard theStaticSitesFlagsAreUnknownToBuildAndWatch
 
 end Litedoc4Test

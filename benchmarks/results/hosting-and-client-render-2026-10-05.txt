@@ -1,0 +1,1288 @@
+Where the multi-version Mathlib site can be hosted, and what a data-driven page costs the reader
+(plan U6 and U7)
+=============================================================================================
+2026-10-05
+
+Questions
+---------
+  U6  Where can the multi-version Mathlib site be hosted, with numbers: size and file count for
+      11 versions today and about 51 in two years (D2), per D4 row, against each host's documented
+      limits and price.
+  U7  What does a page drawn in the browser from data cost the reader, against the static HTML
+      page of today, on the largest Mathlib module page.
+
+Answer
+------
+  1. File count is the binding limit, not bytes, and sharing content does not reduce it.
+     D6 gives every page of every version its own URL. On a static host without path rewrites, each
+     URL is a file, so the page count is 8,170 x N in every D4 row. That is 89,870 files at 11
+     versions and 416,670 at 51, before any data file is counted (theoretical, below).
+     The count goes down only if the host returns one shell file with status 200 for any path.
+     Cloudflare Pages, Workers static assets and Netlify document this. CloudFront Functions can
+     rewrite URLs (documented), and R2 can use a Cloudflare zone rewrite. Neither of those two
+     rewrites was measured. GitHub Pages cannot: its fallback is the 404 page, served with 404.
+  2. Stored compression already does most of the shrinking, for HTML as well as for data. The 8,170
+     module pages gzip to 54.8 MB, each page compressed on its own. The same content in the data
+     scheme below gzips to 28.6 MB, which is 0.52x of that, and brotli gives 23.9 MB (measured).
+     Carrying content as data instead of HTML saves 1.9x after compression, not 5x.
+     So a host that serves a stored .gz file with Content-Encoding: gzip can hold static HTML for
+     every version: 0.77 GB at 11 versions and 3.6 GB at 51 (extrapolated), with no-JS reading kept.
+     S3 + CloudFront documents this. R2 behind a Cloudflare domain does it when the object carries
+     Content-Encoding and Cache-Control: no-transform (documented in parts, not measured). GitHub Pages, Cloudflare
+     Pages, Workers, Netlify and Vercel do not document it.
+  3. Once declarations are shared, the per-version layer is most of the bytes, and Used by is most
+     of the per-version layer. Thin HTML + shared data comes to 0.32 GB at 11 versions and 1.38 GB
+     at 51. Of the 1.38 GB, 780 MB is the global files that every version carries (Used by is
+     10.3 MB of the 15.3 MB per version, gzip) and 553 MB is the page shells. The shared declaration
+     content is only 50 MB (all theoretical, premises in the sizing section).
+  4. The used-by.json of one version is 78,162,880 B (74.5 MiB) as the site writes it today. That is
+     3x Cloudflare's 25 MiB per-file limit (Pages and Workers alike). The current single-version site
+     cannot be put on Cloudflare unchanged. Gzipped, the file is 10.3 MB and fits.
+  5. Verdict, in short (the table and the reasons are in "U6 verdict"):
+       - Static HTML per version, stored precompressed: S3 + CloudFront, or R2 behind a Cloudflare
+         domain. Fits 11 and 51 versions; $0 to $15 a month at the assumed traffic.
+       - Thin HTML + shared data with a 200 rewrite: Cloudflare Workers static assets or Cloudflare
+         Pages. With the packing assumed here (33,000 files), 11 versions fit only on the $5 paid
+         plan; the free plan needs packing coarser than one file per module per version. 51 versions
+         need the paid plan and coarser packing (133,000 files as assumed). Without a rewrite, the
+         page files alone pass the 100,000-file cap at 51 versions.
+       - GitHub Pages fits nothing at 51 versions, by its documented 1 GB, even with Used by cut to
+         the latest version.
+  6. U7: on the largest page (387 declarations, 1.99 MB of HTML) the data-driven page is not slower
+     than the static one, when both run on loopback with no network cost (measured, medians of 5
+     runs, Chrome 154 headless):
+       static as published         first paint 188 ms, DOMContentLoaded 263 ms, settled 361 ms
+       static, no CSS and no JS    first paint 160 ms, settled 240 ms
+       static, no CSS and no JS,
+         wrappers removed          first paint 160 ms, settled 189 ms
+       data, no CSS                fetch 10, decompress 10, parse 12, DOM built 32,
+                                   settled 153 ms, first paint 164 ms
+       data with the site's CSS    DOM built 32, settled 160 ms, first paint 172 ms
+     ("settled" = two animation frames after the content exists; for static, after the load event.)
+     Layout and paint take about 120 ms of every variant, and the element count decides it. The
+     wrappers that D4 rule 3 drops are 21,378 of the static page's 42,200 elements. Static HTML
+     without them settles at 189 ms, against 153 ms for the data page and 240 ms with the wrappers.
+     Most of the gain comes from dropping the wrappers, not from the data format.
+  7. Two facts that bind a plan decision:
+     - Chrome 154 has no DecompressionStream("brotli"); the constructor throws (measured). Content
+       stored as brotli can be read only when the host sends Content-Encoding: br. Without host
+       support, D4 rule 1 means gzip, which is 1.20x the brotli bytes (measured).
+     - A #name link from outside does not scroll on a page drawn by script (measured: scrollY 0, and
+       :target null). Per the HTML standard, the browser stops retrying the fragment scroll when the
+       parser stops, and script draws the content after that. The page must scroll for itself.
+       location.replace(location.href) after drawing scrolls and also sets :target (measured);
+       scrollIntoView() scrolls but leaves :target null.
+     - Google reads an instant meta refresh as a permanent redirect (cited below). A site root that
+       uses one to point at the newest version tells Google that the root moved permanently to a URL
+       that changes at the next release. A 302 from the host, or a script redirect, says
+       "temporary". This bears on D6.
+
+Conditions
+----------
+  machine        Apple M1, 16 GiB (17,179,869,184 B), macOS 26.6.2
+  input          litedoc4's single-version site for Mathlib v4.31.0 (fabf563a7c), the output of
+                 mathlib-render-fixed-2026-10-03.txt, read only: 8,183 files, 1,188,720,255 B;
+                 8,170 module pages (8,169 under Mathlib/ plus Mathlib.html)
+  browser        Chrome 154.0.8037.93, headless, driven by puppeteer-core 24 from deno 2.9.7
+                 (the stack benchmarks/tools/check-site-browser.ts uses); viewport 1280 x 800;
+                 a new browser context per run, HTTP cache disabled; a deno HTTP server on
+                 127.0.0.1, so transfer time is about 0 and network round trips are not measured
+  runs           U7 browser: 3 sessions of 5 runs each. The first ran beside the conversion of all
+                 pages (one CPU busy) and is not used. The numbers above are from the third session,
+                 the only one with variant B'. Its medians agree with the second session within 10 ms.
+                 Conversion and compression: one run (they are deterministic).
+  compression    gzip -6 (zlib level 6, the level of mathlib-signature-shape-2026-10-04.txt),
+                 gzip -9, brotli -q 11 (brotli 1.x from Homebrew); each page compressed on its own
+  web pages      every vendor limit below was read from the vendor's page on 2026-10-05; the URL is
+                 given beside each one. Limits that I did not find on those pages are marked
+                 "not stated". No limit is written from memory.
+
+U7 — data scheme (defined for this measurement)
+-----------------------------------------------
+  One JSON file per module page, compact separators, UTF-8:
+    m    module name
+    i    imports, as indexes into L
+    md   module docstrings as HTML strings, in page order, interleaved with integers (the number of
+         declarations drawn before that docstring)
+    d    declarations, each an object:
+           n  name (also the anchor id)       k  kind
+           s  own source line range as "#L33-L40", appended to S (or an index into L when the
+              source is not in the module's own file)
+           t  signature: [binders, type, parents?]; binders = [[0|1, tokens]...] with
+              0 = explicit and 1 = any bracketed binder (the page's two classes);
+              type = tokens; parents (structures) = [[anchor id, tokens]...]
+           a  attribute line as text           f  flags
+           d  docstring as HTML, kept as a string (links in it not re-encoded)
+           e  equations, a list of token lists
+           fl structure fields: [[constructor id, [[field id, inherited 0|1, name, tokens, doc HTML]...]]]
+    L    the page's link table: every distinct link target once. A Mathlib target is written
+         "Mathlib/A/B#Name" (no root prefix, no .html). A GitHub source target is written
+         "@owner/repo/path#Lx-Ly", and its revision is kept once per page in R.
+    R    {owner/repo: revision}            S    the module's own source URL
+  tokens = a list of text strings and [index into L, link text] pairs.
+  Dropped: every <span class="fn"> wrapper (D4 rule 3), the "On this page" sidebar (the client
+  rebuilds it from d), the page chrome, and the empty Used by / Instances placeholders (filled on
+  the client today as well).
+  Not separated: the per-version layer (own line ranges, the Lean core revision) still sits in
+  each page's file. That matches a single-version site; a multi-version store moves it out.
+
+U7 — measurements
+-----------------
+  The 5 largest module pages (by HTML bytes). Every declaration on them has exactly one signature.
+  "field sigs" counts structure-field signatures separately. The other columns are bytes.
+
+  page                                   decls sigs field   HTML       HTML gz6  HTML gz9  HTML br11
+                                                    sigs
+  CategoryTheory/Comma/StructuredArrow/Basic  387  387   0  1,993,587   55,483    51,216    26,963
+  CategoryTheory/Limits/Cones                 414  414   8  1,739,796   52,123    49,086    27,445
+  CategoryTheory/Monoidal/Mon                 469  469  24  1,728,848   50,537    47,886    29,829
+  CategoryTheory/Monoidal/Functor             283  283  46  1,702,516   44,396    40,645    23,780
+  CategoryTheory/Comma/Over/Basic             406  406   0  1,453,874   49,372    47,143    28,076
+
+  same pages as data (the scheme above)
+  page                                   JSON       JSON gz6  JSON gz9  JSON br11  br5     links
+  CategoryTheory/Comma/StructuredArrow/Basic  319,496   23,146    22,531    15,801   19,132   7,667
+  CategoryTheory/Limits/Cones                 311,533   23,821    23,109    16,723   20,432   6,784
+  CategoryTheory/Monoidal/Mon                 294,557   23,308    22,616    16,817   20,123   6,385
+  CategoryTheory/Monoidal/Functor             288,915   19,560    19,055    13,799   16,396   6,816
+  CategoryTheory/Comma/Over/Basic             245,129   23,968    23,354    16,744   20,291   4,934
+  (links = links inside signatures, equations and fields; docstring links not counted)
+
+  On these 5 pages the data is 0.16-0.17x the HTML raw, and 0.42-0.49x the HTML gzipped.
+
+  All 8,169 module pages under Mathlib/ (Mathlib.html, the root module page, not converted):
+    declarations (section.decl)      298,656   (= U4's signature count; every one has a div.sig)
+    HTML                       1,073,797,792 B    gzip -6  54,748,249 B   (19.61x)
+    data JSON                    202,601,934 B    gzip -6  28,609,962 B   gzip -9 28,200,825 B
+                                                  brotli 11 23,885,383 B
+    data / HTML, raw 0.189; gzip -6 0.523 (HTML gzip / data gzip = 1.91x)
+    brotli 11 / gzip -6 on the data 0.835
+    largest data file: StructuredArrow/Basic 319,496 B raw; largest after brotli: Algebra/Group/Defs
+    19,457 B. Pages whose data is under 4 KiB gzipped: 5,914 of 8,169.
+
+  Largest page without the wrappers (static HTML, stylesheet and scripts removed, every
+  <span class="fn"> removed): 1,993,290 -> 1,480,229 B raw, 55,249 -> 44,483 B gzip -6,
+  26,867 -> 24,982 B brotli 11. Elements 42,200 -> 20,822.
+
+  Browser, largest page (StructuredArrow/Basic, 387 declarations), ms from navigation start, median
+  of 5 (each run listed):
+    A  static as published (style.css + app.js), served uncompressed; 80,170 elements
+         DOMContentLoaded 263 (264 263 263 263 261)   load 301 (305 299 300 302 301)
+         first contentful paint 188 (192 188 180 192 184)
+         2 frames after load 361 (366 361 314 363 315)    JS heap 4.1 MB
+    A' the same, served with Content-Encoding: gzip
+         DOMContentLoaded 269 (300 288 269 263 265)   first paint 184 (140 140 188 188 184)
+         2 frames after load 321 (333 321 323 319 318)
+    B  static, stylesheet and scripts removed; 42,200 elements
+         DOMContentLoaded 197 (192 197 197 197 198)   first paint 160 (148 156 164 160 160)
+         2 frames after load 240 (237 240 243 240 241)    JS heap 1.1 MB
+    B' B with every span.fn removed; 20,822 elements
+         DOMContentLoaded 148 (150 150 148 33 32)     first paint 160 (160 160 160 172 176)
+         2 frames after load 189 (190 189 191 172 174)
+    C  data, no stylesheet: fetch .json.gz (23,146 B) as bytes, DecompressionStream("gzip"),
+       JSON.parse, build DOM; 18,172 elements
+         fetched 10 (10 10 9 8 10)   decompressed + read 10 (10 11 10 9 11)
+         parsed 12 (12 13 12 11 13)  DOM built 32 (33 33 32 31 32)
+         2 frames after build 153 (154 154 153 141 153)   first paint 164 (164 164 156 144 164)
+         JS heap 3.4 MB
+    C' data, .json.br + DecompressionStream("brotli"): the constructor throws
+         "Unsupported compression format: 'brotli'" — nothing drawn, every run
+    D  data, .json served with Content-Encoding: gzip (the browser decompresses)
+         DOM built 33 (33 32 33 33 33)   2 frames after build 154 (156 141 153 154 155)
+         first paint 164 (168 144 164 164 164)
+    E  C with the site's style.css
+         DOM built 32 (32 32 30 32 30)   2 frames after build 160 (160 160 159 161 151)
+         first paint 172 (172 176 172 176 156)
+  The values that vary between sessions: session 2 (5 runs, same conditions, without B') gave
+  A DCL 266 / first paint 188, B 195 / 160, C built 31 / settled 151 / first paint 164.
+  Reading: decompression and parsing take 2-3 ms; building the DOM about 20 ms; layout and first paint
+  about 120 ms, in every variant. The time follows the element count, not the format.
+  DecompressionStream and a Content-Encoding the browser decodes cost the same here (C vs D).
+
+  Anchors: the last declaration of the page (CategoryTheory.CostructuredArrow.prodEquivalence_unitIso),
+  opened as page#name from outside, scroll position 3 s after load. These runs use
+  prefers-reduced-motion: reduce, for the reason given below.
+    static as published                         scrollY 201,733  element at 70 px    :target set
+    static, no CSS                              scrollY 107,445  element at 524 px   :target set
+    data, no scroll script                      scrollY 0        element at 105,768  :target null
+    data, scrollIntoView() after drawing        scrollY 105,244  element at 524 px   :target null
+    data, location.replace(location.href) after drawing
+                                                scrollY 105,244  element at 524 px   :target set
+    data + style.css, no scroll script          scrollY 0        element at 189,166  :target null
+  With the default media settings, the published static page stopped at scrollY 24 in headless
+  Chrome and stayed there for 10 s. The site's CSS sets `scroll-behavior: smooth` on html, and
+  `auto` under prefers-reduced-motion. With reduced motion it scrolls to the element. Whether a
+  headed Chrome also stalls is not measured. Read this as a headless effect until that is checked.
+
+U7 — desk findings
+------------------
+  JavaScript off. The data page draws nothing; with no <noscript> text the reader sees a blank page.
+    D4 accepts this (decided 2026-10-04). The static row and the precompressed-static option in U6
+    keep reading without JavaScript.
+  In-page anchors and links from outside. HTML Standard, "try to scroll to the fragment" and
+    "scroll to the fragment", https://html.spec.whatwg.org/multipage/browsing-the-web.html,
+    read 2026-10-05:
+      "If document has no parser, or its parser has stopped parsing, or the user agent has reason to
+       believe the user is no longer interested in scrolling to the fragment, then abort these
+       steps. Scroll to the fragment given document. If document's indicated part is still null,
+       then try to scroll to the fragment for document."
+    The browser retries only while the parser runs. Content added by script after parsing is never
+    found by that loop, which agrees with the measurement above. "Scroll to the fragment" also sets
+    the document's target element (:target). A page drawn by script therefore needs to run a
+    fragment navigation itself after drawing. Navigating to the same URL with location.replace
+    restores both the scroll and :target (measured above). A later in-page click on #name is an
+    ordinary fragment navigation and works without help, because the content then exists.
+    The D9 replacement check ("every anchor reached after the browser has drawn the page —
+    including a #name link arriving from outside") is exactly this case.
+  Search engines. Google, "Understand the JavaScript SEO basics",
+    https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics
+    (last updated 2026-03-04; read 2026-10-05): Googlebot crawls, queues the page for rendering, and
+    a headless Chromium "renders the page and executes the JavaScript"; "The page may stay on this
+    queue for a few seconds, but it can take longer than that"; "server-side or pre-rendering is
+    still a great idea because it makes your website faster for users and crawlers, and not all bots
+    can run JavaScript"; links are discovered only from "<a> HTML elements with an href attribute".
+    So Google indexes client-drawn content after a delay. Crawlers that do not run JavaScript see an
+    empty shell. Links that the client draws are found only after rendering.
+  Canonical URL (one page exists once per version, D6). Google, "How to specify a canonical URL",
+    https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls
+    (last updated 2026-07-10; read 2026-10-05): redirects and rel="canonical" are "strong" signals,
+    a sitemap is "weak"; a canonical link injected by JavaScript is supported, but "The best way to
+    do this is to specify the canonical URL in the HTML source code". A thin shell can carry its
+    rel="canonical" in its HTML, so this does not need the data.
+  Root redirect (D6). Google, "Redirects and Google Search",
+    https://developers.google.com/search/docs/crawling-indexing/301-redirects
+    (last updated 2026-04-14; read 2026-10-05): 301/308 make the target canonical; 302/307 do not;
+    "Google Search interprets instant meta refresh redirects as permanent redirects"; delayed
+    meta refresh as temporary; JavaScript redirects are seen only if rendering succeeds.
+
+U6 — sizing
+-----------
+  Measured inputs (one version, Mathlib v4.31.0, from the conditions above):
+    whole site                    1,188,720,255 B in 8,183 files
+    module pages (8,170)          1,074,699,047 B; gzip -6 page by page 54,843,711 B
+    module content as data        gzip -6 28,609,962 B, brotli 11 23,885,383 B (8,169 pages, U7)
+    global files (everything else) 114,021,208 B raw; gzip -6 15,291,261 B, of which
+                                  used-by.json 10,314,116 (raw 78,162,880), name-map.json
+                                  2,171,272 (raw 24,335,490), search-index.bin 1,808,084,
+                                  index.html 202,285, instances.json 443,218, modules.json
+                                  164,727, the rest < 100 KB each
+    declarations with a section   298,656 (U4's 311,415 counts declarations the IR holds)
+  From U3 (mathlib-release-sharing-2026-10-04.txt), at level (d):
+    minor pair: 308,449 of 317,834 declarations reuse an earlier entry, so 2.95% of a version is new
+    content; 3,448 of 8,261 common modules have an identical IR contentHash, so 58.3% of modules
+    changed; patch pair: 2 of 317,834 new (measured, one pair each).
+  Release mix (assumed): of today's 10 consecutive pairs, 5 are minor (x.y -> x.y+1) and 5 are patch.
+    The ~40 releases of the next two years (D2) are assumed to follow the same mix: 20 minor, 20 patch.
+    So 5 minor transitions at 11 versions and 25 at 51. Patch transitions are taken as adding nothing.
+    That holds for the one patch pair measured, a single toolchain-bump commit. Patch releases that
+    carry Mathlib changes would add more.
+
+  Sharing factor for declaration content (extrapolated, from one minor pair and the mix above):
+    11 versions  1 + 5 x 2.95% = 1.148     51 versions  1 + 25 x 2.95% = 1.738
+  The same, if the unit of sharing is a whole module page (a page is shared only when no declaration
+  on it changed; changed-module share from contentHash as proxy, theoretical):
+    11 versions  1 + 5 x 58.3% = 3.91      51 versions  1 + 25 x 58.3% = 15.6
+
+  Thin page shell per page per version (theoretical): about 450 B of head (doctype, title,
+    canonical, one stylesheet and one script tag) plus the per-version layer that only this version
+    knows: for each declaration a content key and its own line range, about 24 B each.
+    298,656 x 24 + 8,170 x 450 = 10.9 MB per version, uncompressed. Not measured — no shell was built.
+
+  Row 1 — static HTML per version (today's pages; no-JS kept)
+                             11 versions               51 versions
+    stored as served         13.08 GB, 90,013 files    60.62 GB, 417,333 files   (extrapolated, x N)
+    stored precompressed     0.77 GB, 90,013 files     3.58 GB, 417,333 files    (extrapolated:
+      (gzip per file, served (54.84 + 15.29 MB) x N; needs a host that serves the stored bytes
+      with Content-Encoding)  with Content-Encoding: gzip)
+  Row 2 — static HTML for the latest version, thin HTML + shared data for the older ones
+                             1.48 GB, about 122,000     2.55 GB, about 544,000    (theoretical)
+    (the latest version raw 1.19 GB, which alone is over GitHub Pages' 1 GB; precompressed the
+    latest costs 70 MB and the row becomes about 0.36 GB / 1.43 GB)
+  Row 3 — thin HTML for all versions, content as shared data (per-declaration sharing, packed)
+                             11 versions               51 versions
+    page shells              119 MB, 89,870 files      553 MB, 416,670 files
+    per-version globals, gz  168 MB, 143 files         780 MB, 663 files
+    shared content, gz       33 MB                     50 MB
+    content files            31,964                    127,144
+      (one pack per module and per version that changed it: 8,169 + minor transitions x 4,759)
+    total                    0.32 GB, about 122,000    1.38 GB, about 544,000    (theoretical)
+    with Used by for the
+      latest version only    0.22 GB                   0.87 GB                   (theoretical)
+    unit = whole page        0.40 GB                   1.78 GB                   (theoretical)
+    unit = one file per
+      declaration            content files 342,750     519,124
+  Row 3 with a host that returns one shell for any path with status 200 (theoretical): the page
+    shells collapse to one file. The per-version layer then has to be fetched as data. Packed as
+    about 100 chunks per version (assumed chunking), the total is about 33,000 files at 11 versions
+    and about 133,000 at 51. At 51 the module packs are still 127,144 files. Getting under 100,000
+    then needs packing by namespace rather than by module, which is a D5 choice.
+
+  What the numbers say
+  - The page files dominate the file count in every row that keeps D6's per-version URLs as real
+    files. Rows 2 and 3 do not reduce that count, they only make each file small.
+  - Bytes: once content is shared it is small (33-50 MB). What remains is the per-version layer:
+    global files (Used by alone is 10.3 MB gzip per version) and shells.
+  - Per-file: the largest single file is used-by.json, 78,162,880 B (74.5 MiB) raw and 10.3 MB gzip.
+    name-map.json is 24,335,490 B (23.2 MiB), just under 25 MiB. The largest module data file is
+    319,496 B raw. The largest module page is 1,993,587 B.
+
+U6 — candidates
+---------------
+  Every limit is from the URL given, read 2026-10-05. "not stated" = not on the pages read.
+
+  GitHub Pages
+    total size     "Published GitHub Pages sites may be no larger than 1 GB."
+                   (docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)
+                   The Actions artifact: "The tar file must be under 10GB in size"; no symlinks
+                   (docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages;
+                   github.com/actions/upload-pages-artifact, "recommended maximum of 1GB").
+                   The plan records doc-gen4's 2.56 GB Mathlib site deploying (2026-10-04); not a promise.
+    file count     not stated               per file      not stated
+    deploy         "deployments will timeout if they take longer than 10 minutes";
+                   soft limit "10 builds per hour"; the whole artifact is uploaded every time
+    bandwidth      "soft bandwidth limit of 100 GB per month"; no price
+    root redirect  no server redirects or custom headers on the pages read; a custom 404.html
+                   exists (docs.github.com/.../creating-a-custom-404-page-for-your-github-pages-site).
+                   So the root can only redirect with an HTML page (meta refresh or script).
+    200 for any path  no. A missing path returns the 404 page with status 404 (measured
+                   2026-10-05 on fujiharuka.github.io/litedoc4/no-such-page.html: 404)
+    Content-Encoding  GitHub compresses on the fly: index.html and search-index.bin both came back
+                   with content-encoding: gzip (measured, same site). Serving a stored .gz file
+                   as Content-Encoding is not offered (no headers); the browser decompresses.
+    deploy from Actions  actions/upload-pages-artifact + actions/deploy-pages (pages: write,
+                   id-token: write) (the custom-workflows page above)
+  One GitHub Pages site per version (one repository each)
+    Each site has the limits above, and each site is under 1 GB. A version is 1.19 GB as static
+    HTML, so this is over the documented limit, and a precompressed copy is not served (no headers).
+    In row 3, every version's site is small. All project sites under one account share the origin
+    <owner>.github.io, so a shell in one repository can fetch shared data from another without CORS.
+    The shared-data repository is itself capped at 1 GB. A limit on how many Pages sites an account
+    may have: not stated.
+  Cloudflare Pages
+    file count     "up to 20,000 files on the Free plan"; "up to 100,000 files per site" on paid
+                   (developers.cloudflare.com/pages/platform/limits/)
+    per file       "25 MiB"                 total size    not stated
+    deploy         "Builds will timeout after 20 minutes" (Cloudflare's builder; a direct upload
+                   from Actions does not build there); 500 builds a month on Free
+    bandwidth      "On both free and paid plans, requests to static assets are free and unlimited"
+                   (developers.cloudflare.com/pages/functions/pricing/)
+    root redirect  _redirects: 301, 302, 303, 307, 308, and 200 for proxying, with splats and
+                   placeholders; 2,000 static + 100 dynamic rules
+                   (developers.cloudflare.com/pages/configuration/redirects/)
+    200 for any path  yes: a 200 rule with a splat. With no top-level 404.html, Pages also "matches
+                   all incoming paths to the root" (developers.cloudflare.com/pages/configuration/serving-pages/)
+    Content-Encoding  Pages "serve Gzip and Brotli responses whenever possible" (compresses on the
+                   fly). Serving stored .gz files with Content-Encoding is not stated. _headers can set
+                   headers, but whether a Content-Encoding set there is honoured is not stated
+    deploy from Actions  wrangler (direct upload) with an API token (not read; the usual mechanism)
+  Cloudflare Workers static assets
+    file count     20,000 per Worker version (Free), 100,000 (Paid)
+                   (developers.cloudflare.com/workers/platform/limits/)
+    per file       "25 MiB"                 total size    not stated
+    price          "Requests to static assets are free and unlimited"; "There is no additional cost
+                   for storing Assets" (developers.cloudflare.com/workers/static-assets/billing-and-limitations/);
+                   Workers Paid "minimum charge of $5 USD per month"
+                   (developers.cloudflare.com/workers/platform/pricing/)
+    deploy         content-hashed: "Unmodified files will not be returned in the buckets field (as
+                   they do not need to be re-uploaded)" (developers.cloudflare.com/workers/static-assets/direct-upload/),
+                   so adding a release uploads only new files
+    root redirect  _headers and _redirects "are supported natively in Workers with static assets"
+                   (developers.cloudflare.com/workers/static-assets/migration-guides/migrate-from-pages/)
+    200 for any path  not_found_handling = "single-page-application" returns "a 200 OK response with
+                   index.html for requests which don't match a static asset"
+                   (developers.cloudflare.com/workers/static-assets/)
+    Content-Encoding  not stated on the static-assets pages read
+    deploy from Actions  wrangler deploy with an API token (not read; the usual mechanism)
+    Pages vs Workers: the migration guide does not call Pages deprecated
+  Cloudflare R2 behind a custom domain
+    total / files  not stated; per-object limits not read
+    price          storage "$0.015 / GB-month"; Class A "$4.50 / million", Class B "$0.36 / million";
+                   free each month: 10 GB storage, 1 M Class A, 10 M Class B; egress "Free"
+                   (developers.cloudflare.com/r2/pricing/). Whether cache hits on a custom domain
+                   count as Class B: not stated
+    domain         "The domain being used must have been added as a zone ... in the same account";
+                   r2.dev "is rate-limited and should only be used for development purposes";
+                   caching needs a Cache Everything rule for other file types
+                   (developers.cloudflare.com/r2/buckets/public-buckets/). A domain has to be owned;
+                   its price is not read
+    root redirect  Single Redirects: 10 rules on Free (developers.cloudflare.com/rules/url-forwarding/);
+                   status codes not listed there
+    200 for any path  URL Rewrite Rules: "A rewrite is not visible to website visitors"
+                   (developers.cloudflare.com/rules/transform/url-rewrite/); rules per plan not stated
+                   there. No directory index on R2 itself (not stated on the pages read)
+    Content-Encoding  PutObject accepts Content-Encoding as system metadata
+                   (developers.cloudflare.com/r2/api/s3/api/). Cloudflare keeps the origin's
+                   gzip/br in the response when the browser accepts it and converts when it does not
+                   (developers.cloudflare.com/speed/optimization/content/compression/), on three
+                   conditions: the origin sends content-encoding gzip or br; the browser supports it;
+                   no feature that recompresses is enabled. "To prevent Cloudflare from altering
+                   compression, add cache-control: no-transform at the origin" (same page). So
+                   stored .gz objects need Content-Encoding: gzip and Cache-Control: no-transform
+                   as metadata. Not measured
+    deploy from Actions  S3 API (aws CLI or rclone) with R2 access keys; only new objects uploaded
+                   (not read; the usual mechanism and a sync tool's behaviour)
+  AWS S3 + CloudFront
+    total / files  not stated on the pages read
+    price          flat-rate plans (aws.amazon.com/cloudfront/pricing/;
+                   docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html):
+                   Free $0 — 1 M requests, 100 GB, 5 GB S3 storage credit; Pro $15/month — 10 M
+                   requests, 50 TB, 50 GB S3 credit; "Usage allowances are not hard limits"; no
+                   overage charges, but sustained excess "might be adjusted" (fewer edge locations).
+                   S3 to CloudFront transfer is free (aws.amazon.com/s3/pricing/). The S3 per-GB and
+                   per-request prices were not legible on that page.
+    root redirect  CloudFront Functions "modify URLs, HTTP headers" (flat-rate page). Returning a
+                   redirect from a function is not read here
+    200 for any path  a CloudFront Function URL rewrite (same source); not measured
+    Content-Encoding  "If the origin returns a compressed object, (as indicated by the
+                   Content-Encoding header in the HTTP response), CloudFront sends the compressed
+                   object to the viewer ... CloudFront doesn't compress the object again."
+                   (docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/ServingCompressedFiles.html).
+                   S3 serves the Content-Encoding stored with the object. Whether CloudFront
+                   decompresses for a client that does not accept gzip is not stated
+    deploy from Actions  aws-actions/configure-aws-credentials (OIDC) + aws s3 sync; only changed
+                   objects uploaded (not read; the usual mechanism)
+  Netlify
+    files          zip deploys "25,000 files per zip extraction maximum"; file-digest deploys
+                   upload only files whose SHA1 is new; deploys "Up to 3 times per minute",
+                   "Up to 100 times per day"; no total or per-file limit stated
+                   (docs.netlify.com/api-and-cli-guides/api-guides/get-started-with-api)
+    price          credits (docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/credit-based-pricing-plans/):
+                   Free 300 credits (hard limit), Personal $9 / 1,000, Pro from $20 / 3,000;
+                   1 GB = 20 credits, 10,000 requests = 2 credits, 1 production deploy = 15 credits
+    200 for any path  "/*  /index.html  200"; "you can't shadow a URL that actually exists"
+                   (docs.netlify.com/manage/routing/redirects/rewrites-proxies/)
+    root redirect  the same _redirects file (3xx)
+    Content-Encoding  not stated on the pages read
+    deploy from Actions  netlify CLI with an auth token (digest deploy) (not read; the usual mechanism)
+  Vercel
+    files          CLI deployments: "15,000" source files; uploads "limited to 100 MB for Hobby and
+                   1 GB for Pro"; builds up to 45 minutes; 100 deployments a day on Free
+                   (vercel.com/docs/limits)
+    price          Hobby includes the first 100 GB Fast Data Transfer and 1,000,000 CDN requests;
+                   Pro is "Flat Rate CDN" (vercel.com/docs/pricing); prices per GB are regional and
+                   not read
+    root redirect / 200 rewrite / Content-Encoding  not read
+    deploy from Actions  vercel CLI with a token (not read; the usual mechanism)
+
+  Traffic assumption for cost (assumed — no measurement of Mathlib documentation traffic exists
+  here): 1,000,000 page views a month. A module page is 6.7 KB on average gzipped
+  (54.8 MB / 8,170). One view in ten also loads the global bundle a page fetches (search index,
+  instances, module list: 2.4 MB gzip). That gives 200 GB and 3,000,000 requests a month.
+
+U6 — verdict
+------------
+  Fit = within every stated limit; "?" = depends on something not stated.
+
+                                   R1 static,       R1 static,        R3 thin+data       R3 + 200
+                                   as served        precompressed     (shell per page)   rewrite
+    11 versions                    13.1 GB/90k      0.77 GB/90k       0.32 GB/122k       0.32 GB/33k
+    51 versions                    60.6 GB/417k     3.6 GB/417k       1.38 GB/544k       1.38 GB/133k
+    GitHub Pages                   no / no          not offered       no (> 20k? files  no rewrite
+                                   (> 1 GB)                           unstated; 1.38 GB
+                                                                      > 1 GB at 51;
+                                                                      0.32 GB fits at 11)
+    GH Pages, one repo per version no (1.19 GB      not offered       yes / yes (each    n/a
+                                   per version)                       site small; data
+                                                                      repo 50 MB)
+    Cloudflare Pages / Workers     11: Paid only    11: ? (Paid;      no at both: 122k   no at 11 Free
+                                   (90,013 < 100k;  Content-Encoding  > 100k at 11;      (33k > 20k);
+                                   no total size    from stored files shells alone       yes at 11 Paid;
+                                   limit stated);   not stated)       exceed 100k at 51  no at 51 (133k)
+                                   51: no (files)   51: no (files)                       unless packed
+                                                                                         by namespace
+    R2 + custom domain             yes / yes        yes / yes         yes / yes          yes / yes
+    S3 + CloudFront                yes / yes        yes / yes         yes / yes          yes / yes
+    Netlify                        ? (no stated file cap for digest deploys; cost decides)
+    Vercel                         no (CLI upload 1 GB / 15,000 files on Pro)
+  Every host also needs used-by.json under its per-file limit: Cloudflare's 25 MiB rules out the
+  raw 74.5 MiB file. Stored gzipped (10.3 MB) it fits.
+
+  Cost per month at the assumed 200 GB and 3 M requests:
+    GitHub Pages          $0, but 2x its 100 GB soft bandwidth limit
+    Cloudflare Pages      $0 (static requests free and unlimited); Workers Paid $5 when more than
+      / Workers           20,000 files are needed
+    R2 + custom domain    storage: 11 x R1 as served 13.1 GB -> (13.1 - 10) x $0.015 = $0.05;
+                          51 x R1 as served 60.6 GB -> $0.76; every other row under 10 GB -> $0.
+                          Requests: within 10 M Class B even if no request were a cache hit.
+                          Uploads: 417k objects < 1 M free Class A. Total about $0-1, plus a domain.
+    S3 + CloudFront       Free plan if traffic stays under 1 M requests / 100 GB; at the assumption,
+                          Pro $15. S3 storage within the 50 GB credit except R1 as served at 51
+                          versions (60.6 GB; the excess price was not read)
+    Netlify               200 GB x 20 + 3 M / 10k x 2 = 4,600 credits + 15 per deploy. Above Pro's
+                          3,000 ($20); the larger tiers' prices were not read
+    Vercel                not priced (it does not fit)
+
+  So:
+  - Keeping static HTML for every version, with no-JS reading for all of them, fits only on object
+    storage behind a CDN that passes a stored Content-Encoding through: R2 + Cloudflare, or
+    S3 + CloudFront. 3.6 GB at 51 versions, $0-15 a month.
+  - On Cloudflare Pages/Workers or Netlify, D4 row 3 needs both D6's paths served by a rewrite and
+    D5's packing coarser than one file per module per version. Otherwise 51 versions cross
+    100,000 files.
+  - GitHub Pages carries row 3 at 11 versions (0.32 GB, if no file-count limit applies — none is
+    stated) and does not carry 51.
+
+What is not measured
+--------------------
+  - Network: every browser number is on loopback. A real connection adds one round trip for the
+    data page (shell, then data) that static HTML does not have. A cold cache adds the app script.
+    Neither is measured.
+  - A headed browser, other browsers, a phone. Firefox's and Safari's support for
+    DecompressionStream("brotli") is not checked.
+  - Whether a headed Chrome also stalls the smooth fragment scroll on the published static page.
+  - No thin shell, per-version layer or multi-version store was built. Every Row 2 / Row 3 number is
+    theoretical, and the sharing factors rest on one minor pair and one patch pair (U3).
+  - Whether Cloudflare Pages/Workers honour a Content-Encoding set in _headers for a stored .gz;
+    whether CloudFront decompresses for clients without gzip; R2 per-object limits; S3 prices;
+    Vercel's rewrite and header support; a limit on the number of GitHub Pages sites per account.
+  - Mathlib documentation traffic. The cost lines use an assumed 200 GB and 3 M requests a month.
+  - Google indexing of a data-driven page was read in Google's documentation, not observed.
+  - Memory: JS heap only (4.1 MB static as published, 3.4 MB data). Total renderer memory is not
+    measured.
+
+Scripts
+-------
+  Run order: page2json.py on 7 sample pages first, then allpages.py with limit 20 (2 s), then all
+  pages in the background (about 15 minutes, single process). u7bench.ts with 1 run first, then 5.
+  anchorprobe.ts once. Arguments are the site directory and a scratch directory; no
+  multiprocessing.
+
+----- page2json.py -----
+#!/usr/bin/env python3
+"""Convert a litedoc4 module page into the compact data scheme, report counts.
+
+usage: page2json.py <site dir> <out dir> <page path>...
+"""
+import collections
+import json
+import re
+import sys
+from html.parser import HTMLParser
+
+VOID = {"br", "img", "meta", "link", "input", "hr", "wbr"}
+
+
+class Node:
+    __slots__ = ("tag", "attrs", "kids", "parent")
+
+    def __init__(self, tag, attrs, parent):
+        self.tag, self.attrs, self.kids, self.parent = tag, dict(attrs), [], parent
+
+    def cls(self):
+        return self.attrs.get("class") or ""
+
+
+class Tree(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.root = Node("#root", [], None)
+        self.cur = self.root
+
+    def handle_starttag(self, tag, attrs):
+        n = Node(tag, attrs, self.cur)
+        self.cur.kids.append(n)
+        if tag not in VOID:
+            self.cur = n
+
+    def handle_startendtag(self, tag, attrs):
+        self.cur.kids.append(Node(tag, attrs, self.cur))
+
+    def handle_endtag(self, tag):
+        n = self.cur
+        while n is not None and n.tag != tag:
+            n = n.parent
+        if n is not None and n.parent is not None:
+            self.cur = n.parent
+
+    def handle_data(self, data):
+        self.cur.kids.append(data)
+
+
+def find_all(n, pred, out=None):
+    out = [] if out is None else out
+    for k in n.kids:
+        if isinstance(k, Node):
+            if pred(k):
+                out.append(k)
+            find_all(k, pred, out)
+    return out
+
+
+def first(n, pred):
+    r = find_all(n, pred)
+    return r[0] if r else None
+
+
+def text(n):
+    return "".join(k if isinstance(k, str) else text(k) for k in n.kids)
+
+
+def esc(s):
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def inner_html(n):
+    out = []
+    for k in n.kids:
+        if isinstance(k, str):
+            out.append(esc(k))
+        else:
+            a = "".join(f' {key}="{esc(v or "")}"' for key, v in k.attrs.items())
+            out.append(f"<{k.tag}{a}>")
+            if k.tag not in VOID:
+                out.append(inner_html(k))
+                out.append(f"</{k.tag}>")
+    return "".join(out)
+
+
+class Links:
+    """Page-level link table. Revisions of GitHub source URLs are stored once per page."""
+
+    GH = re.compile(r"^https://github\.com/([^/]+/[^/]+)/blob/([0-9a-f]{40})/(.*)$")
+
+    def __init__(self, root_prefix):
+        self.root_prefix = root_prefix
+        self.table, self.index, self.revs = [], {}, {}
+
+    def ref(self, href):
+        if href.startswith(self.root_prefix):
+            key = href[len(self.root_prefix):].replace(".html#", "#")
+            if key.endswith(".html"):
+                key = key[:-5]
+        else:
+            m = self.GH.match(href)
+            if m:
+                repo, rev, path = m.groups()
+                self.revs[repo] = rev
+                key = f"@{repo}/{path}"
+            else:
+                key = href
+        if key not in self.index:
+            self.index[key] = len(self.table)
+            self.table.append(key)
+        return self.index[key]
+
+
+def tokens(n, links, stats):
+    """Text and links only; every wrapper span is dropped (D4 rule 3)."""
+    out = []
+
+    def push_text(s):
+        if out and isinstance(out[-1], str):
+            out[-1] += s
+        else:
+            out.append(s)
+
+    def walk(x):
+        for k in x.kids:
+            if isinstance(k, str):
+                push_text(k)
+            elif k.tag == "span" and k.cls() == "field-name":
+                continue
+            elif k.tag == "a" and "href" in k.attrs:
+                stats["links"] += 1
+                out.append([links.ref(k.attrs["href"]), text(k)])
+            else:
+                if k.tag != "span" or k.cls() not in ("fn", "name", "colon", "binder", "binder implicit"):
+                    stats["other_in_sig:" + k.tag + "." + k.cls()] += 1
+                walk(k)
+
+    walk(n)
+    return out
+
+
+BINDER = {"binder": 0, "binder implicit": 1}
+
+
+def sig(n, links, stats):
+    binders, typ, parents = [], None, []
+    for k in n.kids:
+        if isinstance(k, str):
+            if k.strip() and k.strip() != ",":
+                stats["loose_sig_text:" + k.strip()[:10]] += 1
+            continue
+        c = k.cls()
+        if c == "extends":
+            continue
+        if k.tag == "span" and "id" in k.attrs:
+            stats["extends_parent"] += 1
+            parents.append([k.attrs["id"], tokens(k, links, stats)])
+        elif c.startswith("binder"):
+            code = BINDER.get(c)
+            if code is None:
+                stats["binder_class:" + c] += 1
+                code = c
+            binders.append([code, tokens(k, links, stats)])
+        elif c == "sig-type":
+            typ = tokens(k, links, stats)
+        elif c == "colon":
+            pass
+        else:
+            stats["sig_child:" + k.tag + "." + c] += 1
+    return [binders, typ, parents] if parents else [binders, typ]
+
+
+def decl(sec, links, stats, mod_src):
+    d = {"n": sec.attrs["id"], "k": sec.attrs.get("data-kind")}
+    for k in sec.kids:
+        if isinstance(k, str):
+            continue
+        c = k.cls()
+        if k.tag == "header":
+            src = first(k, lambda x: x.tag == "a" and x.cls() == "src")
+            if src is not None:
+                href = src.attrs["href"]
+                d["s"] = href[len(mod_src):] if href.startswith(mod_src) else links.ref(href)
+        elif c == "sig":
+            stats["sig"] += 1
+            d["t"] = sig(k, links, stats)
+        elif c == "doc":
+            d["d"] = inner_html(k)
+        elif c == "attrs":
+            d["a"] = text(k)
+        elif c == "flags":
+            d["f"] = [x.attrs.get("data-flag") for x in find_all(k, lambda x: x.cls() == "flag")]
+        elif k.tag == "details" and c == "extra":
+            fill = k.attrs.get("data-fill")
+            if fill:
+                stats["fill:" + fill] += 1
+                continue
+            eqs = first(k, lambda x: x.cls() == "equations")
+            if eqs is not None:
+                d["e"] = [tokens(li, links, stats) for li in eqs.kids if isinstance(li, Node)]
+                stats["equations"] += len(d["e"])
+            else:
+                stats["extra_other:" + text(first(k, lambda x: x.tag == "summary") or k)[:20]] += 1
+        elif c == "fields" or k.tag == "ul":
+            fs = []
+            for li in k.kids:
+                if not isinstance(li, Node):
+                    continue
+                fn = first(li, lambda x: x.cls() == "field-name")
+                fsig = first(li, lambda x: x.cls() == "field-sig")
+                fdoc = first(li, lambda x: x.cls() == "field-doc")
+                stats["field_sig"] += fsig is not None
+                fs.append([li.attrs.get("id"), 1 if "inherited" in li.cls() else 0,
+                           text(fn) if fn else "", tokens(fsig, links, stats) if fsig else None,
+                           inner_html(fdoc) if fdoc else None])
+            d.setdefault("fl", []).append([k.attrs.get("id"), fs])
+        else:
+            stats["decl_child:" + k.tag + "." + c] += 1
+            d.setdefault("x", []).append(inner_html(k))
+    return d
+
+
+def convert(site, rel):
+    raw = open(f"{site}/{rel}", encoding="utf-8").read()
+    t = Tree()
+    t.feed(raw)
+    body = first(t.root, lambda x: x.tag == "body")
+    root_prefix = body.attrs["data-root"]
+    module = body.attrs["data-module"]
+    main = first(t.root, lambda x: x.tag == "main")
+    stats = collections.Counter()
+    links = Links(root_prefix)
+    modsrc_a = first(main, lambda x: x.tag == "p" and x.cls() == "modactions")
+    mod_src = first(modsrc_a, lambda x: x.tag == "a").attrs["href"] if modsrc_a else ""
+    page = {"m": module}
+    imports = first(main, lambda x: x.tag == "details" and x.cls() == "imports")
+    if imports is not None:
+        page["i"] = [links.ref(a.attrs["href"]) for a in find_all(imports, lambda x: x.tag == "a")]
+    moddoc = [inner_html(x) for x in main.kids if isinstance(x, Node) and x.cls() == "moddoc"]
+    decls = []
+    for k in main.kids:
+        if not isinstance(k, Node):
+            continue
+        if k.tag == "section" and k.cls() == "decl":
+            stats["decl"] += 1
+            decls.append(decl(k, links, stats, mod_src))
+            moddoc.append(len(decls))
+        elif k.cls() == "moddoc":
+            pass
+        elif k.cls() not in ("modhead", "modmeta"):
+            stats["main_child:" + k.tag + "." + k.cls()] += 1
+    page["md"] = moddoc
+    page["d"] = decls
+    page["L"] = links.table
+    page["R"] = links.revs
+    page["S"] = mod_src
+    return raw, page, stats
+
+
+def main():
+    site, out = sys.argv[1], sys.argv[2]
+    for rel in sys.argv[3:]:
+        raw, page, stats = convert(site, rel)
+        js = json.dumps(page, ensure_ascii=False, separators=(",", ":"))
+        name = rel.replace("/", ".")[:-5]
+        with open(f"{out}/{name}.json", "w", encoding="utf-8") as f:
+            f.write(js)
+        with open(f"{out}/{name}.html", "w", encoding="utf-8") as f:
+            f.write(raw)
+        print(rel, len(raw.encode()), len(js.encode()), dict(stats.most_common()))
+
+
+if __name__ == "__main__":
+    main()
+
+----- allpages.py -----
+#!/usr/bin/env python3
+"""Every module page -> data scheme; per-page sizes as TSV.
+
+usage: allpages.py <site dir> <out tsv> [limit]
+"""
+import json
+import os
+import subprocess
+import sys
+import zlib
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from page2json import convert  # noqa: E402
+
+
+def pages(site):
+    for d, _, fs in os.walk(os.path.join(site, "Mathlib")):
+        for f in sorted(fs):
+            if f.endswith(".html"):
+                yield os.path.relpath(os.path.join(d, f), site)
+
+
+def main():
+    site, out = sys.argv[1], sys.argv[2]
+    limit = int(sys.argv[3]) if len(sys.argv) > 3 else None
+    rels = sorted(pages(site))[:limit]
+    with open(out, "w") as o:
+        o.write("page\tdecls\tsigs\thtml\thtml_gz6\tjson\tjson_gz6\tjson_gz9\tjson_br11\n")
+        for i, rel in enumerate(rels):
+            raw, page, stats = convert(site, rel)
+            h = raw.encode()
+            j = json.dumps(page, ensure_ascii=False, separators=(",", ":")).encode()
+            br = subprocess.run(["brotli", "-q", "11", "-c"], input=j, capture_output=True, check=True).stdout
+            o.write(f"{rel}\t{stats['decl']}\t{stats['sig']}\t{len(h)}\t{len(zlib.compress(h, 6))}\t"
+                    f"{len(j)}\t{len(zlib.compress(j, 6))}\t{len(zlib.compress(j, 9))}\t{len(br)}\n")
+            if i % 500 == 0:
+                print(i, rel, file=sys.stderr, flush=True)
+
+
+if __name__ == "__main__":
+    main()
+
+----- agg.py -----
+import csv
+import sys
+
+rows = list(csv.DictReader(open(sys.argv[1]), delimiter="\t"))
+cols = ["decls", "sigs", "html", "html_gz6", "json", "json_gz6", "json_gz9", "json_br11"]
+tot = {c: sum(int(r[c]) for r in rows) for c in cols}
+print("pages", len(rows))
+for c in cols:
+    print(f"  {c:10s} {tot[c]:>15,}")
+print(f"  json/html raw {tot['json']/tot['html']:.4f}  json_gz6/html_gz6 {tot['json_gz6']/tot['html_gz6']:.4f}  html/html_gz6 {tot['html']/tot['html_gz6']:.2f}  json/json_gz6 {tot['json']/tot['json_gz6']:.2f}  json_br11/json_gz6 {tot['json_br11']/tot['json_gz6']:.4f}")
+big = max(rows, key=lambda r: int(r["json_br11"]))
+print("largest data file br11", big["page"], big["json_br11"], "json", big["json"])
+big = max(rows, key=lambda r: int(r["json"]))
+print("largest data file raw", big["page"], big["json"])
+small = sum(1 for r in rows if int(r["json_gz6"]) < 4096)
+print("pages with json_gz6 < 4 KiB", small)
+
+----- data.html -----
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>data-driven page</title>
+<script>
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const src = q.get("src");
+  const mode = q.get("mode");
+  const css = q.get("css");
+  const scroll = q.get("scroll") === "1";
+  if (css) {
+    const l = document.createElement("link");
+    l.rel = "stylesheet";
+    l.href = css;
+    document.head.append(l);
+  }
+  const t = { start: performance.now() };
+  const res = await fetch(src);
+  let text;
+  if (mode === "ds-gzip" || mode === "ds-brotli") {
+    const ds = new DecompressionStream(mode === "ds-gzip" ? "gzip" : "brotli");
+    const body = res.body.pipeThrough(ds).pipeThrough(new TextDecoderStream());
+    t.fetched = performance.now();
+    let s = "";
+    const r = body.getReader();
+    for (;;) {
+      const { done, value } = await r.read();
+      if (done) break;
+      s += value;
+    }
+    text = s;
+  } else {
+    text = await res.text();
+    t.fetched = performance.now();
+  }
+  t.decompressed = performance.now();
+  const page = JSON.parse(text);
+  t.parsed = performance.now();
+
+  const ROOT = "/site/";
+  const hrefOf = (k) => {
+    if (k.startsWith("@")) {
+      const m = k.slice(1).split("/");
+      const repo = m[0] + "/" + m[1];
+      return "https://github.com/" + repo + "/blob/" + page.R[repo] + "/" + m.slice(2).join("/");
+    }
+    if (k.startsWith("http")) return k;
+    if (k.startsWith("#")) return k;
+    const i = k.indexOf("#");
+    return i < 0 ? ROOT + k + ".html" : ROOT + k.slice(0, i) + ".html" + k.slice(i);
+  };
+  const hrefs = page.L.map(hrefOf);
+  const el = (tag, cls, txt) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (txt !== undefined) e.textContent = txt;
+    return e;
+  };
+  const toks = (parent, ts) => {
+    for (const x of ts) {
+      if (typeof x === "string") parent.append(x);
+      else {
+        const a = el("a", null, x[1]);
+        a.href = hrefs[x[0]];
+        parent.append(a);
+      }
+    }
+    return parent;
+  };
+  const main = el("main", "content");
+  main.id = "content";
+  const h1 = el("h1", null, page.m);
+  main.append(h1);
+  const decls = page.d;
+  const declNode = (d) => {
+    const s = el("section", "decl");
+    s.id = d.n;
+    const h = el("header", "decl-head");
+    h.append(el("span", "kind", d.k));
+    const h2 = el("h2", "decl-name");
+    const na = el("a", null, d.n);
+    na.href = "#" + d.n;
+    h2.append(na);
+    h.append(h2);
+    if (d.s !== undefined) {
+      const a = el("a", "src", "source");
+      a.href = typeof d.s === "number" ? hrefs[d.s] : page.S + d.s;
+      h.append(a);
+    }
+    s.append(h);
+    if (d.t) {
+      const sig = el("div", "sig");
+      for (const [code, ts] of d.t[0]) {
+        sig.append(toks(el("span", code === 1 ? "binder implicit" : "binder"), ts), "\n");
+      }
+      if (d.t[2]) {
+        sig.append(el("span", "extends", "extends"), " ");
+        d.t[2].forEach(([id, ts], i) => {
+          const p = toks(el("span"), ts);
+          p.id = id;
+          if (i) sig.append(", ");
+          sig.append(p);
+        });
+      }
+      sig.append(el("span", "colon", " :"));
+      if (d.t[1]) sig.append(toks(el("div", "sig-type"), d.t[1]));
+      s.append(sig);
+    }
+    if (d.a) s.append(el("div", "attrs", d.a));
+    if (d.d) {
+      const doc = el("div", "doc");
+      doc.innerHTML = d.d;
+      s.append(doc);
+    }
+    if (d.fl) {
+      for (const [id, fs] of d.fl) {
+        const ul = el("ul", "fields");
+        if (id) ul.id = id;
+        for (const [fid, inh, name, ts, fdoc] of fs) {
+          const li = el("li", inh ? "field inherited" : "field");
+          if (fid) li.id = fid;
+          const fsig = el("div", "field-sig");
+          fsig.append(el("span", "field-name", name));
+          if (ts) toks(fsig, ts);
+          li.append(fsig);
+          if (fdoc) {
+            const fd = el("div", "field-doc");
+            fd.innerHTML = fdoc;
+            li.append(fd);
+          }
+          ul.append(li);
+        }
+        s.append(ul);
+      }
+    }
+    if (d.e) {
+      const det = el("details", "extra");
+      det.append(el("summary", null, "Equations"));
+      const ul = el("ul", "equations");
+      for (const e of d.e) ul.append(toks(el("li"), e));
+      det.append(ul);
+      s.append(det);
+    }
+    const ub = el("details", "extra");
+    ub.dataset.fill = "used-by";
+    ub.dataset.name = d.n;
+    ub.append(el("summary", null, "Used by"), el("ul"));
+    s.append(ub);
+    return s;
+  };
+  for (const x of page.md) {
+    if (typeof x === "string") {
+      const md = el("div", "moddoc");
+      md.innerHTML = x;
+      main.append(md);
+    }
+  }
+  for (const d of decls) main.append(declNode(d));
+  const toc = el("ul", "toc");
+  for (const d of decls) {
+    const li = el("li");
+    const a = el("a", null, d.n);
+    a.href = "#" + d.n;
+    li.append(a);
+    toc.append(li);
+  }
+  const nav = el("nav", "sidebar");
+  nav.append(toc);
+  document.body.append(nav, main);
+  t.built = performance.now();
+  if (scroll && location.hash) {
+    document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
+  }
+  if (q.get("scroll") === "replace" && location.hash) location.replace(location.href);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    t.frame = performance.now();
+    window.__t = t;
+    window.__done = true;
+  }));
+})().catch((e) => {
+  window.__err = String(e);
+  window.__done = true;
+});
+</script></head><body></body></html>
+
+----- u7bench.ts -----
+// usage: deno run -A u7bench.ts <site dir> <bench dir> <page rel> <runs>
+import puppeteer from "npm:puppeteer-core@24";
+
+const [SITE, BENCH, REL, RUNS_S] = Deno.args;
+const RUNS = Number(RUNS_S ?? "5");
+const PORT = 8931;
+const FLAT = REL.replace(/\//g, ".").replace(/\.html$/, "");
+const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+const types: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+};
+const typeOf = (p: string) => types[p.slice(p.lastIndexOf("."))] ?? "application/octet-stream";
+
+Deno.serve({ port: PORT, onListen: () => {} }, async (req) => {
+  const url = new URL(req.url);
+  const path = decodeURIComponent(url.pathname);
+  try {
+    if (path.startsWith("/site/")) {
+      return new Response(await Deno.readFile(SITE + path.slice(5)), {
+        headers: { "content-type": typeOf(path) },
+      });
+    }
+    if (path.startsWith("/sitegz/")) {
+      const raw = await Deno.readFile(SITE + path.slice(7));
+      const gz = new Uint8Array(await new Response(
+        new Blob([raw]).stream().pipeThrough(new CompressionStream("gzip")),
+      ).arrayBuffer());
+      return new Response(gz, { headers: { "content-type": typeOf(path), "content-encoding": "gzip" } });
+    }
+    if (path.startsWith("/enc/")) {
+      const f = path.slice(5);
+      return new Response(await Deno.readFile(`${BENCH}/${f}.gz`), {
+        headers: { "content-type": typeOf(f), "content-encoding": "gzip" },
+      });
+    }
+    if (path.startsWith("/bench/")) {
+      return new Response(await Deno.readFile(BENCH + path.slice(6)), {
+        headers: { "content-type": typeOf(path) },
+      });
+    }
+  } catch {
+    // fall through
+  }
+  return new Response("not found", { status: 404 });
+});
+
+const base = `http://127.0.0.1:${PORT}`;
+const lastId = JSON.parse(await Deno.readTextFile(`${BENCH}/${FLAT}.json`)).d.at(-1).n;
+const hash = "#" + encodeURIComponent(lastId);
+
+const variants: Record<string, string> = {
+  "A static as published (style.css + app.js), identity": `${base}/site/${REL}`,
+  "A' static as published, Content-Encoding gzip": `${base}/sitegz/${REL}`,
+  "B static bare (no stylesheet, no script), identity": `${base}/bench/static-bare.html`,
+  "B' static bare, span.fn wrappers removed, identity": `${base}/bench/static-bare-nofn.html`,
+  "C data bare, .json.gz + DecompressionStream(gzip)":
+    `${base}/bench/data.html?mode=ds-gzip&src=/bench/${FLAT}.json.gz`,
+  "C' data bare, .json.br + DecompressionStream(brotli)":
+    `${base}/bench/data.html?mode=ds-brotli&src=/bench/${FLAT}.json.br`,
+  "D data bare, .json with Content-Encoding gzip (browser-native)":
+    `${base}/bench/data.html?mode=native&src=/enc/${FLAT}.json`,
+  "E data + site style.css, .json.gz + DecompressionStream(gzip)":
+    `${base}/bench/data.html?mode=ds-gzip&css=/site/style.css&src=/bench/${FLAT}.json.gz`,
+};
+
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: true });
+console.log("browser", await browser.version());
+
+const probe = await browser.newPage();
+await probe.goto(`${base}/bench/data.html?mode=native&src=/enc/${FLAT}.json`);
+const brotliDS = await probe.evaluate(() => {
+  try {
+    new DecompressionStream("brotli" as CompressionFormat);
+    return "supported";
+  } catch (e) {
+    return "throws: " + String(e);
+  }
+});
+console.log("DecompressionStream('brotli'):", brotliDS);
+await probe.close();
+
+const median = (xs: number[]) => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+};
+
+async function once(url: string) {
+  const ctx = await browser.createBrowserContext();
+  const page = await ctx.newPage();
+  await page.setCacheEnabled(false);
+  await page.setViewport({ width: 1280, height: 800 });
+  await page.evaluateOnNewDocument(() => {
+    addEventListener("load", () => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        (window as any).__load2f = performance.now();
+      }));
+    });
+  });
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  await page.goto(url, { waitUntil: "load", timeout: 120000 });
+  await page.waitForFunction(
+    () => ((window as any).__done === true || !location.pathname.endsWith("data.html")) && (window as any).__load2f,
+    { timeout: 120000 },
+  );
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const r = await page.evaluate(() => {
+    const n = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
+    const fcp = performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? null;
+    return {
+      responseEnd: n.responseEnd,
+      domInteractive: n.domInteractive,
+      dcl: n.domContentLoadedEventEnd,
+      load: n.loadEventEnd,
+      load2f: (window as any).__load2f,
+      fcp,
+      t: (window as any).__t ?? null,
+      err: (window as any).__err ?? null,
+      nodes: document.getElementsByTagName("*").length,
+      decls: document.querySelectorAll("section.decl").length,
+      transfer: n.transferSize,
+      encoded: n.encodedBodySize,
+    };
+  });
+  const m = await page.metrics();
+  await ctx.close();
+  return { ...r, heap: m.JSHeapUsedSize, domNodes: m.Nodes, layouts: m.LayoutCount, errors };
+}
+
+const out: Record<string, unknown> = {};
+for (const [name, url] of Object.entries(variants)) {
+  const runs = [];
+  for (let i = 0; i < RUNS; i++) runs.push(await once(url));
+  out[name] = runs;
+  const f = (x: number | null | undefined) => (x == null ? "-" : x.toFixed(0));
+  console.log(`\n${name}`);
+  console.log(`  decls drawn ${runs[0].decls}, elements ${runs[0].nodes}, errors ${JSON.stringify(runs[0].errors)} ${runs[0].err ?? ""}`);
+  const cols: [string, (r: any) => number | null][] = [
+    ["responseEnd", (r) => r.responseEnd],
+    ["domInteractive", (r) => r.domInteractive],
+    ["DCL", (r) => r.dcl],
+    ["load", (r) => r.load],
+    ["FCP", (r) => r.fcp],
+    ["2 frames after load", (r) => r.load2f],
+    ["script: fetched", (r) => r.t?.fetched ?? null],
+    ["script: decompressed+read", (r) => r.t?.decompressed ?? null],
+    ["script: JSON.parse done", (r) => r.t?.parsed ?? null],
+    ["script: DOM built", (r) => r.t?.built ?? null],
+    ["script: 2 frames after build", (r) => r.t?.frame ?? null],
+    ["JS heap used (KB)", (r) => r.heap / 1024],
+  ];
+  for (const [label, get] of cols) {
+    const xs = runs.map(get);
+    if (xs.every((x) => x == null)) continue;
+    console.log(`  ${label.padEnd(30)} median ${f(median(xs as number[]))}   runs ${xs.map(f).join(" ")}`);
+  }
+}
+
+// Anchors: a #name arriving from outside.
+console.log(`\nanchor ${lastId} (prefers-reduced-motion: reduce)`);
+for (
+  const [name, url] of [
+    ["static as published", `${base}/site/${REL}${hash}`],
+    ["static bare", `${base}/bench/static-bare.html${hash}`],
+    ["data bare, no scroll script", `${base}/bench/data.html?mode=ds-gzip&src=/bench/${FLAT}.json.gz${hash}`],
+    ["data bare, scrollIntoView after build", `${base}/bench/data.html?mode=ds-gzip&scroll=1&src=/bench/${FLAT}.json.gz${hash}`],
+    ["data bare, location.replace(href) after build", `${base}/bench/data.html?mode=ds-gzip&scroll=replace&src=/bench/${FLAT}.json.gz${hash}`],
+    ["data + style.css, no scroll script", `${base}/bench/data.html?mode=ds-gzip&css=/site/style.css&src=/bench/${FLAT}.json.gz${hash}`],
+  ]
+) {
+  const ctx = await browser.createBrowserContext();
+  const page = await ctx.newPage();
+  await page.setViewport({ width: 1280, height: 800 });
+  await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+  await page.goto(url, { waitUntil: "load" });
+  await page.waitForFunction(() => (window as any).__done === true || !location.pathname.endsWith("data.html"));
+  await page.evaluate(() => new Promise((r) => setTimeout(r, 3000)));
+  const s = await page.evaluate((id: string) => {
+    const e = document.getElementById(id);
+    return { scrollY: Math.round(scrollY), top: e ? Math.round(e.getBoundingClientRect().top) : null, target: document.querySelector(":target")?.id ?? null };
+  }, lastId);
+  console.log(`  ${name.padEnd(40)} scrollY ${s.scrollY}  element top ${s.top}  :target ${s.target}`);
+  await ctx.close();
+}
+
+await Deno.writeTextFile(`${BENCH}/u7bench.json`, JSON.stringify(out, null, 1));
+await browser.close();
+Deno.exit(0);
+
+----- anchorprobe.ts -----
+import puppeteer from "npm:puppeteer-core@24";
+const [SITE, REL, ID] = Deno.args;
+Deno.serve({ port: 8932, onListen: () => {} }, async (req) => {
+  const p = decodeURIComponent(new URL(req.url).pathname);
+  try { return new Response(await Deno.readFile(SITE + p), { headers: { "content-type": p.endsWith(".css") ? "text/css" : p.endsWith(".js") ? "text/javascript" : p.endsWith(".json") ? "application/json" : "text/html; charset=utf-8" } }); }
+  catch { return new Response("nf", { status: 404 }); }
+});
+const b = await puppeteer.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
+for (const [label, reduce, wait] of [["smooth (default media)", false, 3000], ["smooth, wait 10 s", false, 10000], ["prefers-reduced-motion: reduce", true, 3000]] as const) {
+  const ctx = await b.createBrowserContext(); const page = await ctx.newPage();
+  await page.setViewport({ width: 1280, height: 800 });
+  if (reduce) await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+  await page.goto(`http://127.0.0.1:8932/${REL}#${encodeURIComponent(ID)}`, { waitUntil: "load" });
+  const samples = [];
+  for (let t = 0; t < wait; t += 1000) { await new Promise((r) => setTimeout(r, 1000)); samples.push(await page.evaluate(() => Math.round(scrollY))); }
+  const top = await page.evaluate((id: string) => Math.round(document.getElementById(id)!.getBoundingClientRect().top), ID);
+  console.log(label.padEnd(34), "scrollY per second", samples.join(" "), " element top", top);
+  await ctx.close();
+}
+await b.close(); Deno.exit(0);

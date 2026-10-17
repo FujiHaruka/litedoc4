@@ -4,11 +4,11 @@
 A consumer requires this package and gets a `docs` script:
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.4.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v2.0.0"
 ```
 
 Pin `v1.3.0` or later: it is the first tag a machine with only elan on it can
-use, and 1.x does not move the names your own files contain. If your package
+use, and 2.x does not move the names your own files contain. If your package
 sits below its repository root, `v1.0.1` is the oldest whose source links point
 at it. `@ "main"` also works and moves.
 
@@ -29,8 +29,9 @@ being a dependency rather than a checkout:
 
 Everything a consumer runs is built by Lake from this tree: `lean_exe extract`
 against the root package's toolchain, and `lean_exe litedoc4` from `src/`, linked
-against the C in `vendor/md4c` and `csrc/`. There is nothing to download and no
-second toolchain to install — the `require` above is the whole installation.
+against the C in `vendor/md4c`, `vendor/miniz` and `csrc/`. There is nothing to
+download and no second toolchain to install — the `require` above is the whole
+installation.
 
 ## There is deliberately no `lean-toolchain` next to this file
 
@@ -76,8 +77,10 @@ Pinned to the commit doc-gen4 pins. Its own `lean-toolchain` names a higher
 version than any toolchain litedoc4 supports, and it does not reach a consumer's
 `lean-toolchain` anyway: `lake update` compares only the root's *direct*
 dependencies, and a consumer reaches this one through litedoc4, which has no
-`lean-toolchain` at all. It builds on v4.31.0, v4.32.2 and v4.33.1 and imports no
-`Lean` (`benchmarks/results/bibtexquery-dependency-probe-2026-10-04.txt`). -/
+`lean-toolchain` at all. It builds on v4.31.0, v4.32.2, v4.33.1, v4.34.1 and v4.35.0 and imports
+no `Lean` (`benchmarks/results/bibtexquery-dependency-probe-2026-10-04.txt`,
+`benchmarks/results/lean-434-build-2026-10-08.txt`,
+`benchmarks/results/lean-435-build-2026-10-16.txt`). -/
 require «BibtexQuery» from git
   "https://github.com/dupuisf/BibtexQuery" @ "fdcc88de7c4c5a11e3239c9416615f34c226d47d"
 
@@ -98,6 +101,7 @@ lean_exe extract where
   supportInterpreter := true
 
 def md4cDir : FilePath := "vendor" / "md4c"
+def minizDir : FilePath := "vendor" / "miniz"
 def csrcDir : FilePath := "csrc"
 
 /--
@@ -108,7 +112,7 @@ sysroot and links with its own lld against its own `lib/libc` stubs, so Lean
 itself asks for no system compiler at all (measured 2026-08-30 →
 `benchmarks/results/purelean-md4c-shim-2026-08-30.txt`). What the toolchain does
 not ship is libc *headers* — the link stubs are there, so the symbols resolve;
-only the declarations are missing, and `csrc/libc` supplies them for the eleven
+only the declarations are missing, and `csrc/libc` supplies them for the twelve
 functions this C calls and no more.
 
 `-Werror=implicit-function-declaration` is load-bearing and not tidiness.
@@ -137,11 +141,20 @@ arm for `csrc/libc`, not a fallback, and nothing selects it automatically. -/
 def useSystemCc : IO Bool := do
   return (← IO.getEnv "LITEDOC4_SYSTEM_CC").isSome
 
-def compileC (pkg : Package) (oName srcPath : FilePath) : FetchM (Job FilePath) := do
+/-- What `vendor/miniz/PROVENANCE.md` says miniz is configured with. Both
+`miniz.c` and the shim that includes `miniz.h` take it, so the two agree on what
+the header declares. -/
+def minizFlags (pkg : Package) : Array String :=
+  #["-I", (pkg.dir / minizDir).toString,
+    "-DMINIZ_NO_STDIO", "-DMINIZ_NO_TIME", "-DMINIZ_NO_ARCHIVE_APIS",
+    "-DMINIZ_NO_ZLIB_APIS", "-DMINIZ_USE_UNALIGNED_LOADS_AND_STORES=0"]
+
+def compileC (pkg : Package) (oName srcPath : FilePath) (extra : Array String := #[]) :
+    FetchM (Job FilePath) := do
   let oFile := pkg.buildDir / oName
   let src ← inputTextFile <| pkg.dir / srcPath
   let system ← useSystemCc
-  let flags ← ccFlags pkg (shim := !system)
+  let flags := (← ccFlags pkg (shim := !system)) ++ extra
   let cc : FilePath ← if system then pure ⟨"cc"⟩ else getLeanCc
   buildFileAfterDep oFile src fun srcFile => do
     compileO oFile srcFile flags cc
@@ -152,8 +165,73 @@ target md4cObj pkg : FilePath :=
 target mdEventsObj pkg : FilePath :=
   compileC pkg "md_events.o" (csrcDir / "md_events.c")
 
+target minizObj pkg : FilePath :=
+  compileC pkg "miniz.o" (minizDir / "miniz.c") (minizFlags pkg)
+
+target gzipObj pkg : FilePath :=
+  compileC pkg "gzip.o" (csrcDir / "gzip.c") (minizFlags pkg)
+
 lean_lib Litedoc4 where
   srcDir := "src"
+
+input_file extractorSourceFile where
+  path := "extractor" / "Extract.lean"
+  text := true
+
+input_file leanToolchainsFile where
+  path := "tools" / "lean-toolchains.txt"
+  text := true
+
+input_file readerWritersFile where
+  path := "extractor" / "reader" / "OleanReader" / "Writers.lean"
+  text := true
+
+input_file readerReadFile where
+  path := "extractor" / "reader" / "OleanReader" / "Read.lean"
+  text := true
+
+input_file readerEntriesFile where
+  path := "extractor" / "reader" / "OleanReader" / "Entries.lean"
+  text := true
+
+input_file readerModuleFile where
+  path := "extractor" / "reader" / "OleanReader" / "Module.lean"
+  text := true
+
+input_file readerSerializeFile where
+  path := "extractor" / "reader" / "OleanReader" / "Serialize.lean"
+  text := true
+
+input_file readerOracleFile where
+  path := "extractor" / "reader" / "OleanReader" / "Oracle.lean"
+  text := true
+
+input_file readerAssembleFile where
+  path := "extractor" / "reader" / "OleanReader" / "Assemble.lean"
+  text := true
+
+input_file readerAxiomsFile where
+  path := "extractor" / "reader" / "OleanReader" / "Axioms.lean"
+  text := true
+
+input_file readerCheckFile where
+  path := "extractor" / "reader" / "OleanReader" / "Check.lean"
+  text := true
+
+input_file readerHybridFile where
+  path := "extractor" / "reader" / "OleanReader" / "Hybrid.lean"
+  text := true
+
+input_file readerMainFile where
+  path := "extractor" / "reader" / "OleanReader" / "Main.lean"
+  text := true
+
+-- Not plain `include_str` (Lake misses an included file's edit) nor `needs` on `Litedoc4` (all recompiled).
+lean_lib Litedoc4Sources where
+  srcDir := "src"
+  needs := #[extractorSourceFile, leanToolchainsFile,
+    readerWritersFile, readerReadFile, readerEntriesFile, readerModuleFile, readerSerializeFile,
+    readerOracleFile, readerAssembleFile, readerAxiomsFile, readerCheckFile, readerHybridFile, readerMainFile]
 
 /-- Deliberately **not** `supportInterpreter`, and deliberately importing no
 `Lean`: an executable that imports `Lean` measures 226 MB against 5.3 MB for one
@@ -164,7 +242,7 @@ reads oleans; nothing here does. -/
 lean_exe litedoc4 where
   root := `Main
   srcDir := "src"
-  moreLinkObjs := #[md4cObj, mdEventsObj]
+  moreLinkObjs := #[md4cObj, mdEventsObj, minizObj, gzipObj]
 
 /-- The tests, and a target a consumer never reaches: `require «litedoc4»`
 builds `lean_lib Litedoc4` and `lean_exe litedoc4`, and nothing under either
@@ -191,7 +269,7 @@ lean_lib Litedoc4Test where
 lean_exe «litedoc4-test» where
   root := `Litedoc4Test.Main
   srcDir := "test"
-  moreLinkObjs := #[md4cObj, mdEventsObj]
+  moreLinkObjs := #[md4cObj, mdEventsObj, minizObj, gzipObj]
 
 /-- Everything else `litedoc4 build` offers is deliberately not plumbed through:
 this script fills in the three flags a consumer cannot know. -/

@@ -1,0 +1,73 @@
+All eleven Mathlib releases from nothing on one runner: nine read, the tenth never finished
+==========================================================================================
+
+Run 38198188879 of .github/workflows/mv-l.yml at 0b0d162 (branch multi-version), 2026-10-12
+03:02-08:28 UTC. Prediction committed before it ran: benchmarks/results/mv-l-full-prediction-2026-10-12.txt.
+One run; no time here is converged.
+
+CONDITIONS
+----------
+host      GitHub-hosted ubuntu-latest, image ubuntu24 20261004.327.1, Linux 6.17.0-1022-azure,
+          INTEL(R) XEON(R) PLATINUM 8573C (a CPU no earlier L run had), 4 vCPU, 16 GB, 3 GB swap
+command   litedoc4 build --root <Mathlib clone at v4.34.1> --lib Mathlib --out <empty> --versions
+          v4.29.0,v4.29.1,v4.30.0,v4.31.0,v4.32.0,v4.32.1,v4.32.2,v4.33.0,v4.33.1,v4.34.0,v4.34.1
+          --jobs 4 --config hosting/mathlib/litedoc4.toml (the reuse chain; no --reader-alone)
+litedoc4  built on e2e/micro's v4.31.0; reader -O3 on v4.34.1, built by the run (83.16 s)
+memory    1-s /proc/<pid>/status samples per process, 15-s MemAvailable / swap / free disk
+
+ANSWER (measured)
+------
+The build step was killed at its 320-min limit. Versions put into the store:
+9 of 11 (v4.34.1 natively, v4.34.0 down to v4.30.0 through the reader). v4.29.1's reader process
+started 3,988 s into the build and was still running at 19,215 s, when the step was killed: 15,227 s
+(4.23 h) with no line of output. v4.29.0 was never started; nothing was rendered. The first attempt
+never ended, so the retry loop never ran; `noop` was skipped; `served` failed (the build record is
+not a finished run); `report` found the store of nine and no site.
+
+  phase (s)  checkout toolchain  cache   lake   extract/read  put    reused / declarations
+  v4.34.1    0.70     0 (+28.57  77.22   6.22   442.73        22.23  (native)
+                      extractor)
+  v4.34.0    0.79     18.27      96.33   15.32  249.10        24.36  322,958 of 322,958 (100%)
+  v4.33.1    0.78     20.37      84.20   16.67  282.98        23.63  273,725 of 317,784 (86.1%)
+  v4.33.0    0.78     21.91      81.57   14.34  209.64        23.06  317,784 of 317,784 (100%)
+  v4.32.2    0.81     20.76      86.46   15.57  219.39        22.05  304,953 of 316,225 (96.4%)
+  v4.32.1    0.81     12.25      85.22   15.34  201.80        22.55  316,225 of 316,225 (100%)
+  v4.32.0    0.82     20.16      86.97   12.79  206.66        23.86  316,225 of 316,225 (100%)
+  v4.31.0    0.85      0.05      93.52    8.19  248.18        22.81  277,496 of 311,345 (89.1%)
+  v4.30.0    0.97     14.90      90.28    8.10  289.57        22.30  281,611 of 307,299 (91.6%)
+  v4.29.1    0.84     19.17      63.17    6.54  not finished after 15,227 s
+  Every reused read reports "printing identity equal".
+  Nine versions plus the reader build: 3,988 s (66.5 min) from the start of the build.
+
+  memory   reader anon peak 9,516 MiB, its own swap up to 922 MiB; host MemAvailable minimum
+           4,190 MiB; host swap 3,071 of 3,071 MiB used at the maximum; no OOM line in dmesg
+  v4.29.1  reader anon 7,980 MiB 10 min in, 8,401 MiB at the kill: flat for 4.2 h, swap 0-242 MiB
+  disk     minimum 62 GiB free (after deleting the runner's Android, .NET and GHC trees)
+  store    nine entries 580,488 KiB; per entry 64,190,650 B (v4.30.0) to 67,385,729 B (v4.34.1)
+
+AGAINST THE PREDICTION
+----------------------
+  (1) order       v4.34.0 was predicted "without reuse" (the native extraction leaves no keys); it
+                  reused all 322,958 declarations from v4.34.1. Falsified, in the cheaper direction.
+  (2) reads       reused reads 201.80-289.57 s against 250-380: in range or under. v4.34.0 249.10
+                  against 360-560 (it reused). Native extract 442.73 in 390-600. Cache 77-97 s
+                  against 63-71: over on every version.
+  (3) whole       not answered: the build did not finish. The nine finished versions took 66.5 min,
+                  inside the 59-84 min the prediction's rows give for them.
+  (4) memory      reader anon peak 9,516 MiB in 9.5-11.5 GiB; render never ran, so the plan's
+                  "question to ask before 11" is still unasked.
+  (5) disk        62 GiB minimum against >= 40: in range.
+  (6) sizes       store per entry 64.2-67.4 MB in 63-68; the site was never written.
+  (7) (8)         not run.
+
+WHAT IT SAYS
+------------
+The reuse chain works on full Mathlib across eight steps (v4.34.1 down to v4.30.0), at 5.5-6.9 min
+per version end to end on this CPU. Reading v4.29.1 does not finish: no output for 4.2 h at a flat
+8 GiB, which is not the memory pressure of the session failure (mv-l-session-2026-10-10.txt) but a
+process doing something that neither allocates nor ends. Where it is is not known: the reader prints
+its phases only at the end, and no stack was taken. Reader records for v4.29.1 and v4.29.0 have only
+been checked on S (reader gates), never on Mathlib.
+
+Seen in passing, not followed: litedoc4 printed `Error: index out of bounds` with a backtrace 4 times
+on stderr during v4.34.1's cache fetch, and the build carried on.

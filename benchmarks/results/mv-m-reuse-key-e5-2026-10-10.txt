@@ -1,0 +1,341 @@
+E6 with a looser key, and E5 on M: `reader extract --reuse-from` keyed on binder names as a page can
+show them, and read-alone's fixed costs cut (manual root cached by githash, .ilean checked in
+parallel); 3 alternating cycles at --jobs 1 and 3 at --jobs 4 against read-alone with and without E5
+==================================================================================================
+
+A measurement run, not a gate (2026-10-10, host clock 2026-10-10T06:02:19Z to 06:57:00Z).
+Follow-ups to E6 (mv-m-reuse-2026-10-10.txt) in docs/multiversion/implementation.md ("Levers plan:
+beating read-alone on M", items 4 and 5): (1) find what made the middle key print 16.8% on
+v4.33.1 <- v4.34.1 against the built-in hash's 8.1%, and loosen the key to binder names that can
+reach the page; (2) E5, read-alone's fixed costs. 3 cycles: for lever experiments 3 alternating
+cycles are enough to tell an obvious win (decided 2026-10-10, user's call).
+
+THE CHANGES (uncommitted when measured; the measured binary is the tree's)
+---------------------------------------------------------------------------
+key     PrintKey.ownKey hashes the type, a definition's or opaque's value, and an inductive's
+        constructor types with Lean's structural Expr hash extended by every binder (forall, lambda,
+        let, at every depth) as a page can show it: the name with its macro scopes erased, whether it
+        had macro scopes, and the binder info (mdata is skipped, as in Expr.hash). Everything else in
+        the key is E6's (kind, level parameter names, parents, flattened fields, the printing
+        identity). E6's key added only the top-level binders' full names, macro scopes included.
+manual  the manual-root ask moved after the closure: the version's writer githash is read from its
+root    .olean headers first, and the reader looks for <the reader's directory>/manual-roots/<githash>
+        (lines: githash, the LEAN_MANUAL_ROOT value or "unset", root, the old Lean's rewrite of the
+        probe docstring). A hit is used when both the githash and LEAN_MANUAL_ROOT match; the probe
+        check (the reader's copy of rewriteManualLinks against the old Lean's rewrite) still runs per
+        version. A miss asks the old toolchain's lean as before, checks its githash against the
+        writer's, and keeps the answer (written to a temporary file, then renamed). A new line
+        `  manual-root-cache  asked <lean> in <ms> ms, kept in <file>` / `read from <file>` follows the
+        `manual root` line, which no longer names the lean or the time.
+        Given up on a hit: the cross-check of the search path's lean githash against the writer's runs
+        only when the entry is made; a hit trusts the file beside the reader. The cache lives in the
+        reader's build directory, which `reader build` names by source digest, so a new reader build
+        asks again; a version's first read still pays the ask.
+.ilean  every module's .ilean is read and parsed in its own task (IO.asTask, Lean's thread pool),
+        spawned before the decoded ranges are indexed; the comparison stays sequential in module
+        order, so the first problem reported is the same one. This runs in parallel at any --jobs.
+
+CONDITIONS
+----------
+host        Apple M1, 16 GB, Darwin 25.6.0 arm64; free disk 14 GiB before the setup, 10.2 GiB at the
+            start of the cycles and 9.6 GiB at their end with the three checkouts kept
+litedoc4    2022e1510847ba3f0256f6d24d80598464bbd138 plus 4 uncommitted code paths, committed with
+            this file: extractor/reader/OleanReader/PrintKey.lean (the key), Hybrid.lean (the
+            manual-root cache, the usage text, the line), Check.lean (parallel .ilean reads),
+            tools/reader-hybrid-gate.sh (the item and the summary filter below), and
+            docs/multiversion/implementation.md (items 4 and 5)
+readers     (N) `litedoc4 reader build` of that tree on leanprover/lean4:v4.34.1:
+                reader-leanprover-lean4-v4.34.1-930ac1d8e5b27107, the (r) and (a) arms and the head
+            (O) the setup's reader of 2022e15 unchanged: reader-leanprover-lean4-v4.34.1-d9517c57ccc63b9d,
+                identity reader=fnv1a64:f65ff6e85adf77c9 (the one mv-m-reuse-2026-10-10.txt measured),
+                the (o) arm
+versions    v4.32.2  mathlib 905b95818eb32af7874a58b427f50c1711a5e96c  433 modules, 21,680 declarations
+            v4.33.0  mathlib db584cd6d46c92f209a44c0f1c829460d327499d  438 modules, 21,928 declarations
+            v4.33.1  mathlib 0df444a360eaa60ab8c11dca51a86af692955474  438 modules, 21,928 declarations
+            v4.34.1  /private/tmp/lean-doc-relay/mv-v4341 (read only), the 447 Mathlib modules of
+                     its closure of the two roots, 22,220 declarations
+setup       benchmarks/tools/mv-m-run.sh --through-reader --keep-checkouts --need-gb 3
+            --work /private/tmp/lean-doc-relay/mv-m-e6b (471 s); its classification of read-alone
+            against the native build: 0 defects on all three versions
+request     E6's: reader extract --old <10 dirs> --new <11 dirs> --new-roots <newest closure>
+              --lazy-proofs [--reuse-from <dir>] <modules.txt> <events.jsonl> --equations --refs
+              --write-ir --tagged-code --no-equations-under Mathlib.Tactic,Mathlib.Meta --jobs <1|4>
+              --ir-dir <d>/ir --link-index <d>/link-index.lidx --link-index-omit <modules.txt>
+            arms: (r) reader N with --reuse-from (reuse + new key + E5)
+                  (a) reader N, read-alone (E5)
+                  (o) reader O, read-alone as today (no E5): the reference for "against today"
+chain       E6's: the head is v4.34.1 read once by reader N (--old the newest's own search
+            directories, its closure as targets, --write-reuse-keys --lazy-proofs --jobs 1: 33.94 s
+            wall, 35.84 s CPU, max RSS 2,762 MiB, footprint 1,630 MiB, extract 20.77 s, keys 0.63 s,
+            40,957 candidates keyed, 2,416,764 bytes of keys); in every cycle and job count (r)
+            v4.33.1 reuses from the head, v4.33.0 from that cycle's (r) v4.33.1, v4.32.2 from that
+            cycle's (r) v4.33.0
+order       --jobs 1 cycles, then --jobs 4; per cycle all three versions of one arm, then the next:
+            cycle 1 r a o, cycle 2 a o r, cycle 3 o r a. Nothing else heavy ran; other desktop
+            applications open, load average 2.2-2.7
+memory      swap used 1,687.5 of 3,072 MiB at the start and the end; the compressor held 5.93 GiB in
+            0.94 GiB at the start and 5.85 GiB in 0.92 GiB at the end; free pages 1.48 GiB at the
+            start, 1.33 GiB at the end (16 KiB pages)
+warmth      the oleans were unpacked by the setup minutes before; every manual-root entry of reader N
+            (the four githashes) was made by the 20-module sample run before the cycles, so every (r)
+            and (a) process of the cycles read it from the cache, and every (o) process asked
+
+REPRODUCE
+---------
+  tools/build-lean-exe.sh --toolchain-from e2e/micro
+  benchmarks/tools/mv-m-run.sh --through-reader --keep-checkouts --need-gb 3 \
+    --work /private/tmp/lean-doc-relay/mv-m-e6b
+  litedoc4 reader build --out <dir> --lake ~/.elan/bin/lake
+Then a throwaway cycle driver (kept outside the tree): the head once, then per job count, cycle and
+arm one `/usr/bin/time -l reader extract ...` per version with the request above; each cycle's (r)
+and (a) link index compared with `cmp`; every later cycle's IR and link index compared with
+`/usr/bin/diff -rq` / `cmp` against cycle 1 of the same arm and job count; cycle 1 of --jobs 1
+against cycle 1 of --jobs 4 per arm; a Python script (outside the tree) diffing a version's (r)
+IR against its (a) IR, and (a) against (o), per file, declaration and field. The driver and the
+script ran first on a 20-module sample (the first 20 modules of v4.33.1's list, all three versions,
+--jobs 1, one cycle of all three arms: 2,758 / 2,758 / 2,737 declarations, reused 2,133 / 2,758 /
+2,728, 0 differing from read-alone, link index equal, (a) against (o) differing in index.json
+only). Cycles 1,544 s.
+
+THE KEY: WHAT CAUSED THE EXTRA MISSES
+--------------------------------------
+A throwaway `--dump-binders <path>` on `reader extract` (not committed; the measured reader does not
+have it) wrote, per candidate of the target modules: kind, E6's key without its binder part (the
+built-in-hash key), E6's key, the type's top-level binders (info, full name) and each constructor's,
+and the nested erased hash of the type, the value and the constructors (the key above, computed by
+the same function). It ran after the extraction; the first dump's runs had IR and link index equal to
+the setup's read-alone (index.json differing only in the extractor identity's reader= digest).
+Read-alone, --jobs 4, reader built from the tree with the dump, one run per version.
+A Python script (outside the tree, sampled first on 20 modules) joined each version's dump and
+read-alone IR with its neighbour's (v4.33.1 with the head, v4.33.0 with v4.33.1, v4.32.2 with
+v4.33.0, each neighbour read alone: no chain) and counted, per key, the declarations a reuse would
+print (key differs, or nothing to reuse) and the reused ones whose printed part differs from the
+neighbour's (printed part as the reuse takes it: binders, implicits, type, binderCode, typeCode,
+equations, equationCode, members without doc and isDirect, the names in refs). With E6's key this
+reproduces E6's measured counts exactly (3,694 printed, 4 inexact on v4.33.1; 598 and 5 on v4.32.2).
+
+The declarations whose built-in key is equal and whose E6 key differs, classified by how their
+top-level binders differ (all (measured)):
+                                                     v4.33.1 <- v4.34.1    v4.32.2 <- v4.33.0
+  instance-implicit name, macro-scoped on both sides,
+    the same name under the scopes                      1,878 (printed equal)   49 equal, 4 differ
+  explicit, the same                                       19 (equal)             -
+  implicit, the same                                        8 (equal)             -
+  explicit + instance-implicit, the same                    4 (equal)             -
+  plain name or binder info differs, or a macro-scoped
+    name on one side only                                  14 (all differ)        7 (all differ)
+  total                                                 1,923                    60
+On v4.33.1 <- v4.34.1, 1,909 of the 1,923 differ only in the macro scopes of anonymous binders'
+names (`inst._@.Mathlib.Algebra.Group.Defs.513723250._hygCtx._hyg.3` against
+`inst._@.Mathlib.Algebra.Group.Semigroup.513723250._hygCtx._hyg.3`): the scopes carry the module
+name and a hygiene counter, so a module split (Mathlib.Algebra.Group.Defs) or an edit earlier in the
+file changes every such name after it. A page never shows the scopes: an anonymous instance binder
+prints as `[Foo α]`, another macro-scoped name as `x✝`. All 1,909 have an equal printed part. The
+assumption in the plan ("instance-binder names that never reach the page") was right for 1,878 and
+misses the 31 explicit and implicit ones. The 4 on v4.32.2 whose printed part differs although
+only the scopes differ differ elsewhere: nested bound names (iInf_sup_iInf: ⨅ (i : ι') against
+⨅ (j : ι'); DirectedOn.le_of_maximal, DirectedOn.maximal_iff_isGreatest: fun (x1 x2 : α) against
+fun (x y : α)) and another declaration's binder infos (Prod.instHeytingAlgebra); E6's key caught
+them only because the edit that changed them also moved the hygiene counter.
+
+Each key evaluated on the dumps (counts (measured) from the dumps against the read-alone IRs, no
+chain; only the chosen key was then run, below):
+                                       v4.33.1 <- v4.34.1     v4.33.0 <- v4.33.1   v4.32.2 <- v4.33.0
+                                       printed     inexact    printed  inexact     printed    inexact
+  built-in Expr.hash only              1,771 8.1%    18          0      0           538 2.5%    16
+  E6: + top-level names and infos      3,694 16.8%    4          0      0           598 2.8%     5
+  top-level, scopes erased             1,785 8.1%     4          0      0           545 2.5%     9
+  top-level, instance names dropped    1,812 8.3%     8          0      0           545 2.5%     9
+  top-level, scoped names dropped      1,785 8.1%     4          0      0           545 2.5%     9
+  top-level, infos only                1,779 8.1%    10          0      0           542 2.5%    12
+  every binder, scopes erased (chosen) 1,786 8.1%     4          0      0           548 2.5%     6
+"Printed" counts new declarations too (186 / 0 / 73). The chosen key prints 15 more than the
+built-in hash on v4.33.1 and 10 more on v4.32.2, and is inexact on 4 and 6 where E6's key was on 4
+and 5: the one more is Prod.instHeytingAlgebra, another declaration's binder infos shown in its
+equation (given up by construction). "Top-level, scopes erased" is the cheap alternative: the same
+printed share, and 3 more inexact on v4.32.2 (the nested bound names above); it costs E6's 63-70 ms
+of keys, the chosen key 0.50-0.60 s (below).
+
+ANSWER
+------
+Each cell: cycles 1, 2, 3; all (measured).
+                                       v4.33.1 <- v4.34.1   v4.33.0 <- v4.33.1   v4.32.2 <- v4.33.0
+  --jobs 1
+  (r) wall (s)                         20.17 20.04 20.41    17.70 17.72 18.12    18.72 19.16 17.92
+  (a) wall (s)                         34.81 34.80 33.80    34.39 34.25 34.45    33.88 33.97 34.08
+  (o) wall (s)                         41.34 39.10 39.86    36.85 37.10 37.17    36.81 36.52 36.41
+  (o)/(r), paired by cycle             2.05  1.95  1.95     2.08  2.09  2.05     1.97  1.91  2.03
+  (o)/(r), medians                     1.98                 2.09                 1.95
+  (a)/(r), paired by cycle             1.73  1.74  1.66     1.94  1.93  1.90     1.81  1.77  1.90
+  (a)/(r), medians                     1.73                 1.94                 1.81
+  (o)/(a), medians (E5 alone)          1.15                 1.08                 1.08
+  (r) CPU user+sys (s)                 18.72 18.62 18.50    16.59 16.63 16.48    17.24 16.96 17.16
+  (a) CPU user+sys (s)                 34.17 34.55 34.01    34.61 34.68 34.65    34.48 34.47 34.61
+  (o) CPU user+sys (s)                 35.82 33.81 33.95    33.71 33.30 33.42    33.12 33.62 33.50
+  (r)/(a)/(o) max RSS (MiB)            2,750-2,755 /        2,743-2,758 /        2,749-2,755 /
+                                       2,748-2,766 /        2,755-2,756 /        2,746-2,756 /
+                                       2,730-2,731          2,730-2,731          2,728-2,729
+  (r)/(a)/(o) peak footprint (MiB)     1,629-1,637 /        1,640-1,654 /        1,632-1,637 /
+                                       1,625-1,632 /        1,625-1,632 /        1,623-1,631 /
+                                       1,615-1,619          1,617-1,619          1,616-1,620
+  (r)/(a)/(o) extract phase (s)        3.57-3.66 /          1.72-1.77 /          2.35-2.52 /
+                                       19.82-20.09 /        19.97-20.05 /        19.98-20.16 /
+                                       19.51-20.83          19.44-19.62          19.41-19.76
+  --jobs 4
+  (r) wall (s)                         19.12 20.37 20.29    18.14 19.33 18.31    18.38 19.12 17.71
+  (a) wall (s)                         28.71 27.13 25.08    26.81 26.80 26.79    26.37 26.13 26.43
+  (o) wall (s)                         30.11 29.39 31.70    29.20 29.02 28.76    28.03 28.23 28.25
+  (o)/(r), paired by cycle             1.57  1.44  1.56     1.61  1.50  1.57     1.53  1.48  1.60
+  (o)/(r), medians                     1.48                 1.58                 1.54
+  (a)/(r), paired by cycle             1.50  1.33  1.24     1.48  1.39  1.46     1.43  1.37  1.49
+  (a)/(r), medians                     1.34                 1.46                 1.43
+  (o)/(a), medians (E5 alone)          1.11                 1.08                 1.07
+  (r) CPU user+sys (s)                 18.76 20.94 20.80    17.29 17.34 17.42    17.82 17.79 17.77
+  (a) CPU user+sys (s)                 46.11 49.09 46.33    49.54 49.08 48.85    50.44 49.15 50.05
+  (o) CPU user+sys (s)                 45.63 46.17 44.28    47.02 46.47 45.96    46.10 46.29 46.36
+  (r)/(a)/(o) max RSS (MiB)            2,765-2,776 /        2,751-2,754 /        2,760-2,765 /
+                                       2,788-2,799 /        2,782-2,797 /        2,783-2,789 /
+                                       2,787-2,791          2,786-2,791          2,781-2,783
+  (r)/(a)/(o) peak footprint (MiB)     1,638-1,651 /        1,651-1,653 /        1,640-1,648 /
+                                       1,676-1,680 /        1,667-1,677 /        1,680-1,681 /
+                                       1,670-1,684          1,676-1,680          1,615-1,675
+  (r)/(a)/(o) extract phase (s)        2.32-2.49 /          1.79-1.91 /          2.01-2.08 /
+                                       10.41-10.88 /        10.91-11.22 /        10.79-11.12 /
+                                       10.02-10.38          10.29-10.68          10.12-10.24
+
+Reuse, the same in every (r) process of a version (the `reuse-from` line):
+                                       v4.33.1 <- v4.34.1   v4.33.0 <- v4.33.1   v4.32.2 <- v4.33.0
+  declarations reused / produced       20,142 / 21,928      21,928 / 21,928      21,132 / 21,680
+  printed: key differs                 1,600                0                    475
+           no key in the neighbour     186                  0                    73
+           key equal, not read back    0                    0                    0
+  printed share                        8.1% (E6: 16.8%)     0% (0%)              2.5% (2.8%)
+  keys (candidates, time)              40,427, 0.50-0.60 s  40,427, 0.51-0.56 s  39,888, 0.50-0.56 s
+  loading the neighbour (s)            0.99-1.11            1.04-1.73            1.02-1.48
+  writing own keys (s)                 0.11-0.13            0.12-0.16            0.12-0.14
+
+Exactness (all (measured)): every later cycle's IR and link index equal to cycle 1's of the same arm
+and job count, 36 of 36; every cycle's (r) link index equal to its (a) link index, 18 of 18; cycle 1
+of --jobs 1 equal to cycle 1 of --jobs 4 for every arm and version, 9 of 9. (a) against (o), cycle 1
+at --jobs 1: every module file and dependency map and the link index equal; index.json differs only
+in extractorIdentity (its reader= digest): E5 changes no output.
+(r) against (a), cycle 1 at --jobs 1 (each version against its own read-alone):
+                                       v4.33.1              v4.33.0              v4.32.2
+  link index equal                     yes                  yes                  yes
+  IR files differing                   6 of 446 (3 modules, 6 of 446 (the same)  8 of 441 (5 modules,
+                                       index.json, 2 deps)                       index.json, 2 deps)
+  declarations differing               4 of 21,928          4 of 21,928          10 of 21,680
+                                       (E6: 4)              (E6: 4, inherited)   (E6: 9)
+The deps are deps/Lean.json and deps/Qq.json, each missing one name read-alone has (referenced only
+by ExistsAndEq.mkNestedExists's equation), as in E6. No declaration differs in anything the
+mechanism recomputes; there is no exception list.
+
+Every differing declaration (10 distinct names, 18 declaration-version pairs):
+  1-4 inf_Prop_eq, sup_Prop_eq (type: x1 ⊓ x2 / x1 ⊔ x2 against min x1 x2 / max x1 x2),
+      Prop.instBooleanAlgebra (equation: sdiff := fun (x y : Prop) => x ⊓ ¬y against min x ¬y),
+      ExistsAndEq.mkNestedExists (second equation: v4.34.1's body `let p ← Lean.Meta.mkLambdaFVars
+      #[b] res` against the version's `let __do_lift ← Lean.getLCtx; have name ...`): all three
+      versions, E6's four, notation in the environment and helper definitions behind an equation
+  5-9 Prod.instBooleanAlgebra, Prod.instCoheytingAlgebra, Prod.instGeneralizedBooleanAlgebra,
+      Prod.instGeneralizedCoheytingAlgebra, Prod.instGeneralizedHeytingAlgebra (v4.32.2): the
+      equation shows toSDiff := Prod.instSDiff / toHImp := Prod.instHImp / toHNot := Prod.instHNot
+      against ... α β, as in E6 (another declaration's binder infos)
+  10  Prod.instHeytingAlgebra (v4.32.2, new against E6): its equation shows toCompl :=
+      Prod.instCompl against Prod.instCompl α β, the same kind as 5-9
+All ten are context the plan named as given up.
+
+Where the time goes (--jobs 1, ranges over the 9 processes of each arm; (measured)):
+  (o) manual root 2.14-2.61, closure 0.65-1.22, decode 8.82-10.99, check ilean 1.80-1.92, newest
+      import 0.47-1.20, merge 1.13-2.83, finalize 0.95-1.31: outside extraction 16.6-20.1 s
+  (a) manual root 0.0004-0.0015 (all 36 (a) and (r) processes, both job counts), closure 0.75-0.97,
+      decode 9.44-10.03, check ilean 0.41-0.44, newest import 0.50-0.76, merge 1.17-1.77,
+      finalize 1.00-1.06: outside extraction 13.6-14.8 s
+  (r) the same as (a) (13.4-14.7 s), plus keys 0.57-0.63, loading 1.04-1.48, writing keys
+      0.11-0.14, extract 1.72-3.66 s (1.72-1.77 s with nothing printed, v4.33.0)
+  E5 against (o): manual root -2.1 to -2.6 s, check ilean -1.4 s (0.41-0.50 s in every E5 process,
+  1.80-1.98 s in every (o)), closure +0.1 to +0.2 s, decode +0.3 to +0.8 s at --jobs 1 on
+  v4.33.0 and v4.32.2 and higher at --jobs 4 too (assumed: the ask's lean, importing the old
+  toolchain's own Lean modules, warmed oleans the decode then reads; not measured); paired, 2.3-2.9 s
+  a process on v4.33.0 and v4.32.2 and 4.3-6.5 s on v4.33.1, where (o)'s merge ran high.
+
+THE STEPS OUTSIDE EXTRACTION: 18 s IN E6 AGAINST 11.7 s IN THE PROBE
+-------------------------------------------------------------------
+Phase by phase, the probe's P1 (a1 cycles 2-3, v4.33.1, mv-m-print-probe-2026-10-10.txt) against
+E6's reuse processes (mv-m-reuse-2026-10-10.txt) and this run's (o) at --jobs 1 (all (measured)):
+                     probe P1    E6 (r)        this run (o)    four HEAD processes in a row (below)
+  manual root        0.24        2.20-2.48     2.14-2.61       0.24  1.51  0.22  2.36
+  closure            in rest     0.70          0.65-1.22       0.32  0.19  0.57  0.56
+  decode             7.2         8.87-9.52     8.82-10.99      8.75  8.77  8.67  9.27
+  check ilean        1.3         1.78-1.94     1.80-1.92       1.75  1.79  1.79  1.82
+  newest import      0.4         0.69-0.82     0.47-1.20       2.18  0.53  0.87  0.46
+  merge              1.1         1.67-4.05     1.13-2.83       4.89  2.32  2.11  1.19
+  finalize           0.9         0.97-1.07     0.95-1.31       1.75  1.03  1.14  0.93
+  rest               0.8 (incl. manual root and closure)
+The four in a row: reader O, read-alone --lazy-proofs --jobs 1, right after the setup, on v4.33.1,
+v4.33.1, v4.32.2, v4.33.1 (37.79, 34.15, 33.27, 35.75 s wall).
+  - manual root (+2.0 s): the ask of the old toolchain's lean took 0.18-0.28 s in 9 of the 22 asks
+    made outside the cycles today (the setup's three, all four of v4.34.1, two of the four in a
+    row) and 1.5-2.4 s in the other 13 and 2.1-2.8 s in all 18 (o) processes; the same toolchain
+    asked twice in a row took 0.24 then 1.51 s. What makes the ask take 2 s is not determined.
+    E5 removes the phase: 0.4-1.5 ms.
+  - decode (+1.6 to +2.3 s) and check ilean (+0.5 s): 7.2 / 1.3 s in the probe only; 8.7-11.0 /
+    1.75-1.98 s in every process since, with the same code. Both read files; not determined.
+  - merge (+0.6 to +3.8 s) and newest import (+0.1 to +1.8 s): high in the first process after a
+    switch of binary or arm and in some others (4.89 s in the first of the four), 1.1-1.2 s at best
+    in every arm; not determined.
+So the 18 s of E6 is the probe's 11.7 s plus about 2 s of manual root, 2 s of decode, 0.5 s of
+.ilean, and 1-3 s of merge and newest import that move from process to process. E5 removes the
+first and most of the third. What is cheap to cut beyond E5 (theoretical; not built):
+  - loading the neighbour's IR, 1.0-1.7 s a reuse process: it parses every module file of the
+    neighbour (26 MB of JSON) on one thread; in parallel per file, as the .ilean check now is, about
+    0.2-0.3 s at 8 threads (extrapolated from the .ilean check's 1.8 -> 0.4 s)
+  - the key, 0.50-0.60 s: the top-level erased key costs E6's 63-70 ms at 3 more inexact
+    declarations on v4.32.2 (above)
+  - nothing else outside extraction is cheap: decode (9.4-10.0 s, two thirds of what remains) has
+    one lever left, parallel decode across modules, dropped (decided 2026-10-10, user's call);
+    merge, finalize and newest import are 1.0-1.2 s each at their best
+
+Against the plan's criteria (implementation.md, item 5 and "Win on M"), (r) against (a) as the
+criteria define it, and against (o) for "2x against today's read-alone":
+  - kill, time (at least 1.5x at --jobs 1): met, 1.73 / 1.94 / 1.81 by medians against (a);
+    1.98 / 2.09 / 1.95 against (o), paired by cycle 1.91-2.09.
+  - time below read-alone by more than both arms' spread: met on all three versions at both job
+    counts ((r) at most 20.41 s against (a) at least 33.80 s at --jobs 1; (r) at most 20.37 s
+    against (a) at least 25.08 s at --jobs 4).
+  - kill, memory (peak RSS not above read-alone's): at --jobs 1 (r)'s maximum RSS lies inside (a)'s
+    range on every version (2,743-2,758 against 2,746-2,766 MiB) and 12-30 MiB above (o)'s; its
+    peak footprint is up to 29 MiB above (a)'s (1,629-1,654 against 1,623-1,632 MiB). At --jobs 4
+    (r) is below both read-alone arms, 11-46 MiB in maximum RSS.
+  - E5 as a read-alone lever: time -7 to -13% at --jobs 1 (medians 1.08-1.15x), -6 to -10% at
+    --jobs 4; memory +15 to +38 MiB maximum RSS and +3 to +17 MiB footprint at --jobs 1 against
+    (o), inside (o)'s range at --jobs 4. So E5 does not meet "peak RSS not above read-alone's" at
+    one job. The likely holder is the parsed .ilean files the tasks finish ahead of the sequential
+    comparison (assumed; a bounded number in flight would test it).
+  - exactness: link index equal in every pair; 4 / 4 / 10 declarations differ (0.02-0.05%), all of
+    the kinds given up.
+
+**Verdict: with the loosened key and E5, reuse is 1.95-2.09x faster than today's read-alone at
+--jobs 1 by medians (1.73-1.94x against read-alone with E5), separated beyond both spreads at both
+job counts, with the link index equal and 4 / 4 / 10 declarations differing. The extra misses of
+E6's key were macro scopes in anonymous binder names (1,909 of 1,923 on v4.33.1 <- v4.34.1), which
+no page shows; the key now erases them, at every binder depth, and prints 8.1% / 0% / 2.5%. E5 cuts
+2.3-2.9 s a process (manual root 2.1-2.6 s, .ilean 1.4 s) and costs 15-38 MiB of peak RSS at one
+job.**
+
+GATES (same tree)
+-----------------
+tools/reader-hybrid-gate.sh 35 of 35 (7.5 min), with the new item `manual-root-cache`: every older
+row's first read asked its toolchain and kept the answer in <reader dir>/manual-roots/<that row's
+githash>, and its second read (the --lazy-proofs run) read it from there; that second read's IR is
+byte-equal to the first's (lazy-proofs-equals-alone). The session summaries are compared without the
+`  manual-root-cache` line, which records the cache's state, not output. It failed once first,
+35 of 35 answered with 7 failed, on a litedoc4 whose cache entry was named `any` and whose hit
+ignored the githash: `manual-root-cache` named each row ("v4.31.0: the first read says 'asked ...,
+kept in .../manual-roots/any', not asked and kept in .../manual-roots/68218e8..."; "v4.32.2: the
+first read says 'read from .../manual-roots/any' ..."), and probe-manual-root, session-manual-root,
+read-4.32.2, read-4.33.0, read-4.33.1 and self-4.34.1 failed on docstrings linking reference/4.31.0.
+(Its first failing run printed the item's failure empty: the script's message went to stderr. Fixed
+with 2>&1 and run again, the run quoted above.) The declared count went from `... + 12` to
+`... + 13`. The passing run's reader identity is reader=fnv1a64:5a1f6474c0e65cbe, the measured
+reader N's. tools/lean-test-gate.sh 4 of 4 (233 compile-time, 67 run-time). Not run:
+tools/mv-reader-gate.sh and tools/reader-oracle-gate.sh.

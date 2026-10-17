@@ -1,0 +1,112 @@
+tools/mv-pages-gate.sh — D9's page-path and anchor check, drawn in a browser
+================================================================================
+
+What it reads: the two renders `tools/mv-s-gate.sh --keep` leaves of the
+four-version sample S (path URLs: run1/render/all-1; hash URLs:
+run1/render/hash-1), and e2e/micro-expected/build/ as the frozen pages.
+The renders were made by the CLI built from this commit's working tree
+(tools/build-lean-exe.sh --toolchain-from e2e/micro), after
+`tools/mv-s-gate.sh --keep` passed 46 of 46.
+
+Conditions (printed by the gate; the commit is the parent of the change that
+adds the gate, with that change in the working tree):
+  date              2026-10-07T00:49:49Z
+  host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+  commit            a1fec288052f6e21192111151583ae3a0f93e86a
+  renders           /private/tmp/lean-doc-relay/mv-s-gate/run1/render/all-1, /private/tmp/lean-doc-relay/mv-s-gate/run1/render/hash-1
+  browser           Chrome/154.0.8037.98 (/Applications/Google Chrome.app/Contents/MacOS/Google Chrome)
+
+1. The green run (untampered renders): exit 0
+--------------------------------------------
+  frozen ids (v1, one-directional):
+    Example.html: frozen 10, present 10, extra 0
+    Example/Attrs.html: frozen 20, present 20, extra 0
+    Example/Basic.html: frozen 22, present 22, extra 0
+    Example/Dep.html: frozen 10, present 10, extra 0
+    Example/Gen.html: frozen 41, present 41, extra 0
+    Example/Math.html: frozen 14, present 14, extra 0
+    Example/Notation.html: frozen 11, present 11, extra 0
+    Example/Shapes.html: frozen 34, present 34, extra 0
+    Example/Sorry.html: frozen 12, present 12, extra 0
+    Example/Unicode.html: frozen 12, present 12, extra 0
+    Example/Untitled.html: frozen 13, present 13, extra 0
+    foundational_types.html: frozen 4, present 4, extra 0
+    index.html: frozen 5, present 5, extra 0
+    references.html: frozen 7, present 7, extra 0
+  path URLs: 60 pages, 1629 distinct hrefs per page summed, 568 with an anchor
+  hash URLs: 59 routes, 1627 distinct hrefs per route summed, 567 with an id
+  ok frozen-shells: all 15 frozen page paths have a shell at v1/<same path>, and 404.html is at the site root
+  ok frozen-ids/Example.html: all 10 frozen ids present on v1/Example.html drawn; 0 extra
+  ok frozen-ids/Example/Attrs.html: all 20 frozen ids present on v1/Example/Attrs.html drawn; 0 extra
+  ok frozen-ids/Example/Basic.html: all 22 frozen ids present on v1/Example/Basic.html drawn; 0 extra
+  ok frozen-ids/Example/Dep.html: all 10 frozen ids present on v1/Example/Dep.html drawn; 0 extra
+  ok frozen-ids/Example/Gen.html: all 41 frozen ids present on v1/Example/Gen.html drawn; 0 extra
+  ok frozen-ids/Example/Math.html: all 14 frozen ids present on v1/Example/Math.html drawn; 0 extra
+  ok frozen-ids/Example/Notation.html: all 11 frozen ids present on v1/Example/Notation.html drawn; 0 extra
+  ok frozen-ids/Example/Shapes.html: all 34 frozen ids present on v1/Example/Shapes.html drawn; 0 extra
+  ok frozen-ids/Example/Sorry.html: all 12 frozen ids present on v1/Example/Sorry.html drawn; 0 extra
+  ok frozen-ids/Example/Unicode.html: all 12 frozen ids present on v1/Example/Unicode.html drawn; 0 extra
+  ok frozen-ids/Example/Untitled.html: all 13 frozen ids present on v1/Example/Untitled.html drawn; 0 extra
+  ok frozen-ids/foundational_types.html: all 4 frozen ids present on v1/foundational_types.html drawn; 0 extra
+  ok frozen-ids/index.html: all 5 frozen ids present on v1/index.html drawn; 0 extra
+  ok frozen-ids/references.html: all 7 frozen ids present on v1/references.html drawn; 0 extra
+  ok path-drawn: 60 pages drawn
+  ok path-hrefs: all 1159 intra-site hrefs on 60 drawn pages (every <details> open) name a file the render wrote
+  ok path-anchors: all 568 hrefs with an anchor name an id on their target page once drawn
+  ok path-names: all 245 own names in 43 page files have a drawn page, and an id on it where they name one
+  ok path-on-demand: opening every <details> on every page drew links, all in the href items: tree 463, imports 163, used-by 463, instances 20
+  ok hash-drawn: 59 pages drawn
+  ok hash-routes: all 1157 intra-site hrefs on 59 drawn routes (every <details> open) are routes the draw code accepts and draws
+  ok hash-anchors: all 567 routes with an id name an id on their page once drawn
+  ok hash-names: all 245 own names in 43 page files have a drawn page, and an id on it where they name one
+  ok hash-on-demand: opening every <details> on every page drew links, all in the href items: tree 463, imports 163, used-by 463, instances 20
+  ok path-arrival: a #name URL from outside sets :target on that declaration once drawn, in every version: v1/Example/Gen.html#Example.Gen.Solo.ext_iff, v2/Example/Gen.html#Example.Gen.Solo.ext_iff, v3/Example/Gen.html#Example.Gen.Solo.ext_iff, v4/Example/Gen.html#Example.Gen.Solo.ext_iff
+  ok hash-arrival: a route naming a declaration marks it .targeted once drawn, in every version: #/v1/Example/Gen?id=Example.Gen.Solo.ext_iff, #/v2/Example/Gen?id=Example.Gen.Solo.ext_iff, #/v3/Example/Gen?id=Example.Gen.Solo.ext_iff, #/v4/Example/Gen?id=Example.Gen.Solo.ext_iff
+  ok path-root: the site root sends the reader to /v4/index.html, drawn
+  ok hash-root: the site root draws #/v4/
+  ok path-old-link: the old link /Example/Gen.html#Example.Gen.Solo.ext_iff (404 from the host) lands on /v4/Example/Gen.html#Example.Gen.Solo.ext_iff, Example.Gen.Solo.ext_iff :target
+  ok hash-old-link: the old link /Example/Gen.html#Example.Gen.Solo.ext_iff (404 from the host) lands on /#/v4/Example/Gen?id=Example.Gen.Solo.ext_iff, Example.Gen.Solo.ext_iff .targeted
+  ok console: no console error and no page error over 119 drawn pages and the arrivals
+  ok requests: no request failed or was answered >= 400, besides the 2 old links whose 404 is the old-link items' to judge
+  MV-PAGES GATE: ok, 33 of 33 items ran and passed
+
+2. Made to fail, each way, on a copy of the renders
+---------------------------------------------------
+Each copy was taken with `cp -R` of all-1 and hash-1 into a scratch directory;
+the kept renders were never edited. The page file and the content file named
+below are shared by v1–v4 (one address), so each edit reaches every version
+that carries it.
+
+(a) Example.double dropped from Example.Basic's content file (and its entry from
+    the page file's `lines`), in both copies: exit 1
+  FAIL frozen-ids/Example/Basic.html: v1/Example/Basic.html drawn lacks 1 of 22 frozen ids: Example.double
+  FAIL path-anchors: 17 of 549 hrefs with an anchor miss it: v1/Example/Basic.html -> v1/Example/Basic.html#Example.double: no such id once drawn; v1/Example/Math.html -> v1/Example/Basic.html#Example.double: no such id once drawn; v1/Example/Notation.html -> v1/Example/Basic.html#Example.double: no such id once drawn; v1/Example/Sorry.html -> v1/Example/Basic.html#Example.double: no such id once drawn; and 13 more
+  FAIL path-names: 17 of 245 own names in the page files: v1/Example/Basic.html lists Example.double as id Example.double on Example/Basic.html, which has no such id once drawn; v1/Example/Math.html lists Example.double as id Example.double on Example/Basic.html, which has no such id once drawn; v1/Example/Notation.html lists Example.double as id Example.double on Example/Basic.html, which has no such id once drawn; v1/Example/Sorry.html lists Example.double as id Example.double on Example/Basic.html, which has no such id once drawn; and 13 more
+  FAIL hash-anchors: 17 of 548 routes with an id miss it: #/v1/Example/Basic -> #/v1/Example/Basic id Example.double: no such id once drawn; #/v1/Example/Math -> #/v1/Example/Basic id Example.double: no such id once drawn; #/v1/Example/Notation -> #/v1/Example/Basic id Example.double: no such id once drawn; #/v1/Example/Sorry -> #/v1/Example/Basic id Example.double: no such id once drawn; and 13 more
+  FAIL hash-names: 17 of 245 own names in the page files: v1/Example/Basic.html lists Example.double as id Example.double on Example/Basic.html, which has no such id once drawn; v1/Example/Math.html lists Example.double as id Example.double on Example/Basic.html, which has no such id once drawn; v1/Example/Notation.html lists Example.double as id Example.double on Example/Basic.html, which has no such id once drawn; v1/Example/Sorry.html lists Example.double as id Example.double on Example/Basic.html, which has no such id once drawn; and 13 more
+  MV-PAGES GATE FAIL: 5 of 33 failed (33 of 33 ran)
+
+(b) Example.Basic's page file: the own name Example.Colour pointed at module
+    Example.Interval, which v1 and v2 lack, in both copies: exit 1
+  FAIL path-hrefs: 2 of 1163 intra-site hrefs name no file the render wrote: v1/Example/Basic.html -> /v1/Example/Interval.html#Example.Colour; v2/Example/Basic.html -> /v2/Example/Interval.html#Example.Colour
+  FAIL path-anchors: 4 of 572 hrefs with an anchor miss it: v1/Example/Basic.html -> v1/Example/Interval.html#Example.Colour: that page was never drawn; v2/Example/Basic.html -> v2/Example/Interval.html#Example.Colour: that page was never drawn; v3/Example/Basic.html -> v3/Example/Interval.html#Example.Colour: no such id once drawn; v4/Example/Basic.html -> v4/Example/Interval.html#Example.Colour: no such id once drawn
+  FAIL path-names: 4 of 245 own names in the page files: v1/Example/Basic.html lists Example.Colour on module Example.Interval, which v1 does not have; v2/Example/Basic.html lists Example.Colour on module Example.Interval, which v2 does not have; v3/Example/Basic.html lists Example.Colour as id Example.Colour on Example/Interval.html, which has no such id once drawn; v4/Example/Basic.html lists Example.Colour as id Example.Colour on Example/Interval.html, which has no such id once drawn
+  FAIL hash-routes: 2 of 1188 intra-site hrefs are not a route the draw code accepts: #/v1/Example/Basic -> #/v1/Example/Interval: the route was sent on to #/v1/; #/v2/Example/Basic -> #/v2/Example/Interval: the route was sent on to #/v2/; routes refused: #/v1/Example/Interval was sent on to #/v1/; #/v2/Example/Interval was sent on to #/v2/
+  FAIL hash-anchors: 4 of 575 routes with an id miss it: #/v1/Example/Basic -> #/v1/Example/Interval id Example.Colour: that route was not drawn; #/v2/Example/Basic -> #/v2/Example/Interval id Example.Colour: that route was not drawn; #/v3/Example/Basic -> #/v3/Example/Interval id Example.Colour: no such id once drawn; #/v4/Example/Basic -> #/v4/Example/Interval id Example.Colour: no such id once drawn
+  FAIL hash-names: 4 of 245 own names in the page files: v1/Example/Basic.html lists Example.Colour on module Example.Interval, which v1 does not have; v2/Example/Basic.html lists Example.Colour on module Example.Interval, which v2 does not have; v3/Example/Basic.html lists Example.Colour as id Example.Colour on Example/Interval.html, which has no such id once drawn; v4/Example/Basic.html lists Example.Colour as id Example.Colour on Example/Interval.html, which has no such id once drawn
+  MV-PAGES GATE FAIL: 6 of 33 failed (33 of 33 ran)
+
+(c) v1/Example/Dep.html (a frozen page's shell) removed from the path-URL copy:
+    exit 1
+  FAIL frozen-shells: of 15 frozen page paths, no shell at v1/ for Example/Dep.html
+  FAIL frozen-ids/Example/Dep.html: v1/Example/Dep.html has no shell, so none of its 10 frozen ids can be met
+  FAIL path-hrefs: 11 of 1144 intra-site hrefs name no file the render wrote: v1/Example.html -> /v1/Example/Dep.html; v1/Example/Attrs.html -> /v1/Example/Dep.html; v1/Example/Basic.html -> /v1/Example/Dep.html; v1/Example/Gen.html -> /v1/Example/Dep.html; and 7 more
+  MV-PAGES GATE FAIL: 3 of 33 failed (33 of 33 ran)
+
+3. What the console item excuses
+--------------------------------
+With the console item's exception for the old links removed (a scratch copy of
+benchmarks/tools/check-mv-pages.ts), the same green renders: exit 1, and the two
+lines it excuses are exactly the browser's report of the two old links' 404:
+  FAIL console: 2 console errors or page errors: console: Failed to load resource: the server responded with a status of 404 (Not Found) (http://127.0.0.1:8930/Example/Gen.html#Example.Gen.Solo.ext_iff); console: Failed to load resource: the server responded with a status of 404 (Not Found) (http://127.0.0.1:8931/Example/Gen.html#Example.Gen.Solo.ext_iff)
+  MV-PAGES GATE FAIL: 1 of 33 failed (33 of 33 ran)

@@ -1,0 +1,50 @@
+Mathlib site: adding one release to a deployed site of eleven, in production (measured).
+One run per arm; no time here is a converged figure.
+
+workflow    .github/workflows/mathlib-site.yml on ubuntu-latest (Ubuntu 24.04, AMD EPYC 7763, 4 vCPU,
+            16 GB), --jobs 4, rclone 1.75.2, deploying to https://mathlib.fuji.land
+litedoc4    sha256 348a12ccee32b0fb04f99efe6ed3a24f15989850e13e21963ed8cadbcaeca39b in A (f6bfd39) and
+            B (e37eaef), and in runs 39010001813 (eed2884) and 39012184050 (d7e20ed): built on four
+            runners from four commits that leave src/ alone, the same executable each time, so the
+            render ledger's renderer key held across them
+
+The arms
+  A   run 39013293354 (MATHLIB_SITE_HOLD_BACK=v4.35.0): eleven releases v4.29.0..v4.34.1, store
+      without v4.35.0, no site archive yet. 0 of 11 extracted, render "no render ledger beside the
+      site", 11 of 11 rendered; deploy uploaded 164,386 of 164,386 files, checked 164,386 matching;
+      archive (site + render ledger + build record, tar | zstd -1) 228,740 KiB. served 11 of 11,
+      live-smoke 5 of 5.
+  B   run 39014847303 (MATHLIB_SITE_REEXTRACT=v4.35.0): the twelve, store restored without
+      v4.35.0's entry, A's archive restored. This is the add-one.
+
+B, step by step (from the job's step timestamps and the build's own lines)
+  runner preparation (checkout .. elan)          2.1 min   of which freeing disk 1.9 min
+  litedoc4 + Mathlib's tags                      1.4 min
+  restore the store (22 entries, 701,152 KiB)    0.05 min
+  restore the site archive (164,386 files)       0.27 min
+  build every version                           11.6 min   (07:49:43 -> 08:01:21 UTC), exit 0
+    toolchain v4.35.0 installed + reader built   85.8 s    (reader 68.58 s)
+    v4.29.0 .. v4.34.1                           fresh, nothing extracted
+    v4.35.0 extractor built                       8.76 s
+    v4.35.0 cache                                65.56 s
+    v4.35.0 extract                             389.07 s   (8625 modules in 383.45 s)
+    v4.35.0 put                                  22.52 s   (8636 IR files -> 67,937,898 B)
+    render                                       94.63 s   1 of 12 rendered (v4.35.0)
+  save the store                                 0.03 min  24 matching files
+  served-gate on 127.0.0.1                       0.03 min
+  deploy                                         2.4 min
+    written by this build                        19,385 of 183,765 files (3 entry points)
+    upload + check                               1.8 min   19,385 matching, 0 differences
+    archive                                      259,680 KiB, made and uploaded in 0.5 min
+  live (served 12 of 12, live-smoke 5 of 5)      0.6 min
+  job total                                     18.5 min   (07:45:53 -> 08:04:24)
+
+Against the v2 target (docs/multiversion/plan.md, "Add one new release ... <= 15 min on one
+ubuntu-latest runner"): the build command 11.6 min, measured the way
+mv-l-step4-incremental-2026-10-07.txt measured its 13.5 min. The whole job, from the runner's start
+to the deployed site checked, 18.5 min.
+
+Before the archive (run 39012184050, the same arm B against a site restored object by object):
+restoring 183,766 site files from the site bucket took 9.25 min, and the build refused <out> because
+the restored directory held a site and no build record (exit 3, three attempts). That is why the
+site, its render ledger and the build record travel as one archive in the store bucket.

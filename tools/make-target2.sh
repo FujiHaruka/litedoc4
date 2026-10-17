@@ -266,7 +266,8 @@ theorem astral_eq : 𝒜 = 3 := rfl
 end Alpha.AstralNames
 LEAN
 
-# U+2B96 is unassigned in V8's UCD (general category Cn ⊂ C) and assigned in the
+# U+2B96 is unassigned in the UCD of deno 2.7.14's V8 (Unicode 16; general
+# category Cn ⊂ C) and assigned in the
 # UnicodeBasic the target's doc-gen4 was built against. A heading id is built by
 # splitting on that table, so this is the input that separates them — and unlike
 # the token separators, a heading id reaches `id=` and `href=#`.
@@ -350,9 +351,11 @@ def betaConst : Nat := Alpha.Basic.alphaConst + 1
 end Beta.Basic
 LEAN
 
-# U+088F ARABIC HALF MADDA OVER MADDA: the first of the 4,803 code points V8
-# splits tokens on and UnicodeBasic does not (measured →
-# benchmarks/results/m2b-v6-token-separators.json). It is inside a code span
+# U+088F ARABIC HALF MADDA OVER MADDA: the first of the 4,803 code points deno
+# 2.7.14's V8 split tokens on and UnicodeBasic does not (measured →
+# benchmarks/results/m2b-v6-token-separators.json). Node 24's V8 (Unicode 17)
+# agrees with UnicodeBasic on it and on U+2B96 (measured →
+# benchmarks/results/v8-gc-table-node-2026-10-11.txt). It is inside a code span
 # because that is the only place the token scan looks
 # (`moduleFacts` in `Litedoc4.Global.Facts`).
 cat > "$OUT/Beta/TokenSep.lean" <<'LEAN'

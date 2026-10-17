@@ -2,7 +2,7 @@
 # Consumer.Basic
 
 A handful of documented declarations — enough for the pipeline to produce a page
-and for `tools/site-gate.sh` to have something to close over. Nothing here is
+and for `tools/lake-package-gate.sh` item 3 to have something to close over. Nothing here is
 trying to cover a renderer branch; that is `e2e/micro`'s job.
 -/
 

@@ -1,0 +1,170 @@
+M exactness checkpoint, after the two reader defects of mv-m-reader-2026-10-08.txt were fixed:
+the M slice of three Mathlib releases read through the .olean reader into the newest Lean, against
+the native extractor's IR of the same slice
+==================================================================================================
+
+A measurement run, not a gate. One run (2026-10-08). The question, the comparator's printed-field
+list and the classification rules are those of benchmarks/results/mv-m-reader-2026-10-08.txt, with
+one rule removed (below, THE COMPARATOR).
+
+CONDITIONS
+----------
+host        Apple M1, 16 GB, Darwin 25.6.0 arm64; free disk 7.46 GiB at the start
+litedoc4    c2ed2d4531dc17fe0c949328bef474ca872ec35d plus 4 uncommitted paths:
+            extractor/reader/OleanReader/Hybrid.lean and Assemble.lean (the two fixes below),
+            tools/lib/reader-compare.py (the structure-instance step removed),
+            tools/reader-hybrid-gate.sh (new items). litedoc4 was rebuilt from that tree
+            (tools/build-lean-exe.sh --toolchain-from e2e/micro) before the run.
+reader      built by `litedoc4 reader build` on leanprover/lean4:v4.34.1:
+            extractors/reader-leanprover-lean4-v4.34.1-11e927bcfc02e9e8,
+            identity reader=fnv1a64:ec5cc2968db753d8 source=fnv1a64:72f05375aa7cbc52
+versions    v4.32.2  mathlib 905b95818eb32af7874a58b427f50c1711a5e96c  leanprover/lean4:v4.32.2  433 modules
+            v4.33.0  mathlib db584cd6d46c92f209a44c0f1c829460d327499d  leanprover/lean4:v4.33.0  438 modules
+            v4.33.1  mathlib 0df444a360eaa60ab8c11dca51a86af692955474  leanprover/lean4:v4.33.1  438 modules
+newest      /private/tmp/lean-doc-relay/mv-v4341 (read only): mathlib
+            d13f23b723b8a846827a245b89c10fc7d3f11612, leanprover/lean4:v4.34.1, 11 search
+            directories, 447 modules in its closure of the same two roots
+flags       both sides: --equations --refs --write-ir --tagged-code
+            --no-equations-under Mathlib.Tactic,Mathlib.Meta --jobs 1 --link-index, with the
+            native build's own module list; identity as predicted in every classification
+oracle      the native IR re-minted at this tree on the same checkout; per version it equals
+            mv-m/store's entry except the identity's source= digest (old-native = yes, 3 of 3)
+environment LEAN_MANUAL_ROOT not set
+warmth      each old version's oleans unpacked from the Mathlib cache in the same run, a minute
+            before they were read; every phase ran once. Single runs, not converged.
+
+REPRODUCE
+---------
+  tools/build-lean-exe.sh --toolchain-from e2e/micro
+  benchmarks/tools/mv-m-run.sh --through-reader --need-gb 3 --work /private/tmp/lean-doc-relay/mv-m-reader \
+    > full.out 2> full.err
+Total 664 s.
+
+ANSWER
+------
+                                  v4.32.2        v4.33.0        v4.33.1
+  modules compared                433            438            438
+  declarations compared           21,680         21,928         21,928
+  declarations, printed diff      206            0              0
+  defects                         0              0              0
+  tactic lists absent (open)      63 modules     63 modules     63 modules   (96 / 95 / 95 tactics natively)
+  cause not recognised            0              0              0
+  reducibility rename (col. 2)    1,351 decls    0              0
+  link index                      byte-identical in all three
+  refs only the reader has        0              0              0
+  pages whose own data differ     168 of 437     0 of 442       0 of 442
+  pages untraced                  0              0              0
+  reader extract wall / CPU       99.17 / 87.33  99.58 / 87.65  99.09 / 87.6 s  (peak RSS 2,764-2,766 MiB,
+                                                                               including the re-run below)
+  free disk                       7.46 GiB at the start, 5.94 GiB lowest (v4.33.1, after its extractor
+                                  phase), 7.15 GiB at the end; peak work directory 1.51 GiB (v4.33.1)
+
+Printer drift by cause (field occurrences / declarations):
+  v4.32.2  418 / 206  set-builder: an old `setOf` prints `setOf fun x => p` (newest Mathlib
+                      unexpands only `Set.ofPred`), with the parentheses that forces
+  v4.33.0  none
+  v4.33.1  none
+
+Against mv-m-reader-2026-10-08.txt: the defect (1 per version, the `lean-manual://` link in
+Mathlib.Tactic.GCongr.tacticGcongr_discharger's docstring) is 0; the structure-instance bucket
+(3 / 1 per version, Convert.elabCheapConfig) is gone, and with it the one reference only the reader
+had. v4.32.2's differing pages go 169 -> 168: Mathlib/Tactic/Convert.html no longer differs;
+Mathlib/Tactic/GCongr/Core.html still does, only for its `attrs` (the column-2 rename). v4.33.x's
+2 pages each go to 0. The set-builder drift and the column-2 rename are unchanged.
+
+DEFECT 1: THE MANUAL ROOT, NOW ASKED OF THE OLD LEAN
+  Cause: Lean/DocString/Links.lean (identical in v4.31.0 .. v4.34.1) has
+    builtin_initialize manualRoot : String ← (LEAN_MANUAL_ROOT if set, else the executable's
+      pre-configured getManualRoot (), else https://lean-lang.org/doc/reference/latest/, plus "/")
+  and Lean/DocString.lean:44 applies rewriteManualLinks when a docstring is looked up, so the
+  running Lean's root (4.34.1) was written into an old version's docstrings.
+  Fix (reader extract, the one place every caller goes through): the toolchain whose
+  Init/Prelude.olean the --old search path resolves is the old Lean; its bin/lean runs
+    import Lean.DocString.Links
+    #eval IO.println s!"{Lean.githash} {Lean.manualRoot}"
+  with LEAN_PATH set to that toolchain's lib/lean and the rest of the environment inherited (so a
+  user's LEAN_MANUAL_ROOT is honoured as the native run honours it). If its root differs from the
+  running Lean's, reader extract runs itself again with LEAN_MANUAL_ROOT set to the answer (a
+  builtin_initialize is fixed at process start); the run asks again and finds them equal. Its
+  githash must equal the githash the oleans were written by. Any failure to ask, a githash
+  mismatch, or a root still differing under that LEAN_MANUAL_ROOT is a refusal by name.
+  `--identity` returns before any of this. The identity and staleness are unchanged: the answer is
+  a function of the old Lean and the environment, which the native run does not record either.
+  The refusal arms, run by hand once (not a gate item) with this run's reader, on a scratch
+  directory F holding only lib/lean/Init/Prelude.olean copied from the v4.32.2 toolchain, one
+  module (Init.Prelude) and --new /nonexistent (the ask comes before anything else is read); each
+  exit 1, nothing written:
+    no F/bin/lean             olean reader: refused: manual root: the version read takes
+                              Init.Prelude from F/lib/lean, and there is no F/bin/lean to ask for
+                              its manual root
+    F/bin/lean -> /usr/bin/false
+                              olean reader: refused: manual root: F/bin/lean was asked for
+                              Lean.manualRoot and exited 1:
+    F/bin/lean a stub printing githash 0000… and the 4.34.1 root (equal to the running Lean's,
+    so no re-run)             olean reader: refused: manual root: F/bin/lean is Lean
+                              0000000000000000000000000000000000000000, and the version read was
+                              written by Lean 4.32.2 (f3b06c705e6c85f5314019d5d3baab0fec5b580c)
+  The refusal for a failing `lean` carries only its stderr, and Lean prints its errors on stdout:
+  a third trial (F/bin/lean -> v4.34.1's lean, which cannot import the mixed lib/lean) refused
+  with the same empty reason.
+  The old toolchain's include/lean/version.h #defines the pre-configured root as data, but it is
+  only that half of the initializer; asking the old Lean runs the whole of it.
+  Cost (measured, this run): one `lean` per ask, 191-210 ms each; two asks per old version
+  (before the re-run and inside it): 197 + 198 ms (v4.32.2), 210 + 206 ms (v4.33.0),
+  199 + 191 ms (v4.33.1). The reader's wall is 99.1-99.6 s against 98.4-99.4 s before the fix.
+  Cold, the first ask after the toolchain was last used took 2.3 s (tools/reader-hybrid-gate.sh,
+  v4.32.2); a shell probe of the same program: 2.5-3.3 s cold, 0.16 s warm (5 runs, converged).
+
+DEFECT 2: A NEWEST-ONLY DEFAULT FUNCTION OF AN OLD STRUCTURE
+  Cause: Mathlib v4.34.1 added `preTransparency := .instances` to `structure
+  Convert.CheapConfig extends Congr!.Config` (Mathlib/Tactic/Convert.lean); v4.32.2 and v4.33.1
+  do not have it (fetched at the three tags). The newest Mathlib therefore has the constant
+  Convert.CheapConfig.preTransparency._default (.instances), the old ones only
+  ..._inherited_default (.reducible) (Lean/Elab/Structure.lean:1390-1392). The merge kept every
+  newest-only constant except realizations of old declarations, so the hybrid held both, and the
+  delaborator (Lean/PrettyPrinter/Delaborator/Builtins.lean, collectStructFields) asks
+  getEffectiveDefaultFnForField? (Lean/Structure.lean:316-318), which tries `_default` before
+  `_inherited_default`: it found the newest `.instances`, isDefEq against the old value
+  `.reducible` failed, and the field was printed. The newest Lean's printer behaves the same on the
+  same data; the data was not the old version's. Not drift.
+  Fix (Assemble.lean, rewriteMerge): a newest-only constant named <S>.<field>.<suffix>, where S is
+  an old constant and the suffix is one Lean's own mkDefaultFnOfProjFn /
+  mkInheritedDefaultFnOfProjFn / mkAutoParamFnOfProjFn appends, is dropped and counted
+  ("newest-only default and autoParam functions of old structures' fields dropped").
+  On M: 42 dropped (v4.32.2), 14 (v4.33.0), 14 (v4.33.1). On the sample: 10 on v4.31.0 and
+  v4.32.2, 1 on v4.33.0 and v4.33.1 (1 is the gate's own probe; the other 9, elsewhere in the
+  closure, were not listed by name).
+
+THE COMPARATOR (tools/lib/reader-compare.py --classify)
+  The structure-instance step ("native `{ }`, the hybrid prints the fields equal to their
+  defaults") was removed: it named as drift a case now shown to be a hybrid defect, and would
+  absorb a recurrence. A recurrence now lands in "cause not recognised". The exact mode is
+  unchanged.
+
+THE SAMPLE (tools/reader-hybrid-gate.sh), 22 of 22, exit 0
+  The gate writes its own module Example.ReaderProbe into each row's copy of e2e/micro (the sample
+  itself is not changed): a docstring linking lean-manual://section/tactic-macro-extension, and
+  `structure Cheap extends Base` whose field default only the newest row's copy overrides, with
+  `def withDefault (c : Cheap := { })`. New items: probe-manual-root, probe-structure-default,
+  refuse-ilean-imported, refuse-ilean-unknown, accept-ilean-imported.
+  Made to fail once, all in one build: the reader's Hybrid.lean and Assemble.lean at c2ed2d4 and
+  Check.lean's imported-parent branch inverted (an equal range refused, an unequal range and an
+  unknown name accepted); exit 1, 9 of 22 failed:
+    read-4.31.0 .. read-4.33.1  modules/Example.ReaderProbe.json differs at byte 130:
+                                native '2.2/find/?domain=...' reader '4.1/find/?domain=...'
+    probe-manual-root           v4.31.0: the native docstring links .../reference/4.31.0/, the
+                                reader's is "... (https://lean-lang.org/doc/reference/4.34.1/find/?...)"
+    probe-structure-default     v4.31.0: native ['(c : Cheap := { })'], the reader's
+                                ['(c : Cheap := { depth := 0 })'] (and the same on all four)
+    refuse-ilean-imported       reader extract exited 0 on the copy (Nat listed at
+                                [1233, 0, 1256, 24, ...], Init/Prelude.ilean gives [1233, 0, 1255, 24, ...])
+    refuse-ilean-unknown        reader extract exited 0 on the copy (Example.noSuchDeclaration listed)
+    accept-ilean-imported       reader extract exited 1 on the copy: ... Nat's range is [...] in
+                                Basic.ilean and [...] decoded from the .olean that declares it
+  With the fixes and Check.lean as committed: 22 of 22.
+  tools/mv-reader-gate.sh after the fixes: 12 of 12, exit 0 (588 s).
+
+AFTER THIS RUN
+--------------
+The refusal when the old lean fails to answer now carries its stdout too (Lean prints its errors
+there); no IR path changed. tools/reader-hybrid-gate.sh on that reader: 22 of 22, exit 0.

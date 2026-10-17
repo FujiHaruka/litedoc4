@@ -13,8 +13,9 @@
 #   3  every workflow that reaches something needing node installs node. The
 #      subject used to be `cargo`, because a build script ran vite; that left
 #      with `crates/`, and what needs node now is `tools/assets-gate.sh` — npm,
-#      npx biome, tsc, vitest and vite. A job without node fails inside one of
-#      those, and on the development machine the failure is exit 137 with no
+#      npx biome, tsc, vitest and vite — and every gate that runs a script of
+#      `benchmarks/tools` or `tools/oracle`. A job without node fails inside one
+#      of those, and on the development machine the failure is exit 137 with no
 #      output at all. Reached transitively, so a workflow that calls a script
 #      that calls the gate counts; and if nothing in the tree needs node the gate
 #      stops rather than reporting a rule with no subject as satisfied
@@ -58,7 +59,9 @@ problems = []
 # its own pattern, so the gate would count itself as needing node and demand it
 # of every workflow that runs it. Whatever spelling a future script uses has to
 # be added here, which is the cost of the rule being a grep rather than a run.
-NEEDS_NODE = r"(?m)(?:^|[|&;(])[ \t]*(?:npm|npx|node)[ \t]"
+# `"$NODE"` is the spelling of the gates that let NODE override which node runs,
+# and `exec` the one prefix a gate puts in front of it.
+NEEDS_NODE = r"(?m)(?:^|[|&;(])[ \t]*(?:exec[ \t]+)?(?:npm|npx|node|\"\$NODE\")[ \t]"
 # The path prefix varies: ci-placement.yml checks litedoc4 out into a
 # subdirectory, so it says `./litedoc4/.github/actions/setup-node`. Anchor on the
 # tail, and on `@` for the upstream action, so that `setup-nodeX` still fails.
@@ -98,11 +101,27 @@ if not workflows:
 # are run by `tools/e2e-micro.sh`, which a workflow runs. Stopping at the YAML
 # would call those two uninvoked and be wrong about it, which is how a gate
 # teaches people to ignore it.
+# The same holds for what a `cat` heredoc prints: e2e-micro.sh lists the gates
+# its retired steps moved to, and reading that list as calls made three
+# workflows "reach" mv-pages-gate.sh and owe it a node they never run.
+PRINTED = re.compile(r"\bcat[ \t]+<<-?[ \t]*['\"]?([A-Za-z_][A-Za-z0-9_]*)")
+
+
 def uncommented(path):
-    return "\n".join(
-        line for line in path.read_text(encoding="utf-8").splitlines()
-        if not line.lstrip().startswith("#")
-    )
+    kept = []
+    printing = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if printing is not None:
+            if line.strip() == printing:
+                printing = None
+            continue
+        if line.lstrip().startswith("#"):
+            continue
+        kept.append(line)
+        opened = PRINTED.search(line)
+        if opened:
+            printing = opened.group(1)
+    return "\n".join(kept)
 
 
 scripts = {p.name: uncommented(p) for p in sorted((root / "tools").glob("*.sh"))}

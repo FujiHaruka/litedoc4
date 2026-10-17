@@ -6,9 +6,8 @@ reads do not move, so every number here is an integer, and one full pass over a
 package is `modules` module-file reads.
 
 The counters are process-wide rather than threaded through the readers because
-the two stages that read the IR — `renderSite` and `buildGlobal` — are called
-from four commands and none of them would carry a counter for the one that
-reports it. -/
+the stages that read the IR are called from several commands and none of them
+would carry a counter for the one that reports it. -/
 
 namespace Litedoc4
 

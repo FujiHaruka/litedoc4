@@ -25,7 +25,7 @@ litedoc4 側に toolchain も lakefile も Mathlib も置かない (CLAUDE.md)�
 バイナリは対象の toolchain に対して作られるため、**別の対象には作り直しが要る**。
 
 直接叩く形 (`extract <modules.txt> <events.jsonl> [options]`) は `Extract.lean` の
-ヘッダにある。製品の呼び手は `litedoc4 extract` と `litedoc4 incremental --serve`。
+ヘッダにある。製品の呼び手は `litedoc4 extract` と `litedoc4 build` / `watch`。
 
 ## 表面で効いている約束
 
@@ -34,7 +34,7 @@ litedoc4 側に toolchain も lakefile も Mathlib も置かない (CLAUDE.md)�
 - **`--write-ir` は `--ir-dir` を必須にする**。既定は無く、`IR_DIR` 環境変数も読まない。
   欠けていたら**引数解析の時点で** exit 1 (`parseArgs`) — 抽出の最後まで走ってからでは、
   20 秒払った後に usage エラーが届く
-- **`--serve` は常駐経路**。使うのは `litedoc4 incremental --serve` で、
+- **`--serve` は常駐経路**。使うのは `litedoc4 build` / `watch` で、
   `litedoc4 extract` は `--serve*` を名指しで断る (`src/Litedoc4/Main.lean`)
 - **`leanc -rdynamic` は load-bearing**。`importModules (loadExts := true)` が
   Lean インタプリタでモジュール初期化子を走らせ、実行中の実行ファイルからシンボルを解決する
@@ -72,7 +72,7 @@ cd /path/to/lean-project && lake env /path/to/litedoc4/extractor/build/extract \
 | `--link-index-omit <modules.txt>` | ここに名前があるモジュールの**宣言群を書かない** (`@` 節には残す)。レンダラは自パッケージの名前を IR 由来の索引で先に解決するので、この 3.6% は読まれない — **落としてもサイトは 429/429 バイト一致**。落とす理由は速度ではなく、**そこだけが 1 モジュール編集で動く**ため (動くと `renderKey` が動き全ページ再描画になる) |
 | `--link-index-key <token>` | 地図の隣に `<path>.key` を置き、次回**トークン一致 + `#lidx2` マーカー一致 + `@` 節が現環境と一致**なら**走査ごと飛ばす**。トークンは呼び手が作る不透明文字列で、抽出器から見えないもの (依存 olean の同一性 = `extractKey`、omit 一覧の中身) を担う |
 
-製品側 (`litedoc4 build` / `incremental --serve`) は**両方を自動で渡す**ので、
+製品側 (`litedoc4 build` / `watch`) は**両方を自動で渡す**ので、
 利用者がこのフラグを意識することはない (`src/Litedoc4/Incr/Resident.lean`)。
 手で叩くときだけ意味がある。
 

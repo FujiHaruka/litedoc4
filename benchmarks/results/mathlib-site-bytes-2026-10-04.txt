@@ -1,0 +1,399 @@
+What the bytes of a Mathlib documentation site are — litedoc4 against doc-gen4's live site
+==========================================================================================
+2026-10-04
+
+What this answers
+-----------------
+1. Is a Mathlib site over 1 GB something litedoc4 does, or does doc-gen4's live site do it too?
+2. Which parts of a module page carry the size?
+
+Answers (measured):
+1. Both. doc-gen4's deployed site is 2,555,490,819 B in 11,672 files; its Mathlib module pages
+   alone are 1,069,790,161 B (8,595 pages). litedoc4's Mathlib module pages are 1,074,699,047 B
+   (8,170 pages). On the 5,877 modules with the same declaration count on both sites, litedoc4 is
+   1.051x doc-gen4 (574,423,383 B against 546,296,514 B).
+   doc-gen4's site is deployed to GitHub Pages and the deploy step succeeded (run 37166778803,
+   2026-10-04, conclusion success), although GitHub's documented limit for a published site is 1 GB.
+2. Signatures: 63.92% (litedoc4) / 65.28% (doc-gen4) of module page bytes. Tags are 89.88% /
+   89.41% of all page bytes; text is 9.99% / 10.52%.
+
+Conditions
+----------
+  machine        Apple M1, 16 GB, macOS (Darwin 25.6)
+  litedoc4       eacf8c9 (branch multi-version; src/ differs from ba2bd30 in 19 files, so page bytes
+                 are 1,074,699,047, not the 1,074,382,825 of mathlib-render-fixed-2026-10-03.txt)
+  mathlib        fabf563a7c95a166b8d7b6efca11c8b4dc9d911f (Lean v4.31.0); oleans from
+                 `lake exe cache get` (46 s) just before the build — partly warm, not controlled
+  build          the recipe in mathlib-render-fixed-2026-10-03.txt "Commands", same flags
+                 (--jobs 4, --source-url .../blob/fabf563a7c...); exit 0, 8,170 pages
+                 wall 493.3 s: extract 337.1, render 61.8, global 31.3; /usr/bin/time 493.30 real,
+                 1,028.29 user, 44.04 sys, max RSS 3,896,475,648 B, page faults 1,034,376. One run.
+  doc-gen4 site  the github-pages artifact of leanprover-community/mathlib4_docs run 37166778803
+                 (artifact 11290577150, 118,516,671 B zip, 2,571,888,640 B tar), Mathlib
+                 389347a7c1cf (read from its source links), doc-gen4 source read at 84a46571.
+                 A different Mathlib from the litedoc4 side: compare per module, not totals.
+  analysis       a Python pass over every html file of both sites (not committed); every table
+                 sums to its total with remainder 0. Spot-checked by hand with rg on the litedoc4
+                 site: 835,214 Lean core source links / 100,292,480 B with quoting / 1,733
+                 distinct URLs; 10,285,239 `<span class="fn">`.
+
+Summary of the levers (upper bounds, each as if that item went to zero; they overlap)
+--------------------------------------------------------------------------------------
+  signature wrappers <span class="fn">…</span>   10,285,239 x 24 B = 246,845,736 B (22.97%);
+                                                  doc-gen4 has the same density
+  Lean core source links on GitHub               835,214 links, ≈ 100.3 MB with quoting,
+                                                  1,733 distinct URLs; litedoc4 only (doc-gen4
+                                                  hosts Init/Lean/Std and links ≈ 36 B internally)
+  same-page links spelled as a full path          841,091 links, path part 46,590,145 B
+  `../` prefixes of relative links               40,318,819 B
+  "Used by" placeholder                          40,098,305 B; litedoc4 only
+
+doc-gen4's declarations/header-data.bmp (1,176,299,892 B) is JSON with 427,844 entries, one per
+declaration of every package on the site, each with its header HTML (996,148,588 B in total). It
+is an export for embedding in other pages; doc-gen4's own page scripts do not read it. litedoc4
+has no equivalent.
+
+Full tables as the analysis printed them
+----------------------------------------
+
+# ALL module pages: pages litedoc4 8,170, docgen4 8,595
+
+## Page sections (bytes, % of module-page bytes); remainder = bytes no rule claimed
+                                                                          litedoc4                 docgen4
+signature (binders + type)                                    686,929,261  63.92%    698,363,983  65.28%
+declaration kind + name heading                                93,810,857   8.73%    100,674,300   9.41%
+declaration source link                                        54,042,955   5.03%     61,070,611   5.71%
+on-this-page list (one link per declaration)                   46,054,784   4.29%     59,816,408   5.59%
+equations                                                      43,887,469   4.08%     38,989,719   3.64%
+used-by placeholder                                            40,098,305   3.73%              0   0.00%
+declaration wrapper (section/div tags, id, kind)               27,129,357   2.52%     28,130,585   2.63%
+declaration docstring                                          20,703,041   1.93%     19,529,933   1.83%
+module docstrings                                              14,496,497   1.35%     14,929,230   1.40%
+structure fields / constructors (signatures)                   12,292,781   1.14%     11,252,326   1.05%
+chrome: <head> (meta, title, css/js links, inline scripts)      4,157,485   0.39%     10,452,241   0.98%
+instances / instances-for placeholder                           6,110,364   0.57%      7,493,087   0.70%
+module imports / imported-by                                    6,819,175   0.63%      5,991,638   0.56%
+chrome: top bar (site title, search box, buttons)               6,099,544   0.57%      2,714,502   0.25%
+attributes line @[...]                                          3,709,727   0.35%      4,408,331   0.41%
+module title + module source link                               3,144,234   0.29%      3,303,396   0.31%
+chrome: sidebar frame / module-tree placeholder                 2,326,727   0.22%      1,494,012   0.14%
+chrome: page skeleton (html/body/main tags, skip link)          2,028,572   0.19%        507,105   0.05%
+structure field / constructor docstrings                          576,629   0.05%        668,754   0.06%
+flags (sorry / realized-by)                                       281,283   0.03%              0   0.00%
+remainder                                                               0   0.00%              0   0.00%
+TOTAL                                                       1,074,699,047 100.00%  1,069,790,161 100.00%
+  of which explicitly labelled "unattributed": {'litedoc4': 0, 'docgen4': 0}
+
+## Markup vs text
+                                                                          litedoc4                 docgen4
+tags (inside <...>)                                           965,973,799  89.88%    956,469,940  89.41%
+text (outside tags)                                           107,352,688   9.99%    112,534,423  10.52%
+raw <script> content                                            1,372,560   0.13%        785,798   0.07%
+remainder                                                               0   0.00%              0   0.00%
+TOTAL                                                       1,074,699,047 100.00%  1,069,790,161 100.00%
+
+## Bytes inside tags: attributes (name="value") and tag syntax; % of all page bytes
+                                                                          litedoc4                 docgen4
+attr href                                                     407,567,804  37.92%    359,763,860  33.63%
+tag syntax (names, <, >, /, spaces)                           298,245,076  27.75%    319,313,453  29.85%
+attr class                                                    213,115,934  19.83%    253,792,303  23.72%
+attr id                                                        13,517,968   1.26%     16,455,406   1.54%
+attr data-name                                                 15,321,957   1.43%              0   0.00%
+attr data-fill                                                  6,924,342   0.64%              0   0.00%
+attr data-kind                                                  5,547,724   0.52%              0   0.00%
+attr src                                                          194,579   0.02%      3,271,368   0.31%
+attr other                                                      2,462,450   0.23%      1,666,191   0.16%
+attr type                                                         212,420   0.02%        893,880   0.08%
+attr aria-label                                                   759,810   0.07%              0   0.00%
+attr rel                                                          212,420   0.02%        472,725   0.04%
+attr data-module                                                  437,145   0.04%              0   0.00%
+attr content                                                      367,650   0.03%        386,775   0.04%
+attr aria-hidden                                                  294,120   0.03%              0   0.00%
+attr title                                                        238,398   0.02%        256,294   0.02%
+attr name                                                         187,910   0.02%        197,685   0.02%
+attr data-root                                                    194,357   0.02%              0   0.00%
+attr hidden                                                       147,060   0.01%              0   0.00%
+attr data-flag                                                     24,675   0.00%              0   0.00%
+remainder (= text + raw script)                               108,725,248  10.12%    113,320,221  10.59%
+TOTAL                                                       1,074,699,047 100.00%  1,069,790,161 100.00%
+
+## href="..." bytes by target; % of all page bytes
+                                                                          litedoc4                 docgen4
+internal relative link                                        222,721,544  20.72%    265,520,455  24.82%
+github: dependency source (leanprover/lean4)                   94,445,982   8.79%              0   0.00%
+github: Mathlib own source                                     45,327,072   4.22%     47,326,167   4.42%
+quoting  href=""                                               34,000,903   3.16%     35,571,892   3.33%
+in-page #anchor                                                10,805,773   1.01%     11,292,082   1.06%
+github: dependency source (leanprover-community/batteries)        186,045   0.02%              0   0.00%
+other external                                                     50,240   0.00%         52,417   0.00%
+github: dependency source (leanprover-community/ProofWidge         10,849   0.00%              0   0.00%
+github: dependency source (leanprover-community/plausible)          8,777   0.00%              0   0.00%
+github: dependency source (leanprover-community/quote4)             4,494   0.00%              0   0.00%
+github: dependency source (leanprover-community/aesop)              3,947   0.00%              0   0.00%
+github: dependency source (leanprover-community/import-gra          1,085   0.00%              0   0.00%
+github: dependency source (b-mehta/maths-notes)                       308   0.00%            308   0.00%
+github: dependency source (leanprover-community/leanprover            125   0.00%            125   0.00%
+github: dependency source (leanprover-community/LeanSearch            124   0.00%              0   0.00%
+github: dependency source (thefundamentaltheor3m/Sphere-Pa            122   0.00%              0   0.00%
+github: dependency source (leanprover-community/mathlib)              119   0.00%            119   0.00%
+github: dependency source (leanprover-community/lean)                  77   0.00%             77   0.00%
+github: dependency source (fblanqui/color)                             74   0.00%             74   0.00%
+github: dependency source (b-mehta/topos)                              74   0.00%             74   0.00%
+github: dependency source (kmill/lean-graphcoloring)                   70   0.00%             70   0.00%
+remainder (non-href bytes)                                    667,131,243  62.08%    710,026,301  66.37%
+TOTAL                                                       1,074,699,047 100.00%  1,069,790,161 100.00%
+  litedoc4: href total 407,567,804 B; of internal relative link values: leading ../ and ./ prefix bytes 40,318,819 B; #fragment bytes 57,779,785 B; links to the page itself written as a full path: 841,091 links, path part 46,590,145 B
+  docgen4: href total 359,763,860 B; of internal relative link values: leading ../ and ./ prefix bytes 52,648,310 B; #fragment bytes 66,792,724 B; links to the page itself written as a full path: 873,136 links, path part 48,612,801 B
+
+## href="..." bytes by page section; % of all page bytes
+                                                                          litedoc4                 docgen4
+signature (binders + type)                                    277,597,447  25.83%    233,238,475  21.80%
+declaration source link                                        46,277,899   4.31%     48,305,671   4.52%
+declaration kind + name heading                                28,791,506   2.68%     30,267,948   2.83%
+equations                                                      22,499,649   2.09%     16,599,482   1.55%
+on-this-page list (one link per declaration)                   12,323,297   1.15%     12,904,371   1.21%
+structure fields / constructors (signatures)                    5,426,528   0.50%      4,156,892   0.39%
+declaration docstring                                           5,122,550   0.48%      5,225,109   0.49%
+module docstrings                                               4,132,500   0.38%      4,220,717   0.39%
+module imports / imported-by                                    2,895,931   0.27%      2,139,564   0.20%
+module title + module source link                               1,196,955   0.11%      1,260,041   0.12%
+chrome: <head> (meta, title, css/js links, inline scripts)        470,414   0.04%      1,205,823   0.11%
+chrome: sidebar frame / module-tree placeholder                   235,207   0.02%         94,545   0.01%
+chrome: top bar (site title, search box, buttons)                 235,207   0.02%              0   0.00%
+structure field / constructor docstrings                          139,738   0.01%        145,222   0.01%
+chrome: page skeleton (html/body/main tags, skip link)            122,550   0.01%              0   0.00%
+flags (sorry / realized-by)                                       100,426   0.01%              0   0.00%
+remainder (non-href bytes)                                    667,131,243  62.08%    710,026,301  66.37%
+TOTAL                                                       1,074,699,047 100.00%  1,069,790,161 100.00%
+
+## Per-page chrome (head + top bar + sidebar frame + skeleton)
+  litedoc4: chrome per page min 1,644 / median 1,786.0 / max 1,926 B; sum 14,612,328 B; distinct templates after replacing root and module name: 2 (largest group 8,169 pages); fixed bytes per page (template minus module name and root): min 1,609 / median 1,627.0 / max 1,627 B; sum of fixed bytes 13,292,572 B
+  docgen4: chrome per page min 1,562 / median 1,758 / max 1,952 B; sum 15,167,860 B; distinct templates after replacing root and module name: 1 (largest group 8,595 pages); fixed bytes per page (template minus module name and root): min 1,520 / median 1,520 / max 1,520 B; sum of fixed bytes 13,064,400 B
+
+## Page sizes
+  litedoc4: pages 8,170, total 1,074,699,047 B, mean 131,542 B, median 70,276.0 B, p90 330,473 B
+          1,993,587  Mathlib.CategoryTheory.Comma.StructuredArrow.Basic
+          1,739,796  Mathlib.CategoryTheory.Limits.Cones
+          1,728,848  Mathlib.CategoryTheory.Monoidal.Mon
+          1,702,516  Mathlib.CategoryTheory.Monoidal.Functor
+          1,453,874  Mathlib.CategoryTheory.Comma.Over.Basic
+          1,402,395  Mathlib.Algebra.Homology.ShortComplex.RightHomology
+          1,393,608  Mathlib.CategoryTheory.MorphismProperty.Comma
+          1,391,672  Mathlib.Algebra.Colimit.DirectLimit
+          1,382,750  Mathlib.CategoryTheory.Limits.Shapes.BinaryProducts
+          1,381,745  Mathlib.Geometry.Manifold.MFDeriv.Basic
+  docgen4: pages 8,595, total 1,069,790,161 B, mean 124,467 B, median 64,428 B, p90 312,126 B
+          2,051,314  Mathlib.CategoryTheory.Comma.StructuredArrow.Basic
+          1,779,474  Mathlib.CategoryTheory.Monoidal.Functor
+          1,734,974  Mathlib.CategoryTheory.Limits.Cones
+          1,707,196  Mathlib.CategoryTheory.Monoidal.Mon
+          1,465,823  Mathlib.Geometry.Manifold.MFDeriv.Basic
+          1,425,706  Mathlib.CategoryTheory.Comma.Over.Basic
+          1,406,117  Mathlib.CategoryTheory.MorphismProperty.Comma
+          1,382,144  Mathlib.CategoryTheory.Limits.Shapes.Pullback.Categorical.Basic
+          1,378,174  Mathlib.Algebra.Homology.ShortComplex.RightHomology
+          1,298,378  Mathlib.CategoryTheory.Limits.Shapes.Multiequalizer
+
+## Largest class="..." values by attribute bytes (top 15)
+  litedoc4:
+        102,852,390  9.57%  class="fn"  (n=10,285,239)
+         35,080,911  3.26%  class="binder implicit"  (n=1,525,257)
+         17,010,756  1.58%  class="name"  (n=1,417,563)
+          6,550,950  0.61%  class="binder"  (n=467,925)
+          5,973,120  0.56%  class="break_within"  (n=298,656)
+          5,121,363  0.48%  class="extra"  (n=393,951)
+          5,077,152  0.47%  class="decl-head"  (n=298,656)
+          5,077,152  0.47%  class="decl-name"  (n=298,656)
+          4,778,496  0.44%  class="sig-type"  (n=298,656)
+          4,066,829  0.38%  class="colon"  (n=312,833)
+          3,583,872  0.33%  class="decl"  (n=298,656)
+          3,583,872  0.33%  class="kind"  (n=298,656)
+          3,375,086  0.31%  class="src"  (n=306,826)
+          3,285,216  0.31%  class="sig"  (n=298,656)
+          1,257,295  0.12%  class="attrs"  (n=96,715)
+  docgen4:
+        107,888,250 10.08%  class="fn"  (n=10,788,825)
+         40,956,825  3.83%  class="decl_args"  (n=2,409,225)
+         25,745,408  2.41%  class="impl_arg"  (n=1,609,088)
+         17,750,412  1.66%  class="name"  (n=1,479,201)
+         12,453,600  1.16%  class="break_within"  (n=622,680)
+          5,915,460  0.55%  class="decl_header"  (n=311,340)
+          5,292,780  0.49%  class="decl_kind"  (n=311,340)
+          5,292,780  0.49%  class="decl_name"  (n=311,340)
+          5,292,780  0.49%  class="decl_type"  (n=311,340)
+          4,981,440  0.47%  class="nav_link"  (n=311,340)
+          4,670,100  0.44%  class="gh_link"  (n=311,340)
+          3,736,080  0.35%  class="decl"  (n=311,340)
+          3,538,050  0.33%  class="theorem"  (n=235,870)
+          1,821,312  0.17%  class="attributes"  (n=101,184)
+          1,105,884  0.10%  class="instances-for-list"  (n=42,534)
+
+## Bytes by tag token (top 15; open tags include their attributes)
+  litedoc4:
+        437,370,484 40.70%  <a>
+        269,792,931 25.10%  <span>
+        100,289,182  9.33%  </span>
+         32,463,928  3.02%  <details>
+         24,498,713  2.28%  <section>
+         19,345,204  1.80%  </a>
+         16,638,015  1.55%  <div>
+          7,952,966  0.74%  <header>
+          7,360,073  0.68%  <h2>
+          5,086,152  0.47%  </div>
+          4,102,910  0.38%  </summary>
+          4,102,910  0.38%  </details>
+          3,692,619  0.34%  <summary>
+          3,380,730  0.31%  <ul>
+          3,148,340  0.29%  </section>
+  docgen4:
+        392,482,638 36.69%  <a>
+        321,432,512 30.05%  <span>
+        118,439,692 11.07%  </span>
+         56,099,423  5.24%  <div>
+         20,170,040  1.89%  </a>
+         12,050,358  1.13%  </div>
+          4,914,309  0.46%  <script>
+          4,586,362  0.43%  <details>
+          3,711,407  0.35%  <ul>
+          2,309,907  0.22%  <li>
+          2,185,653  0.20%  <link>
+          2,175,404  0.20%  </code>
+          1,872,592  0.18%  <code>
+          1,161,310  0.11%  </summary>
+          1,161,310  0.11%  </details>
+
+# Intersection: modules with a page on both sites
+  common modules 8,078; only on litedoc4 92; only on docgen4 517
+  litedoc4: bytes over the intersection 1,073,005,833 B
+  docgen4: bytes over the intersection 1,029,340,743 B
+  per-page ratio litedoc4/docgen4: p10 0.969, median 1.047, p90 1.180, min 0.081, max 511.561; aggregate 1.042
+
+# INTERSECTION module pages: pages litedoc4 8,078, docgen4 8,078
+
+## Page sections (bytes, % of module-page bytes); remainder = bytes no rule claimed
+                                                                          litedoc4                 docgen4
+signature (binders + type)                                    686,108,661  63.94%    673,123,901  65.39%
+declaration kind + name heading                                93,654,512   8.73%     96,782,944   9.40%
+declaration source link                                        53,940,107   5.03%     58,702,778   5.70%
+on-this-page list (one link per declaration)                   45,985,786   4.29%     57,523,393   5.59%
+equations                                                      43,826,827   4.08%     37,459,429   3.64%
+used-by placeholder                                            40,023,905   3.73%              0   0.00%
+declaration wrapper (section/div tags, id, kind)               27,081,508   2.52%     27,057,712   2.63%
+declaration docstring                                          20,646,028   1.92%     18,741,017   1.82%
+module docstrings                                              14,472,261   1.35%     14,138,990   1.37%
+structure fields / constructors (signatures)                   12,287,097   1.15%     10,710,147   1.04%
+chrome: <head> (meta, title, css/js links, inline scripts)      4,111,162   0.38%      9,820,208   0.95%
+instances / instances-for placeholder                           6,099,731   0.57%      7,177,813   0.70%
+module imports / imported-by                                    6,762,416   0.63%      5,705,026   0.55%
+chrome: top bar (site title, search box, buttons)               6,031,046   0.56%      2,551,038   0.25%
+attributes line @[...]                                          3,701,304   0.34%      4,239,135   0.41%
+module title + module source link                               3,110,064   0.29%      3,101,986   0.30%
+chrome: sidebar frame / module-tree placeholder                 2,300,620   0.21%      1,403,962   0.14%
+chrome: page skeleton (html/body/main tags, skip link)          2,006,035   0.19%        476,602   0.05%
+structure field / constructor docstrings                          575,856   0.05%        624,662   0.06%
+flags (sorry / realized-by)                                       280,907   0.03%              0   0.00%
+remainder                                                               0   0.00%              0   0.00%
+TOTAL                                                       1,073,005,833 100.00%  1,029,340,743 100.00%
+  of which explicitly labelled "unattributed": {'litedoc4': 0, 'docgen4': 0}
+
+# Intersection restricted to modules whose page has the same number of declaration blocks on both sites: 5,877 of 8,078
+  declaration blocks: litedoc4 149,649, docgen4 149,649
+  litedoc4: bytes 574,423,383 B
+  docgen4: bytes 546,296,514 B
+  per-page ratio litedoc4/docgen4: p10 0.999, median 1.052, p90 1.165, min 0.761, max 1.616; aggregate 1.051
+
+# SAME-DECLARATION-COUNT intersection: pages litedoc4 5,877, docgen4 5,877
+
+## Page sections (bytes, % of module-page bytes); remainder = bytes no rule claimed
+                                                                          litedoc4                 docgen4
+signature (binders + type)                                    365,300,079  63.59%    353,985,342  64.80%
+declaration kind + name heading                                48,295,993   8.41%     49,579,432   9.08%
+on-this-page list (one link per declaration)                   24,298,955   4.23%     29,748,979   5.45%
+declaration source link                                        27,260,239   4.75%     29,504,440   5.40%
+equations                                                      24,283,074   4.23%     20,746,353   3.80%
+used-by placeholder                                            20,400,128   3.55%              0   0.00%
+declaration wrapper (section/div tags, id, kind)               13,891,956   2.42%     13,790,927   2.52%
+declaration docstring                                          11,453,966   1.99%     10,263,288   1.88%
+module docstrings                                               9,399,978   1.64%      9,234,794   1.69%
+chrome: <head> (meta, title, css/js links, inline scripts)      2,994,542   0.52%      7,153,229   1.31%
+structure fields / constructors (signatures)                    6,270,224   1.09%      5,988,394   1.10%
+module imports / imported-by                                    5,060,007   0.88%      4,322,040   0.79%
+chrome: top bar (site title, search box, buttons)               4,388,319   0.76%      1,856,232   0.34%
+instances / instances-for placeholder                           3,502,842   0.61%      4,120,217   0.75%
+module title + module source link                               2,270,483   0.40%      2,264,606   0.41%
+attributes line @[...]                                          1,733,758   0.30%      1,994,651   0.37%
+chrome: sidebar frame / module-tree placeholder                 1,674,045   0.29%      1,021,698   0.19%
+chrome: page skeleton (html/body/main tags, skip link)          1,462,456   0.25%        346,743   0.06%
+structure field / constructor docstrings                          335,311   0.06%        375,149   0.07%
+flags (sorry / realized-by)                                       147,028   0.03%              0   0.00%
+remainder                                                               0   0.00%              0   0.00%
+TOTAL                                                         574,423,383 100.00%    546,296,514 100.00%
+  of which explicitly labelled "unattributed": {'litedoc4': 0, 'docgen4': 0}
+
+# Non-page files (everything that is not a module page)
+
+  litedoc4: whole site 1,188,720,255 B in 8,183 files
+        1,074,699,047  90.41%   8,170 files  module pages (analysed above)
+          102,498,370   8.62%       2 files  non-html in declarations/ (.json)
+            5,128,001   0.43%       1 files  non-html in ./ (.bin)
+            3,633,237   0.31%       2 files  non-html in ./ (.json)
+            2,716,371   0.23%       5 files  other html (top dir .)
+               29,499   0.00%       1 files  non-html in ./ (.css)
+               15,370   0.00%       1 files  non-html in ./ (.js)
+                  360   0.00%       1 files  non-html in ./ (.svg)
+                    0   0.00%  remainder (other groups)
+    non-page files >= 1,000,000 B:
+           78,162,880  declarations/used-by.json
+           24,335,490  declarations/name-map.json
+            5,128,001  search-index.bin
+            2,626,517  instances.json
+            2,361,400  index.html
+            1,006,720  modules.json
+
+  docgen4: whole site 2,555,490,819 B in 11,672 files
+        1,244,069,344  48.68%       2 files  non-html in declarations/ (.bmp)
+        1,069,790,161  41.86%   8,595 files  module pages (analysed above)
+           93,660,652   3.67%     493 files  other html (top dir Std)
+           72,951,410   2.85%     652 files  other html (top dir Init)
+           44,045,231   1.72%   1,226 files  other html (top dir Lean)
+            9,239,260   0.36%     192 files  other html (top dir Batteries)
+            6,489,805   0.25%     135 files  other html (top dir Lake)
+            4,004,491   0.16%     131 files  other html (top dir Aesop)
+            3,510,198   0.14%      88 files  other html (top dir Archive)
+            2,260,434   0.09%      20 files  other html (top dir .)
+            1,513,975   0.06%      31 files  other html (top dir Counterexamples)
+            1,499,448   0.06%      35 files  other html (top dir ImportGraph)
+              932,909   0.04%      23 files  other html (top dir ProofWidgets)
+              548,649   0.02%      12 files  other html (top dir Plausible)
+              367,089   0.01%      13 files  other html (top dir Qq)
+              231,558   0.01%       1 files  non-html in ./ (.bib)
+              161,620   0.01%       4 files  non-html in ./ (.yaml)
+              140,582   0.01%       3 files  other html (top dir LeanSearchClient)
+               28,185   0.00%       2 files  other html (top dir docs)
+               22,719   0.00%      10 files  non-html in ./ (.js)
+               18,677   0.00%       1 files  non-html in ./ (.css)
+                4,021   0.00%       1 files  non-html in find/ (.js)
+                  235   0.00%       1 files  other html (top dir find)
+                  166   0.00%       1 files  non-html in ./ (.svg)
+                    0   0.00%  remainder (other groups)
+    non-page files >= 1,000,000 B:
+        1,176,299,892  declarations/header-data.bmp
+           67,769,452  declarations/declaration-data.bmp
+            7,691,686  Std/Data/DTreeMap/Internal/Lemmas.html
+            4,657,341  Std/Data/DTreeMap/Raw/Lemmas.html
+            4,654,031  Std/Data/Internal/List/Associative.html
+            4,473,940  Std/Data/DTreeMap/Lemmas.html
+            3,712,582  Std/Data/ExtDTreeMap/Lemmas.html
+            3,700,231  Std/Data/DHashMap/RawLemmas.html
+            3,598,609  Std/Data/DHashMap/Internal/RawLemmas.html
+            3,429,745  Std/Data/DHashMap/Lemmas.html
+            3,235,383  Std/Data/TreeMap/Raw/Lemmas.html
+            3,141,680  Std/Data/TreeMap/Lemmas.html
+            2,771,714  Init/Data/UInt/Lemmas.html
+            2,737,481  Std/Data/ExtDHashMap/Lemmas.html
+            2,640,209  Std/Data/ExtTreeMap/Lemmas.html
+            2,599,245  Init/Data/SInt/Lemmas.html
+            2,443,884  Std/Data/HashMap/RawLemmas.html
+            2,325,316  Std/Data/HashMap/Lemmas.html
+            1,971,598  Init/Data/BitVec/Lemmas.html
+            1,971,575  Init/Data/Array/Lemmas.html

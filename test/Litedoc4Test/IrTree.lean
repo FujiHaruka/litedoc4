@@ -10,6 +10,13 @@ def indexJson (schema : Nat) (ablations : List String) : String :=
     ++ ",".intercalate (ablations.map fun a => "\"" ++ a ++ "\"")
     ++ "],\"modules\":[],\"dependencyMaps\":[]}"
 
+def theIndexCarriesTheExtractorIdentity : Bool :=
+  match parseJson "{\"schemaVersion\":5,\"extractorIdentity\":\"schema=5 source=x\",\"modules\":[]}" with
+  | .ok j => (toIndex j).toOption.map (·.extractorIdentity) == some "schema=5 source=x"
+  | .error _ => false
+
+#guard theIndexCarriesTheExtractorIdentity
+
 def refuses {α : Type} (act : IO α) : IO Bool := do
   try
     let _ ← act

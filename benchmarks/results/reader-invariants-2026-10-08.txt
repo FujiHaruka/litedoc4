@@ -1,0 +1,76 @@
+date              2026-10-08T03:19:32Z
+host              Darwin 25.6.0 arm64 / Apple M1 / 16 GB
+=== the reader, on leanprover/lean4:v4.34.1
+  schema=5 source=fnv1a64:72f05375aa7cbc52 lean= leanGithash= equations=1 taggedCode=1 refs=1 skipAnalyze=0 ablations= open= only= noEquationsUnder= reader=fnv1a64:a3c17c77142cf2d1 readerLean=4.34.1 readerLeanGithash=5045d0056413266e57c625dcd7c365b10e377c52
+
+=== the sample, natively, on each row
+  v4.31.0: 11 modules extracted
+  v4.32.2: 11 modules extracted
+  v4.33.0: 11 modules extracted
+  v4.33.1: 11 modules extracted
+  v4.34.1: 11 modules extracted
+
+=== the reader against each native IR
+ITEM invariants-4.31.0 ok    closure 65642 of 65642 constants, 225423 references, 0 dangling; .ilean 611 of 611 modules (20339992 bytes), 31843 declarations equal, 0 disagree; not listed: no-parent 3775, in-theorem 45
+ITEM read-4.31.0 ok    14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.32.2 ok    closure 65721 of 65721 constants, 225881 references, 0 dangling; .ilean 613 of 613 modules (20365762 bytes), 31820 declarations equal, 0 disagree; not listed: no-parent 3776, in-theorem 45
+ITEM read-4.32.2 ok    14 IR files and the link index equal; reducibility spelling implicit_reducible -> instance_reducible applied 6 time(s), contentHash differs in 3 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.33.0 ok    closure 66441 of 66441 constants, 229243 references, 0 dangling; .ilean 643 of 643 modules (20703967 bytes), 32185 declarations equal, 0 disagree; not listed: no-parent 3820, in-theorem 45
+ITEM read-4.33.0 ok    14 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.33.1 ok    closure 66441 of 66441 constants, 229243 references, 0 dangling; .ilean 643 of 643 modules (20703967 bytes), 32185 declarations equal, 0 disagree; not listed: no-parent 3820, in-theorem 45
+ITEM read-4.33.1 ok    14 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+ITEM invariants-4.34.1 ok    closure 66632 of 66632 constants, 229886 references, 0 dangling; .ilean 661 of 661 modules (20873012 bytes), 32388 declarations equal, 0 disagree; not listed: no-parent 3821, in-theorem 44
+ITEM self-4.34.1 ok    14 IR files and the link index equal; reducibility spelling instance_reducible -> instance_reducible applied 0 time(s), contentHash differs in 0 module(s) exactly where the bytes do, identity as predicted
+
+=== the hard stops each reader run reported
+ITEM hard-stops ok    5 run(s), each: verso=0 builtin-doc=0 tactic-table=1 autoparam-old-only=0 autoparam-newest=0
+
+=== the flags the hybrid refuses
+ITEM refuse-dump-tactics ok    reader extract: --dump-tactics is refused: it lists the running Lean's tactic table, and the version read is not the running Lean
+ITEM refuse-tactics-emulate ok    reader extract: --tactics-emulate is refused: it runs doc-gen4's tactic collection over the running Lean's tables, and the version read is not the running Lean
+ITEM refuse-tactics-probe ok    reader extract: --tactics-probe is refused: it times the running Lean's tactic tables, and the version read is not the running Lean
+ITEM refuse-serve ok    reader extract: --serve is refused: a resident extractor re-imports natively, and the version read is not the running Lean
+
+=== the invariants refusing a corrupted copy
+ITEM refuse-dangling ok    Example.Dep imports ['Init', 'Init', 'Dep-Aux.Basic']; «Dep-Aux».Basic (entry 2) removed: reader extract: invariant failed, Lean 4.34.1 is not read: module Example.Dep: Example.usesDep mentions DepAux.marker, which no module of Lean 4.34.1's import closure declares (1 dangling reference(s) in all)
+ITEM refuse-ilean ok    Example.Colour: [39, 0, 45, 9, 41, 10, 41, 16] -> [39, 0, 46, 9, 41, 10, 41, 16]: reader extract: invariant failed, Lean 4.34.1 is not read: module Example.Basic: Example.Colour's range is [39, 0, 46, 9, 41, 10, 41, 16] in Basic.ilean and [39, 0, 45, 9, 41, 10, 41, 16] decoded from its .olean (1 disagreement(s) in all)
+
+=== summary
+items reported : 17 of 17
+failed         : 0
+READER HYBRID GATE: ok (17 of 17)
+
+=== notes (2026-10-08, the same M1, nothing else heavy running; one run each unless said)
+
+ilean format: Lean/Data/Lsp/Internal.lean has one md5 (0f27f984ba0ac10ffdbf71b71d801472) in
+v4.31.0, v4.32.0, v4.32.2, v4.33.0, v4.33.1 and v4.34.1; Lean/Server/References.lean differs between
+v4.32.2 and v4.33.0 only in two `open` lines. `Ilean.version` defaults to 5 in all six.
+
+cost on the sample (reader extract of each row, wall from /usr/bin/time -l, warm: wall ~ user+sys):
+  run without the checks (the item-3 reader), v4.33.0      22.18 / 21.86 s wall (2 runs)
+  run with the checks, v4.33.0                             22.20 / 22.64 s wall
+  decodeAll alone (temporary instrumentation, v4.33.0)     20.4-20.7 s, 7,447,461 decoded Expr objects
+  closure check, names recorded by the decoder             56-58 ms on every row (66,441-66,632 constants)
+  closure check as a separate walk of the decoded Exprs    3.29-3.34 s (2 runs, v4.33.0), same 229,243 references
+  .ilean check (JSON parse of every module's .ilean)       0.62-0.66 s for 20.3-20.9 MB, every row
+
+Mathlib target (lean-projects, leanprover/lean4:v4.31.0), sizes only, nothing run:
+  .ilean of every built package (8,616 modules)            269.0 MiB
+  .ilean of the whole v4.31.0 core (2,421 modules)          80.6 MiB  (the closure reads a part of it)
+  decoded old constants in U9 (mathlib-hybrid-full-extraction-2026-10-05.txt)  739,744 + 993 + 27,084
+
+without the checks, both corrupted copies are read: the item-3 reader with the same shadow
+directories exits 0 and writes events.jsonl, ir/ and links.lidx (v4.34.1 row).
+
+fail once: one gate run with the reader built from a sabotaged Hybrid.lean (the invariant
+failure never stops the run; the .ilean summary prints one module fewer), then restored
+byte for byte (diff against the saved copy, empty):
+ITEM invariants-4.31.0 FAIL  610 .ilean files compared of 611 modules read
+ITEM invariants-4.32.2 FAIL  612 .ilean files compared of 613 modules read
+ITEM invariants-4.33.0 FAIL  642 .ilean files compared of 643 modules read
+ITEM invariants-4.33.1 FAIL  642 .ilean files compared of 643 modules read
+ITEM invariants-4.34.1 FAIL  660 .ilean files compared of 661 modules read
+ITEM refuse-dangling FAIL  reader extract exited 0 on the copy (Example.Dep imports ['Init', 'Init', 'Dep-Aux.Basic']; «Dep-Aux».Basic (entry 2) removed), an invariant refusal exits 1
+ITEM refuse-ilean FAIL  reader extract exited 0 on the copy (Example.Colour: [39, 0, 45, 9, 41, 10, 41, 16] -> [39, 0, 46, 9, 41, 10, 41, 16]), an invariant refusal exits 1
+items reported : 17 of 17
+READER HYBRID GATE: FAILED (7 of 17 answered items)

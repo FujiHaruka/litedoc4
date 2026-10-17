@@ -1,0 +1,82 @@
+name: Mathlib site
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: mathlib-site
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      MATHLIB_SITE_WORK: /home/runner/mathlib-site
+      MATHLIB_SITE_URL: https://mathlib.fuji.land
+      R2_ACCOUNT_ID: ab236b68c2f6f5943bc40abfe51aba70
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-node
+
+      - name: rclone
+        run: |
+          curl -sSfLo "$RUNNER_TEMP/rclone.deb" https://downloads.rclone.org/v1.75.2/rclone-v1.75.2-linux-amd64.deb
+          echo "efbfe852181f7191eb3c9043ed1ab49c9b2d0ba045c61c926a5da111c939ec5c  $RUNNER_TEMP/rclone.deb" | sha256sum -c
+          sudo dpkg -i "$RUNNER_TEMP/rclone.deb"
+          rclone version
+
+      - name: free disk the run does not use
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
+
+      - name: install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: the version set
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/mathlib-site.sh versions
+
+      - name: litedoc4 and Mathlib's releases
+        run: tools/mathlib-site.sh setup
+
+      - name: restore the store
+        run: tools/mathlib-site.sh restore
+
+      - name: build every version
+        id: build
+        timeout-minutes: 320
+        run: tools/mathlib-site.sh build
+
+      - name: save the store
+        if: always() && steps.build.outcome != 'skipped'
+        run: tools/mathlib-site.sh save
+
+      - name: served-gate over the site on 127.0.0.1
+        run: tools/mathlib-site.sh local
+
+      - name: deploy
+        run: tools/mathlib-site.sh deploy
+
+      - name: served-gate and live-smoke-gate over the deployed site
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: tools/mathlib-site.sh live
+
+      - name: record the machine at the end
+        if: always()
+        run: |
+          df -h
+          free -m

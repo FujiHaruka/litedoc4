@@ -22,15 +22,15 @@ def linkWords : LinkResolver :=
       then some ("../" ++ n ++ ".html") else none,
     sourcePathToLink := fun _ => none }
 
-def wordCtx : Renderer := { root := "../", links := linkWords, bib := {} }
+def wordCtx : Renderer := { hrefs := .relative "../" linkWords, bib := {} }
 
 def render (md : String) : String :=
-  (docstring "" { root := "../", links := noLinks, bib := {} } md).run' {}
+  (docstring "" { hrefs := .relative "../" noLinks, bib := {} } md).run' {}
 
 def inline (md : String) : String :=
-  (inlineMd "" { root := "../", links := noLinks, bib := {} } md).run' {}
+  (inlineMd "" { hrefs := .relative "../" noLinks, bib := {} } md).run' {}
 
-def linked (s : String) : String := autoLinkInline "" wordCtx s
+def linked (s : String) : String := autoLinkInline "" linkWords s
 
 def textOf (t : Md.Text) (inLink : Bool) : String := (mdText "" wordCtx t inLink).run' {}
 
@@ -92,12 +92,12 @@ written and `http` is somebody else's site, so neither takes the root.
 The `http` test is `startsWith` and not a scheme check, so `httpfoo:` is left
 alone too. That is doc-gen4's behaviour and not a simplification of it. -/
 def aLinkTakesTheRootUnlessItIsAFragmentOrAnAbsoluteUrl : Bool :=
-  extendLink wordCtx "b.html" == "../b.html"
-    && extendLink wordCtx "http://x/y" == "http://x/y"
-    && extendLink wordCtx "httpfoo:z" == "httpfoo:z"
-    && extendLink wordCtx "#e" == "#e"
-    && extendLink wordCtx "##a" == "../a.html"
-    && extendLink wordCtx "##Nope.zz" == "../find/?pattern=Nope.zz#doc"
+  extendLink "../" linkWords "b.html" == "../b.html"
+    && extendLink "../" linkWords "http://x/y" == "http://x/y"
+    && extendLink "../" linkWords "httpfoo:z" == "httpfoo:z"
+    && extendLink "../" linkWords "#e" == "#e"
+    && extendLink "../" linkWords "##a" == "../a.html"
+    && extendLink "../" linkWords "##Nope.zz" == "../find/?pattern=Nope.zz#doc"
 
 #guard aLinkTakesTheRootUnlessItIsAFragmentOrAnAbsoluteUrl
 
@@ -162,7 +162,7 @@ def inlineIsOneParagraphOrElseTheAuthorsOwnCharacters : Invariant where
     eq (inline "# H") "# H",
     eq (inline "a\n\nb") "a\n\nb"]
 
-def citing (bib : Bibliography) : Renderer := { root := "../", links := noLinks, bib }
+def citing (bib : Bibliography) : Renderer := { hrefs := .relative "../" noLinks, bib }
 
 def citeWith (bib : Bibliography) (md : String) : String := (docstring "" (citing bib) md).run' {}
 

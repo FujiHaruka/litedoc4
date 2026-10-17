@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Is everything 1.x promised still there?
+# Is everything 2.x promised still there?
 #
 # The promise is tools/public-surface.txt. This reads the sources it is a promise
 # about and says which name went missing — a consumer's workflow, `litedoc4.toml`
@@ -10,7 +10,7 @@
 #   action.yml       the YAML itself, both directions. Data against data
 #   build / watch    the synopsis in src/Litedoc4/Main.lean, one direction. A
 #                    synopsis is text, so **on its own this says only that the
-#                    promised flag is spelled somewhere** — which is not what 1.x
+#                    promised flag is spelled somewhere** — which is not what 2.x
 #                    promised. What raises it to *accepted* is the second half of
 #                    the pair: `tools/flag-tie-gate.sh` hands every flag the
 #                    synopsis names to the binary and fails on `unknown argument`,
@@ -88,7 +88,7 @@ for line in action:
 for key in ("action-inputs", "action-outputs"):
     promised, actual = set(sections[key]), set(found[key])
     for name in sorted(promised - actual):
-        problems.append(f"action.yml has no {key[7:-1]} `{name}`, and 1.x promised it")
+        problems.append(f"action.yml has no {key[7:-1]} `{name}`, and 2.x promised it")
     for name in sorted(actual - promised):
         problems.append(
             f"action.yml declares {key[7:-1]} `{name}`, which is in no promise — "
@@ -137,7 +137,7 @@ for name in ("build", "watch"):
     for flag in sections[name]:
         if not re.search(rf"{re.escape(flag)}\b", text):
             problems.append(
-                f"`litedoc4 {name}` no longer offers `{flag}`, and 1.x promised it"
+                f"`litedoc4 {name}` no longer offers `{flag}`, and 2.x promised it"
             )
 
 # --- litedoc4.toml keys, against what the parser accepts ---------------------
@@ -157,7 +157,7 @@ accepted = set(re.findall(r'key == "(\w+)"', lean_parse))
 for key in sections["litedoc4.toml"]:
     if key not in accepted:
         problems.append(
-            f"`parseConfig` does not accept the litedoc4.toml key `{key}`, and 1.x "
+            f"`parseConfig` does not accept the litedoc4.toml key `{key}`, and 2.x "
             "promised it"
         )
 

@@ -158,6 +158,13 @@ code, pre, .sig, .tree, .toc a, .decl-name, kbd { font-family: var(--mono); }
 }
 .home:hover { color: var(--link); }
 
+.versions {
+  flex: none; height: 2.25rem; padding: 0 .4rem;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--bg); color: var(--fg-dim);
+  font-family: var(--mono); font-size: .8rem;
+}
+
 /* -- 5. search ----------------------------------------------------------- */
 
 .search { position: relative; margin-left: auto; flex: 1 1 12rem; max-width: 26rem; }
@@ -300,7 +307,7 @@ code, pre, .sig, .tree, .toc a, .decl-name, kbd { font-family: var(--mono); }
 }
 /* A marker in the gutter says "here" without repainting the block the reader
    came to read. */
-.decl:target::before {
+.decl:target::before, .decl.targeted::before {
   content: ""; position: absolute; left: calc(var(--gutter) - 1.4rem);
   top: 1.6rem; bottom: 1.9rem;
   width: 3px; background: var(--mark); border-radius: 2px;
@@ -625,7 +632,7 @@ body.plain .modhead h1 { font-size: clamp(1.75rem, 1.1rem + 2.6vw, 2.75rem); }
   /* The gutter costs the signature more width than the column is worth here. */
   .decl { padding-left: 0; }
   .decl-head .kind { position: static; width: auto; }
-  .decl:target::before { left: -.6rem; }
+  .decl:target::before, .decl.targeted::before { left: -.6rem; }
 
   .content { padding-top: 1.5rem; }
   .search { flex-basis: 7rem; }
@@ -641,6 +648,15 @@ body.plain .modhead h1 { font-size: clamp(1.75rem, 1.1rem + 2.6vw, 2.75rem); }
 /* `litedoc4.toml`'s `index`, rendered by the docstring renderer, so it reuses
    `.doc`'s typography and only needs to be told where it sits. */
 .intro { margin-block: 1.4rem; }
+
+/* -- 15b'. the footer ---------------------------------------------------- */
+
+.site-footer {
+  margin-top: 3rem; padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  color: var(--fg-dim); font-size: .85rem;
+  overflow-wrap: anywhere;
+}
 
 /* -- 15b. mathematics ---------------------------------------------------- */
 
@@ -737,7 +753,7 @@ mtr > mtd:last-child { padding-right: 0; }
   .topbar, .sidebar, .scrim, .skip { display: none; }
   .shell { grid-template-columns: 1fr; }
   .content { max-width: none; padding: 0; }
-  /* CSS cannot open a `<details>`; `app.js` opens them for `beforeprint`. */
+  /* CSS cannot open a `<details>`; `site.js` opens them for `beforeprint`. */
   .extra > summary, .imports > summary { color: var(--fg); }
   a { text-decoration: none; }
 }

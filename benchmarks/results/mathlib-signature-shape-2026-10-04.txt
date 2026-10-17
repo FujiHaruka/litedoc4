@@ -1,0 +1,78 @@
+How much of a Mathlib signature is text, and how far a page compresses
+======================================================================
+2026-10-04
+
+What this answers
+-----------------
+Signatures are 63.92% of litedoc4's Mathlib module page bytes
+(mathlib-site-bytes-2026-10-04.txt). Is that size the content, or the encoding of it?
+
+Answers (measured, one pass over all 8,170 module pages):
+  module pages                          1,074,699,047 B
+  same pages, each gzip -6 on its own      54,843,686 B   (19.6x smaller)
+  signature HTML (298,656 signatures)     686,929,261 B
+  same, gzip -6 per page                   20,079,454 B
+  signature readable text                  54,717,246 B   (7.97% of signature HTML)
+  same, gzip -6 per page                    6,905,159 B
+  links inside signatures                   3,450,604
+  <span> elements inside signatures        12,042,748   (≈ 40 per signature)
+  distinct link targets                        33,915   (last path segment with its #fragment;
+                                                         an undercount — modules of the same
+                                                         file name collide)
+
+Reading: the readable content of all signatures is 54.7 MB. The other 632 MB is markup: the span
+tree that carries each subterm's structure, and 3.45 M links of ≈ 100 B each.
+
+A token encoding of the same signatures — text, a 3-byte reference per link into a name table, and
+2 bytes per span for open and close — would be ≈ 54.7 + 10.4 + 24.1 ≈ 89 MB before compression
+(theoretical: the per-token sizes are assumed, nothing was encoded).
+
+Conditions
+----------
+  site      the litedoc4 Mathlib site of mathlib-site-bytes-2026-10-04.txt (Mathlib fabf563a7c,
+            litedoc4 eacf8c9), kept at /private/tmp/lean-doc-relay/wmathlib/out/site
+  machine   Apple M1, 16 GB; python3 3.9, zlib level 6
+  pages     every *.html under Mathlib/ plus Mathlib.html
+  signature every <div class="sig…"> element up to its matching </div>
+  text      tags stripped, entities unescaped, UTF-8 bytes
+
+Script
+------
+import os, re, sys, zlib, html, collections
+from multiprocessing import Pool
+SITE = sys.argv[1]
+OPEN = re.compile(rb'<div class="sig[" ]')
+DIV = re.compile(rb'<div\b|</div>')
+TAG = re.compile(rb'<[^>]*>')
+HREF = re.compile(rb'<a [^>]*href="([^"]*)"')
+SPAN = re.compile(rb'<span\b')
+def sigs(b):
+    out = []; i = 0
+    while True:
+        m = OPEN.search(b, i)
+        if not m: return out
+        depth = 0; j = m.start()
+        for d in DIV.finditer(b, m.start()):
+            depth += 1 if d.group() == b'<div' else -1
+            if depth == 0: j = d.end(); break
+        out.append(b[m.start():j]); i = j
+def page(p):
+    b = open(p, 'rb').read()
+    ss = sigs(b)
+    blob = b''.join(ss)
+    text = html.unescape(TAG.sub(b'', blob).decode('utf-8')).encode('utf-8')
+    hrefs = HREF.findall(blob)
+    return dict(page=len(b), page_gz=len(zlib.compress(b, 6)), sig=len(blob), sig_gz=len(zlib.compress(blob, 6)),
+                text=len(text), text_gz=len(zlib.compress(text, 6)), links=len(hrefs), spans=len(SPAN.findall(blob)),
+                nsig=len(ss), targets=set(h.rsplit(b'/', 1)[-1] for h in hrefs))
+def main():
+    files = [os.path.join(d, f) for d, _, fs in os.walk(SITE) for f in fs if f.endswith('.html') and (d.startswith(SITE + '/Mathlib') or f == 'Mathlib.html')]
+    tot = collections.Counter(); targets = set()
+    with Pool(8) as pool:
+        for r in pool.imap_unordered(page, files, chunksize=32):
+            targets |= r.pop('targets'); tot.update(r)
+    print('pages', len(files))
+    for k in ['page', 'page_gz', 'sig', 'sig_gz', 'text', 'text_gz', 'links', 'spans', 'nsig']: print(f'{k:8} {tot[k]:>15,}')
+    print('distinct link targets (last path segment incl. #frag)', len(targets))
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,173 @@
+Verso docstrings in Mathlib v4.34.1 and the packages it imports
+================================================================
+Date: 2026-10-04. Context: docs/multiversion/plan.md D10 — a Verso docstring's custom elements
+(`ElabBlock.custom` / `ElabInline.custom`, a `Dynamic` value) need a package's handler to become
+Markdown, so an own `.olean` reader can walk them but not render them alone. Question: how many
+Verso docstrings carry custom elements, in which packages, of which types, and do they carry a
+fallback `content`? (Lean's own comment on `Doc.Inline.custom`: "In contexts where `α` is not
+understood, `content` is used as a fallback.")
+
+CONDITIONS
+- Lean 4.34.1 (5045d0056413), Mathlib v4.34.1 (d13f23b723b8a846827a245b89c10fc7d3f11612),
+  Mathlib oleans from the cache, workspace <new-workspace>.
+- Apple M1, 16 GB RAM, macOS 26.6.2. One run: 76.70 s wall, 4.32 s user, 12.43 s sys, peak RSS
+  4,161,044,480 B (not warm by this repository's criterion; the subject is a count, which does
+  not depend on warmth).
+- Environment: `importModules #[Mathlib] (loadExts := true)` after `enableInitializersExecution`,
+  every entry read at level `.server`. Scope: the 10,744 modules Mathlib imports transitively —
+  so core is only the part of Init / Lean / Std / Lake that Mathlib reaches, not all of core.
+- Sampled first on 20 modules (Init only: 7 Verso declaration docstrings, all 7 with custom
+  inlines; types Const / LeanTerm / Local), then the full run.
+
+RESULT (measured; every module, no sampling)
+  columns: md = Markdown declaration docstrings, verso = Verso declaration docstrings,
+  v+c = Verso declaration docstrings with >= 1 custom element, v+d = with >= 1 deferred check,
+  mdmod = Markdown module docs, vmod = Verso module-doc snippets, vmod+c = snippets with custom,
+  cb / ci = custom blocks / inlines, cb+ci with empty fallback content, deferred = deferred checks
+
+  package            md   verso   v+c  v+d   mdmod  vmod vmod+c   cb    ci  empty  deferred
+  Aesop             367       0     0    0      18     0      0    0     0      0         0
+  Batteries        1624       0     0    0     193     0      0    0     0      0         0
+  ImportGraph        26       0     0    0       2     0      0    0     0      0         0
+  Init             5688     504   382   44    1170    23     13   20  1667      0        70
+  Lake                2       0     0    0       0     0      0    0     0      0         0
+  Lean             7548      44    14    1     291     1      0    0    33      0         1
+  LeanSearchClient    7       0     0    0       2     0      0    0     0      0         0
+  Mathlib         90663       0     0    0   12887     0      0    0     0      0         0
+  Plausible         131       0     0    0      14     0      0    0     0      0         0
+  ProofWidgets       97       0     0    0       8     0      0    0     0      0         0
+  Qq                 44       0     0    0       7     0      0    0     0      0         0
+  Std              4829      29    20    4     585     5      3    0    46      0         8
+
+  custom element types (all packages):
+    Lean.Doc.Data.LeanTerm    773  (Init 755, Lean 10, Std 8)
+    Lean.Doc.Data.Local       472  (Init 470, Lean 2)
+    Lean.Doc.Data.Const       489  (Init 430, Lean 21, Std 38)
+    Lean.Doc.Data.LeanBlock    20  (Init)
+    Lean.Doc.Data.ModuleName   12  (Init)
+  All five are core's own types (code references with elaboration data); no package outside
+  core defines one in this import closure.
+
+READING
+- Mathlib v4.34.1 has 0 Verso docstrings (90,663 declaration and 12,887 module docstrings, all
+  Markdown). So do Batteries, Aesop, Qq, ProofWidgets, Plausible, ImportGraph, LeanSearchClient.
+- Verso appears only in core (577 declaration docstrings, 29 module-doc snippets within
+  Mathlib's import closure), and every custom element there carries a non-empty fallback
+  `content` (0 empty of 1,766).
+- The method finds Verso where it exists (Init), so the 0 for Mathlib is not a walker that saw
+  nothing.
+
+NOT MEASURED
+- Older Mathlib versions (v4.29.0 – v4.34.0). In v4.31.0 – v4.32.x `ElabBlock` / `ElabInline`
+  had a different shape (a structure with a name and a `Dynamic`), so this script does not
+  compile there unchanged.
+- Core modules outside Mathlib's import closure; dependency docs are out of scope (plan D1b).
+
+SCRIPT (versocount.lean; run as `lake env lean --run versocount.lean [moduleLimit]`)
+import Lean
+open Lean
+
+structure Tally where
+  verso : Nat := 0
+  versoWithCustom : Nat := 0
+  versoWithDeferred : Nat := 0
+  markdown : Nat := 0
+  modDocMarkdown : Nat := 0
+  modDocVersoSnippets : Nat := 0
+  modDocVersoWithCustom : Nat := 0
+  customBlocks : Nat := 0
+  customInlines : Nat := 0
+  customEmptyFallback : Nat := 0
+  deferred : Nat := 0
+  byType : Std.HashMap Name Nat := {}
+  examples : Array Name := #[]
+
+structure Seen where
+  custom : Nat := 0
+  deferred : Nat := 0
+  emptyFallback : Nat := 0
+  blocks : Nat := 0
+  inlines : Nat := 0
+  types : Array Name := #[]
+
+abbrev W := StateM Seen
+
+def seeCustom (isBlock : Bool) (ty : Name) (empty : Bool) (s : Seen) : Seen :=
+  { s with
+    custom := s.custom + 1
+    blocks := s.blocks + (if isBlock then 1 else 0)
+    inlines := s.inlines + (if isBlock then 0 else 1)
+    types := s.types.push ty
+    emptyFallback := s.emptyFallback + (if empty then 1 else 0) }
+
+partial def walkInline : Doc.Inline ElabInline → W Unit
+  | .emph c | .bold c | .concat c | .link c _ | .footnote _ c => c.forM walkInline
+  | .other e c => do
+    match e with
+    | .custom v => modify (seeCustom false v.typeName c.isEmpty)
+    | .deferred _ => modify fun s => { s with deferred := s.deferred + 1 }
+    c.forM walkInline
+  | _ => pure ()
+
+partial def walkBlock : Doc.Block ElabInline ElabBlock → W Unit
+  | .para c => c.forM walkInline
+  | .ul items | .ol _ items => items.forM fun i => i.contents.forM walkBlock
+  | .dl items => items.forM fun i => do i.term.forM walkInline; i.desc.forM walkBlock
+  | .blockquote c | .concat c => c.forM walkBlock
+  | .other e c => do
+    match e with
+    | .custom v => modify (seeCustom true v.typeName c.isEmpty)
+    | .deferred _ => modify fun s => { s with deferred := s.deferred + 1 }
+    c.forM walkBlock
+  | _ => pure ()
+
+partial def walkPart (p : Doc.Part ElabInline ElabBlock Empty) : W Unit := do
+  p.title.forM walkInline; p.content.forM walkBlock; p.subParts.forM walkPart
+
+def absorb (t : Tally) (s : Seen) : Tally :=
+  { t with
+    customBlocks := t.customBlocks + s.blocks
+    customInlines := t.customInlines + s.inlines
+    customEmptyFallback := t.customEmptyFallback + s.emptyFallback
+    deferred := t.deferred + s.deferred
+    byType := s.types.foldl (fun m n => m.insert n (m.getD n 0 + 1)) t.byType }
+
+def main (args : List String) : IO Unit := do
+  let limit := (args.head? >>= String.toNat?).getD 1000000
+  unsafe Lean.enableInitializersExecution
+  let env ← importModules #[{ module := `Mathlib }] Options.empty (loadExts := true)
+  let mut tallies : Std.HashMap Name Tally := {}
+  let n := min limit env.header.moduleNames.size
+  for i in [0:n] do
+    let mod := env.header.moduleNames[i]!
+    let pkg := mod.getRoot
+    let mut t := tallies.getD pkg {}
+    t := { t with markdown := t.markdown + (docStringExt.getModuleEntries (level := .server) env i).size }
+    for (decl, d) in versoDocStringExt.getModuleEntries (level := .server) env i do
+      let ((), s) := (do d.text.forM walkBlock; d.subsections.forM walkPart).run {}
+      let t1 := { t with
+        verso := t.verso + 1
+        versoWithCustom := t.versoWithCustom + (if s.custom > 0 then 1 else 0)
+        versoWithDeferred := t.versoWithDeferred + (if s.deferred > 0 then 1 else 0)
+        examples := if s.custom > 0 && t.examples.size < 10 then t.examples.push decl else t.examples }
+      t := absorb t1 s
+    if let some docs := getModuleDoc? env mod then
+      t := { t with modDocMarkdown := t.modDocMarkdown + docs.size }
+    if let some snips := getVersoModuleDoc? env mod then
+      for sn in snips do
+        let ((), s) := (do sn.text.forM walkBlock; sn.sections.forM fun (x : Nat × DeclarationRange × Doc.Part ElabInline ElabBlock Empty) => walkPart x.2.2).run {}
+        let t1 := { t with
+          modDocVersoSnippets := t.modDocVersoSnippets + 1
+          modDocVersoWithCustom := t.modDocVersoWithCustom + (if s.custom > 0 then 1 else 0) }
+        t := absorb t1 s
+    tallies := tallies.insert pkg t
+  IO.println s!"modules scanned {n} of {env.header.moduleNames.size}"
+  IO.println "package\tmarkdown_decl_docs\tverso_decl_docs\tverso_with_custom\tverso_with_deferred\tmarkdown_mod_docs\tverso_mod_snippets\tverso_mod_with_custom\tcustom_blocks\tcustom_inlines\tcustom_empty_fallback\tdeferred"
+  let rows := tallies.toArray.qsort (fun a b => a.1.toString < b.1.toString)
+  for (pkg, t) in rows do
+    IO.println s!"{pkg}\t{t.markdown}\t{t.verso}\t{t.versoWithCustom}\t{t.versoWithDeferred}\t{t.modDocMarkdown}\t{t.modDocVersoSnippets}\t{t.modDocVersoWithCustom}\t{t.customBlocks}\t{t.customInlines}\t{t.customEmptyFallback}\t{t.deferred}"
+  for (pkg, t) in rows do
+    for (ty, c) in t.byType.toArray.qsort (fun a b => a.2 > b.2) do
+      IO.println s!"type\t{pkg}\t{ty}\t{c}"
+    for e in t.examples do
+      IO.println s!"example\t{pkg}\t{e}"

@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-env --allow-run
+#!/usr/bin/env node
 //
 // Reads a module-granular IR tree and measures how long that takes. Schema 2
 // (the positional span lists) is read by the same code path — see "Schema 2"
@@ -13,15 +13,15 @@
 // `importModules` floor, the split would be paying for itself twice.
 //
 // usage:
-//   read-ir.ts [--ir <dir>] [--runs N] [--standalone N] [--json <out>]
+//   node read-ir.ts [--ir <dir>] [--runs N] [--standalone N] [--json <out>]
 //              [--verify-hashes] [--note <line>]...
 //
 //   --ir        IR root written by `experiments/stage4/run.sh --write-ir` (tag
 //               `experiments-frozen`), default $IR_DIR, else the path below
 //   --runs      repetitions (default 7); run 1 is dropped as page-cache cold
 //   --standalone N  repeat with one fresh process per read as a cross-check
-//                   (default 0 = off; needs --allow-run)
-//   --json      also write a machine-readable summary here (needs --allow-write)
+//                   (default 0 = off)
+//   --json      also write a machine-readable summary here
 //   --verify-hashes  recompute each module's content hash and compare with the
 //               index. Off by default: it is not part of what a consumer pays,
 //               and it would inflate the read time being reported.
@@ -40,7 +40,10 @@
 // span walk is behind `schemaVersion >= 2`, so a schema-1 IR takes exactly the
 // code path it took before and must produce exactly the same counts.
 
-const args = Deno.args.slice();
+import { spawnSync } from "node:child_process";
+import { readFile, stat, writeFile } from "node:fs/promises";
+
+const args = process.argv.slice(2);
 const opt = (name: string, dflt: string) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : dflt;
@@ -55,12 +58,7 @@ const has = (name: string) => args.includes(name);
 const DEFAULT_IR =
   "/private/tmp/claude-502/-Users-haruka-dev-litedoc4/3db6b213-b50d-48cb-a16b-16df93b5f009/scratchpad/ir";
 
-let envIr = "";
-try {
-  envIr = Deno.env.get("IR_DIR") ?? "";
-} catch { /* --allow-env not granted */ }
-
-const IR = opt("--ir", envIr || DEFAULT_IR);
+const IR = opt("--ir", process.env.IR_DIR || DEFAULT_IR);
 const RUNS = Number(opt("--runs", "7"));
 const STANDALONE = Number(opt("--standalone", "0"));
 const JSON_OUT = opt("--json", "");
@@ -131,7 +129,7 @@ function tallySpans(t: Totals, spans: Span[]): void {
 }
 
 async function readAll(): Promise<Totals> {
-  const indexText = await Deno.readTextFile(`${IR}/index.json`);
+  const indexText = await readFile(`${IR}/index.json`, "utf8");
   const index: Index = JSON.parse(indexText);
   const tagged = index.schemaVersion >= 2;
   // Byte counts come from the index, which the writer filled in with
@@ -158,7 +156,7 @@ async function readAll(): Promise<Totals> {
   };
   const uniqueRefs = new Set<string>();
   for (const entry of index.modules) {
-    const mod = JSON.parse(await Deno.readTextFile(`${IR}/${entry.file}`));
+    const mod = JSON.parse(await readFile(`${IR}/${entry.file}`, "utf8"));
     t.bytesRead += entry.bytes;
     t.modules++;
     t.imports += mod.imports.length;
@@ -182,7 +180,7 @@ async function readAll(): Promise<Totals> {
   }
   t.refsUnique = uniqueRefs.size;
   for (const dep of index.dependencyMaps) {
-    const map = JSON.parse(await Deno.readTextFile(`${IR}/${dep.file}`));
+    const map = JSON.parse(await readFile(`${IR}/${dep.file}`, "utf8"));
     t.bytesRead += dep.bytes;
     t.depPackages++;
     t.depEntries += Object.keys(map.declarations).length;
@@ -198,7 +196,7 @@ if (child >= 0) {
   const t = await readAll();
   const t1 = performance.now();
   console.log(`${((t1 - t0) / 1000).toFixed(4)} ${t.declarations} ${t.bytesRead}`);
-  Deno.exit(0);
+  process.exit(0);
 }
 
 const median = (xs: number[]) => {
@@ -211,23 +209,23 @@ const mib = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MiB`;
 const out: string[] = [];
 const say = (s = "") => out.push(s);
 
-const indexStat = await Deno.stat(`${IR}/index.json`).catch(() => null);
+const indexStat = await stat(`${IR}/index.json`).catch(() => null);
 if (!indexStat) {
   console.error(
     `no index.json under ${IR} — this reader wants the schema-2 IR that ` +
       `experiments/stage4/run.sh --write-ir produced. That script only exists at tag ` +
       `experiments-frozen; the product writes schema 4, which this reader does not parse.`,
   );
-  Deno.exit(1);
+  process.exit(1);
 }
-const index: Index = JSON.parse(await Deno.readTextFile(`${IR}/index.json`));
+const index: Index = JSON.parse(await readFile(`${IR}/index.json`, "utf8"));
 
 say(`# read-ir — reading the stage-4 IR without starting Lean`);
 say();
 say(`date              ${new Date().toISOString().replace(/\.\d+Z$/, "Z")}`);
 say(`ir                ${IR}`);
 say(`written           ${indexStat.mtime?.toISOString().replace(/\.\d+Z$/, "Z") ?? "?"}`);
-say(`deno              ${Deno.version.deno} / V8 ${Deno.version.v8}`);
+say(`node              ${process.versions.node} / V8 ${process.versions.v8}`);
 say(`schemaVersion     ${index.schemaVersion}`);
 say(`generator         ${index.generator}`);
 say(`leanVersion       ${index.leanVersion}`);
@@ -303,12 +301,8 @@ if (STANDALONE > 0) {
   const self = new URL(import.meta.url).pathname;
   const rows: number[] = [];
   for (let i = 0; i < STANDALONE; i++) {
-    const cmd = new Deno.Command(Deno.execPath(), {
-      args: ["run", "--allow-read", "--allow-env", self, "--ir", IR, "--read-once"],
-      stdout: "piped",
-    });
-    const res = await cmd.output();
-    const [secs] = new TextDecoder().decode(res.stdout).trim().split(/\s+/);
+    const res = spawnSync(process.execPath, [self, "--ir", IR, "--read-once"], { encoding: "utf8" });
+    const [secs] = res.stdout.trim().split(/\s+/);
     rows.push(Number(secs));
   }
   const w = rows.slice(1);
@@ -332,7 +326,7 @@ if (has("--verify-hashes")) {
   // verified on the Lean side by re-running the extractor and diffing the tree.
   let sizeMismatch = 0;
   for (const e of index.modules) {
-    const st = await Deno.stat(`${IR}/${e.file}`);
+    const st = await stat(`${IR}/${e.file}`);
     if (st.size !== e.bytes) sizeMismatch++;
   }
   say(`## Index cross-check (実測)`);
@@ -345,13 +339,13 @@ const text = out.join("\n") + "\n";
 console.log(text);
 
 if (JSON_OUT) {
-  await Deno.writeTextFile(
+  await writeFile(
     JSON_OUT,
     JSON.stringify(
       {
         ir: IR,
-        deno: Deno.version.deno,
-        v8: Deno.version.v8,
+        node: process.versions.node,
+        v8: process.versions.v8,
         schemaVersion: index.schemaVersion,
         leanVersion: index.leanVersion,
         runs: RUNS,

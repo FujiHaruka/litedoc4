@@ -1,0 +1,1006 @@
+How often the .olean data layouts changed across the Lean versions of Mathlib's releases
+========================================================================================
+2026-10-04
+
+What this answers
+-----------------
+docs/multiversion/plan.md D10 chose an own `.olean` reader running in one Lean. The reader walks
+the compacted object graph generically (every object carries its tag, object-field count and
+scalar size); what it must know per Lean version is how to *interpret* the objects. Question:
+between consecutive Lean versions used by Mathlib v4.29.0 .. v4.34.1, how many times did anything
+the reader interprets change, and of what kind?
+
+Answer (10 adjacent pairs, v4.29.0 -> v4.34.1)  (measured: source diffs on all 10 pairs,
+reflection on the 5 installed toolchains; see "Which pairs are validated how")
+  pairs with >= 1 layout change                      3 of 10   (v4.29.1->v4.30.0, v4.30.0->v4.31.0,
+                                                                v4.32.2->v4.33.0)
+    of them, changing the representation of an
+    object the reader decodes (not just which
+    extensions exist or which file holds them)       2 of 10   (v4.30.0->v4.31.0, v4.32.2->v4.33.0)
+  pairs with >= 1 meaning change                     1 of 10   (v4.32.2->v4.33.0: ReducibilityStatus)
+  pairs with no change at all                        7 of 10   (all 5 patch pairs, v4.31.0->v4.32.0,
+                                                                v4.33.1->v4.34.0)
+  .olean header / compactor object encoding          0 changes in 10 pairs
+  ModuleData and the .olean/.olean.server/
+  .olean.private split                               0 changes in 10 pairs
+  Name / Level / Expr / Literal / BinderInfo /
+  ConstantInfo and every *Val, incl. computed
+  fields, Expr.Data / Level.Data and hashes          0 changes in 10 pairs
+  commits touching the component files judged
+  cosmetic                                           178 (per-range count; release-branch
+                                                         backports appear in two ranges)
+
+The positive control (implicit_reducible -> instance_reducible, tools/lean-toolchains.txt column 2)
+is found by all three methods, in v4.32.2 -> v4.33.0 — see "Positive control".
+
+Conditions
+----------
+  date                 2026-10-04
+  hardware             Apple M1, 17,179,869,184 bytes (16 GiB) RAM, macOS 26.6.2
+  Lean source          blobless clone of github.com/leanprover/lean4, one sparse checkout
+                       (src/{Lean,Init,runtime,library,kernel,util,include}, src/Std/Data/{DHashMap,
+                       DTreeMap,HashMap,TreeMap,TreeSet}) copied per tag to <scratch>/lean4-src-tags
+  Lean tags            v4.28.0  7e01a1bf5c70fc6167d49c345d3bf80596e9a79b   (optional extra pair only)
+                       v4.29.0  98dc76e3c0a9b856c9b98726b713fb04fab16740
+                       v4.29.1  f72c35b3f637c8c6571d353742168ab66cc22c00
+                       v4.30.0  d024af099ca4bf2c86f649261ebf59565dc8c622
+                       v4.31.0  68218e876d2a38b1985b8590fff244a83c321783
+                       v4.32.0  8c9756b28d64dab099da31a4c09229a9e6a2ef35
+                       v4.32.1  f054605aea4b840552cca2e725580bffd1e1b704
+                       v4.32.2  f3b06c705e6c85f5314019d5d3baab0fec5b580c
+                       v4.33.0  d8b18978322de05a8f3dba51ef03cf5461676c17
+                       v4.33.1  819816b2e0a3bf405af45ae5c7af2491d8f5bee6
+                       v4.34.0  293d5d0c0c3f3dded4688b3ccd6a33939ac5102b
+                       v4.34.1  5045d0056413266e57c625dcd7c365b10e377c52
+  reflection on        leanprover/lean4:v4.31.0, v4.32.2, v4.33.0, v4.33.1, v4.34.1 (elan release
+                       builds, arm64-apple-darwin; each `lean --version` commit equals the tag SHA
+                       above, and so does the githash in each toolchain's .olean headers)
+  not installed        v4.29.0, v4.29.1, v4.30.0, v4.32.0, v4.32.1, v4.34.0 (and v4.28.0) — not
+                       installed for this, per instruction (disk)
+  run times            reflection script ~7 s per toolchain; olean-parts script 5.5–10.8 s wall,
+                       1.7–2.5 GB peak RSS per toolchain (2,421–2,520 modules each); facts script
+                       ~9 s per toolchain. Single runs: these are deterministic answers, not timings.
+
+Which pairs are validated how
+-----------------------------
+  pair                 source diff   reflection
+  v4.29.0 -> v4.29.1   yes           no (neither toolchain installed)
+  v4.29.1 -> v4.30.0   yes           no
+  v4.30.0 -> v4.31.0   yes           no (v4.30.0 not installed)
+  v4.31.0 -> v4.32.0   yes           aggregate only: v4.31.0 -> v4.32.2 covers 3 pairs
+  v4.32.0 -> v4.32.1   yes           aggregate only (same)
+  v4.32.1 -> v4.32.2   yes           aggregate only (same)
+  v4.32.2 -> v4.33.0   yes           exact
+  v4.33.0 -> v4.33.1   yes           exact
+  v4.33.1 -> v4.34.0   yes           aggregate only: v4.33.1 -> v4.34.1 covers 2 pairs
+  v4.34.0 -> v4.34.1   yes           aggregate only (same)
+Reflection and source reading agree on every pair reflection covers; there was no disagreement to
+resolve. An aggregate that reflection shows as unchanged (31.0->32.2, 33.1->34.1) can still hide a
+change that was made and reverted inside it; the source diffs per pair found none.
+
+The derived list of components
+------------------------------
+A. The .olean header and the compactor's object encoding
+   src/library/module.cpp (olean_header, lean_compacted_region_save/read; before v4.31.0
+   lean_save/read_module_data_parts), src/runtime/compact.{cpp,h}, src/runtime/object.{h,cpp},
+   src/include/lean/lean.h (lean_object header, object kinds, ctor/array/sarray/string/mpz layouts),
+   src/Lean/CompactedRegion.lean (new in v4.31.0), src/runtime/hash.{h,cpp}.
+B. ModuleData and the per-module files
+   ModuleData {isModule, imports, constNames, constants, extraConstNames, entries}, Import,
+   OLeanLevel, OLeanEntries (v4.30.0+), mkModuleData, computeExtEntries (v4.30.0+), writeModule,
+   save/readModuleDataParts; the export functions of the extension wrappers
+   (registerSimplePersistentEnvExtension, mkMapDeclarationExtension, mkTagDeclarationExtension,
+   registerTagAttribute, registerParametricAttribute, registerEnumAttributes,
+   registerScopedEnvExtensionUnsafe), which decide which of the three files holds an entry.
+C. Kernel data: Name, Level, Expr, Literal, BinderInfo, ConstantInfo, ConstantVal, AxiomVal,
+   DefinitionVal, TheoremVal, OpaqueVal, QuotVal, InductiveVal, ConstructorVal, RecursorVal,
+   RecursorRule, ReducibilityHints, DefinitionSafety, QuotKind, plus what they reach (MData = KVMap,
+   DataValue, Syntax, SourceInfo, Syntax.Preresolved, FVarId, MVarId, LMVarId, LevelMVarId).
+   Computed fields and packed data: Name.hash, Level.data, Expr.data; Expr.mkData /
+   mkAppData / mkDataForBinder / mkDataForLet, Level.mkData (Lean side: opaque externs) and their C++
+   (src/kernel/expr.cpp, level.cpp, util/name.cpp), lean_string_hash, MurmurHash64A, mix_hash;
+   Name.quickCmp (the sort order of every sorted entry array — binary search depends on it).
+D. Environment extensions, derived from extractor/Extract.lean (the extractor call -> the extension
+   -> the entry type stored in the .olean). Tier 1 = read directly by the extractor's calls:
+     getStructureInfo?, getStructureParentInfo, findField?, getFieldInfo?,
+     getStructureFieldsFlattened, getProjFnForField?, isStructure
+                               -> structureExt (private)            StructureInfo (+ StructureFieldInfo,
+                                                                     StructureParentInfo)
+     findDeclarationRanges?    -> declRangeExt                      Name x DeclarationRanges
+                                  (+ isAuxRecursor/isNoConfusion/isRec inside it)
+     isAuxRecursor             -> auxRecExt                         Name (tag)
+     isNoConfusion             -> noConfusionExt                    Name x NoConfusionInfo
+     isMatcher                 -> Meta.Match.Extension.extension    Match.Extension.Entry (MatcherInfo,
+                                                                     AltParamInfo, DiscrInfo, Overlaps)
+     isRec                     -> none (ConstantInfo.recInfo)
+     instanceExtension.getState (isInstanceDecl, getInstPriority)
+                               -> Meta.instanceExtension            ScopedEnvExtension.Entry InstanceEntry
+                                                                     (InstanceKey = DiscrTree.Key, AttributeKind)
+     getDefaultInstances       -> Meta.defaultInstanceExtension     DefaultInstanceEntry
+     isClass / isClass?        -> classExtension                    ClassEntry
+     getTags                   -> unboxAttr, neverExtractAttr, elabWithoutExpectedTypeAttr,
+                                  matchPatternAttr                  Name (tag attributes)
+     getEnumValues             -> Compiler.inlineAttrs              Name x InlineAttributeKind
+     getParametricValues       -> externAttr (ExternAttrData, ExternEntry), implementedByAttr (Name),
+                                  exportAttr (Name), specializeAttr (Array Nat),
+                                  Linter.deprecatedAttr (DeprecationEntry)
+     simpExtension.getTheorems -> Meta.simpExtension                ScopedEnvExtension.Entry SimpEntry
+                                                                     (SimpTheorem, Origin, DiscrTree.Key)
+     hasCSimpAttribute         -> Compiler.CSimp.ext                CSimp.Entry
+     getReducibilityStatus / toAttrString
+                               -> reducibilityCoreExt (registered as `reducibilityCore`),
+                                  reducibilityExtraExt (`reducibilityExtra`)
+                                                                    Name x ReducibilityStatus
+     findDocString?            -> docStringExt (String), inheritDocStringExt (Name, private),
+                                  versoDocStringExt (VersoDocString: Doc.Block/Inline/Part, ElabBlock,
+                                  ElabInline, Dynamic), tacticAlternativeExt, tacticDocExtExt,
+                                  recommendedSpellingByNameExt / recommendedSpellingExt
+                                  (RecommendedSpelling); from v4.33.0 also docInlineMdExt,
+                                  docBlockMdExt, deferredCheckExt, DeferredCheck.handlerExt (Verso ->
+                                  Markdown rendering)
+     isExtTheorem              -> Meta.Ext.extExtension             ExtTheorem
+     isNoncomputable           -> noncomputableExt                  Name (tag)
+     collectAxioms             -> exportedAxiomsExt (private; v4.30.0+)
+                                                                    Name x Array Name
+     getModuleDoc?             -> moduleDocExt (private)            ModuleDoc (DeclarationRange)
+     allTacticDocs, firstTacticTokens, getTacticExtensions, alternativeOfTactic
+                               -> tacticTagExt, tacticNameExt, tacticDocExtExt, tacticAlternativeExt
+                                  (pairs of Name/String), parserExtension
+                                  (ParserExtension.OLeanEntry: token/kind/category/parser)
+     header.moduleData[i].imports / constNames, getModuleIdxFor?
+                               -> ModuleData, Import (component B)
+     isPrivateName             -> the `_private.<module>.0.` name encoding (Lean/PrivateName.lean)
+   Tier 2 = per-constant facts a printer consults if the reader rebuilds an Environment for the
+   newest Lean's pretty printer (conditional on D10's "print with the newest Lean"): protectedExt,
+   namespacesExt, aliasExtension (AliasEntry = Name x Name), projectionFnInfoExt
+   (ProjectionFunctionInfo), Meta.coeExt (CoeFnInfo, CoeFnType), Meta.coeDeclAttr; and for
+   getEqnsFor?: Elab.WF / Structural / PartialFixpoint eqnInfoExt (EqnInfo, ArgsPacker,
+   FixedParamPerms, PartialFixpointType), Meta.Eqns eqnOptionsExt (v4.31.0+), plus matcher info.
+   Not descended into, by design: delaborator / unexpander / formatter / parenthesizer / parser-table
+   extensions — in D10's design Mathlib's notation comes from the newest Mathlib.
+   Not data at all: getEqnsFor? (Meta computation), firstTacticTokens (evaluates parser tables), the
+   v4.33.0+ Verso -> Markdown rendering (runs handler code), ppExpr, inferType, whnf.
+E. The type closure of B–D as Lean itself sees it: 112 inductive types and aliases, 227 constructors
+   (230 from v4.33.0), each with its IR constructor layout (`getCtorLayout`; for Name/Level/Expr the
+   `<ctor>._impl` constructor, which carries the computed field first) — listed by the reflection
+   script below.
+
+Changes, one row per pair x component (layout and meaning only)
+---------------------------------------------------------------
+Kinds: layout = representation or presence changed; meaning = same layout, different
+interpretation or different value written. "placement" is a layout change in which of the three
+files holds an entry; `.olean.private` holds every entry — measured on the 5 installed toolchains
+(core library), and read from the wrappers' export functions for the other tags — so a reader that
+loads all three parts in order is unaffected by placement changes.
+
+v4.29.0 -> v4.29.1     no layout or meaning change (1 commit: 4236b6d996 overflow checks in compact.cpp)
+
+v4.29.1 -> v4.30.0
+  layout   extension added (tier 1)       142ca24192 feat: support `#print axioms` under the module
+           system (#13117)
+           `exportedAxiomsExt : PersistentEnvExtension (Name x Array Name)` is new; collectAxioms
+           answers imported constants from it instead of walking expressions. A reader of a v4.29
+           olean has no such entries and must walk.
+  layout   placement (many extensions)    439c3c5544 refactor: make exportEntriesFnEx return all
+           olean levels at once (#13142)
+           Export now runs once with the non-exporting environment and returns all three levels.
+           The default `mkMapDeclarationExtension` filter `env.contains` therefore no longer drops
+           entries of private declarations from `.olean`/`.olean.server`; Tag/Enum/Parametric
+           attributes, matcher info and eqnInfoExt keep `.olean.private` = all and filter the other
+           two explicitly. Docstrings / declaration ranges / module docs keep server + private
+           only, as before. `.olean.private` content unchanged.
+  layout   extension renamed (tier 2)     8e6f2750da fix: namespace used in private import and
+           current module vanishes dowstream (#12840)
+           `namespacesExt` became `private builtin_initialize`, so its registered name (the key in
+           ModuleData.entries) became `_private.Lean.Namespace.0.Lean.namespacesExt`; entries are
+           now exported sorted by Name.quickLt (still a set of Name).
+
+v4.30.0 -> v4.31.0
+  layout   SimpEntry (SimpTheorem)        ac9a1cb415 feat: add `@[backward_defeq]` attribute and
+           local `useBackward` simp option (#13492)
+           SimpTheorem gains `backwardRfl : Bool` after `rfl` — one more 1-byte scalar in every
+           persisted simp theorem (`.thm` entries of simpExtension).
+  layout   placement (defaultInstanceExt) c53c4b4d2e fix: prevent private default instances from
+           leaking into public scope (#13596)
+           defaultInstanceExtension went from the same entries in all three files to
+           `.olean`/`.olean.server` = only exported instance names, `.olean.private` = all.
+  layout   extension added (tier 2)       1d2cfb47e7 feat: store eqn-affecting options at
+           definition time instead of eager generation (#13475)
+           `eqnOptionsExt : MapDeclarationExtension (Array (Name x DataValue))`, read when
+           equations are generated lazily.
+
+v4.31.0 -> v4.32.0     no layout or meaning change. `CompactedRegion.save` gained a v3 header
+                       for closure-carrying regions (bfad38b63d, #13891), but .olean files are
+                       still written with allowClosures = false, i.e. v2 (module.cpp: version 2 on
+                       that path; every installed toolchain's .olean header has version byte 0x02).
+v4.32.0 -> v4.32.1     no commit touches the component files
+v4.32.1 -> v4.32.2     no commit touches the component files
+
+v4.32.2 -> v4.33.0
+  layout   ReducibilityStatus             9dd91738ce feat: split `implicit` transparency into
+           `implicit` and `instances` (#13637)
+           Constructor `instanceReducible` appended at cidx 4 (enum, stored as a 1-byte scalar).
+           A reader built on the v4.32 enum meets an out-of-range value in v4.33 data.
+  MEANING  ReducibilityStatus             9dd91738ce (same commit)
+           cidx 3 `implicitReducible` is redefined: before, "unfolded at .instances or above", the
+           status the `instance` command wrote; after, "unfolded at .implicit, strictly above
+           .instances", and the `instance` command and class-parent subobject projections write the
+           new cidx 4. The same byte 3 means a different thing on each side; read old data with the
+           new enum and a v4.32 instance looks like a v4.33 `[implicit_reducible]` definition.
+           Measured on the toolchains' own environments: instance definitions with
+           [implicit_reducible] 8,162 (v4.32.2) -> 4 (v4.33.0), with [instance_reducible] 0 -> 8,250;
+           non-instance definitions [implicit_reducible] 1,522 -> 382, [instance_reducible] 0 -> 1,561.
+  layout   VersoDocString (ElabBlock,     0b50ada379 feat: use linter framework for deferred
+           ElabInline)                    docstring checks (#14206)
+           `structure ElabBlock { name : Name, val : Dynamic }` (1 ctor, 2 object fields) became
+           `inductive ElabBlock | custom (val : Dynamic) | deferred (index : Nat)`; ElabInline the
+           same. These sit inside versoDocStringExt / versoModuleDocExt entries.
+  layout   extensions added (tier 1)      3061104b2e feat: extensible Markdown rendering of Verso
+           docstrings (#14115); 0b50ada379 (#14206)
+           docInlineMdExt, docBlockMdExt, deferredCheckExt, DeferredCheck.handlerExt.
+           findDocString? now renders a Verso docstring to Markdown through handlers registered
+           in these extensions (findSimpleDocString? moved to Lean/DocString/Markdown.lean and runs
+           in MarkdownM with the environment). Affects only Verso docstrings (767 entries in the
+           v4.34.1 core library; Mathlib's count not measured); Markdown docstrings are stored and
+           returned as before.
+  layout   file set, IR side (not read)   0591aedae8 feat: incremental compilation for `leanir`
+           (#13171)
+           `.ir` became a two-part region `.ir.sig` + `.ir` (`.ir.sig` written empty, "to be filled
+           by leanir"). The reader does not read `.ir*`; listed for completeness.
+
+v4.33.0 -> v4.33.1     no layout or meaning change (4 commits: refcount overflow freeze — persistent
+                       objects keep m_rc = 0, unchanged — kernel Nat-literal bound, TSan support,
+                       dec_ref perf)
+v4.33.1 -> v4.34.0     no layout or meaning change (`deprecated` gains `+typeChanged` syntax but
+                       DeprecationEntry is unchanged and the flag is not stored; parametric attribute
+                       registration split into two functions with the same export logic; `letFun`
+                       deprecated and moved to Init.LetFun — unused by the elaborator since #9086)
+v4.34.0 -> v4.34.1     no layout or meaning change (2 runtime refcount fixes)
+
+Optional extra pair, v4.28.0 -> v4.29.0 (source only)
+  layout   ReducibilityStatus             4606c35c40 (#12247), e02a140080 (#12263), b668a18a9d
+           (#12567) — constructor `implicitReducible` appended at cidx 3, written by the `instance`
+           command (named `instance_reducible` first, renamed `implicit_reducible` before v4.29.0).
+  MEANING  ReducibilityStatus             same commits: instances that v4.28 stored as
+           semireducible are stored with the new status from v4.29.0 (not measured — v4.28.0 is
+           not installed).
+  layout   ClassEntry                     3deba604bf feat: cache output universe parameter
+           positions (#12285): field `outLevelParams : Array Nat` added.
+  layout   ModuleData.entries content     440d686313 perf: do not export environment extensions
+           without entries (#12508): extensions with no entries are no longer listed at all.
+  (cosmetic: Name.hash gained `@[inline]`; mix_hash moved inline into lean.h with the same
+  constants; MurmurHash64A reads via memcpy, same values on little-endian.)
+
+Summary
+-------
+Main window, 10 adjacent pairs v4.29.0 -> v4.34.1 (measured; the per-pair rows above):
+  pairs with >= 1 layout change (any kind)                 3   (29.1->30.0, 30.0->31.0, 32.2->33.0)
+  pairs with >= 1 layout change to a decoded object        2   (30.0->31.0 SimpTheorem,
+                                                                32.2->33.0 ReducibilityStatus,
+                                                                ElabBlock/ElabInline)
+  pairs with >= 1 meaning change                           1   (32.2->33.0)
+  pairs with no change                                     7
+  all 5 patch-release pairs                                0 changes
+Per component, number of pairs in which it changed (of 10):
+  A  .olean header (magic, version byte 2, flags, 33-byte
+     version, 40-byte githash, base address), object
+     header and object kinds, compactor encoding           0
+  B  ModuleData, Import, OLeanLevel, the 3-file split      0
+     placement of entries among the 3 files                2   (30.0, 31.0)
+     IR-side files (.ir.sig)                               1   (33.0; not read)
+  C  Name, Level, Expr, Literal, BinderInfo, ConstantInfo
+     and all *Val, ReducibilityHints, DefinitionSafety,
+     RecursorRule, KVMap/DataValue, Syntax                 0
+     computed fields, Expr.Data/Level.Data, hashes,
+     Name.quickCmp order                                   0
+  D  ReducibilityStatus                                    1   (33.0; layout + meaning)
+     SimpEntry / SimpTheorem                               1   (31.0)
+     VersoDocString (ElabBlock / ElabInline)               1   (33.0)
+     tier-1 extension set                                  2   (30.0 exportedAxiomsExt; 33.0 four
+                                                                Verso-Markdown/deferred-check exts)
+     tier-2 extension set                                  2   (30.0 namespacesExt renamed;
+                                                                31.0 eqnOptionsExt added)
+     every other tier-1/2 entry type (StructureInfo,
+     DeclarationRanges, NoConfusionInfo, MatcherInfo,
+     InstanceEntry, DefaultInstanceEntry, ClassEntry,
+     InlineAttributeKind, ExternAttrData, DeprecationEntry,
+     CSimp.Entry, ModuleDoc, ExtTheorem, OLeanEntry,
+     RecommendedSpelling, ProjectionFunctionInfo,
+     CoeFnInfo, the EqnInfos)                              0
+  cosmetic commits on the component files                178 (1 + 44 + 47 + 18 + 0 + 0 + 34 + 4 + 28 + 2)
+For the reader: one version-specific decoding branch per changed type, keyed by the header's Lean
+version — 3 types (ReducibilityStatus, SimpTheorem, ElabBlock/ElabInline as one) across the window —
+plus one meaning table (what ReducibilityStatus cidx 3 means before / from v4.33.0).
+
+Facts that hold in every version of the window (measured on 5 toolchains, source on all 12 tags):
+  - the 3-file split dates from v4.20.0 (`OLeanLevel.adjustFileName` absent in v4.19.0 source,
+    present in v4.20.0); `.olean.server` and `.olean.private` reference objects in the earlier
+    parts (one compactor across the parts), so they are loaded together with readModuleDataParts.
+    A file without the `module` header writes a single `.olean` (2 of 2,520 core modules in
+    v4.34.1: Leanc, LeanChecker); Mathlib's oleans at the target's v4.31.0 pin are 3-part.
+  - `.olean.private` is a superset: of the tier-1/2 extension names that have entries anywhere in
+    the core library (41 on v4.34.1), all have entries in `.olean.private`; docStringExt,
+    declRangeExt, moduleDocExt, inheritDocStringExt, versoDocStringExt, versoModuleDocExt have none
+    in `.olean` (except in the 2 single-file modules). The pattern is identical on all 5
+    toolchains. 7 tier-1/2 extensions have no entries in the core library at all (tacticTagExt,
+    tacticDocExtExt, docInlineMdExt, docBlockMdExt, DeferredCheck.handlerExt, eqnOptionsExt,
+    reducibilityExtra), so their placement is known from source only.
+  - header flags bit 0 (GMP bignum encoding) = 1 on all 5 toolchains.
+
+Positive control
+----------------
+tools/lean-toolchains.txt column 2: v4.31.0 / v4.32.2 write `implicit_reducible` for a reducible
+instance, v4.33.0 / v4.33.1 write `instance_reducible`. The method finds it three ways, all in
+v4.32.2 -> v4.33.0 and nowhere else in the window:
+  1. source: the block diff of `inductive ReducibilityStatus` (constructor appended) and the
+     docstring rewrite of the same commit (the meaning of cidx 3) — rows above;
+  2. reflection: `Lean.ReducibilityStatus ctors=4 -> ctors=5`, new `instanceReducible cidx=4`;
+  3. written values: the distribution in the facts table below — 8,162 -> 4 instance definitions
+     at [implicit_reducible], 0 -> 8,250 at [instance_reducible].
+The optional pair v4.28.0 -> v4.29.0 shows the earlier step (cidx 3 appended) by source.
+
+Method
+------
+1. Source (all 12 tags). blocks.py extracts, for each of 200 targets (the 112 closure types and 46
+   extension constants from the reflection run, plus the Expr/Level data constructors, hash and
+   quickCmp functions, the wrapper export functions, mkModuleData / writeModule / computeExtEntries /
+   save/readModuleDataParts and the extractor's lookup functions), the definition block from its
+   v4.34.1 module file at every tag, strips comments and docstrings, and diffs adjacent tags. Every
+   target was found at every tag except those that did not exist yet (exportedAxiomsExt,
+   OLeanEntries, computeExtEntries: from v4.30.0; Name.quickCmpImpl: from v4.29.0;
+   findSimpleDocString?, which moved file in v4.33.0 and is tracked in both files). C/C++ files
+   (header, compactor, object layouts, hashes) were diffed whole per pair; lean.h's object
+   structs and kind constants were extracted and diffed per pair (only lean_task_imp /
+   lean_task_object changed, in v4.33.0 — tasks are never in an .olean); lean_string_hash,
+   hash_str and lean_expr_mk_data / mk_app_data have the same digest at all 12 tags. Each change
+   was attributed with `git log vA..vB -- <files>` and read in the commit; everything else touching
+   the 74 component files + 5 Std container directories + 6 kernel/util C++ files is counted
+   cosmetic.
+2. Reflection (5 toolchains). layout.lean, run with `lean layout.lean` per toolchain: the closure
+   of the root types (constructors, field names and types as de Bruijn terms, `_impl` constructors
+   for computed fields, `getCtorLayout` of each — 227/230 layouts, 0 errors on every toolchain), the
+   types of the 46 extension constants, every registered persistent extension name, Name.hash of 6
+   names, Level.data of 5 levels, Expr.data of 11 expressions, and a quickLt sort. parts.lean reads
+   every .olean of the toolchain's own library with all its parts via readModuleDataParts and counts
+   entries per extension per part. facts.lean tabulates the persisted per-declaration facts over
+   the whole `import Lean` environment (~204–208 k constants).
+3. The script runs were sampled first (LAYOUT_LIMIT=4, PARTS_LIMIT=20, FACTS_LIMIT=20) and then run
+   in full.
+
+Reflection results (measured)
+-----------------------------
+  toolchain  types  ctors  layouts  layout errors  ext consts  registered pexts  md5 without pext lines
+  v4.31.0    112    227    227      0              46 (+1 absent name)  182     ee58fa9d5f6fccb52c0f75458982ccb8
+  v4.32.2    112    227    227      0              46                   188     ee58fa9d5f6fccb52c0f75458982ccb8
+  v4.33.0    112    230    230      0              46                   195     9aa6283c46e1f311af9e1f83b9d21727
+  v4.33.1    112    230    230      0              46                   195     9aa6283c46e1f311af9e1f83b9d21727
+  v4.34.1    112    230    230      0              46                   198     9aa6283c46e1f311af9e1f83b9d21727
+(the absent name is the probe `reducibilityAttrs`, which no toolchain has.) A first run stopped the
+closure at String.Pos.Raw and Substring.Raw, which are persisted inside Syntax/SourceInfo (reached
+from Expr.mdata and from SimpEntry's Origin.stx); the run above includes them (both unchanged on 5
+toolchains by reflection and on all 12 tags by source) and its diff equals the first run's.
+Name.hash, Level.data,
+Expr.data and the quickLt order print identically on all 5. Per-part extension pattern digest
+d720390c83ec38d0e9534df92dbf5ee8 on all 5.
+
+The whole reflection diff (every line that differs, registered-extension names listed separately;
+the extension-name changes are all outside tiers 1/2 except the four v4.33.0 doc extensions):
+  ### reflection diff v4.31.0 -> v4.32.2 (lines other than registered-extension names)
+  < count 182
+  > count 188
+  ### registered persistent extension names v4.31.0 -> v4.32.2
+  > pext Lean.Compiler.LCNF.monoTypeExt
+  < pext Lean.Elab.Tactic.BVDecide.Frontend.bvNormalizeExt
+  < pext Lean.Elab.Tactic.BVDecide.Frontend.bvNormalizeSimprocExt
+  < pext Lean.Elab.Tactic.BVDecide.Frontend.intToBitVecExt
+  < pext Lean.Linter.EnvLinter.builtinNolintAttr
+  > pext Lean.Meta.Tactic.BVDecide.bvNormalizeExt
+  > pext Lean.Meta.Tactic.BVDecide.bvNormalizeSimprocExt
+  > pext Lean.Meta.Tactic.BVDecide.intToBitVecExt
+  > pext _private.Lean.Compiler.LCNF.MonoTypes.0.Lean.Compiler.LCNF.trivialStructureInfoExt
+  > pext _private.Lean.Compiler.LCNF.ToImpureType.0.Lean.Compiler.LCNF.ctorLayoutExt
+  > pext _private.Lean.Compiler.LCNF.ToImpureType.0.Lean.Compiler.LCNF.impureTrivialStructureInfoExt
+  > pext _private.Lean.Compiler.LCNF.ToImpureType.0.Lean.Compiler.LCNF.impureTypeExt
+  > pext envLinterSnapshotExt
+  > pext internalSpecMap
+  ### reflection diff v4.32.2 -> v4.33.0 (lines other than registered-extension names)
+  < inductive Lean.ReducibilityStatus params=0 indices=0 ctors=4 unsafe=false
+  > inductive Lean.ReducibilityStatus params=0 indices=0 ctors=5 unsafe=false
+  >   ctor Lean.ReducibilityStatus.instanceReducible cidx=4 fields=0
+  >     layout cidx=4 objs=0 usize=0 ssize=0 []
+  < inductive Lean.ElabBlock params=0 indices=0 ctors=1 unsafe=false
+  <   ctor Lean.ElabBlock.mk cidx=0 fields=2
+  <     name : Lean.Name
+  > inductive Lean.ElabBlock params=0 indices=0 ctors=2 unsafe=false
+  >   ctor Lean.ElabBlock.custom cidx=0 fields=1
+  <     layout cidx=0 objs=2 usize=0 ssize=0 [obj0, obj1]
+  < inductive Lean.ElabInline params=0 indices=0 ctors=1 unsafe=false
+  <   ctor Lean.ElabInline.mk cidx=0 fields=2
+  <     name : Lean.Name
+  >     layout cidx=0 objs=1 usize=0 ssize=0 [obj0]
+  >   ctor Lean.ElabBlock.deferred cidx=1 fields=1
+  >     index : Nat
+  >     layout cidx=1 objs=1 usize=0 ssize=0 [obj0]
+  > inductive Lean.ElabInline params=0 indices=0 ctors=2 unsafe=false
+  >   ctor Lean.ElabInline.custom cidx=0 fields=1
+  <     layout cidx=0 objs=2 usize=0 ssize=0 [obj0, obj1]
+  >     layout cidx=0 objs=1 usize=0 ssize=0 [obj0]
+  >   ctor Lean.ElabInline.deferred cidx=1 fields=1
+  >     index : Nat
+  >     layout cidx=1 objs=1 usize=0 ssize=0 [obj0]
+  < count 188
+  > count 195
+  ### registered persistent extension names v4.32.2 -> v4.33.0
+  > pext Lean.Doc.DeferredCheck.handlerExt
+  > pext Lean.Doc.deferredCheckExt
+  > pext Lean.Doc.docBlockMdExt
+  > pext Lean.Doc.docInlineMdExt
+  > pext Lean.Elab.Tactic.Do.Internal.VCGen.frameProcExt
+  > pext Lean.Meta.Grind.liaExt
+  < pext Lean.Meta.Tactic.BVDecide.intToBitVecExt
+  > pext Lean.Meta.Tactic.BVDecide.metaIntToBitVecExt
+  > pext Lean.Meta.Tactic.BVDecide.symIntToBitVecExt
+  > pext Lean.bool_to_prop
+  > pext Std.Internal.treeTacExt
+  < pext bool_to_prop
+  < pext treeTacExt
+  ### reflection diff v4.33.0 -> v4.33.1 (lines other than registered-extension names)
+  ### registered persistent extension names v4.33.0 -> v4.33.1
+  ### reflection diff v4.33.1 -> v4.34.1 (lines other than registered-extension names)
+  < count 195
+  > count 198
+  ### registered persistent extension names v4.33.1 -> v4.34.1
+  > pext Lean.Linter.CodeQuality.packageCheckExt
+  > pext Lean.Meta.Grind.homoExt
+  > pext Lean.Meta.Grind.homoPredExt
+  > pext Lean.Meta.Grind.homoSourceTypesExt
+  < pext Lean.Meta.Tactic.BVDecide.bvNormalizeSimprocExt
+
+Persisted per-declaration facts over each toolchain's own environment (facts.lean; measured).
+A writer-side meaning change shows as a jump; everything except the reducibility rows grows by
+the ordinary growth of the core library:
+  key                                                          4.31.0   4.32.2   4.33.0   4.33.1   4.34.1
+  constants                                                    203906   204543   206647   206647   208024
+  auxRecursor                                                    8697     8725     8844     8844     8951
+  class                                                           411      411      413      413      418
+  csimp                                                            53       57       57       57       60
+  deprecated                                                      985      890      888      888      876
+  doc none                                                     182432   183014   184461   184461   185555
+  doc some                                                      21474    21529    22186    22186    22469
+  doc trailing-newline                                          13006    12995    13365    13365    13517
+  hints inst abbrev                                              2334     2346     2372     2372     2405
+  hints inst regular                                             5830     5817     5883     5883     5922
+  hints noinst abbrev                                           51739    52030    52723    52723    53107
+  hints noinst opaque                                            8421     8435     8505     8505     8486
+  hints noinst regular                                          33538    33527    34126    34126    34511
+  instance priority default attrKind global                      9556     9558     9670     9670     9790
+  instance priority other attrKind global                          59       59       60       60       61
+  kind axiom                                                       15       15       15       15       15
+  kind ctor                                                      4643     4657     4716     4716     4767
+  kind def                                                     101862   102155   103609   103609   104431
+  kind induct                                                    2851     2863     2893     2893     2931
+  kind opaque                                                    3015     3031     3018     3018     3019
+  kind quot                                                         4        4        4        4        4
+  kind rec                                                       2964     2976     3010     3010     3048
+  kind thm                                                      88552    88842    89382    89382    89809
+  noConfusion                                                    5750     5778     5843     5843     5918
+  noncomputable                                                   273      280      284      284      289
+  private name                                                  58361    58896    59643    59643    60025
+  ranges col0                                                   93846    94079    95027    95027    95863
+  ranges none                                                   87497    87827    88712    88712    88992
+  ranges sel!=range                                             99236    99473   100515   100515   101429
+  ranges sel==range                                             17173    17243    17420    17420    17603
+  reducibility axiom noinst [semireducible]                        15       15       15       15       15
+  reducibility ctor inst [semireducible]                            2        2        2        2        2
+  reducibility ctor noinst [semireducible]                       4641     4655     4714     4714     4765
+  reducibility def inst [implicit_reducible]                     8163     8162        4        4        4
+  reducibility def inst [instance_reducible]                        0        0     8250     8250     8322
+  reducibility def inst [reducible]                                 1        1        1        1        1
+  reducibility def noinst [implicit_reducible]                   1524     1522      382      382      381
+  reducibility def noinst [instance_reducible]                      0        0     1561     1561     1567
+  reducibility def noinst [irreducible]                           275      276      275      275      275
+  reducibility def noinst [reducible]                           30064    30228    30599    30599    30796
+  reducibility def noinst [semireducible]                       61835    61966    62537    62537    63085
+  reducibility induct noinst [semireducible]                     2851     2863     2893     2893     2931
+  reducibility opaque inst [semireducible]                          4        4        0        0        0
+  reducibility opaque noinst [semireducible]                     3011     3027     3018     3018     3019
+  reducibility quot noinst [semireducible]                          4        4        4        4        4
+  reducibility rec noinst [semireducible]                        2964     2976     3010     3010     3048
+  reducibility thm inst [implicit_reducible]                       39       39        0        0        0
+  reducibility thm inst [instance_reducible]                        0        0       39       39       39
+  reducibility thm inst [semireducible]                          1406     1409     1434     1434     1483
+  reducibility thm noinst [semireducible]                       87107    87394    87909    87909    88287
+  safety Lean.DefinitionSafety.partial                           2974     2979     3001     3001     3016
+  safety Lean.DefinitionSafety.safe                             98415    98692   100117   100117   100919
+  safety Lean.DefinitionSafety.unsafe                             473      484      491      491      496
+  simp lemma                                                    20405    20466    20572    20572    20666
+  structure                                                      2249     2260     2280     2280     2310
+
+Extensions (tier 1/2) with entries in the core library, and the parts holding them (o = .olean,
+s = .olean.server, p = .olean.private), identical on all 5 toolchains (parts.lean; measured):
+  Lean.Compiler.CSimp.ext osp
+  Lean.Compiler.implementedByAttr osp
+  Lean.Compiler.inlineAttrs osp
+  Lean.Compiler.nospecializeAttr osp
+  Lean.Compiler.specializeAttr osp
+  Lean.Elab.PartialFixpoint.eqnInfoExt osp
+  Lean.Elab.Structural.eqnInfoExt osp
+  Lean.Elab.WF.eqnInfoExt osp
+  Lean.IR.UnboxResult.unboxAttr osp
+  Lean.Linter.deprecatedAttr osp
+  Lean.Meta.Ext.extExtension osp
+  Lean.Meta.Match.Extension.extension osp
+  Lean.Meta.coeDeclAttr osp
+  Lean.Meta.coeExt osp
+  Lean.Meta.defaultInstanceExtension osp
+  Lean.Meta.instanceExtension osp
+  Lean.Meta.simpExtension osp
+  Lean.Parser.Tactic.Doc.tacticAlternativeExt osp
+  Lean.Parser.Tactic.Doc.tacticNameExt osp
+  Lean.Parser.Term.Doc.recommendedSpellingByNameExt osp
+  Lean.Parser.Term.Doc.recommendedSpellingExt osp
+  Lean.Parser.parserExtension osp
+  Lean.aliasExtension osp
+  Lean.auxRecExt osp
+  Lean.classExtension osp
+  Lean.declRangeExt osp
+  Lean.docStringExt osp
+  Lean.exportAttr osp
+  Lean.externAttr osp
+  Lean.matchPatternAttr osp
+  Lean.neverExtractAttr osp
+  Lean.noConfusionExt osp
+  Lean.noncomputableExt osp
+  Lean.projectionFnInfoExt osp
+  Lean.protectedExt osp
+  _private.Lean.DocString.Extension.0.Lean.inheritDocStringExt -sp
+  _private.Lean.DocString.Extension.0.Lean.moduleDocExt -sp
+  _private.Lean.Namespace.0.Lean.namespacesExt osp
+  _private.Lean.Structure.0.Lean.structureExt osp
+  _private.Lean.Util.CollectAxioms.0.Lean.exportedAxiomsExt osp
+  reducibilityCore osp
+
+What could not be checked, and why
+----------------------------------
+- Reflection on v4.28.0, v4.29.0, v4.29.1, v4.30.0, v4.32.0, v4.32.1, v4.34.0: those toolchains are
+  not installed, and installing them was out of bounds (disk). Their pairs rest on source reading;
+  31.0->32.2 and 33.1->34.1 are validated only as aggregates.
+- Writer-side meaning changes before v4.31.0: the facts table needs a toolchain, so the
+  v4.28.0->v4.29.0 reducibility shift (instances moving off `semireducible`) is source-only and not
+  counted; within 29.0->31.0 no meaning change was found by source, but none could be measured.
+- The facts table covers only the dimensions it tabulates (reducibility x kind x instance, hints,
+  safety, instance priority/kind, simp membership, declaration-range shape, docstring presence and
+  ends, private names, structure/class/noncomputable/auxRecursor/noConfusion/csimp/deprecated). A
+  meaning change elsewhere — e.g. in what a declaration range spans, or in docstring text
+  normalisation — would not show; source diffs of those functions showed none.
+- No independent decoder was written: the object encoding is judged unchanged from the source
+  (lean.h structs, compact.cpp, module.cpp) and from the header bytes of each toolchain's oleans,
+  not by decoding an .olean of one version with code written for another.
+- Only the toolchains' own core libraries were read (2,421–2,520 modules); no Mathlib .olean was
+  read. Extensions with no entries in core (7 listed above) have source-only placement.
+- Tier 2 stops at per-constant facts; delaborator / parser-table / formatter extensions were not
+  examined (by design, see component D). Equations, first-token tactic names and Verso -> Markdown
+  rendering are computations, not data a reader can decode, whatever the layout.
+- Extension-constant types and registered names before v4.31.0 come from source only; the
+  `private` keyword (which renames a registered extension) was checked in each block diff.
+
+Scripts
+-------
+layout.lean (reflection; `LAYOUT_LIMIT=<n> lean layout.lean`)
+    import Lean
+    open Lean Meta
+    
+    /-! Prints, for the Lean that elaborates this file, every type the `.olean` reader would
+    interpret: constructors in order, field names and field types (de Bruijn, so the output does
+    not depend on the pretty printer), the `_impl` constructors computed fields create, and the IR
+    constructor layout (`getCtorLayout`). Also the types of the extension constants, the registered
+    persistent extension names, and a few persisted computed values (hashes, `Expr.data`). The limit
+    `LAYOUT_LIMIT` caps how many types the closure prints. -/
+    
+    def stopList : NameSet := Id.run do
+      let mut s : NameSet := {}
+      for n in [``Nat, ``Int, ``String, ``Char, ``Bool, ``UInt8, ``UInt16, ``UInt32, ``UInt64,
+                ``USize, ``Float, ``Float32, ``Array, ``List, ``Option, ``Prod, ``PProd, ``Sum,
+                ``ByteArray, ``FloatArray, ``Unit, ``PUnit, ``Thunk, ``Task, ``Fin, ``Subtype,
+                ``Eq, ``HEq, ``True, ``False, ``And, ``Or, ``Not, ``Iff, ``Decidable, ``BitVec,
+                ``IO.Ref, ``ST.Ref, ``NonScalar, ``PNonScalar] do
+        s := s.insert n
+      return s
+    
+    partial def showE (e : Expr) : String :=
+      match e with
+      | .bvar i => s!"#{i}"
+      | .fvar _ => "fvar"
+      | .mvar _ => "mvar"
+      | .sort l => if l.isZero then "Prop" else "Sort"
+      | .const n _ => n.toString
+      | .app .. =>
+        let f := e.getAppFn
+        let args := e.getAppArgs
+        "(" ++ showE f ++ " " ++ " ".intercalate (args.toList.map showE) ++ ")"
+      | .lam n t b _ => s!"(fun {n} : {showE t} => {showE b})"
+      | .forallE n t b _ => s!"(({n} : {showE t}) -> {showE b})"
+      | .letE n _ v b _ => s!"(let {n} := {showE v}; {showE b})"
+      | .lit (.natVal n) => toString n
+      | .lit (.strVal s) => s.quote
+      | .mdata _ e => showE e
+      | .proj s i e => s!"({showE e}).{s}.{i}"
+    
+    /-- Constants in a field type, except inside function types (closures are never persisted). -/
+    partial def typeConsts (e : Expr) (acc : NameSet := {}) : NameSet :=
+      match e with
+      | .forallE .. => acc
+      | .app .. => e.getAppArgs.foldl (fun a x => typeConsts x a) (typeConsts e.getAppFn acc)
+      | .const n _ => acc.insert n
+      | .mdata _ e => typeConsts e acc
+      | _ => acc
+    
+    def isTyFormer (t : Expr) : Bool :=
+      match t.getForallBody with
+      | .sort _ => true
+      | _ => false
+    
+    def ctorFields (ci : ConstructorVal) : Array (Name × Expr) := Id.run do
+      let mut t := ci.type
+      let mut out := #[]
+      let mut i := 0
+      while true do
+        match t with
+        | .forallE n d b _ =>
+          if i ≥ ci.numParams then out := out.push (n, d)
+          i := i + 1
+          t := b
+        | _ => break
+      return out
+    
+    def showLayout (ctor : Name) : CoreM String := do
+      try
+        let l ← Compiler.LCNF.getCtorLayout ctor
+        let ci := l.ctorInfo
+        let fs := l.fieldInfo.toList.map fun
+          | .erased => "erased"
+          | .object i _ => s!"obj{i}"
+          | .usize i => s!"usize{i}"
+          | .scalar sz off _ => s!"scalar(sz={sz},off={off})"
+          | .void => "void"
+        return s!"layout cidx={ci.cidx} objs={ci.size} usize={ci.usize} ssize={ci.ssize} [{", ".intercalate fs}]"
+      catch e => return s!"layout ERROR {← e.toMessageData.toString}"
+    
+    def resolveRoot (env : Environment) (s : String) : Array Name := Id.run do
+      let n := s.toName
+      if env.contains n then return #[n]
+      let comps := n.components
+      let mut out := #[]
+      for (c, _) in env.constants.map₁.toList do
+        let u := privateToUserName c
+        let cs := u.components
+        if cs.length ≥ comps.length && cs.drop (cs.length - comps.length) == comps then
+          out := out.push c
+      return out
+    
+    def roots : List String := [
+      "Lean.Name", "Lean.Level", "Lean.Expr", "Lean.Literal", "Lean.BinderInfo", "Lean.ConstantInfo",
+      "Lean.ModuleData", "Lean.Import", "Lean.ScopedEnvExtension.Entry",
+      "Lean.StructureInfo", "Lean.DeclarationRanges", "Lean.NoConfusionInfo",
+      "Lean.Meta.Match.Extension.Entry", "Lean.Meta.InstanceEntry", "Lean.Meta.DefaultInstanceEntry",
+      "Lean.ClassEntry", "Lean.Compiler.InlineAttributeKind", "Lean.ExternAttrData",
+      "Lean.Linter.DeprecationEntry", "Lean.Meta.SimpEntry", "Lean.Compiler.CSimp.Entry",
+      "Lean.ReducibilityStatus", "VersoDocString", "Lean.ModuleDoc", "VersoModuleDocs.Snippet",
+      "Lean.Meta.Ext.ExtTheorem", "Lean.Parser.ParserExtension.OLeanEntry", "RecommendedSpelling",
+      "Lean.ProjectionFunctionInfo", "Lean.Meta.CoeFnInfo", "Lean.Elab.WF.EqnInfo",
+      "Lean.Elab.Structural.EqnInfo", "Lean.Elab.PartialFixpoint.EqnInfo"]
+    
+    def extConsts : List String := [
+      "structureExt", "Lean.declRangeExt", "Lean.auxRecExt", "Lean.noConfusionExt",
+      "Lean.Meta.Match.Extension.extension", "Lean.Meta.instanceExtension",
+      "Lean.Meta.defaultInstanceExtension", "Lean.classExtension", "unboxAttr",
+      "Lean.neverExtractAttr", "Lean.Elab.Term.elabWithoutExpectedTypeAttr", "matchPatternAttr",
+      "Lean.Compiler.inlineAttrs", "Lean.externAttr", "Lean.Compiler.implementedByAttr",
+      "Lean.exportAttr", "Lean.Compiler.specializeAttr", "Lean.Linter.deprecatedAttr",
+      "Lean.Meta.simpExtension", "Lean.Compiler.CSimp.ext", "reducibilityCoreExt",
+      "reducibilityExtraExt", "reducibilityAttrs", "Lean.docStringExt", "inheritDocStringExt",
+      "versoDocStringExt", "moduleDocExt", "versoModuleDocExt", "Lean.Meta.Ext.extExtension",
+      "Lean.noncomputableExt", "exportedAxiomsExt", "tacticTagExt", "tacticNameExt",
+      "tacticDocExtExt", "tacticAlternativeExt", "Lean.Parser.parserExtension",
+      "recommendedSpellingByNameExt", "recommendedSpellingExt", "Lean.protectedExt",
+      "namespacesExt", "Lean.aliasExtension", "Lean.projectionFnInfoExt", "Lean.Meta.coeExt",
+      "Lean.Meta.coeDeclAttr", "Lean.Elab.WF.eqnInfoExt", "Lean.Elab.Structural.eqnInfoExt",
+      "Lean.Elab.PartialFixpoint.eqnInfoExt"]
+    
+    partial def describe (limit : Nat) : CoreM Unit := do
+      let env ← getEnv
+      let mut queue : Array Name := #[]
+      IO.println "## roots"
+      for r in roots do
+        let ns := resolveRoot env r
+        IO.println s!"root {r} -> {ns.toList}"
+        queue := queue ++ ns
+      let mut seen : NameSet := {}
+      let mut printed := 0
+      IO.println "## types"
+      while !queue.isEmpty do
+        let n := queue[0]!
+        queue := queue.extract 1 queue.size
+        if seen.contains n || stopList.contains n then continue
+        seen := seen.insert n
+        if printed ≥ limit then continue
+        printed := printed + 1
+        match env.find? n with
+        | none => IO.println s!"type {n} MISSING"
+        | some (.inductInfo iv) =>
+          IO.println s!"inductive {n} params={iv.numParams} indices={iv.numIndices} ctors={iv.ctors.length} unsafe={iv.isUnsafe}"
+          let implName := n ++ `_impl
+          let impl? := env.find? implName
+          for c in iv.ctors do
+            let some (.ctorInfo cv) := env.find? c | IO.println s!"  ctor {c} MISSING"
+            let fs := ctorFields cv
+            IO.println s!"  ctor {c} cidx={cv.cidx} fields={cv.numFields}"
+            for (fname, fty) in fs do
+              IO.println s!"    {fname} : {showE fty}"
+              for k in (typeConsts fty).toList do
+                unless seen.contains k do queue := queue.push k
+            if impl?.isSome then
+              let ic := c ++ `_impl
+              if let some (.ctorInfo icv) := env.find? ic then
+                let ifs := ctorFields icv
+                IO.println s!"    impl {ic} fields={icv.numFields}: {(ifs.toList.map fun (a, b) => s!"{a} : {showE b}")}"
+                IO.println s!"    {← showLayout ic}"
+            else
+              IO.println s!"    {← showLayout c}"
+        | some (.defnInfo dv) =>
+          if isTyFormer dv.type then
+            IO.println s!"alias {n} := {showE dv.value}"
+            for k in (typeConsts dv.value).toList do
+              unless seen.contains k do queue := queue.push k
+          else
+            IO.println s!"def {n} (not a type former)"
+        | some (.opaqueInfo _) => IO.println s!"opaque {n}"
+        | some (.axiomInfo _) => IO.println s!"axiom {n}"
+        | some _ => IO.println s!"other {n}"
+      IO.println s!"## closure printed {printed} of {seen.size} reached (limit {limit})"
+      IO.println "## extension constants"
+      for c in extConsts do
+        let ns := resolveRoot env c
+        if ns.isEmpty then IO.println s!"ext {c} MISSING"
+        for n in ns do
+          let some ci := env.find? n | continue
+          IO.println s!"ext {privateToUserName n} : {showE ci.type}"
+      IO.println "## registered persistent extensions"
+      let exts ← persistentEnvExtensionsRef.get
+      let names := exts.map (·.name.toString) |>.qsort (· < ·)
+      IO.println s!"count {names.size}"
+      for n in names do IO.println s!"pext {n}"
+      IO.println "## persisted computed values"
+      let sampleNames : List Name := [`Nat, `Lean.Expr.app, `Mathlib.Algebra.Group.Defs,
+        .num `foo 3, mkPrivateNameCore `Mathlib.Foo `Bar.baz, `«weird name»]
+      for sn in sampleNames do
+        IO.println s!"Name.hash {sn} = {sn.hash}"
+      let us : List Level := [.zero, .succ .zero, .param `u, .max (.param `u) (.param `v),
+        .imax (.param `u) .zero]
+      for u in us do
+        IO.println s!"Level.data {u} = {(show UInt64 from u.data)}"
+      let es : List Expr := [.bvar 0, .sort (.param `u), .const `Nat.add [], .app (.const `f []) (.bvar 0),
+        .lam `x (.const `Nat []) (.bvar 0) .implicit, .forallE `x (.const `Nat []) (.bvar 1) .instImplicit,
+        .lit (.natVal 42), .lit (.strVal "s"), .mdata {} (.bvar 2), .proj `Prod 0 (.bvar 0),
+        .letE `x (.const `Nat []) (.lit (.natVal 1)) (.bvar 0) true]
+      for e in es do
+        IO.println s!"Expr.data {e} = {(show UInt64 from e.data)}"
+      let sorted := (sampleNames.toArray.qsort (fun a b => Name.quickLt a b)).toList
+      IO.println s!"Name.quickLt order {sorted}"
+    
+    #eval show CoreM Unit from do
+      let lim := ((← IO.getEnv "LAYOUT_LIMIT").bind String.toNat?).getD 100000
+      describe lim
+
+parts.lean (`PARTS_LIMIT=<n> lean parts.lean`)
+    import Lean
+    open Lean
+    
+    /-! For the first `PARTS_LIMIT` modules (sorted by path) of the running toolchain's own library,
+    reads `.olean` + `.olean.server` + `.olean.private` together with `readModuleDataParts` and
+    reports, per extension name, the number of entries in each part; plus per-part totals of the
+    `ModuleData` fields. -/
+    
+    partial def walk (dir : System.FilePath) : IO (Array System.FilePath) := do
+      let mut out := #[]
+      for e in ← dir.readDir do
+        if ← e.path.isDir then out := out ++ (← walk e.path)
+        else if e.path.extension == some "olean" then out := out.push e.path
+      return out
+    
+    #eval show IO Unit from do
+      let lim := ((← IO.getEnv "PARTS_LIMIT").bind String.toNat?).getD 1000000
+      let root := (← IO.appDir).parent.get! / "lib" / "lean"
+      let files := (← walk root).qsort (·.toString < ·.toString)
+      let files := files.extract 0 lim
+      let mut counts : Std.HashMap String (Array Nat) := {}
+      let mut modsWith : Std.HashMap String (Array Nat) := {}
+      let mut partShapes : Std.HashMap String Nat := {}
+      let mut fieldTotals : Array (Array Nat) := #[#[0,0,0,0,0], #[0,0,0,0,0], #[0,0,0,0,0]]
+      let mut nmods := 0
+      for f in files do
+        let server := f.withExtension "olean.server"
+        let priv := f.withExtension "olean.private"
+        let mut fnames := #[f]
+        let mut shape := "o"
+        if ← server.pathExists then
+          fnames := fnames.push server
+          shape := shape ++ "s"
+          if ← priv.pathExists then
+            fnames := fnames.push priv
+            shape := shape ++ "p"
+        partShapes := partShapes.insert shape (partShapes.getD shape 0 + 1)
+        let parts ← readModuleDataParts fnames
+        nmods := nmods + 1
+        for h : i in [0:parts.size] do
+          let (md, _) := parts[i]
+          fieldTotals := fieldTotals.modify i fun a =>
+            #[a[0]! + md.constNames.size, a[1]! + md.constants.size, a[2]! + md.extraConstNames.size,
+              a[3]! + md.imports.size, a[4]! + md.entries.size]
+          for (extName, ents) in md.entries do
+            let k := extName.toString
+            let c := counts.getD k #[0, 0, 0]
+            counts := counts.insert k (c.modify i (· + ents.size))
+            if ents.size > 0 then
+              let m := modsWith.getD k #[0, 0, 0]
+              modsWith := modsWith.insert k (m.modify i (· + 1))
+      IO.println s!"modules read {nmods} of {files.size} (limit {lim})"
+      for (s, n) in partShapes.toList.toArray.qsort (·.1 < ·.1) do
+        IO.println s!"part set {s}: {n} modules"
+      let labels := #["olean", "olean.server", "olean.private"]
+      for h : i in [0:3] do
+        let a := fieldTotals[i]!
+        IO.println s!"{labels[i]!}: constNames={a[0]!} constants={a[1]!} extraConstNames={a[2]!} imports={a[3]!} entryArrays={a[4]!}"
+      for (k, c) in counts.toList.toArray.qsort (·.1 < ·.1) do
+        let m := modsWith.getD k #[0, 0, 0]
+        IO.println s!"ext {k}: entries o={c[0]!} s={c[1]!} p={c[2]!}; modules-with-entries o={m[0]!} s={m[1]!} p={m[2]!}"
+
+facts.lean (`FACTS_LIMIT=<n> lean facts.lean`)
+    import Lean
+    open Lean Meta
+    
+    /-! Distribution of the persisted per-declaration facts the extractor reads, over every constant
+    of the running toolchain's own environment (`import Lean`), first `FACTS_LIMIT` constants in
+    `quickLt` order. A writer-side meaning change (same layout, different value written for the same
+    kind of declaration) shows up as a shift between toolchains. -/
+    
+    def bump (m : Std.HashMap String Nat) (k : String) : Std.HashMap String Nat :=
+      m.insert k (m.getD k 0 + 1)
+    
+    #eval show CoreM Unit from do
+      let lim := ((← IO.getEnv "FACTS_LIMIT").bind String.toNat?).getD 10000000
+      let env ← getEnv
+      let names := (env.constants.map₁.toList.map (·.1)).toArray.qsort Name.quickLt |>.extract 0 lim
+      let insts := (Meta.instanceExtension.getState env).instanceNames
+      let thms ← simpExtension.getTheorems
+      let mut m : Std.HashMap String Nat := {}
+      for n in names do
+        let some ci := env.find? n | continue
+        let kind := match ci with
+          | .axiomInfo _ => "axiom" | .defnInfo _ => "def" | .thmInfo _ => "thm"
+          | .opaqueInfo _ => "opaque" | .quotInfo _ => "quot" | .inductInfo _ => "induct"
+          | .ctorInfo _ => "ctor" | .recInfo _ => "rec"
+        let inst := if insts.contains n then "inst" else "noinst"
+        m := bump m s!"kind {kind}"
+        let st := getReducibilityStatusCore env n
+        m := bump m s!"reducibility {kind} {inst} {st.toAttrString}"
+        if let .defnInfo d := ci then
+          let h := match d.hints with
+            | .opaque => "opaque" | .abbrev => "abbrev" | .regular _ => "regular"
+          m := bump m s!"hints {inst} {h}"
+          m := bump m s!"safety {repr d.safety}"
+        if let some e := insts.find? n then
+          m := bump m s!"instance priority {if e.priority == 1000 then "default" else "other"} attrKind {toString e.attrKind}"
+        if thms.isLemma (.decl n) then m := bump m "simp lemma"
+        match ← findDeclarationRanges? n with
+        | none => m := bump m "ranges none"
+        | some r =>
+          m := bump m (if r.range == r.selectionRange then "ranges sel==range" else "ranges sel!=range")
+          if r.range.pos.column == 0 then m := bump m "ranges col0"
+        match ← findDocString? env n with
+        | none => m := bump m "doc none"
+        | some d =>
+          m := bump m "doc some"
+          if d.startsWith " " then m := bump m "doc leading-space"
+          if d.endsWith "\n" then m := bump m "doc trailing-newline"
+        if isPrivateName n then m := bump m "private name"
+        if isStructure env n then m := bump m "structure"
+        if isClass env n then m := bump m "class"
+        if isNoncomputable env n then m := bump m "noncomputable"
+        if isAuxRecursor env n then m := bump m "auxRecursor"
+        if isNoConfusion env n then m := bump m "noConfusion"
+        if Compiler.hasCSimpAttribute env n then m := bump m "csimp"
+        if (Linter.deprecatedAttr.getParam? env n).isSome then m := bump m "deprecated"
+      IO.println s!"constants {names.size} (limit {lim})"
+      for (k, v) in m.toList.toArray.qsort (·.1 < ·.1) do
+        IO.println s!"{k}\t{v}"
+
+blocks.py (`python3 blocks.py <targets.tsv> <limit>`; targets.tsv rows are `name<TAB>path under src/`)
+    """Extract the definition block of each named type / extension / function from the Lean sources of
+    every tag, normalise away comments and whitespace, and print the blocks that differ between
+    adjacent tags. Usage: blocks.py <targets.tsv> <limit> ; targets.tsv rows are `name<TAB>module`."""
+    import difflib
+    import re
+    import sys
+    from pathlib import Path
+    
+    ROOT = Path("<scratch>/lean4-src-tags")
+    TAGS = ["v4.28.0", "v4.29.0", "v4.29.1", "v4.30.0", "v4.31.0", "v4.32.0", "v4.32.1",
+            "v4.32.2", "v4.33.0", "v4.33.1", "v4.34.0", "v4.34.1"]
+    KW = r"(?:structure|inductive|class inductive|class|abbrev|def|opaque|builtin_initialize|initialize)"
+    MODS = r"(?:(?:private|protected|public|unsafe|partial|noncomputable|meta)\s+)*"
+    
+    
+    def strip_comments(text):
+        out, i, depth = [], 0, 0
+        while i < len(text):
+            if text.startswith("/-", i):
+                depth += 1
+                i += 2
+                continue
+            if depth and text.startswith("-/", i):
+                depth -= 1
+                i += 2
+                continue
+            if depth:
+                i += 1
+                continue
+            if text.startswith("--", i):
+                j = text.find("\n", i)
+                i = len(text) if j < 0 else j
+                continue
+            out.append(text[i])
+            i += 1
+        return "".join(out)
+    
+    
+    def block(path, short):
+        if not path.exists():
+            return None
+        lines = path.read_text().split("\n")
+        pat = re.compile(r"^\s*(?:@\[[^\]]*\]\s*)*" + MODS + KW + r"\s+(?:\w+\s+)?(?:[\w.]+\.)?«?" + re.escape(short) + r"»?(?![\w.'!?])")
+        found = []
+        for i, l in enumerate(lines):
+            if pat.match(l):
+                j = i + 1
+                while j < len(lines):
+                    nl = lines[j]
+                    if nl.strip() == "":
+                        j += 1
+                        continue
+                    if nl[0] in " \t|" or nl.startswith("deriving") or nl.startswith("with") \
+                            or nl.startswith("@[computed_field]"):
+                        j += 1
+                        continue
+                    break
+                found.append("\n".join(lines[i:j]))
+        if not found:
+            return None
+        txt = strip_comments("\n\n".join(found))
+        return [l.rstrip() for l in txt.split("\n") if l.strip()]
+    
+    
+    def main():
+        rows = [l.split("\t") for l in Path(sys.argv[1]).read_text().split("\n") if l.strip()]
+        limit = int(sys.argv[2])
+        rows = rows[:limit]
+        for name, path in rows:
+            short = name.split(".")[-1]
+            prev = None
+            for k, tag in enumerate(TAGS):
+                cur = block(ROOT / tag / "src" / path, short)
+                if k > 0 and cur != prev:
+                    print(f"=== {name} [{path}] {TAGS[k-1]} -> {tag}")
+                    if prev is None or cur is None:
+                        print(f"    {'absent' if prev is None else 'present'} -> {'absent' if cur is None else 'present'}")
+                    else:
+                        for d in difflib.unified_diff(prev, cur, lineterm="", n=1):
+                            if d.startswith(("---", "+++")):
+                                continue
+                            print("    " + d)
+                prev = cur
+            print(f"--- checked {name}")
+    
+    
+    if __name__ == "__main__":
+        main()
