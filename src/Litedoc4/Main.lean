@@ -134,10 +134,10 @@ def usage : String :=
                  <n> of <m> (<names>)`, which <out>/litedoc4-build.json records
                  too; every phase prints its wall time and the free disk after it
   --through-reader  (`build --versions`) for the gates, and not part of what
-                 1.x keeps: the versions below the newest to fill through the
+                 2.x keeps: the versions below the newest to fill through the
                  reader whatever the store holds. Refused when the newest
                  version is not on the reader's toolchain
-  --reader-alone  (`build --versions`) for the gates, and not part of what 1.x
+  --reader-alone  (`build --versions`) for the gates, and not part of what 2.x
                  keeps: read each version exactly, reusing nothing, through the
                  reader in a process of its own, oldest first
   --config       (`build`, `watch`) a file read in place of litedoc4.toml, for

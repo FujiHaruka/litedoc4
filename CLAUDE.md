@@ -78,7 +78,7 @@ things that really exist outside".
 **"someone other than the author can keep using it without the author"**, which turned into four
 promises, each with a gate. **Do not read v1 as "finished" any more than v0.1 meant it.**
 
-- **The 1.x surface is `tools/public-surface.txt`** — the action's inputs and outputs,
+- **The 2.x surface is `tools/public-surface.txt`** — the action's inputs and outputs,
   `litedoc4.toml`'s keys, `build`'s and `watch`'s flags, and the site's page paths
   (`<version>/Foo/Bar.html`) and anchors, which `tools/mv-pages-gate.sh` reads in a browser.
   **The rule that decides membership is "can it appear in a file someone else maintains".**

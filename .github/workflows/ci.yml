@@ -42,7 +42,7 @@ jobs:
       # it checks are the ones a consumer's own workflow, `litedoc4.toml` or
       # script can contain, so a rename here is a broken file in someone else's
       # repository.
-      - name: The 1.x surface is all still there
+      - name: The 2.x surface is all still there
         run: tools/public-surface-gate.sh
 
       # Four claims about the workflows themselves: the gate inventory covers

@@ -110,6 +110,55 @@ jobs:
           print("no-op rebuild: versions extracted 0 of 1, modules extracted 0")
           PY
 
+  versions:
+    name: the action builds a site of two versions, twice
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-elan
+
+      - id: docs
+        uses: ./
+        with:
+          root: e2e/micro
+          jobs: "2"
+          versions: v1.3.0,v1.4.0
+          full: "true"
+
+      - id: again
+        uses: ./
+        with:
+          root: e2e/micro
+          jobs: "2"
+          versions: v1.3.0,v1.4.0
+
+      - name: Both versions built once, then nothing
+        run: |
+          set -euo pipefail
+          python3 - "${{ steps.docs.outputs.site }}/versions.json" "${{ steps.again.outputs.out }}/litedoc4-build.json" <<'PY'
+          import json, sys
+          served = [e["name"] for e in json.load(open(sys.argv[1]))]
+          m = json.load(open(sys.argv[2]))
+          print(json.dumps(m, indent=1))
+          want = ["v1.3.0", "v1.4.0"]
+          bad = []
+          if sorted(served) != want:
+              bad.append(f"versions.json lists {served}")
+          if m.get("versions") != want or m.get("complete") is not True:
+              bad.append(f"the build record lists {m.get('versions')}, complete {m.get('complete')}")
+          for key in ("versionsExtracted", "versionsRendered"):
+              if (m.get(key) or {}).get("count") != 0:
+                  bad.append(f"the second run's {key} is {m.get(key)}")
+          if bad:
+              print("::error::" + "; ".join(bad))
+              sys.exit(1)
+          print("two versions served; the second run extracted 0 and rendered 0")
+          PY
+
   standalone:
     name: the action installs elan itself
     runs-on: ubuntu-latest
@@ -126,7 +175,7 @@ jobs:
       - run: test -f "${{ steps.docs.outputs.site }}/index.html"
 
       # `binary-source` is a constant, so this is not asking which path ran — it
-      # is asking that a name 1.x promised still arrives. An output whose `value:`
+      # is asking that a name 2.x promised still arrives. An output whose `value:`
       # names a step that no longer exists comes back as the empty string with no
       # error anywhere, which is the shape a caller's own `test` would swallow.
       - name: The promised output arrives

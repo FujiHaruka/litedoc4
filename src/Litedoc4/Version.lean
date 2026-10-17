@@ -8,6 +8,6 @@ moving this literal and leaving them saying the release before it.
 -/
 namespace Litedoc4
 
-def version : String := "1.4.0"
+def version : String := "2.0.0"
 
 end Litedoc4

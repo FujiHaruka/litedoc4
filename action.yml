@@ -8,7 +8,7 @@
 #   blocks whose keys you had to get right, an elan install, and a call into
 #   tools/ci-build.sh. All of that is here now, and the caller writes:
 #
-#       - uses: FujiHaruka/litedoc4@v1.4.0
+#       - uses: FujiHaruka/litedoc4@v2.0.0
 #         id: docs
 #       - uses: actions/upload-pages-artifact@v5
 #         with: { path: "${{ steps.docs.outputs.site }}" }
@@ -98,7 +98,7 @@ outputs:
   timings:
     description: "path to the phase timings JSON"
     value: "${{ steps.build.outputs.timings }}"
-  # Constant, and kept rather than dropped: it is a name 1.x promised, and a
+  # Constant, and kept rather than dropped: it is a name 2.x promised, and a
   # workflow that reads a *removed* output gets an empty string with no error,
   # so removing it would turn somebody's `test "$SRC" = release` into a silent
   # pass. Left in place, that same line fails and says why.

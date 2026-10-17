@@ -4,11 +4,11 @@
 A consumer requires this package and gets a `docs` script:
 
 ```lean
-require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v1.4.0"
+require «litedoc4» from git "https://github.com/FujiHaruka/litedoc4" @ "v2.0.0"
 ```
 
 Pin `v1.3.0` or later: it is the first tag a machine with only elan on it can
-use, and 1.x does not move the names your own files contain. If your package
+use, and 2.x does not move the names your own files contain. If your package
 sits below its repository root, `v1.0.1` is the oldest whose source links point
 at it. `@ "main"` also works and moves.
 

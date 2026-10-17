@@ -1,4 +1,4 @@
-# What 1.x keeps. One line per name a consumer's own files can contain.
+# What 2.x keeps. One line per name a consumer's own files can contain.
 #
 # The rule that decides what belongs here: **can it appear in a file someone else
 # maintains?** A GitHub workflow names the action's inputs and reads its outputs;
