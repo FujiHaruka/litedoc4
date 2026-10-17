@@ -1,11 +1,6 @@
 name: Mathlib site
 
 on:
-  push:
-    branches: [multi-version]
-    paths:
-      - ".github/workflows/mathlib-site.yml"
-      - "tools/mathlib-site.sh"
   workflow_dispatch:
 
 concurrency:

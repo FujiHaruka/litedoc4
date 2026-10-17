@@ -2,11 +2,6 @@
 name: multi-version L checkpoint
 
 on:
-  push:
-    branches: [multi-version]
-    paths:
-      - ".github/workflows/mv-l.yml"
-      - "benchmarks/tools/mv-l-run.sh"
   workflow_dispatch:
 
 concurrency:
