@@ -1,7 +1,14 @@
 name: Mathlib site
 
 on:
+  schedule:
+    - cron: "17 6 * * *"
   workflow_dispatch:
+    inputs:
+      rebuild:
+        description: "build and deploy even when the deployed site already serves every release"
+        type: boolean
+        default: false
 
 concurrency:
   group: mathlib-site
@@ -11,7 +18,27 @@ permissions:
   contents: read
 
 jobs:
+  pending:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      pending: ${{ steps.pending.outputs.pending }}
+    env:
+      MATHLIB_SITE_WORK: /home/runner/mathlib-site
+      MATHLIB_SITE_URL: https://mathlib.fuji.land
+    steps:
+      - uses: actions/checkout@v7
+      - name: the version set
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/mathlib-site.sh versions
+      - id: pending
+        name: a release the deployed site does not serve
+        run: tools/mathlib-site.sh pending
+
   publish:
+    needs: pending
+    if: needs.pending.outputs.pending == 'true' || inputs.rebuild
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:

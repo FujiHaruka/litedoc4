@@ -34,7 +34,12 @@ site as deployed with its render ledger. `tools/mathlib-site.sh`, run by
 versions the deployed site does not hold; then it builds, saves the store, uploads the files the
 build wrote, archives the site again, and checks the site as served. It needs the repository secrets
 `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, a token with object read and write on both buckets.
-The workflow runs only when started by hand (Actions → Mathlib site → Run workflow), on `main`.
+The workflow runs every day at 06:17 UTC. Its first job compares the version set with the deployed
+site's `versions.json` and, when they agree, ends the run there in under a minute; only a release
+the site does not serve starts the build. Started by hand (Actions → Mathlib site → Run workflow)
+it does the same, and with `rebuild` checked it builds and deploys whatever the comparison says —
+for a litedoc4 that renders differently. GitHub turns off a public repository's schedule after 60
+days without activity in it, and the Actions tab is where it is turned back on.
 
 R2 answers a path with the object of that exact key and has no directory index, so the `fuji.land`
 zone carries a URL rewrite rule: when the host is `mathlib.fuji.land` and the path ends with `/`,

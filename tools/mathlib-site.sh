@@ -5,6 +5,8 @@
 #
 # usage: tools/mathlib-site.sh <step>
 #   versions  hosting/mathlib/versions.sh into <work>/versions.txt
+#   pending   whether the version set differs from MATHLIB_SITE_URL's versions.json, as
+#             `pending=true|false` into $GITHUB_OUTPUT; an unreadable versions.json is true
 #   setup     build litedoc4; fetch Mathlib's release tags; check out the newest
 #   restore   the store bucket into <work>/out/store (an empty bucket is a build from nothing);
 #             when it holds the deployed site's archive, that into <work>/out, so the build
@@ -64,6 +66,14 @@ case "${1:-}" in
       mv "$WORK/versions.held" "$WORK/versions.txt"
     fi
     cat "$WORK/versions.txt"
+    ;;
+  pending)
+    served="$(curl -sSfL "$SITE_URL/versions.json" | python3 -c 'import json, sys; print(",".join(e["name"] for e in json.load(sys.stdin)))' || true)"
+    echo "served:   ${served:-(unreadable)}"
+    echo "versions: $(versions)"
+    if [ "$served" = "$(versions)" ]; then pending=false; else pending=true; fi
+    echo "pending=$pending"
+    echo "pending=$pending" >>"${GITHUB_OUTPUT:-/dev/null}"
     ;;
   setup)
     "$ROOT/tools/build-lean-exe.sh" --toolchain-from "$ROOT/e2e/micro"
