@@ -184,6 +184,7 @@ runs:
           echo "binary-source=lake"
           echo "manifest=$(sha256sum "$ROOT/lake-manifest.json" 2>/dev/null | cut -c1-16 || echo none)"
           echo "toolchain=$(tr -d '\n' < "$ROOT/lean-toolchain" 2>/dev/null || echo unknown)"
+          if [ -n "$INPUT_VERSIONS" ]; then echo "kind=versions"; else echo "kind=one"; fi
         } >> "$GITHUB_OUTPUT"
 
     - name: Cache the litedoc4 build
@@ -227,8 +228,8 @@ runs:
       uses: actions/cache@v6
       with:
         path: ${{ steps.keys.outputs.state }}
-        key: litedoc4-state-${{ steps.keys.outputs.toolchain }}-${{ github.sha }}
-        restore-keys: litedoc4-state-${{ steps.keys.outputs.toolchain }}-
+        key: litedoc4-state-${{ steps.keys.outputs.kind }}-${{ steps.keys.outputs.toolchain }}-${{ github.sha }}
+        restore-keys: litedoc4-state-${{ steps.keys.outputs.kind }}-${{ steps.keys.outputs.toolchain }}-
 
     - name: Install elan
       if: inputs.install-elan == 'true'
