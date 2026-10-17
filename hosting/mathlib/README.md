@@ -44,9 +44,12 @@ days without activity in it, and the Actions tab is where it is turned back on.
 R2 answers a path with the object of that exact key and has no directory index, so the `fuji.land`
 zone carries a URL rewrite rule: when the host is `mathlib.fuji.land` and the path ends with `/`,
 the path becomes `concat(http.request.uri.path, "index.html")`. Without it the site root and each
-`<version>/` answer 404. A path with no object answers Cloudflare's own 404 page rather than the
-site's `404.html`, so a versionless link in doc-gen4's shape (`Mathlib/Order/Basic.html`) does not
-reach the newest version here.
+`<version>/` answer 404. A second rewrite rule, `mathlib versionless doc-gen4 path`, sends every
+path under `/Mathlib/` to `/404.html`, so a versionless link in doc-gen4's shape
+(`Mathlib/Order/Basic.html#le_rfl`) gets the site's own `404.html`, which moves the reader to that
+page in the newest version. Every other path with no object answers Cloudflare's own 404 page:
+answering them all with the site's would take Cloudflare's Custom Errors, which the free plan does
+not have.
 
 ## The license notice
 
