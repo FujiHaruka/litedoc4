@@ -1,9 +1,9 @@
-# Handoff — 2026-10-17 (multi-version: releasing v2.0.0)
+# Handoff — 2026-10-17 (v2.0.0 released)
 
 ## State
 
 - Working directory: /Users/haruka/dev/lean-doc
-- Branch: multi-version (pushed; no PR). Clean after the handoff commit.
+- Branch: main. multi-version was merged by PR #8 (merge commit ccc6ae2) and is kept on the remote.
 - Working context: the three steps the user ordered on 2026-10-11 — (1) the store record says whose prints an entry reused, (2) reader records for the remaining releases then delete the prototype, (3) CI/hosting with no full-Mathlib measurement until the user approves.
 
 ## Where we are
@@ -21,7 +21,7 @@
 2. The workflow lives in this repo and reads `hosting/mathlib/` (user's call 2026-10-11, by asking for that directory).
 3. Done 2026-10-17 (user approved "やろう"): first production run 38983206954 built all 12 from nothing (84.6 min) and deployed; its live check failed only because Cloudflare 403s urllib's default User-Agent. Fixed with rclone 1.75.2 and bucket checks (0fd31aa); second run 38992516164 green in 27.3 min, 0 of 12 extracted, render 14.1 min because the site directory is not restored. Logs: benchmarks/results/mathlib-site-first-run-2026-10-17.txt, mathlib-site-second-run-2026-10-17.txt. mathlib.fuji.land serves all 12.
 4. Done 2026-10-17 (user: "1をやって", single-version comparison skipped): adding one release in production — build 11.6 min, whole job 18.5 min against <= 15 min (benchmarks/results/mathlib-site-add-one-2026-10-17.txt). The site, render ledger and build record travel as site.tar.zst in the store bucket; deploy uploads only files the build wrote. Measurement knobs removed. The object render-ledger.json in the store bucket is a stray from the first attempt, unused.
-5. 2026-10-17 (user: "リリース作業を完了させて"): v2.0.0 — version 2.0.0 in every tracked site, README section on several versions, "What 2.x keeps", implementation plan deleted, an action job for `versions`, PR multi-version → main (merge commit, never squash: SHAs are cited), tag, release notes, then information-theory's docs.yml pin to v2.0.0 and a dispatched republish. Open question for the user: whether the Mathlib site workflow gets a schedule.
+5. 2026-10-17 (user: "リリース作業を完了させて"): v2.0.0 — version 2.0.0 in every tracked site, README section on several versions, "What 2.x keeps", implementation plan deleted, an action job for `versions`, PR multi-version → main (merge commit, never squash: SHAs are cited), tag, release notes, then information-theory's docs.yml pin to v2.0.0 and a dispatched republish. Done: tag v2.0.0 on ccc6ae2, GitHub Release, information-theory pinned to v2.0.0 (6c78c63f) and republished, live-smoke 5/5 on both GitHub Pages sites. Open for the user: whether the Mathlib site workflow gets a schedule; mathlib.fuji.land answers a versionless doc-gen4 path with Cloudflare's 404, not the site's 404.html.
 Then: the workflow (restore the store from an R2 prefix the site does not serve, `build --versions` with the 11 non-prerelease releases from the GitHub API, save the store, deploy, run served-gate against the live URL). A new workflow on a branch can only run through a `push:` trigger naming the branch, which would start the full run — so write it only once (3) is approved.
 
 ## Files to read first
