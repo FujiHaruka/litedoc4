@@ -1361,8 +1361,10 @@ swap within 7 MiB of full.
 - A workflow on `ubuntu-latest` that restores the store, builds, saves the store, and deploys to
   R2. Where the store lives is decided by step 1's size: an R2 prefix the site does not serve is
   the default (Actions caches are evicted after seven days unused).
-- The full set of 11 versions, from nothing and by adding the newest, measured against
-  "v2 targets".
+- The full set, from nothing and by adding the newest, measured against "v2 targets": 12
+  versions from nothing in 84.6 min, the twelfth added in a build of 11.6 min and a job of 18.5 min
+  (measured 2026-10-17 → `benchmarks/results/mathlib-site-first-run-2026-10-17.txt`,
+  `benchmarks/results/mathlib-site-add-one-2026-10-17.txt`).
 - The gate of the plan's "Done": `<built> of <declared>`, made to fail once.
 
 `tools/served-gate.sh --declared <v>,... --out <build out> --url <site>` is that gate. Per declared

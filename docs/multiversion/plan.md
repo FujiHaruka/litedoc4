@@ -23,8 +23,8 @@ This milestone ships as v2.0.0. What it has to meet:
 
 | | Target | Where it stands on 2026-10-06 |
 |---|---|---|
-| Add one new release to a site whose earlier versions are kept | ≤ 15 min on one GitHub `ubuntu-latest` runner | 13.5 min with three versions, ≈ 13.6 min at 11 (measured / extrapolated, 2026-10-07 → `benchmarks/results/mv-l-step4-incremental-2026-10-07.txt`) |
-| Every version in the set from nothing | ≤ 2 h on one runner, for the set as it is when measured | 11 versions 90.5 min, render included (measured 2026-10-12 → `benchmarks/results/mv-l-full-eleven-2026-10-12.txt`) |
+| Add one new release to a site whose earlier versions are kept | ≤ 15 min on one GitHub `ubuntu-latest` runner | 13.5 min with three versions, ≈ 13.6 min at 11 (measured / extrapolated, 2026-10-07 → `benchmarks/results/mv-l-step4-incremental-2026-10-07.txt`); in production, the twelfth added to a deployed site of eleven: build 11.6 min, whole job to the checked deployed site 18.5 min (measured 2026-10-17 → `benchmarks/results/mathlib-site-add-one-2026-10-17.txt`) |
+| Every version in the set from nothing | ≤ 2 h on one runner, for the set as it is when measured | 11 versions 90.5 min, render included (measured 2026-10-12 → `benchmarks/results/mv-l-full-eleven-2026-10-12.txt`); in production, 12 versions 84.6 min (measured 2026-10-17 → `benchmarks/results/mathlib-site-first-run-2026-10-17.txt`) |
 | Per extra version in a rebuild from nothing | 2.2 min on the runner — **tracked, not a release condition** | ≈ 7 min (theoretical, U9 composed at the runner's 1.8×) |
 | Hosted bytes and cost | 51 versions ≤ 1.5 GB; ≤ $1 a month plus a domain | 0.32 GB for 11, 1.38 GB for 51 (extrapolated, U6) |
 | Reader | the largest module page settles faster than today's published page (361 ms) | 153 ms (measured, loopback, U7) |
