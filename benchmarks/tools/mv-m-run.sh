@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The M run of the multi-version plan (docs/multiversion/implementation.md,
-# "Measurement loop"): the import closure of a few Mathlib roots at the real
+# The M run of the multi-version plan ("Measurement loop", in the deleted implementation plan:
+# git show b640518:docs/multiversion/implementation.md): the import closure of a few Mathlib roots at the real
 # release tags, one version at a time — fetched, built from the cache, extracted,
 # put into a store and read back — then laid out by the three storage candidates.
 # A measurement, not a gate: per phase it logs wall and CPU time, peak RSS, page

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Step 2 of docs/multiversion/implementation.md on a store mv-m-run.sh filled:
+# Step 2 of the deleted implementation plan (git show b640518:docs/multiversion/implementation.md)
+# on a store mv-m-run.sh filled:
 # every version rendered --runs times, each alone once, the output laid out by kind.
 #
 # usage: benchmarks/tools/mv-m-render.sh --store DIR --versions T,T [--work DIR]

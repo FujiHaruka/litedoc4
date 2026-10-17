@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The S loop of the multi-version plan (docs/multiversion/implementation.md,
-# "Measurement loop") from nothing: tools/mv-s/ generated as five versions, the
+# The S loop of the multi-version plan ("Measurement loop", in the deleted implementation plan:
+# git show b640518:docs/multiversion/implementation.md) from nothing: tools/mv-s/ generated as five versions, the
 # first four each built and put into a store, then read back, judged fresh, stale
 # or needing a re-put, laid out by the three storage candidates, and rendered as a
 # site by `store render` — answered by counters, names and bytes against
