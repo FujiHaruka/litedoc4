@@ -1,0 +1,49 @@
+Batteries bench from main: the first dispatch of .github/workflows/batteries-bench.yml, one round per cell
+=========================================================================================================
+Date: 2026-10-17 (UTC), 23:26-23:48 (21 min 16 s job). Run 39079053884, workflow_dispatch on main at
+965b6d0fe8de00f1ca7c16d13033654caed08c3d, inputs: batteries_tag v4.35.0, docgen_rev empty (= v4.35.0), rounds 1,
+docgen_jobs1 skip. Same driver as benchmarks/results/batteries-docgen4-litedoc4-2026-10-17.txt (moved from the
+deleted probe branch to benchmarks/tools/batteries-bench.sh and .py), so this is a check that the workflow runs
+from main, not a new comparison.
+
+RESULT (measured; one round per cell, so a single value, not a median)
+  every step succeeded; every declared cell ran and passed its scope check (cells.tsv below)
+                          wall      docs / docsHeader     CPU        peak anon, process tree   swap out
+  doc-gen4  warm, 4 jobs  124.2 s   81.0 s / 43.1 s       383.2 s    2,212.6 MiB               0
+  doc-gen4  cold, 4 jobs  131.7 s   87.1 s / 44.6 s       386.7 s    2,450.3 MiB               0
+  litedoc4  warm, 4 jobs    8.6 s                          23.2 s      199.5 MiB               0
+  litedoc4  cold, 4 jobs   12.9 s                          23.8 s      192.4 MiB               0
+  litedoc4  warm, 1 job    14.9 s                          16.2 s      159.1 MiB               0
+- doc-gen4's wall and CPU here are docs + docsHeader together; the docs part alone (81.0 s) is the counterpart of
+  the earlier log's 80.5 s headline (5-round median). Every value lies within or next to that log's ranges.
+- The litedoc4 binary's sha256 equals the earlier run's (ad1d2698ae68...), as it should: no product code changed.
+
+CONDITIONS
+- GitHub-hosted ubuntu-latest, image ubuntu24 20261012.334.1, AMD EPYC 7763, 4 vCPU, MemTotal 16,373,448 kB.
+- Lean v4.35.0; Batteries v4.35.0 66e469188fe07963e5cf666c7d4433f45b8131c5; doc-gen4 v4.35.0.
+- Exclusions and resets as in the earlier log (doc-gen4 core prebuilt and restored per round, litedoc4's extractor
+  reused after a prime round).
+
+WHAT CHANGED AFTER THIS RUN
+- summary.tsv gained docs_wall_median_s and header_wall_median_s (appended; the first 21 columns of this run's
+  summary.tsv are byte-identical when re-summarized with the new code). The table above reads them from rounds.tsv.
+
+summary.tsv (verbatim, from the run)
+arm	jobs	kind	n	wall_median_s	wall_min_s	wall_max_s	cpu_median_s	cpu_min_s	cpu_max_s	tree_anon_peak_median_mib	tree_anon_peak_min_mib	tree_anon_peak_max_mib	machine_used_delta_median_mib	machine_used_delta_min_mib	machine_used_delta_max_mib	largest_process_maxrss_median_mib	swapout_pages_max	peak_nprocs_max	fromdb_lib_median_s	fromdb_pkg_median_s
+docgen4	4	cold	1	131.7	131.7	131.7	386.7	386.7	386.7	2450.3	2450.3	2450.3	3786.5	3786.5	3786.5	939.2	0.0	74	40.0	40.0
+docgen4	4	warm	1	124.2	124.2	124.2	383.2	383.2	383.2	2212.6	2212.6	2212.6	3181.7	3181.7	3181.7	951.9	0.0	70	38.0	38.0
+docgen4	1	warm	0																	
+litedoc4	4	cold	1	12.9	12.9	12.9	23.8	23.8	23.8	192.4	192.4	192.4	198.7	198.7	198.7	1009.9	0.0	5		
+litedoc4	4	warm	1	8.6	8.6	8.6	23.2	23.2	23.2	199.5	199.5	199.5	218.6	218.6	218.6	1028.4	0.0	5		
+litedoc4	1	warm	1	14.9	14.9	14.9	16.2	16.2	16.2	159.1	159.1	159.1	201.1	201.1	201.1	1001.5	0.0	5		
+
+cells.tsv (verbatim)
+arm	jobs	kind	declared	ran	passed	note
+docgen4	4	cold	1	1	1	
+litedoc4	4	cold	1	1	1	
+docgen4	4	warmup	1	1	1	
+litedoc4	4	warmup	1	1	1	
+docgen4	4	warm	1	1	1	
+litedoc4	4	warm	1	1	1	
+docgen4	1	warm	1	0	0	not run (DOCGEN_JOBS1=skip): lake has no jobs flag (lake-help.txt)
+litedoc4	1	warm	1	1	1	

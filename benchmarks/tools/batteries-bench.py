@@ -466,7 +466,7 @@ def cmd_summarize(args):
               "tree_anon_peak_median_mib", "tree_anon_peak_min_mib", "tree_anon_peak_max_mib",
               "machine_used_delta_median_mib", "machine_used_delta_min_mib", "machine_used_delta_max_mib",
               "largest_process_maxrss_median_mib", "swapout_pages_max", "peak_nprocs_max",
-              "fromdb_lib_median_s", "fromdb_pkg_median_s"]
+              "fromdb_lib_median_s", "fromdb_pkg_median_s", "docs_wall_median_s", "header_wall_median_s"]
     lines = ["\t".join(header)]
     keys = sorted(set(list(groups) + [(c[0], c[1], c[2]) for c in cells if c[2] in SUMMARY_KINDS]),
                   key=lambda k: (k[0], -int(k[1]) if k[1].isdigit() else 0, k[2]))
@@ -485,7 +485,9 @@ def cmd_summarize(args):
             + stats(mib(r.get("gnu_maxrss_kib")) for r in rs)[:1]
             + [fmt(max(swap)) if swap else "", fmt(int(max(procs))) if procs else ""]
             + stats(number(r.get("fromdb_lib_s")) for r in rs)[:1]
-            + stats(number(r.get("fromdb_pkg_s")) for r in rs)[:1]))
+            + stats(number(r.get("fromdb_pkg_s")) for r in rs)[:1]
+            + stats(number(r.get("docs_wall_s")) for r in rs)[:1]
+            + stats(number(r.get("header_wall_s")) for r in rs)[:1]))
     with open(os.path.join(args.out, "summary.tsv"), "w") as f:
         f.write("\n".join(lines) + "\n")
     cell_lines = ["arm\tjobs\tkind\tdeclared\tran\tpassed\tnote"]
