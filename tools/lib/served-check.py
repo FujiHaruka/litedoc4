@@ -13,6 +13,8 @@ import urllib.parse
 import urllib.request
 
 TIMEOUT = 30
+# Not urllib's default User-Agent: Cloudflare answers "Python-urllib/*" 403 before the site sees it.
+USER_AGENT = "litedoc4-served-gate"
 
 
 class Unreachable(Exception):
@@ -21,7 +23,8 @@ class Unreachable(Exception):
 
 def get(url):
     try:
-        with urllib.request.urlopen(url, timeout=TIMEOUT) as response:
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             if response.status != 200:
                 raise Unreachable("%s answered %d" % (url, response.status))
             return response.read()

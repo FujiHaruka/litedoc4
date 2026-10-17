@@ -31,7 +31,11 @@ jobs:
       - uses: ./.github/actions/setup-node
 
       - name: rclone
-        run: sudo apt-get install -y rclone
+        run: |
+          curl -sSfLo "$RUNNER_TEMP/rclone.deb" https://downloads.rclone.org/v1.75.2/rclone-v1.75.2-linux-amd64.deb
+          echo "efbfe852181f7191eb3c9043ed1ab49c9b2d0ba045c61c926a5da111c939ec5c  $RUNNER_TEMP/rclone.deb" | sha256sum -c
+          sudo dpkg -i "$RUNNER_TEMP/rclone.deb"
+          rclone version
 
       - name: free disk the run does not use
         run: |

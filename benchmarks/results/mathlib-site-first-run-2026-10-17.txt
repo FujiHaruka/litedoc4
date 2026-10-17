@@ -1,0 +1,53 @@
+Mathlib site, first production run: twelve releases from an empty store, deployed to
+https://mathlib.fuji.land (measured).
+
+run         GitHub Actions 38983206954, workflow mathlib-site.yml, commit f6f945e
+runner      ubuntu-latest (Ubuntu 24.04), 4 vCPU, 16 GB RAM (free -m total 15989), 145 GB root
+litedoc4    built on the runner from f6f945e (tools/build-lean-exe.sh --toolchain-from e2e/micro)
+versions    v4.29.0 v4.29.1 v4.30.0 v4.31.0 v4.32.0 v4.32.1 v4.32.2 v4.33.0 v4.33.1 v4.34.0
+            v4.34.1 v4.35.0 (hosting/mathlib/versions.sh), Mathlib clone --depth 1 per tag
+store       empty at start (restore: 0 files, 4 KiB); --jobs 4
+rclone      1.60.1 from Ubuntu's apt
+
+step wall times (from the job's step timestamps)
+  setup (litedoc4 + Mathlib tags)        1.5 min
+  build every version                   84.6 min   (23:50:16 -> 01:14:53 UTC), 1 attempt, exit 0
+  save the store                         0.1 min
+  served-gate on 127.0.0.1               0.0 min   25 of 25 items, built 12 of 12, served 12 of 12
+  deploy                                26.8 min
+  live                                   FAILED (below)
+  job total                            114.9 min
+
+the site the build wrote (the build's own `store render` record)
+  files       183,478   (shells 99,161, data 84,311, assets 3, root 3)
+  stored      331,937,889 bytes (raw 2,102,251,081; data is stored gzip, shells raw)
+  per version  modules / data files added / stored bytes added
+    v4.29.0   7872  21359  51509198
+    v4.29.1   7872      3      9817
+    v4.30.0   8095  12855  37513621
+    v4.31.0   8170   6377  26194106
+    v4.32.0   8265  10399  33164732
+    v4.32.1   8265      3     11473
+    v4.32.2   8265      3     11473
+    v4.33.0   8312  10518  33174327
+    v4.33.1   8312      3     11463
+    v4.34.0   8530  12034  35216335
+    v4.34.1   8530      3     12178
+    v4.35.0   8625  10754  30597765
+
+rclone 1.60.1 against R2: every first attempt failed every file it was given
+  save    attempt 1: 24 errors "NotImplemented: Not Implemented"; attempt 2/3 succeeded
+  deploy  pass 1 (all but entry points): attempt 1 failed 183,475 files (01:15:01 -> 01:34:32,
+          19.5 min), attempt 2/3 succeeded (2.6 min)
+          pass 2 (entry points): attempt 1 failed 3 files (2.3 min), attempt 2/3 succeeded (2.4 min)
+  183,475 + 3 = 183,478, the site's whole file count. Whether attempt 1 wrote anything is not
+  known from this log.
+
+live: served-gate against https://mathlib.fuji.land answered 403 for versions.json, 0 of 12
+served. The site was being served: the same URL answered 200 to curl's User-Agent and 403 to
+"Python-urllib/3.12" (checked from an Apple M1 at 01:43 UTC). Cloudflare rejects urllib's default
+User-Agent before the request reaches the bucket. live-smoke-gate did not run.
+
+after the run, from an Apple M1 (macOS 26.6, 16 GB), against the deployed site
+  served-check.py with User-Agent litedoc4-served-gate: 12 of 12 served, undeclared ok
+  live-smoke-gate (Chrome 155.0.8059.85): 5 of 5 items passed

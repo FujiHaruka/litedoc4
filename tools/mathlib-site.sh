@@ -8,11 +8,11 @@
 #   setup     build litedoc4; fetch Mathlib's release tags; check out the newest
 #   restore   the store bucket into <work>/out/store (an empty bucket is a build from nothing)
 #   build     `litedoc4 build --versions`, up to three attempts on the same store
-#   save      <work>/out/store into the store bucket; nothing is deleted there
+#   save      <work>/out/store into the store bucket, then checked there; nothing is deleted
 #   local     tools/served-gate.sh over <work>/out/site served on 127.0.0.1
 #   deploy    <work>/out/site into the site bucket: every file but the entry points, then
 #             the entry points, then (only with MATHLIB_SITE_PRUNE=1) deleting what the
-#             site no longer has
+#             site no longer has, then every file of the site checked in the bucket
 #   live      tools/served-gate.sh, then tools/live-smoke-gate.sh, against MATHLIB_SITE_URL
 #
 # Environment: MATHLIB_SITE_WORK (default $RUNNER_TEMP/mathlib-site), MATHLIB_SITE_URL
@@ -92,6 +92,8 @@ case "${1:-}" in
   save)
     [ -d "$OUT/store" ] || { echo "no $OUT/store" >&2; exit 1; }
     r2 copy "$OUT/store" "r2:$STORE_BUCKET/store"
+    echo "store: $(find "$OUT/store" -type f | wc -l) files, $(du -sk "$OUT/store" | cut -f1) KiB"
+    r2 check "$OUT/store" "r2:$STORE_BUCKET/store" --one-way
     ;;
   local)
     [ -d "$OUT/site" ] || { echo "no $OUT/site" >&2; exit 1; }
@@ -116,6 +118,8 @@ case "${1:-}" in
     if [ "${MATHLIB_SITE_PRUNE:-0}" = 1 ]; then
       r2 sync "$OUT/site" "r2:$SITE_BUCKET"
     fi
+    echo "site: $(find "$OUT/site" -type f | wc -l) files, $(du -sk "$OUT/site" | cut -f1) KiB"
+    r2 check "$OUT/site" "r2:$SITE_BUCKET" --one-way
     ;;
   live)
     "$ROOT/tools/served-gate.sh" --declared "$(versions)" --out "$OUT" --url "$SITE_URL"
