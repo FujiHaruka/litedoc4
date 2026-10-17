@@ -101,6 +101,15 @@ HOW IT WAS RUN
     then each run's jobs: (completed_at - started_at) of the step "generate docs"
   the branch was deleted afterwards
 
+ADDENDUM (2026-10-17, same day): an asymmetry in litedoc4's favour
+-------------------------------------------------------------------
+litedoc4 ran with hosting/mathlib/litedoc4.toml, whose no_equations_under = ["Mathlib.Tactic", "Mathlib.Meta"]
+skips equation generation for declarations under those two prefixes. doc-gen4 has no such switch: it tries to
+compute equational lemmata for every definition it documents (the smoke run's log is full of its "Failed to
+calculate equational lemmata ... maximum number of heartbeats" warnings, each one that work timing out). So part
+of the 12x is litedoc4 not doing work doc-gen4 does. Its size is not measured: the comparison would need a
+litedoc4 run without that config key on the same machine.
+
 timings.txt (verbatim)
 ----------------------
 name	start_utc	end_utc	wall_s	exit
