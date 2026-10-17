@@ -19,7 +19,7 @@
 1b. Done 2026-10-16/17: `.github/workflows/mathlib-site.yml` + `tools/mathlib-site.sh` (e16c3ef; push trigger on multi-version naming those two paths — pushing either without `[skip ci]` STARTS THE PRODUCTION RUN). Lean v4.35.0 supported (76d7b81); Mathlib's set is now 12 releases.
 1c. Done 2026-10-17: `mathlib.fuji.land` connected to `mathlib-docs` (HTTPS answers; 404 while empty) and the rewrite rule `mathlib directory index` deployed on the fuji.land zone (hosting/mathlib/README.md). The Cloudflare session is in Brave ("Browser 1" of the Chrome extension).
 2. The workflow lives in this repo and reads `hosting/mathlib/` (user's call 2026-10-11, by asking for that directory).
-3. Approval for the first full run of all 11 versions on the runner (the user said "not yet" on 2026-10-11).
+3. Done 2026-10-17 (user approved "やろう"): first production run 38983206954 built all 12 from nothing (84.6 min) and deployed; its live check failed only because Cloudflare 403s urllib's default User-Agent. Fixed with rclone 1.75.2 and bucket checks (0fd31aa); second run 38992516164 green in 27.3 min, 0 of 12 extracted, render 14.1 min because the site directory is not restored. Logs: benchmarks/results/mathlib-site-first-run-2026-10-17.txt, mathlib-site-second-run-2026-10-17.txt. mathlib.fuji.land serves all 12.
 Then: the workflow (restore the store from an R2 prefix the site does not serve, `build --versions` with the 11 non-prerelease releases from the GitHub API, save the store, deploy, run served-gate against the live URL). A new workflow on a branch can only run through a `push:` trigger naming the branch, which would start the full run — so write it only once (3) is approved.
 
 ## Files to read first
