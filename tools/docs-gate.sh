@@ -4,7 +4,10 @@
 #   1  "**(measured)** — there is a log | the path to the log must be followable".
 #      Every benchmarks/results/<file> named anywhere outside that directory has
 #      to exist. A number whose log has been renamed away is a number with no
-#      provenance, and it reads exactly like one that still has it.
+#      provenance, and it reads exactly like one that still has it. The
+#      documentation site's pages under website/src/content/ are read too, and
+#      the gate fails if none of them was, because that is where a user reads
+#      the numbers.
 #
 #   2  "Between docs too, do not point at a document expected to be completed and
 #      disappear as a SoT. Pointers rot." Nineteen planning documents were deleted
@@ -80,10 +83,14 @@ files = [
     for name in tracked
     if name
     and not name.startswith("benchmarks/results/")
-    and pathlib.Path(name).suffix in {".md", ".rs", ".sh", ".ts", ".py", ".yml", ".lean", ".toml", ".txt"}
+    and pathlib.Path(name).suffix in {".md", ".mdx", ".rs", ".sh", ".ts", ".py", ".yml", ".lean", ".toml", ".txt"}
 ]
 if not files:
     sys.exit("docs-gate: no files to read — this gate would check nothing")
+SITE = "website/src/content/"
+site_pages = sum(1 for path in files if path.relative_to(root).as_posix().startswith(SITE))
+if site_pages == 0:
+    sys.exit(f"docs-gate: no page under {SITE} was read — rule 1 would not see the site's citations")
 
 logs_seen = 0
 for path in files:
@@ -158,7 +165,8 @@ if problems:
     sys.exit(1)
 
 print(
-    f"DOCS GATE: {logs_seen} measurement-log citation(s) all resolve; no dead document pointer; "
+    f"DOCS GATE: {logs_seen} measurement-log citation(s) all resolve, {site_pages} site page(s) among the files read; "
+    "no dead document pointer; "
     f"README and tools/lean-toolchains.txt agree on {len(inventory)} Lean toolchain(s)"
 )
 PY

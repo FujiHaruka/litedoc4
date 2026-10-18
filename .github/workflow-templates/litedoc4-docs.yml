@@ -26,9 +26,6 @@
 #   — in a user's repository that is the caller's own repo, while the validation
 #   generates the package instead. Both are ordinary GitHub mechanics.
 #
-#   Treat the timings in README.md separately: they were measured on an Apple
-#   M1 laptop with a warm page cache, not on a runner.
-#
 # ============================================================================
 # THE ONE THING NOT TO CHANGE: ONE JOB  (measured)
 # ============================================================================

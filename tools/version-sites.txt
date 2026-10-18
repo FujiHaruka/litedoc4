@@ -21,16 +21,18 @@
 # COLUMN 3 -- a substring of the line, enough to find it. Not a line number:
 # those rot on the first edit above them.
 #
-# file                            kind    anchor
-src/Litedoc4/Version.lean         tracks  def version : String := "
-README.md                         tracks  - uses: FujiHaruka/litedoc4@
-README.md                         tracks  require «litedoc4» from git
-README.md                         tracks  — nothing is downloaded; Lake builds litedoc4
-README.md                         other   benchmarks/results/v0.2.0-numbers-
-README.md                         frozen  or later, since that is the first one a
-README.md                         frozen  is the first release whose source links point at it
-lakefile.lean                     tracks  require «litedoc4» from git
-lakefile.lean                     frozen  or later: it is the first tag a machine
-lakefile.lean                     frozen  is the oldest whose source links point
-lakefile.lean                     other   https://github.com/FujiHaruka/MathML4Lean
-.github/ISSUE_TEMPLATE/bug.yml    tracks  placeholder: "litedoc4
+# file                                                       kind    anchor
+src/Litedoc4/Version.lean                                    tracks  def version : String := "
+README.md                                                    tracks  - uses: FujiHaruka/litedoc4@
+README.md                                                    tracks  require «litedoc4» from git
+website/src/content/docs/getting-started/quickstart.md       tracks  require «litedoc4» from git
+website/src/content/docs/getting-started/github-pages.md     tracks  - uses: FujiHaruka/litedoc4@
+website/src/content/docs/performance.md                      frozen  that package's own docs workflow, with the litedoc4
+website/src/content/docs/ja/getting-started/quickstart.md    tracks  require «litedoc4» from git
+website/src/content/docs/ja/getting-started/github-pages.md  tracks  - uses: FujiHaruka/litedoc4@
+website/src/content/docs/ja/performance.md                   frozen  そのパッケージ自身の docs ワークフローで
+lakefile.lean                                                tracks  require «litedoc4» from git
+lakefile.lean                                                frozen  or later: it is the first tag a machine
+lakefile.lean                                                frozen  is the oldest whose source links point
+lakefile.lean                                                other   https://github.com/FujiHaruka/MathML4Lean
+.github/ISSUE_TEMPLATE/bug.yml                               tracks  placeholder: "litedoc4

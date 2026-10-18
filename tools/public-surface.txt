@@ -15,7 +15,8 @@
 #   and it makes a rename read as one added plus one removed rather than as two
 #   unrelated lines.
 #
-# The reader is tools/public-surface-gate.sh; README's "Status" quotes it.
+# The reader is tools/public-surface-gate.sh; the documentation site's
+# "Compatibility and requirements" page quotes it.
 
 [action-inputs]
 root

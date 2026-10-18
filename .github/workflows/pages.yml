@@ -1,11 +1,12 @@
-# The sample site, rebuilt from HEAD.
+# The documentation site and the sample site, rebuilt from HEAD, as one Pages tree.
 #
-# The other live site — the Mathlib-dependent package in the README — is
-# published by *that* repository when it releases, so it shows whichever litedoc4
-# it pinned. This one shows what this commit produces, which is the question a
-# reader looking at a change actually has.
+# `website/` is the documentation, at the root. The sample is under `sample/`.
+# The other live site — the Mathlib-dependent package — is published by *that*
+# repository when it releases, so it shows whichever litedoc4 it pinned. The
+# sample shows what this commit produces, which is the question a reader looking
+# at a change actually has.
 #
-# It publishes `e2e/micro`, the eleven-module sample package: scoped notation, an
+# The sample is `e2e/micro`, the eleven-module sample package: scoped notation, an
 # astral identifier, a formula the converter refuses, `class inductive`, the
 # three shapes of `sorry`. **Its docstrings and `docs/index.md` are this site's
 # copy** — strangers read them, so they are written for a stranger, and the
@@ -13,7 +14,11 @@
 #
 # `tools/e2e-micro.sh` runs first and the deployment is downstream of it, so a
 # site that failed its own gates is never the one being served.
-name: sample site
+#
+# A Pages site has one `404.html`, at its root, and it is the documentation's.
+# For a path under `sample/` it loads the sample's own `404.html`, which is what
+# sends a versionless link to the newest version.
+name: pages
 
 on:
   push:
@@ -28,6 +33,8 @@ on:
       - "e2e/micro-dep/**"
       - "tools/build-lean-exe.sh"
       - "tools/e2e-micro.sh"
+      - "website/**"
+      - "docs/images/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -72,9 +79,23 @@ jobs:
           LITEDOC4: ${{ github.workspace }}/.lake/build/bin/litedoc4
         run: tools/e2e-micro.sh --out "$RUNNER_TEMP/e2e" --keep
 
+      - uses: ./.github/actions/setup-node
+
+      - name: Build the documentation
+        working-directory: website
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assemble the documentation and the sample into one tree
+        run: |
+          mkdir "$RUNNER_TEMP/pages"
+          cp -R website/dist/. "$RUNNER_TEMP/pages/"
+          cp -R "$RUNNER_TEMP/e2e/first/site" "$RUNNER_TEMP/pages/sample"
+
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: ${{ runner.temp }}/e2e/first/site
+          path: ${{ runner.temp }}/pages
 
       - id: deployment
         uses: actions/deploy-pages@v5

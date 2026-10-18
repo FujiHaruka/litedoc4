@@ -17,7 +17,7 @@ tools/purelean-gate.sh      # consumer/ — `lean_exe litedoc4` が消費者側�
 ```
 
 `micro/` is also **the published sample**: `.github/workflows/pages.yml` serves the
-very site `tools/e2e-micro.sh` builds, at <https://fujiharuka.github.io/litedoc4/>.
+very site `tools/e2e-micro.sh` builds, at <https://fujiharuka.github.io/litedoc4/sample/>.
 So it wears two hats, and the second one decides how it is written — see
 「触るときの注意」 below.
 
