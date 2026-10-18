@@ -140,8 +140,11 @@ __memory_gb () {
 micro_extractor () {
   local root="$1" micro="$2" lake="$3" log="$4"
   local exe="$micro/.lake/e2e-extract/extract"
-  if [ ! -x "$exe" ] || [ "$root/extractor/Extract.lean" -nt "$exe" ]; then
+  local built_for="$micro/.lake/e2e-extract/lean-toolchain"
+  if [ ! -x "$exe" ] || [ "$root/extractor/Extract.lean" -nt "$exe" ] ||
+     ! cmp -s "$micro/lean-toolchain" "$built_for"; then
     mkdir -p "$micro/.lake/e2e-extract"
+    cp "$micro/lean-toolchain" "$built_for"
     ( cd "$micro" && "$lake" env lean --root="$root/extractor" \
         -o "$micro/.lake/e2e-extract/Extract.olean" \
         -c "$micro/.lake/e2e-extract/Extract.c" \

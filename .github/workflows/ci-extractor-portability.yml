@@ -147,7 +147,7 @@ jobs:
           done
           grep -r . "$RUNNER_TEMP/other-e2e"/*/lean-toolchain
 
-      - name: Run the v4.31.0 extractor against it
+      - name: Run the sample's extractor against it
         run: |
           chmod +x "$RUNNER_TEMP/downloaded/extract"
           tools/extractor-mismatch.sh \

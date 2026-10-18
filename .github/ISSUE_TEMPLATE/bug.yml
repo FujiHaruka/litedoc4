@@ -31,7 +31,7 @@ body:
     id: toolchain
     attributes:
       label: Your lean-toolchain
-      placeholder: "leanprover/lean4:v4.31.0"
+      placeholder: "leanprover/lean4:v4.35.0"
     validations:
       required: true
 
