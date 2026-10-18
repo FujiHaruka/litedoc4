@@ -1,6 +1,6 @@
 # Declaration churn of the S input (tools/mv-s/generate.sh), per consecutive
 # pair, derived by reading v2.patch, v3.patch and v4.patch.
-# Derived against v1 = 070fac9b34f091d86a11ad47fb9beb7cc12fd14f (e2e/micro as it
+# Derived against v1 = cb30ee26779187ec803a40cf475f34b13d7b4416 (e2e/micro as it
 # was then). v1 is e2e/micro as it is, so a different v1 in versions.txt means
 # the sample changed and the rows below are unchecked against it.
 #
