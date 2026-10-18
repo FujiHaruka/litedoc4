@@ -1,21 +1,11 @@
 # litedoc4 as a GitHub Action.
 #
 # ============================================================================
-# WHAT THIS REPLACES
+# WHY PUBLISHING IS NOT HERE
 # ============================================================================
-#   Before this file, using litedoc4 in CI meant copying ~30 lines of YAML out
-#   of README.md: a second `actions/checkout` for this repository, three cache
-#   blocks whose keys you had to get right, an elan install, and a call into
-#   tools/ci-build.sh. All of that is here now, and the caller writes:
-#
-#       - uses: FujiHaruka/litedoc4@v2.0.0
-#         id: docs
-#       - uses: actions/upload-pages-artifact@v5
-#         with: { path: "${{ steps.docs.outputs.site }}" }
-#
-#   Publishing is deliberately NOT here. Where the site goes is the caller's
-#   decision, and an action that uploads to Pages cannot be used by anyone who
-#   wants an artifact, a commit to gh-pages, or a copy on S3.
+#   Where the site goes is the caller's decision, and an action that uploads
+#   to Pages cannot be used by anyone who wants an artifact, a commit to
+#   gh-pages, or a copy on S3.
 #
 # ============================================================================
 # WHY THE CACHE KEYS ARE COMPUTED BY HAND

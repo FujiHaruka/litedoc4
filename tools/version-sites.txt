@@ -29,7 +29,6 @@ README.md                         tracks  — nothing is downloaded; Lake builds
 README.md                         other   benchmarks/results/v0.2.0-numbers-
 README.md                         frozen  or later, since that is the first one a
 README.md                         frozen  is the first release whose source links point at it
-action.yml                        tracks  #       - uses: FujiHaruka/litedoc4@
 lakefile.lean                     tracks  require «litedoc4» from git
 lakefile.lean                     frozen  or later: it is the first tag a machine
 lakefile.lean                     frozen  is the oldest whose source links point

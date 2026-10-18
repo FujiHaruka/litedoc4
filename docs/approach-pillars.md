@@ -276,13 +276,14 @@ doc-gen4 の組み込み検索は `declaration-data.bmp` を丸ごと落とし�
 索引に持たない。**落とし穴**: litedoc4 の kind 語彙は doc-gen4 と違うので、doc-gen4 の
 `search.html` を流用すると**種別フィルタが黙って全部外れる**。
 
-#### 実装言語は Rust【決定】
+#### Implementation language: Lean, all of it (decided)
 
-抽出器は Lean、**その外側 (IR 消費・レンダリング・増分・検索索引) は Rust**。
-**選定理由は速度ではない** — レンダリングは生成 CPU の 9.2% で、§6.4 の倍率は「やらなくてよい
-仕事をやめた」ことによる。**速度の主張と言語を因果で結ばないこと。** 決め手は配布と、対外的に
-「高速を謳うなら Rust」という期待に合わせる製品判断。**技術的な利得が 1 つ**: doc-gen4 の
-CommonMark は **md4c (C)** で、TS にはバイト一致する実装が無く自前のサブセットを書いていた。
-Rust なら md4c を FFI で直接リンクできる (**FFI が消すのは自前サブセット 594 行だけで autolink
-解決系 153 行は残る**【実測】)。**完了条件は「Rust 版が 439/439 byte 一致」**。**内訳・移設の
-順序・各ゲートはコードとゲートスクリプトが持つ** — この文書は書かない。
+The extractor is Lean, and so is everything outside it (IR consumption, rendering, incremental,
+search index). The 2026-08-11 decision that put the outside in Rust was undone by the pure-Lean
+port, so that a consumer's Lake builds both executables from the one ref they pinned, with no
+second toolchain; the Rust tree is readable at tag `rust-frozen`. **Neither choice was made for
+speed** — rendering is 9.2% of generation CPU, and §6.4's multipliers come from stopping work that
+did not need doing. **Do not tie a speed claim to the language, in either direction.** md4c (C),
+the CommonMark implementation doc-gen4 uses, is linked through Lean's FFI, which was the one
+technical gain Rust had offered. **The breakdown and the gates are held by the code and the gate
+scripts** — this document does not write them.

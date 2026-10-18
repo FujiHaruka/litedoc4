@@ -4,7 +4,7 @@
 byte 再現率 **99.506% = 到達上限**、増分は本物の移動と削除を `lake build` ごと回して
 **フルビルドと byte 一致**、常駐は本配線と 600 要求のソークまで閉じた。**製品判断も決着** —
 rev はバイトから外す / 検索は組み込み・自パッケージのみ / プレビューは持たない /
-**外側の実装言語は Rust** (→ §5.6、§9)。
+**the whole tree is Lean** (→ §5.6, §9).
 **根拠**: [`docs/verification-log.md`](verification-log.md) (litedoc4 自身の実測) と
 [`benchmarks/doc-gen4-report.md`](../benchmarks/doc-gen4-report.md) (doc-gen4 v4.31.0 の実測)。
 **最終更新**: 2026-08-18。この文書はアプローチのレベルで書く — 実装レベルの詳細は書かない。
