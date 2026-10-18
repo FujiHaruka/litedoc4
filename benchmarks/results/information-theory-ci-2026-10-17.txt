@@ -1,0 +1,58 @@
+litedoc4 v2.0.0 building the information-theory package's site from nothing, in that package's own docs CI
+==========================================================================================================
+Date: 2026-10-17. One run (measured): https://github.com/FujiHaruka/information-theory/actions/runs/39023784222
+(workflow "docs", workflow_dispatch, head 6c78c63f671198146666df13a5356f34686465b1). Taken from the job log after the
+fact; nothing was run for this record. A single value, not a converged series.
+
+HEADLINE (measured, one run)
+  litedoc4 build, one version, empty --out, 419 modules, --jobs 4      14.1 s  ("build full in 14.1072 s")
+    of which extract 10.8 s (419 modules from the resident environment)
+  not counted in that figure, same job:
+    building the extractor                                             17.6 s
+    building the litedoc4 executable                                   48.2 s
+    the package's own `lake build` (leanprover/lean-action, the step before; litedoc4 ran with lake-build: false)
+  the action's step as a whole (extractor + litedoc4 + docs)            80.1 s
+
+SCOPE
+- The package's `InformationTheory` library at that commit: 419 modules (422 at the 2026-08-31 count; the source moves).
+  Dependencies (21 roots from 9 packages + core) are linked, not documented. Site: 1,510 files.
+
+CONDITIONS
+- GitHub-hosted ubuntu-latest, image ubuntu-24.04 20261012.334.1, kernel 6.17.0-1022-azure x86_64. CPU and RAM are not
+  printed in this log; ubuntu-latest for a public repository is the 4 vCPU / 16 GB class (assumed from the runner
+  class, not read from this job).
+- Lean v4.31.0 (the package's lean-toolchain); litedoc4 FujiHaruka/litedoc4@v2.0.0 as a GitHub Action, inputs
+  cache-get: false, lake-build: false (the package was built earlier in the same job by lean-action), no versions.
+- Cold litedoc4 state: "plan extract everything (nothing there yet)"; the state cache had no entry.
+- Warm/cold page cache: the oleans were just written or restored by lean-action in the same job.
+
+VERBATIM (the build's own lines and the action's summary, job log 10:12:08-10:12:23 UTC)
+2026-10-17T10:12:08.9126883Z === 5/5  litedoc4 build ===
+2026-10-17T10:12:23.1181988Z external  21 root(s) from 9/9 package(s) + core
+2026-10-17T10:12:23.1182427Z lib     InformationTheory (--lib)
+2026-10-17T10:12:23.1182642Z modules 419
+2026-10-17T10:12:23.1183006Z source  https://github.com/FujiHaruka/information-theory/blob/6c78c63f671198146666df13a5356f34686465b1
+2026-10-17T10:12:23.1183435Z plan    extract everything (nothing there yet)
+2026-10-17T10:12:23.1183676Z detect  419 module(s) hashed
+2026-10-17T10:12:23.1183942Z serve   ready 2140327897 6008 419 (4 jobs, generation b5fd2c960f59f226)
+2026-10-17T10:12:23.1184286Z         served 419 module(s) from the resident environment in 10.816s
+2026-10-17T10:12:23.1184628Z serve   stopped after 1 request(s)
+2026-10-17T10:12:23.1184844Z extract 419 module(s) in 10.8251 s
+2026-10-17T10:12:23.1185146Z ledger  419 module(s) -> /home/runner/work/_temp/litedoc4-out/ledger.json (116495 B)
+2026-10-17T10:12:23.1185523Z work    extract 419 / requests 1 / ir 1 file(s) (0 module read(s))
+2026-10-17T10:12:23.1186287Z put     6c78c63f6711: 423 IR file(s) -> 4632852 B (schema=5 source=fnv1a64:0101f9f687f0a0b6 lean=4.31.0 leanGithash=68218e876d2a38b1985b8590fff244a83c321783 equations=1 taggedCode=1 refs=1 skipAnalyze=0 ablations= open= only= noEquationsUnder=)
+2026-10-17T10:12:23.1187009Z versions extracted: 1 of 1 (6c78c63f6711)
+2026-10-17T10:12:23.1187266Z render  every version: no render ledger beside the site
+2026-10-17T10:12:23.1187520Z versions rendered: 1 of 1 (6c78c63f6711)
+2026-10-17T10:12:23.1189026Z {"command":"store render","versions":[{"version":"6c78c63f6711","modules":419,"shells":{"files":423,"rawBytes":373448,"storedBytes":373448},"dataReferenced":1081,"dataAdded":{"files":1081,"rawBytes":11863479,"storedBytes":2218357}}],"total":{"files":1510,"rawBytes":12316
+2026-10-17T10:12:23.1190355Z build   full in 14.1072 s -> /home/runner/work/_temp/litedoc4-out/site
+2026-10-17T10:12:23.1192631Z {"command":"build","path":"full","modules":419,"extracted":419,"rounds":1,"work":{"modulesExtracted":419,"extractorRequests":1,"irReads":{"index":1,"module":0,"depMap":0,"total":1}},"ledgerModules":419,"ledgerBytes":116495,"site":{"command":"store render","versions":[{"v
+2026-10-17T10:12:23.1269910Z 
+2026-10-17T10:12:23.1270292Z === summary ===
+2026-10-17T10:12:23.1270607Z phase           seconds  note
+2026-10-17T10:12:23.1270967Z cache-get         0.001  skipped (no --cache-get)
+2026-10-17T10:12:23.1271445Z lake-build        0.001  skipped (--no-lake-build)
+2026-10-17T10:12:23.1272087Z extractor        17.612  built
+2026-10-17T10:12:23.1272384Z lean             48.229  built
+2026-10-17T10:12:23.1272662Z docs             14.210  ran
+2026-10-17T10:12:23.1272935Z total            80.108
