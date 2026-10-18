@@ -1097,16 +1097,16 @@ else
 fi
 
 leans="$(record_field leanVersion v1 v5 2>&1 || true)"
-if [ "$leans" != "4.31.0 4.32.2" ]; then
-  item FAIL loop-toolchain "the records of v1 and v5 say lean $leans, expected 4.31.0 4.32.2"
+if [ "$leans" != "4.35.0 4.32.2" ]; then
+  item FAIL loop-toolchain "the records of v1 and v5 say lean $leans, expected 4.35.0 4.32.2"
 elif ! grep -q '^version v5: fresh$' "$LOGS/loop-again.log" || ! grep -q '^version v1: fresh$' "$LOGS/loop-again.log"; then
-  item FAIL loop-toolchain "the second run did not judge both v1 (lean 4.31.0) and v5 (lean 4.32.2) fresh"
+  item FAIL loop-toolchain "the second run did not judge both v1 (lean 4.35.0) and v5 (lean 4.32.2) fresh"
 elif ! grep -q '^identity .* lean=4.32.2 ' "$LOGS/loop-again.log"; then
   item FAIL loop-toolchain "the second run's identity was not asked of the lean 4.32.2 extractor: $(grep '^identity' "$LOGS/loop-again.log" | cut -c1-120)"
 elif grep -Eq '^extractor .*: built|^toolchain .*: not installed' "$LOGS/loop-again.log"; then
   item FAIL loop-toolchain "with nothing stale the second run built an extractor or installed a toolchain"
 else
-  item ok loop-toolchain "v5's record says lean 4.32.2 and v1's 4.31.0; the second run asked one cached extractor (lean 4.32.2) for the identity, judged both fresh, and built and installed nothing"
+  item ok loop-toolchain "v5's record says lean 4.32.2 and v1's 4.35.0; the second run asked one cached extractor (lean 4.32.2) for the identity, judged both fresh, and built and installed nothing"
 fi
 
 RENDER_LEDGER=render-ledger.json
