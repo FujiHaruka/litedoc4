@@ -34,8 +34,10 @@ on_exit 'rm -rf "$OUT"'
 
 # _FORTIFY_SOURCE rewrites mem* into macros on macOS, and a macro cannot be
 # compared against a declaration. Turning it off is what makes the redeclaration
-# visible to the compiler at all.
-if ! "$CC" -D_FORTIFY_SOURCE=0 -c -o "$OUT/conformance.o" \
+# visible to the compiler at all. C23's const-preserving bsearch and strchr are
+# `_Generic` macros in glibc under a compiler defaulting to C23, the same shape,
+# so the standard is pinned below it.
+if ! "$CC" -std=gnu17 -D_FORTIFY_SOURCE=0 -c -o "$OUT/conformance.o" \
       "$ROOT/csrc/libc-conformance.c" 2> "$OUT/err"; then
   echo "libc-shim-gate: csrc/libc disagrees with the platform's libc" >&2
   sed -n '1,20p' "$OUT/err" >&2

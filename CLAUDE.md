@@ -536,13 +536,10 @@ The vocabulary is four names in `test/Litedoc4Test/Basis.lean` and is meant to s
 
 **All of these were actually stepped on.** Do not copy them into the handoff every time — permanent facts live here.
 
-- **ssh (port 22) does not get through from this machine.** Push is HTTPS + `gh`:
-  ```
-  GIT_CONFIG_COUNT=2 \
-  GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0='' \
-  GIT_CONFIG_KEY_1=credential.helper GIT_CONFIG_VALUE_1='!gh auth git-credential' \
-  git push https://github.com/FujiHaruka/litedoc4.git main:main
-  ```
+- **Push is SSH: `git push git@github.com:FujiHaruka/litedoc4.git main:main`.** `GH_TOKEN` is a
+  credshim dummy that the proxy swaps for the real token only on `api.github.com`, so `gh` works
+  while an HTTPS push with `gh auth git-credential` fails with "Invalid username or token", and
+  `gh auth status` reports the token invalid (measured 2026-11-24).
 - **`diff` is aliased to `colordiff`, which does not exist. Use `/usr/bin/diff`.**
 - **On bash 3.2 an EXIT trap turns a `set -u` abort into exit 0.** `set -euo pipefail` plus any
   EXIT trap — `trap "true" EXIT` is enough — and a script that dies on an unbound variable
