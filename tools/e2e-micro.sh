@@ -74,18 +74,24 @@ fi
 
 say() { printf '\n=== %s\n' "$1"; }
 
-# The one thing that moves between the toolchains this repository claims: Lean
-# renamed the reducibility status of a reducible instance. The spelling comes out
-# of tools/lean-toolchains.txt rather than out of a version comparison here, so
-# that a toolchain nobody has run fails by name instead of failing forty lines
-# into GATE 8 as a mismatched attribute.
+# The two things that move between the toolchains this repository claims: Lean
+# renamed the reducibility status of a reducible instance, and stopped keeping the
+# whitespace before a doc comment's `-/`. Both come out of
+# tools/lean-toolchains.txt rather than out of a version comparison here, so that
+# a toolchain nobody has run fails by name instead of failing forty lines into
+# GATE 8 as a mismatched value.
 TOOLCHAIN="$(cat "$SAMPLE/lean-toolchain")"
 REDUCIBLE_ATTR="$(awk -v t="$TOOLCHAIN" '$1 == t { print $2 }' "$HERE/lean-toolchains.txt")"
+DOC_TRAILING="$(awk -v t="$TOOLCHAIN" '$1 == t { print $3 }' "$HERE/lean-toolchains.txt")"
 if [ -z "$REDUCIBLE_ATTR" ]; then
   echo "e2e-micro: $TOOLCHAIN has no row in tools/lean-toolchains.txt — every version this repository claims is listed there" >&2
   exit 2
 fi
-echo "toolchain $TOOLCHAIN, reducible-instance attribute $REDUCIBLE_ATTR"
+if [ -z "$DOC_TRAILING" ]; then
+  echo "e2e-micro: the row for $TOOLCHAIN in tools/lean-toolchains.txt has no column 3" >&2
+  exit 2
+fi
+echo "toolchain $TOOLCHAIN, reducible-instance attribute $REDUCIBLE_ATTR, doc-comment trailing whitespace $DOC_TRAILING"
 
 say "1/13 build the sample package (Lean core only)"
 (cd "$SAMPLE" && "$LAKE" build)
@@ -317,7 +323,7 @@ store_holds first "$OUT/prune/store" "$VERSION"
 store_holds second "$OUT/prune/store" "${OTHER:0:12}"
 rm -rf "$OUT/prune"
 
-say "9/13 GATE 8 — attributes arrive split into name and value"
+say "9/13 GATE 8 — attributes arrive split into name and value; docstrings end as the row says"
 # The `[name, value]` split is made in the extractor because that is the only side
 # that knows where the boundary is: `deprecated`'s value contains spaces,
 # parentheses and quotes, `specialize`'s contains brackets, and a reader given the
@@ -485,6 +491,73 @@ if problems:
 
 print(f"attrs        {checked} declarations compared, {sum(counts.values())} pair(s) over "
       f"{len(counts)} attribute name(s), {valued} with a value")
+PY
+
+# Column 3 asked of the toolchain the same way: the sample's own doc comments
+# have whitespace before `-/`, so a Lean that keeps it leaves docstrings ending in
+# a space or a newline and one that drops it leaves none. The source count is
+# what makes `dropped` an answer rather than the absence of a question.
+python3 - "$OUT/first/ir" "$SAMPLE" "$DOC_TRAILING" <<'PY'
+import json
+import pathlib
+import sys
+
+ir, sample, recorded = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+
+
+def doc_comments(text):
+    i, out = 0, []
+    while (i := text.find("/-", i)) >= 0:
+        kind = text[i + 2:i + 3]
+        depth, j = 1, i + 2
+        while depth:
+            if text.startswith("/-", j):
+                depth, j = depth + 1, j + 2
+            elif text.startswith("-/", j):
+                depth, j = depth - 1, j + 2
+            else:
+                j += 1
+        if kind in ("-", "!"):
+            out.append(text[i + 3:j - 2])
+        i = j
+    return out
+
+
+sources = [p for p in sorted(sample.rglob("*.lean")) if ".lake" not in p.parts]
+spaced = sum(
+    d[-1:] in (" ", "\n") for p in sources for d in doc_comments(p.read_text(encoding="utf-8"))
+)
+if spaced == 0:
+    sys.exit(
+        "GATE 8 FAIL  no doc comment in the sample has whitespace before `-/`, so column 3 "
+        "is not asked at all — keep at least one"
+    )
+
+docstrings = []
+for path in sorted((ir / "modules").glob("*.json")):
+    module = json.loads(path.read_text(encoding="utf-8"))
+    docstrings += [d["text"] for d in module.get("moduleDocs", [])]
+    docstrings += [t["docString"] for t in module.get("tactics", [])]
+    for decl in module.get("declarations", []):
+        docstrings += [decl.get("doc")] + [m.get("doc") for m in decl.get("members", [])]
+docstrings = [d for d in docstrings if d]
+ending = sum(d[-1:] in (" ", "\n") for d in docstrings)
+measured = "kept" if ending else "dropped"
+if recorded == "UNMEASURED":
+    sys.exit(
+        "GATE 8: column 3 of this toolchain is UNMEASURED in tools/lean-toolchains.txt. "
+        f"{ending} of {len(docstrings)} docstring(s) end in a space or a newline here "
+        f"while {spaced} of the sample's doc comments have whitespace before `-/` — "
+        f"put `{measured}` in column 3 and run this again."
+    )
+if recorded != measured:
+    sys.exit(
+        f"GATE 8 FAIL  column 3 says `{recorded}`, and {ending} of {len(docstrings)} "
+        f"docstring(s) end in a space or a newline while {spaced} of the sample's doc "
+        f"comments have whitespace before `-/` — this toolchain is `{measured}`"
+    )
+print(f"docs         {ending} of {len(docstrings)} docstring(s) end in a space or a newline, "
+      f"{spaced} doc comment(s) in the sample have whitespace before `-/`: `{recorded}`")
 PY
 
 say "10/13 GATE 6 — one edited module is the one module extracted"

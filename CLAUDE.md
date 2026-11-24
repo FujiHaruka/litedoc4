@@ -88,9 +88,10 @@ promises, each with a gate. **Do not read v1 as "finished" any more than v0.1 me
   come from the same tree. Checks are **one-directional on purpose** (adding breaks nobody;
   removing and renaming do); `action.yml` is checked both ways because it is plain data.
 - **The Lean versions are `tools/lean-toolchains.txt`**, and that file is also the matrix
-  `ci-lean-versions.yml` runs — **read from the file, so two lists cannot drift**. Column 2 is the
-  one thing that legitimately moves between toolchains (Lean's rename of a reducible instance's
-  reducibility status). **A toolchain with no row fails by name**; a row marked `UNMEASURED`
+  `ci-lean-versions.yml` runs — **read from the file, so two lists cannot drift**. Columns 2 and 3 are
+  the two things that legitimately move between toolchains (Lean's rename of a reducible
+  instance's reducibility status, and v4.36.0 dropping the whitespace before a doc comment's
+  `-/`). **A toolchain with no row fails by name**; a row marked `UNMEASURED`
   fails *carrying the value to write down*. **Do not branch on the version** — the extractor
   delegates enumeration to Lean's own `toAttrString`, and this file records the consequence.
 - **Nothing is distributed as a binary** (2026-08-31, M9 of the pure-Lean port). A consumer

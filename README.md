@@ -113,8 +113,8 @@ format, so links and docstrings written for a doc-gen4 site work unchanged. What
 ## Requirements
 
 - **Source on GitHub.** For another host, pass `--source-url`.
-- **Lean v4.31.0, v4.32.2, v4.33.0, v4.33.1, v4.34.1 or v4.35.0.** Any other version is refused by
-  name before anything runs.
+- **Lean v4.31.0, v4.32.2, v4.33.0, v4.33.1, v4.34.1, v4.35.0 or v4.36.0.** Any other version is
+  refused by name before anything runs.
 - **Linux and macOS.** Windows has not been tried.
 
 ## Documentation

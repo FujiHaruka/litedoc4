@@ -1,27 +1,43 @@
-# The Lean toolchains litedoc4 claims to work on, and the one thing that moves
+# The Lean toolchains litedoc4 claims to work on, and the two things that move
 # between them.
 #
 # This file is the single place that list lives. Its readers:
-#   - tools/e2e-micro.sh          reads the row for e2e/micro/lean-toolchain
-#   - tools/lean-versions-gate.sh normalises the second column before comparing
+#   - tools/e2e-micro.sh          reads the row for e2e/micro/lean-toolchain, and
+#     fails when either column is not what that toolchain did to the sample
+#   - tools/lean-versions-gate.sh normalises exactly what columns 2 and 3 record
+#     before comparing, and nothing else
 #   - .github/workflows/ci-lean-versions.yml  runs one job per row, and fails if
 #     its matrix and this file disagree in either direction
 #   - tools/docs-gate.sh          rule 3. README spells the versions out instead
 #     of linking here, because a reader deciding whether to adopt should not be
 #     sent to a text file; the gate fails when the two disagree in either direction
+#   - the reader gates and `litedoc4 build --versions`: the last row is the
+#     reader's toolchain
 # A version that is not here is a version nothing ran.
 #
-# COLUMN 2 — what Lean spells the reducibility status of a reducible instance.
-# Lean renamed it, and the extractor does not branch on the version: it delegates
-# enumeration to `ReducibilityStatus.toAttrString`, so the spelling is a fact
-# about the toolchain. Writing it down rather than branching keeps the rename
-# visible; a new toolchain with no row here fails by name rather than by a
-# mismatched attribute forty lines into a gate.
+# Both columns are facts about the toolchain, written down rather than branched
+# on: the extractor writes what its Lean gives it, and a new toolchain with no row
+# here fails by name rather than by a mismatched value forty lines into a gate.
+# A new row starts as UNMEASURED in both columns; tools/e2e-micro.sh then fails
+# carrying the value to write.
 #
-# toolchain                  reducible-instance attribute
-leanprover/lean4:v4.31.0     implicit_reducible
-leanprover/lean4:v4.32.2     implicit_reducible
-leanprover/lean4:v4.33.0     instance_reducible
-leanprover/lean4:v4.33.1     instance_reducible
-leanprover/lean4:v4.34.1     instance_reducible
-leanprover/lean4:v4.35.0     instance_reducible
+# COLUMN 2 — what Lean spells the reducibility status of a reducible instance.
+# Lean renamed it; the extractor delegates enumeration to
+# `ReducibilityStatus.toAttrString`.
+#
+# COLUMN 3 — what Lean does with the whitespace between a doc comment's text and
+# its closing `-/`. `kept`: the stored docstring ends with it. `dropped`: the
+# trailing run of spaces and newlines is not part of the text (a tab or a
+# carriage return ends the run and stays). It reaches declaration, structure
+# field, module and tactic docstrings alike, since all four come from the same
+# parser, and the extractor writes the docstring as `findDocString?` and
+# `getModuleDoc?` return it.
+#
+# toolchain                  reducible-instance attribute doc-comment trailing whitespace
+leanprover/lean4:v4.31.0     implicit_reducible           kept
+leanprover/lean4:v4.32.2     implicit_reducible           kept
+leanprover/lean4:v4.33.0     instance_reducible           kept
+leanprover/lean4:v4.33.1     instance_reducible           kept
+leanprover/lean4:v4.34.1     instance_reducible           kept
+leanprover/lean4:v4.35.0     instance_reducible           kept
+leanprover/lean4:v4.36.0     instance_reducible           dropped

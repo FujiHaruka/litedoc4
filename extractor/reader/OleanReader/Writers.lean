@@ -27,6 +27,15 @@ def SimpTheoremFlags.count : SimpTheoremFlags → Nat
   | .postPermRfl => 3
   | .postPermRflBackwardRfl => 4
 
+inductive PFEqnInfoFields where
+  | throughFixpointType
+  | withFixEq
+  deriving Inhabited
+
+def PFEqnInfoFields.count : PFEqnInfoFields → Nat
+  | .throughFixpointType => 8
+  | .withFixEq => 9
+
 structure WriterVersion where
   leanVersion : String
   githash : String
@@ -35,8 +44,9 @@ structure WriterVersion where
   renamedExts : List RenamedExt
   reducibility : Array StoredReducibility
   simpTheorem : SimpTheoremFlags
+  pfEqnInfo : PFEqnInfoFields
 
-instance : Inhabited WriterVersion := ⟨⟨"", "", "", [], [], #[], default⟩⟩
+instance : Inhabited WriterVersion := ⟨⟨"", "", "", [], [], #[], default, default⟩⟩
 
 def WriterVersion.writesHeader (w : WriterVersion) (headerVersion : String) : Bool :=
   headerVersion == w.leanVersion || headerVersion == w.coreHeaderVersion
@@ -112,67 +122,85 @@ def writers : List WriterVersion := [
     absentExts := absentV429 ++ absentBeforeV435
     renamedExts := renamedBeforeV430
     reducibility := storedBeforeV433
-    simpTheorem := .postPermRfl },
+    simpTheorem := .postPermRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.29.1", githash := "f72c35b3f637c8c6571d353742168ab66cc22c00", coreHeaderVersion := "4.29.0"
     absentExts := absentV429 ++ absentBeforeV435
     renamedExts := renamedBeforeV430
     reducibility := storedBeforeV433
-    simpTheorem := .postPermRfl },
+    simpTheorem := .postPermRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.30.0", githash := "d024af099ca4bf2c86f649261ebf59565dc8c622"
     absentExts := absentV430 ++ absentBeforeV435
     renamedExts := []
     reducibility := storedBeforeV433
-    simpTheorem := .postPermRfl },
+    simpTheorem := .postPermRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.31.0", githash := "68218e876d2a38b1985b8590fff244a83c321783"
     absentExts := absentV431 ++ absentBeforeV435
     renamedExts := []
     reducibility := storedBeforeV433
-    simpTheorem := .postPermRflBackwardRfl },
+    simpTheorem := .postPermRflBackwardRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.32.0", githash := "8c9756b28d64dab099da31a4c09229a9e6a2ef35"
     absentExts := absentBeforeV433 ++ absentBeforeV435
     renamedExts := []
     reducibility := storedBeforeV433
-    simpTheorem := .postPermRflBackwardRfl },
+    simpTheorem := .postPermRflBackwardRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.32.1", githash := "f054605aea4b840552cca2e725580bffd1e1b704"
     absentExts := absentBeforeV433 ++ absentBeforeV435
     renamedExts := []
     reducibility := storedBeforeV433
-    simpTheorem := .postPermRflBackwardRfl },
+    simpTheorem := .postPermRflBackwardRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.32.2", githash := "f3b06c705e6c85f5314019d5d3baab0fec5b580c"
     absentExts := absentBeforeV433 ++ absentBeforeV435
     renamedExts := []
     reducibility := storedBeforeV433
-    simpTheorem := .postPermRflBackwardRfl },
+    simpTheorem := .postPermRflBackwardRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.33.0", githash := "d8b18978322de05a8f3dba51ef03cf5461676c17"
     absentExts := absentV433 ++ absentBeforeV435
     renamedExts := renamedV433ToV434
     reducibility := storedFromV433
-    simpTheorem := .postPermRflBackwardRfl },
+    simpTheorem := .postPermRflBackwardRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.33.1", githash := "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
     absentExts := absentV433 ++ absentBeforeV435
     renamedExts := renamedV433ToV434
     reducibility := storedFromV433
-    simpTheorem := .postPermRflBackwardRfl },
+    simpTheorem := .postPermRflBackwardRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.34.0", githash := "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b"
     absentExts := absentBeforeV435
     renamedExts := renamedV433ToV434
     reducibility := storedFromV433
-    simpTheorem := .postPermRflBackwardRfl },
+    simpTheorem := .postPermRflBackwardRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.34.1", githash := "5045d0056413266e57c625dcd7c365b10e377c52"
     absentExts := absentBeforeV435
     renamedExts := renamedV433ToV434
     reducibility := storedFromV433
-    simpTheorem := .postPermRflBackwardRfl },
+    simpTheorem := .postPermRflBackwardRfl
+    pfEqnInfo := .throughFixpointType },
   { leanVersion := "4.35.0", githash := "eb6cafb7290e8bd5f2937522d8d804f58f02bafc"
     absentExts := []
     renamedExts := []
     reducibility := storedFromV433
-    simpTheorem := .postPermRflBackwardRfl }]
+    simpTheorem := .postPermRflBackwardRfl
+    pfEqnInfo := .throughFixpointType },
+  { leanVersion := "4.36.0", githash := "611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9"
+    absentExts := []
+    renamedExts := []
+    reducibility := storedFromV433
+    simpTheorem := .postPermRflBackwardRfl
+    pfEqnInfo := .withFixEq }]
 
 def WriterVersion.describe (w : WriterVersion) : String :=
   let red := w.reducibility.toList.zipIdx.map fun (r, i) => s!"{i}={r.writerName}"
   s!"{w.leanVersion} {w.githash} core-header={w.coreHeaderVersion} absent-extensions={w.absent.length} renamed-extensions={w.renamedExts.length} \
-    simp-theorem-flags={w.simpTheorem.count} reducibility={",".intercalate red} \
+    simp-theorem-flags={w.simpTheorem.count} pf-eqn-info-fields={w.pfEqnInfo.count} reducibility={",".intercalate red} \
     axiom-lists={if w.absent.contains axiomsExtName.toString then "absent" else "stored"}"
 
 def checkWriters (registered : Array String) : Except String Unit := do

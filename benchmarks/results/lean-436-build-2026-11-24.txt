@@ -1,0 +1,122 @@
+Does litedoc4 build on Lean v4.36.0, and does the .olean reader run on it?
+=========================================================================
+
+Working tree on 67df801 (main) plus the v4.36.0 changes, uncommitted at the time.
+Apple M1 Pro, 32 GB, macOS 26.7.1. Run 2026-11-24.
+leanprover/lean4:v4.36.0, leanGithash 611c117bfaf7b7ae1cfcf246ce6fba31e8f509e9 (`lean --githash`).
+
+(0) What v4.36.0 changes (measured)
+  Docstrings. The text Lean stores for a doc comment no longer ends with the spaces and newlines
+  before its `-/`. In v4.36.0's Lean/Parser/Term.lean, `commentBodyFn` ends the text atom before
+  the trailing run of ' ' and '\n' and makes that run the atom's trailing whitespace, and
+  `getDocStringText` returns the atom. Probe files elaborated on v4.35.0 and on v4.36.0, each
+  docstring read back with `findDocString?` / `getMainModuleDoc` (11 declaration docstrings, a
+  tactic's `syntax` docstring, a module docstring, 6 indentation shapes of the closing line, 2
+  carriage returns before `-/`; the first file again with CRLF line endings): in every case
+  v4.36.0's string is v4.35.0's with the trailing run of ' ' and '\n' removed. A tab, a carriage
+  return and U+00A0 end the run and stay in both. The CRLF copy gives the same strings as the LF
+  one on both versions, so a CR before `-/` from a CRLF file is not observable.
+
+  On e2e/micro the two versions' IR differs in 103 docstrings (92 declaration and field `doc`, 11
+  module `text`): 103 of 103 end in ' ' or '\n' on v4.35.0, 0 of 103 on v4.36.0. Besides those,
+  only leanVersion, extractorIdentity, contentHash and bytes differ. Of the rendered sites, the
+  data blobs the 17 HTML pages name (data-data, data-page, data-used-by) differ in the Lean
+  version, Init's source root and 32 integers in the page blobs' name tables; HAdd.hAdd
+  (1481 -> 1489) and Iff (183 -> 181) among them were checked against the two Leans' sources as
+  declaration lines. No other file of the sites was compared.
+  Recorded as column 3 of tools/lean-toolchains.txt (`kept` for v4.31.0 .. v4.35.0, `dropped` for
+  v4.36.0). The extractor writes what Lean returns, as before.
+
+  The .olean layout. Lean.Elab.PartialFixpoint.EqnInfo has a ninth field, `fixEq? : Option Name`.
+  The reader built on v4.36.0 failed with "Entries.lean:251:9: error: Fields missing: `fixEq?`".
+  Now each writer record states the layout (8 fields for 4.29.0 .. 4.35.0, 9 for 4.36.0), the
+  decoder takes it from the record, and the oracle prints it as a `layout` line next to the one
+  Lean's own `getCtorLayout` gives. In v4.36.0's Init, Std and Lean, one module carries entries
+  under that extension (Std.Data.Iterators.Lemmas.Equivalence.Basic, one entry,
+  Std.BundledIterM.Equiv, fixEq? none), so a `some` in the ninth field is decoded by nothing here.
+  The same module carries one on 4.29.0, 4.31.0, 4.33.1 and 4.35.0 (`dump carriers`), so a record
+  with the wrong layout is refused by the decoder before the oracle writes its `layout` line: that
+  line has passed 13 times and has not yet failed on its own.
+
+  Registered extensions: v4.36.0 registers the same 197 as v4.35.0. For each of the 13 writer
+  records, `reader --absent-extensions` equals the set difference of v4.36.0's registered
+  extensions against that Lean's (4.29.0 and 4.29.1 56, 4.30.0 43, 4.31.0 23, 4.32.x 15, 4.33.x 6,
+  4.34.x 2, 4.35.0 0), so no older record changed. ImportState, ImportedModule and CompactedRegion,
+  which the reader mirrors, are unchanged.
+
+(1) The litedoc4 executable (measured)
+  tools/build-lean-exe.sh --toolchain-from e2e/micro with e2e/micro pinned to v4.36.0 (a worktree):
+  "Build completed successfully (277 jobs)", 0 warnings, 31.9 s wall. BibtexQuery and MathML4Lean
+  are among the 277. src/ needed no change. On e2e/micro's v4.35.0: "Build completed successfully
+  (194 jobs)", 0 warnings.
+
+(2) The tests (measured)
+  tools/lean-test-gate.sh: "LEAN TEST GATE: ok — 243 compile-time, 74 run-time", 4 of 4 items, on
+  v4.35.0 (the tree's e2e/micro, 12.3 s wall) and on v4.36.0 (its --toolchain-from pointed at a
+  directory with lean-toolchain = leanprover/lean4:v4.36.0 in a worktree copy, 40.0 s wall with
+  the dependencies fetched into a fresh workspace).
+
+(3) The row (measured)
+  tools/e2e-micro.sh, in a worktree copy of the final tree with e2e/micro and e2e/micro-dep pinned
+  to v4.36.0. With the row `leanprover/lean4:v4.36.0 UNMEASURED UNMEASURED`: "GATE 8: this
+  toolchain is UNMEASURED in tools/lean-toolchains.txt. Lean spelled the reducible-instance
+  attribute ['instance_reducible'] here — put that in column 2 and run this again.", exit 1.
+  With that in column 2 and column 3 UNMEASURED: "GATE 8: column 3 of this toolchain is UNMEASURED
+  in tools/lean-toolchains.txt. 0 of 103 docstring(s) end in a space or a newline here while 81 of
+  the sample's doc comments have whitespace before `-/` — put `dropped` in column 3 and run this
+  again.", exit 1. Made to fail once with `kept` there: "GATE 8 FAIL  column 3 says `kept`, and 0
+  of 103 docstring(s) end in a space or a newline while 81 of the sample's doc comments have
+  whitespace before `-/` — this toolchain is `dropped`", exit 1. With `dropped`: "E2E MICRO: ok",
+  13 of 13 steps, 25 s wall.
+  The same script on each other row, both samples pinned to it: "E2E MICRO: ok" on v4.31.0,
+  v4.32.2, v4.33.0, v4.33.1, v4.34.1 and v4.35.0, each "docs 103 of 103 docstring(s) end in a
+  space or a newline, 81 doc comment(s) in the sample have whitespace before `-/`: `kept`".
+
+  tools/lean-versions-gate.sh over the seven IR trees: "LEAN VERSIONS: leanprover/lean4:v4.31.0,
+  leanprover/lean4:v4.32.2, leanprover/lean4:v4.33.0, leanprover/lean4:v4.33.1,
+  leanprover/lean4:v4.34.1, leanprover/lean4:v4.35.0, leanprover/lean4:v4.36.0 agree over 13 IR
+  files (rename to `implicit_reducible` applied leanprover/lean4:v4.33.0 6, leanprover/lean4:v4.33.1
+  6, leanprover/lean4:v4.34.1 6, leanprover/lean4:v4.35.0 6, leanprover/lean4:v4.36.0 6 time(s);
+  trailing doc-comment whitespace dropped from leanprover/lean4:v4.31.0 103, leanprover/lean4:v4.32.2
+  103, leanprover/lean4:v4.33.0 103, leanprover/lean4:v4.33.1 103, leanprover/lean4:v4.34.1 103,
+  leanprover/lean4:v4.35.0 103 docstring(s); nothing else normalised)", exit 0.
+  Before column 3, v4.35.0 against v4.36.0 failed on all 11 module files. Made to fail once with
+  the docstring normalisation disabled (a worktree copy), v4.35.0 against v4.36.0: 11 lines such as
+  "LEAN VERSIONS FAIL  leanprover/lean4:v4.35.0 and leanprover/lean4:v4.36.0 disagree on
+  modules/Example.Gen.json at byte 169: b' ","endCol":7,"endLine":86,"equationCode' vs
+  b'","endCol":7,"endLine":86,"equationCode"'", exit 1.
+  The earlier gate printed the two byte strings in the opposite order to the two names; it now
+  names the first leg first.
+  The gate's 103 per `kept` row is the docstring normalisation's reach; e2e-micro counts the same
+  103 docstrings ending in ' ' or '\n' independently, from the parsed IR.
+  Tactic docstrings: the sample's IR has none ("tactics":[]), so the gate's `docString` arm applied
+  0 times. The IR appends a tactic's extension docs after its docstring, and whitespace dropped
+  before that join is not at the end of the string, so such a tactic would fail the gate by name.
+  Not done: ci-lean-versions.yml on CI runners; a Mathlib-sized package on v4.36.0; a
+  multi-version store holding versions on both sides of the docstring change, and whether their
+  pages still share content.
+
+(4) The reader on v4.36.0 (measured)
+  Writer record 4.36.0 (githash above, no absent or renamed extension, PartialFixpoint.EqnInfo with
+  fixEq?).
+
+  tools/reader-oracle-gate.sh (all 13 writer toolchains installed, sample all, seed 1):
+  "READER ORACLE GATE: ok (28 of 28)", exit 0, 786 s wall. oracle-4.29.0 .. oracle-4.36.0 13 of 13
+  equal byte for byte (oracle-4.36.0: 535457 lines, 212738 constants); axioms-4.30.0 ..
+  axioms-4.36.0 11 of 11 equal; refuse-version, refuse-githash, refuse-mixed, refuse-absent
+  (Lean 4.33.1, Lean.Meta.Grind.homoExt, Init.Grind.Homo.BitVec).
+  Made to fail once: the 4.36.0 record given the 8-field layout (a worktree copy), --sample 1:
+  "ITEM oracle-4.36.0 FAIL  the reader exited 1", "olean reader: refused: .../Std/Data/Iterators/
+  Lemmas/Equivalence/Basic.olean: PartialFixpoint.EqnInfo at 0x1c2e62a1898: expected ctor tag 0
+  objs 8 size 72, found tag 0 objs 9 size 80", the same for axioms-4.36.0, "READER ORACLE GATE:
+  FAILED (2 of 28 answered items)", exit 1, 488 s wall.
+
+  tools/reader-hybrid-gate.sh over the seven rows: "READER HYBRID GATE: ok (29 of 29)", exit 0,
+  339 s wall; read-4.31.0 .. read-4.35.0 and self-4.36.0 each "16 IR files and the link index
+  equal". An older row read through the reader keeps its own Lean's docstrings.
+
+(5) The multi-version gates (measured)
+  tools/mv-s/v6.patch repinned to v4.36.0, the last row. tools/mv-reader-gate.sh: "MV READER GATE:
+  ok, 18 of 18 items ran and passed", exit 0, 509 s wall.
+  tools/mv-s-gate.sh (v1..v5, no v4.36.0 in it): "MV-S GATE: ok, 64 of 64 items ran and passed",
+  exit 0, 83 s wall.

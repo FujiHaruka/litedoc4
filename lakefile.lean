@@ -73,14 +73,14 @@ require «MathML4Lean» from git
 citation shows. A dependency and not a reimplementation: it is the library
 doc-gen4 formats a bibliography with, so its tags and entry text are doc-gen4's.
 
-Pinned to the commit doc-gen4 pins. Its own `lean-toolchain` names a higher
-version than any toolchain litedoc4 supports, and it does not reach a consumer's
-`lean-toolchain` anyway: `lake update` compares only the root's *direct*
+Pinned to the commit doc-gen4 pins. Its own `lean-toolchain` (v4.35.0-rc3) does
+not reach a consumer's `lean-toolchain`: `lake update` compares only the root's *direct*
 dependencies, and a consumer reaches this one through litedoc4, which has no
-`lean-toolchain` at all. It builds on v4.31.0, v4.32.2, v4.33.1, v4.34.1 and v4.35.0 and imports
-no `Lean` (`benchmarks/results/bibtexquery-dependency-probe-2026-10-04.txt`,
+`lean-toolchain` at all. It builds on v4.31.0, v4.32.2, v4.33.1, v4.34.1, v4.35.0 and v4.36.0 and
+imports no `Lean` (`benchmarks/results/bibtexquery-dependency-probe-2026-10-04.txt`,
 `benchmarks/results/lean-434-build-2026-10-08.txt`,
-`benchmarks/results/lean-435-build-2026-10-16.txt`). -/
+`benchmarks/results/lean-435-build-2026-10-16.txt`,
+`benchmarks/results/lean-436-build-2026-11-24.txt`). -/
 require «BibtexQuery» from git
   "https://github.com/dupuisf/BibtexQuery" @ "fdcc88de7c4c5a11e3239c9416615f34c226d47d"
 

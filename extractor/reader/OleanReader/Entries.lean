@@ -247,12 +247,16 @@ def decPartialFixpointType (v : UInt64) : DM Elab.PartialFixpointType := do
   | 0 => return .partialFixpoint | 1 => return .coinductiveFixpoint | _ => return .inductiveFixpoint
 
 def decPFEqnInfo (v : UInt64) : DM Elab.PartialFixpoint.EqnInfo := do
-  let x ← ctor "PartialFixpoint.EqnInfo" v 0 8 0
+  let fields := (← read)[0]!.ver.pfEqnInfo
+  let x ← ctor "PartialFixpoint.EqnInfo" v 0 fields.count 0
+  let fixEq? ← match fields with
+    | .throughFixpointType => pure none
+    | .withFixEq => decOptName (x.field 8)
   return { declName := ← decName (x.field 0), levelParams := ← decNameList (x.field 1),
            type := ← decExpr (x.field 2), value := ← decExpr (x.field 3),
            declNames := ← decArray "Array Name" (x.field 4) decName, declNameNonRec := ← decName (x.field 5),
            fixedParamPerms := ← decFixedParamPerms (x.field 6),
-           fixpointType := ← decArray "Array PartialFixpointType" (x.field 7) decPartialFixpointType }
+           fixpointType := ← decArray "Array PartialFixpointType" (x.field 7) decPartialFixpointType, fixEq? }
 
 def decSparseCasesOnInfo (v : UInt64) : DM Meta.SparseCasesOnInfo := do
   let x ← ctor "SparseCasesOnInfo" v 0 4 0

@@ -19,6 +19,8 @@ def emitLayout (out : IO.FS.Stream) (env : Environment) : IO Unit := do
   let ctx : Core.Context := { fileName := "<olean-reader-oracle>", fileMap := default }
   let (l, _) ← (Compiler.LCNF.getCtorLayout ``Meta.SimpTheorem.mk).toIO ctx { env }
   out.putStrLn (layoutLine ``Meta.SimpTheorem.mk l.ctorInfo.size l.ctorInfo.ssize)
+  let (l, _) ← (Compiler.LCNF.getCtorLayout ``Elab.PartialFixpoint.EqnInfo.mk).toIO ctx { env }
+  out.putStrLn (layoutLine ``Elab.PartialFixpoint.EqnInfo.mk l.ctorInfo.size l.ctorInfo.ssize)
 
 def emitModules (out : IO.FS.Stream) (env : Environment) : IO (Array (Name × ConstantInfo)) := do
   let mut all := #[]

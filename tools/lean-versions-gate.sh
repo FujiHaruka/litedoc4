@@ -2,18 +2,19 @@
 # Do the Lean toolchains this repository claims produce the same IR?
 #
 # One IR tree per toolchain comes in; the answer is a diff over all of them at
-# once. The list of toolchains, and the one thing that legitimately moves between
-# them, are both in tools/lean-toolchains.txt.
+# once. The list of toolchains, and the two things that legitimately move between
+# them, are all in tools/lean-toolchains.txt.
 #
 # WHY NOT A PLAIN `diff -r`
-#   Lean renamed the reducibility status of a reducible instance, so a raw diff
-#   is red on every version boundary and stops being read. Normalising exactly the
-#   rename the inventory records — and nothing else — keeps the second divergence
-#   visible, which an ignore-list would swallow.
+#   Lean renamed the reducibility status of a reducible instance, and stopped
+#   keeping the whitespace before a doc comment's `-/`, so a raw diff is red on
+#   every version boundary and stops being read. Normalising exactly what the
+#   inventory records — and nothing else — keeps the next divergence visible,
+#   which an ignore-list would swallow.
 #
 # WHY `contentHash` IS NOT SIMPLY SKIPPED
 #   It is computed by the extractor over the bytes *before* normalisation, so it
-#   differs wherever the rename applied. Skipping it would also hide a hash that
+#   differs wherever a normalisation applied. Skipping it would also hide a hash that
 #   moved with no byte behind it, so instead it is asserted the other way round:
 #   the hash differs exactly when the raw module bytes differ.
 #
@@ -31,18 +32,24 @@ import sys
 
 inventory_path = pathlib.Path(sys.argv[1])
 spelling = {}
+trailing = {}
 for line in inventory_path.read_text(encoding="utf-8").splitlines():
     line = line.split("#", 1)[0].strip()
     if not line:
         continue
-    toolchain, attr = line.split()
-    spelling[toolchain] = attr
+    columns = line.split()
+    if len(columns) != 3:
+        sys.exit(f"lean-versions: {inventory_path} row `{line}` has {len(columns)} column(s), not 3")
+    toolchain, spelling[toolchain], trailing[toolchain] = columns
 
 # The name every leg is normalised *to*. Not "the first argument's": a run whose
 # arguments happen to start at v4.33.0 would then normalise the other way and the
 # comparison would still be the same one, but the failure text would name a
 # spelling that is not in the file.
 CANONICAL = "implicit_reducible"
+# Only this direction exists: whitespace Lean dropped cannot be put back.
+TRAILING_CANONICAL = "dropped"
+TRAILING_VALUES = ("kept", "dropped")
 
 legs = []
 for spec in sys.argv[2:]:
@@ -51,10 +58,15 @@ for spec in sys.argv[2:]:
         sys.exit(f"lean-versions: `{spec}` is not <toolchain>=<ir-dir>")
     if toolchain not in spelling:
         sys.exit(f"lean-versions: {toolchain} has no row in {inventory_path}")
-    if spelling[toolchain] == "UNMEASURED":
+    if "UNMEASURED" in (spelling[toolchain], trailing[toolchain]):
         sys.exit(
             f"lean-versions: {inventory_path} says {toolchain} is UNMEASURED — "
-            "record the attribute Lean actually spelled before comparing against it"
+            "record what Lean actually did before comparing against it"
+        )
+    if trailing[toolchain] not in TRAILING_VALUES:
+        sys.exit(
+            f"lean-versions: {inventory_path} gives {toolchain} column 3 "
+            f"`{trailing[toolchain]}`, which is none of {', '.join(TRAILING_VALUES)}"
         )
     root = pathlib.Path(directory)
     if not (root / "index.json").is_file():
@@ -72,19 +84,84 @@ def module_files(root):
     }
 
 
-# How many bytes the normalisation actually rewrote, per toolchain. Printed at the
-# end: a normalisation whose reach is unknown is an ignore-list wearing a
-# different hat, and the number is the only way to see it grow.
+# How many times each normalisation actually rewrote something, per toolchain.
+# Printed at the end: a normalisation whose reach is unknown is an ignore-list
+# wearing a different hat, and the number is the only way to see it grow.
 rewrites: dict[str, int] = {}
+stripped: dict[str, int] = {}
+seen: dict[tuple, bytes] = {}
+
+
+def docstring_owner(key, owner):
+    return key in ("doc", "docString") or (key == "text" and owner == "moduleDocs")
+
+
+def without_trailing(body):
+    units = []
+    i = 0
+    while i < len(body):
+        step = 6 if body[i:i + 2] == b"\\u" else 2 if body[i:i + 1] == b"\\" else 1
+        units.append(body[i:i + step])
+        i += step
+    end = len(units)
+    while end and units[end - 1] in (b" ", b"\\n"):
+        end -= 1
+    return b"".join(units[:end]), end != len(units)
+
+
+def strip_docstrings(raw, toolchain):
+    out = bytearray()
+    stack = []
+    key = None
+    i = 0
+    while i < len(raw):
+        c = raw[i:i + 1]
+        if c == b'"':
+            j = i + 1
+            while raw[j:j + 1] != b'"':
+                j += 2 if raw[j:j + 1] == b"\\" else 1
+            body = raw[i + 1:j]
+            frame = stack[-1] if stack else None
+            if frame and frame["kind"] == "object" and frame["wants_key"]:
+                key = body.decode("utf-8")
+                frame["wants_key"] = False
+            elif frame and frame["kind"] == "object" and docstring_owner(key, frame["owner"]):
+                body, changed = without_trailing(body)
+                if changed:
+                    stripped[toolchain] = stripped.get(toolchain, 0) + 1
+            out += b'"' + body + b'"'
+            i = j + 1
+            continue
+        if c in (b"{", b"["):
+            frame = stack[-1] if stack else None
+            if frame is None:
+                owner = None
+            elif frame["kind"] == "object":
+                owner = key
+            else:
+                owner = frame["owner"]
+            stack.append({"kind": "object" if c == b"{" else "array", "owner": owner, "wants_key": c == b"{"})
+        elif c in (b"}", b"]"):
+            stack.pop()
+        elif c == b"," and stack and stack[-1]["kind"] == "object":
+            stack[-1]["wants_key"] = True
+        out += c
+        i += 1
+    return bytes(out)
 
 
 def normalised(path, toolchain):
+    if (toolchain, path) in seen:
+        return seen[(toolchain, path)]
     raw = path.read_bytes()
     want = spelling[toolchain].encode()
-    if want == CANONICAL.encode():
-        return raw
-    rewrites[toolchain] = rewrites.get(toolchain, 0) + raw.count(want)
-    return raw.replace(want, CANONICAL.encode())
+    if want != CANONICAL.encode():
+        rewrites[toolchain] = rewrites.get(toolchain, 0) + raw.count(want)
+        raw = raw.replace(want, CANONICAL.encode())
+    if trailing[toolchain] != TRAILING_CANONICAL:
+        raw = strip_docstrings(raw, toolchain)
+    seen[(toolchain, path)] = raw
+    return raw
 
 
 base_toolchain, base_root = legs[0]
@@ -117,7 +194,7 @@ for toolchain, root in legs[1:]:
                 (i for i, (u, v) in enumerate(zip(want, got)) if u != v), min(len(want), len(got))
             )
             problems.append(
-                f"{toolchain} and {base_toolchain} disagree on {name} at byte {at}: "
+                f"{base_toolchain} and {toolchain} disagree on {name} at byte {at}: "
                 f"{want[at:at + 40]!r} vs {got[at:at + 40]!r}"
             )
 
@@ -170,10 +247,12 @@ if problems:
     sys.exit(1)
 
 reach = ", ".join(f"{t} {n}" for t, n in sorted(rewrites.items())) or "none"
+docs_reach = ", ".join(f"{t} {n}" for t, n in sorted(stripped.items())) or "none"
 print(
     "LEAN VERSIONS: "
     + ", ".join(t for t, _ in legs)
     + f" agree over {len(base_files)} IR files "
-    f"(rename to `{CANONICAL}` applied {reach} time(s), nothing else normalised)"
+    f"(rename to `{CANONICAL}` applied {reach} time(s); trailing doc-comment whitespace "
+    f"dropped from {docs_reach} docstring(s); nothing else normalised)"
 )
 PY

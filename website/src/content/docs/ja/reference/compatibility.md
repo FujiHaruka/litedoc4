@@ -6,7 +6,7 @@ description: 2.x で変わらないもの、対応する Lean のバージョン
 ## 動作要件
 
 - **ソースが GitHub にあること。** ソースリンクは GitHub の URL です。ほかのホストでは `--source-url` を指定してください。litedoc4 は推測しません。
-- **Lean v4.31.0、v4.32.2、v4.33.0、v4.33.1、v4.34.1、v4.35.0 のいずれか。** ほかのバージョンは、何かを実行する前にバージョン名を挙げて拒否されます。一覧は [`tools/lean-toolchains.txt`](https://github.com/FujiHaruka/litedoc4/blob/main/tools/lean-toolchains.txt) です。CI は抽出器かサンプルが変わるたびに一覧のすべてのバージョンを最初から最後まで実行し、出力を比べます。
+- **Lean v4.31.0、v4.32.2、v4.33.0、v4.33.1、v4.34.1、v4.35.0、v4.36.0 のいずれか。** ほかのバージョンは、何かを実行する前にバージョン名を挙げて拒否されます。一覧は [`tools/lean-toolchains.txt`](https://github.com/FujiHaruka/litedoc4/blob/main/tools/lean-toolchains.txt) です。CI は抽出器かサンプルが変わるたびに一覧のすべてのバージョンを最初から最後まで実行し、出力を比べます。
 - **Linux と macOS。** 生成側は macOS (Apple Silicon) と GitHub の `ubuntu-latest` でテストしています。サイトのブラウザ側は `windows-latest` でもテストしています。Windows で生成側を動かしたことはありません。
 
 `lakefile.lean` のパッケージも使えます。コマンドラインは Lean のコードからライブラリ名を読まないので、`--lib` を自分で指定してください。`lake run docs` は自動で指定します。Action では `lib` 入力を指定します。

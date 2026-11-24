@@ -6,7 +6,7 @@ description: What 2.x keeps stable, which Lean versions are supported, and where
 ## Requirements
 
 - **Source on GitHub.** Source links are GitHub URLs. For another host, pass `--source-url`. litedoc4 does not guess one.
-- **Lean v4.31.0, v4.32.2, v4.33.0, v4.33.1, v4.34.1 or v4.35.0.** Any other version is refused by name before anything runs. The list is [`tools/lean-toolchains.txt`](https://github.com/FujiHaruka/litedoc4/blob/main/tools/lean-toolchains.txt). CI runs every listed version end to end on every change to the extractor or the sample, and compares their output.
+- **Lean v4.31.0, v4.32.2, v4.33.0, v4.33.1, v4.34.1, v4.35.0 or v4.36.0.** Any other version is refused by name before anything runs. The list is [`tools/lean-toolchains.txt`](https://github.com/FujiHaruka/litedoc4/blob/main/tools/lean-toolchains.txt). CI runs every listed version end to end on every change to the extractor or the sample, and compares their output.
 - **Linux and macOS.** The generator is tested on macOS (Apple Silicon) and on GitHub's `ubuntu-latest`. The site's browser side is also tested on `windows-latest`. Running the generator on Windows has not been tried.
 
 A `lakefile.lean` package works. The command line does not read library names out of Lean code, so pass `--lib` yourself. `lake run docs` does this for you. In the action, set the `lib` input.

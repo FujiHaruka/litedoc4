@@ -50,6 +50,7 @@ def oracleText (s : Session) (out : IO.FS.Stream) (seed : UInt64) (k? : Option N
   let some (w, _) ← s.firstWriter.get | throw <| IO.userError "olean reader: nothing was read"
   for n in ← registeredExts do out.putStrLn (extLine n (!w.absent.contains n))
   out.putStrLn (layoutLine ``Meta.SimpTheorem.mk simpTheoremFields w.simpTheorem.count)
+  out.putStrLn (layoutLine ``Elab.PartialFixpoint.EqnInfo.mk w.pfEqnInfo.count 0)
   let mut all : Array (ReadModule × ConstantInfo) := #[]
   for rm in mods do
     out.putStrLn (moduleLine rm.name rm.constants.size)
