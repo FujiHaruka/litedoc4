@@ -10,6 +10,15 @@ export default defineConfig({
       title: "litedoc4",
       description:
         "HTML documentation for Lean 4 packages built on Mathlib: fast, and every version in one site.",
+      head: [
+        {
+          tag: "meta",
+          attrs: {
+            name: "google-site-verification",
+            content: "t5rf9u6y6GzRNN2bauiZroCFThxe7qLvQURBlFobJEE",
+          },
+        },
+      ],
       defaultLocale: "root",
       locales: {
         root: { label: "English", lang: "en" },
